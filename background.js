@@ -47,6 +47,8 @@ const DEFAULT_CONFIG = {
     'arxiv.org', 'scholar.google.com', 'jstor.org', 'researchgate.net', 'semanticscholar.org', 'pubmed.ncbi.nlm.nih.gov', 'nationalarchives.gov.uk', 'bl.uk', 'loc.gov', 'gutenberg.org', 'plato.stanford.edu',
     // 视觉设计与创意
     'canva.com', 'figma.com', 'adobe.com', 'photopea.com', 'pixlr.com', 'coolors.co', 'unsplash.com', 'pexels.com',
+    // 教育机构
+    'jhu.edu', 'collegeboard.org', 'basecamp.com',
     // 效率工具
     'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai', 'overleaf.com', 'github.com'
   ],
