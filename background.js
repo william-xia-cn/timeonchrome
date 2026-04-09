@@ -1,9 +1,354 @@
-// background.js - Service Worker 核心逻辑（v1.2 学习/休息版）
+// background.js - Service Worker 核心逻辑（v2.0 云端同步版）
 // 功能：
 // 1. 学习/休息状态切换
 // 2. 学习时使用白名单模式
 // 3. 休息时使用黑名单模式
 // 4. 休息提醒和强制结束
+// 5. 云端同步（配置下发、统计上报、Session归档）
+
+// ── 云端同步配置 ─────────────────────────────────────────────────────────────────
+
+const CLOUD_CONFIG = {
+  API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
+  SYNC_INTERVAL_MS: 15 * 60 * 1000,  // 15分钟
+  SESSION_UPLOAD_HOUR: 8,             // 每天8点
+  MAX_RETRY_ATTEMPTS: 3,
+  KEYS: {
+    DEVICE_TOKEN: 'cloud_device_token',
+    PROFILE_ID: 'cloud_profile_id',
+    CREDENTIALS: 'cloud_credentials',    // 加密的登录凭据
+    LAST_SYNC: 'cloud_last_sync',
+    PENDING_STATS: 'cloud_pending_stats',
+    PENDING_SESSIONS: 'cloud_pending_sessions',
+    LOCAL_CONFIG: 'cloud_local_config',
+    CONFIG_VERSION: 'cloud_config_version'
+  }
+};
+
+// 同步状态
+let syncState = {
+  isSyncing: false,
+  lastConfigVersion: 0,
+  deviceToken: null,
+  profileId: null
+};
+
+// ── 云端同步核心函数 ───────────────────────────────────────────────────────────
+
+/**
+ * 从 chrome.storage 获取值
+ */
+async function storageGet(keys) {
+  return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+}
+
+/**
+ * 设置值到 chrome.storage
+ */
+async function storageSet(data) {
+  return new Promise(resolve => chrome.storage.local.set(data, resolve));
+}
+
+/**
+ * 加密凭据（简化版，生产环境建议用更安全的方式）
+ */
+function encryptCredentials(email, password) {
+  const data = btoa(`${email}:${password}`);
+  return data;
+}
+
+/**
+ * 解密凭据
+ */
+function decryptCredentials(encrypted) {
+  try {
+    const decoded = atob(encrypted);
+    const [email, password] = decoded.split(':');
+    return { email, password };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 调用云端 API（带重试）
+ */
+async function cloudRequest(method, path, body = null, retries = 3) {
+  if (!syncState.deviceToken) {
+    throw new Error('No device token');
+  }
+  
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const options = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${syncState.deviceToken}`
+        }
+      };
+      
+      if (body) {
+        options.body = JSON.stringify(body);
+      }
+      
+      const resp = await fetch(`${CLOUD_CONFIG.API_BASE}${path}`, options);
+      
+      if (resp.ok) {
+        const contentType = resp.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          return await resp.json();
+        }
+        return { success: true };
+      }
+      
+      // 401 说明 token 无效
+      if (resp.status === 401) {
+        throw new Error('Device token expired');
+      }
+      
+      const err = await resp.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Request failed');
+      
+    } catch (e) {
+      console.error(`[Cloud] Attempt ${attempt + 1} failed:`, e.message);
+      if (e.message.includes('expired') || e.message.includes('Unauthorized')) {
+        throw e;  // 不重试token相关错误
+      }
+      if (attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+  }
+  
+  throw new Error('Max retries exceeded');
+}
+
+/**
+ * 拉取云端配置
+ */
+async function pullCloudConfig() {
+  try {
+    const result = await cloudRequest('GET', '/device/config');
+    
+    if (result.data) {
+      // 保存到本地
+      await storageSet({
+        [CLOUD_CONFIG.KEYS.LOCAL_CONFIG]: result.data,
+        [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: result.version,
+        [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now()
+      });
+      
+      // 合并到本地配置
+      const localConfig = await getConfig();
+      const mergedConfig = { ...localConfig, ...result.data };
+      await saveConfig(mergedConfig);
+      await updateDeclarativeRules(mergedConfig);
+      
+      syncState.lastConfigVersion = result.version;
+      console.log('[Cloud] Config pulled, version:', result.version);
+      return true;
+    }
+  } catch (e) {
+    console.error('[Cloud] Failed to pull config:', e.message);
+  }
+  return false;
+}
+
+/**
+ * 统计域名聚合（将详细的访问记录转为简洁格式）
+ */
+function aggregateStats(statsObj) {
+  const aggregated = {};
+  const today = new Date().toISOString().split('T')[0];
+  
+  // 读取今日统计
+  const key = `${STATS_KEY_PREFIX}${today}`;
+  const todayStats = statsObj[key] || {};
+  
+  for (const [domain, data] of Object.entries(todayStats)) {
+    if (!aggregated[domain]) {
+      aggregated[domain] = { domain, active_sec: 0, passive_sec: 0 };
+    }
+    aggregated[domain].active_sec += data.activeTime || 0;
+    aggregated[domain].passive_sec += data.passiveTime || 0;
+  }
+  
+  return Object.values(aggregated);
+}
+
+/**
+ * 上传统计到云端
+ */
+async function uploadStats() {
+  try {
+    const storage = await storageGet(CLOUD_CONFIG.KEYS.PENDING_STATS);
+    let pendingStats = storage[CLOUD_CONFIG.KEYS.PENDING_STATS] || {};
+    
+    // 如果没有待上传的，尝试上传今日统计
+    const today = new Date().toISOString().split('T')[0];
+    if (!pendingStats[today]) {
+      const statsStorage = await storageGet(null);
+      const todayStats = aggregateStats(statsStorage);
+      if (todayStats.length > 0) {
+        pendingStats[today] = { stats: todayStats, timestamp: Date.now() };
+      }
+    }
+    
+    const dates = Object.keys(pendingStats);
+    if (dates.length === 0) {
+      console.log('[Cloud] No stats to upload');
+      return;
+    }
+    
+    console.log('[Cloud] Uploading stats for:', dates);
+    
+    for (const date of dates) {
+      const { stats, timestamp } = pendingStats[date];
+      try {
+        await cloudRequest('POST', '/device/stats', { date, stats });
+        delete pendingStats[date];
+        console.log('[Cloud] Stats uploaded:', date);
+      } catch (e) {
+        console.error('[Cloud] Failed to upload stats for', date, e.message);
+      }
+    }
+    
+    // 保存剩余待上传
+    await storageSet({ [CLOUD_CONFIG.KEYS.PENDING_STATS]: pendingStats });
+    
+  } catch (e) {
+    console.error('[Cloud] Failed to upload stats:', e.message);
+  }
+}
+
+/**
+ * 获取今日 Session 数据
+ */
+async function getTodaySessionData() {
+  const storage = await storageGet(VISIT_SESSIONS_KEY);
+  const sessions = storage[VISIT_SESSIONS_KEY] || [];
+  const today = new Date().toISOString().split('T')[0];
+  
+  return sessions.filter(s => s.date === today);
+}
+
+/**
+ * 上传 Session 到云端
+ */
+async function uploadSessions() {
+  try {
+    const sessions = await getTodaySessionData();
+    if (sessions.length === 0) {
+      console.log('[Cloud] No sessions to upload');
+      return;
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    await cloudRequest('POST', '/device/sessions/upload', { date: today, sessions });
+    console.log('[Cloud] Sessions uploaded:', sessions.length);
+    
+  } catch (e) {
+    console.error('[Cloud] Failed to upload sessions:', e.message);
+  }
+}
+
+/**
+ * 上传配置变更到云端
+ */
+async function uploadChangelog(action, beforeData, afterData) {
+  try {
+    await cloudRequest('POST', '/device/changelog', {
+      action,
+      before_data: beforeData,
+      after_data: afterData
+    });
+    console.log('[Cloud] Changelog uploaded:', action);
+  } catch (e) {
+    console.error('[Cloud] Failed to upload changelog:', e.message);
+  }
+}
+
+/**
+ * 同步主函数（每15分钟调用）
+ */
+async function syncNow() {
+  if (syncState.isSyncing) {
+    console.log('[Cloud] Sync already in progress');
+    return;
+  }
+  
+  syncState.isSyncing = true;
+  
+  try {
+    // 1. 拉取配置
+    await pullCloudConfig();
+    
+    // 2. 上报统计
+    await uploadStats();
+    
+    console.log('[Cloud] Sync completed');
+  } catch (e) {
+    console.error('[Cloud] Sync failed:', e.message);
+  } finally {
+    syncState.isSyncing = false;
+  }
+}
+
+/**
+ * 定时 Session 上传（每天8点）
+ */
+async function scheduledSessionUpload() {
+  const now = new Date();
+  if (now.getHours() === CLOUD_CONFIG.SESSION_UPLOAD_HOUR) {
+    await uploadSessions();
+  }
+}
+
+// ── 定时器设置 ─────────────────────────────────────────────────────────────────
+
+// 每15分钟同步一次
+chrome.alarms.create('cloudSync', {
+  periodInMinutes: 15
+});
+
+// 每小时检查是否需要上传 Session
+chrome.alarms.create('sessionUploadCheck', {
+  periodInMinutes: 60
+});
+
+// 监听定时器事件
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'cloudSync') {
+    await syncNow();
+  } else if (alarm.name === 'sessionUploadCheck') {
+    await scheduledSessionUpload();
+  }
+});
+
+// ── 启动时初始化 ───────────────────────────────────────────────────────────────
+
+async function initCloudSync() {
+  // 读取设备 token
+  const storage = await storageGet([
+    CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
+    CLOUD_CONFIG.KEYS.PROFILE_ID,
+    CLOUD_CONFIG.KEYS.CONFIG_VERSION
+  ]);
+  
+  syncState.deviceToken = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
+  syncState.profileId = storage[CLOUD_CONFIG.KEYS.PROFILE_ID];
+  syncState.lastConfigVersion = storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0;
+  
+  if (syncState.deviceToken) {
+    console.log('[Cloud] Device token found, starting sync...');
+    
+    // 启动时立即同步一次
+    await syncNow();
+  } else {
+    console.log('[Cloud] No device token, waiting for binding');
+  }
+}
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
@@ -727,6 +1072,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   setupAlarms();
   await updateDeclarativeRules();
   await restoreSession();
+  await initCloudSync();  // 云端同步初始化
   // console.log('[background] onInstalled complete');
 });
 
@@ -736,6 +1082,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await updateDeclarativeRules();
   await resetDailyLockedDomains();
   await restoreSession();
+  await initCloudSync();  // 云端同步初始化
   // console.log('[background] onStartup complete');
 });
 
@@ -1193,6 +1540,101 @@ async function handleMessage(msg, sender) {
     case 'CLEAN_TEMP_WHITELIST':
       await cleanExpiredTempWhitelist();
       return { ok: true };
+
+    // ── 云端同步相关 ─────────────────────────────────────────
+    case 'CLOUD_BIND': {
+      // 设备绑定：传入 profile_id，返回 device_token
+      const { profile_id, device_name } = msg;
+      try {
+        const result = await cloudRequest('POST', '/device/bind', {
+          profile_id,
+          device_name: device_name || 'Chrome Extension'
+        });
+        
+        // 保存 token
+        syncState.deviceToken = result.device_token;
+        syncState.profileId = profile_id;
+        await storageSet({
+          [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: result.device_token,
+          [CLOUD_CONFIG.KEYS.PROFILE_ID]: profile_id
+        });
+        
+        // 立即同步一次
+        await syncNow();
+        
+        return { success: true, device_token: result.device_token };
+      } catch (e) {
+        return { error: e.message };
+      }
+    }
+
+    case 'CLOUD_LOGIN': {
+      // 家长登录云端账户
+      const { email, password } = msg;
+      try {
+        // 直接调用 /auth/login（不需要 device_token）
+        const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || 'Login failed');
+        }
+        
+        const result = await resp.json();
+        
+        // 加密保存凭据
+        const encrypted = encryptCredentials(email, password);
+        await storageSet({
+          [CLOUD_CONFIG.KEYS.CREDENTIALS]: encrypted,
+          account_token: result.token  // 家长账户 token
+        });
+        
+        return { success: true, token: result.token };
+      } catch (e) {
+        return { error: e.message };
+      }
+    }
+
+    case 'CLOUD_LOGOUT': {
+      // 登出云端
+      syncState.deviceToken = null;
+      syncState.profileId = null;
+      await storageSet({
+        [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null,
+        [CLOUD_CONFIG.KEYS.PROFILE_ID]: null,
+        [CLOUD_CONFIG.KEYS.CREDENTIALS]: null,
+        account_token: null
+      });
+      return { success: true };
+    }
+
+    case 'GET_CLOUD_STATUS': {
+      // 获取云端同步状态
+      const storage = await storageGet([
+        CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
+        CLOUD_CONFIG.KEYS.PROFILE_ID,
+        CLOUD_CONFIG.KEYS.LAST_SYNC,
+        CLOUD_CONFIG.KEYS.CONFIG_VERSION,
+        CLOUD_CONFIG.KEYS.CREDENTIALS
+      ]);
+      
+      return {
+        isBound: !!storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN],
+        hasCredentials: !!storage[CLOUD_CONFIG.KEYS.CREDENTIALS],
+        lastSync: storage[CLOUD_CONFIG.KEYS.LAST_SYNC] || 0,
+        configVersion: storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0
+      };
+    }
+
+    case 'CLOUD_FORCE_SYNC': {
+      // 强制立即同步
+      await syncNow();
+      return { success: true };
+    }
 
     default:
       return { error: 'Unknown message type' };
