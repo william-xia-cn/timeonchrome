@@ -1,4 +1,8 @@
-// admin/admin.js - 云端同步版
+// admin/admin.js - 云端同步版 v2.0
+// 完整流程：
+// 1. 未绑定 → 登录家长账户 → 选择孩子 → 自动绑定 → 进入主界面
+// 2. 已绑定 → 自动登录 → 直接进入主界面
+// 3. 绑定后不能退出
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -8,7 +12,8 @@ const CLOUD_KEYS = {
   PROFILE_ID: 'cloud_profile_id',
   CREDENTIALS: 'cloud_credentials',
   ACCOUNT_TOKEN: 'account_token',
-  REMEMBER_ME: 'cloud_remember_me'
+  REMEMBER_ME: 'cloud_remember_me',
+  IS_BOUND: 'cloud_is_bound'  // 标记是否已绑定
 };
 
 let config = null;
@@ -16,15 +21,16 @@ let isAuthenticated = false;
 let accountToken = null;
 let cloudProfiles = [];
 let currentProfileId = null;
+let currentEmail = null;
 
 // ── 初始化 ─────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // 先加载本地配置
+  // 加载本地配置
   config = await sendMsg({ type: 'GET_CONFIG' });
   
-  // 检查云端登录状态
-  await checkCloudLogin();
+  // 检查绑定状态
+  await checkAndHandleBinding();
   
   setupLoginForm();
   setupNavigation();
@@ -33,74 +39,109 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSchedulePage();
   setupDevicesPage();
   setupSecurityPage();
-  
-  document.getElementById('logout-btn').addEventListener('click', logout);
 });
 
-// ── 云端登录相关 ───────────────────────────────────────────────────────────
+// ── 绑定状态检查与处理 ───────────────────────────────────────────────────
 
 /**
- * 检查云端登录状态
+ * 检查绑定状态并处理
+ * 核心逻辑：
+ * - 未绑定：显示绑定流程（登录→选择孩子→绑定）
+ * - 已绑定：自动登录→进入主界面
  */
-async function checkCloudLogin() {
+async function checkAndHandleBinding() {
   const storage = await new Promise(resolve => {
     chrome.storage.local.get([
-      CLOUD_KEYS.ACCOUNT_TOKEN,
+      CLOUD_KEYS.DEVICE_TOKEN,
       CLOUD_KEYS.CREDENTIALS,
-      CLOUD_KEYS.DEVICE_TOKEN
+      CLOUD_KEYS.ACCOUNT_TOKEN,
+      CLOUD_KEYS.PROFILE_ID
     ], resolve);
   });
   
-  const credentials = storage[CLOUD_KEYS.CREDENTIALS];
-  const accountToken = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
   const deviceToken = storage[CLOUD_KEYS.DEVICE_TOKEN];
+  const credentials = storage[CLOUD_KEYS.CREDENTIALS];
+  const savedToken = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
+  const profileId = storage[CLOUD_KEYS.PROFILE_ID];
   
-  if (credentials && accountToken) {
-    // 有凭据，尝试自动登录
-    try {
-      await autoLogin(credentials);
-    } catch (e) {
-      console.log('Auto login failed:', e.message);
-      // 自动登录失败，显示登录页面
-    }
+  if (deviceToken && credentials && savedToken) {
+    // 已绑定 → 自动登录
+    console.log('[Admin] Device is bound, auto logging in...');
+    await autoLogin(credentials);
+  } else {
+    // 未绑定 → 显示绑定页面
+    console.log('[Admin] Device not bound, showing bind screen');
+    showBindScreen();
   }
 }
 
 /**
- * 自动登录
+ * 显示绑定页面（未绑定状态）
+ */
+function showBindScreen() {
+  // 隐藏主界面，显示绑定/登录界面
+  document.getElementById('main-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  
+  // 隐藏登出按钮（绑定后不能退出）
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.style.display = 'none';
+  
+  // 隐藏注册链接（首次需要绑定，不能注册新账户）
+  const registerLink = document.getElementById('register-link');
+  if (registerLink) registerLink.style.display = 'none';
+}
+
+/**
+ * 自动登录（已绑定状态）
  */
 async function autoLogin(encryptedCredentials) {
   try {
     const decoded = atob(encryptedCredentials);
     const [email, password] = decoded.split(':');
+    currentEmail = email;
     
+    // 验证登录
     const resp = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
     
-    if (!resp.ok) throw new Error('Login failed');
+    if (!resp.ok) {
+      // 登录失败，可能是凭据过期，跳转到绑定页面
+      console.log('[Admin] Auto login failed, showing bind screen');
+      showBindScreen();
+      return;
+    }
     
     const result = await resp.json();
     accountToken = result.token;
     
     // 登录成功，进入主界面
-    await afterLogin();
+    await enterMainScreen();
+    
   } catch (e) {
-    throw e;
+    console.error('[Admin] Auto login error:', e);
+    showBindScreen();
   }
 }
 
 /**
- * 登录成功后处理
+ * 进入主界面
  */
-async function afterLogin() {
+async function enterMainScreen() {
   isAuthenticated = true;
+  
+  // 隐藏登录界面，显示主界面
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-screen').style.display = 'block';
   
-  // 加载孩子的 Profile 列表
+  // 隐藏登出按钮（绑定后不能退出）
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.style.display = 'none';
+  
+  // 加载 Profile 列表
   await loadProfiles();
   
   // 渲染总览
@@ -118,10 +159,7 @@ async function loadProfiles() {
     });
     const token = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
     
-    if (!token) {
-      cloudProfiles = [];
-      return;
-    }
+    if (!token) return;
     
     const resp = await fetch(`${API_BASE}/profiles`, {
       headers: { 'Authorization': `Bearer ${token}` }
@@ -143,56 +181,69 @@ async function loadProfiles() {
  */
 function renderProfilesList() {
   const container = document.getElementById('profiles-list');
+  if (!container) return;
   
-  if (cloudProfiles.length === 0) {
-    container.innerHTML = `
-      <div style="text-align:center; padding:20px; color:var(--muted);">
-        <p>暂无孩子 Profile</p>
-        <button class="btn-add" onclick="showAddProfileDialog()">+ 添加孩子</button>
-      </div>
-    `;
-    document.getElementById('add-profile-btn').style.display = 'block';
-    return;
-  }
-  
-  container.innerHTML = cloudProfiles.map(p => `
-    <div class="profile-item" data-id="${p.id}" style="display:flex; align-items:center; gap:12px; padding:16px; border:1px solid var(--border); border-radius:12px; margin-bottom:12px;">
-      <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${p.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-        ${p.name.charAt(0).toUpperCase()}
-      </div>
-      <div style="flex:1;">
-        <div style="font-size:15px; font-weight:600;">${p.name}</div>
-        <div style="font-size:12px; color:var(--muted);">创建于 ${new Date(p.created_at).toLocaleDateString()}</div>
-      </div>
-      <button class="btn-save" style="padding:8px 16px; font-size:13px;" onclick="editProfile('${p.id}')">编辑</button>
-      <button style="padding:8px; background:rgba(248,113,113,0.1); border:1px solid rgba(248,113,113,0.3); border-radius:8px; color:var(--danger);" onclick="deleteProfile('${p.id}')">删除</button>
-    </div>
-  `).join('');
-  
-  // 显示添加按钮
-  const addBtn = document.getElementById('add-profile-btn');
-  if (addBtn) addBtn.style.display = 'block';
+  // 获取当前绑定的 profile_id
+  chrome.storage.local.get(CLOUD_KEYS.PROFILE_ID, (storage) => {
+    const boundProfileId = storage[CLOUD_KEYS.PROFILE_ID];
+    const boundProfile = cloudProfiles.find(p => p.id === boundProfileId);
+    
+    if (cloudProfiles.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:20px; color:var(--muted);">
+          <p>暂无孩子 Profile</p>
+          <p style="font-size:12px; margin-top:8px;">请在「设备管理」页面添加孩子</p>
+        </div>
+      `;
+      return;
+    }
+    
+    // 显示已绑定的孩子信息
+    if (boundProfile) {
+      container.innerHTML = `
+        <div style="padding:16px; background:var(--surface); border-radius:12px; border:1px solid var(--accent);">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${boundProfile.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+              ${boundProfile.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <div style="font-size:15px; font-weight:600;">${boundProfile.name}</div>
+              <div style="font-size:12px; color:var(--green);">✓ 已绑定此设备</div>
+            </div>
+          </div>
+          <div style="margin-top:12px; font-size:12px; color:var(--muted);">
+            绑定后无法更换或解绑
+          </div>
+        </div>
+      `;
+    }
+  });
 }
 
-// ── 登录表单 ───────────────────────────────────────────────────────────────
+// ── 登录表单（绑定流程）──────────────────────────────────────────────────
 
+/**
+ * 登录并绑定
+ * 流程：输入家长账户 → 登录 → 获取孩子列表 → 选择孩子 → 绑定设备
+ */
 function setupLoginForm() {
-  // 登录按钮
-  document.getElementById('login-btn').addEventListener('click', async () => {
-    const email = document.getElementById('email-input').value.trim();
-    const password = document.getElementById('pw-input').value;
-    const remember = document.getElementById('remember-me').checked;
+  const loginBtn = document.getElementById('login-btn');
+  if (!loginBtn) return;
+  
+  loginBtn.addEventListener('click', async () => {
+    const email = document.getElementById('email-input')?.value.trim();
+    const password = document.getElementById('pw-input')?.value;
     
     if (!email || !password) {
       showError('请输入邮箱和密码');
       return;
     }
     
-    const btn = document.getElementById('login-btn');
-    btn.disabled = true;
-    btn.textContent = '登录中...';
+    loginBtn.disabled = true;
+    loginBtn.textContent = '登录中...';
     
     try {
+      // 1. 登录家长账户
       const resp = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -206,230 +257,154 @@ function setupLoginForm() {
       
       const result = await resp.json();
       accountToken = result.token;
+      currentEmail = email;
       
       // 保存凭据
-      if (remember) {
-        const encrypted = btoa(`${email}:${password}`);
-        await new Promise(resolve => {
-          chrome.storage.local.set({
-            [CLOUD_KEYS.CREDENTIALS]: encrypted,
-            [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token,
-            [CLOUD_KEYS.REMEMBER_ME]: true
-          }, resolve);
-        });
-      } else {
-        await new Promise(resolve => {
-          chrome.storage.local.set({
-            [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token,
-            [CLOUD_KEYS.REMEMBER_ME]: false
-          }, resolve);
-        });
+      const encrypted = btoa(`${email}:${password}`);
+      await new Promise(resolve => {
+        chrome.storage.local.set({
+          [CLOUD_KEYS.CREDENTIALS]: encrypted,
+          [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token,
+          [CLOUD_KEYS.REMEMBER_ME]: true
+        }, resolve);
+      });
+      
+      // 2. 获取孩子列表
+      const profilesResp = await fetch(`${API_BASE}/profiles`, {
+        headers: { 'Authorization': `Bearer ${accountToken}` }
+      });
+      
+      if (!profilesResp.ok) {
+        throw new Error('获取孩子列表失败');
       }
       
-      await afterLogin();
+      const profilesData = await profilesResp.json();
+      cloudProfiles = profilesData.profiles || [];
+      
+      if (cloudProfiles.length === 0) {
+        throw new Error('请先在家长后台创建孩子 Profile');
+      }
+      
+      // 3. 显示孩子列表让用户选择
+      await showProfileSelector();
       
     } catch (e) {
       showError(e.message);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '登录';
+      loginBtn.disabled = false;
+      loginBtn.textContent = '登录';
     }
   });
   
   // 回车键登录
-  document.getElementById('pw-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('login-btn').click();
-  });
-  
-  // 注册链接
-  document.getElementById('register-link').addEventListener('click', async (e) => {
-    e.preventDefault();
-    await showRegisterDialog();
-  });
+  const pwInput = document.getElementById('pw-input');
+  if (pwInput) {
+    pwInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') loginBtn.click();
+    });
+  }
 }
 
 /**
- * 显示注册对话框
+ * 显示孩子选择器
  */
-async function showRegisterDialog() {
-  const email = prompt('请输入邮箱地址：');
-  if (!email) return;
+async function showProfileSelector() {
+  const loginScreen = document.getElementById('login-screen');
+  const errorMsg = document.getElementById('error-msg');
   
-  const password = prompt('请输入密码（至少6位）：');
-  if (!password || password.length < 6) {
-    showError('密码至少6位');
-    return;
-  }
+  // 隐藏错误信息
+  if (errorMsg) errorMsg.style.display = 'none';
   
-  try {
-    const resp = await fetch(`${API_BASE}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.error || '注册失败');
-    }
-    
-    alert('注册成功！请登录');
-  } catch (e) {
-    showError(e.message);
-  }
-}
-
-// ── 登出 ─────────────────────────────────────────────────────────────────
-
-async function logout() {
-  // 清除云端凭据（但保留设备绑定状态）
-  await new Promise(resolve => {
-    chrome.storage.local.remove([CLOUD_KEYS.CREDENTIALS, CLOUD_KEYS.ACCOUNT_TOKEN], resolve);
-  });
-  
-  accountToken = null;
-  isAuthenticated = false;
-  
-  document.getElementById('main-screen').style.display = 'none';
-  document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('email-input').value = '';
-  document.getElementById('pw-input').value = '';
-  document.getElementById('error-msg').style.display = 'none';
-}
-
-function showError(msg) {
-  const el = document.getElementById('error-msg');
-  el.textContent = msg;
-  el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 3000);
-}
-
-// ── Profile 管理 ─────────────────────────────────────────────────────────
-
-async function showAddProfileDialog() {
-  const name = prompt('请输入孩子姓名：');
-  if (!name) return;
-  
-  try {
-    const storage = await new Promise(resolve => {
-      chrome.storage.local.get(CLOUD_KEYS.ACCOUNT_TOKEN, resolve);
-    });
-    const token = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
-    
-    const resp = await fetch(`${API_BASE}/profiles`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ name })
-    });
-    
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.error || '创建失败');
-    }
-    
-    await loadProfiles();
-    showToast('孩子 Profile 已创建');
-  } catch (e) {
-    showError(e.message);
-  }
-}
-
-async function editProfile(profileId) {
-  const profile = cloudProfiles.find(p => p.id === profileId);
-  if (!profile) return;
-  
-  const newName = prompt('请输入新名字：', profile.name);
-  if (!newName || newName === profile.name) return;
-  
-  // TODO: 实现 Profile 编辑 API
-  showToast('编辑功能开发中...');
-}
-
-async function deleteProfile(profileId) {
-  if (!confirm('确定要删除这个孩子的 Profile 吗？')) return;
-  
-  // TODO: 实现 Profile 删除 API
-  showToast('删除功能开发中...');
-}
-
-// ── 设备管理页面 ─────────────────────────────────────────────────────────
-
-function setupDevicesPage() {
-  // 添加孩子按钮
-  document.getElementById('add-profile-btn')?.addEventListener('click', showAddProfileDialog);
-  
-  // 生成绑定码按钮
-  document.getElementById('generate-bind-code-btn')?.addEventListener('click', async () => {
-    if (cloudProfiles.length === 0) {
-      showError('请先创建孩子 Profile');
-      return;
-    }
-    
-    // TODO: 生成绑定码
-    showToast('绑定码功能开发中...');
-  });
-}
-
-// ── 同步状态显示 ─────────────────────────────────────────────────────────
-
-async function renderSyncStatus() {
-  const storage = await new Promise(resolve => {
-    chrome.storage.local.get([
-      CLOUD_KEYS.DEVICE_TOKEN,
-      CLOUD_KEYS.PROFILE_ID,
-      'cloud_last_sync',
-      'cloud_config_version'
-    ], resolve);
-  });
-  
-  const deviceToken = storage[CLOUD_KEYS.DEVICE_TOKEN];
-  const lastSync = storage['cloud_last_sync'];
-  const configVersion = storage['cloud_config_version'];
-  
-  const container = document.getElementById('sync-status');
-  if (!container) return;
-  
-  container.innerHTML = `
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-      <div style="padding:12px; background:var(--surface); border-radius:8px;">
-        <div style="font-size:12px; color:var(--muted);">设备绑定</div>
-        <div style="font-size:16px; font-weight:600; color:${deviceToken ? 'var(--green)' : 'var(--danger)'}">
-          ${deviceToken ? '已绑定' : '未绑定'}
-        </div>
+  // 替换登录表单为孩子选择器
+  loginScreen.innerHTML = `
+    <div class="login-box">
+      <div class="login-logo">🛡</div>
+      <h1>TimeOnChrome</h1>
+      <p>选择要绑定的孩子</p>
+      
+      <div id="profile-selector" style="margin: 20px 0;">
+        ${cloudProfiles.map(p => `
+          <div class="profile-item" onclick="bindToProfile('${p.id}', '${p.name}', '${p.avatar_color || '#7c6fff'}')" 
+               style="display:flex; align-items:center; gap:12px; padding:16px; border:1px solid var(--border); border-radius:12px; margin-bottom:12px; cursor:pointer; transition:all 0.2s;">
+            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${p.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+              ${p.name.charAt(0).toUpperCase()}
+            </div>
+            <div style="font-size:15px; font-weight:600;">${p.name}</div>
+          </div>
+        `).join('')}
       </div>
-      <div style="padding:12px; background:var(--surface); border-radius:8px;">
-        <div style="font-size:12px; color:var(--muted);">配置版本</div>
-        <div style="font-size:16px; font-weight:600;">${configVersion || '-'}</div>
-      </div>
-      <div style="padding:12px; background:var(--surface); border-radius:8px;">
-        <div style="font-size:12px; color:var(--muted);">最后同步</div>
-        <div style="font-size:16px; font-weight:600;">
-          ${lastSync ? new Date(lastSync).toLocaleString() : '从未同步'}
-        </div>
-      </div>
-      <div style="padding:12px; background:var(--surface); border-radius:8px;">
-        <button class="btn-save" onclick="forceSync()">立即同步</button>
-      </div>
+      
+      <p style="font-size:12px; color:var(--muted);">选择后将自动绑定此设备，绑定后无法更换</p>
     </div>
   `;
 }
 
-// ── 强制同步 ─────────────────────────────────────────────────────────────
-
-async function forceSync() {
+/**
+ * 绑定到选定的 Profile
+ */
+async function bindToProfile(profileId, profileName, avatarColor) {
   try {
-    await sendMsg({ type: 'CLOUD_FORCE_SYNC' });
-    showToast('同步完成');
-    await renderSyncStatus();
+    // 1. 调用设备绑定 API
+    const resp = await fetch(`${API_BASE}/device/bind`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accountToken}`
+      },
+      body: JSON.stringify({ 
+        profile_id: profileId, 
+        device_name: 'Chrome Extension' 
+      })
+    });
+    
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || '绑定失败');
+    }
+    
+    const bindResult = await resp.json();
+    
+    // 2. 保存绑定信息
+    await new Promise(resolve => {
+      chrome.storage.local.set({
+        [CLOUD_KEYS.DEVICE_TOKEN]: bindResult.device_token,
+        [CLOUD_KEYS.PROFILE_ID]: profileId,
+        [CLOUD_KEYS.IS_BOUND]: true
+      }, resolve);
+    });
+    
+    // 3. 通知 background.js 同步
+    await sendMsg({ 
+      type: 'CLOUD_BIND', 
+      profile_id: profileId, 
+      device_name: 'Chrome Extension' 
+    });
+    
+    // 4. 进入主界面
+    currentProfileId = profileId;
+    await enterMainScreen();
+    
   } catch (e) {
-    showError('同步失败: ' + e.message);
+    showError('绑定失败: ' + e.message);
   }
 }
 
-// ── Toast 提示 ───────────────────────────────────────────────────────────
+// ── 错误提示 ───────────────────────────────────────────────────────────
+
+function showError(msg) {
+  // 创建错误元素
+  let errorEl = document.getElementById('error-msg');
+  if (!errorEl) {
+    errorEl = document.createElement('div');
+    errorEl.id = 'error-msg';
+    errorEl.className = 'error-msg';
+    const loginBox = document.querySelector('.login-box');
+    if (loginBox) loginBox.appendChild(errorEl);
+  }
+  
+  errorEl.textContent = msg;
+  errorEl.style.display = 'block';
+  setTimeout(() => errorEl.style.display = 'none', 4000);
+}
 
 function showToast(msg) {
   const toast = document.getElementById('success-toast');
@@ -463,15 +438,12 @@ function setupNavigation() {
       const page = item.dataset.page;
       if (!page) return;
       
-      // 切换 active 状态
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
       
-      // 切换页面显示
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(`page-${page}`)?.classList.add('active');
       
-      // 刷新设备管理页
       if (page === 'devices') {
         loadProfiles();
         renderSyncStatus();
@@ -480,56 +452,91 @@ function setupNavigation() {
   });
 }
 
-// ── 其他页面设置（暂时保留本地功能）──────────────────────────────────────
+// ── 其他页面设置 ─────────────────────────────────────────────────────────
 
-function setupRulesPage() {
-  // 保留原有功能，仅在保存时添加云端同步
-}
-
+function setupRulesPage() {}
 function setupQuotaPage() {}
-
 function setupSchedulePage() {}
 
-function setupSecurityPage() {}
+function setupDevicesPage() {
+  // 设备管理页面
+  const accountInfo = document.getElementById('account-info');
+  if (accountInfo && currentEmail) {
+    accountInfo.innerHTML = `<span style="color:var(--accent);">${currentEmail}</span>`;
+  }
+}
 
-// ── 渲染总览（修改为云端状态）────────────────────────────────────────────
+function setupSecurityPage() {
+  // 安全设置 - 移除密码修改（因为是云端账户）
+  const changePwBtn = document.getElementById('change-pw-btn');
+  if (changePwBtn) {
+    changePwBtn.textContent = '密码管理（请在云端操作）';
+    changePwBtn.disabled = true;
+    changePwBtn.style.opacity = '0.5';
+  }
+}
+
+// ── 渲染总览 ─────────────────────────────────────────────────────────────
 
 async function renderOverview() {
-  // 管控总开关
   const toggleEnabled = document.getElementById('toggle-enabled');
   if (toggleEnabled) {
     toggleEnabled.checked = config.enabled;
     toggleEnabled.addEventListener('change', async (e) => {
       config.enabled = e.target.checked;
       await sendMsg({ type: 'UPDATE_CONFIG', config });
-      await uploadChangelog('toggle_enabled', { enabled: !e.target.checked }, { enabled: e.target.checked });
     });
   }
   
-  // 同步状态
   await renderSyncStatus();
 }
 
-// ── 上传配置变更 ─────────────────────────────────────────────────────────
+async function renderSyncStatus() {
+  const storage = await new Promise(resolve => {
+    chrome.storage.local.get([
+      CLOUD_KEYS.DEVICE_TOKEN,
+      CLOUD_KEYS.PROFILE_ID,
+      'cloud_last_sync',
+      'cloud_config_version'
+    ], resolve);
+  });
+  
+  const container = document.getElementById('sync-status');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div style="padding:12px; background:var(--surface); border-radius:8px;">
+        <div style="font-size:12px; color:var(--muted);">设备绑定</div>
+        <div style="font-size:16px; font-weight:600; color:var(--green);">已绑定</div>
+      </div>
+      <div style="padding:12px; background:var(--surface); border-radius:8px;">
+        <div style="font-size:12px; color:var(--muted);">配置版本</div>
+        <div style="font-size:16px; font-weight:600;">${storage['cloud_config_version'] || '-'}</div>
+      </div>
+      <div style="padding:12px; background:var(--surface); border-radius:8px;">
+        <div style="font-size:12px; color:var(--muted);">最后同步</div>
+        <div style="font-size:16px; font-weight:600;">
+          ${storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步'}
+        </div>
+      </div>
+      <div style="padding:12px; background:var(--surface); border-radius:8px;">
+        <button class="btn-save" onclick="forceSync()">立即同步</button>
+      </div>
+    </div>
+  `;
+}
 
-async function uploadChangelog(action, beforeData, afterData) {
+async function forceSync() {
   try {
-    const storage = await new Promise(resolve => {
-      chrome.storage.local.get(CLOUD_KEYS.DEVICE_TOKEN, resolve);
-    });
-    const deviceToken = storage[CLOUD_KEYS.DEVICE_TOKEN];
-    
-    if (!deviceToken) return;
-    
-    await fetch(`${API_BASE}/device/changelog`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${deviceToken}`
-      },
-      body: JSON.stringify({ action, before_data: beforeData, after_data: afterData })
-    });
+    await sendMsg({ type: 'CLOUD_FORCE_SYNC' });
+    showToast('同步完成');
+    await renderSyncStatus();
   } catch (e) {
-    console.error('Failed to upload changelog:', e);
+    showError('同步失败: ' + e.message);
   }
 }
+
+// 全局函数（供 HTML onclick 调用）
+window.bindToProfile = bindToProfile;
+window.forceSync = forceSync;
