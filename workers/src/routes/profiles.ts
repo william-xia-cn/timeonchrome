@@ -48,12 +48,58 @@ export const profilesRouter = {
         const now = Date.now();
         const avatarColor = data.avatar_color || '#7c6fff';
         
-        // 初始化空配置
+        // 初始化完整配置
         const defaultConfig = JSON.stringify({
           version: '1.3',
-          studyList: [],
-          allowList: [],
-          blacklist: []
+          mode: 'whitelist',
+          enabled: true,
+          // 默认学习网站
+          studyList: [
+            'google.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com', 'slides.google.com', 'meet.google.com', 'calendar.google.com', 'classroom.google.com', 'keep.google.com',
+            'office.com', 'onenote.com', 'outlook.live.com',
+            'openai.com', 'claude.ai', 'gemini.google.com', 'perplexity.ai',
+            'khanacademy.org', 'coursera.org', 'edx.org', 'brilliant.org', 'udemy.com',
+            'github.com', 'stackoverflow.com', 'leetcode.com', 'replit.com', 'codepen.io',
+            'notion.so', 'obsidian.md', 'ankiweb.net',
+            'canva.com', 'figma.com',
+            'arxiv.org', 'scholar.google.com'
+          ],
+          // 默认允许网站
+          allowList: [
+            'google.com', 'google.com.hk', 'bing.com', 'search.brave.com', 'duckduckgo.com',
+            'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com',
+            'wikipedia.org', 'ritannica.com'
+          ],
+          // 默认黑名单
+          blacklist: ['douyin.com', 'tiktok.com'],
+          dailyQuota: 0,
+          domainQuotas: {},
+          schedule: {
+            enabled: false,
+            days: {
+              0: { enabled: true, start: '08:00', end: '21:00' },
+              1: { enabled: true, start: '15:00', end: '21:00' },
+              2: { enabled: true, start: '15:00', end: '21:00' },
+              3: { enabled: true, start: '15:00', end: '21:00' },
+              4: { enabled: true, start: '15:00', end: '21:00' },
+              5: { enabled: true, start: '15:00', end: '21:00' },
+              6: { enabled: true, start: '08:00', end: '21:00' }
+            }
+          },
+          restConfig: {
+            reminderInterval: 15,
+            maxRestDuration: 60
+          },
+          autoStudyConfig: {
+            enabled: true,
+            requiredSeconds: 60
+          },
+          tempWhitelistConfig: {
+            duration: 1
+          },
+          tempWhitelist: {
+            domains: {}
+          }
         }).replace(/'/g, "''");
         
         await env.DB.exec(
