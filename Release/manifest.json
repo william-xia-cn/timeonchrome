@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TimeOnChrome",
-  "version": "2.0.0",
+  "version": "1.2.0",
   "description": "家长上网行为管控 - 白名单、时长统计、行为控制",
   "incognito": "spanning",
 
@@ -59,7 +59,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["blocked.html", "blocked.js", "bind.html", "config.js", "auth.js", "sync.js"],
+      "resources": ["blocked.html", "blocked.js"],
       "matches": ["<all_urls>"]
     }
   ]

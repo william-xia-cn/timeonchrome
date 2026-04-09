@@ -1,0 +1,16 @@
+{
+  "name": "guardian-extension",
+  "version": "1.0.0",
+  "description": "> 家长上网行为管控 · 白名单/黑名单 · 时长统计 · 时间段控制 · 防绕过设计",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@playwright/test": "^1.59.1"
+  }
+}

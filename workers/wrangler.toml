@@ -1,0 +1,17 @@
+name = "guardian-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "guardian-db"
+database_id = "5fa9f14b-9242-4996-96ed-35dd3024ba59"
+
+[[r2_buckets]]
+binding = "SESSION_FILES"
+bucket_name = "guardian-sessions"
+
+# 可选，配置缓存加速（如果创建了 KV 命名空间才启用）
+[[kv_namespaces]]
+binding = "CONFIG_CACHE"
+id = "c9aac68bf121480f898564eb1b166295"

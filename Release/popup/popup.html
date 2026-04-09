@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>TimeOnChrome</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #09090f;
+      --card: #131325;
+      --border: rgba(255,255,255,0.07);
+      --text: #e2e2f0;
+      --muted: #5a5a80;
+      --accent: #7c6fff;
+      --green: #4ade80;
+      --warn: #fbbf24;
+      --danger: #f87171;
+      --blue: #60a5fa;
+    }
+
+    body {
+      width: 320px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      padding: 0;
+    }
+
+    .header {
+      padding: 18px 20px 14px;
+      background: linear-gradient(135deg, rgba(124,111,255,0.15) 0%, transparent 100%);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), #9c6fff);
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    .header-text h1 { font-size: 14px; font-weight: 700; }
+    .header-text p  { font-size: 11px; color: var(--muted); }
+
+    .status-pill {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 10px;
+      border-radius: 100px;
+      font-size: 11px; font-weight: 600;
+    }
+    .status-pill.on  { background: rgba(74,222,128,0.1);  color: var(--green); }
+    .status-pill.off { background: rgba(248,113,113,0.1); color: var(--danger); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    .body { padding: 14px 16px; }
+
+    /* 状态切换按钮 */
+    .mode-buttons {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .mode-btn:hover {
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+    }
+    .mode-btn.active-study {
+      background: rgba(74,222,128,0.15);
+      border-color: rgba(74,222,128,0.4);
+      color: var(--green);
+    }
+    .mode-btn.active-rest {
+      background: rgba(251,191,36,0.15);
+      border-color: rgba(251,191,36,0.4);
+      color: var(--warn);
+    }
+
+    /* 当前状态显示 */
+    .current-status {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+    .status-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .status-value {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .status-value.study { color: var(--green); }
+    .status-value.rest { color: var(--warn); }
+    .status-value.free { color: var(--muted); }
+    .status-timer {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin-bottom: 8px;
+      margin-top: 14px;
+    }
+    .section-title:first-child { margin-top: 0; }
+
+    .stat-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--card);
+      border-radius: 9px;
+      margin-bottom: 6px;
+      border: 1px solid var(--border);
+    }
+    .stat-row-left { font-size: 13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; margin-right:8px; }
+    .stat-row-right { font-size: 12px; color: var(--accent); font-weight: 600; white-space:nowrap; }
+
+    .progress-bar {
+      height: 4px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 100px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 100px;
+      background: linear-gradient(90deg, var(--accent), #9c6fff);
+    }
+
+    .time-remaining {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+    }
+    .time-remaining .big { font-size: 28px; font-weight: 700; color: var(--accent); }
+    .time-remaining .label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    .schedule-info {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .schedule-info .icon { font-size: 16px; }
+
+    .footer {
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-text { font-size: 10px; color: var(--muted); }
+    .admin-link {
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+    .admin-link:hover { color: var(--text); }
+
+    .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-icon">🛡</div>
+    <div class="header-text">
+      <h1>TimeOnChrome</h1>
+      <p>上网行为管控</p>
+    </div>
+    <div class="status-pill" id="status-pill">
+      <span class="dot"></span>
+      <span id="status-text">检测中</span>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- 状态切换按钮 -->
+    <div class="mode-buttons">
+      <button class="mode-btn" id="btn-study">
+        📚 学习
+      </button>
+      <button class="mode-btn" id="btn-rest">
+        ☕ 休息
+      </button>
+    </div>
+
+    <!-- 当前状态显示 -->
+    <div class="current-status">
+      <div class="status-label">当前状态</div>
+      <div class="status-value" id="status-value">-</div>
+      <div class="status-timer" id="status-timer">00:00:00</div>
+    </div>
+
+    <!-- 今日学习/休息/在线统计 -->
+    <div class="section-title">今日统计</div>
+    <div class="stat-row">
+      <span class="stat-row-left">📚 学习时长</span>
+      <span class="stat-row-right" id="study-time-stat">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-row-left">🎮 娱乐时长</span>
+      <span class="stat-row-right" id="rest-time-stat">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-row-left">🌐 在线时长</span>
+      <span class="stat-row-right" id="online-time-stat">-</span>
+    </div>
+
+    <!-- 今日剩余时间 -->
+    <div id="quota-section" style="display:none">
+      <div class="section-title">今日上网时间</div>
+      <div class="time-remaining">
+        <div class="big" id="remaining-time">-</div>
+        <div class="label">已用 <span id="used-time">-</span> / 限制 <span id="limit-time">-</span></div>
+      </div>
+      <div class="progress-bar" style="margin-top:8px">
+        <div class="progress-fill" id="quota-bar" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- 今日 Top5 -->
+    <div class="section-title">今日访问时长</div>
+    <div id="today-top5"><div class="empty">暂无数据</div></div>
+  </div>
+
+  <div class="footer">
+    <span class="footer-text">Guardian v1.2</span>
+    <a class="admin-link" id="admin-link">管理员设置 →</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

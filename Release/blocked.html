@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>访问受限 - TimeOnChrome</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #070714;
+      --card: #0f0f2a;
+      --border: rgba(255,255,255,0.06);
+      --text: #e8e8f0;
+      --muted: #5a5a7a;
+      --accent: #6c63ff;
+      --warn: #f5a623;
+      --danger: #ff4d6d;
+    }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* 背景星点 */
+    .stars {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .star {
+      position: absolute;
+      width: 2px; height: 2px;
+      background: white;
+      border-radius: 50%;
+      opacity: 0;
+      animation: twinkle var(--dur) var(--delay) infinite;
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0; }
+      50% { opacity: var(--max-op); }
+    }
+
+    .container {
+      position: relative;
+      z-index: 10;
+      text-align: center;
+      padding: 48px 32px;
+      max-width: 500px;
+      width: 100%;
+    }
+
+    .lock-icon {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #ff4d6d22, #6c63ff22);
+      border: 1px solid rgba(108,99,255,0.3);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      margin: 0 auto 32px;
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    .reason-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .reason-badge.blacklist { background: rgba(255,77,109,0.15); color: #ff4d6d; border: 1px solid rgba(255,77,109,0.3); }
+    .reason-badge.whitelist { background: rgba(108,99,255,0.15); color: #6c63ff; border: 1px solid rgba(108,99,255,0.3); }
+    .reason-badge.quota     { background: rgba(245,166,35,0.15); color: #f5a623; border: 1px solid rgba(245,166,35,0.3); }
+    .reason-badge.schedule  { background: rgba(100,200,100,0.15); color: #64c864; border: 1px solid rgba(100,200,100,0.3); }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+
+    .domain-name {
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      color: var(--accent);
+      background: rgba(108,99,255,0.1);
+      padding: 4px 12px;
+      border-radius: 6px;
+      display: inline-block;
+      margin-bottom: 32px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      text-align: left;
+    }
+
+    .card-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .time-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .time-icon { font-size: 20px; }
+
+    .btn-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.2s;
+      margin-bottom: 32px;
+    }
+    .btn-back:hover { background: rgba(255,255,255,0.1); }
+
+    .footer {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+
+    .footer span { color: rgba(108,99,255,0.6); }
+  </style>
+</head>
+<body>
+
+  <div class="stars" id="stars"></div>
+
+  <div class="container">
+    <div class="lock-icon" id="lockIcon">🔒</div>
+
+    <div class="reason-badge" id="reasonBadge">访问受限</div>
+
+    <h1 id="mainTitle">此网站无法访问</h1>
+    <p class="subtitle" id="subtitle">该网站已被 TimeOnChrome 限制访问</p>
+    <div class="domain-name" id="domainEl">-</div>
+
+    <div class="card" id="infoCard" style="display:none">
+      <div class="card-title">限制原因</div>
+      <div class="time-info">
+        <span class="time-icon" id="infoIcon">ℹ️</span>
+        <span id="infoText">-</span>
+      </div>
+    </div>
+
+    <a href="javascript:history.back()" class="btn-back">← 返回上一页</a>
+
+    <!-- 临时放行按钮（仅白名单模式显示） -->
+    <div id="tempAllowSection" style="display:none; margin-bottom: 24px;">
+      <button id="tempAllowBtn" class="btn-back" style="background: rgba(108,99,255,0.2); border-color: rgba(108,99,255,0.4);">
+        ⏱ 临时放行 <span id="tempDuration">1</span> 分钟
+      </button>
+      <div id="tempStatus" style="font-size: 12px; color: var(--muted); margin-top: 8px;"></div>
+    </div>
+
+    <div class="footer">TimeOnChrome &nbsp;·&nbsp; <span>TimeOnChrome</span> &nbsp;·&nbsp; 保护成长，守护未来</div>
+  </div>
+
+  <script src="blocked.js"></script>
+</body>
+</html>
