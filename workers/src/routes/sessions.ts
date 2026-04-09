@@ -1,28 +1,12 @@
 // Sessions 路由 - Session 文件上传到 R2
-import { json, getJson, Env } from '../db/middleware';
-
-interface SessionEntry {
-  id: string;
-  domain: string;
-  startAt: number;
-  endAt: number;
-  duration: number;
-  activeTime: number;
-  passiveTime: number;
-  endReason: string;
-}
-
-interface SessionsBody {
-  date: string;
-  sessions: SessionEntry[];
-}
+import { json, Env } from '../db/middleware';
 
 // 验证 device_token
 async function verifyDeviceToken(env: Env, token: string): Promise<string | null> {
-  const device = await env.DB.prepare(
-    'SELECT profile_id FROM devices WHERE device_token = ?',
-    [token]
-  ).first<{ profile_id: string }>();
+  const stmt = await env.DB.prepare(
+    `SELECT profile_id FROM devices WHERE device_token = '${token}'`
+  );
+  const device = await stmt.first<{ profile_id: string }>();
   return device?.profile_id || null;
 }
 
@@ -45,8 +29,9 @@ export const sessionsRouter = {
       }
       
       try {
-        const body = await getJson<SessionsBody>(request);
-        const { date, sessions } = body;
+        const body = await request.text();
+        const data = JSON.parse(body);
+        const { date, sessions } = data;
         
         if (!date || !sessions) {
           return json({ error: 'date and sessions required' }, 400);
@@ -68,7 +53,7 @@ export const sessionsRouter = {
           key,
           count: sessions.length
         });
-      } catch (e) {
+      } catch (e: any) {
         return json({ error: 'Failed to upload sessions: ' + e.message }, 500);
       }
     }

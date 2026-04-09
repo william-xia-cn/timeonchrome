@@ -21,3 +21,6 @@ Thumbs.db
 
 # Workers env (contains secrets)
 workers/.env
+
+# Workers build/cache
+workers/.wrangler/

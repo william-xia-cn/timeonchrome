@@ -18,7 +18,11 @@ export function json(data: any, status = 200): Response {
 
 // 获取请求体 JSON
 export async function getJson<T>(request: Request): Promise<T> {
-  return await request.json();
+  try {
+    return await request.json();
+  } catch (e) {
+    throw new Error('Invalid JSON');
+  }
 }
 
 // 解析 Authorization header

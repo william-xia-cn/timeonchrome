@@ -1,28 +1,17 @@
 // Stats 路由 - 统计上传/查询
-import { json, getJson, Env, verifyAccountToken } from '../db/middleware';
-
-interface StatEntry {
-  domain: string;
-  active_sec: number;
-  passive_sec: number;
-}
-
-interface StatsBody {
-  date: string;
-  stats: StatEntry[];
-}
+import { json, Env } from '../db/middleware';
 
 // 验证 device_token
 async function verifyDeviceToken(env: Env, token: string): Promise<string | null> {
-  const device = await env.DB.prepare(
-    'SELECT profile_id FROM devices WHERE device_token = ?',
-    [token]
-  ).first<{ profile_id: string }>();
+  const stmt = await env.DB.prepare(
+    `SELECT profile_id FROM devices WHERE device_token = '${token}'`
+  );
+  const device = await stmt.first<{ profile_id: string }>();
   return device?.profile_id || null;
 }
 
 // 验证 account_token
-async function verifyAccountToken(request: Request, env: Env): Promise<string | null> {
+async function verifyAccountToken(request: Request): Promise<string | null> {
   const auth = request.headers.get('Authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   
@@ -56,24 +45,26 @@ export const statsRouter = {
       }
       
       try {
-        const body = await getJson<StatsBody>(request);
-        const { date, stats } = body;
+        const body = await request.text();
+        const data = JSON.parse(body);
+        const { date, stats } = data;
         const now = Date.now();
         
         // 批量插入
         for (const stat of stats) {
           const id = crypto.randomUUID();
-          await env.DB.prepare(
-            `INSERT OR REPLACE INTO daily_stats 
-             (id, profile_id, date, domain, active_sec, passive_sec, uploaded_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [id, profileId, date, stat.domain, stat.active_sec, stat.passive_sec, now]
-          ).run();
+          const domain = stat.domain.replace(/'/g, "''");
+          const activeSec = stat.active_sec || 0;
+          const passiveSec = stat.passive_sec || 0;
+          
+          await env.DB.exec(
+            `INSERT INTO stats (id, profile_id, date, domain, duration, created_at) VALUES ('${id}', '${profileId}', '${date}', '${domain}', ${activeSec + passiveSec}, ${now})`
+          );
         }
         
         return json({ success: true, count: stats.length });
-      } catch (e) {
-        return json({ error: 'Failed to upload stats' }, 500);
+      } catch (e: any) {
+        return json({ error: 'Failed to upload stats: ' + e.message }, 500);
       }
     }
     
@@ -81,16 +72,16 @@ export const statsRouter = {
     const statsMatch = path.match(/^\/profiles\/([^/]+)\/stats$/);
     if (request.method === 'GET' && statsMatch) {
       const profileId = statsMatch[1];
-      const accountId = await verifyAccountToken(request, env);
+      const accountId = await verifyAccountToken(request);
       if (!accountId) {
         return json({ error: 'Unauthorized' }, 401);
       }
       
       // 验证归属
-      const profile = await env.DB.prepare(
-        'SELECT id FROM profiles WHERE id = ? AND account_id = ?',
-        [profileId, accountId]
-      ).first<{ id: string }>();
+      const profileStmt = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = '${profileId}' AND account_id = '${accountId}'`
+      );
+      const profile = await profileStmt.first<{ id: string }>();
       
       if (!profile) {
         return json({ error: 'Profile not found' }, 404);
@@ -104,15 +95,15 @@ export const statsRouter = {
       })();
       const to = urlParams.get('to') || new Date().toISOString().split('T')[0];
       
-      const result = await env.DB.prepare(
-        `SELECT date, domain, active_sec, passive_sec 
-         FROM daily_stats 
-         WHERE profile_id = ? AND date >= ? AND date <= ?
-         ORDER BY date DESC`,
-        [profileId, from, to]
-      ).all<{ date: string; domain: string; active_sec: number; passive_sec: number }>();
+      const resultStmt = await env.DB.prepare(
+        `SELECT date, domain, duration 
+         FROM stats 
+         WHERE profile_id = '${profileId}' AND date >= '${from}' AND date <= '${to}'
+         ORDER BY date DESC`
+      );
+      const result = await resultStmt.all<{ date: string; domain: string; duration: number }>();
       
-      return json({ stats: result.results });
+      return json({ stats: result.results || [] });
     }
     
     return json({ error: 'Not found' }, 404);

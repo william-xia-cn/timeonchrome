@@ -1,29 +1,17 @@
 // Changelog 路由 - 配置变更日志
-import { json, getJson, Env } from '../db/middleware';
-
-interface ChangelogEntry {
-  action: string;
-  before_data?: string;
-  after_data?: string;
-}
-
-interface ChangelogBody {
-  action: string;
-  before_data?: object;
-  after_data?: object;
-}
+import { json, Env } from '../db/middleware';
 
 // 验证 device_token
 async function verifyDeviceToken(env: Env, token: string): Promise<string | null> {
-  const device = await env.DB.prepare(
-    'SELECT profile_id FROM devices WHERE device_token = ?',
-    [token]
-  ).first<{ profile_id: string }>();
+  const stmt = await env.DB.prepare(
+    `SELECT profile_id FROM devices WHERE device_token = '${token}'`
+  );
+  const device = await stmt.first<{ profile_id: string }>();
   return device?.profile_id || null;
 }
 
 // 验证 account_token
-async function verifyAccountToken(request: Request, env: Env): Promise<string | null> {
+async function verifyAccountToken(request: Request): Promise<string | null> {
   const auth = request.headers.get('Authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   
@@ -57,25 +45,46 @@ export const changelogRouter = {
       }
       
       try {
-        const body = await getJson<ChangelogBody>(request);
-        const { action, before_data, after_data } = body;
+        const body = await request.text();
+        const data = JSON.parse(body);
+        const { action, before_data, after_data } = data;
         
         if (!action) {
           return json({ error: 'action required' }, 400);
         }
         
         const id = crypto.randomUUID();
-        await env.DB.prepare(
-          'INSERT INTO changelogs (id, profile_id, action, before_data, after_data, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [id, profileId, action, 
-           before_data ? JSON.stringify(before_data) : null,
-           after_data ? JSON.stringify(after_data) : null,
-           Date.now()]
-        ).run();
+        const now = Date.now();
+        const beforeStr = before_data ? JSON.stringify(before_data).replace(/'/g, "''") : 'NULL';
+        const afterStr = after_data ? JSON.stringify(after_data).replace(/'/g, "''") : 'NULL';
+        
+        // 存储到 profiles 表的 changelog JSON 字段（简化处理）
+        // 实际项目中应该新建 changelogs 表
+        const existingLogStmt = await env.DB.prepare(
+          `SELECT changelog FROM profiles WHERE id = '${profileId}'`
+        );
+        const existingRow = await existingLogStmt.first<{ changelog: string }>();
+        const existingLog = existingRow?.changelog ? JSON.parse(existingRow.changelog) : [];
+        
+        existingLog.unshift({
+          id,
+          action,
+          before_data: before_data || null,
+          after_data: after_data || null,
+          created_at: now
+        });
+        
+        // 保留最近 100 条
+        const trimmedLog = existingLog.slice(0, 100);
+        const logStr = JSON.stringify(trimmedLog).replace(/'/g, "''");
+        
+        await env.DB.exec(
+          `UPDATE profiles SET changelog = '${logStr}', updated_at = ${now} WHERE id = '${profileId}'`
+        );
         
         return json({ success: true, id });
-      } catch (e) {
-        return json({ error: 'Failed to save changelog' }, 500);
+      } catch (e: any) {
+        return json({ error: 'Failed to save changelog: ' + e.message }, 500);
       }
     }
     
@@ -83,35 +92,28 @@ export const changelogRouter = {
     const changelogMatch = path.match(/^\/profiles\/([^/]+)\/changelog$/);
     if (request.method === 'GET' && changelogMatch) {
       const profileId = changelogMatch[1];
-      const accountId = await verifyAccountToken(request, env);
+      const accountId = await verifyAccountToken(request);
       if (!accountId) {
         return json({ error: 'Unauthorized' }, 401);
       }
       
       // 验证归属
-      const profile = await env.DB.prepare(
-        'SELECT id FROM profiles WHERE id = ? AND account_id = ?',
-        [profileId, accountId]
-      ).first<{ id: string }>();
+      const profileStmt = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = '${profileId}' AND account_id = '${accountId}'`
+      );
+      const profile = await profileStmt.first<{ id: string }>();
       
       if (!profile) {
         return json({ error: 'Profile not found' }, 404);
       }
       
-      const limit = url.searchParams.get('limit') || '50';
+      const configStmt = await env.DB.prepare(
+        `SELECT changelog FROM profiles WHERE id = '${profileId}'`
+      );
+      const row = await configStmt.first<{ changelog: string }>();
+      const changelogs = row?.changelog ? JSON.parse(row.changelog) : [];
       
-      const result = await env.DB.prepare(
-        'SELECT id, action, before_data, after_data, created_at FROM changelogs WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?',
-        [profileId, parseInt(limit)]
-      ).all<{ id: string; action: string; before_data: string; after_data: string; created_at: number }>();
-      
-      return json({ 
-        changelogs: result.results.map(r => ({
-          ...r,
-          before_data: r.before_data ? JSON.parse(r.before_data) : null,
-          after_data: r.after_data ? JSON.parse(r.after_data) : null
-        }))
-      });
+      return json({ changelogs });
     }
     
     return json({ error: 'Not found' }, 404);

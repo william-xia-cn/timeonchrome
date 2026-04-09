@@ -1,13 +1,8 @@
 // Profiles 路由 - 孩子 Profile CRUD
-import { json, getJson, Env } from '../db/middleware';
-
-interface ProfileBody {
-  name: string;
-  avatar_color?: string;
-}
+import { json, Env } from '../db/middleware';
 
 // 验证 account_token
-async function verifyAccountToken(request: Request, env: Env): Promise<string | null> {
+async function verifyAccountToken(request: Request): Promise<string | null> {
   const auth = request.headers.get('Authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   
@@ -29,31 +24,29 @@ export const profilesRouter = {
     const path = url.pathname;
     
     // 验证登录
-    const accountId = await verifyAccountToken(request, env);
+    const accountId = await verifyAccountToken(request);
     if (!accountId) {
       return json({ error: 'Unauthorized' }, 401);
     }
     
     // GET /profiles - 获取所有孩子
     if (request.method === 'GET' && path === '/profiles') {
-      const result = await env.DB.prepare(
-        'SELECT id, name, avatar_color, created_at FROM profiles WHERE account_id = ?',
-        [accountId]
-      ).all<{ id: string; name: string; avatar_color: string; created_at: number }>();
+      const stmt = await env.DB.prepare(
+        `SELECT id, name, avatar_color, created_at FROM profiles WHERE account_id = '${accountId}'`
+      );
+      const result = await stmt.all<{ id: string; name: string; avatar_color: string; created_at: number }>();
       
-      return json({ profiles: result.results });
+      return json({ profiles: result.results || [] });
     }
     
     // POST /profiles - 创建孩子
     if (request.method === 'POST' && path === '/profiles') {
       try {
-        const body = await getJson<ProfileBody>(request);
+        const body = await request.text();
+        const data = JSON.parse(body);
         const profileId = crypto.randomUUID();
-        
-        await env.DB.prepare(
-          'INSERT INTO profiles (id, account_id, name, avatar_color, created_at) VALUES (?, ?, ?, ?, ?)',
-          [profileId, accountId, body.name, body.avatar_color || '#7c6fff', Date.now()]
-        ).run();
+        const now = Date.now();
+        const avatarColor = data.avatar_color || '#7c6fff';
         
         // 初始化空配置
         const defaultConfig = JSON.stringify({
@@ -61,18 +54,18 @@ export const profilesRouter = {
           studyList: [],
           allowList: [],
           blacklist: []
-        });
-        await env.DB.prepare(
-          'INSERT INTO configs (profile_id, data, updated_at) VALUES (?, ?, ?)',
-          [profileId, defaultConfig, Date.now()]
-        ).run();
+        }).replace(/'/g, "''");
+        
+        await env.DB.exec(
+          `INSERT INTO profiles (id, account_id, name, avatar_color, config, created_at, updated_at) VALUES ('${profileId}', '${accountId}', '${data.name}', '${avatarColor}', '${defaultConfig}', ${now}, ${now})`
+        );
         
         return json({ 
           success: true, 
-          profile: { id: profileId, name: body.name, avatar_color: body.avatar_color }
+          profile: { id: profileId, name: data.name, avatar_color: avatarColor }
         });
-      } catch (e) {
-        return json({ error: 'Failed to create profile' }, 500);
+      } catch (e: any) {
+        return json({ error: 'Failed to create profile: ' + e.message }, 500);
       }
     }
     
@@ -82,23 +75,25 @@ export const profilesRouter = {
       const profileId = configMatch[1];
       
       // 验证归属
-      const profile = await env.DB.prepare(
-        'SELECT id FROM profiles WHERE id = ? AND account_id = ?',
-        [profileId, accountId]
-      ).first<{ id: string }>();
+      const stmt = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = '${profileId}' AND account_id = '${accountId}'`
+      );
+      const profile = await stmt.first<{ id: string }>();
       
       if (!profile) {
         return json({ error: 'Profile not found' }, 404);
       }
       
-      const config = await env.DB.prepare(
-        'SELECT data, updated_at FROM configs WHERE profile_id = ?',
-        [profileId]
-      ).first<{ data: string; updated_at: number }>();
+      const configStmt = await env.DB.prepare(
+        `SELECT config, updated_at FROM profiles WHERE id = '${profileId}'`
+      );
+      const configRow = await configStmt.first<{ config: string; updated_at: number }>();
+      
+      const configData = configRow?.config ? JSON.parse(configRow.config) : {};
       
       return json({ 
-        data: config ? JSON.parse(config.data) : {},
-        updated_at: config?.updated_at || 0,
+        data: configData,
+        updated_at: configRow?.updated_at || 0,
         profile_id: profileId
       });
     }
@@ -108,27 +103,28 @@ export const profilesRouter = {
       const profileId = configMatch[1];
       
       // 验证归属
-      const profile = await env.DB.prepare(
-        'SELECT id FROM profiles WHERE id = ? AND account_id = ?',
-        [profileId, accountId]
-      ).first<{ id: string }>();
+      const stmt = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = '${profileId}' AND account_id = '${accountId}'`
+      );
+      const profile = await stmt.first<{ id: string }>();
       
       if (!profile) {
         return json({ error: 'Profile not found' }, 404);
       }
       
       try {
-        const body = await getJson<{ data: object }>(request);
+        const body = await request.text();
+        const data = JSON.parse(body);
         const now = Date.now();
+        const configStr = JSON.stringify(data.data).replace(/'/g, "''");
         
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO configs (profile_id, data, updated_at) VALUES (?, ?, ?)',
-          [profileId, JSON.stringify(body.data), now]
-        ).run();
+        await env.DB.exec(
+          `UPDATE profiles SET config = '${configStr}', version = version + 1, updated_at = ${now} WHERE id = '${profileId}'`
+        );
         
         return json({ success: true, updated_at: now });
-      } catch (e) {
-        return json({ error: 'Failed to update config' }, 500);
+      } catch (e: any) {
+        return json({ error: 'Failed to update config: ' + e.message }, 500);
       }
     }
     
