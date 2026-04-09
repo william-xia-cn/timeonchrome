@@ -323,7 +323,7 @@ async function showProfileSelector() {
       
       <div id="profile-selector" style="margin: 20px 0;">
         ${cloudProfiles.map(p => `
-          <div class="profile-item" onclick="bindToProfile('${p.id}', '${p.name}', '${p.avatar_color || '#7c6fff'}')" 
+          <div class="profile-item" data-id="${p.id}" data-name="${p.name}" data-color="${p.avatar_color || '#7c6fff'}" 
                style="display:flex; align-items:center; gap:12px; padding:16px; border:1px solid var(--border); border-radius:12px; margin-bottom:12px; cursor:pointer; transition:all 0.2s;">
             <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${p.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
               ${p.name.charAt(0).toUpperCase()}
@@ -336,6 +336,16 @@ async function showProfileSelector() {
       <p style="font-size:12px; color:var(--muted);">选择后将自动绑定此设备，绑定后无法更换</p>
     </div>
   `;
+  
+  // 添加点击事件
+  document.querySelectorAll('.profile-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const id = item.dataset.id;
+      const name = item.dataset.name;
+      const color = item.dataset.color;
+      bindToProfile(id, name, color);
+    });
+  });
 }
 
 /**
