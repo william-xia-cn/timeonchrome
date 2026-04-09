@@ -352,8 +352,11 @@ async function showProfileSelector() {
  * 绑定到选定的 Profile
  */
 async function bindToProfile(profileId, profileName, avatarColor) {
+  console.log('[Admin] bindToProfile called, profileId:', profileId, 'accountToken:', accountToken ? 'exists' : 'NULL');
+  
   try {
     // 1. 调用设备绑定 API（需要 account_token，不是 device_token）
+    console.log('[Admin] Calling /device/bind with accountToken...');
     const resp = await fetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: { 
@@ -366,12 +369,16 @@ async function bindToProfile(profileId, profileName, avatarColor) {
       })
     });
     
+    console.log('[Admin] Response status:', resp.status);
+    
     if (!resp.ok) {
       const err = await resp.json();
+      console.error('[Admin] Bind error:', err);
       throw new Error(err.error || '绑定失败');
     }
     
     const bindResult = await resp.json();
+    console.log('[Admin] Bind success, device_token:', bindResult.device_token);
     
     // 2. 保存绑定信息
     await new Promise(resolve => {
