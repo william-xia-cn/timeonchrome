@@ -4,7 +4,7 @@
 
 const GUARDIAN_CONFIG = {
   // Workers API 地址
-  API_BASE: 'https://guardian-api.your-account.workers.dev',
+  API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
   
   // 同步间隔（分钟）
   SYNC_INTERVAL_MINUTES: 15,
