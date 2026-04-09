@@ -353,7 +353,7 @@ async function showProfileSelector() {
  */
 async function bindToProfile(profileId, profileName, avatarColor) {
   try {
-    // 1. 调用设备绑定 API
+    // 1. 调用设备绑定 API（需要 account_token，不是 device_token）
     const resp = await fetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: { 

@@ -1544,12 +1544,25 @@ async function handleMessage(msg, sender) {
     // ── 云端同步相关 ─────────────────────────────────────────
     case 'CLOUD_BIND': {
       // 设备绑定：传入 profile_id，返回 device_token
+      // 注意：这个不需要 device_token，因为是在获取 token
       const { profile_id, device_name } = msg;
       try {
-        const result = await cloudRequest('POST', '/device/bind', {
-          profile_id,
-          device_name: device_name || 'Chrome Extension'
+        // 直接调用 API（不使用 cloudRequest，因为此时还没有 token）
+        const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/device/bind`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile_id,
+            device_name: device_name || 'Chrome Extension'
+          })
         });
+        
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || '绑定失败');
+        }
+        
+        const result = await resp.json();
         
         // 保存 token
         syncState.deviceToken = result.device_token;
@@ -1565,6 +1578,8 @@ async function handleMessage(msg, sender) {
         return { success: true, device_token: result.device_token };
       } catch (e) {
         return { error: e.message };
+      }
+    }
       }
     }
 
