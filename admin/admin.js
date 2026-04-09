@@ -388,17 +388,26 @@ async function bindToProfile(profileId, profileName, avatarColor) {
         [CLOUD_KEYS.IS_BOUND]: true
       }, resolve);
     });
+    console.log('[Admin] Saved to local storage');
     
     // 3. 通知 background.js 同步
-    await sendMsg({ 
-      type: 'CLOUD_BIND', 
-      profile_id: profileId, 
-      device_name: 'Chrome Extension' 
-    });
+    console.log('[Admin] Calling sendMsg to background...');
+    try {
+      const bgResult = await sendMsg({ 
+        type: 'CLOUD_BIND', 
+        profile_id: profileId, 
+        device_name: 'Chrome Extension' 
+      });
+      console.log('[Admin] sendMsg result:', bgResult);
+    } catch (e) {
+      console.error('[Admin] sendMsg error:', e);
+    }
     
     // 4. 进入主界面
+    console.log('[Admin] Entering main screen...');
     currentProfileId = profileId;
     await enterMainScreen();
+    console.log('[Admin] Done!');
     
   } catch (e) {
     showError('绑定失败: ' + e.message);
