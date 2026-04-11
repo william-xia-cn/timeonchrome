@@ -95,10 +95,10 @@
   }
 
   // 临时放行功能（白名单拦截 / 配额锁定 / 时间段限制均可申请）
-  const isQuotaReason    = reason.startsWith('quota');
-  const isScheduleReason = reason === 'schedule';
+  // 可申请临时放行的拦截类型（时间段限制和休息时长锁定不允许绕过）
   const isWhitelistReason = reason === 'whitelist';
-  const canRequestTemp = (isWhitelistReason || isQuotaReason || isScheduleReason) && domain;
+  const isQuotaReason     = reason === 'quota' || reason === 'quota_online' || reason === 'quota_study';
+  const canRequestTemp    = (isWhitelistReason || isQuotaReason) && domain;
 
   if (canRequestTemp) {
     const tempAllowSection = document.getElementById('tempAllowSection');
@@ -179,23 +179,6 @@
           }
         });
 
-      } else if (isScheduleReason) {
-        // 时间段绕过：设置临时时间段豁免
-        chrome.runtime.sendMessage({ type: 'ADD_TEMP_EXEMPTION', exemptType: 'schedule', domain }, (result) => {
-          if (result?.expiresAt) {
-            const remaining = Math.ceil((result.expiresAt - Date.now()) / 1000 / 60);
-            tempStatus.textContent = `✓ 已申请 ${remaining} 分钟例外`;
-            chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'temp_allow_schedule', domain });
-            setTimeout(() => {
-              if (domain && domain !== 'all') {
-                const protocol = document.referrer ? new URL(document.referrer).protocol : 'https:';
-                window.location.href = `${protocol}//${domain}`;
-              } else {
-                history.back();
-              }
-            }, 500);
-          }
-        });
       }
     });
   }
