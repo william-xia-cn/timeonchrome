@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeOnChrome - 设备绑定</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      padding: 40px;
+      width: 100%;
+      max-width: 400px;
+    }
+    h1 { font-size: 24px; color: #1d1d1f; margin-bottom: 8px; }
+    .subtitle { color: #86868b; font-size: 14px; margin-bottom: 24px; }
+    
+    .step { display: none; }
+    .step.active { display: block; }
+    
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-size: 13px; color: #1d1d1f; margin-bottom: 6px; font-weight: 500; }
+    input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #d2d2d7;
+      border-radius: 8px;
+      font-size: 15px;
+      transition: border-color 0.2s;
+    }
+    input:focus { outline: none; border-color: #7c6fff; }
+    
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #7c6fff;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #6a5fd6; }
+    button:disabled { background: #d2d2d7; cursor: not-allowed; }
+    
+    .error { color: #ff3b30; font-size: 13px; margin-top: 8px; display: none; }
+    .error.show { display: block; }
+    
+    .profiles { margin-top: 16px; }
+    .profile-item {
+      padding: 12px 16px;
+      border: 1px solid #d2d2d7;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .profile-item:hover { border-color: #7c6fff; background: #f5f0ff; }
+    .profile-item.selected { border-color: #7c6fff; background: #f5f0ff; }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .profile-name { font-size: 15px; color: #1d1d1f; }
+    
+    .success { 
+      text-align: center; 
+      padding: 40px 0;
+    }
+    .success-icon {
+      width: 64px;
+      height: 64px;
+      background: #34c759;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 32px;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #86868b;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>TimeOnChrome</h1>
+    <p class="subtitle">设备绑定</p>
+    
+    <!-- Step 1: 登录 -->
+    <div id="step1" class="step active">
+      <div class="form-group">
+        <label>家长邮箱</label>
+        <input type="email" id="email" placeholder="your@email.com">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="password" placeholder="密码">
+      </div>
+      <button id="btnLogin" onclick="doLogin()">登录</button>
+      <p class="error" id="error1"></p>
+    </div>
+    
+    <!-- Step 2: 选择孩子 -->
+    <div id="step2" class="step">
+      <p style="margin-bottom: 16px; color: #1d1d1f;">选择这台设备属于哪个孩子：</p>
+      <div class="profiles" id="profilesList"></div>
+      <p class="error" id="error2"></p>
+    </div>
+    
+    <!-- Step 3: 绑定成功 -->
+    <div id="step3" class="step">
+      <div class="success">
+        <div class="success-icon">✓</div>
+        <h2 style="margin-bottom: 8px;">绑定成功！</h2>
+        <p style="color: #86868b;">设备已成功绑定，现在可以开始使用 TimeOnChrome。</p>
+      </div>
+    </div>
+    
+    <!-- Loading -->
+    <div id="loading" class="step">
+      <div class="loading">处理中...</div>
+    </div>
+  </div>
+  
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+  <script>
+    let accountToken = null;
+    let profiles = [];
+    let selectedProfileId = null;
+
+    async function doLogin() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('btnLogin');
+      const error = document.getElementById('error1');
+      
+      if (!email || !password) {
+        error.textContent = '请填写邮箱和密码';
+        error.classList.add('show');
+        return;
+      }
+      
+      btn.disabled = true;
+      btn.textContent = '登录中...';
+      error.classList.remove('show');
+      
+      try {
+        const resp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || '登录失败');
+        }
+        
+        const data = await resp.json();
+        accountToken = data.token;
+        
+        // 获取 profile 列表
+        const profilesResp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/profiles`, {
+          headers: { 'Authorization': `Bearer ${accountToken}` }
+        });
+        
+        if (!profilesResp.ok) {
+          throw new Error('获取孩子列表失败');
+        }
+        
+        const profilesData = await profilesResp.json();
+        profiles = profilesData.profiles || [];
+        
+        if (profiles.length === 0) {
+          throw new Error('请先在家长后台创建孩子Profile');
+        }
+        
+        // 显示 Step 2
+        showStep('step2');
+        renderProfiles();
+        
+      } catch (e) {
+        error.textContent = e.message;
+        error.classList.add('show');
+      }
+      
+      btn.disabled = false;
+      btn.textContent = '登录';
+    }
+
+    function renderProfiles() {
+      const container = document.getElementById('profilesList');
+      container.innerHTML = profiles.map(p => `
+        <div class="profile-item" onclick="selectProfile('${p.id}', this)">
+          <div class="avatar" style="background: ${p.avatar_color || '#7c6fff'}">
+            ${p.name.charAt(0).toUpperCase()}
+          </div>
+          <span class="profile-name">${p.name}</span>
+        </div>
+      `).join('');
+    }
+
+    function selectProfile(id, el) {
+      document.querySelectorAll('.profile-item').forEach(i => i.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedProfileId = id;
+      
+      // 自动开始绑定
+      doBind(id);
+    }
+
+    async function doBind(profileId) {
+      showStep('loading');
+      
+      try {
+        const resp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/device/bind`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accountToken}`
+          },
+          body: JSON.stringify({ profile_id: profileId, device_name: 'Chrome Extension' })
+        });
+        
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || '绑定失败');
+        }
+        
+        const data = await resp.json();
+        
+        // 保存到本地
+        await new Promise((resolve) => {
+          chrome.storage.local.set({
+            device_token: data.device_token,
+            profile_id: data.profile_id,
+            last_sync: Date.now()
+          }, resolve);
+        });
+        
+        showStep('step3');
+        
+        // 3 秒后关闭
+        setTimeout(() => {
+          window.close();
+        }, 3000);
+        
+      } catch (e) {
+        document.getElementById('error2').textContent = e.message;
+        document.getElementById('error2').classList.add('show');
+        showStep('step2');
+      }
+    }
+
+    function showStep(id) {
+      document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+  </script>
+</body>
+</html>
