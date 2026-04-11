@@ -5,11 +5,36 @@ const CLOUD_KEYS = {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // 检查绑定状态
+  const cloudStatus = await sendMsg({ type: 'GET_CLOUD_STATUS' });
+  if (cloudStatus && !cloudStatus.isBound) {
+    // 设备未绑定：显示提示横幅，隐藏正文
+    document.getElementById('unbound-banner').style.display = 'block';
+    document.getElementById('summary-card').style.display = 'none';
+    document.querySelector('.body').style.display = 'none';
+    document.getElementById('goto-admin-btn').addEventListener('click', () => {
+      chrome.runtime.openOptionsPage();
+    });
+    return;
+  }
+
   await init();
 
   // 详情链接 → 打开 admin 面板
   document.getElementById('detail-link').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
+  });
+
+  // 监听后台广播：设备被远程解绑时立即更新 popup UI
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'DEVICE_UNBOUND') {
+      document.getElementById('unbound-banner').style.display = 'block';
+      document.getElementById('summary-card').style.display = 'none';
+      document.querySelector('.body').style.display = 'none';
+      document.getElementById('goto-admin-btn').addEventListener('click', () => {
+        chrome.runtime.openOptionsPage();
+      });
+    }
   });
 });
 

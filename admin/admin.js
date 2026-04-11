@@ -46,13 +46,21 @@ let currentEmail = null;
 document.addEventListener('DOMContentLoaded', async () => {
   // 加载本地配置
   config = await sendMsg({ type: 'GET_CONFIG' });
-  
+
   // 检查绑定状态
   await checkAndHandleBinding();
-  
+
   setupLoginForm();
   setupNavigation();
   setupStatsPage();
+
+  // 监听后台广播：设备被远程解绑时立即切换到重绑流程
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'DEVICE_UNBOUND') {
+      console.log('[Admin] Received DEVICE_UNBOUND, switching to rebind flow');
+      checkAndHandleBinding();
+    }
+  });
 });
 
 // ── 绑定状态检查与处理 ───────────────────────────────────────────────────

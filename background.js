@@ -104,10 +104,16 @@ async function cloudRequest(method, path, body = null, retries = 3) {
       
       // 401 说明 device_token 已失效（被解绑或过期）
       if (resp.status === 401) {
-        // 清除本地 token，避免反复无效请求
+        // 清除本地 token 和 profileId，避免反复无效请求
         syncState.deviceToken = null;
-        await storageSet({ [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null });
+        syncState.profileId   = null;
+        await storageSet({
+          [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null,
+          [CLOUD_CONFIG.KEYS.PROFILE_ID]:   null
+        });
         console.warn('[Cloud] Device token invalidated, cleared from storage');
+        // 广播解绑事件，admin 面板 / popup 可监听并更新 UI
+        chrome.runtime.sendMessage({ type: 'DEVICE_UNBOUND' }).catch(() => {});
         throw new Error('Device token expired');
       }
       
