@@ -1,5 +1,5 @@
 // Auth 路由 - 账户注册/登录
-import { json, Env, generateToken } from '../db/middleware';
+import { json, Env, generateToken, verifyAccountToken } from '../db/middleware';
 
 // SHA-256 密码哈希
 async function hashPassword(password: string): Promise<string> {
@@ -72,6 +72,34 @@ export const authRouter = {
         });
       } catch (e: any) {
         return json({ error: 'Invalid request: ' + e.message }, 400);
+      }
+    }
+
+    // POST /auth/change-password
+    if (request.method === 'POST' && path === '/auth/change-password') {
+      try {
+        const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+        if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+        const { oldPassword, newPassword } = await request.json<{ oldPassword: string; newPassword: string }>();
+        if (!oldPassword || !newPassword) return json({ error: 'oldPassword and newPassword required' }, 400);
+        if (newPassword.length < 6) return json({ error: 'New password must be at least 6 characters' }, 400);
+
+        const oldHash = await hashPassword(oldPassword);
+        const row = await env.DB.prepare(
+          `SELECT id FROM accounts WHERE id = ? AND password_hash = ?`
+        ).bind(accountId, oldHash).first<{ id: string }>();
+
+        if (!row) return json({ error: 'Current password is incorrect' }, 401);
+
+        const newHash = await hashPassword(newPassword);
+        await env.DB.prepare(
+          `UPDATE accounts SET password_hash = ? WHERE id = ?`
+        ).bind(newHash, accountId).run();
+
+        return json({ success: true });
+      } catch (e: any) {
+        return json({ error: 'Failed to change password: ' + e.message }, 400);
       }
     }
 

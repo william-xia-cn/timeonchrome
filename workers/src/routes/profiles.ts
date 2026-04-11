@@ -144,13 +144,14 @@ export const profilesRouter = {
 
     // ── 以下路由均需 profileId ──────────────────────────────────────────
 
-    const configMatch   = path.match(/^\/profiles\/([^/]+)\/config$/);
-    const devicesMatch  = path.match(/^\/profiles\/([^/]+)\/devices$/);
-    const deviceIdMatch = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)$/);
+    const configMatch      = path.match(/^\/profiles\/([^/]+)\/config$/);
+    const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
+    const deviceIdMatch    = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)$/);
+    const profileSelfMatch = path.match(/^\/profiles\/([^/]+)$/);
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? null;
+      configMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
 
@@ -241,6 +242,67 @@ export const profilesRouter = {
       ).bind(deviceId).run();
 
       return json({ success: true });
+    }
+
+    // PATCH /profiles/:id - 编辑档案（名称、头像颜色）
+    if (request.method === 'PATCH' && profileSelfMatch) {
+      try {
+        const { name, avatar_color } = await request.json<{ name?: string; avatar_color?: string }>();
+        if (!name && !avatar_color) return json({ error: 'name or avatar_color required' }, 400);
+
+        const updates: string[] = [];
+        const bindings: unknown[] = [];
+
+        if (name) {
+          const trimmed = name.trim().slice(0, 50);
+          if (!trimmed) return json({ error: 'name cannot be empty' }, 400);
+          updates.push('name = ?');
+          bindings.push(trimmed);
+        }
+        if (avatar_color) {
+          updates.push('avatar_color = ?');
+          bindings.push(avatar_color);
+        }
+
+        bindings.push(profileId);
+        await env.DB.prepare(
+          `UPDATE profiles SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...bindings).run();
+
+        return json({ success: true });
+      } catch (e: any) {
+        return json({ error: 'Failed to update profile: ' + e.message }, 500);
+      }
+    }
+
+    // DELETE /profiles/:id - 删除档案（级联删除设备、统计数据）
+    if (request.method === 'DELETE' && profileSelfMatch) {
+      try {
+        // 1. 删除关联设备
+        await env.DB.prepare(`DELETE FROM devices WHERE profile_id = ?`).bind(profileId).run();
+
+        // 2. 删除统计数据
+        await env.DB.prepare(`DELETE FROM stats WHERE profile_id = ?`).bind(profileId).run();
+
+        // 3. 删除 R2 sessions（列出并批量删除）
+        try {
+          const listed = await env.SESSION_FILES.list({ prefix: `sessions/${profileId}/` });
+          for (const obj of listed.objects) {
+            await env.SESSION_FILES.delete(obj.key);
+          }
+        } catch (e) {
+          // R2 删除失败不阻止整体操作
+        }
+
+        // 4. 删除 Profile 本身
+        await env.DB.prepare(
+          `DELETE FROM profiles WHERE id = ? AND account_id = ?`
+        ).bind(profileId, accountId).run();
+
+        return json({ success: true });
+      } catch (e: any) {
+        return json({ error: 'Failed to delete profile: ' + e.message }, 500);
+      }
     }
 
     return json({ error: 'Not found' }, 404);

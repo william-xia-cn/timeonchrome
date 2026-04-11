@@ -988,38 +988,60 @@ function renderRulesPage() {
 
 
 async function setupDevicesPage() {
-  // 账户信息
-  const accountInfo = document.getElementById('account-info');
-  if (accountInfo && currentEmail) {
-    accountInfo.textContent = currentEmail;
-  }
+  const storage = await new Promise(resolve =>
+    chrome.storage.local.get([CLOUD_KEYS.PROFILE_ID, CLOUD_KEYS.CREDENTIALS], resolve)
+  );
+  const boundProfileId = storage[CLOUD_KEYS.PROFILE_ID];
+  const boundProfile = cloudProfiles.find(p => p.id === boundProfileId);
+  const email = currentEmail || (() => {
+    try { return atob(storage[CLOUD_KEYS.CREDENTIALS] || '').split(':')[0]; } catch { return ''; }
+  })();
 
-  // 绑定的孩子档案
+  // ── 本机绑定状态 ──
   const profilesEl = document.getElementById('profiles-list');
   if (profilesEl) {
-    const storage = await new Promise(resolve =>
-      chrome.storage.local.get([CLOUD_KEYS.PROFILE_ID], resolve)
-    );
-    const boundProfileId = storage[CLOUD_KEYS.PROFILE_ID];
-    const boundProfile = cloudProfiles.find(p => p.id === boundProfileId);
-
     if (boundProfile) {
       profilesEl.innerHTML = `
-        <div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
-          <div style="width:36px;height:36px;border-radius:50%;background:${boundProfile.avatar_color||'#7c6fff'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:16px;">
-            ${boundProfile.name.charAt(0).toUpperCase()}
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div id="profile-avatar-display" style="width:40px;height:40px;border-radius:50%;background:${boundProfile.avatar_color||'#7c6fff'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:18px;cursor:pointer;" onclick="showEditProfileModal()" title="点击编辑">
+              ${boundProfile.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <div style="font-size:15px;font-weight:600;" id="profile-name-inline">${boundProfile.name}</div>
+              <div style="font-size:12px;color:var(--green);">✓ 已绑定此设备</div>
+            </div>
           </div>
-          <div>
-            <div style="font-size:15px;font-weight:600;">${boundProfile.name}</div>
-            <div style="font-size:12px;color:var(--green);margin-top:2px;">✓ 已绑定此设备</div>
-          </div>
-        </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px;">
-          如需更换绑定档案，请在家长 Web 控制台解绑本设备后重新绑定。
+          <button onclick="showEditProfileModal()" style="padding:6px 12px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;cursor:pointer;">编辑</button>
         </div>`;
     } else {
-      profilesEl.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:8px 0;">未绑定任何孩子档案</div>`;
+      profilesEl.innerHTML = `<div style="color:var(--muted);font-size:13px;">未绑定任何孩子档案</div>`;
     }
+  }
+
+  // ── 账户信息区 ──
+  const accountInfo = document.getElementById('account-info');
+  if (accountInfo) accountInfo.textContent = email;
+
+  // ── 设备绑定同步状态 ──
+  await renderSyncStatus();
+
+  // ── 账户操作区 ──
+  const accountActionsEl = document.getElementById('account-actions');
+  if (accountActionsEl) {
+    accountActionsEl.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <button onclick="showChangePasswordModal()" style="padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;cursor:pointer;text-align:left;">
+          🔑 修改登录密码
+        </button>
+        <button onclick="confirmLogout()" style="padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:13px;cursor:pointer;text-align:left;">
+          🚪 退出登录
+        </button>
+        ${boundProfile ? `<button onclick="confirmDeleteProfile()" style="padding:10px 16px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.3);border-radius:8px;color:var(--danger);font-size:13px;cursor:pointer;text-align:left;">
+          🗑 删除孩子档案「${boundProfile.name}」
+        </button>` : ''}
+      </div>
+    `;
   }
 }
 
@@ -1221,6 +1243,224 @@ async function confirmRebind() {
     location.reload();
   }
 }
+
+// ── 编辑档案弹窗 ─────────────────────────────────────────────────────
+const AVATAR_COLORS = ['#7c6fff','#ff6c9d','#4ade80','#fbbf24','#60a5fa','#f97316','#a78bfa','#34d399'];
+
+async function showEditProfileModal() {
+  const storage = await new Promise(resolve =>
+    chrome.storage.local.get([CLOUD_KEYS.PROFILE_ID], resolve)
+  );
+  const profileId = storage[CLOUD_KEYS.PROFILE_ID];
+  const profile = cloudProfiles.find(p => p.id === profileId);
+  if (!profile) return;
+
+  const overlay = createModalOverlay();
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <h3 style="margin-bottom:20px;">编辑孩子档案</h3>
+      <div class="form-group">
+        <label>孩子名字</label>
+        <input type="text" id="edit-profile-name" value="${profile.name}" maxlength="50">
+      </div>
+      <div class="form-group">
+        <label>头像颜色</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+          ${AVATAR_COLORS.map(c => `
+            <div onclick="selectAvatarColor('${c}',this)" data-color="${c}"
+                 style="width:32px;height:32px;border-radius:50%;background:${c};cursor:pointer;
+                        border:3px solid ${c === (profile.avatar_color||'#7c6fff') ? '#fff' : 'transparent'};
+                        transition:border-color 0.2s;">
+            </div>`).join('')}
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:24px;">
+        <button onclick="saveEditProfile('${profileId}')" class="btn-primary" style="flex:1;">保存</button>
+        <button onclick="closeModal()" style="flex:1;padding:10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer;">取消</button>
+      </div>
+      <div id="edit-profile-error" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  window._selectedAvatarColor = profile.avatar_color || '#7c6fff';
+  document.getElementById('edit-profile-name').focus();
+}
+
+function selectAvatarColor(color, el) {
+  window._selectedAvatarColor = color;
+  document.querySelectorAll('[data-color]').forEach(d => d.style.border = '3px solid transparent');
+  el.style.border = '3px solid #fff';
+}
+
+async function saveEditProfile(profileId) {
+  const name = document.getElementById('edit-profile-name')?.value.trim();
+  const avatar_color = window._selectedAvatarColor;
+  const errorEl = document.getElementById('edit-profile-error');
+
+  if (!name) { errorEl.textContent = '名字不能为空'; errorEl.style.display = 'block'; return; }
+
+  try {
+    const resp = await fetch(`${API_BASE}/profiles/${profileId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accountToken}` },
+      body: JSON.stringify({ name, avatar_color })
+    });
+    if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || '保存失败'); }
+
+    // 更新本地 cloudProfiles
+    const idx = cloudProfiles.findIndex(p => p.id === profileId);
+    if (idx >= 0) { cloudProfiles[idx].name = name; cloudProfiles[idx].avatar_color = avatar_color; }
+    chrome.storage.local.set({ [CLOUD_KEYS.PROFILE_NAME]: name });
+
+    closeModal();
+    await setupDevicesPage();
+    showToast('档案已更新');
+  } catch (e) {
+    if (errorEl) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+  }
+}
+
+// ── 修改密码弹窗 ─────────────────────────────────────────────────────
+function showChangePasswordModal() {
+  const overlay = createModalOverlay();
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <h3 style="margin-bottom:20px;">修改密码</h3>
+      <div class="form-group">
+        <label>当前密码</label>
+        <input type="password" id="pw-old" placeholder="当前密码">
+      </div>
+      <div class="form-group">
+        <label>新密码</label>
+        <input type="password" id="pw-new" placeholder="至少6位">
+      </div>
+      <div class="form-group">
+        <label>确认新密码</label>
+        <input type="password" id="pw-new2" placeholder="再次输入新密码">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:24px;">
+        <button onclick="doChangePassword()" class="btn-primary" style="flex:1;">确认修改</button>
+        <button onclick="closeModal()" style="flex:1;padding:10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer;">取消</button>
+      </div>
+      <div id="pw-change-error" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
+      <div id="pw-change-ok" style="color:var(--green);font-size:12px;margin-top:8px;display:none;"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('pw-old').focus();
+}
+
+async function doChangePassword() {
+  const oldPassword = document.getElementById('pw-old')?.value;
+  const newPassword = document.getElementById('pw-new')?.value;
+  const newPassword2 = document.getElementById('pw-new2')?.value;
+  const errorEl = document.getElementById('pw-change-error');
+  const okEl = document.getElementById('pw-change-ok');
+
+  errorEl.style.display = 'none';
+  okEl.style.display = 'none';
+
+  if (!oldPassword || !newPassword) { errorEl.textContent = '请填写所有字段'; errorEl.style.display = 'block'; return; }
+  if (newPassword.length < 6) { errorEl.textContent = '新密码至少6位'; errorEl.style.display = 'block'; return; }
+  if (newPassword !== newPassword2) { errorEl.textContent = '两次密码不一致'; errorEl.style.display = 'block'; return; }
+
+  try {
+    const resp = await fetch(`${API_BASE}/auth/change-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accountToken}` },
+      body: JSON.stringify({ oldPassword, newPassword })
+    });
+    if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || '修改失败'); }
+
+    okEl.textContent = '密码已修改，请重新登录';
+    okEl.style.display = 'block';
+
+    // 清除本地凭据，3秒后重新绑定流程
+    await new Promise(resolve => chrome.storage.local.set({
+      [CLOUD_KEYS.CREDENTIALS]: null,
+      [CLOUD_KEYS.ACCOUNT_TOKEN]: null,
+    }, resolve));
+
+    setTimeout(() => { closeModal(); location.reload(); }, 2000);
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+// ── 退出登录 ─────────────────────────────────────────────────────────
+async function confirmLogout() {
+  if (!confirm('确定要退出登录吗？\n\n退出后需要重新输入账号密码登录。')) return;
+
+  await new Promise(resolve => chrome.storage.local.set({
+    [CLOUD_KEYS.CREDENTIALS]: null,
+    [CLOUD_KEYS.ACCOUNT_TOKEN]: null,
+  }, resolve));
+  try { await sendMsg({ type: 'CLOUD_LOGOUT' }); } catch (e) {}
+  location.reload();
+}
+
+// ── 删除档案 ─────────────────────────────────────────────────────────
+async function confirmDeleteProfile() {
+  const storage = await new Promise(resolve =>
+    chrome.storage.local.get([CLOUD_KEYS.PROFILE_ID], resolve)
+  );
+  const profileId = storage[CLOUD_KEYS.PROFILE_ID];
+  const profile = cloudProfiles.find(p => p.id === profileId);
+  if (!profile) return;
+
+  const input = prompt(`危险操作：删除孩子档案「${profile.name}」\n\n此操作不可撤销，将删除所有配置和统计数据。\n请输入孩子名字「${profile.name}」确认：`);
+  if (input?.trim() !== profile.name) {
+    if (input !== null) alert('名字不匹配，已取消');
+    return;
+  }
+
+  try {
+    const resp = await fetch(`${API_BASE}/profiles/${profileId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${accountToken}` }
+    });
+    if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || '删除失败'); }
+
+    // 清除本地绑定信息
+    await new Promise(resolve => chrome.storage.local.set({
+      [CLOUD_KEYS.DEVICE_TOKEN]: null,
+      [CLOUD_KEYS.PROFILE_ID]: null,
+      [CLOUD_KEYS.PROFILE_NAME]: null,
+      [CLOUD_KEYS.IS_BOUND]: false,
+    }, resolve));
+    try { await sendMsg({ type: 'CLOUD_LOGOUT' }); } catch (e) {}
+
+    alert(`档案「${profile.name}」已删除`);
+    location.reload();
+  } catch (e) {
+    alert('删除失败：' + e.message);
+  }
+}
+
+// ── 弹窗工具 ─────────────────────────────────────────────────────────
+function createModalOverlay() {
+  const existing = document.getElementById('modal-overlay');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-overlay';
+  overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000;`;
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+  return overlay;
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay')?.remove();
+}
+
+window.showEditProfileModal = showEditProfileModal;
+window.selectAvatarColor = selectAvatarColor;
+window.saveEditProfile = saveEditProfile;
+window.showChangePasswordModal = showChangePasswordModal;
+window.doChangePassword = doChangePassword;
+window.confirmLogout = confirmLogout;
+window.confirmDeleteProfile = confirmDeleteProfile;
+window.closeModal = closeModal;
 
 // 全局函数（供 HTML onclick 调用）
 window.bindToProfile = bindToProfile;
