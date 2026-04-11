@@ -82,7 +82,7 @@ async function sendEmail(
     },
     body: JSON.stringify({
       // 配置好 Resend 域名后替换 from 地址
-      from: 'TimeOnChrome <notify@timeonchrome.app>',
+      from: 'TimeOnChrome <notify@hornburg-xia.cn>',
       to: [to],
       subject,
       html,
