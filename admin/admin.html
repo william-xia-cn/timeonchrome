@@ -840,6 +840,26 @@
         <p id="overview-date"></p>
       </div>
 
+      <!-- 模式切换 -->
+      <div class="card" id="mode-switch-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div id="mode-label" style="font-size:15px;font-weight:600;">加载中...</div>
+            <div id="mode-desc" style="font-size:12px;color:var(--muted);margin-top:3px;"></div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="btn-study-mode" onclick="switchMode('study')"
+              style="padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s;">
+              📚 学习
+            </button>
+            <button id="btn-rest-mode" onclick="switchMode('rest')"
+              style="padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s;">
+              ☕ 休息
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- 激励摘要 -->
       <div class="card" id="overview-summary" style="border-left:3px solid var(--accent);">
         <div id="summary-text" style="font-size:14px;line-height:1.8;color:var(--text);">加载中...</div>

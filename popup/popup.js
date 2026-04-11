@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await init();
 
+  // 初始化模式按钮状态
+  await renderModeButtons();
+
   // 详情链接 → 打开 admin 面板
   document.getElementById('detail-link').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
@@ -37,6 +40,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+async function renderModeButtons() {
+  const session = await sendMsg({ type: 'GET_SESSION' });
+  const mode = session?.currentMode || 'study';
+  const studyBtn = document.getElementById('btn-study');
+  const restBtn  = document.getElementById('btn-rest');
+  studyBtn.className = 'mode-btn' + (mode === 'study' ? ' active-study' : '');
+  restBtn.className  = 'mode-btn' + (mode === 'rest'  ? ' active-rest'  : '');
+}
+
+window.setMode = async (mode) => {
+  const type = mode === 'study' ? 'SWITCH_TO_STUDY' : 'SWITCH_TO_REST';
+  await sendMsg({ type });
+  await renderModeButtons();
+};
 
 async function init() {
   // 并行获取所需数据

@@ -539,7 +539,7 @@ const DEFAULT_CONFIG = {
   },
   autoStudyConfig: {
     enabled: true,
-    requiredSeconds: 60  // 60秒自动切换（6次心跳 x 10秒）
+    requiredSeconds: 90  // 90秒自动切换
   },
   // 临时白名单配置
   tempWhitelistConfig: {

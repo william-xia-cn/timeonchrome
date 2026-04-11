@@ -130,6 +130,35 @@
     .detail-link:hover { color: var(--text); }
 
     .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
+
+    /* 模式切换 */
+    .mode-bar {
+      margin: 10px 16px 0;
+      display: flex;
+      gap: 8px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 9px 0;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-btn.active-study {
+      background: rgba(124,111,255,0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .mode-btn.active-rest {
+      background: rgba(251,191,36,0.12);
+      border-color: var(--warn);
+      color: var(--warn);
+    }
   </style>
 </head>
 <body>
@@ -148,6 +177,12 @@
     <div style="margin-top:10px;">
       <a id="goto-admin-btn" style="font-size:12px;color:#7c6fff;cursor:pointer;text-decoration:none;border:1px solid rgba(124,111,255,0.4);padding:4px 12px;border-radius:6px;">前往管理面板 →</a>
     </div>
+  </div>
+
+  <!-- 模式切换 -->
+  <div class="mode-bar">
+    <button class="mode-btn" id="btn-study" onclick="setMode('study')">📚 学习模式</button>
+    <button class="mode-btn" id="btn-rest"  onclick="setMode('rest')">☕ 休息模式</button>
   </div>
 
   <!-- 激励摘要 -->
