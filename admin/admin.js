@@ -952,6 +952,49 @@ function renderRulesPage() {
     });
   }
 
+  // ── 每日时长限制（只读展示）────────────────────────────────────────
+  const quotaLimitsEl = document.getElementById('quota-limits-display');
+  if (quotaLimitsEl) {
+    const fmtQuota = (mins) => {
+      if (!mins || mins <= 0) return '<span style="color:var(--muted);">不限制</span>';
+      if (mins >= 60) {
+        const h = Math.floor(mins / 60), m = mins % 60;
+        return `<span style="color:var(--accent);font-weight:600;">${h}小时${m > 0 ? m + '分' : ''}</span>`;
+      }
+      return `<span style="color:var(--accent);font-weight:600;">${mins}分钟</span>`;
+    };
+    const rows = [
+      { label: '每日在线上限',   sub: '所有网站累计',   val: config.dailyOnlineQuota },
+      { label: '每日学习上限',   sub: '学习网站累计',   val: config.dailyStudyQuota  },
+      { label: '每日休息上限',   sub: '娱乐网站累计',   val: config.dailyRestQuota   },
+    ];
+    quotaLimitsEl.innerHTML = rows.map((r, i) => `
+      <div class="quota-row" style="display:flex;align-items:center;justify-content:space-between;
+           padding:12px 0;${i < rows.length-1 ? 'border-bottom:1px solid var(--border);' : ''}">
+        <div>
+          <div style="font-size:14px;">${r.label}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.sub}</div>
+        </div>
+        <div>${fmtQuota(r.val)}</div>
+      </div>`).join('');
+  }
+
+  // ── 临时放行时长（只读展示）────────────────────────────────────────
+  const tempAllowEl = document.getElementById('temp-allow-display');
+  if (tempAllowEl) {
+    const duration = config.tempWhitelistConfig?.duration || 60;
+    const h = Math.floor(duration / 60), m = duration % 60;
+    const label = h > 0 ? `${h}小时${m > 0 ? m + '分' : ''}` : `${m}分钟`;
+    tempAllowEl.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+        <div style="font-size:14px;color:var(--muted);">申请后有效时长</div>
+        <div style="font-size:18px;font-weight:700;color:var(--accent);">${label}</div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+        每次申请临时放行后，有效期为 <b style="color:var(--text);">${label}</b>，到期自动恢复拦截。
+      </div>`;
+  }
+
   // ── 上网时间段（并入访问规则）──────────────────────────────────────
   const schedule = config.schedule || {};
   const schedEnabled = schedule.enabled;

@@ -512,7 +512,7 @@ const DEFAULT_CONFIG = {
   // 每日时长配额（分钟，0 = 不限制）
   dailyOnlineQuota: 1200,  // 每日在线时长上限：20小时
   dailyStudyQuota:  480,   // 每日在线学习时长上限：8小时
-  dailyRestQuota:   120,   // 每日在线休息时长上限：2小时
+  dailyRestQuota:   180,   // 每日在线休息时长上限：3小时
   domainQuotas: {},
   // 配额锁定状态（每日重置）
   quotaState: { onlineLocked: false, studyLocked: false, restLocked: false },
@@ -543,7 +543,7 @@ const DEFAULT_CONFIG = {
   },
   // 临时白名单配置
   tempWhitelistConfig: {
-    duration: 1  // 默认1分钟（测试用）
+    duration: 60  // 默认60分钟
   },
   // 临时白名单数据
   tempWhitelist: {
