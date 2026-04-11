@@ -15,3 +15,6 @@ bucket_name = "guardian-sessions"
 [[kv_namespaces]]
 binding = "CONFIG_CACHE"
 id = "c9aac68bf121480f898564eb1b166295"
+
+# Resend 邮件 API key（在 Cloudflare 控制台设置 secret，不要明文写在这里）
+# wrangler secret put RESEND_API_KEY

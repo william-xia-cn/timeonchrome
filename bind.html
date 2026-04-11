@@ -107,6 +107,17 @@
       padding: 20px;
       color: #86868b;
     }
+    .welcome-banner {
+      background: linear-gradient(135deg, #7c6fff22, #6c63ff11);
+      border: 1px solid #7c6fff44;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: #4a3fcc;
+      line-height: 1.6;
+    }
+    .welcome-banner strong { display: block; font-size: 15px; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -114,6 +125,12 @@
     <h1>TimeOnChrome</h1>
     <p class="subtitle">设备绑定</p>
     
+    <!-- 欢迎引导（仅首次安装时显示） -->
+    <div id="welcomeBanner" class="welcome-banner" style="display:none">
+      <strong>欢迎使用 TimeOnChrome 👋</strong>
+      三步完成设置：① 登录家长账号 &nbsp;② 选择孩子档案 &nbsp;③ 绑定此设备
+    </div>
+
     <!-- Step 1: 登录 -->
     <div id="step1" class="step active">
       <div class="form-group">
@@ -153,6 +170,11 @@
   <script src="config.js"></script>
   <script src="auth.js"></script>
   <script>
+    // 首次安装时显示欢迎横幅
+    if (new URLSearchParams(location.search).get('welcome') === '1') {
+      document.getElementById('welcomeBanner').style.display = 'block';
+    }
+
     let accountToken = null;
     let profiles = [];
     let selectedProfileId = null;

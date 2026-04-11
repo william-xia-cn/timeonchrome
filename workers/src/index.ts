@@ -7,6 +7,7 @@ import { deviceRouter } from './routes/device';
 import { statsRouter } from './routes/stats';
 import { sessionsRouter } from './routes/sessions';
 import { changelogRouter } from './routes/changelog';
+import { eventsRouter } from './routes/events';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -99,7 +100,7 @@ export default {
         return await profilesRouter.handle(request, env);
       } else if (path === '/device/heartbeat') {
         return await deviceRouter.handle(request, env);
-      } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog')) {
+      } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog') || path === '/device/events') {
         // 设备端 API（device_token 鉴权）
         if (path.startsWith('/device/stats')) {
           return await statsRouter.handle(request, env);
@@ -107,6 +108,8 @@ export default {
           return await sessionsRouter.handle(request, env);
         } else if (path.startsWith('/device/changelog')) {
           return await changelogRouter.handle(request, env);
+        } else if (path === '/device/events') {
+          return await eventsRouter.handle(request, env);
         }
       } else if (path.startsWith('/device/')) {
         return await deviceRouter.handle(request, env);

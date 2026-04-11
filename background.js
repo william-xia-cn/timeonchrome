@@ -757,6 +757,35 @@ async function addTempWhitelist(domain) {
   return { domain, expiresAt };
 }
 
+/**
+ * 临时豁免：绕过配额锁定或时间段限制
+ * exemptType: 'quota' | 'schedule'
+ */
+async function addTempExemption(exemptType, domain) {
+  const config = await getConfig();
+  const duration = config.tempWhitelistConfig?.duration || 1;
+  const expiresAt = Date.now() + duration * 60 * 1000;
+
+  if (!config.tempExemptions) {
+    config.tempExemptions = { quotaUntil: 0, scheduleUntil: 0 };
+  }
+
+  if (exemptType === 'quota') {
+    config.tempExemptions.quotaUntil = expiresAt;
+  } else if (exemptType === 'schedule') {
+    config.tempExemptions.scheduleUntil = expiresAt;
+  }
+
+  // 对于单域名配额锁定，也加入 tempWhitelist（双重保障）
+  if (domain && domain !== 'all') {
+    if (!config.tempWhitelist) config.tempWhitelist = { domains: {}, records: [] };
+    config.tempWhitelist.domains[domain] = expiresAt;
+  }
+
+  await saveConfig(config);
+  return { expiresAt };
+}
+
 async function cleanExpiredTempWhitelist() {
   const config = await getConfig();
   if (!config.tempWhitelist || !config.tempWhitelist.domains) return false;
@@ -1262,6 +1291,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     const config = { ...DEFAULT_CONFIG };
     await saveConfig(config);
     await saveSession({ ...DEFAULT_SESSION });
+    // 首次安装：打开引导页
+    chrome.tabs.create({ url: chrome.runtime.getURL('bind.html') + '?welcome=1' });
   } else if (details.reason === 'update') {
     const stored = await new Promise(resolve => {
       chrome.storage.local.get([CONFIG_KEY, HASH_KEY], resolve);
@@ -1327,7 +1358,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await cleanOldSessions();
     await resetDailyLockedDomains();
   } else if (alarm.name === 'keepalive') {
-    // 仅防 SW 休眠
+    // 防 SW 休眠 + 每 30 秒持久化一次当前计时，减少 SW 意外终止时的数据丢失
+    await flushActiveTime();
+    resumeActiveTime();
   } else if (alarm.name === 'rest_reminder') {
     await handleRestReminder();
   } else if (alarm.name === 'rest_forced') {
@@ -1461,8 +1494,15 @@ async function checkAndBlock(tabId, url) {
   const domain = extractDomain(url);
   if (!domain) return false;
 
-  // 1. 检查时间段限制
+  // 0. 预计算临时豁免（供后续所有检查使用）
+  const _now = Date.now();
+  const _isTempAllowed    = config.tempWhitelist?.domains?.[domain] > _now;
+  const _isQuotaExempt    = (config.tempExemptions?.quotaUntil    || 0) > _now;
+  const _isScheduleExempt = (config.tempExemptions?.scheduleUntil || 0) > _now;
+
+  // 1. 检查时间段限制（临时豁免可绕过）
   if (config.schedule.enabled && !isWithinSchedule(config.schedule)) {
+    if (_isScheduleExempt || _isTempAllowed) return false;
     await blockTab(tabId, domain, 'schedule', config.blockMessage);
     return true;
   }
@@ -1488,7 +1528,11 @@ async function checkAndBlock(tabId, url) {
     }
   }
 
-  // 4. 检查配额锁定状态
+  // 4. 检查配额锁定状态（临时豁免可绕过）
+  if (_isTempAllowed || _isQuotaExempt) {
+    return false; // 临时豁免，放行
+  }
+
   const qs = config.quotaState || {};
   if (qs.onlineLocked) {
     await blockTab(tabId, domain, 'quota_online', config.blockMessage);
@@ -1861,12 +1905,23 @@ async function handleMessage(msg, sender) {
     case 'ADD_TEMP_WHITELIST':
       return await addTempWhitelist(msg.domain);
 
+    case 'ADD_TEMP_EXEMPTION':
+      return await addTempExemption(msg.exemptType, msg.domain);
+
     case 'GET_TEMP_WHITELIST':
       return await getTempWhitelist();
 
     case 'CLEAN_TEMP_WHITELIST':
       await cleanExpiredTempWhitelist();
       return { ok: true };
+
+    // 云端事件上报（fire-and-forget）
+    case 'SEND_CLOUD_EVENT': {
+      const { eventType, domain: evtDomain = '' } = msg;
+      cloudRequest('POST', '/device/events', { type: eventType, domain: evtDomain })
+        .catch(() => {}); // 不影响主流程
+      return { ok: true };
+    }
 
     // ── 云端同步相关 ─────────────────────────────────────────
     case 'CLOUD_BIND': {
