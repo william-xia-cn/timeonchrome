@@ -760,21 +760,6 @@
         grid-template-columns: 1fr;
       }
     }
-
-    /* ── 弹窗 ── */
-    .modal-box {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 32px;
-      width: 360px;
-      max-width: 90vw;
-    }
-    .modal-box h3 { font-size: 18px; font-weight: 600; }
-    .modal-box .form-group { margin-bottom: 16px; text-align: left; }
-    .modal-box label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .modal-box input { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; color: var(--text); font-size: 14px; outline: none; }
-    .modal-box input:focus { border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -1036,28 +1021,6 @@
         <p>当前设备与云端的连接状态</p>
       </div>
 
-      <!-- 当前账户信息 -->
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">云端账户</div>
-            <div class="card-subtitle">当前登录的家长账户</div>
-          </div>
-          <div id="account-info" style="font-size:13px;color:var(--accent);">加载中...</div>
-        </div>
-      </div>
-
-      <!-- 已绑定的孩子 -->
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">绑定档案</div>
-            <div class="card-subtitle">本设备管控的孩子</div>
-          </div>
-        </div>
-        <div id="profiles-list">加载中...</div>
-      </div>
-
       <!-- 同步状态 -->
       <div class="card">
         <div class="card-header">
@@ -1067,12 +1030,6 @@
           </div>
         </div>
         <div id="sync-status">加载中...</div>
-      </div>
-
-      <!-- 账户操作 -->
-      <div class="card">
-        <div class="card-header"><div class="card-title">账户管理</div></div>
-        <div id="account-actions">加载中...</div>
       </div>
     </div>
 
