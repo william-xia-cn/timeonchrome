@@ -29,12 +29,71 @@ export async function getJson<T>(request: Request): Promise<T> {
 export function parseAuth(request: Request): { type: string; token: string } | null {
   const auth = request.headers.get('Authorization');
   if (!auth) return null;
-  
+
   const [type, token] = auth.split(' ');
   if (type === 'Bearer') {
     return { type: 'bearer', token };
   }
   return null;
+}
+
+// ── JWT 工具（HMAC-SHA256）────────────────────────────────────────────────
+
+function b64url(buf: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function hmacKey(secret: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+/** 生成 HMAC-SHA256 签名的 JWT */
+export async function generateToken(payload: object, secret: string): Promise<string> {
+  const header  = b64url(new TextEncoder().encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const body    = b64url(new TextEncoder().encode(JSON.stringify(payload)));
+  const data    = `${header}.${body}`;
+  const key     = await hmacKey(secret);
+  const sigBuf  = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data));
+  return `${data}.${b64url(sigBuf)}`;
+}
+
+/** 验证 JWT，返回 payload 或 null */
+export async function verifyToken(token: string, secret: string): Promise<Record<string, any> | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const [header, body, sig] = parts;
+    const data    = `${header}.${body}`;
+    const key     = await hmacKey(secret);
+
+    // base64url → Uint8Array
+    const sigBytes = Uint8Array.from(
+      atob(sig.replace(/-/g, '+').replace(/_/g, '/')),
+      c => c.charCodeAt(0)
+    );
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(data));
+    if (!valid) return null;
+
+    return JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return null;
+  }
+}
+
+/** 从 Authorization: Bearer <token> 中提取并验证 account_token，返回 account_id */
+export async function verifyAccountToken(request: Request, secret: string): Promise<string | null> {
+  const auth = request.headers.get('Authorization');
+  if (!auth?.startsWith('Bearer ')) return null;
+  const payload = await verifyToken(auth.slice(7), secret);
+  return payload?.account_id ?? null;
 }
 
 // Env 类型

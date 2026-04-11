@@ -126,27 +126,47 @@ async function cloudRequest(method, path, body = null, retries = 3) {
 
 /**
  * 拉取云端配置
+ * 仅当云端版本号比本地更新时才覆盖本地配置
  */
 async function pullCloudConfig() {
   try {
     const result = await cloudRequest('GET', '/device/config');
-    
+
     if (result.data) {
-      // 保存到本地
+      const cloudVersion = result.version || 0;
+
+      // 版本未更新，跳过覆盖
+      if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion) {
+        console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
+        // 仍然更新 lastSync 时间
+        await storageSet({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
+        return false;
+      }
+
+      // 保存云端快照
       await storageSet({
         [CLOUD_CONFIG.KEYS.LOCAL_CONFIG]: result.data,
-        [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: result.version,
+        [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: cloudVersion,
         [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now()
       });
-      
-      // 合并到本地配置
+
+      // 合并到本地配置（云端字段优先，但保留本地独有字段）
       const localConfig = await getConfig();
-      const mergedConfig = { ...localConfig, ...result.data };
+      const mergedConfig = {
+        ...localConfig,
+        ...result.data,
+        // 以下字段始终保持本地值（设备运行时状态，不跟随云端）
+        adminPasswordHash: localConfig.adminPasswordHash,
+        isInitialized:     localConfig.isInitialized,
+        tempWhitelist:     localConfig.tempWhitelist,
+        lockedDomains:     localConfig.lockedDomains,
+        quotaState:        localConfig.quotaState,   // 配额锁定状态是本地计时结果，不从云端同步
+      };
       await saveConfig(mergedConfig);
       await updateDeclarativeRules(mergedConfig);
-      
-      syncState.lastConfigVersion = result.version;
-      console.log('[Cloud] Config pulled, version:', result.version);
+
+      syncState.lastConfigVersion = cloudVersion;
+      console.log('[Cloud] Config updated, version:', cloudVersion);
       return true;
     }
   } catch (e) {
@@ -156,67 +176,71 @@ async function pullCloudConfig() {
 }
 
 /**
- * 统计域名聚合（将详细的访问记录转为简洁格式）
+ * 读取指定日期的统计并转为上传格式
+ * storage 格式：{ "stats_2026-04-10": { "github.com": 120, "youtube.com": 60 } }
+ * 上传格式：[{ domain, active_sec, passive_sec }]
  */
-function aggregateStats(statsObj) {
-  const aggregated = {};
-  const today = new Date().toISOString().split('T')[0];
-  
-  // 读取今日统计
-  const key = `${STATS_KEY_PREFIX}${today}`;
-  const todayStats = statsObj[key] || {};
-  
-  for (const [domain, data] of Object.entries(todayStats)) {
-    if (!aggregated[domain]) {
-      aggregated[domain] = { domain, active_sec: 0, passive_sec: 0 };
-    }
-    aggregated[domain].active_sec += data.activeTime || 0;
-    aggregated[domain].passive_sec += data.passiveTime || 0;
-  }
-  
-  return Object.values(aggregated);
+function extractStatsForDate(statsObj, dateStr) {
+  const key = `${STATS_KEY_PREFIX}${dateStr}`;
+  const dayStats = statsObj[key] || {};
+  return Object.entries(dayStats)
+    .filter(([, sec]) => typeof sec === 'number' && sec > 0)
+    .map(([domain, sec]) => ({ domain, active_sec: sec, passive_sec: 0 }));
 }
 
 /**
  * 上传统计到云端
+ * 每次同步将「近7天内有数据但还未成功上传」的日期全部上传
  */
 async function uploadStats() {
   try {
+    const statsStorage = await storageGet(null);
     const storage = await storageGet(CLOUD_CONFIG.KEYS.PENDING_STATS);
     let pendingStats = storage[CLOUD_CONFIG.KEYS.PENDING_STATS] || {};
-    
-    // 如果没有待上传的，尝试上传今日统计
-    const today = new Date().toISOString().split('T')[0];
-    if (!pendingStats[today]) {
-      const statsStorage = await storageGet(null);
-      const todayStats = aggregateStats(statsStorage);
-      if (todayStats.length > 0) {
-        pendingStats[today] = { stats: todayStats, timestamp: Date.now() };
+
+    // 扫描近7天，把本地有记录但不在 pendingStats 里的日期加入队列
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = formatDate(d);
+      if (!pendingStats[dateStr]) {
+        const dayData = extractStatsForDate(statsStorage, dateStr);
+        if (dayData.length > 0) {
+          pendingStats[dateStr] = { stats: dayData, timestamp: Date.now() };
+        }
+      } else {
+        // 今天的数据每次都刷新（累计到最新）
+        if (i === 0) {
+          const dayData = extractStatsForDate(statsStorage, dateStr);
+          if (dayData.length > 0) {
+            pendingStats[dateStr] = { stats: dayData, timestamp: Date.now() };
+          }
+        }
       }
     }
-    
+
     const dates = Object.keys(pendingStats);
     if (dates.length === 0) {
       console.log('[Cloud] No stats to upload');
       return;
     }
-    
+
     console.log('[Cloud] Uploading stats for:', dates);
-    
+
     for (const date of dates) {
-      const { stats, timestamp } = pendingStats[date];
+      const { stats } = pendingStats[date];
       try {
         await cloudRequest('POST', '/device/stats', { date, stats });
         delete pendingStats[date];
-        console.log('[Cloud] Stats uploaded:', date);
+        console.log('[Cloud] Stats uploaded:', date, `(${stats.length} domains)`);
       } catch (e) {
         console.error('[Cloud] Failed to upload stats for', date, e.message);
       }
     }
-    
-    // 保存剩余待上传
+
+    // 保存剩余待上传（上传失败的留着下次重试）
     await storageSet({ [CLOUD_CONFIG.KEYS.PENDING_STATS]: pendingStats });
-    
+
   } catch (e) {
     console.error('[Cloud] Failed to upload stats:', e.message);
   }
@@ -228,8 +252,7 @@ async function uploadStats() {
 async function getTodaySessionData() {
   const storage = await storageGet(VISIT_SESSIONS_KEY);
   const sessions = storage[VISIT_SESSIONS_KEY] || [];
-  const today = new Date().toISOString().split('T')[0];
-  
+  const today = getDateKey();
   return sessions.filter(s => s.date === today);
 }
 
@@ -244,7 +267,7 @@ async function uploadSessions() {
       return;
     }
     
-    const today = new Date().toISOString().split('T')[0];
+    const today = getDateKey();
     await cloudRequest('POST', '/device/sessions/upload', { date: today, sessions });
     console.log('[Cloud] Sessions uploaded:', sessions.length);
     
@@ -266,6 +289,49 @@ async function uploadChangelog(action, beforeData, afterData) {
     console.log('[Cloud] Changelog uploaded:', action);
   } catch (e) {
     console.error('[Cloud] Failed to upload changelog:', e.message);
+  }
+}
+
+/**
+ * 推送本地配置到云端（本地修改后立即同步）
+ * 只推送 profile 配置字段，不包含本地敏感数据
+ */
+async function pushConfigToCloud(config) {
+  if (!syncState.deviceToken || !syncState.profileId) return false;
+  try {
+    // 提取需要同步到云端的字段（排除本地专用数据）
+    // 注意：quotaState / lockedDomains / tempWhitelist 是设备本地状态，不上传
+    const cloudData = {
+      mode:               config.mode,
+      enabled:            config.enabled,
+      studyList:          config.studyList,
+      allowList:          config.allowList,
+      blacklist:          config.blacklist,
+      dailyOnlineQuota:   config.dailyOnlineQuota,
+      dailyStudyQuota:    config.dailyStudyQuota,
+      dailyRestQuota:     config.dailyRestQuota,
+      domainQuotas:       config.domainQuotas,
+      schedule:           config.schedule,
+      restConfig:         config.restConfig,
+      autoStudyConfig:    config.autoStudyConfig,
+      tempWhitelistConfig:config.tempWhitelistConfig,
+      interceptAction:    config.interceptAction,
+      blockMessage:       config.blockMessage,
+      version:            config.version,
+    };
+
+    const result = await cloudRequest('PUT', '/device/config', { data: cloudData });
+    console.log('[Cloud] Config pushed to cloud');
+
+    // 更新本地版本号
+    if (result?.version) {
+      syncState.lastConfigVersion = result.version;
+      await storageSet({ [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: result.version });
+    }
+    return true;
+  } catch (e) {
+    console.error('[Cloud] Failed to push config:', e.message);
+    return false;
   }
 }
 
@@ -296,6 +362,21 @@ async function syncNow() {
 }
 
 /**
+ * 心跳：通知云端设备在线，更新 last_seen
+ * 每5分钟触发一次，轻量级请求
+ */
+async function sendHeartbeat() {
+  if (!syncState.deviceToken) return;
+  try {
+    await cloudRequest('POST', '/device/heartbeat');
+    console.log('[Cloud] Heartbeat sent');
+  } catch (e) {
+    // 心跳失败静默处理，不影响主流程
+    console.warn('[Cloud] Heartbeat failed:', e.message);
+  }
+}
+
+/**
  * 定时 Session 上传（每天8点）
  */
 async function scheduledSessionUpload() {
@@ -312,6 +393,11 @@ chrome.alarms.create('cloudSync', {
   periodInMinutes: 15
 });
 
+// 每5分钟发一次心跳
+chrome.alarms.create('cloudHeartbeat', {
+  periodInMinutes: 5
+});
+
 // 每小时检查是否需要上传 Session
 chrome.alarms.create('sessionUploadCheck', {
   periodInMinutes: 60
@@ -321,6 +407,8 @@ chrome.alarms.create('sessionUploadCheck', {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'cloudSync') {
     await syncNow();
+  } else if (alarm.name === 'cloudHeartbeat') {
+    await sendHeartbeat();
   } else if (alarm.name === 'sessionUploadCheck') {
     await scheduledSessionUpload();
   }
@@ -377,40 +465,47 @@ const DEFAULT_CONFIG = {
     'google.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com', 'slides.google.com', 'meet.google.com', 'calendar.google.com', 'classroom.google.com', 'keep.google.com', 'colab.research.google.com',
     'office.com', 'onenote.com', 'outlook.live.com', 'planner.microsoft.com', 'to-do.office.com', 'teams.microsoft.com',
     // AI 增强与学术研究
-    'openai.com', 'claude.ai', 'gemini.google.com', 'poe.com', 'perplexity.ai', 'notebooklm.google.com', 'elicit.org', 'consensus.app', 'scite.ai', 'wolframalpha.com', 'gamma.app', 'deepel.com',
+    'openai.com', 'claude.ai', 'gemini.google.com', 'poe.com', 'perplexity.ai', 'notebooklm.google.com', 'elicit.org', 'consensus.app', 'scite.ai', 'wolframalpha.com', 'gamma.app',
     // 语言强化与写作辅助
     'quizlet.com', 'noredink.com', 'membean.com', 'achieve3000.com', 'quillbot.com', 'grammarly.com', 'overleaf.com', 'zotero.org', 'mendeley.com', 'owl.purdue.edu', 'citationmachine.net',
     // IB 专项资源
     'ibo.org', 'managebac.com', 'kognity.com', 'revisionvillage.com', 'savemyexams.com', 'ibdocuments.com', 'ibsurvival.com', 'lanterna.com', 'thinking.net', 'bioninja.com.au', 'theoryofknowledge.net',
     // 通用学习与在线课程
-    'khanacademy.org', 'ocw.mit.edu', 'coursera.org', 'edx.org', 'brilliant.org', 'udemy.com', 'futurelearn.com', 'educs.me', 'revisiontown.com', 'afficientA.com', 'britannica.com',
+    'khanacademy.org', 'ocw.mit.edu', 'coursera.org', 'edx.org', 'brilliant.org', 'udemy.com', 'futurelearn.com', 'britannica.com',
     // 数学、物理与实验模拟
-    'desmos.com', 'geogebra.org', 'symbolab.com', 'mathway.com', 'hyperphysics.phy-astr.gsu.edu', 'physicsclassroom.com', 'physics.nist.gov', 'phet.colorado.edu', 'falstad.com', 'myphysicslab.com', 'logic.ly',
+    'desmos.com', 'geogebra.org', 'symbolab.com', 'mathway.com', 'physicsclassroom.com', 'phet.colorado.edu', 'falstad.com', 'myphysicslab.com', 'logic.ly',
     // 计算机科学与电子工程
-    'github.com', 'stackoverflow.com', 'leetcode.com', 'hackerrank.com', 'codingbat.com', 'replit.com', 'codepen.io', 'tinkercad.com', 'easyeda.com', 'kicad.org', 'arduino.cc', 'raspberrypi.com', 'hackaday.com', 'instructables.com',
+    'github.com', 'stackoverflow.com', 'leetcode.com', 'hackerrank.com', 'codingbat.com', 'replit.com', 'codepen.io', 'tinkercad.com', 'arduino.cc', 'raspberrypi.com', 'instructables.com',
     // 学术数据库与人文历史
-    'arxiv.org', 'scholar.google.com', 'jstor.org', 'researchgate.net', 'semanticscholar.org', 'pubmed.ncbi.nlm.nih.gov', 'nationalarchives.gov.uk', 'bl.uk', 'loc.gov', 'gutenberg.org', 'plato.stanford.edu',
+    'arxiv.org', 'scholar.google.com', 'jstor.org', 'researchgate.net', 'semanticscholar.org', 'pubmed.ncbi.nlm.nih.gov', 'gutenberg.org', 'plato.stanford.edu',
     // 视觉设计与创意
-    'canva.com', 'figma.com', 'adobe.com', 'photopea.com', 'pixlr.com', 'coolors.co', 'unsplash.com', 'pexels.com',
-    // 教育机构
-    'jhu.edu', 'collegeboard.org', 'basecamp.com',
+    'canva.com', 'figma.com', 'photopea.com', 'pixlr.com',
     // 效率工具
-    'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai', 'overleaf.com', 'github.com'
+    'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai',
+    // 教育认证
+    'collegeboard.org'
   ],
-  // 默认允许网站（新安装时自动加载）
+  // 默认允许网站（不计学习时长，可正常访问）
   allowList: [
-    // 搜索引擎/工具
-    'google.com', 'google.com.hk', 'bing.com', 'search.brave.com', 'duckduckgo.com', 'stackexchange.com', 'reddit.com',
+    // 搜索引擎
+    'google.com', 'google.com.hk', 'bing.com', 'baidu.com', 'search.brave.com', 'duckduckgo.com',
+    // 问答社区
+    'stackexchange.com', 'reddit.com',
     // 视频/音乐
-    'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com',
+    'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com', 'bilibili.com',
     // 百科/参考
-    'britannica.com', 'wolframalpha.com'
+    'wikipedia.org', 'britannica.com', 'wolframalpha.com'
   ],
   whitelist: [],
   // 默认黑名单（始终拦截）
-  blacklist: ['baidu.com', 'douyin.com'],
-  dailyQuota: 0,
+  blacklist: ['douyin.com', 'tiktok.com'],
+  // 每日时长配额（分钟，0 = 不限制）
+  dailyOnlineQuota: 1200,  // 每日在线时长上限：20小时
+  dailyStudyQuota:  480,   // 每日在线学习时长上限：8小时
+  dailyRestQuota:   120,   // 每日在线休息时长上限：2小时
   domainQuotas: {},
+  // 配额锁定状态（每日重置）
+  quotaState: { onlineLocked: false, studyLocked: false, restLocked: false },
   schedule: {
     enabled: false,
     days: {
@@ -451,11 +546,10 @@ const DEFAULT_CONFIG = {
 // ── 默认会话状态 ───────────────────────────────────────────────────────────────
 
 const DEFAULT_SESSION = {
-  currentMode: 'study',  // 当前模式：study 或 rest
-  lastActiveDate: null,   // 最后活跃日期（用于每日重置）
+  currentMode: 'study',       // 当前模式：study 或 rest
+  lastActiveDate: null,        // 最后活跃日期（用于每日重置）
   studySession: { totalSeconds: 0 },
-  restSession: { totalSeconds: 0 },
-  startTime: null
+  restSession:  { totalSeconds: 0 }
 };
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────
@@ -465,7 +559,11 @@ function getDateKey() {
 }
 
 function formatDate(date) {
-  return date.toISOString().split('T')[0];
+  // 使用本地时间，避免时区偏差（UTC+8 用户 0:00-8:00 会记到 UTC 昨天）
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function extractDomain(url) {
@@ -967,52 +1065,38 @@ async function restoreSession() {
   await saveSession(session);
 }
 
-// ── 状态管理（心跳模式：不再用 activeStartTime 推算，全靠 HEARTBEAT 累加）──────
+// ── 计时状态（新模型：纯事件驱动，background 自主计时）──────────────────────
 
 let activeTabId = null;
 let activeTabDomain = null;
+let windowHasFocus = true;        // Chrome 窗口是否有焦点
+let userIsIdle = false;           // 用户是否 idle（2分钟无操作）
+let domainActiveStartTime = null; // 条件A 开始计时的时间戳
 
-// ── Visit Session 跟踪状态 ───────────────────────────────────────────────────────
-let visitSessionStart = null;     // 当前访问会话开始时间戳
-let visitSessionDomain = null;  // 当前访问会话域名
-let visitActiveTime = 0;      // 主动交互秒数
-let visitPassiveTime = 0;     // 被动观看秒数
-let visitLastTick = 0;         // 上次心跳时间戳
+// 条件B：后台媒体播放的 tab 集合
+// tabId → { domain: string, lastFlushTime: number }
+const mediaPlayingTabs = new Map();
 
-// ── Visit Session 辅助函数 ───────────────────────────────────────────────────
+// ── Visit Session 跟踪状态 ────────────────────────────────────────────────────
+let visitSessionStart = null;
+let visitSessionDomain = null;
+let visitActiveSeconds = 0;   // 条件A 累计时间（主动使用）
+let visitPassiveSeconds = 0;  // 条件B 累计时间（后台媒体）
 
-function updateVisitSession(domain, state, now) {
-  // 新域名，开始新会话
-  if (visitSessionDomain !== domain) {
-    endVisitSession('new_session');
-    visitSessionStart = now;
-    visitSessionDomain = domain;
-    visitActiveTime = 0;
-    visitPassiveTime = 0;
-    visitLastTick = now;
-    return;
-  }
-  
-  // 计算时间增量
-  const elapsed = Math.floor((now - visitLastTick) / 1000);
-  if (elapsed <= 0) return;
-  
-  // 根据状态累加
-  if (state === 'active') {
-    visitActiveTime += elapsed;
-  } else {
-    visitPassiveTime += elapsed;
-  }
-  visitLastTick = now;
+// ── Visit Session 辅助函数 ────────────────────────────────────────────────────
+
+function updateVisitSession(domain, type, seconds) {
+  if (visitSessionDomain !== domain || seconds <= 0) return;
+  if (type === 'active') visitActiveSeconds += seconds;
+  else visitPassiveSeconds += seconds;
 }
 
 function endVisitSession(endReason) {
   if (!visitSessionDomain || !visitSessionStart) return;
-  
+
   const now = Date.now();
   const duration = Math.floor((now - visitSessionStart) / 1000);
-  
-  // 过滤短时长会话（< 10秒）
+
   if (duration >= MIN_SESSION_DURATION) {
     const session = {
       id: crypto.randomUUID(),
@@ -1021,20 +1105,152 @@ function endVisitSession(endReason) {
       startAt: visitSessionStart,
       endAt: now,
       duration,
-      activeTime: visitActiveTime,
-      passiveTime: visitPassiveTime,
-      visibleTime: duration,
+      activeTime: visitActiveSeconds,
+      passiveTime: visitPassiveSeconds,
       endReason
     };
     addVisitSession(session);
   }
-  
-  // 重置状态
+
   visitSessionStart = null;
   visitSessionDomain = null;
-  visitActiveTime = 0;
-  visitPassiveTime = 0;
-  visitLastTick = 0;
+  visitActiveSeconds = 0;
+  visitPassiveSeconds = 0;
+}
+
+// ── 核心计时函数 ──────────────────────────────────────────────────────────────
+
+/**
+ * 刷新条件A时间：把 domainActiveStartTime 到现在的秒数计入统计，然后清零起点。
+ * 返回本次刷新的秒数。
+ */
+async function flushActiveTime(now = Date.now()) {
+  if (!domainActiveStartTime || !activeTabDomain) return 0;
+  const elapsed = Math.floor((now - domainActiveStartTime) / 1000);
+  domainActiveStartTime = null;
+  if (elapsed <= 0) return 0;
+  await addDomainTime(activeTabDomain, elapsed);
+  updateVisitSession(activeTabDomain, 'active', elapsed);
+  return elapsed;
+}
+
+/**
+ * 恢复条件A计时：在状态满足（窗口有焦点 + 用户非 idle + 有激活域名）后调用。
+ */
+function resumeActiveTime() {
+  if (windowHasFocus && !userIsIdle && activeTabDomain) {
+    domainActiveStartTime = Date.now();
+  }
+}
+
+/**
+ * 开始新的 visit session（切换域名或 tab 时调用）。
+ */
+function beginVisitSession(domain) {
+  if (!domain) return;
+  visitSessionStart = Date.now();
+  visitSessionDomain = domain;
+  visitActiveSeconds = 0;
+  visitPassiveSeconds = 0;
+}
+
+/**
+ * tick_timer alarm 每分钟触发：flush 条件A余量，flush 条件B后台媒体。
+ */
+async function handleTickTimer() {
+  const now = Date.now();
+
+  // 条件A flush + 重置起点
+  if (domainActiveStartTime && activeTabDomain) {
+    const elapsed = Math.floor((now - domainActiveStartTime) / 1000);
+    if (elapsed > 0) {
+      await addDomainTime(activeTabDomain, elapsed);
+      updateVisitSession(activeTabDomain, 'active', elapsed);
+    }
+    domainActiveStartTime = (windowHasFocus && !userIsIdle) ? now : null;
+  }
+
+  // 条件B flush：只处理不被条件A覆盖的后台媒体 tab
+  for (const [tabId, info] of mediaPlayingTabs) {
+    if (tabId === activeTabId && windowHasFocus && !userIsIdle) continue;
+    const elapsed = Math.floor((now - info.lastFlushTime) / 1000);
+    if (elapsed > 0) {
+      await addDomainTime(info.domain, elapsed);
+      updateVisitSession(info.domain, 'passive', elapsed);
+      info.lastFlushTime = now;
+    }
+  }
+
+  // 检查自动切换学习模式
+  await checkAutoStudy();
+}
+
+// ── 自动切换学习模式 ──────────────────────────────────────────────────────────
+
+let autoStudyDomain = null;   // 正在计时的学习域名
+let autoStudyStartTime = null; // 计时开始时间
+
+async function checkAutoStudy() {
+  const session = await getSession();
+  if (session.currentMode !== 'rest') {
+    autoStudyDomain = null;
+    autoStudyStartTime = null;
+    return;
+  }
+
+  const config = await getConfig();
+  if (!config?.autoStudyConfig?.enabled) return;
+
+  const isOnStudySite = activeTabDomain &&
+    (config.studyList || []).some(w => matchDomain(activeTabDomain, w));
+  const isActive = windowHasFocus && !userIsIdle;
+
+  if (isOnStudySite && isActive) {
+    if (autoStudyDomain !== activeTabDomain) {
+      autoStudyDomain = activeTabDomain;
+      autoStudyStartTime = Date.now();
+    } else {
+      const elapsed = Math.floor((Date.now() - autoStudyStartTime) / 1000);
+      const required = config.autoStudyConfig.requiredSeconds || 60;
+      if (elapsed >= required) {
+        autoStudyDomain = null;
+        autoStudyStartTime = null;
+        await switchToStudy('auto');
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon48.png',
+          title: 'TimeOnChrome',
+          message: '检测到你在学习，已自动切换到学习模式 📚'
+        });
+      }
+    }
+  } else {
+    autoStudyDomain = null;
+    autoStudyStartTime = null;
+  }
+}
+
+/**
+ * 启动时初始化计时状态：查询当前焦点、激活 tab、idle 状态，然后开始计时。
+ */
+async function initTimingState() {
+  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+  const focusedWindow = windows.find(w => w.focused);
+  windowHasFocus = !!focusedWindow;
+
+  if (focusedWindow) {
+    const [tab] = await chrome.tabs.query({ active: true, windowId: focusedWindow.id }).catch(() => []);
+    if (tab && tab.url && !isSpecialUrl(tab.url)) {
+      activeTabId = tab.id;
+      activeTabDomain = extractDomain(tab.url);
+      beginVisitSession(activeTabDomain);
+    }
+  }
+
+  const idleState = await chrome.idle.queryState(120);
+  userIsIdle = idleState !== 'active';
+
+  resumeActiveTime();
 }
 
 // ── 初始化 ───────────────────────────────────────────────────────────────────
@@ -1062,7 +1278,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         restConfig: existingConfig.restConfig || DEFAULT_CONFIG.restConfig,
         studyList: existingConfig.studyList || existingConfig.whitelist || DEFAULT_CONFIG.studyList,
         allowList: existingConfig.allowList || DEFAULT_CONFIG.allowList,
-        autoStudyConfig: existingConfig.autoStudyConfig || DEFAULT_CONFIG.autoStudyConfig
+        autoStudyConfig: existingConfig.autoStudyConfig || DEFAULT_CONFIG.autoStudyConfig,
+        // 迁移旧 dailyQuota → dailyOnlineQuota
+        dailyOnlineQuota: existingConfig.dailyOnlineQuota ?? (existingConfig.dailyQuota > 0 ? existingConfig.dailyQuota : DEFAULT_CONFIG.dailyOnlineQuota),
+        dailyStudyQuota:  existingConfig.dailyStudyQuota  ?? DEFAULT_CONFIG.dailyStudyQuota,
+        dailyRestQuota:   existingConfig.dailyRestQuota   ?? DEFAULT_CONFIG.dailyRestQuota,
+        quotaState: { onlineLocked: false, studyLocked: false, restLocked: false }
       };
       
       await saveConfig(migratedConfig);
@@ -1072,46 +1293,61 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   setupAlarms();
   await updateDeclarativeRules();
   await restoreSession();
-  await initCloudSync();  // 云端同步初始化
-  // console.log('[background] onInstalled complete');
+  await initTimingState();
+  await initCloudSync();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   // console.log('[background] onStartup');
   setupAlarms();
   await updateDeclarativeRules();
-  await resetDailyLockedDomains();
+  await resetDailyLockedDomains(true); // 启动时强制检查（可能是隔天重启）
   await restoreSession();
-  await initCloudSync();  // 云端同步初始化
-  // console.log('[background] onStartup complete');
+  await initTimingState();
+  await initCloudSync();;
 });
 
 // ── Alarms ─────────────────────────────────────────────────────────────────────
 
 function setupAlarms() {
+  chrome.alarms.create('tick_timer', { periodInMinutes: 1 });
   chrome.alarms.create('quota_check', { periodInMinutes: 1 });
   chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
-  chrome.alarms.create('keepalive', { periodInMinutes: 0.5 }); // 仅防 SW 休眠，不再计时
+  chrome.alarms.create('keepalive', { periodInMinutes: 0.5 });
   chrome.alarms.create('temp_whitelist_cleanup', { periodInMinutes: 1 });
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  // console.log('[background] Alarm triggered:', alarm.name);
-  
-  if (alarm.name === 'quota_check') {
+  if (alarm.name === 'tick_timer') {
+    await handleTickTimer();
+  } else if (alarm.name === 'quota_check') {
     await checkAllTabsQuota();
   } else if (alarm.name === 'daily_cleanup') {
     await cleanOldStats();
     await cleanOldSessions();
     await resetDailyLockedDomains();
   } else if (alarm.name === 'keepalive') {
-    console.log('[background] keepalive tick');
+    // 仅防 SW 休眠
   } else if (alarm.name === 'rest_reminder') {
     await handleRestReminder();
   } else if (alarm.name === 'rest_forced') {
     await handleRestForcedEnd();
   } else if (alarm.name === 'temp_whitelist_cleanup') {
     await cleanExpiredTempWhitelist();
+  }
+});
+
+// ── Idle 检测 ──────────────────────────────────────────────────────────────────
+
+chrome.idle.setDetectionInterval(120); // 2 分钟无操作 → idle
+
+chrome.idle.onStateChanged.addListener(async (state) => {
+  if (state === 'idle' || state === 'locked') {
+    await flushActiveTime();
+    userIsIdle = true;
+  } else { // 'active'
+    userIsIdle = false;
+    resumeActiveTime();
   }
 });
 
@@ -1134,17 +1370,80 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   setTimeout(() => isBlockingInProgress.delete(tabId), 1000);
 });
 
-// 追踪当前激活 Tab（供 HEARTBEAT 用）
+// ── Tab / 窗口事件：驱动条件A计时 ────────────────────────────────────────────
+
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  await flushActiveTime();
+  endVisitSession('tab_switch');
+
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   activeTabId = tabId;
-  activeTabDomain = tab?.url ? extractDomain(tab.url) : null;
+  activeTabDomain = (tab?.url && !isSpecialUrl(tab.url)) ? extractDomain(tab.url) : null;
+
+  beginVisitSession(activeTabDomain);
+  resumeActiveTime();
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
+chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === activeTabId) {
+    await flushActiveTime();
+    endVisitSession('tab_closed');
     activeTabId = null;
     activeTabDomain = null;
+  }
+  // 后台媒体 tab 关闭：flush 剩余时间
+  if (mediaPlayingTabs.has(tabId)) {
+    const info = mediaPlayingTabs.get(tabId);
+    if (!(tabId === activeTabId && windowHasFocus && !userIsIdle)) {
+      const elapsed = Math.floor((Date.now() - info.lastFlushTime) / 1000);
+      if (elapsed > 0) await addDomainTime(info.domain, elapsed);
+    }
+    mediaPlayingTabs.delete(tabId);
+  }
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (!changeInfo.url) return;
+  const newDomain = isSpecialUrl(changeInfo.url) ? null : extractDomain(changeInfo.url);
+
+  // 更新激活 tab 的域名
+  if (tabId === activeTabId && newDomain !== activeTabDomain) {
+    await flushActiveTime();
+    endVisitSession('navigation');
+    activeTabDomain = newDomain;
+    beginVisitSession(activeTabDomain);
+    resumeActiveTime();
+  }
+
+  // 更新后台媒体 tab 的域名
+  if (mediaPlayingTabs.has(tabId) && tabId !== activeTabId) {
+    const info = mediaPlayingTabs.get(tabId);
+    const elapsed = Math.floor((Date.now() - info.lastFlushTime) / 1000);
+    if (elapsed > 0) await addDomainTime(info.domain, elapsed);
+    info.domain = newDomain || info.domain;
+    info.lastFlushTime = Date.now();
+  }
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    await flushActiveTime();
+    windowHasFocus = false;
+  } else {
+    windowHasFocus = true;
+    // 更新 activeTab 为当前获焦窗口的激活 tab
+    const [tab] = await chrome.tabs.query({ active: true, windowId }).catch(() => []);
+    if (tab && tab.url && !isSpecialUrl(tab.url)) {
+      const newDomain = extractDomain(tab.url);
+      if (tab.id !== activeTabId || newDomain !== activeTabDomain) {
+        await flushActiveTime();
+        endVisitSession('window_focus');
+        activeTabId = tab.id;
+        activeTabDomain = newDomain;
+        beginVisitSession(activeTabDomain);
+      }
+    }
+    resumeActiveTime();
   }
 });
 
@@ -1189,7 +1488,22 @@ async function checkAndBlock(tabId, url) {
     }
   }
 
-  // 4. 检查该域名是否因配额已锁定
+  // 4. 检查配额锁定状态
+  const qs = config.quotaState || {};
+  if (qs.onlineLocked) {
+    await blockTab(tabId, domain, 'quota_online', config.blockMessage);
+    return true;
+  }
+  const isStudyDomain = (config.studyList || []).some(p => matchDomain(domain, p));
+  if (qs.restLocked && !isStudyDomain) {
+    await blockTab(tabId, domain, 'quota_rest', config.blockMessage);
+    return true;
+  }
+  if (qs.studyLocked && isStudyDomain) {
+    await blockTab(tabId, domain, 'quota_study', config.blockMessage);
+    return true;
+  }
+  // 单站点配额锁定
   if (config.lockedDomains && config.lockedDomains.includes(domain)) {
     await blockTab(tabId, domain, 'quota', config.blockMessage);
     return true;
@@ -1203,20 +1517,65 @@ async function checkAllTabsQuota() {
   if (!config.enabled) return;
 
   const stats = await getTodayStats();
-  const totalSeconds = Object.values(stats).reduce((a, b) => a + b, 0);
-  const totalMinutes = Math.floor(totalSeconds / 60);
 
-  if (config.dailyQuota > 0 && totalMinutes >= config.dailyQuota) {
+  // 按 studyList 区分学习/休息时长
+  let studySeconds = 0, totalSeconds = 0;
+  for (const [domain, seconds] of Object.entries(stats)) {
+    totalSeconds += seconds;
+    if ((config.studyList || []).some(p => matchDomain(domain, p))) {
+      studySeconds += seconds;
+    }
+  }
+  const restSeconds  = totalSeconds - studySeconds;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const studyMinutes = Math.floor(studySeconds / 60);
+  const restMinutes  = Math.floor(restSeconds  / 60);
+
+  // 计算新锁定状态
+  const dailyOnlineQuota = config.dailyOnlineQuota ?? config.dailyQuota ?? 0;
+  const newState = {
+    onlineLocked: dailyOnlineQuota > 0 && totalMinutes >= dailyOnlineQuota,
+    studyLocked:  (config.dailyStudyQuota || 0) > 0 && studyMinutes >= config.dailyStudyQuota,
+    restLocked:   (config.dailyRestQuota  || 0) > 0 && restMinutes  >= config.dailyRestQuota
+  };
+
+  const oldState = config.quotaState || {};
+  const stateChanged = newState.onlineLocked !== oldState.onlineLocked ||
+                       newState.studyLocked  !== oldState.studyLocked  ||
+                       newState.restLocked   !== oldState.restLocked;
+
+  if (stateChanged) {
+    config.quotaState = newState;
+    await saveConfig(config);
+
+    // 刚触发：推送通知并关闭违规 Tab
+    if (newState.onlineLocked && !oldState.onlineLocked) {
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日在线时间已达上限，所有网站已锁定。' });
+      await lockAllBrowsing();
+      return;
+    }
+    if (newState.restLocked && !oldState.restLocked) {
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日休息时间已达上限（' + Math.round(config.dailyRestQuota / 60 * 10) / 10 + ' 小时），娱乐网站已锁定。' });
+      await closeQuotaViolatingTabs(config, newState);
+    }
+    if (newState.studyLocked && !oldState.studyLocked) {
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日学习时间已达上限（' + Math.round(config.dailyStudyQuota / 60 * 10) / 10 + ' 小时），学习网站已锁定。' });
+      await closeQuotaViolatingTabs(config, newState);
+    }
+  }
+
+  if (newState.onlineLocked) {
     await lockAllBrowsing();
     return;
   }
 
+  // 单站点配额检查
   const newlyLocked = [];
   for (const [domain, seconds] of Object.entries(stats)) {
     const minutes = Math.floor(seconds / 60);
-    const quota = config.domainQuotas[domain];
+    const quota = config.domainQuotas?.[domain];
     if (quota && quota > 0 && minutes >= quota) {
-      if (!config.lockedDomains.includes(domain)) {
+      if (!(config.lockedDomains || []).includes(domain)) {
         newlyLocked.push(domain);
       }
     }
@@ -1227,11 +1586,25 @@ async function checkAllTabsQuota() {
     await saveConfig(config);
     await closeLockedTabs(newlyLocked);
     chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'TimeOnChrome',
+      type: 'basic', iconUrl: 'icons/icon48.png', title: 'TimeOnChrome',
       message: `${newlyLocked.join(', ')} 今日使用时间已达上限`
     });
+  }
+}
+
+// 关闭因配额锁定而违规的 Tab
+async function closeQuotaViolatingTabs(config, quotaState) {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab.url || isSpecialUrl(tab.url)) continue;
+    const domain = extractDomain(tab.url);
+    if (!domain) continue;
+    const isStudy = (config.studyList || []).some(p => matchDomain(domain, p));
+    if (quotaState.restLocked && !isStudy) {
+      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_rest&domain=${encodeURIComponent(domain)}` });
+    } else if (quotaState.studyLocked && isStudy) {
+      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_study&domain=${encodeURIComponent(domain)}` });
+    }
   }
 }
 
@@ -1266,74 +1639,7 @@ async function blockTab(tabId, domain, reason, message) {
   chrome.tabs.update(tabId, { url: blockedUrl }).catch(() => {});
 }
 
-// 自动切换计数器（内存，不持久化）- 新模型：最少30秒+120秒窗口期
-let autoStudyTickCount = 0;      // 心跳计数（每次10秒）
-let autoStudyLastDomain = null;  // 上次访问的域名
-let autoStudyHasActive = false;  // 120秒内是否有active/passive状态
-let autoStudyMinTicks = 3;       // 最少3次心跳（30秒）才开始计数
-
-// Auto-switch helper: 最少30秒激活 + 120秒窗口期内只要有1次active/passive就触发
-async function handleAutoStudyTick(domain, config, state) {
-  const session = await getSession();
-  
-  // 只有休息模式才需要检测
-  if (session.currentMode !== 'rest') {
-    autoStudyTickCount = 0;
-    autoStudyLastDomain = null;
-    autoStudyHasActive = false;
-    return;
-  }
-
-  if (!config?.autoStudyConfig?.enabled) return;
-
-  const inStudyList = (config?.studyList || []).some(w => matchDomain(domain, w));
-
-  if (inStudyList) {
-    // 检查是否同一域名
-    if (autoStudyLastDomain === domain) {
-      autoStudyTickCount++;
-      
-      // 只有超过30秒（3次心跳）后，才开始记录是否有active/passive
-      if (autoStudyTickCount > autoStudyMinTicks) {
-        if (state === 'active' || state === 'passive') {
-          autoStudyHasActive = true;
-        }
-      }
-    } else {
-      // 切换域名，重置计数器
-      autoStudyTickCount = 1;
-      autoStudyLastDomain = domain;
-      autoStudyHasActive = false;
-    }
-
-    // 120秒（12次心跳）后判断
-    // 但必须在同一域名停留超过30秒（3次心跳）
-    if (autoStudyTickCount >= 12) {
-      if (autoStudyHasActive) {
-        // 满足条件：超过30秒 + 有行为 → 切换
-        autoStudyTickCount = 0;
-        autoStudyLastDomain = null;
-        autoStudyHasActive = false;
-        await switchToStudy('auto');
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: 'TimeOnChrome',
-          message: '检测到你在学习，已自动切换到学习模式 📚'
-        });
-      } else {
-        // 120秒内无行为，重置（可能全程idle或停留<30秒）
-        autoStudyTickCount = 0;
-        autoStudyHasActive = false;
-      }
-    }
-  } else {
-    // 非学习网站，重置计数器
-    autoStudyTickCount = 0;
-    autoStudyLastDomain = null;
-    autoStudyHasActive = false;
-  }
-}
+// （自动切换逻辑已移至 checkAutoStudy，由 tick_timer alarm 每分钟驱动）
 
 // ── declarativeNetRequest 规则 ────────────────────────────────────────────────
 
@@ -1440,12 +1746,37 @@ function isWithinSchedule(schedule) {
 
 // ── 每日重置 ──────────────────────────────────────────────────────────────────
 
-async function resetDailyLockedDomains() {
+const LAST_RESET_DATE_KEY = 'last_reset_date';
+
+async function resetDailyLockedDomains(force = false) {
+  const today = getDateKey();
+
+  if (!force) {
+    // 检查今天是否已经重置过，避免每小时误触发
+    const storage = await new Promise(resolve =>
+      chrome.storage.local.get([LAST_RESET_DATE_KEY], resolve)
+    );
+    if (storage[LAST_RESET_DATE_KEY] === today) return;
+  }
+
+  // 记录本次重置日期
+  await new Promise(resolve =>
+    chrome.storage.local.set({ [LAST_RESET_DATE_KEY]: today }, resolve)
+  );
+
   const config = await getConfig();
+  let changed = false;
   if (config.lockedDomains && config.lockedDomains.length > 0) {
     config.lockedDomains = [];
-    await saveConfig(config);
+    changed = true;
   }
+  const qs = config.quotaState || {};
+  if (qs.onlineLocked || qs.studyLocked || qs.restLocked) {
+    config.quotaState = { onlineLocked: false, studyLocked: false, restLocked: false };
+    changed = true;
+  }
+  if (changed) await saveConfig(config);
+  console.log('[daily] Quota state reset for new day:', today);
 }
 
 // ── 消息处理 ──────────────────────────────────────────────────────────────────
@@ -1474,37 +1805,33 @@ async function handleMessage(msg, sender) {
       const newConfig = msg.config;
       await saveConfig(newConfig);
       await updateDeclarativeRules(newConfig);
+      // 本地修改后立即推送到云端（非阻塞）
+      pushConfigToCloud(newConfig).catch(e => console.warn('[Cloud] Push config failed:', e.message));
       return { ok: true };
     }
 
     case 'FLUSH_TIME':
-      return { ok: true }; // 心跳模式下无需手动 flush
+      return { ok: true };
 
-    case 'HEARTBEAT': {
-      // sender.tab 可能为空（扩展内部消息），需要检查
+    case 'MEDIA_STATE': {
       if (!sender.tab) return { ok: true };
-      
+      const tabId = sender.tab.id;
       const domain = extractDomain(sender.tab.url);
       if (!domain) return { ok: true };
 
-      const TICK = 10;
-      const cfg = await getConfig();
-      const now = Date.now();
-
-      // 新模型：只要页面可见（非 hidden）就计网站时长
-      if (msg.state !== 'hidden') {
-        await addDomainTime(domain, TICK);
-        
-        // 自动切换计数（120秒内只要有1次active/passive就触发）
-        handleAutoStudyTick(domain, cfg, msg.state);
-        
-        // Visit Session 跟踪
-        updateVisitSession(domain, msg.state, now);
+      if (msg.playing) {
+        mediaPlayingTabs.set(tabId, { domain, lastFlushTime: Date.now() });
       } else {
-        // 页面隐藏，结束当前会话
-        endVisitSession('hidden');
+        if (mediaPlayingTabs.has(tabId)) {
+          const info = mediaPlayingTabs.get(tabId);
+          // 只 flush 不被条件A覆盖的时间
+          if (!(tabId === activeTabId && windowHasFocus && !userIsIdle)) {
+            const elapsed = Math.floor((Date.now() - info.lastFlushTime) / 1000);
+            if (elapsed > 0) await addDomainTime(info.domain, elapsed);
+          }
+          mediaPlayingTabs.delete(tabId);
+        }
       }
-
       return { ok: true };
     }
 
@@ -1543,43 +1870,29 @@ async function handleMessage(msg, sender) {
 
     // ── 云端同步相关 ─────────────────────────────────────────
     case 'CLOUD_BIND': {
-      // 设备绑定：传入 profile_id，返回 device_token
-      // 注意：这个不需要 device_token，因为是在获取 token
-      const { profile_id, device_name } = msg;
+      // 设备绑定通知：admin.js 已完成 API 绑定并保存了 token，
+      // 这里只需要更新 background 内存状态并触发一次同步
       try {
-        // 直接调用 API（不使用 cloudRequest，因为此时还没有 token）
-        const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/device/bind`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            profile_id,
-            device_name: device_name || 'Chrome Extension'
-          })
-        });
-        
-        if (!resp.ok) {
-          const err = await resp.json();
-          throw new Error(err.error || '绑定失败');
+        const storage = await storageGet([
+          CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
+          CLOUD_CONFIG.KEYS.PROFILE_ID
+        ]);
+        const deviceToken = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
+        const profileId = storage[CLOUD_CONFIG.KEYS.PROFILE_ID] || msg.profile_id;
+
+        if (!deviceToken) {
+          return { error: '未找到设备 token，请先在 admin 完成绑定' };
         }
-        
-        const result = await resp.json();
-        
-        // 保存 token
-        syncState.deviceToken = result.device_token;
-        syncState.profileId = profile_id;
-        await storageSet({
-          [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: result.device_token,
-          [CLOUD_CONFIG.KEYS.PROFILE_ID]: profile_id
-        });
-        
+
+        syncState.deviceToken = deviceToken;
+        syncState.profileId = profileId;
+
         // 立即同步一次
         await syncNow();
-        
-        return { success: true, device_token: result.device_token };
+
+        return { success: true, device_token: deviceToken };
       } catch (e) {
         return { error: e.message };
-      }
-    }
       }
     }
 

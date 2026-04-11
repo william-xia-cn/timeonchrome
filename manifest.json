@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TimeOnChrome",
-  "version": "2.0.0",
+  "version": "1.5.0",
   "description": "家长上网行为管控 - 白名单、时长统计、行为控制",
   "incognito": "spanning",
 
@@ -39,7 +39,7 @@
     "default_title": "TimeOnChrome"
   },
 
-    "options_page": "admin/admin.html",
+  "options_page": "admin/admin.html",
 
   "icons": {
     "16": "icons/icon16.png",

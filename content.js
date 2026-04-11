@@ -10,32 +10,32 @@
   let warningTimer = null;
   let overlayEl = null;
 
-  // ── 活跃状态检测 ────────────────────────────────────────────────────────────
+  // ── 媒体状态检测（content 只负责报告这一件事）────────────────────────────────
 
-  let lastInteractionTime = Date.now();
   let mediaPlaying = false;
   let audioContextActive = false;
-  const INTERACTION_TIMEOUT_MS = 60 * 1000; // 60 秒无操作算 idle
 
-  // 监听用户交互
-  ['mousedown', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
-    document.addEventListener(evt, () => { lastInteractionTime = Date.now(); }, { passive: true, capture: true });
-  });
-
-  // 监听 <video>/<audio> 播放状态
-  function attachMediaListeners(el) {
-    el.addEventListener('play',  updateMediaState);
-    el.addEventListener('pause', updateMediaState);
-    el.addEventListener('ended', updateMediaState);
+  function sendMediaState(playing) {
+    if (!chrome.runtime?.id) return;
+    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing });
   }
 
   function updateMediaState() {
     const elements = Array.from(document.querySelectorAll('video, audio'));
     const htmlMediaPlaying = elements.some(el => !el.paused && !el.ended && el.readyState > 2);
-    mediaPlaying = htmlMediaPlaying || audioContextActive;
+    const newState = htmlMediaPlaying || audioContextActive;
+    if (newState !== mediaPlaying) {
+      mediaPlaying = newState;
+      sendMediaState(mediaPlaying);
+    }
   }
 
   // 对已有媒体元素挂钩
+  function attachMediaListeners(el) {
+    el.addEventListener('play',  updateMediaState);
+    el.addEventListener('pause', updateMediaState);
+    el.addEventListener('ended', updateMediaState);
+  }
   document.querySelectorAll('video, audio').forEach(attachMediaListeners);
 
   // 对动态插入的媒体元素挂钩
@@ -68,48 +68,6 @@
   }
   patchAudioContext(window.AudioContext);
   patchAudioContext(window.webkitAudioContext);
-
-  // 返回当前可见状态（新模型：只要可见就计时，不管 active/passive）
-  function getVisibilityState() {
-    // 页面不可见 → 不发送心跳
-    if (document.hidden) return 'hidden';
-    // 页面可见 → 发送心跳（active 或 passive 都计网站时长）
-    if (mediaPlaying) return 'passive';
-    if (Date.now() - lastInteractionTime < INTERACTION_TIMEOUT_MS) return 'active';
-    return 'visible';  // 可见但无交互（新状态）
-  }
-
-  // ── 心跳（每 10 秒向 background 报告状态）───────────────────────────────────
-
-  let heartbeatInterval = null;
-
-  function sendHeartbeat() {
-    const state = getVisibilityState();
-    
-    // hidden 状态不发送心跳
-    if (state === 'hidden') return;
-    
-    // 检查扩展上下文是否有效
-    if (!chrome.runtime?.id) {
-      console.log('[Guardian] Extension context invalidated');
-      return;
-    }
-    
-    // 发送心跳 - 只要可见就计网站时长
-    chrome.runtime.sendMessage({ type: 'HEARTBEAT', state, domain: location.hostname }, (response) => {
-      if (chrome.runtime.lastError) {
-        const errorMsg = chrome.runtime.lastError.message || '';
-        if (errorMsg.includes('Extension context invalidated')) {
-          console.log('[Guardian] Extension invalidated');
-        }
-      }
-    });
-  }
-
-  // 页面加载后立即发送一次心跳
-  setTimeout(sendHeartbeat, 500);
-  // 之后每 10 秒发送一次心跳
-  heartbeatInterval = setInterval(sendHeartbeat, 10 * 1000);
 
   // ── 接收来自 background 的指令 ────────────────────────────────────────────
 

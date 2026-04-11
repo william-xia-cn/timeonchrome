@@ -2,21 +2,29 @@
 
 ---
 
-## [2.0.0] — 计划中
+## [1.5.0] — 2026-04-11
 
 ### 新增
-- 白名单细分为 `studyList`（学习网站）和 `allowList`（允许但非学习网站）
-- 自动切换学习模式：娱乐模式下访问学习网站 active 操作连续 90 秒后自动切换
-- 在线时长统计（= 学习时长 + 娱乐时长，仅计 active 心跳）
-- 音乐等后台播放（passive 心跳）仅计域名时长，不计在线时长
-- popup 新增在线时长展示
-- admin 白名单配置页拆分为「学习网站」和「允许网站」
-- admin 新增自动切换设置（开关 + 延迟时长）
+- **云同步架构**：Cloudflare Workers 后端（D1 + KV + R2），账号注册/登录/设备绑定
+- **三档时间配额**：`dailyOnlineQuota` / `dailyStudyQuota` / `dailyRestQuota` 独立计量和锁定
+- **设备自动识别**：绑定时检测 OS + 4 位随机码，如 `Windows · Chrome · A3F2`
+- **设备管理 API**：`GET /profiles/:id/devices`、`PATCH` 重命名、`DELETE` 解绑
+- **配置变更日志**：`/device/changelog` 记录最近 100 条配置变更历史
+- **Session 上传**：会话数据通过 `/device/sessions/upload` 存入 R2
+- **孩子友好 UI**：Popup 重写为只读激励视图（进度条 + 今日摘要）
+- **管理面板精简**：6 个导航页合并为 4 个（时间段并入访问规则，配额并入今日使用）
+
+### 修复
+- **时区 bug**：所有 `toISOString()` 替换为本地时间 `formatDate(getLocalDate())`，修复 UTC+8 日期切换偏移
+- **每日重置防重复**：`daily_cleanup` alarm 加入 `LAST_RESET_DATE_KEY` 日期守卫，防止一天内重复重置配额
+- **多设备配额冲突**：`pullCloudConfig` 将 `quotaState`、`lockedDomains`、`tempWhitelist` 列为本地保护字段，不被云端覆盖
+- **推送配额字段缺失**：`pushConfigToCloud` 补充三档配额字段
+- **SQL 注入**：Workers 约 35 处 SQL 改为 D1 参数化查询 `prepare().bind()`
+- **伪 JWT**：`btoa(email + secret)` 替换为 Web Crypto HMAC-SHA256 标准签名
 
 ### 变更
-- `free` 模式废弃，Chrome 启动默认进入 `study` 模式
-- `whitelist` 字段拆分为 `studyList` + `allowList`
-- session 中 `startTime` 字段废弃，时长完全由心跳累加
+- `dailyQuota` 字段废弃，拆分为 `dailyOnlineQuota` / `dailyStudyQuota` / `dailyRestQuota`
+- admin panel 导航：今日使用 / 访问规则 / 使用分析 / 本机
 
 ---
 
@@ -35,7 +43,7 @@
 ### 修复
 - declarativeNetRequest 白名单模式无法传递 domain 参数 → 改用 webNavigation + blockTab
 - CSP 阻止 blocked.html 内联脚本 → 提取为 blocked.js
-- 双重计时问题（flushCurrentTabTime + HEARTBEAT 同时跑）→ 删除旧机制，仅保留心跳
+- 双重计时问题（flushCurrentTabTime + HEARTBEAT 同时跑）→ 仅保留心跳机制
 - `chrome.alarms.cancel` 需要回调函数参数
 - admin.html 重复 HTML 内容
 

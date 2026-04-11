@@ -7,9 +7,27 @@
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
+/**
+ * 自动识别设备名：从 User-Agent 提取操作系统信息
+ * 格式："{OS} · Chrome · {4位短码}"
+ * 短码来自 crypto.randomUUID() 前4位，绑定时固定，用于区分同OS多设备
+ */
+function getDeviceName() {
+  const ua = navigator.userAgent;
+  let os = 'Unknown';
+  if (ua.includes('Windows NT'))          os = 'Windows';
+  else if (ua.includes('Macintosh'))      os = 'macOS';
+  else if (ua.includes('Linux'))          os = 'Linux';
+  else if (ua.includes('Android'))        os = 'Android';
+  else if (/iPhone|iPad/.test(ua))        os = 'iOS';
+  const shortCode = crypto.randomUUID().slice(0, 4).toUpperCase();
+  return `${os} · Chrome · ${shortCode}`;
+}
+
 const CLOUD_KEYS = {
   DEVICE_TOKEN: 'cloud_device_token',
   PROFILE_ID: 'cloud_profile_id',
+  PROFILE_NAME: 'cloud_profile_name',
   CREDENTIALS: 'cloud_credentials',
   ACCOUNT_TOKEN: 'account_token',
   REMEMBER_ME: 'cloud_remember_me',
@@ -34,11 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   setupLoginForm();
   setupNavigation();
-  setupRulesPage();
-  setupQuotaPage();
-  setupSchedulePage();
-  setupDevicesPage();
-  setupSecurityPage();
+  setupStatsPage();
 });
 
 // ── 绑定状态检查与处理 ───────────────────────────────────────────────────
@@ -87,9 +101,9 @@ function showBindScreen() {
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.style.display = 'none';
   
-  // 隐藏注册链接（首次需要绑定，不能注册新账户）
+  // 显示注册链接（首次使用可注册新账户）
   const registerLink = document.getElementById('register-link');
-  if (registerLink) registerLink.style.display = 'none';
+  if (registerLink) registerLink.style.display = 'block';
 }
 
 /**
@@ -141,9 +155,55 @@ async function enterMainScreen() {
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.style.display = 'none';
   
-  // 加载 Profile 列表
+  // 加载 Profile 列表（需要先加载才能查找到 profile name）
   await loadProfiles();
   
+  // 显示用户信息（左下角）
+  const userInfo = document.getElementById('user-info');
+  if (userInfo) {
+    const storage = await new Promise(resolve => {
+      chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME, CLOUD_KEYS.PROFILE_ID, CLOUD_KEYS.CREDENTIALS], resolve);
+    });
+    let profileName = storage[CLOUD_KEYS.PROFILE_NAME];
+    const profileId = storage[CLOUD_KEYS.PROFILE_ID];
+    const credentials = storage[CLOUD_KEYS.CREDENTIALS];
+    
+    // 如果没有保存过 profileName，尝试从 cloudProfiles 中查找
+    if (!profileName && profileId && cloudProfiles.length > 0) {
+      const profile = cloudProfiles.find(p => p.id === profileId);
+      if (profile) {
+        profileName = profile.name;
+        // 保存下来
+        chrome.storage.local.set({ [CLOUD_KEYS.PROFILE_NAME]: profileName });
+      }
+    }
+    
+    if (profileName || credentials) {
+      document.getElementById('profile-name-display').textContent = profileName || '未知';
+      
+      // 从凭据中解析邮箱（credentials 是 base64 编码的 "email:password"）
+      if (credentials) {
+        try {
+          const decoded = atob(credentials);
+          const email = decoded.split(':')[0];
+          document.getElementById('account-email-display').textContent = email || '';
+        } catch (e) {
+          document.getElementById('account-email-display').textContent = currentEmail || '';
+        }
+      }
+      
+      userInfo.style.display = 'block';
+    }
+  }
+  
+  // 侧边栏显示孩子名字
+  const nameStorage = await new Promise(resolve =>
+    chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME], resolve)
+  );
+  const childName = nameStorage[CLOUD_KEYS.PROFILE_NAME];
+  const sidebarNameEl = document.getElementById('sidebar-child-name');
+  if (sidebarNameEl && childName) sidebarNameEl.textContent = childName + ' 的面板';
+
   // 渲染总览
   config = await sendMsg({ type: 'GET_CONFIG' });
   renderOverview();
@@ -302,6 +362,195 @@ function setupLoginForm() {
       if (e.key === 'Enter') loginBtn.click();
     });
   }
+
+  // 注册链接
+  const registerLink = document.getElementById('register-link');
+  if (registerLink) {
+    registerLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      showRegisterForm();
+    });
+  }
+}
+
+/**
+ * 显示注册表单
+ */
+function showRegisterForm() {
+  const loginScreen = document.getElementById('login-screen');
+  loginScreen.innerHTML = `
+    <div class="login-box">
+      <div class="login-logo">🛡</div>
+      <h1>TimeOnChrome</h1>
+      <p>创建家长账户</p>
+
+      <div class="form-group">
+        <label>邮箱</label>
+        <input type="email" id="reg-email" placeholder="your@email.com" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="reg-password" placeholder="至少6位" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>确认密码</label>
+        <input type="password" id="reg-password2" placeholder="再次输入密码" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>孩子的名字</label>
+        <input type="text" id="reg-child-name" placeholder="例如：小明" autocomplete="off">
+      </div>
+
+      <button class="btn-primary" id="reg-submit-btn">注册并绑定</button>
+      <div class="error-msg" id="reg-error-msg" style="display:none;"></div>
+
+      <div style="margin-top:16px; text-align:center;">
+        <a href="#" id="back-to-login" style="font-size:13px; color:var(--accent);">已有账户？登录</a>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('reg-submit-btn').addEventListener('click', handleRegister);
+  document.getElementById('reg-password2').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleRegister();
+  });
+  document.getElementById('back-to-login').addEventListener('click', (e) => {
+    e.preventDefault();
+    // 恢复登录界面
+    location.reload();
+  });
+}
+
+/**
+ * 处理注册提交
+ * 流程：注册账户 → 创建子档案 → 绑定设备 → 进入主界面
+ */
+async function handleRegister() {
+  const email = document.getElementById('reg-email')?.value.trim();
+  const password = document.getElementById('reg-password')?.value;
+  const password2 = document.getElementById('reg-password2')?.value;
+  const childName = document.getElementById('reg-child-name')?.value.trim();
+
+  const showRegError = (msg) => {
+    const el = document.getElementById('reg-error-msg');
+    if (el) { el.textContent = msg; el.style.display = 'block'; }
+  };
+
+  if (!email || !password || !childName) {
+    showRegError('请填写所有必填项');
+    return;
+  }
+  if (password.length < 6) {
+    showRegError('密码至少6位');
+    return;
+  }
+  if (password !== password2) {
+    showRegError('两次输入的密码不一致');
+    return;
+  }
+
+  const btn = document.getElementById('reg-submit-btn');
+  btn.disabled = true;
+  btn.textContent = '注册中...';
+
+  try {
+    // Step 1: 注册账户
+    const regResp = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    if (!regResp.ok) {
+      const err = await regResp.json();
+      throw new Error(err.error === 'Email already exists' ? '该邮箱已注册，请直接登录' : (err.error || '注册失败'));
+    }
+
+    const regResult = await regResp.json();
+    accountToken = regResult.token;
+    currentEmail = email;
+
+    // 保存凭据
+    const encrypted = btoa(`${email}:${password}`);
+    await new Promise(resolve => {
+      chrome.storage.local.set({
+        [CLOUD_KEYS.CREDENTIALS]: encrypted,
+        [CLOUD_KEYS.ACCOUNT_TOKEN]: regResult.token
+      }, resolve);
+    });
+
+    btn.textContent = '创建孩子档案...';
+
+    // Step 2: 创建孩子 Profile
+    const profileResp = await fetch(`${API_BASE}/profiles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accountToken}`
+      },
+      body: JSON.stringify({ name: childName, avatar_color: '#7c6fff' })
+    });
+
+    if (!profileResp.ok) {
+      const err = await profileResp.json();
+      throw new Error(err.error || '创建孩子档案失败');
+    }
+
+    const profileResult = await profileResp.json();
+    const newProfileId = profileResult.profile.id;
+
+    btn.textContent = '绑定设备...';
+
+    // Step 3: 绑定设备
+    const bindResp = await fetch(`${API_BASE}/device/bind`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accountToken}`
+      },
+      body: JSON.stringify({ profile_id: newProfileId, device_name: getDeviceName() })
+    });
+
+    if (!bindResp.ok) {
+      const err = await bindResp.json();
+      throw new Error(err.error || '绑定设备失败');
+    }
+
+    const bindResult = await bindResp.json();
+
+    // Step 4: 保存绑定信息（含本机设备名，用于"本机"页展示）
+    const devNameReg = getDeviceName();
+    await new Promise(resolve => {
+      chrome.storage.local.set({
+        [CLOUD_KEYS.DEVICE_TOKEN]: bindResult.device_token,
+        [CLOUD_KEYS.PROFILE_ID]: newProfileId,
+        [CLOUD_KEYS.PROFILE_NAME]: childName,
+        [CLOUD_KEYS.IS_BOUND]: true,
+        cloud_device_name: devNameReg,
+      }, resolve);
+    });
+
+    // Step 5: 通知 background.js 同步
+    try {
+      await sendMsg({
+        type: 'CLOUD_BIND',
+        profile_id: newProfileId,
+        device_name: getDeviceName()
+      });
+    } catch (e) {
+      console.warn('[Admin] sendMsg CLOUD_BIND error (non-fatal):', e);
+    }
+
+    // Step 6: 进入主界面
+    cloudProfiles = [profileResult.profile];
+    currentProfileId = newProfileId;
+    await enterMainScreen();
+
+  } catch (e) {
+    showRegError(e.message || '操作失败，请重试');
+    btn.disabled = false;
+    btn.textContent = '注册并绑定';
+  }
 }
 
 /**
@@ -363,9 +612,9 @@ async function bindToProfile(profileId, profileName, avatarColor) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accountToken}`
       },
-      body: JSON.stringify({ 
-        profile_id: profileId, 
-        device_name: 'Chrome Extension' 
+      body: JSON.stringify({
+        profile_id: profileId,
+        device_name: getDeviceName()
       })
     });
     
@@ -381,11 +630,14 @@ async function bindToProfile(profileId, profileName, avatarColor) {
     console.log('[Admin] Bind success, device_token:', bindResult.device_token);
     
     // 2. 保存绑定信息
+    const devNameBind = getDeviceName();
     await new Promise(resolve => {
       chrome.storage.local.set({
         [CLOUD_KEYS.DEVICE_TOKEN]: bindResult.device_token,
         [CLOUD_KEYS.PROFILE_ID]: profileId,
-        [CLOUD_KEYS.IS_BOUND]: true
+        [CLOUD_KEYS.PROFILE_NAME]: profileName,
+        [CLOUD_KEYS.IS_BOUND]: true,
+        cloud_device_name: devNameBind,
       }, resolve);
     });
     console.log('[Admin] Saved to local storage');
@@ -394,9 +646,9 @@ async function bindToProfile(profileId, profileName, avatarColor) {
     console.log('[Admin] Calling sendMsg to background...');
     try {
       const bgResult = await sendMsg({ 
-        type: 'CLOUD_BIND', 
-        profile_id: profileId, 
-        device_name: 'Chrome Extension' 
+        type: 'CLOUD_BIND',
+        profile_id: profileId,
+        device_name: getDeviceName()
       });
       console.log('[Admin] sendMsg result:', bgResult);
     } catch (e) {
@@ -470,50 +722,276 @@ function setupNavigation() {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(`page-${page}`)?.classList.add('active');
       
-      if (page === 'devices') {
-        loadProfiles();
-        renderSyncStatus();
-      }
+      if (page === 'overview')  renderOverview();
+      if (page === 'rules')     renderRulesPage();
+      if (page === 'stats')     renderStatsPage();
+      if (page === 'devices') { setupDevicesPage(); renderSyncStatus(); }
     });
   });
 }
 
-// ── 其他页面设置 ─────────────────────────────────────────────────────────
+// ── 通用工具 ──────────────────────────────────────────────────────────────
 
-function setupRulesPage() {}
-function setupQuotaPage() {}
-function setupSchedulePage() {}
+function formatSeconds(secs) {
+  if (!secs || secs < 0) secs = 0;
+  if (secs < 60) return `${secs}秒`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}分`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return m > 0 ? `${h}小时${m}分` : `${h}小时`;
+}
 
-function setupDevicesPage() {
-  // 设备管理页面
+// 渲染只读域名标签（孩子视角，无删除按钮）
+function renderDomainTagsReadOnly(containerId, domains) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (!domains || domains.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无域名</div>';
+    return;
+  }
+  container.innerHTML = domains.map(d =>
+    `<span class="domain-tag" style="cursor:default;">${d}</span>`
+  ).join('');
+}
+
+function updateListCounts() {
+  const bl = (config.blacklist  || []).length;
+  const sl = (config.studyList  || []).length;
+  const al = (config.allowList  || []).length;
+  const bcEl = document.getElementById('blacklist-count');
+  const scEl = document.getElementById('studylist-count');
+  const acEl = document.getElementById('allowlist-count');
+  if (bcEl) bcEl.textContent = bl ? `共 ${bl} 条` : '';
+  if (scEl) scEl.textContent = sl ? `共 ${sl} 条` : '';
+  if (acEl) acEl.textContent = al ? `共 ${al} 条` : '';
+}
+
+// ── 访问规则页（只读）───────────────────────────────────────────────────────
+
+function renderRulesPage() {
+  const mode = config.mode === 'whitelist' ? 'whitelist' : 'blacklist';
+
+  // 模式说明
+  const modeDescEl = document.getElementById('rules-mode-desc');
+  if (modeDescEl) {
+    modeDescEl.textContent = mode === 'whitelist'
+      ? '✅ 白名单模式：仅允许访问学习网站和允许列表'
+      : '🔓 黑名单模式：除屏蔽网站外均可访问';
+  }
+
+  // 白名单区块显示/隐藏
+  const whitelistSection = document.getElementById('whitelist-section');
+  if (whitelistSection) whitelistSection.style.display = mode === 'whitelist' ? '' : 'none';
+
+  // 渲染只读标签
+  renderDomainTagsReadOnly('blacklist-tags', config.blacklist || []);
+  renderDomainTagsReadOnly('studylist-tags', config.studyList || []);
+  renderDomainTagsReadOnly('allowlist-tags', config.allowList || []);
+  updateListCounts();
+
+  // 学习网站搜索框（仅过滤显示，不修改数据）
+  const searchEl = document.getElementById('studylist-search');
+  if (searchEl) {
+    const newSearch = searchEl.cloneNode(true);
+    searchEl.parentNode.replaceChild(newSearch, searchEl);
+    newSearch.addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const list = config.studyList || [];
+      const filtered = q ? list.filter(d => d.includes(q)) : list;
+      renderDomainTagsReadOnly('studylist-tags', filtered);
+    });
+  }
+
+  // ── 上网时间段（并入访问规则）──────────────────────────────────────
+  const schedule = config.schedule || {};
+  const schedEnabled = schedule.enabled;
+
+  const schedDescEl = document.getElementById('schedule-status-desc');
+  if (schedDescEl) {
+    schedDescEl.textContent = schedEnabled
+      ? '✅ 已启用，下列时间段内可上网'
+      : '⏸ 未启用，全天均可上网';
+  }
+
+  const schedContainer = document.getElementById('schedule-rows');
+  if (schedContainer) {
+    if (!schedEnabled) {
+      schedContainer.innerHTML = `
+        <div style="color:var(--muted);font-size:13px;padding:12px 0;">
+          全天均可上网，时间段管控未启用
+        </div>`;
+    } else {
+      schedContainer.innerHTML = DAY_NAMES.map((name, i) => {
+        const day      = schedule.days?.[i] || { enabled: false, start: '08:00', end: '22:00' };
+        const isActive = day.enabled;
+        return `
+          <div style="display:flex;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid var(--border);">
+            <div style="width:36px;font-size:13px;font-weight:600;color:${isActive ? 'var(--text)' : 'var(--muted)'};">${name}</div>
+            ${isActive
+              ? `<div style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                   <span style="color:var(--green);font-size:9px;">●</span>
+                   <span>${day.start || '08:00'}</span>
+                   <span style="color:var(--muted);">—</span>
+                   <span>${day.end || '22:00'}</span>
+                 </div>`
+              : `<div style="font-size:13px;color:var(--muted);">不限制</div>`
+            }
+          </div>`;
+      }).join('');
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+
+
+async function setupDevicesPage() {
+  // 账户信息
   const accountInfo = document.getElementById('account-info');
   if (accountInfo && currentEmail) {
-    accountInfo.innerHTML = `<span style="color:var(--accent);">${currentEmail}</span>`;
+    accountInfo.textContent = currentEmail;
+  }
+
+  // 绑定的孩子档案
+  const profilesEl = document.getElementById('profiles-list');
+  if (profilesEl) {
+    const storage = await new Promise(resolve =>
+      chrome.storage.local.get([CLOUD_KEYS.PROFILE_ID], resolve)
+    );
+    const boundProfileId = storage[CLOUD_KEYS.PROFILE_ID];
+    const boundProfile = cloudProfiles.find(p => p.id === boundProfileId);
+
+    if (boundProfile) {
+      profilesEl.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+          <div style="width:36px;height:36px;border-radius:50%;background:${boundProfile.avatar_color||'#7c6fff'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:16px;">
+            ${boundProfile.name.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:600;">${boundProfile.name}</div>
+            <div style="font-size:12px;color:var(--green);margin-top:2px;">✓ 已绑定此设备</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+          如需更换绑定档案，请在家长 Web 控制台解绑本设备后重新绑定。
+        </div>`;
+    } else {
+      profilesEl.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:8px 0;">未绑定任何孩子档案</div>`;
+    }
   }
 }
 
-function setupSecurityPage() {
-  // 安全设置 - 移除密码修改（因为是云端账户）
-  const changePwBtn = document.getElementById('change-pw-btn');
-  if (changePwBtn) {
-    changePwBtn.textContent = '密码管理（请在云端操作）';
-    changePwBtn.disabled = true;
-    changePwBtn.style.opacity = '0.5';
-  }
-}
 
 // ── 渲染总览 ─────────────────────────────────────────────────────────────
 
 async function renderOverview() {
-  const toggleEnabled = document.getElementById('toggle-enabled');
-  if (toggleEnabled) {
-    toggleEnabled.checked = config.enabled;
-    toggleEnabled.addEventListener('change', async (e) => {
-      config.enabled = e.target.checked;
-      await sendMsg({ type: 'UPDATE_CONFIG', config });
-    });
+  // 日期
+  const now = new Date();
+  const weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
+  const dateEl = document.getElementById('overview-date');
+  if (dateEl) dateEl.textContent = `${now.getMonth()+1}月${now.getDate()}日 ${weekNames[now.getDay()]}`;
+
+  // 今日统计
+  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0;
+  try {
+    const rangeData = await sendMsg({ type: 'GET_STATS_RANGE', days: 1 });
+    const todayData = Object.values(rangeData)[Object.keys(rangeData).length - 1] || {};
+    for (const [domain, seconds] of Object.entries(todayData)) {
+      const type = classifyDomain(domain);
+      if (type === 'study') studySeconds += seconds;
+      else restSeconds += seconds;
+      onlineSeconds += seconds;
+    }
+  } catch (e) { /* pass */ }
+
+  // 激励摘要
+  const summaryEl = document.getElementById('summary-text');
+  if (summaryEl) {
+    const pct = onlineSeconds > 0 ? Math.round(studySeconds / onlineSeconds * 100) : 0;
+    const remaining = Math.max(0, (config.dailyStudyQuota || 480) * 60 - studySeconds);
+    let msg;
+    if (onlineSeconds === 0) {
+      msg = '今天还没有开始使用电脑，准备好了就出发吧！📚';
+    } else if (studySeconds === 0) {
+      msg = `今天在线 <b>${formatSeconds(onlineSeconds)}</b>，还没有学习时间，加油！💪`;
+    } else if (pct >= 70) {
+      msg = `今天已学习 <b>${formatSeconds(studySeconds)}</b>，学习专注度 <b>${pct}%</b>，表现优秀！🎉 继续保持！`;
+    } else if (pct >= 40) {
+      msg = `今天已学习 <b>${formatSeconds(studySeconds)}</b>，学习专注度 ${pct}%，还可学习 <b>${formatSeconds(remaining)}</b>，加油！💪`;
+    } else {
+      msg = `今天在线 <b>${formatSeconds(onlineSeconds)}</b>，其中学习 <b>${formatSeconds(studySeconds)}</b>，尝试多花时间学习吧！📖`;
+    }
+    summaryEl.innerHTML = msg;
   }
-  
+
+  // 今日时长进度条（含锁定状态）
+  const onlineLimit = (config.dailyOnlineQuota ?? 1200) * 60;
+  const studyLimit  = (config.dailyStudyQuota  ?? 480)  * 60;
+  const restLimit   = (config.dailyRestQuota   ?? 120)  * 60;
+  const qs = config.quotaState || {};
+
+  const progressEl = document.getElementById('overview-progress');
+  if (progressEl) {
+    const bar = (icon, label, used, limit, color, locked) => {
+      const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
+      const barColor = locked ? 'var(--danger)' : pct >= 90 ? 'var(--warn)' : color;
+      return `
+        <div style="margin-bottom:18px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-size:13px;font-weight:500;">${icon} ${label}${locked ? ' <span style="font-size:11px;color:var(--danger);background:rgba(248,113,113,0.12);padding:1px 6px;border-radius:8px;margin-left:4px;">已达上限</span>' : ''}</span>
+            <span style="font-size:13px;color:var(--muted);">${formatSeconds(used)} / ${formatSeconds(limit)}</span>
+          </div>
+          <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">
+            <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width 0.5s;"></div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${pct}% 已用，剩余 ${formatSeconds(Math.max(0, limit - used))}</div>
+        </div>`;
+    };
+
+    progressEl.innerHTML =
+      bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
+      bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
+      bar('🎵', '休息时长', restSeconds, restLimit, 'var(--warn)', qs.restLocked);
+  }
+
+  // 单站点配额（只读）
+  const domainQEl = document.getElementById('domain-quotas-list');
+  if (domainQEl) {
+    const entries = Object.entries(config.domainQuotas || {});
+    // 没有单站点配额时隐藏整个卡片
+    const domainCard = document.getElementById('domain-quota-card');
+    if (entries.length === 0) {
+      if (domainCard) domainCard.style.display = 'none';
+    } else {
+      if (domainCard) domainCard.style.display = '';
+      domainQEl.innerHTML = entries.map(([domain, minutes]) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:14px;">${domain}</span>
+          <span style="color:var(--accent);font-weight:600;">${minutes} 分钟/天</span>
+        </div>
+      `).join('');
+    }
+  }
+
+  // 今日 Top 10
+  try {
+    const stats  = await sendMsg({ type: 'GET_STATS' });
+    const listEl = document.getElementById('today-stats-list');
+    if (listEl) {
+      const entries = Object.entries(stats).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      if (entries.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">今日暂无数据</div>';
+      } else {
+        listEl.innerHTML = entries.map(([domain, seconds]) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
+            <span style="font-size:13px;">${domain}</span>
+            <span style="color:var(--accent);font-weight:600;font-size:13px;">${formatSeconds(seconds)}</span>
+          </div>
+        `).join('');
+      }
+    }
+  } catch (e) { /* pass */ }
+
   await renderSyncStatus();
 }
 
@@ -523,32 +1001,44 @@ async function renderSyncStatus() {
       CLOUD_KEYS.DEVICE_TOKEN,
       CLOUD_KEYS.PROFILE_ID,
       'cloud_last_sync',
-      'cloud_config_version'
+      'cloud_config_version',
+      'cloud_device_name',
     ], resolve);
   });
-  
+
   const container = document.getElementById('sync-status');
   if (!container) return;
-  
+
+  // 本机设备名（首次绑定时保存的）
+  const deviceName = storage['cloud_device_name'] || '本机';
+  // device_token 前8位作为短码
+  const token = storage[CLOUD_KEYS.DEVICE_TOKEN] || '';
+  const shortId = token ? token.slice(0, 8).toUpperCase() : '—';
+
   container.innerHTML = `
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+      <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">本机设备</div>
+        <div style="font-size:15px; font-weight:600;">${deviceName}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px; font-family:monospace;">ID: ${shortId}</div>
+      </div>
       <div style="padding:12px; background:var(--surface); border-radius:8px;">
-        <div style="font-size:12px; color:var(--muted);">设备绑定</div>
-        <div style="font-size:16px; font-weight:600; color:var(--green);">已绑定</div>
+        <div style="font-size:12px; color:var(--muted);">绑定状态</div>
+        <div style="font-size:15px; font-weight:600; color:var(--green);">✓ 已绑定</div>
       </div>
       <div style="padding:12px; background:var(--surface); border-radius:8px;">
         <div style="font-size:12px; color:var(--muted);">配置版本</div>
-        <div style="font-size:16px; font-weight:600;">${storage['cloud_config_version'] || '-'}</div>
+        <div style="font-size:15px; font-weight:600;">${storage['cloud_config_version'] || '—'}</div>
       </div>
-      <div style="padding:12px; background:var(--surface); border-radius:8px;">
-        <div style="font-size:12px; color:var(--muted);">最后同步</div>
-        <div style="font-size:16px; font-weight:600;">
+      <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">最后同步</div>
+        <div style="font-size:13px;">
           ${storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步'}
         </div>
       </div>
-      <div style="padding:12px; background:var(--surface); border-radius:8px;">
-        <button class="btn-save" onclick="forceSync()">立即同步</button>
-      </div>
+    </div>
+    <div style="margin-top:14px;">
+      <button class="btn-save" onclick="forceSync()" style="width:100%;">🔄 立即同步</button>
     </div>
   `;
 }
@@ -566,3 +1056,301 @@ async function forceSync() {
 // 全局函数（供 HTML onclick 调用）
 window.bindToProfile = bindToProfile;
 window.forceSync = forceSync;
+
+// ── 使用分析页（Stats）────────────────────────────────────────────────────
+
+// 域名匹配（与 background.js 一致）
+function matchDomain(domain, pattern) {
+  const d = domain.replace(/^www\./, '');
+  const p = pattern.replace(/^www\./, '');
+  return d === p || d.endsWith('.' + p);
+}
+
+function classifyDomain(domain) {
+  if ((config.studyList || []).some(p => matchDomain(domain, p))) return 'study';
+  if ((config.allowList || []).some(p => matchDomain(domain, p))) return 'allow';
+  return 'other';
+}
+
+function mergeStatsRange(rangeData) {
+  const merged = {};
+  for (const dayStats of Object.values(rangeData)) {
+    for (const [domain, seconds] of Object.entries(dayStats)) {
+      merged[domain] = (merged[domain] || 0) + seconds;
+    }
+  }
+  return merged;
+}
+
+function setupStatsPage() {
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderStatsPage(btn.dataset.range);
+    });
+  });
+}
+
+async function renderStatsPage(range = 'today') {
+  const days   = range === 'month' ? 30 : range === 'week' ? 7 : 1;
+  const label  = range === 'month' ? '上月' : range === 'week' ? '上周' : '昨日';
+
+  // 拉取统计数据
+  const [rangeData, visitSessions] = await Promise.all([
+    sendMsg({ type: 'GET_STATS_RANGE', days }),
+    sendMsg({ type: 'GET_VISIT_SESSIONS', days })
+  ]);
+
+  const statsData = range === 'today'
+    ? (Object.values(rangeData)[Object.keys(rangeData).length - 1] || {})
+    : mergeStatsRange(rangeData);
+
+  // 按分类汇总
+  let studySeconds = 0, restSeconds = 0, otherSeconds = 0;
+  for (const [domain, seconds] of Object.entries(statsData)) {
+    const type = classifyDomain(domain);
+    if (type === 'study') studySeconds += seconds;
+    else if (type === 'allow') otherSeconds += seconds;
+    else restSeconds += seconds;
+  }
+  const totalSeconds = studySeconds + restSeconds + otherSeconds;
+
+  // ── 概览卡片 ────────────────────────────────
+  document.getElementById('stat-total-time').textContent  = formatSeconds(totalSeconds);
+  document.getElementById('stat-study-time').textContent  = formatSeconds(studySeconds);
+  document.getElementById('stat-rest-time').textContent   = formatSeconds(restSeconds);
+  document.getElementById('stat-study-percent').textContent =
+    totalSeconds > 0 ? Math.round(studySeconds / totalSeconds * 100) + '%' : '0%';
+  document.getElementById('stat-rest-percent').textContent  =
+    totalSeconds > 0 ? Math.round(restSeconds  / totalSeconds * 100) + '%' : '0%';
+
+  // 对比趋势（昨日 / 上周 / 上月）
+  try {
+    const prevData = await sendMsg({ type: 'GET_STATS_RANGE', days: days * 2 });
+    const allDates  = Object.keys(prevData).sort();
+    const prevHalf  = allDates.slice(0, Math.floor(allDates.length / 2));
+    const prevTotal = prevHalf.reduce((sum, d) =>
+      sum + Object.values(prevData[d] || {}).reduce((a, b) => a + b, 0), 0);
+    const trend     = prevTotal > 0 ? Math.round((totalSeconds - prevTotal) / prevTotal * 100) : 0;
+    const trendEl   = document.getElementById('stat-total-trend');
+    if (trendEl) {
+      trendEl.textContent = `比${label} ${trend >= 0 ? '+' : ''}${trend}%`;
+      trendEl.style.color = trend > 0 ? 'var(--warn)' : 'var(--green)';
+    }
+  } catch (_) {}
+
+  // 访问次数 + 平均时长
+  document.getElementById('stat-session-count').textContent = visitSessions.length;
+  const avgMin = visitSessions.length > 0
+    ? Math.round(visitSessions.reduce((a, s) => a + s.duration, 0) / visitSessions.length / 60)
+    : 0;
+  document.getElementById('stat-avg-duration').textContent = `平均 ${avgMin} 分钟`;
+
+  // ── 热力图 ───────────────────────────────────
+  renderHeatmap(visitSessions);
+
+  // ── 饼图 ────────────────────────────────────
+  renderTypeChart(studySeconds, restSeconds, otherSeconds);
+
+  // ── TOP 网站 ─────────────────────────────────
+  renderTopDomains(statsData, totalSeconds);
+
+  // ── 模式分析 ─────────────────────────────────
+  renderPatternAnalysis(visitSessions, studySeconds, totalSeconds);
+
+  // ── 变更日志 ─────────────────────────────────
+  await renderChangelog();
+}
+
+function renderHeatmap(visitSessions) {
+  const container = document.getElementById('time-heatmap');
+  if (!container) return;
+
+  // 按小时聚合访问时长
+  const hourData = new Array(24).fill(0);
+  for (const s of visitSessions) {
+    const h = new Date(s.startAt).getHours();
+    hourData[h] += s.duration;
+  }
+  const maxVal = Math.max(...hourData, 1);
+
+  const cells = hourData.map((seconds, h) => {
+    const level   = seconds === 0 ? 0 : Math.min(5, Math.ceil(seconds / maxVal * 5));
+    const tooltip = `${h}:00  ${formatSeconds(seconds)}`;
+    return `<div class="heatmap-cell level-${level}" title="${tooltip}" data-time="${tooltip}"></div>`;
+  }).join('');
+
+  const labels = Array.from({ length: 24 }, (_, i) =>
+    `<div style="font-size:10px;color:var(--muted);text-align:center;line-height:1;">${i % 6 === 0 ? i + 'h' : ''}</div>`
+  ).join('');
+
+  container.innerHTML = `
+    <div class="heatmap-grid">${cells}</div>
+    <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-top:4px;">${labels}</div>
+  `;
+}
+
+function renderTypeChart(studySeconds, restSeconds, otherSeconds) {
+  const canvas = document.getElementById('typeChart');
+  if (!canvas) return;
+  const ctx   = canvas.getContext('2d');
+  const total = studySeconds + restSeconds + otherSeconds;
+  const cx = 100, cy = 100, r = 75, innerR = 48;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (total === 0) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fill();
+    ctx.fillStyle = '#5a5a80';
+    ctx.font = '13px -apple-system';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无数据', cx, cy + 5);
+    return;
+  }
+
+  const segments = [
+    { value: studySeconds, color: '#4ade80' },
+    { value: restSeconds,  color: '#fbbf24' },
+    { value: otherSeconds, color: '#5a5a80' },
+  ].filter(s => s.value > 0);
+
+  let startAngle = -Math.PI / 2;
+  for (const seg of segments) {
+    const sweep = (seg.value / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, startAngle, startAngle + sweep);
+    ctx.closePath();
+    ctx.fillStyle = seg.color;
+    ctx.fill();
+    startAngle += sweep;
+  }
+
+  // 圆环内洞
+  ctx.beginPath();
+  ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
+  ctx.fillStyle = '#16162a';
+  ctx.fill();
+
+  // 中心文字
+  const pct = Math.round(studySeconds / total * 100);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e2e2f0';
+  ctx.font = 'bold 18px -apple-system';
+  ctx.fillText(pct + '%', cx, cy + 2);
+  ctx.font = '11px -apple-system';
+  ctx.fillStyle = '#5a5a80';
+  ctx.fillText('学习', cx, cy + 18);
+}
+
+function renderTopDomains(statsData, totalSeconds) {
+  const container = document.getElementById('top-domains-list');
+  if (!container) return;
+
+  const entries = Object.entries(statsData)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">暂无数据</div>';
+    return;
+  }
+
+  const maxSeconds = entries[0][1];
+  const rankColors = ['top-1', 'top-2', 'top-3'];
+  const typeMap    = { study: '学习网站', allow: '允许网站', other: '其他' };
+  const barColors  = { study: 'var(--green)', allow: 'var(--accent)', other: 'var(--muted)' };
+
+  container.innerHTML = entries.map(([domain, seconds], i) => {
+    const type    = classifyDomain(domain);
+    const pct     = Math.round(seconds / maxSeconds * 100);
+    const rankCls = rankColors[i] || '';
+    return `
+      <div class="top-domain-item">
+        <div class="domain-rank ${rankCls}">${i + 1}</div>
+        <div class="domain-info">
+          <div class="domain-name">${domain}</div>
+          <div class="domain-type">${typeMap[type]}</div>
+        </div>
+        <div class="domain-bar">
+          <div class="domain-bar-fill" style="width:${pct}%;background:${barColors[type]};"></div>
+        </div>
+        <div class="domain-time">${formatSeconds(seconds)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderPatternAnalysis(visitSessions, studySeconds, totalSeconds) {
+  const container = document.getElementById('pattern-analysis');
+  if (!container) return;
+
+  // 最长专注时段
+  const longestSession = visitSessions.length > 0
+    ? visitSessions.reduce((a, b) => b.duration > a.duration ? b : a)
+    : null;
+  const longestMin = longestSession ? Math.round(longestSession.duration / 60) : 0;
+
+  // 峰值活跃小时
+  const hourData = new Array(24).fill(0);
+  for (const s of visitSessions) hourData[new Date(s.startAt).getHours()] += s.duration;
+  const peakHour   = hourData.indexOf(Math.max(...hourData));
+  const peakLabel  = hourData[peakHour] > 0 ? `${peakHour}:00 — ${peakHour + 1}:00` : '无数据';
+
+  // 学习占比
+  const studyPct = totalSeconds > 0 ? Math.round(studySeconds / totalSeconds * 100) : 0;
+  const studyGrade = studyPct >= 70 ? '优秀 🎉' : studyPct >= 50 ? '良好 👍' : studyPct >= 30 ? '一般 📖' : '待提升 💪';
+
+  container.innerHTML = `
+    <div class="pattern-card">
+      <div class="pattern-icon">⏱</div>
+      <div class="pattern-title">最长专注时段</div>
+      <div class="pattern-value">${longestMin} 分钟</div>
+    </div>
+    <div class="pattern-card">
+      <div class="pattern-icon">🔥</div>
+      <div class="pattern-title">最活跃时段</div>
+      <div class="pattern-value">${peakLabel}</div>
+    </div>
+    <div class="pattern-card">
+      <div class="pattern-icon">📚</div>
+      <div class="pattern-title">学习专注度</div>
+      <div class="pattern-value">${studyPct}% · ${studyGrade}</div>
+    </div>
+  `;
+}
+
+async function renderChangelog() {
+  const container = document.getElementById('changelog-timeline');
+  if (!container) return;
+
+  let logs;
+  try { logs = await sendMsg({ type: 'GET_CHANGELOG', limit: 15 }); }
+  catch (_) { logs = []; }
+
+  if (!logs || logs.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">暂无变更记录</div>';
+    return;
+  }
+
+  const dotClass = (action) => {
+    if (action.includes('add') || action.includes('install')) return 'add';
+    if (action.includes('remove') || action.includes('delete')) return 'remove';
+    if (action.includes('switch') || action.includes('mode')) return 'switch';
+    return 'change';
+  };
+
+  container.innerHTML = logs.map(entry => `
+    <div class="changelog-item">
+      <div class="changelog-dot ${dotClass(entry.action)}"></div>
+      <div class="changelog-content">
+        <div class="changelog-time">${new Date(entry.ts).toLocaleString()}</div>
+        <div class="changelog-text">${entry.details || entry.action}</div>
+      </div>
+    </div>
+  `).join('');
+}

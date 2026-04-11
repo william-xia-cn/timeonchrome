@@ -93,8 +93,12 @@ export default {
       // 路由分发
       if (path.startsWith('/auth/')) {
         return await authRouter.handle(request, env);
+      } else if (path.match(/^\/profiles\/[^/]+\/stats/)) {
+        return await statsRouter.handle(request, env);
       } else if (path.startsWith('/profiles')) {
         return await profilesRouter.handle(request, env);
+      } else if (path === '/device/heartbeat') {
+        return await deviceRouter.handle(request, env);
       } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog')) {
         // 设备端 API（device_token 鉴权）
         if (path.startsWith('/device/stats')) {

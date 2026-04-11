@@ -1,214 +1,125 @@
-// popup/popup.js - 学习/休息状态管理
+// popup/popup.js - 孩子视角：只读时间用量展示
 
-const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-
-let currentSession = null;
-let updateTimer = null;
+const CLOUD_KEYS = {
+  PROFILE_NAME: 'cloud_profile_name'
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await init();
 
-  // 管理员链接
-  document.getElementById('admin-link').addEventListener('click', () => {
+  // 详情链接 → 打开 admin 面板
+  document.getElementById('detail-link').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
-
-  // 学习/休息按钮事件
-  document.getElementById('btn-study').addEventListener('click', () => switchMode('study'));
-  document.getElementById('btn-rest').addEventListener('click', () => switchMode('rest'));
-
-  // 每 30 秒刷新统计数据（新模型）
-  updateTimer = setInterval(async () => {
-    const config = await sendMsg({ type: 'GET_CONFIG' });
-    const stats = await sendMsg({ type: 'GET_STATS' });
-    currentSession = await sendMsg({ type: 'GET_SESSION' });
-    updateStatusDisplay();
-    updateTodayStats(config, stats);
-  }, 30 * 1000);
 });
 
 async function init() {
-  const config = await sendMsg({ type: 'GET_CONFIG' });
-  const stats = await sendMsg({ type: 'GET_STATS' });
-  currentSession = await sendMsg({ type: 'GET_SESSION' });
-  const sessions = await sendMsg({ type: 'GET_SESSIONS_RANGE', days: 1 });
-  await sendMsg({ type: 'FLUSH_TIME' });
+  // 并行获取所需数据
+  const [config, stats, rangeData] = await Promise.all([
+    sendMsg({ type: 'GET_CONFIG' }),
+    sendMsg({ type: 'GET_STATS' }),
+    sendMsg({ type: 'GET_STATS_RANGE', days: 1 })
+  ]);
 
-  // 状态徽章
-  const pill = document.getElementById('status-pill');
-  const statusText = document.getElementById('status-text');
-  if (config.enabled) {
-    pill.className = 'status-pill on';
-    statusText.textContent = '已启用';
-  } else {
-    pill.className = 'status-pill off';
-    statusText.textContent = '已关闭';
+  // 刷新今日计时
+  try { await sendMsg({ type: 'FLUSH_TIME' }); } catch (_) {}
+
+  // 孩子名字
+  const nameStorage = await new Promise(resolve =>
+    chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME], resolve)
+  );
+  const childName = nameStorage[CLOUD_KEYS.PROFILE_NAME];
+  const nameEl = document.getElementById('child-name-header');
+  if (nameEl && childName) nameEl.textContent = childName + ' 的时间';
+
+  // 日期
+  const now = new Date();
+  const weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
+  const dateEl = document.getElementById('footer-date');
+  if (dateEl) dateEl.textContent = `${now.getMonth()+1}/${now.getDate()} ${weekNames[now.getDay()]}`;
+
+  // 计算今日学习/休息/在线时长
+  const studyList = config.studyList || [];
+  const allowList = config.allowList || [];
+  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0;
+
+  for (const [domain, seconds] of Object.entries(stats)) {
+    onlineSeconds += seconds;
+    if (studyList.some(p => matchDomain(domain, p))) {
+      studySeconds += seconds;
+    } else {
+      restSeconds += seconds;
+    }
   }
 
-  // 更新学习/休息按钮状态
-  updateModeButtons();
+  // 配额上限（分钟→秒）
+  const onlineLimit = (config.dailyOnlineQuota ?? 1200) * 60;
+  const studyLimit  = (config.dailyStudyQuota  ?? 480)  * 60;
+  const restLimit   = (config.dailyRestQuota   ?? 120)  * 60;
+  const qs = config.quotaState || {};
 
-  // 更新状态显示
-  updateStatusDisplay();
+  // 激励摘要
+  const summaryEl = document.getElementById('summary-card');
+  if (summaryEl) {
+    const pct = onlineSeconds > 0 ? Math.round(studySeconds / onlineSeconds * 100) : 0;
+    const remaining = Math.max(0, studyLimit - studySeconds);
+    let msg;
+    if (onlineSeconds === 0) {
+      msg = '今天还没有开始使用，准备好了就出发吧！📚';
+    } else if (studySeconds === 0) {
+      msg = `在线 <b>${formatSeconds(onlineSeconds)}</b>，今天还没有学习时间，加油！💪`;
+    } else if (pct >= 70) {
+      msg = `已学习 <b>${formatSeconds(studySeconds)}</b>，专注度 <b>${pct}%</b>，表现优秀！🎉`;
+    } else {
+      msg = `已学习 <b>${formatSeconds(studySeconds)}</b>，还可学习 <b>${formatSeconds(remaining)}</b>，继续加油！💪`;
+    }
+    summaryEl.innerHTML = msg;
+  }
 
-  // 更新今日统计（同时也会更新计时器）
-  updateTodayStats(config, stats);
+  // 进度条
+  const quotaBarsEl = document.getElementById('quota-bars');
+  if (quotaBarsEl) {
+    const bar = (icon, label, used, limit, color, locked) => {
+      const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
+      const barColor = locked ? 'var(--danger)' : pct >= 90 ? 'var(--warn)' : color;
+      return `
+        <div class="quota-bar-item">
+          <div class="quota-bar-header">
+            <span class="quota-bar-label">${icon} ${label}${locked ? ' <span style="font-size:10px;color:var(--danger);">已达上限</span>' : ''}</span>
+            <span class="quota-bar-value">${formatSeconds(used)} / ${formatSeconds(limit)}</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" style="width:${pct}%;background:${barColor};"></div>
+          </div>
+        </div>`;
+    };
 
-  // 时间配额
-  if (config.dailyQuota > 0) {
-    const totalSeconds = Object.values(stats).reduce((a, b) => a + b, 0);
-    const usedMin = Math.floor(totalSeconds / 60);
-    const limitMin = config.dailyQuota;
-    const remaining = Math.max(0, limitMin - usedMin);
-    const pct = Math.min(100, Math.round((usedMin / limitMin) * 100));
-
-    document.getElementById('quota-section').style.display = 'block';
-    document.getElementById('remaining-time').textContent = formatMinutes(remaining);
-    document.getElementById('used-time').textContent = formatMinutes(usedMin);
-    document.getElementById('limit-time').textContent = formatMinutes(limitMin);
-    document.getElementById('quota-bar').style.width = pct + '%';
-    document.getElementById('quota-bar').style.background =
-      pct >= 90 ? 'linear-gradient(90deg, #f87171, #ff4d6d)' :
-      pct >= 70 ? 'linear-gradient(90deg, #fbbf24, #f59e0b)' :
-      'linear-gradient(90deg, var(--accent), #9c6fff)';
+    quotaBarsEl.innerHTML =
+      bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
+      bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
+      bar('🎵', '休息时长', restSeconds, restLimit, 'var(--warn)', qs.restLocked);
   }
 
   // Top 5
   const entries = Object.entries(stats).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const top5 = document.getElementById('today-top5');
+  const top5El = document.getElementById('today-top5');
   if (entries.length === 0) {
-    top5.innerHTML = '<div class="empty">暂无数据</div>';
+    top5El.innerHTML = '<div class="empty">暂无数据</div>';
   } else {
-    const max = entries[0][1];
-    top5.innerHTML = entries.map(([domain, seconds]) => {
-      return `
-        <div class="stat-row">
-          <span class="stat-row-left">${domain}</span>
-          <span class="stat-row-right">${formatSeconds(seconds)}</span>
-        </div>
-      `;
-    }).join('');
+    top5El.innerHTML = entries.map(([domain, seconds]) => `
+      <div class="stat-row">
+        <span class="stat-row-left">${domain}</span>
+        <span class="stat-row-right">${formatSeconds(seconds)}</span>
+      </div>
+    `).join('');
   }
 }
 
-function updateModeButtons() {
-  const btnStudy = document.getElementById('btn-study');
-  const btnRest  = document.getElementById('btn-rest');
-
-  btnStudy.classList.remove('active-study');
-  btnRest.classList.remove('active-rest');
-
-  if (currentSession.currentMode === 'study') {
-    btnStudy.classList.add('active-study');
-  } else if (currentSession.currentMode === 'rest') {
-    btnRest.classList.add('active-rest');
-  }
-}
-
-function updateStatusDisplay() {
-  const statusValue = document.getElementById('status-value');
-
-  statusValue.classList.remove('study', 'rest', 'free');
-
-  if (currentSession.currentMode === 'study') {
-    statusValue.textContent = '📚 学习中';
-    statusValue.classList.add('study');
-  } else {
-    statusValue.textContent = '🎮 娱乐中';
-    statusValue.classList.add('rest');
-  }
-}
-
-function updateTimerDisplay() {
-  const timerEl = document.getElementById('status-timer');
-  
-  if (!currentSession) {
-    timerEl.textContent = '00:00:00';
-    return;
-  }
-
-  // 新模型：计时器显示由 updateTodayStats 函数更新
-  // 这里保留函数避免报错，实际更新在 updateTodayStats 中进行
-  // 如果还没有数据，显示默认值
-  if (timerEl.textContent === '00:00:00' || !timerEl.textContent) {
-    // 等待 updateTodayStats 更新
-  }
-}
-
-// 新模型：从域名统计数据实时计算学习/休息/其他时长
-function updateTodayStats(config, stats) {
-  const studyList = config.studyList || [];
-  const allowList = config.allowList || [];
-  
-  let studySeconds = 0;
-  let otherSeconds = 0;
-  let onlineSeconds = 0;
-  
-  // 遍历所有域名统计
-  for (const [domain, seconds] of Object.entries(stats)) {
-    onlineSeconds += seconds;
-    
-    // 检查域名是否在学习清单
-    const inStudyList = studyList.some(pattern => matchDomain(domain, pattern));
-    if (inStudyList) {
-      studySeconds += seconds;
-      continue;
-    }
-    
-    // 检查域名是否在允许清单
-    const inAllowList = allowList.some(pattern => matchDomain(domain, pattern));
-    if (inAllowList) {
-      otherSeconds += seconds;
-    }
-    // 其他域名（既不在 studyList 也不在 allowList）只计在线时长，不计入学习/其他
-  }
-  
-  // 休息时长 = 在线 - 学习 - 其他
-  const restSeconds = Math.max(0, onlineSeconds - studySeconds - otherSeconds);
-  
-  // 更新显示
-  document.getElementById('study-time-stat').textContent  = formatSeconds(studySeconds);
-  document.getElementById('rest-time-stat').textContent   = formatSeconds(restSeconds);
-  document.getElementById('online-time-stat').textContent = formatSeconds(onlineSeconds);
-  
-  // 更新状态计时器（根据当前模式显示对应时长）
-  const timerEl = document.getElementById('status-timer');
-  if (currentSession?.currentMode === 'study') {
-    timerEl.textContent = formatTime(studySeconds);
-  } else {
-    timerEl.textContent = formatTime(restSeconds);
-  }
-}
-
-// 域名匹配函数（与 background.js 一致）
+// 域名匹配（与 background.js 一致）
 function matchDomain(domain, pattern) {
   const d = domain.replace(/^www\./, '');
   const p = pattern.replace(/^www\./, '');
   return d === p || d.endsWith('.' + p);
-}
-
-async function switchMode(mode) {
-  try {
-    // 发送切换消息
-    if (mode === 'study') {
-      await sendMsg({ type: 'SWITCH_TO_STUDY' });
-    } else if (mode === 'rest') {
-      await sendMsg({ type: 'SWITCH_TO_REST' });
-    }
-    
-    // 主动重新获取 session 确保与后台同步（SW 可能已休眠后唤醒）
-    currentSession = await sendMsg({ type: 'GET_SESSION' });
-    
-    updateModeButtons();
-    updateStatusDisplay();
-    
-    // 更新今日统计（新模型：从 config 和 stats 实时计算）
-    const config = await sendMsg({ type: 'GET_CONFIG' });
-    const stats = await sendMsg({ type: 'GET_STATS' });
-    updateTodayStats(config, stats);
-  } catch (err) {
-    console.error('切换模式失败:', err);
-  }
 }
 
 function sendMsg(msg) {
@@ -222,19 +133,4 @@ function formatSeconds(secs) {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   return m > 0 ? `${h}小时${m}分` : `${h}小时`;
-}
-
-function formatMinutes(min) {
-  if (min < 60) return `${min}分钟`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m > 0 ? `${h}小时${m}分` : `${h}小时`;
-}
-
-function formatTime(seconds) {
-  if (!seconds || seconds < 0) seconds = 0;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }

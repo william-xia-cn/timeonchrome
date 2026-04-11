@@ -806,210 +806,112 @@
       <div class="sidebar-logo-icon">🛡</div>
       <div>
         <div class="sidebar-logo-text">TimeOnChrome</div>
-        <div class="sidebar-logo-sub">Guardian Admin</div>
+        <div class="sidebar-logo-sub" id="sidebar-child-name">我的面板</div>
       </div>
     </div>
 
     <div class="nav-item active" data-page="overview">
-      <span class="nav-icon">📊</span> 总览
+      <span class="nav-icon">📅</span> 今日使用
     </div>
     <div class="nav-item" data-page="rules">
-      <span class="nav-icon">📋</span> 白/黑名单
-    </div>
-    <div class="nav-item" data-page="quota">
-      <span class="nav-icon">⏱</span> 时间配额
-    </div>
-    <div class="nav-item" data-page="schedule">
-      <span class="nav-icon">📅</span> 时间段控制
+      <span class="nav-icon">📋</span> 访问规则
     </div>
     <div class="nav-item" data-page="stats">
-        <span class="nav-icon">📊</span>
-        <span class="nav-text">使用分析</span>
-      </div>
-    <div class="nav-item" data-page="sessions">
-      <span class="nav-icon">📚</span> 学习/休息
+      <span class="nav-icon">📊</span> 使用分析
     </div>
     <div class="nav-item" data-page="devices">
-      <span class="nav-icon">📱</span> 设备管理
-    </div>
-    <div class="nav-item" data-page="security">
-      <span class="nav-icon">🔐</span> 安全设置
+      <span class="nav-icon">📡</span> 本机
     </div>
 
     <div class="sidebar-footer">
+      <div class="user-info" id="user-info" style="display:none; margin-bottom:12px; text-align:center;">
+        <div style="font-size:12px; color:var(--muted);">孩子: <span id="profile-name-display" style="color:var(--text);"></span></div>
+        <div style="font-size:11px; color:var(--muted);">账户: <span id="account-email-display"></span></div>
+      </div>
       <button class="btn-logout" id="logout-btn">退出登录</button>
     </div>
   </div>
 
   <div class="content">
-    <!-- 总览 -->
+    <!-- 今日使用 -->
     <div class="page active" id="page-overview">
       <div class="page-header">
-        <h2>总览</h2>
-        <p>管控状态与今日统计</p>
+        <h2>今日使用</h2>
+        <p id="overview-date"></p>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">管控总开关</div>
-            <div class="card-subtitle">关闭后所有限制暂停生效</div>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="toggle-enabled">
-            <div class="toggle-track"></div>
-            <div class="toggle-thumb"></div>
-          </label>
-        </div>
-        <div id="global-status-badge"></div>
+      <!-- 激励摘要 -->
+      <div class="card" id="overview-summary" style="border-left:3px solid var(--accent);">
+        <div id="summary-text" style="font-size:14px;line-height:1.8;color:var(--text);">加载中...</div>
       </div>
 
+      <!-- 今日时长进度条 -->
       <div class="card">
-        <div class="card-header">
-          <div class="card-title">今日上网时长 Top 10</div>
-        </div>
+        <div class="card-header"><div class="card-title">时间用量</div></div>
+        <div id="overview-progress">加载中...</div>
+      </div>
+
+      <!-- 单站点配额 -->
+      <div class="card" id="domain-quota-card">
+        <div class="card-header"><div class="card-title">单站点配额</div></div>
+        <div id="domain-quotas-list">加载中...</div>
+      </div>
+
+      <!-- Top 10 -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">访问时长 Top 10</div></div>
         <div id="today-stats-list">加载中...</div>
       </div>
     </div>
 
-    <!-- 白/黑名单 -->
+    <!-- 访问规则（只读） -->
     <div class="page" id="page-rules">
       <div class="page-header">
-        <h2>白 / 黑名单</h2>
-        <p>管理允许或禁止访问的网站</p>
+        <h2>访问规则</h2>
+        <p id="rules-mode-desc">当前规则由家长在云端设定</p>
       </div>
 
+      <!-- 屏蔽网站 -->
       <div class="card">
         <div class="card-header">
-          <div>
-            <div class="card-title">控制模式</div>
-            <div class="card-subtitle">白名单：只允许列出的网站 | 黑名单：禁止列出的网站</div>
-          </div>
-        </div>
-        <div class="tabs">
-          <button class="tab-btn active" data-mode="blacklist">🚫 黑名单模式</button>
-          <button class="tab-btn" data-mode="whitelist">✅ 白名单模式（更严格）</button>
-        </div>
-      </div>
-
-      <!-- 黑名单 -->
-      <div class="card" id="blacklist-card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">黑名单域名</div>
-            <div class="card-subtitle">这些网站将被完全屏蔽，支持子域名匹配</div>
-          </div>
-        </div>
-        <div class="domain-input-row">
-          <input type="text" id="blacklist-input" placeholder="例：tiktok.com / douyin.com">
-          <button class="btn-add" id="blacklist-add-btn">+ 添加</button>
+          <div class="card-title">🚫 屏蔽网站 <span id="blacklist-count" style="font-size:12px;color:var(--muted);font-weight:400;"></span></div>
         </div>
         <div class="domains-container" id="blacklist-tags"></div>
       </div>
 
-      <!-- 学习网站 -->
-      <div class="card" id="studylist-card" style="display:none">
-        <div class="card-header">
-          <div>
-            <div class="card-title">学习网站</div>
-            <div class="card-subtitle">计入学习时长，并触发自动切换学习模式</div>
+      <!-- 白名单模式下才显示 -->
+      <div id="whitelist-section" style="display:none">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📚 学习网站 <span id="studylist-count" style="font-size:12px;color:var(--muted);font-weight:400;"></span></div>
           </div>
+          <div style="margin-bottom:8px;">
+            <input type="text" id="studylist-search" placeholder="🔍 搜索学习网站..." style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;">
+          </div>
+          <div class="domains-container" id="studylist-tags" style="max-height:220px;overflow-y:auto;"></div>
         </div>
-        <div class="domain-input-row">
-          <input type="text" id="studylist-input" placeholder="例：zhihu.com / khanacademy.org">
-          <button class="btn-add" id="studylist-add-btn">+ 添加</button>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🎵 允许网站 <span id="allowlist-count" style="font-size:12px;color:var(--muted);font-weight:400;"></span></div>
+          </div>
+          <div class="domains-container" id="allowlist-tags"></div>
         </div>
-        <div class="domains-container" id="studylist-tags"></div>
       </div>
 
-      <!-- 允许网站（非学习） -->
-      <div class="card" id="allowlist-card" style="display:none">
+      <!-- 上网时间段（并入访问规则） -->
+      <div class="card">
         <div class="card-header">
-          <div>
-            <div class="card-title">允许网站（非学习）</div>
-            <div class="card-subtitle">学习模式下可访问，但不计学习时长（如音乐网站）</div>
-          </div>
+          <div class="card-title">🕐 上网时间段</div>
+          <div class="card-desc" id="schedule-status-desc" style="font-size:12px;color:var(--muted);margin-top:2px;"></div>
         </div>
-        <div class="domain-input-row">
-          <input type="text" id="allowlist-input" placeholder="例：music.163.com / spotify.com">
-          <button class="btn-add" id="allowlist-add-btn">+ 添加</button>
-        </div>
-        <div class="domains-container" id="allowlist-tags"></div>
-      </div>
-
-      <div class="save-bar">
-        <button class="btn-save" id="save-rules-btn">保存规则</button>
+        <div id="schedule-rows">加载中...</div>
       </div>
     </div>
 
-    <!-- 时间配额 -->
-    <div class="page" id="page-quota">
-      <div class="page-header">
-        <h2>时间配额</h2>
-        <p>设置每天允许的上网时长</p>
-      </div>
-
-      <div class="card">
-        <div class="quota-row">
-          <div class="quota-label">
-            每日总时长上限
-            <small>所有网站加起来的总使用时间（0=不限制）</small>
-          </div>
-          <input type="number" class="quota-input" id="daily-quota" min="0" max="1440" placeholder="0">
-          <span class="quota-unit">分钟/天</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">单站点时间配额</div>
-            <div class="card-subtitle">为特定网站设置单独的时间上限</div>
-          </div>
-        </div>
-        <div class="domain-input-row">
-          <input type="text" id="quota-domain-input" placeholder="域名，如 bilibili.com">
-          <input type="number" id="quota-minutes-input" placeholder="分钟" style="width:90px; flex:none; padding:10px 14px; background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:9px; color:var(--text); font-size:14px; outline:none;">
-          <button class="btn-add" id="quota-add-btn">+ 添加</button>
-        </div>
-        <div id="domain-quotas-list"></div>
-      </div>
-
-      <div class="save-bar">
-        <button class="btn-save" id="save-quota-btn">保存配额设置</button>
-      </div>
-    </div>
-
-    <!-- 时间段控制 -->
-    <div class="page" id="page-schedule">
-      <div class="page-header">
-        <h2>时间段控制</h2>
-        <p>设置每天允许上网的时间范围</p>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">启用时间段限制</div>
-          <label class="toggle">
-            <input type="checkbox" id="schedule-enabled">
-            <div class="toggle-track"></div>
-            <div class="toggle-thumb"></div>
-          </label>
-        </div>
-
-        <div id="schedule-rows"></div>
-      </div>
-
-      <div class="save-bar">
-        <button class="btn-save" id="save-schedule-btn">保存时间段</button>
-      </div>
-    </div>
-
-    <!-- 统计 -->
-    <!-- 增强版上网统计页面 -->
+    <!-- 使用分析 -->
     <div class="page" id="page-stats">
       <div class="page-header">
-        <h2>📊 使用分析</h2>
+        <h2>使用分析</h2>
         <p>了解上网习惯，优化时间管理</p>
       </div>
 
@@ -1111,117 +1013,12 @@
       </div>
     </div>
 
-    <!-- 学习/休息统计 -->
-    <div class="page" id="page-sessions">
-      <div class="page-header">
-        <h2>学习 / 休息</h2>
-        <p>学习休息时长统计与休息设置</p>
-      </div>
 
-      <!-- 当前会话状态 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">当前会话</div>
-        </div>
-        <div id="current-session-info">加载中...</div>
-      </div>
-
-      <!-- 历史统计 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">历史统计（近30天）</div>
-        </div>
-        <div id="sessions-history">加载中...</div>
-      </div>
-
-      <!-- 自动切换学习模式 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">自动切换学习模式</div>
-        </div>
-        <div class="quota-row">
-          <div class="quota-label">
-            启用自动切换
-            <small>娱乐模式下访问学习网站持续操作后自动切换</small>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="auto-study-enabled">
-            <div class="toggle-track"></div>
-            <div class="toggle-thumb"></div>
-          </label>
-        </div>
-        <div class="quota-row">
-          <div class="quota-label">
-            触发时长
-            <small>连续在学习网站操作多少秒后切换（默认 90 秒）</small>
-          </div>
-          <input type="number" class="quota-input" id="auto-study-seconds" min="30" max="600" placeholder="90">
-          <span class="quota-unit">秒</span>
-        </div>
-        <div class="save-bar">
-          <button class="btn-save" id="save-auto-study-btn">保存设置</button>
-        </div>
-      </div>
-
-      <!-- 休息设置 -->
-      <div class="card">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">休息设置</div>
-        </div>
-        <div class="quota-row">
-          <div class="quota-label">
-            休息提醒间隔
-            <small>每隔多少分钟提醒一次（0=不提醒）</small>
-          </div>
-          <input type="number" class="quota-input" id="rest-reminder" min="0" max="120" placeholder="15">
-          <span class="quota-unit">分钟</span>
-        </div>
-        <div class="quota-row">
-          <div class="quota-label">
-            最大休息时长
-            <small>超时后强制切换到学习模式（0=不限制）</small>
-          </div>
-          <input type="number" class="quota-input" id="rest-max-duration" min="0" max="480" placeholder="60">
-          <span class="quota-unit">分钟</span>
-        </div>
-        <div class="save-bar">
-          <button class="btn-save" id="save-rest-config-btn">保存设置</button>
-        </div>
-      </div>
-
-      <!-- 临时白名单设置 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">临时白名单设置</div>
-        </div>
-        <div class="quota-row">
-          <div class="quota-label">
-            临时放行时长
-            <small>用户请求临时访问的持续时间</small>
-          </div>
-          <input type="number" class="quota-input" id="temp-whitelist-duration" min="1" max="60" placeholder="1">
-          <span class="quota-unit">分钟</span>
-        </div>
-        <div class="save-bar">
-          <button class="btn-save" id="save-temp-whitelist-config-btn">保存设置</button>
-        </div>
-      </div>
-
-      <!-- 临时白名单使用记录 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">临时白名单使用记录</div>
-        </div>
-        <div id="temp-whitelist-records">加载中...</div>
-      </div>
-    </div>
-
-    <!-- 设备管理 -->
+    <!-- 本机状态 -->
     <div class="page" id="page-devices">
       <div class="page-header">
-        <h2>设备管理</h2>
-        <p>管理已绑定的孩子设备</p>
+        <h2>本机状态</h2>
+        <p>当前设备与云端的连接状态</p>
       </div>
 
       <!-- 当前账户信息 -->
@@ -1229,20 +1026,19 @@
         <div class="card-header">
           <div>
             <div class="card-title">云端账户</div>
-            <div class="card-subtitle">已登录的云端账户</div>
+            <div class="card-subtitle">当前登录的家长账户</div>
           </div>
-          <div id="account-info">加载中...</div>
+          <div id="account-info" style="font-size:13px;color:var(--accent);">加载中...</div>
         </div>
       </div>
 
-      <!-- 孩子列表 -->
+      <!-- 已绑定的孩子 -->
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">孩子 Profile</div>
-            <div class="card-subtitle">管理孩子的管控配置</div>
+            <div class="card-title">绑定档案</div>
+            <div class="card-subtitle">本设备管控的孩子</div>
           </div>
-          <button class="btn-add" id="add-profile-btn" style="display:none">+ 添加孩子</button>
         </div>
         <div id="profiles-list">加载中...</div>
       </div>
@@ -1251,68 +1047,14 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">同步状态</div>
-            <div class="card-subtitle">当前设备的云端同步状态</div>
+            <div class="card-title">云端同步</div>
+            <div class="card-subtitle">配置与统计数据同步状态</div>
           </div>
         </div>
         <div id="sync-status">加载中...</div>
       </div>
-
-      <!-- 绑定新设备说明 -->
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">绑定新设备</div>
-            <div class="card-subtitle">在孩子的浏览器中安装插件后进行绑定</div>
-          </div>
-        </div>
-        <div style="padding:12px; background:rgba(124,111,255,0.1); border-radius:8px; font-size:13px; color:var(--muted);">
-          <p>1. 在孩子设备上打开 Chrome 扩展管理</p>
-          <p>2. 加载 TimeOnChrome 插件</p>
-          <p>3. 点击插件图标 → 选择「设备绑定」</p>
-          <p>4. 使用当前账户登录并选择孩子 Profile</p>
-          <p style="margin-top:8px;">或点击下方按钮生成绑定码：</p>
-          <button class="btn-save" id="generate-bind-code-btn" style="margin-top:8px;">生成绑定码</button>
-        </div>
-      </div>
     </div>
 
-    <!-- 安全设置 -->
-    <div class="page" id="page-security">
-      <div class="page-header">
-        <h2>安全设置</h2>
-        <p>修改管理员密码</p>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:16px">修改管理员密码</div>
-        <div class="form-group">
-          <label>当前密码</label>
-          <input type="password" id="old-pw" placeholder="输入当前密码...">
-        </div>
-        <div class="form-group">
-          <label>新密码</label>
-          <input type="password" id="new-pw" placeholder="输入新密码...">
-        </div>
-        <div class="form-group">
-          <label>确认新密码</label>
-          <input type="password" id="new-pw-confirm" placeholder="再次输入新密码...">
-        </div>
-        <button class="btn-save" id="change-pw-btn" style="margin-top:8px">修改密码</button>
-        <div id="pw-change-msg" style="margin-top:10px; font-size:13px; display:none"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:8px; color:var(--warn)">⚠️ 防绕过说明</div>
-        <div style="font-size:13px; color:var(--muted); line-height:1.8">
-          • 本插件配置受密码保护，所有修改需要验证身份<br>
-          • 配置数据带完整性校验，篡改后自动重置<br>
-          • <strong style="color:var(--warn)">重要：</strong>孩子可通过 chrome://extensions 禁用插件来绕过管控<br>
-          • <strong style="color:var(--text)">建议：</strong>在 Chrome 中设置「访客模式」或使用「托管账户」，配合系统级家长控制效果更佳<br>
-          • 企业版 Chrome 可通过组策略强制插件无法被卸载
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 
