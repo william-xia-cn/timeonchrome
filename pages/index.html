@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeOnChrome · 家长控制台</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg:      #09090f;
+      --surface: #111120;
+      --card:    #16162a;
+      --border:  rgba(255,255,255,0.07);
+      --text:    #e2e2f0;
+      --muted:   #5a5a80;
+      --accent:  #7c6fff;
+      --accent2: #ff6c9d;
+      --green:   #4ade80;
+      --warn:    #fbbf24;
+      --danger:  #f87171;
+      --radius:  14px;
+    }
+    body {
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Auth screens ── */
+    .auth-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(ellipse at 50% 0%, rgba(124,111,255,0.15) 0%, transparent 60%);
+    }
+    .auth-box {
+      width: 380px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 40px;
+      text-align: center;
+    }
+    .auth-logo {
+      width: 64px; height: 64px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 18px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; margin: 0 auto 20px;
+    }
+    .auth-box h1 { font-size: 22px; margin-bottom: 6px; }
+    .auth-box p  { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+    .form-group  { margin-bottom: 14px; text-align: left; }
+    .form-group label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+    .form-group input {
+      width: 100%; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 11px 14px; color: var(--text); font-size: 14px; outline: none;
+      transition: border-color .2s;
+    }
+    .form-group input:focus { border-color: var(--accent); }
+    .btn-primary {
+      width: 100%; padding: 13px;
+      background: linear-gradient(135deg, var(--accent), #9c6fff);
+      border: none; border-radius: 10px; color: #fff;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: opacity .2s; margin-top: 6px;
+    }
+    .btn-primary:hover   { opacity: .9; }
+    .btn-primary:disabled{ opacity: .4; cursor: not-allowed; }
+    .auth-link { margin-top: 14px; font-size: 13px; color: var(--muted); }
+    .auth-link a { color: var(--accent); text-decoration: none; }
+    .auth-link a:hover { text-decoration: underline; }
+    .error-msg { color: var(--danger); font-size: 13px; margin-top: 10px; display: none; }
+
+    /* ── Main layout ── */
+    #main-screen { display: none; height: 100vh; overflow: hidden; }
+    .layout { display: flex; height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 220px; flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      padding: 0;
+    }
+    .sidebar-top {
+      padding: 24px 20px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .sidebar-logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .sidebar-logo-text { font-size: 14px; font-weight: 700; }
+    .sidebar-logo-sub  { font-size: 11px; color: var(--muted); }
+
+    /* Profile selector */
+    .profile-selector {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px;
+    }
+    .profile-selector:hover { border-color: var(--accent); }
+    .profile-selector .avatar {
+      width: 24px; height: 24px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: #fff;
+      flex-shrink: 0;
+    }
+    .profile-selector .name { flex: 1; margin-left: 8px; font-weight: 500; }
+    .profile-selector .arrow { color: var(--muted); font-size: 11px; }
+
+    /* Profile dropdown */
+    .profile-dropdown {
+      position: absolute; left: 220px; top: 60px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 8px;
+      min-width: 200px; z-index: 100;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      display: none;
+    }
+    .profile-dropdown.show { display: block; }
+    .profile-option {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 8px;
+      cursor: pointer; font-size: 13px;
+    }
+    .profile-option:hover { background: rgba(255,255,255,0.06); }
+    .profile-option.active { background: rgba(124,111,255,0.15); color: var(--accent); }
+    .profile-option .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0; }
+    .add-profile-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; border-radius: 8px;
+      cursor: pointer; font-size: 13px; color: var(--accent);
+      border-top: 1px solid var(--border); margin-top: 4px; padding-top: 12px;
+    }
+    .add-profile-btn:hover { background: rgba(124,111,255,0.1); }
+
+    /* Nav */
+    .sidebar-nav { flex: 1; padding: 12px 12px; overflow-y: auto; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 9px;
+      cursor: pointer; font-size: 13px; color: var(--muted);
+      transition: all .15s; margin-bottom: 2px;
+    }
+    .nav-item:hover  { background: rgba(255,255,255,0.05); color: var(--text); }
+    .nav-item.active { background: rgba(124,111,255,0.15); color: var(--accent); font-weight: 500; }
+    .nav-icon { font-size: 15px; width: 20px; text-align: center; }
+
+    /* Sidebar footer */
+    .sidebar-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 12px; color: var(--muted);
+    }
+    .sidebar-footer .email { font-weight: 500; color: var(--text); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .logout-btn { color: var(--danger); cursor: pointer; font-size: 12px; }
+    .logout-btn:hover { text-decoration: underline; }
+
+    /* Main content */
+    .main-content { flex: 1; overflow-y: auto; background: var(--bg); }
+    .page { display: none; padding: 32px 36px; max-width: 960px; }
+    .page.active { display: block; }
+    .page-header { margin-bottom: 28px; }
+    .page-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .page-header p  { font-size: 13px; color: var(--muted); }
+
+    /* Cards */
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+    }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .card-title    { font-size: 15px; font-weight: 600; }
+    .card-subtitle { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+    /* Stats grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+    }
+    .stat-card .label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .stat-card .value { font-size: 26px; font-weight: 700; }
+    .stat-card .value.accent  { color: var(--accent); }
+    .stat-card .value.green   { color: var(--green); }
+    .stat-card .value.warn    { color: var(--warn); }
+
+    /* Top domains list */
+    .domain-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 0; border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .domain-row:last-child { border-bottom: none; }
+    .domain-bar-wrap { flex: 1; margin: 0 14px; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; }
+    .domain-bar { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), #9c6fff); }
+    .domain-time { color: var(--muted); font-size: 12px; min-width: 52px; text-align: right; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab-btn {
+      padding: 7px 16px; border-radius: 8px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-size: 13px; cursor: pointer;
+      transition: all .15s;
+    }
+    .tab-btn:hover  { border-color: var(--accent); color: var(--text); }
+    .tab-btn.active { background: rgba(124,111,255,0.2); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+
+    /* Domain input */
+    .domain-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .domain-input-row input {
+      flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: 9px; padding: 9px 13px; color: var(--text); font-size: 13px; outline: none;
+    }
+    .domain-input-row input:focus { border-color: var(--accent); }
+    .btn-add {
+      padding: 9px 16px; background: rgba(124,111,255,0.15);
+      border: 1px solid var(--accent); border-radius: 9px;
+      color: var(--accent); font-size: 13px; cursor: pointer; white-space: nowrap;
+    }
+    .btn-add:hover { background: rgba(124,111,255,0.25); }
+    .domains-container { display: flex; flex-wrap: wrap; gap: 7px; min-height: 32px; }
+    .domain-tag {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(124,111,255,0.12); border: 1px solid rgba(124,111,255,0.25);
+      border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--text);
+    }
+    .domain-tag .remove {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 14px; line-height: 1; padding: 0; opacity: .7;
+    }
+    .domain-tag .remove:hover { color: var(--danger); opacity: 1; }
+
+    /* Quota */
+    .quota-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .quota-row:last-child { border-bottom: none; }
+    .quota-label { flex: 1; font-size: 14px; }
+    .quota-label small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .quota-input { width: 80px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: var(--text); font-size: 14px; outline: none; text-align: center; }
+    .quota-input:focus { border-color: var(--accent); }
+    .quota-unit { font-size: 12px; color: var(--muted); }
+
+    /* Schedule */
+    .schedule-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+    .schedule-row:last-child { border-bottom: none; }
+    .day-name { min-width: 36px; font-size: 13px; }
+    .time-input { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
+    .time-input:focus { border-color: var(--accent); }
+
+    /* Toggle */
+    .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track { position: absolute; inset: 0; background: rgba(255,255,255,0.1); border-radius: 20px; transition: .2s; }
+    .toggle input:checked + .toggle-track { background: var(--accent); }
+    .toggle-thumb { position: absolute; width: 14px; height: 14px; background: #fff; border-radius: 50%; top: 3px; left: 3px; transition: .2s; pointer-events: none; }
+    .toggle input:checked ~ .toggle-thumb { transform: translateX(16px); }
+
+    /* Save bar */
+    .save-bar { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+    .btn-save {
+      padding: 10px 24px; background: linear-gradient(135deg, var(--accent), #9c6fff);
+      border: none; border-radius: 10px; color: #fff;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .btn-save:hover { opacity: .9; }
+    .btn-secondary {
+      padding: 10px 20px; background: transparent;
+      border: 1px solid var(--border); border-radius: 10px; color: var(--muted);
+      font-size: 14px; cursor: pointer;
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 28px; right: 28px;
+      background: var(--green); color: #000;
+      padding: 10px 20px; border-radius: 10px; font-size: 13px; font-weight: 600;
+      z-index: 9999; display: none;
+      box-shadow: 0 4px 20px rgba(74,222,128,0.3);
+    }
+
+    /* Chart */
+    .chart-wrap { position: relative; height: 200px; margin-top: 8px; }
+    .chart-bars { display: flex; align-items: flex-end; gap: 6px; height: 160px; }
+    .chart-bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+    .chart-bar { width: 100%; border-radius: 4px 4px 0 0; transition: height .3s; cursor: pointer; min-height: 2px; }
+    .chart-bar.study { background: linear-gradient(180deg, var(--accent), rgba(124,111,255,0.5)); }
+    .chart-bar.rest  { background: linear-gradient(180deg, var(--warn), rgba(251,191,36,0.5)); }
+    .chart-label { font-size: 10px; color: var(--muted); margin-top: 6px; }
+    .chart-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+    .chart-legend span { display: flex; align-items: center; gap: 6px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+    /* Device list */
+    .device-actions { display: flex; gap: 6px; margin-left: 10px; }
+    .device-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: var(--text); transition: all .15s; }
+    .device-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .device-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+    .rename-input { background: rgba(255,255,255,0.06); border: 1px solid var(--accent); border-radius: 6px; padding: 4px 8px; font-size: 13px; color: var(--text); outline: none; width: 140px; }
+    .device-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 0; border-bottom: 1px solid var(--border);
+    }
+    .device-item:last-child { border-bottom: none; }
+    .device-icon { font-size: 24px; }
+    .device-name { font-size: 14px; font-weight: 500; }
+    .device-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .device-status { margin-left: auto; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
+    .device-status.online  { background: rgba(74,222,128,0.15); color: var(--green); }
+    .device-status.recent  { background: rgba(251,191,36,0.15);  color: var(--warn); }
+    .device-status.offline { background: rgba(255,255,255,0.06); color: var(--muted); }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center; z-index: 200;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px; width: 380px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .modal h3 { font-size: 17px; margin-bottom: 6px; }
+    .modal p  { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+    /* Empty state */
+    .empty { text-align: center; padding: 40px 0; color: var(--muted); font-size: 13px; }
+    .empty .icon { font-size: 32px; margin-bottom: 10px; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar { width: 60px; }
+      .sidebar-top { padding: 16px 10px; }
+      .sidebar-logo-text, .sidebar-logo-sub, .profile-selector .name, .nav-item span:not(.nav-icon) { display: none; }
+      .nav-item { justify-content: center; padding: 10px; }
+      .sidebar-footer .email, .logout-btn { display: none; }
+      .page { padding: 20px 16px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── 登录界面 ── -->
+<div id="login-screen" class="auth-screen">
+  <div class="auth-box">
+    <div class="auth-logo">🛡</div>
+    <h1>TimeOnChrome</h1>
+    <p>家长控制台 · 登录账户</p>
+    <div class="form-group">
+      <label>邮箱</label>
+      <input type="email" id="login-email" placeholder="your@email.com">
+    </div>
+    <div class="form-group">
+      <label>密码</label>
+      <input type="password" id="login-password" placeholder="密码">
+    </div>
+    <button class="btn-primary" id="login-btn">登录</button>
+    <div class="error-msg" id="login-error"></div>
+    <div class="auth-link" style="margin-top:16px;">
+      还没有账户？<a href="#" id="goto-register">立即注册</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── 注册界面 ── -->
+<div id="register-screen" class="auth-screen" style="display:none">
+  <div class="auth-box">
+    <div class="auth-logo">🛡</div>
+    <h1>TimeOnChrome</h1>
+    <p>创建家长账户</p>
+    <div class="form-group">
+      <label>邮箱</label>
+      <input type="email" id="reg-email" placeholder="your@email.com">
+    </div>
+    <div class="form-group">
+      <label>密码</label>
+      <input type="password" id="reg-password" placeholder="至少6位">
+    </div>
+    <div class="form-group">
+      <label>确认密码</label>
+      <input type="password" id="reg-password2" placeholder="再次输入密码">
+    </div>
+    <button class="btn-primary" id="register-btn">注册</button>
+    <div class="error-msg" id="register-error"></div>
+    <div class="auth-link" style="margin-top:16px;">
+      已有账户？<a href="#" id="goto-login">返回登录</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── 主界面 ── -->
+<div id="main-screen">
+  <div class="layout">
+
+    <!-- 侧边栏 -->
+    <div class="sidebar">
+      <div class="sidebar-top">
+        <div class="sidebar-logo">
+          <div class="sidebar-logo-icon">🛡</div>
+          <div>
+            <div class="sidebar-logo-text">TimeOnChrome</div>
+            <div class="sidebar-logo-sub">家长控制台</div>
+          </div>
+        </div>
+        <!-- 孩子选择器 -->
+        <div class="profile-selector" id="profile-selector-btn">
+          <div class="avatar" id="current-profile-avatar" style="background:#7c6fff;">?</div>
+          <div class="name" id="current-profile-name">选择孩子</div>
+          <div class="arrow">▾</div>
+        </div>
+      </div>
+
+      <!-- Profile 下拉 -->
+      <div class="profile-dropdown" id="profile-dropdown">
+        <div id="profile-options-list"></div>
+        <div class="add-profile-btn" id="add-profile-btn">
+          <span>＋</span> 添加孩子
+        </div>
+      </div>
+
+      <!-- 导航 -->
+      <div class="sidebar-nav">
+        <div class="nav-item active" data-page="overview">
+          <span class="nav-icon">📊</span><span>总览</span>
+        </div>
+        <div class="nav-item" data-page="rules">
+          <span class="nav-icon">📋</span><span>白/黑名单</span>
+        </div>
+        <div class="nav-item" data-page="quota">
+          <span class="nav-icon">⏱</span><span>时间配额</span>
+        </div>
+        <div class="nav-item" data-page="schedule">
+          <span class="nav-icon">📅</span><span>时间段控制</span>
+        </div>
+        <div class="nav-item" data-page="stats">
+          <span class="nav-icon">📈</span><span>使用统计</span>
+        </div>
+        <div class="nav-item" data-page="devices">
+          <span class="nav-icon">💻</span><span>设备管理</span>
+        </div>
+        <div class="nav-item" data-page="account">
+          <span class="nav-icon">👤</span><span>账户设置</span>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="email" id="account-email-display"></div>
+        <span class="logout-btn" id="logout-btn">退出登录</span>
+      </div>
+    </div>
+
+    <!-- 主内容 -->
+    <div class="main-content">
+
+      <!-- 总览 -->
+      <div class="page active" id="page-overview">
+        <div class="page-header">
+          <h2>今日总览</h2>
+          <p id="overview-date"></p>
+        </div>
+        <div class="stats-grid" id="overview-stats">
+          <div class="stat-card">
+            <div class="label">📚 学习时长</div>
+            <div class="value accent" id="stat-study">--</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">🎮 娱乐时长</div>
+            <div class="value warn" id="stat-rest">--</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">🌐 在线总时长</div>
+            <div class="value green" id="stat-online">--</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">今日访问 Top 10</div>
+              <div class="card-subtitle" id="overview-stat-note">基于云端上报数据</div>
+            </div>
+          </div>
+          <div id="top-domains-list"><div class="empty"><div class="icon">📭</div>暂无数据</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">近7天趋势</div>
+            </div>
+            <div class="chart-legend">
+              <span><span class="legend-dot" style="background:var(--accent);"></span>学习</span>
+              <span><span class="legend-dot" style="background:var(--warn);"></span>娱乐</span>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-bars" id="week-chart"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 白/黑名单 -->
+      <div class="page" id="page-rules">
+        <div class="page-header">
+          <h2>白 / 黑名单</h2>
+          <p>修改后点击保存，将实时同步到孩子设备</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">控制模式</div><div class="card-subtitle">白名单：只允许列出网站 &nbsp;|&nbsp; 黑名单：只屏蔽列出网站</div></div></div>
+          <div class="tabs">
+            <button class="tab-btn" data-mode="blacklist">🚫 黑名单模式</button>
+            <button class="tab-btn" data-mode="whitelist">✅ 白名单模式（更严格）</button>
+          </div>
+        </div>
+
+        <!-- 黑名单 -->
+        <div class="card" id="r-blacklist-card">
+          <div class="card-header">
+            <div><div class="card-title">🚫 屏蔽网站</div><div class="card-subtitle">始终屏蔽，支持子域名匹配</div></div>
+            <span id="r-blacklist-count" style="font-size:12px;color:var(--muted);"></span>
+          </div>
+          <div class="domain-input-row">
+            <input type="text" id="r-blacklist-input" placeholder="例：tiktok.com">
+            <button class="btn-add" id="r-blacklist-add">+ 添加</button>
+          </div>
+          <div class="domains-container" id="r-blacklist-tags"></div>
+        </div>
+
+        <!-- 白名单 -->
+        <div id="r-whitelist-section" style="display:none">
+          <div class="card" id="r-studylist-card">
+            <div class="card-header">
+              <div><div class="card-title">📚 学习网站</div><div class="card-subtitle">计入学习时长，触发自动切换学习模式</div></div>
+              <span id="r-studylist-count" style="font-size:12px;color:var(--muted);"></span>
+            </div>
+            <div class="domain-input-row">
+              <input type="text" id="r-studylist-search" placeholder="🔍 搜索..." style="max-width:180px;">
+              <input type="text" id="r-studylist-input" placeholder="例：khanacademy.org">
+              <button class="btn-add" id="r-studylist-add">+ 添加</button>
+            </div>
+            <div class="domains-container" id="r-studylist-tags" style="max-height:200px;overflow-y:auto;"></div>
+          </div>
+
+          <div class="card" id="r-allowlist-card">
+            <div class="card-header">
+              <div><div class="card-title">🎵 允许网站 <span style="font-size:11px;color:var(--muted);font-weight:400;">（不计学习时长）</span></div><div class="card-subtitle">学习模式下可访问但不算学习时间</div></div>
+              <span id="r-allowlist-count" style="font-size:12px;color:var(--muted);"></span>
+            </div>
+            <div class="domain-input-row">
+              <input type="text" id="r-allowlist-input" placeholder="例：music.163.com">
+              <button class="btn-add" id="r-allowlist-add">+ 添加</button>
+            </div>
+            <div class="domains-container" id="r-allowlist-tags"></div>
+          </div>
+        </div>
+
+        <div class="save-bar">
+          <button class="btn-save" id="save-rules-btn">💾 保存并同步到设备</button>
+        </div>
+      </div>
+
+      <!-- 时间配额 -->
+      <div class="page" id="page-quota">
+        <div class="page-header">
+          <h2>时间配额</h2>
+          <p>设置每天允许的上网时长</p>
+        </div>
+        <div class="card">
+          <div class="quota-row">
+            <div class="quota-label">每日在线时长上限<small>所有网站合计（0 = 不限制）</small></div>
+            <input type="number" class="quota-input" id="q-online" min="0" max="24" step="0.5" placeholder="0">
+            <span class="quota-unit">小时/天</span>
+          </div>
+          <div class="quota-row">
+            <div class="quota-label">每日学习时长上限<small>学习网站合计（0 = 不限制）</small></div>
+            <input type="number" class="quota-input" id="q-study" min="0" max="24" step="0.5" placeholder="0">
+            <span class="quota-unit">小时/天</span>
+          </div>
+          <div class="quota-row">
+            <div class="quota-label">每日休息时长上限<small>娱乐网站合计（0 = 不限制）</small></div>
+            <input type="number" class="quota-input" id="q-rest" min="0" max="24" step="0.5" placeholder="0">
+            <span class="quota-unit">小时/天</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">单站点配额</div><div class="card-subtitle">为特定网站单独设置时间上限</div></div></div>
+          <div class="domain-input-row">
+            <input type="text" id="q-domain-input" placeholder="域名，如 bilibili.com">
+            <input type="number" id="q-minutes-input" placeholder="分钟" style="width:90px;flex:none;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;outline:none;">
+            <button class="btn-add" id="q-add-btn">+ 添加</button>
+          </div>
+          <div id="q-quotas-list"></div>
+        </div>
+        <div class="save-bar"><button class="btn-save" id="save-quota-btn">💾 保存并同步</button></div>
+      </div>
+
+      <!-- 时间段控制 -->
+      <div class="page" id="page-schedule">
+        <div class="page-header">
+          <h2>时间段控制</h2>
+          <p>只在指定时间段内启用管控</p>
+        </div>
+        <div class="card">
+          <div class="quota-row">
+            <div class="quota-label">启用时间段控制<small>关闭时全天候管控</small></div>
+            <label class="toggle">
+              <input type="checkbox" id="sch-enabled">
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </label>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">每日时间段</div></div>
+          <div id="sch-rows"></div>
+        </div>
+        <div class="save-bar"><button class="btn-save" id="save-schedule-btn">💾 保存并同步</button></div>
+      </div>
+
+      <!-- 使用统计 -->
+      <div class="page" id="page-stats">
+        <div class="page-header">
+          <h2>使用统计</h2>
+          <p>孩子的上网行为分析</p>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:20px;">
+          <button class="tab-btn active" data-range="today" id="st-today">今天</button>
+          <button class="tab-btn" data-range="week" id="st-week">近7天</button>
+          <button class="tab-btn" data-range="month" id="st-month">近30天</button>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">访问时长排行</div></div>
+          <div id="stats-list"><div class="empty"><div class="icon">📊</div>暂无数据</div></div>
+        </div>
+      </div>
+
+      <!-- 账户设置 -->
+      <div class="page" id="page-account">
+        <div class="page-header">
+          <h2>账户设置</h2>
+          <p>管理你的档案、密码和账户安全</p>
+        </div>
+
+        <!-- Card 1: 编辑档案 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">编辑档案</div>
+              <div class="card-subtitle">修改孩子的名字和头像颜色</div>
+            </div>
+            <div id="acct-profile-avatar" class="avatar" style="width:36px;height:36px;font-size:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:#7c6fff;"></div>
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label>孩子的名字</label>
+            <input type="text" id="acct-name-input" placeholder="输入名字"
+              style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">头像颜色</div>
+            <div id="acct-color-picker" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+          </div>
+          <div id="acct-profile-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div class="save-bar" style="margin-top:8px;">
+            <button class="btn-save" id="acct-save-profile-btn">保存档案</button>
+          </div>
+        </div>
+
+        <!-- Card 2: 修改密码 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">修改密码</div>
+              <div class="card-subtitle">修改后将自动退出登录</div>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>当前密码</label>
+            <input type="password" id="acct-old-pw" placeholder="当前密码"
+              style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>新密码</label>
+            <input type="password" id="acct-new-pw" placeholder="至少6位"
+              style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label>确认新密码</label>
+            <input type="password" id="acct-confirm-pw" placeholder="再次输入新密码"
+              style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div id="acct-pw-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div class="save-bar" style="margin-top:8px;">
+            <button class="btn-save" id="acct-save-pw-btn">修改密码</button>
+          </div>
+        </div>
+
+        <!-- Card 3: 危险操作 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title" style="color:var(--danger);">危险操作</div>
+              <div class="card-subtitle">以下操作不可撤销，请谨慎</div>
+            </div>
+          </div>
+          <div id="acct-delete-confirm-wrap" style="display:none;margin-bottom:16px;">
+            <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">请输入孩子的名字以确认删除：</div>
+            <input type="text" id="acct-delete-confirm-input" placeholder="输入名字确认"
+              style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(248,113,113,0.4);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;margin-bottom:10px;">
+            <div style="display:flex;gap:8px;">
+              <button id="acct-delete-confirm-btn"
+                style="padding:9px 18px;background:rgba(248,113,113,0.15);border:1px solid rgba(248,113,113,0.4);border-radius:9px;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer;">
+                确认删除
+              </button>
+              <button id="acct-delete-cancel-btn"
+                style="padding:9px 18px;background:transparent;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-size:13px;cursor:pointer;">
+                取消
+              </button>
+            </div>
+          </div>
+          <div id="acct-danger-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button id="acct-delete-profile-btn"
+              style="padding:10px 18px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.3);border-radius:10px;color:var(--danger);font-size:14px;font-weight:500;cursor:pointer;transition:all .15s;"
+              onmouseover="this.style.background='rgba(248,113,113,0.18)'" onmouseout="this.style.background='rgba(248,113,113,0.08)'">
+              删除孩子档案
+            </button>
+            <button id="acct-logout-btn"
+              style="padding:10px 18px;background:transparent;border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;transition:all .15s;"
+              onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+              退出登录
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 设备管理 -->
+      <div class="page" id="page-devices">
+        <div class="page-header">
+          <h2>设备管理</h2>
+          <p>管理绑定此孩子档案的所有设备</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">绑定设备</div>
+            <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
+          </div>
+          <div id="devices-list"><div class="empty"><div class="icon">💻</div>暂无绑定设备</div></div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><div class="card-title">如何绑定新设备</div></div>
+          <ol style="font-size:13px;color:var(--muted);line-height:2;padding-left:18px;margin:4px 0;">
+            <li>在孩子的 Chrome 浏览器中安装 <strong style="color:var(--text);">TimeOnChrome</strong> 扩展</li>
+            <li>点击扩展图标，打开管理面板</li>
+            <li>使用家长账号（当前账号）登录</li>
+            <li>选择「<strong style="color:var(--text);">此孩子档案</strong>」，自动完成绑定</li>
+          </ol>
+          <p style="font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+            💡 每台设备只能绑定一个孩子档案。如需换绑，请先在此页面解绑，再重新操作。
+          </p>
+        </div>
+      </div>
+
+    </div><!-- /main-content -->
+  </div><!-- /layout -->
+</div><!-- /main-screen -->
+
+<!-- 新增孩子 Modal -->
+<div class="modal-overlay" id="add-profile-modal">
+  <div class="modal">
+    <h3>添加孩子档案</h3>
+    <p>创建后，让孩子在 Chrome 插件管理页面选择此档案进行绑定</p>
+    <div class="form-group">
+      <label>孩子的名字</label>
+      <input type="text" id="new-profile-name" placeholder="例：小明">
+    </div>
+    <div class="error-msg" id="add-profile-error"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="cancel-add-profile">取消</button>
+      <button class="btn-save" id="confirm-add-profile">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
+const DAY_NAMES = ['周日','周一','周二','周三','周四','周五','周六'];
+
+let accountToken = null;
+let currentProfileId = null;
+let profiles = [];
+let remoteConfig = null; // 当前 profile 的配置
+
+// ── 持久化 ────────────────────────────────────────────────────
+function saveLocal(key, val) { localStorage.setItem('toc_' + key, JSON.stringify(val)); }
+function loadLocal(key) { try { return JSON.parse(localStorage.getItem('toc_' + key)); } catch { return null; } }
+
+// ── Init ──────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = loadLocal('session');
+  if (saved?.token) {
+    accountToken = saved.token;
+    enterMain(saved.email);
+  } else {
+    showScreen('login');
+  }
+
+  setupAuth();
+  setupNav();
+  setupRules();
+  setupQuota();
+  setupSchedule();
+  setupStats();
+  setupDevices();
+  setupAccount();
+  setupProfileDropdown();
+  setupProfileModal();
+  document.getElementById('logout-btn').addEventListener('click', logout);
+});
+
+function showScreen(name) {
+  document.getElementById('login-screen').style.display    = name === 'login'    ? 'flex' : 'none';
+  document.getElementById('register-screen').style.display = name === 'register' ? 'flex' : 'none';
+  document.getElementById('main-screen').style.display     = name === 'main'     ? 'block' : 'none';
+}
+
+// ── Toast ────────────────────────────────────────────────────
+function toast(msg, ok = true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = ok ? 'var(--green)' : 'var(--danger)';
+  el.style.color = ok ? '#000' : '#fff';
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.style.display = 'none', 2500);
+}
+
+// ── Auth ────────────────────────────────────────────────────
+function setupAuth() {
+  document.getElementById('login-btn').addEventListener('click', doLogin);
+  document.getElementById('login-password').addEventListener('keydown', e => e.key==='Enter' && doLogin());
+  document.getElementById('register-btn').addEventListener('click', doRegister);
+  document.getElementById('goto-register').addEventListener('click', e => { e.preventDefault(); showScreen('register'); });
+  document.getElementById('goto-login').addEventListener('click',    e => { e.preventDefault(); showScreen('login'); });
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pw    = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+
+  if (!email || !pw) { errEl.textContent='请填写邮箱和密码'; errEl.style.display='block'; return; }
+
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = '登录中...';
+
+  try {
+    const r = await api('/auth/login', 'POST', { email, password: pw });
+    accountToken = r.token;
+    saveLocal('session', { token: r.token, email });
+    await enterMain(email);
+  } catch(e) {
+    errEl.textContent = e.message === 'Invalid credentials' ? '邮箱或密码错误' : e.message;
+    errEl.style.display = 'block';
+  } finally { btn.disabled = false; btn.textContent = '登录'; }
+}
+
+async function doRegister() {
+  const email = document.getElementById('reg-email').value.trim();
+  const pw    = document.getElementById('reg-password').value;
+  const pw2   = document.getElementById('reg-password2').value;
+  const errEl = document.getElementById('register-error');
+  errEl.style.display = 'none';
+
+  if (!email || !pw) { errEl.textContent='请填写所有字段'; errEl.style.display='block'; return; }
+  if (pw.length < 6) { errEl.textContent='密码至少6位'; errEl.style.display='block'; return; }
+  if (pw !== pw2)    { errEl.textContent='两次密码不一致'; errEl.style.display='block'; return; }
+
+  const btn = document.getElementById('register-btn');
+  btn.disabled = true; btn.textContent = '注册中...';
+
+  try {
+    const r = await api('/auth/register', 'POST', { email, password: pw });
+    accountToken = r.token;
+    saveLocal('session', { token: r.token, email });
+    await enterMain(email);
+  } catch(e) {
+    errEl.textContent = e.message.includes('already') ? '该邮箱已注册，请直接登录' : e.message;
+    errEl.style.display = 'block';
+  } finally { btn.disabled = false; btn.textContent = '注册'; }
+}
+
+function logout() {
+  accountToken = null; saveLocal('session', null);
+  showScreen('login');
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-password').value = '';
+}
+
+// ── Enter main ───────────────────────────────────────────────
+async function enterMain(email) {
+  showScreen('main');
+  document.getElementById('account-email-display').textContent = email || '';
+
+  // 加载 profiles
+  try {
+    const r = await api('/profiles');
+    profiles = r.profiles || [];
+    renderProfileOptions();
+
+    // 恢复上次选中的 profile
+    const saved = loadLocal('currentProfileId');
+    const found = profiles.find(p => p.id === saved);
+    if (found) selectProfile(found.id);
+    else if (profiles.length > 0) selectProfile(profiles[0].id);
+    else renderNoProfile();
+  } catch(e) {
+    toast('加载档案失败: ' + e.message, false);
+  }
+}
+
+// ── Profile dropdown ─────────────────────────────────────────
+function setupProfileDropdown() {
+  const btn = document.getElementById('profile-selector-btn');
+  const dd  = document.getElementById('profile-dropdown');
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dd.classList.toggle('show');
+  });
+  document.addEventListener('click', () => dd.classList.remove('show'));
+}
+
+function renderProfileOptions() {
+  const list = document.getElementById('profile-options-list');
+  list.innerHTML = profiles.map(p => `
+    <div class="profile-option ${p.id===currentProfileId?'active':''}" data-id="${p.id}">
+      <div class="avatar" style="background:${p.avatar_color||'#7c6fff'};">${p.name.charAt(0).toUpperCase()}</div>
+      <div>${p.name}</div>
+    </div>
+  `).join('');
+  list.querySelectorAll('.profile-option').forEach(el => {
+    el.addEventListener('click', () => {
+      document.getElementById('profile-dropdown').classList.remove('show');
+      selectProfile(el.dataset.id);
+    });
+  });
+}
+
+async function selectProfile(id) {
+  currentProfileId = id;
+  saveLocal('currentProfileId', id);
+
+  const profile = profiles.find(p => p.id === id);
+  if (!profile) return;
+
+  // 更新选择器显示
+  document.getElementById('current-profile-avatar').textContent  = profile.name.charAt(0).toUpperCase();
+  document.getElementById('current-profile-avatar').style.background = profile.avatar_color || '#7c6fff';
+  document.getElementById('current-profile-name').textContent   = profile.name;
+
+  renderProfileOptions();
+
+  // 加载配置
+  try {
+    const r = await api(`/profiles/${id}/config`);
+    remoteConfig = r.data || {};
+  } catch(e) {
+    remoteConfig = {};
+    toast('加载配置失败', false);
+  }
+
+  // 渲染当前页
+  const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'overview';
+  renderPage(activePage);
+}
+
+function renderNoProfile() {
+  document.getElementById('current-profile-name').textContent = '未选择';
+}
+
+// ── Profile modal ───────────────────────────────────────────
+function setupProfileModal() {
+  document.getElementById('add-profile-btn').addEventListener('click', () => {
+    document.getElementById('add-profile-modal').classList.add('show');
+    document.getElementById('new-profile-name').value = '';
+    document.getElementById('add-profile-error').style.display = 'none';
+    document.getElementById('profile-dropdown').classList.remove('show');
+  });
+  document.getElementById('cancel-add-profile').addEventListener('click', () => {
+    document.getElementById('add-profile-modal').classList.remove('show');
+  });
+  document.getElementById('confirm-add-profile').addEventListener('click', doAddProfile);
+}
+
+async function doAddProfile() {
+  const name = document.getElementById('new-profile-name').value.trim();
+  const errEl = document.getElementById('add-profile-error');
+  errEl.style.display = 'none';
+  if (!name) { errEl.textContent='请输入名字'; errEl.style.display='block'; return; }
+
+  const btn = document.getElementById('confirm-add-profile');
+  btn.disabled = true; btn.textContent = '创建中...';
+  try {
+    const r = await api('/profiles', 'POST', { name, avatar_color: randomColor() });
+    profiles.push(r.profile);
+    renderProfileOptions();
+    document.getElementById('add-profile-modal').classList.remove('show');
+    selectProfile(r.profile.id);
+    toast('孩子档案已创建');
+  } catch(e) {
+    errEl.textContent = e.message; errEl.style.display='block';
+  } finally { btn.disabled = false; btn.textContent = '创建'; }
+}
+
+function randomColor() {
+  const colors = ['#7c6fff','#ff6c9d','#4ade80','#fbbf24','#60a5fa','#f87171','#a78bfa'];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+// ── Navigation ───────────────────────────────────────────────
+function setupNav() {
+  document.querySelectorAll('.nav-item[data-page]').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('page-' + item.dataset.page)?.classList.add('active');
+      renderPage(item.dataset.page);
+    });
+  });
+}
+
+function renderPage(name) {
+  if (!remoteConfig) return;
+  if (name === 'overview')  renderOverview();
+  if (name === 'rules')     renderRulesPage();
+  if (name === 'quota')     renderQuotaPage();
+  if (name === 'schedule')  renderSchedulePage();
+  if (name === 'stats')     renderStatsPage('today');
+  if (name === 'devices')   renderDevicesPage();
+  if (name === 'account')   renderAccountPage();
+}
+
+// ── Overview ─────────────────────────────────────────────────
+async function renderOverview() {
+  const today = new Date();
+  document.getElementById('overview-date').textContent =
+    today.toLocaleDateString('zh-CN', { year:'numeric', month:'long', day:'numeric', weekday:'long' });
+
+  if (!currentProfileId) return;
+
+  try {
+    const todayStr = fmtDate(today);
+    const r = await api(`/profiles/${currentProfileId}/stats?from=${todayStr}&to=${todayStr}`);
+    const stats = r.stats || [];
+
+    const byDomain = {};
+    for (const s of stats) {
+      byDomain[s.domain] = (byDomain[s.domain] || 0) + s.duration;
+    }
+
+    const cfg = remoteConfig;
+    let studySec = 0, restSec = 0, onlineSec = 0;
+    for (const [domain, sec] of Object.entries(byDomain)) {
+      onlineSec += sec;
+      if ((cfg.studyList||[]).some(p => matchDomain(domain,p))) studySec += sec;
+      else if ((cfg.allowList||[]).some(p => matchDomain(domain,p))) restSec += sec;
+    }
+
+    document.getElementById('stat-study').textContent  = fmtSec(studySec);
+    document.getElementById('stat-rest').textContent   = fmtSec(onlineSec - studySec - restSec);
+    document.getElementById('stat-online').textContent = fmtSec(onlineSec);
+
+    // Top 10
+    const sorted = Object.entries(byDomain).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const max = sorted[0]?.[1] || 1;
+    const list = document.getElementById('top-domains-list');
+    if (sorted.length === 0) {
+      list.innerHTML = '<div class="empty"><div class="icon">📭</div>今日暂无数据（数据每15分钟同步一次）</div>';
+    } else {
+      list.innerHTML = sorted.map(([domain, sec]) => `
+        <div class="domain-row">
+          <span style="min-width:160px;font-size:13px;">${domain}</span>
+          <div class="domain-bar-wrap"><div class="domain-bar" style="width:${Math.round(sec/max*100)}%;"></div></div>
+          <span class="domain-time">${fmtSec(sec)}</span>
+        </div>
+      `).join('');
+    }
+
+    // Week chart
+    renderWeekChart();
+  } catch(e) {
+    console.error('Overview error:', e);
+  }
+}
+
+async function renderWeekChart() {
+  if (!currentProfileId) return;
+  const to = fmtDate(new Date());
+  const from = fmtDate(new Date(Date.now() - 6*86400000));
+
+  try {
+    const r = await api(`/profiles/${currentProfileId}/stats?from=${from}&to=${to}`);
+    const stats = r.stats || [];
+
+    // 按日聚合
+    const byDate = {};
+    for (const s of stats) {
+      if (!byDate[s.date]) byDate[s.date] = { study: 0, total: 0 };
+      byDate[s.date].total += s.duration;
+      if ((remoteConfig.studyList||[]).some(p => matchDomain(s.domain,p)))
+        byDate[s.date].study += s.duration;
+    }
+
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i*86400000);
+      days.push({ date: fmtDate(d), label: i===0?'今天':DAY_NAMES[d.getDay()] });
+    }
+
+    const maxSec = Math.max(...days.map(d => byDate[d.date]?.total || 0), 1);
+
+    document.getElementById('week-chart').innerHTML = days.map(d => {
+      const data = byDate[d.date] || { study: 0, total: 0 };
+      const rest  = Math.max(0, data.total - data.study);
+      const sh = Math.round(data.study / maxSec * 140);
+      const rh = Math.round(rest        / maxSec * 140);
+      return `
+        <div class="chart-bar-group" title="${d.date}\n学习:${fmtSec(data.study)} 娱乐:${fmtSec(rest)}">
+          <div style="display:flex;flex-direction:column;justify-content:flex-end;height:140px;gap:2px;">
+            <div class="chart-bar study" style="height:${sh}px;"></div>
+            <div class="chart-bar rest"  style="height:${rh}px;"></div>
+          </div>
+          <div class="chart-label">${d.label}</div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) { console.error('Chart error:', e); }
+}
+
+// ── Rules ────────────────────────────────────────────────────
+function setupRules() {
+  document.querySelectorAll('#page-rules [data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#page-rules [data-mode]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      remoteConfig.mode = btn.dataset.mode;
+      showRulesCards(btn.dataset.mode);
+    });
+  });
+
+  setupDomainInput('r-blacklist-input',  'r-blacklist-add',  'r-blacklist-tags',  'blacklist');
+  setupDomainInput('r-studylist-input',  'r-studylist-add',  'r-studylist-tags',  'studyList');
+  setupDomainInput('r-allowlist-input',  'r-allowlist-add',  'r-allowlist-tags',  'allowList');
+
+  document.getElementById('r-studylist-search').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    const list = remoteConfig.studyList || [];
+    renderTagsFiltered('r-studylist-tags', q ? list.filter(d=>d.includes(q)) : list, list, 'studyList');
+  });
+
+  document.getElementById('save-rules-btn').addEventListener('click', saveConfig);
+}
+
+function renderRulesPage() {
+  const mode = remoteConfig.mode === 'whitelist' ? 'whitelist' : 'blacklist';
+  document.querySelectorAll('#page-rules [data-mode]').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode));
+  showRulesCards(mode);
+  renderTags('r-blacklist-tags', remoteConfig.blacklist  || [], 'blacklist');
+  renderTags('r-studylist-tags', remoteConfig.studyList  || [], 'studyList');
+  renderTags('r-allowlist-tags', remoteConfig.allowList  || [], 'allowList');
+  updateRuleCounts();
+}
+
+function showRulesCards(mode) {
+  document.getElementById('r-blacklist-card').style.display     = mode==='blacklist' ? '' : 'none';
+  document.getElementById('r-whitelist-section').style.display  = mode==='whitelist' ? '' : 'none';
+}
+
+function updateRuleCounts() {
+  const set = (id, arr) => { const el=document.getElementById(id); if(el) el.textContent=arr.length?`共 ${arr.length} 条`:''; };
+  set('r-blacklist-count', remoteConfig.blacklist  || []);
+  set('r-studylist-count', remoteConfig.studyList  || []);
+  set('r-allowlist-count', remoteConfig.allowList  || []);
+}
+
+function setupDomainInput(inputId, btnId, tagsId, listKey) {
+  const input = document.getElementById(inputId);
+  const btn   = document.getElementById(btnId);
+  if (!input || !btn) return;
+  const doAdd = () => {
+    let val = input.value.trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*/,'');
+    if (!val) return;
+    if (!remoteConfig) { toast('请先选择一个孩子档案', false); return; }
+    if (!remoteConfig[listKey]) remoteConfig[listKey] = [];
+    if (!remoteConfig[listKey].includes(val)) remoteConfig[listKey].push(val);
+    if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
+    renderTags(tagsId, remoteConfig[listKey], listKey);
+    updateRuleCounts();
+    input.value = '';
+  };
+  btn.addEventListener('click', doAdd);
+  input.addEventListener('keydown', e => e.key==='Enter' && doAdd());
+}
+
+function renderTags(containerId, domains, listKey) {
+  renderTagsFiltered(containerId, domains, domains, listKey);
+}
+
+function renderTagsFiltered(containerId, visible, full, listKey) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  if (!visible || visible.length === 0) {
+    c.innerHTML = `<span style="color:var(--muted);font-size:12px;padding:4px 0;">${full.length?'无匹配':'暂无域名'}</span>`;
+    return;
+  }
+  c.innerHTML = visible.map(d => {
+    const idx = full.indexOf(d);
+    return `<span class="domain-tag">${d}<button class="remove" onclick="removeDomain('${listKey}',${idx})">×</button></span>`;
+  }).join('');
+}
+
+window.removeDomain = (listKey, idx) => {
+  const list = remoteConfig[listKey] || [];
+  list.splice(idx, 1);
+  remoteConfig[listKey] = list;
+  const map = { blacklist:'r-blacklist-tags', studyList:'r-studylist-tags', allowList:'r-allowlist-tags' };
+  if (map[listKey]) {
+    if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
+    renderTags(map[listKey], list, listKey);
+    updateRuleCounts();
+  }
+};
+
+// ── Quota ────────────────────────────────────────────────────
+function setupQuota() {
+  document.getElementById('q-add-btn').addEventListener('click', () => {
+    const domain  = document.getElementById('q-domain-input').value.trim().toLowerCase();
+    const minutes = parseInt(document.getElementById('q-minutes-input').value);
+    if (!domain || !minutes || minutes <= 0) return;
+    if (!remoteConfig.domainQuotas) remoteConfig.domainQuotas = {};
+    remoteConfig.domainQuotas[domain] = minutes;
+    document.getElementById('q-domain-input').value  = '';
+    document.getElementById('q-minutes-input').value = '';
+    renderQuotaList();
+  });
+  document.getElementById('save-quota-btn').addEventListener('click', saveConfig);
+}
+
+function renderQuotaPage() {
+  const toH = min => min > 0 ? +(min / 60).toFixed(1) : 0;
+  document.getElementById('q-online').value = toH(remoteConfig.dailyOnlineQuota ?? remoteConfig.dailyQuota ?? 0);
+  document.getElementById('q-study').value  = toH(remoteConfig.dailyStudyQuota  || 0);
+  document.getElementById('q-rest').value   = toH(remoteConfig.dailyRestQuota   || 0);
+  renderQuotaList();
+}
+
+function renderQuotaList() {
+  const c = document.getElementById('q-quotas-list');
+  const entries = Object.entries(remoteConfig.domainQuotas || {});
+  if (entries.length === 0) {
+    c.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px 0;">暂无站点配额</div>';
+    return;
+  }
+  c.innerHTML = entries.map(([domain, min]) => `
+    <div class="quota-row">
+      <div class="quota-label">${domain}</div>
+      <span style="color:var(--accent);font-weight:600;">${min} 分钟/天</span>
+      <button onclick="removeQuota('${domain}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;margin-left:8px;">×</button>
+    </div>
+  `).join('');
+}
+
+window.removeQuota = (domain) => {
+  if (remoteConfig.domainQuotas) delete remoteConfig.domainQuotas[domain];
+  renderQuotaList();
+};
+
+// ── Schedule ─────────────────────────────────────────────────
+function setupSchedule() {
+  document.getElementById('save-schedule-btn').addEventListener('click', () => {
+    remoteConfig.schedule = remoteConfig.schedule || { days: {} };
+    remoteConfig.schedule.enabled = document.getElementById('sch-enabled').checked;
+    for (let i=0; i<7; i++) {
+      remoteConfig.schedule.days[i] = {
+        enabled: document.getElementById(`s-${i}-en`)?.checked || false,
+        start:   document.getElementById(`s-${i}-start`)?.value || '08:00',
+        end:     document.getElementById(`s-${i}-end`)?.value   || '22:00'
+      };
+    }
+    saveConfig();
+  });
+}
+
+function renderSchedulePage() {
+  const sch = remoteConfig.schedule || { enabled: false, days: {} };
+  document.getElementById('sch-enabled').checked = sch.enabled || false;
+  const rows = document.getElementById('sch-rows');
+  rows.innerHTML = DAY_NAMES.map((name, i) => {
+    const d = sch.days?.[i] || { enabled: false, start:'08:00', end:'22:00' };
+    return `
+      <div class="schedule-row">
+        <label class="toggle"><input type="checkbox" id="s-${i}-en" ${d.enabled?'checked':''}><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+        <span class="day-name">${name}</span>
+        <input type="time" class="time-input" id="s-${i}-start" value="${d.start||'08:00'}">
+        <span style="color:var(--muted);">—</span>
+        <input type="time" class="time-input" id="s-${i}-end"   value="${d.end||'22:00'}">
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Stats ────────────────────────────────────────────────────
+function setupStats() {
+  document.querySelectorAll('[data-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderStatsPage(btn.dataset.range);
+    });
+  });
+}
+
+async function renderStatsPage(range) {
+  if (!currentProfileId) return;
+  const today = fmtDate(new Date());
+  let from = today;
+  if (range === 'week')  from = fmtDate(new Date(Date.now() - 6*86400000));
+  if (range === 'month') from = fmtDate(new Date(Date.now() - 29*86400000));
+
+  const c = document.getElementById('stats-list');
+  c.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+
+  try {
+    const r = await api(`/profiles/${currentProfileId}/stats?from=${from}&to=${today}`);
+    const stats = r.stats || [];
+    const byDomain = {};
+    for (const s of stats) byDomain[s.domain] = (byDomain[s.domain]||0) + s.duration;
+    const sorted = Object.entries(byDomain).sort((a,b)=>b[1]-a[1]).slice(0,20);
+    const max = sorted[0]?.[1] || 1;
+
+    if (sorted.length === 0) {
+      c.innerHTML = '<div class="empty"><div class="icon">📊</div>该时段暂无数据</div>';
+      return;
+    }
+    c.innerHTML = sorted.map(([domain, sec]) => `
+      <div class="domain-row">
+        <span style="min-width:180px;font-size:13px;">${domain}</span>
+        <div class="domain-bar-wrap"><div class="domain-bar" style="width:${Math.round(sec/max*100)}%;"></div></div>
+        <span class="domain-time">${fmtSec(sec)}</span>
+      </div>
+    `).join('');
+  } catch(e) {
+    c.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${e.message}</div>`;
+  }
+}
+
+// ── Devices ───────────────────────────────────────────────────
+function setupDevices() {}
+
+function deviceStatusInfo(lastSeen) {
+  const now = Date.now();
+  if (!lastSeen) return { cls: 'offline', text: '未连接', time: '从未连接' };
+  const diffMin = Math.floor((now - lastSeen) / 60000);
+  if (diffMin <= 8)  return { cls: 'online',  text: '在线',     time: diffMin <= 1 ? '刚刚活跃' : `${diffMin} 分钟前活跃` };
+  if (diffMin <= 60) return { cls: 'recent',  text: '最近在线', time: `${diffMin} 分钟前活跃` };
+  const diffH = Math.floor(diffMin / 60), diffD = Math.floor(diffH / 24);
+  return { cls: 'offline', text: '离线', time: diffD >= 1 ? `${diffD} 天前活跃` : `${diffH} 小时前活跃` };
+}
+
+async function renderDevicesPage() {
+  if (!currentProfileId) return;
+  const c = document.getElementById('devices-list');
+  c.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+
+  try {
+    const r = await api(`/profiles/${currentProfileId}/devices`);
+    const devices = r.devices || [];
+    if (devices.length === 0) {
+      c.innerHTML = '<div class="empty"><div class="icon">💻</div>暂无绑定设备<br><small style="margin-top:8px;display:block;">在孩子的 Chrome 浏览器中安装插件并登录此账号进行绑定</small></div>';
+      return;
+    }
+    c.innerHTML = devices.map(d => {
+      const { cls, text, time } = deviceStatusInfo(d.last_seen);
+      const name = d.device_name || 'Chrome Extension';
+      const boundAt = d.created_at
+        ? new Date(d.created_at).toLocaleDateString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit' })
+        : '未知';
+      const safeName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      return `
+        <div class="device-item" data-device-id="${d.id}">
+          <div class="device-icon">🖥️</div>
+          <div style="flex:1;min-width:0;">
+            <div class="device-name" id="dname-${d.id}">${name}</div>
+            <div class="device-meta">最后活跃：${time} · 绑定于 ${boundAt}</div>
+          </div>
+          <div class="device-status ${cls}">${text}</div>
+          <div class="device-actions">
+            <button class="device-btn" onclick="startRename('${d.id}','${safeName}')">重命名</button>
+            <button class="device-btn danger" onclick="unbindDevice('${d.id}','${safeName}')">解绑</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    c.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${e.message}</div>`;
+  }
+}
+
+// 内联重命名
+window.startRename = function(deviceId, currentName) {
+  const nameEl = document.getElementById(`dname-${deviceId}`);
+  if (!nameEl) return;
+  const row = nameEl.closest('.device-item');
+  const actionsEl = row.querySelector('.device-actions');
+
+  nameEl.innerHTML = `<input class="rename-input" id="rename-input-${deviceId}" value="${currentName}" maxlength="64">`;
+  actionsEl.innerHTML = `
+    <button class="device-btn" onclick="confirmRename('${deviceId}')">确认</button>
+    <button class="device-btn" onclick="renderDevicesPage()">取消</button>
+  `;
+  document.getElementById(`rename-input-${deviceId}`)?.focus();
+};
+
+window.confirmRename = async function(deviceId) {
+  const input = document.getElementById(`rename-input-${deviceId}`);
+  const newName = input?.value.trim();
+  if (!newName) return;
+  try {
+    await api(`/profiles/${currentProfileId}/devices/${deviceId}`, 'PATCH', { name: newName });
+    toast('设备已重命名');
+    renderDevicesPage();
+  } catch(e) {
+    toast('重命名失败：' + e.message, false);
+  }
+};
+
+// 解绑设备（二次确认）
+window.unbindDevice = async function(deviceId, deviceName) {
+  if (!confirm(`确定要解绑设备「${deviceName}」吗？\n\n解绑后该设备将无法同步配置，但仍可重新登录绑定。`)) return;
+  try {
+    await api(`/profiles/${currentProfileId}/devices/${deviceId}`, 'DELETE');
+    toast('设备已解绑');
+    renderDevicesPage();
+  } catch(e) {
+    toast('解绑失败：' + e.message, false);
+  }
+};
+
+// ── Account page ─────────────────────────────────────────────
+const AVATAR_COLORS = ['#7c6fff','#ff6c9d','#4ade80','#fbbf24','#60a5fa','#f97316','#a78bfa','#34d399'];
+let acctSelectedColor = '#7c6fff';
+
+function setupAccount() {
+  // Color picker
+  const picker = document.getElementById('acct-color-picker');
+  AVATAR_COLORS.forEach(color => {
+    const dot = document.createElement('div');
+    dot.dataset.color = color;
+    dot.style.cssText = `width:28px;height:28px;border-radius:50%;background:${color};cursor:pointer;
+      border:2px solid transparent;transition:all .15s;flex-shrink:0;`;
+    dot.title = color;
+    dot.addEventListener('click', () => {
+      acctSelectedColor = color;
+      picker.querySelectorAll('div').forEach(d => {
+        d.style.border = '2px solid transparent';
+        d.style.transform = 'scale(1)';
+      });
+      dot.style.border = '2px solid #fff';
+      dot.style.transform = 'scale(1.2)';
+      document.getElementById('acct-profile-avatar').style.background = color;
+    });
+    picker.appendChild(dot);
+  });
+
+  // Save profile
+  document.getElementById('acct-save-profile-btn').addEventListener('click', async () => {
+    if (!currentProfileId) return;
+    const name = document.getElementById('acct-name-input').value.trim();
+    const msgEl = document.getElementById('acct-profile-msg');
+    if (!name) { showAcctMsg(msgEl, '请输入名字', false); return; }
+    const btn = document.getElementById('acct-save-profile-btn');
+    btn.disabled = true; btn.textContent = '保存中...';
+    try {
+      const r = await api(`/profiles/${currentProfileId}`, 'PATCH', { name, avatar_color: acctSelectedColor });
+      const updated = r.profile || { id: currentProfileId, name, avatar_color: acctSelectedColor };
+      const idx = profiles.findIndex(p => p.id === currentProfileId);
+      if (idx !== -1) profiles[idx] = { ...profiles[idx], ...updated };
+      renderProfileOptions();
+      document.getElementById('current-profile-avatar').textContent = name.charAt(0).toUpperCase();
+      document.getElementById('current-profile-avatar').style.background = acctSelectedColor;
+      document.getElementById('current-profile-name').textContent = name;
+      document.getElementById('acct-profile-avatar').textContent = name.charAt(0).toUpperCase();
+      showAcctMsg(msgEl, '档案已保存 ✓', true);
+    } catch(e) {
+      showAcctMsg(msgEl, '保存失败：' + e.message, false);
+    } finally { btn.disabled = false; btn.textContent = '保存档案'; }
+  });
+
+  // Change password
+  document.getElementById('acct-save-pw-btn').addEventListener('click', async () => {
+    const oldPw  = document.getElementById('acct-old-pw').value;
+    const newPw  = document.getElementById('acct-new-pw').value;
+    const confPw = document.getElementById('acct-confirm-pw').value;
+    const msgEl  = document.getElementById('acct-pw-msg');
+    if (!oldPw || !newPw || !confPw) { showAcctMsg(msgEl, '请填写所有密码字段', false); return; }
+    if (newPw.length < 6)            { showAcctMsg(msgEl, '新密码至少6位', false); return; }
+    if (newPw !== confPw)            { showAcctMsg(msgEl, '两次新密码不一致', false); return; }
+    const btn = document.getElementById('acct-save-pw-btn');
+    btn.disabled = true; btn.textContent = '修改中...';
+    try {
+      await api('/auth/change-password', 'POST', { oldPassword: oldPw, newPassword: newPw });
+      showAcctMsg(msgEl, '密码已修改，即将退出登录…', true);
+      setTimeout(() => logout(), 2000);
+    } catch(e) {
+      showAcctMsg(msgEl, e.message.includes('incorrect') || e.message.includes('wrong') || e.message.includes('Invalid')
+        ? '当前密码不正确' : '修改失败：' + e.message, false);
+    } finally { btn.disabled = false; btn.textContent = '修改密码'; }
+  });
+
+  // Delete profile — show confirm
+  document.getElementById('acct-delete-profile-btn').addEventListener('click', () => {
+    document.getElementById('acct-delete-confirm-wrap').style.display = 'block';
+    document.getElementById('acct-delete-confirm-input').value = '';
+    document.getElementById('acct-delete-confirm-input').focus();
+    document.getElementById('acct-danger-msg').style.display = 'none';
+  });
+  document.getElementById('acct-delete-cancel-btn').addEventListener('click', () => {
+    document.getElementById('acct-delete-confirm-wrap').style.display = 'none';
+  });
+  document.getElementById('acct-delete-confirm-btn').addEventListener('click', async () => {
+    if (!currentProfileId) return;
+    const profile = profiles.find(p => p.id === currentProfileId);
+    const typed = document.getElementById('acct-delete-confirm-input').value.trim();
+    const msgEl = document.getElementById('acct-danger-msg');
+    if (!profile || typed !== profile.name) {
+      showAcctMsg(msgEl, '名字不匹配，请重新输入', false); return;
+    }
+    const btn = document.getElementById('acct-delete-confirm-btn');
+    btn.disabled = true; btn.textContent = '删除中...';
+    try {
+      await api(`/profiles/${currentProfileId}`, 'DELETE');
+      profiles = profiles.filter(p => p.id !== currentProfileId);
+      currentProfileId = null;
+      renderProfileOptions();
+      document.getElementById('acct-delete-confirm-wrap').style.display = 'none';
+      toast('档案已删除');
+      if (profiles.length > 0) selectProfile(profiles[0].id);
+      else renderNoProfile();
+      // Switch to overview page
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      document.querySelector('.nav-item[data-page="overview"]').classList.add('active');
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('page-overview').classList.add('active');
+    } catch(e) {
+      showAcctMsg(msgEl, '删除失败：' + e.message, false);
+    } finally { btn.disabled = false; btn.textContent = '确认删除'; }
+  });
+
+  // Logout button in danger card
+  document.getElementById('acct-logout-btn').addEventListener('click', logout);
+}
+
+function renderAccountPage() {
+  const profile = profiles.find(p => p.id === currentProfileId);
+  if (!profile) return;
+
+  // Pre-fill name
+  document.getElementById('acct-name-input').value = profile.name;
+
+  // Avatar preview
+  const avatarEl = document.getElementById('acct-profile-avatar');
+  avatarEl.textContent = profile.name.charAt(0).toUpperCase();
+  acctSelectedColor = profile.avatar_color || '#7c6fff';
+  avatarEl.style.background = acctSelectedColor;
+
+  // Highlight selected color in picker
+  const picker = document.getElementById('acct-color-picker');
+  picker.querySelectorAll('div').forEach(d => {
+    const isSelected = d.dataset.color === acctSelectedColor;
+    d.style.border = isSelected ? '2px solid #fff' : '2px solid transparent';
+    d.style.transform = isSelected ? 'scale(1.2)' : 'scale(1)';
+  });
+
+  // Clear password fields and messages
+  ['acct-old-pw','acct-new-pw','acct-confirm-pw'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  ['acct-profile-msg','acct-pw-msg','acct-danger-msg'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  document.getElementById('acct-delete-confirm-wrap').style.display = 'none';
+}
+
+function showAcctMsg(el, text, ok) {
+  el.textContent = text;
+  el.style.color = ok ? 'var(--green)' : 'var(--danger)';
+  el.style.display = 'block';
+  if (ok) setTimeout(() => { if (el.textContent === text) el.style.display = 'none'; }, 3000);
+}
+
+// ── Save config ───────────────────────────────────────────────
+// 各页面保存前先把 DOM 值同步回 remoteConfig
+function syncDomToConfig() {
+  // 配额页 —— 仅当字段已被渲染过（有值）时才读取，单位：小时→分钟
+  const toMin = id => {
+    const el = document.getElementById(id);
+    return (el && el.value !== '') ? Math.round(parseFloat(el.value) * 60) || 0 : null;
+  };
+  const online = toMin('q-online');
+  if (online !== null) remoteConfig.dailyOnlineQuota = online;
+  const study = toMin('q-study');
+  if (study !== null) remoteConfig.dailyStudyQuota = study;
+  const rest = toMin('q-rest');
+  if (rest !== null) remoteConfig.dailyRestQuota = rest;
+}
+
+async function saveConfig() {
+  if (!currentProfileId || !remoteConfig) return;
+  syncDomToConfig();
+  try {
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: remoteConfig });
+    toast('已保存并同步到设备 ✓');
+  } catch(e) {
+    toast('保存失败: ' + e.message, false);
+  }
+}
+
+// ── API helper ────────────────────────────────────────────────
+async function api(path, method='GET', body=null) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' }
+  };
+  if (accountToken) opts.headers['Authorization'] = `Bearer ${accountToken}`;
+  if (body) opts.body = JSON.stringify(body);
+
+  const r = await fetch(API_BASE + path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function fmtDate(d) { return d.toISOString().split('T')[0]; }
+
+function fmtSec(s) {
+  if (!s || s < 0) s = 0;
+  if (s < 60)   return `${s}秒`;
+  if (s < 3600) return `${Math.floor(s/60)}分`;
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  return m > 0 ? `${h}小时${m}分` : `${h}小时`;
+}
+
+function matchDomain(domain, pattern) {
+  const d = domain.replace(/^www\./,'');
+  const p = pattern.replace(/^www\./,'');
+  return d === p || d.endsWith('.'+p);
+}
+</script>
+</body>
+</html>
