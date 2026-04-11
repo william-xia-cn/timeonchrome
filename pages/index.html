@@ -598,6 +598,11 @@
             <input type="number" class="quota-input" id="q-rest" min="0" max="24" step="0.5" placeholder="0">
             <span class="quota-unit">小时/天</span>
           </div>
+          <div class="quota-row">
+            <div class="quota-label">临时放行时长<small>孩子申请后每次放行的有效时长</small></div>
+            <input type="number" class="quota-input" id="q-temp-duration" min="1" max="480" step="1" placeholder="60">
+            <span class="quota-unit">分钟/次</span>
+          </div>
         </div>
         <div class="card">
           <div class="card-header"><div><div class="card-title">单站点配额</div><div class="card-subtitle">为特定网站单独设置时间上限</div></div></div>
@@ -1278,6 +1283,7 @@ function renderQuotaPage() {
   document.getElementById('q-online').value = toH(remoteConfig.dailyOnlineQuota ?? remoteConfig.dailyQuota ?? 0);
   document.getElementById('q-study').value  = toH(remoteConfig.dailyStudyQuota  || 0);
   document.getElementById('q-rest').value   = toH(remoteConfig.dailyRestQuota   || 0);
+  document.getElementById('q-temp-duration').value = remoteConfig.tempWhitelistConfig?.duration ?? 60;
   renderQuotaList();
 }
 
@@ -1639,6 +1645,12 @@ function syncDomToConfig() {
   if (study !== null) remoteConfig.dailyStudyQuota = study;
   const rest = toMin('q-rest');
   if (rest !== null) remoteConfig.dailyRestQuota = rest;
+  const tempEl = document.getElementById('q-temp-duration');
+  if (tempEl && tempEl.value !== '') {
+    const dur = parseInt(tempEl.value) || 60;
+    if (!remoteConfig.tempWhitelistConfig) remoteConfig.tempWhitelistConfig = {};
+    remoteConfig.tempWhitelistConfig.duration = dur;
+  }
 }
 
 async function saveConfig() {
