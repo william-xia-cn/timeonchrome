@@ -102,8 +102,12 @@ async function cloudRequest(method, path, body = null, retries = 3) {
         return { success: true };
       }
       
-      // 401 说明 token 无效
+      // 401 说明 device_token 已失效（被解绑或过期）
       if (resp.status === 401) {
+        // 清除本地 token，避免反复无效请求
+        syncState.deviceToken = null;
+        await storageSet({ [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null });
+        console.warn('[Cloud] Device token invalidated, cleared from storage');
         throw new Error('Device token expired');
       }
       

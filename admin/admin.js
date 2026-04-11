@@ -78,13 +78,17 @@ async function checkAndHandleBinding() {
   const savedToken = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
   const profileId = storage[CLOUD_KEYS.PROFILE_ID];
   
-  if (deviceToken && credentials && savedToken) {
-    // 已绑定 → 自动登录
+  if (deviceToken && credentials) {
+    // 有 device_token + 凭据 → 自动登录进主界面
     console.log('[Admin] Device is bound, auto logging in...');
     await autoLogin(credentials);
+  } else if (credentials && !deviceToken) {
+    // 有凭据但 device_token 已失效（被解绑）→ 自动填入邮箱，提示重新绑定
+    console.log('[Admin] Credentials exist but device token missing, need rebind');
+    await autoLoginForRebind(credentials);
   } else {
-    // 未绑定 → 显示绑定页面
-    console.log('[Admin] Device not bound, showing bind screen');
+    // 全新状态 → 显示绑定页面
+    console.log('[Admin] No credentials, showing bind screen');
     showBindScreen();
   }
 }
@@ -140,6 +144,144 @@ async function autoLogin(encryptedCredentials) {
     showBindScreen();
   }
 }
+
+/**
+ * 自动登录并触发重新绑定流程
+ * 场景：设备被解绑（云端删除）→ 本地 token 失效 → 有凭据但无 device_token
+ */
+async function autoLoginForRebind(encryptedCredentials) {
+  try {
+    const decoded = atob(encryptedCredentials);
+    const [email, password] = decoded.split(':');
+    currentEmail = email;
+
+    const resp = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    if (!resp.ok) {
+      // 连账号登录都失败，清空凭据显示登录页
+      await chrome.storage.local.remove([CLOUD_KEYS.CREDENTIALS, CLOUD_KEYS.ACCOUNT_TOKEN]);
+      showBindScreen();
+      return;
+    }
+
+    const result = await resp.json();
+    accountToken = result.token;
+    // 更新 account_token
+    chrome.storage.local.set({ [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token });
+
+    // 拉取孩子列表
+    const profilesResp = await fetch(`${API_BASE}/profiles`, {
+      headers: { 'Authorization': `Bearer ${accountToken}` }
+    });
+    if (!profilesResp.ok) { showBindScreen(); return; }
+
+    const profilesData = await profilesResp.json();
+    cloudProfiles = profilesData.profiles || [];
+
+    // 显示重绑提示页
+    showRebindScreen(email);
+
+  } catch (e) {
+    console.error('[Admin] autoLoginForRebind error:', e);
+    showBindScreen();
+  }
+}
+
+/**
+ * 显示重新绑定提示页
+ */
+function showRebindScreen(email) {
+  document.getElementById('main-screen').style.display = 'none';
+  const loginScreen = document.getElementById('login-screen');
+  loginScreen.style.display = 'flex';
+
+  loginScreen.innerHTML = `
+    <div class="login-box">
+      <div class="login-logo">⚠️</div>
+      <h1>需要重新绑定</h1>
+      <p style="color:var(--muted);margin-bottom:20px;font-size:13px;line-height:1.6;">
+        本设备已被解绑，请重新选择要绑定的孩子档案。<br>
+        当前账户：<strong>${email}</strong>
+      </p>
+      <div id="rebind-profiles" style="margin-bottom:16px;"></div>
+      <div class="error-msg" id="rebind-error" style="display:none;"></div>
+    </div>
+  `;
+
+  const container = document.getElementById('rebind-profiles');
+  if (cloudProfiles.length === 0) {
+    container.innerHTML = `<div style="color:var(--muted);font-size:13px;">没有可绑定的孩子档案，请先在家长控制台创建。</div>`;
+    return;
+  }
+
+  container.innerHTML = cloudProfiles.map(p => `
+    <div onclick="rebindToProfile('${p.id}','${p.name}','${p.avatar_color||'#7c6fff'}')"
+         style="display:flex;align-items:center;gap:12px;padding:14px 16px;
+                border:1px solid var(--border);border-radius:12px;margin-bottom:10px;
+                cursor:pointer;transition:all 0.2s;"
+         onmouseover="this.style.borderColor='var(--accent)'"
+         onmouseout="this.style.borderColor='var(--border)'">
+      <div style="width:38px;height:38px;border-radius:50%;background:${p.avatar_color||'#7c6fff'};
+                  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;">
+        ${p.name.charAt(0).toUpperCase()}
+      </div>
+      <div>
+        <div style="font-weight:600;">${p.name}</div>
+        <div style="font-size:12px;color:var(--accent);">点击重新绑定此设备</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+/**
+ * 重新绑定到指定 Profile
+ */
+async function rebindToProfile(profileId, profileName, avatarColor) {
+  const errorEl = document.getElementById('rebind-error');
+  try {
+    const devName = getDeviceName();
+    const resp = await fetch(`${API_BASE}/device/bind`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accountToken}`
+      },
+      body: JSON.stringify({ profile_id: profileId, device_name: devName })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || '绑定失败');
+    }
+
+    const bindResult = await resp.json();
+
+    await new Promise(resolve => chrome.storage.local.set({
+      [CLOUD_KEYS.DEVICE_TOKEN]: bindResult.device_token,
+      [CLOUD_KEYS.PROFILE_ID]:   profileId,
+      [CLOUD_KEYS.PROFILE_NAME]: profileName,
+      [CLOUD_KEYS.IS_BOUND]:     true,
+      cloud_device_name:         devName,
+    }, resolve));
+
+    try {
+      await sendMsg({ type: 'CLOUD_BIND', profile_id: profileId });
+    } catch (e) { /* non-fatal */ }
+
+    cloudProfiles = cloudProfiles.filter(p => p.id === profileId);
+    currentProfileId = profileId;
+    await enterMainScreen();
+
+  } catch (e) {
+    if (errorEl) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+  }
+}
+
+window.rebindToProfile = rebindToProfile;
 
 /**
  * 进入主界面
@@ -1037,8 +1179,9 @@ async function renderSyncStatus() {
         </div>
       </div>
     </div>
-    <div style="margin-top:14px;">
-      <button class="btn-save" onclick="forceSync()" style="width:100%;">🔄 立即同步</button>
+    <div style="margin-top:14px; display:flex; gap:10px;">
+      <button class="btn-save" onclick="forceSync()" style="flex:1;">🔄 立即同步</button>
+      <button onclick="confirmRebind()" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
     </div>
   `;
 }
@@ -1053,9 +1196,36 @@ async function forceSync() {
   }
 }
 
+async function confirmRebind() {
+  if (!confirm('确定要解绑此设备并重新绑定吗？\n\n本地配置和统计数据不会丢失。')) return;
+
+  // 清除 device token（保留 credentials 以便重绑时自动登录）
+  await new Promise(resolve => chrome.storage.local.set({
+    [CLOUD_KEYS.DEVICE_TOKEN]: null,
+    [CLOUD_KEYS.PROFILE_ID]: null,
+    [CLOUD_KEYS.PROFILE_NAME]: null,
+    [CLOUD_KEYS.IS_BOUND]: false,
+  }, resolve));
+
+  // 通知 background 清除同步状态
+  try { await sendMsg({ type: 'CLOUD_LOGOUT' }); } catch (e) { /* pass */ }
+
+  // 重新进入绑定流程
+  const credentials = await new Promise(resolve =>
+    chrome.storage.local.get([CLOUD_KEYS.CREDENTIALS], r => resolve(r[CLOUD_KEYS.CREDENTIALS]))
+  );
+
+  if (credentials) {
+    await autoLoginForRebind(credentials);
+  } else {
+    location.reload();
+  }
+}
+
 // 全局函数（供 HTML onclick 调用）
 window.bindToProfile = bindToProfile;
 window.forceSync = forceSync;
+window.confirmRebind = confirmRebind;
 
 // ── 使用分析页（Stats）────────────────────────────────────────────────────
 
