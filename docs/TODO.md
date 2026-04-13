@@ -7,7 +7,6 @@
 ## 🔴 待开发（下一步）
 
 - [ ] Workers 单元测试（参数化查询、JWT 签名验证）`[workers/]`
-- [ ] blocked.html 申请临时放行后推送云端通知家长 `[blocked.js, workers/]`
 
 ---
 
@@ -21,6 +20,13 @@
 ---
 
 ## 🟢 已完成
+
+### v1.6.0（2026-04-14）
+- [x] 三时段时间分类模型（学习/待定/休息）`[background.js]`
+- [x] 会话追踪与家长审核、孩子申诉 `[workers/, background.js]`
+- [x] 周配额 + 日间借用机制 `[background.js, workers/]`
+- [x] UX 理念重构：blacklist→unsafeList、blocked.html→reminder.html、mode 命名更新
+- [x] 孩子加入 compositeList 后邮件通知家长 `[reminder.js, workers/events.ts]`
 
 ### v1.5.1（2026-04-13）
 - [x] 跨设备配额同步：`GET /device/quota-state` 聚合接口 + extension 每次 sync 拉取
