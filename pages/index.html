@@ -232,6 +232,35 @@
       color: var(--accent); font-size: 13px; cursor: pointer; white-space: nowrap;
     }
     .btn-add:hover { background: rgba(0,184,148,0.20); }
+
+    /* ── 待审核页面 ── */
+    .review-group { margin-bottom: 16px; }
+    .review-group-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 12px; margin-bottom: 12px;
+    }
+    .review-group-btns { display: flex; gap: 8px; flex-shrink: 0; }
+    .review-session-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+    }
+    .review-session-row:last-child { border-bottom: none; }
+    .review-session-title { flex: 1; font-size: 13px; color: var(--text); line-height: 1.4; }
+    .review-session-meta  { font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .review-session-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .btn-classify {
+      padding: 4px 10px; border-radius: 6px; border: 1px solid; font-size: 12px; cursor: pointer;
+      background: transparent; transition: background .15s;
+    }
+    .btn-classify.study {
+      color: #00b894; border-color: rgba(0,184,148,.35);
+    }
+    .btn-classify.study:hover { background: rgba(0,184,148,.12); }
+    .btn-classify.rest  {
+      color: #f59e0b; border-color: rgba(245,158,11,.35);
+    }
+    .btn-classify.rest:hover  { background: rgba(245,158,11,.10); }
+    .review-rule-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .domains-container { display: flex; flex-wrap: wrap; gap: 7px; min-height: 32px; }
     .domain-tag {
       display: inline-flex; align-items: center; gap: 5px;
@@ -467,6 +496,9 @@
         </div>
         <div class="nav-item" data-page="devices">
           <span class="nav-icon">💻</span><span>设备管理</span>
+        </div>
+        <div class="nav-item" data-page="review">
+          <span class="nav-icon">🔍</span><span>待审核 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
         <div class="nav-item" data-page="account">
           <span class="nav-icon">👤</span><span>账户设置</span>
@@ -800,6 +832,26 @@
         </div>
       </div>
 
+      <!-- 待审核 -->
+      <div class="page" id="page-review">
+        <div class="page-header">
+          <h2>待审核会话</h2>
+          <p>孩子访问复合型网站产生的会话记录，请分类为学习或休息</p>
+        </div>
+
+        <!-- 日期选择 -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <label style="font-size:13px;color:var(--muted);">日期</label>
+          <input type="date" id="review-date" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--card);color:var(--text);">
+          <button class="btn-save" id="review-load-btn" style="padding:6px 16px;font-size:13px;">加载</button>
+          <span id="review-pending-count" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+
+        <div id="review-groups-container">
+          <div class="empty-state">选择日期后加载待审核会话</div>
+        </div>
+      </div>
+
     </div><!-- /main-content -->
   </div><!-- /layout -->
 </div><!-- /main-screen -->
@@ -1013,9 +1065,27 @@ async function selectProfile(id) {
     toast('加载配置失败', false);
   }
 
+  // 更新待审核 badge
+  updateReviewBadge(id);
+
   // 渲染当前页
   const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'overview';
   renderPage(activePage);
+}
+
+async function updateReviewBadge(profileId) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const r = await api(`/profiles/${profileId}/pending-reviews?date=${today}`);
+    const count = (r.groups || []).reduce((sum, g) => sum + g.sessions.length, 0);
+    const badge = document.getElementById('review-badge');
+    if (badge) {
+      badge.textContent = count > 0 ? count : '';
+      badge.style.display = count > 0 ? 'inline-block' : 'none';
+    }
+  } catch(e) {
+    // 静默失败
+  }
 }
 
 function renderNoProfile() {
@@ -1083,6 +1153,7 @@ function renderPage(name) {
   if (name === 'stats')     renderStatsPage('today');
   if (name === 'devices')   renderDevicesPage();
   if (name === 'account')   renderAccountPage();
+  if (name === 'review')    renderReviewPage();
 }
 
 // ── Overview ─────────────────────────────────────────────────
@@ -1725,6 +1796,138 @@ function matchDomain(domain, pattern) {
   const d = domain.replace(/^www\./,'');
   const p = pattern.replace(/^www\./,'');
   return d === p || d.endsWith('.'+p);
+}
+
+// ── 待审核页面 ────────────────────────────────────────────────────────────────
+
+function renderReviewPage() {
+  if (!currentProfileId) return;
+  // 默认今天
+  const dateInput = document.getElementById('review-date');
+  if (!dateInput.value) dateInput.value = fmtDate(new Date());
+
+  document.getElementById('review-load-btn').onclick = () => loadReviewGroups();
+  // 首次进入自动加载
+  loadReviewGroups();
+}
+
+async function loadReviewGroups() {
+  const date = document.getElementById('review-date').value;
+  if (!date) return;
+  const container = document.getElementById('review-groups-container');
+  container.innerHTML = '<div class="empty-state">加载中…</div>';
+
+  try {
+    const r = await api(`/profiles/${currentProfileId}/pending-reviews?date=${date}`);
+    const { total, groups } = r;
+
+    document.getElementById('review-pending-count').textContent =
+      total > 0 ? `共 ${total} 条待审核` : '暂无待审核';
+
+    // 更新导航徽标
+    const badge = document.getElementById('review-badge');
+    if (badge) { badge.textContent = total; badge.style.display = total > 0 ? '' : 'none'; }
+
+    if (!groups || groups.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="padding:48px;">🎉 今日没有待审核会话</div>';
+      return;
+    }
+
+    container.innerHTML = groups.map((g, gi) => {
+      const suggestionLabel = g.suggestion === 'study' ? '💡 建议：学习'
+        : g.suggestion === 'rest' ? '💡 建议：休息' : '';
+      const suggestionColor = g.suggestion === 'study' ? 'var(--green)' : g.suggestion === 'rest' ? 'var(--warn)' : '';
+
+      const sessionRows = g.sessions.map(s => `
+        <div class="review-session-row" data-id="${s.id}">
+          <div class="review-session-title">${escHtml(s.title)}</div>
+          <div class="review-session-meta">${fmtSecs(s.duration)}</div>
+          <div class="review-session-actions">
+            <button class="btn-classify study" onclick="classifySingle('${s.id}','study',${gi})">📚 学习</button>
+            <button class="btn-classify rest"  onclick="classifySingle('${s.id}','rest',${gi})">🎵 休息</button>
+          </div>
+        </div>
+      `).join('');
+
+      return `
+        <div class="review-group card" id="review-group-${gi}">
+          <div class="review-group-header">
+            <div>
+              <div style="font-weight:600;font-size:14px;">${escHtml(g.domain)}</div>
+              ${suggestionLabel ? `<div style="font-size:11px;color:${suggestionColor};margin-top:2px;">${suggestionLabel}</div>` : ''}
+            </div>
+            <div class="review-group-btns">
+              <button class="btn-classify study" onclick="classifyGroup(${gi},'study')">📚 全部学习</button>
+              <button class="btn-classify rest"  onclick="classifyGroup(${gi},'rest')">🎵 全部休息</button>
+            </div>
+          </div>
+          <div class="review-sessions" id="review-sessions-${gi}">${sessionRows}</div>
+
+          <!-- 关键词规则 -->
+          <div class="review-rule-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <span style="font-size:12px;color:var(--muted);">保存关键词规则：</span>
+            <input type="text" id="rule-kw-${gi}" placeholder="关键词（如 MIT）" style="flex:1;min-width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--card);color:var(--text);">
+            <button class="btn-classify study" style="font-size:11px;" onclick="saveRule(${gi},'study')">📚 自动=学习</button>
+            <button class="btn-classify rest"  style="font-size:11px;" onclick="saveRule(${gi},'rest')">🎵 自动=休息</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    // 存储原始数据供 JS 操作
+    window._reviewGroups = groups;
+
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state" style="color:var(--danger);">加载失败：${escHtml(e.message)}</div>`;
+  }
+}
+
+async function classifySingle(sessionId, classification, groupIdx) {
+  try {
+    await api(`/profiles/${currentProfileId}/classify`, 'POST', {
+      classifications: [{ session_id: sessionId, classification }],
+      scope: 'session'
+    });
+    // 移除该行
+    const row = document.querySelector(`.review-session-row[data-id="${sessionId}"]`);
+    if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
+    toast('已标记为' + (classification === 'study' ? '学习' : '休息'));
+  } catch (e) { toast('操作失败：' + e.message, false); }
+}
+
+async function classifyGroup(groupIdx, classification) {
+  const group = window._reviewGroups?.[groupIdx];
+  if (!group) return;
+  const classifications = group.sessions.map(s => ({ session_id: s.id, classification }));
+  try {
+    await api(`/profiles/${currentProfileId}/classify`, 'POST', { classifications, scope: 'session' });
+    const groupEl = document.getElementById(`review-group-${groupIdx}`);
+    if (groupEl) { groupEl.style.opacity = '0.4'; groupEl.style.pointerEvents = 'none'; }
+    toast(`已将 ${classifications.length} 条标记为${classification === 'study' ? '学习' : '休息'}`);
+  } catch (e) { toast('操作失败：' + e.message, false); }
+}
+
+async function saveRule(groupIdx, classification) {
+  const group = window._reviewGroups?.[groupIdx];
+  if (!group) return;
+  const kw = document.getElementById(`rule-kw-${groupIdx}`)?.value?.trim();
+  if (!kw) { toast('请输入关键词', false); return; }
+  try {
+    await api(`/profiles/${currentProfileId}/classification-rules`, 'POST', {
+      domain: group.domain, keyword: kw, classification
+    });
+    toast(`规则已保存：${group.domain} + "${kw}" → ${classification === 'study' ? '学习' : '休息'}`);
+  } catch (e) { toast('保存失败：' + e.message, false); }
+}
+
+function fmtSecs(s) {
+  if (!s) return '0秒';
+  if (s < 60) return s + '秒';
+  if (s < 3600) return Math.floor(s/60) + '分';
+  return Math.floor(s/3600) + '小时' + (Math.floor((s%3600)/60)||'') + (Math.floor((s%3600)/60)?'分':'');
+}
+
+function escHtml(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 </body>

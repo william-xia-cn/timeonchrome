@@ -18,3 +18,7 @@ id = "c9aac68bf121480f898564eb1b166295"
 
 # Resend 邮件 API key（在 Cloudflare 控制台设置 secret，不要明文写在这里）
 # wrangler secret put RESEND_API_KEY
+
+# 每天 20:00 UTC+8 (12:00 UTC) 发送待审核提醒邮件
+[triggers]
+crons = ["0 12 * * *"]

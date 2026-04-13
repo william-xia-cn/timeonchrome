@@ -876,6 +876,7 @@ function setupNavigation() {
       if (page === 'rules')     renderRulesPage();
       if (page === 'stats')     renderStatsPage();
       if (page === 'devices') { setupDevicesPage(); renderSyncStatus(); }
+      if (page === 'weekly')    renderWeeklyPage();
     });
   });
 }
@@ -1583,4 +1584,83 @@ async function renderChangelog() {
       </div>
     </div>
   `).join('');
+}
+
+// ── 本周待定时段（孩子视角） ──────────────────────────────────────────────────
+
+async function renderWeeklyPage() {
+  const container = document.getElementById('weekly-sessions-list');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--muted);font-size:13px;">加载中...</div>';
+
+  const res = await sendMsg({ type: 'GET_WEEKLY_SESSIONS' });
+  const sessions = res?.sessions || [];
+
+  if (sessions.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">本周暂无待定会话</div>';
+    return;
+  }
+
+  const statusLabel = {
+    study: '<span style="color:var(--accent);font-size:11px;">✅ 学习</span>',
+    rest:  '<span style="color:#ef4444;font-size:11px;">⚠️ 休息</span>',
+  };
+
+  container.innerHTML = sessions.slice(0, 50).map(s => {
+    const status = statusLabel[s.classification] || '<span style="color:#f59e0b;font-size:11px;">⏳ 待审核</span>';
+    const dur = formatSeconds(s.duration || 0);
+    const date = (s.date || '').slice(5);
+    const title = (s.title || s.domain).slice(0, 60);
+
+    let appealHtml = '';
+    if (s.classification === 'rest' && !s.appeal_status) {
+      appealHtml = `<button class="weekly-appeal-btn" data-sid="${escId(s.id)}"
+        style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;cursor:pointer;color:var(--muted);">申诉</button>`;
+    } else if (s.appeal_status === 'pending') {
+      appealHtml = '<span style="font-size:11px;color:#f59e0b;">申诉中</span>';
+    } else if (s.appeal_status === 'overturned') {
+      appealHtml = '<span style="font-size:11px;color:var(--accent);">已改判</span>';
+    }
+
+    return `
+      <div style="padding:9px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <span style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;"
+            title="${escAttr(s.title || '')}">${escHtml(title)}</span>
+          <span style="font-size:11px;color:var(--muted);white-space:nowrap;">${dur}</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px;">
+          <span style="font-size:11px;color:var(--muted);">${date} · ${escHtml(s.domain)}</span>
+          <span style="display:flex;align-items:center;gap:6px;">${status} ${appealHtml}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  // 绑定申诉按钮
+  container.querySelectorAll('.weekly-appeal-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const sid = btn.dataset.sid;
+      btn.disabled = true;
+      btn.textContent = '提交中...';
+      const r = await sendMsg({ type: 'SUBMIT_APPEAL', sessionId: sid, reason: '' });
+      if (r?.ok) {
+        btn.textContent = '已提交';
+        btn.style.color = 'var(--accent)';
+      } else {
+        btn.disabled = false;
+        btn.textContent = '申诉';
+        alert('申诉失败：' + (r?.error || '未知'));
+      }
+    });
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return String(s).replace(/"/g,'&quot;');
+}
+function escId(s) {
+  return String(s).replace(/[^a-zA-Z0-9_-]/g,'');
 }

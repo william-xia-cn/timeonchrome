@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await init();
+  initWeeklySessions();
 
   // 初始化模式按钮状态并绑定点击事件
   await renderModeButtons();
@@ -164,6 +165,106 @@ async function init() {
       </div>
     `).join('');
   }
+}
+
+// ── 本周待定时段 ──────────────────────────────────────────────────────────────
+
+async function initWeeklySessions() {
+  const toggle = document.getElementById('week-sessions-toggle');
+  const list   = document.getElementById('week-sessions-list');
+  if (!toggle || !list) return;
+
+  toggle.addEventListener('click', async () => {
+    if (list.style.display === 'none') {
+      list.style.display = '';
+      toggle.textContent = '收起';
+      await loadWeeklySessions();
+    } else {
+      list.style.display = 'none';
+      toggle.textContent = '展开';
+    }
+  });
+}
+
+async function loadWeeklySessions() {
+  const list = document.getElementById('week-sessions-list');
+  if (!list) return;
+  list.innerHTML = '<div class="empty">加载中...</div>';
+
+  const res = await sendMsg({ type: 'GET_WEEKLY_SESSIONS' });
+  const sessions = res?.sessions || [];
+
+  if (sessions.length === 0) {
+    list.innerHTML = '<div class="empty">本周暂无待定会话</div>';
+    return;
+  }
+
+  // 仅显示本周，最新在前，最多 20 条
+  const items = sessions.slice(0, 20);
+  list.innerHTML = items.map(s => renderWeekSessionRow(s)).join('');
+
+  // 绑定申诉按钮
+  list.querySelectorAll('.appeal-btn[data-session-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const sid = btn.dataset.sessionId;
+      btn.disabled = true;
+      btn.textContent = '提交中...';
+      const r = await sendMsg({ type: 'SUBMIT_APPEAL', sessionId: sid, reason: '' });
+      if (r?.ok) {
+        btn.textContent = '已提交';
+        btn.style.color = 'var(--accent)';
+      } else {
+        btn.disabled = false;
+        btn.textContent = '申诉';
+        alert('申诉失败：' + (r?.error || '未知错误'));
+      }
+    });
+  });
+}
+
+function renderWeekSessionRow(s) {
+  const statusMap = {
+    study: '<span class="badge-study">✅ 学习</span>',
+    rest:  '<span class="badge-rest">⚠️ 休息</span>',
+    null:  '<span class="badge-pending">⏳ 待审核</span>',
+  };
+  const statusHtml = statusMap[s.classification] ?? statusMap[null];
+
+  // appeal_status: 'pending'=已申诉, 'upheld'=维持, 'overturned'=已改判
+  let appealHtml = '';
+  if (s.classification === 'rest' && !s.appeal_status) {
+    appealHtml = `<button class="appeal-btn" data-session-id="${escSid(s.id)}">申诉</button>`;
+  } else if (s.appeal_status === 'pending') {
+    appealHtml = '<span style="font-size:10px;color:var(--warn);">申诉中</span>';
+  } else if (s.appeal_status === 'overturned') {
+    appealHtml = '<span style="font-size:10px;color:var(--accent);">已改判</span>';
+  }
+
+  const title = (s.title || s.domain).slice(0, 40);
+  const dur = formatSeconds(s.duration || 0);
+  const date = (s.date || '').slice(5); // MM-DD
+
+  return `
+    <div class="week-session-row">
+      <div class="week-session-top">
+        <span class="week-session-title" title="${escAttr(s.title || '')}">${escHtml(title)}</span>
+        <span class="week-session-meta">${dur}</span>
+      </div>
+      <div class="week-session-status">
+        <span>${date} · ${escHtml(s.domain)}</span>
+        <span style="display:flex;align-items:center;gap:5px;">${statusHtml} ${appealHtml}</span>
+      </div>
+    </div>`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return String(s).replace(/"/g,'&quot;');
+}
+function escSid(s) {
+  return String(s).replace(/[^a-zA-Z0-9_-]/g,'');
 }
 
 // 域名匹配（与 background.js 一致）

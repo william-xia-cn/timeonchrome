@@ -131,6 +131,64 @@
 
     .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
 
+    /* 本周待定时段 */
+    .week-session-row {
+      display: flex;
+      flex-direction: column;
+      padding: 8px 10px;
+      background: var(--card);
+      border-radius: 8px;
+      margin-bottom: 5px;
+      border: 1px solid var(--border);
+    }
+    .week-session-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .week-session-title {
+      font-size: 11px;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .week-session-meta {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .week-session-status {
+      font-size: 10px;
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .badge-pending  { color: #f59e0b; }
+    .badge-study    { color: #00b894; }
+    .badge-rest     { color: #ef4444; }
+    .appeal-btn {
+      font-size: 10px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      background: transparent;
+      border-radius: 4px;
+      padding: 2px 7px;
+      cursor: pointer;
+    }
+    .appeal-btn:hover { color: var(--text); }
+    .section-toggle {
+      font-size: 10px;
+      color: var(--accent);
+      cursor: pointer;
+      float: right;
+      text-decoration: underline;
+    }
+
     /* 模式切换 */
     .mode-bar {
       margin: 10px 16px 0;
@@ -198,6 +256,15 @@
     <!-- 今日 Top5 -->
     <div class="section-title">今日访问</div>
     <div id="today-top5"><div class="empty">暂无数据</div></div>
+
+    <!-- 本周待定时段 -->
+    <div class="section-title">
+      本周待定
+      <span class="section-toggle" id="week-sessions-toggle">展开</span>
+    </div>
+    <div id="week-sessions-list" style="display:none;">
+      <div class="empty">加载中...</div>
+    </div>
   </div>
 
   <div class="footer">

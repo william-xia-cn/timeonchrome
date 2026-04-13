@@ -69,6 +69,43 @@
   patchAudioContext(window.AudioContext);
   patchAudioContext(window.webkitAudioContext);
 
+  // ── 标题变化追踪（复合型网站会话记录，Phase 2）────────────────────────────
+
+  let lastTitle = document.title;
+  let titleChangeTimer = null;
+
+  function reportTitleChange(title) {
+    if (!chrome.runtime?.id) return;
+    chrome.runtime.sendMessage({ type: 'TITLE_CHANGE', title });
+  }
+
+  // 防抖：标题 1 秒内稳定后才上报（避免 SPA 过渡动画导致的频繁抖动）
+  function onTitleMutated() {
+    const newTitle = document.title;
+    if (newTitle === lastTitle) return;
+    clearTimeout(titleChangeTimer);
+    titleChangeTimer = setTimeout(() => {
+      if (document.title !== lastTitle) {
+        lastTitle = document.title;
+        reportTitleChange(lastTitle);
+      }
+    }, 1000);
+  }
+
+  // 监听 <title> 元素变化
+  const titleEl = document.querySelector('title');
+  if (titleEl) {
+    new MutationObserver(onTitleMutated).observe(titleEl, { childList: true, characterData: true, subtree: true });
+  }
+  // 同时监听 document.head，处理 <title> 被替换的情况
+  new MutationObserver(() => {
+    const newTitleEl = document.querySelector('title');
+    if (newTitleEl && newTitleEl !== titleEl) {
+      new MutationObserver(onTitleMutated).observe(newTitleEl, { childList: true, characterData: true, subtree: true });
+    }
+    onTitleMutated();
+  }).observe(document.head || document.documentElement, { childList: true });
+
   // ── 接收来自 background 的指令 ────────────────────────────────────────────
 
   chrome.runtime.onMessage.addListener((msg) => {

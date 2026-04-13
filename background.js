@@ -423,7 +423,12 @@ async function syncNow() {
       await uploadStats();
     }
 
-    // 3. 拉取跨设备配额状态（仅在监控开启时检查）
+    // 3. 上传复合型会话记录
+    if (syncState.monitoringEnabled !== 0) {
+      await uploadCompositeSessions();
+    }
+
+    // 4. 拉取跨设备配额状态（仅在监控开启时检查）
     if (syncState.monitoringEnabled !== 0) {
       await pullCloudQuotaState();
     }
@@ -522,6 +527,7 @@ const CONFIG_KEY = 'guardian_config';
 const HASH_KEY = 'guardian_hash';
 const STATS_KEY_PREFIX = 'stats_';
 const UNDETERMINED_STATS_KEY_PREFIX = 'undetermined_stats_';  // 待定时段（compositeList）时长
+const COMPOSITE_SESSIONS_LOCAL_KEY = 'composite_sessions_local';  // 待上传的复合型会话记录
 const SESSION_KEY = 'guardian_session';
 const SESSIONS_KEY = 'guardian_sessions';
 const VISIT_SESSIONS_KEY = 'visit_sessions';     // 访问会话记录（隐私友好版）
@@ -941,6 +947,125 @@ async function cleanOldVisitSessions() {
       chrome.storage.local.set({ [VISIT_SESSIONS_KEY]: filtered }, resolve);
     });
   });
+}
+
+// ── 复合型会话（Composite Sessions）存储 ────────────────────────────────────────
+
+// 当前正在进行的复合型会话（仅 compositeList 域名，且不在 studyList 中）
+let compositeSessionActive = null;  // { domain, title, startTime, tabId }
+
+async function saveCompositeSessionLocal(session) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(COMPOSITE_SESSIONS_LOCAL_KEY, (result) => {
+      const sessions = result[COMPOSITE_SESSIONS_LOCAL_KEY] || [];
+      sessions.push(session);
+      // 保留最新 1000 条，防止无限增长
+      const trimmed = sessions.slice(-1000);
+      chrome.storage.local.set({ [COMPOSITE_SESSIONS_LOCAL_KEY]: trimmed }, resolve);
+    });
+  });
+}
+
+async function getCompositeSessionsLocal() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(COMPOSITE_SESSIONS_LOCAL_KEY, (result) => {
+      resolve(result[COMPOSITE_SESSIONS_LOCAL_KEY] || []);
+    });
+  });
+}
+
+async function clearUploadedCompositeSessions(uploadedIds) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(COMPOSITE_SESSIONS_LOCAL_KEY, (result) => {
+      const sessions = result[COMPOSITE_SESSIONS_LOCAL_KEY] || [];
+      const remaining = sessions.filter(s => !uploadedIds.includes(s.id));
+      chrome.storage.local.set({ [COMPOSITE_SESSIONS_LOCAL_KEY]: remaining }, resolve);
+    });
+  });
+}
+
+/**
+ * 开始一个新的复合型会话（切换域名或标题变化时调用）
+ */
+async function beginCompositeSession(domain, title, tabId) {
+  const config = await getConfig();
+  const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p));
+  const isStudy    = (config.studyList     || []).some(p => matchDomain(domain, p));
+  if (!isComposite || isStudy) return; // 只追踪纯复合型域名
+
+  // 结束上一个会话
+  await endCompositeSession('navigation');
+
+  compositeSessionActive = {
+    id:        crypto.randomUUID(),
+    domain,
+    title:     title || document.title || '',
+    startTime: Date.now(),
+    tabId,
+    date:      getDateKey(),
+  };
+}
+
+/**
+ * 标题变化：结束当前会话段并开始新段
+ */
+async function handleCompositeSessionTitleChange(domain, newTitle, tabId) {
+  if (!compositeSessionActive || compositeSessionActive.domain !== domain) {
+    // 如果没有活跃会话，尝试开始一个
+    await beginCompositeSession(domain, newTitle, tabId);
+    return;
+  }
+  // 标题变化 → 结束旧段，开始新段
+  await endCompositeSession('title_change');
+  await beginCompositeSession(domain, newTitle, tabId);
+}
+
+/**
+ * 结束当前复合型会话段并保存
+ */
+async function endCompositeSession(endReason) {
+  if (!compositeSessionActive) return;
+
+  const now      = Date.now();
+  const duration = Math.floor((now - compositeSessionActive.startTime) / 1000);
+
+  if (duration >= MIN_SESSION_DURATION) {
+    const session = {
+      id:               compositeSessionActive.id,
+      domain:           compositeSessionActive.domain,
+      title:            compositeSessionActive.title || '(无标题)',
+      date:             compositeSessionActive.date,
+      start_time:       compositeSessionActive.startTime,
+      duration,
+      classification:   null,  // 待家长审核
+      classified_by:    null,
+      classified_at:    null,
+    };
+    await saveCompositeSessionLocal(session);
+  }
+
+  compositeSessionActive = null;
+}
+
+/**
+ * 上传本地缓存的复合型会话到云端
+ */
+async function uploadCompositeSessions() {
+  try {
+    const sessions = await getCompositeSessionsLocal();
+    // 只上传未上传的（没有 uploaded 标记）
+    const toUpload = sessions.filter(s => !s.uploaded).slice(0, 100);
+    if (toUpload.length === 0) return;
+
+    await cloudRequest('POST', '/device/composite-sessions', { sessions: toUpload });
+
+    // 标记为已上传
+    const uploadedIds = toUpload.map(s => s.id);
+    await clearUploadedCompositeSessions(uploadedIds);
+    console.log('[Cloud] Composite sessions uploaded:', toUpload.length);
+  } catch (e) {
+    console.error('[Cloud] Failed to upload composite sessions:', e.message);
+  }
 }
 
 // ── ChangeLog 存储 ───────────────────────────────────────────────────────────────
@@ -1460,12 +1585,16 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   await flushActiveTime();
   endVisitSession('tab_switch');
+  await endCompositeSession('tab_switch');
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   activeTabId = tabId;
   activeTabDomain = (tab?.url && !isSpecialUrl(tab.url)) ? extractDomain(tab.url) : null;
 
   beginVisitSession(activeTabDomain);
+  if (activeTabDomain) {
+    await beginCompositeSession(activeTabDomain, tab?.title || '', tabId);
+  }
   resumeActiveTime();
 });
 
@@ -1473,6 +1602,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === activeTabId) {
     await flushActiveTime();
     endVisitSession('tab_closed');
+    await endCompositeSession('tab_closed');
     activeTabId = null;
     activeTabDomain = null;
   }
@@ -1495,8 +1625,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (tabId === activeTabId && newDomain !== activeTabDomain) {
     await flushActiveTime();
     endVisitSession('navigation');
+    await endCompositeSession('navigation');
     activeTabDomain = newDomain;
     beginVisitSession(activeTabDomain);
+    if (newDomain) {
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      await beginCompositeSession(newDomain, tab?.title || '', tabId);
+    }
     resumeActiveTime();
   }
 
@@ -1523,9 +1658,11 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
       if (tab.id !== activeTabId || newDomain !== activeTabDomain) {
         await flushActiveTime();
         endVisitSession('window_focus');
+        await endCompositeSession('window_focus');
         activeTabId = tab.id;
         activeTabDomain = newDomain;
         beginVisitSession(activeTabDomain);
+        await beginCompositeSession(newDomain, tab.title || '', tab.id);
       }
     }
     resumeActiveTime();
@@ -1965,6 +2102,14 @@ async function handleMessage(msg, sender) {
     case 'SWITCH_TO_REST':
       return await switchToRest();
 
+    // 标题变化：更新复合型会话段（来自 content.js）
+    case 'TITLE_CHANGE': {
+      if (sender.tab && activeTabId === sender.tab.id && activeTabDomain) {
+        await handleCompositeSessionTitleChange(activeTabDomain, msg.title, sender.tab.id);
+      }
+      return { ok: true };
+    }
+
     // 临时放行：将域名加入复合型网站列表
     case 'ADD_TO_COMPOSITE_LIST':
       return await addToCompositeList(msg.domain);
@@ -2073,6 +2218,32 @@ async function handleMessage(msg, sender) {
       // 强制立即同步
       await syncNow();
       return { success: true };
+    }
+
+    case 'GET_WEEKLY_SESSIONS': {
+      // 获取本周待定时段全览（孩子侧）
+      const today = new Date();
+      const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1; // Mon=0
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - dayOfWeek);
+      const weekStartStr = weekStart.toISOString().slice(0, 10);
+      try {
+        const data = await cloudRequest('GET', `/device/weekly-sessions?week_start=${weekStartStr}`);
+        return { sessions: data.sessions || [] };
+      } catch (e) {
+        return { sessions: [], error: e.message };
+      }
+    }
+
+    case 'SUBMIT_APPEAL': {
+      // 孩子提交申诉
+      const { sessionId, reason } = msg;
+      try {
+        const data = await cloudRequest('POST', '/device/appeal', { session_id: sessionId, reason: reason || '' });
+        return { ok: true, data };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
     }
 
     default:
