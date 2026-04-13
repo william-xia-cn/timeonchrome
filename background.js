@@ -1,8 +1,8 @@
 // background.js - Service Worker 核心逻辑（v2.0 云端同步版）
 // 功能：
 // 1. 学习/休息状态切换
-// 2. 学习时使用白名单模式
-// 3. 休息时使用黑名单模式
+// 2. 学习模式：仅允许学习网站，其他网站跳转提醒页
+// 3. 休息模式：所有网站可访问，不安全网站除外
 // 4. 休息提醒和强制结束
 // 5. 云端同步（配置下发、统计上报、Session归档）
 
@@ -223,17 +223,17 @@ async function pullCloudQuotaState() {
       await saveConfig(config);
 
       if (newState.onlineLocked && !localQs.onlineLocked) {
-        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日在线时间已达上限，所有网站已锁定。' });
-        await lockAllBrowsing();
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今天的上网时间用完啦，好好休息一下吧 🌙' });
+        await redirectAllTabs();
       } else if (newState.restLocked && !localQs.restLocked) {
-        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日休息时间已达上限，娱乐网站已锁定。' });
-        await closeQuotaViolatingTabs(config, newState);
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今天的休息时间用完啦，切换到学习模式继续加油 📚' });
+        await redirectQuotaViolatingTabs(config, newState);
       } else if (newState.studyLocked && !localQs.studyLocked) {
-        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日学习时间已达上限，学习网站已锁定。' });
-        await closeQuotaViolatingTabs(config, newState);
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今天学得够多啦，劳逸结合才高效 🎉' });
+        await redirectQuotaViolatingTabs(config, newState);
       } else if (newState.undeterminedLocked && !localQs.undeterminedLocked) {
-        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日待定时间已达上限，复合型网站已锁定。' });
-        await closeQuotaViolatingTabs(config, newState);
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'待定网站今天的时间用完啦，明天再来探索' });
+        await redirectQuotaViolatingTabs(config, newState);
       }
 
       console.log('[Cloud] Quota state synced from cloud:', newState);
@@ -374,7 +374,7 @@ async function pushConfigToCloud(config) {
       enabled:                 config.enabled,
       studyList:               config.studyList,
       compositeList:           config.compositeList,
-      blacklist:               config.blacklist,
+      unsafeList:              config.unsafeList || config.blacklist,
       dailyOnlineQuota:        config.dailyOnlineQuota,
       dailyStudyQuota:         config.dailyStudyQuota,
       dailyRestQuota:          config.dailyRestQuota,
@@ -545,7 +545,7 @@ const DEFAULT_CONFIG = {
   version: STORAGE_VERSION,
   adminPasswordHash: '',
   isInitialized: false,
-  mode: 'whitelist',
+  mode: 'study',  // 'study' | 'rest' — 不再有 whitelist/blacklist 概念
   // 默认学习网站（新安装时自动加载）
   studyList: [
     // 核心生产力与协作
@@ -583,9 +583,10 @@ const DEFAULT_CONFIG = {
     // 百科/参考
     'wikipedia.org', 'britannica.com', 'wolframalpha.com'
   ],
-  whitelist: [],
-  // 默认黑名单（始终拦截）
-  blacklist: ['douyin.com', 'tiktok.com'],
+  whitelist: [],  // 已废弃，保留兼容
+  // 不安全网站列表（基于年龄/安全考虑，唯一的硬拦截）
+  unsafeList: ['douyin.com', 'tiktok.com'],
+  blacklist: [],  // 已废弃，迁移到 unsafeList
   // 每日时长配额（分钟，0 = 不限制）
   dailyOnlineQuota:       1200,  // 每日在线时长上限：20小时
   dailyStudyQuota:         480,  // 每日在线学习时长上限：8小时
@@ -613,7 +614,7 @@ const DEFAULT_CONFIG = {
   interceptAction: 'block',
   lockOnQuotaExceeded: true,
   enabled: true,
-  blockMessage: '此网站已被家长限制访问。',
+  blockMessage: '这个网站当前不在可访问范围内',
   lockedDomains: [],
   restConfig: {
     reminderInterval: 15,
@@ -1184,7 +1185,7 @@ async function switchToStudy(source = 'manual') {
   session.currentMode = 'study';
   await saveSession(session);
 
-  config.mode = 'whitelist';
+  config.mode = 'study';
   await saveConfig(config);
   await updateDeclarativeRules(config);
 
@@ -1213,7 +1214,7 @@ async function switchToRest(source = 'manual') {
   session.currentMode = 'rest';
   await saveSession(session);
 
-  config.mode = 'blacklist';
+  config.mode = 'rest';
   await saveConfig(config);
   await updateDeclarativeRules(config);
 
@@ -1289,7 +1290,7 @@ async function handleRestForcedEnd() {
     type: 'basic',
     iconUrl: 'icons/icon48.png',
     title: 'TimeOnChrome - 休息结束',
-    message: '休息时间已达上限，已恢复学习模式'
+    message: '休息时间用完啦，已切换回学习模式 📚'
   });
 }
 
@@ -1549,6 +1550,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         studyList: existingConfig.studyList || existingConfig.whitelist || DEFAULT_CONFIG.studyList,
         // 迁移旧 allowList → compositeList
         compositeList: existingConfig.compositeList || existingConfig.allowList || DEFAULT_CONFIG.compositeList,
+        // 迁移旧 blacklist → unsafeList
+        unsafeList: existingConfig.unsafeList || existingConfig.blacklist || DEFAULT_CONFIG.unsafeList,
+        // mode 迁移：whitelist → study, blacklist → rest
+        mode: existingConfig.mode === 'whitelist' ? 'study' : (existingConfig.mode === 'blacklist' ? 'rest' : (existingConfig.mode || 'study')),
         autoStudyConfig: existingConfig.autoStudyConfig || DEFAULT_CONFIG.autoStudyConfig,
         // 迁移旧 dailyQuota → dailyOnlineQuota
         dailyOnlineQuota:       existingConfig.dailyOnlineQuota       ?? (existingConfig.dailyQuota > 0 ? existingConfig.dailyQuota : DEFAULT_CONFIG.dailyOnlineQuota),
@@ -1640,12 +1645,12 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   const { tabId, url } = details;
 
-  if (url.includes('blocked.html')) return;
+  if (url.includes('reminder.html')) return;
   if (isSpecialUrl(url)) return;
   if (isBlockingInProgress.has(tabId)) return;
 
   isBlockingInProgress.add(tabId);
-  await checkAndBlock(tabId, url);
+  await checkAndRemind(tabId, url);
   setTimeout(() => isBlockingInProgress.delete(tabId), 1000);
 });
 
@@ -1738,13 +1743,13 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   }
 });
 
-// ── 拦截检查 ──────────────────────────────────────────────────────────────────
+// ── 提醒检查 ──────────────────────────────────────────────────────────────────
 
-async function checkAndBlock(tabId, url) {
+async function checkAndRemind(tabId, url) {
   if (isSpecialUrl(url)) return false;
 
-  // 跳过 blocked.html 页面
-  if (url.includes('blocked.html')) return false;
+  // 跳过 reminder.html 页面
+  if (url.includes('reminder.html')) return false;
 
   // 本设备监控已停用（家长从控制台关闭）
   if (syncState.monitoringEnabled === 0) return false;
@@ -1758,25 +1763,25 @@ async function checkAndBlock(tabId, url) {
   const isStudyDomain    = (config.studyList     || []).some(p => matchDomain(domain, p));
   const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p));
 
-  // 1. 检查时间段限制
-  if (config.schedule.enabled && !isWithinSchedule(config.schedule)) {
-    await blockTab(tabId, domain, 'schedule', config.blockMessage);
+  // 1. 不安全网站检查（唯一的硬拦截）
+  const unsafeList = config.unsafeList || config.blacklist || [];
+  const isUnsafe = unsafeList.some(b => matchDomain(domain, b));
+  if (isUnsafe) {
+    await redirectToReminder(tabId, domain, 'unsafe', config.blockMessage);
     return true;
   }
 
-  // 2. 白名单模式：studyList + compositeList 才允许访问
-  if (config.mode === 'whitelist') {
-    if (!isStudyDomain && !isCompositeDomain) {
-      await blockTab(tabId, domain, 'whitelist', config.blockMessage);
-      return true;
-    }
+  // 2. 时间段检查
+  if (config.schedule.enabled && !isWithinSchedule(config.schedule)) {
+    await redirectToReminder(tabId, domain, 'schedule', config.blockMessage);
+    return true;
   }
 
-  // 3. 黑名单模式：在黑名单就拦截
-  if (config.mode === 'blacklist') {
-    const blocked = (config.blacklist || []).some(b => matchDomain(domain, b));
-    if (blocked) {
-      await blockTab(tabId, domain, 'blacklist', config.blockMessage);
+  // 3. 学习模式检查：非学习网站 → 友好提醒
+  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+  if (currentMode === 'study') {
+    if (!isStudyDomain && !isCompositeDomain) {
+      await redirectToReminder(tabId, domain, 'study_mode', config.blockMessage);
       return true;
     }
   }
@@ -1784,24 +1789,24 @@ async function checkAndBlock(tabId, url) {
   // 4. 检查配额锁定状态
   const qs = config.quotaState || {};
   if (qs.onlineLocked) {
-    await blockTab(tabId, domain, 'quota_online', config.blockMessage);
+    await redirectToReminder(tabId, domain, 'quota_online', config.blockMessage);
     return true;
   }
   if (qs.restLocked && !isStudyDomain && !isCompositeDomain) {
-    await blockTab(tabId, domain, 'quota_rest', config.blockMessage);
+    await redirectToReminder(tabId, domain, 'quota_rest', config.blockMessage);
     return true;
   }
   if (qs.studyLocked && isStudyDomain) {
-    await blockTab(tabId, domain, 'quota_study', config.blockMessage);
+    await redirectToReminder(tabId, domain, 'quota_study', config.blockMessage);
     return true;
   }
   if (qs.undeterminedLocked && isCompositeDomain && !isStudyDomain) {
-    await blockTab(tabId, domain, 'quota_undetermined', config.blockMessage);
+    await redirectToReminder(tabId, domain, 'quota_undetermined', config.blockMessage);
     return true;
   }
   // 单站点配额锁定
   if (config.lockedDomains && config.lockedDomains.includes(domain)) {
-    await blockTab(tabId, domain, 'quota', config.blockMessage);
+    await redirectToReminder(tabId, domain, 'quota', config.blockMessage);
     return true;
   }
 
@@ -1865,29 +1870,29 @@ async function checkAllTabsQuota() {
 
     // 刚触发：推送通知并关闭违规 Tab
     if (newState.onlineLocked && !oldState.onlineLocked) {
-      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日在线时间已达上限，所有网站已锁定。' });
-      await lockAllBrowsing();
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今天的上网时间用完啦，好好休息一下吧 🌙' });
+      await redirectAllTabs();
       return;
     }
     if (newState.restLocked && !oldState.restLocked) {
       const msg = newState.weeklyRestLocked
-        ? `本周休息时间已达上限（${Math.round(weeklyRestLimit / 60 * 10) / 10} 小时），娱乐网站已锁定。`
-        : `今日休息时间已达上限（${Math.round(effectiveDailyRest / 60 * 10) / 10} 小时），娱乐网站已锁定。`;
+        ? '本周的休息时间用完啦，切换到学习模式继续加油 📚'
+        : '今天的休息时间用完啦，切换到学习模式继续加油 📚';
       chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message: msg });
-      await closeQuotaViolatingTabs(config, newState);
+      await redirectQuotaViolatingTabs(config, newState);
     }
     if (newState.studyLocked && !oldState.studyLocked) {
-      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:`今日学习时间已达上限（${Math.round(config.dailyStudyQuota / 60 * 10) / 10} 小时），学习网站已锁定。` });
-      await closeQuotaViolatingTabs(config, newState);
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今天学得够多啦，劳逸结合才高效 🎉' });
+      await redirectQuotaViolatingTabs(config, newState);
     }
     if (newState.undeterminedLocked && !oldState.undeterminedLocked) {
-      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:`今日待定时间已达上限（${Math.round(dailyUndeterminedQuota / 60 * 10) / 10} 小时），复合型网站已锁定。` });
-      await closeQuotaViolatingTabs(config, newState);
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'待定网站今天的时间用完啦，明天再来探索' });
+      await redirectQuotaViolatingTabs(config, newState);
     }
   }
 
   if (newState.onlineLocked) {
-    await lockAllBrowsing();
+    await redirectAllTabs();
     return;
   }
 
@@ -1906,16 +1911,16 @@ async function checkAllTabsQuota() {
   if (newlyLocked.length > 0) {
     config.lockedDomains = [...(config.lockedDomains || []), ...newlyLocked];
     await saveConfig(config);
-    await closeLockedTabs(newlyLocked);
+    await redirectLockedTabs(newlyLocked);
     chrome.notifications.create({
       type: 'basic', iconUrl: 'icons/icon48.png', title: 'TimeOnChrome',
-      message: `${newlyLocked.join(', ')} 今日使用时间已达上限`
+      message: `${newlyLocked.join(', ')} 今天的时间用完啦，换个网站看看？`
     });
   }
 }
 
-// 关闭因配额锁定而违规的 Tab
-async function closeQuotaViolatingTabs(config, quotaState) {
+// 重定向因配额锁定而违规的 Tab 到提醒页
+async function redirectQuotaViolatingTabs(config, quotaState) {
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (!tab.url || isSpecialUrl(tab.url)) continue;
@@ -1924,44 +1929,44 @@ async function closeQuotaViolatingTabs(config, quotaState) {
     const isStudy     = (config.studyList     || []).some(p => matchDomain(domain, p));
     const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p));
     if (quotaState.studyLocked && isStudy) {
-      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_study&domain=${encodeURIComponent(domain)}` });
+      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('reminder.html') + `?reason=quota_study&domain=${encodeURIComponent(domain)}` });
     } else if (quotaState.undeterminedLocked && isComposite && !isStudy) {
-      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_undetermined&domain=${encodeURIComponent(domain)}` });
+      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('reminder.html') + `?reason=quota_undetermined&domain=${encodeURIComponent(domain)}` });
     } else if (quotaState.restLocked && !isStudy && !isComposite) {
-      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_rest&domain=${encodeURIComponent(domain)}` });
+      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('reminder.html') + `?reason=quota_rest&domain=${encodeURIComponent(domain)}` });
     }
   }
 }
 
-async function lockAllBrowsing() {
+async function redirectAllTabs() {
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (tab.url && !isSpecialUrl(tab.url)) {
       chrome.tabs.update(tab.id, {
-        url: chrome.runtime.getURL('blocked.html') + '?reason=quota&domain=all'
+        url: chrome.runtime.getURL('reminder.html') + '?reason=quota&domain=all'
       });
     }
   }
 }
 
-async function closeLockedTabs(domains) {
+async function redirectLockedTabs(domains) {
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (!tab.url) continue;
     const domain = extractDomain(tab.url);
     if (domain && domains.some(d => matchDomain(domain, d))) {
       chrome.tabs.update(tab.id, {
-        url: chrome.runtime.getURL('blocked.html') + `?reason=quota&domain=${encodeURIComponent(domain)}`
+        url: chrome.runtime.getURL('reminder.html') + `?reason=quota&domain=${encodeURIComponent(domain)}`
       });
     }
   }
 }
 
-async function blockTab(tabId, domain, reason, message) {
-  const blockedUrl = chrome.runtime.getURL('blocked.html') +
-    `?reason=${reason}&domain=${encodeURIComponent(domain)}&msg=${encodeURIComponent(message)}`;
-  console.log('[blockTab]', reason, domain);
-  chrome.tabs.update(tabId, { url: blockedUrl }).catch(() => {});
+async function redirectToReminder(tabId, domain, reason, message) {
+  const reminderUrl = chrome.runtime.getURL('reminder.html') +
+    `?reason=${reason}&domain=${encodeURIComponent(domain)}&msg=${encodeURIComponent(message || '')}`;
+  console.log('[redirectToReminder]', reason, domain);
+  chrome.tabs.update(tabId, { url: reminderUrl }).catch(() => {});
 }
 
 // （自动切换逻辑已移至 checkAutoStudy，由 tick_timer alarm 每分钟驱动）
@@ -1975,57 +1980,18 @@ async function updateDeclarativeRules(config) {
   const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
   const removeIds = existingRules.map(r => r.id);
 
-  // 白名单模式 uses studyList + compositeList
-  if (cfg.mode === 'whitelist') {
-    // 获取学习列表和复合型网站列表
-    const studyList     = cfg.studyList     || [];
-    const compositeList = cfg.compositeList || [];
-    const allAllowed    = [...studyList, ...compositeList];
-    
-    // 移除旧规则
-    if (removeIds.length > 0) {
-      await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: removeIds });
-    }
-    
-    // 如果都没有白名单，不设置规则
-    if (allAllowed.length === 0) return;
-    
-    // 白名单模式：不再使用 declarativeNetRequest 拦截所有请求
-    // 改为依赖 webNavigation.onCommitted → checkAndBlock() → blockTab() 
-    // 这样 blocked.html 可以获取到正确的 domain 参数
-    
-    const rules = [];
-    let ruleId = 1000;
-    
-    // 放行白名单域名（priority=1）
-    for (const domain of allAllowed) {
-      if (!domain) continue;
-      rules.push({
-        id: ruleId++,
-        priority: 1,
-        action: { type: 'allow' },
-        condition: {
-          urlFilter: `||${domain}^`,
-          resourceTypes: ['main_frame']
-        }
-      });
-    }
-    
-    await chrome.declarativeNetRequest.updateDynamicRules({ addRules: rules });
-    return;
-  }
-
-  // 非白名单模式：移除所有动态规则
+  // 先移除旧规则
   if (removeIds.length > 0) {
     await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: removeIds });
   }
 
-  // 黑名单模式
-  if (cfg.mode === 'blacklist' && cfg.blacklist.length > 0) {
+  // 不安全网站列表：唯一的 declarativeNetRequest 拦截（所有模式下生效）
+  const unsafeList = cfg.unsafeList || cfg.blacklist || [];
+  if (unsafeList.length > 0) {
     const rules = [];
     let ruleId = 1000;
 
-    for (const domain of cfg.blacklist) {
+    for (const domain of unsafeList) {
       if (!domain) continue;
       rules.push({
         id: ruleId++,
@@ -2033,7 +1999,7 @@ async function updateDeclarativeRules(config) {
         action: {
           type: 'redirect',
           redirect: {
-            extensionPath: `/blocked.html?reason=blacklist&domain=${encodeURIComponent(domain)}`
+            extensionPath: `/reminder.html?reason=unsafe&domain=${encodeURIComponent(domain)}`
           }
         },
         condition: {
@@ -2045,6 +2011,9 @@ async function updateDeclarativeRules(config) {
 
     await chrome.declarativeNetRequest.updateDynamicRules({ addRules: rules });
   }
+
+  // 学习模式下的域名检查依赖 webNavigation.onCommitted → checkAndRemind()
+  // 不再使用 declarativeNetRequest 进行白名单过滤
 }
 
 // ── 时间段检查 ────────────────────────────────────────────────────────────────

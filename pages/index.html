@@ -402,7 +402,7 @@
 <!-- ── 登录界面 ── -->
 <div id="login-screen" class="auth-screen">
   <div class="auth-box">
-    <div class="auth-logo">🛡</div>
+    <div class="auth-logo">⏱</div>
     <h1>TimeOnChrome</h1>
     <p>家长控制台 · 登录账户</p>
     <div class="form-group">
@@ -424,7 +424,7 @@
 <!-- ── 注册界面 ── -->
 <div id="register-screen" class="auth-screen" style="display:none">
   <div class="auth-box">
-    <div class="auth-logo">🛡</div>
+    <div class="auth-logo">⏱</div>
     <h1>TimeOnChrome</h1>
     <p>创建家长账户</p>
     <div class="form-group">
@@ -455,7 +455,7 @@
     <div class="sidebar">
       <div class="sidebar-top">
         <div class="sidebar-logo">
-          <div class="sidebar-logo-icon">🛡</div>
+          <div class="sidebar-logo-icon">⏱</div>
           <div>
             <div class="sidebar-logo-text">TimeOnChrome</div>
             <div class="sidebar-logo-sub">家长控制台</div>
@@ -483,7 +483,7 @@
           <span class="nav-icon">📊</span><span>总览</span>
         </div>
         <div class="nav-item" data-page="rules">
-          <span class="nav-icon">📋</span><span>白/黑名单</span>
+          <span class="nav-icon">📋</span><span>网站管理</span>
         </div>
         <div class="nav-item" data-page="quota">
           <span class="nav-icon">⏱</span><span>时间配额</span>
@@ -566,36 +566,28 @@
         </div>
       </div>
 
-      <!-- 白/黑名单 -->
+      <!-- 网站管理 -->
       <div class="page" id="page-rules">
         <div class="page-header">
-          <h2>白 / 黑名单</h2>
+          <h2>网站管理</h2>
           <p>修改后点击保存，将实时同步到孩子设备</p>
         </div>
 
-        <div class="card">
-          <div class="card-header"><div><div class="card-title">控制模式</div><div class="card-subtitle">白名单：只允许列出网站 &nbsp;|&nbsp; 黑名单：只屏蔽列出网站</div></div></div>
-          <div class="tabs">
-            <button class="tab-btn" data-mode="blacklist">🚫 黑名单模式</button>
-            <button class="tab-btn" data-mode="whitelist">✅ 白名单模式（更严格）</button>
-          </div>
-        </div>
-
-        <!-- 黑名单 -->
-        <div class="card" id="r-blacklist-card">
+        <!-- 不安全网站（弱化展示） -->
+        <div class="card" id="r-unsafelist-card">
           <div class="card-header">
-            <div><div class="card-title">🚫 屏蔽网站</div><div class="card-subtitle">始终屏蔽，支持子域名匹配</div></div>
-            <span id="r-blacklist-count" style="font-size:12px;color:var(--muted);"></span>
+            <div><div class="card-title">🛡️ 不安全网站</div><div class="card-subtitle">基于安全考虑不允许访问，支持子域名匹配</div></div>
+            <span id="r-unsafelist-count" style="font-size:12px;color:var(--muted);"></span>
           </div>
           <div class="domain-input-row">
-            <input type="text" id="r-blacklist-input" placeholder="例：tiktok.com">
-            <button class="btn-add" id="r-blacklist-add">+ 添加</button>
+            <input type="text" id="r-unsafelist-input" placeholder="例：tiktok.com">
+            <button class="btn-add" id="r-unsafelist-add">+ 添加</button>
           </div>
-          <div class="domains-container" id="r-blacklist-tags"></div>
+          <div class="domains-container" id="r-unsafelist-tags"></div>
         </div>
 
-        <!-- 白名单 -->
-        <div id="r-whitelist-section" style="display:none">
+        <!-- 学习网站与允许网站 -->
+        <div id="r-studylist-section">
           <div class="card" id="r-studylist-card">
             <div class="card-header">
               <div><div class="card-title">📚 学习网站</div><div class="card-subtitle">计入学习时长，触发自动切换学习模式</div></div>
@@ -1294,16 +1286,7 @@ async function renderWeekChart() {
 
 // ── Rules ────────────────────────────────────────────────────
 function setupRules() {
-  document.querySelectorAll('#page-rules [data-mode]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#page-rules [data-mode]').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      remoteConfig.mode = btn.dataset.mode;
-      showRulesCards(btn.dataset.mode);
-    });
-  });
-
-  setupDomainInput('r-blacklist-input',  'r-blacklist-add',  'r-blacklist-tags',  'blacklist');
+  setupDomainInput('r-unsafelist-input', 'r-unsafelist-add', 'r-unsafelist-tags', 'unsafeList');
   setupDomainInput('r-studylist-input',  'r-studylist-add',  'r-studylist-tags',  'studyList');
   setupDomainInput('r-allowlist-input',  'r-allowlist-add',  'r-allowlist-tags',  'allowList');
 
@@ -1317,26 +1300,21 @@ function setupRules() {
 }
 
 function renderRulesPage() {
-  const mode = remoteConfig.mode === 'whitelist' ? 'whitelist' : 'blacklist';
-  document.querySelectorAll('#page-rules [data-mode]').forEach(b =>
-    b.classList.toggle('active', b.dataset.mode === mode));
-  showRulesCards(mode);
-  renderTags('r-blacklist-tags', remoteConfig.blacklist  || [], 'blacklist');
-  renderTags('r-studylist-tags', remoteConfig.studyList  || [], 'studyList');
-  renderTags('r-allowlist-tags', remoteConfig.allowList  || [], 'allowList');
+  // 迁移兼容：旧 blacklist → unsafeList
+  if (!remoteConfig.unsafeList && remoteConfig.blacklist) {
+    remoteConfig.unsafeList = remoteConfig.blacklist;
+  }
+  renderTags('r-unsafelist-tags', remoteConfig.unsafeList || [], 'unsafeList');
+  renderTags('r-studylist-tags',  remoteConfig.studyList  || [], 'studyList');
+  renderTags('r-allowlist-tags',  remoteConfig.allowList  || [], 'allowList');
   updateRuleCounts();
-}
-
-function showRulesCards(mode) {
-  document.getElementById('r-blacklist-card').style.display     = mode==='blacklist' ? '' : 'none';
-  document.getElementById('r-whitelist-section').style.display  = mode==='whitelist' ? '' : 'none';
 }
 
 function updateRuleCounts() {
   const set = (id, arr) => { const el=document.getElementById(id); if(el) el.textContent=arr.length?`共 ${arr.length} 条`:''; };
-  set('r-blacklist-count', remoteConfig.blacklist  || []);
-  set('r-studylist-count', remoteConfig.studyList  || []);
-  set('r-allowlist-count', remoteConfig.allowList  || []);
+  set('r-unsafelist-count', remoteConfig.unsafeList || []);
+  set('r-studylist-count',  remoteConfig.studyList  || []);
+  set('r-allowlist-count',  remoteConfig.allowList  || []);
 }
 
 function setupDomainInput(inputId, btnId, tagsId, listKey) {
@@ -1379,7 +1357,7 @@ window.removeDomain = (listKey, idx) => {
   const list = remoteConfig[listKey] || [];
   list.splice(idx, 1);
   remoteConfig[listKey] = list;
-  const map = { blacklist:'r-blacklist-tags', studyList:'r-studylist-tags', allowList:'r-allowlist-tags' };
+  const map = { unsafeList:'r-unsafelist-tags', studyList:'r-studylist-tags', allowList:'r-allowlist-tags' };
   if (map[listKey]) {
     if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
     renderTags(map[listKey], list, listKey);

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TimeOnChrome",
   "version": "1.5.0",
-  "description": "家长上网行为管控 - 白名单、时长统计、行为控制",
+  "description": "上网时间管理助手 - 学习模式、时长统计、智能提醒",
   "incognito": "spanning",
 
   "permissions": [
@@ -59,7 +59,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["blocked.html", "blocked.js", "bind.html", "config.js", "auth.js", "sync.js"],
+      "resources": ["reminder.html", "reminder.js", "bind.html", "config.js", "auth.js", "sync.js"],
       "matches": ["<all_urls>"]
     }
   ]

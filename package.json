@@ -1,7 +1,7 @@
 {
   "name": "guardian-extension",
   "version": "1.0.0",
-  "description": "> 家长上网行为管控 · 白名单/黑名单 · 时长统计 · 时间段控制 · 防绕过设计",
+  "description": "> 上网时间管理助手 · 学习模式/休息模式 · 时长统计 · 智能提醒",
   "main": "background.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

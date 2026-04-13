@@ -141,7 +141,7 @@ async function init() {
       return `
         <div class="quota-bar-item">
           <div class="quota-bar-header">
-            <span class="quota-bar-label">${icon} ${label}${locked ? ' <span style="font-size:10px;color:var(--danger);">已达上限</span>' : ''}</span>
+            <span class="quota-bar-label">${icon} ${label}${locked ? ' <span style="font-size:10px;color:var(--danger);">已用完</span>' : ''}</span>
             <span class="quota-bar-value">${formatSeconds(used)} / ${formatSeconds(limit)}</span>
           </div>
           <div class="progress-track">
@@ -253,7 +253,7 @@ function renderBorrowSection(config, qs) {
   // 周配额满 → 说明不可借
   if (qs.restLocked && qs.weeklyRestLocked) {
     el.style.display = '';
-    el.innerHTML = `<div class="borrow-box" style="border-left-color:var(--danger);">本周休息配额已达上限，无法借用。</div>`;
+    el.innerHTML = `<div class="borrow-box" style="border-left-color:var(--danger);">本周休息配额已用完，无法借用。</div>`;
     return;
   }
 

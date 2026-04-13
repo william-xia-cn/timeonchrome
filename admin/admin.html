@@ -767,7 +767,7 @@
 <!-- ── 登录界面 ── -->
 <div id="login-screen">
   <div class="login-box">
-    <div class="login-logo">🛡</div>
+    <div class="login-logo">⏱</div>
     <h1>TimeOnChrome</h1>
     <p>管理中心 · 登录云端账户</p>
 
@@ -803,7 +803,7 @@
 <div id="main-screen">
   <div class="sidebar">
     <div class="sidebar-logo">
-      <div class="sidebar-logo-icon">🛡</div>
+      <div class="sidebar-logo-icon">⏱</div>
       <div>
         <div class="sidebar-logo-text">TimeOnChrome</div>
         <div class="sidebar-logo-sub" id="sidebar-child-name">我的面板</div>
@@ -894,16 +894,16 @@
         <p id="rules-mode-desc">当前规则由家长在云端设定</p>
       </div>
 
-      <!-- 屏蔽网站 -->
+      <!-- 不安全网站 -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title">🚫 屏蔽网站 <span id="blacklist-count" style="font-size:12px;color:var(--muted);font-weight:400;"></span></div>
+          <div class="card-title">🛡️ 不安全网站 <span id="unsafelist-count" style="font-size:12px;color:var(--muted);font-weight:400;"></span></div>
         </div>
-        <div class="domains-container" id="blacklist-tags"></div>
+        <div class="domains-container" id="unsafelist-tags"></div>
       </div>
 
-      <!-- 白名单模式下才显示 -->
-      <div id="whitelist-section" style="display:none">
+      <!-- 学习模式下的网站列表 -->
+      <div id="studylist-section">
         <div class="card">
           <div class="card-header">
             <div class="card-title">📚 学习网站 <span id="studylist-count" style="font-size:12px;color:var(--muted);font-weight:400;"></span></div>

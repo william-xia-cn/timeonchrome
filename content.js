@@ -152,9 +152,9 @@
 
     overlayEl.innerHTML = `
       <div class="g-overlay-box">
-        <div class="g-overlay-icon">${isWarn ? '⚠️' : '🔒'}</div>
-        <h2 class="g-overlay-title">${isWarn ? '即将超出时间限制' : '访问受限'}</h2>
-        <p class="g-overlay-msg">${message || '此网站已被家长限制访问'}</p>
+        <div class="g-overlay-icon">${isWarn ? '⏰' : '⏱'}</div>
+        <h2 class="g-overlay-title">${isWarn ? '时间快到啦' : '时间提醒'}</h2>
+        <p class="g-overlay-msg">${message || '这个网站当前不在可访问范围内'}</p>
         ${isWarn ? `
           <div class="g-overlay-countdown">
             <span id="__g_count__">${countdownSeconds}</span> 秒后自动关闭此页

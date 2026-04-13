@@ -49,14 +49,15 @@ export const DEFAULT_CONFIG = {
   adminPasswordHash: '', // 首次使用时设置
   isInitialized: false,
 
-  // 控制模式: 'whitelist' | 'blacklist'
-  mode: 'blacklist',
+  // 控制模式: 'study' | 'rest'
+  mode: 'study',
 
-  // 白名单域名列表
+  // 白名单域名列表（已废弃，保留兼容）
   whitelist: [],
 
-  // 黑名单域名列表
-  blacklist: [],
+  // 不安全网站列表（基于安全考虑始终拦截）
+  unsafeList: [],
+  blacklist: [],  // 已废弃，迁移到 unsafeList
 
   // 时间配额（分钟/天，0表示不限制）
   dailyQuota: 0,
@@ -89,7 +90,7 @@ export const DEFAULT_CONFIG = {
   enabled: true,
 
   // 拦截时显示的消息
-  blockMessage: '此网站已被家长限制访问。',
+  blockMessage: '这个网站当前不在可访问范围内',
 
   // 今日已锁定的域名（配额用完）
   lockedDomains: [],

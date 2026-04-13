@@ -530,7 +530,7 @@ function showRegisterForm() {
   const loginScreen = document.getElementById('login-screen');
   loginScreen.innerHTML = `
     <div class="login-box">
-      <div class="login-logo">🛡</div>
+      <div class="login-logo">⏱</div>
       <h1>TimeOnChrome</h1>
       <p>创建家长账户</p>
 
@@ -716,7 +716,7 @@ async function showProfileSelector() {
   // 替换登录表单为孩子选择器
   loginScreen.innerHTML = `
     <div class="login-box">
-      <div class="login-logo">🛡</div>
+      <div class="login-logo">⏱</div>
       <h1>TimeOnChrome</h1>
       <p>选择要绑定的孩子</p>
       
@@ -906,13 +906,13 @@ function renderDomainTagsReadOnly(containerId, domains) {
 }
 
 function updateListCounts() {
-  const bl = (config.blacklist  || []).length;
+  const ul = (config.unsafeList || config.blacklist || []).length;
   const sl = (config.studyList  || []).length;
   const al = (config.compositeList || []).length;
-  const bcEl = document.getElementById('blacklist-count');
+  const ucEl = document.getElementById('unsafelist-count');
   const scEl = document.getElementById('studylist-count');
   const acEl = document.getElementById('allowlist-count');
-  if (bcEl) bcEl.textContent = bl ? `共 ${bl} 条` : '';
+  if (ucEl) ucEl.textContent = ul ? `共 ${ul} 条` : '';
   if (scEl) scEl.textContent = sl ? `共 ${sl} 条` : '';
   if (acEl) acEl.textContent = al ? `共 ${al} 条` : '';
 }
@@ -920,22 +920,18 @@ function updateListCounts() {
 // ── 访问规则页（只读）───────────────────────────────────────────────────────
 
 function renderRulesPage() {
-  const mode = config.mode === 'whitelist' ? 'whitelist' : 'blacklist';
-
-  // 模式说明
+  // 模式说明（不再区分白名单/黑名单，统一说明）
   const modeDescEl = document.getElementById('rules-mode-desc');
   if (modeDescEl) {
-    modeDescEl.textContent = mode === 'whitelist'
-      ? '✅ 白名单模式：仅允许访问学习网站和允许列表'
-      : '🔓 黑名单模式：除屏蔽网站外均可访问';
+    modeDescEl.textContent = '学习模式下仅允许学习网站，休息模式下所有网站可访问';
   }
 
-  // 白名单区块显示/隐藏
-  const whitelistSection = document.getElementById('whitelist-section');
-  if (whitelistSection) whitelistSection.style.display = mode === 'whitelist' ? '' : 'none';
+  // 学习网站列表始终显示
+  const studylistSection = document.getElementById('studylist-section');
+  if (studylistSection) studylistSection.style.display = '';
 
   // 渲染只读标签
-  renderDomainTagsReadOnly('blacklist-tags', config.blacklist || []);
+  renderDomainTagsReadOnly('unsafelist-tags', config.unsafeList || config.blacklist || []);
   renderDomainTagsReadOnly('studylist-tags', config.studyList || []);
   renderDomainTagsReadOnly('allowlist-tags', config.compositeList || []);
   updateListCounts();
@@ -1066,13 +1062,13 @@ async function renderModeSwitchCard() {
   if (mode === 'study') {
     labelEl.textContent = '📚 学习模式';
     labelEl.style.color = 'var(--accent)';
-    descEl.textContent  = '白名单模式，仅允许访问学习和允许网站';
+    descEl.textContent  = '学习模式，仅允许访问学习网站';
     newStudy.style.cssText = 'padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:rgba(124,111,255,0.2);color:var(--accent);';
     newRest.style.cssText  = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
   } else {
     labelEl.textContent = '☕ 休息模式';
     labelEl.style.color = 'var(--warn)';
-    descEl.textContent  = '黑名单模式，除屏蔽网站外均可访问';
+    descEl.textContent  = '休息模式，所有网站可访问';
     newStudy.style.cssText = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
     newRest.style.cssText  = 'padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:rgba(251,191,36,0.15);color:var(--warn);';
   }
@@ -1151,7 +1147,7 @@ async function renderOverview() {
       return `
         <div style="margin-bottom:18px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <span style="font-size:13px;font-weight:500;">${icon} ${label}${locked ? ' <span style="font-size:11px;color:var(--danger);background:rgba(248,113,113,0.12);padding:1px 6px;border-radius:8px;margin-left:4px;">已达上限</span>' : ''}</span>
+            <span style="font-size:13px;font-weight:500;">${icon} ${label}${locked ? ' <span style="font-size:11px;color:var(--danger);background:rgba(248,113,113,0.12);padding:1px 6px;border-radius:8px;margin-left:4px;">已用完</span>' : ''}</span>
             <span style="font-size:13px;color:var(--muted);">${formatSeconds(used)} / ${formatSeconds(limit)}</span>
           </div>
           <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">

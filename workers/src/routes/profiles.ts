@@ -5,7 +5,7 @@ import { json, Env, verifyAccountToken } from '../db/middleware';
 function buildDefaultConfig(): object {
   return {
     version: '1.3',
-    mode: 'whitelist',
+    mode: 'study',
     enabled: true,
     studyList: [
       // 核心生产力与协作
@@ -57,7 +57,7 @@ function buildDefaultConfig(): object {
       // 百科/参考
       'wikipedia.org', 'britannica.com', 'wolframalpha.com',
     ],
-    blacklist: ['douyin.com', 'tiktok.com'],
+    unsafeList: ['douyin.com', 'tiktok.com'],
     dailyOnlineQuota:       1200,
     dailyStudyQuota:         480,
     dailyRestQuota:          120,
