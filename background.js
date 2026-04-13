@@ -374,7 +374,7 @@ async function pushConfigToCloud(config) {
       enabled:                 config.enabled,
       studyList:               config.studyList,
       compositeList:           config.compositeList,
-      unsafeList:              config.unsafeList || config.blacklist,
+      unsafeList:              (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist,
       dailyOnlineQuota:        config.dailyOnlineQuota,
       dailyStudyQuota:         config.dailyStudyQuota,
       dailyRestQuota:          config.dailyRestQuota,
@@ -1551,7 +1551,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         // 迁移旧 allowList → compositeList
         compositeList: existingConfig.compositeList || existingConfig.allowList || DEFAULT_CONFIG.compositeList,
         // 迁移旧 blacklist → unsafeList
-        unsafeList: existingConfig.unsafeList || existingConfig.blacklist || DEFAULT_CONFIG.unsafeList,
+        unsafeList: (existingConfig.unsafeList?.length ? existingConfig.unsafeList : null) || existingConfig.blacklist || DEFAULT_CONFIG.unsafeList,
         // mode 迁移：whitelist → study, blacklist → rest
         mode: existingConfig.mode === 'whitelist' ? 'study' : (existingConfig.mode === 'blacklist' ? 'rest' : (existingConfig.mode || 'study')),
         autoStudyConfig: existingConfig.autoStudyConfig || DEFAULT_CONFIG.autoStudyConfig,
@@ -1764,7 +1764,7 @@ async function checkAndRemind(tabId, url) {
   const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p));
 
   // 1. 不安全网站检查（唯一的硬拦截）
-  const unsafeList = config.unsafeList || config.blacklist || [];
+  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
   const isUnsafe = unsafeList.some(b => matchDomain(domain, b));
   if (isUnsafe) {
     await redirectToReminder(tabId, domain, 'unsafe', config.blockMessage);
@@ -1986,7 +1986,7 @@ async function updateDeclarativeRules(config) {
   }
 
   // 不安全网站列表：唯一的 declarativeNetRequest 拦截（所有模式下生效）
-  const unsafeList = cfg.unsafeList || cfg.blacklist || [];
+  const unsafeList = (cfg.unsafeList?.length ? cfg.unsafeList : null) || cfg.blacklist || [];
   if (unsafeList.length > 0) {
     const rules = [];
     let ruleId = 1000;

@@ -188,6 +188,8 @@ export default {
         return await statsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
         return await compositeSessionsRouter.handle(request, env);
+      } else if (path.match(/^\/profiles\/[^/]+\/changelog/)) {
+        return await changelogRouter.handle(request, env);
       } else if (path.startsWith('/profiles')) {
         return await profilesRouter.handle(request, env);
       } else if (path === '/device/heartbeat') {

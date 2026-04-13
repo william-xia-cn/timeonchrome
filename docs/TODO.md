@@ -6,20 +6,24 @@
 
 ## 🔴 待开发（下一步）
 
-- [ ] Workers 单元测试（参数化查询、JWT 签名验证）`[workers/]`
+- [ ] **Session 可视化**：R2 数据已归档，家长控制台缺展示页面 `[pages/]`
 
 ---
 
 ## 🟡 优化项（已规划）
 
-- [ ] **临时放行 + 家长解除配额** 合并设计优化（目前临时放行可用，家长解除配额待做）`[pages/, workers/]`
-- [ ] **Session 可视化**：R2 数据已归档，家长控制台缺展示页面 `[pages/]`
-- [ ] `utils/storage.js` 未被使用，可清理 `[utils/]`
-- [ ] 测试文件清理（test-*.js, *.png）移入 `tests/` 目录 `[根目录]`
+- [ ] **家长解除配额**（设计建议）：当孩子配额耗尽被锁后，家长可在 Web 控制台"今日临时加时"（如 +30 分钟），次日自动恢复原配额。与孩子的"借时间"机制互补，孩子借的是明天的额度，家长给的是额外授权。需新增 Workers API 端点 + 控制台按钮 + extension 同步识别。`[pages/, workers/, background.js]`
 
 ---
 
 ## 🟢 已完成
+
+### v1.6.1（2026-04-14）
+- [x] 自动化测试套件（Unit 43 + BgLogic 80 + Workers 34 + API 52 + E2E 9 = 218 用例）`[tests/]`
+- [x] 完整测试规范文档 `[docs/TEST-SPEC.md]`
+- [x] BUG 修复：`unsafeList: []` truthy 导致 blacklist 回退失效 `[background.js]`
+- [x] BUG 修复：`/profiles/:id/changelog` 路由死路 `[workers/src/index.ts]`
+- [x] 清理无用文件（`test-admin.html`, `generate-icons.js`, `utils/storage.js`）
 
 ### v1.6.0（2026-04-14）
 - [x] 三时段时间分类模型（学习/待定/休息）`[background.js]`
