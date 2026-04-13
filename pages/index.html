@@ -526,12 +526,17 @@
             <div class="value accent" id="stat-study">--</div>
           </div>
           <div class="stat-card">
-            <div class="label">🎮 娱乐时长</div>
+            <div class="label">🎮 今日休息</div>
             <div class="value warn" id="stat-rest">--</div>
           </div>
           <div class="stat-card">
             <div class="label">🌐 在线总时长</div>
             <div class="value green" id="stat-online">--</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">📅 本周休息</div>
+            <div class="value" id="stat-weekly-rest" style="color:#e17055;">--</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;" id="stat-weekly-rest-limit"></div>
           </div>
         </div>
 
@@ -645,9 +650,14 @@
             <span class="quota-unit">小时/天</span>
           </div>
           <div class="quota-row">
-            <div class="quota-label">临时放行时长<small>孩子申请后每次放行的有效时长</small></div>
-            <input type="number" class="quota-input" id="q-temp-duration" min="1" max="480" step="1" placeholder="60">
-            <span class="quota-unit">分钟/次</span>
+            <div class="quota-label">每周休息时长上限<small>休息时段每周硬上限（0 = 日配额×7）</small></div>
+            <input type="number" class="quota-input" id="q-weekly-rest" min="0" max="168" step="0.5" placeholder="0">
+            <span class="quota-unit">小时/周</span>
+          </div>
+          <div class="quota-row">
+            <div class="quota-label">每日待定时段上限<small>复合型网站每日上限（0 = 不限制）</small></div>
+            <input type="number" class="quota-input" id="q-undetermined" min="0" max="24" step="0.5" placeholder="0">
+            <span class="quota-unit">小时/天</span>
           </div>
         </div>
         <div class="card">
@@ -1165,26 +1175,55 @@ async function renderOverview() {
   if (!currentProfileId) return;
 
   try {
-    const todayStr = fmtDate(today);
-    const r = await api(`/profiles/${currentProfileId}/stats?from=${todayStr}&to=${todayStr}`);
-    const stats = r.stats || [];
+    const todayStr  = fmtDate(today);
+    // 本周周一
+    const dowToday  = today.getDay() === 0 ? 6 : today.getDay() - 1;
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - dowToday);
+    const weekStartStr = fmtDate(weekStart);
 
-    const byDomain = {};
-    for (const s of stats) {
-      byDomain[s.domain] = (byDomain[s.domain] || 0) + s.duration;
-    }
+    const [dayR, weekR] = await Promise.all([
+      api(`/profiles/${currentProfileId}/stats?from=${todayStr}&to=${todayStr}`),
+      api(`/profiles/${currentProfileId}/stats?from=${weekStartStr}&to=${todayStr}`),
+    ]);
 
     const cfg = remoteConfig;
-    let studySec = 0, restSec = 0, onlineSec = 0;
+    const studyList     = cfg.studyList     || [];
+    const compositeList = cfg.compositeList || cfg.allowList || [];
+
+    // 今日
+    const byDomain = {};
+    for (const s of (dayR.stats || [])) byDomain[s.domain] = (byDomain[s.domain] || 0) + s.duration;
+    let studySec = 0, undeterminedSec = 0, onlineSec = 0;
     for (const [domain, sec] of Object.entries(byDomain)) {
       onlineSec += sec;
-      if ((cfg.studyList||[]).some(p => matchDomain(domain,p))) studySec += sec;
-      else if ((cfg.allowList||[]).some(p => matchDomain(domain,p))) restSec += sec;
+      if (studyList.some(p => matchDomain(domain,p))) studySec += sec;
+      else if (compositeList.some(p => matchDomain(domain,p))) undeterminedSec += sec;
     }
+    const restSec = Math.max(0, onlineSec - studySec - undeterminedSec);
+
+    // 本周休息
+    let weekRestSec = 0;
+    const weekByDomain = {};
+    for (const s of (weekR.stats || [])) weekByDomain[s.domain] = (weekByDomain[s.domain] || 0) + s.duration;
+    let wStudy = 0, wUndetermined = 0, wOnline = 0;
+    for (const [domain, sec] of Object.entries(weekByDomain)) {
+      wOnline += sec;
+      if (studyList.some(p => matchDomain(domain,p))) wStudy += sec;
+      else if (compositeList.some(p => matchDomain(domain,p))) wUndetermined += sec;
+    }
+    weekRestSec = Math.max(0, wOnline - wStudy - wUndetermined);
+
+    const effectiveDailyRest = cfg.dailyRestQuota ?? 120;
+    const weeklyLimit        = cfg.weeklyRestQuota ?? (effectiveDailyRest * 7); // minutes
 
     document.getElementById('stat-study').textContent  = fmtSec(studySec);
-    document.getElementById('stat-rest').textContent   = fmtSec(onlineSec - studySec - restSec);
+    document.getElementById('stat-rest').textContent   = fmtSec(restSec);
     document.getElementById('stat-online').textContent = fmtSec(onlineSec);
+    const wrEl = document.getElementById('stat-weekly-rest');
+    const wrLimitEl = document.getElementById('stat-weekly-rest-limit');
+    if (wrEl) wrEl.textContent = fmtSec(weekRestSec);
+    if (wrLimitEl) wrLimitEl.textContent = weeklyLimit > 0 ? `上限 ${fmtSec(weeklyLimit * 60)}` : '无上限';
 
     // Top 10
     const sorted = Object.entries(byDomain).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -1365,10 +1404,11 @@ function setupQuota() {
 
 function renderQuotaPage() {
   const toH = min => min > 0 ? +(min / 60).toFixed(1) : 0;
-  document.getElementById('q-online').value = toH(remoteConfig.dailyOnlineQuota ?? remoteConfig.dailyQuota ?? 0);
-  document.getElementById('q-study').value  = toH(remoteConfig.dailyStudyQuota  || 0);
-  document.getElementById('q-rest').value   = toH(remoteConfig.dailyRestQuota   || 0);
-  document.getElementById('q-temp-duration').value = remoteConfig.tempWhitelistConfig?.duration ?? 60;
+  document.getElementById('q-online').value         = toH(remoteConfig.dailyOnlineQuota       ?? remoteConfig.dailyQuota ?? 0);
+  document.getElementById('q-study').value          = toH(remoteConfig.dailyStudyQuota        || 0);
+  document.getElementById('q-rest').value           = toH(remoteConfig.dailyRestQuota         || 0);
+  document.getElementById('q-weekly-rest').value    = toH(remoteConfig.weeklyRestQuota        || 0);
+  document.getElementById('q-undetermined').value   = toH(remoteConfig.dailyUndeterminedQuota || 0);
   renderQuotaList();
 }
 
@@ -1747,12 +1787,10 @@ function syncDomToConfig() {
   if (study !== null) remoteConfig.dailyStudyQuota = study;
   const rest = toMin('q-rest');
   if (rest !== null) remoteConfig.dailyRestQuota = rest;
-  const tempEl = document.getElementById('q-temp-duration');
-  if (tempEl && tempEl.value !== '') {
-    const dur = parseInt(tempEl.value) || 60;
-    if (!remoteConfig.tempWhitelistConfig) remoteConfig.tempWhitelistConfig = {};
-    remoteConfig.tempWhitelistConfig.duration = dur;
-  }
+  const weeklyRest = toMin('q-weekly-rest');
+  if (weeklyRest !== null) remoteConfig.weeklyRestQuota = weeklyRest > 0 ? weeklyRest : null;
+  const undetermined = toMin('q-undetermined');
+  if (undetermined !== null) remoteConfig.dailyUndeterminedQuota = undetermined;
 }
 
 async function saveConfig() {

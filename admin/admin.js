@@ -1095,15 +1095,21 @@ async function renderOverview() {
   if (dateEl) dateEl.textContent = `${now.getMonth()+1}月${now.getDate()}日 ${weekNames[now.getDay()]}`;
 
   // 今日统计
-  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0;
+  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0, undeterminedSeconds = 0, weekRestSeconds = 0;
   try {
-    const rangeData = await sendMsg({ type: 'GET_STATS_RANGE', days: 1 });
+    const [rangeData, weekRes] = await Promise.all([
+      sendMsg({ type: 'GET_STATS_RANGE', days: 1 }),
+      sendMsg({ type: 'GET_WEEK_REST_SECONDS' }),
+    ]);
+    weekRestSeconds = weekRes?.weekRestSeconds ?? 0;
     const todayData = Object.values(rangeData)[Object.keys(rangeData).length - 1] || {};
+    const compositeList = config.compositeList || [];
     for (const [domain, seconds] of Object.entries(todayData)) {
+      onlineSeconds += seconds;
       const type = classifyDomain(domain);
       if (type === 'study') studySeconds += seconds;
+      else if (compositeList.some(p => { const d = domain.replace(/^www\./,''), pp = p.replace(/^www\./,''); return d === pp || d.endsWith('.'+pp); })) undeterminedSeconds += seconds;
       else restSeconds += seconds;
-      onlineSeconds += seconds;
     }
   } catch (e) { /* pass */ }
 
@@ -1128,10 +1134,14 @@ async function renderOverview() {
   }
 
   // 今日时长进度条（含锁定状态）
-  const onlineLimit = (config.dailyOnlineQuota ?? 1200) * 60;
-  const studyLimit  = (config.dailyStudyQuota  ?? 480)  * 60;
-  const restLimit   = (config.dailyRestQuota   ?? 120)  * 60;
+  const onlineLimit        = (config.dailyOnlineQuota       ?? 1200) * 60;
+  const studyLimit         = (config.dailyStudyQuota        ?? 480)  * 60;
+  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 120)  * 60;
+  const effectiveDailyRest = getAdminEffectiveDailyRestLimit(config);
+  const restLimit          = effectiveDailyRest * 60;
+  const weeklyRestLimit    = (config.weeklyRestQuota ?? (effectiveDailyRest * 7)) * 60;
   const qs = config.quotaState || {};
+  const borrow = config.quotaBorrow;
 
   const progressEl = document.getElementById('overview-progress');
   if (progressEl) {
@@ -1151,10 +1161,27 @@ async function renderOverview() {
         </div>`;
     };
 
-    progressEl.innerHTML =
+    // 借用说明
+    let borrowNote = '';
+    const today = new Date().toISOString().slice(0, 10);
+    if (borrow && !borrow.repaid) {
+      if (borrow.borrowedFrom === today) {
+        borrowNote = `<div style="font-size:12px;color:#f59e0b;margin-bottom:12px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;">⏱ 今日已借用明天 <strong>${borrow.amount} 分钟</strong>休息时间（明日配额将减少）</div>`;
+      } else {
+        const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
+        repayD.setDate(repayD.getDate() + 1);
+        if (repayD.toISOString().slice(0,10) === today) {
+          borrowNote = `<div style="font-size:12px;color:#ef4444;margin-bottom:12px;padding:8px 12px;background:rgba(239,68,68,0.08);border-radius:6px;">↩️ 今日扣还昨日借用 <strong>${borrow.amount} 分钟</strong>，休息配额相应减少</div>`;
+        }
+      }
+    }
+
+    progressEl.innerHTML = borrowNote +
       bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
       bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
-      bar('🎵', '休息时长', restSeconds, restLimit, 'var(--warn)', qs.restLocked);
+      bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked) +
+      bar('🎵', '今日休息', restSeconds, restLimit, 'var(--warn)', qs.restLocked) +
+      bar('📅', '本周休息', weekRestSeconds, weeklyRestLimit, '#e17055', qs.weeklyRestLocked);
   }
 
   // 单站点配额（只读）
@@ -1657,6 +1684,18 @@ async function renderWeeklyPage() {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function getAdminEffectiveDailyRestLimit(config) {
+  const base   = config.dailyRestQuota ?? 120;
+  const borrow = config.quotaBorrow;
+  if (!borrow || borrow.repaid) return base;
+  const today = new Date().toISOString().slice(0, 10);
+  if (today === borrow.borrowedFrom) return base + borrow.amount;
+  const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
+  repayD.setDate(repayD.getDate() + 1);
+  if (repayD.toISOString().slice(0, 10) === today) return Math.max(0, base - borrow.amount);
+  return base;
 }
 function escAttr(s) {
   return String(s).replace(/"/g,'&quot;');

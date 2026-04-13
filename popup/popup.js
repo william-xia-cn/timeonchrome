@@ -61,11 +61,13 @@ async function setMode(mode) {
 
 async function init() {
   // 并行获取所需数据
-  const [config, stats, rangeData] = await Promise.all([
+  const [config, stats, weekRestRes] = await Promise.all([
     sendMsg({ type: 'GET_CONFIG' }),
     sendMsg({ type: 'GET_STATS' }),
-    sendMsg({ type: 'GET_STATS_RANGE', days: 1 })
+    sendMsg({ type: 'GET_WEEK_REST_SECONDS' }),
   ]);
+
+  const weekRestSeconds = weekRestRes?.weekRestSeconds ?? 0;
 
   // 刷新今日计时
   try { await sendMsg({ type: 'FLUSH_TIME' }); } catch (_) {}
@@ -103,10 +105,13 @@ async function init() {
   }
 
   // 配额上限（分钟→秒）
-  const onlineLimit       = (config.dailyOnlineQuota       ?? 1200) * 60;
-  const studyLimit        = (config.dailyStudyQuota        ?? 480)  * 60;
-  const restLimit         = (config.dailyRestQuota         ?? 120)  * 60;
-  const undeterminedLimit = (config.dailyUndeterminedQuota ?? 120)  * 60;
+  const onlineLimit        = (config.dailyOnlineQuota       ?? 1200) * 60;
+  const studyLimit         = (config.dailyStudyQuota        ?? 480)  * 60;
+  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 120)  * 60;
+  const borrow             = config.quotaBorrow;
+  const effectiveDailyRest = getEffectiveDailyRestLimit(config);   // minutes
+  const restLimit          = effectiveDailyRest * 60;               // seconds
+  const weeklyRestLimit    = (config.weeklyRestQuota ?? (effectiveDailyRest * 7)) * 60;
   const qs = config.quotaState || {};
 
   // 激励摘要
@@ -145,12 +150,17 @@ async function init() {
         </div>`;
     };
 
+    const weeklyLabel = qs.weeklyRestLocked ? '本周休息 <span style="font-size:10px;color:var(--danger);">已达周上限</span>' : '本周休息';
     quotaBarsEl.innerHTML =
       bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
       bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
       bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked) +
-      bar('🎵', '休息时长', restSeconds, restLimit, 'var(--warn)', qs.restLocked);
+      bar('🎵', '今日休息', restSeconds, restLimit, 'var(--warn)', qs.restLocked) +
+      bar('📅', weeklyLabel, weekRestSeconds, weeklyRestLimit, '#e17055', qs.weeklyRestLocked);
   }
+
+  // 借用状态 / 借用按钮
+  renderBorrowSection(config, qs);
 
   // Top 5
   const entries = Object.entries(stats).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -165,6 +175,89 @@ async function init() {
       </div>
     `).join('');
   }
+}
+
+// 有效日休息配额（分钟），与 background.js 同步
+function getEffectiveDailyRestLimit(config) {
+  const base   = config.dailyRestQuota ?? 120;
+  const borrow = config.quotaBorrow;
+  if (!borrow || borrow.repaid) return base;
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (today === borrow.borrowedFrom) return base + borrow.amount;
+
+  const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
+  repayD.setDate(repayD.getDate() + 1);
+  const repayStr = repayD.toISOString().slice(0, 10);
+  if (today === repayStr) return Math.max(0, base - borrow.amount);
+  return base;
+}
+
+function renderBorrowSection(config, qs) {
+  const el = document.getElementById('borrow-section');
+  if (!el) return;
+
+  const borrow = config.quotaBorrow;
+  const today  = new Date().toISOString().slice(0, 10);
+
+  // 正在借用中（今天是借用日）
+  if (borrow && !borrow.repaid && borrow.borrowedFrom === today) {
+    el.style.display = '';
+    el.innerHTML = `
+      <div class="borrow-box">
+        ⏱ 已向明天借用 <strong>${borrow.amount} 分钟</strong>，明日配额将减少相应额度。
+      </div>`;
+    return;
+  }
+
+  // 今天是还款日
+  const repayD = borrow && !borrow.repaid
+    ? (() => { const d = new Date(borrow.borrowedFrom + 'T00:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()
+    : null;
+  if (repayD === today) {
+    el.style.display = '';
+    el.innerHTML = `
+      <div class="borrow-box">
+        ↩️ 今日已扣还昨日借用 <strong>${borrow.amount} 分钟</strong>，配额相应减少。
+      </div>`;
+    return;
+  }
+
+  // 休息已锁定且没有未还借用 → 显示借用按钮
+  if (qs.restLocked && !qs.weeklyRestLocked && !(borrow && !borrow.repaid)) {
+    el.style.display = '';
+    el.innerHTML = `
+      <div class="borrow-box">
+        今日休息时间已用完。可向明天借用最多 <strong>1 小时</strong>，明日配额相应减少。
+        <button class="borrow-btn" id="borrow-btn">向明天借 1 小时</button>
+      </div>`;
+    document.getElementById('borrow-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('borrow-btn');
+      btn.disabled = true;
+      btn.textContent = '处理中...';
+      const r = await sendMsg({ type: 'BORROW_REST_QUOTA' });
+      if (r?.ok) {
+        el.innerHTML = `<div class="borrow-box">✅ 已借用 <strong>${r.amount} 分钟</strong>，明日配额将减少相应额度。</div>`;
+        await init(); // 刷新进度条
+      } else {
+        btn.disabled = false;
+        btn.textContent = '向明天借 1 小时';
+        if (r?.error === 'weekly_quota_exceeded') {
+          el.querySelector('.borrow-box').insertAdjacentHTML('beforeend', '<br><span style="color:var(--danger);font-size:10px;">本周配额已满，无法借用。</span>');
+        }
+      }
+    });
+    return;
+  }
+
+  // 周配额满 → 说明不可借
+  if (qs.restLocked && qs.weeklyRestLocked) {
+    el.style.display = '';
+    el.innerHTML = `<div class="borrow-box" style="border-left-color:var(--danger);">本周休息配额已达上限，无法借用。</div>`;
+    return;
+  }
+
+  el.style.display = 'none';
 }
 
 // ── 本周待定时段 ──────────────────────────────────────────────────────────────

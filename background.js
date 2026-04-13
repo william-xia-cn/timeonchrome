@@ -209,12 +209,14 @@ async function pullCloudQuotaState() {
       studyLocked:        localQs.studyLocked        || result.studyLocked,
       restLocked:         localQs.restLocked         || result.restLocked,
       undeterminedLocked: localQs.undeterminedLocked || result.undeterminedLocked,
+      weeklyRestLocked:   localQs.weeklyRestLocked   || result.weeklyRestLocked,
     };
 
     const stateChanged = newState.onlineLocked       !== localQs.onlineLocked       ||
                          newState.studyLocked        !== localQs.studyLocked        ||
                          newState.restLocked         !== localQs.restLocked         ||
-                         newState.undeterminedLocked !== localQs.undeterminedLocked;
+                         newState.undeterminedLocked !== localQs.undeterminedLocked ||
+                         newState.weeklyRestLocked   !== localQs.weeklyRestLocked;
 
     if (stateChanged) {
       config.quotaState = newState;
@@ -378,6 +380,7 @@ async function pushConfigToCloud(config) {
       dailyRestQuota:          config.dailyRestQuota,
       dailyUndeterminedQuota:  config.dailyUndeterminedQuota,
       weeklyRestQuota:         config.weeklyRestQuota,
+      quotaBorrow:             config.quotaBorrow,
       domainQuotas:            config.domainQuotas,
       classificationRules:     config.classificationRules,
       schedule:                config.schedule,
@@ -589,6 +592,7 @@ const DEFAULT_CONFIG = {
   dailyRestQuota:          120,  // 每日休息时段上限：2小时
   dailyUndeterminedQuota:  120,  // 每日待定时段上限：2小时（compositeList）
   weeklyRestQuota:        null,  // 每周休息上限（分钟），null = 日配额×7
+  quotaBorrow:            null,  // 借用状态：{ borrowedFrom, amount, repaid }
   domainQuotas: {},
   // 审核规则（关键词自动分类）
   classificationRules: [],
@@ -784,6 +788,70 @@ async function getStatsRange(days = 7) {
       resolve(data);
     });
   });
+}
+
+// 计算本周（周一起）每天休息时长总和（秒）
+async function getWeekRestSeconds() {
+  const config = await getConfig();
+  const today = new Date();
+  // 周一=0，周日=6
+  const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+  const keys = [];
+  const dates = [];
+  for (let i = 0; i <= dayOfWeek; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const dateStr = formatDate(d);
+    keys.push(STATS_KEY_PREFIX + dateStr);
+    keys.push(UNDETERMINED_STATS_KEY_PREFIX + dateStr);
+    dates.push(dateStr);
+  }
+
+  return new Promise(resolve => {
+    chrome.storage.local.get(keys, result => {
+      const studyList     = config.studyList     || [];
+      const compositeList = config.compositeList || [];
+      let weekRestSeconds = 0;
+
+      for (const dateStr of dates) {
+        const dayStats       = result[STATS_KEY_PREFIX + dateStr]              || {};
+        const dayUndetermined = result[UNDETERMINED_STATS_KEY_PREFIX + dateStr] || {};
+
+        let dayTotal = 0, dayStudy = 0, dayUndeterminedSecs = 0;
+        for (const [domain, secs] of Object.entries(dayStats)) {
+          dayTotal += secs;
+          if (studyList.some(p => matchDomain(domain, p))) dayStudy += secs;
+        }
+        for (const secs of Object.values(dayUndetermined)) dayUndeterminedSecs += secs;
+        weekRestSeconds += Math.max(0, dayTotal - dayStudy - dayUndeterminedSecs);
+      }
+      resolve(weekRestSeconds);
+    });
+  });
+}
+
+// 今日有效休息日配额（分钟），考虑借用当天加额 / 次日还款
+function getTodayEffectiveRestLimit(config) {
+  const baseLimit = config.dailyRestQuota ?? 120;
+  const borrow    = config.quotaBorrow;
+  if (!borrow || borrow.repaid) return baseLimit;
+
+  const today = getDateKey();
+  if (today === borrow.borrowedFrom) {
+    // 借用当天：额度增加
+    return baseLimit + borrow.amount;
+  }
+
+  // 还款日：借用日 +1
+  const repayDate = formatDate(new Date(borrow.borrowedFrom + 'T00:00:00'));
+  const repayD    = new Date(borrow.borrowedFrom + 'T00:00:00');
+  repayD.setDate(repayD.getDate() + 1);
+  const repayStr  = formatDate(repayD);
+  if (today === repayStr) {
+    return Math.max(0, baseLimit - borrow.amount);
+  }
+
+  return baseLimit;
 }
 
 async function cleanOldStats() {
@@ -1488,6 +1556,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         dailyRestQuota:         existingConfig.dailyRestQuota         ?? DEFAULT_CONFIG.dailyRestQuota,
         dailyUndeterminedQuota: existingConfig.dailyUndeterminedQuota ?? DEFAULT_CONFIG.dailyUndeterminedQuota,
         weeklyRestQuota:        existingConfig.weeklyRestQuota        ?? DEFAULT_CONFIG.weeklyRestQuota,
+        quotaBorrow:            existingConfig.quotaBorrow            ?? DEFAULT_CONFIG.quotaBorrow,
         classificationRules:    existingConfig.classificationRules    ?? [],
         quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false }
       };
@@ -1751,33 +1820,37 @@ async function checkAllTabsQuota() {
   let studySeconds = 0, undeterminedSeconds = 0, totalSeconds = 0;
   for (const [domain, seconds] of Object.entries(stats)) {
     totalSeconds += seconds;
-    const isStudy    = (config.studyList     || []).some(p => matchDomain(domain, p));
-    const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p));
-    if (isStudy) {
-      studySeconds += seconds;
-    } else if (isComposite) {
-      // compositeList 时长也记入 undetermined（以待定统计为准，避免重复计算）
-    }
+    const isStudy = (config.studyList || []).some(p => matchDomain(domain, p));
+    if (isStudy) studySeconds += seconds;
   }
   // 待定时长从独立存储中读取
-  for (const seconds of Object.values(undeterminedStats)) {
-    undeterminedSeconds += seconds;
-  }
-  const restSeconds  = totalSeconds - studySeconds - undeterminedSeconds;
+  for (const seconds of Object.values(undeterminedStats)) undeterminedSeconds += seconds;
+  const restSeconds = totalSeconds - studySeconds - undeterminedSeconds;
 
-  const totalMinutes         = Math.floor(totalSeconds         / 60);
-  const studyMinutes         = Math.floor(studySeconds         / 60);
-  const restMinutes          = Math.floor(Math.max(0, restSeconds) / 60);
-  const undeterminedMinutes  = Math.floor(undeterminedSeconds  / 60);
+  const totalMinutes        = Math.floor(totalSeconds                   / 60);
+  const studyMinutes        = Math.floor(studySeconds                   / 60);
+  const restMinutes         = Math.floor(Math.max(0, restSeconds)       / 60);
+  const undeterminedMinutes = Math.floor(undeterminedSeconds            / 60);
+
+  // 周休息统计
+  const weekRestSeconds = await getWeekRestSeconds();
+  const weekRestMinutes = Math.floor(weekRestSeconds / 60);
 
   // 计算新锁定状态
-  const dailyOnlineQuota        = config.dailyOnlineQuota        ?? config.dailyQuota ?? 0;
-  const dailyUndeterminedQuota  = config.dailyUndeterminedQuota  ?? 120;
+  const dailyOnlineQuota       = config.dailyOnlineQuota       ?? config.dailyQuota ?? 0;
+  const dailyUndeterminedQuota = config.dailyUndeterminedQuota ?? 120;
+  const effectiveDailyRest     = getTodayEffectiveRestLimit(config);
+  const weeklyRestLimit        = config.weeklyRestQuota ?? (effectiveDailyRest * 7); // minutes
+
+  const restLockedByDay    = effectiveDailyRest > 0 && restMinutes  >= effectiveDailyRest;
+  const restLockedByWeek   = weeklyRestLimit    > 0 && weekRestMinutes >= weeklyRestLimit;
+
   const newState = {
     onlineLocked:       dailyOnlineQuota        > 0 && totalMinutes        >= dailyOnlineQuota,
     studyLocked:        (config.dailyStudyQuota || 0) > 0 && studyMinutes >= config.dailyStudyQuota,
-    restLocked:         (config.dailyRestQuota  || 0) > 0 && restMinutes  >= config.dailyRestQuota,
+    restLocked:         restLockedByDay || restLockedByWeek,
     undeterminedLocked: dailyUndeterminedQuota  > 0 && undeterminedMinutes >= dailyUndeterminedQuota,
+    weeklyRestLocked:   restLockedByWeek,   // 用于区分是日锁还是周锁（UI提示用）
   };
 
   const oldState = config.quotaState || {};
@@ -1797,7 +1870,10 @@ async function checkAllTabsQuota() {
       return;
     }
     if (newState.restLocked && !oldState.restLocked) {
-      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:`今日休息时间已达上限（${Math.round(config.dailyRestQuota / 60 * 10) / 10} 小时），娱乐网站已锁定。` });
+      const msg = newState.weeklyRestLocked
+        ? `本周休息时间已达上限（${Math.round(weeklyRestLimit / 60 * 10) / 10} 小时），娱乐网站已锁定。`
+        : `今日休息时间已达上限（${Math.round(effectiveDailyRest / 60 * 10) / 10} 小时），娱乐网站已锁定。`;
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message: msg });
       await closeQuotaViolatingTabs(config, newState);
     }
     if (newState.studyLocked && !oldState.studyLocked) {
@@ -2020,6 +2096,18 @@ async function resetDailyLockedDomains(force = false) {
     config.quotaState = { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false };
     changed = true;
   }
+
+  // 标记借用为已还款（还款日之后）
+  const borrow = config.quotaBorrow;
+  if (borrow && !borrow.repaid) {
+    const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
+    repayD.setDate(repayD.getDate() + 1);
+    if (today > formatDate(repayD)) {
+      config.quotaBorrow = { ...borrow, repaid: true };
+      changed = true;
+    }
+  }
+
   if (changed) await saveConfig(config);
   console.log('[daily] Quota state reset for new day:', today);
 }
@@ -2218,6 +2306,49 @@ async function handleMessage(msg, sender) {
       // 强制立即同步
       await syncNow();
       return { success: true };
+    }
+
+    case 'GET_WEEK_REST_SECONDS': {
+      return { weekRestSeconds: await getWeekRestSeconds() };
+    }
+
+    case 'BORROW_REST_QUOTA': {
+      // 孩子向明天借休息时间（最多 1h，消耗明天的配额）
+      const config = await getConfig();
+      const borrow = config.quotaBorrow;
+
+      // 已有未还借用 → 拒绝
+      if (borrow && !borrow.repaid) {
+        return { ok: false, error: 'already_borrowed', alreadyBorrowed: true };
+      }
+
+      const today     = getDateKey();
+      const todayDate = new Date();
+      // 周日（0）不能借（防止跨周）
+      if (todayDate.getDay() === 0) {
+        return { ok: false, error: 'no_cross_week' };
+      }
+
+      const dailyLimit  = config.dailyRestQuota ?? 120; // minutes
+      const borrowAmt   = Math.min(60, dailyLimit);     // 最多 1h
+
+      // 检查本周配额是否还有空间（借用不得突破周上限）
+      const weeklyLimit = (config.weeklyRestQuota ?? (dailyLimit * 7)) * 60;  // seconds
+      const weekRestSec = await getWeekRestSeconds();
+      if (weeklyLimit > 0 && weekRestSec >= weeklyLimit) {
+        return { ok: false, error: 'weekly_quota_exceeded' };
+      }
+
+      config.quotaBorrow = { borrowedFrom: today, amount: borrowAmt, repaid: false };
+      // 借用当天：休息锁定立即解除
+      if (config.quotaState?.restLocked) {
+        config.quotaState.restLocked    = false;
+        config.quotaState.weeklyRestLocked = false;
+      }
+      await saveConfig(config);
+      pushConfigToCloud(config).catch(() => {});
+      await updateDeclarativeRules(config);
+      return { ok: true, amount: borrowAmt };
     }
 
     case 'GET_WEEKLY_SESSIONS': {
