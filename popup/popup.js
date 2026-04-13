@@ -20,8 +20,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await init();
 
-  // 初始化模式按钮状态
+  // 初始化模式按钮状态并绑定点击事件
   await renderModeButtons();
+  document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
+  document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
 
   // 详情链接 → 打开 admin 面板
   document.getElementById('detail-link').addEventListener('click', () => {
@@ -50,11 +52,11 @@ async function renderModeButtons() {
   restBtn.className  = 'mode-btn' + (mode === 'rest'  ? ' active-rest'  : '');
 }
 
-window.setMode = async (mode) => {
+async function setMode(mode) {
   const type = mode === 'study' ? 'SWITCH_TO_STUDY' : 'SWITCH_TO_REST';
   await sendMsg({ type });
   await renderModeButtons();
-};
+}
 
 async function init() {
   // 并行获取所需数据

@@ -1048,24 +1048,32 @@ async function setupDevicesPage() {
 async function renderModeSwitchCard() {
   const session = await sendMsg({ type: 'GET_SESSION' });
   const mode = session?.currentMode || 'study';
-  const labelEl = document.getElementById('mode-label');
-  const descEl  = document.getElementById('mode-desc');
+  const labelEl  = document.getElementById('mode-label');
+  const descEl   = document.getElementById('mode-desc');
   const studyBtn = document.getElementById('btn-study-mode');
   const restBtn  = document.getElementById('btn-rest-mode');
   if (!labelEl) return;
+
+  // 绑定点击（用 replaceWith 避免重复绑定）
+  const newStudy = studyBtn.cloneNode(true);
+  const newRest  = restBtn.cloneNode(true);
+  studyBtn.replaceWith(newStudy);
+  restBtn.replaceWith(newRest);
+  newStudy.addEventListener('click', () => switchMode('study'));
+  newRest.addEventListener('click',  () => switchMode('rest'));
 
   if (mode === 'study') {
     labelEl.textContent = '📚 学习模式';
     labelEl.style.color = 'var(--accent)';
     descEl.textContent  = '白名单模式，仅允许访问学习和允许网站';
-    studyBtn.style.cssText = 'padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:rgba(124,111,255,0.2);color:var(--accent);';
-    restBtn.style.cssText  = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
+    newStudy.style.cssText = 'padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:rgba(124,111,255,0.2);color:var(--accent);';
+    newRest.style.cssText  = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
   } else {
     labelEl.textContent = '☕ 休息模式';
     labelEl.style.color = 'var(--warn)';
     descEl.textContent  = '黑名单模式，除屏蔽网站外均可访问';
-    studyBtn.style.cssText = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
-    restBtn.style.cssText  = 'padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:rgba(251,191,36,0.15);color:var(--warn);';
+    newStudy.style.cssText = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
+    newRest.style.cssText  = 'padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:rgba(251,191,36,0.15);color:var(--warn);';
   }
 }
 
