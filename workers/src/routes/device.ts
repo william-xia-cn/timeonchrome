@@ -90,17 +90,29 @@ export const deviceRouter = {
 
     // GET /device/config
     if (request.method === 'GET' && path === '/device/config') {
+      const authHeader = request.headers.get('Authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       const profileId = await verifyDeviceToken(request, env, true);
       if (!profileId) return json({ error: 'Invalid device token' }, 401);
 
       const row = await env.DB.prepare(
-        `SELECT config, updated_at FROM profiles WHERE id = ?`
-      ).bind(profileId).first<{ config: string; updated_at: number }>();
+        `SELECT config, version FROM profiles WHERE id = ?`
+      ).bind(profileId).first<{ config: string; version: number }>();
+
+      // Fetch monitoring_enabled (column added in migration 002; default 1 if not present)
+      let monitoringEnabled = 1;
+      try {
+        const deviceRow = token ? await env.DB.prepare(
+          `SELECT monitoring_enabled FROM devices WHERE device_token = ?`
+        ).bind(token).first<{ monitoring_enabled: number }>() : null;
+        monitoringEnabled = deviceRow?.monitoring_enabled ?? 1;
+      } catch (_) { /* column not yet migrated */ }
 
       return json({
-        data:       row?.config ? JSON.parse(row.config) : {},
-        version:    row?.updated_at || 0,
-        profile_id: profileId,
+        data:               row?.config ? JSON.parse(row.config) : {},
+        version:            row?.version || 0,
+        profile_id:         profileId,
+        monitoring_enabled: monitoringEnabled,
       });
     }
 
@@ -119,13 +131,59 @@ export const deviceRouter = {
         ).bind(configStr, now, profileId).run();
 
         const row = await env.DB.prepare(
-          `SELECT updated_at FROM profiles WHERE id = ?`
-        ).bind(profileId).first<{ updated_at: number }>();
+          `SELECT version FROM profiles WHERE id = ?`
+        ).bind(profileId).first<{ version: number }>();
 
-        return json({ success: true, version: row?.updated_at || now });
+        return json({ success: true, version: row?.version || 1 });
       } catch (e: any) {
         return json({ error: 'Failed to update config: ' + e.message }, 500);
       }
+    }
+
+    // GET /device/quota-state?date=YYYY-MM-DD
+    if (request.method === 'GET' && path === '/device/quota-state') {
+      const profileId = await verifyDeviceToken(request, env);
+      if (!profileId) return json({ error: 'Invalid device token' }, 401);
+
+      const dateParam = url.searchParams.get('date');
+      if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+        return json({ error: 'date param required (YYYY-MM-DD)' }, 400);
+      }
+
+      // Get config for quota limits and studyList
+      const profileRow = await env.DB.prepare(
+        `SELECT config FROM profiles WHERE id = ?`
+      ).bind(profileId).first<{ config: string }>();
+
+      const config = profileRow?.config ? JSON.parse(profileRow.config) : {};
+      const studyList: string[]  = config.studyList || [];
+      const dailyOnlineQuota     = (config.dailyOnlineQuota ?? 1200) * 60; // minutes → seconds
+      const dailyStudyQuota      = (config.dailyStudyQuota  ?? 480)  * 60;
+      const dailyRestQuota       = (config.dailyRestQuota   ?? 180)  * 60;
+
+      // Sum stats for ALL devices under this profile for the date
+      const statsResult = await env.DB.prepare(
+        `SELECT domain, SUM(duration) as total FROM stats WHERE profile_id = ? AND date = ? GROUP BY domain`
+      ).bind(profileId, dateParam).all<{ domain: string; total: number }>();
+
+      let onlineSeconds = 0, studySeconds = 0;
+      for (const row of (statsResult.results || [])) {
+        onlineSeconds += row.total;
+        const d = row.domain.replace(/^www\./, '');
+        const isStudy = studyList.some(p => {
+          const pd = p.replace(/^www\./, '');
+          return d === pd || d.endsWith('.' + pd);
+        });
+        if (isStudy) studySeconds += row.total;
+      }
+      const restSeconds = onlineSeconds - studySeconds;
+
+      return json({
+        onlineLocked:  dailyOnlineQuota > 0 && onlineSeconds >= dailyOnlineQuota,
+        studyLocked:   dailyStudyQuota  > 0 && studySeconds  >= dailyStudyQuota,
+        restLocked:    dailyRestQuota   > 0 && restSeconds   >= dailyRestQuota,
+        onlineSeconds, studySeconds, restSeconds,
+      });
     }
 
     return json({ error: 'Not found' }, 404);

@@ -305,10 +305,24 @@
     .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
 
     /* Device list */
-    .device-actions { display: flex; gap: 6px; margin-left: 10px; }
+    .device-actions { display: flex; gap: 6px; margin-left: 10px; align-items: center; }
     .device-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: var(--text); transition: all .15s; }
     .device-btn:hover { border-color: var(--accent); color: var(--accent); }
     .device-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+    /* 监控开关 toggle */
+    .monitor-toggle { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); cursor: pointer; }
+    .monitor-toggle input[type=checkbox] { display: none; }
+    .monitor-track {
+      width: 32px; height: 18px; border-radius: 100px;
+      background: rgba(0,0,0,0.15); transition: background .2s; position: relative; cursor: pointer;
+    }
+    .monitor-track::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 14px; height: 14px; border-radius: 50%; background: #fff;
+      transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+    .monitor-track.on  { background: var(--accent); }
+    .monitor-track.on::after { transform: translateX(14px); }
     .rename-input { background: rgba(0,184,148,0.06); border: 1px solid var(--accent); border-radius: 6px; padding: 4px 8px; font-size: 13px; color: var(--text); outline: none; width: 140px; }
     .device-item {
       display: flex; align-items: center; gap: 14px;
@@ -1419,14 +1433,20 @@ async function renderDevicesPage() {
         ? new Date(d.created_at).toLocaleDateString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit' })
         : '未知';
       const safeName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const isMonOn  = (d.monitoring_enabled ?? 1) === 1;
+      const trackCls = isMonOn ? 'monitor-track on' : 'monitor-track';
       return `
         <div class="device-item" data-device-id="${d.id}">
-          <div class="device-icon">🖥️</div>
+          <div class="device-icon">${isMonOn ? '🖥️' : '😴'}</div>
           <div style="flex:1;min-width:0;">
             <div class="device-name" id="dname-${d.id}">${name}</div>
             <div class="device-meta">最后活跃：${time} · 绑定于 ${boundAt}</div>
           </div>
           <div class="device-status ${cls}">${text}</div>
+          <label class="monitor-toggle" title="${isMonOn ? '点击停用监控' : '点击启用监控'}">
+            <div class="${trackCls}" onclick="toggleMonitoring('${d.id}', ${isMonOn ? 0 : 1})"></div>
+            <span>${isMonOn ? '监控中' : '已停用'}</span>
+          </label>
           <div class="device-actions">
             <button class="device-btn" onclick="startRename('${d.id}','${safeName}')">重命名</button>
             <button class="device-btn danger" onclick="unbindDevice('${d.id}','${safeName}')">解绑</button>
@@ -1476,6 +1496,17 @@ window.unbindDevice = async function(deviceId, deviceName) {
     renderDevicesPage();
   } catch(e) {
     toast('解绑失败：' + e.message, false);
+  }
+};
+
+// 切换设备监控开关
+window.toggleMonitoring = async function(deviceId, enabledVal) {
+  try {
+    await api(`/profiles/${currentProfileId}/devices/${deviceId}`, 'PATCH', { monitoring_enabled: enabledVal });
+    toast(enabledVal ? '监控已启用' : '监控已停用');
+    renderDevicesPage();
+  } catch(e) {
+    toast('操作失败：' + e.message, false);
   }
 };
 

@@ -7,55 +7,48 @@
 ## 🔴 待开发（下一步）
 
 - [ ] Workers 单元测试（参数化查询、JWT 签名验证）`[workers/]`
-- [ ] 家长 Web 控制台（Cloudflare Pages）完整实现 `[pages/]`
 - [ ] blocked.html 申请临时放行后推送云端通知家长 `[blocked.js, workers/]`
 
 ---
 
-## 🟡 优化项
+## 🟡 优化项（已规划）
 
+- [ ] **临时放行 + 家长解除配额** 合并设计优化（目前临时放行可用，家长解除配额待做）`[pages/, workers/]`
+- [ ] **Session 可视化**：R2 数据已归档，家长控制台缺展示页面 `[pages/]`
 - [ ] `utils/storage.js` 未被使用，可清理 `[utils/]`
 - [ ] 测试文件清理（test-*.js, *.png）移入 `tests/` 目录 `[根目录]`
-- [ ] 设备解绑后本地清除 token 和配置 `[admin.js]`
-- [ ] 跨设备使用时长汇总（目前各设备独立计算）`[workers/stats.ts]`
 
 ---
 
-## 🟢 已完成（v1.5.0）
+## 🟢 已完成
 
-### 安全加固
-- [x] SQL 注入修复：Workers 约 35 处改为参数化查询
-- [x] JWT 升级：HMAC-SHA256 签名替换 `btoa` 伪签名
-- [x] `quotaState` 本地保护：pull 合并时不被云端覆盖
+### v1.5.1（2026-04-13）
+- [x] 跨设备配额同步：`GET /device/quota-state` 聚合接口 + extension 每次 sync 拉取
+- [x] 设备监控开关：`monitoring_enabled` 字段 + 控制台 toggle + extension 跳过拦截
+- [x] 版本号修复：`GET/PUT /device/config` 改用整数计数器 `version`
+- [x] D1 migration 002：`devices.monitoring_enabled` 列
+- [x] Mint Green 主题全面应用（控制台 + popup + admin）
+- [x] 账户管理迁移到 Web 控制台（改密/删档/编辑/登出）
+- [x] 设备解绑本地自动清理（401 → DEVICE_UNBOUND 广播）
 
-### Bug 修复
-- [x] 时区 bug：`toISOString()` → 本地时间 `formatDate()`
-- [x] 每日重置防重复：`LAST_RESET_DATE_KEY` 日期守卫
-- [x] 推送配额字段：`pushConfigToCloud` 补充三档配额
-
-### 功能实现
+### v1.5.0（2026-04-11）
+- [x] 安全加固：SQL 参数化查询、HMAC-SHA256 JWT
+- [x] 时区 bug 修复：`toISOString()` → `formatDate()`
 - [x] 三档时间配额（在线/学习/休息）
 - [x] 设备自动识别（OS + 4 位随机码）
 - [x] 设备管理（列表 / 重命名 / 解绑）
 - [x] 配置变更日志（最近 100 条）
 - [x] Session 文件上传（R2）
 - [x] 孩子友好 UI（Popup + admin 只读激励视图）
-- [x] 管理面板 4 页导航（今日使用 / 访问规则 / 使用分析 / 本机）
+- [x] 家长 Web 控制台（Cloudflare Pages）完整实现
 
-### v1.2 基础功能
+### v1.2.0 基础功能
 - [x] `studyList` / `allowList` 白名单拆分
-- [x] 自动切换学习模式（`checkAutoStudy`）
-- [x] HEARTBEAT 计时：studyList 计学习、allowList 只计域名
-- [x] 注册/绑定流程（`bind.html`）
+- [x] 自动切换学习模式（90 秒）
+- [x] HEARTBEAT 计时
+- [x] 注册/绑定流程
 - [x] `pullCloudConfig` 版本保护
-- [x] 本地改配置后立即推送云端
 - [x] 学习/休息模式切换
 - [x] 心跳计时（content.js）
 - [x] Web Audio API 检测
-- [x] active/passive 状态区分
 - [x] 临时放行功能
-- [x] blocked.html CSP 修复（提取 blocked.js）
-- [x] declarativeNetRequest 白名单 domain 参数传递修复
-- [x] 插件更新配置保留
-- [x] Chrome 启动重置会话状态
-- [x] Worker 路由 bug：`GET /profiles/:id/stats` 路由修复

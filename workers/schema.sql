@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS devices (
   device_token TEXT UNIQUE NOT NULL,
   device_name TEXT,
   last_seen INTEGER,
+  monitoring_enabled INTEGER DEFAULT 1,  -- 1=监控开启, 0=停用监控（仅同步配置，不拦截）
   created_at INTEGER NOT NULL,
   FOREIGN KEY (profile_id) REFERENCES profiles(id)
 );

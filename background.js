@@ -21,7 +21,8 @@ const CLOUD_CONFIG = {
     PENDING_STATS: 'cloud_pending_stats',
     PENDING_SESSIONS: 'cloud_pending_sessions',
     LOCAL_CONFIG: 'cloud_local_config',
-    CONFIG_VERSION: 'cloud_config_version'
+    CONFIG_VERSION: 'cloud_config_version',
+    MONITORING_ENABLED: 'cloud_monitoring_enabled'  // 本设备是否开启监控
   }
 };
 
@@ -30,7 +31,8 @@ let syncState = {
   isSyncing: false,
   lastConfigVersion: 0,
   deviceToken: null,
-  profileId: null
+  profileId: null,
+  monitoringEnabled: 1   // 本设备监控开关，1=开启（默认），0=停用
 };
 
 // ── 云端同步核心函数 ───────────────────────────────────────────────────────────
@@ -145,6 +147,11 @@ async function pullCloudConfig() {
     if (result.data) {
       const cloudVersion = result.version || 0;
 
+      // 保存本设备的监控开关状态
+      const monitoringEnabled = result.monitoring_enabled ?? 1;
+      await storageSet({ [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled });
+      syncState.monitoringEnabled = monitoringEnabled;
+
       // 版本未更新，跳过覆盖
       if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion) {
         console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
@@ -170,7 +177,7 @@ async function pullCloudConfig() {
         isInitialized:     localConfig.isInitialized,
         tempWhitelist:     localConfig.tempWhitelist,
         lockedDomains:     localConfig.lockedDomains,
-        quotaState:        localConfig.quotaState,   // 配额锁定状态是本地计时结果，不从云端同步
+        quotaState:        localConfig.quotaState,   // 配额锁定状态由云端聚合接口更新
       };
       await saveConfig(mergedConfig);
       await updateDeclarativeRules(mergedConfig);
@@ -183,6 +190,51 @@ async function pullCloudConfig() {
     console.error('[Cloud] Failed to pull config:', e.message);
   }
   return false;
+}
+
+/**
+ * 从云端聚合获取今日配额状态（跨设备同步）
+ * 将云端结果与本地状态合并：云端已锁定则本地也锁定（只升不降）
+ */
+async function pullCloudQuotaState() {
+  try {
+    const today = getDateKey();
+    const result = await cloudRequest('GET', `/device/quota-state?date=${today}`);
+
+    const config = await getConfig();
+    const localQs = config.quotaState || {};
+
+    // 云端锁定优先（只升不降：云端说锁则锁，云端未锁仍尊重本地计时）
+    const newState = {
+      onlineLocked: localQs.onlineLocked || result.onlineLocked,
+      studyLocked:  localQs.studyLocked  || result.studyLocked,
+      restLocked:   localQs.restLocked   || result.restLocked,
+    };
+
+    const stateChanged = newState.onlineLocked !== localQs.onlineLocked ||
+                         newState.studyLocked  !== localQs.studyLocked  ||
+                         newState.restLocked   !== localQs.restLocked;
+
+    if (stateChanged) {
+      config.quotaState = newState;
+      await saveConfig(config);
+
+      if (newState.onlineLocked && !localQs.onlineLocked) {
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日在线时间已达上限，所有网站已锁定。' });
+        await lockAllBrowsing();
+      } else if (newState.restLocked && !localQs.restLocked) {
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日休息时间已达上限，娱乐网站已锁定。' });
+        await closeQuotaViolatingTabs(config, newState);
+      } else if (newState.studyLocked && !localQs.studyLocked) {
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日学习时间已达上限，学习网站已锁定。' });
+        await closeQuotaViolatingTabs(config, newState);
+      }
+
+      console.log('[Cloud] Quota state synced from cloud:', newState);
+    }
+  } catch (e) {
+    console.error('[Cloud] Failed to pull quota state:', e.message);
+  }
 }
 
 /**
@@ -353,16 +405,23 @@ async function syncNow() {
     console.log('[Cloud] Sync already in progress');
     return;
   }
-  
+
   syncState.isSyncing = true;
-  
+
   try {
-    // 1. 拉取配置
+    // 1. 拉取配置（含 monitoring_enabled）
     await pullCloudConfig();
-    
-    // 2. 上报统计
-    await uploadStats();
-    
+
+    // 2. 上报统计（仅在监控开启时上报）
+    if (syncState.monitoringEnabled !== 0) {
+      await uploadStats();
+    }
+
+    // 3. 拉取跨设备配额状态（仅在监控开启时检查）
+    if (syncState.monitoringEnabled !== 0) {
+      await pullCloudQuotaState();
+    }
+
     console.log('[Cloud] Sync completed');
   } catch (e) {
     console.error('[Cloud] Sync failed:', e.message);
@@ -431,12 +490,14 @@ async function initCloudSync() {
   const storage = await storageGet([
     CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
     CLOUD_CONFIG.KEYS.PROFILE_ID,
-    CLOUD_CONFIG.KEYS.CONFIG_VERSION
+    CLOUD_CONFIG.KEYS.CONFIG_VERSION,
+    CLOUD_CONFIG.KEYS.MONITORING_ENABLED
   ]);
-  
-  syncState.deviceToken = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
-  syncState.profileId = storage[CLOUD_CONFIG.KEYS.PROFILE_ID];
-  syncState.lastConfigVersion = storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0;
+
+  syncState.deviceToken         = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
+  syncState.profileId           = storage[CLOUD_CONFIG.KEYS.PROFILE_ID];
+  syncState.lastConfigVersion   = storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0;
+  syncState.monitoringEnabled   = storage[CLOUD_CONFIG.KEYS.MONITORING_ENABLED] ?? 1;
   
   if (syncState.deviceToken) {
     console.log('[Cloud] Device token found, starting sync...');
@@ -1494,9 +1555,12 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 
 async function checkAndBlock(tabId, url) {
   if (isSpecialUrl(url)) return false;
-  
+
   // 跳过 blocked.html 页面
   if (url.includes('blocked.html')) return false;
+
+  // 本设备监控已停用（家长从控制台关闭）
+  if (syncState.monitoringEnabled === 0) return false;
 
   const config = await getConfig();
   if (!config.enabled) return false;
@@ -1567,6 +1631,7 @@ async function checkAndBlock(tabId, url) {
 }
 
 async function checkAllTabsQuota() {
+  if (syncState.monitoringEnabled === 0) return;
   const config = await getConfig();
   if (!config.enabled) return;
 
@@ -2012,14 +2077,16 @@ async function handleMessage(msg, sender) {
         CLOUD_CONFIG.KEYS.PROFILE_ID,
         CLOUD_CONFIG.KEYS.LAST_SYNC,
         CLOUD_CONFIG.KEYS.CONFIG_VERSION,
-        CLOUD_CONFIG.KEYS.CREDENTIALS
+        CLOUD_CONFIG.KEYS.CREDENTIALS,
+        CLOUD_CONFIG.KEYS.MONITORING_ENABLED
       ]);
-      
+
       return {
-        isBound: !!storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN],
-        hasCredentials: !!storage[CLOUD_CONFIG.KEYS.CREDENTIALS],
-        lastSync: storage[CLOUD_CONFIG.KEYS.LAST_SYNC] || 0,
-        configVersion: storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0
+        isBound:           !!storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN],
+        hasCredentials:    !!storage[CLOUD_CONFIG.KEYS.CREDENTIALS],
+        lastSync:          storage[CLOUD_CONFIG.KEYS.LAST_SYNC] || 0,
+        configVersion:     storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0,
+        monitoringEnabled: storage[CLOUD_CONFIG.KEYS.MONITORING_ENABLED] ?? 1
       };
     }
 

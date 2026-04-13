@@ -193,17 +193,32 @@ export const profilesRouter = {
 
     // GET /profiles/:id/devices
     if (request.method === 'GET' && devicesMatch) {
-      const result = await env.DB.prepare(
-        `SELECT id, device_name, last_seen, created_at
-         FROM devices WHERE profile_id = ? ORDER BY last_seen DESC`
-      ).bind(profileId).all<{
-        id: string; device_name: string; last_seen: number; created_at: number;
-      }>();
+      // Try to include monitoring_enabled (added in migration 002); fall back if column missing
+      let devices: any[] = [];
+      try {
+        const result = await env.DB.prepare(
+          `SELECT id, device_name, last_seen, monitoring_enabled, created_at
+           FROM devices WHERE profile_id = ? ORDER BY last_seen DESC`
+        ).bind(profileId).all<{
+          id: string; device_name: string; last_seen: number;
+          monitoring_enabled: number; created_at: number;
+        }>();
+        devices = result.results || [];
+      } catch (_) {
+        // Fallback: column not yet migrated
+        const result = await env.DB.prepare(
+          `SELECT id, device_name, last_seen, created_at
+           FROM devices WHERE profile_id = ? ORDER BY last_seen DESC`
+        ).bind(profileId).all<{
+          id: string; device_name: string; last_seen: number; created_at: number;
+        }>();
+        devices = (result.results || []).map(d => ({ ...d, monitoring_enabled: 1 }));
+      }
 
-      return json({ devices: result.results || [] });
+      return json({ devices });
     }
 
-    // PATCH /profiles/:id/devices/:deviceId - 重命名设备
+    // PATCH /profiles/:id/devices/:deviceId - 重命名设备 或 切换监控
     if (request.method === 'PATCH' && deviceIdMatch) {
       const deviceId = deviceIdMatch[2];
 
@@ -214,16 +229,35 @@ export const profilesRouter = {
       if (!dev) return json({ error: 'Device not found' }, 404);
 
       try {
-        const { name } = await request.json<{ name: string }>();
-        if (!name || typeof name !== 'string') return json({ error: 'name required' }, 400);
+        const body = await request.json<{ name?: string; monitoring_enabled?: number }>();
+        const updates: string[] = [];
+        const bindings: unknown[] = [];
 
+        if (body.name !== undefined) {
+          const trimmed = body.name.trim().slice(0, 64);
+          if (!trimmed) return json({ error: 'name cannot be empty' }, 400);
+          updates.push('device_name = ?');
+          bindings.push(trimmed);
+        }
+        if (body.monitoring_enabled !== undefined) {
+          // Check column exists before adding to update (migration 002)
+          try {
+            await env.DB.prepare(`SELECT monitoring_enabled FROM devices LIMIT 1`).first();
+            updates.push('monitoring_enabled = ?');
+            bindings.push(body.monitoring_enabled ? 1 : 0);
+          } catch (_) { /* column not yet migrated, skip */ }
+        }
+
+        if (updates.length === 0) return json({ error: 'name or monitoring_enabled required' }, 400);
+
+        bindings.push(deviceId);
         await env.DB.prepare(
-          `UPDATE devices SET device_name = ? WHERE id = ?`
-        ).bind(name.trim().slice(0, 64), deviceId).run();
+          `UPDATE devices SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...bindings).run();
 
         return json({ success: true });
       } catch (e: any) {
-        return json({ error: 'Failed to rename: ' + e.message }, 500);
+        return json({ error: 'Failed to update device: ' + e.message }, 500);
       }
     }
 
