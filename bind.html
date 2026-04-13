@@ -39,21 +39,21 @@
       font-size: 15px;
       transition: border-color 0.2s;
     }
-    input:focus { outline: none; border-color: #7c6fff; }
+    input:focus { outline: none; border-color: #00b894; }
     
     button {
       width: 100%;
       padding: 14px;
-      background: #7c6fff;
+      background: linear-gradient(135deg, #00b894, #00cba9);
       color: #fff;
       border: none;
       border-radius: 8px;
       font-size: 15px;
       font-weight: 500;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: opacity 0.2s;
     }
-    button:hover { background: #6a5fd6; }
+    button:hover { opacity: 0.9; }
     button:disabled { background: #d2d2d7; cursor: not-allowed; }
     
     .error { color: #ff3b30; font-size: 13px; margin-top: 8px; display: none; }
@@ -71,8 +71,8 @@
       align-items: center;
       gap: 12px;
     }
-    .profile-item:hover { border-color: #7c6fff; background: #f5f0ff; }
-    .profile-item.selected { border-color: #7c6fff; background: #f5f0ff; }
+    .profile-item:hover { border-color: #00b894; background: #f0faf6; }
+    .profile-item.selected { border-color: #00b894; background: #f0faf6; }
     .avatar {
       width: 36px;
       height: 36px;
@@ -108,13 +108,13 @@
       color: #86868b;
     }
     .welcome-banner {
-      background: linear-gradient(135deg, #7c6fff22, #6c63ff11);
-      border: 1px solid #7c6fff44;
+      background: linear-gradient(135deg, rgba(0,184,148,0.1), rgba(0,203,169,0.06));
+      border: 1px solid rgba(0,184,148,0.25);
       border-radius: 10px;
       padding: 14px 16px;
       margin-bottom: 24px;
       font-size: 13px;
-      color: #4a3fcc;
+      color: #00836a;
       line-height: 1.6;
     }
     .welcome-banner strong { display: block; font-size: 15px; margin-bottom: 4px; }
@@ -243,7 +243,7 @@
       const container = document.getElementById('profilesList');
       container.innerHTML = profiles.map(p => `
         <div class="profile-item" onclick="selectProfile('${p.id}', this)">
-          <div class="avatar" style="background: ${p.avatar_color || '#7c6fff'}">
+          <div class="avatar" style="background: ${p.avatar_color || '#00b894'}">
             ${p.name.charAt(0).toUpperCase()}
           </div>
           <span class="profile-name">${p.name}</span>
