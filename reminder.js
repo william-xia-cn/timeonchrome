@@ -75,6 +75,7 @@
       handler: function() {
         chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: domain }, function(result) {
           if (result && result.added) {
+            chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
             showStatus('✓ 已加入，正在跳转…', 'success');
             setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
           } else if (result && result.alreadyPresent) {

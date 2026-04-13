@@ -18,6 +18,7 @@ const NOTIFIABLE_TYPES = new Set([
   'temp_allow_schedule', // 孩子申请临时绕过时间段限制
   'quota_locked',        // 配额刚锁定
   'unsafe_block',        // 访问不安全网站被拦截
+  'composite_add',       // 孩子将网站加入待定列表
 ]);
 
 const EVENT_LABELS: Record<string, string> = {
@@ -26,6 +27,7 @@ const EVENT_LABELS: Record<string, string> = {
   temp_allow_schedule: '孩子申请绕过时间段限制',
   quota_locked:        '上网时间配额已用完',
   unsafe_block:        '尝试访问不安全网站',
+  composite_add:       '孩子将网站加入待定列表',
 };
 
 function buildEmail(
