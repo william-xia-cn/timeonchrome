@@ -3,7 +3,7 @@
 (function() {
   // 解析 URL 参数
   const params = new URLSearchParams(location.search);
-  let reason = params.get('reason') || 'block';
+  const reason = params.get('reason') || 'block';
   let domain = params.get('domain') || '';
   const msg = params.get('msg') || '';
 
@@ -16,20 +16,19 @@
   }
 
   const reasonBadge = document.getElementById('reasonBadge');
-  const mainTitle = document.getElementById('mainTitle');
-  const subtitle = document.getElementById('subtitle');
-  const domainEl = document.getElementById('domainEl');
-  const infoCard = document.getElementById('infoCard');
-  const infoIcon = document.getElementById('infoIcon');
-  const infoText = document.getElementById('infoText');
-  const lockIcon = document.getElementById('lockIcon');
+  const mainTitle   = document.getElementById('mainTitle');
+  const subtitle    = document.getElementById('subtitle');
+  const domainEl    = document.getElementById('domainEl');
+  const infoCard    = document.getElementById('infoCard');
+  const infoIcon    = document.getElementById('infoIcon');
+  const infoText    = document.getElementById('infoText');
+  const lockIcon    = document.getElementById('lockIcon');
 
   if (domain) {
     domainEl.textContent = domain === 'all' ? '所有网站' : domain;
   } else if (document.referrer) {
     try {
-      const refUrl = new URL(document.referrer);
-      domainEl.textContent = refUrl.hostname;
+      domainEl.textContent = new URL(document.referrer).hostname;
     } catch (e) {
       domainEl.textContent = '(未知)';
     }
@@ -48,7 +47,7 @@
       title: '此网站不在允许列表',
       subtitle: 'TimeOnChrome 已开启白名单模式，只允许访问特定网站',
       icon: '🔒', infoIcon: '📋',
-      infoText: '仅允许访问白名单中的网站'
+      infoText: '仅允许访问白名单中的网站。可将此网站加入复合型列表临时访问（计入每日待定时限）。'
     },
     quota: {
       badge: '时间配额已满', badgeClass: 'quota',
@@ -56,6 +55,34 @@
       subtitle: '今天的上网时间配额已达上限，明天再来吧！',
       icon: '⏰', infoIcon: '⏱',
       infoText: (domain || '此网站') + ' 今日使用时间已达上限'
+    },
+    quota_online: {
+      badge: '在线时间已满', badgeClass: 'quota',
+      title: '今日在线时间已用完',
+      subtitle: '今天的总在线时间配额已达上限，明天再来吧！',
+      icon: '⏰', infoIcon: '⏱',
+      infoText: '今日在线时间已达上限，所有网站已锁定'
+    },
+    quota_study: {
+      badge: '学习时间已满', badgeClass: 'quota',
+      title: '今日学习时间已用完',
+      subtitle: '今天的学习时间配额已达上限，休息一下吧！',
+      icon: '📚', infoIcon: '⏱',
+      infoText: '今日学习时长已达上限，学习网站已锁定'
+    },
+    quota_rest: {
+      badge: '休息时间已满', badgeClass: 'quota',
+      title: '今日休息时间已用完',
+      subtitle: '今天的休息时间配额已达上限，去学习吧！',
+      icon: '🎮', infoIcon: '⏱',
+      infoText: '今日休息时长已达上限，娱乐网站已锁定'
+    },
+    quota_undetermined: {
+      badge: '待定时间已满', badgeClass: 'quota',
+      title: '今日待定时间已用完',
+      subtitle: '今天访问复合型网站的时间已达上限（2小时），明天再来吧！',
+      icon: '⏳', infoIcon: '⏱',
+      infoText: '今日待定时段已达上限（最多 2 小时），复合型网站已锁定'
     },
     schedule: {
       badge: '时间段限制', badgeClass: 'schedule',
@@ -94,92 +121,35 @@
     starsContainer.appendChild(star);
   }
 
-  // 临时放行功能（白名单拦截 / 配额锁定 / 时间段限制均可申请）
-  // 可申请临时放行的拦截类型（时间段限制和休息时长锁定不允许绕过）
-  const isWhitelistReason = reason === 'whitelist';
-  const isQuotaReason     = reason === 'quota' || reason === 'quota_online' || reason === 'quota_study';
-  const canRequestTemp    = (isWhitelistReason || isQuotaReason) && domain;
+  // 白名单拦截：提供"加入复合型网站"入口
+  if (reason === 'whitelist' && domain) {
+    const compositeSection = document.getElementById('compositeSection');
+    const compositeBtn     = document.getElementById('compositeBtn');
+    const compositeStatus  = document.getElementById('compositeStatus');
 
-  if (canRequestTemp) {
-    const tempAllowSection = document.getElementById('tempAllowSection');
-    const tempAllowBtn     = document.getElementById('tempAllowBtn');
-    const tempStatus       = document.getElementById('tempStatus');
-    const tempDuration     = document.getElementById('tempDuration');
+    compositeSection.style.display = 'block';
 
-    tempAllowSection.style.display = 'block';
+    compositeBtn.addEventListener('click', () => {
+      compositeBtn.disabled = true;
+      compositeBtn.style.opacity = '0.5';
+      compositeStatus.textContent = '处理中...';
 
-    // 根据拦截类型定制按钮文字
-    if (isQuotaReason || isScheduleReason) {
-      tempAllowBtn.querySelector
-        ? (tempAllowBtn.childNodes[0].textContent = '⏱ 申请 ')
-        : null;
-      // 重写按钮内容
-      tempAllowBtn.innerHTML = `⏱ 申请 <span id="tempDuration">1</span> 分钟例外`;
-    }
-
-    // 获取配置中的时长
-    chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (config) => {
-      if (config) {
-        const duration = config.tempWhitelistConfig?.duration || 1;
-        document.getElementById('tempDuration').textContent = duration;
-      }
-    });
-
-    // 如果是白名单拦截，检查是否已在临时白名单中
-    if (isWhitelistReason) {
-      chrome.runtime.sendMessage({ type: 'GET_TEMP_WHITELIST' }, (tempWhitelist) => {
-        if (tempWhitelist?.domains?.[domain]) {
-          const expiresAt = tempWhitelist.domains[domain];
-          const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000 / 60));
-          if (remaining > 0) {
-            tempStatus.textContent = `✓ 已临时放行，剩余 ${remaining} 分钟`;
-            tempAllowBtn.disabled = true;
-            tempAllowBtn.style.opacity = '0.5';
-          }
+      chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain }, (result) => {
+        if (result?.added) {
+          compositeStatus.textContent = '✓ 已加入复合型网站，正在跳转…';
+          chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain });
+          setTimeout(() => {
+            const protocol = document.referrer ? new URL(document.referrer).protocol : 'https:';
+            window.location.href = `${protocol}//${domain}`;
+          }, 600);
+        } else if (result?.alreadyPresent) {
+          compositeStatus.textContent = '该域名已在允许列表中，请刷新页面';
+        } else {
+          compositeStatus.textContent = '操作失败，请稍后重试';
+          compositeBtn.disabled = false;
+          compositeBtn.style.opacity = '1';
         }
       });
-    }
-
-    // 点击申请
-    tempAllowBtn.addEventListener('click', () => {
-      tempAllowBtn.disabled = true;
-      tempAllowBtn.style.opacity = '0.5';
-      tempStatus.textContent = '处理中...';
-
-      if (isWhitelistReason) {
-        // 白名单绕过：把域名加入临时白名单
-        chrome.runtime.sendMessage({ type: 'ADD_TEMP_WHITELIST', domain }, (result) => {
-          if (result?.expiresAt) {
-            const remaining = Math.ceil((result.expiresAt - Date.now()) / 1000 / 60);
-            tempStatus.textContent = `✓ 已放行，${remaining} 分钟后过期`;
-            // 上报云端事件（fire-and-forget）
-            chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'temp_allow', domain });
-            setTimeout(() => {
-              const protocol = document.referrer ? new URL(document.referrer).protocol : 'https:';
-              window.location.href = `${protocol}//${domain}`;
-            }, 500);
-          }
-        });
-
-      } else if (isQuotaReason) {
-        // 配额绕过：设置临时配额豁免
-        chrome.runtime.sendMessage({ type: 'ADD_TEMP_EXEMPTION', exemptType: 'quota', domain }, (result) => {
-          if (result?.expiresAt) {
-            const remaining = Math.ceil((result.expiresAt - Date.now()) / 1000 / 60);
-            tempStatus.textContent = `✓ 已申请 ${remaining} 分钟例外`;
-            chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'temp_allow_quota', domain });
-            setTimeout(() => {
-              if (domain && domain !== 'all') {
-                const protocol = document.referrer ? new URL(document.referrer).protocol : 'https:';
-                window.location.href = `${protocol}//${domain}`;
-              } else {
-                history.back();
-              }
-            }, 500);
-          }
-        });
-
-      }
     });
   }
 })();

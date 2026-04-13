@@ -175,7 +175,6 @@ async function pullCloudConfig() {
         // 以下字段始终保持本地值（设备运行时状态，不跟随云端）
         adminPasswordHash: localConfig.adminPasswordHash,
         isInitialized:     localConfig.isInitialized,
-        tempWhitelist:     localConfig.tempWhitelist,
         lockedDomains:     localConfig.lockedDomains,
         quotaState:        localConfig.quotaState,   // 配额锁定状态由云端聚合接口更新
       };
@@ -206,14 +205,16 @@ async function pullCloudQuotaState() {
 
     // 云端锁定优先（只升不降：云端说锁则锁，云端未锁仍尊重本地计时）
     const newState = {
-      onlineLocked: localQs.onlineLocked || result.onlineLocked,
-      studyLocked:  localQs.studyLocked  || result.studyLocked,
-      restLocked:   localQs.restLocked   || result.restLocked,
+      onlineLocked:       localQs.onlineLocked       || result.onlineLocked,
+      studyLocked:        localQs.studyLocked        || result.studyLocked,
+      restLocked:         localQs.restLocked         || result.restLocked,
+      undeterminedLocked: localQs.undeterminedLocked || result.undeterminedLocked,
     };
 
-    const stateChanged = newState.onlineLocked !== localQs.onlineLocked ||
-                         newState.studyLocked  !== localQs.studyLocked  ||
-                         newState.restLocked   !== localQs.restLocked;
+    const stateChanged = newState.onlineLocked       !== localQs.onlineLocked       ||
+                         newState.studyLocked        !== localQs.studyLocked        ||
+                         newState.restLocked         !== localQs.restLocked         ||
+                         newState.undeterminedLocked !== localQs.undeterminedLocked;
 
     if (stateChanged) {
       config.quotaState = newState;
@@ -227,6 +228,9 @@ async function pullCloudQuotaState() {
         await closeQuotaViolatingTabs(config, newState);
       } else if (newState.studyLocked && !localQs.studyLocked) {
         chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日学习时间已达上限，学习网站已锁定。' });
+        await closeQuotaViolatingTabs(config, newState);
+      } else if (newState.undeterminedLocked && !localQs.undeterminedLocked) {
+        chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日待定时间已达上限，复合型网站已锁定。' });
         await closeQuotaViolatingTabs(config, newState);
       }
 
@@ -364,22 +368,24 @@ async function pushConfigToCloud(config) {
     // 提取需要同步到云端的字段（排除本地专用数据）
     // 注意：quotaState / lockedDomains / tempWhitelist 是设备本地状态，不上传
     const cloudData = {
-      mode:               config.mode,
-      enabled:            config.enabled,
-      studyList:          config.studyList,
-      allowList:          config.allowList,
-      blacklist:          config.blacklist,
-      dailyOnlineQuota:   config.dailyOnlineQuota,
-      dailyStudyQuota:    config.dailyStudyQuota,
-      dailyRestQuota:     config.dailyRestQuota,
-      domainQuotas:       config.domainQuotas,
-      schedule:           config.schedule,
-      restConfig:         config.restConfig,
-      autoStudyConfig:    config.autoStudyConfig,
-      tempWhitelistConfig:config.tempWhitelistConfig,
-      interceptAction:    config.interceptAction,
-      blockMessage:       config.blockMessage,
-      version:            config.version,
+      mode:                    config.mode,
+      enabled:                 config.enabled,
+      studyList:               config.studyList,
+      compositeList:           config.compositeList,
+      blacklist:               config.blacklist,
+      dailyOnlineQuota:        config.dailyOnlineQuota,
+      dailyStudyQuota:         config.dailyStudyQuota,
+      dailyRestQuota:          config.dailyRestQuota,
+      dailyUndeterminedQuota:  config.dailyUndeterminedQuota,
+      weeklyRestQuota:         config.weeklyRestQuota,
+      domainQuotas:            config.domainQuotas,
+      classificationRules:     config.classificationRules,
+      schedule:                config.schedule,
+      restConfig:              config.restConfig,
+      autoStudyConfig:         config.autoStudyConfig,
+      interceptAction:         config.interceptAction,
+      blockMessage:            config.blockMessage,
+      version:                 config.version,
     };
 
     const result = await cloudRequest('PUT', '/device/config', { data: cloudData });
@@ -515,6 +521,7 @@ const STORAGE_VERSION = '1.3';
 const CONFIG_KEY = 'guardian_config';
 const HASH_KEY = 'guardian_hash';
 const STATS_KEY_PREFIX = 'stats_';
+const UNDETERMINED_STATS_KEY_PREFIX = 'undetermined_stats_';  // 待定时段（compositeList）时长
 const SESSION_KEY = 'guardian_session';
 const SESSIONS_KEY = 'guardian_sessions';
 const VISIT_SESSIONS_KEY = 'visit_sessions';     // 访问会话记录（隐私友好版）
@@ -556,8 +563,8 @@ const DEFAULT_CONFIG = {
     // 教育认证
     'collegeboard.org'
   ],
-  // 默认允许网站（不计学习时长，可正常访问）
-  allowList: [
+  // 复合型网站（待定时段：内容可能是学习也可能是娱乐，计入待定时长，由家长事后审核）
+  compositeList: [
     // 搜索引擎
     'google.com', 'google.com.hk', 'bing.com', 'baidu.com', 'search.brave.com', 'duckduckgo.com',
     // 问答社区
@@ -571,12 +578,16 @@ const DEFAULT_CONFIG = {
   // 默认黑名单（始终拦截）
   blacklist: ['douyin.com', 'tiktok.com'],
   // 每日时长配额（分钟，0 = 不限制）
-  dailyOnlineQuota: 1200,  // 每日在线时长上限：20小时
-  dailyStudyQuota:  480,   // 每日在线学习时长上限：8小时
-  dailyRestQuota:   180,   // 每日在线休息时长上限：3小时
+  dailyOnlineQuota:       1200,  // 每日在线时长上限：20小时
+  dailyStudyQuota:         480,  // 每日在线学习时长上限：8小时
+  dailyRestQuota:          120,  // 每日休息时段上限：2小时
+  dailyUndeterminedQuota:  120,  // 每日待定时段上限：2小时（compositeList）
+  weeklyRestQuota:        null,  // 每周休息上限（分钟），null = 日配额×7
   domainQuotas: {},
+  // 审核规则（关键词自动分类）
+  classificationRules: [],
   // 配额锁定状态（每日重置）
-  quotaState: { onlineLocked: false, studyLocked: false, restLocked: false },
+  quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
   schedule: {
     enabled: false,
     days: {
@@ -601,15 +612,6 @@ const DEFAULT_CONFIG = {
   autoStudyConfig: {
     enabled: true,
     requiredSeconds: 90  // 90秒自动切换
-  },
-  // 临时白名单配置
-  tempWhitelistConfig: {
-    duration: 60  // 默认60分钟
-  },
-  // 临时白名单数据
-  tempWhitelist: {
-    domains: {},  // { 'domain.com': expiresAtTimestamp }
-    records: []   // [{ domain, addedAt, expiresAt }]
   },
   updatedAt: null
 };
@@ -738,6 +740,27 @@ async function addDomainTime(domain, seconds) {
   });
 }
 
+async function addUndeterminedTime(domain, seconds) {
+  const today = getDateKey();
+  const key = UNDETERMINED_STATS_KEY_PREFIX + today;
+  return new Promise((resolve) => {
+    chrome.storage.local.get(key, (result) => {
+      const stats = result[key] || {};
+      stats[domain] = (stats[domain] || 0) + seconds;
+      chrome.storage.local.set({ [key]: stats }, resolve);
+    });
+  });
+}
+
+async function getTodayUndeterminedStats() {
+  const today = getDateKey();
+  return new Promise((resolve) => {
+    chrome.storage.local.get(UNDETERMINED_STATS_KEY_PREFIX + today, (result) => {
+      resolve(result[UNDETERMINED_STATS_KEY_PREFIX + today] || {});
+    });
+  });
+}
+
 async function getStatsRange(days = 7) {
   const keys = [];
   for (let i = 0; i < days; i++) {
@@ -793,90 +816,29 @@ async function saveSession(session) {
   });
 }
 
-// ── 临时白名单管理 ─────────────────────────────────────────────────────────────
-
-async function getTempWhitelist() {
-  const config = await getConfig();
-  return config.tempWhitelist || { domains: {}, records: [] };
-}
-
-async function addTempWhitelist(domain) {
-  const config = await getConfig();
-  if (!config.tempWhitelist) {
-    config.tempWhitelist = { domains: {}, records: [] };
-  }
-  
-  const duration = config.tempWhitelistConfig?.duration || 1;
-  const now = Date.now();
-  const expiresAt = now + duration * 60 * 1000;
-  
-  config.tempWhitelist.domains[domain] = expiresAt;
-  config.tempWhitelist.records.unshift({
-    domain,
-    addedAt: now,
-    expiresAt
-  });
-  
-  // 只保留最近100条记录
-  if (config.tempWhitelist.records.length > 100) {
-    config.tempWhitelist.records = config.tempWhitelist.records.slice(0, 100);
-  }
-  
-  await saveConfig(config);
-  await updateDeclarativeRules();
-  
-  return { domain, expiresAt };
-}
+// ── 临时放行：加入复合型网站列表 ─────────────────────────────────────────────
 
 /**
- * 临时豁免：绕过配额锁定或时间段限制
- * exemptType: 'quota' | 'schedule'
+ * 将域名加入 compositeList（临时放行新设计）
+ * 域名加入后消耗待定配额，家长事后审核分流
  */
-async function addTempExemption(exemptType, domain) {
+async function addToCompositeList(domain) {
   const config = await getConfig();
-  const duration = config.tempWhitelistConfig?.duration || 1;
-  const expiresAt = Date.now() + duration * 60 * 1000;
+  const list = config.compositeList || [];
 
-  if (!config.tempExemptions) {
-    config.tempExemptions = { quotaUntil: 0, scheduleUntil: 0 };
+  // 已在 compositeList 或 studyList 中则无需重复添加
+  const alreadyInComposite = list.some(d => matchDomain(domain, d));
+  const alreadyInStudy = (config.studyList || []).some(d => matchDomain(domain, d));
+  if (alreadyInComposite || alreadyInStudy) {
+    return { domain, alreadyPresent: true };
   }
 
-  if (exemptType === 'quota') {
-    config.tempExemptions.quotaUntil = expiresAt;
-  } else if (exemptType === 'schedule') {
-    config.tempExemptions.scheduleUntil = expiresAt;
-  }
-
-  // 对于单域名配额锁定，也加入 tempWhitelist（双重保障）
-  if (domain && domain !== 'all') {
-    if (!config.tempWhitelist) config.tempWhitelist = { domains: {}, records: [] };
-    config.tempWhitelist.domains[domain] = expiresAt;
-  }
-
+  config.compositeList = [...list, domain];
   await saveConfig(config);
-  return { expiresAt };
-}
-
-async function cleanExpiredTempWhitelist() {
-  const config = await getConfig();
-  if (!config.tempWhitelist || !config.tempWhitelist.domains) return false;
-  
-  const now = Date.now();
-  let changed = false;
-  
-  for (const domain of Object.keys(config.tempWhitelist.domains)) {
-    if (config.tempWhitelist.domains[domain] <= now) {
-      delete config.tempWhitelist.domains[domain];
-      changed = true;
-    }
-  }
-  
-  if (changed) {
-    await saveConfig(config);
-    await updateDeclarativeRules();
-  }
-  
-  return changed;
+  await updateDeclarativeRules(config);
+  // 推送到云端（非阻塞）
+  pushConfigToCloud(config).catch(e => console.warn('[Cloud] Push config failed:', e.message));
+  return { domain, added: true };
 }
 
 async function getSessionsRange(days = 30) {
@@ -1259,6 +1221,7 @@ function beginVisitSession(domain) {
  */
 async function handleTickTimer() {
   const now = Date.now();
+  const config = await getConfig();
 
   // 条件A flush + 重置起点
   if (domainActiveStartTime && activeTabDomain) {
@@ -1266,6 +1229,12 @@ async function handleTickTimer() {
     if (elapsed > 0) {
       await addDomainTime(activeTabDomain, elapsed);
       updateVisitSession(activeTabDomain, 'active', elapsed);
+      // 如果是 compositeList 域名，同时记录到待定统计
+      const isComposite = (config.compositeList || []).some(p => matchDomain(activeTabDomain, p));
+      const isStudy = (config.studyList || []).some(p => matchDomain(activeTabDomain, p));
+      if (isComposite && !isStudy) {
+        await addUndeterminedTime(activeTabDomain, elapsed);
+      }
     }
     domainActiveStartTime = (windowHasFocus && !userIsIdle) ? now : null;
   }
@@ -1277,6 +1246,12 @@ async function handleTickTimer() {
     if (elapsed > 0) {
       await addDomainTime(info.domain, elapsed);
       updateVisitSession(info.domain, 'passive', elapsed);
+      // compositeList 后台媒体也记入待定统计
+      const isComposite = (config.compositeList || []).some(p => matchDomain(info.domain, p));
+      const isStudy = (config.studyList || []).some(p => matchDomain(info.domain, p));
+      if (isComposite && !isStudy) {
+        await addUndeterminedTime(info.domain, elapsed);
+      }
       info.lastFlushTime = now;
     }
   }
@@ -1379,14 +1354,23 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         isInitialized: existingConfig.isInitialized || false,
         restConfig: existingConfig.restConfig || DEFAULT_CONFIG.restConfig,
         studyList: existingConfig.studyList || existingConfig.whitelist || DEFAULT_CONFIG.studyList,
-        allowList: existingConfig.allowList || DEFAULT_CONFIG.allowList,
+        // 迁移旧 allowList → compositeList
+        compositeList: existingConfig.compositeList || existingConfig.allowList || DEFAULT_CONFIG.compositeList,
         autoStudyConfig: existingConfig.autoStudyConfig || DEFAULT_CONFIG.autoStudyConfig,
         // 迁移旧 dailyQuota → dailyOnlineQuota
-        dailyOnlineQuota: existingConfig.dailyOnlineQuota ?? (existingConfig.dailyQuota > 0 ? existingConfig.dailyQuota : DEFAULT_CONFIG.dailyOnlineQuota),
-        dailyStudyQuota:  existingConfig.dailyStudyQuota  ?? DEFAULT_CONFIG.dailyStudyQuota,
-        dailyRestQuota:   existingConfig.dailyRestQuota   ?? DEFAULT_CONFIG.dailyRestQuota,
-        quotaState: { onlineLocked: false, studyLocked: false, restLocked: false }
+        dailyOnlineQuota:       existingConfig.dailyOnlineQuota       ?? (existingConfig.dailyQuota > 0 ? existingConfig.dailyQuota : DEFAULT_CONFIG.dailyOnlineQuota),
+        dailyStudyQuota:        existingConfig.dailyStudyQuota        ?? DEFAULT_CONFIG.dailyStudyQuota,
+        dailyRestQuota:         existingConfig.dailyRestQuota         ?? DEFAULT_CONFIG.dailyRestQuota,
+        dailyUndeterminedQuota: existingConfig.dailyUndeterminedQuota ?? DEFAULT_CONFIG.dailyUndeterminedQuota,
+        weeklyRestQuota:        existingConfig.weeklyRestQuota        ?? DEFAULT_CONFIG.weeklyRestQuota,
+        classificationRules:    existingConfig.classificationRules    ?? [],
+        quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false }
       };
+      // 清理已废弃字段
+      delete migratedConfig.allowList;
+      delete migratedConfig.tempWhitelist;
+      delete migratedConfig.tempWhitelistConfig;
+      delete migratedConfig.tempExemptions;
       
       await saveConfig(migratedConfig);
     }
@@ -1416,7 +1400,6 @@ function setupAlarms() {
   chrome.alarms.create('quota_check', { periodInMinutes: 1 });
   chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
   chrome.alarms.create('keepalive', { periodInMinutes: 0.5 });
-  chrome.alarms.create('temp_whitelist_cleanup', { periodInMinutes: 1 });
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -1436,8 +1419,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await handleRestReminder();
   } else if (alarm.name === 'rest_forced') {
     await handleRestForcedEnd();
-  } else if (alarm.name === 'temp_whitelist_cleanup') {
-    await cleanExpiredTempWhitelist();
   }
 });
 
@@ -1568,26 +1549,18 @@ async function checkAndBlock(tabId, url) {
   const domain = extractDomain(url);
   if (!domain) return false;
 
-  // 0. 预计算临时豁免（供后续所有检查使用）
-  const _now = Date.now();
-  const _isTempAllowed    = config.tempWhitelist?.domains?.[domain] > _now;
-  const _isQuotaExempt    = (config.tempExemptions?.quotaUntil    || 0) > _now;
-  const _isScheduleExempt = (config.tempExemptions?.scheduleUntil || 0) > _now;
+  const isStudyDomain    = (config.studyList     || []).some(p => matchDomain(domain, p));
+  const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p));
 
-  // 1. 检查时间段限制（临时豁免可绕过）
+  // 1. 检查时间段限制
   if (config.schedule.enabled && !isWithinSchedule(config.schedule)) {
-    if (_isScheduleExempt || _isTempAllowed) return false;
     await blockTab(tabId, domain, 'schedule', config.blockMessage);
     return true;
   }
 
-  // 2. 白名单模式：不在白名单就拦截
+  // 2. 白名单模式：studyList + compositeList 才允许访问
   if (config.mode === 'whitelist') {
-    const allowed = (config.studyList || []).some(w => matchDomain(domain, w)) ||
-                 (config.allowList || []).some(w => matchDomain(domain, w)) ||
-                 (config.tempWhitelist?.domains?.[domain] > Date.now());
-    
-    if (!allowed) {
+    if (!isStudyDomain && !isCompositeDomain) {
       await blockTab(tabId, domain, 'whitelist', config.blockMessage);
       return true;
     }
@@ -1595,30 +1568,29 @@ async function checkAndBlock(tabId, url) {
 
   // 3. 黑名单模式：在黑名单就拦截
   if (config.mode === 'blacklist') {
-    const blocked = config.blacklist.some(b => matchDomain(domain, b));
+    const blocked = (config.blacklist || []).some(b => matchDomain(domain, b));
     if (blocked) {
       await blockTab(tabId, domain, 'blacklist', config.blockMessage);
       return true;
     }
   }
 
-  // 4. 检查配额锁定状态（临时豁免可绕过）
-  if (_isTempAllowed || _isQuotaExempt) {
-    return false; // 临时豁免，放行
-  }
-
+  // 4. 检查配额锁定状态
   const qs = config.quotaState || {};
   if (qs.onlineLocked) {
     await blockTab(tabId, domain, 'quota_online', config.blockMessage);
     return true;
   }
-  const isStudyDomain = (config.studyList || []).some(p => matchDomain(domain, p));
-  if (qs.restLocked && !isStudyDomain) {
+  if (qs.restLocked && !isStudyDomain && !isCompositeDomain) {
     await blockTab(tabId, domain, 'quota_rest', config.blockMessage);
     return true;
   }
   if (qs.studyLocked && isStudyDomain) {
     await blockTab(tabId, domain, 'quota_study', config.blockMessage);
+    return true;
+  }
+  if (qs.undeterminedLocked && isCompositeDomain && !isStudyDomain) {
+    await blockTab(tabId, domain, 'quota_undetermined', config.blockMessage);
     return true;
   }
   // 单站点配额锁定
@@ -1636,32 +1608,46 @@ async function checkAllTabsQuota() {
   if (!config.enabled) return;
 
   const stats = await getTodayStats();
+  const undeterminedStats = await getTodayUndeterminedStats();
 
-  // 按 studyList 区分学习/休息时长
-  let studySeconds = 0, totalSeconds = 0;
+  // 三时段分类：studyList → 学习，compositeList（非studyList）→ 待定，其余 → 休息
+  let studySeconds = 0, undeterminedSeconds = 0, totalSeconds = 0;
   for (const [domain, seconds] of Object.entries(stats)) {
     totalSeconds += seconds;
-    if ((config.studyList || []).some(p => matchDomain(domain, p))) {
+    const isStudy    = (config.studyList     || []).some(p => matchDomain(domain, p));
+    const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p));
+    if (isStudy) {
       studySeconds += seconds;
+    } else if (isComposite) {
+      // compositeList 时长也记入 undetermined（以待定统计为准，避免重复计算）
     }
   }
-  const restSeconds  = totalSeconds - studySeconds;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const studyMinutes = Math.floor(studySeconds / 60);
-  const restMinutes  = Math.floor(restSeconds  / 60);
+  // 待定时长从独立存储中读取
+  for (const seconds of Object.values(undeterminedStats)) {
+    undeterminedSeconds += seconds;
+  }
+  const restSeconds  = totalSeconds - studySeconds - undeterminedSeconds;
+
+  const totalMinutes         = Math.floor(totalSeconds         / 60);
+  const studyMinutes         = Math.floor(studySeconds         / 60);
+  const restMinutes          = Math.floor(Math.max(0, restSeconds) / 60);
+  const undeterminedMinutes  = Math.floor(undeterminedSeconds  / 60);
 
   // 计算新锁定状态
-  const dailyOnlineQuota = config.dailyOnlineQuota ?? config.dailyQuota ?? 0;
+  const dailyOnlineQuota        = config.dailyOnlineQuota        ?? config.dailyQuota ?? 0;
+  const dailyUndeterminedQuota  = config.dailyUndeterminedQuota  ?? 120;
   const newState = {
-    onlineLocked: dailyOnlineQuota > 0 && totalMinutes >= dailyOnlineQuota,
-    studyLocked:  (config.dailyStudyQuota || 0) > 0 && studyMinutes >= config.dailyStudyQuota,
-    restLocked:   (config.dailyRestQuota  || 0) > 0 && restMinutes  >= config.dailyRestQuota
+    onlineLocked:       dailyOnlineQuota        > 0 && totalMinutes        >= dailyOnlineQuota,
+    studyLocked:        (config.dailyStudyQuota || 0) > 0 && studyMinutes >= config.dailyStudyQuota,
+    restLocked:         (config.dailyRestQuota  || 0) > 0 && restMinutes  >= config.dailyRestQuota,
+    undeterminedLocked: dailyUndeterminedQuota  > 0 && undeterminedMinutes >= dailyUndeterminedQuota,
   };
 
   const oldState = config.quotaState || {};
-  const stateChanged = newState.onlineLocked !== oldState.onlineLocked ||
-                       newState.studyLocked  !== oldState.studyLocked  ||
-                       newState.restLocked   !== oldState.restLocked;
+  const stateChanged = newState.onlineLocked       !== oldState.onlineLocked       ||
+                       newState.studyLocked        !== oldState.studyLocked        ||
+                       newState.restLocked         !== oldState.restLocked         ||
+                       newState.undeterminedLocked !== oldState.undeterminedLocked;
 
   if (stateChanged) {
     config.quotaState = newState;
@@ -1674,11 +1660,15 @@ async function checkAllTabsQuota() {
       return;
     }
     if (newState.restLocked && !oldState.restLocked) {
-      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日休息时间已达上限（' + Math.round(config.dailyRestQuota / 60 * 10) / 10 + ' 小时），娱乐网站已锁定。' });
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:`今日休息时间已达上限（${Math.round(config.dailyRestQuota / 60 * 10) / 10} 小时），娱乐网站已锁定。` });
       await closeQuotaViolatingTabs(config, newState);
     }
     if (newState.studyLocked && !oldState.studyLocked) {
-      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:'今日学习时间已达上限（' + Math.round(config.dailyStudyQuota / 60 * 10) / 10 + ' 小时），学习网站已锁定。' });
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:`今日学习时间已达上限（${Math.round(config.dailyStudyQuota / 60 * 10) / 10} 小时），学习网站已锁定。` });
+      await closeQuotaViolatingTabs(config, newState);
+    }
+    if (newState.undeterminedLocked && !oldState.undeterminedLocked) {
+      chrome.notifications.create({ type:'basic', iconUrl:'icons/icon48.png', title:'TimeOnChrome', message:`今日待定时间已达上限（${Math.round(dailyUndeterminedQuota / 60 * 10) / 10} 小时），复合型网站已锁定。` });
       await closeQuotaViolatingTabs(config, newState);
     }
   }
@@ -1718,11 +1708,14 @@ async function closeQuotaViolatingTabs(config, quotaState) {
     if (!tab.url || isSpecialUrl(tab.url)) continue;
     const domain = extractDomain(tab.url);
     if (!domain) continue;
-    const isStudy = (config.studyList || []).some(p => matchDomain(domain, p));
-    if (quotaState.restLocked && !isStudy) {
-      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_rest&domain=${encodeURIComponent(domain)}` });
-    } else if (quotaState.studyLocked && isStudy) {
+    const isStudy     = (config.studyList     || []).some(p => matchDomain(domain, p));
+    const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p));
+    if (quotaState.studyLocked && isStudy) {
       chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_study&domain=${encodeURIComponent(domain)}` });
+    } else if (quotaState.undeterminedLocked && isComposite && !isStudy) {
+      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_undetermined&domain=${encodeURIComponent(domain)}` });
+    } else if (quotaState.restLocked && !isStudy && !isComposite) {
+      chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('blocked.html') + `?reason=quota_rest&domain=${encodeURIComponent(domain)}` });
     }
   }
 }
@@ -1769,16 +1762,12 @@ async function updateDeclarativeRules(config) {
   const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
   const removeIds = existingRules.map(r => r.id);
 
-  // 白名单模式 uses studyList + allowList + tempWhitelist
+  // 白名单模式 uses studyList + compositeList
   if (cfg.mode === 'whitelist') {
-    // 清理过期的临时白名单
-    await cleanExpiredTempWhitelist();
-    
-    // 获取学习列表、允许列表和临时白名单域名
-    const studyList   = cfg.studyList  || [];
-    const allowList   = cfg.allowList  || [];
-    const tempDomains = Object.keys(cfg.tempWhitelist?.domains || {});
-    const allAllowed  = [...studyList, ...allowList, ...tempDomains];
+    // 获取学习列表和复合型网站列表
+    const studyList     = cfg.studyList     || [];
+    const compositeList = cfg.compositeList || [];
+    const allAllowed    = [...studyList, ...compositeList];
     
     // 移除旧规则
     if (removeIds.length > 0) {
@@ -1890,8 +1879,8 @@ async function resetDailyLockedDomains(force = false) {
     changed = true;
   }
   const qs = config.quotaState || {};
-  if (qs.onlineLocked || qs.studyLocked || qs.restLocked) {
-    config.quotaState = { onlineLocked: false, studyLocked: false, restLocked: false };
+  if (qs.onlineLocked || qs.studyLocked || qs.restLocked || qs.undeterminedLocked) {
+    config.quotaState = { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false };
     changed = true;
   }
   if (changed) await saveConfig(config);
@@ -1976,19 +1965,9 @@ async function handleMessage(msg, sender) {
     case 'SWITCH_TO_REST':
       return await switchToRest();
 
-    // 临时白名单相关
-    case 'ADD_TEMP_WHITELIST':
-      return await addTempWhitelist(msg.domain);
-
-    case 'ADD_TEMP_EXEMPTION':
-      return await addTempExemption(msg.exemptType, msg.domain);
-
-    case 'GET_TEMP_WHITELIST':
-      return await getTempWhitelist();
-
-    case 'CLEAN_TEMP_WHITELIST':
-      await cleanExpiredTempWhitelist();
-      return { ok: true };
+    // 临时放行：将域名加入复合型网站列表
+    case 'ADD_TO_COMPOSITE_LIST':
+      return await addToCompositeList(msg.domain);
 
     // 云端事件上报（fire-and-forget）
     case 'SEND_CLOUD_EVENT': {

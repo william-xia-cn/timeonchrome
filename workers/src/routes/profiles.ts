@@ -46,7 +46,7 @@ function buildDefaultConfig(): object {
       // 教育认证
       'collegeboard.org',
     ],
-    allowList: [
+    compositeList: [
       // 搜索引擎
       'google.com', 'google.com.hk', 'bing.com', 'baidu.com',
       'search.brave.com', 'duckduckgo.com',
@@ -58,11 +58,14 @@ function buildDefaultConfig(): object {
       'wikipedia.org', 'britannica.com', 'wolframalpha.com',
     ],
     blacklist: ['douyin.com', 'tiktok.com'],
-    dailyOnlineQuota: 1200,
-    dailyStudyQuota:  480,
-    dailyRestQuota:   120,
+    dailyOnlineQuota:       1200,
+    dailyStudyQuota:         480,
+    dailyRestQuota:          120,
+    dailyUndeterminedQuota:  120,
+    weeklyRestQuota:        null,
     domainQuotas: {},
-    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false },
+    classificationRules: [],
+    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
     schedule: {
       enabled: false,
       days: {
@@ -77,8 +80,6 @@ function buildDefaultConfig(): object {
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
-    tempWhitelistConfig:{ duration: 1 },
-    tempWhitelist:      { domains: {} },
   };
 }
 

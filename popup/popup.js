@@ -83,24 +83,29 @@ async function init() {
   const dateEl = document.getElementById('footer-date');
   if (dateEl) dateEl.textContent = `${now.getMonth()+1}/${now.getDate()} ${weekNames[now.getDay()]}`;
 
-  // 计算今日学习/休息/在线时长
-  const studyList = config.studyList || [];
-  const allowList = config.allowList || [];
-  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0;
+  // 计算今日学习/待定/休息/在线时长（三时段模型）
+  const studyList     = config.studyList     || [];
+  const compositeList = config.compositeList || [];
+  let studySeconds = 0, undeterminedSeconds = 0, restSeconds = 0, onlineSeconds = 0;
 
   for (const [domain, seconds] of Object.entries(stats)) {
     onlineSeconds += seconds;
-    if (studyList.some(p => matchDomain(domain, p))) {
+    const isStudy     = studyList.some(p => matchDomain(domain, p));
+    const isComposite = compositeList.some(p => matchDomain(domain, p));
+    if (isStudy) {
       studySeconds += seconds;
+    } else if (isComposite) {
+      undeterminedSeconds += seconds;
     } else {
       restSeconds += seconds;
     }
   }
 
   // 配额上限（分钟→秒）
-  const onlineLimit = (config.dailyOnlineQuota ?? 1200) * 60;
-  const studyLimit  = (config.dailyStudyQuota  ?? 480)  * 60;
-  const restLimit   = (config.dailyRestQuota   ?? 120)  * 60;
+  const onlineLimit       = (config.dailyOnlineQuota       ?? 1200) * 60;
+  const studyLimit        = (config.dailyStudyQuota        ?? 480)  * 60;
+  const restLimit         = (config.dailyRestQuota         ?? 120)  * 60;
+  const undeterminedLimit = (config.dailyUndeterminedQuota ?? 120)  * 60;
   const qs = config.quotaState || {};
 
   // 激励摘要
@@ -142,6 +147,7 @@ async function init() {
     quotaBarsEl.innerHTML =
       bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
       bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
+      bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked) +
       bar('🎵', '休息时长', restSeconds, restLimit, 'var(--warn)', qs.restLocked);
   }
 

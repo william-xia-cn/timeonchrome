@@ -196,12 +196,15 @@
 
     <a href="javascript:history.back()" class="btn-back">← 返回上一页</a>
 
-    <!-- 临时放行按钮（仅白名单模式显示） -->
-    <div id="tempAllowSection" style="display:none; margin-bottom: 24px;">
-      <button id="tempAllowBtn" class="btn-back" style="background: rgba(0,184,148,0.12); border-color: rgba(0,184,148,0.3);">
-        ⏱ 临时放行 <span id="tempDuration">1</span> 分钟
+    <!-- 加入复合型网站（仅白名单拦截时显示） -->
+    <div id="compositeSection" style="display:none; margin-bottom: 24px;">
+      <button id="compositeBtn" class="btn-back" style="background: rgba(0,184,148,0.12); border-color: rgba(0,184,148,0.3);">
+        ➕ 加入复合型网站，暂时访问
       </button>
-      <div id="tempStatus" style="font-size: 12px; color: var(--muted); margin-top: 8px;"></div>
+      <p style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5;">
+        加入后计入今日待定时间（上限 2 小时），家长稍后审核分类
+      </p>
+      <div id="compositeStatus" style="font-size: 12px; color: var(--muted); margin-top: 8px;"></div>
     </div>
 
     <div class="footer">TimeOnChrome &nbsp;·&nbsp; <span>TimeOnChrome</span> &nbsp;·&nbsp; 保护成长，守护未来</div>

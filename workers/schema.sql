@@ -44,7 +44,40 @@ CREATE TABLE IF NOT EXISTS stats (
   FOREIGN KEY (profile_id) REFERENCES profiles(id)
 );
 
+-- 复合型网站会话记录表（Phase 2：标题追踪 + 家长审核）
+CREATE TABLE IF NOT EXISTS composite_sessions (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  device_id TEXT,
+  domain TEXT NOT NULL,
+  title TEXT NOT NULL,
+  date TEXT NOT NULL,          -- YYYY-MM-DD
+  start_time INTEGER NOT NULL, -- Unix ms
+  duration INTEGER NOT NULL,   -- 秒
+  classification TEXT,         -- null / 'study' / 'rest'
+  classified_by TEXT,          -- null / 'parent' / 'rule'
+  classified_at INTEGER,
+  FOREIGN KEY (profile_id) REFERENCES profiles(id)
+);
+
+-- 申诉记录表（Phase 2）
+CREATE TABLE IF NOT EXISTS session_appeals (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  reason TEXT,
+  status TEXT DEFAULT 'pending',  -- pending / upheld / overturned
+  original_classification TEXT,
+  new_classification TEXT,
+  created_at INTEGER NOT NULL,
+  resolved_at INTEGER,
+  FOREIGN KEY (session_id) REFERENCES composite_sessions(id),
+  FOREIGN KEY (profile_id) REFERENCES profiles(id)
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_stats_date ON stats(date);
 CREATE INDEX IF NOT EXISTS idx_stats_profile_date ON stats(profile_id, date);
 CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(device_token);
+CREATE INDEX IF NOT EXISTS idx_cs_profile_date ON composite_sessions(profile_id, date);
+CREATE INDEX IF NOT EXISTS idx_appeals_profile ON session_appeals(profile_id, status);

@@ -907,7 +907,7 @@ function renderDomainTagsReadOnly(containerId, domains) {
 function updateListCounts() {
   const bl = (config.blacklist  || []).length;
   const sl = (config.studyList  || []).length;
-  const al = (config.allowList  || []).length;
+  const al = (config.compositeList || []).length;
   const bcEl = document.getElementById('blacklist-count');
   const scEl = document.getElementById('studylist-count');
   const acEl = document.getElementById('allowlist-count');
@@ -936,7 +936,7 @@ function renderRulesPage() {
   // 渲染只读标签
   renderDomainTagsReadOnly('blacklist-tags', config.blacklist || []);
   renderDomainTagsReadOnly('studylist-tags', config.studyList || []);
-  renderDomainTagsReadOnly('allowlist-tags', config.allowList || []);
+  renderDomainTagsReadOnly('allowlist-tags', config.compositeList || []);
   updateListCounts();
 
   // 学习网站搜索框（仅过滤显示，不修改数据）
@@ -979,19 +979,19 @@ function renderRulesPage() {
       </div>`).join('');
   }
 
-  // ── 临时放行时长（只读展示）────────────────────────────────────────
+  // ── 待定时段说明（只读展示）────────────────────────────────────────
   const tempAllowEl = document.getElementById('temp-allow-display');
   if (tempAllowEl) {
-    const duration = config.tempWhitelistConfig?.duration || 60;
-    const h = Math.floor(duration / 60), m = duration % 60;
+    const quota = config.dailyUndeterminedQuota ?? 120;
+    const h = Math.floor(quota / 60), m = quota % 60;
     const label = h > 0 ? `${h}小时${m > 0 ? m + '分' : ''}` : `${m}分钟`;
     tempAllowEl.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
-        <div style="font-size:14px;color:var(--muted);">申请后有效时长</div>
+        <div style="font-size:14px;color:var(--muted);">每日待定时段上限</div>
         <div style="font-size:18px;font-weight:700;color:var(--accent);">${label}</div>
       </div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px;">
-        每次申请临时放行后，有效期为 <b style="color:var(--text);">${label}</b>，到期自动恢复拦截。
+        访问复合型网站（原允许列表）计入待定时段，每日上限 <b style="color:var(--text);">${label}</b>，家长事后审核分类。
       </div>`;
   }
 
@@ -1298,7 +1298,7 @@ function matchDomain(domain, pattern) {
 
 function classifyDomain(domain) {
   if ((config.studyList || []).some(p => matchDomain(domain, p))) return 'study';
-  if ((config.allowList || []).some(p => matchDomain(domain, p))) return 'allow';
+  if ((config.compositeList || []).some(p => matchDomain(domain, p))) return 'composite';
   return 'other';
 }
 
@@ -1341,7 +1341,7 @@ async function renderStatsPage(range = 'today') {
   for (const [domain, seconds] of Object.entries(statsData)) {
     const type = classifyDomain(domain);
     if (type === 'study') studySeconds += seconds;
-    else if (type === 'allow') otherSeconds += seconds;
+    else if (type === 'composite') otherSeconds += seconds;
     else restSeconds += seconds;
   }
   const totalSeconds = studySeconds + restSeconds + otherSeconds;
@@ -1492,8 +1492,8 @@ function renderTopDomains(statsData, totalSeconds) {
 
   const maxSeconds = entries[0][1];
   const rankColors = ['top-1', 'top-2', 'top-3'];
-  const typeMap    = { study: '学习网站', allow: '允许网站', other: '其他' };
-  const barColors  = { study: 'var(--green)', allow: 'var(--accent)', other: 'var(--muted)' };
+  const typeMap    = { study: '学习网站', composite: '复合型网站', other: '其他' };
+  const barColors  = { study: 'var(--green)', composite: 'var(--accent)', other: 'var(--muted)' };
 
   container.innerHTML = entries.map(([domain, seconds], i) => {
     const type    = classifyDomain(domain);

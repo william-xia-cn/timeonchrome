@@ -156,33 +156,43 @@ export const deviceRouter = {
       ).bind(profileId).first<{ config: string }>();
 
       const config = profileRow?.config ? JSON.parse(profileRow.config) : {};
-      const studyList: string[]  = config.studyList || [];
-      const dailyOnlineQuota     = (config.dailyOnlineQuota ?? 1200) * 60; // minutes → seconds
-      const dailyStudyQuota      = (config.dailyStudyQuota  ?? 480)  * 60;
-      const dailyRestQuota       = (config.dailyRestQuota   ?? 180)  * 60;
+      const studyList: string[]     = config.studyList     || [];
+      const compositeList: string[] = config.compositeList || [];
+      const dailyOnlineQuota        = (config.dailyOnlineQuota       ?? 1200) * 60; // minutes → seconds
+      const dailyStudyQuota         = (config.dailyStudyQuota        ?? 480)  * 60;
+      const dailyRestQuota          = (config.dailyRestQuota         ?? 120)  * 60;
+      const dailyUndeterminedQuota  = (config.dailyUndeterminedQuota ?? 120)  * 60;
 
       // Sum stats for ALL devices under this profile for the date
       const statsResult = await env.DB.prepare(
         `SELECT domain, SUM(duration) as total FROM stats WHERE profile_id = ? AND date = ? GROUP BY domain`
       ).bind(profileId, dateParam).all<{ domain: string; total: number }>();
 
-      let onlineSeconds = 0, studySeconds = 0;
+      const matchDomain = (domain: string, pattern: string) => {
+        const d = domain.replace(/^www\./, '');
+        const p = pattern.replace(/^www\./, '');
+        return d === p || d.endsWith('.' + p);
+      };
+
+      let onlineSeconds = 0, studySeconds = 0, undeterminedSeconds = 0;
       for (const row of (statsResult.results || [])) {
         onlineSeconds += row.total;
-        const d = row.domain.replace(/^www\./, '');
-        const isStudy = studyList.some(p => {
-          const pd = p.replace(/^www\./, '');
-          return d === pd || d.endsWith('.' + pd);
-        });
-        if (isStudy) studySeconds += row.total;
+        const isStudy     = studyList.some(p    => matchDomain(row.domain, p));
+        const isComposite = compositeList.some(p => matchDomain(row.domain, p));
+        if (isStudy) {
+          studySeconds += row.total;
+        } else if (isComposite) {
+          undeterminedSeconds += row.total;
+        }
       }
-      const restSeconds = onlineSeconds - studySeconds;
+      const restSeconds = onlineSeconds - studySeconds - undeterminedSeconds;
 
       return json({
-        onlineLocked:  dailyOnlineQuota > 0 && onlineSeconds >= dailyOnlineQuota,
-        studyLocked:   dailyStudyQuota  > 0 && studySeconds  >= dailyStudyQuota,
-        restLocked:    dailyRestQuota   > 0 && restSeconds   >= dailyRestQuota,
-        onlineSeconds, studySeconds, restSeconds,
+        onlineLocked:       dailyOnlineQuota       > 0 && onlineSeconds       >= dailyOnlineQuota,
+        studyLocked:        dailyStudyQuota        > 0 && studySeconds        >= dailyStudyQuota,
+        restLocked:         dailyRestQuota         > 0 && restSeconds         >= dailyRestQuota,
+        undeterminedLocked: dailyUndeterminedQuota > 0 && undeterminedSeconds >= dailyUndeterminedQuota,
+        onlineSeconds, studySeconds, undeterminedSeconds, restSeconds,
       });
     }
 
