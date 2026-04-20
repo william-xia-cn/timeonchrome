@@ -361,52 +361,6 @@ async function uploadChangelog(action, beforeData, afterData) {
 }
 
 /**
- * 推送本地配置到云端（本地修改后立即同步）
- * 只推送 profile 配置字段，不包含本地敏感数据
- */
-async function pushConfigToCloud(config) {
-  if (!syncState.deviceToken || !syncState.profileId) return false;
-  try {
-    // 提取需要同步到云端的字段（排除本地专用数据）
-    // 注意：quotaState / lockedDomains / tempWhitelist 是设备本地状态，不上传
-    const cloudData = {
-      mode:                    config.mode,
-      enabled:                 config.enabled,
-      studyList:               config.studyList,
-      compositeList:           config.compositeList,
-      unsafeList:              (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist,
-      dailyOnlineQuota:        config.dailyOnlineQuota,
-      dailyStudyQuota:         config.dailyStudyQuota,
-      dailyRestQuota:          config.dailyRestQuota,
-      dailyUndeterminedQuota:  config.dailyUndeterminedQuota,
-      weeklyRestQuota:         config.weeklyRestQuota,
-      quotaBorrow:             config.quotaBorrow,
-      domainQuotas:            config.domainQuotas,
-      classificationRules:     config.classificationRules,
-      schedule:                config.schedule,
-      restConfig:              config.restConfig,
-      autoStudyConfig:         config.autoStudyConfig,
-      interceptAction:         config.interceptAction,
-      blockMessage:            config.blockMessage,
-      version:                 config.version,
-    };
-
-    const result = await cloudRequest('PUT', '/device/config', { data: cloudData });
-    console.log('[Cloud] Config pushed to cloud');
-
-    // 更新本地版本号
-    if (result?.version) {
-      syncState.lastConfigVersion = result.version;
-      await storageSet({ [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: result.version });
-    }
-    return true;
-  } catch (e) {
-    console.error('[Cloud] Failed to push config:', e.message);
-    return false;
-  }
-}
-
-/**
  * 同步主函数（每15分钟调用）
  */
 async function syncNow() {
@@ -911,8 +865,6 @@ async function addToCompositeList(domain) {
   config.compositeList = [...list, domain];
   await saveConfig(config);
   await updateDeclarativeRules(config);
-  // 推送到云端（非阻塞）
-  pushConfigToCloud(config).catch(e => console.warn('[Cloud] Push config failed:', e.message));
   return { domain, added: true };
 }
 
@@ -2107,8 +2059,6 @@ async function handleMessage(msg, sender) {
       const newConfig = msg.config;
       await saveConfig(newConfig);
       await updateDeclarativeRules(newConfig);
-      // 本地修改后立即推送到云端（非阻塞）
-      pushConfigToCloud(newConfig).catch(e => console.warn('[Cloud] Push config failed:', e.message));
       return { ok: true };
     }
 
@@ -2315,7 +2265,6 @@ async function handleMessage(msg, sender) {
         config.quotaState.weeklyRestLocked = false;
       }
       await saveConfig(config);
-      pushConfigToCloud(config).catch(() => {});
       await updateDeclarativeRules(config);
       return { ok: true, amount: borrowAmt };
     }
