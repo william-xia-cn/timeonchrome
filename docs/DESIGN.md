@@ -24,7 +24,7 @@
 │  │  - 计时核心 (HEARTBEAT × 3 分类)                   │     │
 │  │  - 提醒触发 (checkAndRemind / redirectToReminder)  │     │
 │  │  - 配置存储 (chrome.storage.local)                 │     │
-│  │  - 云同步   (pullCloudConfig → Workers API，只读拉取)          │     │
+│  │  - 云同步   (pullCloudConfig → Workers API，只读拉取)  │     │
 │  └────────────────────────────────────────────────────┘     │
 │         ▲                                                   │
 │         │ sendMessage (HEARTBEAT)                           │
@@ -326,7 +326,7 @@ pullCloudConfig():
   → 本地配置更新
 ```
 
-### 3.6 事件上报与邮件通知
+### 3.7 事件上报与邮件通知
 
 ```javascript
 // 扩展侧（background.js）
@@ -390,8 +390,6 @@ timeonchrome/
 ├── admin/
 │   ├── admin.html             管理面板 UI（家长，密码保护）
 │   └── admin.js               管理面板逻辑
-├── utils/
-│   └── storage.js             存储工具（未被使用，待清理）
 ├── icons/
 │   ├── icon16.png
 │   ├── icon48.png

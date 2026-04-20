@@ -2,6 +2,24 @@
 
 ---
 
+## [1.6.1] — 2026-04-20
+
+### 新增
+- **OpenCode MVP 工作流**：`.opencode/` 目录，Plan(Kimi) → Build(DeepSeek) 双模型协作
+- **开发规范文档** `AGENTS.md`：文档先行、任务拆分、数据同步原则
+
+### 修复
+- **存储 Key 不一致**：`bind.html`/`auth.js`/`sync.js` 统一使用 `cloud_` 前缀
+- **绑定后云同步未启动**：`bind.html` 绑定后发送 `CLOUD_BIND` 消息
+- **家长控制台网站名单为空**：`compositeList` → `allowList` 字段映射修复
+- **manifest 版本号**：`1.6.0` → `1.6.1`
+
+### 架构变更
+- **终端不再推送配置**：删除 `pushConfigToCloud()` 及所有调用点，确立云端为唯一配置源
+- **清理旧版备份**：删除 `extension/` 目录（4 个重复文件）
+
+---
+
 ## [1.6.0] — 2026-04-14
 
 ### 新增

@@ -18,12 +18,19 @@
 
 ## 🟢 已完成
 
-### v1.6.1（2026-04-14）
+### v1.6.1（2026-04-20）
 - [x] 自动化测试套件（Unit 43 + BgLogic 80 + Workers 34 + API 52 + E2E 9 = 218 用例）`[tests/]`
 - [x] 完整测试规范文档 `[docs/TEST-SPEC.md]`
 - [x] BUG 修复：`unsafeList: []` truthy 导致 blacklist 回退失效 `[background.js]`
 - [x] BUG 修复：`/profiles/:id/changelog` 路由死路 `[workers/src/index.ts]`
 - [x] 清理无用文件（`test-admin.html`, `generate-icons.js`, `utils/storage.js`）
+- [x] BUG 修复：存储 Key 不一致，`device_token` → `cloud_device_token` 统一 `[config.js, auth.js, sync.js, bind.html]`
+- [x] BUG 修复：绑定后未发送 `CLOUD_BIND` 消息导致云同步未启动 `[bind.html]`
+- [x] BUG 修复：家长控制台 `compositeList` → `allowList` 字段映射缺失 `[pages/index.html]`
+- [x] 架构变更：删除 `pushConfigToCloud()` 及所有调用点，确立云端为唯一配置源 `[background.js]`
+- [x] 清理旧版备份 `extension/` 目录
+- [x] 创建 `AGENTS.md` 开发规范文档
+- [x] OpenCode MVP 工作流配置 `.opencode/` 目录
 
 ### v1.6.0（2026-04-14）
 - [x] 三时段时间分类模型（学习/待定/休息）`[background.js]`
