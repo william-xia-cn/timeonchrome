@@ -19,9 +19,9 @@ const GUARDIAN_CONFIG = {
   
   // 本地存储 Keys
   KEYS: {
-    DEVICE_TOKEN: 'device_token',
-    PROFILE_ID: 'profile_id',
-    LAST_SYNC: 'last_sync',
+    DEVICE_TOKEN: 'cloud_device_token',
+    PROFILE_ID: 'cloud_profile_id',
+    LAST_SYNC: 'cloud_last_sync',
     PENDING_STATS: 'pending_stats',
     PENDING_CHANGELOGS: 'pending_changelogs',
     LOCAL_CONFIG: 'local_config',

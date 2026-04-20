@@ -7,9 +7,9 @@ const GUARDIAN_CONFIG = window.GUARDIAN_CONFIG || {
   UPLOAD_HOUR: 8,
   UPLOAD_MINUTE: 0,
   KEYS: {
-    DEVICE_TOKEN: 'device_token',
-    PROFILE_ID: 'profile_id',
-    LAST_SYNC: 'last_sync',
+    DEVICE_TOKEN: 'cloud_device_token',
+    PROFILE_ID: 'cloud_profile_id',
+    LAST_SYNC: 'cloud_last_sync',
     PENDING_STATS: 'pending_stats',
     PENDING_CHANGELOGS: 'pending_changelogs',
     LOCAL_CONFIG: 'local_config',

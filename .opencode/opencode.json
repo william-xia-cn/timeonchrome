@@ -1,0 +1,52 @@
+{
+  "project": {
+    "name": "timeonchrome",
+    "type": "chrome-extension",
+    "version": "1.6.1"
+  },
+  "models": {
+    "plan": {
+      "provider": "kimi",
+      "model": "kimi-k2.5",
+      "max_tokens": 4000,
+      "temperature": 0.1,
+      "role": "context_analysis"
+    },
+    "build": {
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "max_tokens": 6000,
+      "temperature": 0.2,
+      "role": "code_generation"
+    }
+  },
+  "limits": {
+    "max_context_lines": 200,
+    "max_context_tokens": 8000,
+    "max_retries": 3,
+    "max_files_per_task": 3
+  },
+  "context_rules": {
+    "timeonchrome": {
+      "P0_core": {
+        "background.js": {
+          "critical_sections": {
+            "checkAndRemind": [1748, 1814],
+            "syncNow": [412, 445],
+            "pullCloudConfig": [143, 192],
+            "updateDeclarativeRules": [1976, 2017],
+            "DEFAULT_CONFIG": [510, 550],
+            "CLOUD_BIND_handler": [2183, 2208]
+          }
+        }
+      },
+      "P1_config": ["config.js", "auth.js", "sync.js", "bind.html"],
+      "P2_ui": ["popup/", "admin/", "reminder.html"],
+      "P3_backend": ["workers/"]
+    }
+  },
+  "test": {
+    "command": "node tests/run-all.js",
+    "timeout": 120000
+  }
+}

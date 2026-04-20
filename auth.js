@@ -4,9 +4,9 @@
 const GUARDIAN_CONFIG = window.GUARDIAN_CONFIG || {
   API_BASE: 'https://guardian-api.your-account.workers.dev',
   KEYS: {
-    DEVICE_TOKEN: 'device_token',
-    PROFILE_ID: 'profile_id',
-    LAST_SYNC: 'last_sync'
+    DEVICE_TOKEN: 'cloud_device_token',
+    PROFILE_ID: 'cloud_profile_id',
+    LAST_SYNC: 'cloud_last_sync'
   }
 };
 

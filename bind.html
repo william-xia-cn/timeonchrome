@@ -283,12 +283,17 @@
         // 保存到本地
         await new Promise((resolve) => {
           chrome.storage.local.set({
-            device_token: data.device_token,
-            profile_id: data.profile_id,
-            last_sync: Date.now()
+            cloud_device_token: data.device_token,
+            cloud_profile_id: data.profile_id,
+            cloud_last_sync: Date.now()
           }, resolve);
         });
-        
+
+        // 通知 background 初始化云同步
+        try {
+          await chrome.runtime.sendMessage({ type: 'CLOUD_BIND' });
+        } catch (_) {}
+
         showStep('step3');
         
         // 3 秒后关闭

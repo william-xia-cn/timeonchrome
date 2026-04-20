@@ -1304,6 +1304,14 @@ function renderRulesPage() {
   if (!remoteConfig.unsafeList && remoteConfig.blacklist) {
     remoteConfig.unsafeList = remoteConfig.blacklist;
   }
+  // 迁移兼容：compositeList → allowList（云端用 compositeList，界面用 allowList）
+  if (!remoteConfig.allowList && remoteConfig.compositeList) {
+    remoteConfig.allowList = remoteConfig.compositeList;
+  }
+  // 反向兼容：如果界面修改了 allowList，同步回 compositeList
+  if (remoteConfig.allowList) {
+    remoteConfig.compositeList = remoteConfig.allowList;
+  }
   renderTags('r-unsafelist-tags', remoteConfig.unsafeList || [], 'unsafeList');
   renderTags('r-studylist-tags',  remoteConfig.studyList  || [], 'studyList');
   renderTags('r-allowlist-tags',  remoteConfig.allowList  || [], 'allowList');
@@ -1314,7 +1322,7 @@ function updateRuleCounts() {
   const set = (id, arr) => { const el=document.getElementById(id); if(el) el.textContent=arr.length?`共 ${arr.length} 条`:''; };
   set('r-unsafelist-count', remoteConfig.unsafeList || []);
   set('r-studylist-count',  remoteConfig.studyList  || []);
-  set('r-allowlist-count',  remoteConfig.allowList  || []);
+  set('r-allowlist-count',  remoteConfig.allowList || remoteConfig.compositeList || []);
 }
 
 function setupDomainInput(inputId, btnId, tagsId, listKey) {
@@ -1357,7 +1365,10 @@ window.removeDomain = (listKey, idx) => {
   const list = remoteConfig[listKey] || [];
   list.splice(idx, 1);
   remoteConfig[listKey] = list;
-  const map = { unsafeList:'r-unsafelist-tags', studyList:'r-studylist-tags', allowList:'r-allowlist-tags' };
+  // 同步 allowList ↔ compositeList
+  if (listKey === 'allowList') remoteConfig.compositeList = list;
+  if (listKey === 'compositeList') remoteConfig.allowList = list;
+  const map = { unsafeList:'r-unsafelist-tags', studyList:'r-studylist-tags', allowList:'r-allowlist-tags', compositeList:'r-allowlist-tags' };
   if (map[listKey]) {
     if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
     renderTags(map[listKey], list, listKey);
