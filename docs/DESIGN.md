@@ -1,7 +1,7 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.6.0
-更新：2026-04-14
+版本：1.6.1
+更新：2026-04-20
 
 ---
 
@@ -24,7 +24,7 @@
 │  │  - 计时核心 (HEARTBEAT × 3 分类)                   │     │
 │  │  - 提醒触发 (checkAndRemind / redirectToReminder)  │     │
 │  │  - 配置存储 (chrome.storage.local)                 │     │
-│  │  - 云同步   (cloudRequest → Workers API)           │     │
+│  │  - 云同步   (pullCloudConfig → Workers API，只读拉取)          │     │
 │  └────────────────────────────────────────────────────┘     │
 │         ▲                                                   │
 │         │ sendMessage (HEARTBEAT)                           │
@@ -290,8 +290,16 @@ async function borrowRestQuota():
 
 ### 3.5 云同步
 
+**数据流原则：云端为唯一配置源（Single Source of Truth）**
+
+- 云端 `profiles.config` 是配置的权威来源
+- 终端只读拉取，不写回配置
+- 家长控制台（`pages/index.html`）是唯一配置修改入口
+- 终端仅上报统计数据（stats/sessions），不影响配置
+- 绑定动作是唯一例外（写入 device_token/profile_id）
+
 ```javascript
-// Pull（每次 Chrome 启动时）
+// Pull（每次 Chrome 启动时 + 每 15 分钟同步）
 pullCloudConfig():
   res = await cloudRequest('GET', '/device/config')
   if res.version <= localConfig.version → 跳过
@@ -300,9 +308,22 @@ pullCloudConfig():
              lockedDomains: local.lockedDomains }
   saveConfig(merged)
 
-// Push（配置变更时）
-pushConfigToCloud():
-  await cloudRequest('PUT', '/device/config', { config, version })
+// Push（已删除：终端不再推送配置）
+// 配置修改仅通过家长控制台 → PUT /profiles/:id/config
+```
+
+### 3.6 配置修改流程
+
+```
+家长控制台 (pages/index.html)
+  → PUT /profiles/:id/config
+  → 云端 D1 更新 profiles.config
+  → version + 1
+
+终端 (background.js)
+  → 每 15 分钟 GET /device/config
+  → version > localVersion → 拉取并合并
+  → 本地配置更新
 ```
 
 ### 3.6 事件上报与邮件通知
@@ -336,7 +357,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | type | 方向 | 参数 | 返回 |
 |------|------|------|------|
 | `GET_CONFIG` | → background | — | config |
-| `UPDATE_CONFIG` | → background | `{ config }` | `{ ok }` |
+| `UPDATE_CONFIG` | → background | `{ config }` | `{ ok }`（仅保存本地，不推送云端）|
 | `GET_STATS` | → background | — | 今日域名统计 |
 | `GET_STATS_RANGE` | → background | `{ days }` | 多日统计 |
 | `GET_SESSION` | → background | — | session |
@@ -357,7 +378,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 
 ```
 timeonchrome/
-├── manifest.json              MV3 扩展清单，版本 1.6.0
+├── manifest.json              MV3 扩展清单，版本 1.6.1
 ├── background.js              Service Worker 核心逻辑
 ├── content.js                 注入每个页面：心跳、媒体检测、覆盖层
 ├── content.css                content.js 注入的样式
