@@ -56,31 +56,16 @@
 
 ---
 
-## 2. 数据同步原则（已固化）
+## 2. 数据同步原则
 
-### 2.1 核心原则
+> 详细设计见 `docs/DESIGN.md` 第 3.5 节
 
-```
-云端 ← 家长控制台（唯一配置入口）
-  ↓ GET
-终端 ← 拉取配置（只读）
-  ↓ POST
-云端 ← 统计/会话上报（只读，不影响配置）
-```
-
-| 原则 | 说明 |
-|------|------|
-| 1. 云端为唯一配置源 | `profiles.config` 是 Single Source of Truth |
-| 2. 终端只读拉取 | 终端启动/同步时 `GET /device/config`，不写回 |
-| 3. 家长控制台是唯一配置入口 | `pages/index.html` → `PUT /profiles/:id/config` |
-| 4. 终端仅上报统计 | `stats`/`sessions` 只读上报，不影响配置 |
-| 5. 绑定是唯一例外 | `bind.html` 写入 `device_token`/`profile_id` |
-
-### 2.2 禁止操作
+### 2.1 禁止操作
 
 - ❌ 终端调用 `pushConfigToCloud()`（已删除）
 - ❌ 终端修改云端 `profiles.config`
 - ❌ 终端通过 `UPDATE_CONFIG` 消息推送配置到云端
+- ❌ 任何新增的"终端→云端配置写回"逻辑
 
 ---
 
@@ -122,17 +107,28 @@
 
 ## 4. 测试规范
 
-### 4.1 测试命令
+### 4.1 测试分级
 
-```bash
-node tests/run-all.js
-```
+| 级别 | 命令 | 用例 | 耗时 | 时机 |
+|------|------|------|------|------|
+| 快速测试 | `node tests/unit/*.test.js` | 157 | ~7s | 每次代码修改后 |
+| 完整测试 | `node tests/run-all.js` | 218 | ~42s | git push 前 |
 
-### 4.2 测试覆盖要求
-
-- 每次代码修改后必须运行测试
+### 4.2 规则
+- 每次代码修改后必须运行**快速测试**
+- 推送前必须运行**完整测试**
+- 纯文档变更不需要运行测试
 - 测试失败不得提交
 - 新增功能必须添加对应测试
+
+### 4.3 测试套件说明
+| 测试文件 | 类型 | 用例数 | 说明 |
+|---------|------|--------|------|
+| `tests/unit/logic.test.js` | 单元测试 | 43 | 纯函数，无依赖 |
+| `tests/unit/background-logic.test.js` | 单元测试 | 80 | 核心逻辑，无依赖 |
+| `tests/unit/workers-logic.test.js` | 单元测试 | 34 | Worker 逻辑，无依赖 |
+| `tests/api/workers.test.js` | 集成测试 | 52 | 需要网络，调用真实 API |
+| `tests/e2e/extension.test.js` | E2E 测试 | 9 | 需要浏览器，UI 测试 |
 
 ---
 
@@ -159,6 +155,14 @@ fix: 修复家长控制台 allowList/compositeList 字段不一致
 docs: 更新 DESIGN.md 反映云端为唯一配置源原则
 refactor: 删除终端推送配置逻辑，确立云端为唯一配置源
 ```
+
+### 5.3 推送策略
+
+| 阶段 | 操作 | 测试要求 | 说明 |
+|------|------|---------|------|
+| 开发中 | `git commit`（本地） | 快速测试 | 频繁提交，不推送 |
+| 功能完成 | 完整测试 → `git push` | 完整测试 | 批量推送多个 commit |
+| 准备发布 | 完整测试 → `git tag` → `git push --tags` | 完整测试 | 打版本标签 |
 
 ---
 
