@@ -50,11 +50,43 @@ results.workersLogic = run(
   ROOT
 );
 
+// ── Layer 1d: Unit tests (duration-tracking: state/context/aggregate) ────────
+results.durationTracking = run(
+  'Duration Tracking Tests (tests/unit/duration-tracking.test.js)',
+  'node',
+  ['tests/unit/duration-tracking.test.js'],
+  ROOT
+);
+
+// ── Layer 1e: Unit tests (recovery mechanism) ────────────────────────────────
+results.recovery = run(
+  'Recovery Tests (tests/unit/recovery.test.js)',
+  'node',
+  ['tests/unit/recovery.test.js'],
+  ROOT
+);
+
+// ── Layer 1f: Unit tests (event-log) ─────────────────────────────────────────
+results.eventLog = run(
+  'Event Log Tests (tests/unit/event-log.test.js)',
+  'node',
+  ['tests/unit/event-log.test.js'],
+  ROOT
+);
+
 // ── Layer 2: API integration tests ────────────────────────────────────────────
 results.api = run(
   'API Integration Tests (tests/api/workers.test.js)',
   'node',
   ['tests/api/workers.test.js'],
+  ROOT
+);
+
+// ── Layer 2b: Integration tests (duration flow) ──────────────────────────────
+results.durationFlow = run(
+  'Duration Flow Integration Tests (tests/integration/duration-flow.test.js)',
+  'node',
+  ['tests/integration/duration-flow.test.js'],
   ROOT
 );
 
@@ -73,11 +105,15 @@ console.log('  TimeOnChrome 自动化测试报告');
 console.log('='.repeat(50));
 
 const labels = {
-  unit:         '[Unit]     logic.test.js',
-  bgLogic:      '[Unit]     background-logic.test.js',
-  workersLogic: '[Unit]     workers-logic.test.js',
-  api:          '[API]      workers.test.js',
-  e2e:          '[E2E]      extension.test.js',
+  unit:               '[Unit]     logic.test.js',
+  bgLogic:            '[Unit]     background-logic.test.js',
+  workersLogic:       '[Unit]     workers-logic.test.js',
+  durationTracking:   '[Unit]     duration-tracking.test.js',
+  recovery:           '[Unit]     recovery.test.js',
+  eventLog:           '[Unit]     event-log.test.js',
+  api:                '[API]      workers.test.js',
+  durationFlow:       '[Integ]    duration-flow.test.js',
+  e2e:                '[E2E]      extension.test.js',
 };
 
 let allPassed = true;

@@ -178,7 +178,83 @@ export async function saveSession(session) {
   });
 }
 
-// ── Domain time tracking ────────────────────────────────────────────────────────
+// ── Domain time tracking (event-log based) ──────────────────────────────────────
+
+const EVENT_LOG_KEY = 'event_log_v1';
+const STATE_WEIGHTS = { ACTIVE: 1, BACKGROUND_ACTIVE: 1, PASSIVE: 0, IDLE: 0 };
+
+function formatTimeISO(time) {
+  return new Date(time).toISOString();
+}
+
+/**
+ * 从 event-log 聚合指定日期的域名时长
+ */
+function aggregateFromEvents(events, date) {
+  const result = {};
+  const dayEvents = events.filter(e =>
+    e.domain && formatTimeISO(e.time).slice(0, 10) === date
+  );
+
+  for (let i = 0; i < dayEvents.length - 1; i++) {
+    const evt = dayEvents[i];
+    if (evt.type === 'START' && evt.domain) {
+      const weight = STATE_WEIGHTS[evt.state] || 0;
+      const duration = (dayEvents[i + 1].time - evt.time) / 1000;
+      const seconds = Math.floor(duration * weight);
+      if (seconds > 0) {
+        result[evt.domain] = (result[evt.domain] || 0) + seconds;
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * 获取今日域名统计（从 event-log 聚合）
+ */
+export async function getTodayStats() {
+  const today = getDateKey();
+  const data = await chrome.storage.local.get(EVENT_LOG_KEY);
+  const events = data[EVENT_LOG_KEY] || [];
+  return aggregateFromEvents(events, today);
+}
+
+/**
+ * 获取今日待定域名统计（待定网站从 event-log 中按 compositeList 分类）
+ */
+export async function getTodayUndeterminedStats() {
+  const config = await getConfig();
+  const compositeList = config.compositeList || [];
+  const stats = await getTodayStats();
+
+  const result = {};
+  for (const [domain, seconds] of Object.entries(stats)) {
+    if (compositeList.some(p => matchDomain(domain, p))) {
+      result[domain] = seconds;
+    }
+  }
+  return result;
+}
+
+/**
+ * 获取多日域名统计（从 event-log 聚合）
+ */
+export async function getStatsRange(days = 7) {
+  const data = await chrome.storage.local.get(EVENT_LOG_KEY);
+  const events = data[EVENT_LOG_KEY] || [];
+  const result = {};
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = formatDate(d);
+    result[dateStr] = aggregateFromEvents(events, dateStr);
+  }
+  return result;
+}
+
+// ── Legacy domain time tracking (deprecated, kept for backward compat) ──────────
 
 export async function addDomainTime(domain, seconds) {
   const today = getDateKey();
@@ -192,15 +268,6 @@ export async function addDomainTime(domain, seconds) {
   });
 }
 
-export async function getTodayStats() {
-  const today = getDateKey();
-  return new Promise((resolve) => {
-    chrome.storage.local.get(STATS_KEY_PREFIX + today, (result) => {
-      resolve(result[STATS_KEY_PREFIX + today] || {});
-    });
-  });
-}
-
 export async function addUndeterminedTime(domain, seconds) {
   const today = getDateKey();
   const key = UNDETERMINED_STATS_KEY_PREFIX + today;
@@ -209,34 +276,6 @@ export async function addUndeterminedTime(domain, seconds) {
       const stats = result[key] || {};
       stats[domain] = (stats[domain] || 0) + seconds;
       chrome.storage.local.set({ [key]: stats }, resolve);
-    });
-  });
-}
-
-export async function getTodayUndeterminedStats() {
-  const today = getDateKey();
-  return new Promise((resolve) => {
-    chrome.storage.local.get(UNDETERMINED_STATS_KEY_PREFIX + today, (result) => {
-      resolve(result[UNDETERMINED_STATS_KEY_PREFIX + today] || {});
-    });
-  });
-}
-
-export async function getStatsRange(days = 7) {
-  const keys = [];
-  for (let i = 0; i < days; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    keys.push(STATS_KEY_PREFIX + formatDate(d));
-  }
-  return new Promise((resolve) => {
-    chrome.storage.local.get(keys, (result) => {
-      const data = {};
-      keys.forEach(key => {
-        const date = key.replace(STATS_KEY_PREFIX, '');
-        data[date] = result[key] || {};
-      });
-      resolve(data);
     });
   });
 }
@@ -283,8 +322,8 @@ export async function cleanOldStats() {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 30);
       const keysToDelete = Object.keys(result).filter(key => {
-        if (!key.startsWith(STATS_KEY_PREFIX)) return false;
-        const dateStr = key.replace(STATS_KEY_PREFIX, '');
+        if (!key.startsWith(STATS_KEY_PREFIX) && !key.startsWith(UNDETERMINED_STATS_KEY_PREFIX)) return false;
+        const dateStr = key.replace(STATS_KEY_PREFIX, '').replace(UNDETERMINED_STATS_KEY_PREFIX, '');
         return new Date(dateStr) < cutoff;
       });
       if (keysToDelete.length > 0) {

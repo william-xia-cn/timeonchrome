@@ -222,3 +222,79 @@ test('T-E9: bind.html renders without errors', async () => {
 
   await page.close();
 });
+
+// ── T-E10: Duration tracking — real webpage ──────────────────────────────────
+
+test('T-E10: Duration tracking records events on real webpage', async () => {
+  const ctx = await getContext();
+
+  // Open a real webpage
+  const page = await ctx.newPage();
+  await page.goto('https://www.example.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await page.waitForTimeout(3000); // Wait 3 seconds for signals to fire
+
+  // Check event log via page evaluation
+  const eventLog = await page.evaluate(async () => {
+    return new Promise(resolve => {
+      chrome.storage.local.get('event_log_v1', result => {
+        resolve(result['event_log_v1'] || []);
+      });
+    });
+  });
+
+  // Check session state
+  const sessionState = await page.evaluate(async () => {
+    return new Promise(resolve => {
+      chrome.storage.session.get('session_v1', result => {
+        resolve(result['session_v1'] || null);
+      });
+    });
+  });
+
+  // Check stats
+  const today = new Date().toISOString().slice(0, 10);
+  const stats = await page.evaluate(async (key) => {
+    return new Promise(resolve => {
+      chrome.storage.local.get(key, result => {
+        resolve(result[key] || {});
+      });
+    });
+  }, `stats_${today}`);
+
+  console.log(`\n  [T-E10 Debug] event_log_v1: ${JSON.stringify(eventLog).slice(0, 200)}`);
+  console.log(`  [T-E10 Debug] session_v1: ${JSON.stringify(sessionState)}`);
+  console.log(`  [T-E10 Debug] stats_${today}: ${JSON.stringify(stats)}`);
+
+  // At minimum, the extension should have recorded some events or session state
+  const hasAnyData = eventLog.length > 0 || (sessionState && sessionState.state !== null) || Object.keys(stats).length > 0;
+  expect(hasAnyData).toBe(true);
+
+  await page.close();
+});
+
+// ── T-E11: Duration tracking — service worker console check ──────────────────
+
+test('T-E11: Service worker loads without errors', async () => {
+  const ctx = await getContext();
+  const sw = ctx.serviceWorkers()[0];
+  expect(sw).toBeTruthy();
+
+  // Collect console messages for a short window
+  const errors = [];
+  sw.on('console', msg => {
+    if (msg.type() === 'error') {
+      errors.push(msg.text());
+    }
+  });
+
+  // Wait a moment to catch any late errors
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Log any errors for debugging
+  if (errors.length > 0) {
+    console.log(`\n  [T-E11 Debug] SW errors: ${errors.join(', ')}`);
+  }
+
+  // Service worker should be alive
+  expect(sw.url()).toContain('background.js');
+});

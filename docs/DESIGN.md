@@ -1,13 +1,131 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.6.1
-更新：2026-04-20
+版本：1.7.0
+更新：2026-04-21
 
 ---
 
 ## 1. 架构概览
 
+### 1.1 系统架构
+
 ```
+┌─────────────────────────────────────────────────────────────┐
+│  Chrome Extension (MV3)                                     │
+│                                                             │
+│  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐  │
+│  │  popup.html │    │  admin.html  │    │ reminder.html │  │
+│  │  popup.js   │    │  admin.js    │    │ reminder.js   │  │
+│  └──────┬──────┘    └──────┬───────┘    └──────┬────────┘  │
+│         │                 │ sendMessage         │           │
+│         └─────────────────┼─────────────────────┘           │
+│                           ▼                                 │
+│  ┌────────────────────────────────────────────────────┐     │
+│  │           background.js (Service Worker)           │     │
+│  │  - 模块化架构 (ES Module)                           │     │
+│  │  - 事件驱动注意力引擎 (Event-Driven Attention)      │     │
+│  │  - 信号 → 上下文 → 状态 → 会话 → 决策               │     │
+│  │  - SW 重启恢复 (Recovery)                           │     │
+│  │  - 云同步 (只读拉取)                                │     │
+│  └────────────────────────────────────────────────────┘     │
+│         ▲                                                   │
+│         │ sendMessage (HEARTBEAT / 信号事件)                │
+│  ┌──────┴──────────────────────────┐                        │
+│  │  content.js（每个 Tab 注入）     │                        │
+│  │  - 用户交互检测（鼠标/键盘）     │                        │
+│  │  - 媒体播放检测（AudioContext）  │                        │
+│  │  - 心跳发送（每 10 秒）          │                        │
+│  │  - 时间覆盖层提示                │                        │
+│  └─────────────────────────────────┘                        │
+└─────────────────────────────────────────────────────────────┘
+                         │ HTTPS
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Cloudflare Workers (guardian-api)                         │
+│                                                             │
+│  Routes:                                                    │
+│  POST /auth/register         账号注册                       │
+│  POST /auth/login            登录，返回 JWT                  │
+│  GET/PUT /device/config      配置同步                        │
+│  GET /device/quota-state     跨设备配额汇总                   │
+│  GET /device/changelog       配置变更日志                     │
+│  POST /device/events         事件上报（含邮件通知）           │
+│  POST /device/sessions/upload  会话上传 → R2               │
+│  GET /profiles/:id/devices   设备列表                        │
+│  GET/POST /composite-sessions  待定会话审核                  │
+│                                                             │
+│  Storage:                                                   │
+│  D1 (guardian-db)    账号/设备/配置/统计                     │
+│  KV (CONFIG_CACHE)   邮件去重、配置缓存                      │
+│  R2 (guardian-sessions)  会话文件归档                        │
+└─────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Cloudflare Pages (timeonchrome-console)                   │
+│  家长 Web 控制台 (pages/)                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 1.2 模块化架构（Service Worker 内部）
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  background.js (Wiring 入口, ~180 行)                        │
+│  - SW 生命周期 (onStartup / onInstalled)                      │
+│  - 信号接入 → 上下文 → 状态 → 会话管线                        │
+│  - Alarm 调度                                                  │
+│  - 消息路由 (message-router.js)                               │
+└──────────┬───────────────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  core/  (纯函数层 — 无副作用)                                 │
+│                                                              │
+│  signal.js      信号输入 + micro-batching (80ms 合并窗口)     │
+│  context.js     上下文构建 (lastActiveTabId, domain, focus)   │
+│  state.js       状态机 (ACTIVE/BACKGROUND_ACTIVE/PASSIVE/IDLE)│
+│  event-log.js   append-only 事件日志 (START/END, 10min 压缩)  │
+│  aggregate.js   时长计算 (只统计 ACTIVE/BACKGROUND_ACTIVE)     │
+└──────────────────────────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  runtime/  (状态管理层 — 有副作用)                             │
+│                                                              │
+│  session.js     当前会话快照 (单一真相源, transitionState)     │
+│  recovery.js    SW 重启恢复 (90s 阈值, 补 END 事件)           │
+└──────────────────────────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  product/  (业务逻辑层)                                       │
+│                                                              │
+│  quota.js       配额检查 + 借用逻辑                            │
+│  interceptor.js 拦截逻辑 + 提醒触发 (checkAndRemind)          │
+│  analytics.js   统计查询                                      │
+└──────────────────────────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  infra/  (基础设施层)                                         │
+│                                                              │
+│  storage.js     配置/会话存储 (DEFAULT_CONFIG, getConfig)     │
+│  cloud-sync.js  云同步 + 心跳 (pullCloudConfig, sendHeartbeat)│
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 1.3 数据流方向
+
+```
+signal → context → state → session → event-log → aggregate → decision
+  │         │         │         │         │           │           │
+  ▼         ▼         ▼         ▼         ▼           ▼           ▼
+content  tab API   纯函数    storage   append-only  时长计算   配额/拦截
+.js      focused   ACTIVE    session   START/END    分类统计   提醒触发
+```
+
+**严格单向依赖，禁止循环引用。**
 ┌─────────────────────────────────────────────────────────────┐
 │  Chrome Extension (MV3)                                     │
 │                                                             │
@@ -202,7 +320,52 @@ checkAndRemind(tabId, url):
 
 `redirectToReminder(tabId, domain, reason)` → `reminder.html?reason=X&domain=Y`
 
-### 3.2 心跳计时（content.js → background.js）
+### 3.2 事件驱动注意力引擎（v1.7.0 新架构）
+
+**旧架构问题（已废弃）：**
+- 多标签页 passive 重复计时（3 个 YouTube 标签 = 3 倍时长）
+- SW 休眠后内存状态丢失（`mediaPlayingTabs` Map、`domainActiveStartTime`）
+- 心跳累加模型无法从 SW 重启中恢复
+
+**新架构：事件驱动模型**
+
+```
+信号接入 (signal.js):
+  content.js HEARTBEAT → micro-batching (80ms 窗口)
+  tab.onActivated / tab.onUpdated → 信号事件
+  → mergeEvent 字段优先级: tabId > domain > state > isFocused
+
+上下文构建 (context.js):
+  lastActiveTabId, lastFocusedWindowId
+  domain 提取, isFocused 判断
+
+状态机 (state.js):
+  ACTIVE           → 计为 1 (用户交互中)
+  BACKGROUND_ACTIVE → 计为 1 (后台活跃)
+  PASSIVE          → 计为 0 (媒体播放，不计入时长)
+  IDLE             → 计为 0 (无域名/无交互)
+  无域名时返回 IDLE (防止 chrome:// 页面污染)
+
+会话管理 (session.js):
+  transitionState(newState, domain)
+    → 状态变化时写入 START/END 事件到 event-log
+    → 更新内存 session 快照
+  heartbeat()
+    → 每 30 秒持久化 session 到 chrome.storage.session
+
+事件日志 (event-log.js):
+  append-only (只追加 START/END 事件，永不修改)
+  10 分钟时间窗口压缩 (MAX_RAW_WINDOW)
+  支持 recovery 重建会话
+
+恢复机制 (recovery.js):
+  SW 启动第一步执行
+  读取 session 快照 + event-log
+  90s 阈值检测 (SLEEP_THRESHOLD)
+  补写 END 事件，重建活跃会话
+```
+
+### 3.2.1 旧心跳计时（保留作为 content.js 信号源）
 
 **content.js 发送逻辑（每 10 秒）**：
 
@@ -216,30 +379,15 @@ getActivityState():
 sendMessage({ type: 'HEARTBEAT', state: 'active' | 'passive' })
 ```
 
-**background.js HEARTBEAT 处理**：
+**新架构信号处理 (signal.js → state.js)**：
 
 ```
 收到 HEARTBEAT(state, tabId):
-  if sender.tab.active === false → 忽略
-  if !monitoring_enabled → 忽略
-
-  domain = extractDomain(sender.tab.url)
-  isStudy = studyList.includes(domain)
-  isComposite = compositeList.includes(domain)
-
-  addDomainTime(domain, 10)           // 始终计域名时长
-
-  if state === 'active':
-    if mode === 'study' && isStudy:
-      studySeconds += 10
-    elif isComposite:
-      undeterminedSeconds += 10
-    elif mode === 'rest':
-      restSeconds += 10
-
-    checkAutoStudySwitch(domain)      // 自动切换学习模式逻辑
-
-  checkAllTabsQuota()                 // 检查配额是否触发锁定
+  → signal.js micro-batching (80ms 合并)
+  → context.js 构建上下文
+  → state.js 解析状态
+  → session.js transitionState
+  → event-log.js 追加事件
 ```
 
 ### 3.3 自动切换学习模式
@@ -352,6 +500,17 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 
 ---
 
+## 3.8 关键参数
+
+| 参数 | 值 | 说明 |
+|------|------|------|
+| `BATCH_WINDOW` | 80ms | micro-batching 事件合并窗口 |
+| `SLEEP_THRESHOLD` | 90s | 休眠检测阈值（recovery 用） |
+| `MAX_RAW_WINDOW` | 10min | 事件日志时间窗口压缩 |
+| `PASSIVE` | 0 | 不计入时长（只有 ACTIVE/BACKGROUND_ACTIVE 计为 1） |
+
+---
+
 ## 4. 消息协议（sendMessage）
 
 | type | 方向 | 参数 | 返回 |
@@ -378,12 +537,32 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 
 ```
 timeonchrome/
-├── manifest.json              MV3 扩展清单，版本 1.6.1
-├── background.js              Service Worker 核心逻辑
+├── manifest.json              MV3 扩展清单，版本 1.7.0, "type": "module" (Chrome 95+)
+├── background.js              Service Worker 入口（wiring，~180 行）
+├── background.js.bak          旧版备份（2301 行，待清理）
+├── message-router.js          消息路由（20+ case 拆分）
 ├── content.js                 注入每个页面：心跳、媒体检测、覆盖层
 ├── content.css                content.js 注入的样式
 ├── reminder.html              提醒页 HTML（7 种场景）
 ├── reminder.js                提醒页逻辑：场景渲染、操作按钮处理
+├── bind.html                  设备绑定页（写入 cloud_device_token/cloud_profile_id）
+├── config.js, auth.js, sync.js  云同步配置（cloud_ 前缀统一）
+├── core/                      纯函数层（无副作用）
+│   ├── signal.js              信号输入 + micro-batching (80ms)
+│   ├── context.js             上下文构建（纯函数）
+│   ├── state.js               状态机（纯函数）
+│   ├── event-log.js           append-only 事件日志
+│   └── aggregate.js           时长计算（纯函数）
+├── runtime/                   状态管理层（有副作用）
+│   ├── session.js             会话快照（单一真相源）
+│   └── recovery.js            SW 重启恢复（90s 阈值）
+├── product/                   业务逻辑层
+│   ├── quota.js               配额检查 + 借用
+│   ├── interceptor.js         拦截逻辑 + 提醒
+│   └── analytics.js           统计查询
+├── infra/                     基础设施层
+│   ├── storage.js             配置/会话存储
+│   └── cloud-sync.js          云同步 + 心跳
 ├── popup/
 │   ├── popup.html             扩展弹窗 UI（孩子只读激励视图）
 │   └── popup.js               弹窗逻辑
@@ -415,13 +594,18 @@ timeonchrome/
 │           └── changelog.ts   配置变更日志
 ├── pages/                     家长 Web 控制台（Cloudflare Pages）
 │   ├── wrangler.toml
-│   └── index.html             单页应用
-└── docs/
-    ├── PRD.md                 产品需求文档
-    ├── DESIGN.md              本文档
-    ├── CHANGELOG.md           变更记录
-    ├── TODO.md                待办事项
-    └── conversation-log/      会话记录存档
+│   └── index.html             单页应用（compositeList → allowList 映射）
+├── tests/                     测试套件（218 用例）
+│   ├── unit/                  单元测试（157 用例，~7s）
+│   ├── api/                   集成测试（52 用例）
+│   └── e2e/                   E2E 测试（9 用例）
+├── docs/
+│   ├── DESIGN.md              本文档
+│   ├── PRD.md                 产品需求文档
+│   ├── CHANGELOG.md           变更记录
+│   ├── TODO.md                待办事项
+│   └── TEST-SPEC.md           测试规范
+└── AGENTS.md                  开发规范（工作流、测试分级、数据同步原则）
 ```
 
 ---
@@ -431,6 +615,7 @@ timeonchrome/
 | API | 用途 |
 |-----|------|
 | `chrome.storage.local` | 配置、统计、会话持久化 |
+| `chrome.storage.session` | 运行时会话快照（Chrome 95+） |
 | `chrome.declarativeNetRequest` | unsafeList 域名重定向规则 |
 | `chrome.webNavigation.onCommitted` | 导航拦截，触发 checkAndRemind |
 | `chrome.tabs` | 获取/更新标签页状态 |

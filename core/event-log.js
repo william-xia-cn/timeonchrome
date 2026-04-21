@@ -6,7 +6,9 @@ export const EVENT_TYPE = {
 };
 
 const STORAGE_KEY = 'event_log_v1';
-const MAX_RAW_WINDOW = 10 * 60 * 1000; // 10 分钟
+const MAX_RAW_WINDOW = 24 * 60 * 60 * 1000; // 24 小时，保留全天数据
+const LAST_COMPACT_KEY = 'event_log_last_compact';
+const COMPACT_INTERVAL = 60 * 60 * 1000; // 每小时压缩一次
 
 /**
  * 获取事件列表
@@ -25,11 +27,18 @@ export async function appendEvent(event) {
   const events = await getEvents();
   events.push(event);
 
-  // 压缩：只保留最近 10 分钟的 raw events
+  // 定期压缩：每小时清理一次超过 24 小时的旧事件
   const now = Date.now();
-  const filtered = events.filter(e => now - e.time < MAX_RAW_WINDOW);
+  const storage = await chrome.storage.local.get(LAST_COMPACT_KEY);
+  const lastCompact = storage[LAST_COMPACT_KEY] || 0;
 
-  await chrome.storage.local.set({ [STORAGE_KEY]: filtered });
+  if (now - lastCompact > COMPACT_INTERVAL) {
+    const filtered = events.filter(e => now - e.time < MAX_RAW_WINDOW);
+    await chrome.storage.local.set({ [STORAGE_KEY]: filtered, [LAST_COMPACT_KEY]: now });
+  } else {
+    // 常规写入，不压缩
+    await chrome.storage.local.set({ [STORAGE_KEY]: events });
+  }
 }
 
 /**

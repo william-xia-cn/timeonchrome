@@ -1,8 +1,9 @@
 {
+  "plugin": ["opencode-plugin-openspec"],
   "project": {
     "name": "timeonchrome",
     "type": "chrome-extension",
-    "version": "1.6.1"
+    "version": "1.7.0"
   },
   "models": {
     "plan": {

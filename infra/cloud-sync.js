@@ -191,17 +191,12 @@ export async function pullCloudQuotaState(getConfigFn, saveConfigFn, redirectAll
 
 // ── Upload stats ────────────────────────────────────────────────────────────────
 
-function extractStatsForDate(statsObj, dateStr) {
-  const key = `stats_${dateStr}`;
-  const dayStats = statsObj[key] || {};
-  return Object.entries(dayStats)
-    .filter(([, sec]) => typeof sec === 'number' && sec > 0)
-    .map(([domain, sec]) => ({ domain, active_sec: sec, passive_sec: 0 }));
-}
-
 export async function uploadStats() {
   try {
-    const statsStorage = await chrome.storage.local.get(null);
+    // Import getStatsRange dynamically to avoid circular dependency
+    const { getStatsRange } = await import('./storage.js');
+    const statsRange = await getStatsRange(7);
+
     const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.PENDING_STATS);
     let pendingStats = storage[CLOUD_CONFIG.KEYS.PENDING_STATS] || {};
 
@@ -209,18 +204,14 @@ export async function uploadStats() {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
-      if (!pendingStats[dateStr]) {
-        const dayData = extractStatsForDate(statsStorage, dateStr);
-        if (dayData.length > 0) {
-          pendingStats[dateStr] = { stats: dayData, timestamp: Date.now() };
-        }
-      } else {
-        if (i === 0) {
-          const dayData = extractStatsForDate(statsStorage, dateStr);
-          if (dayData.length > 0) {
-            pendingStats[dateStr] = { stats: dayData, timestamp: Date.now() };
-          }
-        }
+
+      const dayData = statsRange[dateStr] || {};
+      const stats = Object.entries(dayData)
+        .filter(([, sec]) => typeof sec === 'number' && sec > 0)
+        .map(([domain, sec]) => ({ domain, active_sec: sec, passive_sec: 0 }));
+
+      if (stats.length > 0) {
+        pendingStats[dateStr] = { stats, timestamp: Date.now() };
       }
     }
 

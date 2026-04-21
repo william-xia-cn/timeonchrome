@@ -1,6 +1,6 @@
 // product/quota.js — 配额检查 + 借用逻辑
 
-import { getConfig, saveConfig, getTodayStats, getTodayUndeterminedStats, matchDomain, extractDomain, isSpecialUrl, getDateKey, formatDate } from '../infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getTodayUndeterminedStats, getStatsRange, matchDomain, extractDomain, isSpecialUrl, getDateKey, formatDate } from '../infra/storage.js';
 
 // ── Week rest calculation ───────────────────────────────────────────────────────
 
@@ -8,38 +8,24 @@ export async function getWeekRestSeconds() {
   const config = await getConfig();
   const today = new Date();
   const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
-  const keys = [];
-  const dates = [];
-  for (let i = 0; i <= dayOfWeek; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const dateStr = formatDate(d);
-    keys.push('stats_' + dateStr);
-    keys.push('undetermined_stats_' + dateStr);
-    dates.push(dateStr);
+
+  // Use event-log based getStatsRange
+  const statsRange = await getStatsRange(dayOfWeek + 1);
+  const studyList = config.studyList || [];
+  const compositeList = config.compositeList || [];
+  let weekRestSeconds = 0;
+
+  for (const [, dayStats] of Object.entries(statsRange)) {
+    let dayTotal = 0, dayStudy = 0, dayUndeterminedSecs = 0;
+    for (const [domain, secs] of Object.entries(dayStats)) {
+      dayTotal += secs;
+      if (studyList.some(p => matchDomain(domain, p))) dayStudy += secs;
+      if (compositeList.some(p => matchDomain(domain, p))) dayUndeterminedSecs += secs;
+    }
+    weekRestSeconds += Math.max(0, dayTotal - dayStudy - dayUndeterminedSecs);
   }
 
-  return new Promise(resolve => {
-    chrome.storage.local.get(keys, result => {
-      const studyList = config.studyList || [];
-      const compositeList = config.compositeList || [];
-      let weekRestSeconds = 0;
-
-      for (const dateStr of dates) {
-        const dayStats = result['stats_' + dateStr] || {};
-        const dayUndetermined = result['undetermined_stats_' + dateStr] || {};
-
-        let dayTotal = 0, dayStudy = 0, dayUndeterminedSecs = 0;
-        for (const [domain, secs] of Object.entries(dayStats)) {
-          dayTotal += secs;
-          if (studyList.some(p => matchDomain(domain, p))) dayStudy += secs;
-        }
-        for (const secs of Object.values(dayUndetermined)) dayUndeterminedSecs += secs;
-        weekRestSeconds += Math.max(0, dayTotal - dayStudy - dayUndeterminedSecs);
-      }
-      resolve(weekRestSeconds);
-    });
-  });
+  return weekRestSeconds;
 }
 
 export function getTodayEffectiveRestLimit(config) {

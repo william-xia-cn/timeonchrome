@@ -1,7 +1,7 @@
 # TimeOnChrome — 产品需求文档 (PRD)
 
-版本：1.6.1
-更新：2026-04-20
+版本：1.7.0
+更新：2026-04-21
 
 ---
 
@@ -126,22 +126,31 @@
 
 ### 4.4 时间统计
 
-#### F-08 心跳机制
-- content.js 每 10 秒发送一次心跳
-- `active`：60 秒内有键鼠操作，页面可见
-- `passive`：媒体播放中（video/audio/AudioContext），页面可不可见均发
-- `hidden`/`idle`：不发送
+#### F-08 事件驱动注意力引擎（v1.7.0 新架构）
+- content.js 每 10 秒发送 HEARTBEAT 作为信号源
+- background.js 通过 `signal.js` 接收信号，80ms micro-batching 合并窗口
+- `context.js` 构建上下文（lastActiveTabId、domain、isFocused）
+- `state.js` 解析状态：
+  - `ACTIVE`：用户交互中，页面可见 → 计为 1
+  - `BACKGROUND_ACTIVE`：后台活跃 → 计为 1
+  - `PASSIVE`：媒体播放中 → 计为 0（不计入时长）
+  - `IDLE`：无交互/无域名 → 计为 0
+- 无域名时返回 IDLE（防止 `chrome://` 页面污染）
 
-#### F-09 计时规则
+#### F-09 计时规则（事件驱动模型）
 
-| 模式 | 域名类型 | 心跳 | 学习 | 休息 | 待定 | 域名 |
-|------|---------|------|------|------|------|------|
-| study | studyList | active | +10s | — | — | +10s |
-| study | compositeList | active/passive | — | — | +10s | +10s |
-| study | 其他 | → 提醒页 | — | — | — | — |
-| rest | 任意 | active | — | +10s | — | +10s |
-| rest | compositeList | active | — | — | +10s | +10s |
-| rest | 任意 | passive | — | — | — | +10s |
+| 状态 | 计入时长 | 说明 |
+|------|---------|------|
+| ACTIVE | +1s | 用户有键鼠操作，页面可见 |
+| BACKGROUND_ACTIVE | +1s | 后台活跃（如音乐播放但用户在其他标签操作） |
+| PASSIVE | 0 | 媒体播放中，用户无交互 |
+| IDLE | 0 | 无域名或无交互 |
+
+**多标签页去重**：同一域名的多个标签页不会重复计时，通过 context 去重
+
+**SW 恢复机制**：Service Worker 重启后，`recovery.js` 自动从事件日志重建会话，90s 休眠检测阈值
+
+**心跳机制保留**：content.js 仍每 10 秒发送 HEARTBEAT 作为信号源，但计时不再依赖心跳累加，而是事件驱动
 
 ### 4.5 时间段管控
 

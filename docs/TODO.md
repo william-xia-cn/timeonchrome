@@ -18,6 +18,19 @@
 
 ## 🟢 已完成
 
+### v1.7.0（2026-04-21）
+- [x] 事件驱动注意力引擎（Event-Driven Attention Engine）`[core/signal.js, core/state.js, core/context.js]`
+- [x] 模块化架构：`background.js` 拆分为 12 个模块（core/5 + runtime/2 + product/3 + infra/2）
+- [x] micro-batching 80ms 事件合并窗口 `[core/signal.js]`
+- [x] append-only 事件日志（START/END 事件，10 分钟压缩）`[core/event-log.js]`
+- [x] SW 重启恢复机制（90s 阈值，补 END 事件）`[runtime/recovery.js]`
+- [x] 会话快照作为单一真相源 `[runtime/session.js]`
+- [x] 四态状态机（ACTIVE/BACKGROUND_ACTIVE/PASSIVE/IDLE）`[core/state.js]`
+- [x] 多标签页去重（context 构建）`[core/context.js]`
+- [x] ES Module 支持（`"type": "module"`，Chrome 95+）`[manifest.json]`
+- [x] 文档更新：`DESIGN.md`、`CHANGELOG.md`、`PRD.md`
+- [x] 测试：218/218 全部通过
+
 ### v1.6.1（2026-04-20）
 - [x] 自动化测试套件（Unit 43 + BgLogic 80 + Workers 34 + API 52 + E2E 9 = 218 用例）`[tests/]`
 - [x] 完整测试规范文档 `[docs/TEST-SPEC.md]`

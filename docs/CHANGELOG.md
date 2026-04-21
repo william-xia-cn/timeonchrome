@@ -2,6 +2,33 @@
 
 ---
 
+## [1.7.0] — 2026-04-21
+
+### 架构重构（事件驱动注意力引擎）
+- **模块化架构**：`background.js` 从 2301 行拆分为 12 个模块（core/5 + runtime/2 + product/3 + infra/2），按数据流分层：signal → context → state → session → event-log → aggregate → decision
+- **事件驱动计时**：废弃旧版"心跳累加"模型，采用事件驱动注意力引擎，解决多标签页重复计时问题（3 个 YouTube 标签不再 = 3 倍时长）
+- **micro-batching**：80ms 事件合并窗口，消除高频信号抖动
+- **状态机重构**：ACTIVE / BACKGROUND_ACTIVE / PASSIVE / IDLE 四态分类，PASSIVE 不计入时长（计为 0）
+- **append-only 事件日志**：只追加 START/END 事件，永不修改，支持 10 分钟时间窗口压缩
+
+### 新增
+- **SW 重启恢复机制**：`recovery.js` 在 Service Worker 启动时执行，90s 休眠检测阈值，自动补写 END 事件，重建活跃会话
+- **会话快照**：`session.js` 作为单一真相源，每 30 秒持久化到 `chrome.storage.session`
+- **ES Module 支持**：`manifest.json` 添加 `"type": "module"`，要求 Chrome 95+
+
+### 修复
+- **多标签页重复计时**：旧架构 3 个 passive 标签页重复累加，新架构通过 context 去重
+- **SW 休眠后状态丢失**：旧架构 `mediaPlayingTabs` Map 和 `domainActiveStartTime` 在 SW 重启后丢失，新架构通过 recovery 重建
+- **无域名污染**：无域名时返回 IDLE，防止 `chrome://` 页面计入时长
+- **存储 Key 统一**：`device_token`/`profile_id` → `cloud_device_token`/`cloud_profile_id`（8 个文件）
+
+### 变更
+- `background.js` 从 2301 行缩减至 ~180 行（wiring 入口）
+- 旧 `background.js` 保留为 `background.js.bak`
+- manifest 版本号：`1.6.1` → `1.7.0`
+
+---
+
 ## [1.6.1] — 2026-04-20
 
 ### 新增

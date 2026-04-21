@@ -48,11 +48,22 @@ export function initSignal(onContextChange) {
   // ── Chrome 事件监听 ─────────────────────────────────────────────
 
   // 标签页激活
-  chrome.tabs.onActivated.addListener((activeInfo) => {
-    onEvent({
-      tabId: activeInfo.tabId,
-      windowId: activeInfo.windowId,
-    });
+  chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    // 主动查询 tab URL（onActivated 不提供 URL，onUpdated 对已加载标签不触发）
+    try {
+      const tab = await chrome.tabs.get(activeInfo.tabId);
+      const domain = tab.url ? extractDomain(tab.url) : null;
+      onEvent({
+        tabId: activeInfo.tabId,
+        windowId: activeInfo.windowId,
+        domain,
+      });
+    } catch {
+      onEvent({
+        tabId: activeInfo.tabId,
+        windowId: activeInfo.windowId,
+      });
+    }
   });
 
   // 标签页更新（获取域名）
@@ -104,9 +115,11 @@ export function initSignal(onContextChange) {
 function extractDomain(url) {
   if (!url) return null;
   try {
-    const hostname = new URL(url).hostname;
-    // 排除 chrome:// 等特殊页面
-    if (hostname.startsWith('chrome') || hostname.startsWith('chrome-extension')) return null;
+    const u = new URL(url);
+    // 排除 chrome://、chrome-extension://、edge://、about: 等特殊页面
+    if (u.protocol === 'chrome:' || u.protocol === 'chrome-extension:' || u.protocol === 'edge:' || u.protocol === 'about:') return null;
+    const hostname = u.hostname;
+    if (!hostname) return null;
     return hostname.replace(/^www\./, '');
   } catch {
     return null;

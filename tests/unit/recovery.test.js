@@ -1,0 +1,383 @@
+// Unit tests for recovery mechanism (runtime/recovery.js)
+// Run with: node tests/unit/recovery.test.js
+
+'use strict';
+
+// ── Mock Chrome Storage ─────────────────────────────────────────────────────
+
+class MockStorage {
+  constructor() {
+    this.data = {};
+  }
+  reset() {
+    this.data = {};
+  }
+  get(keys) {
+    const result = {};
+    if (Array.isArray(keys)) {
+      keys.forEach(k => { result[k] = this.data[k]; });
+    } else if (typeof keys === 'string') {
+      result[keys] = this.data[keys];
+    } else if (typeof keys === 'object') {
+      Object.keys(keys).forEach(k => { result[k] = this.data[k] ?? keys[k]; });
+    }
+    return Promise.resolve(result);
+  }
+  set(obj) {
+    Object.assign(this.data, obj);
+    return Promise.resolve();
+  }
+}
+
+const mockSessionStorage = new MockStorage();
+const mockLocalStorage = new MockStorage();
+
+global.chrome = {
+  storage: {
+    session: mockSessionStorage,
+    local: mockLocalStorage,
+  },
+};
+
+// ── Inline recovery logic ───────────────────────────────────────────────────
+
+const SESSION_KEY = 'session_v1';
+const EVENT_LOG_KEY = 'event_log_v1';
+const SLEEP_THRESHOLD = 90 * 1000; // 90 秒
+
+const EVENT_TYPE = { START: 'START', END: 'END' };
+
+async function getSession() {
+  const data = await mockSessionStorage.get(SESSION_KEY);
+  return data[SESSION_KEY] || null;
+}
+
+async function saveSession(session) {
+  await mockSessionStorage.set({ [SESSION_KEY]: session });
+}
+
+async function getEvents() {
+  const data = await mockLocalStorage.get(EVENT_LOG_KEY);
+  return data[EVENT_LOG_KEY] || [];
+}
+
+async function appendEvent(event) {
+  const events = await getEvents();
+  events.push(event);
+  // Use the event's time for compression, not Date.now()
+  const now = event.time;
+  const MAX_RAW_WINDOW = 10 * 60 * 1000;
+  const filtered = events.filter(e => Math.abs(now - e.time) < MAX_RAW_WINDOW);
+  await mockLocalStorage.set({ [EVENT_LOG_KEY]: filtered });
+}
+
+async function recover(fakeNow) {
+  const session = await getSession();
+  if (!session || !session.state || !session.startTime) return;
+
+  const now = fakeNow !== undefined ? fakeNow : Date.now();
+  const delta = now - session.lastHeartbeat;
+
+  let endTime;
+  if (delta > SLEEP_THRESHOLD) {
+    endTime = session.lastHeartbeat;
+  } else {
+    endTime = now;
+  }
+
+  await appendEvent({
+    type: EVENT_TYPE.END,
+    state: session.state,
+    domain: session.domain,
+    time: endTime,
+  });
+
+  await saveSession({
+    state: null,
+    domain: null,
+    startTime: null,
+    lastHeartbeat: now,
+  });
+}
+
+// ── Test runner ─────────────────────────────────────────────────────────────
+
+let passed = 0;
+let failed = 0;
+
+function expect(description, actual, expected) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  if (ok) {
+    passed++;
+  } else {
+    failed++;
+    console.error(`  ✗ ${description}`);
+    console.error(`    expected: ${JSON.stringify(expected)}`);
+    console.error(`    actual:   ${JSON.stringify(actual)}`);
+  }
+}
+
+function expectTrue(description, value) {
+  if (value === true) {
+    passed++;
+  } else {
+    failed++;
+    console.error(`  ✗ ${description} (got ${JSON.stringify(value)})`);
+  }
+}
+
+function section(name) {
+  console.log(`\n[${name}]`);
+}
+
+function resetStorage() {
+  mockSessionStorage.reset();
+  mockLocalStorage.reset();
+}
+
+// ── Tests (sequential async) ────────────────────────────────────────────────
+
+async function runTests() {
+
+// ── Recovery: 正常恢复（delta <= 90s）────────────────────────────────────────
+
+section('Recovery: 正常恢复（SW 快速重启）');
+
+{
+  resetStorage();
+
+  const baseTime = 1000000;
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'ACTIVE',
+      domain: 'youtube.com',
+      startTime: baseTime,
+      lastHeartbeat: baseTime + 10000,
+    }
+  });
+
+  const fakeNow = baseTime + 10000 + 5000;
+  await recover(fakeNow);
+
+  const events = await getEvents();
+  expect('补写 1 个 END 事件', events.length, 1);
+  expect('END 事件类型为 END', events[0].type, 'END');
+  expect('END 事件状态', events[0].state, 'ACTIVE');
+  expect('END 事件域名', events[0].domain, 'youtube.com');
+  expect('END 事件时间 = 当前时间', events[0].time, fakeNow);
+
+  const session = await getSession();
+  expectTrue('session.state 重置为 null', session.state === null);
+  expectTrue('session.domain 重置为 null', session.domain === null);
+  expect('session.lastHeartbeat 更新', session.lastHeartbeat, fakeNow);
+}
+
+// ── Recovery: 休眠恢复（delta > 90s）─────────────────────────────────────────
+
+section('Recovery: 休眠恢复（SW 被回收后重启）');
+
+{
+  resetStorage();
+
+  const baseTime = 1000000;
+  const twoHoursAgo = baseTime - 2 * 60 * 60 * 1000;
+  const fourHoursAgo = baseTime - 4 * 60 * 60 * 1000;
+
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'ACTIVE',
+      domain: 'youtube.com',
+      startTime: fourHoursAgo,
+      lastHeartbeat: twoHoursAgo,
+    }
+  });
+
+  await recover(baseTime);
+
+  const events = await getEvents();
+  expect('补写 1 个 END 事件', events.length, 1);
+  expect('END 事件时间 = lastHeartbeat（截断）', events[0].time, twoHoursAgo);
+  expect('END 事件状态', events[0].state, 'ACTIVE');
+  expect('END 事件域名', events[0].domain, 'youtube.com');
+
+  const session = await getSession();
+  expectTrue('session 重置', session.state === null && session.domain === null);
+}
+
+// ── Recovery: 边界值（delta = 90s 正好）──────────────────────────────────────
+
+section('Recovery: 边界值（delta = 90s）');
+
+{
+  resetStorage();
+
+  const baseTime = 1000000;
+  const lastHeartbeat = baseTime - 90000;
+
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'ACTIVE',
+      domain: 'google.com',
+      startTime: lastHeartbeat - 60000,
+      lastHeartbeat: lastHeartbeat,
+    }
+  });
+
+  await recover(baseTime);
+
+  const events = await getEvents();
+  expect('END 事件时间 = 当前时间（delta = 90s 不算休眠）', events[0].time, baseTime);
+}
+
+// ── Recovery: 无 session 跳过 ────────────────────────────────────────────────
+
+section('Recovery: 无 session 跳过');
+
+{
+  resetStorage();
+
+  await recover(1000000);
+
+  const events = await getEvents();
+  expect('无事件写入', events.length, 0);
+}
+
+// ── Recovery: session 存在但 state 为 null 跳过 ──────────────────────────────
+
+section('Recovery: state 为 null 跳过');
+
+{
+  resetStorage();
+
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: null,
+      domain: null,
+      startTime: null,
+      lastHeartbeat: 900000,
+    }
+  });
+
+  await recover(1000000);
+
+  const events = await getEvents();
+  expect('无事件写入', events.length, 0);
+}
+
+// ── Recovery: session 存在但 startTime 为 null 跳过 ──────────────────────────
+
+section('Recovery: startTime 为 null 跳过');
+
+{
+  resetStorage();
+
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'ACTIVE',
+      domain: 'youtube.com',
+      startTime: null,
+      lastHeartbeat: 900000,
+    }
+  });
+
+  await recover(1000000);
+
+  const events = await getEvents();
+  expect('无事件写入', events.length, 0);
+}
+
+// ── Recovery: 防止重复恢复 ───────────────────────────────────────────────────
+
+section('Recovery: 防止重复恢复');
+
+{
+  resetStorage();
+
+  const baseTime = 1000000;
+  const twoHoursAgo = baseTime - 2 * 60 * 60 * 1000;
+
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'ACTIVE',
+      domain: 'youtube.com',
+      startTime: twoHoursAgo - 60000,
+      lastHeartbeat: twoHoursAgo,
+    }
+  });
+
+  await recover(baseTime);
+  const events1 = await getEvents();
+  expect('第一次恢复：1 个 END 事件', events1.length, 1);
+
+  await recover(baseTime + 1000);
+  const events2 = await getEvents();
+  expect('第二次恢复：仍只有 1 个 END 事件', events2.length, 1);
+}
+
+// ── Recovery: 不同状态恢复 ───────────────────────────────────────────────────
+
+section('Recovery: BACKGROUND_ACTIVE 状态恢复');
+
+{
+  resetStorage();
+
+  const baseTime = 1000000;
+  const oneHourAgo = baseTime - 60 * 60 * 1000;
+
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'BACKGROUND_ACTIVE',
+      domain: 'music.youtube.com',
+      startTime: oneHourAgo - 30000,
+      lastHeartbeat: oneHourAgo,
+    }
+  });
+
+  await recover(baseTime);
+
+  const events = await getEvents();
+  expect('END 事件状态 = BACKGROUND_ACTIVE', events[0].state, 'BACKGROUND_ACTIVE');
+  expect('END 事件域名 = music.youtube.com', events[0].domain, 'music.youtube.com');
+  expect('END 事件时间 = lastHeartbeat', events[0].time, oneHourAgo);
+}
+
+// ── Recovery: 完整时长计算验证 ───────────────────────────────────────────────
+
+section('Recovery: 完整时长计算验证（休眠场景）');
+
+{
+  resetStorage();
+
+  const baseTime = 1000000;
+  const twoHoursAgo = baseTime - 2 * 60 * 60 * 1000;
+
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'ACTIVE',
+      domain: 'youtube.com',
+      startTime: twoHoursAgo,
+      lastHeartbeat: twoHoursAgo, // lastHeartbeat = start time (2 hours ago)
+    }
+  });
+
+  await recover(baseTime);
+
+  const events = await getEvents();
+  expect('恢复写入 1 个 END 事件', events.length, 1);
+  expect('END 事件类型正确', events[0].type, 'END');
+  // delta = 2h > 90s → 休眠 → endTime = lastHeartbeat
+  expect('END 事件时间 = lastHeartbeat（2 小时前）', events[0].time, twoHoursAgo);
+}
+
+// ── Summary ───────────────────────────────────────────────────────────────────
+
+const total = passed + failed;
+console.log(`\n[Recovery] ${passed}/${total} passed${failed > 0 ? ` — ${failed} FAILED` : ''}`);
+
+if (failed > 0) {
+  process.exit(1);
+}
+
+}
+
+runTests().catch(err => { console.error(err); process.exit(1); });
