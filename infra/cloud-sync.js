@@ -1,4 +1,5 @@
 // infra/cloud-sync.js — 云同步 + 心跳
+import { getStatsRange } from './storage.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -199,8 +200,6 @@ export async function pullCloudQuotaState(getConfigFn, saveConfigFn, redirectAll
 
 export async function uploadStats() {
   try {
-    // Import getStatsRange dynamically to avoid circular dependency
-    const { getStatsRange } = await import('./storage.js');
     const statsRange = await getStatsRange(7);
 
     const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.PENDING_STATS);
