@@ -118,15 +118,21 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
         [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now()
       });
 
+      // 云端配置为唯一来源，不再与本地 DEFAULT_CONFIG merge
+      // 仅保留终端专属字段（不通过云端同步）
+      const cloudConfig = result.data;
       const localConfig = await getConfigFn();
       const mergedConfig = {
-        ...localConfig,
-        ...result.data,
+        ...cloudConfig,
+        // 终端专属字段：不通过云端同步，始终使用本地值
         adminPasswordHash: localConfig.adminPasswordHash,
         isInitialized: localConfig.isInitialized,
         lockedDomains: localConfig.lockedDomains,
-        quotaState: localConfig.quotaState,
       };
+      // quotaState 由 pullCloudQuotaState 单独同步，此处不覆盖
+      if (localConfig.quotaState) {
+        mergedConfig.quotaState = localConfig.quotaState;
+      }
       await saveConfigFn(mergedConfig);
       if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(mergedConfig);
 

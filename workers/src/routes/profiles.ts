@@ -175,12 +175,54 @@ export const profilesRouter = {
       });
     }
 
-    // PUT /profiles/:id/config
+    // PUT /profiles/:id/config — 受控 merge 写入，防止残缺配置覆盖丢失字段
     if (request.method === 'PUT' && configMatch) {
       try {
         const { data } = await request.json<{ data: unknown }>();
-        const now       = Date.now();
-        const configStr = JSON.stringify(data);
+        if (!data || typeof data !== 'object') {
+          return json({ error: 'Invalid config data' }, 400);
+        }
+
+        const now = Date.now();
+
+        // 1. 读取现有 config
+        const existing = await env.DB.prepare(
+          `SELECT config FROM profiles WHERE id = ?`
+        ).bind(profileId).first<{ config: string }>();
+
+        const existingConfig = existing?.config ? JSON.parse(existing.config) : {};
+
+        // 2. 受控 merge：default → existing → incoming
+        //    确保核心字段不会因前端传残缺数据而丢失
+        //    existingConfig 优先于 default（保留用户有意修改的字段）
+        const mergedConfig: Record<string, unknown> = { ...buildDefaultConfig(), ...existingConfig };
+
+        // 白名单字段：只允许前端修改以下字段
+        const ALLOWED_KEYS = new Set([
+          'version', 'mode', 'enabled',
+          'studyList', 'compositeList', 'unsafeList',
+          'dailyOnlineQuota', 'dailyStudyQuota', 'dailyRestQuota',
+          'dailyUndeterminedQuota', 'weeklyRestQuota',
+          'domainQuotas', 'classificationRules',
+          'quotaState', 'schedule',
+          'restConfig', 'autoStudyConfig',
+        ]);
+
+        for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+          if (ALLOWED_KEYS.has(key)) {
+            mergedConfig[key] = value;
+          }
+        }
+
+        // 3. 保护运行时状态字段（不应被前端或默认值覆盖）
+        const PROTECTED_KEYS = ['adminPasswordHash', 'isInitialized', 'lockedDomains', 'updatedAt'];
+        for (const key of PROTECTED_KEYS) {
+          if (existingConfig[key] !== undefined) {
+            mergedConfig[key] = existingConfig[key];
+          }
+        }
+
+        const configStr = JSON.stringify(mergedConfig);
 
         await env.DB.prepare(
           `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
