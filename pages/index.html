@@ -586,7 +586,7 @@
           <div class="domains-container" id="r-unsafelist-tags"></div>
         </div>
 
-        <!-- 学习网站与允许网站 -->
+        <!-- 学习网站与待定网站 -->
         <div id="r-studylist-section">
           <div class="card" id="r-studylist-card">
             <div class="card-header">
@@ -603,7 +603,7 @@
 
           <div class="card" id="r-allowlist-card">
             <div class="card-header">
-              <div><div class="card-title">🎵 允许网站 <span style="font-size:11px;color:var(--muted);font-weight:400;">（不计学习时长）</span></div><div class="card-subtitle">学习模式下可访问但不算学习时间</div></div>
+              <div><div class="card-title">🎵 待定网站 <span style="font-size:11px;color:var(--muted);font-weight:400;">（不计学习时长）</span></div><div class="card-subtitle">学习模式下可访问但不算学习时间</div></div>
               <span id="r-allowlist-count" style="font-size:12px;color:var(--muted);"></span>
             </div>
             <div class="domain-input-row">
@@ -1181,7 +1181,7 @@ async function renderOverview() {
 
     const cfg = remoteConfig;
     const studyList     = cfg.studyList     || [];
-    const compositeList = cfg.compositeList || cfg.allowList || [];
+    const compositeList = cfg.compositeList || [];
 
     // 今日
     const byDomain = {};
@@ -1288,7 +1288,7 @@ async function renderWeekChart() {
 function setupRules() {
   setupDomainInput('r-unsafelist-input', 'r-unsafelist-add', 'r-unsafelist-tags', 'unsafeList');
   setupDomainInput('r-studylist-input',  'r-studylist-add',  'r-studylist-tags',  'studyList');
-  setupDomainInput('r-allowlist-input',  'r-allowlist-add',  'r-allowlist-tags',  'allowList');
+  setupDomainInput('r-allowlist-input',  'r-allowlist-add',  'r-allowlist-tags',  'compositeList');
 
   document.getElementById('r-studylist-search').addEventListener('input', e => {
     const q = e.target.value.trim().toLowerCase();
@@ -1300,21 +1300,9 @@ function setupRules() {
 }
 
 function renderRulesPage() {
-  // 迁移兼容：旧 blacklist → unsafeList
-  if (!remoteConfig.unsafeList && remoteConfig.blacklist) {
-    remoteConfig.unsafeList = remoteConfig.blacklist;
-  }
-  // 迁移兼容：compositeList → allowList（云端用 compositeList，界面用 allowList）
-  if (!remoteConfig.allowList && remoteConfig.compositeList) {
-    remoteConfig.allowList = remoteConfig.compositeList;
-  }
-  // 反向兼容：如果界面修改了 allowList，同步回 compositeList
-  if (remoteConfig.allowList) {
-    remoteConfig.compositeList = remoteConfig.allowList;
-  }
   renderTags('r-unsafelist-tags', remoteConfig.unsafeList || [], 'unsafeList');
   renderTags('r-studylist-tags',  remoteConfig.studyList  || [], 'studyList');
-  renderTags('r-allowlist-tags',  remoteConfig.allowList  || [], 'allowList');
+  renderTags('r-allowlist-tags',  remoteConfig.compositeList || [], 'compositeList');
   updateRuleCounts();
 }
 
@@ -1322,7 +1310,7 @@ function updateRuleCounts() {
   const set = (id, arr) => { const el=document.getElementById(id); if(el) el.textContent=arr.length?`共 ${arr.length} 条`:''; };
   set('r-unsafelist-count', remoteConfig.unsafeList || []);
   set('r-studylist-count',  remoteConfig.studyList  || []);
-  set('r-allowlist-count',  remoteConfig.allowList || remoteConfig.compositeList || []);
+  set('r-allowlist-count',  remoteConfig.compositeList || []);
 }
 
 function setupDomainInput(inputId, btnId, tagsId, listKey) {
@@ -1365,10 +1353,7 @@ window.removeDomain = (listKey, idx) => {
   const list = remoteConfig[listKey] || [];
   list.splice(idx, 1);
   remoteConfig[listKey] = list;
-  // 同步 allowList ↔ compositeList
-  if (listKey === 'allowList') remoteConfig.compositeList = list;
-  if (listKey === 'compositeList') remoteConfig.allowList = list;
-  const map = { unsafeList:'r-unsafelist-tags', studyList:'r-studylist-tags', allowList:'r-allowlist-tags', compositeList:'r-allowlist-tags' };
+  const map = { unsafeList:'r-unsafelist-tags', studyList:'r-studylist-tags', compositeList:'r-allowlist-tags' };
   if (map[listKey]) {
     if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
     renderTags(map[listKey], list, listKey);
@@ -1393,7 +1378,7 @@ function setupQuota() {
 
 function renderQuotaPage() {
   const toH = min => min > 0 ? +(min / 60).toFixed(1) : 0;
-  document.getElementById('q-online').value         = toH(remoteConfig.dailyOnlineQuota       ?? remoteConfig.dailyQuota ?? 0);
+  document.getElementById('q-online').value         = toH(remoteConfig.dailyOnlineQuota       ?? 0);
   document.getElementById('q-study').value          = toH(remoteConfig.dailyStudyQuota        || 0);
   document.getElementById('q-rest').value           = toH(remoteConfig.dailyRestQuota         || 0);
   document.getElementById('q-weekly-rest').value    = toH(remoteConfig.weeklyRestQuota        || 0);
@@ -1820,9 +1805,32 @@ function fmtSec(s) {
 }
 
 function matchDomain(domain, pattern) {
-  const d = domain.replace(/^www\./,'');
-  const p = pattern.replace(/^www\./,'');
-  return d === p || d.endsWith('.'+p);
+  function normalizeHostnameV12(input) {
+    if (typeof input !== 'string') return null;
+    let raw = input.trim();
+    if (!raw) return null;
+    raw = raw.toLowerCase().replace(/\.+$/g, '');
+    if (!raw) return null;
+    try {
+      const normalized = new URL('http://' + raw).hostname.toLowerCase().replace(/\.+$/g, '');
+      return normalized || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const d = normalizeHostnameV12(domain);
+  const p = normalizeHostnameV12(pattern);
+  if (!d || !p) return false;
+  if (d === p) return true;
+  if (d.startsWith('www.') && d.slice(4) === p) return true;
+  if (p.startsWith('www.') && p.slice(4) === d) return true;
+  if (p.startsWith('*.')) {
+    const base = p.slice(2);
+    if (!base || d === base) return false;
+    return d.endsWith('.' + base);
+  }
+  return false;
 }
 
 // ── 待审核页面 ────────────────────────────────────────────────────────────────

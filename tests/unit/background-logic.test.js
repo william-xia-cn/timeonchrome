@@ -100,7 +100,7 @@ function computeRemindReason(url, config, scheduleResultOverride) {
   const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p));
 
   // 1. Unsafe
-  const unsafeList = config.unsafeList || config.blacklist || [];
+  const unsafeList = config.unsafeList || [];
   if (unsafeList.some(b => matchDomain(domain, b)))
     return { blocked: true, reason: 'unsafe' };
 
@@ -109,7 +109,7 @@ function computeRemindReason(url, config, scheduleResultOverride) {
     return { blocked: true, reason: 'schedule' };
 
   // 3. Study mode
-  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+  const currentMode = config.mode;
   if (currentMode === 'study' && !isStudyDomain && !isCompositeDomain)
     return { blocked: true, reason: 'study_mode' };
 
@@ -135,7 +135,7 @@ function categorizeHeartbeat(domain, config, heartbeatType) {
   // heartbeatType: 'active' | 'passive'
   const isStudy    = (config.studyList     || []).some(p => matchDomain(domain, p));
   const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p));
-  const mode        = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+  const mode        = config.mode;
 
   // Both active and passive heartbeats count domain time.
   // The session categorization depends on mode + domain type.
@@ -601,17 +601,10 @@ section('checkAndRemind: routing decision');
 }
 
 {
-  // Unsafe check uses unsafeList OR blacklist (backward compat)
-  // NOTE: JS: [] is truthy, so `[] || blacklist` evaluates to [].
-  // Only falls back to blacklist if unsafeList is null/undefined.
+  // v1.2-only: 只读取 unsafeList，不读取 legacy blacklist
   const config = makeConfig({ unsafeList: undefined, blacklist: ['badsite.com'] });
   const r = computeRemindReason('https://badsite.com', config, true);
-  check('legacy blacklist (unsafeList undefined) → blocked as unsafe', r.blocked && r.reason === 'unsafe', JSON.stringify(r));
-
-  // When unsafeList is empty array, blacklist fallback does NOT activate ([] is truthy)
-  const config2 = makeConfig({ unsafeList: [], blacklist: ['badsite.com'] });
-  const r2 = computeRemindReason('https://badsite.com', config2, true);
-  check('empty unsafeList (truthy) → blacklist NOT used as fallback', r2.reason !== 'unsafe', JSON.stringify(r2));
+  check('v1.2-only: unsafeList 缺失时不应回退 blacklist', r.reason !== 'unsafe', JSON.stringify(r));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

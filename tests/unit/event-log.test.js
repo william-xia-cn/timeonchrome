@@ -2,6 +2,8 @@
 // Run with: node tests/unit/event-log.test.js
 
 'use strict';
+const fs = require('fs');
+const path = require('path');
 
 // ── Mock Chrome Storage ─────────────────────────────────────────────────────
 
@@ -29,27 +31,37 @@ const mockLocalStorage = new MockStorage();
 
 global.chrome = { storage: { local: mockLocalStorage } };
 
-// ── Inline event-log logic ──────────────────────────────────────────────────
+// ── Tiny test adapter: load production ESM-like exports in CJS test harness ──
+function loadProdModule(relPath, exportNames) {
+  const abs = path.join(__dirname, '..', '..', relPath);
+  let code = fs.readFileSync(abs, 'utf8');
+  code = code.replace(/^\s*import .*?;\s*$/gm, '');
+  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
+  code = code.replace(/export\s+function\s+/g, 'function ');
+  code = code.replace(/export\s+const\s+/g, 'const ');
+  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
+  const factory = new Function(`${code}\nreturn { ${exportNames.join(', ')} };`);
+  return factory();
+}
 
-const EVENT_TYPE = { START: 'START', END: 'END' };
+const eventApi = loadProdModule('core/event-log.js', [
+  'EVENT_TYPE',
+  'getEvents',
+  'appendEvent',
+  'clearEvents'
+]);
+
+const EVENT_TYPE = eventApi.EVENT_TYPE;
+const getEvents = eventApi.getEvents;
+const appendEvent = eventApi.appendEvent;
+const clearEvents = eventApi.clearEvents;
 const STORAGE_KEY = 'event_log_v1';
-const MAX_RAW_WINDOW = 10 * 60 * 1000;
-
-async function getEvents() {
-  const data = await mockLocalStorage.get(STORAGE_KEY);
-  return data[STORAGE_KEY] || [];
-}
-
-async function appendEvent(event) {
-  const events = await getEvents();
-  events.push(event);
-  // 测试中不触发压缩（直接保存全部）
-  await mockLocalStorage.set({ [STORAGE_KEY]: events });
-}
-
-async function clearEvents() {
-  await mockLocalStorage.set({ [STORAGE_KEY]: [] });
-}
+const sourcePath = path.join(__dirname, '..', '..', 'core/event-log.js');
+const sourceCode = fs.readFileSync(sourcePath, 'utf8');
+const hasGetLastEventExport = /export\s+async\s+function\s+getLastEvent|export\s+function\s+getLastEvent/.test(sourceCode);
+const getLastEvent = hasGetLastEventExport
+  ? loadProdModule('core/event-log.js', ['getLastEvent']).getLastEvent
+  : undefined;
 
 // ── Test runner ─────────────────────────────────────────────────────────────
 
@@ -195,6 +207,31 @@ section('appendEvent: 顺序保证');
   expect('事件按追加顺序排列', events.length, 10);
   expectTrue('事件时间递增',
     events.every((e, i) => i === 0 || e.time >= events[i - 1].time));
+}
+
+section('EL-1 getLastEvent: 空日志/null、多事件取最后、读取不应修改日志');
+{
+  mockLocalStorage.reset();
+
+  if (typeof getLastEvent !== 'function') {
+    failed++;
+    console.error('  ✗ getLastEvent 应作为 event-log 公共 API 提供 [EXPECTED_FAIL_BEFORE_PHASE1]');
+  } else {
+    let last = await getLastEvent();
+    expect('空日志返回 null', last, null);
+
+    const now = Date.now();
+    await appendEvent({ type: 'START', state: 'ACTIVE', domain: 'a.com', time: now });
+    await appendEvent({ type: 'END', state: 'ACTIVE', domain: 'a.com', time: now + 1000 });
+    await appendEvent({ type: 'START', state: 'PASSIVE', domain: 'b.com', time: now + 2000 });
+
+    const before = await getEvents();
+    last = await getLastEvent();
+    const after = await getEvents();
+
+    expect('多事件时返回最后一条', last, before[before.length - 1]);
+    expect('读取 getLastEvent 不修改 event_log', after, before);
+  }
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

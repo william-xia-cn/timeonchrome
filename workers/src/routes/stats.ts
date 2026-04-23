@@ -1,5 +1,6 @@
 // Stats 路由 - 统计上传/查询
 import { json, Env, verifyAccountToken } from '../db/middleware';
+import { normalizeHostname } from '../../../core/domain-semantics.js';
 
 // 验证 device_token，同时刷新 last_seen；返回 profile_id 或 null
 async function verifyDeviceToken(env: Env, token: string): Promise<string | null> {
@@ -49,13 +50,15 @@ export const statsRouter = {
 
         for (const stat of stats) {
           if (!stat.domain) continue;
+          const normalizedDomain = normalizeHostname(stat.domain);
+          if (!normalizedDomain) continue;
           const duration = (stat.active_sec || 0) + (stat.passive_sec || 0);
           if (duration <= 0) continue;
 
           await env.DB.prepare(
             `INSERT INTO stats (id, profile_id, date, domain, duration, created_at)
              VALUES (?, ?, ?, ?, ?, ?)`
-          ).bind(crypto.randomUUID(), profileId, date, stat.domain, duration, now).run();
+          ).bind(crypto.randomUUID(), profileId, date, normalizedDomain, duration, now).run();
 
           inserted++;
         }

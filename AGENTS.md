@@ -111,11 +111,13 @@
 
 | 级别 | 命令 | 用例 | 耗时 | 时机 |
 |------|------|------|------|------|
-| 快速测试 | `node tests/unit/*.test.js` | 157 | ~7s | 每次代码修改后 |
+| 快速测试 | `for f in tests/unit/*.test.js; do node "$f" || exit 1; done` | 157 | ~7s | 每次代码修改后 |
 | 完整测试 | `node tests/run-all.js` | 218 | ~42s | git push 前 |
 
 ### 4.2 规则
 - 每次代码修改后必须运行**快速测试**
+- 不要使用 `node tests/unit/*.test.js` 作为全量口径（该写法只会执行单个入口文件）
+- 全量 unit 必须逐文件执行（见 4.1 快速测试命令）
 - 推送前必须运行**完整测试**
 - 纯文档变更不需要运行测试
 - 测试失败不得提交
@@ -215,3 +217,19 @@ timeonchrome/
 │   └── TEST-SPEC.md           测试规范
 └── .opencode/                 OpenCode MVP 配置
 ```
+
+---
+
+## 8. Project Control Docs（项目控制文档）
+
+以下文档位于仓库根目录，用于阶段管理与执行同步：
+
+- `PROJECT_MASTER.md`：项目主状态与阶段边界（V0/V1）
+- `DECISIONS.md`：关键决策与状态
+- `TASK_BOARD.md`：任务看板（NOW/NEXT/LATER）
+
+### 当前基线（控制口径）
+- V0 收口阶段
+- music time 进入 V0
+- composite routing 延后到 V1
+- monitoring closeout 部分完成，继续按小包推进

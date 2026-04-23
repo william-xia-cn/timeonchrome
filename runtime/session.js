@@ -3,6 +3,12 @@
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 
 const SESSION_KEY = 'session_v1';
+let commitQueue = Promise.resolve();
+
+function runSerialized(task) {
+  commitQueue = commitQueue.then(task, task);
+  return commitQueue;
+}
 
 /**
  * @typedef {Object} SessionState
@@ -53,42 +59,44 @@ export async function initSession() {
  * @param {string|null} newDomain
  */
 export async function transitionState(newState, newDomain) {
-  const session = await getSession();
-  if (!session) return;
+  return runSerialized(async () => {
+    const session = await getSession();
+    if (!session) return;
 
-  const now = Date.now();
+    const now = Date.now();
 
-  // 没变化直接忽略（抗抖）
-  if (session.state === newState && session.domain === newDomain) {
-    return;
-  }
+    // 没变化直接忽略（抗抖）
+    if (session.state === newState && session.domain === newDomain) {
+      return;
+    }
 
-  // 1. 关闭旧事件
-  if (session.state && session.startTime) {
-    await appendEvent({
-      type: EVENT_TYPE.END,
-      state: session.state,
-      domain: session.domain,
-      time: now,
-    });
-  }
+    // 1. 关闭旧事件
+    if (session.state && session.startTime) {
+      await appendEvent({
+        type: EVENT_TYPE.END,
+        state: session.state,
+        domain: session.domain,
+        time: now,
+      });
+    }
 
-  // 2. 开启新事件
-  if (newState) {
-    await appendEvent({
-      type: EVENT_TYPE.START,
+    // 2. 开启新事件
+    if (newState) {
+      await appendEvent({
+        type: EVENT_TYPE.START,
+        state: newState,
+        domain: newDomain,
+        time: now,
+      });
+    }
+
+    // 3. 更新 session
+    await saveSession({
       state: newState,
       domain: newDomain,
-      time: now,
+      startTime: newState ? now : null,
+      lastHeartbeat: now,
     });
-  }
-
-  // 3. 更新 session
-  await saveSession({
-    state: newState,
-    domain: newDomain,
-    startTime: newState ? now : null,
-    lastHeartbeat: now,
   });
 }
 
@@ -96,9 +104,15 @@ export async function transitionState(newState, newDomain) {
  * 心跳：维持恢复锚点
  */
 export async function heartbeat() {
-  const session = await getSession();
-  if (!session) return;
+  return runSerialized(async () => {
+    const session = await getSession();
+    if (!session) return;
 
-  session.lastHeartbeat = Date.now();
-  await saveSession(session);
+    session.lastHeartbeat = Date.now();
+    await saveSession(session);
+  });
+}
+
+export async function runSessionCommit(task) {
+  return runSerialized(task);
 }

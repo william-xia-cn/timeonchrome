@@ -20,6 +20,15 @@ export async function getEvents() {
 }
 
 /**
+ * 获取最后一条事件（只读）
+ * @returns {Promise<{type: string, state: string, domain: string|null, time: number}|null>}
+ */
+export async function getLastEvent() {
+  const events = await getEvents();
+  return events.length > 0 ? events[events.length - 1] : null;
+}
+
+/**
  * 追加事件（唯一写入口）
  * @param {{type: string, state: string, domain: string|null, time: number}} event
  */

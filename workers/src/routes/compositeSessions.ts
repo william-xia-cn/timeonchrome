@@ -1,5 +1,6 @@
 // compositeSessions.ts - 复合型会话 CRUD + 家长审核 + 自动分类规则
 import { json, Env, verifyAccountToken } from '../db/middleware';
+import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';
 
 // ── device_token 验证辅助 ──────────────────────────────────────────────────────
 
@@ -21,9 +22,7 @@ function autoClassify(
   rules: Array<{ domain: string; keyword: string; classification: string }>
 ): string | null {
   for (const rule of rules) {
-    const rd = rule.domain.replace(/^www\./, '');
-    const dd = domain.replace(/^www\./, '');
-    if (dd !== rd && !dd.endsWith('.' + rd)) continue;
+    if (!matchDomainV12(domain, rule.domain)) continue;
     if (title.toLowerCase().includes(rule.keyword.toLowerCase())) {
       return rule.classification;
     }
@@ -336,19 +335,14 @@ export const compositeSessionsRouter = {
             ).bind(profileId).first<{ config: string }>();
             const config = profileRow?.config ? JSON.parse(profileRow.config) : {};
             const domain = firstSession.domain;
+            const isSameDomain = (a: string, b: string) => matchDomainV12(a, b) && matchDomainV12(b, a);
 
             config.compositeList = (config.compositeList || []).filter((d: string) => {
-              const cd = d.replace(/^www\./, '');
-              const dd = domain.replace(/^www\./, '');
-              return cd !== dd && !dd.endsWith('.' + cd);
+              return !isSameDomain(d, domain);
             });
 
             if (classifications[0].classification === 'study') {
-              if (!(config.studyList || []).some((d: string) => {
-                const cd = d.replace(/^www\./, '');
-                const dd = domain.replace(/^www\./, '');
-                return cd === dd;
-              })) {
+              if (!(config.studyList || []).some((d: string) => isSameDomain(d, domain))) {
                 config.studyList = [...(config.studyList || []), domain];
               }
             }

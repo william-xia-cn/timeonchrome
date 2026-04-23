@@ -25,7 +25,7 @@ export function resolveState(context) {
   if (!context?.domain) return AttentionState.IDLE;
   if (context.isIdle) return AttentionState.IDLE;
   if (context.isFocused && context.tabId) return AttentionState.ACTIVE;
-  if (context.isAudible) return AttentionState.BACKGROUND_ACTIVE;
+  if (context.isAudible && context.mediaSourceTabId != null) return AttentionState.BACKGROUND_ACTIVE;
   if (context.isPiP) return AttentionState.BACKGROUND_ACTIVE;
   return AttentionState.PASSIVE;
 }

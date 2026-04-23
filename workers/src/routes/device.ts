@@ -1,5 +1,6 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
+import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';
 
 // 验证 device_token，可选同时刷新 last_seen；返回 profile_id 或 null
 async function verifyDeviceToken(
@@ -182,11 +183,7 @@ export const deviceRouter = {
       const weeklyRestLimitMin = config.weeklyRestQuota ?? (baseDailyRest * 7);
       const weeklyRestLimitSec = weeklyRestLimitMin * 60;
 
-      const matchDomain = (domain: string, pattern: string) => {
-        const d = domain.replace(/^www\./, '');
-        const p = pattern.replace(/^www\./, '');
-        return d === p || d.endsWith('.' + p);
-      };
+      const matchDomain = matchDomainV12;
 
       // Sum today's stats for ALL devices under this profile
       const statsResult = await env.DB.prepare(

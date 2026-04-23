@@ -1,6 +1,14 @@
 // reminder.js - 提醒页面逻辑（替代 blocked.js）
 
 (function() {
+  const BORROW_CONFIRM_TEXT = '确认借用明天时间？\n\n本次将立即增加今日可用休息时间 30 分钟，\n明天会扣减同等时长。\n明天不能连续再次借用。是否继续？';
+  const BORROW_BUTTON_TEXT = '⏱ 向明天借时间';
+  const BORROW_ERROR_MESSAGES = {
+    already_borrowed: '已有未还借用，无法再借',
+    no_cross_week: '周日不能借用（防止跨周）',
+    weekly_quota_exceeded: '本周配额已用完，无法借用',
+  };
+
   // 解析 URL 参数
   const params = new URLSearchParams(location.search);
   const reason = params.get('reason') || 'unsafe';
@@ -109,18 +117,34 @@
       }
     },
     borrowTime: {
-      label: '⏱ 向明天借时间', style: 'warn',
+      label: BORROW_BUTTON_TEXT, style: 'warn',
       handler: function() {
+        if (!window.confirm(BORROW_CONFIRM_TEXT)) return;
+        const btn = this && typeof this === 'object' ? this : null;
+        const originalText = btn?.textContent || BORROW_BUTTON_TEXT;
+        if (btn) {
+          if (btn.disabled) return;
+          btn.disabled = true;
+          btn.textContent = '处理中...';
+        }
         chrome.runtime.sendMessage({ type: 'BORROW_REST_QUOTA' }, function(result) {
           if (result && result.ok) {
+            if (btn) {
+              btn.disabled = true;
+              btn.textContent = '已借用';
+            }
             showStatus('✓ 已借用 ' + result.amount + ' 分钟，刷新页面试试', 'success');
-          } else if (result && result.error === 'already_borrowed') {
-            showStatus('已有未还借用，无法再借', 'info');
-          } else if (result && result.error === 'no_cross_week') {
-            showStatus('周日不能借用（防止跨周）', 'info');
-          } else if (result && result.error === 'weekly_quota_exceeded') {
-            showStatus('本周配额已用完，无法借用', 'info');
+          } else if (result && result.error && BORROW_ERROR_MESSAGES[result.error]) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = originalText;
+            }
+            showStatus(BORROW_ERROR_MESSAGES[result.error], 'info');
           } else {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = originalText;
+            }
             showStatus('借用失败：' + ((result && result.error) || '未知错误'), 'error');
           }
         });

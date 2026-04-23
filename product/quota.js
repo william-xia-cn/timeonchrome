@@ -2,6 +2,8 @@
 
 import { getConfig, saveConfig, getTodayStats, getTodayUndeterminedStats, getStatsRange, matchDomain, extractDomain, isSpecialUrl, getDateKey, formatDate } from '../infra/storage.js';
 
+let borrowInProgress = false;
+
 // ── Week rest calculation ───────────────────────────────────────────────────────
 
 export async function getWeekRestSeconds() {
@@ -18,6 +20,7 @@ export async function getWeekRestSeconds() {
   for (const [, dayStats] of Object.entries(statsRange)) {
     let dayTotal = 0, dayStudy = 0, dayUndeterminedSecs = 0;
     for (const [domain, secs] of Object.entries(dayStats)) {
+      if (domain === 'audioSeconds') continue;
       dayTotal += secs;
       if (studyList.some(p => matchDomain(domain, p))) dayStudy += secs;
       if (compositeList.some(p => matchDomain(domain, p))) dayUndeterminedSecs += secs;
@@ -197,34 +200,43 @@ export async function redirectLockedTabs(domains) {
 // ── Borrow rest quota ───────────────────────────────────────────────────────────
 
 export async function borrowRestQuota(updateDeclarativeRulesFn) {
-  const config = await getConfig();
-  const borrow = config.quotaBorrow;
-
-  if (borrow && !borrow.repaid) {
-    return { ok: false, error: 'already_borrowed', alreadyBorrowed: true };
+  if (borrowInProgress) {
+    return { ok: false, error: 'borrow_in_progress', code: 'BORROW_IN_PROGRESS' };
   }
+  borrowInProgress = true;
 
-  const today = getDateKey();
-  const todayDate = new Date();
-  if (todayDate.getDay() === 0) {
-    return { ok: false, error: 'no_cross_week' };
+  try {
+    const config = await getConfig();
+    const borrow = config.quotaBorrow;
+
+    if (borrow && !borrow.repaid) {
+      return { ok: false, error: 'already_borrowed', alreadyBorrowed: true };
+    }
+
+    const today = getDateKey();
+    const todayDate = new Date();
+    if (todayDate.getDay() === 0) {
+      return { ok: false, error: 'no_cross_week' };
+    }
+
+    const dailyLimit = config.dailyRestQuota ?? 120;
+    const borrowAmt = Math.min(60, dailyLimit);
+
+    const weeklyLimit = (config.weeklyRestQuota ?? (dailyLimit * 7)) * 60;
+    const weekRestSec = await getWeekRestSeconds();
+    if (weeklyLimit > 0 && weekRestSec >= weeklyLimit) {
+      return { ok: false, error: 'weekly_quota_exceeded' };
+    }
+
+    config.quotaBorrow = { borrowedFrom: today, amount: borrowAmt, repaid: false };
+    if (config.quotaState?.restLocked) {
+      config.quotaState.restLocked = false;
+      config.quotaState.weeklyRestLocked = false;
+    }
+    await saveConfig(config);
+    if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(config);
+    return { ok: true, amount: borrowAmt };
+  } finally {
+    borrowInProgress = false;
   }
-
-  const dailyLimit = config.dailyRestQuota ?? 120;
-  const borrowAmt = Math.min(60, dailyLimit);
-
-  const weeklyLimit = (config.weeklyRestQuota ?? (dailyLimit * 7)) * 60;
-  const weekRestSec = await getWeekRestSeconds();
-  if (weeklyLimit > 0 && weekRestSec >= weeklyLimit) {
-    return { ok: false, error: 'weekly_quota_exceeded' };
-  }
-
-  config.quotaBorrow = { borrowedFrom: today, amount: borrowAmt, repaid: false };
-  if (config.quotaState?.restLocked) {
-    config.quotaState.restLocked = false;
-    config.quotaState.weeklyRestLocked = false;
-  }
-  await saveConfig(config);
-  if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(config);
-  return { ok: true, amount: borrowAmt };
 }
