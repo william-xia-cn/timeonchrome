@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dev Reset Tool (LOCAL ONLY)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; line-height: 1.5; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    .warn { color: #b45309; background: #fffbeb; border: 1px solid #fcd34d; padding: 10px; margin: 10px 0; }
+    .box { border: 1px solid #ddd; padding: 12px; margin: 12px 0; }
+    button { margin: 6px 8px 6px 0; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; white-space: pre-wrap; word-break: break-word; }
+    .muted { color: #6b7280; }
+  </style>
+</head>
+<body>
+  <h1>Dev Reset Tool</h1>
+  <div class="warn"><strong>LOCAL ONLY</strong> — 仅用于开发/测试，危险操作需二次确认。</div>
+
+  <div id="disabled-alert" class="warn" hidden></div>
+
+  <div class="box" id="local-actions">
+    <h2>本地清理</h2>
+    <button id="btn-clear-stats">清空统计数据（本地）</button>
+    <button id="btn-clear-sessions">清空会话数据（本地）</button>
+    <button id="btn-clear-locks">清空临时锁定状态（本地）</button>
+  </div>
+
+  <div class="box">
+    <h2>云端清理</h2>
+    <p class="muted">当前版本不支持云端清理，请通过本地 opencode / Wrangler 手动执行。</p>
+  </div>
+
+  <div class="box">
+    <h2>执行结果</h2>
+    <pre id="result-panel">尚未执行</pre>
+  </div>
+
+  <script type="module" src="./dev-reset.js"></script>
+</body>
+</html>

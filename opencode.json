@@ -1,0 +1,20 @@
+{
+  "project": "timeonchrome",
+  "role": "local_verification_executor",
+  "mode": {
+    "plan_first": true,
+    "verify_first": true,
+    "allow_direct_large_refactor": false
+  },
+  "priority_context": [
+    "PROJECT_MASTER.md",
+    "DECISIONS.md",
+    "TASK_BOARD.md",
+    "AGENTS.md",
+    "docs/V0_RELEASE_REVALIDATION_CHECKLIST.md"
+  ],
+  "guardrails": {
+    "no_v1_scope_expansion": true,
+    "no_business_code_change_without_explicit_task": true
+  }
+}

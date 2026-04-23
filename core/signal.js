@@ -1,4 +1,5 @@
 // core/signal.js — Chrome API 输入层 + micro-batching 事件合并
+import { normalizeHostname } from './domain-semantics.js';
 
 const BATCH_WINDOW = 80; // 80ms 覆盖 Chrome 事件簇
 
@@ -35,6 +36,7 @@ export function initSignal(onContextChange) {
       isFocused: incoming.isFocused ?? pending.isFocused,
       isIdle: incoming.isIdle ?? pending.isIdle,
       isAudible: incoming.isAudible ?? pending.isAudible,
+      mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
       isPiP: incoming.isPiP ?? pending.isPiP,
       timestamp: Date.now(),
     };
@@ -94,8 +96,8 @@ export function initSignal(onContextChange) {
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (msg.type === 'MEDIA_STATE' && sender.tab) {
       onEvent({
-        tabId: sender.tab.id,
         isAudible: msg.playing,
+        mediaSourceTabId: sender.tab.id,
       });
     }
   });
@@ -120,7 +122,7 @@ function extractDomain(url) {
     if (u.protocol === 'chrome:' || u.protocol === 'chrome-extension:' || u.protocol === 'edge:' || u.protocol === 'about:') return null;
     const hostname = u.hostname;
     if (!hostname) return null;
-    return hostname.replace(/^www\./, '');
+    return normalizeHostname(hostname);
   } catch {
     return null;
   }

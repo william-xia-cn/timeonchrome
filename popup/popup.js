@@ -3,6 +3,14 @@
 const CLOUD_KEYS = {
   PROFILE_NAME: 'cloud_profile_name'
 };
+const BORROW_DISPLAY_MINUTES = 30; // 仅前端展示文案常量，不作为业务规则来源
+const BORROW_CONFIRM_TEXT = '确认借用明天时间？\n\n本次将立即增加今日可用休息时间 30 分钟，\n明天会扣减同等时长。\n明天不能连续再次借用。是否继续？';
+const BORROW_BUTTON_TEXT = '⏱ 向明天借时间';
+const BORROW_ERROR_MESSAGES = {
+  already_borrowed: '已有未还借用，无法再借',
+  no_cross_week: '周日不能借用（防止跨周）',
+  weekly_quota_exceeded: '本周配额已用完，无法借用',
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   // 检查绑定状态
@@ -228,22 +236,32 @@ function renderBorrowSection(config, qs) {
     el.style.display = '';
     el.innerHTML = `
       <div class="borrow-box">
-        今日休息时间已用完。可向明天借用最多 <strong>1 小时</strong>，明日配额相应减少。
-        <button class="borrow-btn" id="borrow-btn">向明天借 1 小时</button>
+        今日休息时间已用完。可向明天借用 <strong>${BORROW_DISPLAY_MINUTES} 分钟</strong>，明日配额相应减少。
+        <button class="borrow-btn" id="borrow-btn">${BORROW_BUTTON_TEXT}</button>
+        <div id="borrow-status" style="margin-top:6px;font-size:10px;"></div>
       </div>`;
-    document.getElementById('borrow-btn').addEventListener('click', async () => {
-      const btn = document.getElementById('borrow-btn');
+    document.getElementById('borrow-btn').addEventListener('click', async function() {
+      if (!window.confirm(BORROW_CONFIRM_TEXT)) return;
+      const btn = this;
+      if (!btn || btn.disabled) return;
+      const statusEl = document.getElementById('borrow-status');
       btn.disabled = true;
       btn.textContent = '处理中...';
       const r = await sendMsg({ type: 'BORROW_REST_QUOTA' });
       if (r?.ok) {
-        el.innerHTML = `<div class="borrow-box">✅ 已借用 <strong>${r.amount} 分钟</strong>，明日配额将减少相应额度。</div>`;
-        await init(); // 刷新进度条
+        btn.disabled = true;
+        btn.textContent = '已借用';
+        if (statusEl) {
+          statusEl.style.color = 'var(--accent)';
+          statusEl.textContent = `✓ 已借用 ${r.amount} 分钟，刷新页面试试`;
+        }
       } else {
         btn.disabled = false;
-        btn.textContent = '向明天借 1 小时';
-        if (r?.error === 'weekly_quota_exceeded') {
-          el.querySelector('.borrow-box').insertAdjacentHTML('beforeend', '<br><span style="color:var(--danger);font-size:10px;">本周配额已满，无法借用。</span>');
+        btn.textContent = BORROW_BUTTON_TEXT;
+        const errorMsg = BORROW_ERROR_MESSAGES[r?.error] || ('借用失败：' + (r?.error || '未知错误'));
+        if (statusEl) {
+          statusEl.style.color = r?.error ? 'var(--warn)' : 'var(--danger)';
+          statusEl.textContent = errorMsg;
         }
       }
     });
@@ -362,9 +380,32 @@ function escSid(s) {
 
 // 域名匹配（与 background.js 一致）
 function matchDomain(domain, pattern) {
-  const d = domain.replace(/^www\./, '');
-  const p = pattern.replace(/^www\./, '');
-  return d === p || d.endsWith('.' + p);
+  function normalizeHostnameV12(input) {
+    if (typeof input !== 'string') return null;
+    let raw = input.trim();
+    if (!raw) return null;
+    raw = raw.toLowerCase().replace(/\.+$/g, '');
+    if (!raw) return null;
+    try {
+      const normalized = new URL('http://' + raw).hostname.toLowerCase().replace(/\.+$/g, '');
+      return normalized || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const d = normalizeHostnameV12(domain);
+  const p = normalizeHostnameV12(pattern);
+  if (!d || !p) return false;
+  if (d === p) return true;
+  if (d.startsWith('www.') && d.slice(4) === p) return true;
+  if (p.startsWith('www.') && p.slice(4) === d) return true;
+  if (p.startsWith('*.')) {
+    const base = p.slice(2);
+    if (!base || d === base) return false;
+    return d.endsWith('.' + base);
+  }
+  return false;
 }
 
 function sendMsg(msg) {

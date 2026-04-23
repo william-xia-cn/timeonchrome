@@ -94,8 +94,13 @@ export async function redirectToReminder(tabId, domain, reason, message) {
 
 // ── Declarative rules (unsafeList) ──────────────────────────────────────────────
 
-export async function updateDeclarativeRules(config) {
+export async function updateDeclarativeRules(config, monitoringEnabled) {
   const cfg = config || await getConfig();
+  let monitor = monitoringEnabled;
+  if (monitor === undefined || monitor === null) {
+    const storage = await chrome.storage.local.get('cloud_monitoring_enabled');
+    monitor = storage.cloud_monitoring_enabled ?? 1;
+  }
 
   const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
   const removeIds = existingRules.map(r => r.id);
@@ -103,6 +108,8 @@ export async function updateDeclarativeRules(config) {
   if (removeIds.length > 0) {
     await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: removeIds });
   }
+
+  if (monitor === 0) return;
 
   const unsafeList = (cfg.unsafeList?.length ? cfg.unsafeList : null) || cfg.blacklist || [];
   if (unsafeList.length > 0) {

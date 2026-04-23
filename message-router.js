@@ -6,6 +6,25 @@ import { checkAllTabsQuota, borrowRestQuota, redirectAllTabs, redirectQuotaViola
 import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync } from './infra/cloud-sync.js';
 import { getTodayStatsWithCategories } from './product/analytics.js';
 
+const BORROW_ALLOWED_PATHS = new Set([
+  '/popup/popup.html',
+  '/reminder.html',
+]);
+
+function isAuthorizedBorrowSender(sender) {
+  if (!sender?.id || sender.id !== chrome.runtime.id) return false;
+  if (!sender?.url) return false;
+
+  try {
+    const senderUrl = new URL(sender.url);
+    const extensionOrigin = new URL(chrome.runtime.getURL('/')).origin;
+    if (senderUrl.origin !== extensionOrigin) return false;
+    return BORROW_ALLOWED_PATHS.has(senderUrl.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export async function handleMessage(msg, sender) {
   switch (msg.type) {
     case 'GET_CONFIG':
@@ -50,8 +69,11 @@ export async function handleMessage(msg, sender) {
 
     case 'SEND_CLOUD_EVENT': {
       const { eventType, domain: evtDomain = '' } = msg;
-      const { CLOUD_CONFIG } = await import('./infra/cloud-sync.js');
       const syncStateRef = getSyncState();
+      if (syncStateRef.monitoringEnabled === 0) {
+        return { ok: true, skipped: 'monitoring_disabled' };
+      }
+      const CLOUD_CONFIG = getCloudConfig();
       if (syncStateRef.deviceToken) {
         fetch(`${CLOUD_CONFIG.API_BASE}/device/events`, {
           method: 'POST',
@@ -137,6 +159,9 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'BORROW_REST_QUOTA': {
+      if (!isAuthorizedBorrowSender(sender)) {
+        return { ok: false, error: 'unauthorized_borrow_source', code: 'BORROW_SOURCE_DENIED' };
+      }
       return await borrowRestQuota(updateDeclarativeRules);
     }
 
@@ -190,6 +215,30 @@ export async function handleMessage(msg, sender) {
 
 // ── Mode switching ──────────────────────────────────────────────────────────────
 
+
+async function reevaluateActiveTabAfterModeSwitch() {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tab = tabs && tabs[0];
+  if (!tab || !tab.id || !tab.url) return;
+
+  let targetUrl = tab.url;
+  if (tab.url.includes('reminder.html')) {
+    try {
+      const u = new URL(tab.url);
+      const domain = u.searchParams.get('domain');
+      if (!domain || domain === 'all') return;
+      targetUrl = `https://${domain}`;
+    } catch {
+      return;
+    }
+  }
+
+  const blocked = await checkAndRemind(tab.id, targetUrl, getSyncState().monitoringEnabled);
+  if (!blocked && targetUrl !== tab.url) {
+    await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => {});
+  }
+}
+
 async function switchToStudy() {
   const config = await getConfig();
   config.mode = 'study';
@@ -198,6 +247,7 @@ async function switchToStudy() {
   const session = await getSession();
   session.currentMode = 'study';
   await chrome.storage.local.set({ guardian_session: session });
+  await reevaluateActiveTabAfterModeSwitch();
   return session;
 }
 
@@ -209,6 +259,7 @@ async function switchToRest() {
   const session = await getSession();
   session.currentMode = 'rest';
   await chrome.storage.local.set({ guardian_session: session });
+  await reevaluateActiveTabAfterModeSwitch();
   return session;
 }
 

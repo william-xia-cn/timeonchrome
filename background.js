@@ -50,12 +50,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         adminPasswordHash: existingConfig.adminPasswordHash || '',
         isInitialized: existingConfig.isInitialized || false,
         restConfig: existingConfig.restConfig || DEFAULT_CONFIG.restConfig,
-        studyList: existingConfig.studyList || existingConfig.whitelist || DEFAULT_CONFIG.studyList,
-        compositeList: existingConfig.compositeList || existingConfig.allowList || DEFAULT_CONFIG.compositeList,
-        unsafeList: (existingConfig.unsafeList?.length ? existingConfig.unsafeList : null) || existingConfig.blacklist || DEFAULT_CONFIG.unsafeList,
-        mode: existingConfig.mode === 'whitelist' ? 'study' : (existingConfig.mode === 'blacklist' ? 'rest' : (existingConfig.mode || 'study')),
+        studyList: existingConfig.studyList || DEFAULT_CONFIG.studyList,
+        compositeList: existingConfig.compositeList || DEFAULT_CONFIG.compositeList,
+        unsafeList: existingConfig.unsafeList || DEFAULT_CONFIG.unsafeList,
+        mode: existingConfig.mode || 'study',
         autoStudyConfig: existingConfig.autoStudyConfig || DEFAULT_CONFIG.autoStudyConfig,
-        dailyOnlineQuota: existingConfig.dailyOnlineQuota ?? (existingConfig.dailyQuota > 0 ? existingConfig.dailyQuota : DEFAULT_CONFIG.dailyOnlineQuota),
+        dailyOnlineQuota: existingConfig.dailyOnlineQuota ?? DEFAULT_CONFIG.dailyOnlineQuota,
         dailyStudyQuota: existingConfig.dailyStudyQuota ?? DEFAULT_CONFIG.dailyStudyQuota,
         dailyRestQuota: existingConfig.dailyRestQuota ?? DEFAULT_CONFIG.dailyRestQuota,
         dailyUndeterminedQuota: existingConfig.dailyUndeterminedQuota ?? DEFAULT_CONFIG.dailyUndeterminedQuota,
@@ -64,7 +64,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         classificationRules: existingConfig.classificationRules ?? [],
         quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false }
       };
-      delete migratedConfig.allowList;
       delete migratedConfig.tempWhitelist;
       delete migratedConfig.tempWhitelistConfig;
       delete migratedConfig.tempExemptions;
@@ -93,6 +92,57 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   await checkAndRemind(tabId, url, getSyncState().monitoringEnabled);
 });
 
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  await reevaluateTabById(activeInfo.tabId);
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  await reevaluateFocusedWindowActiveTab(windowId);
+});
+
+function isMonitoringEnabled() {
+  return getSyncState().monitoringEnabled !== 0;
+}
+
+
+async function reevaluateTabById(tabId) {
+  if (!tabId) return;
+
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch {
+    return;
+  }
+  if (!tab?.url) return;
+
+  let targetUrl = tab.url;
+  if (tab.url.includes('reminder.html')) {
+    try {
+      const u = new URL(tab.url);
+      const domain = u.searchParams.get('domain');
+      if (!domain || domain === 'all') return;
+      targetUrl = `https://${domain}`;
+    } catch {
+      return;
+    }
+  }
+
+  const blocked = await checkAndRemind(tabId, targetUrl, getSyncState().monitoringEnabled);
+  if (!blocked && targetUrl !== tab.url) {
+    await chrome.tabs.update(tabId, { url: targetUrl }).catch(() => {});
+  }
+}
+
+async function reevaluateFocusedWindowActiveTab(windowId) {
+  if (!windowId || windowId === chrome.windows.WINDOW_ID_NONE) return;
+  const tabs = await chrome.tabs.query({ active: true, windowId });
+  const tab = tabs && tabs[0];
+  if (!tab?.id) return;
+  await reevaluateTabById(tab.id);
+}
+
 // ── Alarms ──────────────────────────────────────────────────────────────────────
 
 function setupAlarms() {
@@ -105,8 +155,10 @@ function setupAlarms() {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'heartbeat') {
+    if (!isMonitoringEnabled()) return;
     await heartbeat();
   } else if (alarm.name === 'quota_check') {
+    if (!isMonitoringEnabled()) return;
     await checkAllTabsQuota(checkAndRemind, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs);
   } else if (alarm.name === 'daily_cleanup') {
     await cleanOldStats();
@@ -134,6 +186,8 @@ let autoStudyDomain = null;
 let autoStudyStartTime = null;
 
 async function checkAutoStudy() {
+  if (!isMonitoringEnabled()) return;
+
   const session = await chrome.storage.local.get(SESSION_KEY);
   const sess = session[SESSION_KEY];
   if (!sess || sess.currentMode !== 'rest') {

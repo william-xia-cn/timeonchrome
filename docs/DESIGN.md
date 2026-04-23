@@ -1,7 +1,7 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.7.0
-更新：2026-04-21
+版本：1.7.1
+更新：2026-04-23
 
 ---
 
@@ -88,6 +88,13 @@
 │  event-log.js   append-only 事件日志 (START/END, 10min 压缩)  │
 │  aggregate.js   时长计算 (只统计 ACTIVE/BACKGROUND_ACTIVE)     │
 └──────────────────────────────────────────────────────────────┘
+
+### 1.4 Phase 2B 最小双轨语义（媒体归因隔离）
+
+- 新增上下文字段 `mediaSourceTabId`（仅用于标识媒体来源 Tab，不新增 `mediaSourceDomain`）。
+- `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `mediaSourceTabId`），不覆盖前台归因（`tabId` / `domain`）。
+- `BACKGROUND_ACTIVE` 判定要求可验证媒体来源：`isAudible === true && mediaSourceTabId != null`。
+- 若仅有 `isAudible` 且缺少 `mediaSourceTabId`，采用保守回退，不进入 `BACKGROUND_ACTIVE`。
            │
            ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -351,6 +358,21 @@ checkAndRemind(tabId, url):
     → 状态变化时写入 START/END 事件到 event-log
     → 更新内存 session 快照
   heartbeat()
+
+### 3.3 Workers stats ingestion 域名归一（v1.7.x）
+
+- 路由：`POST /device/stats`（`workers/src/routes/stats.ts`）。
+- 变更目标：在写入 D1 `stats.domain` 前统一执行 v1.2 `normalizeHostname`。
+- 归一规则：
+  - 小写化（`EXAMPLE.COM` → `example.com`）
+  - 去除尾部点（`example.com.` → `example.com`）
+  - 保留 `www`（`www.example.com` 不折叠为 `example.com`）
+  - IDN 转 punycode（如 `BÜCHER.DE` → `xn--bcher-kva.de`）
+- 数据约束：归一后为空/非法域名的统计行直接跳过，不入库。
+- 兼容性：
+  - 不改变 `date/stats[]` 上传协议；
+  - 不改变“先删后插”替换策略；
+  - 仅收敛新入库数据，历史数据保留原值。
     → 每 30 秒持久化 session 到 chrome.storage.session
 
 事件日志 (event-log.js):
@@ -435,6 +457,18 @@ async function borrowRestQuota():
   saveConfig();
   return { ok: true, amount: borrowAmt }
 ```
+
+### 3.4.1 提醒页借用按钮交互约束（quota_rest / quota_online）
+
+`reminder.js` 中“⏱ 向明天借时间”按钮采用以下前端状态机，避免重复点击和误触：
+
+1. `window.confirm` 取消：静默返回，不发 `BORROW_REST_QUOTA`，按钮文案/禁用态保持不变。
+2. `window.confirm` 通过：按钮立即 `disabled=true`，文案切换为 `处理中...`。
+3. 后端返回 `{ ok: true }`：按钮保持禁用，文案变为 `已借用`。
+4. 后端返回错误（`already_borrowed` / `no_cross_week` / `weekly_quota_exceeded` / 其他错误）：
+   - 按钮恢复可点击（`disabled=false`）
+   - 文案恢复初始值 `⏱ 向明天借时间`
+   - 状态提示文案沿用原错误映射，不改变业务语义。
 
 ### 3.5 云同步
 
@@ -537,7 +571,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 
 ```
 timeonchrome/
-├── manifest.json              MV3 扩展清单，版本 1.7.0, "type": "module" (Chrome 95+)
+├── manifest.json              MV3 扩展清单，版本 1.7.1, "type": "module" (Chrome 95+)
 ├── background.js              Service Worker 入口（wiring，~180 行）
 ├── background.js.bak          旧版备份（2301 行，待清理）
 ├── message-router.js          消息路由（20+ case 拆分）

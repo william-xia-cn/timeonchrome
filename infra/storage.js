@@ -1,4 +1,6 @@
 // infra/storage.js — 配置/会话存储
+import { computeAllDomains, computeAllDomainsWithAudio } from '../core/aggregate.js';
+import { matchDomain as matchDomainV12, normalizeHostname } from '../core/domain-semantics.js';
 
 const STORAGE_VERSION = '1.3';
 export const CONFIG_KEY = 'guardian_config';
@@ -38,9 +40,7 @@ export const DEFAULT_CONFIG = {
     'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com', 'bilibili.com',
     'wikipedia.org', 'britannica.com', 'wolframalpha.com'
   ],
-  whitelist: [],
   unsafeList: ['douyin.com', 'tiktok.com'],
-  blacklist: [],
   dailyOnlineQuota: 1200,
   dailyStudyQuota: 480,
   dailyRestQuota: 120,
@@ -93,9 +93,11 @@ export function formatDate(date) {
 export function extractDomain(url) {
   if (!url) return null;
   try {
-    const hostname = new URL(url).hostname;
-    if (hostname.startsWith('chrome') || hostname.startsWith('chrome-extension')) return null;
-    return hostname.replace(/^www\./, '');
+    const u = new URL(url);
+    if (u.protocol === 'chrome:' || u.protocol === 'chrome-extension:' || u.protocol === 'edge:' || u.protocol === 'about:') return null;
+    const hostname = u.hostname;
+    if (!hostname) return null;
+    return normalizeHostname(hostname);
   } catch {
     return null;
   }
@@ -107,11 +109,7 @@ export function isSpecialUrl(url) {
 }
 
 export function matchDomain(domain, pattern) {
-  if (!domain || !pattern) return false;
-  if (pattern.startsWith('*.')) {
-    return domain === pattern.slice(2) || domain.endsWith('.' + pattern.slice(2));
-  }
-  return domain === pattern;
+  return matchDomainV12(domain, pattern);
 }
 
 function sortObjectKeys(obj) {
@@ -181,33 +179,16 @@ export async function saveSession(session) {
 // ── Domain time tracking (event-log based) ──────────────────────────────────────
 
 const EVENT_LOG_KEY = 'event_log_v1';
-const STATE_WEIGHTS = { ACTIVE: 1, BACKGROUND_ACTIVE: 1, PASSIVE: 0, IDLE: 0 };
-
-function formatTimeISO(time) {
-  return new Date(time).toISOString();
-}
 
 /**
  * 从 event-log 聚合指定日期的域名时长
  */
 function aggregateFromEvents(events, date) {
-  const result = {};
-  const dayEvents = events.filter(e =>
-    e.domain && formatTimeISO(e.time).slice(0, 10) === date
-  );
+  return computeAllDomains(events, date);
+}
 
-  for (let i = 0; i < dayEvents.length - 1; i++) {
-    const evt = dayEvents[i];
-    if (evt.type === 'START' && evt.domain) {
-      const weight = STATE_WEIGHTS[evt.state] || 0;
-      const duration = (dayEvents[i + 1].time - evt.time) / 1000;
-      const seconds = Math.floor(duration * weight);
-      if (seconds > 0) {
-        result[evt.domain] = (result[evt.domain] || 0) + seconds;
-      }
-    }
-  }
-  return result;
+function aggregateFromEventsWithAudio(events, date) {
+  return computeAllDomainsWithAudio(events, date);
 }
 
 /**
@@ -249,7 +230,8 @@ export async function getStatsRange(days = 7) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = formatDate(d);
-    result[dateStr] = aggregateFromEvents(events, dateStr);
+    const { domains, audioSeconds } = aggregateFromEventsWithAudio(events, dateStr);
+    result[dateStr] = { ...domains, audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0 };
   }
   return result;
 }

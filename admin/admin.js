@@ -1091,21 +1091,23 @@ async function renderOverview() {
   if (dateEl) dateEl.textContent = `${now.getMonth()+1}月${now.getDate()}日 ${weekNames[now.getDay()]}`;
 
   // 今日统计
-  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0, undeterminedSeconds = 0, weekRestSeconds = 0;
+  let studySeconds = 0, freeSeconds = 0, onlineSeconds = 0, undeterminedSeconds = 0, audioSeconds = 0, weekFreeSeconds = 0;
   try {
     const [rangeData, weekRes] = await Promise.all([
       sendMsg({ type: 'GET_STATS_RANGE', days: 1 }),
       sendMsg({ type: 'GET_WEEK_REST_SECONDS' }),
     ]);
-    weekRestSeconds = weekRes?.weekRestSeconds ?? 0;
-    const todayData = Object.values(rangeData)[Object.keys(rangeData).length - 1] || {};
+    weekFreeSeconds = weekRes?.weekRestSeconds ?? 0;
+    const todayData = Object.values(rangeData)[Object.keys(rangeData).length - 1] || { audioSeconds: 0 };
     const compositeList = config.compositeList || [];
+    audioSeconds = Number(todayData.audioSeconds) || 0;
     for (const [domain, seconds] of Object.entries(todayData)) {
+      if (domain === "audioSeconds") continue;
       onlineSeconds += seconds;
       const type = classifyDomain(domain);
       if (type === 'study') studySeconds += seconds;
       else if (compositeList.some(p => { const d = domain.replace(/^www\./,''), pp = p.replace(/^www\./,''); return d === pp || d.endsWith('.'+pp); })) undeterminedSeconds += seconds;
-      else restSeconds += seconds;
+      else freeSeconds += seconds;
     }
   } catch (e) { /* pass */ }
 
@@ -1176,8 +1178,9 @@ async function renderOverview() {
       bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
       bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
       bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked) +
-      bar('🎵', '今日休息', restSeconds, restLimit, 'var(--warn)', qs.restLocked) +
-      bar('📅', '本周休息', weekRestSeconds, weeklyRestLimit, '#e17055', qs.weeklyRestLocked);
+      bar('🎵', '今日休息', freeSeconds, restLimit, 'var(--warn)', qs.restLocked) +
+      bar('📅', '本周休息', weekFreeSeconds, weeklyRestLimit, '#e17055', qs.weeklyRestLocked) +
+      `<div style="font-size:12px;color:var(--muted);margin-top:4px;">🎧 音频时间（后台音频） ${formatSeconds(audioSeconds)}</div>`;
   }
 
   // 单站点配额（只读）
@@ -1315,9 +1318,32 @@ window.confirmRebind = confirmRebind;
 
 // 域名匹配（与 background.js 一致）
 function matchDomain(domain, pattern) {
-  const d = domain.replace(/^www\./, '');
-  const p = pattern.replace(/^www\./, '');
-  return d === p || d.endsWith('.' + p);
+  function normalizeHostnameV12(input) {
+    if (typeof input !== 'string') return null;
+    let raw = input.trim();
+    if (!raw) return null;
+    raw = raw.toLowerCase().replace(/\.+$/g, '');
+    if (!raw) return null;
+    try {
+      const normalized = new URL('http://' + raw).hostname.toLowerCase().replace(/\.+$/g, '');
+      return normalized || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const d = normalizeHostnameV12(domain);
+  const p = normalizeHostnameV12(pattern);
+  if (!d || !p) return false;
+  if (d === p) return true;
+  if (d.startsWith('www.') && d.slice(4) === p) return true;
+  if (p.startsWith('www.') && p.slice(4) === d) return true;
+  if (p.startsWith('*.')) {
+    const base = p.slice(2);
+    if (!base || d === base) return false;
+    return d.endsWith('.' + base);
+  }
+  return false;
 }
 
 function classifyDomain(domain) {
@@ -1326,14 +1352,28 @@ function classifyDomain(domain) {
   return 'other';
 }
 
+function splitStatsDay(dayStats) {
+  const safe = dayStats && typeof dayStats === 'object' ? dayStats : {};
+  const audioSeconds = Number(safe.audioSeconds) || 0;
+  const domainStats = {};
+  for (const [domain, seconds] of Object.entries(safe)) {
+    if (domain === 'audioSeconds') continue;
+    domainStats[domain] = Number(seconds) || 0;
+  }
+  return { domainStats, audioSeconds };
+}
+
 function mergeStatsRange(rangeData) {
   const merged = {};
+  let audioSeconds = 0;
   for (const dayStats of Object.values(rangeData)) {
-    for (const [domain, seconds] of Object.entries(dayStats)) {
+    const day = splitStatsDay(dayStats);
+    audioSeconds += day.audioSeconds;
+    for (const [domain, seconds] of Object.entries(day.domainStats)) {
       merged[domain] = (merged[domain] || 0) + seconds;
     }
   }
-  return merged;
+  return { domainStats: merged, audioSeconds };
 }
 
 function setupStatsPage() {
@@ -1356,28 +1396,32 @@ async function renderStatsPage(range = 'today') {
     sendMsg({ type: 'GET_VISIT_SESSIONS', days })
   ]);
 
-  const statsData = range === 'today'
-    ? (Object.values(rangeData)[Object.keys(rangeData).length - 1] || {})
+  const dayOrRange = range === 'today'
+    ? splitStatsDay(Object.values(rangeData)[Object.keys(rangeData).length - 1] || { audioSeconds: 0 })
     : mergeStatsRange(rangeData);
+  const statsData = dayOrRange.domainStats;
+  const audioSeconds = Number(dayOrRange.audioSeconds) || 0;
 
   // 按分类汇总
-  let studySeconds = 0, restSeconds = 0, otherSeconds = 0;
+  let studySeconds = 0, freeSeconds = 0, otherSeconds = 0;
   for (const [domain, seconds] of Object.entries(statsData)) {
     const type = classifyDomain(domain);
     if (type === 'study') studySeconds += seconds;
     else if (type === 'composite') otherSeconds += seconds;
-    else restSeconds += seconds;
+    else freeSeconds += seconds;
   }
-  const totalSeconds = studySeconds + restSeconds + otherSeconds;
+  const totalSeconds = studySeconds + freeSeconds + otherSeconds;
 
   // ── 概览卡片 ────────────────────────────────
   document.getElementById('stat-total-time').textContent  = formatSeconds(totalSeconds);
   document.getElementById('stat-study-time').textContent  = formatSeconds(studySeconds);
-  document.getElementById('stat-rest-time').textContent   = formatSeconds(restSeconds);
+  document.getElementById('stat-rest-time').textContent   = formatSeconds(freeSeconds);
+  const audioEl = document.getElementById('stat-audio-time');
+  if (audioEl) audioEl.textContent = formatSeconds(audioSeconds);
   document.getElementById('stat-study-percent').textContent =
     totalSeconds > 0 ? Math.round(studySeconds / totalSeconds * 100) + '%' : '0%';
   document.getElementById('stat-rest-percent').textContent  =
-    totalSeconds > 0 ? Math.round(restSeconds  / totalSeconds * 100) + '%' : '0%';
+    totalSeconds > 0 ? Math.round(freeSeconds  / totalSeconds * 100) + '%' : '0%';
 
   // 对比趋势（昨日 / 上周 / 上月）
   try {
@@ -1385,7 +1429,7 @@ async function renderStatsPage(range = 'today') {
     const allDates  = Object.keys(prevData).sort();
     const prevHalf  = allDates.slice(0, Math.floor(allDates.length / 2));
     const prevTotal = prevHalf.reduce((sum, d) =>
-      sum + Object.values(prevData[d] || {}).reduce((a, b) => a + b, 0), 0);
+      sum + Object.entries(prevData[d] || {}).reduce((acc, [k, v]) => k === 'audioSeconds' ? acc : acc + (Number(v) || 0), 0), 0);
     const trend     = prevTotal > 0 ? Math.round((totalSeconds - prevTotal) / prevTotal * 100) : 0;
     const trendEl   = document.getElementById('stat-total-trend');
     if (trendEl) {
@@ -1405,7 +1449,7 @@ async function renderStatsPage(range = 'today') {
   renderHeatmap(visitSessions);
 
   // ── 饼图 ────────────────────────────────────
-  renderTypeChart(studySeconds, restSeconds, otherSeconds);
+  renderTypeChart(studySeconds, freeSeconds, otherSeconds);
 
   // ── TOP 网站 ─────────────────────────────────
   renderTopDomains(statsData, totalSeconds);
@@ -1445,11 +1489,11 @@ function renderHeatmap(visitSessions) {
   `;
 }
 
-function renderTypeChart(studySeconds, restSeconds, otherSeconds) {
+function renderTypeChart(studySeconds, freeSeconds, otherSeconds) {
   const canvas = document.getElementById('typeChart');
   if (!canvas) return;
   const ctx   = canvas.getContext('2d');
-  const total = studySeconds + restSeconds + otherSeconds;
+  const total = studySeconds + freeSeconds + otherSeconds;
   const cx = 100, cy = 100, r = 75, innerR = 48;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1468,7 +1512,7 @@ function renderTypeChart(studySeconds, restSeconds, otherSeconds) {
 
   const segments = [
     { value: studySeconds, color: '#4ade80' },
-    { value: restSeconds,  color: '#fbbf24' },
+    { value: freeSeconds,  color: '#fbbf24' },
     { value: otherSeconds, color: '#5a5a80' },
   ].filter(s => s.value > 0);
 
@@ -1506,6 +1550,7 @@ function renderTopDomains(statsData, totalSeconds) {
   if (!container) return;
 
   const entries = Object.entries(statsData)
+    .filter(([domain]) => domain !== 'audioSeconds')
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
 
