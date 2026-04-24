@@ -2,11 +2,47 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
-function buildDefaultConfig(): object {
+
+// ── Schema defaults：仅用于 merge / repair / 缺字段补齐 ──
+// 不得包含推荐网站名单，网站列表始终为 []
+function buildSchemaDefaults(): object {
   return {
     version: '1.3',
     mode: 'study',
     enabled: true,
+    studyList: [],
+    compositeList: [],
+    unsafeList: ['douyin.com', 'tiktok.com'],
+    dailyOnlineQuota:       1200,
+    dailyStudyQuota:         480,
+    dailyRestQuota:          120,
+    dailyUndeterminedQuota:  120,
+    weeklyRestQuota:        null,
+    domainQuotas: {},
+    classificationRules: [],
+    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
+    schedule: {
+      enabled: false,
+      days: {
+        0: { enabled: true, start: '08:00', end: '21:00' },
+        1: { enabled: true, start: '15:00', end: '21:00' },
+        2: { enabled: true, start: '15:00', end: '21:00' },
+        3: { enabled: true, start: '15:00', end: '21:00' },
+        4: { enabled: true, start: '15:00', end: '21:00' },
+        5: { enabled: true, start: '15:00', end: '21:00' },
+        6: { enabled: true, start: '08:00', end: '21:00' },
+      },
+    },
+    restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
+    autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
+  };
+}
+
+// ── Initial recommended config：仅用于新建 profile 一次性初始化 ──
+// 包含推荐网站名单，不作为 merge/repair 的默认值
+function buildDefaultConfig(): object {
+  return {
+    ...buildSchemaDefaults(),
     studyList: [
       // 核心生产力与协作
       'google.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com',
@@ -57,29 +93,6 @@ function buildDefaultConfig(): object {
       // 百科/参考
       'wikipedia.org', 'britannica.com', 'wolframalpha.com',
     ],
-    unsafeList: ['douyin.com', 'tiktok.com'],
-    dailyOnlineQuota:       1200,
-    dailyStudyQuota:         480,
-    dailyRestQuota:          120,
-    dailyUndeterminedQuota:  120,
-    weeklyRestQuota:        null,
-    domainQuotas: {},
-    classificationRules: [],
-    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
-    schedule: {
-      enabled: false,
-      days: {
-        0: { enabled: true, start: '08:00', end: '21:00' },
-        1: { enabled: true, start: '15:00', end: '21:00' },
-        2: { enabled: true, start: '15:00', end: '21:00' },
-        3: { enabled: true, start: '15:00', end: '21:00' },
-        4: { enabled: true, start: '15:00', end: '21:00' },
-        5: { enabled: true, start: '15:00', end: '21:00' },
-        6: { enabled: true, start: '08:00', end: '21:00' },
-      },
-    },
-    restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
-    autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
   };
 }
 
@@ -175,12 +188,54 @@ export const profilesRouter = {
       });
     }
 
-    // PUT /profiles/:id/config
+    // PUT /profiles/:id/config — 受控 merge 写入，防止残缺配置覆盖丢失字段
     if (request.method === 'PUT' && configMatch) {
       try {
         const { data } = await request.json<{ data: unknown }>();
-        const now       = Date.now();
-        const configStr = JSON.stringify(data);
+        if (!data || typeof data !== 'object') {
+          return json({ error: 'Invalid config data' }, 400);
+        }
+
+        const now = Date.now();
+
+        // 1. 读取现有 config
+        const existing = await env.DB.prepare(
+          `SELECT config FROM profiles WHERE id = ?`
+        ).bind(profileId).first<{ config: string }>();
+
+        const existingConfig = existing?.config ? JSON.parse(existing.config) : {};
+
+        // 2. 受控 merge：schema defaults → existing → incoming
+        //    使用 buildSchemaDefaults() 而非 buildDefaultConfig()
+        //    确保推荐网站名单不会在 merge 中被反复注入
+        const mergedConfig: Record<string, unknown> = { ...buildSchemaDefaults(), ...existingConfig };
+
+        // 白名单字段：只允许前端修改以下字段
+        const ALLOWED_KEYS = new Set([
+          'version', 'mode', 'enabled',
+          'studyList', 'compositeList', 'unsafeList',
+          'dailyOnlineQuota', 'dailyStudyQuota', 'dailyRestQuota',
+          'dailyUndeterminedQuota', 'weeklyRestQuota',
+          'domainQuotas', 'classificationRules',
+          'quotaState', 'schedule',
+          'restConfig', 'autoStudyConfig',
+        ]);
+
+        for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+          if (ALLOWED_KEYS.has(key)) {
+            mergedConfig[key] = value;
+          }
+        }
+
+        // 3. 保护运行时状态字段（不应被前端或默认值覆盖）
+        const PROTECTED_KEYS = ['adminPasswordHash', 'isInitialized', 'lockedDomains', 'updatedAt'];
+        for (const key of PROTECTED_KEYS) {
+          if (existingConfig[key] !== undefined) {
+            mergedConfig[key] = existingConfig[key];
+          }
+        }
+
+        const configStr = JSON.stringify(mergedConfig);
 
         await env.DB.prepare(
           `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`

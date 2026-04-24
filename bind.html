@@ -101,6 +101,10 @@
       margin: 0 auto 20px;
       font-size: 32px;
     }
+    .success-icon.warning {
+      background: #ff9500;
+      font-size: 28px;
+    }
     
     .loading {
       text-align: center;
@@ -155,9 +159,9 @@
     <!-- Step 3: 绑定成功 -->
     <div id="step3" class="step">
       <div class="success">
-        <div class="success-icon">✓</div>
-        <h2 style="margin-bottom: 8px;">绑定成功！</h2>
-        <p style="color: #86868b;">设备已成功绑定，现在可以开始使用 TimeOnChrome。</p>
+        <div class="success-icon" id="successIcon">✓</div>
+        <h2 style="margin-bottom: 8px;" id="successTitle">绑定成功！</h2>
+        <p style="color: #86868b;" id="successMsg">设备已成功绑定，现在可以开始使用 TimeOnChrome。</p>
       </div>
     </div>
     
@@ -290,9 +294,32 @@
         });
 
         // 通知 background 初始化云同步
+        let bindResult = null;
         try {
-          await chrome.runtime.sendMessage({ type: 'CLOUD_BIND' });
+          bindResult = await chrome.runtime.sendMessage({ type: 'CLOUD_BIND' });
         } catch (_) {}
+
+        // 根据同步结果显示不同提示
+        const successIcon = document.getElementById('successIcon');
+        const successTitle = document.getElementById('successTitle');
+        const successMsg = document.getElementById('successMsg');
+
+        if (bindResult && bindResult.success && !bindResult.syncOk) {
+          // 绑定成功但同步部分失败
+          successIcon.textContent = '!';
+          successIcon.classList.add('warning');
+          successTitle.textContent = '绑定成功，同步异常';
+          const errorDetails = (bindResult.syncErrors || []).join('；');
+          successMsg.innerHTML = '设备已绑定，但云同步部分步骤失败：<br><span style="color:#ff9500;font-size:12px">' +
+            (errorDetails || '未知错误') + '</span><br>可在设置中手动触发同步。';
+        } else if (bindResult && bindResult.error) {
+          // 绑定成功但同步完全失败
+          successIcon.textContent = '!';
+          successIcon.classList.add('warning');
+          successTitle.textContent = '绑定成功，同步失败';
+          successMsg.innerHTML = '设备已绑定，但云同步未执行：<br><span style="color:#ff9500;font-size:12px">' +
+            bindResult.error + '</span><br>可在设置中手动触发同步。';
+        }
 
         showStep('step3');
         

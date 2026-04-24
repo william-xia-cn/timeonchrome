@@ -149,7 +149,7 @@ function setupAlarms() {
   chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
   chrome.alarms.create('quota_check', { periodInMinutes: 1 });
   chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
-  chrome.alarms.create('cloudSync', { periodInMinutes: 15 });
+  chrome.alarms.create('cloudSync', { periodInMinutes: 3 });
   chrome.alarms.create('cloudHeartbeat', { periodInMinutes: 5 });
 }
 

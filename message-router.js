@@ -88,7 +88,8 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'CLOUD_BIND': {
-      return await cloudBind(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
+      const bindResult = await cloudBind(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
+      return bindResult;
     }
 
     case 'CLOUD_LOGIN': {
@@ -150,8 +151,8 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'CLOUD_FORCE_SYNC': {
-      await syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs);
-      return { success: true };
+      const syncResult = await syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs);
+      return syncResult;
     }
 
     case 'GET_WEEK_REST_SECONDS': {
