@@ -414,15 +414,65 @@ section('Quota: state transition detection (GAP-4)');
 [Unit]     logic.test.js              43/43  ✓
 [Unit]     background-logic.test.js   80/80  ✓
 [Unit]     workers-logic.test.js      34/34  ✓
+[Unit]     duration-core.test.mjs      3/3   ✓  ← V0.1 Duration Accuracy Layer 1
 [API]      workers.test.js            52/52  ✓
 [E2E]      extension.test.js           9/9   ✓
+[E2E]      duration-accuracy.test.js   1/1   ✓  ← V0.1 Duration Accuracy Layer 2 (wiring smoke)
 ─────────────────────────────────────────────
-总计                                  218/218 ✓
+总计                                  222/222 ✓
 ```
 
 ---
 
-## 八、测试运行说明
+## 八、Duration Accuracy 测试分层（V0.1 新增）
+
+### 8.1 Layer 1：确定性核心计时测试
+
+**文件**：`tests/unit/duration-core.test.mjs`
+**运行**：`node tests/unit/duration-core.test.mjs`
+
+| TC | 场景 | 输入 | 预期 |
+|----|------|------|------|
+| T-D1 | 单页前台计时 | ACTIVE 25s | activeSeconds = 25 |
+| T-D2 | A → B 切换 | A 25s → B 25s | A=25, B=25, total=50 |
+| T-D3 | A → B → A 多段累加 | A 20s → B 20s → A 20s | A=40, B=20, total=60 |
+
+**设计原则**：
+- 不依赖 Chrome OS idle/focus
+- 使用绝对时间戳 `baseTime`，零等待，完全确定性
+- 直接驱动 `transitionState()`，读取 `event_log_v1`
+
+### 8.2 Layer 2：E2E Wiring Smoke
+
+**文件**：`tests/e2e/duration-accuracy.test.js`
+**运行**：`npx playwright test tests/e2e/duration-accuracy.test.js`
+
+| TC | 验证项 |
+|----|--------|
+| T-E1 | 扩展加载、mock 页面打开、domain 提取为 `127.0.0.1`、event_log_v1 写入、session_v1 更新 |
+
+**明确边界**：
+- ✅ 验证：扩展 wiring、域名识别、事件日志写入
+- ❌ 不验证：ACTIVE 计时（Playwright 无法提供 OS 级 idle/focus 信号）
+
+### 8.3 Layer 3：手工长测 Checklist
+
+| # | 场景 | 验证口径 |
+|---|------|---------|
+| 1 | 普通网页前台 5 分钟 | activeSeconds ≈ 300s |
+| 2 | A → B 切换（各 2 分钟） | A≈120s, B≈120s，A 在 B 激活期间不增加 |
+| 3 | 多窗口交替（A→B→A，各 1 分钟） | A≈120s, B≈60s，无并行重复计时 |
+| 4 | 后台视频播放 | **不计入 activeSeconds**，可进入 background media 补充统计；当前焦点页继续计入 activeSeconds；视频站点 activeSeconds 不应在后台继续增加 |
+| 5 | 音乐后台播放 | **不计入 activeSeconds**，可进入 background audio 补充统计；不与焦点页 activeSeconds 混合 |
+| 6 | 画中画 (PiP) | **不计入 activeSeconds**，可进入 background media 补充统计；当前焦点页继续计入 activeSeconds |
+| 7 | 学习模式切换 | 休息模式下访问学习网站 60s → 自动切换学习模式并正常计时 |
+| 8 | 空闲锁定 | 离开电脑 15 分钟 → 状态切换为 IDLE，时长停止累加 |
+
+> **口径说明**：`activeSeconds` 仅统计焦点页（ACTIVE 状态）。BACKGROUND_ACTIVE（视频/PiP/音频）不计入在线时长，可独立进入 background media / background audio 补充统计。
+
+---
+
+## 九、测试运行说明
 
 ```bash
 # 全套运行（约 30 秒）
