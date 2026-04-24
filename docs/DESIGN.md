@@ -1,7 +1,7 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.7.1
-更新：2026-04-23
+版本：1.7.2
+更新：2026-04-24
 
 ---
 
@@ -571,7 +571,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 
 ```
 timeonchrome/
-├── manifest.json              MV3 扩展清单，版本 1.7.1, "type": "module" (Chrome 95+)
+├── manifest.json              MV3 扩展清单，版本 1.7.2, "type": "module" (Chrome 95+), "incognito": "split"
 ├── background.js              Service Worker 入口（wiring，~180 行）
 ├── background.js.bak          旧版备份（2301 行，待清理）
 ├── message-router.js          消息路由（20+ case 拆分）
@@ -649,13 +649,35 @@ timeonchrome/
 | API | 用途 |
 |-----|------|
 | `chrome.storage.local` | 配置、统计、会话持久化 |
-| `chrome.storage.session` | 运行时会话快照（Chrome 95+） |
+| `chrome.storage.session` | 运行时会话快照（Chrome 95+），split 模式下常规/无痕各自独立 |
 | `chrome.declarativeNetRequest` | unsafeList 域名重定向规则 |
 | `chrome.webNavigation.onCommitted` | 导航拦截，触发 checkAndRemind |
 | `chrome.tabs` | 获取/更新标签页状态 |
 | `chrome.alarms` | 定时任务：配额检查、每日重置、保活 |
 | `chrome.notifications` | 系统通知（配额锁定等）|
 | `chrome.runtime.sendMessage` | popup/admin/content ↔ background 通信 |
+
+---
+
+## 6.1 Incognito 模式（split）
+
+`manifest.json` 使用 `"incognito": "split"`，Chrome 为无痕模式创建独立的 Service Worker 实例。
+
+### 存储隔离表
+
+| 存储类型 | 常规模式 | 无痕模式 | 说明 |
+|---------|---------|---------|------|
+| `chrome.storage.local` | 共享 | 共享 | 配置、统计、配额状态在两种模式间同步 |
+| `chrome.storage.session` | 独立 | 独立 | 会话快照各自维护，SW 重启后仅恢复对应上下文 |
+| `chrome.storage.sync` | 共享 | 共享 | 跨设备同步数据 |
+
+### 影响分析
+
+- **reminder.html**：split 模式下无痕标签页可正常加载扩展页面（`reminder.html`、`popup.html` 等）
+- **session.js**：无痕和常规模式各自维护独立的 session 快照，互不干扰。这是正确行为 — 无痕浏览应有独立的会话追踪
+- **recovery.js**：SW 重启恢复仅作用于当前上下文的 session，不会跨模式恢复
+- **cloud-sync.js**：云同步在两种模式下共享 `chrome.storage.local` 中的配置和 token
+- **declarativeNetRequest**：规则按标签页应用，split 模式下正常工作
 
 ---
 

@@ -97,58 +97,77 @@ async function cloudRequest(method, path, body = null, retries = 3) {
 
 // ── Pull config ─────────────────────────────────────────────────────────────────
 
+/**
+ * @returns {Promise<{status: 'updated'|'skipped'|'failed', version: number|null, error: string|null}>}
+ */
 export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarativeRulesFn) {
   try {
     const result = await cloudRequest('GET', '/device/config');
 
-    if (result.data) {
-      const cloudVersion = result.version || 0;
-      const monitoringEnabled = result.monitoring_enabled ?? 1;
-      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled });
-      syncState.monitoringEnabled = monitoringEnabled;
-
-      if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion) {
-        console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
-        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
-        return false;
-      }
-
-      await chrome.storage.local.set({
-        [CLOUD_CONFIG.KEYS.LOCAL_CONFIG]: result.data,
-        [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: cloudVersion,
-        [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now()
-      });
-
-      // 云端配置为唯一来源，不再与本地 DEFAULT_CONFIG merge
-      // 仅保留终端专属字段（不通过云端同步）
-      const cloudConfig = result.data;
-      const localConfig = await getConfigFn();
-      const mergedConfig = {
-        ...cloudConfig,
-        // 终端专属字段：不通过云端同步，始终使用本地值
-        adminPasswordHash: localConfig.adminPasswordHash,
-        isInitialized: localConfig.isInitialized,
-        lockedDomains: localConfig.lockedDomains,
-      };
-      // quotaState 由 pullCloudQuotaState 单独同步，此处不覆盖
-      if (localConfig.quotaState) {
-        mergedConfig.quotaState = localConfig.quotaState;
-      }
-      await saveConfigFn(mergedConfig);
-      if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(mergedConfig);
-
-      syncState.lastConfigVersion = cloudVersion;
-      console.log('[Cloud] Config updated, version:', cloudVersion);
-      return true;
+    if (!result || typeof result !== 'object') {
+      console.warn('[Cloud] Pull config: API returned invalid response structure');
+      return { status: 'failed', version: null, error: 'Invalid API response' };
     }
+
+    if (!result.data) {
+      console.warn('[Cloud] Pull config: response missing "data" field, skipping');
+      return { status: 'failed', version: result.version || null, error: 'No config data in response' };
+    }
+
+    const cloudVersion = result.version || 0;
+    if (typeof cloudVersion !== 'number' || cloudVersion < 0) {
+      console.warn('[Cloud] Pull config: invalid version number', cloudVersion);
+      return { status: 'failed', version: cloudVersion, error: 'Invalid config version' };
+    }
+
+    const monitoringEnabled = result.monitoring_enabled ?? 1;
+    await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled });
+    syncState.monitoringEnabled = monitoringEnabled;
+
+    if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion) {
+      console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
+      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
+      return { status: 'skipped', version: cloudVersion, error: null };
+    }
+
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.LOCAL_CONFIG]: result.data,
+      [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: cloudVersion,
+      [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now()
+    });
+
+    // 云端配置为唯一来源，不再与本地 DEFAULT_CONFIG merge
+    // 仅保留终端专属字段（不通过云端同步）
+    const cloudConfig = result.data;
+    const localConfig = await getConfigFn();
+    const mergedConfig = {
+      ...cloudConfig,
+      // 终端专属字段：不通过云端同步，始终使用本地值
+      adminPasswordHash: localConfig.adminPasswordHash,
+      isInitialized: localConfig.isInitialized,
+      lockedDomains: localConfig.lockedDomains,
+    };
+    // quotaState 由 pullCloudQuotaState 单独同步，此处不覆盖
+    if (localConfig.quotaState) {
+      mergedConfig.quotaState = localConfig.quotaState;
+    }
+    await saveConfigFn(mergedConfig);
+    if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(mergedConfig);
+
+    syncState.lastConfigVersion = cloudVersion;
+    console.log('[Cloud] Config updated, version:', cloudVersion);
+    return { status: 'updated', version: cloudVersion, error: null };
   } catch (e) {
     console.error('[Cloud] Failed to pull config:', e.message);
+    return { status: 'failed', version: null, error: e.message };
   }
-  return false;
 }
 
 // ── Pull quota state ────────────────────────────────────────────────────────────
 
+/**
+ * @returns {Promise<{synced: boolean, changed: boolean, error: string|null}>}
+ */
 export async function pullCloudQuotaState(getConfigFn, saveConfigFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn) {
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -191,13 +210,18 @@ export async function pullCloudQuotaState(getConfigFn, saveConfigFn, redirectAll
 
       console.log('[Cloud] Quota state synced from cloud:', newState);
     }
+    return { synced: true, changed: stateChanged, error: null };
   } catch (e) {
     console.error('[Cloud] Failed to pull quota state:', e.message);
+    return { synced: false, changed: false, error: e.message };
   }
 }
 
 // ── Upload stats ────────────────────────────────────────────────────────────────
 
+/**
+ * @returns {Promise<{uploaded: number, failed: number, skipped: boolean}>}
+ */
 export async function uploadStats() {
   try {
     const statsRange = await getStatsRange(7);
@@ -223,50 +247,89 @@ export async function uploadStats() {
     const dates = Object.keys(pendingStats);
     if (dates.length === 0) {
       console.log('[Cloud] No stats to upload');
-      return;
+      return { uploaded: 0, failed: 0, skipped: true };
     }
 
+    let uploaded = 0;
+    let failed = 0;
     for (const date of dates) {
       const { stats } = pendingStats[date];
       try {
         await cloudRequest('POST', '/device/stats', { date, stats });
         delete pendingStats[date];
         console.log('[Cloud] Stats uploaded:', date, `(${stats.length} domains)`);
+        uploaded++;
       } catch (e) {
         console.error('[Cloud] Failed to upload stats for', date, e.message);
+        failed++;
       }
     }
 
     await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.PENDING_STATS]: pendingStats });
+    return { uploaded, failed, skipped: false };
   } catch (e) {
     console.error('[Cloud] Failed to upload stats:', e.message);
+    return { uploaded: 0, failed: 0, skipped: false, error: e.message };
   }
 }
 
 // ── Sync now ────────────────────────────────────────────────────────────────────
 
+/**
+ * @returns {Promise<{configPulled: boolean, statsUploaded: boolean, quotaSynced: boolean, hadFailure: boolean, errors: string[]}>}
+ */
 export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn) {
   if (syncState.isSyncing) {
     console.log('[Cloud] Sync already in progress');
-    return;
+    return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['Sync already in progress'] };
   }
 
   syncState.isSyncing = true;
+  const errors = [];
 
   try {
-    await pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarativeRulesFn);
-
-    if (syncState.monitoringEnabled !== 0) {
-      await uploadStats();
+    const configResult = await pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarativeRulesFn);
+    const configPulled = configResult.status === 'updated';
+    if (configResult.status === 'failed') {
+      errors.push('config: ' + (configResult.error || 'unknown'));
     }
 
+    let statsUploaded = false;
     if (syncState.monitoringEnabled !== 0) {
-      await pullCloudQuotaState(getConfigFn, saveConfigFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn);
+      const statsResult = await uploadStats();
+      statsUploaded = statsResult.uploaded > 0 || statsResult.skipped;
+      if (statsResult.failed > 0) {
+        errors.push(`stats: ${statsResult.failed} date(s) failed`);
+      }
+      if (statsResult.error) {
+        errors.push('stats: ' + statsResult.error);
+      }
+    } else {
+      statsUploaded = true; // monitoring disabled, intentionally skipped
     }
 
-    console.log('[Cloud] Sync completed');
+    let quotaSynced = false;
+    if (syncState.monitoringEnabled !== 0) {
+      const quotaResult = await pullCloudQuotaState(getConfigFn, saveConfigFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn);
+      quotaSynced = quotaResult.synced;
+      if (quotaResult.error) {
+        errors.push('quota: ' + quotaResult.error);
+      }
+    } else {
+      quotaSynced = true; // monitoring disabled, intentionally skipped
+    }
+
+    const hadFailure = errors.length > 0;
+    if (hadFailure) {
+      console.warn('[Cloud] Sync completed with errors:', errors);
+    } else {
+      console.log('[Cloud] Sync completed successfully');
+    }
+
+    return { configPulled, statsUploaded, quotaSynced, hadFailure, errors };
   } catch (e) {
     console.error('[Cloud] Sync failed:', e.message);
+    return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [e.message] };
   } finally {
     syncState.isSyncing = false;
   }
@@ -309,6 +372,9 @@ export async function initCloudSync(syncNowFn) {
 
 // ── Cloud bind ──────────────────────────────────────────────────────────────────
 
+/**
+ * @returns {Promise<{success: boolean, device_token?: string, syncOk?: boolean, syncErrors?: string[], error?: string}>}
+ */
 export async function cloudBind(syncNowFn) {
   const storage = await chrome.storage.local.get([
     CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
@@ -324,8 +390,18 @@ export async function cloudBind(syncNowFn) {
   syncState.deviceToken = deviceToken;
   syncState.profileId = profileId;
 
-  if (syncNowFn) await syncNowFn();
-  return { success: true, device_token: deviceToken };
+  if (syncNowFn) {
+    const syncResult = await syncNowFn();
+    if (syncResult && syncResult.hadFailure) {
+      return {
+        success: true,
+        device_token: deviceToken,
+        syncOk: false,
+        syncErrors: syncResult.errors || ['Unknown sync error'],
+      };
+    }
+  }
+  return { success: true, device_token: deviceToken, syncOk: true };
 }
 
 export { CLOUD_CONFIG };

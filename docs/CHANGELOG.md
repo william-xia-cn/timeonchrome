@@ -2,6 +2,20 @@
 
 ---
 
+## [1.7.2] — 2026-04-24
+
+### 修复
+- **无痕模式提醒页无法加载**：`manifest.json` `"incognito"` 从 `"spanning"` 改为 `"split"`，Chrome MV3 下无痕标签页可正常加载 `reminder.html` 等扩展页面
+- **Service Worker 隔离**：常规/无痕模式各自独立 SW 实例，`chrome.storage.session` 会话快照隔离，互不干扰
+- **动态 import() 在 SW 中不允许**：`infra/cloud-sync.js` 改为静态 import
+
+### 影响
+- `chrome.storage.session`：常规/无痕各自维护独立 session，SW 重启恢复仅作用于当前上下文
+- `chrome.storage.local`：配置、统计、配额状态在两种模式间共享
+- 云同步、declarativeNetRequest 规则在 split 模式下正常工作
+
+---
+
 ## [1.7.0] — 2026-04-21
 
 ### 架构重构（事件驱动注意力引擎）

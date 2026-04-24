@@ -3,7 +3,7 @@
   "name": "TimeOnChrome",
   "version": "1.7.2",
   "description": "上网时间管理助手 - 学习模式、时长统计、智能提醒",
-  "incognito": "spanning",
+  "incognito": "split",
 
   "permissions": [
     "tabs",
