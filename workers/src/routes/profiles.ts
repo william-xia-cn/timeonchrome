@@ -2,11 +2,47 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
-function buildDefaultConfig(): object {
+
+// ── Schema defaults：仅用于 merge / repair / 缺字段补齐 ──
+// 不得包含推荐网站名单，网站列表始终为 []
+function buildSchemaDefaults(): object {
   return {
     version: '1.3',
     mode: 'study',
     enabled: true,
+    studyList: [],
+    compositeList: [],
+    unsafeList: ['douyin.com', 'tiktok.com'],
+    dailyOnlineQuota:       1200,
+    dailyStudyQuota:         480,
+    dailyRestQuota:          120,
+    dailyUndeterminedQuota:  120,
+    weeklyRestQuota:        null,
+    domainQuotas: {},
+    classificationRules: [],
+    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
+    schedule: {
+      enabled: false,
+      days: {
+        0: { enabled: true, start: '08:00', end: '21:00' },
+        1: { enabled: true, start: '15:00', end: '21:00' },
+        2: { enabled: true, start: '15:00', end: '21:00' },
+        3: { enabled: true, start: '15:00', end: '21:00' },
+        4: { enabled: true, start: '15:00', end: '21:00' },
+        5: { enabled: true, start: '15:00', end: '21:00' },
+        6: { enabled: true, start: '08:00', end: '21:00' },
+      },
+    },
+    restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
+    autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
+  };
+}
+
+// ── Initial recommended config：仅用于新建 profile 一次性初始化 ──
+// 包含推荐网站名单，不作为 merge/repair 的默认值
+function buildDefaultConfig(): object {
+  return {
+    ...buildSchemaDefaults(),
     studyList: [
       // 核心生产力与协作
       'google.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com',
@@ -57,29 +93,6 @@ function buildDefaultConfig(): object {
       // 百科/参考
       'wikipedia.org', 'britannica.com', 'wolframalpha.com',
     ],
-    unsafeList: ['douyin.com', 'tiktok.com'],
-    dailyOnlineQuota:       1200,
-    dailyStudyQuota:         480,
-    dailyRestQuota:          120,
-    dailyUndeterminedQuota:  120,
-    weeklyRestQuota:        null,
-    domainQuotas: {},
-    classificationRules: [],
-    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
-    schedule: {
-      enabled: false,
-      days: {
-        0: { enabled: true, start: '08:00', end: '21:00' },
-        1: { enabled: true, start: '15:00', end: '21:00' },
-        2: { enabled: true, start: '15:00', end: '21:00' },
-        3: { enabled: true, start: '15:00', end: '21:00' },
-        4: { enabled: true, start: '15:00', end: '21:00' },
-        5: { enabled: true, start: '15:00', end: '21:00' },
-        6: { enabled: true, start: '08:00', end: '21:00' },
-      },
-    },
-    restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
-    autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
   };
 }
 
@@ -192,10 +205,10 @@ export const profilesRouter = {
 
         const existingConfig = existing?.config ? JSON.parse(existing.config) : {};
 
-        // 2. 受控 merge：default → existing → incoming
-        //    确保核心字段不会因前端传残缺数据而丢失
-        //    existingConfig 优先于 default（保留用户有意修改的字段）
-        const mergedConfig: Record<string, unknown> = { ...buildDefaultConfig(), ...existingConfig };
+        // 2. 受控 merge：schema defaults → existing → incoming
+        //    使用 buildSchemaDefaults() 而非 buildDefaultConfig()
+        //    确保推荐网站名单不会在 merge 中被反复注入
+        const mergedConfig: Record<string, unknown> = { ...buildSchemaDefaults(), ...existingConfig };
 
         // 白名单字段：只允许前端修改以下字段
         const ALLOWED_KEYS = new Set([

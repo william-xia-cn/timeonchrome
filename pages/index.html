@@ -1322,7 +1322,8 @@ function setupDomainInput(inputId, btnId, tagsId, listKey) {
     if (!val) return;
     if (!remoteConfig) { toast('请先选择一个孩子档案', false); return; }
     if (!remoteConfig[listKey]) remoteConfig[listKey] = [];
-    if (!remoteConfig[listKey].includes(val)) remoteConfig[listKey].push(val);
+    if (remoteConfig[listKey].includes(val)) { toast('该域名已在列表中', false); return; }
+    remoteConfig[listKey].push(val);
     if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
     renderTags(tagsId, remoteConfig[listKey], listKey);
     updateRuleCounts();
