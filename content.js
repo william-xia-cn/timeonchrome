@@ -30,44 +30,6 @@
     }
   }
 
-  // PiP 检测
-  let isPiP = false;
-
-  function sendPipState(pip) {
-    if (!chrome.runtime?.id) return;
-    chrome.runtime.sendMessage({ type: 'PIP_STATE', pip });
-  }
-
-  function attachPipListener(el) {
-    if (el.tagName.toLowerCase() !== 'video') return;
-    el.addEventListener('enterpictureinpicture', () => {
-      isPiP = true;
-      sendPipState(true);
-    });
-    el.addEventListener('leavepictureinpicture', () => {
-      isPiP = false;
-      sendPipState(false);
-    });
-    // 初始化：检查是否已在 PiP 模式
-    if (el === document.pictureInPictureElement) {
-      isPiP = true;
-      sendPipState(true);
-    }
-  }
-  document.querySelectorAll('video').forEach(attachPipListener);
-
-  // 对动态插入的 video 元素挂钩 PiP
-  const pipObserver = new MutationObserver(mutations => {
-    mutations.forEach(m => {
-      m.addedNodes.forEach(node => {
-        if (node.nodeType !== 1) return;
-        if (node.matches('video')) attachPipListener(node);
-        node.querySelectorAll && node.querySelectorAll('video').forEach(attachPipListener);
-      });
-    });
-  });
-  pipObserver.observe(document.documentElement, { childList: true, subtree: true });
-
   // 对已有媒体元素挂钩
   function attachMediaListeners(el) {
     el.addEventListener('play',  updateMediaState);
@@ -153,15 +115,6 @@
       showFullOverlay(msg.message, msg.reason);
     } else if (msg.type === 'REMOVE_OVERLAY') {
       removeOverlay();
-    } else if (msg.type === 'PAUSE_MEDIA') {
-      // 暂停所有视频（音频不停）
-      document.querySelectorAll('video').forEach(el => {
-        if (!el.paused) el.pause();
-      });
-      // 退出 PiP 模式
-      if (document.pictureInPictureElement) {
-        document.exitPictureInPicture().catch(() => {});
-      }
     }
   });
 

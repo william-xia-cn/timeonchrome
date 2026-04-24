@@ -249,23 +249,6 @@ async function switchToStudy() {
   session.currentMode = 'study';
   await chrome.storage.local.set({ guardian_session: session });
   await reevaluateActiveTabAfterModeSwitch();
-
-  // 切换到学习模式时：暂停所有非学习标签的视频（含 PiP），音频不停
-  const studyList = config.studyList || [];
-  const compositeList = config.compositeList || [];
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) continue;
-    try {
-      const domain = extractDomain(tab.url);
-      if (!domain) continue;
-      const isStudy = studyList.some(p => matchDomain(domain, p));
-      const isComposite = compositeList.some(p => matchDomain(domain, p));
-      if (!isStudy && !isComposite) {
-        chrome.tabs.sendMessage(tab.id, { type: 'PAUSE_MEDIA' }).catch(() => {});
-      }
-    } catch { /* tab may be closed or inaccessible */ }
-  }
   return session;
 }
 

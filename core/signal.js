@@ -100,12 +100,6 @@ export function initSignal(onContextChange) {
         mediaSourceTabId: sender.tab.id,
       });
     }
-    if (msg.type === 'PIP_STATE' && sender.tab) {
-      onEvent({
-        isPiP: msg.pip,
-        tabId: sender.tab.id,
-      });
-    }
   });
 
   // 标签页关闭时清理
