@@ -1,6 +1,6 @@
 # AGENTS.md — TimeOnChrome 开发规范
 
-> 本文档供 AI 代理（opencode/Claude Code 等）和开发者阅读，定义项目的工作规则和约束。
+> 本文档供 AI 代理（Codex/OpenCode/Claude Code 等）和开发者阅读，定义项目的工作规则和约束。
 
 ---
 
@@ -51,7 +51,6 @@
 **禁止：**
 - ❌ 一次喂整个项目
 - ❌ 一次处理多个不相关文件
-- ❌ 让 Kimi 写代码（只做裁剪）
 - ❌ 长 session 连续跑
 
 ---
@@ -168,29 +167,39 @@ refactor: 删除终端推送配置逻辑，确立云端为唯一配置源
 
 ---
 
-## 6. OpenCode MVP 工作流
+## 6. 代码执行器策略
 
-### 6.1 模型分工
+### 6.1 默认执行器：Codex
 
-| 阶段 | 模型 | 用途 | 配置 |
-|------|------|------|------|
-| Plan | Kimi (kimi-k2.5) | 代码分析、上下文裁剪、制定计划 | max_tokens: 4000, temperature: 0.1 |
-| Build | DeepSeek (deepseek-chat) | 代码生成、修复、重构 | max_tokens: 6000, temperature: 0.2 |
+| 角色 | 工具 | 职责 |
+|------|------|------|
+| **默认代码执行器** | Codex | 代码生成、修复、重构、测试编写、日常开发 |
+| **总控层** | Product Owner + ChatGPT | 需求定义、范围控制、决策审批、任务分配 |
 
-### 6.2 关键规则
+### 6.2 OpenCode 角色（降级为辅助）
 
-- Kimi **只做裁剪，不做推理**
-- context ≤ 200 行
-- max_tokens ≤ 6000
-- 每次只处理 **一个文件 / 一个问题**
+OpenCode 不再是默认代码执行器，保留以下辅助角色：
 
-### 6.3 配置文件位置
+| 场景 | 用途 |
+|------|------|
+| 本地复验 | 验证 Codex 产出的代码在本地环境可运行、测试通过 |
+| 环境排查 | 诊断浏览器、Playwright、Node.js 等本地环境问题 |
+| 最小必要修补 | 紧急小修、配置调整、脚本执行 |
+| Fallback 执行器 | Codex 不可用时的备用方案 |
 
-`.opencode/` 目录：
-- `opencode.json` — 主配置
-- `context_router.py` — Kimi 代码裁剪器
-- `executor.py` — DeepSeek 代码执行器
-- `agent.py` — 主循环（Plan→Build 切换）
+### 6.3 执行边界（所有执行器通用）
+
+- **不能判断 GitHub 真实状态**：只能基于本地 Git 状态推断，涉及远程状态时必须通过 `git fetch` 确认
+- **不能擅自扩大范围**：严格按任务描述执行，不添加未要求的功能
+- **必须有测试证据**：代码变更后必须运行对应测试，测试失败不得提交
+- **保留范围控制规则**：V0 收口阶段不扩展新功能，V1 设计不进入实现
+
+### 6.4 历史说明
+
+- OpenCode MVP 工作流（Kimi 裁剪 + DeepSeek 构建）已完成其历史使命
+- OpenCode timing trace diagnostics 工作已收口并推送（commit `71516d2`，branch `release/v0.1-duration-diagnostics`）
+- `.opencode/` 目录保留为历史参考，不再作为活跃执行配置
+- Antigravity 已从当前协作链路移除，不再使用
 
 ---
 
@@ -215,7 +224,7 @@ timeonchrome/
 │   ├── CHANGELOG.md           变更记录
 │   ├── TODO.md                待办事项
 │   └── TEST-SPEC.md           测试规范
-└── .opencode/                 OpenCode MVP 配置
+└── .opencode/                 OpenCode MVP 配置（历史参考，非活跃）
 ```
 
 ---
