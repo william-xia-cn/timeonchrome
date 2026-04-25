@@ -24,3 +24,18 @@ workers/.env
 
 # Workers build/cache
 workers/.wrangler/
+
+# Pages env (contains secrets)
+pages/.env
+
+# Playwright test output
+test-results/
+
+# E2E test browser profiles (generated)
+test-e2e-profile-*/
+
+# Local backup files
+backup/
+
+# AI conversation logs
+docs/conversation-log/

@@ -64,6 +64,7 @@ const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents'
 const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'saveSession', 'transitionState', 'runSessionCommit'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
+  emitTrace: async () => {}, // no-op for unit tests
 });
 const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   getSession: sessionApi.getSession,

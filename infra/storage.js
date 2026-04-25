@@ -1,6 +1,7 @@
 // infra/storage.js — 配置/会话存储
 import { computeAllDomains, computeAllDomainsWithAudio } from '../core/aggregate.js';
 import { matchDomain as matchDomainV12, normalizeHostname } from '../core/domain-semantics.js';
+import { emitTrace } from '../core/timing-trace.js';
 
 const STORAGE_VERSION = '1.3';
 export const CONFIG_KEY = 'guardian_config';
@@ -198,7 +199,15 @@ export async function getTodayStats() {
   const today = getDateKey();
   const data = await chrome.storage.local.get(EVENT_LOG_KEY);
   const events = data[EVENT_LOG_KEY] || [];
-  return aggregateFromEvents(events, today);
+  const result = aggregateFromEvents(events, today);
+  emitTrace('stats_calculated', {
+    source: 'stats',
+    reason: 'dailyAggregation',
+    domain: null,
+    statsAfter: result,
+    payload: { date: today, eventCount: events.length },
+  });
+  return result;
 }
 
 /**

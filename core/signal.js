@@ -38,6 +38,7 @@ export function initSignal(onContextChange) {
       isAudible: incoming.isAudible ?? pending.isAudible,
       mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
       isPiP: incoming.isPiP ?? pending.isPiP,
+      _reason: incoming._reason ?? pending._reason ?? 'unknown',
       timestamp: Date.now(),
     };
   }
@@ -59,11 +60,13 @@ export function initSignal(onContextChange) {
         tabId: activeInfo.tabId,
         windowId: activeInfo.windowId,
         domain,
+        _reason: 'tabActivated',
       });
     } catch {
       onEvent({
         tabId: activeInfo.tabId,
         windowId: activeInfo.windowId,
+        _reason: 'tabActivated',
       });
     }
   });
@@ -73,7 +76,7 @@ export function initSignal(onContextChange) {
     if (tab.active && tab.url) {
       const domain = extractDomain(tab.url);
       if (domain) {
-        onEvent({ tabId, domain });
+        onEvent({ tabId, domain, _reason: 'tabUpdated' });
       }
     }
   });
@@ -81,15 +84,15 @@ export function initSignal(onContextChange) {
   // 窗口焦点变化
   chrome.windows.onFocusChanged.addListener((windowId) => {
     if (windowId === chrome.windows.WINDOW_ID_NONE) {
-      onEvent({ isFocused: false });
+      onEvent({ isFocused: false, _reason: 'windowFocusLost' });
     } else {
-      onEvent({ windowId, isFocused: true });
+      onEvent({ windowId, isFocused: true, _reason: 'windowFocusChanged' });
     }
   });
 
   // 空闲状态变化
   chrome.idle.onStateChanged.addListener((state) => {
-    onEvent({ isIdle: state === 'idle' });
+    onEvent({ isIdle: state === 'idle', _reason: 'idleStateChanged' });
   });
 
   // 媒体状态（从 content.js 或 tabs API 转发）
@@ -98,6 +101,7 @@ export function initSignal(onContextChange) {
       onEvent({
         isAudible: msg.playing,
         mediaSourceTabId: sender.tab.id,
+        _reason: 'mediaState',
       });
     }
   });
@@ -105,7 +109,7 @@ export function initSignal(onContextChange) {
   // 标签页关闭时清理
   chrome.tabs.onRemoved.addListener((tabId) => {
     // 如果当前 active tab 被关闭，触发一次状态更新
-    onEvent({}); // 触发合并，让 context 重新评估
+    onEvent({ _reason: 'tabClosed' }); // 触发合并，让 context 重新评估
   });
 }
 

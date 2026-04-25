@@ -1,6 +1,7 @@
 // runtime/session.js — 当前会话快照（单一真相源）+ 状态切换 + 心跳
 
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
+import { emitTrace } from '../core/timing-trace.js';
 
 const SESSION_KEY = 'session_v1';
 let commitQueue = Promise.resolve();
@@ -70,33 +71,54 @@ export async function transitionState(newState, newDomain) {
       return;
     }
 
+    const sessionBefore = { state: session.state, domain: session.domain, startTime: session.startTime };
+
     // 1. 关闭旧事件
     if (session.state && session.startTime) {
-      await appendEvent({
+      const endEvent = {
         type: EVENT_TYPE.END,
         state: session.state,
         domain: session.domain,
         time: now,
+      };
+      await appendEvent(endEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'transitionClose',
+        domain: session.domain,
+        previousState: session.state,
+        event: endEvent,
+        sessionBefore,
       });
     }
 
     // 2. 开启新事件
     if (newState) {
-      await appendEvent({
+      const startEvent = {
         type: EVENT_TYPE.START,
         state: newState,
         domain: newDomain,
         time: now,
+      };
+      await appendEvent(startEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'transitionOpen',
+        domain: newDomain,
+        nextState: newState,
+        event: startEvent,
+        sessionBefore,
       });
     }
 
     // 3. 更新 session
-    await saveSession({
+    const sessionAfter = {
       state: newState,
       domain: newDomain,
       startTime: newState ? now : null,
       lastHeartbeat: now,
-    });
+    };
+    await saveSession(sessionAfter);
   });
 }
 

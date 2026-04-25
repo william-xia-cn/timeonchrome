@@ -10,6 +10,9 @@ import { updateDeclarativeRules, checkAndRemind } from './product/interceptor.js
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
 import { initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
 import { handleMessage } from './message-router.js';
+import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
+import { getEvents } from './core/event-log.js';
+import { emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
 
 let currentContext = null;
 
@@ -78,11 +81,69 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // ── 信号接入 → 上下文 → 状态 → 事件日志 ────────────────────────────────────────
 
 initSignal(async (rawEvent) => {
+  await emitTrace('signal_received', {
+    source: 'signal',
+    reason: rawEvent._reason || 'unknown',
+    tabId: rawEvent.tabId ?? null,
+    windowId: rawEvent.windowId ?? null,
+    domain: rawEvent.domain ?? null,
+    payload: { event: rawEvent },
+  });
+
   currentContext = buildContext(currentContext, rawEvent);
+  await emitTrace('snapshot_created', {
+    source: 'context',
+    reason: rawEvent._reason || 'unknown',
+    tabId: currentContext?.tabId ?? null,
+    windowId: currentContext?.windowId ?? null,
+    domain: currentContext?.domain ?? null,
+    payload: {
+      isFocused: currentContext?.isFocused,
+      isIdle: currentContext?.isIdle,
+      isAudible: currentContext?.isAudible,
+    },
+  });
+
   const state = resolveState(currentContext);
   const domain = currentContext?.domain || null;
+  await emitTrace('state_resolved', {
+    source: 'state',
+    reason: rawEvent._reason || 'unknown',
+    tabId: currentContext?.tabId ?? null,
+    windowId: currentContext?.windowId ?? null,
+    domain,
+    nextState: state,
+    payload: { context: currentContext },
+  });
+
+  await emitTrace('transition_begin', {
+    source: 'session',
+    reason: rawEvent._reason || 'unknown',
+    tabId: currentContext?.tabId ?? null,
+    windowId: currentContext?.windowId ?? null,
+    domain,
+    previousState: state,
+    nextState: state,
+    payload: { state, domain },
+  });
+
   await transitionState(state, domain);
+
+  await emitTrace('transition_end', {
+    source: 'session',
+    reason: rawEvent._reason || 'unknown',
+    tabId: currentContext?.tabId ?? null,
+    windowId: currentContext?.windowId ?? null,
+    domain,
+    previousState: state,
+    nextState: state,
+    payload: { state, domain },
+  });
 });
+
+// ── Focus Ledger 双重校准（诊断用，不影响业务逻辑）──────────────────────────────
+
+initFocusLedger(extractDomain);
 
 // ── webNavigation → 拦截检查 ───────────────────────────────────────────────────
 
@@ -173,7 +234,135 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 // ── 消息路由 ────────────────────────────────────────────────────────────────────
 
+// Expose debug functions on globalThis for Playwright SW evaluate calls
+// (dynamic import() is disallowed in ServiceWorkerGlobalScope)
+globalThis.debugExportCalibration = async ({ targetDomain, expectedSeconds, thresholdSeconds, since }) => {
+  try {
+    const ledger = await getFocusLedger();
+    const events = await getEvents();
+    const sessionData = await chrome.storage.session.get('session_v1');
+    const session = sessionData['session_v1'] || null;
+    const report = exportCalibrationReport(
+      ledger, events, session,
+      thresholdSeconds || 10,
+      since || 0,
+      targetDomain || null,
+      expectedSeconds || 0
+    );
+    return { success: true, ...report };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugResetFocusLedger = async () => {
+  try {
+    await resetFocusLedger();
+    return { success: true, resetAt: Date.now() };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+globalThis.debugGetFocusLedger = async () => {
+  try {
+    const ledger = await getFocusLedger();
+    return { success: true, ledger, count: ledger.length };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+globalThis.debugGetTimingTrace = async () => {
+  try {
+    const trace = await getTrace();
+    return { success: true, trace, count: trace.length };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+globalThis.debugClearTimingTrace = async () => {
+  try {
+    await clearTrace();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Debug/test-only message handlers (do not affect business logic)
+  if (msg.type === 'DEBUG_EXPORT_CALIBRATION') {
+    (async () => {
+      try {
+        const ledger = await getFocusLedger();
+        const events = await getEvents();
+        const sessionData = await chrome.storage.session.get('session_v1');
+        const session = sessionData['session_v1'] || null;
+        const report = exportCalibrationReport(
+          ledger, events, session,
+          msg.thresholdSeconds || 10,
+          msg.since || 0,
+          msg.targetDomain || null,
+          msg.expectedSeconds || 0
+        );
+        sendResponse({ success: true, ...report });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message, stack: err.stack });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_FOCUS_LEDGER_RESET') {
+    (async () => {
+      try {
+        await resetFocusLedger();
+        sendResponse({ success: true, resetAt: Date.now() });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_GET_FOCUS_LEDGER') {
+    (async () => {
+      try {
+        const ledger = await getFocusLedger();
+        sendResponse({ success: true, ledger, count: ledger.length });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_GET_TIMING_TRACE') {
+    (async () => {
+      try {
+        const trace = await getTrace();
+        sendResponse({ success: true, trace, count: trace.length });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_CLEAR_TIMING_TRACE') {
+    (async () => {
+      try {
+        await clearTrace();
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   handleMessage(msg, sender).then(sendResponse).catch(err => {
     sendResponse({ error: err.message });
   });

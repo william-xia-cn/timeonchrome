@@ -57,6 +57,7 @@ const aggregateApi = loadProdModule('core/aggregate.js', ['computeAllDomains', '
 const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getStatsRange', 'getDateKey'], {
   computeAllDomains: aggregateApi.computeAllDomains,
   computeAllDomainsWithAudio: aggregateApi.computeAllDomainsWithAudio,
+  emitTrace: async () => {}, // no-op for unit tests
 });
 
 const EVENT_LOG_KEY = 'event_log_v1';
