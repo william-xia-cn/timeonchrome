@@ -263,6 +263,22 @@ async function killChromeProfileProcesses(profileRoot) {
   return (result.stdout || '').trim().split(',').filter(Boolean);
 }
 
+async function findChromeProfilePids(profileRoot) {
+  const result = await runPowerShell(`
+    $profile = ${psSingleQuote(profileRoot)};
+    $extension = ${psSingleQuote(EXTENSION_PATH)};
+    $procs = Get-CimInstance Win32_Process |
+      Where-Object {
+        $_.CommandLine -and (
+          $_.CommandLine.Contains($profile) -or
+          $_.CommandLine.Contains($extension)
+        )
+      };
+    (@($procs | Select-Object -ExpandProperty ProcessId)) -join ',';
+  `);
+  return (result.stdout || '').trim().split(',').filter(Boolean);
+}
+
 async function killChromeWindowByTitle(title) {
   if (!title) return [];
   const result = await runPowerShell(`
@@ -274,6 +290,67 @@ async function killChromeWindowByTitle(title) {
       Stop-Process -Id $id -Force -ErrorAction SilentlyContinue;
     }
     $ids -join ',';
+  `);
+  return (result.stdout || '').trim().split(',').filter(Boolean);
+}
+
+async function findChromeWindowPidsByTitle(title) {
+  if (!title) return [];
+  const result = await runPowerShell(`
+    $needle = ${psSingleQuote(`*${title}*`)};
+    $procs = Get-Process |
+      Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like $needle };
+    (@($procs | Select-Object -ExpandProperty Id)) -join ',';
+  `);
+  return (result.stdout || '').trim().split(',').filter(Boolean);
+}
+
+async function suspendProcesses(pids) {
+  if (!pids.length) return [];
+  const result = await runPowerShell(`
+    $ids = @(${pids.map(id => Number(id)).filter(Number.isFinite).join(',')});
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class NtProcessControl {
+  [DllImport("ntdll.dll")]
+  public static extern int NtSuspendProcess(IntPtr processHandle);
+}
+"@;
+    $suspended = @();
+    foreach ($id in $ids) {
+      try {
+        $p = Get-Process -Id $id -ErrorAction Stop;
+        [NtProcessControl]::NtSuspendProcess($p.Handle) | Out-Null;
+        $suspended += $id;
+      } catch {}
+    }
+    $suspended -join ',';
+  `);
+  return (result.stdout || '').trim().split(',').filter(Boolean);
+}
+
+async function resumeProcesses(pids) {
+  if (!pids.length) return [];
+  const result = await runPowerShell(`
+    $ids = @(${pids.map(id => Number(id)).filter(Number.isFinite).join(',')});
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class NtProcessControl {
+  [DllImport("ntdll.dll")]
+  public static extern int NtResumeProcess(IntPtr processHandle);
+}
+"@;
+    $resumed = @();
+    foreach ($id in $ids) {
+      try {
+        $p = Get-Process -Id $id -ErrorAction Stop;
+        [NtProcessControl]::NtResumeProcess($p.Handle) | Out-Null;
+        $resumed += $id;
+      } catch {}
+    }
+    $resumed -join ',';
   `);
   return (result.stdout || '').trim().split(',').filter(Boolean);
 }
@@ -1010,6 +1087,61 @@ function classifyCrashRecovery(report, expected, domain, preCrashSession, second
   };
 }
 
+function classifyStallRecovery(report, expected, domain, preStallSession, suspendedPids = []) {
+  const { segments, activeByDomain } = pairActiveDurations(report.eventLog || []);
+  const starts = (report.eventLog || []).filter(e => e.type === 'START' && e.state === 'ACTIVE' && e.domain === domain);
+  const ends = (report.eventLog || []).filter(e => e.type === 'END' && e.state === 'ACTIVE' && e.domain === domain);
+  const duration = activeByDomain[domain] || 0;
+  const statsDuration = Number(report.stats?.[domain] || 0);
+  const heartbeatAnchoredSeconds = preStallSession?.startTime && preStallSession?.lastHeartbeat
+    ? Math.max(0, Math.floor((preStallSession.lastHeartbeat - preStallSession.startTime) / 1000))
+    : 0;
+  const expectedSeconds = heartbeatAnchoredSeconds || expected.a;
+  const tolerance = Math.max(5, Math.ceil(expectedSeconds * 0.35));
+  const closeEnough = Math.abs(duration - expectedSeconds) <= tolerance;
+  const overcountSeconds = Math.max(0, duration - expectedSeconds);
+  const staleGapSeconds = preStallSession?.lastHeartbeat
+    ? Math.max(0, Math.floor((Date.now() - preStallSession.lastHeartbeat) / 1000))
+    : null;
+  const statsMatchesEventLog = statsDuration === duration;
+  const endKeys = new Set(ends.map(e => `${e.state}|${e.domain}|${e.time}`));
+  const duplicateEnd = endKeys.size !== ends.length;
+  const openStart = starts.length > ends.length;
+
+  let firstBrokenLayer = null;
+  if (!suspendedPids.length) firstBrokenLayer = 'test-setup';
+  else if (!preStallSession?.state || preStallSession.state !== 'ACTIVE') firstBrokenLayer = 'session';
+  else if (starts.length === 0) firstBrokenLayer = 'event-log';
+  else if (openStart) firstBrokenLayer = 'session';
+  else if (duplicateEnd) firstBrokenLayer = 'event-log';
+  else if (!closeEnough) firstBrokenLayer = 'heartbeat';
+  else if (!statsMatchesEventLog) firstBrokenLayer = 'stats';
+
+  return {
+    result: firstBrokenLayer ? (starts.length > 0 ? 'PARTIAL' : 'FAIL') : 'PASS',
+    firstBrokenLayer: firstBrokenLayer || 'none',
+    activeByDomain,
+    segments,
+    starts,
+    ends,
+    duration,
+    statsDuration,
+    expectedSeconds,
+    heartbeatAnchoredSeconds,
+    tolerance,
+    closeEnough,
+    overcountSeconds,
+    staleGapSeconds,
+    openStart,
+    duplicateEnd,
+    statsMatchesEventLog,
+    preStallSession,
+    suspendedPids,
+    postStallSession: report.session,
+    eventLogCount: report.eventLogCount,
+  };
+}
+
 async function main() {
   if (process.platform !== 'win32') {
     throw new Error(`This runner is Windows-only. Current platform: ${process.platform}`);
@@ -1029,6 +1161,7 @@ async function main() {
   const pageB = realTargets?.pageB || localTargets.pageB;
   const pageC = realTargets?.pageC || localTargets.pageC;
   let context;
+  let suspendedPids = [];
   try {
     context = await launchCalibrationContext();
 
@@ -1097,6 +1230,77 @@ async function main() {
       console.log(`  closeEnough: ${analysis.closeEnough}`);
       console.log(`  statsMatchesEventLog: ${analysis.statsMatchesEventLog}`);
       console.log(`  idempotent: ${analysis.idempotent}`);
+      console.log(`  badge: ${JSON.stringify(badge)}`);
+      if (args.verbose) {
+        console.log(`  eventLog: ${JSON.stringify(report.eventLog)}`);
+        console.log(`  segments: ${JSON.stringify(analysis.segments)}`);
+      }
+      if (analysis.result === 'FAIL') process.exitCode = 1;
+      return;
+    } else if (args.scenario === 'stall-recovery-local') {
+      page = await context.newPage();
+      console.log(`  page A: ${pageA}`);
+      await page.goto(pageA, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await markCalibrationStartOnCurrentPage(page, sw);
+      await keepForegroundActive(page, args.a, 'A before stall');
+
+      const preStallReport = await callDebug(sw, 'debugExportTimingCalibration');
+      console.log(`  pre-stall session: ${JSON.stringify(preStallReport.session)}`);
+      const pageTitle = await page.title().catch(() => '');
+      const titlePids = await findChromeWindowPidsByTitle(pageTitle);
+      const profilePids = await findChromeProfilePids(PROFILE_ROOT);
+      const candidatePids = Array.from(new Set([...titlePids, ...profilePids]));
+      console.log(`  stall candidate pids: ${candidatePids.join(',') || '(none)'}`);
+      suspendedPids = await suspendProcesses(candidatePids);
+      console.log(`  suspended pids: ${suspendedPids.join(',') || '(none)'}`);
+      await sleep(Math.max(1, args.blur) * 1000);
+      const resumed = await resumeProcesses(suspendedPids);
+      console.log(`  resumed pids: ${resumed.join(',') || '(none)'}`);
+      suspendedPids = [];
+
+      await sleep(1500);
+      console.log(`  page B: ${pageB}`);
+      await page.bringToFront().catch(() => {});
+      await tryBringChromeToFront(page).catch(() => {});
+      await page.goto(pageB, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(async (err) => {
+        console.log(`  page B navigation retry after stall: ${err.message}`);
+        await sleep(2000);
+        await page.goto(pageB, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      });
+      await keepForegroundActive(page, args.b, 'B after stall');
+
+      const report = await callDebug(sw, 'debugExportTimingCalibration');
+      const badge = await getBadgeSnapshot(sw);
+      const domains = {
+        pageA: new URL(pageA).hostname,
+        pageB: new URL(pageB).hostname,
+        pageC: new URL(pageC).hostname,
+      };
+      const analysis = classifyStallRecovery(report, { a: args.a, blur: args.blur }, domains.pageA, preStallReport.session, resumed);
+
+      console.log('\n[Stall recovery result]');
+      console.log(`  result: ${analysis.result}`);
+      console.log(`  firstBrokenLayer: ${analysis.firstBrokenLayer}`);
+      console.log(`  mode/currentMode: ${report.mode}/${report.currentMode}`);
+      console.log(`  preStallSession: ${JSON.stringify(analysis.preStallSession)}`);
+      console.log(`  suspendedPids: ${JSON.stringify(analysis.suspendedPids)}`);
+      console.log(`  postStallSession: ${JSON.stringify(analysis.postStallSession)}`);
+      console.log(`  traceCount: ${report.traceCount}`);
+      console.log(`  eventLogCount: ${analysis.eventLogCount}`);
+      console.log(`  starts: ${analysis.starts.length}`);
+      console.log(`  ends: ${analysis.ends.length}`);
+      console.log(`  activeByDomain: ${JSON.stringify(analysis.activeByDomain)}`);
+      console.log(`  stats: ${JSON.stringify(report.stats)}`);
+      console.log(`  pageA(${domains.pageA}) event-log-derived: ${analysis.duration}s`);
+      console.log(`  pageA(${domains.pageA}) stats: ${analysis.statsDuration}s`);
+      console.log(`  heartbeatAnchoredSeconds: ${analysis.heartbeatAnchoredSeconds}s`);
+      console.log(`  expected: ${analysis.expectedSeconds}s, tolerance: +/-${analysis.tolerance}s`);
+      console.log(`  overcountSeconds: ${analysis.overcountSeconds}s`);
+      console.log(`  staleGapSecondsAtAnalysis: ${analysis.staleGapSeconds}s`);
+      console.log(`  openStart: ${analysis.openStart}`);
+      console.log(`  duplicateEnd: ${analysis.duplicateEnd}`);
+      console.log(`  closeEnough: ${analysis.closeEnough}`);
+      console.log(`  statsMatchesEventLog: ${analysis.statsMatchesEventLog}`);
       console.log(`  badge: ${JSON.stringify(badge)}`);
       if (args.verbose) {
         console.log(`  eventLog: ${JSON.stringify(report.eventLog)}`);
@@ -1234,6 +1438,9 @@ async function main() {
 
     if (analysis.result === 'FAIL') process.exitCode = 1;
   } finally {
+    if (suspendedPids.length) {
+      await resumeProcesses(suspendedPids).catch(() => {});
+    }
     if (context) await context.close().catch(() => {});
     if (localTargets?.server) await new Promise(resolve => localTargets.server.close(resolve));
     fs.rmSync(PROFILE_ROOT, { recursive: true, force: true });
