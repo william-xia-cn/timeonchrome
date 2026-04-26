@@ -4,6 +4,7 @@ import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 import { emitTrace } from '../core/timing-trace.js';
 
 const SESSION_KEY = 'session_v1';
+const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
 let commitQueue = Promise.resolve();
 
 function runSerialized(task) {
@@ -24,8 +25,18 @@ function runSerialized(task) {
  * @returns {Promise<SessionState|null>}
  */
 export async function getSession() {
+  return (await getSessionWithPersistenceSource()).session;
+}
+
+export async function getSessionWithPersistenceSource() {
   const data = await chrome.storage.session.get(SESSION_KEY);
-  return data[SESSION_KEY] || null;
+  if (data[SESSION_KEY]) return { session: data[SESSION_KEY], source: 'session' };
+
+  const persistent = await chrome.storage.local.get(PERSISTENT_SESSION_KEY);
+  return {
+    session: persistent[PERSISTENT_SESSION_KEY] || null,
+    source: persistent[PERSISTENT_SESSION_KEY] ? 'persistent' : 'none',
+  };
 }
 
 /**
@@ -34,6 +45,7 @@ export async function getSession() {
  */
 export async function saveSession(session) {
   await chrome.storage.session.set({ [SESSION_KEY]: session });
+  await chrome.storage.local.set({ [PERSISTENT_SESSION_KEY]: session });
 }
 
 /**

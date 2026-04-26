@@ -1,6 +1,6 @@
 // runtime/recovery.js — SW 重启恢复（启动第一优先级）
 
-import { getSession, saveSession, runSessionCommit } from './session.js';
+import { getSession, getSessionWithPersistenceSource, saveSession, runSessionCommit } from './session.js';
 import { appendEvent, EVENT_TYPE, getLastEvent } from '../core/event-log.js';
 
 const SLEEP_THRESHOLD = 90 * 1000; // 90 秒，抗 MV3 调度抖动
@@ -16,13 +16,16 @@ export async function recover() {
     : async (task) => task();
 
   return commit(async () => {
-    const session = await getSession();
+    const snapshot = typeof getSessionWithPersistenceSource === 'function'
+      ? await getSessionWithPersistenceSource()
+      : { session: await getSession(), source: 'session' };
+    const { session, source } = snapshot;
     if (!session || !session.state || !session.startTime) return;
 
     const now = Date.now();
     const delta = now - session.lastHeartbeat;
 
-    const endTime = delta > SLEEP_THRESHOLD ? session.lastHeartbeat : now;
+    const endTime = source === 'persistent' || delta > SLEEP_THRESHOLD ? session.lastHeartbeat : now;
     const lastEvent = typeof getLastEvent === 'function' ? await getLastEvent() : null;
 
     // 幂等恢复：若最后一条已是同一段会话的 END，则不重复追加

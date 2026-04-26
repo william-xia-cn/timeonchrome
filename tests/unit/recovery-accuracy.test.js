@@ -66,13 +66,14 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 
 const aggregateApi = loadProdModule('core/aggregate.js', ['computeAllDomains', 'computeAllDomainsWithAudio']);
 const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents', 'getLastEvent', 'EVENT_TYPE']);
-const sessionApi = loadProdModule('runtime/session.js', ['getSession', 'saveSession', 'runSessionCommit'], {
+const sessionApi = loadProdModule('runtime/session.js', ['getSession', 'getSessionWithPersistenceSource', 'saveSession', 'runSessionCommit'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {},
 });
 const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   getSession: sessionApi.getSession,
+  getSessionWithPersistenceSource: sessionApi.getSessionWithPersistenceSource,
   saveSession: sessionApi.saveSession,
   runSessionCommit: sessionApi.runSessionCommit,
   appendEvent: eventApi.appendEvent,
@@ -88,7 +89,9 @@ const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getDate
 const SESSION_KEY = 'session_v1';
 const EVENT_LOG_KEY = 'event_log_v1';
 const REAL_DATE_NOW = Date.now;
-const BASE_TIME = Date.parse('2026-04-26T12:00:00Z');
+const BASE_DATE = new Date();
+BASE_DATE.setHours(12, 0, 0, 0);
+const BASE_TIME = BASE_DATE.getTime();
 
 let passed = 0;
 let failed = 0;
@@ -139,6 +142,12 @@ async function readStatsAt(now) {
 
 function deriveStats(events, date) {
   return aggregateApi.computeAllDomains(events, date);
+}
+
+function stripStatsMeta(stats) {
+  return Object.fromEntries(
+    Object.entries(stats || {}).filter(([key]) => key !== 'audioSeconds' && key !== 'backgroundMediaByDomain')
+  );
 }
 
 function durationFor(stats, domain) {
@@ -192,16 +201,17 @@ async function runScenario({ name, setup, recoverTimes, statsAt, expectedStats, 
   const events = await eventApi.getEvents();
   const { date, stats } = await readStatsAt(statsAt);
   const derivedStats = deriveStats(events, date);
+  const domainStats = stripStatsMeta(stats);
   const durationComparison = {
     eventLogDerived: durationFor(derivedStats, domain),
-    stats: durationFor(stats, domain),
+    stats: durationFor(domainStats, domain),
   };
   const brokenLayer = firstBrokenLayer({
     sessionBefore,
     sessionAfter,
     events,
     derivedStats,
-    stats,
+    stats: domainStats,
     expectedStats,
     expectedEventCount,
   });
@@ -287,7 +297,28 @@ async function runTests() {
   });
   expectEqual('D first broken layer', scenarioD.brokenLayer, null);
   expectEqual('D event-log stays empty', scenarioD.events.length, 0);
-  expectEqual('D stats stay empty', scenarioD.stats, {});
+  expectEqual('D stats domain totals stay empty', stripStatsMeta(scenarioD.stats), {});
+
+  const scenarioE = await runScenario({
+    name: 'E browser crash can recover from persistent session shadow',
+    domain,
+    setup: async () => {
+      await seedOpenActiveSession({
+        domain,
+        startTime: t0,
+        lastHeartbeat: t0 + 5_000,
+      });
+      mockSessionStorage.reset();
+    },
+    recoverTimes: [t0 + 120_000],
+    statsAt: t0 + 120_000,
+    expectedStats: { [domain]: 5 },
+    expectedEventCount: 2,
+  });
+  expectEqual('E first broken layer', scenarioE.brokenLayer, null);
+  expectEqual('E event-log-derived duration', scenarioE.durationComparison.eventLogDerived, 5);
+  expectEqual('E stats duration', scenarioE.durationComparison.stats, 5);
+  expectEqual('E END time uses persistent lastHeartbeat', scenarioE.events.at(-1).time, t0 + 5_000);
 
   Date.now = REAL_DATE_NOW;
   const total = passed + failed;

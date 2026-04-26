@@ -61,13 +61,14 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 }
 
 const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents', 'getLastEvent', 'EVENT_TYPE']);
-const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'saveSession', 'transitionState', 'runSessionCommit'], {
+const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'getSessionWithPersistenceSource', 'saveSession', 'transitionState', 'runSessionCommit'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {}, // no-op for unit tests
 });
 const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   getSession: sessionApi.getSession,
+  getSessionWithPersistenceSource: sessionApi.getSessionWithPersistenceSource,
   saveSession: sessionApi.saveSession,
   runSessionCommit: sessionApi.runSessionCommit,
   appendEvent: eventApi.appendEvent,

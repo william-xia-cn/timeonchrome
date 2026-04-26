@@ -282,6 +282,110 @@ globalThis.debugGetTimingTrace = async () => {
   }
 };
 
+globalThis.debugGetTodayStats = async () => {
+  try {
+    const stats = await handleMessage({ type: 'GET_STATS' }, { id: 'debug' });
+    return { success: true, stats };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+async function debugGetTimingCalibrationSnapshot() {
+  const trace = await getTrace();
+  const events = await getEvents();
+  const sessionData = await chrome.storage.session.get('session_v1');
+  const session = sessionData['session_v1'] || null;
+  const ledger = await getFocusLedger();
+  const stats = await handleMessage({ type: 'GET_STATS' }, { id: 'debug' });
+  const statsRange = await getStatsRange(2);
+  const profile = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+
+  return {
+    success: true,
+    capturedAt: Date.now(),
+    trace,
+    traceCount: trace.length,
+    eventLog: events,
+    eventLogCount: events.length,
+    session,
+    stats,
+    statsRange,
+    focusLedger: ledger,
+    focusLedgerCount: ledger.length,
+    mode: profile['guardian_config']?.mode || null,
+    currentMode: profile['guardian_session']?.currentMode || null,
+  };
+}
+
+async function debugResetTimingCalibrationData() {
+  await clearTrace();
+  await resetFocusLedger();
+  await clearEvents();
+  await chrome.storage.session.set({
+    session_v1: {
+      state: null,
+      domain: null,
+      startTime: null,
+      lastHeartbeat: Date.now(),
+    },
+  });
+  await chrome.storage.local.set({
+    session_v1_persistent: {
+      state: null,
+      domain: null,
+      startTime: null,
+      lastHeartbeat: Date.now(),
+    },
+  });
+
+  const allLocal = await chrome.storage.local.get(null);
+  const statsKeys = Object.keys(allLocal).filter(key =>
+    key === 'event_log_last_compact' ||
+    key.startsWith('stats_') ||
+    key.startsWith('undetermined_stats_')
+  );
+  if (statsKeys.length > 0) {
+    await chrome.storage.local.remove(statsKeys);
+  }
+
+  return { success: true, resetAt: Date.now(), clearedStatsKeys: statsKeys };
+}
+
+globalThis.debugExportTimingCalibration = async () => {
+  try {
+    return await debugGetTimingCalibrationSnapshot();
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugResetTimingCalibration = async () => {
+  try {
+    return await debugResetTimingCalibrationData();
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugSetRestMode = async () => {
+  try {
+    const session = await handleMessage({ type: 'SWITCH_TO_REST' }, { id: 'debug' });
+    return { success: true, session };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugApplyControlledTimingSignal = async (rawEvent = {}) => {
+  try {
+    const result = await processDebugControlledTimingSignal(rawEvent);
+    return { success: true, ...result };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
 globalThis.debugClearTimingTrace = async () => {
   try {
     await clearTrace();
