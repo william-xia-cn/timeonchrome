@@ -80,7 +80,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 // ── 信号接入 → 上下文 → 状态 → 事件日志 ────────────────────────────────────────
 
-initSignal(async (rawEvent) => {
+async function processTimingSignal(rawEvent) {
   await emitTrace('signal_received', {
     source: 'signal',
     reason: rawEvent._reason || 'unknown',
@@ -139,7 +139,28 @@ initSignal(async (rawEvent) => {
     nextState: state,
     payload: { state, domain },
   });
-});
+
+  return { state, domain, context: currentContext };
+}
+
+initSignal(processTimingSignal);
+
+async function processDebugControlledTimingSignal(rawEvent = {}) {
+  const { _debugNow, ...event } = rawEvent;
+  const originalNow = Date.now;
+  if (typeof _debugNow === 'number' && Number.isFinite(_debugNow)) {
+    Date.now = () => _debugNow;
+  }
+
+  try {
+    return await processTimingSignal({
+      ...event,
+      _reason: event._reason || 'controlledTimingSignal',
+    });
+  } finally {
+    Date.now = originalNow;
+  }
+}
 
 // ── Focus Ledger 双重校准（诊断用，不影响业务逻辑）──────────────────────────────
 
@@ -282,6 +303,24 @@ globalThis.debugGetTimingTrace = async () => {
   }
 };
 
+globalThis.debugGetTodayStats = async () => {
+  try {
+    const stats = await handleMessage({ type: 'GET_STATS' }, { id: 'debug' });
+    return { success: true, stats };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugApplyControlledTimingSignal = async (rawEvent = {}) => {
+  try {
+    const result = await processDebugControlledTimingSignal(rawEvent);
+    return { success: true, ...result };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
 globalThis.debugClearTimingTrace = async () => {
   try {
     await clearTrace();
@@ -346,6 +385,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ success: true, trace, count: trace.length });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_GET_TODAY_STATS') {
+    (async () => {
+      try {
+        const stats = await handleMessage({ type: 'GET_STATS' }, sender);
+        sendResponse({ success: true, stats });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message, stack: err.stack });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_APPLY_CONTROLLED_TIMING_SIGNAL') {
+    (async () => {
+      try {
+        const result = await processDebugControlledTimingSignal(msg.event || {});
+        sendResponse({ success: true, ...result });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message, stack: err.stack });
       }
     })();
     return true;

@@ -51,6 +51,7 @@ async function createFreshContext() {
   });
   let sw = browserCtx.serviceWorkers()[0];
   if (!sw) sw = await browserCtx.waitForEvent('serviceworker', { timeout: 15000 });
+  await initializeRestMode(sw);
   return { browserCtx, sw, userDataDir };
 }
 
@@ -74,6 +75,23 @@ async function readSession(sw) {
   return sw.evaluate(async () => {
     return new Promise(resolve => {
       chrome.storage.session.get('session_v1', result => resolve(result['session_v1'] || null));
+    });
+  });
+}
+
+async function initializeRestMode(sw) {
+  return sw.evaluate(async () => {
+    return new Promise(resolve => {
+      chrome.storage.local.get(['guardian_config', 'guardian_session'], result => {
+        const config = result['guardian_config'] || {};
+        const session = result['guardian_session'] || {};
+        // Test profile initialization only. These are the same fields written by
+        // the production SWITCH_TO_REST path; product defaults are unchanged.
+        chrome.storage.local.set({
+          guardian_config: { ...config, mode: 'rest' },
+          guardian_session: { ...session, currentMode: 'rest' },
+        }, () => resolve());
+      });
     });
   });
 }
