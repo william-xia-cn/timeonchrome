@@ -243,6 +243,41 @@ async function tryBringChromeToFront(page) {
   `);
 }
 
+async function killChromeProfileProcesses(profileRoot) {
+  const result = await runPowerShell(`
+    $profile = ${psSingleQuote(profileRoot)};
+    $extension = ${psSingleQuote(EXTENSION_PATH)};
+    $procs = Get-CimInstance Win32_Process |
+      Where-Object {
+        $_.CommandLine -and (
+          $_.CommandLine.Contains($profile) -or
+          $_.CommandLine.Contains($extension)
+        )
+      };
+    $ids = @($procs | Select-Object -ExpandProperty ProcessId);
+    foreach ($id in $ids) {
+      Stop-Process -Id $id -Force -ErrorAction SilentlyContinue;
+    }
+    $ids -join ',';
+  `);
+  return (result.stdout || '').trim().split(',').filter(Boolean);
+}
+
+async function killChromeWindowByTitle(title) {
+  if (!title) return [];
+  const result = await runPowerShell(`
+    $needle = ${psSingleQuote(`*${title}*`)};
+    $procs = Get-Process |
+      Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like $needle };
+    $ids = @($procs | Select-Object -ExpandProperty Id);
+    foreach ($id in $ids) {
+      Stop-Process -Id $id -Force -ErrorAction SilentlyContinue;
+    }
+    $ids -join ',';
+  `);
+  return (result.stdout || '').trim().split(',').filter(Boolean);
+}
+
 async function minimizeChromeWindow(page) {
   const title = await page.title().catch(() => '');
   await runPowerShell(`
@@ -576,12 +611,25 @@ async function prepareForegroundMedia(page, kind) {
 
 async function markCalibrationStartOnCurrentPage(page, sw) {
   await callDebug(sw, 'debugResetTimingCalibration');
-  await page.evaluate(() => {
-    const marker = `toc-calibration-${Date.now()}`;
-    const url = new URL(location.href);
-    url.hash = marker;
-    history.pushState(null, '', url.toString());
-  });
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => {});
+      await sleep(500);
+      await page.evaluate(() => {
+        const marker = `toc-calibration-${Date.now()}`;
+        const url = new URL(location.href);
+        url.hash = marker;
+        history.pushState(null, '', url.toString());
+      });
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err;
+      await sleep(750);
+    }
+  }
+  if (lastError) throw lastError;
   await sleep(500);
 }
 
@@ -605,6 +653,19 @@ async function callDebug(sw, fnName) {
 }
 
 async function prepareRestMode(sw) {
+  async function clearDynamicRules() {
+    await sw.evaluate(async () => {
+      if (chrome.declarativeNetRequest?.getDynamicRules) {
+        const rules = await chrome.declarativeNetRequest.getDynamicRules();
+        if (rules.length > 0) {
+          await chrome.declarativeNetRequest.updateDynamicRules({
+            removeRuleIds: rules.map(rule => rule.id),
+          });
+        }
+      }
+    });
+  }
+
   async function forceRestProfile(error, method) {
     return await sw.evaluate(async ({ error, method }) => {
       const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
@@ -614,15 +675,6 @@ async function prepareRestMode(sw) {
         guardian_config: { ...config, mode: 'rest' },
         guardian_session: { ...session, currentMode: 'rest' },
       });
-
-      if (chrome.declarativeNetRequest?.getDynamicRules) {
-        const rules = await chrome.declarativeNetRequest.getDynamicRules();
-        if (rules.length > 0) {
-          await chrome.declarativeNetRequest.updateDynamicRules({
-            removeRuleIds: rules.map(rule => rule.id),
-          });
-        }
-      }
 
       const verified = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
       return {
@@ -652,20 +704,37 @@ async function prepareRestMode(sw) {
       };
     });
     if (verified.mode === 'rest' && verified.currentMode === 'rest') {
+      await clearDynamicRules();
       return { success: true, method: 'debugSetRestMode', ...verified };
     }
-    return await forceRestProfile(
+    const fallback = await forceRestProfile(
       `debugSetRestMode left profile at ${verified.mode}/${verified.currentMode}`,
       'verifiedStorageRestModeFallback'
     );
+    await clearDynamicRules();
+    return fallback;
   }
 
   const fallback = await forceRestProfile(direct?.error || 'debugSetRestMode failed', 'storageRestModeFallback');
+  await clearDynamicRules();
 
   if (!fallback?.success) {
     throw new Error(`rest mode setup failed: ${direct?.error || 'unknown error'}`);
   }
   return fallback;
+}
+
+async function launchCalibrationContext() {
+  return await chromium.launchPersistentContext(PROFILE_ROOT, {
+    headless: false,
+    args: [
+      `--disable-extensions-except=${EXTENSION_PATH}`,
+      `--load-extension=${EXTENSION_PATH}`,
+      '--no-sandbox',
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+    ],
+  });
 }
 
 function pairActiveDurations(eventLog) {
@@ -888,6 +957,59 @@ function classify(report, expected, domains) {
   };
 }
 
+function classifyCrashRecovery(report, expected, domain, preCrashSession, secondReport = null, killedPids = []) {
+  const { segments, activeByDomain } = pairActiveDurations(report.eventLog || []);
+  const starts = (report.eventLog || []).filter(e => e.type === 'START' && e.state === 'ACTIVE' && e.domain === domain);
+  const ends = (report.eventLog || []).filter(e => e.type === 'END' && e.state === 'ACTIVE' && e.domain === domain);
+  const duration = activeByDomain[domain] || 0;
+  const statsDuration = Number(report.stats?.[domain] || 0);
+  const heartbeatAnchoredSeconds = preCrashSession?.startTime && preCrashSession?.lastHeartbeat
+    ? Math.max(0, Math.floor((preCrashSession.lastHeartbeat - preCrashSession.startTime) / 1000))
+    : 0;
+  const expectedSeconds = heartbeatAnchoredSeconds || expected.a;
+  const tolerance = Math.max(5, Math.ceil(expectedSeconds * 0.35));
+  const closeEnough = Math.abs(duration - expectedSeconds) <= tolerance;
+  const statsMatchesEventLog = statsDuration === duration;
+  const duplicateEnd = ends.length > 1;
+  const openStart = starts.length > ends.length;
+  const secondEventLogCount = secondReport?.eventLogCount ?? null;
+  const idempotent = !secondReport || secondEventLogCount === report.eventLogCount;
+
+  let firstBrokenLayer = null;
+  if (!killedPids.length) firstBrokenLayer = 'test-setup';
+  else if (!preCrashSession?.state || preCrashSession.state !== 'ACTIVE') firstBrokenLayer = 'session';
+  else if (starts.length === 0) firstBrokenLayer = 'event-log';
+  else if (openStart) firstBrokenLayer = 'session';
+  else if (duplicateEnd) firstBrokenLayer = 'event-log';
+  else if (!closeEnough) firstBrokenLayer = 'recovery';
+  else if (!statsMatchesEventLog) firstBrokenLayer = 'stats';
+  else if (!idempotent) firstBrokenLayer = 'recovery';
+
+  return {
+    result: firstBrokenLayer ? (starts.length > 0 ? 'PARTIAL' : 'FAIL') : 'PASS',
+    firstBrokenLayer: firstBrokenLayer || 'none',
+    activeByDomain,
+    segments,
+    starts,
+    ends,
+    duration,
+    statsDuration,
+    expectedSeconds,
+    heartbeatAnchoredSeconds,
+    tolerance,
+    closeEnough,
+    openStart,
+    duplicateEnd,
+    statsMatchesEventLog,
+    idempotent,
+    preCrashSession,
+    killedPids,
+    postRecoverySession: report.session,
+    eventLogCount: report.eventLogCount,
+    secondEventLogCount,
+  };
+}
+
 async function main() {
   if (process.platform !== 'win32') {
     throw new Error(`This runner is Windows-only. Current platform: ${process.platform}`);
@@ -908,16 +1030,7 @@ async function main() {
   const pageC = realTargets?.pageC || localTargets.pageC;
   let context;
   try {
-    context = await chromium.launchPersistentContext(PROFILE_ROOT, {
-      headless: false,
-      args: [
-        `--disable-extensions-except=${EXTENSION_PATH}`,
-        `--load-extension=${EXTENSION_PATH}`,
-        '--no-sandbox',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-      ],
-    });
+    context = await launchCalibrationContext();
 
     const sw = await waitForServiceWorker(context);
     const restModeResult = await prepareRestMode(sw);
@@ -930,7 +1043,68 @@ async function main() {
     let blurProbe = null;
     let reloadSeconds = 0;
 
-    if (args.scenario === 'multi-window-real') {
+    if (args.scenario === 'crash-recovery-local') {
+      page = await context.newPage();
+      console.log(`  page A: ${pageA}`);
+      await page.goto(pageA, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await markCalibrationStartOnCurrentPage(page, sw);
+      await keepForegroundActive(page, args.a, 'A before crash');
+
+      const preCrashReport = await callDebug(sw, 'debugExportTimingCalibration');
+      console.log(`  pre-crash session: ${JSON.stringify(preCrashReport.session)}`);
+      console.log(`  crash Chrome profile processes`);
+      const pageTitle = await page.title().catch(() => '');
+      let killed = await killChromeWindowByTitle(pageTitle);
+      if (!killed.length) killed = await killChromeProfileProcesses(PROFILE_ROOT);
+      console.log(`  killed pids: ${killed.join(',') || '(none)'}`);
+      context = null;
+      await sleep(Math.max(1, args.blur) * 1000);
+
+      console.log(`  relaunch same profile`);
+      context = await launchCalibrationContext();
+      const recoverySw = await waitForServiceWorker(context);
+      await sleep(1500);
+      const report = await callDebug(recoverySw, 'debugExportTimingCalibration');
+      const secondReport = await callDebug(recoverySw, 'debugExportTimingCalibration');
+      const badge = await getBadgeSnapshot(recoverySw);
+      const domains = {
+        pageA: new URL(pageA).hostname,
+        pageB: new URL(pageB).hostname,
+        pageC: new URL(pageC).hostname,
+      };
+      const analysis = classifyCrashRecovery(report, { a: args.a, blur: args.blur }, domains.pageA, preCrashReport.session, secondReport, killed);
+
+      console.log('\n[Crash recovery result]');
+      console.log(`  result: ${analysis.result}`);
+      console.log(`  firstBrokenLayer: ${analysis.firstBrokenLayer}`);
+      console.log(`  mode/currentMode: ${report.mode}/${report.currentMode}`);
+      console.log(`  preCrashSession: ${JSON.stringify(analysis.preCrashSession)}`);
+      console.log(`  killedPids: ${JSON.stringify(analysis.killedPids)}`);
+      console.log(`  postRecoverySession: ${JSON.stringify(analysis.postRecoverySession)}`);
+      console.log(`  traceCount: ${report.traceCount}`);
+      console.log(`  eventLogCount: ${analysis.eventLogCount}`);
+      console.log(`  secondEventLogCount: ${analysis.secondEventLogCount}`);
+      console.log(`  starts: ${analysis.starts.length}`);
+      console.log(`  ends: ${analysis.ends.length}`);
+      console.log(`  activeByDomain: ${JSON.stringify(analysis.activeByDomain)}`);
+      console.log(`  stats: ${JSON.stringify(report.stats)}`);
+      console.log(`  pageA(${domains.pageA}) event-log-derived: ${analysis.duration}s`);
+      console.log(`  pageA(${domains.pageA}) stats: ${analysis.statsDuration}s`);
+      console.log(`  heartbeatAnchoredSeconds: ${analysis.heartbeatAnchoredSeconds}s`);
+      console.log(`  expected: ${analysis.expectedSeconds}s, tolerance: +/-${analysis.tolerance}s`);
+      console.log(`  openStart: ${analysis.openStart}`);
+      console.log(`  duplicateEnd: ${analysis.duplicateEnd}`);
+      console.log(`  closeEnough: ${analysis.closeEnough}`);
+      console.log(`  statsMatchesEventLog: ${analysis.statsMatchesEventLog}`);
+      console.log(`  idempotent: ${analysis.idempotent}`);
+      console.log(`  badge: ${JSON.stringify(badge)}`);
+      if (args.verbose) {
+        console.log(`  eventLog: ${JSON.stringify(report.eventLog)}`);
+        console.log(`  segments: ${JSON.stringify(analysis.segments)}`);
+      }
+      if (analysis.result === 'FAIL') process.exitCode = 1;
+      return;
+    } else if (args.scenario === 'multi-window-real') {
       const result = await runMultiWindowScenario(context, sw, args, pageA, pageB, pageC);
       page = result.page;
       blurProbe = result.blurProbe;

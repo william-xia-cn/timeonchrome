@@ -415,6 +415,14 @@ async function debugResetTimingCalibrationData() {
       lastHeartbeat: Date.now(),
     },
   });
+  await chrome.storage.local.set({
+    session_v1_persistent: {
+      state: null,
+      domain: null,
+      startTime: null,
+      lastHeartbeat: Date.now(),
+    },
+  });
 
   const allLocal = await chrome.storage.local.get(null);
   const statsKeys = Object.keys(allLocal).filter(key =>
