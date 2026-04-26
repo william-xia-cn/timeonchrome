@@ -133,6 +133,26 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 ```
 
 **严格单向依赖，禁止循环引用。**
+
+### 1.3.1 Timing trace stats verification 最小验证
+
+- 现有 timing trace diagnostics 继续保持诊断用途，不改变计时产品语义。
+- E2E 通过 debug/test-only 入口调用 `handleMessage({ type: 'GET_STATS' })` 触发真实统计读取链路：
+  `message-router -> getTodayStats -> event-log aggregate -> stats_calculated trace`。
+- 验证明确分为三类，避免把人工或受控数据夸大为完整真实计时准确性：
+  1. **real pipeline non-active check**：使用真实页面动作产生的 trace 与 `event_log_v1`，验证 `signal -> state -> session -> event-log -> stats` 链路存在，且 Playwright/OS focus 下产生的真实 IDLE/PASSIVE 闭合片段不会污染 ACTIVE stats。该检查验证 pipeline 到 stats 的非活跃状态口径，不验证真实浏览器 ACTIVE 计时准确性。
+  2. **controlled ACTIVE pipeline check**：通过 debug/test-only 受控输入构造多段、多 domain ACTIVE snapshot，并用测试专用 `_debugNow` 将现有 `Date.now()` 锚定到 stats 当天窗口；但仍走现有 `buildContext -> resolveState -> transitionState -> event-log -> stats` 路径，不直接写 `event_log_v1`。该检查验证受控 ACTIVE 输入下 resolver/session/event-log/stats 可以形成可对账闭环，覆盖多段累加、domain 分桶、非 ACTIVE 不计入，不验证 OS focus 或 `chrome.idle` 自动化准确性。
+  3. **synthetic aggregation baseline**：追加测试专用闭合 ACTIVE event-log 片段，只证明 `event-log -> stats` 聚合可把 injected ACTIVE 片段计算为预期秒数，不代表真实浏览器计时准确。
+- timing trace / stats E2E 的 fresh profile 会在测试初始化阶段写入现有正式字段 `guardian_config.mode = 'rest'` 与 `guardian_session.currentMode = 'rest'`，避免学习模式拦截影响页面打开和 event-log 生成；这不改变正式产品默认模式。
+- 不处理 OS focus 自动化、`chrome.idle` 自动化，也不引入新的访问策略。
+
+### 1.3.2 Service Worker recovery accuracy 验证
+
+- MV3 Service Worker recovery 通过 `runtime/recovery.js` 在启动时读取 `session_v1`，若存在未闭合 `state/domain/startTime`，则按 `lastHeartbeat` 与当前时间的间隔决定补写 END 的时间：
+  - `delta <= 90s`：视为短中断，END time 使用当前 `Date.now()`。
+  - `delta > 90s`：视为长中断 / SW 死亡，END time 截断到 `lastHeartbeat`，避免把离线时间计入使用时长。
+- recovery 补 END 后会清空 session 的 `state/domain/startTime` 并更新 `lastHeartbeat`，重复 recovery 不应重复追加 END。
+- recovery accuracy unit tests 使用受控时间验证短中断、长中断、重复 recovery、空 session，并对比 `event_log_v1` 推导时长与 `GET_STATS` 聚合结果；该验证不依赖 OS focus 或 `chrome.idle` 自动化。
 ┌─────────────────────────────────────────────────────────────┐
 │  Chrome Extension (MV3)                                     │
 │                                                             │
