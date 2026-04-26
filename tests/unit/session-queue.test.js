@@ -160,6 +160,53 @@ async function runTests() {
     check('A→B→A 后不应出现孤立 END', hasOrphanEnd(events) === false);
   }
 
+  section('SQ-4 stale heartbeat closes at last heartbeat and reopens at now');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    await eventApi.clearEvents();
+
+    const originalNow = Date.now;
+    const base = 1777200000000;
+    try {
+      Date.now = () => base;
+      await sessionApi.saveSession({
+        state: 'ACTIVE',
+        domain: 'stall.test',
+        startTime: base,
+        lastHeartbeat: base + 30000,
+      });
+      await eventApi.appendEvent({
+        type: eventApi.EVENT_TYPE.START,
+        state: 'ACTIVE',
+        domain: 'stall.test',
+        time: base,
+      });
+
+      Date.now = () => base + 130000;
+      await sessionApi.heartbeat();
+
+      const events = await eventApi.getEvents();
+      const session = await sessionApi.getSession();
+      check('stale heartbeat 应在 lastHeartbeat 补 END', events.some(e =>
+        e.type === eventApi.EVENT_TYPE.END &&
+        e.state === 'ACTIVE' &&
+        e.domain === 'stall.test' &&
+        e.time === base + 30000
+      ));
+      check('stale heartbeat 应从 now 重新 START', events.some(e =>
+        e.type === eventApi.EVENT_TYPE.START &&
+        e.state === 'ACTIVE' &&
+        e.domain === 'stall.test' &&
+        e.time === base + 130000
+      ));
+      check('stale gap 不应保留在新 session.startTime 中', session.startTime === base + 130000);
+      check('stale gap 后 session 仍保持原 state/domain', session.state === 'ACTIVE' && session.domain === 'stall.test');
+    } finally {
+      Date.now = originalNow;
+    }
+  }
+
   const total = passed + failed;
   console.log(`\n[Session Queue] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

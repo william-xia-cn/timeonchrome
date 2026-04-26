@@ -5,6 +5,7 @@ import { emitTrace } from '../core/timing-trace.js';
 
 const SESSION_KEY = 'session_v1';
 const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
+const SLEEP_THRESHOLD = 90 * 1000;
 let commitQueue = Promise.resolve();
 
 function runSerialized(task) {
@@ -142,8 +143,58 @@ export async function heartbeat() {
     const session = await getSession();
     if (!session) return;
 
-    session.lastHeartbeat = Date.now();
-    await saveSession(session);
+    const now = Date.now();
+    const staleGap = session.lastHeartbeat && now - session.lastHeartbeat > SLEEP_THRESHOLD;
+
+    if (session.state && session.startTime && staleGap) {
+      const sessionBefore = {
+        state: session.state,
+        domain: session.domain,
+        startTime: session.startTime,
+        lastHeartbeat: session.lastHeartbeat,
+      };
+      const endEvent = {
+        type: EVENT_TYPE.END,
+        state: session.state,
+        domain: session.domain,
+        time: session.lastHeartbeat,
+      };
+      await appendEvent(endEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'heartbeatStaleClose',
+        domain: session.domain,
+        previousState: session.state,
+        event: endEvent,
+        sessionBefore,
+      });
+
+      const startEvent = {
+        type: EVENT_TYPE.START,
+        state: session.state,
+        domain: session.domain,
+        time: now,
+      };
+      await appendEvent(startEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'heartbeatStaleReopen',
+        domain: session.domain,
+        nextState: session.state,
+        event: startEvent,
+        sessionBefore,
+      });
+
+      await saveSession({
+        state: session.state,
+        domain: session.domain,
+        startTime: now,
+        lastHeartbeat: now,
+      });
+      return;
+    }
+
+    await saveSession({ ...session, lastHeartbeat: now });
   });
 }
 
