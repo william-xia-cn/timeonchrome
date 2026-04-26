@@ -168,6 +168,7 @@ async function runTests() {
 
     const split = computeAllDomainsWithAudio(events, date);
     expect('audioSeconds=5s', split.audioSeconds, 5);
+    expect('backgroundMediaByDomain.music.com=5s', split.backgroundMediaByDomain['music.com'], 5);
     expectTrue('split.domains 不含 music.com', !('music.com' in split.domains));
     expect('split.domains.study.com=4s', split.domains['study.com'], 4);
   }
@@ -196,6 +197,8 @@ async function runTests() {
     expect('ordinary domains stay empty on end day', computeAllDomains(events, '2026-04-22'), {});
     expect('audioSeconds start day gets 5s', computeAllDomainsWithAudio(events, '2026-04-21').audioSeconds, 5);
     expect('audioSeconds end day gets 5s', computeAllDomainsWithAudio(events, '2026-04-22').audioSeconds, 5);
+    expect('backgroundMediaByDomain start day gets 5s', computeAllDomainsWithAudio(events, '2026-04-21').backgroundMediaByDomain['music.example'], 5);
+    expect('backgroundMediaByDomain end day gets 5s', computeAllDomainsWithAudio(events, '2026-04-22').backgroundMediaByDomain['music.example'], 5);
   }
 
   const total = passed + failed;

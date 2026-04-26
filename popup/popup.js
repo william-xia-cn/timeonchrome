@@ -100,7 +100,7 @@ async function init() {
   let studySeconds = 0, undeterminedSeconds = 0, restSeconds = 0, onlineSeconds = 0;
 
   for (const [domain, seconds] of Object.entries(stats)) {
-    if (domain === 'audioSeconds') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
     onlineSeconds += seconds;
     const isStudy     = studyList.some(p => matchDomain(domain, p));
     const isComposite = compositeList.some(p => matchDomain(domain, p));
@@ -173,7 +173,7 @@ async function init() {
 
   // Top 5
   const entries = Object.entries(stats)
-    .filter(([domain]) => domain !== 'audioSeconds')
+    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
   const top5El = document.getElementById('today-top5');

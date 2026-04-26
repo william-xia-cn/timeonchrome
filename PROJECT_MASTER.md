@@ -18,7 +18,8 @@
   - composite routing（明确延后）
   - 更精细分类能力（超出 V0 最小收口范围）
   - 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐
-  - PiP timing support：当前状态机预留 `isPiP -> BACKGROUND_ACTIVE`，但真实 Picture-in-Picture 信号采集与验收延后
+  - PiP timing support：当前状态机预留 `isPiP -> BACKGROUND_ACTIVE`，但真实 Picture-in-Picture 信号采集、学习模式关闭策略与验收延后；PiP 不混入普通在线时长
+  - 媒体时长 domain 维度：后台 audio/video 已补 `backgroundMediaByDomain` 明细，`audioSeconds` 仅保留为总量摘要；PiP domain 明细随 PiP 支持后续补齐
 
 ## 发布闸门判定（V0）
 1. 关键能力已闭环并通过全量 unit 验证

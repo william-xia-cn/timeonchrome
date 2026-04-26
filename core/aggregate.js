@@ -39,9 +39,11 @@ export function computeAllDomains(events, date) {
  * 口径：
  * - domains：仅 ACTIVE 时长
  * - audioSeconds：仅 BACKGROUND_ACTIVE 时长
+ * - backgroundMediaByDomain：按 domain 归因的 BACKGROUND_ACTIVE 时长
  */
 export function computeAllDomainsWithAudio(events, date) {
   const domains = {};
+  const backgroundMediaByDomain = {};
   const { start, end } = getLocalDayRange(date);
   const validEvents = buildValidEvents(events);
   const sorted = sortByTimeStable(validEvents);
@@ -56,10 +58,13 @@ export function computeAllDomainsWithAudio(events, date) {
   for (const [domain, domainEvents] of byDomain.entries()) {
     const { activeSeconds, backgroundAudioSeconds } = computeDomainBreakdown(domainEvents, start, end);
     if (activeSeconds > 0) domains[domain] = activeSeconds;
-    audioSeconds += backgroundAudioSeconds;
+    if (backgroundAudioSeconds > 0) {
+      backgroundMediaByDomain[domain] = backgroundAudioSeconds;
+      audioSeconds += backgroundAudioSeconds;
+    }
   }
 
-  return { domains, audioSeconds };
+  return { domains, audioSeconds, backgroundMediaByDomain };
 }
 
 function buildValidEvents(events, domainFilter = null) {

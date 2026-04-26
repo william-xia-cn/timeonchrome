@@ -748,7 +748,7 @@ function sumStatsRange(statsRange) {
   const summed = {};
   for (const dayStats of Object.values(statsRange || {})) {
     for (const [domain, seconds] of Object.entries(dayStats || {})) {
-      if (domain === 'audioSeconds') continue;
+      if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
       summed[domain] = (summed[domain] || 0) + seconds;
     }
   }
@@ -778,10 +778,12 @@ function classify(report, expected, domains) {
   const eventLogStatsByDate = deriveActiveByDate(segments);
   const stats = expected.useStatsRange ? sumStatsRange(report.statsRange || {}) : (report.stats || {});
   const domainStats = Object.fromEntries(
-    Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds')
+    Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')
   );
   const backgroundAudioSeconds = Number(report.stats?.audioSeconds || 0);
+  const backgroundMediaByDomain = report.stats?.backgroundMediaByDomain || {};
   const backgroundEventLogSeconds = Object.values(backgroundActiveByDomain).reduce((sum, seconds) => sum + seconds, 0);
+  const backgroundMediaDomainSeconds = Object.values(backgroundMediaByDomain).reduce((sum, seconds) => sum + Number(seconds || 0), 0);
   const expectedBackgroundSeconds = expected.expectBackgroundMedia ? expected.blur : 0;
   const expectedASeconds = expected.accumulateA
     ? expected.a + expected.c + (expected.reloadSeconds || 0)
@@ -818,7 +820,11 @@ function classify(report, expected, domains) {
     statsPageASeconds === pageASeconds &&
     statsPageBSeconds === pageBSeconds &&
     JSON.stringify(domainStats) === JSON.stringify(activeByDomain) &&
-    (!expected.expectBackgroundMedia || backgroundAudioSeconds === backgroundEventLogSeconds);
+    (!expected.expectBackgroundMedia || (
+      backgroundAudioSeconds === backgroundEventLogSeconds &&
+      backgroundAudioSeconds === backgroundMediaDomainSeconds &&
+      JSON.stringify(backgroundMediaByDomain) === JSON.stringify(backgroundActiveByDomain)
+    ));
   const backgroundCloseEnough = expected.expectBackgroundMedia
     ? Math.abs(backgroundAudioSeconds - expectedBackgroundSeconds) <= Math.max(4, Math.ceil(expectedBackgroundSeconds * 0.35))
     : true;
@@ -859,7 +865,9 @@ function classify(report, expected, domains) {
     eventLogStatsByDate,
     stats,
     backgroundAudioSeconds,
+    backgroundMediaByDomain,
     backgroundEventLogSeconds,
+    backgroundMediaDomainSeconds,
     expectedBackgroundSeconds,
     backgroundCloseEnough,
     todayStats: report.stats || {},
@@ -1034,6 +1042,8 @@ async function main() {
     console.log(`  expectedBackgroundMedia: ${analysis.expectedBackgroundSeconds}s`);
     console.log(`  backgroundEventLogSeconds: ${analysis.backgroundEventLogSeconds}s`);
     console.log(`  audioSeconds: ${analysis.backgroundAudioSeconds}s`);
+    console.log(`  backgroundMediaByDomain: ${JSON.stringify(analysis.backgroundMediaByDomain)}`);
+    console.log(`  backgroundMediaDomainSeconds: ${analysis.backgroundMediaDomainSeconds}s`);
     console.log(`  backgroundCloseEnough: ${analysis.backgroundCloseEnough}`);
     console.log(`  pageACloseEnough: ${analysis.pageACloseEnough}`);
     console.log(`  pageBCloseEnough: ${analysis.pageBCloseEnough}`);

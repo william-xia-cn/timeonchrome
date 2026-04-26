@@ -10,7 +10,7 @@ export async function getTodayStatsWithCategories(config) {
 
   let studySeconds = 0, undeterminedSeconds = 0, restSeconds = 0, totalSeconds = 0;
   for (const [domain, seconds] of Object.entries(stats)) {
-    if (domain === 'audioSeconds') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
     totalSeconds += seconds;
     const isStudy = (config?.studyList || []).some(p => matchDomain(domain, p));
     if (isStudy) studySeconds += seconds;
@@ -23,8 +23,9 @@ export async function getTodayStatsWithCategories(config) {
     restSeconds: Math.max(0, restSeconds),
     undeterminedSeconds,
     totalSeconds,
-    domains: Object.fromEntries(Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds')),
+    domains: Object.fromEntries(Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')),
     audioSeconds: Number(stats.audioSeconds) || 0,
+    backgroundMediaByDomain: stats.backgroundMediaByDomain || {},
   };
 }
 

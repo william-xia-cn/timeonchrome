@@ -95,7 +95,9 @@
 - `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `mediaSourceTabId`），不覆盖前台归因（`tabId` / `domain`）。
 - `BACKGROUND_ACTIVE` 判定要求可验证媒体来源：`isAudible === true && mediaSourceTabId != null`。
 - 若仅有 `isAudible` 且缺少 `mediaSourceTabId`，采用保守回退，不进入 `BACKGROUND_ACTIVE`。
-- Picture-in-Picture 当前仅在状态机中预留 `isPiP -> BACKGROUND_ACTIVE` 语义；真实 PiP 信号采集与校准验收作为 V1 后续任务，不阻塞 V0 后台 audio/video 媒体计时收口。
+- 后台 audio/video 媒体时长通过 `backgroundMediaByDomain` 保留 domain 维度，`audioSeconds` 总量只作为摘要；PiP 后续也必须采用单独统计且保留 domain 维度。
+- Picture-in-Picture 当前仅在状态机中预留 `isPiP -> BACKGROUND_ACTIVE` 语义；真实 PiP 信号采集、学习模式下关闭非学习网站 PiP、PiP 单独统计与校准验收作为 V1 后续任务，不阻塞 V0 后台 audio/video 媒体计时收口。
+- PiP 产品决策：不认为 PiP 是正常学习需求；切换到学习模式时，已经打开的非学习网站 PiP 必须关闭。PiP 视频时长需要单独记录，不混入普通在线/ACTIVE 时长；记录但不作为学习需求放行。
            │
            ▼
 ┌──────────────────────────────────────────────────────────────┐

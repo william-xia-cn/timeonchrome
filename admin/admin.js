@@ -1102,7 +1102,7 @@ async function renderOverview() {
     const compositeList = config.compositeList || [];
     audioSeconds = Number(todayData.audioSeconds) || 0;
     for (const [domain, seconds] of Object.entries(todayData)) {
-      if (domain === "audioSeconds") continue;
+      if (domain === "audioSeconds" || domain === "backgroundMediaByDomain") continue;
       onlineSeconds += seconds;
       const type = classifyDomain(domain);
       if (type === 'study') studySeconds += seconds;
@@ -1208,7 +1208,7 @@ async function renderOverview() {
     const listEl = document.getElementById('today-stats-list');
     if (listEl) {
       const entries = Object.entries(stats)
-        .filter(([domain]) => domain !== 'audioSeconds')
+        .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10);
       if (entries.length === 0) {
@@ -1360,7 +1360,7 @@ function splitStatsDay(dayStats) {
   const audioSeconds = Number(safe.audioSeconds) || 0;
   const domainStats = {};
   for (const [domain, seconds] of Object.entries(safe)) {
-    if (domain === 'audioSeconds') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
     domainStats[domain] = Number(seconds) || 0;
   }
   return { domainStats, audioSeconds };
@@ -1432,7 +1432,7 @@ async function renderStatsPage(range = 'today') {
     const allDates  = Object.keys(prevData).sort();
     const prevHalf  = allDates.slice(0, Math.floor(allDates.length / 2));
     const prevTotal = prevHalf.reduce((sum, d) =>
-      sum + Object.entries(prevData[d] || {}).reduce((acc, [k, v]) => k === 'audioSeconds' ? acc : acc + (Number(v) || 0), 0), 0);
+      sum + Object.entries(prevData[d] || {}).reduce((acc, [k, v]) => (k === 'audioSeconds' || k === 'backgroundMediaByDomain') ? acc : acc + (Number(v) || 0), 0), 0);
     const trend     = prevTotal > 0 ? Math.round((totalSeconds - prevTotal) / prevTotal * 100) : 0;
     const trendEl   = document.getElementById('stat-total-trend');
     if (trendEl) {
@@ -1553,7 +1553,7 @@ function renderTopDomains(statsData, totalSeconds) {
   if (!container) return;
 
   const entries = Object.entries(statsData)
-    .filter(([domain]) => domain !== 'audioSeconds')
+    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
 

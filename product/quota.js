@@ -20,7 +20,7 @@ export async function getWeekRestSeconds() {
   for (const [, dayStats] of Object.entries(statsRange)) {
     let dayTotal = 0, dayStudy = 0, dayUndeterminedSecs = 0;
     for (const [domain, secs] of Object.entries(dayStats)) {
-      if (domain === 'audioSeconds') continue;
+      if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
       dayTotal += secs;
       if (studyList.some(p => matchDomain(domain, p))) dayStudy += secs;
       if (compositeList.some(p => matchDomain(domain, p))) dayUndeterminedSecs += secs;
@@ -62,7 +62,7 @@ export async function checkAllTabsQuota(redirectToReminderFn, redirectAllTabsFn,
 
   let studySeconds = 0, undeterminedSeconds = 0, totalSeconds = 0;
   for (const [domain, seconds] of Object.entries(stats)) {
-    if (domain === 'audioSeconds') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
     totalSeconds += seconds;
     const isStudy = (config.studyList || []).some(p => matchDomain(domain, p));
     if (isStudy) studySeconds += seconds;
@@ -134,7 +134,7 @@ export async function checkAllTabsQuota(redirectToReminderFn, redirectAllTabsFn,
   // Single domain quota check
   const newlyLocked = [];
   for (const [domain, seconds] of Object.entries(stats)) {
-    if (domain === 'audioSeconds') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
     const minutes = Math.floor(seconds / 60);
     const quota = config.domainQuotas?.[domain];
     if (quota && quota > 0 && minutes >= quota) {

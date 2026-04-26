@@ -127,6 +127,7 @@ async function runTests() {
     expectTrue('range should contain today key', typeof range[today] === 'object');
     expectTrue('x.com should be absent (unclosed START ignored)', !('x.com' in range[today]));
     expect('audioSeconds should always exist with zero default', range[today].audioSeconds, 0);
+    expect('backgroundMediaByDomain should always exist with empty default', range[today].backgroundMediaByDomain, {});
   }
 
 
@@ -145,6 +146,7 @@ async function runTests() {
 
     const range = await storageApi.getStatsRange(1);
     expect('audioSeconds should be 6', range[today].audioSeconds, 6);
+    expect('backgroundMediaByDomain.music.com should be 6', range[today].backgroundMediaByDomain['music.com'], 6);
     expect('study.com should be 5 seconds', range[today]['study.com'], 5);
     expectTrue('music.com should be absent from domain totals', !('music.com' in range[today]));
   }
@@ -163,6 +165,7 @@ async function runTests() {
 
     const stats = await storageApi.getTodayStats();
     expect('audioSeconds should be 8', stats.audioSeconds, 8);
+    expect('backgroundMediaByDomain.video.com should be 8', stats.backgroundMediaByDomain['video.com'], 8);
     expect('read.com should be 4 seconds', stats['read.com'], 4);
     expectTrue('video.com should be absent from domain totals', !('video.com' in stats));
   }
