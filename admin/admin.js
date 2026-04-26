@@ -1207,7 +1207,10 @@ async function renderOverview() {
     const stats  = await sendMsg({ type: 'GET_STATS' });
     const listEl = document.getElementById('today-stats-list');
     if (listEl) {
-      const entries = Object.entries(stats).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      const entries = Object.entries(stats)
+        .filter(([domain]) => domain !== 'audioSeconds')
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
       if (entries.length === 0) {
         listEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">今日暂无数据</div>';
       } else {

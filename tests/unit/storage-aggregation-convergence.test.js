@@ -149,6 +149,24 @@ async function runTests() {
     expectTrue('music.com should be absent from domain totals', !('music.com' in range[today]));
   }
 
+  section('S4: getTodayStats should expose BACKGROUND_ACTIVE as audioSeconds');
+  {
+    mockLocalStorage.reset();
+    await mockLocalStorage.set({
+      [EVENT_LOG_KEY]: [
+        { type: 'START', state: 'BACKGROUND_ACTIVE', domain: 'video.com', time: tsForDate(today, 13, 0, 0) },
+        { type: 'END', state: 'BACKGROUND_ACTIVE', domain: 'video.com', time: tsForDate(today, 13, 0, 8) },
+        { type: 'START', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 13, 1, 0) },
+        { type: 'END', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 13, 1, 4) },
+      ]
+    });
+
+    const stats = await storageApi.getTodayStats();
+    expect('audioSeconds should be 8', stats.audioSeconds, 8);
+    expect('read.com should be 4 seconds', stats['read.com'], 4);
+    expectTrue('video.com should be absent from domain totals', !('video.com' in stats));
+  }
+
   const total = passed + failed;
   console.log(`\n[Storage Aggregation Convergence] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

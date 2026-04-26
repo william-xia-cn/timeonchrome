@@ -55,6 +55,77 @@ function sleep(ms) {
 function startMockServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
+      if (req.url === '/media-video.html') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<!doctype html>
+<html><head><title>TimeOnChrome media video</title></head>
+<body>
+  <canvas id="canvas" width="320" height="180"></canvas>
+  <video id="video" muted autoplay playsinline loop width="320" height="180"></video>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let frame = 0;
+    setInterval(() => {
+      frame += 1;
+      ctx.fillStyle = frame % 2 ? '#336699' : '#884422';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#fff';
+      ctx.font = '24px sans-serif';
+      ctx.fillText('media video ' + frame, 30, 90);
+    }, 250);
+    const video = document.getElementById('video');
+    video.srcObject = canvas.captureStream(4);
+    video.play().catch(() => {});
+  </script>
+</body></html>`);
+        return;
+      }
+      if (req.url === '/media-audio.html') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<!doctype html>
+<html><head><title>TimeOnChrome media audio</title></head>
+<body>
+  <audio id="audio" controls loop></audio>
+  <button id="start">start</button>
+  <script>
+    function makeWavDataUri() {
+      const sampleRate = 8000;
+      const seconds = 1;
+      const samples = sampleRate * seconds;
+      const buffer = new ArrayBuffer(44 + samples * 2);
+      const view = new DataView(buffer);
+      const write = (offset, value) => {
+        for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+      };
+      write(0, 'RIFF');
+      view.setUint32(4, 36 + samples * 2, true);
+      write(8, 'WAVE');
+      write(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      write(36, 'data');
+      view.setUint32(40, samples * 2, true);
+      for (let i = 0; i < samples; i += 1) {
+        const sample = Math.sin((i / sampleRate) * Math.PI * 2 * 440) * 0.2;
+        view.setInt16(44 + i * 2, sample * 32767, true);
+      }
+      let binary = '';
+      new Uint8Array(buffer).forEach((byte) => { binary += String.fromCharCode(byte); });
+      return 'data:audio/wav;base64,' + btoa(binary);
+    }
+    const audio = document.getElementById('audio');
+    audio.src = makeWavDataUri();
+    document.getElementById('start').addEventListener('click', () => audio.play().catch(() => {}));
+  </script>
+</body></html>`);
+        return;
+      }
       const filePath = path.join(MOCKS_DIR, req.url === '/' ? 'pageA.html' : req.url);
       if (!fs.existsSync(filePath)) {
         res.writeHead(404);
@@ -72,6 +143,8 @@ function startMockServer() {
         pageA: `http://127.0.0.1:${port}/pageA.html`,
         pageB: `http://localhost:${port}/pageB.html`,
         pageC: `http://127.0.0.2:${port}/pageA.html`,
+        mediaVideo: `http://127.0.0.1:${port}/media-video.html`,
+        mediaAudio: `http://127.0.0.1:${port}/media-audio.html`,
       });
     });
     server.on('error', reject);
@@ -103,7 +176,7 @@ function getRealTargets(args) {
     };
   }
 
-  if (args.scenario === 'video-real') {
+  if (args.scenario === 'video-real' || args.scenario === 'background-video-real') {
     return {
       pageA: args.urlA || 'https://www.w3schools.com/html/html5_video.asp',
       pageB: args.urlB || 'https://example.com/',
@@ -111,7 +184,7 @@ function getRealTargets(args) {
     };
   }
 
-  if (args.scenario === 'audio-real') {
+  if (args.scenario === 'audio-real' || args.scenario === 'background-audio-real') {
     return {
       pageA: args.urlA || 'https://www.w3schools.com/html/html5_audio.asp',
       pageB: args.urlB || 'https://example.com/',
@@ -457,8 +530,13 @@ async function prepareForegroundMedia(page, kind) {
       return { success: false, reason: `no ${selector} element` };
     }
     media.muted = true;
+    media.loop = true;
     media.currentTime = Math.min(media.currentTime || 0, 1);
     try {
+      if (!media.paused) {
+        media.pause();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
       await media.play();
       return {
         success: true,
@@ -527,6 +605,36 @@ async function callDebug(sw, fnName) {
 }
 
 async function prepareRestMode(sw) {
+  async function forceRestProfile(error, method) {
+    return await sw.evaluate(async ({ error, method }) => {
+      const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+      const config = stored['guardian_config'] || {};
+      const session = stored['guardian_session'] || {};
+      await chrome.storage.local.set({
+        guardian_config: { ...config, mode: 'rest' },
+        guardian_session: { ...session, currentMode: 'rest' },
+      });
+
+      if (chrome.declarativeNetRequest?.getDynamicRules) {
+        const rules = await chrome.declarativeNetRequest.getDynamicRules();
+        if (rules.length > 0) {
+          await chrome.declarativeNetRequest.updateDynamicRules({
+            removeRuleIds: rules.map(rule => rule.id),
+          });
+        }
+      }
+
+      const verified = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+      return {
+        success: true,
+        method,
+        debugSetRestModeError: error,
+        mode: verified['guardian_config']?.mode || null,
+        currentMode: verified['guardian_session']?.currentMode || null,
+      };
+    }, { error, method });
+  }
+
   const direct = await sw.evaluate(async () => {
     try {
       return await globalThis.debugSetRestMode();
@@ -536,33 +644,23 @@ async function prepareRestMode(sw) {
   });
 
   if (direct?.success) {
-    return { success: true, method: 'debugSetRestMode' };
+    const verified = await sw.evaluate(async () => {
+      const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+      return {
+        mode: stored['guardian_config']?.mode || null,
+        currentMode: stored['guardian_session']?.currentMode || null,
+      };
+    });
+    if (verified.mode === 'rest' && verified.currentMode === 'rest') {
+      return { success: true, method: 'debugSetRestMode', ...verified };
+    }
+    return await forceRestProfile(
+      `debugSetRestMode left profile at ${verified.mode}/${verified.currentMode}`,
+      'verifiedStorageRestModeFallback'
+    );
   }
 
-  const fallback = await sw.evaluate(async (error) => {
-    const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
-    const config = stored['guardian_config'] || {};
-    const session = stored['guardian_session'] || {};
-    await chrome.storage.local.set({
-      guardian_config: { ...config, mode: 'rest' },
-      guardian_session: { ...session, currentMode: 'rest' },
-    });
-
-    if (chrome.declarativeNetRequest?.getDynamicRules) {
-      const rules = await chrome.declarativeNetRequest.getDynamicRules();
-      if (rules.length > 0) {
-        await chrome.declarativeNetRequest.updateDynamicRules({
-          removeRuleIds: rules.map(rule => rule.id),
-        });
-      }
-    }
-
-    return {
-      success: true,
-      method: 'storageRestModeFallback',
-      debugSetRestModeError: error,
-    };
-  }, direct?.error || 'debugSetRestMode failed');
+  const fallback = await forceRestProfile(direct?.error || 'debugSetRestMode failed', 'storageRestModeFallback');
 
   if (!fallback?.success) {
     throw new Error(`rest mode setup failed: ${direct?.error || 'unknown error'}`);
@@ -601,11 +699,15 @@ function pairActiveDurations(eventLog) {
   }
 
   const activeByDomain = {};
+  const backgroundActiveByDomain = {};
   for (const segment of segments) {
-    if (segment.state !== 'ACTIVE') continue;
-    activeByDomain[segment.domain] = (activeByDomain[segment.domain] || 0) + segment.seconds;
+    if (segment.state === 'ACTIVE') {
+      activeByDomain[segment.domain] = (activeByDomain[segment.domain] || 0) + segment.seconds;
+    } else if (segment.state === 'BACKGROUND_ACTIVE') {
+      backgroundActiveByDomain[segment.domain] = (backgroundActiveByDomain[segment.domain] || 0) + segment.seconds;
+    }
   }
-  return { segments, activeByDomain };
+  return { segments, activeByDomain, backgroundActiveByDomain };
 }
 
 function localDateKey(time) {
@@ -672,13 +774,21 @@ function classify(report, expected, domains) {
   const unfocusedResolved = stateResolved.filter(t => t.payload?.context?.isFocused === false);
   const eventAppended = (report.trace || []).filter(t => t.action === 'event_appended');
   const activeEvents = (report.eventLog || []).filter(e => e.state === 'ACTIVE');
-  const { segments, activeByDomain } = pairActiveDurations(report.eventLog || []);
+  const { segments, activeByDomain, backgroundActiveByDomain } = pairActiveDurations(report.eventLog || []);
   const eventLogStatsByDate = deriveActiveByDate(segments);
   const stats = expected.useStatsRange ? sumStatsRange(report.statsRange || {}) : (report.stats || {});
+  const domainStats = Object.fromEntries(
+    Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds')
+  );
+  const backgroundAudioSeconds = Number(report.stats?.audioSeconds || 0);
+  const backgroundEventLogSeconds = Object.values(backgroundActiveByDomain).reduce((sum, seconds) => sum + seconds, 0);
+  const expectedBackgroundSeconds = expected.expectBackgroundMedia ? expected.blur : 0;
   const expectedASeconds = expected.accumulateA
     ? expected.a + expected.c + (expected.reloadSeconds || 0)
     : expected.a;
-  const toleranceA = Math.max(4, Math.ceil(expectedASeconds * 0.12));
+  const toleranceA = expected.expectBackgroundMedia
+    ? Math.max(6, Math.ceil(expectedASeconds * 0.75))
+    : Math.max(4, Math.ceil(expectedASeconds * 0.12));
   const toleranceB = Math.max(5, Math.ceil(expected.b * 0.40));
   const pageASeconds = activeByDomain[domains.pageA] || 0;
   const pageBSeconds = activeByDomain[domains.pageB] || 0;
@@ -697,20 +807,35 @@ function classify(report, expected, domains) {
   else if (activeResolved.length === 0) firstBrokenLayer = 'resolver';
   else if (eventAppended.length === 0) firstBrokenLayer = 'session';
   else if (Object.keys(activeByDomain).length === 0) firstBrokenLayer = 'event-log';
-  else if (JSON.stringify(stats) !== JSON.stringify(activeByDomain)) firstBrokenLayer = 'stats';
+  else if (JSON.stringify(domainStats) !== JSON.stringify(activeByDomain)) firstBrokenLayer = 'stats';
 
   const pageACloseEnough = Math.abs(pageASeconds - expectedASeconds) <= toleranceA;
   const pageBCloseEnough = Math.abs(pageBSeconds - expected.b) <= toleranceB;
-  const blurExcluded = pageBSeconds <= expected.b + toleranceB;
+  const blurExcluded = expected.expectBackgroundMedia
+    ? pageASeconds <= expectedASeconds + toleranceA
+    : pageBSeconds <= expected.b + toleranceB;
   const statsMatchesEventLog =
     statsPageASeconds === pageASeconds &&
     statsPageBSeconds === pageBSeconds &&
-    JSON.stringify(stats) === JSON.stringify(activeByDomain);
+    JSON.stringify(domainStats) === JSON.stringify(activeByDomain) &&
+    (!expected.expectBackgroundMedia || backgroundAudioSeconds === backgroundEventLogSeconds);
+  const backgroundCloseEnough = expected.expectBackgroundMedia
+    ? Math.abs(backgroundAudioSeconds - expectedBackgroundSeconds) <= Math.max(4, Math.ceil(expectedBackgroundSeconds * 0.35))
+    : true;
   let result = 'FAIL';
   if (!firstBrokenLayer && !blurExcluded) {
     firstBrokenLayer = unfocusedResolved.length === 0 ? 'focus' : 'session';
   }
-  if (!firstBrokenLayer && pageASeconds > 0 && pageBSeconds > 0 && pageACloseEnough && pageBCloseEnough && blurExcluded && statsMatchesEventLog) {
+  if (
+    !firstBrokenLayer &&
+    pageASeconds > 0 &&
+    (expected.expectBackgroundMedia || pageBSeconds > 0) &&
+    pageACloseEnough &&
+    (expected.expectBackgroundMedia || pageBCloseEnough) &&
+    blurExcluded &&
+    statsMatchesEventLog &&
+    backgroundCloseEnough
+  ) {
     result = 'PASS';
   } else if (activeResolved.length > 0 || pageASeconds > 0) {
     result = 'PARTIAL';
@@ -730,8 +855,13 @@ function classify(report, expected, domains) {
     activeEvents,
     segments,
     activeByDomain,
+    backgroundActiveByDomain,
     eventLogStatsByDate,
     stats,
+    backgroundAudioSeconds,
+    backgroundEventLogSeconds,
+    expectedBackgroundSeconds,
+    backgroundCloseEnough,
     todayStats: report.stats || {},
     statsRange: report.statsRange || null,
     pageASeconds,
@@ -762,7 +892,10 @@ async function main() {
   console.log(`  durations: A=${args.a}s, B=${args.b}s, C=${args.c}s, blur=${args.blur}s`);
 
   const localTargets = realTargets ? null : await startMockServer();
-  const pageA = realTargets?.pageA || localTargets.pageA;
+  const pageA = realTargets?.pageA ||
+    (args.scenario === 'background-video-local' ? localTargets.mediaVideo :
+      args.scenario === 'background-audio-local' ? localTargets.mediaAudio :
+        localTargets.pageA);
   const pageB = realTargets?.pageB || localTargets.pageB;
   const pageC = realTargets?.pageC || localTargets.pageC;
   let context;
@@ -798,11 +931,11 @@ async function main() {
 
       console.log(`  page A: ${pageA}`);
       await page.goto(pageA, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      if (args.scenario === 'video-real') {
+      if (args.scenario === 'video-real' || args.scenario === 'background-video-real' || args.scenario === 'background-video-local') {
         await prepareForegroundMedia(page, 'video');
         await markCalibrationStartOnCurrentPage(page, sw);
         await prepareForegroundMedia(page, 'video');
-      } else if (args.scenario === 'audio-real') {
+      } else if (args.scenario === 'audio-real' || args.scenario === 'background-audio-real' || args.scenario === 'background-audio-local') {
         await prepareForegroundMedia(page, 'audio');
         await markCalibrationStartOnCurrentPage(page, sw);
         await prepareForegroundMedia(page, 'audio');
@@ -820,7 +953,10 @@ async function main() {
         await keepForegroundActive(page, args.c, 'A after reload');
       }
 
-      if (args.scenario === 'minimize-real') {
+      if (args.scenario === 'background-video-real' || args.scenario === 'background-audio-real' || args.scenario === 'background-video-local' || args.scenario === 'background-audio-local') {
+        console.log(`  background media blur: ${args.blur}s via Alt+Tab`);
+        blurProbe = await tryBlurAwayFromChrome(args.blur, sw);
+      } else if (args.scenario === 'minimize-real') {
         console.log(`  minimize Chrome: ${args.blur}s`);
         blurProbe = await minimizeChromeFor(page, args.blur, sw);
         console.log(`  page B: ${pageB}`);
@@ -863,6 +999,7 @@ async function main() {
       accumulateA: args.scenario === 'same-domain-real' || args.scenario === 'reload-real',
       reloadSeconds,
       useStatsRange: args.scenario === 'cross-day-real',
+      expectBackgroundMedia: args.scenario === 'background-video-real' || args.scenario === 'background-audio-real' || args.scenario === 'background-video-local' || args.scenario === 'background-audio-local',
     }, domains);
 
     console.log('\n[Calibration result]');
@@ -878,6 +1015,7 @@ async function main() {
     console.log(`  unfocusedResolvedCount: ${analysis.unfocusedResolvedCount}`);
     console.log(`  eventAppendedCount: ${analysis.eventAppendedCount}`);
     console.log(`  activeByDomain: ${JSON.stringify(analysis.activeByDomain)}`);
+    console.log(`  backgroundActiveByDomain: ${JSON.stringify(analysis.backgroundActiveByDomain)}`);
     console.log(`  stats: ${JSON.stringify(analysis.stats)}`);
     if (args.scenario === 'cross-day-real') {
       console.log(`  eventLogStatsByDate: ${JSON.stringify(analysis.eventLogStatsByDate)}`);
@@ -893,6 +1031,10 @@ async function main() {
     console.log(`  expectedB: ${args.b}s, tolerance: +/-${analysis.toleranceB}s`);
     console.log(`  expectedTotalWithoutBlur: ${analysis.expectedTotalWithoutBlur}s`);
     console.log(`  totalActiveSeconds: ${analysis.totalActiveSeconds}s`);
+    console.log(`  expectedBackgroundMedia: ${analysis.expectedBackgroundSeconds}s`);
+    console.log(`  backgroundEventLogSeconds: ${analysis.backgroundEventLogSeconds}s`);
+    console.log(`  audioSeconds: ${analysis.backgroundAudioSeconds}s`);
+    console.log(`  backgroundCloseEnough: ${analysis.backgroundCloseEnough}`);
     console.log(`  pageACloseEnough: ${analysis.pageACloseEnough}`);
     console.log(`  pageBCloseEnough: ${analysis.pageBCloseEnough}`);
     console.log(`  blurExcludedFromB: ${analysis.blurExcluded}`);

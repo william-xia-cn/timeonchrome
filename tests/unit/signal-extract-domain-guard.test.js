@@ -98,12 +98,13 @@ async function run() {
   signal.initSignal((e) => emitted.push(e));
 
   section('SG1: minimal integration guard for onUpdated event domain extraction');
-  hooks.onUpdated(101, {}, { active: true, windowId: 10, url: 'https://WWW.Example.COM./path' });
+  hooks.onUpdated(101, { url: 'https://WWW.Example.COM./path' }, { active: true, windowId: 10, url: 'https://WWW.Example.COM./path' });
   await new Promise((r) => setTimeout(r, 100));
 
   expectTrue('应发出至少一个合并事件', emitted.length > 0);
   expectTrue('onUpdated 提取结果应保留 www 且标准化', emitted.some(e => e.domain === 'www.example.com' && e.tabId === 101));
   expectTrue('onUpdated should include window focus snapshot', emitted.some(e => e.domain === 'www.example.com' && e.isFocused === true && e.windowId === 10));
+  expectTrue('onUpdated should clear stale media state for the navigating tab', emitted.some(e => e.tabId === 101 && e.isAudible === false && e.mediaSourceTabId === 101));
 
   section('SG1b: tabActivated signal includes current window focus snapshot');
   emitted.length = 0;

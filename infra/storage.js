@@ -185,7 +185,8 @@ const EVENT_LOG_KEY = 'event_log_v1';
  * 从 event-log 聚合指定日期的域名时长
  */
 function aggregateFromEvents(events, date) {
-  return computeAllDomains(events, date);
+  const { domains, audioSeconds } = aggregateFromEventsWithAudio(events, date);
+  return { ...domains, audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0 };
 }
 
 function aggregateFromEventsWithAudio(events, date) {
@@ -220,6 +221,7 @@ export async function getTodayUndeterminedStats() {
 
   const result = {};
   for (const [domain, seconds] of Object.entries(stats)) {
+    if (domain === 'audioSeconds') continue;
     if (compositeList.some(p => matchDomain(domain, p))) {
       result[domain] = seconds;
     }

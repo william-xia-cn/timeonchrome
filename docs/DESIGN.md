@@ -95,6 +95,7 @@
 - `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `mediaSourceTabId`），不覆盖前台归因（`tabId` / `domain`）。
 - `BACKGROUND_ACTIVE` 判定要求可验证媒体来源：`isAudible === true && mediaSourceTabId != null`。
 - 若仅有 `isAudible` 且缺少 `mediaSourceTabId`，采用保守回退，不进入 `BACKGROUND_ACTIVE`。
+- Picture-in-Picture 当前仅在状态机中预留 `isPiP -> BACKGROUND_ACTIVE` 语义；真实 PiP 信号采集与校准验收作为 V1 后续任务，不阻塞 V0 后台 audio/video 媒体计时收口。
            │
            ▼
 ┌──────────────────────────────────────────────────────────────┐

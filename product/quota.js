@@ -62,6 +62,7 @@ export async function checkAllTabsQuota(redirectToReminderFn, redirectAllTabsFn,
 
   let studySeconds = 0, undeterminedSeconds = 0, totalSeconds = 0;
   for (const [domain, seconds] of Object.entries(stats)) {
+    if (domain === 'audioSeconds') continue;
     totalSeconds += seconds;
     const isStudy = (config.studyList || []).some(p => matchDomain(domain, p));
     if (isStudy) studySeconds += seconds;
@@ -133,6 +134,7 @@ export async function checkAllTabsQuota(redirectToReminderFn, redirectAllTabsFn,
   // Single domain quota check
   const newlyLocked = [];
   for (const [domain, seconds] of Object.entries(stats)) {
+    if (domain === 'audioSeconds') continue;
     const minutes = Math.floor(seconds / 60);
     const quota = config.domainQuotas?.[domain];
     if (quota && quota > 0 && minutes >= quota) {

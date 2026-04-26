@@ -144,11 +144,13 @@ export function initSignal(onContextChange) {
       const domain = extractDomain(tab.url);
       if (domain) {
         const focus = await getWindowFocusState(windowId);
+        const navigationClearsMedia = changeInfo.url || changeInfo.status === 'loading';
         onEvent({
           tabId,
           windowId,
           url: tab.url,
           domain,
+          ...(navigationClearsMedia ? { isAudible: false, mediaSourceTabId: tabId } : {}),
           ...focus,
           _reason: 'tabUpdated',
         });

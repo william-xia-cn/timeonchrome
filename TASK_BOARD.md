@@ -13,6 +13,7 @@
 
 ## LATER（P2）
 - [ ] [V1] 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐
+- [ ] [V1] PiP timing support：补齐 Picture-in-Picture 真实信号采集与 `BACKGROUND_ACTIVE -> audioSeconds` 验证
 - [ ] [V1] 工程性优化票（非用户价值主线）
 
 ## 冻结项
