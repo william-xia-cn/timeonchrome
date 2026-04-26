@@ -10,6 +10,7 @@ const BATCH_WINDOW = 80; // 80ms 覆盖 Chrome 事件簇
 export function initSignal(onContextChange) {
   let pending = {};
   let batchTimer = null;
+  let lastWindowFocusKey = null;
 
   function emitMerged() {
     if (Object.keys(pending).length > 0) {
@@ -32,12 +33,14 @@ export function initSignal(onContextChange) {
     return {
       tabId: incoming.tabId ?? pending.tabId,
       windowId: incoming.windowId ?? pending.windowId,
+      url: incoming.url ?? pending.url,
       domain: incoming.domain ?? pending.domain,
       isFocused: incoming.isFocused ?? pending.isFocused,
       isIdle: incoming.isIdle ?? pending.isIdle,
       isAudible: incoming.isAudible ?? pending.isAudible,
       mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
       isPiP: incoming.isPiP ?? pending.isPiP,
+      error: incoming.error ?? pending.error,
       _reason: incoming._reason ?? pending._reason ?? 'unknown',
       timestamp: Date.now(),
     };
@@ -48,6 +51,64 @@ export function initSignal(onContextChange) {
     scheduleMerge();
   }
 
+  async function getWindowFocusState(windowId) {
+    if (!windowId || windowId === chrome.windows.WINDOW_ID_NONE) return {};
+    try {
+      const win = await chrome.windows.get(windowId);
+      return { isFocused: !!win?.focused };
+    } catch (err) {
+      return { error: err?.message || String(err) };
+    }
+  }
+
+  async function emitFocusedWindowSignal(windowId, reason) {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, windowId });
+      const tab = tabs && tabs[0];
+      const url = tab?.url || null;
+      const domain = url ? extractDomain(url) : null;
+      lastWindowFocusKey = `focused:${windowId}`;
+      onEvent({
+        windowId,
+        isFocused: true,
+        tabId: tab?.id ?? null,
+        url,
+        domain,
+        _reason: reason,
+      });
+    } catch (err) {
+      lastWindowFocusKey = `focused:${windowId}`;
+      onEvent({
+        windowId,
+        isFocused: true,
+        error: err?.message || String(err),
+        _reason: reason,
+      });
+    }
+  }
+
+  async function pollWindowFocusState() {
+    if (!chrome.windows?.getAll) return;
+    try {
+      const windows = await chrome.windows.getAll({ populate: false });
+      const focusedWindow = windows.find((win) => win.focused);
+      if (!focusedWindow) {
+        if (lastWindowFocusKey !== 'none') {
+          lastWindowFocusKey = 'none';
+          onEvent({ isFocused: false, _reason: 'windowFocusPolled' });
+        }
+        return;
+      }
+
+      const focusKey = `focused:${focusedWindow.id}`;
+      if (lastWindowFocusKey !== focusKey) {
+        await emitFocusedWindowSignal(focusedWindow.id, 'windowFocusPolled');
+      }
+    } catch (err) {
+      onEvent({ error: err?.message || String(err), _reason: 'windowFocusPolled' });
+    }
+  }
+
   // ── Chrome 事件监听 ─────────────────────────────────────────────
 
   // 标签页激活
@@ -55,40 +116,58 @@ export function initSignal(onContextChange) {
     // 主动查询 tab URL（onActivated 不提供 URL，onUpdated 对已加载标签不触发）
     try {
       const tab = await chrome.tabs.get(activeInfo.tabId);
-      const domain = tab.url ? extractDomain(tab.url) : null;
+      const url = tab.url || null;
+      const domain = url ? extractDomain(url) : null;
+      const focus = await getWindowFocusState(activeInfo.windowId);
       onEvent({
         tabId: activeInfo.tabId,
         windowId: activeInfo.windowId,
+        url,
         domain,
+        ...focus,
         _reason: 'tabActivated',
       });
-    } catch {
+    } catch (err) {
       onEvent({
         tabId: activeInfo.tabId,
         windowId: activeInfo.windowId,
+        error: err?.message || String(err),
         _reason: 'tabActivated',
       });
     }
   });
 
   // 标签页更新（获取域名）
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (tab.active && tab.url) {
+      const windowId = tab.windowId ?? null;
       const domain = extractDomain(tab.url);
       if (domain) {
-        onEvent({ tabId, domain, _reason: 'tabUpdated' });
+        const focus = await getWindowFocusState(windowId);
+        onEvent({
+          tabId,
+          windowId,
+          url: tab.url,
+          domain,
+          ...focus,
+          _reason: 'tabUpdated',
+        });
       }
     }
   });
 
   // 窗口焦点变化
-  chrome.windows.onFocusChanged.addListener((windowId) => {
+  chrome.windows.onFocusChanged.addListener(async (windowId) => {
     if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      lastWindowFocusKey = 'none';
       onEvent({ isFocused: false, _reason: 'windowFocusLost' });
     } else {
-      onEvent({ windowId, isFocused: true, _reason: 'windowFocusChanged' });
+      await emitFocusedWindowSignal(windowId, 'windowFocusChanged');
     }
   });
+
+  const focusPollTimer = setInterval(pollWindowFocusState, 1000);
+  focusPollTimer?.unref?.();
 
   // 空闲状态变化
   chrome.idle.onStateChanged.addListener((state) => {

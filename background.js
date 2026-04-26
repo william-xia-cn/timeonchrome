@@ -3,18 +3,20 @@
 import { initSignal } from './core/signal.js';
 import { buildContext } from './core/context.js';
 import { resolveState } from './core/state.js';
-import { initSession, transitionState, heartbeat } from './runtime/session.js';
+import { initSession, transitionState, heartbeat, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
-import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain } from './infra/storage.js';
+import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange } from './infra/storage.js';
 import { updateDeclarativeRules, checkAndRemind } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
 import { initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
 import { handleMessage } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
-import { getEvents } from './core/event-log.js';
+import { getEvents, clearEvents } from './core/event-log.js';
 import { emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
+import { computeAllDomains } from './core/aggregate.js';
 
 let currentContext = null;
+let badgeUpdateQueue = Promise.resolve();
 
 // ── SW 启动 → 先恢复 ──────────────────────────────────────────────────────────
 
@@ -128,6 +130,7 @@ async function processTimingSignal(rawEvent) {
   });
 
   await transitionState(state, domain);
+  scheduleCurrentTabBadgeUpdate();
 
   await emitTrace('transition_end', {
     source: 'session',
@@ -144,6 +147,67 @@ async function processTimingSignal(rawEvent) {
 }
 
 initSignal(processTimingSignal);
+
+// ── Action badge: current active tab's today duration ─────────────────────────
+
+function formatBadgeDuration(seconds) {
+  const secs = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h${m}m${s}s`;
+  if (m > 0) return `${m}m${s}s`;
+  return `${s}s`;
+}
+
+async function getCurrentActiveDomain() {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tab = tabs && tabs[0];
+  const domain = extractDomain(tab?.url || '');
+  return { tab, domain };
+}
+
+async function updateCurrentTabBadge() {
+  if (!chrome.action?.setBadgeText) return;
+
+  try {
+    const { domain } = await getCurrentActiveDomain();
+    if (!domain) {
+      await chrome.action.setBadgeText({ text: '' });
+      await chrome.action.setTitle({ title: 'TimeOnChrome' });
+      return;
+    }
+
+    const events = await getEvents();
+    const stats = computeAllDomains(events, getDateKey());
+    const session = await getTimingSession();
+    let seconds = stats[domain] || 0;
+
+    if (session?.state === 'ACTIVE' && session.domain === domain && session.startTime) {
+      seconds += Math.max(0, Math.floor((Date.now() - session.startTime) / 1000));
+    }
+
+    const text = formatBadgeDuration(seconds);
+    await chrome.action.setBadgeBackgroundColor({ color: '#00b894' });
+    await chrome.action.setBadgeText({ text });
+    await chrome.action.setTitle({
+      title: `TimeOnChrome\n${domain}\n今日 ${text}`,
+    });
+  } catch (err) {
+    await chrome.action.setBadgeText({ text: '' }).catch(() => {});
+    await chrome.action.setTitle({ title: 'TimeOnChrome' }).catch(() => {});
+  }
+}
+
+function scheduleCurrentTabBadgeUpdate() {
+  badgeUpdateQueue = badgeUpdateQueue
+    .then(updateCurrentTabBadge, updateCurrentTabBadge)
+    .catch(() => {});
+}
+
+const badgeTimer = setInterval(scheduleCurrentTabBadgeUpdate, 1000);
+badgeTimer?.unref?.();
+scheduleCurrentTabBadgeUpdate();
 
 async function processDebugControlledTimingSignal(rawEvent = {}) {
   const { _debugNow, ...event } = rawEvent;
@@ -312,6 +376,84 @@ globalThis.debugGetTodayStats = async () => {
   }
 };
 
+async function debugGetTimingCalibrationSnapshot() {
+  const trace = await getTrace();
+  const events = await getEvents();
+  const sessionData = await chrome.storage.session.get('session_v1');
+  const session = sessionData['session_v1'] || null;
+  const ledger = await getFocusLedger();
+  const stats = await handleMessage({ type: 'GET_STATS' }, { id: 'debug' });
+  const statsRange = await getStatsRange(2);
+  const profile = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+
+  return {
+    success: true,
+    capturedAt: Date.now(),
+    trace,
+    traceCount: trace.length,
+    eventLog: events,
+    eventLogCount: events.length,
+    session,
+    stats,
+    statsRange,
+    focusLedger: ledger,
+    focusLedgerCount: ledger.length,
+    mode: profile['guardian_config']?.mode || null,
+    currentMode: profile['guardian_session']?.currentMode || null,
+  };
+}
+
+async function debugResetTimingCalibrationData() {
+  await clearTrace();
+  await resetFocusLedger();
+  await clearEvents();
+  await chrome.storage.session.set({
+    session_v1: {
+      state: null,
+      domain: null,
+      startTime: null,
+      lastHeartbeat: Date.now(),
+    },
+  });
+
+  const allLocal = await chrome.storage.local.get(null);
+  const statsKeys = Object.keys(allLocal).filter(key =>
+    key === 'event_log_last_compact' ||
+    key.startsWith('stats_') ||
+    key.startsWith('undetermined_stats_')
+  );
+  if (statsKeys.length > 0) {
+    await chrome.storage.local.remove(statsKeys);
+  }
+
+  return { success: true, resetAt: Date.now(), clearedStatsKeys: statsKeys };
+}
+
+globalThis.debugExportTimingCalibration = async () => {
+  try {
+    return await debugGetTimingCalibrationSnapshot();
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugResetTimingCalibration = async () => {
+  try {
+    return await debugResetTimingCalibrationData();
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugSetRestMode = async () => {
+  try {
+    const session = await handleMessage({ type: 'SWITCH_TO_REST' }, { id: 'debug' });
+    return { success: true, session };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
 globalThis.debugApplyControlledTimingSignal = async (rawEvent = {}) => {
   try {
     const result = await processDebugControlledTimingSignal(rawEvent);
@@ -395,6 +537,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const stats = await handleMessage({ type: 'GET_STATS' }, sender);
         sendResponse({ success: true, stats });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message, stack: err.stack });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_EXPORT_TIMING_CALIBRATION') {
+    (async () => {
+      try {
+        sendResponse(await debugGetTimingCalibrationSnapshot());
+      } catch (err) {
+        sendResponse({ success: false, error: err.message, stack: err.stack });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_RESET_TIMING_CALIBRATION') {
+    (async () => {
+      try {
+        sendResponse(await debugResetTimingCalibrationData());
+      } catch (err) {
+        sendResponse({ success: false, error: err.message, stack: err.stack });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_SET_REST_MODE') {
+    (async () => {
+      try {
+        const session = await handleMessage({ type: 'SWITCH_TO_REST' }, sender);
+        sendResponse({ success: true, session });
       } catch (err) {
         sendResponse({ success: false, error: err.message, stack: err.stack });
       }

@@ -153,6 +153,27 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
   - `delta > 90s`：视为长中断 / SW 死亡，END time 截断到 `lastHeartbeat`，避免把离线时间计入使用时长。
 - recovery 补 END 后会清空 session 的 `state/domain/startTime` 并更新 `lastHeartbeat`，重复 recovery 不应重复追加 END。
 - recovery accuracy unit tests 使用受控时间验证短中断、长中断、重复 recovery、空 session，并对比 `event_log_v1` 推导时长与 `GET_STATS` 聚合结果；该验证不依赖 OS focus 或 `chrome.idle` 自动化。
+
+### 1.3.3 Real Chrome ACTIVE calibration 手工校准
+
+- 真实 Chrome ACTIVE 校准只用于手工诊断前台 Chrome 使用是否能产生 ACTIVE 计时，不扩展 synthetic / controlled / recovery 测试。
+- debug-only 入口允许校准前清空 timing trace、focus ledger、`event_log_v1`、`session_v1` 与旧 stats cache，设置 rest mode，并导出 trace / event-log / session / stats / focus ledger 校准包。
+- Windows 本地可用 `node tests/manual/real-active-calibration-windows.js --a 6 --b 3 --blur 2` 做短时 headed Chrome 校准；runner 只调用现有 debug-only 入口并输出最小诊断结果。
+- 校准判断边界：该流程验证真实 Chrome 前台、失焦、event-log、stats 的端到端观测结果；若没有 ACTIVE，按 `focus -> idle -> context -> resolver -> session -> event-log -> stats` 顺序定位第一断裂层，不改变 OS focus、`chrome.idle` 或产品计时语义。
+
+### 1.3.4 跨自然日计时口径
+
+- “今日时长”应按用户本地自然日统计。
+- 若 `event_log_v1` 中一个计时区间跨越午夜，例如 `23:59:50 -> 00:00:10`，统计时应按自然日边界切分，而不是全算入 START 日或 END 日。
+- 该口径适用于普通前台 ACTIVE 计时、stats 聚合、badge 今日时长、配额检查与后续报表。
+- `core/aggregate.js` 已按本地自然日窗口计算闭合区间 overlap；`getTodayStats`、`getStatsRange` 与 badge 今日时长通过该聚合层继承跨日切分口径。
+
+### 1.3.5 凌晨休息时间限制（后续产品设计）
+
+- 后续需要支持配置“凌晨不可用于休息时间”的时段策略，用于防止熬夜玩游戏。
+- 该能力属于配额/策略层：即使某网站在普通休息配额内，若访问发生在禁止休息时段，也应触发相应限制或提醒。
+- 该能力不改变底层计时语义：计时仍记录真实使用，策略层再决定该时段是否允许作为休息时间消费。
+- 当前计时准确性收口不实现该功能，仅记录为后续产品设计项。
 ┌─────────────────────────────────────────────────────────────┐
 │  Chrome Extension (MV3)                                     │
 │                                                             │

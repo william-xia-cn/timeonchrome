@@ -37,7 +37,12 @@ const computeAllDomainsWithAudio = aggregateApi.computeAllDomainsWithAudio;
 const diagFn = aggregateApi.aggregateWithDiagnostics || aggregateApi.__aggregateWithDiagnostics;
 
 function ts(h, m, s = 0) {
-  return Date.UTC(2026, 3, 21, h, m, s); // 2026-04-21
+  return new Date(2026, 3, 21, h, m, s).getTime(); // local 2026-04-21
+}
+
+function localTs(date, h, m, s = 0) {
+  const [y, mo, d] = date.split('-').map(Number);
+  return new Date(y, mo - 1, d, h, m, s).getTime();
 }
 
 let passed = 0;
@@ -165,6 +170,32 @@ async function runTests() {
     expect('audioSeconds=5s', split.audioSeconds, 5);
     expectTrue('split.domains 不含 music.com', !('music.com' in split.domains));
     expect('split.domains.study.com=4s', split.domains['study.com'], 4);
+  }
+
+  section('A8: cross-midnight ACTIVE segment should be split by local natural day');
+  {
+    const events = [
+      { type: 'START', state: 'ACTIVE', domain: 'late.example', time: localTs('2026-04-21', 23, 59, 50) },
+      { type: 'END', state: 'ACTIVE', domain: 'late.example', time: localTs('2026-04-22', 0, 0, 10) },
+    ];
+
+    expect('start day gets 10s', computeDuration(events, 'late.example', '2026-04-21'), 10);
+    expect('end day gets 10s', computeDuration(events, 'late.example', '2026-04-22'), 10);
+    expect('allDomains start day gets 10s', computeAllDomains(events, '2026-04-21'), { 'late.example': 10 });
+    expect('allDomains end day gets 10s', computeAllDomains(events, '2026-04-22'), { 'late.example': 10 });
+  }
+
+  section('A9: cross-midnight BACKGROUND_ACTIVE should be split into audioSeconds by local day');
+  {
+    const events = [
+      { type: 'START', state: 'BACKGROUND_ACTIVE', domain: 'music.example', time: localTs('2026-04-21', 23, 59, 55) },
+      { type: 'END', state: 'BACKGROUND_ACTIVE', domain: 'music.example', time: localTs('2026-04-22', 0, 0, 5) },
+    ];
+
+    expect('ordinary domains stay empty on start day', computeAllDomains(events, '2026-04-21'), {});
+    expect('ordinary domains stay empty on end day', computeAllDomains(events, '2026-04-22'), {});
+    expect('audioSeconds start day gets 5s', computeAllDomainsWithAudio(events, '2026-04-21').audioSeconds, 5);
+    expect('audioSeconds end day gets 5s', computeAllDomainsWithAudio(events, '2026-04-22').audioSeconds, 5);
   }
 
   const total = passed + failed;

@@ -16,9 +16,10 @@ const STATE_WEIGHTS = {
  * @returns {number} 秒数（仅 ACTIVE，不含 BACKGROUND_ACTIVE 音频时长）
  */
 export function computeDuration(events, domain, date) {
-  const dayEvents = buildDayEvents(events, date, domain);
-  const sorted = sortByTimeStable(dayEvents);
-  return computeDomainSeconds(sorted);
+  const { start, end } = getLocalDayRange(date);
+  const domainEvents = buildValidEvents(events, domain);
+  const sorted = sortByTimeStable(domainEvents);
+  return computeDomainSeconds(sorted, start, end);
 }
 
 /**
@@ -41,8 +42,9 @@ export function computeAllDomains(events, date) {
  */
 export function computeAllDomainsWithAudio(events, date) {
   const domains = {};
-  const dayEvents = buildDayEvents(events, date);
-  const sorted = sortByTimeStable(dayEvents);
+  const { start, end } = getLocalDayRange(date);
+  const validEvents = buildValidEvents(events);
+  const sorted = sortByTimeStable(validEvents);
 
   const byDomain = new Map();
   for (const evt of sorted) {
@@ -52,7 +54,7 @@ export function computeAllDomainsWithAudio(events, date) {
 
   let audioSeconds = 0;
   for (const [domain, domainEvents] of byDomain.entries()) {
-    const { activeSeconds, backgroundAudioSeconds } = computeDomainBreakdown(domainEvents);
+    const { activeSeconds, backgroundAudioSeconds } = computeDomainBreakdown(domainEvents, start, end);
     if (activeSeconds > 0) domains[domain] = activeSeconds;
     audioSeconds += backgroundAudioSeconds;
   }
@@ -60,13 +62,20 @@ export function computeAllDomainsWithAudio(events, date) {
   return { domains, audioSeconds };
 }
 
-function buildDayEvents(events, date, domainFilter = null) {
+function buildValidEvents(events, domainFilter = null) {
   return events.filter(e => {
     if (!e || !e.domain) return false;
     if (domainFilter && e.domain !== domainFilter) return false;
     if (typeof e.time !== 'number' || Number.isNaN(e.time)) return false;
-    return formatTime(e.time).slice(0, 10) === date;
+    return true;
   });
+}
+
+function getLocalDayRange(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  const start = new Date(year, month - 1, day).getTime();
+  const end = new Date(year, month - 1, day + 1).getTime();
+  return { start, end };
 }
 
 function sortByTimeStable(events) {
@@ -76,7 +85,7 @@ function sortByTimeStable(events) {
     .map(x => x.evt);
 }
 
-function computeDomainBreakdown(domainEvents) {
+function computeDomainBreakdown(domainEvents, windowStart, windowEnd) {
   let activeSeconds = 0;
   let backgroundAudioSeconds = 0;
   let openStart = null;
@@ -90,10 +99,12 @@ function computeDomainBreakdown(domainEvents) {
     if (evt.type !== 'END') continue;
     if (!openStart) continue; // orphan END
 
-    const durationSec = Math.floor((evt.time - openStart.time) / 1000);
+    const overlapStart = Math.max(openStart.time, windowStart);
+    const overlapEnd = Math.min(evt.time, windowEnd);
+    const durationSec = Math.floor((overlapEnd - overlapStart) / 1000);
     if (durationSec <= 0) {
       openStart = null;
-      continue; // non-positive duration
+      continue; // no overlap with target local day
     }
 
     const state = openStart.state;
@@ -116,15 +127,6 @@ function computeDomainBreakdown(domainEvents) {
   return { activeSeconds, backgroundAudioSeconds };
 }
 
-function computeDomainSeconds(domainEvents) {
-  return computeDomainBreakdown(domainEvents).activeSeconds;
-}
-
-/**
- * 格式化时间戳为 ISO 字符串
- * @param {number} time
- * @returns {string}
- */
-function formatTime(time) {
-  return new Date(time).toISOString();
+function computeDomainSeconds(domainEvents, windowStart, windowEnd) {
+  return computeDomainBreakdown(domainEvents, windowStart, windowEnd).activeSeconds;
 }
