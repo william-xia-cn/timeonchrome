@@ -145,6 +145,14 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
   3. **synthetic aggregation baseline**：追加测试专用闭合 ACTIVE event-log 片段，只证明 `event-log -> stats` 聚合可把 injected ACTIVE 片段计算为预期秒数，不代表真实浏览器计时准确。
 - timing trace / stats E2E 的 fresh profile 会在测试初始化阶段写入现有正式字段 `guardian_config.mode = 'rest'` 与 `guardian_session.currentMode = 'rest'`，避免学习模式拦截影响页面打开和 event-log 生成；这不改变正式产品默认模式。
 - 不处理 OS focus 自动化、`chrome.idle` 自动化，也不引入新的访问策略。
+
+### 1.3.2 Service Worker recovery accuracy 验证
+
+- MV3 Service Worker recovery 通过 `runtime/recovery.js` 在启动时读取 `session_v1`，若存在未闭合 `state/domain/startTime`，则按 `lastHeartbeat` 与当前时间的间隔决定补写 END 的时间：
+  - `delta <= 90s`：视为短中断，END time 使用当前 `Date.now()`。
+  - `delta > 90s`：视为长中断 / SW 死亡，END time 截断到 `lastHeartbeat`，避免把离线时间计入使用时长。
+- recovery 补 END 后会清空 session 的 `state/domain/startTime` 并更新 `lastHeartbeat`，重复 recovery 不应重复追加 END。
+- recovery accuracy unit tests 使用受控时间验证短中断、长中断、重复 recovery、空 session，并对比 `event_log_v1` 推导时长与 `GET_STATS` 聚合结果；该验证不依赖 OS focus 或 `chrome.idle` 自动化。
 ┌─────────────────────────────────────────────────────────────┐
 │  Chrome Extension (MV3)                                     │
 │                                                             │
