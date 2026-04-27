@@ -246,8 +246,24 @@ OpenCode 不再是默认代码执行器，保留以下辅助角色：
 3. Plan Conformance Audit 未执行或未通过
 4. 测试未通过（文档变更除外）
 
+### 7.4 Visual Verification Rule（页面开发目视验证）
+
+**涉及 HTML/CSS 的页面开发任务，必须在 Commit 前完成目视验证：**
+
+1. 使用 Playwright 或浏览器打开目标页面，注入 mock 数据渲染完整布局
+2. 截图并与确认方案进行逐项结构对比
+3. 标记 `Matched` / `Deviated` / `Missing`
+4. 存在 `Deviated` / `Missing` 时禁止提交，必须回正
+
+**禁止：**
+- ❌ 仅通过代码 diff 和自动化测试就声称 UI 已完成
+- ❌ 未目视确认布局、层级、文案即提交
+
+---
+
 **提交前 checklist：**
 - [ ] Plan Conformance Audit 已完成且通过
+- [ ] **页面开发：目视验证截图已完成且通过**
 - [ ] 无未批准的 Deviated / Extra 变更
 - [ ] 快速测试通过（代码变更时）
 - [ ] 文档与代码在同一 commit
