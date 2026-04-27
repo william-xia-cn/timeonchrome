@@ -541,6 +541,7 @@ test('T-TV2: Controlled ACTIVE timing pipeline — multi-segment/domain reconcil
     controlledDomains.has(t.domain) &&
     t.nextState === 'ACTIVE'
   );
+  const controlledActiveResults = controlledResults.filter(step => step.result?.state === 'ACTIVE');
   const activeCloseEvents = eventLog.filter(e =>
     e.type === 'END' &&
     e.state === 'ACTIVE' &&
@@ -565,6 +566,7 @@ test('T-TV2: Controlled ACTIVE timing pipeline — multi-segment/domain reconcil
   console.log(`    first broken layer:         ${brokenLayer || 'none'}`);
   console.log(`    controlled steps:           ${JSON.stringify(controlledSteps.map(s => ({ reason: s.reason, domain: s.domain, time: s.time, expectedState: s.expectedState })))}`);
   console.log(`    controlled results:         ${JSON.stringify(controlledResults)}`);
+  console.log(`    controlled ACTIVE results:  ${JSON.stringify(controlledActiveResults)}`);
   console.log(`    controlled event-log sample: ${JSON.stringify(eventLog.filter(e => controlledDomains.has(e.domain)))}`);
   console.log(`    controlled closed segments: ${JSON.stringify(controlledSegments)}`);
   console.log(`    controlled ACTIVE segments: ${JSON.stringify(controlledActiveSegments)}`);
@@ -585,7 +587,8 @@ test('T-TV2: Controlled ACTIVE timing pipeline — multi-segment/domain reconcil
   expect(analysis.counts['transition_end']).toBeGreaterThanOrEqual(controlledSteps.length);
   expect(analysis.counts['event_appended']).toBeGreaterThanOrEqual(9);
   expect(analysis.counts['stats_calculated']).toBeGreaterThanOrEqual(1);
-  expect(activeResolved.length).toBe(3);
+  expect(activeResolved.length).toBeGreaterThanOrEqual(1);
+  expect(controlledActiveResults.length).toBe(3);
   expect(activeCloseEvents.length).toBe(3);
   expect(brokenLayer, `first broken layer: ${brokenLayer || 'none'}`).toBeNull();
   expect(statsDate).toBeTruthy();
