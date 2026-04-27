@@ -3,23 +3,13 @@
 const CLOUD_KEYS = {
   PROFILE_NAME: 'cloud_profile_name'
 };
-const BORROW_DISPLAY_MINUTES = 30; // 仅前端展示文案常量，不作为业务规则来源
-const BORROW_CONFIRM_TEXT = '确认借用明天时间？\n\n本次将立即增加今日可用休息时间 30 分钟，\n明天会扣减同等时长。\n明天不能连续再次借用。是否继续？';
-const BORROW_BUTTON_TEXT = '⏱ 向明天借时间';
-const BORROW_ERROR_MESSAGES = {
-  already_borrowed: '已有未还借用，无法再借',
-  no_cross_week: '周日不能借用（防止跨周）',
-  weekly_quota_exceeded: '本周配额已用完，无法借用',
-};
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // 检查绑定状态
   const cloudStatus = await sendMsg({ type: 'GET_CLOUD_STATUS' });
   if (cloudStatus && !cloudStatus.isBound) {
-    // 设备未绑定：显示提示横幅，隐藏正文
     document.getElementById('unbound-banner').style.display = 'block';
-    document.getElementById('summary-card').style.display = 'none';
     document.querySelector('.body').style.display = 'none';
+    document.querySelector('.actions').style.display = 'none';
     document.getElementById('goto-admin-btn').addEventListener('click', () => {
       chrome.runtime.openOptionsPage();
     });
@@ -27,24 +17,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await init();
-  initWeeklySessions();
 
-  // 初始化模式按钮状态并绑定点击事件
   await renderModeButtons();
   document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
   document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
 
-  // 详情链接 → 打开 admin 面板
   document.getElementById('detail-link').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
 
-  // 监听后台广播：设备被远程解绑时立即更新 popup UI
+  document.getElementById('settings-btn').addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'DEVICE_UNBOUND') {
       document.getElementById('unbound-banner').style.display = 'block';
-      document.getElementById('summary-card').style.display = 'none';
       document.querySelector('.body').style.display = 'none';
+      document.querySelector('.actions').style.display = 'none';
       document.getElementById('goto-admin-btn').addEventListener('click', () => {
         chrome.runtime.openOptionsPage();
       });
@@ -68,19 +58,13 @@ async function setMode(mode) {
 }
 
 async function init() {
-  // 并行获取所需数据
-  const [config, stats, weekRestRes] = await Promise.all([
+  const [config, stats] = await Promise.all([
     sendMsg({ type: 'GET_CONFIG' }),
     sendMsg({ type: 'GET_STATS' }),
-    sendMsg({ type: 'GET_WEEK_REST_SECONDS' }),
   ]);
 
-  const weekRestSeconds = weekRestRes?.weekRestSeconds ?? 0;
-
-  // 刷新今日计时
   try { await sendMsg({ type: 'FLUSH_TIME' }); } catch (_) {}
 
-  // 孩子名字
   const nameStorage = await new Promise(resolve =>
     chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME], resolve)
   );
@@ -88,13 +72,6 @@ async function init() {
   const nameEl = document.getElementById('child-name-header');
   if (nameEl && childName) nameEl.textContent = childName + ' 的时间';
 
-  // 日期
-  const now = new Date();
-  const weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
-  const dateEl = document.getElementById('footer-date');
-  if (dateEl) dateEl.textContent = `${now.getMonth()+1}/${now.getDate()} ${weekNames[now.getDay()]}`;
-
-  // 计算今日学习/待定/休息/在线时长（三时段模型）
   const studyList     = config.studyList     || [];
   const compositeList = config.compositeList || [];
   let studySeconds = 0, undeterminedSeconds = 0, restSeconds = 0, onlineSeconds = 0;
@@ -113,45 +90,52 @@ async function init() {
     }
   }
 
-  // 配额上限（分钟→秒）
-  const onlineLimit        = (config.dailyOnlineQuota       ?? 1200) * 60;
-  const studyLimit         = (config.dailyStudyQuota        ?? 480)  * 60;
-  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 120)  * 60;
-  const borrow             = config.quotaBorrow;
-  const effectiveDailyRest = getEffectiveDailyRestLimit(config);   // minutes
-  const restLimit          = effectiveDailyRest * 60;               // seconds
-  const weeklyRestLimit    = (config.weeklyRestQuota ?? (effectiveDailyRest * 7)) * 60;
-  const qs = config.quotaState || {};
+  const backendMediaSeconds = (stats.audioSeconds || 0) + (stats.pipSeconds || 0);
 
-  // 激励摘要
-  const summaryEl = document.getElementById('summary-card');
-  if (summaryEl) {
-    const pct = onlineSeconds > 0 ? Math.round(studySeconds / onlineSeconds * 100) : 0;
-    const remaining = Math.max(0, studyLimit - studySeconds);
-    let msg;
-    if (onlineSeconds === 0) {
-      msg = '今天还没有开始使用，准备好了就出发吧！📚';
-    } else if (studySeconds === 0) {
-      msg = `在线 <b>${formatSeconds(onlineSeconds)}</b>，今天还没有学习时间，加油！💪`;
-    } else if (pct >= 70) {
-      msg = `已学习 <b>${formatSeconds(studySeconds)}</b>，专注度 <b>${pct}%</b>，表现优秀！🎉`;
+  // Current Site
+  renderCurrentSite(studyList, compositeList);
+
+  // Mode Buttons with quota display
+  const studyBtn = document.getElementById('btn-study');
+  const restBtn  = document.getElementById('btn-rest');
+
+  const studyLimit = (config.dailyStudyQuota ?? 0) * 60;
+  const effectiveRestLimit = getEffectiveDailyRestLimit(config) * 60;
+  studyBtn.textContent = studyLimit > 0
+    ? `📚 学习模式 ${formatSeconds(studySeconds)} / ${formatSeconds(studyLimit)}`
+    : `📚 学习模式 ${formatSeconds(studySeconds)}`;
+  restBtn.textContent = effectiveRestLimit > 0
+    ? `☕ 休息模式 ${formatSeconds(restSeconds)} / ${formatSeconds(effectiveRestLimit)}`
+    : `☕ 休息模式 ${formatSeconds(restSeconds)}`;
+
+  // Backend Media (plain text, no card, no quota)
+  const backendMediaRow = document.getElementById('backend-media-row');
+  const backendMediaValue = document.getElementById('backend-media-value');
+  if (backendMediaRow && backendMediaValue) {
+    if (backendMediaSeconds > 0) {
+      backendMediaRow.style.display = 'block';
+      backendMediaValue.textContent = formatSeconds(backendMediaSeconds);
     } else {
-      msg = `已学习 <b>${formatSeconds(studySeconds)}</b>，还可学习 <b>${formatSeconds(remaining)}</b>，继续加油！💪`;
+      backendMediaRow.style.display = 'none';
     }
-    summaryEl.innerHTML = msg;
   }
 
-  // 进度条
+  // Progress Bars (Online + Undetermined)
+  const onlineLimit        = (config.dailyOnlineQuota       ?? 1200) * 60;
+  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 120)  * 60;
+  const qs = config.quotaState || {};
+
   const quotaBarsEl = document.getElementById('quota-bars');
   if (quotaBarsEl) {
     const bar = (icon, label, used, limit, color, locked) => {
       const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
       const barColor = locked ? 'var(--danger)' : pct >= 90 ? 'var(--warn)' : color;
+      const valueText = limit > 0 ? `${formatSeconds(used)} / ${formatSeconds(limit)}` : formatSeconds(used);
       return `
         <div class="quota-bar-item">
           <div class="quota-bar-header">
             <span class="quota-bar-label">${icon} ${label}${locked ? ' <span style="font-size:10px;color:var(--danger);">已用完</span>' : ''}</span>
-            <span class="quota-bar-value">${formatSeconds(used)} / ${formatSeconds(limit)}</span>
+            <span class="quota-bar-value">${valueText}</span>
           </div>
           <div class="progress-track">
             <div class="progress-fill" style="width:${pct}%;background:${barColor};"></div>
@@ -159,28 +143,21 @@ async function init() {
         </div>`;
     };
 
-    const weeklyLabel = qs.weeklyRestLocked ? '本周休息 <span style="font-size:10px;color:var(--danger);">已达周上限</span>' : '本周休息';
     quotaBarsEl.innerHTML =
       bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
-      bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
-      bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked) +
-      bar('🎵', '今日休息', restSeconds, restLimit, 'var(--warn)', qs.restLocked) +
-      bar('📅', weeklyLabel, weekRestSeconds, weeklyRestLimit, '#e17055', qs.weeklyRestLocked);
+      bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked);
   }
 
-  // 借用状态 / 借用按钮
-  renderBorrowSection(config, qs);
-
-  // Top 5
+  // Top 10
   const entries = Object.entries(stats)
     .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  const top5El = document.getElementById('today-top5');
+    .slice(0, 10);
+  const top10El = document.getElementById('today-top10');
   if (entries.length === 0) {
-    top5El.innerHTML = '<div class="empty">暂无数据</div>';
+    top10El.innerHTML = '<div class="empty">暂无数据</div>';
   } else {
-    top5El.innerHTML = entries.map(([domain, seconds]) => `
+    top10El.innerHTML = entries.map(([domain, seconds]) => `
       <div class="stat-row">
         <span class="stat-row-left">${domain}</span>
         <span class="stat-row-right">${formatSeconds(seconds)}</span>
@@ -189,7 +166,57 @@ async function init() {
   }
 }
 
-// 有效日休息配额（分钟），与 background.js 同步
+async function renderCurrentSite(studyList, compositeList) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const domainEl = document.getElementById('current-domain');
+    const badgeEl = document.getElementById('current-badge');
+
+    if (!tab || !tab.url) {
+      domainEl.textContent = '—';
+      badgeEl.textContent = '未知';
+      badgeEl.className = 'current-site-badge badge-unknown';
+      return;
+    }
+
+    const domain = extractDomain(tab.url);
+    domainEl.textContent = domain || '—';
+
+    const isStudy = studyList.some(p => matchDomain(domain, p));
+    const isComposite = compositeList.some(p => matchDomain(domain, p));
+
+    if (isStudy) {
+      badgeEl.textContent = '学习网站';
+      badgeEl.className = 'current-site-badge badge-study';
+    } else if (isComposite) {
+      badgeEl.textContent = '待定网站';
+      badgeEl.className = 'current-site-badge badge-composite';
+    } else {
+      badgeEl.textContent = '休息网站';
+      badgeEl.className = 'current-site-badge badge-rest';
+    }
+  } catch (_) {
+    document.getElementById('current-domain').textContent = '—';
+  }
+}
+
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+function formatMinutes(secs) {
+  if (!secs || secs < 0) return '0';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}分`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}时${m}分` : `${h}时`;
+}
+
 function getEffectiveDailyRestLimit(config) {
   const base   = config.dailyRestQuota ?? 120;
   const borrow = config.quotaBorrow;
@@ -205,184 +232,6 @@ function getEffectiveDailyRestLimit(config) {
   return base;
 }
 
-function renderBorrowSection(config, qs) {
-  const el = document.getElementById('borrow-section');
-  if (!el) return;
-
-  const borrow = config.quotaBorrow;
-  const today  = new Date().toISOString().slice(0, 10);
-
-  // 正在借用中（今天是借用日）
-  if (borrow && !borrow.repaid && borrow.borrowedFrom === today) {
-    el.style.display = '';
-    el.innerHTML = `
-      <div class="borrow-box">
-        ⏱ 已向明天借用 <strong>${borrow.amount} 分钟</strong>，明日配额将减少相应额度。
-      </div>`;
-    return;
-  }
-
-  // 今天是还款日
-  const repayD = borrow && !borrow.repaid
-    ? (() => { const d = new Date(borrow.borrowedFrom + 'T00:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()
-    : null;
-  if (repayD === today) {
-    el.style.display = '';
-    el.innerHTML = `
-      <div class="borrow-box">
-        ↩️ 今日已扣还昨日借用 <strong>${borrow.amount} 分钟</strong>，配额相应减少。
-      </div>`;
-    return;
-  }
-
-  // 休息已锁定且没有未还借用 → 显示借用按钮
-  if (qs.restLocked && !qs.weeklyRestLocked && !(borrow && !borrow.repaid)) {
-    el.style.display = '';
-    el.innerHTML = `
-      <div class="borrow-box">
-        今日休息时间已用完。可向明天借用 <strong>${BORROW_DISPLAY_MINUTES} 分钟</strong>，明日配额相应减少。
-        <button class="borrow-btn" id="borrow-btn">${BORROW_BUTTON_TEXT}</button>
-        <div id="borrow-status" style="margin-top:6px;font-size:10px;"></div>
-      </div>`;
-    document.getElementById('borrow-btn').addEventListener('click', async function() {
-      if (!window.confirm(BORROW_CONFIRM_TEXT)) return;
-      const btn = this;
-      if (!btn || btn.disabled) return;
-      const statusEl = document.getElementById('borrow-status');
-      btn.disabled = true;
-      btn.textContent = '处理中...';
-      const r = await sendMsg({ type: 'BORROW_REST_QUOTA' });
-      if (r?.ok) {
-        btn.disabled = true;
-        btn.textContent = '已借用';
-        if (statusEl) {
-          statusEl.style.color = 'var(--accent)';
-          statusEl.textContent = `✓ 已借用 ${r.amount} 分钟，刷新页面试试`;
-        }
-      } else {
-        btn.disabled = false;
-        btn.textContent = BORROW_BUTTON_TEXT;
-        const errorMsg = BORROW_ERROR_MESSAGES[r?.error] || ('借用失败：' + (r?.error || '未知错误'));
-        if (statusEl) {
-          statusEl.style.color = r?.error ? 'var(--warn)' : 'var(--danger)';
-          statusEl.textContent = errorMsg;
-        }
-      }
-    });
-    return;
-  }
-
-  // 周配额满 → 说明不可借
-  if (qs.restLocked && qs.weeklyRestLocked) {
-    el.style.display = '';
-    el.innerHTML = `<div class="borrow-box" style="border-left-color:var(--danger);">本周休息配额已用完，无法借用。</div>`;
-    return;
-  }
-
-  el.style.display = 'none';
-}
-
-// ── 本周待定时段 ──────────────────────────────────────────────────────────────
-
-async function initWeeklySessions() {
-  const toggle = document.getElementById('week-sessions-toggle');
-  const list   = document.getElementById('week-sessions-list');
-  if (!toggle || !list) return;
-
-  toggle.addEventListener('click', async () => {
-    if (list.style.display === 'none') {
-      list.style.display = '';
-      toggle.textContent = '收起';
-      await loadWeeklySessions();
-    } else {
-      list.style.display = 'none';
-      toggle.textContent = '展开';
-    }
-  });
-}
-
-async function loadWeeklySessions() {
-  const list = document.getElementById('week-sessions-list');
-  if (!list) return;
-  list.innerHTML = '<div class="empty">加载中...</div>';
-
-  const res = await sendMsg({ type: 'GET_WEEKLY_SESSIONS' });
-  const sessions = res?.sessions || [];
-
-  if (sessions.length === 0) {
-    list.innerHTML = '<div class="empty">本周暂无待定会话</div>';
-    return;
-  }
-
-  // 仅显示本周，最新在前，最多 20 条
-  const items = sessions.slice(0, 20);
-  list.innerHTML = items.map(s => renderWeekSessionRow(s)).join('');
-
-  // 绑定申诉按钮
-  list.querySelectorAll('.appeal-btn[data-session-id]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const sid = btn.dataset.sessionId;
-      btn.disabled = true;
-      btn.textContent = '提交中...';
-      const r = await sendMsg({ type: 'SUBMIT_APPEAL', sessionId: sid, reason: '' });
-      if (r?.ok) {
-        btn.textContent = '已提交';
-        btn.style.color = 'var(--accent)';
-      } else {
-        btn.disabled = false;
-        btn.textContent = '申诉';
-        alert('申诉失败：' + (r?.error || '未知错误'));
-      }
-    });
-  });
-}
-
-function renderWeekSessionRow(s) {
-  const statusMap = {
-    study: '<span class="badge-study">✅ 学习</span>',
-    rest:  '<span class="badge-rest">⚠️ 休息</span>',
-    null:  '<span class="badge-pending">⏳ 待审核</span>',
-  };
-  const statusHtml = statusMap[s.classification] ?? statusMap[null];
-
-  // appeal_status: 'pending'=已申诉, 'upheld'=维持, 'overturned'=已改判
-  let appealHtml = '';
-  if (s.classification === 'rest' && !s.appeal_status) {
-    appealHtml = `<button class="appeal-btn" data-session-id="${escSid(s.id)}">申诉</button>`;
-  } else if (s.appeal_status === 'pending') {
-    appealHtml = '<span style="font-size:10px;color:var(--warn);">申诉中</span>';
-  } else if (s.appeal_status === 'overturned') {
-    appealHtml = '<span style="font-size:10px;color:var(--accent);">已改判</span>';
-  }
-
-  const title = (s.title || s.domain).slice(0, 40);
-  const dur = formatSeconds(s.duration || 0);
-  const date = (s.date || '').slice(5); // MM-DD
-
-  return `
-    <div class="week-session-row">
-      <div class="week-session-top">
-        <span class="week-session-title" title="${escAttr(s.title || '')}">${escHtml(title)}</span>
-        <span class="week-session-meta">${dur}</span>
-      </div>
-      <div class="week-session-status">
-        <span>${date} · ${escHtml(s.domain)}</span>
-        <span style="display:flex;align-items:center;gap:5px;">${statusHtml} ${appealHtml}</span>
-      </div>
-    </div>`;
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function escAttr(s) {
-  return String(s).replace(/"/g,'&quot;');
-}
-function escSid(s) {
-  return String(s).replace(/[^a-zA-Z0-9_-]/g,'');
-}
-
-// 域名匹配（与 background.js 一致）
 function matchDomain(domain, pattern) {
   function normalizeHostnameV12(input) {
     if (typeof input !== 'string') return null;

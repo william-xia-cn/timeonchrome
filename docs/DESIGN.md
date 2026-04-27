@@ -740,3 +740,18 @@ Secret：`RESEND_API_KEY`（通过 `wrangler secret put` 设置，不写入 wran
 cd pages
 wrangler pages deploy .
 ```
+
+---
+
+## 8. Agent 执行规范补强（2026-04-27）
+
+### 背景
+OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 / 未逐项对照确认方案”的行为。需将“已确认方案必须严格逐项执行”写入仓库级约束。
+
+### 变更内容
+- `AGENTS.md` 新增第 7 节：执行合规性规则（Plan Conformance / UI Change Boundary / Commit Gate）
+- `DECISIONS.md` 新增 D-014：Agent 必须严格遵循已确认的实施方案，不得擅自简化、替换或偏离
+
+### 影响范围
+- 仅文档变更，无代码逻辑改动
+- 所有 AI 执行器（Codex / OpenCode / Claude Code 等）均需遵守

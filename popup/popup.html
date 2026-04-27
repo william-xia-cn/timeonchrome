@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-ui-version="popup-p0">
 <head>
   <meta charset="UTF-8">
   <title>TimeOnChrome</title>
@@ -31,6 +31,12 @@
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
       gap: 10px;
     }
 
@@ -46,18 +52,22 @@
     .header-text h1 { font-size: 14px; font-weight: 700; }
     .header-text p  { font-size: 11px; color: var(--muted); }
 
-    /* 激励文字卡 */
-    .summary-card {
-      margin: 12px 16px 0;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--accent);
-      border-radius: 10px;
-      padding: 10px 14px;
-      font-size: 12px;
-      line-height: 1.7;
-      color: var(--text);
+    .header-right {
+      display: flex;
+      align-items: center;
     }
+
+    .settings-btn {
+      width: 28px; height: 28px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .settings-btn:hover { background: rgba(0,184,148,0.08); }
 
     .body { padding: 12px 16px; }
 
@@ -71,152 +81,6 @@
     }
     .section-title:first-child { margin-top: 0; }
 
-    /* 进度条组 */
-    .quota-bar-item {
-      margin-bottom: 12px;
-    }
-    .quota-bar-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 5px;
-    }
-    .quota-bar-label { font-size: 12px; font-weight: 500; }
-    .quota-bar-value { font-size: 11px; color: var(--muted); }
-    .progress-track {
-      height: 6px;
-      background: rgba(0,184,148,0.08);
-      border-radius: 100px;
-      overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%;
-      border-radius: 100px;
-      transition: width 0.5s;
-    }
-
-    /* Top 5 */
-    .stat-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 7px 10px;
-      background: var(--card);
-      border-radius: 8px;
-      margin-bottom: 5px;
-      border: 1px solid var(--border);
-    }
-    .stat-row-left  { font-size: 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; margin-right:8px; }
-    .stat-row-right { font-size: 11px; color: var(--accent); font-weight: 600; white-space:nowrap; }
-
-    .footer {
-      padding: 10px 16px 12px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .footer-date { font-size: 10px; color: var(--muted); }
-    .detail-link {
-      font-size: 11px;
-      color: var(--muted);
-      cursor: pointer;
-      text-decoration: none;
-      border: 1px solid var(--border);
-      padding: 4px 10px;
-      border-radius: 6px;
-      transition: color 0.2s;
-    }
-    .detail-link:hover { color: var(--text); }
-
-    .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
-
-    /* 借用提示 */
-    .borrow-box {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--warn);
-      border-radius: 8px;
-      padding: 10px 12px;
-      margin-bottom: 10px;
-      font-size: 11px;
-      color: var(--text);
-      line-height: 1.6;
-    }
-    .borrow-btn {
-      display: block;
-      width: 100%;
-      margin-top: 8px;
-      padding: 7px 0;
-      border-radius: 7px;
-      border: none;
-      background: linear-gradient(135deg, #f59e0b, #f97316);
-      color: #fff;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .borrow-btn:disabled { opacity: 0.5; cursor: default; }
-
-    /* 本周待定时段 */
-    .week-session-row {
-      display: flex;
-      flex-direction: column;
-      padding: 8px 10px;
-      background: var(--card);
-      border-radius: 8px;
-      margin-bottom: 5px;
-      border: 1px solid var(--border);
-    }
-    .week-session-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-    }
-    .week-session-title {
-      font-size: 11px;
-      color: var(--text);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      flex: 1;
-    }
-    .week-session-meta {
-      font-size: 10px;
-      color: var(--muted);
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .week-session-status {
-      font-size: 10px;
-      margin-top: 3px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .badge-pending  { color: #f59e0b; }
-    .badge-study    { color: #00b894; }
-    .badge-rest     { color: #ef4444; }
-    .appeal-btn {
-      font-size: 10px;
-      color: var(--muted);
-      border: 1px solid var(--border);
-      background: transparent;
-      border-radius: 4px;
-      padding: 2px 7px;
-      cursor: pointer;
-    }
-    .appeal-btn:hover { color: var(--text); }
-    .section-toggle {
-      font-size: 10px;
-      color: var(--accent);
-      cursor: pointer;
-      float: right;
-      text-decoration: underline;
-    }
-
-    /* 模式切换 */
     .mode-bar {
       margin: 10px 16px 0;
       display: flex;
@@ -244,18 +108,131 @@
       border-color: var(--warn);
       color: var(--warn);
     }
+
+    /* Current Site */
+    .current-site {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+    }
+    .current-site-domain {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .current-site-badge {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 100px;
+      font-weight: 600;
+    }
+    .badge-study { background: rgba(0,184,148,0.12); color: var(--accent); }
+    .badge-rest { background: rgba(239,68,68,0.12); color: var(--danger); }
+    .badge-composite { background: rgba(108,92,231,0.12); color: #6c5ce7; }
+    .badge-unknown { background: rgba(107,138,122,0.12); color: var(--muted); }
+
+    /* Stats Cards */
+    .stats-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 6px;
+      text-align: center;
+    }
+    .stat-card-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .stat-card-label {
+      font-size: 9px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* Progress Bars */
+    .quota-bar-item { margin-bottom: 12px; }
+    .quota-bar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+    }
+    .quota-bar-label { font-size: 12px; font-weight: 500; }
+    .quota-bar-value { font-size: 11px; color: var(--muted); }
+    .progress-track {
+      height: 6px;
+      background: rgba(0,184,148,0.08);
+      border-radius: 100px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 100px;
+      transition: width 0.5s;
+    }
+
+    /* Top 10 */
+    .stat-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 10px;
+      background: var(--card);
+      border-radius: 8px;
+      margin-bottom: 5px;
+      border: 1px solid var(--border);
+    }
+    .stat-row-left  { font-size: 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; margin-right:8px; }
+    .stat-row-right { font-size: 11px; color: var(--accent); font-weight: 600; white-space:nowrap; }
+
+    .actions {
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+    }
+    .action-link {
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 6px;
+      transition: color 0.2s;
+    }
+    .action-link:hover { color: var(--text); }
+
+    .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="header-icon">⏱</div>
-    <div class="header-text">
-      <h1>TimeOnChrome</h1>
-      <p id="child-name-header">我的时间</p>
+    <div class="header-left">
+      <div class="header-icon">⏱</div>
+      <div class="header-text">
+        <h1>TimeOnChrome</h1>
+        <p id="child-name-header">我的时间</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="settings-btn" class="settings-btn" title="设置">⚙️</button>
     </div>
   </div>
 
-  <!-- 未绑定提示（设备被解绑时显示） -->
   <div id="unbound-banner" style="display:none;margin:12px 16px 0;background:#fff8f8;border:1px solid rgba(239,68,68,0.2);border-left:3px solid #ef4444;border-radius:10px;padding:12px 14px;">
     <div style="font-size:13px;font-weight:600;color:#ef4444;margin-bottom:4px;">⚠️ 设备未绑定</div>
     <div style="font-size:12px;color:#6b8a7a;line-height:1.6;">此设备已被解绑，请前往管理面板重新绑定。</div>
@@ -264,42 +241,35 @@
     </div>
   </div>
 
-  <!-- 模式切换 -->
   <div class="mode-bar">
     <button class="mode-btn" id="btn-study">📚 学习模式</button>
     <button class="mode-btn" id="btn-rest">☕ 休息模式</button>
   </div>
 
-  <!-- 激励摘要 -->
-  <div class="summary-card" id="summary-card">加载中...</div>
-
   <div class="body">
-    <!-- 今日用量进度条 -->
+    <!-- Current Site -->
+    <div class="section-title">正在访问</div>
+    <div id="current-site" class="current-site">
+      <div class="current-site-domain" id="current-domain">—</div>
+      <span id="current-badge" class="current-site-badge badge-unknown">未知</span>
+    </div>
+
+    <!-- Progress Bars (Online + Undetermined + Backend Media) -->
     <div class="section-title">今日用量</div>
     <div id="quota-bars">
       <div class="empty">加载中...</div>
     </div>
+    <div id="backend-media-row" style="display:none;margin-top:8px;font-size:12px;color:var(--muted);">
+      🎵 后台音视频  <span id="backend-media-value" style="color:var(--text);font-weight:600;">0分钟</span>
+    </div>
 
-    <!-- 借用状态 / 借用按钮（仅休息锁定时显示） -->
-    <div id="borrow-section" style="display:none;"></div>
-
-    <!-- 今日 Top5 -->
+    <!-- Top 10 -->
     <div class="section-title">今日访问</div>
-    <div id="today-top5"><div class="empty">暂无数据</div></div>
-
-    <!-- 本周待定时段 -->
-    <div class="section-title">
-      本周待定
-      <span class="section-toggle" id="week-sessions-toggle">展开</span>
-    </div>
-    <div id="week-sessions-list" style="display:none;">
-      <div class="empty">加载中...</div>
-    </div>
+    <div id="today-top10"><div class="empty">暂无数据</div></div>
   </div>
 
-  <div class="footer">
-    <span class="footer-date" id="footer-date"></span>
-    <a class="detail-link" id="detail-link">📊 详情</a>
+  <div class="actions">
+    <a class="action-link" id="detail-link">📊 详情</a>
   </div>
 
   <script src="popup.js"></script>
