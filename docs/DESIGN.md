@@ -86,17 +86,17 @@
 │  context.js     上下文构建 (lastActiveTabId, domain, focus)   │
 │  state.js       状态机 (ACTIVE/BACKGROUND_ACTIVE/PASSIVE/IDLE)│
 │  event-log.js   append-only 事件日志 (START/END, 10min 压缩)  │
-│  aggregate.js   时长计算 (只统计 ACTIVE/BACKGROUND_ACTIVE)     │
+│  aggregate.js   时长计算 (ACTIVE / media / PiP 分轨聚合)       │
 └──────────────────────────────────────────────────────────────┘
 
 ### 1.4 Phase 2B 最小双轨语义（媒体归因隔离）
 
-- 新增上下文字段 `mediaSourceTabId`（仅用于标识媒体来源 Tab，不新增 `mediaSourceDomain`）。
-- `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `mediaSourceTabId`），不覆盖前台归因（`tabId` / `domain`）。
+- 新增上下文字段 `mediaSourceTabId` / `mediaSourceDomain`，用于标识后台媒体或 PiP 来源，不覆盖前台归因（`tabId` / `domain`）。
+- `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `isPiP` / `mediaSourceTabId` / `mediaSourceDomain`），不覆盖前台归因。
 - `BACKGROUND_ACTIVE` 判定要求可验证媒体来源：`isAudible === true && mediaSourceTabId != null`。
 - 若仅有 `isAudible` 且缺少 `mediaSourceTabId`，采用保守回退，不进入 `BACKGROUND_ACTIVE`。
-- 后台 audio/video 媒体时长通过 `backgroundMediaByDomain` 保留 domain 维度，`audioSeconds` 总量只作为摘要；PiP 后续也必须采用单独统计且保留 domain 维度。
-- Picture-in-Picture 当前仅在状态机中预留 `isPiP -> BACKGROUND_ACTIVE` 语义；真实 PiP 信号采集、学习模式下关闭非学习网站 PiP、PiP 单独统计与校准验收作为 V1 后续任务，不阻塞 V0 后台 audio/video 媒体计时收口。
+- 后台 audio/video 媒体时长通过 `backgroundMediaByDomain` 保留 domain 维度，`audioSeconds` 总量只作为摘要。
+- Picture-in-Picture 使用独立 `PIP_ACTIVE` 状态，通过 `pipSeconds` / `pipByDomain` 单独记录，不混入普通在线/ACTIVE 或后台 audio/video 时长。
 - PiP 产品决策：不认为 PiP 是正常学习需求；切换到学习模式时，已经打开的非学习网站 PiP 必须关闭。PiP 视频时长需要单独记录，不混入普通在线/ACTIVE 时长；记录但不作为学习需求放行。
            │
            ▼

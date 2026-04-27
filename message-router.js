@@ -240,11 +240,43 @@ async function reevaluateActiveTabAfterModeSwitch() {
   }
 }
 
+async function closeNonStudyPictureInPicture(config) {
+  const tabs = await chrome.tabs.query({});
+  const studyList = config.studyList || [];
+  for (const tab of tabs) {
+    if (!tab?.id || !tab.url) continue;
+    const domain = extractDomain(tab.url);
+    if (!domain) continue;
+    const isStudy = studyList.some(p => matchDomain(domain, p));
+    if (isStudy) continue;
+
+    try {
+      if (chrome.scripting?.executeScript) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          func: async () => {
+            try {
+              if (document.pictureInPictureElement && document.exitPictureInPicture) {
+                await document.exitPictureInPicture();
+                return true;
+              }
+            } catch {}
+            return false;
+          },
+        });
+      } else {
+        await chrome.tabs.sendMessage(tab.id, { type: 'EXIT_PIP' });
+      }
+    } catch {}
+  }
+}
+
 async function switchToStudy() {
   const config = await getConfig();
   config.mode = 'study';
   await saveConfig(config);
   await updateDeclarativeRules(config);
+  await closeNonStudyPictureInPicture(config);
   const session = await getSession();
   session.currentMode = 'study';
   await chrome.storage.local.set({ guardian_session: session });

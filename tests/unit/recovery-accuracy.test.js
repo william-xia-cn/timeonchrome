@@ -146,7 +146,7 @@ function deriveStats(events, date) {
 
 function stripStatsMeta(stats) {
   return Object.fromEntries(
-    Object.entries(stats || {}).filter(([key]) => key !== 'audioSeconds' && key !== 'backgroundMediaByDomain')
+    Object.entries(stats || {}).filter(([key]) => key !== 'audioSeconds' && key !== 'backgroundMediaByDomain' && key !== 'pipSeconds' && key !== 'pipByDomain')
   );
 }
 

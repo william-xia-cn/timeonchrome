@@ -185,11 +185,13 @@ const EVENT_LOG_KEY = 'event_log_v1';
  * 从 event-log 聚合指定日期的域名时长
  */
 function aggregateFromEvents(events, date) {
-  const { domains, audioSeconds, backgroundMediaByDomain } = aggregateFromEventsWithAudio(events, date);
+  const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } = aggregateFromEventsWithAudio(events, date);
   return {
     ...domains,
     audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0,
     backgroundMediaByDomain: backgroundMediaByDomain || {},
+    pipSeconds: Number.isFinite(pipSeconds) ? pipSeconds : 0,
+    pipByDomain: pipByDomain || {},
   };
 }
 
@@ -225,7 +227,7 @@ export async function getTodayUndeterminedStats() {
 
   const result = {};
   for (const [domain, seconds] of Object.entries(stats)) {
-    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
     if (compositeList.some(p => matchDomain(domain, p))) {
       result[domain] = seconds;
     }
@@ -245,11 +247,13 @@ export async function getStatsRange(days = 7) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = formatDate(d);
-    const { domains, audioSeconds, backgroundMediaByDomain } = aggregateFromEventsWithAudio(events, dateStr);
+    const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } = aggregateFromEventsWithAudio(events, dateStr);
     result[dateStr] = {
       ...domains,
       audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0,
       backgroundMediaByDomain: backgroundMediaByDomain || {},
+      pipSeconds: Number.isFinite(pipSeconds) ? pipSeconds : 0,
+      pipByDomain: pipByDomain || {},
     };
   }
   return result;

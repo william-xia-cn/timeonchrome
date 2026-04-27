@@ -2,7 +2,8 @@
 
 const STATE_WEIGHTS = {
   ACTIVE: 1,
-  BACKGROUND_ACTIVE: 1,
+  BACKGROUND_ACTIVE: 0,
+  PIP_ACTIVE: 0,
   PASSIVE: 0,
   IDLE: 0,
 };
@@ -34,16 +35,19 @@ export function computeAllDomains(events, date) {
 }
 
 /**
- * 计算所有域名普通时长 + 音频时长（BACKGROUND_ACTIVE）
+ * 计算所有域名普通时长 + 后台媒体时长 + PiP 时长
  *
  * 口径：
  * - domains：仅 ACTIVE 时长
  * - audioSeconds：仅 BACKGROUND_ACTIVE 时长
  * - backgroundMediaByDomain：按 domain 归因的 BACKGROUND_ACTIVE 时长
+ * - pipSeconds：仅 PIP_ACTIVE 时长
+ * - pipByDomain：按 domain 归因的 PIP_ACTIVE 时长
  */
 export function computeAllDomainsWithAudio(events, date) {
   const domains = {};
   const backgroundMediaByDomain = {};
+  const pipByDomain = {};
   const { start, end } = getLocalDayRange(date);
   const validEvents = buildValidEvents(events);
   const sorted = sortByTimeStable(validEvents);
@@ -55,16 +59,21 @@ export function computeAllDomainsWithAudio(events, date) {
   }
 
   let audioSeconds = 0;
+  let pipSeconds = 0;
   for (const [domain, domainEvents] of byDomain.entries()) {
-    const { activeSeconds, backgroundAudioSeconds } = computeDomainBreakdown(domainEvents, start, end);
+    const { activeSeconds, backgroundAudioSeconds, pipActiveSeconds } = computeDomainBreakdown(domainEvents, start, end);
     if (activeSeconds > 0) domains[domain] = activeSeconds;
     if (backgroundAudioSeconds > 0) {
       backgroundMediaByDomain[domain] = backgroundAudioSeconds;
       audioSeconds += backgroundAudioSeconds;
     }
+    if (pipActiveSeconds > 0) {
+      pipByDomain[domain] = pipActiveSeconds;
+      pipSeconds += pipActiveSeconds;
+    }
   }
 
-  return { domains, audioSeconds, backgroundMediaByDomain };
+  return { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain };
 }
 
 function buildValidEvents(events, domainFilter = null) {
@@ -93,6 +102,7 @@ function sortByTimeStable(events) {
 function computeDomainBreakdown(domainEvents, windowStart, windowEnd) {
   let activeSeconds = 0;
   let backgroundAudioSeconds = 0;
+  let pipActiveSeconds = 0;
   let openStart = null;
 
   for (const evt of domainEvents) {
@@ -119,6 +129,12 @@ function computeDomainBreakdown(domainEvents, windowStart, windowEnd) {
       continue;
     }
 
+    if (state === 'PIP_ACTIVE') {
+      pipActiveSeconds += durationSec;
+      openStart = null;
+      continue;
+    }
+
     const weight = STATE_WEIGHTS[state];
     if (!weight || weight <= 0) {
       openStart = null; // unknown/passive/idle segment ignored conservatively
@@ -129,7 +145,7 @@ function computeDomainBreakdown(domainEvents, windowStart, windowEnd) {
     openStart = null;
   }
 
-  return { activeSeconds, backgroundAudioSeconds };
+  return { activeSeconds, backgroundAudioSeconds, pipActiveSeconds };
 }
 
 function computeDomainSeconds(domainEvents, windowStart, windowEnd) {

@@ -103,11 +103,15 @@ async function processTimingSignal(rawEvent) {
       isFocused: currentContext?.isFocused,
       isIdle: currentContext?.isIdle,
       isAudible: currentContext?.isAudible,
+      isPiP: currentContext?.isPiP,
+      mediaSourceDomain: currentContext?.mediaSourceDomain,
     },
   });
 
   const state = resolveState(currentContext);
-  const domain = currentContext?.domain || null;
+  const domain = (state === 'BACKGROUND_ACTIVE' || state === 'PIP_ACTIVE')
+    ? (currentContext?.mediaSourceDomain || currentContext?.domain || null)
+    : (currentContext?.domain || null);
   await emitTrace('state_resolved', {
     source: 'state',
     reason: rawEvent._reason || 'unknown',

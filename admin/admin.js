@@ -1091,7 +1091,7 @@ async function renderOverview() {
   if (dateEl) dateEl.textContent = `${now.getMonth()+1}月${now.getDate()}日 ${weekNames[now.getDay()]}`;
 
   // 今日统计
-  let studySeconds = 0, freeSeconds = 0, onlineSeconds = 0, undeterminedSeconds = 0, audioSeconds = 0, weekFreeSeconds = 0;
+  let studySeconds = 0, freeSeconds = 0, onlineSeconds = 0, undeterminedSeconds = 0, audioSeconds = 0, pipSeconds = 0, weekFreeSeconds = 0;
   try {
     const [rangeData, weekRes] = await Promise.all([
       sendMsg({ type: 'GET_STATS_RANGE', days: 1 }),
@@ -1101,8 +1101,9 @@ async function renderOverview() {
     const todayData = Object.values(rangeData)[Object.keys(rangeData).length - 1] || { audioSeconds: 0 };
     const compositeList = config.compositeList || [];
     audioSeconds = Number(todayData.audioSeconds) || 0;
+    pipSeconds = Number(todayData.pipSeconds) || 0;
     for (const [domain, seconds] of Object.entries(todayData)) {
-      if (domain === "audioSeconds" || domain === "backgroundMediaByDomain") continue;
+      if (domain === "audioSeconds" || domain === "backgroundMediaByDomain" || domain === "pipSeconds" || domain === "pipByDomain") continue;
       onlineSeconds += seconds;
       const type = classifyDomain(domain);
       if (type === 'study') studySeconds += seconds;
@@ -1180,7 +1181,8 @@ async function renderOverview() {
       bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked) +
       bar('🎵', '今日休息', freeSeconds, restLimit, 'var(--warn)', qs.restLocked) +
       bar('📅', '本周休息', weekFreeSeconds, weeklyRestLimit, '#e17055', qs.weeklyRestLocked) +
-      `<div style="font-size:12px;color:var(--muted);margin-top:4px;">🎧 音频时间（后台音频） ${formatSeconds(audioSeconds)}</div>`;
+      `<div style="font-size:12px;color:var(--muted);margin-top:4px;">🎧 音频时间（后台音频） ${formatSeconds(audioSeconds)}</div>` +
+      `<div style="font-size:12px;color:var(--muted);margin-top:4px;">▣ PiP 时间 ${formatSeconds(pipSeconds)}</div>`;
   }
 
   // 单站点配额（只读）
@@ -1208,7 +1210,7 @@ async function renderOverview() {
     const listEl = document.getElementById('today-stats-list');
     if (listEl) {
       const entries = Object.entries(stats)
-        .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')
+        .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10);
       if (entries.length === 0) {
@@ -1358,25 +1360,28 @@ function classifyDomain(domain) {
 function splitStatsDay(dayStats) {
   const safe = dayStats && typeof dayStats === 'object' ? dayStats : {};
   const audioSeconds = Number(safe.audioSeconds) || 0;
+  const pipSeconds = Number(safe.pipSeconds) || 0;
   const domainStats = {};
   for (const [domain, seconds] of Object.entries(safe)) {
-    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
     domainStats[domain] = Number(seconds) || 0;
   }
-  return { domainStats, audioSeconds };
+  return { domainStats, audioSeconds, pipSeconds };
 }
 
 function mergeStatsRange(rangeData) {
   const merged = {};
   let audioSeconds = 0;
+  let pipSeconds = 0;
   for (const dayStats of Object.values(rangeData)) {
     const day = splitStatsDay(dayStats);
     audioSeconds += day.audioSeconds;
+    pipSeconds += day.pipSeconds;
     for (const [domain, seconds] of Object.entries(day.domainStats)) {
       merged[domain] = (merged[domain] || 0) + seconds;
     }
   }
-  return { domainStats: merged, audioSeconds };
+  return { domainStats: merged, audioSeconds, pipSeconds };
 }
 
 function setupStatsPage() {
@@ -1404,6 +1409,7 @@ async function renderStatsPage(range = 'today') {
     : mergeStatsRange(rangeData);
   const statsData = dayOrRange.domainStats;
   const audioSeconds = Number(dayOrRange.audioSeconds) || 0;
+  const pipSeconds = Number(dayOrRange.pipSeconds) || 0;
 
   // 按分类汇总
   let studySeconds = 0, freeSeconds = 0, otherSeconds = 0;
@@ -1421,6 +1427,8 @@ async function renderStatsPage(range = 'today') {
   document.getElementById('stat-rest-time').textContent   = formatSeconds(freeSeconds);
   const audioEl = document.getElementById('stat-audio-time');
   if (audioEl) audioEl.textContent = formatSeconds(audioSeconds);
+  const pipEl = document.getElementById('stat-pip-time');
+  if (pipEl) pipEl.textContent = formatSeconds(pipSeconds);
   document.getElementById('stat-study-percent').textContent =
     totalSeconds > 0 ? Math.round(studySeconds / totalSeconds * 100) + '%' : '0%';
   document.getElementById('stat-rest-percent').textContent  =
@@ -1432,7 +1440,7 @@ async function renderStatsPage(range = 'today') {
     const allDates  = Object.keys(prevData).sort();
     const prevHalf  = allDates.slice(0, Math.floor(allDates.length / 2));
     const prevTotal = prevHalf.reduce((sum, d) =>
-      sum + Object.entries(prevData[d] || {}).reduce((acc, [k, v]) => (k === 'audioSeconds' || k === 'backgroundMediaByDomain') ? acc : acc + (Number(v) || 0), 0), 0);
+      sum + Object.entries(prevData[d] || {}).reduce((acc, [k, v]) => (k === 'audioSeconds' || k === 'backgroundMediaByDomain' || k === 'pipSeconds' || k === 'pipByDomain') ? acc : acc + (Number(v) || 0), 0), 0);
     const trend     = prevTotal > 0 ? Math.round((totalSeconds - prevTotal) / prevTotal * 100) : 0;
     const trendEl   = document.getElementById('stat-total-trend');
     if (trendEl) {
@@ -1553,7 +1561,7 @@ function renderTopDomains(statsData, totalSeconds) {
   if (!container) return;
 
   const entries = Object.entries(statsData)
-    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')
+    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
 

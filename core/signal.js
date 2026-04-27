@@ -39,6 +39,7 @@ export function initSignal(onContextChange) {
       isIdle: incoming.isIdle ?? pending.isIdle,
       isAudible: incoming.isAudible ?? pending.isAudible,
       mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
+      mediaSourceDomain: incoming.mediaSourceDomain ?? pending.mediaSourceDomain,
       isPiP: incoming.isPiP ?? pending.isPiP,
       error: incoming.error ?? pending.error,
       _reason: incoming._reason ?? pending._reason ?? 'unknown',
@@ -150,7 +151,7 @@ export function initSignal(onContextChange) {
           windowId,
           url: tab.url,
           domain,
-          ...(navigationClearsMedia ? { isAudible: false, mediaSourceTabId: tabId } : {}),
+          ...(navigationClearsMedia ? { isAudible: false, mediaSourceTabId: tabId, mediaSourceDomain: null, isPiP: false } : {}),
           ...focus,
           _reason: 'tabUpdated',
         });
@@ -179,9 +180,13 @@ export function initSignal(onContextChange) {
   // 媒体状态（从 content.js 或 tabs API 转发）
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (msg.type === 'MEDIA_STATE' && sender.tab) {
+      const url = sender.tab.url || null;
+      const domain = url ? extractDomain(url) : null;
       onEvent({
         isAudible: msg.playing,
+        isPiP: msg.isPiP,
         mediaSourceTabId: sender.tab.id,
+        mediaSourceDomain: domain,
         _reason: 'mediaState',
       });
     }

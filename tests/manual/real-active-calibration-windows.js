@@ -55,13 +55,17 @@ function sleep(ms) {
 function startMockServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      if (req.url === '/media-video.html') {
+      const pathname = (() => {
+        try { return new URL(req.url, 'http://127.0.0.1').pathname; } catch { return req.url; }
+      })();
+      if (pathname === '/media-video.html') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`<!doctype html>
 <html><head><title>TimeOnChrome media video</title></head>
 <body>
   <canvas id="canvas" width="320" height="180"></canvas>
   <video id="video" muted autoplay playsinline loop width="320" height="180"></video>
+  <button id="pip">pip</button>
   <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -77,11 +81,21 @@ function startMockServer() {
     const video = document.getElementById('video');
     video.srcObject = canvas.captureStream(4);
     video.play().catch(() => {});
+    document.getElementById('pip').addEventListener('click', async () => {
+      try {
+        await video.play();
+        if (document.pictureInPictureEnabled && !document.pictureInPictureElement) {
+          await video.requestPictureInPicture();
+        }
+      } catch (err) {
+        document.body.dataset.pipError = err && err.message ? err.message : String(err);
+      }
+    });
   </script>
 </body></html>`);
         return;
       }
-      if (req.url === '/media-audio.html') {
+      if (pathname === '/media-audio.html') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`<!doctype html>
 <html><head><title>TimeOnChrome media audio</title></head>
@@ -126,7 +140,7 @@ function startMockServer() {
 </body></html>`);
         return;
       }
-      const filePath = path.join(MOCKS_DIR, req.url === '/' ? 'pageA.html' : req.url);
+      const filePath = path.join(MOCKS_DIR, pathname === '/' ? 'pageA.html' : pathname);
       if (!fs.existsSync(filePath)) {
         res.writeHead(404);
         res.end('Not found');
@@ -686,6 +700,67 @@ async function prepareForegroundMedia(page, kind) {
   return result;
 }
 
+async function enterPictureInPicture(page) {
+  await page.bringToFront();
+  await tryBringChromeToFront(page);
+  try {
+    await page.waitForSelector('video', { state: 'attached', timeout: 5000 });
+  } catch (err) {
+    return {
+      success: false,
+      reason: 'no video element',
+      url: page.url(),
+      title: await page.title().catch(() => ''),
+      error: err?.message || String(err),
+    };
+  }
+  const result = await page.evaluate(async () => {
+    const video = document.querySelector('video');
+    if (!video) return { success: false, reason: 'no video element' };
+    video.muted = true;
+    video.loop = true;
+    try {
+      await video.play();
+      if (!document.pictureInPictureEnabled) {
+        return { success: false, reason: 'pictureInPicture disabled' };
+      }
+    } catch (err) {
+      return { success: false, reason: err?.message || String(err) };
+    }
+    return {
+      success: !!document.pictureInPictureElement,
+      alreadyPiP: !!document.pictureInPictureElement,
+      readyState: video.readyState,
+      paused: video.paused,
+      pipEnabled: document.pictureInPictureEnabled,
+    };
+  });
+  if (result.success) return result;
+
+  await page.click('#pip', { timeout: 5000 });
+  await page.waitForFunction(() => !!document.pictureInPictureElement, { timeout: 8000 }).catch(() => {});
+  return await page.evaluate(() => ({
+    success: !!document.pictureInPictureElement,
+    pipEnabled: document.pictureInPictureEnabled,
+    pipError: document.body.dataset.pipError || null,
+    readyState: document.querySelector('video')?.readyState ?? null,
+    paused: document.querySelector('video')?.paused ?? null,
+  }));
+}
+
+async function exitPictureInPicture(page) {
+  return await page.evaluate(async () => {
+    try {
+      if (document.pictureInPictureElement && document.exitPictureInPicture) {
+        await document.exitPictureInPicture();
+      }
+      return { success: true, stillPiP: !!document.pictureInPictureElement };
+    } catch (err) {
+      return { success: false, error: err?.message || String(err), stillPiP: !!document.pictureInPictureElement };
+    }
+  }).catch(err => ({ success: false, error: err?.message || String(err) }));
+}
+
 async function markCalibrationStartOnCurrentPage(page, sw) {
   await callDebug(sw, 'debugResetTimingCalibration');
   let lastError = null;
@@ -748,8 +823,15 @@ async function prepareRestMode(sw) {
       const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
       const config = stored['guardian_config'] || {};
       const session = stored['guardian_session'] || {};
+      const localStudyDomains = ['127.0.0.1', '127.0.0.2', 'localhost'];
+      const studyList = Array.from(new Set([...(config.studyList || []), ...localStudyDomains]));
       await chrome.storage.local.set({
-        guardian_config: { ...config, mode: 'rest' },
+        guardian_config: {
+          ...config,
+          mode: 'rest',
+          studyList,
+          autoStudyConfig: { ...(config.autoStudyConfig || {}), enabled: false },
+        },
         guardian_session: { ...session, currentMode: 'rest' },
       });
 
@@ -773,19 +855,20 @@ async function prepareRestMode(sw) {
   });
 
   if (direct?.success) {
-    const verified = await sw.evaluate(async () => {
+    const verified = await forceRestProfile(null, 'debugSetRestModeWithLocalCalibrationProfile');
+    await clearDynamicRules();
+    if (verified.mode === 'rest' && verified.currentMode === 'rest') {
+      return { success: true, ...verified };
+    }
+    const directVerified = await sw.evaluate(async () => {
       const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
       return {
         mode: stored['guardian_config']?.mode || null,
         currentMode: stored['guardian_session']?.currentMode || null,
       };
     });
-    if (verified.mode === 'rest' && verified.currentMode === 'rest') {
-      await clearDynamicRules();
-      return { success: true, method: 'debugSetRestMode', ...verified };
-    }
     const fallback = await forceRestProfile(
-      `debugSetRestMode left profile at ${verified.mode}/${verified.currentMode}`,
+      `debugSetRestMode left profile at ${directVerified.mode}/${directVerified.currentMode}`,
       'verifiedStorageRestModeFallback'
     );
     await clearDynamicRules();
@@ -846,14 +929,17 @@ function pairActiveDurations(eventLog) {
 
   const activeByDomain = {};
   const backgroundActiveByDomain = {};
+  const pipActiveByDomain = {};
   for (const segment of segments) {
     if (segment.state === 'ACTIVE') {
       activeByDomain[segment.domain] = (activeByDomain[segment.domain] || 0) + segment.seconds;
     } else if (segment.state === 'BACKGROUND_ACTIVE') {
       backgroundActiveByDomain[segment.domain] = (backgroundActiveByDomain[segment.domain] || 0) + segment.seconds;
+    } else if (segment.state === 'PIP_ACTIVE') {
+      pipActiveByDomain[segment.domain] = (pipActiveByDomain[segment.domain] || 0) + segment.seconds;
     }
   }
-  return { segments, activeByDomain, backgroundActiveByDomain };
+  return { segments, activeByDomain, backgroundActiveByDomain, pipActiveByDomain };
 }
 
 function localDateKey(time) {
@@ -894,7 +980,7 @@ function sumStatsRange(statsRange) {
   const summed = {};
   for (const dayStats of Object.values(statsRange || {})) {
     for (const [domain, seconds] of Object.entries(dayStats || {})) {
-      if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain') continue;
+      if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
       summed[domain] = (summed[domain] || 0) + seconds;
     }
   }
@@ -924,7 +1010,7 @@ function classify(report, expected, domains) {
   const eventLogStatsByDate = deriveActiveByDate(segments);
   const stats = expected.useStatsRange ? sumStatsRange(report.statsRange || {}) : (report.stats || {});
   const domainStats = Object.fromEntries(
-    Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain')
+    Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
   );
   const backgroundAudioSeconds = Number(report.stats?.audioSeconds || 0);
   const backgroundMediaByDomain = report.stats?.backgroundMediaByDomain || {};
@@ -1142,6 +1228,56 @@ function classifyStallRecovery(report, expected, domain, preStallSession, suspen
   };
 }
 
+function classifyPiP(report, expected, domain, pipResult) {
+  const { segments, activeByDomain, backgroundActiveByDomain, pipActiveByDomain } = pairActiveDurations(report.eventLog || []);
+  const pipSegments = segments.filter(s => s.state === 'PIP_ACTIVE' && s.domain === domain);
+  const pipEventLogSeconds = pipActiveByDomain[domain] || 0;
+  const pipStatsSeconds = Number(report.stats?.pipByDomain?.[domain] || 0);
+  const pipTotalSeconds = Number(report.stats?.pipSeconds || 0);
+  const activeSeconds = activeByDomain[domain] || 0;
+  const backgroundSeconds = backgroundActiveByDomain[domain] || 0;
+  const statsActiveSeconds = Number(report.stats?.[domain] || 0);
+  const expectedSeconds = expected.a;
+  const tolerance = Math.max(4, Math.ceil(expectedSeconds * 0.35));
+  const pipCloseEnough = Math.abs(pipEventLogSeconds - expectedSeconds) <= tolerance;
+  const statsMatchesEventLog = pipStatsSeconds === pipEventLogSeconds && pipTotalSeconds === pipEventLogSeconds;
+  const setupTolerance = Math.max(4, Math.ceil(expectedSeconds * 0.25));
+  const ordinaryNotPolluted = activeSeconds <= setupTolerance &&
+    statsActiveSeconds === activeSeconds &&
+    backgroundSeconds === 0;
+
+  let firstBrokenLayer = null;
+  if (!pipResult?.success) firstBrokenLayer = 'test-setup';
+  else if (pipSegments.length === 0) firstBrokenLayer = 'event-log';
+  else if (!pipCloseEnough) firstBrokenLayer = 'session';
+  else if (!statsMatchesEventLog) firstBrokenLayer = 'stats';
+  else if (!ordinaryNotPolluted) firstBrokenLayer = 'stats';
+
+  return {
+    result: firstBrokenLayer ? (pipSegments.length > 0 ? 'PARTIAL' : 'FAIL') : 'PASS',
+    firstBrokenLayer: firstBrokenLayer || 'none',
+    segments,
+    pipSegments,
+    activeByDomain,
+    backgroundActiveByDomain,
+    pipActiveByDomain,
+    pipEventLogSeconds,
+    pipStatsSeconds,
+    pipTotalSeconds,
+    activeSeconds,
+    statsActiveSeconds,
+    backgroundSeconds,
+    expectedSeconds,
+    tolerance,
+    setupTolerance,
+    pipCloseEnough,
+    statsMatchesEventLog,
+    ordinaryNotPolluted,
+    pipResult,
+    stats: report.stats || {},
+  };
+}
+
 async function main() {
   if (process.platform !== 'win32') {
     throw new Error(`This runner is Windows-only. Current platform: ${process.platform}`);
@@ -1155,7 +1291,7 @@ async function main() {
 
   const localTargets = realTargets ? null : await startMockServer();
   const pageA = realTargets?.pageA ||
-    (args.scenario === 'background-video-local' ? localTargets.mediaVideo :
+    (args.scenario === 'background-video-local' || args.scenario === 'pip-local' ? localTargets.mediaVideo :
       args.scenario === 'background-audio-local' ? localTargets.mediaAudio :
         localTargets.pageA);
   const pageB = realTargets?.pageB || localTargets.pageB;
@@ -1234,6 +1370,60 @@ async function main() {
       if (args.verbose) {
         console.log(`  eventLog: ${JSON.stringify(report.eventLog)}`);
         console.log(`  segments: ${JSON.stringify(analysis.segments)}`);
+      }
+      if (analysis.result === 'FAIL') process.exitCode = 1;
+      return;
+    } else if (args.scenario === 'pip-local') {
+      page = await context.newPage();
+      console.log(`  PiP page: ${pageA}`);
+      await page.goto(pageA, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await markCalibrationStartOnCurrentPage(page, sw);
+      const pipResult = await enterPictureInPicture(page);
+      console.log(`  enter PiP: ${JSON.stringify(pipResult)}`);
+      await sleep(Math.max(1, args.a) * 1000);
+      const exitResult = await exitPictureInPicture(page);
+      console.log(`  exit PiP: ${JSON.stringify(exitResult)}`);
+      await sleep(500);
+      console.log(`  close with page C: ${pageC}`);
+      await page.goto(pageC, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await keepForegroundActive(page, Math.max(1, args.c), 'C close-out');
+
+      const report = await callDebug(sw, 'debugExportTimingCalibration');
+      const badge = await getBadgeSnapshot(sw);
+      const domains = {
+        pageA: new URL(pageA).hostname,
+        pageB: new URL(pageB).hostname,
+        pageC: new URL(pageC).hostname,
+      };
+      const analysis = classifyPiP(report, { a: args.a }, domains.pageA, pipResult);
+
+      console.log('\n[PiP calibration result]');
+      console.log(`  result: ${analysis.result}`);
+      console.log(`  firstBrokenLayer: ${analysis.firstBrokenLayer}`);
+      console.log(`  mode/currentMode: ${report.mode}/${report.currentMode}`);
+      console.log(`  traceCount: ${report.traceCount}`);
+      console.log(`  eventLogCount: ${report.eventLogCount}`);
+      console.log(`  pipResult: ${JSON.stringify(analysis.pipResult)}`);
+      console.log(`  pipActiveByDomain: ${JSON.stringify(analysis.pipActiveByDomain)}`);
+      console.log(`  activeByDomain: ${JSON.stringify(analysis.activeByDomain)}`);
+      console.log(`  backgroundActiveByDomain: ${JSON.stringify(analysis.backgroundActiveByDomain)}`);
+      console.log(`  stats: ${JSON.stringify(analysis.stats)}`);
+      console.log(`  pageA(${domains.pageA}) PIP event-log-derived: ${analysis.pipEventLogSeconds}s`);
+      console.log(`  pageA(${domains.pageA}) pipByDomain stats: ${analysis.pipStatsSeconds}s`);
+      console.log(`  pipSeconds total: ${analysis.pipTotalSeconds}s`);
+      console.log(`  ordinary ACTIVE pollution: ${analysis.activeSeconds}s`);
+      console.log(`  ordinary ACTIVE stats: ${analysis.statsActiveSeconds}s`);
+      console.log(`  background media pollution: ${analysis.backgroundSeconds}s`);
+      console.log(`  expectedPiP: ${analysis.expectedSeconds}s, tolerance: +/-${analysis.tolerance}s`);
+      console.log(`  setupActiveTolerance: ${analysis.setupTolerance}s`);
+      console.log(`  pipCloseEnough: ${analysis.pipCloseEnough}`);
+      console.log(`  statsMatchesEventLog: ${analysis.statsMatchesEventLog}`);
+      console.log(`  ordinaryNotPolluted: ${analysis.ordinaryNotPolluted}`);
+      console.log(`  badge: ${JSON.stringify(badge)}`);
+      if (args.verbose) {
+        console.log(`  eventLog: ${JSON.stringify(report.eventLog)}`);
+        console.log(`  segments: ${JSON.stringify(analysis.segments)}`);
+        console.log(`  focusLedgerTail: ${JSON.stringify((report.focusLedger || []).slice(-12))}`);
       }
       if (analysis.result === 'FAIL') process.exitCode = 1;
       return;

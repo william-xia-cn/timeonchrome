@@ -128,6 +128,8 @@ async function runTests() {
     expectTrue('x.com should be absent (unclosed START ignored)', !('x.com' in range[today]));
     expect('audioSeconds should always exist with zero default', range[today].audioSeconds, 0);
     expect('backgroundMediaByDomain should always exist with empty default', range[today].backgroundMediaByDomain, {});
+    expect('pipSeconds should always exist with zero default', range[today].pipSeconds, 0);
+    expect('pipByDomain should always exist with empty default', range[today].pipByDomain, {});
   }
 
 
@@ -168,6 +170,26 @@ async function runTests() {
     expect('backgroundMediaByDomain.video.com should be 8', stats.backgroundMediaByDomain['video.com'], 8);
     expect('read.com should be 4 seconds', stats['read.com'], 4);
     expectTrue('video.com should be absent from domain totals', !('video.com' in stats));
+  }
+
+  section('S5: PiP should be split into pipSeconds and pipByDomain');
+  {
+    mockLocalStorage.reset();
+    await mockLocalStorage.set({
+      [EVENT_LOG_KEY]: [
+        { type: 'START', state: 'PIP_ACTIVE', domain: 'video.com', time: tsForDate(today, 14, 0, 0) },
+        { type: 'END', state: 'PIP_ACTIVE', domain: 'video.com', time: tsForDate(today, 14, 0, 9) },
+        { type: 'START', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 14, 1, 0) },
+        { type: 'END', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 14, 1, 4) },
+      ]
+    });
+
+    const stats = await storageApi.getTodayStats();
+    expect('pipSeconds should be 9', stats.pipSeconds, 9);
+    expect('pipByDomain.video.com should be 9', stats.pipByDomain['video.com'], 9);
+    expect('read.com should be 4 seconds', stats['read.com'], 4);
+    expectTrue('video.com should be absent from domain totals', !('video.com' in stats));
+    expect('audioSeconds should stay 0', stats.audioSeconds, 0);
   }
 
   const total = passed + failed;

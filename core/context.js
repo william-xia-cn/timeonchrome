@@ -15,6 +15,7 @@
  * @property {boolean} isIdle
  * @property {boolean} isAudible
  * @property {boolean} isPiP
+ * @property {string|null} mediaSourceDomain
  * @property {number} timestamp
  * @property {number|null} lastActiveTabId
  * @property {number|null} lastFocusedWindowId
@@ -27,6 +28,9 @@ export function buildContext(current, rawEvent) {
   const nextMediaSourceTabId = rawEvent.isAudible === false
     ? null
     : (rawEvent.mediaSourceTabId ?? current?.mediaSourceTabId ?? null);
+  const nextMediaSourceDomain = rawEvent.isAudible === false
+    ? null
+    : (rawEvent.mediaSourceDomain ?? current?.mediaSourceDomain ?? null);
 
   return {
     tabId: nextTabId,
@@ -36,6 +40,7 @@ export function buildContext(current, rawEvent) {
     isIdle: rawEvent.isIdle ?? current?.isIdle ?? false,
     isAudible: rawEvent.isAudible ?? current?.isAudible ?? false,
     mediaSourceTabId: nextMediaSourceTabId,
+    mediaSourceDomain: nextMediaSourceDomain,
     isPiP: rawEvent.isPiP ?? current?.isPiP ?? false,
     timestamp: Date.now(),
     // 关键：追踪最后状态，防止 window blur/focus 循环导致状态错乱
