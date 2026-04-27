@@ -39,6 +39,7 @@ function loadStorageExtractDomain(deps) {
   const transformed = code
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/aggregate\.js';/, 'const computeAllDomains = __deps.computeAllDomains; const computeAllDomainsWithAudio = __deps.computeAllDomainsWithAudio;')
     .replace(/import\s+\{\s*matchDomain\s+as\s+matchDomainV12,\s*normalizeHostname\s*\}\s+from\s+'\.\.\/core\/domain-semantics\.js';/, 'const matchDomainV12 = __deps.matchDomainV12; const normalizeHostname = __deps.normalizeHostname;')
+    .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/timing-trace\.js';/, 'const emitTrace = async () => {};')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ')
     .replace(/export\s+async\s+function\s+/g, 'async function ')

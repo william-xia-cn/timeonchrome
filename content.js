@@ -14,19 +14,22 @@
 
   let mediaPlaying = false;
   let audioContextActive = false;
+  let pipActive = false;
 
-  function sendMediaState(playing) {
+  function sendMediaState(playing, isPiP = pipActive) {
     if (!chrome.runtime?.id) return;
-    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing });
+    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP });
   }
 
   function updateMediaState() {
     const elements = Array.from(document.querySelectorAll('video, audio'));
     const htmlMediaPlaying = elements.some(el => !el.paused && !el.ended && el.readyState > 2);
     const newState = htmlMediaPlaying || audioContextActive;
-    if (newState !== mediaPlaying) {
+    const newPiP = !!document.pictureInPictureElement;
+    if (newState !== mediaPlaying || newPiP !== pipActive) {
       mediaPlaying = newState;
-      sendMediaState(mediaPlaying);
+      pipActive = newPiP;
+      sendMediaState(mediaPlaying, pipActive);
     }
   }
 
@@ -35,6 +38,8 @@
     el.addEventListener('play',  updateMediaState);
     el.addEventListener('pause', updateMediaState);
     el.addEventListener('ended', updateMediaState);
+    el.addEventListener('enterpictureinpicture', updateMediaState);
+    el.addEventListener('leavepictureinpicture', updateMediaState);
   }
   document.querySelectorAll('video, audio').forEach(attachMediaListeners);
 
@@ -115,8 +120,19 @@
       showFullOverlay(msg.message, msg.reason);
     } else if (msg.type === 'REMOVE_OVERLAY') {
       removeOverlay();
+    } else if (msg.type === 'EXIT_PIP') {
+      exitPictureInPictureIfNeeded();
     }
   });
+
+  async function exitPictureInPictureIfNeeded() {
+    try {
+      if (document.pictureInPictureElement && document.exitPictureInPicture) {
+        await document.exitPictureInPicture();
+      }
+    } catch {}
+    updateMediaState();
+  }
 
   // ── 时间警告（弹出角标提示，不影响使用）────────────────────────────────────
 

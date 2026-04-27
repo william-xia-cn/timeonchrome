@@ -10,14 +10,15 @@ const AttentionState = {
   PASSIVE: 'PASSIVE',
   IDLE: 'IDLE',
   BACKGROUND_ACTIVE: 'BACKGROUND_ACTIVE',
+  PIP_ACTIVE: 'PIP_ACTIVE',
 };
 
 function resolveState(context) {
-  if (!context?.domain) return AttentionState.IDLE;
+  if (!context?.domain && !context?.mediaSourceDomain) return AttentionState.IDLE;
   if (context.isIdle) return AttentionState.IDLE;
-  if (context.isFocused && context.tabId) return AttentionState.ACTIVE;
+  if (context.isPiP) return AttentionState.PIP_ACTIVE;
+  if (context.domain && context.isFocused && context.tabId) return AttentionState.ACTIVE;
   if (context.isAudible) return AttentionState.BACKGROUND_ACTIVE;
-  if (context.isPiP) return AttentionState.BACKGROUND_ACTIVE;
   return AttentionState.PASSIVE;
 }
 
@@ -39,6 +40,7 @@ function buildContext(current, rawEvent) {
 const STATE_WEIGHTS = {
   ACTIVE: 1,
   BACKGROUND_ACTIVE: 1,
+  PIP_ACTIVE: 0,
   PASSIVE: 0,
   IDLE: 0,
 };
@@ -177,11 +179,11 @@ section('resolveState: BACKGROUND_ACTIVE conditions');
 expectTrue('媒体播放（audible）+ 无焦点 → BACKGROUND_ACTIVE',
   resolveState({ domain: 'youtube.com', tabId: 1, isFocused: false, isIdle: false, isAudible: true, isPiP: false }) === AttentionState.BACKGROUND_ACTIVE);
 
-expectTrue('画中画（PiP）→ BACKGROUND_ACTIVE',
-  resolveState({ domain: 'youtube.com', tabId: 1, isFocused: false, isIdle: false, isAudible: false, isPiP: true }) === AttentionState.BACKGROUND_ACTIVE);
+expectTrue('画中画（PiP）→ PIP_ACTIVE',
+  resolveState({ domain: 'youtube.com', tabId: 1, isFocused: false, isIdle: false, isAudible: false, isPiP: true }) === AttentionState.PIP_ACTIVE);
 
-expectTrue('audible + PiP → BACKGROUND_ACTIVE',
-  resolveState({ domain: 'youtube.com', tabId: 1, isFocused: false, isIdle: false, isAudible: true, isPiP: true }) === AttentionState.BACKGROUND_ACTIVE);
+expectTrue('audible + PiP → PIP_ACTIVE',
+  resolveState({ domain: 'youtube.com', tabId: 1, isFocused: false, isIdle: false, isAudible: true, isPiP: true }) === AttentionState.PIP_ACTIVE);
 
 section('resolveState: PASSIVE conditions');
 

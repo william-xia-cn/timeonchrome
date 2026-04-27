@@ -37,7 +37,12 @@ const computeAllDomainsWithAudio = aggregateApi.computeAllDomainsWithAudio;
 const diagFn = aggregateApi.aggregateWithDiagnostics || aggregateApi.__aggregateWithDiagnostics;
 
 function ts(h, m, s = 0) {
-  return Date.UTC(2026, 3, 21, h, m, s); // 2026-04-21
+  return new Date(2026, 3, 21, h, m, s).getTime(); // local 2026-04-21
+}
+
+function localTs(date, h, m, s = 0) {
+  const [y, mo, d] = date.split('-').map(Number);
+  return new Date(y, mo - 1, d, h, m, s).getTime();
 }
 
 let passed = 0;
@@ -163,8 +168,74 @@ async function runTests() {
 
     const split = computeAllDomainsWithAudio(events, date);
     expect('audioSeconds=5s', split.audioSeconds, 5);
+    expect('backgroundMediaByDomain.music.com=5s', split.backgroundMediaByDomain['music.com'], 5);
+    expect('pipSeconds=0s', split.pipSeconds, 0);
     expectTrue('split.domains 不含 music.com', !('music.com' in split.domains));
     expect('split.domains.study.com=4s', split.domains['study.com'], 4);
+  }
+
+  section('A7b: PIP_ACTIVE should be split into pipSeconds only');
+  {
+    const events = [
+      { type: 'START', state: 'PIP_ACTIVE', domain: 'video.com', time: ts(16, 2, 0) },
+      { type: 'END', state: 'PIP_ACTIVE', domain: 'video.com', time: ts(16, 2, 7) },
+      { type: 'START', state: 'ACTIVE', domain: 'study.com', time: ts(16, 3, 0) },
+      { type: 'END', state: 'ACTIVE', domain: 'study.com', time: ts(16, 3, 4) },
+    ];
+
+    const all = computeAllDomains(events, date);
+    expectTrue('普通统计不应包含 video.com', !('video.com' in all));
+    expect('study.com active=4s', all['study.com'], 4);
+
+    const split = computeAllDomainsWithAudio(events, date);
+    expect('pipSeconds=7s', split.pipSeconds, 7);
+    expect('pipByDomain.video.com=7s', split.pipByDomain['video.com'], 7);
+    expect('audioSeconds=0s', split.audioSeconds, 0);
+    expectTrue('split.domains 不含 video.com', !('video.com' in split.domains));
+    expect('split.domains.study.com=4s', split.domains['study.com'], 4);
+  }
+
+  section('A8: cross-midnight ACTIVE segment should be split by local natural day');
+  {
+    const events = [
+      { type: 'START', state: 'ACTIVE', domain: 'late.example', time: localTs('2026-04-21', 23, 59, 50) },
+      { type: 'END', state: 'ACTIVE', domain: 'late.example', time: localTs('2026-04-22', 0, 0, 10) },
+    ];
+
+    expect('start day gets 10s', computeDuration(events, 'late.example', '2026-04-21'), 10);
+    expect('end day gets 10s', computeDuration(events, 'late.example', '2026-04-22'), 10);
+    expect('allDomains start day gets 10s', computeAllDomains(events, '2026-04-21'), { 'late.example': 10 });
+    expect('allDomains end day gets 10s', computeAllDomains(events, '2026-04-22'), { 'late.example': 10 });
+  }
+
+  section('A9: cross-midnight BACKGROUND_ACTIVE should be split into audioSeconds by local day');
+  {
+    const events = [
+      { type: 'START', state: 'BACKGROUND_ACTIVE', domain: 'music.example', time: localTs('2026-04-21', 23, 59, 55) },
+      { type: 'END', state: 'BACKGROUND_ACTIVE', domain: 'music.example', time: localTs('2026-04-22', 0, 0, 5) },
+    ];
+
+    expect('ordinary domains stay empty on start day', computeAllDomains(events, '2026-04-21'), {});
+    expect('ordinary domains stay empty on end day', computeAllDomains(events, '2026-04-22'), {});
+    expect('audioSeconds start day gets 5s', computeAllDomainsWithAudio(events, '2026-04-21').audioSeconds, 5);
+    expect('audioSeconds end day gets 5s', computeAllDomainsWithAudio(events, '2026-04-22').audioSeconds, 5);
+    expect('backgroundMediaByDomain start day gets 5s', computeAllDomainsWithAudio(events, '2026-04-21').backgroundMediaByDomain['music.example'], 5);
+    expect('backgroundMediaByDomain end day gets 5s', computeAllDomainsWithAudio(events, '2026-04-22').backgroundMediaByDomain['music.example'], 5);
+  }
+
+  section('A10: cross-midnight PIP_ACTIVE should be split into pipSeconds by local day');
+  {
+    const events = [
+      { type: 'START', state: 'PIP_ACTIVE', domain: 'pip.example', time: localTs('2026-04-21', 23, 59, 55) },
+      { type: 'END', state: 'PIP_ACTIVE', domain: 'pip.example', time: localTs('2026-04-22', 0, 0, 5) },
+    ];
+
+    expect('ordinary domains stay empty on start day', computeAllDomains(events, '2026-04-21'), {});
+    expect('ordinary domains stay empty on end day', computeAllDomains(events, '2026-04-22'), {});
+    expect('pipSeconds start day gets 5s', computeAllDomainsWithAudio(events, '2026-04-21').pipSeconds, 5);
+    expect('pipSeconds end day gets 5s', computeAllDomainsWithAudio(events, '2026-04-22').pipSeconds, 5);
+    expect('pipByDomain start day gets 5s', computeAllDomainsWithAudio(events, '2026-04-21').pipByDomain['pip.example'], 5);
+    expect('pipByDomain end day gets 5s', computeAllDomainsWithAudio(events, '2026-04-22').pipByDomain['pip.example'], 5);
   }
 
   const total = passed + failed;

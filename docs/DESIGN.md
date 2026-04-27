@@ -86,15 +86,18 @@
 │  context.js     上下文构建 (lastActiveTabId, domain, focus)   │
 │  state.js       状态机 (ACTIVE/BACKGROUND_ACTIVE/PASSIVE/IDLE)│
 │  event-log.js   append-only 事件日志 (START/END, 10min 压缩)  │
-│  aggregate.js   时长计算 (只统计 ACTIVE/BACKGROUND_ACTIVE)     │
+│  aggregate.js   时长计算 (ACTIVE / media / PiP 分轨聚合)       │
 └──────────────────────────────────────────────────────────────┘
 
 ### 1.4 Phase 2B 最小双轨语义（媒体归因隔离）
 
-- 新增上下文字段 `mediaSourceTabId`（仅用于标识媒体来源 Tab，不新增 `mediaSourceDomain`）。
-- `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `mediaSourceTabId`），不覆盖前台归因（`tabId` / `domain`）。
+- 新增上下文字段 `mediaSourceTabId` / `mediaSourceDomain`，用于标识后台媒体或 PiP 来源，不覆盖前台归因（`tabId` / `domain`）。
+- `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `isPiP` / `mediaSourceTabId` / `mediaSourceDomain`），不覆盖前台归因。
 - `BACKGROUND_ACTIVE` 判定要求可验证媒体来源：`isAudible === true && mediaSourceTabId != null`。
 - 若仅有 `isAudible` 且缺少 `mediaSourceTabId`，采用保守回退，不进入 `BACKGROUND_ACTIVE`。
+- 后台 audio/video 媒体时长通过 `backgroundMediaByDomain` 保留 domain 维度，`audioSeconds` 总量只作为摘要。
+- Picture-in-Picture 使用独立 `PIP_ACTIVE` 状态，通过 `pipSeconds` / `pipByDomain` 单独记录，不混入普通在线/ACTIVE 或后台 audio/video 时长。
+- PiP 产品决策：不认为 PiP 是正常学习需求；切换到学习模式时，已经打开的非学习网站 PiP 必须关闭。PiP 视频时长需要单独记录，不混入普通在线/ACTIVE 时长；记录但不作为学习需求放行。
            │
            ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -133,6 +136,47 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 ```
 
 **严格单向依赖，禁止循环引用。**
+
+### 1.3.1 Timing trace stats verification 最小验证
+
+- 现有 timing trace diagnostics 继续保持诊断用途，不改变计时产品语义。
+- E2E 通过 debug/test-only 入口调用 `handleMessage({ type: 'GET_STATS' })` 触发真实统计读取链路：
+  `message-router -> getTodayStats -> event-log aggregate -> stats_calculated trace`。
+- 验证明确分为三类，避免把人工或受控数据夸大为完整真实计时准确性：
+  1. **real pipeline non-active check**：使用真实页面动作产生的 trace 与 `event_log_v1`，验证 `signal -> state -> session -> event-log -> stats` 链路存在，且 Playwright/OS focus 下产生的真实 IDLE/PASSIVE 闭合片段不会污染 ACTIVE stats。该检查验证 pipeline 到 stats 的非活跃状态口径，不验证真实浏览器 ACTIVE 计时准确性。
+  2. **controlled ACTIVE pipeline check**：通过 debug/test-only 受控输入构造多段、多 domain ACTIVE snapshot，并用测试专用 `_debugNow` 将现有 `Date.now()` 锚定到 stats 当天窗口；但仍走现有 `buildContext -> resolveState -> transitionState -> event-log -> stats` 路径，不直接写 `event_log_v1`。该检查验证受控 ACTIVE 输入下 resolver/session/event-log/stats 可以形成可对账闭环，覆盖多段累加、domain 分桶、非 ACTIVE 不计入，不验证 OS focus 或 `chrome.idle` 自动化准确性。
+  3. **synthetic aggregation baseline**：追加测试专用闭合 ACTIVE event-log 片段，只证明 `event-log -> stats` 聚合可把 injected ACTIVE 片段计算为预期秒数，不代表真实浏览器计时准确。
+- timing trace / stats E2E 的 fresh profile 会在测试初始化阶段写入现有正式字段 `guardian_config.mode = 'rest'` 与 `guardian_session.currentMode = 'rest'`，避免学习模式拦截影响页面打开和 event-log 生成；这不改变正式产品默认模式。
+- 不处理 OS focus 自动化、`chrome.idle` 自动化，也不引入新的访问策略。
+
+### 1.3.2 Service Worker recovery accuracy 验证
+
+- MV3 Service Worker recovery 通过 `runtime/recovery.js` 在启动时读取 `session_v1`，若存在未闭合 `state/domain/startTime`，则按 `lastHeartbeat` 与当前时间的间隔决定补写 END 的时间：
+  - `delta <= 90s`：视为短中断，END time 使用当前 `Date.now()`。
+  - `delta > 90s`：视为长中断 / SW 死亡，END time 截断到 `lastHeartbeat`，避免把离线时间计入使用时长。
+- recovery 补 END 后会清空 session 的 `state/domain/startTime` 并更新 `lastHeartbeat`，重复 recovery 不应重复追加 END。
+- recovery accuracy unit tests 使用受控时间验证短中断、长中断、重复 recovery、空 session，并对比 `event_log_v1` 推导时长与 `GET_STATS` 聚合结果；该验证不依赖 OS focus 或 `chrome.idle` 自动化。
+
+### 1.3.3 Real Chrome ACTIVE calibration 手工校准
+
+- 真实 Chrome ACTIVE 校准只用于手工诊断前台 Chrome 使用是否能产生 ACTIVE 计时，不扩展 synthetic / controlled / recovery 测试。
+- debug-only 入口允许校准前清空 timing trace、focus ledger、`event_log_v1`、`session_v1` 与旧 stats cache，设置 rest mode，并导出 trace / event-log / session / stats / focus ledger 校准包。
+- Windows 本地可用 `node tests/manual/real-active-calibration-windows.js --a 6 --b 3 --blur 2` 做短时 headed Chrome 校准；runner 只调用现有 debug-only 入口并输出最小诊断结果。
+- 校准判断边界：该流程验证真实 Chrome 前台、失焦、event-log、stats 的端到端观测结果；若没有 ACTIVE，按 `focus -> idle -> context -> resolver -> session -> event-log -> stats` 顺序定位第一断裂层，不改变 OS focus、`chrome.idle` 或产品计时语义。
+
+### 1.3.4 跨自然日计时口径
+
+- “今日时长”应按用户本地自然日统计。
+- 若 `event_log_v1` 中一个计时区间跨越午夜，例如 `23:59:50 -> 00:00:10`，统计时应按自然日边界切分，而不是全算入 START 日或 END 日。
+- 该口径适用于普通前台 ACTIVE 计时、stats 聚合、badge 今日时长、配额检查与后续报表。
+- `core/aggregate.js` 已按本地自然日窗口计算闭合区间 overlap；`getTodayStats`、`getStatsRange` 与 badge 今日时长通过该聚合层继承跨日切分口径。
+
+### 1.3.5 凌晨休息时间限制（后续产品设计）
+
+- 后续需要支持配置“凌晨不可用于休息时间”的时段策略，用于防止熬夜玩游戏。
+- 该能力属于配额/策略层：即使某网站在普通休息配额内，若访问发生在禁止休息时段，也应触发相应限制或提醒。
+- 该能力不改变底层计时语义：计时仍记录真实使用，策略层再决定该时段是否允许作为休息时间消费。
+- 当前计时准确性收口不实现该功能，仅记录为后续产品设计项。
 ┌─────────────────────────────────────────────────────────────┐
 │  Chrome Extension (MV3)                                     │
 │                                                             │

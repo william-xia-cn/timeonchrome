@@ -57,6 +57,7 @@ const aggregateApi = loadProdModule('core/aggregate.js', ['computeAllDomains', '
 const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getStatsRange', 'getDateKey'], {
   computeAllDomains: aggregateApi.computeAllDomains,
   computeAllDomainsWithAudio: aggregateApi.computeAllDomainsWithAudio,
+  emitTrace: async () => {}, // no-op for unit tests
 });
 
 const EVENT_LOG_KEY = 'event_log_v1';
@@ -126,6 +127,9 @@ async function runTests() {
     expectTrue('range should contain today key', typeof range[today] === 'object');
     expectTrue('x.com should be absent (unclosed START ignored)', !('x.com' in range[today]));
     expect('audioSeconds should always exist with zero default', range[today].audioSeconds, 0);
+    expect('backgroundMediaByDomain should always exist with empty default', range[today].backgroundMediaByDomain, {});
+    expect('pipSeconds should always exist with zero default', range[today].pipSeconds, 0);
+    expect('pipByDomain should always exist with empty default', range[today].pipByDomain, {});
   }
 
 
@@ -144,8 +148,48 @@ async function runTests() {
 
     const range = await storageApi.getStatsRange(1);
     expect('audioSeconds should be 6', range[today].audioSeconds, 6);
+    expect('backgroundMediaByDomain.music.com should be 6', range[today].backgroundMediaByDomain['music.com'], 6);
     expect('study.com should be 5 seconds', range[today]['study.com'], 5);
     expectTrue('music.com should be absent from domain totals', !('music.com' in range[today]));
+  }
+
+  section('S4: getTodayStats should expose BACKGROUND_ACTIVE as audioSeconds');
+  {
+    mockLocalStorage.reset();
+    await mockLocalStorage.set({
+      [EVENT_LOG_KEY]: [
+        { type: 'START', state: 'BACKGROUND_ACTIVE', domain: 'video.com', time: tsForDate(today, 13, 0, 0) },
+        { type: 'END', state: 'BACKGROUND_ACTIVE', domain: 'video.com', time: tsForDate(today, 13, 0, 8) },
+        { type: 'START', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 13, 1, 0) },
+        { type: 'END', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 13, 1, 4) },
+      ]
+    });
+
+    const stats = await storageApi.getTodayStats();
+    expect('audioSeconds should be 8', stats.audioSeconds, 8);
+    expect('backgroundMediaByDomain.video.com should be 8', stats.backgroundMediaByDomain['video.com'], 8);
+    expect('read.com should be 4 seconds', stats['read.com'], 4);
+    expectTrue('video.com should be absent from domain totals', !('video.com' in stats));
+  }
+
+  section('S5: PiP should be split into pipSeconds and pipByDomain');
+  {
+    mockLocalStorage.reset();
+    await mockLocalStorage.set({
+      [EVENT_LOG_KEY]: [
+        { type: 'START', state: 'PIP_ACTIVE', domain: 'video.com', time: tsForDate(today, 14, 0, 0) },
+        { type: 'END', state: 'PIP_ACTIVE', domain: 'video.com', time: tsForDate(today, 14, 0, 9) },
+        { type: 'START', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 14, 1, 0) },
+        { type: 'END', state: 'ACTIVE', domain: 'read.com', time: tsForDate(today, 14, 1, 4) },
+      ]
+    });
+
+    const stats = await storageApi.getTodayStats();
+    expect('pipSeconds should be 9', stats.pipSeconds, 9);
+    expect('pipByDomain.video.com should be 9', stats.pipByDomain['video.com'], 9);
+    expect('read.com should be 4 seconds', stats['read.com'], 4);
+    expectTrue('video.com should be absent from domain totals', !('video.com' in stats));
+    expect('audioSeconds should stay 0', stats.audioSeconds, 0);
   }
 
   const total = passed + failed;

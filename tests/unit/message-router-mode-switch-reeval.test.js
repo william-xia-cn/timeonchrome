@@ -56,6 +56,10 @@ function loadHandleMessage(stubs, chromeOverride = {}) {
   };
 
   const context = {
+    extractDomain: (url) => {
+      try { return new URL(url).hostname; } catch { return null; }
+    },
+    matchDomain: (domain, pattern) => domain === pattern || domain.endsWith(`.${pattern}`),
     ...stubs,
     URL,
     chrome,
@@ -154,6 +158,46 @@ async function run() {
 
     await handleMessage({ type: 'SWITCH_TO_STUDY' }, {});
     expectTrue('blocked 时不应做额外 update', updateCount === 0);
+  }
+
+  section('MSR-4 SWITCH_TO_STUDY closes PiP on non-study domains only');
+  {
+    const executed = [];
+    const cfg = { mode: 'rest', studyList: ['study.example'] };
+    const session = { currentMode: 'rest' };
+
+    const { handleMessage } = loadHandleMessage(
+      {
+        getConfig: async () => cfg,
+        saveConfig: async () => {},
+        updateDeclarativeRules: async () => {},
+        getSession: async () => session,
+        checkAndRemind: async () => false,
+        getSyncState: () => ({ monitoringEnabled: 1 }),
+        extractDomain: (url) => new URL(url).hostname,
+        matchDomain: (domain, pattern) => domain === pattern || domain.endsWith(`.${pattern}`),
+      },
+      {
+        tabs: {
+          query: async (query = {}) => query.active
+            ? [{ id: 1, url: 'https://study.example/lesson' }]
+            : [
+                { id: 1, url: 'https://study.example/lesson' },
+                { id: 2, url: 'https://video.example/watch' },
+              ],
+          update: async () => {},
+        },
+        scripting: {
+          executeScript: async ({ target }) => {
+            executed.push(target.tabId);
+            return [{ result: true }];
+          },
+        },
+      }
+    );
+
+    await handleMessage({ type: 'SWITCH_TO_STUDY' }, {});
+    expect('只关闭非学习域名 PiP', executed, [2]);
   }
 
   const total = passed + failed;

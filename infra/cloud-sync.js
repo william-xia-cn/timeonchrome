@@ -236,7 +236,7 @@ export async function uploadStats() {
 
       const dayData = statsRange[dateStr] || {};
       const stats = Object.entries(dayData)
-        .filter(([domain, sec]) => domain !== 'audioSeconds' && typeof sec === 'number' && sec > 0)
+        .filter(([domain, sec]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain' && typeof sec === 'number' && sec > 0)
         .map(([domain, sec]) => ({ domain, active_sec: sec, passive_sec: 0 }));
 
       if (stats.length > 0) {

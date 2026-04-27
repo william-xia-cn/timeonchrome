@@ -1,8 +1,11 @@
 // runtime/session.js — 当前会话快照（单一真相源）+ 状态切换 + 心跳
 
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
+import { emitTrace } from '../core/timing-trace.js';
 
 const SESSION_KEY = 'session_v1';
+const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
+const SLEEP_THRESHOLD = 90 * 1000;
 let commitQueue = Promise.resolve();
 
 function runSerialized(task) {
@@ -23,8 +26,18 @@ function runSerialized(task) {
  * @returns {Promise<SessionState|null>}
  */
 export async function getSession() {
+  return (await getSessionWithPersistenceSource()).session;
+}
+
+export async function getSessionWithPersistenceSource() {
   const data = await chrome.storage.session.get(SESSION_KEY);
-  return data[SESSION_KEY] || null;
+  if (data[SESSION_KEY]) return { session: data[SESSION_KEY], source: 'session' };
+
+  const persistent = await chrome.storage.local.get(PERSISTENT_SESSION_KEY);
+  return {
+    session: persistent[PERSISTENT_SESSION_KEY] || null,
+    source: persistent[PERSISTENT_SESSION_KEY] ? 'persistent' : 'none',
+  };
 }
 
 /**
@@ -33,6 +46,7 @@ export async function getSession() {
  */
 export async function saveSession(session) {
   await chrome.storage.session.set({ [SESSION_KEY]: session });
+  await chrome.storage.local.set({ [PERSISTENT_SESSION_KEY]: session });
 }
 
 /**
@@ -70,33 +84,54 @@ export async function transitionState(newState, newDomain) {
       return;
     }
 
+    const sessionBefore = { state: session.state, domain: session.domain, startTime: session.startTime };
+
     // 1. 关闭旧事件
     if (session.state && session.startTime) {
-      await appendEvent({
+      const endEvent = {
         type: EVENT_TYPE.END,
         state: session.state,
         domain: session.domain,
         time: now,
+      };
+      await appendEvent(endEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'transitionClose',
+        domain: session.domain,
+        previousState: session.state,
+        event: endEvent,
+        sessionBefore,
       });
     }
 
     // 2. 开启新事件
     if (newState) {
-      await appendEvent({
+      const startEvent = {
         type: EVENT_TYPE.START,
         state: newState,
         domain: newDomain,
         time: now,
+      };
+      await appendEvent(startEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'transitionOpen',
+        domain: newDomain,
+        nextState: newState,
+        event: startEvent,
+        sessionBefore,
       });
     }
 
     // 3. 更新 session
-    await saveSession({
+    const sessionAfter = {
       state: newState,
       domain: newDomain,
       startTime: newState ? now : null,
       lastHeartbeat: now,
-    });
+    };
+    await saveSession(sessionAfter);
   });
 }
 
@@ -108,8 +143,58 @@ export async function heartbeat() {
     const session = await getSession();
     if (!session) return;
 
-    session.lastHeartbeat = Date.now();
-    await saveSession(session);
+    const now = Date.now();
+    const staleGap = session.lastHeartbeat && now - session.lastHeartbeat > SLEEP_THRESHOLD;
+
+    if (session.state && session.startTime && staleGap) {
+      const sessionBefore = {
+        state: session.state,
+        domain: session.domain,
+        startTime: session.startTime,
+        lastHeartbeat: session.lastHeartbeat,
+      };
+      const endEvent = {
+        type: EVENT_TYPE.END,
+        state: session.state,
+        domain: session.domain,
+        time: session.lastHeartbeat,
+      };
+      await appendEvent(endEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'heartbeatStaleClose',
+        domain: session.domain,
+        previousState: session.state,
+        event: endEvent,
+        sessionBefore,
+      });
+
+      const startEvent = {
+        type: EVENT_TYPE.START,
+        state: session.state,
+        domain: session.domain,
+        time: now,
+      };
+      await appendEvent(startEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'heartbeatStaleReopen',
+        domain: session.domain,
+        nextState: session.state,
+        event: startEvent,
+        sessionBefore,
+      });
+
+      await saveSession({
+        state: session.state,
+        domain: session.domain,
+        startTime: now,
+        lastHeartbeat: now,
+      });
+      return;
+    }
+
+    await saveSession({ ...session, lastHeartbeat: now });
   });
 }
 

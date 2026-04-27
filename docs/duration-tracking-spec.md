@@ -60,7 +60,8 @@
 | 状态 | 判定条件 | 计入时长 | 示例场景 |
 |------|---------|---------|---------|
 | `ACTIVE` | 窗口有焦点 + 有活跃 tab + 非空闲 | +1s | 用户正在浏览网页 |
-| `BACKGROUND_ACTIVE` | 媒体播放（audible）或画中画 | +1s | 用户在听 YouTube 音乐，切换到其他标签 |
+| `BACKGROUND_ACTIVE` | 媒体播放（audible） | 单独记录到 `audioSeconds/backgroundMediaByDomain` | 用户在听 YouTube 音乐，切换到其他标签 |
+| `PIP_ACTIVE` | 画中画 | 单独记录到 `pipSeconds/pipByDomain` | 视频进入 Picture-in-Picture |
 | `PASSIVE` | 有域名但不满足以上条件 | 0 | 页面打开但用户无交互 |
 | `IDLE` | 无域名或系统空闲 | 0 | `chrome://` 页面、电脑锁屏 |
 
@@ -70,9 +71,9 @@
 resolveState(context):
   1. 无域名 → IDLE
   2. 系统空闲 → IDLE
-  3. 窗口有焦点 + 有活跃 tab → ACTIVE
-  4. 媒体播放（audible）→ BACKGROUND_ACTIVE
-  5. 画中画（PiP）→ BACKGROUND_ACTIVE
+  3. 画中画（PiP）→ PIP_ACTIVE
+  4. 窗口有焦点 + 有活跃 tab → ACTIVE
+  5. 媒体播放（audible）→ BACKGROUND_ACTIVE
   6. 其他 → PASSIVE
 ```
 
@@ -115,9 +116,9 @@ resolveState(context):
 │                                                              │
 │  signal.js      信号输入 + micro-batching (80ms 合并窗口)     │
 │  context.js     上下文构建 (lastActiveTabId, domain, focus)   │
-│  state.js       状态机 (ACTIVE/BACKGROUND_ACTIVE/PASSIVE/IDLE)│
+│  state.js       状态机 (ACTIVE/BACKGROUND_ACTIVE/PIP_ACTIVE/...)│
 │  event-log.js   append-only 事件日志 (START/END, 10min 压缩)  │
-│  aggregate.js   时长计算 (只统计 ACTIVE/BACKGROUND_ACTIVE)     │
+│  aggregate.js   时长计算 (ACTIVE / media / PiP 分轨聚合)       │
 └──────────────────────────────────────────────────────────────┘
            │
            ▼
@@ -234,7 +235,8 @@ AttentionContext {
 ```javascript
 AttentionState {
   ACTIVE: 'ACTIVE',              // 计为 1
-  BACKGROUND_ACTIVE: 'BACKGROUND_ACTIVE', // 计为 1
+  BACKGROUND_ACTIVE: 'BACKGROUND_ACTIVE', // 后台媒体分轨
+  PIP_ACTIVE: 'PIP_ACTIVE',      // PiP 分轨
   PASSIVE: 'PASSIVE',            // 计为 0
   IDLE: 'IDLE',                  // 计为 0
 }
@@ -243,9 +245,9 @@ AttentionState {
 **判定规则**（按优先级）：
 1. 无域名 → `IDLE`（防止 `chrome://` 页面污染）
 2. 系统空闲 → `IDLE`
-3. 窗口有焦点 + 有活跃 tab → `ACTIVE`
-4. 媒体播放（audible）→ `BACKGROUND_ACTIVE`
-5. 画中画（PiP）→ `BACKGROUND_ACTIVE`
+3. 画中画（PiP）→ `PIP_ACTIVE`
+4. 窗口有焦点 + 有活跃 tab → `ACTIVE`
+5. 媒体播放（audible）→ `BACKGROUND_ACTIVE`
 6. 其他 → `PASSIVE`
 
 ### 4.4 event-log.js — 事件日志

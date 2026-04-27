@@ -1,6 +1,7 @@
 // infra/storage.js — 配置/会话存储
 import { computeAllDomains, computeAllDomainsWithAudio } from '../core/aggregate.js';
 import { matchDomain as matchDomainV12, normalizeHostname } from '../core/domain-semantics.js';
+import { emitTrace } from '../core/timing-trace.js';
 
 const STORAGE_VERSION = '1.3';
 export const CONFIG_KEY = 'guardian_config';
@@ -184,7 +185,14 @@ const EVENT_LOG_KEY = 'event_log_v1';
  * 从 event-log 聚合指定日期的域名时长
  */
 function aggregateFromEvents(events, date) {
-  return computeAllDomains(events, date);
+  const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } = aggregateFromEventsWithAudio(events, date);
+  return {
+    ...domains,
+    audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0,
+    backgroundMediaByDomain: backgroundMediaByDomain || {},
+    pipSeconds: Number.isFinite(pipSeconds) ? pipSeconds : 0,
+    pipByDomain: pipByDomain || {},
+  };
 }
 
 function aggregateFromEventsWithAudio(events, date) {
@@ -198,7 +206,15 @@ export async function getTodayStats() {
   const today = getDateKey();
   const data = await chrome.storage.local.get(EVENT_LOG_KEY);
   const events = data[EVENT_LOG_KEY] || [];
-  return aggregateFromEvents(events, today);
+  const result = aggregateFromEvents(events, today);
+  emitTrace('stats_calculated', {
+    source: 'stats',
+    reason: 'dailyAggregation',
+    domain: null,
+    statsAfter: result,
+    payload: { date: today, eventCount: events.length },
+  });
+  return result;
 }
 
 /**
@@ -211,6 +227,7 @@ export async function getTodayUndeterminedStats() {
 
   const result = {};
   for (const [domain, seconds] of Object.entries(stats)) {
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
     if (compositeList.some(p => matchDomain(domain, p))) {
       result[domain] = seconds;
     }
@@ -230,8 +247,14 @@ export async function getStatsRange(days = 7) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = formatDate(d);
-    const { domains, audioSeconds } = aggregateFromEventsWithAudio(events, dateStr);
-    result[dateStr] = { ...domains, audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0 };
+    const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } = aggregateFromEventsWithAudio(events, dateStr);
+    result[dateStr] = {
+      ...domains,
+      audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0,
+      backgroundMediaByDomain: backgroundMediaByDomain || {},
+      pipSeconds: Number.isFinite(pipSeconds) ? pipSeconds : 0,
+      pipByDomain: pipByDomain || {},
+    };
   }
   return result;
 }

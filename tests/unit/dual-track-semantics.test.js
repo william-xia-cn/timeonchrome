@@ -131,6 +131,47 @@ async function runTests() {
     expect('state should be PASSIVE', resolveState(ctx), AttentionState.PASSIVE);
   }
 
+  section('D6: PiP is counted as separate PIP_ACTIVE, not BACKGROUND_ACTIVE');
+  {
+    const ctx = {
+      domain: 'video.example',
+      tabId: 3,
+      isFocused: true,
+      isIdle: false,
+      isAudible: true,
+      mediaSourceTabId: 3,
+      mediaSourceDomain: 'video.example',
+      isPiP: true,
+    };
+    expect('state should be PIP_ACTIVE', resolveState(ctx), AttentionState.PIP_ACTIVE);
+  }
+
+  section('D7: media signal carries source domain without overwriting foreground domain');
+  {
+    const current = {
+      tabId: 1,
+      windowId: 10,
+      domain: 'foreground.example',
+      isFocused: true,
+      isIdle: false,
+      isAudible: false,
+      isPiP: false,
+      lastActiveTabId: 1,
+      lastFocusedWindowId: 10,
+    };
+
+    const mediaEvent = {
+      tabId: 2,
+      isAudible: true,
+      mediaSourceTabId: 2,
+      mediaSourceDomain: 'video.example',
+    };
+    const next = buildContext(current, mediaEvent);
+
+    expect('foreground domain should remain unchanged', next.domain, 'foreground.example');
+    expect('mediaSourceDomain should be preserved separately', next.mediaSourceDomain, 'video.example');
+  }
+
   const total = passed + failed;
   console.log(`\n[Dual Track Semantics] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);
