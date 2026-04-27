@@ -748,8 +748,178 @@
       color: var(--accent);
     }
 
+    /* ── 使用分析双栏布局 ── */
+    .stats-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .stats-column .card {
+      margin-bottom: 12px;
+    }
+
+    .column-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 12px;
+      padding: 0 4px;
+    }
+
+    .column-header .date-range {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
+    /* 总览列表 */
+    .overview-list { padding: 4px 0; }
+    .overview-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .overview-row:last-child { border-bottom: none; }
+    .overview-label { color: var(--muted); }
+    .overview-value { font-weight: 600; }
+
+    /* 时间轴 */
+    .timeline-chart { padding: 8px 0; }
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 3px 0;
+      font-size: 12px;
+    }
+    .timeline-hour {
+      width: 28px;
+      text-align: right;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .timeline-track {
+      flex: 1;
+      height: 16px;
+      background: rgba(0,184,148,0.06);
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+    .timeline-fill {
+      position: absolute;
+      top: 0; left: 0; bottom: 0;
+      border-radius: 3px;
+    }
+    .timeline-fill.study { background: var(--green); }
+    .timeline-fill.rest { background: var(--warn); }
+    .timeline-fill.audio { background: var(--accent2); }
+    .timeline-fill.undetermined { background: var(--muted); }
+    .timeline-label {
+      position: absolute;
+      left: 4px; top: 0; bottom: 0;
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    /* 每日分布条形图 */
+    .daily-bars { padding: 8px 0; }
+    .daily-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+    .daily-bar-label {
+      width: 36px;
+      color: var(--muted);
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .daily-bar-track {
+      flex: 1;
+      height: 14px;
+      background: rgba(0,184,148,0.06);
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+    .daily-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 3px;
+      transition: width 0.5s ease;
+    }
+    .daily-bar-value {
+      width: 56px;
+      text-align: right;
+      color: var(--muted);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+    /* 排行列表 */
+    .rank-list { padding: 4px 0; }
+    .rank-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .rank-item:last-child { border-bottom: none; }
+    .rank-domain { font-weight: 500; }
+    .rank-time { color: var(--muted); }
+
+    /* 待归类列表 */
+    .undetermined-list { padding: 4px 0; }
+    .undetermined-summary {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .undetermined-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .undetermined-item:last-child { border-bottom: none; }
+    .ud-domain { font-weight: 500; }
+    .ud-meta { display: flex; align-items: center; gap: 8px; }
+    .ud-time { color: var(--muted); }
+    .ud-status {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 100px;
+      font-weight: 500;
+    }
+    .ud-status.pending { background: rgba(245,158,11,0.1); color: var(--warn); }
+    .ud-status.study { background: rgba(0,184,148,0.1); color: var(--green); }
+    .ud-status.rest { background: rgba(239,68,68,0.1); color: var(--danger); }
+    .ud-status.appealing { background: rgba(108,99,255,0.1); color: var(--accent2); }
+
     /* 响应式调整 */
     @media (max-width: 1100px) {
+      .stats-columns {
+        grid-template-columns: 1fr;
+      }
       .stats-overview-grid {
         grid-template-columns: repeat(2, 1fr);
       }
@@ -810,20 +980,14 @@
       </div>
     </div>
 
-    <div class="nav-item active" data-page="overview">
-      <span class="nav-icon">📅</span> 今日使用
+    <div class="nav-item active" data-page="stats">
+      <span class="nav-icon">📊</span> 使用分析
     </div>
     <div class="nav-item" data-page="rules">
       <span class="nav-icon">📋</span> 访问规则
     </div>
-    <div class="nav-item" data-page="stats">
-      <span class="nav-icon">📊</span> 使用分析
-    </div>
     <div class="nav-item" data-page="devices">
       <span class="nav-icon">📡</span> 本机状态
-    </div>
-    <div class="nav-item" data-page="weekly">
-      <span class="nav-icon">⏳</span> 本周待定
     </div>
 
     <div class="sidebar-footer">
@@ -836,57 +1000,6 @@
   </div>
 
   <div class="content">
-    <!-- 今日使用 -->
-    <div class="page active" id="page-overview">
-      <div class="page-header">
-        <h2>今日使用</h2>
-        <p id="overview-date"></p>
-      </div>
-
-      <!-- 模式切换 -->
-      <div class="card" id="mode-switch-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-          <div>
-            <div id="mode-label" style="font-size:15px;font-weight:600;">加载中...</div>
-            <div id="mode-desc" style="font-size:12px;color:var(--muted);margin-top:3px;"></div>
-          </div>
-          <div style="display:flex;gap:8px;">
-            <button id="btn-study-mode"
-              style="padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s;">
-              📚 学习
-            </button>
-            <button id="btn-rest-mode"
-              style="padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s;">
-              ☕ 休息
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 激励摘要 -->
-      <div class="card" id="overview-summary" style="border-left:3px solid var(--accent);">
-        <div id="summary-text" style="font-size:14px;line-height:1.8;color:var(--text);">加载中...</div>
-      </div>
-
-      <!-- 今日时长进度条 -->
-      <div class="card">
-        <div class="card-header"><div class="card-title">时间用量</div></div>
-        <div id="overview-progress">加载中...</div>
-      </div>
-
-      <!-- 单站点配额 -->
-      <div class="card" id="domain-quota-card">
-        <div class="card-header"><div class="card-title">单站点配额</div></div>
-        <div id="domain-quotas-list">加载中...</div>
-      </div>
-
-      <!-- Top 10 -->
-      <div class="card">
-        <div class="card-header"><div class="card-title">访问时长 Top 10</div></div>
-        <div id="today-stats-list">加载中...</div>
-      </div>
-    </div>
-
     <!-- 访问规则（只读） -->
     <div class="page" id="page-rules">
       <div class="page-header">
@@ -950,119 +1063,75 @@
     </div>
 
     <!-- 使用分析 -->
-    <div class="page" id="page-stats">
+    <div class="page active" id="page-stats">
       <div class="page-header">
         <h2>使用分析</h2>
         <p>了解上网习惯，优化时间管理</p>
       </div>
 
-      <!-- 今日概览卡片 -->
-      <div class="stats-overview-grid">
-        <div class="stat-card total">
-          <div class="stat-icon">🌐</div>
-          <div class="stat-value" id="stat-total-time">0</div>
-          <div class="stat-label">今日在线时长</div>
-          <div class="stat-trend" id="stat-total-trend">比昨日 +0%</div>
-        </div>
-        <div class="stat-card study">
-          <div class="stat-icon">📚</div>
-          <div class="stat-value" id="stat-study-time">0</div>
-          <div class="stat-label">学习时长</div>
-          <div class="stat-percentage" id="stat-study-percent">0%</div>
-        </div>
-        <div class="stat-card rest">
-          <div class="stat-icon">☕</div>
-          <div class="stat-value" id="stat-rest-time">0</div>
-          <div class="stat-label">休息时长</div>
-          <div class="stat-percentage" id="stat-rest-percent">0%</div>
-        </div>
-        <div class="stat-card sessions">
-          <div class="stat-icon">🎧</div>
-          <div class="stat-value" id="stat-audio-time">0</div>
-          <div class="stat-label">音频时间（后台）</div>
-          <div class="stat-percentage">独立统计</div>
-        </div>
-        <div class="stat-card sessions">
-          <div class="stat-icon">🎯</div>
-          <div class="stat-value" id="stat-session-count">0</div>
-          <div class="stat-label">访问次数</div>
-          <div class="stat-detail" id="stat-avg-duration">平均 0 分钟</div>
-        </div>
-      </div>
+      <div class="stats-columns">
+        <!-- 今日 -->
+        <div class="stats-column">
+          <div class="column-header" id="stats-today-header">今日</div>
 
-      <!-- 时段分布热力图 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">⏰ 今日时段分布</div>
-          <div class="time-range-selector">
-            <button class="range-btn active" data-range="today">今日</button>
-            <button class="range-btn" data-range="week">本周</button>
-            <button class="range-btn" data-range="month">本月</button>
+          <!-- 今日总览 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">今日总览</div></div>
+            <div class="overview-list" id="today-overview-list">加载中...</div>
           </div>
-        </div>
-        <div class="heatmap-container" id="time-heatmap">
-          <!-- 热力图由 JS 生成 -->
-          <div class="heatmap-placeholder">加载时段分布数据...</div>
-        </div>
-        <div class="heatmap-legend">
-          <span>少</span>
-          <div class="legend-bar"></div>
-          <span>多</span>
-        </div>
-      </div>
 
-      <!-- 网站偏好分析 -->
-      <div class="card-grid two-col">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🥧 网站类型分布</div>
+          <!-- 今日时间轴 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">今日时间轴</div></div>
+            <div class="timeline-chart" id="today-timeline">加载中...</div>
           </div>
-          <div class="pie-chart-container" id="domain-type-chart">
-            <canvas id="typeChart" width="300" height="200"></canvas>
-            <div class="pie-legend">
-              <div class="legend-item"><span class="dot study"></span>学习网站</div>
-              <div class="legend-item"><span class="dot rest"></span>娱乐网站</div>
-              <div class="legend-item"><span class="dot other"></span>其他网站</div>
-            </div>
+
+          <!-- 今日网站排行 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">今日网站排行</div></div>
+            <div class="rank-list" id="today-rank-list">加载中...</div>
+          </div>
+
+          <!-- 今日待归类 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">今日待归类</div></div>
+            <div class="undetermined-list" id="today-undetermined-list">加载中...</div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🏆 今日TOP网站</div>
+        <!-- 本周 -->
+        <div class="stats-column">
+          <div class="column-header" id="stats-week-header">本周</div>
+
+          <!-- 本周总览 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">本周总览</div></div>
+            <div class="overview-list" id="week-overview-list">加载中...</div>
           </div>
-          <div class="top-domains-list" id="top-domains-list">
-            <!-- 由 JS 生成 -->
+
+          <!-- 本周每日分布 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">本周每日分布</div></div>
+            <div class="daily-bars" id="week-daily-bars">加载中...</div>
+          </div>
+
+          <!-- 本周网站排行 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">本周网站排行</div></div>
+            <div class="rank-list" id="week-rank-list">加载中...</div>
+          </div>
+
+          <!-- 本周待归类 -->
+          <div class="card">
+            <div class="card-header"><div class="card-title">本周待归类</div></div>
+            <div class="undetermined-list" id="week-undetermined-list">加载中...</div>
           </div>
         </div>
       </div>
-
-      <!-- 访问模式分析 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">📈 专注模式分析</div>
-          <p class="card-subtitle">基于活跃度的使用模式识别</p>
-        </div>
-        <div class="pattern-analysis" id="pattern-analysis">
-          <!-- 由 JS 生成 -->
-        </div>
-      </div>
-
     </div>
 
 
     <!-- 本机状态 -->
-    <!-- 本周待定时段 -->
-    <div class="page" id="page-weekly">
-      <div class="page-header">
-        <h2>本周待定时段</h2>
-        <p>复合型网站的会话记录及家长判定结果</p>
-      </div>
-      <div class="card">
-        <div id="weekly-sessions-list" style="min-height:60px;">加载中...</div>
-      </div>
-    </div>
-
     <div class="page" id="page-devices">
       <div class="page-header">
         <h2>本机状态</h2>

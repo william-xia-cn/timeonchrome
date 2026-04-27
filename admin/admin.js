@@ -52,7 +52,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   setupLoginForm();
   setupNavigation();
-  setupStatsPage();
 
   // 监听后台广播：设备被远程解绑时立即切换到重绑流程
   chrome.runtime.onMessage.addListener((msg) => {
@@ -354,9 +353,9 @@ async function enterMainScreen() {
   const sidebarNameEl = document.getElementById('sidebar-child-name');
   if (sidebarNameEl && childName) sidebarNameEl.textContent = childName + ' 的面板';
 
-  // 渲染总览
+  // 渲染使用分析
   config = await sendMsg({ type: 'GET_CONFIG' });
-  renderOverview();
+  renderStatsPage();
 }
 
 /**
@@ -872,11 +871,9 @@ function setupNavigation() {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(`page-${page}`)?.classList.add('active');
       
-      if (page === 'overview')  renderOverview();
-      if (page === 'rules')     renderRulesPage();
       if (page === 'stats')     renderStatsPage();
+      if (page === 'rules')     renderRulesPage();
       if (page === 'devices') { setupDevicesPage(); renderSyncStatus(); }
-      if (page === 'weekly')    renderWeeklyPage();
     });
   });
 }
@@ -1081,154 +1078,7 @@ window.switchMode = async (mode) => {
   await renderModeSwitchCard();
 };
 
-async function renderOverview() {
-  // 模式切换卡片
-  await renderModeSwitchCard();
-
-  // 日期
-  const now = new Date();
-  const weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
-  const dateEl = document.getElementById('overview-date');
-  if (dateEl) dateEl.textContent = `${now.getMonth()+1}月${now.getDate()}日 ${weekNames[now.getDay()]}`;
-
-  // 今日统计
-  let studySeconds = 0, freeSeconds = 0, onlineSeconds = 0, undeterminedSeconds = 0, audioSeconds = 0, pipSeconds = 0, weekFreeSeconds = 0;
-  try {
-    const [rangeData, weekRes] = await Promise.all([
-      sendMsg({ type: 'GET_STATS_RANGE', days: 1 }),
-      sendMsg({ type: 'GET_WEEK_REST_SECONDS' }),
-    ]);
-    weekFreeSeconds = weekRes?.weekRestSeconds ?? 0;
-    const todayData = Object.values(rangeData)[Object.keys(rangeData).length - 1] || { audioSeconds: 0 };
-    const compositeList = config.compositeList || [];
-    audioSeconds = Number(todayData.audioSeconds) || 0;
-    pipSeconds = Number(todayData.pipSeconds) || 0;
-    for (const [domain, seconds] of Object.entries(todayData)) {
-      if (domain === "audioSeconds" || domain === "backgroundMediaByDomain" || domain === "pipSeconds" || domain === "pipByDomain") continue;
-      onlineSeconds += seconds;
-      const type = classifyDomain(domain);
-      if (type === 'study') studySeconds += seconds;
-      else if (compositeList.some(p => { const d = domain.replace(/^www\./,''), pp = p.replace(/^www\./,''); return d === pp || d.endsWith('.'+pp); })) undeterminedSeconds += seconds;
-      else freeSeconds += seconds;
-    }
-  } catch (e) { /* pass */ }
-
-  // 激励摘要
-  const summaryEl = document.getElementById('summary-text');
-  if (summaryEl) {
-    const pct = onlineSeconds > 0 ? Math.round(studySeconds / onlineSeconds * 100) : 0;
-    const remaining = Math.max(0, (config.dailyStudyQuota || 480) * 60 - studySeconds);
-    let msg;
-    if (onlineSeconds === 0) {
-      msg = '今天还没有开始使用电脑，准备好了就出发吧！📚';
-    } else if (studySeconds === 0) {
-      msg = `今天在线 <b>${formatSeconds(onlineSeconds)}</b>，还没有学习时间，加油！💪`;
-    } else if (pct >= 70) {
-      msg = `今天已学习 <b>${formatSeconds(studySeconds)}</b>，学习专注度 <b>${pct}%</b>，表现优秀！🎉 继续保持！`;
-    } else if (pct >= 40) {
-      msg = `今天已学习 <b>${formatSeconds(studySeconds)}</b>，学习专注度 ${pct}%，还可学习 <b>${formatSeconds(remaining)}</b>，加油！💪`;
-    } else {
-      msg = `今天在线 <b>${formatSeconds(onlineSeconds)}</b>，其中学习 <b>${formatSeconds(studySeconds)}</b>，尝试多花时间学习吧！📖`;
-    }
-    summaryEl.innerHTML = msg;
-  }
-
-  // 今日时长进度条（含锁定状态）
-  const onlineLimit        = (config.dailyOnlineQuota       ?? 1200) * 60;
-  const studyLimit         = (config.dailyStudyQuota        ?? 480)  * 60;
-  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 120)  * 60;
-  const effectiveDailyRest = getAdminEffectiveDailyRestLimit(config);
-  const restLimit          = effectiveDailyRest * 60;
-  const weeklyRestLimit    = (config.weeklyRestQuota ?? (effectiveDailyRest * 7)) * 60;
-  const qs = config.quotaState || {};
-  const borrow = config.quotaBorrow;
-
-  const progressEl = document.getElementById('overview-progress');
-  if (progressEl) {
-    const bar = (icon, label, used, limit, color, locked) => {
-      const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
-      const barColor = locked ? 'var(--danger)' : pct >= 90 ? 'var(--warn)' : color;
-      return `
-        <div style="margin-bottom:18px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <span style="font-size:13px;font-weight:500;">${icon} ${label}${locked ? ' <span style="font-size:11px;color:var(--danger);background:rgba(248,113,113,0.12);padding:1px 6px;border-radius:8px;margin-left:4px;">已用完</span>' : ''}</span>
-            <span style="font-size:13px;color:var(--muted);">${formatSeconds(used)} / ${formatSeconds(limit)}</span>
-          </div>
-          <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">
-            <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width 0.5s;"></div>
-          </div>
-          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${pct}% 已用，剩余 ${formatSeconds(Math.max(0, limit - used))}</div>
-        </div>`;
-    };
-
-    // 借用说明
-    let borrowNote = '';
-    const today = new Date().toISOString().slice(0, 10);
-    if (borrow && !borrow.repaid) {
-      if (borrow.borrowedFrom === today) {
-        borrowNote = `<div style="font-size:12px;color:#f59e0b;margin-bottom:12px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;">⏱ 今日已借用明天 <strong>${borrow.amount} 分钟</strong>休息时间（明日配额将减少）</div>`;
-      } else {
-        const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
-        repayD.setDate(repayD.getDate() + 1);
-        if (repayD.toISOString().slice(0,10) === today) {
-          borrowNote = `<div style="font-size:12px;color:#ef4444;margin-bottom:12px;padding:8px 12px;background:rgba(239,68,68,0.08);border-radius:6px;">↩️ 今日扣还昨日借用 <strong>${borrow.amount} 分钟</strong>，休息配额相应减少</div>`;
-        }
-      }
-    }
-
-    progressEl.innerHTML = borrowNote +
-      bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
-      bar('📚', '学习时长', studySeconds, studyLimit, 'var(--green)', qs.studyLocked) +
-      bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked) +
-      bar('🎵', '今日休息', freeSeconds, restLimit, 'var(--warn)', qs.restLocked) +
-      bar('📅', '本周休息', weekFreeSeconds, weeklyRestLimit, '#e17055', qs.weeklyRestLocked) +
-      `<div style="font-size:12px;color:var(--muted);margin-top:4px;">🎧 音频时间（后台音频） ${formatSeconds(audioSeconds)}</div>` +
-      `<div style="font-size:12px;color:var(--muted);margin-top:4px;">▣ PiP 时间 ${formatSeconds(pipSeconds)}</div>`;
-  }
-
-  // 单站点配额（只读）
-  const domainQEl = document.getElementById('domain-quotas-list');
-  if (domainQEl) {
-    const entries = Object.entries(config.domainQuotas || {});
-    // 没有单站点配额时隐藏整个卡片
-    const domainCard = document.getElementById('domain-quota-card');
-    if (entries.length === 0) {
-      if (domainCard) domainCard.style.display = 'none';
-    } else {
-      if (domainCard) domainCard.style.display = '';
-      domainQEl.innerHTML = entries.map(([domain, minutes]) => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
-          <span style="font-size:14px;">${domain}</span>
-          <span style="color:var(--accent);font-weight:600;">${minutes} 分钟/天</span>
-        </div>
-      `).join('');
-    }
-  }
-
-  // 今日 Top 10
-  try {
-    const stats  = await sendMsg({ type: 'GET_STATS' });
-    const listEl = document.getElementById('today-stats-list');
-    if (listEl) {
-      const entries = Object.entries(stats)
-        .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
-      if (entries.length === 0) {
-        listEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">今日暂无数据</div>';
-      } else {
-        listEl.innerHTML = entries.map(([domain, seconds]) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
-            <span style="font-size:13px;">${domain}</span>
-            <span style="color:var(--accent);font-weight:600;font-size:13px;">${formatSeconds(seconds)}</span>
-          </div>
-        `).join('');
-      }
-    }
-  } catch (e) { /* pass */ }
-
-  await renderSyncStatus();
-}
+// ── 使用分析页（双栏布局）──────────────────────────────────────────────────
 
 async function renderSyncStatus() {
   const storage = await new Promise(resolve => {
@@ -1385,250 +1235,215 @@ function mergeStatsRange(rangeData) {
   return { domainStats: merged, audioSeconds, pipSeconds };
 }
 
-function setupStatsPage() {
-  document.querySelectorAll('.range-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      renderStatsPage(btn.dataset.range);
-    });
-  });
-}
-
-async function renderStatsPage(range = 'today') {
-  const days   = range === 'month' ? 30 : range === 'week' ? 7 : 1;
-  const label  = range === 'month' ? '上月' : range === 'week' ? '上周' : '昨日';
-
-  // 拉取统计数据
-  const [rangeData, visitSessions] = await Promise.all([
-    sendMsg({ type: 'GET_STATS_RANGE', days }),
-    sendMsg({ type: 'GET_VISIT_SESSIONS', days })
+async function renderStatsPage() {
+  // 拉取今日和本周数据
+  const [
+    todayRangeData,
+    weekRangeData,
+    todaySessions,
+    weekSessions,
+    weeklyRes
+  ] = await Promise.all([
+    sendMsg({ type: 'GET_STATS_RANGE', days: 1 }),
+    sendMsg({ type: 'GET_STATS_RANGE', days: 7 }),
+    sendMsg({ type: 'GET_VISIT_SESSIONS', days: 1 }),
+    sendMsg({ type: 'GET_VISIT_SESSIONS', days: 7 }),
+    sendMsg({ type: 'GET_WEEKLY_SESSIONS' })
   ]);
 
-  const dayOrRange = range === 'today'
-    ? splitStatsDay(Object.values(rangeData)[Object.keys(rangeData).length - 1] || { audioSeconds: 0 })
-    : mergeStatsRange(rangeData);
-  const statsData = dayOrRange.domainStats;
-  const audioSeconds = Number(dayOrRange.audioSeconds) || 0;
-  const pipSeconds = Number(dayOrRange.pipSeconds) || 0;
+  const todayData = splitStatsDay(Object.values(todayRangeData)[Object.keys(todayRangeData).length - 1] || {});
+  const weekData  = mergeStatsRange(weekRangeData);
 
-  // 按分类汇总
-  let studySeconds = 0, freeSeconds = 0, otherSeconds = 0;
-  for (const [domain, seconds] of Object.entries(statsData)) {
-    const type = classifyDomain(domain);
-    if (type === 'study') studySeconds += seconds;
-    else if (type === 'composite') otherSeconds += seconds;
-    else freeSeconds += seconds;
+  // ── 设置列标题日期 ──
+  const now = new Date();
+  const weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
+  const todayHeader = document.getElementById('stats-today-header');
+  const weekHeader  = document.getElementById('stats-week-header');
+  if (todayHeader) todayHeader.innerHTML = `今日 <span class="date-range">${weekNames[now.getDay()]} ${now.getMonth()+1}/${now.getDate()}</span>`;
+  if (weekHeader) {
+    const start = new Date(now); start.setDate(start.getDate() - 6);
+    const end   = new Date(now);
+    weekHeader.innerHTML = `本周 <span class="date-range">${start.getMonth()+1}/${start.getDate()} — ${end.getMonth()+1}/${end.getDate()}</span>`;
   }
-  const totalSeconds = studySeconds + freeSeconds + otherSeconds;
 
-  // ── 概览卡片 ────────────────────────────────
-  document.getElementById('stat-total-time').textContent  = formatSeconds(totalSeconds);
-  document.getElementById('stat-study-time').textContent  = formatSeconds(studySeconds);
-  document.getElementById('stat-rest-time').textContent   = formatSeconds(freeSeconds);
-  const audioEl = document.getElementById('stat-audio-time');
-  if (audioEl) audioEl.textContent = formatSeconds(audioSeconds);
-  const pipEl = document.getElementById('stat-pip-time');
-  if (pipEl) pipEl.textContent = formatSeconds(pipSeconds);
-  document.getElementById('stat-study-percent').textContent =
-    totalSeconds > 0 ? Math.round(studySeconds / totalSeconds * 100) + '%' : '0%';
-  document.getElementById('stat-rest-percent').textContent  =
-    totalSeconds > 0 ? Math.round(freeSeconds  / totalSeconds * 100) + '%' : '0%';
+  // ── 今日总览 ──
+  const todayOverview = computeOverview(todayData);
+  renderOverviewList('today-overview-list', todayOverview);
 
-  // 对比趋势（昨日 / 上周 / 上月）
-  try {
-    const prevData = await sendMsg({ type: 'GET_STATS_RANGE', days: days * 2 });
-    const allDates  = Object.keys(prevData).sort();
-    const prevHalf  = allDates.slice(0, Math.floor(allDates.length / 2));
-    const prevTotal = prevHalf.reduce((sum, d) =>
-      sum + Object.entries(prevData[d] || {}).reduce((acc, [k, v]) => (k === 'audioSeconds' || k === 'backgroundMediaByDomain' || k === 'pipSeconds' || k === 'pipByDomain') ? acc : acc + (Number(v) || 0), 0), 0);
-    const trend     = prevTotal > 0 ? Math.round((totalSeconds - prevTotal) / prevTotal * 100) : 0;
-    const trendEl   = document.getElementById('stat-total-trend');
-    if (trendEl) {
-      trendEl.textContent = `比${label} ${trend >= 0 ? '+' : ''}${trend}%`;
-      trendEl.style.color = trend > 0 ? 'var(--warn)' : 'var(--green)';
-    }
-  } catch (_) {}
+  // ── 本周总览 ──
+  const weekOverview = computeOverview(weekData);
+  renderOverviewList('week-overview-list', weekOverview);
 
-  // 访问次数 + 平均时长
-  document.getElementById('stat-session-count').textContent = visitSessions.length;
-  const avgMin = visitSessions.length > 0
-    ? Math.round(visitSessions.reduce((a, s) => a + s.duration, 0) / visitSessions.length / 60)
-    : 0;
-  document.getElementById('stat-avg-duration').textContent = `平均 ${avgMin} 分钟`;
+  // ── 今日时间轴 ──
+  renderTimeline('today-timeline', todaySessions);
 
-  // ── 热力图 ───────────────────────────────────
-  renderHeatmap(visitSessions);
+  // ── 本周每日分布 ──
+  renderDailyBars('week-daily-bars', weekRangeData);
 
-  // ── 饼图 ────────────────────────────────────
-  renderTypeChart(studySeconds, freeSeconds, otherSeconds);
+  // ── 今日网站排行 ──
+  renderRankList('today-rank-list', todayData.domainStats, 5);
 
-  // ── TOP 网站 ─────────────────────────────────
-  renderTopDomains(statsData, totalSeconds);
+  // ── 本周网站排行 ──
+  renderRankList('week-rank-list', weekData.domainStats, 5);
 
-  // ── 模式分析 ─────────────────────────────────
-  renderPatternAnalysis(visitSessions, studySeconds, totalSeconds);
+  // ── 今日待归类 ──
+  const todayStr = now.toISOString().slice(0, 10);
+  const todayUndetermined = (weeklyRes?.sessions || []).filter(s => s.date === todayStr);
+  renderUndeterminedList('today-undetermined-list', todayUndetermined);
+
+  // ── 本周待归类 ──
+  renderUndeterminedList('week-undetermined-list', weeklyRes?.sessions || []);
 }
 
-function renderHeatmap(visitSessions) {
-  const container = document.getElementById('time-heatmap');
-  if (!container) return;
+function computeOverview(data) {
+  const compositeList = config.compositeList || [];
+  let online = 0, study = 0, rest = 0, audio = 0, undetermined = 0;
+  audio = Number(data.audioSeconds) || 0;
+  for (const [domain, seconds] of Object.entries(data.domainStats || {})) {
+    online += seconds;
+    const type = classifyDomain(domain);
+    if (type === 'study') study += seconds;
+    else if (compositeList.some(p => {
+      const d = domain.replace(/^www\./, ''), pp = p.replace(/^www\./, '');
+      return d === pp || d.endsWith('.' + pp);
+    })) undetermined += seconds;
+    else rest += seconds;
+  }
+  return { online, study, rest, audio, undetermined };
+}
 
-  // 按小时聚合访问时长
+function renderOverviewList(id, overview) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const rows = [
+    { label: '在线', value: formatSeconds(overview.online) },
+    { label: '学习', value: formatSeconds(overview.study) },
+    { label: '休息', value: formatSeconds(overview.rest) },
+    { label: '后台媒体', value: formatSeconds(overview.audio) },
+    { label: '待归类', value: formatSeconds(overview.undetermined) },
+  ];
+  el.innerHTML = rows.map(r => `
+    <div class="overview-row">
+      <span class="overview-label">${r.label}</span>
+      <span class="overview-value">${r.value}</span>
+    </div>
+  `).join('');
+}
+
+function renderTimeline(id, sessions) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  // 按小时聚合，并标记主要状态
   const hourData = new Array(24).fill(0);
-  for (const s of visitSessions) {
+  const hourState = new Array(24).fill(null);
+  for (const s of sessions) {
     const h = new Date(s.startAt).getHours();
     hourData[h] += s.duration;
+    if (!hourState[h]) hourState[h] = s.state;
+    else if (s.state === 'ACTIVE' && hourState[h] !== 'ACTIVE') hourState[h] = 'ACTIVE';
   }
   const maxVal = Math.max(...hourData, 1);
 
-  const cells = hourData.map((seconds, h) => {
-    const level   = seconds === 0 ? 0 : Math.min(5, Math.ceil(seconds / maxVal * 5));
-    const tooltip = `${h}:00  ${formatSeconds(seconds)}`;
-    return `<div class="heatmap-cell level-${level}" title="${tooltip}" data-time="${tooltip}"></div>`;
-  }).join('');
+  const stateClass = { ACTIVE: 'study', BACKGROUND_ACTIVE: 'audio', PASSIVE: 'rest' };
+  const stateLabel = { ACTIVE: '学习', BACKGROUND_ACTIVE: '后台媒体', PASSIVE: '休息' };
 
-  const labels = Array.from({ length: 24 }, (_, i) =>
-    `<div style="font-size:10px;color:var(--muted);text-align:center;line-height:1;">${i % 6 === 0 ? i + 'h' : ''}</div>`
-  ).join('');
-
-  container.innerHTML = `
-    <div class="heatmap-grid">${cells}</div>
-    <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-top:4px;">${labels}</div>
-  `;
-}
-
-function renderTypeChart(studySeconds, freeSeconds, otherSeconds) {
-  const canvas = document.getElementById('typeChart');
-  if (!canvas) return;
-  const ctx   = canvas.getContext('2d');
-  const total = studySeconds + freeSeconds + otherSeconds;
-  const cx = 100, cy = 100, r = 75, innerR = 48;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (total === 0) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    ctx.fill();
-    ctx.fillStyle = '#5a5a80';
-    ctx.font = '13px -apple-system';
-    ctx.textAlign = 'center';
-    ctx.fillText('暂无数据', cx, cy + 5);
-    return;
-  }
-
-  const segments = [
-    { value: studySeconds, color: '#4ade80' },
-    { value: freeSeconds,  color: '#fbbf24' },
-    { value: otherSeconds, color: '#5a5a80' },
-  ].filter(s => s.value > 0);
-
-  let startAngle = -Math.PI / 2;
-  for (const seg of segments) {
-    const sweep = (seg.value / total) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, startAngle, startAngle + sweep);
-    ctx.closePath();
-    ctx.fillStyle = seg.color;
-    ctx.fill();
-    startAngle += sweep;
-  }
-
-  // 圆环内洞
-  ctx.beginPath();
-  ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
-  ctx.fillStyle = '#16162a';
-  ctx.fill();
-
-  // 中心文字
-  const pct = Math.round(studySeconds / total * 100);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#e2e2f0';
-  ctx.font = 'bold 18px -apple-system';
-  ctx.fillText(pct + '%', cx, cy + 2);
-  ctx.font = '11px -apple-system';
-  ctx.fillStyle = '#5a5a80';
-  ctx.fillText('学习', cx, cy + 18);
-}
-
-function renderTopDomains(statsData, totalSeconds) {
-  const container = document.getElementById('top-domains-list');
-  if (!container) return;
-
-  const entries = Object.entries(statsData)
-    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-
-  if (entries.length === 0) {
-    container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">暂无数据</div>';
-    return;
-  }
-
-  const maxSeconds = entries[0][1];
-  const rankColors = ['top-1', 'top-2', 'top-3'];
-  const typeMap    = { study: '学习网站', composite: '复合型网站', other: '其他' };
-  const barColors  = { study: 'var(--green)', composite: 'var(--accent)', other: 'var(--muted)' };
-
-  container.innerHTML = entries.map(([domain, seconds], i) => {
-    const type    = classifyDomain(domain);
-    const pct     = Math.round(seconds / maxSeconds * 100);
-    const rankCls = rankColors[i] || '';
+  el.innerHTML = hourData.map((seconds, h) => {
+    const pct = Math.round(seconds / maxVal * 100);
+    const st = hourState[h];
+    const cls = stateClass[st] || 'undetermined';
+    const label = seconds > 0 ? `${stateLabel[st] || '待归类'} ${formatSeconds(seconds)}` : '';
     return `
-      <div class="top-domain-item">
-        <div class="domain-rank ${rankCls}">${i + 1}</div>
-        <div class="domain-info">
-          <div class="domain-name">${domain}</div>
-          <div class="domain-type">${typeMap[type]}</div>
+      <div class="timeline-row">
+        <div class="timeline-hour">${String(h).padStart(2, '0')}</div>
+        <div class="timeline-track">
+          ${seconds > 0 ? `<div class="timeline-fill ${cls}" style="width:${pct}%"></div>` : ''}
+          ${label ? `<div class="timeline-label">${label}</div>` : ''}
         </div>
-        <div class="domain-bar">
-          <div class="domain-bar-fill" style="width:${pct}%;background:${barColors[type]};"></div>
-        </div>
-        <div class="domain-time">${formatSeconds(seconds)}</div>
       </div>
     `;
   }).join('');
 }
 
-function renderPatternAnalysis(visitSessions, studySeconds, totalSeconds) {
-  const container = document.getElementById('pattern-analysis');
-  if (!container) return;
+function renderDailyBars(id, rangeData) {
+  const el = document.getElementById(id);
+  if (!el) return;
 
-  // 最长专注时段
-  const longestSession = visitSessions.length > 0
-    ? visitSessions.reduce((a, b) => b.duration > a.duration ? b : a)
-    : null;
-  const longestMin = longestSession ? Math.round(longestSession.duration / 60) : 0;
+  const dates = Object.keys(rangeData).sort();
+  const days  = [];
+  for (const date of dates) {
+    const day = splitStatsDay(rangeData[date]);
+    let total = 0;
+    for (const [domain, seconds] of Object.entries(day.domainStats)) total += seconds;
+    days.push({ date, total });
+  }
+  const maxVal = Math.max(...days.map(d => d.total), 1);
 
-  // 峰值活跃小时
-  const hourData = new Array(24).fill(0);
-  for (const s of visitSessions) hourData[new Date(s.startAt).getHours()] += s.duration;
-  const peakHour   = hourData.indexOf(Math.max(...hourData));
-  const peakLabel  = hourData[peakHour] > 0 ? `${peakHour}:00 — ${peakHour + 1}:00` : '无数据';
+  el.innerHTML = days.map(d => {
+    const dateObj = new Date(d.date + 'T00:00:00');
+    const dayName = DAY_NAMES[dateObj.getDay()];
+    const pct = Math.round(d.total / maxVal * 100);
+    return `
+      <div class="daily-bar-row">
+        <div class="daily-bar-label">${dayName.slice(1)}</div>
+        <div class="daily-bar-track">
+          <div class="daily-bar-fill" style="width:${pct}%"></div>
+        </div>
+        <div class="daily-bar-value">${formatSeconds(d.total)}</div>
+      </div>
+    `;
+  }).join('');
+}
 
-  // 学习占比
-  const studyPct = totalSeconds > 0 ? Math.round(studySeconds / totalSeconds * 100) : 0;
-  const studyGrade = studyPct >= 70 ? '优秀 🎉' : studyPct >= 50 ? '良好 👍' : studyPct >= 30 ? '一般 📖' : '待提升 💪';
-
-  container.innerHTML = `
-    <div class="pattern-card">
-      <div class="pattern-icon">⏱</div>
-      <div class="pattern-title">最长专注时段</div>
-      <div class="pattern-value">${longestMin} 分钟</div>
+function renderRankList(id, domainStats, limit) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const entries = Object.entries(domainStats)
+    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+  if (entries.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无数据</div>';
+    return;
+  }
+  el.innerHTML = entries.map(([domain, seconds]) => `
+    <div class="rank-item">
+      <span class="rank-domain">${domain}</span>
+      <span class="rank-time">${formatSeconds(seconds)}</span>
     </div>
-    <div class="pattern-card">
-      <div class="pattern-icon">🔥</div>
-      <div class="pattern-title">最活跃时段</div>
-      <div class="pattern-value">${peakLabel}</div>
-    </div>
-    <div class="pattern-card">
-      <div class="pattern-icon">📚</div>
-      <div class="pattern-title">学习专注度</div>
-      <div class="pattern-value">${studyPct}% · ${studyGrade}</div>
-    </div>
+  `).join('');
+}
+
+function renderUndeterminedList(id, sessions) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const totalMin = Math.round(sessions.reduce((a, s) => a + (s.duration || 0), 0) / 60);
+  if (sessions.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无待归类</div>';
+    return;
+  }
+
+  const statusMap = {
+    study:       { cls: 'study',       text: '✅ 学习' },
+    rest:        { cls: 'rest',        text: '⚠️ 休息' },
+    pending:     { cls: 'pending',     text: '⏳ 待审核' },
+    appealing:   { cls: 'appealing',   text: '申诉中' },
+  };
+
+  el.innerHTML = `
+    <div class="undetermined-summary">共 ${sessions.length} 条 · ${totalMin}分钟</div>
+    ${sessions.map(s => {
+      const st = statusMap[s.classification] || statusMap[s.appeal_status] || statusMap.pending;
+      return `
+        <div class="undetermined-item">
+          <span class="ud-domain">${escHtml(s.domain)}</span>
+          <span class="ud-meta">
+            <span class="ud-time">${formatSeconds(s.duration || 0)}</span>
+            <span class="ud-status ${st.cls}">${st.text}</span>
+          </span>
+        </div>
+      `;
+    }).join('')}
   `;
 }
 
@@ -1663,74 +1478,7 @@ async function renderChangelog() {
   `).join('');
 }
 
-// ── 本周待定时段（孩子视角） ──────────────────────────────────────────────────
 
-async function renderWeeklyPage() {
-  const container = document.getElementById('weekly-sessions-list');
-  if (!container) return;
-  container.innerHTML = '<div style="color:var(--muted);font-size:13px;">加载中...</div>';
-
-  const res = await sendMsg({ type: 'GET_WEEKLY_SESSIONS' });
-  const sessions = res?.sessions || [];
-
-  if (sessions.length === 0) {
-    container.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">本周暂无待定会话</div>';
-    return;
-  }
-
-  const statusLabel = {
-    study: '<span style="color:var(--accent);font-size:11px;">✅ 学习</span>',
-    rest:  '<span style="color:#ef4444;font-size:11px;">⚠️ 休息</span>',
-  };
-
-  container.innerHTML = sessions.slice(0, 50).map(s => {
-    const status = statusLabel[s.classification] || '<span style="color:#f59e0b;font-size:11px;">⏳ 待审核</span>';
-    const dur = formatSeconds(s.duration || 0);
-    const date = (s.date || '').slice(5);
-    const title = (s.title || s.domain).slice(0, 60);
-
-    let appealHtml = '';
-    if (s.classification === 'rest' && !s.appeal_status) {
-      appealHtml = `<button class="weekly-appeal-btn" data-sid="${escId(s.id)}"
-        style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;cursor:pointer;color:var(--muted);">申诉</button>`;
-    } else if (s.appeal_status === 'pending') {
-      appealHtml = '<span style="font-size:11px;color:#f59e0b;">申诉中</span>';
-    } else if (s.appeal_status === 'overturned') {
-      appealHtml = '<span style="font-size:11px;color:var(--accent);">已改判</span>';
-    }
-
-    return `
-      <div style="padding:9px 0;border-bottom:1px solid var(--border);">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;"
-            title="${escAttr(s.title || '')}">${escHtml(title)}</span>
-          <span style="font-size:11px;color:var(--muted);white-space:nowrap;">${dur}</span>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px;">
-          <span style="font-size:11px;color:var(--muted);">${date} · ${escHtml(s.domain)}</span>
-          <span style="display:flex;align-items:center;gap:6px;">${status} ${appealHtml}</span>
-        </div>
-      </div>`;
-  }).join('');
-
-  // 绑定申诉按钮
-  container.querySelectorAll('.weekly-appeal-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const sid = btn.dataset.sid;
-      btn.disabled = true;
-      btn.textContent = '提交中...';
-      const r = await sendMsg({ type: 'SUBMIT_APPEAL', sessionId: sid, reason: '' });
-      if (r?.ok) {
-        btn.textContent = '已提交';
-        btn.style.color = 'var(--accent)';
-      } else {
-        btn.disabled = false;
-        btn.textContent = '申诉';
-        alert('申诉失败：' + (r?.error || '未知'));
-      }
-    });
-  });
-}
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
