@@ -279,6 +279,11 @@ export async function uploadStats() {
  * @returns {Promise<{configPulled: boolean, statsUploaded: boolean, quotaSynced: boolean, hadFailure: boolean, errors: string[]}>}
  */
 export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn) {
+  if (!syncState.deviceToken) {
+    console.log('[Cloud] Sync skipped: no device token (not yet initialized or unbound)');
+    return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: false, errors: [] };
+  }
+
   if (syncState.isSyncing) {
     console.log('[Cloud] Sync already in progress');
     return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['Sync already in progress'] };

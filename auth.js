@@ -1,7 +1,8 @@
 // TimeOnChrome - 绑定与认证模块
 // 处理设备绑定、token 存储
 
-const GUARDIAN_CONFIG = window.GUARDIAN_CONFIG || {
+// 使用 config.js 中已声明的 GC，不重复声明
+const GC = window.GC || {
   API_BASE: 'https://guardian-api.your-account.workers.dev',
   KEYS: {
     DEVICE_TOKEN: 'cloud_device_token',
@@ -16,9 +17,9 @@ const Auth = {
    */
   async isBound() {
     return new Promise((resolve) => {
-      chrome.storage.local.get([GUARDIAN_CONFIG.KEYS.DEVICE_TOKEN, GUARDIAN_CONFIG.KEYS.PROFILE_ID], (result) => {
-        const token = result[GUARDIAN_CONFIG.KEYS.DEVICE_TOKEN];
-        const profileId = result[GUARDIAN_CONFIG.KEYS.PROFILE_ID];
+      chrome.storage.local.get([GC.KEYS.DEVICE_TOKEN, GC.KEYS.PROFILE_ID], (result) => {
+        const token = result[GC.KEYS.DEVICE_TOKEN];
+        const profileId = result[GC.KEYS.PROFILE_ID];
         resolve(!!token && !!profileId);
       });
     });
@@ -29,8 +30,8 @@ const Auth = {
    */
   async getDeviceToken() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(GUARDIAN_CONFIG.KEYS.DEVICE_TOKEN, (result) => {
-        resolve(result[GUARDIAN_CONFIG.KEYS.DEVICE_TOKEN] || null);
+      chrome.storage.local.get(GC.KEYS.DEVICE_TOKEN, (result) => {
+        resolve(result[GC.KEYS.DEVICE_TOKEN] || null);
       });
     });
   },
@@ -40,7 +41,7 @@ const Auth = {
    */
   async bind(email, password, profileId, deviceName = 'Chrome Extension') {
     // 先登录获取 account_token
-    const loginResp = await fetch(`${GUARDIAN_CONFIG.API_BASE}/auth/login`, {
+    const loginResp = await fetch(`${GC.API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
@@ -54,7 +55,7 @@ const Auth = {
     const { token: accountToken } = await loginResp.json();
 
     // 获取孩子的 profile 列表
-    const profilesResp = await fetch(`${GUARDIAN_CONFIG.API_BASE}/profiles`, {
+    const profilesResp = await fetch(`${GC.API_BASE}/profiles`, {
       headers: { 'Authorization': `Bearer ${accountToken}` }
     });
 
@@ -71,7 +72,7 @@ const Auth = {
     }
 
     // 绑定设备
-    const bindResp = await fetch(`${GUARDIAN_CONFIG.API_BASE}/device/bind`, {
+    const bindResp = await fetch(`${GC.API_BASE}/device/bind`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile_id: profileId, device_name: deviceName })
@@ -87,9 +88,9 @@ const Auth = {
     // 保存到本地
     await new Promise((resolve) => {
       chrome.storage.local.set({
-        [GUARDIAN_CONFIG.KEYS.DEVICE_TOKEN]: device_token,
-        [GUARDIAN_CONFIG.KEYS.PROFILE_ID]: profile_id,
-        [GUARDIAN_CONFIG.KEYS.LAST_SYNC]: Date.now()
+        [GC.KEYS.DEVICE_TOKEN]: device_token,
+        [GC.KEYS.PROFILE_ID]: profile_id,
+        [GC.KEYS.LAST_SYNC]: Date.now()
       }, resolve);
     });
 
@@ -102,9 +103,9 @@ const Auth = {
   async unbind() {
     return new Promise((resolve) => {
       chrome.storage.local.remove([
-        GUARDIAN_CONFIG.KEYS.DEVICE_TOKEN,
-        GUARDIAN_CONFIG.KEYS.PROFILE_ID,
-        GUARDIAN_CONFIG.KEYS.LAST_SYNC
+        GC.KEYS.DEVICE_TOKEN,
+        GC.KEYS.PROFILE_ID,
+        GC.KEYS.LAST_SYNC
       ], resolve);
     });
   },
