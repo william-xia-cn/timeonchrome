@@ -1037,6 +1037,7 @@ function renderRulesPage() {
 
 async function setupDevicesPage() {
   await renderSyncStatus();
+  await renderChangelog();
 }
 
 
@@ -1467,9 +1468,6 @@ async function renderStatsPage(range = 'today') {
 
   // ── 模式分析 ─────────────────────────────────
   renderPatternAnalysis(visitSessions, studySeconds, totalSeconds);
-
-  // ── 变更日志 ─────────────────────────────────
-  await renderChangelog();
 }
 
 function renderHeatmap(visitSessions) {

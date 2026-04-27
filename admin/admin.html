@@ -820,7 +820,7 @@
       <span class="nav-icon">📊</span> 使用分析
     </div>
     <div class="nav-item" data-page="devices">
-      <span class="nav-icon">📡</span> 本机
+      <span class="nav-icon">📡</span> 本机状态
     </div>
     <div class="nav-item" data-page="weekly">
       <span class="nav-icon">⏳</span> 本周待定
@@ -1048,16 +1048,6 @@
         </div>
       </div>
 
-      <!-- 变更日志时间线 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">📜 最近变更</div>
-          <p class="card-subtitle">规则变更历史记录</p>
-        </div>
-        <div class="changelog-timeline" id="changelog-timeline">
-          <!-- 由 JS 生成 -->
-        </div>
-      </div>
     </div>
 
 
@@ -1088,6 +1078,17 @@
           </div>
         </div>
         <div id="sync-status">加载中...</div>
+      </div>
+
+      <!-- 最近变更 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📜 最近变更</div>
+          <div class="card-subtitle">规则变更历史记录</div>
+        </div>
+        <div class="changelog-timeline" id="changelog-timeline">
+          <!-- 由 JS 生成 -->
+        </div>
       </div>
     </div>
 
