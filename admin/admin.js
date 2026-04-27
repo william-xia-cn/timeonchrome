@@ -933,7 +933,7 @@ function renderRulesPage() {
   // 渲染只读标签
   renderDomainTagsReadOnly('unsafelist-tags', config.unsafeList || config.blacklist || []);
   renderDomainTagsReadOnly('studylist-tags', config.studyList || []);
-  renderDomainTagsReadOnly('allowlist-tags', config.compositeList || []); // 复合网站
+  renderDomainTagsReadOnly('allowlist-tags', config.compositeList || []);
   updateListCounts();
 
   // 学习网站搜索框（仅过滤显示，不修改数据）
