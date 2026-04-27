@@ -7,7 +7,6 @@ import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCl
 import { getTodayStatsWithCategories } from './product/analytics.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
-  '/popup/popup.html',
   '/reminder.html',
 ]);
 
