@@ -109,59 +109,6 @@
       color: var(--warn);
     }
 
-    /* Current Site */
-    .current-site {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 14px;
-      margin-bottom: 12px;
-    }
-    .current-site-domain {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 4px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .current-site-badge {
-      font-size: 10px;
-      padding: 2px 8px;
-      border-radius: 100px;
-      font-weight: 600;
-    }
-    .badge-study { background: rgba(0,184,148,0.12); color: var(--accent); }
-    .badge-rest { background: rgba(239,68,68,0.12); color: var(--danger); }
-    .badge-composite { background: rgba(108,92,231,0.12); color: #6c5ce7; }
-    .badge-unknown { background: rgba(107,138,122,0.12); color: var(--muted); }
-
-    /* Stats Cards */
-    .stats-cards {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
-      margin-bottom: 14px;
-    }
-    .stat-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 6px;
-      text-align: center;
-    }
-    .stat-card-value {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--text);
-      line-height: 1.2;
-    }
-    .stat-card-label {
-      font-size: 9px;
-      color: var(--muted);
-      margin-top: 2px;
-    }
-
     /* Progress Bars */
     .quota-bar-item { margin-bottom: 12px; }
     .quota-bar-header {
@@ -198,24 +145,6 @@
     .stat-row-left  { font-size: 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; margin-right:8px; }
     .stat-row-right { font-size: 11px; color: var(--accent); font-weight: 600; white-space:nowrap; }
 
-    .actions {
-      padding: 10px 16px 14px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      justify-content: flex-end;
-    }
-    .action-link {
-      font-size: 11px;
-      color: var(--muted);
-      cursor: pointer;
-      text-decoration: none;
-      border: 1px solid var(--border);
-      padding: 4px 10px;
-      border-radius: 6px;
-      transition: color 0.2s;
-    }
-    .action-link:hover { color: var(--text); }
-
     .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
   </style>
 </head>
@@ -247,13 +176,6 @@
   </div>
 
   <div class="body">
-    <!-- Current Site -->
-    <div class="section-title">正在访问</div>
-    <div id="current-site" class="current-site">
-      <div class="current-site-domain" id="current-domain">—</div>
-      <span id="current-badge" class="current-site-badge badge-unknown">未知</span>
-    </div>
-
     <!-- Progress Bars (Online + Undetermined + Backend Media) -->
     <div class="section-title">今日用量</div>
     <div id="quota-bars">
@@ -266,10 +188,6 @@
     <!-- Top 10 -->
     <div class="section-title">今日访问</div>
     <div id="today-top10"><div class="empty">暂无数据</div></div>
-  </div>
-
-  <div class="actions">
-    <a class="action-link" id="detail-link">📊 详情</a>
   </div>
 
   <script src="popup.js"></script>

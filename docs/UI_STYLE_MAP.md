@@ -61,7 +61,7 @@ TimeOnChrome 界面信息层级
 
 | 页面 | Layer 1 | Layer 2 | Layer 3 | Layer 4 | Layer 5 | Layer 6 | Layer 7 |
 |------|---------|---------|---------|---------|---------|---------|---------|
-| **Popup** | Header Logo | 孩子名字 | 模式切换 + 未绑定横幅 | 2 个进度条（在线/待定）+ 后台媒体 | 详情链接（Actions 区） | Top 10 域名 | — |
+| **Popup** | Header Logo | 孩子名字 | 模式切换 + 未绑定横幅 | 2 个进度条（在线/待定）+ 后台媒体 | — | Top 10 域名 | — |
 | **Reminder** | 品牌 Footer | — | 场景图标 + 标题 + 副标题 | 域名展示 | 操作按钮组（3-4 个） | 自定义消息 | 状态反馈文字 |
 | **Bind** | 标题 | — | — | 表单输入 | 登录/选择/绑定按钮 | 欢迎引导横幅 | 错误提示 |
 | **Admin** | Sidebar Logo | 设备信息 | 当前模式 | 统计图表 + 域名列表 | 配置编辑 + 同步按钮 | 日志/历史 | 操作反馈 |
@@ -99,8 +99,6 @@ TimeOnChrome 界面信息层级
 │ youtube.com        25 分钟  │
 │ google.com         15 分钟  │
 │ ...（最多 10 条）            │
-├─────────────────────────────┤  ← Actions 区
-│                  [📊 详情]  │
 └─────────────────────────────┘
       ↑ 320px 固定宽度
 ```
@@ -113,7 +111,7 @@ TimeOnChrome 界面信息层级
 | **进度条** | 5 条（在线/学习/待定/休息/本周） | 2 条（在线/待定）+ 后台媒体 | 学习/休息/本周移至后台逻辑 |
 | **借用区** | 借用按钮/状态提示 | ❌ 删除 | 借用功能仅保留在 reminder.html |
 | **本周待定** | 折叠列表 + 申诉 | ❌ 删除 | 审核功能移至家长控制台 |
-| **Footer** | 日期 + 详情链接 | 仅详情链接（右对齐） | 日期冗余，详情入口保留 |
+| **Footer** | 日期 + 详情链接 | ❌ 删除 | 日期冗余，详情入口移至 Header ⚙️ |
 | **Top 域名** | Top 5 | Top 10 | 增加展示数量 |
 | **后台媒体** | 不可见 | 🎵 后台音视频（纯数字） | `audioSeconds + pipSeconds` 合并显示 |
 | **Header 右侧** | 无 | ⚙️ 设置按钮 | 点击打开 options_page |
@@ -185,13 +183,9 @@ TimeOnChrome 界面信息层级
 | 状态标签 | 10px 彩色文字（pending/study/rest） |
 | 申诉按钮 | 10px，边框按钮，2px 7px padding |
 
-#### 4.2.7 Footer
+#### 4.2.7 Footer（P0 已删除）
 
-| 属性 | 值 |
-|------|-----|
-| 上边框 | 1px solid var(--border) |
-| 日期 | 10px / muted |
-| 详情链接 | 11px / muted，边框按钮样式，hover 变 text 色 |
+P0 版本已删除 Footer，配置入口仅保留 Header 右侧 ⚙️ 设置按钮。
 
 ---
 
@@ -277,8 +271,7 @@ TimeOnChrome 界面信息层级
 
 | 入口 | 位置 | 触发方式 | 目标页面 |
 |------|------|---------|---------|
-| 详情链接 | popup Actions 区（底部右对齐） | 点击 | `admin/admin.html`（options_page） |
-| 设置按钮 ⚙️ | popup Header 右侧 | 点击 | `admin/admin.html` |
+| 设置按钮 ⚙️ | popup Header 右侧 | 点击 | `admin/admin.html`（options_page） |
 | 前往管理面板 | popup 未绑定横幅 | 点击 | `admin/admin.html` |
 | 查看详情 | reminder（quota 场景） | 点击 | `admin/admin.html` |
 | 管理面板 | admin 登录后 | 直接进入 | admin 仪表盘 |
@@ -289,7 +282,7 @@ TimeOnChrome 界面信息层级
 ```
 配置入口层级
 ├── 孩子侧（Popup）
-│   └── 📊 详情 → admin.html（只读/受限视图）
+│   └── ⚙️ 设置 → admin.html（只读/受限视图）
 ├── 本地管理（Admin / Options Page）
 │   └── 密码保护的管理面板
 └── 云端管理（Pages / 家长控制台）
@@ -427,7 +420,7 @@ font-family: -apple-system, 'Segoe UI', sans-serif;
 |------|------|---------|
 | **Primary** | 薄荷绿渐变背景 + 白字 + 无边框 + 10px 圆角 | bind.html 登录按钮, admin 登录按钮 |
 | **Secondary** | 透明底 + 绿边框 + 深字 + hover 绿底 | reminder 操作按钮 |
-| **Outline** | 透明底 + 淡绿边框 + muted 字 + hover 微绿底 | reminder 返回/查看详情, popup 详情链接 |
+| **Outline** | 透明底 + 淡绿边框 + muted 字 + hover 微绿底 | reminder 返回/查看详情 |
 | **Warn** | 橙渐变背景 + 白字 | popup 借用按钮 |
 | **Danger** | 红底/红边框 | 未使用（预留） |
 | **Text** | 无背景 + 链接色 + underline | admin/pages 文字链接 |
@@ -551,7 +544,6 @@ P0 版本已删除激励摘要卡，状态信息由进度条直接承接。
 | 切换休息模式 | "☕ 切换到休息模式" | reminder |
 | 临时加入学习 | "📝 临时加入学习网站" | reminder |
 | 借用时间 | "⏱ 向明天借时间" | reminder（popup 已移除） |
-| 查看详情 | "📊 详情" | popup Actions 区 |
 | 设置 | "⚙️" | popup Header 右侧 |
 | 返回 | "← 返回" | reminder |
 
@@ -643,7 +635,7 @@ P0 版本已删除激励摘要卡，状态信息由进度条直接承接。
 3. ✅ **进度条精简**：仅保留在线/待定 2 条
 4. ✅ **Top 5 → Top 10**：增加域名展示数量
 5. ✅ **借用权限限制**：`BORROW_ALLOWED_PATHS` 移除 popup，仅保留 reminder
-6. ✅ **Footer 迁移**：详情入口移至底部 Actions 区
+6. ✅ **Footer 删除**：日期和详情链接均删除，配置入口仅保留 Header ⚙️
 
 ### P1（中优先级）
 

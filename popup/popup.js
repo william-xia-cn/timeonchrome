@@ -9,7 +9,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (cloudStatus && !cloudStatus.isBound) {
     document.getElementById('unbound-banner').style.display = 'block';
     document.querySelector('.body').style.display = 'none';
-    document.querySelector('.actions').style.display = 'none';
     document.getElementById('goto-admin-btn').addEventListener('click', () => {
       chrome.runtime.openOptionsPage();
     });
@@ -22,10 +21,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
   document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
 
-  document.getElementById('detail-link').addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
-  });
-
   document.getElementById('settings-btn').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
@@ -34,7 +29,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (msg.type === 'DEVICE_UNBOUND') {
       document.getElementById('unbound-banner').style.display = 'block';
       document.querySelector('.body').style.display = 'none';
-      document.querySelector('.actions').style.display = 'none';
       document.getElementById('goto-admin-btn').addEventListener('click', () => {
         chrome.runtime.openOptionsPage();
       });
@@ -91,9 +85,6 @@ async function init() {
   }
 
   const backendMediaSeconds = (stats.audioSeconds || 0) + (stats.pipSeconds || 0);
-
-  // Current Site
-  renderCurrentSite(studyList, compositeList);
 
   // Mode Buttons with quota display
   const studyBtn = document.getElementById('btn-study');
@@ -163,40 +154,6 @@ async function init() {
         <span class="stat-row-right">${formatSeconds(seconds)}</span>
       </div>
     `).join('');
-  }
-}
-
-async function renderCurrentSite(studyList, compositeList) {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const domainEl = document.getElementById('current-domain');
-    const badgeEl = document.getElementById('current-badge');
-
-    if (!tab || !tab.url) {
-      domainEl.textContent = '—';
-      badgeEl.textContent = '未知';
-      badgeEl.className = 'current-site-badge badge-unknown';
-      return;
-    }
-
-    const domain = extractDomain(tab.url);
-    domainEl.textContent = domain || '—';
-
-    const isStudy = studyList.some(p => matchDomain(domain, p));
-    const isComposite = compositeList.some(p => matchDomain(domain, p));
-
-    if (isStudy) {
-      badgeEl.textContent = '学习网站';
-      badgeEl.className = 'current-site-badge badge-study';
-    } else if (isComposite) {
-      badgeEl.textContent = '待定网站';
-      badgeEl.className = 'current-site-badge badge-composite';
-    } else {
-      badgeEl.textContent = '休息网站';
-      badgeEl.className = 'current-site-badge badge-rest';
-    }
-  } catch (_) {
-    document.getElementById('current-domain').textContent = '—';
   }
 }
 
