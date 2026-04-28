@@ -16,7 +16,8 @@
 | D-012 | PiP 不属于正常学习需求 | Active | 切换到学习模式时，已经打开的非学习网站 PiP 必须关闭；PiP 视频时长需要单独记录，不混入普通在线/ACTIVE 时长；产品态度是记录但不作为学习需求放行 |
 | D-013 | 后台媒体与 PiP 统计必须保留 domain 维度 | Active | 后台 audio/video 与 PiP 时长不能只有全局总秒数，必须能按 domain 归因；总量可作为摘要，但不能替代 domain 明细 |
 | D-014 | Agent 必须严格遵循已确认的实施方案 | Active | 已确认方案必须严格逐项执行，不得擅自简化、替换或偏离；执行前须输出 checklist，执行后须做 Plan Conformance Audit；存在 Deviated/Extra 变更时禁止提交 |
-| D-015 | 申诉/审核语义：终端 UI 待定 | **Pending PO** | 复合型网站会话的"申诉/待审核/申诉中/已改判/标为学习/标为休息"等概念在**孩子侧终端 UI（admin 管理面板）**中仅为**占位展示**，尚未获得产品终审。当前存在不等于产品批准。Codex/OpenCode 禁止将其扩展为新的交互工作流或新增业务逻辑。Product Owner 后续需决定：a) 从终端 UI 隐藏；b) 仅作只读状态展示；c) 保留孩子侧申诉操作；d) 仅保留在家长控制台 |
+| D-015 | 申诉/审核语义：使用分析页面 / 终端 UI 待定 | **Pending PO** | 复合型网站会话的"申诉/待审核/申诉中/已改判/标为学习/标为休息"等概念在**孩子侧终端 UI（admin 管理面板 / 使用分析页面）**中仅为**占位展示**，尚未获得产品终审。当前存在不等于产品批准。Codex/OpenCode 禁止将其扩展为新的交互工作流或新增业务逻辑。Product Owner 后续需决定：a) 从终端 UI 隐藏；b) 仅作只读状态展示；c) 保留孩子侧申诉操作；d) 仅保留在家长控制台 |
+| D-016 | Vendor/Support 域名保留在 defaultCompositeSites | Active | 以下 7 个域名明确保留在 `defaultCompositeSites`（综合网站）中：`www.google.com`、`support.google.com`、`support.microsoft.com`、`answers.microsoft.com`、`microsoft.com`、`apple.com`、`adobe.com`。这是 Product Owner 明确批准的例外，不适用于其他软件/vendor 域名。禁止将其移动到 `defaultStudySites`，禁止以此为理由继续添加同类域名。新增软件/vendor 域名到系统默认清单必须获得 Product Owner 单独批准。 |
 
 ## 变更规则
 - 新决策必须追加一条记录（不改历史 ID）。
