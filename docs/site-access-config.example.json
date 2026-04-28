@@ -1,0 +1,22 @@
+{
+  "app": "TimeOnChrome",
+  "configType": "site-access",
+  "configVersion": 1,
+  "description": "User-managed site access configuration. System default site lists are not included.",
+  "studySites": [
+    "keystoneacademy.cn",
+    "teacher-homework.example.com"
+  ],
+  "compositeSites": [
+    "example-video-learning.com",
+    "example-qna-community.com"
+  ],
+  "restrictedEntertainmentSites": [
+    "example-entertainment-site.com",
+    "example-game-site.com"
+  ],
+  "blockedSites": [
+    "example-blocked-site.com",
+    "example-distracting-site.com"
+  ]
+}
