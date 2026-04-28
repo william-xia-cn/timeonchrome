@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('unbound-banner').style.display = 'block';
     document.querySelector('.body').style.display = 'none';
     document.getElementById('goto-admin-btn').addEventListener('click', () => {
-      chrome.runtime.openOptionsPage();
+      chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
     });
     return;
   }
@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
 
   document.getElementById('settings-btn').addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
+    chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
   });
 
   chrome.runtime.onMessage.addListener((msg) => {
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('unbound-banner').style.display = 'block';
       document.querySelector('.body').style.display = 'none';
       document.getElementById('goto-admin-btn').addEventListener('click', () => {
-        chrome.runtime.openOptionsPage();
+        chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
       });
     }
   });

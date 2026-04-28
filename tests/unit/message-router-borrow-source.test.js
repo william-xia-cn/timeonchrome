@@ -69,13 +69,13 @@ async function run() {
     updateDeclarativeRules: async () => {},
   });
 
-  section('B03-1 popup 合法来源允许触发 borrow');
+  section('B03-1 popup 不再允许触发 borrow（P0 仅 reminder 保留借用）');
   {
     borrowCalls = 0;
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
     const r = await handleMessage({ type: 'BORROW_REST_QUOTA' }, sender);
-    expect('返回 borrow 成功', r, { ok: true, amount: 30 });
-    expectTrue('borrowRestQuota 被调用 1 次', borrowCalls === 1);
+    expect('返回统一拒绝结构', r, { ok: false, error: 'unauthorized_borrow_source', code: 'BORROW_SOURCE_DENIED' });
+    expectTrue('borrowRestQuota 不应被调用', borrowCalls === 0);
   }
 
   section('B03-2 reminder 合法来源允许触发 borrow');

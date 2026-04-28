@@ -15,7 +15,7 @@
 | **Popup（孩子侧弹窗）** | `popup/popup.html` + `popup.js` | 孩子查看今日时长、切换模式、借用时间 | 固定宽度 320px，Chrome 扩展弹窗 |
 | **Reminder（拦截提醒页）** | `reminder.html` + `reminder.js` | 7 种拦截场景的友好提示 | 全屏居中，max-width 520px |
 | **Bind（设备绑定页）** | `bind.html` | 家长登录、选择孩子、绑定设备 | 居中卡片，max-width 400px |
-| **Admin（管理面板）** | `admin/admin.html` + `admin.js` | 本地密码保护的管理视图（options_page） | min-width 900px，全屏后台页 |
+| **Admin（管理面板）** | `admin/admin.html` + `admin.js` | 本地密码保护的管理视图（options_page）；支持 `?view=stats` 只读模式供孩子查看统计 | min-width 900px，全屏后台页 |
 | **Pages（家长控制台）** | `pages/index.html` | Cloudflare Pages 部署的家长 Web 控制台 | 响应式，桌面端为主 |
 | **Content Overlay（页面覆盖层）** | `content.css` | 时间警告 toast 和拦截全屏覆盖层 | 注入网页，z-index 2147483647 |
 
@@ -275,10 +275,10 @@ P0 版本已删除 Footer，配置入口仅保留 Header 右侧 ⚙️ 设置按
 
 | 入口 | 位置 | 触发方式 | 目标页面 |
 |------|------|---------|---------|
-| 设置按钮 ⚙️ | popup Header 右侧 | 点击 | `admin/admin.html`（options_page） |
-| 前往管理面板 | popup 未绑定横幅 | 点击 | `admin/admin.html` |
-| 查看详情 | reminder（quota 场景） | 点击 | `admin/admin.html` |
-| 管理面板 | admin 登录后 | 直接进入 | admin 仪表盘 |
+| 设置按钮 ⚙️ | popup Header 右侧 | 点击 | `admin/admin.html?view=stats`（只读模式） |
+| 查看详情 | popup 未绑定横幅 | 点击 | `admin/admin.html?view=stats`（未绑定时显示简化提示） |
+| 查看详情 | reminder（quota 场景） | 点击 | `admin/admin.html?view=stats`（只读模式） |
+| 管理面板 | admin 直接访问（无参数） | 直接进入 | admin 登录/注册/绑定流程 |
 | 家长控制台 | 独立 URL | 直接访问 | `pages/index.html`（Cloudflare Pages） |
 
 ### 8.2 统一入口建议
@@ -466,7 +466,7 @@ font-family: -apple-system, 'Segoe UI', sans-serif;
 
 | 场景 | 当前文案 | 位置 |
 |------|---------|------|
-| 设备未绑定 | "此设备已被解绑，请前往管理面板重新绑定。" | popup 横幅 |
+| 设备未绑定 | "此设备尚未绑定孩子档案，请联系家长完成设备绑定。" | popup 横幅 |
 | 登录失败 | 服务端返回错误 | bind.html |
 
 > **注意**：P0 版本已删除 popup 借用区、待定列表，相关错误提示移至 reminder.html。
@@ -697,10 +697,11 @@ P0 版本已删除激励摘要卡，状态信息由进度条直接承接。
 >   - d) 仅保留在家长控制台（Cloudflare Pages）。
 > - **已执行**：状态标签已中性化（`待审核` → `待归类`，`申诉中` → `待归类`），不再在 child-facing 列表中展示未终审的 D-015 工作流术语。
 > - **影响范围**：`admin/admin.js` 中 `renderUndeterminedList()` 函数渲染的状态徽章、后端 `GET_WEEKLY_SESSIONS` / `SUBMIT_APPEAL` API。
-> - **已知问题**：`admin/admin.html` 当前为**混合页面**，同时承载：
->   - 孩子只读统计（使用分析、访问规则查看、本机状态）
->   - 家长 setup 操作（登录/注册/绑定/重绑）
->   - 拆分决策见 `TASK_BOARD.md`。
+> - **已执行（Soft Gate）**：孩子端入口（popup 设置按钮、reminder 查看详情）现已通过 `?view=stats` 参数以**只读模式**打开 `admin/admin.html`：
+>   - 跳过登录/注册/绑定流程
+>   - 隐藏退出登录、重新绑定等家长操作控件
+>   - 未绑定设备时显示简化提示（不暴露登录表单）
+> - **已知问题**：`admin/admin.html` 架构上仍为混合页面，Soft Gate 为临时措施，完整拆分见 `TASK_BOARD.md` Stage 2 规划。
 
 ```
 ┌──────────────────────────────┬──────────────────────────────┐

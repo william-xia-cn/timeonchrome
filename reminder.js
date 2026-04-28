@@ -152,7 +152,7 @@
     },
     viewDetails: {
       label: '📊 查看详情', style: 'outline',
-      handler: function() { chrome.runtime.openOptionsPage(); }
+      handler: function() { chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') }); }
     },
     back: {
       label: '← 返回', style: 'outline',

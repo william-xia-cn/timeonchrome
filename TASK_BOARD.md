@@ -12,15 +12,13 @@
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
-- [ ] **[P1] Child-facing entry points expose mixed admin page**：
-  - 当前状态：孩子可通过以下入口进入混合 admin 页面（`admin/admin.html`），暴露家长登录/注册/绑定流程：
-    1. `popup` 设置按钮（⚙️）→ `chrome.runtime.openOptionsPage()`
-    2. `popup` 未绑定横幅 → `前往管理面板 →`
-    3. `reminder` 查看详情 → `chrome.runtime.openOptionsPage()`
-  - 待 PO 决策：
-    - 孩子是否应访问详细使用分析统计？
-    - 未绑定设备时，孩子应看到什么操作入口（而非直接打开 admin）？
-  - 约束：不阻塞 V0 发布；不删除现有入口（等待 PO 决策后执行）
+- [x] **[P1] Child-facing entry points expose mixed admin page — Stage 1 (Soft Gate) 已完成**：
+  - 已实施：孩子端入口（popup 设置按钮、未绑定横幅、reminder 查看详情）现已通过 `?view=stats` 参数以只读模式打开 `admin/admin.html`
+  - 已实施：admin.js 入口逻辑添加 `isChildView` 分支，跳过登录/注册/绑定流程，隐藏退出登录、重新绑定等家长控件
+  - 待 PO 决策（不影响 V0）：
+    - 孩子是否应访问详细使用分析统计？（当前已通过 Soft Gate 允许）
+    - 未绑定设备时，孩子应看到什么操作入口？（当前显示简化提示"请联系家长完成设备绑定"）
+  - Stage 2（V1 规划）：新建独立 `terminal/usage.html` 孩子只读页，彻底拆分 admin.html 的家长 setup 职责 → 见 P2 项
 
 ## LATER（P2）
 - [ ] [V1] 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐

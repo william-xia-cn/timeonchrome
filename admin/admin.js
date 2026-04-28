@@ -41,6 +41,11 @@ let cloudProfiles = [];
 let currentProfileId = null;
 let currentEmail = null;
 
+// ── Child view gate（Soft Gate）────────────────────────────────────────────
+// 当 URL 包含 ?view=stats 时，以只读模式直接进入使用分析，跳过登录/注册/绑定流程
+const urlParams = new URLSearchParams(location.search);
+const isChildView = urlParams.get('view') === 'stats';
+
 // ── 初始化 ─────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -65,12 +70,72 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ── 绑定状态检查与处理 ───────────────────────────────────────────────────
 
 /**
+ * 孩子只读模式入口（Soft Gate）
+ * 当 URL 包含 ?view=stats 时直接进入，跳过登录/注册/绑定流程。
+ * - 已绑定：直接进入主界面，隐藏家长操作控件
+ * - 未绑定：显示简化提示，不暴露登录/注册表单
+ */
+async function enterChildView() {
+  const storage = await new Promise(resolve => {
+    chrome.storage.local.get([
+      CLOUD_KEYS.DEVICE_TOKEN,
+      CLOUD_KEYS.PROFILE_NAME,
+      CLOUD_KEYS.PROFILE_ID
+    ], resolve);
+  });
+
+  const deviceToken = storage[CLOUD_KEYS.DEVICE_TOKEN];
+  const profileName = storage[CLOUD_KEYS.PROFILE_NAME];
+
+  if (!deviceToken) {
+    // 未绑定：显示简化提示，不暴露登录/注册
+    document.getElementById('main-screen').style.display = 'none';
+    const loginScreen = document.getElementById('login-screen');
+    loginScreen.style.display = 'flex';
+    loginScreen.innerHTML = `
+      <div class="login-box">
+        <div class="login-logo">⏱</div>
+        <h1>TimeOnChrome</h1>
+        <p style="color:var(--muted);margin-bottom:20px;">设备未绑定</p>
+        <div style="font-size:13px;color:var(--muted);line-height:1.6;">
+          此设备尚未绑定孩子档案。<br>
+          请联系家长完成设备绑定。
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // 已绑定：直接进入主界面只读模式
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+
+  // 隐藏家长操作控件
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.style.display = 'none';
+  const userInfo = document.getElementById('user-info');
+  if (userInfo) userInfo.style.display = 'none';
+
+  // 侧边栏显示孩子名字
+  const sidebarNameEl = document.getElementById('sidebar-child-name');
+  if (sidebarNameEl && profileName) sidebarNameEl.textContent = profileName + ' 的面板';
+
+  // 加载配置并渲染使用分析
+  config = await sendMsg({ type: 'GET_CONFIG' });
+  renderStatsPage();
+}
+
+/**
  * 检查绑定状态并处理
  * 核心逻辑：
  * - 未绑定：显示绑定流程（登录→选择孩子→绑定）
  * - 已绑定：自动登录→进入主界面
  */
 async function checkAndHandleBinding() {
+  if (isChildView) {
+    return enterChildView();
+  }
+
   const storage = await new Promise(resolve => {
     chrome.storage.local.get([
       CLOUD_KEYS.DEVICE_TOKEN,
@@ -1100,6 +1165,10 @@ async function renderSyncStatus() {
   const token = storage[CLOUD_KEYS.DEVICE_TOKEN] || '';
   const shortId = token ? token.slice(0, 8).toUpperCase() : '—';
 
+  const rebindBtnHtml = isChildView ? '' : `
+    <button onclick="confirmRebind()" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
+  `;
+
   container.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
       <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
@@ -1124,7 +1193,7 @@ async function renderSyncStatus() {
     </div>
     <div style="margin-top:14px; display:flex; gap:10px;">
       <button class="btn-save" onclick="forceSync()" style="flex:1;">🔄 立即同步</button>
-      <button onclick="confirmRebind()" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
+      ${rebindBtnHtml}
     </div>
   `;
 }
