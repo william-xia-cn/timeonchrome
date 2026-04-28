@@ -564,7 +564,18 @@ temporaryCompositeSites
   'music.youtube.com',
   'spotify.com',
   'music.apple.com',
-  'music.163.com'
+  'music.163.com',
+
+  // Software / Vendor Support Sites
+  // 以下域名是 Product Owner 明确决定保留在综合网站中的软件/厂商支持站点。
+  // 这不是一般规则，不以此为由继续添加其他软件/vendor域名。
+  'www.google.com',
+  'support.google.com',
+  'support.microsoft.com',
+  'answers.microsoft.com',
+  'microsoft.com',
+  'apple.com',
+  'adobe.com'
 ]
 ```
 
