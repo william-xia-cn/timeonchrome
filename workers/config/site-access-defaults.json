@@ -97,6 +97,28 @@
     "reclaim.ai",
     "collegeboard.org"
   ],
+  "defaultCompositeSites": [
+    "google.com",
+    "www.google.com",
+    "bing.com",
+    "baidu.com",
+    "duckduckgo.com",
+    "search.brave.com",
+    "youtube.com",
+    "wikipedia.org",
+    "wikimedia.org",
+    "britannica.com",
+    "baike.baidu.com",
+    "stackoverflow.com",
+    "stackexchange.com",
+    "reddit.com",
+    "support.google.com",
+    "support.microsoft.com",
+    "answers.microsoft.com",
+    "microsoft.com",
+    "apple.com",
+    "adobe.com"
+  ],
   "defaultRestrictedEntertainmentSites": [
     "bilibili.com",
     "netflix.com",

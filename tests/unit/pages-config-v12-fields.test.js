@@ -52,6 +52,15 @@ function run() {
   expectTrue('pages 不应再出现 dailyQuota fallback 字段', !/\bdailyQuota\b/.test(source));
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
 
+  // 系统配置文案检查
+  expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));
+  expectTrue('pages 不应再使用"系统默认"文案', !/系统默认（不可编辑）/.test(source));
+
+  // 综合网站系统配置拆分检查
+  expectTrue('pages 应包含系统配置综合网站区', source.includes('系统配置综合网站（只读）'));
+  expectTrue('pages 应包含家长自定义综合网站区', source.includes('家长自定义综合网站'));
+  expectTrue('pages 应包含综合网站系统配置标签容器', source.includes('id="r-composite-default-tags"'));
+
   // 时间段管理：per-day 结构检查
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
   expectTrue('pages 应包含七天配置', source.includes("'monday'") && source.includes("'sunday'"));
@@ -83,7 +92,7 @@ function run() {
 
   const composite = captured.find((entry) => entry[0] === 'r-composite-input');
   expectTrue('综合网站列表应完成 setupCustomDomainInput 绑定', !!composite);
-  expectEqual('综合网站列表 customKey 应为 compositeList', composite?.[3], 'compositeList');
+  expectEqual('综合网站列表 customKey 应为 customCompositeList', composite?.[3], 'customCompositeList');
 
   const total = passed + failed;
   console.log(`\n[Pages Config v1.2 Fields] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

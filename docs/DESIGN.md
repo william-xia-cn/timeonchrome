@@ -250,9 +250,16 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
   mode: 'study',                     // 'study' | 'rest'
 
   // 网站分类
-  studyList: [],                     // 学习网站（计学习时长，触发自动切换）
-  compositeList: [],                 // 待定网站（计待定时长，家长事后审核）
-  unsafeList: ['douyin.com', 'tiktok.com'],  // 不安全网站（唯一硬拦截）
+  // effective*List = mergeWithDefaults(custom*List, default*Sites)
+  // default*Sites 来自 workers/config/site-access-defaults.json（系统配置）
+  studyList: [],                     // 学习网站 effective（系统配置 + 家长自定义合并）
+  customStudyList: [],               // 家长自定义学习网站（source-of-truth）
+  compositeList: [],                 // 综合网站 effective（系统配置 + 家长自定义合并，运行时兼容）
+  customCompositeList: [],           // 家长自定义综合网站（source-of-truth，新增）
+  unsafeList: ['douyin.com', 'tiktok.com'],  // 黑名单网站 effective（系统配置 + 家长自定义合并）
+  customBlockedSites: [],            // 家长自定义黑名单网站（source-of-truth）
+  restrictedEntertainmentList: [],   // 受限娱乐网站 effective（系统配置 + 家长自定义合并）
+  customRestrictedEntertainmentList: [], // 家长自定义受限娱乐网站（source-of-truth）
 
   // 每日时间配额（分钟，0=不限）
   dailyOnlineQuota: 0,               // 总在线时长上限

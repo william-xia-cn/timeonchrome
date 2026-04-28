@@ -578,15 +578,20 @@
           <div class="card-header">
             <div><div class="card-title">📚 学习网站</div><div class="card-subtitle">学习模式下允许访问，计入学习时长</div></div>
           </div>
-          <!-- 系统默认 -->
+          <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统默认（不可编辑）</div>
-            <div class="domains-container" id="r-studylist-default-tags" style="opacity:0.7;"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
+              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置学习网站（只读）</div>
+              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
+            </div>
+            <div style="display:none;margin-top:8px;">
+              <div class="domains-container" id="r-studylist-default-tags" style="opacity:0.7;"></div>
+            </div>
             <div id="r-studylist-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
           <!-- 家长自定义 -->
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义学习网站</div>
             <div class="domain-input-row">
               <input type="text" id="r-studylist-search" placeholder="🔍 搜索..." style="max-width:180px;">
               <input type="text" id="r-studylist-input" placeholder="例：khanacademy.org">
@@ -601,13 +606,28 @@
         <div class="card" id="r-composite-card">
           <div class="card-header">
             <div><div class="card-title">🔀 综合网站</div><div class="card-subtitle">学习模式下可访问，产生「综合网站时间（待分类）」，不自动计入学习或休息时间</div></div>
-            <span id="r-composite-count" style="font-size:12px;color:var(--muted);"></span>
           </div>
-          <div class="domain-input-row">
-            <input type="text" id="r-composite-input" placeholder="例：youtube.com">
-            <button class="btn-add" id="r-composite-add">+ 添加</button>
+          <!-- 系统配置 -->
+          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
+              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置综合网站（只读）</div>
+              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
+            </div>
+            <div style="display:none;margin-top:8px;">
+              <div class="domains-container" id="r-composite-default-tags" style="opacity:0.7;"></div>
+            </div>
+            <div id="r-composite-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
-          <div class="domains-container" id="r-composite-tags"></div>
+          <!-- 家长自定义 -->
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义综合网站</div>
+            <div class="domain-input-row">
+              <input type="text" id="r-composite-input" placeholder="例：youtube.com">
+              <button class="btn-add" id="r-composite-add">+ 添加</button>
+            </div>
+            <div class="domains-container" id="r-composite-tags"></div>
+            <div id="r-composite-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+          </div>
         </div>
 
         <!-- 🎮 受限娱乐网站 -->
@@ -615,15 +635,20 @@
           <div class="card-header">
             <div><div class="card-title">🎮 受限娱乐网站</div><div class="card-subtitle">自由时间可访问，学习模式 blocked，不支持临时使用综合网站时间，可借时间</div></div>
           </div>
-          <!-- 系统默认 -->
+          <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统默认（不可编辑）</div>
-            <div class="domains-container" id="r-restricted-default-tags" style="opacity:0.7;"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
+              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置受限娱乐网站（只读）</div>
+              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
+            </div>
+            <div style="display:none;margin-top:8px;">
+              <div class="domains-container" id="r-restricted-default-tags" style="opacity:0.7;"></div>
+            </div>
             <div id="r-restricted-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
           <!-- 家长自定义 -->
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义受限娱乐网站</div>
             <div class="domain-input-row">
               <input type="text" id="r-restricted-input" placeholder="例：example-game.com">
               <button class="btn-add" id="r-restricted-add">+ 添加</button>
@@ -638,15 +663,20 @@
           <div class="card-header">
             <div><div class="card-title">⛔ 黑名单网站</div><div class="card-subtitle">硬禁止，任何时间不可访问，不可借时间</div></div>
           </div>
-          <!-- 系统默认 -->
+          <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统默认（不可编辑）</div>
-            <div class="domains-container" id="r-blocked-default-tags" style="opacity:0.7;"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
+              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置黑名单网站（只读）</div>
+              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
+            </div>
+            <div style="display:none;margin-top:8px;">
+              <div class="domains-container" id="r-blocked-default-tags" style="opacity:0.7;"></div>
+            </div>
             <div id="r-blocked-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
           <!-- 家长自定义 -->
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义黑名单网站</div>
             <div class="domain-input-row">
               <input type="text" id="r-blocked-input" placeholder="例：example-blocked.com">
               <button class="btn-add" id="r-blocked-add">+ 添加</button>
@@ -1132,7 +1162,7 @@ async function selectProfile(id) {
     const d = await api(`/profiles/${id}/defaults`);
     siteAccessDefaults = d || {};
   } catch(e) {
-    siteAccessDefaults = { defaultStudySites: [], defaultRestrictedEntertainmentSites: [], defaultBlockedSites: [] };
+    siteAccessDefaults = { defaultStudySites: [], defaultCompositeSites: [], defaultRestrictedEntertainmentSites: [], defaultBlockedSites: [] };
   }
 
   // 更新待审核 badge
@@ -1364,7 +1394,7 @@ function getCustomList(effectiveList, defaultList) {
 function setupRules() {
   // 家长自定义输入框
   setupCustomDomainInput('r-studylist-input', 'r-studylist-add', 'r-studylist-tags', 'customStudyList', 'studyList');
-  setupCustomDomainInput('r-composite-input', 'r-composite-add', 'r-composite-tags', 'compositeList', 'compositeList');
+  setupCustomDomainInput('r-composite-input', 'r-composite-add', 'r-composite-tags', 'customCompositeList', 'compositeList');
   setupCustomDomainInput('r-restricted-input', 'r-restricted-add', 'r-restricted-tags', 'customRestrictedEntertainmentList', 'restrictedEntertainmentList');
   setupCustomDomainInput('r-blocked-input', 'r-blocked-add', 'r-blocked-tags', 'customBlockedSites', 'unsafeList');
 
@@ -1383,6 +1413,18 @@ function setupRules() {
   document.getElementById('import-rules-btn').addEventListener('click', importSiteAccessConfig);
 }
 
+window.toggleSystemConfig = (header) => {
+  const content = header.nextElementSibling;
+  const btn = header.querySelector('.btn-toggle-system');
+  if (content.style.display === 'none') {
+    content.style.display = 'block';
+    btn.textContent = '▲ 收起';
+  } else {
+    content.style.display = 'none';
+    btn.textContent = '▼ 展开';
+  }
+};
+
 function renderRulesPage() {
   const defaults = siteAccessDefaults || {};
 
@@ -1391,8 +1433,10 @@ function renderRulesPage() {
   renderReadOnlyTags('r-studylist-default-tags', defaults.defaultStudySites || []);
   renderTags('r-studylist-tags', studyCustom, 'customStudyList');
 
-  // 综合网站（无系统缺省，全部可编辑）
-  renderTags('r-composite-tags', remoteConfig.compositeList || [], 'compositeList');
+  // 综合网站
+  const compositeCustom = remoteConfig.customCompositeList || getCustomList(remoteConfig.compositeList, defaults.defaultCompositeSites);
+  renderReadOnlyTags('r-composite-default-tags', defaults.defaultCompositeSites || []);
+  renderTags('r-composite-tags', compositeCustom, 'customCompositeList');
 
   // 受限娱乐网站
   const restrictedCustom = remoteConfig.customRestrictedEntertainmentList || getCustomList(remoteConfig.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites);
@@ -1413,7 +1457,8 @@ function updateRuleCounts() {
 
   set('r-studylist-default-count', defaults.defaultStudySites || []);
   set('r-studylist-count',  remoteConfig.customStudyList || []);
-  set('r-composite-count',  remoteConfig.compositeList || []);
+  set('r-composite-default-count', defaults.defaultCompositeSites || []);
+  set('r-composite-count',  remoteConfig.customCompositeList || []);
   set('r-restricted-default-count', defaults.defaultRestrictedEntertainmentSites || []);
   set('r-restricted-count', remoteConfig.customRestrictedEntertainmentList || []);
   set('r-blocked-default-count', defaults.defaultBlockedSites || []);
@@ -1477,7 +1522,7 @@ window.removeDomain = (listKey, idx) => {
   remoteConfig[listKey] = list;
   const map = {
     customStudyList: 'r-studylist-tags',
-    compositeList: 'r-composite-tags',
+    customCompositeList: 'r-composite-tags',
     customRestrictedEntertainmentList: 'r-restricted-tags',
     customBlockedSites: 'r-blocked-tags'
   };
@@ -1497,9 +1542,9 @@ function exportSiteAccessConfig() {
     app: 'TimeOnChrome',
     configType: 'site-access',
     configVersion: 1,
-    description: 'User-managed site access configuration. System defaults are not included.',
+    description: 'User-managed site access configuration. System-configured lists are not included.',
     studySites: remoteConfig.customStudyList || getCustomList(remoteConfig.studyList, defaults.defaultStudySites) || [],
-    compositeSites: remoteConfig.compositeList || [],
+    compositeSites: remoteConfig.customCompositeList || getCustomList(remoteConfig.compositeList, defaults.defaultCompositeSites) || [],
     restrictedEntertainmentSites: remoteConfig.customRestrictedEntertainmentList || getCustomList(remoteConfig.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites) || [],
     blockedSites: remoteConfig.customBlockedSites || getCustomList(remoteConfig.unsafeList, defaults.defaultBlockedSites) || [],
   };
@@ -1550,7 +1595,7 @@ async function importSiteAccessConfig() {
       };
 
       remoteConfig.customStudyList = merge(remoteConfig.customStudyList, data.studySites);
-      remoteConfig.compositeList = merge(remoteConfig.compositeList, data.compositeSites);
+      remoteConfig.customCompositeList = merge(remoteConfig.customCompositeList, data.compositeSites);
       remoteConfig.customRestrictedEntertainmentList = merge(remoteConfig.customRestrictedEntertainmentList, data.restrictedEntertainmentSites);
       remoteConfig.customBlockedSites = merge(remoteConfig.customBlockedSites, data.blockedSites);
 
@@ -1569,7 +1614,7 @@ async function saveSiteAccessConfig() {
 
   const payload = {
     customStudyList: remoteConfig.customStudyList || [],
-    compositeList: remoteConfig.compositeList || [],
+    customCompositeList: remoteConfig.customCompositeList || [],
     customRestrictedEntertainmentList: remoteConfig.customRestrictedEntertainmentList || [],
     customBlockedSites: remoteConfig.customBlockedSites || [],
   };

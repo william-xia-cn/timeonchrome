@@ -221,17 +221,7 @@ function buildDefaultConfig(): object {
   return {
     ...buildSchemaDefaults(),
     studyList: siteAccessDefaults.defaultStudySites,
-    compositeList: [
-      // 搜索引擎
-      'google.com', 'google.com.hk', 'bing.com', 'baidu.com',
-      'search.brave.com', 'duckduckgo.com',
-      // 问答社区
-      'stackexchange.com', 'reddit.com',
-      // 视频/音乐
-      'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com',
-      // 百科/参考
-      'wikipedia.org', 'britannica.com', 'wolframalpha.com',
-    ],
+    compositeList: [],
     restrictedEntertainmentList: siteAccessDefaults.defaultRestrictedEntertainmentSites,
     unsafeList: siteAccessDefaults.defaultBlockedSites,
   };
@@ -339,11 +329,12 @@ export const profilesRouter = {
       });
     }
 
-    // GET /profiles/:id/defaults — 返回系统缺省清单（只读）
+    // GET /profiles/:id/defaults — 返回系统配置清单（只读）
     if (request.method === 'GET' && defaultsMatch) {
       return json({
         version: 1,
         defaultStudySites: siteAccessDefaults.defaultStudySites,
+        defaultCompositeSites: siteAccessDefaults.defaultCompositeSites,
         defaultRestrictedEntertainmentSites: siteAccessDefaults.defaultRestrictedEntertainmentSites,
         defaultBlockedSites: siteAccessDefaults.defaultBlockedSites,
       });
@@ -375,7 +366,7 @@ export const profilesRouter = {
         const ALLOWED_KEYS = new Set([
           'version', 'mode', 'enabled',
           'studyList', 'compositeList', 'unsafeList', 'restrictedEntertainmentList',
-          'customStudyList', 'customRestrictedEntertainmentList', 'customBlockedSites',
+          'customStudyList', 'customCompositeList', 'customRestrictedEntertainmentList', 'customBlockedSites',
           'dailyOnlineQuota', 'dailyStudyQuota', 'dailyRestQuota',
           'dailyUndeterminedQuota', 'weeklyRestQuota',
           'domainQuotas', 'classificationRules',
@@ -409,12 +400,24 @@ export const profilesRouter = {
             d => !defaultSet.has(d.toLowerCase())
           );
         }
+        if (!mergedConfig.customCompositeList && Array.isArray(mergedConfig.compositeList)) {
+          const defaultSet = new Set(siteAccessDefaults.defaultCompositeSites.map(d => d.toLowerCase()));
+          mergedConfig.customCompositeList = (mergedConfig.compositeList as string[]).filter(
+            d => !defaultSet.has(d.toLowerCase())
+          );
+        }
 
-        // 4. 重新计算 effective 字段（defaults + custom）
+        // 4. 重新计算 effective 字段（系统配置 + 家长自定义）
         if (Array.isArray(mergedConfig.customStudyList)) {
           mergedConfig.studyList = mergeWithDefaults(
             mergedConfig.customStudyList as string[],
             siteAccessDefaults.defaultStudySites
+          );
+        }
+        if (Array.isArray(mergedConfig.customCompositeList)) {
+          mergedConfig.compositeList = mergeWithDefaults(
+            mergedConfig.customCompositeList as string[],
+            siteAccessDefaults.defaultCompositeSites
           );
         }
         if (Array.isArray(mergedConfig.customRestrictedEntertainmentList)) {

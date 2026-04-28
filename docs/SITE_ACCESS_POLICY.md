@@ -66,18 +66,24 @@ TimeOnChrome 网站访问分类统一为五类：
 
 ```text
 defaultStudyList + customStudyList -> effectiveStudyList
+# defaultStudyList = 系统配置学习网站；产品/UI 使用"系统配置"
 
 defaultCompositeList + customCompositeList -> effectiveCompositeList
 # 用户侧显示为：综合网站
+# defaultCompositeList = 系统配置综合网站；产品/UI 使用"系统配置"
 
 defaultRestrictedEntertainmentList + customRestrictedEntertainmentList -> effectiveRestrictedEntertainmentList
+# defaultRestrictedEntertainmentList = 系统配置受限娱乐网站；产品/UI 使用"系统配置"
 
 unclassifiedSite
 # fallback，不维护显式数组
 
 hardBlockedList
 # 用户侧显示为：黑名单网站
+# defaultBlockedSites = 系统配置黑名单网站；产品/UI 使用"系统配置"
 ```
+
+> 术语说明：`default*` 代码字段当前代表系统配置网站列表。产品/UI 文档统一使用"系统配置"，不使用"缺省"。代码中保留 `default*` 名称以避免大范围迁移。
 
 ---
 
