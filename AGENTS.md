@@ -205,7 +205,7 @@ OpenCode 不再是默认代码执行器，保留以下辅助角色：
 
 ## 7. 执行合规性规则（所有执行器通用）
 
-> 本节针对 AI 执行器（Codex / OpenCode / Claude Code 等）的刚性约束，防止“等价替代 / 自行简化 / 未逐项对照”行为。
+> 本节针对 AI 执行器（Codex / OpenCode / Claude Code 等）的刚性约束，防止"等价替代 / 自行简化 / 未逐项对照"行为。
 
 ### 7.1 Plan Conformance Rule（方案一致性审查）
 
@@ -215,13 +215,13 @@ OpenCode 不再是默认代码执行器，保留以下辅助角色：
 2. **逐项执行**：严格按照 checklist 逐条实施，不得合并、跳过或重新排序
 3. **执行后审计（Post-Implementation Audit）**：
    - 对比 checklist 与实际代码，标记 `Matched` / `Deviated` / `Missing` / `Extra`
-   - 若存在 `Deviated` 或 `Missing`，必须回滚修正，不得用“等价替代”辩解
+   - 若存在 `Deviated` 或 `Missing`，必须回滚修正，不得用"等价替代"辩解
    - 审计报告必须在提交前输出
 
 **禁止：**
-- ❌ 用“等价方案”替代已确认的具体实现（如用 grid 替代 flex 未获批准）
+- ❌ 用"等价方案"替代已确认的具体实现（如用 grid 替代 flex 未获批准）
 - ❌ 擅自删除确认方案中的 UI 元素或功能模块
-- ❌ 未逐项核对即声称“已完成”
+- ❌ 未逐项核对即声称"已完成"
 - ❌ 将多步确认方案合并为单步实现
 
 ### 7.2 UI Change Boundary Rule（UI 变更边界）
@@ -296,15 +296,59 @@ timeonchrome/
 
 ---
 
-## 9. Project Control Docs（项目控制文档）
+## 9. 项目文档与权威来源（Source of Truth）
 
-以下文档位于仓库根目录，用于阶段管理与执行同步：
+以下文档按主题分类，执行器在接到任务时应优先读取对应文档，避免范围漂移和重复文档化。
 
-- `PROJECT_MASTER.md`：项目主状态与阶段边界（V0/V1）
-- `DECISIONS.md`：关键决策与状态
-- `TASK_BOARD.md`：任务看板（NOW/NEXT/LATER）
+### 9.1 文档清单
 
-### 当前基线（控制口径）
+| 文档 | 权威范围 / 用途 | 何时读取 |
+|------|----------------|---------|
+| `PROJECT_MASTER.md` | 当前项目真值：阶段、范围、发布闸门、活跃状态、实施边界 | 任何任务开始前，确认阶段和范围 |
+| `TASK_BOARD.md` | 当前任务板：NOW / NEXT / LATER / COMPLETED | 选择或更新工作项之前 |
+| `DECISIONS.md` | 持久的产品与架构决策（D-001 ~ D-015） | 任务触及已决策的产品/架构行为时必读 |
+| `AGENTS.md` | Agent 执行规则、Preflight 闸门、允许/禁止行为、测试与提交纪律 | 执行任何 Agent 任务之前 |
+| `docs/SITE_ACCESS_POLICY.md` | 网站访问策略主文档：五类网站模型、系统配置/自定义/当前家庭/导入导出/effective 清单边界 | 涉及网站分类、允许/阻止列表、站点配置、导入导出、运行时站点规则的任务 |
+| `docs/DESIGN.md` | 工程设计细节、数据结构、配置 schema、API 路由、前后端架构说明 | 涉及配置/数据/API/架构变更的任务 |
+| `docs/UI_STYLE_MAP.md` | 家长/管理面板 UI 布局、UI 文案、视觉分组、页面结构、界面约定 | 涉及 UI 变更的任务 |
+| `docs/site-access-config.example.json` | 用户可见的网站访问导入/导出示例格式 | 涉及导入导出示例的任务；禁止将其作为系统默认值或生产 seed data |
+
+### 9.2 权威层级（Authority Precedence）
+
+当文档之间出现冲突时，按以下优先级判断；若无法自行解决，必须停止并报告，禁止猜测。
+
+1. `DECISIONS.md` — 对已确认的产品/架构决策具有最高权威。
+2. `PROJECT_MASTER.md` — 控制当前阶段、发布闸门和执行边界。
+3. `TASK_BOARD.md` — 追踪任务状态，但不覆盖阶段/范围决策。
+4. 网站访问相关：
+   - `docs/SITE_ACCESS_POLICY.md` — 控制产品规则。
+   - `docs/DESIGN.md` — 控制技术结构。
+   - `docs/UI_STYLE_MAP.md` — 控制 UI 表现。
+5. `AGENTS.md` — 控制 Agent 执行纪律和 Preflight/Build/Audit 规则。
+
+### 9.3 执行规则
+
+1. **产品/站点分类规则**必须与 `docs/SITE_ACCESS_POLICY.md` 核对。
+2. **配置/数据结构变更**必须与 `docs/DESIGN.md` 核对。
+3. **UI 布局/文案变更**必须与 `docs/UI_STYLE_MAP.md` 核对。
+4. **持久的产品或架构决策**必须记录到 `DECISIONS.md`。
+5. **活跃任务状态**应在适当时反映到 `TASK_BOARD.md`。
+6. **运行时 / GitHub / 部署状态**禁止凭记忆推断，必须基于实际命令输出、工具输出或用户提供的证据。
+7. **禁止创建新文档文件**——如果现有权威文档已覆盖该主题，除非获得明确批准。
+8. **禁止将示例 JSON 文件视为生产默认值或初始化数据**。
+9. **禁止混为一谈**——以下五类数据不可互换：
+   - 系统配置网站列表（system-configured site lists）
+   - 用户/自定义网站列表（user/custom site lists）
+   - 当前家庭初始化数据（current-family initialization data）
+   - 用户导入导出示例数据（user import/export example data）
+   - 运行时 effective 清单（runtime effective lists）
+
+### 9.4 缺失文件说明
+
+`PROJECT_WORKFLOW.md` 在当前仓库中不存在。如需创建，请在单独的已批准任务中进行。
+
+### 9.5 当前基线（控制口径）
+
 - V0 收口阶段
 - music time 进入 V0
 - composite routing 延后到 V1
