@@ -112,8 +112,8 @@ async function init() {
   }
 
   // Progress Bars (Online + Undetermined)
-  const onlineLimit        = (config.dailyOnlineQuota       ?? 1200) * 60;
-  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 120)  * 60;
+  const onlineLimit        = (config.dailyOnlineQuota       ?? 0) * 60;
+  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 60)  * 60;
   const qs = config.quotaState || {};
 
   const quotaBarsEl = document.getElementById('quota-bars');

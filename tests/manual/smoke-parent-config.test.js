@@ -103,10 +103,10 @@ function run() {
     customStudyList: ['custom-site.com'],
     customBlockedSites: [],
     customRestrictedEntertainmentList: ['custom-game.com'],
-    dailyOnlineQuota: 1200,
-    dailyStudyQuota: 480,
+    dailyOnlineQuota: 0,
+    dailyStudyQuota: 0,
     dailyRestQuota: 120,
-    dailyUndeterminedQuota: 120,
+    dailyUndeterminedQuota: 60,
     weeklyRestQuota: null,
   };
   context.siteAccessDefaults = {

@@ -976,7 +976,7 @@ function renderRulesPage() {
   // ── 待定时段说明（只读展示）────────────────────────────────────────
   const tempAllowEl = document.getElementById('temp-allow-display');
   if (tempAllowEl) {
-    const quota = config.dailyUndeterminedQuota ?? 120;
+    const quota = config.dailyUndeterminedQuota ?? 60;
     const h = Math.floor(quota / 60), m = quota % 60;
     const label = h > 0 ? `${h}小时${m > 0 ? m + '分' : ''}` : `${m}分钟`;
     tempAllowEl.innerHTML = `

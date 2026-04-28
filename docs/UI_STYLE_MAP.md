@@ -810,10 +810,10 @@ P0 版本已删除激励摘要卡，状态信息由进度条直接承接。
 | 学习网站 | `studyList` | 名称一致 |
 | 复合网站 | `compositeList` | 旧 `allowList` 已迁移 |
 | 不安全网站 | `unsafeList` | 旧 `blacklist` 已迁移 |
-| 每日在线上限 | `dailyOnlineQuota` | 分钟数 |
-| 每日学习上限 | `dailyStudyQuota` | 分钟数 |
-| 每日休息上限 | `dailyRestQuota` | 分钟数 |
-| 每日待定时段上限 | `dailyUndeterminedQuota` | 分钟数，默认 120 |
+| 每日在线上限 | `dailyOnlineQuota` | 分钟数，默认 0（不限）|
+| 每日学习上限 | `dailyStudyQuota` | 分钟数，默认 0（不限）|
+| 每日休息上限 | `dailyRestQuota` | 分钟数，默认 120 |
+| 每日待定时段上限 | `dailyUndeterminedQuota` | 分钟数，默认 60 |
 | 上网时间段 | `schedule` | 旧 guardian active hours，保留兼容 |
 | 时间段管理 | `timeWindows.daily` | per-day 学习/休息/在线时段 |
 

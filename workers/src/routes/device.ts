@@ -160,9 +160,9 @@ export const deviceRouter = {
       const studyList: string[]     = config.studyList     || [];
       const compositeList: string[] = config.compositeList || [];
       const borrow                  = config.quotaBorrow   ?? null;
-      const dailyOnlineQuota        = (config.dailyOnlineQuota       ?? 1200) * 60; // minutes → seconds
-      const dailyStudyQuota         = (config.dailyStudyQuota        ?? 480)  * 60;
-      const dailyUndeterminedQuota  = (config.dailyUndeterminedQuota ?? 120)  * 60;
+      const dailyOnlineQuota        = (config.dailyOnlineQuota       ?? 0) * 60; // minutes → seconds
+      const dailyStudyQuota         = (config.dailyStudyQuota        ?? 0)  * 60;
+      const dailyUndeterminedQuota  = (config.dailyUndeterminedQuota ?? 60)  * 60;
 
       // Effective daily rest limit (seconds) — adjusted for borrow
       const baseDailyRest = (config.dailyRestQuota ?? 120); // minutes

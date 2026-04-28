@@ -42,10 +42,10 @@ export const DEFAULT_CONFIG = {
     'wikipedia.org', 'britannica.com', 'wolframalpha.com'
   ],
   unsafeList: ['douyin.com', 'tiktok.com'],
-  dailyOnlineQuota: 1200,
-  dailyStudyQuota: 480,
+  dailyOnlineQuota: 0,
+  dailyStudyQuota: 0,
   dailyRestQuota: 120,
-  dailyUndeterminedQuota: 120,
+  dailyUndeterminedQuota: 60,
   weeklyRestQuota: null,
   quotaBorrow: null,
   domainQuotas: {},

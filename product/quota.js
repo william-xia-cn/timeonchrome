@@ -79,7 +79,7 @@ export async function checkAllTabsQuota(redirectToReminderFn, redirectAllTabsFn,
   const weekRestMinutes = Math.floor(weekRestSeconds / 60);
 
   const dailyOnlineQuota = config.dailyOnlineQuota ?? config.dailyQuota ?? 0;
-  const dailyUndeterminedQuota = config.dailyUndeterminedQuota ?? 120;
+  const dailyUndeterminedQuota = config.dailyUndeterminedQuota ?? 60;
   const effectiveDailyRest = getTodayEffectiveRestLimit(config);
   const weeklyRestLimit = config.weeklyRestQuota ?? (effectiveDailyRest * 7);
 

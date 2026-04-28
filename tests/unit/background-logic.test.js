@@ -68,7 +68,7 @@ function computeQuotaState(config, stats, undeterminedStats, weekRestMinutes, to
   const undeterminedMinutes = Math.floor(undeterminedSeconds          / 60);
 
   const dailyOnlineQuota       = config.dailyOnlineQuota       ?? 0;
-  const dailyUndeterminedQuota = config.dailyUndeterminedQuota ?? 120;
+  const dailyUndeterminedQuota = config.dailyUndeterminedQuota ?? 60;
   const effectiveDailyRest     = getTodayEffectiveRestLimit(config, todayOverride);
   const weeklyRestLimit        = config.weeklyRestQuota ?? (effectiveDailyRest * 7);
 
