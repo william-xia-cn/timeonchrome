@@ -56,6 +56,43 @@ function buildSchemaDefaults(): object {
   };
 }
 
+// 计算在线时段 = studyWindows + restWindows 的并集
+// 如果任一子时段为 null（无限制），在线时段也为 null
+// 如果两者都为空数组，在线时段为空数组
+function computeOnlineWindows(config: Record<string, unknown>): void {
+  const tw = config.timeWindows as any || {};
+  const study = tw.studyWindows;
+  const rest = tw.restWindows;
+
+  if (study === null || rest === null) {
+    tw.onlineWindows = null;
+    return;
+  }
+
+  if (!Array.isArray(study) && !Array.isArray(rest)) {
+    tw.onlineWindows = null;
+    return;
+  }
+
+  const sArr = Array.isArray(study) ? study : [];
+  const rArr = Array.isArray(rest) ? rest : [];
+
+  if (sArr.length === 0 && rArr.length === 0) {
+    tw.onlineWindows = [];
+    return;
+  }
+
+  // 合并并简单去重（start+end 相同视为重复）
+  const merged = [...sArr, ...rArr];
+  const seen = new Set();
+  tw.onlineWindows = merged.filter(w => {
+    const key = `${w.start}-${w.end}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // 当 timeQuota 中所有天的某个字段值完全一致且为有限值时，同步对应的 legacy 字段
 // 如果七天值不一致，不修改 legacy 字段，避免 lossy conversion
 function syncLegacyQuota(config: Record<string, unknown>): void {
@@ -315,7 +352,10 @@ export const profilesRouter = {
         // 5. 若提交了 timeQuota，尝试无损同步 legacy 配额字段（仅当七天完全一致时）
         syncLegacyQuota(mergedConfig);
 
-        // 6. 保护运行时状态字段（不应被前端或默认值覆盖）
+        // 6. 重新计算 onlineWindows（study + rest 的并集）
+        computeOnlineWindows(mergedConfig);
+
+        // 7. 保护运行时状态字段（不应被前端或默认值覆盖）
         const PROTECTED_KEYS = ['adminPasswordHash', 'isInitialized', 'lockedDomains', 'updatedAt'];
         for (const key of PROTECTED_KEYS) {
           if (existingConfig[key] !== undefined) {

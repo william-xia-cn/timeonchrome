@@ -727,58 +727,55 @@
         <div class="save-bar"><button class="btn-save" id="save-quota-btn">💾 保存配置</button></div>
       </div>
 
-      <!-- 时间段控制 -->
+      <!-- 时间段管理 -->
       <div class="page" id="page-schedule">
         <div class="page-header">
-          <h2>时间段控制</h2>
-          <p>只在指定时间段内启用管控</p>
+          <h2>时间段管理</h2>
+          <p>按类型配置允许上网的时间段</p>
         </div>
+
+        <!-- 📚 学习时段 -->
         <div class="card">
-          <div class="quota-row">
-            <div class="quota-label">启用时间段控制<small>关闭时全天候管控</small></div>
-            <label class="toggle">
-              <input type="checkbox" id="sch-enabled">
-              <div class="toggle-track"></div>
-              <div class="toggle-thumb"></div>
-            </label>
+          <div class="card-header">
+            <div><div class="card-title">📚 学习时段</div><div class="card-subtitle">默认放开，可配置为仅限特定时段</div></div>
+            <span id="study-win-status" style="font-size:12px;color:var(--muted);"></span>
           </div>
+          <div id="study-windows-list"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+            <input type="time" id="study-win-start" value="08:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+            <span style="color:var(--muted);font-size:13px;">—</span>
+            <input type="time" id="study-win-end" value="22:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+            <button class="btn-add" id="study-win-add" style="padding:6px 12px;font-size:12px;">+ 添加时段</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px;">空列表表示无限制</div>
         </div>
+
+        <!-- 🎮 休息时段 -->
         <div class="card">
-          <div class="card-header"><div class="card-title">每日时间段</div></div>
-          <div id="sch-rows"></div>
+          <div class="card-header">
+            <div><div class="card-title">🎮 休息时段</div><div class="card-subtitle">家长配置孩子可使用休息时间的时段</div></div>
+            <span id="rest-win-status" style="font-size:12px;color:var(--muted);"></span>
+          </div>
+          <div id="rest-windows-list"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+            <input type="time" id="rest-win-start" value="19:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+            <span style="color:var(--muted);font-size:13px;">—</span>
+            <input type="time" id="rest-win-end" value="21:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+            <button class="btn-add" id="rest-win-add" style="padding:6px 12px;font-size:12px;">+ 添加时段</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px;">空列表表示无限制</div>
         </div>
+
+        <!-- 🌐 在线时段（只读，自动计算） -->
         <div class="card">
-          <div class="card-header"><div class="card-title">时间窗口</div></div>
-          <div style="padding:6px 0;border-bottom:1px solid var(--border);">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
-              <div>
-                <div style="font-size:13px;font-weight:500;">学习时段</div>
-                <div style="font-size:12px;color:var(--muted);">默认无限制</div>
-              </div>
-              <span style="font-size:13px;color:var(--muted);">无限制</span>
-            </div>
+          <div class="card-header">
+            <div><div class="card-title">🌐 在线时段</div><div class="card-subtitle">学习时段 + 休息时段的并集，自动计算</div></div>
+            <span id="online-win-status" style="font-size:12px;color:var(--muted);"></span>
           </div>
-          <div style="padding:6px 0;border-bottom:1px solid var(--border);">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
-              <div>
-                <div style="font-size:13px;font-weight:500;">在线时段</div>
-                <div style="font-size:12px;color:var(--muted);">自动计算</div>
-              </div>
-              <span style="font-size:13px;color:var(--muted);">无限制</span>
-            </div>
-          </div>
-          <div style="padding:6px 0;">
-            <div style="font-size:13px;font-weight:500;padding:8px 0;">休息时段</div>
-            <div id="rest-windows-list"></div>
-            <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-              <input type="time" id="rest-win-start" value="19:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
-              <span style="color:var(--muted);font-size:13px;">—</span>
-              <input type="time" id="rest-win-end" value="21:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
-              <button class="btn-add" id="rest-win-add" style="padding:6px 12px;font-size:12px;">+ 添加时段</button>
-            </div>
-            <div style="font-size:12px;color:var(--muted);margin-top:6px;">空列表表示无限制</div>
-          </div>
+          <div id="online-windows-list"></div>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px;">任一子时段为「无限制」时，在线时段自动为「无限制」</div>
         </div>
+
         <div class="save-bar"><button class="btn-save" id="save-schedule-btn">💾 保存配置</button></div>
       </div>
 
@@ -1797,6 +1794,21 @@ window.removeQuota = (domain) => {
 
 // ── Schedule ─────────────────────────────────────────────────
 function setupSchedule() {
+  // 学习时段添加
+  document.getElementById('study-win-add').addEventListener('click', () => {
+    const start = document.getElementById('study-win-start').value;
+    const end = document.getElementById('study-win-end').value;
+    if (!start || !end) { toast('请选择开始和结束时间', false); return; }
+    if (start >= end) { toast('结束时间必须晚于开始时间', false); return; }
+    if (!remoteConfig.timeWindows) remoteConfig.timeWindows = { studyWindows: null, restWindows: [], onlineWindows: null };
+    if (!remoteConfig.timeWindows.studyWindows) remoteConfig.timeWindows.studyWindows = [];
+    const exists = remoteConfig.timeWindows.studyWindows.some(w => w.start === start && w.end === end);
+    if (exists) { toast('该时段已存在', false); return; }
+    remoteConfig.timeWindows.studyWindows.push({ start, end });
+    renderSchedulePage();
+  });
+
+  // 休息时段添加
   document.getElementById('rest-win-add').addEventListener('click', () => {
     const start = document.getElementById('rest-win-start').value;
     const end = document.getElementById('rest-win-end').value;
@@ -1807,70 +1819,78 @@ function setupSchedule() {
     const exists = remoteConfig.timeWindows.restWindows.some(w => w.start === start && w.end === end);
     if (exists) { toast('该时段已存在', false); return; }
     remoteConfig.timeWindows.restWindows.push({ start, end });
-    renderRestWindows();
+    renderSchedulePage();
   });
 
   document.getElementById('save-schedule-btn').addEventListener('click', saveScheduleConfig);
 }
 
 function renderSchedulePage() {
-  const sch = remoteConfig.schedule || { enabled: false, days: {} };
-  document.getElementById('sch-enabled').checked = sch.enabled || false;
-  const rows = document.getElementById('sch-rows');
-  rows.innerHTML = DAY_NAMES.map((name, i) => {
-    const d = sch.days?.[i] || { enabled: false, start:'08:00', end:'22:00' };
-    return `
-      <div class="schedule-row">
-        <label class="toggle"><input type="checkbox" id="s-${i}-en" ${d.enabled?'checked':''}><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
-        <span class="day-name">${name}</span>
-        <input type="time" class="time-input" id="s-${i}-start" value="${d.start||'08:00'}">
-        <span style="color:var(--muted);">—</span>
-        <input type="time" class="time-input" id="s-${i}-end"   value="${d.end||'22:00'}">
-      </div>
-    `;
-  }).join('');
+  if (!remoteConfig.timeWindows) remoteConfig.timeWindows = { studyWindows: null, restWindows: [], onlineWindows: null };
+  const tw = remoteConfig.timeWindows;
 
-  renderRestWindows();
+  // 学习时段
+  renderWindowList('study-windows-list', tw.studyWindows, 'removeStudyWindow');
+  const studyStatus = document.getElementById('study-win-status');
+  if (studyStatus) studyStatus.textContent = tw.studyWindows === null ? '无限制' : (tw.studyWindows.length === 0 ? '无限制' : `${tw.studyWindows.length} 个时段`);
+
+  // 休息时段
+  renderWindowList('rest-windows-list', tw.restWindows, 'removeRestWindow');
+  const restStatus = document.getElementById('rest-win-status');
+  if (restStatus) restStatus.textContent = tw.restWindows === null ? '无限制' : (tw.restWindows.length === 0 ? '无限制' : `${tw.restWindows.length} 个时段`);
+
+  // 在线时段（只读，由后端计算）
+  renderWindowList('online-windows-list', tw.onlineWindows, null);
+  const onlineStatus = document.getElementById('online-win-status');
+  if (onlineStatus) {
+    if (tw.onlineWindows === null) onlineStatus.textContent = '无限制';
+    else if (tw.onlineWindows.length === 0) onlineStatus.textContent = '无限制';
+    else onlineStatus.textContent = `${tw.onlineWindows.length} 个时段`;
+  }
 }
 
-function renderRestWindows() {
-  const list = document.getElementById('rest-windows-list');
-  const windows = remoteConfig.timeWindows?.restWindows || [];
-  if (windows.length === 0) {
-    list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无休息时段限制（无限制）</div>';
+function renderWindowList(containerId, windows, removeFnName) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  if (windows === null || windows === undefined) {
+    c.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">无限制</div>';
     return;
   }
-  list.innerHTML = windows.map((w, idx) => `
+  if (windows.length === 0) {
+    c.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">无限制</div>';
+    return;
+  }
+  c.innerHTML = windows.map((w, idx) => `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
       <span style="font-size:13px;">${w.start} — ${w.end}</span>
-      <button onclick="removeRestWindow(${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;margin-left:auto;">×</button>
+      ${removeFnName ? `<button onclick="${removeFnName}(${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;margin-left:auto;">×</button>` : ''}
     </div>
   `).join('');
 }
 
+window.removeStudyWindow = (idx) => {
+  if (remoteConfig.timeWindows?.studyWindows) {
+    remoteConfig.timeWindows.studyWindows.splice(idx, 1);
+    renderSchedulePage();
+  }
+};
+
 window.removeRestWindow = (idx) => {
   if (remoteConfig.timeWindows?.restWindows) {
     remoteConfig.timeWindows.restWindows.splice(idx, 1);
-    renderRestWindows();
+    renderSchedulePage();
   }
 };
 
 async function saveScheduleConfig() {
   if (!currentProfileId || !remoteConfig) return;
 
-  const schedule = { enabled: false, days: {} };
-  schedule.enabled = document.getElementById('sch-enabled').checked;
-  for (let i = 0; i < 7; i++) {
-    schedule.days[i] = {
-      enabled: document.getElementById(`s-${i}-en`)?.checked || false,
-      start: document.getElementById(`s-${i}-start`)?.value || '08:00',
-      end: document.getElementById(`s-${i}-end`)?.value || '22:00',
-    };
-  }
-
   const payload = {
-    schedule,
-    timeWindows: remoteConfig.timeWindows || { studyWindows: null, restWindows: [], onlineWindows: null },
+    timeWindows: {
+      studyWindows: remoteConfig.timeWindows?.studyWindows ?? null,
+      restWindows: remoteConfig.timeWindows?.restWindows ?? [],
+      // onlineWindows 由后端计算，不提交
+    },
   };
 
   try {
