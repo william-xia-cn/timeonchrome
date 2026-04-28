@@ -52,16 +52,18 @@ function run() {
   expectTrue('pages 不应再出现 dailyQuota fallback 字段', !/\bdailyQuota\b/.test(source));
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
 
-  // 最小行为级断言：第三类列表绑定 compositeList
+  // 最小行为级断言：综合网站列表绑定 compositeList
   const setupRulesSource = extractFunctionSource(source, 'setupRules');
   const captured = [];
   const context = {
-    setupDomainInput: (...args) => captured.push(args),
+    setupCustomDomainInput: (...args) => captured.push(args),
     document: {
       getElementById: () => ({ addEventListener: () => {} })
     },
     renderTagsFiltered: () => {},
-    saveConfig: () => {},
+    saveSiteAccessConfig: () => {},
+    exportSiteAccessConfig: () => {},
+    importSiteAccessConfig: () => {},
     remoteConfig: { studyList: [] },
     this: null
   };
@@ -70,9 +72,9 @@ function run() {
   vm.runInNewContext(`${setupRulesSource}\nthis.__fn = setupRules;`, context, { filename: 'pages/index.html' });
   context.__fn();
 
-  const third = captured.find((entry) => entry[0] === 'r-allowlist-input');
-  expectTrue('第三类列表应完成 setupDomainInput 绑定', !!third);
-  expectEqual('第三类列表 listKey 应为 compositeList', third?.[3], 'compositeList');
+  const composite = captured.find((entry) => entry[0] === 'r-composite-input');
+  expectTrue('综合网站列表应完成 setupCustomDomainInput 绑定', !!composite);
+  expectEqual('综合网站列表 customKey 应为 compositeList', composite?.[3], 'compositeList');
 
   const total = passed + failed;
   console.log(`\n[Pages Config v1.2 Fields] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

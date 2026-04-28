@@ -1,5 +1,6 @@
 // Profiles 路由 - 孩子 Profile CRUD
 import { json, Env, verifyAccountToken } from '../db/middleware';
+import { siteAccessDefaults, mergeWithDefaults } from '../config/site-access-defaults';
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
 
@@ -12,7 +13,8 @@ function buildSchemaDefaults(): object {
     enabled: true,
     studyList: [],
     compositeList: [],
-    unsafeList: ['douyin.com', 'tiktok.com'],
+    unsafeList: [],
+    restrictedEntertainmentList: [],
     dailyOnlineQuota:       1200,
     dailyStudyQuota:         480,
     dailyRestQuota:          120,
@@ -43,45 +45,7 @@ function buildSchemaDefaults(): object {
 function buildDefaultConfig(): object {
   return {
     ...buildSchemaDefaults(),
-    studyList: [
-      // 核心生产力与协作
-      'google.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com',
-      'slides.google.com', 'meet.google.com', 'calendar.google.com', 'classroom.google.com',
-      'keep.google.com', 'colab.research.google.com',
-      'office.com', 'onenote.com', 'outlook.live.com', 'planner.microsoft.com',
-      'to-do.office.com', 'teams.microsoft.com',
-      // AI 增强与学术研究
-      'openai.com', 'claude.ai', 'gemini.google.com', 'poe.com', 'perplexity.ai',
-      'notebooklm.google.com', 'elicit.org', 'consensus.app', 'scite.ai',
-      'wolframalpha.com', 'gamma.app',
-      // 语言强化与写作辅助
-      'quizlet.com', 'noredink.com', 'membean.com', 'achieve3000.com', 'quillbot.com',
-      'grammarly.com', 'overleaf.com', 'zotero.org', 'mendeley.com',
-      'owl.purdue.edu', 'citationmachine.net',
-      // IB 专项资源
-      'ibo.org', 'managebac.com', 'kognity.com', 'revisionvillage.com', 'savemyexams.com',
-      'ibdocuments.com', 'ibsurvival.com', 'lanterna.com', 'thinking.net',
-      'bioninja.com.au', 'theoryofknowledge.net',
-      // 通用学习与在线课程
-      'khanacademy.org', 'ocw.mit.edu', 'coursera.org', 'edx.org', 'brilliant.org',
-      'udemy.com', 'futurelearn.com', 'britannica.com',
-      // 数学、物理与实验模拟
-      'desmos.com', 'geogebra.org', 'symbolab.com', 'mathway.com',
-      'physicsclassroom.com', 'phet.colorado.edu', 'falstad.com', 'myphysicslab.com', 'logic.ly',
-      // 计算机科学与电子工程
-      'github.com', 'stackoverflow.com', 'leetcode.com', 'hackerrank.com', 'codingbat.com',
-      'replit.com', 'codepen.io', 'tinkercad.com', 'arduino.cc', 'raspberrypi.com',
-      'instructables.com',
-      // 学术数据库与人文历史
-      'arxiv.org', 'scholar.google.com', 'jstor.org', 'researchgate.net',
-      'semanticscholar.org', 'pubmed.ncbi.nlm.nih.gov', 'gutenberg.org', 'plato.stanford.edu',
-      // 视觉设计与创意
-      'canva.com', 'figma.com', 'photopea.com', 'pixlr.com',
-      // 效率工具
-      'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai',
-      // 教育认证
-      'collegeboard.org',
-    ],
+    studyList: siteAccessDefaults.defaultStudySites,
     compositeList: [
       // 搜索引擎
       'google.com', 'google.com.hk', 'bing.com', 'baidu.com',
@@ -89,10 +53,12 @@ function buildDefaultConfig(): object {
       // 问答社区
       'stackexchange.com', 'reddit.com',
       // 视频/音乐
-      'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com', 'bilibili.com',
+      'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com',
       // 百科/参考
       'wikipedia.org', 'britannica.com', 'wolframalpha.com',
     ],
+    restrictedEntertainmentList: siteAccessDefaults.defaultRestrictedEntertainmentSites,
+    unsafeList: siteAccessDefaults.defaultBlockedSites,
   };
 }
 
@@ -159,13 +125,14 @@ export const profilesRouter = {
     // ── 以下路由均需 profileId ──────────────────────────────────────────
 
     const configMatch      = path.match(/^\/profiles\/([^/]+)\/config$/);
+    const defaultsMatch    = path.match(/^\/profiles\/([^/]+)\/defaults$/);
     const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
     const deviceIdMatch    = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)$/);
     const profileSelfMatch = path.match(/^\/profiles\/([^/]+)$/);
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
+      configMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
 
@@ -181,10 +148,23 @@ export const profilesRouter = {
         `SELECT config, updated_at FROM profiles WHERE id = ?`
       ).bind(profileId).first<{ config: string; updated_at: number }>();
 
+      const config = row?.config ? JSON.parse(row.config) : {};
+
+      // 返回时包含 custom 字段（如已存在），不触发写 DB
       return json({
-        data:       row?.config ? JSON.parse(row.config) : {},
+        data:       config,
         updated_at: row?.updated_at || 0,
         profile_id: profileId,
+      });
+    }
+
+    // GET /profiles/:id/defaults — 返回系统缺省清单（只读）
+    if (request.method === 'GET' && defaultsMatch) {
+      return json({
+        version: 1,
+        defaultStudySites: siteAccessDefaults.defaultStudySites,
+        defaultRestrictedEntertainmentSites: siteAccessDefaults.defaultRestrictedEntertainmentSites,
+        defaultBlockedSites: siteAccessDefaults.defaultBlockedSites,
       });
     }
 
@@ -213,7 +193,8 @@ export const profilesRouter = {
         // 白名单字段：只允许前端修改以下字段
         const ALLOWED_KEYS = new Set([
           'version', 'mode', 'enabled',
-          'studyList', 'compositeList', 'unsafeList',
+          'studyList', 'compositeList', 'unsafeList', 'restrictedEntertainmentList',
+          'customStudyList', 'customRestrictedEntertainmentList', 'customBlockedSites',
           'dailyOnlineQuota', 'dailyStudyQuota', 'dailyRestQuota',
           'dailyUndeterminedQuota', 'weeklyRestQuota',
           'domainQuotas', 'classificationRules',
@@ -227,7 +208,47 @@ export const profilesRouter = {
           }
         }
 
-        // 3. 保护运行时状态字段（不应被前端或默认值覆盖）
+        // 3. 懒迁移：旧 Profile 没有 custom 字段时，从 effective 反推
+        if (!mergedConfig.customStudyList && Array.isArray(mergedConfig.studyList)) {
+          const defaultSet = new Set(siteAccessDefaults.defaultStudySites.map(d => d.toLowerCase()));
+          mergedConfig.customStudyList = (mergedConfig.studyList as string[]).filter(
+            d => !defaultSet.has(d.toLowerCase())
+          );
+        }
+        if (!mergedConfig.customRestrictedEntertainmentList && Array.isArray(mergedConfig.restrictedEntertainmentList)) {
+          const defaultSet = new Set(siteAccessDefaults.defaultRestrictedEntertainmentSites.map(d => d.toLowerCase()));
+          mergedConfig.customRestrictedEntertainmentList = (mergedConfig.restrictedEntertainmentList as string[]).filter(
+            d => !defaultSet.has(d.toLowerCase())
+          );
+        }
+        if (!mergedConfig.customBlockedSites && Array.isArray(mergedConfig.unsafeList)) {
+          const defaultSet = new Set(siteAccessDefaults.defaultBlockedSites.map(d => d.toLowerCase()));
+          mergedConfig.customBlockedSites = (mergedConfig.unsafeList as string[]).filter(
+            d => !defaultSet.has(d.toLowerCase())
+          );
+        }
+
+        // 4. 重新计算 effective 字段（defaults + custom）
+        if (Array.isArray(mergedConfig.customStudyList)) {
+          mergedConfig.studyList = mergeWithDefaults(
+            mergedConfig.customStudyList as string[],
+            siteAccessDefaults.defaultStudySites
+          );
+        }
+        if (Array.isArray(mergedConfig.customRestrictedEntertainmentList)) {
+          mergedConfig.restrictedEntertainmentList = mergeWithDefaults(
+            mergedConfig.customRestrictedEntertainmentList as string[],
+            siteAccessDefaults.defaultRestrictedEntertainmentSites
+          );
+        }
+        if (Array.isArray(mergedConfig.customBlockedSites)) {
+          mergedConfig.unsafeList = mergeWithDefaults(
+            mergedConfig.customBlockedSites as string[],
+            siteAccessDefaults.defaultBlockedSites
+          );
+        }
+
+        // 5. 保护运行时状态字段（不应被前端或默认值覆盖）
         const PROTECTED_KEYS = ['adminPasswordHash', 'isInitialized', 'lockedDomains', 'updatedAt'];
         for (const key of PROTECTED_KEYS) {
           if (existingConfig[key] !== undefined) {

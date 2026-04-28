@@ -573,47 +573,110 @@
           <p>修改后点击保存，将实时同步到孩子设备</p>
         </div>
 
-        <!-- 不安全网站（弱化展示） -->
-        <div class="card" id="r-unsafelist-card">
+        <!-- 📚 学习网站 -->
+        <div class="card" id="r-studylist-card">
           <div class="card-header">
-            <div><div class="card-title">🛡️ 不安全网站</div><div class="card-subtitle">基于安全考虑不允许访问，支持子域名匹配</div></div>
-            <span id="r-unsafelist-count" style="font-size:12px;color:var(--muted);"></span>
+            <div><div class="card-title">📚 学习网站</div><div class="card-subtitle">学习模式下允许访问，计入学习时长</div></div>
           </div>
-          <div class="domain-input-row">
-            <input type="text" id="r-unsafelist-input" placeholder="例：tiktok.com">
-            <button class="btn-add" id="r-unsafelist-add">+ 添加</button>
+          <!-- 系统默认 -->
+          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统默认（不可编辑）</div>
+            <div class="domains-container" id="r-studylist-default-tags" style="opacity:0.7;"></div>
+            <div id="r-studylist-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
-          <div class="domains-container" id="r-unsafelist-tags"></div>
-        </div>
-
-        <!-- 学习网站与待定网站 -->
-        <div id="r-studylist-section">
-          <div class="card" id="r-studylist-card">
-            <div class="card-header">
-              <div><div class="card-title">📚 学习网站</div><div class="card-subtitle">计入学习时长，触发自动切换学习模式</div></div>
-              <span id="r-studylist-count" style="font-size:12px;color:var(--muted);"></span>
-            </div>
+          <!-- 家长自定义 -->
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
             <div class="domain-input-row">
               <input type="text" id="r-studylist-search" placeholder="🔍 搜索..." style="max-width:180px;">
               <input type="text" id="r-studylist-input" placeholder="例：khanacademy.org">
               <button class="btn-add" id="r-studylist-add">+ 添加</button>
             </div>
             <div class="domains-container" id="r-studylist-tags" style="max-height:200px;overflow-y:auto;"></div>
-          </div>
-
-          <div class="card" id="r-allowlist-card">
-            <div class="card-header">
-              <div><div class="card-title">🎵 待定网站 <span style="font-size:11px;color:var(--muted);font-weight:400;">（不计学习时长）</span></div><div class="card-subtitle">学习模式下可访问但不算学习时间</div></div>
-              <span id="r-allowlist-count" style="font-size:12px;color:var(--muted);"></span>
-            </div>
-            <div class="domain-input-row">
-              <input type="text" id="r-allowlist-input" placeholder="例：music.163.com">
-              <button class="btn-add" id="r-allowlist-add">+ 添加</button>
-            </div>
-            <div class="domains-container" id="r-allowlist-tags"></div>
+            <div id="r-studylist-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
         </div>
 
+        <!-- 🔀 综合网站 -->
+        <div class="card" id="r-composite-card">
+          <div class="card-header">
+            <div><div class="card-title">🔀 综合网站</div><div class="card-subtitle">学习模式下可访问，产生「综合网站时间（待分类）」，不自动计入学习或休息时间</div></div>
+            <span id="r-composite-count" style="font-size:12px;color:var(--muted);"></span>
+          </div>
+          <div class="domain-input-row">
+            <input type="text" id="r-composite-input" placeholder="例：youtube.com">
+            <button class="btn-add" id="r-composite-add">+ 添加</button>
+          </div>
+          <div class="domains-container" id="r-composite-tags"></div>
+        </div>
+
+        <!-- 🎮 受限娱乐网站 -->
+        <div class="card" id="r-restricted-card">
+          <div class="card-header">
+            <div><div class="card-title">🎮 受限娱乐网站</div><div class="card-subtitle">自由时间可访问，学习模式 blocked，不支持临时使用综合网站时间，可借时间</div></div>
+          </div>
+          <!-- 系统默认 -->
+          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统默认（不可编辑）</div>
+            <div class="domains-container" id="r-restricted-default-tags" style="opacity:0.7;"></div>
+            <div id="r-restricted-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+          </div>
+          <!-- 家长自定义 -->
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
+            <div class="domain-input-row">
+              <input type="text" id="r-restricted-input" placeholder="例：example-game.com">
+              <button class="btn-add" id="r-restricted-add">+ 添加</button>
+            </div>
+            <div class="domains-container" id="r-restricted-tags"></div>
+            <div id="r-restricted-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+          </div>
+        </div>
+
+        <!-- ⛔ 黑名单网站 -->
+        <div class="card" id="r-blocked-card">
+          <div class="card-header">
+            <div><div class="card-title">⛔ 黑名单网站</div><div class="card-subtitle">硬禁止，任何时间不可访问，不可借时间</div></div>
+          </div>
+          <!-- 系统默认 -->
+          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统默认（不可编辑）</div>
+            <div class="domains-container" id="r-blocked-default-tags" style="opacity:0.7;"></div>
+            <div id="r-blocked-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+          </div>
+          <!-- 家长自定义 -->
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
+            <div class="domain-input-row">
+              <input type="text" id="r-blocked-input" placeholder="例：example-blocked.com">
+              <button class="btn-add" id="r-blocked-add">+ 添加</button>
+            </div>
+            <div class="domains-container" id="r-blocked-tags"></div>
+            <div id="r-blocked-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+          </div>
+        </div>
+
+        <!-- ℹ️ 分类说明区 -->
+        <div class="card" style="background:rgba(0,184,148,0.03);">
+          <div class="card-header">
+            <div class="card-title">ℹ️ 分类说明</div>
+          </div>
+          <div style="font-size:13px;line-height:1.8;color:var(--text);">
+            <p style="margin-bottom:10px;"><strong>综合网站时间（待分类）</strong><br>
+            来自搜索、YouTube、百科、问答、音乐等综合用途网站。暂不直接算作学习或休息，后续可进一步分类。</p>
+            <p style="margin-bottom:10px;"><strong>临时使用综合网站时间</strong><br>
+            仅适用于未归类网站。本次访问将临时按综合网站处理，并计入综合网站时间（待分类）。不适用于受限娱乐网站或黑名单网站。</p>
+            <p><strong>受限娱乐网站 vs 黑名单网站</strong><br>
+            受限娱乐网站：自由时间可访问，可借时间，学习模式 blocked。<br>
+            黑名单网站：任何时间都不允许访问，不可借时间。</p>
+          </div>
+        </div>
+
+        <!-- 导入导出 + 保存 -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;">
+          <button class="btn-save" id="import-rules-btn" style="flex:1;background:transparent;color:var(--accent);border:1px solid var(--accent);">📥 导入配置</button>
+          <button class="btn-save" id="export-rules-btn" style="flex:1;background:transparent;color:var(--accent);border:1px solid var(--accent);">📤 导出配置</button>
+        </div>
         <div class="save-bar">
           <button class="btn-save" id="save-rules-btn">💾 保存配置</button>
         </div>
@@ -647,7 +710,7 @@
             <span class="quota-unit">小时/周</span>
           </div>
           <div class="quota-row">
-            <div class="quota-label">每日待定时段上限<small>复合型网站每日上限（0 = 不限制）</small></div>
+            <div class="quota-label">每日综合网站时间上限<small>综合网站每日上限（0 = 不限制）</small></div>
             <input type="number" class="quota-input" id="q-undetermined" min="0" max="24" step="0.5" placeholder="0">
             <span class="quota-unit">小时/天</span>
           </div>
@@ -886,6 +949,7 @@ let accountToken = null;
 let currentProfileId = null;
 let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
+let siteAccessDefaults = null; // 系统缺省清单 { defaultStudySites, defaultRestrictedEntertainmentSites, defaultBlockedSites }
 
 // ── 持久化 ────────────────────────────────────────────────────
 function saveLocal(key, val) { localStorage.setItem('toc_' + key, JSON.stringify(val)); }
@@ -1065,6 +1129,14 @@ async function selectProfile(id) {
   } catch(e) {
     remoteConfig = {};
     toast('加载配置失败', false);
+  }
+
+  // 加载系统缺省清单
+  try {
+    const d = await api(`/profiles/${id}/defaults`);
+    siteAccessDefaults = d || {};
+  } catch(e) {
+    siteAccessDefaults = { defaultStudySites: [], defaultRestrictedEntertainmentSites: [], defaultBlockedSites: [] };
   }
 
   // 更新待审核 badge
@@ -1285,35 +1357,75 @@ async function renderWeekChart() {
 }
 
 // ── Rules ────────────────────────────────────────────────────
-function setupRules() {
-  setupDomainInput('r-unsafelist-input', 'r-unsafelist-add', 'r-unsafelist-tags', 'unsafeList');
-  setupDomainInput('r-studylist-input',  'r-studylist-add',  'r-studylist-tags',  'studyList');
-  setupDomainInput('r-allowlist-input',  'r-allowlist-add',  'r-allowlist-tags',  'compositeList');
 
+// 从 merged effective 列表中分离出 custom 部分
+function getCustomList(effectiveList, defaultList) {
+  if (!effectiveList || !defaultList) return effectiveList || [];
+  const defaultSet = new Set(defaultList.map(d => d.toLowerCase()));
+  return effectiveList.filter(d => !defaultSet.has(d.toLowerCase()));
+}
+
+function setupRules() {
+  // 家长自定义输入框
+  setupCustomDomainInput('r-studylist-input', 'r-studylist-add', 'r-studylist-tags', 'customStudyList', 'studyList');
+  setupCustomDomainInput('r-composite-input', 'r-composite-add', 'r-composite-tags', 'compositeList', 'compositeList');
+  setupCustomDomainInput('r-restricted-input', 'r-restricted-add', 'r-restricted-tags', 'customRestrictedEntertainmentList', 'restrictedEntertainmentList');
+  setupCustomDomainInput('r-blocked-input', 'r-blocked-add', 'r-blocked-tags', 'customBlockedSites', 'unsafeList');
+
+  // 搜索过滤
   document.getElementById('r-studylist-search').addEventListener('input', e => {
     const q = e.target.value.trim().toLowerCase();
-    const list = remoteConfig.studyList || [];
-    renderTagsFiltered('r-studylist-tags', q ? list.filter(d=>d.includes(q)) : list, list, 'studyList');
+    const custom = remoteConfig.customStudyList || [];
+    renderTagsFiltered('r-studylist-tags', q ? custom.filter(d=>d.includes(q)) : custom, custom, 'customStudyList');
   });
 
-  document.getElementById('save-rules-btn').addEventListener('click', saveConfig);
+  // 保存
+  document.getElementById('save-rules-btn').addEventListener('click', saveSiteAccessConfig);
+
+  // 导入导出
+  document.getElementById('export-rules-btn').addEventListener('click', exportSiteAccessConfig);
+  document.getElementById('import-rules-btn').addEventListener('click', importSiteAccessConfig);
 }
 
 function renderRulesPage() {
-  renderTags('r-unsafelist-tags', remoteConfig.unsafeList || [], 'unsafeList');
-  renderTags('r-studylist-tags',  remoteConfig.studyList  || [], 'studyList');
-  renderTags('r-allowlist-tags',  remoteConfig.compositeList || [], 'compositeList');
+  const defaults = siteAccessDefaults || {};
+
+  // 学习网站
+  const studyCustom = remoteConfig.customStudyList || getCustomList(remoteConfig.studyList, defaults.defaultStudySites);
+  renderReadOnlyTags('r-studylist-default-tags', defaults.defaultStudySites || []);
+  renderTags('r-studylist-tags', studyCustom, 'customStudyList');
+
+  // 综合网站（无系统缺省，全部可编辑）
+  renderTags('r-composite-tags', remoteConfig.compositeList || [], 'compositeList');
+
+  // 受限娱乐网站
+  const restrictedCustom = remoteConfig.customRestrictedEntertainmentList || getCustomList(remoteConfig.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites);
+  renderReadOnlyTags('r-restricted-default-tags', defaults.defaultRestrictedEntertainmentSites || []);
+  renderTags('r-restricted-tags', restrictedCustom, 'customRestrictedEntertainmentList');
+
+  // 黑名单网站
+  const blockedCustom = remoteConfig.customBlockedSites || getCustomList(remoteConfig.unsafeList, defaults.defaultBlockedSites);
+  renderReadOnlyTags('r-blocked-default-tags', defaults.defaultBlockedSites || []);
+  renderTags('r-blocked-tags', blockedCustom, 'customBlockedSites');
+
   updateRuleCounts();
 }
 
 function updateRuleCounts() {
+  const defaults = siteAccessDefaults || {};
   const set = (id, arr) => { const el=document.getElementById(id); if(el) el.textContent=arr.length?`共 ${arr.length} 条`:''; };
-  set('r-unsafelist-count', remoteConfig.unsafeList || []);
-  set('r-studylist-count',  remoteConfig.studyList  || []);
-  set('r-allowlist-count',  remoteConfig.compositeList || []);
+
+  set('r-studylist-default-count', defaults.defaultStudySites || []);
+  set('r-studylist-count',  remoteConfig.customStudyList || []);
+  set('r-composite-count',  remoteConfig.compositeList || []);
+  set('r-restricted-default-count', defaults.defaultRestrictedEntertainmentSites || []);
+  set('r-restricted-count', remoteConfig.customRestrictedEntertainmentList || []);
+  set('r-blocked-default-count', defaults.defaultBlockedSites || []);
+  set('r-blocked-count', remoteConfig.customBlockedSites || []);
 }
 
-function setupDomainInput(inputId, btnId, tagsId, listKey) {
+// 家长自定义域名输入框
+function setupCustomDomainInput(inputId, btnId, tagsId, customKey, effectiveKey) {
   const input = document.getElementById(inputId);
   const btn   = document.getElementById(btnId);
   if (!input || !btn) return;
@@ -1321,16 +1433,29 @@ function setupDomainInput(inputId, btnId, tagsId, listKey) {
     let val = input.value.trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*/,'');
     if (!val) return;
     if (!remoteConfig) { toast('请先选择一个孩子档案', false); return; }
-    if (!remoteConfig[listKey]) remoteConfig[listKey] = [];
-    if (remoteConfig[listKey].includes(val)) { toast('该域名已在列表中', false); return; }
-    remoteConfig[listKey].push(val);
-    if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
-    renderTags(tagsId, remoteConfig[listKey], listKey);
+    if (!remoteConfig[customKey]) remoteConfig[customKey] = [];
+    if (remoteConfig[customKey].includes(val)) { toast('该域名已在列表中', false); return; }
+    remoteConfig[customKey].push(val);
+    if (customKey==='customStudyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
+    renderTags(tagsId, remoteConfig[customKey], customKey);
     updateRuleCounts();
     input.value = '';
   };
   btn.addEventListener('click', doAdd);
   input.addEventListener('keydown', e => e.key==='Enter' && doAdd());
+}
+
+// 只读标签云（系统默认）
+function renderReadOnlyTags(containerId, domains) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  if (!domains || domains.length === 0) {
+    c.innerHTML = '<span style="color:var(--muted);font-size:12px;padding:4px 0;">暂无</span>';
+    return;
+  }
+  c.innerHTML = domains.map(d =>
+    `<span class="domain-tag" style="cursor:default;background:rgba(0,184,148,0.04);color:var(--muted);">${d}</span>`
+  ).join('');
 }
 
 function renderTags(containerId, domains, listKey) {
@@ -1354,13 +1479,116 @@ window.removeDomain = (listKey, idx) => {
   const list = remoteConfig[listKey] || [];
   list.splice(idx, 1);
   remoteConfig[listKey] = list;
-  const map = { unsafeList:'r-unsafelist-tags', studyList:'r-studylist-tags', compositeList:'r-allowlist-tags' };
+  const map = {
+    customStudyList: 'r-studylist-tags',
+    compositeList: 'r-composite-tags',
+    customRestrictedEntertainmentList: 'r-restricted-tags',
+    customBlockedSites: 'r-blocked-tags'
+  };
   if (map[listKey]) {
-    if (listKey==='studyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
+    if (listKey==='customStudyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
     renderTags(map[listKey], list, listKey);
     updateRuleCounts();
   }
 };
+
+// ── 导入/导出 ──────────────────────────────────────────────
+function exportSiteAccessConfig() {
+  const defaults = siteAccessDefaults || {};
+
+  // 只导出 custom 部分
+  const exportData = {
+    app: 'TimeOnChrome',
+    configType: 'site-access',
+    configVersion: 1,
+    description: 'User-managed site access configuration. System defaults are not included.',
+    studySites: remoteConfig.customStudyList || getCustomList(remoteConfig.studyList, defaults.defaultStudySites) || [],
+    compositeSites: remoteConfig.compositeList || [],
+    restrictedEntertainmentSites: remoteConfig.customRestrictedEntertainmentList || getCustomList(remoteConfig.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites) || [],
+    blockedSites: remoteConfig.customBlockedSites || getCustomList(remoteConfig.unsafeList, defaults.defaultBlockedSites) || [],
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `timeonchrome-site-access-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('配置已导出');
+}
+
+async function importSiteAccessConfig() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      // Schema 校验
+      if (!data || typeof data !== 'object') throw new Error('无效的配置文件');
+      const requiredFields = ['studySites', 'compositeSites', 'restrictedEntertainmentSites', 'blockedSites'];
+      for (const field of requiredFields) {
+        if (!Array.isArray(data[field])) throw new Error(`缺少或无效字段: ${field}`);
+        if (!data[field].every(d => typeof d === 'string')) throw new Error(`${field} 必须全部是字符串`);
+      }
+
+      // 禁止内部字段
+      const forbiddenFields = ['defaultStudySites', 'effectiveStudyList', 'ruleOverrides', 'preferences', 'label', 'category', 'note', 'enabled'];
+      for (const field of forbiddenFields) {
+        if (data[field] !== undefined) throw new Error(`不允许包含字段: ${field}`);
+      }
+
+      // 合并到现有 custom 列表
+      const merge = (existing, incoming) => {
+        const set = new Set((existing || []).map(d => d.toLowerCase()));
+        const result = [...(existing || [])];
+        for (const d of incoming) {
+          if (!set.has(d.toLowerCase())) { result.push(d); set.add(d.toLowerCase()); }
+        }
+        return result;
+      };
+
+      remoteConfig.customStudyList = merge(remoteConfig.customStudyList, data.studySites);
+      remoteConfig.compositeList = merge(remoteConfig.compositeList, data.compositeSites);
+      remoteConfig.customRestrictedEntertainmentList = merge(remoteConfig.customRestrictedEntertainmentList, data.restrictedEntertainmentSites);
+      remoteConfig.customBlockedSites = merge(remoteConfig.customBlockedSites, data.blockedSites);
+
+      renderRulesPage();
+      toast('配置已导入，请记得保存');
+    } catch (err) {
+      toast('导入失败: ' + err.message, false);
+    }
+  };
+  input.click();
+}
+
+// 保存网站访问配置（只提交 custom 字段，后端自动合并缺省值）
+async function saveSiteAccessConfig() {
+  if (!currentProfileId || !remoteConfig) return;
+
+  const payload = {
+    customStudyList: remoteConfig.customStudyList || [],
+    compositeList: remoteConfig.compositeList || [],
+    customRestrictedEntertainmentList: remoteConfig.customRestrictedEntertainmentList || [],
+    customBlockedSites: remoteConfig.customBlockedSites || [],
+  };
+
+  try {
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    toast('保存成功');
+    // 重新加载以获取后端合并后的 effective 字段
+    const r = await api(`/profiles/${currentProfileId}/config`);
+    remoteConfig = r.data || {};
+    renderRulesPage();
+  } catch (e) {
+    toast('保存失败: ' + (e.message || ''), false);
+  }
+}
 
 // ── Quota ────────────────────────────────────────────────────
 function setupQuota() {
