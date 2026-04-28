@@ -1424,10 +1424,10 @@ function renderUndeterminedList(id, sessions) {
   }
 
   const statusMap = {
-    study:       { cls: 'study',       text: '✅ 学习' },
-    rest:        { cls: 'rest',        text: '⚠️ 休息' },
-    pending:     { cls: 'pending',     text: '⏳ 待审核' },
-    appealing:   { cls: 'appealing',   text: '申诉中' },
+    study:       { cls: 'study',       text: '学习' },
+    rest:        { cls: 'rest',        text: '休息' },
+    pending:     { cls: 'pending',     text: '待归类' },
+    appealing:   { cls: 'appealing',   text: '待归类' },
   };
 
   el.innerHTML = `
