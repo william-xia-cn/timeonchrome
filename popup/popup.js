@@ -136,7 +136,7 @@ async function init() {
 
     quotaBarsEl.innerHTML =
       bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
-      bar('⏳', '待定时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked);
+      bar('⏳', '待归类时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked);
   }
 
   // Top 10

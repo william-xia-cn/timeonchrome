@@ -12,6 +12,15 @@
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
+- [ ] **[P1] Child-facing entry points expose mixed admin page**：
+  - 当前状态：孩子可通过以下入口进入混合 admin 页面（`admin/admin.html`），暴露家长登录/注册/绑定流程：
+    1. `popup` 设置按钮（⚙️）→ `chrome.runtime.openOptionsPage()`
+    2. `popup` 未绑定横幅 → `前往管理面板 →`
+    3. `reminder` 查看详情 → `chrome.runtime.openOptionsPage()`
+  - 待 PO 决策：
+    - 孩子是否应访问详细使用分析统计？
+    - 未绑定设备时，孩子应看到什么操作入口（而非直接打开 admin）？
+  - 约束：不阻塞 V0 发布；不删除现有入口（等待 PO 决策后执行）
 
 ## LATER（P2）
 - [ ] [V1] 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐

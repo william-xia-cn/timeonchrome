@@ -41,7 +41,7 @@
     },
     study_mode: {
       icon: '📖', title: '当前是学习模式',
-      subtitle: '这个网站不在你的学习目录中',
+      subtitle: '这个网站不在你的学习网站中',
       actions: ['addComposite', 'switchToRest', 'back']
     },
     quota_rest: {
@@ -55,7 +55,7 @@
       actions: ['switchToRest', 'viewDetails']
     },
     quota_undetermined: {
-      icon: '🔍', title: '待定网站的时间用完啦',
+      icon: '🔍', title: '待归类网站的时间用完啦',
       subtitle: '明天再来探索吧',
       actions: ['switchToStudy', 'viewDetails']
     },
