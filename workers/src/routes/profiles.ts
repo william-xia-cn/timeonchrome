@@ -221,7 +221,7 @@ function buildDefaultConfig(): object {
   return {
     ...buildSchemaDefaults(),
     studyList: siteAccessDefaults.defaultStudySites,
-    compositeList: [],
+    compositeList: mergeWithDefaults([], siteAccessDefaults.defaultCompositeSites),
     restrictedEntertainmentList: siteAccessDefaults.defaultRestrictedEntertainmentSites,
     unsafeList: siteAccessDefaults.defaultBlockedSites,
     customStudyList: [

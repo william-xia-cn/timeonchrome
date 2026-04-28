@@ -337,6 +337,48 @@ function computeOnlineWindowsForDay(dayWindows) {
   check('both empty => online empty', Array.isArray(r) && r.length === 0);
 }
 
+// ── Section 9: mergeWithDefaults and new-profile effective lists ─────────────
+section('mergeWithDefaults: new profile effective list initialization');
+
+function mergeWithDefaults(customList, defaultList) {
+  const defaultSet = new Set(defaultList.map(d => d.toLowerCase()));
+  const custom = customList.filter(d => !defaultSet.has(d.toLowerCase()));
+  return [...defaultList, ...custom];
+}
+
+const siteAccessDefaults = require('../../workers/config/site-access-defaults.json');
+
+{
+  // compositeList effective = defaultCompositeSites + customCompositeList (empty)
+  const effectiveComposite = mergeWithDefaults([], siteAccessDefaults.defaultCompositeSites);
+  check('new profile compositeList count = 24', effectiveComposite.length === 24, `actual=${effectiveComposite.length}`);
+
+  // 7 vendor/support domains
+  const vendors = ['www.google.com', 'support.google.com', 'support.microsoft.com', 'answers.microsoft.com', 'microsoft.com', 'apple.com', 'adobe.com'];
+  const allVendorsPresent = vendors.every(v => effectiveComposite.includes(v));
+  check('new profile compositeList includes all 7 vendor/support domains', allVendorsPresent);
+}
+
+{
+  // customCompositeList = [] → effective should equal defaults
+  const effectiveComposite = mergeWithDefaults([], siteAccessDefaults.defaultCompositeSites);
+  check('mergeWithDefaults([], defaults) equals defaults', effectiveComposite.length === siteAccessDefaults.defaultCompositeSites.length);
+}
+
+{
+  // customCompositeList with duplicates → deduped
+  const effectiveComposite = mergeWithDefaults(['google.com', 'new-site.com'], siteAccessDefaults.defaultCompositeSites);
+  check('duplicate google.com is deduped', !effectiveComposite.some((d, i, arr) => arr.indexOf(d) !== i));
+  check('new-site.com is appended', effectiveComposite.includes('new-site.com'));
+}
+
+{
+  // studyList effective = defaultStudySites + customStudyList
+  const customStudy = ['keystoneacademy.cn', 'powerschool.keystoneacademy.cn', 'managebac.cn', 'reach.cloud', 'schoolsbuddy.cn', 'afficienta.com'];
+  const effectiveStudy = mergeWithDefaults(customStudy, siteAccessDefaults.defaultStudySites);
+  check('new profile studyList count = 149 + 6 custom = 155', effectiveStudy.length === 155, `actual=${effectiveStudy.length}`);
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 const total = passed + failed;
 console.log(`\n[Workers Logic] ${passed}/${total} passed${failed > 0 ? ` — ${failed} FAILED` : ''}`);
