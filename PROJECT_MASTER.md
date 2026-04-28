@@ -23,8 +23,14 @@
 
 ## 发布闸门判定（V0）
 1. 关键能力已闭环并通过全量 unit 验证
-2. API / E2E 在可执行发布环境可复现通过
+2. API / E2E 在可执行发布环境可复现通过 ✅
+   - API 测试：`tests/api/workers.test.js` → 53/53 passed（2026-04-28，发布环境）
+   - E2E 测试：`tests/e2e/extension.test.js` → 11/11 passed，24.3s（2026-04-28，发布环境）
 3. 保持 cloudHeartbeat（已定产品决策，非 V0 缺口）
+
+## V0 发布闸门状态
+- **发布闸门复验已通过**：API 与 E2E 在发布环境均通过
+- **尚未标记为已发布**：等待 Product Owner 最终发布决策
 
 ## 非目标（当前）
 - 不做大重构

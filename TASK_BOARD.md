@@ -2,8 +2,10 @@
 
 ## NOW（P0）
 - [x] [V0] 发布环境复验执行包文档落成（标准检查清单）
-- [ ] [V0] 发布闸门复验：API 测试通过（发布环境）
-- [ ] [V0] 发布闸门复验：E2E 测试通过（发布环境）
+- [x] [V0] 发布闸门复验：API 测试通过（发布环境）
+  - 2026-04-28: `tests/api/workers.test.js` → 53/53 passed
+- [x] [V0] 发布闸门复验：E2E 测试通过（发布环境）
+  - 2026-04-28: `tests/e2e/extension.test.js` → 11/11 passed (24.3s)
 - [x] [V0] Monitoring 收口剩余项（以用户可感知副作用为优先）
 - [x] [V0] Background Audio Time 最小闭环（`BACKGROUND_ACTIVE -> audioSeconds`）
 
