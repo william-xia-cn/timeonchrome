@@ -224,6 +224,10 @@ function buildDefaultConfig(): object {
     compositeList: [],
     restrictedEntertainmentList: siteAccessDefaults.defaultRestrictedEntertainmentSites,
     unsafeList: siteAccessDefaults.defaultBlockedSites,
+    customStudyList: [],
+    customCompositeList: [],
+    customRestrictedEntertainmentList: [],
+    customBlockedSites: [],
   };
 }
 
