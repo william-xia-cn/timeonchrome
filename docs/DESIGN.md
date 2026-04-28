@@ -700,7 +700,7 @@ timeonchrome/
 │   ├── migrations/            D1 数据库迁移文件
 │   ├── schema.sql
 │   └── src/
-│       ├── index.ts           路由入口 + D1 schema + 定时任务
+│       ├── index.ts           路由入口 + CORS 预flight + D1 schema + 定时任务
 │       ├── db/
 │       │   └── middleware.ts  鉴权、响应工具
 │       └── routes/

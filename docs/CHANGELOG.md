@@ -2,6 +2,14 @@
 
 ---
 
+## [Unreleased]
+
+### 修复
+- **CORS 预flight 缺少 PATCH 方法**：`workers/src/index.ts` `Access-Control-Allow-Methods` 补充 `PATCH`，修复浏览器端档案改名、设备重命名、监控开关等 PATCH 请求报 "Failed to fetch" 的问题
+- **PATCH /profiles/:id 响应不一致**：后端现在返回更新后的完整 `profile` 对象，与 `POST /profiles` 保持一致，前端无需 fallback 即可更新本地状态
+
+---
+
 ## [1.7.2] — 2026-04-24
 
 ### 修复

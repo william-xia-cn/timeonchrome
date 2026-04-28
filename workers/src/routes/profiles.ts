@@ -601,7 +601,25 @@ export const profilesRouter = {
           `UPDATE profiles SET ${updates.join(', ')} WHERE id = ?`
         ).bind(...bindings).run();
 
-        return json({ success: true });
+        const updatedProfile = await env.DB.prepare(
+          `SELECT id, name, avatar_color, config, created_at, updated_at
+           FROM profiles WHERE id = ?`
+        ).bind(profileId).first<{
+          id: string; name: string; avatar_color: string;
+          config: string; created_at: number; updated_at: number;
+        }>();
+
+        return json({
+          success: true,
+          profile: {
+            id:           updatedProfile.id,
+            name:         updatedProfile.name,
+            avatar_color: updatedProfile.avatar_color,
+            config:       updatedProfile.config ? JSON.parse(updatedProfile.config) : null,
+            created_at:   updatedProfile.created_at,
+            updated_at:   updatedProfile.updated_at,
+          },
+        });
       } catch (e: any) {
         return json({ error: 'Failed to update profile: ' + e.message }, 500);
       }

@@ -135,6 +135,15 @@ async function testProfiles() {
     const found = (data?.profiles || []).some(p => p.id === state.profileId);
     check('new profile appears in list', found, JSON.stringify(data?.profiles?.map(p => p.id)));
   }
+
+  // PATCH profile name
+  {
+    const { status, data } = await api('PATCH', `/profiles/${state.profileId}`, {
+      name: 'TestChildRenamed',
+    }, state.accountToken);
+    check('PATCH /profiles/:id → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('PATCH returns updated profile', data?.profile?.name === 'TestChildRenamed', JSON.stringify(data));
+  }
 }
 
 async function testDeviceBind() {
