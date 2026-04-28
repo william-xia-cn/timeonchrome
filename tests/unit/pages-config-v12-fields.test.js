@@ -52,6 +52,15 @@ function run() {
   expectTrue('pages 不应再出现 dailyQuota fallback 字段', !/\bdailyQuota\b/.test(source));
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
 
+  // 时间段管理：per-day 结构检查
+  expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
+  expectTrue('pages 应包含七天配置', source.includes("'monday'") && source.includes("'sunday'"));
+  expectTrue('pages 学习时段默认应为 null（全天允许）', source.includes('studyWindows: null'));
+  expectTrue('pages 休息时段默认应为 15:30-24:00', source.includes("'15:30'") && source.includes("'24:00'"));
+  expectTrue('saveScheduleConfig 应提交 daily 结构', source.includes('timeWindows: { daily }'));
+  expectTrue('saveScheduleConfig 不应提交 onlineWindows', !/saveScheduleConfig[\s\S]{0,500}onlineWindows/.test(source));
+  expectTrue('schedule 不应被 saveScheduleConfig 覆盖', !/saveScheduleConfig[\s\S]{0,300}schedule/.test(source));
+
   // 最小行为级断言：综合网站列表绑定 compositeList
   const setupRulesSource = extractFunctionSource(source, 'setupRules');
   const captured = [];

@@ -269,6 +269,74 @@ section('SQL: parameterized queries (static analysis)');
   check('all 8 route files scanned', files.length >= 7, `found ${files.length} files`);
 }
 
+// ── Section 8: timeWindows derived online windows ────────────────────────────
+section('timeWindows: computeOnlineWindowsForDay');
+
+function computeOnlineWindowsForDay(dayWindows) {
+  const { studyWindows, restWindows } = dayWindows;
+  if (studyWindows === null || studyWindows === undefined || restWindows === null || restWindows === undefined) {
+    return null;
+  }
+  const sArr = Array.isArray(studyWindows) ? studyWindows : [];
+  const rArr = Array.isArray(restWindows) ? restWindows : [];
+  if (sArr.length === 0 && rArr.length === 0) return [];
+  const merged = [...sArr, ...rArr].sort((a, b) => a.start.localeCompare(b.start));
+  const result = [];
+  for (const w of merged) {
+    if (result.length === 0 || w.start > result[result.length - 1].end) {
+      result.push({ start: w.start, end: w.end });
+    } else {
+      result[result.length - 1].end = w.end > result[result.length - 1].end ? w.end : result[result.length - 1].end;
+    }
+  }
+  return result;
+}
+
+{
+  // study null + rest array => online unrestricted
+  const r = computeOnlineWindowsForDay({ studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] });
+  check('study null + rest array => online null', r === null);
+}
+
+{
+  // study array + rest null => online unrestricted
+  const r = computeOnlineWindowsForDay({ studyWindows: [{ start: '08:00', end: '12:00' }], restWindows: null });
+  check('study array + rest null => online null', r === null);
+}
+
+{
+  // study array + rest array => merged union
+  const r = computeOnlineWindowsForDay({
+    studyWindows: [{ start: '08:00', end: '12:00' }],
+    restWindows: [{ start: '14:00', end: '18:00' }],
+  });
+  check('study + rest non-overlap => two windows', r.length === 2);
+  check('first window is 08:00-12:00', r[0].start === '08:00' && r[0].end === '12:00');
+  check('second window is 14:00-18:00', r[1].start === '14:00' && r[1].end === '18:00');
+}
+
+{
+  // study/rest overlap => merged
+  const r = computeOnlineWindowsForDay({
+    studyWindows: [{ start: '08:00', end: '12:00' }, { start: '14:00', end: '18:00' }],
+    restWindows: [{ start: '12:00', end: '14:00' }],
+  });
+  check('study/rest overlap merged => single 08:00-18:00', r.length === 1);
+  check('merged window correct', r[0].start === '08:00' && r[0].end === '18:00');
+}
+
+{
+  // both null => online null
+  const r = computeOnlineWindowsForDay({ studyWindows: null, restWindows: null });
+  check('both null => online null', r === null);
+}
+
+{
+  // both empty arrays => online empty
+  const r = computeOnlineWindowsForDay({ studyWindows: [], restWindows: [] });
+  check('both empty => online empty', Array.isArray(r) && r.length === 0);
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 const total = passed + failed;
 console.log(`\n[Workers Logic] ${passed}/${total} passed${failed > 0 ? ` — ${failed} FAILED` : ''}`);

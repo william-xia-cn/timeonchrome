@@ -278,12 +278,25 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
     borrowedDate: null,              // 借出日期
   },
 
-  // 时间段管控
+  // 时间段管控（旧 guardian active hours，保留兼容）
   schedule: {
     enabled: false,
     days: {
       0: { enabled: true, start: '08:00', end: '21:00' },
       // 1-6 同上...
+    }
+  },
+
+  // 每日时间窗口（家长控制台时间段管理，per-day source-of-truth）
+  timeWindows: {
+    daily: {
+      monday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      tuesday:   { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      wednesday: { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      thursday:  { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      friday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      saturday:  { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      sunday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
     }
   },
 
@@ -306,6 +319,21 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
   monitoring_enabled: true,          // 家长可远程关闭监控
 }
 ```
+
+**`timeWindows` 语义说明：**
+
+- `studyWindows`: `null` = 该日学习时段全天允许（默认）；`array` = 显式配置的学习时间窗口列表
+- `restWindows`: `null` = 该日休息时段全天允许；`array` = 显式配置的休息时间窗口列表；默认值为 `[{ start: '15:30', end: '24:00' }]`
+- `onlineWindows`: **不存储**，由后端按天实时计算为 `studyWindows ∪ restWindows` 的并集
+  - 若 `studyWindows === null` **或** `restWindows === null`，该日 `onlineWindows = null`（全天允许）
+  - 若两者都是有限数组，计算排序合并后的并集
+- 学习与休息时段**允许重叠**，重叠部分在并集中自然合并
+- 空数组 `[]` 应归一化为 `null`（表示 unrestricted），不作为默认保存值
+- `24:00` 允许作为 `end` 值（表示当天结束），不允许作为 `start`
+
+**`schedule`（旧 guardian active hours）边界：**
+
+旧 `schedule` / guardian active hours 暂不作为本次时间段管理主 UI；数据保留，运行语义不变。是否废弃以后单独决策。保存 `timeWindows` 时不覆盖 `schedule`。
 
 ### 2.2 当前会话（chrome.storage.local: guardian_session）
 

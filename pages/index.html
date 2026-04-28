@@ -731,49 +731,16 @@
       <div class="page" id="page-schedule">
         <div class="page-header">
           <h2>时间段管理</h2>
-          <p>按类型配置允许上网的时间段</p>
+          <p>学习时段和休息时段表示「允许对应模式运行」的时间窗口，二者可以重叠。</p>
         </div>
 
-        <!-- 📚 学习时段 -->
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title">📚 学习时段</div><div class="card-subtitle">默认放开，可配置为仅限特定时段</div></div>
-            <span id="study-win-status" style="font-size:12px;color:var(--muted);"></span>
+            <div><div class="card-title">📅 每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 休息时段（自动计算）</div></div>
           </div>
-          <div id="study-windows-list"></div>
-          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-            <input type="time" id="study-win-start" value="08:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
-            <span style="color:var(--muted);font-size:13px;">—</span>
-            <input type="time" id="study-win-end" value="22:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
-            <button class="btn-add" id="study-win-add" style="padding:6px 12px;font-size:12px;">+ 添加时段</button>
+          <div id="time-windows-table" style="overflow-x:auto;">
+            <!-- per-day table rendered by JS -->
           </div>
-          <div style="font-size:12px;color:var(--muted);margin-top:6px;">空列表表示无限制</div>
-        </div>
-
-        <!-- 🎮 休息时段 -->
-        <div class="card">
-          <div class="card-header">
-            <div><div class="card-title">🎮 休息时段</div><div class="card-subtitle">家长配置孩子可使用休息时间的时段</div></div>
-            <span id="rest-win-status" style="font-size:12px;color:var(--muted);"></span>
-          </div>
-          <div id="rest-windows-list"></div>
-          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-            <input type="time" id="rest-win-start" value="19:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
-            <span style="color:var(--muted);font-size:13px;">—</span>
-            <input type="time" id="rest-win-end" value="21:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
-            <button class="btn-add" id="rest-win-add" style="padding:6px 12px;font-size:12px;">+ 添加时段</button>
-          </div>
-          <div style="font-size:12px;color:var(--muted);margin-top:6px;">空列表表示无限制</div>
-        </div>
-
-        <!-- 🌐 在线时段（只读，自动计算） -->
-        <div class="card">
-          <div class="card-header">
-            <div><div class="card-title">🌐 在线时段</div><div class="card-subtitle">学习时段 + 休息时段的并集，自动计算</div></div>
-            <span id="online-win-status" style="font-size:12px;color:var(--muted);"></span>
-          </div>
-          <div id="online-windows-list"></div>
-          <div style="font-size:12px;color:var(--muted);margin-top:8px;">任一子时段为「无限制」时，在线时段自动为「无限制」</div>
         </div>
 
         <div class="save-bar"><button class="btn-save" id="save-schedule-btn">💾 保存配置</button></div>
@@ -1793,104 +1760,241 @@ window.removeQuota = (domain) => {
 };
 
 // ── Schedule ─────────────────────────────────────────────────
+const SCHEDULE_DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+const SCHEDULE_DAY_LABELS = { monday:'周一', tuesday:'周二', wednesday:'周三', thursday:'周四', friday:'周五', saturday:'周六', sunday:'周日' };
+
 function setupSchedule() {
-  // 学习时段添加
-  document.getElementById('study-win-add').addEventListener('click', () => {
-    const start = document.getElementById('study-win-start').value;
-    const end = document.getElementById('study-win-end').value;
-    if (!start || !end) { toast('请选择开始和结束时间', false); return; }
-    if (start >= end) { toast('结束时间必须晚于开始时间', false); return; }
-    if (!remoteConfig.timeWindows) remoteConfig.timeWindows = { studyWindows: null, restWindows: [], onlineWindows: null };
-    if (!remoteConfig.timeWindows.studyWindows) remoteConfig.timeWindows.studyWindows = [];
-    const exists = remoteConfig.timeWindows.studyWindows.some(w => w.start === start && w.end === end);
-    if (exists) { toast('该时段已存在', false); return; }
-    remoteConfig.timeWindows.studyWindows.push({ start, end });
-    renderSchedulePage();
-  });
-
-  // 休息时段添加
-  document.getElementById('rest-win-add').addEventListener('click', () => {
-    const start = document.getElementById('rest-win-start').value;
-    const end = document.getElementById('rest-win-end').value;
-    if (!start || !end) { toast('请选择开始和结束时间', false); return; }
-    if (start >= end) { toast('结束时间必须晚于开始时间', false); return; }
-    if (!remoteConfig.timeWindows) remoteConfig.timeWindows = { studyWindows: null, restWindows: [], onlineWindows: null };
-    if (!remoteConfig.timeWindows.restWindows) remoteConfig.timeWindows.restWindows = [];
-    const exists = remoteConfig.timeWindows.restWindows.some(w => w.start === start && w.end === end);
-    if (exists) { toast('该时段已存在', false); return; }
-    remoteConfig.timeWindows.restWindows.push({ start, end });
-    renderSchedulePage();
-  });
-
   document.getElementById('save-schedule-btn').addEventListener('click', saveScheduleConfig);
 }
 
-function renderSchedulePage() {
-  if (!remoteConfig.timeWindows) remoteConfig.timeWindows = { studyWindows: null, restWindows: [], onlineWindows: null };
-  const tw = remoteConfig.timeWindows;
-
-  // 学习时段
-  renderWindowList('study-windows-list', tw.studyWindows, 'removeStudyWindow');
-  const studyStatus = document.getElementById('study-win-status');
-  if (studyStatus) studyStatus.textContent = tw.studyWindows === null ? '无限制' : (tw.studyWindows.length === 0 ? '无限制' : `${tw.studyWindows.length} 个时段`);
-
-  // 休息时段
-  renderWindowList('rest-windows-list', tw.restWindows, 'removeRestWindow');
-  const restStatus = document.getElementById('rest-win-status');
-  if (restStatus) restStatus.textContent = tw.restWindows === null ? '无限制' : (tw.restWindows.length === 0 ? '无限制' : `${tw.restWindows.length} 个时段`);
-
-  // 在线时段（只读，由后端计算）
-  renderWindowList('online-windows-list', tw.onlineWindows, null);
-  const onlineStatus = document.getElementById('online-win-status');
-  if (onlineStatus) {
-    if (tw.onlineWindows === null) onlineStatus.textContent = '无限制';
-    else if (tw.onlineWindows.length === 0) onlineStatus.textContent = '无限制';
-    else onlineStatus.textContent = `${tw.onlineWindows.length} 个时段`;
+function ensureTimeWindowsDaily() {
+  if (!remoteConfig.timeWindows) remoteConfig.timeWindows = {};
+  if (!remoteConfig.timeWindows.daily) {
+    remoteConfig.timeWindows.daily = {};
+    for (const day of SCHEDULE_DAYS) {
+      remoteConfig.timeWindows.daily[day] = {
+        studyWindows: null,
+        restWindows: [{ start: '15:30', end: '24:00' }],
+      };
+    }
   }
 }
 
-function renderWindowList(containerId, windows, removeFnName) {
-  const c = document.getElementById(containerId);
-  if (!c) return;
+function renderSchedulePage() {
+  ensureTimeWindowsDaily();
+  const container = document.getElementById('time-windows-table');
+  if (!container) return;
+
+  let html = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border);">
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);width:60px;">星期</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">📚 学习时段</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">☕ 休息时段</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">🌐 在线时段（只读）</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  for (const day of SCHEDULE_DAYS) {
+    const dayCfg = remoteConfig.timeWindows.daily[day];
+    html += `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:12px 8px;font-weight:500;vertical-align:top;">${SCHEDULE_DAY_LABELS[day]}</td>
+        <td style="padding:12px 8px;vertical-align:top;">${renderDayStudyCell(day, dayCfg)}</td>
+        <td style="padding:12px 8px;vertical-align:top;">${renderDayRestCell(day, dayCfg)}</td>
+        <td style="padding:12px 8px;vertical-align:top;background:rgba(0,0,0,0.02);border-radius:8px;">${renderDayOnlineCell(dayCfg)}</td>
+      </tr>
+    `;
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function renderDayStudyCell(day, dayCfg) {
+  const windows = dayCfg?.studyWindows;
   if (windows === null || windows === undefined) {
-    c.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">无限制</div>';
-    return;
+    return `<div style="color:var(--accent);font-size:12px;margin-bottom:6px;">🟢 全天允许</div>
+      <button class="btn-add" onclick="addStudyWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>`;
   }
-  if (windows.length === 0) {
-    c.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">无限制</div>';
-    return;
+  if (!Array.isArray(windows) || windows.length === 0) {
+    return `<div style="color:var(--accent);font-size:12px;margin-bottom:6px;">🟢 全天允许</div>
+      <button class="btn-add" onclick="addStudyWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>`;
   }
-  c.innerHTML = windows.map((w, idx) => `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
-      <span style="font-size:13px;">${w.start} — ${w.end}</span>
-      ${removeFnName ? `<button onclick="${removeFnName}(${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;margin-left:auto;">×</button>` : ''}
+  let html = windows.map((w, idx) => `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+      <span style="font-size:12px;">${w.start} — ${w.end}</span>
+      <button onclick="removeStudyWindow('${day}', ${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">×</button>
     </div>
+  `).join('');
+  html += `<button class="btn-add" onclick="addStudyWindow('${day}')" style="padding:4px 10px;font-size:11px;margin-top:4px;">+ 添加时段</button>`;
+  return html;
+}
+
+function renderDayRestCell(day, dayCfg) {
+  const windows = dayCfg?.restWindows;
+  if (windows === null || windows === undefined) {
+    return `<div style="color:var(--accent);font-size:12px;margin-bottom:6px;">🟢 全天允许</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn-add" onclick="addRestWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>
+        <button onclick="restoreDefaultRest('${day}')" style="padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">恢复默认</button>
+      </div>`;
+  }
+  if (!Array.isArray(windows) || windows.length === 0) {
+    return `<div style="color:var(--accent);font-size:12px;margin-bottom:6px;">🟢 全天允许</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn-add" onclick="addRestWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>
+        <button onclick="restoreDefaultRest('${day}')" style="padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">恢复默认</button>
+      </div>`;
+  }
+  let html = windows.map((w, idx) => `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+      <span style="font-size:12px;">${w.start} — ${w.end}</span>
+      <button onclick="removeRestWindow('${day}', ${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">×</button>
+    </div>
+  `).join('');
+  html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+    <button class="btn-add" onclick="addRestWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>
+    <button onclick="restoreDefaultRest('${day}')" style="padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">恢复默认</button>
+    <button onclick="setRestUnlimited('${day}')" style="padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">设为无限制</button>
+  </div>`;
+  return html;
+}
+
+function renderDayOnlineCell(dayCfg) {
+  const online = computeOnlineWindowsForDay(dayCfg);
+  if (online === null) {
+    return `<div style="color:var(--accent);font-size:12px;">🟢 全天允许</div>`;
+  }
+  if (online.length === 0) {
+    return `<div style="color:var(--muted);font-size:12px;">— 无可用时段 —</div>`;
+  }
+  return online.map(w => `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:3px;">${w.start} — ${w.end}</div>
   `).join('');
 }
 
-window.removeStudyWindow = (idx) => {
-  if (remoteConfig.timeWindows?.studyWindows) {
-    remoteConfig.timeWindows.studyWindows.splice(idx, 1);
+// 前端计算单日在线时段（与后端一致）
+function computeOnlineWindowsForDay(dayCfg) {
+  if (!dayCfg) return null;
+  const study = dayCfg.studyWindows;
+  const rest = dayCfg.restWindows;
+
+  // 或关系：任一子项为 null，则在线为 null
+  if (study === null || study === undefined || rest === null || rest === undefined) {
+    return null;
+  }
+
+  const sArr = Array.isArray(study) ? study : [];
+  const rArr = Array.isArray(rest) ? rest : [];
+
+  if (sArr.length === 0 && rArr.length === 0) {
+    return [];
+  }
+
+  const merged = [...sArr, ...rArr].sort((a, b) => a.start.localeCompare(b.start));
+  const result = [];
+  for (const w of merged) {
+    if (result.length === 0 || w.start > result[result.length - 1].end) {
+      result.push({ start: w.start, end: w.end });
+    } else {
+      result[result.length - 1].end = w.end > result[result.length - 1].end ? w.end : result[result.length - 1].end;
+    }
+  }
+  return result;
+}
+
+window.addStudyWindow = (day) => {
+  ensureTimeWindowsDaily();
+  const dayCfg = remoteConfig.timeWindows.daily[day];
+  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加学习时段\n开始时间 (HH:MM):`, '08:00');
+  if (!start) return;
+  const end = prompt(`结束时间 (HH:MM):`, '12:00');
+  if (!end) return;
+  if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(start) || !/^([01]?\d|2[0-3]|24):00$/.test(end)) {
+    toast('时间格式错误，请使用 HH:MM', false); return;
+  }
+  if (start >= end && end !== '24:00') { toast('结束时间必须晚于开始时间', false); return; }
+  if (start === '24:00') { toast('24:00 不能作为开始时间', false); return; }
+
+  if (dayCfg.studyWindows === null || dayCfg.studyWindows === undefined) dayCfg.studyWindows = [];
+  const exists = dayCfg.studyWindows.some(w => w.start === start && w.end === end);
+  if (exists) { toast('该时段已存在', false); return; }
+  dayCfg.studyWindows.push({ start, end });
+  renderSchedulePage();
+};
+
+window.removeStudyWindow = (day, idx) => {
+  ensureTimeWindowsDaily();
+  const dayCfg = remoteConfig.timeWindows.daily[day];
+  if (Array.isArray(dayCfg?.studyWindows)) {
+    dayCfg.studyWindows.splice(idx, 1);
+    // 全部删除后恢复为 null（unrestricted）
+    if (dayCfg.studyWindows.length === 0) dayCfg.studyWindows = null;
     renderSchedulePage();
   }
 };
 
-window.removeRestWindow = (idx) => {
-  if (remoteConfig.timeWindows?.restWindows) {
-    remoteConfig.timeWindows.restWindows.splice(idx, 1);
+window.addRestWindow = (day) => {
+  ensureTimeWindowsDaily();
+  const dayCfg = remoteConfig.timeWindows.daily[day];
+  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加休息时段\n开始时间 (HH:MM):`, '19:00');
+  if (!start) return;
+  const end = prompt(`结束时间 (HH:MM):`, '22:00');
+  if (!end) return;
+  if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(start) || !/^([01]?\d|2[0-3]|24):00$/.test(end)) {
+    toast('时间格式错误，请使用 HH:MM', false); return;
+  }
+  if (start >= end && end !== '24:00') { toast('结束时间必须晚于开始时间', false); return; }
+  if (start === '24:00') { toast('24:00 不能作为开始时间', false); return; }
+
+  if (dayCfg.restWindows === null || dayCfg.restWindows === undefined) dayCfg.restWindows = [];
+  const exists = dayCfg.restWindows.some(w => w.start === start && w.end === end);
+  if (exists) { toast('该时段已存在', false); return; }
+  dayCfg.restWindows.push({ start, end });
+  renderSchedulePage();
+};
+
+window.removeRestWindow = (day, idx) => {
+  ensureTimeWindowsDaily();
+  const dayCfg = remoteConfig.timeWindows.daily[day];
+  if (Array.isArray(dayCfg?.restWindows)) {
+    dayCfg.restWindows.splice(idx, 1);
+    if (dayCfg.restWindows.length === 0) dayCfg.restWindows = null;
     renderSchedulePage();
   }
+};
+
+window.restoreDefaultRest = (day) => {
+  ensureTimeWindowsDaily();
+  remoteConfig.timeWindows.daily[day].restWindows = [{ start: '15:30', end: '24:00' }];
+  renderSchedulePage();
+};
+
+window.setRestUnlimited = (day) => {
+  ensureTimeWindowsDaily();
+  remoteConfig.timeWindows.daily[day].restWindows = null;
+  renderSchedulePage();
 };
 
 async function saveScheduleConfig() {
   if (!currentProfileId || !remoteConfig) return;
+  ensureTimeWindowsDaily();
+
+  const daily = {};
+  for (const day of SCHEDULE_DAYS) {
+    const dayCfg = remoteConfig.timeWindows.daily[day];
+    daily[day] = {
+      studyWindows: dayCfg?.studyWindows ?? null,
+      restWindows: dayCfg?.restWindows ?? null,
+    };
+  }
 
   const payload = {
-    timeWindows: {
-      studyWindows: remoteConfig.timeWindows?.studyWindows ?? null,
-      restWindows: remoteConfig.timeWindows?.restWindows ?? [],
-      // onlineWindows 由后端计算，不提交
-    },
+    timeWindows: { daily },
   };
 
   try {

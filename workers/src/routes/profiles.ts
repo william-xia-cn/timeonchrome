@@ -47,50 +47,125 @@ function buildSchemaDefaults(): object {
       },
     },
     timeWindows: {
-      studyWindows: null,
-      restWindows: [],
-      onlineWindows: null,
+      daily: {
+        monday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        tuesday:   { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        wednesday: { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        thursday:  { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        friday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        saturday:  { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        sunday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      },
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
   };
 }
 
-// 计算在线时段 = studyWindows + restWindows 的并集
-// 如果任一子时段为 null（无限制），在线时段也为 null
-// 如果两者都为空数组，在线时段为空数组
-function computeOnlineWindows(config: Record<string, unknown>): void {
-  const tw = config.timeWindows as any || {};
-  const study = tw.studyWindows;
-  const rest = tw.restWindows;
+// 计算单日的在线时段 = studyWindows ∪ restWindows 的并集
+// 如果任一子时段为 null（无限制），在线时段也为 null（全天允许）
+// 如果两者都是有限数组，返回排序合并后的并集
+function computeOnlineWindowsForDay(dayWindows: { studyWindows: any; restWindows: any }): any[] | null {
+  const { studyWindows, restWindows } = dayWindows;
 
-  if (study === null || rest === null) {
-    tw.onlineWindows = null;
-    return;
+  // 或关系：任一子时段为 null，则在线时段为 null（全天允许）
+  if (studyWindows === null || restWindows === null) {
+    return null;
   }
 
-  if (!Array.isArray(study) && !Array.isArray(rest)) {
-    tw.onlineWindows = null;
-    return;
-  }
-
-  const sArr = Array.isArray(study) ? study : [];
-  const rArr = Array.isArray(rest) ? rest : [];
+  const sArr = Array.isArray(studyWindows) ? studyWindows : [];
+  const rArr = Array.isArray(restWindows) ? restWindows : [];
 
   if (sArr.length === 0 && rArr.length === 0) {
-    tw.onlineWindows = [];
-    return;
+    return [];
   }
 
-  // 合并并简单去重（start+end 相同视为重复）
-  const merged = [...sArr, ...rArr];
-  const seen = new Set();
-  tw.onlineWindows = merged.filter(w => {
-    const key = `${w.start}-${w.end}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // 合并、排序、合并重叠区间
+  const merged = [...sArr, ...rArr].sort((a: any, b: any) => a.start.localeCompare(b.start));
+  const result: any[] = [];
+  for (const w of merged) {
+    if (result.length === 0 || w.start > result[result.length - 1].end) {
+      result.push({ start: w.start, end: w.end });
+    } else {
+      // 有重叠，扩展当前区间
+      result[result.length - 1].end = w.end > result[result.length - 1].end ? w.end : result[result.length - 1].end;
+    }
+  }
+  return result;
+}
+
+// 为 config 中 daily 的每一天注入派生的 onlineWindows
+// 不修改 source-of-truth，仅在内存中计算用于返回
+function injectDerivedOnlineWindows(config: Record<string, unknown>): void {
+  const daily = (config.timeWindows as any)?.daily;
+  if (!daily) return;
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  for (const day of days) {
+    const dayCfg = daily[day];
+    if (!dayCfg) continue;
+    dayCfg.onlineWindows = computeOnlineWindowsForDay(dayCfg);
+  }
+}
+
+// 将旧全局 timeWindows 懒迁移为 per-day 结构（内存中转换，不写入 DB）
+function migrateLegacyTimeWindows(config: Record<string, unknown>): void {
+  const tw = config.timeWindows as any;
+  if (!tw) return;
+
+  // 如果已有 daily 结构，无需迁移
+  if (tw.daily) return;
+
+  // 旧全局结构：{ studyWindows, restWindows, onlineWindows }
+  const oldStudy = tw.studyWindows;
+  const oldRest = tw.restWindows;
+
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const daily: Record<string, any> = {};
+  for (const day of days) {
+    daily[day] = {
+      studyWindows: oldStudy !== undefined ? oldStudy : null,
+      restWindows: oldRest !== undefined ? oldRest : [{ start: '15:30', end: '24:00' }],
+    };
+  }
+  tw.daily = daily;
+}
+
+// 归一化空数组为 null（UI 清除所有窗口后应为 unrestricted）
+function normalizeEmptyArraysToNull(config: Record<string, unknown>): void {
+  const daily = (config.timeWindows as any)?.daily;
+  if (!daily) return;
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  for (const day of days) {
+    const dayCfg = daily[day];
+    if (!dayCfg) continue;
+    if (Array.isArray(dayCfg.studyWindows) && dayCfg.studyWindows.length === 0) {
+      dayCfg.studyWindows = null;
+    }
+    if (Array.isArray(dayCfg.restWindows) && dayCfg.restWindows.length === 0) {
+      dayCfg.restWindows = null;
+    }
+  }
+}
+
+// 校验时间窗口合法性（后端校验兜底）
+function validateTimeWindows(config: Record<string, unknown>): string | null {
+  const daily = (config.timeWindows as any)?.daily;
+  if (!daily) return null;
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  for (const day of days) {
+    const dayCfg = daily[day];
+    if (!dayCfg) continue;
+    for (const type of ['studyWindows', 'restWindows'] as const) {
+      const arr = dayCfg[type];
+      if (!Array.isArray(arr)) continue;
+      for (const w of arr) {
+        if (!w.start || !w.end) return `${day} ${type} 缺少 start/end`;
+        if (w.start >= w.end) return `${day} ${type} 开始时间必须早于结束时间`;
+        if (w.start === '24:00') return `${day} ${type} 24:00 不能作为开始时间`;
+      }
+    }
+  }
+  return null;
 }
 
 // 当 timeQuota 中所有天的某个字段值完全一致且为有限值时，同步对应的 legacy 字段
@@ -250,6 +325,12 @@ export const profilesRouter = {
 
       const config = row?.config ? JSON.parse(row.config) : {};
 
+      // 懒迁移：旧全局 timeWindows → per-day 结构（内存中，不写入 DB）
+      migrateLegacyTimeWindows(config);
+
+      // 注入派生的 onlineWindows（只读，不写入 DB）
+      injectDerivedOnlineWindows(config);
+
       // 返回时包含 custom 字段（如已存在），不触发写 DB
       return json({
         data:       config,
@@ -352,10 +433,28 @@ export const profilesRouter = {
         // 5. 若提交了 timeQuota，尝试无损同步 legacy 配额字段（仅当七天完全一致时）
         syncLegacyQuota(mergedConfig);
 
-        // 6. 重新计算 onlineWindows（study + rest 的并集）
-        computeOnlineWindows(mergedConfig);
+        // 6. 归一化空数组为 null（UI 清除后恢复 unrestricted）
+        normalizeEmptyArraysToNull(mergedConfig);
 
-        // 7. 保护运行时状态字段（不应被前端或默认值覆盖）
+        // 7. 校验时间窗口合法性
+        const validationError = validateTimeWindows(mergedConfig);
+        if (validationError) {
+          return json({ error: 'Invalid timeWindows: ' + validationError }, 400);
+        }
+
+        // 8. 清理派生字段，不持久化 source-of-truth
+        //    onlineWindows 由 GET 时重新计算注入
+        const daily = (mergedConfig.timeWindows as any)?.daily;
+        if (daily) {
+          const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+          for (const day of days) {
+            if (daily[day]?.onlineWindows !== undefined) {
+              delete daily[day].onlineWindows;
+            }
+          }
+        }
+
+        // 9. 保护运行时状态字段（不应被前端或默认值覆盖）
         const PROTECTED_KEYS = ['adminPasswordHash', 'isInitialized', 'lockedDomains', 'updatedAt'];
         for (const key of PROTECTED_KEYS) {
           if (existingConfig[key] !== undefined) {
