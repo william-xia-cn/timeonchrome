@@ -35,9 +35,72 @@ function buildSchemaDefaults(): object {
         6: { enabled: true, start: '08:00', end: '21:00' },
       },
     },
+    timeQuota: {
+      daily: {
+        monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+        tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+        wednesday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+        thursday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+        friday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+        saturday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+        sunday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      },
+    },
+    timeWindows: {
+      studyWindows: null,
+      restWindows: [],
+      onlineWindows: null,
+    },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
   };
+}
+
+// 当 timeQuota 中所有天的某个字段值完全一致且为有限值时，同步对应的 legacy 字段
+// 如果七天值不一致，不修改 legacy 字段，避免 lossy conversion
+function syncLegacyQuota(config: Record<string, unknown>): void {
+  const daily = (config.timeQuota as any)?.daily;
+  if (!daily) return;
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+  const allSameFinite = (field: string): number | null => {
+    let val: number | undefined = undefined;
+    for (const day of days) {
+      const v = daily[day]?.[field];
+      if (v === null || v === undefined || typeof v !== 'number') return null;
+      if (val === undefined) val = v;
+      else if (val !== v) return null;
+    }
+    return val ?? null;
+  };
+
+  const studyMinutes = allSameFinite('studyMinutes');
+  if (studyMinutes !== null) config.dailyStudyQuota = studyMinutes;
+
+  const restMinutes = allSameFinite('restMinutes');
+  if (restMinutes !== null) {
+    config.dailyRestQuota = restMinutes;
+    config.weeklyRestQuota = restMinutes * 7;
+  }
+
+  const compositeMinutes = allSameFinite('compositeMinutes');
+  if (compositeMinutes !== null) config.dailyUndeterminedQuota = compositeMinutes;
+
+  // 在线总额 = study + rest + composite，仅当三天都有限时才可计算
+  const allOnlineSame = (): number | null => {
+    let val: number | undefined = undefined;
+    for (const day of days) {
+      const d = daily[day];
+      if (!d) return null;
+      if (d.studyMinutes === null || d.restMinutes === null || d.compositeMinutes === null) return null;
+      const dayOnline = (d.studyMinutes || 0) + (d.restMinutes || 0) + (d.compositeMinutes || 0);
+      if (val === undefined) val = dayOnline;
+      else if (val !== dayOnline) return null;
+    }
+    return val ?? null;
+  };
+  const onlineMinutes = allOnlineSame();
+  if (onlineMinutes !== null) config.dailyOnlineQuota = onlineMinutes;
 }
 
 // ── Initial recommended config：仅用于新建 profile 一次性初始化 ──
@@ -200,6 +263,7 @@ export const profilesRouter = {
           'domainQuotas', 'classificationRules',
           'quotaState', 'schedule',
           'restConfig', 'autoStudyConfig',
+          'timeQuota', 'timeWindows',
         ]);
 
         for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
@@ -248,7 +312,10 @@ export const profilesRouter = {
           );
         }
 
-        // 5. 保护运行时状态字段（不应被前端或默认值覆盖）
+        // 5. 若提交了 timeQuota，尝试无损同步 legacy 配额字段（仅当七天完全一致时）
+        syncLegacyQuota(mergedConfig);
+
+        // 6. 保护运行时状态字段（不应被前端或默认值覆盖）
         const PROTECTED_KEYS = ['adminPasswordHash', 'isInitialized', 'lockedDomains', 'updatedAt'];
         for (const key of PROTECTED_KEYS) {
           if (existingConfig[key] !== undefined) {

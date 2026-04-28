@@ -689,30 +689,30 @@
           <p>设置每天允许的上网时长</p>
         </div>
         <div class="card">
-          <div class="quota-row">
-            <div class="quota-label">每日在线时长上限<small>所有网站合计（0 = 不限制）</small></div>
-            <input type="number" class="quota-input" id="q-online" min="0" max="24" step="0.5" placeholder="0">
-            <span class="quota-unit">小时/天</span>
+          <div class="card-header">
+            <div><div class="card-title">每日配额</div><div class="card-subtitle">按天配置，勾选「无限制」表示不限制（单位：分钟）</div></div>
           </div>
-          <div class="quota-row">
-            <div class="quota-label">每日学习时长上限<small>学习网站合计（0 = 不限制）</small></div>
-            <input type="number" class="quota-input" id="q-study" min="0" max="24" step="0.5" placeholder="0">
-            <span class="quota-unit">小时/天</span>
-          </div>
-          <div class="quota-row">
-            <div class="quota-label">每日休息时长上限<small>娱乐网站合计（0 = 不限制）</small></div>
-            <input type="number" class="quota-input" id="q-rest" min="0" max="24" step="0.5" placeholder="0">
-            <span class="quota-unit">小时/天</span>
-          </div>
-          <div class="quota-row">
-            <div class="quota-label">每周休息时长上限<small>休息时段每周硬上限（0 = 日配额×7）</small></div>
-            <input type="number" class="quota-input" id="q-weekly-rest" min="0" max="168" step="0.5" placeholder="0">
-            <span class="quota-unit">小时/周</span>
-          </div>
-          <div class="quota-row">
-            <div class="quota-label">每日综合网站时间上限<small>综合网站每日上限（0 = 不限制）</small></div>
-            <input type="number" class="quota-input" id="q-undetermined" min="0" max="24" step="0.5" placeholder="0">
-            <span class="quota-unit">小时/天</span>
+          <div id="quota-daily-table"></div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;">每周总额（自动计算）</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
+                <div style="font-size:11px;color:var(--muted);">学习</div>
+                <div id="weekly-study-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
+              </div>
+              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
+                <div style="font-size:11px;color:var(--muted);">休息</div>
+                <div id="weekly-rest-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
+              </div>
+              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
+                <div style="font-size:11px;color:var(--muted);">综合网站</div>
+                <div id="weekly-composite-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
+              </div>
+              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
+                <div style="font-size:11px;color:var(--muted);">在线总额</div>
+                <div id="weekly-online-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="card">
@@ -746,6 +746,38 @@
         <div class="card">
           <div class="card-header"><div class="card-title">每日时间段</div></div>
           <div id="sch-rows"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">时间窗口</div></div>
+          <div style="padding:6px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+              <div>
+                <div style="font-size:13px;font-weight:500;">学习时段</div>
+                <div style="font-size:12px;color:var(--muted);">默认无限制</div>
+              </div>
+              <span style="font-size:13px;color:var(--muted);">无限制</span>
+            </div>
+          </div>
+          <div style="padding:6px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+              <div>
+                <div style="font-size:13px;font-weight:500;">在线时段</div>
+                <div style="font-size:12px;color:var(--muted);">自动计算</div>
+              </div>
+              <span style="font-size:13px;color:var(--muted);">无限制</span>
+            </div>
+          </div>
+          <div style="padding:6px 0;">
+            <div style="font-size:13px;font-weight:500;padding:8px 0;">休息时段</div>
+            <div id="rest-windows-list"></div>
+            <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+              <input type="time" id="rest-win-start" value="19:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+              <span style="color:var(--muted);font-size:13px;">—</span>
+              <input type="time" id="rest-win-end" value="21:00" style="background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+              <button class="btn-add" id="rest-win-add" style="padding:6px 12px;font-size:12px;">+ 添加时段</button>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px;">空列表表示无限制</div>
+          </div>
         </div>
         <div class="save-bar"><button class="btn-save" id="save-schedule-btn">💾 保存配置</button></div>
       </div>
@@ -1591,6 +1623,9 @@ async function saveSiteAccessConfig() {
 }
 
 // ── Quota ────────────────────────────────────────────────────
+const QUOTA_DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+const QUOTA_DAY_LABELS = { monday:'周一', tuesday:'周二', wednesday:'周三', thursday:'周四', friday:'周五', saturday:'周六', sunday:'周日' };
+
 function setupQuota() {
   document.getElementById('q-add-btn').addEventListener('click', () => {
     const domain  = document.getElementById('q-domain-input').value.trim().toLowerCase();
@@ -1602,17 +1637,141 @@ function setupQuota() {
     document.getElementById('q-minutes-input').value = '';
     renderQuotaList();
   });
-  document.getElementById('save-quota-btn').addEventListener('click', saveConfig);
+  document.getElementById('save-quota-btn').addEventListener('click', saveTimeQuotaConfig);
 }
 
 function renderQuotaPage() {
-  const toH = min => min > 0 ? +(min / 60).toFixed(1) : 0;
-  document.getElementById('q-online').value         = toH(remoteConfig.dailyOnlineQuota       ?? 0);
-  document.getElementById('q-study').value          = toH(remoteConfig.dailyStudyQuota        || 0);
-  document.getElementById('q-rest').value           = toH(remoteConfig.dailyRestQuota         || 0);
-  document.getElementById('q-weekly-rest').value    = toH(remoteConfig.weeklyRestQuota        || 0);
-  document.getElementById('q-undetermined').value   = toH(remoteConfig.dailyUndeterminedQuota || 0);
+  // 懒迁移：旧 profile 没有 timeQuota 时，从旧字段反推
+  if (!remoteConfig.timeQuota) {
+    const daily = {};
+    for (const day of QUOTA_DAYS) {
+      daily[day] = {
+        studyMinutes: remoteConfig.dailyStudyQuota ?? null,
+        restMinutes: remoteConfig.dailyRestQuota ?? 120,
+        compositeMinutes: remoteConfig.dailyUndeterminedQuota ?? 120,
+      };
+    }
+    remoteConfig.timeQuota = { daily };
+  }
+
+  const daily = remoteConfig.timeQuota.daily;
+  const container = document.getElementById('quota-daily-table');
+
+  // Table header
+  let html = `<div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+    <div style="font-size:12px;color:var(--muted);font-weight:600;">星期</div>
+    <div style="font-size:12px;color:var(--muted);font-weight:600;">学习时长</div>
+    <div style="font-size:12px;color:var(--muted);font-weight:600;">休息时长</div>
+    <div style="font-size:12px;color:var(--muted);font-weight:600;">综合网站时间</div>
+  </div>`;
+
+  for (const day of QUOTA_DAYS) {
+    const d = daily[day] || {};
+    const studyVal = d.studyMinutes ?? '';
+    const restVal = d.restMinutes ?? '';
+    const compositeVal = d.compositeMinutes ?? '';
+    const studyUnlimited = d.studyMinutes === null;
+    const restUnlimited = d.restMinutes === null;
+    const compositeUnlimited = d.compositeMinutes === null;
+
+    html += `<div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+      <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="number" id="q-${day}-study" value="${studyUnlimited ? '' : studyVal}" ${studyUnlimited ? 'disabled' : ''} min="0" step="10" placeholder="分钟" style="flex:1;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 8px;color:var(--text);font-size:13px;outline:none;">
+        <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap;cursor:pointer;">
+          <input type="checkbox" id="q-${day}-study-unlimited" ${studyUnlimited ? 'checked' : ''} onchange="toggleQuotaUnlimited('${day}', 'study')">无限制
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="number" id="q-${day}-rest" value="${restUnlimited ? '' : restVal}" ${restUnlimited ? 'disabled' : ''} min="0" step="10" placeholder="分钟" style="flex:1;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 8px;color:var(--text);font-size:13px;outline:none;">
+        <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap;cursor:pointer;">
+          <input type="checkbox" id="q-${day}-rest-unlimited" ${restUnlimited ? 'checked' : ''} onchange="toggleQuotaUnlimited('${day}', 'rest')">无限制
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="number" id="q-${day}-composite" value="${compositeUnlimited ? '' : compositeVal}" ${compositeUnlimited ? 'disabled' : ''} min="0" step="10" placeholder="分钟" style="flex:1;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:8px;padding:6px 8px;color:var(--text);font-size:13px;outline:none;">
+        <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap;cursor:pointer;">
+          <input type="checkbox" id="q-${day}-composite-unlimited" ${compositeUnlimited ? 'checked' : ''} onchange="toggleQuotaUnlimited('${day}', 'composite')">无限制
+        </label>
+      </div>
+    </div>`;
+  }
+
+  container.innerHTML = html;
   renderQuotaList();
+  updateWeeklyQuotaTotals();
+}
+
+window.toggleQuotaUnlimited = (day, type) => {
+  const checkbox = document.getElementById(`q-${day}-${type}-unlimited`);
+  const input = document.getElementById(`q-${day}-${type}`);
+  if (!checkbox || !input) return;
+  input.disabled = checkbox.checked;
+  if (checkbox.checked) input.value = '';
+  updateWeeklyQuotaTotals();
+};
+
+function updateWeeklyQuotaTotals() {
+  let studyTotal = 0, restTotal = 0, compositeTotal = 0, onlineTotal = 0;
+  let studyUnlimited = false, restUnlimited = false, compositeUnlimited = false, onlineUnlimited = false;
+
+  for (const day of QUOTA_DAYS) {
+    const studyUnl = document.getElementById(`q-${day}-study-unlimited`)?.checked;
+    const restUnl = document.getElementById(`q-${day}-rest-unlimited`)?.checked;
+    const compositeUnl = document.getElementById(`q-${day}-composite-unlimited`)?.checked;
+
+    if (studyUnl) studyUnlimited = true;
+    if (restUnl) restUnlimited = true;
+    if (compositeUnl) compositeUnlimited = true;
+    if (studyUnl || restUnl || compositeUnl) onlineUnlimited = true;
+
+    const studyMin = studyUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-study`)?.value) || 0);
+    const restMin = restUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-rest`)?.value) || 0);
+    const compositeMin = compositeUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-composite`)?.value) || 0);
+
+    studyTotal += studyMin;
+    restTotal += restMin;
+    compositeTotal += compositeMin;
+    if (!studyUnl && !restUnl && !compositeUnl) onlineTotal += studyMin + restMin + compositeMin;
+    else onlineUnlimited = true;
+  }
+
+  const fmt = (val, unlimited) => unlimited ? '无限制' : `${(val / 60).toFixed(1).replace('.0', '')} 小时`;
+  document.getElementById('weekly-study-total').textContent = fmt(studyTotal, studyUnlimited);
+  document.getElementById('weekly-rest-total').textContent = fmt(restTotal, restUnlimited);
+  document.getElementById('weekly-composite-total').textContent = fmt(compositeTotal, compositeUnlimited);
+  document.getElementById('weekly-online-total').textContent = fmt(onlineTotal, onlineUnlimited);
+}
+
+async function saveTimeQuotaConfig() {
+  if (!currentProfileId || !remoteConfig) return;
+
+  const daily = {};
+  for (const day of QUOTA_DAYS) {
+    const studyUnlimited = document.getElementById(`q-${day}-study-unlimited`).checked;
+    const restUnlimited = document.getElementById(`q-${day}-rest-unlimited`).checked;
+    const compositeUnlimited = document.getElementById(`q-${day}-composite-unlimited`).checked;
+    daily[day] = {
+      studyMinutes: studyUnlimited ? null : Math.max(0, parseInt(document.getElementById(`q-${day}-study`).value) || 0),
+      restMinutes: restUnlimited ? null : Math.max(0, parseInt(document.getElementById(`q-${day}-rest`).value) || 0),
+      compositeMinutes: compositeUnlimited ? null : Math.max(0, parseInt(document.getElementById(`q-${day}-composite`).value) || 0),
+    };
+  }
+
+  const payload = {
+    timeQuota: { daily },
+    domainQuotas: remoteConfig.domainQuotas || {},
+  };
+
+  try {
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    toast('保存成功');
+    const r = await api(`/profiles/${currentProfileId}/config`);
+    remoteConfig = r.data || {};
+    renderQuotaPage();
+  } catch (e) {
+    toast('保存失败: ' + (e.message || ''), false);
+  }
 }
 
 function renderQuotaList() {
@@ -1638,18 +1797,20 @@ window.removeQuota = (domain) => {
 
 // ── Schedule ─────────────────────────────────────────────────
 function setupSchedule() {
-  document.getElementById('save-schedule-btn').addEventListener('click', () => {
-    remoteConfig.schedule = remoteConfig.schedule || { days: {} };
-    remoteConfig.schedule.enabled = document.getElementById('sch-enabled').checked;
-    for (let i=0; i<7; i++) {
-      remoteConfig.schedule.days[i] = {
-        enabled: document.getElementById(`s-${i}-en`)?.checked || false,
-        start:   document.getElementById(`s-${i}-start`)?.value || '08:00',
-        end:     document.getElementById(`s-${i}-end`)?.value   || '22:00'
-      };
-    }
-    saveConfig();
+  document.getElementById('rest-win-add').addEventListener('click', () => {
+    const start = document.getElementById('rest-win-start').value;
+    const end = document.getElementById('rest-win-end').value;
+    if (!start || !end) { toast('请选择开始和结束时间', false); return; }
+    if (start >= end) { toast('结束时间必须晚于开始时间', false); return; }
+    if (!remoteConfig.timeWindows) remoteConfig.timeWindows = { studyWindows: null, restWindows: [], onlineWindows: null };
+    if (!remoteConfig.timeWindows.restWindows) remoteConfig.timeWindows.restWindows = [];
+    const exists = remoteConfig.timeWindows.restWindows.some(w => w.start === start && w.end === end);
+    if (exists) { toast('该时段已存在', false); return; }
+    remoteConfig.timeWindows.restWindows.push({ start, end });
+    renderRestWindows();
   });
+
+  document.getElementById('save-schedule-btn').addEventListener('click', saveScheduleConfig);
 }
 
 function renderSchedulePage() {
@@ -1668,6 +1829,59 @@ function renderSchedulePage() {
       </div>
     `;
   }).join('');
+
+  renderRestWindows();
+}
+
+function renderRestWindows() {
+  const list = document.getElementById('rest-windows-list');
+  const windows = remoteConfig.timeWindows?.restWindows || [];
+  if (windows.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无休息时段限制（无限制）</div>';
+    return;
+  }
+  list.innerHTML = windows.map((w, idx) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;">${w.start} — ${w.end}</span>
+      <button onclick="removeRestWindow(${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;margin-left:auto;">×</button>
+    </div>
+  `).join('');
+}
+
+window.removeRestWindow = (idx) => {
+  if (remoteConfig.timeWindows?.restWindows) {
+    remoteConfig.timeWindows.restWindows.splice(idx, 1);
+    renderRestWindows();
+  }
+};
+
+async function saveScheduleConfig() {
+  if (!currentProfileId || !remoteConfig) return;
+
+  const schedule = { enabled: false, days: {} };
+  schedule.enabled = document.getElementById('sch-enabled').checked;
+  for (let i = 0; i < 7; i++) {
+    schedule.days[i] = {
+      enabled: document.getElementById(`s-${i}-en`)?.checked || false,
+      start: document.getElementById(`s-${i}-start`)?.value || '08:00',
+      end: document.getElementById(`s-${i}-end`)?.value || '22:00',
+    };
+  }
+
+  const payload = {
+    schedule,
+    timeWindows: remoteConfig.timeWindows || { studyWindows: null, restWindows: [], onlineWindows: null },
+  };
+
+  try {
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    toast('保存成功');
+    const r = await api(`/profiles/${currentProfileId}/config`);
+    remoteConfig = r.data || {};
+    renderSchedulePage();
+  } catch (e) {
+    toast('保存失败: ' + (e.message || ''), false);
+  }
 }
 
 // ── Stats ────────────────────────────────────────────────────
@@ -1977,23 +2191,10 @@ function showAcctMsg(el, text, ok) {
 }
 
 // ── Save config ───────────────────────────────────────────────
-// 各页面保存前先把 DOM 值同步回 remoteConfig
+// 通用保存（旧配额字段已移除，保留作为其他页面的 fallback）
 function syncDomToConfig() {
-  // 配额页 —— 仅当字段已被渲染过（有值）时才读取，单位：小时→分钟
-  const toMin = id => {
-    const el = document.getElementById(id);
-    return (el && el.value !== '') ? Math.round(parseFloat(el.value) * 60) || 0 : null;
-  };
-  const online = toMin('q-online');
-  if (online !== null) remoteConfig.dailyOnlineQuota = online;
-  const study = toMin('q-study');
-  if (study !== null) remoteConfig.dailyStudyQuota = study;
-  const rest = toMin('q-rest');
-  if (rest !== null) remoteConfig.dailyRestQuota = rest;
-  const weeklyRest = toMin('q-weekly-rest');
-  if (weeklyRest !== null) remoteConfig.weeklyRestQuota = weeklyRest > 0 ? weeklyRest : null;
-  const undetermined = toMin('q-undetermined');
-  if (undetermined !== null) remoteConfig.dailyUndeterminedQuota = undetermined;
+  // 配额字段已迁移到 timeQuota.daily，由 saveTimeQuotaConfig() 独立处理
+  // 此函数不再同步旧配额 DOM，避免操作不存在的元素
 }
 
 async function saveConfig() {
