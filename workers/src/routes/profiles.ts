@@ -218,20 +218,21 @@ function syncLegacyQuota(config: Record<string, unknown>): void {
 // ── Initial recommended config：仅用于新建 profile 一次性初始化 ──
 // 包含推荐网站名单，不作为 merge/repair 的默认值
 function buildDefaultConfig(): object {
+  const customStudyList = [
+    'keystoneacademy.cn',
+    'powerschool.keystoneacademy.cn',
+    'managebac.cn',
+    'reach.cloud',
+    'schoolsbuddy.cn',
+    'afficienta.com',
+  ];
   return {
     ...buildSchemaDefaults(),
-    studyList: siteAccessDefaults.defaultStudySites,
+    studyList: mergeWithDefaults(customStudyList, siteAccessDefaults.defaultStudySites),
     compositeList: mergeWithDefaults([], siteAccessDefaults.defaultCompositeSites),
     restrictedEntertainmentList: siteAccessDefaults.defaultRestrictedEntertainmentSites,
     unsafeList: siteAccessDefaults.defaultBlockedSites,
-    customStudyList: [
-      'keystoneacademy.cn',
-      'powerschool.keystoneacademy.cn',
-      'managebac.cn',
-      'reach.cloud',
-      'schoolsbuddy.cn',
-      'afficienta.com',
-    ],
+    customStudyList,
     customCompositeList: [],
     customRestrictedEntertainmentList: [],
     customBlockedSites: [],
