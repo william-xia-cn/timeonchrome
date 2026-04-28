@@ -95,7 +95,10 @@
     "trello.com",
     "slack.com",
     "reclaim.ai",
-    "collegeboard.org"
+    "collegeboard.org",
+    "powerschool.com",
+    "doubao.com",
+    "deepseek.com"
   ],
   "defaultCompositeSites": [
     "google.com",
@@ -117,7 +120,11 @@
     "answers.microsoft.com",
     "microsoft.com",
     "apple.com",
-    "adobe.com"
+    "adobe.com",
+    "google.com.hk",
+    "music.youtube.com",
+    "spotify.com",
+    "music.163.com"
   ],
   "defaultRestrictedEntertainmentSites": [
     "bilibili.com",

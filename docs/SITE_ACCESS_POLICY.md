@@ -449,13 +449,24 @@ managebac.com -> defaultStudyList
 
 ```js
 [
-  'keystoneacademy.cn'
+  'keystoneacademy.cn',
+  'powerschool.keystoneacademy.cn',
+  'managebac.cn',
+  'reach.cloud',
+  'schoolsbuddy.cn',
+  'afficienta.com',
 ]
 ```
 
 说明：
 
-`keystoneacademy.cn` 是学校 / 机构专用域名。它对当前用户场景可能非常重要，但不适合作为所有用户的系统默认项。
+- `keystoneacademy.cn` / `powerschool.keystoneacademy.cn`：学校 / 机构专用域名
+- `managebac.cn`：ManageBac 中国区
+- `reach.cloud`：Reach 平台
+- `schoolsbuddy.cn`：SchoolsBuddy
+- `afficienta.com`：Afficient 学习平台
+
+这些域名对学校场景非常重要，但不适合作为所有用户的系统默认项，因此放在 `customStudyList` 初始值中。家长可随时在控制台编辑或移除。
 
 ---
 

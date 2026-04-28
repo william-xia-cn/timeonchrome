@@ -253,7 +253,14 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
   // effective*List = mergeWithDefaults(custom*List, default*Sites)
   // default*Sites 来自 workers/config/site-access-defaults.json（系统配置）
   studyList: [],                     // 学习网站 effective（系统配置 + 家长自定义合并）
-  customStudyList: [],               // 家长自定义学习网站（source-of-truth）
+  customStudyList: [                 // 家长自定义学习网站（source-of-truth）
+    'keystoneacademy.cn',
+    'powerschool.keystoneacademy.cn',
+    'managebac.cn',
+    'reach.cloud',
+    'schoolsbuddy.cn',
+    'afficienta.com',
+  ],
   compositeList: [],                 // 综合网站 effective（系统配置 + 家长自定义合并，运行时兼容）
   customCompositeList: [],           // 家长自定义综合网站（source-of-truth，新增）
   unsafeList: ['douyin.com', 'tiktok.com'],  // 黑名单网站 effective（系统配置 + 家长自定义合并）
