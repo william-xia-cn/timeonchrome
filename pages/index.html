@@ -2103,12 +2103,13 @@ function setupDevices() {}
 
 function deviceStatusInfo(lastSeen) {
   const now = Date.now();
-  if (!lastSeen) return { cls: 'offline', text: '未连接', time: '从未连接' };
+  if (!lastSeen) return { cls: 'offline', text: '从未连接', time: '设备未上报过心跳' };
   const diffMin = Math.floor((now - lastSeen) / 60000);
-  if (diffMin <= 8)  return { cls: 'online',  text: '在线',     time: diffMin <= 1 ? '刚刚活跃' : `${diffMin} 分钟前活跃` };
-  if (diffMin <= 60) return { cls: 'recent',  text: '最近在线', time: `${diffMin} 分钟前活跃` };
+  if (diffMin <= 15) return { cls: 'online', text: '在线', time: diffMin <= 1 ? '刚刚活跃' : `${diffMin} 分钟前活跃` };
+  if (diffMin <= 60) return { cls: 'recent', text: '心跳延迟', time: `${diffMin} 分钟前活跃` };
   const diffH = Math.floor(diffMin / 60), diffD = Math.floor(diffH / 24);
-  return { cls: 'offline', text: '离线', time: diffD >= 1 ? `${diffD} 天前活跃` : `${diffH} 小时前活跃` };
+  const ago = diffD >= 1 ? `${diffD} 天前活跃` : `${diffH} 小时前活跃`;
+  return { cls: 'offline', text: '可能失联', time: `${ago}，设备可能离线或 Chrome 未运行` };
 }
 
 async function renderDevicesPage() {
@@ -2139,7 +2140,7 @@ async function renderDevicesPage() {
             <div class="device-name" id="dname-${d.id}">${name}</div>
             <div class="device-meta">最后活跃：${time} · 绑定于 ${boundAt}</div>
           </div>
-          <div class="device-status ${cls}">${text}</div>
+          <div class="device-status ${cls}" title="${cls === 'offline' && d.last_seen ? '超过 1 小时未收到心跳。可能原因包括：设备离线、Chrome 未运行、网络中断，或扩展被禁用/移除。请检查设备。' : ''}">${text}</div>
           <label class="monitor-toggle" title="${isMonOn ? '点击停用监控' : '点击启用监控'}">
             <div class="${trackCls}" onclick="toggleMonitoring('${d.id}', ${isMonOn ? 0 : 1})"></div>
             <span>${isMonOn ? '监控中' : '已停用'}</span>
