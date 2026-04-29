@@ -1494,13 +1494,15 @@ async function renderStatsPage() {
     weekRangeData,
     todaySessions,
     weekSessions,
-    weeklyRes
+    weeklyRes,
+    timelineSegments
   ] = await Promise.all([
     safeMsg({ type: 'GET_STATS_RANGE', days: 1 }, {}),
     safeMsg({ type: 'GET_STATS_RANGE', days: 7 }, {}),
     safeMsg({ type: 'GET_VISIT_SESSIONS', days: 1 }, []),
     safeMsg({ type: 'GET_VISIT_SESSIONS', days: 7 }, []),
-    safeMsg({ type: 'GET_WEEKLY_SESSIONS' }, { sessions: [] })
+    safeMsg({ type: 'GET_WEEKLY_SESSIONS' }, { sessions: [] }),
+    safeMsg({ type: 'GET_TIMELINE_SEGMENTS' }, [])
   ]);
 
   const todayRangeSafe = todayRangeData && typeof todayRangeData === 'object' ? todayRangeData : {};
@@ -1508,10 +1510,12 @@ async function renderStatsPage() {
   const todaySessionsSafe = Array.isArray(todaySessions) ? todaySessions : [];
   const weekSessionsSafe = Array.isArray(weekSessions) ? weekSessions : [];
   const weeklySessionsSafe = Array.isArray(weeklyRes?.sessions) ? weeklyRes.sessions : [];
+  const timelineSegmentsSafe = Array.isArray(timelineSegments) ? timelineSegments : [];
   const todayKey = getLocalDateKey();
+  const timelineSessionsFromWeekly = normalizeTimelineSessionsFromWeekly(weeklySessionsSafe, todayKey);
   const timelineSessions = todaySessionsSafe.length > 0
     ? todaySessionsSafe
-    : normalizeTimelineSessionsFromWeekly(weeklySessionsSafe, todayKey);
+    : (timelineSessionsFromWeekly.length > 0 ? timelineSessionsFromWeekly : timelineSegmentsSafe);
 
   const todayValues = Object.values(todayRangeSafe);
   const todayData = splitStatsDay(todayValues[todayValues.length - 1] || {});
@@ -1538,7 +1542,11 @@ async function renderStatsPage() {
   renderOverviewList('week-overview-list', weekOverview);
 
   // ── 今日时间轴 ──
-  renderTimeline('today-timeline', timelineSessions);
+  const hasOverviewData = todayOverview.online > 0 || todayOverview.audio > 0 || todayOverview.undetermined > 0;
+  const timelineEmptyMessage = hasOverviewData
+    ? '有汇总数据，但暂无可展示的时间轴明细'
+    : '暂无时间轴数据';
+  renderTimeline('today-timeline', timelineSessions, { emptyMessage: timelineEmptyMessage });
 
   // ── 本周每日分布 ──
   renderDailyBars('week-daily-bars', weekRangeSafe);
@@ -1593,11 +1601,12 @@ function renderOverviewList(id, overview) {
   `).join('');
 }
 
-function renderTimeline(id, sessions) {
+function renderTimeline(id, sessions, options = {}) {
   const el = document.getElementById(id);
   if (!el) return;
+  const emptyMessage = options.emptyMessage || '暂无时间轴数据';
   if (!Array.isArray(sessions) || sessions.length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无时间轴数据</div>';
+    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${emptyMessage}</div>`;
     return;
   }
 
@@ -1613,7 +1622,7 @@ function renderTimeline(id, sessions) {
     else if (s.state === 'ACTIVE' && hourState[h] !== 'ACTIVE') hourState[h] = 'ACTIVE';
   }
   if (!hourData.some(v => v > 0)) {
-    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无时间轴数据</div>';
+    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${emptyMessage}</div>`;
     return;
   }
   const maxVal = Math.max(...hourData, 1);

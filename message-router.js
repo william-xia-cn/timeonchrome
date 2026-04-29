@@ -1,6 +1,7 @@
 // message-router.js — 命令路由
 
 import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain } from './infra/storage.js';
+import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules, checkAndRemind, redirectToReminder } from './product/interceptor.js';
 import { checkAllTabsQuota, borrowRestQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
 import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync } from './infra/cloud-sync.js';
@@ -22,6 +23,40 @@ function isAuthorizedBorrowSender(sender) {
   } catch {
     return false;
   }
+}
+
+function getLocalDayRange(date = new Date()) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime();
+  return { start, end };
+}
+
+function buildTodayTimelineSegmentsFromEventLog(events, now = new Date()) {
+  const { start, end } = getLocalDayRange(now);
+  const segments = [];
+  let openStart = null;
+  for (const evt of events) {
+    if (!evt || typeof evt.time !== 'number' || Number.isNaN(evt.time)) continue;
+    if (evt.type === 'START') {
+      openStart = evt;
+      continue;
+    }
+    if (evt.type !== 'END' || !openStart) continue;
+
+    const segmentStart = Math.max(openStart.time, start);
+    const segmentEnd = Math.min(evt.time, end);
+    const duration = Math.floor((segmentEnd - segmentStart) / 1000);
+    if (duration > 0) {
+      segments.push({
+        startAt: segmentStart,
+        duration,
+        state: openStart.state || null,
+        domain: openStart.domain || null,
+      });
+    }
+    openStart = null;
+  }
+  return segments;
 }
 
 export async function handleMessage(msg, sender) {
@@ -53,6 +88,11 @@ export async function handleMessage(msg, sender) {
 
     case 'GET_VISIT_SESSIONS':
       return await getVisitSessions(msg.days || 14);
+
+    case 'GET_TIMELINE_SEGMENTS': {
+      const events = await getEvents();
+      return buildTodayTimelineSegmentsFromEventLog(events, new Date());
+    }
 
     case 'GET_CHANGELOG':
       return await getChangelog(msg.limit || 20);
