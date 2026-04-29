@@ -180,6 +180,20 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 - **报告格式**：JSON 报告必须包含 `bindingPreflight` 对象（含 `bound`、`deviceTokenPresent`、`profileIdPresent`、`configAvailable`、`monitoringEnabled`、`mode`）；Markdown 报告必须包含“绑定状态检查”章节，并根据 `bound` 值显示对应提示文案。
 - **实现位置**：`tests/system/sleep-wake-gate/lib/extractors.js` 提供 `extractBindingStatus(sw)`；各 scenario 在启动后调用并写入报告；`lib/reporters.js` 负责渲染 Markdown。
 
+#### 1.3.6.1 Fixed Test Account Setup（可复用绑定环境）
+
+- 为避免每次 runner 启动都产生全新未绑定实例，使用固定长期测试账号/孩子 profile/设备绑定。
+- **Setup 脚本**：`tests/system/sleep-wake-gate/scripts/setup-bound-profile.js`
+  - Idempotent：登录已有账号 → 查找/复用 profile → 删除同名旧设备 → 重新 bind → 获取 device_token
+  - 必须带 `--allow-cloud-mutation` 才允许云端写操作；无此 flag 时拒绝运行
+  - 凭证来源：环境变量 `TIMEONCHROME_TEST_EMAIL` / `TIMEONCHROME_TEST_PASSWORD`，或 CLI `--email` / `--password`
+  - 启动 Chrome 到固定 `userDataDir`，在 Service Worker 中写入 `cloud_device_token`、`cloud_profile_id`、`guardian_config`（完整云端配置）
+  - 写入后强制 flush（`storage.local.get` + 延时），关闭 Chrome 保留目录
+  - 重新启动验证 `extractBindingStatus(sw).bound === true`
+- **Runner 复用**：通过 `--user-data-dir=<path>` 指定同一目录；`launchExtensionContext(userDataDir, clean=false)` 避免清理已绑定状态
+- **默认路径**：`test-results/sleep-wake-gate/bound-profile`（已被 `.gitignore` 忽略）
+- **云端数据**：账号 `william.xia.cn+timeonchrome-gate@gmail.com`、profile `Gate Test Child`、device `Gate Runner Windows Chrome`
+
 ### 1.3.5 凌晨休息时间限制（后续产品设计）
 
 - 后续需要支持配置“凌晨不可用于休息时间”的时段策略，用于防止熬夜玩游戏。

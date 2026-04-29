@@ -24,8 +24,11 @@ const { writeJsonReport, writeMarkdownReport } = require('../lib/reporters');
  * @param {string} options.outputDir — 报告输出目录
  * @returns {Promise<{ success: boolean, jsonPath: string, mdPath: string, summary: Object }>}
  */
-async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
-  const userDataDir = path.resolve(__dirname, `../../../test-system-gate-${Date.now()}`);
+async function runDryRun({ reset = false, verbose = false, outputDir, userDataDir: explicitUserDataDir } = {}) {
+  const isCustomDir = !!explicitUserDataDir;
+  const userDataDir = explicitUserDataDir
+    ? path.resolve(explicitUserDataDir)
+    : path.resolve(__dirname, `../../../test-system-gate-${Date.now()}`);
   let browserCtx = null;
   let sw = null;
   let extensionId = null;
@@ -64,7 +67,7 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
     log('[dry-run] Mock server 启动成功:', mockServerUrl);
 
     log('[dry-run] 启动 Chrome 并加载扩展...');
-    const ctx = await launchExtensionContext(userDataDir);
+    const ctx = await launchExtensionContext(userDataDir, !isCustomDir);
     browserCtx = ctx.browserCtx;
     sw = ctx.sw;
     extensionId = ctx.extensionId;
@@ -195,7 +198,8 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
   } finally {
     if (browserCtx) {
       log('[dry-run] 关闭浏览器...');
-      await closeContext(browserCtx, userDataDir, true);
+      // 仅在未指定自定义 userDataDir 或显式 reset 时清理目录
+      await closeContext(browserCtx, userDataDir, !isCustomDir || reset);
     }
     if (mockServer) {
       log('[dry-run] 关闭 mock server...');

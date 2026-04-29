@@ -6,6 +6,7 @@
 - [x] [V0] Pages deployment readiness
 - [x] [V0] Worker/API readiness
 - [x] [V0] Stage 1 Soft Gate verification
+- [x] [V0] Phase 2 chrome-restart Gate runner + binding preflight + bound-device validation
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包

@@ -10,6 +10,7 @@ function parseArgs(argv) {
     outputDir: path.resolve(__dirname, 'reports'),
     reset: false,
     verbose: false,
+    userDataDir: null,
     preActiveSeconds: 60,
     closedSeconds: 120,
     postRestartSeconds: 30,
@@ -21,6 +22,8 @@ function parseArgs(argv) {
       args.scenario = arg.includes('=') ? arg.split('=')[1] : argv[++i];
     } else if (arg === '--output-dir' || arg.startsWith('--output-dir=')) {
       args.outputDir = arg.includes('=') ? arg.split('=')[1] : argv[++i];
+    } else if (arg === '--user-data-dir' || arg.startsWith('--user-data-dir=')) {
+      args.userDataDir = arg.includes('=') ? arg.split('=')[1] : argv[++i];
     } else if (arg === '--reset') {
       args.reset = true;
     } else if (arg === '--verbose') {
@@ -49,7 +52,8 @@ function printHelp() {
                              可用: dry-run, chrome-restart
                              占位: sleep-wake, network-offline
   --output-dir=<path>        报告输出目录 (默认: tests/system/sleep-wake-gate/reports)
-  --reset                    测试前重置 calibration 数据
+  --user-data-dir=<path>     Chrome 用户数据目录 (复用绑定状态)
+  --reset                    测试前重置 calibration 数据（若指定 --user-data-dir 会一并清理该目录）
   --verbose                  打印详细日志
 
   chrome-restart 专用:
@@ -69,6 +73,7 @@ async function main() {
 
   console.log(`[runner] 场景: ${args.scenario}`);
   console.log(`[runner] 输出目录: ${args.outputDir}`);
+  if (args.userDataDir) console.log(`[runner] Chrome 数据目录: ${args.userDataDir}`);
   if (args.reset) console.log('[runner] 重置 calibration: 是');
   if (args.verbose) console.log('[runner] 详细模式: 是');
   if (args.scenario === 'chrome-restart') {
@@ -87,6 +92,7 @@ async function main() {
       reset: args.reset,
       verbose: args.verbose,
       outputDir: args.outputDir,
+      userDataDir: args.userDataDir,
     });
   } else if (args.scenario === 'chrome-restart') {
     const { runChromeRestart } = require('./scenarios/chrome-restart');
@@ -97,6 +103,7 @@ async function main() {
       reset: args.reset,
       verbose: args.verbose,
       outputDir: args.outputDir,
+      userDataDir: args.userDataDir,
     });
   } else {
     console.error(`[runner] 错误: 场景 '${args.scenario}' 不可用。`);

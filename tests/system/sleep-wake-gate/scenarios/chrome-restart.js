@@ -38,8 +38,12 @@ async function runChromeRestart({
   reset = false,
   verbose = false,
   outputDir,
+  userDataDir: explicitUserDataDir,
 } = {}) {
-  const userDataDir = path.resolve(__dirname, `../../../test-system-gate-${Date.now()}`);
+  const isCustomDir = !!explicitUserDataDir;
+  const userDataDir = explicitUserDataDir
+    ? path.resolve(explicitUserDataDir)
+    : path.resolve(__dirname, `../../../test-system-gate-${Date.now()}`);
   let browserCtx = null;
   let sw = null;
   let extensionId = null;
@@ -76,7 +80,7 @@ async function runChromeRestart({
 
     // ── Phase A: 启动 Chrome 并预运行 ──
     log('[chrome-restart] Phase A: 启动 Chrome...');
-    const ctx = await launchExtensionContext(userDataDir);
+    const ctx = await launchExtensionContext(userDataDir, !isCustomDir);
     browserCtx = ctx.browserCtx;
     sw = ctx.sw;
     extensionId = ctx.extensionId;
@@ -252,7 +256,7 @@ async function runChromeRestart({
   } finally {
     if (browserCtx) {
       log('[chrome-restart] 关闭浏览器...');
-      await closeContext(browserCtx, userDataDir, true);
+      await closeContext(browserCtx, userDataDir, !isCustomDir || reset);
     }
     if (mockServer) {
       log('[chrome-restart] 关闭 mock server...');

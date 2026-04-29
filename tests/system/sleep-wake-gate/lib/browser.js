@@ -49,12 +49,13 @@ async function _launchInternal(userDataDir, shouldClean) {
 }
 
 /**
- * 启动带扩展的 Chrome 持久上下文（新建 userDataDir）
+ * 启动带扩展的 Chrome 持久上下文
  * @param {string} userDataDir — Chrome 用户数据目录
+ * @param {boolean} clean — 启动前是否清理目录（默认 true）
  * @returns {Promise<{ browserCtx, sw, extensionId, userDataDir }>}
  */
-async function launchExtensionContext(userDataDir) {
-  return _launchInternal(userDataDir, true);
+async function launchExtensionContext(userDataDir, clean = true) {
+  return _launchInternal(userDataDir, clean);
 }
 
 /**
