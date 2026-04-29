@@ -57,6 +57,18 @@ function writeMarkdownReport(data, outputDir) {
   lines.push(`> Commit：${data.meta.commit}`);
   lines.push('');
 
+  // Mock Server 状态
+  if (data.mockServer) {
+    lines.push('## Mock Server');
+    lines.push('');
+    lines.push(`| 项目 | 状态 |`);
+    lines.push(`|------|------|`);
+    lines.push(`| Mock Server 启动 | ${data.mockServer.started ? '成功' : '失败'} |`);
+    lines.push(`| Mock Server URL | \`${data.mockServer.url || 'N/A'}\` |`);
+    lines.push(`| Mock Server 关闭 | ${data.mockServer.closed ? '成功' : '失败'} |`);
+    lines.push('');
+  }
+
   // 浏览器状态
   lines.push('## 浏览器与扩展加载状态');
   lines.push('');
@@ -65,6 +77,7 @@ function writeMarkdownReport(data, outputDir) {
   lines.push(`| 扩展加载 | ${data.browser.loaded ? '成功' : '失败'} |`);
   lines.push(`| Extension ID | \`${data.browser.extensionId || 'N/A'}\` |`);
   lines.push(`| Service Worker | \`${data.browser.serviceWorkerUrl || 'N/A'}\` |`);
+  lines.push(`| 测试页面 URL | \`${data.browser.siteUrl || 'N/A'}\` |`);
   lines.push('');
 
   // 数据源摘要

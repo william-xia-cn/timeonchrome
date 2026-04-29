@@ -1,6 +1,7 @@
 // scenarios/dry-run.js — Phase 1：只读数据路径验证（不执行任何 OS 级操作）
 
 const path = require('path');
+const http = require('http');
 const { launchExtensionContext, closeContext } = require('../lib/browser');
 const {
   extractCalibration,
@@ -27,12 +28,40 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
   let browserCtx = null;
   let sw = null;
   let extensionId = null;
+  let mockServer = null;
+  let mockServerUrl = null;
+  let serverStarted = false;
+  let serverClosed = false;
 
   const log = (...args) => {
     if (verbose) console.log(...args);
   };
 
   try {
+    // 启动本地 mock HTTP server
+    log('[dry-run] 启动本地 mock server...');
+    mockServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`<!DOCTYPE html>
+<html>
+<head><title>TimeOnChrome Sleep Gate Mock</title></head>
+<body>
+  <h1>TimeOnChrome Sleep Gate Mock</h1>
+  <p>本地 mock 页面，用于产生 content.js 信号和 event-log 事件。</p>
+</body>
+</html>`);
+    });
+    await new Promise((resolve, reject) => {
+      mockServer.listen(0, '127.0.0.1', () => {
+        const port = mockServer.address().port;
+        mockServerUrl = `http://127.0.0.1:${port}`;
+        serverStarted = true;
+        resolve();
+      });
+      mockServer.on('error', reject);
+    });
+    log('[dry-run] Mock server 启动成功:', mockServerUrl);
+
     log('[dry-run] 启动 Chrome 并加载扩展...');
     const ctx = await launchExtensionContext(userDataDir);
     browserCtx = ctx.browserCtx;
@@ -50,10 +79,10 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
       await resetCalibrationData(sw);
     }
 
-    // 打开一个真实网页以产生信号和事件
-    log('[dry-run] 打开测试页面...');
+    // 打开本地 mock 页面以产生信号和事件
+    log('[dry-run] 打开本地 mock 页面...');
     const page = await browserCtx.newPage();
-    await page.goto('https://www.example.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto(mockServerUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
     await page.waitForTimeout(3000); // 等待信号触发
     log('[dry-run] 页面加载完成，等待 3 秒信号处理...');
 
@@ -96,10 +125,16 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
         extensionVersion: '1.7.2',
         commit: 'a4f2e06',
       },
+      mockServer: {
+        started: serverStarted,
+        url: mockServerUrl || null,
+        closed: serverClosed,
+      },
       browser: {
         loaded: true,
         extensionId: extensionId || null,
         serviceWorkerUrl: sw?.url() || null,
+        siteUrl: mockServerUrl || null,
       },
       data: {
         eventLog: {
@@ -154,6 +189,12 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
     if (browserCtx) {
       log('[dry-run] 关闭浏览器...');
       await closeContext(browserCtx, userDataDir, true);
+    }
+    if (mockServer) {
+      log('[dry-run] 关闭 mock server...');
+      await new Promise(resolve => mockServer.close(resolve));
+      serverClosed = true;
+      log('[dry-run] Mock server 已关闭');
     }
   }
 }
