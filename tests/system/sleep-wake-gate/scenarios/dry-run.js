@@ -10,6 +10,7 @@ const {
   extractEventLog,
   extractSession,
   extractFocusLedger,
+  extractBindingStatus,
   resetCalibrationData,
   initializeRestMode,
 } = require('../lib/extractors');
@@ -68,6 +69,11 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
     sw = ctx.sw;
     extensionId = ctx.extensionId;
     log('[dry-run] 扩展已加载，Extension ID:', extensionId);
+
+    // 绑定状态预检
+    log('[dry-run] 检查绑定状态...');
+    const bindingPreflight = await extractBindingStatus(sw);
+    log('[dry-run] 绑定状态:', JSON.stringify(bindingPreflight));
 
     // 设置为 rest mode，避免学习模式拦截
     log('[dry-run] 初始化 rest mode...');
@@ -154,6 +160,7 @@ async function runDryRun({ reset = false, verbose = false, outputDir } = {}) {
         },
         calibration: calibration.success ? { traceCount: calibration.traceCount, eventLogCount: calibration.eventLogCount } : { error: calibration.error },
       },
+      bindingPreflight,
       validation: {
         eventLogHasEntries,
         sessionIsDefined,

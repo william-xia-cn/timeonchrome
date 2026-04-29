@@ -171,6 +171,15 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 - 该口径适用于普通前台 ACTIVE 计时、stats 聚合、badge 今日时长、配额检查与后续报表。
 - `core/aggregate.js` 已按本地自然日窗口计算闭合区间 overlap；`getTodayStats`、`getStatsRange` 与 badge 今日时长通过该聚合层继承跨日切分口径。
 
+### 1.3.6 Sleep / Wake / Offline Gate Binding Preflight
+
+- `tests/system/sleep-wake-gate/` 下的 runner 在执行任何 Gate 场景前，必须通过 Service Worker 读取 `chrome.storage.local` 中的 `cloud_device_token`、`cloud_profile_id`、`guardian_config`，判断扩展是否已完成设备绑定。
+- **判定标准**：`deviceToken` 存在且非空，`profileId` 存在且非空 → `bound = true`。
+- **dry-run**：未绑定状态仍可产生 PASS/PARTIAL，因为 dry-run 只验证基础设施（event-log、session、trace 链路）。报告必须明确提示“未绑定状态，不能用于正式 Sleep/Restart Gate 判定”。
+- **chrome-restart / sleep-wake / network-offline**：这些场景在未绑定状态下必须拒绝运行，抛出错误并生成 FAIL 报告。不允许自动云绑定或 D1 写操作。
+- **报告格式**：JSON 报告必须包含 `bindingPreflight` 对象（含 `bound`、`deviceTokenPresent`、`profileIdPresent`、`configAvailable`、`monitoringEnabled`、`mode`）；Markdown 报告必须包含“绑定状态检查”章节，并根据 `bound` 值显示对应提示文案。
+- **实现位置**：`tests/system/sleep-wake-gate/lib/extractors.js` 提供 `extractBindingStatus(sw)`；各 scenario 在启动后调用并写入报告；`lib/reporters.js` 负责渲染 Markdown。
+
 ### 1.3.5 凌晨休息时间限制（后续产品设计）
 
 - 后续需要支持配置“凌晨不可用于休息时间”的时段策略，用于防止熬夜玩游戏。

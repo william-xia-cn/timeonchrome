@@ -31,25 +31,31 @@ function timestampSuffix() {
  */
 function writeJsonReport(data, outputDir) {
   ensureDir(outputDir);
-  const filename = `dry-run-${timestampSuffix()}.json`;
+  const scenario = data.meta?.scenario || 'run';
+  const filename = `${scenario}-${timestampSuffix()}.json`;
   const filepath = path.join(outputDir, filename);
   fs.writeFileSync(filepath, JSON.stringify(data, null, 2), 'utf-8');
   return filepath;
 }
 
 /**
- * 生成 Markdown 报告
+ * 生成 Markdown 报告（根据 scenario 自动选择格式）
  * @param {Object} data — 报告数据
  * @param {string} outputDir — 输出目录
  * @returns {string} — 写入的文件路径
  */
 function writeMarkdownReport(data, outputDir) {
   ensureDir(outputDir);
-  const filename = `dry-run-${timestampSuffix()}.md`;
+  const scenario = data.meta?.scenario || 'run';
+  const filename = `${scenario}-${timestampSuffix()}.md`;
   const filepath = path.join(outputDir, filename);
 
   const lines = [];
-  lines.push('# Sleep / Wake / Offline Gate — Phase 1 Dry-Run 报告');
+  const titleMap = {
+    'dry-run': 'Phase 1 Dry-Run',
+    'chrome-restart': 'Phase 2 Chrome-Restart',
+  };
+  lines.push(`# Sleep / Wake / Offline Gate — ${titleMap[scenario] || scenario} 报告`);
   lines.push('');
   lines.push(`> 生成时间：${new Date(data.meta.timestamp).toLocaleString('zh-CN')}`);
   lines.push(`> 场景：${data.meta.scenario}`);
@@ -57,7 +63,7 @@ function writeMarkdownReport(data, outputDir) {
   lines.push(`> Commit：${data.meta.commit}`);
   lines.push('');
 
-  // Mock Server 状态
+  // Mock Server
   if (data.mockServer) {
     lines.push('## Mock Server');
     lines.push('');
@@ -74,40 +80,47 @@ function writeMarkdownReport(data, outputDir) {
   lines.push('');
   lines.push(`| 项目 | 状态 |`);
   lines.push(`|------|------|`);
-  lines.push(`| 扩展加载 | ${data.browser.loaded ? '成功' : '失败'} |`);
-  lines.push(`| Extension ID | \`${data.browser.extensionId || 'N/A'}\` |`);
-  lines.push(`| Service Worker | \`${data.browser.serviceWorkerUrl || 'N/A'}\` |`);
-  lines.push(`| 测试页面 URL | \`${data.browser.siteUrl || 'N/A'}\` |`);
+  lines.push(`| 扩展加载 | ${data.browser?.loaded ? '成功' : '失败'} |`);
+  lines.push(`| Extension ID | \`${data.browser?.extensionId || 'N/A'}\` |`);
+  lines.push(`| Service Worker | \`${data.browser?.serviceWorkerUrl || 'N/A'}\` |`);
+  if (data.browser?.siteUrl) {
+    lines.push(`| 测试页面 URL | \`${data.browser.siteUrl}\` |`);
+  }
   lines.push('');
 
-  // 数据源摘要
-  lines.push('## 数据源摘要');
-  lines.push('');
-  lines.push(`| 数据源 | 条目数 | 样本 |`);
-  lines.push(`|--------|--------|------|`);
-  lines.push(`| Event Log | ${data.data.eventLog.count} | ${JSON.stringify(data.data.eventLog.sample).slice(0, 120)} |`);
-  lines.push(`| Session | — | state=${data.data.session.state ?? 'null'}, domain=${data.data.session.domain ?? 'null'} |`);
-  lines.push(`| Timing Trace | ${data.data.trace.count} | actions=${JSON.stringify(data.data.trace.actions).slice(0, 120)} |`);
-  lines.push(`| Stats | ${Object.keys(data.data.stats).length} | ${JSON.stringify(data.data.stats).slice(0, 120)} |`);
-  lines.push(`| Focus Ledger | ${data.data.focusLedger.count} |`);
-  lines.push('');
+  // 绑定状态检查
+  if (data.bindingPreflight) {
+    const bp = data.bindingPreflight;
+    lines.push('## 绑定状态检查');
+    lines.push('');
+    lines.push(`| 检查项 | 状态 |`);
+    lines.push(`|--------|------|`);
+    lines.push(`| 已绑定 | ${bp.bound ? '是' : '否'} |`);
+    lines.push(`| deviceToken 存在 | ${bp.deviceTokenPresent ? '是' : '否'} |`);
+    lines.push(`| profileId 存在 | ${bp.profileIdPresent ? '是' : '否'} |`);
+    lines.push(`| 配置可用 | ${bp.configAvailable ? '是' : '否'} |`);
+    lines.push(`| 监控启用 | ${bp.monitoringEnabled ? '是' : '否'} |`);
+    lines.push(`| 模式 | ${bp.mode || 'N/A'} |`);
+    lines.push('');
+    if (!bp.bound) {
+      if (scenario === 'dry-run') {
+        lines.push('> ⚠️ **未绑定状态**。dry-run 可继续验证基础设施，但**不能用于正式 Sleep/Restart Gate 判定**。');
+      } else {
+        lines.push('> ❌ **设备未绑定**。chrome-restart / sleep-wake / network-offline Gate 在未绑定状态下不应执行。');
+      }
+      lines.push('');
+    } else {
+      lines.push('> ✅ 设备已绑定，可以进入后续 Gate 场景。');
+      lines.push('');
+    }
+  }
 
-  // 校验结果
-  lines.push('## 数据完整性校验');
-  lines.push('');
-  lines.push(`| 检查项 | 结果 |`);
-  lines.push(`|--------|------|`);
-  lines.push(`| Event Log 有数据 | ${data.validation.eventLogHasEntries ? '通过' : '未通过'} |`);
-  lines.push(`| Session 已定义 | ${data.validation.sessionIsDefined ? '通过' : '未通过'} |`);
-  lines.push(`| Timing Trace 有数据 | ${data.validation.traceHasEntries ? '通过' : '未通过'} |`);
-  lines.push(`| Stats 对象存在 | ${data.validation.statsObjectExists ? '通过' : '未通过'} |`);
-  lines.push('');
-
-  // Pipeline 覆盖
-  lines.push('## Pipeline 阶段覆盖');
-  lines.push('');
-  lines.push(`已观测到的 trace action：${data.validation.pipelineCoverage.join(', ') || '无'}`);
-  lines.push('');
+  // Scenario-specific sections
+  if (scenario === 'dry-run') {
+    writeDryRunSections(lines, data);
+  } else if (scenario === 'chrome-restart') {
+    writeChromeRestartSections(lines, data);
+  }
 
   // 结论
   lines.push('## 结论');
@@ -117,10 +130,105 @@ function writeMarkdownReport(data, outputDir) {
   lines.push('');
   lines.push('---');
   lines.push('');
-  lines.push('> 本报告由 Phase 1 Dry-Run Runner 自动生成，未执行任何睡眠/锁屏/断网/关闭 Chrome 操作。');
+  lines.push('> 本报告由 Sleep / Wake / Offline Gate Runner 自动生成。');
+  if (scenario === 'dry-run') {
+    lines.push('> 未执行任何睡眠/锁屏/断网/关闭 Chrome 操作。');
+  } else if (scenario === 'chrome-restart') {
+    lines.push('> Chrome 关闭/重开操作由 Playwright 控制，未涉及 OS 睡眠/锁屏/网络切换。');
+  }
 
   fs.writeFileSync(filepath, lines.join('\n'), 'utf-8');
   return filepath;
+}
+
+function writeDryRunSections(lines, data) {
+  // 数据源摘要
+  lines.push('## 数据源摘要');
+  lines.push('');
+  lines.push(`| 数据源 | 条目数 | 样本 |`);
+  lines.push(`|--------|--------|------|`);
+  lines.push(`| Event Log | ${data.data?.eventLog?.count ?? 0} | ${JSON.stringify(data.data?.eventLog?.sample || []).slice(0, 120)} |`);
+  lines.push(`| Session | — | state=${data.data?.session?.state ?? 'null'}, domain=${data.data?.session?.domain ?? 'null'} |`);
+  lines.push(`| Timing Trace | ${data.data?.trace?.count ?? 0} | actions=${JSON.stringify(data.data?.trace?.actions || []).slice(0, 120)} |`);
+  lines.push(`| Stats | ${Object.keys(data.data?.stats || {}).length} | ${JSON.stringify(data.data?.stats || {}).slice(0, 120)} |`);
+  lines.push(`| Focus Ledger | ${data.data?.focusLedger?.count ?? 0} |`);
+  lines.push('');
+
+  // 校验结果
+  lines.push('## 数据完整性校验');
+  lines.push('');
+  lines.push(`| 检查项 | 结果 |`);
+  lines.push(`|--------|------|`);
+  lines.push(`| Event Log 有数据 | ${data.validation?.eventLogHasEntries ? '通过' : '未通过'} |`);
+  lines.push(`| Session 已定义 | ${data.validation?.sessionIsDefined ? '通过' : '未通过'} |`);
+  lines.push(`| Timing Trace 有数据 | ${data.validation?.traceHasEntries ? '通过' : '未通过'} |`);
+  lines.push(`| Stats 对象存在 | ${data.validation?.statsObjectExists ? '通过' : '未通过'} |`);
+  lines.push('');
+
+  // Pipeline 覆盖
+  lines.push('## Pipeline 阶段覆盖');
+  lines.push('');
+  lines.push(`已观测到的 trace action：${(data.validation?.pipelineCoverage || []).join(', ') || '无'}`);
+  lines.push('');
+}
+
+function writeChromeRestartSections(lines, data) {
+  const phases = data.phases || {};
+  const validation = data.validation || {};
+  const recovery = data.recovery || {};
+
+  // 阶段时间线
+  lines.push('## 阶段时间线');
+  lines.push('');
+  lines.push(`| 阶段 | 时长 | 说明 |`);
+  lines.push(`|------|------|------|`);
+  lines.push(`| 关闭前运行 | ${phases.preClose?.durationSec ?? 0} 秒 | 扩展累积 session |`);
+  lines.push(`| Chrome 关闭 | ${phases.closed?.durationSec ?? 0} 秒 | 模拟离线 / SW 死亡 |`);
+  lines.push(`| 重开后运行 | ${phases.postReopen?.durationSec ?? 0} 秒 | SW 启动 + recover() |`);
+  lines.push('');
+
+  // 关闭前状态
+  lines.push('## 关闭前状态');
+  lines.push('');
+  lines.push(`| 项目 | 值 |`);
+  lines.push(`|------|-----|`);
+  lines.push(`| Session state | ${phases.preClose?.session?.state ?? 'null'} |`);
+  lines.push(`| Session domain | ${phases.preClose?.session?.domain ?? 'null'} |`);
+  lines.push(`| lastHeartbeat | ${phases.preClose?.session?.lastHeartbeat ?? 'N/A'} |`);
+  lines.push(`| Event Log 条目数 | ${phases.preClose?.eventLogCount ?? 0} |`);
+  lines.push('');
+
+  // 恢复行为验证
+  lines.push('## 恢复行为验证');
+  lines.push('');
+  lines.push(`| 检查项 | 结果 | 说明 |`);
+  lines.push(`|--------|------|------|`);
+  lines.push(`| recover() 追加 END | ${validation.endEventFound ? '通过' : '未通过'} | 重开后 event log 出现新 END |`);
+  lines.push(`| END 时间截断 | ${validation.endTimeTruncated ? '通过' : '未通过'} | END time ≈ lastHeartbeat（误差 ${validation.endTimeDeltaMs ?? 'N/A'} ms） |`);
+  lines.push(`| 无重复 END | ${validation.noDuplicateEnd ? '通过' : '未通过'} | 仅 1 个 END 事件 |`);
+  lines.push(`| Session 已重置 | ${validation.sessionReset ? '通过' : '未通过'} | recover 后 state/startTime 为 null |`);
+  lines.push(`| 离线时间未计入 | ${validation.closedTimeNotCounted ? '通过' : '未通过'} | END time ≈ lastHeartbeat，未将离线时间计入（误差 ${validation.endTimeDeltaMs ?? 'N/A'} ms） |`);
+  lines.push('');
+
+  // 重开后状态
+  lines.push('## 重开后状态');
+  lines.push('');
+  lines.push(`| 项目 | 值 |`);
+  lines.push(`|------|-----|`);
+  lines.push(`| Session state | ${phases.postReopen?.session?.state ?? 'null'} |`);
+  lines.push(`| Session domain | ${phases.postReopen?.session?.domain ?? 'null'} |`);
+  lines.push(`| Event Log 条目数 | ${phases.postReopen?.eventLogCount ?? 0} |`);
+  lines.push('');
+
+  // recover 详情
+  if (recovery.endEvent) {
+    lines.push('## recover() 追加的 END 事件');
+    lines.push('');
+    lines.push('```json');
+    lines.push(JSON.stringify(recovery.endEvent, null, 2));
+    lines.push('```');
+    lines.push('');
+  }
 }
 
 module.exports = {

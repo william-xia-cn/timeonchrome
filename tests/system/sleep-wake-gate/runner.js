@@ -10,6 +10,9 @@ function parseArgs(argv) {
     outputDir: path.resolve(__dirname, 'reports'),
     reset: false,
     verbose: false,
+    preActiveSeconds: 60,
+    closedSeconds: 120,
+    postRestartSeconds: 30,
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -22,6 +25,12 @@ function parseArgs(argv) {
       args.reset = true;
     } else if (arg === '--verbose') {
       args.verbose = true;
+    } else if (arg === '--preActiveSeconds' || arg.startsWith('--preActiveSeconds=')) {
+      args.preActiveSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 60;
+    } else if (arg === '--closedSeconds' || arg.startsWith('--closedSeconds=')) {
+      args.closedSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 120;
+    } else if (arg === '--postRestartSeconds' || arg.startsWith('--postRestartSeconds=')) {
+      args.postRestartSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 30;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -36,18 +45,22 @@ function printHelp() {
 用法: node runner.js [选项]
 
 选项:
-  --scenario=<name>    选择测试场景 (默认: dry-run)
-                       可用: dry-run
-                       占位（未实现）: chrome-restart, sleep-wake, network-offline
-  --output-dir=<path>  报告输出目录 (默认: tests/system/sleep-wake-gate/reports)
-  --reset              测试前重置 calibration 数据
-  --verbose            打印详细日志
-  --help, -h           显示帮助
+  --scenario=<name>          选择测试场景 (默认: dry-run)
+                             可用: dry-run, chrome-restart
+                             占位: sleep-wake, network-offline
+  --output-dir=<path>        报告输出目录 (默认: tests/system/sleep-wake-gate/reports)
+  --reset                    测试前重置 calibration 数据
+  --verbose                  打印详细日志
+
+  chrome-restart 专用:
+  --preActiveSeconds=<n>     关闭前运行秒数 (默认: 60)
+  --closedSeconds=<n>        Chrome 关闭期间秒数 (默认: 120)
+  --postRestartSeconds=<n>   重开后运行秒数 (默认: 30)
 
 示例:
   node runner.js --scenario=dry-run
+  node runner.js --scenario=chrome-restart --preActiveSeconds=10 --closedSeconds=10 --postRestartSeconds=10 --verbose
   node runner.js --scenario=dry-run --reset --verbose
-  node runner.js --scenario=dry-run --output-dir=dist/system-reports
 `);
 }
 
@@ -58,26 +71,40 @@ async function main() {
   console.log(`[runner] 输出目录: ${args.outputDir}`);
   if (args.reset) console.log('[runner] 重置 calibration: 是');
   if (args.verbose) console.log('[runner] 详细模式: 是');
+  if (args.scenario === 'chrome-restart') {
+    console.log(`[runner] 关闭前运行: ${args.preActiveSeconds} 秒`);
+    console.log(`[runner] Chrome 关闭期间: ${args.closedSeconds} 秒`);
+    console.log(`[runner] 重开后运行: ${args.postRestartSeconds} 秒`);
+  }
   console.log('');
 
-  // Phase 1 安全边界：只允许 dry-run
-  if (args.scenario !== 'dry-run') {
-    console.error(`[runner] 错误: 场景 '${args.scenario}' 在 Phase 1 中不可用。`);
-    console.error('[runner] 当前仅支持 --scenario=dry-run');
-    console.error('[runner] Phase 2/3/4 (chrome-restart, sleep-wake, network-offline) 将在后续阶段实现。');
+  let result;
+  const startTime = Date.now();
+
+  if (args.scenario === 'dry-run') {
+    const { runDryRun } = require('./scenarios/dry-run');
+    result = await runDryRun({
+      reset: args.reset,
+      verbose: args.verbose,
+      outputDir: args.outputDir,
+    });
+  } else if (args.scenario === 'chrome-restart') {
+    const { runChromeRestart } = require('./scenarios/chrome-restart');
+    result = await runChromeRestart({
+      preActiveSeconds: args.preActiveSeconds,
+      closedSeconds: args.closedSeconds,
+      postRestartSeconds: args.postRestartSeconds,
+      reset: args.reset,
+      verbose: args.verbose,
+      outputDir: args.outputDir,
+    });
+  } else {
+    console.error(`[runner] 错误: 场景 '${args.scenario}' 不可用。`);
+    console.error('[runner] 可用场景: dry-run, chrome-restart');
     process.exit(1);
   }
 
-  const { runDryRun } = require('./scenarios/dry-run');
-
-  const startTime = Date.now();
-  const result = await runDryRun({
-    reset: args.reset,
-    verbose: args.verbose,
-    outputDir: args.outputDir,
-  });
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-
   console.log('');
   console.log(`[runner] 执行耗时: ${elapsed} 秒`);
 

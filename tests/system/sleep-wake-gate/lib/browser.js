@@ -6,16 +6,13 @@ const fs = require('fs');
 
 const EXTENSION_PATH = path.resolve(__dirname, '../../../..');
 
-/**
- * 启动带扩展的 Chrome 持久上下文
- * @param {string} userDataDir — Chrome 用户数据目录
- * @returns {Promise<{ browserCtx, sw, extensionId, userDataDir }>}
- */
-async function launchExtensionContext(userDataDir) {
-  if (fs.existsSync(userDataDir)) {
+async function _launchInternal(userDataDir, shouldClean) {
+  if (shouldClean && fs.existsSync(userDataDir)) {
     fs.rmSync(userDataDir, { recursive: true, force: true });
   }
-  fs.mkdirSync(userDataDir, { recursive: true });
+  if (!fs.existsSync(userDataDir)) {
+    fs.mkdirSync(userDataDir, { recursive: true });
+  }
 
   const browserCtx = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
@@ -31,7 +28,6 @@ async function launchExtensionContext(userDataDir) {
     try {
       sw = await browserCtx.waitForEvent('serviceworker', { timeout: 30000 });
     } catch {
-      // 备选：轮询已存在的 service workers
       const start = Date.now();
       while (Date.now() - start < 30000) {
         const workers = browserCtx.serviceWorkers();
@@ -49,8 +45,25 @@ async function launchExtensionContext(userDataDir) {
   }
 
   const extensionId = new URL(sw.url()).hostname;
-
   return { browserCtx, sw, extensionId, userDataDir };
+}
+
+/**
+ * 启动带扩展的 Chrome 持久上下文（新建 userDataDir）
+ * @param {string} userDataDir — Chrome 用户数据目录
+ * @returns {Promise<{ browserCtx, sw, extensionId, userDataDir }>}
+ */
+async function launchExtensionContext(userDataDir) {
+  return _launchInternal(userDataDir, true);
+}
+
+/**
+ * 使用已有 userDataDir 重新启动 Chrome（保留扩展状态）
+ * @param {string} userDataDir — 已存在的 Chrome 用户数据目录
+ * @returns {Promise<{ browserCtx, sw, extensionId, userDataDir }>}
+ */
+async function relaunchExtensionContext(userDataDir) {
+  return _launchInternal(userDataDir, false);
 }
 
 /**
@@ -83,6 +96,7 @@ async function openExtensionPage(browserCtx, extensionId, relPath) {
 
 module.exports = {
   launchExtensionContext,
+  relaunchExtensionContext,
   closeContext,
   openExtensionPage,
 };

@@ -152,6 +152,42 @@ async function initializeRestMode(sw) {
   });
 }
 
+/**
+ * 提取扩展绑定状态（device_token / profile_id / config）
+ * @param {Object} sw — Playwright ServiceWorker
+ * @returns {Promise<Object>}
+ */
+async function extractBindingStatus(sw) {
+  return sw.evaluate(async () => {
+    return new Promise(resolve => {
+      chrome.storage.local.get(
+        ['cloud_device_token', 'cloud_profile_id', 'guardian_config', 'guardian_session'],
+        result => {
+          const config = result['guardian_config'] || null;
+          const session = result['guardian_session'] || null;
+          const deviceToken = result['cloud_device_token'] || '';
+          const profileId = result['cloud_profile_id'] || '';
+
+          const deviceTokenPresent = typeof deviceToken === 'string' && deviceToken.length > 0;
+          const profileIdPresent = typeof profileId === 'string' && profileId.length > 0;
+          const configAvailable = config !== null && typeof config === 'object';
+          const monitoringEnabled = configAvailable ? !!config.monitoring_enabled : false;
+
+          resolve({
+            bound: deviceTokenPresent && profileIdPresent,
+            deviceTokenPresent,
+            profileIdPresent,
+            configAvailable,
+            monitoringEnabled,
+            mode: session?.currentMode || config?.mode || null,
+            isInitialized: configAvailable ? !!config.isInitialized : false,
+          });
+        }
+      );
+    });
+  });
+}
+
 module.exports = {
   extractCalibration,
   extractTodayStats,
@@ -160,6 +196,7 @@ module.exports = {
   extractSession,
   extractFocusLedger,
   extractProfile,
+  extractBindingStatus,
   resetCalibrationData,
   applyControlledSignal,
   initializeRestMode,
