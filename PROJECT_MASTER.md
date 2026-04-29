@@ -32,9 +32,9 @@
   - Background logic: 79/79 passed
 - **System Recovery Release Gates**
   - RG-1 Chrome close / reopen: **PASS**
-  - RG-2 Lock / Unlock: **Pending**
+  - RG-2 Lock / Unlock: runner/preflight implemented；真实锁屏/手动解锁验证 **Pending**
   - RG-3 OS Sleep / Wake: runner implemented；当前环境因 no S3 support 返回 **SKIP**；Gate **Pending**
-  - RG-4 Network Offline / Online: **Pending**
+  - RG-4 Network Offline / Online: runner/preflight implemented；真实网络切换验证 **Pending**
 - **放行规则**：V0 formal release 必须等剩余 System Recovery Release Gates 通过，或由 Product Owner 明确 waive 后才能发布。
 - **Workers: deployed and verified**
 - **Pages: deployed and verified**

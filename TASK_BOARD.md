@@ -14,9 +14,9 @@
 | Gate | 场景 | 状态 | 说明 |
 |------|------|------|------|
 | RG-1 | Chrome close / reopen | PASS | `chrome-restart` formal bound-device Gate 已通过 |
-| RG-2 | Lock / Unlock | Pending | 尚未实现独立场景；Release Gate 待验证 |
+| RG-2 | Lock / Unlock | Pending | `lock-unlock` runner/preflight implemented；真实锁屏/手动解锁验证待执行 |
 | RG-3 | OS Sleep / Wake | Pending | Phase 3 `sleep-wake` runner implemented；当前环境因 no S3 support 返回 SKIP；Sleep/Wake Release Gate pending |
-| RG-4 | Network Offline / Online | Pending | `network-offline` 仍为占位；待隔离网络/权限方案 |
+| RG-4 | Network Offline / Online | Pending | `network-offline` runner/preflight implemented；真实网络切换仍需隔离网络/权限方案 |
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包
@@ -59,7 +59,7 @@
 - [ ] [V1] composite routing（冻结到 V1）
 
 ## COMPLETED（V0）
-- [x] [V0] System Recovery runner infrastructure: dry-run, chrome-restart, sleep-wake runner paths
+- [x] [V0] System Recovery runner infrastructure: dry-run, chrome-restart, lock-unlock, network-offline, sleep-wake runner paths
 - [x] [V0] Popup P0 UI 回正（删除 4 宫格/借用区/待定列表，模式按钮显示时长/配额，后台媒体纯数字行）
 - [x] [V0] Popup P0 借用路由修正：`BORROW_ALLOWED_PATHS` 移除 popup，仅保留 reminder
 - [x] [V0] Bind 流程修复：CSP 合规（bind.js 外部化）、auth 变量冲突、cloud-sync token 守卫
