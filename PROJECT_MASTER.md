@@ -38,6 +38,11 @@
 - **放行规则**：V0 formal release 必须等剩余 System Recovery Release Gates 通过，或由 Product Owner 明确 waive 后才能发布。
 - **Workers: deployed and verified**
 - **Pages: deployed and verified**
+- **Terminal 默认网站清单链路：verified**
+  - Worker fix: `c864175`（`/device/config` 注入 `defaultStudySites/defaultCompositeSites/defaultRestrictedEntertainmentSites/defaultBlockedSites`）
+  - Worker deploy: `guardian-api`，Version ID `ae44552a-9b03-44f4-a14c-83d92d965028`
+  - Terminal sync fix: `028c941`（同版本 sync skip 时若本地缺默认清单则补齐持久化）
+  - Product Owner 手动验收：终端 `访问规则` 页面可见系统/默认学习网站清单；数据来自云同步；未引入本地硬编码默认清单；页面保持只读
 - **Chrome Web Store: NOT published** — separate future task, not in current scope
 
 ## 已知非阻塞残余项
