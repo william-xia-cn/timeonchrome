@@ -84,7 +84,7 @@
   // 操作按钮定义
   const actionDefs = {
     addComposite: {
-      label: '📝 临时加入学习网站', style: 'primary',
+      label: '📝 临时加入综合网站', style: 'primary',
       handler: function() {
         chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: domain }, function(result) {
           if (result && result.added) {
