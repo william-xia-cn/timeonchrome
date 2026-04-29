@@ -21,7 +21,11 @@ function parseArgs(argv) {
     allowSystemSleep: false,
     allowWorkstationLock: false,
     allowNetworkToggle: false,
+    manualNetworkToggle: false,
     networkAdapterName: null,
+    networkOfflineTimeoutSeconds: 120,
+    networkOnlineTimeoutSeconds: 120,
+    networkProbeUrl: null,
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -42,8 +46,16 @@ function parseArgs(argv) {
       args.allowWorkstationLock = true;
     } else if (arg === '--allowNetworkToggle') {
       args.allowNetworkToggle = true;
+    } else if (arg === '--manualNetworkToggle') {
+      args.manualNetworkToggle = true;
     } else if (arg === '--networkAdapterName' || arg.startsWith('--networkAdapterName=')) {
       args.networkAdapterName = arg.includes('=') ? arg.split('=')[1] : argv[++i];
+    } else if (arg === '--networkOfflineTimeoutSeconds' || arg.startsWith('--networkOfflineTimeoutSeconds=')) {
+      args.networkOfflineTimeoutSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 120;
+    } else if (arg === '--networkOnlineTimeoutSeconds' || arg.startsWith('--networkOnlineTimeoutSeconds=')) {
+      args.networkOnlineTimeoutSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 120;
+    } else if (arg === '--networkProbeUrl' || arg.startsWith('--networkProbeUrl=')) {
+      args.networkProbeUrl = arg.includes('=') ? arg.split('=')[1] : argv[++i];
     } else if (arg === '--preActiveSeconds' || arg.startsWith('--preActiveSeconds=')) {
       args.preActiveSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 60;
     } else if (arg === '--closedSeconds' || arg.startsWith('--closedSeconds=')) {
@@ -92,7 +104,11 @@ function printHelp() {
 
   network-offline 专用（RG-4，默认只做前置检查）:
   --allowNetworkToggle       【必须】允许进入网络切换流程
+  --manualNetworkToggle      使用操作者手动断网/联网验证；不要求管理员权限，不修改 adapter
   --networkAdapterName=<n>   目标网络适配器名称
+  --networkOfflineTimeoutSeconds=<n>  等待手动断网超时秒数 (默认: 120)
+  --networkOnlineTimeoutSeconds=<n>   等待手动联网超时秒数 (默认: 120)
+  --networkProbeUrl=<url>    自定义联网探测 URL
 
   sleep-wake 专用（发布验收测试，正式发布前手动执行）:
   --preActiveSeconds=<n>     睡眠前运行秒数 (默认: 30)
@@ -135,6 +151,9 @@ async function main() {
   } else if (args.scenario === 'network-offline') {
     console.log(`[runner] 网络适配器: ${args.networkAdapterName || '未指定'}`);
     if (args.allowNetworkToggle) console.log('[runner] 允许网络切换: 是');
+    if (args.manualNetworkToggle) console.log('[runner] 手动网络切换: 是');
+    console.log(`[runner] 等待断网超时: ${args.networkOfflineTimeoutSeconds} 秒`);
+    console.log(`[runner] 等待联网超时: ${args.networkOnlineTimeoutSeconds} 秒`);
   } else if (args.scenario === 'sleep-wake') {
     console.log(`[runner] 睡眠前运行: ${preActiveSeconds} 秒`);
     console.log(`[runner] OS 睡眠: ${args.sleepSeconds} 秒`);
@@ -180,7 +199,11 @@ async function main() {
     const { runNetworkOffline } = require('./scenarios/network-offline');
     result = await runNetworkOffline({
       allowNetworkToggle: args.allowNetworkToggle,
+      manualNetworkToggle: args.manualNetworkToggle,
       networkAdapterName: args.networkAdapterName,
+      networkOfflineTimeoutSeconds: args.networkOfflineTimeoutSeconds,
+      networkOnlineTimeoutSeconds: args.networkOnlineTimeoutSeconds,
+      networkProbeUrl: args.networkProbeUrl,
       verbose: args.verbose,
       outputDir: args.outputDir,
       userDataDir: args.userDataDir,
@@ -224,6 +247,12 @@ async function main() {
     process.exit(0);
   } else {
     console.error(`[runner] 结果: FAIL`);
+    if (result.jsonPath) {
+      console.error(`[runner] JSON 报告: ${result.jsonPath}`);
+    }
+    if (result.mdPath) {
+      console.error(`[runner] Markdown 报告: ${result.mdPath}`);
+    }
     if (result.summary?.error) {
       console.error(`[runner] 错误: ${result.summary.error}`);
     }

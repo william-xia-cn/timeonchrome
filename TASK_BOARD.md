@@ -16,7 +16,7 @@
 | RG-1 | Chrome close / reopen | PASS | `chrome-restart` formal bound-device Gate 已通过 |
 | RG-2 | Lock / Unlock | PASS | bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过 |
 | RG-3 | OS Sleep / Wake | PASS | 最后执行；本机为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过 |
-| RG-4 | Network Offline / Online | BLOCKED | bound profile 可用；已指定 `WLAN` 并提供 `--allowNetworkToggle`；当前会话缺少管理员权限，真实网络切换未执行 |
+| RG-4 | Network Offline / Online | BLOCKED | bound profile 可用；adapter 模式缺少管理员权限；`--manualNetworkToggle` 是可接受的 Codex Desktop 人工断网/联网执行路径，待真实运行 |
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包

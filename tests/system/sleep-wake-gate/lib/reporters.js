@@ -155,7 +155,11 @@ function writeMarkdownReport(data, outputDir) {
   } else if (scenario === 'lock-unlock') {
     lines.push('> 默认运行只执行前置检查；只有显式允许时才会触发 Windows 锁屏，需要操作者手动解锁。');
   } else if (scenario === 'network-offline') {
-    lines.push('> 默认运行只执行前置检查；不会擅自禁用网络适配器或修改网络状态。');
+    if (data.preflight?.mode === 'manual-network-toggle') {
+      lines.push('> 本次 RG-4 使用手动网络切换模式；runner 未调用 adapter disable/enable，只观察操作者执行的真实 offline/online。');
+    } else {
+      lines.push('> 默认运行只执行前置检查；不会擅自禁用网络适配器或修改网络状态。');
+    }
   }
 
   fs.writeFileSync(filepath, lines.join('\n'), 'utf-8');

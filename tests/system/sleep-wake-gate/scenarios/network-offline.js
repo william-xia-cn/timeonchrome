@@ -4,6 +4,8 @@
 // - Default run performs preflight/reporting only and never changes network state.
 // - OS-level adapter disable/enable requires admin rights and explicit operator
 //   control. The runner reports BLOCKED unless those requirements are satisfied.
+// - Manual network mode observes operator-driven disconnect/reconnect and never
+//   calls adapter disable/enable commands.
 
 const path = require('path');
 const { exec } = require('child_process');
@@ -15,6 +17,8 @@ const {
   extractTimingTrace,
 } = require('../lib/extractors');
 const { writeJsonReport, writeMarkdownReport } = require('../lib/reporters');
+
+const DEFAULT_NETWORK_PROBE_URL = 'https://guardian-api.william-xia-cn.workers.dev';
 
 function execText(command) {
   return new Promise(resolve => {
@@ -37,6 +41,82 @@ async function hasWindowsAdminRights() {
 
 function isWindows() {
   return process.platform === 'win32';
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function probeOnline(probeUrl = DEFAULT_NETWORK_PROBE_URL) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  const startedAt = Date.now();
+
+  try {
+    const resp = await fetch(probeUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    return {
+      online: true,
+      probeUrl,
+      status: resp.status,
+      elapsedMs: Date.now() - startedAt,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      online: false,
+      probeUrl,
+      status: null,
+      elapsedMs: Date.now() - startedAt,
+      error: err.message,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function waitForNetworkState({
+  desiredOnline,
+  timeoutSeconds,
+  probeUrl,
+  log,
+}) {
+  const observations = [];
+  const deadline = Date.now() + timeoutSeconds * 1000;
+
+  while (Date.now() <= deadline) {
+    const observation = await probeOnline(probeUrl);
+    observations.push({
+      at: new Date().toISOString(),
+      online: observation.online,
+      status: observation.status,
+      elapsedMs: observation.elapsedMs,
+      error: observation.error,
+    });
+
+    if (observation.online === desiredOnline) {
+      return {
+        observed: true,
+        observation,
+        observations,
+      };
+    }
+
+    log(
+      `[network-offline] 等待网络变为 ${desiredOnline ? 'online' : 'offline'}... ` +
+      `当前=${observation.online ? 'online' : 'offline'}`
+    );
+    await sleep(3000);
+  }
+
+  return {
+    observed: false,
+    observation: observations[observations.length - 1] || null,
+    observations,
+  };
 }
 
 async function writeReport({
@@ -81,7 +161,11 @@ async function writeReport({
 
 async function runNetworkOffline({
   allowNetworkToggle = false,
+  manualNetworkToggle = false,
   networkAdapterName = null,
+  networkOfflineTimeoutSeconds = 120,
+  networkOnlineTimeoutSeconds = 120,
+  networkProbeUrl = null,
   verbose = false,
   outputDir,
   userDataDir: explicitUserDataDir,
@@ -100,8 +184,9 @@ async function runNetworkOffline({
 
   const procedure = [
     '启动 Chrome 扩展上下文并读取绑定状态。',
-    '确认操作系统、管理员权限与目标网络适配器。',
-    '只有显式提供 --allowNetworkToggle 与 --networkAdapterName=<name> 时，才允许进入人工/管理员网络切换流程。',
+    '确认执行模式：手动网络切换或管理员适配器流程。',
+    '手动网络切换模式由操作者断开/恢复网络，runner 只通过探测观察 offline/online，不修改 adapter。',
+    '管理员适配器模式只有显式提供 --allowNetworkToggle 与 --networkAdapterName=<name> 时，才允许进入适配器流程。',
     '网络断开/恢复期间必须保持测试控制通道可恢复，并在恢复后读取 event-log/session/trace。',
   ];
 
@@ -110,24 +195,29 @@ async function runNetworkOffline({
     const preflight = {
       platform: process.platform,
       windowsRequired: true,
-      adminRequired: true,
+      mode: manualNetworkToggle ? 'manual-network-toggle' : 'admin-adapter-toggle',
+      adminRequired: !manualNetworkToggle,
       hasAdminRights: admin,
       allowNetworkToggle,
+      manualNetworkToggle,
       networkAdapterName: networkAdapterName || null,
+      networkProbeUrl: networkProbeUrl || DEFAULT_NETWORK_PROBE_URL,
+      networkOfflineTimeoutSeconds,
+      networkOnlineTimeoutSeconds,
       userDataDir,
       blockers: [],
     };
 
-    if (!isWindows()) {
-      preflight.blockers.push('network-offline gate currently requires Windows adapter control');
+    if (!isWindows() && !manualNetworkToggle) {
+      preflight.blockers.push('admin adapter network-offline gate currently requires Windows adapter control');
     }
-    if (!admin) {
+    if (!manualNetworkToggle && !admin) {
       preflight.blockers.push('missing administrator rights required for network adapter disable/enable');
     }
-    if (!allowNetworkToggle) {
+    if (!manualNetworkToggle && !allowNetworkToggle) {
       preflight.blockers.push('missing --allowNetworkToggle; runner will not modify network state by default');
     }
-    if (!networkAdapterName) {
+    if (!manualNetworkToggle && !networkAdapterName) {
       preflight.blockers.push('missing --networkAdapterName=<name> for the adapter to disable/enable');
     }
 
@@ -144,15 +234,20 @@ async function runNetworkOffline({
       preflight.blockers.push('device is not bound: missing cloud_device_token or cloud_profile_id');
     }
 
-    const eventLog = await extractEventLog(sw);
-    const session = await extractSession(sw);
-    const trace = await extractTimingTrace(sw);
+    const beforeEventLog = await extractEventLog(sw);
+    const beforeSession = await extractSession(sw);
+    const beforeTrace = await extractTimingTrace(sw);
 
     const validation = {
       networkToggled: false,
-      eventLogReadable: Array.isArray(eventLog),
-      sessionReadable: session === null || typeof session === 'object',
-      traceReadable: trace.success && Array.isArray(trace.trace),
+      mode: preflight.mode,
+      initialOnline: null,
+      offlineObserved: false,
+      onlineRestored: false,
+      eventLogReadable: Array.isArray(beforeEventLog),
+      sessionReadable: beforeSession === null || typeof beforeSession === 'object',
+      traceReadable: beforeTrace.success && Array.isArray(beforeTrace.trace),
+      recoveryStateReadable: false,
     };
 
     if (preflight.blockers.length > 0) {
@@ -165,6 +260,96 @@ async function runNetworkOffline({
         procedure,
         validation,
         result: 'BLOCKED',
+      });
+    }
+
+    if (manualNetworkToggle) {
+      const probeUrl = networkProbeUrl || DEFAULT_NETWORK_PROBE_URL;
+      const initialProbe = await probeOnline(probeUrl);
+      validation.initialOnline = initialProbe.online;
+      validation.initialProbe = initialProbe;
+
+      if (!initialProbe.online) {
+        preflight.blockers.push('initial online state was not observed before manual network gate');
+        return await writeReport({
+          outputDir,
+          extensionId,
+          sw,
+          bindingPreflight,
+          preflight,
+          procedure,
+          validation,
+          result: 'BLOCKED',
+        });
+      }
+
+      console.log('');
+      console.log('[network-offline] ============================================================');
+      console.log('[network-offline] 手动网络切换模式');
+      console.log('[network-offline] 请现在手动断开网络连接（例如关闭 Wi-Fi 或拔掉网络）。');
+      console.log(`[network-offline] runner 将等待最多 ${networkOfflineTimeoutSeconds} 秒观察 offline。`);
+      console.log('[network-offline] ============================================================');
+
+      const offlineWait = await waitForNetworkState({
+        desiredOnline: false,
+        timeoutSeconds: networkOfflineTimeoutSeconds,
+        probeUrl,
+        log,
+      });
+      validation.offlineObserved = offlineWait.observed;
+      validation.offlineProbe = offlineWait.observation;
+      validation.offlineObservationCount = offlineWait.observations.length;
+
+      if (!offlineWait.observed) {
+        return await writeReport({
+          outputDir,
+          extensionId,
+          sw,
+          bindingPreflight,
+          preflight,
+          procedure,
+          validation,
+          result: 'FAIL',
+        });
+      }
+
+      console.log('');
+      console.log('[network-offline] ============================================================');
+      console.log('[network-offline] 已观察到 offline。请现在手动恢复网络连接。');
+      console.log(`[network-offline] runner 将等待最多 ${networkOnlineTimeoutSeconds} 秒观察 online。`);
+      console.log('[network-offline] ============================================================');
+
+      const onlineWait = await waitForNetworkState({
+        desiredOnline: true,
+        timeoutSeconds: networkOnlineTimeoutSeconds,
+        probeUrl,
+        log,
+      });
+      validation.onlineRestored = onlineWait.observed;
+      validation.onlineProbe = onlineWait.observation;
+      validation.onlineObservationCount = onlineWait.observations.length;
+
+      const afterEventLog = await extractEventLog(sw);
+      const afterSession = await extractSession(sw);
+      const afterTrace = await extractTimingTrace(sw);
+      validation.eventLogReadable = Array.isArray(afterEventLog);
+      validation.sessionReadable = afterSession === null || typeof afterSession === 'object';
+      validation.traceReadable = afterTrace.success && Array.isArray(afterTrace.trace);
+      validation.recoveryStateReadable =
+        validation.eventLogReadable && validation.sessionReadable && validation.traceReadable;
+      validation.eventLogCountBefore = Array.isArray(beforeEventLog) ? beforeEventLog.length : null;
+      validation.eventLogCountAfter = Array.isArray(afterEventLog) ? afterEventLog.length : null;
+      validation.networkToggled = validation.offlineObserved && validation.onlineRestored;
+
+      return await writeReport({
+        outputDir,
+        extensionId,
+        sw,
+        bindingPreflight,
+        preflight,
+        procedure,
+        validation,
+        result: validation.networkToggled && validation.recoveryStateReadable ? 'PASS' : 'FAIL',
       });
     }
 
