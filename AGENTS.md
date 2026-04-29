@@ -353,3 +353,45 @@ timeonchrome/
 - music time 进入 V0
 - composite routing 延后到 V1
 - monitoring closeout 部分完成，继续按小包推进
+
+---
+
+## 10. Quota Budget Rule（配额节流规则）
+
+为节省 Codex 配额，默认采用最小工作模式；除非用户明确批准，不得主动扩展范围。
+
+### 10.1 Scope Control
+- 只做任务请求中明确要求的工作。
+- 不修复无关问题，不顺手改进，不做隐式重构。
+- 需要重构时必须先获得明确指令。
+- 发现无关问题时只记录为后续事项，不在当前任务中修改。
+
+### 10.2 File-Reading Budget
+- 仅读取 `Read first` 列出的文件与直接必要文件。
+- 默认禁止全仓扫描。
+- 若必须读取额外文件，先用一句话说明原因。
+
+### 10.3 Test Budget
+- 默认不跑广泛回归，不跑全量测试套件。
+- 未明确批准前不跑 Playwright E2E。
+- 未明确批准前不跑破坏性系统闸门测试。
+- 仅运行与改动文件直接相关的最小测试集合。
+- 若需要更大测试范围，先停止并给出“精确命令 + 原因”，等待批准。
+
+### 10.4 Execution Budget
+- 优先一次性最小补丁，避免多轮重复试错。
+- 同一失败命令最多尝试两次；两次失败后停止并报告阻塞。
+- 非必要不申请沙箱提权；仅在任务无法完成且确有必要时申请。
+
+### 10.5 Output Budget
+- 最终报告保持简短，仅包含：
+- changed files
+- summary
+- commands run
+- test result
+- commit hash if committed
+- remaining blockers
+- git status --short
+
+### 10.6 Stop Conditions
+- 出现以下任一情况必须停止并报告：任务需要扩大范围、涉及产品语义变更、需要破坏性测试、需要凭据、需要处理 Git 锁/权限问题、或需要重构。
