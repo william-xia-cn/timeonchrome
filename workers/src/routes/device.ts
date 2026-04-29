@@ -1,6 +1,7 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';
+import { siteAccessDefaults } from '../config/site-access-defaults';
 
 // 验证 device_token，可选同时刷新 last_seen；返回 profile_id 或 null
 async function verifyDeviceToken(
@@ -109,8 +110,22 @@ export const deviceRouter = {
         monitoringEnabled = deviceRow?.monitoring_enabled ?? 1;
       } catch (_) { /* column not yet migrated */ }
 
+      const configData = row?.config ? JSON.parse(row.config) : {};
+      if (!Array.isArray(configData.defaultStudySites)) {
+        configData.defaultStudySites = siteAccessDefaults.defaultStudySites;
+      }
+      if (!Array.isArray(configData.defaultCompositeSites)) {
+        configData.defaultCompositeSites = siteAccessDefaults.defaultCompositeSites;
+      }
+      if (!Array.isArray(configData.defaultRestrictedEntertainmentSites)) {
+        configData.defaultRestrictedEntertainmentSites = siteAccessDefaults.defaultRestrictedEntertainmentSites;
+      }
+      if (!Array.isArray(configData.defaultBlockedSites)) {
+        configData.defaultBlockedSites = siteAccessDefaults.defaultBlockedSites;
+      }
+
       return json({
-        data:               row?.config ? JSON.parse(row.config) : {},
+        data:               configData,
         version:            row?.version || 0,
         profile_id:         profileId,
         monitoring_enabled: monitoringEnabled,
