@@ -58,8 +58,8 @@ function printHelp() {
 
 选项:
   --scenario=<name>          选择测试场景 (默认: dry-run)
-                             可用: dry-run, chrome-restart
-                             占位: sleep-wake, network-offline
+                             可用: dry-run, chrome-restart, sleep-wake
+                             占位: network-offline
   --output-dir=<path>        报告输出目录 (默认: tests/system/sleep-wake-gate/reports)
   --user-data-dir=<path>     Chrome 用户数据目录 (复用绑定状态)
   --reset                    测试前重置 calibration 数据（若指定 --user-data-dir 会一并清理该目录）

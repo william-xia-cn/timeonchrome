@@ -2,11 +2,11 @@
 
 ## 项目状态
 - **版本：1.7.2**
-- **阶段：V0 release finalized / ready for non-Web-Store distribution**
-- 当前约束：仅做发布前收口，不扩展新功能
+- **阶段：V0 formal release blocked by System Recovery Release Gates**
+- 当前约束：仅做发布前收口与 Release Gate 验证，不扩展新功能
 
 ## 版本边界
-- **V0（已完成）**
+- **V0（功能冻结 / 发布闸门未完成）**
   - monitoring 核心短路（含全局门禁主路径）
   - 配置字段单一模型收口（`compositeList / studyList / unsafeList`）
   - Background Audio Time 最小版（`BACKGROUND_ACTIVE -> audioSeconds`）
@@ -21,15 +21,24 @@
   - 媒体时长 domain 维度：后台 audio/video 已补 `backgroundMediaByDomain` 明细，PiP 已补 `pipByDomain` 明细；摘要字段仅作总量展示
 
 ## V0 Release 1.7.2 状态
+- **V0 formal release: BLOCKED**
+- **当前 HEAD**：`7816f1c`
+- **V0 RC2 与 System Recovery runner infrastructure 已可用**
 - **RC 验证：passed**
   - RC tag: `v1.7.2-rc1` (commit `aa8de9e`)
   - RC smoke: 8/8 passed
   - Workers API tests: 55/55 passed
   - E2E tests: 11/11 passed
   - Background logic: 79/79 passed
+- **System Recovery Release Gates**
+  - RG-1 Chrome close / reopen: **PASS**
+  - RG-2 Lock / Unlock: **Pending**
+  - RG-3 OS Sleep / Wake: runner implemented；当前环境因 no S3 support 返回 **SKIP**；Gate **Pending**
+  - RG-4 Network Offline / Online: **Pending**
+- **放行规则**：V0 formal release 必须等剩余 System Recovery Release Gates 通过，或由 Product Owner 明确 waive 后才能发布。
 - **Workers: deployed and verified**
 - **Pages: deployed and verified**
-- **Chrome Web Store: NOT published** — separate future task
+- **Chrome Web Store: NOT published** — separate future task, not in current scope
 
 ## 已知非阻塞残余项
 - `admin/admin.html` 历史 local-console 命名 / 物理页面拆分，保留为 post-V0 cleanup (P2)

@@ -192,7 +192,7 @@ async function runChromeRestart({
         scenario: 'chrome-restart',
         timestamp: new Date().toISOString(),
         extensionVersion: '1.7.2',
-        commit: 'a4f2e06',
+        commit: process.env.GIT_COMMIT || null,
       },
       mockServer: {
         started: true,

@@ -7,7 +7,16 @@
 - [x] [V0] Worker/API readiness
 - [x] [V0] Stage 1 Soft Gate verification
 - [x] [V0] Phase 2 chrome-restart Gate runner + binding preflight + bound-device validation
-- [x] [V0] Phase 3 sleep-wake Gate runner — manual-wake Windows OS sleep validation（发布验收测试）
+- [ ] [V0] System Recovery Release Gates remaining validation（V0 formal release blocker）
+
+## System Recovery Release Gates（V0 formal release blocker）
+
+| Gate | 场景 | 状态 | 说明 |
+|------|------|------|------|
+| RG-1 | Chrome close / reopen | PASS | `chrome-restart` formal bound-device Gate 已通过 |
+| RG-2 | Lock / Unlock | Pending | 尚未实现独立场景；Release Gate 待验证 |
+| RG-3 | OS Sleep / Wake | Pending | Phase 3 `sleep-wake` runner implemented；当前环境因 no S3 support 返回 SKIP；Sleep/Wake Release Gate pending |
+| RG-4 | Network Offline / Online | Pending | `network-offline` 仍为占位；待隔离网络/权限方案 |
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包
@@ -50,6 +59,7 @@
 - [ ] [V1] composite routing（冻结到 V1）
 
 ## COMPLETED（V0）
+- [x] [V0] System Recovery runner infrastructure: dry-run, chrome-restart, sleep-wake runner paths
 - [x] [V0] Popup P0 UI 回正（删除 4 宫格/借用区/待定列表，模式按钮显示时长/配额，后台媒体纯数字行）
 - [x] [V0] Popup P0 借用路由修正：`BORROW_ALLOWED_PATHS` 移除 popup，仅保留 reminder
 - [x] [V0] Bind 流程修复：CSP 合规（bind.js 外部化）、auth 变量冲突、cloud-sync token 守卫
