@@ -9,16 +9,16 @@ TimeOnChrome V0 formal release 仍被 System Recovery Release Gates 阻塞。SR-
 - OS 睡眠/唤醒后扩展是否恢复
 - 网络断开/恢复后本地计时是否继续
 
-当前 HEAD：`7816f1c`
+当前 runner baseline：`9626a8c` 之后追加本轮 evidence/docs 更新。
 
 ## Release Gate 状态
 
 | Gate | 场景 | Runner 状态 | Gate 状态 | 说明 |
 |------|------|-------------|-----------|------|
 | RG-1 | Chrome close / reopen | `chrome-restart` 已实现 | **PASS** | formal bound-device Gate 已通过 |
-| RG-2 | Lock / Unlock | `lock-unlock` 已实现前置检查与报告；显式授权后可触发 Windows 锁屏 | **Pending** | 需要已绑定 profile；真实验证需要 `--allowWorkstationLock` 和操作者手动解锁 |
-| RG-3 | OS Sleep / Wake | `sleep-wake` 已实现 | **Pending** | 当前环境因 no S3 support 返回 SKIP；需在支持 S3 睡眠的物理机通过，或由 Product Owner 明确 waive |
-| RG-4 | Network Offline / Online | `network-offline` 已实现前置检查与报告 | **Pending** | 默认不修改网络；真实验证需要管理员权限、目标适配器名和已批准的隔离流程 |
+| RG-2 | Lock / Unlock | `lock-unlock` 已实现前置检查与报告；显式授权后可触发 Windows 锁屏 | **PASS** | bound profile 可用；真实 Windows lock + 手动 unlock 后恢复验证通过 |
+| RG-3 | OS Sleep / Wake | `sleep-wake` 已实现 | **PASS** | 最后执行；本机 S0 Modern Standby 真实 sleep/wake 后恢复验证通过 |
+| RG-4 | Network Offline / Online | `network-offline` 已实现前置检查与报告 | **BLOCKED** | bound profile 可用；当前缺少管理员权限，真实 adapter disable/enable 未执行 |
 
 ## 支持的场景
 
@@ -28,7 +28,7 @@ TimeOnChrome V0 formal release 仍被 System Recovery Release Gates 阻塞。SR-
 | `chrome-restart` | 支持 | Chrome close / reopen 恢复验证；RG-1 formal bound-device Gate 已通过 |
 | `lock-unlock` | 支持 | RG-2 前置检查与报告；默认 BLOCKED，不锁屏；显式 `--allowWorkstationLock` 后触发 Windows 锁屏并等待人工解锁 |
 | `network-offline` | 支持 | RG-4 前置检查与报告；默认 BLOCKED，不切换网络；需要管理员权限、`--allowNetworkToggle` 与 `--networkAdapterName=<name>` |
-| `sleep-wake` | 支持 | Windows OS sleep / wake 手工唤醒验证；runner 已实现，但当前环境 SKIP/no S3，RG-3 仍 pending |
+| `sleep-wake` | 支持 | Windows OS sleep / wake 手工唤醒验证；支持 S3 Standby 或 S0 Modern Standby；RG-3 已通过本轮真实验证 |
 
 ## 使用方式
 
@@ -148,7 +148,7 @@ tests/system/sleep-wake-gate/
 - 需要 `headless: false`（Chrome 扩展不支持 headless）
 - 未指定 `--user-data-dir` 时会创建新的 Chrome user data 目录并在结束后清理
 - `dry-run`、`chrome-restart`、`sleep-wake` 使用本地 mock HTTP server，不依赖外部网络页面
-- `sleep-wake` 依赖 Windows S3 睡眠支持；当前环境无 S3 support 时结果为 SKIP，不能视为 Gate pass
+- `sleep-wake` 依赖 Windows 可用睡眠模型；S3 Standby 与 S0 Modern Standby 均可作为真实 OS sleep/wake gate，若无可用睡眠状态则结果为 SKIP，不能视为 Gate pass
 - `lock-unlock` 默认只做前置检查；真实验证会锁定 Windows 工作站，需要手动解锁
 - `network-offline` 默认只做前置检查；真实网络切换需要管理员权限、目标适配器名和隔离流程，runner 不会默认禁用适配器
 - Playwright 版本需 ≥ 1.59.1
@@ -158,5 +158,5 @@ tests/system/sleep-wake-gate/
 1. 准备可复用 bound profile，保证 `cloud_device_token` / `cloud_profile_id` / `guardian_config` 可用。
 2. 在真实 Windows 环境执行 RG-2 Lock / Unlock，并手动解锁。
 3. 完成 RG-4 的适配器切换隔离方案，避免断网导致测试控制通道失联。
-4. 在支持 S3 睡眠的物理机上最后复验 RG-3 OS Sleep / Wake，或取得 Product Owner 明确 waive。
+4. 在支持 S3 Standby 或 S0 Modern Standby 的物理机上最后复验 RG-3 OS Sleep / Wake，或取得 Product Owner 明确 waive。
 5. V0 formal release 仅在剩余 Gates pass 或被 Product Owner 明确 waive 后放行。

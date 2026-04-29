@@ -329,7 +329,10 @@ function writeSleepWakeSections(lines, data) {
   lines.push('');
   lines.push(`| 项目 | 值 |`);
   lines.push(`|------|-----|`);
-  lines.push(`| 系统 S3 睡眠支持 | ${data.sleepSupport?.supported ? '支持' : '不支持'} |`);
+  lines.push(`| 系统睡眠支持 | ${data.sleepSupport?.supported ? '支持' : '不支持'} |`);
+  if (data.sleepSupport?.model) {
+    lines.push(`| 睡眠模型 | ${data.sleepSupport.model} |`);
+  }
   if (!data.sleepSupport?.supported) {
     lines.push(`| 不支持原因 | ${data.sleepSupport?.reason || 'N/A'} |`);
   }

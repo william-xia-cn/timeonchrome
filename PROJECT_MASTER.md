@@ -22,7 +22,7 @@
 
 ## V0 Release 1.7.2 状态
 - **V0 formal release: BLOCKED**
-- **最近确认的 System Recovery runner infrastructure commit**：`c76a238`
+- **最近确认的 System Recovery runner infrastructure commit**：`9626a8c`
 - **V0 RC2 与 System Recovery runner infrastructure 已可用**
 - **RC 验证：passed**
   - RC tag: `v1.7.2-rc1` (commit `aa8de9e`)
@@ -32,9 +32,9 @@
   - Background logic: 79/79 passed
 - **System Recovery Release Gates**
   - RG-1 Chrome close / reopen: **PASS**
-  - RG-2 Lock / Unlock: runner/preflight implemented；当前环境 **BLOCKED**（缺少 bound profile；默认未授权 `--allowWorkstationLock`；真实锁屏/手动解锁未执行）
-  - RG-3 OS Sleep / Wake: runner implemented；最后执行；当前环境 **BLOCKED**（缺少 bound profile，未进入 OS sleep）；系统 sleep model 为 S0 Modern Standby，S3 unavailable
-  - RG-4 Network Offline / Online: runner/preflight implemented；当前环境 **BLOCKED**（缺少 bound profile、管理员权限、显式 adapter name / `--allowNetworkToggle`；真实网络切换未执行）
+  - RG-2 Lock / Unlock: **PASS**（bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过）
+  - RG-3 OS Sleep / Wake: **PASS**（最后执行；本机 sleep model 为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过）
+  - RG-4 Network Offline / Online: **BLOCKED**（bound profile 可用；已指定 `WLAN` 并提供 `--allowNetworkToggle`；当前会话缺少管理员权限，真实网络切换未执行）
 - **放行规则**：V0 formal release 必须等剩余 System Recovery Release Gates 通过，或由 Product Owner 明确 waive 后才能发布。
 - **Workers: deployed and verified**
 - **Pages: deployed and verified**

@@ -14,9 +14,9 @@
 | Gate | 场景 | 状态 | 说明 |
 |------|------|------|------|
 | RG-1 | Chrome close / reopen | PASS | `chrome-restart` formal bound-device Gate 已通过 |
-| RG-2 | Lock / Unlock | BLOCKED | `lock-unlock` runner/preflight implemented；当前缺少 bound profile，且未显式授权 `--allowWorkstationLock`；真实锁屏/手动解锁未执行 |
-| RG-3 | OS Sleep / Wake | BLOCKED | `sleep-wake` 最后执行；当前缺少 bound profile，未进入 OS sleep；本机为 S0 Modern Standby，S3 unavailable |
-| RG-4 | Network Offline / Online | BLOCKED | `network-offline` runner/preflight implemented；当前缺少 bound profile、管理员权限、显式 adapter name / `--allowNetworkToggle`；真实网络切换未执行 |
+| RG-2 | Lock / Unlock | PASS | bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过 |
+| RG-3 | OS Sleep / Wake | PASS | 最后执行；本机为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过 |
+| RG-4 | Network Offline / Online | BLOCKED | bound profile 可用；已指定 `WLAN` 并提供 `--allowNetworkToggle`；当前会话缺少管理员权限，真实网络切换未执行 |
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包

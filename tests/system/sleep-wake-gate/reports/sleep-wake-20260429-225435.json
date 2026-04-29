@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "scenario": "sleep-wake",
+    "timestamp": "2026-04-29T14:54:35.062Z",
+    "extensionVersion": "1.7.2",
+    "commit": null
+  },
+  "mockServer": {
+    "started": true,
+    "url": "http://127.0.0.1:51991",
+    "closed": false
+  },
+  "phases": {
+    "preSleep": {
+      "durationSec": 10,
+      "session": {
+        "domain": "127.0.0.1",
+        "lastHeartbeat": 1777473786552,
+        "startTime": 1777473786552,
+        "state": "IDLE"
+      },
+      "eventLogCount": 109,
+      "traceCount": 507
+    },
+    "sleep": {
+      "guidanceSec": 30,
+      "observedElapsedSec": 5,
+      "sleepTriggerMode": "automatic",
+      "wakeMode": "manual"
+    },
+    "postWake": {
+      "durationSec": 10,
+      "session": {
+        "domain": "127.0.0.1",
+        "lastHeartbeat": 1777474472606,
+        "startTime": 1777474472606,
+        "state": "PASSIVE"
+      },
+      "eventLogCount": 119,
+      "traceCount": 541,
+      "stats": {
+        "127.0.0.1": 39,
+        "audioSeconds": 0,
+        "backgroundMediaByDomain": {},
+        "pipSeconds": 0,
+        "pipByDomain": {}
+      }
+    }
+  },
+  "browser": {
+    "loaded": true,
+    "extensionId": "hoelbdpoglmallgflolmommghdfjbdgn",
+    "serviceWorkerUrl": "chrome-extension://hoelbdpoglmallgflolmommghdfjbdgn/background.js",
+    "siteUrl": "http://127.0.0.1:51991"
+  },
+  "bindingPreflight": {
+    "bound": true,
+    "deviceTokenPresent": true,
+    "profileIdPresent": true,
+    "configAvailable": true,
+    "monitoringEnabled": false,
+    "mode": "study",
+    "isInitialized": false,
+    "blockers": [],
+    "action": "bound profile is available"
+  },
+  "sleepSupport": {
+    "supported": true,
+    "model": "S0 Modern Standby",
+    "reason": "系统支持 S0 Modern Standby"
+  },
+  "recovery": {
+    "endEvent": {
+      "domain": "127.0.0.1",
+      "state": "IDLE",
+      "time": 1777473786552,
+      "type": "END"
+    },
+    "lastHeartbeatBefore": 1777473786552,
+    "newEventsCount": 10,
+    "connectionSurvived": true
+  },
+  "validation": {
+    "chromeReachable": true,
+    "eventLogReadable": true,
+    "wakeAfterActivityWorks": true,
+    "recoverObserved": true,
+    "endTimeDeltaMs": 0,
+    "serviceWorkerSurvived": true,
+    "observedElapsedSec": 5
+  },
+  "result": "PASS"
+}
