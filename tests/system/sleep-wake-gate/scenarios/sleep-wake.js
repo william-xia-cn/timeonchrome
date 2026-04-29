@@ -28,6 +28,52 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function writeBlockedPreflightReport({
+  outputDir,
+  mockServerUrl,
+  extensionId,
+  sw,
+  bindingPreflight,
+  allowSystemSleep,
+  error,
+}) {
+  const reportData = {
+    meta: {
+      scenario: 'sleep-wake',
+      timestamp: new Date().toISOString(),
+      extensionVersion: '1.7.2',
+      commit: process.env.GIT_COMMIT || null,
+    },
+    mockServer: {
+      started: !!mockServerUrl,
+      url: mockServerUrl || null,
+      closed: false,
+    },
+    browser: {
+      loaded: !!sw,
+      extensionId: extensionId || null,
+      serviceWorkerUrl: sw?.url() || null,
+      siteUrl: mockServerUrl || null,
+    },
+    bindingPreflight,
+    preflight: {
+      allowSystemSleep,
+      blockers: [error],
+      action: bindingPreflight?.action || 'prepare a bound profile and pass --user-data-dir to the gate runner',
+    },
+    validation: {
+      sleepTriggered: false,
+      chromeReachable: false,
+      eventLogReadable: false,
+      wakeAfterActivityWorks: false,
+    },
+    result: 'BLOCKED',
+  };
+  const jsonPath = writeJsonReport(reportData, outputDir);
+  const mdPath = writeMarkdownReport(reportData, outputDir);
+  return { success: false, blocked: true, jsonPath, mdPath, summary: reportData };
+}
+
 /**
  * 检查系统是否支持 S3 睡眠
  * @returns {Promise<{ supported: boolean, reason: string }>}
@@ -152,10 +198,18 @@ async function runSleepWake({
     log('[sleep-wake] 绑定状态:', JSON.stringify(bindingPreflight));
 
     if (!bindingPreflight.bound) {
-      throw new Error(
+      const error =
         '设备未绑定（缺少 device_token 或 profile_id）。' +
-        'sleep-wake Gate 在未绑定状态下不应执行。'
-      );
+        'sleep-wake Gate 在未绑定状态下不应执行。';
+      return writeBlockedPreflightReport({
+        outputDir,
+        mockServerUrl,
+        extensionId,
+        sw,
+        bindingPreflight,
+        allowSystemSleep,
+        error,
+      });
     }
 
     log('[sleep-wake] 初始化 rest mode...');

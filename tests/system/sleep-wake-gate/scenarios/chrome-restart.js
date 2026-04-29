@@ -20,6 +20,49 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function writeBlockedPreflightReport({
+  outputDir,
+  mockServerUrl,
+  extensionId,
+  sw,
+  bindingPreflight,
+  error,
+}) {
+  const reportData = {
+    meta: {
+      scenario: 'chrome-restart',
+      timestamp: new Date().toISOString(),
+      extensionVersion: '1.7.2',
+      commit: process.env.GIT_COMMIT || null,
+    },
+    mockServer: {
+      started: !!mockServerUrl,
+      url: mockServerUrl || null,
+      closed: false,
+    },
+    browser: {
+      loaded: !!sw,
+      extensionId: extensionId || null,
+      serviceWorkerUrl: sw?.url() || null,
+      siteUrl: mockServerUrl || null,
+    },
+    bindingPreflight,
+    preflight: {
+      blockers: [error],
+      action: bindingPreflight?.action || 'prepare a bound profile and pass --user-data-dir to the gate runner',
+    },
+    validation: {
+      recoveryAttempted: false,
+      endEventFound: false,
+      closedTimeNotCounted: false,
+    },
+    result: 'BLOCKED',
+  };
+  const jsonPath = writeJsonReport(reportData, outputDir);
+  const mdPath = writeMarkdownReport(reportData, outputDir);
+  return { success: false, blocked: true, jsonPath, mdPath, summary: reportData };
+}
+
 /**
  * 执行 Phase 2 Chrome-Restart 验证
  * @param {Object} options
@@ -92,11 +135,18 @@ async function runChromeRestart({
     log('[chrome-restart] 绑定状态:', JSON.stringify(bindingPreflight));
 
     if (!bindingPreflight.bound) {
-      throw new Error(
+      const error =
         '设备未绑定（缺少 device_token 或 profile_id）。' +
         'chrome-restart / sleep-wake / network-offline Gate 在未绑定状态下不应执行。' +
-        '如需强制运行，请使用 dry-run 场景或先完成设备绑定。'
-      );
+        '如需强制运行，请使用 dry-run 场景或先完成设备绑定。';
+      return writeBlockedPreflightReport({
+        outputDir,
+        mockServerUrl,
+        extensionId,
+        sw,
+        bindingPreflight,
+        error,
+      });
     }
 
     log('[chrome-restart] 初始化 rest mode...');

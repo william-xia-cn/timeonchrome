@@ -22,7 +22,7 @@
 
 ## V0 Release 1.7.2 状态
 - **V0 formal release: BLOCKED**
-- **当前 HEAD**：`7816f1c`
+- **最近确认的 System Recovery runner infrastructure commit**：`c76a238`
 - **V0 RC2 与 System Recovery runner infrastructure 已可用**
 - **RC 验证：passed**
   - RC tag: `v1.7.2-rc1` (commit `aa8de9e`)
@@ -32,9 +32,9 @@
   - Background logic: 79/79 passed
 - **System Recovery Release Gates**
   - RG-1 Chrome close / reopen: **PASS**
-  - RG-2 Lock / Unlock: runner/preflight implemented；真实锁屏/手动解锁验证 **Pending**
-  - RG-3 OS Sleep / Wake: runner implemented；当前环境因 no S3 support 返回 **SKIP**；Gate **Pending**
-  - RG-4 Network Offline / Online: runner/preflight implemented；真实网络切换验证 **Pending**
+  - RG-2 Lock / Unlock: runner/preflight implemented；当前环境 **BLOCKED**（缺少 bound profile；默认未授权 `--allowWorkstationLock`；真实锁屏/手动解锁未执行）
+  - RG-3 OS Sleep / Wake: runner implemented；最后执行；当前环境 **BLOCKED**（缺少 bound profile，未进入 OS sleep）；系统 sleep model 为 S0 Modern Standby，S3 unavailable
+  - RG-4 Network Offline / Online: runner/preflight implemented；当前环境 **BLOCKED**（缺少 bound profile、管理员权限、显式 adapter name / `--allowNetworkToggle`；真实网络切换未执行）
 - **放行规则**：V0 formal release 必须等剩余 System Recovery Release Gates 通过，或由 Product Owner 明确 waive 后才能发布。
 - **Workers: deployed and verified**
 - **Pages: deployed and verified**
