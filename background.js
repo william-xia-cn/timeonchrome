@@ -18,22 +18,44 @@ import { computeAllDomains } from './core/aggregate.js';
 let currentContext = null;
 let badgeUpdateQueue = Promise.resolve();
 
+// ── SW 启动引导（幂等，覆盖 MV3 隐式重启场景）────────────────────────────────────
+
+let bootstrapPromise = null;
+
+async function bootstrapServiceWorker(reason) {
+  try {
+    await initSession();
+    await recover();
+    setupAlarms();
+  } catch (err) {
+    console.error(`[Bootstrap] failed (${reason}):`, err);
+    bootstrapPromise = null;
+    throw err;
+  }
+}
+
+function ensureBootstrapped(reason) {
+  if (!bootstrapPromise) {
+    bootstrapPromise = bootstrapServiceWorker(reason);
+  }
+  return bootstrapPromise;
+}
+
+// 模块级引导：SW 每次加载时立即执行（覆盖 onStartup/onInstalled 不触发的隐式重启）
+ensureBootstrapped('module-load');
+
 // ── SW 启动 → 先恢复 ──────────────────────────────────────────────────────────
 
 chrome.runtime.onStartup.addListener(async () => {
-  await initSession();
-  await recover();
+  await ensureBootstrapped('onStartup');
   await resetDailyLockedDomains(true);
-  setupAlarms();
   await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
 });
 
 // ── 安装/更新 ──────────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  await initSession();
-  await recover();
-  setupAlarms();
+  await ensureBootstrapped('onInstalled');
   await updateDeclarativeRules();
 
   if (details.reason === 'install') {
@@ -83,6 +105,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // ── 信号接入 → 上下文 → 状态 → 事件日志 ────────────────────────────────────────
 
 async function processTimingSignal(rawEvent) {
+  await ensureBootstrapped('signal');
   await emitTrace('signal_received', {
     source: 'signal',
     reason: rawEvent._reason || 'unknown',

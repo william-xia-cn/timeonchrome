@@ -64,11 +64,7 @@ async function getEvents() {
 async function appendEvent(event) {
   const events = await getEvents();
   events.push(event);
-  // Use the event's time for compression, not Date.now()
-  const now = event.time;
-  const MAX_RAW_WINDOW = 10 * 60 * 1000;
-  const filtered = events.filter(e => Math.abs(now - e.time) < MAX_RAW_WINDOW);
-  await mockLocalStorage.set({ [EVENT_LOG_KEY]: filtered });
+  await mockLocalStorage.set({ [EVENT_LOG_KEY]: events });
 }
 
 async function recover(fakeNow) {
@@ -85,17 +81,67 @@ async function recover(fakeNow) {
     endTime = now;
   }
 
-  await appendEvent({
-    type: EVENT_TYPE.END,
-    state: session.state,
-    domain: session.domain,
-    time: endTime,
-  });
+  // 幂等检查：如果最后一条已是同一段会话的 END，则不重复追加
+  const events = await getEvents();
+  const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+  const alreadyClosed = !!lastEvent &&
+    lastEvent.type === EVENT_TYPE.END &&
+    lastEvent.state === session.state &&
+    lastEvent.domain === session.domain &&
+    lastEvent.time === endTime;
+
+  if (!alreadyClosed) {
+    await appendEvent({
+      type: EVENT_TYPE.END,
+      state: session.state,
+      domain: session.domain,
+      time: endTime,
+    });
+  }
 
   await saveSession({
     state: null,
     domain: null,
     startTime: null,
+    lastHeartbeat: now,
+  });
+}
+
+// ── Inline transitionState logic (from runtime/session.js) ───────────────────
+
+async function transitionState(newState, newDomain) {
+  const session = await getSession();
+  if (!session) return;
+  const now = Date.now();
+
+  // 没变化直接忽略（抗抖）
+  if (session.state === newState && session.domain === newDomain) return;
+
+  // 1. 关闭旧事件
+  if (session.state && session.startTime) {
+    await appendEvent({
+      type: EVENT_TYPE.END,
+      state: session.state,
+      domain: session.domain,
+      time: now,
+    });
+  }
+
+  // 2. 开启新事件
+  if (newState) {
+    await appendEvent({
+      type: EVENT_TYPE.START,
+      state: newState,
+      domain: newDomain,
+      time: now,
+    });
+  }
+
+  // 3. 更新 session
+  await saveSession({
+    state: newState,
+    domain: newDomain,
+    startTime: newState ? now : null,
     lastHeartbeat: now,
   });
 }
@@ -367,6 +413,67 @@ section('Recovery: 完整时长计算验证（休眠场景）');
   expect('END 事件类型正确', events[0].type, 'END');
   // delta = 2h > 90s → 休眠 → endTime = lastHeartbeat
   expect('END 事件时间 = lastHeartbeat（2 小时前）', events[0].time, twoHoursAgo);
+}
+
+// ── SR-1: MV3 隐式 SW 重启后 recover 截断 stale session，transitionState 不重复关闭 ──
+
+section('SR-1: MV3 implicit SW restart — bootstrap recovers stale session before transitionState');
+
+{
+  resetStorage();
+
+  const baseTime = 1000000;
+  const twoHoursAgo = baseTime - 2 * 60 * 60 * 1000;
+
+  // 1. 模拟 SW 死亡前遗留的 stale ACTIVE session
+  await mockSessionStorage.set({
+    [SESSION_KEY]: {
+      state: 'ACTIVE',
+      domain: 'youtube.com',
+      startTime: twoHoursAgo,
+      lastHeartbeat: twoHoursAgo,
+    }
+  });
+
+  // 预写对应的 START 事件
+  await mockLocalStorage.set({
+    [EVENT_LOG_KEY]: [
+      { type: 'START', state: 'ACTIVE', domain: 'youtube.com', time: twoHoursAgo }
+    ]
+  });
+
+  // 2. 模拟模块级 bootstrap（调用 recover）——覆盖 onStartup/onInstalled 不触发的隐式重启
+  await recover(baseTime);
+
+  // 3. recover 应截断 stale session，END 时间 = lastHeartbeat（不是当前时间）
+  const eventsAfterRecover = await getEvents();
+  expect('SR-1: recover 产生 1 个 END 事件', eventsAfterRecover.length, 2);
+  const endEvent = eventsAfterRecover.find(e => e.type === 'END');
+  expect('SR-1: END 时间截断到 lastHeartbeat', endEvent.time, twoHoursAgo);
+  expect('SR-1: END 状态正确', endEvent.state, 'ACTIVE');
+  expect('SR-1: END 域名正确', endEvent.domain, 'youtube.com');
+
+  const sessionAfterRecover = await getSession();
+  expectTrue('SR-1: recover 后 session.state 为 null', sessionAfterRecover.state === null);
+  expectTrue('SR-1: recover 后 session.domain 为 null', sessionAfterRecover.domain === null);
+
+  // 4. 模拟后续信号触发 transitionState（domain 切换）
+  // 由于 session 已被重置，transitionState 不应产生额外的 stale END
+  const originalNow = Date.now;
+  Date.now = () => baseTime;
+  await transitionState('ACTIVE', 'google.com');
+  Date.now = originalNow;
+
+  const eventsAfterTransition = await getEvents();
+  expect('SR-1: transitionState 后总共 3 个事件（START + recover END + 新 START）', eventsAfterTransition.length, 3);
+
+  const endEvents = eventsAfterTransition.filter(e => e.type === 'END');
+  expect('SR-1: 只有 1 个 END 事件（recover 产生的，transitionState 未重复关闭）', endEvents.length, 1);
+
+  const startEvents = eventsAfterTransition.filter(e => e.type === 'START');
+  expect('SR-1: 有 2 个 START 事件', startEvents.length, 2);
+  expect('SR-1: 第二个 START 域名正确', startEvents[1].domain, 'google.com');
+  expect('SR-1: 第二个 START 时间正确', startEvents[1].time, baseTime);
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────
