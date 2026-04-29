@@ -1445,7 +1445,31 @@ function mergeStatsRange(rangeData) {
 }
 
 async function renderStatsPage() {
-  // 拉取今日和本周数据
+  const setStatsEmptyState = () => {
+    renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
+    renderOverviewList('week-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
+    document.getElementById('today-timeline').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
+    document.getElementById('week-daily-bars').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
+    renderRankList('today-rank-list', {}, 5);
+    renderRankList('week-rank-list', {}, 5);
+    renderUndeterminedList('today-undetermined-list', []);
+    renderUndeterminedList('week-undetermined-list', []);
+  };
+
+  const safeMsg = async (message, fallback) => {
+    try {
+      const result = await sendMsg(message);
+      return result ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  if (!config || typeof config !== 'object') {
+    setStatsEmptyState();
+    return;
+  }
+
   const [
     todayRangeData,
     weekRangeData,
@@ -1453,15 +1477,22 @@ async function renderStatsPage() {
     weekSessions,
     weeklyRes
   ] = await Promise.all([
-    sendMsg({ type: 'GET_STATS_RANGE', days: 1 }),
-    sendMsg({ type: 'GET_STATS_RANGE', days: 7 }),
-    sendMsg({ type: 'GET_VISIT_SESSIONS', days: 1 }),
-    sendMsg({ type: 'GET_VISIT_SESSIONS', days: 7 }),
-    sendMsg({ type: 'GET_WEEKLY_SESSIONS' })
+    safeMsg({ type: 'GET_STATS_RANGE', days: 1 }, {}),
+    safeMsg({ type: 'GET_STATS_RANGE', days: 7 }, {}),
+    safeMsg({ type: 'GET_VISIT_SESSIONS', days: 1 }, []),
+    safeMsg({ type: 'GET_VISIT_SESSIONS', days: 7 }, []),
+    safeMsg({ type: 'GET_WEEKLY_SESSIONS' }, { sessions: [] })
   ]);
 
-  const todayData = splitStatsDay(Object.values(todayRangeData)[Object.keys(todayRangeData).length - 1] || {});
-  const weekData  = mergeStatsRange(weekRangeData);
+  const todayRangeSafe = todayRangeData && typeof todayRangeData === 'object' ? todayRangeData : {};
+  const weekRangeSafe = weekRangeData && typeof weekRangeData === 'object' ? weekRangeData : {};
+  const todaySessionsSafe = Array.isArray(todaySessions) ? todaySessions : [];
+  const weekSessionsSafe = Array.isArray(weekSessions) ? weekSessions : [];
+  const weeklySessionsSafe = Array.isArray(weeklyRes?.sessions) ? weeklyRes.sessions : [];
+
+  const todayValues = Object.values(todayRangeSafe);
+  const todayData = splitStatsDay(todayValues[todayValues.length - 1] || {});
+  const weekData  = mergeStatsRange(weekRangeSafe);
 
   // ── 设置列标题日期 ──
   const now = new Date();
@@ -1484,10 +1515,10 @@ async function renderStatsPage() {
   renderOverviewList('week-overview-list', weekOverview);
 
   // ── 今日时间轴 ──
-  renderTimeline('today-timeline', todaySessions);
+  renderTimeline('today-timeline', todaySessionsSafe);
 
   // ── 本周每日分布 ──
-  renderDailyBars('week-daily-bars', weekRangeData);
+  renderDailyBars('week-daily-bars', weekRangeSafe);
 
   // ── 今日网站排行 ──
   renderRankList('today-rank-list', todayData.domainStats, 5);
@@ -1497,11 +1528,11 @@ async function renderStatsPage() {
 
   // ── 今日待归类 ──
   const todayStr = now.toISOString().slice(0, 10);
-  const todayUndetermined = (weeklyRes?.sessions || []).filter(s => s.date === todayStr);
+  const todayUndetermined = weeklySessionsSafe.filter(s => s.date === todayStr);
   renderUndeterminedList('today-undetermined-list', todayUndetermined);
 
   // ── 本周待归类 ──
-  renderUndeterminedList('week-undetermined-list', weeklyRes?.sessions || []);
+  renderUndeterminedList('week-undetermined-list', weeklySessionsSafe);
 }
 
 function computeOverview(data) {
