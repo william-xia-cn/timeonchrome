@@ -282,16 +282,44 @@ async function reevaluateActiveTabAfterModeSwitch() {
 async function closeNonStudyPictureInPicture(config) {
   const tabs = await chrome.tabs.query({});
   const studyList = config.studyList || [];
+  const compositeList = config.compositeList || [];
+  const restrictedList = config.restrictedEntertainmentList || [];
+  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
+  const quotaState = config.quotaState || {};
+  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+
+  if (currentMode !== 'study') return;
+
+  const shouldClosePiPForDomain = (domain) => {
+    const isUnsafe = unsafeList.some(p => matchDomain(domain, p));
+    if (isUnsafe) return true;
+
+    const isRestricted = restrictedList.some(p => matchDomain(domain, p));
+    if (isRestricted) return true;
+
+    if (quotaState.onlineLocked) return true;
+
+    const isStudy = studyList.some(p => matchDomain(domain, p));
+    const isComposite = compositeList.some(p => matchDomain(domain, p));
+
+    if (isStudy) {
+      return !!quotaState.studyLocked;
+    }
+    if (isComposite) {
+      return !!quotaState.undeterminedLocked;
+    }
+    return true;
+  };
+
   for (const tab of tabs) {
     if (!tab?.id || !tab.url) continue;
     const domain = extractDomain(tab.url);
     if (!domain) continue;
-    const isStudy = studyList.some(p => matchDomain(domain, p));
-    if (isStudy) continue;
+    if (!shouldClosePiPForDomain(domain)) continue;
 
     try {
       if (chrome.scripting?.executeScript) {
-        await chrome.scripting.executeScript({
+        const result = await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
           func: async () => {
             try {
@@ -303,6 +331,10 @@ async function closeNonStudyPictureInPicture(config) {
             return false;
           },
         });
+        const closedByScript = Array.isArray(result) && result.some((entry) => entry?.result === true);
+        if (!closedByScript) {
+          await chrome.tabs.sendMessage(tab.id, { type: 'EXIT_PIP' }).catch(() => {});
+        }
       } else {
         await chrome.tabs.sendMessage(tab.id, { type: 'EXIT_PIP' });
       }
