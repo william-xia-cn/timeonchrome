@@ -1444,6 +1444,25 @@ function mergeStatsRange(rangeData) {
   return { domainStats: merged, audioSeconds, pipSeconds };
 }
 
+function getLocalDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function normalizeTimelineSessionsFromWeekly(sessions, todayKey) {
+  if (!Array.isArray(sessions)) return [];
+  return sessions
+    .filter((s) => s && s.date === todayKey)
+    .map((s) => {
+      const rawStart = s.startAt ?? s.start_time ?? s.startTime ?? null;
+      const startAt = Number.isFinite(rawStart) ? Number(rawStart) : null;
+      const duration = Number(s.duration ?? s.durationSec ?? s.seconds ?? 0) || 0;
+      const cls = String(s.classification || '').toLowerCase();
+      const state = cls === 'study' ? 'ACTIVE' : cls === 'rest' ? 'PASSIVE' : 'UNKNOWN';
+      return { startAt, duration, state };
+    })
+    .filter((s) => Number.isFinite(s.startAt) && s.duration > 0);
+}
+
 async function renderStatsPage() {
   const setStatsEmptyState = () => {
     renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
@@ -1489,6 +1508,10 @@ async function renderStatsPage() {
   const todaySessionsSafe = Array.isArray(todaySessions) ? todaySessions : [];
   const weekSessionsSafe = Array.isArray(weekSessions) ? weekSessions : [];
   const weeklySessionsSafe = Array.isArray(weeklyRes?.sessions) ? weeklyRes.sessions : [];
+  const todayKey = getLocalDateKey();
+  const timelineSessions = todaySessionsSafe.length > 0
+    ? todaySessionsSafe
+    : normalizeTimelineSessionsFromWeekly(weeklySessionsSafe, todayKey);
 
   const todayValues = Object.values(todayRangeSafe);
   const todayData = splitStatsDay(todayValues[todayValues.length - 1] || {});
@@ -1515,7 +1538,7 @@ async function renderStatsPage() {
   renderOverviewList('week-overview-list', weekOverview);
 
   // ── 今日时间轴 ──
-  renderTimeline('today-timeline', todaySessionsSafe);
+  renderTimeline('today-timeline', timelineSessions);
 
   // ── 本周每日分布 ──
   renderDailyBars('week-daily-bars', weekRangeSafe);
@@ -1527,7 +1550,7 @@ async function renderStatsPage() {
   renderRankList('week-rank-list', weekData.domainStats, 5);
 
   // ── 今日待归类 ──
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayStr = getLocalDateKey(now);
   const todayUndetermined = weeklySessionsSafe.filter(s => s.date === todayStr);
   renderUndeterminedList('today-undetermined-list', todayUndetermined);
 
@@ -1573,15 +1596,25 @@ function renderOverviewList(id, overview) {
 function renderTimeline(id, sessions) {
   const el = document.getElementById(id);
   if (!el) return;
+  if (!Array.isArray(sessions) || sessions.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无时间轴数据</div>';
+    return;
+  }
 
   // 按小时聚合，并标记主要状态
   const hourData = new Array(24).fill(0);
   const hourState = new Array(24).fill(null);
   for (const s of sessions) {
+    if (!Number.isFinite(s?.startAt) || !Number.isFinite(s?.duration) || s.duration <= 0) continue;
     const h = new Date(s.startAt).getHours();
+    if (!Number.isFinite(h) || h < 0 || h > 23) continue;
     hourData[h] += s.duration;
     if (!hourState[h]) hourState[h] = s.state;
     else if (s.state === 'ACTIVE' && hourState[h] !== 'ACTIVE') hourState[h] = 'ACTIVE';
+  }
+  if (!hourData.some(v => v > 0)) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无时间轴数据</div>';
+    return;
   }
   const maxVal = Math.max(...hourData, 1);
 
