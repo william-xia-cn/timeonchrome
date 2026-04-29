@@ -1219,9 +1219,13 @@ function renderRulesPage() {
     effectiveList: config?.unsafeList || config?.blacklist,
     systemList: pickFirstArrayField(config, [
       'defaultBlockedSites',
+      'defaultBlockedList',
       'defaultUnsafeSites',
+      'defaultUnsafeList',
       'systemConfiguredBlockedSites',
+      'systemConfiguredBlockedList',
       'systemConfiguredUnsafeSites',
+      'systemConfiguredUnsafeList',
     ]),
     customList: config?.customBlockedSites,
   });

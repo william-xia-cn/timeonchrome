@@ -84,9 +84,13 @@ function normalizeCloudRulesConfig(cloudConfig) {
   ]);
   const defaultBlockedSites = pickFirstArray(cfg, [
     'defaultBlockedSites',
+    'defaultBlockedList',
     'defaultUnsafeSites',
+    'defaultUnsafeList',
     'systemConfiguredBlockedSites',
+    'systemConfiguredBlockedList',
     'systemConfiguredUnsafeSites',
+    'systemConfiguredUnsafeList',
   ]);
 
   if (defaultStudySites) cfg.defaultStudySites = defaultStudySites;
@@ -132,9 +136,13 @@ const DEFAULT_SITE_LIST_FIELD_GROUPS = {
   ],
   blocked: [
     'defaultBlockedSites',
+    'defaultBlockedList',
     'defaultUnsafeSites',
+    'defaultUnsafeList',
     'systemConfiguredBlockedSites',
+    'systemConfiguredBlockedList',
     'systemConfiguredUnsafeSites',
+    'systemConfiguredUnsafeList',
   ],
 };
 
