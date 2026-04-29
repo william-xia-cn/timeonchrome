@@ -1,13 +1,11 @@
 # TASK_BOARD
 
 ## NOW（P0）
-- [x] [V0] 发布环境复验执行包文档落成（标准检查清单）
-- [x] [V0] 发布闸门复验：API 测试通过（发布环境）
-  - 2026-04-28: `tests/api/workers.test.js` → 53/53 passed
-- [x] [V0] 发布闸门复验：E2E 测试通过（发布环境）
-  - 2026-04-28: `tests/e2e/extension.test.js` → 11/11 passed (24.3s)
-- [x] [V0] Monitoring 收口剩余项（以用户可感知副作用为优先）
-- [x] [V0] Background Audio Time 最小闭环（`BACKGROUND_ACTIVE -> audioSeconds`）
+- [x] [V0] V0 RC package validation
+- [x] [V0] RC internal install validation (Chrome unpacked)
+- [x] [V0] Pages deployment readiness
+- [x] [V0] Worker/API readiness
+- [x] [V0] Stage 1 Soft Gate verification
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包
@@ -19,17 +17,20 @@
     - 孩子是否应访问详细使用分析统计？（当前已通过 Soft Gate 允许）
     - 未绑定设备时，孩子应看到什么操作入口？（当前显示简化提示"请联系家长完成设备绑定"）
   - Stage 2（V1 规划）：新建独立 `terminal/usage.html` 孩子只读页，彻底拆分 admin.html 的家长 setup 职责 → 见 P2 项
+- [ ] **[Later/P1 or P2] Chrome Web Store submission** — separate future task, not part of this release closeout
 
 ## LATER（P2）
 - [ ] [V1] 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐
 - [ ] [V1] 工程性优化票（非用户价值主线）
 - [ ] **[Pending PO D-015] 申诉/审核语义终审（使用分析页面 / 终端 UI）**：使用分析页面与待归类列表中的"申诉/待审核/申诉中/已改判/标为学习/标为休息"概念需 Product Owner 决策——从终端 UI 隐藏、只读展示、保留孩子侧申诉、或仅保留在家长控制台
-- [ ] **[P2] admin/admin.html 混合页面拆分决策**：
+- [ ] **[P2] Stage 2 local terminal/admin naming or physical split cleanup**：
   - 当前状态：`admin/admin.html` 同时承载：
     1. 孩子只读统计（使用分析、访问规则查看、本机状态）
     2. 家长 setup 操作（登录/注册/绑定/重绑）
   - 待决策：是否拆分为独立的孩子终端统计页 vs 家长 setup 页
   - 约束：不阻塞 V0 发布
+- [ ] **[P2] disposable/old profile cleanup if still relevant**
+- [ ] **[P2] formalize RC smoke test as permanent E2E if desired**
 - [ ] **[P1/P2] 设备失联邮件通知方案待定**
   - 当前已完成：家长端设备健康状态 UI 文案与阈值修正（`deviceStatusInfo` 概率性文案）。
   - 当前未完成：设备失联 / 心跳超时后的邮件通知策略。

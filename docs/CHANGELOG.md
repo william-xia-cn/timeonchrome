@@ -4,18 +4,59 @@
 
 ## [Unreleased]
 
-### 修复
-- **CORS 预flight 缺少 PATCH 方法**：`workers/src/index.ts` `Access-Control-Allow-Methods` 补充 `PATCH`，修复浏览器端档案改名、设备重命名、监控开关等 PATCH 请求报 "Failed to fetch" 的问题
-- **PATCH /profiles/:id 响应不一致**：后端现在返回更新后的完整 `profile` 对象，与 `POST /profiles` 保持一致，前端无需 fallback 即可更新本地状态
-
 ---
 
-## [1.7.2] — 2026-04-24
+## [1.7.2] — 2026-04-29
 
 ### 修复
 - **无痕模式提醒页无法加载**：`manifest.json` `"incognito"` 从 `"spanning"` 改为 `"split"`，Chrome MV3 下无痕标签页可正常加载 `reminder.html` 等扩展页面
 - **Service Worker 隔离**：常规/无痕模式各自独立 SW 实例，`chrome.storage.session` 会话快照隔离，互不干扰
 - **动态 import() 在 SW 中不允许**：`infra/cloud-sync.js` 改为静态 import
+- **CORS 预flight 缺少 PATCH 方法**：`workers/src/index.ts` `Access-Control-Allow-Methods` 补充 `PATCH`，修复浏览器端档案改名、设备重命名、监控开关等 PATCH 请求报 "Failed to fetch" 的问题
+- **PATCH /profiles/:id 响应不一致**：后端现在返回更新后的完整 `profile` 对象，与 `POST /profiles` 保持一致，前端无需 fallback 即可更新本地状态
+
+### 网站访问默认清单对齐
+- `defaultStudySites` = 149 域名，系统配置合并后 `studyList` = 155
+- `defaultCompositeSites` = 24 域名（含 7 个 vendor/support 例外 D-016），系统配置合并后 `compositeList` = 24
+- `defaultRestrictedEntertainmentSites` = 14 域名
+- `defaultBlockedSites` = 2 域名
+- 新建 API profile 时默认配置立即生效，无需等待首次 `PUT /config`
+
+### Worker config/default fixes
+- 修正 `dailyOnlineQuota=0`（不限）、`dailyStudyQuota=0`（不限）、`dailyRestQuota=120`、`dailyUndeterminedQuota=60`
+- `mergeWithDefaults()` 在 `device/bind` 时即合并系统配置 + 自定义配置，确保新建 profile 的有效清单立即可用
+- `PUT /device/config` 自动递增 `version`，增量同步可靠
+
+### UI / 术语
+- **使用分析 今日/本周整合**：管理面板「使用分析」页合并今日与本周统计，避免信息重复
+- **后台媒体 = audioSeconds + pipSeconds**：popup 与 admin 统计行展示后台媒体总时长，包含音频与 PiP
+- **待归类 terminology cleanup**：
+  - `待定时长` → `待归类时长`
+  - `待定网站` → `待归类网站`
+  - `学习目录` → `学习网站`
+  - admin 待归类列表中 `待审核` / `申诉中` 统一显示为 `待归类`（D-015 占位，待 PO 终审）
+- 家长控制台 UI：系统配置区域默认折叠，可展开查看；自定义区域默认展开，便于编辑
+
+### Stage 1 Soft Gate
+- 孩子端入口（popup 设置按钮、未绑定横幅、reminder 查看详情）通过 `?view=stats` 以只读模式打开 `admin/admin.html`
+- `admin/admin.js` 添加 `isChildView` 分支，隐藏 login / register / bind / logout / rebind 等家长控件
+- 未绑定设备时显示简化提示「设备未绑定，请联系家长完成设备绑定」，不暴露登录表单
+
+### 部署
+- **Pages console deployed**：家长控制台 `timeonchrome-console` 已部署至 Cloudflare Pages
+- **Workers deployed and verified**：`guardian-api` 后端运行中，D1 / KV / R2 正常
+
+### RC 验证
+- RC tag: `v1.7.2-rc1` (commit `aa8de9e`)
+- RC smoke tests: 8/8 passed
+- Workers API tests: 55/55 passed
+- E2E tests: 11/11 passed
+- Background logic tests: 79/79 passed
+- **No V0 blockers found**
+
+### 发布说明
+- **Chrome Web Store NOT published** — 本次 release closeout 任务仅生成本地 release artifact，Web Store 提交为独立 future task
+- V0 版本 1.7.2 已完成发布状态归档，准备用于非 Web Store 分发（如手动加载 unpacked extension）
 
 ### 影响
 - `chrome.storage.session`：常规/无痕各自维护独立 session，SW 重启恢复仅作用于当前上下文

@@ -1,8 +1,8 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- 阶段：**V0 Gate Check（发布闸门核查中）**
-- 当前主线：V0 发布闸门核查 + 文档口径收口
+- **版本：1.7.2**
+- **阶段：V0 release finalized / ready for non-Web-Store distribution**
 - 当前约束：仅做发布前收口，不扩展新功能
 
 ## 版本边界
@@ -11,9 +11,8 @@
   - 配置字段单一模型收口（`compositeList / studyList / unsafeList`）
   - Background Audio Time 最小版（`BACKGROUND_ACTIVE -> audioSeconds`）
   - dev-reset 工具页（dev-only）
-- **V0（计时准确性收口新增关注）**
   - 真实 Chrome 前台 ACTIVE 计时、失焦/最小化、多窗口、badge 今日时长已进入本地验收
-  - 跨自然日计时统计口径定为“按自然日切分”，聚合层已补最小实现与单元测试
+  - 跨自然日计时统计口径定为"按自然日切分"，聚合层已补最小实现与单元测试
 - **V1（后续）**
   - composite routing（明确延后）
   - 更精细分类能力（超出 V0 最小收口范围）
@@ -21,16 +20,21 @@
   - PiP timing support：最小闭环已补；`PIP_ACTIVE` 单独聚合到 `pipSeconds / pipByDomain`，不混入普通在线/ACTIVE 或后台媒体时长；切换学习模式时会尝试关闭非学习网站 PiP
   - 媒体时长 domain 维度：后台 audio/video 已补 `backgroundMediaByDomain` 明细，PiP 已补 `pipByDomain` 明细；摘要字段仅作总量展示
 
-## 发布闸门判定（V0）
-1. 关键能力已闭环并通过全量 unit 验证
-2. API / E2E 在可执行发布环境可复现通过 ✅
-   - API 测试：`tests/api/workers.test.js` → 53/53 passed（2026-04-28，发布环境）
-   - E2E 测试：`tests/e2e/extension.test.js` → 11/11 passed，24.3s（2026-04-28，发布环境）
-3. 保持 cloudHeartbeat（已定产品决策，非 V0 缺口）
+## V0 Release 1.7.2 状态
+- **RC 验证：passed**
+  - RC tag: `v1.7.2-rc1` (commit `aa8de9e`)
+  - RC smoke: 8/8 passed
+  - Workers API tests: 55/55 passed
+  - E2E tests: 11/11 passed
+  - Background logic: 79/79 passed
+- **Workers: deployed and verified**
+- **Pages: deployed and verified**
+- **Chrome Web Store: NOT published** — separate future task
 
-## V0 发布闸门状态
-- **发布闸门复验已通过**：API 与 E2E 在发布环境均通过
-- **尚未标记为已发布**：等待 Product Owner 最终发布决策
+## 已知非阻塞残余项
+- `admin/admin.html` 历史 local-console 命名 / 物理页面拆分，保留为 post-V0 cleanup (P2)
+- D-015 申诉/审核语义待 Product Owner 终审 (Pending PO)
+- 旧 profiles 清理为 optional / P2
 
 ## 非目标（当前）
 - 不做大重构
