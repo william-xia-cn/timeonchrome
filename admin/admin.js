@@ -967,131 +967,210 @@ function renderDomainTagsReadOnly(containerId, domains) {
   ).join('');
 }
 
-function updateListCounts() {
-  const ul = (config.unsafeList || config.blacklist || []).length;
-  const sl = (config.studyList  || []).length;
-  const al = (config.compositeList || []).length;
-  const ucEl = document.getElementById('unsafelist-count');
-  const scEl = document.getElementById('studylist-count');
-  const acEl = document.getElementById('allowlist-count');
-  if (ucEl) ucEl.textContent = ul ? `共 ${ul} 条` : '';
-  if (scEl) scEl.textContent = sl ? `共 ${sl} 条` : '';
-  if (acEl) acEl.textContent = al ? `共 ${al} 条` : '';
-}
-
 // ── 访问规则页（只读）───────────────────────────────────────────────────────
 
-function renderRulesPage() {
-  // 模式说明（不再区分白名单/黑名单，统一说明）
-  const modeDescEl = document.getElementById('rules-mode-desc');
-  if (modeDescEl) {
-    modeDescEl.textContent = '学习模式下仅允许学习网站，休息模式下所有网站可访问';
+const QUOTA_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const QUOTA_DAY_LABELS = {
+  monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四',
+  friday: '周五', saturday: '周六', sunday: '周日',
+};
+
+function normalizeDomainList(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function renderSiteGroup(containerId, options) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const systemList = normalizeDomainList(options.systemList);
+  const customList = normalizeDomainList(options.customList);
+  const effectiveList = normalizeDomainList(options.effectiveList);
+  const hasHierarchy = systemList.length > 0 || customList.length > 0;
+
+  const renderTagList = (domains, muted) => {
+    if (!domains.length) return '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+    return `<div class="domains-container">${domains.map((d) =>
+      `<span class="domain-tag" style="cursor:default;${muted ? 'background:rgba(0,184,148,0.04);color:var(--muted);' : ''}">${d}</span>`
+    ).join('')}</div>`;
+  };
+
+  if (!hasHierarchy) {
+    container.innerHTML = renderTagList(effectiveList, false);
+    return;
   }
 
-  // 学习网站列表始终显示
-  const studylistSection = document.getElementById('studylist-section');
-  if (studylistSection) studylistSection.style.display = '';
+  container.innerHTML = `
+    <div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统配置（只读）</div>
+      ${renderTagList(systemList, true)}
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
+      ${renderTagList(customList, false)}
+    </div>
+  `;
+}
 
-  // 渲染只读标签
-  renderDomainTagsReadOnly('unsafelist-tags', config.unsafeList || config.blacklist || []);
-  renderDomainTagsReadOnly('studylist-tags', config.studyList || []);
-  renderDomainTagsReadOnly('allowlist-tags', config.compositeList || []);
-  updateListCounts();
-
-  // 学习网站搜索框（仅过滤显示，不修改数据）
-  const searchEl = document.getElementById('studylist-search');
-  if (searchEl) {
-    const newSearch = searchEl.cloneNode(true);
-    searchEl.parentNode.replaceChild(newSearch, searchEl);
-    newSearch.addEventListener('input', (e) => {
-      const q = e.target.value.trim().toLowerCase();
-      const list = config.studyList || [];
-      const filtered = q ? list.filter(d => d.includes(q)) : list;
-      renderDomainTagsReadOnly('studylist-tags', filtered);
-    });
+function formatQuotaText(minutes) {
+  if (minutes === null || minutes === undefined) return '无限制';
+  const mins = Number(minutes);
+  if (!Number.isFinite(mins) || mins < 0) return '暂无配置';
+  if (mins === 0) return '0 分钟';
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}小时${m}分钟` : `${h}小时`;
   }
+  return `${mins}分钟`;
+}
 
-  // ── 每日时长限制（只读展示）────────────────────────────────────────
-  const quotaLimitsEl = document.getElementById('quota-limits-display');
-  if (quotaLimitsEl) {
-    const fmtQuota = (mins) => {
-      if (!mins || mins <= 0) return '<span style="color:var(--muted);">不限制</span>';
-      if (mins >= 60) {
-        const h = Math.floor(mins / 60), m = mins % 60;
-        return `<span style="color:var(--accent);font-weight:600;">${h}小时${m > 0 ? m + '分' : ''}</span>`;
-      }
-      return `<span style="color:var(--accent);font-weight:600;">${mins}分钟</span>`;
+function getDailyQuotaByDay(dayKey) {
+  const fromTimeQuota = config?.timeQuota?.daily?.[dayKey];
+  if (fromTimeQuota) {
+    return {
+      study: fromTimeQuota.studyMinutes ?? null,
+      rest: fromTimeQuota.restMinutes ?? null,
+      composite: fromTimeQuota.compositeMinutes ?? null,
     };
-    const rows = [
-      { label: '每日在线上限',   sub: '所有网站累计',   val: config.dailyOnlineQuota },
-      { label: '每日学习上限',   sub: '学习网站累计',   val: config.dailyStudyQuota  },
-      { label: '每日休息上限',   sub: '娱乐网站累计',   val: config.dailyRestQuota   },
-    ];
-    quotaLimitsEl.innerHTML = rows.map((r, i) => `
-      <div class="quota-row" style="display:flex;align-items:center;justify-content:space-between;
-           padding:12px 0;${i < rows.length-1 ? 'border-bottom:1px solid var(--border);' : ''}">
-        <div>
-          <div style="font-size:14px;">${r.label}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.sub}</div>
+  }
+  return {
+    study: config?.dailyStudyQuota ?? null,
+    rest: config?.dailyRestQuota ?? null,
+    composite: config?.dailyUndeterminedQuota ?? null,
+  };
+}
+
+function renderQuotaSection() {
+  const quotaDailyEl = document.getElementById('rules-quota-daily-display');
+  if (quotaDailyEl) {
+    const rows = QUOTA_DAYS.map((day) => {
+      const q = getDailyQuotaByDay(day);
+      return `
+        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
+          <div style="font-size:12px;">学习：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.study)}</span></div>
+          <div style="font-size:12px;">休息：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.rest)}</span></div>
+          <div style="font-size:12px;">综合：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.composite)}</span></div>
         </div>
-        <div>${fmtQuota(r.val)}</div>
-      </div>`).join('');
+      `;
+    }).join('');
+    quotaDailyEl.innerHTML = rows || '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
   }
 
-  // ── 待定时段说明（只读展示）────────────────────────────────────────
-  const tempAllowEl = document.getElementById('temp-allow-display');
-  if (tempAllowEl) {
-    const quota = config.dailyUndeterminedQuota ?? 60;
-    const h = Math.floor(quota / 60), m = quota % 60;
-    const label = h > 0 ? `${h}小时${m > 0 ? m + '分' : ''}` : `${m}分钟`;
-    tempAllowEl.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
-        <div style="font-size:14px;color:var(--muted);">每日待定时段上限</div>
-        <div style="font-size:18px;font-weight:700;color:var(--accent);">${label}</div>
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px;">
-        访问复合型网站（原允许列表）计入待定时段，每日上限 <b style="color:var(--text);">${label}</b>，家长事后审核分类。
-      </div>`;
-  }
-
-  // ── 上网时间段（并入访问规则）──────────────────────────────────────
-  const schedule = config.schedule || {};
-  const schedEnabled = schedule.enabled;
-
-  const schedDescEl = document.getElementById('schedule-status-desc');
-  if (schedDescEl) {
-    schedDescEl.textContent = schedEnabled
-      ? '✅ 已启用，下列时间段内可上网'
-      : '⏸ 未启用，全天均可上网';
-  }
-
-  const schedContainer = document.getElementById('schedule-rows');
-  if (schedContainer) {
-    if (!schedEnabled) {
-      schedContainer.innerHTML = `
-        <div style="color:var(--muted);font-size:13px;padding:12px 0;">
-          全天均可上网，时间段管控未启用
-        </div>`;
+  const domainQuotaEl = document.getElementById('rules-domain-quotas-display');
+  if (domainQuotaEl) {
+    const entries = Object.entries(config?.domainQuotas || {});
+    if (!entries.length) {
+      domainQuotaEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
     } else {
-      schedContainer.innerHTML = DAY_NAMES.map((name, i) => {
-        const day      = schedule.days?.[i] || { enabled: false, start: '08:00', end: '22:00' };
-        const isActive = day.enabled;
-        return `
-          <div style="display:flex;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid var(--border);">
-            <div style="width:36px;font-size:13px;font-weight:600;color:${isActive ? 'var(--text)' : 'var(--muted)'};">${name}</div>
-            ${isActive
-              ? `<div style="display:flex;align-items:center;gap:6px;font-size:13px;">
-                   <span style="color:var(--green);font-size:9px;">●</span>
-                   <span>${day.start || '08:00'}</span>
-                   <span style="color:var(--muted);">—</span>
-                   <span>${day.end || '22:00'}</span>
-                 </div>`
-              : `<div style="font-size:13px;color:var(--muted);">不限制</div>`
-            }
-          </div>`;
-      }).join('');
+      domainQuotaEl.innerHTML = entries.map(([domain, mins]) => `
+        <div class="quota-row">
+          <div class="quota-label">${domain}</div>
+          <span style="color:var(--accent);font-weight:600;">${formatQuotaText(mins)} / 天</span>
+        </div>
+      `).join('');
     }
   }
+}
+
+function formatWindowsLabel(windows) {
+  if (windows === null) return '全天允许';
+  if (!Array.isArray(windows) || windows.length === 0) return '暂无配置';
+  return windows.map((w) => `${w.start || '--:--'} - ${w.end || '--:--'}`).join('，');
+}
+
+function computeOnlineWindowsLabel(studyWindows, restWindows) {
+  if (studyWindows === null || restWindows === null) return '全天允许';
+  if (!Array.isArray(studyWindows) && !Array.isArray(restWindows)) return '暂无配置';
+  const merged = [];
+  for (const w of (Array.isArray(studyWindows) ? studyWindows : [])) merged.push(w);
+  for (const w of (Array.isArray(restWindows) ? restWindows : [])) merged.push(w);
+  if (!merged.length) return '暂无配置';
+  return merged.map((w) => `${w.start || '--:--'} - ${w.end || '--:--'}`).join('，');
+}
+
+function renderScheduleSection() {
+  const scheduleEl = document.getElementById('rules-schedule-display');
+  if (!scheduleEl) return;
+
+  const hasTimeWindows = !!config?.timeWindows?.daily;
+  if (hasTimeWindows) {
+    const rows = QUOTA_DAYS.map((day) => {
+      const dayCfg = config.timeWindows.daily?.[day] || {};
+      const studyLabel = formatWindowsLabel(dayCfg.studyWindows);
+      const restLabel = formatWindowsLabel(dayCfg.restWindows);
+      const onlineLabel = computeOnlineWindowsLabel(dayCfg.studyWindows, dayCfg.restWindows);
+      return `
+        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
+          <div style="font-size:12px;">${studyLabel}</div>
+          <div style="font-size:12px;">${restLabel}</div>
+          <div style="font-size:12px;color:var(--muted);">${onlineLabel}</div>
+        </div>
+      `;
+    }).join('');
+    scheduleEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">星期</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">学习时段</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">休息时段</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">在线时段</div>
+      </div>
+      ${rows || '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>'}
+    `;
+    return;
+  }
+
+  const schedule = config?.schedule || null;
+  if (!schedule || !Array.isArray(schedule.days)) {
+    scheduleEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+    return;
+  }
+
+  scheduleEl.innerHTML = DAY_NAMES.map((name, i) => {
+    const day = schedule.days[i] || {};
+    const online = day.enabled ? `${day.start || '--:--'} - ${day.end || '--:--'}` : '不限制';
+    return `
+      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:500;">${name}</div>
+        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
+        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
+        <div style="font-size:12px;">${online}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRulesPage() {
+  const modeDescEl = document.getElementById('rules-mode-desc');
+  if (modeDescEl) {
+    modeDescEl.textContent = '当前规则由家长在云端设定，本设备仅展示当前生效规则';
+  }
+
+  renderSiteGroup('rules-studylist-display', {
+    effectiveList: config?.studyList,
+    systemList: config?.defaultStudySites,
+    customList: config?.customStudyList,
+  });
+  renderSiteGroup('rules-composite-display', {
+    effectiveList: config?.compositeList,
+    systemList: config?.defaultCompositeSites,
+    customList: config?.customCompositeList,
+  });
+  renderSiteGroup('rules-restricted-display', {
+    effectiveList: config?.restrictedEntertainmentList,
+    systemList: config?.defaultRestrictedEntertainmentSites,
+    customList: config?.customRestrictedEntertainmentList,
+  });
+  renderSiteGroup('rules-blocked-display', {
+    effectiveList: config?.unsafeList || config?.blacklist,
+    systemList: config?.defaultBlockedSites,
+    customList: config?.customBlockedSites,
+  });
+
+  renderQuotaSection();
+  renderScheduleSection();
 }
 
 // ──────────────────────────────────────────────────────────────────────────
