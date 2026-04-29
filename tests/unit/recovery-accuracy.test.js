@@ -66,10 +66,19 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 
 const aggregateApi = loadProdModule('core/aggregate.js', ['computeAllDomains', 'computeAllDomainsWithAudio']);
 const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents', 'getLastEvent', 'EVENT_TYPE']);
+const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
+  'STALE_GAP_THRESHOLD',
+  'clampTime',
+  'getReliableCloseTime',
+  'getCappedElapsedMs',
+  'isFiniteTime',
+  'isStaleSession',
+]);
 const sessionApi = loadProdModule('runtime/session.js', ['getSession', 'getSessionWithPersistenceSource', 'saveSession', 'runSessionCommit'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {},
+  getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
 });
 const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   getSession: sessionApi.getSession,
@@ -79,6 +88,7 @@ const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   appendEvent: eventApi.appendEvent,
   getLastEvent: eventApi.getLastEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
+  getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
 });
 const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getDateKey'], {
   computeAllDomains: aggregateApi.computeAllDomains,
@@ -319,6 +329,24 @@ async function runTests() {
   expectEqual('E event-log-derived duration', scenarioE.durationComparison.eventLogDerived, 5);
   expectEqual('E stats duration', scenarioE.durationComparison.stats, 5);
   expectEqual('E END time uses persistent lastHeartbeat', scenarioE.events.at(-1).time, t0 + 5_000);
+
+  const scenarioF = await runScenario({
+    name: 'F stale recovery clamps END time to session start when lastHeartbeat is before start',
+    domain,
+    setup: () => seedOpenActiveSession({
+      domain,
+      startTime: t0,
+      lastHeartbeat: t0 - 10_000,
+    }),
+    recoverTimes: [t0 + 120_000],
+    statsAt: t0 + 120_000,
+    expectedStats: {},
+    expectedEventCount: 2,
+  });
+  expectEqual('F first broken layer', scenarioF.brokenLayer, null);
+  expectEqual('F event-log-derived duration', scenarioF.durationComparison.eventLogDerived, 0);
+  expectEqual('F stats duration', scenarioF.durationComparison.stats, 0);
+  expectEqual('F END time clamps to startTime', scenarioF.events.at(-1).time, t0);
 
   Date.now = REAL_DATE_NOW;
   const total = passed + failed;

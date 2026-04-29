@@ -5,6 +5,7 @@ import { buildContext } from './core/context.js';
 import { resolveState } from './core/state.js';
 import { initSession, transitionState, heartbeat, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
+import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange } from './infra/storage.js';
 import { updateDeclarativeRules, checkAndRemind } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
@@ -211,7 +212,7 @@ async function updateCurrentTabBadge() {
     let seconds = stats[domain] || 0;
 
     if (session?.state === 'ACTIVE' && session.domain === domain && session.startTime) {
-      seconds += Math.max(0, Math.floor((Date.now() - session.startTime) / 1000));
+      seconds += Math.max(0, Math.floor(getCappedElapsedMs(session, Date.now()) / 1000));
     }
 
     const text = formatBadgeDuration(seconds);

@@ -19,6 +19,7 @@
 | D-015 | 申诉/审核语义：使用分析页面 / 终端 UI 待定 | **Pending PO** | 复合型网站会话的"申诉/待审核/申诉中/已改判/标为学习/标为休息"等概念在**孩子侧终端 UI（admin 管理面板 / 使用分析页面）**中仅为**占位展示**，尚未获得产品终审。当前存在不等于产品批准。Codex/OpenCode 禁止将其扩展为新的交互工作流或新增业务逻辑。Product Owner 后续需决定：a) 从终端 UI 隐藏；b) 仅作只读状态展示；c) 保留孩子侧申诉操作；d) 仅保留在家长控制台 |
 | D-016 | Vendor/Support 域名保留在 defaultCompositeSites | Active | 以下 7 个域名明确保留在 `defaultCompositeSites`（综合网站）中：`www.google.com`、`support.google.com`、`support.microsoft.com`、`answers.microsoft.com`、`microsoft.com`、`apple.com`、`adobe.com`。这是 Product Owner 明确批准的例外，不适用于其他软件/vendor 域名。禁止将其移动到 `defaultStudySites`，禁止以此为理由继续添加同类域名。新增软件/vendor 域名到系统默认清单必须获得 Product Owner 单独批准。 |
 | D-017 | System Recovery 场景是 V0 formal release gates | Active | Chrome close/reopen、Lock/unlock、OS sleep/wake、Network offline/online 是 V0 formal release 的 Release Gates，不是普通回归测试。V0 formal release 前这些 Gates 必须通过，或由 Product Owner 明确 waive。runner 实现不等于 Gate pass；SKIP 也不等于 Gate pass。OpenCode 停止作为主执行器，Codex 接管剩余 Release Gate 工作；Chrome Web Store 发布是独立后续任务，不属于当前 Gate 范围。 |
+| D-018 | Time Accounting Reliability Model | Active | V0 计时统计采用统一 stale-boundary 规则：有效计时只能来自闭合事件段；若 `now - lastHeartbeat > STALE_GAP_THRESHOLD`，旧段必须在 `lastHeartbeat` 关闭，否则在 `now` 关闭；关闭时间必须 clamp 到 `[session.startTime, now]`，新段若存在从 `now` 开始。`lastHeartbeat` 到 `now` 的未观察 gap 不计入普通 foreground、后台 audio 或 PiP 有效时长；badge 当前段显示也必须使用同一封顶口径。不迁移历史 `event_log_v1`，聚合 schema 保持兼容。 |
 
 ## 变更规则
 - 新决策必须追加一条记录（不改历史 ID）。

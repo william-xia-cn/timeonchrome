@@ -45,6 +45,26 @@ const EVENT_LOG_KEY = 'event_log_v1';
 const MAX_RAW_WINDOW = 10 * 60 * 1000;
 const SLEEP_THRESHOLD = 90 * 1000;
 
+function isFiniteTime(value) {
+  return Number.isFinite(value);
+}
+
+function clampTime(value, min, max) {
+  const safeMin = isFiniteTime(min) ? min : 0;
+  const safeMax = isFiniteTime(max) ? max : safeMin;
+  const lower = Math.min(safeMin, safeMax);
+  const upper = Math.max(safeMin, safeMax);
+  if (!isFiniteTime(value)) return upper;
+  return Math.min(Math.max(value, lower), upper);
+}
+
+function getReliableCloseTime(session, now) {
+  const startTime = isFiniteTime(session?.startTime) ? session.startTime : now;
+  const stale = session && isFiniteTime(session.lastHeartbeat) && now - session.lastHeartbeat > SLEEP_THRESHOLD;
+  const candidate = stale ? session.lastHeartbeat : now;
+  return { closeTime: clampTime(candidate, startTime, now), stale };
+}
+
 function resolveState(context) {
   if (!context?.domain) return AttentionState.IDLE;
   if (context.isIdle) return AttentionState.IDLE;
@@ -108,7 +128,8 @@ async function transitionState(newState, newDomain, fakeNow) {
   const now = fakeNow !== undefined ? fakeNow : Date.now();
   if (session.state === newState && session.domain === newDomain) return;
   if (session.state && session.startTime) {
-    await appendEvent({ type: EVENT_TYPE.END, state: session.state, domain: session.domain, time: now });
+    const { closeTime } = getReliableCloseTime(session, now);
+    await appendEvent({ type: EVENT_TYPE.END, state: session.state, domain: session.domain, time: closeTime });
   }
   if (newState) {
     await appendEvent({ type: EVENT_TYPE.START, state: newState, domain: newDomain, time: now });
@@ -119,16 +140,22 @@ async function transitionState(newState, newDomain, fakeNow) {
 async function heartbeat() {
   const session = await getSession();
   if (!session) return;
-  session.lastHeartbeat = Date.now();
-  await saveSession(session);
+  const now = Date.now();
+  const { closeTime, stale } = getReliableCloseTime(session, now);
+  if (session.state && session.startTime && stale) {
+    await appendEvent({ type: EVENT_TYPE.END, state: session.state, domain: session.domain, time: closeTime });
+    await appendEvent({ type: EVENT_TYPE.START, state: session.state, domain: session.domain, time: now });
+    await saveSession({ state: session.state, domain: session.domain, startTime: now, lastHeartbeat: now });
+    return;
+  }
+  await saveSession({ ...session, lastHeartbeat: now });
 }
 
 async function recover(fakeNow) {
   const session = await getSession();
   if (!session || !session.state || !session.startTime) return;
   const now = fakeNow !== undefined ? fakeNow : Date.now();
-  const delta = now - session.lastHeartbeat;
-  const endTime = delta > SLEEP_THRESHOLD ? session.lastHeartbeat : now;
+  const { closeTime: endTime } = getReliableCloseTime(session, now);
   await appendEvent({ type: EVENT_TYPE.END, state: session.state, domain: session.domain, time: endTime });
   await saveSession({ state: null, domain: null, startTime: null, lastHeartbeat: now });
 }

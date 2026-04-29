@@ -2,10 +2,10 @@
 
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 import { emitTrace } from '../core/timing-trace.js';
+import { getReliableCloseTime } from './time-boundary.js';
 
 const SESSION_KEY = 'session_v1';
 const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
-const SLEEP_THRESHOLD = 90 * 1000;
 let commitQueue = Promise.resolve();
 
 function runSerialized(task) {
@@ -88,16 +88,17 @@ export async function transitionState(newState, newDomain) {
 
     // 1. 关闭旧事件
     if (session.state && session.startTime) {
+      const { closeTime, stale } = getReliableCloseTime(session, now);
       const endEvent = {
         type: EVENT_TYPE.END,
         state: session.state,
         domain: session.domain,
-        time: now,
+        time: closeTime,
       };
       await appendEvent(endEvent);
       await emitTrace('event_appended', {
         source: 'event-log',
-        reason: 'transitionClose',
+        reason: stale ? 'transitionStaleClose' : 'transitionClose',
         domain: session.domain,
         previousState: session.state,
         event: endEvent,
@@ -144,7 +145,8 @@ export async function heartbeat() {
     if (!session) return;
 
     const now = Date.now();
-    const staleGap = session.lastHeartbeat && now - session.lastHeartbeat > SLEEP_THRESHOLD;
+    const closeBoundary = getReliableCloseTime(session, now);
+    const staleGap = closeBoundary.stale;
 
     if (session.state && session.startTime && staleGap) {
       const sessionBefore = {
@@ -157,7 +159,7 @@ export async function heartbeat() {
         type: EVENT_TYPE.END,
         state: session.state,
         domain: session.domain,
-        time: session.lastHeartbeat,
+        time: closeBoundary.closeTime,
       };
       await appendEvent(endEvent);
       await emitTrace('event_appended', {

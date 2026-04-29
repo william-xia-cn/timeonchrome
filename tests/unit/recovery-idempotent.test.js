@@ -61,10 +61,19 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 }
 
 const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents', 'getLastEvent', 'EVENT_TYPE']);
+const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
+  'STALE_GAP_THRESHOLD',
+  'clampTime',
+  'getReliableCloseTime',
+  'getCappedElapsedMs',
+  'isFiniteTime',
+  'isStaleSession',
+]);
 const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'getSessionWithPersistenceSource', 'saveSession', 'transitionState', 'runSessionCommit'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {}, // no-op for unit tests
+  getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
 });
 const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   getSession: sessionApi.getSession,
@@ -74,6 +83,7 @@ const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   appendEvent: eventApi.appendEvent,
   getLastEvent: eventApi.getLastEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
+  getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
 });
 
 function isLegalSequence(events, initialOpen = 0) {

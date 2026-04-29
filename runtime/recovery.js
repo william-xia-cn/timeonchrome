@@ -2,8 +2,7 @@
 
 import { getSession, getSessionWithPersistenceSource, saveSession, runSessionCommit } from './session.js';
 import { appendEvent, EVENT_TYPE, getLastEvent } from '../core/event-log.js';
-
-const SLEEP_THRESHOLD = 90 * 1000; // 90 秒，抗 MV3 调度抖动
+import { getReliableCloseTime } from './time-boundary.js';
 
 /**
  * 恢复未闭合事件
@@ -23,9 +22,9 @@ export async function recover() {
     if (!session || !session.state || !session.startTime) return;
 
     const now = Date.now();
-    const delta = now - session.lastHeartbeat;
-
-    const endTime = source === 'persistent' || delta > SLEEP_THRESHOLD ? session.lastHeartbeat : now;
+    const { closeTime: endTime } = getReliableCloseTime(session, now, {
+      forceStale: source === 'persistent',
+    });
     const lastEvent = typeof getLastEvent === 'function' ? await getLastEvent() : null;
 
     // 幂等恢复：若最后一条已是同一段会话的 END，则不重复追加
