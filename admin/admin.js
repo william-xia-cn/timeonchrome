@@ -979,6 +979,14 @@ function normalizeDomainList(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+function pickFirstArrayField(source, fields) {
+  for (const field of fields) {
+    const value = source?.[field];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
 function renderSiteGroup(containerId, options) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -1000,16 +1008,45 @@ function renderSiteGroup(containerId, options) {
     return;
   }
 
+  const collapsibleId = `${containerId}-system-content`;
+  const toggleId = `${containerId}-system-toggle`;
+
   container.innerHTML = `
     <div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);">
-      <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px;">系统配置（只读）</div>
-      ${renderTagList(systemList, true)}
+      <div id="${toggleId}-row" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);">系统配置（只读）</div>
+        <button id="${toggleId}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
+      </div>
+      <div id="${collapsibleId}" style="display:none;margin-top:8px;">
+        ${renderTagList(systemList, true)}
+      </div>
     </div>
     <div>
       <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
       ${renderTagList(customList, false)}
     </div>
   `;
+
+  const row = document.getElementById(`${toggleId}-row`);
+  const content = document.getElementById(collapsibleId);
+  const toggle = document.getElementById(toggleId);
+  if (!row || !content || !toggle) return;
+
+  const doToggle = () => {
+    if (content.style.display === 'none') {
+      content.style.display = 'block';
+      toggle.textContent = '▲ 收起';
+    } else {
+      content.style.display = 'none';
+      toggle.textContent = '▼ 展开';
+    }
+  };
+  row.addEventListener('click', doToggle);
+  toggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    doToggle();
+  });
 }
 
 function formatQuotaText(minutes) {
@@ -1150,22 +1187,42 @@ function renderRulesPage() {
 
   renderSiteGroup('rules-studylist-display', {
     effectiveList: config?.studyList,
-    systemList: config?.defaultStudySites,
+    systemList: pickFirstArrayField(config, [
+      'defaultStudySites',
+      'defaultStudyList',
+      'systemConfiguredStudySites',
+      'systemConfiguredStudyList',
+    ]),
     customList: config?.customStudyList,
   });
   renderSiteGroup('rules-composite-display', {
     effectiveList: config?.compositeList,
-    systemList: config?.defaultCompositeSites,
+    systemList: pickFirstArrayField(config, [
+      'defaultCompositeSites',
+      'defaultCompositeList',
+      'systemConfiguredCompositeSites',
+      'systemConfiguredCompositeList',
+    ]),
     customList: config?.customCompositeList,
   });
   renderSiteGroup('rules-restricted-display', {
     effectiveList: config?.restrictedEntertainmentList,
-    systemList: config?.defaultRestrictedEntertainmentSites,
+    systemList: pickFirstArrayField(config, [
+      'defaultRestrictedEntertainmentSites',
+      'defaultRestrictedEntertainmentList',
+      'systemConfiguredRestrictedEntertainmentSites',
+      'systemConfiguredRestrictedEntertainmentList',
+    ]),
     customList: config?.customRestrictedEntertainmentList,
   });
   renderSiteGroup('rules-blocked-display', {
     effectiveList: config?.unsafeList || config?.blacklist,
-    systemList: config?.defaultBlockedSites,
+    systemList: pickFirstArrayField(config, [
+      'defaultBlockedSites',
+      'defaultUnsafeSites',
+      'systemConfiguredBlockedSites',
+      'systemConfiguredUnsafeSites',
+    ]),
     customList: config?.customBlockedSites,
   });
 

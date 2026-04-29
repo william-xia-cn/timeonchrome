@@ -35,6 +35,82 @@ export function getCloudConfig() {
   return { ...CLOUD_CONFIG };
 }
 
+function pickFirstArray(source, keys) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (Array.isArray(value)) return value;
+  }
+  return null;
+}
+
+function mergeUniqueDomains(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item !== 'string') continue;
+      const domain = item.trim();
+      if (!domain) continue;
+      const key = domain.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(domain);
+    }
+  }
+  return out;
+}
+
+function normalizeCloudRulesConfig(cloudConfig) {
+  const cfg = { ...(cloudConfig || {}) };
+
+  const defaultStudySites = pickFirstArray(cfg, [
+    'defaultStudySites',
+    'defaultStudyList',
+    'systemConfiguredStudySites',
+    'systemConfiguredStudyList',
+  ]);
+  const defaultCompositeSites = pickFirstArray(cfg, [
+    'defaultCompositeSites',
+    'defaultCompositeList',
+    'systemConfiguredCompositeSites',
+    'systemConfiguredCompositeList',
+  ]);
+  const defaultRestrictedEntertainmentSites = pickFirstArray(cfg, [
+    'defaultRestrictedEntertainmentSites',
+    'defaultRestrictedEntertainmentList',
+    'systemConfiguredRestrictedEntertainmentSites',
+    'systemConfiguredRestrictedEntertainmentList',
+  ]);
+  const defaultBlockedSites = pickFirstArray(cfg, [
+    'defaultBlockedSites',
+    'defaultUnsafeSites',
+    'systemConfiguredBlockedSites',
+    'systemConfiguredUnsafeSites',
+  ]);
+
+  if (defaultStudySites) cfg.defaultStudySites = defaultStudySites;
+  if (defaultCompositeSites) cfg.defaultCompositeSites = defaultCompositeSites;
+  if (defaultRestrictedEntertainmentSites) cfg.defaultRestrictedEntertainmentSites = defaultRestrictedEntertainmentSites;
+  if (defaultBlockedSites) cfg.defaultBlockedSites = defaultBlockedSites;
+
+  // 若云端未提供 effective 列表，使用 system + custom 在本地只读缓存中补齐，不回写云端。
+  if (!Array.isArray(cfg.studyList)) {
+    cfg.studyList = mergeUniqueDomains(cfg.defaultStudySites, cfg.customStudyList);
+  }
+  if (!Array.isArray(cfg.compositeList)) {
+    cfg.compositeList = mergeUniqueDomains(cfg.defaultCompositeSites, cfg.customCompositeList);
+  }
+  if (!Array.isArray(cfg.restrictedEntertainmentList)) {
+    cfg.restrictedEntertainmentList = mergeUniqueDomains(cfg.defaultRestrictedEntertainmentSites, cfg.customRestrictedEntertainmentList);
+  }
+  if (!Array.isArray(cfg.unsafeList)) {
+    cfg.unsafeList = mergeUniqueDomains(cfg.defaultBlockedSites, cfg.customBlockedSites);
+  }
+
+  return cfg;
+}
+
 // ── Cloud request ───────────────────────────────────────────────────────────────
 
 async function cloudRequest(method, path, body = null, retries = 3) {
@@ -138,7 +214,7 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
 
     // 云端配置为唯一来源，不再与本地 DEFAULT_CONFIG merge
     // 仅保留终端专属字段（不通过云端同步）
-    const cloudConfig = result.data;
+    const cloudConfig = normalizeCloudRulesConfig(result.data);
     const localConfig = await getConfigFn();
     const mergedConfig = {
       ...cloudConfig,
