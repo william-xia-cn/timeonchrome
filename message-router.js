@@ -340,9 +340,20 @@ async function switchToRest() {
 async function addToCompositeList(domain) {
   const config = await getConfig();
   const list = config.compositeList || [];
+  const restrictedList = config.restrictedEntertainmentList || [];
+  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
 
   const alreadyInComposite = list.some(d => matchDomain(domain, d));
   const alreadyInStudy = (config.studyList || []).some(d => matchDomain(domain, d));
+  const isRestricted = restrictedList.some(d => matchDomain(domain, d));
+  const isUnsafe = unsafeList.some(d => matchDomain(domain, d));
+
+  if (isRestricted) {
+    return { domain, added: false, error: 'domain_in_restricted_list', code: 'DOMAIN_IN_RESTRICTED_LIST' };
+  }
+  if (isUnsafe) {
+    return { domain, added: false, error: 'domain_in_unsafe_list', code: 'DOMAIN_IN_UNSAFE_LIST' };
+  }
   if (alreadyInComposite || alreadyInStudy) {
     return { domain, alreadyPresent: true };
   }

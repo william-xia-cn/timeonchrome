@@ -35,6 +35,8 @@ export async function checkAndRemind(tabId, url, monitoringEnabled) {
 
   const isStudyDomain = (config.studyList || []).some(p => matchDomain(domain, p));
   const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p));
+  const restrictedList = config.restrictedEntertainmentList || [];
+  const isRestricted = restrictedList.some(p => matchDomain(domain, p));
 
   // 1. 不安全网站检查（唯一的硬拦截）
   const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
@@ -53,6 +55,10 @@ export async function checkAndRemind(tabId, url, monitoringEnabled) {
   // 3. 学习模式检查
   const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
   if (currentMode === 'study') {
+    if (isRestricted) {
+      await redirectToReminder(tabId, domain, 'restricted_study_mode', config.blockMessage);
+      return true;
+    }
     if (!isStudyDomain && !isCompositeDomain) {
       await redirectToReminder(tabId, domain, 'study_mode', config.blockMessage);
       return true;

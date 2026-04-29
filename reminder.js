@@ -44,6 +44,11 @@
       subtitle: '这个网站不在你的学习网站中',
       actions: ['addComposite', 'switchToRest', 'back']
     },
+    restricted_study_mode: {
+      icon: '🎮', title: '当前是学习模式',
+      subtitle: '这是受限娱乐网站，学习模式下不可访问',
+      actions: ['switchToRest', 'back']
+    },
     quota_rest: {
       icon: '⏰', title: '今天的休息时间用完啦',
       subtitle: '放松过了，切换到学习模式继续加油！',
