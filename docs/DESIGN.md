@@ -194,6 +194,26 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 - **默认路径**：`test-results/sleep-wake-gate/bound-profile`（已被 `.gitignore` 忽略）
 - **云端数据**：账号 `william.xia.cn+timeonchrome-gate@gmail.com`、profile `Gate Test Child`、device `Gate Runner Windows Chrome`
 
+### 1.3.7 测试分级：回归测试 vs 发布验收测试
+
+- **回归测试（Regression Tests）**：每次代码修改后自动执行，验证未引入回归。
+  - 包含：unit tests、API integration tests、E2E tests、`dry-run` scenario、`chrome-restart` scenario
+  - 执行命令：`node tests/run-all.js`
+  - 要求：全部通过才能 push
+
+- **发布验收测试（Release Acceptance Tests）**：仅在正式发布前由用户显式提出才执行，验证真实环境行为。
+  - 包含：`sleep-wake` scenario（Windows OS 真实睡眠/人工唤醒）
+  - 执行方式：手动触发，需要操作者手动唤醒系统
+  - 要求：不阻塞日常开发，不作为 CI/CD 的一部分
+  - 触发命令：`node tests/system/sleep-wake-gate/runner.js --scenario=sleep-wake --allowSystemSleep`
+
+- **sleep-wake 场景设计原则**：
+  - Sleep 触发：runner 自动执行 `rundll32 powrprof.dll,SetSuspendState`（普通权限即可）
+  - Wake 方式：人工唤醒（当前环境无管理员权限设置 Windows Wake-To-Run）
+  - 睡眠时长：由操作者决定（10s ~ 120s），不固定，不作为 pass/fail 条件
+  - 核心验证：唤醒后 Chrome / SW 可访问、event-log 可读、扩展能继续产生事件
+  - `recover()` 观察：若 SW 被 OS 回收后重启，验证 recover() 补 END；若 SW 存活，不 fail
+
 ### 1.3.5 凌晨休息时间限制（后续产品设计）
 
 - 后续需要支持配置“凌晨不可用于休息时间”的时段策略，用于防止熬夜玩游戏。

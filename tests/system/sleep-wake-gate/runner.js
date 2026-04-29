@@ -14,6 +14,9 @@ function parseArgs(argv) {
     preActiveSeconds: 60,
     closedSeconds: 120,
     postRestartSeconds: 30,
+    sleepSeconds: 180,
+    postWakeSeconds: 30,
+    allowSystemSleep: false,
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -28,12 +31,18 @@ function parseArgs(argv) {
       args.reset = true;
     } else if (arg === '--verbose') {
       args.verbose = true;
+    } else if (arg === '--allowSystemSleep') {
+      args.allowSystemSleep = true;
     } else if (arg === '--preActiveSeconds' || arg.startsWith('--preActiveSeconds=')) {
       args.preActiveSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 60;
     } else if (arg === '--closedSeconds' || arg.startsWith('--closedSeconds=')) {
       args.closedSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 120;
     } else if (arg === '--postRestartSeconds' || arg.startsWith('--postRestartSeconds=')) {
       args.postRestartSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 30;
+    } else if (arg === '--sleepSeconds' || arg.startsWith('--sleepSeconds=')) {
+      args.sleepSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 180;
+    } else if (arg === '--postWakeSeconds' || arg.startsWith('--postWakeSeconds=')) {
+      args.postWakeSeconds = parseInt(arg.includes('=') ? arg.split('=')[1] : argv[++i], 10) || 30;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -61,9 +70,16 @@ function printHelp() {
   --closedSeconds=<n>        Chrome 关闭期间秒数 (默认: 120)
   --postRestartSeconds=<n>   重开后运行秒数 (默认: 30)
 
+  sleep-wake 专用（发布验收测试，正式发布前手动执行）:
+  --preActiveSeconds=<n>     睡眠前运行秒数 (默认: 30)
+  --sleepSeconds=<n>         指导睡眠秒数 (默认: 120)，仅用于打印指导，不用于定时器
+  --postWakeSeconds=<n>      唤醒后运行秒数 (默认: 30)
+  --allowSystemSleep         【必须】允许执行 Windows OS 睡眠/唤醒
+
 示例:
   node runner.js --scenario=dry-run
   node runner.js --scenario=chrome-restart --preActiveSeconds=10 --closedSeconds=10 --postRestartSeconds=10 --verbose
+  node runner.js --scenario=sleep-wake --user-data-dir=... --sleepSeconds=180 --allowSystemSleep --verbose
   node runner.js --scenario=dry-run --reset --verbose
 `);
 }
@@ -80,6 +96,11 @@ async function main() {
     console.log(`[runner] 关闭前运行: ${args.preActiveSeconds} 秒`);
     console.log(`[runner] Chrome 关闭期间: ${args.closedSeconds} 秒`);
     console.log(`[runner] 重开后运行: ${args.postRestartSeconds} 秒`);
+  } else if (args.scenario === 'sleep-wake') {
+    console.log(`[runner] 睡眠前运行: ${args.preActiveSeconds} 秒`);
+    console.log(`[runner] OS 睡眠: ${args.sleepSeconds} 秒`);
+    console.log(`[runner] 唤醒后运行: ${args.postWakeSeconds} 秒`);
+    if (args.allowSystemSleep) console.log('[runner] 允许系统睡眠: 是');
   }
   console.log('');
 
@@ -105,9 +126,21 @@ async function main() {
       outputDir: args.outputDir,
       userDataDir: args.userDataDir,
     });
+  } else if (args.scenario === 'sleep-wake') {
+    const { runSleepWake } = require('./scenarios/sleep-wake');
+    result = await runSleepWake({
+      preActiveSeconds: args.preActiveSeconds,
+      sleepSeconds: args.sleepSeconds,
+      postWakeSeconds: args.postWakeSeconds,
+      reset: args.reset,
+      verbose: args.verbose,
+      outputDir: args.outputDir,
+      userDataDir: args.userDataDir,
+      allowSystemSleep: args.allowSystemSleep,
+    });
   } else {
     console.error(`[runner] 错误: 场景 '${args.scenario}' 不可用。`);
-    console.error('[runner] 可用场景: dry-run, chrome-restart');
+    console.error('[runner] 可用场景: dry-run, chrome-restart, sleep-wake');
     process.exit(1);
   }
 
@@ -115,7 +148,12 @@ async function main() {
   console.log('');
   console.log(`[runner] 执行耗时: ${elapsed} 秒`);
 
-  if (result.success) {
+  if (result.skipped) {
+    console.log(`[runner] 结果: SKIP`);
+    console.log(`[runner] JSON 报告: ${result.jsonPath}`);
+    console.log(`[runner] Markdown 报告: ${result.mdPath}`);
+    process.exit(0);
+  } else if (result.success) {
     console.log(`[runner] 结果: PASS`);
     console.log(`[runner] JSON 报告: ${result.jsonPath}`);
     console.log(`[runner] Markdown 报告: ${result.mdPath}`);

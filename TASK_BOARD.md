@@ -7,6 +7,7 @@
 - [x] [V0] Worker/API readiness
 - [x] [V0] Stage 1 Soft Gate verification
 - [x] [V0] Phase 2 chrome-restart Gate runner + binding preflight + bound-device validation
+- [x] [V0] Phase 3 sleep-wake Gate runner — manual-wake Windows OS sleep validation（发布验收测试）
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包

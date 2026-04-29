@@ -54,6 +54,7 @@ function writeMarkdownReport(data, outputDir) {
   const titleMap = {
     'dry-run': 'Phase 1 Dry-Run',
     'chrome-restart': 'Phase 2 Chrome-Restart',
+    'sleep-wake': 'Phase 3 Sleep-Wake',
   };
   lines.push(`# Sleep / Wake / Offline Gate — ${titleMap[scenario] || scenario} 报告`);
   lines.push('');
@@ -120,12 +121,14 @@ function writeMarkdownReport(data, outputDir) {
     writeDryRunSections(lines, data);
   } else if (scenario === 'chrome-restart') {
     writeChromeRestartSections(lines, data);
+  } else if (scenario === 'sleep-wake') {
+    writeSleepWakeSections(lines, data);
   }
 
   // 结论
   lines.push('## 结论');
   lines.push('');
-  const resultMap = { PASS: '通过', PARTIAL: '部分通过', FAIL: '失败' };
+  const resultMap = { PASS: '通过', PARTIAL: '部分通过', FAIL: '失败', SKIP: '跳过' };
   lines.push(`**${resultMap[data.result] || data.result}**`);
   lines.push('');
   lines.push('---');
@@ -135,6 +138,8 @@ function writeMarkdownReport(data, outputDir) {
     lines.push('> 未执行任何睡眠/锁屏/断网/关闭 Chrome 操作。');
   } else if (scenario === 'chrome-restart') {
     lines.push('> Chrome 关闭/重开操作由 Playwright 控制，未涉及 OS 睡眠/锁屏/网络切换。');
+  } else if (scenario === 'sleep-wake') {
+    lines.push('> Windows OS 睡眠/唤醒由 rundll32 powrprof.dll 触发，Chrome 在睡眠期间保持运行。');
   }
 
   fs.writeFileSync(filepath, lines.join('\n'), 'utf-8');
@@ -218,6 +223,91 @@ function writeChromeRestartSections(lines, data) {
   lines.push(`| Session state | ${phases.postReopen?.session?.state ?? 'null'} |`);
   lines.push(`| Session domain | ${phases.postReopen?.session?.domain ?? 'null'} |`);
   lines.push(`| Event Log 条目数 | ${phases.postReopen?.eventLogCount ?? 0} |`);
+  lines.push('');
+
+  // recover 详情
+  if (recovery.endEvent) {
+    lines.push('## recover() 追加的 END 事件');
+    lines.push('');
+    lines.push('```json');
+    lines.push(JSON.stringify(recovery.endEvent, null, 2));
+    lines.push('```');
+    lines.push('');
+  }
+}
+
+function writeSleepWakeSections(lines, data) {
+  const phases = data.phases || {};
+  const validation = data.validation || {};
+  const recovery = data.recovery || {};
+
+  // 阶段时间线
+  lines.push('## 阶段时间线');
+  lines.push('');
+  lines.push(`| 阶段 | 时长 | 说明 |`);
+  lines.push(`|------|------|------|`);
+  lines.push(`| 睡眠前运行 | ${phases.preSleep?.durationSec ?? 0} 秒 | 扩展累积 session |`);
+  lines.push(`| Windows OS 睡眠 | 人工唤醒 | 实际间隔 ${phases.sleep?.observedElapsedSec ?? 'N/A'} 秒 |`);
+  lines.push(`| 唤醒后运行 | ${phases.postWake?.durationSec ?? 0} 秒 | wake-after activity |`);
+  lines.push('');
+
+  // 睡眠前状态
+  lines.push('## 睡眠前状态');
+  lines.push('');
+  lines.push(`| 项目 | 值 |`);
+  lines.push(`|------|-----|`);
+  lines.push(`| Session state | ${phases.preSleep?.session?.state ?? 'null'} |`);
+  lines.push(`| Session domain | ${phases.preSleep?.session?.domain ?? 'null'} |`);
+  lines.push(`| lastHeartbeat | ${phases.preSleep?.session?.lastHeartbeat ?? 'N/A'} |`);
+  lines.push(`| Event Log 条目数 | ${phases.preSleep?.eventLogCount ?? 0} |`);
+  lines.push('');
+
+  // OS 睡眠详情
+  lines.push('## OS 睡眠详情');
+  lines.push('');
+  lines.push(`| 项目 | 值 |`);
+  lines.push(`|------|-----|`);
+  lines.push(`| 系统 S3 睡眠支持 | ${data.sleepSupport?.supported ? '支持' : '不支持'} |`);
+  if (!data.sleepSupport?.supported) {
+    lines.push(`| 不支持原因 | ${data.sleepSupport?.reason || 'N/A'} |`);
+  }
+  lines.push(`| Sleep 触发模式 | ${phases.sleep?.sleepTriggerMode || 'N/A'} |`);
+  lines.push(`| Wake 模式 | ${phases.sleep?.wakeMode || 'N/A'} |`);
+  lines.push(`| 指导睡眠时长 | ${phases.sleep?.guidanceSec ?? 0} 秒 |`);
+  lines.push(`| 实际间隔时长 | ${phases.sleep?.observedElapsedSec ?? 'N/A'} 秒 |`);
+  lines.push(`| Chrome 连接是否存活 | ${recovery.connectionSurvived ? '是' : '否（已重新启动）'} |`);
+  lines.push('');
+
+  // 恢复行为验证（核心）
+  lines.push('## 恢复行为验证（核心）');
+  lines.push('');
+  lines.push(`| 检查项 | 结果 | 说明 |`);
+  lines.push(`|--------|------|------|`);
+  lines.push(`| Chrome / SW 可访问 | ${validation.chromeReachable ? '通过' : '未通过'} | 唤醒后 Chrome 连接可复用或重新启动 |`);
+  lines.push(`| Event Log 可读 | ${validation.eventLogReadable ? '通过' : '未通过'} | 唤醒后 event-log 数据可读取 |`);
+  lines.push(`| Wake-After Activity 正常 | ${validation.wakeAfterActivityWorks ? '通过' : '未通过'} | 唤醒后扩展仍能产生新事件 |`);
+  lines.push('');
+
+  // 诊断项
+  lines.push('## 诊断项（不用于 pass/fail）');
+  lines.push('');
+  lines.push(`| 检查项 | 结果 | 说明 |`);
+  lines.push(`|--------|------|------|`);
+  lines.push(`| Service Worker 存活 | ${validation.serviceWorkerSurvived ? '是' : '否（已重新创建）'} | SW 是否在被冻结后存活 |`);
+  lines.push(`| recover() 观察到 | ${validation.recoverObserved ? '是' : '否'} | 若 SW 重启，是否有 END 事件补写 |`);
+  if (validation.recoverObserved) {
+    lines.push(`| END 截断误差 | ${validation.endTimeDeltaMs ?? 'N/A'} ms | END time ≈ lastHeartbeat |`);
+  }
+  lines.push('');
+
+  // 唤醒后状态
+  lines.push('## 唤醒后状态');
+  lines.push('');
+  lines.push(`| 项目 | 值 |`);
+  lines.push(`|------|-----|`);
+  lines.push(`| Session state | ${phases.postWake?.session?.state ?? 'null'} |`);
+  lines.push(`| Session domain | ${phases.postWake?.session?.domain ?? 'null'} |`);
+  lines.push(`| Event Log 条目数 | ${phases.postWake?.eventLogCount ?? 0} |`);
   lines.push('');
 
   // recover 详情
