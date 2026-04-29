@@ -34,7 +34,7 @@
   - RG-1 Chrome close / reopen: **PASS**
   - RG-2 Lock / Unlock: **PASS**（bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过）
   - RG-3 OS Sleep / Wake: **PASS**（最后执行；本机 sleep model 为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过）
-  - RG-4 Network Offline / Online: **BLOCKED**（bound profile 可用；adapter 模式缺少管理员权限；`--manualNetworkToggle` 是可接受的 Codex Desktop 人工断网/联网执行路径，待真实运行）
+  - RG-4 Network Offline / Online: **PASS**（bound profile 可用；`--manualNetworkToggle` 人工断网/联网观察到真实 offline/online；恢复后 event-log/session/trace 可读）
 - **放行规则**：V0 formal release 必须等剩余 System Recovery Release Gates 通过，或由 Product Owner 明确 waive 后才能发布。
 - **Workers: deployed and verified**
 - **Pages: deployed and verified**
