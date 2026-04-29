@@ -111,6 +111,52 @@ function normalizeCloudRulesConfig(cloudConfig) {
   return cfg;
 }
 
+const DEFAULT_SITE_LIST_FIELD_GROUPS = {
+  study: [
+    'defaultStudySites',
+    'defaultStudyList',
+    'systemConfiguredStudySites',
+    'systemConfiguredStudyList',
+  ],
+  composite: [
+    'defaultCompositeSites',
+    'defaultCompositeList',
+    'systemConfiguredCompositeSites',
+    'systemConfiguredCompositeList',
+  ],
+  restricted: [
+    'defaultRestrictedEntertainmentSites',
+    'defaultRestrictedEntertainmentList',
+    'systemConfiguredRestrictedEntertainmentSites',
+    'systemConfiguredRestrictedEntertainmentList',
+  ],
+  blocked: [
+    'defaultBlockedSites',
+    'defaultUnsafeSites',
+    'systemConfiguredBlockedSites',
+    'systemConfiguredUnsafeSites',
+  ],
+};
+
+function localConfigMissingCloudDefaultLists(localConfig) {
+  return Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS).some((keys) => !pickFirstArray(localConfig, keys));
+}
+
+function responseHasCloudDefaultLists(remoteConfig) {
+  return Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS).some((keys) => !!pickFirstArray(remoteConfig, keys));
+}
+
+function shouldSaveDespiteVersionSkip(remoteConfig, localConfig) {
+  if (!responseHasCloudDefaultLists(remoteConfig)) return false;
+  if (!localConfigMissingCloudDefaultLists(localConfig)) return false;
+  for (const keys of Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS)) {
+    const localList = pickFirstArray(localConfig, keys);
+    const remoteList = pickFirstArray(remoteConfig, keys);
+    if (!localList && Array.isArray(remoteList)) return true;
+  }
+  return false;
+}
+
 // ── Cloud request ───────────────────────────────────────────────────────────────
 
 async function cloudRequest(method, path, body = null, retries = 3) {
@@ -199,8 +245,10 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     const monitoringEnabled = result.monitoring_enabled ?? 1;
     await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled });
     syncState.monitoringEnabled = monitoringEnabled;
+    const localConfig = await getConfigFn();
 
-    if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion) {
+    if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion &&
+      !shouldSaveDespiteVersionSkip(result.data, localConfig)) {
       console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
       await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
       return { status: 'skipped', version: cloudVersion, error: null };
@@ -215,7 +263,6 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     // 云端配置为唯一来源，不再与本地 DEFAULT_CONFIG merge
     // 仅保留终端专属字段（不通过云端同步）
     const cloudConfig = normalizeCloudRulesConfig(result.data);
-    const localConfig = await getConfigFn();
     const mergedConfig = {
       ...cloudConfig,
       // 终端专属字段：不通过云端同步，始终使用本地值
