@@ -44,6 +44,9 @@
   - Terminal sync fix: `028c941`（同版本 sync skip 时若本地缺默认清单则补齐持久化）
   - Product Owner 手动验收：终端 `访问规则` 页面可见系统/默认学习网站清单；数据来自云同步；未引入本地硬编码默认清单；页面保持只读
 - **Chrome Web Store: NOT published** — separate future task, not in current scope
+- **PiP study-mode cleanup blocker: FIXED & manually verified**
+  - Commit: `fcf38f7` (`fix: enforce PiP cleanup on study mode switch`)
+  - Product Owner 手动验收通过：restricted/unsafe PiP 在切换学习模式时会关闭，未归类 PiP 不会静默保留；study/composite 允许场景保持；无关标签页不被关闭；PiP 统计仍保持独立口径
 
 ## 已知非阻塞残余项
 - `admin/admin.html` 历史 local-console 命名 / 物理页面拆分，保留为 post-V0 cleanup (P2)
