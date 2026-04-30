@@ -1417,6 +1417,15 @@ function classifyDomain(domain) {
   return 'other';
 }
 
+function classifyTimelineDomain(domain) {
+  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
+  if (unsafeList.some(p => matchDomain(domain, p))) return 'unsafe';
+  if ((config.restrictedEntertainmentList || []).some(p => matchDomain(domain, p))) return 'restricted';
+  if ((config.studyList || []).some(p => matchDomain(domain, p))) return 'study';
+  if ((config.compositeList || []).some(p => matchDomain(domain, p))) return 'composite';
+  return 'other';
+}
+
 function splitStatsDay(dayStats) {
   const safe = dayStats && typeof dayStats === 'object' ? dayStats : {};
   const audioSeconds = Number(safe.audioSeconds) || 0;
@@ -1585,13 +1594,14 @@ function renderTimeline(id, sessions, options = {}) {
     return;
   }
 
-  // 按小时聚合，并标记主要状态（跨小时段按小时切分）
+  // 按小时聚合，并标记主要分类（跨小时段按小时切分）
   const hourData = new Array(24).fill(0);
-  const hourState = new Array(24).fill(null);
+  const hourCategorySeconds = new Array(24).fill(null).map(() => ({}));
   for (const s of sessions) {
-    if (!Number.isFinite(s?.startAt) || !Number.isFinite(s?.duration) || s.duration <= 0) continue;
+    if (!Number.isFinite(s?.startAt) || !Number.isFinite(s?.duration) || s.duration <= 0 || !s?.domain) continue;
     let cursor = Number(s.startAt);
     const end = Number(s.startAt) + Number(s.duration) * 1000;
+    const category = classifyTimelineDomain(s.domain);
     while (cursor < end) {
       const slotDate = new Date(cursor);
       const hour = slotDate.getHours();
@@ -1608,8 +1618,7 @@ function renderTimeline(id, sessions, options = {}) {
       const seconds = Math.floor((segmentEnd - cursor) / 1000);
       if (seconds > 0 && hour >= 0 && hour <= 23) {
         hourData[hour] += seconds;
-        if (!hourState[hour]) hourState[hour] = s.state;
-        else if (s.state === 'ACTIVE' && hourState[hour] !== 'ACTIVE') hourState[hour] = 'ACTIVE';
+        hourCategorySeconds[hour][category] = (hourCategorySeconds[hour][category] || 0) + seconds;
       }
       cursor = segmentEnd;
     }
@@ -1620,14 +1629,28 @@ function renderTimeline(id, sessions, options = {}) {
   }
   const maxVal = Math.max(...hourData, 1);
 
-  const stateClass = { ACTIVE: 'study', BACKGROUND_ACTIVE: 'audio', PASSIVE: 'rest' };
-  const stateLabel = { ACTIVE: '学习', BACKGROUND_ACTIVE: '后台媒体', PASSIVE: '休息' };
+  const categoryClass = {
+    study: 'study',
+    composite: 'undetermined',
+    restricted: 'rest',
+    unsafe: 'rest',
+    other: 'undetermined',
+  };
+  const categoryLabel = {
+    study: '学习',
+    composite: '待归类',
+    restricted: '受限娱乐',
+    unsafe: '黑名单',
+    other: '待归类',
+  };
 
   el.innerHTML = hourData.map((seconds, h) => {
     const pct = Math.round(seconds / maxVal * 100);
-    const st = hourState[h];
-    const cls = stateClass[st] || 'undetermined';
-    const label = seconds > 0 ? `${stateLabel[st] || '待归类'} ${formatSeconds(seconds)}` : '';
+    const categoryEntries = Object.entries(hourCategorySeconds[h] || {});
+    categoryEntries.sort((a, b) => b[1] - a[1]);
+    const majorCategory = categoryEntries[0]?.[0] || 'other';
+    const cls = categoryClass[majorCategory] || 'undetermined';
+    const label = seconds > 0 ? `${categoryLabel[majorCategory] || '待归类'} ${formatSeconds(seconds)}` : '';
     return `
       <div class="timeline-row">
         <div class="timeline-hour">${String(h).padStart(2, '0')}</div>
