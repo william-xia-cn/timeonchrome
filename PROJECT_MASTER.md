@@ -9,6 +9,7 @@
 - **V0（功能冻结 / 发布闸门未完成）**
   - monitoring 核心短路（含全局门禁主路径）
   - 配置字段单一模型收口（`compositeList / studyList / unsafeList`）
+  - 三模式低摩擦切换 UX 规格已冻结（文档层）：Study / Composite / Rest / Paused（见 `docs/MODE_TRANSITION_UX_V0.md`、`DECISIONS.md:D-019`）
   - Background Audio Time 最小版（`BACKGROUND_ACTIVE -> audioSeconds`）
   - dev-reset 工具页（dev-only）
   - 真实 Chrome 前台 ACTIVE 计时、失焦/最小化、多窗口、badge 今日时长已进入本地验收
