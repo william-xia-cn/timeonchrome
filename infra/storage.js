@@ -118,6 +118,37 @@ function sortObjectKeys(obj) {
   return Object.keys(obj).sort().reduce((acc, key) => { acc[key] = obj[key]; return acc; }, {});
 }
 
+const STALE_COMPOSITE_DOMAINS_TO_REMOVE = new Set([
+  'bilibili.com',
+  'www.bilibili.com',
+  '163.com',
+  'www.163.com',
+]);
+
+export function sanitizeStaleCompositeDomains(config) {
+  if (!config || typeof config !== 'object') return { config, changed: false };
+
+  let changed = false;
+  const next = { ...config };
+  const listFields = ['compositeList', 'customCompositeList'];
+
+  for (const field of listFields) {
+    const list = next[field];
+    if (!Array.isArray(list)) continue;
+    const filtered = list.filter((item) => {
+      if (typeof item !== 'string') return true;
+      const normalized = normalizeHostname(item);
+      return !normalized || !STALE_COMPOSITE_DOMAINS_TO_REMOVE.has(normalized);
+    });
+    if (filtered.length !== list.length) {
+      next[field] = filtered;
+      changed = true;
+    }
+  }
+
+  return { config: next, changed };
+}
+
 async function computeHash(data) {
   const sorted = sortObjectKeys(data);
   const str = JSON.stringify(sorted);
@@ -139,16 +170,25 @@ export async function getConfig() {
       const storedHash = result[HASH_KEY];
       const computedHashVal = await computeHash(config);
       if (storedHash !== computedHashVal) {
-        const safeConfig = {
+        let safeConfig = {
           ...DEFAULT_CONFIG,
           ...config,
           adminPasswordHash: config.adminPasswordHash || '',
           isInitialized: config.isInitialized || false
         };
+        const sanitized = sanitizeStaleCompositeDomains(safeConfig);
+        safeConfig = sanitized.config;
+        if (sanitized.changed) {
+          await saveConfig(safeConfig);
+        }
         resolve(safeConfig);
         return;
       }
-      resolve(config);
+      const sanitized = sanitizeStaleCompositeDomains(config);
+      if (sanitized.changed) {
+        await saveConfig(sanitized.config);
+      }
+      resolve(sanitized.config);
     });
   });
 }
