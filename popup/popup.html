@@ -109,6 +109,24 @@
       color: var(--warn);
     }
 
+    .runtime-card {
+      margin: 10px 16px 0;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .runtime-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .runtime-row:last-child { margin-bottom: 0; }
+    .runtime-label { color: var(--muted); }
+    .runtime-value { color: var(--text); font-weight: 600; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
     /* Progress Bars */
     .quota-bar-item { margin-bottom: 12px; }
     .quota-bar-header {
@@ -173,6 +191,14 @@
   <div class="mode-bar">
     <button class="mode-btn" id="btn-study">📚 学习模式</button>
     <button class="mode-btn" id="btn-rest">☕ 休息模式</button>
+  </div>
+
+  <div class="runtime-card">
+    <div class="runtime-row"><span class="runtime-label">当前模式</span><span class="runtime-value" id="runtime-mode">-</span></div>
+    <div class="runtime-row"><span class="runtime-label">当前网站</span><span class="runtime-value" id="runtime-domain">-</span></div>
+    <div class="runtime-row"><span class="runtime-label">当前会话</span><span class="runtime-value" id="runtime-session">-</span></div>
+    <div class="runtime-row"><span class="runtime-label">综合剩余</span><span class="runtime-value" id="runtime-composite-remaining">-</span></div>
+    <div class="runtime-row"><span class="runtime-label">休息剩余</span><span class="runtime-value" id="runtime-rest-remaining">-</span></div>
   </div>
 
   <div class="body">

@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await init();
 
   await renderModeButtons();
+  await renderRuntimeStatus();
   document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
   document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
 
@@ -37,18 +38,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function renderModeButtons() {
-  const session = await sendMsg({ type: 'GET_SESSION' });
-  const mode = session?.currentMode || 'study';
+  const status = await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS' });
+  const mode = status?.mode || 'study';
   const studyBtn = document.getElementById('btn-study');
   const restBtn  = document.getElementById('btn-rest');
   studyBtn.className = 'mode-btn' + (mode === 'study' ? ' active-study' : '');
   restBtn.className  = 'mode-btn' + (mode === 'rest'  ? ' active-rest'  : '');
+  const disabled = mode === 'paused';
+  studyBtn.disabled = disabled;
+  restBtn.disabled = disabled;
 }
 
 async function setMode(mode) {
   const type = mode === 'study' ? 'SWITCH_TO_STUDY' : 'SWITCH_TO_REST';
   await sendMsg({ type });
   await renderModeButtons();
+  await renderRuntimeStatus();
 }
 
 async function init() {
@@ -155,6 +160,38 @@ async function init() {
       </div>
     `).join('');
   }
+}
+
+async function renderRuntimeStatus() {
+  const status = await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS' }) || {};
+  const modeMap = {
+    study: '学习',
+    composite: '综合',
+    rest: '休息',
+    paused: '暂停',
+  };
+  const modeText = modeMap[status.mode] || '学习';
+  const domainText = status.currentDomain || '暂无';
+  const sessionText = typeof status.currentSessionDurationSeconds === 'number'
+    ? formatSeconds(status.currentSessionDurationSeconds)
+    : '暂无';
+  const compositeRemainText = typeof status.compositeRemainingSeconds === 'number'
+    ? formatSeconds(status.compositeRemainingSeconds)
+    : '暂无';
+  const restRemainText = typeof status.restRemainingSeconds === 'number'
+    ? formatSeconds(status.restRemainingSeconds)
+    : '暂无';
+
+  const modeEl = document.getElementById('runtime-mode');
+  const domainEl = document.getElementById('runtime-domain');
+  const sessionEl = document.getElementById('runtime-session');
+  const compositeEl = document.getElementById('runtime-composite-remaining');
+  const restEl = document.getElementById('runtime-rest-remaining');
+  if (modeEl) modeEl.textContent = modeText;
+  if (domainEl) domainEl.textContent = domainText;
+  if (sessionEl) sessionEl.textContent = sessionText;
+  if (compositeEl) compositeEl.textContent = compositeRemainText;
+  if (restEl) restEl.textContent = restRemainText;
 }
 
 function extractDomain(url) {

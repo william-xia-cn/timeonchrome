@@ -188,6 +188,27 @@ function formatBadgeDuration(seconds) {
   return `${s}s`;
 }
 
+function normalizeMode(mode) {
+  if (mode === 'whitelist') return 'study';
+  if (mode === 'blacklist') return 'rest';
+  if (mode === 'study' || mode === 'composite' || mode === 'rest' || mode === 'paused') return mode;
+  return 'study';
+}
+
+function modeToBadgeText(mode) {
+  if (mode === 'paused') return '停';
+  if (mode === 'composite') return '综';
+  if (mode === 'rest') return '休';
+  return '学';
+}
+
+function modeToLabel(mode) {
+  if (mode === 'paused') return '暂停';
+  if (mode === 'composite') return '综合';
+  if (mode === 'rest') return '休息';
+  return '学习';
+}
+
 async function getCurrentActiveDomain() {
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const tab = tabs && tabs[0];
@@ -199,10 +220,19 @@ async function updateCurrentTabBadge() {
   if (!chrome.action?.setBadgeText) return;
 
   try {
+    const monitoringEnabled = getSyncState().monitoringEnabled;
+    const rawSession = await chrome.storage.local.get(SESSION_KEY);
+    const runtimeMode = monitoringEnabled === 0
+      ? 'paused'
+      : normalizeMode(rawSession?.[SESSION_KEY]?.currentMode || 'study');
+
     const { domain } = await getCurrentActiveDomain();
+    const modeText = modeToBadgeText(runtimeMode);
+    await chrome.action.setBadgeText({ text: modeText });
+    await chrome.action.setBadgeBackgroundColor({ color: '#00b894' });
+
     if (!domain) {
-      await chrome.action.setBadgeText({ text: '' });
-      await chrome.action.setTitle({ title: 'TimeOnChrome' });
+      await chrome.action.setTitle({ title: `TimeOnChrome\n模式 ${modeToLabel(runtimeMode)}` });
       return;
     }
 
@@ -216,10 +246,8 @@ async function updateCurrentTabBadge() {
     }
 
     const text = formatBadgeDuration(seconds);
-    await chrome.action.setBadgeBackgroundColor({ color: '#00b894' });
-    await chrome.action.setBadgeText({ text });
     await chrome.action.setTitle({
-      title: `TimeOnChrome\n${domain}\n今日 ${text}`,
+      title: `TimeOnChrome\n模式 ${modeToLabel(runtimeMode)}\n${domain}\n今日 ${text}`,
     });
   } catch (err) {
     await chrome.action.setBadgeText({ text: '' }).catch(() => {});

@@ -39,7 +39,7 @@ export const DEFAULT_CONFIG = {
   compositeList: [
     'google.com', 'google.com.hk', 'bing.com', 'baidu.com', 'search.brave.com', 'duckduckgo.com',
     'stackexchange.com', 'reddit.com',
-    'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com', 'bilibili.com',
+    'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com',
     'wikipedia.org', 'britannica.com', 'wolframalpha.com'
   ],
   unsafeList: ['douyin.com', 'tiktok.com'],

@@ -6,6 +6,8 @@ import { updateDeclarativeRules, checkAndRemind, redirectToReminder } from './pr
 import { checkAllTabsQuota, borrowRestQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
 import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync } from './infra/cloud-sync.js';
 import { getTodayStatsWithCategories } from './product/analytics.js';
+import { getSession as getTimingSession } from './runtime/session.js';
+import { getCappedElapsedMs } from './runtime/time-boundary.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -67,6 +69,13 @@ function buildTodayTimelineSegmentsFromEventLog(events, now = new Date()) {
   return segments;
 }
 
+function normalizeMode(mode) {
+  if (mode === 'whitelist') return 'study';
+  if (mode === 'blacklist') return 'rest';
+  if (mode === 'study' || mode === 'composite' || mode === 'rest' || mode === 'paused') return mode;
+  return 'study';
+}
+
 export async function handleMessage(msg, sender) {
   switch (msg.type) {
     case 'GET_CONFIG':
@@ -98,6 +107,9 @@ export async function handleMessage(msg, sender) {
     case 'GET_SESSION':
       return await getSession();
 
+    case 'GET_RUNTIME_MODE_STATUS':
+      return await getRuntimeModeStatus();
+
     case 'GET_VISIT_SESSIONS':
       return await getVisitSessions(msg.days || 14);
 
@@ -114,6 +126,9 @@ export async function handleMessage(msg, sender) {
 
     case 'SWITCH_TO_REST':
       return await switchToRest();
+
+    case 'SWITCH_TO_COMPOSITE':
+      return await switchToComposite();
 
     case 'ADD_TO_COMPOSITE_LIST':
       return await addToCompositeList(msg.domain, sender?.tab?.id ?? null);
@@ -368,6 +383,19 @@ async function switchToStudy() {
   return session;
 }
 
+async function switchToComposite() {
+  const config = await getConfig();
+  await clearTemporaryCompositeDomains();
+  config.mode = 'composite';
+  await saveConfig(config);
+  await updateDeclarativeRules(config);
+  const session = await getSession();
+  session.currentMode = 'composite';
+  await chrome.storage.local.set({ guardian_session: session });
+  await reevaluateActiveTabAfterModeSwitch();
+  return session;
+}
+
 async function switchToRest() {
   const config = await getConfig();
   await clearTemporaryCompositeDomains();
@@ -424,4 +452,54 @@ async function addToCompositeList(domain, tabId) {
     return { domain, alreadyPresent: true };
   }
   return { domain, added: true };
+}
+
+async function getRuntimeModeStatus() {
+  const config = await getConfig();
+  const [session, statsWithCategories] = await Promise.all([
+    getSession(),
+    getTodayStatsWithCategories(config),
+  ]);
+  const monitoringEnabled = getSyncState().monitoringEnabled;
+  const mode = monitoringEnabled === 0 ? 'paused' : normalizeMode(session?.currentMode || config?.mode);
+
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const activeTab = tabs && tabs[0];
+  const currentDomain = extractDomain(activeTab?.url || '');
+
+  let currentSessionDurationSeconds = null;
+  try {
+    const timingSession = await getTimingSession();
+    if (timingSession?.state === 'ACTIVE' && timingSession?.startTime) {
+      currentSessionDurationSeconds = Math.max(0, Math.floor(getCappedElapsedMs(timingSession, Date.now()) / 1000));
+    }
+  } catch {}
+
+  const compositeUsedSeconds = Math.max(0, Number(statsWithCategories?.undeterminedSeconds) || 0);
+  const compositeLimitSeconds = Math.max(0, (config.dailyUndeterminedQuota ?? 60) * 60);
+  const compositeRemainingSeconds = Math.max(0, compositeLimitSeconds - compositeUsedSeconds);
+
+  const effectiveRestLimitMinutes = (() => {
+    const baseLimit = config.dailyRestQuota ?? 120;
+    const borrow = config.quotaBorrow;
+    if (!borrow || borrow.repaid) return baseLimit;
+    const today = getDateKey();
+    if (today === borrow.borrowedFrom) return baseLimit + borrow.amount;
+    const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
+    repayD.setDate(repayD.getDate() + 1);
+    const repayStr = formatDate(repayD);
+    if (today === repayStr) return Math.max(0, baseLimit - borrow.amount);
+    return baseLimit;
+  })();
+  const restLimitSeconds = Math.max(0, effectiveRestLimitMinutes * 60);
+  const restUsedSeconds = Math.max(0, Number(statsWithCategories?.restSeconds) || 0);
+  const restRemainingSeconds = Math.max(0, restLimitSeconds - restUsedSeconds);
+
+  return {
+    mode,
+    currentDomain: currentDomain || null,
+    currentSessionDurationSeconds,
+    compositeRemainingSeconds,
+    restRemainingSeconds,
+  };
 }

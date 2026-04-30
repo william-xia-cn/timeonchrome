@@ -31,6 +31,10 @@
   const actionsContainer = document.getElementById('actions');
   const statusEl = document.getElementById('statusFeedback');
   const starsContainer = document.getElementById('stars');
+  const slideConfirmWrap = document.getElementById('slideConfirmWrap');
+  const slideTrack = document.getElementById('slideTrack');
+  const slideThumb = document.getElementById('slideThumb');
+  const slideHint = document.getElementById('slideHint');
 
   // 原因配置
   const configs = {
@@ -43,6 +47,21 @@
       icon: '📖', title: '当前是学习模式',
       subtitle: '这个网站不在你的学习网站中。本次标签页访问内有效，占用综合时间，不计入学习时间。',
       actions: ['addComposite', 'switchToRest', 'back']
+    },
+    to_composite_confirm: {
+      icon: '🧭', title: '你正在打开综合网站',
+      subtitle: '继续后将进入综合时间，本段不会计入学习时间。',
+      actions: ['switchToComposite', 'back']
+    },
+    to_rest_confirm: {
+      icon: '☕', title: '你正在进入休息时间',
+      subtitle: '继续后将进入休息时间，并消耗休息配额。',
+      actions: ['switchToRest', 'back']
+    },
+    to_rest_slide_confirm: {
+      icon: '☕', title: '你正在离开学习时间',
+      subtitle: '这个网站当前不在学习网站或综合网站清单中。\n继续后将按休息时间处理，不会计入学习时间。\n请滑动确认进入休息时间。',
+      actions: ['slideToRest', 'back']
     },
     restricted_study_mode: {
       icon: '🎮', title: '当前是学习模式',
@@ -100,7 +119,7 @@
       }
     },
     switchToRest: {
-      label: '☕ 切换到休息模式', style: 'secondary',
+      label: '☕ 开始休息', style: 'secondary',
       handler: function() {
         chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function() {
           showStatus('已切换到休息模式，正在跳转…', 'success');
@@ -108,6 +127,25 @@
             setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
           }
         });
+      }
+    },
+    switchToComposite: {
+      label: '🧭 继续（进入综合时间）', style: 'primary',
+      handler: function() {
+        chrome.runtime.sendMessage({ type: 'SWITCH_TO_COMPOSITE' }, function() {
+          showStatus('已进入综合时间，正在跳转…', 'success');
+          if (domain && domain !== 'all') {
+            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+          }
+        });
+      }
+    },
+    slideToRest: {
+      label: '👉 拖动确认进入休息时间', style: 'secondary',
+      handler: function() {
+        if (!slideConfirmWrap || !slideTrack || !slideThumb) return;
+        slideConfirmWrap.style.display = 'block';
+        bindSlideConfirm();
       }
     },
     switchToStudy: {
@@ -220,6 +258,77 @@
       btn.addEventListener('click', def.handler);
       actionsContainer.appendChild(btn);
     });
+  }
+
+  let slideBound = false;
+  function bindSlideConfirm() {
+    if (slideBound || !slideTrack || !slideThumb) return;
+    slideBound = true;
+
+    var dragging = false;
+    var startX = 0;
+    var baseLeft = 0;
+
+    function setThumb(left) {
+      var max = Math.max(0, slideTrack.clientWidth - slideThumb.clientWidth);
+      var clamped = Math.max(0, Math.min(max, left));
+      slideThumb.style.left = clamped + 'px';
+      if (slideHint) {
+        slideHint.textContent = clamped >= max * 0.92 ? '松手确认进入休息时间' : '拖动到右侧确认进入休息时间';
+      }
+      return { clamped: clamped, max: max };
+    }
+
+    function begin(clientX) {
+      dragging = true;
+      startX = clientX;
+      baseLeft = parseFloat(slideThumb.style.left || '0') || 0;
+    }
+
+    function move(clientX) {
+      if (!dragging) return;
+      var delta = clientX - startX;
+      setThumb(baseLeft + delta);
+    }
+
+    function end() {
+      if (!dragging) return;
+      dragging = false;
+      var pos = parseFloat(slideThumb.style.left || '0') || 0;
+      var max = Math.max(0, slideTrack.clientWidth - slideThumb.clientWidth);
+      if (pos >= max * 0.92) {
+        slideThumb.style.left = max + 'px';
+        chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function() {
+          showStatus('已切换到休息模式，正在跳转…', 'success');
+          if (domain && domain !== 'all') {
+            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+          }
+        });
+      } else {
+        slideThumb.style.left = '0px';
+        if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
+      }
+    }
+
+    slideThumb.style.left = '0px';
+    if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
+
+    slideThumb.addEventListener('mousedown', function(e) {
+      begin(e.clientX);
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', function(e) { move(e.clientX); });
+    window.addEventListener('mouseup', end);
+
+    slideThumb.addEventListener('touchstart', function(e) {
+      begin(e.touches[0].clientX);
+      e.preventDefault();
+    }, { passive: false });
+    window.addEventListener('touchmove', function(e) {
+      if (!dragging) return;
+      move(e.touches[0].clientX);
+    }, { passive: false });
+    window.addEventListener('touchend', end);
   }
 
   // 生成背景星点（绿色调）

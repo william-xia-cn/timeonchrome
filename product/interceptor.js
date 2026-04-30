@@ -1,6 +1,6 @@
 // product/interceptor.js — 拦截逻辑 + 提醒触发
 
-import { getConfig, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
+import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
 
 // ── Schedule check ──────────────────────────────────────────────────────────────
 
@@ -18,6 +18,40 @@ export function isWithinSchedule(schedule) {
   const endMinutes = endH * 60 + endM;
 
   return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+}
+
+function normalizeMode(mode) {
+  if (mode === 'whitelist') return 'study';
+  if (mode === 'blacklist') return 'rest';
+  if (mode === 'study' || mode === 'composite' || mode === 'rest' || mode === 'paused') return mode;
+  return 'study';
+}
+
+async function getEffectiveRuntimeMode(config, monitoringEnabled) {
+  if (monitoringEnabled === 0) return 'paused';
+  const session = await getSession();
+  const sessionMode = normalizeMode(session?.currentMode);
+  if (sessionMode && sessionMode !== 'paused') return sessionMode;
+  return normalizeMode(config?.mode);
+}
+
+async function setRuntimeMode(nextMode) {
+  const normalized = normalizeMode(nextMode);
+  if (normalized === 'paused') return;
+  const session = await getSession();
+  if (normalizeMode(session?.currentMode) === normalized) return;
+  await saveSession({ ...(session || {}), currentMode: normalized });
+}
+
+function notifyRuntimeModeSwitch(message) {
+  try {
+    chrome.notifications?.create?.({
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: 'TimeOnChrome',
+      message,
+    });
+  } catch {}
 }
 
 // ── Check and remind ────────────────────────────────────────────────────────────
@@ -52,15 +86,37 @@ export async function checkAndRemind(tabId, url, monitoringEnabled) {
     return true;
   }
 
-  // 3. 学习模式检查
-  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+  // 3. 运行时模式切换/拦截（study/composite/rest）
+  const currentMode = await getEffectiveRuntimeMode(config, monitoringEnabled);
+  if (currentMode === 'rest' && isStudyDomain) {
+    await setRuntimeMode('study');
+  }
+  if (currentMode === 'composite' && isStudyDomain) {
+    await setRuntimeMode('study');
+  }
+  if (currentMode === 'rest' && isCompositeDomain) {
+    await setRuntimeMode('composite');
+    notifyRuntimeModeSwitch('已进入综合时间');
+  }
+
   if (currentMode === 'study') {
+    if (isCompositeDomain) {
+      await redirectToReminder(tabId, domain, 'to_composite_confirm', config.blockMessage);
+      return true;
+    }
     if (isRestricted) {
-      await redirectToReminder(tabId, domain, 'restricted_study_mode', config.blockMessage);
+      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage);
       return true;
     }
     if (!isStudyDomain && !isCompositeDomain) {
-      await redirectToReminder(tabId, domain, 'study_mode', config.blockMessage);
+      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage);
+      return true;
+    }
+  }
+
+  if (currentMode === 'composite') {
+    if (isRestricted || (!isStudyDomain && !isCompositeDomain)) {
+      await redirectToReminder(tabId, domain, 'to_rest_confirm', config.blockMessage);
       return true;
     }
   }
