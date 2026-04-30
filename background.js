@@ -6,7 +6,7 @@ import { resolveState } from './core/state.js';
 import { initSession, transitionState, heartbeat, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
-import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange } from './infra/storage.js';
+import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
 import { updateDeclarativeRules, checkAndRemind } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
 import { initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
@@ -269,6 +269,16 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   await reevaluateTabById(activeInfo.tabId);
+});
+
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  await clearTemporaryCompositeDomainByTab(tabId);
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!Object.prototype.hasOwnProperty.call(changeInfo, 'url')) return;
+  const domain = extractDomain(changeInfo.url || tab?.url || '');
+  await clearTemporaryCompositeDomainByTabDomainMismatch(tabId, domain);
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {

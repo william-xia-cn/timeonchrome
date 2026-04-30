@@ -1,6 +1,6 @@
 // message-router.js — 命令路由
 
-import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, getTemporaryCompositeDomains } from './infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission } from './infra/storage.js';
 import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules, checkAndRemind, redirectToReminder } from './product/interceptor.js';
 import { checkAllTabsQuota, borrowRestQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
@@ -116,7 +116,7 @@ export async function handleMessage(msg, sender) {
       return await switchToRest();
 
     case 'ADD_TO_COMPOSITE_LIST':
-      return await addToCompositeList(msg.domain);
+      return await addToCompositeList(msg.domain, sender?.tab?.id ?? null);
 
     case 'SEND_CLOUD_EVENT': {
       const { eventType, domain: evtDomain = '' } = msg;
@@ -383,17 +383,19 @@ async function switchToRest() {
 
 // ── Add to composite list ───────────────────────────────────────────────────────
 
-async function addToCompositeList(domain) {
+async function addToCompositeList(domain, tabId) {
   const config = await getConfig();
   const list = config.compositeList || [];
   const restrictedList = config.restrictedEntertainmentList || [];
   const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
   const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
   const quotaState = config.quotaState || {};
-  const temporaryCompositeDomains = await getTemporaryCompositeDomains();
+  if (!Number.isInteger(tabId) || tabId < 0) {
+    return { domain, added: false, error: 'invalid_tab_context', code: 'INVALID_TAB_CONTEXT' };
+  }
 
   const alreadyInComposite = list.some(d => matchDomain(domain, d));
-  const alreadyInTemporaryComposite = temporaryCompositeDomains.some(d => matchDomain(domain, d));
+  const alreadyInTemporaryComposite = await hasTemporaryCompositePermission(tabId, domain);
   const alreadyInStudy = (config.studyList || []).some(d => matchDomain(domain, d));
   const isRestricted = restrictedList.some(d => matchDomain(domain, d));
   const isUnsafe = unsafeList.some(d => matchDomain(domain, d));
@@ -417,7 +419,7 @@ async function addToCompositeList(domain) {
     return { domain, alreadyPresent: true };
   }
 
-  const addResult = await addTemporaryCompositeDomain(domain);
+  const addResult = await addTemporaryCompositeDomain(tabId, domain);
   if (!addResult.added) {
     return { domain, alreadyPresent: true };
   }

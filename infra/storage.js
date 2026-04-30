@@ -182,28 +182,97 @@ function getSessionStorageArea() {
   return chrome.storage.session || null;
 }
 
-export async function getTemporaryCompositeDomains() {
+function normalizeTemporaryCompositeDomain(domain) {
+  if (!domain || typeof domain !== 'string') return null;
+  const normalized = domain.trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeTemporaryCompositeRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const tabId = Number(record.tabId);
+  const domain = normalizeTemporaryCompositeDomain(record.domain);
+  if (!Number.isInteger(tabId) || tabId < 0 || !domain) return null;
+  const createdAt = Number(record.createdAt) || Date.now();
+  return { tabId, domain, createdAt };
+}
+
+async function getTemporaryCompositePermissionRecords() {
   const area = getSessionStorageArea();
   if (!area) return [];
   return new Promise((resolve) => {
     area.get(TEMP_COMPOSITE_DOMAINS_KEY, (result) => {
       const list = result[TEMP_COMPOSITE_DOMAINS_KEY];
-      resolve(Array.isArray(list) ? list : []);
+      if (!Array.isArray(list)) {
+        resolve([]);
+        return;
+      }
+      const migrated = list
+        .map((item) => {
+          if (typeof item === 'string') return null;
+          return normalizeTemporaryCompositeRecord(item);
+        })
+        .filter(Boolean);
+      resolve(migrated);
     });
   });
 }
 
-export async function addTemporaryCompositeDomain(domain) {
+async function setTemporaryCompositePermissionRecords(records) {
   const area = getSessionStorageArea();
-  if (!area || !domain) return { added: false };
-  const normalized = String(domain).trim().toLowerCase();
-  if (!normalized) return { added: false };
-  const current = await getTemporaryCompositeDomains();
-  if (current.includes(normalized)) return { added: false, alreadyPresent: true };
-  const next = [...current, normalized];
+  if (!area) return;
   return new Promise((resolve) => {
-    area.set({ [TEMP_COMPOSITE_DOMAINS_KEY]: next }, () => resolve({ added: true }));
+    area.set({ [TEMP_COMPOSITE_DOMAINS_KEY]: records }, resolve);
   });
+}
+
+export async function getTemporaryCompositeDomains() {
+  const records = await getTemporaryCompositePermissionRecords();
+  return [...new Set(records.map((r) => r.domain))];
+}
+
+export async function hasTemporaryCompositePermission(tabId, domain) {
+  const normalizedDomain = normalizeTemporaryCompositeDomain(domain);
+  if (!Number.isInteger(tabId) || tabId < 0 || !normalizedDomain) return false;
+  const records = await getTemporaryCompositePermissionRecords();
+  return records.some((record) => record.tabId === tabId && record.domain === normalizedDomain);
+}
+
+export async function addTemporaryCompositeDomain(tabId, domain) {
+  const area = getSessionStorageArea();
+  if (!area) return { added: false };
+  const normalizedDomain = normalizeTemporaryCompositeDomain(domain);
+  if (!Number.isInteger(tabId) || tabId < 0 || !normalizedDomain) return { added: false };
+  const records = await getTemporaryCompositePermissionRecords();
+  if (records.some((record) => record.tabId === tabId && record.domain === normalizedDomain)) {
+    return { added: false, alreadyPresent: true };
+  }
+  await setTemporaryCompositePermissionRecords([
+    ...records,
+    { tabId, domain: normalizedDomain, createdAt: Date.now() },
+  ]);
+  return { added: true };
+}
+
+export async function clearTemporaryCompositeDomainByTab(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  const records = await getTemporaryCompositePermissionRecords();
+  const next = records.filter((record) => record.tabId !== tabId);
+  if (next.length === records.length) return;
+  await setTemporaryCompositePermissionRecords(next);
+}
+
+export async function clearTemporaryCompositeDomainByTabDomainMismatch(tabId, currentDomain) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  const normalizedDomain = normalizeTemporaryCompositeDomain(currentDomain);
+  const records = await getTemporaryCompositePermissionRecords();
+  const next = records.filter((record) => {
+    if (record.tabId !== tabId) return true;
+    if (!normalizedDomain) return false;
+    return record.domain === normalizedDomain;
+  });
+  if (next.length === records.length) return;
+  await setTemporaryCompositePermissionRecords(next);
 }
 
 export async function clearTemporaryCompositeDomains() {

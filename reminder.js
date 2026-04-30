@@ -41,7 +41,7 @@
     },
     study_mode: {
       icon: '📖', title: '当前是学习模式',
-      subtitle: '这个网站不在你的学习网站中。本学习会话内有效，占用综合时间，不计入学习时间。',
+      subtitle: '这个网站不在你的学习网站中。本次标签页访问内有效，占用综合时间，不计入学习时间。',
       actions: ['addComposite', 'switchToRest', 'back']
     },
     restricted_study_mode: {

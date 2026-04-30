@@ -1,6 +1,6 @@
 // product/quota.js — 配额检查 + 借用逻辑
 
-import { getConfig, saveConfig, getTodayStats, getTodayUndeterminedStats, getStatsRange, getTemporaryCompositeDomains, matchDomain, extractDomain, isSpecialUrl, getDateKey, formatDate } from '../infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getTodayUndeterminedStats, getStatsRange, getTemporaryCompositeDomains, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl, getDateKey, formatDate } from '../infra/storage.js';
 
 let borrowInProgress = false;
 
@@ -162,15 +162,14 @@ export async function checkAllTabsQuota(redirectToReminderFn, redirectAllTabsFn,
 // ── Tab redirect helpers ────────────────────────────────────────────────────────
 
 export async function redirectQuotaViolatingTabs(config, quotaState) {
-  const temporaryCompositeDomains = await getTemporaryCompositeDomains();
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (!tab.url || isSpecialUrl(tab.url)) continue;
     const domain = extractDomain(tab.url);
     if (!domain) continue;
     const isStudy = (config.studyList || []).some(p => matchDomain(domain, p));
-    const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p)) ||
-      temporaryCompositeDomains.some(p => matchDomain(domain, p));
+    const isTemporaryComposite = await hasTemporaryCompositePermission(tab.id, domain);
+    const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p)) || isTemporaryComposite;
     if (quotaState.studyLocked && isStudy) {
       chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('reminder.html') + `?reason=quota_study&domain=${encodeURIComponent(domain)}` });
     } else if (quotaState.undeterminedLocked && isComposite && !isStudy) {
