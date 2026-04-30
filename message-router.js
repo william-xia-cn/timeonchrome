@@ -1,6 +1,6 @@
 // message-router.js — 命令路由
 
-import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain } from './infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, getTemporaryCompositeDomains } from './infra/storage.js';
 import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules, checkAndRemind, redirectToReminder } from './product/interceptor.js';
 import { checkAllTabsQuota, borrowRestQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
@@ -80,6 +80,10 @@ export async function handleMessage(msg, sender) {
 
     case 'UPDATE_CONFIG': {
       const newConfig = msg.config;
+      const nextMode = newConfig?.mode === 'whitelist' ? 'study' : (newConfig?.mode === 'blacklist' ? 'rest' : newConfig?.mode);
+      if (nextMode && nextMode !== 'study') {
+        await clearTemporaryCompositeDomains();
+      }
       await saveConfig(newConfig);
       await updateDeclarativeRules(newConfig);
       return { ok: true };
@@ -352,6 +356,7 @@ async function closeNonStudyPictureInPicture(config) {
 
 async function switchToStudy() {
   const config = await getConfig();
+  await clearTemporaryCompositeDomains();
   config.mode = 'study';
   await saveConfig(config);
   await updateDeclarativeRules(config);
@@ -365,6 +370,7 @@ async function switchToStudy() {
 
 async function switchToRest() {
   const config = await getConfig();
+  await clearTemporaryCompositeDomains();
   config.mode = 'rest';
   await saveConfig(config);
   await updateDeclarativeRules(config);
@@ -382,24 +388,38 @@ async function addToCompositeList(domain) {
   const list = config.compositeList || [];
   const restrictedList = config.restrictedEntertainmentList || [];
   const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
+  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+  const quotaState = config.quotaState || {};
+  const temporaryCompositeDomains = await getTemporaryCompositeDomains();
 
   const alreadyInComposite = list.some(d => matchDomain(domain, d));
+  const alreadyInTemporaryComposite = temporaryCompositeDomains.some(d => matchDomain(domain, d));
   const alreadyInStudy = (config.studyList || []).some(d => matchDomain(domain, d));
   const isRestricted = restrictedList.some(d => matchDomain(domain, d));
   const isUnsafe = unsafeList.some(d => matchDomain(domain, d));
 
+  if (currentMode !== 'study') {
+    return { domain, added: false, error: 'not_in_study_mode', code: 'NOT_IN_STUDY_MODE' };
+  }
+  if (quotaState.onlineLocked) {
+    return { domain, added: false, error: 'online_quota_locked', code: 'ONLINE_QUOTA_LOCKED' };
+  }
+  if (quotaState.undeterminedLocked) {
+    return { domain, added: false, error: 'undetermined_quota_locked', code: 'UNDETERMINED_QUOTA_LOCKED' };
+  }
   if (isRestricted) {
     return { domain, added: false, error: 'domain_in_restricted_list', code: 'DOMAIN_IN_RESTRICTED_LIST' };
   }
   if (isUnsafe) {
     return { domain, added: false, error: 'domain_in_unsafe_list', code: 'DOMAIN_IN_UNSAFE_LIST' };
   }
-  if (alreadyInComposite || alreadyInStudy) {
+  if (alreadyInComposite || alreadyInStudy || alreadyInTemporaryComposite) {
     return { domain, alreadyPresent: true };
   }
 
-  config.compositeList = [...list, domain];
-  await saveConfig(config);
-  await updateDeclarativeRules(config);
+  const addResult = await addTemporaryCompositeDomain(domain);
+  if (!addResult.added) {
+    return { domain, alreadyPresent: true };
+  }
   return { domain, added: true };
 }

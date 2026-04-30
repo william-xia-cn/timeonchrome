@@ -1,6 +1,6 @@
 // product/interceptor.js — 拦截逻辑 + 提醒触发
 
-import { getConfig, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
+import { getConfig, getTemporaryCompositeDomains, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
 
 // ── Schedule check ──────────────────────────────────────────────────────────────
 
@@ -32,9 +32,11 @@ export async function checkAndRemind(tabId, url, monitoringEnabled) {
 
   const domain = extractDomain(url);
   if (!domain) return false;
+  const temporaryCompositeDomains = await getTemporaryCompositeDomains();
 
   const isStudyDomain = (config.studyList || []).some(p => matchDomain(domain, p));
-  const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p));
+  const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p)) ||
+    temporaryCompositeDomains.some(p => matchDomain(domain, p));
   const restrictedList = config.restrictedEntertainmentList || [];
   const isRestricted = restrictedList.some(p => matchDomain(domain, p));
 

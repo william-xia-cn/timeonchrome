@@ -11,6 +11,7 @@ const UNDETERMINED_STATS_KEY_PREFIX = 'undetermined_stats_';
 export const SESSION_KEY = 'guardian_session';
 const SESSIONS_KEY = 'guardian_sessions';
 export const VISIT_SESSIONS_KEY = 'visit_sessions';
+const TEMP_COMPOSITE_DOMAINS_KEY = 'temporary_composite_domains';
 const CHANGELOG_KEY = 'guardian_changelog';
 const MAX_CHANGELOG_ENTRIES = 100;
 const MAX_SESSION_DAYS = 14;
@@ -177,6 +178,42 @@ export async function saveSession(session) {
   });
 }
 
+function getSessionStorageArea() {
+  return chrome.storage.session || null;
+}
+
+export async function getTemporaryCompositeDomains() {
+  const area = getSessionStorageArea();
+  if (!area) return [];
+  return new Promise((resolve) => {
+    area.get(TEMP_COMPOSITE_DOMAINS_KEY, (result) => {
+      const list = result[TEMP_COMPOSITE_DOMAINS_KEY];
+      resolve(Array.isArray(list) ? list : []);
+    });
+  });
+}
+
+export async function addTemporaryCompositeDomain(domain) {
+  const area = getSessionStorageArea();
+  if (!area || !domain) return { added: false };
+  const normalized = String(domain).trim().toLowerCase();
+  if (!normalized) return { added: false };
+  const current = await getTemporaryCompositeDomains();
+  if (current.includes(normalized)) return { added: false, alreadyPresent: true };
+  const next = [...current, normalized];
+  return new Promise((resolve) => {
+    area.set({ [TEMP_COMPOSITE_DOMAINS_KEY]: next }, () => resolve({ added: true }));
+  });
+}
+
+export async function clearTemporaryCompositeDomains() {
+  const area = getSessionStorageArea();
+  if (!area) return;
+  return new Promise((resolve) => {
+    area.remove(TEMP_COMPOSITE_DOMAINS_KEY, resolve);
+  });
+}
+
 // ── Domain time tracking (event-log based) ──────────────────────────────────────
 
 const EVENT_LOG_KEY = 'event_log_v1';
@@ -222,7 +259,8 @@ export async function getTodayStats() {
  */
 export async function getTodayUndeterminedStats() {
   const config = await getConfig();
-  const compositeList = config.compositeList || [];
+  const temporaryCompositeDomains = await getTemporaryCompositeDomains();
+  const compositeList = [...(config.compositeList || []), ...temporaryCompositeDomains];
   const stats = await getTodayStats();
 
   const result = {};
