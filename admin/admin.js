@@ -1448,21 +1448,6 @@ function getLocalDateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function normalizeTimelineSessionsFromWeekly(sessions, todayKey) {
-  if (!Array.isArray(sessions)) return [];
-  return sessions
-    .filter((s) => s && s.date === todayKey)
-    .map((s) => {
-      const rawStart = s.startAt ?? s.start_time ?? s.startTime ?? null;
-      const startAt = Number.isFinite(rawStart) ? Number(rawStart) : null;
-      const duration = Number(s.duration ?? s.durationSec ?? s.seconds ?? 0) || 0;
-      const cls = String(s.classification || '').toLowerCase();
-      const state = cls === 'study' ? 'ACTIVE' : cls === 'rest' ? 'PASSIVE' : 'UNKNOWN';
-      return { startAt, duration, state };
-    })
-    .filter((s) => Number.isFinite(s.startAt) && s.duration > 0);
-}
-
 async function renderStatsPage() {
   const setStatsEmptyState = () => {
     renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
@@ -1492,30 +1477,20 @@ async function renderStatsPage() {
   const [
     todayRangeData,
     weekRangeData,
-    todaySessions,
-    weekSessions,
     weeklyRes,
     timelineSegments
   ] = await Promise.all([
     safeMsg({ type: 'GET_STATS_RANGE', days: 1 }, {}),
     safeMsg({ type: 'GET_STATS_RANGE', days: 7 }, {}),
-    safeMsg({ type: 'GET_VISIT_SESSIONS', days: 1 }, []),
-    safeMsg({ type: 'GET_VISIT_SESSIONS', days: 7 }, []),
     safeMsg({ type: 'GET_WEEKLY_SESSIONS' }, { sessions: [] }),
     safeMsg({ type: 'GET_TIMELINE_SEGMENTS' }, [])
   ]);
 
   const todayRangeSafe = todayRangeData && typeof todayRangeData === 'object' ? todayRangeData : {};
   const weekRangeSafe = weekRangeData && typeof weekRangeData === 'object' ? weekRangeData : {};
-  const todaySessionsSafe = Array.isArray(todaySessions) ? todaySessions : [];
-  const weekSessionsSafe = Array.isArray(weekSessions) ? weekSessions : [];
   const weeklySessionsSafe = Array.isArray(weeklyRes?.sessions) ? weeklyRes.sessions : [];
   const timelineSegmentsSafe = Array.isArray(timelineSegments) ? timelineSegments : [];
-  const todayKey = getLocalDateKey();
-  const timelineSessionsFromWeekly = normalizeTimelineSessionsFromWeekly(weeklySessionsSafe, todayKey);
-  const timelineSessions = todaySessionsSafe.length > 0
-    ? todaySessionsSafe
-    : (timelineSessionsFromWeekly.length > 0 ? timelineSessionsFromWeekly : timelineSegmentsSafe);
+  const timelineSessions = timelineSegmentsSafe;
 
   const todayValues = Object.values(todayRangeSafe);
   const todayData = splitStatsDay(todayValues[todayValues.length - 1] || {});
@@ -1610,16 +1585,34 @@ function renderTimeline(id, sessions, options = {}) {
     return;
   }
 
-  // 按小时聚合，并标记主要状态
+  // 按小时聚合，并标记主要状态（跨小时段按小时切分）
   const hourData = new Array(24).fill(0);
   const hourState = new Array(24).fill(null);
   for (const s of sessions) {
     if (!Number.isFinite(s?.startAt) || !Number.isFinite(s?.duration) || s.duration <= 0) continue;
-    const h = new Date(s.startAt).getHours();
-    if (!Number.isFinite(h) || h < 0 || h > 23) continue;
-    hourData[h] += s.duration;
-    if (!hourState[h]) hourState[h] = s.state;
-    else if (s.state === 'ACTIVE' && hourState[h] !== 'ACTIVE') hourState[h] = 'ACTIVE';
+    let cursor = Number(s.startAt);
+    const end = Number(s.startAt) + Number(s.duration) * 1000;
+    while (cursor < end) {
+      const slotDate = new Date(cursor);
+      const hour = slotDate.getHours();
+      const nextHourStart = new Date(
+        slotDate.getFullYear(),
+        slotDate.getMonth(),
+        slotDate.getDate(),
+        slotDate.getHours() + 1,
+        0,
+        0,
+        0
+      ).getTime();
+      const segmentEnd = Math.min(end, nextHourStart);
+      const seconds = Math.floor((segmentEnd - cursor) / 1000);
+      if (seconds > 0 && hour >= 0 && hour <= 23) {
+        hourData[hour] += seconds;
+        if (!hourState[hour]) hourState[hour] = s.state;
+        else if (s.state === 'ACTIVE' && hourState[hour] !== 'ACTIVE') hourState[hour] = 'ACTIVE';
+      }
+      cursor = segmentEnd;
+    }
   }
   if (!hourData.some(v => v > 0)) {
     el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${emptyMessage}</div>`;
