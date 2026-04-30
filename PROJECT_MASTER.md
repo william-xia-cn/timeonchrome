@@ -47,6 +47,9 @@
 - **PiP study-mode cleanup blocker: FIXED & manually verified**
   - Commit: `fcf38f7` (`fix: enforce PiP cleanup on study mode switch`)
   - Product Owner 手动验收通过：restricted/unsafe PiP 在切换学习模式时会关闭，未归类 PiP 不会静默保留；study/composite 允许场景保持；无关标签页不被关闭；PiP 统计仍保持独立口径
+- **Temporary composite permission semantic bug: FIXED & code-verified**
+  - Commit: `b5d371c` (`fix: scope temporary composite permission to current tab visit`)
+  - Codex closed-loop 代码路径核验：临时权限不再写入 `guardian_config.compositeList`；存储模型为 `tabId + domain + createdAt`；访问判定要求 `tabId + domain` 同时命中；tab 关闭/跨域导航/模式切换会清理临时权限；受限域与配额锁会拒绝临时权限；终端永久规则不展示临时域名；文案为“本次标签页访问内有效，占用综合时间，不计入学习时间。”；统计归因保持综合/待定口径
 
 ## 已知非阻塞残余项
 - `admin/admin.html` 历史 local-console 命名 / 物理页面拆分，保留为 post-V0 cleanup (P2)
