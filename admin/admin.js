@@ -1417,13 +1417,11 @@ function classifyDomain(domain) {
   return 'other';
 }
 
-function classifyTimelineDomain(domain) {
-  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
-  if (unsafeList.some(p => matchDomain(domain, p))) return 'unsafe';
-  if ((config.restrictedEntertainmentList || []).some(p => matchDomain(domain, p))) return 'restricted';
+function classifyUsageTimeType(domain) {
+  if (!domain) return 'rest';
   if ((config.studyList || []).some(p => matchDomain(domain, p))) return 'study';
-  if ((config.compositeList || []).some(p => matchDomain(domain, p))) return 'composite';
-  return 'other';
+  if ((config.compositeList || []).some(p => matchDomain(domain, p))) return 'undetermined';
+  return 'rest';
 }
 
 function splitStatsDay(dayStats) {
@@ -1596,12 +1594,16 @@ function renderTimeline(id, sessions, options = {}) {
 
   // 按小时聚合，并标记主要分类（跨小时段按小时切分）
   const hourData = new Array(24).fill(0);
-  const hourCategorySeconds = new Array(24).fill(null).map(() => ({}));
+  const hourTypeSeconds = new Array(24).fill(null).map(() => ({
+    study: 0,
+    undetermined: 0,
+    rest: 0,
+  }));
   for (const s of sessions) {
     if (!Number.isFinite(s?.startAt) || !Number.isFinite(s?.duration) || s.duration <= 0 || !s?.domain) continue;
     let cursor = Number(s.startAt);
     const end = Number(s.startAt) + Number(s.duration) * 1000;
-    const category = classifyTimelineDomain(s.domain);
+    const timeType = classifyUsageTimeType(s.domain);
     while (cursor < end) {
       const slotDate = new Date(cursor);
       const hour = slotDate.getHours();
@@ -1618,7 +1620,7 @@ function renderTimeline(id, sessions, options = {}) {
       const seconds = Math.floor((segmentEnd - cursor) / 1000);
       if (seconds > 0 && hour >= 0 && hour <= 23) {
         hourData[hour] += seconds;
-        hourCategorySeconds[hour][category] = (hourCategorySeconds[hour][category] || 0) + seconds;
+        hourTypeSeconds[hour][timeType] += seconds;
       }
       cursor = segmentEnd;
     }
@@ -1627,35 +1629,33 @@ function renderTimeline(id, sessions, options = {}) {
     el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${emptyMessage}</div>`;
     return;
   }
-  const maxVal = Math.max(...hourData, 1);
-
-  const categoryClass = {
+  const typeClass = {
     study: 'study',
-    composite: 'undetermined',
-    restricted: 'rest',
-    unsafe: 'rest',
-    other: 'undetermined',
-  };
-  const categoryLabel = {
-    study: '学习',
-    composite: '待归类',
-    restricted: '受限娱乐',
-    unsafe: '黑名单',
-    other: '待归类',
+    undetermined: 'undetermined',
+    rest: 'rest',
   };
 
   el.innerHTML = hourData.map((seconds, h) => {
-    const pct = Math.round(seconds / maxVal * 100);
-    const categoryEntries = Object.entries(hourCategorySeconds[h] || {});
-    categoryEntries.sort((a, b) => b[1] - a[1]);
-    const majorCategory = categoryEntries[0]?.[0] || 'other';
-    const cls = categoryClass[majorCategory] || 'undetermined';
-    const label = seconds > 0 ? `${categoryLabel[majorCategory] || '待归类'} ${formatSeconds(seconds)}` : '';
+    const typeData = hourTypeSeconds[h];
+    const studyPct = Math.max(0, Math.min(100, Math.round((typeData.study / 3600) * 100)));
+    const undeterminedPct = Math.max(0, Math.min(100, Math.round((typeData.undetermined / 3600) * 100)));
+    const restPct = Math.max(0, Math.min(100, Math.round((typeData.rest / 3600) * 100)));
+    const studyLeft = 0;
+    const undeterminedLeft = studyPct;
+    const restLeft = studyPct + undeterminedPct;
+    const label = seconds > 0 ? `${formatSeconds(seconds)}` : '';
+    const detail = [];
+    if (typeData.study > 0) detail.push(`学习时间 ${formatSeconds(typeData.study)}`);
+    if (typeData.undetermined > 0) detail.push(`待定时间 ${formatSeconds(typeData.undetermined)}`);
+    if (typeData.rest > 0) detail.push(`休息时间 ${formatSeconds(typeData.rest)}`);
+    const title = detail.join(' / ');
     return `
       <div class="timeline-row">
         <div class="timeline-hour">${String(h).padStart(2, '0')}</div>
-        <div class="timeline-track">
-          ${seconds > 0 ? `<div class="timeline-fill ${cls}" style="width:${pct}%"></div>` : ''}
+        <div class="timeline-track" title="${escHtml(title)}">
+          ${studyPct > 0 ? `<div class="timeline-fill ${typeClass.study}" style="left:${studyLeft}%;width:${studyPct}%"></div>` : ''}
+          ${undeterminedPct > 0 ? `<div class="timeline-fill ${typeClass.undetermined}" style="left:${undeterminedLeft}%;width:${undeterminedPct}%"></div>` : ''}
+          ${restPct > 0 ? `<div class="timeline-fill ${typeClass.rest}" style="left:${restLeft}%;width:${restPct}%"></div>` : ''}
           ${label ? `<div class="timeline-label">${label}</div>` : ''}
         </div>
       </div>
