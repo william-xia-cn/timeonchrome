@@ -42,6 +42,14 @@ function buildTodayTimelineSegmentsFromEventLog(events, now = new Date()) {
       continue;
     }
     if (evt.type !== 'END' || !openStart) continue;
+    if (openStart.state !== 'ACTIVE') {
+      openStart = null;
+      continue;
+    }
+    if (typeof openStart.domain !== 'string' || !openStart.domain.trim()) {
+      openStart = null;
+      continue;
+    }
 
     const segmentStart = Math.max(openStart.time, start);
     const segmentEnd = Math.min(evt.time, end);

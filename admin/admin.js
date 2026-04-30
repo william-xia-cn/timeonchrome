@@ -1517,10 +1517,10 @@ async function renderStatsPage() {
   renderOverviewList('week-overview-list', weekOverview);
 
   // ── 今日时间轴 ──
-  const hasOverviewData = todayOverview.online > 0 || todayOverview.audio > 0 || todayOverview.undetermined > 0;
-  const timelineEmptyMessage = hasOverviewData
+  const hasForegroundOverviewData = todayOverview.online > 0;
+  const timelineEmptyMessage = hasForegroundOverviewData
     ? '有汇总数据，但暂无可展示的时间轴明细'
-    : '暂无时间轴数据';
+    : '暂无可展示的前台时间轴明细';
   renderTimeline('today-timeline', timelineSessions, { emptyMessage: timelineEmptyMessage });
 
   // ── 本周每日分布 ──
