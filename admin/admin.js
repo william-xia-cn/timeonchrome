@@ -1643,7 +1643,11 @@ function renderTimeline(id, sessions, options = {}) {
     const studyLeft = 0;
     const undeterminedLeft = studyPct;
     const restLeft = studyPct + undeterminedPct;
-    const label = seconds > 0 ? `${formatSeconds(seconds)}` : '';
+    const compactParts = [];
+    if (typeData.study > 0) compactParts.push(`学习${formatSeconds(typeData.study)}`);
+    if (typeData.rest > 0) compactParts.push(`休息${formatSeconds(typeData.rest)}`);
+    if (typeData.undetermined > 0) compactParts.push(`待定${formatSeconds(typeData.undetermined)}`);
+    const label = seconds > 0 ? compactParts.join('，') : '';
     const detail = [];
     if (typeData.study > 0) detail.push(`学习时间 ${formatSeconds(typeData.study)}`);
     if (typeData.undetermined > 0) detail.push(`待定时间 ${formatSeconds(typeData.undetermined)}`);
