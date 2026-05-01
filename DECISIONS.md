@@ -23,6 +23,7 @@
 | D-019 | V0 三模式低摩擦切换 UX 规格冻结（文档决策） | Active | V0 可见模式定义为 Study/Composite/Rest/Paused；Composite 使用独立时间归因与配额，不并入 Study。切换规则：Study→Composite 为普通确认页；Rest→Composite 自动切换+轻提示；Study→Rest 必须单轴横向滑动确认（不可单击）；Composite→Study 与 Rest→Study 自动回归；Composite→Rest 普通确认；hardBlocked/unsafe 走独立拦截流，不参与模式切换。非目标：AI 分类、composite 二级分类、path-level routing、import/export schema 变更、复杂手势解锁。并保持 `SITE_ACCESS_POLICY.md` 边界（compositeList 窄口径；普通门户/社交/游戏不默认进 composite；`bilibili.com` 维持非 Study/非 Composite/非 unsafe，归受限娱乐网站，除非 PO 后续改判）。 |
 | D-020 | V0 自动模式切换稳定门控 | Active | 自动切换增加门控防抖：`Rest->Composite` 需目标站点前台活跃连续 60 秒；`Rest->Study` 与 `Composite->Study` 需前台活跃连续 90 秒。门控期必须监控开启且有用户活跃，若切站/中断/监控关闭则取消候选并重新计时。门控期时间归属保持原模式，不做回填。显式确认切换（Study->Composite、Study->Rest、Composite->Rest）保持即时生效。 |
 | D-021 | Admin CSP 告警当前按已知问题管理（未修复） | Active | `admin/admin.html?view=stats` 的 `Executing inline event handler violates Content Security Policy` 控制台告警在多轮诊断后仍未定位到唯一可行动源。当前口径：不宣称 fixed，按 admin 页面已知告警管理；不得将其直接判定为核心 runtime/mode/popup/content-script 失败。需继续以功能验证为准（stats/rules/devices/navigation/login/logout/save/sync）；本决策不改变 V0 formal release gate 状态。 |
+| D-022 | V0 closeout 采用“手动验收 + gate 放行”双轨判定 | Active | Product Owner 已手动验收通过 Reminder UI、pending mode-transition feedback、Popup V0 layout、Admin 功能；但 Formal V0 Release 仍需满足发布闸门：System Recovery Gates、macOS smoke checklist（`docs/macos_v0_smoke_test_checklist.md`）、回归测试与打包前校验。任一 gate 未完成时，不得宣称 V0 release-ready。 |
 
 ## 变更规则
 - 新决策必须追加一条记录（不改历史 ID）。

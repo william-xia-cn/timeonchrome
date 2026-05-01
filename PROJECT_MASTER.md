@@ -45,6 +45,18 @@
   - Terminal sync fix: `028c941`（同版本 sync skip 时若本地缺默认清单则补齐持久化）
   - Product Owner 手动验收：终端 `访问规则` 页面可见系统/默认学习网站清单；数据来自云同步；未引入本地硬编码默认清单；页面保持只读
 - **Chrome Web Store: NOT published** — separate future task, not in current scope
+
+## Product Owner 手动验收状态（V0 UX）
+- **Reminder UI：已通过**
+  - Study→Rest 滑动确认页通过
+  - Study→Composite 普通确认页通过
+  - Composite→Rest 普通确认页通过
+- **Pending mode-transition feedback：已通过**
+  - Rest→Composite、Rest→Study、Composite→Study 的 pending/success 提示通过
+- **Popup V0 layout：已通过**
+- **Admin 功能：已通过**
+  - stats/rules/devices/nav/login/logout/save/sync 可用
+  - “立即同步/立刻更新”按钮具备可见反馈（运行中/成功/失败）
 - **PiP study-mode cleanup blocker: FIXED & manually verified**
   - Commit: `fcf38f7` (`fix: enforce PiP cleanup on study mode switch`)
   - Product Owner 手动验收通过：restricted/unsafe PiP 在切换学习模式时会关闭，未归类 PiP 不会静默保留；study/composite 允许场景保持；无关标签页不被关闭；PiP 统计仍保持独立口径
@@ -57,6 +69,12 @@
 - `admin/admin.html?view=stats` 仍存在未定位来源的 CSP 控制台告警（`Executing inline event handler violates Content Security Policy`）；当前记录为已知 admin 页面告警，尚未确认对核心 runtime/mode/popup/content-script 造成故障；不得标记为 fixed，需继续按 admin 功能项做人工验证（stats/rules/devices/nav/login/logout/save/sync）
 - D-015 申诉/审核语义待 Product Owner 终审 (Pending PO)
 - 旧 profiles 清理为 optional / P2
+
+## Formal V0 Release 前置条件（仍待完成）
+- 必须完成 `docs/macos_v0_smoke_test_checklist.md` 对应的 macOS smoke 人工验证
+- 必须完成回归测试与发布闸门复核
+- 必须完成打包与发布前校验（本任务不执行发布）
+- 在以上 gate 全部完成前，**不得宣称 V0 已可正式发布**
 
 ## 非目标（当前）
 - 不做大重构

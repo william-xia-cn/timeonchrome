@@ -8,6 +8,7 @@
 - [x] [V0] Stage 1 Soft Gate verification
 - [x] [V0] Phase 2 chrome-restart Gate runner + binding preflight + bound-device validation
 - [ ] [V0] System Recovery Release Gates remaining validation（V0 formal release blocker）
+- [ ] [V0] macOS smoke checklist 执行与记录（`docs/macos_v0_smoke_test_checklist.md`，Formal V0 Release 前置）
 
 ## System Recovery Release Gates（V0 formal release blocker）
 
@@ -64,6 +65,10 @@
 - [ ] [V1] composite routing（冻结到 V1）
 
 ## COMPLETED（V0）
+- [x] [V0] Product Owner 手动验收通过：Reminder UI（Study→Rest 滑动确认、Study→Composite 普通确认、Composite→Rest 普通确认）
+- [x] [V0] Product Owner 手动验收通过：Pending mode-transition feedback（Rest→Composite / Rest→Study / Composite→Study）
+- [x] [V0] Product Owner 手动验收通过：Popup V0 layout
+- [x] [V0] Product Owner 手动验收通过：admin 功能（stats/rules/devices/nav/login/logout/save/sync；立即同步按钮反馈可见）
 - [x] [V0] Three-mode transition UX 规格文档冻结（docs-only）：新增/完善 `docs/MODE_TRANSITION_UX_V0.md` 并落档 `DECISIONS.md:D-019`，明确 Study/Composite/Rest/Paused、六向切换规则、hardBlocked 独立拦截流、Badge/Popup/配额展示与 V0 非目标边界（不含 AI 分类/二级分类/path-level routing/schema 变更）
 - [x] [V0] Temporary composite permission semantic bug fixed and code-verified（commit `b5d371c`）：临时综合权限收敛为“当前标签页当前域名访问”范围；不再持久化到 `guardian_config.compositeList`；tab 关闭/跨域导航/离开或重入学习模式会清理；受限域与配额锁拒绝临时权限；终端永久规则不展示临时域；文案为“本次标签页访问内有效，占用综合时间，不计入学习时间。”
 - [x] [V0] PiP study-mode cleanup blocker fixed and PO manually verified（commit `fcf38f7`）：切换到学习模式时 restricted/unsafe PiP 关闭；未归类 PiP 不静默保留；study/composite 允许场景保持；无关标签页不关闭；PiP 统计保持独立
@@ -85,3 +90,4 @@
 - 每个任务必须标注阶段（V0/V1）
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS
+- Formal V0 Release 结论必须同时满足：System Recovery Gates + macOS smoke + 回归测试 + 打包发布前校验
