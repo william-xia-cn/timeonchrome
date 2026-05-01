@@ -27,13 +27,27 @@ function run() {
   expectTrue('badge mode map includes 休', backgroundSource.includes("return '休';"));
   expectTrue('badge mode map includes 停', backgroundSource.includes("return '停';"));
   expectTrue('badge text set from mode', /setBadgeText\(\{ text: modeText \}\)/.test(backgroundSource));
+  expectTrue('pending badge uses 休…', backgroundSource.includes("const modeText = pending ? '休…' : modeToBadgeText(runtimeMode);"));
+  expectTrue('pending title contains remaining seconds', backgroundSource.includes('休息中 · 正在使用综合网站 · ${pending.remainingSeconds}秒后进入综合时间'));
 
-  expectTrue('popup has current mode field', popupHtml.includes('id="runtime-mode"'));
-  expectTrue('popup has current domain field', popupHtml.includes('id="runtime-domain"'));
-  expectTrue('popup has current session field', popupHtml.includes('id="runtime-session"'));
-  expectTrue('popup has composite remaining field', popupHtml.includes('id="runtime-composite-remaining"'));
-  expectTrue('popup has rest remaining field', popupHtml.includes('id="runtime-rest-remaining"'));
+  expectTrue('popup has compact runtime field', popupHtml.includes('id="runtime-compact"'));
+  expectTrue('popup has study mode button', popupHtml.includes('id="btn-study"'));
+  expectTrue('popup has rest mode button', popupHtml.includes('id="btn-rest"'));
+  expectTrue('popup has composite mode button', popupHtml.includes('id="btn-composite"'));
+  expectTrue('mode bar is vertical', popupHtml.includes('flex-direction: column;'));
+  expectTrue('mode bar gap is 8px', popupHtml.includes('gap: 8px;'));
+  expectTrue('mode button full width', popupHtml.includes('width: 100%;'));
+  expectTrue('mode button min height 44px', popupHtml.includes('min-height: 44px;'));
+  expectTrue('mode button row layout', popupHtml.includes('justify-content: space-between;'));
+  expectTrue('mode button padding 0 12px', popupHtml.includes('padding: 0 12px;'));
+  expectTrue('popup no longer contains 今日用量 title', !popupHtml.includes('今日用量'));
+  expectTrue('popup no longer contains runtime-card', !popupHtml.includes('runtime-card'));
   expectTrue('popup requests runtime mode status', popupJs.includes("type: 'GET_RUNTIME_MODE_STATUS'"));
+  expectTrue('popup has composite mode active class', popupJs.includes('active-composite'));
+  expectTrue('popup supports SWITCH_TO_COMPOSITE', popupJs.includes("SWITCH_TO_COMPOSITE"));
+  expectTrue('popup still caps visits to top 10', popupJs.includes('.slice(0, 10)'));
+  expectTrue('popup background media is conditional', popupJs.includes('backendMediaSeconds > 0'));
+  expectTrue('popup no undetermined bar in usage area', !popupJs.includes("待归类时长"));
 
   const total = passed + failed;
   console.log(`\n[Badge & Popup Mode V0] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
@@ -41,4 +55,3 @@ function run() {
 }
 
 run();
-

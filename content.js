@@ -5,10 +5,21 @@
   // 防止重复注入
   if (window.__guardian_injected__) return;
   window.__guardian_injected__ = true;
+  const canRenderTopFrameUi = (() => {
+    try {
+      return window.top === window;
+    } catch {
+      return false;
+    }
+  })();
 
   let warningShown = false;
   let warningTimer = null;
   let overlayEl = null;
+  let restCompositePendingHost = null;
+  let restCompositePendingShadow = null;
+  let restCompositePendingTimer = null;
+  let restCompositePendingHideTimer = null;
 
   // ── 媒体状态检测（content 只负责报告这一件事）────────────────────────────────
 
@@ -122,6 +133,15 @@
       removeOverlay();
     } else if (msg.type === 'EXIT_PIP') {
       exitPictureInPictureIfNeeded();
+    } else if (msg.type === 'REST_COMPOSITE_PENDING_START') {
+      if (!canRenderTopFrameUi) return;
+      showRestCompositePending(msg);
+    } else if (msg.type === 'REST_COMPOSITE_PENDING_CANCEL') {
+      if (!canRenderTopFrameUi) return;
+      clearRestCompositePending();
+    } else if (msg.type === 'REST_COMPOSITE_PENDING_SUCCESS') {
+      if (!canRenderTopFrameUi) return;
+      showRestCompositeSuccess(msg);
     }
   });
 
@@ -147,9 +167,13 @@
       <div class="g-toast-body">
         <strong>${domain || '此网站'}</strong> 还有 <strong>${minutesLeft} 分钟</strong>到达今日上限
       </div>
-      <button class="g-toast-close" onclick="this.parentElement.remove()">×</button>
+      <button class="g-toast-close">×</button>
     `;
     document.body.appendChild(toast);
+    const closeBtn = toast.querySelector('.g-toast-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => toast.remove());
+    }
 
     // 10秒后自动消失
     setTimeout(() => toast.remove(), 10000);
@@ -211,6 +235,117 @@
       overlayEl.remove();
       overlayEl = null;
     }
+  }
+
+  function formatDurationCN(seconds) {
+    const secs = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (secs < 60) return `${secs}秒`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}分`;
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return m > 0 ? `${h}小时${m}分` : `${h}小时`;
+  }
+
+  function ensureRestCompositePendingBanner() {
+    if (restCompositePendingHost && restCompositePendingShadow) {
+      return restCompositePendingShadow;
+    }
+
+    restCompositePendingHost = document.getElementById('__toc_rest_composite_pending__');
+    if (!restCompositePendingHost) {
+      restCompositePendingHost = document.createElement('div');
+      restCompositePendingHost.id = '__toc_rest_composite_pending__';
+      const parent = document.documentElement || document.body;
+      if (!parent) return null;
+      parent.appendChild(restCompositePendingHost);
+    }
+
+    restCompositePendingShadow = restCompositePendingHost.shadowRoot || restCompositePendingHost.attachShadow({ mode: 'open' });
+    restCompositePendingShadow.innerHTML = `
+      <style>
+        .toc-pending-banner {
+          position: fixed;
+          top: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 2147483647;
+          min-width: 300px;
+          max-width: min(420px, calc(100vw - 24px));
+          padding: 8px 14px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          background: rgba(20, 26, 38, 0.72);
+          color: #ffffff;
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+          backdrop-filter: blur(6px);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-size: 12px;
+          line-height: 1.2;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+      </style>
+      <div class="toc-pending-banner" id="toc-pending-banner"></div>
+    `;
+
+    return restCompositePendingShadow;
+  }
+
+  function clearPendingTimers() {
+    if (restCompositePendingTimer) {
+      clearInterval(restCompositePendingTimer);
+      restCompositePendingTimer = null;
+    }
+    if (restCompositePendingHideTimer) {
+      clearTimeout(restCompositePendingHideTimer);
+      restCompositePendingHideTimer = null;
+    }
+  }
+
+  function clearRestCompositePending() {
+    clearPendingTimers();
+    if (restCompositePendingHost) {
+      restCompositePendingHost.remove();
+      restCompositePendingHost = null;
+      restCompositePendingShadow = null;
+    }
+  }
+
+  function showRestCompositePending(payload) {
+    const shadow = ensureRestCompositePendingBanner();
+    if (!shadow) return;
+
+    clearPendingTimers();
+    const deadlineAt = Number(payload?.deadlineAt) || Date.now();
+    const remainingCompositeSeconds = Number(payload?.remainingCompositeSeconds) || 0;
+    const bannerEl = shadow.getElementById('toc-pending-banner');
+    if (!bannerEl) return;
+
+    const updateCountdown = () => {
+      const secondsRemaining = Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
+      bannerEl.textContent = `正在使用综合网站 · ${secondsRemaining}秒后进入综合时间【剩余 ${formatDurationCN(remainingCompositeSeconds)}】`;
+    };
+
+    updateCountdown();
+    restCompositePendingTimer = setInterval(updateCountdown, 250);
+  }
+
+  function showRestCompositeSuccess(payload) {
+    const shadow = ensureRestCompositePendingBanner();
+    if (!shadow) return;
+
+    clearPendingTimers();
+    const remainingCompositeSeconds = Number(payload?.remainingCompositeSeconds) || 0;
+    const bannerEl = shadow.getElementById('toc-pending-banner');
+    if (!bannerEl) return;
+    bannerEl.textContent = `已进入综合时间【剩余 ${formatDurationCN(remainingCompositeSeconds)}】`;
+
+    // 强制 success 自动收口，避免被旧 timer 或后续异步回调悬挂
+    clearPendingTimers();
+    restCompositePendingHideTimer = setTimeout(() => {
+      clearRestCompositePending();
+    }, 2200);
   }
 
 })();

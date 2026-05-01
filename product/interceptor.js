@@ -1,6 +1,16 @@
 // product/interceptor.js — 拦截逻辑 + 提醒触发
 
 import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
+import { getTodayStatsWithCategories } from './analytics.js';
+
+const AUTO_TRANSITION_GATES = {
+  rest_to_composite: 60_000,
+  rest_to_study: 90_000,
+  composite_to_study: 90_000,
+};
+
+const autoTransitionCandidates = new Map();
+const restCompositePendingByTab = new Map();
 
 // ── Schedule check ──────────────────────────────────────────────────────────────
 
@@ -54,12 +64,154 @@ function notifyRuntimeModeSwitch(message) {
   } catch {}
 }
 
+function clearAutoTransitionCandidate(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  autoTransitionCandidates.delete(tabId);
+}
+
+function formatSecondsCompact(seconds) {
+  const secs = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (secs < 60) return `${secs}秒`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}分`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return m > 0 ? `${h}小时${m}分` : `${h}小时`;
+}
+
+async function sendTabPendingMessage(tabId, payload, fallbackMessage = null) {
+  if (!Number.isInteger(tabId) || tabId < 0) return false;
+  try {
+    await chrome.tabs.sendMessage(tabId, payload);
+    return true;
+  } catch {
+    if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
+    return false;
+  }
+}
+
+async function computeCompositeRemainingSeconds(config) {
+  const stats = await getTodayStatsWithCategories(config);
+  const used = Math.max(0, Number(stats?.undeterminedSeconds) || 0);
+  const limit = Math.max(0, Number(config?.dailyUndeterminedQuota ?? 60) * 60);
+  return Math.max(0, limit - used);
+}
+
+export function getRestCompositePendingStatus(tabId, nowMs = Date.now()) {
+  if (!Number.isInteger(tabId) || tabId < 0) return null;
+  const pending = restCompositePendingByTab.get(tabId);
+  if (!pending) return null;
+  const remainingSeconds = Math.max(0, Math.ceil((pending.deadlineAt - nowMs) / 1000));
+  return { ...pending, remainingSeconds };
+}
+
+async function clearRestCompositePending(tabId, reason = 'cancel') {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  if (!restCompositePendingByTab.has(tabId)) return;
+  restCompositePendingByTab.delete(tabId);
+  await sendTabPendingMessage(tabId, { type: 'REST_COMPOSITE_PENDING_CANCEL', reason });
+}
+
+function readUserActiveState() {
+  return new Promise((resolve) => {
+    try {
+      if (!chrome.idle?.queryState) {
+        resolve(true);
+        return;
+      }
+      chrome.idle.queryState(60, (state) => {
+        resolve(state === 'active');
+      });
+    } catch {
+      resolve(true);
+    }
+  });
+}
+
+async function checkAutoModeTransitionGate(tabId, candidate, nowMs, forcedUserActive) {
+  if (!candidate || !Number.isInteger(tabId) || tabId < 0) return { passed: false };
+  const gateMs = AUTO_TRANSITION_GATES[candidate.rule];
+  if (!gateMs) return { passed: false };
+
+  const userActive = (typeof forcedUserActive === 'boolean') ? forcedUserActive : await readUserActiveState();
+  if (!userActive) {
+    clearAutoTransitionCandidate(tabId);
+    await clearRestCompositePending(tabId, 'inactive');
+    return { passed: false, blockedByInactivity: true };
+  }
+
+  const existing = autoTransitionCandidates.get(tabId);
+  if (
+    !existing ||
+    existing.rule !== candidate.rule ||
+    existing.fromMode !== candidate.fromMode ||
+    existing.toMode !== candidate.toMode ||
+    existing.domain !== candidate.domain
+  ) {
+    const deadlineAt = nowMs + gateMs;
+    autoTransitionCandidates.set(tabId, {
+      ...candidate,
+      startAt: nowMs,
+      deadlineAt,
+      lastSeenAt: nowMs,
+      lastUserActiveAt: nowMs,
+    });
+    if (candidate.rule === 'rest_to_composite') {
+      const remainingCompositeSeconds = await computeCompositeRemainingSeconds(candidate.config);
+      const pendingPayload = {
+        type: 'REST_COMPOSITE_PENDING_START',
+        domain: candidate.domain,
+        deadlineAt,
+        remainingCompositeSeconds,
+      };
+      restCompositePendingByTab.set(tabId, {
+        tabId,
+        domain: candidate.domain,
+        deadlineAt,
+        remainingCompositeSeconds,
+      });
+      await sendTabPendingMessage(tabId, pendingPayload, '正在使用综合网站，保持使用后将进入综合时间');
+    }
+    return { passed: false };
+  }
+
+  existing.lastSeenAt = nowMs;
+  existing.lastUserActiveAt = nowMs;
+  if ((nowMs - existing.startAt) >= gateMs) {
+    autoTransitionCandidates.delete(tabId);
+    await clearRestCompositePending(tabId, 'completed');
+    return { passed: true };
+  }
+  if (candidate.rule === 'rest_to_composite' && existing.deadlineAt) {
+    const remainingCompositeSeconds = await computeCompositeRemainingSeconds(candidate.config);
+    restCompositePendingByTab.set(tabId, {
+      tabId,
+      domain: candidate.domain,
+      deadlineAt: existing.deadlineAt,
+      remainingCompositeSeconds,
+    });
+    await sendTabPendingMessage(tabId, {
+      type: 'REST_COMPOSITE_PENDING_START',
+      domain: candidate.domain,
+      deadlineAt: existing.deadlineAt,
+      remainingCompositeSeconds,
+    });
+  }
+  autoTransitionCandidates.set(tabId, existing);
+  return { passed: false };
+}
+
 // ── Check and remind ────────────────────────────────────────────────────────────
 
-export async function checkAndRemind(tabId, url, monitoringEnabled) {
+export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}) {
   if (isSpecialUrl(url)) return false;
   if (url.includes('reminder.html')) return false;
-  if (monitoringEnabled === 0) return false;
+  if (monitoringEnabled === 0) {
+    clearAutoTransitionCandidate(tabId);
+    await clearRestCompositePending(tabId, 'monitoring_off');
+    return false;
+  }
+
+  const nowMs = Number.isFinite(options?.nowMs) ? options.nowMs : Date.now();
 
   const config = await getConfig();
   if (!config.enabled) return false;
@@ -88,15 +240,32 @@ export async function checkAndRemind(tabId, url, monitoringEnabled) {
 
   // 3. 运行时模式切换/拦截（study/composite/rest）
   const currentMode = await getEffectiveRuntimeMode(config, monitoringEnabled);
-  if (currentMode === 'rest' && isStudyDomain) {
-    await setRuntimeMode('study');
-  }
-  if (currentMode === 'composite' && isStudyDomain) {
-    await setRuntimeMode('study');
-  }
+  let pendingAutoCandidate = null;
   if (currentMode === 'rest' && isCompositeDomain) {
-    await setRuntimeMode('composite');
-    notifyRuntimeModeSwitch('已进入综合时间');
+    pendingAutoCandidate = { rule: 'rest_to_composite', fromMode: 'rest', toMode: 'composite', domain, config };
+  } else if (currentMode === 'rest' && isStudyDomain) {
+    pendingAutoCandidate = { rule: 'rest_to_study', fromMode: 'rest', toMode: 'study', domain, config };
+  } else if (currentMode === 'composite' && isStudyDomain) {
+    pendingAutoCandidate = { rule: 'composite_to_study', fromMode: 'composite', toMode: 'study', domain, config };
+  }
+
+  if (pendingAutoCandidate) {
+    const gate = await checkAutoModeTransitionGate(tabId, pendingAutoCandidate, nowMs, options?.userActive);
+    if (gate.passed) {
+      await setRuntimeMode(pendingAutoCandidate.toMode);
+      if (pendingAutoCandidate.rule === 'rest_to_composite') {
+        const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
+        await sendTabPendingMessage(tabId, {
+          type: 'REST_COMPOSITE_PENDING_SUCCESS',
+          remainingCompositeSeconds,
+          remainingCompositeTime: formatSecondsCompact(remainingCompositeSeconds),
+        }, `已进入综合时间 · 今日综合剩余 ${formatSecondsCompact(remainingCompositeSeconds)}`);
+        notifyRuntimeModeSwitch('已进入综合时间');
+      }
+    }
+  } else {
+    clearAutoTransitionCandidate(tabId);
+    await clearRestCompositePending(tabId, 'candidate_changed');
   }
 
   if (currentMode === 'study') {

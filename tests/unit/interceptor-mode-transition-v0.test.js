@@ -46,7 +46,7 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     runtime: {
       getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}`,
     },
-    tabs: { update: async () => {} },
+    tabs: { update: async () => {}, sendMessage: async () => {} },
     notifications: { create: () => {} },
     declarativeNetRequest: {
       getDynamicRules: async () => [],
@@ -60,6 +60,7 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     URL,
     console,
     chrome,
+    getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
     ...stubs,
   };
 
@@ -104,22 +105,56 @@ async function run() {
     expectTrue('reason', redirectedUrls[0].includes('reason=to_composite_confirm'));
   }
 
-  section('IMT-2 Rest + composite => auto composite, no block');
+  section('IMT-2 Rest + composite => not immediate, then switch after 60s');
   {
     const saves = [];
+    const sent = [];
     const { checkAndRemind } = loadCheckAndRemind({
       getConfig: async () => makeConfig({ mode: 'rest' }),
       getSession: async () => ({ currentMode: 'rest' }),
       saveSession: async (s) => saves.push(s.currentMode),
+      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 120 }),
       hasTemporaryCompositePermission: async () => false,
       matchDomain: (d, p) => d === p,
       extractDomain: () => 'youtube.com',
       isSpecialUrl: () => false,
       redirectToReminder: async () => { throw new Error('should not redirect'); },
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
     });
-    const blocked = await checkAndRemind(1, 'https://youtube.com', 1);
-    expect('should not block', blocked, false);
-    expect('runtime mode switched to composite', saves[0], 'composite');
+    const blocked1 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
+    const blocked2 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 59_000, userActive: true });
+    const blocked3 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 60_000, userActive: true });
+    expect('first call should not block', blocked1, false);
+    expect('within gate should not block', blocked2, false);
+    expect('after gate should not block', blocked3, false);
+    expect('runtime mode switched to composite only once after gate', saves, ['composite']);
+    expectTrue('pending START sent', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_START' && typeof m.deadlineAt === 'number'));
+    expectTrue('pending SUCCESS sent', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_SUCCESS'));
+    expectTrue('pending CANCEL sent at completion', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'completed'));
+  }
+
+  section('IMT-2b Rest + composite gate cancels on interrupting domain switch');
+  {
+    const saves = [];
+    const sent = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: (u) => new URL(u).hostname,
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
+    });
+    await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
+    await checkAndRemind(1, 'https://news.example.com', 1, { nowMs: 30_000, userActive: true });
+    await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 61_000, userActive: true });
+    expect('interrupt should cancel old candidate', saves.length, 0);
+    expectTrue('pending CANCEL on interrupt', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'candidate_changed'));
   }
 
   section('IMT-3 Study + rest/unclassified => to_rest_slide_confirm');
@@ -195,6 +230,105 @@ async function run() {
     const blocked = await checkAndRemind(1, 'https://youtube.com', 0);
     expect('should not block', blocked, false);
     expectTrue('no redirect', !called);
+  }
+
+  section('IMT-7 Rest + study => not immediate, then switch after 90s');
+  {
+    const saves = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: () => 'khanacademy.org',
+      isSpecialUrl: () => false,
+    });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 89_000, userActive: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true });
+    expect('rest->study switches only after 90s gate', saves, ['study']);
+  }
+
+  section('IMT-8 Composite + study => not immediate, then switch after 90s');
+  {
+    const saves = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'composite' }),
+      getSession: async () => ({ currentMode: 'composite' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: () => 'khanacademy.org',
+      isSpecialUrl: () => false,
+    });
+    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true });
+    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true });
+    expect('composite->study switches after 90s gate', saves, ['study']);
+  }
+
+  section('IMT-9 idle/no-activity prevents auto switch');
+  {
+    const saves = [];
+    const sent = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: () => 'youtube.com',
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
+    });
+    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
+    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 60_000, userActive: false });
+    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 120_000, userActive: true });
+    expect('idle call should clear candidate and avoid switch', saves.length, 0);
+    expectTrue('pending cancel reason inactive', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'inactive'));
+  }
+
+  section('IMT-10 monitoring off prevents auto switch');
+  {
+    const saves = [];
+    const sent = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: () => 'youtube.com',
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
+    });
+    await checkAndRemind(4, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
+    await checkAndRemind(4, 'https://youtube.com', 0, { nowMs: 61_000, userActive: true });
+    await checkAndRemind(4, 'https://youtube.com', 1, { nowMs: 62_000, userActive: true });
+    expect('monitoring off cancels candidate, no auto switch', saves.length, 0);
+    expectTrue('pending cancel reason monitoring_off', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'monitoring_off'));
+  }
+
+  section('IMT-11 sendMessage failure should fallback without throw');
+  {
+    const notifications = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async () => {},
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: () => 'youtube.com',
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async () => { throw new Error('blocked'); } },
+      notifications: { create: (payload) => notifications.push(payload) },
+    });
+    const blocked = await checkAndRemind(9, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
+    expect('sendMessage failure should not block navigation', blocked, false);
+    expectTrue('fallback notification emitted', notifications.length > 0);
   }
 
   const total = passed + failed;
