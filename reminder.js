@@ -29,12 +29,19 @@
   const subtitle = document.getElementById('subtitle');
   const domainEl = document.getElementById('domainEl');
   const actionsContainer = document.getElementById('actions');
+  const fallbackBackBtn = document.getElementById('fallback-back-btn');
   const statusEl = document.getElementById('statusFeedback');
   const starsContainer = document.getElementById('stars');
   const slideConfirmWrap = document.getElementById('slideConfirmWrap');
   const slideTrack = document.getElementById('slideTrack');
   const slideThumb = document.getElementById('slideThumb');
   const slideHint = document.getElementById('slideHint');
+
+  if (fallbackBackBtn) {
+    fallbackBackBtn.addEventListener('click', function() {
+      history.back();
+    });
+  }
 
   // 原因配置
   const configs = {
