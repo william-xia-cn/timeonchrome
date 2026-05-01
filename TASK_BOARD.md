@@ -7,17 +7,21 @@
 - [x] [V0] Worker/API readiness
 - [x] [V0] Stage 1 Soft Gate verification
 - [x] [V0] Phase 2 chrome-restart Gate runner + binding preflight + bound-device validation
-- [ ] [V0] System Recovery Release Gates remaining validation（V0 formal release blocker）
-- [ ] [V0] macOS smoke checklist 执行与记录（`docs/macos_v0_smoke_test_checklist.md`，Formal V0 Release 前置）
+- [x] [V0] System Recovery Release Gates final confirmation recorded（source: Product Owner confirmed）
+- [ ] [V0] release notes draft/finalize
+- [ ] [V0] known issues finalize
+- [ ] [V0] RC package generation
+- [ ] [V0] local RC install smoke
+- [ ] [V0] Product Owner final approval
 
-## System Recovery Release Gates（V0 formal release blocker）
+## System Recovery Release Gates（final record; source: Product Owner confirmed）
 
-| Gate | 场景 | 状态 | 说明 |
-|------|------|------|------|
-| RG-1 | Chrome close / reopen | PASS | `chrome-restart` formal bound-device Gate 已通过 |
-| RG-2 | Lock / Unlock | PASS | bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过 |
-| RG-3 | OS Sleep / Wake | PASS | 最后执行；本机为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过 |
-| RG-4 | Network Offline / Online | PASS | bound profile 可用；`--manualNetworkToggle` 人工断网/联网观察到真实 offline/online；恢复后 event-log/session/trace 可读 |
+| Gate ID | Status | Evidence summary | Confirmation source | Remaining action |
+|------|------|------|------|------|
+| RG-1 | PASS | `chrome-restart` formal bound-device Gate 已通过 | Product Owner confirmed | 无 |
+| RG-2 | PASS | bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过 | Product Owner confirmed | 无 |
+| RG-3 | PASS | 最后执行；本机为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过 | Product Owner confirmed | 无 |
+| RG-4 | PASS | bound profile 可用；`--manualNetworkToggle` 人工断网/联网观察到真实 offline/online；恢复后 event-log/session/trace 可读 | Product Owner confirmed | 无 |
 
 ## NEXT（P1）
 - [ ] [V1] composite routing 设计与拆包
@@ -32,6 +36,12 @@
 - [ ] **[Later/P1 or P2] Chrome Web Store submission** — separate future task, not part of this release closeout
 
 ## LATER（P2）
+- [ ] [V1] macOS smoke checklist 执行与记录（`docs/macos_v0_smoke_test_checklist.md`）
+  - 状态：Product Owner accepted V0 release risk（deferred, not passed）
+  - 口径：该项从 V0 active blocker 移至 V1 follow-up
+- [ ] [V1] Playwright E2E alternate-environment rerun（duration-accuracy / timing-trace-smoke / timing-trace-verify）
+  - 状态：Windows 本地 `spawn EPERM` 环境阻塞；Product Owner accepted V0 release risk（deferred, not passed）
+  - 口径：该项从 V0 active blocker 移至 V1 follow-up
 - [ ] [V1] 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐
 - [ ] [V1] 工程性优化票（非用户价值主线）
 - [ ] **[P2] Admin CSP 控制台告警未解（已知问题）**
@@ -90,4 +100,4 @@
 - 每个任务必须标注阶段（V0/V1）
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS
-- Formal V0 Release 结论必须同时满足：System Recovery Gates + macOS smoke + 回归测试 + 打包发布前校验
+- V0 formal release 可在 Product Owner 明确风险接受下推进 RC 交付；macOS smoke 与 Playwright alternate-environment evidence 当前为已接受风险并进入 V1 follow-up

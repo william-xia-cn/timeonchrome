@@ -2,8 +2,8 @@
 
 ## 项目状态
 - **版本：1.7.2**
-- **阶段：V0 formal release blocked by System Recovery Release Gates**
-- 当前约束：仅做发布前收口与 Release Gate 验证，不扩展新功能
+- **阶段：V0 RC closeout under Product Owner accepted release risk**
+- 当前约束：仅做发布前收口与 RC 交付准备，不扩展新功能
 
 ## 版本边界
 - **V0（功能冻结 / 发布闸门未完成）**
@@ -22,7 +22,7 @@
   - 媒体时长 domain 维度：后台 audio/video 已补 `backgroundMediaByDomain` 明细，PiP 已补 `pipByDomain` 明细；摘要字段仅作总量展示
 
 ## V0 Release 1.7.2 状态
-- **V0 formal release: BLOCKED**
+- **V0 formal release: proceeding toward RC handoff (conditional, Product Owner accepted risk)**
 - **最近确认的 System Recovery runner infrastructure commit**：`9626a8c`
 - **V0 RC2 与 System Recovery runner infrastructure 已可用**
 - **RC 验证：passed**
@@ -31,12 +31,16 @@
   - Workers API tests: 55/55 passed
   - E2E tests: 11/11 passed
   - Background logic: 79/79 passed
-- **System Recovery Release Gates**
-  - RG-1 Chrome close / reopen: **PASS**
-  - RG-2 Lock / Unlock: **PASS**（bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过）
-  - RG-3 OS Sleep / Wake: **PASS**（最后执行；本机 sleep model 为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过）
-  - RG-4 Network Offline / Online: **PASS**（bound profile 可用；`--manualNetworkToggle` 人工断网/联网观察到真实 offline/online；恢复后 event-log/session/trace 可读）
-- **放行规则**：V0 formal release 必须等剩余 System Recovery Release Gates 通过，或由 Product Owner 明确 waive 后才能发布。
+- **System Recovery Release Gates（最终记录）**
+
+| Gate ID | 状态 | 证据摘要 | 确认来源 | Remaining Action |
+|---|---|---|---|---|
+| RG-1 | PASS | `chrome-restart` formal bound-device Gate 已通过 | Product Owner confirmed | 无 |
+| RG-2 | PASS | bound profile 可用；`--allowWorkstationLock` 触发真实 Windows lock；手动 unlock 后恢复验证通过 | Product Owner confirmed | 无 |
+| RG-3 | PASS | 最后执行；本机 sleep model 为 S0 Modern Standby，S3 unavailable；真实 OS sleep/wake 后恢复验证通过 | Product Owner confirmed | 无 |
+| RG-4 | PASS | bound profile 可用；`--manualNetworkToggle` 人工断网/联网观察到真实 offline/online；恢复后 event-log/session/trace 可读 | Product Owner confirmed | 无 |
+
+- **记录口径**：以上 RG-1~RG-4 状态按 Product Owner 最终确认落档；本文件不独立重判 Gate 结果。
 - **Workers: deployed and verified**
 - **Pages: deployed and verified**
 - **Terminal 默认网站清单链路：verified**
@@ -69,12 +73,24 @@
 - `admin/admin.html?view=stats` 仍存在未定位来源的 CSP 控制台告警（`Executing inline event handler violates Content Security Policy`）；当前记录为已知 admin 页面告警，尚未确认对核心 runtime/mode/popup/content-script 造成故障；不得标记为 fixed，需继续按 admin 功能项做人工验证（stats/rules/devices/nav/login/logout/save/sync）
 - D-015 申诉/审核语义待 Product Owner 终审 (Pending PO)
 - 旧 profiles 清理为 optional / P2
+- macOS smoke validation **未通过 / 未执行完成**：按 Product Owner 风险接受，V0 暂缓到 V1 跟进
+- Playwright E2E alternate-environment evidence **未完成**：当前 Windows 本地受 `spawn EPERM` 环境阻塞，按 Product Owner 风险接受，V0 暂缓到 V1 跟进
 
-## Formal V0 Release 前置条件（仍待完成）
-- 必须完成 `docs/macos_v0_smoke_test_checklist.md` 对应的 macOS smoke 人工验证
-- 必须完成回归测试与发布闸门复核
-- 必须完成打包与发布前校验（本任务不执行发布）
-- 在以上 gate 全部完成前，**不得宣称 V0 已可正式发布**
+## V0 Accepted Risks（Product Owner confirmed）
+1. macOS smoke validation did not pass; deferred to V1 as accepted V0 release risk.
+2. Playwright E2E did not complete in local Windows (`spawn EPERM`); alternate-environment rerun deferred to V1 as accepted V0 release risk.
+3. Admin CSP warning is unresolved; treated as known non-blocking admin-page warning because admin functional flows were manually validated.
+
+## RC handoff 前仍待完成（非功能实现项）
+- release notes final review
+- known issues final review
+- RC package generation
+- local RC install smoke
+- Product Owner final approval
+
+## 发布口径约束
+- 上述 accepted risks 是“未修复/未通过”的风险接受，不是测试通过结论。
+- 在 RC 打包、本地安装 smoke、PO 最终放行完成前，**不得宣称 V0 已正式发布或 Chrome Web Store ready**。
 
 ## 非目标（当前）
 - 不做大重构
