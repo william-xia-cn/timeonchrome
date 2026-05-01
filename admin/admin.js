@@ -277,7 +277,7 @@ function showRebindScreen(email) {
       <h1>需要重新绑定</h1>
       <p style="color:var(--muted);margin-bottom:20px;font-size:13px;line-height:1.6;">
         本设备已被解绑，请重新选择要绑定的孩子档案。<br>
-        当前账户：<strong>${email}</strong>
+        当前账户：<strong>${escHtml(email)}</strong>
       </p>
       <div id="rebind-profiles" style="margin-bottom:16px;"></div>
       <div class="error-msg" id="rebind-error" style="display:none;"></div>
@@ -290,23 +290,43 @@ function showRebindScreen(email) {
     return;
   }
 
-  container.innerHTML = cloudProfiles.map(p => `
-    <div onclick="rebindToProfile('${p.id}','${p.name}','${p.avatar_color||'#7c6fff'}')"
+  container.innerHTML = cloudProfiles.map(p => {
+    const profileId = escAttr(p?.id || '');
+    const profileName = escAttr(p?.name || '');
+    const avatarColor = escAttr(normalizeAvatarColor(p?.avatar_color));
+    const profileNameText = escHtml(p?.name || '');
+    const profileInitial = escHtml(String((p?.name || '?')).charAt(0).toUpperCase());
+    return `
+    <div class="rebind-profile-card"
+         data-profile-id="${profileId}"
+         data-profile-name="${profileName}"
+         data-avatar-color="${avatarColor}"
          style="display:flex;align-items:center;gap:12px;padding:14px 16px;
                 border:1px solid var(--border);border-radius:12px;margin-bottom:10px;
-                cursor:pointer;transition:all 0.2s;"
-         onmouseover="this.style.borderColor='var(--accent)'"
-         onmouseout="this.style.borderColor='var(--border)'">
-      <div style="width:38px;height:38px;border-radius:50%;background:${p.avatar_color||'#7c6fff'};
+                cursor:pointer;transition:all 0.2s;">
+      <div style="width:38px;height:38px;border-radius:50%;background:${avatarColor};
                   display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;">
-        ${p.name.charAt(0).toUpperCase()}
+        ${profileInitial}
       </div>
       <div>
-        <div style="font-weight:600;">${p.name}</div>
+        <div style="font-weight:600;">${profileNameText}</div>
         <div style="font-size:12px;color:var(--accent);">点击重新绑定此设备</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
+
+  container.querySelectorAll('.rebind-profile-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      rebindToProfile(card.dataset.profileId, card.dataset.profileName, card.dataset.avatarColor);
+    });
+    card.addEventListener('mouseenter', () => {
+      card.style.borderColor = 'var(--accent)';
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.borderColor = 'var(--border)';
+    });
+  });
 }
 
 /**
@@ -474,14 +494,17 @@ function renderProfilesList() {
     
     // 显示已绑定的孩子信息
     if (boundProfile) {
+      const avatarColor = normalizeAvatarColor(boundProfile.avatar_color);
+      const profileInitial = escHtml(String((boundProfile.name || '?')).charAt(0).toUpperCase());
+      const profileName = escHtml(boundProfile.name || '');
       container.innerHTML = `
         <div style="padding:16px; background:var(--surface); border-radius:12px; border:1px solid var(--accent);">
           <div style="display:flex; align-items:center; gap:12px;">
-            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${boundProfile.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-              ${boundProfile.name.charAt(0).toUpperCase()}
+            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${avatarColor}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+              ${profileInitial}
             </div>
             <div>
-              <div style="font-size:15px; font-weight:600;">${boundProfile.name}</div>
+              <div style="font-size:15px; font-weight:600;">${profileName}</div>
               <div style="font-size:12px; color:var(--green);">✓ 已绑定此设备</div>
             </div>
           </div>
@@ -785,15 +808,22 @@ async function showProfileSelector() {
       <p>选择要绑定的孩子</p>
       
       <div id="profile-selector" style="margin: 20px 0;">
-        ${cloudProfiles.map(p => `
-          <div class="profile-item" data-id="${p.id}" data-name="${p.name}" data-color="${p.avatar_color || '#7c6fff'}" 
+        ${cloudProfiles.map(p => {
+          const profileId = escAttr(p?.id || '');
+          const profileNameAttr = escAttr(p?.name || '');
+          const profileNameText = escHtml(p?.name || '');
+          const avatarColor = escAttr(normalizeAvatarColor(p?.avatar_color));
+          const profileInitial = escHtml(String((p?.name || '?')).charAt(0).toUpperCase());
+          return `
+          <div class="profile-item" data-id="${profileId}" data-name="${profileNameAttr}" data-color="${avatarColor}"
                style="display:flex; align-items:center; gap:12px; padding:16px; border:1px solid var(--border); border-radius:12px; margin-bottom:12px; cursor:pointer; transition:all 0.2s;">
-            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${p.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-              ${p.name.charAt(0).toUpperCase()}
+            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${avatarColor}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+              ${profileInitial}
             </div>
-            <div style="font-size:15px; font-weight:600;">${p.name}</div>
+            <div style="font-size:15px; font-weight:600;">${profileNameText}</div>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
       
       <p style="font-size:12px; color:var(--muted);">选择后将自动绑定此设备，绑定后无法更换</p>
@@ -963,7 +993,7 @@ function renderDomainTagsReadOnly(containerId, domains) {
     return;
   }
   container.innerHTML = domains.map(d =>
-    `<span class="domain-tag" style="cursor:default;">${d}</span>`
+    `<span class="domain-tag" style="cursor:default;">${escHtml(d)}</span>`
   ).join('');
 }
 
@@ -999,7 +1029,7 @@ function renderSiteGroup(containerId, options) {
   const renderTagList = (domains, muted) => {
     if (!domains.length) return '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
     return `<div class="domains-container">${domains.map((d) =>
-      `<span class="domain-tag" style="cursor:default;${muted ? 'background:rgba(0,184,148,0.04);color:var(--muted);' : ''}">${d}</span>`
+      `<span class="domain-tag" style="cursor:default;${muted ? 'background:rgba(0,184,148,0.04);color:var(--muted);' : ''}">${escHtml(d)}</span>`
     ).join('')}</div>`;
   };
 
@@ -1103,7 +1133,7 @@ function renderQuotaSection() {
     } else {
       domainQuotaEl.innerHTML = entries.map(([domain, mins]) => `
         <div class="quota-row">
-          <div class="quota-label">${domain}</div>
+          <div class="quota-label">${escHtml(domain)}</div>
           <span style="color:var(--accent);font-weight:600;">${formatQuotaText(mins)} / 天</span>
         </div>
       `).join('');
@@ -1114,7 +1144,11 @@ function renderQuotaSection() {
 function formatWindowsLabel(windows) {
   if (windows === null) return '全天允许';
   if (!Array.isArray(windows) || windows.length === 0) return '暂无配置';
-  return windows.map((w) => `${w.start || '--:--'} - ${w.end || '--:--'}`).join('，');
+  return windows.map((w) => {
+    const start = escHtml(w?.start || '--:--');
+    const end = escHtml(w?.end || '--:--');
+    return `${start} - ${end}`;
+  }).join('，');
 }
 
 function computeOnlineWindowsLabel(studyWindows, restWindows) {
@@ -1124,7 +1158,11 @@ function computeOnlineWindowsLabel(studyWindows, restWindows) {
   for (const w of (Array.isArray(studyWindows) ? studyWindows : [])) merged.push(w);
   for (const w of (Array.isArray(restWindows) ? restWindows : [])) merged.push(w);
   if (!merged.length) return '暂无配置';
-  return merged.map((w) => `${w.start || '--:--'} - ${w.end || '--:--'}`).join('，');
+  return merged.map((w) => {
+    const start = escHtml(w?.start || '--:--');
+    const end = escHtml(w?.end || '--:--');
+    return `${start} - ${end}`;
+  }).join('，');
 }
 
 function renderScheduleSection() {
@@ -1167,7 +1205,9 @@ function renderScheduleSection() {
 
   scheduleEl.innerHTML = DAY_NAMES.map((name, i) => {
     const day = schedule.days[i] || {};
-    const online = day.enabled ? `${day.start || '--:--'} - ${day.end || '--:--'}` : '不限制';
+    const online = day.enabled
+      ? `${escHtml(day?.start || '--:--')} - ${escHtml(day?.end || '--:--')}`
+      : '不限制';
     return `
       <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
         <div style="font-size:13px;font-weight:500;">${name}</div>
@@ -1300,13 +1340,15 @@ async function renderSyncStatus() {
   if (!container) return;
 
   // 本机设备名（首次绑定时保存的）
-  const deviceName = storage['cloud_device_name'] || '本机';
+  const deviceName = escHtml(storage['cloud_device_name'] || '本机');
   // device_token 前8位作为短码
   const token = storage[CLOUD_KEYS.DEVICE_TOKEN] || '';
-  const shortId = token ? token.slice(0, 8).toUpperCase() : '—';
+  const shortId = escHtml(token ? token.slice(0, 8).toUpperCase() : '—');
+  const versionText = escHtml(storage['cloud_config_version'] || '—');
+  const syncText = escHtml(storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步');
 
   const rebindBtnHtml = isChildView ? '' : `
-    <button onclick="confirmRebind()" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
+    <button id="rebind-btn" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
   `;
 
   container.innerHTML = `
@@ -1322,20 +1364,33 @@ async function renderSyncStatus() {
       </div>
       <div style="padding:12px; background:var(--surface); border-radius:8px;">
         <div style="font-size:12px; color:var(--muted);">配置版本</div>
-        <div style="font-size:15px; font-weight:600;">${storage['cloud_config_version'] || '—'}</div>
+        <div style="font-size:15px; font-weight:600;">${versionText}</div>
       </div>
       <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">最后同步</div>
         <div style="font-size:13px;">
-          ${storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步'}
+          ${syncText}
         </div>
       </div>
     </div>
     <div style="margin-top:14px; display:flex; gap:10px;">
-      <button class="btn-save" onclick="forceSync()" style="flex:1;">🔄 立即同步</button>
+      <button class="btn-save" id="force-sync-btn" style="flex:1;">🔄 立即同步</button>
       ${rebindBtnHtml}
     </div>
   `;
+
+  const forceSyncBtn = container.querySelector('#force-sync-btn');
+  if (forceSyncBtn) {
+    forceSyncBtn.addEventListener('click', () => {
+      forceSync();
+    });
+  }
+  const rebindBtn = container.querySelector('#rebind-btn');
+  if (rebindBtn) {
+    rebindBtn.addEventListener('click', () => {
+      confirmRebind();
+    });
+  }
 }
 
 async function forceSync() {
@@ -1588,7 +1643,7 @@ function renderTimeline(id, sessions, options = {}) {
   if (!el) return;
   const emptyMessage = options.emptyMessage || '暂无时间轴数据';
   if (!Array.isArray(sessions) || sessions.length === 0) {
-    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${emptyMessage}</div>`;
+    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${escHtml(emptyMessage)}</div>`;
     return;
   }
 
@@ -1626,7 +1681,7 @@ function renderTimeline(id, sessions, options = {}) {
     }
   }
   if (!hourData.some(v => v > 0)) {
-    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${emptyMessage}</div>`;
+    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${escHtml(emptyMessage)}</div>`;
     return;
   }
   const typeClass = {
@@ -1660,7 +1715,7 @@ function renderTimeline(id, sessions, options = {}) {
           ${studyPct > 0 ? `<div class="timeline-fill ${typeClass.study}" style="left:${studyLeft}%;width:${studyPct}%"></div>` : ''}
           ${undeterminedPct > 0 ? `<div class="timeline-fill ${typeClass.undetermined}" style="left:${undeterminedLeft}%;width:${undeterminedPct}%"></div>` : ''}
           ${restPct > 0 ? `<div class="timeline-fill ${typeClass.rest}" style="left:${restLeft}%;width:${restPct}%"></div>` : ''}
-          ${label ? `<div class="timeline-label">${label}</div>` : ''}
+          ${label ? `<div class="timeline-label">${escHtml(label)}</div>` : ''}
         </div>
       </div>
     `;
@@ -1710,7 +1765,7 @@ function renderRankList(id, domainStats, limit) {
   }
   el.innerHTML = entries.map(([domain, seconds]) => `
     <div class="rank-item">
-      <span class="rank-domain">${domain}</span>
+      <span class="rank-domain">${escHtml(domain)}</span>
       <span class="rank-time">${formatSeconds(seconds)}</span>
     </div>
   `).join('');
@@ -1769,15 +1824,20 @@ async function renderChangelog() {
     return 'change';
   };
 
-  container.innerHTML = logs.map(entry => `
+  container.innerHTML = logs.map(entry => {
+    const action = escHtml(entry?.action || '');
+    const details = escHtml(entry?.details || entry?.action || '');
+    const ts = Number.isFinite(entry?.ts) ? new Date(entry.ts).toLocaleString() : '—';
+    return `
     <div class="changelog-item">
-      <div class="changelog-dot ${dotClass(entry.action)}"></div>
+      <div class="changelog-dot ${dotClass(String(entry?.action || ''))}"></div>
       <div class="changelog-content">
-        <div class="changelog-time">${new Date(entry.ts).toLocaleString()}</div>
-        <div class="changelog-text">${entry.details || entry.action}</div>
+        <div class="changelog-time">${ts}</div>
+        <div class="changelog-text">${details || action}</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 
@@ -1802,4 +1862,9 @@ function escAttr(s) {
 }
 function escId(s) {
   return String(s).replace(/[^a-zA-Z0-9_-]/g,'');
+}
+function normalizeAvatarColor(value) {
+  const v = String(value || '').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(v)) return v;
+  return '#7c6fff';
 }

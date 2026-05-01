@@ -33,6 +33,11 @@
 ## LATER（P2）
 - [ ] [V1] 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐
 - [ ] [V1] 工程性优化票（非用户价值主线）
+- [ ] **[P2] Admin CSP 控制台告警未解（已知问题）**
+  - 当前状态：`admin/admin.html?view=stats` 仍可能出现 `Executing inline event handler violates Content Security Policy` 告警，尚未捕获可行动的唯一来源
+  - 口径：仅记录为 admin 页面已知告警，不得宣称已修复，不等价于 core runtime failure
+  - 必做人工验证：stats 页面打开并展示数据、rules 页面可打开、devices 页面可打开、侧边导航可切换、login/logout 可用、save/sync 可用
+  - 发布口径：本项不改变 V0 formal release gate 结论；V0 formal release 仍按 System Recovery Release Gates 判定
 - [ ] **[Pending PO D-015] 申诉/审核语义终审（使用分析页面 / 终端 UI）**：使用分析页面与待归类列表中的"申诉/待审核/申诉中/已改判/标为学习/标为休息"概念需 Product Owner 决策——从终端 UI 隐藏、只读展示、保留孩子侧申诉、或仅保留在家长控制台
 - [ ] **[P2] Stage 2 local terminal/admin naming or physical split cleanup**：
   - 当前状态：`admin/admin.html` 同时承载：

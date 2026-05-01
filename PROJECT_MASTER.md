@@ -54,6 +54,7 @@
 
 ## 已知非阻塞残余项
 - `admin/admin.html` 历史 local-console 命名 / 物理页面拆分，保留为 post-V0 cleanup (P2)
+- `admin/admin.html?view=stats` 仍存在未定位来源的 CSP 控制台告警（`Executing inline event handler violates Content Security Policy`）；当前记录为已知 admin 页面告警，尚未确认对核心 runtime/mode/popup/content-script 造成故障；不得标记为 fixed，需继续按 admin 功能项做人工验证（stats/rules/devices/nav/login/logout/save/sync）
 - D-015 申诉/审核语义待 Product Owner 终审 (Pending PO)
 - 旧 profiles 清理为 optional / P2
 
