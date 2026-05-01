@@ -40,6 +40,11 @@ let accountToken = null;
 let cloudProfiles = [];
 let currentProfileId = null;
 let currentEmail = null;
+let syncFeedbackTimer = null;
+let syncFeedbackState = {
+  phase: 'idle', // idle | loading | success | error
+  message: ''
+};
 
 // ── Child view gate（Soft Gate）────────────────────────────────────────────
 // 当 URL 包含 ?view=stats 时，以只读模式直接进入使用分析，跳过登录/注册/绑定流程
@@ -1350,6 +1355,17 @@ async function renderSyncStatus() {
   const rebindBtnHtml = isChildView ? '' : `
     <button id="rebind-btn" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
   `;
+  const syncBtnTextMap = {
+    loading: '更新中…',
+    success: '已更新',
+    error: '更新失败',
+    idle: '🔄 立即同步',
+  };
+  const syncBtnText = syncBtnTextMap[syncFeedbackState.phase] || syncBtnTextMap.idle;
+  const syncBtnDisabled = syncFeedbackState.phase === 'loading' ? 'disabled' : '';
+  const syncFeedbackText = syncFeedbackState.message
+    ? `<div id="force-sync-feedback" style="margin-top:8px; font-size:12px; color:${syncFeedbackState.phase === 'error' ? 'var(--danger)' : 'var(--muted)'};">${escHtml(syncFeedbackState.message)}</div>`
+    : '';
 
   container.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
@@ -1374,9 +1390,10 @@ async function renderSyncStatus() {
       </div>
     </div>
     <div style="margin-top:14px; display:flex; gap:10px;">
-      <button class="btn-save" id="force-sync-btn" style="flex:1;">🔄 立即同步</button>
+      <button class="btn-save" id="force-sync-btn" style="flex:1;" ${syncBtnDisabled}>${syncBtnText}</button>
       ${rebindBtnHtml}
     </div>
+    ${syncFeedbackText}
   `;
 
   const forceSyncBtn = container.querySelector('#force-sync-btn');
@@ -1394,12 +1411,31 @@ async function renderSyncStatus() {
 }
 
 async function forceSync() {
+  if (syncFeedbackState.phase === 'loading') return;
+  if (syncFeedbackTimer) {
+    clearTimeout(syncFeedbackTimer);
+    syncFeedbackTimer = null;
+  }
+  syncFeedbackState = { phase: 'loading', message: '正在更新云端配置与统计…' };
+  await renderSyncStatus();
+
   try {
     await sendMsg({ type: 'CLOUD_FORCE_SYNC' });
+    syncFeedbackState = { phase: 'success', message: '同步完成' };
     showToast('同步完成');
     await renderSyncStatus();
+    syncFeedbackTimer = setTimeout(async () => {
+      syncFeedbackState = { phase: 'idle', message: '' };
+      await renderSyncStatus();
+    }, 1800);
   } catch (e) {
+    syncFeedbackState = { phase: 'error', message: `更新失败：${e.message || '未知错误'}` };
+    await renderSyncStatus();
     showError('同步失败: ' + e.message);
+    syncFeedbackTimer = setTimeout(async () => {
+      syncFeedbackState = { phase: 'idle', message: '' };
+      await renderSyncStatus();
+    }, 3000);
   }
 }
 
