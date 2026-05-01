@@ -307,7 +307,7 @@ V0 采用以下规则：
 | 综合 | 休息网站 | 休息 | 普通确认 | 中 | restSeconds |
 | 综合 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
 | 休息 | 学习网站 | 学习 | 自动回归（90s 前台活跃门控） | 极轻 / 无 | studySeconds |
-| 休息 | 综合网站 | 综合 | 自动切换（60s 前台活跃门控） + 轻提示 | 低 | compositeSeconds |
+| 休息 | 综合网站 | 综合 | 自动切换（60s 前台稳定停留门控） + 轻提示 | 低 | compositeSeconds |
 | 休息 | 休息网站 | 休息 | 继续使用 | 无 / 轻 | restSeconds |
 | 休息 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
 
@@ -317,14 +317,14 @@ V0 采用以下规则：
 
 V0 自动切换增加稳定门控，避免模式抖动：
 
-1. `Rest -> Composite`：目标网站需在前台连续活跃 60 秒；
+1. `Rest -> Composite`：目标网站需在前台连续稳定停留 60 秒（不要求键盘/鼠标操作）；
 2. `Rest -> Study`：目标网站需在前台连续活跃 90 秒；
 3. `Composite -> Study`：目标网站需在前台连续活跃 90 秒。
 
 门控期约束：
 
 1. 必须监控开启（`monitoringEnabled !== 0`）；
-2. 必须持续存在用户活跃；
+2. `Rest -> Composite` 的门控不依赖 `chrome.idle` 键鼠活跃状态；
 3. 期间若发生中断（切换站点/切走目标/监控关闭），候选自动切换取消并重新计时；
 4. 门控期内时间归属保持原模式，不做回填（V0 不 backfill candidate time）。
 
@@ -366,6 +366,44 @@ V0 自动切换增加稳定门控，避免模式抖动：
 
 ```text
 自动切换可以低摩擦，但不能黑箱。
+```
+
+#### V0 自动切换提示文案模板（按目标模式）
+
+1. Rest → Composite（pending）：
+```text
+正在使用综合网站 · {secondsRemaining}秒后进入综合时间 · 今日剩余 {remainingCompositeTime}
+```
+
+2. Rest → Composite（success）：
+```text
+已进入综合时间 · 今日剩余 {remainingCompositeTime}
+```
+
+3. Rest → Study（pending）：
+```text
+正在使用学习网站 · {secondsRemaining}秒后进入学习时间
+```
+
+4. Rest → Study（success）：
+```text
+已进入学习时间
+```
+
+5. Composite → Study（pending）：
+```text
+正在使用学习网站 · {secondsRemaining}秒后进入学习时间
+```
+
+6. Composite → Study（success）：
+```text
+已进入学习时间
+```
+
+V0 约束：
+```text
+Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
+“今日剩余”仅用于 Composite 配额提示。
 ```
 
 ### 7.3 L2：普通确认页
@@ -454,6 +492,30 @@ V0 自动切换增加稳定门控，避免模式抖动：
 
 ```text
 [继续使用] [返回学习]
+```
+
+页面视觉（V0 对齐规则）：
+
+```text
+学习→综合 与 综合→休息 使用与 Study→Rest 同一视觉语言：
+- 顶部左侧 TimeOnChrome 品牌
+- 居中的图标块
+- 统一标题/正文层级
+- 单条干净信息条（不使用分裂 chip + 空 warning box）
+- 底部双按钮并排（左主右次）
+```
+
+学习→综合信息条：
+
+```text
+今日综合时间剩余：{remainingCompositeTime}
+```
+
+学习→综合按钮（固定）：
+
+```text
+左：继续（进入综合时间）
+右：返回学习
 ```
 
 禁止：
@@ -611,6 +673,19 @@ V0 自动切换增加稳定门控，避免模式抖动：
 [开始休息] [返回]
 ```
 
+综合→休息信息条：
+
+```text
+今日休息时间剩余：{remainingRestTime}
+```
+
+综合→休息按钮（固定）：
+
+```text
+左：开始休息
+右：返回
+```
+
 V0 不要求滑动确认。
 
 ### 8.6 学习 → 休息
@@ -675,6 +750,33 @@ V0 不要求滑动确认。
 4. 完成拖动后进入休息模式；
 5. ESC / 返回 / 返回学习 不得进入休息模式；
 6. 若休息配额已用完，不显示滑动确认控件。
+```
+
+Study→Rest 页面次级操作（`返回学习`）UI 规范（V0）：
+
+```text
+位置：位于滑动确认控件下方
+文案：返回学习（固定，不可改写）
+宽度：与滑动轨道容器视觉同宽
+高度：40px
+圆角：12px
+背景：#ffffff
+边框：1px solid #d7dce5
+文字色：#334155
+字号：14px
+字重：600
+hover 背景：#f8fafc
+hover 边框：#cbd5e1
+active 背景：#f1f5f9
+阴影：无重阴影
+与滑块间距：上边距 12px
+```
+
+设计意图：
+
+```text
+该按钮是次级操作，视觉层级必须低于滑动确认主操作；
+按钮需完整可点击，不使用纯文本链接样式。
 ```
 
 V0 推荐实现：
@@ -1248,6 +1350,17 @@ V0 可以写：
    - 需要滑动确认。
 
 4. Popup 不应删除既有核心功能入口。
+
+补充记录（V0 reminder UI）：
+
+```text
+Product Owner 已完成并通过以下人工验收：
+1) Study→Rest 提醒页视觉与滑动交互；
+2) Study→Composite 提醒页视觉对齐；
+3) Composite→Rest 提醒页视觉对齐；
+4) Study→Composite 与 Composite→Rest 保持双按钮确认；
+5) Study→Rest 保持滑动确认。
+```
 
 ### 16.3 测试验收
 

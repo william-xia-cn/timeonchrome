@@ -28,69 +28,85 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
-    }
-
-    /* 背景星点 */
-    .stars {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      overflow: hidden;
-    }
-    .star {
-      position: absolute;
-      width: 2px; height: 2px;
-      background: rgba(0, 184, 148, 0.4);
-      border-radius: 50%;
-      opacity: 0;
-      animation: twinkle var(--dur) var(--delay) infinite;
-    }
-
-    @keyframes twinkle {
-      0%, 100% { opacity: 0; }
-      50% { opacity: var(--max-op); }
-    }
-
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-8px); }
+      padding: 20px;
     }
 
     .container {
       position: relative;
       z-index: 10;
-      text-align: center;
-      padding: 48px 32px;
-      max-width: 520px;
+      text-align: left;
+      padding: 30px 28px 24px;
+      max-width: 560px;
       width: 100%;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(0, 184, 148, 0.16);
+      border-radius: 14px;
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+      backdrop-filter: blur(7px);
+    }
+
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+
+    .brand-mark .dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, rgba(0, 184, 148, 0.9), rgba(0, 184, 148, 0.6));
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 12px;
+      line-height: 1;
     }
 
     .icon-box {
-      width: 88px;
-      height: 88px;
-      background: linear-gradient(135deg, rgba(0, 184, 148, 0.1), rgba(0, 184, 148, 0.04));
-      border: 1px solid rgba(0, 184, 148, 0.2);
-      border-radius: 24px;
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, rgba(0, 184, 148, 0.2), rgba(0, 184, 148, 0.07));
+      border: 1px solid rgba(0, 184, 148, 0.22);
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 44px;
-      margin: 0 auto 28px;
-      animation: float 3s ease-in-out infinite;
+      font-size: 25px;
+      margin: 0 0 16px;
     }
 
     h1 {
-      font-size: 26px;
+      font-size: 28px;
       font-weight: 700;
       margin-bottom: 10px;
-      line-height: 1.3;
+      line-height: 1.25;
+      letter-spacing: 0;
     }
 
     .subtitle {
       font-size: 15px;
       color: var(--muted);
-      margin-bottom: 8px;
+      margin-bottom: 14px;
       line-height: 1.6;
+    }
+
+    .rest-quota-line {
+      display: none;
+      margin-bottom: 18px;
+      font-size: 14px;
+      color: var(--text);
+      background: rgba(0, 184, 148, 0.09);
+      border: 1px solid rgba(0, 184, 148, 0.2);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-variant-numeric: tabular-nums;
     }
 
     .domain-name {
@@ -101,7 +117,7 @@
       padding: 4px 14px;
       border-radius: 6px;
       display: inline-block;
-      margin-bottom: 28px;
+      margin-bottom: 18px;
     }
 
     .custom-msg {
@@ -117,17 +133,17 @@
 
     .actions {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       gap: 10px;
-      justify-content: center;
-      margin-bottom: 24px;
+      justify-content: flex-start;
+      margin-bottom: 14px;
     }
 
     .btn {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 10px 20px;
+      padding: 10px 18px;
       border-radius: 10px;
       font-size: 14px;
       font-weight: 500;
@@ -179,54 +195,80 @@
 
     .slide-confirm-wrap {
       display: none;
-      margin: 8px auto 18px;
-      max-width: 360px;
+      margin: 8px 0 14px;
+      max-width: 100%;
       text-align: left;
     }
 
     .slide-hint {
       font-size: 12px;
       color: var(--muted);
-      margin-bottom: 8px;
-      text-align: center;
+      margin-bottom: 0;
+      text-align: left;
+      display: none;
     }
 
     .slide-track {
       position: relative;
-      height: 44px;
-      border-radius: 22px;
-      background: rgba(0, 184, 148, 0.12);
-      border: 1px solid rgba(0, 184, 148, 0.25);
+      height: 50px;
+      border-radius: 25px;
+      background: rgba(0, 184, 148, 0.14);
+      border: 1px solid rgba(0, 184, 148, 0.22);
       overflow: hidden;
     }
 
-    .slide-track::after {
-      content: '→';
+    .slide-track-label {
       position: absolute;
-      right: 14px;
+      left: 18px;
       top: 50%;
       transform: translateY(-50%);
-      color: rgba(0, 184, 148, 0.55);
-      font-size: 16px;
+      color: rgba(15, 23, 42, 0.58);
+      font-size: 12px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .slide-track-target {
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 88px;
+      border-left: 1px dashed rgba(0, 184, 148, 0.28);
+      background: linear-gradient(90deg, rgba(0, 184, 148, 0.03), rgba(0, 184, 148, 0.14));
+      pointer-events: none;
+    }
+
+    .slide-track::after {
+      content: '确认区';
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: rgba(0, 184, 148, 0.72);
+      font-size: 12px;
+      font-weight: 600;
     }
 
     .slide-thumb {
       position: absolute;
       left: 0;
-      top: 0;
-      width: 120px;
-      height: 42px;
-      line-height: 42px;
+      top: 1px;
+      width: 146px;
+      height: 46px;
+      line-height: 46px;
       text-align: center;
-      border-radius: 21px;
-      background: var(--accent);
+      border-radius: 23px;
+      background: linear-gradient(135deg, #00b894, #00c7a1);
       color: #fff;
       font-size: 13px;
       font-weight: 600;
       user-select: none;
       cursor: grab;
       touch-action: none;
-      box-shadow: 0 4px 10px rgba(0, 184, 148, 0.3);
+      box-shadow: 0 8px 16px rgba(0, 184, 148, 0.34);
+      z-index: 2;
     }
 
     .footer {
@@ -235,28 +277,172 @@
       letter-spacing: 0.5px;
     }
     .footer span { color: rgba(0, 184, 148, 0.7); }
+
+    body.study-rest-reminder .domain-name,
+    body.study-rest-reminder .custom-msg {
+      display: none !important;
+    }
+
+    body.study-rest-reminder .actions {
+      margin-top: 4px;
+      margin-bottom: 10px;
+    }
+
+    body.study-rest-reminder .container {
+      display: flex;
+      flex-direction: column;
+    }
+
+    body.study-rest-reminder .slide-confirm-wrap {
+      order: 8;
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+
+    body.study-rest-reminder .actions {
+      order: 9;
+      margin-top: 12px;
+      margin-bottom: 0;
+      justify-content: stretch;
+      width: 100%;
+    }
+
+    body.study-rest-reminder .btn-back {
+      width: 100%;
+      height: 40px;
+      border-radius: 12px;
+      border: 1px solid #d7dce5;
+      background: #ffffff;
+      color: #334155;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1;
+      box-shadow: none;
+      padding: 0 14px;
+      text-decoration: none;
+      justify-content: center;
+    }
+
+    body.study-rest-reminder .btn-back:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+      color: #334155;
+    }
+
+    body.study-rest-reminder .btn-back:active {
+      background: #f1f5f9;
+    }
+
+    body.study-rest-reminder h1 {
+      font-size: 29px;
+    }
+
+    body.study-rest-reminder .subtitle {
+      max-width: 95%;
+    }
+
+    body.study-rest-reminder .icon-box {
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    body.confirm-standard .domain-name,
+    body.confirm-standard .custom-msg {
+      display: none !important;
+    }
+
+    body.confirm-standard .icon-box {
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    body.confirm-standard .actions {
+      margin-top: 12px;
+      margin-bottom: 0;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    body.confirm-standard .btn {
+      height: 40px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      justify-content: center;
+      line-height: 1;
+      padding: 0 12px;
+    }
+
+    body.confirm-standard .btn-primary {
+      box-shadow: none;
+    }
+
+    body.confirm-standard .btn-back {
+      background: #ffffff;
+      border: 1px solid #d7dce5;
+      color: #334155;
+      text-decoration: none;
+    }
+
+    body.confirm-standard .btn-back:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+      color: #334155;
+    }
+
+    body.confirm-standard .btn-back:active {
+      background: #f1f5f9;
+    }
+
+    body.study-rest-reminder .footer,
+    body.study-rest-reminder #statusFeedback {
+      display: none !important;
+    }
+
+    @media (max-width: 640px) {
+      .container {
+        padding: 24px 18px 20px;
+      }
+      h1,
+      body.study-rest-reminder h1 {
+        font-size: 24px;
+      }
+      .slide-track-label {
+        left: 14px;
+      }
+      .slide-track-target {
+        width: 78px;
+      }
+      .slide-thumb {
+        width: 136px;
+      }
+    }
   </style>
 </head>
 <body>
 
-  <div class="stars" id="stars"></div>
-
   <div class="container">
+    <div class="brand-mark"><span class="dot">⏱</span>TimeOnChrome</div>
     <div class="icon-box" id="mainIcon">🛡️</div>
 
     <h1 id="mainTitle">此网站不适合访问</h1>
     <p class="subtitle" id="subtitle">基于年龄和安全考虑，建议不要访问此类网站</p>
+    <div class="rest-quota-line" id="restQuotaLine"></div>
     <div class="domain-name" id="domainEl">-</div>
 
     <div class="custom-msg" id="customMsg" style="display: none;"></div>
 
     <div class="actions" id="actions">
-      <button class="btn btn-back" id="fallback-back-btn">← 返回</button>
+      <button class="btn btn-back" id="fallback-back-btn">返回学习</button>
     </div>
 
     <div class="slide-confirm-wrap" id="slideConfirmWrap">
       <div class="slide-hint" id="slideHint">拖动到右侧确认进入休息时间</div>
       <div class="slide-track" id="slideTrack">
+        <div class="slide-track-label">拖动到右侧确认进入休息时间</div>
+        <div class="slide-track-target"></div>
         <div class="slide-thumb" id="slideThumb">拖动确认</div>
       </div>
     </div>

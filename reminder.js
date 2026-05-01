@@ -1,6 +1,14 @@
 // reminder.js - 提醒页面逻辑（替代 blocked.js）
 
 (function() {
+  const DIAG_PREFIX = '[TOC_REMINDER_SLIDER_DIAG]';
+  const DIAG_VERSION = 'slider-diag-v1';
+  function diag(event, payload) {
+    try {
+      console.log(`${DIAG_PREFIX} ${event}`, payload || {});
+    } catch {}
+  }
+
   const BORROW_CONFIRM_TEXT = '确认借用明天时间？\n\n本次将立即增加今日可用休息时间 30 分钟，\n明天会扣减同等时长。\n明天不能连续再次借用。是否继续？';
   const BORROW_BUTTON_TEXT = '⏱ 向明天借时间';
   const BORROW_ERROR_MESSAGES = {
@@ -14,6 +22,12 @@
   const reason = params.get('reason') || 'unsafe';
   let domain = params.get('domain') || '';
   const msg = params.get('msg') || '';
+  diag('load', {
+    version: DIAG_VERSION,
+    url: location.href,
+    reason,
+    readyState: document.readyState,
+  });
 
   // 如果 domain 为空，尝试从 referrer 获取
   if (!domain && document.referrer) {
@@ -36,11 +50,62 @@
   const slideTrack = document.getElementById('slideTrack');
   const slideThumb = document.getElementById('slideThumb');
   const slideHint = document.getElementById('slideHint');
+  const restQuotaLine = document.getElementById('restQuotaLine');
+  const CONFIRM_STANDARD_REASONS = new Set(['to_composite_confirm', 'to_rest_confirm']);
+  const CONFIRM_INFO_REASONS = new Set(['to_composite_confirm', 'to_rest_confirm', 'to_rest_slide_confirm']);
+  let slideBound = false;
 
-  if (fallbackBackBtn) {
-    fallbackBackBtn.addEventListener('click', function() {
-      history.back();
-    });
+  function getInteractionStyle(el) {
+    if (!el) return null;
+    const s = window.getComputedStyle(el);
+    return {
+      display: s.display,
+      visibility: s.visibility,
+      pointerEvents: s.pointerEvents,
+      zIndex: s.zIndex,
+      position: s.position,
+    };
+  }
+
+  function getElementRect(el) {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      left: r.left,
+      top: r.top,
+      width: r.width,
+      height: r.height,
+      right: r.right,
+      bottom: r.bottom,
+    };
+  }
+
+  function formatDurationCN(totalSeconds) {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    if (seconds < 60) return `${seconds}秒`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}分`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return m > 0 ? `${h}小时${m}分` : `${h}小时`;
+  }
+
+  function closeCurrentReminderTab() {
+    // extension page opened by redirect is usually script-open-closeable,
+    // but keep robust fallback path for strict browser behaviors.
+    window.close();
+    setTimeout(function() {
+      chrome.tabs.getCurrent(function(tab) {
+        if (tab && tab.id) {
+          chrome.tabs.remove(tab.id).catch(() => {});
+          return;
+        }
+        if (history.length > 1) {
+          history.back();
+          return;
+        }
+        location.replace('about:blank');
+      });
+    }, 80);
   }
 
   // 原因配置
@@ -58,17 +123,17 @@
     to_composite_confirm: {
       icon: '🧭', title: '你正在打开综合网站',
       subtitle: '继续后将进入综合时间，本段不会计入学习时间。',
-      actions: ['switchToComposite', 'back']
+      actions: ['switchToComposite', 'backToStudy']
     },
     to_rest_confirm: {
       icon: '☕', title: '你正在进入休息时间',
       subtitle: '继续后将进入休息时间，并消耗休息配额。',
-      actions: ['switchToRest', 'back']
+      actions: ['switchToRest', 'backGeneric']
     },
     to_rest_slide_confirm: {
       icon: '☕', title: '你正在离开学习时间',
-      subtitle: '这个网站当前不在学习网站或综合网站清单中。\n继续后将按休息时间处理，不会计入学习时间。\n请滑动确认进入休息时间。',
-      actions: ['slideToRest', 'back']
+      subtitle: '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。',
+      actions: ['backToStudy']
     },
     restricted_study_mode: {
       icon: '🎮', title: '当前是学习模式',
@@ -126,7 +191,7 @@
       }
     },
     switchToRest: {
-      label: '☕ 开始休息', style: 'secondary',
+      label: '开始休息', style: 'primary',
       handler: function() {
         chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function() {
           showStatus('已切换到休息模式，正在跳转…', 'success');
@@ -137,7 +202,7 @@
       }
     },
     switchToComposite: {
-      label: '🧭 继续（进入综合时间）', style: 'primary',
+      label: '继续（进入综合时间）', style: 'primary',
       handler: function() {
         chrome.runtime.sendMessage({ type: 'SWITCH_TO_COMPOSITE' }, function() {
           showStatus('已进入综合时间，正在跳转…', 'success');
@@ -204,9 +269,23 @@
       label: '📊 查看详情', style: 'outline',
       handler: function() { chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') }); }
     },
-    back: {
-      label: '← 返回', style: 'outline',
+    backGeneric: {
+      label: '返回', style: 'outline',
       handler: function() { history.back(); }
+    },
+    back: {
+      label: '返回', style: 'outline',
+      handler: function() { history.back(); }
+    },
+    backToStudy: {
+      label: '返回学习', style: 'outline',
+      handler: function() {
+        if (effectiveReason === 'to_rest_slide_confirm') {
+          closeCurrentReminderTab();
+          return;
+        }
+        history.back();
+      }
     }
   };
 
@@ -237,6 +316,81 @@
   if (mainTitle) mainTitle.textContent = config.title;
   if (subtitle) subtitle.textContent = config.subtitle;
 
+  if (CONFIRM_STANDARD_REASONS.has(effectiveReason)) {
+    document.body.classList.add('confirm-standard');
+  }
+
+  if (CONFIRM_INFO_REASONS.has(effectiveReason) && restQuotaLine) {
+    restQuotaLine.textContent = '剩余时间计算中...';
+    restQuotaLine.style.display = 'block';
+    chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
+      if (!restQuotaLine) return;
+      if (!status) {
+        restQuotaLine.textContent = '剩余时间：暂不可用';
+        return;
+      }
+      if (effectiveReason === 'to_composite_confirm') {
+        const remainingComposite = formatDurationCN(status.compositeRemainingSeconds || 0);
+        restQuotaLine.textContent = `今日综合时间剩余：${remainingComposite}`;
+        return;
+      }
+      const remainingRest = formatDurationCN(status.restRemainingSeconds || 0);
+      restQuotaLine.textContent = `今日休息时间剩余：${remainingRest}`;
+    });
+  }
+
+  if (effectiveReason === 'to_rest_slide_confirm') {
+    diag('branch_entered', {
+      reason: effectiveReason,
+      exists: {
+        slideConfirmWrap: !!slideConfirmWrap,
+        slideTrack: !!slideTrack,
+        slideThumb: !!slideThumb,
+      },
+      sizes: {
+        trackClientWidth: slideTrack ? slideTrack.clientWidth : null,
+        thumbClientWidth: slideThumb ? slideThumb.clientWidth : null,
+      },
+      rects: {
+        wrap: getElementRect(slideConfirmWrap),
+        track: getElementRect(slideTrack),
+        thumb: getElementRect(slideThumb),
+      },
+      styles: {
+        wrap: getInteractionStyle(slideConfirmWrap),
+        track: getInteractionStyle(slideTrack),
+        thumb: getInteractionStyle(slideThumb),
+      },
+    });
+
+    document.body.classList.add('study-rest-reminder');
+    if (slideConfirmWrap) slideConfirmWrap.style.display = 'block';
+    if (slideThumb) slideThumb.textContent = '⇢ 拖动确认';
+    if (slideHint) slideHint.style.display = 'none';
+    bindSlideConfirm();
+
+    // Detect DOM replacement/removal after bindings.
+    const observeRoot = slideConfirmWrap?.parentElement || document.body;
+    if (observeRoot) {
+      const sliderObserver = new MutationObserver(() => {
+        const currentTrack = document.getElementById('slideTrack');
+        const currentThumb = document.getElementById('slideThumb');
+        const replaced = currentTrack !== slideTrack || currentThumb !== slideThumb;
+        if (replaced || !currentTrack || !currentThumb) {
+          diag('dom_replaced_or_removed', {
+            replaced,
+            currentTrackExists: !!currentTrack,
+            currentThumbExists: !!currentThumb,
+            originalTrackStillInDOM: !!(slideTrack && slideTrack.isConnected),
+            originalThumbStillInDOM: !!(slideThumb && slideThumb.isConnected),
+          });
+        }
+      });
+      sliderObserver.observe(observeRoot, { childList: true, subtree: true });
+      diag('mutation_observer_installed', { rootTag: observeRoot.tagName, rootId: observeRoot.id || '' });
+    }
+  }
+
   // 显示自定义消息（如有）
   var customMsgEl = document.getElementById('customMsg');
   if (msg && customMsgEl) {
@@ -244,6 +398,9 @@
     customMsgEl.style.display = 'block';
   }
   if (domainEl) {
+    if (CONFIRM_STANDARD_REASONS.has(effectiveReason) || effectiveReason === 'to_rest_slide_confirm') {
+      domainEl.style.display = 'none';
+    }
     if (domain) {
       domainEl.textContent = domain === 'all' ? '所有网站' : domain;
     } else {
@@ -267,17 +424,27 @@
     });
   }
 
-  let slideBound = false;
   function bindSlideConfirm() {
     if (slideBound || !slideTrack || !slideThumb) return;
     slideBound = true;
+    diag('bind_start', {
+      pointerTarget: 'slideThumb',
+      fallback: { mouse: true, touch: true },
+      pointer: true,
+    });
 
     var dragging = false;
     var startX = 0;
     var baseLeft = 0;
+    var activePointerId = null;
+    var switched = false;
+
+    function getMaxOffset() {
+      return Math.max(0, slideTrack.clientWidth - slideThumb.clientWidth);
+    }
 
     function setThumb(left) {
-      var max = Math.max(0, slideTrack.clientWidth - slideThumb.clientWidth);
+      var max = getMaxOffset();
       var clamped = Math.max(0, Math.min(max, left));
       slideThumb.style.left = clamped + 'px';
       if (slideHint) {
@@ -287,30 +454,52 @@
     }
 
     function begin(clientX) {
+      if (switched) return;
       dragging = true;
       startX = clientX;
       baseLeft = parseFloat(slideThumb.style.left || '0') || 0;
+      diag('begin_drag', { clientX, baseLeft, trackWidth: slideTrack.clientWidth, thumbWidth: slideThumb.clientWidth });
     }
 
     function move(clientX) {
       if (!dragging) return;
       var delta = clientX - startX;
-      setThumb(baseLeft + delta);
+      var result = setThumb(baseLeft + delta);
+      diag('pointer_move', {
+        clientX,
+        pos: result.clamped,
+        max: result.max,
+        threshold: result.max * 0.92,
+      });
+    }
+
+    function completeSwitch() {
+      if (switched) return;
+      switched = true;
+      const payload = { type: 'SWITCH_TO_REST' };
+      diag('send_switch_to_rest', { payload });
+      chrome.runtime.sendMessage(payload, function(result) {
+        diag('switch_to_rest_callback', {
+          result: result || null,
+          lastError: chrome.runtime?.lastError ? chrome.runtime.lastError.message : null,
+        });
+        showStatus('已切换到休息模式，正在跳转…', 'success');
+        if (domain && domain !== 'all') {
+          setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+        }
+      });
     }
 
     function end() {
       if (!dragging) return;
       dragging = false;
       var pos = parseFloat(slideThumb.style.left || '0') || 0;
-      var max = Math.max(0, slideTrack.clientWidth - slideThumb.clientWidth);
+      var max = getMaxOffset();
+      const passed = pos >= max * 0.92;
+      diag('pointer_up', { pos, max, threshold: max * 0.92, passedThreshold: passed });
       if (pos >= max * 0.92) {
         slideThumb.style.left = max + 'px';
-        chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function() {
-          showStatus('已切换到休息模式，正在跳转…', 'success');
-          if (domain && domain !== 'all') {
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
+        completeSwitch();
       } else {
         slideThumb.style.left = '0px';
         if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
@@ -320,6 +509,56 @@
     slideThumb.style.left = '0px';
     if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
 
+    // Pointer events: primary path for desktop Chrome + touch/pen.
+    slideThumb.addEventListener('pointerdown', function(e) {
+      activePointerId = e.pointerId;
+      diag('pointer_down', {
+        pointerId: e.pointerId,
+        clientX: e.clientX,
+        targetId: e.target?.id || '',
+        targetClass: e.target?.className || '',
+      });
+      begin(e.clientX);
+      if (slideThumb.setPointerCapture) {
+        let captureOk = false;
+        try {
+          slideThumb.setPointerCapture(e.pointerId);
+          captureOk = true;
+        } catch (err) {
+          diag('set_pointer_capture_error', { message: err?.message || String(err) });
+        }
+        diag('set_pointer_capture', { pointerId: e.pointerId, ok: captureOk });
+      }
+      e.preventDefault();
+    });
+    slideThumb.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+      move(e.clientX);
+      e.preventDefault();
+    });
+    slideThumb.addEventListener('pointerup', function(e) {
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+      end();
+      if (slideThumb.releasePointerCapture) {
+        try { slideThumb.releasePointerCapture(e.pointerId); } catch {}
+      }
+      activePointerId = null;
+      e.preventDefault();
+    });
+    slideThumb.addEventListener('pointercancel', function(e) {
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+      dragging = false;
+      activePointerId = null;
+      slideThumb.style.left = '0px';
+      if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
+      diag('pointer_cancel', {
+        pointerId: e.pointerId,
+        reason: e.type,
+      });
+    });
+
+    // Mouse fallback for older environments.
     slideThumb.addEventListener('mousedown', function(e) {
       begin(e.clientX);
       e.preventDefault();
@@ -327,6 +566,7 @@
     window.addEventListener('mousemove', function(e) { move(e.clientX); });
     window.addEventListener('mouseup', end);
 
+    // Touch fallback for older mobile engines.
     slideThumb.addEventListener('touchstart', function(e) {
       begin(e.touches[0].clientX);
       e.preventDefault();
@@ -336,10 +576,30 @@
       move(e.touches[0].clientX);
     }, { passive: false });
     window.addEventListener('touchend', end);
+
+    diag('bind_done', {
+      listeners: [
+        'pointerdown',
+        'pointermove',
+        'pointerup',
+        'pointercancel',
+        'mousedown',
+        'mousemove',
+        'mouseup',
+        'touchstart',
+        'touchmove',
+        'touchend',
+      ],
+      pointerdownBoundOn: 'slideThumb',
+      dimensions: {
+        trackWidth: slideTrack.clientWidth,
+        thumbWidth: slideThumb.clientWidth,
+      },
+    });
   }
 
-  // 生成背景星点（绿色调）
-  if (starsContainer) {
+  // 非 Study->Rest 提醒保留背景星点，Study->Rest 用简洁卡片视觉
+  if (starsContainer && effectiveReason !== 'to_rest_slide_confirm') {
     for (var i = 0; i < 80; i++) {
       var star = document.createElement('div');
       star.className = 'star';
