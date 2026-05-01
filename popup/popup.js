@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const cloudStatus = await sendMsg({ type: 'GET_CLOUD_STATUS' });
   if (cloudStatus && !cloudStatus.isBound) {
     document.getElementById('unbound-banner').style.display = 'block';
-    document.querySelector('.body').style.display = 'none';
+    document.getElementById('popup-content').style.display = 'none';
     document.getElementById('goto-admin-btn').addEventListener('click', () => {
       chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
     });
@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await renderRuntimeStatus();
   document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
   document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
+  document.getElementById('btn-composite').addEventListener('click',  () => setMode('composite'));
 
   document.getElementById('settings-btn').addEventListener('click', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
@@ -29,7 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'DEVICE_UNBOUND') {
       document.getElementById('unbound-banner').style.display = 'block';
-      document.querySelector('.body').style.display = 'none';
+      document.getElementById('popup-content').style.display = 'none';
       document.getElementById('goto-admin-btn').addEventListener('click', () => {
         chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
       });
@@ -42,15 +43,20 @@ async function renderModeButtons() {
   const mode = status?.mode || 'study';
   const studyBtn = document.getElementById('btn-study');
   const restBtn  = document.getElementById('btn-rest');
+  const compositeBtn = document.getElementById('btn-composite');
   studyBtn.className = 'mode-btn' + (mode === 'study' ? ' active-study' : '');
   restBtn.className  = 'mode-btn' + (mode === 'rest'  ? ' active-rest'  : '');
+  compositeBtn.className  = 'mode-btn' + (mode === 'composite' ? ' active-composite' : '');
   const disabled = mode === 'paused';
   studyBtn.disabled = disabled;
   restBtn.disabled = disabled;
+  compositeBtn.disabled = disabled;
 }
 
 async function setMode(mode) {
-  const type = mode === 'study' ? 'SWITCH_TO_STUDY' : 'SWITCH_TO_REST';
+  const type = mode === 'study'
+    ? 'SWITCH_TO_STUDY'
+    : (mode === 'rest' ? 'SWITCH_TO_REST' : 'SWITCH_TO_COMPOSITE');
   await sendMsg({ type });
   await renderModeButtons();
   await renderRuntimeStatus();
@@ -94,15 +100,23 @@ async function init() {
   // Mode Buttons with quota display
   const studyBtn = document.getElementById('btn-study');
   const restBtn  = document.getElementById('btn-rest');
+  const compositeBtn = document.getElementById('btn-composite');
+  const studyBtnValue = document.getElementById('btn-study-value');
+  const restBtnValue = document.getElementById('btn-rest-value');
+  const compositeBtnValue = document.getElementById('btn-composite-value');
+  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 60)  * 60;
 
   const studyLimit = (config.dailyStudyQuota ?? 0) * 60;
   const effectiveRestLimit = getEffectiveDailyRestLimit(config) * 60;
-  studyBtn.textContent = studyLimit > 0
-    ? `📚 学习模式 ${formatSeconds(studySeconds)} / ${formatSeconds(studyLimit)}`
-    : `📚 学习模式 ${formatSeconds(studySeconds)}`;
-  restBtn.textContent = effectiveRestLimit > 0
-    ? `☕ 休息模式 ${formatSeconds(restSeconds)} / ${formatSeconds(effectiveRestLimit)}`
-    : `☕ 休息模式 ${formatSeconds(restSeconds)}`;
+  studyBtnValue.textContent = studyLimit > 0
+    ? `${formatSeconds(studySeconds)} / ${formatSeconds(studyLimit)}`
+    : `${formatSeconds(studySeconds)}`;
+  restBtnValue.textContent = effectiveRestLimit > 0
+    ? `${formatSeconds(restSeconds)} / ${formatSeconds(effectiveRestLimit)}`
+    : `${formatSeconds(restSeconds)}`;
+  compositeBtnValue.textContent = undeterminedLimit > 0
+    ? `${formatSeconds(undeterminedSeconds)} / ${formatSeconds(undeterminedLimit)}`
+    : `${formatSeconds(undeterminedSeconds)}`;
 
   // Backend Media (plain text, no card, no quota)
   const backendMediaRow = document.getElementById('backend-media-row');
@@ -118,7 +132,6 @@ async function init() {
 
   // Progress Bars (Online + Undetermined)
   const onlineLimit        = (config.dailyOnlineQuota       ?? 0) * 60;
-  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 60)  * 60;
   const qs = config.quotaState || {};
 
   const quotaBarsEl = document.getElementById('quota-bars');
@@ -140,8 +153,7 @@ async function init() {
     };
 
     quotaBarsEl.innerHTML =
-      bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked) +
-      bar('⏳', '待归类时长', undeterminedSeconds, undeterminedLimit, '#6c5ce7', qs.undeterminedLocked);
+      bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked);
   }
 
   // Top 10
@@ -164,34 +176,12 @@ async function init() {
 
 async function renderRuntimeStatus() {
   const status = await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS' }) || {};
-  const modeMap = {
-    study: '学习',
-    composite: '综合',
-    rest: '休息',
-    paused: '暂停',
-  };
-  const modeText = modeMap[status.mode] || '学习';
   const domainText = status.currentDomain || '暂无';
   const sessionText = typeof status.currentSessionDurationSeconds === 'number'
     ? formatSeconds(status.currentSessionDurationSeconds)
     : '暂无';
-  const compositeRemainText = typeof status.compositeRemainingSeconds === 'number'
-    ? formatSeconds(status.compositeRemainingSeconds)
-    : '暂无';
-  const restRemainText = typeof status.restRemainingSeconds === 'number'
-    ? formatSeconds(status.restRemainingSeconds)
-    : '暂无';
-
-  const modeEl = document.getElementById('runtime-mode');
-  const domainEl = document.getElementById('runtime-domain');
-  const sessionEl = document.getElementById('runtime-session');
-  const compositeEl = document.getElementById('runtime-composite-remaining');
-  const restEl = document.getElementById('runtime-rest-remaining');
-  if (modeEl) modeEl.textContent = modeText;
-  if (domainEl) domainEl.textContent = domainText;
-  if (sessionEl) sessionEl.textContent = sessionText;
-  if (compositeEl) compositeEl.textContent = compositeRemainText;
-  if (restEl) restEl.textContent = restRemainText;
+  const runtimeCompact = document.getElementById('runtime-compact');
+  if (runtimeCompact) runtimeCompact.textContent = `当前：${domainText} · ${sessionText}`;
 }
 
 function extractDomain(url) {

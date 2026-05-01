@@ -82,22 +82,32 @@
     .section-title:first-child { margin-top: 0; }
 
     .mode-bar {
-      margin: 10px 16px 0;
+      margin: 12px 16px 0;
       display: flex;
+      flex-direction: column;
       gap: 8px;
     }
     .mode-btn {
-      flex: 1;
-      padding: 9px 0;
+      width: 100%;
+      min-height: 44px;
+      padding: 0 12px;
       border-radius: 9px;
       border: 1px solid var(--border);
       background: rgba(0,184,148,0.04);
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
+      line-height: 1.25;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-sizing: border-box;
+      text-align: left;
     }
+    .mode-btn-label { font-size: 12px; }
+    .mode-btn-value { font-size: 11px; color: var(--muted); font-weight: 600; margin-left: 10px; white-space: nowrap; }
     .mode-btn.active-study {
       background: rgba(0,184,148,0.12);
       border-color: var(--accent);
@@ -108,24 +118,23 @@
       border-color: var(--warn);
       color: var(--warn);
     }
+    .mode-btn.active-composite {
+      background: rgba(108,92,231,0.12);
+      border-color: #6c5ce7;
+      color: #6c5ce7;
+    }
+    .mode-btn.active-study .mode-btn-value { color: var(--accent); }
+    .mode-btn.active-rest .mode-btn-value { color: var(--warn); }
+    .mode-btn.active-composite .mode-btn-value { color: #6c5ce7; }
 
-    .runtime-card {
-      margin: 10px 16px 0;
-      padding: 10px 12px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-    }
-    .runtime-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .runtime-compact {
+      margin: 8px 16px 0;
       font-size: 12px;
-      margin-bottom: 6px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .runtime-row:last-child { margin-bottom: 0; }
-    .runtime-label { color: var(--muted); }
-    .runtime-value { color: var(--text); font-weight: 600; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Progress Bars */
     .quota-bar-item { margin-bottom: 12px; }
@@ -188,22 +197,24 @@
     </div>
   </div>
 
-  <div class="mode-bar">
-    <button class="mode-btn" id="btn-study">📚 学习模式</button>
-    <button class="mode-btn" id="btn-rest">☕ 休息模式</button>
-  </div>
+  <div id="popup-content">
+    <div class="mode-bar">
+      <button class="mode-btn" id="btn-study">
+        <span class="mode-btn-label">📚 学习模式</span>
+        <span class="mode-btn-value" id="btn-study-value">0秒</span>
+      </button>
+      <button class="mode-btn" id="btn-rest">
+        <span class="mode-btn-label">☕ 休息模式</span>
+        <span class="mode-btn-value" id="btn-rest-value">0秒</span>
+      </button>
+      <button class="mode-btn" id="btn-composite">
+        <span class="mode-btn-label">🧩 综合模式</span>
+        <span class="mode-btn-value" id="btn-composite-value">0秒</span>
+      </button>
+    </div>
 
-  <div class="runtime-card">
-    <div class="runtime-row"><span class="runtime-label">当前模式</span><span class="runtime-value" id="runtime-mode">-</span></div>
-    <div class="runtime-row"><span class="runtime-label">当前网站</span><span class="runtime-value" id="runtime-domain">-</span></div>
-    <div class="runtime-row"><span class="runtime-label">当前会话</span><span class="runtime-value" id="runtime-session">-</span></div>
-    <div class="runtime-row"><span class="runtime-label">综合剩余</span><span class="runtime-value" id="runtime-composite-remaining">-</span></div>
-    <div class="runtime-row"><span class="runtime-label">休息剩余</span><span class="runtime-value" id="runtime-rest-remaining">-</span></div>
-  </div>
-
-  <div class="body">
+    <div class="body">
     <!-- Progress Bars (Online + Undetermined + Backend Media) -->
-    <div class="section-title">今日用量</div>
     <div id="quota-bars">
       <div class="empty">加载中...</div>
     </div>
@@ -211,9 +222,12 @@
       🎵 后台音视频  <span id="backend-media-value" style="color:var(--text);font-weight:600;">0分钟</span>
     </div>
 
+    <div class="runtime-compact" id="runtime-compact">当前：暂无 · 0秒</div>
+
     <!-- Top 10 -->
     <div class="section-title">今日访问</div>
     <div id="today-top10"><div class="empty">暂无数据</div></div>
+    </div>
   </div>
 
   <script src="popup.js"></script>
