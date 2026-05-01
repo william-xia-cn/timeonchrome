@@ -16,10 +16,10 @@
   let warningShown = false;
   let warningTimer = null;
   let overlayEl = null;
-  let restCompositePendingHost = null;
-  let restCompositePendingShadow = null;
-  let restCompositePendingTimer = null;
-  let restCompositePendingHideTimer = null;
+  let autoModePendingHost = null;
+  let autoModePendingShadow = null;
+  let autoModePendingTimer = null;
+  let autoModePendingHideTimer = null;
 
   // ── 媒体状态检测（content 只负责报告这一件事）────────────────────────────────
 
@@ -133,15 +133,15 @@
       removeOverlay();
     } else if (msg.type === 'EXIT_PIP') {
       exitPictureInPictureIfNeeded();
-    } else if (msg.type === 'REST_COMPOSITE_PENDING_START') {
+    } else if (msg.type === 'AUTO_MODE_PENDING_START') {
       if (!canRenderTopFrameUi) return;
-      showRestCompositePending(msg);
-    } else if (msg.type === 'REST_COMPOSITE_PENDING_CANCEL') {
+      showAutoModePending(msg);
+    } else if (msg.type === 'AUTO_MODE_PENDING_CANCEL') {
       if (!canRenderTopFrameUi) return;
-      clearRestCompositePending();
-    } else if (msg.type === 'REST_COMPOSITE_PENDING_SUCCESS') {
+      clearAutoModePending();
+    } else if (msg.type === 'AUTO_MODE_PENDING_SUCCESS') {
       if (!canRenderTopFrameUi) return;
-      showRestCompositeSuccess(msg);
+      showAutoModeSuccess(msg);
     }
   });
 
@@ -246,22 +246,22 @@
     return m > 0 ? `${h}小时${m}分` : `${h}小时`;
   }
 
-  function ensureRestCompositePendingBanner() {
-    if (restCompositePendingHost && restCompositePendingShadow) {
-      return restCompositePendingShadow;
+  function ensureAutoModePendingBanner() {
+    if (autoModePendingHost && autoModePendingShadow) {
+      return autoModePendingShadow;
     }
 
-    restCompositePendingHost = document.getElementById('__toc_rest_composite_pending__');
-    if (!restCompositePendingHost) {
-      restCompositePendingHost = document.createElement('div');
-      restCompositePendingHost.id = '__toc_rest_composite_pending__';
+    autoModePendingHost = document.getElementById('__toc_auto_mode_pending__');
+    if (!autoModePendingHost) {
+      autoModePendingHost = document.createElement('div');
+      autoModePendingHost.id = '__toc_auto_mode_pending__';
       const parent = document.documentElement || document.body;
       if (!parent) return null;
-      parent.appendChild(restCompositePendingHost);
+      parent.appendChild(autoModePendingHost);
     }
 
-    restCompositePendingShadow = restCompositePendingHost.shadowRoot || restCompositePendingHost.attachShadow({ mode: 'open' });
-    restCompositePendingShadow.innerHTML = `
+    autoModePendingShadow = autoModePendingHost.shadowRoot || autoModePendingHost.attachShadow({ mode: 'open' });
+    autoModePendingShadow.innerHTML = `
       <style>
         .toc-pending-banner {
           position: fixed;
@@ -273,10 +273,10 @@
           max-width: min(420px, calc(100vw - 24px));
           padding: 8px 14px;
           border-radius: 999px;
-          border: 1px solid rgba(255, 255, 255, 0.35);
-          background: rgba(20, 26, 38, 0.72);
-          color: #ffffff;
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+          border: 1px solid rgba(255, 255, 255, 0.6);
+          background: rgba(255, 255, 255, 0.62);
+          color: #1f2937;
+          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
           backdrop-filter: blur(6px);
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           font-size: 12px;
@@ -289,62 +289,74 @@
       <div class="toc-pending-banner" id="toc-pending-banner"></div>
     `;
 
-    return restCompositePendingShadow;
+    return autoModePendingShadow;
   }
 
   function clearPendingTimers() {
-    if (restCompositePendingTimer) {
-      clearInterval(restCompositePendingTimer);
-      restCompositePendingTimer = null;
+    if (autoModePendingTimer) {
+      clearInterval(autoModePendingTimer);
+      autoModePendingTimer = null;
     }
-    if (restCompositePendingHideTimer) {
-      clearTimeout(restCompositePendingHideTimer);
-      restCompositePendingHideTimer = null;
+    if (autoModePendingHideTimer) {
+      clearTimeout(autoModePendingHideTimer);
+      autoModePendingHideTimer = null;
     }
   }
 
-  function clearRestCompositePending() {
+  function clearAutoModePending() {
     clearPendingTimers();
-    if (restCompositePendingHost) {
-      restCompositePendingHost.remove();
-      restCompositePendingHost = null;
-      restCompositePendingShadow = null;
+    if (autoModePendingHost) {
+      autoModePendingHost.remove();
+      autoModePendingHost = null;
+      autoModePendingShadow = null;
     }
   }
 
-  function showRestCompositePending(payload) {
-    const shadow = ensureRestCompositePendingBanner();
+  function showAutoModePending(payload) {
+    const shadow = ensureAutoModePendingBanner();
     if (!shadow) return;
 
     clearPendingTimers();
     const deadlineAt = Number(payload?.deadlineAt) || Date.now();
+    const targetMode = payload?.targetMode === 'study' ? 'study' : 'composite';
     const remainingCompositeSeconds = Number(payload?.remainingCompositeSeconds) || 0;
+    const remainingCompositeTime = payload?.remainingCompositeTime || formatDurationCN(remainingCompositeSeconds);
     const bannerEl = shadow.getElementById('toc-pending-banner');
     if (!bannerEl) return;
 
     const updateCountdown = () => {
       const secondsRemaining = Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
-      bannerEl.textContent = `正在使用综合网站 · ${secondsRemaining}秒后进入综合时间【剩余 ${formatDurationCN(remainingCompositeSeconds)}】`;
+      if (targetMode === 'study') {
+        bannerEl.textContent = `正在使用学习网站 · ${secondsRemaining}秒后进入学习时间`;
+      } else {
+        bannerEl.textContent = `正在使用综合网站 · ${secondsRemaining}秒后进入综合时间 · 今日剩余 ${remainingCompositeTime}`;
+      }
     };
 
     updateCountdown();
-    restCompositePendingTimer = setInterval(updateCountdown, 250);
+    autoModePendingTimer = setInterval(updateCountdown, 250);
   }
 
-  function showRestCompositeSuccess(payload) {
-    const shadow = ensureRestCompositePendingBanner();
+  function showAutoModeSuccess(payload) {
+    const shadow = ensureAutoModePendingBanner();
     if (!shadow) return;
 
     clearPendingTimers();
+    const targetMode = payload?.targetMode === 'study' ? 'study' : 'composite';
     const remainingCompositeSeconds = Number(payload?.remainingCompositeSeconds) || 0;
+    const remainingCompositeTime = payload?.remainingCompositeTime || formatDurationCN(remainingCompositeSeconds);
     const bannerEl = shadow.getElementById('toc-pending-banner');
     if (!bannerEl) return;
-    bannerEl.textContent = `已进入综合时间【剩余 ${formatDurationCN(remainingCompositeSeconds)}】`;
+    if (targetMode === 'study') {
+      bannerEl.textContent = '已进入学习时间';
+    } else {
+      bannerEl.textContent = `已进入综合时间 · 今日剩余 ${remainingCompositeTime}`;
+    }
 
     // 强制 success 自动收口，避免被旧 timer 或后续异步回调悬挂
     clearPendingTimers();
-    restCompositePendingHideTimer = setTimeout(() => {
-      clearRestCompositePending();
+    autoModePendingHideTimer = setTimeout(() => {
+      clearAutoModePending();
     }, 2200);
   }
 

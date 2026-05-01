@@ -27,8 +27,9 @@ function run() {
   expectTrue('badge mode map includes 休', backgroundSource.includes("return '休';"));
   expectTrue('badge mode map includes 停', backgroundSource.includes("return '停';"));
   expectTrue('badge text set from mode', /setBadgeText\(\{ text: modeText \}\)/.test(backgroundSource));
-  expectTrue('pending badge uses 休…', backgroundSource.includes("const modeText = pending ? '休…' : modeToBadgeText(runtimeMode);"));
-  expectTrue('pending title contains remaining seconds', backgroundSource.includes('休息中 · 正在使用综合网站 · ${pending.remainingSeconds}秒后进入综合时间'));
+  expectTrue('pending badge uses mode-aware ellipsis', backgroundSource.includes("pending.fromMode === 'composite' ? '综…' : '休…'"));
+  expectTrue('pending composite title contains remaining seconds', backgroundSource.includes('休息中 · 正在使用综合网站 · ${pending.remainingSeconds}秒后进入综合时间'));
+  expectTrue('pending study title contains remaining seconds', backgroundSource.includes("正在使用学习网站 · ${pending.remainingSeconds}秒后进入学习时间"));
 
   expectTrue('popup has compact runtime field', popupHtml.includes('id="runtime-compact"'));
   expectTrue('popup has study mode button', popupHtml.includes('id="btn-study"'));

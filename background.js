@@ -7,7 +7,7 @@ import { initSession, transitionState, heartbeat, getSession as getTimingSession
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
-import { updateDeclarativeRules, checkAndRemind, getRestCompositePendingStatus } from './product/interceptor.js';
+import { updateDeclarativeRules, checkAndRemind, getAutoModePendingStatus, cancelAutoModePendingForTab, cancelAllAutoModePending } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
 import { initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
 import { handleMessage } from './message-router.js';
@@ -18,6 +18,7 @@ import { computeAllDomains } from './core/aggregate.js';
 
 let currentContext = null;
 let badgeUpdateQueue = Promise.resolve();
+let lastActiveTabId = null;
 
 // ── SW 启动引导（幂等，覆盖 MV3 隐式重启场景）────────────────────────────────────
 
@@ -227,8 +228,11 @@ async function updateCurrentTabBadge() {
       : normalizeMode(rawSession?.[SESSION_KEY]?.currentMode || 'study');
 
     const { tab, domain } = await getCurrentActiveDomain();
-    const pending = runtimeMode === 'rest' && tab?.id ? getRestCompositePendingStatus(tab.id, Date.now()) : null;
-    const modeText = pending ? '休…' : modeToBadgeText(runtimeMode);
+    const pending = tab?.id ? getAutoModePendingStatus(tab.id, Date.now()) : null;
+    const pendingBadgeText = pending
+      ? (pending.fromMode === 'composite' ? '综…' : '休…')
+      : null;
+    const modeText = pendingBadgeText || modeToBadgeText(runtimeMode);
     await chrome.action.setBadgeText({ text: modeText });
     await chrome.action.setBadgeBackgroundColor({ color: '#00b894' });
 
@@ -239,14 +243,18 @@ async function updateCurrentTabBadge() {
 
     if (pending) {
       await chrome.tabs.sendMessage(tab.id, {
-        type: 'REST_COMPOSITE_PENDING_START',
+        type: 'AUTO_MODE_PENDING_START',
         domain: pending.domain,
         deadlineAt: pending.deadlineAt,
+        targetMode: pending.targetMode,
+        fromMode: pending.fromMode,
         remainingCompositeSeconds: pending.remainingCompositeSeconds,
+        remainingCompositeTime: pending.remainingCompositeTime,
       }).catch(() => {});
-      await chrome.action.setTitle({
-        title: `TimeOnChrome\n休息中 · 正在使用综合网站 · ${pending.remainingSeconds}秒后进入综合时间`,
-      });
+      const pendingTitle = pending.targetMode === 'composite'
+        ? `TimeOnChrome\n休息中 · 正在使用综合网站 · ${pending.remainingSeconds}秒后进入综合时间`
+        : `TimeOnChrome\n${pending.fromMode === 'composite' ? '综合中' : '休息中'} · 正在使用学习网站 · ${pending.remainingSeconds}秒后进入学习时间`;
+      await chrome.action.setTitle({ title: pendingTitle });
       return;
     }
 
@@ -318,11 +326,15 @@ initFocusLedger(extractDomain);
 chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   const { url, tabId } = details;
-  await checkAndRemind(tabId, url, getSyncState().monitoringEnabled);
+  await checkAndRemind(tabId, url, getSyncState().monitoringEnabled, { foreground: false });
 });
 
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  if (Number.isInteger(lastActiveTabId) && lastActiveTabId !== activeInfo.tabId) {
+    await cancelAutoModePendingForTab(lastActiveTabId, 'tab_switched');
+  }
+  lastActiveTabId = activeInfo.tabId;
   await reevaluateTabById(activeInfo.tabId);
 });
 
@@ -337,6 +349,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    if (Number.isInteger(lastActiveTabId)) {
+      await cancelAutoModePendingForTab(lastActiveTabId, 'window_blurred');
+    } else {
+      await cancelAllAutoModePending('window_blurred');
+    }
+    return;
+  }
   await reevaluateFocusedWindowActiveTab(windowId);
 });
 
@@ -356,19 +376,14 @@ async function reevaluateTabById(tabId) {
   }
   if (!tab?.url) return;
 
-  let targetUrl = tab.url;
+  // Avoid periodic self-redirect loops while user is interacting with reminder UI.
   if (tab.url.includes('reminder.html')) {
-    try {
-      const u = new URL(tab.url);
-      const domain = u.searchParams.get('domain');
-      if (!domain || domain === 'all') return;
-      targetUrl = `https://${domain}`;
-    } catch {
-      return;
-    }
+    return;
   }
 
-  const blocked = await checkAndRemind(tabId, targetUrl, getSyncState().monitoringEnabled);
+  let targetUrl = tab.url;
+
+  const blocked = await checkAndRemind(tabId, targetUrl, getSyncState().monitoringEnabled, { foreground: true });
   if (!blocked && targetUrl !== tab.url) {
     await chrome.tabs.update(tabId, { url: targetUrl }).catch(() => {});
   }
@@ -379,6 +394,7 @@ async function reevaluateFocusedWindowActiveTab(windowId) {
   const tabs = await chrome.tabs.query({ active: true, windowId });
   const tab = tabs && tabs[0];
   if (!tab?.id) return;
+  lastActiveTabId = tab.id;
   await reevaluateTabById(tab.id);
 }
 

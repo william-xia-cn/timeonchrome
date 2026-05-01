@@ -105,7 +105,7 @@ async function run() {
     expectTrue('reason', redirectedUrls[0].includes('reason=to_composite_confirm'));
   }
 
-  section('IMT-2 Rest + composite => not immediate, then switch after 60s');
+  section('IMT-2 Rest + composite => not immediate, then switch after 60s foreground dwell');
   {
     const saves = [];
     const sent = [];
@@ -122,16 +122,16 @@ async function run() {
     }, {
       tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
     });
-    const blocked1 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
-    const blocked2 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 59_000, userActive: true });
-    const blocked3 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 60_000, userActive: true });
+    const blocked1 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, foreground: true });
+    const blocked2 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 59_000, foreground: true });
+    const blocked3 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 60_000, foreground: true });
     expect('first call should not block', blocked1, false);
     expect('within gate should not block', blocked2, false);
     expect('after gate should not block', blocked3, false);
     expect('runtime mode switched to composite only once after gate', saves, ['composite']);
-    expectTrue('pending START sent', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_START' && typeof m.deadlineAt === 'number'));
-    expectTrue('pending SUCCESS sent', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_SUCCESS'));
-    expectTrue('pending CANCEL sent at completion', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'completed'));
+    expectTrue('pending START sent', sent.some((m) => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'composite' && typeof m.deadlineAt === 'number'));
+    expectTrue('pending SUCCESS sent', sent.some((m) => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'composite'));
+    expectTrue('pending CANCEL sent at completion', sent.some((m) => m.type === 'AUTO_MODE_PENDING_CANCEL' && m.reason === 'completed'));
   }
 
   section('IMT-2b Rest + composite gate cancels on interrupting domain switch');
@@ -150,11 +150,11 @@ async function run() {
     }, {
       tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
     });
-    await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
-    await checkAndRemind(1, 'https://news.example.com', 1, { nowMs: 30_000, userActive: true });
-    await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 61_000, userActive: true });
+    await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, foreground: true });
+    await checkAndRemind(1, 'https://news.example.com', 1, { nowMs: 30_000, foreground: true });
+    await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 61_000, foreground: true });
     expect('interrupt should cancel old candidate', saves.length, 0);
-    expectTrue('pending CANCEL on interrupt', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'candidate_changed'));
+    expectTrue('pending CANCEL on interrupt', sent.some((m) => m.type === 'AUTO_MODE_PENDING_CANCEL' && m.reason === 'candidate_changed'));
   }
 
   section('IMT-3 Study + rest/unclassified => to_rest_slide_confirm');
@@ -244,9 +244,9 @@ async function run() {
       extractDomain: () => 'khanacademy.org',
       isSpecialUrl: () => false,
     });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 89_000, userActive: true });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true, foreground: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 89_000, userActive: true, foreground: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true, foreground: true });
     expect('rest->study switches only after 90s gate', saves, ['study']);
   }
 
@@ -262,12 +262,12 @@ async function run() {
       extractDomain: () => 'khanacademy.org',
       isSpecialUrl: () => false,
     });
-    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true });
-    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true });
+    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true, foreground: true });
+    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true, foreground: true });
     expect('composite->study switches after 90s gate', saves, ['study']);
   }
 
-  section('IMT-9 idle/no-activity prevents auto switch');
+  section('IMT-9 Rest + composite does not require keyboard/mouse activity');
   {
     const saves = [];
     const sent = [];
@@ -282,11 +282,10 @@ async function run() {
     }, {
       tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
     });
-    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
-    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 60_000, userActive: false });
-    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 120_000, userActive: true });
-    expect('idle call should clear candidate and avoid switch', saves.length, 0);
-    expectTrue('pending cancel reason inactive', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'inactive'));
+    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 0, foreground: true, userActive: false });
+    await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 60_000, foreground: true, userActive: false });
+    expect('switches to composite even without input activity', saves, ['composite']);
+    expectTrue('pending success emitted without input activity', sent.some((m) => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'composite'));
   }
 
   section('IMT-10 monitoring off prevents auto switch');
@@ -304,11 +303,32 @@ async function run() {
     }, {
       tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
     });
-    await checkAndRemind(4, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
-    await checkAndRemind(4, 'https://youtube.com', 0, { nowMs: 61_000, userActive: true });
-    await checkAndRemind(4, 'https://youtube.com', 1, { nowMs: 62_000, userActive: true });
+    await checkAndRemind(4, 'https://youtube.com', 1, { nowMs: 0, foreground: true, userActive: true });
+    await checkAndRemind(4, 'https://youtube.com', 0, { nowMs: 61_000, foreground: true, userActive: true });
+    await checkAndRemind(4, 'https://youtube.com', 1, { nowMs: 62_000, foreground: true, userActive: true });
     expect('monitoring off cancels candidate, no auto switch', saves.length, 0);
-    expectTrue('pending cancel reason monitoring_off', sent.some((m) => m.type === 'REST_COMPOSITE_PENDING_CANCEL' && m.reason === 'monitoring_off'));
+    expectTrue('pending cancel reason monitoring_off', sent.some((m) => m.type === 'AUTO_MODE_PENDING_CANCEL' && m.reason === 'monitoring_off'));
+  }
+
+  section('IMT-10b Rest + composite pending requires foreground dwell');
+  {
+    const saves = [];
+    const sent = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: () => 'youtube.com',
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
+    });
+    await checkAndRemind(5, 'https://youtube.com', 1, { nowMs: 0, foreground: false });
+    await checkAndRemind(5, 'https://youtube.com', 1, { nowMs: 60_000, foreground: false });
+    expect('no foreground should not start composite candidate', saves.length, 0);
+    expectTrue('no pending START when not foreground', !sent.some((m) => m.type === 'AUTO_MODE_PENDING_START'));
   }
 
   section('IMT-11 sendMessage failure should fallback without throw');
@@ -326,9 +346,90 @@ async function run() {
       tabs: { update: async () => {}, sendMessage: async () => { throw new Error('blocked'); } },
       notifications: { create: (payload) => notifications.push(payload) },
     });
-    const blocked = await checkAndRemind(9, 'https://youtube.com', 1, { nowMs: 0, userActive: true });
+    const blocked = await checkAndRemind(9, 'https://youtube.com', 1, { nowMs: 0, foreground: true, userActive: true });
     expect('sendMessage failure should not block navigation', blocked, false);
     expectTrue('fallback notification emitted', notifications.length > 0);
+  }
+
+  section('IMT-12 Rest -> Study uses study copy payload without remainingCompositeTime');
+  {
+    const sent = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async () => {},
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: () => 'khanacademy.org',
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
+    });
+    await checkAndRemind(10, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true, foreground: true });
+    await checkAndRemind(10, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true, foreground: true });
+    const start = sent.find((m) => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study');
+    const success = sent.find((m) => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study');
+    expectTrue('study START exists', !!start);
+    expectTrue('study SUCCESS exists', !!success);
+    expect('study START remainingCompositeTime empty', start?.remainingCompositeTime || '', '');
+    expect('study SUCCESS has no remainingCompositeTime', Object.prototype.hasOwnProperty.call(success || {}, 'remainingCompositeTime'), false);
+  }
+
+  section('IMT-13 Rest -> Study cancels on leave and re-entry restarts fresh 90s');
+  {
+    const saves = [];
+    const sent = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: (u) => new URL(u).hostname,
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
+    });
+    await checkAndRemind(11, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true, foreground: true });
+    await checkAndRemind(11, 'https://news.example.com', 1, { nowMs: 30_000, userActive: true, foreground: true });
+    await checkAndRemind(11, 'https://khanacademy.org', 1, { nowMs: 31_000, userActive: true, foreground: true });
+    await checkAndRemind(11, 'https://khanacademy.org', 1, { nowMs: 90_000, userActive: true, foreground: true });
+    expect('should not switch from accumulated partial visits', saves.length, 0);
+    await checkAndRemind(11, 'https://khanacademy.org', 1, { nowMs: 121_000, userActive: true, foreground: true });
+    expect('should switch only after fresh continuous 90s', saves, ['study']);
+
+    const studyStarts = sent.filter((m) => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study');
+    expectTrue('at least two study START messages', studyStarts.length >= 2);
+    expect('first study deadlineAt', studyStarts[0]?.deadlineAt, 90_000);
+    expect('re-entry study deadlineAt resets from re-entry timestamp', studyStarts[studyStarts.length - 1]?.deadlineAt, 121_000);
+    expectTrue('leave triggers pending cancel', sent.some((m) => m.type === 'AUTO_MODE_PENDING_CANCEL' && m.reason === 'candidate_changed'));
+  }
+
+  section('IMT-14 Composite -> Study domain switch resets countdown');
+  {
+    const saves = [];
+    const sent = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'composite', studyList: ['khanacademy.org', 'coursera.org'] }),
+      getSession: async () => ({ currentMode: 'composite' }),
+      saveSession: async (s) => saves.push(s.currentMode),
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: (u) => new URL(u).hostname,
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
+    });
+    await checkAndRemind(12, 'https://khanacademy.org', 1, { nowMs: 0, userActive: true, foreground: true });
+    await checkAndRemind(12, 'https://coursera.org', 1, { nowMs: 40_000, userActive: true, foreground: true });
+    await checkAndRemind(12, 'https://coursera.org', 1, { nowMs: 100_000, userActive: true, foreground: true });
+    expect('no switch before fresh 90s on new study domain', saves.length, 0);
+    await checkAndRemind(12, 'https://coursera.org', 1, { nowMs: 130_000, userActive: true, foreground: true });
+    expect('switch after fresh 90s on new study domain', saves, ['study']);
+    const studyStarts = sent.filter((m) => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study');
+    expectTrue('domain switch created a new study START', studyStarts.length >= 2);
+    expect('first domain deadlineAt', studyStarts[0]?.deadlineAt, 90_000);
+    expect('new domain deadlineAt reset', studyStarts[studyStarts.length - 1]?.deadlineAt, 130_000);
   }
 
   const total = passed + failed;
