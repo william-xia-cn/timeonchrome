@@ -132,23 +132,31 @@ async function run() {
     expect('google search should still redirect in study mode', redirectedUrls.length, 1);
   }
 
-  section('IMT-1 Study + composite => to_composite_confirm');
+  section('IMT-1 Study + composite => auto switch with 45s notice');
   {
-    const redirectedUrls = [];
+    const saves = [];
+    const sent = [];
     const { checkAndRemind } = loadCheckAndRemind({
       getConfig: async () => makeConfig({ mode: 'study' }),
       getSession: async () => ({ currentMode: 'study' }),
-      saveSession: async () => {},
+      saveSession: async (s) => { if (s?.currentMode) saves.push(s.currentMode); },
       hasTemporaryCompositePermission: async () => false,
       matchDomain: (d, p) => d === p,
       extractDomain: () => 'youtube.com',
       isSpecialUrl: () => false,
+      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
     }, {
-      tabs: { update: async (_id, payload) => redirectedUrls.push(payload.url) },
+      tabs: {
+        update: async () => {},
+        sendMessage: async (_id, msg) => { sent.push(msg); },
+      },
     });
     const blocked = await checkAndRemind(1, 'https://youtube.com', 1);
-    expect('should block', blocked, true);
-    expectTrue('reason', redirectedUrls[0].includes('reason=to_composite_confirm'));
+    expect('should not block', blocked, false);
+    expect('auto switched to composite', saves, ['composite']);
+    expectTrue('sent AUTO_MODE_PENDING_SUCCESS', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'composite'));
+    expectTrue('notice has 45s duration', sent.some(m => m.displayDuration === 45000));
+    expectTrue('notice text includes 离开学习时间', sent.some(m => m.noticeText?.includes('离开学习时间')));
   }
 
   section('IMT-2 Rest + composite => not immediate, then switch after 60s foreground dwell');
@@ -226,6 +234,8 @@ async function run() {
   section('IMT-1b Parent-domain list entries should match subdomains across all lists');
   {
     const redirects = [];
+    const saves = [];
+    const sent = [];
     const { checkAndRemind } = loadCheckAndRemind({
       getConfig: async () => makeConfig({
         mode: 'study',
@@ -235,13 +245,17 @@ async function run() {
         unsafeList: ['tiktok.com'],
       }),
       getSession: async () => ({ currentMode: 'study' }),
-      saveSession: async () => {},
+      saveSession: async (s) => { if (s?.currentMode) saves.push(s.currentMode); },
       hasTemporaryCompositePermission: async () => false,
       matchDomain: boundaryMatchDomain,
       extractDomain: (u) => new URL(u).hostname.replace(/^www\./, ''),
       isSpecialUrl: () => false,
+      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
     }, {
-      tabs: { update: async (_id, payload) => redirects.push(payload.url) },
+      tabs: {
+        update: async (_id, payload) => { if (payload?.url) redirects.push(payload.url); },
+        sendMessage: async (_id, msg) => { sent.push(msg); },
+      },
     });
 
     const studyExact = await checkAndRemind(20, 'https://deepseek.com', 1);
@@ -257,8 +271,9 @@ async function run() {
     expect('study boundary false-positive should block', studyFalsePos2, true);
 
     const compositeSub = await checkAndRemind(21, 'https://news.google.com', 1);
-    expect('composite parent match on subdomain should route composite confirm in study mode', compositeSub, true);
-    expectTrue('composite subdomain reminder reason', redirects.some((u) => u.includes('reason=to_composite_confirm') && u.includes('domain=news.google.com')));
+    expect('composite parent match on subdomain should auto-switch (not block)', compositeSub, false);
+    expectTrue('composite subdomain auto-switched mode', saves.includes('composite'));
+    expectTrue('composite subdomain sent success notice', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'composite'));
 
     const restrictedSub = await checkAndRemind(22, 'https://www.iqiyi.com', 1);
     expect('restricted parent match on subdomain should route rest confirm path in study mode', restrictedSub, true);

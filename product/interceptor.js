@@ -339,6 +339,22 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
       return false;
     }
     if (isCompositeDomain) {
+      const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
+      if (remainingCompositeSeconds > 0) {
+        await setRuntimeMode('composite');
+        const remainingCompositeTime = formatSecondsCompact(remainingCompositeSeconds);
+        const noticeText = `你正在打开综合网站 · 即将离开学习时间进入综合时间 · 今日剩余 ${remainingCompositeTime}`;
+        await sendTabPendingMessage(tabId, {
+          type: 'AUTO_MODE_PENDING_SUCCESS',
+          targetMode: 'composite',
+          fromMode: 'study',
+          remainingCompositeSeconds,
+          remainingCompositeTime,
+          displayDuration: 45000,
+          noticeText,
+        }, noticeText);
+        return false;
+      }
       await redirectToReminder(tabId, domain, 'to_composite_confirm', config.blockMessage);
       return true;
     }

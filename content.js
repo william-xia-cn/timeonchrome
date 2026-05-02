@@ -347,17 +347,19 @@
     const remainingCompositeTime = payload?.remainingCompositeTime || formatDurationCN(remainingCompositeSeconds);
     const bannerEl = shadow.getElementById('toc-pending-banner');
     if (!bannerEl) return;
-    if (targetMode === 'study') {
+    if (payload?.noticeText) {
+      bannerEl.textContent = payload.noticeText;
+    } else if (targetMode === 'study') {
       bannerEl.textContent = '已进入学习时间';
     } else {
       bannerEl.textContent = `已进入综合时间 · 今日剩余 ${remainingCompositeTime}`;
     }
 
-    // 强制 success 自动收口，避免被旧 timer 或后续异步回调悬挂
     clearPendingTimers();
+    const hideDuration = Number(payload?.displayDuration) || 2200;
     autoModePendingHideTimer = setTimeout(() => {
       clearAutoModePending();
-    }, 2200);
+    }, hideDuration);
   }
 
 })();
