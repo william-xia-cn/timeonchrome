@@ -107,7 +107,22 @@ export function extractDomain(url) {
 
 export function isSpecialUrl(url) {
   if (!url) return true;
-  return url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:');
+  if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:')) {
+    return true;
+  }
+
+  // Chrome new-tab provider page can be delivered as normal HTTPS navigation.
+  // Treat only this narrow path as internal to avoid intercept/reminder noise.
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' && parsed.hostname === 'www.google.com' && parsed.pathname.startsWith('/_/chrome/newtab')) {
+      return true;
+    }
+  } catch {
+    // Non-URL input should fall through to regular handling.
+  }
+
+  return false;
 }
 
 export function matchDomain(domain, pattern) {

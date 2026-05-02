@@ -86,6 +86,46 @@ function makeConfig(overrides = {}) {
 }
 
 async function run() {
+  section('IMT-0 Internal/newtab URLs should skip intercept');
+  {
+    const redirectedUrls = [];
+    const specialUrlGuard = (url) => {
+      if (!url) return true;
+      if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:')) {
+        return true;
+      }
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'https:' && parsed.hostname === 'www.google.com' && parsed.pathname.startsWith('/_/chrome/newtab');
+      } catch {
+        return false;
+      }
+    };
+
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({ mode: 'study' }),
+      getSession: async () => ({ currentMode: 'study' }),
+      saveSession: async () => {},
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: (d, p) => d === p,
+      extractDomain: (u) => new URL(u).hostname,
+      isSpecialUrl: specialUrlGuard,
+    }, {
+      tabs: { update: async (_id, payload) => redirectedUrls.push(payload.url) },
+    });
+
+    const chromeNewtabBlocked = await checkAndRemind(1, 'chrome://newtab/', 1);
+    const aboutBlankBlocked = await checkAndRemind(1, 'about:blank', 1);
+    const googleProviderBlocked = await checkAndRemind(1, 'https://www.google.com/_/chrome/newtab?foo=1', 1);
+    const googleSearchBlocked = await checkAndRemind(1, 'https://www.google.com/search?q=test', 1);
+
+    expect('chrome://newtab should skip', chromeNewtabBlocked, false);
+    expect('about:blank should skip', aboutBlankBlocked, false);
+    expect('google newtab provider should skip', googleProviderBlocked, false);
+    expect('google search should not be internal-skip', googleSearchBlocked, true);
+    expect('google search should still redirect in study mode', redirectedUrls.length, 1);
+  }
+
   section('IMT-1 Study + composite => to_composite_confirm');
   {
     const redirectedUrls = [];

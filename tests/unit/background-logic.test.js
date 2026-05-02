@@ -20,12 +20,25 @@ function extractDomain(url) {
 }
 
 function isSpecialUrl(url) {
-  return !url ||
+  if (!url ||
     url.startsWith('chrome://') ||
     url.startsWith('chrome-extension://') ||
     url.startsWith('about:') ||
     url.startsWith('edge://') ||
-    url.startsWith('devtools://');
+    url.startsWith('devtools://')) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' && parsed.hostname === 'www.google.com' && parsed.pathname.startsWith('/_/chrome/newtab')) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
 }
 
 function formatDate(date) {
@@ -463,6 +476,24 @@ section('checkAndRemind: routing decision');
   const config = makeConfig({ unsafeList: [] });
   const r = computeRemindReason('chrome://settings', config, true);
   check('chrome:// → not blocked', !r.blocked, JSON.stringify(r));
+}
+
+{
+  const config = makeConfig();
+  const r = computeRemindReason('about:blank', config, true);
+  check('about:blank → not blocked', !r.blocked, JSON.stringify(r));
+}
+
+{
+  const config = makeConfig();
+  const r = computeRemindReason('https://www.google.com/_/chrome/newtab?foo=1', config, true);
+  check('google newtab provider URL → not blocked', !r.blocked, JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study' });
+  const r = computeRemindReason('https://www.google.com/search?q=test', config, true);
+  check('google search URL is not special and can be blocked in study mode', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
 }
 
 {
