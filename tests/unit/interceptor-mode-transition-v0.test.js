@@ -85,6 +85,12 @@ function makeConfig(overrides = {}) {
   };
 }
 
+function boundaryMatchDomain(domain, pattern) {
+  const d = String(domain || '').replace(/^www\./, '');
+  const p = String(pattern || '').replace(/^www\./, '');
+  return d === p || d.endsWith(`.${p}`);
+}
+
 async function run() {
   section('IMT-0 Internal/newtab URLs should skip intercept');
   {
@@ -215,6 +221,125 @@ async function run() {
     expect('should block', blocked, true);
     expectTrue('reason', redirectedUrls[0].includes('reason=to_rest_slide_confirm'));
     expectTrue('originMode=study', redirectedUrls[0].includes('originMode=study'));
+  }
+
+  section('IMT-1b Parent-domain list entries should match subdomains across all lists');
+  {
+    const redirects = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({
+        mode: 'study',
+        studyList: ['deepseek.com'],
+        compositeList: ['google.com'],
+        restrictedEntertainmentList: ['iqiyi.com'],
+        unsafeList: ['tiktok.com'],
+      }),
+      getSession: async () => ({ currentMode: 'study' }),
+      saveSession: async () => {},
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: boundaryMatchDomain,
+      extractDomain: (u) => new URL(u).hostname.replace(/^www\./, ''),
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async (_id, payload) => redirects.push(payload.url) },
+    });
+
+    const studyExact = await checkAndRemind(20, 'https://deepseek.com', 1);
+    const studyWww = await checkAndRemind(20, 'https://www.deepseek.com', 1);
+    const studySub = await checkAndRemind(20, 'https://chat.deepseek.com', 1);
+    const studyFalsePos1 = await checkAndRemind(20, 'https://notdeepseek.com', 1);
+    const studyFalsePos2 = await checkAndRemind(20, 'https://deepseek.com.evil.com', 1);
+
+    expect('study exact allowed', studyExact, false);
+    expect('study www allowed', studyWww, false);
+    expect('study subdomain allowed', studySub, false);
+    expect('study suffix false-positive should block', studyFalsePos1, true);
+    expect('study boundary false-positive should block', studyFalsePos2, true);
+
+    const compositeSub = await checkAndRemind(21, 'https://news.google.com', 1);
+    expect('composite parent match on subdomain should route composite confirm in study mode', compositeSub, true);
+    expectTrue('composite subdomain reminder reason', redirects.some((u) => u.includes('reason=to_composite_confirm') && u.includes('domain=news.google.com')));
+
+    const restrictedSub = await checkAndRemind(22, 'https://www.iqiyi.com', 1);
+    expect('restricted parent match on subdomain should route rest confirm path in study mode', restrictedSub, true);
+    expectTrue('restricted subdomain reason', redirects.some((u) => u.includes('reason=to_rest_slide_confirm') && u.includes('domain=iqiyi.com')));
+
+    const unsafeSub = await checkAndRemind(23, 'https://m.tiktok.com', 1);
+    expect('unsafe parent match on subdomain should block with unsafe', unsafeSub, true);
+    expectTrue('unsafe subdomain reason', redirects.some((u) => u.includes('reason=unsafe') && u.includes('domain=m.tiktok.com')));
+  }
+
+  section('IMT-1c Priority conflict: Study > Composite > Unclassified > Restricted');
+  {
+    const redirectsStudy = [];
+    const studyCfg = makeConfig({
+      mode: 'study',
+      studyList: ['microsoft.com'],
+      compositeList: ['microsoft.com'],
+      restrictedEntertainmentList: ['microsoft.com'],
+      unsafeList: [],
+    });
+    const { checkAndRemind: checkInStudy } = loadCheckAndRemind({
+      getConfig: async () => studyCfg,
+      getSession: async () => ({ currentMode: 'study' }),
+      saveSession: async () => {},
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: boundaryMatchDomain,
+      extractDomain: (u) => new URL(u).hostname.replace(/^www\./, ''),
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async (_id, payload) => redirectsStudy.push(payload.url) },
+    });
+
+    const blockedInStudyMode = await checkInStudy(30, 'https://www.microsoft.com', 1);
+    expect('study wins over composite/restricted in study mode (no redirect)', blockedInStudyMode, false);
+    expect('no reminder fired when study wins', redirectsStudy.length, 0);
+
+    const redirectsComposite = [];
+    const compositeCfg = makeConfig({
+      mode: 'composite',
+      studyList: ['microsoft.com'],
+      compositeList: ['microsoft.com'],
+      restrictedEntertainmentList: ['microsoft.com'],
+      unsafeList: [],
+    });
+    const { checkAndRemind: checkInComposite } = loadCheckAndRemind({
+      getConfig: async () => compositeCfg,
+      getSession: async () => ({ currentMode: 'composite' }),
+      saveSession: async () => {},
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: boundaryMatchDomain,
+      extractDomain: (u) => new URL(u).hostname.replace(/^www\./, ''),
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async (_id, payload) => redirectsComposite.push(payload.url) },
+    });
+    const blockedInCompositeMode = await checkInComposite(31, 'https://www.microsoft.com', 1);
+    expect('composite wins over restricted in composite mode (no redirect)', blockedInCompositeMode, false);
+    expect('still no reminder when composite wins', redirectsComposite.length, 0);
+  }
+
+  section('IMT-1d Exact subdomain config remains narrow (does not match parent)');
+  {
+    const redirects = [];
+    const { checkAndRemind } = loadCheckAndRemind({
+      getConfig: async () => makeConfig({
+        mode: 'study',
+        studyList: ['chat.deepseek.com'],
+      }),
+      getSession: async () => ({ currentMode: 'study' }),
+      saveSession: async () => {},
+      hasTemporaryCompositePermission: async () => false,
+      matchDomain: boundaryMatchDomain,
+      extractDomain: (u) => new URL(u).hostname.replace(/^www\./, ''),
+      isSpecialUrl: () => false,
+    }, {
+      tabs: { update: async (_id, payload) => redirects.push(payload.url) },
+    });
+
+    const parentShouldBlock = await checkAndRemind(24, 'https://deepseek.com', 1);
+    expect('exact subdomain config should not match parent domain', parentShouldBlock, true);
+    expectTrue('parent domain reminder reason', redirects.some((u) => u.includes('reason=to_rest_slide_confirm') && u.includes('domain=deepseek.com')));
   }
 
   section('IMT-4 Composite + rest/unclassified => to_rest_confirm');

@@ -321,19 +321,20 @@ async function closeNonStudyPictureInPicture(config) {
     const isUnsafe = unsafeList.some(p => matchDomain(domain, p));
     if (isUnsafe) return true;
 
-    const isRestricted = restrictedList.some(p => matchDomain(domain, p));
-    if (isRestricted) return true;
-
     if (quotaState.onlineLocked) return true;
 
     const isStudy = studyList.some(p => matchDomain(domain, p));
     const isComposite = compositeList.some(p => matchDomain(domain, p));
+    const isRestricted = restrictedList.some(p => matchDomain(domain, p));
 
     if (isStudy) {
       return !!quotaState.studyLocked;
     }
     if (isComposite) {
       return !!quotaState.undeterminedLocked;
+    }
+    if (isRestricted) {
+      return true;
     }
     return true;
   };

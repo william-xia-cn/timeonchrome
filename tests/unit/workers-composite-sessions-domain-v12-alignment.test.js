@@ -50,16 +50,16 @@ function run() {
   expectTrue('autoClassify 应使用 matchDomainV12', source.includes('if (!matchDomainV12(domain, rule.domain)) continue;'));
   expectTrue('scope=domain 应使用对称域名等价判断', source.includes('const isSameDomain = (a: string, b: string) => matchDomainV12(a, b) && matchDomainV12(b, a);'));
 
-  // 5 条冻结断言
-  expectEqual('a.example.com vs example.com = false', matchDomain('a.example.com', 'example.com'), false);
+  // 5 条 V0 断言（父域匹配子域）
+  expectEqual('a.example.com vs example.com = true', matchDomain('a.example.com', 'example.com'), true);
   expectEqual('a.example.com vs *.example.com = true', matchDomain('a.example.com', '*.example.com'), true);
   expectEqual('example.com vs *.example.com = false', matchDomain('example.com', '*.example.com'), false);
   expectEqual('www.example.com vs example.com = true', matchDomain('www.example.com', 'example.com'), true);
   expectEqual('example.com vs www.example.com = true', matchDomain('example.com', 'www.example.com'), true);
 
-  // autoClassify 护栏
+  // autoClassify：子域应被父域规则正确分类
   const auto = autoClassify('a.example.com', 'my lecture note', [{ domain: 'example.com', keyword: 'lecture', classification: 'study' }]);
-  expectEqual('autoClassify guard: 子域不应因父域规则误分类', auto, null);
+  expectEqual('autoClassify: 子域应被父域规则正确分类', auto, 'study');
 
   // scope=domain 写回护栏（不应误删 example.com）
   const isSameDomain = (a, b) => matchDomain(a, b) && matchDomain(b, a);

@@ -335,11 +335,14 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   }
 
   if (currentMode === 'study') {
+    if (isStudyDomain) {
+      return false;
+    }
     if (isCompositeDomain) {
       await redirectToReminder(tabId, domain, 'to_composite_confirm', config.blockMessage);
       return true;
     }
-    if (isRestricted) {
+    if (!isStudyDomain && !isCompositeDomain && isRestricted) {
       await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage, {
         originMode: 'study',
       });
@@ -354,7 +357,7 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   }
 
   if (currentMode === 'composite') {
-    if (isRestricted || (!isStudyDomain && !isCompositeDomain)) {
+    if (!isStudyDomain && !isCompositeDomain) {
       await redirectToReminder(tabId, domain, 'to_rest_confirm', config.blockMessage);
       return true;
     }

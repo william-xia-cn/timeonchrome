@@ -639,6 +639,35 @@ section('checkAndRemind: routing decision');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 3b: V0 parent-domain subdomain matching
+// ═══════════════════════════════════════════════════════════════════════════════
+section('Domain matching: parent covers subdomains');
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['example.com'] });
+  const r = computeRemindReason('https://chat.example.com', config, true);
+  check('parent domain config matches subdomain → not blocked in study mode', !r.blocked, JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['example.com'] });
+  const r = computeRemindReason('https://notexample.com', config, true);
+  check('suffix false-positive (notexample.com) → blocked', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['example.com'] });
+  const r = computeRemindReason('https://example.com.evil.com', config, true);
+  check('boundary false-positive (example.com.evil.com) → blocked', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['chat.example.com'] });
+  const r = computeRemindReason('https://example.com', config, true);
+  check('exact subdomain config does not match parent → blocked', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 4: Auto-study mode switching
 // ═══════════════════════════════════════════════════════════════════════════════
 section('Auto-study: mode switch logic');

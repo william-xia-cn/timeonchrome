@@ -58,22 +58,22 @@ function run() {
   expectTrue('device.ts 应复用 v1.2 matchDomain 实现', deviceSource.includes("import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';"));
   expectTrue('device.ts 中 matchDomain 应委托到 matchDomainV12', /const\s+matchDomain\s*=\s*matchDomainV12\s*;/.test(deviceSource));
 
-  // 5 条冻结断言
-  expectEqual('a.example.com vs example.com = false', matchDomain('a.example.com', 'example.com'), false);
+  // 5 条 V0 断言（父域匹配子域）
+  expectEqual('a.example.com vs example.com = true', matchDomain('a.example.com', 'example.com'), true);
   expectEqual('a.example.com vs *.example.com = true', matchDomain('a.example.com', '*.example.com'), true);
   expectEqual('example.com vs *.example.com = false', matchDomain('example.com', '*.example.com'), false);
   expectEqual('www.example.com vs example.com = true', matchDomain('www.example.com', 'example.com'), true);
   expectEqual('example.com vs www.example.com = true', matchDomain('example.com', 'www.example.com'), true);
 
-  // quota-state 最小分类护栏：studyList=['example.com']，stats 仅 a.example.com，不应归 study
+  // quota-state 分类：studyList=['example.com']，stats 仅 a.example.com，应正确归为 study（父域覆盖子域）
   const guard = classifyWithLists(
     [{ domain: 'a.example.com', total: 120 }],
     ['example.com'],
     [],
     matchDomain
   );
-  expectEqual('quota-state guard: a.example.com 不应被 example.com 误归为 study', guard.studySeconds, 0);
-  expectEqual('quota-state guard: onlineSeconds 仍应累计', guard.onlineSeconds, 120);
+  expectEqual('quota-state: a.example.com 应被 example.com 正确归为 study', guard.studySeconds, 120);
+  expectEqual('quota-state: onlineSeconds 仍应累计', guard.onlineSeconds, 120);
 
   const total = passed + failed;
   console.log(`\n[Workers Device Domain v1.2 Alignment] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
