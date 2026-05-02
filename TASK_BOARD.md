@@ -49,6 +49,19 @@
   - 口径：仅记录为 admin 页面已知告警，不得宣称已修复，不等价于 core runtime failure
   - 必做人工验证：stats 页面打开并展示数据、rules 页面可打开、devices 页面可打开、侧边导航可切换、login/logout 可用、save/sync 可用
   - 发布口径：本项不改变 V0 formal release gate 结论；V0 formal release 仍按 System Recovery Release Gates 判定
+- [ ] **[P2/V1] Reminder 双滑轨说明文案对齐问题（已知 UI 问题）**
+  - 当前状态：在 `study_mode` 与 `to_rest_confirm(unclassified)` 的双滑轨页面中，滑轨间说明文案在部分窗口尺寸下出现右偏/遮挡视觉问题
+  - 影响范围：仅 Reminder 页面展示层；不影响模式切换、配额扣减、计时归因与按钮/滑轨交互语义
+  - 处理策略：纳入 V1 UI 优化，采用固定结构布局（不依赖 `order` 动态拼装）统一文案块位置与层级
+  - 发布口径：该项为已知非阻塞 UI 问题，不影响 V0 closeout
+- [ ] **[V1] Rest borrow rule refinement（V0 accepted mechanism）**
+  - V0 现状：借用仅在 Reminder 上下文显式触发，不经 popup；与“申请使用综合时间”分离；不创建综合放行；不改变站点分类。
+  - V1 优化范围：
+    1) 借用额度策略细化；
+    2) 次日扣减/归还算法可解释化；
+    3) 日/周借用上限策略与过度使用抑制；
+    4) 家长侧借用开关与策略配置；
+    5) 失败反馈、审计轨迹与日志可见性增强。
 - [ ] **[Pending PO D-015] 申诉/审核语义终审（使用分析页面 / 终端 UI）**：使用分析页面与待归类列表中的"申诉/待审核/申诉中/已改判/标为学习/标为休息"概念需 Product Owner 决策——从终端 UI 隐藏、只读展示、保留孩子侧申诉、或仅保留在家长控制台
 - [ ] **[P2] Stage 2 local terminal/admin naming or physical split cleanup**：
   - 当前状态：`admin/admin.html` 同时承载：
@@ -75,7 +88,7 @@
 - [ ] [V1] composite routing（冻结到 V1）
 
 ## COMPLETED（V0）
-- [x] [V0] Product Owner 手动验收通过：Reminder UI（Study→Rest 滑动确认、Study→Composite 普通确认、Composite→Rest 普通确认）
+- [x] [V0] Product Owner 手动验收通过：Reminder/UI 路径（Study→Rest 滑动确认、Study→Composite 自动切换+45s 轻提示、Composite→Rest 普通确认）
 - [x] [V0] Product Owner 手动验收通过：Pending mode-transition feedback（Rest→Composite / Rest→Study / Composite→Study）
 - [x] [V0] Product Owner 手动验收通过：Popup V0 layout
 - [x] [V0] Product Owner 手动验收通过：admin 功能（stats/rules/devices/nav/login/logout/save/sync；立即同步按钮反馈可见）

@@ -12,7 +12,11 @@
 - `TASK_BOARD.md`
 - `DECISIONS.md`
 - `SITE_ACCESS_POLICY.md`
-- `site-access-config.example.json`
+- `docs/site-access-config.example.json`
+
+### Mode / quota routing source of truth
+
+Specific behavior for each current mode, target site type, quota state, temporary Composite allowance state, Reminder page, and in-page notice is defined in `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md`. This UX document defines visual structure and interaction style; the matrix document defines routing and quota behavior.
 
 V0 产品可见模式定义（本文件生效范围）：
 
@@ -50,7 +54,7 @@ V0 必须让孩子第一次上手时做到：
 ```text
 学习网站：直接使用
 综合网站：解释后使用
-休息网站：慎重确认后使用
+非学习非综合站点：按规则提示后使用
 回到学习：自动回来
 当前模式：始终可见
 剩余时间：在关键切换处可见
@@ -79,7 +83,7 @@ V0 包含：
    - 休息模式。
 
 2. 模式切换提示：
-   - 学习 → 综合：页面确认；
+   - 学习 → 综合：自动切换 + 45s 轻提示；
    - 休息 → 综合：自动切换 + 轻提示；
    - 学习 → 休息：滑动对齐确认；
    - 综合 → 学习：自动回归；
@@ -255,12 +259,13 @@ V0 采用以下规则：
 综合网站在 domain 层无法稳定判断用途，因此应先进入综合模式，而不是根据进入前状态提前判定为学习或休息。
 ```
 
-### 5.3 休息 / 娱乐网站
+### 5.3 非学习非综合站点（受限娱乐 / 未归类）
 
 行为：
 
 ```text
-访问休息或娱乐网站 → 进入或保持休息模式，但需要根据当前模式决定是否确认。
+访问受限娱乐网站或未归类网站时，是否进入休息、是否可借用、是否可申请综合，均由模式/配额路由规则决定。
+具体行为以 `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` 为准。
 ```
 
 ### 5.4 Hard Blocked / unsafe 网站
@@ -299,17 +304,19 @@ V0 采用以下规则：
 | 当前模式 | 访问网站类型 | 目标模式 | V0 行为 | 提示强度 | 时间归属 |
 |---|---|---|---|---|---|
 | 学习 | 学习网站 | 学习 | 直接放行 | 无 / 极轻 | studySeconds |
-| 学习 | 综合网站 | 综合 | 页面确认 | 中 | compositeSeconds |
-| 学习 | 休息网站 | 休息 | 滑动确认 | 高 | restSeconds |
+| 学习 | 综合网站 | 综合 | 自动切换 + 45s 轻提示（单行半透 Banner） | 低 | compositeSeconds |
+| 学习 | 受限娱乐 / 未归类 | 休息（或综合申请分支） | Reminder（滑动确认 + 条件分支） | 高 | restSeconds / compositeSeconds |
 | 学习 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
 | 综合 | 学习网站 | 学习 | 自动回归（90s 前台活跃门控） | 极轻 / 无 | studySeconds |
 | 综合 | 综合网站 | 综合 | 继续使用 | 无 / 轻 | compositeSeconds |
-| 综合 | 休息网站 | 休息 | 普通确认 | 中 | restSeconds |
+| 综合 | 受限娱乐 / 未归类 | 休息（或综合申请分支） | Reminder（滑动确认 + 条件分支） | 中 | restSeconds / compositeSeconds |
 | 综合 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
 | 休息 | 学习网站 | 学习 | 自动回归（90s 前台活跃门控） | 极轻 / 无 | studySeconds |
 | 休息 | 综合网站 | 综合 | 自动切换（60s 前台稳定停留门控） + 轻提示 | 低 | compositeSeconds |
-| 休息 | 休息网站 | 休息 | 继续使用 | 无 / 轻 | restSeconds |
+| 休息 | 受限娱乐 / 未归类 | 休息（具体见路由矩阵） | 继续使用或 Reminder | 无 / 轻 / 中 | restSeconds |
 | 休息 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
+
+> 说明：上表仅保留 UX 级别摘要。精确路由（mode × siteType × quota × temporaryComposite）以 `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` 为准。
 
 ---
 
@@ -330,9 +337,8 @@ V0 自动切换增加稳定门控，避免模式抖动：
 
 显式确认切换不受此门控影响，仍即时生效：
 
-1. `Study -> Composite`（确认后）；
-2. `Study -> Rest`（滑动确认后）；
-3. `Composite -> Rest`（确认后）。
+1. `Study -> Rest`（滑动确认后）；
+2. `Composite -> Rest`（确认后）。
 
 ## 7. 提示强度分级
 
@@ -354,7 +360,8 @@ V0 自动切换增加稳定门控，避免模式抖动：
 
 - 休息 → 综合；
 - 综合 → 学习；
-- 休息 → 学习。
+- 休息 → 学习；
+- 学习 → 综合（自动切换后 45s 轻提示）。
 
 形式：
 
@@ -378,6 +385,11 @@ V0 自动切换增加稳定门控，避免模式抖动：
 2. Rest → Composite（success）：
 ```text
 已进入综合时间 · 今日剩余 {remainingCompositeTime}
+```
+
+2b. Study → Composite（auto notice, 45s）：
+```text
+你正在打开综合网站 · 即将离开学习时间进入综合时间 · 今日剩余 {remainingCompositeTime}
 ```
 
 3. Rest → Study（pending）：
@@ -410,7 +422,6 @@ Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
 
 用于：
 
-- 学习 → 综合；
 - 综合 → 休息。
 
 形式：
@@ -453,7 +464,7 @@ Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
 
 ## 8. 各场景 UX 规格
 
-### 8.1 学习 → 综合
+### 8.1 学习 → 综合（V0 正常路径）
 
 触发：
 
@@ -464,63 +475,37 @@ Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
 行为：
 
 ```text
-显示普通确认页。
-用户确认后进入综合模式。
+自动进入综合模式。
 时间计入 compositeSeconds。
+显示单行半透轻提示（45 秒）。
 ```
 
-页面标题：
+轻提示文案（固定）：
 
 ```text
-你正在打开综合网站
+你正在打开综合网站 · 即将离开学习时间进入综合时间 · 今日剩余 {remainingCompositeTime}
 ```
 
-正文：
+要求：
 
 ```text
-继续后将进入综合时间，本段不会计入学习时间。
+不显示倒计时。
+不要求用户确认。
+不显示阻断式提醒页。
+不依赖 popup。
 ```
 
-配额：
+视觉：
 
 ```text
-今日综合时间剩余：{remainingCompositeTime}
-```
-
-按钮：
-
-```text
-[继续（进入综合时间）] [返回学习]
-```
-
-页面视觉（V0 对齐规则）：
-
-```text
-学习→综合 与 综合→休息 使用与 Study→Rest 同一视觉语言：
-- 顶部左侧 TimeOnChrome 品牌
-- 居中的图标块
-- 统一标题/正文层级
-- 单条干净信息条（不使用分裂 chip + 空 warning box）
-- 底部双按钮并排（左主右次）
-```
-
-学习→综合信息条：
-
-```text
-今日综合时间剩余：{remainingCompositeTime}
-```
-
-学习→综合按钮（固定）：
-
-```text
-左：继续（进入综合时间）
-右：返回学习
+单行、半透、紧凑 Banner。
+45 秒后自动消失；若域名/标签页/模式变化、监控关闭或页面卸载则提前清理。
 ```
 
 禁止：
 
 ```text
-不得使用滑动确认。
+不得使用 to_composite_confirm 作为正常 V0 路径（仅可保留为遗留/兜底路由）。
 不得把综合时间计入学习时间。
 不得把综合网站临时加入 studyList。
 ```
@@ -562,6 +547,70 @@ Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
 不要求用户点击。
 不打断浏览。
 但必须让用户看见当前时间归属已经变化。
+```
+
+### 8.2b 学习 → 未归类网站（同日申请综合时间）
+
+触发：
+
+```text
+学习模式下访问未归类网站（非学习、非综合、非受限娱乐、非 hardBlocked/unsafe）
+```
+
+行为：
+
+```text
+同页提供两条路径（均为滑动确认）：
+1) 进入休息时间（默认路径）；
+2) 申请使用今天的综合时间（可选路径）。
+综合时间申请成功后，仅允许“当前本地日期”继续按综合时间访问该域名。
+该授权不会永久修改网站分类，也不会计入学习时间。
+```
+
+页面标题：
+
+```text
+你正在打开未归类网站
+```
+
+默认路径正文（进入休息时间）：
+
+```text
+继续后，这段时间会计入「休息时间」，不会计入「学习时间」。
+```
+
+信息条：
+
+```text
+今日休息时间剩余：{remainingRestTime}
+```
+
+默认路径滑动文案：
+
+```text
+拖动到右侧确认进入休息时间
+松手确认进入休息时间
+```
+
+申请路径正文：
+
+```text
+如果你认为这个网站是为了学习用途使用，可以申请使用今天的综合时间继续访问。
+本次申请不会计入学习时间，也不会永久修改网站分类。
+系统未来可能会根据实际用途进一步自动判定。
+```
+
+申请路径滑动文案：
+
+```text
+拖动到右侧申请使用综合时间
+松手确认使用综合时间
+```
+
+成功文案：
+
+```text
+已允许今天使用综合时间访问 · 今日剩余 {remainingCompositeTime}
 ```
 
 ### 8.3 综合 → 学习
@@ -636,27 +685,29 @@ Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
 触发：
 
 ```text
-综合模式下访问休息 / 娱乐网站
+综合模式下访问受限娱乐网站或未归类网站
 ```
 
 行为：
 
 ```text
-显示普通确认页。
-用户确认后进入休息模式。
-时间计入 restSeconds。
+页面级双路径（滑动确认）：
+1) 进入休息时间（默认路径）；
+2) 仅在“未归类网站”场景显示“申请使用综合时间”路径。
+受限娱乐网站场景不提供综合时间申请路径。
 ```
 
-页面标题：
+页面标题（按站点类型）：
 
 ```text
-你正在进入休息时间
+受限娱乐网站：你正在打开受限娱乐网站
+未归类网站：你正在打开未归类网站
 ```
 
-正文：
+默认路径正文：
 
 ```text
-继续后将进入休息时间，并消耗休息配额。
+继续后，这段时间会计入「休息时间」，不会计入「综合时间」。
 ```
 
 配额：
@@ -665,33 +716,52 @@ Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
 今日休息时间剩余：{remainingRestTime}
 ```
 
-按钮：
-
-```text
-[开始休息] [返回]
-```
-
 综合→休息信息条：
 
 ```text
 今日休息时间剩余：{remainingRestTime}
 ```
 
-综合→休息按钮（固定）：
+进入休息滑动文案：
 
 ```text
-左：开始休息
-右：返回
+拖动到右侧确认进入休息时间
+松手确认进入休息时间
 ```
 
-V0 不要求滑动确认。
+未归类网站补充说明（放在第一个滑轨下）：
+
+```text
+如果你认为这个网站是为了学习用途使用，可以申请使用今天的综合时间继续访问。
+本次申请不会计入学习时间，也不会永久修改网站分类。
+系统未来可能会根据实际用途进一步自动判定。
+```
+
+未归类网站申请滑轨文案：
+
+```text
+拖动到右侧申请使用综合时间
+松手确认使用综合时间
+```
+
+受限娱乐网站补充说明：
+
+```text
+该网站不能申请使用综合时间。
+```
+
+次级操作：
+
+```text
+返回
+```
 
 ### 8.6 学习 → 休息
 
 触发：
 
 ```text
-学习模式下访问休息 / 娱乐网站
+学习模式下访问受限娱乐网站或未归类网站
 ```
 
 行为：
@@ -705,14 +775,13 @@ V0 不要求滑动确认。
 页面标题：
 
 ```text
-你正在离开学习时间
+你正在打开受限娱乐网站
 ```
 
 正文：
 
 ```text
-继续后，当前网站会作为休息使用处理。
-这段时间会计入「休息时间」，不会计入「学习时间」。
+继续后，这段时间会计入「休息时间」，不会计入「学习时间」。
 ```
 
 配额：
@@ -1102,79 +1171,66 @@ chip 化小按钮
 触发：
 
 ```text
-访问综合网站，但今日综合时间已用完
+综合时间入口/继续路径触发时，今日综合时间已用完：
+- Study → Composite
+- Rest → Composite
+- Composite → Composite
+- 同日临时综合放行域名继续使用
 ```
 
-页面标题：
+统一规则：
 
 ```text
-今日综合时间已用完
+综合时间与休息时间是独立配额池。
+综合时间耗尽时：
+- 不允许继续使用综合时间
+- 不自动占用休息时间
+- 不提供“借用综合时间”
+- 仅在用户显式确认后才可切到休息时间继续访问
 ```
 
+Case A（综合耗尽、休息仍可用）页面：
+
+```text
+标题：今日综合时间已用完
 正文：
-
-```text
-这个网站属于综合网站。
-今天的综合时间额度已经用完。
-```
-
+综合时间不会自动占用休息时间。
+如果仍要继续访问，可以进入休息时间继续。
 操作：
-
-```text
-[返回学习]
-[转入休息时间继续]
+[进入休息继续]
+[返回]
 ```
 
-产品规则：
+Case B（综合耗尽且休息也耗尽）页面：
 
 ```text
-允许转入休息时间继续使用综合网站，但必须明确告知接下来将计入休息时间。
+标题：今日综合时间和休息时间均已用完
+正文：当前不能继续访问。请返回。
+操作：
+[返回]
 ```
 
-转入休息提示：
+交互约束：
 
 ```text
-继续后，这段时间会计入「休息时间」，不会计入「综合时间」。
-```
-
-如果休息时间也已用完：
-
-```text
-只显示 [返回学习]
+“进入休息继续”必须是显式确认动作后才切换到休息模式。
+“返回”不得切换模式、不得消耗任何配额。
 ```
 
 ### 12.2 休息时间耗尽
 
-触发：
+路由规则（以矩阵为准）：
 
 ```text
-访问休息 / 娱乐网站，但今日休息时间已用完
+休息配额耗尽时的具体页面、借用入口、综合申请入口，以 docs/MODE_QUOTA_ROUTING_MATRIX_V0.md 为准。
 ```
 
-页面标题：
+简要摘要（仅用于 UX 语义一致性）：
 
 ```text
-今日休息时间已用完
-```
-
-正文：
-
-```text
-这个网站属于休息使用。
-请回到学习网站，或明天再继续使用休息时间。
-```
-
-操作：
-
-```text
-[返回学习]
-```
-
-禁止：
-
-```text
-不得显示继续使用按钮。
-除非后续引入家长授权或借用机制。
+Unclassified 可申请综合时间并可借用休息时间；
+Restricted Entertainment 只能借用休息时间；
+HardBlocked/Unsafe 不允许借用或申请。
 ```
 
 ---
@@ -1316,10 +1372,10 @@ V0 可以写：
 ### 16.1 行为验收
 
 1. 学习模式访问学习网站：直接进入 / 保持学习模式；
-2. 学习模式访问综合网站：出现确认页；
-3. 学习模式确认综合网站后：进入综合模式，计入综合时间；
+2. 学习模式访问综合网站：自动进入综合模式并显示轻提示（45 秒）；
+3. 学习模式访问综合网站：不弹阻断确认页；
 4. 休息模式访问综合网站：自动进入综合模式并显示轻提示；
-5. 学习模式访问休息网站：必须滑动确认；
+5. 学习模式访问受限娱乐网站：必须滑动确认；
 6. 单击不能完成学习 → 休息切换；
 7. 完成滑动后进入休息模式，计入休息时间；
 8. 综合模式访问学习网站：自动回到学习模式；
@@ -1330,11 +1386,11 @@ V0 可以写：
 
 ### 16.2 UI 验收
 
-1. 学习 → 综合页面说明：
-   - 网站是综合网站；
-   - 时间计入综合；
-   - 不计入学习；
-   - 显示综合剩余时间。
+1. 学习 → 综合轻提示说明：
+   - 单行半透 Banner；
+   - 文案为“你正在打开综合网站 · 即将离开学习时间进入综合时间 · 今日剩余 {remainingCompositeTime}”；
+   - 不含倒计时；
+   - 时间计入综合，不计入学习。
 
 2. 休息 → 综合轻提示说明：
    - 已进入综合时间；
@@ -1423,318 +1479,7 @@ V0 的模式切换 UX 遵循以下原则：
 
 ---
 
-## Appendix A. 建议同步写入 `DECISIONS.md` 的条目
 
-```md
-## D-XXX: V0 introduces low-friction three-mode transition UX
+## Historical Note
 
-Decision:
-TimeOnChrome V0 will include a minimal three-mode transition UX for Study, Composite, and Rest modes.
-
-This is not the full V1 AI/content-classification system. It is a V0 UX and attribution layer to make mode changes visible, understandable, and low-friction for first-time student use.
-
-Rules:
-- Study site usage enters or remains Study mode.
-- Composite site usage enters or remains Composite mode.
-- Rest / entertainment site usage enters or remains Rest mode, unless blocked.
-- Study → Composite uses a normal confirmation page.
-- Rest → Composite is automatic with lightweight notice.
-- Study → Rest requires deliberate slide-to-confirm and cannot be completed by a single click.
-- Composite → Study and Rest → Study can happen automatically.
-- Badge displays current mode.
-- Popup displays current mode, current site, and remaining Composite/Rest quota.
-
-Rationale:
-A mode is defined by runtime attribution, quota consumption, and access behavior, not by whether the user manually clicks a mode button. The UX should minimize friction while making every quota-affecting transition visible.
-
-Out of scope:
-- AI content classification.
-- Composite second-level classification.
-- Path-level routing.
-- Complex gesture unlock.
-- Import/export schema changes.
-```
-
----
-
-## Appendix B. Codex Task 1: Add specification and design docs
-
-```md
-Task: Add V0 three-mode transition UX specification
-
-Read first:
-- PROJECT_MASTER.md
-- TASK_BOARD.md
-- DECISIONS.md
-- AGENTS.md
-- SITE_ACCESS_POLICY.md
-- site-access-config.example.json
-- Existing UI/spec/design docs if present
-
-Goal:
-Update the project specification and UI design documents to define the V0 low-friction mode transition UX for Study / Composite / Rest modes.
-
-This is a documentation/specification task only. Do not implement runtime behavior yet.
-
-Scope:
-- Add a new document `MODE_TRANSITION_UX_V0.md`, or update the existing functional specification/design document if the repo already has a better canonical location.
-- Add a concise decision entry to `DECISIONS.md`.
-- If `PROJECT_MASTER.md` or `TASK_BOARD.md` tracks V0 scope, update it to show this as a V0 UX/spec task, not a full V1 AI classification task.
-- Cross-reference `SITE_ACCESS_POLICY.md` where relevant.
-- Define UI behavior for:
-  - Study → Composite
-  - Rest → Composite
-  - Study → Rest
-  - Composite → Study
-  - Rest → Study
-  - Composite → Rest
-  - hardBlocked behavior
-- Define Badge and Popup display requirements.
-- Define quota display requirements.
-- Define non-goals.
-
-Out of scope:
-- No product code changes.
-- No runtime mode implementation.
-- No CSS/HTML/JS changes.
-- No config schema changes.
-- No import/export format changes.
-- No AI classification.
-- No composite second-level classification.
-- No path-level routing.
-- No Reddit path/subreddit detection.
-- No complex Z-shaped or pattern gesture.
-- No removal or simplification of existing UI features.
-
-Acceptance criteria:
-1. The docs define Study / Composite / Rest as V0-visible product modes tied to attribution and quotas.
-2. The docs define that composite site usage enters Composite mode and consumes Composite time.
-3. The docs define Study → Composite as a normal confirmation page.
-4. The docs define Rest → Composite as automatic transition with lightweight notice.
-5. The docs define Study → Rest as deliberate slide-to-confirm, not single-click.
-6. The docs define that V0 uses simple horizontal slide-to-align, not Z-shaped or pattern gestures.
-7. The docs define Badge current-mode display: Study / Composite / Rest / Paused.
-8. The docs define Popup display: current mode, current domain, current session duration, remaining Composite quota, remaining Rest quota.
-9. The docs define quota display rules for transition pages.
-10. The docs define hardBlocked sites as separate block flow, not mode switching.
-11. The docs explicitly list V0 non-goals:
-    - AI classification
-    - composite second-level classification
-    - path-level routing
-    - import/export schema change
-    - complex gesture unlock
-12. The docs preserve `SITE_ACCESS_POLICY.md` boundaries:
-    - compositeList remains narrow
-    - ordinary entertainment / portal / social / games do not become composite by default
-    - Bilibili remains not study, not composite, not unsafe unless separately changed by Product Owner
-
-Required tests:
-- No automated product tests required because this is docs-only.
-- If the repo has markdown lint or docs lint, run the relevant check.
-- Do not run unrelated product tests unless repo policy requires it.
-
-Deliver:
-1. Changed files.
-2. Exact sections added or edited.
-3. Summary of decisions documented.
-4. Confirmation that no product code, config schema, import/export format, runtime behavior, or UI implementation was changed.
-5. Any open Product Owner questions found while updating the docs.
-```
-
----
-
-## Appendix C. Codex Task 2: Assess implementation impact
-
-```md
-Task: Assess implementation impact for V0 mode transition UX
-
-Read first:
-- PROJECT_MASTER.md
-- TASK_BOARD.md
-- DECISIONS.md
-- AGENTS.md
-- SITE_ACCESS_POLICY.md
-- MODE_TRANSITION_UX_V0.md
-- Existing popup / blocked / remind / routing / stats / quota files
-
-Goal:
-Analyze how to implement the V0 low-friction mode transition UX with minimal risk.
-
-This is an assessment task only. Do not modify code.
-
-Scope:
-- Identify current files involved in:
-  - site classification
-  - mode decision
-  - blocked/remind pages
-  - quota checks
-  - stats attribution
-  - badge update
-  - popup display
-  - tests
-- Propose the smallest implementation sequence.
-- Identify whether current architecture already supports `composite` as a runtime mode or whether a minimal state extension is needed.
-- Identify regression risks.
-- Identify required tests.
-
-Out of scope:
-- No code changes.
-- No UI implementation.
-- No schema changes.
-- No refactor.
-- No changes to site lists.
-- No AI classification.
-- No path-level routing.
-
-Acceptance criteria:
-1. Produce an implementation impact map by file/module.
-2. Identify the minimum runtime state changes needed for Study / Composite / Rest.
-3. Identify how Study → Composite confirmation should be routed.
-4. Identify how Rest → Composite lightweight notice can be shown with minimal intrusion.
-5. Identify how Study → Rest slide confirmation can be added without affecting other transitions.
-6. Identify how Badge current mode should be updated.
-7. Identify how Popup should read/display current mode and remaining quota.
-8. Identify how existing tests should be extended.
-9. Identify any blockers or unclear current behavior.
-10. Clearly separate:
-    - product decisions already made
-    - implementation choices
-    - open questions
-
-Required tests:
-- No tests required because this is assessment-only.
-- Do not run full test suite unless needed to understand the repo.
-
-Deliver:
-1. A concise implementation plan.
-2. File/module impact map.
-3. Proposed task breakdown.
-4. Test plan.
-5. Risk list.
-6. Open questions.
-7. Confirmation that no files were modified.
-```
-
----
-
-## Appendix D. Codex Task 3: Implement functionality and UI
-
-```md
-Task: Implement V0 low-friction mode transition UX
-
-Read first:
-- PROJECT_MASTER.md
-- TASK_BOARD.md
-- DECISIONS.md
-- AGENTS.md
-- SITE_ACCESS_POLICY.md
-- MODE_TRANSITION_UX_V0.md
-- Implementation impact assessment from previous task
-
-Goal:
-Implement the V0 low-friction mode transition UX for Study / Composite / Rest modes.
-
-Scope:
-- Runtime transition behavior:
-  - Study + study site → Study
-  - Study + composite site → Composite after confirmation
-  - Rest + composite site → Composite automatically with lightweight notice
-  - Study + rest/entertainment site → Rest only after slide-to-confirm
-  - Composite + study site → Study automatically
-  - Rest + study site → Study automatically
-  - Composite + rest/entertainment site → Rest after normal confirmation
-  - hardBlocked → block flow, no mode transition
-- UI:
-  - Study → Composite confirmation page
-  - Rest → Composite lightweight notice
-  - Study → Rest slide-to-confirm page
-  - Composite → Rest normal confirmation page if needed
-  - Badge current mode display
-  - Popup current mode and quota display
-- Tests:
-  - transition decision tests
-  - key E2E/manual flows
-
-Out of scope:
-- No AI classification.
-- No composite second-level classification.
-- No path-level routing.
-- No Reddit subreddit detection.
-- No YouTube video classification.
-- No complex gesture unlock.
-- No import/export schema changes.
-- No unrelated UI redesign.
-- No removal/hiding of existing UI sections.
-- No broad refactor.
-- No changes to default site list unless explicitly required by existing docs.
-
-Acceptance criteria:
-1. Study mode + study site remains Study and counts Study time.
-2. Study mode + composite site shows confirmation before entering Composite.
-3. Confirming Study → Composite enters Composite and counts Composite time.
-4. Study → Composite page states:
-   - this is a composite site
-   - time counts as Composite
-   - time does not count as Study
-   - remaining Composite quota
-5. Rest mode + composite site automatically enters Composite and shows lightweight notice.
-6. Rest → Composite notice states time counts as Composite and shows remaining Composite quota.
-7. Study mode + rest/entertainment site requires slide-to-confirm before entering Rest.
-8. Study → Rest cannot be completed by a single click.
-9. Study → Rest page states:
-   - user is leaving Study time
-   - time counts as Rest
-   - time does not count as Study
-   - remaining Rest quota
-10. The slide control is simple horizontal slide-to-align, not Z-shaped or pattern gesture.
-11. If Rest quota is exhausted, Study → Rest slide confirmation is unavailable.
-12. Composite mode + study site automatically returns to Study.
-13. Rest mode + study site automatically returns to Study.
-14. hardBlocked sites remain blocked and do not participate in mode switching.
-15. Badge shows current mode:
-   - Study
-   - Composite
-   - Rest
-   - Paused/Monitoring off if applicable
-16. Popup shows:
-   - current mode
-   - current domain
-   - current session duration if available
-   - remaining Composite quota
-   - remaining Rest quota
-17. Existing monitoring-off behavior remains respected.
-18. Existing audio/background media attribution is not broken.
-19. Existing site access policy boundaries remain intact.
-
-Required tests:
-- Unit tests for transition decision logic.
-- Tests for quota checks where available.
-- E2E/manual verification for:
-  1. Study → Composite confirmation path.
-  2. Rest → Composite automatic + notice path.
-  3. Study → Rest slide confirmation path.
-  4. Study → Rest single click does not transition.
-  5. Study → Rest return action does not transition.
-  6. Composite → Study automatic path.
-  7. Rest → Study automatic path.
-  8. hardBlocked regression.
-  9. Badge mode display.
-  10. Popup current mode and remaining quota display.
-- Run existing relevant unit tests.
-- Run existing key E2E tests if the environment supports them.
-- If any test cannot run due to environment, report exact reason and do not claim pass.
-
-Deliver:
-1. Changed files.
-2. Behavior summary.
-3. UI summary.
-4. Screenshots or text-based UI verification where possible.
-5. Tests run and exact results.
-6. Tests not run and exact reasons.
-7. Risks / rollback notes.
-8. Confirmation that:
-   - no import/export schema changed
-   - no unrelated UI sections were removed
-   - no AI/path-level classification was added
-   - no compositeList expansion was made
-```
+Historical implementation task drafts have been removed. Current routing behavior is defined in `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md`; this document defines UX structure and interaction style.

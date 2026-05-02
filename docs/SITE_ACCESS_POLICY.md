@@ -980,7 +980,7 @@ blockedSites
 文件名：
 
 ```text
-site-access-config.example.json
+docs/site-access-config.example.json
 ```
 
 内容：

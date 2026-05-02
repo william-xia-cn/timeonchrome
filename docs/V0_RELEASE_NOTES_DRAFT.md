@@ -8,7 +8,7 @@ Decision basis: Product Owner accepted risk closeout
 
 - Reminder transition UI closeout completed and manually accepted:
   - Study -> Rest slide confirm page
-  - Study -> Composite normal confirmation page
+  - Study -> Composite automatic switch + 45s lightweight notice
   - Composite -> Rest normal confirmation page
 - Pending transition feedback completed and manually accepted:
   - Rest -> Composite
@@ -49,6 +49,12 @@ Decision basis: Product Owner accepted risk closeout
    - `tests/e2e/timing-trace-verify.test.js`
 3. Revisit Admin CSP root cause only if functional impact emerges.
 4. Improve release automation/CI evidence chain.
+5. Rest borrow rule refinement（V0 accepted mechanism, V1 optimization）:
+   - borrow amount policy
+   - next-day deduction/repayment explainability
+   - daily/weekly borrow limit policy
+   - parent-configurable borrow switch
+   - clearer failure feedback and audit trail
 
 ## 6. Not-yet-done release operations (required before handoff completion)
 

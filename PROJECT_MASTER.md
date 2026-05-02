@@ -53,7 +53,7 @@
 ## Product Owner 手动验收状态（V0 UX）
 - **Reminder UI：已通过**
   - Study→Rest 滑动确认页通过
-  - Study→Composite 普通确认页通过
+  - Study→Composite 自动切换 + 45s 轻提示通过
   - Composite→Rest 普通确认页通过
 - **Pending mode-transition feedback：已通过**
   - Rest→Composite、Rest→Study、Composite→Study 的 pending/success 提示通过
@@ -73,6 +73,8 @@
 - `admin/admin.html?view=stats` 仍存在未定位来源的 CSP 控制台告警（`Executing inline event handler violates Content Security Policy`）；当前记录为已知 admin 页面告警，尚未确认对核心 runtime/mode/popup/content-script 造成故障；不得标记为 fixed，需继续按 admin 功能项做人工验证（stats/rules/devices/nav/login/logout/save/sync）
 - D-015 申诉/审核语义待 Product Owner 终审 (Pending PO)
 - 旧 profiles 清理为 optional / P2
+- Reminder 双滑轨页面（`study_mode` / `to_rest_confirm` 的未归类路径）说明文案在部分窗口下存在右偏/遮挡视觉问题：记录为 V1 UI 优化项（固定结构布局重排），当前不作为 V0 阻塞
+- Rest 借用机制当前按 V0 accepted mechanism 运行（上下文 Reminder 显式触发、与综合申请分离、不经 popup）；借用额度策略、次日扣减算法呈现、失败反馈与审计可见性等列为 V1 优化项
 - macOS smoke validation **未通过 / 未执行完成**：按 Product Owner 风险接受，V0 暂缓到 V1 跟进
 - Playwright E2E alternate-environment evidence **未完成**：当前 Windows 本地受 `spawn EPERM` 环境阻塞，按 Product Owner 风险接受，V0 暂缓到 V1 跟进
 
