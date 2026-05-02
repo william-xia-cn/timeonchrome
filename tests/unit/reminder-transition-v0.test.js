@@ -24,6 +24,7 @@ function run() {
   expectTrue('has to_composite_confirm config', source.includes('to_composite_confirm'));
   expectTrue('has to_rest_confirm config', source.includes('to_rest_confirm'));
   expectTrue('has to_rest_slide_confirm config', source.includes('to_rest_slide_confirm'));
+  expectTrue('reads originMode for return semantics', source.includes("const originMode = params.get('originMode') || '';"));
 
   expectTrue('slide confirm action exists', source.includes('slideToRest'));
   expectTrue('slide flow binds draggable confirm', source.includes('bindSlideConfirm'));
@@ -48,6 +49,8 @@ function run() {
   expectTrue('slide thumb exists in reminder html', html.includes('id="slideThumb"'));
   expectTrue('study->rest subtitle copy updated', source.includes('继续后，这段时间会计入「休息时间」，不会计入「学习时间」。'));
   expectTrue('study->rest uses 返回学习 text', source.includes("label: '返回学习'"));
+  expectTrue('rest/composite/quota use 返回 text', source.includes("label: '返回', style: 'outline'"));
+  expectTrue('to_rest_slide_confirm chooses back action by originMode', source.includes("actions: [originMode === 'study' ? 'backToStudy' : 'backGeneric']"));
   expectTrue('study->rest back action tries close tab first', source.includes('window.close();'));
   expectTrue('study->rest back action falls back to chrome.tabs.remove', source.includes('chrome.tabs.remove(tab.id)'));
   expectTrue('study->rest shows rest quota line', source.includes('今日休息时间剩余：${remainingRest}'));

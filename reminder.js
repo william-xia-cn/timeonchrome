@@ -20,6 +20,7 @@
   // 解析 URL 参数
   const params = new URLSearchParams(location.search);
   const reason = params.get('reason') || 'unsafe';
+  const originMode = params.get('originMode') || '';
   let domain = params.get('domain') || '';
   const msg = params.get('msg') || '';
   diag('load', {
@@ -311,6 +312,12 @@
 
   // 设置页面内容
   var config = configs[effectiveReason] || configs.unsafe;
+  if (effectiveReason === 'to_rest_slide_confirm') {
+    config = {
+      ...config,
+      actions: [originMode === 'study' ? 'backToStudy' : 'backGeneric'],
+    };
+  }
 
   if (mainIcon) mainIcon.textContent = config.icon;
   if (mainTitle) mainTitle.textContent = config.title;

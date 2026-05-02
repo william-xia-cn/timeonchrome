@@ -274,6 +274,7 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p)) || isTemporaryCompositeDomain;
   const restrictedList = config.restrictedEntertainmentList || [];
   const isRestricted = restrictedList.some(p => matchDomain(domain, p));
+  const qs = config.quotaState || {};
 
   // 1. 不安全网站检查（唯一的硬拦截）
   const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
@@ -339,11 +340,15 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
       return true;
     }
     if (isRestricted) {
-      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage);
+      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage, {
+        originMode: 'study',
+      });
       return true;
     }
     if (!isStudyDomain && !isCompositeDomain) {
-      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage);
+      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage, {
+        originMode: 'study',
+      });
       return true;
     }
   }
@@ -356,7 +361,6 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   }
 
   // 4. 配额锁定检查
-  const qs = config.quotaState || {};
   if (qs.onlineLocked) {
     await redirectToReminder(tabId, domain, 'quota_online', config.blockMessage);
     return true;
@@ -381,9 +385,19 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   return false;
 }
 
-export async function redirectToReminder(tabId, domain, reason, message) {
-  const reminderUrl = chrome.runtime.getURL('reminder.html') +
-    `?reason=${reason}&domain=${encodeURIComponent(domain)}&msg=${encodeURIComponent(message || '')}`;
+export async function redirectToReminder(tabId, domain, reason, message, extraParams = null) {
+  const queryParts = [
+    `reason=${encodeURIComponent(reason || '')}`,
+    `domain=${encodeURIComponent(domain || '')}`,
+    `msg=${encodeURIComponent(message || '')}`,
+  ];
+  if (extraParams && typeof extraParams === 'object') {
+    for (const [k, v] of Object.entries(extraParams)) {
+      if (v === undefined || v === null || v === '') continue;
+      queryParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    }
+  }
+  const reminderUrl = `${chrome.runtime.getURL('reminder.html')}?${queryParts.join('&')}`;
   console.log('[redirectToReminder]', reason, domain);
   chrome.tabs.update(tabId, { url: reminderUrl }).catch(() => {});
 }

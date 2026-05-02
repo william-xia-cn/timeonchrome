@@ -174,6 +174,7 @@ async function run() {
     const blocked = await checkAndRemind(1, 'https://news.example.com', 1);
     expect('should block', blocked, true);
     expectTrue('reason', redirectedUrls[0].includes('reason=to_rest_slide_confirm'));
+    expectTrue('originMode=study', redirectedUrls[0].includes('originMode=study'));
   }
 
   section('IMT-4 Composite + rest/unclassified => to_rest_confirm');
