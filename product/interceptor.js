@@ -294,7 +294,15 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   const currentMode = await getEffectiveRuntimeMode(config, monitoringEnabled);
   let pendingAutoCandidate = null;
   const isForeground = options?.foreground === true;
+
+  // MF-4: Rest → Composite quota exhausted — block immediately, do not start gate
   if (currentMode === 'rest' && isCompositeDomain && isForeground) {
+    const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
+    if (remainingCompositeSeconds <= 0) {
+      const exhaustedReason = qs.restLocked ? 'quota_composite_and_rest' : 'quota_composite';
+      await redirectToReminder(tabId, domain, exhaustedReason, config.blockMessage);
+      return true;
+    }
     pendingAutoCandidate = { rule: 'rest_to_composite', fromMode: 'rest', toMode: 'composite', domain, config };
   } else if (currentMode === 'rest' && isStudyDomain && isForeground) {
     pendingAutoCandidate = { rule: 'rest_to_study', fromMode: 'rest', toMode: 'study', domain, config };
@@ -355,26 +363,61 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
         }, noticeText);
         return false;
       }
-      await redirectToReminder(tabId, domain, 'to_composite_confirm', config.blockMessage);
+      // Composite exhausted → dedicated Composite exhausted page
+      const exhaustedReason = qs.restLocked ? 'quota_composite_and_rest' : 'quota_composite';
+      await redirectToReminder(tabId, domain, exhaustedReason, config.blockMessage);
       return true;
     }
-    if (!isStudyDomain && !isCompositeDomain && isRestricted) {
-      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage, {
-        originMode: 'study',
-      });
-      return true;
-    }
+    // Study→Unclassified: use study_mode reason (dual-path: rest + composite apply)
     if (!isStudyDomain && !isCompositeDomain) {
-      await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage, {
+      // Restricted domains use slide confirm; other unclassified use study_mode
+      if (isRestricted) {
+        await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage, {
+          originMode: 'study',
+          restLocked: qs.restLocked ? '1' : null,
+        });
+        return true;
+      }
+      await redirectToReminder(tabId, domain, 'study_mode', config.blockMessage, {
         originMode: 'study',
+        restLocked: qs.restLocked ? '1' : null,
       });
       return true;
     }
   }
 
   if (currentMode === 'composite') {
+    if (isCompositeDomain && !isStudyDomain) {
+      // Check composite quota exhaustion
+      const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
+      if (remainingCompositeSeconds <= 0) {
+        const exhaustedReason = qs.restLocked ? 'quota_composite_and_rest' : 'quota_composite';
+        await redirectToReminder(tabId, domain, exhaustedReason, config.blockMessage);
+        return true;
+      }
+      return false;
+    }
     if (!isStudyDomain && !isCompositeDomain) {
-      await redirectToReminder(tabId, domain, 'to_rest_confirm', config.blockMessage);
+      await redirectToReminder(tabId, domain, 'to_rest_confirm', config.blockMessage, {
+        restLocked: qs.restLocked ? '1' : null,
+      });
+      return true;
+    }
+  }
+
+  if (currentMode === 'rest') {
+    // Rest mode + Unclassified/Restricted: check Rest exhaustion for borrow semantics
+    if (!isStudyDomain && !isCompositeDomain && qs.restLocked) {
+      if (isRestricted) {
+        await redirectToReminder(tabId, domain, 'to_rest_slide_confirm', config.blockMessage, {
+          restLocked: '1',
+        });
+        return true;
+      }
+      // Unclassified + Rest exhausted: preserve Composite application + borrow
+      await redirectToReminder(tabId, domain, 'study_mode', config.blockMessage, {
+        restLocked: '1',
+      });
       return true;
     }
   }

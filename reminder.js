@@ -141,6 +141,16 @@
       subtitle: '这是受限娱乐网站，学习模式下不可访问',
       actions: ['switchToRest', 'back']
     },
+    quota_composite: {
+      icon: '⏱', title: '今日综合时间已用完',
+      subtitle: '综合时间不会自动占用休息时间。如果仍要继续访问，可以进入休息时间继续。',
+      actions: ['enterRestContinue', 'backGeneric']
+    },
+    quota_composite_and_rest: {
+      icon: '⏱', title: '今日综合时间和休息时间均已用完',
+      subtitle: '当前不能继续访问。请返回。',
+      actions: ['backGeneric']
+    },
     quota_rest: {
       icon: '⏰', title: '今天的休息时间用完啦',
       subtitle: '放松过了，切换到学习模式继续加油！',
@@ -175,6 +185,17 @@
 
   // 操作按钮定义
   const actionDefs = {
+    enterRestContinue: {
+      label: '进入休息继续', style: 'primary',
+      handler: function() {
+        chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function() {
+          showStatus('已进入休息时间，正在跳转…', 'success');
+          if (domain && domain !== 'all') {
+            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+          }
+        });
+      }
+    },
     addComposite: {
       label: '📝 临时加入综合网站', style: 'primary',
       handler: function() {
@@ -317,6 +338,41 @@
       ...config,
       actions: [originMode === 'study' ? 'backToStudy' : 'backGeneric'],
     };
+  }
+
+  // Quota-aware rendering for Rest exhausted variants
+  var restExhaustedOverride = null;
+  var restLockedFromUrl = params.get('restLocked') === '1';
+  if (restLockedFromUrl && (effectiveReason === 'study_mode' || effectiveReason === 'to_rest_slide_confirm' || effectiveReason === 'to_rest_confirm')) {
+    var override = null;
+    if (effectiveReason === 'study_mode') {
+      // Unclassified + Rest exhausted: keep Composite application + add borrow
+      override = {
+        icon: config.icon,
+        title: config.title,
+        subtitle: config.subtitle + '\n\n今天的休息时间已用完。继续休息使用需要向明天借用休息时间。',
+        actions: ['addComposite', 'borrowTime', 'backToStudy']
+      };
+    } else if (effectiveReason === 'to_rest_slide_confirm') {
+      // Restricted + Rest exhausted: borrow + restricted warning, no Composite apply
+      override = {
+        icon: config.icon,
+        title: '你正在打开受限娱乐网站',
+        subtitle: '该网站不能申请使用综合时间。\n\n今天的休息时间已用完。如果仍要继续访问，可以向明天借用休息时间。',
+        actions: ['borrowTime', 'backToStudy']
+      };
+    } else if (effectiveReason === 'to_rest_confirm') {
+      // Composite-origin + Rest exhausted: borrow + return
+      override = {
+        icon: config.icon,
+        title: config.title,
+        subtitle: config.subtitle + '\n\n今天的休息时间已用完。如果仍要继续访问，可以向明天借用休息时间。',
+        actions: ['borrowTime', 'backGeneric']
+      };
+    }
+    if (override) {
+      config = override;
+    }
   }
 
   if (mainIcon) mainIcon.textContent = config.icon;

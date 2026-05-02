@@ -211,7 +211,7 @@ async function run() {
     expectTrue('pending CANCEL on interrupt', sent.some((m) => m.type === 'AUTO_MODE_PENDING_CANCEL' && m.reason === 'candidate_changed'));
   }
 
-  section('IMT-3 Study + rest/unclassified => to_rest_slide_confirm');
+  section('IMT-3 Study + rest/unclassified => study_mode');
   {
     const redirectedUrls = [];
     const { checkAndRemind } = loadCheckAndRemind({
@@ -227,7 +227,7 @@ async function run() {
     });
     const blocked = await checkAndRemind(1, 'https://news.example.com', 1);
     expect('should block', blocked, true);
-    expectTrue('reason', redirectedUrls[0].includes('reason=to_rest_slide_confirm'));
+    expectTrue('reason', redirectedUrls[0].includes('reason=study_mode'));
     expectTrue('originMode=study', redirectedUrls[0].includes('originMode=study'));
   }
 
@@ -354,7 +354,7 @@ async function run() {
 
     const parentShouldBlock = await checkAndRemind(24, 'https://deepseek.com', 1);
     expect('exact subdomain config should not match parent domain', parentShouldBlock, true);
-    expectTrue('parent domain reminder reason', redirects.some((u) => u.includes('reason=to_rest_slide_confirm') && u.includes('domain=deepseek.com')));
+    expectTrue('parent domain reminder reason', redirects.some((u) => u.includes('reason=study_mode') && u.includes('domain=deepseek.com')));
   }
 
   section('IMT-4 Composite + rest/unclassified => to_rest_confirm');
