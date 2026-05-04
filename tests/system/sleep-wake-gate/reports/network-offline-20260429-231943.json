@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "scenario": "network-offline",
+    "timestamp": "2026-04-29T15:19:43.908Z",
+    "extensionVersion": "1.7.2",
+    "commit": null
+  },
+  "browser": {
+    "loaded": true,
+    "extensionId": "hoelbdpoglmallgflolmommghdfjbdgn",
+    "serviceWorkerUrl": "chrome-extension://hoelbdpoglmallgflolmommghdfjbdgn/background.js"
+  },
+  "bindingPreflight": {
+    "bound": true,
+    "deviceTokenPresent": true,
+    "profileIdPresent": true,
+    "configAvailable": true,
+    "monitoringEnabled": false,
+    "mode": "study",
+    "isInitialized": false,
+    "blockers": [],
+    "action": "bound profile is available"
+  },
+  "preflight": {
+    "platform": "win32",
+    "windowsRequired": true,
+    "mode": "manual-network-toggle",
+    "adminRequired": false,
+    "hasAdminRights": false,
+    "allowNetworkToggle": false,
+    "manualNetworkToggle": true,
+    "networkAdapterName": null,
+    "networkProbeUrl": "https://guardian-api.william-xia-cn.workers.dev",
+    "networkOfflineTimeoutSeconds": 180,
+    "networkOnlineTimeoutSeconds": 180,
+    "userDataDir": "D:\\Opencode\\ChromeExtension\\timeonchrome\\tests\\test-results\\sleep-wake-gate\\bound-profile",
+    "blockers": []
+  },
+  "procedure": [
+    "启动 Chrome 扩展上下文并读取绑定状态。",
+    "确认执行模式：手动网络切换或管理员适配器流程。",
+    "手动网络切换模式由操作者断开/恢复网络，runner 只通过探测观察 offline/online，不修改 adapter。",
+    "管理员适配器模式只有显式提供 --allowNetworkToggle 与 --networkAdapterName=<name> 时，才允许进入适配器流程。",
+    "网络断开/恢复期间必须保持测试控制通道可恢复，并在恢复后读取 event-log/session/trace。"
+  ],
+  "validation": {
+    "networkToggled": true,
+    "mode": "manual-network-toggle",
+    "initialOnline": true,
+    "offlineObserved": true,
+    "onlineRestored": true,
+    "eventLogReadable": true,
+    "sessionReadable": true,
+    "traceReadable": true,
+    "recoveryStateReadable": true,
+    "initialProbe": {
+      "online": true,
+      "probeUrl": "https://guardian-api.william-xia-cn.workers.dev",
+      "status": 200,
+      "elapsedMs": 1004,
+      "error": null
+    },
+    "offlineProbe": {
+      "online": false,
+      "probeUrl": "https://guardian-api.william-xia-cn.workers.dev",
+      "status": null,
+      "elapsedMs": 5016,
+      "error": "This operation was aborted"
+    },
+    "offlineObservationCount": 8,
+    "onlineProbe": {
+      "online": true,
+      "probeUrl": "https://guardian-api.william-xia-cn.workers.dev",
+      "status": 200,
+      "elapsedMs": 1252,
+      "error": null
+    },
+    "onlineObservationCount": 3,
+    "eventLogCountBefore": 122,
+    "eventLogCountAfter": 123
+  },
+  "result": "PASS"
+}

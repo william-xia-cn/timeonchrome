@@ -5,8 +5,9 @@ import { buildContext } from './core/context.js';
 import { resolveState } from './core/state.js';
 import { initSession, transitionState, heartbeat, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
-import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange } from './infra/storage.js';
-import { updateDeclarativeRules, checkAndRemind } from './product/interceptor.js';
+import { getCappedElapsedMs } from './runtime/time-boundary.js';
+import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
+import { updateDeclarativeRules, checkAndRemind, getAutoModePendingStatus, cancelAutoModePendingForTab, cancelAllAutoModePending, reSendPendingNotice } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
 import { initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
 import { handleMessage } from './message-router.js';
@@ -17,6 +18,7 @@ import { computeAllDomains } from './core/aggregate.js';
 
 let currentContext = null;
 let badgeUpdateQueue = Promise.resolve();
+let lastActiveTabId = null;
 
 // ── SW 启动引导（幂等，覆盖 MV3 隐式重启场景）────────────────────────────────────
 
@@ -55,15 +57,32 @@ chrome.runtime.onStartup.addListener(async () => {
 // ── 安装/更新 ──────────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  await ensureBootstrapped('onInstalled');
-  await updateDeclarativeRules();
-
+  // 1. 安装路径：优先执行绑定流程，不受 bootstrap 失败影响
   if (details.reason === 'install') {
     const config = { ...DEFAULT_CONFIG };
-    await saveConfig(config);
-    await chrome.storage.local.set({ [SESSION_KEY]: { currentMode: 'study', lastActiveDate: null, studySession: { totalSeconds: 0 }, restSession: { totalSeconds: 0 } } });
-    chrome.tabs.create({ url: chrome.runtime.getURL('bind.html?welcome=1') });
-  } else if (details.reason === 'update') {
+    try {
+      await saveConfig(config);
+      await chrome.storage.local.set({ [SESSION_KEY]: { currentMode: 'study', lastActiveDate: null, studySession: { totalSeconds: 0 }, restSession: { totalSeconds: 0 } } });
+    } catch (err) {
+      console.error('[onInstalled] Failed to save initial config:', err);
+    }
+    try {
+      await chrome.tabs.create({ url: chrome.runtime.getURL('bind.html?welcome=1') });
+    } catch (err) {
+      console.error('[onInstalled] Failed to open bind page:', err);
+    }
+  }
+
+  // 2. Bootstrap + 规则更新：失败不阻断安装流程
+  try {
+    await ensureBootstrapped('onInstalled');
+    await updateDeclarativeRules();
+  } catch (err) {
+    console.error('[onInstalled] Bootstrap/rules failed:', err);
+  }
+
+  // 3. 更新路径：配置迁移（仅 update）
+  if (details.reason === 'update') {
     const stored = await new Promise(resolve => {
       chrome.storage.local.get(['guardian_config', 'guardian_hash'], resolve);
     });
@@ -99,7 +118,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
   }
 
-  await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
+  // 4. 云同步初始化
+  try {
+    await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
+  } catch (err) {
+    console.error('[onInstalled] initCloudSync failed:', err);
+  }
 });
 
 // ── 信号接入 → 上下文 → 状态 → 事件日志 ────────────────────────────────────────
@@ -187,6 +211,27 @@ function formatBadgeDuration(seconds) {
   return `${s}s`;
 }
 
+function normalizeMode(mode) {
+  if (mode === 'whitelist') return 'study';
+  if (mode === 'blacklist') return 'rest';
+  if (mode === 'study' || mode === 'composite' || mode === 'rest' || mode === 'paused') return mode;
+  return 'study';
+}
+
+function modeToBadgeText(mode) {
+  if (mode === 'paused') return '停';
+  if (mode === 'composite') return '综';
+  if (mode === 'rest') return '休';
+  return '学';
+}
+
+function modeToLabel(mode) {
+  if (mode === 'paused') return '暂停';
+  if (mode === 'composite') return '综合';
+  if (mode === 'rest') return '休息';
+  return '学习';
+}
+
 async function getCurrentActiveDomain() {
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const tab = tabs && tabs[0];
@@ -198,10 +243,40 @@ async function updateCurrentTabBadge() {
   if (!chrome.action?.setBadgeText) return;
 
   try {
-    const { domain } = await getCurrentActiveDomain();
+    const monitoringEnabled = getSyncState().monitoringEnabled;
+    const rawSession = await chrome.storage.local.get(SESSION_KEY);
+    const runtimeMode = monitoringEnabled === 0
+      ? 'paused'
+      : normalizeMode(rawSession?.[SESSION_KEY]?.currentMode || 'study');
+
+    const { tab, domain } = await getCurrentActiveDomain();
+    const pending = tab?.id ? getAutoModePendingStatus(tab.id, Date.now()) : null;
+    const pendingBadgeText = pending
+      ? (pending.fromMode === 'composite' ? '综…' : '休…')
+      : null;
+    const modeText = pendingBadgeText || modeToBadgeText(runtimeMode);
+    await chrome.action.setBadgeText({ text: modeText });
+    await chrome.action.setBadgeBackgroundColor({ color: '#00b894' });
+
     if (!domain) {
-      await chrome.action.setBadgeText({ text: '' });
-      await chrome.action.setTitle({ title: 'TimeOnChrome' });
+      await chrome.action.setTitle({ title: `TimeOnChrome\n模式 ${modeToLabel(runtimeMode)}` });
+      return;
+    }
+
+    if (pending) {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: 'AUTO_MODE_PENDING_START',
+        domain: pending.domain,
+        deadlineAt: pending.deadlineAt,
+        targetMode: pending.targetMode,
+        fromMode: pending.fromMode,
+        remainingCompositeSeconds: pending.remainingCompositeSeconds,
+        remainingCompositeTime: pending.remainingCompositeTime,
+      }).catch(() => {});
+      const pendingTitle = pending.targetMode === 'composite'
+        ? `TimeOnChrome\n休息中 · 正在使用综合网站 · ${pending.remainingSeconds}秒后进入综合时间`
+        : `TimeOnChrome\n${pending.fromMode === 'composite' ? '综合中' : '休息中'} · 正在使用学习网站 · ${pending.remainingSeconds}秒后进入学习时间`;
+      await chrome.action.setTitle({ title: pendingTitle });
       return;
     }
 
@@ -211,14 +286,12 @@ async function updateCurrentTabBadge() {
     let seconds = stats[domain] || 0;
 
     if (session?.state === 'ACTIVE' && session.domain === domain && session.startTime) {
-      seconds += Math.max(0, Math.floor((Date.now() - session.startTime) / 1000));
+      seconds += Math.max(0, Math.floor(getCappedElapsedMs(session, Date.now()) / 1000));
     }
 
     const text = formatBadgeDuration(seconds);
-    await chrome.action.setBadgeBackgroundColor({ color: '#00b894' });
-    await chrome.action.setBadgeText({ text });
     await chrome.action.setTitle({
-      title: `TimeOnChrome\n${domain}\n今日 ${text}`,
+      title: `TimeOnChrome\n模式 ${modeToLabel(runtimeMode)}\n${domain}\n今日 ${text}`,
     });
   } catch (err) {
     await chrome.action.setBadgeText({ text: '' }).catch(() => {});
@@ -235,6 +308,19 @@ function scheduleCurrentTabBadgeUpdate() {
 const badgeTimer = setInterval(scheduleCurrentTabBadgeUpdate, 1000);
 badgeTimer?.unref?.();
 scheduleCurrentTabBadgeUpdate();
+
+async function periodicReevaluateActiveTab() {
+  if (!isMonitoringEnabled()) return;
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tab = tabs && tabs[0];
+  if (!tab?.id) return;
+  await reevaluateTabById(tab.id);
+}
+
+const restCompositeGateTickTimer = setInterval(() => {
+  periodicReevaluateActiveTab().catch(() => {});
+}, 1000);
+restCompositeGateTickTimer?.unref?.();
 
 async function processDebugControlledTimingSignal(rawEvent = {}) {
   const { _debugNow, ...event } = rawEvent;
@@ -262,15 +348,37 @@ initFocusLedger(extractDomain);
 chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   const { url, tabId } = details;
-  await checkAndRemind(tabId, url, getSyncState().monitoringEnabled);
+  await checkAndRemind(tabId, url, getSyncState().monitoringEnabled, { foreground: false });
 });
 
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  if (Number.isInteger(lastActiveTabId) && lastActiveTabId !== activeInfo.tabId) {
+    await cancelAutoModePendingForTab(lastActiveTabId, 'tab_switched');
+  }
+  lastActiveTabId = activeInfo.tabId;
   await reevaluateTabById(activeInfo.tabId);
 });
 
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  await clearTemporaryCompositeDomainByTab(tabId);
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!Object.prototype.hasOwnProperty.call(changeInfo, 'url')) return;
+  const domain = extractDomain(changeInfo.url || tab?.url || '');
+  await clearTemporaryCompositeDomainByTabDomainMismatch(tabId, domain);
+});
+
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    if (Number.isInteger(lastActiveTabId)) {
+      await cancelAutoModePendingForTab(lastActiveTabId, 'window_blurred');
+    } else {
+      await cancelAllAutoModePending('window_blurred');
+    }
+    return;
+  }
   await reevaluateFocusedWindowActiveTab(windowId);
 });
 
@@ -290,19 +398,14 @@ async function reevaluateTabById(tabId) {
   }
   if (!tab?.url) return;
 
-  let targetUrl = tab.url;
+  // Avoid periodic self-redirect loops while user is interacting with reminder UI.
   if (tab.url.includes('reminder.html')) {
-    try {
-      const u = new URL(tab.url);
-      const domain = u.searchParams.get('domain');
-      if (!domain || domain === 'all') return;
-      targetUrl = `https://${domain}`;
-    } catch {
-      return;
-    }
+    return;
   }
 
-  const blocked = await checkAndRemind(tabId, targetUrl, getSyncState().monitoringEnabled);
+  let targetUrl = tab.url;
+
+  const blocked = await checkAndRemind(tabId, targetUrl, getSyncState().monitoringEnabled, { foreground: true });
   if (!blocked && targetUrl !== tab.url) {
     await chrome.tabs.update(tabId, { url: targetUrl }).catch(() => {});
   }
@@ -313,6 +416,7 @@ async function reevaluateFocusedWindowActiveTab(windowId) {
   const tabs = await chrome.tabs.query({ active: true, windowId });
   const tab = tabs && tabs[0];
   if (!tab?.id) return;
+  lastActiveTabId = tab.id;
   await reevaluateTabById(tab.id);
 }
 
@@ -508,6 +612,20 @@ globalThis.debugClearTimingTrace = async () => {
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Content script ready: re-send any pending auto-mode notice for this tab.
+  // This handles the case where the background sent AUTO_MODE_PENDING_SUCCESS
+  // before the content script's listener was registered (e.g., after page reload).
+  if (msg.type === 'CONTENT_SCRIPT_READY') {
+    const tabId = sender?.tab?.id;
+    if (Number.isInteger(tabId) && tabId > 0) {
+      (async () => {
+        await reSendPendingNotice(tabId);
+      })();
+    }
+    sendResponse({ ok: true });
+    return true;
+  }
+
   // Debug/test-only message handlers (do not affect business logic)
   if (msg.type === 'DEBUG_EXPORT_CALIBRATION') {
     (async () => {

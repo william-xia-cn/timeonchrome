@@ -40,15 +40,16 @@ async function run() {
   expectEqual('idn -> punycode', normalizeHostname('BÜCHER.DE'), 'xn--bcher-kva.de');
   expectEqual('invalid input returns null', normalizeHostname(''), null);
 
-  section('M1 matchDomain: v1.2 frozen rules');
+  section('M1 matchDomain: V0 parent-domain covers subdomains');
   expectEqual('exact match', matchDomain('example.com', 'example.com'), true);
-  expectEqual('parent should not cover child by default', matchDomain('a.example.com', 'example.com'), false);
+  expectEqual('parent covers child subdomain', matchDomain('a.example.com', 'example.com'), true);
   expectEqual('wildcard matches subdomain', matchDomain('a.example.com', '*.example.com'), true);
   expectEqual('wildcard does not include bare domain', matchDomain('example.com', '*.example.com'), false);
   expectEqual('www symmetric alias (www -> bare)', matchDomain('www.example.com', 'example.com'), true);
   expectEqual('www symmetric alias (bare -> www)', matchDomain('example.com', 'www.example.com'), true);
-  expectEqual('non-www prefix is not alias', matchDomain('xwww.example.com', 'example.com'), false);
-  expectEqual('boundary safety', matchDomain('notexample.com', 'example.com'), false);
+  expectEqual('non-www prefix subdomain is also covered by parent', matchDomain('xwww.example.com', 'example.com'), true);
+  expectEqual('boundary safety (suffix false positive)', matchDomain('notexample.com', 'example.com'), false);
+  expectEqual('boundary safety (evil subdomain)', matchDomain('example.com.evil.com', 'example.com'), false);
 
   section('C1 layering contract: www alias belongs to match layer, not normalization');
   expectEqual(

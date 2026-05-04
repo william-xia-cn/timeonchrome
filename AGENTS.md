@@ -130,6 +130,7 @@
 | `tests/unit/workers-logic.test.js` | 单元测试 | 34 | Worker 逻辑，无依赖 |
 | `tests/api/workers.test.js` | 集成测试 | 52 | 需要网络，调用真实 API |
 | `tests/e2e/extension.test.js` | E2E 测试 | 9 | 需要浏览器，UI 测试 |
+| `tests/e2e/reminder-v0-validation.test.js` | 浏览器门 | 11 | Reminder V0 模式切换验证；`reminder.js` 变更必须运行 |
 
 ---
 
@@ -311,6 +312,8 @@ timeonchrome/
 | `docs/SITE_ACCESS_POLICY.md` | 网站访问策略主文档：五类网站模型、系统配置/自定义/当前家庭/导入导出/effective 清单边界 | 涉及网站分类、允许/阻止列表、站点配置、导入导出、运行时站点规则的任务 |
 | `docs/DESIGN.md` | 工程设计细节、数据结构、配置 schema、API 路由、前后端架构说明 | 涉及配置/数据/API/架构变更的任务 |
 | `docs/UI_STYLE_MAP.md` | 家长/管理面板 UI 布局、UI 文案、视觉分组、页面结构、界面约定 | 涉及 UI 变更的任务 |
+| `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` | V0 模式/配额路由矩阵：reason、allowed/forbidden actions、quota behavior | 涉及模式切换、提醒页路由、配额耗尽行为的任务 |
+| `docs/MODE_TRANSITION_UX_V0.md` | V0 模式切换 UX：视觉布局、文案展示、滑动/按钮交互风格 | 涉及提醒页视觉/交互实现的任务 |
 | `docs/site-access-config.example.json` | 用户可见的网站访问导入/导出示例格式 | 涉及导入导出示例的任务；禁止将其作为系统默认值或生产 seed data |
 
 ### 9.2 权威层级（Authority Precedence）
@@ -324,19 +327,24 @@ timeonchrome/
    - `docs/SITE_ACCESS_POLICY.md` — 控制产品规则。
    - `docs/DESIGN.md` — 控制技术结构。
    - `docs/UI_STYLE_MAP.md` — 控制 UI 表现。
-5. `AGENTS.md` — 控制 Agent 执行纪律和 Preflight/Build/Audit 规则。
+5. 模式/路由/UX 相关：
+   - `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` — 路由、reason、allowed/forbidden actions、quota behavior 的权威来源。
+   - `docs/MODE_TRANSITION_UX_V0.md` — 仅控制视觉布局、文案展示、滑动/按钮交互风格。必须引用矩阵 Case ID，不得独立重定义 allowed actions。冲突时以矩阵文档为准。
+6. `AGENTS.md` — 控制 Agent 执行纪律和 Preflight/Build/Audit 规则。
 
 ### 9.3 执行规则
 
 1. **产品/站点分类规则**必须与 `docs/SITE_ACCESS_POLICY.md` 核对。
 2. **配置/数据结构变更**必须与 `docs/DESIGN.md` 核对。
 3. **UI 布局/文案变更**必须与 `docs/UI_STYLE_MAP.md` 核对。
-4. **持久的产品或架构决策**必须记录到 `DECISIONS.md`。
-5. **活跃任务状态**应在适当时反映到 `TASK_BOARD.md`。
-6. **运行时 / GitHub / 部署状态**禁止凭记忆推断，必须基于实际命令输出、工具输出或用户提供的证据。
-7. **禁止创建新文档文件**——如果现有权威文档已覆盖该主题，除非获得明确批准。
-8. **禁止将示例 JSON 文件视为生产默认值或初始化数据**。
-9. **禁止混为一谈**——以下五类数据不可互换：
+4. **模式/路由/提醒页行为**必须与 `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` 核对。
+5. **提醒页视觉/交互实现**必须与 `docs/MODE_TRANSITION_UX_V0.md` 核对，且 UX 文档不得独立重定义路由/actions。
+6. **持久的产品或架构决策**必须记录到 `DECISIONS.md`。
+7. **活跃任务状态**应在适当时反映到 `TASK_BOARD.md`。
+8. **运行时 / GitHub / 部署状态**禁止凭记忆推断，必须基于实际命令输出、工具输出或用户提供的证据。
+9. **禁止创建新文档文件**——如果现有权威文档已覆盖该主题，除非获得明确批准。
+10. **禁止将示例 JSON 文件视为生产默认值或初始化数据**。
+11. **禁止混为一谈**——以下五类数据不可互换：
    - 系统配置网站列表（system-configured site lists）
    - 用户/自定义网站列表（user/custom site lists）
    - 当前家庭初始化数据（current-family initialization data）
@@ -353,3 +361,45 @@ timeonchrome/
 - music time 进入 V0
 - composite routing 延后到 V1
 - monitoring closeout 部分完成，继续按小包推进
+
+---
+
+## 10. Quota Budget Rule（配额节流规则）
+
+为节省 Codex 配额，默认采用最小工作模式；除非用户明确批准，不得主动扩展范围。
+
+### 10.1 Scope Control
+- 只做任务请求中明确要求的工作。
+- 不修复无关问题，不顺手改进，不做隐式重构。
+- 需要重构时必须先获得明确指令。
+- 发现无关问题时只记录为后续事项，不在当前任务中修改。
+
+### 10.2 File-Reading Budget
+- 仅读取 `Read first` 列出的文件与直接必要文件。
+- 默认禁止全仓扫描。
+- 若必须读取额外文件，先用一句话说明原因。
+
+### 10.3 Test Budget
+- 默认不跑广泛回归，不跑全量测试套件。
+- 未明确批准前不跑 Playwright E2E。
+- 未明确批准前不跑破坏性系统闸门测试。
+- 仅运行与改动文件直接相关的最小测试集合。
+- 若需要更大测试范围，先停止并给出“精确命令 + 原因”，等待批准。
+
+### 10.4 Execution Budget
+- 优先一次性最小补丁，避免多轮重复试错。
+- 同一失败命令最多尝试两次；两次失败后停止并报告阻塞。
+- 非必要不申请沙箱提权；仅在任务无法完成且确有必要时申请。
+
+### 10.5 Output Budget
+- 最终报告保持简短，仅包含：
+- changed files
+- summary
+- commands run
+- test result
+- commit hash if committed
+- remaining blockers
+- git status --short
+
+### 10.6 Stop Conditions
+- 出现以下任一情况必须停止并报告：任务需要扩大范围、涉及产品语义变更、需要破坏性测试、需要凭据、需要处理 Git 锁/权限问题、或需要重构。

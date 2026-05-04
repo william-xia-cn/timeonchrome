@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "scenario": "lock-unlock",
+    "timestamp": "2026-04-29T14:39:43.328Z",
+    "extensionVersion": "1.7.2",
+    "commit": null
+  },
+  "mockServer": {
+    "started": true,
+    "url": "http://127.0.0.1:55479",
+    "closed": false
+  },
+  "browser": {
+    "loaded": true,
+    "extensionId": "hoelbdpoglmallgflolmommghdfjbdgn",
+    "serviceWorkerUrl": "chrome-extension://hoelbdpoglmallgflolmommghdfjbdgn/background.js",
+    "siteUrl": "http://127.0.0.1:55479"
+  },
+  "bindingPreflight": {
+    "bound": true,
+    "deviceTokenPresent": true,
+    "profileIdPresent": true,
+    "configAvailable": true,
+    "monitoringEnabled": false,
+    "mode": "study",
+    "isInitialized": false,
+    "blockers": [],
+    "action": "bound profile is available"
+  },
+  "preflight": {
+    "platform": "win32",
+    "windowsRequired": true,
+    "allowWorkstationLock": true,
+    "userDataDir": "D:\\Opencode\\ChromeExtension\\timeonchrome\\tests\\test-results\\sleep-wake-gate\\bound-profile",
+    "manualUnlockRequired": true,
+    "blockers": []
+  },
+  "procedure": [
+    "启动 Chrome 扩展上下文并读取绑定状态。",
+    "打开本地 mock 页面并产生锁屏前事件。",
+    "若显式提供 --allowWorkstationLock，则调用 Windows LockWorkStation。",
+    "操作者手动解锁后，runner 执行 wake-after activity 并读取 event-log/session/stats。"
+  ],
+  "phases": {
+    "preLock": {
+      "durationSec": 10,
+      "session": {
+        "domain": "127.0.0.1",
+        "lastHeartbeat": 1777473531906,
+        "startTime": 1777473531906,
+        "state": "IDLE"
+      },
+      "eventLogCount": 87,
+      "traceCount": 416
+    },
+    "locked": {
+      "manualUnlockRequired": true,
+      "waitSec": 30
+    },
+    "postUnlock": {
+      "durationSec": 10,
+      "session": {
+        "domain": "127.0.0.1",
+        "lastHeartbeat": 1777473573316,
+        "startTime": 1777473573316,
+        "state": "ACTIVE"
+      },
+      "eventLogCount": 99,
+      "traceCount": 467,
+      "stats": {
+        "127.0.0.1": 33,
+        "audioSeconds": 0,
+        "backgroundMediaByDomain": {},
+        "pipSeconds": 0,
+        "pipByDomain": {}
+      }
+    }
+  },
+  "validation": {
+    "lockTriggered": true,
+    "chromeReachable": true,
+    "eventLogReadable": true,
+    "postUnlockActivityWorks": true,
+    "traceReadable": true
+  },
+  "result": "PASS"
+}

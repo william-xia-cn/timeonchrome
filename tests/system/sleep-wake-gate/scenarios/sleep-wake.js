@@ -28,35 +28,91 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function writeBlockedPreflightReport({
+  outputDir,
+  mockServerUrl,
+  extensionId,
+  sw,
+  bindingPreflight,
+  allowSystemSleep,
+  error,
+}) {
+  const reportData = {
+    meta: {
+      scenario: 'sleep-wake',
+      timestamp: new Date().toISOString(),
+      extensionVersion: '1.7.2',
+      commit: process.env.GIT_COMMIT || null,
+    },
+    mockServer: {
+      started: !!mockServerUrl,
+      url: mockServerUrl || null,
+      closed: false,
+    },
+    browser: {
+      loaded: !!sw,
+      extensionId: extensionId || null,
+      serviceWorkerUrl: sw?.url() || null,
+      siteUrl: mockServerUrl || null,
+    },
+    bindingPreflight,
+    preflight: {
+      allowSystemSleep,
+      blockers: [error],
+      action: bindingPreflight?.action || 'prepare a bound profile and pass --user-data-dir to the gate runner',
+    },
+    validation: {
+      sleepTriggered: false,
+      chromeReachable: false,
+      eventLogReadable: false,
+      wakeAfterActivityWorks: false,
+    },
+    result: 'BLOCKED',
+  };
+  const jsonPath = writeJsonReport(reportData, outputDir);
+  const mdPath = writeMarkdownReport(reportData, outputDir);
+  return { success: false, blocked: true, jsonPath, mdPath, summary: reportData };
+}
+
 /**
- * 检查系统是否支持 S3 睡眠
- * @returns {Promise<{ supported: boolean, reason: string }>}
+ * 检查系统是否支持可执行的 Windows 睡眠模型。
+ * S3 与 S0 Modern Standby 都可用于真实 sleep/wake gate。
+ * @returns {Promise<{ supported: boolean, model: string, reason: string }>}
  */
 function checkSleepSupport() {
   return new Promise(resolve => {
     const { exec } = require('child_process');
     exec('powercfg /a', (error, stdout) => {
       if (error) {
-        resolve({ supported: false, reason: '无法执行 powercfg /a' });
+        resolve({ supported: false, model: 'unknown', reason: '无法执行 powercfg /a' });
         return;
       }
       const output = stdout || '';
+      const s0Available = output.includes('S0') ||
+        output.includes('低电量待机') ||
+        output.includes('Modern Standby');
+
+      if (s0Available) {
+        resolve({ supported: true, model: 'S0 Modern Standby', reason: '系统支持 S0 Modern Standby' });
+        return;
+      }
+
       // 检查 S3 是否可用
       const s3Unavailable = output.includes('S3') && (
         output.includes('不可用') || output.includes('��֧��') || output.includes('not available')
       );
       const standbyUnavailable = output.includes(' standby ') && output.includes('not available');
       if (s3Unavailable || standbyUnavailable) {
-        resolve({ supported: false, reason: '系统硬件/固件不支持 S3 睡眠（可能为虚拟机或 Modern Standby 设备）' });
+        resolve({ supported: false, model: 'unsupported', reason: '系统硬件/固件不支持可用的 Windows 睡眠状态' });
       } else {
-        resolve({ supported: true, reason: '' });
+        resolve({ supported: true, model: 'S3 Standby', reason: '系统支持 S3 Standby' });
       }
     });
   });
 }
 
 /**
- * 触发 Windows 睡眠（S3 Standby，非 Hibernate）
+ * 触发 Windows 睡眠（S3 Standby 或 S0 Modern Standby，非 Hibernate）
  */
 function triggerWindowsSleep() {
   return new Promise(resolve => {
@@ -152,10 +208,18 @@ async function runSleepWake({
     log('[sleep-wake] 绑定状态:', JSON.stringify(bindingPreflight));
 
     if (!bindingPreflight.bound) {
-      throw new Error(
+      const error =
         '设备未绑定（缺少 device_token 或 profile_id）。' +
-        'sleep-wake Gate 在未绑定状态下不应执行。'
-      );
+        'sleep-wake Gate 在未绑定状态下不应执行。';
+      return writeBlockedPreflightReport({
+        outputDir,
+        mockServerUrl,
+        extensionId,
+        sw,
+        bindingPreflight,
+        allowSystemSleep,
+        error,
+      });
     }
 
     log('[sleep-wake] 初始化 rest mode...');
@@ -184,9 +248,11 @@ async function runSleepWake({
     log('[sleep-wake] Phase B: 检查系统睡眠支持...');
     const sleepSupport = await checkSleepSupport();
     if (!sleepSupport.supported) {
-      log('[sleep-wake] ⚠️ 系统不支持 S3 睡眠:', sleepSupport.reason);
+      log('[sleep-wake] ⚠️ 系统不支持可用的 Windows 睡眠:', sleepSupport.reason);
       log('[sleep-wake] ⚠️ 当前环境无法执行真实的 OS 睡眠/唤醒测试。');
-      log('[sleep-wake] ⚠️ 请在支持 S3 睡眠的物理机上运行此验收测试。');
+      log('[sleep-wake] ⚠️ 请在支持 S3 Standby 或 S0 Modern Standby 的物理机上运行此验收测试。');
+    } else {
+      log('[sleep-wake] 睡眠模型:', sleepSupport.model);
     }
 
     log('[sleep-wake] ============================================================');
@@ -202,7 +268,7 @@ async function runSleepWake({
       log('[sleep-wake] Phase B: 触发 Windows 睡眠...');
       await triggerWindowsSleep();
     } else {
-      log('[sleep-wake] Phase B: 系统不支持 S3 睡眠，跳过睡眠触发。');
+      log('[sleep-wake] Phase B: 系统不支持可用的 Windows 睡眠，跳过睡眠触发。');
       log('[sleep-wake] Phase B: 等待 5 秒模拟间隔...');
       await sleep(5000);
     }
@@ -339,7 +405,7 @@ async function runSleepWake({
         scenario: 'sleep-wake',
         timestamp: new Date().toISOString(),
         extensionVersion: '1.7.2',
-        commit: 'a4f2e06',
+        commit: process.env.GIT_COMMIT || null,
       },
       mockServer: {
         started: true,
@@ -376,6 +442,7 @@ async function runSleepWake({
       bindingPreflight,
       sleepSupport: {
         supported: sleepSupport.supported,
+        model: sleepSupport.model,
         reason: sleepSupport.reason,
       },
       recovery: {

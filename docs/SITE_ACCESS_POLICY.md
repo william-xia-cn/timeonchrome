@@ -536,16 +536,33 @@ temporaryCompositeSites
 
 ### 10.4 第一版 defaultCompositeList 清单
 
+系统配置综合网站（defaultCompositeSites）：
+
 ```js
 [
   // Search engines
   'google.com',
   'google.com.hk',
   'bing.com',
-  'baidu.com',
-  'duckduckgo.com',
-  'search.brave.com',
 
+  // Software / Vendor Support Sites
+  // 以下域名是 Product Owner 明确决定保留在综合网站中的软件/厂商支持站点。
+  // 这不是一般规则，不以此为由继续添加其他软件/vendor域名。
+  'microsoft.com',
+  'apple.com',
+  'adobe.com',
+
+  // Music / audio
+  'music.youtube.com',
+  'spotify.com',
+  'music.163.com',
+]
+```
+
+用户默认综合网站（defaultUserCompositeSites）：
+
+```js
+[
   // Video
   'youtube.com',
 
@@ -553,31 +570,15 @@ temporaryCompositeSites
   'wikipedia.org',
   'wikimedia.org',
   'britannica.com',
-  'baike.baidu.com',
 
   // Q&A / discussion
-  'stackexchange.com',
   'stackoverflow.com',
+  'stackexchange.com',
   'reddit.com',
-
-  // Music / audio
-  'music.youtube.com',
-  'spotify.com',
-  'music.apple.com',
-  'music.163.com',
-
-  // Software / Vendor Support Sites
-  // 以下域名是 Product Owner 明确决定保留在综合网站中的软件/厂商支持站点。
-  // 这不是一般规则，不以此为由继续添加其他软件/vendor域名。
-  'www.google.com',
-  'support.google.com',
-  'support.microsoft.com',
-  'answers.microsoft.com',
-  'microsoft.com',
-  'apple.com',
-  'adobe.com'
 ]
 ```
+
+> 说明：系统配置综合网站与用户默认综合网站在运行时合并为 effective composite list。用户默认综合网站作为新用户初始配置自动加入，但用户可在家长控制台中移除。系统配置综合网站不可由用户移除。
 
 ### 10.5 第一版暂不加入综合网站
 
@@ -980,7 +981,7 @@ blockedSites
 文件名：
 
 ```text
-site-access-config.example.json
+docs/site-access-config.example.json
 ```
 
 内容：

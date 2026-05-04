@@ -226,14 +226,15 @@ function buildDefaultConfig(): object {
     'schoolsbuddy.cn',
     'afficienta.com',
   ];
+  const customCompositeList = siteAccessDefaults.defaultUserCompositeSites || [];
   return {
     ...buildSchemaDefaults(),
     studyList: mergeWithDefaults(customStudyList, siteAccessDefaults.defaultStudySites),
-    compositeList: mergeWithDefaults([], siteAccessDefaults.defaultCompositeSites),
+    compositeList: mergeWithDefaults(customCompositeList, siteAccessDefaults.defaultCompositeSites),
     restrictedEntertainmentList: siteAccessDefaults.defaultRestrictedEntertainmentSites,
     unsafeList: siteAccessDefaults.defaultBlockedSites,
     customStudyList,
-    customCompositeList: [],
+    customCompositeList,
     customRestrictedEntertainmentList: [],
     customBlockedSites: [],
   };
@@ -347,6 +348,7 @@ export const profilesRouter = {
         version: 1,
         defaultStudySites: siteAccessDefaults.defaultStudySites,
         defaultCompositeSites: siteAccessDefaults.defaultCompositeSites,
+        defaultUserCompositeSites: siteAccessDefaults.defaultUserCompositeSites || [],
         defaultRestrictedEntertainmentSites: siteAccessDefaults.defaultRestrictedEntertainmentSites,
         defaultBlockedSites: siteAccessDefaults.defaultBlockedSites,
       });

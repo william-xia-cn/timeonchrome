@@ -60,6 +60,10 @@ function loadHandleMessage(stubs, chromeOverride = {}) {
       try { return new URL(url).hostname; } catch { return null; }
     },
     matchDomain: (domain, pattern) => domain === pattern || domain.endsWith(`.${pattern}`),
+    clearTemporaryCompositeDomains: async () => {},
+    getTodayStatsWithCategories: async () => ({ studySeconds: 0, restSeconds: 0, undeterminedSeconds: 0 }),
+    getTimingSession: async () => null,
+    getCappedElapsedMs: () => 0,
     ...stubs,
     URL,
     chrome,

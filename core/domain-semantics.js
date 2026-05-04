@@ -22,21 +22,22 @@ export function matchDomain(domain, pattern) {
   const p = normalizeHostname(pattern);
   if (!d || !p) return false;
 
-  // 1) 默认 exact
+  // Exact match.
   if (d === p) return true;
 
-  // 5) www 对称互认仅限 example.com <-> www.example.com
+  // www symmetric alias: example.com <-> www.example.com
   if (d.startsWith('www.') && d.slice(4) === p) return true;
   if (p.startsWith('www.') && p.slice(4) === d) return true;
 
-  // 3) 只有 *.example.com 才匹配子域
-  // 4) *.example.com 不包含裸域 example.com
+  // Wildcard: *.example.com matches subdomains but not bare domain.
   if (p.startsWith('*.')) {
     const base = p.slice(2);
     if (!base || d === base) return false;
     return d.endsWith('.' + base);
   }
 
-  // 2) 不允许默认父域覆盖子域
-  return false;
+  // V0: Parent domain covers subdomains with boundary safety.
+  // example.com => chat.example.com, xwww.example.com
+  // but not notexample.com or example.com.evil.com
+  return d.endsWith('.' + p);
 }

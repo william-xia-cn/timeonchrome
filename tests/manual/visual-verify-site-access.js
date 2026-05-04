@@ -84,7 +84,8 @@ async function run() {
   const mockDefaults = {
     version: 1,
     defaultStudySites: ['drive.google.com', 'docs.google.com', 'sheets.google.com', 'slides.google.com', 'meet.google.com'],
-    defaultCompositeSites: ['google.com', 'www.google.com', 'bing.com', 'baidu.com', 'duckduckgo.com', 'search.brave.com', 'youtube.com', 'wikipedia.org', 'wikimedia.org', 'britannica.com'],
+    defaultCompositeSites: ['google.com', 'google.com.hk', 'bing.com', 'microsoft.com', 'apple.com', 'adobe.com', 'music.youtube.com', 'spotify.com', 'music.163.com'],
+    defaultUserCompositeSites: ['youtube.com', 'wikipedia.org', 'wikimedia.org', 'britannica.com', 'stackoverflow.com', 'stackexchange.com', 'reddit.com'],
     defaultRestrictedEntertainmentSites: ['bilibili.com', 'netflix.com', 'disneyplus.com', 'hulu.com'],
     defaultBlockedSites: ['douyin.com', 'tiktok.com']
   };

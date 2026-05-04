@@ -50,6 +50,7 @@ function loadBorrowRestQuota(stubs) {
     ...stubs,
     Date,
     Math,
+    getTemporaryCompositeDomains: async () => [],
     chrome: {
       notifications: { create() {} },
       tabs: { query: async () => [], update() {} },

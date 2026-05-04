@@ -1,6 +1,6 @@
 // product/quota.js — 配额检查 + 借用逻辑
 
-import { getConfig, saveConfig, getTodayStats, getTodayUndeterminedStats, getStatsRange, matchDomain, extractDomain, isSpecialUrl, getDateKey, formatDate } from '../infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getTodayUndeterminedStats, getStatsRange, getTemporaryCompositeDomains, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl, getDateKey, formatDate } from '../infra/storage.js';
 
 let borrowInProgress = false;
 
@@ -8,17 +8,21 @@ let borrowInProgress = false;
 
 export async function getWeekRestSeconds() {
   const config = await getConfig();
+  const temporaryCompositeDomains = await getTemporaryCompositeDomains();
   const today = new Date();
+  const todayKey = getDateKey();
   const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
 
   // Use event-log based getStatsRange
   const statsRange = await getStatsRange(dayOfWeek + 1);
   const studyList = config.studyList || [];
-  const compositeList = config.compositeList || [];
   let weekRestSeconds = 0;
 
-  for (const [, dayStats] of Object.entries(statsRange)) {
+  for (const [dateKey, dayStats] of Object.entries(statsRange)) {
     let dayTotal = 0, dayStudy = 0, dayUndeterminedSecs = 0;
+    const compositeList = dateKey === todayKey
+      ? [...(config.compositeList || []), ...temporaryCompositeDomains]
+      : (config.compositeList || []);
     for (const [domain, secs] of Object.entries(dayStats)) {
       if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
       dayTotal += secs;
@@ -164,7 +168,8 @@ export async function redirectQuotaViolatingTabs(config, quotaState) {
     const domain = extractDomain(tab.url);
     if (!domain) continue;
     const isStudy = (config.studyList || []).some(p => matchDomain(domain, p));
-    const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p));
+    const isTemporaryComposite = await hasTemporaryCompositePermission(tab.id, domain);
+    const isComposite = (config.compositeList || []).some(p => matchDomain(domain, p)) || isTemporaryComposite;
     if (quotaState.studyLocked && isStudy) {
       chrome.tabs.update(tab.id, { url: chrome.runtime.getURL('reminder.html') + `?reason=quota_study&domain=${encodeURIComponent(domain)}` });
     } else if (quotaState.undeterminedLocked && isComposite && !isStudy) {

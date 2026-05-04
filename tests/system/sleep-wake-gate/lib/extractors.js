@@ -181,6 +181,14 @@ async function extractBindingStatus(sw) {
             monitoringEnabled,
             mode: session?.currentMode || config?.mode || null,
             isInitialized: configAvailable ? !!config.isInitialized : false,
+            blockers: [
+              ...(deviceTokenPresent ? [] : ['missing cloud_device_token']),
+              ...(profileIdPresent ? [] : ['missing cloud_profile_id']),
+              ...(configAvailable ? [] : ['missing guardian_config']),
+            ],
+            action: deviceTokenPresent && profileIdPresent
+              ? 'bound profile is available'
+              : 'run tests/system/sleep-wake-gate/scripts/setup-bound-profile.js with TIMEONCHROME_TEST_EMAIL/TIMEONCHROME_TEST_PASSWORD and --allow-cloud-mutation, then pass --user-data-dir to the gate runner',
           });
         }
       );

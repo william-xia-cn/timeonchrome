@@ -20,12 +20,25 @@ function extractDomain(url) {
 }
 
 function isSpecialUrl(url) {
-  return !url ||
+  if (!url ||
     url.startsWith('chrome://') ||
     url.startsWith('chrome-extension://') ||
     url.startsWith('about:') ||
     url.startsWith('edge://') ||
-    url.startsWith('devtools://');
+    url.startsWith('devtools://')) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' && parsed.hostname === 'www.google.com' && parsed.pathname.startsWith('/_/chrome/newtab')) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
 }
 
 function formatDate(date) {
@@ -467,6 +480,24 @@ section('checkAndRemind: routing decision');
 
 {
   const config = makeConfig();
+  const r = computeRemindReason('about:blank', config, true);
+  check('about:blank → not blocked', !r.blocked, JSON.stringify(r));
+}
+
+{
+  const config = makeConfig();
+  const r = computeRemindReason('https://www.google.com/_/chrome/newtab?foo=1', config, true);
+  check('google newtab provider URL → not blocked', !r.blocked, JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study' });
+  const r = computeRemindReason('https://www.google.com/search?q=test', config, true);
+  check('google search URL is not special and can be blocked in study mode', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
+}
+
+{
+  const config = makeConfig();
   const r = computeRemindReason('chrome-extension://abc/popup.html', config, true);
   check('chrome-extension:// → not blocked', !r.blocked, JSON.stringify(r));
 }
@@ -605,6 +636,35 @@ section('checkAndRemind: routing decision');
   const config = makeConfig({ unsafeList: undefined, blacklist: ['badsite.com'] });
   const r = computeRemindReason('https://badsite.com', config, true);
   check('v1.2-only: unsafeList 缺失时不应回退 blacklist', r.reason !== 'unsafe', JSON.stringify(r));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 3b: V0 parent-domain subdomain matching
+// ═══════════════════════════════════════════════════════════════════════════════
+section('Domain matching: parent covers subdomains');
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['example.com'] });
+  const r = computeRemindReason('https://chat.example.com', config, true);
+  check('parent domain config matches subdomain → not blocked in study mode', !r.blocked, JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['example.com'] });
+  const r = computeRemindReason('https://notexample.com', config, true);
+  check('suffix false-positive (notexample.com) → blocked', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['example.com'] });
+  const r = computeRemindReason('https://example.com.evil.com', config, true);
+  check('boundary false-positive (example.com.evil.com) → blocked', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
+}
+
+{
+  const config = makeConfig({ mode: 'study', studyList: ['chat.example.com'] });
+  const r = computeRemindReason('https://example.com', config, true);
+  check('exact subdomain config does not match parent → blocked', r.blocked && r.reason === 'study_mode', JSON.stringify(r));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

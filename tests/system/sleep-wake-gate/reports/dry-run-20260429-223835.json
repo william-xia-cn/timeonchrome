@@ -1,0 +1,115 @@
+{
+  "meta": {
+    "scenario": "dry-run",
+    "timestamp": "2026-04-29T14:38:35.908Z",
+    "extensionVersion": "1.7.2",
+    "commit": null
+  },
+  "mockServer": {
+    "started": true,
+    "url": "http://127.0.0.1:58982",
+    "closed": false
+  },
+  "browser": {
+    "loaded": true,
+    "extensionId": "hoelbdpoglmallgflolmommghdfjbdgn",
+    "serviceWorkerUrl": "chrome-extension://hoelbdpoglmallgflolmommghdfjbdgn/background.js",
+    "siteUrl": "http://127.0.0.1:58982"
+  },
+  "data": {
+    "eventLog": {
+      "count": 83,
+      "sample": [
+        {
+          "domain": null,
+          "state": "IDLE",
+          "time": 1777455879481,
+          "type": "START"
+        },
+        {
+          "domain": null,
+          "state": "IDLE",
+          "time": 1777455879481,
+          "type": "END"
+        },
+        {
+          "domain": null,
+          "state": "IDLE",
+          "time": 1777455956255,
+          "type": "START"
+        },
+        {
+          "domain": null,
+          "state": "IDLE",
+          "time": 1777455956255,
+          "type": "END"
+        },
+        {
+          "domain": null,
+          "state": "IDLE",
+          "time": 1777456108126,
+          "type": "START"
+        }
+      ]
+    },
+    "session": {
+      "domain": "127.0.0.1",
+      "lastHeartbeat": 1777473513690,
+      "startTime": 1777473513690,
+      "state": "IDLE"
+    },
+    "trace": {
+      "count": 400,
+      "actions": [
+        "signal_received",
+        "snapshot_created",
+        "state_resolved",
+        "transition_begin",
+        "event_appended",
+        "transition_end",
+        "stats_calculated"
+      ]
+    },
+    "stats": {
+      "127.0.0.1": 26,
+      "audioSeconds": 0,
+      "backgroundMediaByDomain": {},
+      "pipSeconds": 0,
+      "pipByDomain": {}
+    },
+    "focusLedger": {
+      "count": 86
+    },
+    "calibration": {
+      "traceCount": 399,
+      "eventLogCount": 83
+    }
+  },
+  "bindingPreflight": {
+    "bound": true,
+    "deviceTokenPresent": true,
+    "profileIdPresent": true,
+    "configAvailable": true,
+    "monitoringEnabled": false,
+    "mode": "study",
+    "isInitialized": false,
+    "blockers": [],
+    "action": "bound profile is available"
+  },
+  "validation": {
+    "eventLogHasEntries": true,
+    "sessionIsDefined": true,
+    "traceHasEntries": true,
+    "statsObjectExists": true,
+    "pipelineCoverage": [
+      "signal_received",
+      "snapshot_created",
+      "state_resolved",
+      "transition_begin",
+      "event_appended",
+      "transition_end",
+      "stats_calculated"
+    ]
+  },
+  "result": "PASS"
+}

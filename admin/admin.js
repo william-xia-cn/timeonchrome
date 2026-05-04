@@ -40,6 +40,11 @@ let accountToken = null;
 let cloudProfiles = [];
 let currentProfileId = null;
 let currentEmail = null;
+let syncFeedbackTimer = null;
+let syncFeedbackState = {
+  phase: 'idle', // idle | loading | success | error
+  message: ''
+};
 
 // ── Child view gate（Soft Gate）────────────────────────────────────────────
 // 当 URL 包含 ?view=stats 时，以只读模式直接进入使用分析，跳过登录/注册/绑定流程
@@ -277,7 +282,7 @@ function showRebindScreen(email) {
       <h1>需要重新绑定</h1>
       <p style="color:var(--muted);margin-bottom:20px;font-size:13px;line-height:1.6;">
         本设备已被解绑，请重新选择要绑定的孩子档案。<br>
-        当前账户：<strong>${email}</strong>
+        当前账户：<strong>${escHtml(email)}</strong>
       </p>
       <div id="rebind-profiles" style="margin-bottom:16px;"></div>
       <div class="error-msg" id="rebind-error" style="display:none;"></div>
@@ -290,23 +295,43 @@ function showRebindScreen(email) {
     return;
   }
 
-  container.innerHTML = cloudProfiles.map(p => `
-    <div onclick="rebindToProfile('${p.id}','${p.name}','${p.avatar_color||'#7c6fff'}')"
+  container.innerHTML = cloudProfiles.map(p => {
+    const profileId = escAttr(p?.id || '');
+    const profileName = escAttr(p?.name || '');
+    const avatarColor = escAttr(normalizeAvatarColor(p?.avatar_color));
+    const profileNameText = escHtml(p?.name || '');
+    const profileInitial = escHtml(String((p?.name || '?')).charAt(0).toUpperCase());
+    return `
+    <div class="rebind-profile-card"
+         data-profile-id="${profileId}"
+         data-profile-name="${profileName}"
+         data-avatar-color="${avatarColor}"
          style="display:flex;align-items:center;gap:12px;padding:14px 16px;
                 border:1px solid var(--border);border-radius:12px;margin-bottom:10px;
-                cursor:pointer;transition:all 0.2s;"
-         onmouseover="this.style.borderColor='var(--accent)'"
-         onmouseout="this.style.borderColor='var(--border)'">
-      <div style="width:38px;height:38px;border-radius:50%;background:${p.avatar_color||'#7c6fff'};
+                cursor:pointer;transition:all 0.2s;">
+      <div style="width:38px;height:38px;border-radius:50%;background:${avatarColor};
                   display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;">
-        ${p.name.charAt(0).toUpperCase()}
+        ${profileInitial}
       </div>
       <div>
-        <div style="font-weight:600;">${p.name}</div>
+        <div style="font-weight:600;">${profileNameText}</div>
         <div style="font-size:12px;color:var(--accent);">点击重新绑定此设备</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
+
+  container.querySelectorAll('.rebind-profile-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      rebindToProfile(card.dataset.profileId, card.dataset.profileName, card.dataset.avatarColor);
+    });
+    card.addEventListener('mouseenter', () => {
+      card.style.borderColor = 'var(--accent)';
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.borderColor = 'var(--border)';
+    });
+  });
 }
 
 /**
@@ -474,14 +499,17 @@ function renderProfilesList() {
     
     // 显示已绑定的孩子信息
     if (boundProfile) {
+      const avatarColor = normalizeAvatarColor(boundProfile.avatar_color);
+      const profileInitial = escHtml(String((boundProfile.name || '?')).charAt(0).toUpperCase());
+      const profileName = escHtml(boundProfile.name || '');
       container.innerHTML = `
         <div style="padding:16px; background:var(--surface); border-radius:12px; border:1px solid var(--accent);">
           <div style="display:flex; align-items:center; gap:12px;">
-            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${boundProfile.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-              ${boundProfile.name.charAt(0).toUpperCase()}
+            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${avatarColor}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+              ${profileInitial}
             </div>
             <div>
-              <div style="font-size:15px; font-weight:600;">${boundProfile.name}</div>
+              <div style="font-size:15px; font-weight:600;">${profileName}</div>
               <div style="font-size:12px; color:var(--green);">✓ 已绑定此设备</div>
             </div>
           </div>
@@ -785,15 +813,22 @@ async function showProfileSelector() {
       <p>选择要绑定的孩子</p>
       
       <div id="profile-selector" style="margin: 20px 0;">
-        ${cloudProfiles.map(p => `
-          <div class="profile-item" data-id="${p.id}" data-name="${p.name}" data-color="${p.avatar_color || '#7c6fff'}" 
+        ${cloudProfiles.map(p => {
+          const profileId = escAttr(p?.id || '');
+          const profileNameAttr = escAttr(p?.name || '');
+          const profileNameText = escHtml(p?.name || '');
+          const avatarColor = escAttr(normalizeAvatarColor(p?.avatar_color));
+          const profileInitial = escHtml(String((p?.name || '?')).charAt(0).toUpperCase());
+          return `
+          <div class="profile-item" data-id="${profileId}" data-name="${profileNameAttr}" data-color="${avatarColor}"
                style="display:flex; align-items:center; gap:12px; padding:16px; border:1px solid var(--border); border-radius:12px; margin-bottom:12px; cursor:pointer; transition:all 0.2s;">
-            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${p.avatar_color || '#7c6fff'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-              ${p.name.charAt(0).toUpperCase()}
+            <div class="avatar" style="width:40px; height:40px; border-radius:50%; background:${avatarColor}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+              ${profileInitial}
             </div>
-            <div style="font-size:15px; font-weight:600;">${p.name}</div>
+            <div style="font-size:15px; font-weight:600;">${profileNameText}</div>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
       
       <p style="font-size:12px; color:var(--muted);">选择后将自动绑定此设备，绑定后无法更换</p>
@@ -963,135 +998,285 @@ function renderDomainTagsReadOnly(containerId, domains) {
     return;
   }
   container.innerHTML = domains.map(d =>
-    `<span class="domain-tag" style="cursor:default;">${d}</span>`
+    `<span class="domain-tag" style="cursor:default;">${escHtml(d)}</span>`
   ).join('');
-}
-
-function updateListCounts() {
-  const ul = (config.unsafeList || config.blacklist || []).length;
-  const sl = (config.studyList  || []).length;
-  const al = (config.compositeList || []).length;
-  const ucEl = document.getElementById('unsafelist-count');
-  const scEl = document.getElementById('studylist-count');
-  const acEl = document.getElementById('allowlist-count');
-  if (ucEl) ucEl.textContent = ul ? `共 ${ul} 条` : '';
-  if (scEl) scEl.textContent = sl ? `共 ${sl} 条` : '';
-  if (acEl) acEl.textContent = al ? `共 ${al} 条` : '';
 }
 
 // ── 访问规则页（只读）───────────────────────────────────────────────────────
 
-function renderRulesPage() {
-  // 模式说明（不再区分白名单/黑名单，统一说明）
-  const modeDescEl = document.getElementById('rules-mode-desc');
-  if (modeDescEl) {
-    modeDescEl.textContent = '学习模式下仅允许学习网站，休息模式下所有网站可访问';
+const QUOTA_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const QUOTA_DAY_LABELS = {
+  monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四',
+  friday: '周五', saturday: '周六', sunday: '周日',
+};
+
+function normalizeDomainList(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function pickFirstArrayField(source, fields) {
+  for (const field of fields) {
+    const value = source?.[field];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
+function renderSiteGroup(containerId, options) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const systemList = normalizeDomainList(options.systemList);
+  const customList = normalizeDomainList(options.customList);
+  const effectiveList = normalizeDomainList(options.effectiveList);
+  const hasHierarchy = systemList.length > 0 || customList.length > 0;
+
+  const renderTagList = (domains, muted) => {
+    if (!domains.length) return '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+    return `<div class="domains-container">${domains.map((d) =>
+      `<span class="domain-tag" style="cursor:default;${muted ? 'background:rgba(0,184,148,0.04);color:var(--muted);' : ''}">${escHtml(d)}</span>`
+    ).join('')}</div>`;
+  };
+
+  if (!hasHierarchy) {
+    container.innerHTML = renderTagList(effectiveList, false);
+    return;
   }
 
-  // 学习网站列表始终显示
-  const studylistSection = document.getElementById('studylist-section');
-  if (studylistSection) studylistSection.style.display = '';
+  const collapsibleId = `${containerId}-system-content`;
+  const toggleId = `${containerId}-system-toggle`;
 
-  // 渲染只读标签
-  renderDomainTagsReadOnly('unsafelist-tags', config.unsafeList || config.blacklist || []);
-  renderDomainTagsReadOnly('studylist-tags', config.studyList || []);
-  renderDomainTagsReadOnly('allowlist-tags', config.compositeList || []);
-  updateListCounts();
-
-  // 学习网站搜索框（仅过滤显示，不修改数据）
-  const searchEl = document.getElementById('studylist-search');
-  if (searchEl) {
-    const newSearch = searchEl.cloneNode(true);
-    searchEl.parentNode.replaceChild(newSearch, searchEl);
-    newSearch.addEventListener('input', (e) => {
-      const q = e.target.value.trim().toLowerCase();
-      const list = config.studyList || [];
-      const filtered = q ? list.filter(d => d.includes(q)) : list;
-      renderDomainTagsReadOnly('studylist-tags', filtered);
-    });
-  }
-
-  // ── 每日时长限制（只读展示）────────────────────────────────────────
-  const quotaLimitsEl = document.getElementById('quota-limits-display');
-  if (quotaLimitsEl) {
-    const fmtQuota = (mins) => {
-      if (!mins || mins <= 0) return '<span style="color:var(--muted);">不限制</span>';
-      if (mins >= 60) {
-        const h = Math.floor(mins / 60), m = mins % 60;
-        return `<span style="color:var(--accent);font-weight:600;">${h}小时${m > 0 ? m + '分' : ''}</span>`;
-      }
-      return `<span style="color:var(--accent);font-weight:600;">${mins}分钟</span>`;
-    };
-    const rows = [
-      { label: '每日在线上限',   sub: '所有网站累计',   val: config.dailyOnlineQuota },
-      { label: '每日学习上限',   sub: '学习网站累计',   val: config.dailyStudyQuota  },
-      { label: '每日休息上限',   sub: '娱乐网站累计',   val: config.dailyRestQuota   },
-    ];
-    quotaLimitsEl.innerHTML = rows.map((r, i) => `
-      <div class="quota-row" style="display:flex;align-items:center;justify-content:space-between;
-           padding:12px 0;${i < rows.length-1 ? 'border-bottom:1px solid var(--border);' : ''}">
-        <div>
-          <div style="font-size:14px;">${r.label}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.sub}</div>
-        </div>
-        <div>${fmtQuota(r.val)}</div>
-      </div>`).join('');
-  }
-
-  // ── 待定时段说明（只读展示）────────────────────────────────────────
-  const tempAllowEl = document.getElementById('temp-allow-display');
-  if (tempAllowEl) {
-    const quota = config.dailyUndeterminedQuota ?? 60;
-    const h = Math.floor(quota / 60), m = quota % 60;
-    const label = h > 0 ? `${h}小时${m > 0 ? m + '分' : ''}` : `${m}分钟`;
-    tempAllowEl.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
-        <div style="font-size:14px;color:var(--muted);">每日待定时段上限</div>
-        <div style="font-size:18px;font-weight:700;color:var(--accent);">${label}</div>
+  container.innerHTML = `
+    <div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);">
+      <div id="${toggleId}-row" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);">系统配置（只读）</div>
+        <button id="${toggleId}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px;">
-        访问复合型网站（原允许列表）计入待定时段，每日上限 <b style="color:var(--text);">${label}</b>，家长事后审核分类。
-      </div>`;
-  }
+      <div id="${collapsibleId}" style="display:none;margin-top:8px;">
+        ${renderTagList(systemList, true)}
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
+      ${renderTagList(customList, false)}
+    </div>
+  `;
 
-  // ── 上网时间段（并入访问规则）──────────────────────────────────────
-  const schedule = config.schedule || {};
-  const schedEnabled = schedule.enabled;
+  const row = document.getElementById(`${toggleId}-row`);
+  const content = document.getElementById(collapsibleId);
+  const toggle = document.getElementById(toggleId);
+  if (!row || !content || !toggle) return;
 
-  const schedDescEl = document.getElementById('schedule-status-desc');
-  if (schedDescEl) {
-    schedDescEl.textContent = schedEnabled
-      ? '✅ 已启用，下列时间段内可上网'
-      : '⏸ 未启用，全天均可上网';
-  }
-
-  const schedContainer = document.getElementById('schedule-rows');
-  if (schedContainer) {
-    if (!schedEnabled) {
-      schedContainer.innerHTML = `
-        <div style="color:var(--muted);font-size:13px;padding:12px 0;">
-          全天均可上网，时间段管控未启用
-        </div>`;
+  const doToggle = () => {
+    if (content.style.display === 'none') {
+      content.style.display = 'block';
+      toggle.textContent = '▲ 收起';
     } else {
-      schedContainer.innerHTML = DAY_NAMES.map((name, i) => {
-        const day      = schedule.days?.[i] || { enabled: false, start: '08:00', end: '22:00' };
-        const isActive = day.enabled;
-        return `
-          <div style="display:flex;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid var(--border);">
-            <div style="width:36px;font-size:13px;font-weight:600;color:${isActive ? 'var(--text)' : 'var(--muted)'};">${name}</div>
-            ${isActive
-              ? `<div style="display:flex;align-items:center;gap:6px;font-size:13px;">
-                   <span style="color:var(--green);font-size:9px;">●</span>
-                   <span>${day.start || '08:00'}</span>
-                   <span style="color:var(--muted);">—</span>
-                   <span>${day.end || '22:00'}</span>
-                 </div>`
-              : `<div style="font-size:13px;color:var(--muted);">不限制</div>`
-            }
-          </div>`;
-      }).join('');
+      content.style.display = 'none';
+      toggle.textContent = '▼ 展开';
+    }
+  };
+  row.addEventListener('click', doToggle);
+  toggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    doToggle();
+  });
+}
+
+function formatQuotaText(minutes) {
+  if (minutes === null || minutes === undefined) return '无限制';
+  const mins = Number(minutes);
+  if (!Number.isFinite(mins) || mins < 0) return '暂无配置';
+  if (mins === 0) return '0 分钟';
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}小时${m}分钟` : `${h}小时`;
+  }
+  return `${mins}分钟`;
+}
+
+function getDailyQuotaByDay(dayKey) {
+  const fromTimeQuota = config?.timeQuota?.daily?.[dayKey];
+  if (fromTimeQuota) {
+    return {
+      study: fromTimeQuota.studyMinutes ?? null,
+      rest: fromTimeQuota.restMinutes ?? null,
+      composite: fromTimeQuota.compositeMinutes ?? null,
+    };
+  }
+  return {
+    study: config?.dailyStudyQuota ?? null,
+    rest: config?.dailyRestQuota ?? null,
+    composite: config?.dailyUndeterminedQuota ?? null,
+  };
+}
+
+function renderQuotaSection() {
+  const quotaDailyEl = document.getElementById('rules-quota-daily-display');
+  if (quotaDailyEl) {
+    const rows = QUOTA_DAYS.map((day) => {
+      const q = getDailyQuotaByDay(day);
+      return `
+        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
+          <div style="font-size:12px;">学习：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.study)}</span></div>
+          <div style="font-size:12px;">休息：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.rest)}</span></div>
+          <div style="font-size:12px;">综合：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.composite)}</span></div>
+        </div>
+      `;
+    }).join('');
+    quotaDailyEl.innerHTML = rows || '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+  }
+
+  const domainQuotaEl = document.getElementById('rules-domain-quotas-display');
+  if (domainQuotaEl) {
+    const entries = Object.entries(config?.domainQuotas || {});
+    if (!entries.length) {
+      domainQuotaEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+    } else {
+      domainQuotaEl.innerHTML = entries.map(([domain, mins]) => `
+        <div class="quota-row">
+          <div class="quota-label">${escHtml(domain)}</div>
+          <span style="color:var(--accent);font-weight:600;">${formatQuotaText(mins)} / 天</span>
+        </div>
+      `).join('');
     }
   }
+}
+
+function formatWindowsLabel(windows) {
+  if (windows === null) return '全天允许';
+  if (!Array.isArray(windows) || windows.length === 0) return '暂无配置';
+  return windows.map((w) => {
+    const start = escHtml(w?.start || '--:--');
+    const end = escHtml(w?.end || '--:--');
+    return `${start} - ${end}`;
+  }).join('，');
+}
+
+function computeOnlineWindowsLabel(studyWindows, restWindows) {
+  if (studyWindows === null || restWindows === null) return '全天允许';
+  if (!Array.isArray(studyWindows) && !Array.isArray(restWindows)) return '暂无配置';
+  const merged = [];
+  for (const w of (Array.isArray(studyWindows) ? studyWindows : [])) merged.push(w);
+  for (const w of (Array.isArray(restWindows) ? restWindows : [])) merged.push(w);
+  if (!merged.length) return '暂无配置';
+  return merged.map((w) => {
+    const start = escHtml(w?.start || '--:--');
+    const end = escHtml(w?.end || '--:--');
+    return `${start} - ${end}`;
+  }).join('，');
+}
+
+function renderScheduleSection() {
+  const scheduleEl = document.getElementById('rules-schedule-display');
+  if (!scheduleEl) return;
+
+  const hasTimeWindows = !!config?.timeWindows?.daily;
+  if (hasTimeWindows) {
+    const rows = QUOTA_DAYS.map((day) => {
+      const dayCfg = config.timeWindows.daily?.[day] || {};
+      const studyLabel = formatWindowsLabel(dayCfg.studyWindows);
+      const restLabel = formatWindowsLabel(dayCfg.restWindows);
+      const onlineLabel = computeOnlineWindowsLabel(dayCfg.studyWindows, dayCfg.restWindows);
+      return `
+        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
+          <div style="font-size:12px;">${studyLabel}</div>
+          <div style="font-size:12px;">${restLabel}</div>
+          <div style="font-size:12px;color:var(--muted);">${onlineLabel}</div>
+        </div>
+      `;
+    }).join('');
+    scheduleEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">星期</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">学习时段</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">休息时段</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">在线时段</div>
+      </div>
+      ${rows || '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>'}
+    `;
+    return;
+  }
+
+  const schedule = config?.schedule || null;
+  if (!schedule || !Array.isArray(schedule.days)) {
+    scheduleEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+    return;
+  }
+
+  scheduleEl.innerHTML = DAY_NAMES.map((name, i) => {
+    const day = schedule.days[i] || {};
+    const online = day.enabled
+      ? `${escHtml(day?.start || '--:--')} - ${escHtml(day?.end || '--:--')}`
+      : '不限制';
+    return `
+      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:500;">${name}</div>
+        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
+        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
+        <div style="font-size:12px;">${online}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRulesPage() {
+  const modeDescEl = document.getElementById('rules-mode-desc');
+  if (modeDescEl) {
+    modeDescEl.textContent = '当前规则由家长在云端设定，本设备仅展示当前生效规则';
+  }
+
+  renderSiteGroup('rules-studylist-display', {
+    effectiveList: config?.studyList,
+    systemList: pickFirstArrayField(config, [
+      'defaultStudySites',
+      'defaultStudyList',
+      'systemConfiguredStudySites',
+      'systemConfiguredStudyList',
+    ]),
+    customList: config?.customStudyList,
+  });
+  renderSiteGroup('rules-composite-display', {
+    effectiveList: config?.compositeList,
+    systemList: pickFirstArrayField(config, [
+      'defaultCompositeSites',
+      'defaultCompositeList',
+      'systemConfiguredCompositeSites',
+      'systemConfiguredCompositeList',
+    ]),
+    customList: config?.customCompositeList,
+  });
+  renderSiteGroup('rules-restricted-display', {
+    effectiveList: config?.restrictedEntertainmentList,
+    systemList: pickFirstArrayField(config, [
+      'defaultRestrictedEntertainmentSites',
+      'defaultRestrictedEntertainmentList',
+      'systemConfiguredRestrictedEntertainmentSites',
+      'systemConfiguredRestrictedEntertainmentList',
+    ]),
+    customList: config?.customRestrictedEntertainmentList,
+  });
+  renderSiteGroup('rules-blocked-display', {
+    effectiveList: config?.unsafeList || config?.blacklist,
+    systemList: pickFirstArrayField(config, [
+      'defaultBlockedSites',
+      'defaultBlockedList',
+      'defaultUnsafeSites',
+      'defaultUnsafeList',
+      'systemConfiguredBlockedSites',
+      'systemConfiguredBlockedList',
+      'systemConfiguredUnsafeSites',
+      'systemConfiguredUnsafeList',
+    ]),
+    customList: config?.customBlockedSites,
+  });
+
+  renderQuotaSection();
+  renderScheduleSection();
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1160,14 +1345,27 @@ async function renderSyncStatus() {
   if (!container) return;
 
   // 本机设备名（首次绑定时保存的）
-  const deviceName = storage['cloud_device_name'] || '本机';
+  const deviceName = escHtml(storage['cloud_device_name'] || '本机');
   // device_token 前8位作为短码
   const token = storage[CLOUD_KEYS.DEVICE_TOKEN] || '';
-  const shortId = token ? token.slice(0, 8).toUpperCase() : '—';
+  const shortId = escHtml(token ? token.slice(0, 8).toUpperCase() : '—');
+  const versionText = escHtml(storage['cloud_config_version'] || '—');
+  const syncText = escHtml(storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步');
 
   const rebindBtnHtml = isChildView ? '' : `
-    <button onclick="confirmRebind()" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
+    <button id="rebind-btn" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
   `;
+  const syncBtnTextMap = {
+    loading: '更新中…',
+    success: '已更新',
+    error: '更新失败',
+    idle: '🔄 立即同步',
+  };
+  const syncBtnText = syncBtnTextMap[syncFeedbackState.phase] || syncBtnTextMap.idle;
+  const syncBtnDisabled = syncFeedbackState.phase === 'loading' ? 'disabled' : '';
+  const syncFeedbackText = syncFeedbackState.message
+    ? `<div id="force-sync-feedback" style="margin-top:8px; font-size:12px; color:${syncFeedbackState.phase === 'error' ? 'var(--danger)' : 'var(--muted)'};">${escHtml(syncFeedbackState.message)}</div>`
+    : '';
 
   container.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
@@ -1182,29 +1380,62 @@ async function renderSyncStatus() {
       </div>
       <div style="padding:12px; background:var(--surface); border-radius:8px;">
         <div style="font-size:12px; color:var(--muted);">配置版本</div>
-        <div style="font-size:15px; font-weight:600;">${storage['cloud_config_version'] || '—'}</div>
+        <div style="font-size:15px; font-weight:600;">${versionText}</div>
       </div>
       <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">最后同步</div>
         <div style="font-size:13px;">
-          ${storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步'}
+          ${syncText}
         </div>
       </div>
     </div>
     <div style="margin-top:14px; display:flex; gap:10px;">
-      <button class="btn-save" onclick="forceSync()" style="flex:1;">🔄 立即同步</button>
+      <button class="btn-save" id="force-sync-btn" style="flex:1;" ${syncBtnDisabled}>${syncBtnText}</button>
       ${rebindBtnHtml}
     </div>
+    ${syncFeedbackText}
   `;
+
+  const forceSyncBtn = container.querySelector('#force-sync-btn');
+  if (forceSyncBtn) {
+    forceSyncBtn.addEventListener('click', () => {
+      forceSync();
+    });
+  }
+  const rebindBtn = container.querySelector('#rebind-btn');
+  if (rebindBtn) {
+    rebindBtn.addEventListener('click', () => {
+      confirmRebind();
+    });
+  }
 }
 
 async function forceSync() {
+  if (syncFeedbackState.phase === 'loading') return;
+  if (syncFeedbackTimer) {
+    clearTimeout(syncFeedbackTimer);
+    syncFeedbackTimer = null;
+  }
+  syncFeedbackState = { phase: 'loading', message: '正在更新云端配置与统计…' };
+  await renderSyncStatus();
+
   try {
     await sendMsg({ type: 'CLOUD_FORCE_SYNC' });
+    syncFeedbackState = { phase: 'success', message: '同步完成' };
     showToast('同步完成');
     await renderSyncStatus();
+    syncFeedbackTimer = setTimeout(async () => {
+      syncFeedbackState = { phase: 'idle', message: '' };
+      await renderSyncStatus();
+    }, 1800);
   } catch (e) {
+    syncFeedbackState = { phase: 'error', message: `更新失败：${e.message || '未知错误'}` };
+    await renderSyncStatus();
     showError('同步失败: ' + e.message);
+    syncFeedbackTimer = setTimeout(async () => {
+      syncFeedbackState = { phase: 'idle', message: '' };
+      await renderSyncStatus();
+    }, 3000);
   }
 }
 
@@ -1277,6 +1508,13 @@ function classifyDomain(domain) {
   return 'other';
 }
 
+function classifyUsageTimeType(domain) {
+  if (!domain) return 'rest';
+  if ((config.studyList || []).some(p => matchDomain(domain, p))) return 'study';
+  if ((config.compositeList || []).some(p => matchDomain(domain, p))) return 'undetermined';
+  return 'rest';
+}
+
 function splitStatsDay(dayStats) {
   const safe = dayStats && typeof dayStats === 'object' ? dayStats : {};
   const audioSeconds = Number(safe.audioSeconds) || 0;
@@ -1304,24 +1542,57 @@ function mergeStatsRange(rangeData) {
   return { domainStats: merged, audioSeconds, pipSeconds };
 }
 
+function getLocalDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 async function renderStatsPage() {
-  // 拉取今日和本周数据
+  const setStatsEmptyState = () => {
+    renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
+    renderOverviewList('week-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
+    document.getElementById('today-timeline').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
+    document.getElementById('week-daily-bars').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
+    renderRankList('today-rank-list', {}, 5);
+    renderRankList('week-rank-list', {}, 5);
+    renderUndeterminedList('today-undetermined-list', []);
+    renderUndeterminedList('week-undetermined-list', []);
+  };
+
+  const safeMsg = async (message, fallback) => {
+    try {
+      const result = await sendMsg(message);
+      return result ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  if (!config || typeof config !== 'object') {
+    setStatsEmptyState();
+    return;
+  }
+
   const [
     todayRangeData,
     weekRangeData,
-    todaySessions,
-    weekSessions,
-    weeklyRes
+    weeklyRes,
+    timelineSegments
   ] = await Promise.all([
-    sendMsg({ type: 'GET_STATS_RANGE', days: 1 }),
-    sendMsg({ type: 'GET_STATS_RANGE', days: 7 }),
-    sendMsg({ type: 'GET_VISIT_SESSIONS', days: 1 }),
-    sendMsg({ type: 'GET_VISIT_SESSIONS', days: 7 }),
-    sendMsg({ type: 'GET_WEEKLY_SESSIONS' })
+    safeMsg({ type: 'GET_STATS_RANGE', days: 1 }, {}),
+    safeMsg({ type: 'GET_STATS_RANGE', days: 7 }, {}),
+    safeMsg({ type: 'GET_WEEKLY_SESSIONS' }, { sessions: [] }),
+    safeMsg({ type: 'GET_TIMELINE_SEGMENTS' }, [])
   ]);
 
-  const todayData = splitStatsDay(Object.values(todayRangeData)[Object.keys(todayRangeData).length - 1] || {});
-  const weekData  = mergeStatsRange(weekRangeData);
+  const todayRangeSafe = todayRangeData && typeof todayRangeData === 'object' ? todayRangeData : {};
+  const weekRangeSafe = weekRangeData && typeof weekRangeData === 'object' ? weekRangeData : {};
+  const weeklySessionsSafe = Array.isArray(weeklyRes?.sessions) ? weeklyRes.sessions : [];
+  const timelineSegmentsSafe = Array.isArray(timelineSegments) ? timelineSegments : [];
+  const timelineSessions = timelineSegmentsSafe;
+
+  const todayValues = Object.values(todayRangeSafe);
+  const todayData = splitStatsDay(todayValues[todayValues.length - 1] || {});
+  const weekData  = mergeStatsRange(weekRangeSafe);
 
   // ── 设置列标题日期 ──
   const now = new Date();
@@ -1344,10 +1615,14 @@ async function renderStatsPage() {
   renderOverviewList('week-overview-list', weekOverview);
 
   // ── 今日时间轴 ──
-  renderTimeline('today-timeline', todaySessions);
+  const hasForegroundOverviewData = todayOverview.online > 0;
+  const timelineEmptyMessage = hasForegroundOverviewData
+    ? '有汇总数据，但暂无可展示的时间轴明细'
+    : '暂无可展示的前台时间轴明细';
+  renderTimeline('today-timeline', timelineSessions, { emptyMessage: timelineEmptyMessage });
 
   // ── 本周每日分布 ──
-  renderDailyBars('week-daily-bars', weekRangeData);
+  renderDailyBars('week-daily-bars', weekRangeSafe);
 
   // ── 今日网站排行 ──
   renderRankList('today-rank-list', todayData.domainStats, 5);
@@ -1356,12 +1631,12 @@ async function renderStatsPage() {
   renderRankList('week-rank-list', weekData.domainStats, 5);
 
   // ── 今日待归类 ──
-  const todayStr = now.toISOString().slice(0, 10);
-  const todayUndetermined = (weeklyRes?.sessions || []).filter(s => s.date === todayStr);
+  const todayStr = getLocalDateKey(now);
+  const todayUndetermined = weeklySessionsSafe.filter(s => s.date === todayStr);
   renderUndeterminedList('today-undetermined-list', todayUndetermined);
 
   // ── 本周待归类 ──
-  renderUndeterminedList('week-undetermined-list', weeklyRes?.sessions || []);
+  renderUndeterminedList('week-undetermined-list', weeklySessionsSafe);
 }
 
 function computeOverview(data) {
@@ -1399,35 +1674,84 @@ function renderOverviewList(id, overview) {
   `).join('');
 }
 
-function renderTimeline(id, sessions) {
+function renderTimeline(id, sessions, options = {}) {
   const el = document.getElementById(id);
   if (!el) return;
-
-  // 按小时聚合，并标记主要状态
-  const hourData = new Array(24).fill(0);
-  const hourState = new Array(24).fill(null);
-  for (const s of sessions) {
-    const h = new Date(s.startAt).getHours();
-    hourData[h] += s.duration;
-    if (!hourState[h]) hourState[h] = s.state;
-    else if (s.state === 'ACTIVE' && hourState[h] !== 'ACTIVE') hourState[h] = 'ACTIVE';
+  const emptyMessage = options.emptyMessage || '暂无时间轴数据';
+  if (!Array.isArray(sessions) || sessions.length === 0) {
+    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${escHtml(emptyMessage)}</div>`;
+    return;
   }
-  const maxVal = Math.max(...hourData, 1);
 
-  const stateClass = { ACTIVE: 'study', BACKGROUND_ACTIVE: 'audio', PASSIVE: 'rest' };
-  const stateLabel = { ACTIVE: '学习', BACKGROUND_ACTIVE: '后台媒体', PASSIVE: '休息' };
+  // 按小时聚合，并标记主要分类（跨小时段按小时切分）
+  const hourData = new Array(24).fill(0);
+  const hourTypeSeconds = new Array(24).fill(null).map(() => ({
+    study: 0,
+    undetermined: 0,
+    rest: 0,
+  }));
+  for (const s of sessions) {
+    if (!Number.isFinite(s?.startAt) || !Number.isFinite(s?.duration) || s.duration <= 0 || !s?.domain) continue;
+    let cursor = Number(s.startAt);
+    const end = Number(s.startAt) + Number(s.duration) * 1000;
+    const timeType = classifyUsageTimeType(s.domain);
+    while (cursor < end) {
+      const slotDate = new Date(cursor);
+      const hour = slotDate.getHours();
+      const nextHourStart = new Date(
+        slotDate.getFullYear(),
+        slotDate.getMonth(),
+        slotDate.getDate(),
+        slotDate.getHours() + 1,
+        0,
+        0,
+        0
+      ).getTime();
+      const segmentEnd = Math.min(end, nextHourStart);
+      const seconds = Math.floor((segmentEnd - cursor) / 1000);
+      if (seconds > 0 && hour >= 0 && hour <= 23) {
+        hourData[hour] += seconds;
+        hourTypeSeconds[hour][timeType] += seconds;
+      }
+      cursor = segmentEnd;
+    }
+  }
+  if (!hourData.some(v => v > 0)) {
+    el.innerHTML = `<div style="color:var(--muted);text-align:center;padding:12px;">${escHtml(emptyMessage)}</div>`;
+    return;
+  }
+  const typeClass = {
+    study: 'study',
+    undetermined: 'undetermined',
+    rest: 'rest',
+  };
 
   el.innerHTML = hourData.map((seconds, h) => {
-    const pct = Math.round(seconds / maxVal * 100);
-    const st = hourState[h];
-    const cls = stateClass[st] || 'undetermined';
-    const label = seconds > 0 ? `${stateLabel[st] || '待归类'} ${formatSeconds(seconds)}` : '';
+    const typeData = hourTypeSeconds[h];
+    const studyPct = Math.max(0, Math.min(100, Math.round((typeData.study / 3600) * 100)));
+    const undeterminedPct = Math.max(0, Math.min(100, Math.round((typeData.undetermined / 3600) * 100)));
+    const restPct = Math.max(0, Math.min(100, Math.round((typeData.rest / 3600) * 100)));
+    const studyLeft = 0;
+    const undeterminedLeft = studyPct;
+    const restLeft = studyPct + undeterminedPct;
+    const compactParts = [];
+    if (typeData.study > 0) compactParts.push(`学习${formatSeconds(typeData.study)}`);
+    if (typeData.rest > 0) compactParts.push(`休息${formatSeconds(typeData.rest)}`);
+    if (typeData.undetermined > 0) compactParts.push(`待定${formatSeconds(typeData.undetermined)}`);
+    const label = seconds > 0 ? compactParts.join('，') : '';
+    const detail = [];
+    if (typeData.study > 0) detail.push(`学习时间 ${formatSeconds(typeData.study)}`);
+    if (typeData.undetermined > 0) detail.push(`待定时间 ${formatSeconds(typeData.undetermined)}`);
+    if (typeData.rest > 0) detail.push(`休息时间 ${formatSeconds(typeData.rest)}`);
+    const title = detail.join(' / ');
     return `
       <div class="timeline-row">
         <div class="timeline-hour">${String(h).padStart(2, '0')}</div>
-        <div class="timeline-track">
-          ${seconds > 0 ? `<div class="timeline-fill ${cls}" style="width:${pct}%"></div>` : ''}
-          ${label ? `<div class="timeline-label">${label}</div>` : ''}
+        <div class="timeline-track" title="${escHtml(title)}">
+          ${studyPct > 0 ? `<div class="timeline-fill ${typeClass.study}" style="left:${studyLeft}%;width:${studyPct}%"></div>` : ''}
+          ${undeterminedPct > 0 ? `<div class="timeline-fill ${typeClass.undetermined}" style="left:${undeterminedLeft}%;width:${undeterminedPct}%"></div>` : ''}
+          ${restPct > 0 ? `<div class="timeline-fill ${typeClass.rest}" style="left:${restLeft}%;width:${restPct}%"></div>` : ''}
+          ${label ? `<div class="timeline-label">${escHtml(label)}</div>` : ''}
         </div>
       </div>
     `;
@@ -1477,7 +1801,7 @@ function renderRankList(id, domainStats, limit) {
   }
   el.innerHTML = entries.map(([domain, seconds]) => `
     <div class="rank-item">
-      <span class="rank-domain">${domain}</span>
+      <span class="rank-domain">${escHtml(domain)}</span>
       <span class="rank-time">${formatSeconds(seconds)}</span>
     </div>
   `).join('');
@@ -1536,15 +1860,20 @@ async function renderChangelog() {
     return 'change';
   };
 
-  container.innerHTML = logs.map(entry => `
+  container.innerHTML = logs.map(entry => {
+    const action = escHtml(entry?.action || '');
+    const details = escHtml(entry?.details || entry?.action || '');
+    const ts = Number.isFinite(entry?.ts) ? new Date(entry.ts).toLocaleString() : '—';
+    return `
     <div class="changelog-item">
-      <div class="changelog-dot ${dotClass(entry.action)}"></div>
+      <div class="changelog-dot ${dotClass(String(entry?.action || ''))}"></div>
       <div class="changelog-content">
-        <div class="changelog-time">${new Date(entry.ts).toLocaleString()}</div>
-        <div class="changelog-text">${entry.details || entry.action}</div>
+        <div class="changelog-time">${ts}</div>
+        <div class="changelog-text">${details || action}</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 
@@ -1569,4 +1898,9 @@ function escAttr(s) {
 }
 function escId(s) {
   return String(s).replace(/[^a-zA-Z0-9_-]/g,'');
+}
+function normalizeAvatarColor(value) {
+  const v = String(value || '').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(v)) return v;
+  return '#7c6fff';
 }

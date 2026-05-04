@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 修复
+- **Study → Unclassified 双导轨缺失**：`reminder.html/js` 实现同页双滑动轨道（Case #5/#6），默认路径「进入休息时间」+ 申请路径「申请使用综合时间」，符合矩阵文档 §6.4 和 UX 文档 §8.2b 要求
+- **khanacademy.org 误分类**：`infra/cloud-sync.js` `normalizeCloudRulesConfig` 始终合并 `DEFAULT_CONFIG.studyList` 基底，防止云端空/稀疏 studyList 覆盖本地默认学习网站
+
 ---
 
 ## [1.7.2] — 2026-04-29

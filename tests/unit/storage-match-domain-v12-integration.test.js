@@ -69,8 +69,8 @@ function run() {
     normalizeHostname: domainSemantics.normalizeHostname,
   });
 
-  section('SMD-1 storage.matchDomain should follow v1.2 frozen rules via delegation');
-  expectEqual('a.example.com vs example.com = false', storage.matchDomain('a.example.com', 'example.com'), false);
+  section('SMD-1 storage.matchDomain should follow V0 parent-domain subdomain rules via delegation');
+  expectEqual('a.example.com vs example.com = true', storage.matchDomain('a.example.com', 'example.com'), true);
   expectEqual('a.example.com vs *.example.com = true', storage.matchDomain('a.example.com', '*.example.com'), true);
   expectEqual('example.com vs *.example.com = false', storage.matchDomain('example.com', '*.example.com'), false);
   expectEqual('www.example.com vs example.com = true', storage.matchDomain('www.example.com', 'example.com'), true);

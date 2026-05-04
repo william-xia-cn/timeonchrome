@@ -55,6 +55,8 @@ function writeMarkdownReport(data, outputDir) {
     'dry-run': 'Phase 1 Dry-Run',
     'chrome-restart': 'Phase 2 Chrome-Restart',
     'sleep-wake': 'Phase 3 Sleep-Wake',
+    'lock-unlock': 'RG-2 Lock-Unlock',
+    'network-offline': 'RG-4 Network-Offline',
   };
   lines.push(`# Sleep / Wake / Offline Gate — ${titleMap[scenario] || scenario} 报告`);
   lines.push('');
@@ -102,6 +104,12 @@ function writeMarkdownReport(data, outputDir) {
     lines.push(`| 配置可用 | ${bp.configAvailable ? '是' : '否'} |`);
     lines.push(`| 监控启用 | ${bp.monitoringEnabled ? '是' : '否'} |`);
     lines.push(`| 模式 | ${bp.mode || 'N/A'} |`);
+    if (Array.isArray(bp.blockers) && bp.blockers.length > 0) {
+      lines.push(`| 阻塞原因 | ${bp.blockers.join('; ')} |`);
+    }
+    if (bp.action) {
+      lines.push(`| 建议动作 | ${bp.action} |`);
+    }
     lines.push('');
     if (!bp.bound) {
       if (scenario === 'dry-run') {
@@ -123,12 +131,16 @@ function writeMarkdownReport(data, outputDir) {
     writeChromeRestartSections(lines, data);
   } else if (scenario === 'sleep-wake') {
     writeSleepWakeSections(lines, data);
+  } else if (scenario === 'lock-unlock') {
+    writeManualGateSections(lines, data, '锁屏 / 解锁');
+  } else if (scenario === 'network-offline') {
+    writeManualGateSections(lines, data, '网络离线 / 在线');
   }
 
   // 结论
   lines.push('## 结论');
   lines.push('');
-  const resultMap = { PASS: '通过', PARTIAL: '部分通过', FAIL: '失败', SKIP: '跳过' };
+  const resultMap = { PASS: '通过', PARTIAL: '部分通过', FAIL: '失败', SKIP: '跳过', BLOCKED: '阻塞' };
   lines.push(`**${resultMap[data.result] || data.result}**`);
   lines.push('');
   lines.push('---');
@@ -140,10 +152,64 @@ function writeMarkdownReport(data, outputDir) {
     lines.push('> Chrome 关闭/重开操作由 Playwright 控制，未涉及 OS 睡眠/锁屏/网络切换。');
   } else if (scenario === 'sleep-wake') {
     lines.push('> Windows OS 睡眠/唤醒由 rundll32 powrprof.dll 触发，Chrome 在睡眠期间保持运行。');
+  } else if (scenario === 'lock-unlock') {
+    lines.push('> 默认运行只执行前置检查；只有显式允许时才会触发 Windows 锁屏，需要操作者手动解锁。');
+  } else if (scenario === 'network-offline') {
+    if (data.preflight?.mode === 'manual-network-toggle') {
+      lines.push('> 本次 RG-4 使用手动网络切换模式；runner 未调用 adapter disable/enable，只观察操作者执行的真实 offline/online。');
+    } else {
+      lines.push('> 默认运行只执行前置检查；不会擅自禁用网络适配器或修改网络状态。');
+    }
   }
 
   fs.writeFileSync(filepath, lines.join('\n'), 'utf-8');
   return filepath;
+}
+
+function writeManualGateSections(lines, data, label) {
+  const preflight = data.preflight || {};
+  const procedure = data.procedure || [];
+  const validation = data.validation || {};
+
+  lines.push(`## ${label} 前置检查`);
+  lines.push('');
+  lines.push(`| 检查项 | 结果 |`);
+  lines.push(`|--------|------|`);
+  for (const [key, value] of Object.entries(preflight)) {
+    if (key === 'blockers') continue;
+    lines.push(`| ${key} | ${formatReportValue(value)} |`);
+  }
+  if (Array.isArray(preflight.blockers) && preflight.blockers.length > 0) {
+    lines.push(`| blockers | ${preflight.blockers.join('; ')} |`);
+  }
+  lines.push('');
+
+  if (procedure.length > 0) {
+    lines.push(`## ${label} 程序`);
+    lines.push('');
+    procedure.forEach((step, idx) => {
+      lines.push(`${idx + 1}. ${step}`);
+    });
+    lines.push('');
+  }
+
+  lines.push(`## ${label} 校验`);
+  lines.push('');
+  lines.push(`| 检查项 | 结果 |`);
+  lines.push(`|--------|------|`);
+  for (const [key, value] of Object.entries(validation)) {
+    lines.push(`| ${key} | ${formatReportValue(value)} |`);
+  }
+  lines.push('');
+}
+
+function formatReportValue(value) {
+  if (Array.isArray(value)) return value.join('; ');
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  if (value === true) return '是';
+  if (value === false) return '否';
+  if (value == null) return 'N/A';
+  return String(value);
 }
 
 function writeDryRunSections(lines, data) {
@@ -267,7 +333,10 @@ function writeSleepWakeSections(lines, data) {
   lines.push('');
   lines.push(`| 项目 | 值 |`);
   lines.push(`|------|-----|`);
-  lines.push(`| 系统 S3 睡眠支持 | ${data.sleepSupport?.supported ? '支持' : '不支持'} |`);
+  lines.push(`| 系统睡眠支持 | ${data.sleepSupport?.supported ? '支持' : '不支持'} |`);
+  if (data.sleepSupport?.model) {
+    lines.push(`| 睡眠模型 | ${data.sleepSupport.model} |`);
+  }
   if (!data.sleepSupport?.supported) {
     lines.push(`| 不支持原因 | ${data.sleepSupport?.reason || 'N/A'} |`);
   }

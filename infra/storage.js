@@ -11,6 +11,7 @@ const UNDETERMINED_STATS_KEY_PREFIX = 'undetermined_stats_';
 export const SESSION_KEY = 'guardian_session';
 const SESSIONS_KEY = 'guardian_sessions';
 export const VISIT_SESSIONS_KEY = 'visit_sessions';
+const TEMP_COMPOSITE_DOMAINS_KEY = 'temporary_composite_domains';
 const CHANGELOG_KEY = 'guardian_changelog';
 const MAX_CHANGELOG_ENTRIES = 100;
 const MAX_SESSION_DAYS = 14;
@@ -35,11 +36,15 @@ export const DEFAULT_CONFIG = {
     'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai',
     'collegeboard.org'
   ],
+  // System-configured composite sites (9, non-removable) + user-default initial sites (7, removable)
+  // Effective compositeList = 16 sites for new profiles
   compositeList: [
-    'google.com', 'google.com.hk', 'bing.com', 'baidu.com', 'search.brave.com', 'duckduckgo.com',
-    'stackexchange.com', 'reddit.com',
-    'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com', 'bilibili.com',
-    'wikipedia.org', 'britannica.com', 'wolframalpha.com'
+    // System-configured (9)
+    'google.com', 'google.com.hk', 'bing.com', 'microsoft.com', 'apple.com', 'adobe.com',
+    'music.youtube.com', 'spotify.com', 'music.163.com',
+    // User-default initial (7) — seeded into customCompositeList, removable by user
+    'youtube.com', 'wikipedia.org', 'wikimedia.org', 'britannica.com',
+    'stackoverflow.com', 'stackexchange.com', 'reddit.com'
   ],
   unsafeList: ['douyin.com', 'tiktok.com'],
   dailyOnlineQuota: 0,
@@ -106,7 +111,22 @@ export function extractDomain(url) {
 
 export function isSpecialUrl(url) {
   if (!url) return true;
-  return url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:');
+  if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:')) {
+    return true;
+  }
+
+  // Chrome new-tab provider page can be delivered as normal HTTPS navigation.
+  // Treat only this narrow path as internal to avoid intercept/reminder noise.
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' && parsed.hostname === 'www.google.com' && parsed.pathname.startsWith('/_/chrome/newtab')) {
+      return true;
+    }
+  } catch {
+    // Non-URL input should fall through to regular handling.
+  }
+
+  return false;
 }
 
 export function matchDomain(domain, pattern) {
@@ -115,6 +135,37 @@ export function matchDomain(domain, pattern) {
 
 function sortObjectKeys(obj) {
   return Object.keys(obj).sort().reduce((acc, key) => { acc[key] = obj[key]; return acc; }, {});
+}
+
+const STALE_COMPOSITE_DOMAINS_TO_REMOVE = new Set([
+  'bilibili.com',
+  'www.bilibili.com',
+  '163.com',
+  'www.163.com',
+]);
+
+export function sanitizeStaleCompositeDomains(config) {
+  if (!config || typeof config !== 'object') return { config, changed: false };
+
+  let changed = false;
+  const next = { ...config };
+  const listFields = ['compositeList', 'customCompositeList'];
+
+  for (const field of listFields) {
+    const list = next[field];
+    if (!Array.isArray(list)) continue;
+    const filtered = list.filter((item) => {
+      if (typeof item !== 'string') return true;
+      const normalized = normalizeHostname(item);
+      return !normalized || !STALE_COMPOSITE_DOMAINS_TO_REMOVE.has(normalized);
+    });
+    if (filtered.length !== list.length) {
+      next[field] = filtered;
+      changed = true;
+    }
+  }
+
+  return { config: next, changed };
 }
 
 async function computeHash(data) {
@@ -138,16 +189,25 @@ export async function getConfig() {
       const storedHash = result[HASH_KEY];
       const computedHashVal = await computeHash(config);
       if (storedHash !== computedHashVal) {
-        const safeConfig = {
+        let safeConfig = {
           ...DEFAULT_CONFIG,
           ...config,
           adminPasswordHash: config.adminPasswordHash || '',
           isInitialized: config.isInitialized || false
         };
+        const sanitized = sanitizeStaleCompositeDomains(safeConfig);
+        safeConfig = sanitized.config;
+        if (sanitized.changed) {
+          await saveConfig(safeConfig);
+        }
         resolve(safeConfig);
         return;
       }
-      resolve(config);
+      const sanitized = sanitizeStaleCompositeDomains(config);
+      if (sanitized.changed) {
+        await saveConfig(sanitized.config);
+      }
+      resolve(sanitized.config);
     });
   });
 }
@@ -174,6 +234,111 @@ export async function getSession() {
 export async function saveSession(session) {
   return new Promise((resolve) => {
     chrome.storage.local.set({ [SESSION_KEY]: session }, resolve);
+  });
+}
+
+function getSessionStorageArea() {
+  return chrome.storage.session || null;
+}
+
+function normalizeTemporaryCompositeDomain(domain) {
+  if (!domain || typeof domain !== 'string') return null;
+  const normalized = domain.trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeTemporaryCompositeRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const tabId = Number(record.tabId);
+  const domain = normalizeTemporaryCompositeDomain(record.domain);
+  if (!Number.isInteger(tabId) || tabId < 0 || !domain) return null;
+  const createdAt = Number(record.createdAt) || Date.now();
+  return { tabId, domain, createdAt };
+}
+
+async function getTemporaryCompositePermissionRecords() {
+  const area = getSessionStorageArea();
+  if (!area) return [];
+  return new Promise((resolve) => {
+    area.get(TEMP_COMPOSITE_DOMAINS_KEY, (result) => {
+      const list = result[TEMP_COMPOSITE_DOMAINS_KEY];
+      if (!Array.isArray(list)) {
+        resolve([]);
+        return;
+      }
+      const migrated = list
+        .map((item) => {
+          if (typeof item === 'string') return null;
+          return normalizeTemporaryCompositeRecord(item);
+        })
+        .filter(Boolean);
+      resolve(migrated);
+    });
+  });
+}
+
+async function setTemporaryCompositePermissionRecords(records) {
+  const area = getSessionStorageArea();
+  if (!area) return;
+  return new Promise((resolve) => {
+    area.set({ [TEMP_COMPOSITE_DOMAINS_KEY]: records }, resolve);
+  });
+}
+
+export async function getTemporaryCompositeDomains() {
+  const records = await getTemporaryCompositePermissionRecords();
+  return [...new Set(records.map((r) => r.domain))];
+}
+
+export async function hasTemporaryCompositePermission(tabId, domain) {
+  const normalizedDomain = normalizeTemporaryCompositeDomain(domain);
+  if (!Number.isInteger(tabId) || tabId < 0 || !normalizedDomain) return false;
+  const records = await getTemporaryCompositePermissionRecords();
+  return records.some((record) => record.tabId === tabId && record.domain === normalizedDomain);
+}
+
+export async function addTemporaryCompositeDomain(tabId, domain) {
+  const area = getSessionStorageArea();
+  if (!area) return { added: false };
+  const normalizedDomain = normalizeTemporaryCompositeDomain(domain);
+  if (!Number.isInteger(tabId) || tabId < 0 || !normalizedDomain) return { added: false };
+  const records = await getTemporaryCompositePermissionRecords();
+  if (records.some((record) => record.tabId === tabId && record.domain === normalizedDomain)) {
+    return { added: false, alreadyPresent: true };
+  }
+  await setTemporaryCompositePermissionRecords([
+    ...records,
+    { tabId, domain: normalizedDomain, createdAt: Date.now() },
+  ]);
+  return { added: true };
+}
+
+export async function clearTemporaryCompositeDomainByTab(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  const records = await getTemporaryCompositePermissionRecords();
+  const next = records.filter((record) => record.tabId !== tabId);
+  if (next.length === records.length) return;
+  await setTemporaryCompositePermissionRecords(next);
+}
+
+export async function clearTemporaryCompositeDomainByTabDomainMismatch(tabId, currentDomain) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  const normalizedDomain = normalizeTemporaryCompositeDomain(currentDomain);
+  const records = await getTemporaryCompositePermissionRecords();
+  const next = records.filter((record) => {
+    if (record.tabId !== tabId) return true;
+    if (!normalizedDomain) return false;
+    return record.domain === normalizedDomain;
+  });
+  if (next.length === records.length) return;
+  await setTemporaryCompositePermissionRecords(next);
+}
+
+export async function clearTemporaryCompositeDomains() {
+  const area = getSessionStorageArea();
+  if (!area) return;
+  return new Promise((resolve) => {
+    area.remove(TEMP_COMPOSITE_DOMAINS_KEY, resolve);
   });
 }
 
@@ -222,7 +387,8 @@ export async function getTodayStats() {
  */
 export async function getTodayUndeterminedStats() {
   const config = await getConfig();
-  const compositeList = config.compositeList || [];
+  const temporaryCompositeDomains = await getTemporaryCompositeDomains();
+  const compositeList = [...(config.compositeList || []), ...temporaryCompositeDomains];
   const stats = await getTodayStats();
 
   const result = {};

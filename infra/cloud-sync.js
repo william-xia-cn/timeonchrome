@@ -1,5 +1,6 @@
 // infra/cloud-sync.js — 云同步 + 心跳
 import { getStatsRange } from './storage.js';
+import { DEFAULT_CONFIG } from './storage.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -33,6 +34,150 @@ export function getSyncState() {
 
 export function getCloudConfig() {
   return { ...CLOUD_CONFIG };
+}
+
+function pickFirstArray(source, keys) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (Array.isArray(value)) return value;
+  }
+  return null;
+}
+
+function mergeUniqueDomains(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item !== 'string') continue;
+      const domain = item.trim();
+      if (!domain) continue;
+      const key = domain.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(domain);
+    }
+  }
+  return out;
+}
+
+function normalizeCloudRulesConfig(cloudConfig) {
+  const cfg = { ...(cloudConfig || {}) };
+
+  const defaultStudySites = pickFirstArray(cfg, [
+    'defaultStudySites',
+    'defaultStudyList',
+    'systemConfiguredStudySites',
+    'systemConfiguredStudyList',
+  ]);
+  const defaultCompositeSites = pickFirstArray(cfg, [
+    'defaultCompositeSites',
+    'defaultCompositeList',
+    'systemConfiguredCompositeSites',
+    'systemConfiguredCompositeList',
+  ]);
+  const defaultRestrictedEntertainmentSites = pickFirstArray(cfg, [
+    'defaultRestrictedEntertainmentSites',
+    'defaultRestrictedEntertainmentList',
+    'systemConfiguredRestrictedEntertainmentSites',
+    'systemConfiguredRestrictedEntertainmentList',
+  ]);
+  const defaultBlockedSites = pickFirstArray(cfg, [
+    'defaultBlockedSites',
+    'defaultBlockedList',
+    'defaultUnsafeSites',
+    'defaultUnsafeList',
+    'systemConfiguredBlockedSites',
+    'systemConfiguredBlockedList',
+    'systemConfiguredUnsafeSites',
+    'systemConfiguredUnsafeList',
+  ]);
+
+  if (defaultStudySites) cfg.defaultStudySites = defaultStudySites;
+  if (defaultCompositeSites) cfg.defaultCompositeSites = defaultCompositeSites;
+  if (defaultRestrictedEntertainmentSites) cfg.defaultRestrictedEntertainmentSites = defaultRestrictedEntertainmentSites;
+  if (defaultBlockedSites) cfg.defaultBlockedSites = defaultBlockedSites;
+
+  // Preserve defaultUserCompositeSites from cloud response (initialization/recommendation only)
+  const defaultUserCompositeSites = pickFirstArray(cfg, [
+    'defaultUserCompositeSites',
+    'defaultUserCompositeList',
+    'recommendedCompositeSites',
+  ]);
+  if (defaultUserCompositeSites) cfg.defaultUserCompositeSites = defaultUserCompositeSites;
+
+  // 若云端未提供 effective 列表，使用 system + custom 在本地只读缓存中补齐，不回写云端。
+  // V0 不支持用户移除系统默认学习网站，因此 DEFAULT_CONFIG.studyList 始终作为基底合并。
+  const defaultStudyList = DEFAULT_CONFIG.studyList || [];
+  if (!Array.isArray(cfg.studyList)) {
+    cfg.studyList = mergeUniqueDomains(defaultStudyList, cfg.defaultStudySites, cfg.customStudyList);
+  } else {
+    // Cloud may return studyList: [] which would erase default sites.
+    // Ensure system defaults are always present as the base layer.
+    cfg.studyList = mergeUniqueDomains(defaultStudyList, cfg.defaultStudySites, cfg.studyList, cfg.customStudyList);
+  }
+  if (!Array.isArray(cfg.compositeList)) {
+    cfg.compositeList = mergeUniqueDomains(cfg.defaultCompositeSites, cfg.customCompositeList);
+  }
+  if (!Array.isArray(cfg.restrictedEntertainmentList)) {
+    cfg.restrictedEntertainmentList = mergeUniqueDomains(cfg.defaultRestrictedEntertainmentSites, cfg.customRestrictedEntertainmentList);
+  }
+  if (!Array.isArray(cfg.unsafeList)) {
+    cfg.unsafeList = mergeUniqueDomains(cfg.defaultBlockedSites, cfg.customBlockedSites);
+  }
+
+  return cfg;
+}
+
+const DEFAULT_SITE_LIST_FIELD_GROUPS = {
+  study: [
+    'defaultStudySites',
+    'defaultStudyList',
+    'systemConfiguredStudySites',
+    'systemConfiguredStudyList',
+  ],
+  composite: [
+    'defaultCompositeSites',
+    'defaultCompositeList',
+    'systemConfiguredCompositeSites',
+    'systemConfiguredCompositeList',
+  ],
+  restricted: [
+    'defaultRestrictedEntertainmentSites',
+    'defaultRestrictedEntertainmentList',
+    'systemConfiguredRestrictedEntertainmentSites',
+    'systemConfiguredRestrictedEntertainmentList',
+  ],
+  blocked: [
+    'defaultBlockedSites',
+    'defaultBlockedList',
+    'defaultUnsafeSites',
+    'defaultUnsafeList',
+    'systemConfiguredBlockedSites',
+    'systemConfiguredBlockedList',
+    'systemConfiguredUnsafeSites',
+    'systemConfiguredUnsafeList',
+  ],
+};
+
+function localConfigMissingCloudDefaultLists(localConfig) {
+  return Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS).some((keys) => !pickFirstArray(localConfig, keys));
+}
+
+function responseHasCloudDefaultLists(remoteConfig) {
+  return Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS).some((keys) => !!pickFirstArray(remoteConfig, keys));
+}
+
+function shouldSaveDespiteVersionSkip(remoteConfig, localConfig) {
+  if (!responseHasCloudDefaultLists(remoteConfig)) return false;
+  if (!localConfigMissingCloudDefaultLists(localConfig)) return false;
+  for (const keys of Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS)) {
+    const localList = pickFirstArray(localConfig, keys);
+    const remoteList = pickFirstArray(remoteConfig, keys);
+    if (!localList && Array.isArray(remoteList)) return true;
+  }
+  return false;
 }
 
 // ── Cloud request ───────────────────────────────────────────────────────────────
@@ -123,8 +268,10 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     const monitoringEnabled = result.monitoring_enabled ?? 1;
     await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled });
     syncState.monitoringEnabled = monitoringEnabled;
+    const localConfig = await getConfigFn();
 
-    if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion) {
+    if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion &&
+      !shouldSaveDespiteVersionSkip(result.data, localConfig)) {
       console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
       await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
       return { status: 'skipped', version: cloudVersion, error: null };
@@ -138,8 +285,7 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
 
     // 云端配置为唯一来源，不再与本地 DEFAULT_CONFIG merge
     // 仅保留终端专属字段（不通过云端同步）
-    const cloudConfig = result.data;
-    const localConfig = await getConfigFn();
+    const cloudConfig = normalizeCloudRulesConfig(result.data);
     const mergedConfig = {
       ...cloudConfig,
       // 终端专属字段：不通过云端同步，始终使用本地值

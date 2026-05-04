@@ -61,10 +61,19 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 }
 
 const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents', 'clearEvents', 'EVENT_TYPE']);
+const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
+  'STALE_GAP_THRESHOLD',
+  'clampTime',
+  'getReliableCloseTime',
+  'getCappedElapsedMs',
+  'isFiniteTime',
+  'isStaleSession',
+]);
 const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'saveSession', 'transitionState', 'heartbeat'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {}, // no-op for unit tests
+  getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
 });
 
 function countMaxOpen(events) {
@@ -202,6 +211,163 @@ async function runTests() {
       ));
       check('stale gap 不应保留在新 session.startTime 中', session.startTime === base + 130000);
       check('stale gap 后 session 仍保持原 state/domain', session.state === 'ACTIVE' && session.domain === 'stall.test');
+    } finally {
+      Date.now = originalNow;
+    }
+  }
+
+  section('SQ-5 stale transition closes old segment at last heartbeat and opens new at now');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    await eventApi.clearEvents();
+
+    const originalNow = Date.now;
+    const base = 1777201000000;
+    try {
+      Date.now = () => base;
+      await sessionApi.saveSession({
+        state: 'ACTIVE',
+        domain: 'old.test',
+        startTime: base,
+        lastHeartbeat: base + 10_000,
+      });
+      await eventApi.appendEvent({
+        type: eventApi.EVENT_TYPE.START,
+        state: 'ACTIVE',
+        domain: 'old.test',
+        time: base,
+      });
+
+      Date.now = () => base + 130_000;
+      await sessionApi.transitionState('PASSIVE', 'new.test');
+
+      const events = await eventApi.getEvents();
+      const session = await sessionApi.getSession();
+      check('stale transition END 应截断到 lastHeartbeat', events.some(e =>
+        e.type === eventApi.EVENT_TYPE.END &&
+        e.state === 'ACTIVE' &&
+        e.domain === 'old.test' &&
+        e.time === base + 10_000
+      ));
+      check('stale transition 新 START 应从 now 开始', events.some(e =>
+        e.type === eventApi.EVENT_TYPE.START &&
+        e.state === 'PASSIVE' &&
+        e.domain === 'new.test' &&
+        e.time === base + 130_000
+      ));
+      check('新 session.startTime 使用 now', session.startTime === base + 130_000);
+    } finally {
+      Date.now = originalNow;
+    }
+  }
+
+  section('SQ-6 non-stale transition still closes at now');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    await eventApi.clearEvents();
+
+    const originalNow = Date.now;
+    const base = 1777202000000;
+    try {
+      Date.now = () => base;
+      await sessionApi.saveSession({
+        state: 'ACTIVE',
+        domain: 'fresh.test',
+        startTime: base,
+        lastHeartbeat: base + 30_000,
+      });
+      await eventApi.appendEvent({
+        type: eventApi.EVENT_TYPE.START,
+        state: 'ACTIVE',
+        domain: 'fresh.test',
+        time: base,
+      });
+
+      Date.now = () => base + 60_000;
+      await sessionApi.transitionState(null, null);
+
+      const events = await eventApi.getEvents();
+      check('non-stale transition END 应使用 now', events.some(e =>
+        e.type === eventApi.EVENT_TYPE.END &&
+        e.domain === 'fresh.test' &&
+        e.time === base + 60_000
+      ));
+    } finally {
+      Date.now = originalNow;
+    }
+  }
+
+  section('SQ-7 stale boundary applies to background audio and PiP states');
+  {
+    for (const state of ['BACKGROUND_ACTIVE', 'PIP_ACTIVE']) {
+      mockSessionStorage.reset();
+      mockLocalStorage.reset();
+      await eventApi.clearEvents();
+
+      const originalNow = Date.now;
+      const base = 1777203000000;
+      try {
+        Date.now = () => base;
+        await sessionApi.saveSession({
+          state,
+          domain: `${state.toLowerCase()}.test`,
+          startTime: base,
+          lastHeartbeat: base + 5_000,
+        });
+        await eventApi.appendEvent({
+          type: eventApi.EVENT_TYPE.START,
+          state,
+          domain: `${state.toLowerCase()}.test`,
+          time: base,
+        });
+
+        Date.now = () => base + 130_000;
+        await sessionApi.transitionState(null, null);
+
+        const events = await eventApi.getEvents();
+        check(`${state} stale END 应截断到 lastHeartbeat`, events.some(e =>
+          e.type === eventApi.EVENT_TYPE.END &&
+          e.state === state &&
+          e.time === base + 5_000
+        ));
+      } finally {
+        Date.now = originalNow;
+      }
+    }
+  }
+
+  section('SQ-8 invalid lastHeartbeat cannot produce backwards END');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    await eventApi.clearEvents();
+
+    const originalNow = Date.now;
+    const base = 1777204000000;
+    try {
+      Date.now = () => base;
+      await sessionApi.saveSession({
+        state: 'ACTIVE',
+        domain: 'invalid-heartbeat.test',
+        startTime: base,
+        lastHeartbeat: base - 30_000,
+      });
+      await eventApi.appendEvent({
+        type: eventApi.EVENT_TYPE.START,
+        state: 'ACTIVE',
+        domain: 'invalid-heartbeat.test',
+        time: base,
+      });
+
+      Date.now = () => base + 130_000;
+      await sessionApi.transitionState(null, null);
+
+      const events = await eventApi.getEvents();
+      const endEvent = events.find(e => e.type === eventApi.EVENT_TYPE.END && e.domain === 'invalid-heartbeat.test');
+      check('lastHeartbeat 早于 startTime 时 END 不早于 startTime', endEvent?.time >= base);
+      check('lastHeartbeat 早于 startTime 时 END 不晚于 now', endEvent?.time <= base + 130_000);
     } finally {
       Date.now = originalNow;
     }

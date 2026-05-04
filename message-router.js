@@ -1,10 +1,13 @@
 // message-router.js — 命令路由
 
-import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain } from './infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission } from './infra/storage.js';
+import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules, checkAndRemind, redirectToReminder } from './product/interceptor.js';
 import { checkAllTabsQuota, borrowRestQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
 import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync } from './infra/cloud-sync.js';
 import { getTodayStatsWithCategories } from './product/analytics.js';
+import { getSession as getTimingSession } from './runtime/session.js';
+import { getCappedElapsedMs } from './runtime/time-boundary.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -24,6 +27,55 @@ function isAuthorizedBorrowSender(sender) {
   }
 }
 
+function getLocalDayRange(date = new Date()) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime();
+  return { start, end };
+}
+
+function buildTodayTimelineSegmentsFromEventLog(events, now = new Date()) {
+  const { start, end } = getLocalDayRange(now);
+  const segments = [];
+  let openStart = null;
+  for (const evt of events) {
+    if (!evt || typeof evt.time !== 'number' || Number.isNaN(evt.time)) continue;
+    if (evt.type === 'START') {
+      openStart = evt;
+      continue;
+    }
+    if (evt.type !== 'END' || !openStart) continue;
+    if (openStart.state !== 'ACTIVE') {
+      openStart = null;
+      continue;
+    }
+    if (typeof openStart.domain !== 'string' || !openStart.domain.trim()) {
+      openStart = null;
+      continue;
+    }
+
+    const segmentStart = Math.max(openStart.time, start);
+    const segmentEnd = Math.min(evt.time, end);
+    const duration = Math.floor((segmentEnd - segmentStart) / 1000);
+    if (duration > 0) {
+      segments.push({
+        startAt: segmentStart,
+        duration,
+        state: openStart.state || null,
+        domain: openStart.domain || null,
+      });
+    }
+    openStart = null;
+  }
+  return segments;
+}
+
+function normalizeMode(mode) {
+  if (mode === 'whitelist') return 'study';
+  if (mode === 'blacklist') return 'rest';
+  if (mode === 'study' || mode === 'composite' || mode === 'rest' || mode === 'paused') return mode;
+  return 'study';
+}
+
 export async function handleMessage(msg, sender) {
   switch (msg.type) {
     case 'GET_CONFIG':
@@ -37,6 +89,10 @@ export async function handleMessage(msg, sender) {
 
     case 'UPDATE_CONFIG': {
       const newConfig = msg.config;
+      const nextMode = newConfig?.mode === 'whitelist' ? 'study' : (newConfig?.mode === 'blacklist' ? 'rest' : newConfig?.mode);
+      if (nextMode && nextMode !== 'study') {
+        await clearTemporaryCompositeDomains();
+      }
       await saveConfig(newConfig);
       await updateDeclarativeRules(newConfig);
       return { ok: true };
@@ -51,8 +107,16 @@ export async function handleMessage(msg, sender) {
     case 'GET_SESSION':
       return await getSession();
 
+    case 'GET_RUNTIME_MODE_STATUS':
+      return await getRuntimeModeStatus();
+
     case 'GET_VISIT_SESSIONS':
       return await getVisitSessions(msg.days || 14);
+
+    case 'GET_TIMELINE_SEGMENTS': {
+      const events = await getEvents();
+      return buildTodayTimelineSegmentsFromEventLog(events, new Date());
+    }
 
     case 'GET_CHANGELOG':
       return await getChangelog(msg.limit || 20);
@@ -63,8 +127,11 @@ export async function handleMessage(msg, sender) {
     case 'SWITCH_TO_REST':
       return await switchToRest();
 
+    case 'SWITCH_TO_COMPOSITE':
+      return await switchToComposite();
+
     case 'ADD_TO_COMPOSITE_LIST':
-      return await addToCompositeList(msg.domain);
+      return await addToCompositeList(msg.domain, sender?.tab?.id ?? null);
 
     case 'SEND_CLOUD_EVENT': {
       const { eventType, domain: evtDomain = '' } = msg;
@@ -242,16 +309,45 @@ async function reevaluateActiveTabAfterModeSwitch() {
 async function closeNonStudyPictureInPicture(config) {
   const tabs = await chrome.tabs.query({});
   const studyList = config.studyList || [];
+  const compositeList = config.compositeList || [];
+  const restrictedList = config.restrictedEntertainmentList || [];
+  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
+  const quotaState = config.quotaState || {};
+  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+
+  if (currentMode !== 'study') return;
+
+  const shouldClosePiPForDomain = (domain) => {
+    const isUnsafe = unsafeList.some(p => matchDomain(domain, p));
+    if (isUnsafe) return true;
+
+    if (quotaState.onlineLocked) return true;
+
+    const isStudy = studyList.some(p => matchDomain(domain, p));
+    const isComposite = compositeList.some(p => matchDomain(domain, p));
+    const isRestricted = restrictedList.some(p => matchDomain(domain, p));
+
+    if (isStudy) {
+      return !!quotaState.studyLocked;
+    }
+    if (isComposite) {
+      return !!quotaState.undeterminedLocked;
+    }
+    if (isRestricted) {
+      return true;
+    }
+    return true;
+  };
+
   for (const tab of tabs) {
     if (!tab?.id || !tab.url) continue;
     const domain = extractDomain(tab.url);
     if (!domain) continue;
-    const isStudy = studyList.some(p => matchDomain(domain, p));
-    if (isStudy) continue;
+    if (!shouldClosePiPForDomain(domain)) continue;
 
     try {
       if (chrome.scripting?.executeScript) {
-        await chrome.scripting.executeScript({
+        const result = await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
           func: async () => {
             try {
@@ -263,6 +359,10 @@ async function closeNonStudyPictureInPicture(config) {
             return false;
           },
         });
+        const closedByScript = Array.isArray(result) && result.some((entry) => entry?.result === true);
+        if (!closedByScript) {
+          await chrome.tabs.sendMessage(tab.id, { type: 'EXIT_PIP' }).catch(() => {});
+        }
       } else {
         await chrome.tabs.sendMessage(tab.id, { type: 'EXIT_PIP' });
       }
@@ -272,6 +372,7 @@ async function closeNonStudyPictureInPicture(config) {
 
 async function switchToStudy() {
   const config = await getConfig();
+  await clearTemporaryCompositeDomains();
   config.mode = 'study';
   await saveConfig(config);
   await updateDeclarativeRules(config);
@@ -283,8 +384,22 @@ async function switchToStudy() {
   return session;
 }
 
+async function switchToComposite() {
+  const config = await getConfig();
+  await clearTemporaryCompositeDomains();
+  config.mode = 'composite';
+  await saveConfig(config);
+  await updateDeclarativeRules(config);
+  const session = await getSession();
+  session.currentMode = 'composite';
+  await chrome.storage.local.set({ guardian_session: session });
+  await reevaluateActiveTabAfterModeSwitch();
+  return session;
+}
+
 async function switchToRest() {
   const config = await getConfig();
+  await clearTemporaryCompositeDomains();
   config.mode = 'rest';
   await saveConfig(config);
   await updateDeclarativeRules(config);
@@ -297,18 +412,95 @@ async function switchToRest() {
 
 // ── Add to composite list ───────────────────────────────────────────────────────
 
-async function addToCompositeList(domain) {
+async function addToCompositeList(domain, tabId) {
   const config = await getConfig();
   const list = config.compositeList || [];
+  const restrictedList = config.restrictedEntertainmentList || [];
+  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
+  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
+  const quotaState = config.quotaState || {};
+  if (!Number.isInteger(tabId) || tabId < 0) {
+    return { domain, added: false, error: 'invalid_tab_context', code: 'INVALID_TAB_CONTEXT' };
+  }
 
   const alreadyInComposite = list.some(d => matchDomain(domain, d));
+  const alreadyInTemporaryComposite = await hasTemporaryCompositePermission(tabId, domain);
   const alreadyInStudy = (config.studyList || []).some(d => matchDomain(domain, d));
-  if (alreadyInComposite || alreadyInStudy) {
+  const isRestricted = restrictedList.some(d => matchDomain(domain, d));
+  const isUnsafe = unsafeList.some(d => matchDomain(domain, d));
+
+  if (currentMode !== 'study') {
+    return { domain, added: false, error: 'not_in_study_mode', code: 'NOT_IN_STUDY_MODE' };
+  }
+  if (quotaState.onlineLocked) {
+    return { domain, added: false, error: 'online_quota_locked', code: 'ONLINE_QUOTA_LOCKED' };
+  }
+  if (quotaState.undeterminedLocked) {
+    return { domain, added: false, error: 'undetermined_quota_locked', code: 'UNDETERMINED_QUOTA_LOCKED' };
+  }
+  if (isRestricted) {
+    return { domain, added: false, error: 'domain_in_restricted_list', code: 'DOMAIN_IN_RESTRICTED_LIST' };
+  }
+  if (isUnsafe) {
+    return { domain, added: false, error: 'domain_in_unsafe_list', code: 'DOMAIN_IN_UNSAFE_LIST' };
+  }
+  if (alreadyInComposite || alreadyInStudy || alreadyInTemporaryComposite) {
     return { domain, alreadyPresent: true };
   }
 
-  config.compositeList = [...list, domain];
-  await saveConfig(config);
-  await updateDeclarativeRules(config);
+  const addResult = await addTemporaryCompositeDomain(tabId, domain);
+  if (!addResult.added) {
+    return { domain, alreadyPresent: true };
+  }
   return { domain, added: true };
+}
+
+async function getRuntimeModeStatus() {
+  const config = await getConfig();
+  const [session, statsWithCategories] = await Promise.all([
+    getSession(),
+    getTodayStatsWithCategories(config),
+  ]);
+  const monitoringEnabled = getSyncState().monitoringEnabled;
+  const mode = monitoringEnabled === 0 ? 'paused' : normalizeMode(session?.currentMode || config?.mode);
+
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const activeTab = tabs && tabs[0];
+  const currentDomain = extractDomain(activeTab?.url || '');
+
+  let currentSessionDurationSeconds = null;
+  try {
+    const timingSession = await getTimingSession();
+    if (timingSession?.state === 'ACTIVE' && timingSession?.startTime) {
+      currentSessionDurationSeconds = Math.max(0, Math.floor(getCappedElapsedMs(timingSession, Date.now()) / 1000));
+    }
+  } catch {}
+
+  const compositeUsedSeconds = Math.max(0, Number(statsWithCategories?.undeterminedSeconds) || 0);
+  const compositeLimitSeconds = Math.max(0, (config.dailyUndeterminedQuota ?? 60) * 60);
+  const compositeRemainingSeconds = Math.max(0, compositeLimitSeconds - compositeUsedSeconds);
+
+  const effectiveRestLimitMinutes = (() => {
+    const baseLimit = config.dailyRestQuota ?? 120;
+    const borrow = config.quotaBorrow;
+    if (!borrow || borrow.repaid) return baseLimit;
+    const today = getDateKey();
+    if (today === borrow.borrowedFrom) return baseLimit + borrow.amount;
+    const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
+    repayD.setDate(repayD.getDate() + 1);
+    const repayStr = formatDate(repayD);
+    if (today === repayStr) return Math.max(0, baseLimit - borrow.amount);
+    return baseLimit;
+  })();
+  const restLimitSeconds = Math.max(0, effectiveRestLimitMinutes * 60);
+  const restUsedSeconds = Math.max(0, Number(statsWithCategories?.restSeconds) || 0);
+  const restRemainingSeconds = Math.max(0, restLimitSeconds - restUsedSeconds);
+
+  return {
+    mode,
+    currentDomain: currentDomain || null,
+    currentSessionDurationSeconds,
+    compositeRemainingSeconds,
+    restRemainingSeconds,
+  };
 }
