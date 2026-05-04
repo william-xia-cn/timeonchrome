@@ -13,6 +13,11 @@ const autoTransitionCandidates = new Map();
 const autoModePendingByTab = new Map();
 const STUDY_PENDING_RULES = new Set(['rest_to_study', 'composite_to_study']);
 
+// Pending success notices stored by tabId for reliable delivery after reload.
+// TTL: 30 seconds — covers content script re-injection after page reload.
+const pendingSuccessNoticesByTab = new Map();
+const PENDING_NOTICE_TTL_MS = 30_000;
+
 // ── Schedule check ──────────────────────────────────────────────────────────────
 
 export function isWithinSchedule(schedule) {
@@ -83,11 +88,55 @@ async function sendTabPendingMessage(tabId, payload, fallbackMessage = null) {
   if (!Number.isInteger(tabId) || tabId < 0) return false;
   try {
     await chrome.tabs.sendMessage(tabId, payload);
+    // Store pending success notice for reliable re-delivery after reload
+    if (payload?.type === 'AUTO_MODE_PENDING_SUCCESS') {
+      pendingSuccessNoticesByTab.set(tabId, {
+        payload: { ...payload },
+        storedAt: Date.now(),
+      });
+    }
     return true;
   } catch {
+    // Store pending notice even on first-send failure (content script not ready)
+    if (payload?.type === 'AUTO_MODE_PENDING_SUCCESS') {
+      pendingSuccessNoticesByTab.set(tabId, {
+        payload: { ...payload },
+        storedAt: Date.now(),
+      });
+    }
     if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
     return false;
   }
+}
+
+/**
+ * Re-send pending success notice to a tab that just became ready.
+ * Returns true if a notice was found and re-sent successfully.
+ */
+export async function reSendPendingNotice(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) return false;
+  const stored = pendingSuccessNoticesByTab.get(tabId);
+  if (!stored) return false;
+  // Check TTL
+  if (Date.now() - stored.storedAt > PENDING_NOTICE_TTL_MS) {
+    pendingSuccessNoticesByTab.delete(tabId);
+    return false;
+  }
+  try {
+    await chrome.tabs.sendMessage(tabId, stored.payload);
+    pendingSuccessNoticesByTab.delete(tabId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clear pending notice for a tab (called when transition is cancelled or completed).
+ */
+export function clearPendingNotice(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  pendingSuccessNoticesByTab.delete(tabId);
 }
 
 async function computeCompositeRemainingSeconds(config) {
@@ -109,6 +158,7 @@ async function clearAutoModePending(tabId, reason = 'cancel') {
   if (!Number.isInteger(tabId) || tabId < 0) return;
   if (!autoModePendingByTab.has(tabId)) return;
   autoModePendingByTab.delete(tabId);
+  clearPendingNotice(tabId);
   await sendTabPendingMessage(tabId, { type: 'AUTO_MODE_PENDING_CANCEL', reason });
 }
 
@@ -400,6 +450,7 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
     if (!isStudyDomain && !isCompositeDomain) {
       await redirectToReminder(tabId, domain, 'to_rest_confirm', config.blockMessage, {
         restLocked: qs.restLocked ? '1' : null,
+        siteType: isRestricted ? 'restricted' : 'unclassified',
       });
       return true;
     }

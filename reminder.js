@@ -52,8 +52,25 @@
   const slideThumb = document.getElementById('slideThumb');
   const slideHint = document.getElementById('slideHint');
   const restQuotaLine = document.getElementById('restQuotaLine');
+
+  // Dual-path elements (study_mode Case #5/#6)
+  const dualPathCompositeSection = document.getElementById('dualPathCompositeSection');
+  const dualPathCompositeBody = document.getElementById('dualPathCompositeBody');
+  const slideConfirmWrapComposite = document.getElementById('slideConfirmWrapComposite');
+  const slideTrackComposite = document.getElementById('slideTrackComposite');
+  const slideThumbComposite = document.getElementById('slideThumbComposite');
+  const slideHintComposite = document.getElementById('slideHintComposite');
+
+  // Dual-path borrow elements (Case #6 restLocked variant)
+  const dualPathBorrowSection = document.getElementById('dualPathBorrowSection');
+  const dualPathBorrowBody = document.getElementById('dualPathBorrowBody');
+  const slideConfirmWrapBorrow = document.getElementById('slideConfirmWrapBorrow');
+  const slideTrackBorrow = document.getElementById('slideTrackBorrow');
+  const slideThumbBorrow = document.getElementById('slideThumbBorrow');
+  const slideHintBorrow = document.getElementById('slideHintBorrow');
+
   const CONFIRM_STANDARD_REASONS = new Set(['to_composite_confirm', 'to_rest_confirm']);
-  const CONFIRM_INFO_REASONS = new Set(['to_composite_confirm', 'to_rest_confirm', 'to_rest_slide_confirm']);
+  const CONFIRM_INFO_REASONS = new Set(['to_composite_confirm', 'to_rest_confirm', 'to_rest_slide_confirm', 'study_mode']);
   let slideBound = false;
 
   function getInteractionStyle(el) {
@@ -112,14 +129,14 @@
   // 原因配置
   const configs = {
     unsafe: {
-      icon: '🛡️', title: '此网站不适合访问',
-      subtitle: '基于年龄和安全考虑，建议不要访问此类网站',
+      icon: '🛡️', title: '此网站不可访问',
+      subtitle: '该网站属于禁止访问范围。',
       actions: ['back']
     },
     study_mode: {
-      icon: '📖', title: '当前是学习模式',
-      subtitle: '这个网站不在你的学习网站中。本次标签页访问内有效，占用综合时间，不计入学习时间。',
-      actions: ['addComposite', 'switchToRest', 'back']
+      icon: '🔍', title: '你正在打开未归类网站',
+      subtitle: '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。',
+      actions: ['backToStudy']
     },
     to_composite_confirm: {
       icon: '🧭', title: '你正在打开综合网站',
@@ -132,7 +149,7 @@
       actions: ['switchToRest', 'backGeneric']
     },
     to_rest_slide_confirm: {
-      icon: '☕', title: '你正在离开学习时间',
+      icon: '🎮', title: '你正在打开受限娱乐网站',
       subtitle: '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。',
       actions: ['backToStudy']
     },
@@ -331,8 +348,28 @@
   if (reason === 'blacklist') effectiveReason = 'unsafe';
   if (reason === 'whitelist') effectiveReason = 'study_mode';
 
-  // 设置页面内容
-  var config = configs[effectiveReason] || configs.unsafe;
+  // V0: All known reasons must map to explicit configs.
+  // Unknown/missing reason → safe error/cancel-only state, not a generic product page.
+  var V0_KNOWN_REASONS = new Set([
+    'unsafe', 'study_mode', 'to_composite_confirm', 'to_rest_confirm',
+    'to_rest_slide_confirm', 'restricted_study_mode',
+    'quota_composite', 'quota_composite_and_rest', 'quota_rest',
+    'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule'
+  ]);
+
+  var config;
+  var isUnknownReason = false;
+  if (V0_KNOWN_REASONS.has(effectiveReason)) {
+    config = configs[effectiveReason] || configs.unsafe;
+  } else {
+    isUnknownReason = true;
+    config = {
+      icon: '⚠️', title: '页面异常',
+      subtitle: '无法识别当前提醒类型。请返回重试。',
+      actions: ['backGeneric']
+    };
+    console.warn('[reminder] unknown reason:', reason, 'url:', location.href);
+  }
   if (effectiveReason === 'to_rest_slide_confirm') {
     config = {
       ...config,
@@ -340,20 +377,12 @@
     };
   }
 
-  // Quota-aware rendering for Rest exhausted variants
+  // Quota-aware rendering for Rest exhausted variants (non-study_mode reasons)
   var restExhaustedOverride = null;
   var restLockedFromUrl = params.get('restLocked') === '1';
-  if (restLockedFromUrl && (effectiveReason === 'study_mode' || effectiveReason === 'to_rest_slide_confirm' || effectiveReason === 'to_rest_confirm')) {
+  if (restLockedFromUrl && effectiveReason !== 'study_mode' && (effectiveReason === 'to_rest_slide_confirm' || effectiveReason === 'to_rest_confirm')) {
     var override = null;
-    if (effectiveReason === 'study_mode') {
-      // Unclassified + Rest exhausted: keep Composite application + add borrow
-      override = {
-        icon: config.icon,
-        title: config.title,
-        subtitle: config.subtitle + '\n\n今天的休息时间已用完。继续休息使用需要向明天借用休息时间。',
-        actions: ['addComposite', 'borrowTime', 'backToStudy']
-      };
-    } else if (effectiveReason === 'to_rest_slide_confirm') {
+    if (effectiveReason === 'to_rest_slide_confirm') {
       // Restricted + Rest exhausted: borrow + restricted warning, no Composite apply
       override = {
         icon: config.icon,
@@ -383,7 +412,7 @@
     document.body.classList.add('confirm-standard');
   }
 
-  if (CONFIRM_INFO_REASONS.has(effectiveReason) && restQuotaLine) {
+  if (CONFIRM_INFO_REASONS.has(effectiveReason) && effectiveReason !== 'study_mode' && restQuotaLine) {
     restQuotaLine.textContent = '剩余时间计算中...';
     restQuotaLine.style.display = 'block';
     chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
@@ -427,10 +456,19 @@
     });
 
     document.body.classList.add('study-rest-reminder');
-    if (slideConfirmWrap) slideConfirmWrap.style.display = 'block';
-    if (slideThumb) slideThumb.textContent = '⇢ 拖动确认';
-    if (slideHint) slideHint.style.display = 'none';
-    bindSlideConfirm();
+    bindSlideConfirm({
+      onConfirm: function() {
+        chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function(result) {
+          showStatus('已切换到休息模式，正在跳转…', 'success');
+          if (domain && domain !== 'all') {
+            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+          }
+        });
+      },
+      dragText: '确认进入休息时间',
+      releaseText: '松手确认',
+      boundFlag: 'slideBound',
+    });
 
     // Detect DOM replacement/removal after bindings.
     const observeRoot = slideConfirmWrap?.parentElement || document.body;
@@ -454,14 +492,261 @@
     }
   }
 
-  // 显示自定义消息（如有）
-  var customMsgEl = document.getElementById('customMsg');
-  if (msg && customMsgEl) {
-    customMsgEl.textContent = decodeURIComponent(msg);
-    customMsgEl.style.display = 'block';
+  // Study → Unclassified dual-path (Case #5/#6)
+  if (effectiveReason === 'study_mode') {
+    document.body.classList.add('study-rest-reminder');
+
+    // Override config to prevent legacy button rendering (sliders handle rest/apply/borrow)
+    config.subtitle = '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。';
+    config.actions = ['backToStudy'];
+
+    // Default path: enter rest
+    if (subtitle) {
+      subtitle.textContent = config.subtitle;
+    }
+
+    // Show rest quota line
+    if (restQuotaLine) {
+      restQuotaLine.textContent = '剩余时间计算中...';
+      restQuotaLine.style.display = 'block';
+      chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
+        if (!restQuotaLine) return;
+        if (!status) {
+          restQuotaLine.textContent = '剩余时间：暂不可用';
+          return;
+        }
+        const remainingRest = formatDurationCN(status.restRemainingSeconds || 0);
+        restQuotaLine.textContent = `今日休息时间剩余：${remainingRest}`;
+      });
+    }
+
+    // Bind rest slider
+    bindSlideConfirm({
+      onConfirm: function() {
+        chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function(result) {
+          showStatus('已切换到休息模式，正在跳转…', 'success');
+          if (domain && domain !== 'all') {
+            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+          }
+        });
+      },
+      dragText: '确认进入休息时间',
+      releaseText: '松手确认',
+      boundFlag: 'slideBound',
+    });
+
+    // Application path: apply composite time
+    if (dualPathCompositeSection) dualPathCompositeSection.style.display = 'block';
+    if (slideConfirmWrapComposite) slideConfirmWrapComposite.style.display = 'block';
+
+    // Bind composite slider
+    bindSlideConfirm({
+      track: slideTrackComposite,
+      thumb: slideThumbComposite,
+      hint: slideHintComposite,
+      wrap: slideConfirmWrapComposite,
+      onConfirm: function() {
+        chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: domain }, function(result) {
+          if (result && result.added) {
+            chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
+            chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
+              const remainingComposite = status ? formatDurationCN(status.compositeRemainingSeconds || 0) : '计算中';
+              showStatus(`已允许今天使用综合时间访问 · 今日剩余 ${remainingComposite}`, 'success');
+              if (domain && domain !== 'all') {
+                setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+              }
+            });
+          } else if (result && result.alreadyPresent) {
+            showStatus('该网站已在列表中', 'info');
+          } else {
+            showStatus('操作失败，请稍后重试', 'error');
+          }
+        });
+      },
+      dragText: '申请使用综合时间',
+      releaseText: '松手确认',
+      boundFlag: 'compositeSlideBound',
+    });
+
+    // Rest exhausted variant (Case #6)
+    var restLockedFromUrl = params.get('restLocked') === '1';
+    if (restLockedFromUrl) {
+      // Append borrow text to default path body
+      if (subtitle) {
+        subtitle.textContent = config.subtitle + '\n\n今天的休息时间已用完。继续休息使用需要向明天借用休息时间。';
+      }
+
+      // Show borrow section
+      if (dualPathBorrowSection) dualPathBorrowSection.style.display = 'block';
+      if (slideConfirmWrapBorrow) slideConfirmWrapBorrow.style.display = 'block';
+
+      // Bind borrow slider
+      bindSlideConfirm({
+        track: slideTrackBorrow,
+        thumb: slideThumbBorrow,
+        hint: slideHintBorrow,
+        wrap: slideConfirmWrapBorrow,
+        onConfirm: function() {
+          chrome.runtime.sendMessage({ type: 'BORROW_REST_QUOTA' }, function(result) {
+            if (result && result.ok) {
+              showStatus('✓ 已借用 ' + result.amount + ' 分钟，刷新页面试试', 'success');
+            } else if (result && result.error && BORROW_ERROR_MESSAGES[result.error]) {
+              showStatus(BORROW_ERROR_MESSAGES[result.error], 'info');
+            } else {
+              showStatus('借用失败：' + ((result && result.error) || '未知错误'), 'error');
+            }
+          });
+        },
+        dragText: '向明天借用休息时间',
+        releaseText: '松手确认',
+        boundFlag: 'borrowSlideBound',
+      });
+    }
   }
+
+  // Composite → Unclassified/Restricted dual-path (Case #14/#15/#16/#17)
+  if (effectiveReason === 'to_rest_confirm') {
+    document.body.classList.add('study-rest-reminder');
+    var siteType = params.get('siteType') || 'unclassified';
+    var isRestrictedSite = siteType === 'restricted';
+
+    // Override config to prevent legacy button rendering (sliders handle rest/apply/borrow)
+    if (isRestrictedSite) {
+      config.title = '你正在打开受限娱乐网站';
+      config.subtitle = '继续后，这段时间会计入「休息时间」，不会计入「综合时间」。';
+    } else {
+      config.title = '你正在打开未归类网站';
+      config.subtitle = '继续后，这段时间会计入「休息时间」，不会计入「综合时间」。';
+    }
+    // Re-apply title to DOM after dual-path override (fixes T-R4/T-R5 title mismatch)
+    if (mainTitle) mainTitle.textContent = config.title;
+    config.actions = ['backGeneric'];
+
+    // Default path: enter rest
+    if (subtitle) {
+      subtitle.textContent = config.subtitle;
+    }
+
+    // Show rest quota line
+    if (restQuotaLine) {
+      restQuotaLine.textContent = '剩余时间计算中...';
+      restQuotaLine.style.display = 'block';
+      chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
+        if (!restQuotaLine) return;
+        if (!status) {
+          restQuotaLine.textContent = '剩余时间：暂不可用';
+          return;
+        }
+        const remainingRest = formatDurationCN(status.restRemainingSeconds || 0);
+        restQuotaLine.textContent = `今日休息时间剩余：${remainingRest}`;
+      });
+    }
+
+    // Bind rest slider (default path for both unclassified and restricted)
+    bindSlideConfirm({
+      onConfirm: function() {
+        chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, function(result) {
+          showStatus('已切换到休息模式，正在跳转…', 'success');
+          if (domain && domain !== 'all') {
+            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+          }
+        });
+      },
+      dragText: '确认进入休息时间',
+      releaseText: '松手确认',
+      boundFlag: 'slideBound',
+    });
+
+    // Application path: apply composite time (ONLY for unclassified sites)
+    if (!isRestrictedSite) {
+      if (dualPathCompositeSection) dualPathCompositeSection.style.display = 'block';
+      if (slideConfirmWrapComposite) slideConfirmWrapComposite.style.display = 'block';
+
+      // Bind composite slider
+      bindSlideConfirm({
+        track: slideTrackComposite,
+        thumb: slideThumbComposite,
+        hint: slideHintComposite,
+        wrap: slideConfirmWrapComposite,
+        onConfirm: function() {
+          chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: domain }, function(result) {
+            if (result && result.added) {
+              chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
+              chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
+                const remainingComposite = status ? formatDurationCN(status.compositeRemainingSeconds || 0) : '计算中';
+                showStatus(`已允许今天使用综合时间访问 · 今日剩余 ${remainingComposite}`, 'success');
+                if (domain && domain !== 'all') {
+                  setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
+                }
+              });
+            } else if (result && result.alreadyPresent) {
+              showStatus('该网站已在列表中', 'info');
+            } else {
+              showStatus('操作失败，请稍后重试', 'error');
+            }
+          });
+        },
+        dragText: '申请使用综合时间',
+        releaseText: '松手确认',
+        boundFlag: 'compositeSlideBound',
+      });
+    } else {
+      // Restricted site: show "cannot apply composite" notice
+      if (dualPathCompositeSection) {
+        dualPathCompositeSection.style.display = 'block';
+        if (dualPathCompositeBody) {
+          dualPathCompositeBody.textContent = '该网站不能申请使用综合时间。';
+        }
+        if (slideConfirmWrapComposite) slideConfirmWrapComposite.style.display = 'none';
+      }
+    }
+
+    // Rest exhausted variant (Case #15/#17)
+    var restLockedFromUrl = params.get('restLocked') === '1';
+    if (restLockedFromUrl) {
+      // Append borrow text to default path body
+      if (subtitle) {
+        if (isRestrictedSite) {
+          subtitle.textContent = config.subtitle + '\n\n今天的休息时间已用完。如果仍要继续访问，可以向明天借用休息时间。';
+        } else {
+          subtitle.textContent = config.subtitle + '\n\n今天的休息时间已用完。继续休息使用需要向明天借用休息时间。';
+        }
+      }
+
+      // Show borrow section
+      if (dualPathBorrowSection) dualPathBorrowSection.style.display = 'block';
+      if (slideConfirmWrapBorrow) slideConfirmWrapBorrow.style.display = 'block';
+
+      // Bind borrow slider
+      bindSlideConfirm({
+        track: slideTrackBorrow,
+        thumb: slideThumbBorrow,
+        hint: slideHintBorrow,
+        wrap: slideConfirmWrapBorrow,
+        onConfirm: function() {
+          chrome.runtime.sendMessage({ type: 'BORROW_REST_QUOTA' }, function(result) {
+            if (result && result.ok) {
+              showStatus('✓ 已借用 ' + result.amount + ' 分钟，刷新页面试试', 'success');
+            } else if (result && result.error && BORROW_ERROR_MESSAGES[result.error]) {
+              showStatus(BORROW_ERROR_MESSAGES[result.error], 'info');
+            } else {
+              showStatus('借用失败：' + ((result && result.error) || '未知错误'), 'error');
+            }
+          });
+        },
+        dragText: '向明天借用休息时间',
+        releaseText: '松手确认',
+        boundFlag: 'borrowSlideBound',
+      });
+    }
+  }
+
+  // V0: msg is a legacy blocked.js parameter. Canonical reason configs define all copy.
+  // Never render msg — it can override the intended page semantics visually.
+  var customMsgEl = document.getElementById('customMsg');
+  if (customMsgEl) customMsgEl.style.display = 'none';
   if (domainEl) {
-    if (CONFIRM_STANDARD_REASONS.has(effectiveReason) || effectiveReason === 'to_rest_slide_confirm') {
+    if (CONFIRM_STANDARD_REASONS.has(effectiveReason) || effectiveReason === 'to_rest_slide_confirm' || effectiveReason === 'study_mode') {
       domainEl.style.display = 'none';
     }
     if (domain) {
@@ -487,9 +772,25 @@
     });
   }
 
-  function bindSlideConfirm() {
-    if (slideBound || !slideTrack || !slideThumb) return;
-    slideBound = true;
+  function bindSlideConfirm(options = {}) {
+    const {
+      track = slideTrack,
+      thumb = slideThumb,
+      hint = slideHint,
+      wrap = slideConfirmWrap,
+      onConfirm,
+      dragText = '拖动到右侧确认进入休息时间',
+      releaseText = '松手确认进入休息时间',
+      boundFlag = 'slideBound',
+    } = options;
+
+    if (!track || !thumb) return;
+
+    // Use a per-instance bound flag if provided
+    const boundKey = boundFlag;
+    if (window[boundKey]) return;
+    window[boundKey] = true;
+
     diag('bind_start', {
       pointerTarget: 'slideThumb',
       fallback: { mouse: true, touch: true },
@@ -503,15 +804,18 @@
     var switched = false;
 
     function getMaxOffset() {
-      return Math.max(0, slideTrack.clientWidth - slideThumb.clientWidth);
+      return Math.max(0, track.clientWidth - thumb.clientWidth);
     }
 
     function setThumb(left) {
       var max = getMaxOffset();
       var clamped = Math.max(0, Math.min(max, left));
-      slideThumb.style.left = clamped + 'px';
-      if (slideHint) {
-        slideHint.textContent = clamped >= max * 0.92 ? '松手确认进入休息时间' : '拖动到右侧确认进入休息时间';
+      thumb.style.left = clamped + 'px';
+      if (hint) {
+        hint.textContent = clamped >= max * 0.92 ? releaseText : dragText;
+      }
+      if (thumb) {
+        thumb.textContent = clamped >= max * 0.92 ? releaseText : dragText;
       }
       return { clamped: clamped, max: max };
     }
@@ -520,8 +824,8 @@
       if (switched) return;
       dragging = true;
       startX = clientX;
-      baseLeft = parseFloat(slideThumb.style.left || '0') || 0;
-      diag('begin_drag', { clientX, baseLeft, trackWidth: slideTrack.clientWidth, thumbWidth: slideThumb.clientWidth });
+      baseLeft = parseFloat(thumb.style.left || '0') || 0;
+      diag('begin_drag', { clientX, baseLeft, trackWidth: track.clientWidth, thumbWidth: thumb.clientWidth });
     }
 
     function move(clientX) {
@@ -536,44 +840,28 @@
       });
     }
 
-    function completeSwitch() {
-      if (switched) return;
-      switched = true;
-      const payload = { type: 'SWITCH_TO_REST' };
-      diag('send_switch_to_rest', { payload });
-      chrome.runtime.sendMessage(payload, function(result) {
-        diag('switch_to_rest_callback', {
-          result: result || null,
-          lastError: chrome.runtime?.lastError ? chrome.runtime.lastError.message : null,
-        });
-        showStatus('已切换到休息模式，正在跳转…', 'success');
-        if (domain && domain !== 'all') {
-          setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-        }
-      });
-    }
-
     function end() {
       if (!dragging) return;
       dragging = false;
-      var pos = parseFloat(slideThumb.style.left || '0') || 0;
+      var pos = parseFloat(thumb.style.left || '0') || 0;
       var max = getMaxOffset();
       const passed = pos >= max * 0.92;
       diag('pointer_up', { pos, max, threshold: max * 0.92, passedThreshold: passed });
       if (pos >= max * 0.92) {
-        slideThumb.style.left = max + 'px';
-        completeSwitch();
+        thumb.style.left = max + 'px';
+        if (onConfirm) onConfirm();
       } else {
-        slideThumb.style.left = '0px';
-        if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
+        thumb.style.left = '0px';
+        if (hint) hint.textContent = dragText;
       }
     }
 
-    slideThumb.style.left = '0px';
-    if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
+    thumb.style.left = '0px';
+    if (hint) hint.textContent = dragText;
+    if (wrap) wrap.style.display = 'block';
 
     // Pointer events: primary path for desktop Chrome + touch/pen.
-    slideThumb.addEventListener('pointerdown', function(e) {
+    thumb.addEventListener('pointerdown', function(e) {
       activePointerId = e.pointerId;
       diag('pointer_down', {
         pointerId: e.pointerId,
@@ -582,10 +870,10 @@
         targetClass: e.target?.className || '',
       });
       begin(e.clientX);
-      if (slideThumb.setPointerCapture) {
+      if (thumb.setPointerCapture) {
         let captureOk = false;
         try {
-          slideThumb.setPointerCapture(e.pointerId);
+          thumb.setPointerCapture(e.pointerId);
           captureOk = true;
         } catch (err) {
           diag('set_pointer_capture_error', { message: err?.message || String(err) });
@@ -594,27 +882,27 @@
       }
       e.preventDefault();
     });
-    slideThumb.addEventListener('pointermove', function(e) {
+    thumb.addEventListener('pointermove', function(e) {
       if (!dragging) return;
       if (activePointerId !== null && e.pointerId !== activePointerId) return;
       move(e.clientX);
       e.preventDefault();
     });
-    slideThumb.addEventListener('pointerup', function(e) {
+    thumb.addEventListener('pointerup', function(e) {
       if (activePointerId !== null && e.pointerId !== activePointerId) return;
       end();
-      if (slideThumb.releasePointerCapture) {
-        try { slideThumb.releasePointerCapture(e.pointerId); } catch {}
+      if (thumb.releasePointerCapture) {
+        try { thumb.releasePointerCapture(e.pointerId); } catch {}
       }
       activePointerId = null;
       e.preventDefault();
     });
-    slideThumb.addEventListener('pointercancel', function(e) {
+    thumb.addEventListener('pointercancel', function(e) {
       if (activePointerId !== null && e.pointerId !== activePointerId) return;
       dragging = false;
       activePointerId = null;
-      slideThumb.style.left = '0px';
-      if (slideHint) slideHint.textContent = '拖动到右侧确认进入休息时间';
+      thumb.style.left = '0px';
+      if (hint) hint.textContent = dragText;
       diag('pointer_cancel', {
         pointerId: e.pointerId,
         reason: e.type,
@@ -622,7 +910,7 @@
     });
 
     // Mouse fallback for older environments.
-    slideThumb.addEventListener('mousedown', function(e) {
+    thumb.addEventListener('mousedown', function(e) {
       begin(e.clientX);
       e.preventDefault();
     });
@@ -630,7 +918,7 @@
     window.addEventListener('mouseup', end);
 
     // Touch fallback for older mobile engines.
-    slideThumb.addEventListener('touchstart', function(e) {
+    thumb.addEventListener('touchstart', function(e) {
       begin(e.touches[0].clientX);
       e.preventDefault();
     }, { passive: false });
@@ -655,14 +943,14 @@
       ],
       pointerdownBoundOn: 'slideThumb',
       dimensions: {
-        trackWidth: slideTrack.clientWidth,
-        thumbWidth: slideThumb.clientWidth,
+        trackWidth: track.clientWidth,
+        thumbWidth: thumb.clientWidth,
       },
     });
   }
 
   // 非 Study->Rest 提醒保留背景星点，Study->Rest 用简洁卡片视觉
-  if (starsContainer && effectiveReason !== 'to_rest_slide_confirm') {
+  if (starsContainer && effectiveReason !== 'to_rest_slide_confirm' && effectiveReason !== 'study_mode') {
     for (var i = 0; i < 80; i++) {
       var star = document.createElement('div');
       star.className = 'star';

@@ -7,7 +7,7 @@ import { initSession, transitionState, heartbeat, getSession as getTimingSession
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
-import { updateDeclarativeRules, checkAndRemind, getAutoModePendingStatus, cancelAutoModePendingForTab, cancelAllAutoModePending } from './product/interceptor.js';
+import { updateDeclarativeRules, checkAndRemind, getAutoModePendingStatus, cancelAutoModePendingForTab, cancelAllAutoModePending, reSendPendingNotice } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
 import { initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
 import { handleMessage } from './message-router.js';
@@ -57,15 +57,32 @@ chrome.runtime.onStartup.addListener(async () => {
 // ── 安装/更新 ──────────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  await ensureBootstrapped('onInstalled');
-  await updateDeclarativeRules();
-
+  // 1. 安装路径：优先执行绑定流程，不受 bootstrap 失败影响
   if (details.reason === 'install') {
     const config = { ...DEFAULT_CONFIG };
-    await saveConfig(config);
-    await chrome.storage.local.set({ [SESSION_KEY]: { currentMode: 'study', lastActiveDate: null, studySession: { totalSeconds: 0 }, restSession: { totalSeconds: 0 } } });
-    chrome.tabs.create({ url: chrome.runtime.getURL('bind.html?welcome=1') });
-  } else if (details.reason === 'update') {
+    try {
+      await saveConfig(config);
+      await chrome.storage.local.set({ [SESSION_KEY]: { currentMode: 'study', lastActiveDate: null, studySession: { totalSeconds: 0 }, restSession: { totalSeconds: 0 } } });
+    } catch (err) {
+      console.error('[onInstalled] Failed to save initial config:', err);
+    }
+    try {
+      await chrome.tabs.create({ url: chrome.runtime.getURL('bind.html?welcome=1') });
+    } catch (err) {
+      console.error('[onInstalled] Failed to open bind page:', err);
+    }
+  }
+
+  // 2. Bootstrap + 规则更新：失败不阻断安装流程
+  try {
+    await ensureBootstrapped('onInstalled');
+    await updateDeclarativeRules();
+  } catch (err) {
+    console.error('[onInstalled] Bootstrap/rules failed:', err);
+  }
+
+  // 3. 更新路径：配置迁移（仅 update）
+  if (details.reason === 'update') {
     const stored = await new Promise(resolve => {
       chrome.storage.local.get(['guardian_config', 'guardian_hash'], resolve);
     });
@@ -101,7 +118,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
   }
 
-  await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
+  // 4. 云同步初始化
+  try {
+    await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
+  } catch (err) {
+    console.error('[onInstalled] initCloudSync failed:', err);
+  }
 });
 
 // ── 信号接入 → 上下文 → 状态 → 事件日志 ────────────────────────────────────────
@@ -590,6 +612,20 @@ globalThis.debugClearTimingTrace = async () => {
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Content script ready: re-send any pending auto-mode notice for this tab.
+  // This handles the case where the background sent AUTO_MODE_PENDING_SUCCESS
+  // before the content script's listener was registered (e.g., after page reload).
+  if (msg.type === 'CONTENT_SCRIPT_READY') {
+    const tabId = sender?.tab?.id;
+    if (Number.isInteger(tabId) && tabId > 0) {
+      (async () => {
+        await reSendPendingNotice(tabId);
+      })();
+    }
+    sendResponse({ ok: true });
+    return true;
+  }
+
   // Debug/test-only message handlers (do not affect business logic)
   if (msg.type === 'DEBUG_EXPORT_CALIBRATION') {
     (async () => {

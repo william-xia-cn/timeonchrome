@@ -117,6 +117,9 @@ export const deviceRouter = {
       if (!Array.isArray(configData.defaultCompositeSites)) {
         configData.defaultCompositeSites = siteAccessDefaults.defaultCompositeSites;
       }
+      if (!Array.isArray(configData.defaultUserCompositeSites)) {
+        configData.defaultUserCompositeSites = siteAccessDefaults.defaultUserCompositeSites || [];
+      }
       if (!Array.isArray(configData.defaultRestrictedEntertainmentSites)) {
         configData.defaultRestrictedEntertainmentSites = siteAccessDefaults.defaultRestrictedEntertainmentSites;
       }

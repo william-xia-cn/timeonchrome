@@ -145,6 +145,12 @@
     }
   });
 
+  // Notify background that content script is ready, so any pending auto-mode
+  // notice (sent before listener was registered) can be re-delivered.
+  try {
+    chrome.runtime.sendMessage({ type: 'CONTENT_SCRIPT_READY' });
+  } catch {}
+
   async function exitPictureInPictureIfNeeded() {
     try {
       if (document.pictureInPictureElement && document.exitPictureInPicture) {

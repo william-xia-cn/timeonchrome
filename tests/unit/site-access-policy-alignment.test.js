@@ -95,10 +95,6 @@ for (const domain of policyStudySites) {
 
 // ── Software/Vendor Support Sites in defaultCompositeSites ──
 const vendorSupportDomains = [
-  'www.google.com',
-  'support.google.com',
-  'support.microsoft.com',
-  'answers.microsoft.com',
   'microsoft.com',
   'apple.com',
   'adobe.com',
@@ -110,6 +106,39 @@ console.log('\n── Vendor/Support composite sites ──');
 for (const domain of vendorSupportDomains) {
   check(`${domain} in defaultCompositeSites`, compositeSet.has(domain.toLowerCase()));
 }
+
+// ── Removed sites should NOT be in defaultCompositeSites ──
+const removedCompositeDomains = [
+  'baidu.com',
+  'duckduckgo.com',
+  'search.brave.com',
+  'baike.baidu.com',
+];
+
+console.log('\n── Removed sites NOT in defaultCompositeSites ──');
+for (const domain of removedCompositeDomains) {
+  check(`${domain} NOT in defaultCompositeSites`, !compositeSet.has(domain.toLowerCase()));
+}
+
+// ── defaultUserCompositeSites ──
+const userCompositeDomains = [
+  'youtube.com',
+  'wikipedia.org',
+  'wikimedia.org',
+  'britannica.com',
+  'stackoverflow.com',
+  'stackexchange.com',
+  'reddit.com',
+];
+
+const userCompositeSet = new Set((defaults.defaultUserCompositeSites || []).map(d => d.toLowerCase()));
+
+console.log('\n── User-default composite sites ──');
+for (const domain of userCompositeDomains) {
+  check(`${domain} in defaultUserCompositeSites`, userCompositeSet.has(domain.toLowerCase()));
+}
+
+check('defaultUserCompositeSites count = 7', (defaults.defaultUserCompositeSites || []).length === 7);
 
 // ── Summary ──
 const total = passed + failed;

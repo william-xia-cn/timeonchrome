@@ -1,5 +1,6 @@
 // infra/cloud-sync.js — 云同步 + 心跳
 import { getStatsRange } from './storage.js';
+import { DEFAULT_CONFIG } from './storage.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -98,9 +99,23 @@ function normalizeCloudRulesConfig(cloudConfig) {
   if (defaultRestrictedEntertainmentSites) cfg.defaultRestrictedEntertainmentSites = defaultRestrictedEntertainmentSites;
   if (defaultBlockedSites) cfg.defaultBlockedSites = defaultBlockedSites;
 
+  // Preserve defaultUserCompositeSites from cloud response (initialization/recommendation only)
+  const defaultUserCompositeSites = pickFirstArray(cfg, [
+    'defaultUserCompositeSites',
+    'defaultUserCompositeList',
+    'recommendedCompositeSites',
+  ]);
+  if (defaultUserCompositeSites) cfg.defaultUserCompositeSites = defaultUserCompositeSites;
+
   // 若云端未提供 effective 列表，使用 system + custom 在本地只读缓存中补齐，不回写云端。
+  // V0 不支持用户移除系统默认学习网站，因此 DEFAULT_CONFIG.studyList 始终作为基底合并。
+  const defaultStudyList = DEFAULT_CONFIG.studyList || [];
   if (!Array.isArray(cfg.studyList)) {
-    cfg.studyList = mergeUniqueDomains(cfg.defaultStudySites, cfg.customStudyList);
+    cfg.studyList = mergeUniqueDomains(defaultStudyList, cfg.defaultStudySites, cfg.customStudyList);
+  } else {
+    // Cloud may return studyList: [] which would erase default sites.
+    // Ensure system defaults are always present as the base layer.
+    cfg.studyList = mergeUniqueDomains(defaultStudyList, cfg.defaultStudySites, cfg.studyList, cfg.customStudyList);
   }
   if (!Array.isArray(cfg.compositeList)) {
     cfg.compositeList = mergeUniqueDomains(cfg.defaultCompositeSites, cfg.customCompositeList);

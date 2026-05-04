@@ -8,11 +8,11 @@
 - [x] [V0] Stage 1 Soft Gate verification
 - [x] [V0] Phase 2 chrome-restart Gate runner + binding preflight + bound-device validation
 - [x] [V0] System Recovery Release Gates final confirmation recorded（source: Product Owner confirmed）
-- [ ] [V0] release notes draft/finalize
-- [ ] [V0] known issues finalize
-- [ ] [V0] RC package generation
-- [ ] [V0] local RC install smoke
-- [ ] [V0] Product Owner final approval
+- [x] [V0] release notes draft/finalize
+- [x] [V0] known issues finalize
+- [x] [V0] RC package generation（`dist/rc/timeonchrome-v0-rc.zip`, SHA256 `B9DE59B...389`）
+- [x] [V0] local RC install smoke
+- [x] [V0] Product Owner final approval（RB-9）— **APPROVED for Google review / handoff（2026-05-04）**
 
 ## System Recovery Release Gates（final record; source: Product Owner confirmed）
 
@@ -88,6 +88,13 @@
 - [ ] [V1] composite routing（冻结到 V1）
 
 ## COMPLETED（V0）
+- [x] [V0] V0 RC package built and verified（`dist/rc/timeonchrome-v0-rc.zip`, SHA256 `B9DE59BEE9267CEC9F5B47B3611FE7E1ED718C071961142573E7241A349BD389`, 64 files, 179.9 KB）
+- [x] [V0] RC install smoke: manifest MV3 valid, service_worker=background.js, type=module, 27/27 critical files present, onInstalled binding flow fix confirmed in extracted zip
+- [x] [V0] Automated regression: L0/L1/L1b/V12/E2E/API all PASS（421/421 via run-all.js）
+- [x] [V0] M1-M9 manual validation: PASS（Product Owner verified all 9 items）
+- [x] [V0] RB-1~RB-8: all CLEAR; RB-9: Pending PO final approval
+- [x] [V0] First-install binding flow fix: `background.js` onInstalled install branch moved before bootstrap + try-catch protection, ensures bind.html opens regardless of bootstrap failure
+- [x] [V0] Reminder V0 一致性阻塞解决：浏览器验证门（`tests/e2e/reminder-v0-validation.test.js`）11/11 passed；单元/路由/拦截器 213/213 passed；T-R4/T-R5 标题渲染顺序修复；T-R3/T-R3b 返回标签验证；路由/分类/统计/配额行为不变
 - [x] [V0] Product Owner 手动验收通过：Reminder/UI 路径（Study→Rest 滑动确认、Study→Composite 自动切换+45s 轻提示、Composite→Rest 普通确认）
 - [x] [V0] Product Owner 手动验收通过：Pending mode-transition feedback（Rest→Composite / Rest→Study / Composite→Study）
 - [x] [V0] Product Owner 手动验收通过：Popup V0 layout

@@ -36,11 +36,15 @@ export const DEFAULT_CONFIG = {
     'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai',
     'collegeboard.org'
   ],
+  // System-configured composite sites (9, non-removable) + user-default initial sites (7, removable)
+  // Effective compositeList = 16 sites for new profiles
   compositeList: [
-    'google.com', 'google.com.hk', 'bing.com', 'baidu.com', 'search.brave.com', 'duckduckgo.com',
-    'stackexchange.com', 'reddit.com',
-    'youtube.com', 'music.youtube.com', 'spotify.com', 'music.163.com',
-    'wikipedia.org', 'britannica.com', 'wolframalpha.com'
+    // System-configured (9)
+    'google.com', 'google.com.hk', 'bing.com', 'microsoft.com', 'apple.com', 'adobe.com',
+    'music.youtube.com', 'spotify.com', 'music.163.com',
+    // User-default initial (7) — seeded into customCompositeList, removable by user
+    'youtube.com', 'wikipedia.org', 'wikimedia.org', 'britannica.com',
+    'stackoverflow.com', 'stackexchange.com', 'reddit.com'
   ],
   unsafeList: ['douyin.com', 'tiktok.com'],
   dailyOnlineQuota: 0,

@@ -130,6 +130,7 @@
 | `tests/unit/workers-logic.test.js` | 单元测试 | 34 | Worker 逻辑，无依赖 |
 | `tests/api/workers.test.js` | 集成测试 | 52 | 需要网络，调用真实 API |
 | `tests/e2e/extension.test.js` | E2E 测试 | 9 | 需要浏览器，UI 测试 |
+| `tests/e2e/reminder-v0-validation.test.js` | 浏览器门 | 11 | Reminder V0 模式切换验证；`reminder.js` 变更必须运行 |
 
 ---
 
@@ -311,6 +312,8 @@ timeonchrome/
 | `docs/SITE_ACCESS_POLICY.md` | 网站访问策略主文档：五类网站模型、系统配置/自定义/当前家庭/导入导出/effective 清单边界 | 涉及网站分类、允许/阻止列表、站点配置、导入导出、运行时站点规则的任务 |
 | `docs/DESIGN.md` | 工程设计细节、数据结构、配置 schema、API 路由、前后端架构说明 | 涉及配置/数据/API/架构变更的任务 |
 | `docs/UI_STYLE_MAP.md` | 家长/管理面板 UI 布局、UI 文案、视觉分组、页面结构、界面约定 | 涉及 UI 变更的任务 |
+| `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` | V0 模式/配额路由矩阵：reason、allowed/forbidden actions、quota behavior | 涉及模式切换、提醒页路由、配额耗尽行为的任务 |
+| `docs/MODE_TRANSITION_UX_V0.md` | V0 模式切换 UX：视觉布局、文案展示、滑动/按钮交互风格 | 涉及提醒页视觉/交互实现的任务 |
 | `docs/site-access-config.example.json` | 用户可见的网站访问导入/导出示例格式 | 涉及导入导出示例的任务；禁止将其作为系统默认值或生产 seed data |
 
 ### 9.2 权威层级（Authority Precedence）
@@ -324,19 +327,24 @@ timeonchrome/
    - `docs/SITE_ACCESS_POLICY.md` — 控制产品规则。
    - `docs/DESIGN.md` — 控制技术结构。
    - `docs/UI_STYLE_MAP.md` — 控制 UI 表现。
-5. `AGENTS.md` — 控制 Agent 执行纪律和 Preflight/Build/Audit 规则。
+5. 模式/路由/UX 相关：
+   - `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` — 路由、reason、allowed/forbidden actions、quota behavior 的权威来源。
+   - `docs/MODE_TRANSITION_UX_V0.md` — 仅控制视觉布局、文案展示、滑动/按钮交互风格。必须引用矩阵 Case ID，不得独立重定义 allowed actions。冲突时以矩阵文档为准。
+6. `AGENTS.md` — 控制 Agent 执行纪律和 Preflight/Build/Audit 规则。
 
 ### 9.3 执行规则
 
 1. **产品/站点分类规则**必须与 `docs/SITE_ACCESS_POLICY.md` 核对。
 2. **配置/数据结构变更**必须与 `docs/DESIGN.md` 核对。
 3. **UI 布局/文案变更**必须与 `docs/UI_STYLE_MAP.md` 核对。
-4. **持久的产品或架构决策**必须记录到 `DECISIONS.md`。
-5. **活跃任务状态**应在适当时反映到 `TASK_BOARD.md`。
-6. **运行时 / GitHub / 部署状态**禁止凭记忆推断，必须基于实际命令输出、工具输出或用户提供的证据。
-7. **禁止创建新文档文件**——如果现有权威文档已覆盖该主题，除非获得明确批准。
-8. **禁止将示例 JSON 文件视为生产默认值或初始化数据**。
-9. **禁止混为一谈**——以下五类数据不可互换：
+4. **模式/路由/提醒页行为**必须与 `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` 核对。
+5. **提醒页视觉/交互实现**必须与 `docs/MODE_TRANSITION_UX_V0.md` 核对，且 UX 文档不得独立重定义路由/actions。
+6. **持久的产品或架构决策**必须记录到 `DECISIONS.md`。
+7. **活跃任务状态**应在适当时反映到 `TASK_BOARD.md`。
+8. **运行时 / GitHub / 部署状态**禁止凭记忆推断，必须基于实际命令输出、工具输出或用户提供的证据。
+9. **禁止创建新文档文件**——如果现有权威文档已覆盖该主题，除非获得明确批准。
+10. **禁止将示例 JSON 文件视为生产默认值或初始化数据**。
+11. **禁止混为一谈**——以下五类数据不可互换：
    - 系统配置网站列表（system-configured site lists）
    - 用户/自定义网站列表（user/custom site lists）
    - 当前家庭初始化数据（current-family initialization data）

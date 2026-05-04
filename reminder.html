@@ -269,6 +269,10 @@
       touch-action: none;
       box-shadow: 0 8px 16px rgba(0, 184, 148, 0.34);
       z-index: 2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 8px;
     }
 
     .footer {
@@ -294,13 +298,23 @@
     }
 
     body.study-rest-reminder .slide-confirm-wrap {
-      order: 8;
+      order: 7;
       margin-top: 6px;
       margin-bottom: 8px;
     }
 
-    body.study-rest-reminder .actions {
+    body.study-rest-reminder .dual-path-section {
+      order: 8;
+      margin-top: 10px;
+      margin-bottom: 6px;
+    }
+    body.study-rest-reminder .slide-confirm-wrap-composite {
       order: 9;
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+    body.study-rest-reminder .actions {
+      order: 10;
       margin-top: 12px;
       margin-bottom: 0;
       justify-content: stretch;
@@ -401,6 +415,76 @@
       display: none !important;
     }
 
+    /* Dual-path slider styles for study_mode (Case #5/#6) */
+    .dual-path-section {
+      display: none;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .dual-path-section .path-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .dual-path-section .path-body {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+    .slide-confirm-wrap-composite {
+      display: none;
+      margin: 8px 0 14px;
+      max-width: 100%;
+      text-align: left;
+    }
+    .slide-confirm-wrap-composite .slide-track {
+      background: rgba(99, 102, 241, 0.14);
+      border: 1px solid rgba(99, 102, 241, 0.22);
+    }
+    .slide-confirm-wrap-composite .slide-track-target {
+      border-left: 1px dashed rgba(99, 102, 241, 0.28);
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.03), rgba(99, 102, 241, 0.14));
+    }
+    .slide-confirm-wrap-composite .slide-track::after {
+      content: '确认区';
+      color: rgba(99, 102, 241, 0.72);
+    }
+    .slide-confirm-wrap-composite .slide-thumb {
+      background: linear-gradient(135deg, #6366f1, #818cf8);
+      box-shadow: 0 8px 16px rgba(99, 102, 241, 0.34);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 8px;
+    }
+    body.study-rest-reminder .slide-confirm-wrap {
+      order: 7;
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+    body.study-rest-reminder .dual-path-section {
+      order: 8;
+      margin-top: 10px;
+      margin-bottom: 6px;
+    }
+    body.study-rest-reminder .slide-confirm-wrap-composite {
+      order: 9;
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+    body.study-rest-reminder .actions {
+      order: 10;
+      margin-top: 12px;
+      margin-bottom: 0;
+      justify-content: stretch;
+      width: 100%;
+    }
+
     @media (max-width: 640px) {
       .container {
         padding: 24px 18px 20px;
@@ -439,11 +523,39 @@
     </div>
 
     <div class="slide-confirm-wrap" id="slideConfirmWrap">
-      <div class="slide-hint" id="slideHint">拖动到右侧确认进入休息时间</div>
+      <div class="slide-hint" id="slideHint">确认进入休息时间</div>
       <div class="slide-track" id="slideTrack">
-        <div class="slide-track-label">拖动到右侧确认进入休息时间</div>
+        <div class="slide-track-label">确认进入休息时间</div>
         <div class="slide-track-target"></div>
-        <div class="slide-thumb" id="slideThumb">拖动确认</div>
+        <div class="slide-thumb" id="slideThumb">确认进入休息时间</div>
+      </div>
+    </div>
+
+    <!-- Dual-path composite application slider (study_mode Case #5/#6) -->
+    <div class="dual-path-section" id="dualPathCompositeSection">
+      <div class="path-label">申请使用综合时间</div>
+      <div class="path-body" id="dualPathCompositeBody">如果你认为这个网站是为了学习用途使用，可以申请使用今天的综合时间继续访问。<br>本次申请不会计入学习时间，也不会永久修改网站分类。<br>系统未来可能会根据实际用途进一步自动判定。</div>
+      <div class="slide-confirm-wrap-composite" id="slideConfirmWrapComposite">
+        <div class="slide-hint" id="slideHintComposite">申请使用综合时间</div>
+        <div class="slide-track" id="slideTrackComposite">
+          <div class="slide-track-label">申请使用综合时间</div>
+          <div class="slide-track-target"></div>
+          <div class="slide-thumb" id="slideThumbComposite">申请使用综合时间</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dual-path rest borrow section (Case #6 restLocked variant) -->
+    <div class="dual-path-section" id="dualPathBorrowSection">
+      <div class="path-label">借用休息时间</div>
+      <div class="path-body" id="dualPathBorrowBody">今天的休息时间已用完。继续休息使用需要向明天借用休息时间。</div>
+      <div class="slide-confirm-wrap-composite" id="slideConfirmWrapBorrow">
+        <div class="slide-hint" id="slideHintBorrow">向明天借用休息时间</div>
+        <div class="slide-track" id="slideTrackBorrow">
+          <div class="slide-track-label">向明天借用休息时间</div>
+          <div class="slide-track-target"></div>
+          <div class="slide-thumb" id="slideThumbBorrow">向明天借用休息时间</div>
+        </div>
       </div>
     </div>
 

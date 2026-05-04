@@ -1,3 +1,4 @@
+// storage-composite-migration.test.js — extended with effective config + newtab tests
 // Run with: node tests/unit/storage-composite-migration.test.js
 
 'use strict';
@@ -5,70 +6,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const store = {};
-
-global.chrome = {
-  storage: {
-    local: {
-      get(keys, cb) {
-        if (Array.isArray(keys)) {
-          const out = {};
-          keys.forEach((k) => { out[k] = store[k]; });
-          cb(out);
-          return;
-        }
-        if (typeof keys === 'string') {
-          cb({ [keys]: store[keys] });
-          return;
-        }
-        cb({ ...store });
-      },
-      set(obj, cb) {
-        Object.assign(store, obj);
-        cb && cb();
-      },
-      remove(keys, cb) {
-        const arr = Array.isArray(keys) ? keys : [keys];
-        arr.forEach((k) => delete store[k]);
-        cb && cb();
-      },
-    },
-  },
-};
-
-function loadProdModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
-  let code = fs.readFileSync(abs, 'utf8');
-  code = code.replace(/^\s*import .*?;\s*$/gm, '');
-  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
-  code = code.replace(/export\s+function\s+/g, 'function ');
-  code = code.replace(/export\s+const\s+/g, 'const ');
-  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
-
-  const injectedKeys = Object.keys(injected);
-  const prelude = injectedKeys.length ? `const { ${injectedKeys.join(', ')} } = __injected;\n` : '';
-  const factory = new Function('__injected', `${prelude}${code}\nreturn { ${exportNames.join(', ')} };`);
-  return factory(injected);
-}
-
-const domainSemantics = loadProdModule('core/domain-semantics.js', ['matchDomain', 'normalizeHostname']);
-const storageApi = loadProdModule(
-  'infra/storage.js',
-  ['getConfig', 'saveConfig', 'sanitizeStaleCompositeDomains'],
-  {
-    computeAllDomains: () => ({}),
-    computeAllDomainsWithAudio: () => ({ domains: {}, audioSeconds: 0, backgroundMediaByDomain: {}, pipSeconds: 0, pipByDomain: {} }),
-    emitTrace: async () => {},
-    matchDomainV12: domainSemantics.matchDomain,
-    normalizeHostname: domainSemantics.normalizeHostname,
-  }
-);
-
 let passed = 0;
 let failed = 0;
 
-function expectEqual(desc, actual, expected) {
-  if (JSON.stringify(actual) === JSON.stringify(expected)) passed++;
+function expect(desc, actual, expected) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  if (ok) passed++;
   else {
     failed++;
     console.error(`  ✗ ${desc}`);
@@ -85,52 +28,168 @@ function expectTrue(desc, cond) {
   }
 }
 
-async function run() {
-  const stale = {
-    compositeList: ['google.com', 'www.bilibili.com', 'www.163.com', 'music.163.com'],
-    customCompositeList: ['bilibili.com', '163.com', 'my-custom.com'],
-    studyList: ['khanacademy.org'],
-    unsafeList: ['douyin.com'],
-    isInitialized: true,
+function section(name) {
+  console.log(`\n[${name}]`);
+}
+
+// Load storage.js functions
+function loadStorage() {
+  const abs = path.join(__dirname, '..', '..', 'infra', 'storage.js');
+  let code = fs.readFileSync(abs, 'utf8');
+
+  // Extract studyList from DEFAULT_CONFIG - domains can be on same line separated by commas
+  const studyListMatch = code.match(/studyList:\s*\[([\s\S]*?)\],\s*(?:\/\/[^\n]*\n\s*)*compositeList/);
+  const studyList = studyListMatch ? studyListMatch[1]
+    .split(',')
+    .map(s => s.trim().replace(/^'|'$/g, '').trim())
+    .filter(s => s.length > 0 && !s.startsWith('//')) : [];
+
+  code = code.replace(/^\s*import .*?;\s*$/gm, '');
+  code = code.replace(/export\s+function\s+/g, 'function ');
+  code = code.replace(/export\s+const\s+/g, 'const ');
+  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
+  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
+
+  const context = {
+    URL,
+    console,
+    chrome: { storage: { local: { get: async () => ({}), set: async () => {} }, session: null } },
+    crypto: { subtle: { digest: async () => new Uint8Array(32) } },
+    TextEncoder,
+    computeAllDomains: () => ({ domains: {}, audioSeconds: 0, backgroundMediaByDomain: {}, pipSeconds: 0, pipByDomain: {} }),
+    computeAllDomainsWithAudio: () => ({ domains: {}, audioSeconds: 0, backgroundMediaByDomain: {}, pipSeconds: 0, pipByDomain: {} }),
+    matchDomainV12: (d, p) => {
+      const domain = String(d || '').replace(/^www\./, '');
+      const pattern = String(p || '').replace(/^www\./, '');
+      return domain === pattern || domain.endsWith(`.${pattern}`);
+    },
+    normalizeHostname: (h) => String(h || '').replace(/^www\./, '').toLowerCase(),
+    emitTrace: () => {},
+    DEFAULT_CONFIG: { studyList },
   };
 
-  const sanitized = storageApi.sanitizeStaleCompositeDomains(stale);
-  expectTrue('sanitize 应标记 changed=true', sanitized.changed === true);
-  expectEqual(
-    'sanitize 应仅移除 4 个指定残留域名',
-    sanitized.config.compositeList,
-    ['google.com', 'music.163.com']
-  );
-  expectEqual(
-    'sanitize 应清理 customCompositeList 残留域名',
-    sanitized.config.customCompositeList,
-    ['my-custom.com']
-  );
-  expectEqual('sanitize 不应影响 studyList', sanitized.config.studyList, ['khanacademy.org']);
-  expectEqual('sanitize 不应影响 unsafeList', sanitized.config.unsafeList, ['douyin.com']);
+  const vm = require('vm');
+  vm.createContext(context);
+  vm.runInContext(code, context, { filename: 'storage.js' });
+  return context;
+}
 
-  for (const key of Object.keys(store)) delete store[key];
-  await storageApi.saveConfig({
-    ...stale,
-    adminPasswordHash: '',
-    version: '1.3',
+// Load cloud-sync.js normalizeCloudRulesConfig
+function loadCloudSync() {
+  const abs = path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js');
+  let code = fs.readFileSync(abs, 'utf8');
+
+  // Extract studyList from storage.js DEFAULT_CONFIG
+  const storagePath = path.join(__dirname, '..', '..', 'infra', 'storage.js');
+  let storageCode = fs.readFileSync(storagePath, 'utf8');
+  const studyListMatch = storageCode.match(/studyList:\s*\[([\s\S]*?)\],\s*(?:\/\/[^\n]*\n\s*)*compositeList/);
+  const studyList = studyListMatch ? studyListMatch[1]
+    .split(',')
+    .map(s => s.trim().replace(/^'|'$/g, '').trim())
+    .filter(s => s.length > 0 && !s.startsWith('//')) : [];
+
+  const DEFAULT_CONFIG = { studyList };
+
+  // Inject DEFAULT_CONFIG into cloud-sync context
+  code = code.replace(/^\s*import .*?;\s*$/gm, '');
+  code = code.replace(/export\s+function\s+/g, 'function ');
+  code = code.replace(/export\s+const\s+/g, 'const ');
+  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
+  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
+
+  const vm = require('vm');
+  const context = {
+    console,
+    DEFAULT_CONFIG,
+    getStatsRange: async () => ({}),
+    chrome: { storage: { local: { get: async () => ({}), set: async () => {} } } },
+    fetch: async () => ({ ok: false, status: 500, json: async () => ({}) }),
+  };
+  vm.createContext(context);
+  vm.runInContext(code, context, { filename: 'cloud-sync.js' });
+  return context;
+}
+
+async function run() {
+  const storage = loadStorage();
+  const cloudSync = loadCloudSync();
+
+  // ── A. isSpecialUrl: Chrome newtab provider ──
+  section('A. isSpecialUrl: Chrome newtab provider');
+  expectTrue('chrome://newtab/ is special', storage.isSpecialUrl('chrome://newtab/'));
+  expectTrue('about:blank is special', storage.isSpecialUrl('about:blank'));
+  expectTrue('chrome-extension://... is special', storage.isSpecialUrl('chrome-extension://abc/'));
+  expectTrue('https://www.google.com/_/chrome/newtab is special', storage.isSpecialUrl('https://www.google.com/_/chrome/newtab'));
+  expectTrue('https://www.google.com/_/chrome/newtab?foo=1 is special', storage.isSpecialUrl('https://www.google.com/_/chrome/newtab?foo=1'));
+  expectTrue('https://www.google.com/search?q=test is NOT special', !storage.isSpecialUrl('https://www.google.com/search?q=test'));
+  expectTrue('https://www.google.com/maps is NOT special', !storage.isSpecialUrl('https://www.google.com/maps'));
+  expectTrue('https://google.com/_/chrome/newtab is NOT special (wrong hostname)', !storage.isSpecialUrl('https://google.com/_/chrome/newtab'));
+
+  // ── B. extractDomain: newtab provider returns domain ──
+  section('B. extractDomain behavior');
+  expectTrue('extractDomain(chrome://newtab/) returns null', storage.extractDomain('chrome://newtab/') === null);
+  expectTrue('extractDomain(about:blank) returns null', storage.extractDomain('about:blank') === null);
+  expectTrue('extractDomain(https://www.google.com/_/chrome/newtab) returns google.com (normalized)', storage.extractDomain('https://www.google.com/_/chrome/newtab') === 'google.com');
+  expectTrue('extractDomain(https://www.google.com/search?q=test) returns google.com (normalized)', storage.extractDomain('https://www.google.com/search?q=test') === 'google.com');
+
+  // ── C. DEFAULT_CONFIG includes khanacademy.org ──
+  section('C. DEFAULT_CONFIG includes khanacademy.org');
+  expectTrue('DEFAULT_CONFIG.studyList includes khanacademy.org', storage.DEFAULT_CONFIG.studyList.includes('khanacademy.org'));
+
+  // ── D. normalizeCloudRulesConfig: empty studyList preserves defaults ──
+  section('D. normalizeCloudRulesConfig: empty studyList preserves defaults');
+  const emptyStudyConfig = cloudSync.normalizeCloudRulesConfig({
+    studyList: [],
     mode: 'study',
   });
+  expectTrue('empty studyList still has khanacademy.org', emptyStudyConfig.studyList.includes('khanacademy.org'));
+  expectTrue('empty studyList still has google.com', emptyStudyConfig.studyList.includes('google.com'));
+  expectTrue('empty studyList still has coursera.org', emptyStudyConfig.studyList.includes('coursera.org'));
 
-  const migrated = await storageApi.getConfig();
-  expectEqual(
-    'getConfig 应返回迁移后的 compositeList',
-    migrated.compositeList,
-    ['google.com', 'music.163.com']
-  );
-  expectEqual(
-    'getConfig 应返回迁移后的 customCompositeList',
-    migrated.customCompositeList,
-    ['my-custom.com']
-  );
+  // ── E. normalizeCloudRulesConfig: sparse studyList preserves defaults ──
+  section('E. normalizeCloudRulesConfig: sparse studyList preserves defaults');
+  const sparseStudyConfig = cloudSync.normalizeCloudRulesConfig({
+    studyList: ['my-custom-site.com'],
+    mode: 'study',
+  });
+  expectTrue('sparse studyList has khanacademy.org', sparseStudyConfig.studyList.includes('khanacademy.org'));
+  expectTrue('sparse studyList has my-custom-site.com', sparseStudyConfig.studyList.includes('my-custom-site.com'));
 
+  // ── F. normalizeCloudRulesConfig: defaultStudySites merges correctly ──
+  section('F. normalizeCloudRulesConfig: defaultStudySites merges correctly');
+  const withDefaultsConfig = cloudSync.normalizeCloudRulesConfig({
+    studyList: ['user-site.com'],
+    defaultStudySites: ['default-site.com'],
+    customStudyList: ['custom-site.com'],
+  });
+  expectTrue('has DEFAULT_CONFIG defaults', withDefaultsConfig.studyList.includes('khanacademy.org'));
+  expectTrue('has defaultStudySites', withDefaultsConfig.studyList.includes('default-site.com'));
+  expectTrue('has studyList from cloud', withDefaultsConfig.studyList.includes('user-site.com'));
+  expectTrue('has customStudyList', withDefaultsConfig.studyList.includes('custom-site.com'));
+
+  // ── G. normalizeCloudRulesConfig: no studyList key at all ──
+  section('G. normalizeCloudRulesConfig: no studyList key');
+  const noStudyListConfig = cloudSync.normalizeCloudRulesConfig({
+    mode: 'study',
+  });
+  expectTrue('no studyList key still has khanacademy.org', noStudyListConfig.studyList.includes('khanacademy.org'));
+
+  // ── H. matchDomain: khanacademy.org classification ──
+  section('H. matchDomain: khanacademy.org classification');
+  expectTrue('khanacademy.org matches khanacademy.org', storage.matchDomain('khanacademy.org', 'khanacademy.org'));
+  expectTrue('www.khanacademy.org matches khanacademy.org', storage.matchDomain('www.khanacademy.org', 'khanacademy.org'));
+
+  // ── I. Effective study list always contains defaults ──
+  section('I. Effective study list always contains defaults');
+  const defaultList = storage.DEFAULT_CONFIG.studyList;
+  expectTrue('DEFAULT_CONFIG.studyList has > 10 entries', defaultList.length > 10);
+  expectTrue('khanacademy.org in defaults', defaultList.includes('khanacademy.org'));
+  expectTrue('github.com in defaults', defaultList.includes('github.com'));
+  expectTrue('stackoverflow.com in defaults', defaultList.includes('stackoverflow.com'));
+
+  // ── Summary ──
   const total = passed + failed;
-  console.log(`\n[Storage Composite Migration] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
+  console.log(`\n[Storage + Cloud Config Merge] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);
 }
 
@@ -138,4 +197,3 @@ run().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

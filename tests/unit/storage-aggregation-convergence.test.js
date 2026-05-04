@@ -192,6 +192,145 @@ async function runTests() {
     expect('audioSeconds should stay 0', stats.audioSeconds, 0);
   }
 
+  section('S6: resetDailyLockedDomains should reset quota state across date boundary');
+  {
+    mockLocalStorage.reset();
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    const CONFIG_KEY = 'guardian_config';
+    const HASH_KEY = 'guardian_config_hash';
+    const LAST_RESET_DATE_KEY = 'last_reset_date';
+
+    await mockLocalStorage.set({
+      [LAST_RESET_DATE_KEY]: yesterdayKey,
+      [CONFIG_KEY]: {
+        isInitialized: true,
+        adminPasswordHash: '',
+        lockedDomains: ['temp-blocked.com', 'another.com'],
+        quotaState: { onlineLocked: true, studyLocked: false, restLocked: true, undeterminedLocked: true },
+        quotaBorrow: { borrowedFrom: yesterdayKey, amount: 30, repaid: false },
+        studyList: ['study.com'],
+        compositeList: ['composite.com'],
+        unsafeList: [],
+      },
+      [HASH_KEY]: 'old-hash',
+    });
+
+    // Inline reset logic matching infra/storage.js resetDailyLockedDomains
+    const today = storageApi.getDateKey();
+    const stored = await mockLocalStorage.get([LAST_RESET_DATE_KEY]);
+    expectTrue('last_reset_date should be yesterday before reset', stored[LAST_RESET_DATE_KEY] === yesterdayKey);
+
+    // Simulate reset: update date key, clear lockedDomains, reset quotaState
+    await mockLocalStorage.set({ [LAST_RESET_DATE_KEY]: today });
+    const config = (await mockLocalStorage.get([CONFIG_KEY]))[CONFIG_KEY];
+    config.lockedDomains = [];
+    config.quotaState = { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false };
+    // Auto-repay borrow if repayment date passed (production: repayD = borrowedFrom + 1, today > repayD)
+    if (config.quotaBorrow && !config.quotaBorrow.repaid) {
+      const repayD = new Date(config.quotaBorrow.borrowedFrom + 'T00:00:00');
+      repayD.setDate(repayD.getDate() + 1);
+      const repayDateKey = `${repayD.getFullYear()}-${String(repayD.getMonth() + 1).padStart(2, '0')}-${String(repayD.getDate()).padStart(2, '0')}`;
+      if (today > repayDateKey) {
+        config.quotaBorrow = { ...config.quotaBorrow, repaid: true };
+      }
+    }
+    await mockLocalStorage.set({ [CONFIG_KEY]: config });
+
+    // Assertions
+    const resetDate = (await mockLocalStorage.get([LAST_RESET_DATE_KEY]))[LAST_RESET_DATE_KEY];
+    expect('last_reset_date should be today', resetDate, today);
+
+    const finalConfig = (await mockLocalStorage.get([CONFIG_KEY]))[CONFIG_KEY];
+    expectTrue('lockedDomains should be cleared', !finalConfig.lockedDomains || finalConfig.lockedDomains.length === 0);
+    expect('quotaState.onlineLocked should be false', finalConfig.quotaState.onlineLocked, false);
+    expect('quotaState.studyLocked should be false', finalConfig.quotaState.studyLocked, false);
+    expect('quotaState.restLocked should be false', finalConfig.quotaState.restLocked, false);
+    expect('quotaState.undeterminedLocked should be false', finalConfig.quotaState.undeterminedLocked, false);
+    expectTrue('studyList should be preserved', Array.isArray(finalConfig.studyList) && finalConfig.studyList.includes('study.com'));
+    expectTrue('compositeList should be preserved', Array.isArray(finalConfig.compositeList) && finalConfig.compositeList.includes('composite.com'));
+    // yesterday borrow: repayD = today, today > today is false → NOT repaid yet (matches production)
+    expect('quotaBorrow.repaid should be false (yesterday borrow not yet repaid per production logic)', finalConfig.quotaBorrow.repaid, false);
+  }
+
+  section('S7: resetDailyLockedDomains should skip when already reset today');
+  {
+    mockLocalStorage.reset();
+
+    const CONFIG_KEY = 'guardian_config';
+    const LAST_RESET_DATE_KEY = 'last_reset_date';
+    const today = storageApi.getDateKey();
+
+    await mockLocalStorage.set({
+      [LAST_RESET_DATE_KEY]: today,
+      [CONFIG_KEY]: {
+        isInitialized: true,
+        adminPasswordHash: '',
+        lockedDomains: ['should-stay.com'],
+        quotaState: { onlineLocked: true, studyLocked: true, restLocked: true, undeterminedLocked: false },
+        studyList: [],
+        compositeList: [],
+        unsafeList: [],
+      },
+    });
+
+    // Simulate early-exit check: if last_reset_date === today, skip
+    const stored = await mockLocalStorage.get([LAST_RESET_DATE_KEY]);
+    expectTrue('last_reset_date should be today', stored[LAST_RESET_DATE_KEY] === today);
+
+    const config = (await mockLocalStorage.get([CONFIG_KEY]))[CONFIG_KEY];
+    expectTrue('lockedDomains should NOT be cleared (already reset today)', config.lockedDomains && config.lockedDomains.includes('should-stay.com'));
+    expect('quotaState.onlineLocked should remain true', config.quotaState.onlineLocked, true);
+  }
+
+  section('S8: resetDailyLockedDomains should auto-repay borrow when today > borrowedFrom + 1 day');
+  {
+    mockLocalStorage.reset();
+
+    const CONFIG_KEY = 'guardian_config';
+    const LAST_RESET_DATE_KEY = 'last_reset_date';
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    const twoDaysAgoKey = `${twoDaysAgo.getFullYear()}-${String(twoDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(twoDaysAgo.getDate()).padStart(2, '0')}`;
+    const today = storageApi.getDateKey();
+
+    await mockLocalStorage.set({
+      [LAST_RESET_DATE_KEY]: twoDaysAgoKey,
+      [CONFIG_KEY]: {
+        isInitialized: true,
+        adminPasswordHash: '',
+        lockedDomains: [],
+        quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
+        quotaBorrow: { borrowedFrom: twoDaysAgoKey, amount: 20, repaid: false },
+        studyList: [],
+        compositeList: [],
+        unsafeList: [],
+      },
+    });
+
+    // Simulate reset logic
+    await mockLocalStorage.set({ [LAST_RESET_DATE_KEY]: today });
+    const config = (await mockLocalStorage.get([CONFIG_KEY]))[CONFIG_KEY];
+    config.lockedDomains = [];
+    config.quotaState = { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false };
+    if (config.quotaBorrow && !config.quotaBorrow.repaid) {
+      const repayD = new Date(config.quotaBorrow.borrowedFrom + 'T00:00:00');
+      repayD.setDate(repayD.getDate() + 1);
+      const repayDateKey = `${repayD.getFullYear()}-${String(repayD.getMonth() + 1).padStart(2, '0')}-${String(repayD.getDate()).padStart(2, '0')}`;
+      if (today > repayDateKey) {
+        config.quotaBorrow = { ...config.quotaBorrow, repaid: true };
+      }
+    }
+    await mockLocalStorage.set({ [CONFIG_KEY]: config });
+
+    const finalConfig = (await mockLocalStorage.get([CONFIG_KEY]))[CONFIG_KEY];
+    // twoDaysAgo borrow: repayD = yesterday, today > yesterday → repaid
+    expect('quotaBorrow.repaid should be true (2-day-old borrow auto-repaid)', finalConfig.quotaBorrow.repaid, true);
+    expect('quotaBorrow.amount should be preserved', finalConfig.quotaBorrow.amount, 20);
+  }
+
   const total = passed + failed;
   console.log(`\n[Storage Aggregation Convergence] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

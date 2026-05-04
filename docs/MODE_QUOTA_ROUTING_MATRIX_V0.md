@@ -54,37 +54,37 @@ It defines:
 
 ## 5) Routing Matrix (Canonical)
 
-| # | Current Mode | Target Site Type | Quota/State | Route | Primary Feedback | Allowed Actions | Forbidden |
-|---|---|---|---|---|---|---|---|
-| 1 | Study | Study | N/A | allow | none | continue | N/A |
-| 2 | Study | Composite | Composite available | auto switch to Composite | 45s in-page notice | continue in Composite | N/A |
-| 3 | Study | Composite | Composite exhausted + Rest available | reminder | Composite exhausted case A | `进入休息继续` / `返回` | auto Rest fallback, Composite borrow |
-| 4 | Study | Composite | Composite exhausted + Rest exhausted | reminder | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest |
-| 5 | Study | Unclassified | Rest available | reminder (`study_mode`) | Unclassified dual-path copy | rest slider, apply Composite slider, `返回学习` | N/A |
-| 6 | Study | Unclassified | Rest exhausted | reminder (`study_mode`) | Unclassified + borrow-rest copy | borrow-rest via rest slider, apply Composite slider, `返回学习` | hide Composite apply |
-| 7 | Study | Restricted Entertainment | Rest available | reminder (`to_rest_slide_confirm`) | Restricted copy | rest slider, `返回学习` | Composite apply |
-| 8 | Study | Restricted Entertainment | Rest exhausted | reminder (`to_rest_slide_confirm`) | Restricted + borrow-rest copy | borrow-rest via rest slider, `返回学习` | Composite apply |
-| 9 | Study | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow |
-| 10 | Composite | Study | N/A | auto switch to Study (90s gate) | pending/success | continue | N/A |
-| 11 | Composite | Composite | Composite available | allow | none | continue in Composite | N/A |
-| 12 | Composite | Composite | Composite exhausted + Rest available | reminder (`to_rest_confirm` composite) | Composite exhausted case A | `进入休息继续`, `返回` | auto Rest, Composite borrow |
-| 13 | Composite | Composite | Composite exhausted + Rest exhausted | reminder (`to_rest_confirm` composite) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest |
-| 14 | Composite | Unclassified | Rest available | reminder (`to_rest_confirm` unclassified) | Unclassified dual-path copy | rest slider, apply Composite slider, `返回` | N/A |
-| 15 | Composite | Unclassified | Rest exhausted | reminder (`to_rest_confirm` unclassified) | Unclassified + borrow-rest copy | borrow-rest via rest slider, apply Composite slider, `返回` | hide Composite apply |
-| 16 | Composite | Restricted Entertainment | Rest available | reminder (`to_rest_confirm` restricted) | Restricted copy | rest slider, `返回` | Composite apply |
-| 17 | Composite | Restricted Entertainment | Rest exhausted | reminder (`to_rest_confirm` restricted) | Restricted + borrow-rest copy | borrow-rest via rest slider, `返回` | Composite apply |
-| 18 | Composite | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow |
-| 19 | Rest | Study | N/A | auto switch to Study (90s gate) | pending/success | continue | N/A |
-| 20 | Rest | Composite | Composite available | pending gate (60s), then Composite | pending/success banner | continue | immediate forced switch |
-| 21 | Rest | Composite | Composite exhausted + Rest available | reminder (`to_rest_confirm` composite) | Composite exhausted case A | `进入休息继续`, `返回` | auto Rest, Composite borrow |
-| 22 | Rest | Composite | Composite exhausted + Rest exhausted | reminder (`to_rest_confirm` composite) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest |
-| 23 | Rest | Unclassified | Rest available | allow (stays Rest, no reminder) | normal Rest path | continue | auto Composite, Composite apply prompt |
-| 24 | Rest | Restricted Entertainment | Rest available | allow (stays Rest) or existing reminder policy | normal Rest path | continue | Composite apply |
-| 25 | Rest | Restricted Entertainment | Rest exhausted | reminder (`to_rest_slide_confirm` restricted) | Restricted + borrow-rest copy | borrow-rest via rest slider, `返回` | Composite apply |
-| 26 | Rest | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow |
-| 27 | Any | Temporary Composite allowance domain | Composite available | treat as Composite usage | Composite path feedback | continue in Composite | count as Study, permanent classify |
-| 28 | Any | Temporary Composite allowance domain | Composite exhausted + Rest available | unified Composite exhausted case A | reminder | `进入休息继续`, `返回` | Composite borrow, auto Rest |
-| 29 | Any | Temporary Composite allowance domain | Composite exhausted + Rest exhausted | unified Composite exhausted case B | reminder | `返回` | `进入休息继续`, Composite borrow, auto Rest |
+| # | Current Mode | Target Site Type | Quota/State | Route | Primary Feedback | Allowed Actions | Forbidden | UX Ref |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Study | Study | N/A | allow | none | continue | N/A | — |
+| 2 | Study | Composite | Composite available | auto switch to Composite | 45s in-page notice | continue in Composite | N/A | §8.1 |
+| 3 | Study | Composite | Composite exhausted + Rest available | reminder (`quota_composite`) | Composite exhausted case A | `进入休息继续` / `返回` | auto Rest fallback, Composite borrow | §12.1 Case A |
+| 4 | Study | Composite | Composite exhausted + Rest exhausted | reminder (`quota_composite_and_rest`) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
+| 5 | Study | Unclassified | Rest available | reminder (`study_mode`) | Unclassified dual-path copy | enter_rest (slide), apply_composite (slide), `返回学习` | N/A | §8.2b |
+| 6 | Study | Unclassified | Rest exhausted | reminder (`study_mode` + `restLocked=1`) | Unclassified + borrow-rest copy | borrow_rest (slide), apply_composite (slide), `返回学习` | hide Composite apply | §8.2b + §6.5 |
+| 7 | Study | Restricted Entertainment | Rest available | reminder (`to_rest_slide_confirm`) | Restricted copy | enter_rest (slide), `返回学习` | Composite apply | §8.6 |
+| 8 | Study | Restricted Entertainment | Rest exhausted | reminder (`to_rest_slide_confirm` + `restLocked=1`) | Restricted + borrow-rest copy | borrow_rest (slide), `返回学习` | Composite apply | §8.6 + §6.7 |
+| 9 | Study | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow | §8.7 |
+| 10 | Composite | Study | N/A | auto switch to Study (90s gate) | pending/success | continue | N/A | §8.3 |
+| 11 | Composite | Composite | Composite available | allow | none | continue in Composite | N/A | — |
+| 12 | Composite | Composite | Composite exhausted + Rest available | reminder (`quota_composite`) | Composite exhausted case A | `进入休息继续`, `返回` | auto Rest, Composite borrow | §12.1 Case A |
+| 13 | Composite | Composite | Composite exhausted + Rest exhausted | reminder (`quota_composite_and_rest`) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
+| 14 | Composite | Unclassified | Rest available | reminder (`to_rest_confirm`) | Unclassified dual-path copy | enter_rest (slide), apply_composite (slide), `返回` | N/A | §8.5 |
+| 15 | Composite | Unclassified | Rest exhausted | reminder (`to_rest_confirm` + `restLocked=1`) | Unclassified + borrow-rest copy | borrow_rest (slide), apply_composite (slide), `返回` | hide Composite apply | §8.5 + §6.5 |
+| 16 | Composite | Restricted Entertainment | Rest available | reminder (`to_rest_confirm`) | Restricted copy | enter_rest (slide), `返回` | Composite apply | §8.5 |
+| 17 | Composite | Restricted Entertainment | Rest exhausted | reminder (`to_rest_confirm` + `restLocked=1`) | Restricted + borrow-rest copy | borrow_rest (slide), `返回` | Composite apply | §8.5 + §6.7 |
+| 18 | Composite | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow | §8.7 |
+| 19 | Rest | Study | N/A | auto switch to Study (90s gate) | pending/success | continue | N/A | §8.4 |
+| 20 | Rest | Composite | Composite available | pending gate (60s), then Composite | pending/success banner | continue | immediate forced switch | §8.2 |
+| 21 | Rest | Composite | Composite exhausted + Rest available | reminder (`quota_composite`) | Composite exhausted case A | `进入休息继续`, `返回` | auto Rest, Composite borrow | §12.1 Case A |
+| 22 | Rest | Composite | Composite exhausted + Rest exhausted | reminder (`quota_composite_and_rest`) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
+| 23 | Rest | Unclassified | Rest available | allow (stays Rest, no reminder) | normal Rest path | continue | auto Composite, Composite apply prompt | — |
+| 24 | Rest | Restricted Entertainment | Rest available | allow (stays Rest) or existing reminder policy | normal Rest path | continue | Composite apply | — |
+| 25 | Rest | Restricted Entertainment | Rest exhausted | reminder (`to_rest_slide_confirm` + `restLocked=1`) | Restricted + borrow-rest copy | borrow_rest (slide), `返回` | Composite apply | §6.7 |
+| 26 | Rest | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow | §8.7 |
+| 27 | Any | Temporary Composite allowance domain | Composite available | treat as Composite usage | Composite path feedback | continue in Composite | count as Study, permanent classify | — |
+| 28 | Any | Temporary Composite allowance domain | Composite exhausted + Rest available | unified Composite exhausted case A | reminder (`quota_composite`) | `进入休息继续`, `返回` | Composite borrow, auto Rest | §12.1 Case A |
+| 29 | Any | Temporary Composite allowance domain | Composite exhausted + Rest exhausted | unified Composite exhausted case B | reminder (`quota_composite_and_rest`) | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
 
 ## 6) Reminder / In-Page Notice Copy Matrix (Canonical)
 
@@ -120,22 +120,42 @@ Body:
 Actions:
 - `返回`
 
-### 6.4 Unclassified (Application copy)
-Title:
+### 6.4 Unclassified (dual-path)
+
+Applies to Matrix Case #5 (Study→Unclassified) and Case #14 (Composite→Unclassified).
+
+**Title** (shared by both paths):
 
 `你正在打开未归类网站`
 
-Application copy:
+**Default path** (enter Rest):
+
+Body:
+- `继续后，这段时间会计入「休息时间」，不会计入「学习时间」。`
+
+Slider:
+- `拖动到右侧确认进入休息时间`
+- `松手确认进入休息时间`
+
+**Application path** (apply Composite time):
+
+Body:
 - `如果你认为这个网站是为了学习用途使用，可以申请使用今天的综合时间继续访问。`
 - `本次申请不会计入学习时间，也不会永久修改网站分类。`
 - `系统未来可能会根据实际用途进一步自动判定。`
 
-Application slider:
+Slider:
 - `拖动到右侧申请使用综合时间`
 - `松手确认使用综合时间`
 
 Success:
 - `已允许今天使用综合时间访问 · 今日剩余 {remainingCompositeTime}`
+
+**Return action**:
+- Study origin: `返回学习`
+- Composite origin: `返回`
+
+Full visual layout and interaction details: see `docs/MODE_TRANSITION_UX_V0.md` §8.2b (Study origin) and §8.5 (Composite origin).
 
 ### 6.5 Unclassified + Rest exhausted
 Rest borrow section:

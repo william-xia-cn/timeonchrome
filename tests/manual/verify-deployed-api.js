@@ -63,9 +63,10 @@ async function api(method, path, body, token) {
   if (!Array.isArray(config0.customStudyList)) errors.push('new profile missing customStudyList');
   if (!Array.isArray(config0.customRestrictedEntertainmentList)) errors.push('new profile missing customRestrictedEntertainmentList');
   if (!Array.isArray(config0.customBlockedSites)) errors.push('new profile missing customBlockedSites');
-  if (defaults.data?.defaultCompositeSites?.length !== 20) errors.push(`defaults composite != 20, got ${defaults.data?.defaultCompositeSites?.length}`);
-  if (c0?.compositeList?.length !== 0) errors.push(`initial compositeList != 0, got ${c0?.compositeList?.length}`);
-  if (c1?.compositeList?.length !== 21) errors.push(`effective compositeList != 21 (20 default + 1 custom), got ${c1?.compositeList?.length}`);
+  if (defaults.data?.defaultCompositeSites?.length !== 9) errors.push(`defaults composite != 9, got ${defaults.data?.defaultCompositeSites?.length}`);
+  if (defaults.data?.defaultUserCompositeSites?.length !== 7) errors.push(`defaults userComposite != 7, got ${defaults.data?.defaultUserCompositeSites?.length}`);
+  if (c0?.compositeList?.length !== 16) errors.push(`initial compositeList != 16 (9 system + 7 user-default), got ${c0?.compositeList?.length}`);
+  if (c1?.compositeList?.length !== 17) errors.push(`effective compositeList != 17 (9 system + 7 user-default + 1 custom), got ${c1?.compositeList?.length}`);
   if (!c1?.compositeList?.includes('google.com')) errors.push('effective list missing google.com');
   if (!c1?.compositeList?.includes('example.com')) errors.push('effective list missing example.com');
 
