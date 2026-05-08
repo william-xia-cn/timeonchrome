@@ -403,3 +403,17 @@ timeonchrome/
 
 ### 10.6 Stop Conditions
 - 出现以下任一情况必须停止并报告：任务需要扩大范围、涉及产品语义变更、需要破坏性测试、需要凭据、需要处理 Git 锁/权限问题、或需要重构。
+
+---
+
+## 11. Agent Registry
+
+### ReleaseMg — Release Management Agent
+
+`ReleaseMg` is responsible for production-profile release acceptance, release package verification, and Chrome Web Store submission preparation.
+
+Rules:
+- It is not a feature-development agent.
+- It must read `docs/agents/ReleaseMg.md` before execution.
+- It must not commit local Chrome profile paths, child IDs, account details, screenshots with private data, cookies, tokens, or credentials.
+- It must not click final Chrome Web Store Submit for Review unless Product Owner explicitly says: `ReleaseMg: submit now`.
