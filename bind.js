@@ -128,6 +128,7 @@ async function doBind(profileId) {
     await new Promise((resolve) => {
       chrome.storage.local.set({
         cloud_device_token: data.device_token,
+        cloud_device_id: data.device_id || null,
         cloud_profile_id: data.profile_id,
         cloud_credentials: encrypted,
         cloud_last_sync: Date.now()

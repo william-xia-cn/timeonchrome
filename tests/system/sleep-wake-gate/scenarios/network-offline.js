@@ -9,6 +9,8 @@
 
 const path = require('path');
 const { exec } = require('child_process');
+const dns = require('dns').promises;
+const net = require('net');
 const { launchExtensionContext, closeContext } = require('../lib/browser');
 const {
   extractBindingStatus,
@@ -48,34 +50,64 @@ function sleep(ms) {
 }
 
 async function probeOnline(probeUrl = DEFAULT_NETWORK_PROBE_URL) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
   const startedAt = Date.now();
+  const checks = {
+    http: { ok: false, status: null, error: null },
+    dns: { ok: false, error: null },
+    socket: { ok: false, error: null },
+  };
 
+  // Check 1: HTTP reachability
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
     const resp = await fetch(probeUrl, {
       method: 'GET',
       cache: 'no-store',
       signal: controller.signal,
     });
-    return {
-      online: true,
-      probeUrl,
-      status: resp.status,
-      elapsedMs: Date.now() - startedAt,
-      error: null,
-    };
-  } catch (err) {
-    return {
-      online: false,
-      probeUrl,
-      status: null,
-      elapsedMs: Date.now() - startedAt,
-      error: err.message,
-    };
-  } finally {
     clearTimeout(timeout);
+    checks.http.ok = true;
+    checks.http.status = resp.status;
+  } catch (err) {
+    checks.http.error = err.message;
   }
+
+  // Check 2: DNS resolution
+  try {
+    await dns.lookup('cloudflare.com');
+    checks.dns.ok = true;
+  } catch (err) {
+    checks.dns.error = err.message;
+  }
+
+  // Check 3: raw socket egress
+  try {
+    await new Promise((resolve, reject) => {
+      const sock = net.connect({ host: '1.1.1.1', port: 443, timeout: 3000 }, () => {
+        sock.destroy();
+        resolve();
+      });
+      sock.on('timeout', () => {
+        sock.destroy();
+        reject(new Error('socket timeout'));
+      });
+      sock.on('error', reject);
+    });
+    checks.socket.ok = true;
+  } catch (err) {
+    checks.socket.error = err.message;
+  }
+
+  const online = checks.http.ok || checks.dns.ok || checks.socket.ok;
+  return {
+    online,
+    probeUrl,
+    status: checks.http.status,
+    elapsedMs: Date.now() - startedAt,
+    error: online ? null : `all probes failed (http=${checks.http.error}; dns=${checks.dns.error}; socket=${checks.socket.error})`,
+    checks,
+  };
 }
 
 async function waitForNetworkState({
@@ -95,6 +127,7 @@ async function waitForNetworkState({
       status: observation.status,
       elapsedMs: observation.elapsedMs,
       error: observation.error,
+      checks: observation.checks,
     });
 
     if (observation.online === desiredOnline) {

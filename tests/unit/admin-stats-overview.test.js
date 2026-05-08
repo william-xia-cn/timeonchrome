@@ -42,6 +42,8 @@ function loadComputeOverview() {
   const fns = [
     extractFunctionSource(code, 'matchDomain'),
     extractFunctionSource(code, 'classifyDomain'),
+    extractFunctionSource(code, 'isStatsMetaKey'),
+    extractFunctionSource(code, 'readCompositeSeconds'),
     extractFunctionSource(code, 'computeOverview')
   ];
   const context = { URL, console, config: { studyList: [], compositeList: [] } };
@@ -76,6 +78,19 @@ function run() {
   // Case 4: both missing => background media = 0
   const r4 = call({ domainStats: {} });
   expectEqual('audio=missing + pip=missing => background media 0s', r4.audio, 0);
+
+  ctx.config = { studyList: ['study.example'], compositeList: ['video.example'] };
+  const r5 = call({ domainStats: { 'study.example': 100, 'video.example': 200, 'other.example': 300 } });
+  expectEqual('domain fallback: compositeList maps to composite seconds', r5.composite, 200);
+  expectEqual('domain fallback: composite seconds are not counted as rest', r5.rest, 300);
+
+  const r6 = call({ compositeSeconds: 240, domainStats: { 'other.example': 300 } });
+  expectEqual('explicit compositeSeconds has priority', r6.composite, 240);
+  expectEqual('explicit compositeSeconds excluded from rest', r6.rest, 60);
+
+  const r7 = call({ undeterminedSeconds: 180, domainStats: { 'other.example': 300 } });
+  expectEqual('legacy undeterminedSeconds is read as composite', r7.composite, 180);
+  expectEqual('legacy undeterminedSeconds excluded from rest', r7.rest, 120);
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

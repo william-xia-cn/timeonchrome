@@ -36,10 +36,14 @@ function run() {
 
   expectTrue('START updates countdown from deadlineAt', src.includes('const deadlineAt = Number(payload?.deadlineAt) || Date.now();'));
   expectTrue('local countdown interval exists', src.includes('setInterval(updateCountdown, 250)'));
+  expectTrue('pending START has local stale cleanup', src.includes('deadlineAt - Date.now() + 5000'));
   expectTrue('CANCEL clears timers and removes host', src.includes('function clearAutoModePending()'));
   expectTrue('SUCCESS composite copy is exact', src.includes('已进入综合时间 · 今日剩余 ${remainingCompositeTime}'));
   expectTrue('SUCCESS study copy is exact', src.includes("bannerEl.textContent = '已进入学习时间';"));
   expectTrue('Study banners never include 今日剩余', !src.includes('已进入学习时间 · 今日剩余'));
+  expectTrue('SUCCESS ignores expired payload', src.includes('Date.now() > Number(payload.expiresAt)'));
+  expectTrue('SUCCESS default TTL is 4s', src.includes('Number(payload?.displayDuration) || 4000'));
+  expectTrue('SUCCESS auto-hide is capped', src.includes('Math.min(Math.max'));
   expectTrue('SUCCESS auto-hide exists', src.includes('setTimeout(() => {'));
 
   const total = passed + failed;

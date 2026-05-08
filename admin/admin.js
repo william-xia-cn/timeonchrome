@@ -45,6 +45,7 @@ let syncFeedbackState = {
   phase: 'idle', // idle | loading | success | error
   message: ''
 };
+let adminPageRefreshSeq = 0;
 
 // ── Child view gate（Soft Gate）────────────────────────────────────────────
 // 当 URL 包含 ?view=stats 时，以只读模式直接进入使用分析，跳过登录/注册/绑定流程
@@ -959,9 +960,92 @@ function sendMsg(msg) {
 
 // ── 路由处理 ─────────────────────────────────────────────────────────────
 
+function setRulesPageError(message) {
+  const safeMessage = escHtml(message || '加载失败，请稍后重试');
+  const modeDescEl = document.getElementById('rules-mode-desc');
+  if (modeDescEl) {
+    modeDescEl.textContent = `规则加载失败：${safeMessage}`;
+  }
+  [
+    'rules-studylist-display',
+    'rules-composite-display',
+    'rules-restricted-display',
+    'rules-blocked-display',
+    'rules-quota-daily-display',
+    'rules-domain-quotas-display',
+    'rules-schedule-display',
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = `<div style="color:var(--danger);font-size:12px;padding:8px 0;">${safeMessage}</div>`;
+    }
+  });
+}
+
+function setStatsPageError(message) {
+  const safeMessage = escHtml(message || '加载失败，请稍后重试');
+  [
+    'today-overview-list',
+    'week-overview-list',
+    'today-timeline',
+    'week-daily-bars',
+    'today-rank-list',
+    'week-rank-list',
+    'today-undetermined-list',
+    'week-undetermined-list',
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = `<div style="color:var(--danger);text-align:center;padding:12px;">${safeMessage}</div>`;
+    }
+  });
+}
+
+function setDevicesPageError(message) {
+  const safeMessage = escHtml(message || '加载失败，请稍后重试');
+  const syncEl = document.getElementById('sync-status');
+  if (syncEl) {
+    syncEl.innerHTML = `<div style="color:var(--danger);font-size:12px;padding:8px 0;">${safeMessage}</div>`;
+  }
+  const changelogEl = document.getElementById('changelog-timeline');
+  if (changelogEl) {
+    changelogEl.innerHTML = `<div style="color:var(--danger);text-align:center;padding:20px;">${safeMessage}</div>`;
+  }
+}
+
+function isLatestAdminRefreshRequest(requestSeq) {
+  return requestSeq === adminPageRefreshSeq;
+}
+
+async function refreshPageByNav(page, requestSeq) {
+  try {
+    if (page === 'rules') {
+      config = await sendMsg({ type: 'GET_CONFIG' });
+      if (!isLatestAdminRefreshRequest(requestSeq)) return;
+      renderRulesPage();
+      return;
+    }
+    if (page === 'stats') {
+      config = await sendMsg({ type: 'GET_CONFIG' });
+      if (!isLatestAdminRefreshRequest(requestSeq)) return;
+      await renderStatsPage();
+      return;
+    }
+    if (page === 'devices') {
+      await setupDevicesPage();
+    }
+  } catch (error) {
+    if (!isLatestAdminRefreshRequest(requestSeq)) return;
+    const message = error?.message || '未知错误';
+    if (page === 'rules') setRulesPageError(message);
+    else if (page === 'stats') setStatsPageError(message);
+    else if (page === 'devices') setDevicesPageError(message);
+  }
+}
+
 function setupNavigation() {
   document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', async () => {
       const page = item.dataset.page;
       if (!page) return;
       
@@ -970,10 +1054,9 @@ function setupNavigation() {
       
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(`page-${page}`)?.classList.add('active');
-      
-      if (page === 'stats')     renderStatsPage();
-      if (page === 'rules')     renderRulesPage();
-      if (page === 'devices') { setupDevicesPage(); renderSyncStatus(); }
+
+      const requestSeq = ++adminPageRefreshSeq;
+      await refreshPageByNav(page, requestSeq);
     });
   });
 }
@@ -1511,35 +1594,67 @@ function classifyDomain(domain) {
 function classifyUsageTimeType(domain) {
   if (!domain) return 'rest';
   if ((config.studyList || []).some(p => matchDomain(domain, p))) return 'study';
-  if ((config.compositeList || []).some(p => matchDomain(domain, p))) return 'undetermined';
+  if ((config.compositeList || []).some(p => matchDomain(domain, p))) return 'composite';
   return 'rest';
+}
+
+function isStatsMetaKey(key) {
+  return key === 'audioSeconds' ||
+    key === 'backgroundMediaByDomain' ||
+    key === 'pipSeconds' ||
+    key === 'pipByDomain' ||
+    key === 'onlineSeconds' ||
+    key === 'compositeSeconds' ||
+    key === 'undeterminedSeconds';
+}
+
+function readCompositeSeconds(statsLike) {
+  const explicitComposite = Number(statsLike?.compositeSeconds);
+  if (Number.isFinite(explicitComposite)) return Math.max(0, explicitComposite);
+
+  const legacyUndetermined = Number(statsLike?.undeterminedSeconds);
+  if (Number.isFinite(legacyUndetermined)) return Math.max(0, legacyUndetermined);
+
+  const compositeList = config?.compositeList || [];
+  const domainStats = statsLike?.domainStats || statsLike || {};
+  let total = 0;
+  for (const [domain, seconds] of Object.entries(domainStats)) {
+    if (isStatsMetaKey(domain)) continue;
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    if (compositeList.some(p => matchDomain(domain, p))) total += value;
+  }
+  return total;
 }
 
 function splitStatsDay(dayStats) {
   const safe = dayStats && typeof dayStats === 'object' ? dayStats : {};
   const audioSeconds = Number(safe.audioSeconds) || 0;
   const pipSeconds = Number(safe.pipSeconds) || 0;
+  const compositeSeconds = readCompositeSeconds(safe);
   const domainStats = {};
   for (const [domain, seconds] of Object.entries(safe)) {
-    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
+    if (isStatsMetaKey(domain)) continue;
     domainStats[domain] = Number(seconds) || 0;
   }
-  return { domainStats, audioSeconds, pipSeconds };
+  return { domainStats, audioSeconds, pipSeconds, compositeSeconds };
 }
 
 function mergeStatsRange(rangeData) {
   const merged = {};
   let audioSeconds = 0;
   let pipSeconds = 0;
+  let compositeSeconds = 0;
   for (const dayStats of Object.values(rangeData)) {
     const day = splitStatsDay(dayStats);
     audioSeconds += day.audioSeconds;
     pipSeconds += day.pipSeconds;
+    compositeSeconds += day.compositeSeconds;
     for (const [domain, seconds] of Object.entries(day.domainStats)) {
       merged[domain] = (merged[domain] || 0) + seconds;
     }
   }
-  return { domainStats: merged, audioSeconds, pipSeconds };
+  return { domainStats: merged, audioSeconds, pipSeconds, compositeSeconds };
 }
 
 function getLocalDateKey(date = new Date()) {
@@ -1548,8 +1663,8 @@ function getLocalDateKey(date = new Date()) {
 
 async function renderStatsPage() {
   const setStatsEmptyState = () => {
-    renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
-    renderOverviewList('week-overview-list', { online: 0, study: 0, rest: 0, audio: 0, undetermined: 0 });
+    renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, composite: 0, undetermined: 0 });
+    renderOverviewList('week-overview-list', { online: 0, study: 0, rest: 0, audio: 0, composite: 0, undetermined: 0 });
     document.getElementById('today-timeline').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
     document.getElementById('week-daily-bars').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
     renderRankList('today-rank-list', {}, 5);
@@ -1571,6 +1686,8 @@ async function renderStatsPage() {
     setStatsEmptyState();
     return;
   }
+
+  await safeMsg({ type: 'FLUSH_TIME' }, { ok: false });
 
   const [
     todayRangeData,
@@ -1630,30 +1747,27 @@ async function renderStatsPage() {
   // ── 本周网站排行 ──
   renderRankList('week-rank-list', weekData.domainStats, 5);
 
-  // ── 今日待归类 ──
+  // ── 今日综合明细 ──
   const todayStr = getLocalDateKey(now);
   const todayUndetermined = weeklySessionsSafe.filter(s => s.date === todayStr);
   renderUndeterminedList('today-undetermined-list', todayUndetermined);
 
-  // ── 本周待归类 ──
+  // ── 本周综合明细 ──
   renderUndeterminedList('week-undetermined-list', weeklySessionsSafe);
 }
 
 function computeOverview(data) {
-  const compositeList = config.compositeList || [];
-  let online = 0, study = 0, rest = 0, audio = 0, undetermined = 0;
+  let online = 0, study = 0, rest = 0, audio = 0;
+  const composite = readCompositeSeconds(data);
   audio = (Number(data.audioSeconds) || 0) + (Number(data.pipSeconds) || 0);
   for (const [domain, seconds] of Object.entries(data.domainStats || {})) {
     online += seconds;
     const type = classifyDomain(domain);
     if (type === 'study') study += seconds;
-    else if (compositeList.some(p => {
-      const d = domain.replace(/^www\./, ''), pp = p.replace(/^www\./, '');
-      return d === pp || d.endsWith('.' + pp);
-    })) undetermined += seconds;
     else rest += seconds;
   }
-  return { online, study, rest, audio, undetermined };
+  rest = Math.max(0, rest - composite);
+  return { online, study, rest, audio, composite, undetermined: composite };
 }
 
 function renderOverviewList(id, overview) {
@@ -1664,7 +1778,7 @@ function renderOverviewList(id, overview) {
     { label: '学习', value: formatSeconds(overview.study) },
     { label: '休息', value: formatSeconds(overview.rest) },
     { label: '后台媒体', value: formatSeconds(overview.audio) },
-    { label: '待归类', value: formatSeconds(overview.undetermined) },
+    { label: '综合', value: formatSeconds(overview.composite ?? overview.undetermined) },
   ];
   el.innerHTML = rows.map(r => `
     <div class="overview-row">
@@ -1687,7 +1801,7 @@ function renderTimeline(id, sessions, options = {}) {
   const hourData = new Array(24).fill(0);
   const hourTypeSeconds = new Array(24).fill(null).map(() => ({
     study: 0,
-    undetermined: 0,
+    composite: 0,
     rest: 0,
   }));
   for (const s of sessions) {
@@ -1722,26 +1836,26 @@ function renderTimeline(id, sessions, options = {}) {
   }
   const typeClass = {
     study: 'study',
-    undetermined: 'undetermined',
+    composite: 'undetermined',
     rest: 'rest',
   };
 
   el.innerHTML = hourData.map((seconds, h) => {
     const typeData = hourTypeSeconds[h];
     const studyPct = Math.max(0, Math.min(100, Math.round((typeData.study / 3600) * 100)));
-    const undeterminedPct = Math.max(0, Math.min(100, Math.round((typeData.undetermined / 3600) * 100)));
+    const compositePct = Math.max(0, Math.min(100, Math.round((typeData.composite / 3600) * 100)));
     const restPct = Math.max(0, Math.min(100, Math.round((typeData.rest / 3600) * 100)));
     const studyLeft = 0;
-    const undeterminedLeft = studyPct;
-    const restLeft = studyPct + undeterminedPct;
+    const compositeLeft = studyPct;
+    const restLeft = studyPct + compositePct;
     const compactParts = [];
     if (typeData.study > 0) compactParts.push(`学习${formatSeconds(typeData.study)}`);
     if (typeData.rest > 0) compactParts.push(`休息${formatSeconds(typeData.rest)}`);
-    if (typeData.undetermined > 0) compactParts.push(`待定${formatSeconds(typeData.undetermined)}`);
+    if (typeData.composite > 0) compactParts.push(`综合${formatSeconds(typeData.composite)}`);
     const label = seconds > 0 ? compactParts.join('，') : '';
     const detail = [];
     if (typeData.study > 0) detail.push(`学习时间 ${formatSeconds(typeData.study)}`);
-    if (typeData.undetermined > 0) detail.push(`待定时间 ${formatSeconds(typeData.undetermined)}`);
+    if (typeData.composite > 0) detail.push(`综合时间 ${formatSeconds(typeData.composite)}`);
     if (typeData.rest > 0) detail.push(`休息时间 ${formatSeconds(typeData.rest)}`);
     const title = detail.join(' / ');
     return `
@@ -1749,7 +1863,7 @@ function renderTimeline(id, sessions, options = {}) {
         <div class="timeline-hour">${String(h).padStart(2, '0')}</div>
         <div class="timeline-track" title="${escHtml(title)}">
           ${studyPct > 0 ? `<div class="timeline-fill ${typeClass.study}" style="left:${studyLeft}%;width:${studyPct}%"></div>` : ''}
-          ${undeterminedPct > 0 ? `<div class="timeline-fill ${typeClass.undetermined}" style="left:${undeterminedLeft}%;width:${undeterminedPct}%"></div>` : ''}
+          ${compositePct > 0 ? `<div class="timeline-fill ${typeClass.composite}" style="left:${compositeLeft}%;width:${compositePct}%"></div>` : ''}
           ${restPct > 0 ? `<div class="timeline-fill ${typeClass.rest}" style="left:${restLeft}%;width:${restPct}%"></div>` : ''}
           ${label ? `<div class="timeline-label">${escHtml(label)}</div>` : ''}
         </div>
@@ -1792,7 +1906,7 @@ function renderRankList(id, domainStats, limit) {
   const el = document.getElementById(id);
   if (!el) return;
   const entries = Object.entries(domainStats)
-    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
+    .filter(([domain]) => !isStatsMetaKey(domain))
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit);
   if (entries.length === 0) {
@@ -1812,15 +1926,15 @@ function renderUndeterminedList(id, sessions) {
   if (!el) return;
   const totalMin = Math.round(sessions.reduce((a, s) => a + (s.duration || 0), 0) / 60);
   if (sessions.length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无待归类</div>';
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无综合明细</div>';
     return;
   }
 
   const statusMap = {
     study:       { cls: 'study',       text: '学习' },
     rest:        { cls: 'rest',        text: '休息' },
-    pending:     { cls: 'pending',     text: '待归类' },
-    appealing:   { cls: 'appealing',   text: '待归类' },
+    pending:     { cls: 'pending',     text: '综合' },
+    appealing:   { cls: 'appealing',   text: '综合' },
   };
 
   el.innerHTML = `
@@ -1883,15 +1997,7 @@ function escHtml(s) {
 }
 
 function getAdminEffectiveDailyRestLimit(config) {
-  const base   = config.dailyRestQuota ?? 120;
-  const borrow = config.quotaBorrow;
-  if (!borrow || borrow.repaid) return base;
-  const today = new Date().toISOString().slice(0, 10);
-  if (today === borrow.borrowedFrom) return base + borrow.amount;
-  const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
-  repayD.setDate(repayD.getDate() + 1);
-  if (repayD.toISOString().slice(0, 10) === today) return Math.max(0, base - borrow.amount);
-  return base;
+  return config.dailyRestQuota ?? 120;
 }
 function escAttr(s) {
   return String(s).replace(/"/g,'&quot;');

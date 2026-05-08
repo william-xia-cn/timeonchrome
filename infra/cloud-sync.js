@@ -1,6 +1,12 @@
 // infra/cloud-sync.js — 云同步 + 心跳
 import { getStatsRange } from './storage.js';
 import { DEFAULT_CONFIG } from './storage.js';
+import {
+  getPendingUsageSegments, getPendingDailyStats,
+  buildUsageSegmentsUploadPayload, buildDailyStatsUploadPayload,
+  markUsageSegmentsUploaded, markDailyStatsUploaded,
+  markUsageSegmentUploadFailed, markDailyStatsUploadFailed,
+} from '../core/usage-segments.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -9,6 +15,7 @@ const CLOUD_CONFIG = {
   MAX_RETRY_ATTEMPTS: 3,
   KEYS: {
     DEVICE_TOKEN: 'cloud_device_token',
+    DEVICE_ID: 'cloud_device_id',
     PROFILE_ID: 'cloud_profile_id',
     CREDENTIALS: 'cloud_credentials',
     LAST_SYNC: 'cloud_last_sync',
@@ -16,7 +23,12 @@ const CLOUD_CONFIG = {
     PENDING_SESSIONS: 'cloud_pending_sessions',
     LOCAL_CONFIG: 'cloud_local_config',
     CONFIG_VERSION: 'cloud_config_version',
-    MONITORING_ENABLED: 'cloud_monitoring_enabled'
+    MONITORING_ENABLED: 'cloud_monitoring_enabled',
+    V1_SYNC_ENABLED: 'statsFoundationV1SyncEnabled',
+    V1_LAST_SYNC_AT: 'cloud_v1_last_sync_at',
+    V1_LAST_SYNC_ERROR: 'cloud_v1_last_sync_error',
+    V1_LAST_SEGMENT_UPLOAD_AT: 'cloud_v1_last_segment_upload_at',
+    V1_LAST_STATS_UPLOAD_AT: 'cloud_v1_last_stats_upload_at'
   }
 };
 
@@ -24,9 +36,94 @@ let syncState = {
   isSyncing: false,
   lastConfigVersion: 0,
   deviceToken: null,
+  deviceId: null,
   profileId: null,
-  monitoringEnabled: 1
+  monitoringEnabled: 1,
+  v1SyncEnabled: false,
 };
+
+function safeDecodeCredentials(encoded) {
+  if (typeof encoded !== 'string' || !encoded) return null;
+  try {
+    const raw = atob(encoded);
+    const idx = raw.indexOf(':');
+    if (idx <= 0) return null;
+    const email = raw.slice(0, idx).trim();
+    const password = raw.slice(idx + 1);
+    if (!email || !password) return null;
+    return { email, password };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function hydrateDeviceIdFromBindIfMissing() {
+  if (syncState.deviceId || !syncState.deviceToken || !syncState.profileId) {
+    return false;
+  }
+
+  const storage = await chrome.storage.local.get([CLOUD_CONFIG.KEYS.CREDENTIALS]);
+  const creds = safeDecodeCredentials(storage?.[CLOUD_CONFIG.KEYS.CREDENTIALS]);
+  if (!creds) {
+    console.warn('[Cloud] cloud_device_id missing and no valid credentials to hydrate');
+    return false;
+  }
+
+  try {
+    const loginResp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: creds.email, password: creds.password }),
+    });
+    if (!loginResp.ok) {
+      console.warn('[Cloud] cloud_device_id hydrate login failed:', loginResp.status);
+      return false;
+    }
+
+    const loginData = await loginResp.json().catch(() => null);
+    const accountToken = loginData?.token;
+    if (!accountToken) {
+      console.warn('[Cloud] cloud_device_id hydrate login missing token');
+      return false;
+    }
+
+    const bindResp = await fetch(`${CLOUD_CONFIG.API_BASE}/device/bind`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accountToken}`
+      },
+      body: JSON.stringify({
+        profile_id: syncState.profileId,
+        device_name: 'Chrome Extension',
+        device_token: syncState.deviceToken,
+      }),
+    });
+    if (!bindResp.ok) {
+      console.warn('[Cloud] cloud_device_id hydrate bind failed:', bindResp.status);
+      return false;
+    }
+
+    const bindData = await bindResp.json().catch(() => null);
+    const maybeDeviceId = typeof bindData?.device_id === 'string' && bindData.device_id.trim()
+      ? bindData.device_id.trim()
+      : null;
+    if (!maybeDeviceId) {
+      console.warn('[Cloud] cloud_device_id hydrate succeeded but response has no device_id');
+      return false;
+    }
+
+    syncState.deviceId = maybeDeviceId;
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.DEVICE_ID]: maybeDeviceId,
+    });
+    console.log('[Cloud] Hydrated cloud_device_id via bind fallback');
+    return true;
+  } catch (e) {
+    console.warn('[Cloud] cloud_device_id hydrate failed:', e?.message || e);
+    return false;
+  }
+}
 
 export function getSyncState() {
   return { ...syncState };
@@ -187,6 +284,7 @@ async function cloudRequest(method, path, body = null, retries = 3) {
     throw new Error('No device token');
   }
 
+  let lastError = null;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const options = {
@@ -223,12 +321,19 @@ async function cloudRequest(method, path, body = null, retries = 3) {
         throw new Error('Device token expired');
       }
 
-      const err = await resp.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || 'Request failed');
+      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+      const message = err?.error || err?.message || `HTTP ${resp.status}`;
+      const nonRetryable = resp.status >= 400 && resp.status < 500 && resp.status !== 429;
+      const error = new Error(`HTTP ${resp.status}: ${message}`);
+      if (nonRetryable) {
+        error.nonRetryable = true;
+      }
+      throw error;
 
     } catch (e) {
+      lastError = e;
       console.error(`[Cloud] Attempt ${attempt + 1} failed:`, e.message);
-      if (e.message.includes('expired') || e.message.includes('Unauthorized')) {
+      if (e.message.includes('expired') || e.message.includes('Unauthorized') || e.nonRetryable) {
         throw e;
       }
       if (attempt < retries - 1) {
@@ -237,7 +342,65 @@ async function cloudRequest(method, path, body = null, retries = 3) {
     }
   }
 
-  throw new Error('Max retries exceeded');
+  const rootMessage = lastError?.message || 'unknown_error';
+  throw new Error(`Max retries exceeded: ${rootMessage}`);
+}
+
+function summarizeDailyStatsPayload(date, payload) {
+  const domains = Array.isArray(payload?.domains) ? payload.domains : [];
+  const modeCounts = {};
+  const channelCounts = { active: 0, backgroundMedia: 0, pip: 0 };
+  let invalidRows = 0;
+  let nonPositiveRows = 0;
+  let missingRequiredRows = 0;
+  let totalRows = 0;
+
+  for (const item of domains) {
+    const domain = typeof item?.domain === 'string' ? item.domain.trim() : '';
+    if (!domain || !payload?.date) {
+      missingRequiredRows++;
+      continue;
+    }
+
+    const rows = [
+      { channel: 'active', byMode: item?.activeByMode },
+      { channel: 'backgroundMedia', byMode: item?.backgroundMediaByMode },
+      { channel: 'pip', byMode: item?.pipByMode },
+    ];
+
+    for (const row of rows) {
+      const byMode = row.byMode && typeof row.byMode === 'object' ? row.byMode : {};
+      const entries = Object.entries(byMode);
+      if (entries.length === 0) continue;
+      for (const [mode, value] of entries) {
+        totalRows++;
+        const seconds = Number(value);
+        if (!Number.isFinite(seconds)) {
+          invalidRows++;
+          continue;
+        }
+        if (seconds <= 0) {
+          nonPositiveRows++;
+          continue;
+        }
+        if (channelCounts[row.channel] !== undefined) {
+          channelCounts[row.channel]++;
+        }
+        modeCounts[mode] = (modeCounts[mode] || 0) + 1;
+      }
+    }
+  }
+
+  return {
+    date,
+    domainCount: domains.length,
+    totalExpandedRows: totalRows,
+    invalidRows,
+    nonPositiveRows,
+    missingRequiredRows,
+    channelCounts,
+    modeCounts,
+  };
 }
 
 // ── Pull config ─────────────────────────────────────────────────────────────────
@@ -266,8 +429,15 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     }
 
     const monitoringEnabled = result.monitoring_enabled ?? 1;
-    await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled });
+    const maybeProfileId = typeof result.profile_id === 'string' && result.profile_id.trim() ? result.profile_id.trim() : null;
+    const maybeDeviceId = typeof result.device_id === 'string' && result.device_id.trim() ? result.device_id.trim() : null;
+    const syncMetadata = { [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled };
+    if (maybeProfileId) syncMetadata[CLOUD_CONFIG.KEYS.PROFILE_ID] = maybeProfileId;
+    if (maybeDeviceId) syncMetadata[CLOUD_CONFIG.KEYS.DEVICE_ID] = maybeDeviceId;
+    await chrome.storage.local.set(syncMetadata);
     syncState.monitoringEnabled = monitoringEnabled;
+    if (maybeProfileId) syncState.profileId = maybeProfileId;
+    if (maybeDeviceId) syncState.deviceId = maybeDeviceId;
     const localConfig = await getConfigFn();
 
     if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion &&
@@ -368,6 +538,14 @@ export async function pullCloudQuotaState(getConfigFn, saveConfigFn, redirectAll
 /**
  * @returns {Promise<{uploaded: number, failed: number, skipped: boolean}>}
  */
+// ── Legacy stats upload (V0 compatibility path) ─────────────────────────────────
+
+/**
+ * 旧版 stats 上传 — 仅上传 active aggregate（无 backgroundMedia、无 PiP、无 segments）。
+ * 使用 getStatsRange() 读取 daily_usage_stats_v1（Phase 1C 迁移）。
+ * 不是 Stats Foundation segment upload 路径。
+ * V1 替换项：`uploadDailyStatsV1()` + `uploadUsageSegmentsV1()`。
+ */
 export async function uploadStats() {
   try {
     const statsRange = await getStatsRange(7);
@@ -424,7 +602,7 @@ export async function uploadStats() {
 /**
  * @returns {Promise<{configPulled: boolean, statsUploaded: boolean, quotaSynced: boolean, hadFailure: boolean, errors: string[]}>}
  */
-export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn) {
+export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn, options = {}) {
   if (!syncState.deviceToken) {
     console.log('[Cloud] Sync skipped: no device token (not yet initialized or unbound)');
     return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: false, errors: [] };
@@ -439,6 +617,8 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
   const errors = [];
 
   try {
+    await hydrateDeviceIdFromBindIfMissing();
+
     const configResult = await pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarativeRulesFn);
     const configPulled = configResult.status === 'updated';
     if (configResult.status === 'failed') {
@@ -447,13 +627,27 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
 
     let statsUploaded = false;
     if (syncState.monitoringEnabled !== 0) {
-      const statsResult = await uploadStats();
-      statsUploaded = statsResult.uploaded > 0 || statsResult.skipped;
-      if (statsResult.failed > 0) {
-        errors.push(`stats: ${statsResult.failed} date(s) failed`);
-      }
-      if (statsResult.error) {
-        errors.push('stats: ' + statsResult.error);
+      if (statsFoundationV1SyncEnabled) {
+        const v1Result = await syncStatsFoundationV1({
+          enabled: true,
+          forceRetryExhausted: !!options.forceRetryExhausted,
+        });
+        statsUploaded = !v1Result.hadFailure;
+        if (v1Result.hadFailure) {
+          await chrome.storage.local.set({
+            [CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR]: (v1Result.errors || []).join('; ') || 'v1 sync failed',
+          }).catch(() => {});
+          errors.push(...(v1Result.errors || ['stats_v1: unknown failure']).map((e) => `stats_v1: ${e}`));
+        }
+      } else {
+        const statsResult = await uploadStats();
+        statsUploaded = statsResult.uploaded > 0 || statsResult.skipped;
+        if (statsResult.failed > 0) {
+          errors.push(`stats: ${statsResult.failed} date(s) failed`);
+        }
+        if (statsResult.error) {
+          errors.push('stats: ' + statsResult.error);
+        }
       }
     } else {
       statsUploaded = true; // monitoring disabled, intentionally skipped
@@ -486,6 +680,302 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
   }
 }
 
+// ── V1 Stats Foundation sync orchestration ──────────────────────────────────────
+
+// Feature gate：stats_foundation_v1_sync — 设置为 true 以启用新的 v1 上传路径。
+// 在云端 v1 端点实现并由 Product Owner 批准之前，保持 false。
+let statsFoundationV1SyncEnabled = true;
+
+/**
+ * 启用/禁用 Stats Foundation v1 同步路径。
+ * 仅在托管环境中公开（例如 Playwright 测试），不在产品 UI 中公开。
+ */
+export function setStatsFoundationV1SyncEnabled(enabled) {
+  statsFoundationV1SyncEnabled = !!enabled;
+  syncState.v1SyncEnabled = statsFoundationV1SyncEnabled;
+  chrome.storage.local.set({
+    [CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED]: statsFoundationV1SyncEnabled,
+  }).catch(() => {});
+}
+
+export function isStatsFoundationV1SyncEnabled() {
+  return statsFoundationV1SyncEnabled;
+}
+
+export async function getStatsFoundationV1SyncStatus() {
+  const [segPending, statsPending, storage] = await Promise.all([
+    getPendingUsageSegments().catch(() => ({ pendingCount: 0 })),
+    getPendingDailyStats().catch(() => ({ pendingCount: 0 })),
+    chrome.storage.local.get([
+      CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
+      CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT,
+      CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR,
+      CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT,
+    ]).catch(() => ({})),
+  ]);
+  return {
+    enabled: !!(storage?.[CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED] ?? statsFoundationV1SyncEnabled),
+    pendingSegments: Number(segPending?.pendingCount || 0),
+    pendingStatsDates: Number(statsPending?.pendingCount || 0),
+    lastSyncAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT] || 0),
+    lastError: storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR] || null,
+    lastSegmentUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT] || 0),
+    lastStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT] || 0),
+  };
+}
+
+/**
+ * 上传 pending usage segments 到云端。
+ * 当 disabled（默认）时：返回 dry-run 结果，不发送网络请求，不清除 dirty outbox。
+ * 当 enabled 时：构建载荷、发送到 POST /device/usage-segments/v1、标记已上传。
+ *
+ * @param {{ enabled?: boolean }} options
+ * @returns {Promise<{uploaded: number, failed: number, skipped: boolean, dryRun: boolean, pendingCount: number, payloadSample?: object, errors: string[]}>}
+ */
+export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
+  const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
+
+  if (!syncState.deviceToken) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: ['No device token'] };
+  }
+
+  if (syncState.monitoringEnabled === 0) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: [] };
+  }
+
+  try {
+    const pending = await getPendingUsageSegments();
+    if (pending.pendingCount === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
+    }
+
+    // 在启用之前限制每个批次的 segment 数量（硬限制：每批 200 个 segments）
+    const MAX_SEGMENTS_PER_BATCH = 200;
+    const batchIds = pending.segments.slice(0, MAX_SEGMENTS_PER_BATCH).map(s => s.id);
+
+    if (!effectiveEnabled) {
+      // Dry-run：报告待处理状态但不发送任何内容
+      const payload = await buildUsageSegmentsUploadPayload(batchIds.slice(0, 5));
+      return {
+        uploaded: 0,
+        failed: 0,
+        skipped: true,
+        dryRun: true,
+        pendingCount: pending.pendingCount,
+        batchSize: batchIds.length,
+        payloadSample: {
+          schemaVersion: payload.schemaVersion,
+          segmentCount: payload.segments.length,
+          firstDomain: payload.segments[0]?.domain || null,
+        },
+        skippedReason: 'stats_foundation_v1_sync is disabled',
+        retryCounts: pending.retryCounts,
+        errors: [],
+      };
+    }
+
+    // Enabled 路径：构建载荷并发送到云端
+    let uploaded = 0;
+    let failed = 0;
+    const errors = [];
+    const payload = await buildUsageSegmentsUploadPayload(batchIds);
+
+    if (payload.segments.length === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: false, pendingCount: pending.pendingCount, errors: [] };
+    }
+
+    try {
+      await cloudRequest('POST', '/device/usage-segments/v1', { segments: payload.segments });
+      await markUsageSegmentsUploaded(batchIds);
+      uploaded = batchIds.length;
+      await chrome.storage.local.set({
+        [CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT]: Date.now(),
+      });
+      console.log('[Cloud-V1] Usage segments uploaded:', uploaded);
+    } catch (e) {
+      await markUsageSegmentUploadFailed(batchIds, e.message);
+      failed = batchIds.length;
+      errors.push(`segments: ${e.message}`);
+      console.error('[Cloud-V1] Failed to upload segments:', e.message);
+    }
+
+    return {
+      uploaded,
+      failed,
+      skipped: false,
+      dryRun: false,
+      pendingCount: pending.pendingCount - uploaded,
+      errors,
+    };
+  } catch (e) {
+    console.error('[Cloud-V1] Segment upload orchestration failed:', e.message);
+    return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
+  }
+}
+
+/**
+ * 上传 pending daily stats v1 到云端。
+ * 当 disabled（默认）时：返回 dry-run 结果，不发送网络请求，不清除 dirty outbox。
+ * 当 enabled 时：构建载荷、发送到 POST /device/stats/v1、标记已上传。
+ *
+ * @param {{ enabled?: boolean }} options
+ * @returns {Promise<{uploaded: number, failed: number, skipped: boolean, dryRun: boolean, pendingCount: number, payloadSample?: object, errors: string[]}>}
+ */
+export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted = false } = {}) {
+  const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
+
+  if (!syncState.deviceToken) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: ['No device token'] };
+  }
+
+  if (syncState.monitoringEnabled === 0) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: [] };
+  }
+
+  try {
+    const pending = await getPendingDailyStats();
+    const dirtyDates = Object.keys(pending.stats);
+
+    if (dirtyDates.length === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
+    }
+
+    // 每个批次限制日期数量
+    const MAX_DATES_PER_BATCH = 7;
+    const exhaustedDates = dirtyDates.filter((date) =>
+      Number(pending.retryCounts?.[date] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
+    );
+    const candidateDates = forceRetryExhausted
+      ? dirtyDates
+      : dirtyDates.filter((date) => !exhaustedDates.includes(date));
+    const batchDates = candidateDates.slice(0, MAX_DATES_PER_BATCH);
+
+    if (!effectiveEnabled) {
+      // Dry-run
+      const samplePayload = batchDates.length > 0
+        ? await buildDailyStatsUploadPayload(batchDates[0])
+        : null;
+      return {
+        uploaded: 0,
+        failed: 0,
+        skipped: true,
+        dryRun: true,
+        pendingCount: dirtyDates.length,
+        batchSize: batchDates.length,
+        payloadSample: samplePayload ? {
+          schemaVersion: samplePayload.schemaVersion,
+          date: samplePayload.date,
+          domainCount: samplePayload.domains.length,
+        } : null,
+        skippedReason: 'stats_foundation_v1_sync is disabled',
+        retryCounts: pending.retryCounts,
+        errors: [],
+      };
+    }
+
+    if (batchDates.length === 0 && exhaustedDates.length > 0) {
+      return {
+        uploaded: 0,
+        failed: exhaustedDates.length,
+        skipped: false,
+        dryRun: false,
+        pendingCount: dirtyDates.length,
+        errors: exhaustedDates.map((date) => `stats ${date}: retry exhausted (${pending.retryCounts?.[date] || 0})`),
+      };
+    }
+
+    let uploaded = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const date of batchDates) {
+      const payload = await buildDailyStatsUploadPayload(date);
+      if (!payload || payload.domains.length === 0) {
+        await markDailyStatsUploaded([date]);
+        continue;
+      }
+
+      try {
+        // 发送嵌套聚合形状（buildDailyStatsUploadPayload 的输出）。
+        // Worker 将 byMode 对象展开为 stats_v1 的逐 channel+mode 行。
+        await cloudRequest('POST', '/device/stats/v1', payload);
+        await markDailyStatsUploaded([date]);
+        uploaded++;
+        await chrome.storage.local.set({
+          [CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT]: Date.now(),
+        });
+        console.log('[Cloud-V1] Daily stats uploaded:', date, `(${payload.domains.length} domains)`);
+      } catch (e) {
+        await markDailyStatsUploadFailed([date], e.message);
+        failed++;
+        errors.push(`stats ${date}: ${e.message}`);
+        console.error('[Cloud-V1] Failed to upload daily stats for', date, e.message, summarizeDailyStatsPayload(date, payload));
+      }
+    }
+
+    return {
+      uploaded,
+      failed,
+      skipped: false,
+      dryRun: false,
+      pendingCount: dirtyDates.length - uploaded,
+      errors,
+    };
+  } catch (e) {
+    console.error('[Cloud-V1] Stats upload orchestration failed:', e.message);
+    return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
+  }
+}
+
+/**
+ * 编排完整的 Stats Foundation v1 同步。
+ * 顺序：先上传 segments，再上传 stats（云端可以从 segments 重建 stats）。
+ * 当 disabled（默认）时：两个上传路径都返回 dry-run 结果。
+ *
+ * @param {{ enabled?: boolean }} options
+ * @returns {Promise<{segments: object, stats: object, hadFailure: boolean, dryRun: boolean, errors: string[]}>}
+ */
+export async function syncStatsFoundationV1({ enabled = false, forceRetryExhausted = false } = {}) {
+  const errors = [];
+  let hadFailure = false;
+
+  // 1. Segments 先上传（事实源）
+  const segmentResult = await uploadUsageSegmentsV1({ enabled });
+  if (segmentResult.failed > 0 || segmentResult.errors.length > 0) {
+    hadFailure = true;
+    errors.push(...segmentResult.errors);
+  }
+
+  // 2. Stats 后上传（物化视图）
+  const statsResult = await uploadDailyStatsV1({ enabled, forceRetryExhausted });
+  if (statsResult.failed > 0 || statsResult.errors.length > 0) {
+    hadFailure = true;
+    errors.push(...statsResult.errors);
+  }
+
+  const dryRun = segmentResult.dryRun && statsResult.dryRun;
+
+  if (!dryRun && !hadFailure) {
+    console.log('[Cloud-V1] Stats Foundation sync completed successfully');
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT]: Date.now(),
+      [CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR]: null,
+    }).catch(() => {});
+  } else if (dryRun) {
+    console.log('[Cloud-V1] Stats Foundation sync dry-run completed',
+      `(segments pending: ${segmentResult.pendingCount}, stats pending: ${statsResult.pendingCount})`);
+  }
+
+  return {
+    segments: segmentResult,
+    stats: statsResult,
+    hadFailure,
+    dryRun,
+    errors,
+  };
+}
+
 // ── Heartbeat ───────────────────────────────────────────────────────────────────
 
 export async function sendHeartbeat() {
@@ -503,15 +993,26 @@ export async function sendHeartbeat() {
 export async function initCloudSync(syncNowFn) {
   const storage = await chrome.storage.local.get([
     CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
+    CLOUD_CONFIG.KEYS.DEVICE_ID,
     CLOUD_CONFIG.KEYS.PROFILE_ID,
     CLOUD_CONFIG.KEYS.CONFIG_VERSION,
-    CLOUD_CONFIG.KEYS.MONITORING_ENABLED
+    CLOUD_CONFIG.KEYS.MONITORING_ENABLED,
+    CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
   ]);
 
   syncState.deviceToken = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
+  syncState.deviceId = storage[CLOUD_CONFIG.KEYS.DEVICE_ID] || null;
   syncState.profileId = storage[CLOUD_CONFIG.KEYS.PROFILE_ID];
   syncState.lastConfigVersion = storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0;
   syncState.monitoringEnabled = storage[CLOUD_CONFIG.KEYS.MONITORING_ENABLED] ?? 1;
+  const v1Stored = storage[CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED];
+  statsFoundationV1SyncEnabled = typeof v1Stored === 'boolean' ? v1Stored : true;
+  syncState.v1SyncEnabled = statsFoundationV1SyncEnabled;
+  if (typeof v1Stored !== 'boolean') {
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED]: statsFoundationV1SyncEnabled,
+    }).catch(() => {});
+  }
 
   if (syncState.deviceToken) {
     console.log('[Cloud] Device token found, starting sync...');
@@ -529,6 +1030,7 @@ export async function initCloudSync(syncNowFn) {
 export async function cloudBind(syncNowFn) {
   const storage = await chrome.storage.local.get([
     CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
+    CLOUD_CONFIG.KEYS.DEVICE_ID,
     CLOUD_CONFIG.KEYS.PROFILE_ID
   ]);
   const deviceToken = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
@@ -539,6 +1041,7 @@ export async function cloudBind(syncNowFn) {
   }
 
   syncState.deviceToken = deviceToken;
+  syncState.deviceId = storage[CLOUD_CONFIG.KEYS.DEVICE_ID] || null;
   syncState.profileId = profileId;
 
   if (syncNowFn) {

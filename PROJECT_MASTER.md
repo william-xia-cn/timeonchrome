@@ -2,8 +2,8 @@
 
 ## 项目状态
 - **版本：1.7.2**
-- **阶段：V0 RC closeout under Product Owner accepted release risk**
-- 当前约束：仅做发布前收口与 RC 交付准备，不扩展新功能
+- **阶段：V1-minimal release candidate planning（V0 baseline frozen）**
+- 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## 版本边界
 - **V0（功能冻结 / 发布闸门未完成）**
@@ -15,16 +15,17 @@
   - 真实 Chrome 前台 ACTIVE 计时、失焦/最小化、多窗口、badge 今日时长已进入本地验收
   - 跨自然日计时统计口径定为"按自然日切分"，聚合层已补最小实现与单元测试
 - **V1（后续）**
+  - **Stats Storage Foundation（P0 前置）**：`docs/STATS_STORAGE_FOUNDATION.md`；终端 Phase 1-2 已完成（1B-R + 1C）；云基础设施 Phase 3 已完成（3A→3F-S）；`DECISIONS.md:D-030/D-031/D-032`；v1 同步在代码中就绪但默认禁用；受控上线需单独 PO 批准（见 `STATS_STORAGE_FOUNDATION.md` §C.9）
   - composite routing（明确延后）
   - 更精细分类能力（超出 V0 最小收口范围）
   - 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐
   - PiP timing support：最小闭环已补；`PIP_ACTIVE` 单独聚合到 `pipSeconds / pipByDomain`，不混入普通在线/ACTIVE 或后台媒体时长；切换学习模式时会尝试关闭非学习网站 PiP
   - 媒体时长 domain 维度：后台 audio/video 已补 `backgroundMediaByDomain` 明细，PiP 已补 `pipByDomain` 明细；摘要字段仅作总量展示
 
-## V0 Release 1.7.2 状态
-- **V0 RC: APPROVED for Google review / handoff（Product Owner approved）**
-- **批准时间**：2026-05-04
-- **批准范围**：Google review / handoff 版本，非 Chrome Web Store 正式发布
+## V0 Baseline（internal stabilization baseline）
+- **结论**：V0 不作为正式发布版本
+- **状态**：V0 作为 internal stabilization baseline 冻结并保留证据
+- **历史记录**：V0 RC 曾于 2026-05-04 获 Product Owner 批准用于 Google review / handoff（非 Chrome Web Store 正式发布）
 - **最近确认的 System Recovery runner infrastructure commit**：`9626a8c`
 - **V0 RC 与 System Recovery runner infrastructure 已可用**
 - **RC 验证：passed**
@@ -107,6 +108,143 @@
   - Product Owner 手动验收：终端 `访问规则` 页面可见系统/默认学习网站清单；数据来自云同步；未引入本地硬编码默认清单；页面保持只读
 - **Chrome Web Store: NOT published** — separate future task, not in current scope
 
+## V1-minimal Release Candidate（当前正式发布目标）
+- **目标定位**：基于 V0 baseline 的最小可发布版本（release-readiness 导向），不是完整 V1 产品模型重建
+- **当前状态**：release artifact prepared; Chrome Web Store submission text prepared; not uploaded, not submitted, not tagged, not pushed
+
+### V1-minimal must-have
+- release gate matrix reset（以 V1-minimal 口径重置发布闸门）
+- Cloud Stats v1 minimal sync gate（`usage_segments_v1` + `stats_v1`）
+- Chrome Web Store readiness audit
+- manifest permissions / host permissions review
+- privacy 与 data collection 文案复核
+- macOS + Windows 真实 Chrome smoke verification
+- package build verification
+- final known risks section
+
+### V1-minimal release preparation（2026-05-09）
+- **Package**：`dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
+- **SHA256**：`A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
+- **Size**：141,364 bytes
+- **Manifest version**：`1.7.2`
+- **Package verification**：PASS
+  - ZIP opens and contains `manifest.json`
+  - Manifest is MV3 and version `1.7.2`
+  - Required runtime files are present
+  - Disallowed private/build/test paths are absent (`docs/`, `tests/`, `workers/`, `pages/`, `node_modules/`, `.env`, `.wrangler`, local Chrome profile data)
+- **Release record**：`docs/releases/v1-minimal-release-2026-05-09.md`
+- **Chrome Web Store submission text**：`docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
+- **Chrome Web Store status**：prepared only; not uploaded; final Submit for Review requires separate Product Owner approval.
+- **GitHub status**：local commit planned; no push or tag without separate Product Owner approval.
+
+### V1-minimal out of scope
+- full three-mode model 重构
+- AI content classification
+- composite routing rebuild
+- 当前时间借用实现（borrow time / borrow quota）进入发布范围
+- `statsFoundationV1SyncEnabled` 启用
+- legacy D1 cleanup/migration
+- admin UI redesign
+- historical data backfill
+- site classification policy expansion
+
+> 注：上述 out-of-scope 中“`statsFoundationV1SyncEnabled` 启用”已被 D-035 覆盖为 V1-minimal 必选项；此处历史条目保留以说明范围演进。
+
+### V1-minimal 范围补充（time borrowing）
+- V1-minimal 不包含当前实现中的时间借用路径（runtime / UI / message）。
+- 当前借用能力相关原始需求保留，但迁移到后续版本进行重设计与重构。
+- 后续版本需重新定义：借用来源、借用目标、配额扣减、审批/确认、UI 入口、云端字段、统计归因、与休息/综合/受限娱乐关系。
+
+### V1-minimal close-out evidence：time borrowing disable
+- **状态**：DONE / PASS for V1-minimal scope control evidence
+- **决策对齐**：遵循 `DECISIONS.md:D-034`，当前 time borrowing 实现路径已从 V1-minimal runtime/UI 排除。
+
+**Runtime 行为（已落地）**
+- `BORROW_REST_QUOTA` 受控拒绝返回：
+  - `{ ok: false, error: "TIME_BORROWING_DISABLED_FOR_V1_MINIMAL" }`
+- 不修改 `quotaBorrow`。
+- 不修改 `rest/weekly` 配额状态（如 `restLocked` / `weeklyRestLocked`）。
+- 不触发借用执行或还款链路。
+
+**UI 行为（已落地）**
+- reminder/blocked 页面无借用入口。
+- popup 无借用入口。
+- admin 不将 `quotaBorrow` 作为 V1-minimal 活跃能力展示。
+- 每日休息配额显示不再应用 `quotaBorrow` 动态调节。
+
+**Storage 兼容性（已确认）**
+- `quotaBorrow` / `weeklyRestQuota` 历史字段可继续存在。
+- 兼容读取保留，不做清理、迁移或云端 schema 改动。
+
+**验证证据（已完成）**
+- `node tests/unit/message-router-borrow-source.test.js`：`4/4 passed`
+- `node tests/unit/reminder-borrow-confirm.test.js`：`5/5 passed`
+- `node tests/unit/borrow-concurrency.test.js`：`3/3 passed`
+- `node tests/unit/reminder-transition-v0.test.js`：`67/67 passed`
+- `node tests/unit/background-logic.test.js`：`86/86 passed`
+- `node tests/unit/storage-aggregation-convergence.test.js`：`36/36 passed`
+
+**范围确认**
+- 未改 Cloud Worker / D1。
+- 未改 stats schema。
+- 未启用 `statsFoundationV1SyncEnabled`。
+- 未改网站分类策略。
+- 未做三模式/综合路由重构。
+
+**说明**
+- 本条仅为 V1-minimal 范围控制与禁用落账证据，不等同于宣称 V1-minimal 已发布就绪。
+
+### V1-minimal close-out evidence：Cloud Stats v1 minimal sync gate
+- **状态**：PASS（子门通过；不等同于 V1-minimal 整体 release ready）
+
+**修复与部署**
+- 客户端最小修复：`infra/cloud-sync.js` 增加 `cloud_device_id` 缺失补水逻辑（复用已绑定凭据与既有 `device_token`，仅补持久化 `cloud_device_id`）。
+- Worker 部署：`guardian-api` 已部署，Version ID `1c93c24a-17e6-418e-b870-83b5c4e3804d`。
+- 部署后远端接口行为对齐：
+  - `POST /device/bind` 返回 `device_id`
+  - `GET /device/config` 返回 `device_id`
+
+**真实 Gate.Test 证据（扩展上下文）**
+- `statsFoundationV1SyncEnabled=true`
+- `cloud_profile_id_exists=true`
+- `cloud_device_id_exists=true`
+- `CLOUD_FORCE_SYNC` 返回 `hadFailure=false`
+- `GET_CLOUD_STATUS.v1Sync`：
+  - `pendingSegments=0`
+  - `pendingStatsDates=0`
+  - `lastError=null`
+  - `lastSyncAt>0`
+- 本地 outbox：
+  - `segment_sync_outbox_v1` pending count = `0`
+  - `stats_sync_outbox_v1` pending count = `0`
+
+**生产 profile 补证据（Profile 3）**
+- 初始状态：`cloud_device_id` 缺失，`GET_CLOUD_STATUS.deviceId=null`。
+- 扩展 reload 后触发补水日志：`[Cloud] Hydrated cloud_device_id via bind fallback`。
+- 复核结果：
+  - `storage.cloud_device_id_exists=true`
+  - `GET_CLOUD_STATUS.deviceId` 存在（与 storage 预览一致）
+  - `CLOUD_FORCE_SYNC` 返回 `hadFailure=false`。
+
+**远端 D1 只读证据**
+- `stats_v1`：唯一性约束存在（`profile_id,date,domain,channel,mode`）
+- `usage_segments_v1`：`id` 主键存在
+- duplicate checks：
+  - `stats_v1` duplicate query 返回 `[]`
+  - `usage_segments_v1` duplicate query 返回 `[]`
+
+**验证测试（最小相关）**
+- `node tests/unit/stats-foundation-sync.test.js`：`65 passed`
+- `node tests/unit/usage-segments.test.js`：`166 passed`
+- `node tests/unit/live-stats-flush.test.js`：PASS（exit code 0）
+
+**范围确认**
+- 未做 legacy stats cleanup
+- 未做 D1 destructive writes
+- 未改网站分类策略
+- 未恢复 time borrowing 功能
+- 原始 borrowing 需求未删除，已保留为 post V1-minimal 重设计输入。
+
 ## Product Owner 手动验收状态（V0 UX）
 - **Reminder UI：已通过**
   - Study→Rest 滑动确认页通过
@@ -124,6 +262,214 @@
 - **Temporary composite permission semantic bug: FIXED & code-verified**
   - Commit: `b5d371c` (`fix: scope temporary composite permission to current tab visit`)
   - Codex closed-loop 代码路径核验：临时权限不再写入 `guardian_config.compositeList`；存储模型为 `tabId + domain + createdAt`；访问判定要求 `tabId + domain` 同时命中；tab 关闭/跨域导航/模式切换会清理临时权限；受限域与配额锁会拒绝临时权限；终端永久规则不展示临时域名；文案为“本次标签页访问内有效，占用综合时间，不计入学习时间。”；统计归因保持综合/待定口径
+
+## V0 Release Evidence（docs close-out）
+
+### Mode-switch in-page prompt lifecycle hardening
+- **状态**：DONE / PASS for V0 release evidence
+- **定位**：页面内提示属于 UI projection layer，不是 mode state truth source；模式切换状态不依赖提示成功显示。
+
+**问题背景**
+- 早期链路存在一次性 `chrome.tabs.sendMessage` 脆弱点：content script 未 ready 时，提示可能丢失。
+- pending success notice 早期主要按 `tabId` 缓存，存在同 tab 导航后旧提示串页风险。
+
+**加固结果**
+- pending success notice 绑定 `tabId + domainSnapshot`。
+- `CONTENT_SCRIPT_READY` resend 路径携带 current tab domain。
+- resend guard 收敛为：
+  - `domainSnapshot` 存在但 `currentDomain` 缺失：不重发并清理 pending；
+  - `domainSnapshot` 与 `currentDomain` 不一致：不重发并清理 pending；
+  - `domainSnapshot` 与 `currentDomain` 一致：允许重发；
+  - 两者都缺失：不重发并清理 pending。
+- 保留既有 TTL、fallback notification、clearPendingNotice 行为。
+
+**验证证据（已完成）**
+- `node tests/unit/interceptor-mode-transition-v0.test.js`：`84/84 passed`
+- `node tests/unit/content-rest-composite-pending-banner.test.js`：`23/23 passed`
+- `npx playwright test tests/e2e/mode-switch-prompt-lifecycle.test.js --reporter=line`：`3 passed`
+
+**E2E 备注**
+- 历史 `spawn EPERM` 通过非沙箱权限运行 Playwright worker 进程解决。
+- `mode-switch-prompt-lifecycle.test.js` 做了最小 harness 修复：成功提示 TTL 场景由 `studyUrl` 调整为 `compositeUrl`，避免后台每秒 reevaluate 将场景污染为“综合→学习 pending”。
+- 上述修复未使用 `test.skip`，未删除关键 selector，未放宽断言，未弱化验证目标。
+
+**范围确认**
+- 未改模式状态机。
+- 未改 stats schema。
+- 未改 popup/admin 功能。
+- 未改 cloud/Worker/D1。
+- 未改网站分类策略。
+
+**说明**
+- 本记录仅确认该子任务作为 V0 release evidence 通过，不等同于宣称 V0 整体 release ready。
+
+### Admin subpage refresh on navigation
+- **状态**：DONE / PASS for V0 release evidence
+
+**问题背景**
+- admin 侧边栏切换子页时，原先主要是 DOM 显隐切换。
+- 访问规则 / 使用分析等子页读取首次加载时的全局 `config`。
+- tab click 未重新 `GET_CONFIG`，导致用户经常需要手动刷新浏览器页面才能看到最新状态。
+
+**修复内容**
+- 新增统一切页刷新入口 `refreshPageByNav(page, requestSeq)`。
+- `setupNavigation()` 的 tab click 改为异步切页后刷新目标页面。
+- `rules` 页面切换时重新 `GET_CONFIG` 后执行 `renderRulesPage()`。
+- `stats` 页面切换时重新 `GET_CONFIG` 后执行 `renderStatsPage()`。
+- `devices` 页面保留原有即时刷新路径。
+- 新增 `adminPageRefreshSeq`，防止快速切 tab 时旧请求覆盖当前页面。
+- 新增 `rules/stats/devices` 错误态渲染，避免加载失败时静默保留旧 DOM。
+
+**验证证据（已完成）**
+- `node tests/unit/admin-nav-refresh.test.js`：`5/5 passed`
+- `node tests/unit/admin-stats-overview.test.js`：`10/10 passed`
+- `node tests/unit/admin-undetermined-list.test.js`：`50/50 passed`
+- Manual browser verification：PASS
+
+**范围确认**
+- 未改 Cloud Worker / D1。
+- 未改配置 schema / stats schema。
+- 未改网站分类策略。
+- 未改模式状态机。
+- 未改 popup。
+- 未做 admin UI 大改版。
+
+**Close-out**
+- Code-level fix: PASS
+- Unit verification: PASS
+- Manual browser verification: PASS
+- Release confidence: high
+- Status: DONE / PASS for V0 release evidence
+
+**说明**
+- 本记录仅确认该子任务作为 V0 release evidence 通过，不等同于宣称 V0 整体 release ready。
+
+### Cloud sync evidence pass（read-only）
+- **状态**：PASS（机制可用）+ KNOWN RISK CONFIRMED（legacy cloud stats duplicate）
+
+**证据摘要**
+- Config sync：
+  - 云同步日志显示 local/cloud version 已对齐，配置更新到 version `7`。
+  - admin 页面 `GET_CONFIG` 返回 defaults/custom/effective 三层字段。
+  - 关键计数：
+    - `defaultStudySites=149`
+    - `customStudyList=8`
+    - `studyList=158`
+    - `defaultCompositeSites=9`
+    - `customCompositeList=4`
+    - `compositeList=13`
+    - `defaultRestrictedEntertainmentSites=14`
+    - `restrictedEntertainmentList=14`
+    - `unsafeList=2`
+- Local stats：
+  - storage 日志显示 `getTodayStats` 来自 `daily_usage_stats_v1`（`2026-05-07`，18 domains）。
+  - `GET_STATS` 返回：`onlineSeconds=8068`、`compositeSeconds=1186`、`undeterminedSeconds=1186`。
+  - `GET_STATS_RANGE(7)` 返回 7 天范围，且 `2026-05-07` 与 `GET_STATS` 对齐。
+  - `GET_TIMELINE_SEGMENTS` 返回 `368` 条。
+- Runtime mode：
+  - `GET_RUNTIME_MODE_STATUS` 返回 `mode=composite`，且 `currentSessionDurationSeconds` 存在。
+- Runtime evidence context：
+  - Service Worker console 自发 `sendMessage` 得到 `{}` 是上下文取证问题。
+  - admin 页面 console 的 runtime message evidence 返回有效响应。
+  - 未发现 message-router 对上述 type 的实现缺失或返回路径 bug。
+- Cloud legacy stats：
+  - cloud-sync 日志显示 `2026-05-07` legacy stats 成功上传（15 domains）。
+  - D1 只读证据确认：legacy `stats` 表仅有 `id` 主键，无 `UNIQUE(profile_id,date,domain)`。
+  - 已确认存在同 profile/date/domain 重复行。
+
+**已确认风险（Known Risk）**
+- legacy cloud `stats` 重复行在云端按 `SUM` 聚合时，可能放大历史统计值。
+- 当前结论：legacy cloud stats “可用”，但不是“干净唯一真值源”。
+- 约束：
+  - 本轮不新增 UNIQUE migration；
+  - 本轮不清理/重写 D1 历史数据；
+  - 本轮不启用 `statsFoundationV1SyncEnabled`；
+  - V0 不将该风险通过临时写库操作消除。
+
+**后续建议**
+- 建立独立的 legacy stats cleanup/migration 计划（单独评审与回滚策略），或在 V1 stats sync 迁移中统一收敛。
+- 本条证据不等同于宣称 legacy cloud stats fully clean，也不单独构成 V0 整体 release-ready 结论。
+
+### V1-minimal close-out evidence：Recovery/System manual evidence
+- **状态**：PASS with manual evidence（审计闭环完成）
+- **Close-out report**：
+  - `tests/system/sleep-wake-gate/reports/v1-minimal-recovery-gate-closeout-20260508-180200.json`
+  - `tests/system/sleep-wake-gate/reports/v1-minimal-recovery-gate-closeout-20260508-180200.md`
+- **Automated gates retained as PASS**：
+  - dry-run
+  - chrome close/reopen
+  - service worker recovery
+  - runtime route preflight
+  - GET_TIMELINE_SEGMENTS / GET_RUNTIME_MODE_STATUS / GET_CLOUD_STATUS.v1Sync
+  - CLOUD_FORCE_SYNC = SKIP_BY_POLICY
+- **Manual gates落账口径**：
+  - network offline/online = MANUAL_VERIFIED_PASS
+  - windows lock/unlock = MANUAL_VERIFIED_PASS
+  - sleep/wake = MANUAL_VERIFIED_PASS（保留 automated sleep report=PARTIAL 事实）
+- **审计注意事项**：
+  - manual gates 为 operator-confirmed evidence，不是全自动测量
+  - 不得写成 all gates fully automated
+
+### V1-minimal close-out evidence：Mode transition PiP cleanup + Study prompt regression
+- **状态**：PASS（mode-transition UX / side-effect regression gate；不属于 Recovery/System gate）
+
+**问题背景**
+- Rest -> Composite manual/auto 路径下，PiP 曾未关闭。
+- Rest -> Study auto 路径下，PiP 曾出现不稳定关闭。
+- 进入 Study 的 in-page prompt 曾再次缺失。
+
+**最终行为**
+- Leaving Rest to Composite closes active PiP.
+- Leaving Rest to Study closes active PiP.
+- Entering Study closes active PiP.
+- Entering Study shows in-page Study prompt.
+- Manual and auto transition paths both covered.
+
+**修复摘要**
+- PiP close side-effect 统一到 mode transition 相关路径（避免 manual/auto 分裂）。
+- PiP close 尝试优先当前 tab，并扩展为全 tab 尝试以提高稳定性。
+- PiP close failure does not abort mode transition.
+- Study prompt lifecycle 继续走既有稳定派发路径（含 late-ready resend 与 domain guard）。
+- E2E 用例在每条路径前强制建立 Rest 前置状态，避免测试语义漂移。
+
+**测试证据**
+- `node tests/unit/interceptor-mode-transition-v0.test.js`：`89/89 passed`
+- `node tests/unit/reminder-transition-v0.test.js`：`67/67 passed`
+- `node tests/unit/content-rest-composite-pending-banner.test.js`：`23/23 passed`
+- `npx playwright test tests/e2e/mode-switch-prompt-lifecycle.test.js --reporter=line`：`3 passed`
+- `npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line`：`4 passed`
+
+**PiP E2E 四路结果**
+- Rest -> Composite manual: PASS
+- Rest -> Composite auto: PASS
+- Rest -> Study manual: PASS
+- Rest -> Study auto: PASS
+
+**Harness 约束**
+- `background.js` 中 `debugTriggerAutoTransition` 仅用于 E2E harness。
+- 必须受 sender / test-only 约束，不得作为普通用户路径暴露。
+- 不影响业务行为，不依赖 Cloud/D1。
+
+### V1-minimal close-out evidence：Mode prompt delivery + popup notice targeting + delay parameter update
+- **状态**：PO review / close-out ready（本条仅记录本轮变更，不代表 V1-minimal 整体 release ready）
+
+**变更摘要**
+- 页面内提示可见性恢复：Product Owner 手动刷新页面后确认可见，当前采用新提示形态。
+- 提示样式调整：颜色调浅为更轻绿色；仅视觉层改动，不改变提示投递逻辑语义。
+- popup 切换投递修复：popup 发起 `SWITCH_*` 时携带 `noticeTabId`，background 优先向目标网页 tab 投递提示，修复“popup 切换模式后目标网页无提示”。
+- 自动切换延迟参数更新（按 Product Owner 指定）：
+  - `Rest -> Composite`: `30s`
+  - `Rest -> Study`: `45s`
+  - `Composite -> Study`: `45s`
+- 文档同步已完成：`docs/MODE_TRANSITION_UX_V0.md` 与 `DECISIONS.md:D-020` 均已对齐 `30/45/45`。
+
+**测试证据（当前基线）**
+- `npx playwright test tests/e2e/mode-switch-prompt-lifecycle.test.js --reporter=line`：`3 passed`
+- `npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line`：`4 passed`
+
+**流程约束（后续执行）**
+- 涉及 mode transition timing、prompt behavior、UX 参数的改动，先文档审批/同步，再实现。
+- 不允许代码与文档分叉。
 
 ## Reminder V0 一致性阻塞解决记录
 - **状态：已解决**
@@ -180,8 +526,9 @@
 
 ## 发布口径约束
 - 上述 accepted risks 是"未修复/未通过"的风险接受，不是测试通过结论。
-- **V0 RC 已获 Product Owner 批准用于 Google review / handoff（2026-05-04）**。
-- 本批准**不等同于 Chrome Web Store 正式发布**；CWS 提交为独立后续任务。
+- **V0 RC 已获 Product Owner 批准用于 Google review / handoff（2026-05-04）**，该记录仅作为基线证据保留。
+- 本批准**不等同于 Chrome Web Store 正式发布**；且当前发布策略已切换为 `V1-minimal release candidate`。
+- 本文件不得据此宣称 V0 或 V1-minimal 已经 public release ready。
 
 ## 非目标（当前）
 - 不做大重构

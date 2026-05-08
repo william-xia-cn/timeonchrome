@@ -220,6 +220,106 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 - 该能力属于配额/策略层：即使某网站在普通休息配额内，若访问发生在禁止休息时段，也应触发相应限制或提醒。
 - 该能力不改变底层计时语义：计时仍记录真实使用，策略层再决定该时段是否允许作为休息时间消费。
 - 当前计时准确性收口不实现该功能，仅记录为后续产品设计项。
+
+### 1.3.7 原始用量统计与分类解释分离原则（Raw Stats vs Classification Separation）
+
+**核心原则：原始用量数据与分类/解释必须分离存储和计算。**
+
+#### 1.3.7.1 三层区分
+
+| 层 | 内容 | 存储位置 | 可变性 |
+|---|------|---------|--------|
+| **原始用量事实（Raw Usage Facts）** | domain、active/background/PiP 时长、时间戳 | `daily_usage_stats_v1` | 不可变（append-only） |
+| **模式上下文（Mode Context）** | 该用量发生在哪个模式下的按模式时长拆解 | `daily_usage_stats_v1`（与 raw facts 同层） | 不可变 |
+| **分类/报表解释（Classification / Report Interpretation）** | 学习时间/休息时间/待定时间/拦截/借用/允许 | 读取时动态计算 | 随策略变更而变 |
+
+#### 1.3.7.2 `daily_usage_stats_v1` 存储契约
+
+`daily_usage_stats_v1`（或等效的云端 `stats` 表）存储**原始用量事实 + 模式上下文**，不存储任何分类、策略决策或解释结果。
+
+`usage_segments_v1` 是 Stats Foundation 的本地事实账本。runtime settlement 写入 segment 时必须从现有绑定存储解析身份：`cloud_profile_id` 作为 `profileId`，本地明确设备 ID 字段（例如 `cloud_device_id`，若存在）作为 `deviceId`。`cloud_device_token` 是认证令牌，不得作为 raw `deviceId` 写入 segment。没有明确设备 ID 时，`deviceId` 必须为 `null`，且必须留下诊断日志或 trace，避免真实 bound profile 静默失去设备归属。
+
+**必须存储的字段（原始用量事实）：**
+- `date` — 日期（YYYY-MM-DD，用户本地时区）
+- `timezone` — 用户本地时区标识
+- `domain` — 域名（归一化后）
+- `activeSeconds` — 前台 ACTIVE 时长（秒）
+- `backgroundMediaSeconds` — 后台媒体时长（秒）
+- `pipSeconds` — PiP 模式时长（秒）
+
+**必须存储的字段（模式上下文 — 允许存在，因为模式是运行时事实，不是分类）：**
+- `activeByMode` — 按模式拆解的 ACTIVE 时长，模式值包括：
+  - `study`
+  - `rest`
+  - `paused`
+  - `unknown`（无法确定模式时）
+  - 未来可能扩展 `composite`
+- `backgroundMediaByMode` — 按模式拆解的后台媒体时长（同上模式值）
+- `pipByMode` — 按模式拆解的 PiP 时长（同上模式值）
+
+**可选/派生字段：**
+- `totalSeconds` — 总时长（由 active/backgroundMedia/pip 求和得出，允许缓存但**不作为唯一事实源**）
+- `firstSeenAt` / `lastSeenAt` / `lastUpdatedAt` — 该域名当日的访问/更新时间戳
+
+**禁止存储的字段：**
+- 网站分类标签（study site / composite site / restricted entertainment / blocked / unclassified）
+- 策略决策（allowed / blocked / borrow / temporary composite / redirected）
+- 解释性报表时间类型（学习时间 / 休息时间 / 待定时间 / 综合时间）
+- AI 分类结果或内容级判断
+- 完整的模式切换事件日志（mode transition event log — 属于 `event_log_v1` 的职责）
+
+**说明：**
+- 按模式拆解属于**原始用量事实层**：某域名在 study 模式下产生了多少 ACTIVE 秒，这是事实，不是分类。
+- 完整的事件日志（START/END 序列）属于 `event_log_v1`，不在此表。
+- `daily_usage_stats_v1` 存储的是**聚合后的按模式拆解**，而非逐事件记录。
+- UI 读取 stats 前会通过 `FLUSH_TIME` 语义把当前 open counted session 结算到当前时间，写入 `usage_segments_v1` 并增量更新 `daily_usage_stats_v1`，随后以同一 state/domain/mode 从当前时间重新打开 session，避免 popup/admin 在未切 tab 前看不到实时统计。
+
+#### 1.3.7.3 综合时间兼容读口径
+
+用户可见口径统一为**综合时间**。历史字段名 `undetermined` / `undeterminedSeconds` / `dailyUndeterminedQuota` / `undeterminedLocked` 仅作为本地 legacy compatibility term 保留，不应在 popup/admin 的用户可见文案中继续显示为“未归类”或“待归类时间”。
+
+UI 与消息 adapter 读取综合用量时必须使用统一口径：
+
+```javascript
+compositeSeconds = readCompositeSeconds(statsLike)
+```
+
+读取优先级：
+1. 若新 shape 明确提供 `compositeSeconds`，使用该值；
+2. 否则兼容旧 shape 的 `undeterminedSeconds`；
+3. 对仅有 domain stats 的旧数据，按当前 `compositeList` / 临时综合权限分类求和；
+4. 不把同一秒数同时展示为“综合时间”和“未归类时间”。
+
+配额配置在代码层可继续读取 `dailyUndeterminedQuota` / `undeterminedLocked` 以兼容现有存储和 reminder reason，但用户可见标签应显示为“综合时间/综合配额”。本规则不做历史数据迁移、不改云端接口、不改变网站分类策略。
+
+#### 1.3.7.4 分类计算层（Classification Layer）
+
+所有分类、解释和报表必须**在读取时动态计算**，计算输入包括：
+
+1. **原始用量数据**：`daily_usage_stats_v1` 中的 raw facts + mode context
+2. **网站访问策略**：`SITE_ACCESS_POLICY.md` 定义的五类分类规则
+3. **系统配置清单**：`defaultStudyList` / `defaultCompositeList` / `defaultRestrictedEntertainmentList` / `defaultBlockedList`
+4. **用户自定义清单**：`customStudyList` / `customCompositeList` / `customRestrictedEntertainmentList` / `customBlockedSites`
+5. **当前模式规则**：study / composite / rest / paused 模式下的不同行为
+6. **未来扩展**：AI 分类规则、URL/channel/query 级规则、用户手动分类回填
+
+**计算示例（使用通用域名，不绑定特定分类）：**
+```
+给定 raw stat:
+  { date: '2026-05-06', domain: 'example.com',
+    activeSeconds: 1800, backgroundMediaSeconds: 600, pipSeconds: 0,
+    activeByMode: { rest: 1800 } }
+
+读取时动态计算（假设 example.com 属于某个受限娱乐清单）:
+  - 查 SITE_ACCESS_POLICY.md 分类规则 → 确定 site category
+  - 结合 activeByMode.rest → 该用量发生在 rest 模式下
+  - 结合分类规则 + 模式规则 → 计算结果
+  - 输出：具体报表时间类型（学习/休息/待定）+ 配额消耗
+
+关键：策略变更时，同样的 raw stats 可以产生不同的分类结果，
+       因为分类是在读取时计算的，不在写入时固化。
+```
+
 ┌─────────────────────────────────────────────────────────────┐
 │  Chrome Extension (MV3)                                     │
 │                                                             │
@@ -682,17 +782,31 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `UPDATE_CONFIG` | → background | `{ config }` | `{ ok }`（仅保存本地，不推送云端）|
 | `GET_STATS` | → background | — | 今日域名统计 |
 | `GET_STATS_RANGE` | → background | `{ days }` | 多日统计 |
+| `FLUSH_TIME` | → background | — | `{ ok, flushed, flushedSeconds, domain, state, reason }`；将当前 open counted session durable flush 到本地 Stats Foundation 账本并重新打开 |
 | `GET_SESSION` | → background | — | session |
 | `GET_SESSIONS_RANGE` | → background | `{ days }` | 历史会话 |
 | `SWITCH_TO_STUDY` | → background | — | session |
 | `SWITCH_TO_REST` | → background | — | session |
+| `SWITCH_TO_COMPOSITE` | → background | — | session |
 | `ADD_TO_COMPOSITE_LIST` | → background | `{ domain }` | `{ added, alreadyPresent }` |
 | `BORROW_REST_QUOTA` | → background | — | `{ ok, amount }` 或 error |
 | `SEND_CLOUD_EVENT` | → background | `{ eventType, domain }` | — |
 | `HEARTBEAT` | content → background | `{ state }` | `{ ok }` |
+| `CONTENT_SCRIPT_READY` | content → background | — | `{ ok }`；content listener 就绪后只允许重发未过期的 transient notice |
 | `SHOW_WARNING` | background → content | `{ minutesLeft, domain }` | — |
 | `SHOW_OVERLAY` | background → content | `{ message, reason }` | — |
 | `REMOVE_OVERLAY` | background → content | — | — |
+| `AUTO_MODE_PENDING_START` | background → content | `{ deadlineAt, targetMode, fromMode, domain }` | 页面内 pending auto-switch notice，倒计时型 |
+| `AUTO_MODE_PENDING_CANCEL` | background → content | `{ reason }` | 清理当前 tab 的 pending/success notice |
+| `AUTO_MODE_PENDING_SUCCESS` | background → content | `{ targetMode, fromMode, noticeKind, displayDuration }` | 页面内 transient success/info notice，必须按 TTL 自动消失 |
+
+### 4.1 模式切换页面内提示生命周期
+
+- 模式优先级：学习 > 综合 > 休息。
+- 更宽松 → 更专注（综合→学习、休息→综合、休息→学习）不需要确认；切换成功后可向 active tab 发送 `AUTO_MODE_PENDING_SUCCESS`，`noticeKind = "transient_success"`，TTL 为 3–5 秒。
+- 更专注 → 更宽松（学习→综合、综合→休息、学习→休息）必须有页面内确认或提示；一旦 mode 已切换，旧 pending/confirm notice 必须通过 `AUTO_MODE_PENDING_CANCEL` 清理，再显示短暂 success/info notice。
+- `CONTENT_SCRIPT_READY` 只重发未过期、未 clear 的 transient notice；已过期或已 clear 的提示不得复活。
+- `chrome.tabs.sendMessage` 失败不得阻断 mode 切换；仅用于页面内反馈，失败时可降级为浏览器通知。
 
 ---
 

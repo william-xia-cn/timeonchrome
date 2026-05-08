@@ -4,9 +4,9 @@ import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, ma
 import { getTodayStatsWithCategories } from './analytics.js';
 
 const AUTO_TRANSITION_GATES = {
-  rest_to_composite: 60_000,
-  rest_to_study: 90_000,
-  composite_to_study: 90_000,
+  rest_to_composite: 30_000,
+  rest_to_study: 45_000,
+  composite_to_study: 45_000,
 };
 
 const autoTransitionCandidates = new Map();
@@ -17,6 +17,78 @@ const STUDY_PENDING_RULES = new Set(['rest_to_study', 'composite_to_study']);
 // TTL: 30 seconds — covers content script re-injection after page reload.
 const pendingSuccessNoticesByTab = new Map();
 const PENDING_NOTICE_TTL_MS = 30_000;
+const TRANSIENT_NOTICE_DISPLAY_MS = 4_000;
+
+function shouldClosePiPOnModeTransition(fromMode, toMode) {
+  const prev = normalizeMode(fromMode);
+  const next = normalizeMode(toMode);
+  if (next === 'study') return true;
+  return prev === 'rest' && next === 'composite';
+}
+
+async function closeActiveTabPictureInPicture(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) return false;
+  try {
+    if (chrome.scripting?.executeScript) {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: async () => {
+          try {
+            if (document.pictureInPictureElement && document.exitPictureInPicture) {
+              await document.exitPictureInPicture();
+              return true;
+            }
+          } catch {}
+          return false;
+        },
+      });
+      const closedByScript = Array.isArray(result) && result.some((entry) => entry?.result === true);
+      if (closedByScript) return true;
+    }
+    await chrome.tabs.sendMessage(tabId, { type: 'EXIT_PIP' }).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function closePictureInPictureAcrossTabs(preferredTabId = null) {
+  const tabIds = [];
+  if (Number.isInteger(preferredTabId) && preferredTabId >= 0) {
+    tabIds.push(preferredTabId);
+  }
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs || []) {
+      if (!Number.isInteger(tab?.id) || tab.id < 0) continue;
+      if (!tabIds.includes(tab.id)) tabIds.push(tab.id);
+    }
+  } catch {}
+
+  let sent = false;
+  for (const id of tabIds) {
+    const ok = await closeActiveTabPictureInPicture(id);
+    sent = sent || ok;
+  }
+  return sent;
+}
+
+function normalizeDomainForNotice(domain) {
+  if (typeof domain !== 'string') return null;
+  const value = domain.trim().toLowerCase().replace(/\.+$/g, '');
+  if (!value) return null;
+  return value.startsWith('www.') ? value.slice(4) : value;
+}
+
+function extractDomainFromTabUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) return null;
+  try {
+    const hostname = new URL(url).hostname || '';
+    return normalizeDomainForNotice(hostname);
+  } catch {
+    return null;
+  }
+}
 
 // ── Schedule check ──────────────────────────────────────────────────────────────
 
@@ -86,22 +158,38 @@ function formatSecondsCompact(seconds) {
 
 async function sendTabPendingMessage(tabId, payload, fallbackMessage = null) {
   if (!Number.isInteger(tabId) || tabId < 0) return false;
+  const snapshotDomainFromPayload = normalizeDomainForNotice(payload?.domain);
+  let snapshotDomain = snapshotDomainFromPayload;
+  if (!snapshotDomain) {
+    try {
+      const tab = await chrome.tabs?.get?.(tabId);
+      snapshotDomain = extractDomainFromTabUrl(tab?.url);
+    } catch {
+      snapshotDomain = null;
+    }
+  }
   try {
     await chrome.tabs.sendMessage(tabId, payload);
     // Store pending success notice for reliable re-delivery after reload
     if (payload?.type === 'AUTO_MODE_PENDING_SUCCESS') {
+      const now = Date.now();
       pendingSuccessNoticesByTab.set(tabId, {
         payload: { ...payload },
-        storedAt: Date.now(),
+        storedAt: now,
+        expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
+        domainSnapshot: snapshotDomain,
       });
     }
     return true;
   } catch {
     // Store pending notice even on first-send failure (content script not ready)
     if (payload?.type === 'AUTO_MODE_PENDING_SUCCESS') {
+      const now = Date.now();
       pendingSuccessNoticesByTab.set(tabId, {
         payload: { ...payload },
-        storedAt: Date.now(),
+        storedAt: now,
+        expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
+        domainSnapshot: snapshotDomain,
       });
     }
     if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
@@ -113,12 +201,27 @@ async function sendTabPendingMessage(tabId, payload, fallbackMessage = null) {
  * Re-send pending success notice to a tab that just became ready.
  * Returns true if a notice was found and re-sent successfully.
  */
-export async function reSendPendingNotice(tabId) {
+export async function reSendPendingNotice(tabId, currentDomain = null) {
   if (!Number.isInteger(tabId) || tabId < 0) return false;
   const stored = pendingSuccessNoticesByTab.get(tabId);
   if (!stored) return false;
   // Check TTL
-  if (Date.now() - stored.storedAt > PENDING_NOTICE_TTL_MS) {
+  if (Date.now() > (stored.expiresAt || stored.storedAt + PENDING_NOTICE_TTL_MS)) {
+    pendingSuccessNoticesByTab.delete(tabId);
+    return false;
+  }
+  const normalizedCurrentDomain = normalizeDomainForNotice(currentDomain);
+  const normalizedStoredDomain = normalizeDomainForNotice(stored.domainSnapshot);
+  // Tight domain guard:
+  // - both missing: do not resend
+  // - one missing: do not resend
+  // - both present but mismatch: do not resend
+  // - only both present and equal may resend
+  if (!normalizedCurrentDomain || !normalizedStoredDomain) {
+    pendingSuccessNoticesByTab.delete(tabId);
+    return false;
+  }
+  if (normalizedCurrentDomain !== normalizedStoredDomain) {
     pendingSuccessNoticesByTab.delete(tabId);
     return false;
   }
@@ -137,6 +240,64 @@ export async function reSendPendingNotice(tabId) {
 export function clearPendingNotice(tabId) {
   if (!Number.isInteger(tabId) || tabId < 0) return;
   pendingSuccessNoticesByTab.delete(tabId);
+}
+
+function modeLabel(mode) {
+  if (mode === 'composite') return '综合';
+  if (mode === 'rest') return '休息';
+  return '学习';
+}
+
+export async function clearTabModeNotice(tabId, reason = 'mode_changed') {
+  if (!Number.isInteger(tabId) || tabId < 0) return false;
+  clearAutoTransitionCandidate(tabId);
+  autoModePendingByTab.delete(tabId);
+  clearPendingNotice(tabId);
+  return await sendTabPendingMessage(tabId, { type: 'AUTO_MODE_PENDING_CANCEL', reason });
+}
+
+export async function sendModeSwitchSuccessNotice(tabId, targetMode, fromMode = null, options = {}) {
+  if (!Number.isInteger(tabId) || tabId < 0) return false;
+  const normalizedTarget = normalizeMode(targetMode);
+  const displayDuration = Number(options.displayDuration) || TRANSIENT_NOTICE_DISPLAY_MS;
+  const now = Date.now();
+  const noticeText = options.noticeText || `已切换到${modeLabel(normalizedTarget)}模式`;
+  return await sendTabPendingMessage(tabId, {
+    type: 'AUTO_MODE_PENDING_SUCCESS',
+    noticeKind: 'transient_success',
+    targetMode: normalizedTarget,
+    fromMode: fromMode ? normalizeMode(fromMode) : null,
+    displayDuration,
+    expiresAt: now + PENDING_NOTICE_TTL_MS,
+    noticeText,
+  }, noticeText);
+}
+
+export async function applyModeTransitionSideEffects({
+  fromMode,
+  toMode,
+  tabId = null,
+  studyNoticeText = null,
+  sendStudyNotice = true,
+} = {}) {
+  const normalizedFrom = normalizeMode(fromMode);
+  const normalizedTo = normalizeMode(toMode);
+  const out = { pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false };
+  const shouldClosePip = shouldClosePiPOnModeTransition(normalizedFrom, normalizedTo);
+
+  if (shouldClosePip) {
+    out.pipCloseAttempted = true;
+    out.pipCloseSent = await closePictureInPictureAcrossTabs(tabId);
+  }
+
+  if (sendStudyNotice && normalizedTo === 'study' && Number.isInteger(tabId) && tabId >= 0) {
+    out.studyNoticeSent = await sendModeSwitchSuccessNotice(tabId, 'study', normalizedFrom, {
+      noticeText: studyNoticeText || '已进入学习时间',
+      displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
+    });
+  }
+
+  return out;
 }
 
 async function computeCompositeRemainingSeconds(config) {
@@ -365,21 +526,29 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
     if (gate.passed) {
       await setRuntimeMode(pendingAutoCandidate.toMode);
       if (pendingAutoCandidate.rule === 'rest_to_composite') {
+        await applyModeTransitionSideEffects({
+          fromMode: pendingAutoCandidate.fromMode,
+          toMode: pendingAutoCandidate.toMode,
+          tabId,
+        });
         const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
         await sendTabPendingMessage(tabId, {
           type: 'AUTO_MODE_PENDING_SUCCESS',
+          noticeKind: 'transient_success',
           targetMode: 'composite',
           fromMode: 'rest',
           remainingCompositeSeconds,
           remainingCompositeTime: formatSecondsCompact(remainingCompositeSeconds),
+          displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
         }, `已进入综合时间 · 今日综合剩余 ${formatSecondsCompact(remainingCompositeSeconds)}`);
         notifyRuntimeModeSwitch('已进入综合时间');
       } else if (pendingAutoCandidate.rule === 'rest_to_study' || pendingAutoCandidate.rule === 'composite_to_study') {
-        await sendTabPendingMessage(tabId, {
-          type: 'AUTO_MODE_PENDING_SUCCESS',
-          targetMode: 'study',
+        await applyModeTransitionSideEffects({
           fromMode: pendingAutoCandidate.fromMode,
-        }, '已进入学习时间');
+          toMode: pendingAutoCandidate.toMode,
+          tabId,
+          studyNoticeText: '已进入学习时间',
+        });
         notifyRuntimeModeSwitch('已进入学习时间');
       }
     }
@@ -404,11 +573,12 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
         const noticeText = `你正在打开综合网站 · 即将离开学习时间进入综合时间 · 今日剩余 ${remainingCompositeTime}`;
         await sendTabPendingMessage(tabId, {
           type: 'AUTO_MODE_PENDING_SUCCESS',
+          noticeKind: 'transient_success',
           targetMode: 'composite',
           fromMode: 'study',
           remainingCompositeSeconds,
           remainingCompositeTime,
-          displayDuration: 45000,
+          displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
           noticeText,
         }, noticeText);
         return false;

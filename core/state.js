@@ -24,9 +24,10 @@ export const AttentionState = {
  */
 export function resolveState(context) {
   if (!context?.domain && !context?.mediaSourceDomain) return AttentionState.IDLE;
-  if (context.isIdle) return AttentionState.IDLE;
+  // 媒体播放优先：即使系统 idle，也不能丢失媒体播放计时。
   if (context.isPiP) return AttentionState.PIP_ACTIVE;
   if (context.domain && context.isFocused && context.tabId) return AttentionState.ACTIVE;
   if (context.isAudible && context.mediaSourceTabId != null) return AttentionState.BACKGROUND_ACTIVE;
+  if (context.isIdle) return AttentionState.IDLE;
   return AttentionState.PASSIVE;
 }

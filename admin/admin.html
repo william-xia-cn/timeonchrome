@@ -883,7 +883,7 @@
     .rank-domain { font-weight: 500; }
     .rank-time { color: var(--muted); }
 
-    /* 待归类列表 */
+    /* 综合明细列表（legacy DOM class 保持 undetermined 兼容） */
     .undetermined-list { padding: 4px 0; }
     .undetermined-summary {
       font-size: 13px;
@@ -1021,7 +1021,7 @@
         <div class="card-header">
           <div>
             <div class="card-title">🔀 综合网站</div>
-            <div class="card-subtitle">学习模式下可访问，产生待分类网站时长</div>
+            <div class="card-subtitle">学习模式下可访问，计入综合时间</div>
           </div>
         </div>
         <div id="rules-composite-display">暂无配置</div>
@@ -1105,9 +1105,9 @@
             <div class="rank-list" id="today-rank-list">加载中...</div>
           </div>
 
-          <!-- 今日待归类 -->
+          <!-- 今日综合明细 -->
           <div class="card">
-            <div class="card-header"><div class="card-title">今日待归类</div></div>
+            <div class="card-header"><div class="card-title">今日综合明细</div></div>
             <div class="undetermined-list" id="today-undetermined-list">加载中...</div>
           </div>
         </div>
@@ -1134,9 +1134,9 @@
             <div class="rank-list" id="week-rank-list">加载中...</div>
           </div>
 
-          <!-- 本周待归类 -->
+          <!-- 本周综合明细 -->
           <div class="card">
-            <div class="card-header"><div class="card-title">本周待归类</div></div>
+            <div class="card-header"><div class="card-title">本周综合明细</div></div>
             <div class="undetermined-list" id="week-undetermined-list">加载中...</div>
           </div>
         </div>

@@ -197,15 +197,17 @@ export async function getConfig() {
         };
         const sanitized = sanitizeStaleCompositeDomains(safeConfig);
         safeConfig = sanitized.config;
+        // 立即 resolve，saveConfig 异步执行（避免 callback-based storage API 导致死锁）
         if (sanitized.changed) {
-          await saveConfig(safeConfig);
+          saveConfig(safeConfig).catch(() => {});
         }
         resolve(safeConfig);
         return;
       }
       const sanitized = sanitizeStaleCompositeDomains(config);
+      // saveConfig 异步执行，不阻塞 getConfig
       if (sanitized.changed) {
-        await saveConfig(sanitized.config);
+        saveConfig(sanitized.config).catch(() => {});
       }
       resolve(sanitized.config);
     });
@@ -342,17 +344,75 @@ export async function clearTemporaryCompositeDomains() {
   });
 }
 
-// ── Domain time tracking (event-log based) ──────────────────────────────────────
+// ── Domain time tracking (daily_usage_stats_v1 primary, event-log fallback) ────
 
 const EVENT_LOG_KEY = 'event_log_v1';
+const DAILY_USAGE_STATS_KEY = 'daily_usage_stats_v1';
 
 /**
- * 从 event-log 聚合指定日期的域名时长
+ * 将 daily_usage_stats_v1 格式转换为旧的调用者兼容格式。
+ * 旧格式：{ domain: seconds, ..., audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain }
+ */
+function convertDailyStatsToLegacyShape(dayStats) {
+  if (!dayStats || !dayStats.domains) {
+    return {
+      audioSeconds: 0,
+      backgroundMediaByDomain: {},
+      pipSeconds: 0,
+      pipByDomain: {}
+    };
+  }
+
+  const result = {};
+  let backgroundMediaByDomain = {};
+  let pipByDomain = {};
+  let audioSeconds = 0;
+  let pipSeconds = 0;
+
+  for (const [domain, ds] of Object.entries(dayStats.domains)) {
+    if (!ds) continue;
+    // 兼容口径：域名主键返回总时长（active + backgroundMedia + pip），
+    // 并保留媒体分量字段，避免视频/PiP时长在域名维度“看起来丢失”。
+    result[domain] = Number.isFinite(ds.totalSeconds)
+      ? ds.totalSeconds
+      : ((ds.activeSeconds || 0) + (ds.backgroundMediaSeconds || 0) + (ds.pipSeconds || 0));
+
+    // 重建 backgroundMediaByDomain
+    if (ds.backgroundMediaSeconds > 0) {
+      backgroundMediaByDomain[domain] = ds.backgroundMediaSeconds;
+      audioSeconds += ds.backgroundMediaSeconds;
+    }
+
+    // 重建 pipByDomain
+    if (ds.pipSeconds > 0) {
+      pipByDomain[domain] = ds.pipSeconds;
+      pipSeconds += ds.pipSeconds;
+    }
+  }
+
+  return {
+    ...result,
+    audioSeconds,
+    backgroundMediaByDomain,
+    pipSeconds,
+    pipByDomain,
+  };
+}
+
+/**
+ * 从 event-log 聚合指定日期的域名时长（调试/验证/回退保留）。
  */
 function aggregateFromEvents(events, date) {
   const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } = aggregateFromEventsWithAudio(events, date);
+  const mergedDomains = { ...domains };
+  for (const [domain, seconds] of Object.entries(backgroundMediaByDomain || {})) {
+    mergedDomains[domain] = (mergedDomains[domain] || 0) + (Number(seconds) || 0);
+  }
+  for (const [domain, seconds] of Object.entries(pipByDomain || {})) {
+    mergedDomains[domain] = (mergedDomains[domain] || 0) + (Number(seconds) || 0);
+  }
   return {
-    ...domains,
+    ...mergedDomains,
     audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0,
     backgroundMediaByDomain: backgroundMediaByDomain || {},
     pipSeconds: Number.isFinite(pipSeconds) ? pipSeconds : 0,
@@ -364,26 +424,54 @@ function aggregateFromEventsWithAudio(events, date) {
   return computeAllDomainsWithAudio(events, date);
 }
 
+// ── 主读取 API（daily_usage_stats_v1 优先）─────────────────────────────────────
+
 /**
- * 获取今日域名统计（从 event-log 聚合）
+ * 获取今日域名统计。
+ * 主源：daily_usage_stats_v1（物化聚合）。
+ * 回退：仅当该日期的聚合不存在时，使用 event-log（仅用于调试/验证/当日过渡兼容）。
  */
 export async function getTodayStats() {
   const today = getDateKey();
-  const data = await chrome.storage.local.get(EVENT_LOG_KEY);
-  const events = data[EVENT_LOG_KEY] || [];
+
+  // 主路径：从物化聚合中读取
+  try {
+    const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
+    const allStats = data[DAILY_USAGE_STATS_KEY] || {};
+    const dayStats = allStats[today];
+
+    if (dayStats && dayStats.domains && Object.keys(dayStats.domains).length > 0) {
+      console.log('[Stats] getTodayStats from daily_usage_stats_v1:', today, Object.keys(dayStats.domains).length, 'domains');
+      emitTrace('stats_calculated', {
+        source: 'daily_usage_stats_v1',
+        reason: 'dailyAggregation',
+        domain: null,
+        statsAfter: dayStats,
+        payload: { date: today },
+      });
+      return convertDailyStatsToLegacyShape(dayStats);
+    }
+  } catch (_) {
+    /* 回退到 event-log */
+  }
+
+  // 回退：event-log 聚合（仅用于当日过渡——已压缩的 event-log 无法提供持久历史数据）
+  console.log('[Stats] getTodayStats fallback to event-log:', today, '(daily_usage_stats_v1 not available or empty)');
+  const eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
+  const events = eventData[EVENT_LOG_KEY] || [];
   const result = aggregateFromEvents(events, today);
   emitTrace('stats_calculated', {
-    source: 'stats',
+    source: 'event_log_v1_fallback',
     reason: 'dailyAggregation',
     domain: null,
     statsAfter: result,
-    payload: { date: today, eventCount: events.length },
+    payload: { date: today, eventCount: events.length, note: 'event-log fallback — compacted history may be lost' },
   });
   return result;
 }
 
 /**
- * 获取今日待定域名统计（待定网站从 event-log 中按 compositeList 分类）
+ * 获取今日待定域名统计（待定网站按 compositeList 分类）。
  */
 export async function getTodayUndeterminedStats() {
   const config = await getConfig();
@@ -402,12 +490,69 @@ export async function getTodayUndeterminedStats() {
 }
 
 /**
- * 获取多日域名统计（从 event-log 聚合）
+ * 获取多日域名统计。
+ * 主源：daily_usage_stats_v1（物化聚合）。
+ * 回退：每个缺失的日期尝试 event-log 聚合（仅限当日过渡）。
  */
 export async function getStatsRange(days = 7) {
-  const data = await chrome.storage.local.get(EVENT_LOG_KEY);
-  const events = data[EVENT_LOG_KEY] || [];
   const result = {};
+
+  // 主路径：从物化聚合中读取
+  try {
+    const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
+    const allStats = data[DAILY_USAGE_STATS_KEY] || {};
+
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = formatDate(d);
+      const dayStats = allStats[dateStr];
+
+      if (dayStats && dayStats.domains && Object.keys(dayStats.domains).length > 0) {
+        result[dateStr] = convertDailyStatsToLegacyShape(dayStats);
+      } else {
+        // 该日期的聚合缺失 — 仅尝试 event-log 回退（仅对于当日有效）
+        result[dateStr] = null; // 标记为缺失
+      }
+    }
+
+    // 回退：对于任何缺失的日期，尝试 event-log 聚合（仅对当日有用）
+    let eventData = null;
+    let events = null;
+    for (const dateStr of Object.keys(result)) {
+      if (result[dateStr] !== null) continue; // 已有数据
+
+      if (!eventData) {
+        eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
+        events = eventData[EVENT_LOG_KEY] || [];
+      }
+
+      const fallback = aggregateFromEvents(events, dateStr);
+      // 只有在实际有域名数据时才替换 null
+      const hasDomains = Object.keys(fallback).some(k =>
+        k !== 'audioSeconds' && k !== 'backgroundMediaByDomain' && k !== 'pipSeconds' && k !== 'pipByDomain' && fallback[k] > 0
+      );
+      if (hasDomains) {
+        result[dateStr] = fallback;
+      } else {
+        // 提供空的结果，而不是 null
+        result[dateStr] = {
+          audioSeconds: 0,
+          backgroundMediaByDomain: {},
+          pipSeconds: 0,
+          pipByDomain: {},
+        };
+      }
+    }
+
+    return result;
+  } catch (_) {
+    /* 回退到仅 event-log */
+  }
+
+  // 完全回退路径
+  const eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
+  const events = eventData[EVENT_LOG_KEY] || [];
 
   for (let i = 0; i < days; i++) {
     const d = new Date();

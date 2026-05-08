@@ -171,7 +171,7 @@
     quota_rest: {
       icon: '⏰', title: '今天的休息时间用完啦',
       subtitle: '放松过了，切换到学习模式继续加油！',
-      actions: ['borrowTime', 'switchToStudy', 'viewDetails']
+      actions: ['switchToStudy', 'viewDetails']
     },
     quota_study: {
       icon: '🎓', title: '今天学得够多啦',
@@ -186,12 +186,12 @@
     quota_online: {
       icon: '🌙', title: '今天的上网时间用完啦',
       subtitle: '休息一下，明天继续！',
-      actions: ['borrowTime', 'viewDetails']
+      actions: ['viewDetails']
     },
     quota: {
       icon: '🌙', title: '今天的上网时间用完啦',
       subtitle: '休息一下，明天继续！',
-      actions: ['borrowTime', 'viewDetails']
+      actions: ['viewDetails']
     },
     schedule: {
       icon: '🌙', title: '现在是休息时段',
@@ -266,40 +266,6 @@
           showStatus('已切换到学习模式', 'success');
           if (domain && domain !== 'all') {
             setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
-      }
-    },
-    borrowTime: {
-      label: BORROW_BUTTON_TEXT, style: 'warn',
-      handler: function() {
-        if (!window.confirm(BORROW_CONFIRM_TEXT)) return;
-        const btn = this && typeof this === 'object' ? this : null;
-        const originalText = btn?.textContent || BORROW_BUTTON_TEXT;
-        if (btn) {
-          if (btn.disabled) return;
-          btn.disabled = true;
-          btn.textContent = '处理中...';
-        }
-        chrome.runtime.sendMessage({ type: 'BORROW_REST_QUOTA' }, function(result) {
-          if (result && result.ok) {
-            if (btn) {
-              btn.disabled = true;
-              btn.textContent = '已借用';
-            }
-            showStatus('✓ 已借用 ' + result.amount + ' 分钟，刷新页面试试', 'success');
-          } else if (result && result.error && BORROW_ERROR_MESSAGES[result.error]) {
-            if (btn) {
-              btn.disabled = false;
-              btn.textContent = originalText;
-            }
-            showStatus(BORROW_ERROR_MESSAGES[result.error], 'info');
-          } else {
-            if (btn) {
-              btn.disabled = false;
-              btn.textContent = originalText;
-            }
-            showStatus('借用失败：' + ((result && result.error) || '未知错误'), 'error');
           }
         });
       }
@@ -568,40 +534,7 @@
       boundFlag: 'compositeSlideBound',
     });
 
-    // Rest exhausted variant (Case #6)
-    var restLockedFromUrl = params.get('restLocked') === '1';
-    if (restLockedFromUrl) {
-      // Append borrow text to default path body
-      if (subtitle) {
-        subtitle.textContent = config.subtitle + '\n\n今天的休息时间已用完。继续休息使用需要向明天借用休息时间。';
-      }
-
-      // Show borrow section
-      if (dualPathBorrowSection) dualPathBorrowSection.style.display = 'block';
-      if (slideConfirmWrapBorrow) slideConfirmWrapBorrow.style.display = 'block';
-
-      // Bind borrow slider
-      bindSlideConfirm({
-        track: slideTrackBorrow,
-        thumb: slideThumbBorrow,
-        hint: slideHintBorrow,
-        wrap: slideConfirmWrapBorrow,
-        onConfirm: function() {
-          chrome.runtime.sendMessage({ type: 'BORROW_REST_QUOTA' }, function(result) {
-            if (result && result.ok) {
-              showStatus('✓ 已借用 ' + result.amount + ' 分钟，刷新页面试试', 'success');
-            } else if (result && result.error && BORROW_ERROR_MESSAGES[result.error]) {
-              showStatus(BORROW_ERROR_MESSAGES[result.error], 'info');
-            } else {
-              showStatus('借用失败：' + ((result && result.error) || '未知错误'), 'error');
-            }
-          });
-        },
-        dragText: '向明天借用休息时间',
-        releaseText: '松手确认',
-        boundFlag: 'borrowSlideBound',
-      });
-    }
+    // Rest exhausted variant no longer exposes borrowing in V1-minimal.
   }
 
   // Composite → Unclassified/Restricted dual-path (Case #14/#15/#16/#17)
@@ -701,44 +634,7 @@
       }
     }
 
-    // Rest exhausted variant (Case #15/#17)
-    var restLockedFromUrl = params.get('restLocked') === '1';
-    if (restLockedFromUrl) {
-      // Append borrow text to default path body
-      if (subtitle) {
-        if (isRestrictedSite) {
-          subtitle.textContent = config.subtitle + '\n\n今天的休息时间已用完。如果仍要继续访问，可以向明天借用休息时间。';
-        } else {
-          subtitle.textContent = config.subtitle + '\n\n今天的休息时间已用完。继续休息使用需要向明天借用休息时间。';
-        }
-      }
-
-      // Show borrow section
-      if (dualPathBorrowSection) dualPathBorrowSection.style.display = 'block';
-      if (slideConfirmWrapBorrow) slideConfirmWrapBorrow.style.display = 'block';
-
-      // Bind borrow slider
-      bindSlideConfirm({
-        track: slideTrackBorrow,
-        thumb: slideThumbBorrow,
-        hint: slideHintBorrow,
-        wrap: slideConfirmWrapBorrow,
-        onConfirm: function() {
-          chrome.runtime.sendMessage({ type: 'BORROW_REST_QUOTA' }, function(result) {
-            if (result && result.ok) {
-              showStatus('✓ 已借用 ' + result.amount + ' 分钟，刷新页面试试', 'success');
-            } else if (result && result.error && BORROW_ERROR_MESSAGES[result.error]) {
-              showStatus(BORROW_ERROR_MESSAGES[result.error], 'info');
-            } else {
-              showStatus('借用失败：' + ((result && result.error) || '未知错误'), 'error');
-            }
-          });
-        },
-        dragText: '向明天借用休息时间',
-        releaseText: '松手确认',
-        boundFlag: 'borrowSlideBound',
-      });
-    }
+    // Rest exhausted variant no longer exposes borrowing in V1-minimal.
   }
 
   // V0: msg is a legacy blocked.js parameter. Canonical reason configs define all copy.

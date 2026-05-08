@@ -1,6 +1,6 @@
 // runtime/recovery.js — SW 重启恢复（启动第一优先级）
 
-import { getSession, getSessionWithPersistenceSource, saveSession, runSessionCommit } from './session.js';
+import { getSession, getSessionWithPersistenceSource, saveSession, runSessionCommit, settleCurrentSessionSegment } from './session.js';
 import { appendEvent, EVENT_TYPE, getLastEvent } from '../core/event-log.js';
 import { getReliableCloseTime } from './time-boundary.js';
 
@@ -41,6 +41,15 @@ export async function recover() {
         domain: session.domain,
         time: endTime,
       });
+    }
+
+    // 结算恢复的使用时长段
+    if (session.state && session.startTime) {
+      try {
+        await settleCurrentSessionSegment(session, endTime, 'recovery_gap_close');
+      } catch (_) {
+        // 结算失败不破坏恢复管线
+      }
     }
 
     // 重置 session（避免重复恢复）

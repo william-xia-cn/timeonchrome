@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+### V1-minimal release candidate
+- **Release artifact prepared**: `dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
+- **Release SHA256**: `A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
+- **Chrome Web Store text prepared**: see `docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
+- **Release record prepared**: see `docs/releases/v1-minimal-release-2026-05-09.md`
+- **Chrome Web Store upload/submission not performed**: final upload and Submit for Review require separate Product Owner approval.
+
+### V1-minimal gate close-out
+- **Cloud Stats v1 minimal sync**: `usage_segments_v1` + `stats_v1` active release truth path verified.
+- **Recovery/System Gate**: closed with manual evidence; manual network, lock/unlock, and sleep/wake checks are recorded as operator-confirmed evidence, not fully automated PASS.
+- **Mode transition UX**: prompt delivery restored; popup mode switches target the webpage tab; Rest -> Composite delay is 30s; Rest -> Study and Composite -> Study delays are 45s.
+- **Video playback accounting**: idle + media no longer collapses to IDLE; natural media, fullscreen, and PiP accounting are verified.
+- **Mode transition PiP cleanup**: Rest -> Composite and Rest -> Study manual/auto paths close PiP and preserve Study prompt behavior.
+- **Time borrowing**: current implementation remains disabled/deferred for V1-minimal.
+- **Legacy cloud stats cleanup**: remains out of scope and carried as known risk.
+
 ### 修复
 - **Study → Unclassified 双导轨缺失**：`reminder.html/js` 实现同页双滑动轨道（Case #5/#6），默认路径「进入休息时间」+ 申请路径「申请使用综合时间」，符合矩阵文档 §6.4 和 UX 文档 §8.2b 要求
 - **khanacademy.org 误分类**：`infra/cloud-sync.js` `normalizeCloudRulesConfig` 始终合并 `DEFAULT_CONFIG.studyList` 基底，防止云端空/稀疏 studyList 覆盖本地默认学习网站

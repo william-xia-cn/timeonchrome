@@ -3,6 +3,7 @@
 const CLOUD_KEYS = {
   PROFILE_NAME: 'cloud_profile_name'
 };
+let popupStatsContext = { config: {}, stats: {} };
 
 document.addEventListener('DOMContentLoaded', async () => {
   const cloudStatus = await sendMsg({ type: 'GET_CLOUD_STATUS' });
@@ -15,10 +16,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  await init();
+  const [, runtimeStatus] = await Promise.all([
+    init(),
+    getRuntimeModeStatusSafe(),
+  ]);
 
-  await renderModeButtons();
-  await renderRuntimeStatus();
+  renderModeButtons(runtimeStatus);
+  renderRuntimeStatus(runtimeStatus);
   document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
   document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
   document.getElementById('btn-composite').addEventListener('click',  () => setMode('composite'));
@@ -38,8 +42,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 });
 
-async function renderModeButtons() {
-  const status = await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS' });
+async function getRuntimeModeStatusSafe() {
+  try {
+    return await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS', includeUsageSummary: false }) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function renderModeButtons(status = {}) {
   const mode = status?.mode || 'study';
   const studyBtn = document.getElementById('btn-study');
   const restBtn  = document.getElementById('btn-rest');
@@ -57,9 +68,13 @@ async function setMode(mode) {
   const type = mode === 'study'
     ? 'SWITCH_TO_STUDY'
     : (mode === 'rest' ? 'SWITCH_TO_REST' : 'SWITCH_TO_COMPOSITE');
-  await sendMsg({ type });
-  await renderModeButtons();
-  await renderRuntimeStatus();
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const activeTab = tabs && tabs[0] ? tabs[0] : null;
+  const noticeTabId = Number.isInteger(activeTab?.id) ? activeTab.id : null;
+  await sendMsg({ type, noticeTabId });
+  const runtimeStatus = await getRuntimeModeStatusSafe();
+  renderModeButtons(runtimeStatus);
+  renderRuntimeStatus(runtimeStatus);
 }
 
 async function init() {
@@ -67,8 +82,7 @@ async function init() {
     sendMsg({ type: 'GET_CONFIG' }),
     sendMsg({ type: 'GET_STATS' }),
   ]);
-
-  try { await sendMsg({ type: 'FLUSH_TIME' }); } catch (_) {}
+  popupStatsContext = { config: config || {}, stats: stats || {} };
 
   const nameStorage = await new Promise(resolve =>
     chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME], resolve)
@@ -78,22 +92,20 @@ async function init() {
   if (nameEl && childName) nameEl.textContent = childName + ' 的时间';
 
   const studyList     = config.studyList     || [];
-  const compositeList = config.compositeList || [];
-  let studySeconds = 0, undeterminedSeconds = 0, restSeconds = 0, onlineSeconds = 0;
+  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0;
+  const compositeSeconds = readCompositeSeconds(stats, config);
 
   for (const [domain, seconds] of Object.entries(stats)) {
-    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
+    if (isStatsMetaKey(domain)) continue;
     onlineSeconds += seconds;
     const isStudy     = studyList.some(p => matchDomain(domain, p));
-    const isComposite = compositeList.some(p => matchDomain(domain, p));
     if (isStudy) {
       studySeconds += seconds;
-    } else if (isComposite) {
-      undeterminedSeconds += seconds;
     } else {
       restSeconds += seconds;
     }
   }
+  restSeconds = Math.max(0, restSeconds - compositeSeconds);
 
   const backendMediaSeconds = (stats.audioSeconds || 0) + (stats.pipSeconds || 0);
 
@@ -115,8 +127,8 @@ async function init() {
     ? `${formatSeconds(restSeconds)} / ${formatSeconds(effectiveRestLimit)}`
     : `${formatSeconds(restSeconds)}`;
   compositeBtnValue.textContent = undeterminedLimit > 0
-    ? `${formatSeconds(undeterminedSeconds)} / ${formatSeconds(undeterminedLimit)}`
-    : `${formatSeconds(undeterminedSeconds)}`;
+    ? `${formatSeconds(compositeSeconds)} / ${formatSeconds(undeterminedLimit)}`
+    : `${formatSeconds(compositeSeconds)}`;
 
   // Backend Media (plain text, no card, no quota)
   const backendMediaRow = document.getElementById('backend-media-row');
@@ -130,7 +142,7 @@ async function init() {
     }
   }
 
-  // Progress Bars (Online + Undetermined)
+  // Progress Bars (Online + Composite)
   const onlineLimit        = (config.dailyOnlineQuota       ?? 0) * 60;
   const qs = config.quotaState || {};
 
@@ -158,7 +170,7 @@ async function init() {
 
   // Top 10
   const entries = Object.entries(stats)
-    .filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')
+    .filter(([domain]) => !isStatsMetaKey(domain))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
   const top10El = document.getElementById('today-top10');
@@ -174,14 +186,144 @@ async function init() {
   }
 }
 
-async function renderRuntimeStatus() {
-  const status = await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS' }) || {};
-  const domainText = status.currentDomain || '暂无';
-  const sessionText = typeof status.currentSessionDurationSeconds === 'number'
-    ? formatSeconds(status.currentSessionDurationSeconds)
-    : '暂无';
+function isStatsMetaKey(key) {
+  return key === 'audioSeconds' ||
+    key === 'backgroundMediaByDomain' ||
+    key === 'pipSeconds' ||
+    key === 'pipByDomain' ||
+    key === 'onlineSeconds' ||
+    key === 'compositeSeconds' ||
+    key === 'undeterminedSeconds';
+}
+
+function readCompositeSeconds(statsLike, configLike) {
+  const explicitComposite = Number(statsLike?.compositeSeconds);
+  if (Number.isFinite(explicitComposite)) return Math.max(0, explicitComposite);
+
+  const legacyUndetermined = Number(statsLike?.undeterminedSeconds);
+  if (Number.isFinite(legacyUndetermined)) return Math.max(0, legacyUndetermined);
+
+  const compositeList = configLike?.compositeList || [];
+  let total = 0;
+  for (const [domain, seconds] of Object.entries(statsLike || {})) {
+    if (isStatsMetaKey(domain)) continue;
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    if (compositeList.some(p => matchDomain(domain, p))) total += value;
+  }
+  return total;
+}
+
+function renderRuntimeStatus(status = {}) {
   const runtimeCompact = document.getElementById('runtime-compact');
-  if (runtimeCompact) runtimeCompact.textContent = `当前：${domainText} · ${sessionText}`;
+  if (!runtimeCompact) return;
+  const domain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
+  const tag = resolveDomainTag(domain, popupStatsContext.config);
+  const todaySeconds = resolveTodayDomainSeconds(domain, popupStatsContext.stats);
+  const todayText = formatRuntimeTodayDuration(todaySeconds);
+  const domainText = domain || '不计时页面';
+  runtimeCompact.innerHTML = `
+    <div class="runtime-compact-main">
+      <div class="runtime-compact-title">当前访问</div>
+      <div class="runtime-duration">${todayText}</div>
+    </div>
+    <div class="runtime-compact-main">
+      <span class="runtime-domain">${escapeHtml(domainText)}</span>
+      <span class="runtime-tag">${tag}</span>
+    </div>
+  `;
+  runtimeCompact.style.display = 'block';
+}
+
+function resolveTodayDomainSeconds(domain, stats = {}) {
+  if (!domain) return 0;
+  const normalizedDomain = normalizeHostname(domain);
+  if (!normalizedDomain) return 0;
+  let total = 0;
+  for (const [key, value] of Object.entries(stats || {})) {
+    if (isStatsMetaKey(key)) continue;
+    const normalizedKey = normalizeHostname(key);
+    if (!normalizedKey) continue;
+    if (normalizedKey !== normalizedDomain) continue;
+    const seconds = Number(value);
+    if (Number.isFinite(seconds) && seconds > 0) total += seconds;
+  }
+  return total;
+}
+
+function resolveDomainTag(domain, config = {}) {
+  if (!domain) return '不计时页面';
+  const studyList = Array.isArray(config.studyList) ? config.studyList : [];
+  const compositeList = Array.isArray(config.compositeList) ? config.compositeList : [];
+  const restrictedPatterns = collectRestrictedPatterns(config);
+  const restPatterns = collectRestPatterns(config);
+
+  if (studyList.some(p => matchDomain(domain, p))) return '学习网站';
+  if (compositeList.some(p => matchDomain(domain, p))) return '综合网站';
+  if (restrictedPatterns.some(p => matchDomain(domain, p))) return '受限娱乐网站';
+  if (restPatterns.some(p => matchDomain(domain, p))) return '休息网站';
+  return '未归类网站';
+}
+
+function collectRestrictedPatterns(config = {}) {
+  const keys = [
+    'restrictedEntertainmentList',
+    'defaultRestrictedEntertainmentList',
+    'customRestrictedEntertainmentList',
+    'restrictedEntertainmentSites'
+  ];
+  const patterns = [];
+  for (const key of keys) {
+    const value = config[key];
+    if (!Array.isArray(value)) continue;
+    for (const item of value) patterns.push(item);
+  }
+  return patterns;
+}
+
+function collectRestPatterns(config = {}) {
+  const keys = [
+    'restList',
+    'restSites',
+    'restrictedSites',
+    'restrictedList',
+    'entertainmentList',
+    'ordinaryEntertainmentList'
+  ];
+  const patterns = [];
+  for (const key of keys) {
+    const value = config[key];
+    if (!Array.isArray(value)) continue;
+    for (const item of value) patterns.push(item);
+  }
+  return patterns;
+}
+
+function formatRuntimeTodayDuration(seconds) {
+  const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  if (safe === 0) return '今日 0分';
+  if (safe < 60) return '今日 <1分';
+  return `今日 ${formatMinutes(safe)}`;
+}
+
+function normalizeHostname(input) {
+  if (typeof input !== 'string') return null;
+  const raw = input.trim();
+  if (!raw) return null;
+  try {
+    return new URL('http://' + raw).hostname.toLowerCase().replace(/^www\./, '').replace(/\.+$/g, '') || null;
+  } catch {
+    return null;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function extractDomain(url) {

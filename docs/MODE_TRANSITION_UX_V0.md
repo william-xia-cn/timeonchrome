@@ -18,6 +18,14 @@
 
 Specific behavior for each current mode, target site type, quota state, temporary Composite allowance state, Reminder page, and in-page notice is defined in `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md`. This UX document defines visual structure and interaction style; the matrix document defines routing and quota behavior.
 
+### V1-minimal 覆盖说明（time borrowing）
+
+```text
+本文件包含部分 V0 历史借用文案与交互说明，仅作历史设计记录。
+在当前 V1-minimal 范围内，time borrowing / borrow quota 实现路径已禁用，不作为活跃发布行为。
+如与 D-034 或 V1-minimal 范围文档冲突，以 PROJECT_MASTER.md / TASK_BOARD.md / DECISIONS.md 为准。
+```
+
 V0 产品可见模式定义（本文件生效范围）：
 
 1. Study（学习）
@@ -120,6 +128,7 @@ V0 不包含：
 11. 完整 V1 内容解释系统；
 12. 用户导入导出格式变化；
 13. 系统默认网站清单大扩容。
+14. 将当前时间借用实现纳入 V1-minimal 发布范围（借用需求保留，迁移后续重设计）。
 
 ---
 
@@ -307,12 +316,12 @@ V0 采用以下规则：
 | 学习 | 综合网站 | 综合 | 自动切换 + 45s 轻提示（单行半透 Banner） | 低 | compositeSeconds |
 | 学习 | 受限娱乐 / 未归类 | 休息（或综合申请分支） | Reminder（滑动确认 + 条件分支） | 高 | restSeconds / compositeSeconds |
 | 学习 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
-| 综合 | 学习网站 | 学习 | 自动回归（90s 前台活跃门控） | 极轻 / 无 | studySeconds |
+| 综合 | 学习网站 | 学习 | 自动回归（45s 前台活跃门控） | 极轻 / 无 | studySeconds |
 | 综合 | 综合网站 | 综合 | 继续使用 | 无 / 轻 | compositeSeconds |
 | 综合 | 受限娱乐 / 未归类 | 休息（或综合申请分支） | Reminder（滑动确认 + 条件分支） | 中 | restSeconds / compositeSeconds |
 | 综合 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
-| 休息 | 学习网站 | 学习 | 自动回归（90s 前台活跃门控） | 极轻 / 无 | studySeconds |
-| 休息 | 综合网站 | 综合 | 自动切换（60s 前台稳定停留门控） + 轻提示 | 低 | compositeSeconds |
+| 休息 | 学习网站 | 学习 | 自动回归（45s 前台活跃门控） | 极轻 / 无 | studySeconds |
+| 休息 | 综合网站 | 综合 | 自动切换（30s 前台稳定停留门控） + 轻提示 | 低 | compositeSeconds |
 | 休息 | 受限娱乐 / 未归类 | 休息（具体见路由矩阵） | 继续使用或 Reminder | 无 / 轻 / 中 | restSeconds |
 | 休息 | hardBlocked | 无 | 拦截 | 高 | 不计入有效时间 |
 
@@ -324,9 +333,9 @@ V0 采用以下规则：
 
 V0 自动切换增加稳定门控，避免模式抖动：
 
-1. `Rest -> Composite`：目标网站需在前台连续稳定停留 60 秒（不要求键盘/鼠标操作）；
-2. `Rest -> Study`：目标网站需在前台连续活跃 90 秒；
-3. `Composite -> Study`：目标网站需在前台连续活跃 90 秒。
+1. `Rest -> Composite`：目标网站需在前台连续稳定停留 30 秒（不要求键盘/鼠标操作）；
+2. `Rest -> Study`：目标网站需在前台连续活跃 45 秒；
+3. `Composite -> Study`：目标网站需在前台连续活跃 45 秒。
 
 门控期约束：
 
@@ -417,6 +426,25 @@ V0 约束：
 Study 相关提示不显示“今日剩余 {remainingStudyTime}”。
 “今日剩余”仅用于 Composite 配额提示。
 ```
+
+#### L1 提示交付稳定性规则（V0 release evidence）
+
+```text
+页面提示是 UI projection layer，不是 mode state truth source。
+模式切换状态不得依赖提示是否成功显示。
+```
+
+为避免同 tab 导航串页与 late-ready 丢提示，V0 交付规则如下：
+
+1. pending success notice 绑定 `tabId + domainSnapshot`；
+2. `CONTENT_SCRIPT_READY` 触发 resend 时必须提供 currentDomain；
+3. resend guard：
+   - `domainSnapshot` 存在且 `currentDomain` 缺失：不重发并清理 pending；
+   - `domainSnapshot` 与 `currentDomain` 不一致：不重发并清理 pending；
+   - `domainSnapshot` 与 `currentDomain` 一致：允许重发；
+   - 两者都缺失：不重发并清理 pending；
+4. 保留 TTL、fallback notification、clearPendingNotice 既有行为；
+5. 特殊页面无法注入 content script 时，提示可失败但不得反向影响 mode 真值。
 
 ### 7.3 L2：普通确认页
 
@@ -1613,6 +1641,29 @@ V0 至少需要：
 6. Popup display verification；
 7. quota exhausted behavior verification；
 8. hardBlocked regression verification。
+
+### 16.4 V1-minimal mode-transition regression gate（必跑）
+
+说明：
+- 本门禁属于 mode-transition UX / side-effect regression。
+- 不属于 Recovery/System（sleep-wake）gate。
+
+必须运行命令：
+
+```powershell
+node tests/unit/interceptor-mode-transition-v0.test.js
+node tests/unit/reminder-transition-v0.test.js
+node tests/unit/content-rest-composite-pending-banner.test.js
+npx playwright test tests/e2e/mode-switch-prompt-lifecycle.test.js --reporter=line
+npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line
+```
+
+通过条件：
+- Rest -> Composite manual: PiP closes.
+- Rest -> Composite auto: PiP closes.
+- Rest -> Study manual: PiP closes + Study prompt appears.
+- Rest -> Study auto: PiP closes + Study prompt appears.
+- Prompt late-ready resend 与 domain guard 不退化。
 
 ---
 

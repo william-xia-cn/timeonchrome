@@ -136,8 +136,7 @@ async function run() {
   expectTrue('dual-path composite section exists in HTML', htmlContent.includes('id="dualPathCompositeSection"'));
   expectTrue('composite slider exists in HTML', htmlContent.includes('id="slideConfirmWrapComposite"'));
   expectTrue('composite slider has correct drag text', htmlContent.includes('申请使用综合时间'));
-  expectTrue('borrow section exists in HTML', htmlContent.includes('id="dualPathBorrowSection"'));
-  expectTrue('borrow slider has correct text', htmlContent.includes('向明天借用休息时间'));
+  expectTrue('borrow section may still exist in HTML skeleton', htmlContent.includes('id="dualPathBorrowSection"'));
 
   // ── 2. study_mode with msg override ──
   section('2. study_mode with msg=这个网站当前不在可访问范围内');
@@ -221,7 +220,7 @@ async function run() {
   expectTrue('bindSlideConfirm supports options', fullCode.includes('options = {}'));
   expectTrue('study_mode dual-path rendering exists', fullCode.includes('dualPathCompositeSection'));
   expectTrue('composite slider binding exists', fullCode.includes('slideTrackComposite'));
-  expectTrue('borrow slider binding exists', fullCode.includes('slideTrackBorrow'));
+  expectTrue('borrow slider binding removed in V1-minimal', !fullCode.includes('BORROW_REST_QUOTA'));
   expectTrue('study_mode config.actions override exists', fullCode.includes("config.actions = ['backToStudy']"));
   expectTrue('study_mode block is properly closed', fullCode.includes('config.actions = [') && fullCode.includes("if (customMsgEl)"));
 

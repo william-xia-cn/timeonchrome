@@ -2,11 +2,11 @@
 
 import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission } from './infra/storage.js';
 import { getEvents } from './core/event-log.js';
-import { updateDeclarativeRules, checkAndRemind, redirectToReminder } from './product/interceptor.js';
-import { checkAllTabsQuota, borrowRestQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
-import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync } from './infra/cloud-sync.js';
+import { updateDeclarativeRules, checkAndRemind, redirectToReminder, clearTabModeNotice, sendModeSwitchSuccessNotice, applyModeTransitionSideEffects } from './product/interceptor.js';
+import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
+import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync, getStatsFoundationV1SyncStatus } from './infra/cloud-sync.js';
 import { getTodayStatsWithCategories } from './product/analytics.js';
-import { getSession as getTimingSession } from './runtime/session.js';
+import { flushOpenSessionToStats, getSession as getTimingSession } from './runtime/session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
@@ -76,16 +76,77 @@ function normalizeMode(mode) {
   return 'study';
 }
 
+const STATS_META_KEYS = new Set([
+  'audioSeconds',
+  'backgroundMediaByDomain',
+  'pipSeconds',
+  'pipByDomain',
+  'onlineSeconds',
+  'compositeSeconds',
+  'undeterminedSeconds',
+]);
+
+function readCompositeSeconds(stats = {}, config = {}) {
+  const explicitComposite = Number(stats?.compositeSeconds);
+  if (Number.isFinite(explicitComposite)) return Math.max(0, explicitComposite);
+
+  const legacyUndetermined = Number(stats?.undeterminedSeconds);
+  if (Number.isFinite(legacyUndetermined)) return Math.max(0, legacyUndetermined);
+
+  const compositeList = config?.compositeList || [];
+  let compositeSeconds = 0;
+  for (const [domain, value] of Object.entries(stats || {})) {
+    if (STATS_META_KEYS.has(domain)) continue;
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds) || seconds <= 0) continue;
+    if (compositeList.some((pattern) => matchDomain(domain, pattern))) {
+      compositeSeconds += seconds;
+    }
+  }
+  return compositeSeconds;
+}
+
+function withUsageSummary(stats = {}, config = {}) {
+  let onlineSeconds = 0;
+  for (const [key, value] of Object.entries(stats || {})) {
+    if (STATS_META_KEYS.has(key)) continue;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      onlineSeconds += value;
+    }
+  }
+  const compositeSeconds = readCompositeSeconds(stats, config);
+  return { ...stats, onlineSeconds, compositeSeconds, undeterminedSeconds: compositeSeconds };
+}
+
+async function flushStatsForRead() {
+  try {
+    return await flushOpenSessionToStats('ui_flush');
+  } catch (e) {
+    console.error('[Stats] flush before stats read failed:', e?.message || e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
 export async function handleMessage(msg, sender) {
   switch (msg.type) {
     case 'GET_CONFIG':
       return await getConfig();
 
-    case 'GET_STATS':
-      return await getTodayStats();
+    case 'GET_STATS': {
+      await flushStatsForRead();
+      const [config, stats] = await Promise.all([getConfig(), getTodayStats()]);
+      return withUsageSummary(stats, config);
+    }
 
-    case 'GET_STATS_RANGE':
-      return await getStatsRange(msg.days || 7);
+    case 'GET_STATS_RANGE': {
+      await flushStatsForRead();
+      const [config, range] = await Promise.all([getConfig(), getStatsRange(msg.days || 7)]);
+      const out = {};
+      for (const [date, stats] of Object.entries(range || {})) {
+        out[date] = withUsageSummary(stats || {}, config);
+      }
+      return out;
+    }
 
     case 'UPDATE_CONFIG': {
       const newConfig = msg.config;
@@ -99,7 +160,7 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'FLUSH_TIME':
-      return { ok: true };
+      return await flushOpenSessionToStats('ui_flush');
 
     case 'GET_STATUS':
       return { ok: true };
@@ -108,12 +169,13 @@ export async function handleMessage(msg, sender) {
       return await getSession();
 
     case 'GET_RUNTIME_MODE_STATUS':
-      return await getRuntimeModeStatus();
+      return await getRuntimeModeStatus(msg);
 
     case 'GET_VISIT_SESSIONS':
       return await getVisitSessions(msg.days || 14);
 
     case 'GET_TIMELINE_SEGMENTS': {
+      await flushStatsForRead();
       const events = await getEvents();
       return buildTodayTimelineSegmentsFromEventLog(events, new Date());
     }
@@ -122,13 +184,13 @@ export async function handleMessage(msg, sender) {
       return await getChangelog(msg.limit || 20);
 
     case 'SWITCH_TO_STUDY':
-      return await switchToStudy();
+      return await switchToStudy(msg);
 
     case 'SWITCH_TO_REST':
-      return await switchToRest();
+      return await switchToRest(msg);
 
     case 'SWITCH_TO_COMPOSITE':
-      return await switchToComposite();
+      return await switchToComposite(msg);
 
     case 'ADD_TO_COMPOSITE_LIST':
       return await addToCompositeList(msg.domain, sender?.tab?.id ?? null);
@@ -200,6 +262,7 @@ export async function handleMessage(msg, sender) {
     case 'GET_CLOUD_STATUS': {
       const storage = await chrome.storage.local.get([
         'cloud_device_token',
+        'cloud_device_id',
         'cloud_profile_id',
         'cloud_last_sync',
         'cloud_config_version',
@@ -207,17 +270,27 @@ export async function handleMessage(msg, sender) {
         'cloud_monitoring_enabled'
       ]);
 
+      const v1Sync = await getStatsFoundationV1SyncStatus().catch(() => null);
       return {
         isBound: !!storage['cloud_device_token'],
+        deviceId: storage['cloud_device_id'] || null,
         hasCredentials: !!storage['cloud_credentials'],
         lastSync: storage['cloud_last_sync'] || 0,
         configVersion: storage['cloud_config_version'] || 0,
-        monitoringEnabled: storage['cloud_monitoring_enabled'] ?? 1
+        monitoringEnabled: storage['cloud_monitoring_enabled'] ?? 1,
+        v1Sync,
       };
     }
 
     case 'CLOUD_FORCE_SYNC': {
-      const syncResult = await syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs);
+      const syncResult = await syncNow(
+        getConfig,
+        saveConfig,
+        updateDeclarativeRules,
+        redirectAllTabs,
+        redirectQuotaViolatingTabs,
+        { forceRetryExhausted: true }
+      );
       return syncResult;
     }
 
@@ -226,10 +299,7 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'BORROW_REST_QUOTA': {
-      if (!isAuthorizedBorrowSender(sender)) {
-        return { ok: false, error: 'unauthorized_borrow_source', code: 'BORROW_SOURCE_DENIED' };
-      }
-      return await borrowRestQuota(updateDeclarativeRules);
+      return { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' };
     }
 
     case 'GET_WEEKLY_SESSIONS': {
@@ -286,17 +356,17 @@ export async function handleMessage(msg, sender) {
 async function reevaluateActiveTabAfterModeSwitch() {
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const tab = tabs && tabs[0];
-  if (!tab || !tab.id || !tab.url) return;
+  if (!tab || !tab.id || !tab.url) return null;
 
   let targetUrl = tab.url;
   if (tab.url.includes('reminder.html')) {
     try {
       const u = new URL(tab.url);
       const domain = u.searchParams.get('domain');
-      if (!domain || domain === 'all') return;
+      if (!domain || domain === 'all') return tab;
       targetUrl = `https://${domain}`;
     } catch {
-      return;
+      return tab;
     }
   }
 
@@ -304,109 +374,123 @@ async function reevaluateActiveTabAfterModeSwitch() {
   if (!blocked && targetUrl !== tab.url) {
     await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => {});
   }
+  return tab;
 }
 
-async function closeNonStudyPictureInPicture(config) {
-  const tabs = await chrome.tabs.query({});
-  const studyList = config.studyList || [];
-  const compositeList = config.compositeList || [];
-  const restrictedList = config.restrictedEntertainmentList || [];
-  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
-  const quotaState = config.quotaState || {};
-  const currentMode = config.mode === 'whitelist' ? 'study' : (config.mode === 'blacklist' ? 'rest' : config.mode);
-
-  if (currentMode !== 'study') return;
-
-  const shouldClosePiPForDomain = (domain) => {
-    const isUnsafe = unsafeList.some(p => matchDomain(domain, p));
-    if (isUnsafe) return true;
-
-    if (quotaState.onlineLocked) return true;
-
-    const isStudy = studyList.some(p => matchDomain(domain, p));
-    const isComposite = compositeList.some(p => matchDomain(domain, p));
-    const isRestricted = restrictedList.some(p => matchDomain(domain, p));
-
-    if (isStudy) {
-      return !!quotaState.studyLocked;
-    }
-    if (isComposite) {
-      return !!quotaState.undeterminedLocked;
-    }
-    if (isRestricted) {
-      return true;
-    }
-    return true;
-  };
-
-  for (const tab of tabs) {
-    if (!tab?.id || !tab.url) continue;
-    const domain = extractDomain(tab.url);
-    if (!domain) continue;
-    if (!shouldClosePiPForDomain(domain)) continue;
-
-    try {
-      if (chrome.scripting?.executeScript) {
-        const result = await chrome.scripting.executeScript({
-          target: { tabId: tab.id, allFrames: true },
-          func: async () => {
-            try {
-              if (document.pictureInPictureElement && document.exitPictureInPicture) {
-                await document.exitPictureInPicture();
-                return true;
-              }
-            } catch {}
-            return false;
-          },
-        });
-        const closedByScript = Array.isArray(result) && result.some((entry) => entry?.result === true);
-        if (!closedByScript) {
-          await chrome.tabs.sendMessage(tab.id, { type: 'EXIT_PIP' }).catch(() => {});
-        }
-      } else {
-        await chrome.tabs.sendMessage(tab.id, { type: 'EXIT_PIP' });
-      }
-    } catch {}
+function isInjectableNoticeUrl(url = '') {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:';
+  } catch {
+    return false;
   }
 }
 
-async function switchToStudy() {
+async function getActiveTabForModeNotice(preferredTabId = null) {
+  if (Number.isInteger(preferredTabId) && preferredTabId > 0) {
+    try {
+      const preferredTab = await chrome.tabs.get(preferredTabId);
+      if (preferredTab?.id && isInjectableNoticeUrl(preferredTab.url || '')) {
+        return preferredTab;
+      }
+    } catch {}
+  }
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const activeTab = tabs && tabs[0] ? tabs[0] : null;
+  if (activeTab?.id && isInjectableNoticeUrl(activeTab.url || '')) {
+    return activeTab;
+  }
+  const windowTabs = await chrome.tabs.query({ lastFocusedWindow: true });
+  const fallback = (windowTabs || [])
+    .filter((tab) => tab?.id && isInjectableNoticeUrl(tab.url || ''))
+    .sort((a, b) => Number(b?.lastAccessed || 0) - Number(a?.lastAccessed || 0))[0];
+  return fallback || activeTab || null;
+}
+
+async function switchToStudy(msg = {}) {
   const config = await getConfig();
+  const session = await getSession();
+  const fromMode = normalizeMode(session?.currentMode || config?.mode);
+  const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
+  if (activeTab?.id) {
+    await clearTabModeNotice(activeTab.id, 'mode_changed');
+  }
   await clearTemporaryCompositeDomains();
   config.mode = 'study';
   await saveConfig(config);
   await updateDeclarativeRules(config);
-  await closeNonStudyPictureInPicture(config);
-  const session = await getSession();
+  await applyModeTransitionSideEffects({
+    fromMode,
+    toMode: 'study',
+    tabId: activeTab?.id ?? null,
+    sendStudyNotice: false,
+  });
   session.currentMode = 'study';
   await chrome.storage.local.set({ guardian_session: session });
-  await reevaluateActiveTabAfterModeSwitch();
+  const reevaluatedTab = await reevaluateActiveTabAfterModeSwitch();
+  const noticeTabId = activeTab?.id || reevaluatedTab?.id;
+  if (noticeTabId) {
+    await sendModeSwitchSuccessNotice(noticeTabId, 'study', fromMode, {
+      noticeText: '已回到学习模式',
+      displayDuration: 4000,
+    });
+  }
   return session;
 }
 
-async function switchToComposite() {
+async function switchToComposite(msg = {}) {
   const config = await getConfig();
+  const session = await getSession();
+  const fromMode = normalizeMode(session?.currentMode || config?.mode);
+  const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
+  if (activeTab?.id) {
+    await clearTabModeNotice(activeTab.id, 'mode_changed');
+  }
   await clearTemporaryCompositeDomains();
   config.mode = 'composite';
   await saveConfig(config);
   await updateDeclarativeRules(config);
-  const session = await getSession();
+  await applyModeTransitionSideEffects({
+    fromMode,
+    toMode: 'composite',
+    tabId: activeTab?.id ?? null,
+  });
   session.currentMode = 'composite';
   await chrome.storage.local.set({ guardian_session: session });
-  await reevaluateActiveTabAfterModeSwitch();
+  const reevaluatedTab = await reevaluateActiveTabAfterModeSwitch();
+  const noticeTabId = activeTab?.id || reevaluatedTab?.id;
+  if (noticeTabId) {
+    await sendModeSwitchSuccessNotice(noticeTabId, 'composite', fromMode, {
+      noticeText: '已进入综合模式',
+      displayDuration: 4000,
+    });
+  }
   return session;
 }
 
-async function switchToRest() {
+async function switchToRest(msg = {}) {
   const config = await getConfig();
+  const session = await getSession();
+  const fromMode = normalizeMode(session?.currentMode || config?.mode);
+  const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
+  if (activeTab?.id) {
+    await clearTabModeNotice(activeTab.id, 'mode_changed');
+  }
   await clearTemporaryCompositeDomains();
   config.mode = 'rest';
   await saveConfig(config);
   await updateDeclarativeRules(config);
-  const session = await getSession();
   session.currentMode = 'rest';
   await chrome.storage.local.set({ guardian_session: session });
-  await reevaluateActiveTabAfterModeSwitch();
+  const reevaluatedTab = await reevaluateActiveTabAfterModeSwitch();
+  const noticeTabId = activeTab?.id || reevaluatedTab?.id;
+  if (noticeTabId) {
+    await sendModeSwitchSuccessNotice(noticeTabId, 'rest', fromMode, {
+      noticeText: '已进入休息模式',
+      displayDuration: 4000,
+    });
+  }
   return session;
 }
 
@@ -455,11 +539,12 @@ async function addToCompositeList(domain, tabId) {
   return { domain, added: true };
 }
 
-async function getRuntimeModeStatus() {
+async function getRuntimeModeStatus(options = {}) {
+  const includeUsageSummary = options?.includeUsageSummary !== false;
   const config = await getConfig();
   const [session, statsWithCategories] = await Promise.all([
     getSession(),
-    getTodayStatsWithCategories(config),
+    includeUsageSummary ? getTodayStatsWithCategories(config) : Promise.resolve(null),
   ]);
   const monitoringEnabled = getSyncState().monitoringEnabled;
   const mode = monitoringEnabled === 0 ? 'paused' : normalizeMode(session?.currentMode || config?.mode);
@@ -476,25 +561,29 @@ async function getRuntimeModeStatus() {
     }
   } catch {}
 
-  const compositeUsedSeconds = Math.max(0, Number(statsWithCategories?.undeterminedSeconds) || 0);
-  const compositeLimitSeconds = Math.max(0, (config.dailyUndeterminedQuota ?? 60) * 60);
-  const compositeRemainingSeconds = Math.max(0, compositeLimitSeconds - compositeUsedSeconds);
+  let compositeRemainingSeconds = null;
+  let restRemainingSeconds = null;
+  if (includeUsageSummary) {
+    const compositeUsedSeconds = Math.max(0, Number(statsWithCategories?.compositeSeconds ?? statsWithCategories?.undeterminedSeconds) || 0);
+    const compositeLimitSeconds = Math.max(0, (config.dailyUndeterminedQuota ?? 60) * 60);
+    compositeRemainingSeconds = Math.max(0, compositeLimitSeconds - compositeUsedSeconds);
 
-  const effectiveRestLimitMinutes = (() => {
-    const baseLimit = config.dailyRestQuota ?? 120;
-    const borrow = config.quotaBorrow;
-    if (!borrow || borrow.repaid) return baseLimit;
-    const today = getDateKey();
-    if (today === borrow.borrowedFrom) return baseLimit + borrow.amount;
-    const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
-    repayD.setDate(repayD.getDate() + 1);
-    const repayStr = formatDate(repayD);
-    if (today === repayStr) return Math.max(0, baseLimit - borrow.amount);
-    return baseLimit;
-  })();
-  const restLimitSeconds = Math.max(0, effectiveRestLimitMinutes * 60);
-  const restUsedSeconds = Math.max(0, Number(statsWithCategories?.restSeconds) || 0);
-  const restRemainingSeconds = Math.max(0, restLimitSeconds - restUsedSeconds);
+    const effectiveRestLimitMinutes = (() => {
+      const baseLimit = config.dailyRestQuota ?? 120;
+      const borrow = config.quotaBorrow;
+      if (!borrow || borrow.repaid) return baseLimit;
+      const today = getDateKey();
+      if (today === borrow.borrowedFrom) return baseLimit + borrow.amount;
+      const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
+      repayD.setDate(repayD.getDate() + 1);
+      const repayStr = formatDate(repayD);
+      if (today === repayStr) return Math.max(0, baseLimit - borrow.amount);
+      return baseLimit;
+    })();
+    const restLimitSeconds = Math.max(0, effectiveRestLimitMinutes * 60);
+    const restUsedSeconds = Math.max(0, Number(statsWithCategories?.restSeconds) || 0);
+    restRemainingSeconds = Math.max(0, restLimitSeconds - restUsedSeconds);
+  }
 
   return {
     mode,

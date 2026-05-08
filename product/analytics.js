@@ -8,22 +8,23 @@ export async function getTodayStatsWithCategories(config) {
   const stats = await getTodayStats();
   const undeterminedStats = await getTodayUndeterminedStats();
 
-  let studySeconds = 0, undeterminedSeconds = 0, restSeconds = 0, totalSeconds = 0;
+  let studySeconds = 0, compositeSeconds = 0, restSeconds = 0, totalSeconds = 0;
   for (const [domain, seconds] of Object.entries(stats)) {
-    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
+    if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain' || domain === 'onlineSeconds' || domain === 'compositeSeconds' || domain === 'undeterminedSeconds') continue;
     totalSeconds += seconds;
     const isStudy = (config?.studyList || []).some(p => matchDomain(domain, p));
     if (isStudy) studySeconds += seconds;
   }
-  for (const seconds of Object.values(undeterminedStats)) undeterminedSeconds += seconds;
-  restSeconds = totalSeconds - studySeconds - undeterminedSeconds;
+  for (const seconds of Object.values(undeterminedStats)) compositeSeconds += seconds;
+  restSeconds = totalSeconds - studySeconds - compositeSeconds;
 
   return {
     studySeconds: Math.max(0, studySeconds),
     restSeconds: Math.max(0, restSeconds),
-    undeterminedSeconds,
+    compositeSeconds,
+    undeterminedSeconds: compositeSeconds,
     totalSeconds,
-    domains: Object.fromEntries(Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain')),
+    domains: Object.fromEntries(Object.entries(stats).filter(([domain]) => domain !== 'audioSeconds' && domain !== 'backgroundMediaByDomain' && domain !== 'pipSeconds' && domain !== 'pipByDomain' && domain !== 'onlineSeconds' && domain !== 'compositeSeconds' && domain !== 'undeterminedSeconds')),
     audioSeconds: Number(stats.audioSeconds) || 0,
     backgroundMediaByDomain: stats.backgroundMediaByDomain || {},
     pipSeconds: Number(stats.pipSeconds) || 0,

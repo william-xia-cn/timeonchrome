@@ -125,7 +125,7 @@ export async function checkAllTabsQuota(redirectToReminderFn, redirectAllTabsFn,
       if (redirectQuotaViolatingTabsFn) await redirectQuotaViolatingTabsFn(config, newState);
     }
     if (newState.undeterminedLocked && !oldState.undeterminedLocked) {
-      chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon48.png', title: 'TimeOnChrome', message: '待定网站今天的时间用完啦，明天再来探索' });
+      chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon48.png', title: 'TimeOnChrome', message: '综合时间今天用完啦，明天再来探索' });
       if (redirectQuotaViolatingTabsFn) await redirectQuotaViolatingTabsFn(config, newState);
     }
   }
@@ -207,43 +207,5 @@ export async function redirectLockedTabs(domains) {
 // ── Borrow rest quota ───────────────────────────────────────────────────────────
 
 export async function borrowRestQuota(updateDeclarativeRulesFn) {
-  if (borrowInProgress) {
-    return { ok: false, error: 'borrow_in_progress', code: 'BORROW_IN_PROGRESS' };
-  }
-  borrowInProgress = true;
-
-  try {
-    const config = await getConfig();
-    const borrow = config.quotaBorrow;
-
-    if (borrow && !borrow.repaid) {
-      return { ok: false, error: 'already_borrowed', alreadyBorrowed: true };
-    }
-
-    const today = getDateKey();
-    const todayDate = new Date();
-    if (todayDate.getDay() === 0) {
-      return { ok: false, error: 'no_cross_week' };
-    }
-
-    const dailyLimit = config.dailyRestQuota ?? 120;
-    const borrowAmt = Math.min(60, dailyLimit);
-
-    const weeklyLimit = (config.weeklyRestQuota ?? (dailyLimit * 7)) * 60;
-    const weekRestSec = await getWeekRestSeconds();
-    if (weeklyLimit > 0 && weekRestSec >= weeklyLimit) {
-      return { ok: false, error: 'weekly_quota_exceeded' };
-    }
-
-    config.quotaBorrow = { borrowedFrom: today, amount: borrowAmt, repaid: false };
-    if (config.quotaState?.restLocked) {
-      config.quotaState.restLocked = false;
-      config.quotaState.weeklyRestLocked = false;
-    }
-    await saveConfig(config);
-    if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(config);
-    return { ok: true, amount: borrowAmt };
-  } finally {
-    borrowInProgress = false;
-  }
+  return { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' };
 }

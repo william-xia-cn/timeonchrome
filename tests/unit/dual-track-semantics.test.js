@@ -172,6 +172,33 @@ async function runTests() {
     expect('mediaSourceDomain should be preserved separately', next.mediaSourceDomain, 'video.example');
   }
 
+  section('D8: idle must not suppress media accounting');
+  {
+    const audibleIdleCtx = {
+      domain: 'video.example',
+      tabId: 5,
+      isFocused: false,
+      isIdle: true,
+      isAudible: true,
+      mediaSourceTabId: 5,
+      mediaSourceDomain: 'video.example',
+      isPiP: false,
+    };
+    expect('idle + audible should still be BACKGROUND_ACTIVE', resolveState(audibleIdleCtx), AttentionState.BACKGROUND_ACTIVE);
+
+    const pipIdleCtx = {
+      domain: 'video.example',
+      tabId: 5,
+      isFocused: false,
+      isIdle: true,
+      isAudible: true,
+      mediaSourceTabId: 5,
+      mediaSourceDomain: 'video.example',
+      isPiP: true,
+    };
+    expect('idle + PiP should still be PIP_ACTIVE', resolveState(pipIdleCtx), AttentionState.PIP_ACTIVE);
+  }
+
   const total = passed + failed;
   console.log(`\n[Dual Track Semantics] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

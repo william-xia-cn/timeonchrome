@@ -14,16 +14,33 @@ async function _launchInternal(userDataDir, shouldClean) {
     fs.mkdirSync(userDataDir, { recursive: true });
   }
 
-  const browserCtx = await chromium.launchPersistentContext(userDataDir, {
+  const launchOpts = {
     headless: false,
     args: [
       `--disable-extensions-except=${EXTENSION_PATH}`,
       `--load-extension=${EXTENSION_PATH}`,
       '--no-sandbox',
     ],
-  });
+  };
 
+  let browserCtx;
+  try {
+    browserCtx = await chromium.launchPersistentContext(userDataDir, launchOpts);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    const shouldFallback = msg.includes('Target page, context or browser has been closed')
+      || msg.includes('exitCode=21')
+      || msg.includes('Browser logs:');
+    if (!shouldFallback) throw err;
+    browserCtx = await chromium.launchPersistentContext(userDataDir, {
+      ...launchOpts,
+      channel: 'chrome',
+    });
+  }
+
+  const launchStartedAt = Date.now();
   let sw = browserCtx.serviceWorkers()[0];
+  let swObservedAt = sw ? Date.now() : null;
   if (!sw) {
     try {
       sw = await browserCtx.waitForEvent('serviceworker', { timeout: 30000 });
@@ -33,6 +50,7 @@ async function _launchInternal(userDataDir, shouldClean) {
         const workers = browserCtx.serviceWorkers();
         if (workers.length > 0) {
           sw = workers[0];
+          swObservedAt = Date.now();
           break;
         }
         await new Promise(r => setTimeout(r, 500));
@@ -45,7 +63,51 @@ async function _launchInternal(userDataDir, shouldClean) {
   }
 
   const extensionId = new URL(sw.url()).hostname;
-  return { browserCtx, sw, extensionId, userDataDir };
+  if (!swObservedAt) swObservedAt = Date.now();
+  const forceReload = process.env.TOC_FORCE_EXTENSION_RELOAD === '1';
+  if (forceReload) {
+    try {
+      await sw.evaluate(() => {
+        chrome.runtime.reload();
+      });
+    } catch (_) {
+      // SW may terminate immediately on reload; ignore and wait for next worker.
+    }
+
+    let reloadedSw = null;
+    const started = Date.now();
+    while (Date.now() - started < 30000) {
+      const workers = browserCtx.serviceWorkers();
+      reloadedSw = workers.find((w) => {
+        try {
+          return new URL(w.url()).hostname === extensionId;
+        } catch {
+          return false;
+        }
+      });
+      if (reloadedSw) break;
+      try {
+        const next = await browserCtx.waitForEvent('serviceworker', { timeout: 2000 });
+        if (new URL(next.url()).hostname === extensionId) {
+          reloadedSw = next;
+          break;
+        }
+      } catch {
+        // keep polling
+      }
+    }
+    if (reloadedSw) sw = reloadedSw;
+  }
+
+  return {
+    browserCtx,
+    sw,
+    extensionId,
+    userDataDir,
+    extensionPath: EXTENSION_PATH,
+    launchStartedAt,
+    swObservedAt,
+  };
 }
 
 /**

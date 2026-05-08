@@ -58,6 +58,30 @@ function run() {
   expectTrue('stats.ts 应在入库前执行 normalizeHostname', source.includes('const normalizedDomain = normalizeHostname(stat.domain);'));
   expectTrue('stats.ts 应跳过归一后非法域名', source.includes('if (!normalizedDomain) continue;'));
 
+  // Phase 3D-1: Safe per-domain upsert — no date-level DELETE
+  expectTrue('stats.ts 不得包含 date-level DELETE', !source.includes('DELETE FROM stats WHERE profile_id'));
+  expectTrue('stats.ts 应使用逐域名 upsert（SELECT existing + UPDATE）', source.includes('UPDATE stats SET duration'));
+  expectTrue('stats.ts 应使用逐域名 upsert（INSERT）', source.includes('INSERT INTO stats (id, profile_id, date, domain, duration'));
+  expectTrue('stats.ts 返回 inserted 和 updated 计数', source.includes('inserted') && source.includes('updated'));
+
+  // Phase 3C: V1 endpoints
+  expectTrue('stats.ts 应包含 POST /device/usage-segments/v1 路由', source.includes("path === '/device/usage-segments/v1'"));
+  expectTrue('stats.ts 应包含 POST /device/stats/v1 路由', source.includes("path === '/device/stats/v1'"));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/stats/v1 路由', source.includes('/stats/v1'));
+  expectTrue('stats.ts 应在 usage_segments_v1 表中使用 ON CONFLICT/upsert 语义', source.includes('usage_segments_v1'));
+  expectTrue('stats.ts 应在 stats_v1 表中使用 UNIQUE 约束 upsert', source.includes('stats_v1'));
+  expectTrue('stats.ts 应写入 segment_upload_log', source.includes('segment_upload_log'));
+  expectTrue('stats.ts 应写入 stats_upload_log', source.includes('stats_upload_log'));
+  expectTrue('stats.ts 应验证 channel 字段', source.includes("VALID_CHANNELS"));
+  expectTrue('stats.ts 应验证 mode 字段', source.includes("VALID_MODES"));
+
+  // Phase 3C-R: Contract — Worker accepts terminal buildDailyStatsUploadPayload shape
+  expectTrue('stats.ts stats/v1 应接受嵌套的 activeByMode', source.includes("activeByMode"));
+  expectTrue('stats.ts stats/v1 应接受嵌套的 backgroundMediaByMode', source.includes("backgroundMediaByMode"));
+  expectTrue('stats.ts stats/v1 应接受嵌套的 pipByMode', source.includes("pipByMode"));
+  expectTrue('stats.ts stats/v1 应将 byMode 对象展开为展开的行', source.includes("expandedRows"));
+  expectTrue('stats.ts stats/v1 expandedRows 包含 channel 和 mode', source.includes("channel: 'active'"));
+
   const row = ingestRows([{ domain: 'WWW.Example.COM.', active_sec: 30, passive_sec: 10 }], normalizeHostname);
   expectEqual('WWW + 大小写 + 尾点组合应归一为 www.example.com', row[0].domain, 'www.example.com');
   expectEqual('归一后应保留时长求和', row[0].duration, 40);

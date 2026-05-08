@@ -3,19 +3,19 @@ import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';
 import { siteAccessDefaults } from '../config/site-access-defaults';
 
-// 验证 device_token，可选同时刷新 last_seen；返回 profile_id 或 null
+// 验证 device_token，可选同时刷新 last_seen；返回 profile_id + device_id 或 null
 async function verifyDeviceToken(
   request: Request,
   env: Env,
   updateLastSeen = false
-): Promise<string | null> {
+): Promise<{ profileId: string; deviceId: string } | null> {
   const auth = request.headers.get('Authorization');
   if (!auth?.startsWith('Bearer ')) return null;
 
   const token  = auth.slice(7);
   const device = await env.DB.prepare(
-    `SELECT profile_id FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ profile_id: string }>();
+    `SELECT id, profile_id FROM devices WHERE device_token = ?`
+  ).bind(token).first<{ id: string; profile_id: string }>();
 
   if (!device?.profile_id) return null;
 
@@ -25,7 +25,7 @@ async function verifyDeviceToken(
     ).bind(Date.now(), token).run();
   }
 
-  return device.profile_id;
+  return { profileId: device.profile_id, deviceId: device.id };
 }
 
 // 生成 64 字符随机 device_token
@@ -66,8 +66,9 @@ export const deviceRouter = {
         const deviceToken = tokenFromBody || generateDeviceToken();
         const isNew       = !tokenFromBody;
 
+        let deviceId: string | null = null;
         if (isNew) {
-          const deviceId = crypto.randomUUID();
+          deviceId = crypto.randomUUID();
           const now      = Date.now();
           const devName  = (device_name || 'Chrome Extension').slice(0, 64);
 
@@ -75,9 +76,14 @@ export const deviceRouter = {
             `INSERT INTO devices (id, profile_id, device_token, device_name, last_seen, created_at)
              VALUES (?, ?, ?, ?, ?, ?)`
           ).bind(deviceId, profile_id, deviceToken, devName, now, now).run();
+        } else {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM devices WHERE device_token = ?`
+          ).bind(deviceToken).first<{ id: string }>();
+          deviceId = existing?.id || null;
         }
 
-        return json({ success: true, device_token: deviceToken, profile_id });
+        return json({ success: true, device_token: deviceToken, profile_id, device_id: deviceId });
       } catch (e: any) {
         return json({ error: 'Failed to bind device: ' + e.message }, 500);
       }
@@ -85,8 +91,8 @@ export const deviceRouter = {
 
     // POST /device/heartbeat
     if (request.method === 'POST' && path === '/device/heartbeat') {
-      const profileId = await verifyDeviceToken(request, env, true);
-      if (!profileId) return json({ error: 'Invalid device token' }, 401);
+      const deviceIdentity = await verifyDeviceToken(request, env, true);
+      if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
       return json({ ok: true, ts: Date.now() });
     }
 
@@ -94,8 +100,9 @@ export const deviceRouter = {
     if (request.method === 'GET' && path === '/device/config') {
       const authHeader = request.headers.get('Authorization');
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-      const profileId = await verifyDeviceToken(request, env, true);
-      if (!profileId) return json({ error: 'Invalid device token' }, 401);
+      const deviceIdentity = await verifyDeviceToken(request, env, true);
+      if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      const profileId = deviceIdentity.profileId;
 
       const row = await env.DB.prepare(
         `SELECT config, version FROM profiles WHERE id = ?`
@@ -131,14 +138,16 @@ export const deviceRouter = {
         data:               configData,
         version:            row?.version || 0,
         profile_id:         profileId,
+        device_id:          deviceIdentity.deviceId,
         monitoring_enabled: monitoringEnabled,
       });
     }
 
     // PUT /device/config
     if (request.method === 'PUT' && path === '/device/config') {
-      const profileId = await verifyDeviceToken(request, env, true);
-      if (!profileId) return json({ error: 'Invalid device token' }, 401);
+      const deviceIdentity = await verifyDeviceToken(request, env, true);
+      if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      const profileId = deviceIdentity.profileId;
 
       try {
         const { data } = await request.json<{ data: unknown }>();
@@ -161,8 +170,9 @@ export const deviceRouter = {
 
     // GET /device/quota-state?date=YYYY-MM-DD
     if (request.method === 'GET' && path === '/device/quota-state') {
-      const profileId = await verifyDeviceToken(request, env);
-      if (!profileId) return json({ error: 'Invalid device token' }, 401);
+      const deviceIdentity = await verifyDeviceToken(request, env);
+      if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      const profileId = deviceIdentity.profileId;
 
       const dateParam = url.searchParams.get('date');
       if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {

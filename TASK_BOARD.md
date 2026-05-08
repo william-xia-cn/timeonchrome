@@ -1,5 +1,57 @@
 # TASK_BOARD
 
+## Active Release Target
+- `V1-minimal release candidate`（当前首次正式发布目标）
+- `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
+
+## V1-minimal must-have（release readiness）
+- [ ] release gate matrix reset（V1-minimal 口径）
+- [x] Cloud Stats v1 minimal sync gate（usage_segments_v1 + stats_v1）
+- [x] Chrome Web Store submission text preparation（prepared only; not uploaded/submitted）
+- [x] manifest permissions / host permissions wording review（submission text prepared）
+- [x] privacy / data collection wording review（submission text prepared）
+- [ ] macOS + Windows real Chrome smoke verification
+- [x] package build verification
+- [x] final known risks section
+
+### V1-minimal release artifact（2026-05-09）
+- [x] Release ZIP generated: `dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
+- [x] SHA256 recorded: `A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
+- [x] ZIP extraction verified: MV3 manifest, version `1.7.2`, required runtime files present
+- [x] Package excludes `docs/`, `tests/`, `workers/`, `pages/`, `node_modules/`, `.env`, `.wrangler`, local Chrome profile data, cookies/history/login data
+- [x] Release record prepared: `docs/releases/v1-minimal-release-2026-05-09.md`
+- [x] Chrome Web Store submission text prepared: `docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
+- [ ] Chrome Web Store upload/submission（blocked pending separate PO approval）
+- [ ] Git push/tag（blocked pending separate PO approval）
+
+## V1-minimal out of scope（本轮不做）
+- [ ] full three-mode model 重构
+- [ ] AI content classification
+- [ ] composite routing rebuild
+- [ ] 当前 time borrowing / borrow quota 实现纳入发布范围
+- [ ] 启用 `statsFoundationV1SyncEnabled`
+- [ ] legacy D1 cleanup/migration
+- [ ] admin UI redesign
+- [ ] historical data backfill
+- [ ] site classification policy expansion
+
+> 备注：`statsFoundationV1SyncEnabled` 历史上曾列为 out-of-scope；按 D-035 已调整为 V1-minimal 必选门。该行待后续任务清理为最终口径。
+
+## V1-minimal scope close-out（time borrowing）
+- [x] 当前 time borrowing / borrow quota 实现路径已禁用（runtime + UI）
+  - `BORROW_REST_QUOTA` 返回受控拒绝：`{ ok: false, error: "TIME_BORROWING_DISABLED_FOR_V1_MINIMAL" }`
+  - 不修改 `quotaBorrow`
+  - 不修改 rest/weekly quota state
+  - reminder/popup/admin 不提供借用活跃入口
+- [x] 兼容性口径确认：保留历史 `quotaBorrow` / `weeklyRestQuota` 字段容忍读取，不做清理迁移
+- [x] 证据测试已完成：
+  - `message-router-borrow-source 4/4`
+  - `reminder-borrow-confirm 5/5`
+  - `borrow-concurrency 3/3`
+  - `reminder-transition-v0 67/67`
+  - `background-logic 86/86`
+  - `storage-aggregation-convergence 36/36`
+
 ## NOW（P0）
 - [x] [V0] V0 RC package validation
 - [x] [V0] RC internal install validation (Chrome unpacked)
@@ -24,6 +76,19 @@
 | RG-4 | PASS | bound profile 可用；`--manualNetworkToggle` 人工断网/联网观察到真实 offline/online；恢复后 event-log/session/trace 可读 | Product Owner confirmed | 无 |
 
 ## NEXT（P1）
+- [x] **[P0/V1] Stats Storage Foundation — Phase 1**: Terminal settlement：`usage_segments_v1` + `daily_usage_stats_v1` ✅ 已完成（1B-R）
+- [x] **[P0/V1] Stats Storage Foundation — Phase 2**: Read path ✅ 已完成（1C）
+- [x] **[P0/V1] Stats Storage Foundation — Phase 3**: Segment + stats cloud upload ✅ 已完成（3C-R + 3E）
+- [x] **[P0/V1] Stats Storage Foundation — Phase 4**: Cloud endpoints + audit logs ✅ 已完成（3C + 3C-R）
+- [x] **[P0/V1] Stats Storage Foundation — Phase 5**: Cloud validation + roundtrip ✅ 已完成（3F + 3F-R + 3F-S）
+- [x] **[P0/V1] Stats Storage Foundation — Phase 3 Cloud 实施计划** ✅ 已完成（3A）
+- [x] **[P0/V1] Stats Storage Foundation — D1 迁移** ✅ 已完成（3B, 已部署到 remote guardian-db）
+- [x] **[P0/V1] Stats Storage Foundation — 旧版 stats 安全补丁** ✅ 已完成（3D-1）
+- [x] **[P0/V1] Stats Storage Foundation — 实时云验证** ✅ 已完成（3F-R, 3F-S）
+- [ ] **[P0/V1] Stats Storage Foundation — 受控上线（等待 PO 批准）**
+  - 当前状态：所有 Phase 1-5 代码和云基础设施已就绪并已验证
+  - v1 同步默认禁用；生产环境中未调用 `setStatsFoundationV1SyncEnabled(true)`
+  - 上线前需单独 PO 批准（见 `docs/STATS_STORAGE_FOUNDATION.md` §C.9）
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
 - [x] **[P1] Child-facing entry points expose mixed admin page — Stage 1 (Soft Gate) 已完成**：
@@ -54,14 +119,16 @@
   - 影响范围：仅 Reminder 页面展示层；不影响模式切换、配额扣减、计时归因与按钮/滑轨交互语义
   - 处理策略：纳入 V1 UI 优化，采用固定结构布局（不依赖 `order` 动态拼装）统一文案块位置与层级
   - 发布口径：该项为已知非阻塞 UI 问题，不影响 V0 closeout
-- [ ] **[V1] Rest borrow rule refinement（V0 accepted mechanism）**
-  - V0 现状：借用仅在 Reminder 上下文显式触发，不经 popup；与“申请使用综合时间”分离；不创建综合放行；不改变站点分类。
-  - V1 优化范围：
-    1) 借用额度策略细化；
-    2) 次日扣减/归还算法可解释化；
-    3) 日/周借用上限策略与过度使用抑制；
-    4) 家长侧借用开关与策略配置；
-    5) 失败反馈、审计轨迹与日志可见性增强。
+- [ ] **[Post V1-minimal] Time borrowing redesign（原始需求保留）**
+  - 当前实现中的 borrow runtime/UI path 不进入 V1-minimal 发布范围。
+  - 本项迁移为后续版本重设计输入，需重新定义：
+    1) 借用来源与借用目标；
+    2) 配额扣减与归还规则；
+    3) 审批/确认流程；
+    4) UI 入口（popup/admin/reminder）；
+    5) 云端字段与同步契约；
+    6) 统计归因与报表口径；
+    7) 与休息/综合/受限娱乐路由关系。
 - [ ] **[Pending PO D-015] 申诉/审核语义终审（使用分析页面 / 终端 UI）**：使用分析页面与待归类列表中的"申诉/待审核/申诉中/已改判/标为学习/标为休息"概念需 Product Owner 决策——从终端 UI 隐藏、只读展示、保留孩子侧申诉、或仅保留在家长控制台
 - [ ] **[P2] Stage 2 local terminal/admin naming or physical split cleanup**：
   - 当前状态：`admin/admin.html` 同时承载：
@@ -107,6 +174,7 @@
 - [x] [V0] System Recovery runner infrastructure: dry-run, chrome-restart, lock-unlock, network-offline, sleep-wake runner paths
 - [x] [V0] Popup P0 UI 回正（删除 4 宫格/借用区/待定列表，模式按钮显示时长/配额，后台媒体纯数字行）
 - [x] [V0] Popup P0 借用路由修正：`BORROW_ALLOWED_PATHS` 移除 popup，仅保留 reminder
+- [x] [V0 Release Evidence] Admin subpage refresh on navigation：子页切换从“仅 DOM 显隐”修复为“切页后按页面刷新数据”；`rules/stats` 切页重新 `GET_CONFIG`；`devices` 保留即时刷新；新增 `adminPageRefreshSeq` 防止旧请求覆盖；新增 `rules/stats/devices` 错误态渲染。验证：`admin-nav-refresh 5/5`、`admin-stats-overview 10/10`、`admin-undetermined-list 50/50`、Manual browser verification PASS。
 - [x] [V0] Bind 流程修复：CSP 合规（bind.js 外部化）、auth 变量冲突、cloud-sync token 守卫
 - [x] [V0] 后台 audio/video 统计补 domain 明细：`backgroundMediaByDomain` 与 `audioSeconds` 摘要对账通过
 - [x] [V1] PiP timing support 最小闭环：`PIP_ACTIVE -> pipSeconds / pipByDomain`，不混入普通在线或后台媒体；学习模式切换关闭非学习网站 PiP
@@ -115,9 +183,29 @@
 - [x] [V0] 配置字段单一模型收口
 - [x] [V0] Background Audio Time 最小版
 - [x] [V0] dev-reset 工具页（dev-only）
+- [x] [V0 Release Evidence] Mode-switch in-page prompt lifecycle hardening：pending notice 绑定 `tabId + domainSnapshot`；`CONTENT_SCRIPT_READY` 基于 currentDomain 重发守卫；模式切换不依赖页面提示成功；验证结果 `interceptor-mode-transition-v0 84/84`、`content-rest-composite-pending-banner 23/23`、`mode-switch-prompt-lifecycle E2E 3 passed`
+- [x] [V0 Release Evidence] Cloud sync evidence pass（read-only）：基于 D1 只读检查 + 真实 storage/admin runtime message 证据，确认 config sync、本地 stats message path、timeline path 均可用；确认 legacy cloud `stats` 表存在同 `profile_id/date/domain` 重复行风险（无 `UNIQUE`），已作为已知风险落账；本轮不做 Cloud/D1 写入、不启用 `statsFoundationV1SyncEnabled`、不改分类策略。
+- [x] [V1-minimal Gate] Cloud Stats v1 minimal sync：Gate.Test 真实扩展闭环通过；`cloud_device_id` 已补齐并持久化；`CLOUD_FORCE_SYNC` 成功且 `v1Sync.lastError=null`、`pendingSegments=0`、`pendingStatsDates=0`、`lastSyncAt>0`；远端 `stats_v1/usage_segments_v1` duplicate checks 均为 `[]`；Worker `guardian-api` 已部署版本 `1c93c24a-17e6-418e-b870-83b5c4e3804d`。
+- [x] [V1-minimal Gate] Recovery/System manual evidence close-out：已生成 close-out JSON/MD（`v1-minimal-recovery-gate-closeout-20260508-180200.*`）；manual gates 以 `MANUAL_VERIFIED_PASS` 落账；保留 sleep automated `PARTIAL` 事实并以 PO 手工语义验收补证据。
+- [x] [V1-minimal Gate] Mode transition PiP cleanup + Study prompt regression：manual/auto 四路径已通过（Rest->Composite / Rest->Study），并完成 in-page prompt 生命周期回归；本项归类为 mode-transition UX / side-effect regression，不属于 Recovery/System gate。
+- [x] [V1-minimal Close-out] Mode prompt delivery + popup noticeTabId + auto-transition delay update（PO review）
+  - 页面内提示可见性已恢复；Product Owner 手动刷新后确认可见（当前为新提示形态）。
+  - 提示样式调浅为更轻绿色；本次仅样式调整，不改变提示投递语义。
+  - popup 发起 `SWITCH_*` 时携带 `noticeTabId`，提示优先投递到目标网页 tab，修复 popup 切换后目标网页无提示问题。
+  - 自动切换延迟参数已更新并冻结：`Rest->Composite=30s`、`Rest->Study=45s`、`Composite->Study=45s`。
+  - 文档同步：`docs/MODE_TRANSITION_UX_V0.md` 与 `DECISIONS.md:D-020` 已对齐 `30/45/45`。
+  - 测试证据：`mode-switch-prompt-lifecycle` `3 passed`；`mode-switch-pip-close` `4 passed`。
+  - 约束：涉及 mode transition timing / prompt behavior / UX 参数的改动，必须先文档审批/同步，再实现；禁止代码与文档分叉。
+
+## V1-minimal mode-transition regression（must-run）
+- `node tests/unit/interceptor-mode-transition-v0.test.js`
+- `node tests/unit/reminder-transition-v0.test.js`
+- `node tests/unit/content-rest-composite-pending-banner.test.js`
+- `npx playwright test tests/e2e/mode-switch-prompt-lifecycle.test.js --reporter=line`
+- `npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line`
 
 ## 维护约定
 - 每个任务必须标注阶段（V0/V1）
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS
-- V0 formal release 可在 Product Owner 明确风险接受下推进 RC 交付；macOS smoke 与 Playwright alternate-environment evidence 当前为已接受风险并进入 V1 follow-up
+- 当前正式发布目标为 `V1-minimal release candidate`；V0 证据仅作为 baseline 保留，不作为 formal release 口径

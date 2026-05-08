@@ -271,25 +271,24 @@
       <style>
         .toc-pending-banner {
           position: fixed;
+          right: 16px;
           top: 16px;
-          left: 50%;
-          transform: translateX(-50%);
           z-index: 2147483647;
           min-width: 300px;
-          max-width: min(420px, calc(100vw - 24px));
-          padding: 8px 14px;
-          border-radius: 999px;
-          border: 1px solid rgba(255, 255, 255, 0.6);
-          background: rgba(255, 255, 255, 0.62);
-          color: #1f2937;
-          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
-          backdrop-filter: blur(6px);
+          max-width: min(460px, calc(100vw - 24px));
+          padding: 10px 14px;
+          border-radius: 12px;
+          border: 1px solid #86efac;
+          background: #dcfce7;
+          color: #166534;
+          box-shadow: 0 10px 20px rgba(22, 101, 52, 0.18);
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-          font-size: 12px;
-          line-height: 1.2;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          font-size: 13px;
+          line-height: 1.35;
+          white-space: normal;
+          word-break: break-word;
+          pointer-events: none;
+          opacity: 1;
         }
       </style>
       <div class="toc-pending-banner" id="toc-pending-banner"></div>
@@ -341,9 +340,19 @@
 
     updateCountdown();
     autoModePendingTimer = setInterval(updateCountdown, 250);
+    autoModePendingHideTimer = setTimeout(() => {
+      clearAutoModePending();
+    }, Math.max(1000, deadlineAt - Date.now() + 5000));
   }
 
+  document.addEventListener('fullscreenchange', updateMediaState);
+  document.addEventListener('webkitfullscreenchange', updateMediaState);
+
   function showAutoModeSuccess(payload) {
+    if (Number(payload?.expiresAt) && Date.now() > Number(payload.expiresAt)) {
+      clearAutoModePending();
+      return;
+    }
     const shadow = ensureAutoModePendingBanner();
     if (!shadow) return;
 
@@ -362,7 +371,7 @@
     }
 
     clearPendingTimers();
-    const hideDuration = Number(payload?.displayDuration) || 2200;
+    const hideDuration = Math.min(Math.max(Number(payload?.displayDuration) || 4000, 1000), 10000);
     autoModePendingHideTimer = setTimeout(() => {
       clearAutoModePending();
     }, hideDuration);

@@ -63,46 +63,36 @@ function loadHandleMessage(stubs) {
 }
 
 async function run() {
-  let borrowCalls = 0;
   const { handleMessage } = loadHandleMessage({
-    borrowRestQuota: async () => { borrowCalls++; return { ok: true, amount: 30 }; },
     updateDeclarativeRules: async () => {},
   });
 
-  section('B03-1 popup 不再允许触发 borrow（P0 仅 reminder 保留借用）');
+  section('B03-1 popup 调用 borrow 返回 V1-minimal 禁用响应');
   {
-    borrowCalls = 0;
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
     const r = await handleMessage({ type: 'BORROW_REST_QUOTA' }, sender);
-    expect('返回统一拒绝结构', r, { ok: false, error: 'unauthorized_borrow_source', code: 'BORROW_SOURCE_DENIED' });
-    expectTrue('borrowRestQuota 不应被调用', borrowCalls === 0);
+    expect('返回统一禁用结构', r, { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' });
   }
 
-  section('B03-2 reminder 合法来源允许触发 borrow');
+  section('B03-2 reminder 调用 borrow 也返回禁用响应');
   {
-    borrowCalls = 0;
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/reminder.html' };
     const r = await handleMessage({ type: 'BORROW_REST_QUOTA' }, sender);
-    expect('返回 borrow 成功', r, { ok: true, amount: 30 });
-    expectTrue('borrowRestQuota 被调用 1 次', borrowCalls === 1);
+    expect('返回统一禁用结构', r, { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' });
   }
 
-  section('B03-3 看似扩展消息但非白名单页面应拒绝');
+  section('B03-3 非白名单扩展页调用 borrow 仍返回禁用响应');
   {
-    borrowCalls = 0;
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/admin/admin.html' };
     const r = await handleMessage({ type: 'BORROW_REST_QUOTA' }, sender);
-    expect('返回统一拒绝结构', r, { ok: false, error: 'unauthorized_borrow_source', code: 'BORROW_SOURCE_DENIED' });
-    expectTrue('borrowRestQuota 不应被调用', borrowCalls === 0);
+    expect('返回统一禁用结构', r, { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' });
   }
 
-  section('B03-4 content script 形态 sender.tab 存在但 origin 非法应拒绝');
+  section('B03-4 非扩展 origin 调用 borrow 返回禁用响应');
   {
-    borrowCalls = 0;
     const sender = { id: 'ext-id', tab: { id: 1 }, url: 'https://example.com/page' };
     const r = await handleMessage({ type: 'BORROW_REST_QUOTA' }, sender);
-    expect('返回统一拒绝结构', r, { ok: false, error: 'unauthorized_borrow_source', code: 'BORROW_SOURCE_DENIED' });
-    expectTrue('borrowRestQuota 不应被调用', borrowCalls === 0);
+    expect('返回统一禁用结构', r, { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' });
   }
 
   const total = passed + failed;

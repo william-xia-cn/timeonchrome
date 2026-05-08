@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "gate": "V1-minimal Recovery / System Gate",
+    "timestamp": "ISO-8601",
+    "profile": "Gate.Test",
+    "profileDir": "D:/Opencode/ChromeExtension/timeonchrome/tests/test-results/sleep-wake-gate/bound-profile",
+    "noCloudD1Write": true
+  },
+  "overall": "PASS | BLOCKED | SKIP | FAIL",
+  "unitTests": [
+    {
+      "testFile": "tests/unit/recovery.test.js",
+      "ok": true,
+      "status": 0
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "chrome-close-reopen",
+      "mode": "fully",
+      "result": "PASS | BLOCKED | SKIP | FAIL",
+      "jsonReport": "absolute-path-or-null",
+      "mdReport": "absolute-path-or-null"
+    },
+    {
+      "name": "windows-lock-unlock",
+      "mode": "partially",
+      "result": "PASS | BLOCKED | SKIP | FAIL",
+      "jsonReport": "absolute-path-or-null",
+      "mdReport": "absolute-path-or-null"
+    },
+    {
+      "name": "sleep-wake",
+      "mode": "partially",
+      "result": "PASS | BLOCKED | SKIP | FAIL",
+      "jsonReport": "absolute-path-or-null",
+      "mdReport": "absolute-path-or-null"
+    },
+    {
+      "name": "network-offline-online",
+      "mode": "partially",
+      "result": "PASS | BLOCKED | SKIP | FAIL",
+      "jsonReport": "absolute-path-or-null",
+      "mdReport": "absolute-path-or-null"
+    },
+    {
+      "name": "service-worker-recovery",
+      "mode": "fully",
+      "result": "PASS | BLOCKED | SKIP | FAIL",
+      "jsonReport": "absolute-path-or-null",
+      "mdReport": "absolute-path-or-null"
+    }
+  ],
+  "runtimeMetrics": {
+    "checks": {
+      "event_log_v1_readable": true,
+      "session_v1_readable": true,
+      "local_stats_readable": true,
+      "get_stats_readable": true,
+      "get_stats_range_readable": true,
+      "get_timeline_segments_readable": true,
+      "v1_sync_readable": true
+    },
+    "samples": {
+      "cloudForceSync": {
+        "status": "BLOCKED_NO_CLOUD_WRITE | EXECUTED",
+        "reason": "text"
+      }
+    }
+  },
+  "operatorPrompts": [
+    "Windows lock/unlock manual prompt",
+    "Sleep/Wake manual prompt",
+    "Network offline/online manual prompt"
+  ]
+}

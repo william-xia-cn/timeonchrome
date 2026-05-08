@@ -3,7 +3,7 @@
 import { initSignal } from './core/signal.js';
 import { buildContext } from './core/context.js';
 import { resolveState } from './core/state.js';
-import { initSession, transitionState, heartbeat, getSession as getTimingSession } from './runtime/session.js';
+import { initSession, transitionState, heartbeat, getSession as getTimingSession, settleCurrentSessionSegment, runPeriodicCheckpoint } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
@@ -362,6 +362,19 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await clearTemporaryCompositeDomainByTab(tabId);
+  // 如果被关闭的标签页是当前跟踪的活跃标签页，结算当前的 timing session
+  if (Number.isInteger(lastActiveTabId) && lastActiveTabId === tabId) {
+    try {
+      const timingSession = await getTimingSession();
+      if (timingSession?.state && timingSession?.startTime) {
+        const closeTime = getCappedElapsedMs(timingSession, Date.now()) > 0
+          ? Math.min(Date.now(), (timingSession.startTime || Date.now()) + (timingSession.lastHeartbeat || Date.now()) - (timingSession.startTime || 0) + (timingSession.startTime || 0))
+          : Date.now();
+        await settleCurrentSessionSegment(timingSession, Date.now(), 'tab_close');
+      }
+    } catch (_) { /* 尽力而为 */ }
+    lastActiveTabId = null;
+  }
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -424,6 +437,7 @@ async function reevaluateFocusedWindowActiveTab(windowId) {
 
 function setupAlarms() {
   chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
+  chrome.alarms.create('periodicCheckpoint', { periodInMinutes: 3 });
   chrome.alarms.create('quota_check', { periodInMinutes: 1 });
   chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
   chrome.alarms.create('cloudSync', { periodInMinutes: 3 });
@@ -434,6 +448,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'heartbeat') {
     if (!isMonitoringEnabled()) return;
     await heartbeat();
+  } else if (alarm.name === 'periodicCheckpoint') {
+    if (!isMonitoringEnabled()) return;
+    try {
+      await runPeriodicCheckpoint(Date.now());
+    } catch (e) {
+      console.warn('[Checkpoint] periodic checkpoint alarm failed:', e?.message || e);
+    }
   } else if (alarm.name === 'quota_check') {
     if (!isMonitoringEnabled()) return;
     await checkAllTabsQuota(checkAndRemind, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs);
@@ -442,7 +463,17 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await cleanOldSessions();
     await resetDailyLockedDomains();
   } else if (alarm.name === 'cloudSync') {
+    const wasEnabled = isMonitoringEnabled();
     await syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs);
+    // 监控被远程关闭时，结算当前的 timing session
+    if (wasEnabled && !isMonitoringEnabled()) {
+      try {
+        const timingSession = await getTimingSession();
+        if (timingSession?.state && timingSession?.startTime) {
+          await settleCurrentSessionSegment(timingSession, Date.now(), 'monitoring_off');
+        }
+      } catch (_) { /* 尽力而为 */ }
+    }
   } else if (alarm.name === 'cloudHeartbeat') {
     await sendHeartbeat();
   }
@@ -611,7 +642,56 @@ globalThis.debugClearTimingTrace = async () => {
   }
 };
 
+globalThis.debugTriggerAutoTransition = async (options = {}) => {
+  try {
+    let tab = null;
+    if (Number.isInteger(options.tabId) && options.tabId > 0) {
+      try {
+        tab = await chrome.tabs.get(options.tabId);
+      } catch {
+        tab = null;
+      }
+    }
+    if (!tab?.id || !tab?.url) {
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      tab = tabs && tabs[0];
+    }
+    if (!tab?.id || !tab?.url) {
+      return { success: false, error: 'no_target_tab' };
+    }
+    const startMs = Number(options.nowStartMs ?? 0);
+    const endMs = Number(options.nowEndMs ?? 0);
+    const blockedStart = await checkAndRemind(tab.id, tab.url, getSyncState().monitoringEnabled, {
+      nowMs: startMs,
+      foreground: true,
+      userActive: true,
+    });
+    const blockedEnd = await checkAndRemind(tab.id, tab.url, getSyncState().monitoringEnabled, {
+      nowMs: endMs,
+      foreground: true,
+      userActive: true,
+    });
+    const sessionData = await chrome.storage.local.get(SESSION_KEY);
+    return {
+      success: true,
+      blockedStart,
+      blockedEnd,
+      mode: sessionData?.[SESSION_KEY]?.currentMode || null,
+      tabId: tab.id,
+      tabUrl: tab.url,
+    };
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  }
+};
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const isInternalTestSender = () => {
+    if (sender?.id !== chrome.runtime.id) return false;
+    if (!sender?.url) return true;
+    return sender.url.startsWith(chrome.runtime.getURL(''));
+  };
+
   // Content script ready: re-send any pending auto-mode notice for this tab.
   // This handles the case where the background sent AUTO_MODE_PENDING_SUCCESS
   // before the content script's listener was registered (e.g., after page reload).
@@ -619,7 +699,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const tabId = sender?.tab?.id;
     if (Number.isInteger(tabId) && tabId > 0) {
       (async () => {
-        await reSendPendingNotice(tabId);
+        const currentDomain = extractDomain(sender?.tab?.url || '');
+        await reSendPendingNotice(tabId, currentDomain);
       })();
     }
     sendResponse({ ok: true });
@@ -750,6 +831,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ success: true });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'DEBUG_TEST_TRIGGER_AUTO_TRANSITION') {
+    (async () => {
+      try {
+        if (!isInternalTestSender()) {
+          sendResponse({ success: false, error: 'unauthorized_test_sender' });
+          return;
+        }
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        const tab = tabs && tabs[0];
+        if (!tab?.id || !tab?.url) {
+          sendResponse({ success: false, error: 'no_active_tab' });
+          return;
+        }
+        const startMs = Number(msg.nowStartMs ?? 0);
+        const endMs = Number(msg.nowEndMs ?? 0);
+        const blockedStart = await checkAndRemind(tab.id, tab.url, getSyncState().monitoringEnabled, {
+          nowMs: startMs,
+          foreground: true,
+          userActive: true,
+        });
+        const blockedEnd = await checkAndRemind(tab.id, tab.url, getSyncState().monitoringEnabled, {
+          nowMs: endMs,
+          foreground: true,
+          userActive: true,
+        });
+        const sessionData = await chrome.storage.local.get(SESSION_KEY);
+        sendResponse({
+          success: true,
+          blockedStart,
+          blockedEnd,
+          mode: sessionData?.[SESSION_KEY]?.currentMode || null,
+          tabId: tab.id,
+          tabUrl: tab.url,
+        });
+      } catch (err) {
+        sendResponse({ success: false, error: err?.message || String(err) });
       }
     })();
     return true;

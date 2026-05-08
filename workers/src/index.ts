@@ -194,6 +194,9 @@ export default {
         return await profilesRouter.handle(request, env);
       } else if (path === '/device/heartbeat') {
         return await deviceRouter.handle(request, env);
+      } else if (path === '/device/usage-segments/v1' || path === '/device/stats/v1') {
+        // Stats Foundation v1 endpoints (device_token auth)
+        return await statsRouter.handle(request, env);
       } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog') || path === '/device/events' || path === '/device/composite-sessions' || path === '/device/weekly-sessions' || path === '/device/appeal') {
         // 设备端 API（device_token 鉴权）
         if (path.startsWith('/device/stats')) {

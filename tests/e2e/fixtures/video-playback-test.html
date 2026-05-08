@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Video Playback Fixture</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; }
+    button { padding: 8px 12px; }
+    pre { background: #f3f3f3; padding: 8px; border-radius: 6px; }
+    video { width: 420px; max-width: 100%; background: #000; }
+  </style>
+</head>
+<body>
+  <h1>Video Playback Fixture</h1>
+  <div class="row">
+    <button id="start-btn">Start</button>
+    <button id="stop-btn">Stop</button>
+    <button id="fs-btn">Enter Fullscreen</button>
+    <button id="exit-fs-btn">Exit Fullscreen</button>
+    <button id="pip-btn">Enter PiP</button>
+    <button id="exit-pip-btn">Exit PiP</button>
+  </div>
+  <video id="v" playsinline muted autoplay></video>
+  <pre id="state"></pre>
+
+  <script>
+    const video = document.getElementById('v');
+    const stateEl = document.getElementById('state');
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    let ticker = null;
+    let stream = null;
+    let frame = 0;
+
+    function paint() {
+      frame += 1;
+      const t = Date.now();
+      ctx.fillStyle = '#101820';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#f2aa4c';
+      ctx.font = '28px Arial';
+      ctx.fillText('TimeOnChrome Fixture', 24, 56);
+      ctx.fillStyle = '#fff';
+      ctx.font = '20px Arial';
+      ctx.fillText('ts=' + t, 24, 100);
+      ctx.fillText('frame=' + frame, 24, 134);
+      ctx.fillStyle = '#58d68d';
+      ctx.fillRect((frame * 7) % 520, 180, 96, 48);
+    }
+
+    function updateState() {
+      const payload = {
+        paused: video.paused,
+        ended: video.ended,
+        readyState: video.readyState,
+        currentTime: video.currentTime,
+        pipSupported: !!document.pictureInPictureEnabled,
+        pipActive: !!document.pictureInPictureElement,
+        fullscreenActive: !!document.fullscreenElement
+      };
+      stateEl.textContent = JSON.stringify(payload, null, 2);
+      return payload;
+    }
+
+    async function ensureStream() {
+      if (!stream) {
+        paint();
+        stream = canvas.captureStream(24);
+      }
+      if (!video.srcObject) video.srcObject = stream;
+      if (!ticker) ticker = setInterval(() => { paint(); updateState(); }, 1000 / 24);
+    }
+
+    async function startPlayback() {
+      await ensureStream();
+      await video.play();
+      return updateState();
+    }
+
+    async function stopPlayback() {
+      try { video.pause(); } catch {}
+      updateState();
+      return true;
+    }
+
+    async function enterFullscreen() {
+      if (video.requestFullscreen) {
+        await video.requestFullscreen();
+      } else {
+        throw new Error('fullscreen API unavailable');
+      }
+      return updateState();
+    }
+
+    async function exitFullscreenNow() {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+      return updateState();
+    }
+
+    async function enterPiP() {
+      if (!document.pictureInPictureEnabled || !video.requestPictureInPicture) {
+        throw new Error('PiP API unavailable');
+      }
+      await video.requestPictureInPicture();
+      return updateState();
+    }
+
+    async function exitPiPNow() {
+      if (document.pictureInPictureElement && document.exitPictureInPicture) {
+        await document.exitPictureInPicture();
+      }
+      return updateState();
+    }
+
+    document.getElementById('start-btn').addEventListener('click', () => startPlayback().catch(() => {}));
+    document.getElementById('stop-btn').addEventListener('click', () => stopPlayback().catch(() => {}));
+    document.getElementById('fs-btn').addEventListener('click', () => enterFullscreen().catch(() => {}));
+    document.getElementById('exit-fs-btn').addEventListener('click', () => exitFullscreenNow().catch(() => {}));
+    document.getElementById('pip-btn').addEventListener('click', () => enterPiP().catch(() => {}));
+    document.getElementById('exit-pip-btn').addEventListener('click', () => exitPiPNow().catch(() => {}));
+
+    video.addEventListener('enterpictureinpicture', updateState);
+    video.addEventListener('leavepictureinpicture', updateState);
+    document.addEventListener('fullscreenchange', updateState);
+    video.addEventListener('play', updateState);
+    video.addEventListener('pause', updateState);
+
+    window.__videoFixture = {
+      startPlayback,
+      stopPlayback,
+      enterFullscreen,
+      exitFullscreenNow,
+      enterPiP,
+      exitPiPNow,
+      getState: updateState
+    };
+
+    updateState();
+  </script>
+</body>
+</html>

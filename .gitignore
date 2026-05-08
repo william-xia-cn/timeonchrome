@@ -33,6 +33,7 @@ test-results/
 
 # E2E test browser profiles (generated)
 test-e2e-profile-*/
+test-e2e-p0-regression-*/
 
 # Local backup files
 backup/

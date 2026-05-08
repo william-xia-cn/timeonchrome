@@ -128,12 +128,50 @@
     .mode-btn.active-composite .mode-btn-value { color: #6c5ce7; }
 
     .runtime-compact {
-      margin: 8px 16px 0;
-      font-size: 12px;
+      margin: 10px 16px 0;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,184,148,0.04);
+      display: none;
+    }
+    .runtime-compact-title {
+      font-size: 11px;
       color: var(--muted);
-      white-space: nowrap;
+      margin-bottom: 0;
+    }
+    .runtime-compact-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+      margin-top: 4px;
+    }
+    .runtime-domain {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+      flex: 1;
+    }
+    .runtime-tag {
+      font-size: 10px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .runtime-duration {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     /* Progress Bars */
@@ -198,6 +236,8 @@
   </div>
 
   <div id="popup-content">
+    <div class="runtime-compact" id="runtime-compact"></div>
+
     <div class="mode-bar">
       <button class="mode-btn" id="btn-study">
         <span class="mode-btn-label">📚 学习模式</span>
@@ -214,15 +254,13 @@
     </div>
 
     <div class="body">
-    <!-- Progress Bars (Online + Undetermined + Backend Media) -->
+    <!-- Progress Bars (Online + Composite + Backend Media) -->
     <div id="quota-bars">
       <div class="empty">加载中...</div>
     </div>
     <div id="backend-media-row" style="display:none;margin-top:8px;font-size:12px;color:var(--muted);">
       🎵 后台音视频  <span id="backend-media-value" style="color:var(--text);font-weight:600;">0分钟</span>
     </div>
-
-    <div class="runtime-compact" id="runtime-compact">当前：暂无 · 0秒</div>
 
     <!-- Top 10 -->
     <div class="section-title">今日访问</div>
