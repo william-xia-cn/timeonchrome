@@ -132,6 +132,23 @@
 | `tests/e2e/extension.test.js` | E2E 测试 | 9 | 需要浏览器，UI 测试 |
 | `tests/e2e/reminder-v0-validation.test.js` | 浏览器门 | 11 | Reminder V0 模式切换验证；`reminder.js` 变更必须运行 |
 
+### 4.4 Playwright E2E 工作目录规则
+
+**Playwright E2E 命令必须从 `timeonchrome` 项目根目录运行，不能从父目录 `ChromeExtension` 运行。**
+
+```bash
+# ✅ 正确
+cd D:\Opencode\ChromeExtension\timeonchrome
+npx playwright test tests/e2e/<test>.js
+
+# ❌ 错误（从父目录运行会因 node_modules 解析失败导致 No tests found）
+npx playwright test tests/e2e/<test>.js
+```
+
+**根因**：`package.json` 和 `node_modules` 位于 `timeonchrome/` 内，不在 `ChromeExtension/` 内。如果在运行 Playwright 命令之前不切换到 `timeonchrome/`，模块解析会在错误的路径上查找 `@playwright/test`，导致所有测试静默失败并出现 `test() is not expected here` 错误。
+
+> **此规则适用于所有 executor（Codex、OpenCode、Claude Code 等）。在调用 `npx playwright test` 之前始终通过 `--workdir` 参数或先 `cd` 到 `timeonchrome/`。**
+
 ---
 
 ## 5. Git 规范
