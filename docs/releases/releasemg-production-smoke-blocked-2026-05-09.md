@@ -44,3 +44,67 @@ Because the TimeOnChrome extension was not found, ReleaseMg could not verify ins
 - No commit, push, tag, or release was performed.
 - No CWS upload or submit was performed.
 - No Chrome profile, storage, cloud, D1, or Worker state was modified.
+
+## Rerun After Manual Reload
+
+Result: `BLOCKED / NOT CLOSED`
+
+Product Owner reported that TimeOnChrome was reloaded successfully in a profile. ReleaseMg then reran production-profile readonly smoke.
+
+Observed result:
+
+| Check | Result | Evidence summary |
+|---|---|---|
+| Production Chrome reachable | PARTIAL | Chrome was reachable through readonly CDP and `chrome://extensions/` could be opened. |
+| TimeOnChrome installed | BLOCKED | ReleaseMg-controlled `chrome://extensions/` still did not show TimeOnChrome; only one non-target extension was observed. |
+| TimeOnChrome enabled | BLOCKED | TimeOnChrome was not visible, so enabled state could not be confirmed. |
+| Installed version `1.7.2` | BLOCKED | TimeOnChrome was not visible, so installed version could not be confirmed. |
+| Popup core opens | BLOCKED | Direct navigation to the expected CWS extension popup URL was blocked by Chrome; popup did not open. |
+| Bound/sync state readonly | BLOCKED | Extension popup/admin context was unreachable, so bound/sync state could not be checked readonly. |
+| Evidence privacy | PASS | No child ID, email, token, cookie, password, local profile path, raw profile/device ID, or private screenshot was recorded. |
+
+Interpretation:
+
+- The manual reload likely occurred in a different Chrome profile or browser instance than the one ReleaseMg can inspect.
+- Repeating readonly smoke against the same ReleaseMg-controlled profile is not useful until the profile mismatch is resolved.
+- `ARTIFACT-PARITY`, `POPUP-CORE`, and `BIND-SYNC` remain blocked.
+
+Remaining Product Owner decision:
+
+- Authorize ReleaseMg to close/restart Chrome with the configured production profile template, or provide a readonly inspection path to the exact profile where TimeOnChrome was manually reloaded.
+- If neither will be done, explicitly classify production-profile smoke as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
+
+## Correction - CWS installed-ID parity is not yet applicable
+
+Date: 2026-05-10
+
+Product Owner observed an installed TimeOnChrome extension with ID `flnneafdppomlhgciohadpdfmhkkkkpp`.
+
+This ID does not match the Chrome Web Store product ID / future CWS installed extension ID:
+
+```text
+mkggamgaeemnlmlflpekacbknochbmom
+```
+
+Corrected interpretation:
+
+- The CWS item is still `待审核`, so Chrome Web Store installation of the reviewed public item is not currently available.
+- The reloaded extension is likely an unpacked / local-load instance.
+- Version `1.7.2` can support production-profile functional smoke if enabled.
+- The installed extension cannot be counted as CWS artifact installed-ID parity, but CWS installed-ID parity also must not be treated as a currently closable gate before review approval.
+- CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE`.
+- `ARTIFACT-PARITY` remains limited to recorded package/hash/manifest evidence plus CWS dashboard status; it must not be rewritten as CWS installed parity `PASS`.
+
+Corrected releaseMg classification guidance:
+
+| Check | Corrected result |
+|---|---|
+| TimeOnChrome installed | PASS if the installed item is visible as TimeOnChrome |
+| Installed version | PASS if visible version is `1.7.2` |
+| Enabled | PASS only if the Chrome extensions toggle is enabled |
+| Extension ID parity with CWS | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE before CWS approval |
+| Popup-core smoke | Continue functional verification if enabled |
+| Bind-sync smoke | Continue functional readonly verification if popup/admin context is reachable |
+| Artifact parity | Package/hash/manifest/dashboard evidence only; no CWS installed-ID parity claim before approval |
+
+Next action: continue production-profile functional smoke against the visible unpacked TimeOnChrome instance. Defer CWS installed-ID parity until Chrome Web Store review is approved and the item is installable.

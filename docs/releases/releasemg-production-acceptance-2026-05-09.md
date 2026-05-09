@@ -126,6 +126,41 @@ PARTIAL / NOT CLOSED
 
 Remaining required action: Product Owner must either confirm the expected production profile and allow a re-run after TimeOnChrome is installed/enabled, or explicitly record `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
 
+## Addendum - production smoke rerun after manual reload
+
+Date: 2026-05-09
+
+Result: `BLOCKED / NOT CLOSED`
+
+Product Owner reported that TimeOnChrome was reloaded successfully in a profile. ReleaseMg reran readonly production smoke, but the ReleaseMg-controlled `chrome://extensions/` view still did not show TimeOnChrome. Direct navigation to the expected CWS extension popup URL was blocked by Chrome.
+
+Interpretation: the profile where Product Owner reloaded TimeOnChrome appears not to be the same profile/browser instance ReleaseMg is inspecting.
+
+This does not change the overall production acceptance result:
+
+```text
+PARTIAL / NOT CLOSED
+```
+
+Next useful step: align ReleaseMg to the exact profile where TimeOnChrome is installed, or explicitly classify this gate as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
+
+## Correction - CWS installed-ID parity is not yet applicable
+
+Date: 2026-05-10
+
+Product Owner observed an installed TimeOnChrome extension with ID `flnneafdppomlhgciohadpdfmhkkkkpp`. This does not match the Chrome Web Store product ID / future CWS installed ID `mkggamgaeemnlmlflpekacbknochbmom`.
+
+Corrected interpretation:
+
+- The CWS item is still `待审核`; therefore installing the reviewed public CWS item is not currently possible.
+- The visible installed extension is an unpacked / local-load instance, not proof that the CWS item itself is installed.
+- Installed/version/enabled checks may continue as production-profile functional smoke if the item is visible and enabled.
+- CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` until Chrome Web Store review is approved and the item is installable.
+- `ARTIFACT-PARITY` remains limited to package/hash/manifest evidence and CWS dashboard status; it must not include a CWS installed-ID parity `PASS` before approval.
+- `POPUP-CORE` and `BIND-SYNC` may continue as functional readonly smoke, but their success must not be described as CWS installed artifact parity.
+
+This correction supersedes any implication that the only possible blocker is profile mismatch. The current gate can continue as functional smoke, while CWS installed-ID parity is deferred until review approval makes installation possible.
+
 ## Private data policy
 
 PASS. No child ID, token, cookie, password, account details, private screenshots, local Chrome profile path, raw profile identifiers, raw device identifiers, or raw D1 output are recorded in this report.
