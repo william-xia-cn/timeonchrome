@@ -213,6 +213,11 @@ async function autoLogin(encryptedCredentials) {
     
     const result = await resp.json();
     accountToken = result.token;
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token,
+      }, resolve);
+    });
     
     // 登录成功，进入主界面
     await enterMainScreen();

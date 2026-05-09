@@ -12,27 +12,73 @@ This file does not approve or perform staging, commit, fetch, push, tag, merge, 
 |---|---|
 | Commit set plan | `docs/audits/COMMIT_SET_PLAN_2026-05-09.md` |
 | Local branch | `master` |
-| HEAD | `e3f6239 chore: align manifest with CWS permission review` |
+| HEAD | `7072163 fix: remove scripting dependency from pip cleanup` |
 | Remote truth | Not verified |
 | Release readiness | `BLOCKED / NOT READY FOR PUBLIC RELEASE` |
 | CWS | Submitted / `待审核` |
 | Push/tag | Blocked |
 
-## Recommended Approval Package
+## Completed Local Commits
+
+The earlier safer two-commit plan has already been executed:
+
+| Commit | Message | Status |
+|---|---|---|
+| `9174900` | `docs: add agent workflow and v1-minimal closeout records` | Completed |
+| `7072163` | `fix: remove scripting dependency from pip cleanup` | Completed |
+
+No push/tag/release approval is implied by these local commits.
+
+## Current Recommended Approval Package
 
 Product&Project Mg recommends:
 
 | Item | Recommendation | Reason |
 |---|---|---|
-| Commit 1 | Approve | Governance docs are ready and should be separated from release evidence and implementation. |
-| Commit 2 | Approve | Release evidence docs are ready and should preserve current blocked state. |
-| Commit 3 | Approve only if Product Owner wants local cleanup now; otherwise hold | Package is verified, but still does not mutate submitted CWS artifact. |
-| `admin/admin.js`, `bind.js` | Keep held; do not stage | Still `Unknown / hold`. |
+| Commit C | Approve if Product Owner wants local cleanup now | Admin/bind account-token package is now approved include with focused 5/5 unit evidence. |
 | Pages stats-v1 files | Keep excluded; do not stage | Separate later task. |
 | Remote consistency check | Authorize after local commit set approval | Needed before any push/tag decision. |
 | Push/tag | Keep blocked | Requires separate Product Owner approval after remote truth is known. |
 
+## Proposed Commit C
+
+Message:
+
+```text
+fix: persist account token after admin login and bind
+```
+
+Files:
+
+- `DECISIONS.md`
+- `PROJECT_MASTER.md`
+- `TASK_BOARD.md`
+- `admin/admin.js`
+- `bind.js`
+- `tests/unit/admin-bind-account-token.test.js`
+- `docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`
+- `docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`
+- `docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_MIN_VERIFY_2026-05-09.md`
+- `docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_TEST_PACKAGE_REPORT_2026-05-09.md`
+- `docs/handoffs/outbox/HANDOFF-admin-bind-account-token-review-to-build-test.md`
+- `docs/handoffs/outbox/HANDOFF-admin-bind-account-token-test-package-to-build-test.md`
+
+Evidence:
+
+- `DECISIONS.md:D-038`
+- `node tests/unit/admin-bind-account-token.test.js` = `5/5 PASS`
+
+This commit does not authorize:
+
+- package rebuild;
+- CWS upload/submit;
+- release;
+- push/tag;
+- Pages stats-v1 files.
+
 ## Proposed Commit 1
+
+Status: superseded by completed commit `9174900`.
 
 Message:
 
@@ -60,6 +106,8 @@ Important staging note:
 - If partial staging is not desired, combine Commit 1 and Commit 2 into one docs commit instead.
 
 ## Proposed Commit 2
+
+Status: superseded by completed commit `9174900`.
 
 Message:
 
@@ -101,6 +149,8 @@ BLOCKED / NOT READY FOR PUBLIC RELEASE
 ```
 
 ## Proposed Commit 3
+
+Status: superseded by completed commit `7072163`.
 
 Message:
 
@@ -151,22 +201,14 @@ This avoids fragile partial staging and better fits the current mixed documentat
 
 Please choose one:
 
-1. Approve safer two-commit plan:
-   - Commit A docs package.
-   - Commit B verified CWS least-permission package.
-   - Then authorize remote consistency check only.
+1. Approve Commit C only.
+   - Then optionally authorize remote consistency check.
    - Push/tag remain blocked.
-2. Approve three-commit plan with partial staging:
-   - Commit 1 governance docs.
-   - Commit 2 release evidence docs.
-   - Commit 3 verified CWS package.
-   - Then authorize remote consistency check only.
+2. Hold Commit C.
+   - Keep admin/bind package included by decision but uncommitted locally.
+3. Authorize remote consistency check only.
+   - No new commit.
    - Push/tag remain blocked.
-3. Approve docs commits only:
-   - Commit A or Commit 1/2.
-   - Hold Commit 3.
-   - Remote consistency check optional.
-4. Hold all commits.
 
 ## Explicit Non-Approvals
 
@@ -179,14 +221,13 @@ This proposal does not approve:
 - package rebuild;
 - Chrome Web Store action;
 - Chrome profile/storage/cloud/D1 action;
-- staging `admin/admin.js`;
-- staging `bind.js`;
+- staging `admin/admin.js` / `bind.js` unless Product Owner selects Commit C;
 - staging `pages/index.html`;
 - staging `tests/unit/pages-config-v12-fields.test.js`.
 
 ## Result
 
-Status: `COMMIT APPROVAL PROPOSAL READY / NO GIT ACTION APPROVED`
+Status: `COMMIT C APPROVAL PROPOSAL READY / NO NEW GIT ACTION APPROVED`
 
 No code was modified.
 

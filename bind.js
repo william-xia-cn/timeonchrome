@@ -130,6 +130,7 @@ async function doBind(profileId) {
         cloud_device_token: data.device_token,
         cloud_device_id: data.device_id || null,
         cloud_profile_id: data.profile_id,
+        account_token: accountToken,
         cloud_credentials: encrypted,
         cloud_last_sync: Date.now()
       }, resolve);

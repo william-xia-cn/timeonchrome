@@ -89,7 +89,15 @@
 - [x] [V1-minimal] releaseMg readonly readiness report recorded（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`; result `BLOCKED / NOT READY FOR PUBLIC RELEASE`）
 - [ ] [V1-minimal] production-profile readonly smoke completion / defer / waiver decision
 - [ ] [V1-minimal] Windows/macOS real Chrome smoke completion / defer / waiver decision
-- [ ] [V1-minimal] Product Owner decisions on worktree audit findings（admin/bind unknown hold; Pages stats-v1 excluded/route later; CWS least-permission package commit/hold/rebuild decision）
+- [ ] [V1-minimal] Product Owner decisions on worktree audit findings（admin/bind minimal verification; Pages stats-v1 excluded/route later; CWS least-permission package commit/hold/rebuild decision）
+- [x] [V1-minimal] admin/bind ownership resolution recorded（`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`）
+- [x] [V1-minimal] Build&Test admin/bind account-token implementation review recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`; recommendation `include, after minimal verification`; tests not run）
+- [x] [V1-minimal] Build&Test admin/bind account-token minimum verification recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_MIN_VERIFY_2026-05-09.md`; static PASS; requested unit tests missing; recommendation `hold`）
+- [x] [V1-minimal] Product Owner authorized admin/bind small unit test package（no product code edits, no rebuild, no commit/release）
+- [x] [V1-minimal] Build&Test admin/bind test package handoff created（`docs/handoffs/outbox/HANDOFF-admin-bind-account-token-test-package-to-build-test.md`）
+- [x] [V1-minimal] Build&Test admin/bind test package report recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_TEST_PACKAGE_REPORT_2026-05-09.md`; `admin-bind-account-token` 5/5 PASS）
+- [x] [V1-minimal] Product Owner approved admin/bind package inclusion as V1-minimal follow-up candidate（`DECISIONS.md:D-038`; not release-ready, no rebuild/commit/release authorization）
+- [ ] [V1-minimal follow-up] Track admin auto-login stale-token semantics separately（non-blocking for admin/bind include）
 - [ ] [V1-minimal] Product Owner approval/revision of `docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`
 - [x] [V1-minimal] Build&Test CWS least-permission implementation report recorded（`docs/audits/CWS_LEAST_PERMISSION_IMPLEMENTATION_REPORT_2026-05-09.md`; tests not run）
 - [x] [V1-minimal] Product Owner decision on CWS least-permission minimal verification plan（authorized）
@@ -97,11 +105,10 @@
 - [x] [V1-minimal] Build&Test CWS least-permission minimal verification handoff created（`docs/handoffs/outbox/HANDOFF-cws-least-permission-min-verify-to-build-test.md`）
 - [x] [V1-minimal] Build&Test CWS least-permission minimal verification report recorded（`docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`; unit 193/193, E2E 7/7 passed after Playwright sandbox blocker handled）
 - [x] [V1-minimal] Git/local consistency audit recorded（`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`; remote not verified）
-- [x] [V1-minimal] Commit set plan recorded（`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`; no commit approved）
-- [x] [V1-minimal] Commit approval proposal recorded（`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`; no git action approved）
-- [ ] [V1-minimal] Product Owner decision on CWS least-permission package commit / hold / rebuild
-- [ ] [V1-minimal] Product Owner decision on local commit set plan / remote consistency check
-- [ ] [V1-minimal] Product Owner decision on commit approval proposal
+- [x] [V1-minimal] Completed local commits recorded in commit set plan（`9174900` docs package; `7072163` CWS least-permission package）
+- [x] [V1-minimal] Commit C approval proposal recorded（admin/bind account-token package; no new git action approved）
+- [ ] [V1-minimal] Product Owner decision on Commit C（approve admin/bind account-token package commit / hold）
+- [ ] [V1-minimal] Product Owner decision on remote consistency check
 - [x] [V1-minimal] `docs/CHANGELOG.md` grouping reviewed（include in release evidence commit set; not a release-ready claim）
 - [x] [V0] V0 RC package validation
 - [x] [V0] RC internal install validation (Chrome unpacked)

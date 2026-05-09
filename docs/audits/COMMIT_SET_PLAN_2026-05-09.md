@@ -20,9 +20,14 @@ This plan does not stage files, commit, push, tag, merge, fetch, reset, checkout
 
 ## Current Rule
 
-No commit is approved yet.
+Prior local commit execution has already occurred:
 
-Commit planning is allowed. Commit execution requires separate Product Owner approval for:
+```text
+9174900 docs: add agent workflow and v1-minimal closeout records
+7072163 fix: remove scripting dependency from pip cleanup
+```
+
+New commit planning is allowed. Any additional commit execution requires separate Product Owner approval for:
 
 1. exact file set;
 2. commit order;
@@ -30,7 +35,43 @@ Commit planning is allowed. Commit execution requires separate Product Owner app
 4. remote check strategy;
 5. whether push/tag remains blocked.
 
-## Proposed Commit 1 - Agent Workflow Governance Docs
+## Completed Commit A - Agent Workflow / V1-minimal Close-Out Docs
+
+Status: completed.
+
+Commit:
+
+```text
+9174900 docs: add agent workflow and v1-minimal closeout records
+```
+
+Purpose:
+
+- Recorded Codex three-role workflow.
+- Recorded V1-minimal close-out / release readiness state.
+- Preserved blocked release status and handoff evidence.
+
+## Completed Commit B - Verified CWS Least-Permission / Mode Timing Package
+
+Status: completed.
+
+Commit:
+
+```text
+7072163 fix: remove scripting dependency from pip cleanup
+```
+
+Purpose:
+
+- Removed `chrome.scripting` dependency from PiP cleanup path.
+- Aligned related tests with reduced-permission CWS posture and D-020 timing.
+
+Verification was previously recorded in:
+
+- `docs/audits/CWS_LEAST_PERMISSION_IMPLEMENTATION_REPORT_2026-05-09.md`
+- `docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`
+
+## Superseded Proposed Commit 1 - Agent Workflow Governance Docs
 
 Suggested commit message:
 
@@ -74,7 +115,9 @@ Preconditions:
 - Product Owner approves this commit set.
 - Optional: review `AGENTS.md` and role contract wording for final names and boundaries.
 
-## Proposed Commit 2 - V1-minimal Release Evidence / Close-Out Docs
+Status: superseded by completed Commit A.
+
+## Superseded Proposed Commit 2 - V1-minimal Release Evidence / Close-Out Docs
 
 Suggested commit message:
 
@@ -130,7 +173,9 @@ Preconditions:
 - Confirm final wording still says `BLOCKED / NOT READY FOR PUBLIC RELEASE`.
 - `docs/CHANGELOG.md` inclusion is approved as release-state synchronization, not as product release completion.
 
-## Proposed Commit 3 - Verified CWS Least-Permission / Mode Timing Package
+Status: superseded by completed Commit A.
+
+## Superseded Proposed Commit 3 - Verified CWS Least-Permission / Mode Timing Package
 
 Suggested commit message:
 
@@ -184,20 +229,69 @@ Preconditions:
 - Product Owner decides whether this commit is meant only for local cleanup or for a future rebuilt artifact.
 - No package rebuild is implied by this commit.
 
-## Hold Group - Unknown Extension Source
+Status: superseded by completed Commit B.
 
-Status: do not commit.
+## Proposed Commit C - Admin/Bind Account-Token Persistence Package
+
+Suggested commit message:
+
+```text
+fix: persist account token after admin login and bind
+```
+
+Purpose:
+
+- Include Product Owner-approved `admin/admin.js` + `bind.js` account-token persistence package.
+- Add focused unit coverage for admin/bind account-token persistence and logout clearing.
+- Record D-038 include decision and evidence trail.
+
+Candidate files:
+
+- `DECISIONS.md`
+- `PROJECT_MASTER.md`
+- `TASK_BOARD.md`
+- `admin/admin.js`
+- `bind.js`
+- `tests/unit/admin-bind-account-token.test.js`
+- `docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`
+- `docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`
+- `docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_MIN_VERIFY_2026-05-09.md`
+- `docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_TEST_PACKAGE_REPORT_2026-05-09.md`
+- `docs/handoffs/outbox/HANDOFF-admin-bind-account-token-review-to-build-test.md`
+- `docs/handoffs/outbox/HANDOFF-admin-bind-account-token-test-package-to-build-test.md`
+
+Evidence:
+
+- Product Owner decision: `DECISIONS.md:D-038`
+- Focused test: `node tests/unit/admin-bind-account-token.test.js` = `5/5 PASS`
+
+Do not include:
+
+- `pages/index.html`
+- `tests/unit/pages-config-v12-fields.test.js`
+- package rebuilds
+- release/tag/push changes
+
+Preconditions:
+
+- Product Owner explicitly approves Commit C.
+- No package rebuild is implied.
+- Push/tag remain blocked.
+
+## Former Hold Group - Admin/Bind Extension Source
+
+Status: resolved into Proposed Commit C after Product Owner include decision.
 
 Files:
 
 - `admin/admin.js`
 - `bind.js`
 
-Reason:
+Decision/evidence:
 
-- Classified `Unknown / hold`.
-- Auth/account-token storage relevant.
-- Needs separate Product Owner assignment and Build&Test implementation report before inclusion.
+- `DECISIONS.md:D-038`
+- `docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_TEST_PACKAGE_REPORT_2026-05-09.md`
+- `tests/unit/admin-bind-account-token.test.js` = `5/5 PASS`
 
 ## Later Task Group - Pages Stats-v1
 
@@ -256,26 +350,21 @@ This plan does not authorize remote operations.
 
 ## Recommended Execution Order
 
-1. Keep `admin/admin.js` and `bind.js` held.
-2. Keep Pages stats-v1 files out of V1-minimal commits.
-3. If Product Owner wants local history cleanup now, commit docs first:
-   - Commit 1: agent workflow governance docs.
-   - Commit 2: V1-minimal release evidence / close-out docs.
-4. Commit the verified CWS least-permission package only if Product Owner explicitly approves implementation commit.
-5. Run remote consistency check only after local commit set decisions are made.
-6. Push/tag remain blocked until separate approval.
+1. Keep Pages stats-v1 files out of V1-minimal commits.
+2. If Product Owner wants local history cleanup now, approve Proposed Commit C.
+3. Run remote consistency check only after local commit set decisions are made.
+4. Push/tag remain blocked until separate approval.
 
 ## Product Owner Decisions Required
 
-1. Approve, modify, or reject the proposed three commit sets.
-2. Decide whether to commit or continue holding the verified CWS least-permission package.
-3. Decide whether to keep `admin/admin.js` and `bind.js` held.
-4. Decide whether Pages stats-v1 changes should become a separate later task.
-5. Decide whether to authorize remote consistency check.
+1. Approve, modify, or reject Proposed Commit C.
+2. Decide whether Pages stats-v1 changes should become a separate later task.
+3. Decide whether to authorize remote consistency check after Commit C decision.
+4. Keep push/tag blocked unless separately approved.
 
 ## Result
 
-Status: `COMMIT SET PLAN READY / NO COMMIT APPROVED`
+Status: `COMPLETED COMMITS RECORDED / COMMIT C PENDING PRODUCT OWNER APPROVAL`
 
 No code was modified.
 
