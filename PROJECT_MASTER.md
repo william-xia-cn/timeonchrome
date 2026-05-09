@@ -187,6 +187,7 @@
 - **Chrome Web Store status**：`TimeOnChrome 1.7.2` submitted / `待审核`; not publicly released.
 - **Artifact strategy**：D-039 / Strategy A active. The already-submitted reduced-permission CWS package remains the active review artifact. Current `origin/master` is the source follow-up line; no rebuild/package/resubmission is approved unless CWS requires it or Product Owner later approves.
 - **ReleaseMg production acceptance**：PARTIAL / NOT CLOSED（`docs/releases/releasemg-production-acceptance-2026-05-09.md`）；production-profile installed/enabled version, popup core, and full bind-sync smoke remain blocked unless completed or explicitly waived.
+- **ReleaseMg production smoke addendum**：`docs/releases/releasemg-production-smoke-blocked-2026-05-09.md`；latest readonly smoke remains `BLOCKED / NOT CLOSED` because expected CWS extension ID `mkggamgaeemnlmlflpekacbknochbmom` was not present in the inspected production profile.
 - **ReleaseMg readiness report**：`BLOCKED / NOT READY FOR PUBLIC RELEASE`（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`）.
 - **Close-out planning status**：docs-only close-out board is ready; releaseMg readonly readiness classification completed; Product Owner decisions remain open.
 - **Product Owner decision status**：default next-step proposal approved; CWS least-permission, admin/bind, and Pages stats-v1 follow-up packages have been reviewed, verified, committed, and pushed. Rebuild/package/resubmission, public release, and tag remain unauthorized.

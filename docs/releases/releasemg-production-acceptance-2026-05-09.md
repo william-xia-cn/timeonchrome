@@ -108,6 +108,24 @@ No destructive stop condition was triggered. No logout, rebind, storage clear, r
 - Product Owner approval phrase for this run: not provided and not needed; no final submission action was attempted
 - Remaining release blocker: installed extension / popup / production bound profile readonly smoke must be re-run on a profile where TimeOnChrome is verifiably installed and enabled, or explicitly waived by Product Owner
 
+## Addendum - production smoke rerun handoff result
+
+Date: 2026-05-09
+
+Source: `docs/handoffs/outbox/HANDOFF-v1-minimal-production-smoke-to-releasemg.md`
+
+Result: `BLOCKED / NOT CLOSED`
+
+ReleaseMg performed a bounded readonly production-profile smoke. Chrome was reachable, but the expected TimeOnChrome CWS extension ID `mkggamgaeemnlmlflpekacbknochbmom` was not present in the inspected `chrome://extensions/` extension list. Therefore installed/enabled/version, popup-core, and bind-sync could not be verified.
+
+This addendum does not change the overall production acceptance result. It remains:
+
+```text
+PARTIAL / NOT CLOSED
+```
+
+Remaining required action: Product Owner must either confirm the expected production profile and allow a re-run after TimeOnChrome is installed/enabled, or explicitly record `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
+
 ## Private data policy
 
 PASS. No child ID, token, cookie, password, account details, private screenshots, local Chrome profile path, raw profile identifiers, raw device identifiers, or raw D1 output are recorded in this report.

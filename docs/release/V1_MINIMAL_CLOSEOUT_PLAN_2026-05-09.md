@@ -51,7 +51,7 @@ releaseMg and Product Owner should use these as the current close-out packet:
 |---|---|---|---|---|---|
 | P0-1 | Working tree ownership inventory and audit | Inventory and Build&Test audit recorded; PO decisions remain open | Product&Project Mg / Build&Test / Product Owner | `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; `docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md` | Product Owner resolves `admin/admin.js` and `bind.js` `Unknown / hold`, confirms Pages stats-v1 exclusion/routing, and decides commit/hold/rebuild handling for the Build&Test CWS least-permission package. |
 | P0-2 | V1-minimal gate matrix | releaseMg readonly classification completed; result blocked | releaseMg | `docs/release/V1_MINIMAL_RELEASE_GATE_MATRIX_2026-05-09.md`; `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` | Remaining blockers are preserved; no deferred/known-risk item is rewritten as pass. |
-| P0-3 | Production-profile readonly smoke | `PARTIAL / NOT CLOSED` | releaseMg / Product Owner | Redacted releaseMg report; no private identifiers; installed extension/version/popup/bind/sync evidence or explicit PO defer/waiver | `PASS`, `DEFERRED`, or `WAIVED` with correct approval semantics. |
+| P0-3 | Production-profile readonly smoke | `BLOCKED / NOT CLOSED` | releaseMg / Product Owner | Latest addendum: expected TimeOnChrome CWS extension ID was not present in the inspected production profile; no private identifiers recorded. Need installed extension/version/popup/bind/sync evidence or explicit PO defer/waiver/risk acceptance. | `PASS`, `DEFERRED`, `WAIVED`, or `RISK ACCEPTED` with correct approval semantics. |
 | P0-4 | macOS + Windows real Chrome smoke | Not closed for V1-minimal | releaseMg / Product Owner | Smoke evidence, or explicit PO defer/waiver for V1-minimal public release | Both environments classified as `PASS`, `DEFERRED`, or `WAIVED`. |
 | P0-5 | CWS status follow-up | Submitted / `待审核` in docs | releaseMg / Product Owner | Current dashboard status recorded by releaseMg without private account data | Status is verified before final readiness; public release remains blocked until PO decision. |
 | P0-6 | Release readiness report | Completed; `BLOCKED / NOT READY FOR PUBLIC RELEASE` | releaseMg | `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` | Product Owner reviews blocker list and decides completion/defer/waiver/hold paths. |
@@ -140,7 +140,7 @@ Do not proceed to public release, tag, push, merge, CWS action, Chrome profile m
 
 ## Product Owner Decisions Needed Next
 
-1. Authorize or defer production-profile readonly smoke.
+1. Confirm the expected production Chrome profile and complete production-profile readonly smoke, or explicitly waive/defer/accept the risk.
 2. Complete, waive, or defer macOS + Windows real Chrome smoke for V1-minimal public release.
 3. Decide whether releaseMg should wait for CWS review result before final readiness.
 4. Decide how to handle Build&Test worktree audit findings:
