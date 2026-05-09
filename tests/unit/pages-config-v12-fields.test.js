@@ -51,6 +51,10 @@ function run() {
   expectTrue('pages 不应再出现 blacklist 字段', !/\bblacklist\b/.test(source));
   expectTrue('pages 不应再出现 dailyQuota fallback 字段', !/\bdailyQuota\b/.test(source));
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
+  expectTrue('Pages 控制台应优先读取 stats/v1', source.includes('/stats/v1?from='));
+  expectTrue('Pages 控制台应包含 v1 stats 适配器', source.includes('function fetchProfileStats'));
+  expectTrue('Pages 控制台应兼容 stats_v1 duration_seconds', source.includes('duration_seconds'));
+  expectTrue('Pages 日期应使用本地日期，不应使用 toISOString 作为显示/查询日期', !/function fmtDate\(d\)\s*\{\s*return d\.toISOString\(\)/.test(source));
 
   // 系统配置文案检查
   expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));

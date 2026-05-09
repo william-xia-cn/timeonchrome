@@ -233,6 +233,14 @@ Status: superseded by completed Commit B.
 
 ## Proposed Commit C - Admin/Bind Account-Token Persistence Package
 
+Status: completed.
+
+Commit:
+
+```text
+f498d13 fix: persist account token after admin login and bind
+```
+
 Suggested commit message:
 
 ```text
@@ -295,12 +303,17 @@ Decision/evidence:
 
 ## Later Task Group - Pages Stats-v1
 
-Status: do not include in V1-minimal CWS commit set.
+Status: coherent package, include later; do not include in V1-minimal CWS release consideration.
 
 Files:
 
 - `pages/index.html`
 - `tests/unit/pages-config-v12-fields.test.js`
+
+Evidence:
+
+- `docs/audits/PAGES_STATS_V1_OWNERSHIP_REVIEW_2026-05-09.md`
+- `docs/audits/PAGES_STATS_V1_MIN_VERIFY_2026-05-09.md`
 
 Reason:
 
@@ -311,6 +324,20 @@ Recommended future task:
 
 ```text
 Pages stats-v1 read path implementation review and deploy plan
+```
+
+Recommended minimal verification before any later commit/deploy:
+
+```powershell
+node tests/unit/pages-config-v12-fields.test.js
+node tests/unit/workers-stats-ingestion-v12-normalization.test.js
+```
+
+Verification status:
+
+```text
+pages-config-v12-fields: 22/22 PASS
+workers-stats-ingestion-v12-normalization: 25/25 PASS
 ```
 
 ## Changelog Grouping Decision
@@ -351,20 +378,18 @@ This plan does not authorize remote operations.
 ## Recommended Execution Order
 
 1. Keep Pages stats-v1 files out of V1-minimal commits.
-2. If Product Owner wants local history cleanup now, approve Proposed Commit C.
-3. Run remote consistency check only after local commit set decisions are made.
-4. Push/tag remain blocked until separate approval.
+2. Decide whether to verify the Pages stats-v1 package now or continue holding it for later.
+3. Push/tag remain blocked until separate approval.
 
 ## Product Owner Decisions Required
 
-1. Approve, modify, or reject Proposed Commit C.
-2. Decide whether Pages stats-v1 changes should become a separate later task.
-3. Decide whether to authorize remote consistency check after Commit C decision.
-4. Keep push/tag blocked unless separately approved.
+1. Decide whether Pages stats-v1 changes should remain held or move to a separate verification task.
+2. Decide whether to authorize git push.
+3. Keep tag/release blocked unless separately approved.
 
 ## Result
 
-Status: `COMPLETED COMMITS RECORDED / COMMIT C PENDING PRODUCT OWNER APPROVAL`
+Status: `COMPLETED COMMITS RECORDED / PAGES STATS-V1 LATER PACKAGE REMAINS DIRTY`
 
 No code was modified.
 

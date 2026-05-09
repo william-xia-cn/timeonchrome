@@ -89,7 +89,7 @@
 - [x] [V1-minimal] releaseMg readonly readiness report recorded（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`; result `BLOCKED / NOT READY FOR PUBLIC RELEASE`）
 - [ ] [V1-minimal] production-profile readonly smoke completion / defer / waiver decision
 - [ ] [V1-minimal] Windows/macOS real Chrome smoke completion / defer / waiver decision
-- [ ] [V1-minimal] Product Owner decisions on worktree audit findings（admin/bind minimal verification; Pages stats-v1 excluded/route later; CWS least-permission package commit/hold/rebuild decision）
+- [x] [V1-minimal] Product Owner decisions on prior worktree audit findings resolved except Pages stats-v1 later package
 - [x] [V1-minimal] admin/bind ownership resolution recorded（`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`）
 - [x] [V1-minimal] Build&Test admin/bind account-token implementation review recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`; recommendation `include, after minimal verification`; tests not run）
 - [x] [V1-minimal] Build&Test admin/bind account-token minimum verification recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_MIN_VERIFY_2026-05-09.md`; static PASS; requested unit tests missing; recommendation `hold`）
@@ -105,10 +105,12 @@
 - [x] [V1-minimal] Build&Test CWS least-permission minimal verification handoff created（`docs/handoffs/outbox/HANDOFF-cws-least-permission-min-verify-to-build-test.md`）
 - [x] [V1-minimal] Build&Test CWS least-permission minimal verification report recorded（`docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`; unit 193/193, E2E 7/7 passed after Playwright sandbox blocker handled）
 - [x] [V1-minimal] Git/local consistency audit recorded（`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`; remote not verified）
-- [x] [V1-minimal] Completed local commits recorded in commit set plan（`9174900` docs package; `7072163` CWS least-permission package）
-- [x] [V1-minimal] Commit C approval proposal recorded（admin/bind account-token package; no new git action approved）
-- [ ] [V1-minimal] Product Owner decision on Commit C（approve admin/bind account-token package commit / hold）
-- [ ] [V1-minimal] Product Owner decision on remote consistency check
+- [x] [V1-minimal] Completed local commits recorded（`9174900` docs package; `7072163` CWS least-permission package; `f498d13` admin/bind account-token package）
+- [x] [V1-minimal] Remote consistency check completed（local `master` ahead of `origin/master` by 7; no push/tag）
+- [x] [V1-minimal] Pages stats-v1 ownership review recorded（`docs/audits/PAGES_STATS_V1_OWNERSHIP_REVIEW_2026-05-09.md`; classification `include later`; tests not run）
+- [x] [V1-minimal follow-up] Pages stats-v1 minimum verification recorded（`docs/audits/PAGES_STATS_V1_MIN_VERIFY_2026-05-09.md`; `pages-config-v12-fields` 22/22 PASS; `workers-stats-ingestion-v12-normalization` 25/25 PASS）
+- [ ] [V1-minimal follow-up] Product Owner decision on Pages stats-v1 package commit / hold / browser check
+- [ ] [V1-minimal] Product Owner decision on git push（blocked; separate approval required）
 - [x] [V1-minimal] `docs/CHANGELOG.md` grouping reviewed（include in release evidence commit set; not a release-ready claim）
 - [x] [V0] V0 RC package validation
 - [x] [V0] RC internal install validation (Chrome unpacked)

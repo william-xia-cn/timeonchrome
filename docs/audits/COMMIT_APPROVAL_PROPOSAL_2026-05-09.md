@@ -26,6 +26,7 @@ The earlier safer two-commit plan has already been executed:
 |---|---|---|
 | `9174900` | `docs: add agent workflow and v1-minimal closeout records` | Completed |
 | `7072163` | `fix: remove scripting dependency from pip cleanup` | Completed |
+| `f498d13` | `fix: persist account token after admin login and bind` | Completed |
 
 No push/tag/release approval is implied by these local commits.
 
@@ -35,12 +36,13 @@ Product&Project Mg recommends:
 
 | Item | Recommendation | Reason |
 |---|---|---|
-| Commit C | Approve if Product Owner wants local cleanup now | Admin/bind account-token package is now approved include with focused 5/5 unit evidence. |
-| Pages stats-v1 files | Keep excluded; do not stage | Separate later task. |
-| Remote consistency check | Authorize after local commit set approval | Needed before any push/tag decision. |
+| Pages stats-v1 files | Keep excluded from V1-minimal CWS; decide commit/hold/browser check | Separate Pages/stats-v1 package, classification `include later`; minimum verification passed. |
+| Remote consistency check | Completed | Local `master` is ahead of `origin/master` by 7 commits. |
 | Push/tag | Keep blocked | Requires separate Product Owner approval after remote truth is known. |
 
 ## Proposed Commit C
+
+Status: completed as `f498d13`.
 
 Message:
 
@@ -201,14 +203,17 @@ This avoids fragile partial staging and better fits the current mixed documentat
 
 Please choose one:
 
-1. Approve Commit C only.
-   - Then optionally authorize remote consistency check.
+1. Authorize Pages stats-v1 minimum verification only.
+   - Completed: `pages-config-v12-fields` 22/22 PASS; `workers-stats-ingestion-v12-normalization` 25/25 PASS.
+   - No commit/deploy.
    - Push/tag remain blocked.
-2. Hold Commit C.
-   - Keep admin/bind package included by decision but uncommitted locally.
-3. Authorize remote consistency check only.
-   - No new commit.
+2. Hold Pages stats-v1 package for later.
+   - Keep dirty files uncommitted.
    - Push/tag remain blocked.
+3. Authorize git push only.
+   - Push current local commits.
+   - No tag/release.
+   - Pages dirty files remain uncommitted.
 
 ## Explicit Non-Approvals
 
@@ -221,13 +226,13 @@ This proposal does not approve:
 - package rebuild;
 - Chrome Web Store action;
 - Chrome profile/storage/cloud/D1 action;
-- staging `admin/admin.js` / `bind.js` unless Product Owner selects Commit C;
+- staging Pages stats-v1 files unless Product Owner opens a separate Pages task;
 - staging `pages/index.html`;
 - staging `tests/unit/pages-config-v12-fields.test.js`.
 
 ## Result
 
-Status: `COMMIT C APPROVAL PROPOSAL READY / NO NEW GIT ACTION APPROVED`
+Status: `COMPLETED COMMITS RECORDED / PAGES OR PUSH DECISION REQUIRED`
 
 No code was modified.
 

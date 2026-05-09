@@ -1273,8 +1273,8 @@ async function renderOverview() {
     const weekStartStr = fmtDate(weekStart);
 
     const [dayR, weekR] = await Promise.all([
-      api(`/profiles/${currentProfileId}/stats?from=${todayStr}&to=${todayStr}`),
-      api(`/profiles/${currentProfileId}/stats?from=${weekStartStr}&to=${todayStr}`),
+      fetchProfileStats(todayStr, todayStr),
+      fetchProfileStats(weekStartStr, todayStr),
     ]);
 
     const cfg = remoteConfig;
@@ -1344,7 +1344,7 @@ async function renderWeekChart() {
   const from = fmtDate(new Date(Date.now() - 6*86400000));
 
   try {
-    const r = await api(`/profiles/${currentProfileId}/stats?from=${from}&to=${to}`);
+    const r = await fetchProfileStats(from, to);
     const stats = r.stats || [];
 
     // 按日聚合
@@ -2075,7 +2075,7 @@ async function renderStatsPage(range) {
   c.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
 
   try {
-    const r = await api(`/profiles/${currentProfileId}/stats?from=${from}&to=${today}`);
+    const r = await fetchProfileStats(from, today);
     const stats = r.stats || [];
     const byDomain = {};
     for (const s of stats) byDomain[s.domain] = (byDomain[s.domain]||0) + s.duration;
@@ -2393,8 +2393,32 @@ async function api(path, method='GET', body=null) {
   return data;
 }
 
+function normalizeStatsRows(rows = []) {
+  return (rows || []).map((s) => ({
+    date: s.date,
+    domain: s.domain,
+    duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
+  })).filter((s) => s.date && s.domain && s.duration > 0);
+}
+
+async function fetchProfileStats(from, to) {
+  try {
+    const v1 = await api(`/profiles/${currentProfileId}/stats/v1?from=${from}&to=${to}`);
+    const stats = normalizeStatsRows(v1.stats || []);
+    if (stats.length > 0) return { stats, source: 'v1' };
+  } catch (e) {
+    console.warn('[Stats] v1 read failed, falling back to legacy stats:', e?.message || e);
+  }
+
+  const legacy = await api(`/profiles/${currentProfileId}/stats?from=${from}&to=${to}`);
+  return { stats: normalizeStatsRows(legacy.stats || []), source: 'legacy' };
+}
+
 // ── Helpers ───────────────────────────────────────────────────
-function fmtDate(d) { return d.toISOString().split('T')[0]; }
+function fmtDate(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 function fmtSec(s) {
   if (!s || s < 0) s = 0;

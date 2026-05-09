@@ -27,14 +27,16 @@
 - **工作树状态归档**：`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`
 - **工作树归属审计**：`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`
 - **Git/local consistency audit**：`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`
-- **Commit set plan**：`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`（completed commits recorded; Commit C pending approval）
-- **Commit approval proposal**：`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`（Commit C approval proposal）
+- **Commit set plan**：`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`（completed commits recorded; Pages stats-v1 later package remains dirty）
+- **Commit approval proposal**：`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`（Pages or push decision required）
 - **Admin/bind ownership resolution**：`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`
 - **Admin/bind account-token Build&Test report**：`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`
 - **Admin/bind account-token minimum verification**：`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_MIN_VERIFY_2026-05-09.md`
 - **Admin/bind account-token test package handoff**：`docs/handoffs/outbox/HANDOFF-admin-bind-account-token-test-package-to-build-test.md`
 - **Admin/bind account-token test package report**：`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_TEST_PACKAGE_REPORT_2026-05-09.md`
 - **Admin/bind include decision**：`DECISIONS.md:D-038`
+- **Pages stats-v1 ownership review**：`docs/audits/PAGES_STATS_V1_OWNERSHIP_REVIEW_2026-05-09.md`
+- **Pages stats-v1 minimum verification**：`docs/audits/PAGES_STATS_V1_MIN_VERIFY_2026-05-09.md`
 - **ReleaseMg SOP 已合并**：生产 profile / release package / Chrome Web Store / real binding / final acceptance 相关强制规则统一收敛在 `docs/agents/ReleaseMg.md`
 - **ChatGPT 定位**：Product Owner 的外部顾问、架构审查者和关键决策辅助者；不负责日常开发调度、不负责每个 Codex session 的日常任务指导。
 - **ChatGPT 升级场景**：产品模型变化、架构不确定、存储/云同步/统计口径/权限模型变化、release blocker 判断争议、三角色职责冲突、Agent 输出疑似越界、Product Owner 需要第二意见。
@@ -186,14 +188,15 @@
 - **ReleaseMg readiness report**：`BLOCKED / NOT READY FOR PUBLIC RELEASE`（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`）.
 - **Close-out planning status**：docs-only close-out board is ready; releaseMg readonly readiness classification completed; Product Owner decisions remain open.
 - **Product Owner decision status**：default next-step proposal approved; Build&Test implementation report and minimal verification recorded for CWS least-permission / mode timing cleanup; fixes/rebuild/commit/release remain unauthorized.
-- **Git/local status**：local audit complete; local commits `9174900` and `7072163` are present; remote GitHub truth not verified; push/tag remain blocked pending Product Owner approval and separate remote check.
-- **Commit planning status**：completed commits recorded; Proposed Commit C for admin/bind account-token package pending Product Owner approval.
-- **Commit approval status**：Commit C proposal ready; no new git action approved.
+- **Git/local status**：local audit complete; local commits `9174900`, `7072163`, and `f498d13` are present; remote consistency check shows local `master` ahead of `origin/master` by 7 commits; push/tag remain blocked pending Product Owner approval.
+- **Commit planning status**：admin/bind Commit C completed as `f498d13`; remaining dirty files are Pages stats-v1 later package.
+- **Commit approval status**：no new git action approved after remote consistency check.
 - **Changelog grouping**：`docs/CHANGELOG.md` belongs with V1-minimal release evidence docs; it does not imply public release ready.
-- **Working tree status**：dirty working tree recorded in `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; Build&Test ownership audit recorded in `docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`; `admin/admin.js` and `bind.js` are classified as one coherent account-token persistence package with focused unit evidence; Pages stats-v1 changes are excluded from V1-minimal release consideration; the CWS least-permission/test-timing cleanup package remains dirty/uncommitted with minimum verification passed.
+- **Working tree status**：dirty working tree recorded in `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; Build&Test ownership audit recorded in `docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`; admin/bind and CWS least-permission packages are committed locally; remaining dirty files are the coherent Pages stats-v1 read path package, classified `include later` and excluded from V1-minimal CWS release consideration.
 - **Admin/bind status**：ownership resolution, Build&Test implementation report, minimum verification report, and test package report recorded.
 - **Admin/bind account-token persistence status**：Product Owner approved include as V1-minimal follow-up candidate; focused unit package added in `tests/unit/admin-bind-account-token.test.js`; `node tests/unit/admin-bind-account-token.test.js` passed `5/5`; not release-ready evidence.
 - **Admin/bind residual risk**：`CLOUD_LOGOUT` coverage is static rather than end-to-end message-router invocation; ordinary admin auto-login stale-token semantics are accepted as a separate follow-up and do not block this package include decision.
+- **Pages stats-v1 status**：`pages/index.html` + `tests/unit/pages-config-v12-fields.test.js` are a coherent Pages stats-v1 read path package; classification `include later`; minimum verification passed (`pages-config-v12-fields` 22/22, `workers-stats-ingestion-v12-normalization` 25/25); no Pages deploy authorized.
 - **GitHub status**：local commit planned; no push or tag without separate Product Owner approval.
 
 ### V1-minimal out of scope
