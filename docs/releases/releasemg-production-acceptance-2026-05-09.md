@@ -187,6 +187,34 @@ PARTIAL / NOT CLOSED
 
 To close production functional smoke, Product Owner must either provide acceptable manual evidence for popup-core and bind-sync, enable releaseMg access to the target profile popup/admin context, or explicitly classify the remaining items as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
 
+## Addendum - popup manual evidence
+
+Date: 2026-05-10
+
+Result: `PARTIAL_WITH_MANUAL_EVIDENCE / NOT CLOSED`
+
+Product Owner provided popup visual evidence. This is manual visual evidence, not automated CDP evidence.
+
+| Check | Result | Evidence summary |
+|---|---|---|
+| TimeOnChrome installed | PASS_WITH_MANUAL_EVIDENCE | Popup screenshot shows TimeOnChrome can open. |
+| Installed version | PASS_WITH_MANUAL_EVIDENCE | Product Owner previously saw version `1.7.2`; popup screenshot itself does not show version. |
+| Enabled | PASS_WITH_MANUAL_EVIDENCE | Popup can open, indicating the current instance is runnable. |
+| Popup-core smoke | PASS_WITH_MANUAL_EVIDENCE | Popup shows Study / Rest / Composite, current usage, and online time. |
+| Borrowing disabled | PASS_WITH_MANUAL_EVIDENCE | Popup screenshot does not show an active borrowing entry. |
+| Current domain / usage display | PASS_WITH_MANUAL_EVIDENCE | Popup shows current domain `chromewebstore.google.com` and today usage display. |
+| Bind-sync smoke | PARTIAL | Screenshot does not show bound/sync health, so this remains not closed. |
+| CWS installed-ID parity | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE | CWS item remains under review and cannot yet be installed as the public item. |
+| Evidence privacy | PASS | Screenshot does not show private account/profile/device identifiers or local profile path. |
+
+Production functional smoke can be upgraded from `BLOCKED` to `PARTIAL_WITH_MANUAL_EVIDENCE`, but ReleaseMg production acceptance remains:
+
+```text
+PARTIAL / NOT CLOSED
+```
+
+Remaining blocker: `BIND-SYNC` requires readonly evidence or explicit `WAIVED`, `DEFERRED`, or `RISK ACCEPTED` classification.
+
 ## Private data policy
 
 PASS. No child ID, token, cookie, password, account details, private screenshots, local Chrome profile path, raw profile identifiers, raw device identifiers, or raw D1 output are recorded in this report.

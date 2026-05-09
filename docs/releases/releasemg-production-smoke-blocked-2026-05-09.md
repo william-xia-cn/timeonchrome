@@ -135,3 +135,25 @@ Remaining Product Owner decisions:
 
 - Provide manual evidence for popup-core and bound-sync, or authorize a path that lets releaseMg inspect the target profile popup/admin context.
 - If popup-core or bind-sync will not be completed before public release close-out, explicitly classify each as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
+
+## Popup Manual Evidence - 2026-05-10
+
+Result: `PARTIAL_WITH_MANUAL_EVIDENCE / NOT CLOSED`
+
+Product Owner provided popup visual evidence. This is manual visual evidence, not automated CDP evidence.
+
+| Check | Result | Evidence summary |
+|---|---|---|
+| TimeOnChrome installed | PASS_WITH_MANUAL_EVIDENCE | Popup screenshot shows TimeOnChrome can open in the target profile. |
+| Installed version | PASS_WITH_MANUAL_EVIDENCE | Product Owner previously saw version `1.7.2` in the extension page; popup screenshot itself does not show version. |
+| Enabled | PASS_WITH_MANUAL_EVIDENCE | Popup can open, indicating the current instance is runnable. |
+| Popup-core smoke | PASS_WITH_MANUAL_EVIDENCE | Popup shows Study / Rest / Composite, current usage, and online time. |
+| Borrowing disabled | PASS_WITH_MANUAL_EVIDENCE | Popup screenshot does not show an active borrowing entry. |
+| Current domain / usage display | PASS_WITH_MANUAL_EVIDENCE | Popup shows current domain `chromewebstore.google.com` and today usage display. |
+| Bind-sync smoke | PARTIAL | Screenshot does not show bound/sync health, so this remains not closed. |
+| CWS installed-ID parity | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE | CWS item remains under review and cannot yet be installed as the public item. |
+| Evidence privacy | PASS | Screenshot does not show child ID, email, token, cookie, profile path, raw profile ID, or raw device ID. |
+
+Remaining blocker:
+
+- `BIND-SYNC` remains not closed. It needs readonly evidence of bound/sync health without exposing child ID, email, token, raw device ID, raw profile ID, or local profile path; or Product Owner must explicitly classify it as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
