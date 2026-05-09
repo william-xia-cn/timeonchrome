@@ -108,3 +108,30 @@ Corrected releaseMg classification guidance:
 | Artifact parity | Package/hash/manifest/dashboard evidence only; no CWS installed-ID parity claim before approval |
 
 Next action: continue production-profile functional smoke against the visible unpacked TimeOnChrome instance. Defer CWS installed-ID parity until Chrome Web Store review is approved and the item is installable.
+
+## Functional Smoke Rerun - 2026-05-10
+
+Result: `PARTIAL / NOT CLOSED`
+
+ReleaseMg continued production-profile functional smoke against the visible unpacked/local-load TimeOnChrome instance.
+
+| Check | Result | Evidence summary |
+|---|---|---|
+| TimeOnChrome installed | PASS_WITH_MANUAL_EVIDENCE | Product Owner saw TimeOnChrome in the target profile's `chrome://extensions/`. |
+| Enabled | PARTIAL | Product Owner saw extension details and a Service Worker entry, but releaseMg did not confirm enabled state through readonly automation. |
+| Installed version | PASS_WITH_MANUAL_EVIDENCE | Product Owner saw version `1.7.2`. |
+| CWS installed-ID parity | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE | Current installed ID is `flnneafdppomlhgciohadpdfmhkkkkpp`, an unpacked/local-load ID. CWS item remains under review, so public CWS installation cannot yet be checked. |
+| Popup-core smoke | BLOCKED | releaseMg could not enter the target profile's controllable popup DOM; Study / Rest / Composite, usage summary, and absence of borrowing entry remain unverified by releaseMg. |
+| Bind-sync smoke | BLOCKED | Popup/admin extension context was unreachable; bound/sync state could not be checked readonly by releaseMg. |
+| Evidence privacy | PASS | No child ID, email, token, cookie, password, profile path, raw profile ID, raw device ID, or private screenshot was recorded. |
+
+Blockers:
+
+- releaseMg still cannot control or inspect the target profile's TimeOnChrome popup DOM.
+- `Enabled`, `POPUP-CORE`, and `BIND-SYNC` remain not closed at releaseMg evidence level.
+- CWS installed-ID parity remains deferred by CWS review state and is not a current blocker for unpacked functional smoke.
+
+Remaining Product Owner decisions:
+
+- Provide manual evidence for popup-core and bound-sync, or authorize a path that lets releaseMg inspect the target profile popup/admin context.
+- If popup-core or bind-sync will not be completed before public release close-out, explicitly classify each as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.

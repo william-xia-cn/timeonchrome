@@ -22,7 +22,7 @@ Scope: bounded readonly release readiness classification only
 
 Status: `BLOCKED / NOT READY FOR PUBLIC RELEASE`
 
-V1-minimal has strong core gate evidence and the reduced-permission CWS package is submitted / `待审核`. Product Owner selected artifact strategy A: the already-submitted CWS package remains the active review artifact, while current `origin/master` is the source follow-up line. After the latest push, local `master` and `origin/master` are synchronized and the working tree is clean. Production-profile functional smoke may continue against the reloaded local/unpacked TimeOnChrome instance. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` because the CWS item is still under review and cannot yet be installed as the public item. Final release readiness is still blocked by production-profile functional smoke close-out, CWS review not complete, Windows/macOS smoke not closed, and no Product Owner public release / tag approval.
+V1-minimal has strong core gate evidence and the reduced-permission CWS package is submitted / `待审核`. Product Owner selected artifact strategy A: the already-submitted CWS package remains the active review artifact, while current `origin/master` is the source follow-up line. After the latest push, local `master` and `origin/master` are synchronized and the working tree is clean. Production-profile functional smoke is `PARTIAL / NOT CLOSED`: installed/version have Product Owner manual evidence, but enabled, popup-core, and bind-sync are not closed at releaseMg evidence level. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` because the CWS item is still under review and cannot yet be installed as the public item. Final release readiness is still blocked by production-profile functional smoke close-out, CWS review not complete, Windows/macOS smoke not closed, and no Product Owner public release / tag approval.
 
 ## Artifact Strategy Decision
 
@@ -54,7 +54,7 @@ No acceptance tests were run in this session. No Chrome profile, storage, Cloud,
 | Time borrowing exclusion | PASS | D-034, release record | Disabled/deferred; not active V1-minimal feature. |
 | Legacy cloud stats cleanup | OUT_OF_SCOPE / KNOWN_RISK | D-035, release docs | Must remain known risk, not PASS. |
 | Windows/macOS real Chrome smoke | DEFERRED / PARTIAL | `TASK_BOARD.md`, gate matrix | Not closed for V1-minimal; needs completion or explicit PO defer/waive. |
-| Production-profile readonly smoke | PARTIAL / NOT CLOSED | ReleaseMg production acceptance report; `docs/releases/releasemg-production-smoke-blocked-2026-05-09.md` | Functional smoke may continue against the visible unpacked/local-load extension if enabled/version `1.7.2` is visible. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` until the CWS item is approved and installable. |
+| Production-profile readonly smoke | PARTIAL / NOT CLOSED | ReleaseMg production acceptance report; `docs/releases/releasemg-production-smoke-blocked-2026-05-09.md` | Installed/version are `PASS_WITH_MANUAL_EVIDENCE`; enabled is `PARTIAL`; popup-core and bind-sync remain `BLOCKED` because releaseMg could not inspect the target profile popup/admin context. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE`. |
 | Evidence privacy | PASS for existing report; required again before final | ReleaseMg production report | Existing report is redacted; final readiness still needs privacy review if new evidence is added. |
 | Worktree / remote consistency | PASS for repository hygiene; STRATEGY A for artifact parity | `git fetch origin`; `git status --short --branch`; `git rev-list --left-right --count master...origin/master`; D-039 | Current working tree is clean and `master == origin/master`. Current source HEAD includes follow-up commits after the submitted CWS package; by PO decision, the submitted CWS package remains the active review artifact and current `origin/master` is the source follow-up line. |
 | Public release | BLOCKED | `PROJECT_MASTER.md`, `TASK_BOARD.md` | CWS still `待审核`; no PO `Ship` decision. |
@@ -70,7 +70,7 @@ Existing evidence says automated/core coverage is broadly sufficient for V1-mini
 
 | Blocker | Severity | Owner | Required next action |
 |---|---|---|---|
-| Production profile functional smoke not closed | P0 | releaseMg / Product Owner | Continue readonly popup-core and bind-sync smoke against the visible unpacked TimeOnChrome instance if enabled. Do not require CWS installed-ID parity before CWS review approval; classify it as `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE`. |
+| Production profile functional smoke not closed | P0 | releaseMg / Product Owner | Provide manual evidence for enabled, popup-core, and bind-sync; enable releaseMg access to the target profile popup/admin context; or explicitly classify remaining items as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`. |
 | CWS review not complete | P0 | Product Owner / releaseMg | Wait for CWS outcome or record current dashboard state before next decision. |
 | Public release decision absent | P0 | Product Owner | Explicit `Ship / Hold / Defer / Risk accepted` decision required. |
 | Git tag not approved | P0 | Product Owner | Separate approval required before tag. |
@@ -80,7 +80,7 @@ Existing evidence says automated/core coverage is broadly sufficient for V1-mini
 
 | Item | State | Why |
 |---|---|---|
-| Production smoke | PARTIAL / NOT CLOSED | Functional popup/bind smoke may continue against the unpacked/local-load instance if enabled. CWS installed-ID parity is not currently applicable before review approval. |
+| Production smoke | PARTIAL / NOT CLOSED | Installed/version have manual evidence; enabled, popup-core, and bind-sync remain not closed at releaseMg evidence level. |
 | CWS installed-ID parity | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE | The CWS item is still `待审核`, so the public CWS item cannot yet be installed and checked for installed-ID parity. |
 | Windows/macOS smoke | DEFERRED / PARTIAL | Not closed for V1-minimal. |
 | Recovery/System | PASS_WITH_MANUAL_EVIDENCE | Operator-confirmed, not fully automated. |
@@ -110,7 +110,7 @@ Existing evidence says automated/core coverage is broadly sufficient for V1-mini
 
 ## Product Owner Decisions Required
 
-1. Continue functional production-profile smoke against the visible unpacked TimeOnChrome instance; defer CWS installed-ID parity until CWS review approval makes the item installable.
+1. Close production functional smoke by providing manual evidence for enabled, popup-core, and bind-sync, enabling releaseMg access to the target popup/admin context, or explicitly waiving/deferring/accepting risk for the remaining items.
 2. Decide whether to wait for CWS review result before further close-out.
 3. Decide whether Windows/macOS smoke must be completed before public release.
 4. Separately approve or reject public release and git tag.

@@ -161,6 +161,32 @@ Corrected interpretation:
 
 This correction supersedes any implication that the only possible blocker is profile mismatch. The current gate can continue as functional smoke, while CWS installed-ID parity is deferred until review approval makes installation possible.
 
+## Addendum - functional smoke rerun
+
+Date: 2026-05-10
+
+Result: `PARTIAL / NOT CLOSED`
+
+ReleaseMg continued production-profile functional smoke against the visible unpacked/local-load TimeOnChrome instance.
+
+| Check | Result | Evidence summary |
+|---|---|---|
+| TimeOnChrome installed | PASS_WITH_MANUAL_EVIDENCE | Product Owner saw TimeOnChrome in the target profile's `chrome://extensions/`. |
+| Enabled | PARTIAL | Product Owner saw extension details and a Service Worker entry, but releaseMg did not confirm enabled state through readonly automation. |
+| Installed version | PASS_WITH_MANUAL_EVIDENCE | Product Owner saw version `1.7.2`. |
+| CWS installed-ID parity | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE | CWS item is still under review; current installed ID is the unpacked/local-load ID `flnneafdppomlhgciohadpdfmhkkkkpp`. |
+| Popup-core smoke | BLOCKED | releaseMg could not inspect the target profile popup DOM; core popup state remains unverified at releaseMg level. |
+| Bind-sync smoke | BLOCKED | Popup/admin extension context was unreachable; bound/sync state remains unverified at releaseMg level. |
+| Evidence privacy | PASS | No private account/profile/device identifiers or local profile path were recorded. |
+
+This does not close ReleaseMg production acceptance. It remains:
+
+```text
+PARTIAL / NOT CLOSED
+```
+
+To close production functional smoke, Product Owner must either provide acceptable manual evidence for popup-core and bind-sync, enable releaseMg access to the target profile popup/admin context, or explicitly classify the remaining items as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
+
 ## Private data policy
 
 PASS. No child ID, token, cookie, password, account details, private screenshots, local Chrome profile path, raw profile identifiers, raw device identifiers, or raw D1 output are recorded in this report.
