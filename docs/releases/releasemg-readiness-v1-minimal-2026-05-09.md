@@ -22,7 +22,7 @@ Scope: bounded readonly release readiness classification only
 
 Status: `BLOCKED / NOT READY FOR PUBLIC RELEASE`
 
-V1-minimal has strong core gate evidence and the reduced-permission CWS package is submitted / `待审核`. Product Owner selected artifact strategy A: the already-submitted CWS package remains the active review artifact, while current `origin/master` is the source follow-up line. After the latest push, local `master` and `origin/master` are synchronized and the working tree is clean. Production-profile functional smoke is closed as `PASS_WITH_MANUAL_EVIDENCE`: installed/version/enabled, popup-core, borrowing disabled, and bind-sync have Product Owner manual visual evidence. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` because the CWS item is still under review and cannot yet be installed as the public item. Final release readiness is still blocked by CWS review not complete, Windows/macOS smoke not closed, and no Product Owner public release / tag approval.
+V1-minimal has strong core gate evidence and the reduced-permission CWS package is submitted / `待审核`. Product Owner selected artifact strategy A: the already-submitted CWS package remains the active review artifact, while current `origin/master` is the source follow-up line. After the latest push, local `master` and `origin/master` are synchronized and the working tree is clean. Production-profile functional smoke is closed as `PASS_WITH_MANUAL_EVIDENCE`: installed/version/enabled, popup-core, borrowing disabled, and bind-sync have Product Owner manual visual evidence. Windows/macOS informal smoke is also closed as `PASS_WITH_MANUAL_EVIDENCE`. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` because the CWS item is still under review and cannot yet be installed as the public item. Final release readiness is still blocked by CWS review not complete and no Product Owner public release / tag approval.
 
 ## Artifact Strategy Decision
 
@@ -53,7 +53,7 @@ No acceptance tests were run in this session. No Chrome profile, storage, Cloud,
 | Mode transition / PiP / prompt gates | PASS | D-020, D-037, coverage matrix | Core behavior covered; some dirty test/source follow-up remains uncommitted. |
 | Time borrowing exclusion | PASS | D-034, release record | Disabled/deferred; not active V1-minimal feature. |
 | Legacy cloud stats cleanup | OUT_OF_SCOPE / KNOWN_RISK | D-035, release docs | Must remain known risk, not PASS. |
-| Windows/macOS real Chrome smoke | DEFERRED / PARTIAL | `TASK_BOARD.md`, gate matrix | Not closed for V1-minimal; needs completion or explicit PO defer/waive. |
+| Windows/macOS informal real Chrome smoke | PASS_WITH_MANUAL_EVIDENCE | Product Owner report; `TASK_BOARD.md` | Non-formal manual smoke has been completed and is sufficient for the current personal/small-team first-release stage. This is not automated lab evidence. |
 | Production-profile functional smoke | PASS_WITH_MANUAL_EVIDENCE | ReleaseMg production acceptance report; `docs/releases/releasemg-production-smoke-blocked-2026-05-09.md` | Installed/version/enabled, popup-core, borrowing disabled, and bind-sync are covered by Product Owner manual visual evidence. Repo records do not transcribe the visible short device ID. CWS installed-ID parity remains `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE`. |
 | Evidence privacy | PASS for existing report; required again before final | ReleaseMg production report | Existing report is redacted; final readiness still needs privacy review if new evidence is added. |
 | Worktree / remote consistency | PASS for repository hygiene; STRATEGY A for artifact parity | `git fetch origin`; `git status --short --branch`; `git rev-list --left-right --count master...origin/master`; D-039 | Current working tree is clean and `master == origin/master`. Current source HEAD includes follow-up commits after the submitted CWS package; by PO decision, the submitted CWS package remains the active review artifact and current `origin/master` is the source follow-up line. |
@@ -73,7 +73,6 @@ Existing evidence says automated/core coverage is broadly sufficient for V1-mini
 | CWS review not complete | P0 | Product Owner / releaseMg | Wait for CWS outcome or record current dashboard state before next decision. |
 | Public release decision absent | P0 | Product Owner | Explicit `Ship / Hold / Defer / Risk accepted` decision required. |
 | Git tag not approved | P0 | Product Owner | Separate approval required before tag. |
-| Windows/macOS real Chrome smoke not closed | P1 | releaseMg / Product Owner | Complete, defer, or waive explicitly for V1-minimal. |
 
 ## Waivers / Deferrals / Risks
 
@@ -81,7 +80,7 @@ Existing evidence says automated/core coverage is broadly sufficient for V1-mini
 |---|---|---|
 | Production functional smoke | PASS_WITH_MANUAL_EVIDENCE | Installed/version/enabled, popup-core, borrowing disabled, and bind-sync have Product Owner manual visual evidence. |
 | CWS installed-ID parity | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE | The CWS item is still `待审核`, so the public CWS item cannot yet be installed and checked for installed-ID parity. |
-| Windows/macOS smoke | DEFERRED / PARTIAL | Not closed for V1-minimal. |
+| Windows/macOS informal smoke | PASS_WITH_MANUAL_EVIDENCE | Non-formal manual smoke completed; accepted for the current lightweight release process. |
 | Recovery/System | PASS_WITH_MANUAL_EVIDENCE | Operator-confirmed, not fully automated. |
 | Artifact parity | STRATEGY A / KNOWN CONSTRAINT | Submitted CWS package is active review artifact; current `origin/master` is source follow-up line and must not be described as the already-reviewed artifact unless rebuilt/resubmitted later. |
 | Legacy stats cleanup | KNOWN_RISK / OUT_OF_SCOPE | V1-minimal truth path is v1 stats; no cleanup/migration. |
@@ -110,8 +109,7 @@ Existing evidence says automated/core coverage is broadly sufficient for V1-mini
 ## Product Owner Decisions Required
 
 1. Decide whether to wait for CWS review result before further close-out.
-2. Decide whether Windows/macOS smoke must be completed before public release.
-3. Separately approve or reject public release and git tag.
+2. Separately approve or reject public release and git tag.
 
 ## Out-Of-Scope Confirmation
 
@@ -149,7 +147,7 @@ Updated readiness classification:
 | Artifact parity vs current source | STRATEGY A / KNOWN CONSTRAINT | Product Owner selected Strategy A: the submitted CWS package remains the active review artifact; current `origin/master` is source follow-up only. This refresh did not rebuild or resubmit from current HEAD. |
 | CWS status | PARTIAL / BLOCKED | Recorded state remains submitted / `待审核`; no live CWS action was performed in this refresh. |
 | Production functional smoke | PASS_WITH_MANUAL_EVIDENCE | Later Product Owner visual evidence closed installed/version/enabled, popup-core, borrowing disabled, and bind-sync for the unpacked/local-load instance; CWS installed-ID parity remains deferred until CWS review approval. |
-| Windows/macOS real Chrome smoke | DEFERRED / PARTIAL | Still not closed for V1-minimal. |
+| Windows/macOS informal smoke | PASS_WITH_MANUAL_EVIDENCE | Non-formal manual smoke completed and accepted for current lightweight process. |
 | Public release | BLOCKED | Requires CWS review outcome and explicit Product Owner decision. |
 | Git tag | BLOCKED | Requires separate Product Owner approval. |
 

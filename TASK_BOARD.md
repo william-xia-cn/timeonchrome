@@ -34,7 +34,7 @@
 - [x] Chrome Web Store reduced-permission package submitted（CWS status: `待审核`; not publicly released）
 - [x] manifest permissions / host permissions wording review（submission text prepared）
 - [x] privacy / data collection wording review（submission text prepared）
-- [ ] macOS + Windows real Chrome smoke verification
+- [x] macOS + Windows informal real Chrome smoke（PASS_WITH_MANUAL_EVIDENCE; non-formal manual evidence accepted for current lightweight first-release process）
 - [x] ReleaseMg production functional smoke（unpacked/local-load）closed as `PASS_WITH_MANUAL_EVIDENCE`（installed/version/enabled, popup-core, borrowing disabled, bind-sync; CWS installed-ID parity deferred by CWS review）
 - [x] package build verification
 - [x] final known risks section
@@ -95,7 +95,7 @@
 - [x] [V1-minimal] Build&Test worktree ownership handoff created（`docs/handoffs/outbox/HANDOFF-v1-minimal-worktree-ownership-to-build-test.md`）
 - [x] [V1-minimal] releaseMg readonly readiness report recorded（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`; result `BLOCKED / NOT READY FOR PUBLIC RELEASE`）
 - [x] [V1-minimal] production functional smoke closed with Product Owner manual visual evidence（unpacked/local-load instance）
-- [ ] [V1-minimal] Windows/macOS real Chrome smoke completion / defer / waiver decision
+- [x] [V1-minimal] Windows/macOS informal smoke completed（PASS_WITH_MANUAL_EVIDENCE; not automated lab evidence）
 - [x] [V1-minimal] Product Owner decisions on prior worktree audit findings resolved except Pages stats-v1 later package
 - [x] [V1-minimal] admin/bind ownership resolution recorded（`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`）
 - [x] [V1-minimal] Build&Test admin/bind account-token implementation review recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`; recommendation `include, after minimal verification`; tests not run）
