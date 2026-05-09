@@ -157,3 +157,29 @@ Product Owner provided popup visual evidence. This is manual visual evidence, no
 Remaining blocker:
 
 - `BIND-SYNC` remains not closed. It needs readonly evidence of bound/sync health without exposing child ID, email, token, raw device ID, raw profile ID, or local profile path; or Product Owner must explicitly classify it as `WAIVED`, `DEFERRED`, or `RISK ACCEPTED`.
+
+## Bind-Sync Manual Evidence - 2026-05-10
+
+Result: `PASS_WITH_MANUAL_EVIDENCE`
+
+Product Owner provided admin/status visual evidence. This is manual visual evidence, not automated CDP evidence.
+
+| Check | Result | Evidence summary |
+|---|---|---|
+| Bind state | PASS_WITH_MANUAL_EVIDENCE | Admin local status page shows the device is bound. |
+| Sync health | PASS_WITH_MANUAL_EVIDENCE | Admin local status page shows cloud sync state, configuration version, last sync timestamp, and a manual sync action. |
+| Config readability | PASS_WITH_MANUAL_EVIDENCE | Configuration version is visible, indicating configuration state is readable. |
+| CWS installed-ID parity | BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE | CWS item remains under review and cannot yet be installed as the public item. |
+| Evidence privacy | PASS_WITH_REDACTION_REQUIRED | Screenshot shows a short local device ID. The public repo record does not transcribe it and must not store raw child/account/token/profile/device identifiers. |
+
+Production functional smoke result:
+
+```text
+PASS_WITH_MANUAL_EVIDENCE
+```
+
+Notes:
+
+- This closes unpacked/local-load production functional smoke with Product Owner manual evidence.
+- This does not close CWS installed-ID parity, which remains `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE`.
+- This does not declare V1-minimal public release ready.

@@ -215,6 +215,35 @@ PARTIAL / NOT CLOSED
 
 Remaining blocker: `BIND-SYNC` requires readonly evidence or explicit `WAIVED`, `DEFERRED`, or `RISK ACCEPTED` classification.
 
+## Addendum - bind-sync manual evidence
+
+Date: 2026-05-10
+
+Result: `PASS_WITH_MANUAL_EVIDENCE`
+
+Product Owner provided admin/status visual evidence. This is manual visual evidence, not automated CDP evidence.
+
+| Check | Result | Evidence summary |
+|---|---|---|
+| Bind state | PASS_WITH_MANUAL_EVIDENCE | Admin local status page shows the device is bound. |
+| Sync health | PASS_WITH_MANUAL_EVIDENCE | Admin local status page shows cloud sync state, configuration version, last sync timestamp, and a manual sync action. |
+| Config readability | PASS_WITH_MANUAL_EVIDENCE | Configuration version is visible, indicating configuration state is readable. |
+| Evidence privacy | PASS_WITH_REDACTION_REQUIRED | Screenshot shows a short local device ID. The repo record does not transcribe it and must not store raw child/account/token/profile/device identifiers. |
+
+Production functional smoke is now:
+
+```text
+PASS_WITH_MANUAL_EVIDENCE
+```
+
+ReleaseMg production acceptance remains:
+
+```text
+PARTIAL / NOT CLOSED
+```
+
+Reason: CWS review is still `待审核`, and CWS installed-ID parity remains `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` until the public item is approved and installable. Public release and git tag remain blocked pending Product Owner decision.
+
 ## Private data policy
 
 PASS. No child ID, token, cookie, password, account details, private screenshots, local Chrome profile path, raw profile identifiers, raw device identifiers, or raw D1 output are recorded in this report.

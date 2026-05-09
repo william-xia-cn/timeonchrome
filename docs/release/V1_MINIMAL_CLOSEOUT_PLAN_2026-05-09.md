@@ -51,7 +51,7 @@ releaseMg and Product Owner should use these as the current close-out packet:
 |---|---|---|---|---|---|
 | P0-1 | Working tree ownership inventory and audit | Inventory and Build&Test audit recorded; PO decisions remain open | Product&Project Mg / Build&Test / Product Owner | `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; `docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md` | Product Owner resolves `admin/admin.js` and `bind.js` `Unknown / hold`, confirms Pages stats-v1 exclusion/routing, and decides commit/hold/rebuild handling for the Build&Test CWS least-permission package. |
 | P0-2 | V1-minimal gate matrix | releaseMg readonly classification completed; result blocked | releaseMg | `docs/release/V1_MINIMAL_RELEASE_GATE_MATRIX_2026-05-09.md`; `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` | Remaining blockers are preserved; no deferred/known-risk item is rewritten as pass. |
-| P0-3 | Production-profile readonly smoke | `PARTIAL_WITH_MANUAL_EVIDENCE / NOT CLOSED` | releaseMg / Product Owner | Functional smoke has installed/version/enabled/popup-core `PASS_WITH_MANUAL_EVIDENCE`; bind-sync remains `PARTIAL`. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` until the CWS item is approved and installable. | Remaining bind-sync evidence is provided, or bind-sync is `DEFERRED`, `WAIVED`, or `RISK ACCEPTED` with correct approval semantics. |
+| P0-3 | Production functional smoke（unpacked/local-load） | `PASS_WITH_MANUAL_EVIDENCE` | releaseMg / Product Owner | Installed/version/enabled, popup-core, borrowing disabled, and bind-sync have Product Owner manual visual evidence. CWS installed-ID parity remains `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` until the CWS item is approved and installable. | Closed for unpacked/local-load functional smoke; does not close CWS installed-ID parity. |
 | P0-4 | macOS + Windows real Chrome smoke | Not closed for V1-minimal | releaseMg / Product Owner | Smoke evidence, or explicit PO defer/waiver for V1-minimal public release | Both environments classified as `PASS`, `DEFERRED`, or `WAIVED`. |
 | P0-5 | CWS status follow-up | Submitted / `待审核` in docs | releaseMg / Product Owner | Current dashboard status recorded by releaseMg without private account data | Status is verified before final readiness; public release remains blocked until PO decision. |
 | P0-6 | Release readiness report | Completed; `BLOCKED / NOT READY FOR PUBLIC RELEASE` | releaseMg | `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` | Product Owner reviews blocker list and decides completion/defer/waiver/hold paths. |
@@ -140,9 +140,8 @@ Do not proceed to public release, tag, push, merge, CWS action, Chrome profile m
 
 ## Product Owner Decisions Needed Next
 
-1. Close production functional smoke by providing bind-sync evidence, or explicitly waive/defer/accept risk for bind-sync.
-2. Complete, waive, or defer macOS + Windows real Chrome smoke for V1-minimal public release.
-3. Decide whether releaseMg should wait for CWS review result before final readiness.
+1. Complete, waive, or defer macOS + Windows real Chrome smoke for V1-minimal public release.
+2. Decide whether releaseMg should wait for CWS review result before final readiness.
 4. Decide how to handle Build&Test worktree audit findings:
    - `admin/admin.js` and `bind.js`: assign owner / hold / exclude / authorize formal implementation package.
    - `pages/index.html` and `tests/unit/pages-config-v12-fields.test.js`: keep excluded from V1-minimal or route to a separate Pages/stats-v1 task.

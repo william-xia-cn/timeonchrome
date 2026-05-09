@@ -30,7 +30,7 @@
 - [x] manifest permissions / host permissions wording review（submission text prepared）
 - [x] privacy / data collection wording review（submission text prepared）
 - [ ] macOS + Windows real Chrome smoke verification
-- [ ] ReleaseMg production-profile readonly smoke completion or explicit PO waiver（functional smoke `PARTIAL_WITH_MANUAL_EVIDENCE / NOT CLOSED`: installed/version/enabled/popup-core PASS_WITH_MANUAL_EVIDENCE; bind-sync PARTIAL; CWS installed-ID parity deferred by CWS review）
+- [x] ReleaseMg production functional smoke（unpacked/local-load）closed as `PASS_WITH_MANUAL_EVIDENCE`（installed/version/enabled, popup-core, borrowing disabled, bind-sync; CWS installed-ID parity deferred by CWS review）
 - [x] package build verification
 - [x] final known risks section
 
@@ -47,7 +47,7 @@
 - [x] Artifact strategy A recorded（D-039: keep submitted CWS package as active review artifact; current `origin/master` is source follow-up line; no rebuild/resubmission now）
 - [x] ReleaseMg readonly readiness report recorded: `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` — `BLOCKED / NOT READY FOR PUBLIC RELEASE`
 - [ ] Public release（blocked until Chrome Web Store review completes and PO approves release close-out）
-- [ ] ReleaseMg production acceptance close-out（currently PARTIAL / NOT CLOSED; remaining bind-sync evidence or explicit waiver/defer/risk acceptance required）
+- [ ] ReleaseMg production acceptance close-out（currently PARTIAL / NOT CLOSED; CWS review and CWS installed-ID parity remain unavailable until CWS approval）
 - [x] Dirty product/test working-tree ownership classification audit completed（prior dirty packages resolved through scoped commits; no dirty product/test package remains before this docs-only sync）
 - [x] Git push（completed to `origin/master`; no tag/release approval implied）
 - [ ] Git tag（blocked pending separate PO approval）
@@ -89,7 +89,7 @@
 - [x] [V1-minimal] Build&Test CWS least-permission report handoff created（`docs/handoffs/outbox/HANDOFF-cws-least-permission-report-to-build-test.md`）
 - [x] [V1-minimal] Build&Test worktree ownership handoff created（`docs/handoffs/outbox/HANDOFF-v1-minimal-worktree-ownership-to-build-test.md`）
 - [x] [V1-minimal] releaseMg readonly readiness report recorded（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`; result `BLOCKED / NOT READY FOR PUBLIC RELEASE`）
-- [ ] [V1-minimal] production-profile readonly smoke completion / defer / waiver decision（remaining: bind-sync evidence or explicit waiver/defer/risk acceptance）
+- [x] [V1-minimal] production functional smoke closed with Product Owner manual visual evidence（unpacked/local-load instance）
 - [ ] [V1-minimal] Windows/macOS real Chrome smoke completion / defer / waiver decision
 - [x] [V1-minimal] Product Owner decisions on prior worktree audit findings resolved except Pages stats-v1 later package
 - [x] [V1-minimal] admin/bind ownership resolution recorded（`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`）
