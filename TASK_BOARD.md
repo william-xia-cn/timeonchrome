@@ -5,13 +5,18 @@
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
 
 ## Active Collaboration Model
-- [x] 三角色 Codex 协作基线已建立（docs-only）
+- [x] 三角色 Codex 协作基线已建立并简化为 lightweight solo-product workflow（docs-only）
   - `Product&Project Mg`：spec / plan / acceptance criteria / implementation review
   - `Build&Test`：implementation / unit and integration tests / evidence
   - `releaseMg`：acceptance / release gate / readiness recommendation
   - Mandatory role contracts：`docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md`
-  - Standard handoff only：`docs/handoffs/HANDOFF_TEMPLATE.md`
+  - Formal handoff only when scope/permission/release evidence needs durable boundaries：`docs/handoffs/HANDOFF_TEMPLATE.md`
   - Workflow entry：`PROJECT_WORKFLOW.md`
+- [x] Workflow simplification adopted
+  - Small routine work: no default spec / handoff / audit / release report
+  - Medium work: concise spec/result/test/risk evidence
+  - Release/high-risk work: checklist/readiness/blocker table only where useful
+  - CWS installed-ID parity deferred until CWS review approval makes the public item installable
 - [x] ChatGPT role adjusted to external advisor
   - ChatGPT：external advisor / architecture reviewer / decision support
   - Not daily scheduler, not routine bugfix guide, not every-session prompt generator

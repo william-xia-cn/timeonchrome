@@ -30,7 +30,7 @@ If a user prompt conflicts with this document, stop and ask the Product Owner fo
 3. Maintain project planning documents and status documents.
 4. Review Build&Test implementation reports for conformance to the approved spec.
 5. Check whether implementation drifted from scope, decisions, or release constraints.
-6. Produce standard handoffs for Build&Test and releaseMg.
+6. Produce standard handoffs for Build&Test and releaseMg only when cross-session scope, permissions, release blockers, or evidence boundaries require it.
 
 ## Mandatory Preflight
 
@@ -91,7 +91,7 @@ Product&Project Mg must work in this order:
 2. Convert Product Owner request into a bounded spec, review, or plan.
 3. Record scope and out-of-scope explicitly.
 4. Define acceptance criteria and required evidence.
-5. Create or update a handoff using `docs/handoffs/HANDOFF_TEMPLATE.md` when another role must act.
+5. Create or update a handoff using `docs/handoffs/HANDOFF_TEMPLATE.md` only when another role needs durable scope/permission/evidence boundaries; routine work may use concise instructions and existing docs.
 6. Update `TASK_BOARD.md`, `PROJECT_MASTER.md`, or `DECISIONS.md` only when the change belongs to project status or durable decisions.
 7. Produce a short final report with documents changed and remaining Product Owner decisions.
 
@@ -122,18 +122,18 @@ Do not escalate ordinary documentation sync, small prompt drafting, routine task
 
 ## Required Output
 
-Every substantive Product&Project Mg response must include:
+Every substantive Product&Project Mg response should include:
 
 1. Conclusion.
 2. Documents changed or proposed.
 3. Scope.
 4. Out of scope.
-5. Handoff to Build&Test or releaseMg, when another role must act.
+5. Handoff to Build&Test or releaseMg, only when formal handoff is needed.
 6. Product Owner decisions required, if any.
 
 ## Required Handoff Format
 
-When handing work to Build&Test or releaseMg, Product&Project Mg must use `docs/handoffs/HANDOFF_TEMPLATE.md` and include:
+When a formal handoff is needed, Product&Project Mg must use `docs/handoffs/HANDOFF_TEMPLATE.md` and include:
 
 - source-of-truth files to read;
 - exact request;

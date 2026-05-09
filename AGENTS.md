@@ -6,6 +6,23 @@
 
 ## 1. 开发工作流规则
 
+### 1.0 Lightweight Solo-Product Workflow
+
+TimeOnChrome 当前不是商用团队项目，而是个人/小团队产品实验与 Chrome Web Store 首发准备项目。默认流程应保持轻量：
+
+- 小任务默认不新建 spec / handoff / audit / release report。
+- 中等任务只保留必要规格、实现结果、测试证据和风险。
+- Release / CWS / 生产 profile / 隐私相关工作才使用 release checklist、readiness report 或 handoff。
+- 手工证据允许使用，但必须标清 `PASS_WITH_MANUAL_EVIDENCE`，不得伪装成自动化证据。
+- CWS 审核通过前，CWS installed-ID parity 记为 `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE`，不得作为当前可关闭 gate。
+
+默认更新位置：
+
+- `TASK_BOARD.md`：下一步、blocker、当前任务状态。
+- `PROJECT_MASTER.md`：稳定事实、阶段、release 状态。
+- `DECISIONS.md`：长期产品/架构/发布策略决策。
+- `docs/releases/*`：只记录 release 证据或 release blocker，不记录普通日常过程。
+
 ### 1.1 文档先行原则
 
 **任何代码变更前，必须先更新文档。**
@@ -18,7 +35,7 @@
 
 **具体步骤：**
 
-1. **变更前**：在 `docs/DESIGN.md` 中记录变更意图、影响范围、修改方案
+1. **变更前**：按变更风险选择最小文档位置；普通小修可只在任务说明或 `TASK_BOARD.md` 记录，架构/API/数据变更才更新 `docs/DESIGN.md`
 2. **实施中**：按照文档描述执行代码修改
 3. **完成后**：检查文档是否与实际代码一致，修正偏差
 4. **提交时**：文档变更和代码变更必须在同一个 commit 中
@@ -32,6 +49,7 @@
 
 | 变更类型 | 更新文件 | 更新内容 |
 |---------|---------|---------|
+| 小 bug / 小文案 / 小测试 | `TASK_BOARD.md` 或最终报告 | 当前状态、结果、后续项 |
 | 架构变更 | `docs/DESIGN.md` | 架构图、数据流、模块描述 |
 | API 变更 | `docs/DESIGN.md` | 消息协议表、API 路由 |
 | 配置变更 | `docs/DESIGN.md` | 数据结构、字段说明 |
@@ -194,6 +212,15 @@ refactor: 删除终端推送配置逻辑，确立云端为唯一配置源
 | **日常执行闭环** | Codex 三角色体系 | Product&Project Mg 负责需求/规格/计划/审核；Build&Test 负责实现/测试/证据；releaseMg 负责验收/发布门禁/发布准备 |
 | **最终决策层** | Product Owner | 产品方向、范围裁决、风险接受、发布/暂停/上线最终决定 |
 | **外部顾问层** | ChatGPT | 架构审查、关键决策辅助、复杂问题第二意见、三角色机制修正；不负责日常开发调度 |
+
+### 6.0.1 三角色轻量协作默认值
+
+三角色边界继续有效，但默认协作降级为轻量模式：
+
+- Product&Project Mg：默认维护 `PROJECT_MASTER.md` / `TASK_BOARD.md` / `DECISIONS.md`，只有中高风险任务才创建 spec/handoff。
+- Build&Test：默认从明确 PO 请求或现有权威文档执行，输出简短 changed files / tests / risks；只有中高风险或 release-bound 工作才写 implementation report / formal audit。
+- releaseMg：默认用一张 checklist / result table 汇报；只有 CWS、production profile、release blocker、隐私风险才更新 release report。
+- ChatGPT：只在关键判断、流程修正、架构或 release blocker 争议时介入。
 
 ### 6.1.1 ChatGPT 外部顾问定位
 
@@ -363,7 +390,7 @@ timeonchrome/
 | `PROJECT_MASTER.md` | 当前项目真值：阶段、范围、发布闸门、活跃状态、实施边界 | 任何任务开始前，确认阶段和范围 |
 | `TASK_BOARD.md` | 当前任务板：NOW / NEXT / LATER / COMPLETED | 选择或更新工作项之前 |
 | `DECISIONS.md` | 持久的产品与架构决策（D-001 ~ D-015） | 任务触及已决策的产品/架构行为时必读 |
-| `PROJECT_WORKFLOW.md` | 三角色 Codex 协作流程：Product&Project Mg / Build&Test / releaseMg 的交接顺序与 handoff 规则 | 拆分多 session 工作、创建 handoff、审查角色边界时 |
+| `PROJECT_WORKFLOW.md` | 轻量三角色 Codex 协作流程：Product&Project Mg / Build&Test / releaseMg 的默认轻流程与重流程触发条件 | 拆分多 session 工作、创建 handoff、审查角色边界时 |
 | `AGENTS.md` | Agent 执行规则、Preflight 闸门、允许/禁止行为、测试与提交纪律 | 执行任何 Agent 任务之前 |
 | `docs/agents/ProductProjectMg.md` | Product&Project Mg 强制运行契约：职责、权限、禁止事项、preflight、workflow、stop criteria、输出格式 | 以 Product&Project Mg 身份启动 session 或审核 spec/实现时必须读取 |
 | `docs/agents/BuildTest.md` | Build&Test 强制运行契约：职责、权限、禁止事项、preflight、workflow、test rules、stop criteria、实现报告要求 | 以 Build&Test 身份启动 session 或执行已批准 spec 时必须读取 |
@@ -416,7 +443,7 @@ timeonchrome/
 
 ### 9.4 三角色协作文件说明
 
-`PROJECT_WORKFLOW.md` 已作为三角色 Codex 协作流程的入口文档。角色强制运行契约由 `docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md` 定义；跨 session 交接必须使用 `docs/handoffs/HANDOFF_TEMPLATE.md` 派生的 handoff 文档。
+`PROJECT_WORKFLOW.md` 已作为轻量三角色 Codex 协作流程的入口文档。角色强制运行契约由 `docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md` 定义。跨 session 交接优先使用现有权威文档和简短结果；只有 scope/permission/release evidence 需要持久边界时，才使用 `docs/handoffs/HANDOFF_TEMPLATE.md` 派生的 handoff 文档。
 
 ### 9.5 当前基线（控制口径）
 
@@ -480,7 +507,7 @@ Rules:
 - It must not modify product code or test code.
 - It must follow the mandatory preflight, workflow, stop criteria, and handoff rules in `docs/agents/ProductProjectMg.md`.
 - It defines functional test design and acceptance criteria, but does not execute release gates.
-- It must hand work to other sessions through `docs/handoffs/HANDOFF_TEMPLATE.md`, not through chat memory.
+- It should use lightweight updates by default; formal handoff is required only for bounded cross-session work, release blockers, or scope-sensitive work.
 - It must read `docs/agents/ProductProjectMg.md` before execution.
 
 ### Build&Test — Implementation and Test Agent
@@ -488,11 +515,11 @@ Rules:
 `Build&Test` is responsible for implementing approved specs, modifying product/test code within scope, running relevant tests, and producing implementation evidence.
 
 Rules:
-- It may implement only from an approved spec and handoff.
+- It may implement from an approved spec, existing authoritative docs, or an explicit Product Owner implementation request.
 - It must not change product decisions, release standards, or scope without approval.
 - It must follow the mandatory preflight, workflow, test rules, stop criteria, and deliverable rules in `docs/agents/BuildTest.md`.
 - Passing tests are implementation evidence, not release approval.
-- It must output changed files, tests run, risks, and a scope conformance audit.
+- It must output changed files, tests run, risks, and a concise scope conformance summary; formal audit is required only for medium/high-risk or release-bound work.
 - It must read `docs/agents/BuildTest.md` before execution.
 
 ### releaseMg — Release Gate and Acceptance Agent
@@ -508,7 +535,7 @@ Rules:
 - It may start Chrome for release/admin workflows, inspect Chrome Web Store Developer Dashboard, and use an already-authenticated browser session.
 - If Google or Chrome Web Store login or 2FA is required, it must guide the Product Owner to complete that manually in the browser and must not request credentials in chat or terminal.
 - It may recommend readiness, but Product Owner makes the final release decision.
-- It must use standard release reports and preserve waived/deferred risks as risks, not as pass.
+- It may use concise result tables by default; standard release reports are required for CWS, production profile, release blocker, privacy-sensitive evidence, or Product Owner request. It must preserve waived/deferred risks as risks, not as pass.
 - It must read `docs/agents/ReleaseMg.md` before execution.
 - It must not commit local Chrome profile paths, child IDs, account details, screenshots with private data, cookies, tokens, or credentials.
 - It must not click final Chrome Web Store Submit for Review unless Product Owner explicitly says: `ReleaseMg: submit now`.

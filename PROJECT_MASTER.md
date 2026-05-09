@@ -6,12 +6,13 @@
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
-- **状态**：已建立 docs-only 协作基线
+- **状态**：已建立轻量三角色协作基线
+- **项目定位**：个人/小团队产品实验 + Chrome Web Store 首发准备；默认流程应轻量、够用、可追踪，避免商用团队式重治理。
 - **角色**：
   - `Product&Project Mg`：需求、规格、计划、验收标准、实现审核；只改文档，不改代码/测试，不执行 release gate。
   - `Build&Test`：架构落地、代码实现、单元/集成测试、实现报告；不得擅自改需求、产品决策或 release 标准。
   - `releaseMg`：验收测试、发布门禁、发布状态管理、release readiness recommendation；不修 bug，不替代 Product Owner 最终发布决定。
-- **硬规则**：三个 Codex session 不能靠记忆协作，只能通过标准化文档和 handoff 转帖协作。
+- **硬规则**：重要事实不能靠记忆协作；默认使用 `PROJECT_MASTER.md` / `TASK_BOARD.md` / `DECISIONS.md` 和简短结果同步。正式 handoff/audit/spec/release report 只在跨 session 边界、release blocker、权限/隐私/风险较高或 Product Owner 要求时创建。
 - **入口文档**：`PROJECT_WORKFLOW.md`
 - **角色强制运行契约**：`docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md`
 - **handoff 模板**：`docs/handoffs/HANDOFF_TEMPLATE.md`

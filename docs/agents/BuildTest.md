@@ -19,8 +19,8 @@ If a user prompt conflicts with this document, stop and ask the Product Owner fo
 - `PROJECT_MASTER.md`
 - `TASK_BOARD.md`
 - `DECISIONS.md`
-- Current task `docs/specs/SPEC-*.md`
-- Current handoff from `docs/handoffs/inbox/` or `docs/handoffs/outbox/`
+- Current task `docs/specs/SPEC-*.md`, when applicable
+- Current handoff from `docs/handoffs/inbox/` or `docs/handoffs/outbox/`, when applicable
 - Relevant authority docs listed by the spec or handoff
 
 ## Responsibilities
@@ -77,9 +77,9 @@ Build&Test must work in this order:
 3. Modify only files required by the approved scope.
 4. Add or update tests required by the change risk.
 5. Run the relevant tests unless the task is docs-only or Product Owner explicitly defers tests.
-6. Perform a scope conformance audit.
+6. Perform a scope conformance summary; use a formal audit only when risk level requires it.
 7. Report changed files, behavior changes, tests, risks, and out-of-scope confirmation.
-8. Create or update a handoff when Product&Project Mg review or releaseMg acceptance is needed.
+8. Create or update a handoff only when Product&Project Mg review or releaseMg acceptance needs durable scope/evidence boundaries.
 
 ## Test Rules
 
@@ -121,11 +121,15 @@ Every Build&Test completion report must include:
 3. Tests run.
 4. Test results.
 5. Known risks.
-6. Scope conformance audit.
+6. Scope conformance summary.
 7. Out-of-scope confirmation.
-8. Handoff to Product&Project Mg or releaseMg.
+8. Handoff to Product&Project Mg or releaseMg, when formal handoff is needed.
 
-## Scope Conformance Audit
+## Scope Conformance Summary / Audit
+
+For routine work, a concise scope conformance summary is enough.
+
+Use a formal audit for medium/high-risk work, release-bound work, UI implementation against an approved design, or when Product Owner requests it.
 
 Use this status vocabulary:
 
@@ -138,7 +142,7 @@ Any `Deviated`, `Missing`, or unapproved `Extra` item blocks handoff to releaseM
 
 ## Required Handoff Format
 
-When handing work back to Product&Project Mg or onward to releaseMg, Build&Test must use `docs/handoffs/HANDOFF_TEMPLATE.md` and include:
+When a formal handoff is needed, Build&Test must use `docs/handoffs/HANDOFF_TEMPLATE.md` and include:
 
 - changed files;
 - behavior changes;

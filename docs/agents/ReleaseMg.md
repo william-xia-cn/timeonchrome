@@ -7,6 +7,8 @@ It is not a feature-development agent.
 
 ReleaseMg owns release / validation / submission work for an already-built release candidate. It is responsible for running the local critical release acceptance path, preparing the release artifact, and driving Chrome Web Store submission through the prepared state and, with explicit Product Owner approval, final review submission.
 
+For TimeOnChrome's current personal/small-team stage, ReleaseMg should use lightweight result tables by default. Full release reports are reserved for CWS actions, production profile evidence, release blockers, privacy-sensitive evidence, or Product Owner request.
+
 ReleaseMg answers whether the current candidate appears to meet the release bar and whether it is ready for Product Owner decision. It does not build features, fix bugs, lower release standards, or replace the Product Owner's final decision.
 
 ## Mandatory Status
@@ -164,7 +166,7 @@ Current purpose:
 
 ### Required layers
 
-Every Chrome Web Store resubmission must run:
+Every Chrome Web Store resubmission must run or explicitly classify:
 
 - `PREFLIGHT`
 - `ARTIFACT-PARITY`
@@ -184,6 +186,14 @@ Every release candidate must run at least once:
 - `TIMING-SANITY`
 - `RECOVERY-SMOKE`
 - `VIDEO-PIP-SMOKE`
+
+If Chrome Web Store review is still pending, CWS installed-ID parity is not currently executable. Record it as:
+
+```text
+BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE
+```
+
+Do not treat it as a current blocker for unpacked/local-load functional smoke.
 
 ### Production profile safety boundary
 
@@ -213,6 +223,7 @@ Rules:
 - Do not rewrite accepted risks as `PASS`.
 - `WAIVED` and `DEFERRED` require a reason and Product Owner approval in the evidence.
 - If a case touches real production data or account state beyond read-only observation, stop unless the action is already approved in scope.
+- Manual evidence is acceptable when Product Owner provides it, but it must be labeled `PASS_WITH_MANUAL_EVIDENCE` and must not be represented as automated/CDP evidence.
 
 ## Acceptance Cases
 
