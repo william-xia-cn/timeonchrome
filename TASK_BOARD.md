@@ -44,11 +44,13 @@
 - [x] Chrome Web Store reduced-permission package submitted: `dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
 - [x] Chrome Web Store resubmission SHA256 recorded: `BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
 - [x] Chrome Web Store status recorded: `TimeOnChrome 1.7.2` submitted / `待审核`
+- [x] Artifact strategy A recorded（D-039: keep submitted CWS package as active review artifact; current `origin/master` is source follow-up line; no rebuild/resubmission now）
 - [x] ReleaseMg readonly readiness report recorded: `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` — `BLOCKED / NOT READY FOR PUBLIC RELEASE`
 - [ ] Public release（blocked until Chrome Web Store review completes and PO approves release close-out）
 - [ ] ReleaseMg production acceptance close-out（currently PARTIAL / NOT CLOSED; production-profile readonly smoke incomplete）
-- [x] Dirty product/test working-tree ownership classification audit completed（remaining PO decisions open）
-- [ ] Git push/tag（blocked pending separate PO approval）
+- [x] Dirty product/test working-tree ownership classification audit completed（prior dirty packages resolved through scoped commits; no dirty product/test package remains before this docs-only sync）
+- [x] Git push（completed to `origin/master`; no tag/release approval implied）
+- [ ] Git tag（blocked pending separate PO approval）
 
 ## V1-minimal out of scope（本轮不做）
 - [ ] full three-mode model 重构
@@ -106,11 +108,12 @@
 - [x] [V1-minimal] Build&Test CWS least-permission minimal verification report recorded（`docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`; unit 193/193, E2E 7/7 passed after Playwright sandbox blocker handled）
 - [x] [V1-minimal] Git/local consistency audit recorded（`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`; remote not verified）
 - [x] [V1-minimal] Completed local commits recorded（`9174900` docs package; `7072163` CWS least-permission package; `f498d13` admin/bind account-token package）
-- [x] [V1-minimal] Remote consistency check completed（local `master` ahead of `origin/master` by 7; no push/tag）
+- [x] [V1-minimal] Remote consistency check completed（after push, local `master` and `origin/master` synchronized at `2260943`; no tag/release）
 - [x] [V1-minimal] Pages stats-v1 ownership review recorded（`docs/audits/PAGES_STATS_V1_OWNERSHIP_REVIEW_2026-05-09.md`; classification `include later`; tests not run）
 - [x] [V1-minimal follow-up] Pages stats-v1 minimum verification recorded（`docs/audits/PAGES_STATS_V1_MIN_VERIFY_2026-05-09.md`; `pages-config-v12-fields` 22/22 PASS; `workers-stats-ingestion-v12-normalization` 25/25 PASS）
-- [ ] [V1-minimal follow-up] Product Owner decision on Pages stats-v1 package commit / hold / browser check
-- [ ] [V1-minimal] Product Owner decision on git push（blocked; separate approval required）
+- [x] [V1-minimal follow-up] Pages stats-v1 package committed and pushed as source follow-up line（no Pages deploy authorized）
+- [x] [V1-minimal] Git push completed to `origin/master`（tag/release still blocked）
+- [x] [V1-minimal] Product Owner artifact strategy A recorded（submitted CWS package remains active review artifact; current `origin/master` is source follow-up line）
 - [x] [V1-minimal] `docs/CHANGELOG.md` grouping reviewed（include in release evidence commit set; not a release-ready claim）
 - [x] [V0] V0 RC package validation
 - [x] [V0] RC internal install validation (Chrome unpacked)
