@@ -5,6 +5,34 @@
 - **阶段：V1-minimal release candidate planning（V0 baseline frozen）**
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
+## Codex 三角色协作机制
+- **状态**：已建立 docs-only 协作基线
+- **角色**：
+  - `Product&Project Mg`：需求、规格、计划、验收标准、实现审核；只改文档，不改代码/测试，不执行 release gate。
+  - `Build&Test`：架构落地、代码实现、单元/集成测试、实现报告；不得擅自改需求、产品决策或 release 标准。
+  - `releaseMg`：验收测试、发布门禁、发布状态管理、release readiness recommendation；不修 bug，不替代 Product Owner 最终发布决定。
+- **硬规则**：三个 Codex session 不能靠记忆协作，只能通过标准化文档和 handoff 转帖协作。
+- **入口文档**：`PROJECT_WORKFLOW.md`
+- **角色强制运行契约**：`docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md`
+- **handoff 模板**：`docs/handoffs/HANDOFF_TEMPLATE.md`
+- **spec 模板**：`docs/specs/FEATURE_SPEC_TEMPLATE.md`
+- **release 模板**：`docs/release/RELEASE_CHECKLIST.md`、`docs/release/RELEASE_GATE_REPORT_TEMPLATE.md`
+- **V1-minimal close-out plan**：`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`
+- **Product Owner decision brief**：`docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`
+- **Product Owner decision proposal**：`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`
+- **CWS least-permission Build&Test handoff**：`docs/handoffs/outbox/HANDOFF-cws-least-permission-report-to-build-test.md`
+- **CWS least-permission Build&Test report**：`docs/audits/CWS_LEAST_PERMISSION_IMPLEMENTATION_REPORT_2026-05-09.md`
+- **CWS least-permission minimal verification handoff**：`docs/handoffs/outbox/HANDOFF-cws-least-permission-min-verify-to-build-test.md`
+- **CWS least-permission minimal verification report**：`docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`
+- **工作树状态归档**：`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`
+- **工作树归属审计**：`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`
+- **Git/local consistency audit**：`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`
+- **Commit set plan**：`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`
+- **Commit approval proposal**：`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`
+- **ReleaseMg SOP 已合并**：生产 profile / release package / Chrome Web Store / real binding / final acceptance 相关强制规则统一收敛在 `docs/agents/ReleaseMg.md`
+- **ChatGPT 定位**：Product Owner 的外部顾问、架构审查者和关键决策辅助者；不负责日常开发调度、不负责每个 Codex session 的日常任务指导。
+- **ChatGPT 升级场景**：产品模型变化、架构不确定、存储/云同步/统计口径/权限模型变化、release blocker 判断争议、三角色职责冲突、Agent 输出疑似越界、Product Owner 需要第二意见。
+
 ## 版本边界
 - **V0（功能冻结 / 发布闸门未完成）**
   - monitoring 核心短路（含全局门禁主路径）
@@ -110,7 +138,7 @@
 
 ## V1-minimal Release Candidate（当前正式发布目标）
 - **目标定位**：基于 V0 baseline 的最小可发布版本（release-readiness 导向），不是完整 V1 产品模型重建
-- **当前状态**：release artifact prepared; Chrome Web Store submission text prepared; not uploaded, not submitted, not tagged, not pushed
+- **当前状态**：release artifact prepared; reduced-permission Chrome Web Store package submitted; CWS status `待审核`; not publicly released, not tagged, not pushed
 
 ### V1-minimal must-have
 - release gate matrix reset（以 V1-minimal 口径重置发布闸门）
@@ -125,7 +153,7 @@
 ### V1-minimal release preparation（2026-05-09）
 - **Package**：`dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
 - **SHA256**：`A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
-- **Size**：141,364 bytes
+- **Size**：141,357 bytes（per `docs/releases/v1-minimal-release-2026-05-09.md`; SHA256 remains the primary artifact identity）
 - **Manifest version**：`1.7.2`
 - **Package verification**：PASS
   - ZIP opens and contains `manifest.json`
@@ -133,8 +161,29 @@
   - Required runtime files are present
   - Disallowed private/build/test paths are absent (`docs/`, `tests/`, `workers/`, `pages/`, `node_modules/`, `.env`, `.wrangler`, local Chrome profile data)
 - **Release record**：`docs/releases/v1-minimal-release-2026-05-09.md`
+- **Close-out plan**：`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`
+- **Product Owner decision brief**：`docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`
+- **Product Owner decision proposal**：`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`
+- **Release gate matrix**：`docs/release/V1_MINIMAL_RELEASE_GATE_MATRIX_2026-05-09.md`
+- **Worktree status inventory**：`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`
+- **Worktree ownership audit**：`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`
+- **Git/local consistency audit**：`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`
+- **Commit set plan**：`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`
+- **Commit approval proposal**：`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`
+- **ReleaseMg readiness report**：`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`
 - **Chrome Web Store submission text**：`docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
-- **Chrome Web Store status**：prepared only; not uploaded; final Submit for Review requires separate Product Owner approval.
+- **Chrome Web Store resubmission package**：`dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
+- **Chrome Web Store resubmission SHA256**：`BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
+- **Chrome Web Store status**：`TimeOnChrome 1.7.2` submitted / `待审核`; not publicly released.
+- **ReleaseMg production acceptance**：PARTIAL / NOT CLOSED（`docs/releases/releasemg-production-acceptance-2026-05-09.md`）；production-profile installed/enabled version, popup core, and full bind-sync smoke remain blocked unless completed or explicitly waived.
+- **ReleaseMg readiness report**：`BLOCKED / NOT READY FOR PUBLIC RELEASE`（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`）.
+- **Close-out planning status**：docs-only close-out board is ready; releaseMg readonly readiness classification completed; Product Owner decisions remain open.
+- **Product Owner decision status**：default next-step proposal approved; Build&Test implementation report and minimal verification recorded for CWS least-permission / mode timing cleanup; fixes/rebuild/commit/release remain unauthorized.
+- **Git/local status**：local audit complete; remote GitHub truth not verified; push/tag remain blocked pending Product Owner approval and separate remote check.
+- **Commit planning status**：commit set plan ready; no commit/stage/push/tag approved.
+- **Commit approval status**：approval proposal ready; no git action approved.
+- **Changelog grouping**：`docs/CHANGELOG.md` belongs with V1-minimal release evidence docs; it does not imply public release ready.
+- **Working tree status**：dirty working tree recorded in `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; Build&Test ownership audit recorded in `docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`; `admin/admin.js` and `bind.js` remain `Unknown / hold`, Pages stats-v1 changes are excluded from V1-minimal release consideration, and the CWS least-permission/test-timing cleanup package remains dirty/uncommitted with minimum verification passed.
 - **GitHub status**：local commit planned; no push or tag without separate Product Owner approval.
 
 ### V1-minimal out of scope
@@ -142,13 +191,12 @@
 - AI content classification
 - composite routing rebuild
 - 当前时间借用实现（borrow time / borrow quota）进入发布范围
-- `statsFoundationV1SyncEnabled` 启用
 - legacy D1 cleanup/migration
 - admin UI redesign
 - historical data backfill
 - site classification policy expansion
 
-> 注：上述 out-of-scope 中“`statsFoundationV1SyncEnabled` 启用”已被 D-035 覆盖为 V1-minimal 必选项；此处历史条目保留以说明范围演进。
+> 历史说明：`statsFoundationV1SyncEnabled` 曾列为 out-of-scope；按 D-035 已调整为 V1-minimal 的 Cloud Stats v1 minimal sync gate。当前 V1-minimal release truth path 是 `usage_segments_v1` + `stats_v1`。
 
 ### V1-minimal 范围补充（time borrowing）
 - V1-minimal 不包含当前实现中的时间借用路径（runtime / UI / message）。
@@ -187,7 +235,7 @@
 **范围确认**
 - 未改 Cloud Worker / D1。
 - 未改 stats schema。
-- 未启用 `statsFoundationV1SyncEnabled`。
+- 该 time borrowing 禁用子任务本身未负责启用 `statsFoundationV1SyncEnabled`；当前 V1-minimal Cloud Stats v1 minimal sync gate 另见 D-035 与下方 Cloud Stats v1 evidence。
 - 未改网站分类策略。
 - 未做三模式/综合路由重构。
 

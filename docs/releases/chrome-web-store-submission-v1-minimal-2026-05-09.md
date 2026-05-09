@@ -1,6 +1,19 @@
-# Chrome Web Store Submission Text - V1-minimal - 2026-05-09
+# Chrome Web Store Submission Record - V1-minimal - 2026-05-09
 
-This file prepares Chrome Web Store submission copy only. It does not authorize upload or final Submit for Review.
+## Status
+
+This file records the Chrome Web Store submission copy and permission rationale for the V1-minimal reduced-permission package.
+
+Current recorded state:
+
+- CWS package: `dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
+- CWS package SHA256: `BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
+- Manifest version: `1.7.2`
+- CWS dashboard status: `TimeOnChrome 1.7.2` submitted / `待审核`
+- Public release: not completed
+- Deferred publishing / public release close-out: pending Product Owner decision after CWS review state is known
+
+This file does not authorize public release, tag, push, merge, or any further Chrome Web Store action.
 
 ## Listing
 
@@ -26,7 +39,7 @@ The extension separates browsing into study, composite, and rest modes. Study si
 V1-minimal focuses on a reliable release foundation:
 
 - Visible Study / Composite / Rest mode state in the popup.
-- Gentle in-page notices when mode transitions happen.
+- Gentle notices when mode transitions happen.
 - Safer mode switching with clear confirmation for higher-friction transitions.
 - Usage accounting for foreground browsing, background media, fullscreen video, and Picture-in-Picture.
 - Durable local usage segments with cloud sync support for release readiness.
@@ -58,6 +71,23 @@ V1-minimal release candidate:
 TimeOnChrome helps families manage and understand student Chrome usage by classifying browsing time into study, composite, and rest modes, showing reminders, and syncing usage/configuration data for the family account.
 ```
 
+### Current reduced-permission package
+
+The CWS resubmission package is documented as using:
+
+```text
+tabs
+storage
+alarms
+declarativeNetRequest
+webNavigation
+idle
+notifications
+host_permissions: <all_urls>
+```
+
+This document intentionally does not justify permissions removed from the reduced-permission package, including `declarativeNetRequestFeedback`, `management`, or `scripting`.
+
 ### Permission justification
 
 ```text
@@ -67,17 +97,13 @@ storage: Needed to store local configuration, usage summaries, session state, sy
 
 alarms: Needed for periodic sync, heartbeat, daily reset, and usage checkpoint tasks.
 
-declarativeNetRequest and declarativeNetRequestFeedback: Needed to apply and diagnose site access rules locally in Chrome.
+declarativeNetRequest: Needed to apply site access rules locally in Chrome.
 
 webNavigation: Needed to detect navigation changes and apply mode/access decisions to the current page.
 
 idle: Needed to avoid counting idle time as active foreground usage.
 
-management: Needed to inspect extension state for local diagnostics.
-
 notifications: Needed for fallback user-visible notices when in-page delivery is unavailable.
-
-scripting: Needed to deliver in-page mode notices to eligible pages.
 
 host permissions <all_urls>: Needed because site classification and usage accounting depend on the domain of the page being visited across the web.
 ```
@@ -95,7 +121,7 @@ Usage data is used only to provide time management, access-rule, and reporting f
 ```text
 Recommended publishing mode: deferred publishing after Chrome Web Store review.
 
-Do not click final Submit for Review until Product Owner separately confirms the release submission step.
+The reduced-permission package has been submitted for review. Public release remains pending and requires separate Product Owner release close-out approval.
 ```
 
 ## Reviewer test instructions
@@ -116,10 +142,12 @@ Notes:
 - Legacy cloud stats cleanup is out of scope; V1-minimal uses usage_segments_v1 + stats_v1 as the active release truth path.
 ```
 
-## Final submission gate
+## Final submission / public release gate
 
 ```text
-Prepared only. Not uploaded. Not submitted.
+Reduced-permission package submitted for Chrome Web Store review.
+CWS dashboard status recorded as: 待审核.
+Public release not completed.
 
-Final Chrome Web Store Submit for Review requires separate Product Owner approval.
+Do not perform public release, tag, push, merge, or any further Chrome Web Store action without separate Product Owner approval.
 ```

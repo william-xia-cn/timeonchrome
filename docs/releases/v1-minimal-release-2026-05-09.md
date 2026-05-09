@@ -6,11 +6,14 @@
 - Manifest version: `1.7.2`
 - Release line: V1-minimal release candidate
 - Branch: `master`
-- Source commit: this release preparation commit
+- Source commit: `e3f62391813a22f821aa79356db147da86f0fb49`
 - Release package: `dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
 - SHA256: `A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
 - Size: `141357` bytes
 - Package file count after extraction: `38`
+- Chrome Web Store resubmission package: `dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
+- Chrome Web Store resubmission SHA256: `BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
+- Chrome Web Store status: `TimeOnChrome 1.7.2` submitted / `待审核`
 
 ## Artifact verification
 
@@ -47,19 +50,18 @@ Extraction verification result:
 
 ## Required non-actions
 
-- Chrome Web Store upload was not performed.
-- Chrome Web Store Submit for Review was not clicked.
+- No public release was performed.
 - No Worker deploy was performed.
 - No D1 migrations were run.
 - No D1 writes were performed.
 - No legacy stats cleanup was performed.
-- No production Chrome profile was used.
 - No tag or push was performed as part of this local release preparation.
 
 ## Known risks carried forward
 
-- Chrome Web Store permissions/privacy audit text is prepared but requires Product Owner review before upload/submission.
-- Windows/macOS real Chrome smoke was previously skipped for gate-matrix purposes; no new production-profile smoke was run in this task.
+- Chrome Web Store reduced-permission package has been submitted and is currently `待审核`; this is not a public release.
+- ReleaseMg production acceptance remains PARTIAL / NOT CLOSED until production-profile readonly smoke is completed or explicitly waived.
+- Windows/macOS real Chrome smoke remains deferred unless separately completed and recorded.
 - Legacy cloud `stats` table cleanup remains out of scope; V1-minimal release truth is `usage_segments_v1` + `stats_v1`.
 - Manual Recovery/System evidence is operator-confirmed and must not be represented as fully automated PASS.
 - Time borrowing remains disabled/deferred and must not be presented as active V1-minimal functionality.

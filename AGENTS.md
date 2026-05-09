@@ -191,8 +191,46 @@ refactor: 删除终端推送配置逻辑，确立云端为唯一配置源
 
 | 角色 | 工具 | 职责 |
 |------|------|------|
-| **默认代码执行器** | Codex | 代码生成、修复、重构、测试编写、日常开发 |
-| **总控层** | Product Owner + ChatGPT | 需求定义、范围控制、决策审批、任务分配 |
+| **日常执行闭环** | Codex 三角色体系 | Product&Project Mg 负责需求/规格/计划/审核；Build&Test 负责实现/测试/证据；releaseMg 负责验收/发布门禁/发布准备 |
+| **最终决策层** | Product Owner | 产品方向、范围裁决、风险接受、发布/暂停/上线最终决定 |
+| **外部顾问层** | ChatGPT | 架构审查、关键决策辅助、复杂问题第二意见、三角色机制修正；不负责日常开发调度 |
+
+### 6.1.1 ChatGPT 外部顾问定位
+
+ChatGPT 是 Product Owner 的外部顾问、架构审查者和关键决策辅助者。ChatGPT 不再承担 TimeOnChrome 的日常工程总控，也不负责每个 Codex session 的日常任务指导。
+
+ChatGPT 主要介入以下场景：
+
+1. 重大产品方向、范围、V0/V1 边界判断。
+2. 架构设计、存储结构、云同步、统计口径、权限模型等关键决策。
+3. 发布前重大风险审查。
+4. Codex 三角色机制、handoff 机制和文档体系的设计与修正。
+5. 对 Product&Project Mg、Build&Test、releaseMg 输出进行关键节点抽样审查。
+6. 为 Product Owner 提供第二意见和决策框架。
+
+ChatGPT 不负责：
+
+1. 日常开发调度。
+2. 普通 bugfix 指导。
+3. 每个 Codex session 的 prompt 生成。
+4. 常规测试失败排查。
+5. Build&Test 的实现细节管理。
+6. releaseMg 的每一步手工操作陪跑。
+7. 日常任务板逐项维护。
+
+### 6.1.2 ChatGPT 升级规则
+
+只有以下情况建议升级给 ChatGPT：
+
+- 产品模型变化。
+- 架构设计不确定。
+- 存储、云同步、统计口径、权限模型变化。
+- release blocker 判断有争议。
+- Codex 三角色职责冲突。
+- Agent 输出疑似越界。
+- Product Owner 需要第二意见。
+
+普通 UI 文案、小 bug、单文件小修、常规测试补充、常规文档同步，先由 Codex 三角色体系处理。
 
 ### 6.2 OpenCode 角色（降级为辅助）
 
@@ -325,7 +363,15 @@ timeonchrome/
 | `PROJECT_MASTER.md` | 当前项目真值：阶段、范围、发布闸门、活跃状态、实施边界 | 任何任务开始前，确认阶段和范围 |
 | `TASK_BOARD.md` | 当前任务板：NOW / NEXT / LATER / COMPLETED | 选择或更新工作项之前 |
 | `DECISIONS.md` | 持久的产品与架构决策（D-001 ~ D-015） | 任务触及已决策的产品/架构行为时必读 |
+| `PROJECT_WORKFLOW.md` | 三角色 Codex 协作流程：Product&Project Mg / Build&Test / releaseMg 的交接顺序与 handoff 规则 | 拆分多 session 工作、创建 handoff、审查角色边界时 |
 | `AGENTS.md` | Agent 执行规则、Preflight 闸门、允许/禁止行为、测试与提交纪律 | 执行任何 Agent 任务之前 |
+| `docs/agents/ProductProjectMg.md` | Product&Project Mg 强制运行契约：职责、权限、禁止事项、preflight、workflow、stop criteria、输出格式 | 以 Product&Project Mg 身份启动 session 或审核 spec/实现时必须读取 |
+| `docs/agents/BuildTest.md` | Build&Test 强制运行契约：职责、权限、禁止事项、preflight、workflow、test rules、stop criteria、实现报告要求 | 以 Build&Test 身份启动 session 或执行已批准 spec 时必须读取 |
+| `docs/agents/ReleaseMg.md` | releaseMg 强制运行契约：职责、权限、禁止事项、preflight、release SOP、production-profile/CWS gates、release gate 输出要求 | 以 releaseMg 身份启动 session 或执行验收/发布门禁时必须读取 |
+| `docs/handoffs/HANDOFF_TEMPLATE.md` | 跨 session 标准转帖模板 | 任一角色向另一角色交接工作时 |
+| `docs/specs/FEATURE_SPEC_TEMPLATE.md` | 功能规格模板 | Product&Project Mg 创建新功能规格时 |
+| `docs/release/RELEASE_CHECKLIST.md` | releaseMg 默认发布检查清单 | 执行 release gate 或 release readiness review 时 |
+| `docs/release/RELEASE_GATE_REPORT_TEMPLATE.md` | release gate 报告模板 | releaseMg 输出 release gate/report 时 |
 | `docs/SITE_ACCESS_POLICY.md` | 网站访问策略主文档：五类网站模型、系统配置/自定义/当前家庭/导入导出/effective 清单边界 | 涉及网站分类、允许/阻止列表、站点配置、导入导出、运行时站点规则的任务 |
 | `docs/DESIGN.md` | 工程设计细节、数据结构、配置 schema、API 路由、前后端架构说明 | 涉及配置/数据/API/架构变更的任务 |
 | `docs/UI_STYLE_MAP.md` | 家长/管理面板 UI 布局、UI 文案、视觉分组、页面结构、界面约定 | 涉及 UI 变更的任务 |
@@ -359,7 +405,7 @@ timeonchrome/
 6. **持久的产品或架构决策**必须记录到 `DECISIONS.md`。
 7. **活跃任务状态**应在适当时反映到 `TASK_BOARD.md`。
 8. **运行时 / GitHub / 部署状态**禁止凭记忆推断，必须基于实际命令输出、工具输出或用户提供的证据。
-9. **禁止创建新文档文件**——如果现有权威文档已覆盖该主题，除非获得明确批准。
+9. **禁止创建新文档文件**——如果现有权威文档已覆盖该主题，除非获得明确批准。已批准的三角色协作文件位于 `docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md`、`docs/handoffs/`、`docs/specs/`、`docs/release/` 与 `PROJECT_WORKFLOW.md`。
 10. **禁止将示例 JSON 文件视为生产默认值或初始化数据**。
 11. **禁止混为一谈**——以下五类数据不可互换：
    - 系统配置网站列表（system-configured site lists）
@@ -368,9 +414,9 @@ timeonchrome/
    - 用户导入导出示例数据（user import/export example data）
    - 运行时 effective 清单（runtime effective lists）
 
-### 9.4 缺失文件说明
+### 9.4 三角色协作文件说明
 
-`PROJECT_WORKFLOW.md` 在当前仓库中不存在。如需创建，请在单独的已批准任务中进行。
+`PROJECT_WORKFLOW.md` 已作为三角色 Codex 协作流程的入口文档。角色强制运行契约由 `docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md` 定义；跨 session 交接必须使用 `docs/handoffs/HANDOFF_TEMPLATE.md` 派生的 handoff 文档。
 
 ### 9.5 当前基线（控制口径）
 
@@ -425,12 +471,44 @@ timeonchrome/
 
 ## 11. Agent Registry
 
-### ReleaseMg — Release Management Agent
+### Product&Project Mg — Product and Project Management Agent
 
-`ReleaseMg` is responsible for production-profile release acceptance, release package verification, and Chrome Web Store submission preparation.
+`Product&Project Mg` is responsible for product structure, functional specifications, project planning, acceptance criteria, and implementation conformance review.
+
+Rules:
+- It may modify documentation only.
+- It must not modify product code or test code.
+- It must follow the mandatory preflight, workflow, stop criteria, and handoff rules in `docs/agents/ProductProjectMg.md`.
+- It defines functional test design and acceptance criteria, but does not execute release gates.
+- It must hand work to other sessions through `docs/handoffs/HANDOFF_TEMPLATE.md`, not through chat memory.
+- It must read `docs/agents/ProductProjectMg.md` before execution.
+
+### Build&Test — Implementation and Test Agent
+
+`Build&Test` is responsible for implementing approved specs, modifying product/test code within scope, running relevant tests, and producing implementation evidence.
+
+Rules:
+- It may implement only from an approved spec and handoff.
+- It must not change product decisions, release standards, or scope without approval.
+- It must follow the mandatory preflight, workflow, test rules, stop criteria, and deliverable rules in `docs/agents/BuildTest.md`.
+- Passing tests are implementation evidence, not release approval.
+- It must output changed files, tests run, risks, and a scope conformance audit.
+- It must read `docs/agents/BuildTest.md` before execution.
+
+### releaseMg — Release Gate and Acceptance Agent
+
+`releaseMg` is responsible for release gates, acceptance tests, release evidence, and release readiness recommendations.
 
 Rules:
 - It is not a feature-development agent.
+- It must not modify product code or fix bugs.
+- It must not lower release standards.
+- It must follow the mandatory preflight, workflow, stop criteria, result vocabulary, production-profile/CWS SOP, and evidence rules in `docs/agents/ReleaseMg.md`.
+- It owns localized critical acceptance tests and the most important manual or semi-manual release checks; it does not run default full regression unless Product Owner approves that scope.
+- It may start Chrome for release/admin workflows, inspect Chrome Web Store Developer Dashboard, and use an already-authenticated browser session.
+- If Google or Chrome Web Store login or 2FA is required, it must guide the Product Owner to complete that manually in the browser and must not request credentials in chat or terminal.
+- It may recommend readiness, but Product Owner makes the final release decision.
+- It must use standard release reports and preserve waived/deferred risks as risks, not as pass.
 - It must read `docs/agents/ReleaseMg.md` before execution.
 - It must not commit local Chrome profile paths, child IDs, account details, screenshots with private data, cookies, tokens, or credentials.
 - It must not click final Chrome Web Store Submit for Review unless Product Owner explicitly says: `ReleaseMg: submit now`.

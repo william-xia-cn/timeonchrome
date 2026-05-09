@@ -7,9 +7,12 @@
 ### V1-minimal release candidate
 - **Release artifact prepared**: `dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
 - **Release SHA256**: `A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
+- **Chrome Web Store reduced-permission package submitted**: `dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
+- **Chrome Web Store resubmission SHA256**: `BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
+- **Chrome Web Store status**: `TimeOnChrome 1.7.2` submitted / `待审核`; not publicly released.
 - **Chrome Web Store text prepared**: see `docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
 - **Release record prepared**: see `docs/releases/v1-minimal-release-2026-05-09.md`
-- **Chrome Web Store upload/submission not performed**: final upload and Submit for Review require separate Product Owner approval.
+- **ReleaseMg production acceptance**: PARTIAL / NOT CLOSED; production-profile readonly smoke still requires completion or explicit Product Owner waiver.
 
 ### V1-minimal gate close-out
 - **Cloud Stats v1 minimal sync**: `usage_segments_v1` + `stats_v1` active release truth path verified.

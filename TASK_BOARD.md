@@ -4,13 +4,33 @@
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
 
+## Active Collaboration Model
+- [x] 三角色 Codex 协作基线已建立（docs-only）
+  - `Product&Project Mg`：spec / plan / acceptance criteria / implementation review
+  - `Build&Test`：implementation / unit and integration tests / evidence
+  - `releaseMg`：acceptance / release gate / readiness recommendation
+  - Mandatory role contracts：`docs/agents/ProductProjectMg.md`、`docs/agents/BuildTest.md`、`docs/agents/ReleaseMg.md`
+  - Standard handoff only：`docs/handoffs/HANDOFF_TEMPLATE.md`
+  - Workflow entry：`PROJECT_WORKFLOW.md`
+- [x] ChatGPT role adjusted to external advisor
+  - ChatGPT：external advisor / architecture reviewer / decision support
+  - Not daily scheduler, not routine bugfix guide, not every-session prompt generator
+  - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
+
 ## V1-minimal must-have（release readiness）
-- [ ] release gate matrix reset（V1-minimal 口径）
+- [x] release gate matrix reset（V1-minimal 口径 docs matrix created; releaseMg validation/execution pending）
+- [x] V1-minimal close-out plan（docs-only board created: `docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`）
+- [x] working tree status inventory（docs-only inventory created: `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; ownership not closed）
+- [x] dirty product/test working-tree ownership audit（Build&Test report created: `docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`）
+- [x] Product Owner decision brief（docs-only brief created: `docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`）
+- [x] Product Owner decision proposal（docs-only proposal created: `docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`）
+- [x] Build&Test worktree ownership handoff（`docs/handoffs/outbox/HANDOFF-v1-minimal-worktree-ownership-to-build-test.md`）
 - [x] Cloud Stats v1 minimal sync gate（usage_segments_v1 + stats_v1）
-- [x] Chrome Web Store submission text preparation（prepared only; not uploaded/submitted）
+- [x] Chrome Web Store reduced-permission package submitted（CWS status: `待审核`; not publicly released）
 - [x] manifest permissions / host permissions wording review（submission text prepared）
 - [x] privacy / data collection wording review（submission text prepared）
 - [ ] macOS + Windows real Chrome smoke verification
+- [ ] ReleaseMg production-profile readonly smoke completion or explicit PO waiver
 - [x] package build verification
 - [x] final known risks section
 
@@ -21,7 +41,13 @@
 - [x] Package excludes `docs/`, `tests/`, `workers/`, `pages/`, `node_modules/`, `.env`, `.wrangler`, local Chrome profile data, cookies/history/login data
 - [x] Release record prepared: `docs/releases/v1-minimal-release-2026-05-09.md`
 - [x] Chrome Web Store submission text prepared: `docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
-- [ ] Chrome Web Store upload/submission（blocked pending separate PO approval）
+- [x] Chrome Web Store reduced-permission package submitted: `dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
+- [x] Chrome Web Store resubmission SHA256 recorded: `BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
+- [x] Chrome Web Store status recorded: `TimeOnChrome 1.7.2` submitted / `待审核`
+- [x] ReleaseMg readonly readiness report recorded: `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` — `BLOCKED / NOT READY FOR PUBLIC RELEASE`
+- [ ] Public release（blocked until Chrome Web Store review completes and PO approves release close-out）
+- [ ] ReleaseMg production acceptance close-out（currently PARTIAL / NOT CLOSED; production-profile readonly smoke incomplete）
+- [x] Dirty product/test working-tree ownership classification audit completed（remaining PO decisions open）
 - [ ] Git push/tag（blocked pending separate PO approval）
 
 ## V1-minimal out of scope（本轮不做）
@@ -29,13 +55,12 @@
 - [ ] AI content classification
 - [ ] composite routing rebuild
 - [ ] 当前 time borrowing / borrow quota 实现纳入发布范围
-- [ ] 启用 `statsFoundationV1SyncEnabled`
 - [ ] legacy D1 cleanup/migration
 - [ ] admin UI redesign
 - [ ] historical data backfill
 - [ ] site classification policy expansion
 
-> 备注：`statsFoundationV1SyncEnabled` 历史上曾列为 out-of-scope；按 D-035 已调整为 V1-minimal 必选门。该行待后续任务清理为最终口径。
+> 历史备注：`statsFoundationV1SyncEnabled` 曾列为 out-of-scope；按 D-035 已调整为 V1-minimal 必选门。当前 V1-minimal release truth path 是 `usage_segments_v1` + `stats_v1`。
 
 ## V1-minimal scope close-out（time borrowing）
 - [x] 当前 time borrowing / borrow quota 实现路径已禁用（runtime + UI）
@@ -53,6 +78,31 @@
   - `storage-aggregation-convergence 36/36`
 
 ## NOW（P0）
+- [x] [V1-minimal] Docs-only close-out plan created（`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`）
+- [x] [V1-minimal] Working tree status inventory recorded（`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; ownership not closed）
+- [x] [V1-minimal] Build&Test dirty product/test ownership audit recorded（`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`）
+- [x] [V1-minimal] Product Owner decision brief created（`docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`）
+- [x] [V1-minimal] Product Owner decision proposal created（`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`）
+- [x] [V1-minimal] Product Owner approved default decision proposal（`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`）
+- [x] [V1-minimal] Build&Test CWS least-permission report handoff created（`docs/handoffs/outbox/HANDOFF-cws-least-permission-report-to-build-test.md`）
+- [x] [V1-minimal] Build&Test worktree ownership handoff created（`docs/handoffs/outbox/HANDOFF-v1-minimal-worktree-ownership-to-build-test.md`）
+- [x] [V1-minimal] releaseMg readonly readiness report recorded（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`; result `BLOCKED / NOT READY FOR PUBLIC RELEASE`）
+- [ ] [V1-minimal] production-profile readonly smoke completion / defer / waiver decision
+- [ ] [V1-minimal] Windows/macOS real Chrome smoke completion / defer / waiver decision
+- [ ] [V1-minimal] Product Owner decisions on worktree audit findings（admin/bind unknown hold; Pages stats-v1 excluded/route later; CWS least-permission package commit/hold/rebuild decision）
+- [ ] [V1-minimal] Product Owner approval/revision of `docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`
+- [x] [V1-minimal] Build&Test CWS least-permission implementation report recorded（`docs/audits/CWS_LEAST_PERMISSION_IMPLEMENTATION_REPORT_2026-05-09.md`; tests not run）
+- [x] [V1-minimal] Product Owner decision on CWS least-permission minimal verification plan（authorized）
+- [x] [V1-minimal] Product Owner authorized CWS least-permission minimal verification only（no fixes/rebuild/commit/release）
+- [x] [V1-minimal] Build&Test CWS least-permission minimal verification handoff created（`docs/handoffs/outbox/HANDOFF-cws-least-permission-min-verify-to-build-test.md`）
+- [x] [V1-minimal] Build&Test CWS least-permission minimal verification report recorded（`docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`; unit 193/193, E2E 7/7 passed after Playwright sandbox blocker handled）
+- [x] [V1-minimal] Git/local consistency audit recorded（`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`; remote not verified）
+- [x] [V1-minimal] Commit set plan recorded（`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`; no commit approved）
+- [x] [V1-minimal] Commit approval proposal recorded（`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`; no git action approved）
+- [ ] [V1-minimal] Product Owner decision on CWS least-permission package commit / hold / rebuild
+- [ ] [V1-minimal] Product Owner decision on local commit set plan / remote consistency check
+- [ ] [V1-minimal] Product Owner decision on commit approval proposal
+- [x] [V1-minimal] `docs/CHANGELOG.md` grouping reviewed（include in release evidence commit set; not a release-ready claim）
 - [x] [V0] V0 RC package validation
 - [x] [V0] RC internal install validation (Chrome unpacked)
 - [x] [V0] Pages deployment readiness
@@ -98,7 +148,7 @@
     - 孩子是否应访问详细使用分析统计？（当前已通过 Soft Gate 允许）
     - 未绑定设备时，孩子应看到什么操作入口？（当前显示简化提示"请联系家长完成设备绑定"）
   - Stage 2（V1 规划）：新建独立 `terminal/usage.html` 孩子只读页，彻底拆分 admin.html 的家长 setup 职责 → 见 P2 项
-- [ ] **[Later/P1 or P2] Chrome Web Store submission** — separate future task, not part of this release closeout
+- [ ] **[P0] Chrome Web Store review follow-up / public release close-out** — reduced-permission package submitted; CWS status `待审核`; public release remains blocked until CWS review state is known and Product Owner approves release close-out
 
 ## LATER（P2）
 - [ ] [V1] macOS smoke checklist 执行与记录（`docs/macos_v0_smoke_test_checklist.md`）
@@ -108,6 +158,7 @@
   - 状态：Windows 本地 `spawn EPERM` 环境阻塞；Product Owner accepted V0 release risk（deferred, not passed）
   - 口径：该项从 V0 active blocker 移至 V1 follow-up
 - [ ] [V1] 凌晨休息时间限制：允许配置凌晨不可用于休息时间，防止熬夜娱乐
+- [ ] [V1] PiP cleanup permission alignment：移除 `product/interceptor.js` 中 `chrome.scripting?.executeScript` 的可选 PiP cleanup 分支，只保留 `chrome.tabs.sendMessage(tabId, { type: 'EXIT_PIP' })` content-script 路径；目标是让 production source 与最小权限 manifest/CWS 审核口径完全一致
 - [ ] [V1] 工程性优化票（非用户价值主线）
 - [ ] **[P2] Admin CSP 控制台告警未解（已知问题）**
   - 当前状态：`admin/admin.html?view=stats` 仍可能出现 `Executing inline event handler violates Content Security Policy` 告警，尚未捕获可行动的唯一来源

@@ -1,0 +1,113 @@
+# ReleaseMg Production Acceptance - 2026-05-09
+
+## Release identity
+
+- Product: TimeOnChrome
+- Version: `1.7.2`
+- Commit: `e3f62391813a22f821aa79356db147da86f0fb49`
+- Source release artifact: `dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
+- Source release artifact SHA256: `A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
+- CWS resubmission artifact: `dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
+- CWS resubmission artifact SHA256: `BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
+- Source manifest version: `1.7.2`
+- CWS resubmission artifact manifest version: `1.7.2`
+- CWS resubmission artifact permissions: `tabs`, `storage`, `alarms`, `declarativeNetRequest`, `webNavigation`, `idle`, `notifications`; host permission `<all_urls>`
+- Installed extension version: not verified in this run; see `ARTIFACT-PARITY`
+- CWS dashboard version: `1.7.2`
+- CWS dashboard status: `待审核`
+- Public release status: not publicly released
+- Overall ReleaseMg production acceptance: PARTIAL / NOT CLOSED
+- Chrome profile: production profile was referenced only through the approved ReleaseMg mechanism; private local path omitted
+
+## Execution scope
+
+| Item | Value |
+|---|---|
+| Production profile used | Yes, read-only inspection attempted |
+| Gate.Test profile used | No |
+| Destructive actions allowed | No |
+| Config changes allowed | No |
+| CWS submit allowed | No |
+| Cloud/D1 writes allowed | No |
+| Worker deploy allowed | No |
+| Migration allowed | No |
+| Screenshots captured | No |
+
+## Results
+
+| Case | Result | Evidence summary | Notes |
+|---|---|---|---|
+| PREFLIGHT | PASS | Current branch is `master`; current commit is `e3f62391813a22f821aa79356db147da86f0fb49`; `manifest.json` version is `1.7.2`; known risks are carried forward below. | Workspace is dirty with unrelated pre-existing changes; this report does not clean or modify them. |
+| ARTIFACT-PARITY | PARTIAL | Source release artifact exists and hash matches the recorded release record. CWS resubmission artifact exists, hash is recorded, and its manifest version is `1.7.2`. CWS dashboard shows version `1.7.2`. | The source release artifact still contains previously rejected permissions; the CWS resubmission artifact is the reduced-permission package. Installed extension version could not be verified from the inspected production profile. |
+| POPUP-CORE | BLOCKED | TimeOnChrome popup could not be opened from the inspected production profile because the extension was not verifiably registered/enabled in the inspected profile state. | No profile data was cleared, rebound, or modified. |
+| BIND-SYNC | PARTIAL | Prior recorded production-profile hydration evidence in `PROJECT_MASTER.md` shows bound-state cloud identity hydration and successful force sync without exposing private identifiers. | This run did not re-trigger sync and did not print child/profile/device identifiers. Current live production-profile extension registration was not verified. |
+| CWS-STATUS | PASS | Chrome Web Store Developer Dashboard opened in an authenticated browser session. Product row showed `TimeOnChrome`, version `1.7.2`, status `待审核`, last updated 2026-05-09. | Account details were intentionally omitted. No upload or submit action was performed in this run. |
+| TIMING-SANITY-LIGHT | DEFERRED | Not performed. | Deferred because live production extension registration/popup was not verified in this read-only run. Automated timing coverage remains documented in `v1-minimal-core-acceptance-coverage-2026-05-09.md`. |
+| MODE-SWITCH | DEFERRED | Not performed. | Deferred to avoid disturbing production state. Automated and prior manual evidence remain documented; this report does not convert that evidence into production-profile PASS. |
+| ACCESS-CLASSIFICATION | DEFERRED | Not performed. | Deferred to avoid mutating browsing state or site-rule state in the production profile. Automated routing/reminder evidence remains documented. |
+| RECOVERY-SMOKE | DEFERRED | Not performed. | Deferred in this report because recovery smoke requires explicit PO approval and can disturb a live production session. Recovery/System Gate remains `PASS_WITH_MANUAL_EVIDENCE` from prior Gate.Test close-out. No Product Owner waiver is recorded in this report. |
+| EVIDENCE-PRIVACY | PASS | This report contains no child ID, account email, token, cookie, password, private screenshot, local Chrome profile path, raw profile ID, raw device ID, or raw D1 output. | Only redacted release-management facts are recorded. |
+
+## Artifact notes
+
+The original V1-minimal source release artifact is preserved as release-preparation evidence, but it predates the Chrome Web Store permission rejection remediation and still contains permissions that were later removed from the CWS resubmission package.
+
+The current CWS-relevant package for this report is:
+
+```text
+dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip
+```
+
+Its manifest aligns with the current source `manifest.json` permission set:
+
+```text
+tabs, storage, alarms, declarativeNetRequest, webNavigation, idle, notifications
+host_permissions: <all_urls>
+```
+
+## Chrome Web Store readiness
+
+- Listing checked: previously updated during CWS resubmission workflow; not modified in this run
+- Privacy checked: previously updated during CWS resubmission workflow; not modified in this run
+- Distribution checked: not modified in this run
+- Test instructions checked: previously updated during CWS resubmission workflow; not modified in this run
+- Deferred publishing selected: not re-verified in this run
+- Current CWS status: `待审核`
+
+## Known risks carried forward
+
+- Legacy cloud `stats` duplicate historical risk remains a `KNOWN_RISK`; V1-minimal release truth is `usage_segments_v1` + `stats_v1`.
+- V1-minimal release records have been aligned to state that a reduced-permission package was submitted and CWS currently shows `待审核`; this remains not publicly released.
+- Production installed-extension version and popup/bind smoke were not completed in this report because TimeOnChrome was not verifiably registered/enabled in the inspected production profile state.
+- Windows/macOS real Chrome smoke remains deferred unless separately completed and recorded.
+- Manual Recovery/System evidence remains operator-confirmed evidence, not fully automated evidence.
+- Time borrowing remains disabled/deferred for V1-minimal.
+- Full V1 model, AI classification, composite routing rebuild, legacy stats cleanup, Worker deploy, D1 migration/write, and production data cleanup remain out of scope.
+
+## Stop / rollback criteria triggered
+
+- TimeOnChrome installed extension could not be verified in the inspected production profile state.
+- Because of that, ReleaseMg did not proceed to popup, timing, mode-switch, access-classification, or recovery actions.
+
+No destructive stop condition was triggered. No logout, rebind, storage clear, rule change, quota change, sync write, Worker deploy, D1 migration, D1 write, or CWS upload/submit was performed.
+
+## Waivers and deferrals
+
+| Item | Result | Reason | Approved by |
+|---|---|---|---|
+| TIMING-SANITY-LIGHT | DEFERRED | Production extension popup/registration was not verified in this read-only run. | ReleaseMg SOP boundary |
+| MODE-SWITCH | DEFERRED | Avoid disturbing real production mode state. | ReleaseMg SOP boundary |
+| ACCESS-CLASSIFICATION | DEFERRED | Avoid live browsing/rule-state disturbance. | ReleaseMg SOP boundary |
+| RECOVERY-SMOKE | DEFERRED | Recovery smoke requires explicit PO approval and can disturb the live session. No explicit Product Owner waiver is recorded in this report. | ReleaseMg SOP boundary |
+
+## Final decision
+
+- Public release claimed: no
+- Chrome Web Store status claimed: `待审核`
+- Submit for review performed in this run: no
+- Product Owner approval phrase for this run: not provided and not needed; no final submission action was attempted
+- Remaining release blocker: installed extension / popup / production bound profile readonly smoke must be re-run on a profile where TimeOnChrome is verifiably installed and enabled, or explicitly waived by Product Owner
+
+## Private data policy
+
+PASS. No child ID, token, cookie, password, account details, private screenshots, local Chrome profile path, raw profile identifiers, raw device identifiers, or raw D1 output are recorded in this report.
