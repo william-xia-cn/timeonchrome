@@ -10,12 +10,9 @@
     "storage",
     "alarms",
     "declarativeNetRequest",
-    "declarativeNetRequestFeedback",
     "webNavigation",
     "idle",
-    "management",
-    "notifications",
-    "scripting"
+    "notifications"
   ],
 
   "host_permissions": ["<all_urls>"],
