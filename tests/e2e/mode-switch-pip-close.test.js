@@ -65,18 +65,35 @@ async function createContext(initialMode) {
 async function cleanup(ctx, udd, server) {
   if (ctx) await ctx.close();
   if (server) await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   if (udd && fs.existsSync(udd)) fs.rmSync(udd, { recursive: true, force: true });
 }
 
-async function sendRuntimeMessage(sw, type, tabId) {
-  return await sw.evaluate(async ({ messageType, tabId }) => {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: async (payloadType) => chrome.runtime.sendMessage({ type: payloadType }),
-      args: [messageType],
-    });
-    return result?.result || null;
-  }, { messageType: type, tabId });
+async function tabIdForPage(sw, page) {
+  const pageUrl = page.url();
+  return await sw.evaluate(async (targetUrl) => {
+    const tabs = await chrome.tabs.query({});
+    const tab = tabs.find((t) => t.url === targetUrl);
+    if (tab?.id) return tab.id;
+    const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return active?.id || null;
+  }, pageUrl);
+}
+
+async function sendRuntimeMessage(ctx, sw, page, type) {
+  await page.bringToFront();
+  const targetTabId = await tabIdForPage(sw, page);
+  const runtimeUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
+  const extensionPage = await ctx.newPage();
+  try {
+    await extensionPage.goto(runtimeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    return await extensionPage.evaluate(async ({ messageType, targetTabId }) => {
+      if (targetTabId) await chrome.tabs.update(targetTabId, { active: true });
+      return await chrome.runtime.sendMessage({ type: messageType, noticeTabId: targetTabId });
+    }, { messageType: type, targetTabId });
+  } finally {
+    await extensionPage.close().catch(() => {});
+  }
 }
 
 async function forceRuntimeMode(sw, mode) {
@@ -106,44 +123,70 @@ async function triggerAutoTransitionHarness(sw, nowStartMs, nowEndMs, tabId) {
   }, { start: nowStartMs, end: nowEndMs, tabId });
 }
 
-async function seedFakePiP(page, sw) {
-  await page.evaluate(() => {
-    let active = true;
-    let exitCalls = 0;
-    const fakeElement = { tagName: 'VIDEO' };
-    Object.defineProperty(document, 'pictureInPictureElement', {
-      configurable: true,
-      get() {
-        return active ? fakeElement : null;
-      },
-    });
-    document.exitPictureInPicture = async () => {
-      exitCalls += 1;
-      active = false;
-    };
-    window.__tocFakePipPageState = () => ({ active, exitCalls });
+async function activeTabId(sw) {
+  return await sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tab?.id || null;
   });
+}
+
+async function seedFakePiP(page, sw) {
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(250);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.evaluate(() => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 180;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '24px sans-serif';
+        ctx.fillText('TimeOnChrome PiP', 40, 95);
+
+        const video = document.createElement('video');
+        video.id = 'toc-pip-video';
+        video.muted = true;
+        video.playsInline = true;
+        video.autoplay = true;
+        video.srcObject = canvas.captureStream(1);
+        video.style.width = '320px';
+        video.style.height = '180px';
+        document.body.append(video);
+
+        let exitEvents = 0;
+        video.addEventListener('leavepictureinpicture', () => {
+          exitEvents += 1;
+        });
+
+        const button = document.createElement('button');
+        button.id = 'toc-open-pip';
+        button.textContent = 'Open PiP';
+        button.addEventListener('click', async () => {
+          await video.play();
+          await video.requestPictureInPicture();
+        });
+        document.body.append(button);
+
+        window.__tocPiPPageState = () => ({
+          active: document.pictureInPictureElement === video,
+          exitCalls: exitEvents,
+        });
+        window.__tocPiPKeepAlive = { canvas, video };
+      });
+      break;
+    } catch (err) {
+      if (attempt === 2 || !String(err?.message || err).includes('Execution context was destroyed')) throw err;
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      await page.waitForTimeout(500);
+    }
+  }
+  await page.locator('#toc-open-pip').click();
+  await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(true);
   const tabId = await sw.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => {
-        let active = true;
-        let exitCalls = 0;
-        const fakeElement = { tagName: 'VIDEO' };
-        Object.defineProperty(document, 'pictureInPictureElement', {
-          configurable: true,
-          get() {
-            return active ? fakeElement : null;
-          },
-        });
-        document.exitPictureInPicture = async () => {
-          exitCalls += 1;
-          active = false;
-        };
-        globalThis.__tocFakePipState = () => ({ active, exitCalls });
-      },
-    });
     return tab.id;
   });
   return tabId;
@@ -158,14 +201,10 @@ async function bannerText(page) {
   });
 }
 
-async function fakePiPState(sw, tabId) {
-  return await sw.evaluate(async (targetTabId) => {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId: targetTabId },
-      func: () => (globalThis.__tocFakePipState ? globalThis.__tocFakePipState() : { active: !!document.pictureInPictureElement, exitCalls: 0 }),
-    });
-    return result?.result || { active: false, exitCalls: 0 };
-  }, tabId);
+async function fakePiPState(page) {
+  return await page.evaluate(() => {
+    return window.__tocPiPPageState ? window.__tocPiPPageState() : { active: !!document.pictureInPictureElement, exitCalls: 0 };
+  });
 }
 
 test('Rest -> Composite (manual): closes PiP', async () => {
@@ -177,11 +216,12 @@ test('Rest -> Composite (manual): closes PiP', async () => {
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
     const tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(sw, tabId)).active).toBe(true);
+    expect((await fakePiPState(page)).active).toBe(true);
 
-    await sendRuntimeMessage(sw, 'SWITCH_TO_COMPOSITE', tabId);
-    await expect.poll(() => fakePiPState(sw, tabId).then((s) => s.active), { timeout: 5000 }).toBe(false);
-    expect((await fakePiPState(sw, tabId)).exitCalls).toBeGreaterThan(0);
+    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
+    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
+    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
+    await page.waitForTimeout(500);
     await page.close();
   } finally {
     await cleanup(ctx, udd, serverCtx.server);
@@ -197,11 +237,13 @@ test('Rest -> Study (manual): closes PiP and shows study prompt', async () => {
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
     const tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(sw, tabId)).active).toBe(true);
+    expect((await fakePiPState(page)).active).toBe(true);
 
-    await sendRuntimeMessage(sw, 'SWITCH_TO_STUDY', tabId);
-    await expect.poll(() => fakePiPState(sw, tabId).then((s) => s.active), { timeout: 5000 }).toBe(false);
+    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
+    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
+    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习模式');
+    await page.waitForTimeout(500);
     await page.close();
   } finally {
     await cleanup(ctx, udd, serverCtx.server);
@@ -216,14 +258,18 @@ test('Rest -> Composite (auto): closes PiP', async () => {
     await page.goto(serverCtx.compositeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
-    const tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(sw, tabId)).active).toBe(true);
+    const tabId = await activeTabId(sw);
+    const startMs = Date.now();
+    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
+    await seedFakePiP(page, sw);
+    expect((await fakePiPState(page)).active).toBe(true);
 
-    const res = await triggerAutoTransitionHarness(sw, 0, 60_000, tabId);
+    const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 30_000, tabId);
     expect(res?.success).toBe(true);
     expect(res?.mode).toBe('composite');
-    await expect.poll(() => fakePiPState(sw, tabId).then((s) => s.active), { timeout: 5000 }).toBe(false);
-    expect((await fakePiPState(sw, tabId)).exitCalls).toBeGreaterThan(0);
+    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
+    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
+    await page.waitForTimeout(500);
     await page.close();
   } finally {
     await cleanup(ctx, udd, serverCtx.server);
@@ -238,14 +284,19 @@ test('Rest -> Study (auto): closes PiP and shows study prompt', async () => {
     await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
-    const tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(sw, tabId)).active).toBe(true);
+    const tabId = await activeTabId(sw);
+    const startMs = Date.now();
+    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
+    await seedFakePiP(page, sw);
+    expect((await fakePiPState(page)).active).toBe(true);
 
-    const res = await triggerAutoTransitionHarness(sw, 0, 90_000, tabId);
+    const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 45_000, tabId);
     expect(res?.success).toBe(true);
     expect(res?.mode).toBe('study');
-    await expect.poll(() => fakePiPState(sw, tabId).then((s) => s.active), { timeout: 5000 }).toBe(false);
+    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
+    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习时间');
+    await page.waitForTimeout(500);
     await page.close();
   } finally {
     await cleanup(ctx, udd, serverCtx.server);

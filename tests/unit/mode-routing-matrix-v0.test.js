@@ -329,9 +329,9 @@ async function runCompositeModeTests() {
     });
 
     await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: true });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 90_000, foreground: true, userActive: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: true });
 
-    expect('Composite→Study: auto switch after 90s gate', saves, ['study']);
+    expect('Composite→Study: auto switch after 45s gate', saves, ['study']);
     expectTrue('Composite→Study: pending START sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
     expectTrue('Composite→Study: pending SUCCESS sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study'));
   }
@@ -432,9 +432,9 @@ async function runRestModeTests() {
     });
 
     await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: true });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 90_000, foreground: true, userActive: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: true });
 
-    expect('Rest→Study: auto switch after 90s gate', saves, ['study']);
+    expect('Rest→Study: auto switch after 45s gate', saves, ['study']);
     expectTrue('Rest→Study: pending START sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
     expectTrue('Rest→Study: pending SUCCESS sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study'));
   }
@@ -460,12 +460,12 @@ async function runRestModeTests() {
     });
 
     const b1 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, foreground: true });
-    const b2 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 59_000, foreground: true });
-    const b3 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 60_000, foreground: true });
+    const b2 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 29_000, foreground: true });
+    const b3 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 30_000, foreground: true });
 
     expect('Rest→Composite available: not blocked at 0ms', b1, false);
-    expect('Rest→Composite available: not blocked at 59ms', b2, false);
-    expect('Rest→Composite available: not blocked at 60ms', b3, false);
+    expect('Rest→Composite available: not blocked at 29s', b2, false);
+    expect('Rest→Composite available: not blocked at 30s', b3, false);
     expect('Rest→Composite available: switched to composite', saves, ['composite']);
     expectTrue('Rest→Composite available: pending START', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'composite'));
     expectTrue('Rest→Composite available: pending SUCCESS', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'composite'));

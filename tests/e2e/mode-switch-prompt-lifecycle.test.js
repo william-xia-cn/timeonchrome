@@ -66,18 +66,31 @@ async function cleanup(ctx, udd, server) {
   if (udd && fs.existsSync(udd)) fs.rmSync(udd, { recursive: true, force: true });
 }
 
-async function sendRuntimeMessage(sw, type) {
-  return await sw.evaluate(async (messageType) => {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: async (payloadType) => {
-        return await chrome.runtime.sendMessage({ type: payloadType });
-      },
-      args: [messageType],
-    });
-    return result?.result || null;
-  }, type);
+async function tabIdForPage(sw, page) {
+  const pageUrl = page.url();
+  return await sw.evaluate(async (targetUrl) => {
+    const tabs = await chrome.tabs.query({});
+    const tab = tabs.find((t) => t.url === targetUrl);
+    if (tab?.id) return tab.id;
+    const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return active?.id || null;
+  }, pageUrl);
+}
+
+async function sendRuntimeMessage(ctx, sw, page, type) {
+  await page.bringToFront();
+  const targetTabId = await tabIdForPage(sw, page);
+  const runtimeUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
+  const extensionPage = await ctx.newPage();
+  try {
+    await extensionPage.goto(runtimeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    return await extensionPage.evaluate(async ({ messageType, targetTabId }) => {
+      if (targetTabId) await chrome.tabs.update(targetTabId, { active: true });
+      return await chrome.runtime.sendMessage({ type: messageType, noticeTabId: targetTabId });
+    }, { messageType: type, targetTabId });
+  } finally {
+    await extensionPage.close().catch(() => {});
+  }
 }
 
 async function getMode(sw) {
@@ -87,17 +100,27 @@ async function getMode(sw) {
   });
 }
 
-async function sendSyntheticPending(sw, targetMode, fromMode) {
-  await sw.evaluate(async ({ targetMode: to, fromMode: from }) => {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    await chrome.tabs.sendMessage(tab.id, {
+async function sendSyntheticPending(sw, page, targetMode, fromMode) {
+  await page.bringToFront();
+  const tabId = await tabIdForPage(sw, page);
+  await sw.evaluate(async ({ targetMode: to, fromMode: from, tabId }) => {
+    const payload = {
       type: 'AUTO_MODE_PENDING_START',
       targetMode: to,
       fromMode: from,
       deadlineAt: Date.now() + 60_000,
       remainingCompositeTime: '60分钟',
-    });
-  }, { targetMode, fromMode });
+    };
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await chrome.tabs.sendMessage(tabId, payload);
+        return;
+      } catch (err) {
+        if (attempt === 19) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  }, { targetMode, fromMode, tabId });
 }
 
 async function bannerText(page) {
@@ -125,7 +148,7 @@ test('综合 → 学习：自动切换后显示短暂成功提示并自动消失
     await page.bringToFront();
     await page.waitForTimeout(500);
 
-    await sendRuntimeMessage(sw, 'SWITCH_TO_STUDY');
+    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
     expect(await getMode(sw)).toBe('study');
 
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已回到学习模式');
@@ -145,10 +168,10 @@ test('学习 → 综合：切换前旧 pending 被清理，成功提示按 TTL �
     await page.bringToFront();
     await page.waitForTimeout(500);
 
-    await sendSyntheticPending(sw, 'composite', 'study');
+    await sendSyntheticPending(sw, page, 'composite', 'study');
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('秒后进入综合时间');
 
-    await sendRuntimeMessage(sw, 'SWITCH_TO_COMPOSITE');
+    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
     expect(await getMode(sw)).toBe('composite');
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已进入综合模式');
     expect(await bannerText(page)).not.toContain('秒后进入综合时间');
@@ -169,7 +192,7 @@ test('CONTENT_SCRIPT_READY 只恢复未过期提示，且提示不污染新 tab'
     await page.bringToFront();
     await page.waitForTimeout(500);
 
-    await sendRuntimeMessage(sw, 'SWITCH_TO_STUDY');
+    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已回到学习模式');
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });

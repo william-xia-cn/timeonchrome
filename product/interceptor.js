@@ -29,22 +29,6 @@ function shouldClosePiPOnModeTransition(fromMode, toMode) {
 async function closeActiveTabPictureInPicture(tabId) {
   if (!Number.isInteger(tabId) || tabId < 0) return false;
   try {
-    if (chrome.scripting?.executeScript) {
-      const result = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: async () => {
-          try {
-            if (document.pictureInPictureElement && document.exitPictureInPicture) {
-              await document.exitPictureInPicture();
-              return true;
-            }
-          } catch {}
-          return false;
-        },
-      });
-      const closedByScript = Array.isArray(result) && result.some((entry) => entry?.result === true);
-      if (closedByScript) return true;
-    }
     await chrome.tabs.sendMessage(tabId, { type: 'EXIT_PIP' }).catch(() => {});
     return true;
   } catch {
