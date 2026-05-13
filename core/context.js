@@ -21,6 +21,23 @@
  * @property {number|null} lastFocusedWindowId
  */
 export function buildContext(current, rawEvent) {
+  if (rawEvent?._replaceContext) {
+    return {
+      tabId: rawEvent.tabId ?? null,
+      windowId: rawEvent.windowId ?? null,
+      domain: rawEvent.domain ?? null,
+      isFocused: rawEvent.isFocused ?? false,
+      isIdle: rawEvent.isIdle ?? current?.isIdle ?? false,
+      isAudible: rawEvent.isAudible ?? false,
+      mediaSourceTabId: rawEvent.mediaSourceTabId ?? null,
+      mediaSourceDomain: rawEvent.mediaSourceDomain ?? null,
+      isPiP: rawEvent.isPiP ?? false,
+      timestamp: Date.now(),
+      lastActiveTabId: rawEvent.tabId ?? null,
+      lastFocusedWindowId: rawEvent.windowId ?? null,
+    };
+  }
+
   const isMediaSignal = rawEvent.mediaSourceTabId != null && rawEvent.domain == null;
   const nextTabId = isMediaSignal
     ? (current?.lastActiveTabId ?? current?.tabId ?? null)

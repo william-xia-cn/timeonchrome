@@ -3,7 +3,7 @@
 import { initSignal } from './core/signal.js';
 import { buildContext } from './core/context.js';
 import { resolveState } from './core/state.js';
-import { initSession, transitionState, heartbeat, getSession as getTimingSession, settleCurrentSessionSegment, runPeriodicCheckpoint } from './runtime/session.js';
+import { initSession, transitionState, heartbeat, getSession as getTimingSession, closeCurrentSession, runPeriodicCheckpoint } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
@@ -367,10 +367,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     try {
       const timingSession = await getTimingSession();
       if (timingSession?.state && timingSession?.startTime) {
-        const closeTime = getCappedElapsedMs(timingSession, Date.now()) > 0
-          ? Math.min(Date.now(), (timingSession.startTime || Date.now()) + (timingSession.lastHeartbeat || Date.now()) - (timingSession.startTime || 0) + (timingSession.startTime || 0))
-          : Date.now();
-        await settleCurrentSessionSegment(timingSession, Date.now(), 'tab_close');
+        await closeCurrentSession('tab_close');
       }
     } catch (_) { /* 尽力而为 */ }
     lastActiveTabId = null;
@@ -470,7 +467,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       try {
         const timingSession = await getTimingSession();
         if (timingSession?.state && timingSession?.startTime) {
-          await settleCurrentSessionSegment(timingSession, Date.now(), 'monitoring_off');
+          await closeCurrentSession('monitoring_off');
         }
       } catch (_) { /* 尽力而为 */ }
     }
