@@ -78,10 +78,12 @@ async function setMode(mode) {
 }
 
 async function init() {
-  const [config, stats] = await Promise.all([
+  const [configResult, statsResult] = await Promise.all([
     sendMsg({ type: 'GET_CONFIG' }),
     sendMsg({ type: 'GET_STATS' }),
   ]);
+  const config = configResult || {};
+  const stats = statsResult || {};
   popupStatsContext = { config: config || {}, stats: stats || {} };
 
   const nameStorage = await new Promise(resolve =>
@@ -388,7 +390,16 @@ function matchDomain(domain, pattern) {
 }
 
 function sendMsg(msg) {
-  return new Promise(resolve => chrome.runtime.sendMessage(msg, resolve));
+  return new Promise(resolve => {
+    chrome.runtime.sendMessage(msg, (resp) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[Popup] runtime message failed:', msg?.type, chrome.runtime.lastError.message);
+        resolve(null);
+        return;
+      }
+      resolve(resp ?? null);
+    });
+  });
 }
 
 function formatSeconds(secs) {

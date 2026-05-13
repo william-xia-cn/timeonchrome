@@ -85,6 +85,7 @@
   - `storage-aggregation-convergence 36/36`
 
 ## NOW（P0）
+- [x] [Popup] Runtime message failure hardening（popup now consumes `runtime.lastError`, falls back to safe config/stats defaults, and background message catch handles non-Error rejections; verified by focused unit tests and popup E2E）
 - [x] [V1-minimal] Docs-only close-out plan created（`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`）
 - [x] [V1-minimal] Working tree status inventory recorded（`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; ownership not closed）
 - [x] [V1-minimal] Build&Test dirty product/test ownership audit recorded（`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`）

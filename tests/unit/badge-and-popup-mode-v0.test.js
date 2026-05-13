@@ -48,6 +48,9 @@ function run() {
   expectTrue('popup supports SWITCH_TO_COMPOSITE', popupJs.includes("SWITCH_TO_COMPOSITE"));
   expectTrue('popup has composite stats adapter', popupJs.includes('function readCompositeSeconds('));
   expectTrue('popup prefers compositeSeconds over legacy undeterminedSeconds', popupJs.includes('statsLike?.compositeSeconds') && popupJs.includes('statsLike?.undeterminedSeconds'));
+  expectTrue('popup normalizes missing config response', popupJs.includes('const config = configResult || {};'));
+  expectTrue('popup normalizes missing stats response', popupJs.includes('const stats = statsResult || {};'));
+  expectTrue('popup consumes runtime.lastError in sendMsg', popupJs.includes('chrome.runtime.lastError') && popupJs.includes('[Popup] runtime message failed:'));
   expectTrue('popup still caps visits to top 10', popupJs.includes('.slice(0, 10)'));
   expectTrue('popup background media is conditional', popupJs.includes('backendMediaSeconds > 0'));
   expectTrue('popup no undetermined bar in usage area', !popupJs.includes("待归类时长"));
