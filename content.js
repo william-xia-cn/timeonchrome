@@ -26,6 +26,33 @@
   let mediaPlaying = false;
   let audioContextActive = false;
   let pipActive = false;
+  let lastActivityPulseAt = 0;
+  const PAGE_ACTIVITY_THROTTLE_MS = 15 * 1000;
+
+  function sendPageActivity(category, options = {}) {
+    if (!chrome.runtime?.id) return;
+    const now = Date.now();
+    const immediate = !!options.immediate;
+    if (!immediate && now - lastActivityPulseAt < PAGE_ACTIVITY_THROTTLE_MS) return;
+    if (!immediate) lastActivityPulseAt = now;
+    chrome.runtime.sendMessage({
+      type: 'PAGE_ACTIVITY',
+      category,
+      visible: document.visibilityState === 'visible',
+      at: now,
+    });
+  }
+
+  function onPageActivity(category) {
+    sendPageActivity(category);
+  }
+
+  document.addEventListener('pointerdown', () => onPageActivity('pointer'), { capture: true, passive: true });
+  document.addEventListener('keydown', () => onPageActivity('key'), { capture: true, passive: true });
+  document.addEventListener('scroll', () => onPageActivity('scroll'), { capture: true, passive: true });
+  document.addEventListener('visibilitychange', () => sendPageActivity('visibility', { immediate: true }), { capture: true });
+  window.addEventListener('focus', () => sendPageActivity('focus', { immediate: true }), { capture: true });
+  window.addEventListener('blur', () => sendPageActivity('focus', { immediate: true }), { capture: true });
 
   function sendMediaState(playing, isPiP = pipActive) {
     if (!chrome.runtime?.id) return;
@@ -149,6 +176,7 @@
   // notice (sent before listener was registered) can be re-delivered.
   try {
     chrome.runtime.sendMessage({ type: 'CONTENT_SCRIPT_READY' });
+    sendPageActivity('visibility', { immediate: true });
   } catch {}
 
   async function exitPictureInPictureIfNeeded() {
