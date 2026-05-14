@@ -48,7 +48,7 @@ function loadProdModule(relPath, exportNames, injected = {}) {
   const abs = path.join(__dirname, '..', '..', relPath);
   let code = fs.readFileSync(abs, 'utf8');
 
-  code = code.replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];\s*/g, '');
+  code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
@@ -69,27 +69,11 @@ const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
   'isFiniteTime',
   'isStaleSession',
 ]);
-const foregroundEvidenceApi = loadProdModule('runtime/foreground-evidence.js', [
-  'CHECKPOINT_INTERVAL_MS',
-  'ForegroundConfidence',
-  'getBoundedForegroundCloseTime',
-  'hasCheckpointGap',
-  'isForegroundCountable',
-  'resolveForegroundConfidence',
-]);
 const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'saveSession', 'transitionState', 'heartbeat'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {}, // no-op for unit tests
   getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
-  CHECKPOINT_INTERVAL_MS: foregroundEvidenceApi.CHECKPOINT_INTERVAL_MS,
-  ForegroundConfidence: foregroundEvidenceApi.ForegroundConfidence,
-  getBoundedForegroundCloseTime: foregroundEvidenceApi.getBoundedForegroundCloseTime,
-  hasCheckpointGap: foregroundEvidenceApi.hasCheckpointGap,
-  isForegroundCountable: foregroundEvidenceApi.isForegroundCountable,
-  resolveForegroundConfidence: foregroundEvidenceApi.resolveForegroundConfidence,
-  isCountedState: (state) => ['ACTIVE', 'BACKGROUND_ACTIVE', 'PIP_ACTIVE'].includes(state),
-  settleUsageDuration: async () => 1,
 });
 
 function countMaxOpen(events) {
@@ -185,7 +169,7 @@ async function runTests() {
     check('A→B→A 后不应出现孤立 END', hasOrphanEnd(events) === false);
   }
 
-  section('SQ-4 stale heartbeat closes active session without reopening from service evidence');
+  section('SQ-4 stale heartbeat closes at last heartbeat and reopens at now');
   {
     mockSessionStorage.reset();
     mockLocalStorage.reset();
@@ -219,14 +203,14 @@ async function runTests() {
         e.domain === 'stall.test' &&
         e.time === base + 30000
       ));
-      check('stale heartbeat 不应仅凭 service evidence 重新 START', !events.some(e =>
+      check('stale heartbeat 应从 now 重新 START', events.some(e =>
         e.type === eventApi.EVENT_TYPE.START &&
         e.state === 'ACTIVE' &&
         e.domain === 'stall.test' &&
         e.time === base + 130000
       ));
-      check('stale heartbeat 后 session.startTime 清空', session.startTime === null);
-      check('stale heartbeat 后 session state/domain 清空', session.state === null && session.domain === null);
+      check('stale gap 不应保留在新 session.startTime 中', session.startTime === base + 130000);
+      check('stale gap 后 session 仍保持原 state/domain', session.state === 'ACTIVE' && session.domain === 'stall.test');
     } finally {
       Date.now = originalNow;
     }

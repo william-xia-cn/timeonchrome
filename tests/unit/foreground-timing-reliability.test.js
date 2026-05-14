@@ -50,7 +50,7 @@ function loadProdModule(relPath, exportNames, injected = {}) {
   const abs = path.join(__dirname, '..', '..', relPath);
   let code = fs.readFileSync(abs, 'utf8');
 
-  code = code.replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];\s*/g, '');
+  code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
@@ -64,14 +64,6 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 
 const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents', 'clearEvents', 'EVENT_TYPE']);
 const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', ['getReliableCloseTime']);
-const foregroundEvidenceApi = loadProdModule('runtime/foreground-evidence.js', [
-  'CHECKPOINT_INTERVAL_MS',
-  'ForegroundConfidence',
-  'getBoundedForegroundCloseTime',
-  'hasCheckpointGap',
-  'isForegroundCountable',
-  'resolveForegroundConfidence',
-]);
 
 let settlementCalls = [];
 const sessionApi = loadProdModule('runtime/session.js', [
@@ -84,12 +76,6 @@ const sessionApi = loadProdModule('runtime/session.js', [
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {},
   getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
-  CHECKPOINT_INTERVAL_MS: foregroundEvidenceApi.CHECKPOINT_INTERVAL_MS,
-  ForegroundConfidence: foregroundEvidenceApi.ForegroundConfidence,
-  getBoundedForegroundCloseTime: foregroundEvidenceApi.getBoundedForegroundCloseTime,
-  hasCheckpointGap: foregroundEvidenceApi.hasCheckpointGap,
-  isForegroundCountable: foregroundEvidenceApi.isForegroundCountable,
-  resolveForegroundConfidence: foregroundEvidenceApi.resolveForegroundConfidence,
   isCountedState: (state) => ['ACTIVE', 'BACKGROUND_ACTIVE', 'PIP_ACTIVE'].includes(state),
   settleUsageDuration: async (input) => {
     settlementCalls.push(input);
@@ -111,7 +97,6 @@ const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   saveSession: sessionApi.saveSession,
   runSessionCommit: async (task) => task(),
   settleCurrentSessionSegment: sessionApi.settleCurrentSessionSegment,
-  closeCurrentSession: sessionApi.closeCurrentSession,
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   getLastEvent: async () => {
@@ -124,13 +109,13 @@ const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
 let passed = 0;
 let failed = 0;
 
-function check(desc, condition, details = '') {
+function check(desc, condition) {
   if (condition) {
     passed += 1;
     return;
   }
   failed += 1;
-  console.error(`  x ${desc}${details ? `: ${details}` : ''}`);
+  console.error(`  x ${desc}`);
 }
 
 function section(name) {
@@ -160,12 +145,6 @@ async function runTests() {
       startTime: base,
       lastHeartbeat: base + 10_000,
       mode: 'rest',
-      tabId: 1,
-      pageVisible: true,
-      lastPageActivityAt: base,
-      lastVisibleAt: base,
-      lastForegroundEvidenceAt: base + 10_000,
-      lastCheckpointAt: base,
     });
 
     const result = await sessionApi.closeCurrentSession('tab_close', { now: base + 130_000 });
@@ -175,8 +154,8 @@ async function runTests() {
     check('tab_close should report stale close', result.stale === true);
     check('tab_close should return stale-aware settlement reason', result.settlementReason === 'tab_close_stale_close');
     check('tab_close END should be capped at lastHeartbeat', end?.time === base + 10_000);
-    check('settlement endMs should be capped at lastHeartbeat', settlementCalls[0]?.endMs === base + 10_000, JSON.stringify({ result, settlement: settlementCalls[0] }));
-    check('settlement reason should be tab_close_stale_close', settlementCalls[0]?.settlementReason === 'tab_close_stale_close', JSON.stringify({ result, settlement: settlementCalls[0] }));
+    check('settlement endMs should be capped at lastHeartbeat', settlementCalls[0]?.endMs === base + 10_000);
+    check('settlement reason should be tab_close_stale_close', settlementCalls[0]?.settlementReason === 'tab_close_stale_close');
   }
 
   section('FT-2 tab_close appends END and clears session');
@@ -189,12 +168,6 @@ async function runTests() {
       startTime: base,
       lastHeartbeat: base + 20_000,
       mode: 'study',
-      tabId: 1,
-      pageVisible: true,
-      lastPageActivityAt: base,
-      lastVisibleAt: base,
-      lastForegroundEvidenceAt: base + 20_000,
-      lastCheckpointAt: base,
     });
 
     await sessionApi.closeCurrentSession('tab_close', { now: base + 30_000 });
@@ -218,12 +191,6 @@ async function runTests() {
       startTime: base,
       lastHeartbeat: base + 10_000,
       mode: 'rest',
-      tabId: 1,
-      pageVisible: true,
-      lastPageActivityAt: base,
-      lastVisibleAt: base,
-      lastForegroundEvidenceAt: base + 10_000,
-      lastCheckpointAt: base,
     });
 
     await sessionApi.closeCurrentSession('tab_close', {
@@ -250,12 +217,6 @@ async function runTests() {
       startTime: base,
       lastHeartbeat: base + 20_000,
       mode: 'study',
-      tabId: 1,
-      pageVisible: true,
-      lastPageActivityAt: base,
-      lastVisibleAt: base,
-      lastForegroundEvidenceAt: base + 20_000,
-      lastCheckpointAt: base,
     });
 
     await sessionApi.closeCurrentSession('monitoring_off', { now: base + 30_000 });
@@ -275,19 +236,13 @@ async function runTests() {
       startTime: base,
       lastHeartbeat: base + 5_000,
       mode: 'study',
-      tabId: 1,
-      pageVisible: true,
-      lastPageActivityAt: base,
-      lastVisibleAt: base,
-      lastForegroundEvidenceAt: base + 5_000,
-      lastCheckpointAt: base,
     });
 
     const result = await sessionApi.closeCurrentSession('monitoring_off', { now: base + 130_000 });
 
     check('monitoring_off should report stale close', result.stale === true);
     check('monitoring_off should return stale-aware settlement reason', result.settlementReason === 'monitoring_off_stale_close');
-    check('settlement reason should be monitoring_off_stale_close', settlementCalls[0]?.settlementReason === 'monitoring_off_stale_close', JSON.stringify({ result, settlement: settlementCalls[0] }));
+    check('settlement reason should be monitoring_off_stale_close', settlementCalls[0]?.settlementReason === 'monitoring_off_stale_close');
   }
 
   section('FT-5 mode attribution survives persisted session recovery');
@@ -301,12 +256,6 @@ async function runTests() {
         startTime: base,
         lastHeartbeat: base + 10_000,
         mode: 'rest',
-        tabId: 1,
-        pageVisible: true,
-        lastPageActivityAt: base,
-        lastVisibleAt: base,
-        lastForegroundEvidenceAt: base + 10_000,
-        lastCheckpointAt: base,
       },
     });
 
@@ -318,7 +267,7 @@ async function runTests() {
       Date.now = originalNow;
     }
 
-    check('recovery settlement should preserve persisted mode-at-open', settlementCalls[0]?.mode === 'rest', JSON.stringify({ settlement: settlementCalls[0] }));
+    check('recovery settlement should preserve persisted mode-at-open', settlementCalls[0]?.mode === 'rest');
   }
 
   const total = passed + failed;

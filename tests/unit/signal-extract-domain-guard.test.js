@@ -129,7 +129,7 @@ async function run() {
   expectTrue('focused signal should include url', focusedSignal?.url === 'https://Focus.Example.COM./active');
   expectTrue('focused signal should include normalized domain', focusedSignal?.domain === 'focus.example.com');
 
-  const context = buildContext(null, { ...focusedSignal, isIdle: false, pageVisible: true, at: Date.now(), type: 'PAGE_ACTIVITY', category: 'visibility' });
+  const context = buildContext(null, { ...focusedSignal, isIdle: false });
   expectTrue('buildContext should preserve focused tabId', context.tabId === 202);
   expectTrue('buildContext should preserve focused domain', context.domain === 'focus.example.com');
   expectTrue('buildContext should preserve isFocused=true', context.isFocused === true);
@@ -179,8 +179,6 @@ async function run() {
     domain: 'closed.example.com',
     isFocused: true,
     isIdle: false,
-    pageVisible: true,
-    lastVisibleAt: Date.now(),
     isAudible: false,
     isPiP: false,
     lastActiveTabId: 303,
@@ -190,7 +188,7 @@ async function run() {
   expectTrue('tab close replacement should use successor tab id', successorSignal?.tabId === 404);
   expectTrue('tab close replacement should use successor domain', successorSignal?.domain === 'successor.example.com');
   expectTrue('context should not preserve closed old domain', successorContext.domain === 'successor.example.com');
-  expectTrue('successor context should remain ACTIVE when focused and non-idle', resolveState({ ...successorContext, isIdle: false, pageVisible: true, lastVisibleAt: Date.now() }) === AttentionState.ACTIVE);
+  expectTrue('successor context should remain ACTIVE when focused and non-idle', resolveState({ ...successorContext, isIdle: false }) === AttentionState.ACTIVE);
 
   section('SG7: tab close emits explicit null-domain context when no successor is observable');
   emitted.length = 0;

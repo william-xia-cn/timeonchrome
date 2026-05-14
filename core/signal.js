@@ -42,10 +42,6 @@ export function initSignal(onContextChange) {
         mediaSourceTabId: incoming.mediaSourceTabId ?? null,
         mediaSourceDomain: incoming.mediaSourceDomain ?? null,
         isPiP: incoming.isPiP ?? false,
-        type: incoming.type ?? null,
-        category: incoming.category ?? null,
-        pageVisible: incoming.pageVisible ?? null,
-        at: incoming.at ?? null,
         error: incoming.error ?? null,
         _reason: incoming._reason ?? pending._reason ?? 'unknown',
         _replaceContext: true,
@@ -63,10 +59,6 @@ export function initSignal(onContextChange) {
       mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
       mediaSourceDomain: incoming.mediaSourceDomain ?? pending.mediaSourceDomain,
       isPiP: incoming.isPiP ?? pending.isPiP,
-      type: incoming.type ?? pending.type,
-      category: incoming.category ?? pending.category,
-      pageVisible: incoming.pageVisible ?? pending.pageVisible,
-      at: incoming.at ?? pending.at,
       error: incoming.error ?? pending.error,
       _reason: incoming._reason ?? pending._reason ?? 'unknown',
       timestamp: Date.now(),
@@ -215,36 +207,6 @@ export function initSignal(onContextChange) {
         mediaSourceDomain: domain,
         _reason: 'mediaState',
       });
-    } else if (msg.type === 'PAGE_ACTIVITY' && sender.tab) {
-      const url = sender.tab.url || null;
-      const domain = url ? extractDomain(url) : null;
-      getWindowFocusState(sender.tab.windowId).then((focus) => {
-        onEvent({
-          type: 'PAGE_ACTIVITY',
-          category: normalizePageActivityCategory(msg.category),
-          tabId: sender.tab.id,
-          windowId: sender.tab.windowId ?? null,
-          url,
-          domain,
-          pageVisible: msg.visible === true,
-          at: Number.isFinite(msg.at) ? msg.at : Date.now(),
-          ...focus,
-          _reason: 'pageActivity',
-        });
-      }).catch((err) => {
-        onEvent({
-          type: 'PAGE_ACTIVITY',
-          category: normalizePageActivityCategory(msg.category),
-          tabId: sender.tab.id,
-          windowId: sender.tab.windowId ?? null,
-          url,
-          domain,
-          pageVisible: msg.visible === true,
-          at: Number.isFinite(msg.at) ? msg.at : Date.now(),
-          error: err?.message || String(err),
-          _reason: 'pageActivity',
-        });
-      });
     }
   });
 
@@ -331,11 +293,4 @@ function extractDomain(url) {
   } catch {
     return null;
   }
-}
-
-function normalizePageActivityCategory(category) {
-  if (category === 'pointer' || category === 'key' || category === 'scroll' || category === 'visibility' || category === 'focus') {
-    return category;
-  }
-  return 'visibility';
 }
