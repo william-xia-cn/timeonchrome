@@ -99,6 +99,12 @@ function sortByTimeStable(events) {
     .map(x => x.evt);
 }
 
+function isCountableEventLogBoundary(evt) {
+  if (evt?.countable === false) return false;
+  if (evt?.reason === 'foreground_unconfirmed_drop') return false;
+  return true;
+}
+
 function computeDomainBreakdown(domainEvents, windowStart, windowEnd) {
   let activeSeconds = 0;
   let backgroundAudioSeconds = 0;
@@ -113,6 +119,7 @@ function computeDomainBreakdown(domainEvents, windowStart, windowEnd) {
 
     if (evt.type !== 'END') continue;
     if (!openStart) continue; // orphan END
+    const countablePair = isCountableEventLogBoundary(openStart) && isCountableEventLogBoundary(evt);
 
     const overlapStart = Math.max(openStart.time, windowStart);
     const overlapEnd = Math.min(evt.time, windowEnd);
@@ -120,6 +127,10 @@ function computeDomainBreakdown(domainEvents, windowStart, windowEnd) {
     if (durationSec <= 0) {
       openStart = null;
       continue; // no overlap with target local day
+    }
+    if (!countablePair) {
+      openStart = null;
+      continue;
     }
 
     const state = openStart.state;

@@ -58,6 +58,35 @@ function boundedForegroundCloseTime(session, observedAt = Date.now()) {
   return Math.max(start, Math.min(observed, start + FOREGROUND_CHECKPOINT_MS));
 }
 
+function isDropLikeReason(reason) {
+  const value = String(reason || '');
+  return value.includes('drop') ||
+    value.includes('stale') ||
+    value.includes('recovery') ||
+    value.includes('tab_close') ||
+    value.includes('monitoring_off') ||
+    value.includes('checkpoint_confirmation_failed') ||
+    value.includes('idle_not_active') ||
+    value.includes('candidate_mismatch') ||
+    value.includes('candidate_query_failed') ||
+    value.includes('idle_query_failed') ||
+    value.includes('special_page');
+}
+
+function shouldCountForegroundTransitionEnd(reason, newState, newDomain) {
+  if (isDropLikeReason(reason)) return false;
+  return newState === 'ACTIVE' && typeof newDomain === 'string' && newDomain.trim();
+}
+
+function markForegroundEndUncounted(event, reason) {
+  return {
+    ...event,
+    countable: false,
+    reason: 'foreground_unconfirmed_drop',
+    dropReason: reason || 'foreground_unconfirmed_drop',
+  };
+}
+
 /**
  * @typedef {Object} SessionState
  * @property {string|null} state
@@ -142,12 +171,16 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         ? { closeTime: boundedForegroundCloseTime(session, now), stale: false }
         : getReliableCloseTime(session, now);
       const { closeTime, stale } = boundary;
-      const endEvent = {
+      const baseEndEvent = {
         type: EVENT_TYPE.END,
         state: session.state,
         domain: session.domain,
         time: closeTime,
       };
+      const countForegroundEnd = !foreground || shouldCountForegroundTransitionEnd(reason, newState, newDomain);
+      const endEvent = countForegroundEnd
+        ? baseEndEvent
+        : markForegroundEndUncounted(baseEndEvent, reason);
       await appendEvent(endEvent);
       await emitTrace('event_appended', {
         source: 'event-log',
@@ -158,7 +191,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         sessionBefore,
       });
 
-      if (foreground) {
+      if (foreground && !countForegroundEnd) {
         const droppedMs = Math.max(0, closeTime - session.startTime);
         await recordForegroundDiagnostic({
           droppedUnconfirmedSeconds: Math.floor(droppedMs / 1000),
@@ -227,12 +260,12 @@ export async function heartbeat() {
           startTime: session.startTime,
           lastHeartbeat: session.lastHeartbeat,
         };
-        const endEvent = {
+        const endEvent = markForegroundEndUncounted({
           type: EVENT_TYPE.END,
           state: session.state,
           domain: session.domain,
           time: closeTime,
-        };
+        }, 'heartbeat_stale_foreground_drop');
         await appendEvent(endEvent);
         await emitTrace('event_appended', {
           source: 'event-log',
@@ -652,12 +685,13 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
     const closeTime = foreground
       ? boundedForegroundCloseTime(session, now)
       : getReliableCloseTime(session, now).closeTime;
-    await appendEvent({
+    const endEvent = {
       type: EVENT_TYPE.END,
       state: session.state,
       domain: session.domain,
       time: closeTime,
-    });
+    };
+    await appendEvent(foreground ? markForegroundEndUncounted(endEvent, reason) : endEvent);
 
     let settlement = null;
     if (!foreground && isCountedState(session.state)) {
@@ -730,12 +764,12 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         : { ok: true };
       if (!confirmation?.ok) {
         const closeTime = boundedForegroundCloseTime(session, now);
-        await appendEvent({
+        await appendEvent(markForegroundEndUncounted({
           type: EVENT_TYPE.END,
           state: session.state,
           domain: session.domain,
           time: closeTime,
-        });
+        }, confirmation?.reason || 'checkpoint_confirmation_failed'));
         await recordForegroundDiagnostic({
           checkpointDrops: 1,
           droppedUnconfirmedSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000),

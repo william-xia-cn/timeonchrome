@@ -52,6 +52,7 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 }
 
 const eventApi = loadProdModule('core/event-log.js', ['appendEvent', 'getEvents', 'clearEvents', 'EVENT_TYPE']);
+const aggregateApi = loadProdModule('core/aggregate.js', ['computeAllDomains', 'computeAllDomainsWithAudio']);
 const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
   'getReliableCloseTime',
 ]);
@@ -117,6 +118,20 @@ async function seedActiveSession(base, domain = 'p0.example.com') {
   });
 }
 
+function localDateFromMs(ms) {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function liveActiveSeconds(domain, dateMs) {
+  const events = await eventApi.getEvents();
+  const domains = aggregateApi.computeAllDomains(events, localDateFromMs(dateMs));
+  return domains[domain] || 0;
+}
+
 async function testOrdinaryPageActive180Settles() {
   resetAll();
   const base = 1778800000000;
@@ -131,6 +146,28 @@ async function testOrdinaryPageActive180Settles() {
   check('session reopens at checkpoint boundary', session.startTime === base + 180_000);
 }
 
+async function testNormalBoundaryCountsInLiveFallback() {
+  resetAll();
+  const base = 1778800100000;
+  await seedActiveSession(base, 'a.example.com');
+  await withNow(base + 60_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 60_000, 'stable_tabActivated')
+  );
+  check('normal boundary does not create durable segment', settled.length === 0);
+  check('normal boundary appears in live fallback', await liveActiveSeconds('a.example.com', base) === 60);
+}
+
+async function testLiveFallbackDoesNotNeedCheckpoint() {
+  resetAll();
+  const base = 1778800200000;
+  await seedActiveSession(base, 'fast.example.com');
+  await withNow(base + 45_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 45_000, 'stable_tabUpdated')
+  );
+  check('live fallback counts boundary under checkpoint window', await liveActiveSeconds('fast.example.com', base) === 45);
+  check('durable segments remain checkpoint-only', settled.length === 0);
+}
+
 async function testIdleBeforeCheckpointDropsWindow() {
   resetAll();
   const base = 1778801000000;
@@ -139,6 +176,8 @@ async function testIdleBeforeCheckpointDropsWindow() {
   check('idle transition does not settle active foreground', settled.length === 0);
   const events = await eventApi.getEvents();
   check('active END is bounded to idle boundary', events.some((event) => event.type === 'END' && event.time === base + 60_000));
+  check('idle-before-checkpoint END is not live countable', events.some((event) => event.type === 'END' && event.countable === false));
+  check('idle-before-checkpoint does not appear in live fallback', await liveActiveSeconds('p0.example.com', base) === 0);
 }
 
 async function testMissedIdleEventCountsAtMost180() {
@@ -151,7 +190,7 @@ async function testMissedIdleEventCountsAtMost180() {
   check('missed idle only settles one checkpoint window', settled.length === 1 && settled[0].endMs - settled[0].startMs === 180_000);
 }
 
-async function testMissedTabCloseCountsAtMost180InFallbackLog() {
+async function testMissedTabCloseDropsUnconfirmedLiveFallback() {
   resetAll();
   const base = 1778803000000;
   await seedActiveSession(base);
@@ -159,6 +198,7 @@ async function testMissedTabCloseCountsAtMost180InFallbackLog() {
   check('tab close closes session', result.closed === true);
   check('tab close does not settle active foreground', settled.length === 0);
   check('tab close END is bounded to one window', result.closeTime <= base + 180_000);
+  check('tab close stale drop does not appear in live fallback', await liveActiveSeconds('p0.example.com', base) === 0);
 }
 
 async function testRecoveryDoesNotBackfillLongGap() {
@@ -169,6 +209,7 @@ async function testRecoveryDoesNotBackfillLongGap() {
   check('recovery closes session', result.closed === true);
   check('recovery does not settle active foreground', settled.length === 0);
   check('recovery END is bounded', result.closeTime <= base + 180_000);
+  check('recovery stale drop does not appear in live fallback', await liveActiveSeconds('p0.example.com', base) === 0);
 }
 
 async function testUnknownDomainCountsAsUnknown() {
@@ -197,6 +238,17 @@ async function testUiFlushDoesNotSettleForeground() {
   check('ui flush reports checkpoint required', result.reason === 'foreground_checkpoint_required');
 }
 
+async function testRepeatedUiReadsDoNotCreateDurableSegments() {
+  resetAll();
+  const base = 1778805500000;
+  await seedActiveSession(base);
+  const first = await withNow(base + 60_000, () => sessionApi.flushOpenSessionToStats('ui_flush'));
+  const second = await withNow(base + 90_000, () => sessionApi.flushOpenSessionToStats('ui_flush'));
+  check('first ui read returns without foreground settlement', first.reason === 'foreground_checkpoint_required');
+  check('second ui read returns without foreground settlement', second.reason === 'foreground_checkpoint_required');
+  check('repeated ui reads do not create durable foreground segments', settled.length === 0);
+}
+
 async function testCheckpointConfirmationFailureDropsWindow() {
   resetAll();
   const base = 1778806000000;
@@ -208,6 +260,21 @@ async function testCheckpointConfirmationFailureDropsWindow() {
   check('failed confirmation does not settle', settled.length === 0);
   const session = await sessionApi.getSession();
   check('failed confirmation clears session', session.state === null);
+  check('failed checkpoint does not appear in live fallback', await liveActiveSeconds('p0.example.com', base) === 0);
+}
+
+async function testShortBoundaryDropDoesNotAppearInLiveFallback() {
+  resetAll();
+  const base = 1778806500000;
+  await seedActiveSession(base, 'a.example.com');
+  await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt(null, null, base + 10_000, 'short_boundary_drop_close')
+  );
+  await withNow(base + 12_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + 12_000, 'short_boundary_drop_reopen')
+  );
+  check('short boundary drop does not settle durable segment', settled.length === 0);
+  check('short boundary drop does not appear in live fallback', await liveActiveSeconds('a.example.com', base) === 0);
 }
 
 function simulateBoundaries(steps) {
@@ -265,14 +332,18 @@ async function testStableBoundaryAppliesAtOriginalSwitchTime() {
 async function run() {
   const tests = [
     testOrdinaryPageActive180Settles,
+    testNormalBoundaryCountsInLiveFallback,
+    testLiveFallbackDoesNotNeedCheckpoint,
     testIdleBeforeCheckpointDropsWindow,
     testMissedIdleEventCountsAtMost180,
-    testMissedTabCloseCountsAtMost180InFallbackLog,
+    testMissedTabCloseDropsUnconfirmedLiveFallback,
     testRecoveryDoesNotBackfillLongGap,
     testUnknownDomainCountsAsUnknown,
     testSpecialPageDoesNotCount,
     testUiFlushDoesNotSettleForeground,
+    testRepeatedUiReadsDoNotCreateDurableSegments,
     testCheckpointConfirmationFailureDropsWindow,
+    testShortBoundaryDropDoesNotAppearInLiveFallback,
     testShortBoundaryDrop,
     testStableBoundaryAppliesAtOriginalSwitchTime,
   ];
