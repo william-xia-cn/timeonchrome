@@ -277,56 +277,108 @@ async function testShortBoundaryDropDoesNotAppearInLiveFallback() {
   check('short boundary drop does not appear in live fallback', await liveActiveSeconds('a.example.com', base) === 0);
 }
 
-function simulateBoundaries(steps) {
+async function applySimulatedActions(actions) {
+  for (const action of actions) {
+    await withNow(action.at, () =>
+      sessionApi.transitionStateAt(action.state, action.domain, action.at, action.reason || 'stable_test_boundary')
+    );
+  }
+}
+
+function simulateBoundaries(steps, initialApplied = { state: null, domain: null }) {
   const stabilizationMs = 5000;
-  let applied = { state: null, domain: null };
+  let applied = { ...initialApplied };
   let pending = null;
   const actions = [];
   const same = (a, b) => (a?.state ?? null) === (b?.state ?? null) && (a?.domain ?? null) === (b?.domain ?? null);
-  const apply = (target, at) => {
-    actions.push({ state: target.state, domain: target.domain, at });
+  const apply = (target, at, reason = 'stable_test_boundary') => {
+    actions.push({ state: target.state, domain: target.domain, at, reason });
     applied = { ...target };
     pending = null;
   };
   for (const step of steps) {
     const target = { state: step.state, domain: step.domain || null };
     if (pending && step.at - pending.at >= stabilizationMs) {
-      apply(pending.target, pending.at);
+      apply(pending.target, pending.at, `stable_${pending.reason || 'test_boundary'}`);
     }
     if (same(target, applied)) {
       if (pending && !same(pending.target, target)) {
-        const previous = { ...applied };
-        actions.push({ state: null, domain: null, at: pending.at });
-        actions.push({ state: previous.state, domain: previous.domain, at: step.at });
         pending = null;
       }
       continue;
     }
     if (pending && same(pending.target, target)) continue;
-    pending = { target, at: step.at };
+    pending = { target, at: step.at, reason: step.reason };
   }
   return actions;
 }
 
-async function testShortBoundaryDrop() {
+async function testShortBoundaryJitterDoesNotCloseOrReopen() {
+  resetAll();
+  const base = 1778807000000;
+  await seedActiveSession(base, 'a.example.com');
   const actions = simulateBoundaries([
-    { state: 'ACTIVE', domain: 'a.example.com', at: 0 },
-    { state: 'ACTIVE', domain: 'b.example.com', at: 10_000 },
-    { state: 'ACTIVE', domain: 'a.example.com', at: 12_000 },
-  ]);
-  check('A applies at original timestamp', actions.some((a) => a.state === 'ACTIVE' && a.domain === 'a.example.com' && a.at === 0));
-  check('B under 5s does not apply', !actions.some((a) => a.state === 'ACTIVE' && a.domain === 'b.example.com'));
-  check('A closes at switch-out timestamp', actions.some((a) => a.state === null && a.at === 10_000));
-  check('A reopens at switch-back timestamp', actions.some((a) => a.state === 'ACTIVE' && a.domain === 'a.example.com' && a.at === 12_000));
+    { state: null, domain: null, at: base + 10_000, reason: 'windowFocusPolled' },
+    { state: 'ACTIVE', domain: 'a.example.com', at: base + 12_000, reason: 'windowFocusPolled' },
+  ], { state: 'ACTIVE', domain: 'a.example.com' });
+  check('short A->none->A jitter produces no applied boundary', actions.length === 0, JSON.stringify(actions));
+  await applySimulatedActions(actions);
+  const session = await sessionApi.getSession();
+  const events = await eventApi.getEvents();
+  check('short jitter keeps session startTime unchanged', session.startTime === base);
+  check('short jitter writes no ACTIVE END', !events.some((event) => event.type === 'END' && event.state === 'ACTIVE'));
+}
+
+async function testRepeatedTransientFocusNoiseDoesNotBlockCheckpoint() {
+  resetAll();
+  const base = 1778807500000;
+  await seedActiveSession(base, 'a.example.com');
+  const steps = [];
+  for (let t = 30_000; t <= 180_000; t += 30_000) {
+    steps.push({ state: null, domain: null, at: base + t, reason: 'windowFocusPolled' });
+    steps.push({ state: 'ACTIVE', domain: 'a.example.com', at: base + t + 2_000, reason: 'windowFocusPolled' });
+  }
+  const actions = simulateBoundaries(steps, { state: 'ACTIVE', domain: 'a.example.com' });
+  check('repeated transient focus noise produces no applied boundary', actions.length === 0, JSON.stringify(actions));
+  await applySimulatedActions(actions);
+  const beforeCheckpoint = await sessionApi.getSession();
+  check('transient noise keeps original checkpoint anchor', beforeCheckpoint.startTime === base);
+  const checkpoint = await withNow(base + 190_000, () =>
+    sessionApi.runPeriodicCheckpoint(base + 190_000, { confirmForegroundPage: async () => ({ ok: true }) })
+  );
+  check('checkpoint still succeeds after repeated transient noise', checkpoint.checkpointed === true, JSON.stringify(checkpoint));
+  check('checkpoint writes one durable segment', settled.length === 1);
+}
+
+async function testStableUnfocusClosesUnconfirmedForeground() {
+  resetAll();
+  const base = 1778808000000;
+  await seedActiveSession(base, 'a.example.com');
+  const actions = simulateBoundaries([
+    { state: null, domain: null, at: base + 10_000, reason: 'windowFocusPolled' },
+    { state: null, domain: null, at: base + 16_000, reason: 'windowFocusPolled' },
+  ], { state: 'ACTIVE', domain: 'a.example.com' });
+  check('stable unfocus applies null boundary at original timestamp', actions.some((a) => a.state === null && a.at === base + 10_000));
+  await applySimulatedActions(actions);
+  const session = await sessionApi.getSession();
+  check('stable unfocus closes foreground session', session.state === null);
+  check('stable unfocus does not create durable segment', settled.length === 0);
+  check('stable unfocus does not appear in live fallback', await liveActiveSeconds('a.example.com', base) === 0);
 }
 
 async function testStableBoundaryAppliesAtOriginalSwitchTime() {
+  resetAll();
+  const base = 1778808500000;
+  await seedActiveSession(base, 'a.example.com');
   const actions = simulateBoundaries([
-    { state: 'ACTIVE', domain: 'a.example.com', at: 0 },
-    { state: 'ACTIVE', domain: 'b.example.com', at: 10_000 },
-    { state: 'ACTIVE', domain: 'b.example.com', at: 16_000 },
-  ]);
-  check('stable B applies at switch timestamp', actions.some((a) => a.state === 'ACTIVE' && a.domain === 'b.example.com' && a.at === 10_000));
+    { state: 'ACTIVE', domain: 'b.example.com', at: base + 10_000, reason: 'tabActivated' },
+    { state: 'ACTIVE', domain: 'b.example.com', at: base + 16_000, reason: 'tabActivated' },
+  ], { state: 'ACTIVE', domain: 'a.example.com' });
+  check('stable B applies at switch timestamp', actions.some((a) => a.state === 'ACTIVE' && a.domain === 'b.example.com' && a.at === base + 10_000));
+  await applySimulatedActions(actions);
+  const session = await sessionApi.getSession();
+  check('stable B session starts at original switch timestamp', session.domain === 'b.example.com' && session.startTime === base + 10_000);
+  check('stable A->B normal boundary appears in live fallback', await liveActiveSeconds('a.example.com', base) === 10);
 }
 
 async function run() {
@@ -344,7 +396,9 @@ async function run() {
     testRepeatedUiReadsDoNotCreateDurableSegments,
     testCheckpointConfirmationFailureDropsWindow,
     testShortBoundaryDropDoesNotAppearInLiveFallback,
-    testShortBoundaryDrop,
+    testShortBoundaryJitterDoesNotCloseOrReopen,
+    testRepeatedTransientFocusNoiseDoesNotBlockCheckpoint,
+    testStableUnfocusClosesUnconfirmedForeground,
     testStableBoundaryAppliesAtOriginalSwitchTime,
   ];
   let passed = 0;

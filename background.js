@@ -58,19 +58,11 @@ async function handleForegroundBoundary(state, domain, reason, boundaryAt) {
 
   if (sameBoundary(target, appliedForegroundBoundary)) {
     if (pendingForegroundBoundary && !sameBoundary(pendingForegroundBoundary.target, target)) {
-      const previous = { ...appliedForegroundBoundary };
-      const switchOutAt = pendingForegroundBoundary.boundaryAt;
       if (pendingForegroundTimer) {
         clearTimeout(pendingForegroundTimer);
         pendingForegroundTimer = null;
       }
       pendingForegroundBoundary = null;
-      if (previous.state) {
-        await transitionStateAt(null, null, switchOutAt, 'short_boundary_drop_close');
-        appliedForegroundBoundary = { state: null, domain: null };
-        await transitionStateAt(previous.state, previous.domain, boundaryAt, 'short_boundary_drop_reopen');
-        appliedForegroundBoundary = previous;
-      }
     }
     return;
   }
