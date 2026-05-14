@@ -3,7 +3,7 @@
 import { initSignal } from './core/signal.js';
 import { buildContext } from './core/context.js';
 import { resolveState } from './core/state.js';
-import { initSession, transitionState, heartbeat, getSession as getTimingSession, settleCurrentSessionSegment, runPeriodicCheckpoint } from './runtime/session.js';
+import { closeCurrentSession, initSession, transitionState, transitionStateAt, heartbeat, getSession as getTimingSession, runPeriodicCheckpoint } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
@@ -19,6 +19,87 @@ import { computeAllDomains } from './core/aggregate.js';
 let currentContext = null;
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
+let appliedForegroundBoundary = { state: null, domain: null };
+let pendingForegroundBoundary = null;
+let pendingForegroundTimer = null;
+
+const FOREGROUND_STABILIZATION_MS = 5 * 1000;
+const UNKNOWN_FOREGROUND_DOMAIN = '__unknown__';
+
+function isOrdinaryForegroundFrameworkState(state) {
+  return state === 'ACTIVE' || state === 'PASSIVE' || state === 'IDLE';
+}
+
+function sameBoundary(a, b) {
+  return (a?.state ?? null) === (b?.state ?? null) && (a?.domain ?? null) === (b?.domain ?? null);
+}
+
+async function applyForegroundBoundary(boundary, applyReason) {
+  pendingForegroundBoundary = null;
+  if (pendingForegroundTimer) {
+    clearTimeout(pendingForegroundTimer);
+    pendingForegroundTimer = null;
+  }
+  await transitionStateAt(boundary.state, boundary.domain, boundary.boundaryAt, applyReason);
+  appliedForegroundBoundary = { state: boundary.state, domain: boundary.domain };
+}
+
+async function handleForegroundBoundary(state, domain, reason, boundaryAt) {
+  const target = { state, domain: state === 'ACTIVE' ? (domain || UNKNOWN_FOREGROUND_DOMAIN) : domain || null };
+
+  if (pendingForegroundBoundary && (boundaryAt - pendingForegroundBoundary.boundaryAt) >= FOREGROUND_STABILIZATION_MS) {
+    const ready = pendingForegroundBoundary;
+    await applyForegroundBoundary({
+      state: ready.target.state,
+      domain: ready.target.domain,
+      boundaryAt: ready.boundaryAt,
+    }, `stable_${ready.reason || 'foreground_boundary'}`);
+  }
+
+  if (sameBoundary(target, appliedForegroundBoundary)) {
+    if (pendingForegroundBoundary && !sameBoundary(pendingForegroundBoundary.target, target)) {
+      const previous = { ...appliedForegroundBoundary };
+      const switchOutAt = pendingForegroundBoundary.boundaryAt;
+      if (pendingForegroundTimer) {
+        clearTimeout(pendingForegroundTimer);
+        pendingForegroundTimer = null;
+      }
+      pendingForegroundBoundary = null;
+      if (previous.state) {
+        await transitionStateAt(null, null, switchOutAt, 'short_boundary_drop_close');
+        appliedForegroundBoundary = { state: null, domain: null };
+        await transitionStateAt(previous.state, previous.domain, boundaryAt, 'short_boundary_drop_reopen');
+        appliedForegroundBoundary = previous;
+      }
+    }
+    return;
+  }
+
+  if (pendingForegroundBoundary && sameBoundary(pendingForegroundBoundary.target, target)) {
+    return;
+  }
+
+  if (pendingForegroundTimer) {
+    clearTimeout(pendingForegroundTimer);
+  }
+  const pending = {
+    target,
+    boundaryAt,
+    reason,
+  };
+  pendingForegroundBoundary = pending;
+  pendingForegroundTimer = setTimeout(() => {
+    if (pendingForegroundBoundary !== pending) return;
+    applyForegroundBoundary({
+      state: target.state,
+      domain: target.domain,
+      boundaryAt,
+    }, `stable_${reason || 'foreground_boundary'}`).catch((err) => {
+      console.warn('[Timing] foreground boundary stabilization failed:', err?.message || err);
+    });
+  }, FOREGROUND_STABILIZATION_MS);
+  pendingForegroundTimer?.unref?.();
+}
 
 // ── SW 启动引导（幂等，覆盖 MV3 隐式重启场景）────────────────────────────────────
 
@@ -158,7 +239,7 @@ async function processTimingSignal(rawEvent) {
   const state = resolveState(currentContext);
   const domain = (state === 'BACKGROUND_ACTIVE' || state === 'PIP_ACTIVE')
     ? (currentContext?.mediaSourceDomain || currentContext?.domain || null)
-    : (currentContext?.domain || null);
+    : (state === 'ACTIVE' ? (currentContext?.candidateDomain || currentContext?.domain || UNKNOWN_FOREGROUND_DOMAIN) : (currentContext?.domain || null));
   await emitTrace('state_resolved', {
     source: 'state',
     reason: rawEvent._reason || 'unknown',
@@ -180,7 +261,17 @@ async function processTimingSignal(rawEvent) {
     payload: { state, domain },
   });
 
-  await transitionState(state, domain);
+  if (isOrdinaryForegroundFrameworkState(state)) {
+    await handleForegroundBoundary(state, domain, rawEvent._reason || 'unknown', Date.now());
+  } else {
+    if (pendingForegroundTimer) {
+      clearTimeout(pendingForegroundTimer);
+      pendingForegroundTimer = null;
+      pendingForegroundBoundary = null;
+    }
+    await transitionState(state, domain);
+    appliedForegroundBoundary = { state, domain };
+  }
   scheduleCurrentTabBadgeUpdate();
 
   await emitTrace('transition_end', {
@@ -365,13 +456,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   // 如果被关闭的标签页是当前跟踪的活跃标签页，结算当前的 timing session
   if (Number.isInteger(lastActiveTabId) && lastActiveTabId === tabId) {
     try {
-      const timingSession = await getTimingSession();
-      if (timingSession?.state && timingSession?.startTime) {
-        const closeTime = getCappedElapsedMs(timingSession, Date.now()) > 0
-          ? Math.min(Date.now(), (timingSession.startTime || Date.now()) + (timingSession.lastHeartbeat || Date.now()) - (timingSession.startTime || 0) + (timingSession.startTime || 0))
-          : Date.now();
-        await settleCurrentSessionSegment(timingSession, Date.now(), 'tab_close');
-      }
+      await closeCurrentSession('tab_close');
     } catch (_) { /* 尽力而为 */ }
     lastActiveTabId = null;
   }
@@ -433,6 +518,57 @@ async function reevaluateFocusedWindowActiveTab(windowId) {
   await reevaluateTabById(tab.id);
 }
 
+async function queryIdleState(seconds) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.idle.queryState(seconds, (state) => {
+        const err = chrome.runtime?.lastError;
+        if (err) reject(new Error(err.message));
+        else resolve(state);
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+async function confirmForegroundPageCheckpoint(session) {
+  try {
+    const idleState = await queryIdleState(180).catch((err) => ({ error: err?.message || String(err) }));
+    if (idleState && typeof idleState === 'object' && idleState.error) {
+      return { ok: false, reason: 'idle_query_failed', error: idleState.error };
+    }
+    if (idleState !== 'active') {
+      return { ok: false, reason: 'idle_not_active', idleState };
+    }
+
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab = tabs && tabs[0];
+    if (!tab?.id) return { ok: false, reason: 'no_active_tab' };
+
+    let focused = true;
+    if (tab.windowId && chrome.windows?.get) {
+      try {
+        const win = await chrome.windows.get(tab.windowId);
+        focused = !!win?.focused;
+      } catch (_) {
+        return { ok: false, reason: 'candidate_query_failed' };
+      }
+    }
+    if (!focused) return { ok: false, reason: 'window_unfocused' };
+
+    const domain = extractDomain(tab.url || '');
+    const candidateDomain = domain || (tab.url ? null : UNKNOWN_FOREGROUND_DOMAIN);
+    if (!candidateDomain) return { ok: false, reason: 'special_page' };
+    if (candidateDomain !== session.domain) {
+      return { ok: false, reason: candidateDomain === UNKNOWN_FOREGROUND_DOMAIN ? 'unknown_domain' : 'candidate_mismatch', candidateDomain };
+    }
+    return { ok: true, candidateDomain, idleState };
+  } catch (err) {
+    return { ok: false, reason: 'candidate_query_failed', error: err?.message || String(err) };
+  }
+}
+
 // ── Alarms ──────────────────────────────────────────────────────────────────────
 
 function setupAlarms() {
@@ -451,7 +587,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } else if (alarm.name === 'periodicCheckpoint') {
     if (!isMonitoringEnabled()) return;
     try {
-      await runPeriodicCheckpoint(Date.now());
+      await runPeriodicCheckpoint(Date.now(), { confirmForegroundPage: confirmForegroundPageCheckpoint });
     } catch (e) {
       console.warn('[Checkpoint] periodic checkpoint alarm failed:', e?.message || e);
     }
@@ -468,10 +604,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     // 监控被远程关闭时，结算当前的 timing session
     if (wasEnabled && !isMonitoringEnabled()) {
       try {
-        const timingSession = await getTimingSession();
-        if (timingSession?.state && timingSession?.startTime) {
-          await settleCurrentSessionSegment(timingSession, Date.now(), 'monitoring_off');
-        }
+        await closeCurrentSession('monitoring_off');
       } catch (_) { /* 尽力而为 */ }
     }
   } else if (alarm.name === 'cloudHeartbeat') {
@@ -639,6 +772,14 @@ globalThis.debugClearTimingTrace = async () => {
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
+  }
+};
+
+globalThis.debugRunPeriodicCheckpoint = async (now = Date.now()) => {
+  try {
+    return await runPeriodicCheckpoint(now, { confirmForegroundPage: async () => ({ ok: true, reason: 'debug_confirmed' }) });
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
   }
 };
 

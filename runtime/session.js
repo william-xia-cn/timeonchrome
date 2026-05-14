@@ -15,6 +15,9 @@ const CLOUD_DEVICE_TOKEN_KEY = 'cloud_device_token';
 const UI_FLUSH_GUARD_KEY = 'ui_flush_guard_v1';
 const UI_FLUSH_MIN_INTERVAL_MS = 30 * 1000;
 const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 3 * 60 * 1000;
+const FOREGROUND_CHECKPOINT_MS = 180 * 1000;
+const FOREGROUND_UNKNOWN_DOMAIN = '__unknown__';
+const FOREGROUND_DIAGNOSTICS_KEY = 'foreground_page_diagnostics_v1';
 let commitQueue = Promise.resolve();
 
 // 缓存的模式上下文 — 在 segment 打开时读取，避免在 segment 关闭后读取到已切换的模式。
@@ -24,6 +27,35 @@ let cachedEffectiveMode = 'unknown';
 function runSerialized(task) {
   commitQueue = commitQueue.then(task, task);
   return commitQueue;
+}
+
+async function recordForegroundDiagnostic(updates = {}) {
+  try {
+    const data = await chrome.storage.local.get(FOREGROUND_DIAGNOSTICS_KEY);
+    const current = data?.[FOREGROUND_DIAGNOSTICS_KEY] || {};
+    const next = { ...current };
+    for (const [key, value] of Object.entries(updates)) {
+      if (typeof value === 'number' && key !== 'lastDropAt') {
+        next[key] = Number(next[key] || 0) + value;
+      } else {
+        next[key] = value;
+      }
+    }
+    await chrome.storage.local.set({ [FOREGROUND_DIAGNOSTICS_KEY]: next });
+  } catch (_) {
+    // diagnostics must never block timing
+  }
+}
+
+function isForegroundPageSession(session) {
+  return session?.state === 'ACTIVE';
+}
+
+function boundedForegroundCloseTime(session, observedAt = Date.now()) {
+  const start = Number(session?.startTime || 0);
+  if (!start) return observedAt;
+  const observed = Number.isFinite(observedAt) ? observedAt : Date.now();
+  return Math.max(start, Math.min(observed, start + FOREGROUND_CHECKPOINT_MS));
 }
 
 /**
@@ -86,11 +118,15 @@ export async function initSession() {
  * @param {string|null} newDomain
  */
 export async function transitionState(newState, newDomain) {
+  return transitionStateAt(newState, newDomain, Date.now(), 'transition');
+}
+
+export async function transitionStateAt(newState, newDomain, timestamp = Date.now(), reason = 'transition') {
   return runSerialized(async () => {
     const session = await getSession();
     if (!session) return;
 
-    const now = Date.now();
+    const now = Number.isFinite(timestamp) ? timestamp : Date.now();
 
     // 没变化直接忽略（抗抖）
     if (session.state === newState && session.domain === newDomain) {
@@ -101,7 +137,11 @@ export async function transitionState(newState, newDomain) {
 
     // 1. 关闭旧事件
     if (session.state && session.startTime) {
-      const { closeTime, stale } = getReliableCloseTime(session, now);
+      const foreground = isForegroundPageSession(session);
+      const boundary = foreground
+        ? { closeTime: boundedForegroundCloseTime(session, now), stale: false }
+        : getReliableCloseTime(session, now);
+      const { closeTime, stale } = boundary;
       const endEvent = {
         type: EVENT_TYPE.END,
         state: session.state,
@@ -118,8 +158,17 @@ export async function transitionState(newState, newDomain) {
         sessionBefore,
       });
 
-      // 结算已完成的使用时长段
-      await settleCurrentSessionSegment(session, closeTime, stale ? 'transition_stale_close' : 'transition_complete');
+      if (foreground) {
+        const droppedMs = Math.max(0, closeTime - session.startTime);
+        await recordForegroundDiagnostic({
+          droppedUnconfirmedSeconds: Math.floor(droppedMs / 1000),
+          lastDropReason: reason,
+          lastDropAt: Date.now(),
+        });
+      } else {
+        // 结算已完成的非 foreground_page 使用时长段；普通 foreground_page 只由 checkpoint 落账。
+        await settleCurrentSessionSegment(session, closeTime, stale ? 'transition_stale_close' : 'transition_complete');
+      }
     }
 
     // 2. 开启新事件
@@ -170,6 +219,44 @@ export async function heartbeat() {
     const staleGap = closeBoundary.stale;
 
     if (session.state && session.startTime && staleGap) {
+      if (isForegroundPageSession(session)) {
+        const closeTime = boundedForegroundCloseTime(session, closeBoundary.closeTime);
+        const sessionBefore = {
+          state: session.state,
+          domain: session.domain,
+          startTime: session.startTime,
+          lastHeartbeat: session.lastHeartbeat,
+        };
+        const endEvent = {
+          type: EVENT_TYPE.END,
+          state: session.state,
+          domain: session.domain,
+          time: closeTime,
+        };
+        await appendEvent(endEvent);
+        await emitTrace('event_appended', {
+          source: 'event-log',
+          reason: 'heartbeatForegroundStaleDrop',
+          domain: session.domain,
+          previousState: session.state,
+          event: endEvent,
+          sessionBefore,
+        });
+        await recordForegroundDiagnostic({
+          longOpenSessionDrops: 1,
+          droppedUnconfirmedSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000),
+          lastDropReason: 'heartbeat_stale_foreground_drop',
+          lastDropAt: Date.now(),
+        });
+        await saveSession({
+          state: null,
+          domain: null,
+          startTime: null,
+          lastHeartbeat: now,
+        });
+        return;
+      }
+
       const sessionBefore = {
         state: session.state,
         domain: session.domain,
@@ -350,6 +437,14 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     if (timingSession.state && !isCountedState(timingSession.state)) {
       return { appended: 0, durationSeconds: 0, skipped: 'non_counted_state' };
     }
+    if (timingSession.state === 'ACTIVE') {
+      if (reason !== 'periodic_checkpoint') {
+        return { appended: 0, durationSeconds: 0, skipped: 'foreground_checkpoint_required' };
+      }
+      if (durationMs > FOREGROUND_CHECKPOINT_MS) {
+        return { appended: 0, durationSeconds: 0, skipped: 'foreground_window_too_large' };
+      }
+    }
 
     // 使用 segment 打开时缓存的模式（而不是当前 guardian_session 中的模式）
     const mode = cachedEffectiveMode || 'unknown';
@@ -400,6 +495,16 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
         reason: 'non_counted_state',
       };
     }
+    if (isForegroundPageSession(session) && !options.allowForeground) {
+      return {
+        ok: true,
+        flushed: false,
+        flushedSeconds: 0,
+        domain: session.domain || null,
+        state: session.state || null,
+        reason: 'foreground_checkpoint_required',
+      };
+    }
 
     // Guardrail: popup-driven ui_flush should not fragment segments when opened frequently.
     // Only skip when state/domain/mode are exactly the same and last flush is recent.
@@ -434,7 +539,10 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       }
     }
 
-    const { closeTime, stale } = getReliableCloseTime(session, now);
+    const closeBoundary = options.closeTime
+      ? { closeTime: options.closeTime, stale: false }
+      : getReliableCloseTime(session, now);
+    const { closeTime, stale } = closeBoundary;
     if (closeTime <= session.startTime || Math.floor((closeTime - session.startTime) / 1000) <= 0) {
       return {
         ok: true,
@@ -469,7 +577,7 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
     });
 
     const settlement = await settleCurrentSessionSegment(session, closeTime, reason);
-    const reopenTime = now;
+    const reopenTime = Number.isFinite(options.reopenTime) ? options.reopenTime : now;
     const startEvent = {
       type: EVENT_TYPE.START,
       state: session.state,
@@ -526,11 +634,70 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
   return options.alreadySerialized ? task() : runSerialized(task);
 }
 
+export async function closeCurrentSession(reason = 'close', options = {}) {
+  const task = async () => {
+    const session = await getSession();
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    if (!session?.state || !session?.startTime) {
+      await saveSession({
+        state: null,
+        domain: null,
+        startTime: null,
+        lastHeartbeat: now,
+      });
+      return { ok: true, closed: false, reason: 'no_open_session' };
+    }
+
+    const foreground = isForegroundPageSession(session);
+    const closeTime = foreground
+      ? boundedForegroundCloseTime(session, now)
+      : getReliableCloseTime(session, now).closeTime;
+    await appendEvent({
+      type: EVENT_TYPE.END,
+      state: session.state,
+      domain: session.domain,
+      time: closeTime,
+    });
+
+    let settlement = null;
+    if (!foreground && isCountedState(session.state)) {
+      settlement = await settleCurrentSessionSegment(session, closeTime, reason);
+    }
+    if (foreground) {
+      const droppedSeconds = Math.floor(Math.max(0, closeTime - session.startTime) / 1000);
+      await recordForegroundDiagnostic({
+        droppedUnconfirmedSeconds: droppedSeconds,
+        longOpenSessionDrops: now - session.startTime > FOREGROUND_CHECKPOINT_MS ? 1 : 0,
+        lastDropReason: reason,
+        lastDropAt: Date.now(),
+      });
+    }
+
+    await saveSession({
+      state: null,
+      domain: null,
+      startTime: null,
+      lastHeartbeat: now,
+    });
+    return {
+      ok: true,
+      closed: true,
+      reason,
+      state: session.state,
+      domain: session.domain || null,
+      closeTime,
+      foregroundDropped: foreground,
+      settlement,
+    };
+  };
+  return options.alreadySerialized ? task() : runSerialized(task);
+}
+
 /**
  * 后台定时 checkpoint：每次触发时尝试把当前 open counted session 落账为 durable segment。
  * 仅在满足最低条件时才执行；执行后会重开同一 state/domain 的 session。
  */
-export async function runPeriodicCheckpoint(now = Date.now()) {
+export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
   return runSerialized(async () => {
     const session = await getSession();
     if (!session?.state || !session?.startTime) {
@@ -545,12 +712,75 @@ export async function runPeriodicCheckpoint(now = Date.now()) {
     if (!Number.isFinite(session.startTime) || session.startTime <= 0) {
       return { ok: true, checkpointed: false, reason: 'invalid_start_time' };
     }
-    if ((now - session.startTime) < PERIODIC_CHECKPOINT_MIN_INTERVAL_MS) {
+    const minIntervalMs = isForegroundPageSession(session)
+      ? FOREGROUND_CHECKPOINT_MS
+      : PERIODIC_CHECKPOINT_MIN_INTERVAL_MS;
+    if ((now - session.startTime) < minIntervalMs) {
       return {
         ok: true,
         checkpointed: false,
         reason: 'interval_not_reached',
-        minIntervalMs: PERIODIC_CHECKPOINT_MIN_INTERVAL_MS,
+        minIntervalMs,
+      };
+    }
+
+    if (isForegroundPageSession(session)) {
+      const confirmation = typeof options.confirmForegroundPage === 'function'
+        ? await options.confirmForegroundPage(session, now)
+        : { ok: true };
+      if (!confirmation?.ok) {
+        const closeTime = boundedForegroundCloseTime(session, now);
+        await appendEvent({
+          type: EVENT_TYPE.END,
+          state: session.state,
+          domain: session.domain,
+          time: closeTime,
+        });
+        await recordForegroundDiagnostic({
+          checkpointDrops: 1,
+          droppedUnconfirmedSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000),
+          lastDropReason: confirmation?.reason || 'checkpoint_confirmation_failed',
+          lastDropAt: Date.now(),
+          ...(confirmation?.reason === 'unknown_domain' ? { unknownDomainSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000) } : {}),
+          ...(confirmation?.reason === 'candidate_query_failed' ? { candidateQueryFailures: 1 } : {}),
+          ...(confirmation?.reason === 'idle_query_failed' ? { idleQueryFailures: 1 } : {}),
+        });
+        await saveSession({
+          state: null,
+          domain: null,
+          startTime: null,
+          lastHeartbeat: now,
+        });
+        return { ok: true, checkpointed: false, reason: confirmation?.reason || 'checkpoint_confirmation_failed', dropped: true };
+      }
+
+      const checkpointEnd = session.startTime + FOREGROUND_CHECKPOINT_MS;
+      const flushResult = await flushOpenSessionToStats('periodic_checkpoint', {
+        alreadySerialized: true,
+        closeTime: checkpointEnd,
+        reopenTime: checkpointEnd,
+        allowForeground: true,
+      });
+      if (flushResult?.ok === false || flushResult?.error) {
+        console.warn('[Checkpoint] foreground checkpoint settlement failed', {
+          error: flushResult?.error || 'unknown_error',
+          state: session.state,
+          domain: session.domain,
+        });
+        return { ok: false, checkpointed: false, reason: 'settlement_failed', error: flushResult?.error || null };
+      }
+      await saveSession({
+        state: session.state,
+        domain: session.domain || FOREGROUND_UNKNOWN_DOMAIN,
+        startTime: checkpointEnd,
+        lastHeartbeat: now,
+      });
+      return {
+        ok: true,
+        checkpointed: !!flushResult?.flushed,
+        flushedSeconds: flushResult?.flushedSeconds || 0,
+        flushedSegments: flushResult?.flushedSegments || 0,
+        reason: 'periodic_checkpoint',
       };
     }
 
@@ -558,7 +788,6 @@ export async function runPeriodicCheckpoint(now = Date.now()) {
     if (closeBoundary.stale) {
       return { ok: true, checkpointed: false, reason: 'stale_session' };
     }
-
     const flushResult = await flushOpenSessionToStats('periodic_checkpoint', { alreadySerialized: true });
     if (flushResult?.ok === false || flushResult?.error) {
       console.warn('[Checkpoint] periodic checkpoint settlement failed', {

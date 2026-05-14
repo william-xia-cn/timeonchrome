@@ -193,9 +193,27 @@ export function initSignal(onContextChange) {
   });
 
   // 标签页关闭时清理
-  chrome.tabs.onRemoved.addListener((tabId) => {
-    // 如果当前 active tab 被关闭，触发一次状态更新
-    onEvent({ _reason: 'tabClosed' }); // 触发合并，让 context 重新评估
+  chrome.tabs.onRemoved.addListener(async () => {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const tab = tabs && tabs[0];
+      if (!tab?.id) {
+        onEvent({ tabId: null, windowId: null, url: null, domain: null, isFocused: false, _reason: 'tabClosedNoActiveTab' });
+        return;
+      }
+      const focus = await getWindowFocusState(tab.windowId);
+      const url = tab.url || null;
+      onEvent({
+        tabId: tab.id,
+        windowId: tab.windowId ?? null,
+        url,
+        domain: url ? extractDomain(url) : null,
+        ...focus,
+        _reason: 'tabClosedSuccessor',
+      });
+    } catch (err) {
+      onEvent({ tabId: null, windowId: null, url: null, domain: null, isFocused: false, error: err?.message || String(err), _reason: 'tabClosedNoActiveTab' });
+    }
   });
 }
 
@@ -209,7 +227,7 @@ function extractDomain(url) {
   try {
     const u = new URL(url);
     // 排除 chrome://、chrome-extension://、edge://、about: 等特殊页面
-    if (u.protocol === 'chrome:' || u.protocol === 'chrome-extension:' || u.protocol === 'edge:' || u.protocol === 'about:') return null;
+    if (u.protocol === 'chrome:' || u.protocol === 'chrome-extension:' || u.protocol === 'edge:' || u.protocol === 'about:' || u.protocol === 'file:' || u.protocol === 'data:' || u.protocol === 'blob:') return null;
     const hostname = u.hostname;
     if (!hostname) return null;
     return normalizeHostname(hostname);

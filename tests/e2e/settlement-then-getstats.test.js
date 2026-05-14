@@ -104,8 +104,8 @@ test('P0-settle-1: GET_STATS from popup returns domain stats via event-log', asy
   } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }
 });
 
-// ── Test 3: Open session flush makes live stats visible before tab switch ───
-test('P0-settle-3: GET_STATS flushes open bound session into Stats Foundation', async () => {
+// ── Test 3: Checkpoint-first foreground settlement makes stats durable ──────
+test('P0-settle-3: checkpoint settles open bound foreground session into Stats Foundation', async () => {
   const { ctx, sw, udd } = await createContext();
   try {
     const n = Date.now();
@@ -113,7 +113,7 @@ test('P0-settle-3: GET_STATS flushes open bound session into Stats Foundation', 
       const session = {
         state: 'ACTIVE',
         domain: 'live-open.example.com',
-        startTime: now - 60000,
+        startTime: now - 181000,
         lastHeartbeat: now - 1000,
       };
       return new Promise(res => {
@@ -138,8 +138,20 @@ test('P0-settle-3: GET_STATS flushes open bound session into Stats Foundation', 
         chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {}));
       });
     });
-    expect(first['live-open.example.com']).toBeGreaterThan(0);
-    expect(first.onlineSeconds).toBeGreaterThan(0);
+    expect(first['live-open.example.com'] || 0).toBe(0);
+    expect(first.onlineSeconds || 0).toBe(0);
+
+    const checkpoint = await sw.evaluate(async (now) => globalThis.debugRunPeriodicCheckpoint(now), n);
+    expect(checkpoint.ok).toBeTruthy();
+    expect(checkpoint.checkpointed).toBeTruthy();
+
+    const afterCheckpoint = await popup.evaluate(async () => {
+      return new Promise(res => {
+        chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {}));
+      });
+    });
+    expect(afterCheckpoint['live-open.example.com']).toBeGreaterThan(0);
+    expect(afterCheckpoint.onlineSeconds).toBeGreaterThan(0);
 
     const snapshot1 = await sw.evaluate(async () => {
       return new Promise(res => {
@@ -172,8 +184,8 @@ test('P0-settle-3: GET_STATS flushes open bound session into Stats Foundation', 
         chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {}));
       });
     });
-    expect(second['live-open.example.com']).toBeGreaterThanOrEqual(first['live-open.example.com']);
-    expect(second['live-open.example.com']).toBeLessThanOrEqual(first['live-open.example.com'] + 5);
+    expect(second['live-open.example.com']).toBeGreaterThanOrEqual(afterCheckpoint['live-open.example.com']);
+    expect(second['live-open.example.com']).toBeLessThanOrEqual(afterCheckpoint['live-open.example.com'] + 5);
     const snapshot2 = await sw.evaluate(async () => {
       return new Promise(res => chrome.storage.local.get('usage_segments_v1', r => res(r)));
     });

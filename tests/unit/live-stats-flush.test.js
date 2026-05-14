@@ -101,14 +101,14 @@ await sessionApi.settleCurrentSessionSegment({
   domain: 'bound.example.com',
   startTime: NOW - 60000,
   lastHeartbeat: NOW - 1000,
-}, NOW, 'ui_flush');
+}, NOW, 'periodic_checkpoint');
 let all = await usage.getAllUsageSegments();
 let seg = Object.values(all)[0];
 chk('segment profileId', seg.profileId, 'profile-real-1');
 chk('segment deviceId', seg.deviceId, 'device-id-real-1');
 chk('segment channel active', seg.channel, 'active');
 
-sec('LF2: FLUSH_TIME creates segment + daily aggregate and reopens session');
+sec('LF2: FLUSH_TIME does not settle unconfirmed foreground_page session');
 mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
 await chrome.storage.local.set({
   cloud_profile_id: 'profile-real-2',
@@ -124,43 +124,36 @@ await sessionApi.saveSession({
 });
 const flush = await sessionApi.flushOpenSessionToStats('ui_flush');
 chk('flush ok', flush.ok, true);
-chk('flush segment count', flush.flushedSegments, 1);
-chk('flush seconds', flush.flushedSeconds, 90);
+chk('flush skipped until checkpoint', flush.flushed, false);
+chk('flush reason checkpoint required', flush.reason, 'foreground_checkpoint_required');
 all = await usage.getAllUsageSegments();
-seg = Object.values(all)[0];
-chk('flush segment domain', seg.domain, 'live.example.com');
-chk('flush segment profile', seg.profileId, 'profile-real-2');
-chk('flush segment device', seg.deviceId, 'device-id-real-2');
-const day = await usage.getDailyUsageStats(seg.date);
-chk('daily aggregate active=90', day.domains['live.example.com'].activeSeconds, 90);
+chk('flush creates no foreground segment', Object.keys(all).length, 0);
 const reopened = await sessionApi.getSession();
-chk('reopened state', reopened.state, 'ACTIVE');
-chk('reopened domain', reopened.domain, 'live.example.com');
-chk('reopened startTime now', reopened.startTime, NOW);
+chk('session still active', reopened.state, 'ACTIVE');
+chk('session domain unchanged', reopened.domain, 'live.example.com');
+chk('session startTime unchanged', reopened.startTime, NOW - 90000);
 
 sec('LF3: repeated flush at same time does not duplicate count');
 const flush2 = await sessionApi.flushOpenSessionToStats('ui_flush');
 chk('second flush skipped', flush2.flushed, false);
 all = await usage.getAllUsageSegments();
-chk('still one segment', Object.keys(all).length, 1);
-const day2 = await usage.getDailyUsageStats(seg.date);
-chk('daily aggregate still 90', day2.domains['live.example.com'].activeSeconds, 90);
+chk('still no foreground segment before checkpoint', Object.keys(all).length, 0);
 
 sec('LF3b: ui_flush guard skips repeated flush within 30 seconds');
 mockNow = NOW + 10000;
 const guardedFlush = await sessionApi.flushOpenSessionToStats('ui_flush');
 chk('guarded flush skipped', guardedFlush.flushed, false);
-chk('guarded reason', guardedFlush.reason, 'ui_flush_guard_interval');
+chk('guarded reason', guardedFlush.reason, 'foreground_checkpoint_required');
 all = await usage.getAllUsageSegments();
-chk('guard keeps one segment within 30s', Object.keys(all).length, 1);
+chk('guard keeps zero foreground segments within 30s', Object.keys(all).length, 0);
 
 sec('LF3c: ui_flush guard allows flush after 30 seconds');
 mockNow = NOW + 31000;
 const resumedFlush = await sessionApi.flushOpenSessionToStats('ui_flush');
-chk('flush resumes after 30s', resumedFlush.flushed, true);
-chk('flush resumes segment count', resumedFlush.flushedSegments, 1);
+chk('flush still waits for checkpoint after 30s', resumedFlush.flushed, false);
+chk('flush still reports checkpoint required', resumedFlush.reason, 'foreground_checkpoint_required');
 all = await usage.getAllUsageSegments();
-chk('segments count becomes two after 30s', Object.keys(all).length, 2);
+chk('segments count remains zero before checkpoint', Object.keys(all).length, 0);
 
 sec('LF3d: periodic checkpoint triggers after 3 minutes and reopens session');
 mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
@@ -188,7 +181,7 @@ chk('periodic checkpoint updates daily aggregate', checkpointDay.domains['checkp
 const checkpointReopened = await sessionApi.getSession();
 chk('periodic checkpoint reopened same state', checkpointReopened.state, 'ACTIVE');
 chk('periodic checkpoint reopened same domain', checkpointReopened.domain, 'checkpoint.example.com');
-chk('periodic checkpoint reopened startTime at now', checkpointReopened.startTime, mockNow);
+chk('periodic checkpoint reopened startTime at checkpoint boundary', checkpointReopened.startTime, NOW - 1000);
 
 sec('LF3e: periodic checkpoint skips when interval < 3 minutes');
 mockNow = NOW + 120000;
@@ -224,14 +217,14 @@ const checkpointBypass = await sessionApi.runPeriodicCheckpoint(mockNow);
 chk('periodic bypass ok', checkpointBypass.ok, true);
 chk('periodic bypass checkpointed', checkpointBypass.checkpointed, true);
 all = await usage.getAllUsageSegments();
-chk('periodic bypass adds second segment despite ui guard window', Object.keys(all).length, 2);
+chk('periodic bypass adds first foreground segment despite prior ui flush', Object.keys(all).length, 1);
 
 sec('LF3g: repeated periodic alarm does not double-count immediately');
 mockNow = NOW + 20000;
 const checkpointRepeat = await sessionApi.runPeriodicCheckpoint(mockNow);
 chk('repeat checkpoint skip reason', checkpointRepeat.reason, 'interval_not_reached');
 all = await usage.getAllUsageSegments();
-chk('repeat checkpoint keeps segment count', Object.keys(all).length, 2);
+chk('repeat checkpoint keeps segment count', Object.keys(all).length, 1);
 
 sec('LF4: token-only bound profile does not leak raw token into deviceId');
 mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
@@ -248,7 +241,7 @@ await sessionApi.settleCurrentSessionSegment({
   domain: 'token-only.example.com',
   startTime: NOW - 30000,
   lastHeartbeat: NOW - 1000,
-}, NOW, 'ui_flush');
+}, NOW, 'periodic_checkpoint');
 console.warn = originalWarn;
 all = await usage.getAllUsageSegments();
 seg = Object.values(all)[0];
@@ -267,7 +260,7 @@ await sessionApi.settleCurrentSessionSegment({
   domain: 'unbound.example.com',
   startTime: NOW - 30000,
   lastHeartbeat: NOW - 1000,
-}, NOW, 'ui_flush');
+}, NOW, 'periodic_checkpoint');
 console.warn = originalWarn;
 all = await usage.getAllUsageSegments();
 seg = Object.values(all)[0];

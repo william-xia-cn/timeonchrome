@@ -8,6 +8,14 @@ export const AttentionState = {
   PIP_ACTIVE: 'PIP_ACTIVE',
 };
 
+function isForegroundPageEligible(context) {
+  return !!context &&
+    context.tabId != null &&
+    context.isFocused === true &&
+    context.isIdle !== true &&
+    (context.candidateKind === 'known_domain' || context.candidateKind === 'unknown_domain' || (!!context.domain && context.candidateKind == null));
+}
+
 /**
  * 确定性状态判定
  *
@@ -23,10 +31,10 @@ export const AttentionState = {
  * 6. 其他 → PASSIVE（权重 = 0）
  */
 export function resolveState(context) {
-  if (!context?.domain && !context?.mediaSourceDomain) return AttentionState.IDLE;
+  if (!context?.domain && !context?.mediaSourceDomain && !context?.candidateDomain) return AttentionState.IDLE;
   // 媒体播放优先：即使系统 idle，也不能丢失媒体播放计时。
   if (context.isPiP) return AttentionState.PIP_ACTIVE;
-  if (context.domain && context.isFocused && context.tabId) return AttentionState.ACTIVE;
+  if (isForegroundPageEligible(context)) return AttentionState.ACTIVE;
   if (context.isAudible && context.mediaSourceTabId != null) return AttentionState.BACKGROUND_ACTIVE;
   if (context.isIdle) return AttentionState.IDLE;
   return AttentionState.PASSIVE;

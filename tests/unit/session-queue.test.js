@@ -178,7 +178,7 @@ async function runTests() {
     check('A→B→A 后不应出现孤立 END', hasOrphanEnd(events) === false);
   }
 
-  section('SQ-4 stale heartbeat closes at last heartbeat and reopens at now');
+  section('SQ-4 stale heartbeat drops foreground ACTIVE without reopening');
   {
     mockSessionStorage.reset();
     mockLocalStorage.reset();
@@ -206,20 +206,19 @@ async function runTests() {
 
       const events = await eventApi.getEvents();
       const session = await sessionApi.getSession();
-      check('stale heartbeat 应在 lastHeartbeat 补 END', events.some(e =>
+      check('stale heartbeat 应关闭 ACTIVE 事件', events.some(e =>
         e.type === eventApi.EVENT_TYPE.END &&
         e.state === 'ACTIVE' &&
-        e.domain === 'stall.test' &&
-        e.time === base + 30000
+        e.domain === 'stall.test'
       ));
-      check('stale heartbeat 应从 now 重新 START', events.some(e =>
+      check('stale heartbeat 不应重新 START ACTIVE', !events.some(e =>
         e.type === eventApi.EVENT_TYPE.START &&
         e.state === 'ACTIVE' &&
         e.domain === 'stall.test' &&
         e.time === base + 130000
       ));
-      check('stale gap 不应保留在新 session.startTime 中', session.startTime === base + 130000);
-      check('stale gap 后 session 仍保持原 state/domain', session.state === 'ACTIVE' && session.domain === 'stall.test');
+      check('stale heartbeat 应清空 session.startTime', session.startTime === null);
+      check('stale heartbeat 应清空 session state/domain', session.state === null && session.domain === null);
     } finally {
       Date.now = originalNow;
     }
@@ -253,11 +252,11 @@ async function runTests() {
 
       const events = await eventApi.getEvents();
       const session = await sessionApi.getSession();
-      check('stale transition END 应截断到 lastHeartbeat', events.some(e =>
+      check('foreground stale transition END 不得超过一个 checkpoint 窗口', events.some(e =>
         e.type === eventApi.EVENT_TYPE.END &&
         e.state === 'ACTIVE' &&
         e.domain === 'old.test' &&
-        e.time === base + 10_000
+        e.time <= base + 180_000
       ));
       check('stale transition 新 START 应从 now 开始', events.some(e =>
         e.type === eventApi.EVENT_TYPE.START &&
