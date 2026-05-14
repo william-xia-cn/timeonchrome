@@ -382,8 +382,8 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
   }
 }
 
-export async function flushOpenSessionToStats(reason = 'ui_flush') {
-  return runSerialized(async () => {
+export async function flushOpenSessionToStats(reason = 'ui_flush', options = {}) {
+  const task = async () => {
     const session = await getSession();
     const now = Date.now();
 
@@ -522,7 +522,8 @@ export async function flushOpenSessionToStats(reason = 'ui_flush') {
       closeTime,
       reopenedAt: reopenTime,
     };
-  });
+  };
+  return options.alreadySerialized ? task() : runSerialized(task);
 }
 
 /**
@@ -558,7 +559,7 @@ export async function runPeriodicCheckpoint(now = Date.now()) {
       return { ok: true, checkpointed: false, reason: 'stale_session' };
     }
 
-    const flushResult = await flushOpenSessionToStats('periodic_checkpoint');
+    const flushResult = await flushOpenSessionToStats('periodic_checkpoint', { alreadySerialized: true });
     if (flushResult?.ok === false || flushResult?.error) {
       console.warn('[Checkpoint] periodic checkpoint settlement failed', {
         error: flushResult?.error || 'unknown_error',

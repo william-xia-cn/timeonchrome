@@ -69,11 +69,13 @@ const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
   'isFiniteTime',
   'isStaleSession',
 ]);
-const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'saveSession', 'transitionState', 'heartbeat'], {
+const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'saveSession', 'transitionState', 'heartbeat', 'flushOpenSessionToStats', 'runPeriodicCheckpoint'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {}, // no-op for unit tests
   getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
+  isCountedState: (state) => ['ACTIVE', 'BACKGROUND_ACTIVE', 'PIP_ACTIVE'].includes(state),
+  settleUsageDuration: async () => 1,
 });
 
 function countMaxOpen(events) {
@@ -108,6 +110,13 @@ function check(desc, condition, expectedFail = false) {
   }
   failed++;
   console.error(`  ✗ ${desc}${expectedFail ? ' [EXPECTED_FAIL_BEFORE_PHASE1]' : ''}`);
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
 }
 
 async function runTests() {
@@ -368,6 +377,46 @@ async function runTests() {
       const endEvent = events.find(e => e.type === eventApi.EVENT_TYPE.END && e.domain === 'invalid-heartbeat.test');
       check('lastHeartbeat 早于 startTime 时 END 不早于 startTime', endEvent?.time >= base);
       check('lastHeartbeat 早于 startTime 时 END 不晚于 now', endEvent?.time <= base + 130_000);
+    } finally {
+      Date.now = originalNow;
+    }
+  }
+
+  section('SQ-9 periodic checkpoint does not self-deadlock commit queue');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    await eventApi.clearEvents();
+    await mockLocalStorage.set({
+      cloud_profile_id: 'profile-session-queue',
+      cloud_device_id: 'device-session-queue',
+      guardian_session: { currentMode: 'study' },
+    });
+
+    const originalNow = Date.now;
+    const base = 1777205000000;
+    try {
+      Date.now = () => base;
+      await sessionApi.saveSession({
+        state: 'ACTIVE',
+        domain: 'checkpoint-deadlock.test',
+        startTime: base,
+        lastHeartbeat: base + 10_000,
+      });
+      await eventApi.appendEvent({
+        type: eventApi.EVENT_TYPE.START,
+        state: 'ACTIVE',
+        domain: 'checkpoint-deadlock.test',
+        time: base,
+      });
+
+      Date.now = () => base + 4 * 60_000;
+      const checkpoint = await withTimeout(sessionApi.runPeriodicCheckpoint(base + 4 * 60_000), 1000);
+      check('periodic checkpoint returns within timeout', checkpoint?.ok === true);
+
+      Date.now = () => base + 4 * 60_000 + 5_000;
+      const flush = await withTimeout(sessionApi.flushOpenSessionToStats('ui_flush'), 1000);
+      check('subsequent ui_flush returns within timeout', flush?.ok === true);
     } finally {
       Date.now = originalNow;
     }
