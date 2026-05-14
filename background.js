@@ -877,10 +877,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  handleMessage(msg, sender).then((response) => {
-    sendResponse(response ?? null);
-  }).catch(err => {
-    sendResponse({ error: err?.message || String(err) });
+  handleMessage(msg, sender).then(sendResponse).catch(err => {
+    sendResponse({ error: err.message });
   });
   return true;
 });
