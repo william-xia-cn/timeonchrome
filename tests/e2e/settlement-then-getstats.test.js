@@ -115,13 +115,6 @@ test('P0-settle-3: GET_STATS flushes open bound session into Stats Foundation', 
         domain: 'live-open.example.com',
         startTime: now - 60000,
         lastHeartbeat: now - 1000,
-        mode: 'rest',
-        tabId: 991,
-        pageVisible: true,
-        lastPageActivityAt: now - 60000,
-        lastVisibleAt: now - 60000,
-        lastForegroundEvidenceAt: now - 1000,
-        lastCheckpointAt: now - 60000,
       };
       return new Promise(res => {
         chrome.storage.session.set({ session_v1: session }, () => {
