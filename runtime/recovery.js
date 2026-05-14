@@ -58,7 +58,6 @@ export async function recover() {
       domain: null,
       startTime: null,
       lastHeartbeat: now,
-      mode: null,
     });
   });
 }

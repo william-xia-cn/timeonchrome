@@ -30,24 +30,6 @@ export function initSignal(onContextChange) {
    * 字段优先级合并：incoming 的 null/undefined 不覆盖 pending 的值
    */
   function mergeEvent(pending, incoming) {
-    if (incoming._replaceContext) {
-      return {
-        tabId: incoming.tabId ?? null,
-        windowId: incoming.windowId ?? null,
-        url: incoming.url ?? null,
-        domain: incoming.domain ?? null,
-        isFocused: incoming.isFocused ?? false,
-        isIdle: incoming.isIdle ?? pending.isIdle,
-        isAudible: incoming.isAudible ?? false,
-        mediaSourceTabId: incoming.mediaSourceTabId ?? null,
-        mediaSourceDomain: incoming.mediaSourceDomain ?? null,
-        isPiP: incoming.isPiP ?? false,
-        error: incoming.error ?? null,
-        _reason: incoming._reason ?? pending._reason ?? 'unknown',
-        _replaceContext: true,
-        timestamp: Date.now(),
-      };
-    }
     return {
       tabId: incoming.tabId ?? pending.tabId,
       windowId: incoming.windowId ?? pending.windowId,
@@ -211,68 +193,9 @@ export function initSignal(onContextChange) {
   });
 
   // 标签页关闭时清理
-  chrome.tabs.onRemoved.addListener(async (tabId, removeInfo = {}) => {
-    // Do not emit a bare event here: preserving the prior domain can reopen the
-    // closed tab's timing context after background has already closed it.
-    const queryInfo = { active: true };
-    if (Number.isInteger(removeInfo.windowId) && removeInfo.windowId !== chrome.windows.WINDOW_ID_NONE) {
-      queryInfo.windowId = removeInfo.windowId;
-    } else {
-      queryInfo.lastFocusedWindow = true;
-    }
-
-    try {
-      const tabs = await chrome.tabs.query(queryInfo);
-      const tab = tabs && tabs[0];
-      if (tab?.id && tab?.url) {
-        const focus = await getWindowFocusState(tab.windowId);
-        const domain = extractDomain(tab.url);
-        onEvent({
-          _replaceContext: true,
-          _reason: 'tabClosed',
-          tabId: tab.id,
-          windowId: tab.windowId ?? null,
-          url: tab.url,
-          domain,
-          isAudible: false,
-          mediaSourceTabId: null,
-          mediaSourceDomain: null,
-          isPiP: false,
-          ...focus,
-        });
-        return;
-      }
-    } catch (err) {
-      onEvent({
-        _replaceContext: true,
-        _reason: 'tabClosed',
-        tabId: null,
-        windowId: removeInfo.windowId ?? null,
-        url: null,
-        domain: null,
-        isFocused: false,
-        isAudible: false,
-        mediaSourceTabId: null,
-        mediaSourceDomain: null,
-        isPiP: false,
-        error: err?.message || String(err),
-      });
-      return;
-    }
-
-    onEvent({
-      _replaceContext: true,
-      _reason: 'tabClosed',
-      tabId: null,
-      windowId: removeInfo.windowId ?? null,
-      url: null,
-      domain: null,
-      isFocused: false,
-      isAudible: false,
-      mediaSourceTabId: null,
-      mediaSourceDomain: null,
-      isPiP: false,
-    });
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    // 如果当前 active tab 被关闭，触发一次状态更新
+    onEvent({ _reason: 'tabClosed' }); // 触发合并，让 context 重新评估
   });
 }
 

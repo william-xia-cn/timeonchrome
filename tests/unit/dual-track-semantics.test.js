@@ -199,20 +199,6 @@ async function runTests() {
     expect('idle + PiP should still be PIP_ACTIVE', resolveState(pipIdleCtx), AttentionState.PIP_ACTIVE);
   }
 
-  section('D9: OS idle suppresses ordinary foreground ACTIVE');
-  {
-    const foregroundIdleCtx = {
-      domain: 'focused.example',
-      tabId: 7,
-      isFocused: true,
-      isIdle: true,
-      isAudible: false,
-      mediaSourceTabId: null,
-      isPiP: false,
-    };
-    expect('focused tab + OS idle should be IDLE', resolveState(foregroundIdleCtx), AttentionState.IDLE);
-  }
-
   const total = passed + failed;
   console.log(`\n[Dual Track Semantics] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

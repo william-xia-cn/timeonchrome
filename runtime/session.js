@@ -32,7 +32,6 @@ function runSerialized(task) {
  * @property {string|null} domain
  * @property {number|null} startTime
  * @property {number} lastHeartbeat
- * @property {string|null} mode
  */
 
 /**
@@ -76,7 +75,6 @@ export async function initSession() {
     domain: null,
     startTime: null,
     lastHeartbeat: Date.now(),
-    mode: null,
   };
   await saveSession(initial);
   return initial;
@@ -144,9 +142,8 @@ export async function transitionState(newState, newDomain) {
     }
 
     // 3. 缓存模式上下文 — 在 segment 打开时读取，确保 segment 模式反映打开时的模式，而不是关闭时的模式
-    let openedMode = null;
     if (newState) {
-      openedMode = await refreshCachedMode();
+      await refreshCachedMode();
     }
 
     // 4. 更新 session
@@ -155,7 +152,6 @@ export async function transitionState(newState, newDomain) {
       domain: newDomain,
       startTime: newState ? now : null,
       lastHeartbeat: now,
-      mode: newState ? openedMode : null,
     };
     await saveSession(sessionAfter);
   });
@@ -220,12 +216,11 @@ export async function heartbeat() {
         domain: session.domain,
         startTime: now,
         lastHeartbeat: now,
-        mode: session.mode || cachedEffectiveMode || 'unknown',
       });
       return;
     }
 
-    await saveSession({ ...session, lastHeartbeat: now, mode: session.mode || cachedEffectiveMode || 'unknown' });
+    await saveSession({ ...session, lastHeartbeat: now });
   });
 }
 
@@ -247,7 +242,6 @@ async function refreshCachedMode() {
   } catch (_) {
     cachedEffectiveMode = 'unknown';
   }
-  return cachedEffectiveMode;
 }
 
 /**
@@ -358,7 +352,7 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     }
 
     // 使用 segment 打开时缓存的模式（而不是当前 guardian_session 中的模式）
-    const mode = timingSession.mode || cachedEffectiveMode || 'unknown';
+    const mode = cachedEffectiveMode || 'unknown';
     const identity = await resolveSettlementIdentity(timingSession, reason);
 
     const appended = await settleUsageDuration({
@@ -386,92 +380,6 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     // 失败的结算可以通过下次 heartbeat/recovery 重试。
     return { appended: 0, durationSeconds: 0, error: e?.message || String(e) };
   }
-}
-
-export async function closeCurrentSession(reason = 'manual_close', options = {}) {
-  return runSerialized(async () => {
-    const session = await getSession();
-    const now = Number.isFinite(options.now) ? options.now : Date.now();
-
-    if (!session?.state || !session?.startTime) {
-      await saveSession({
-        state: null,
-        domain: null,
-        startTime: null,
-        lastHeartbeat: now,
-        mode: null,
-      });
-      return { ok: true, closed: false, reason: 'no_open_session' };
-    }
-
-    const { closeTime, stale } = getReliableCloseTime(session, now);
-    const sessionBefore = {
-      state: session.state,
-      domain: session.domain,
-      startTime: session.startTime,
-      lastHeartbeat: session.lastHeartbeat,
-      mode: session.mode || null,
-    };
-    const endEvent = {
-      type: EVENT_TYPE.END,
-      state: session.state,
-      domain: session.domain,
-      time: closeTime,
-    };
-    await appendEvent(endEvent);
-    const settlementReason = stale ? `${reason}_stale_close` : reason;
-    await emitTrace('event_appended', {
-      source: 'event-log',
-      reason: settlementReason,
-      domain: session.domain,
-      previousState: session.state,
-      event: endEvent,
-      sessionBefore,
-    });
-
-    const settlement = await settleCurrentSessionSegment(session, closeTime, settlementReason);
-    const shouldReopen = !!options.reopenState;
-    let reopenedMode = null;
-    if (shouldReopen) {
-      reopenedMode = await refreshCachedMode();
-      const startEvent = {
-        type: EVENT_TYPE.START,
-        state: options.reopenState,
-        domain: options.reopenDomain || null,
-        time: now,
-      };
-      await appendEvent(startEvent);
-      await emitTrace('event_appended', {
-        source: 'event-log',
-        reason: `${reason}_reopen`,
-        domain: options.reopenDomain || null,
-        nextState: options.reopenState,
-        event: startEvent,
-        sessionBefore,
-      });
-    }
-
-    await saveSession({
-      state: shouldReopen ? options.reopenState : null,
-      domain: shouldReopen ? (options.reopenDomain || null) : null,
-      startTime: shouldReopen ? now : null,
-      lastHeartbeat: now,
-      mode: shouldReopen ? reopenedMode : null,
-    });
-
-    return {
-      ok: true,
-      closed: true,
-      closeTime,
-      stale: !!stale,
-      settlementReason,
-      settlement,
-      reopened: shouldReopen,
-      state: session.state || null,
-      domain: session.domain || null,
-      mode: session.mode || cachedEffectiveMode || 'unknown',
-    };
-  });
 }
 
 export async function flushOpenSessionToStats(reason = 'ui_flush') {
@@ -583,7 +491,6 @@ export async function flushOpenSessionToStats(reason = 'ui_flush') {
       domain: session.domain,
       startTime: reopenTime,
       lastHeartbeat: reopenTime,
-      mode: session.mode || cachedEffectiveMode || 'unknown',
     });
 
     if (reason === 'ui_flush') {

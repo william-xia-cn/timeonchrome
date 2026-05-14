@@ -164,56 +164,6 @@ async function run() {
   expectTrue('focus poll should set isFocused=false', emitted.some(e => e.isFocused === false));
   expectTrue('focus poll reason should be windowFocusPolled', emitted.some(e => e._reason === 'windowFocusPolled'));
 
-  section('SG6: tab close replaces stale pending domain with successor active tab');
-  emitted.length = 0;
-  hooks.queryTabs = async () => [{ id: 404, windowId: 40, active: true, url: 'https://Successor.Example.COM/next' }];
-  hooks.getWindow = async () => ({ focused: true });
-  hooks.onUpdated(303, { url: 'https://closed.example.com/old' }, { active: true, windowId: 40, url: 'https://closed.example.com/old' });
-  await hooks.onRemoved(303, { windowId: 40 });
-  await new Promise((r) => setTimeout(r, 100));
-
-  const successorSignal = emitted[0];
-  const successorContext = buildContext({
-    tabId: 303,
-    windowId: 40,
-    domain: 'closed.example.com',
-    isFocused: true,
-    isIdle: false,
-    isAudible: false,
-    isPiP: false,
-    lastActiveTabId: 303,
-    lastFocusedWindowId: 40,
-  }, successorSignal);
-  expectTrue('tab close should emit one replacement signal', emitted.length === 1);
-  expectTrue('tab close replacement should use successor tab id', successorSignal?.tabId === 404);
-  expectTrue('tab close replacement should use successor domain', successorSignal?.domain === 'successor.example.com');
-  expectTrue('context should not preserve closed old domain', successorContext.domain === 'successor.example.com');
-  expectTrue('successor context should remain ACTIVE when focused and non-idle', resolveState({ ...successorContext, isIdle: false }) === AttentionState.ACTIVE);
-
-  section('SG7: tab close emits explicit null-domain context when no successor is observable');
-  emitted.length = 0;
-  hooks.queryTabs = async () => [];
-  await hooks.onRemoved(404, { windowId: 40 });
-  await new Promise((r) => setTimeout(r, 100));
-
-  const nullSignal = emitted[0];
-  const nullContext = buildContext({
-    tabId: 404,
-    windowId: 40,
-    domain: 'old-successor.example.com',
-    isFocused: true,
-    isIdle: false,
-    isAudible: false,
-    isPiP: false,
-    lastActiveTabId: 404,
-    lastFocusedWindowId: 40,
-  }, nullSignal);
-  expectTrue('no-successor tab close should emit one replacement signal', emitted.length === 1);
-  expectTrue('no-successor signal should clear tabId', nullSignal?.tabId === null);
-  expectTrue('no-successor signal should clear domain', nullSignal?.domain === null);
-  expectTrue('no-successor context should clear stale domain', nullContext.domain === null);
-  expectTrue('no-successor context should resolve IDLE', resolveState(nullContext) === AttentionState.IDLE);
-
   const total = passed + failed;
   console.log(`\n[Signal ExtractDomain Guard] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);
