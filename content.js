@@ -33,7 +33,7 @@
     chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP, mediaKind: kind });
   }
 
-  function updateMediaState() {
+  function updateMediaState(force = false) {
     const elements = Array.from(document.querySelectorAll('video, audio'));
     const playingElements = elements.filter(el => !el.paused && !el.ended && el.readyState > 2);
     const htmlMediaPlaying = playingElements.length > 0;
@@ -47,6 +47,8 @@
       mediaKind = newKind;
       pipActive = newPiP;
       sendMediaState(mediaPlaying, pipActive, mediaKind);
+    } else if (force && (newState || newPiP)) {
+      sendMediaState(newState, newPiP, newKind);
     }
   }
 
@@ -72,6 +74,13 @@
     updateMediaState();
   });
   mediaObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+  // Some browser-controlled media documents and cross-world media events do not
+  // reliably fire listener callbacks into the content script. Polling only
+  // recomputes local media state and still sends a message only on state change.
+  setTimeout(updateMediaState, 500);
+  setInterval(updateMediaState, 1000);
+  setInterval(() => updateMediaState(true), 5000);
 
   // Web Audio API 检测：拦截 AudioContext 构造
   function patchAudioContext(CtxClass) {
