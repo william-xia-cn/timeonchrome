@@ -163,6 +163,13 @@ export async function handleMessage(msg, sender) {
     case 'FLUSH_TIME':
       return await flushOpenSessionToStats('ui_flush');
 
+    case 'GET_SUSPECT_SEGMENT_SUMMARY':
+      try {
+        return await markSuspectUsageSegments({ dryRun: true });
+      } catch (e) {
+        return { ok: false, dryRun: true, error: e?.message || String(e) };
+      }
+
     case 'MARK_SUSPECT_SEGMENTS':
       try {
         return await markSuspectUsageSegments({ dryRun: msg.dryRun !== false });

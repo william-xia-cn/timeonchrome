@@ -83,6 +83,7 @@ async function init() {
     sendMsg({ type: 'GET_STATS' }),
   ]);
   popupStatsContext = { config: config || {}, stats: stats || {} };
+  renderSuspectSegmentStatus(await getSuspectSegmentSummarySafe());
 
   const nameStorage = await new Promise(resolve =>
     chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME], resolve)
@@ -195,6 +196,33 @@ async function init() {
       </div>
     `).join('');
   }
+}
+
+async function getSuspectSegmentSummarySafe() {
+  try {
+    return await Promise.race([
+      sendMsg({ type: 'GET_SUSPECT_SEGMENT_SUMMARY' }),
+      new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), 1500)),
+    ]);
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
+function renderSuspectSegmentStatus(summary = {}) {
+  const row = document.getElementById('suspect-segments-row');
+  const valueEl = document.getElementById('suspect-segments-value');
+  if (!row || !valueEl) return;
+
+  const count = Number(summary?.markedCount || 0);
+  if (!summary?.ok || count <= 0) {
+    row.style.display = 'none';
+    return;
+  }
+
+  const seconds = Number(summary?.excludedSeconds || 0);
+  valueEl.textContent = `${count}段 / ${formatSeconds(seconds)}`;
+  row.style.display = 'block';
 }
 
 function isStatsMetaKey(key) {

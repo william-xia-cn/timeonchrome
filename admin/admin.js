@@ -1670,6 +1670,7 @@ async function renderStatsPage() {
   const setStatsEmptyState = () => {
     renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, pip: 0, composite: 0, undetermined: 0 });
     renderOverviewList('week-overview-list', { online: 0, study: 0, rest: 0, audio: 0, pip: 0, composite: 0, undetermined: 0 });
+    renderSuspectSegmentStatus({ ok: true, markedCount: 0, excludedSeconds: 0 });
     document.getElementById('today-timeline').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
     document.getElementById('week-daily-bars').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
     renderRankList('today-rank-list', {}, 5);
@@ -1698,13 +1699,16 @@ async function renderStatsPage() {
     todayRangeData,
     weekRangeData,
     weeklyRes,
-    timelineSegments
+    timelineSegments,
+    suspectSummary
   ] = await Promise.all([
     safeMsg({ type: 'GET_STATS_RANGE', days: 1 }, {}),
     safeMsg({ type: 'GET_STATS_RANGE', days: 7 }, {}),
     safeMsg({ type: 'GET_WEEKLY_SESSIONS' }, { sessions: [] }),
-    safeMsg({ type: 'GET_TIMELINE_SEGMENTS' }, [])
+    safeMsg({ type: 'GET_TIMELINE_SEGMENTS' }, []),
+    safeMsg({ type: 'GET_SUSPECT_SEGMENT_SUMMARY' }, { ok: false })
   ]);
+  renderSuspectSegmentStatus(suspectSummary);
 
   const todayRangeSafe = todayRangeData && typeof todayRangeData === 'object' ? todayRangeData : {};
   const weekRangeSafe = weekRangeData && typeof weekRangeData === 'object' ? weekRangeData : {};
@@ -1793,6 +1797,85 @@ function renderOverviewList(id, overview) {
       <span class="overview-value">${r.value}</span>
     </div>
   `).join('');
+}
+
+function renderSuspectSegmentStatus(summary = {}) {
+  const el = document.getElementById('suspect-segment-status');
+  if (!el) return;
+
+  if (!summary?.ok) {
+    el.innerHTML = `
+      <div class="overview-row">
+        <span class="overview-label">异常历史段</span>
+        <span class="overview-value">暂不可读</span>
+      </div>
+    `;
+    return;
+  }
+
+  const count = Number(summary.markedCount || 0);
+  const seconds = Number(summary.excludedSeconds || 0);
+  const reasonText = formatSuspectReasons(summary.suspectByReason);
+  if (count <= 0) {
+    el.innerHTML = `
+      <div class="overview-row">
+        <span class="overview-label">异常历史段</span>
+        <span class="overview-value">未发现</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.6;padding:8px 0 2px;">
+        本地统计未检测到会污染读数的历史长段。
+      </div>
+    `;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="overview-row">
+      <span class="overview-label">待排除异常段</span>
+      <span class="overview-value">${count}段 / ${formatSeconds(seconds)}</span>
+    </div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.6;padding:8px 0;">
+      ${escHtml(reasonText || '检测到疑似异常历史计时段。')} 原始 segment 会保留；标记后仅重建本地统计并排除异常秒数。
+    </div>
+    <button id="mark-suspect-segments-btn" style="border:1px solid var(--border);border-radius:8px;background:rgba(245,158,11,0.10);color:#92400e;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;">
+      标记并重建本地统计
+    </button>
+    <div id="mark-suspect-segments-feedback" style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;"></div>
+  `;
+
+  const btn = document.getElementById('mark-suspect-segments-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const feedback = document.getElementById('mark-suspect-segments-feedback');
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+    if (feedback) feedback.textContent = '正在标记 suspect 并重建本地 daily stats...';
+    try {
+      const result = await sendMsg({ type: 'MARK_SUSPECT_SEGMENTS', dryRun: false });
+      if (!result?.ok) throw new Error(result?.error || 'mark failed');
+      if (feedback) {
+        feedback.textContent = `已标记 ${result.markedCount || 0} 段，重建 ${Array.isArray(result.rebuiltDates) ? result.rebuiltDates.length : 0} 天。`;
+      }
+      await renderStatsPage();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '标记并重建本地统计';
+      if (feedback) feedback.textContent = `处理失败：${e?.message || e}`;
+    }
+  });
+}
+
+function formatSuspectReasons(reasons = {}) {
+  const labels = {
+    active_over_3h: 'active 超过 3 小时',
+    active_cross_day_over_30m: 'active 跨日超过 30 分钟',
+    stale_recovery_tab_close_over_30m: 'stale/recovery/tab_close 超过 30 分钟',
+    active_source_over_3h: 'ACTIVE 源状态超过 3 小时',
+  };
+  return Object.entries(reasons || {})
+    .filter(([, count]) => Number(count) > 0)
+    .map(([reason, count]) => `${labels[reason] || reason}：${count}段`)
+    .join('；');
 }
 
 function renderTimeline(id, sessions, options = {}) {

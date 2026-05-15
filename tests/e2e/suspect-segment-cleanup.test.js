@@ -24,7 +24,7 @@ async function createContext() {
   const extensionId = new URL(sw.url()).hostname;
   const page = await ctx.newPage();
   await page.goto(`chrome-extension://${extensionId}/admin/admin.html?view=stats`, { waitUntil: 'domcontentloaded', timeout: 10000 });
-  return { ctx, sw, page, udd };
+  return { ctx, sw, page, extensionId, udd };
 }
 
 async function send(page, payload, timeoutMs = 3000) {
@@ -35,7 +35,7 @@ async function send(page, payload, timeoutMs = 3000) {
 }
 
 test('suspect cleanup marks historical active outlier and excludes it from local stats', async () => {
-  const { ctx, sw, page, udd } = await createContext();
+  const { ctx, sw, page, extensionId, udd } = await createContext();
   try {
     const { date, compact, dayStartMs, dayEndMs } = localDateKeyParts();
     const normalId = `seg-${compact}-1111111111111111`;
@@ -81,6 +81,9 @@ test('suspect cleanup marks historical active outlier and excludes it from local
         settlementReason: 'tab_close',
       };
       await chrome.storage.local.set({
+        cloud_device_token: 'e2e-suspect-token',
+        cloud_profile_id: 'e2e-suspect-profile',
+        cloud_profile_name: 'E2E',
         event_log_v1: [],
         usage_segments_v1: {
           [normalId]: normal,
@@ -133,6 +136,19 @@ test('suspect cleanup marks historical active outlier and excludes it from local
     const initialStats = await send(page, { type: 'GET_STATS' });
     expect(initialStats[normalDomain]).toBe(normalSeconds);
     expect(initialStats[suspectDomain]).toBe(suspectSeconds);
+
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/popup/popup.html`, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await expect(popup.locator('#suspect-segments-row')).toBeVisible();
+    await expect(popup.locator('#suspect-segments-row')).toContainText('历史异常计时');
+    await expect(popup.locator('#suspect-segments-value')).toContainText('1段');
+    await popup.close();
+
+    const adminUi = await ctx.newPage();
+    await adminUi.goto(`chrome-extension://${extensionId}/admin/admin.html?view=stats`, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await expect(adminUi.locator('#suspect-segment-status')).toContainText('待排除异常段');
+    await expect(adminUi.locator('#suspect-segment-status')).toContainText('标记并重建本地统计');
+    await adminUi.close();
 
     const beforeDryStorage = await sw.evaluate(() => chrome.storage.local.get(['usage_segments_v1', 'daily_usage_stats_v1']));
     const dry = await send(page, { type: 'MARK_SUSPECT_SEGMENTS', dryRun: true });

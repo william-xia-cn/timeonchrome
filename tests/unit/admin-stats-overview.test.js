@@ -63,7 +63,12 @@ function loadComputeOverview() {
     formatSeconds: (seconds) => `${seconds}s`,
     document: {
       getElementById: (id) => {
-        if (!elements[id]) elements[id] = { innerHTML: '' };
+        if (!elements[id]) elements[id] = {
+          innerHTML: '',
+          disabled: false,
+          textContent: '',
+          addEventListener: () => {},
+        };
         return elements[id];
       },
     },
@@ -73,11 +78,11 @@ function loadComputeOverview() {
     context,
     { filename: 'admin.js' }
   );
-  return { fn: context.__fn, render: context.__render, ctx: context, elements };
+  return { fn: context.__fn, render: context.__render, ctx: context, elements, code };
 }
 
 function run() {
-  const { fn: computeOverview, render, ctx, elements } = loadComputeOverview();
+  const { fn: computeOverview, render, ctx, elements, code } = loadComputeOverview();
 
   // Helper to call with vm context as `this`
   function call(data) {
@@ -120,6 +125,11 @@ function run() {
   const overviewHtml = elements['overview-test'].innerHTML;
   expectTrue('renderOverviewList includes background media row', overviewHtml.includes('后台媒体'));
   expectTrue('renderOverviewList includes PiP row', overviewHtml.includes('PiP'));
+
+  expectTrue('admin stats calls suspect summary message', code.includes("GET_SUSPECT_SEGMENT_SUMMARY"));
+  expectTrue('admin stats exposes suspect maintenance action', code.includes('标记并重建本地统计'));
+  expectTrue('admin stats explains active over 3h reason', code.includes('active 超过 3 小时'));
+  expectTrue('admin stats has clean suspect state text', code.includes('未发现'));
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

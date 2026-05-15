@@ -264,7 +264,7 @@ async function connect(args) {
   const swTarget = targets.find((target) => target.type === 'service_worker' && String(target.url || '').includes('/background.js'));
 
   try {
-    if (args.connection === 'raw_cdp' || args.scenario !== 'responsiveness') {
+    if (args.connection === 'raw_cdp') {
       throw new Error('raw_cdp_requested');
     }
     const { chromium } = loadPlaywright();
@@ -480,6 +480,14 @@ async function runForeground(env, args) {
   await page.bringToFront();
   const domain = domainFromUrl(typeof page.url === 'function' ? page.url() : page.url);
   const waitResult = await waitWithKeepActive(page, durationSec, args.keepActive);
+  const forcedCheckpoint = durationSec >= 180
+    ? await env.worker.evaluate(async (now) => {
+        if (typeof globalThis.debugRunPeriodicCheckpoint !== 'function') {
+          return { ok: false, reason: 'debug_checkpoint_unavailable' };
+        }
+        return globalThis.debugRunPeriodicCheckpoint(now);
+      }, Date.now()).catch((error) => ({ ok: false, error: error?.message || String(error) }))
+    : null;
   const after = await env.readStorage();
   const statsResponse = await env.sendRuntime({ type: 'GET_STATS' }, args.timeoutMs);
   const rangeResponse = await env.sendRuntime({ type: 'GET_STATS_RANGE', days: 1 }, args.timeoutMs);
@@ -503,6 +511,7 @@ async function runForeground(env, args) {
       GET_STATS: statsResponse.elapsedMs,
       GET_STATS_RANGE: rangeResponse.elapsedMs,
     },
+    forcedCheckpoint,
     statsDeltaApprox: statSeconds(afterStats, domain) - statSeconds(beforeStats, domain),
     segmentCountDelta: afterSegments.length - beforeSegments.length,
     matchingSegments: summarizeSegments(matchingSegments),
