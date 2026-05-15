@@ -3,7 +3,9 @@
 import { initSignal } from './core/signal.js';
 import { buildContext } from './core/context.js';
 import { resolveState } from './core/state.js';
+import { resolveMediaFramework } from './core/media-framework.js';
 import { closeCurrentSession, initSession, transitionState, transitionStateAt, heartbeat, getSession as getTimingSession, runPeriodicCheckpoint } from './runtime/session.js';
+import { handleMediaBoundary, runMediaPeriodicCheckpoint } from './runtime/media-session.js';
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
@@ -203,6 +205,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 async function processTimingSignal(rawEvent) {
   await ensureBootstrapped('signal');
+  const isMediaOnlySignal = rawEvent.mediaSourceTabId != null &&
+    rawEvent.domain == null &&
+    !Object.prototype.hasOwnProperty.call(rawEvent, 'url');
   await emitTrace('signal_received', {
     source: 'signal',
     reason: rawEvent._reason || 'unknown',
@@ -229,6 +234,8 @@ async function processTimingSignal(rawEvent) {
   });
 
   const state = resolveState(currentContext);
+  const mediaFramework = resolveMediaFramework(currentContext);
+  await handleMediaBoundary(mediaFramework.framework, mediaFramework.domain, rawEvent._reason || 'unknown', Date.now());
   const domain = (state === 'BACKGROUND_ACTIVE' || state === 'PIP_ACTIVE')
     ? (currentContext?.mediaSourceDomain || currentContext?.domain || null)
     : (state === 'ACTIVE' ? (currentContext?.candidateDomain || currentContext?.domain || UNKNOWN_FOREGROUND_DOMAIN) : (currentContext?.domain || null));
@@ -241,6 +248,19 @@ async function processTimingSignal(rawEvent) {
     nextState: state,
     payload: { context: currentContext },
   });
+
+  if (isMediaOnlySignal) {
+    await emitTrace('transition_skipped', {
+      source: 'session',
+      reason: rawEvent._reason || 'media_signal',
+      tabId: currentContext?.tabId ?? null,
+      windowId: currentContext?.windowId ?? null,
+      domain,
+      nextState: state,
+      payload: { skippedReason: 'media_signal_foreground_unchanged' },
+    });
+    return;
+  }
 
   await emitTrace('transition_begin', {
     source: 'session',
@@ -255,7 +275,7 @@ async function processTimingSignal(rawEvent) {
 
   if (isOrdinaryForegroundFrameworkState(state)) {
     await handleForegroundBoundary(state, domain, rawEvent._reason || 'unknown', Date.now());
-  } else {
+  } else if (state !== 'BACKGROUND_ACTIVE' && state !== 'PIP_ACTIVE') {
     if (pendingForegroundTimer) {
       clearTimeout(pendingForegroundTimer);
       pendingForegroundTimer = null;
@@ -580,6 +600,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (!isMonitoringEnabled()) return;
     try {
       await runPeriodicCheckpoint(Date.now(), { confirmForegroundPage: confirmForegroundPageCheckpoint });
+      await runMediaPeriodicCheckpoint(Date.now());
     } catch (e) {
       console.warn('[Checkpoint] periodic checkpoint alarm failed:', e?.message || e);
     }
@@ -770,6 +791,14 @@ globalThis.debugClearTimingTrace = async () => {
 globalThis.debugRunPeriodicCheckpoint = async (now = Date.now()) => {
   try {
     return await runPeriodicCheckpoint(now, { confirmForegroundPage: async () => ({ ok: true, reason: 'debug_confirmed' }) });
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+};
+
+globalThis.debugRunMediaPeriodicCheckpoint = async (now = Date.now()) => {
+  try {
+    return await runMediaPeriodicCheckpoint(now);
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   }

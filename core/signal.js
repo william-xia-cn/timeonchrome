@@ -38,6 +38,7 @@ export function initSignal(onContextChange) {
       isFocused: incoming.isFocused ?? pending.isFocused,
       isIdle: incoming.isIdle ?? pending.isIdle,
       isAudible: incoming.isAudible ?? pending.isAudible,
+      mediaKind: incoming.mediaKind ?? pending.mediaKind,
       mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
       mediaSourceDomain: incoming.mediaSourceDomain ?? pending.mediaSourceDomain,
       isPiP: incoming.isPiP ?? pending.isPiP,
@@ -185,6 +186,7 @@ export function initSignal(onContextChange) {
       onEvent({
         isAudible: msg.playing,
         isPiP: msg.isPiP,
+        mediaKind: msg.mediaKind,
         mediaSourceTabId: sender.tab.id,
         mediaSourceDomain: domain,
         _reason: 'mediaState',

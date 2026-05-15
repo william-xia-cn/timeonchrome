@@ -24,23 +24,29 @@
   // ── 媒体状态检测（content 只负责报告这一件事）────────────────────────────────
 
   let mediaPlaying = false;
+  let mediaKind = null;
   let audioContextActive = false;
   let pipActive = false;
 
-  function sendMediaState(playing, isPiP = pipActive) {
+  function sendMediaState(playing, isPiP = pipActive, kind = mediaKind) {
     if (!chrome.runtime?.id) return;
-    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP });
+    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP, mediaKind: kind });
   }
 
   function updateMediaState() {
     const elements = Array.from(document.querySelectorAll('video, audio'));
-    const htmlMediaPlaying = elements.some(el => !el.paused && !el.ended && el.readyState > 2);
+    const playingElements = elements.filter(el => !el.paused && !el.ended && el.readyState > 2);
+    const htmlMediaPlaying = playingElements.length > 0;
     const newState = htmlMediaPlaying || audioContextActive;
+    const newKind = playingElements.some(el => el.tagName?.toLowerCase() === 'video')
+      ? 'video'
+      : (newState ? 'audio' : null);
     const newPiP = !!document.pictureInPictureElement;
-    if (newState !== mediaPlaying || newPiP !== pipActive) {
+    if (newState !== mediaPlaying || newPiP !== pipActive || newKind !== mediaKind) {
       mediaPlaying = newState;
+      mediaKind = newKind;
       pipActive = newPiP;
-      sendMediaState(mediaPlaying, pipActive);
+      sendMediaState(mediaPlaying, pipActive, mediaKind);
     }
   }
 

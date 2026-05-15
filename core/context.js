@@ -46,6 +46,7 @@ function classifyForegroundCandidate({ tabId = null, url = undefined, domain = u
  * @property {boolean} isFocused
  * @property {boolean} isIdle
  * @property {boolean} isAudible
+ * @property {'audio'|'video'|null} mediaKind
  * @property {boolean} isPiP
  * @property {string|null} mediaSourceDomain
  * @property {number} timestamp
@@ -83,6 +84,9 @@ export function buildContext(current, rawEvent) {
   const nextMediaSourceDomain = rawEvent.isAudible === false
     ? null
     : (rawEvent.mediaSourceDomain ?? current?.mediaSourceDomain ?? null);
+  const nextMediaKind = rawEvent.isAudible === false
+    ? null
+    : (rawEvent.mediaKind ?? current?.mediaKind ?? null);
 
   return {
     tabId: nextTabId,
@@ -93,6 +97,7 @@ export function buildContext(current, rawEvent) {
     isFocused: rawEvent.isFocused ?? current?.isFocused ?? false,
     isIdle: rawEvent.isIdle ?? current?.isIdle ?? false,
     isAudible: rawEvent.isAudible ?? current?.isAudible ?? false,
+    mediaKind: nextMediaKind,
     mediaSourceTabId: nextMediaSourceTabId,
     mediaSourceDomain: nextMediaSourceDomain,
     isPiP: rawEvent.isPiP ?? current?.isPiP ?? false,
