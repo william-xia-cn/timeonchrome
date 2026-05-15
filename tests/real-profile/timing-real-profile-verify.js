@@ -207,11 +207,20 @@ async function waitWithKeepActive(page, seconds, enabled) {
   const started = Date.now();
   const end = started + Math.max(0, seconds) * 1000;
   let keepActiveAttempts = 0;
+  let lastOsActivateAt = 0;
   while (Date.now() < end) {
     if (enabled) {
       await page.bringToFront().catch(() => {});
-      await keepChromeActiveOnce();
-      keepActiveAttempts++;
+      if (typeof page.nudgeUserActivity === 'function') {
+        await page.nudgeUserActivity().catch(() => {});
+      } else if (page.keyboard?.press) {
+        await page.keyboard.press('Shift').catch(() => {});
+      }
+      if (Date.now() - lastOsActivateAt >= 5000) {
+        await keepChromeActiveOnce();
+        keepActiveAttempts++;
+        lastOsActivateAt = Date.now();
+      }
     }
     await sleep(Math.min(5000, Math.max(0, end - Date.now())));
   }
@@ -234,9 +243,11 @@ async function connect(args) {
   const swTarget = targets.find((target) => target.type === 'service_worker' && String(target.url || '').includes('/background.js'));
 
   try {
-    if (args.connection === 'raw_cdp') throw new Error('raw_cdp_requested');
+    if (args.connection === 'raw_cdp' || args.scenario !== 'responsiveness') {
+      throw new Error('raw_cdp_requested');
+    }
     const { chromium } = loadPlaywright();
-    const browser = await chromium.connectOverCDP(base, { timeout: 60000 });
+    const browser = await chromium.connectOverCDP(base, { timeout: 10000 });
     const context = browser.contexts()[0];
     if (!context) throw new Error('No Chrome context available on CDP connection');
 
@@ -302,6 +313,9 @@ async function connect(args) {
     async function openPage(url) {
       const page = await context.newPage();
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      page.nudgeUserActivity = async () => {
+        await page.keyboard.press('Shift').catch(() => {});
+      };
       return page;
     }
 
@@ -371,10 +385,31 @@ async function connect(args) {
 
     async function openPage(url) {
       const target = await openRawTarget(base, url);
+      const pageClient = target.webSocketDebuggerUrl
+        ? await new RawCdpClient(target.webSocketDebuggerUrl).connect()
+        : null;
       return {
         async bringToFront() { await rawJson(base, `/json/activate/${target.id}`).catch(() => null); },
+        async nudgeUserActivity() {
+          if (!pageClient) return;
+          await pageClient.send('Input.dispatchKeyEvent', {
+            type: 'rawKeyDown',
+            key: 'Shift',
+            code: 'ShiftLeft',
+            windowsVirtualKeyCode: 16,
+          }).catch(() => {});
+          await pageClient.send('Input.dispatchKeyEvent', {
+            type: 'keyUp',
+            key: 'Shift',
+            code: 'ShiftLeft',
+            windowsVirtualKeyCode: 16,
+          }).catch(() => {});
+        },
         url() { return target.url || url; },
-        async close() { await rawJson(base, `/json/close/${target.id}`).catch(() => null); },
+        async close() {
+          pageClient?.close();
+          await rawJson(base, `/json/close/${target.id}`).catch(() => null);
+        },
       };
     }
 
@@ -427,15 +462,22 @@ async function runForeground(env, args) {
   const after = await env.readStorage();
   const statsResponse = await env.sendRuntime({ type: 'GET_STATS' }, args.timeoutMs);
   const rangeResponse = await env.sendRuntime({ type: 'GET_STATS_RANGE', days: 1 }, args.timeoutMs);
+  const idleState = await env.worker.evaluate(async () => {
+    return new Promise((resolve) => chrome.idle.queryState(180, resolve));
+  }).catch(() => null);
+  await page.close?.().catch(() => {});
   const afterStats = statsResponse.result || {};
   const beforeSegments = segmentValues(before.usageSegments);
   const afterSegments = segmentValues(after.usageSegments);
   const matchingSegments = afterSegments.filter((segment) => segment?.domain === domain);
+  const beforeMatchingCount = beforeSegments.filter((segment) => segment?.domain === domain).length;
+  const newDurableSegment = matchingSegments.length > beforeMatchingCount;
   return {
-    status: matchingSegments.length > beforeSegments.filter((segment) => segment?.domain === domain).length ? 'PASS' : 'NO_DURABLE_SEGMENT',
+    status: newDurableSegment ? 'PASS' : (idleState && idleState !== 'active' ? 'BLOCKED_SYSTEM_IDLE' : 'NO_DURABLE_SEGMENT'),
     domain,
     url: redactUrl(typeof page.url === 'function' ? page.url() : page.url),
     wait: waitResult,
+    idleState,
     messageLatencyMs: {
       GET_STATS: statsResponse.elapsedMs,
       GET_STATS_RANGE: rangeResponse.elapsedMs,
@@ -625,8 +667,11 @@ async function main() {
   else if (args.scenario === 'foreground') result = await runForeground(env, args);
   else if (['background-audio', 'background-video', 'pip'].includes(args.scenario)) result = await runControlledMedia(env, args, args.scenario);
   else result = { status: 'ERROR', error: `Unknown scenario: ${args.scenario}` };
-  await env.browser.close().catch(() => {});
   console.log(JSON.stringify({ ...header, result }, null, 2));
+  await Promise.race([
+    env.browser.close().catch(() => {}),
+    sleep(3000),
+  ]);
   if (result.status === 'ERROR') process.exitCode = 1;
 }
 
