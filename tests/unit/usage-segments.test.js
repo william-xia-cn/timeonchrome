@@ -636,23 +636,27 @@ chk('after settlement domains has 1 key', Object.keys(storedDay2.domains).length
 chk('domain name = p0test.com', Object.keys(storedDay2.domains)[0], 'p0test.com');
 
 // ── TB36: P0 — online duration is non-empty when active domain time exists ──
-sec('TB36: P0 — online duration computation');
+sec('TB36: P0 — online/domain duration excludes background media and includes PiP');
 mockLocal.reset();
 await api.settleUsageDuration({ startMs: MOCK_TIME-600000, endMs: MOCK_TIME-500000, domain: 'online-a.com', channel: 'active', mode: 'study', sourceState: 'ACTIVE', settlementReason: 'tc', profileId: 'p1', deviceId: 'd1' });
 await api.settleUsageDuration({ startMs: MOCK_TIME-500000, endMs: MOCK_TIME-400000, domain: 'online-b.com', channel: 'active', mode: 'rest', sourceState: 'ACTIVE', settlementReason: 'tc', profileId: 'p1', deviceId: 'd1' });
 await api.settleUsageDuration({ startMs: MOCK_TIME-400000, endMs: MOCK_TIME, domain: 'online-c.com', channel: 'backgroundMedia', mode: 'rest', sourceState: 'BACKGROUND_ACTIVE', settlementReason: 'tc', profileId: 'p1', deviceId: 'd1' });
+await api.settleUsageDuration({ startMs: MOCK_TIME-300000, endMs: MOCK_TIME-200000, domain: 'online-d.com', channel: 'pip', mode: 'rest', sourceState: 'PIP_ACTIVE', settlementReason: 'tc', profileId: 'p1', deviceId: 'd1' });
 const ods = await api.getDailyUsageStats(todayStr);
-let onlineSeconds = 0, studySeconds = 0, restSeconds = 0, bgSeconds = 0;
+let onlineSeconds = 0, studySeconds = 0, restSeconds = 0, bgSeconds = 0, pipSeconds = 0;
 for (const [domain, ds] of Object.entries(ods.domains)) {
-  onlineSeconds += ds.activeSeconds + ds.backgroundMediaSeconds + ds.pipSeconds;
+  onlineSeconds += ds.activeSeconds + ds.pipSeconds;
   studySeconds += ds.activeByMode.study || 0;
   restSeconds += ds.activeByMode.rest || 0;
   bgSeconds += ds.backgroundMediaSeconds || 0;
+  pipSeconds += ds.pipSeconds || 0;
 }
 chk('onlineSeconds > 0', onlineSeconds > 0, true);
 chk('studySeconds = 100', studySeconds, 100);
 chk('restSeconds = 100', restSeconds, 100);
 chk('bgSeconds = 400', bgSeconds, 400);
+chk('pipSeconds = 100', pipSeconds, 100);
+chk('online active+pip = 300', onlineSeconds, 300);
 chk('total active = 200', ods.domains['online-a.com'].activeSeconds + ods.domains['online-b.com'].activeSeconds, 200);
 
 // ── TB37: Runtime settlement can omit channel and still aggregate ──

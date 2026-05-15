@@ -18,6 +18,14 @@ function expectEqual(desc, actual, expected) {
   }
 }
 
+function expectTrue(desc, value) {
+  if (value) passed++;
+  else {
+    failed++;
+    console.error(`  ✗ ${desc}`);
+  }
+}
+
 function extractFunctionSource(code, functionName) {
   const marker = `function ${functionName}(`;
   const start = code.indexOf(marker);
@@ -44,19 +52,32 @@ function loadComputeOverview() {
     extractFunctionSource(code, 'classifyDomain'),
     extractFunctionSource(code, 'isStatsMetaKey'),
     extractFunctionSource(code, 'readCompositeSeconds'),
-    extractFunctionSource(code, 'computeOverview')
+    extractFunctionSource(code, 'computeOverview'),
+    extractFunctionSource(code, 'renderOverviewList')
   ];
-  const context = { URL, console, config: { studyList: [], compositeList: [] } };
+  const elements = {};
+  const context = {
+    URL,
+    console,
+    config: { studyList: [], compositeList: [] },
+    formatSeconds: (seconds) => `${seconds}s`,
+    document: {
+      getElementById: (id) => {
+        if (!elements[id]) elements[id] = { innerHTML: '' };
+        return elements[id];
+      },
+    },
+  };
   vm.runInNewContext(
-    fns.join('\n') + '\nthis.__fn = computeOverview;',
+    fns.join('\n') + '\nthis.__fn = computeOverview; this.__render = renderOverviewList;',
     context,
     { filename: 'admin.js' }
   );
-  return { fn: context.__fn, ctx: context };
+  return { fn: context.__fn, render: context.__render, ctx: context, elements };
 }
 
 function run() {
-  const { fn: computeOverview, ctx } = loadComputeOverview();
+  const { fn: computeOverview, render, ctx, elements } = loadComputeOverview();
 
   // Helper to call with vm context as `this`
   function call(data) {
@@ -66,10 +87,12 @@ function run() {
   // Case 1: PiP is domain-related; background media overview uses backgroundMedia only.
   const r1 = call({ audioSeconds: 30, pipSeconds: 20, domainStats: {} });
   expectEqual('audio=30 + pip=20 => background media 30s', r1.audio, 30);
+  expectEqual('audio=30 + pip=20 => PiP 20s', r1.pip, 20);
 
   // Case 2: PiP alone should not inflate the background media overview.
   const r2 = call({ audioSeconds: 0, pipSeconds: 15, domainStats: {} });
   expectEqual('audio=0 + pip=15 => background media 0s', r2.audio, 0);
+  expectEqual('audio=0 + pip=15 => PiP 15s', r2.pip, 15);
 
   // Case 3: audioSeconds=10, pipSeconds missing => background media = 10
   const r3 = call({ audioSeconds: 10, domainStats: {} });
@@ -78,6 +101,7 @@ function run() {
   // Case 4: both missing => background media = 0
   const r4 = call({ domainStats: {} });
   expectEqual('audio=missing + pip=missing => background media 0s', r4.audio, 0);
+  expectEqual('audio=missing + pip=missing => PiP 0s', r4.pip, 0);
 
   ctx.config = { studyList: ['study.example'], compositeList: ['video.example'] };
   const r5 = call({ domainStats: { 'study.example': 100, 'video.example': 200, 'other.example': 300 } });
@@ -91,6 +115,11 @@ function run() {
   const r7 = call({ undeterminedSeconds: 180, domainStats: { 'other.example': 300 } });
   expectEqual('legacy undeterminedSeconds is read as composite', r7.composite, 180);
   expectEqual('legacy undeterminedSeconds excluded from rest', r7.rest, 120);
+
+  render.call(ctx, 'overview-test', { online: 100, study: 20, rest: 30, audio: 40, pip: 50, composite: 10 });
+  const overviewHtml = elements['overview-test'].innerHTML;
+  expectTrue('renderOverviewList includes background media row', overviewHtml.includes('后台媒体'));
+  expectTrue('renderOverviewList includes PiP row', overviewHtml.includes('PiP'));
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

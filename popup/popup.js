@@ -108,6 +108,7 @@ async function init() {
   restSeconds = Math.max(0, restSeconds - compositeSeconds);
 
   const backendMediaSeconds = stats.audioSeconds || 0;
+  const pipMediaSeconds = stats.pipSeconds || 0;
 
   // Mode Buttons with quota display
   const studyBtn = document.getElementById('btn-study');
@@ -139,6 +140,16 @@ async function init() {
       backendMediaValue.textContent = formatSeconds(backendMediaSeconds);
     } else {
       backendMediaRow.style.display = 'none';
+    }
+  }
+  const pipMediaRow = document.getElementById('pip-media-row');
+  const pipMediaValue = document.getElementById('pip-media-value');
+  if (pipMediaRow && pipMediaValue) {
+    if (pipMediaSeconds > 0) {
+      pipMediaRow.style.display = 'block';
+      pipMediaValue.textContent = formatSeconds(pipMediaSeconds);
+    } else {
+      pipMediaRow.style.display = 'none';
     }
   }
 

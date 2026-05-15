@@ -16,6 +16,7 @@ function parseArgs(argv) {
     timeoutMs: 3000,
     keepActive: true,
     connection: 'auto',
+    runId: String(Date.now()).slice(-8),
   };
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -28,6 +29,7 @@ function parseArgs(argv) {
     else if (arg === '--timeout-ms') { out.timeoutMs = Number(next); i++; }
     else if (arg === '--raw-cdp') { out.connection = 'raw_cdp'; }
     else if (arg === '--no-keep-active') { out.keepActive = false; }
+    else if (arg === '--run-id') { out.runId = String(next || ''); i++; }
   }
   return out;
 }
@@ -170,6 +172,10 @@ function summarizeSegments(rawSegments) {
 function statSeconds(stats, domain) {
   const value = stats?.[domain] ?? stats?.domains?.[domain];
   return Number(value || 0);
+}
+
+function nestedStatSeconds(stats, key, domain) {
+  return Number(stats?.[key]?.[domain] || 0);
 }
 
 function dailyDomainSeconds(day, domain) {
@@ -491,7 +497,8 @@ async function runForeground(env, args) {
   };
 }
 
-function mediaScenarioConfig(name) {
+function mediaScenarioConfig(name, runId = String(Date.now()).slice(-8)) {
+  const suffix = String(runId || Date.now()).replace(/[^a-zA-Z0-9-]/g, '').slice(-16) || 'run';
   if (name === 'background-audio') {
     return {
       scenario: name,
@@ -499,7 +506,7 @@ function mediaScenarioConfig(name) {
       channel: 'backgroundMedia',
       mediaKind: 'audio',
       pip: false,
-      domain: 'real-profile-audio.test',
+      domain: `real-profile-audio-${suffix}.test`,
     };
   }
   if (name === 'background-video') {
@@ -509,7 +516,7 @@ function mediaScenarioConfig(name) {
       channel: 'backgroundMedia',
       mediaKind: 'video',
       pip: false,
-      domain: 'real-profile-video.test',
+      domain: `real-profile-video-${suffix}.test`,
     };
   }
   if (name === 'pip') {
@@ -519,14 +526,14 @@ function mediaScenarioConfig(name) {
       channel: 'pip',
       mediaKind: 'video',
       pip: true,
-      domain: 'real-profile-pip.test',
+      domain: `real-profile-pip-${suffix}.test`,
     };
   }
   return null;
 }
 
 async function runControlledMedia(env, args, name) {
-  const cfg = mediaScenarioConfig(name);
+  const cfg = mediaScenarioConfig(name, args.runId);
   if (!cfg) {
     return {
       status: 'NOT_IMPLEMENTED',
@@ -549,6 +556,7 @@ async function runControlledMedia(env, args, name) {
   }
 
   const before = await env.readStorage();
+  const beforeStats = (await env.sendRuntime({ type: 'GET_STATS' }, args.timeoutMs)).result || {};
   if (before.mediaSession?.framework && before.mediaSession.framework !== 'none') {
     return {
       status: 'BLOCKED_ACTIVE_MEDIA_SESSION',
@@ -628,6 +636,7 @@ async function runControlledMedia(env, args, name) {
   await sleep(5500);
 
   const after = await env.readStorage();
+  const afterStats = (await env.sendRuntime({ type: 'GET_STATS' }, args.timeoutMs)).result || {};
   const beforeCount = matchingSegmentCount(before.usageSegments, cfg);
   const afterCount = matchingSegmentCount(after.usageSegments, cfg);
   const matchingSegments = segmentValues(after.usageSegments).filter((segment) =>
@@ -635,17 +644,31 @@ async function runControlledMedia(env, args, name) {
     segment?.framework === cfg.framework &&
     segment?.channel === cfg.channel
   );
+  const statsDelta = {
+    domainTotal: statSeconds(afterStats, cfg.domain) - statSeconds(beforeStats, cfg.domain),
+    backgroundMedia: nestedStatSeconds(afterStats, 'backgroundMediaByDomain', cfg.domain) -
+      nestedStatSeconds(beforeStats, 'backgroundMediaByDomain', cfg.domain),
+    pip: nestedStatSeconds(afterStats, 'pipByDomain', cfg.domain) -
+      nestedStatSeconds(beforeStats, 'pipByDomain', cfg.domain),
+  };
+  const semanticsOk = cfg.channel === 'pip'
+    ? statsDelta.domainTotal >= 180 && statsDelta.pip >= 180
+    : statsDelta.domainTotal === 0 && statsDelta.backgroundMedia >= 180;
+  const checkpointOk = afterCount > beforeCount && checkpoint?.checkpointed;
 
   return {
-    status: afterCount > beforeCount && checkpoint?.checkpointed ? 'PASS' : 'FAIL',
+    status: checkpointOk && semanticsOk ? 'PASS' : 'FAIL',
     scenario: name,
     controlled: true,
     domain: cfg.domain,
     framework: cfg.framework,
     channel: cfg.channel,
+    runId: args.runId,
     startSignalOk: !!startSignal?.success,
     stopSignalOk: !!stopSignal?.success,
     checkpoint,
+    statsDelta,
+    semanticsOk,
     segmentCountDelta: afterCount - beforeCount,
     matchingSegments: summarizeSegments(matchingSegments),
     mediaSessionAfterStop: after.mediaSession,

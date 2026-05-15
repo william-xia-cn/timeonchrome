@@ -27,6 +27,8 @@ test('P0-video-1: GET_STATS domain includes active + pip while background media 
     await sw.evaluate(async ({ today, now }) => {
       return new Promise((resolve) => {
         chrome.storage.local.set({
+          cloud_device_token: 'e2e-video-token',
+          cloud_profile_id: 'e2e-video-profile',
           daily_usage_stats_v1: {
             [today]: {
               date: today,
@@ -56,6 +58,13 @@ test('P0-video-1: GET_STATS domain includes active + pip while background media 
     const popup = await ctx.newPage();
     await popup.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
     await popup.waitForTimeout(1200);
+
+    await expect(popup.locator('#backend-media-row')).toBeVisible();
+    await expect(popup.locator('#backend-media-row')).toContainText('后台媒体');
+    await expect(popup.locator('#backend-media-value')).toContainText('40秒');
+    await expect(popup.locator('#pip-media-row')).toBeVisible();
+    await expect(popup.locator('#pip-media-row')).toContainText('PiP');
+    await expect(popup.locator('#pip-media-value')).toContainText('30秒');
 
     const payload = await popup.evaluate(async () => {
       const stats = await new Promise((res) => {

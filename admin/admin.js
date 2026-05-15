@@ -1668,8 +1668,8 @@ function getLocalDateKey(date = new Date()) {
 
 async function renderStatsPage() {
   const setStatsEmptyState = () => {
-    renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, composite: 0, undetermined: 0 });
-    renderOverviewList('week-overview-list', { online: 0, study: 0, rest: 0, audio: 0, composite: 0, undetermined: 0 });
+    renderOverviewList('today-overview-list', { online: 0, study: 0, rest: 0, audio: 0, pip: 0, composite: 0, undetermined: 0 });
+    renderOverviewList('week-overview-list', { online: 0, study: 0, rest: 0, audio: 0, pip: 0, composite: 0, undetermined: 0 });
     document.getElementById('today-timeline').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
     document.getElementById('week-daily-bars').innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无使用数据</div>';
     renderRankList('today-rank-list', {}, 5);
@@ -1762,9 +1762,10 @@ async function renderStatsPage() {
 }
 
 function computeOverview(data) {
-  let online = 0, study = 0, rest = 0, audio = 0;
+  let online = 0, study = 0, rest = 0, audio = 0, pip = 0;
   const composite = readCompositeSeconds(data);
   audio = Number(data.audioSeconds) || 0;
+  pip = Number(data.pipSeconds) || 0;
   for (const [domain, seconds] of Object.entries(data.domainStats || {})) {
     online += seconds;
     const type = classifyDomain(domain);
@@ -1772,7 +1773,7 @@ function computeOverview(data) {
     else rest += seconds;
   }
   rest = Math.max(0, rest - composite);
-  return { online, study, rest, audio, composite, undetermined: composite };
+  return { online, study, rest, audio, pip, composite, undetermined: composite };
 }
 
 function renderOverviewList(id, overview) {
@@ -1783,6 +1784,7 @@ function renderOverviewList(id, overview) {
     { label: '学习', value: formatSeconds(overview.study) },
     { label: '休息', value: formatSeconds(overview.rest) },
     { label: '后台媒体', value: formatSeconds(overview.audio) },
+    { label: 'PiP', value: formatSeconds(overview.pip) },
     { label: '综合', value: formatSeconds(overview.composite ?? overview.undetermined) },
   ];
   el.innerHTML = rows.map(r => `
