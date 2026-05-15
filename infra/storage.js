@@ -352,6 +352,10 @@ const DAILY_USAGE_STATS_KEY = 'daily_usage_stats_v1';
 /**
  * 将 daily_usage_stats_v1 格式转换为旧的调用者兼容格式。
  * 旧格式：{ domain: seconds, ..., audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain }
+ *
+ * Product semantics:
+ * - domain totals include foreground active + PiP because PiP remains attention-relevant.
+ * - background media stays separate because it should not affect foreground/domain quota totals.
  */
 function convertDailyStatsToLegacyShape(dayStats) {
   if (!dayStats || !dayStats.domains) {
@@ -371,11 +375,7 @@ function convertDailyStatsToLegacyShape(dayStats) {
 
   for (const [domain, ds] of Object.entries(dayStats.domains)) {
     if (!ds) continue;
-    // 兼容口径：域名主键返回总时长（active + backgroundMedia + pip），
-    // 并保留媒体分量字段，避免视频/PiP时长在域名维度“看起来丢失”。
-    result[domain] = Number.isFinite(ds.totalSeconds)
-      ? ds.totalSeconds
-      : ((ds.activeSeconds || 0) + (ds.backgroundMediaSeconds || 0) + (ds.pipSeconds || 0));
+    result[domain] = (ds.activeSeconds || 0) + (ds.pipSeconds || 0);
 
     // 重建 backgroundMediaByDomain
     if (ds.backgroundMediaSeconds > 0) {
@@ -405,9 +405,6 @@ function convertDailyStatsToLegacyShape(dayStats) {
 function aggregateFromEvents(events, date) {
   const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } = aggregateFromEventsWithAudio(events, date);
   const mergedDomains = { ...domains };
-  for (const [domain, seconds] of Object.entries(backgroundMediaByDomain || {})) {
-    mergedDomains[domain] = (mergedDomains[domain] || 0) + (Number(seconds) || 0);
-  }
   for (const [domain, seconds] of Object.entries(pipByDomain || {})) {
     mergedDomains[domain] = (mergedDomains[domain] || 0) + (Number(seconds) || 0);
   }

@@ -107,7 +107,7 @@ async function init() {
   }
   restSeconds = Math.max(0, restSeconds - compositeSeconds);
 
-  const backendMediaSeconds = (stats.audioSeconds || 0) + (stats.pipSeconds || 0);
+  const backendMediaSeconds = stats.audioSeconds || 0;
 
   // Mode Buttons with quota display
   const studyBtn = document.getElementById('btn-study');

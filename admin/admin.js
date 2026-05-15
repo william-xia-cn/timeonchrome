@@ -1764,7 +1764,7 @@ async function renderStatsPage() {
 function computeOverview(data) {
   let online = 0, study = 0, rest = 0, audio = 0;
   const composite = readCompositeSeconds(data);
-  audio = (Number(data.audioSeconds) || 0) + (Number(data.pipSeconds) || 0);
+  audio = Number(data.audioSeconds) || 0;
   for (const [domain, seconds] of Object.entries(data.domainStats || {})) {
     online += seconds;
     const type = classifyDomain(domain);

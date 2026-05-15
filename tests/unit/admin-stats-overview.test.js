@@ -63,13 +63,13 @@ function run() {
     return computeOverview.call(ctx, data);
   }
 
-  // Case 1: audioSeconds=30, pipSeconds=20 => background media = 50
+  // Case 1: PiP is domain-related; background media overview uses backgroundMedia only.
   const r1 = call({ audioSeconds: 30, pipSeconds: 20, domainStats: {} });
-  expectEqual('audio=30 + pip=20 => background media 50s', r1.audio, 50);
+  expectEqual('audio=30 + pip=20 => background media 30s', r1.audio, 30);
 
-  // Case 2: audioSeconds=0, pipSeconds=15 => background media = 15
+  // Case 2: PiP alone should not inflate the background media overview.
   const r2 = call({ audioSeconds: 0, pipSeconds: 15, domainStats: {} });
-  expectEqual('audio=0 + pip=15 => background media 15s', r2.audio, 15);
+  expectEqual('audio=0 + pip=15 => background media 0s', r2.audio, 0);
 
   // Case 3: audioSeconds=10, pipSeconds missing => background media = 10
   const r3 = call({ audioSeconds: 10, domainStats: {} });

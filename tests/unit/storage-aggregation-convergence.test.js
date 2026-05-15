@@ -188,7 +188,7 @@ async function runTests() {
     expect('pipSeconds should be 9', stats.pipSeconds, 9);
     expect('pipByDomain.video.com should be 9', stats.pipByDomain['video.com'], 9);
     expect('read.com should be 4 seconds', stats['read.com'], 4);
-    expectTrue('video.com should be absent from domain totals', !('video.com' in stats));
+    expect('video.com should include PiP in domain totals', stats['video.com'], 9);
     expect('audioSeconds should stay 0', stats.audioSeconds, 0);
   }
 

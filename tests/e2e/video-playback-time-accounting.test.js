@@ -15,7 +15,7 @@ async function createContext() {
   return { ctx, sw, udd };
 }
 
-test('P0-video-1: GET_STATS domain includes active + background + pip', async () => {
+test('P0-video-1: GET_STATS domain includes active + pip while background media is separate', async () => {
   const { ctx, sw, udd } = await createContext();
   try {
     const today = await sw.evaluate(() => {
@@ -67,14 +67,14 @@ test('P0-video-1: GET_STATS domain includes active + background + pip', async ()
       return { stats, range };
     });
 
-    expect(payload.stats['video.test.local']).toBe(190);
+    expect(payload.stats['video.test.local']).toBe(150);
     expect(payload.stats.audioSeconds).toBe(40);
     expect(payload.stats.pipSeconds).toBe(30);
     expect(payload.stats.backgroundMediaByDomain['video.test.local']).toBe(40);
     expect(payload.stats.pipByDomain['video.test.local']).toBe(30);
 
     const todayStats = payload.range[today] || {};
-    expect(todayStats['video.test.local']).toBe(190);
+    expect(todayStats['video.test.local']).toBe(150);
     expect(todayStats.audioSeconds).toBe(40);
     expect(todayStats.pipSeconds).toBe(30);
 

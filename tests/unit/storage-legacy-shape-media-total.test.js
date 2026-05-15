@@ -67,8 +67,8 @@ async function run() {
   });
 
   const stats = await storageApi.getTodayStats();
-  if (stats['video.example.com'] !== 200) {
-    throw new Error(`expected merged domain total=200, got ${stats['video.example.com']}`);
+  if (stats['video.example.com'] !== 170) {
+    throw new Error(`expected domain total active+pip=170, got ${stats['video.example.com']}`);
   }
   if (stats.audioSeconds !== 30) {
     throw new Error(`expected audioSeconds=30, got ${stats.audioSeconds}`);
