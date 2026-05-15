@@ -17,6 +17,7 @@ function parseArgs(argv) {
     keepActive: true,
     connection: 'auto',
     runId: String(Date.now()).slice(-8),
+    reloadExtension: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -30,6 +31,7 @@ function parseArgs(argv) {
     else if (arg === '--raw-cdp') { out.connection = 'raw_cdp'; }
     else if (arg === '--no-keep-active') { out.keepActive = false; }
     else if (arg === '--run-id') { out.runId = String(next || ''); i++; }
+    else if (arg === '--reload-extension') { out.reloadExtension = true; }
   }
   return out;
 }
@@ -190,6 +192,19 @@ function matchingSegmentCount(rawSegments, { domain, framework, channel } = {}) 
     (!framework || segment?.framework === framework) &&
     (!channel || segment?.channel === channel)
   ).length;
+}
+
+function suspectSegmentSummary(rawSegments) {
+  const segments = segmentValues(rawSegments);
+  const byReason = {};
+  let suspectCount = 0;
+  for (const segment of segments) {
+    if (!segment?.suspect) continue;
+    suspectCount++;
+    const reason = segment.suspectReason || 'suspect';
+    byReason[reason] = (byReason[reason] || 0) + 1;
+  }
+  return { totalCount: segments.length, suspectCount, byReason };
 }
 
 function sleep(ms) {
@@ -675,9 +690,48 @@ async function runControlledMedia(env, args, name) {
   };
 }
 
+async function runSuspectDryRun(env, args) {
+  const before = await env.readStorage();
+  const response = await env.sendRuntime({ type: 'MARK_SUSPECT_SEGMENTS', dryRun: true }, args.timeoutMs);
+  const after = await env.readStorage();
+  const beforeSummary = suspectSegmentSummary(before.usageSegments);
+  const afterSummary = suspectSegmentSummary(after.usageSegments);
+  const mutated = JSON.stringify(beforeSummary) !== JSON.stringify(afterSummary);
+  const resultOk = !!response.result?.ok && response.result?.dryRun === true;
+  return {
+    status: response.ok && resultOk && !mutated ? 'PASS' : 'FAIL',
+    scenario: 'suspect-dry-run',
+    messageLatencyMs: response.elapsedMs,
+    response: response.result ? {
+      ok: !!response.result.ok,
+      dryRun: !!response.result.dryRun,
+      error: response.result.error || null,
+      scannedCount: Number(response.result.scannedCount || 0),
+      markedCount: Number(response.result.markedCount || 0),
+      suspectByReason: response.result.suspectByReason || {},
+      excludedSeconds: Number(response.result.excludedSeconds || 0),
+      affectedDateCount: Array.isArray(response.result.affectedDates) ? response.result.affectedDates.length : 0,
+      rebuiltDateCount: Array.isArray(response.result.rebuiltDates) ? response.result.rebuiltDates.length : 0,
+    } : null,
+    storageMutationDetected: mutated,
+    before: beforeSummary,
+    after: afterSummary,
+    error: response.error || null,
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv);
-  const env = await connect(args);
+  let env = await connect(args);
+  if (args.reloadExtension) {
+    await env.worker.evaluate(() => chrome.runtime.reload()).catch(() => {});
+    await Promise.race([
+      env.browser.close().catch(() => {}),
+      sleep(3000),
+    ]);
+    await sleep(2000);
+    env = await connect({ ...args, reloadExtension: false });
+  }
   const header = {
     scenario: args.scenario,
     chromeCdpPort: args.port,
@@ -689,6 +743,7 @@ async function main() {
   if (args.scenario === 'responsiveness') result = await runResponsiveness(env, args);
   else if (args.scenario === 'foreground') result = await runForeground(env, args);
   else if (['background-audio', 'background-video', 'pip'].includes(args.scenario)) result = await runControlledMedia(env, args, args.scenario);
+  else if (args.scenario === 'suspect-dry-run') result = await runSuspectDryRun(env, args);
   else result = { status: 'ERROR', error: `Unknown scenario: ${args.scenario}` };
   console.log(JSON.stringify({ ...header, result }, null, 2));
   await Promise.race([

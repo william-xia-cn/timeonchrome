@@ -8,6 +8,7 @@ import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCl
 import { getTodayStatsWithCategories } from './product/analytics.js';
 import { flushOpenSessionToStats, getSession as getTimingSession } from './runtime/session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
+import { markSuspectUsageSegments } from './core/usage-segments.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -161,6 +162,13 @@ export async function handleMessage(msg, sender) {
 
     case 'FLUSH_TIME':
       return await flushOpenSessionToStats('ui_flush');
+
+    case 'MARK_SUSPECT_SEGMENTS':
+      try {
+        return await markSuspectUsageSegments({ dryRun: msg.dryRun !== false });
+      } catch (e) {
+        return { ok: false, dryRun: msg.dryRun !== false, error: e?.message || String(e) };
+      }
 
     case 'GET_STATUS':
       return { ok: true };

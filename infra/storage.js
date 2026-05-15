@@ -399,6 +399,12 @@ function convertDailyStatsToLegacyShape(dayStats) {
   };
 }
 
+function isDailyUsageStatsAuthoritative(dayStats) {
+  if (!dayStats || !dayStats.domains) return false;
+  if (Object.keys(dayStats.domains).length > 0) return true;
+  return !!dayStats.suspectCleanup?.excludeSuspect;
+}
+
 /**
  * 从 event-log 聚合指定日期的域名时长（调试/验证/回退保留）。
  */
@@ -437,7 +443,7 @@ export async function getTodayStats() {
     const allStats = data[DAILY_USAGE_STATS_KEY] || {};
     const dayStats = allStats[today];
 
-    if (dayStats && dayStats.domains && Object.keys(dayStats.domains).length > 0) {
+    if (isDailyUsageStatsAuthoritative(dayStats)) {
       console.log('[Stats] getTodayStats from daily_usage_stats_v1:', today, Object.keys(dayStats.domains).length, 'domains');
       emitTrace('stats_calculated', {
         source: 'daily_usage_stats_v1',
@@ -505,7 +511,7 @@ export async function getStatsRange(days = 7) {
       const dateStr = formatDate(d);
       const dayStats = allStats[dateStr];
 
-      if (dayStats && dayStats.domains && Object.keys(dayStats.domains).length > 0) {
+      if (isDailyUsageStatsAuthoritative(dayStats)) {
         result[dateStr] = convertDailyStatsToLegacyShape(dayStats);
       } else {
         // 该日期的聚合缺失 — 仅尝试 event-log 回退（仅对于当日有效）

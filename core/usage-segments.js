@@ -12,6 +12,8 @@
 // - runtime/recovery.js  → SW recovery close
 // - background.js        → tab close, monitoring off
 
+import { evaluateSuspectSegment } from './suspect-segments.js';
+
 // ── 常量 ─────────────────────────────────────────────────────────────────────────
 
 const USAGE_SEGMENTS_KEY = 'usage_segments_v1';
@@ -379,7 +381,14 @@ export async function incrementDailyUsageStats(segment) {
     };
   }
 
-  const day = stats[segment.date];
+  applySegmentToDailyStats(stats[segment.date], segment);
+
+  await chrome.storage.local.set({ [DAILY_STATS_KEY]: stats });
+}
+
+function applySegmentToDailyStats(day, segment) {
+  if (!day || !segment || !segment.domain) return;
+
   const domainKey = segment.domain;
   if (!day.domains[domainKey]) {
     day.domains[domainKey] = makeEmptyDomainStats();
@@ -416,8 +425,6 @@ export async function incrementDailyUsageStats(segment) {
 
   day.segmentsCount = (day.segmentsCount || 0) + 1;
   day.lastSegmentId = segment.id;
-
-  await chrome.storage.local.set({ [DAILY_STATS_KEY]: stats });
 }
 
 function makeEmptyDomainStats() {
@@ -448,24 +455,144 @@ export async function getDailyUsageStats(date) {
 /**
  * 从 segments 重建每日聚合（用于对账/迁移）。
  */
-export async function rebuildDailyUsageStats(date) {
+export async function rebuildDailyUsageStats(date, options = {}) {
   const segments = await getUsageSegmentsByDate(date);
-  if (segments.length === 0) return { date, rebuilt: false };
+  const {
+    excludeSuspect = false,
+    forceWriteEmpty = false,
+    cleanupMetadata = null,
+  } = options || {};
+  if (segments.length === 0 && !forceWriteEmpty) return { date, rebuilt: false };
+
+  const includedSegments = excludeSuspect
+    ? segments.filter((seg) => !seg?.suspect)
+    : segments;
+  const firstSegment = segments[0] || {};
+  const nextDayStats = {
+    date,
+    timezone: firstSegment.timezone || 'Asia/Shanghai',
+    dayStartMs: firstSegment.dayStartMs || null,
+    dayEndMs: firstSegment.dayEndMs || null,
+    segmentsCount: 0,
+    lastSegmentId: null,
+    domains: {},
+  };
+
+  if (cleanupMetadata) {
+    nextDayStats.suspectCleanup = {
+      ...cleanupMetadata,
+      excludeSuspect: !!excludeSuspect,
+      rebuiltAt: Date.now(),
+    };
+  }
 
   // 重置该日期的聚合
   const data = await chrome.storage.local.get(DAILY_STATS_KEY);
   const stats = data[DAILY_STATS_KEY] || {};
-  delete stats[date];
-  await chrome.storage.local.set({ [DAILY_STATS_KEY]: stats });
 
   // 从 segments 重建
-  let count = 0;
-  for (const seg of segments) {
-    await incrementDailyUsageStats(seg);
-    count++;
+  for (const seg of includedSegments) {
+    applySegmentToDailyStats(nextDayStats, seg);
   }
 
-  return { date, rebuilt: true, segmentsUsed: count };
+  if (includedSegments.length > 0 || forceWriteEmpty || cleanupMetadata) {
+    stats[date] = nextDayStats;
+  } else {
+    delete stats[date];
+  }
+
+  await chrome.storage.local.set({ [DAILY_STATS_KEY]: stats });
+
+  return {
+    date,
+    rebuilt: true,
+    segmentsUsed: includedSegments.length,
+    excludedSuspectSegments: segments.length - includedSegments.length,
+  };
+}
+
+export async function markSuspectUsageSegments({ dryRun = true } = {}) {
+  const data = await chrome.storage.local.get([USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY]);
+  const allSegments = data[USAGE_SEGMENTS_KEY] || {};
+  const segments = Object.values(allSegments);
+  const suspectByReason = {};
+  const affectedDatesSet = new Set();
+  let excludedSeconds = 0;
+  const candidates = [];
+
+  for (const segment of segments) {
+    const evaluation = evaluateSuspectSegment(segment);
+    if (!evaluation.suspect) continue;
+
+    affectedDatesSet.add(segment.date);
+    if (!segment.suspect) {
+      candidates.push({ segment, evaluation });
+      suspectByReason[evaluation.reason] = (suspectByReason[evaluation.reason] || 0) + 1;
+      excludedSeconds += Number(segment.durationSeconds || 0);
+    }
+  }
+
+  const affectedDates = [...affectedDatesSet].filter(Boolean).sort();
+  if (dryRun) {
+    return {
+      ok: true,
+      dryRun: true,
+      scannedCount: segments.length,
+      markedCount: candidates.length,
+      suspectByReason,
+      excludedSeconds,
+      affectedDates,
+      rebuiltDates: [],
+    };
+  }
+
+  const suspectMarkedAt = Date.now();
+  for (const { segment, evaluation } of candidates) {
+    allSegments[segment.id] = {
+      ...segment,
+      suspect: true,
+      suspectReason: evaluation.reason,
+      suspectMarkedAt,
+      suspectEvidence: evaluation.evidence,
+    };
+  }
+
+  if (candidates.length > 0) {
+    await chrome.storage.local.set({ [USAGE_SEGMENTS_KEY]: allSegments });
+  }
+
+  const rebuiltDates = [];
+  for (const date of affectedDates) {
+    const reasonCountsForDate = {};
+    let excludedSecondsForDate = 0;
+    for (const segment of Object.values(allSegments)) {
+      if (segment?.date !== date || !segment?.suspect) continue;
+      const reason = segment.suspectReason || 'suspect';
+      reasonCountsForDate[reason] = (reasonCountsForDate[reason] || 0) + 1;
+      excludedSecondsForDate += Number(segment.durationSeconds || 0);
+    }
+    const result = await rebuildDailyUsageStats(date, {
+      excludeSuspect: true,
+      forceWriteEmpty: true,
+      cleanupMetadata: {
+        reason: 'mark_suspect_segments',
+        suspectByReason: reasonCountsForDate,
+        excludedSeconds: excludedSecondsForDate,
+      },
+    });
+    rebuiltDates.push(result.date);
+  }
+
+  return {
+    ok: true,
+    dryRun: false,
+    scannedCount: segments.length,
+    markedCount: candidates.length,
+    suspectByReason,
+    excludedSeconds,
+    affectedDates,
+    rebuiltDates,
+  };
 }
 
 // ── 出站标记 ────────────────────────────────────────────────────────────────────
