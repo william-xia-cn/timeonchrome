@@ -258,7 +258,9 @@ function renderRuntimeStatus(status = {}) {
   if (!runtimeCompact) return;
   const domain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
   const tag = resolveDomainTag(domain, popupStatsContext.config);
-  const todaySeconds = resolveTodayDomainSeconds(domain, popupStatsContext.stats);
+  const durableTodaySeconds = resolveTodayDomainSeconds(domain, popupStatsContext.stats);
+  const liveSessionSeconds = resolveLiveSessionSeconds(domain, status);
+  const todaySeconds = durableTodaySeconds + liveSessionSeconds;
   const todayText = formatRuntimeTodayDuration(todaySeconds);
   const domainText = domain || '不计时页面';
   runtimeCompact.innerHTML = `
@@ -288,6 +290,16 @@ function resolveTodayDomainSeconds(domain, stats = {}) {
     if (Number.isFinite(seconds) && seconds > 0) total += seconds;
   }
   return total;
+}
+
+function resolveLiveSessionSeconds(domain, status = {}) {
+  const normalizedDomain = normalizeHostname(domain);
+  if (!normalizedDomain) return 0;
+  const currentDomain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
+  if (currentDomain !== normalizedDomain) return 0;
+  const seconds = Number(status?.currentSessionDurationSeconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+  return Math.floor(seconds);
 }
 
 function resolveDomainTag(domain, config = {}) {
@@ -341,8 +353,19 @@ function collectRestPatterns(config = {}) {
 function formatRuntimeTodayDuration(seconds) {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   if (safe === 0) return '今日 0分';
-  if (safe < 60) return '今日 <1分';
-  return `今日 ${formatMinutes(safe)}`;
+  return `今日 ${formatRuntimeDuration(safe)}`;
+}
+
+function formatRuntimeDuration(seconds) {
+  const safe = Math.floor(Number.isFinite(seconds) ? Math.max(0, seconds) : 0);
+  if (safe < 60) return `${safe}秒`;
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  if (h > 0) {
+    return `${h}时${m > 0 ? `${m}分` : ''}${s > 0 ? `${s}秒` : ''}`;
+  }
+  return `${m}分${s > 0 ? `${s}秒` : ''}`;
 }
 
 function normalizeHostname(input) {

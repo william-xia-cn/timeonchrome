@@ -35,8 +35,17 @@ function run() {
       },
     },
   };
-  vm.runInNewContext(`${source}\nthis.__resolveDomainTag = resolveDomainTag;`, context, { filename: 'popup.js' });
+  vm.runInNewContext(`
+${source}
+this.__resolveDomainTag = resolveDomainTag;
+this.__resolveTodayDomainSeconds = resolveTodayDomainSeconds;
+this.__resolveLiveSessionSeconds = resolveLiveSessionSeconds;
+this.__formatRuntimeTodayDuration = formatRuntimeTodayDuration;
+`, context, { filename: 'popup.js' });
   const resolveDomainTag = context.__resolveDomainTag;
+  const resolveTodayDomainSeconds = context.__resolveTodayDomainSeconds;
+  const resolveLiveSessionSeconds = context.__resolveLiveSessionSeconds;
+  const formatRuntimeTodayDuration = context.__formatRuntimeTodayDuration;
 
   expectEqual('no domain -> 不计时页面', resolveDomainTag(null, {}), '不计时页面');
   expectEqual(
@@ -64,8 +73,41 @@ function run() {
     resolveDomainTag('unknown.example', {}),
     '未归类网站'
   );
+  expectEqual(
+    'durable today stats normalize matching www domain',
+    resolveTodayDomainSeconds('desmos.com', { 'www.desmos.com': 180 }),
+    180
+  );
+  expectEqual(
+    'live session adds current domain seconds',
+    resolveLiveSessionSeconds('desmos.com', { currentDomain: 'www.desmos.com', currentSessionDurationSeconds: 75 }),
+    75
+  );
+  expectEqual(
+    'live session ignores mismatched domain',
+    resolveLiveSessionSeconds('desmos.com', { currentDomain: 'khanacademy.org', currentSessionDurationSeconds: 75 }),
+    0
+  );
+  expectEqual(
+    'live session ignores null duration',
+    resolveLiveSessionSeconds('desmos.com', { currentDomain: 'desmos.com', currentSessionDurationSeconds: null }),
+    0
+  );
+  expectEqual(
+    'runtime duration shows seconds for live debugging',
+    formatRuntimeTodayDuration(75),
+    '今日 1分15秒'
+  );
+  expectEqual(
+    'runtime duration adds durable plus live seconds',
+    formatRuntimeTodayDuration(
+      resolveTodayDomainSeconds('desmos.com', { 'www.desmos.com': 180 }) +
+      resolveLiveSessionSeconds('desmos.com', { currentDomain: 'desmos.com', currentSessionDurationSeconds: 60 })
+    ),
+    '今日 4分'
+  );
 
-  console.log('[popup-current-site-tag] 6/6 passed');
+  console.log('[popup-current-site-tag] 13/13 passed');
 }
 
 run();
