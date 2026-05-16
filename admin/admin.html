@@ -169,7 +169,7 @@
     .content {
       margin-left: 220px;
       padding: 32px;
-      max-width: 900px;
+      max-width: 1180px;
     }
 
     /* ── 页面 ── */
@@ -748,6 +748,89 @@
       color: var(--accent);
     }
 
+    /* 今日落账分析（临时测试页） */
+    .settlement-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .settlement-toolbar select {
+      min-width: 220px;
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    .settlement-refresh-btn {
+      padding: 8px 12px;
+      background: rgba(0,184,148,0.12);
+      border: 1px solid rgba(0,184,148,0.25);
+      border-radius: 8px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .settlement-summary {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 8px 0 14px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .settlement-table-wrap {
+      overflow-x: visible;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .settlement-table {
+      width: 100%;
+      min-width: 0;
+      table-layout: fixed;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .settlement-table th,
+    .settlement-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      white-space: normal;
+      word-break: break-word;
+      vertical-align: top;
+    }
+    .settlement-table th {
+      color: var(--muted);
+      font-weight: 600;
+      background: rgba(0,184,148,0.04);
+    }
+    .settlement-table tr:last-child td { border-bottom: none; }
+    .settlement-col-time { width: 76px; }
+    .settlement-col-duration { width: 66px; }
+    .settlement-col-domain { width: 210px; }
+    .settlement-col-type { width: 96px; }
+    .settlement-col-mode { width: 62px; }
+    .settlement-col-source { width: 82px; }
+    .settlement-col-status { width: 76px; }
+    .settlement-domain-cell {
+      max-width: 210px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .settlement-reason-cell {
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .settlement-muted { color: var(--muted); }
+    .settlement-suspect { color: var(--danger); font-weight: 600; }
+
     /* ── 使用分析双栏布局 ── */
     .stats-columns {
       display: grid;
@@ -983,6 +1066,9 @@
     <div class="nav-item active" data-page="stats">
       <span class="nav-icon">📊</span> 使用分析
     </div>
+    <div class="nav-item" data-page="settlements">
+      <span class="nav-icon">🧾</span> 今日落账
+    </div>
     <div class="nav-item" data-page="rules">
       <span class="nav-icon">📋</span> 访问规则
     </div>
@@ -1145,6 +1231,36 @@
             <div class="card-header"><div class="card-title">本周综合明细</div></div>
             <div class="undetermined-list" id="week-undetermined-list">加载中...</div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 今日落账分析（临时测试页） -->
+    <div class="page" id="page-settlements">
+      <div class="page-header">
+        <h2>今日落账分析</h2>
+        <p>测试页面：直接查看今日 usage_segments_v1 已落账片段，后续可能关闭</p>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">落账明细</div>
+            <div class="card-subtitle">按开始时间排序；不触发 flush，不改变 storage</div>
+          </div>
+        </div>
+        <div class="settlement-toolbar">
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;">
+            域名
+            <select id="settlement-domain-filter">
+              <option value="__all__">全部域名</option>
+            </select>
+          </label>
+          <button class="settlement-refresh-btn" id="settlement-refresh-btn">刷新</button>
+        </div>
+        <div class="settlement-summary" id="settlement-summary">加载中...</div>
+        <div class="settlement-table-wrap" id="settlement-table-wrap">
+          <div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>
         </div>
       </div>
     </div>

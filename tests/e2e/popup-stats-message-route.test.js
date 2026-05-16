@@ -6,7 +6,8 @@ const fs = require('fs');
 
 const EXT = path.resolve(__dirname, '../..');
 
-async function createContext() {
+async function createContext(options = {}) {
+  const { bound = true } = options;
   const udd = path.resolve(__dirname, `../../test-e2e-profile-msg-${Date.now()}`);
   fs.mkdirSync(udd, { recursive: true });
   const ctx = await chromium.launchPersistentContext(udd, {
@@ -28,6 +29,16 @@ async function createContext() {
       });
     });
   });
+  if (!bound) {
+    await sw.evaluate(async () => {
+      return new Promise(res => {
+        chrome.storage.local.set({
+          cloud_profile_id: null,
+          cloud_device_token: null,
+        }, res);
+      });
+    });
+  }
   await new Promise(r => setTimeout(r, 1000));
   return { ctx, sw, udd };
 }
@@ -76,6 +87,44 @@ test('P0-msg-1: GET_STATS returns non-empty stats from extension popup page', as
     }
     console.log(`Online: ${online}s`);
     expect(online).toBeGreaterThan(0);
+    await popupPage.close();
+  } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }
+});
+
+test('P0-msg-local: unbound popup stays usable in local mode', async () => {
+  const { ctx, sw, udd } = await createContext({ bound: false });
+  try {
+    const n = Date.now();
+    await sw.evaluate(async (now) => {
+      return new Promise(res => {
+        chrome.storage.local.set({
+          event_log_v1: [
+            { type: 'START', state: 'ACTIVE', domain: 'local-popup.test', time: now - 45000 },
+            { type: 'END', state: 'ACTIVE', domain: 'local-popup.test', time: now },
+          ],
+        }, res);
+      });
+    }, n);
+
+    const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
+    const popupPage = await ctx.newPage();
+    await popupPage.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+
+    await expect(popupPage.locator('#popup-content')).toBeVisible();
+    await expect(popupPage.locator('#unbound-banner')).toBeVisible();
+    await expect(popupPage.locator('#unbound-banner')).toContainText('本地模式：未绑定云端，统计不会同步');
+
+    const stats = await popupPage.evaluate(async () => {
+      return new Promise(res => chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {})));
+    });
+    const status = await popupPage.evaluate(async () => {
+      return new Promise(res => chrome.runtime.sendMessage({ type: 'GET_CLOUD_STATUS' }, r => res(r || {})));
+    });
+
+    expect(status.localMode).toBe(true);
+    expect(status.syncEnabled).toBe(false);
+    expect(status.reason).toBe('no_device_token');
+    expect(stats['local-popup.test']).toBeGreaterThan(0);
     await popupPage.close();
   } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }
 });

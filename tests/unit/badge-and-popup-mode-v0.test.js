@@ -19,6 +19,7 @@ function expectTrue(desc, cond) {
 
 function run() {
   const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'background.js'), 'utf8');
+  const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', '..', 'message-router.js'), 'utf8');
   const popupHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'popup', 'popup.html'), 'utf8');
   const popupJs = fs.readFileSync(path.join(__dirname, '..', '..', 'popup', 'popup.js'), 'utf8');
 
@@ -44,6 +45,10 @@ function run() {
   expectTrue('popup no longer contains 今日用量 title', !popupHtml.includes('今日用量'));
   expectTrue('popup no longer contains runtime-card', !popupHtml.includes('runtime-card'));
   expectTrue('popup requests runtime mode status', popupJs.includes("type: 'GET_RUNTIME_MODE_STATUS'"));
+  expectTrue('popup requests cloud status without blocking local stats', popupJs.includes("type: 'GET_CLOUD_STATUS'") && !popupJs.includes("document.getElementById('popup-content').style.display = 'none'"));
+  expectTrue('popup local mode notice text is present', popupHtml.includes('本地模式：未绑定云端，统计不会同步'));
+  expectTrue('popup local mode keeps admin button', popupJs.includes("admin/admin.html?view=stats"));
+  expectTrue('popup still requests local config and stats', popupJs.includes("type: 'GET_CONFIG'") && popupJs.includes("type: 'GET_STATS'"));
   expectTrue('popup has composite mode active class', popupJs.includes('active-composite'));
   expectTrue('popup supports SWITCH_TO_COMPOSITE', popupJs.includes("SWITCH_TO_COMPOSITE"));
   expectTrue('popup has composite stats adapter', popupJs.includes('function readCompositeSeconds('));
@@ -51,6 +56,9 @@ function run() {
   expectTrue('popup still caps visits to top 10', popupJs.includes('.slice(0, 10)'));
   expectTrue('popup background media is conditional', popupJs.includes('backendMediaSeconds > 0'));
   expectTrue('popup no undetermined bar in usage area', !popupJs.includes("待归类时长"));
+
+  expectTrue('GET_CLOUD_STATUS exposes unbound localMode', messageRouterSource.includes('localMode: !isBound') && messageRouterSource.includes("reason: isBound ? null : 'no_device_token'"));
+  expectTrue('GET_CLOUD_STATUS exposes syncEnabled from binding', messageRouterSource.includes('syncEnabled: isBound'));
 
   const total = passed + failed;
   console.log(`\n[Badge & Popup Mode V0] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

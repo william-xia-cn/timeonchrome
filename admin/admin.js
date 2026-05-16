@@ -46,6 +46,8 @@ let syncFeedbackState = {
   message: ''
 };
 let adminPageRefreshSeq = 0;
+let settlementAnalysisRows = [];
+let isLocalReadOnlyMode = false;
 
 // ── Child view gate（Soft Gate）────────────────────────────────────────────
 // 当 URL 包含 ?view=stats 时，以只读模式直接进入使用分析，跳过登录/注册/绑定流程
@@ -79,7 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
  * 孩子只读模式入口（Soft Gate）
  * 当 URL 包含 ?view=stats 时直接进入，跳过登录/注册/绑定流程。
  * - 已绑定：直接进入主界面，隐藏家长操作控件
- * - 未绑定：显示简化提示，不暴露登录/注册表单
+ * - 未绑定：进入本地只读主界面，不要求云端登录/绑定
  */
 async function enterChildView() {
   const storage = await new Promise(resolve => {
@@ -94,23 +96,11 @@ async function enterChildView() {
   const profileName = storage[CLOUD_KEYS.PROFILE_NAME];
 
   if (!deviceToken) {
-    // 未绑定：显示简化提示，不暴露登录/注册
-    document.getElementById('main-screen').style.display = 'none';
-    const loginScreen = document.getElementById('login-screen');
-    loginScreen.style.display = 'flex';
-    loginScreen.innerHTML = `
-      <div class="login-box">
-        <div class="login-logo">⏱</div>
-        <h1>TimeOnChrome</h1>
-        <p style="color:var(--muted);margin-bottom:20px;">设备未绑定</p>
-        <div style="font-size:13px;color:var(--muted);line-height:1.6;">
-          此设备尚未绑定孩子档案。<br>
-          请联系家长完成设备绑定。
-        </div>
-      </div>
-    `;
+    await enterLocalReadOnlyMode();
     return;
   }
+
+  isLocalReadOnlyMode = false;
 
   // 已绑定：直接进入主界面只读模式
   document.getElementById('login-screen').style.display = 'none';
@@ -129,6 +119,31 @@ async function enterChildView() {
   // 加载配置并渲染使用分析
   config = await sendMsg({ type: 'GET_CONFIG' });
   renderStatsPage();
+}
+
+async function enterLocalReadOnlyMode() {
+  isLocalReadOnlyMode = true;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.style.display = 'none';
+  const userInfo = document.getElementById('user-info');
+  if (userInfo) userInfo.style.display = 'none';
+
+  const sidebarNameEl = document.getElementById('sidebar-child-name');
+  if (sidebarNameEl) sidebarNameEl.textContent = '本地模式';
+
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    const page = item.dataset.page;
+    if (page === 'rules') item.style.display = 'none';
+    if (page === 'stats') item.classList.add('active');
+  });
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-stats')?.classList.add('active');
+
+  config = await sendMsg({ type: 'GET_CONFIG' });
+  await renderStatsPage();
 }
 
 /**
@@ -391,6 +406,7 @@ window.rebindToProfile = rebindToProfile;
  */
 async function enterMainScreen() {
   isAuthenticated = true;
+  isLocalReadOnlyMode = false;
   
   // 隐藏登录界面，显示主界面
   document.getElementById('login-screen').style.display = 'none';
@@ -1006,6 +1022,18 @@ function setStatsPageError(message) {
   });
 }
 
+function setSettlementsPageError(message) {
+  const safeMessage = escHtml(message || '加载失败，请稍后重试');
+  const summaryEl = document.getElementById('settlement-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML = `<span style="color:var(--danger);">${safeMessage}</span>`;
+  }
+  const tableEl = document.getElementById('settlement-table-wrap');
+  if (tableEl) {
+    tableEl.innerHTML = `<div style="color:var(--danger);text-align:center;padding:16px;">${safeMessage}</div>`;
+  }
+}
+
 function setDevicesPageError(message) {
   const safeMessage = escHtml(message || '加载失败，请稍后重试');
   const syncEl = document.getElementById('sync-status');
@@ -1024,6 +1052,9 @@ function isLatestAdminRefreshRequest(requestSeq) {
 
 async function refreshPageByNav(page, requestSeq) {
   try {
+    if (isLocalReadOnlyMode && page === 'rules') {
+      return;
+    }
     if (page === 'rules') {
       config = await sendMsg({ type: 'GET_CONFIG' });
       if (!isLatestAdminRefreshRequest(requestSeq)) return;
@@ -1036,6 +1067,10 @@ async function refreshPageByNav(page, requestSeq) {
       await renderStatsPage();
       return;
     }
+    if (page === 'settlements') {
+      await renderSettlementsPage();
+      return;
+    }
     if (page === 'devices') {
       await setupDevicesPage();
     }
@@ -1044,6 +1079,7 @@ async function refreshPageByNav(page, requestSeq) {
     const message = error?.message || '未知错误';
     if (page === 'rules') setRulesPageError(message);
     else if (page === 'stats') setStatsPageError(message);
+    else if (page === 'settlements') setSettlementsPageError(message);
     else if (page === 'devices') setDevicesPageError(message);
   }
 }
@@ -1440,6 +1476,27 @@ async function renderSyncStatus() {
   const versionText = escHtml(storage['cloud_config_version'] || '—');
   const syncText = escHtml(storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步');
 
+  if (!token) {
+    container.innerHTML = `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+        <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+          <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">运行模式</div>
+          <div style="font-size:15px; font-weight:600;">本地模式</div>
+          <div style="font-size:12px; color:var(--muted); margin-top:4px;">本机计时、popup 和使用分析可用；统计不会同步到云端。</div>
+        </div>
+        <div style="padding:12px; background:var(--surface); border-radius:8px;">
+          <div style="font-size:12px; color:var(--muted);">绑定状态</div>
+          <div style="font-size:15px; font-weight:600; color:var(--warn);">未绑定</div>
+        </div>
+        <div style="padding:12px; background:var(--surface); border-radius:8px;">
+          <div style="font-size:12px; color:var(--muted);">云端同步</div>
+          <div style="font-size:15px; font-weight:600;">已停用</div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   const rebindBtnHtml = isChildView ? '' : `
     <button id="rebind-btn" style="flex:1; padding:10px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted); font-size:13px; cursor:pointer;">重新绑定</button>
   `;
@@ -1664,6 +1721,152 @@ function mergeStatsRange(rangeData) {
 
 function getLocalDateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatSettlementTime(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return new Date(value).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function normalizeSettlementRows(payload) {
+  const rows = Array.isArray(payload?.segments) ? payload.segments : [];
+  return rows
+    .map(row => ({
+      id: row?.id || '',
+      domain: row?.domain || '(无域名)',
+      channel: row?.channel || '—',
+      framework: row?.framework || '',
+      sourceState: row?.sourceState || '—',
+      mode: row?.mode || '—',
+      startMs: Number(row?.startMs),
+      endMs: Number(row?.endMs),
+      durationSeconds: Number(row?.durationSeconds) || 0,
+      settlementReason: row?.settlementReason || '—',
+      suspect: !!row?.suspect,
+      suspectReason: row?.suspectReason || '',
+      uploaded: !!row?.uploaded,
+    }))
+    .sort((a, b) => {
+      const aStart = Number.isFinite(a.startMs) ? a.startMs : Number.MAX_SAFE_INTEGER;
+      const bStart = Number.isFinite(b.startMs) ? b.startMs : Number.MAX_SAFE_INTEGER;
+      return aStart - bStart;
+    });
+}
+
+function getSettlementTypeLabel(row) {
+  if (!row) return '未知';
+  if (row.framework === 'pip_video' || row.channel === 'pip') return 'PiP';
+  if (row.framework === 'background_video') return '后台视频';
+  if (row.framework === 'background_audio') return '后台音频';
+  if (row.channel === 'backgroundMedia' || row.channel === 'media') return '后台媒体';
+  if (row.channel === 'active') return '前台网页';
+  return row.framework || row.channel || '未知';
+}
+
+function getSettlementSelectedDomain() {
+  const select = document.getElementById('settlement-domain-filter');
+  return select?.value || '__all__';
+}
+
+function refreshSettlementDomainFilter(rows, selectedValue = '__all__') {
+  const select = document.getElementById('settlement-domain-filter');
+  if (!select) return;
+  const domains = Array.from(new Set(rows.map(row => row.domain).filter(Boolean))).sort();
+  const nextValue = selectedValue !== '__all__' && domains.includes(selectedValue) ? selectedValue : '__all__';
+  select.innerHTML = [
+    '<option value="__all__">全部域名</option>',
+    ...domains.map(domain => `<option value="${escAttr(domain)}">${escHtml(domain)}</option>`),
+  ].join('');
+  select.value = nextValue;
+  select.onchange = () => renderSettlementRows();
+}
+
+function renderSettlementRows() {
+  const selectedDomain = getSettlementSelectedDomain();
+  const rows = selectedDomain === '__all__'
+    ? settlementAnalysisRows
+    : settlementAnalysisRows.filter(row => row.domain === selectedDomain);
+  const summaryEl = document.getElementById('settlement-summary');
+  const tableEl = document.getElementById('settlement-table-wrap');
+  if (!summaryEl || !tableEl) return;
+
+  const totalSeconds = rows.reduce((sum, row) => sum + Math.max(0, row.durationSeconds || 0), 0);
+  const activeSeconds = rows
+    .filter(row => row.channel === 'active')
+    .reduce((sum, row) => sum + Math.max(0, row.durationSeconds || 0), 0);
+  const mediaSeconds = rows
+    .filter(row => row.channel === 'backgroundMedia' || row.channel === 'media' || row.channel === 'pip')
+    .reduce((sum, row) => sum + Math.max(0, row.durationSeconds || 0), 0);
+  summaryEl.innerHTML = `
+    <span>日期：${escHtml(getLocalDateKey())}</span>
+    <span>当前显示：${rows.length} 段</span>
+    <span>总时长：${formatSeconds(totalSeconds)}</span>
+    <span>前台：${formatSeconds(activeSeconds)}</span>
+    <span>媒体/PiP：${formatSeconds(mediaSeconds)}</span>
+  `;
+
+  if (rows.length === 0) {
+    tableEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px;">今日暂无落账 segment</div>';
+    return;
+  }
+
+  tableEl.innerHTML = `
+    <table class="settlement-table">
+      <thead>
+        <tr>
+          <th class="settlement-col-time">开始</th>
+          <th class="settlement-col-time">结束</th>
+          <th class="settlement-col-duration">时长</th>
+          <th class="settlement-col-domain">域名</th>
+          <th class="settlement-col-type">计时类型</th>
+          <th class="settlement-col-mode">模式</th>
+          <th>落账原因</th>
+          <th class="settlement-col-source">来源状态</th>
+          <th class="settlement-col-status">状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `
+          <tr>
+            <td>${escHtml(formatSettlementTime(row.startMs))}</td>
+            <td>${escHtml(formatSettlementTime(row.endMs))}</td>
+            <td>${escHtml(formatSeconds(row.durationSeconds))}</td>
+            <td class="settlement-domain-cell" title="${escAttr(row.domain)}">${escHtml(row.domain)}</td>
+            <td title="${escAttr(`${row.channel}${row.framework ? ` / ${row.framework}` : ''}`)}">${escHtml(getSettlementTypeLabel(row))}</td>
+            <td>${escHtml(row.mode)}</td>
+            <td class="settlement-reason-cell">${escHtml(row.settlementReason)}</td>
+            <td>${escHtml(row.sourceState)}</td>
+            <td>${row.suspect
+              ? `<span class="settlement-suspect" title="${escAttr(row.suspectReason)}">suspect</span>`
+              : (row.uploaded ? '已上传' : '<span class="settlement-muted">本地</span>')}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function renderSettlementsPage() {
+  const summaryEl = document.getElementById('settlement-summary');
+  const tableEl = document.getElementById('settlement-table-wrap');
+  if (summaryEl) summaryEl.textContent = '加载中...';
+  if (tableEl) tableEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>';
+
+  const selected = getSettlementSelectedDomain();
+  const payload = await sendMsg({ type: 'GET_TODAY_SETTLEMENT_ANALYSIS' });
+  settlementAnalysisRows = normalizeSettlementRows(payload);
+  refreshSettlementDomainFilter(settlementAnalysisRows, selected);
+  const refreshBtn = document.getElementById('settlement-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.onclick = () => renderSettlementsPage();
+  }
+  renderSettlementRows();
 }
 
 async function renderStatsPage() {

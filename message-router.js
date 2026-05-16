@@ -8,7 +8,7 @@ import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCl
 import { getTodayStatsWithCategories } from './product/analytics.js';
 import { flushOpenSessionToStats, getSession as getTimingSession } from './runtime/session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
-import { markSuspectUsageSegments } from './core/usage-segments.js';
+import { getAllUsageSegments, markSuspectUsageSegments } from './core/usage-segments.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -68,6 +68,51 @@ function buildTodayTimelineSegmentsFromEventLog(events, now = new Date()) {
     openStart = null;
   }
   return segments;
+}
+
+function getSegmentDate(segment) {
+  if (segment?.date) return segment.date;
+  const startMs = Number(segment?.startMs);
+  if (Number.isFinite(startMs)) return formatDate(new Date(startMs));
+  return null;
+}
+
+function normalizeSettlementAnalysisSegment(segment) {
+  const startMs = Number(segment?.startMs);
+  const endMs = Number(segment?.endMs);
+  const durationSeconds = Number(segment?.durationSeconds);
+  return {
+    id: segment?.id || null,
+    date: getSegmentDate(segment),
+    domain: segment?.domain || null,
+    channel: segment?.channel || null,
+    framework: segment?.framework || null,
+    sourceState: segment?.sourceState || null,
+    mode: segment?.mode || null,
+    startMs: Number.isFinite(startMs) ? startMs : null,
+    endMs: Number.isFinite(endMs) ? endMs : null,
+    durationSeconds: Number.isFinite(durationSeconds) ? Math.max(0, durationSeconds) : 0,
+    settlementReason: segment?.settlementReason || null,
+    suspect: !!segment?.suspect,
+    suspectReason: segment?.suspectReason || null,
+    uploaded: !!segment?.uploadedAt,
+    createdAt: Number.isFinite(Number(segment?.createdAt)) ? Number(segment.createdAt) : null,
+    updatedAt: Number.isFinite(Number(segment?.updatedAt)) ? Number(segment.updatedAt) : null,
+  };
+}
+
+async function getTodaySettlementAnalysis() {
+  const today = getDateKey();
+  const allSegments = await getAllUsageSegments();
+  const segments = Object.values(allSegments || {})
+    .filter(segment => getSegmentDate(segment) === today)
+    .map(normalizeSettlementAnalysisSegment)
+    .sort((a, b) => {
+      const aStart = Number.isFinite(a.startMs) ? a.startMs : Number.MAX_SAFE_INTEGER;
+      const bStart = Number.isFinite(b.startMs) ? b.startMs : Number.MAX_SAFE_INTEGER;
+      return aStart - bStart;
+    });
+  return { ok: true, date: today, segments };
 }
 
 function normalizeMode(mode) {
@@ -195,6 +240,9 @@ export async function handleMessage(msg, sender) {
       return buildTodayTimelineSegmentsFromEventLog(events, new Date());
     }
 
+    case 'GET_TODAY_SETTLEMENT_ANALYSIS':
+      return await getTodaySettlementAnalysis();
+
     case 'GET_CHANGELOG':
       return await getChangelog(msg.limit || 20);
 
@@ -286,9 +334,14 @@ export async function handleMessage(msg, sender) {
       ]);
 
       const v1Sync = await getStatsFoundationV1SyncStatus().catch(() => null);
+      const isBound = !!storage['cloud_device_token'];
       return {
-        isBound: !!storage['cloud_device_token'],
+        isBound,
+        localMode: !isBound,
+        syncEnabled: isBound,
+        reason: isBound ? null : 'no_device_token',
         deviceId: storage['cloud_device_id'] || null,
+        profileId: storage['cloud_profile_id'] || null,
         hasCredentials: !!storage['cloud_credentials'],
         lastSync: storage['cloud_last_sync'] || 0,
         configVersion: storage['cloud_config_version'] || 0,

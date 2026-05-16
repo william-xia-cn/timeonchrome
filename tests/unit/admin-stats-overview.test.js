@@ -47,6 +47,7 @@ function extractFunctionSource(code, functionName) {
 
 function loadComputeOverview() {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'admin', 'admin.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'admin', 'admin.html'), 'utf8');
   const fns = [
     extractFunctionSource(code, 'matchDomain'),
     extractFunctionSource(code, 'classifyDomain'),
@@ -78,11 +79,11 @@ function loadComputeOverview() {
     context,
     { filename: 'admin.js' }
   );
-  return { fn: context.__fn, render: context.__render, ctx: context, elements, code };
+  return { fn: context.__fn, render: context.__render, ctx: context, elements, code, html };
 }
 
 function run() {
-  const { fn: computeOverview, render, ctx, elements, code } = loadComputeOverview();
+  const { fn: computeOverview, render, ctx, elements, code, html } = loadComputeOverview();
 
   // Helper to call with vm context as `this`
   function call(data) {
@@ -130,6 +131,18 @@ function run() {
   expectTrue('admin stats exposes suspect maintenance action', code.includes('标记并重建本地统计'));
   expectTrue('admin stats explains active over 3h reason', code.includes('active 超过 3 小时'));
   expectTrue('admin stats has clean suspect state text', code.includes('未发现'));
+  expectTrue('admin child stats can enter local read-only mode', code.includes('async function enterLocalReadOnlyMode('));
+  expectTrue('admin local read-only hides account chrome', code.includes("logoutBtn.style.display = 'none'") && code.includes("userInfo.style.display = 'none'"));
+  expectTrue('admin local mode sidebar label is present', code.includes("sidebarNameEl.textContent = '本地模式'"));
+  expectTrue('admin local mode renders stats page', code.includes('await renderStatsPage();'));
+  expectTrue('admin local mode renders device status as sync disabled', code.includes('本机计时、popup 和使用分析可用；统计不会同步到云端。'));
+  expectTrue('admin has settlement analysis nav item', html.includes('data-page="settlements"'));
+  expectTrue('admin has settlement analysis page', html.includes('id="page-settlements"'));
+  expectTrue('admin settlement page has domain filter', html.includes('id="settlement-domain-filter"'));
+  expectTrue('admin settlement page calls settlement analysis message', code.includes('GET_TODAY_SETTLEMENT_ANALYSIS'));
+  expectTrue('admin settlement page renders refresh control', code.includes('settlement-refresh-btn'));
+  expectTrue('admin settlement page renders readable timing type label', code.includes('计时类型'));
+  expectTrue('admin settlement page maps framework to readable labels', code.includes('getSettlementTypeLabel'));
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

@@ -32,14 +32,31 @@ test('admin-summary: GET_STATS_RANGE vs GET_TIMELINE_SEGMENTS shapes', async () 
     const n = Date.now();
     const today = new Date().toISOString().split('T')[0];
 
-    // Seed event-log with active data (same data for both paths)
+    // Seed event-log with active data and one durable segment for settlement analysis.
     await sw.evaluate(async (now) => {
+      const d = new Date(now);
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const segment = {
+        id: `seg-${date.replaceAll('-', '')}-adminsummary`,
+        date,
+        domain: 'admin-test.example.com',
+        channel: 'active',
+        mode: 'rest',
+        sourceState: 'ACTIVE',
+        startMs: now - 30000,
+        endMs: now,
+        durationSeconds: 30,
+        settlementReason: 'transition_complete',
+        createdAt: now,
+        updatedAt: now,
+      };
       return new Promise(res => {
         chrome.storage.local.set({
           event_log_v1: [
             { type: 'START', state: 'ACTIVE', domain: 'admin-test.example.com', time: now - 30000 },
             { type: 'END', state: 'ACTIVE', domain: 'admin-test.example.com', time: now },
           ],
+          usage_segments_v1: { [segment.id]: segment },
         }, res);
       });
     }, n);
@@ -72,6 +89,13 @@ test('admin-summary: GET_STATS_RANGE vs GET_TIMELINE_SEGMENTS shapes', async () 
     });
     console.log(`GET_TIMELINE_SEGMENTS: ${timeline.length} segments`);
 
+    const settlements = await admin.evaluate(async () => {
+      return new Promise(res => {
+        chrome.runtime.sendMessage({ type: 'GET_TODAY_SETTLEMENT_ANALYSIS' }, r => res(r || {}));
+      });
+    });
+    console.log(`GET_TODAY_SETTLEMENT_ANALYSIS: ${settlements?.segments?.length || 0} segments`);
+
     // Compute online from the actual first day key in rangeData
     const firstDate = Object.keys(rangeData)[0] || today;
     const todayData = rangeData[firstDate] || {};
@@ -83,6 +107,50 @@ test('admin-summary: GET_STATS_RANGE vs GET_TIMELINE_SEGMENTS shapes', async () 
     // Both paths should show data for today
     expect(timeline.length).toBeGreaterThan(0);
     expect(online).toBeGreaterThan(0);
+    expect(Array.isArray(settlements.segments)).toBe(true);
+    expect(settlements.segments.length).toBeGreaterThan(0);
+    expect(settlements.segments[0].domain).toBe('admin-test.example.com');
+
+    await admin.close();
+  } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }
+});
+
+test('admin-local-mode: ?view=stats opens read-only stats without binding', async () => {
+  const { ctx, sw, udd } = await createContext();
+  try {
+    const n = Date.now();
+    await sw.evaluate(async (now) => {
+      return new Promise(res => {
+        chrome.storage.local.set({
+          cloud_device_token: null,
+          cloud_profile_id: null,
+          event_log_v1: [
+            { type: 'START', state: 'ACTIVE', domain: 'local-admin.test', time: now - 40000 },
+            { type: 'END', state: 'ACTIVE', domain: 'local-admin.test', time: now },
+          ],
+        }, res);
+      });
+    }, n);
+
+    const adminUrl = await sw.evaluate(() => chrome.runtime.getURL('admin/admin.html?view=stats'));
+    const admin = await ctx.newPage();
+    await admin.goto(adminUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+
+    await expect(admin.locator('#main-screen')).toBeVisible();
+    await expect(admin.locator('#login-screen')).toBeHidden();
+    await expect(admin.locator('#sidebar-child-name')).toHaveText('本地模式');
+    await expect(admin.locator('#user-info')).toBeHidden();
+    await expect(admin.locator('#logout-btn')).toBeHidden();
+    await expect(admin.locator('#page-stats')).toHaveClass(/active/);
+    await expect(admin.locator('#today-overview-list')).toContainText('在线');
+
+    await admin.locator('.nav-item[data-page="settlements"]').click();
+    await expect(admin.locator('#page-settlements')).toHaveClass(/active/);
+
+    await admin.locator('.nav-item[data-page="devices"]').click();
+    await expect(admin.locator('#page-devices')).toHaveClass(/active/);
+    await expect(admin.locator('#sync-status')).toContainText('本地模式');
+    await expect(admin.locator('#sync-status')).toContainText('已停用');
 
     await admin.close();
   } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }

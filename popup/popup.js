@@ -7,14 +7,7 @@ let popupStatsContext = { config: {}, stats: {} };
 
 document.addEventListener('DOMContentLoaded', async () => {
   const cloudStatus = await sendMsg({ type: 'GET_CLOUD_STATUS' });
-  if (cloudStatus && !cloudStatus.isBound) {
-    document.getElementById('unbound-banner').style.display = 'block';
-    document.getElementById('popup-content').style.display = 'none';
-    document.getElementById('goto-admin-btn').addEventListener('click', () => {
-      chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
-    });
-    return;
-  }
+  renderCloudBindingNotice(cloudStatus);
 
   const [, runtimeStatus] = await Promise.all([
     init(),
@@ -33,14 +26,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'DEVICE_UNBOUND') {
-      document.getElementById('unbound-banner').style.display = 'block';
-      document.getElementById('popup-content').style.display = 'none';
-      document.getElementById('goto-admin-btn').addEventListener('click', () => {
-        chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
-      });
+      renderCloudBindingNotice({ isBound: false, localMode: true, syncEnabled: false });
     }
   });
 });
+
+function renderCloudBindingNotice(cloudStatus = {}) {
+  const banner = document.getElementById('unbound-banner');
+  const content = document.getElementById('popup-content');
+  const adminBtn = document.getElementById('goto-admin-btn');
+  const isLocalMode = !!cloudStatus && !cloudStatus.isBound;
+
+  if (banner) banner.style.display = isLocalMode ? 'block' : 'none';
+  if (content) content.style.display = 'block';
+  if (adminBtn) {
+    adminBtn.onclick = () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
+    };
+  }
+}
 
 async function getRuntimeModeStatusSafe() {
   try {
