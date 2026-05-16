@@ -12,8 +12,15 @@ function isForegroundPageEligible(context) {
   return !!context &&
     context.tabId != null &&
     context.isFocused === true &&
-    context.isIdle !== true &&
+    isSystemActive(context) &&
     (context.candidateKind === 'known_domain' || context.candidateKind === 'unknown_domain' || (!!context.domain && context.candidateKind == null));
+}
+
+function isSystemActive(context) {
+  if (!context) return false;
+  if (context.idleState === 'idle' || context.idleState === 'locked') return false;
+  if (context.idleState === 'active') return true;
+  return context.isIdle !== true;
 }
 
 /**
@@ -36,6 +43,6 @@ export function resolveState(context) {
   if (context.isPiP) return AttentionState.PIP_ACTIVE;
   if (isForegroundPageEligible(context)) return AttentionState.ACTIVE;
   if (context.isAudible && context.mediaSourceTabId != null) return AttentionState.BACKGROUND_ACTIVE;
-  if (context.isIdle) return AttentionState.IDLE;
+  if (!isSystemActive(context)) return AttentionState.IDLE;
   return AttentionState.PASSIVE;
 }

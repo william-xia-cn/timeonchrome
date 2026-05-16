@@ -25,7 +25,7 @@ let appliedForegroundBoundary = { state: null, domain: null };
 let pendingForegroundBoundary = null;
 let pendingForegroundTimer = null;
 
-const FOREGROUND_STABILIZATION_MS = 5 * 1000;
+const FOREGROUND_STABILIZATION_MS = 1 * 1000;
 const UNKNOWN_FOREGROUND_DOMAIN = '__unknown__';
 
 function isOrdinaryForegroundFrameworkState(state) {
@@ -51,6 +51,17 @@ async function handleForegroundBoundary(state, domain, reason, boundaryAt) {
 
   if (pendingForegroundBoundary && (boundaryAt - pendingForegroundBoundary.boundaryAt) >= FOREGROUND_STABILIZATION_MS) {
     const ready = pendingForegroundBoundary;
+    await emitTrace('foreground_boundary_applied', {
+      source: 'foreground-boundary',
+      reason: ready.reason || 'foreground_boundary',
+      domain: ready.target.domain || null,
+      nextState: ready.target.state,
+      payload: {
+        boundaryAt: ready.boundaryAt,
+        observedAt: boundaryAt,
+        stabilizationMs: FOREGROUND_STABILIZATION_MS,
+      },
+    });
     await applyForegroundBoundary({
       state: ready.target.state,
       domain: ready.target.domain,
@@ -60,6 +71,18 @@ async function handleForegroundBoundary(state, domain, reason, boundaryAt) {
 
   if (sameBoundary(target, appliedForegroundBoundary)) {
     if (pendingForegroundBoundary && !sameBoundary(pendingForegroundBoundary.target, target)) {
+      await emitTrace('foreground_boundary_cancelled', {
+        source: 'foreground-boundary',
+        reason,
+        domain: target.domain || null,
+        nextState: target.state,
+        payload: {
+          pendingTarget: pendingForegroundBoundary.target,
+          pendingBoundaryAt: pendingForegroundBoundary.boundaryAt,
+          observedAt: boundaryAt,
+          stabilizationMs: FOREGROUND_STABILIZATION_MS,
+        },
+      });
       if (pendingForegroundTimer) {
         clearTimeout(pendingForegroundTimer);
         pendingForegroundTimer = null;
@@ -82,6 +105,18 @@ async function handleForegroundBoundary(state, domain, reason, boundaryAt) {
     reason,
   };
   pendingForegroundBoundary = pending;
+  await emitTrace('foreground_boundary_pending', {
+    source: 'foreground-boundary',
+    reason,
+    domain: target.domain || null,
+    nextState: target.state,
+    payload: {
+      target,
+      boundaryAt,
+      appliedForegroundBoundary,
+      stabilizationMs: FOREGROUND_STABILIZATION_MS,
+    },
+  });
   pendingForegroundTimer = setTimeout(() => {
     if (pendingForegroundBoundary !== pending) return;
     applyForegroundBoundary({
@@ -218,6 +253,13 @@ async function processTimingSignal(rawEvent) {
   });
 
   currentContext = buildContext(currentContext, rawEvent);
+  const foregroundDiagnostics = {
+    candidateKind: currentContext?.candidateKind ?? null,
+    candidateDomain: currentContext?.candidateDomain ?? null,
+    idleState: currentContext?.idleState ?? null,
+    isIdle: currentContext?.isIdle ?? null,
+    isFocused: currentContext?.isFocused ?? null,
+  };
   await emitTrace('snapshot_created', {
     source: 'context',
     reason: rawEvent._reason || 'unknown',
@@ -225,8 +267,7 @@ async function processTimingSignal(rawEvent) {
     windowId: currentContext?.windowId ?? null,
     domain: currentContext?.domain ?? null,
     payload: {
-      isFocused: currentContext?.isFocused,
-      isIdle: currentContext?.isIdle,
+      ...foregroundDiagnostics,
       isAudible: currentContext?.isAudible,
       isPiP: currentContext?.isPiP,
       mediaSourceDomain: currentContext?.mediaSourceDomain,
@@ -246,7 +287,13 @@ async function processTimingSignal(rawEvent) {
     windowId: currentContext?.windowId ?? null,
     domain,
     nextState: state,
-    payload: { context: currentContext },
+    payload: {
+      context: currentContext,
+      foreground: {
+        ...foregroundDiagnostics,
+        resolvedDomain: domain,
+      },
+    },
   });
 
   if (isMediaOnlySignal) {
@@ -270,7 +317,7 @@ async function processTimingSignal(rawEvent) {
     domain,
     previousState: state,
     nextState: state,
-    payload: { state, domain },
+    payload: { state, domain, foreground: foregroundDiagnostics },
   });
 
   if (isOrdinaryForegroundFrameworkState(state)) {
@@ -294,7 +341,7 @@ async function processTimingSignal(rawEvent) {
     domain,
     previousState: state,
     nextState: state,
-    payload: { state, domain },
+    payload: { state, domain, foreground: foregroundDiagnostics },
   });
 
   return { state, domain, context: currentContext };
@@ -599,7 +646,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } else if (alarm.name === 'periodicCheckpoint') {
     if (!isMonitoringEnabled()) return;
     try {
-      await runPeriodicCheckpoint(Date.now(), { confirmForegroundPage: confirmForegroundPageCheckpoint });
+      const foregroundCheckpoint = await runPeriodicCheckpoint(Date.now(), { confirmForegroundPage: confirmForegroundPageCheckpoint });
+      await emitTrace('foreground_checkpoint_result', {
+        source: 'checkpoint',
+        reason: foregroundCheckpoint?.reason || 'periodic_checkpoint',
+        domain: foregroundCheckpoint?.domain || null,
+        payload: foregroundCheckpoint,
+      });
       await runMediaPeriodicCheckpoint(Date.now());
     } catch (e) {
       console.warn('[Checkpoint] periodic checkpoint alarm failed:', e?.message || e);

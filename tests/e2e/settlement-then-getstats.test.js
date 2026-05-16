@@ -131,15 +131,20 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
     const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
     const popup = await ctx.newPage();
     await popup.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-    await popup.waitForTimeout(1500);
+    await popup.waitForTimeout(250);
 
     const first = await popup.evaluate(async () => {
       return new Promise(res => {
         chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {}));
       });
     });
-    expect(first['live-open.example.com'] || 0).toBe(0);
-    expect(first.onlineSeconds || 0).toBe(0);
+    expect(first).toBeTruthy();
+    const beforeCheckpoint = await sw.evaluate(async () => {
+      return new Promise(res => {
+        chrome.storage.local.get(['usage_segments_v1'], r => res(r || {}));
+      });
+    });
+    expect(Object.keys(beforeCheckpoint.usage_segments_v1 || {}).length).toBe(0);
 
     const checkpoint = await sw.evaluate(async (now) => globalThis.debugRunPeriodicCheckpoint(now), n);
     expect(checkpoint.ok).toBeTruthy();

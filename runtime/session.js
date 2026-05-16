@@ -18,6 +18,11 @@ const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const FOREGROUND_CHECKPOINT_MS = 180 * 1000;
 const FOREGROUND_UNKNOWN_DOMAIN = '__unknown__';
 const FOREGROUND_DIAGNOSTICS_KEY = 'foreground_page_diagnostics_v1';
+const FOREGROUND_DIAGNOSTIC_ASSIGN_KEYS = new Set([
+  'lastDropAt',
+  'lastCheckpointAt',
+  'lastCheckpointFailureAt',
+]);
 let commitQueue = Promise.resolve();
 
 // 缓存的模式上下文 — 在 segment 打开时读取，避免在 segment 关闭后读取到已切换的模式。
@@ -35,7 +40,7 @@ async function recordForegroundDiagnostic(updates = {}) {
     const current = data?.[FOREGROUND_DIAGNOSTICS_KEY] || {};
     const next = { ...current };
     for (const [key, value] of Object.entries(updates)) {
-      if (typeof value === 'number' && key !== 'lastDropAt') {
+      if (typeof value === 'number' && !FOREGROUND_DIAGNOSTIC_ASSIGN_KEYS.has(key)) {
         next[key] = Number(next[key] || 0) + value;
       } else {
         next[key] = value;
@@ -51,11 +56,28 @@ function isForegroundPageSession(session) {
   return session?.state === 'ACTIVE';
 }
 
-function boundedForegroundCloseTime(session, observedAt = Date.now()) {
+function getBoundedForegroundClose(session, observedAt = Date.now()) {
   const start = Number(session?.startTime || 0);
-  if (!start) return observedAt;
+  if (!start) return { closeTime: observedAt, capped: false };
   const observed = Number.isFinite(observedAt) ? observedAt : Date.now();
-  return Math.max(start, Math.min(observed, start + FOREGROUND_CHECKPOINT_MS));
+  const cap = start + FOREGROUND_CHECKPOINT_MS;
+  return {
+    closeTime: Math.max(start, Math.min(observed, cap)),
+    capped: observed > cap,
+  };
+}
+
+function boundedForegroundCloseTime(session, observedAt = Date.now()) {
+  return getBoundedForegroundClose(session, observedAt).closeTime;
+}
+
+function isForegroundSettlementReasonAllowed(reason) {
+  return reason === 'periodic_checkpoint' ||
+    reason === 'transition_complete' ||
+    reason === 'tab_close' ||
+    reason === 'monitoring_off' ||
+    reason === 'recovery_gap_close' ||
+    reason === 'recovery_persistent_close';
 }
 
 function isDropLikeReason(reason) {
@@ -73,9 +95,9 @@ function isDropLikeReason(reason) {
     value.includes('special_page');
 }
 
-function shouldCountForegroundTransitionEnd(reason, newState, newDomain) {
+function shouldCountForegroundTransitionEnd(reason) {
   if (isDropLikeReason(reason)) return false;
-  return newState === 'ACTIVE' && typeof newDomain === 'string' && newDomain.trim();
+  return true;
 }
 
 function markForegroundEndUncounted(event, reason) {
@@ -168,7 +190,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
     if (session.state && session.startTime) {
       const foreground = isForegroundPageSession(session);
       const boundary = foreground
-        ? { closeTime: boundedForegroundCloseTime(session, now), stale: false }
+        ? { ...getBoundedForegroundClose(session, now), stale: false }
         : getReliableCloseTime(session, now);
       const { closeTime, stale } = boundary;
       const baseEndEvent = {
@@ -177,7 +199,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         domain: session.domain,
         time: closeTime,
       };
-      const countForegroundEnd = !foreground || shouldCountForegroundTransitionEnd(reason, newState, newDomain);
+      const countForegroundEnd = !foreground || shouldCountForegroundTransitionEnd(reason);
       const endEvent = countForegroundEnd
         ? baseEndEvent
         : markForegroundEndUncounted(baseEndEvent, reason);
@@ -199,7 +221,16 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
           lastDropAt: Date.now(),
         });
       } else {
-        // 结算已完成的非 foreground_page 使用时长段；普通 foreground_page 只由 checkpoint 落账。
+        if (foreground && boundary.capped) {
+          await recordForegroundDiagnostic({
+            foregroundTailCapped: 1,
+            cappedForegroundSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000),
+            lastCapReason: reason,
+            lastDropReason: 'foreground_tail_capped',
+            lastDropAt: Date.now(),
+          });
+        }
+        // 稳定事件边界是普通 foreground_page 的基础落账入口；checkpoint 只负责长段切片。
         await settleCurrentSessionSegment(session, closeTime, stale ? 'transition_stale_close' : 'transition_complete');
       }
     }
@@ -461,8 +492,14 @@ export async function resolveSettlementIdentity(timingSession = null, reason = '
 export async function settleCurrentSessionSegment(timingSession, closeTimeMs, reason) {
   try {
     const startMs = timingSession.startTime;
-    const endMs = closeTimeMs;
+    let endMs = closeTimeMs;
     if (!startMs || !endMs || endMs <= startMs) return { appended: 0, durationSeconds: 0 };
+
+    let capped = false;
+    if (timingSession.state === 'ACTIVE' && (endMs - startMs) > FOREGROUND_CHECKPOINT_MS) {
+      endMs = startMs + FOREGROUND_CHECKPOINT_MS;
+      capped = true;
+    }
 
     const durationMs = endMs - startMs;
     const durationSeconds = Math.floor(durationMs / 1000);
@@ -471,7 +508,7 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       return { appended: 0, durationSeconds: 0, skipped: 'non_counted_state' };
     }
     if (timingSession.state === 'ACTIVE') {
-      if (reason !== 'periodic_checkpoint') {
+      if (!isForegroundSettlementReasonAllowed(reason)) {
         return { appended: 0, durationSeconds: 0, skipped: 'foreground_checkpoint_required' };
       }
       if (durationMs > FOREGROUND_CHECKPOINT_MS) {
@@ -493,6 +530,15 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       profileId: identity.profileId,
       deviceId: identity.deviceId,
     });
+    if (timingSession.state === 'ACTIVE' && capped) {
+      await recordForegroundDiagnostic({
+        foregroundTailCapped: 1,
+        cappedForegroundSeconds: durationSeconds,
+        lastCapReason: reason,
+        lastDropReason: 'foreground_tail_capped',
+        lastDropAt: Date.now(),
+      });
+    }
     return {
       appended,
       durationSeconds,
@@ -682,8 +728,9 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
     }
 
     const foreground = isForegroundPageSession(session);
+    const foregroundBoundary = foreground ? getBoundedForegroundClose(session, now) : null;
     const closeTime = foreground
-      ? boundedForegroundCloseTime(session, now)
+      ? foregroundBoundary.closeTime
       : getReliableCloseTime(session, now).closeTime;
     const endEvent = {
       type: EVENT_TYPE.END,
@@ -691,18 +738,19 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
       domain: session.domain,
       time: closeTime,
     };
-    await appendEvent(foreground ? markForegroundEndUncounted(endEvent, reason) : endEvent);
+    await appendEvent(endEvent);
 
     let settlement = null;
-    if (!foreground && isCountedState(session.state)) {
+    if (isCountedState(session.state)) {
       settlement = await settleCurrentSessionSegment(session, closeTime, reason);
     }
     if (foreground) {
-      const droppedSeconds = Math.floor(Math.max(0, closeTime - session.startTime) / 1000);
+      const cappedSeconds = Math.floor(Math.max(0, closeTime - session.startTime) / 1000);
       await recordForegroundDiagnostic({
-        droppedUnconfirmedSeconds: droppedSeconds,
-        longOpenSessionDrops: now - session.startTime > FOREGROUND_CHECKPOINT_MS ? 1 : 0,
-        lastDropReason: reason,
+        ...(foregroundBoundary?.capped ? { foregroundTailCapped: 1 } : {}),
+        cappedForegroundSeconds: cappedSeconds,
+        lastCapReason: reason,
+        lastDropReason: foregroundBoundary?.capped ? 'foreground_tail_capped' : reason,
         lastDropAt: Date.now(),
       });
     }
@@ -720,7 +768,9 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
       state: session.state,
       domain: session.domain || null,
       closeTime,
-      foregroundDropped: foreground,
+      foregroundClosed: foreground,
+      foregroundCapped: !!foregroundBoundary?.capped,
+      foregroundSettled: foreground ? (settlement?.appended || 0) > 0 : false,
       settlement,
     };
   };
@@ -775,6 +825,10 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           droppedUnconfirmedSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000),
           lastDropReason: confirmation?.reason || 'checkpoint_confirmation_failed',
           lastDropAt: Date.now(),
+          lastCheckpointFailureAt: Date.now(),
+          lastCheckpointFailureReason: confirmation?.reason || 'checkpoint_confirmation_failed',
+          lastCheckpointCandidateDomain: confirmation?.candidateDomain || null,
+          lastCheckpointIdleState: confirmation?.idleState || null,
           ...(confirmation?.reason === 'unknown_domain' ? { unknownDomainSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000) } : {}),
           ...(confirmation?.reason === 'candidate_query_failed' ? { candidateQueryFailures: 1 } : {}),
           ...(confirmation?.reason === 'idle_query_failed' ? { idleQueryFailures: 1 } : {}),
@@ -802,6 +856,15 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           domain: session.domain,
         });
         return { ok: false, checkpointed: false, reason: 'settlement_failed', error: flushResult?.error || null };
+      }
+      if (flushResult?.flushed) {
+        await recordForegroundDiagnostic({
+          confirmedCheckpointWindows: 1,
+          confirmedCheckpointSeconds: flushResult?.flushedSeconds || 0,
+          lastCheckpointAt: Date.now(),
+          lastCheckpointDomain: session.domain || FOREGROUND_UNKNOWN_DOMAIN,
+          lastCheckpointIdleState: confirmation?.idleState || null,
+        });
       }
       await saveSession({
         state: session.state,

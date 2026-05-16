@@ -199,6 +199,36 @@ async function runTests() {
     expect('idle + PiP should still be PIP_ACTIVE', resolveState(pipIdleCtx), AttentionState.PIP_ACTIVE);
   }
 
+  section('D9: locked blocks ordinary foreground but not media/PiP');
+  {
+    const foregroundLockedCtx = {
+      domain: 'plain.example',
+      candidateKind: 'known_domain',
+      candidateDomain: 'plain.example',
+      tabId: 6,
+      isFocused: true,
+      idleState: 'locked',
+      isIdle: true,
+      isAudible: false,
+      mediaSourceTabId: null,
+      isPiP: false,
+    };
+    expect('locked foreground should be IDLE', resolveState(foregroundLockedCtx), AttentionState.IDLE);
+
+    const mediaLockedCtx = {
+      domain: 'video.example',
+      tabId: 7,
+      isFocused: false,
+      idleState: 'locked',
+      isIdle: true,
+      isAudible: true,
+      mediaSourceTabId: 7,
+      mediaSourceDomain: 'video.example',
+      isPiP: false,
+    };
+    expect('locked + audible should still be BACKGROUND_ACTIVE', resolveState(mediaLockedCtx), AttentionState.BACKGROUND_ACTIVE);
+  }
+
   const total = passed + failed;
   console.log(`\n[Dual Track Semantics] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

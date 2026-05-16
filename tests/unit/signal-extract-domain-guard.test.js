@@ -164,6 +164,20 @@ async function run() {
   expectTrue('focus poll should set isFocused=false', emitted.some(e => e.isFocused === false));
   expectTrue('focus poll reason should be windowFocusPolled', emitted.some(e => e._reason === 'windowFocusPolled'));
 
+  section('SG6: idle state signal preserves raw active/idle/locked value');
+  emitted.length = 0;
+  hooks.onStateChanged('locked');
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('locked idle signal should be emitted', emitted.length === 1);
+  expectTrue('locked idle signal should preserve idleState=locked', emitted[0]?.idleState === 'locked');
+  expectTrue('locked idle signal should mark isIdle=true', emitted[0]?.isIdle === true);
+
+  emitted.length = 0;
+  hooks.onStateChanged('active');
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('active idle signal should preserve idleState=active', emitted[0]?.idleState === 'active');
+  expectTrue('active idle signal should mark isIdle=false', emitted[0]?.isIdle === false);
+
   const total = passed + failed;
   console.log(`\n[Signal ExtractDomain Guard] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

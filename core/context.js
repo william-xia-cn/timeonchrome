@@ -44,6 +44,7 @@ function classifyForegroundCandidate({ tabId = null, url = undefined, domain = u
  * @property {number|null} windowId
  * @property {string|null} domain
  * @property {boolean} isFocused
+ * @property {'active'|'idle'|'locked'|string} idleState
  * @property {boolean} isIdle
  * @property {boolean} isAudible
  * @property {'audio'|'video'|null} mediaKind
@@ -87,6 +88,13 @@ export function buildContext(current, rawEvent) {
   const nextMediaKind = rawEvent.isAudible === false
     ? null
     : (rawEvent.mediaKind ?? current?.mediaKind ?? null);
+  const rawIdleState = typeof rawEvent.idleState === 'string' ? rawEvent.idleState : null;
+  const fallbackIdleState = rawEvent.isIdle === true
+    ? 'idle'
+    : (rawEvent.isIdle === false
+        ? 'active'
+        : (current?.idleState || (current?.isIdle === true ? 'idle' : current?.isIdle === false ? 'active' : undefined)));
+  const nextIdleState = rawIdleState || fallbackIdleState || 'active';
 
   return {
     tabId: nextTabId,
@@ -95,7 +103,8 @@ export function buildContext(current, rawEvent) {
     candidateKind: candidate.kind,
     candidateDomain: candidate.domain,
     isFocused: rawEvent.isFocused ?? current?.isFocused ?? false,
-    isIdle: rawEvent.isIdle ?? current?.isIdle ?? false,
+    idleState: nextIdleState,
+    isIdle: rawEvent.isIdle ?? (nextIdleState !== 'active'),
     isAudible: rawEvent.isAudible ?? current?.isAudible ?? false,
     mediaKind: nextMediaKind,
     mediaSourceTabId: nextMediaSourceTabId,

@@ -36,6 +36,7 @@ export function initSignal(onContextChange) {
       url: incoming.url ?? pending.url,
       domain: incoming.domain ?? pending.domain,
       isFocused: incoming.isFocused ?? pending.isFocused,
+      idleState: incoming.idleState ?? pending.idleState,
       isIdle: incoming.isIdle ?? pending.isIdle,
       isAudible: incoming.isAudible ?? pending.isAudible,
       mediaKind: incoming.mediaKind ?? pending.mediaKind,
@@ -175,7 +176,7 @@ export function initSignal(onContextChange) {
 
   // 空闲状态变化
   chrome.idle.onStateChanged.addListener((state) => {
-    onEvent({ isIdle: state === 'idle', _reason: 'idleStateChanged' });
+    onEvent({ idleState: state, isIdle: state !== 'active', _reason: 'idleStateChanged' });
   });
 
   // 媒体状态（从 content.js 或 tabs API 转发）
