@@ -168,6 +168,7 @@ async function synthesizeAccrualSpanViaPopup(ctx, sw, {
       isPiP: false,
     },
   });
+  return startMs + Math.max(1000, durationMs);
 }
 
 test('P0-video-controlled-1: controlled accounting pipeline remains valid', async () => {
@@ -183,12 +184,14 @@ test('P0-video-controlled-1: controlled accounting pipeline remains valid', asyn
     await page.click('#start-btn');
     await delay(1200);
 
-    await synthesizeAccrualSpanViaPopup(ctx, sw, {
+    const endMs = await synthesizeAccrualSpanViaPopup(ctx, sw, {
       domain: TEST_DOMAIN,
       durationMs: 5000,
       phase: 'normal',
       isPiP: false,
     });
+    const checkpoint = await sw.evaluate(async (now) => globalThis.debugRunPeriodicCheckpoint(now), endMs + 181000);
+    expect(checkpoint.ok).toBeTruthy();
 
     const stats = await getStatsFromPopup(ctx, sw);
     expect(Number(stats?.stats?.[TEST_DOMAIN] || 0)).toBeGreaterThan(0);

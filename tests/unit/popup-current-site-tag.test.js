@@ -11,9 +11,25 @@ function expectEqual(name, actual, expected) {
   }
 }
 
-function run() {
+async function run() {
   const popupJsPath = path.join(__dirname, '..', '..', 'popup', 'popup.js');
   const source = fs.readFileSync(popupJsPath, 'utf8');
+  const elements = new Map();
+  const elementFor = (id) => {
+    if (!elements.has(id)) {
+      elements.set(id, {
+        id,
+        style: {},
+        className: '',
+        disabled: false,
+        innerHTML: '',
+        textContent: '',
+        addEventListener() {},
+      });
+    }
+    return elements.get(id);
+  };
+  const sentMessages = [];
   const context = {
     console,
     URL,
@@ -21,15 +37,23 @@ function run() {
     clearTimeout,
     document: {
       addEventListener() {},
-      getElementById() { return null; },
+      getElementById(id) { return elementFor(id); },
     },
     chrome: {
       runtime: {
-        sendMessage(_, cb) { if (typeof cb === 'function') cb({}); },
+        sendMessage(msg, cb) {
+          sentMessages.push(msg);
+          if (typeof cb === 'function') {
+            cb(msg?.type === 'GET_RUNTIME_MODE_STATUS' ? { mode: 'composite' } : {});
+          }
+        },
         onMessage: { addListener() {} },
         getURL() { return ''; },
       },
-      tabs: { create() {} },
+      tabs: {
+        create() {},
+        query() { return Promise.resolve([{ id: 123, url: 'https://desmos.com/calculator' }]); },
+      },
       storage: {
         local: { get(_, cb) { if (typeof cb === 'function') cb({}); } },
       },
@@ -41,11 +65,13 @@ this.__resolveDomainTag = resolveDomainTag;
 this.__resolveTodayDomainSeconds = resolveTodayDomainSeconds;
 this.__resolveLiveSessionSeconds = resolveLiveSessionSeconds;
 this.__formatRuntimeTodayDuration = formatRuntimeTodayDuration;
+this.__setMode = setMode;
 `, context, { filename: 'popup.js' });
   const resolveDomainTag = context.__resolveDomainTag;
   const resolveTodayDomainSeconds = context.__resolveTodayDomainSeconds;
   const resolveLiveSessionSeconds = context.__resolveLiveSessionSeconds;
   const formatRuntimeTodayDuration = context.__formatRuntimeTodayDuration;
+  const setMode = context.__setMode;
 
   expectEqual('no domain -> 不计时页面', resolveDomainTag(null, {}), '不计时页面');
   expectEqual(
@@ -106,8 +132,17 @@ this.__formatRuntimeTodayDuration = formatRuntimeTodayDuration;
     ),
     '今日 4分'
   );
+  await setMode('composite');
+  const modeSwitch = sentMessages.find((msg) => msg?.type === 'SWITCH_TO_COMPOSITE');
+  expectEqual('popup mode switch passes noticeTabId', JSON.stringify(modeSwitch), JSON.stringify({
+    type: 'SWITCH_TO_COMPOSITE',
+    noticeTabId: 123,
+  }));
 
-  console.log('[popup-current-site-tag] 13/13 passed');
+  console.log('[popup-current-site-tag] 14/14 passed');
 }
 
-run();
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
