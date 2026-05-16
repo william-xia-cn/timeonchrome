@@ -100,6 +100,43 @@ async function getMode(sw) {
   });
 }
 
+async function forceMode(sw, page, mode) {
+  await page.bringToFront();
+  const tabId = await tabIdForPage(sw, page);
+  await sw.evaluate(async ({ tabId, mode }) => {
+    const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+    await chrome.storage.local.set({
+      guardian_config: {
+        ...(stored.guardian_config || {}),
+        mode,
+      },
+      guardian_session: {
+        ...(stored.guardian_session || {}),
+        currentMode: mode,
+      },
+    });
+    if (Number.isInteger(tabId) && tabId > 0) {
+      await chrome.tabs.sendMessage(tabId, {
+        type: 'AUTO_MODE_PENDING_CANCEL',
+        reason: 'test_reset',
+      }, { frameId: 0 }).catch(() => {});
+    }
+  }, { tabId, mode });
+}
+
+async function triggerAutoTransition(sw, page, durationMs = 45_000) {
+  await page.bringToFront();
+  const tabId = await tabIdForPage(sw, page);
+  const nowStartMs = Date.now();
+  return await sw.evaluate(async ({ tabId, nowStartMs, nowEndMs }) => {
+    return await globalThis.debugTriggerAutoTransition({
+      tabId,
+      nowStartMs,
+      nowEndMs,
+    });
+  }, { tabId, nowStartMs, nowEndMs: nowStartMs + durationMs });
+}
+
 async function sendSyntheticPending(sw, page, targetMode, fromMode) {
   await page.bringToFront();
   const tabId = await tabIdForPage(sw, page);
@@ -152,6 +189,30 @@ test('综合 → 学习：自动切换后显示短暂成功提示并自动消失
     expect(await getMode(sw)).toBe('study');
 
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已回到学习模式');
+    await expect.poll(() => bannerExists(page), { timeout: 8000 }).toBe(false);
+    await page.close();
+  } finally {
+    await cleanup(ctx, udd, serverCtx.server);
+  }
+});
+
+test('综合 → 学习：自动 gate 成功后显示页面角标', async () => {
+  const serverCtx = await startServer();
+  const { ctx, sw, udd } = await createContext('composite');
+  try {
+    const page = await ctx.newPage();
+    await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.bringToFront();
+    await page.waitForTimeout(500);
+    await forceMode(sw, page, 'composite');
+    expect(await getMode(sw)).toBe('composite');
+
+    const result = await triggerAutoTransition(sw, page, 45_000);
+    expect(result.success).toBeTruthy();
+    expect(result.tabUrl).toBe(page.url());
+    expect(await getMode(sw)).toBe('study');
+
+    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已进入学习时间');
     await expect.poll(() => bannerExists(page), { timeout: 8000 }).toBe(false);
     await page.close();
   } finally {

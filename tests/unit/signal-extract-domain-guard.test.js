@@ -50,7 +50,10 @@ function loadSignalInit(deps, hooks) {
       get: async (windowId) => hooks.getWindow(windowId),
       getAll: async () => hooks.getAllWindows(),
     },
-    idle: { onStateChanged: { addListener(fn) { hooks.onStateChanged = fn; } } },
+    idle: {
+      onStateChanged: { addListener(fn) { hooks.onStateChanged = fn; } },
+      setDetectionInterval(seconds) { hooks.idleDetectionInterval = seconds; },
+    },
     runtime: { onMessage: { addListener(fn) { hooks.onMessage = fn; } } },
   };
 
@@ -96,6 +99,9 @@ async function run() {
 
   const signal = loadSignalInit({ normalizeHostname }, hooks);
   signal.initSignal((e) => emitted.push(e));
+
+  section('SG0: idle detection interval is configured at 90 seconds');
+  expectTrue('idle detection interval should be 90 seconds', hooks.idleDetectionInterval === 90);
 
   section('SG1: minimal integration guard for onUpdated event domain extraction');
   hooks.onUpdated(101, { url: 'https://WWW.Example.COM./path' }, { active: true, windowId: 10, url: 'https://WWW.Example.COM./path' });

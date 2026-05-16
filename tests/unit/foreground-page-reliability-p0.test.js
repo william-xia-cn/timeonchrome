@@ -103,12 +103,13 @@ async function withNow(now, fn) {
   }
 }
 
-async function seedActiveSession(base, domain = 'p0.example.com') {
+async function seedActiveSession(base, domain = 'p0.example.com', metadata = {}) {
   await sessionApi.saveSession({
     state: 'ACTIVE',
     domain,
     startTime: base,
     lastHeartbeat: base,
+    ...metadata,
   });
   await withNow(base, () => eventApi.appendEvent({
     type: eventApi.EVENT_TYPE.START,
@@ -222,6 +223,82 @@ async function testUnknownDomainCountsAsUnknown() {
   const state = stateApi.resolveState(ctx);
   check('unknown URL active tab resolves ACTIVE', state === 'ACTIVE');
   check('unknown URL uses __unknown__ candidate', ctx.candidateDomain === '__unknown__');
+}
+
+async function testActiveUnknownSettlementCanRecoverSameTabDomain() {
+  resetAll();
+  const base = 1778804300000;
+  await seedActiveSession(base, '__unknown__', { tabId: 7, windowId: 1 });
+  await withNow(base + 60_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 60_000, 'stable_tabActivated', {
+      resolveUnknownDomainForSettlement: async (session) => {
+        check('resolver receives unknown session tabId', session.tabId === 7);
+        check('resolver receives unknown session windowId', session.windowId === 1);
+        return { ok: true, domain: 'www.baidu.com', reason: 'unknown_recovered_at_settlement:tabs_get' };
+      },
+      tabId: 8,
+      windowId: 1,
+      domainResolutionReason: 'known_domain',
+    })
+  );
+  check('unknown settlement is recovered to baidu', settled.length === 1 && settled[0].domain === 'www.baidu.com');
+  const session = await sessionApi.getSession();
+  check('new session preserves next domain', session.domain === 'next.example.com');
+  check('new session stores tab metadata', session.tabId === 8 && session.windowId === 1);
+}
+
+async function testActiveUnknownSettlementKeepsUnknownOnMismatch() {
+  resetAll();
+  const base = 1778804400000;
+  await seedActiveSession(base, '__unknown__', { tabId: 7, windowId: 1 });
+  await withNow(base + 60_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 60_000, 'stable_tabActivated', {
+      resolveUnknownDomainForSettlement: async () => ({ ok: false, reason: 'tab_mismatch' }),
+      tabId: 8,
+      windowId: 1,
+      domainResolutionReason: 'known_domain',
+    })
+  );
+  check('unknown settlement remains visible on mismatch', settled.length === 1 && settled[0].domain === '__unknown__');
+}
+
+async function testIdleInactiveCloseSettlesActiveSession() {
+  resetAll();
+  const base = 1778804500000;
+  await seedActiveSession(base, 'www.baidu.com', { tabId: 7, windowId: 1 });
+  await withNow(base + 90_000, () =>
+    sessionApi.transitionStateAt('IDLE', null, base + 90_000, 'idle_inactive_close', {
+      tabId: 7,
+      windowId: 1,
+    })
+  );
+  check('idle inactive close settles active segment', settled.length === 1);
+  check('idle inactive close uses explicit settlement reason', settled[0]?.settlementReason === 'idle_inactive_close');
+  check('idle inactive close preserves active domain', settled[0]?.domain === 'www.baidu.com');
+  const session = await sessionApi.getSession();
+  check('idle inactive close opens idle session', session.state === 'IDLE' && session.domain === null);
+}
+
+async function testIdleActiveReopenStartsNewActiveSession() {
+  resetAll();
+  const base = 1778804600000;
+  await sessionApi.saveSession({
+    state: 'IDLE',
+    domain: null,
+    startTime: base,
+    lastHeartbeat: base,
+  });
+  await withNow(base + 5_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'www.baidu.com', base + 5_000, 'idle_active_reopen', {
+      tabId: 7,
+      windowId: 1,
+      domainResolutionReason: 'idle_active_reopen_lookup',
+    })
+  );
+  check('idle active reopen does not settle idle session', settled.length === 0);
+  const session = await sessionApi.getSession();
+  check('idle active reopen opens active session', session.state === 'ACTIVE' && session.domain === 'www.baidu.com');
+  check('idle active reopen stores attribution context', session.tabId === 7 && session.windowId === 1);
 }
 
 async function testSpecialPageDoesNotCount() {
@@ -450,6 +527,10 @@ async function run() {
     testMissedTabCloseDropsUnconfirmedLiveFallback,
     testRecoveryDoesNotBackfillLongGap,
     testUnknownDomainCountsAsUnknown,
+    testActiveUnknownSettlementCanRecoverSameTabDomain,
+    testActiveUnknownSettlementKeepsUnknownOnMismatch,
+    testIdleInactiveCloseSettlesActiveSession,
+    testIdleActiveReopenStartsNewActiveSession,
     testSpecialPageDoesNotCount,
     testUiFlushDoesNotSettleForeground,
     testRepeatedUiReadsDoNotCreateDurableSegments,

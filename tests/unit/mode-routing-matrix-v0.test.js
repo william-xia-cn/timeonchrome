@@ -60,8 +60,10 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
   const context = {
     URL,
     console,
+    setTimeout,
     chrome,
     getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
+    applyModeEffectiveBoundary: async () => ({ ok: true, applied: false }),
     ...stubs,
   };
 
@@ -312,6 +314,7 @@ async function runCompositeModeTests() {
   {
     const saves = [];
     const sent = [];
+    const notifications = [];
     const { checkAndRemind } = loadCheckAndRemind({
       getConfig: async () => makeConfig({ mode: 'composite', studyList: ['khanacademy.org'] }),
       getSession: async () => ({ currentMode: 'composite' }),
@@ -326,14 +329,16 @@ async function runCompositeModeTests() {
         update: async () => {},
         sendMessage: async (_id, msg) => { sent.push(msg); },
       },
+      notifications: { create: (payload) => notifications.push(payload) },
     });
 
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: true });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: false });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: false });
 
-    expect('Composite→Study: auto switch after 45s gate', saves, ['study']);
+    expect('Composite→Study: auto switch after 45s gate without idle gate', saves, ['study']);
     expectTrue('Composite→Study: pending START sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
     expectTrue('Composite→Study: pending SUCCESS sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study'));
+    expect('Composite→Study: no system notification on successful page prompt', notifications.length, 0);
   }
 
   section('B2 Composite → Composite + quota available: continue Composite');
@@ -415,6 +420,7 @@ async function runRestModeTests() {
   {
     const saves = [];
     const sent = [];
+    const notifications = [];
     const { checkAndRemind } = loadCheckAndRemind({
       getConfig: async () => makeConfig({ mode: 'rest', studyList: ['khanacademy.org'] }),
       getSession: async () => ({ currentMode: 'rest' }),
@@ -429,14 +435,16 @@ async function runRestModeTests() {
         update: async () => {},
         sendMessage: async (_id, msg) => { sent.push(msg); },
       },
+      notifications: { create: (payload) => notifications.push(payload) },
     });
 
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: true });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: true });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: false });
+    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: false });
 
-    expect('Rest→Study: auto switch after 45s gate', saves, ['study']);
+    expect('Rest→Study: auto switch after 45s gate without idle gate', saves, ['study']);
     expectTrue('Rest→Study: pending START sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
     expectTrue('Rest→Study: pending SUCCESS sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study'));
+    expect('Rest→Study: no system notification on successful page prompt', notifications.length, 0);
   }
 
   section('C2 Rest → Composite + quota available: pending gate then Composite');

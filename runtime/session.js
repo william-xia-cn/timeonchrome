@@ -74,6 +74,8 @@ function boundedForegroundCloseTime(session, observedAt = Date.now()) {
 function isForegroundSettlementReasonAllowed(reason) {
   return reason === 'periodic_checkpoint' ||
     reason === 'transition_complete' ||
+    reason === 'idle_inactive_close' ||
+    reason === 'mode_effective_boundary' ||
     reason === 'tab_close' ||
     reason === 'monitoring_off' ||
     reason === 'recovery_gap_close' ||
@@ -115,6 +117,10 @@ function markForegroundEndUncounted(event, reason) {
  * @property {string|null} domain
  * @property {number|null} startTime
  * @property {number} lastHeartbeat
+ * @property {number|null} [tabId]
+ * @property {number|null} [windowId]
+ * @property {string|null} [domainResolutionReason]
+ * @property {string|null} [domainResolutionError]
  */
 
 /**
@@ -168,11 +174,92 @@ export async function initSession() {
  * @param {string|null} newState
  * @param {string|null} newDomain
  */
-export async function transitionState(newState, newDomain) {
-  return transitionStateAt(newState, newDomain, Date.now(), 'transition');
+export async function transitionState(newState, newDomain, metadata = {}) {
+  return transitionStateAt(newState, newDomain, Date.now(), 'transition', metadata);
 }
 
-export async function transitionStateAt(newState, newDomain, timestamp = Date.now(), reason = 'transition') {
+function sessionMetadataFromOptions(options = {}) {
+  return {
+    tabId: Number.isInteger(options.tabId) ? options.tabId : null,
+    windowId: Number.isInteger(options.windowId) ? options.windowId : null,
+    domainResolutionReason: options.domainResolutionReason || null,
+    domainResolutionError: options.domainResolutionError || null,
+  };
+}
+
+function settlementResolverOptions(options = {}) {
+  return {
+    resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
+  };
+}
+
+async function resolveUnknownSessionForSettlement(timingSession, reason, options = {}) {
+  if (
+    timingSession?.state !== 'ACTIVE' ||
+    timingSession?.domain !== FOREGROUND_UNKNOWN_DOMAIN ||
+    typeof options.resolveUnknownDomainForSettlement !== 'function'
+  ) {
+    return timingSession;
+  }
+
+  let result = null;
+  try {
+    result = await options.resolveUnknownDomainForSettlement(timingSession, reason);
+  } catch (err) {
+    result = { ok: false, reason: 'resolver_exception', error: err?.message || String(err) };
+  }
+
+  if (result?.ok && typeof result.domain === 'string' && result.domain.trim()) {
+    const recovered = {
+      ...timingSession,
+      domain: result.domain.trim(),
+      domainResolutionReason: result.reason || 'unknown_recovered_at_settlement',
+      domainResolutionError: null,
+    };
+    await emitTrace('unknown_recovered_at_settlement', {
+      source: 'runtime-session',
+      reason,
+      domain: recovered.domain,
+      previousState: timingSession.state,
+      payload: {
+        originalDomain: timingSession.domain,
+        recoveredDomain: recovered.domain,
+        tabId: timingSession.tabId ?? null,
+        windowId: timingSession.windowId ?? null,
+        resolutionReason: result.reason || 'unknown_recovered_at_settlement',
+      },
+    });
+    await recordForegroundDiagnostic({
+      unknownRecoveredAtSettlement: 1,
+      lastUnknownRecoveryAt: Date.now(),
+      lastUnknownRecoveryDomain: recovered.domain,
+      lastUnknownRecoveryReason: result.reason || 'unknown_recovered_at_settlement',
+    });
+    return recovered;
+  }
+
+  await emitTrace('unknown_settlement_unresolved', {
+    source: 'runtime-session',
+    reason,
+    domain: timingSession.domain,
+    previousState: timingSession.state,
+    payload: {
+      tabId: timingSession.tabId ?? null,
+      windowId: timingSession.windowId ?? null,
+      resolutionReason: result?.reason || 'unknown_resolution_failed',
+      resolutionError: result?.error || null,
+    },
+  });
+  await recordForegroundDiagnostic({
+    unknownSettlementUnresolved: 1,
+    lastUnknownSettlementFailureAt: Date.now(),
+    lastUnknownSettlementFailureReason: result?.reason || 'unknown_resolution_failed',
+    lastUnknownSettlementFailureError: result?.error || null,
+  });
+  return timingSession;
+}
+
+export async function transitionStateAt(newState, newDomain, timestamp = Date.now(), reason = 'transition', options = {}) {
   return runSerialized(async () => {
     const session = await getSession();
     if (!session) return;
@@ -231,7 +318,10 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
           });
         }
         // 稳定事件边界是普通 foreground_page 的基础落账入口；checkpoint 只负责长段切片。
-        await settleCurrentSessionSegment(session, closeTime, stale ? 'transition_stale_close' : 'transition_complete');
+        const settlementReason = reason === 'idle_inactive_close'
+          ? 'idle_inactive_close'
+          : (stale ? 'transition_stale_close' : 'transition_complete');
+        await settleCurrentSessionSegment(session, closeTime, settlementReason, settlementResolverOptions(options));
       }
     }
 
@@ -265,6 +355,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
       domain: newDomain,
       startTime: newState ? now : null,
       lastHeartbeat: now,
+      ...sessionMetadataFromOptions(options),
     };
     await saveSession(sessionAfter);
   });
@@ -403,6 +494,116 @@ export function getCachedEffectiveMode() {
   return cachedEffectiveMode;
 }
 
+export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_mode_effective_boundary', options = {}) {
+  return runSerialized(async () => {
+    const session = await getSession();
+    const boundary = Number(effectiveAtMs);
+    if (!session?.state || !session?.startTime || !Number.isFinite(boundary)) {
+      return { ok: true, applied: false, reason: 'no_open_session' };
+    }
+
+    const sessionBefore = {
+      state: session.state,
+      domain: session.domain,
+      startTime: session.startTime,
+      lastHeartbeat: session.lastHeartbeat,
+      tabId: session.tabId ?? null,
+      windowId: session.windowId ?? null,
+    };
+
+    if (boundary <= session.startTime) {
+      await refreshCachedMode();
+      await emitTrace('auto_mode_effective_boundary', {
+        source: 'runtime-session',
+        reason,
+        domain: session.domain || null,
+        previousState: session.state,
+        nextState: session.state,
+        payload: {
+          applied: false,
+          boundaryAt: boundary,
+          sessionBefore,
+          refreshedMode: cachedEffectiveMode || 'unknown',
+        },
+      });
+      return { ok: true, applied: false, reason: 'boundary_before_session_start' };
+    }
+
+    const endEvent = {
+      type: EVENT_TYPE.END,
+      state: session.state,
+      domain: session.domain,
+      time: boundary,
+    };
+    await appendEvent(endEvent);
+    await emitTrace('event_appended', {
+      source: 'event-log',
+      reason: 'modeEffectiveClose',
+      domain: session.domain,
+      previousState: session.state,
+      event: endEvent,
+      sessionBefore,
+    });
+
+    const settlement = isCountedState(session.state)
+      ? await settleCurrentSessionSegment(session, boundary, 'mode_effective_boundary', settlementResolverOptions(options))
+      : { appended: 0, durationSeconds: 0 };
+
+    await refreshCachedMode();
+
+    const startEvent = {
+      type: EVENT_TYPE.START,
+      state: session.state,
+      domain: session.domain,
+      time: boundary,
+    };
+    await appendEvent(startEvent);
+    await emitTrace('event_appended', {
+      source: 'event-log',
+      reason: 'modeEffectiveReopen',
+      domain: session.domain,
+      nextState: session.state,
+      event: startEvent,
+      sessionBefore,
+    });
+
+    await saveSession({
+      state: session.state,
+      domain: session.domain,
+      startTime: boundary,
+      lastHeartbeat: Math.max(Number(session.lastHeartbeat) || boundary, boundary),
+      tabId: session.tabId ?? null,
+      windowId: session.windowId ?? null,
+      domainResolutionReason: session.domainResolutionReason || null,
+      domainResolutionError: session.domainResolutionError || null,
+    });
+
+    await emitTrace('auto_mode_effective_boundary', {
+      source: 'runtime-session',
+      reason,
+      domain: session.domain || null,
+      previousState: session.state,
+      nextState: session.state,
+      payload: {
+        applied: true,
+        boundaryAt: boundary,
+        sessionBefore,
+        settlement,
+        refreshedMode: cachedEffectiveMode || 'unknown',
+      },
+    });
+
+    return {
+      ok: true,
+      applied: true,
+      reason,
+      boundaryAt: boundary,
+      settledSeconds: settlement?.durationSeconds || 0,
+      mode: cachedEffectiveMode || 'unknown',
+    };
+  });
+}
+
 function normalizeIdentityValue(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
@@ -489,14 +690,15 @@ export async function resolveSettlementIdentity(timingSession = null, reason = '
  * @param {number} closeTimeMs - 结束的 epoch 毫秒
  * @param {string} reason - settlement 原因
  */
-export async function settleCurrentSessionSegment(timingSession, closeTimeMs, reason) {
+export async function settleCurrentSessionSegment(timingSession, closeTimeMs, reason, options = {}) {
   try {
+    const effectiveSession = await resolveUnknownSessionForSettlement(timingSession, reason, options);
     const startMs = timingSession.startTime;
     let endMs = closeTimeMs;
     if (!startMs || !endMs || endMs <= startMs) return { appended: 0, durationSeconds: 0 };
 
     let capped = false;
-    if (timingSession.state === 'ACTIVE' && (endMs - startMs) > FOREGROUND_CHECKPOINT_MS) {
+    if (effectiveSession.state === 'ACTIVE' && (endMs - startMs) > FOREGROUND_CHECKPOINT_MS) {
       endMs = startMs + FOREGROUND_CHECKPOINT_MS;
       capped = true;
     }
@@ -504,10 +706,10 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     const durationMs = endMs - startMs;
     const durationSeconds = Math.floor(durationMs / 1000);
     if (durationSeconds <= 0) return { appended: 0, durationSeconds: 0 };
-    if (timingSession.state && !isCountedState(timingSession.state)) {
+    if (effectiveSession.state && !isCountedState(effectiveSession.state)) {
       return { appended: 0, durationSeconds: 0, skipped: 'non_counted_state' };
     }
-    if (timingSession.state === 'ACTIVE') {
+    if (effectiveSession.state === 'ACTIVE') {
       if (!isForegroundSettlementReasonAllowed(reason)) {
         return { appended: 0, durationSeconds: 0, skipped: 'foreground_checkpoint_required' };
       }
@@ -518,19 +720,19 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
 
     // 使用 segment 打开时缓存的模式（而不是当前 guardian_session 中的模式）
     const mode = cachedEffectiveMode || 'unknown';
-    const identity = await resolveSettlementIdentity(timingSession, reason);
+    const identity = await resolveSettlementIdentity(effectiveSession, reason);
 
     const appended = await settleUsageDuration({
       startMs,
       endMs,
-      domain: timingSession.domain || null,
-      sourceState: timingSession.state,
+      domain: effectiveSession.domain || null,
+      sourceState: effectiveSession.state,
       settlementReason: reason,
       mode,
       profileId: identity.profileId,
       deviceId: identity.deviceId,
     });
-    if (timingSession.state === 'ACTIVE' && capped) {
+    if (effectiveSession.state === 'ACTIVE' && capped) {
       await recordForegroundDiagnostic({
         foregroundTailCapped: 1,
         cappedForegroundSeconds: durationSeconds,
@@ -542,8 +744,8 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     return {
       appended,
       durationSeconds,
-      domain: timingSession.domain || null,
-      state: timingSession.state || null,
+      domain: effectiveSession.domain || null,
+      state: effectiveSession.state || null,
       mode,
       profileIdSource: identity.profileIdSource,
       deviceIdSource: identity.deviceIdSource,
@@ -655,19 +857,20 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       sessionBefore,
     });
 
-    const settlement = await settleCurrentSessionSegment(session, closeTime, reason);
+    const settlement = await settleCurrentSessionSegment(session, closeTime, reason, settlementResolverOptions(options));
+    const reopenedDomain = settlement?.domain || session.domain;
     const reopenTime = Number.isFinite(options.reopenTime) ? options.reopenTime : now;
     const startEvent = {
       type: EVENT_TYPE.START,
       state: session.state,
-      domain: session.domain,
+      domain: reopenedDomain,
       time: reopenTime,
     };
     await appendEvent(startEvent);
     await emitTrace('event_appended', {
       source: 'event-log',
       reason: 'uiFlushReopen',
-      domain: session.domain,
+      domain: reopenedDomain,
       nextState: session.state,
       event: startEvent,
       sessionBefore,
@@ -675,9 +878,15 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
 
     await saveSession({
       state: session.state,
-      domain: session.domain,
+      domain: reopenedDomain,
       startTime: reopenTime,
       lastHeartbeat: reopenTime,
+      tabId: session.tabId ?? null,
+      windowId: session.windowId ?? null,
+      domainResolutionReason: settlement?.domain && settlement.domain !== session.domain
+        ? 'unknown_recovered_at_settlement'
+        : session.domainResolutionReason || null,
+      domainResolutionError: null,
     });
 
     if (reason === 'ui_flush') {
@@ -685,7 +894,7 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
         await chrome.storage.local.set({
           [UI_FLUSH_GUARD_KEY]: {
             state: session.state || null,
-            domain: session.domain || null,
+            domain: reopenedDomain || null,
             mode: cachedEffectiveMode || 'unknown',
             lastFlushAt: now,
           },
@@ -700,7 +909,7 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       flushed: (settlement?.appended || 0) > 0,
       flushedSegments: settlement?.appended || 0,
       flushedSeconds: settlement?.durationSeconds || 0,
-      domain: session.domain || null,
+      domain: reopenedDomain || null,
       state: session.state || null,
       reason,
       stale: !!stale,
@@ -742,7 +951,7 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
 
     let settlement = null;
     if (isCountedState(session.state)) {
-      settlement = await settleCurrentSessionSegment(session, closeTime, reason);
+      settlement = await settleCurrentSessionSegment(session, closeTime, reason, settlementResolverOptions(options));
     }
     if (foreground) {
       const cappedSeconds = Math.floor(Math.max(0, closeTime - session.startTime) / 1000);
@@ -848,6 +1057,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         closeTime: checkpointEnd,
         reopenTime: checkpointEnd,
         allowForeground: true,
+        resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
       });
       if (flushResult?.ok === false || flushResult?.error) {
         console.warn('[Checkpoint] foreground checkpoint settlement failed', {
@@ -885,7 +1095,10 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
     if (closeBoundary.stale) {
       return { ok: true, checkpointed: false, reason: 'stale_session' };
     }
-    const flushResult = await flushOpenSessionToStats('periodic_checkpoint', { alreadySerialized: true });
+    const flushResult = await flushOpenSessionToStats('periodic_checkpoint', {
+      alreadySerialized: true,
+      resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
+    });
     if (flushResult?.ok === false || flushResult?.error) {
       console.warn('[Checkpoint] periodic checkpoint settlement failed', {
         error: flushResult?.error || 'unknown_error',

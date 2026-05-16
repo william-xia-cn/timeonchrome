@@ -2,6 +2,7 @@
 
 import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
 import { getTodayStatsWithCategories } from './analytics.js';
+import { applyModeEffectiveBoundary } from '../runtime/session.js';
 
 const AUTO_TRANSITION_GATES = {
   rest_to_composite: 30_000,
@@ -18,6 +19,9 @@ const STUDY_PENDING_RULES = new Set(['rest_to_study', 'composite_to_study']);
 const pendingSuccessNoticesByTab = new Map();
 const PENDING_NOTICE_TTL_MS = 30_000;
 const TRANSIENT_NOTICE_DISPLAY_MS = 4_000;
+const SUCCESS_NOTICE_SEND_RETRIES = 20;
+const SUCCESS_NOTICE_RETRY_DELAY_MS = 100;
+const SUCCESS_NOTICE_DEFERRED_RETRY_MS = 300;
 
 function shouldClosePiPOnModeTransition(fromMode, toMode) {
   const prev = normalizeMode(fromMode);
@@ -107,12 +111,19 @@ async function getEffectiveRuntimeMode(config, monitoringEnabled) {
   return normalizeMode(config?.mode);
 }
 
-async function setRuntimeMode(nextMode) {
+async function setRuntimeMode(nextMode, options = {}) {
   const normalized = normalizeMode(nextMode);
   if (normalized === 'paused') return;
   const session = await getSession();
   if (normalizeMode(session?.currentMode) === normalized) return;
-  await saveSession({ ...(session || {}), currentMode: normalized });
+  await saveSession({
+    ...(session || {}),
+    currentMode: normalized,
+    ...(Number.isFinite(options.effectiveAtMs) ? { modeEffectiveAtMs: options.effectiveAtMs } : {}),
+  });
+  if (Number.isFinite(options.effectiveAtMs)) {
+    await applyModeEffectiveBoundary(options.effectiveAtMs, options.reason || 'auto_mode_effective_boundary');
+  }
 }
 
 function notifyRuntimeModeSwitch(message) {
@@ -152,33 +163,51 @@ async function sendTabPendingMessage(tabId, payload, fallbackMessage = null) {
       snapshotDomain = null;
     }
   }
-  try {
-    await chrome.tabs.sendMessage(tabId, payload);
-    // Store pending success notice for reliable re-delivery after reload
-    if (payload?.type === 'AUTO_MODE_PENDING_SUCCESS') {
-      const now = Date.now();
-      pendingSuccessNoticesByTab.set(tabId, {
-        payload: { ...payload },
-        storedAt: now,
-        expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
-        domainSnapshot: snapshotDomain,
-      });
+  const isSuccessNotice = payload?.type === 'AUTO_MODE_PENDING_SUCCESS';
+  const isAutoModeNotice = payload?.type === 'AUTO_MODE_PENDING_START' ||
+    payload?.type === 'AUTO_MODE_PENDING_CANCEL' ||
+    payload?.type === 'AUTO_MODE_PENDING_SUCCESS';
+  const sendOptions = isAutoModeNotice ? { frameId: 0 } : undefined;
+  const maxAttempts = isSuccessNotice ? SUCCESS_NOTICE_SEND_RETRIES : 1;
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await chrome.tabs.sendMessage(tabId, payload, sendOptions);
+      // Store pending success notice for reliable re-delivery after reload
+      if (isSuccessNotice) {
+        const now = Date.now();
+        pendingSuccessNoticesByTab.set(tabId, {
+          payload: { ...payload },
+          storedAt: now,
+          expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
+          domainSnapshot: snapshotDomain,
+        });
+      }
+      return true;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, SUCCESS_NOTICE_RETRY_DELAY_MS));
+      }
     }
-    return true;
-  } catch {
-    // Store pending notice even on first-send failure (content script not ready)
-    if (payload?.type === 'AUTO_MODE_PENDING_SUCCESS') {
-      const now = Date.now();
-      pendingSuccessNoticesByTab.set(tabId, {
-        payload: { ...payload },
-        storedAt: now,
-        expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
-        domainSnapshot: snapshotDomain,
-      });
-    }
-    if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
-    return false;
   }
+
+  // Store pending notice after delivery failure so CONTENT_SCRIPT_READY can retry.
+  if (isSuccessNotice) {
+    const now = Date.now();
+    pendingSuccessNoticesByTab.set(tabId, {
+      payload: { ...payload },
+      storedAt: now,
+      expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
+      domainSnapshot: snapshotDomain,
+    });
+    await new Promise(resolve => setTimeout(resolve, SUCCESS_NOTICE_DEFERRED_RETRY_MS));
+    const resent = await reSendPendingNotice(tabId, snapshotDomain);
+    if (resent) return true;
+  }
+  if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
+  if (lastError) console.warn('[ModeNotice] page notice delivery failed:', lastError?.message || lastError);
+  return false;
 }
 
 /**
@@ -210,7 +239,7 @@ export async function reSendPendingNotice(tabId, currentDomain = null) {
     return false;
   }
   try {
-    await chrome.tabs.sendMessage(tabId, stored.payload);
+    await chrome.tabs.sendMessage(tabId, stored.payload, { frameId: 0 });
     pendingSuccessNoticesByTab.delete(tabId);
     return true;
   } catch {
@@ -246,7 +275,7 @@ export async function sendModeSwitchSuccessNotice(tabId, targetMode, fromMode = 
   const displayDuration = Number(options.displayDuration) || TRANSIENT_NOTICE_DISPLAY_MS;
   const now = Date.now();
   const noticeText = options.noticeText || `已切换到${modeLabel(normalizedTarget)}模式`;
-  return await sendTabPendingMessage(tabId, {
+  const payload = {
     type: 'AUTO_MODE_PENDING_SUCCESS',
     noticeKind: 'transient_success',
     targetMode: normalizedTarget,
@@ -254,13 +283,16 @@ export async function sendModeSwitchSuccessNotice(tabId, targetMode, fromMode = 
     displayDuration,
     expiresAt: now + PENDING_NOTICE_TTL_MS,
     noticeText,
-  }, noticeText);
+  };
+  if (options.domain) payload.domain = options.domain;
+  return await sendTabPendingMessage(tabId, payload, noticeText);
 }
 
 export async function applyModeTransitionSideEffects({
   fromMode,
   toMode,
   tabId = null,
+  domain = null,
   studyNoticeText = null,
   sendStudyNotice = true,
 } = {}) {
@@ -275,7 +307,11 @@ export async function applyModeTransitionSideEffects({
   }
 
   if (sendStudyNotice && normalizedTo === 'study' && Number.isInteger(tabId) && tabId >= 0) {
+    if (shouldClosePip) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     out.studyNoticeSent = await sendModeSwitchSuccessNotice(tabId, 'study', normalizedFrom, {
+      domain,
       noticeText: studyNoticeText || '已进入学习时间',
       displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
     });
@@ -327,36 +363,10 @@ export async function cancelAllAutoModePending(reason = 'cancel') {
   }
 }
 
-function readUserActiveState() {
-  return new Promise((resolve) => {
-    try {
-      if (!chrome.idle?.queryState) {
-        resolve(true);
-        return;
-      }
-      chrome.idle.queryState(60, (state) => {
-        resolve(state === 'active');
-      });
-    } catch {
-      resolve(true);
-    }
-  });
-}
-
-async function checkAutoModeTransitionGate(tabId, candidate, nowMs, forcedUserActive) {
+async function checkAutoModeTransitionGate(tabId, candidate, nowMs) {
   if (!candidate || !Number.isInteger(tabId) || tabId < 0) return { passed: false };
   const gateMs = AUTO_TRANSITION_GATES[candidate.rule];
   if (!gateMs) return { passed: false };
-
-  // V0: Rest -> Composite 采用稳定前台停留门控，不要求键鼠活跃。
-  if (candidate.rule !== 'rest_to_composite') {
-    const userActive = (typeof forcedUserActive === 'boolean') ? forcedUserActive : await readUserActiveState();
-    if (!userActive) {
-      clearAutoTransitionCandidate(tabId);
-      await clearAutoModePending(tabId, 'inactive');
-      return { passed: false, blockedByInactivity: true };
-    }
-  }
 
   const existing = autoTransitionCandidates.get(tabId);
   if (
@@ -413,8 +423,11 @@ async function checkAutoModeTransitionGate(tabId, candidate, nowMs, forcedUserAc
   existing.lastUserActiveAt = nowMs;
   if ((nowMs - existing.startAt) >= gateMs) {
     autoTransitionCandidates.delete(tabId);
-    await clearAutoModePending(tabId, 'completed');
-    return { passed: true };
+    // Do not send AUTO_MODE_PENDING_CANCEL on completion. The caller sends a
+    // success notice immediately, and a late cancel can clear that final banner.
+    autoModePendingByTab.delete(tabId);
+    clearPendingNotice(tabId);
+    return { passed: true, startAt: existing.startAt, deadlineAt: existing.deadlineAt };
   }
   if ((candidate.rule === 'rest_to_composite' || candidate.rule === 'rest_to_study' || candidate.rule === 'composite_to_study') && existing.deadlineAt) {
     const remainingCompositeSeconds = (candidate.rule === 'rest_to_composite')
@@ -506,14 +519,18 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   }
 
   if (pendingAutoCandidate) {
-    const gate = await checkAutoModeTransitionGate(tabId, pendingAutoCandidate, nowMs, options?.userActive);
+    const gate = await checkAutoModeTransitionGate(tabId, pendingAutoCandidate, nowMs);
     if (gate.passed) {
-      await setRuntimeMode(pendingAutoCandidate.toMode);
+      await setRuntimeMode(pendingAutoCandidate.toMode, {
+        effectiveAtMs: gate.startAt,
+        reason: pendingAutoCandidate.rule,
+      });
       if (pendingAutoCandidate.rule === 'rest_to_composite') {
         await applyModeTransitionSideEffects({
           fromMode: pendingAutoCandidate.fromMode,
           toMode: pendingAutoCandidate.toMode,
           tabId,
+          domain,
         });
         const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
         await sendTabPendingMessage(tabId, {
@@ -521,19 +538,24 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
           noticeKind: 'transient_success',
           targetMode: 'composite',
           fromMode: 'rest',
+          domain,
           remainingCompositeSeconds,
           remainingCompositeTime: formatSecondsCompact(remainingCompositeSeconds),
           displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
         }, `已进入综合时间 · 今日综合剩余 ${formatSecondsCompact(remainingCompositeSeconds)}`);
-        notifyRuntimeModeSwitch('已进入综合时间');
       } else if (pendingAutoCandidate.rule === 'rest_to_study' || pendingAutoCandidate.rule === 'composite_to_study') {
         await applyModeTransitionSideEffects({
           fromMode: pendingAutoCandidate.fromMode,
           toMode: pendingAutoCandidate.toMode,
           tabId,
-          studyNoticeText: '已进入学习时间',
+          domain,
+          sendStudyNotice: false,
         });
-        notifyRuntimeModeSwitch('已进入学习时间');
+        await sendModeSwitchSuccessNotice(tabId, 'study', pendingAutoCandidate.fromMode, {
+          domain,
+          noticeText: '已进入学习时间',
+          displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
+        });
       }
     }
   } else {
@@ -560,6 +582,7 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
           noticeKind: 'transient_success',
           targetMode: 'composite',
           fromMode: 'study',
+          domain,
           remainingCompositeSeconds,
           remainingCompositeTime,
           displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,

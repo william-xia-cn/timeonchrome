@@ -2,6 +2,7 @@
 import { normalizeHostname } from './domain-semantics.js';
 
 const BATCH_WINDOW = 80; // 80ms 覆盖 Chrome 事件簇
+const IDLE_DETECTION_SECONDS = 90;
 
 /**
  * 初始化信号监听
@@ -11,6 +12,12 @@ export function initSignal(onContextChange) {
   let pending = {};
   let batchTimer = null;
   let lastWindowFocusKey = null;
+
+  try {
+    chrome.idle?.setDetectionInterval?.(IDLE_DETECTION_SECONDS);
+  } catch (err) {
+    console.warn('[Signal] failed to set idle detection interval:', err?.message || err);
+  }
 
   function emitMerged() {
     if (Object.keys(pending).length > 0) {
