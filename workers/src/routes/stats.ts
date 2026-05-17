@@ -44,6 +44,36 @@ function validateStatsV1Domain(d: any): string | null {
   return null;
 }
 
+function parsePositiveInt(value: string | null, fallback: number, max: number): number {
+  const parsed = Number.parseInt(value || '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+function isDateKey(value: string | null): value is string {
+  return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function encodeSegmentCursor(startMs: number, id: string): string {
+  const json = JSON.stringify({ startMs, id });
+  return btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function decodeSegmentCursor(cursor: string | null): { startMs: number; id: string } | null {
+  if (!cursor) return null;
+  try {
+    const normalized = cursor.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const parsed = JSON.parse(atob(padded));
+    const startMs = Number(parsed?.startMs);
+    const id = typeof parsed?.id === 'string' ? parsed.id : '';
+    if (!Number.isFinite(startMs) || !id) return null;
+    return { startMs, id };
+  } catch (_) {
+    return null;
+  }
+}
+
 export const statsRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
@@ -354,6 +384,125 @@ export const statsRouter = {
       }>();
 
       return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/usage-segments/v1 — 查询云端落账明细
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const usageSegmentsV1Match = path.match(/^\/profiles\/([^/]+)\/usage-segments\/v1$/);
+    if (request.method === 'GET' && usageSegmentsV1Match) {
+      const profileId = usageSegmentsV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      const rawDomain = url.searchParams.get('domain');
+      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
+      const limit = parsePositiveInt(url.searchParams.get('limit'), 200, 500);
+      const cursor = decodeSegmentCursor(url.searchParams.get('cursor'));
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) {
+        return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      }
+      if (rawDomain && !domain) {
+        return json({ error: 'invalid domain' }, 400);
+      }
+      if (url.searchParams.get('cursor') && !cursor) {
+        return json({ error: 'invalid cursor' }, 400);
+      }
+
+      const where: string[] = ['profile_id = ?'];
+      const binds: any[] = [profileId];
+      if (from) {
+        where.push('date >= ?');
+        binds.push(from);
+      }
+      if (to) {
+        where.push('date <= ?');
+        binds.push(to);
+      }
+      if (domain) {
+        where.push('domain = ?');
+        binds.push(domain);
+      }
+
+      const summaryWhere = where.join(' AND ');
+      const summary = await env.DB.prepare(
+        `SELECT COUNT(*) as count,
+                COALESCE(SUM(duration_seconds), 0) as total_seconds,
+                COALESCE(SUM(CASE WHEN channel = 'active' THEN duration_seconds ELSE 0 END), 0) as active_seconds,
+                COALESCE(SUM(CASE WHEN channel = 'backgroundMedia' OR channel = 'pip' THEN duration_seconds ELSE 0 END), 0) as media_seconds
+         FROM usage_segments_v1
+         WHERE ${summaryWhere}`
+      ).bind(...binds).first<{
+        count: number; total_seconds: number; active_seconds: number; media_seconds: number;
+      }>();
+
+      const queryWhere = [...where];
+      const queryBinds = [...binds];
+      if (cursor) {
+        queryWhere.push('(start_ms < ? OR (start_ms = ? AND id < ?))');
+        queryBinds.push(cursor.startMs, cursor.startMs, cursor.id);
+      }
+
+      const result = await env.DB.prepare(
+        `SELECT id, date, timezone, day_start_ms, day_end_ms,
+                start_ms, end_ms, duration_seconds, domain, channel, mode,
+                source_state, settlement_reason,
+                parent_segment_id, part_index, part_count,
+                created_at, updated_at, uploaded_at
+         FROM usage_segments_v1
+         WHERE ${queryWhere.join(' AND ')}
+         ORDER BY start_ms DESC, id DESC
+         LIMIT ?`
+      ).bind(...queryBinds, limit + 1).all<{
+        id: string; date: string; timezone: string; day_start_ms: number; day_end_ms: number;
+        start_ms: number; end_ms: number; duration_seconds: number; domain: string; channel: string; mode: string;
+        source_state: string; settlement_reason: string;
+        parent_segment_id: string | null; part_index: number; part_count: number;
+        created_at: number; updated_at: number; uploaded_at: number | null;
+      }>();
+
+      const rows = result.results || [];
+      const pageRows = rows.slice(0, limit);
+      const last = pageRows[pageRows.length - 1];
+      return json({
+        segments: pageRows.map((row) => ({
+          id: row.id,
+          date: row.date,
+          timezone: row.timezone,
+          dayStartMs: row.day_start_ms,
+          dayEndMs: row.day_end_ms,
+          startMs: row.start_ms,
+          endMs: row.end_ms,
+          durationSeconds: row.duration_seconds,
+          domain: row.domain,
+          channel: row.channel,
+          mode: row.mode,
+          sourceState: row.source_state,
+          settlementReason: row.settlement_reason,
+          parentSegmentId: row.parent_segment_id,
+          partIndex: row.part_index,
+          partCount: row.part_count,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          uploadedAt: row.uploaded_at,
+          uploaded: row.uploaded_at != null,
+        })),
+        summary: {
+          count: Number(summary?.count || 0),
+          totalSeconds: Number(summary?.total_seconds || 0),
+          activeSeconds: Number(summary?.active_seconds || 0),
+          mediaSeconds: Number(summary?.media_seconds || 0),
+        },
+        hasMore: rows.length > limit,
+        nextCursor: rows.length > limit && last ? encodeSegmentCursor(last.start_ms, last.id) : null,
+      });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════

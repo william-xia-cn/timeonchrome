@@ -331,6 +331,76 @@ async function testSessionUpload() {
   }
 }
 
+async function testUsageSegmentsReadV1() {
+  section('Usage Segments v1 Read');
+
+  if (!state.deviceToken || !state.accountToken || !state.profileId) {
+    console.log('  ⚠ Skipped (missing tokens)');
+    return;
+  }
+
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const base = Date.now() - 600000;
+  const segments = [
+    {
+      id: `api-seg-old-${base}`,
+      date: dateStr,
+      timezone: 'Asia/Shanghai',
+      dayStartMs: new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime(),
+      dayEndMs: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime(),
+      startMs: base,
+      endMs: base + 60000,
+      durationSeconds: 60,
+      domain: 'api-old.example.com',
+      channel: 'active',
+      mode: 'study',
+      sourceState: 'ACTIVE',
+      settlementReason: 'transition_complete',
+    },
+    {
+      id: `api-seg-new-${base}`,
+      date: dateStr,
+      timezone: 'Asia/Shanghai',
+      dayStartMs: new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime(),
+      dayEndMs: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime(),
+      startMs: base + 120000,
+      endMs: base + 180000,
+      durationSeconds: 60,
+      domain: 'api-new.example.com',
+      channel: 'active',
+      mode: 'rest',
+      sourceState: 'ACTIVE',
+      settlementReason: 'transition_complete',
+    },
+  ];
+
+  {
+    const { status, data } = await api('POST', '/device/usage-segments/v1', { segments }, state.deviceToken);
+    check('POST /device/usage-segments/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/usage-segments/v1?from=${dateStr}&to=${dateStr}&limit=1`, null, state.accountToken);
+    check('GET /profiles/:id/usage-segments/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('usage segments are newest first', data?.segments?.[0]?.domain === 'api-new.example.com', JSON.stringify(data?.segments));
+    check('usage segments summary has total seconds', data?.summary?.totalSeconds >= 120, JSON.stringify(data?.summary));
+    check('usage segments pagination exposes nextCursor', data?.hasMore === true && typeof data?.nextCursor === 'string', JSON.stringify(data));
+
+    if (data?.nextCursor) {
+      const next = await api('GET', `/profiles/${state.profileId}/usage-segments/v1?from=${dateStr}&to=${dateStr}&limit=1&cursor=${encodeURIComponent(data.nextCursor)}`, null, state.accountToken);
+      check('usage segments next page → 200', next.status === 200, `got ${next.status}: ${JSON.stringify(next.data)}`);
+      check('usage segments next page has older row', next.data?.segments?.[0]?.domain === 'api-old.example.com', JSON.stringify(next.data?.segments));
+    }
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/usage-segments/v1?domain=api-new.example.com`, null, state.accountToken);
+    check('usage segments domain filter → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('usage segments domain filter returns matching domain', (data?.segments || []).every(s => s.domain === 'api-new.example.com'), JSON.stringify(data?.segments));
+  }
+}
+
 async function testChangelog() {
   section('Changelog');
 
@@ -496,6 +566,7 @@ async function testCleanup() {
     await testQuotaState();
     await testEvents();
     await testSessionUpload();
+    await testUsageSegmentsReadV1();
     await testChangelog();
     await testCompositeSessionsEmpty();
     await testDeviceManagement();

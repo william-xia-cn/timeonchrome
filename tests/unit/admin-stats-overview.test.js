@@ -143,6 +143,7 @@ function run() {
   expectTrue('admin settlement page renders refresh control', code.includes('settlement-refresh-btn'));
   expectTrue('admin settlement page renders readable timing type label', code.includes('计时类型'));
   expectTrue('admin settlement page maps framework to readable labels', code.includes('getSettlementTypeLabel'));
+  expectTrue('admin settlement rows sort newest first', code.includes('return bStart - aStart;'));
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

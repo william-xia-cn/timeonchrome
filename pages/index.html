@@ -494,6 +494,9 @@
         <div class="nav-item" data-page="stats">
           <span class="nav-icon">📈</span><span>使用统计</span>
         </div>
+        <div class="nav-item" data-page="settlements">
+          <span class="nav-icon">🧾</span><span>落账明细</span>
+        </div>
         <div class="nav-item" data-page="devices">
           <span class="nav-icon">💻</span><span>设备管理</span>
         </div>
@@ -793,6 +796,36 @@
         </div>
       </div>
 
+      <!-- 落账明细 -->
+      <div class="page" id="page-settlements">
+        <div class="page-header">
+          <h2>落账明细</h2>
+          <p>云端已上传的逐段落账记录，最新记录显示在最上方</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">落账明细</div>
+              <div class="card-subtitle">来自云端 usage_segments_v1；不展示设备 token 或 profile id</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="tab-btn active" data-settlement-range="today">今日</button>
+            <button class="tab-btn" data-settlement-range="yesterday">昨日</button>
+            <button class="tab-btn" data-settlement-range="week">本周</button>
+            <button class="tab-btn" data-settlement-range="all">全部</button>
+            <input type="date" id="settlement-date-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+            <input type="text" id="settlement-domain-input" placeholder="域名筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <button class="btn-save" id="settlement-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
+          </div>
+          <div id="cloud-settlement-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
+          <div id="cloud-settlement-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
+          <div style="margin-top:12px;text-align:center;">
+            <button class="btn-save" id="settlement-load-more-btn" style="display:none;padding:8px 18px;font-size:13px;">加载更多</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 账户设置 -->
       <div class="page" id="page-account">
         <div class="page-header">
@@ -976,6 +1009,7 @@ let currentProfileId = null;
 let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
 let siteAccessDefaults = null; // 系统缺省清单 { defaultStudySites, defaultRestrictedEntertainmentSites, defaultBlockedSites }
+let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 
 // ── 持久化 ────────────────────────────────────────────────────
 function saveLocal(key, val) { localStorage.setItem('toc_' + key, JSON.stringify(val)); }
@@ -997,6 +1031,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupQuota();
   setupSchedule();
   setupStats();
+  setupCloudSettlements();
   setupDevices();
   setupAccount();
   setupProfileDropdown();
@@ -1251,6 +1286,7 @@ function renderPage(name) {
   if (name === 'quota')     renderQuotaPage();
   if (name === 'schedule')  renderSchedulePage();
   if (name === 'stats')     renderStatsPage('today');
+  if (name === 'settlements') renderCloudSettlementsPage({ reset: true });
   if (name === 'devices')   renderDevicesPage();
   if (name === 'account')   renderAccountPage();
   if (name === 'review')    renderReviewPage();
@@ -2095,6 +2131,163 @@ async function renderStatsPage(range) {
     `).join('');
   } catch(e) {
     c.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${e.message}</div>`;
+  }
+}
+
+// ── Cloud settlements ─────────────────────────────────────────
+function setupCloudSettlements() {
+  document.querySelectorAll('[data-settlement-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-settlement-range]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      cloudSettlementState.range = btn.dataset.settlementRange || 'today';
+      const dateInput = document.getElementById('settlement-date-input');
+      if (dateInput && cloudSettlementState.range !== 'all') dateInput.value = getSettlementRange(cloudSettlementState.range).from || '';
+      renderCloudSettlementsPage({ reset: true });
+    });
+  });
+  document.getElementById('settlement-load-btn')?.addEventListener('click', () => renderCloudSettlementsPage({ reset: true }));
+  document.getElementById('settlement-load-more-btn')?.addEventListener('click', () => renderCloudSettlementsPage({ reset: false }));
+}
+
+function getSettlementRange(range) {
+  const today = new Date();
+  if (range === 'all') return { from: null, to: null, label: '全部' };
+  if (range === 'yesterday') {
+    const d = new Date(today.getTime() - 86400000);
+    return { from: fmtDate(d), to: fmtDate(d), label: '昨日' };
+  }
+  if (range === 'week') {
+    const dow = today.getDay() === 0 ? 6 : today.getDay() - 1;
+    const start = new Date(today);
+    start.setDate(today.getDate() - dow);
+    return { from: fmtDate(start), to: fmtDate(today), label: '本周' };
+  }
+  return { from: fmtDate(today), to: fmtDate(today), label: '今日' };
+}
+
+function getSelectedSettlementRange() {
+  const active = document.querySelector('[data-settlement-range].active');
+  return active?.dataset?.settlementRange || cloudSettlementState.range || 'today';
+}
+
+function settlementTypeLabel(row) {
+  if (row?.channel === 'pip') return 'PiP';
+  if (row?.channel === 'backgroundMedia' || row?.channel === 'media') return '后台媒体';
+  if (row?.channel === 'active') return '前台网页';
+  return row?.channel || '未知';
+}
+
+function formatSettlementTime(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+async function fetchCloudUsageSegments({ range, cursor = null }) {
+  const dateInput = document.getElementById('settlement-date-input');
+  const domainInput = document.getElementById('settlement-domain-input');
+  const params = new URLSearchParams();
+  let rangeInfo = getSettlementRange(range);
+  if (dateInput?.value && range !== 'all') {
+    rangeInfo = { from: dateInput.value, to: dateInput.value, label: dateInput.value };
+  }
+  if (rangeInfo.from) params.set('from', rangeInfo.from);
+  if (rangeInfo.to) params.set('to', rangeInfo.to);
+  if (domainInput?.value?.trim()) params.set('domain', domainInput.value.trim());
+  if (cursor) params.set('cursor', cursor);
+  params.set('limit', '200');
+  const qs = params.toString();
+  return await api(`/profiles/${currentProfileId}/usage-segments/v1${qs ? `?${qs}` : ''}`);
+}
+
+function renderCloudSettlementTable(rows) {
+  const tableEl = document.getElementById('cloud-settlement-table');
+  if (!tableEl) return;
+  if (!rows.length) {
+    tableEl.innerHTML = '<div class="empty"><div class="icon">📭</div>该范围暂无落账记录</div>';
+    return;
+  }
+  tableEl.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border);">
+            <th style="padding:8px;">开始</th>
+            <th style="padding:8px;">结束</th>
+            <th style="padding:8px;">时长</th>
+            <th style="padding:8px;min-width:180px;">域名</th>
+            <th style="padding:8px;">计时类型</th>
+            <th style="padding:8px;">模式</th>
+            <th style="padding:8px;min-width:150px;">落账原因</th>
+            <th style="padding:8px;">来源状态</th>
+            <th style="padding:8px;">状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px;">${escHtml(formatSettlementTime(row.startMs))}</td>
+              <td style="padding:8px;">${escHtml(formatSettlementTime(row.endMs))}</td>
+              <td style="padding:8px;">${escHtml(fmtSecs(row.durationSeconds || 0))}</td>
+              <td style="padding:8px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(row.domain || '')}">${escHtml(row.domain || '(无域名)')}</td>
+              <td style="padding:8px;">${escHtml(settlementTypeLabel(row))}</td>
+              <td style="padding:8px;">${escHtml(row.mode || '—')}</td>
+              <td style="padding:8px;">${escHtml(row.settlementReason || '—')}</td>
+              <td style="padding:8px;">${escHtml(row.sourceState || '—')}</td>
+              <td style="padding:8px;">云端</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderCloudSettlementsPage({ reset = true } = {}) {
+  if (!currentProfileId) return;
+  const summaryEl = document.getElementById('cloud-settlement-summary');
+  const tableEl = document.getElementById('cloud-settlement-table');
+  const moreBtn = document.getElementById('settlement-load-more-btn');
+  const range = getSelectedSettlementRange();
+  if (reset) {
+    cloudSettlementState = { range, rows: [], nextCursor: null, hasMore: false };
+    if (summaryEl) summaryEl.textContent = '加载中...';
+    if (tableEl) tableEl.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+  }
+  if (moreBtn) {
+    moreBtn.style.display = 'none';
+    moreBtn.disabled = true;
+  }
+  try {
+    const payload = await fetchCloudUsageSegments({
+      range,
+      cursor: reset ? null : cloudSettlementState.nextCursor,
+    });
+    const nextRows = Array.isArray(payload?.segments) ? payload.segments : [];
+    cloudSettlementState.rows = reset ? nextRows : [...cloudSettlementState.rows, ...nextRows];
+    cloudSettlementState.nextCursor = payload?.nextCursor || null;
+    cloudSettlementState.hasMore = !!payload?.hasMore;
+    const summary = payload?.summary || {};
+    const rangeInfo = getSettlementRange(range);
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <span>范围：${escHtml(rangeInfo.label)}</span>
+        <span>当前显示：${cloudSettlementState.rows.length} 段</span>
+        <span>总段数：${Number(summary.count || 0)}</span>
+        <span>总时长：${escHtml(fmtSecs(Number(summary.totalSeconds || 0)))}</span>
+        <span>前台：${escHtml(fmtSecs(Number(summary.activeSeconds || 0)))}</span>
+        <span>媒体/PiP：${escHtml(fmtSecs(Number(summary.mediaSeconds || 0)))}</span>
+      `;
+    }
+    renderCloudSettlementTable(cloudSettlementState.rows);
+    if (moreBtn) {
+      moreBtn.style.display = cloudSettlementState.hasMore ? 'inline-block' : 'none';
+      moreBtn.disabled = false;
+    }
+  } catch(e) {
+    if (summaryEl) summaryEl.textContent = '加载失败';
+    if (tableEl) tableEl.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${escHtml(e.message || '加载失败')}</div>`;
   }
 }
 

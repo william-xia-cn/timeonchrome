@@ -184,7 +184,7 @@ export default {
       // 路由分发
       if (path.startsWith('/auth/')) {
         return await authRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/stats/)) {
+      } else if (path.match(/^\/profiles\/[^/]+\/(stats|usage-segments)/)) {
         return await statsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
         return await compositeSessionsRouter.handle(request, env);

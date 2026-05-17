@@ -1752,9 +1752,9 @@ function normalizeSettlementRows(payload) {
       uploaded: !!row?.uploaded,
     }))
     .sort((a, b) => {
-      const aStart = Number.isFinite(a.startMs) ? a.startMs : Number.MAX_SAFE_INTEGER;
-      const bStart = Number.isFinite(b.startMs) ? b.startMs : Number.MAX_SAFE_INTEGER;
-      return aStart - bStart;
+      const aStart = Number.isFinite(a.startMs) ? a.startMs : Number.MIN_SAFE_INTEGER;
+      const bStart = Number.isFinite(b.startMs) ? b.startMs : Number.MIN_SAFE_INTEGER;
+      return bStart - aStart;
     });
 }
 
