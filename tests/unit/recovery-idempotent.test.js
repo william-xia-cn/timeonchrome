@@ -75,15 +75,22 @@ const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSess
   emitTrace: async () => {}, // no-op for unit tests
   getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
 });
+const recoverySettlements = [];
 const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   getSession: sessionApi.getSession,
   getSessionWithPersistenceSource: sessionApi.getSessionWithPersistenceSource,
   saveSession: sessionApi.saveSession,
   runSessionCommit: sessionApi.runSessionCommit,
   appendEvent: eventApi.appendEvent,
-  getLastEvent: eventApi.getLastEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
-  getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
+  isCountedState: (state) => ['ACTIVE', 'BACKGROUND_ACTIVE', 'PIP_ACTIVE'].includes(state),
+  settleCurrentSessionSegment: async (session, closeAt, reason, options = {}) => {
+    recoverySettlements.push({ session, closeAt, reason, options });
+    return {
+      appended: 1,
+      durationSeconds: Math.floor(Math.max(0, closeAt - session.startTime) / 1000),
+    };
+  },
 });
 
 function isLegalSequence(events, initialOpen = 0) {
@@ -117,6 +124,7 @@ async function runTests() {
   {
     mockSessionStorage.reset();
     mockLocalStorage.reset();
+    recoverySettlements.length = 0;
 
     const base = Date.now();
     await sessionApi.saveSession({
@@ -132,12 +140,17 @@ async function runTests() {
     const events = await eventApi.getEvents();
     const endEvents = events.filter(e => e.type === 'END' && e.domain === 'x.com');
     check('重复 recover 后只应有 1 个补写 END', endEvents.length === 1);
+    check('recover 使用 recovery_estimated_close 结算原因', recoverySettlements[0]?.reason === 'recovery_estimated_close');
+    check('recover description end reason 使用半 checkpoint 估算', recoverySettlements[0]?.options?.endReason === 'recovery_estimated_half_checkpoint');
+    check('recover description end source 是 recovery', recoverySettlements[0]?.options?.endOperationSource === 'recovery');
+    check('recover closeAt 不晚于 start+90s', recoverySettlements[0]?.closeAt <= base - 30_000 + 90_000);
   }
 
   section('RI-2 recover racing with transitionState yields legal sequence');
   {
     mockSessionStorage.reset();
     mockLocalStorage.reset();
+    recoverySettlements.length = 0;
 
     const base = Date.now();
     await sessionApi.saveSession({

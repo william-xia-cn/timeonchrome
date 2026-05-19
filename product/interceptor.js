@@ -22,6 +22,8 @@ const TRANSIENT_NOTICE_DISPLAY_MS = 4_000;
 const SUCCESS_NOTICE_SEND_RETRIES = 20;
 const SUCCESS_NOTICE_RETRY_DELAY_MS = 100;
 const SUCCESS_NOTICE_DEFERRED_RETRY_MS = 300;
+const PIP_CLOSE_SEND_RETRIES = 6;
+const PIP_CLOSE_RETRY_DELAY_MS = 150;
 
 function shouldClosePiPOnModeTransition(fromMode, toMode) {
   const prev = normalizeMode(fromMode);
@@ -30,14 +32,25 @@ function shouldClosePiPOnModeTransition(fromMode, toMode) {
   return prev === 'rest' && next === 'composite';
 }
 
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function closeActiveTabPictureInPicture(tabId) {
-  if (!Number.isInteger(tabId) || tabId < 0) return false;
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: 'EXIT_PIP' }).catch(() => {});
-    return true;
-  } catch {
-    return false;
+  if (!Number.isInteger(tabId) || tabId < 0) return { handled: false, closed: false };
+  let handled = false;
+  for (let attempt = 0; attempt < PIP_CLOSE_SEND_RETRIES; attempt += 1) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: 'EXIT_PIP' });
+      handled = true;
+      if (response?.exited === true) return { handled: true, closed: true };
+      if (response?.ok === true && response?.hadPiP === false) return { handled: true, closed: false };
+    } catch {}
+    if (attempt < PIP_CLOSE_SEND_RETRIES - 1) {
+      await delay(PIP_CLOSE_RETRY_DELAY_MS);
+    }
   }
+  return { handled, closed: false };
 }
 
 async function closePictureInPictureAcrossTabs(preferredTabId = null) {
@@ -54,11 +67,13 @@ async function closePictureInPictureAcrossTabs(preferredTabId = null) {
   } catch {}
 
   let sent = false;
+  let closed = false;
   for (const id of tabIds) {
-    const ok = await closeActiveTabPictureInPicture(id);
-    sent = sent || ok;
+    const result = await closeActiveTabPictureInPicture(id);
+    sent = sent || result.handled;
+    closed = closed || result.closed;
   }
-  return sent;
+  return closed || sent;
 }
 
 function normalizeDomainForNotice(domain) {
@@ -681,6 +696,9 @@ export async function redirectToReminder(tabId, domain, reason, message, extraPa
     `domain=${encodeURIComponent(domain || '')}`,
     `msg=${encodeURIComponent(message || '')}`,
   ];
+  if (Number.isInteger(tabId) && tabId >= 0) {
+    queryParts.push(`sourceTabId=${encodeURIComponent(String(tabId))}`);
+  }
   if (extraParams && typeof extraParams === 'object') {
     for (const [k, v] of Object.entries(extraParams)) {
       if (v === undefined || v === null || v === '') continue;

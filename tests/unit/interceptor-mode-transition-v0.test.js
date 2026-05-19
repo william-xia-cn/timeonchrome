@@ -240,7 +240,8 @@ async function run() {
     });
     const blocked = await checkAndRemind(1, 'https://news.example.com', 1);
     expect('should block', blocked, true);
-    expectTrue('reason', redirectedUrls[0].includes('reason=study_mode'));
+  expectTrue('reason', redirectedUrls[0].includes('reason=study_mode'));
+  expectTrue('reminder redirect includes sourceTabId', redirectedUrls[0].includes('sourceTabId='));
     expectTrue('originMode=study', redirectedUrls[0].includes('originMode=study'));
   }
 

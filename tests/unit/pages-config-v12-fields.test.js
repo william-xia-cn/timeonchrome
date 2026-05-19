@@ -45,6 +45,8 @@ function extractFunctionSource(code, functionName) {
 
 function run() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'pages', 'index.html'), 'utf8');
+  const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'auth.js'), 'utf8');
+  const bindSource = fs.readFileSync(path.join(__dirname, '..', '..', 'bind.js'), 'utf8');
 
   // 源码残留检查
   expectTrue('pages 不应再出现 allowList 字段', !/\ballowList\b/.test(source));
@@ -53,6 +55,9 @@ function run() {
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
   expectTrue('Pages 控制台应优先读取 stats/v1', source.includes('/stats/v1?from='));
   expectTrue('Pages 控制台应包含 v1 stats 适配器', source.includes('function fetchProfileStats'));
+  expectTrue('Pages 登录注册邮箱应统一小写', source.includes('function normalizeEmailInput') && source.includes("normalizeEmailInput(document.getElementById('login-email').value)") && source.includes("normalizeEmailInput(document.getElementById('reg-email').value)"));
+  expectTrue('auth.js 绑定登录邮箱应统一小写', authSource.includes('const normalizedEmail') && authSource.includes('email: normalizedEmail'));
+  expectTrue('bind.js 登录与保存凭据邮箱应统一小写', bindSource.includes("document.getElementById('email').value.trim().toLowerCase()"));
   expectTrue('Pages 控制台应兼容 stats_v1 duration_seconds', source.includes('duration_seconds'));
   expectTrue('Pages 日期应使用本地日期，不应使用 toISOString 作为显示/查询日期', !/function fmtDate\(d\)\s*\{\s*return d\.toISOString\(\)/.test(source));
   expectTrue('Pages 应包含落账明细导航', source.includes('data-page="settlements"') && source.includes('落账明细'));
@@ -60,6 +65,10 @@ function run() {
   expectTrue('Pages 落账页应支持今日/昨日/本周/全部', source.includes('data-settlement-range="today"') && source.includes('data-settlement-range="yesterday"') && source.includes('data-settlement-range="week"') && source.includes('data-settlement-range="all"'));
   expectTrue('Pages 落账页应支持 nextCursor 加载更多', source.includes('nextCursor') && source.includes('settlement-load-more-btn'));
   expectTrue('Pages 落账页应标明最新记录在最上方', source.includes('最新记录显示在最上方'));
+  expectTrue('Pages 应包含统计对账导航', source.includes('data-page="reconciliation"') && source.includes('统计对账'));
+  expectTrue('Pages 统计对账应读取 stats-reconciliation/v1', source.includes('/stats-reconciliation/v1'));
+  expectTrue('Pages 统计对账应展示统计表、落账聚合、差异、状态', source.includes('统计表') && source.includes('落账聚合') && source.includes('差异') && source.includes('状态'));
+  expectTrue('Pages 统计对账应支持显示全部开关', source.includes('reconciliation-show-all'));
 
   // 系统配置文案检查
   expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));

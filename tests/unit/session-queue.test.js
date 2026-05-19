@@ -69,13 +69,17 @@ const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
   'isFiniteTime',
   'isStaleSession',
 ]);
+const settledInputs = [];
 const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'saveSession', 'transitionState', 'heartbeat', 'flushOpenSessionToStats', 'runPeriodicCheckpoint'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
   emitTrace: async () => {}, // no-op for unit tests
   getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
   isCountedState: (state) => ['ACTIVE', 'BACKGROUND_ACTIVE', 'PIP_ACTIVE'].includes(state),
-  settleUsageDuration: async () => 1,
+  settleUsageDuration: async (input) => {
+    settledInputs.push(input);
+    return 1;
+  },
 });
 
 function countMaxOpen(events) {
@@ -178,7 +182,7 @@ async function runTests() {
     check('A→B→A 后不应出现孤立 END', hasOrphanEnd(events) === false);
   }
 
-  section('SQ-4 stale heartbeat drops foreground ACTIVE without reopening');
+  section('SQ-4 heartbeat is a deprecated no-op for timing state');
   {
     mockSessionStorage.reset();
     mockLocalStorage.reset();
@@ -202,23 +206,20 @@ async function runTests() {
       });
 
       Date.now = () => base + 130000;
-      await sessionApi.heartbeat();
+      const heartbeatResult = await sessionApi.heartbeat();
 
       const events = await eventApi.getEvents();
       const session = await sessionApi.getSession();
-      check('stale heartbeat 应关闭 ACTIVE 事件', events.some(e =>
-        e.type === eventApi.EVENT_TYPE.END &&
-        e.state === 'ACTIVE' &&
-        e.domain === 'stall.test'
-      ));
-      check('stale heartbeat 不应重新 START ACTIVE', !events.some(e =>
+      check('heartbeat 返回 deprecated no-op', heartbeatResult?.reason === 'heartbeat_timing_deprecated');
+      check('heartbeat 不追加 END 事件', !events.some(e => e.type === eventApi.EVENT_TYPE.END));
+      check('heartbeat 不重开 START 事件', !events.some(e =>
         e.type === eventApi.EVENT_TYPE.START &&
         e.state === 'ACTIVE' &&
         e.domain === 'stall.test' &&
         e.time === base + 130000
       ));
-      check('stale heartbeat 应清空 session.startTime', session.startTime === null);
-      check('stale heartbeat 应清空 session state/domain', session.state === null && session.domain === null);
+      check('heartbeat 不改变 session.startTime', session.startTime === base);
+      check('heartbeat 不改变 session state/domain', session.state === 'ACTIVE' && session.domain === 'stall.test');
     } finally {
       Date.now = originalNow;
     }
@@ -416,6 +417,39 @@ async function runTests() {
       Date.now = () => base + 4 * 60_000 + 5_000;
       const flush = await withTimeout(sessionApi.flushOpenSessionToStats('ui_flush'), 1000);
       check('subsequent ui_flush returns within timeout', flush?.ok === true);
+    } finally {
+      Date.now = originalNow;
+    }
+  }
+
+  section('SQ-10 sub-second foreground transition still settles segment');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    settledInputs.length = 0;
+    await eventApi.clearEvents();
+
+    const originalNow = Date.now;
+    const base = 1777200000000;
+    try {
+      Date.now = () => base;
+      await sessionApi.initSession();
+      await sessionApi.transitionState('ACTIVE', 'short-a.test');
+
+      Date.now = () => base + 500;
+      await sessionApi.transitionState('ACTIVE', 'short-b.test');
+
+      const events = await eventApi.getEvents();
+      check('sub-second transition appends END', events.some(e =>
+        e.type === eventApi.EVENT_TYPE.END &&
+        e.domain === 'short-a.test' &&
+        e.time === base + 500
+      ));
+      check('sub-second transition calls settlement', settledInputs.some(s =>
+        s.domain === 'short-a.test' &&
+        s.startMs === base &&
+        s.endMs === base + 500
+      ));
     } finally {
       Date.now = originalNow;
     }

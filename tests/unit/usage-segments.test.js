@@ -126,9 +126,23 @@ chk('sourceState', seg4.sourceState, 'ACTIVE');
 chk('settlementReason', seg4.settlementReason, 'tc');
 chk('durationSeconds', seg4.durationSeconds, 600);
 chk('uploadedAt null', seg4.uploadedAt, null);
+chk('description schemaVersion', seg4.description.schemaVersion, 1);
+chk('description start source default', seg4.description.start.source, 'unknown');
+chk('description end source default', seg4.description.end.source, 'unknown');
+chk('description summary default', seg4.description.summary, '开始：—；结束：—');
 
 const seg4c = api.buildUsageSegment({ ...input3, channel: 'pip', domain: 'pip.com', mode: 'rest', sourceState: 'PIP_ACTIVE' });
 chk('channel pip', seg4c.channel, 'pip');
+const seg4d = api.buildUsageSegment({
+  ...input3,
+  description: {
+    start: { reason: 'tabActivated', operation: 'tabActivated', source: 'chrome_event', atMs: MOCK_TIME - 600000 },
+    end: { reason: 'tabUpdated', operation: 'tabUpdated', source: 'chrome_event', atMs: MOCK_TIME },
+  },
+});
+chk('description start reason preserved', seg4d.description.start.reason, 'tabActivated');
+chk('description end reason preserved', seg4d.description.end.reason, 'tabUpdated');
+chk('description summary generated', seg4d.description.summary, '开始：tabActivated；结束：tabUpdated');
 
 // ── TB5: Append + idempotency + date query ──
 sec('TB5: Append / idempotent / date query');
@@ -536,6 +550,7 @@ chk('payload domain', pSeg.domain, 'payload.com');
 chk('payload channel', pSeg.channel, 'active');
 chk('payload mode', pSeg.mode, 'rest');
 chk('payload settlementReason', pSeg.settlementReason, 'tab_close');
+chk('payload excludes local description', Object.prototype.hasOwnProperty.call(pSeg, 'description'), false);
 chk('payload durationSeconds', pSeg.durationSeconds, 60);
 chkT('payload has date', !!pSeg.date);
 chkT('payload has timezone', !!pSeg.timezone);
@@ -678,8 +693,8 @@ chk('derived channel active', derivedSeg.channel, 'active');
 st = await api.getDailyUsageStats(todayStr);
 chk('derived aggregate active=60', st.domains['derived-channel.com'].activeSeconds, 60);
 
-// ── TB38: Sub-second flush does not create zero-duration segment ──
-sec('TB38: P0 — sub-second settlement skipped');
+// ── TB38: Sub-second settlement still records open/close fact ──
+sec('TB38: P0 — sub-second settlement is recorded');
 mockLocal.reset();
 n = await api.settleUsageDuration({
   startMs: MOCK_TIME-500,
@@ -691,9 +706,49 @@ n = await api.settleUsageDuration({
   profileId: 'p1',
   deviceId: 'd1',
 });
-chk('sub-second creates 0', n, 0);
+chk('sub-second creates 1', n, 1);
 all = await api.getAllUsageSegments();
-chk('no zero-duration segment', Object.keys(all).length, 0);
+chk('zero-second segment retained', Object.keys(all).length, 1);
+const shortSeg = Object.values(all)[0];
+chk('sub-second durationSeconds is 0', shortSeg.durationSeconds, 0);
+chk('sub-second start preserved', shortSeg.startMs, MOCK_TIME - 500);
+chk('sub-second end preserved', shortSeg.endMs, MOCK_TIME);
+st = await api.getDailyUsageStats(todayStr);
+chk('sub-second aggregate domain exists', !!st.domains['too-short.com'], true);
+chk('sub-second aggregate active remains 0', st.domains['too-short.com'].activeSeconds, 0);
+
+// ── TB39: Exact zero-ms diagnostic settlement is recorded only when explicit ──
+sec('TB39: exact zero-ms diagnostic settlement is recorded');
+mockLocal.reset();
+n = await api.settleUsageDuration({
+  startMs: MOCK_TIME,
+  endMs: MOCK_TIME,
+  domain: 'zero-boundary.com',
+  mode: 'rest',
+  sourceState: 'ACTIVE',
+  settlementReason: 'event_close_without_open',
+  profileId: 'p1',
+  deviceId: 'd1',
+});
+chk('zero-ms without explicit flag skipped', n, 0);
+n = await api.settleUsageDuration({
+  startMs: MOCK_TIME,
+  endMs: MOCK_TIME,
+  domain: 'zero-boundary.com',
+  mode: 'rest',
+  sourceState: 'ACTIVE',
+  settlementReason: 'event_close_without_open',
+  profileId: 'p1',
+  deviceId: 'd1',
+  allowZeroDurationSegment: true,
+});
+chk('zero-ms diagnostic creates 1', n, 1);
+all = await api.getAllUsageSegments();
+const zeroSeg = Object.values(all)[0];
+chk('zero-ms diagnostic duration 0', zeroSeg.durationSeconds, 0);
+chk('zero-ms diagnostic start=end', zeroSeg.startMs === zeroSeg.endMs, true);
+st = await api.getDailyUsageStats(todayStr);
+chk('zero-ms diagnostic aggregate remains 0', st.domains['zero-boundary.com'].activeSeconds, 0);
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
 process.exit(failed > 0 ? 1 : 0);

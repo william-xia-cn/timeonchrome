@@ -44,7 +44,7 @@ function loadStorage() {
     .map(s => s.trim().replace(/^'|'$/g, '').trim())
     .filter(s => s.length > 0 && !s.startsWith('//')) : [];
 
-  code = code.replace(/^\s*import .*?;\s*$/gm, '');
+  code = code.replace(/^\s*import[\s\S]*?;\s*/gm, '');
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -64,6 +64,25 @@ function loadStorage() {
       return domain === pattern || domain.endsWith(`.${pattern}`);
     },
     normalizeHostname: (h) => String(h || '').replace(/^www\./, '').toLowerCase(),
+    domainForUrl: (url) => {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return String(parsed.hostname || '').replace(/^www\./, '').toLowerCase();
+        if (parsed.protocol === 'chrome-extension:') return 'extension-page.chrome-local';
+        if (parsed.protocol === 'chrome:') {
+          if (parsed.hostname === 'extensions') return 'chrome-extensions.chrome-local';
+          if (parsed.hostname === 'settings') return 'chrome-settings.chrome-local';
+          return 'chrome-page.chrome-local';
+        }
+        if (parsed.protocol === 'edge:') return 'edge-page.chrome-local';
+        if (parsed.protocol === 'file:') return 'local-file.chrome-local';
+        if (parsed.protocol === 'about:') return 'about-page.chrome-local';
+        if (parsed.protocol === 'data:' || parsed.protocol === 'blob:') return 'embedded-page.chrome-local';
+        return 'unknown-page.chrome-local';
+      } catch (_) {
+        return null;
+      }
+    },
     emitTrace: () => {},
     DEFAULT_CONFIG: { studyList },
   };
@@ -91,7 +110,7 @@ function loadCloudSync() {
   const DEFAULT_CONFIG = { studyList };
 
   // Inject DEFAULT_CONFIG into cloud-sync context
-  code = code.replace(/^\s*import .*?;\s*$/gm, '');
+  code = code.replace(/^\s*import[\s\S]*?;\s*/gm, '');
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -127,8 +146,8 @@ async function run() {
 
   // ── B. extractDomain: newtab provider returns domain ──
   section('B. extractDomain behavior');
-  expectTrue('extractDomain(chrome://newtab/) returns null', storage.extractDomain('chrome://newtab/') === null);
-  expectTrue('extractDomain(about:blank) returns null', storage.extractDomain('about:blank') === null);
+  expectTrue('extractDomain(chrome://newtab/) returns chrome pseudo domain', storage.extractDomain('chrome://newtab/') === 'chrome-page.chrome-local');
+  expectTrue('extractDomain(about:blank) returns about pseudo domain', storage.extractDomain('about:blank') === 'about-page.chrome-local');
   expectTrue('extractDomain(https://www.google.com/_/chrome/newtab) returns google.com (normalized)', storage.extractDomain('https://www.google.com/_/chrome/newtab') === 'google.com');
   expectTrue('extractDomain(https://www.google.com/search?q=test) returns google.com (normalized)', storage.extractDomain('https://www.google.com/search?q=test') === 'google.com');
 

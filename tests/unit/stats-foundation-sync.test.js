@@ -141,6 +141,24 @@ chk('re-upload: outbox cleared', pending.pendingCount, 0);
 const allSegs2 = await usageApi.getAllUsageSegments();
 chk('still 1 segment total', Object.keys(allSegs2).length, 1);
 
+// ── TB2b: Sub-second segments stay uploadable (durationSeconds=0, exact ms kept) ──
+sec('TB2b: Sub-second segment upload payload');
+mockLocal.reset();
+
+await usageApi.settleUsageDuration({
+  startMs: MOCK_TIME - 500, endMs: MOCK_TIME,
+  domain: 'subsecond-sync.test', channel: 'active', mode: 'study',
+  sourceState: 'ACTIVE', settlementReason: 'transition_complete',
+  profileId: 'p1', deviceId: 'd1',
+});
+
+pending = await usageApi.getPendingUsageSegments();
+chk('sub-second pending count = 1', pending.pendingCount, 1);
+const shortPayload = await usageApi.buildUsageSegmentsUploadPayload(pending.segments.map(s => s.id));
+chk('sub-second payload count 1', shortPayload.segments.length, 1);
+chk('sub-second payload durationSeconds=0', shortPayload.segments[0].durationSeconds, 0);
+chk('sub-second payload keeps exact ms span', shortPayload.segments[0].endMs - shortPayload.segments[0].startMs, 500);
+
 // ── TB3: Segment upload failure preserves outbox ──
 sec('TB3: Segment upload failure preserves outbox');
 mockLocal.reset();

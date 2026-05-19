@@ -497,6 +497,9 @@
         <div class="nav-item" data-page="settlements">
           <span class="nav-icon">🧾</span><span>落账明细</span>
         </div>
+        <div class="nav-item" data-page="reconciliation">
+          <span class="nav-icon">⚖️</span><span>统计对账</span>
+        </div>
         <div class="nav-item" data-page="devices">
           <span class="nav-icon">💻</span><span>设备管理</span>
         </div>
@@ -826,6 +829,35 @@
         </div>
       </div>
 
+      <!-- 统计对账 -->
+      <div class="page" id="page-reconciliation">
+        <div class="page-header">
+          <h2>统计对账</h2>
+          <p>对比 stats_v1 统计表与 usage_segments_v1 落账聚合，不修改任何数据</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">双轨对账</div>
+              <div class="card-subtitle">默认只显示差异行；统计表为现有统计页口径，落账聚合为实时 segment 汇总</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="tab-btn active" data-reconciliation-range="today">今日</button>
+            <button class="tab-btn" data-reconciliation-range="week">本周</button>
+            <button class="tab-btn" data-reconciliation-range="month">本月</button>
+            <input type="text" id="reconciliation-domain-input" placeholder="域名筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="reconciliation-show-all">
+              显示全部
+            </label>
+            <button class="btn-save" id="reconciliation-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
+          </div>
+          <div id="reconciliation-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
+          <div id="reconciliation-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
+        </div>
+      </div>
+
       <!-- 账户设置 -->
       <div class="page" id="page-account">
         <div class="page-header">
@@ -1010,6 +1042,11 @@ let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
 let siteAccessDefaults = null; // 系统缺省清单 { defaultStudySites, defaultRestrictedEntertainmentSites, defaultBlockedSites }
 let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
+let cloudReconciliationState = { range: 'today', rows: [], summary: null };
+
+function normalizeEmailInput(value) {
+  return String(value || '').trim().toLowerCase();
+}
 
 // ── 持久化 ────────────────────────────────────────────────────
 function saveLocal(key, val) { localStorage.setItem('toc_' + key, JSON.stringify(val)); }
@@ -1032,6 +1069,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupSchedule();
   setupStats();
   setupCloudSettlements();
+  setupReconciliation();
   setupDevices();
   setupAccount();
   setupProfileDropdown();
@@ -1066,7 +1104,7 @@ function setupAuth() {
 }
 
 async function doLogin() {
-  const email = document.getElementById('login-email').value.trim();
+  const email = normalizeEmailInput(document.getElementById('login-email').value);
   const pw    = document.getElementById('login-password').value;
   const errEl = document.getElementById('login-error');
   errEl.style.display = 'none';
@@ -1088,7 +1126,7 @@ async function doLogin() {
 }
 
 async function doRegister() {
-  const email = document.getElementById('reg-email').value.trim();
+  const email = normalizeEmailInput(document.getElementById('reg-email').value);
   const pw    = document.getElementById('reg-password').value;
   const pw2   = document.getElementById('reg-password2').value;
   const errEl = document.getElementById('register-error');
@@ -1287,6 +1325,7 @@ function renderPage(name) {
   if (name === 'schedule')  renderSchedulePage();
   if (name === 'stats')     renderStatsPage('today');
   if (name === 'settlements') renderCloudSettlementsPage({ reset: true });
+  if (name === 'reconciliation') renderReconciliationPage();
   if (name === 'devices')   renderDevicesPage();
   if (name === 'account')   renderAccountPage();
   if (name === 'review')    renderReviewPage();
@@ -2131,6 +2170,150 @@ async function renderStatsPage(range) {
     `).join('');
   } catch(e) {
     c.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${e.message}</div>`;
+  }
+}
+
+// ── Stats reconciliation ─────────────────────────────────────
+function setupReconciliation() {
+  document.querySelectorAll('[data-reconciliation-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-reconciliation-range]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      cloudReconciliationState.range = btn.dataset.reconciliationRange || 'today';
+      renderReconciliationPage();
+    });
+  });
+  document.getElementById('reconciliation-load-btn')?.addEventListener('click', () => renderReconciliationPage());
+  document.getElementById('reconciliation-show-all')?.addEventListener('change', () => renderReconciliationTable());
+}
+
+function getReconciliationRange(range) {
+  const today = new Date();
+  if (range === 'week') {
+    const d = new Date(today.getTime() - 6 * 86400000);
+    return { from: fmtDate(d), to: fmtDate(today) };
+  }
+  if (range === 'month') {
+    const d = new Date(today.getTime() - 29 * 86400000);
+    return { from: fmtDate(d), to: fmtDate(today) };
+  }
+  return { from: fmtDate(today), to: fmtDate(today) };
+}
+
+function getSelectedReconciliationRange() {
+  const active = document.querySelector('[data-reconciliation-range].active');
+  return active?.dataset?.reconciliationRange || cloudReconciliationState.range || 'today';
+}
+
+function reconciliationTypeLabel(row) {
+  if (!row) return '未知';
+  if (row.channel === 'pip') return 'PiP';
+  if (row.channel === 'backgroundMedia') return '后台媒体';
+  if (row.channel === 'active') return '前台网页';
+  return row.channel || '未知';
+}
+
+function reconciliationStatusLabel(status) {
+  if (status === 'match') return '一致';
+  if (status === 'stats_missing') return '统计缺失';
+  if (status === 'segments_missing') return '落账缺失';
+  if (status === 'mismatch') return '不一致';
+  return status || '未知';
+}
+
+function formatSignedSecs(value) {
+  const seconds = Number(value) || 0;
+  if (seconds === 0) return '0秒';
+  const sign = seconds > 0 ? '+' : '-';
+  return sign + fmtSecs(Math.abs(seconds));
+}
+
+async function fetchStatsReconciliation(range) {
+  const params = new URLSearchParams();
+  const bounds = getReconciliationRange(range);
+  params.set('from', bounds.from);
+  params.set('to', bounds.to);
+  const domainInput = document.getElementById('reconciliation-domain-input');
+  const domain = domainInput?.value?.trim();
+  if (domain) params.set('domain', domain);
+  return await api(`/profiles/${currentProfileId}/stats-reconciliation/v1?${params.toString()}`);
+}
+
+function renderReconciliationTable() {
+  const tableEl = document.getElementById('reconciliation-table');
+  if (!tableEl) return;
+  const showAll = !!document.getElementById('reconciliation-show-all')?.checked;
+  const rows = showAll
+    ? cloudReconciliationState.rows
+    : cloudReconciliationState.rows.filter(row => Number(row.deltaSeconds || 0) !== 0);
+
+  if (rows.length === 0) {
+    tableEl.innerHTML = '<div class="empty"><div class="icon">✅</div>当前筛选下没有差异</div>';
+    return;
+  }
+
+  tableEl.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border);">
+            <th style="padding:8px;">日期</th>
+            <th style="padding:8px;">域名</th>
+            <th style="padding:8px;">计时类型</th>
+            <th style="padding:8px;">模式</th>
+            <th style="padding:8px;">统计表</th>
+            <th style="padding:8px;">落账聚合</th>
+            <th style="padding:8px;">差异</th>
+            <th style="padding:8px;">状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px;">${escHtml(row.date || '')}</td>
+              <td style="padding:8px;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(row.domain || '')}">${escHtml(row.domain || '')}</td>
+              <td style="padding:8px;">${escHtml(reconciliationTypeLabel(row))}</td>
+              <td style="padding:8px;">${escHtml(row.mode || '')}</td>
+              <td style="padding:8px;">${escHtml(fmtSecs(Number(row.statsSeconds || 0)))}</td>
+              <td style="padding:8px;">${escHtml(fmtSecs(Number(row.segmentSeconds || 0)))}</td>
+              <td style="padding:8px;color:${Number(row.deltaSeconds || 0) === 0 ? 'var(--muted)' : 'var(--danger)'};">${escHtml(formatSignedSecs(row.deltaSeconds))}</td>
+              <td style="padding:8px;">${escHtml(reconciliationStatusLabel(row.status))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderReconciliationPage() {
+  if (!currentProfileId) return;
+  const summaryEl = document.getElementById('reconciliation-summary');
+  const tableEl = document.getElementById('reconciliation-table');
+  if (summaryEl) summaryEl.textContent = '加载中...';
+  if (tableEl) tableEl.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+
+  const range = getSelectedReconciliationRange();
+  cloudReconciliationState.range = range;
+  try {
+    const payload = await fetchStatsReconciliation(range);
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    const summary = payload?.summary || {};
+    cloudReconciliationState.rows = rows;
+    cloudReconciliationState.summary = summary;
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <span>统计表：${escHtml(fmtSecs(Number(summary.statsSeconds || 0)))}</span>
+        <span>落账聚合：${escHtml(fmtSecs(Number(summary.segmentSeconds || 0)))}</span>
+        <span>差异：${escHtml(formatSignedSecs(summary.deltaSeconds))}</span>
+        <span>异常行：${Number(summary.mismatchCount || 0)}</span>
+        <span>总行数：${Number(summary.rowCount || 0)}</span>
+      `;
+    }
+    renderReconciliationTable();
+  } catch (e) {
+    if (summaryEl) summaryEl.textContent = '加载失败';
+    if (tableEl) tableEl.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${escHtml(e.message)}</div>`;
   }
 }
 

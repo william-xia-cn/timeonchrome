@@ -16,11 +16,20 @@
     no_cross_week: '周日不能借用（防止跨周）',
     weekly_quota_exceeded: '本周配额已用完，无法借用',
   };
+  const COMPOSITE_ERROR_MESSAGES = {
+    INVALID_TAB_CONTEXT: '无法确认原始页面，请返回后重新打开该网站',
+    NOT_IN_STUDY_MODE: '当前不是学习模式，不能申请综合时间',
+    ONLINE_QUOTA_LOCKED: '今日上网时间已用完，不能继续访问',
+    UNDETERMINED_QUOTA_LOCKED: '今日综合时间已用完，不能申请综合时间',
+    DOMAIN_IN_RESTRICTED_LIST: '受限娱乐网站不能申请综合时间',
+    DOMAIN_IN_UNSAFE_LIST: '禁止访问网站不能申请综合时间',
+  };
 
   // 解析 URL 参数
   const params = new URLSearchParams(location.search);
   const reason = params.get('reason') || 'unsafe';
   const originMode = params.get('originMode') || '';
+  const sourceTabId = Number.parseInt(params.get('sourceTabId') || '', 10);
   let domain = params.get('domain') || '';
   const msg = params.get('msg') || '';
   diag('load', {
@@ -216,7 +225,7 @@
     addComposite: {
       label: '📝 临时加入综合网站', style: 'primary',
       handler: function() {
-        chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: domain }, function(result) {
+        chrome.runtime.sendMessage(compositeRequestPayload(), function(result) {
           if (result && result.added) {
             chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
             showStatus('✓ 已加入，正在跳转…', 'success');
@@ -224,7 +233,7 @@
           } else if (result && result.alreadyPresent) {
             showStatus('该网站已在列表中', 'info');
           } else {
-            showStatus('操作失败，请稍后重试', 'error');
+            showStatus(compositeFailureMessage(result), 'error');
           }
         });
       }
@@ -512,7 +521,7 @@
       hint: slideHintComposite,
       wrap: slideConfirmWrapComposite,
       onConfirm: function() {
-        chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: domain }, function(result) {
+        chrome.runtime.sendMessage(compositeRequestPayload(), function(result) {
           if (result && result.added) {
             chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
             chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
@@ -525,7 +534,7 @@
           } else if (result && result.alreadyPresent) {
             showStatus('该网站已在列表中', 'info');
           } else {
-            showStatus('操作失败，请稍后重试', 'error');
+            showStatus(compositeFailureMessage(result), 'error');
           }
         });
       },
@@ -535,6 +544,19 @@
     });
 
     // Rest exhausted variant no longer exposes borrowing in V1-minimal.
+  }
+
+  function compositeRequestPayload() {
+    const payload = { type: 'ADD_TO_COMPOSITE_LIST', domain: domain };
+    if (Number.isInteger(sourceTabId) && sourceTabId >= 0) payload.sourceTabId = sourceTabId;
+    return payload;
+  }
+
+  function compositeFailureMessage(result) {
+    const code = result && result.code;
+    if (code && COMPOSITE_ERROR_MESSAGES[code]) return COMPOSITE_ERROR_MESSAGES[code];
+    if (result && result.error) return `操作失败：${result.error}`;
+    return '操作失败，请稍后重试';
   }
 
   // Composite → Unclassified/Restricted dual-path (Case #14/#15/#16/#17)
@@ -602,7 +624,7 @@
         hint: slideHintComposite,
         wrap: slideConfirmWrapComposite,
         onConfirm: function() {
-          chrome.runtime.sendMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: domain }, function(result) {
+          chrome.runtime.sendMessage(compositeRequestPayload(), function(result) {
             if (result && result.added) {
               chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
               chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
@@ -615,7 +637,7 @@
             } else if (result && result.alreadyPresent) {
               showStatus('该网站已在列表中', 'info');
             } else {
-              showStatus('操作失败，请稍后重试', 'error');
+              showStatus(compositeFailureMessage(result), 'error');
             }
           });
         },

@@ -58,6 +58,7 @@ function loadNavRefreshFns() {
     console,
     adminPageRefreshSeq: 0,
     config: { marker: 'old' },
+    isLocalReadOnlyMode: false,
     sendMsg: async () => ({}),
     renderRulesPage: () => {},
     renderStatsPage: async () => {},

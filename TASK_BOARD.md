@@ -53,6 +53,7 @@
 - [x] ReleaseMg readonly readiness report recorded: `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` — `BLOCKED / NOT READY FOR PUBLIC RELEASE`
 - [ ] Public release（blocked until Chrome Web Store review completes and PO approves release close-out）
 - [ ] ReleaseMg production acceptance close-out（currently PARTIAL / NOT CLOSED; CWS review and CWS installed-ID parity remain unavailable until CWS approval）
+- [ ] **Release blocker: sub-second segment product policy**（当前本地账本保留 1 秒内网页切换 segment，`durationSeconds=0` 但 `startMs/endMs` 完整；正式发布前必须决定并实现最终策略：保留、毫秒级 duration、短段合并或 UI/cloud 过滤）
 - [x] Dirty product/test working-tree ownership classification audit completed（prior dirty packages resolved through scoped commits; no dirty product/test package remains before this docs-only sync）
 - [x] Git push（completed to `origin/master`; no tag/release approval implied）
 - [ ] Git tag（blocked pending separate PO approval）

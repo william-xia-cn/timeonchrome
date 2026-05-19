@@ -58,7 +58,7 @@ function buildEvidence(segment, crossDay) {
 
 export function evaluateSuspectSegment(segment) {
   const durationSeconds = Number(segment?.durationSeconds || 0);
-  if (!segment || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+  if (!segment || !Number.isFinite(durationSeconds) || durationSeconds < 0) {
     return { suspect: false, reason: null, evidence: buildEvidence(segment, false) };
   }
 

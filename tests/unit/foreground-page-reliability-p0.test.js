@@ -152,7 +152,7 @@ async function testNormalBoundaryCountsInLiveFallback() {
   const base = 1778800100000;
   await seedActiveSession(base, 'a.example.com');
   await withNow(base + 60_000, () =>
-    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 60_000, 'stable_tabActivated')
+    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 60_000, 'tabActivated')
   );
   check('normal boundary creates durable segment', settled.length === 1);
   check('normal boundary duration is 60s', settled[0].endMs - settled[0].startMs === 60_000);
@@ -164,7 +164,7 @@ async function testLiveFallbackDoesNotNeedCheckpoint() {
   const base = 1778800200000;
   await seedActiveSession(base, 'fast.example.com');
   await withNow(base + 45_000, () =>
-    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 45_000, 'stable_tabUpdated')
+    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 45_000, 'tabUpdated')
   );
   check('live fallback counts boundary under checkpoint window', await liveActiveSeconds('fast.example.com', base) === 45);
   check('stable boundary under checkpoint window creates durable segment', settled.length === 1);
@@ -202,6 +202,7 @@ async function testMissedTabCloseDropsUnconfirmedLiveFallback() {
   check('tab close closes session', result.closed === true);
   check('tab close settles only bounded foreground tail', settled.length === 1);
   check('tab close bounded duration is 180s', settled[0].endMs - settled[0].startMs === 180_000);
+  check('tab close description end reason', settled[0].description.end.reason === 'tab_close');
   check('tab close END is bounded to one window', result.closeTime <= base + 180_000);
   check('tab close bounded tail appears in live fallback', await liveActiveSeconds('p0.example.com', base) === 180);
 }
@@ -214,6 +215,7 @@ async function testRecoveryDoesNotBackfillLongGap() {
   check('recovery closes session', result.closed === true);
   check('recovery settles only bounded foreground tail', settled.length === 1);
   check('recovery bounded duration is 180s', settled[0].endMs - settled[0].startMs === 180_000);
+  check('recovery description end reason', settled[0].description.end.reason === 'recovery_gap_close');
   check('recovery END is bounded', result.closeTime <= base + 180_000);
 }
 
@@ -222,7 +224,53 @@ async function testUnknownDomainCountsAsUnknown() {
   const ctx = contextApi.buildContext(null, { tabId: 7, windowId: 1, url: null, isFocused: true, isIdle: false });
   const state = stateApi.resolveState(ctx);
   check('unknown URL active tab resolves ACTIVE', state === 'ACTIVE');
-  check('unknown URL uses __unknown__ candidate', ctx.candidateDomain === '__unknown__');
+  check('unknown URL uses safe pseudo domain', ctx.domain === 'unknown-page.chrome-local');
+}
+
+async function testOpenOverlapSameDomainWritesZeroBoundarySegment() {
+  resetAll();
+  const base = 1778800150000;
+  await seedActiveSession(base, 'same.example.com');
+  await withNow(base, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'same.example.com', base, 'tabActivated')
+  );
+  check('same-domain open overlap writes boundary segment', settled.length === 1);
+  check('same-domain overlap segment is zero ms', settled[0].endMs === settled[0].startMs);
+  check('same-domain overlap allows zero duration', settled[0].allowZeroDurationSegment === true);
+  check('same-domain overlap keeps transition settlement reason', settled[0].settlementReason === 'transition_complete');
+  const session = await sessionApi.getSession();
+  check('same-domain overlap reopens at boundary', session.state === 'ACTIVE' && session.domain === 'same.example.com' && session.startTime === base);
+}
+
+async function testCloseWithoutOpenWritesZeroDiagnosticSegment() {
+  resetAll();
+  const base = 1778800160000;
+  const result = await withNow(base, () =>
+    sessionApi.closeCurrentSession('tab_close', { now: base, observedDomain: 'observed-close.example.com' })
+  );
+  check('close without open returns diagnostic', result.closed === false && result.reason === 'event_close_without_open');
+  check('close without open writes one diagnostic segment', settled.length === 1);
+  check('close without open diagnostic domain', settled[0].domain === 'observed-close.example.com');
+  check('close without open diagnostic reason', settled[0].settlementReason === 'event_close_without_open');
+  check('close without open diagnostic is zero ms', settled[0].startMs === base && settled[0].endMs === base);
+  check('close without open allows zero duration', settled[0].allowZeroDurationSegment === true);
+}
+
+async function testCloseDomainMismatchWritesOldAndObservedSegments() {
+  resetAll();
+  const base = 1778800170000;
+  await seedActiveSession(base, 'old-close.example.com');
+  const result = await withNow(base, () =>
+    sessionApi.closeCurrentSession('tab_close', { now: base, observedDomain: 'new-close.example.com' })
+  );
+  check('close mismatch returns mismatch flag', result.closed === true && result.domainMismatch === true);
+  check('close mismatch writes old and observed segments', settled.length === 2);
+  check('close mismatch old segment domain', settled[0].domain === 'old-close.example.com');
+  check('close mismatch old segment reason', settled[0].settlementReason === 'event_close_domain_mismatch_close');
+  check('close mismatch old segment zero ms', settled[0].startMs === base && settled[0].endMs === base);
+  check('close mismatch observed segment domain', settled[1].domain === 'new-close.example.com');
+  check('close mismatch observed segment reason', settled[1].settlementReason === 'event_close_domain_mismatch_observed');
+  check('close mismatch observed segment zero ms', settled[1].startMs === base && settled[1].endMs === base);
 }
 
 async function testActiveUnknownSettlementCanRecoverSameTabDomain() {
@@ -230,7 +278,7 @@ async function testActiveUnknownSettlementCanRecoverSameTabDomain() {
   const base = 1778804300000;
   await seedActiveSession(base, '__unknown__', { tabId: 7, windowId: 1 });
   await withNow(base + 60_000, () =>
-    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 60_000, 'stable_tabActivated', {
+    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 60_000, 'tabActivated', {
       resolveUnknownDomainForSettlement: async (session) => {
         check('resolver receives unknown session tabId', session.tabId === 7);
         check('resolver receives unknown session windowId', session.windowId === 1);
@@ -252,7 +300,7 @@ async function testActiveUnknownSettlementKeepsUnknownOnMismatch() {
   const base = 1778804400000;
   await seedActiveSession(base, '__unknown__', { tabId: 7, windowId: 1 });
   await withNow(base + 60_000, () =>
-    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 60_000, 'stable_tabActivated', {
+    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 60_000, 'tabActivated', {
       resolveUnknownDomainForSettlement: async () => ({ ok: false, reason: 'tab_mismatch' }),
       tabId: 8,
       windowId: 1,
@@ -274,6 +322,7 @@ async function testIdleInactiveCloseSettlesActiveSession() {
   );
   check('idle inactive close settles active segment', settled.length === 1);
   check('idle inactive close uses explicit settlement reason', settled[0]?.settlementReason === 'idle_inactive_close');
+  check('idle inactive close description end reason', settled[0]?.description?.end?.reason === 'idle_inactive_close');
   check('idle inactive close preserves active domain', settled[0]?.domain === 'www.baidu.com');
   const session = await sessionApi.getSession();
   check('idle inactive close opens idle session', session.state === 'IDLE' && session.domain === null);
@@ -301,12 +350,36 @@ async function testIdleActiveReopenStartsNewActiveSession() {
   check('idle active reopen stores attribution context', session.tabId === 7 && session.windowId === 1);
 }
 
-async function testSpecialPageDoesNotCount() {
+async function testSpecialPageCountsAsForeground() {
   resetAll();
   const ctx = contextApi.buildContext(null, { tabId: 8, windowId: 1, url: 'chrome://extensions', isFocused: true, isIdle: false });
   const state = stateApi.resolveState(ctx);
-  check('special page is not ACTIVE', state !== 'ACTIVE');
-  check('special page candidate none', ctx.candidateKind === 'none');
+  check('special page resolves ACTIVE', state === 'ACTIVE');
+  check('special page maps to safe pseudo domain', ctx.domain === 'chrome-extensions.chrome-local');
+}
+
+async function testSpecialPagesCreateContinuousForegroundSegments() {
+  resetAll();
+  const base = 1778805050000;
+  await seedActiveSession(base, 'example.com', {
+    startReason: 'tabActivated',
+    startOperationSource: 'chrome_event',
+    startAtMs: base,
+  });
+  await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'extension-page.chrome-local', base + 10_000, 'tabUpdated')
+  );
+  await withNow(base + 25_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'local-file.chrome-local', base + 25_000, 'tabUpdated')
+  );
+  await withNow(base + 40_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'example.com', base + 40_000, 'tabActivated')
+  );
+  check('special page transitions create three closed segments', settled.length === 3);
+  check('web segment closes at extension open', settled[0].domain === 'example.com' && settled[0].startMs === base && settled[0].endMs === base + 10_000);
+  check('extension segment is counted', settled[1].domain === 'extension-page.chrome-local' && settled[1].startMs === base + 10_000 && settled[1].endMs === base + 25_000);
+  check('local file segment is counted', settled[2].domain === 'local-file.chrome-local' && settled[2].startMs === base + 25_000 && settled[2].endMs === base + 40_000);
+  check('special page transitions have no timeline gap', settled[0].endMs === settled[1].startMs && settled[1].endMs === settled[2].startMs);
 }
 
 async function testUiFlushDoesNotSettleForeground() {
@@ -337,11 +410,12 @@ async function testCheckpointConfirmationFailureDropsWindow() {
   const result = await withNow(base + 180_000, () =>
     sessionApi.runPeriodicCheckpoint(base + 180_000, { confirmForegroundPage: async () => ({ ok: false, reason: 'idle_not_active' }) })
   );
-  check('failed confirmation drops checkpoint', result.dropped === true);
-  check('failed confirmation does not settle', settled.length === 0);
+  check('failed confirmation estimates close', result.repaired === true && result.reason === 'checkpoint_estimated_close');
+  check('failed confirmation settles half checkpoint', settled.length === 1 && settled[0].settlementReason === 'checkpoint_estimated_close');
+  check('estimated close is capped to half checkpoint', settled[0].endMs - settled[0].startMs === 90_000);
   const session = await sessionApi.getSession();
   check('failed confirmation clears session', session.state === null);
-  check('failed checkpoint does not appear in live fallback', await liveActiveSeconds('p0.example.com', base) === 0);
+  check('failed checkpoint appears as estimated fallback only', await liveActiveSeconds('p0.example.com', base) === 90);
 }
 
 async function testShortBoundaryDropDoesNotAppearInLiveFallback() {
@@ -358,127 +432,119 @@ async function testShortBoundaryDropDoesNotAppearInLiveFallback() {
   check('short boundary drop does not appear in live fallback', await liveActiveSeconds('a.example.com', base) === 0);
 }
 
-async function applySimulatedActions(actions) {
-  for (const action of actions) {
-    await withNow(action.at, () =>
-      sessionApi.transitionStateAt(action.state, action.domain, action.at, action.reason || 'stable_test_boundary')
-    );
-  }
-}
-
-function simulateBoundaries(steps, initialApplied = { state: null, domain: null }) {
-  const stabilizationMs = 1000;
-  let applied = { ...initialApplied };
-  let pending = null;
-  const actions = [];
-  const same = (a, b) => (a?.state ?? null) === (b?.state ?? null) && (a?.domain ?? null) === (b?.domain ?? null);
-  const apply = (target, at, reason = 'stable_test_boundary') => {
-    actions.push({ state: target.state, domain: target.domain, at, reason });
-    applied = { ...target };
-    pending = null;
-  };
-  for (const step of steps) {
-    const target = { state: step.state, domain: step.domain || null };
-    if (pending && step.at - pending.at >= stabilizationMs) {
-      apply(pending.target, pending.at, `stable_${pending.reason || 'test_boundary'}`);
-    }
-    if (same(target, applied)) {
-      if (pending && !same(pending.target, target)) {
-        pending = null;
-      }
-      continue;
-    }
-    if (pending && same(pending.target, target)) continue;
-    pending = { target, at: step.at, reason: step.reason };
-  }
-  return actions;
-}
-
-async function testShortBoundaryJitterDoesNotCloseOrReopen() {
+async function testShortFocusBoundarySettlesImmediately() {
   resetAll();
   const base = 1778807000000;
   await seedActiveSession(base, 'a.example.com');
-  const actions = simulateBoundaries([
-    { state: null, domain: null, at: base + 10_000, reason: 'windowFocusPolled' },
-    { state: 'ACTIVE', domain: 'a.example.com', at: base + 10_500, reason: 'windowFocusPolled' },
-  ], { state: 'ACTIVE', domain: 'a.example.com' });
-  check('short A->none->A jitter produces no applied boundary', actions.length === 0, JSON.stringify(actions));
-  await applySimulatedActions(actions);
+  await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt(null, null, base + 10_000, 'windowFocusPolled')
+  );
+  await withNow(base + 10_500, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + 10_500, 'windowFocusPolled')
+  );
   const session = await sessionApi.getSession();
   const events = await eventApi.getEvents();
-  check('short jitter keeps session startTime unchanged', session.startTime === base);
-  check('short jitter writes no ACTIVE END', !events.some((event) => event.type === 'END' && event.state === 'ACTIVE'));
+  check('short focus boundary reopens at observed time', session.state === 'ACTIVE' && session.startTime === base + 10_500);
+  check('short focus boundary writes ACTIVE END', events.some((event) => event.type === 'END' && event.state === 'ACTIVE'));
+  check('short focus boundary creates durable segment', settled.length === 1);
+  check('short focus segment duration is exact first window', settled[0].endMs - settled[0].startMs === 10_000);
 }
 
-async function testRepeatedTransientFocusNoiseDoesNotBlockCheckpoint() {
+async function testRepeatedTransientFocusNoiseCreatesCompleteSegments() {
   resetAll();
   const base = 1778807500000;
   await seedActiveSession(base, 'a.example.com');
-  const steps = [];
   for (let t = 30_000; t <= 180_000; t += 30_000) {
-    steps.push({ state: null, domain: null, at: base + t, reason: 'windowFocusPolled' });
-    steps.push({ state: 'ACTIVE', domain: 'a.example.com', at: base + t + 500, reason: 'windowFocusPolled' });
+    await withNow(base + t, () =>
+      sessionApi.transitionStateAt(null, null, base + t, 'windowFocusPolled')
+    );
+    await withNow(base + t + 500, () =>
+      sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + t + 500, 'windowFocusPolled')
+    );
   }
-  const actions = simulateBoundaries(steps, { state: 'ACTIVE', domain: 'a.example.com' });
-  check('repeated transient focus noise produces no applied boundary', actions.length === 0, JSON.stringify(actions));
-  await applySimulatedActions(actions);
-  const beforeCheckpoint = await sessionApi.getSession();
-  check('transient noise keeps original checkpoint anchor', beforeCheckpoint.startTime === base);
-  const checkpoint = await withNow(base + 190_000, () =>
-    sessionApi.runPeriodicCheckpoint(base + 190_000, { confirmForegroundPage: async () => ({ ok: true }) })
-  );
-  check('checkpoint still succeeds after repeated transient noise', checkpoint.checkpointed === true, JSON.stringify(checkpoint));
-  check('checkpoint writes one durable segment', settled.length === 1);
+  const session = await sessionApi.getSession();
+  check('transient focus noise keeps latest reopen as anchor', session.startTime === base + 180_500);
+  check('transient focus noise writes every closed foreground window', settled.length === 6, JSON.stringify(settled));
+  check('first transient focus segment is 30s', settled[0].endMs - settled[0].startMs === 30_000);
+  check('later transient focus segment keeps exact 500ms gap', settled[1].endMs - settled[1].startMs === 29_500);
 }
 
-async function testShortDomainSwitchJitterDoesNotCloseOrReopen() {
+async function testShortDomainSwitchSettlesImmediately() {
   resetAll();
   const base = 1778807750000;
   await seedActiveSession(base, 'a.example.com');
-  const actions = simulateBoundaries([
-    { state: 'ACTIVE', domain: 'b.example.com', at: base + 10_000, reason: 'tabActivated' },
-    { state: 'ACTIVE', domain: 'a.example.com', at: base + 10_500, reason: 'tabActivated' },
-  ], { state: 'ACTIVE', domain: 'a.example.com' });
-  check('short A->B->A jitter produces no applied boundary', actions.length === 0, JSON.stringify(actions));
-  await applySimulatedActions(actions);
+  await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 10_000, 'tabActivated')
+  );
+  await withNow(base + 10_500, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + 10_500, 'tabActivated')
+  );
   const session = await sessionApi.getSession();
   const events = await eventApi.getEvents();
-  check('short domain jitter keeps session startTime unchanged', session.domain === 'a.example.com' && session.startTime === base);
-  check('short domain jitter writes no ACTIVE END', !events.some((event) => event.type === 'END' && event.state === 'ACTIVE'));
+  check('short domain switch reopens latest domain immediately', session.domain === 'a.example.com' && session.startTime === base + 10_500);
+  check('short domain switch writes ACTIVE END events', events.filter((event) => event.type === 'END' && event.state === 'ACTIVE').length >= 2);
+  check('short domain switch creates old and intermediate segments', settled.length === 2);
+  check('intermediate short segment preserves exact ms span', settled[1].endMs - settled[1].startMs === 500);
 }
 
-async function testStableUnfocusClosesUnconfirmedForeground() {
+async function testUnfocusClosesForegroundImmediately() {
   resetAll();
   const base = 1778808000000;
   await seedActiveSession(base, 'a.example.com');
-  const actions = simulateBoundaries([
-    { state: null, domain: null, at: base + 10_000, reason: 'windowFocusPolled' },
-    { state: null, domain: null, at: base + 16_000, reason: 'windowFocusPolled' },
-  ], { state: 'ACTIVE', domain: 'a.example.com' });
-  check('stable unfocus applies null boundary at original timestamp', actions.some((a) => a.state === null && a.at === base + 10_000));
-  await applySimulatedActions(actions);
+  await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt(null, null, base + 10_000, 'windowFocusPolled')
+  );
   const session = await sessionApi.getSession();
-  check('stable unfocus closes foreground session', session.state === null);
-  check('stable unfocus creates durable segment', settled.length === 1);
-  check('stable unfocus durable duration is 10s', settled[0].endMs - settled[0].startMs === 10_000);
-  check('stable unfocus appears in live fallback', await liveActiveSeconds('a.example.com', base) === 10);
+  check('unfocus closes foreground session immediately', session.state === null);
+  check('unfocus creates durable segment', settled.length === 1);
+  check('unfocus durable duration is 10s', settled[0].endMs - settled[0].startMs === 10_000);
+  check('unfocus appears in live fallback', await liveActiveSeconds('a.example.com', base) === 10);
 }
 
-async function testStableBoundaryAppliesAtOriginalSwitchTime() {
+async function testDomainBoundaryAppliesImmediately() {
   resetAll();
   const base = 1778808500000;
   await seedActiveSession(base, 'a.example.com');
-  const actions = simulateBoundaries([
-    { state: 'ACTIVE', domain: 'b.example.com', at: base + 10_000, reason: 'tabActivated' },
-    { state: 'ACTIVE', domain: 'b.example.com', at: base + 11_000, reason: 'tabActivated' },
-  ], { state: 'ACTIVE', domain: 'a.example.com' });
-  check('stable B applies at switch timestamp', actions.some((a) => a.state === 'ACTIVE' && a.domain === 'b.example.com' && a.at === base + 10_000));
-  await applySimulatedActions(actions);
+  await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 10_000, 'tabActivated')
+  );
   const session = await sessionApi.getSession();
-  check('stable B session starts at original switch timestamp', session.domain === 'b.example.com' && session.startTime === base + 10_000);
-  check('stable A->B creates durable segment', settled.length === 1);
-  check('stable A->B durable duration is 10s', settled[0].endMs - settled[0].startMs === 10_000);
-  check('stable A->B normal boundary appears in live fallback', await liveActiveSeconds('a.example.com', base) === 10);
+  check('domain boundary session starts at switch timestamp', session.domain === 'b.example.com' && session.startTime === base + 10_000);
+  check('domain boundary session records start reason', session.startReason === 'tabActivated');
+  check('domain boundary creates durable segment', settled.length === 1);
+  check('domain boundary durable duration is 10s', settled[0].endMs - settled[0].startMs === 10_000);
+  check('domain boundary description end reason is original source event', settled[0].description.end.reason === 'tabActivated');
+  check('domain boundary settlement reason remains transition_complete', settled[0].settlementReason === 'transition_complete');
+  check('domain boundary normal boundary appears in live fallback', await liveActiveSeconds('a.example.com', base) === 10);
+}
+
+async function testMediaReasonCannotDriveForegroundTransition() {
+  resetAll();
+  const base = 1778808600000;
+  await seedActiveSession(base, 'a.example.com');
+  const result = await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 10_000, 'tabAudible')
+  );
+  const session = await sessionApi.getSession();
+  check('tabAudible transition is skipped', result?.skipped === true);
+  check('tabAudible does not change foreground session', session.domain === 'a.example.com' && session.startTime === base);
+  check('tabAudible does not create usage segment', settled.length === 0);
+}
+
+async function testLegacyMediaStartReasonIsSanitizedOnSettlement() {
+  resetAll();
+  const base = 1778808650000;
+  await seedActiveSession(base, 'legacy.example.com', {
+    startReason: 'tabAudible',
+    startOperationSource: 'chrome_event',
+    startAtMs: base,
+  });
+  await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'next.example.com', base + 10_000, 'tabActivated')
+  );
+  check('legacy media-start session still settles', settled.length === 1);
+  check('legacy media-start reason is sanitized', settled[0].description.start.reason === 'unknown_start', JSON.stringify(settled[0].description));
+  check('legacy media-start does not expose tabAudible', settled[0].description.summary.includes('tabAudible') === false, JSON.stringify(settled[0].description));
 }
 
 async function testCheckpointThenBoundaryDoesNotDoubleCountCheckpointWindow() {
@@ -490,11 +556,26 @@ async function testCheckpointThenBoundaryDoesNotDoubleCountCheckpointWindow() {
   );
   check('checkpoint succeeds before boundary', checkpoint.checkpointed === true);
   await withNow(base + 210_000, () =>
-    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 210_000, 'stable_tabActivated')
+    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 210_000, 'tabActivated')
   );
   check('checkpoint plus boundary creates two durable segments', settled.length === 2);
   check('first segment is 180s checkpoint', settled[0].endMs - settled[0].startMs === 180_000);
   check('second segment is 30s tail after checkpoint', settled[1].endMs - settled[1].startMs === 30_000);
+}
+
+async function testCheckpointReopenPreservesTabMetadata() {
+  resetAll();
+  const base = 1778808900000;
+  await seedActiveSession(base, 'a.example.com', { tabId: 42, windowId: 7 });
+  const checkpoint = await withNow(base + 180_000, () =>
+    sessionApi.runPeriodicCheckpoint(base + 180_000, {
+      confirmForegroundPage: async () => ({ ok: true, observedDomain: 'a.example.com', observedState: 'ACTIVE', tabId: 42, windowId: 7 }),
+    })
+  );
+  const session = await sessionApi.getSession();
+  check('checkpoint succeeds', checkpoint.checkpointed === true, JSON.stringify(checkpoint));
+  check('checkpoint reopen keeps tabId', session.tabId === 42, JSON.stringify(session));
+  check('checkpoint reopen keeps windowId', session.windowId === 7, JSON.stringify(session));
 }
 
 async function testIdleAndLockedBlockForegroundActive() {
@@ -517,10 +598,52 @@ async function testIdleAndLockedBlockForegroundActive() {
   check('locked blocks foreground ACTIVE', stateApi.resolveState(lockedContext) === 'IDLE');
 }
 
+async function testForegroundMediaCompensatesIdleAndFocusLoss() {
+  resetAll();
+  const baseContext = contextApi.buildContext(null, {
+    tabId: 10,
+    windowId: 2,
+    url: 'https://media.example.com/watch',
+    domain: 'media.example.com',
+    isFocused: true,
+    idleState: 'active',
+    isIdle: false,
+  });
+
+  const focusLossWithMedia = {
+    ...baseContext,
+    isFocused: false,
+    foregroundMediaActive: true,
+    isAudible: true,
+    mediaKind: 'video',
+    mediaSourceTabId: 10,
+    mediaSourceDomain: 'media.example.com',
+    windowState: 'normal',
+  };
+  check('foreground media keeps unfocused visible Chrome tab ACTIVE', stateApi.resolveState(focusLossWithMedia) === 'ACTIVE');
+
+  const idleWithMedia = {
+    ...focusLossWithMedia,
+    idleState: 'idle',
+    isIdle: true,
+  };
+  check('foreground media keeps idle visible Chrome tab ACTIVE', stateApi.resolveState(idleWithMedia) === 'ACTIVE');
+
+  const lockedWithMedia = {
+    ...focusLossWithMedia,
+    idleState: 'locked',
+    isIdle: true,
+  };
+  check('locked with media is not ordinary foreground ACTIVE', stateApi.resolveState(lockedWithMedia) !== 'ACTIVE');
+}
+
 async function run() {
   const tests = [
     testOrdinaryPageActive180Settles,
     testNormalBoundaryCountsInLiveFallback,
+    testOpenOverlapSameDomainWritesZeroBoundarySegment,
+    testCloseWithoutOpenWritesZeroDiagnosticSegment,
+    testCloseDomainMismatchWritesOldAndObservedSegments,
     testLiveFallbackDoesNotNeedCheckpoint,
     testIdleBeforeCheckpointDropsWindow,
     testMissedIdleEventCountsAtMost180,
@@ -531,18 +654,23 @@ async function run() {
     testActiveUnknownSettlementKeepsUnknownOnMismatch,
     testIdleInactiveCloseSettlesActiveSession,
     testIdleActiveReopenStartsNewActiveSession,
-    testSpecialPageDoesNotCount,
+    testSpecialPageCountsAsForeground,
+    testSpecialPagesCreateContinuousForegroundSegments,
     testUiFlushDoesNotSettleForeground,
     testRepeatedUiReadsDoNotCreateDurableSegments,
     testCheckpointConfirmationFailureDropsWindow,
     testShortBoundaryDropDoesNotAppearInLiveFallback,
-    testShortBoundaryJitterDoesNotCloseOrReopen,
-    testRepeatedTransientFocusNoiseDoesNotBlockCheckpoint,
-    testShortDomainSwitchJitterDoesNotCloseOrReopen,
-    testStableUnfocusClosesUnconfirmedForeground,
-    testStableBoundaryAppliesAtOriginalSwitchTime,
+    testShortFocusBoundarySettlesImmediately,
+    testRepeatedTransientFocusNoiseCreatesCompleteSegments,
+    testShortDomainSwitchSettlesImmediately,
+    testUnfocusClosesForegroundImmediately,
+    testDomainBoundaryAppliesImmediately,
+    testMediaReasonCannotDriveForegroundTransition,
+    testLegacyMediaStartReasonIsSanitizedOnSettlement,
     testCheckpointThenBoundaryDoesNotDoubleCountCheckpointWindow,
+    testCheckpointReopenPreservesTabMetadata,
     testIdleAndLockedBlockForegroundActive,
+    testForegroundMediaCompensatesIdleAndFocusLoss,
   ];
   let passed = 0;
   for (const test of tests) {

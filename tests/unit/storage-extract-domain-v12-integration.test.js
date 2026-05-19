@@ -27,7 +27,7 @@ function loadDomainSemantics() {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
   const wrapped = code
     .replace(/export\s+function\s+/g, 'function ')
-    + '\nthis.__domainSemantics = { normalizeHostname, matchDomain };';
+    + '\nthis.__domainSemantics = { normalizeHostname, domainForUrl, matchDomain };';
   const context = { console, URL, this: null };
   context.this = context;
   vm.runInNewContext(wrapped, context, { filename: 'domain-semantics.js' });
@@ -38,7 +38,7 @@ function loadStorageExtractDomain(deps) {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'storage.js'), 'utf8');
   const transformed = code
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/aggregate\.js';/, 'const computeAllDomains = __deps.computeAllDomains; const computeAllDomainsWithAudio = __deps.computeAllDomainsWithAudio;')
-    .replace(/import\s+\{\s*matchDomain\s+as\s+matchDomainV12,\s*normalizeHostname\s*\}\s+from\s+'\.\.\/core\/domain-semantics\.js';/, 'const matchDomainV12 = __deps.matchDomainV12; const normalizeHostname = __deps.normalizeHostname;')
+    .replace(/import\s+\{\s*domainForUrl,\s*matchDomain\s+as\s+matchDomainV12,\s*normalizeHostname\s*\}\s+from\s+'\.\.\/core\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl; const matchDomainV12 = __deps.matchDomainV12; const normalizeHostname = __deps.normalizeHostname;')
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/timing-trace\.js';/, 'const emitTrace = async () => {};')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ')
@@ -67,11 +67,13 @@ function run() {
     computeAllDomainsWithAudio: () => ({ domains: {}, audioSeconds: 0 }),
     matchDomainV12: domainSemantics.matchDomain,
     normalizeHostname: domainSemantics.normalizeHostname,
+    domainForUrl: domainSemantics.domainForUrl,
   });
 
   section('SED-1 storage.extractDomain should delegate hostname normalization to v1.2 normalizeHostname');
   expectEqual('组合断言: 保留www + lowercase + trailing dot', storage.extractDomain('https://WWW.Example.COM./x'), 'www.example.com');
-  expectEqual('special page should be filtered', storage.extractDomain('chrome://settings'), null);
+  expectEqual('chrome://settings maps to pseudo domain', storage.extractDomain('chrome://settings'), 'chrome-settings.chrome-local');
+  expectEqual('file URL maps to pseudo domain', storage.extractDomain('file:///C:/tmp/a.html'), 'local-file.chrome-local');
   expectEqual('invalid url should return null', storage.extractDomain('not-a-url'), null);
 
   const total = passed + failed;

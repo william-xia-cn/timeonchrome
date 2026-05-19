@@ -9,11 +9,10 @@ export const AttentionState = {
 };
 
 function isForegroundPageEligible(context) {
-  return !!context &&
-    context.tabId != null &&
-    context.isFocused === true &&
-    isSystemActive(context) &&
-    (context.candidateKind === 'known_domain' || context.candidateKind === 'unknown_domain' || (!!context.domain && context.candidateKind == null));
+  if (!context || context.tabId == null || !context.domain) return false;
+  if (context.idleState === 'locked') return false;
+  if (context.isFocused === true && isSystemActive(context)) return true;
+  return context.foregroundMediaActive === true;
 }
 
 function isSystemActive(context) {
@@ -30,7 +29,7 @@ function isSystemActive(context) {
  * @returns {string} AttentionState 值
  *
  * 规则：
- * 1. 无域名 → IDLE（防止 chrome:// 页面污染）
+ * 1. 无前台域名或媒体域名 → IDLE
  * 2. 空闲 → IDLE
  * 3. 窗口有焦点 + 有活跃 tab → ACTIVE
  * 4. 画中画 → PIP_ACTIVE（单独记录，不混入普通在线/后台媒体时长）
@@ -38,7 +37,7 @@ function isSystemActive(context) {
  * 6. 其他 → PASSIVE（权重 = 0）
  */
 export function resolveState(context) {
-  if (!context?.domain && !context?.mediaSourceDomain && !context?.candidateDomain) return AttentionState.IDLE;
+  if (!context?.domain && !context?.mediaSourceDomain) return AttentionState.IDLE;
   // 媒体播放优先：即使系统 idle，也不能丢失媒体播放计时。
   if (context.isPiP) return AttentionState.PIP_ACTIVE;
   if (isForegroundPageEligible(context)) return AttentionState.ACTIVE;

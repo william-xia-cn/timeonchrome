@@ -27,11 +27,11 @@ async function run() {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
   const wrapped = code
     .replace(/export\s+function\s+/g, 'function ')
-    + '\nthis.__domainSemantics = { normalizeHostname, matchDomain };';
+    + '\nthis.__domainSemantics = { normalizeHostname, domainForUrl, matchDomain };';
   const context = { console, URL, this: null };
   context.this = context;
   vm.runInNewContext(wrapped, context, { filename: 'domain-semantics.js' });
-  const { normalizeHostname, matchDomain } = context.__domainSemantics;
+  const { normalizeHostname, domainForUrl, matchDomain } = context.__domainSemantics;
 
   section('N1 normalizeHostname: lowercase / trailing dot / punycode / invalid tolerance');
   expectEqual('lowercase', normalizeHostname('EXAMPLE.COM'), 'example.com');
@@ -58,6 +58,15 @@ async function run() {
     false
   );
   expectEqual('match still recognizes www symmetric alias', matchDomain('www.example.com', 'example.com'), true);
+
+  section('U1 domainForUrl: special Chrome foreground pages map to safe pseudo domains');
+  expectEqual('chrome-extension pseudo domain', domainForUrl('chrome-extension://abc/admin.html'), 'extension-page.chrome-local');
+  expectEqual('file pseudo domain', domainForUrl('file:///C:/tmp/a.html'), 'local-file.chrome-local');
+  expectEqual('chrome extensions pseudo domain', domainForUrl('chrome://extensions'), 'chrome-extensions.chrome-local');
+  expectEqual('chrome settings pseudo domain', domainForUrl('chrome://settings'), 'chrome-settings.chrome-local');
+  expectEqual('about pseudo domain', domainForUrl('about:blank'), 'about-page.chrome-local');
+  expectEqual('data pseudo domain', domainForUrl('data:text/html,<p>x</p>'), 'embedded-page.chrome-local');
+  expectEqual('invalid url still null', domainForUrl('not-a-url'), null);
 
   const total = passed + failed;
   console.log(`\n[Domain Semantics v1.2] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

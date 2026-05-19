@@ -107,6 +107,8 @@ let seg = Object.values(all)[0];
 chk('segment profileId', seg.profileId, 'profile-real-1');
 chk('segment deviceId', seg.deviceId, 'device-id-real-1');
 chk('segment channel active', seg.channel, 'active');
+chk('segment description end periodic', seg.description.end.reason, 'periodic_checkpoint');
+chk('segment description end source timer', seg.description.end.source, 'timer');
 
 sec('LF2: FLUSH_TIME does not settle unconfirmed foreground_page session');
 mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
@@ -133,7 +135,55 @@ chk('session still active', reopened.state, 'ACTIVE');
 chk('session domain unchanged', reopened.domain, 'live.example.com');
 chk('session startTime unchanged', reopened.startTime, NOW - 90000);
 
+sec('LF2b: popup_open settles foreground session and reopens it');
+mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
+mockNow = NOW;
+await chrome.storage.local.set({
+  cloud_profile_id: 'profile-popup-1',
+  cloud_device_id: 'device-popup-1',
+  cloud_device_token: 'device-popup-1-token',
+  guardian_session: { currentMode: 'rest' },
+});
+await sessionApi.saveSession({
+  state: 'ACTIVE',
+  domain: 'popup.example.com',
+  startTime: NOW - 45000,
+  lastHeartbeat: NOW - 1000,
+  startReason: 'tabActivated',
+  startOperationSource: 'chrome_event',
+  startAtMs: NOW - 45000,
+});
+const popupFlush = await sessionApi.flushOpenSessionToStats('popup_open', { allowForeground: true });
+chk('popup_open flush ok', popupFlush.ok, true);
+chk('popup_open flush settles foreground', popupFlush.flushed, true);
+chk('popup_open reason', popupFlush.reason, 'popup_open');
+all = await usage.getAllUsageSegments();
+chk('popup_open creates one segment', Object.keys(all).length, 1);
+seg = Object.values(all)[0];
+chk('popup_open segment reason', seg.settlementReason, 'popup_open');
+chk('popup_open description end reason', seg.description.end.reason, 'popup_open');
+chk('popup_open description end source', seg.description.end.source, 'ui_action');
+const popupReopened = await sessionApi.getSession();
+chk('popup_open reopened same state', popupReopened.state, 'ACTIVE');
+chk('popup_open reopened same domain', popupReopened.domain, 'popup.example.com');
+chk('popup_open reopened start reason', popupReopened.startReason, 'popup_open_reopen');
+chk('popup_open reopened source', popupReopened.startOperationSource, 'ui_action');
+
 sec('LF3: repeated flush at same time does not duplicate count');
+mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
+mockNow = NOW;
+await chrome.storage.local.set({
+  cloud_profile_id: 'profile-real-3',
+  cloud_device_id: 'device-id-real-3',
+  cloud_device_token: 'device-token-real-3',
+  guardian_session: { currentMode: 'rest' },
+});
+await sessionApi.saveSession({
+  state: 'ACTIVE',
+  domain: 'live.example.com',
+  startTime: NOW - 90000,
+  lastHeartbeat: NOW - 1000,
+});
 const flush2 = await sessionApi.flushOpenSessionToStats('ui_flush');
 chk('second flush skipped', flush2.flushed, false);
 all = await usage.getAllUsageSegments();
@@ -176,12 +226,15 @@ chk('periodic checkpoint reason', checkpoint1.reason, 'periodic_checkpoint');
 all = await usage.getAllUsageSegments();
 chk('periodic checkpoint creates one segment', Object.keys(all).length, 1);
 seg = Object.values(all)[0];
+chk('checkpoint description start fallback', seg.description.start.reason, 'unknown_start');
+chk('checkpoint description end', seg.description.end.reason, 'periodic_checkpoint');
 const checkpointDay = await usage.getDailyUsageStats(seg.date);
 chk('periodic checkpoint updates daily aggregate', checkpointDay.domains['checkpoint.example.com'].activeSeconds > 0, true);
 const checkpointReopened = await sessionApi.getSession();
 chk('periodic checkpoint reopened same state', checkpointReopened.state, 'ACTIVE');
 chk('periodic checkpoint reopened same domain', checkpointReopened.domain, 'checkpoint.example.com');
 chk('periodic checkpoint reopened startTime at checkpoint boundary', checkpointReopened.startTime, NOW - 1000);
+chk('periodic checkpoint reopened start reason', checkpointReopened.startReason, 'periodic_checkpoint_reopen');
 
 sec('LF3e: periodic checkpoint skips when interval < 3 minutes');
 mockNow = NOW + 120000;
@@ -226,6 +279,81 @@ chk('repeat checkpoint skip reason', checkpointRepeat.reason, 'interval_not_reac
 all = await usage.getAllUsageSegments();
 chk('repeat checkpoint keeps segment count', Object.keys(all).length, 1);
 
+sec('LF3h: checkpoint confirmation failure writes estimated close');
+mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
+mockNow = NOW;
+await chrome.storage.local.set({
+  cloud_profile_id: 'profile-checkpoint-est-close',
+  cloud_device_id: 'device-checkpoint-est-close',
+  guardian_session: { currentMode: 'rest' },
+});
+await sessionApi.saveSession({
+  state: 'ACTIVE',
+  domain: 'estimated-close.example.com',
+  startTime: NOW - 181000,
+  lastHeartbeat: NOW - 1000,
+});
+const estimatedClose = await sessionApi.runPeriodicCheckpoint(mockNow, {
+  confirmForegroundPage: async () => ({ ok: false, reason: 'idle_not_active', idleState: 'idle' }),
+});
+chk('estimated close ok', estimatedClose.ok, true);
+chk('estimated close repaired', estimatedClose.repaired, true);
+chk('estimated close reason', estimatedClose.reason, 'checkpoint_estimated_close');
+all = await usage.getAllUsageSegments();
+chk('estimated close creates one segment', Object.keys(all).length, 1);
+seg = Object.values(all)[0];
+chk('estimated close settlement reason', seg.settlementReason, 'checkpoint_estimated_close');
+chk('estimated close caps at half checkpoint', seg.endMs - seg.startMs, 90000);
+chk('estimated close description end', seg.description.end.reason, 'checkpoint_estimated_half_interval_close');
+const estimatedClosedSession = await sessionApi.getSession();
+chk('estimated close clears session', estimatedClosedSession.state, null);
+
+sec('LF3i: checkpoint opens estimated session when active sample exists but session is closed');
+mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
+mockNow = NOW;
+const estimatedOpen = await sessionApi.runPeriodicCheckpoint(mockNow, {
+  confirmForegroundPage: async () => ({ ok: true, observedState: 'ACTIVE', observedDomain: 'estimated-open.example.com', idleState: 'active' }),
+});
+chk('estimated open ok', estimatedOpen.ok, true);
+chk('estimated open repaired', estimatedOpen.repaired, true);
+chk('estimated open reason', estimatedOpen.reason, 'checkpoint_estimated_open');
+all = await usage.getAllUsageSegments();
+chk('estimated open creates no immediate segment', Object.keys(all).length, 0);
+const estimatedOpenSession = await sessionApi.getSession();
+chk('estimated open session state', estimatedOpenSession.state, 'ACTIVE');
+chk('estimated open session domain', estimatedOpenSession.domain, 'estimated-open.example.com');
+chk('estimated open starts half checkpoint before now', estimatedOpenSession.startTime, NOW - 90000);
+chk('estimated open start reason', estimatedOpenSession.startReason, 'checkpoint_estimated_open');
+
+sec('LF3j: checkpoint mismatch estimates close old session and opens sampled active session');
+mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
+mockNow = NOW;
+await chrome.storage.local.set({
+  cloud_profile_id: 'profile-checkpoint-est-switch',
+  cloud_device_id: 'device-checkpoint-est-switch',
+  guardian_session: { currentMode: 'rest' },
+});
+await sessionApi.saveSession({
+  state: 'ACTIVE',
+  domain: 'old-sampled.example.com',
+  startTime: NOW - 181000,
+  lastHeartbeat: NOW - 1000,
+});
+const estimatedSwitch = await sessionApi.runPeriodicCheckpoint(mockNow, {
+  confirmForegroundPage: async () => ({ ok: false, reason: 'observed_mismatch', observedState: 'ACTIVE', observedDomain: 'new-sampled.example.com', idleState: 'active' }),
+});
+chk('estimated switch repaired', estimatedSwitch.repaired, true);
+chk('estimated switch opened', estimatedSwitch.opened, true);
+all = await usage.getAllUsageSegments();
+chk('estimated switch creates one old segment', Object.keys(all).length, 1);
+seg = Object.values(all)[0];
+chk('estimated switch old domain', seg.domain, 'old-sampled.example.com');
+chk('estimated switch old duration half checkpoint', seg.endMs - seg.startMs, 90000);
+const estimatedSwitchSession = await sessionApi.getSession();
+chk('estimated switch new session domain', estimatedSwitchSession.domain, 'new-sampled.example.com');
+chk('estimated switch new session start', estimatedSwitchSession.startTime, NOW - 90000);
+chk('estimated switch new session reason', estimatedSwitchSession.startReason, 'checkpoint_estimated_open');
+
 sec('LF4: token-only bound profile does not leak raw token into deviceId');
 mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
 let warnCount = 0;
@@ -267,6 +395,19 @@ seg = Object.values(all)[0];
 chk('unbound profile null', seg.profileId, null);
 chk('unbound device null', seg.deviceId, null);
 chkT('unbound warning emitted', warnCount > 0);
+
+sec('LF5b: monitoring_off description is local only metadata');
+mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
+await sessionApi.settleCurrentSessionSegment({
+  state: 'ACTIVE',
+  domain: 'monitoring-off.example.com',
+  startTime: NOW - 30000,
+  lastHeartbeat: NOW - 1000,
+}, NOW, 'monitoring_off');
+all = await usage.getAllUsageSegments();
+seg = Object.values(all)[0];
+chk('monitoring_off description end', seg.description.end.reason, 'monitoring_off');
+chk('monitoring_off description source', seg.description.end.source, 'chrome_event');
 
 sec('LF6: non-counted open session is a flush no-op');
 mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;

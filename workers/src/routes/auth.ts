@@ -7,6 +7,10 @@ async function hashPassword(password: string): Promise<string> {
   return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
 }
 
+function normalizeEmail(email: unknown): string {
+  return typeof email === 'string' ? email.trim().toLowerCase() : '';
+}
+
 export const authRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
@@ -15,10 +19,19 @@ export const authRouter = {
     // POST /auth/register
     if (request.method === 'POST' && path === '/auth/register') {
       try {
-        const { email, password } = await request.json<{ email: string; password: string }>();
+        const body = await request.json<{ email: string; password: string }>();
+        const email = normalizeEmail(body?.email);
+        const password = body?.password;
 
         if (!email || !password) {
           return json({ error: 'Email and password required' }, 400);
+        }
+
+        const existing = await env.DB.prepare(
+          `SELECT id FROM accounts WHERE LOWER(email) = ?`
+        ).bind(email).first<{ id: string }>();
+        if (existing) {
+          return json({ error: 'Email already exists' }, 400);
         }
 
         const passwordHash = await hashPassword(password);
@@ -49,7 +62,9 @@ export const authRouter = {
     // POST /auth/login
     if (request.method === 'POST' && path === '/auth/login') {
       try {
-        const { email, password } = await request.json<{ email: string; password: string }>();
+        const body = await request.json<{ email: string; password: string }>();
+        const email = normalizeEmail(body?.email);
+        const password = body?.password;
 
         if (!email || !password) {
           return json({ error: 'Email and password required' }, 400);
@@ -58,7 +73,7 @@ export const authRouter = {
         const passwordHash = await hashPassword(password);
 
         const result = await env.DB.prepare(
-          `SELECT id, email FROM accounts WHERE email = ? AND password_hash = ?`
+          `SELECT id, email FROM accounts WHERE LOWER(email) = ? AND password_hash = ?`
         ).bind(email, passwordHash).first<{ id: string; email: string }>();
 
         if (!result) {

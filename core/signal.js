@@ -1,5 +1,5 @@
 // core/signal.js — Chrome API 输入层 + micro-batching 事件合并
-import { normalizeHostname } from './domain-semantics.js';
+import { domainForUrl } from './domain-semantics.js';
 
 const BATCH_WINDOW = 80; // 80ms 覆盖 Chrome 事件簇
 const IDLE_DETECTION_SECONDS = 90;
@@ -20,17 +20,30 @@ export function initSignal(onContextChange) {
   }
 
   function emitMerged() {
+    if (batchTimer) {
+      clearTimeout(batchTimer);
+      batchTimer = null;
+    }
     if (Object.keys(pending).length > 0) {
       onContextChange({ ...pending });
     }
     pending = {};
-    batchTimer = null;
   }
 
   function scheduleMerge() {
     if (!batchTimer) {
       batchTimer = setTimeout(emitMerged, BATCH_WINDOW);
     }
+  }
+
+  function isMediaOnlyRawEvent(event = {}) {
+    const reason = event?._reason || null;
+    if (reason === 'tabAudible' || reason === 'mediaState') return true;
+    if (event?.mediaFactSource && reason !== 'tabUpdated') return true;
+    return event?.mediaSourceTabId != null &&
+      event?.domain == null &&
+      !Object.prototype.hasOwnProperty.call(event || {}, 'url') &&
+      reason !== 'tabUpdated';
   }
 
   /**
@@ -46,10 +59,18 @@ export function initSignal(onContextChange) {
       idleState: incoming.idleState ?? pending.idleState,
       isIdle: incoming.isIdle ?? pending.isIdle,
       isAudible: incoming.isAudible ?? pending.isAudible,
-      mediaKind: incoming.mediaKind ?? pending.mediaKind,
+      playing: incoming.playing ?? pending.playing,
+      mediaKind: incoming.mediaKind === 'video' || pending.mediaKind === 'video'
+        ? 'video'
+        : (incoming.mediaKind ?? pending.mediaKind),
       mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
       mediaSourceDomain: incoming.mediaSourceDomain ?? pending.mediaSourceDomain,
+      isMuted: incoming.isMuted ?? pending.isMuted,
       isPiP: incoming.isPiP ?? pending.isPiP,
+      isActiveTab: incoming.isActiveTab ?? pending.isActiveTab,
+      windowState: incoming.windowState ?? pending.windowState,
+      mediaFactSource: incoming.mediaFactSource ?? pending.mediaFactSource,
+      replacedTabId: incoming.replacedTabId ?? pending.replacedTabId,
       error: incoming.error ?? pending.error,
       _reason: incoming._reason ?? pending._reason ?? 'unknown',
       timestamp: Date.now(),
@@ -57,6 +78,9 @@ export function initSignal(onContextChange) {
   }
 
   function onEvent(rawEvent) {
+    if (Object.keys(pending).length > 0 && isMediaOnlyRawEvent(pending) !== isMediaOnlyRawEvent(rawEvent)) {
+      emitMerged();
+    }
     pending = mergeEvent(pending, rawEvent);
     scheduleMerge();
   }
@@ -65,7 +89,7 @@ export function initSignal(onContextChange) {
     if (!windowId || windowId === chrome.windows.WINDOW_ID_NONE) return {};
     try {
       const win = await chrome.windows.get(windowId);
-      return { isFocused: !!win?.focused };
+      return { isFocused: !!win?.focused, windowState: win?.state || null };
     } catch (err) {
       return { error: err?.message || String(err) };
     }
@@ -149,7 +173,10 @@ export function initSignal(onContextChange) {
 
   // 标签页更新（获取域名）
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (tab.active && tab.url) {
+    const hasForegroundNavigation =
+      Object.prototype.hasOwnProperty.call(changeInfo, 'url') ||
+      changeInfo.status === 'loading';
+    if (hasForegroundNavigation && tab.active && tab.url) {
       const windowId = tab.windowId ?? null;
       const domain = extractDomain(tab.url);
       if (domain) {
@@ -160,11 +187,62 @@ export function initSignal(onContextChange) {
           windowId,
           url: tab.url,
           domain,
-          ...(navigationClearsMedia ? { isAudible: false, mediaSourceTabId: tabId, mediaSourceDomain: null, isPiP: false } : {}),
+          ...(navigationClearsMedia ? { playing: false, isAudible: false, mediaSourceTabId: tabId, mediaSourceDomain: null, isPiP: false } : {}),
           ...focus,
           _reason: 'tabUpdated',
         });
       }
+    }
+
+    const hasAudibleFact =
+      Object.prototype.hasOwnProperty.call(changeInfo, 'audible') ||
+      Object.prototype.hasOwnProperty.call(tab || {}, 'audible');
+    if (hasAudibleFact) {
+      const windowId = tab?.windowId ?? null;
+      const url = tab?.url || null;
+      const domain = url ? extractDomain(url) : null;
+      const focus = await getWindowFocusState(windowId);
+      onEvent({
+        windowId,
+        playing: tab?.audible === true,
+        isAudible: tab?.audible === true,
+        mediaKind: tab?.audible ? 'audio' : null,
+        mediaSourceTabId: tabId,
+        mediaSourceDomain: domain,
+        isMuted: tab?.mutedInfo?.muted === true,
+        isActiveTab: tab?.active === true,
+        windowState: focus.windowState ?? null,
+        mediaFactSource: 'tabs_api_audible',
+        _reason: 'tabAudible',
+      });
+    }
+  });
+
+  // 标签页替换（prerender / instant / discard restore 可能让可见 tab 换 tabId）
+  chrome.tabs.onReplaced?.addListener?.(async (addedTabId, removedTabId) => {
+    try {
+      const tab = await chrome.tabs.get(addedTabId);
+      if (!tab?.active) return;
+      const windowId = tab.windowId ?? null;
+      const url = tab.url || null;
+      const domain = url ? extractDomain(url) : null;
+      const focus = await getWindowFocusState(windowId);
+      onEvent({
+        tabId: addedTabId,
+        replacedTabId: removedTabId ?? null,
+        windowId,
+        url,
+        domain,
+        ...focus,
+        _reason: 'tabReplaced',
+      });
+    } catch (err) {
+      onEvent({
+        tabId: addedTabId,
+        replacedTabId: removedTabId ?? null,
+        error: err?.message || String(err),
+        _reason: 'tabReplaced',
+      });
     }
   });
 
@@ -189,16 +267,25 @@ export function initSignal(onContextChange) {
   // 媒体状态（从 content.js 或 tabs API 转发）
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (msg.type === 'MEDIA_STATE' && sender.tab) {
-      const url = sender.tab.url || null;
-      const domain = url ? extractDomain(url) : null;
-      onEvent({
-        isAudible: msg.playing,
-        isPiP: msg.isPiP,
-        mediaKind: msg.mediaKind,
-        mediaSourceTabId: sender.tab.id,
-        mediaSourceDomain: domain,
-        _reason: 'mediaState',
-      });
+      (async () => {
+        const url = sender.tab.url || null;
+        const domain = url ? extractDomain(url) : null;
+        const focus = await getWindowFocusState(sender.tab.windowId);
+        onEvent({
+          windowId: sender.tab.windowId ?? null,
+          playing: msg.playing === true,
+          isAudible: msg.playing === true,
+          isPiP: msg.isPiP === true,
+          mediaKind: msg.mediaKind || null,
+          mediaSourceTabId: sender.tab.id,
+          mediaSourceDomain: domain,
+          isMuted: sender.tab.mutedInfo?.muted === true,
+          isActiveTab: sender.tab.active === true,
+          windowState: focus.windowState ?? null,
+          mediaFactSource: msg.source || 'content_media_state',
+          _reason: 'mediaState',
+        });
+      })();
     }
   });
 
@@ -233,15 +320,5 @@ export function initSignal(onContextChange) {
  * @returns {string|null}
  */
 function extractDomain(url) {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    // 排除 chrome://、chrome-extension://、edge://、about: 等特殊页面
-    if (u.protocol === 'chrome:' || u.protocol === 'chrome-extension:' || u.protocol === 'edge:' || u.protocol === 'about:' || u.protocol === 'file:' || u.protocol === 'data:' || u.protocol === 'blob:') return null;
-    const hostname = u.hostname;
-    if (!hostname) return null;
-    return normalizeHostname(hostname);
-  } catch {
-    return null;
-  }
+  return domainForUrl(url);
 }

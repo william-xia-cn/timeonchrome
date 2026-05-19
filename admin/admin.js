@@ -34,6 +34,10 @@ const CLOUD_KEYS = {
   IS_BOUND: 'cloud_is_bound'  // 标记是否已绑定
 };
 
+function normalizeEmailInput(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 let config = null;
 let isAuthenticated = false;
 let accountToken = null;
@@ -47,6 +51,12 @@ let syncFeedbackState = {
 };
 let adminPageRefreshSeq = 0;
 let settlementAnalysisRows = [];
+let settlementReconciliation = null;
+let settlementAnalysisRange = 'today';
+let settlementAnalysisLabel = '今日';
+let mediaSettlementRows = [];
+let mediaSettlementRange = 'today';
+let mediaSettlementLabel = '今日';
 let isLocalReadOnlyMode = false;
 
 // ── Child view gate（Soft Gate）────────────────────────────────────────────
@@ -555,7 +565,7 @@ function setupLoginForm() {
   if (!loginBtn) return;
   
   loginBtn.addEventListener('click', async () => {
-    const email = document.getElementById('email-input')?.value.trim();
+    const email = normalizeEmailInput(document.getElementById('email-input')?.value);
     const password = document.getElementById('pw-input')?.value;
     
     if (!email || !password) {
@@ -690,7 +700,7 @@ function showRegisterForm() {
  * 流程：注册账户 → 创建子档案 → 绑定设备 → 进入主界面
  */
 async function handleRegister() {
-  const email = document.getElementById('reg-email')?.value.trim();
+  const email = normalizeEmailInput(document.getElementById('reg-email')?.value);
   const password = document.getElementById('reg-password')?.value;
   const password2 = document.getElementById('reg-password2')?.value;
   const childName = document.getElementById('reg-child-name')?.value.trim();
@@ -995,6 +1005,7 @@ function setRulesPageError(message) {
     'rules-quota-daily-display',
     'rules-domain-quotas-display',
     'rules-schedule-display',
+    'rules-temporary-composite-display',
   ].forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
@@ -1028,7 +1039,23 @@ function setSettlementsPageError(message) {
   if (summaryEl) {
     summaryEl.innerHTML = `<span style="color:var(--danger);">${safeMessage}</span>`;
   }
+  const reconciliationEl = document.getElementById('settlement-reconciliation-summary');
+  if (reconciliationEl) {
+    reconciliationEl.innerHTML = `<span style="color:var(--danger);">${safeMessage}</span>`;
+  }
   const tableEl = document.getElementById('settlement-table-wrap');
+  if (tableEl) {
+    tableEl.innerHTML = `<div style="color:var(--danger);text-align:center;padding:16px;">${safeMessage}</div>`;
+  }
+}
+
+function setMediaSettlementsPageError(message) {
+  const safeMessage = escHtml(message || '加载失败，请稍后重试');
+  const summaryEl = document.getElementById('media-settlement-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML = `<span style="color:var(--danger);">${safeMessage}</span>`;
+  }
+  const tableEl = document.getElementById('media-settlement-table-wrap');
   if (tableEl) {
     tableEl.innerHTML = `<div style="color:var(--danger);text-align:center;padding:16px;">${safeMessage}</div>`;
   }
@@ -1071,6 +1098,10 @@ async function refreshPageByNav(page, requestSeq) {
       await renderSettlementsPage();
       return;
     }
+    if (page === 'media-settlements') {
+      await renderMediaSettlementsPage();
+      return;
+    }
     if (page === 'devices') {
       await setupDevicesPage();
     }
@@ -1080,6 +1111,7 @@ async function refreshPageByNav(page, requestSeq) {
     if (page === 'rules') setRulesPageError(message);
     else if (page === 'stats') setStatsPageError(message);
     else if (page === 'settlements') setSettlementsPageError(message);
+    else if (page === 'media-settlements') setMediaSettlementsPageError(message);
     else if (page === 'devices') setDevicesPageError(message);
   }
 }
@@ -1348,6 +1380,56 @@ function renderScheduleSection() {
   }).join('');
 }
 
+function formatRulesDateTime(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return new Date(value).toLocaleString();
+}
+
+function renderTemporaryCompositeRecords(records) {
+  const el = document.getElementById('rules-temporary-composite-display');
+  if (!el) return;
+  const list = Array.isArray(records) ? records : [];
+  if (list.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无临时综合网站申请</div>';
+    return;
+  }
+  el.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="settlement-table">
+        <thead>
+          <tr>
+            <th>域名</th>
+            <th>来源 Tab</th>
+            <th>申请时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map((record) => `
+            <tr>
+              <td class="settlement-domain-cell" title="${escAttr(record.domain || '')}">${escHtml(record.domain || '—')}</td>
+              <td>${Number.isInteger(Number(record.tabId)) ? escHtml(String(record.tabId)) : '—'}</td>
+              <td>${escHtml(formatRulesDateTime(record.createdAt))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderTemporaryCompositeSection() {
+  const el = document.getElementById('rules-temporary-composite-display');
+  if (!el) return;
+  el.textContent = '加载中...';
+  try {
+    const payload = await sendMsg({ type: 'GET_TEMPORARY_COMPOSITE_DOMAINS' });
+    renderTemporaryCompositeRecords(payload?.records || []);
+  } catch (error) {
+    el.innerHTML = `<div style="color:var(--danger);font-size:12px;padding:8px 0;">${escHtml(error?.message || '加载失败')}</div>`;
+  }
+}
+
 function renderRulesPage() {
   const modeDescEl = document.getElementById('rules-mode-desc');
   if (modeDescEl) {
@@ -1401,6 +1483,7 @@ function renderRulesPage() {
 
   renderQuotaSection();
   renderScheduleSection();
+  renderTemporaryCompositeSection();
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1733,11 +1816,36 @@ function formatSettlementTime(ms) {
   });
 }
 
+function normalizeSettlementEventReason(reason) {
+  const value = typeof reason === 'string' ? reason.trim() : '';
+  if (value === 'tabAudible' || value === 'mediaState') return '';
+  return value.startsWith('stable_') ? value.slice('stable_'.length) : value;
+}
+
+function formatSettlementEndpoint(endpoint) {
+  return normalizeSettlementEventReason(endpoint?.reason || endpoint?.operation) || '—';
+}
+
+function formatSettlementEndpointTitle(endpoint) {
+  if (!endpoint) return '—';
+  const at = Number(endpoint.atMs);
+  const parts = [
+    `source=${endpoint.source || 'unknown'}`,
+    `reason=${normalizeSettlementEventReason(endpoint.reason) || '—'}`,
+    `operation=${normalizeSettlementEventReason(endpoint.operation) || '—'}`,
+  ];
+  if (Number.isFinite(at) && at > 0) {
+    parts.push(`at=${formatSettlementTime(at)}`);
+  }
+  return parts.join('；');
+}
+
 function normalizeSettlementRows(payload) {
   const rows = Array.isArray(payload?.segments) ? payload.segments : [];
   return rows
     .map(row => ({
       id: row?.id || '',
+      date: row?.date || '',
       domain: row?.domain || '(无域名)',
       channel: row?.channel || '—',
       framework: row?.framework || '',
@@ -1747,6 +1855,12 @@ function normalizeSettlementRows(payload) {
       endMs: Number(row?.endMs),
       durationSeconds: Number(row?.durationSeconds) || 0,
       settlementReason: row?.settlementReason || '—',
+      description: row?.description || null,
+      descriptionSummary: row?.description?.summary || '—',
+      openOperation: formatSettlementEndpoint(row?.description?.start),
+      closeOperation: formatSettlementEndpoint(row?.description?.end),
+      openOperationTitle: formatSettlementEndpointTitle(row?.description?.start),
+      closeOperationTitle: formatSettlementEndpointTitle(row?.description?.end),
       suspect: !!row?.suspect,
       suspectReason: row?.suspectReason || '',
       uploaded: !!row?.uploaded,
@@ -1768,6 +1882,38 @@ function getSettlementTypeLabel(row) {
   return row.framework || row.channel || '未知';
 }
 
+function getReconciliationStatusLabel(status) {
+  if (status === 'match') return '一致';
+  if (status === 'stats_missing') return '统计缺失';
+  if (status === 'segments_missing') return '落账缺失';
+  if (status === 'mismatch') return '不一致';
+  return status || '未知';
+}
+
+function formatSignedSeconds(seconds) {
+  const value = Number(seconds) || 0;
+  if (value === 0) return '0秒';
+  return `${value > 0 ? '+' : '-'}${formatSeconds(Math.abs(value))}`;
+}
+
+function renderSettlementReconciliationSummary() {
+  const el = document.getElementById('settlement-reconciliation-summary');
+  if (!el) return;
+  const summary = settlementReconciliation?.summary || {};
+  const rows = Array.isArray(settlementReconciliation?.rows) ? settlementReconciliation.rows : [];
+  const mismatchRows = rows.filter(row => row?.status !== 'match');
+  const topMismatch = mismatchRows.slice(0, 3).map(row =>
+    `${row.domain}/${row.channel}/${row.mode}: ${formatSignedSeconds(row.deltaSeconds)} (${getReconciliationStatusLabel(row.status)})`
+  ).join('；');
+  el.innerHTML = `
+    <span>对账：统计 ${formatSeconds(Number(summary.statsSeconds || 0))}</span>
+    <span>落账 ${formatSeconds(Number(summary.segmentSeconds || 0))}</span>
+    <span>差异 ${formatSignedSeconds(summary.deltaSeconds)}</span>
+    <span>异常行 ${Number(summary.mismatchCount || 0)}</span>
+    ${topMismatch ? `<span title="${escAttr(topMismatch)}">Top：${escHtml(topMismatch)}</span>` : '<span>今日统计与落账一致</span>'}
+  `;
+}
+
 function getSettlementSelectedDomain() {
   const select = document.getElementById('settlement-domain-filter');
   return select?.value || '__all__';
@@ -1784,6 +1930,28 @@ function refreshSettlementDomainFilter(rows, selectedValue = '__all__') {
   ].join('');
   select.value = nextValue;
   select.onchange = () => renderSettlementRows();
+}
+
+function isUnknownMessageTypeError(error) {
+  return String(error?.message || error || '').includes('Unknown message type');
+}
+
+async function fetchSettlementAnalysisPayload(range) {
+  try {
+    return await sendMsg({ type: 'GET_SETTLEMENT_ANALYSIS_RANGE', range });
+  } catch (error) {
+    if (!isUnknownMessageTypeError(error)) throw error;
+    if (range === 'today') {
+      const payload = await sendMsg({ type: 'GET_TODAY_SETTLEMENT_ANALYSIS' });
+      return {
+        ...payload,
+        range: 'today',
+        label: '今日',
+        backgroundOutdated: true,
+      };
+    }
+    throw new Error('后台还未加载最新版本。请在 chrome://extensions 点击扩展的“重新加载”，再查看昨日/本周/全部。');
+  }
 }
 
 function renderSettlementRows() {
@@ -1803,12 +1971,13 @@ function renderSettlementRows() {
     .filter(row => row.channel === 'backgroundMedia' || row.channel === 'media' || row.channel === 'pip')
     .reduce((sum, row) => sum + Math.max(0, row.durationSeconds || 0), 0);
   summaryEl.innerHTML = `
-    <span>日期：${escHtml(getLocalDateKey())}</span>
+    <span>范围：${escHtml(settlementAnalysisLabel || '今日')}</span>
     <span>当前显示：${rows.length} 段</span>
     <span>总时长：${formatSeconds(totalSeconds)}</span>
     <span>前台：${formatSeconds(activeSeconds)}</span>
     <span>媒体/PiP：${formatSeconds(mediaSeconds)}</span>
   `;
+  renderSettlementReconciliationSummary();
 
   if (rows.length === 0) {
     tableEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px;">今日暂无落账 segment</div>';
@@ -1819,13 +1988,16 @@ function renderSettlementRows() {
     <table class="settlement-table">
       <thead>
         <tr>
+          <th class="settlement-col-date">日期</th>
           <th class="settlement-col-time">开始</th>
           <th class="settlement-col-time">结束</th>
           <th class="settlement-col-duration">时长</th>
           <th class="settlement-col-domain">域名</th>
           <th class="settlement-col-type">计时类型</th>
           <th class="settlement-col-mode">模式</th>
-          <th>落账原因</th>
+          <th class="settlement-col-reason">落账原因</th>
+          <th class="settlement-col-operation">Open 操作</th>
+          <th class="settlement-col-operation">Close 操作</th>
           <th class="settlement-col-source">来源状态</th>
           <th class="settlement-col-status">状态</th>
         </tr>
@@ -1833,13 +2005,16 @@ function renderSettlementRows() {
       <tbody>
         ${rows.map(row => `
           <tr>
+            <td>${escHtml(row.date || '—')}</td>
             <td>${escHtml(formatSettlementTime(row.startMs))}</td>
             <td>${escHtml(formatSettlementTime(row.endMs))}</td>
             <td>${escHtml(formatSeconds(row.durationSeconds))}</td>
             <td class="settlement-domain-cell" title="${escAttr(row.domain)}">${escHtml(row.domain)}</td>
             <td title="${escAttr(`${row.channel}${row.framework ? ` / ${row.framework}` : ''}`)}">${escHtml(getSettlementTypeLabel(row))}</td>
             <td>${escHtml(row.mode)}</td>
-            <td class="settlement-reason-cell">${escHtml(row.settlementReason)}</td>
+            <td class="settlement-reason-cell" title="${escAttr(row.settlementReason)}">${escHtml(row.settlementReason)}</td>
+            <td class="settlement-reason-cell" title="${escAttr(row.openOperationTitle)}">${escHtml(row.openOperation)}</td>
+            <td class="settlement-reason-cell" title="${escAttr(row.closeOperationTitle)}">${escHtml(row.closeOperation)}</td>
             <td>${escHtml(row.sourceState)}</td>
             <td>${row.suspect
               ? `<span class="settlement-suspect" title="${escAttr(row.suspectReason)}">suspect</span>`
@@ -1854,19 +2029,256 @@ function renderSettlementRows() {
 
 async function renderSettlementsPage() {
   const summaryEl = document.getElementById('settlement-summary');
+  const reconciliationEl = document.getElementById('settlement-reconciliation-summary');
   const tableEl = document.getElementById('settlement-table-wrap');
   if (summaryEl) summaryEl.textContent = '加载中...';
+  if (reconciliationEl) reconciliationEl.textContent = '对账加载中...';
   if (tableEl) tableEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>';
 
-  const selected = getSettlementSelectedDomain();
-  const payload = await sendMsg({ type: 'GET_TODAY_SETTLEMENT_ANALYSIS' });
-  settlementAnalysisRows = normalizeSettlementRows(payload);
-  refreshSettlementDomainFilter(settlementAnalysisRows, selected);
+  document.querySelectorAll('[data-settlement-range]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.settlementRange === settlementAnalysisRange);
+    btn.onclick = () => {
+      settlementAnalysisRange = btn.dataset.settlementRange || 'today';
+      renderSettlementsPage();
+    };
+  });
   const refreshBtn = document.getElementById('settlement-refresh-btn');
   if (refreshBtn) {
     refreshBtn.onclick = () => renderSettlementsPage();
   }
-  renderSettlementRows();
+  try {
+    const selected = getSettlementSelectedDomain();
+    const payload = await fetchSettlementAnalysisPayload(settlementAnalysisRange);
+    settlementAnalysisRows = normalizeSettlementRows(payload);
+    settlementReconciliation = payload?.reconciliation || null;
+    settlementAnalysisLabel = payload?.label || settlementAnalysisRange || '今日';
+    refreshSettlementDomainFilter(settlementAnalysisRows, selected);
+    renderSettlementRows();
+    if (payload?.backgroundOutdated && reconciliationEl) {
+      reconciliationEl.innerHTML += ` <span style="color:var(--warn);">后台仍是旧版本；重新加载扩展后可查看昨日/本周/全部。</span>`;
+    }
+  } catch (error) {
+    setSettlementsPageError(error?.message || String(error));
+  }
+}
+
+function normalizeMediaSettlementEventReason(reason) {
+  const value = typeof reason === 'string' ? reason.trim() : '';
+  return value.startsWith('stable_') ? value.slice('stable_'.length) : value;
+}
+
+function formatMediaSettlementEndpoint(endpoint, fallback) {
+  return normalizeMediaSettlementEventReason(fallback || endpoint?.reason || endpoint?.operation) || '—';
+}
+
+function formatMediaSettlementEndpointTitle(endpoint, fallback) {
+  if (!endpoint && !fallback) return '—';
+  const at = Number(endpoint?.atMs);
+  const parts = [
+    `source=${endpoint?.source || 'media'}`,
+    `reason=${normalizeMediaSettlementEventReason(endpoint?.reason || fallback) || '—'}`,
+    `operation=${normalizeMediaSettlementEventReason(endpoint?.operation || fallback) || '—'}`,
+  ];
+  if (Number.isFinite(at) && at > 0) {
+    parts.push(`at=${formatSettlementTime(at)}`);
+  }
+  return parts.join('；');
+}
+
+function normalizeMediaSettlementRows(payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  return rows
+    .map(row => ({
+      id: row?.id || '',
+      date: row?.date || '',
+      domain: row?.domain || '(无域名)',
+      tabId: row?.tabId ?? '—',
+      windowId: row?.windowId ?? null,
+      mediaClass: row?.mediaClass || 'unknown',
+      mediaKind: row?.mediaKind || '—',
+      visibility: row?.visibility || '—',
+      mode: row?.mode || '—',
+      startMs: Number(row?.startMs),
+      endMs: Number(row?.endMs),
+      durationSeconds: Number(row?.durationSeconds) || 0,
+      settlementReason: row?.settlementReason || row?.reason || '—',
+      description: row?.description || null,
+      openOperation: formatMediaSettlementEndpoint(row?.description?.start, row?.openOperation),
+      closeOperation: formatMediaSettlementEndpoint(row?.description?.end, row?.closeOperation),
+      openOperationTitle: formatMediaSettlementEndpointTitle(row?.description?.start, row?.openOperation),
+      closeOperationTitle: formatMediaSettlementEndpointTitle(row?.description?.end, row?.closeOperation),
+      uploaded: false,
+    }))
+    .sort((a, b) => {
+      const aStart = Number.isFinite(a.startMs) ? a.startMs : Number.MIN_SAFE_INTEGER;
+      const bStart = Number.isFinite(b.startMs) ? b.startMs : Number.MIN_SAFE_INTEGER;
+      return bStart - aStart;
+    });
+}
+
+function getMediaClassLabel(mediaClass) {
+  if (mediaClass === 'foregroundAudio') return '前台音频';
+  if (mediaClass === 'backgroundAudio') return '后台音频';
+  if (mediaClass === 'foregroundVideo') return '前台视频';
+  if (mediaClass === 'backgroundVideo') return '后台视频';
+  if (mediaClass === 'pip') return 'PiP';
+  return mediaClass || '未知';
+}
+
+function getMediaSettlementSelectedDomain() {
+  return document.getElementById('media-settlement-domain-filter')?.value || '__all__';
+}
+
+function getMediaSettlementSelectedClass() {
+  return document.getElementById('media-settlement-class-filter')?.value || '__all__';
+}
+
+function refreshMediaSettlementFilters(rows, selectedDomain = '__all__', selectedClass = '__all__') {
+  const domainSelect = document.getElementById('media-settlement-domain-filter');
+  const classSelect = document.getElementById('media-settlement-class-filter');
+  const domains = Array.from(new Set(rows.map(row => row.domain).filter(Boolean))).sort();
+  const classes = Array.from(new Set(rows.map(row => row.mediaClass).filter(Boolean))).sort();
+  if (domainSelect) {
+    const nextDomain = selectedDomain !== '__all__' && domains.includes(selectedDomain) ? selectedDomain : '__all__';
+    domainSelect.innerHTML = [
+      '<option value="__all__">全部域名</option>',
+      ...domains.map(domain => `<option value="${escAttr(domain)}">${escHtml(domain)}</option>`),
+    ].join('');
+    domainSelect.value = nextDomain;
+    domainSelect.onchange = () => renderMediaSettlementRows();
+  }
+  if (classSelect) {
+    const nextClass = selectedClass !== '__all__' && classes.includes(selectedClass) ? selectedClass : '__all__';
+    classSelect.innerHTML = [
+      '<option value="__all__">全部类型</option>',
+      ...classes.map(mediaClass => `<option value="${escAttr(mediaClass)}">${escHtml(getMediaClassLabel(mediaClass))}</option>`),
+    ].join('');
+    classSelect.value = nextClass;
+    classSelect.onchange = () => renderMediaSettlementRows();
+  }
+}
+
+function buildMediaSettlementSummary(rows) {
+  return rows.reduce((summary, row) => {
+    const seconds = Math.max(0, Number(row.durationSeconds) || 0);
+    summary.totalSeconds += seconds;
+    summary.rowCount += 1;
+    if (row.mediaClass === 'foregroundAudio') summary.foregroundAudioSeconds += seconds;
+    else if (row.mediaClass === 'backgroundAudio') summary.backgroundAudioSeconds += seconds;
+    else if (row.mediaClass === 'foregroundVideo') summary.foregroundVideoSeconds += seconds;
+    else if (row.mediaClass === 'backgroundVideo') summary.backgroundVideoSeconds += seconds;
+    else if (row.mediaClass === 'pip') summary.pipSeconds += seconds;
+    return summary;
+  }, {
+    rowCount: 0,
+    totalSeconds: 0,
+    foregroundAudioSeconds: 0,
+    backgroundAudioSeconds: 0,
+    foregroundVideoSeconds: 0,
+    backgroundVideoSeconds: 0,
+    pipSeconds: 0,
+  });
+}
+
+function renderMediaSettlementRows() {
+  const selectedDomain = getMediaSettlementSelectedDomain();
+  const selectedClass = getMediaSettlementSelectedClass();
+  const rows = mediaSettlementRows.filter(row =>
+    (selectedDomain === '__all__' || row.domain === selectedDomain) &&
+    (selectedClass === '__all__' || row.mediaClass === selectedClass)
+  );
+  const summaryEl = document.getElementById('media-settlement-summary');
+  const tableEl = document.getElementById('media-settlement-table-wrap');
+  if (!summaryEl || !tableEl) return;
+
+  const summary = buildMediaSettlementSummary(rows);
+  summaryEl.innerHTML = `
+    <span>范围：${escHtml(mediaSettlementLabel || '今日')}</span>
+    <span>当前显示：${summary.rowCount} 段</span>
+    <span>总媒体：${formatSeconds(summary.totalSeconds)}</span>
+    <span>前台音频：${formatSeconds(summary.foregroundAudioSeconds)}</span>
+    <span>后台音频：${formatSeconds(summary.backgroundAudioSeconds)}</span>
+    <span>前台视频：${formatSeconds(summary.foregroundVideoSeconds)}</span>
+    <span>后台视频：${formatSeconds(summary.backgroundVideoSeconds)}</span>
+    <span>PiP：${formatSeconds(summary.pipSeconds)}</span>
+  `;
+
+  if (rows.length === 0) {
+    tableEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px;">暂无媒体落账 segment</div>';
+    return;
+  }
+
+  tableEl.innerHTML = `
+    <table class="settlement-table">
+      <thead>
+        <tr>
+          <th class="settlement-col-date">日期</th>
+          <th class="settlement-col-time">开始</th>
+          <th class="settlement-col-time">结束</th>
+          <th class="settlement-col-duration">时长</th>
+          <th class="settlement-col-domain">域名</th>
+          <th class="settlement-col-type">媒体类型</th>
+          <th class="settlement-col-type">可见性</th>
+          <th class="settlement-col-mode">模式</th>
+          <th class="settlement-col-reason">落账原因</th>
+          <th class="settlement-col-operation">Open 操作</th>
+          <th class="settlement-col-operation">Close 操作</th>
+          <th class="settlement-col-source">Tab</th>
+          <th class="settlement-col-status">状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `
+          <tr>
+            <td>${escHtml(row.date || '—')}</td>
+            <td>${escHtml(formatSettlementTime(row.startMs))}</td>
+            <td>${escHtml(formatSettlementTime(row.endMs))}</td>
+            <td>${escHtml(formatSeconds(row.durationSeconds))}</td>
+            <td class="settlement-domain-cell" title="${escAttr(row.domain)}">${escHtml(row.domain)}</td>
+            <td title="${escAttr(row.mediaClass)}">${escHtml(getMediaClassLabel(row.mediaClass))}</td>
+            <td>${escHtml(row.visibility || '—')}</td>
+            <td>${escHtml(row.mode)}</td>
+            <td class="settlement-reason-cell" title="${escAttr(row.settlementReason)}">${escHtml(row.settlementReason)}</td>
+            <td class="settlement-reason-cell" title="${escAttr(row.openOperationTitle)}">${escHtml(row.openOperation)}</td>
+            <td class="settlement-reason-cell" title="${escAttr(row.closeOperationTitle)}">${escHtml(row.closeOperation)}</td>
+            <td>${escHtml(row.tabId)}</td>
+            <td><span class="settlement-muted">本地</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function renderMediaSettlementsPage() {
+  const summaryEl = document.getElementById('media-settlement-summary');
+  const tableEl = document.getElementById('media-settlement-table-wrap');
+  if (summaryEl) summaryEl.textContent = '加载中...';
+  if (tableEl) tableEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>';
+
+  document.querySelectorAll('[data-media-settlement-range]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mediaSettlementRange === mediaSettlementRange);
+    btn.onclick = () => {
+      mediaSettlementRange = btn.dataset.mediaSettlementRange || 'today';
+      renderMediaSettlementsPage();
+    };
+  });
+  const refreshBtn = document.getElementById('media-settlement-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.onclick = () => renderMediaSettlementsPage();
+  }
+
+  try {
+    const selectedDomain = getMediaSettlementSelectedDomain();
+    const selectedClass = getMediaSettlementSelectedClass();
+    const payload = await sendMsg({ type: 'GET_MEDIA_SETTLEMENT_ANALYSIS_RANGE', range: mediaSettlementRange });
+    mediaSettlementRows = normalizeMediaSettlementRows(payload);
+    mediaSettlementLabel = payload?.label || mediaSettlementRange || '今日';
+    refreshMediaSettlementFilters(mediaSettlementRows, selectedDomain, selectedClass);
+    renderMediaSettlementRows();
+  } catch (error) {
+    setMediaSettlementsPageError(error?.message || String(error));
+  }
 }
 
 async function renderStatsPage() {

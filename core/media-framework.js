@@ -12,7 +12,7 @@ function isForegroundPageContext(context) {
     context.tabId != null &&
     context.isFocused === true &&
     context.isIdle !== true &&
-    (context.candidateKind === 'known_domain' || context.candidateKind === 'unknown_domain' || (!!context.domain && context.candidateKind == null));
+    !!context.domain;
 }
 
 export function resolveMediaFramework(context) {

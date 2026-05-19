@@ -22,17 +22,17 @@ function section(name) { console.log(`\n[${name}]`); }
 
 function loadNormalizeHostname() {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
-  const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { normalizeHostname };';
+  const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { normalizeHostname, domainForUrl };';
   const context = { console, URL, this: null };
   context.this = context;
   vm.runInNewContext(transformed, context, { filename: 'domain-semantics.js' });
-  return context.__d.normalizeHostname;
+  return context.__d;
 }
 
 function loadSignalInit(deps, hooks) {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'signal.js'), 'utf8');
   const transformed = code
-    .replace(/import\s+\{\s*normalizeHostname\s*\}\s+from\s+'\.\/domain-semantics\.js';/, 'const normalizeHostname = __deps.normalizeHostname;')
+    .replace(/import\s+\{\s*domainForUrl\s*\}\s+from\s+'\.\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl;')
     .replace(/export\s+function\s+/g, 'function ')
     + '\nthis.__signalExports = { initSignal };';
 
@@ -41,7 +41,8 @@ function loadSignalInit(deps, hooks) {
       onActivated: { addListener(fn) { hooks.onActivated = fn; } },
       onUpdated: { addListener(fn) { hooks.onUpdated = fn; } },
       onRemoved: { addListener(fn) { hooks.onRemoved = fn; } },
-      get: async () => ({ id: 303, windowId: 30, url: 'https://WWW.Example.COM./from-activated', active: true }),
+      onReplaced: { addListener(fn) { hooks.onReplaced = fn; } },
+      get: async (tabId) => hooks.getTab(tabId),
       query: async (queryInfo) => hooks.queryTabs(queryInfo),
     },
     windows: {
@@ -87,9 +88,10 @@ function loadProdModule(relPath, exportNames) {
 }
 
 async function run() {
-  const normalizeHostname = loadNormalizeHostname();
+  const domainSemantics = loadNormalizeHostname();
   const hooks = {
     queryTabs: async () => [{ id: 202, windowId: 20, active: true, url: 'https://Focus.Example.COM./active' }],
+    getTab: async () => ({ id: 303, windowId: 30, url: 'https://WWW.Example.COM./from-activated', active: true }),
     getWindow: async () => ({ focused: true }),
     getAllWindows: async () => [{ id: 20, focused: true, type: 'normal' }],
   };
@@ -97,7 +99,7 @@ async function run() {
   const { buildContext } = loadProdModule('core/context.js', ['buildContext']);
   const { resolveState, AttentionState } = loadProdModule('core/state.js', ['resolveState', 'AttentionState']);
 
-  const signal = loadSignalInit({ normalizeHostname }, hooks);
+  const signal = loadSignalInit({ domainForUrl: domainSemantics.domainForUrl }, hooks);
   signal.initSignal((e) => emitted.push(e));
 
   section('SG0: idle detection interval is configured at 90 seconds');
@@ -121,6 +123,25 @@ async function run() {
   expectTrue('tabActivated should include isFocused=true', emitted[0]?.isFocused === true);
   expectTrue('tabActivated should include tab URL', emitted[0]?.url === 'https://WWW.Example.COM./from-activated');
   expectTrue('tabActivated should include normalized domain', emitted[0]?.domain === 'www.example.com');
+
+  section('SG1c: tabReplaced active tab emits re-evaluation signal');
+  emitted.length = 0;
+  hooks.getTab = async (tabId) => ({ id: tabId, windowId: 31, active: true, url: 'https://Replaced.Example.COM./next' });
+  await hooks.onReplaced(404, 303);
+  await new Promise((r) => setTimeout(r, 100));
+
+  expectTrue('tabReplaced should emit one active signal', emitted.length === 1);
+  expectTrue('tabReplaced should use added tab id', emitted[0]?.tabId === 404);
+  expectTrue('tabReplaced should preserve removed tab id', emitted[0]?.replacedTabId === 303);
+  expectTrue('tabReplaced should include reason', emitted[0]?._reason === 'tabReplaced');
+  expectTrue('tabReplaced should include normalized domain', emitted[0]?.domain === 'replaced.example.com');
+
+  section('SG1d: tabReplaced inactive tab is ignored');
+  emitted.length = 0;
+  hooks.getTab = async (tabId) => ({ id: tabId, windowId: 31, active: false, url: 'https://Inactive.Example.COM./next' });
+  await hooks.onReplaced(405, 404);
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('inactive tabReplaced should not emit foreground signal', emitted.length === 0);
 
   section('SG2: focused window signal includes active tab and domain');
   emitted.length = 0;
@@ -183,6 +204,81 @@ async function run() {
   await new Promise((r) => setTimeout(r, 100));
   expectTrue('active idle signal should preserve idleState=active', emitted[0]?.idleState === 'active');
   expectTrue('active idle signal should mark isIdle=false', emitted[0]?.isIdle === false);
+
+  section('SG7: content MEDIA_STATE carries media fact source and window snapshot');
+  emitted.length = 0;
+  await hooks.onMessage(
+    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', source: 'dom_media_event' },
+    { tab: { id: 501, windowId: 50, active: true, url: 'https://Video.Example/watch', mutedInfo: { muted: false } } }
+  );
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('MEDIA_STATE should emit media source tab id', emitted[0]?.mediaSourceTabId === 501);
+  expectTrue('MEDIA_STATE should preserve media kind', emitted[0]?.mediaKind === 'video');
+  expectTrue('MEDIA_STATE should carry source label', emitted[0]?.mediaFactSource === 'dom_media_event');
+  expectTrue('MEDIA_STATE should carry active tab fact', emitted[0]?.isActiveTab === true);
+
+  section('SG8: tabs.onUpdated audible emits native media fact for inactive tabs');
+  emitted.length = 0;
+  await hooks.onUpdated(606, { audible: true }, {
+    id: 606,
+    active: false,
+    windowId: 60,
+    audible: true,
+    mutedInfo: { muted: false },
+    url: 'https://Audio.Example/listen',
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('tabAudible should emit media fact', emitted.length === 1);
+  expectTrue('tabAudible should use tab id as media source', emitted[0]?.mediaSourceTabId === 606);
+  expectTrue('tabAudible should normalize source domain', emitted[0]?.mediaSourceDomain === 'audio.example');
+  expectTrue('tabAudible should mark source', emitted[0]?.mediaFactSource === 'tabs_api_audible');
+
+  section('SG8b: active tab audible does not emit foreground tabUpdated');
+  emitted.length = 0;
+  await hooks.onUpdated(607, { audible: true }, {
+    id: 607,
+    active: true,
+    windowId: 60,
+    audible: true,
+    mutedInfo: { muted: false },
+    url: 'https://ActiveAudio.Example/listen',
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('active tabAudible should emit exactly one media fact', emitted.length === 1);
+  expectTrue('active tabAudible should not emit foreground domain', emitted[0]?.domain == null);
+  expectTrue('active tabAudible should keep media reason', emitted[0]?._reason === 'tabAudible');
+
+  section('SG8c: navigation and audible facts stay separate when batched');
+  emitted.length = 0;
+  await hooks.onUpdated(608, { url: 'https://NavAudio.Example/next', audible: true }, {
+    id: 608,
+    active: true,
+    windowId: 60,
+    audible: true,
+    mutedInfo: { muted: false },
+    url: 'https://NavAudio.Example/next',
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('nav+audible should emit foreground and media records', emitted.length === 2);
+  expectTrue('nav+audible should include tabUpdated foreground event', emitted.some(e => e._reason === 'tabUpdated' && e.domain === 'navaudio.example'));
+  expectTrue('nav+audible should include separate tabAudible media event', emitted.some(e => e._reason === 'tabAudible' && e.mediaSourceDomain === 'navaudio.example' && e.domain == null));
+
+  section('SG9: merged content video and tab audible keeps video precedence');
+  emitted.length = 0;
+  await hooks.onMessage(
+    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', source: 'dom_media_event' },
+    { tab: { id: 707, windowId: 70, active: true, url: 'https://Mixed.Example/watch', mutedInfo: { muted: false } } }
+  );
+  await hooks.onUpdated(707, { audible: true }, {
+    id: 707,
+    active: true,
+    windowId: 70,
+    audible: true,
+    mutedInfo: { muted: false },
+    url: 'https://Mixed.Example/watch',
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('merged media fact should keep video precedence', emitted[0]?.mediaKind === 'video');
 
   const total = passed + failed;
   console.log(`\n[Signal ExtractDomain Guard] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

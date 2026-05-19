@@ -48,7 +48,7 @@ async function openPopup(ctx, sw) {
   return popup;
 }
 
-async function renderRuntime(popup, status, stats = { 'www.desmos.com': 180 }) {
+async function renderRuntime(popup, status, stats = { 'desmos.com': 180 }) {
   await popup.evaluate((context) => {
     // popupStatsContext is declared with let in popup.js, so update it in the
     // page script realm instead of assigning a same-named window property.
@@ -92,13 +92,13 @@ test('popup current site does not add live seconds for another domain', async ()
     const rendered = await renderRuntime(popup, {
       currentDomain: 'desmos.com',
       currentSessionDurationSeconds: 75,
-    }, { 'www.desmos.com': 180, 'khanacademy.org': 75 });
+    }, { 'desmos.com': 180, 'khanacademy.org': 75 });
     expect(rendered.text).toContain('今日 4分15秒');
 
     const mismatched = await renderRuntime(popup, {
       currentDomain: 'khanacademy.org',
       currentSessionDurationSeconds: 75,
-    }, { 'www.desmos.com': 180 });
+    }, { 'desmos.com': 180 });
     expect(mismatched.text).toContain('khanacademy.org');
     expect(mismatched.text).toContain('今日 1分15秒');
     expect(mismatched.text).not.toContain('今日 4分15秒');

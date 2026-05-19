@@ -84,7 +84,7 @@ async function setMode(mode) {
 async function init() {
   const [config, stats] = await Promise.all([
     sendMsg({ type: 'GET_CONFIG' }),
-    sendMsg({ type: 'GET_STATS' }),
+    sendMsg({ type: 'GET_STATS', source: 'popup' }),
   ]);
   popupStatsContext = { config: config || {}, stats: stats || {} };
   renderSuspectSegmentStatus(await getSuspectSegmentSummarySafe());

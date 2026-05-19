@@ -175,7 +175,7 @@ test('T-R2a: study_mode&restLocked=1 rest slider dispatches SWITCH_TO_REST', asy
 
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
   const subtitleText = await page.locator('#subtitle').textContent();
-  expect(subtitleText).toContain('向明天借用休息时间');
+  expect(subtitleText).toContain('计入「休息时间」');
 
   // Rest slider visible
   await expect(page.locator('#slideTrack')).toBeVisible();
@@ -194,7 +194,7 @@ test('T-R2a: study_mode&restLocked=1 rest slider dispatches SWITCH_TO_REST', asy
 // ── T-R2b: study_mode&restLocked=1 — composite apply slider ──────────────────
 
 test('T-R2b: study_mode&restLocked=1 composite slider dispatches ADD_TO_COMPOSITE_LIST', async () => {
-  const page = await openReminderPage('reason=study_mode&restLocked=1&domain=example.com');
+  const page = await openReminderPage('reason=study_mode&restLocked=1&domain=example.com&sourceTabId=123');
 
   // Composite apply slider visible
   await expect(page.locator('#dualPathCompositeSection')).toBeVisible();
@@ -207,28 +207,19 @@ test('T-R2b: study_mode&restLocked=1 composite slider dispatches ADD_TO_COMPOSIT
   const calls = await getCalls(page);
   // ADD_TO_COMPOSITE_LIST + SEND_CLOUD_EVENT + GET_RUNTIME_MODE_STATUS
   expect(calls.length).toBeGreaterThanOrEqual(2);
-  expect(calls[0]).toEqual({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com' });
+  expect(calls[0]).toEqual({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com', sourceTabId: 123 });
   expect(calls[1]).toEqual({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: 'example.com' });
 
   await page.close();
 });
 
-// ── T-R2c: study_mode&restLocked=1 — borrow slider ───────────────────────────
+// ── T-R2c: study_mode&restLocked=1 — V1-minimal keeps borrow disabled ────────
 
-test('T-R2c: study_mode&restLocked=1 borrow slider dispatches BORROW_REST_QUOTA', async () => {
+test('T-R2c: study_mode&restLocked=1 keeps borrow slider hidden', async () => {
   const page = await openReminderPage('reason=study_mode&restLocked=1&domain=example.com');
 
-  // Borrow section visible
-  await expect(page.locator('#dualPathBorrowSection')).toBeVisible();
-  await expect(page.locator('#slideTrackBorrow')).toBeVisible();
-  await expect(page.locator('#slideThumbBorrow')).toHaveText('向明天借用休息时间');
-
-  // Drag borrow slider
-  await clearCalls(page);
-  await dragSlider(page, '#slideTrackBorrow', '#slideThumbBorrow');
-  const calls = await getCalls(page);
-  expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'BORROW_REST_QUOTA' });
+  await expect(page.locator('#dualPathBorrowSection')).toBeHidden();
+  await expect(page.locator('#slideTrackBorrow')).toBeHidden();
 
   await page.close();
 });
@@ -308,7 +299,7 @@ test('T-R3b: to_rest_slide_confirm with originMode=study shows 返回学习, res
 // ── T-R4: to_rest_confirm + unclassified ─────────────────────────────────────
 
 test('T-R4: to_rest_confirm unclassified shows dual-path, sliders dispatch correct payloads', async () => {
-  const page = await openReminderPage('reason=to_rest_confirm&siteType=unclassified&domain=example.com');
+  const page = await openReminderPage('reason=to_rest_confirm&siteType=unclassified&domain=example.com&sourceTabId=123');
 
   // Title per docs/MODE_TRANSITION_UX_V0.md §8.5: 未归类网站：你正在打开未归类网站
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
@@ -344,7 +335,7 @@ test('T-R4: to_rest_confirm unclassified shows dual-path, sliders dispatch corre
   await dragSlider(page, '#slideTrackComposite', '#slideThumbComposite');
   calls = await getCalls(page);
   expect(calls.length).toBeGreaterThanOrEqual(2);
-  expect(calls[0]).toEqual({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com' });
+  expect(calls[0]).toEqual({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com', sourceTabId: 123 });
   expect(calls[1]).toEqual({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: 'example.com' });
 
   await page.close();

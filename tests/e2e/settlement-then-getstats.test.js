@@ -128,17 +128,6 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
       });
     }, n);
 
-    const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
-    const popup = await ctx.newPage();
-    await popup.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-    await popup.waitForTimeout(250);
-
-    const first = await popup.evaluate(async () => {
-      return new Promise(res => {
-        chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {}));
-      });
-    });
-    expect(first).toBeTruthy();
     const beforeCheckpoint = await sw.evaluate(async () => {
       return new Promise(res => {
         chrome.storage.local.get(['usage_segments_v1'], r => res(r || {}));
@@ -149,6 +138,11 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
     const checkpoint = await sw.evaluate(async (now) => globalThis.debugRunPeriodicCheckpoint(now), n);
     expect(checkpoint.ok).toBeTruthy();
     expect(checkpoint.checkpointed).toBeTruthy();
+
+    const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
+    const popup = await ctx.newPage();
+    await popup.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await popup.waitForTimeout(250);
 
     const afterCheckpoint = await popup.evaluate(async () => {
       return new Promise(res => {
@@ -165,6 +159,10 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
     });
     const segments1 = Object.values(snapshot1.usage_segments_v1 || {});
     expect(segments1.length).toBeGreaterThanOrEqual(1);
+    expect(segments1.some(s =>
+      s.domain === 'live-open.example.com' &&
+      s.settlementReason === 'periodic_checkpoint'
+    )).toBeTruthy();
     const profileIdCounts = segments1.reduce((acc, seg) => {
       const key = seg?.profileId || '(null)';
       acc[key] = (acc[key] || 0) + 1;

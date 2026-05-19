@@ -17,6 +17,29 @@ export function normalizeHostname(input) {
   }
 }
 
+export function domainForUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return normalizeHostname(parsed.hostname);
+    }
+    if (parsed.protocol === 'chrome-extension:') return 'extension-page.chrome-local';
+    if (parsed.protocol === 'chrome:') {
+      if (parsed.hostname === 'extensions') return 'chrome-extensions.chrome-local';
+      if (parsed.hostname === 'settings') return 'chrome-settings.chrome-local';
+      return 'chrome-page.chrome-local';
+    }
+    if (parsed.protocol === 'edge:') return 'edge-page.chrome-local';
+    if (parsed.protocol === 'file:') return 'local-file.chrome-local';
+    if (parsed.protocol === 'about:') return 'about-page.chrome-local';
+    if (parsed.protocol === 'data:' || parsed.protocol === 'blob:') return 'embedded-page.chrome-local';
+    return 'unknown-page.chrome-local';
+  } catch {
+    return null;
+  }
+}
+
 export function matchDomain(domain, pattern) {
   const d = normalizeHostname(domain);
   const p = normalizeHostname(pattern);

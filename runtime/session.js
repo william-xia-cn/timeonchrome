@@ -1,4 +1,4 @@
-// runtime/session.js — 当前会话快照（单一真相源）+ 状态切换 + 心跳
+// runtime/session.js — 当前会话快照（单一真相源）+ 状态切换 + 周期 checkpoint
 
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 import { emitTrace } from '../core/timing-trace.js';
@@ -16,6 +16,7 @@ const UI_FLUSH_GUARD_KEY = 'ui_flush_guard_v1';
 const UI_FLUSH_MIN_INTERVAL_MS = 30 * 1000;
 const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const FOREGROUND_CHECKPOINT_MS = 180 * 1000;
+const FOREGROUND_CHECKPOINT_REPAIR_MS = Math.floor(FOREGROUND_CHECKPOINT_MS / 2);
 const FOREGROUND_UNKNOWN_DOMAIN = '__unknown__';
 const FOREGROUND_DIAGNOSTICS_KEY = 'foreground_page_diagnostics_v1';
 const FOREGROUND_DIAGNOSTIC_ASSIGN_KEYS = new Set([
@@ -71,13 +72,32 @@ function boundedForegroundCloseTime(session, observedAt = Date.now()) {
   return getBoundedForegroundClose(session, observedAt).closeTime;
 }
 
+function checkpointEstimatedCloseTime(session, observedAt = Date.now()) {
+  const start = Number(session?.startTime || 0);
+  const observed = Number.isFinite(observedAt) ? observedAt : Date.now();
+  if (!Number.isFinite(start) || start <= 0) return observed;
+  const elapsed = Math.max(0, observed - start);
+  return start + Math.min(elapsed, FOREGROUND_CHECKPOINT_REPAIR_MS);
+}
+
+function checkpointEstimatedOpenTime(observedAt = Date.now()) {
+  const observed = Number.isFinite(observedAt) ? observedAt : Date.now();
+  return Math.max(0, observed - FOREGROUND_CHECKPOINT_REPAIR_MS);
+}
+
 function isForegroundSettlementReasonAllowed(reason) {
   return reason === 'periodic_checkpoint' ||
+    reason === 'checkpoint_estimated_close' ||
     reason === 'transition_complete' ||
     reason === 'idle_inactive_close' ||
     reason === 'mode_effective_boundary' ||
     reason === 'tab_close' ||
+    reason === 'popup_open' ||
     reason === 'monitoring_off' ||
+    reason === 'event_close_without_open' ||
+    reason === 'event_close_domain_mismatch_close' ||
+    reason === 'event_close_domain_mismatch_observed' ||
+    reason === 'recovery_estimated_close' ||
     reason === 'recovery_gap_close' ||
     reason === 'recovery_persistent_close';
 }
@@ -91,6 +111,8 @@ function isDropLikeReason(reason) {
     value.includes('monitoring_off') ||
     value.includes('checkpoint_confirmation_failed') ||
     value.includes('idle_not_active') ||
+    value.includes('observed_mismatch') ||
+    value.includes('observed_query_failed') ||
     value.includes('candidate_mismatch') ||
     value.includes('candidate_query_failed') ||
     value.includes('idle_query_failed') ||
@@ -187,9 +209,136 @@ function sessionMetadataFromOptions(options = {}) {
   };
 }
 
+function sampleStateFromConfirmation(confirmation) {
+  if (!confirmation?.ok) return null;
+  return confirmation?.observedState || confirmation?.candidateState || 'ACTIVE';
+}
+
+function sampleDomainFromConfirmation(confirmation) {
+  if (!confirmation?.ok) return null;
+  return confirmation?.observedDomain || confirmation?.candidateDomain || confirmation?.domain || null;
+}
+
+function sampleTabIdFromConfirmation(confirmation) {
+  const value = Number(confirmation?.tabId ?? confirmation?.observedTabId ?? confirmation?.candidateTabId);
+  return Number.isInteger(value) ? value : null;
+}
+
+function sampleWindowIdFromConfirmation(confirmation) {
+  const value = Number(confirmation?.windowId ?? confirmation?.observedWindowId ?? confirmation?.candidateWindowId);
+  return Number.isInteger(value) ? value : null;
+}
+
+function observedDomainFromConfirmation(confirmation) {
+  return confirmation?.observedDomain || confirmation?.candidateDomain || confirmation?.domain || null;
+}
+
+function isCheckpointActiveSample(confirmation) {
+  return !!(confirmation?.ok && sampleStateFromConfirmation(confirmation) === 'ACTIVE' && sampleDomainFromConfirmation(confirmation));
+}
+
+function mismatchCheckpointActiveSample(confirmation) {
+  const domain = confirmation?.observedDomain || confirmation?.candidateDomain || confirmation?.domain || null;
+  if (!domain) return null;
+  return {
+    state: confirmation?.observedState || confirmation?.candidateState || 'ACTIVE',
+    domain,
+    tabId: sampleTabIdFromConfirmation(confirmation),
+    windowId: sampleWindowIdFromConfirmation(confirmation),
+  };
+}
+
+function emptySession(now = Date.now()) {
+  return {
+    state: null,
+    domain: null,
+    startTime: null,
+    lastHeartbeat: now,
+  };
+}
+
 function settlementResolverOptions(options = {}) {
   return {
     resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
+    endReason: options.endReason,
+    endOperationSource: options.endOperationSource,
+    endAtMs: options.endAtMs,
+  };
+}
+
+function operationSourceForReason(reason) {
+  const value = String(reason || '');
+  if (value === 'tabActivated' ||
+    value === 'tabUpdated' ||
+    value === 'windowFocusChanged' ||
+    value === 'windowFocusLost' ||
+    value === 'windowFocusPolled' ||
+    value === 'tabClosedSuccessor' ||
+    value === 'tabClosedNoActiveTab' ||
+    value === 'idleStateChanged' ||
+    value === 'idle_active_reopen' ||
+    value === 'idle_inactive_close') return 'chrome_event';
+  if (value === 'periodic_checkpoint' ||
+    value === 'periodic_checkpoint_reopen' ||
+    value === 'checkpoint_estimated_close' ||
+    value === 'checkpoint_estimated_open' ||
+    value === 'checkpoint_estimated_half_interval_close' ||
+    value === 'session_expired' ||
+    value.includes('heartbeat')) return 'timer';
+  if (value === 'ui_flush' || value === 'ui_flush_reopen' || value === 'popup_open' || value === 'popup_open_reopen') return 'ui_action';
+  if (value === 'recovery_gap_close' ||
+    value === 'recovery_persistent_close' ||
+    value === 'recovery_estimated_close' ||
+    value === 'recovery_estimated_half_checkpoint') return 'recovery';
+  if (value === 'mode_effective_boundary' || value === 'mode_effective_boundary_reopen' || value.includes('mode_effective')) return 'mode_boundary';
+  if (value === 'controlledTimingSignal' || value.startsWith('debug_')) return 'debug';
+  if (value === 'tab_close' || value === 'monitoring_off') return 'chrome_event';
+  return 'unknown';
+}
+
+function isMediaOnlyTimingReason(reason) {
+  const value = String(reason || '');
+  return value === 'tabAudible' || value === 'mediaState';
+}
+
+function normalizeOperationReason(reason) {
+  const value = typeof reason === 'string' && reason.trim() ? reason.trim() : null;
+  return value;
+}
+
+function makeDescriptionEndpoint(reason, atMs, source = null) {
+  const normalized = normalizeOperationReason(reason);
+  const when = Number(atMs);
+  return {
+    reason: normalized,
+    operation: normalized,
+    source: source || operationSourceForReason(normalized),
+    atMs: Number.isFinite(when) && when > 0 ? when : null,
+  };
+}
+
+function makeSettlementDescription(session, endReason, endAtMs, endSource = null) {
+  const rawStartReason = session?.startReason || 'unknown_start';
+  const startReason = isMediaOnlyTimingReason(rawStartReason) ? 'unknown_start' : rawStartReason;
+  const normalizedEndReason = isMediaOnlyTimingReason(endReason) ? 'unknown_end' : endReason;
+  const startAtMs = Number(session?.startAtMs || session?.startTime);
+  const start = makeDescriptionEndpoint(
+    startReason,
+    startAtMs,
+    isMediaOnlyTimingReason(rawStartReason)
+      ? 'unknown'
+      : (session?.startOperationSource || operationSourceForReason(startReason))
+  );
+  const end = makeDescriptionEndpoint(
+    normalizedEndReason,
+    endAtMs,
+    isMediaOnlyTimingReason(endReason) ? 'unknown' : endSource
+  );
+  return {
+    schemaVersion: 1,
+    start,
+    end,
+    summary: `开始：${start.operation || start.reason || '—'}；结束：${end.operation || end.reason || '—'}`,
   };
 }
 
@@ -265,21 +414,50 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
     if (!session) return;
 
     const now = Number.isFinite(timestamp) ? timestamp : Date.now();
-
-    // 没变化直接忽略（抗抖）
-    if (session.state === newState && session.domain === newDomain) {
-      return;
+    if (isMediaOnlyTimingReason(reason)) {
+      await emitTrace('transition_skipped', {
+        source: 'runtime-session',
+        reason,
+        domain: newDomain || session.domain || null,
+        previousState: session.state || null,
+        nextState: newState || null,
+        payload: { skippedReason: 'media_signal_not_foreground_boundary' },
+      });
+      return { ok: true, skipped: true, reason: 'media_signal_not_foreground_boundary' };
     }
 
     const sessionBefore = { state: session.state, domain: session.domain, startTime: session.startTime };
+    const hasOpenSession = !!(session.state && session.startTime);
+
+    if (!hasOpenSession && !newState) {
+      const diagnostic = await settleBoundaryDiagnosticSegment({
+        domain: observedCloseDomain(options) || newDomain || null,
+        state: options.observedState || 'ACTIVE',
+        atMs: now,
+        settlementReason: 'event_close_without_open',
+        startReason: 'event_close_without_open',
+        endReason: reason || 'event_close_without_open',
+        operationSource: operationSourceForReason(reason),
+      });
+      await emitTrace('event_boundary_diagnostic_segment', {
+        source: 'runtime-session',
+        reason: 'event_close_without_open',
+        domain: diagnostic.domain,
+        payload: { appended: diagnostic.appended, originalReason: reason },
+      });
+      await saveSession(emptySession(now));
+      return { ok: true, closed: false, diagnostic: true, reason: 'event_close_without_open' };
+    }
 
     // 1. 关闭旧事件
-    if (session.state && session.startTime) {
+    if (hasOpenSession) {
       const foreground = isForegroundPageSession(session);
       const boundary = foreground
         ? { ...getBoundedForegroundClose(session, now), stale: false }
         : getReliableCloseTime(session, now);
       const { closeTime, stale } = boundary;
+      const closeObservedDomain = !newState ? observedCloseDomain(options) : null;
+      const closeDomainMismatch = !!(closeObservedDomain && session.domain && closeObservedDomain !== session.domain);
       const baseEndEvent = {
         type: EVENT_TYPE.END,
         state: session.state,
@@ -320,8 +498,24 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         // 稳定事件边界是普通 foreground_page 的基础落账入口；checkpoint 只负责长段切片。
         const settlementReason = reason === 'idle_inactive_close'
           ? 'idle_inactive_close'
-          : (stale ? 'transition_stale_close' : 'transition_complete');
-        await settleCurrentSessionSegment(session, closeTime, settlementReason, settlementResolverOptions(options));
+          : (closeDomainMismatch ? 'event_close_domain_mismatch_close' : (stale ? 'transition_stale_close' : 'transition_complete'));
+        await settleCurrentSessionSegment(session, closeTime, settlementReason, {
+          ...settlementResolverOptions(options),
+          endReason: reason,
+          endAtMs: closeTime,
+          allowZeroDurationSegment: true,
+        });
+        if (closeDomainMismatch) {
+          await settleBoundaryDiagnosticSegment({
+            domain: closeObservedDomain,
+            state: options.observedState || session.state,
+            atMs: closeTime,
+            settlementReason: 'event_close_domain_mismatch_observed',
+            startReason: 'event_close_domain_mismatch_observed',
+            endReason: reason,
+            operationSource: operationSourceForReason(reason),
+          });
+        }
       }
     }
 
@@ -355,6 +549,9 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
       domain: newDomain,
       startTime: newState ? now : null,
       lastHeartbeat: now,
+      startReason: newState ? reason : null,
+      startOperationSource: newState ? operationSourceForReason(reason) : null,
+      startAtMs: newState ? now : null,
       ...sessionMetadataFromOptions(options),
     };
     await saveSession(sessionAfter);
@@ -362,108 +559,11 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
 }
 
 /**
- * 心跳：维持恢复锚点
+ * Deprecated compatibility hook.
+ * Timing facts now come from explicit boundaries and periodicCheckpoint confirmation.
  */
 export async function heartbeat() {
-  return runSerialized(async () => {
-    const session = await getSession();
-    if (!session) return;
-
-    const now = Date.now();
-    const closeBoundary = getReliableCloseTime(session, now);
-    const staleGap = closeBoundary.stale;
-
-    if (session.state && session.startTime && staleGap) {
-      if (isForegroundPageSession(session)) {
-        const closeTime = boundedForegroundCloseTime(session, closeBoundary.closeTime);
-        const sessionBefore = {
-          state: session.state,
-          domain: session.domain,
-          startTime: session.startTime,
-          lastHeartbeat: session.lastHeartbeat,
-        };
-        const endEvent = markForegroundEndUncounted({
-          type: EVENT_TYPE.END,
-          state: session.state,
-          domain: session.domain,
-          time: closeTime,
-        }, 'heartbeat_stale_foreground_drop');
-        await appendEvent(endEvent);
-        await emitTrace('event_appended', {
-          source: 'event-log',
-          reason: 'heartbeatForegroundStaleDrop',
-          domain: session.domain,
-          previousState: session.state,
-          event: endEvent,
-          sessionBefore,
-        });
-        await recordForegroundDiagnostic({
-          longOpenSessionDrops: 1,
-          droppedUnconfirmedSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000),
-          lastDropReason: 'heartbeat_stale_foreground_drop',
-          lastDropAt: Date.now(),
-        });
-        await saveSession({
-          state: null,
-          domain: null,
-          startTime: null,
-          lastHeartbeat: now,
-        });
-        return;
-      }
-
-      const sessionBefore = {
-        state: session.state,
-        domain: session.domain,
-        startTime: session.startTime,
-        lastHeartbeat: session.lastHeartbeat,
-      };
-      const endEvent = {
-        type: EVENT_TYPE.END,
-        state: session.state,
-        domain: session.domain,
-        time: closeBoundary.closeTime,
-      };
-      await appendEvent(endEvent);
-      await emitTrace('event_appended', {
-        source: 'event-log',
-        reason: 'heartbeatStaleClose',
-        domain: session.domain,
-        previousState: session.state,
-        event: endEvent,
-        sessionBefore,
-      });
-
-      // 结算过期的使用时长段
-      await settleCurrentSessionSegment(session, closeBoundary.closeTime, 'session_expired');
-
-      const startEvent = {
-        type: EVENT_TYPE.START,
-        state: session.state,
-        domain: session.domain,
-        time: now,
-      };
-      await appendEvent(startEvent);
-      await emitTrace('event_appended', {
-        source: 'event-log',
-        reason: 'heartbeatStaleReopen',
-        domain: session.domain,
-        nextState: session.state,
-        event: startEvent,
-        sessionBefore,
-      });
-
-      await saveSession({
-        state: session.state,
-        domain: session.domain,
-        startTime: now,
-        lastHeartbeat: now,
-      });
-      return;
-    }
-
-    await saveSession({ ...session, lastHeartbeat: now });
-  });
+  return { ok: true, skipped: true, reason: 'heartbeat_timing_deprecated' };
 }
 
 export async function runSessionCommit(task) {
@@ -546,7 +646,12 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
     });
 
     const settlement = isCountedState(session.state)
-      ? await settleCurrentSessionSegment(session, boundary, 'mode_effective_boundary', settlementResolverOptions(options))
+      ? await settleCurrentSessionSegment(session, boundary, 'mode_effective_boundary', {
+          ...settlementResolverOptions(options),
+          endReason: 'mode_effective_boundary',
+          endOperationSource: 'mode_boundary',
+          endAtMs: boundary,
+        })
       : { appended: 0, durationSeconds: 0 };
 
     await refreshCachedMode();
@@ -572,6 +677,9 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
       domain: session.domain,
       startTime: boundary,
       lastHeartbeat: Math.max(Number(session.lastHeartbeat) || boundary, boundary),
+      startReason: 'mode_effective_boundary_reopen',
+      startOperationSource: 'mode_boundary',
+      startAtMs: boundary,
       tabId: session.tabId ?? null,
       windowId: session.windowId ?? null,
       domainResolutionReason: session.domainResolutionReason || null,
@@ -695,7 +803,9 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     const effectiveSession = await resolveUnknownSessionForSettlement(timingSession, reason, options);
     const startMs = timingSession.startTime;
     let endMs = closeTimeMs;
-    if (!startMs || !endMs || endMs <= startMs) return { appended: 0, durationSeconds: 0 };
+    if (!startMs || !endMs || endMs < startMs || (endMs === startMs && !options.allowZeroDurationSegment)) {
+      return { appended: 0, durationSeconds: 0 };
+    }
 
     let capped = false;
     if (effectiveSession.state === 'ACTIVE' && (endMs - startMs) > FOREGROUND_CHECKPOINT_MS) {
@@ -705,7 +815,6 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
 
     const durationMs = endMs - startMs;
     const durationSeconds = Math.floor(durationMs / 1000);
-    if (durationSeconds <= 0) return { appended: 0, durationSeconds: 0 };
     if (effectiveSession.state && !isCountedState(effectiveSession.state)) {
       return { appended: 0, durationSeconds: 0, skipped: 'non_counted_state' };
     }
@@ -728,9 +837,16 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       domain: effectiveSession.domain || null,
       sourceState: effectiveSession.state,
       settlementReason: reason,
+      description: makeSettlementDescription(
+        effectiveSession,
+        options.endReason || reason,
+        options.endAtMs || endMs,
+        options.endOperationSource || null
+      ),
       mode,
       profileId: identity.profileId,
       deviceId: identity.deviceId,
+      allowZeroDurationSegment: !!options.allowZeroDurationSegment,
     });
     if (effectiveSession.state === 'ACTIVE' && capped) {
       await recordForegroundDiagnostic({
@@ -752,10 +868,58 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     };
   } catch (e) {
     console.error('[Settlement] settleCurrentSessionSegment failed:', e?.message || e, { reason, domain: timingSession?.domain, sourceState: timingSession?.state });
-    // 结算失败不破坏现有的管线。
-    // 失败的结算可以通过下次 heartbeat/recovery 重试。
+    // 结算失败不破坏现有的管线；后续明确边界或 periodicCheckpoint 可再次推进。
     return { appended: 0, durationSeconds: 0, error: e?.message || String(e) };
   }
+}
+
+async function settleBoundaryDiagnosticSegment({
+  domain,
+  state = 'ACTIVE',
+  atMs = Date.now(),
+  settlementReason,
+  startReason,
+  endReason,
+  operationSource,
+}) {
+  const boundaryAt = Number.isFinite(atMs) ? atMs : Date.now();
+  const diagnosticDomain = typeof domain === 'string' && domain.trim()
+    ? domain.trim()
+    : 'unknown-page.chrome-local';
+  const diagnosticState = isCountedState(state) ? state : 'ACTIVE';
+  const timingSession = {
+    state: diagnosticState,
+    domain: diagnosticDomain,
+    startTime: boundaryAt,
+    lastHeartbeat: boundaryAt,
+    startReason: startReason || settlementReason,
+    startOperationSource: operationSource || operationSourceForReason(settlementReason),
+    startAtMs: boundaryAt,
+  };
+  const identity = await resolveSettlementIdentity(timingSession, settlementReason);
+  const appended = await settleUsageDuration({
+    startMs: boundaryAt,
+    endMs: boundaryAt,
+    domain: diagnosticDomain,
+    sourceState: diagnosticState,
+    settlementReason,
+    description: makeSettlementDescription(
+      timingSession,
+      endReason || settlementReason,
+      boundaryAt,
+      operationSource || operationSourceForReason(settlementReason)
+    ),
+    mode: cachedEffectiveMode || 'unknown',
+    profileId: identity.profileId,
+    deviceId: identity.deviceId,
+    allowZeroDurationSegment: true,
+  });
+  return { appended, durationSeconds: 0, domain: diagnosticDomain };
+}
+
+function observedCloseDomain(options = {}) {
+  const domain = options.observedDomain || options.eventDomain || options.domain || null;
+  return typeof domain === 'string' && domain.trim() ? domain.trim() : null;
 }
 
 export async function flushOpenSessionToStats(reason = 'ui_flush', options = {}) {
@@ -824,14 +988,14 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       ? { closeTime: options.closeTime, stale: false }
       : getReliableCloseTime(session, now);
     const { closeTime, stale } = closeBoundary;
-    if (closeTime <= session.startTime || Math.floor((closeTime - session.startTime) / 1000) <= 0) {
+    if (closeTime <= session.startTime) {
       return {
         ok: true,
         flushed: false,
         flushedSeconds: 0,
         domain: session.domain || null,
         state: session.state || null,
-        reason: 'duration_below_one_second',
+        reason: 'non_positive_duration',
       };
     }
 
@@ -857,7 +1021,11 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       sessionBefore,
     });
 
-    const settlement = await settleCurrentSessionSegment(session, closeTime, reason, settlementResolverOptions(options));
+    const settlement = await settleCurrentSessionSegment(session, closeTime, reason, {
+      ...settlementResolverOptions(options),
+      endReason: options.endReason || reason,
+      endAtMs: closeTime,
+    });
     const reopenedDomain = settlement?.domain || session.domain;
     const reopenTime = Number.isFinite(options.reopenTime) ? options.reopenTime : now;
     const startEvent = {
@@ -881,6 +1049,9 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       domain: reopenedDomain,
       startTime: reopenTime,
       lastHeartbeat: reopenTime,
+      startReason: reason === 'periodic_checkpoint' ? 'periodic_checkpoint_reopen' : `${reason}_reopen`,
+      startOperationSource: reason === 'periodic_checkpoint' ? 'timer' : operationSourceForReason(reason),
+      startAtMs: reopenTime,
       tabId: session.tabId ?? null,
       windowId: session.windowId ?? null,
       domainResolutionReason: settlement?.domain && settlement.domain !== session.domain
@@ -927,16 +1098,33 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
     const session = await getSession();
     const now = Number.isFinite(options.now) ? options.now : Date.now();
     if (!session?.state || !session?.startTime) {
+      const diagnostic = await settleBoundaryDiagnosticSegment({
+        domain: observedCloseDomain(options),
+        state: options.observedState || 'ACTIVE',
+        atMs: now,
+        settlementReason: 'event_close_without_open',
+        startReason: 'event_close_without_open',
+        endReason: reason,
+        operationSource: operationSourceForReason(reason),
+      });
       await saveSession({
         state: null,
         domain: null,
         startTime: null,
         lastHeartbeat: now,
       });
-      return { ok: true, closed: false, reason: 'no_open_session' };
+      return {
+        ok: true,
+        closed: false,
+        diagnostic: true,
+        reason: 'event_close_without_open',
+        diagnosticSegment: diagnostic,
+      };
     }
 
     const foreground = isForegroundPageSession(session);
+    const closeObservedDomain = observedCloseDomain(options);
+    const closeDomainMismatch = !!(closeObservedDomain && session.domain && closeObservedDomain !== session.domain);
     const foregroundBoundary = foreground ? getBoundedForegroundClose(session, now) : null;
     const closeTime = foreground
       ? foregroundBoundary.closeTime
@@ -951,7 +1139,23 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
 
     let settlement = null;
     if (isCountedState(session.state)) {
-      settlement = await settleCurrentSessionSegment(session, closeTime, reason, settlementResolverOptions(options));
+      settlement = await settleCurrentSessionSegment(session, closeTime, closeDomainMismatch ? 'event_close_domain_mismatch_close' : reason, {
+        ...settlementResolverOptions(options),
+        endReason: reason,
+        endAtMs: closeTime,
+        allowZeroDurationSegment: true,
+      });
+      if (closeDomainMismatch) {
+        await settleBoundaryDiagnosticSegment({
+          domain: closeObservedDomain,
+          state: options.observedState || session.state,
+          atMs: closeTime,
+          settlementReason: 'event_close_domain_mismatch_observed',
+          startReason: 'event_close_domain_mismatch_observed',
+          endReason: reason,
+          operationSource: operationSourceForReason(reason),
+        });
+      }
     }
     if (foreground) {
       const cappedSeconds = Math.floor(Math.max(0, closeTime - session.startTime) / 1000);
@@ -980,6 +1184,8 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
       foregroundClosed: foreground,
       foregroundCapped: !!foregroundBoundary?.capped,
       foregroundSettled: foreground ? (settlement?.appended || 0) > 0 : false,
+      observedDomain: closeObservedDomain || null,
+      domainMismatch: closeDomainMismatch,
       settlement,
     };
   };
@@ -994,7 +1200,57 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
   return runSerialized(async () => {
     const session = await getSession();
     if (!session?.state || !session?.startTime) {
-      return { ok: true, checkpointed: false, reason: 'no_open_session' };
+      const confirmation = typeof options.confirmForegroundPage === 'function'
+        ? await options.confirmForegroundPage(null, now)
+        : null;
+      if (!isCheckpointActiveSample(confirmation)) {
+        return { ok: true, checkpointed: false, reason: 'no_open_session' };
+      }
+      const openAt = checkpointEstimatedOpenTime(now);
+      const state = sampleStateFromConfirmation(confirmation);
+      const domain = sampleDomainFromConfirmation(confirmation);
+      const startEvent = {
+        type: EVENT_TYPE.START,
+        state,
+        domain,
+        time: openAt,
+      };
+      await appendEvent(startEvent);
+      await emitTrace('event_appended', {
+        source: 'event-log',
+        reason: 'checkpointEstimatedOpen',
+        domain,
+        nextState: state,
+        event: startEvent,
+      });
+      await saveSession({
+        state,
+        domain,
+        startTime: openAt,
+        lastHeartbeat: now,
+        startReason: 'checkpoint_estimated_open',
+        startOperationSource: 'timer',
+        startAtMs: openAt,
+        tabId: sampleTabIdFromConfirmation(confirmation),
+        windowId: sampleWindowIdFromConfirmation(confirmation),
+      });
+      await recordForegroundDiagnostic({
+        checkpointEstimatedOpens: 1,
+        estimatedOpenSeconds: Math.floor(Math.max(0, now - openAt) / 1000),
+        lastCheckpointAt: Date.now(),
+        lastCheckpointDomain: domain,
+        lastCheckpointIdleState: confirmation?.idleState || null,
+      });
+      return {
+        ok: true,
+        checkpointed: false,
+        opened: true,
+        repaired: true,
+        reason: 'checkpoint_estimated_open',
+        state,
+        domain,
+        openAt,
+      };
     }
     if (!isCountedState(session.state)) {
       return { ok: true, checkpointed: false, reason: 'non_counted_state' };
@@ -1022,33 +1278,88 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         ? await options.confirmForegroundPage(session, now)
         : { ok: true };
       if (!confirmation?.ok) {
-        const closeTime = boundedForegroundCloseTime(session, now);
-        await appendEvent(markForegroundEndUncounted({
+        const closeTime = checkpointEstimatedCloseTime(session, now);
+        const endEvent = {
           type: EVENT_TYPE.END,
           state: session.state,
           domain: session.domain,
           time: closeTime,
-        }, confirmation?.reason || 'checkpoint_confirmation_failed'));
+        };
+        await appendEvent(endEvent);
+        await emitTrace('event_appended', {
+          source: 'event-log',
+          reason: 'checkpointEstimatedClose',
+          domain: session.domain,
+          previousState: session.state,
+          event: endEvent,
+        });
+        const settlement = await settleCurrentSessionSegment(session, closeTime, 'checkpoint_estimated_close', {
+          endReason: 'checkpoint_estimated_half_interval_close',
+          endOperationSource: 'timer',
+          endAtMs: closeTime,
+          resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
+        });
+        const nextSample = mismatchCheckpointActiveSample(confirmation);
+        const openAt = nextSample ? checkpointEstimatedOpenTime(now) : null;
+        if (nextSample) {
+          const startEvent = {
+            type: EVENT_TYPE.START,
+            state: nextSample.state,
+            domain: nextSample.domain,
+            time: openAt,
+          };
+          await appendEvent(startEvent);
+          await emitTrace('event_appended', {
+            source: 'event-log',
+            reason: 'checkpointEstimatedSwitchOpen',
+            domain: nextSample.domain,
+            nextState: nextSample.state,
+            event: startEvent,
+          });
+          await saveSession({
+            state: nextSample.state,
+            domain: nextSample.domain,
+            startTime: openAt,
+            lastHeartbeat: now,
+            startReason: 'checkpoint_estimated_open',
+            startOperationSource: 'timer',
+            startAtMs: openAt,
+            tabId: nextSample.tabId,
+            windowId: nextSample.windowId,
+          });
+        } else {
+          await saveSession(emptySession(now));
+        }
         await recordForegroundDiagnostic({
-          checkpointDrops: 1,
+          checkpointEstimatedCloses: 1,
           droppedUnconfirmedSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000),
           lastDropReason: confirmation?.reason || 'checkpoint_confirmation_failed',
           lastDropAt: Date.now(),
           lastCheckpointFailureAt: Date.now(),
           lastCheckpointFailureReason: confirmation?.reason || 'checkpoint_confirmation_failed',
-          lastCheckpointCandidateDomain: confirmation?.candidateDomain || null,
+          lastCheckpointObservedDomain: observedDomainFromConfirmation(confirmation),
           lastCheckpointIdleState: confirmation?.idleState || null,
+          ...(nextSample ? {
+            checkpointEstimatedOpens: 1,
+            estimatedOpenSeconds: Math.floor(Math.max(0, now - openAt) / 1000),
+          } : {}),
           ...(confirmation?.reason === 'unknown_domain' ? { unknownDomainSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000) } : {}),
-          ...(confirmation?.reason === 'candidate_query_failed' ? { candidateQueryFailures: 1 } : {}),
+          ...((confirmation?.reason === 'observed_query_failed' || confirmation?.reason === 'candidate_query_failed') ? { observedQueryFailures: 1 } : {}),
           ...(confirmation?.reason === 'idle_query_failed' ? { idleQueryFailures: 1 } : {}),
         });
-        await saveSession({
-          state: null,
-          domain: null,
-          startTime: null,
-          lastHeartbeat: now,
-        });
-        return { ok: true, checkpointed: false, reason: confirmation?.reason || 'checkpoint_confirmation_failed', dropped: true };
+        return {
+          ok: true,
+          checkpointed: false,
+          repaired: true,
+          reason: 'checkpoint_estimated_close',
+          failureReason: confirmation?.reason || 'checkpoint_confirmation_failed',
+          flushedSeconds: settlement?.durationSeconds || 0,
+          flushedSegments: settlement?.appended || 0,
+          closeAt: closeTime,
+          opened: !!nextSample,
+          openAt,
+          domain: nextSample?.domain || session.domain || null,
+        };
       }
 
       const checkpointEnd = session.startTime + FOREGROUND_CHECKPOINT_MS;
@@ -1081,6 +1392,11 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         domain: session.domain || FOREGROUND_UNKNOWN_DOMAIN,
         startTime: checkpointEnd,
         lastHeartbeat: now,
+        startReason: 'periodic_checkpoint_reopen',
+        startOperationSource: 'timer',
+        startAtMs: checkpointEnd,
+        tabId: session.tabId ?? sampleTabIdFromConfirmation(confirmation),
+        windowId: session.windowId ?? sampleWindowIdFromConfirmation(confirmation),
       });
       return {
         ok: true,
@@ -1091,12 +1407,10 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
       };
     }
 
-    const closeBoundary = getReliableCloseTime(session, now);
-    if (closeBoundary.stale) {
-      return { ok: true, checkpointed: false, reason: 'stale_session' };
-    }
     const flushResult = await flushOpenSessionToStats('periodic_checkpoint', {
       alreadySerialized: true,
+      closeTime: now,
+      reopenTime: now,
       resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
     });
     if (flushResult?.ok === false || flushResult?.error) {

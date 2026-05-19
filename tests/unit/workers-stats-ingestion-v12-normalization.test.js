@@ -55,6 +55,10 @@ function run() {
   const normalizeHostname = loadNormalizeHostname();
 
   expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../core/domain-semantics.js';"));
+  const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'auth.ts'), 'utf8');
+  expectTrue('auth.ts 应规范化邮箱大小写', authSource.includes('function normalizeEmail') && authSource.includes('toLowerCase()'));
+  expectTrue('auth.ts 注册应按 LOWER(email) 检查重复', authSource.includes('SELECT id FROM accounts WHERE LOWER(email) = ?'));
+  expectTrue('auth.ts 登录应按 LOWER(email) 查询', authSource.includes('SELECT id, email FROM accounts WHERE LOWER(email) = ? AND password_hash = ?'));
   expectTrue('stats.ts 应在入库前执行 normalizeHostname', source.includes('const normalizedDomain = normalizeHostname(stat.domain);'));
   expectTrue('stats.ts 应跳过归一后非法域名', source.includes('if (!normalizedDomain) continue;'));
 
@@ -69,17 +73,29 @@ function run() {
   expectTrue('stats.ts 应包含 POST /device/stats/v1 路由', source.includes("path === '/device/stats/v1'"));
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats/v1 路由', source.includes('/stats/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/usage-segments/v1 路由', source.includes('/usage-segments/v1'));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/stats-reconciliation/v1 路由', source.includes('/stats-reconciliation/v1'));
   expectTrue('usage-segments/v1 应校验账号 JWT', source.includes('verifyAccountToken(request, env.JWT_SECRET)'));
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
   expectTrue('usage-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('ORDER BY start_ms DESC, id DESC'));
   expectTrue('usage-segments/v1 应支持 keyset cursor', source.includes('decodeSegmentCursor') && source.includes('nextCursor'));
   expectTrue('usage-segments/v1 应返回 summary 聚合', source.includes('totalSeconds') && source.includes('activeSeconds') && source.includes('mediaSeconds'));
+  expectTrue('stats-reconciliation/v1 应同时查询 stats_v1 与 usage_segments_v1', source.includes('FROM stats_v1') && source.includes('FROM usage_segments_v1'));
+  expectTrue('stats-reconciliation/v1 应返回四类状态', source.includes('stats_missing') && source.includes('segments_missing') && source.includes('mismatch') && source.includes('match'));
+  expectTrue('stats-reconciliation/v1 应返回 deltaSeconds', source.includes('deltaSeconds: segmentSeconds - statsSeconds'));
   expectTrue('stats.ts 应在 usage_segments_v1 表中使用 ON CONFLICT/upsert 语义', source.includes('usage_segments_v1'));
   expectTrue('stats.ts 应在 stats_v1 表中使用 UNIQUE 约束 upsert', source.includes('stats_v1'));
   expectTrue('stats.ts 应写入 segment_upload_log', source.includes('segment_upload_log'));
   expectTrue('stats.ts 应写入 stats_upload_log', source.includes('stats_upload_log'));
   expectTrue('stats.ts 应验证 channel 字段', source.includes("VALID_CHANNELS"));
   expectTrue('stats.ts 应验证 mode 字段', source.includes("VALID_MODES"));
+  expectTrue(
+    'usage-segments/v1 应允许正时长亚秒 segment 上传为 durationSeconds=0',
+    source.includes("s.durationSeconds < 0") && source.includes("segment.durationSeconds must be >= 0")
+  );
+  expectTrue(
+    'usage-segments/v1 仍应拒绝非有限 durationSeconds',
+    source.includes("!Number.isFinite(s.durationSeconds)")
+  );
 
   // Phase 3C-R: Contract — Worker accepts terminal buildDailyStatsUploadPayload shape
   expectTrue('stats.ts stats/v1 应接受嵌套的 activeByMode', source.includes("activeByMode"));

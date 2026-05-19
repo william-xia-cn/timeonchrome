@@ -43,7 +43,7 @@ global.chrome = {
 
 const SESSION_KEY = 'session_v1';
 const EVENT_LOG_KEY = 'event_log_v1';
-const SLEEP_THRESHOLD = 90 * 1000; // 90 秒
+const RECOVERY_ESTIMATE_MS = 90 * 1000; // 半个 checkpoint
 
 const EVENT_TYPE = { START: 'START', END: 'END' };
 
@@ -72,14 +72,8 @@ async function recover(fakeNow) {
   if (!session || !session.state || !session.startTime) return;
 
   const now = fakeNow !== undefined ? fakeNow : Date.now();
-  const delta = now - session.lastHeartbeat;
-
-  let endTime;
-  if (delta > SLEEP_THRESHOLD) {
-    endTime = session.lastHeartbeat;
-  } else {
-    endTime = now;
-  }
+  const endTime = Math.min(now, session.startTime + RECOVERY_ESTIMATE_MS);
+  const durationSeconds = Math.floor(Math.max(0, endTime - session.startTime) / 1000);
 
   // 幂等检查：如果最后一条已是同一段会话的 END，则不重复追加
   const events = await getEvents();
@@ -90,7 +84,7 @@ async function recover(fakeNow) {
     lastEvent.domain === session.domain &&
     lastEvent.time === endTime;
 
-  if (!alreadyClosed) {
+  if (!alreadyClosed && durationSeconds > 0) {
     await appendEvent({
       type: EVENT_TYPE.END,
       state: session.state,
@@ -185,9 +179,9 @@ function resetStorage() {
 
 async function runTests() {
 
-// ── Recovery: 正常恢复（delta <= 90s）────────────────────────────────────────
+// ── Recovery: 短窗口恢复（now 早于半 checkpoint）──────────────────────────────
 
-section('Recovery: 正常恢复（SW 快速重启）');
+section('Recovery: 短窗口恢复（使用 now）');
 
 {
   resetStorage();
@@ -218,9 +212,9 @@ section('Recovery: 正常恢复（SW 快速重启）');
   expect('session.lastHeartbeat 更新', session.lastHeartbeat, fakeNow);
 }
 
-// ── Recovery: 休眠恢复（delta > 90s）─────────────────────────────────────────
+// ── Recovery: 长窗口恢复（半 checkpoint 估算）────────────────────────────────
 
-section('Recovery: 休眠恢复（SW 被回收后重启）');
+section('Recovery: 长窗口恢复（半 checkpoint 估算）');
 
 {
   resetStorage();
@@ -242,7 +236,7 @@ section('Recovery: 休眠恢复（SW 被回收后重启）');
 
   const events = await getEvents();
   expect('补写 1 个 END 事件', events.length, 1);
-  expect('END 事件时间 = lastHeartbeat（截断）', events[0].time, twoHoursAgo);
+  expect('END 事件时间 = startTime + 90s', events[0].time, fourHoursAgo + RECOVERY_ESTIMATE_MS);
   expect('END 事件状态', events[0].state, 'ACTIVE');
   expect('END 事件域名', events[0].domain, 'youtube.com');
 
@@ -250,29 +244,29 @@ section('Recovery: 休眠恢复（SW 被回收后重启）');
   expectTrue('session 重置', session.state === null && session.domain === null);
 }
 
-// ── Recovery: 边界值（delta = 90s 正好）──────────────────────────────────────
+// ── Recovery: 边界值（now = start + 90s 正好）─────────────────────────────────
 
-section('Recovery: 边界值（delta = 90s）');
+section('Recovery: 边界值（now = start + 90s）');
 
 {
   resetStorage();
 
   const baseTime = 1000000;
-  const lastHeartbeat = baseTime - 90000;
+  const startTime = baseTime - 90000;
 
   await mockSessionStorage.set({
     [SESSION_KEY]: {
       state: 'ACTIVE',
       domain: 'google.com',
-      startTime: lastHeartbeat - 60000,
-      lastHeartbeat: lastHeartbeat,
+      startTime,
+      lastHeartbeat: baseTime - 10_000,
     }
   });
 
   await recover(baseTime);
 
   const events = await getEvents();
-  expect('END 事件时间 = 当前时间（delta = 90s 不算休眠）', events[0].time, baseTime);
+  expect('END 事件时间 = 当前时间（正好半 checkpoint）', events[0].time, baseTime);
 }
 
 // ── Recovery: 无 session 跳过 ────────────────────────────────────────────────
@@ -384,12 +378,12 @@ section('Recovery: BACKGROUND_ACTIVE 状态恢复');
   const events = await getEvents();
   expect('END 事件状态 = BACKGROUND_ACTIVE', events[0].state, 'BACKGROUND_ACTIVE');
   expect('END 事件域名 = music.youtube.com', events[0].domain, 'music.youtube.com');
-  expect('END 事件时间 = lastHeartbeat', events[0].time, oneHourAgo);
+  expect('END 事件时间 = startTime + 90s', events[0].time, oneHourAgo - 30000 + RECOVERY_ESTIMATE_MS);
 }
 
 // ── Recovery: 完整时长计算验证 ───────────────────────────────────────────────
 
-section('Recovery: 完整时长计算验证（休眠场景）');
+section('Recovery: 完整时长计算验证（估算场景）');
 
 {
   resetStorage();
@@ -411,13 +405,12 @@ section('Recovery: 完整时长计算验证（休眠场景）');
   const events = await getEvents();
   expect('恢复写入 1 个 END 事件', events.length, 1);
   expect('END 事件类型正确', events[0].type, 'END');
-  // delta = 2h > 90s → 休眠 → endTime = lastHeartbeat
-  expect('END 事件时间 = lastHeartbeat（2 小时前）', events[0].time, twoHoursAgo);
+  expect('END 事件时间 = startTime + 90s', events[0].time, twoHoursAgo + RECOVERY_ESTIMATE_MS);
 }
 
-// ── SR-1: MV3 隐式 SW 重启后 recover 截断 stale session，transitionState 不重复关闭 ──
+// ── SR-1: Lifecycle recovery 后 transitionState 不重复关闭 ──
 
-section('SR-1: MV3 implicit SW restart — bootstrap recovers stale session before transitionState');
+section('SR-1: lifecycle recovery closes residual session before transitionState');
 
 {
   resetStorage();
@@ -425,7 +418,7 @@ section('SR-1: MV3 implicit SW restart — bootstrap recovers stale session befo
   const baseTime = 1000000;
   const twoHoursAgo = baseTime - 2 * 60 * 60 * 1000;
 
-  // 1. 模拟 SW 死亡前遗留的 stale ACTIVE session
+  // 1. 模拟 lifecycle boundary 前遗留的 ACTIVE session
   await mockSessionStorage.set({
     [SESSION_KEY]: {
       state: 'ACTIVE',
@@ -442,14 +435,14 @@ section('SR-1: MV3 implicit SW restart — bootstrap recovers stale session befo
     ]
   });
 
-  // 2. 模拟模块级 bootstrap（调用 recover）——覆盖 onStartup/onInstalled 不触发的隐式重启
+  // 2. 模拟 lifecycle boundary 调用 recover
   await recover(baseTime);
 
-  // 3. recover 应截断 stale session，END 时间 = lastHeartbeat（不是当前时间）
+  // 3. recover 应按半 checkpoint 估算，END 时间不是当前时间
   const eventsAfterRecover = await getEvents();
   expect('SR-1: recover 产生 1 个 END 事件', eventsAfterRecover.length, 2);
   const endEvent = eventsAfterRecover.find(e => e.type === 'END');
-  expect('SR-1: END 时间截断到 lastHeartbeat', endEvent.time, twoHoursAgo);
+  expect('SR-1: END 时间使用 startTime + 90s', endEvent.time, twoHoursAgo + RECOVERY_ESTIMATE_MS);
   expect('SR-1: END 状态正确', endEvent.state, 'ACTIVE');
   expect('SR-1: END 域名正确', endEvent.domain, 'youtube.com');
 

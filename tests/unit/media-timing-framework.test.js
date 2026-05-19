@@ -1,4 +1,4 @@
-// Media timing framework tests
+// Media multi-session local ledger tests
 // Run with: node tests/unit/media-timing-framework.test.js
 
 'use strict';
@@ -28,8 +28,7 @@ class MockStorage {
 }
 
 const localStorage = new MockStorage();
-const sessionStorage = new MockStorage();
-global.chrome = { storage: { local: localStorage, session: sessionStorage } };
+global.chrome = { storage: { local: localStorage } };
 
 function loadProdModule(relPath, exportNames, injected = {}) {
   const abs = path.join(__dirname, '..', '..', relPath);
@@ -45,25 +44,19 @@ function loadProdModule(relPath, exportNames, injected = {}) {
   return factory(injected);
 }
 
-const usageApi = loadProdModule('core/usage-segments.js', [
-  'appendUsageSegments',
-  'buildUsageSegment',
-  'incrementDailyUsageStats',
-  'markSegmentSyncDirty',
-  'markStatsSyncDirty',
-  'splitSegmentByLocalDate',
-]);
-const frameworkApi = loadProdModule('core/media-framework.js', ['MediaFramework', 'resolveMediaFramework']);
 const mediaApi = loadProdModule('runtime/media-session.js', [
-  'handleMediaBoundary',
-  'runMediaPeriodicCheckpoint',
+  'applyMediaFacts',
+  'classifyMediaFact',
+  'closeMediaForTab',
   'closeMediaSession',
+  'getDailyMediaStats',
   'getMediaSession',
+  'getMediaSessions',
+  'getMediaSegments',
+  'runMediaPeriodicCheckpoint',
   '__resetMediaSessionForTest',
 ], {
-  ...usageApi,
   getCachedEffectiveMode: () => 'study',
-  resolveSettlementIdentity: async () => ({ profileId: 'profile-test', deviceId: 'device-test' }),
 });
 
 function check(name, condition, details = '') {
@@ -72,127 +65,153 @@ function check(name, condition, details = '') {
 
 function resetAll() {
   localStorage.reset();
-  sessionStorage.reset();
   mediaApi.__resetMediaSessionForTest();
 }
 
-async function stabilize(framework, domain, base) {
-  await mediaApi.handleMediaBoundary(framework, domain, 'mediaState', base);
-  await mediaApi.handleMediaBoundary(framework, domain, 'mediaState', base + 6000);
+async function segments() {
+  return Object.values(await mediaApi.getMediaSegments());
 }
 
-async function getSegments() {
-  const data = await localStorage.get('usage_segments_v1');
-  const raw = data.usage_segments_v1 || {};
-  return Array.isArray(raw) ? raw : Object.values(raw);
-}
-
-async function testResolverRules() {
-  const fgVideo = frameworkApi.resolveMediaFramework({
-    tabId: 1,
-    candidateKind: 'known_domain',
-    isFocused: true,
-    isIdle: false,
-    isAudible: true,
-    isPiP: false,
+function videoFact(tabId, domain, overrides = {}) {
+  return {
+    tabId,
+    windowId: overrides.windowId ?? 10,
+    domain,
+    playing: true,
+    audible: overrides.audible ?? true,
     mediaKind: 'video',
-    mediaSourceTabId: 1,
-    mediaSourceDomain: 'video.example.com',
-  });
-  check('foreground same-tab video is owned by foreground_page', fgVideo.framework === 'none');
-
-  const bgAudio = frameworkApi.resolveMediaFramework({
-    tabId: 1,
-    candidateKind: 'known_domain',
-    isFocused: true,
-    isIdle: false,
-    isAudible: true,
     isPiP: false,
+    isActiveTab: overrides.isActiveTab ?? true,
+    windowState: overrides.windowState || 'normal',
+    source: overrides.source || 'dom_media_event',
+  };
+}
+
+function audioFact(tabId, domain, overrides = {}) {
+  return {
+    tabId,
+    windowId: overrides.windowId ?? 10,
+    domain,
+    playing: true,
+    audible: overrides.audible ?? true,
     mediaKind: 'audio',
-    mediaSourceTabId: 2,
-    mediaSourceDomain: 'audio.example.com',
-  });
-  check('different source audio resolves background_audio', bgAudio.framework === 'background_audio');
-
-  const bgVideo = frameworkApi.resolveMediaFramework({
-    tabId: 1,
-    candidateKind: 'none',
-    isFocused: false,
-    isIdle: false,
-    isAudible: true,
     isPiP: false,
-    mediaKind: 'video',
-    mediaSourceTabId: 1,
-    mediaSourceDomain: 'video.example.com',
-  });
-  check('unfocused source video resolves background_video', bgVideo.framework === 'background_video');
-
-  const pip = frameworkApi.resolveMediaFramework({
-    isAudible: false,
-    isPiP: true,
-    mediaKind: 'video',
-    mediaSourceTabId: 3,
-    mediaSourceDomain: 'pip.example.com',
-  });
-  check('pip wins over other media', pip.framework === 'pip_video');
+    isActiveTab: overrides.isActiveTab ?? false,
+    windowState: overrides.windowState || 'normal',
+    source: overrides.source || 'tabs_api_audible',
+  };
 }
 
-async function testCheckpoint(framework, domain, expectedChannel) {
+async function testClassifierRules() {
+  resetAll();
+  check('active normal video is foregroundVideo',
+    mediaApi.classifyMediaFact(videoFact(1, 'video.example.com')).mediaClass === 'foregroundVideo');
+  check('minimized active video is backgroundVideo',
+    mediaApi.classifyMediaFact(videoFact(1, 'video.example.com', { windowState: 'minimized' })).mediaClass === 'backgroundVideo');
+  check('inactive audio is backgroundAudio',
+    mediaApi.classifyMediaFact(audioFact(2, 'audio.example.com')).mediaClass === 'backgroundAudio');
+  check('active audio is foregroundAudio',
+    mediaApi.classifyMediaFact(audioFact(2, 'audio.example.com', { isActiveTab: true })).mediaClass === 'foregroundAudio');
+  check('pip wins over video/audio',
+    mediaApi.classifyMediaFact({ ...videoFact(3, 'pip.example.com'), isPiP: true }).mediaClass === 'pip');
+}
+
+async function testTwoTabsCountConcurrently() {
   resetAll();
   const base = 1778800000000;
-  await stabilize(framework, domain, base);
-  const session = await mediaApi.getMediaSession();
-  check(`${framework} session opens`, session.framework === framework && session.startTime === base);
-  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 186000);
-  check(`${framework} checkpoint succeeds`, checkpoint.checkpointed === true, JSON.stringify(checkpoint));
-  const segments = await getSegments();
-  check(`${framework} writes one segment`, segments.length === 1);
-  check(`${framework} segment channel`, segments[0].channel === expectedChannel, JSON.stringify(segments[0]));
-  check(`${framework} segment framework`, segments[0].framework === framework, JSON.stringify(segments[0]));
-  check(`${framework} duration`, segments[0].durationSeconds === 180);
+  await mediaApi.applyMediaFacts([
+    audioFact(1, 'audio.example.com'),
+    videoFact(2, 'video.example.com'),
+  ], 'mediaState', base);
+
+  const sessions = await mediaApi.getMediaSessions();
+  check('two media sessions are open', Object.keys(sessions).length === 2, JSON.stringify(sessions));
+
+  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 180_000);
+  check('checkpoint reports media windows', checkpoint.checkpointWindows === 2, JSON.stringify(checkpoint));
+
+  const rows = await segments();
+  check('two media segments are written', rows.length === 2, JSON.stringify(rows));
+  check('concurrent duration totals 360s', rows.reduce((sum, row) => sum + row.durationSeconds, 0) === 360);
+  check('foreground video class recorded', rows.some((row) => row.mediaClass === 'foregroundVideo'));
+  check('background audio class recorded', rows.some((row) => row.mediaClass === 'backgroundAudio'));
+
+  const daily = await mediaApi.getDailyMediaStats(rows[0].date);
+  check('daily media stats exists', !!daily);
+  check('daily media stats tracks domains', Object.keys(daily.domains).length === 2);
 }
 
-async function testUnderCheckpointNoDurableSegment() {
+async function testVideoTakesPrecedenceWithinTab() {
   resetAll();
   const base = 1778801000000;
-  await stabilize('background_audio', 'short.example.com', base);
-  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 60000);
-  check('under checkpoint skip', checkpoint.checkpointed === false && checkpoint.reason === 'interval_not_reached');
-  check('under checkpoint writes no segment', (await getSegments()).length === 0);
+  await mediaApi.applyMediaFacts({
+    ...videoFact(3, 'mixed.example.com'),
+    audible: true,
+    playing: true,
+  }, 'mediaState', base);
+  const sessions = await mediaApi.getMediaSessions();
+  const open = Object.values(sessions);
+  check('one same-tab media session is open', open.length === 1, JSON.stringify(sessions));
+  check('same-tab video+audio is video', open[0].mediaClass === 'foregroundVideo', JSON.stringify(open[0]));
 }
 
-async function testCloseDoesNotBackfillLongSpan() {
+async function testPiPTakesPrecedence() {
   resetAll();
   const base = 1778802000000;
-  await stabilize('background_video', 'close.example.com', base);
-  const close = await mediaApi.closeMediaSession('tab_close', { now: base + 10 * 60 * 60_000 });
-  check('close reports dropped session', close.closed === true);
-  check('close does not write long segment', (await getSegments()).length === 0);
+  await mediaApi.applyMediaFacts({ ...videoFact(4, 'pip.example.com'), isPiP: true }, 'pip_api', base);
+  const legacy = await mediaApi.getMediaSession();
+  check('legacy mirror exposes pip_video', legacy.framework === 'pip_video', JSON.stringify(legacy));
+  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 180_000);
+  check('pip checkpoint writes segment', checkpoint.flushedSegments === 1, JSON.stringify(checkpoint));
+  const [row] = await segments();
+  check('pip segment class', row.mediaClass === 'pip', JSON.stringify(row));
+  check('pip segment visibility', row.visibility === 'pip', JSON.stringify(row));
 }
 
-async function testMediaJitterDoesNotResetCheckpoint() {
+async function testCloseWritesLocalMediaSegment() {
   resetAll();
   const base = 1778803000000;
-  await stabilize('background_audio', 'jitter.example.com', base);
-  for (let t = 30000; t <= 180000; t += 30000) {
-    await mediaApi.handleMediaBoundary('none', null, 'media_jitter', base + t);
-    await mediaApi.handleMediaBoundary('background_audio', 'jitter.example.com', 'media_jitter', base + t + 2000);
-  }
-  const session = await mediaApi.getMediaSession();
-  check('media jitter keeps original startTime', session.startTime === base);
-  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 190000);
-  check('media checkpoint survives jitter', checkpoint.checkpointed === true);
+  await mediaApi.applyMediaFacts(videoFact(5, 'close.example.com', { isActiveTab: false }), 'mediaState', base);
+  const close = await mediaApi.closeMediaForTab(5, 'tab_close', { now: base + 12_000 });
+  check('tab close closes one media session', close.closedSessions === 1, JSON.stringify(close));
+  const [row] = await segments();
+  check('tab close writes local media segment', row.mediaClass === 'backgroundVideo', JSON.stringify(row));
+  check('tab close duration is 12s', row.durationSeconds === 12, JSON.stringify(row));
+  check('description records close reason', row.description.end.reason === 'tab_close', JSON.stringify(row.description));
+}
+
+async function testCloseAllSessions() {
+  resetAll();
+  const base = 1778804000000;
+  await mediaApi.applyMediaFacts([
+    audioFact(6, 'a.example.com'),
+    audioFact(7, 'b.example.com'),
+  ], 'mediaState', base);
+  const close = await mediaApi.closeMediaSession('monitoring_off', { now: base + 5_000 });
+  check('close all reports two sessions', close.closedSessions === 2, JSON.stringify(close));
+  check('close all writes two segments', (await segments()).length === 2);
+}
+
+async function testCheckpointIgnoresFactsWithoutOpenSessions() {
+  resetAll();
+  const base = 1778805000000;
+  localStorage.data.media_facts_v1 = {
+    8: audioFact(8, 'stale-fact.example.com'),
+  };
+  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 180_000);
+  check('facts without open media sessions are not checkpointed', checkpoint.checkpointWindows === 0, JSON.stringify(checkpoint));
+  check('facts without open media sessions do not write segments', (await segments()).length === 0);
 }
 
 async function run() {
   const tests = [
-    testResolverRules,
-    () => testCheckpoint('background_audio', 'audio.example.com', 'backgroundMedia'),
-    () => testCheckpoint('background_video', 'video.example.com', 'backgroundMedia'),
-    () => testCheckpoint('pip_video', 'pip.example.com', 'pip'),
-    testUnderCheckpointNoDurableSegment,
-    testCloseDoesNotBackfillLongSpan,
-    testMediaJitterDoesNotResetCheckpoint,
+    testClassifierRules,
+    testTwoTabsCountConcurrently,
+    testVideoTakesPrecedenceWithinTab,
+    testPiPTakesPrecedence,
+    testCloseWritesLocalMediaSegment,
+    testCloseAllSessions,
+    testCheckpointIgnoresFactsWithoutOpenSessions,
   ];
   let passed = 0;
   for (const test of tests) {

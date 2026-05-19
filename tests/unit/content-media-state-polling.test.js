@@ -43,8 +43,8 @@ expect(
 );
 
 expect(
-  'MEDIA_STATE payload is state-only',
-  /chrome\.runtime\.sendMessage\(\{\s*type:\s*'MEDIA_STATE',\s*playing,\s*isPiP,\s*mediaKind:\s*kind\s*\}\)/.test(mediaBlock)
+  'MEDIA_STATE payload is state-only plus source label',
+  /chrome\.runtime\.sendMessage\(\{\s*type:\s*'MEDIA_STATE',\s*playing,\s*isPiP,\s*mediaKind:\s*kind,\s*source\s*\}\)/.test(mediaBlock)
 );
 
 for (const forbidden of [
@@ -69,12 +69,12 @@ for (const forbidden of [
 
 expect(
   'passive media polling is local only',
-  /setInterval\(updateMediaState,\s*1000\)/.test(mediaBlock)
+  /setInterval\(\(\)\s*=>\s*updateMediaState\(false,\s*'dom_media_poll'\),\s*1000\)/.test(mediaBlock)
 );
 
 expect(
   'heartbeat interval is throttled to 5 seconds',
-  /setInterval\(\(\)\s*=>\s*updateMediaState\(true\),\s*5000\)/.test(mediaBlock)
+  /setInterval\(\(\)\s*=>\s*updateMediaState\(true,\s*'dom_media_poll'\),\s*5000\)/.test(mediaBlock)
 );
 
 expect(

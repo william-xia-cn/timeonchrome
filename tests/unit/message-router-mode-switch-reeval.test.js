@@ -317,7 +317,41 @@ async function run() {
     expect('rest -> composite side effect payload', sideEffects[0], { fromMode: 'rest', toMode: 'composite', tabId: 26 });
   }
 
-  section('MSR-7 GET_STATS 返回 compositeSeconds 并兼容 legacy undeterminedSeconds');
+  section('MSR-7 GET_STATS from popup uses popup_open foreground settlement');
+  {
+    const flushCalls = [];
+    const { handleMessage } = loadHandleMessage({
+      getConfig: async () => ({}),
+      getTodayStats: async () => ({}),
+      flushOpenSessionToStats: async (reason, options) => {
+        flushCalls.push({ reason, options });
+        return { ok: true };
+      },
+    });
+
+    await handleMessage({ type: 'GET_STATS', source: 'popup' }, {});
+    expect('popup GET_STATS flush reason', flushCalls[0]?.reason, 'popup_open');
+    expect('popup GET_STATS allows foreground', flushCalls[0]?.options?.allowForeground, true);
+  }
+
+  section('MSR-8 regular GET_STATS keeps ui_flush behavior');
+  {
+    const flushCalls = [];
+    const { handleMessage } = loadHandleMessage({
+      getConfig: async () => ({}),
+      getTodayStats: async () => ({}),
+      flushOpenSessionToStats: async (reason, options) => {
+        flushCalls.push({ reason, options });
+        return { ok: true };
+      },
+    });
+
+    await handleMessage({ type: 'GET_STATS' }, {});
+    expect('regular GET_STATS flush reason', flushCalls[0]?.reason, 'ui_flush');
+    expect('regular GET_STATS has no foreground override', flushCalls[0]?.options, undefined);
+  }
+
+  section('MSR-9 GET_STATS 返回 compositeSeconds 并兼容 legacy undeterminedSeconds');
   {
     const { handleMessage } = loadHandleMessage({
       getConfig: async () => ({ compositeList: ['video.example'] }),
@@ -337,7 +371,7 @@ async function run() {
     expect('onlineSeconds excludes summary aliases', res.onlineSeconds, 180);
   }
 
-  section('MSR-8 GET_STATS 优先使用 explicit compositeSeconds');
+  section('MSR-10 GET_STATS 优先使用 explicit compositeSeconds');
   {
     const { handleMessage } = loadHandleMessage({
       getConfig: async () => ({ compositeList: ['video.example'] }),
@@ -354,7 +388,7 @@ async function run() {
     expect('onlineSeconds excludes explicit composite alias', res.onlineSeconds, 120);
   }
 
-  section('MSR-9 popup lightweight runtime status skips usage summary');
+  section('MSR-11 popup lightweight runtime status skips usage summary');
   {
     let analyticsCalls = 0;
     const { handleMessage } = loadHandleMessage(

@@ -1,11 +1,11 @@
 // background-new.js — 完整 wiring 入口
 
 import { initSignal } from './core/signal.js';
-import { buildContext } from './core/context.js';
-import { resolveState } from './core/state.js';
-import { resolveMediaFramework } from './core/media-framework.js';
-import { closeCurrentSession, initSession, transitionStateAt, heartbeat, getSession as getTimingSession, runPeriodicCheckpoint } from './runtime/session.js';
-import { handleMediaBoundary, runMediaPeriodicCheckpoint } from './runtime/media-session.js';
+import { dispatchTimingSignal } from './core/timing-dispatcher.js';
+import { confirmForegroundPageCheckpoint, getForegroundContext, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
+import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabReplaced, handleMediaWindowStateChanged, runMediaCheckpoint } from './core/media-timing.js';
+import { runForegroundCheckpoint, runTimingCheckpoints } from './core/checkpoint-scheduler.js';
+import { closeCurrentSession, initSession, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
@@ -18,290 +18,17 @@ import { getEvents, clearEvents } from './core/event-log.js';
 import { emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
 import { computeAllDomains } from './core/aggregate.js';
 
-let currentContext = null;
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
-let appliedForegroundBoundary = { state: null, domain: null };
-let pendingForegroundBoundary = null;
-let pendingForegroundTimer = null;
-let pendingForegroundGapDiagnostic = null;
 
-const FOREGROUND_STABILIZATION_MS = 1 * 1000;
-const UNKNOWN_FOREGROUND_DOMAIN = '__unknown__';
-const SHORT_FOREGROUND_GAP_DIAGNOSTIC_MS = 30 * 1000;
-const IDLE_DETECTION_SECONDS = 90;
-
-function isOrdinaryForegroundFrameworkState(state) {
-  return state === 'ACTIVE' || state === 'PASSIVE' || state === 'IDLE';
-}
-
-function sameBoundary(a, b) {
-  return (a?.state ?? null) === (b?.state ?? null) && (a?.domain ?? null) === (b?.domain ?? null);
-}
-
-function tabMatchesContext(tab, context = {}) {
-  if (!tab?.id) return false;
-  if (Number.isInteger(context.tabId)) return tab.id === context.tabId;
-  if (Number.isInteger(context.windowId) && tab.windowId === context.windowId && tab.active !== false) return true;
-  return false;
-}
-
-function domainFromCandidateTab(tab, context = {}, source = 'candidate') {
-  if (!tab?.id) return { ok: false, reason: `${source}_missing_tab` };
-  if (!tabMatchesContext(tab, context)) {
-    return {
-      ok: false,
-      reason: Number.isInteger(context.tabId) ? 'tab_mismatch' : 'window_mismatch',
-      error: `candidate tab ${tab.id} window ${tab.windowId ?? 'unknown'} does not match context`,
-    };
-  }
-  if (!tab.url) return { ok: false, reason: 'active_tab_missing_url' };
-  const domain = extractDomain(tab.url || '');
-  if (!domain) return { ok: false, reason: 'special_page', error: tab.url || null };
-  return { ok: true, domain, reason: source, tabId: tab.id, windowId: tab.windowId ?? null };
-}
-
-async function resolveActiveUnknownDomain(context = {}) {
-  let lastFailure = { ok: false, reason: 'no_candidate_context' };
-
-  if (Number.isInteger(context.tabId) && context.tabId > 0) {
-    try {
-      const tab = await chrome.tabs.get(context.tabId);
-      const result = domainFromCandidateTab(tab, context, 'tabs_get');
-      if (result.ok) return result;
-      lastFailure = result;
-    } catch (err) {
-      lastFailure = { ok: false, reason: 'tabs_get_failed', error: err?.message || String(err) };
-    }
-  }
-
-  if (Number.isInteger(context.windowId) && context.windowId > 0) {
-    try {
-      const tabs = await chrome.tabs.query({ active: true, windowId: context.windowId });
-      const tab = tabs && tabs[0];
-      const result = domainFromCandidateTab(tab, context, 'tabs_query_window');
-      if (result.ok) return result;
-      lastFailure = result;
-    } catch (err) {
-      lastFailure = { ok: false, reason: 'tabs_query_window_failed', error: err?.message || String(err) };
-    }
-  }
-
-  try {
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    const tab = tabs && tabs[0];
-    const result = domainFromCandidateTab(tab, context, 'tabs_query_last_focused');
-    if (result.ok) return result;
-    lastFailure = result;
-  } catch (err) {
-    lastFailure = { ok: false, reason: 'tabs_query_last_focused_failed', error: err?.message || String(err) };
-  }
-
-  return lastFailure;
-}
-
-async function resolveUnknownDomainForSettlement(session) {
-  const context = {
-    tabId: Number.isInteger(session?.tabId) ? session.tabId : null,
-    windowId: Number.isInteger(session?.windowId) ? session.windowId : null,
-  };
-  if (!Number.isInteger(context.tabId) && !Number.isInteger(context.windowId)) {
-    return { ok: false, reason: 'missing_session_tab_context' };
-  }
-  const result = await resolveActiveUnknownDomain(context);
-  if (!result.ok) return result;
-  return { ok: true, domain: result.domain, reason: `unknown_recovered_at_settlement:${result.reason}` };
-}
-
-async function readActiveTabSignal(reason = 'active_tab_lookup') {
-  try {
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    const tab = tabs && tabs[0];
-    if (!tab?.id) {
-      return {
-        tabId: null,
-        windowId: null,
-        url: null,
-        domain: null,
-        isFocused: false,
-        error: 'active_tab_missing',
-        _reason: reason,
-      };
-    }
-    let isFocused = true;
-    try {
-      const win = Number.isInteger(tab.windowId) ? await chrome.windows.get(tab.windowId) : null;
-      isFocused = win?.focused !== false;
-    } catch (err) {
-      return {
-        tabId: tab.id,
-        windowId: tab.windowId ?? null,
-        url: tab.url || null,
-        domain: tab.url ? extractDomain(tab.url) : null,
-        isFocused: true,
-        error: err?.message || String(err),
-        _reason: reason,
-      };
-    }
-    const url = tab.url || null;
-    return {
-      tabId: tab.id,
-      windowId: tab.windowId ?? null,
-      url,
-      domain: url ? extractDomain(url) : null,
-      isFocused,
-      _reason: reason,
-    };
-  } catch (err) {
-    return {
-      tabId: null,
-      windowId: null,
-      url: null,
-      domain: null,
-      isFocused: false,
-      error: err?.message || String(err),
-      _reason: reason,
-    };
-  }
-}
-
-async function applyForegroundBoundary(boundary, applyReason) {
-  pendingForegroundBoundary = null;
-  if (pendingForegroundTimer) {
-    clearTimeout(pendingForegroundTimer);
-    pendingForegroundTimer = null;
-  }
-  await transitionStateAt(boundary.state, boundary.domain, boundary.boundaryAt, applyReason, {
-    ...(boundary.metadata || {}),
-    resolveUnknownDomainForSettlement,
-  });
-  appliedForegroundBoundary = { state: boundary.state, domain: boundary.domain };
-}
-
-async function handleForegroundBoundary(state, domain, reason, boundaryAt, metadata = {}) {
-  const target = { state, domain: state === 'ACTIVE' ? (domain || UNKNOWN_FOREGROUND_DOMAIN) : domain || null };
-
-  if (appliedForegroundBoundary.state === 'ACTIVE' && target.state !== 'ACTIVE') {
-    pendingForegroundGapDiagnostic = {
-      startAt: boundaryAt,
-      fromDomain: appliedForegroundBoundary.domain || null,
-      intermediateState: target.state || null,
-      reason,
-    };
-  } else if (target.state === 'ACTIVE' && pendingForegroundGapDiagnostic) {
-    const gapMs = Math.max(0, boundaryAt - pendingForegroundGapDiagnostic.startAt);
-    if (gapMs > 0 && gapMs <= SHORT_FOREGROUND_GAP_DIAGNOSTIC_MS) {
-      await emitTrace('foreground_short_gap_detected', {
-        source: 'foreground-boundary',
-        reason,
-        domain: target.domain || null,
-        nextState: target.state,
-        payload: {
-          gapStartAt: pendingForegroundGapDiagnostic.startAt,
-          gapEndAt: boundaryAt,
-          gapMs,
-          fromDomain: pendingForegroundGapDiagnostic.fromDomain,
-          toDomain: target.domain || null,
-          intermediateState: pendingForegroundGapDiagnostic.intermediateState,
-          intermediateReason: pendingForegroundGapDiagnostic.reason,
-        },
-      });
-    }
-    pendingForegroundGapDiagnostic = null;
-  }
-
-  if (pendingForegroundBoundary && (boundaryAt - pendingForegroundBoundary.boundaryAt) >= FOREGROUND_STABILIZATION_MS) {
-    const ready = pendingForegroundBoundary;
-    await emitTrace('foreground_boundary_applied', {
-      source: 'foreground-boundary',
-      reason: ready.reason || 'foreground_boundary',
-      domain: ready.target.domain || null,
-      nextState: ready.target.state,
-      payload: {
-        boundaryAt: ready.boundaryAt,
-        observedAt: boundaryAt,
-        stabilizationMs: FOREGROUND_STABILIZATION_MS,
-      },
-    });
-    await applyForegroundBoundary({
-      state: ready.target.state,
-      domain: ready.target.domain,
-      boundaryAt: ready.boundaryAt,
-      metadata: ready.metadata,
-    }, `stable_${ready.reason || 'foreground_boundary'}`);
-  }
-
-  if (sameBoundary(target, appliedForegroundBoundary)) {
-    if (pendingForegroundBoundary && !sameBoundary(pendingForegroundBoundary.target, target)) {
-      await emitTrace('foreground_boundary_cancelled', {
-        source: 'foreground-boundary',
-        reason,
-        domain: target.domain || null,
-        nextState: target.state,
-        payload: {
-          pendingTarget: pendingForegroundBoundary.target,
-          pendingBoundaryAt: pendingForegroundBoundary.boundaryAt,
-          observedAt: boundaryAt,
-          stabilizationMs: FOREGROUND_STABILIZATION_MS,
-        },
-      });
-      if (pendingForegroundTimer) {
-        clearTimeout(pendingForegroundTimer);
-        pendingForegroundTimer = null;
-      }
-      pendingForegroundBoundary = null;
-    }
-    return;
-  }
-
-  if (pendingForegroundBoundary && sameBoundary(pendingForegroundBoundary.target, target)) {
-    return;
-  }
-
-  if (pendingForegroundTimer) {
-    clearTimeout(pendingForegroundTimer);
-  }
-  const pending = {
-    target,
-    boundaryAt,
-    reason,
-    metadata,
-  };
-  pendingForegroundBoundary = pending;
-  await emitTrace('foreground_boundary_pending', {
-    source: 'foreground-boundary',
-    reason,
-    domain: target.domain || null,
-    nextState: target.state,
-    payload: {
-      target,
-      boundaryAt,
-      appliedForegroundBoundary,
-      stabilizationMs: FOREGROUND_STABILIZATION_MS,
-    },
-  });
-  pendingForegroundTimer = setTimeout(() => {
-    if (pendingForegroundBoundary !== pending) return;
-    applyForegroundBoundary({
-      state: target.state,
-      domain: target.domain,
-      boundaryAt,
-      metadata,
-    }, `stable_${reason || 'foreground_boundary'}`).catch((err) => {
-      console.warn('[Timing] foreground boundary stabilization failed:', err?.message || err);
-    });
-  }, FOREGROUND_STABILIZATION_MS);
-  pendingForegroundTimer?.unref?.();
-}
-
-// ── SW 启动引导（幂等，覆盖 MV3 隐式重启场景）────────────────────────────────────
+// ── SW 模块引导（幂等）：只保证基础状态与 alarms/listeners 可用，recovery 由 lifecycle 事件触发 ──
 
 let bootstrapPromise = null;
+let alarmsSetup = false;
 
 async function bootstrapServiceWorker(reason) {
   try {
     await initSession();
-    await recover();
     setupAlarms();
   } catch (err) {
     console.error(`[Bootstrap] failed (${reason}):`, err);
@@ -317,13 +44,14 @@ function ensureBootstrapped(reason) {
   return bootstrapPromise;
 }
 
-// 模块级引导：SW 每次加载时立即执行（覆盖 onStartup/onInstalled 不触发的隐式重启）
+// 模块级引导：普通 MV3 SW 唤醒只做 runtime wiring，不代表异常恢复边界。
 ensureBootstrapped('module-load');
 
-// ── SW 启动 → 先恢复 ──────────────────────────────────────────────────────────
+// ── Chrome 启动 lifecycle boundary → 恢复残存 open session ─────────────────────
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureBootstrapped('onStartup');
+  await recover();
   await resetDailyLockedDomains(true);
   await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs));
 });
@@ -350,6 +78,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // 2. Bootstrap + 规则更新：失败不阻断安装流程
   try {
     await ensureBootstrapped('onInstalled');
+    await recover();
     await updateDeclarativeRules();
   } catch (err) {
     console.error('[onInstalled] Bootstrap/rules failed:', err);
@@ -400,236 +129,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   }
 });
 
-// ── 信号接入 → 上下文 → 状态 → 事件日志 ────────────────────────────────────────
+// ── 信号接入：background 只负责 wiring，业务分发由 dispatcher 完成 ─────────────
 
-async function processTimingSignal(rawEvent) {
-  await ensureBootstrapped('signal');
-  if (rawEvent?._reason === 'idleStateChanged' && rawEvent.idleState === 'active') {
-    const activeTabSignal = await readActiveTabSignal('idle_active_reopen_lookup');
-    rawEvent = {
-      ...rawEvent,
-      ...activeTabSignal,
-      idleState: 'active',
-      isIdle: false,
-      _reason: 'idleStateChanged',
-    };
-    await emitTrace('idle_active_reopen', {
-      source: 'signal',
-      reason: 'idleStateChanged',
-      tabId: rawEvent.tabId ?? null,
-      windowId: rawEvent.windowId ?? null,
-      domain: rawEvent.domain ?? null,
-      payload: {
-        phase: 'active_tab_lookup',
-        idleDetectionSeconds: IDLE_DETECTION_SECONDS,
-        urlPresent: !!rawEvent.url,
-        error: rawEvent.error || null,
-      },
-    });
-  }
-  const isMediaOnlySignal = rawEvent.mediaSourceTabId != null &&
-    rawEvent.domain == null &&
-    !Object.prototype.hasOwnProperty.call(rawEvent, 'url');
-  await emitTrace('signal_received', {
-    source: 'signal',
-    reason: rawEvent._reason || 'unknown',
-    tabId: rawEvent.tabId ?? null,
-    windowId: rawEvent.windowId ?? null,
-    domain: rawEvent.domain ?? null,
-    payload: { event: rawEvent },
-  });
-
-  currentContext = buildContext(currentContext, rawEvent);
-  const foregroundDiagnostics = {
-    candidateKind: currentContext?.candidateKind ?? null,
-    candidateDomain: currentContext?.candidateDomain ?? null,
-    idleState: currentContext?.idleState ?? null,
-    isIdle: currentContext?.isIdle ?? null,
-    isFocused: currentContext?.isFocused ?? null,
-  };
-  await emitTrace('snapshot_created', {
-    source: 'context',
-    reason: rawEvent._reason || 'unknown',
-    tabId: currentContext?.tabId ?? null,
-    windowId: currentContext?.windowId ?? null,
-    domain: currentContext?.domain ?? null,
-    payload: {
-      ...foregroundDiagnostics,
-      isAudible: currentContext?.isAudible,
-      isPiP: currentContext?.isPiP,
-      mediaSourceDomain: currentContext?.mediaSourceDomain,
-    },
-  });
-
-  const state = resolveState(currentContext);
-  const mediaFramework = resolveMediaFramework(currentContext);
-  await handleMediaBoundary(mediaFramework.framework, mediaFramework.domain, rawEvent._reason || 'unknown', Date.now());
-  let domain = (state === 'BACKGROUND_ACTIVE' || state === 'PIP_ACTIVE')
-    ? (currentContext?.mediaSourceDomain || currentContext?.domain || null)
-    : (state === 'ACTIVE' ? (currentContext?.candidateDomain || currentContext?.domain || UNKNOWN_FOREGROUND_DOMAIN) : (currentContext?.domain || null));
-  let domainResolution = {
-    reason: currentContext?.candidateKind || 'context_domain',
-    error: currentContext?.error || null,
-  };
-  if (
-    state === 'ACTIVE' &&
-    domain === UNKNOWN_FOREGROUND_DOMAIN &&
-    (Number.isInteger(currentContext?.tabId) || Number.isInteger(currentContext?.windowId))
-  ) {
-    const resolved = await resolveActiveUnknownDomain(currentContext);
-    if (resolved.ok) {
-      domain = resolved.domain;
-      domainResolution = { reason: `pre_open_recheck:${resolved.reason}`, error: null };
-    } else {
-      domainResolution = { reason: resolved.reason || 'pre_open_recheck_failed', error: resolved.error || null };
-      await emitTrace('unknown_pre_open_recheck_failed', {
-        source: 'state',
-        reason: rawEvent._reason || 'unknown',
-        tabId: currentContext?.tabId ?? null,
-        windowId: currentContext?.windowId ?? null,
-        domain,
-        nextState: state,
-        payload: {
-          foreground: foregroundDiagnostics,
-          resolutionReason: domainResolution.reason,
-          resolutionError: domainResolution.error,
-        },
-      });
-    }
-  }
-  await emitTrace('state_resolved', {
-    source: 'state',
-    reason: rawEvent._reason || 'unknown',
-    tabId: currentContext?.tabId ?? null,
-    windowId: currentContext?.windowId ?? null,
-    domain,
-    nextState: state,
-    payload: {
-      context: currentContext,
-      foreground: {
-        ...foregroundDiagnostics,
-        resolvedDomain: domain,
-        domainResolution,
-      },
-    },
-  });
-
-  if (isMediaOnlySignal) {
-    await emitTrace('transition_skipped', {
-      source: 'session',
-      reason: rawEvent._reason || 'media_signal',
-      tabId: currentContext?.tabId ?? null,
-      windowId: currentContext?.windowId ?? null,
-      domain,
-      nextState: state,
-      payload: { skippedReason: 'media_signal_foreground_unchanged' },
-    });
-    return;
-  }
-
-  await emitTrace('transition_begin', {
-    source: 'session',
-    reason: rawEvent._reason || 'unknown',
-    tabId: currentContext?.tabId ?? null,
-    windowId: currentContext?.windowId ?? null,
-    domain,
-    previousState: state,
-    nextState: state,
-    payload: { state, domain, foreground: foregroundDiagnostics },
-  });
-
-  const metadata = {
-    tabId: currentContext?.tabId ?? null,
-    windowId: currentContext?.windowId ?? null,
-    domainResolutionReason: domainResolution.reason,
-    domainResolutionError: domainResolution.error,
-  };
-  const idleBoundarySignal = rawEvent._reason === 'idleStateChanged' && rawEvent.isIdle === true;
-  const idleActiveSignal = rawEvent._reason === 'idleStateChanged' && rawEvent.idleState === 'active';
-
-  if (idleBoundarySignal) {
-    const session = await getTimingSession();
-    if (session?.state === 'ACTIVE') {
-      await emitTrace('idle_inactive_close', {
-        source: 'runtime-session',
-        reason: 'idleStateChanged',
-        tabId: session.tabId ?? currentContext?.tabId ?? null,
-        windowId: session.windowId ?? currentContext?.windowId ?? null,
-        domain: session.domain || domain || null,
-        previousState: session.state,
-        nextState: 'IDLE',
-        payload: {
-          idleState: rawEvent.idleState || 'idle',
-          idleDetectionSeconds: IDLE_DETECTION_SECONDS,
-          sessionStartTime: session.startTime || null,
-        },
-      });
-      await transitionStateAt('IDLE', null, Date.now(), 'idle_inactive_close', {
-        ...metadata,
-        resolveUnknownDomainForSettlement,
-      });
-      appliedForegroundBoundary = { state: 'IDLE', domain: null };
-      scheduleCurrentTabBadgeUpdate();
-      return { state: 'IDLE', domain: null, context: currentContext };
-    }
-  }
-
-  if (idleActiveSignal && state === 'ACTIVE') {
-    await transitionStateAt('ACTIVE', domain, Date.now(), 'idle_active_reopen', {
-      ...metadata,
-      resolveUnknownDomainForSettlement,
-    });
-    appliedForegroundBoundary = { state: 'ACTIVE', domain };
-    await emitTrace('idle_active_reopen', {
-      source: 'runtime-session',
-      reason: 'idleStateChanged',
-      tabId: currentContext?.tabId ?? null,
-      windowId: currentContext?.windowId ?? null,
-      domain,
-      nextState: 'ACTIVE',
-      payload: {
-        phase: 'session_reopen',
-        idleDetectionSeconds: IDLE_DETECTION_SECONDS,
-        domainResolution,
-      },
-    });
-    scheduleCurrentTabBadgeUpdate();
-    return { state, domain, context: currentContext };
-  }
-
-  if (isOrdinaryForegroundFrameworkState(state)) {
-    await handleForegroundBoundary(state, domain, rawEvent._reason || 'unknown', Date.now(), {
-      ...metadata,
-    });
-  } else if (state !== 'BACKGROUND_ACTIVE' && state !== 'PIP_ACTIVE') {
-    if (pendingForegroundTimer) {
-      clearTimeout(pendingForegroundTimer);
-      pendingForegroundTimer = null;
-      pendingForegroundBoundary = null;
-    }
-    await transitionStateAt(state, domain, Date.now(), rawEvent._reason || 'unknown', {
-      ...metadata,
-      resolveUnknownDomainForSettlement,
-    });
-    appliedForegroundBoundary = { state, domain };
-  }
-  scheduleCurrentTabBadgeUpdate();
-
-  await emitTrace('transition_end', {
-    source: 'session',
-    reason: rawEvent._reason || 'unknown',
-    tabId: currentContext?.tabId ?? null,
-    windowId: currentContext?.windowId ?? null,
-    domain,
-    previousState: state,
-    nextState: state,
-    payload: { state, domain, foreground: foregroundDiagnostics },
-  });
-
-  return { state, domain, context: currentContext };
-}
-
-initSignal(processTimingSignal);
+initSignal((rawEvent) => dispatchTimingSignal(rawEvent, {
+  ensureBootstrapped,
+  scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
+}));
 
 // ── Action badge: current active tab's today duration ─────────────────────────
 
@@ -762,9 +267,18 @@ async function processDebugControlledTimingSignal(rawEvent = {}) {
   }
 
   try {
-    return await processTimingSignal({
+    const controlledEvent = {
       ...event,
+      ...(event.url == null && typeof event.domain === 'string' && event.domain.trim()
+        ? { url: `https://${event.domain.trim().replace(/\.+$/g, '')}/` }
+        : {}),
       _reason: event._reason || 'controlledTimingSignal',
+    };
+    return await dispatchTimingSignal({
+      ...controlledEvent,
+    }, {
+      ensureBootstrapped,
+      scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
     });
   } finally {
     Date.now = originalNow;
@@ -785,15 +299,27 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const previousTabId = Number.isInteger(lastActiveTabId) ? lastActiveTabId : null;
   if (Number.isInteger(lastActiveTabId) && lastActiveTabId !== activeInfo.tabId) {
     await cancelAutoModePendingForTab(lastActiveTabId, 'tab_switched');
   }
   lastActiveTabId = activeInfo.tabId;
+  await handleMediaTabActivated(previousTabId, activeInfo.tabId).catch(() => {});
   await reevaluateTabById(activeInfo.tabId);
+});
+
+chrome.tabs.onReplaced?.addListener?.(async (addedTabId, removedTabId) => {
+  await handleMediaTabReplaced(addedTabId, removedTabId).catch(() => {});
+  if (Number.isInteger(lastActiveTabId) && lastActiveTabId === removedTabId) {
+    await cancelAutoModePendingForTab(removedTabId, 'tab_replaced');
+    lastActiveTabId = addedTabId;
+    await reevaluateTabById(addedTabId);
+  }
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await clearTemporaryCompositeDomainByTab(tabId);
+  await closeMediaForTabLifecycle(tabId, 'tab_close').catch(() => {});
   // 如果被关闭的标签页是当前跟踪的活跃标签页，结算当前的 timing session
   if (Number.isInteger(lastActiveTabId) && lastActiveTabId === tabId) {
     try {
@@ -804,6 +330,9 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (Object.prototype.hasOwnProperty.call(changeInfo, 'url') || changeInfo.status === 'loading') {
+    await closeMediaForTabLifecycle(tabId, 'navigation').catch(() => {});
+  }
   if (!Object.prototype.hasOwnProperty.call(changeInfo, 'url')) return;
   const domain = extractDomain(changeInfo.url || tab?.url || '');
   await clearTemporaryCompositeDomainByTabDomainMismatch(tabId, domain);
@@ -819,6 +348,10 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
     return;
   }
   await reevaluateFocusedWindowActiveTab(windowId);
+});
+
+chrome.windows.onBoundsChanged?.addListener?.(async (win) => {
+  await handleMediaWindowStateChanged(win?.id, win?.state || null).catch(() => {});
 });
 
 function isMonitoringEnabled() {
@@ -859,61 +392,11 @@ async function reevaluateFocusedWindowActiveTab(windowId) {
   await reevaluateTabById(tab.id);
 }
 
-async function queryIdleState(seconds) {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.idle.queryState(seconds, (state) => {
-        const err = chrome.runtime?.lastError;
-        if (err) reject(new Error(err.message));
-        else resolve(state);
-      });
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-async function confirmForegroundPageCheckpoint(session) {
-  try {
-    const idleState = await queryIdleState(180).catch((err) => ({ error: err?.message || String(err) }));
-    if (idleState && typeof idleState === 'object' && idleState.error) {
-      return { ok: false, reason: 'idle_query_failed', error: idleState.error };
-    }
-    if (idleState !== 'active') {
-      return { ok: false, reason: 'idle_not_active', idleState };
-    }
-
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    const tab = tabs && tabs[0];
-    if (!tab?.id) return { ok: false, reason: 'no_active_tab' };
-
-    let focused = true;
-    if (tab.windowId && chrome.windows?.get) {
-      try {
-        const win = await chrome.windows.get(tab.windowId);
-        focused = !!win?.focused;
-      } catch (_) {
-        return { ok: false, reason: 'candidate_query_failed' };
-      }
-    }
-    if (!focused) return { ok: false, reason: 'window_unfocused' };
-
-    const domain = extractDomain(tab.url || '');
-    const candidateDomain = domain || (tab.url ? null : UNKNOWN_FOREGROUND_DOMAIN);
-    if (!candidateDomain) return { ok: false, reason: 'special_page' };
-    if (candidateDomain !== session.domain) {
-      return { ok: false, reason: candidateDomain === UNKNOWN_FOREGROUND_DOMAIN ? 'unknown_domain' : 'candidate_mismatch', candidateDomain };
-    }
-    return { ok: true, candidateDomain, idleState };
-  } catch (err) {
-    return { ok: false, reason: 'candidate_query_failed', error: err?.message || String(err) };
-  }
-}
-
 // ── Alarms ──────────────────────────────────────────────────────────────────────
 
 function setupAlarms() {
-  chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
+  if (alarmsSetup) return;
+  alarmsSetup = true;
   chrome.alarms.create('periodicCheckpoint', { periodInMinutes: 3 });
   chrome.alarms.create('quota_check', { periodInMinutes: 1 });
   chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
@@ -922,26 +405,15 @@ function setupAlarms() {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'heartbeat') {
+  if (alarm.name === 'periodicCheckpoint') {
     if (!isMonitoringEnabled()) return;
-    await heartbeat();
-  } else if (alarm.name === 'periodicCheckpoint') {
-    if (!isMonitoringEnabled()) return;
-    try {
-      const foregroundCheckpoint = await runPeriodicCheckpoint(Date.now(), {
-        confirmForegroundPage: confirmForegroundPageCheckpoint,
-        resolveUnknownDomainForSettlement,
-      });
-      await emitTrace('foreground_checkpoint_result', {
-        source: 'checkpoint',
-        reason: foregroundCheckpoint?.reason || 'periodic_checkpoint',
-        domain: foregroundCheckpoint?.domain || null,
-        payload: foregroundCheckpoint,
-      });
-      await runMediaPeriodicCheckpoint(Date.now());
-    } catch (e) {
-      console.warn('[Checkpoint] periodic checkpoint alarm failed:', e?.message || e);
-    }
+    await runTimingCheckpoints({
+      isMonitoringEnabled,
+      confirmForegroundPage: confirmForegroundPageCheckpoint,
+      resolveUnknownDomainForSettlement,
+      emitTrace,
+      warn: (...args) => console.warn(...args),
+    });
   } else if (alarm.name === 'quota_check') {
     if (!isMonitoringEnabled()) return;
     await checkAllTabsQuota(checkAndRemind, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs);
@@ -1128,7 +600,7 @@ globalThis.debugClearTimingTrace = async () => {
 
 globalThis.debugRunPeriodicCheckpoint = async (now = Date.now()) => {
   try {
-    return await runPeriodicCheckpoint(now, { confirmForegroundPage: async () => ({ ok: true, reason: 'debug_confirmed' }) });
+    return await runForegroundCheckpoint(now, { confirmForegroundPage: async () => ({ ok: true, reason: 'debug_confirmed' }) });
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   }
@@ -1136,7 +608,7 @@ globalThis.debugRunPeriodicCheckpoint = async (now = Date.now()) => {
 
 globalThis.debugRunMediaPeriodicCheckpoint = async (now = Date.now()) => {
   try {
-    return await runMediaPeriodicCheckpoint(now);
+    return await runMediaCheckpoint(now);
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   }
@@ -1402,6 +874,7 @@ async function checkAutoStudy() {
   const config = await getConfig();
   if (!config?.autoStudyConfig?.enabled) return;
 
+  const currentContext = getForegroundContext();
   const activeTabDomain = currentContext?.domain;
   const isOnStudySite = activeTabDomain && (config.studyList || []).some(w => matchDomain(activeTabDomain, w));
   const isActive = currentContext?.isFocused && !currentContext?.isIdle;

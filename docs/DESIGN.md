@@ -1,7 +1,7 @@
 # TimeOnChrome — 技术设计文档
 
 版本：1.7.2
-更新：2026-04-24
+更新：2026-05-20
 
 ---
 
@@ -23,18 +23,18 @@
 │  ┌────────────────────────────────────────────────────┐     │
 │  │           background.js (Service Worker)           │     │
 │  │  - 模块化架构 (ES Module)                           │     │
-│  │  - 事件驱动注意力引擎 (Event-Driven Attention)      │     │
-│  │  - 信号 → 上下文 → 状态 → 会话 → 决策               │     │
-│  │  - SW 重启恢复 (Recovery)                           │     │
+│  │  - Chrome listener wiring + timing dispatcher       │     │
+│  │  - foreground / media / checkpoint 分轨执行          │     │
+│  │  - Lifecycle recovery                                │     │
 │  │  - 云同步 (只读拉取)                                │     │
 │  └────────────────────────────────────────────────────┘     │
 │         ▲                                                   │
-│         │ sendMessage (HEARTBEAT / 信号事件)                │
+│         │ sendMessage (activity / media state signals)       │
 │  ┌──────┴──────────────────────────┐                        │
 │  │  content.js（每个 Tab 注入）     │                        │
 │  │  - 用户交互检测（鼠标/键盘）     │                        │
 │  │  - 媒体播放检测（AudioContext）  │                        │
-│  │  - 心跳发送（每 10 秒）          │                        │
+│  │  - 活动状态信号发送              │                        │
 │  │  - 时间覆盖层提示                │                        │
 │  └─────────────────────────────────┘                        │
 └─────────────────────────────────────────────────────────────┘
@@ -71,40 +71,32 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  background.js (Wiring 入口, ~180 行)                        │
+│  background.js (wiring 入口)                                  │
 │  - SW 生命周期 (onStartup / onInstalled)                      │
-│  - 信号接入 → 上下文 → 状态 → 会话管线                        │
-│  - Alarm 调度                                                  │
+│  - Chrome listener 注册                                       │
+│  - initSignal(dispatchTimingSignal)                           │
+│  - Alarm 调度 → checkpoint scheduler                          │
 │  - 消息路由 (message-router.js)                               │
 └──────────┬───────────────────────────────────────────────────┘
            │
            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  core/  (纯函数层 — 无副作用)                                 │
+│  core/ timing orchestration                                   │
 │                                                              │
-│  signal.js      信号输入 + micro-batching (80ms 合并窗口)     │
-│  context.js     上下文构建 (lastActiveTabId, domain, focus)   │
-│  state.js       状态机 (ACTIVE/BACKGROUND_ACTIVE/PASSIVE/IDLE)│
-│  event-log.js   append-only 事件日志 (START/END, 10min 压缩)  │
-│  aggregate.js   时长计算 (ACTIVE / media / PiP 分轨聚合)       │
-└──────────────────────────────────────────────────────────────┘
-
-### 1.4 Phase 2B 最小双轨语义（媒体归因隔离）
-
-- 新增上下文字段 `mediaSourceTabId` / `mediaSourceDomain`，用于标识后台媒体或 PiP 来源，不覆盖前台归因（`tabId` / `domain`）。
-- `MEDIA_STATE` 事件只更新媒体相关信号（`isAudible` / `isPiP` / `mediaSourceTabId` / `mediaSourceDomain`），不覆盖前台归因。
-- `BACKGROUND_ACTIVE` 判定要求可验证媒体来源：`isAudible === true && mediaSourceTabId != null`。
-- 若仅有 `isAudible` 且缺少 `mediaSourceTabId`，采用保守回退，不进入 `BACKGROUND_ACTIVE`。
-- 后台 audio/video 媒体时长通过 `backgroundMediaByDomain` 保留 domain 维度，`audioSeconds` 总量只作为摘要。
-- Picture-in-Picture 使用独立 `PIP_ACTIVE` 状态，通过 `pipSeconds` / `pipByDomain` 单独记录，不混入普通在线/ACTIVE 或后台 audio/video 时长。
-- PiP 产品决策：不认为 PiP 是正常学习需求；切换到学习模式时，已经打开的非学习网站 PiP 必须关闭。PiP 视频时长需要单独记录，不混入普通在线/ACTIVE 时长；记录但不作为学习需求放行。
+│  signal.js                Chrome signal normalize/batch       │
+│  timing-dispatcher.js     fan-out 到 foreground/media         │
+│  foreground-timing.js     前台网页 session/usage segments      │
+│  media-timing.js          媒体 facts/sessions/segments         │
+│  checkpoint-scheduler.js  foreground/media checkpoint 分轨     │
+└──────────┬───────────────────────────────────────────────────┘
            │
            ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  runtime/  (状态管理层 — 有副作用)                             │
 │                                                              │
-│  session.js     当前会话快照 (单一真相源, transitionState)     │
-│  recovery.js    SW 重启恢复 (90s 阈值, 补 END 事件)           │
+│  session.js     当前会话快照 (transition/checkpoint settlement)│
+│  media-session.js 本地媒体多路账本                             │
+│  recovery.js    lifecycle recovery (详见 STATS_STORAGE_FOUNDATION)│
 └──────────────────────────────────────────────────────────────┘
            │
            ▼
@@ -125,17 +117,25 @@
 └──────────────────────────────────────────────────────────────┘
 ```
 
+Foreground 计时与 media 计时是两条账本链路。Chrome 原始事件可以被 dispatcher fan-out 到两条链路，但 foreground 模块不得写媒体账本，media 模块不得写 `usage_segments_v1`。`periodicCheckpoint` 由同一个 alarm 触发，但 foreground checkpoint 与 media checkpoint 独立 try/catch、独立 trace。
+
 ### 1.3 数据流方向
 
 ```
-signal → context → state → session → event-log → aggregate → decision
-  │         │         │         │         │           │           │
-  ▼         ▼         ▼         ▼         ▼           ▼           ▼
-content  tab API   纯函数    storage   append-only  时长计算   配额/拦截
-.js      focused   ACTIVE    session   START/END    分类统计   提醒触发
+Chrome/content signal
+       │
+       ▼
+core/signal.js
+       │
+       ▼
+core/timing-dispatcher.js
+       ├── foreground-timing.js → runtime/session.js → usage_segments_v1
+       └── media-timing.js      → runtime/media-session.js → media_segments_v1
 ```
 
 **严格单向依赖，禁止循环引用。**
+
+计时落账、媒体分轨、checkpoint、recovery、segment schema 的正式口径见 `docs/STATS_STORAGE_FOUNDATION.md`。
 
 ### 1.3.1 Timing trace stats verification 最小验证
 
@@ -143,26 +143,24 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 - E2E 通过 debug/test-only 入口调用 `handleMessage({ type: 'GET_STATS' })` 触发真实统计读取链路：
   `message-router -> getTodayStats -> event-log aggregate -> stats_calculated trace`。
 - 验证明确分为三类，避免把人工或受控数据夸大为完整真实计时准确性：
-  1. **real pipeline non-active check**：使用真实页面动作产生的 trace 与 `event_log_v1`，验证 `signal -> state -> session -> event-log -> stats` 链路存在，且 Playwright/OS focus 下产生的真实 IDLE/PASSIVE 闭合片段不会污染 ACTIVE stats。该检查验证 pipeline 到 stats 的非活跃状态口径，不验证真实浏览器 ACTIVE 计时准确性。
-  2. **controlled ACTIVE pipeline check**：通过 debug/test-only 受控输入构造多段、多 domain ACTIVE snapshot，并用测试专用 `_debugNow` 将现有 `Date.now()` 锚定到 stats 当天窗口；但仍走现有 `buildContext -> resolveState -> transitionState -> event-log -> stats` 路径，不直接写 `event_log_v1`。该检查验证受控 ACTIVE 输入下 resolver/session/event-log/stats 可以形成可对账闭环，覆盖多段累加、domain 分桶、非 ACTIVE 不计入，不验证 OS focus 或 `chrome.idle` 自动化准确性。
-  3. **synthetic aggregation baseline**：追加测试专用闭合 ACTIVE event-log 片段，只证明 `event-log -> stats` 聚合可把 injected ACTIVE 片段计算为预期秒数，不代表真实浏览器计时准确。
+  1. **real pipeline non-active check**：使用真实页面动作产生的 trace 与本地 durable segments，验证 `signal -> dispatcher -> foreground-timing -> session -> usage_segments -> stats` 链路存在，且 Playwright/OS focus 下产生的真实 IDLE/PASSIVE 闭合片段不会污染 ACTIVE stats。该检查验证 pipeline 到 stats 的非活跃状态口径，不验证真实浏览器 ACTIVE 计时准确性。
+  2. **controlled ACTIVE pipeline check**：通过 debug/test-only 受控输入构造多段、多 domain ACTIVE snapshot，并用测试专用 `_debugNow` 将现有 `Date.now()` 锚定到 stats 当天窗口；但仍走现有 `dispatchTimingSignal -> foreground-timing -> transitionStateAt -> usage_segments -> stats` 路径，不直接写 `usage_segments_v1`。该检查验证受控 ACTIVE 输入下 resolver/session/segment/stats 可以形成可对账闭环，覆盖多段累加、domain 分桶、非 ACTIVE 不计入，不验证 OS focus 或 `chrome.idle` 自动化准确性。
+  3. **synthetic aggregation baseline**：追加测试专用闭合 ACTIVE segment，只证明 `usage_segments -> stats` 聚合可把 injected ACTIVE 片段计算为预期秒数，不代表真实浏览器计时准确。
 - timing trace / stats E2E 的 fresh profile 会在测试初始化阶段写入现有正式字段 `guardian_config.mode = 'rest'` 与 `guardian_session.currentMode = 'rest'`，避免学习模式拦截影响页面打开和 event-log 生成；这不改变正式产品默认模式。
 - 不处理 OS focus 自动化、`chrome.idle` 自动化，也不引入新的访问策略。
 
-### 1.3.2 Service Worker recovery accuracy 验证
+### 1.3.2 Timing settlement 主文档
 
-- MV3 Service Worker recovery 通过 `runtime/recovery.js` 在启动时读取 `session_v1`，若存在未闭合 `state/domain/startTime`，则按 `lastHeartbeat` 与当前时间的间隔决定补写 END 的时间：
-  - `delta <= 90s`：视为短中断，END time 使用当前 `Date.now()`。
-  - `delta > 90s`：视为长中断 / SW 死亡，END time 截断到 `lastHeartbeat`，避免把离线时间计入使用时长。
-- recovery 补 END 后会清空 session 的 `state/domain/startTime` 并更新 `lastHeartbeat`，重复 recovery 不应重复追加 END。
-- recovery accuracy unit tests 使用受控时间验证短中断、长中断、重复 recovery、空 session，并对比 `event_log_v1` 推导时长与 `GET_STATS` 聚合结果；该验证不依赖 OS focus 或 `chrome.idle` 自动化。
+计时落账、`periodicCheckpoint`、popup 落账、recovery 生命周期容错边界、`heartbeat` 废弃语义、`usage_segments_v1` 本地/云端 schema 差异，统一维护在 `docs/STATS_STORAGE_FOUNDATION.md`。Recovery 是生命周期残留容错机制，不是正常计时落账机制。
+
+本文件只保留系统架构与测试分级说明；不要在这里新增或复制计时落账规则，避免与 Stats Storage Foundation 产生双份口径。
 
 ### 1.3.3 Real Chrome ACTIVE calibration 手工校准
 
 - 真实 Chrome ACTIVE 校准只用于手工诊断前台 Chrome 使用是否能产生 ACTIVE 计时，不扩展 synthetic / controlled / recovery 测试。
 - debug-only 入口允许校准前清空 timing trace、focus ledger、`event_log_v1`、`session_v1` 与旧 stats cache，设置 rest mode，并导出 trace / event-log / session / stats / focus ledger 校准包。
 - Windows 本地可用 `node tests/manual/real-active-calibration-windows.js --a 6 --b 3 --blur 2` 做短时 headed Chrome 校准；runner 只调用现有 debug-only 入口并输出最小诊断结果。
-- 校准判断边界：该流程验证真实 Chrome 前台、失焦、event-log、stats 的端到端观测结果；若没有 ACTIVE，按 `focus -> idle -> context -> resolver -> session -> event-log -> stats` 顺序定位第一断裂层，不改变 OS focus、`chrome.idle` 或产品计时语义。
+- 校准判断边界：该流程验证真实 Chrome 前台、失焦、usage segment、stats 的端到端观测结果；若没有 ACTIVE，按 `Chrome event -> signal -> dispatcher -> foreground-timing -> session -> usage segment -> stats` 顺序定位第一断裂层，不改变 OS focus、`chrome.idle` 或产品计时语义。
 
 ### 1.3.4 跨自然日计时口径
 
@@ -212,7 +210,7 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
   - Wake 方式：人工唤醒（当前环境无管理员权限设置 Windows Wake-To-Run）
   - 睡眠时长：由操作者决定（10s ~ 120s），不固定，不作为 pass/fail 条件
   - 核心验证：唤醒后 Chrome / SW 可访问、event-log 可读、扩展能继续产生事件
-  - `recover()` 观察：若 SW 被 OS 回收后重启，验证 recover() 补 END；若 SW 存活，不 fail
+  - `recover()` 观察：仅在 extension lifecycle boundary 后验证 recover() 处理残存 open session；普通 SW idle restart 不作为 recovery 触发条件
 
 ### 1.3.5 凌晨休息时间限制（后续产品设计）
 
@@ -237,7 +235,7 @@ content  tab API   纯函数    storage   append-only  时长计算   配额/拦
 
 `daily_usage_stats_v1`（或等效的云端 `stats` 表）存储**原始用量事实 + 模式上下文**，不存储任何分类、策略决策或解释结果。
 
-`usage_segments_v1` 是 Stats Foundation 的本地事实账本。runtime settlement 写入 segment 时必须从现有绑定存储解析身份：`cloud_profile_id` 作为 `profileId`，本地明确设备 ID 字段（例如 `cloud_device_id`，若存在）作为 `deviceId`。`cloud_device_token` 是认证令牌，不得作为 raw `deviceId` 写入 segment。没有明确设备 ID 时，`deviceId` 必须为 `null`，且必须留下诊断日志或 trace，避免真实 bound profile 静默失去设备归属。
+`usage_segments_v1` 是 Stats Foundation 的本地事实账本。字段、身份解析、上传白名单、本地 `description` 与云端 ingestion schema 差异，统一以 `docs/STATS_STORAGE_FOUNDATION.md` 为准。
 
 **必须存储的字段（原始用量事实）：**
 - `date` — 日期（YYYY-MM-DD，用户本地时区）
@@ -318,63 +316,6 @@ compositeSeconds = readCompositeSeconds(statsLike)
 
 关键：策略变更时，同样的 raw stats 可以产生不同的分类结果，
        因为分类是在读取时计算的，不在写入时固化。
-```
-
-┌─────────────────────────────────────────────────────────────┐
-│  Chrome Extension (MV3)                                     │
-│                                                             │
-│  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │  popup.html │    │  admin.html  │    │ reminder.html │  │
-│  │  popup.js   │    │  admin.js    │    │ reminder.js   │  │
-│  └──────┬──────┘    └──────┬───────┘    └──────┬────────┘  │
-│         │                 │ sendMessage         │           │
-│         └─────────────────┼─────────────────────┘           │
-│                           ▼                                 │
-│  ┌────────────────────────────────────────────────────┐     │
-│  │           background.js (Service Worker)           │     │
-│  │  - 状态管理 (study/rest mode)                      │     │
-│  │  - 计时核心 (HEARTBEAT × 3 分类)                   │     │
-│  │  - 提醒触发 (checkAndRemind / redirectToReminder)  │     │
-│  │  - 配置存储 (chrome.storage.local)                 │     │
-│  │  - 云同步   (pullCloudConfig → Workers API，只读拉取)  │     │
-│  └────────────────────────────────────────────────────┘     │
-│         ▲                                                   │
-│         │ sendMessage (HEARTBEAT)                           │
-│  ┌──────┴──────────────────────────┐                        │
-│  │  content.js（每个 Tab 注入）     │                        │
-│  │  - 用户交互检测（鼠标/键盘）     │                        │
-│  │  - 媒体播放检测（AudioContext）  │                        │
-│  │  - 心跳发送（每 10 秒）          │                        │
-│  │  - 时间覆盖层提示                │                        │
-│  └─────────────────────────────────┘                        │
-└─────────────────────────────────────────────────────────────┘
-                         │ HTTPS
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Cloudflare Workers (guardian-api)                         │
-│                                                             │
-│  Routes:                                                    │
-│  POST /auth/register         账号注册                       │
-│  POST /auth/login            登录，返回 JWT                  │
-│  GET/PUT /device/config      配置同步                        │
-│  GET /device/quota-state     跨设备配额汇总                   │
-│  GET /device/changelog       配置变更日志                     │
-│  POST /device/events         事件上报（含邮件通知）           │
-│  POST /device/sessions/upload  会话上传 → R2               │
-│  GET /profiles/:id/devices   设备列表                        │
-│  GET/POST /composite-sessions  待定会话审核                  │
-│                                                             │
-│  Storage:                                                   │
-│  D1 (guardian-db)    账号/设备/配置/统计                     │
-│  KV (CONFIG_CACHE)   邮件去重、配置缓存                      │
-│  R2 (guardian-sessions)  会话文件归档                        │
-└─────────────────────────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Cloudflare Pages (timeonchrome-console)                   │
-│  家长 Web 控制台 (pages/)                                    │
-└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -556,37 +497,40 @@ checkAndRemind(tabId, url):
 
 `redirectToReminder(tabId, domain, reason)` → `reminder.html?reason=X&domain=Y`
 
-### 3.2 事件驱动注意力引擎（v1.7.0 新架构）
+### 3.2 事件驱动计时链路（当前架构）
 
 **旧架构问题（已废弃）：**
 - 多标签页 passive 重复计时（3 个 YouTube 标签 = 3 倍时长）
 - SW 休眠后内存状态丢失（`mediaPlayingTabs` Map、`domainActiveStartTime`）
-- 心跳累加模型无法从 SW 重启中恢复
+- 心跳累加模型会把“信号上报”与“计时事实”混在一起
+- 无法稳定区分前台 ACTIVE、后台媒体、PiP、PASSIVE/IDLE 等状态
 
-**新架构：事件驱动模型**
+**当前链路：事件共享、账本分轨**
 
 ```
-信号接入 (signal.js):
-  content.js HEARTBEAT → micro-batching (80ms 窗口)
-  tab.onActivated / tab.onUpdated → 信号事件
-  → mergeEvent 字段优先级: tabId > domain > state > isFocused
+Chrome listener / content signal
+  → core/signal.js normalize + micro-batching
+  → core/timing-dispatcher.js
+      ├─ media-timing.js
+      │    → media facts / known media reclassification
+      │    → runtime/media-session.js
+      │    → media_segments_v1 / daily_media_stats_v1
+      └─ foreground-timing.js
+           → context.js + state.js
+           → runtime/session.js transitionStateAt()
+           → usage_segments_v1 / daily_usage_stats_v1
 
-上下文构建 (context.js):
-  lastActiveTabId, lastFocusedWindowId
-  domain 提取, isFocused 判断
+periodicCheckpoint alarm
+  → checkpoint-scheduler.js
+      ├─ foreground checkpoint
+      └─ media checkpoint
 
-状态机 (state.js):
-  ACTIVE           → 计为 1 (用户交互中)
-  BACKGROUND_ACTIVE → 计为 1 (后台活跃)
-  PASSIVE          → 计为 0 (媒体播放，不计入时长)
-  IDLE             → 计为 0 (无域名/无交互)
-  无域名时返回 IDLE (防止 chrome:// 页面污染)
+lifecycle boundary
+  → runtime/recovery.js
+      → 只做残存 open session 容错清理
+```
 
-会话管理 (session.js):
-  transitionState(newState, domain)
-    → 状态变化时写入 START/END 事件到 event-log
-    → 更新内存 session 快照
-  heartbeat()
+计时落账、checkpoint、recovery、segment schema 的正式口径见 `docs/STATS_STORAGE_FOUNDATION.md`。
 
 ### 3.3 Workers stats ingestion 域名归一（v1.7.x）
 
@@ -602,21 +546,8 @@ checkAndRemind(tabId, url):
   - 不改变 `date/stats[]` 上传协议；
   - 不改变“先删后插”替换策略；
   - 仅收敛新入库数据，历史数据保留原值。
-    → 每 30 秒持久化 session 到 chrome.storage.session
 
-事件日志 (event-log.js):
-  append-only (只追加 START/END 事件，永不修改)
-  10 分钟时间窗口压缩 (MAX_RAW_WINDOW)
-  支持 recovery 重建会话
-
-恢复机制 (recovery.js):
-  SW 启动第一步执行
-  读取 session 快照 + event-log
-  90s 阈值检测 (SLEEP_THRESHOLD)
-  补写 END 事件，重建活跃会话
-```
-
-### 3.2.1 旧心跳计时（保留作为 content.js 信号源）
+### 3.2.1 Content activity 信号源（不作为计时落账）
 
 **content.js 发送逻辑（每 10 秒）**：
 
@@ -630,15 +561,17 @@ getActivityState():
 sendMessage({ type: 'HEARTBEAT', state: 'active' | 'passive' })
 ```
 
-**新架构信号处理 (signal.js → state.js)**：
+`HEARTBEAT` 在这里只是 content script 的活动信号输入；它不再作为 session 存活证明，也不作为 durable settlement 的周期边界。
+
+**当前信号处理**：
 
 ```
 收到 HEARTBEAT(state, tabId):
   → signal.js micro-batching (80ms 合并)
-  → context.js 构建上下文
-  → state.js 解析状态
-  → session.js transitionState
-  → event-log.js 追加事件
+  → timing-dispatcher.js
+  → foreground-timing.js 构建上下文并解析状态
+  → session.js transitionStateAt()
+  → usage_segments_v1 / daily_usage_stats_v1 durable 落账
 ```
 
 ### 3.3 自动切换学习模式
@@ -768,7 +701,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | 参数 | 值 | 说明 |
 |------|------|------|
 | `BATCH_WINDOW` | 80ms | micro-batching 事件合并窗口 |
-| `SLEEP_THRESHOLD` | 90s | 休眠检测阈值（recovery 用） |
+| `PERIODIC_CHECKPOINT_MIN_INTERVAL_MS` | 3min | 周期落账最小间隔；正式落账口径见 `STATS_STORAGE_FOUNDATION.md` |
 | `MAX_RAW_WINDOW` | 10min | 事件日志时间窗口压缩 |
 | `PASSIVE` | 0 | 不计入时长（只有 ACTIVE/BACKGROUND_ACTIVE 计为 1） |
 
@@ -815,24 +748,28 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 ```
 timeonchrome/
 ├── manifest.json              MV3 扩展清单，版本 1.7.2, "type": "module" (Chrome 95+), "incognito": "split"
-├── background.js              Service Worker 入口（wiring，~180 行）
-├── background.js.bak          旧版备份（2301 行，待清理）
+├── background.js              Service Worker 入口（Chrome listener wiring）
 ├── message-router.js          消息路由（20+ case 拆分）
-├── content.js                 注入每个页面：心跳、媒体检测、覆盖层
+├── content.js                 注入每个页面：活动信号、媒体检测、覆盖层
 ├── content.css                content.js 注入的样式
 ├── reminder.html              提醒页 HTML（7 种场景）
 ├── reminder.js                提醒页逻辑：场景渲染、操作按钮处理
 ├── bind.html                  设备绑定页（写入 cloud_device_token/cloud_profile_id）
 ├── config.js, auth.js, sync.js  云同步配置（cloud_ 前缀统一）
-├── core/                      纯函数层（无副作用）
+├── core/                      timing orchestration + 纯函数支持
 │   ├── signal.js              信号输入 + micro-batching (80ms)
+│   ├── timing-dispatcher.js   signal fan-out 到 foreground/media
+│   ├── foreground-timing.js   前台网页计时链路
+│   ├── media-timing.js        媒体计时链路与重分类
+│   ├── checkpoint-scheduler.js checkpoint 分轨调度
 │   ├── context.js             上下文构建（纯函数）
 │   ├── state.js               状态机（纯函数）
 │   ├── event-log.js           append-only 事件日志
 │   └── aggregate.js           时长计算（纯函数）
 ├── runtime/                   状态管理层（有副作用）
-│   ├── session.js             会话快照（单一真相源）
-│   └── recovery.js            SW 重启恢复（90s 阈值）
+│   ├── session.js             前台网页 open session 快照
+│   ├── media-session.js       本地媒体 facts/sessions/segments
+│   └── recovery.js            lifecycle recovery
 ├── product/                   业务逻辑层
 │   ├── quota.js               配额检查 + 借用
 │   ├── interceptor.js         拦截逻辑 + 提醒
@@ -911,14 +848,14 @@ timeonchrome/
 | 存储类型 | 常规模式 | 无痕模式 | 说明 |
 |---------|---------|---------|------|
 | `chrome.storage.local` | 共享 | 共享 | 配置、统计、配额状态在两种模式间同步 |
-| `chrome.storage.session` | 独立 | 独立 | 会话快照各自维护，SW 重启后仅恢复对应上下文 |
+| `chrome.storage.session` | 独立 | 独立 | 会话快照各自维护；具体落账/recovery 口径见 `STATS_STORAGE_FOUNDATION.md` |
 | `chrome.storage.sync` | 共享 | 共享 | 跨设备同步数据 |
 
 ### 影响分析
 
 - **reminder.html**：split 模式下无痕标签页可正常加载扩展页面（`reminder.html`、`popup.html` 等）
 - **session.js**：无痕和常规模式各自维护独立的 session 快照，互不干扰。这是正确行为 — 无痕浏览应有独立的会话追踪
-- **recovery.js**：SW 重启恢复仅作用于当前上下文的 session，不会跨模式恢复
+- **recovery.js**：lifecycle recovery 仅作为容错机制作用于当前上下文的残存 session；具体触发边界和估算口径见 `STATS_STORAGE_FOUNDATION.md`
 - **cloud-sync.js**：云同步在两种模式下共享 `chrome.storage.local` 中的配置和 token
 - **declarativeNetRequest**：规则按标签页应用，split 模式下正常工作
 

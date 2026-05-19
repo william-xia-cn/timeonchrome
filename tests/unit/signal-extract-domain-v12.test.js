@@ -23,7 +23,7 @@ function section(name) { console.log(`\n[${name}]`); }
 function loadSignalExtractDomain(deps) {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'signal.js'), 'utf8');
   const transformed = code
-    .replace(/import\s+\{\s*normalizeHostname\s*\}\s+from\s+'\.\/domain-semantics\.js';/, 'const normalizeHostname = __deps.normalizeHostname;')
+    .replace(/import\s+\{\s*domainForUrl\s*\}\s+from\s+'\.\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl;')
     .replace(/export\s+function\s+/g, 'function ')
     + '\nthis.__signalExports = { extractDomain };';
 
@@ -48,20 +48,22 @@ function loadSignalExtractDomain(deps) {
 
 function loadNormalizeHostname() {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
-  const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { normalizeHostname };';
+  const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { normalizeHostname, domainForUrl };';
   const context = { console, URL, this: null };
   context.this = context;
   vm.runInNewContext(transformed, context, { filename: 'domain-semantics.js' });
-  return context.__d.normalizeHostname;
+  return context.__d;
 }
 
 function run() {
-  const normalizeHostname = loadNormalizeHostname();
-  const signal = loadSignalExtractDomain({ normalizeHostname });
+  const domainSemantics = loadNormalizeHostname();
+  const signal = loadSignalExtractDomain({ domainForUrl: domainSemantics.domainForUrl });
 
   section('SE1: direct extractDomain should follow v1.2 normalization layering');
   expectEqual('组合断言: 保留www + lowercase + trailing dot', signal.extractDomain('https://WWW.Example.COM./x'), 'www.example.com');
-  expectEqual('chrome:// should be filtered', signal.extractDomain('chrome://settings'), null);
+  expectEqual('chrome:// settings maps to pseudo domain', signal.extractDomain('chrome://settings'), 'chrome-settings.chrome-local');
+  expectEqual('chrome-extension maps to pseudo domain', signal.extractDomain('chrome-extension://abc/popup.html'), 'extension-page.chrome-local');
+  expectEqual('file maps to pseudo domain', signal.extractDomain('file:///C:/tmp/a.html'), 'local-file.chrome-local');
   expectEqual('invalid url returns null', signal.extractDomain('not-a-url'), null);
 
   const total = passed + failed;

@@ -119,6 +119,7 @@
 | RB-7 | M1-M9 手动验收存在 P0 失败 | **CLEAR** |
 | RB-8 | RC 打包安装冒烟失败 | **CLEAR** |
 | RB-9 | Product Owner 最终批准未完成 | **Pending PO** |
+| RB-10 | 1 秒内网页切换短段最终产品策略未完成（当前保留 sub-second segment，`durationSeconds=0`，start/end 毫秒完整） | **BLOCKED / Must resolve before formal public release** |
 
 ### RC Install Smoke 结果
 - **RC 解压加载**：PASS

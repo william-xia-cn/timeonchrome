@@ -1,6 +1,6 @@
 // infra/storage.js — 配置/会话存储
 import { computeAllDomains, computeAllDomainsWithAudio } from '../core/aggregate.js';
-import { matchDomain as matchDomainV12, normalizeHostname } from '../core/domain-semantics.js';
+import { domainForUrl, matchDomain as matchDomainV12, normalizeHostname } from '../core/domain-semantics.js';
 import { emitTrace } from '../core/timing-trace.js';
 
 const STORAGE_VERSION = '1.3';
@@ -97,16 +97,7 @@ export function formatDate(date) {
 }
 
 export function extractDomain(url) {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (u.protocol === 'chrome:' || u.protocol === 'chrome-extension:' || u.protocol === 'edge:' || u.protocol === 'about:') return null;
-    const hostname = u.hostname;
-    if (!hostname) return null;
-    return normalizeHostname(hostname);
-  } catch {
-    return null;
-  }
+  return domainForUrl(url);
 }
 
 export function isSpecialUrl(url) {
@@ -258,7 +249,7 @@ function normalizeTemporaryCompositeRecord(record) {
   return { tabId, domain, createdAt };
 }
 
-async function getTemporaryCompositePermissionRecords() {
+export async function getTemporaryCompositePermissionRecords() {
   const area = getSessionStorageArea();
   if (!area) return [];
   return new Promise((resolve) => {

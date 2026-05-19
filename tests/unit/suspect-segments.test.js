@@ -132,6 +132,10 @@ async function seedSegments(segments, extra = {}) {
   const normal = makeSegment();
   check('normal 180s checkpoint is not suspect', !suspect.evaluateSuspectSegment(normal).suspect);
 
+  const subSecond = makeSegment({ durationSeconds: 0, endMs: DAY_START + 60_500 });
+  check('sub-second segment is evaluated and not suspect', !suspect.evaluateSuspectSegment(subSecond).suspect);
+  eq('sub-second evidence keeps durationSeconds=0', suspect.evaluateSuspectSegment(subSecond).evidence.durationSeconds, 0);
+
   const bg = makeSegment({ channel: 'backgroundMedia', sourceState: 'BACKGROUND_ACTIVE', durationSeconds: 4 * 60 * 60, endMs: DAY_START + 60_000 + 4 * 60 * 60 * 1000 });
   check('backgroundMedia 4h is not suspect', !suspect.evaluateSuspectSegment(bg).suspect);
 

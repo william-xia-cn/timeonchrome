@@ -40,11 +40,12 @@ const Auth = {
    * 绑定设备
    */
   async bind(email, password, profileId, deviceName = 'Chrome Extension') {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
     // 先登录获取 account_token
     const loginResp = await fetch(`${GC.API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email: normalizedEmail, password })
     });
 
     if (!loginResp.ok) {

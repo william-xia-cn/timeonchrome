@@ -28,7 +28,7 @@ function validateSegment(s: any): string | null {
   if (!s.date || typeof s.date !== 'string') return 'segment.date is required';
   if (typeof s.startMs !== 'number' || typeof s.endMs !== 'number') return 'segment.startMs/endMs must be numbers';
   if (s.endMs <= s.startMs) return 'segment.endMs must be > startMs';
-  if (typeof s.durationSeconds !== 'number' || s.durationSeconds <= 0) return 'segment.durationSeconds must be > 0';
+  if (typeof s.durationSeconds !== 'number' || !Number.isFinite(s.durationSeconds) || s.durationSeconds < 0) return 'segment.durationSeconds must be >= 0';
   if (!s.domain || typeof s.domain !== 'string') return 'segment.domain is required';
   if (!s.channel || !VALID_CHANNELS.has(s.channel)) return `segment.channel must be one of: ${[...VALID_CHANNELS].join(', ')}`;
   if (!s.mode || !VALID_MODES.has(s.mode)) return `segment.mode must be one of: ${[...VALID_MODES].join(', ')}`;
@@ -72,6 +72,13 @@ function decodeSegmentCursor(cursor: string | null): { startMs: number; id: stri
   } catch (_) {
     return null;
   }
+}
+
+function reconciliationStatus(statsSeconds: number, segmentSeconds: number): string {
+  if (statsSeconds === segmentSeconds) return 'match';
+  if (statsSeconds <= 0 && segmentSeconds > 0) return 'stats_missing';
+  if (statsSeconds > 0 && segmentSeconds <= 0) return 'segments_missing';
+  return 'mismatch';
 }
 
 export const statsRouter = {
@@ -384,6 +391,123 @@ export const statsRouter = {
       }>();
 
       return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/stats-reconciliation/v1 — stats_v1 与 usage_segments_v1 对账
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const reconciliationV1Match = path.match(/^\/profiles\/([^/]+)\/stats-reconciliation\/v1$/);
+    if (request.method === 'GET' && reconciliationV1Match) {
+      const profileId = reconciliationV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from') || new Date().toISOString().split('T')[0];
+      const to = url.searchParams.get('to') || from;
+      const rawDomain = url.searchParams.get('domain');
+      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) {
+        return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      }
+      if (rawDomain && !domain) {
+        return json({ error: 'invalid domain' }, 400);
+      }
+
+      const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
+      const binds: any[] = [profileId, from, to];
+      if (domain) {
+        where.push('domain = ?');
+        binds.push(domain);
+      }
+      const whereSql = where.join(' AND ');
+
+      const statsResult = await env.DB.prepare(
+        `SELECT date, domain, channel, mode,
+                COALESCE(SUM(duration_seconds), 0) as seconds
+         FROM stats_v1
+         WHERE ${whereSql}
+         GROUP BY date, domain, channel, mode`
+      ).bind(...binds).all<{
+        date: string; domain: string; channel: string; mode: string; seconds: number;
+      }>();
+
+      const segmentResult = await env.DB.prepare(
+        `SELECT date, domain, channel, mode,
+                COALESCE(SUM(duration_seconds), 0) as seconds
+         FROM usage_segments_v1
+         WHERE ${whereSql}
+         GROUP BY date, domain, channel, mode`
+      ).bind(...binds).all<{
+        date: string; domain: string; channel: string; mode: string; seconds: number;
+      }>();
+
+      const rowsByKey = new Map<string, {
+        date: string; domain: string; channel: string; mode: string; statsSeconds: number; segmentSeconds: number;
+      }>();
+      const put = (row: any, side: 'statsSeconds' | 'segmentSeconds') => {
+        const key = `${row.date}\t${row.domain}\t${row.channel}\t${row.mode}`;
+        const existing = rowsByKey.get(key) || {
+          date: row.date,
+          domain: row.domain,
+          channel: row.channel,
+          mode: row.mode,
+          statsSeconds: 0,
+          segmentSeconds: 0,
+        };
+        existing[side] = Number(row.seconds || 0);
+        rowsByKey.set(key, existing);
+      };
+      for (const row of statsResult.results || []) put(row, 'statsSeconds');
+      for (const row of segmentResult.results || []) put(row, 'segmentSeconds');
+
+      const rows = [...rowsByKey.values()]
+        .map((row) => {
+          const statsSeconds = Number(row.statsSeconds || 0);
+          const segmentSeconds = Number(row.segmentSeconds || 0);
+          return {
+            date: row.date,
+            domain: row.domain,
+            channel: row.channel,
+            mode: row.mode,
+            statsSeconds,
+            segmentSeconds,
+            deltaSeconds: segmentSeconds - statsSeconds,
+            status: reconciliationStatus(statsSeconds, segmentSeconds),
+          };
+        })
+        .sort((a, b) => {
+          if (a.status !== b.status) {
+            if (a.status === 'match') return 1;
+            if (b.status === 'match') return -1;
+          }
+          if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+          if (a.domain !== b.domain) return a.domain < b.domain ? -1 : 1;
+          if (a.channel !== b.channel) return a.channel < b.channel ? -1 : 1;
+          return a.mode < b.mode ? -1 : (a.mode > b.mode ? 1 : 0);
+        });
+
+      const summary = rows.reduce((acc, row) => {
+        acc.statsSeconds += row.statsSeconds;
+        acc.segmentSeconds += row.segmentSeconds;
+        acc.deltaSeconds += row.deltaSeconds;
+        if (row.status !== 'match') acc.mismatchCount++;
+        acc.statusCounts[row.status] = (acc.statusCounts[row.status] || 0) + 1;
+        return acc;
+      }, {
+        rowCount: rows.length,
+        statsSeconds: 0,
+        segmentSeconds: 0,
+        deltaSeconds: 0,
+        mismatchCount: 0,
+        statusCounts: {} as Record<string, number>,
+      });
+
+      return json({ rows, summary });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════

@@ -96,12 +96,48 @@ test('P0-msg-local: unbound popup stays usable in local mode', async () => {
   try {
     const n = Date.now();
     await sw.evaluate(async (now) => {
+      const d = new Date();
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return new Promise(res => {
         chrome.storage.local.set({
-          event_log_v1: [
-            { type: 'START', state: 'ACTIVE', domain: 'local-popup.test', time: now - 45000 },
-            { type: 'END', state: 'ACTIVE', domain: 'local-popup.test', time: now },
-          ],
+          usage_segments_v1: {
+            'seg-local-popup-e2e': {
+              id: 'seg-local-popup-e2e',
+              schemaVersion: 1,
+              date,
+              domain: 'local-popup.test',
+              channel: 'active',
+              mode: 'rest',
+              sourceState: 'ACTIVE',
+              startMs: now - 45000,
+              endMs: now,
+              durationSeconds: 45,
+              settlementReason: 'e2e_seed',
+              parentSegmentId: null,
+              partIndex: 1,
+              partCount: 1,
+              createdAt: now,
+              uploadedAt: null,
+            },
+          },
+          daily_usage_stats_v1: {
+            [date]: {
+              date,
+              timezone: 'Asia/Shanghai',
+              segmentsCount: 1,
+              domains: {
+                'local-popup.test': {
+                  activeSeconds: 45,
+                  backgroundMediaSeconds: 0,
+                  pipSeconds: 0,
+                  totalSeconds: 45,
+                  activeByMode: { rest: 45 },
+                  backgroundMediaByMode: {},
+                  pipByMode: {},
+                },
+              },
+            },
+          },
         }, res);
       });
     }, n);

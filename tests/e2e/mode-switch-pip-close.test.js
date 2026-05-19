@@ -258,10 +258,10 @@ test('Rest -> Composite (auto): closes PiP', async () => {
     await page.goto(serverCtx.compositeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
-    const tabId = await activeTabId(sw);
+    let tabId = await activeTabId(sw);
     const startMs = Date.now();
     await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
-    await seedFakePiP(page, sw);
+    tabId = await seedFakePiP(page, sw);
     expect((await fakePiPState(page)).active).toBe(true);
 
     const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 30_000, tabId);
@@ -284,10 +284,10 @@ test('Rest -> Study (auto): closes PiP and shows study prompt', async () => {
     await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
-    const tabId = await activeTabId(sw);
+    let tabId = await activeTabId(sw);
     const startMs = Date.now();
     await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
-    await seedFakePiP(page, sw);
+    tabId = await seedFakePiP(page, sw);
     expect((await fakePiPState(page)).active).toBe(true);
 
     const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 45_000, tabId);

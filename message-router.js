@@ -1,14 +1,15 @@
 // message-router.js — 命令路由
 
-import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission } from './infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission, getTemporaryCompositePermissionRecords } from './infra/storage.js';
 import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules, checkAndRemind, redirectToReminder, clearTabModeNotice, sendModeSwitchSuccessNotice, applyModeTransitionSideEffects } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
 import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync, getStatsFoundationV1SyncStatus } from './infra/cloud-sync.js';
 import { getTodayStatsWithCategories } from './product/analytics.js';
 import { flushOpenSessionToStats, getSession as getTimingSession } from './runtime/session.js';
+import { getMediaSegments } from './runtime/media-session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
-import { getAllUsageSegments, markSuspectUsageSegments } from './core/usage-segments.js';
+import { getAllUsageSegments, getDailyUsageStats, markSuspectUsageSegments } from './core/usage-segments.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -93,6 +94,7 @@ function normalizeSettlementAnalysisSegment(segment) {
     endMs: Number.isFinite(endMs) ? endMs : null,
     durationSeconds: Number.isFinite(durationSeconds) ? Math.max(0, durationSeconds) : 0,
     settlementReason: segment?.settlementReason || null,
+    description: segment?.description || null,
     suspect: !!segment?.suspect,
     suspectReason: segment?.suspectReason || null,
     uploaded: !!segment?.uploadedAt,
@@ -101,18 +103,228 @@ function normalizeSettlementAnalysisSegment(segment) {
   };
 }
 
-async function getTodaySettlementAnalysis() {
-  const today = getDateKey();
+function getMediaSegmentDate(segment) {
+  if (segment?.date) return segment.date;
+  const startMs = Number(segment?.startMs);
+  if (Number.isFinite(startMs)) return formatDate(new Date(startMs));
+  return null;
+}
+
+function mediaEndpointOperation(description, side) {
+  const endpoint = description?.[side];
+  return endpoint?.reason || endpoint?.operation || null;
+}
+
+function normalizeMediaAnalysisSegment(segment) {
+  const startMs = Number(segment?.startMs);
+  const endMs = Number(segment?.endMs);
+  const durationSeconds = Number(segment?.durationSeconds);
+  const description = segment?.description || null;
+  return {
+    id: segment?.id || null,
+    date: getMediaSegmentDate(segment),
+    domain: segment?.domain || null,
+    tabId: segment?.tabId ?? null,
+    windowId: Number.isInteger(segment?.windowId) ? segment.windowId : null,
+    mediaClass: segment?.mediaClass || null,
+    mediaKind: segment?.mediaKind || null,
+    visibility: segment?.visibility || null,
+    mode: segment?.mode || null,
+    startMs: Number.isFinite(startMs) ? startMs : null,
+    endMs: Number.isFinite(endMs) ? endMs : null,
+    durationSeconds: Number.isFinite(durationSeconds) ? Math.max(0, durationSeconds) : 0,
+    settlementReason: segment?.settlementReason || segment?.reason || null,
+    reason: segment?.reason || segment?.settlementReason || null,
+    description,
+    openOperation: mediaEndpointOperation(description, 'start'),
+    closeOperation: mediaEndpointOperation(description, 'end'),
+    uploaded: false,
+    createdAt: Number.isFinite(Number(segment?.createdAt)) ? Number(segment.createdAt) : null,
+    updatedAt: Number.isFinite(Number(segment?.updatedAt)) ? Number(segment.updatedAt) : null,
+  };
+}
+
+function getSettlementRangeBounds(range = 'today') {
+  const today = new Date();
+  if (range === 'all') return { from: null, to: null, label: '全部' };
+  if (range === 'yesterday') {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+    const key = formatDate(d);
+    return { from: key, to: key, label: '昨日' };
+  }
+  if (range === 'week') {
+    const dow = today.getDay() === 0 ? 6 : today.getDay() - 1;
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
+    return { from: formatDate(start), to: formatDate(today), label: '本周' };
+  }
+  const key = getDateKey();
+  return { from: key, to: key, label: '今日' };
+}
+
+function isAuthorizedReminderSender(sender) {
+  return isAuthorizedBorrowSender(sender);
+}
+
+function resolveCompositeSourceTabId(msg, sender) {
+  const senderTabId = sender?.tab?.id;
+  if (Number.isInteger(senderTabId) && senderTabId >= 0) return senderTabId;
+  if (!isAuthorizedReminderSender(sender)) return null;
+  const sourceTabId = Number(msg?.sourceTabId);
+  return Number.isInteger(sourceTabId) && sourceTabId >= 0 ? sourceTabId : null;
+}
+
+function isDateInSettlementRange(date, range) {
+  if (!date) return false;
+  if (!range?.from && !range?.to) return true;
+  if (range.from && date < range.from) return false;
+  if (range.to && date > range.to) return false;
+  return true;
+}
+
+function buildMediaSettlementSummary(rows) {
+  return rows.reduce((summary, row) => {
+    const seconds = Math.max(0, Number(row?.durationSeconds) || 0);
+    const classKey = `${row?.mediaClass || 'unknown'}Seconds`;
+    summary.rowCount++;
+    summary.totalSeconds += seconds;
+    if (!Object.prototype.hasOwnProperty.call(summary, classKey)) {
+      summary[classKey] = 0;
+    }
+    summary[classKey] += seconds;
+    return summary;
+  }, {
+    rowCount: 0,
+    totalSeconds: 0,
+    foregroundAudioSeconds: 0,
+    backgroundAudioSeconds: 0,
+    foregroundVideoSeconds: 0,
+    backgroundVideoSeconds: 0,
+    pipSeconds: 0,
+  });
+}
+
+async function getMediaSettlementAnalysisRange(options = {}) {
+  const range = getSettlementRangeBounds(options.range || 'today');
+  const allSegments = await getMediaSegments();
+  const rows = Object.values(allSegments || {})
+    .filter(segment => isDateInSettlementRange(getMediaSegmentDate(segment), range))
+    .map(normalizeMediaAnalysisSegment)
+    .sort((a, b) => {
+      const aStart = Number.isFinite(a.startMs) ? a.startMs : Number.MIN_SAFE_INTEGER;
+      const bStart = Number.isFinite(b.startMs) ? b.startMs : Number.MIN_SAFE_INTEGER;
+      return bStart - aStart;
+    });
+  return {
+    ok: true,
+    range: options.range || 'today',
+    label: range.label,
+    from: range.from,
+    to: range.to,
+    date: range.from === range.to ? range.from : null,
+    rows,
+    summary: buildMediaSettlementSummary(rows),
+  };
+}
+
+async function getSettlementAnalysisRange(options = {}) {
+  const range = getSettlementRangeBounds(options.range || 'today');
   const allSegments = await getAllUsageSegments();
+  const allDailyStats = await getDailyUsageStats();
   const segments = Object.values(allSegments || {})
-    .filter(segment => getSegmentDate(segment) === today)
+    .filter(segment => isDateInSettlementRange(getSegmentDate(segment), range))
     .map(normalizeSettlementAnalysisSegment)
     .sort((a, b) => {
       const aStart = Number.isFinite(a.startMs) ? a.startMs : Number.MAX_SAFE_INTEGER;
       const bStart = Number.isFinite(b.startMs) ? b.startMs : Number.MAX_SAFE_INTEGER;
       return aStart - bStart;
     });
-  return { ok: true, date: today, segments };
+  const rangeStats = {};
+  for (const [date, dayStats] of Object.entries(allDailyStats || {})) {
+    if (isDateInSettlementRange(date, range)) rangeStats[date] = dayStats;
+  }
+  return {
+    ok: true,
+    range: options.range || 'today',
+    label: range.label,
+    from: range.from,
+    to: range.to,
+    date: range.from === range.to ? range.from : null,
+    segments,
+    reconciliation: buildLocalSettlementReconciliation(rangeStats, segments),
+  };
+}
+
+async function getTodaySettlementAnalysis() {
+  return await getSettlementAnalysisRange({ range: 'today' });
+}
+
+function reconciliationStatus(statsSeconds, segmentSeconds) {
+  if (statsSeconds === segmentSeconds) return 'match';
+  if (statsSeconds <= 0 && segmentSeconds > 0) return 'stats_missing';
+  if (statsSeconds > 0 && segmentSeconds <= 0) return 'segments_missing';
+  return 'mismatch';
+}
+
+function addReconciliationSeconds(map, keyParts, field, seconds) {
+  const [date, domain, channel, mode] = keyParts;
+  const key = `${date}\t${domain}\t${channel}\t${mode}`;
+  const row = map.get(key) || { date, domain, channel, mode, statsSeconds: 0, segmentSeconds: 0 };
+  row[field] += Math.max(0, Number(seconds) || 0);
+  map.set(key, row);
+}
+
+function buildLocalSettlementReconciliation(dayStatsByDate, segments) {
+  const rowsByKey = new Map();
+  for (const [date, dayStats] of Object.entries(dayStatsByDate || {})) {
+    for (const [domain, ds] of Object.entries(dayStats?.domains || {})) {
+      const activeByMode = ds?.activeByMode || {};
+      const backgroundMediaByMode = ds?.backgroundMediaByMode || {};
+      const pipByMode = ds?.pipByMode || {};
+      for (const [mode, seconds] of Object.entries(activeByMode)) {
+        addReconciliationSeconds(rowsByKey, [date, domain, 'active', mode], 'statsSeconds', seconds);
+      }
+      for (const [mode, seconds] of Object.entries(backgroundMediaByMode)) {
+        addReconciliationSeconds(rowsByKey, [date, domain, 'backgroundMedia', mode], 'statsSeconds', seconds);
+      }
+      for (const [mode, seconds] of Object.entries(pipByMode)) {
+        addReconciliationSeconds(rowsByKey, [date, domain, 'pip', mode], 'statsSeconds', seconds);
+      }
+    }
+  }
+  for (const segment of segments || []) {
+    addReconciliationSeconds(
+      rowsByKey,
+      [segment.date || getDateKey(), segment.domain, segment.channel, segment.mode || 'unknown'],
+      'segmentSeconds',
+      segment.durationSeconds
+    );
+  }
+
+  const rows = [...rowsByKey.values()].map((row) => ({
+    ...row,
+    deltaSeconds: row.segmentSeconds - row.statsSeconds,
+    status: reconciliationStatus(row.statsSeconds, row.segmentSeconds),
+  })).sort((a, b) => {
+    if (a.status !== b.status) {
+      if (a.status === 'match') return 1;
+      if (b.status === 'match') return -1;
+    }
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    if (a.domain !== b.domain) return a.domain < b.domain ? -1 : 1;
+    if (a.channel !== b.channel) return a.channel < b.channel ? -1 : 1;
+    return a.mode < b.mode ? -1 : (a.mode > b.mode ? 1 : 0);
+  });
+
+  const summary = rows.reduce((acc, row) => {
+    acc.statsSeconds += row.statsSeconds;
+    acc.segmentSeconds += row.segmentSeconds;
+    acc.deltaSeconds += row.deltaSeconds;
+    if (row.status !== 'match') acc.mismatchCount++;
+    acc.statusCounts[row.status] = (acc.statusCounts[row.status] || 0) + 1;
+    return acc;
+  }, { rowCount: rows.length, statsSeconds: 0, segmentSeconds: 0, deltaSeconds: 0, mismatchCount: 0, statusCounts: {} });
+
+  return { rows, summary };
 }
 
 function normalizeMode(mode) {
@@ -164,8 +376,11 @@ function withUsageSummary(stats = {}, config = {}) {
   return { ...stats, onlineSeconds, compositeSeconds, undeterminedSeconds: compositeSeconds };
 }
 
-async function flushStatsForRead() {
+async function flushStatsForRead(source = null) {
   try {
+    if (source === 'popup') {
+      return await flushOpenSessionToStats('popup_open', { allowForeground: true });
+    }
     return await flushOpenSessionToStats('ui_flush');
   } catch (e) {
     console.error('[Stats] flush before stats read failed:', e?.message || e);
@@ -179,7 +394,7 @@ export async function handleMessage(msg, sender) {
       return await getConfig();
 
     case 'GET_STATS': {
-      await flushStatsForRead();
+      await flushStatsForRead(msg.source || null);
       const [config, stats] = await Promise.all([getConfig(), getTodayStats()]);
       return withUsageSummary(stats, config);
     }
@@ -243,8 +458,28 @@ export async function handleMessage(msg, sender) {
     case 'GET_TODAY_SETTLEMENT_ANALYSIS':
       return await getTodaySettlementAnalysis();
 
+    case 'GET_SETTLEMENT_ANALYSIS_RANGE':
+      return await getSettlementAnalysisRange({ range: msg.range || 'today' });
+
+    case 'GET_MEDIA_SETTLEMENT_ANALYSIS_RANGE':
+      return await getMediaSettlementAnalysisRange({ range: msg.range || 'today' });
+
     case 'GET_CHANGELOG':
       return await getChangelog(msg.limit || 20);
+
+    case 'GET_TEMPORARY_COMPOSITE_DOMAINS': {
+      const records = await getTemporaryCompositePermissionRecords();
+      return {
+        ok: true,
+        records: records
+          .map((record) => ({
+            tabId: record.tabId,
+            domain: record.domain,
+            createdAt: record.createdAt,
+          }))
+          .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)),
+      };
+    }
 
     case 'SWITCH_TO_STUDY':
       return await switchToStudy(msg);
@@ -256,7 +491,7 @@ export async function handleMessage(msg, sender) {
       return await switchToComposite(msg);
 
     case 'ADD_TO_COMPOSITE_LIST':
-      return await addToCompositeList(msg.domain, sender?.tab?.id ?? null);
+      return await addToCompositeList(msg.domain, resolveCompositeSourceTabId(msg, sender));
 
     case 'SEND_CLOUD_EVENT': {
       const { eventType, domain: evtDomain = '' } = msg;

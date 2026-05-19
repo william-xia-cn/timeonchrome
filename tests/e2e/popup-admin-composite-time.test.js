@@ -17,7 +17,10 @@ async function createContext() {
   let sw = ctx.serviceWorkers()[0];
   if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = await sw.evaluate(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
   const seedPage = await ctx.newPage();
   await seedPage.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });

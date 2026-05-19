@@ -203,8 +203,6 @@ async function runTests() {
   {
     const foregroundLockedCtx = {
       domain: 'plain.example',
-      candidateKind: 'known_domain',
-      candidateDomain: 'plain.example',
       tabId: 6,
       isFocused: true,
       idleState: 'locked',
@@ -227,6 +225,37 @@ async function runTests() {
       isPiP: false,
     };
     expect('locked + audible should still be BACKGROUND_ACTIVE', resolveState(mediaLockedCtx), AttentionState.BACKGROUND_ACTIVE);
+  }
+
+  section('D10: foreground media can keep visible active tab in webpage ACTIVE while Chrome is unfocused or idle');
+  {
+    const unfocusedForegroundMediaCtx = {
+      domain: 'video.example',
+      tabId: 8,
+      isFocused: false,
+      idleState: 'active',
+      isIdle: false,
+      foregroundMediaActive: true,
+      isAudible: true,
+      mediaSourceTabId: 8,
+      mediaSourceDomain: 'video.example',
+      isPiP: false,
+    };
+    expect('unfocused foreground media should count webpage ACTIVE', resolveState(unfocusedForegroundMediaCtx), AttentionState.ACTIVE);
+
+    const idleForegroundMediaCtx = {
+      ...unfocusedForegroundMediaCtx,
+      idleState: 'idle',
+      isIdle: true,
+    };
+    expect('idle foreground media should keep webpage ACTIVE', resolveState(idleForegroundMediaCtx), AttentionState.ACTIVE);
+
+    const lockedForegroundMediaCtx = {
+      ...unfocusedForegroundMediaCtx,
+      idleState: 'locked',
+      isIdle: true,
+    };
+    expect('locked foreground media should not keep webpage ACTIVE', resolveState(lockedForegroundMediaCtx), AttentionState.BACKGROUND_ACTIVE);
   }
 
   const total = passed + failed;

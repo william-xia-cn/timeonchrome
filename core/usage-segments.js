@@ -8,8 +8,8 @@
 // - 按保留期清理旧 segments 和聚合
 //
 // 调用者：
-// - runtime/session.js   → transitionState, heartbeat stale close
-// - runtime/recovery.js  → SW recovery close
+// - runtime/session.js   → transitionState, checkpoint, UI flush close
+// - runtime/recovery.js  → lifecycle recovery close
 // - background.js        → tab close, monitoring off
 
 import { evaluateSuspectSegment } from './suspect-segments.js';
@@ -33,6 +33,17 @@ const STATE_TO_CHANNEL = {
   BACKGROUND_ACTIVE: 'backgroundMedia',
   PIP_ACTIVE: 'pip',
 };
+
+const DESCRIPTION_SOURCES = new Set([
+  'chrome_event',
+  'timer',
+  'ui_action',
+  'recovery',
+  'mode_boundary',
+  'media',
+  'debug',
+  'unknown',
+]);
 
 // ── 纯函数：segment ID 生成 ─────────────────────────────────────────────────────
 
@@ -173,9 +184,10 @@ export function splitSegmentByLocalDate(input) {
     const dayEndEpoch = info.dayEndMs + 1; // 下一天的开始
 
     const segEndMs = Math.min(endMs, dayEndEpoch);
-    const durationSeconds = Math.floor((segEndMs - currentMs) / 1000);
+    const durationMs = segEndMs - currentMs;
+    const durationSeconds = Math.max(0, Math.floor(durationMs / 1000));
 
-    if (durationSeconds > 0) {
+    if (durationMs > 0) {
       partIndex++;
       children.push(buildUsageSegment({
         ...input,
@@ -251,6 +263,35 @@ function parseTimezoneOffset(tz) {
   return null;
 }
 
+function normalizeDescriptionEndpoint(endpoint) {
+  const source = DESCRIPTION_SOURCES.has(endpoint?.source) ? endpoint.source : 'unknown';
+  const atMs = Number(endpoint?.atMs);
+  return {
+    reason: typeof endpoint?.reason === 'string' && endpoint.reason.trim() ? endpoint.reason.trim() : null,
+    operation: typeof endpoint?.operation === 'string' && endpoint.operation.trim() ? endpoint.operation.trim() : null,
+    source,
+    atMs: Number.isFinite(atMs) && atMs > 0 ? atMs : null,
+  };
+}
+
+function endpointSummary(endpoint) {
+  return endpoint?.operation || endpoint?.reason || '—';
+}
+
+function normalizeSegmentDescription(description) {
+  const start = normalizeDescriptionEndpoint(description?.start);
+  const end = normalizeDescriptionEndpoint(description?.end);
+  const summary = typeof description?.summary === 'string' && description.summary.trim()
+    ? description.summary.trim()
+    : `开始：${endpointSummary(start)}；结束：${endpointSummary(end)}`;
+  return {
+    schemaVersion: 1,
+    start,
+    end,
+    summary,
+  };
+}
+
 // ── 纯函数：segment 构建 ────────────────────────────────────────────────────────
 
 /**
@@ -282,6 +323,7 @@ export function buildUsageSegment(input) {
     mode: input.mode || 'unknown',
     sourceState: input.sourceState || 'UNKNOWN',
     settlementReason: input.settlementReason || 'transition_complete',
+    description: normalizeSegmentDescription(input.description),
     parentSegmentId: input.parentSegmentId || null,
     partIndex: input.partIndex || 1,
     partCount: input.partCount || 1,
@@ -1073,10 +1115,9 @@ export async function settleUsageDuration(input) {
     return 0;
   }
 
-  // 跳过无时长的情况
+  // 默认只跳过无正向时间跨度；显式 diagnostic boundary 允许 endMs == startMs。
   const durationMs = (input.endMs || 0) - (input.startMs || 0);
-  if (durationMs <= 0) return 0;
-  if (Math.floor(durationMs / 1000) <= 0) return 0;
+  if (durationMs < 0 || (durationMs === 0 && !input.allowZeroDurationSegment)) return 0;
 
   const channel = input.channel || stateToChannel(input.sourceState);
   if (!channel) return 0;

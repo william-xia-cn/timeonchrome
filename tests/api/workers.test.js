@@ -88,6 +88,28 @@ async function testAuth() {
     check('duplicate register → 400', status === 400, `got ${status}`);
   }
 
+  // Case-insensitive registration/login compatibility
+  {
+    const mixedEmail = `Case_${Date.now()}@TestMail.Invalid`;
+    const { status: registerStatus } = await api('POST', '/auth/register', {
+      email: mixedEmail,
+      password: state.password,
+    });
+    check('mixed-case register → 200', registerStatus === 200, `got ${registerStatus}`);
+
+    const { status: lowerLoginStatus, data: lowerLoginData } = await api('POST', '/auth/login', {
+      email: mixedEmail.toLowerCase(),
+      password: state.password,
+    });
+    check('lower-case login for mixed-case account → 200', lowerLoginStatus === 200, `got ${lowerLoginStatus}: ${JSON.stringify(lowerLoginData)}`);
+
+    const { status: duplicateLowerStatus } = await api('POST', '/auth/register', {
+      email: mixedEmail.toLowerCase(),
+      password: state.password,
+    });
+    check('case-insensitive duplicate register → 400', duplicateLowerStatus === 400, `got ${duplicateLowerStatus}`);
+  }
+
   // Login
   {
     const { status, data } = await api('POST', '/auth/login', {
@@ -401,6 +423,101 @@ async function testUsageSegmentsReadV1() {
   }
 }
 
+async function testStatsReconciliationV1() {
+  section('Stats Reconciliation v1');
+
+  if (!state.deviceToken || !state.accountToken || !state.profileId) {
+    console.log('  ⚠ Skipped (missing tokens)');
+    return;
+  }
+
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const dayStartMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const dayEndMs = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
+  const base = Date.now() - 300000;
+  const segments = [
+    {
+      id: `api-rec-match-${base}`,
+      date: dateStr,
+      timezone: 'Asia/Shanghai',
+      dayStartMs,
+      dayEndMs,
+      startMs: base,
+      endMs: base + 60000,
+      durationSeconds: 60,
+      domain: 'api-rec-match.example.com',
+      channel: 'active',
+      mode: 'study',
+      sourceState: 'ACTIVE',
+      settlementReason: 'transition_complete',
+    },
+    {
+      id: `api-rec-mismatch-${base}`,
+      date: dateStr,
+      timezone: 'Asia/Shanghai',
+      dayStartMs,
+      dayEndMs,
+      startMs: base + 70000,
+      endMs: base + 160000,
+      durationSeconds: 90,
+      domain: 'api-rec-mismatch.example.com',
+      channel: 'active',
+      mode: 'study',
+      sourceState: 'ACTIVE',
+      settlementReason: 'transition_complete',
+    },
+    {
+      id: `api-rec-segonly-${base}`,
+      date: dateStr,
+      timezone: 'Asia/Shanghai',
+      dayStartMs,
+      dayEndMs,
+      startMs: base + 170000,
+      endMs: base + 240000,
+      durationSeconds: 70,
+      domain: 'api-rec-segonly.example.com',
+      channel: 'active',
+      mode: 'rest',
+      sourceState: 'ACTIVE',
+      settlementReason: 'transition_complete',
+    },
+  ];
+
+  {
+    const { status, data } = await api('POST', '/device/usage-segments/v1', { segments }, state.deviceToken);
+    check('reconciliation seed segments → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+  }
+
+  {
+    const { status, data } = await api('POST', '/device/stats/v1', {
+      schemaVersion: 1,
+      date: dateStr,
+      timezone: 'Asia/Shanghai',
+      dayStartMs,
+      dayEndMs,
+      domains: [
+        { domain: 'api-rec-match.example.com', activeByMode: { study: 60 } },
+        { domain: 'api-rec-mismatch.example.com', activeByMode: { study: 30 } },
+        { domain: 'api-rec-statsonly.example.com', activeByMode: { rest: 45 } },
+      ],
+    }, state.deviceToken);
+    check('reconciliation seed stats → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/stats-reconciliation/v1?from=${dateStr}&to=${dateStr}`, null, state.accountToken);
+    check('GET /profiles/:id/stats-reconciliation/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    const rows = data?.rows || [];
+    const byDomain = Object.fromEntries(rows.map(row => [row.domain, row]));
+    check('reconciliation returns match', byDomain['api-rec-match.example.com']?.status === 'match', JSON.stringify(byDomain['api-rec-match.example.com']));
+    check('reconciliation returns mismatch with positive delta', byDomain['api-rec-mismatch.example.com']?.status === 'mismatch' && byDomain['api-rec-mismatch.example.com']?.deltaSeconds === 60, JSON.stringify(byDomain['api-rec-mismatch.example.com']));
+    check('reconciliation returns stats_missing', byDomain['api-rec-segonly.example.com']?.status === 'stats_missing', JSON.stringify(byDomain['api-rec-segonly.example.com']));
+    check('reconciliation returns segments_missing', byDomain['api-rec-statsonly.example.com']?.status === 'segments_missing', JSON.stringify(byDomain['api-rec-statsonly.example.com']));
+    check('reconciliation summary has mismatch count', Number(data?.summary?.mismatchCount || 0) >= 3, JSON.stringify(data?.summary));
+  }
+}
+
 async function testChangelog() {
   section('Changelog');
 
@@ -567,6 +684,7 @@ async function testCleanup() {
     await testEvents();
     await testSessionUpload();
     await testUsageSegmentsReadV1();
+    await testStatsReconciliationV1();
     await testChangelog();
     await testCompositeSessionsEmpty();
     await testDeviceManagement();

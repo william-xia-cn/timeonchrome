@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function doLogin() {
-  const email = document.getElementById('email').value.trim();
+  const email = document.getElementById('email').value.trim().toLowerCase();
   const password = document.getElementById('password').value;
   const btn = document.getElementById('btnLogin');
   const error = document.getElementById('error1');
@@ -120,7 +120,7 @@ async function doBind(profileId) {
     const data = await resp.json();
     
     // 保存凭据（用于 admin 面板自动登录）
-    const email = document.getElementById('email').value.trim();
+    const email = document.getElementById('email').value.trim().toLowerCase();
     const password = document.getElementById('password').value;
     const encrypted = btoa(`${email}:${password}`);
     

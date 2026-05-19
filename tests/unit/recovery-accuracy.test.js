@@ -86,9 +86,12 @@ const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {
   saveSession: sessionApi.saveSession,
   runSessionCommit: sessionApi.runSessionCommit,
   appendEvent: eventApi.appendEvent,
-  getLastEvent: eventApi.getLastEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
-  getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
+  isCountedState: (state) => ['ACTIVE', 'BACKGROUND_ACTIVE', 'PIP_ACTIVE'].includes(state),
+  settleCurrentSessionSegment: async (session, closeAt) => ({
+    appended: 1,
+    durationSeconds: Math.floor(Math.max(0, closeAt - session.startTime) / 1000),
+  }),
 });
 const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getDateKey'], {
   computeAllDomains: aggregateApi.computeAllDomains,
@@ -255,7 +258,7 @@ async function runTests() {
   expectEqual('A END time uses now', scenarioA.events.at(-1).time, t0 + 10_000);
 
   const scenarioB = await runScenario({
-    name: 'B long interruption truncates END time to lastHeartbeat',
+    name: 'B long interruption uses half-checkpoint recovery estimate',
     domain,
     setup: () => seedOpenActiveSession({
       domain,
@@ -264,13 +267,13 @@ async function runTests() {
     }),
     recoverTimes: [t0 + 120_000],
     statsAt: t0 + 120_000,
-    expectedStats: { [domain]: 5 },
+    expectedStats: { [domain]: 90 },
     expectedEventCount: 2,
   });
   expectEqual('B first broken layer', scenarioB.brokenLayer, null);
-  expectEqual('B event-log-derived duration', scenarioB.durationComparison.eventLogDerived, 5);
-  expectEqual('B stats duration', scenarioB.durationComparison.stats, 5);
-  expectEqual('B END time uses lastHeartbeat', scenarioB.events.at(-1).time, t0 + 5_000);
+  expectEqual('B event-log-derived duration', scenarioB.durationComparison.eventLogDerived, 90);
+  expectEqual('B stats duration', scenarioB.durationComparison.stats, 90);
+  expectEqual('B END time uses half checkpoint estimate', scenarioB.events.at(-1).time, t0 + 90_000);
 
   const scenarioC = await runScenario({
     name: 'C repeated recovery does not append duplicate END',
@@ -282,12 +285,12 @@ async function runTests() {
     }),
     recoverTimes: [t0 + 120_000, t0 + 121_000],
     statsAt: t0 + 121_000,
-    expectedStats: { [domain]: 5 },
+    expectedStats: { [domain]: 90 },
     expectedEventCount: 2,
   });
   expectEqual('C first broken layer', scenarioC.brokenLayer, null);
   expectEqual('C event count remains START+END', scenarioC.events.length, 2);
-  expectEqual('C stats duration does not double', scenarioC.durationComparison.stats, 5);
+  expectEqual('C stats duration does not double', scenarioC.durationComparison.stats, 90);
 
   const scenarioD = await runScenario({
     name: 'D empty session writes no event-log entries',
@@ -322,16 +325,16 @@ async function runTests() {
     },
     recoverTimes: [t0 + 120_000],
     statsAt: t0 + 120_000,
-    expectedStats: { [domain]: 5 },
+    expectedStats: { [domain]: 90 },
     expectedEventCount: 2,
   });
   expectEqual('E first broken layer', scenarioE.brokenLayer, null);
-  expectEqual('E event-log-derived duration', scenarioE.durationComparison.eventLogDerived, 5);
-  expectEqual('E stats duration', scenarioE.durationComparison.stats, 5);
-  expectEqual('E END time uses persistent lastHeartbeat', scenarioE.events.at(-1).time, t0 + 5_000);
+  expectEqual('E event-log-derived duration', scenarioE.durationComparison.eventLogDerived, 90);
+  expectEqual('E stats duration', scenarioE.durationComparison.stats, 90);
+  expectEqual('E END time uses persistent session half checkpoint estimate', scenarioE.events.at(-1).time, t0 + 90_000);
 
   const scenarioF = await runScenario({
-    name: 'F stale recovery clamps END time to session start when lastHeartbeat is before start',
+    name: 'F recovery ignores stale lastHeartbeat before start',
     domain,
     setup: () => seedOpenActiveSession({
       domain,
@@ -340,13 +343,13 @@ async function runTests() {
     }),
     recoverTimes: [t0 + 120_000],
     statsAt: t0 + 120_000,
-    expectedStats: {},
+    expectedStats: { [domain]: 90 },
     expectedEventCount: 2,
   });
   expectEqual('F first broken layer', scenarioF.brokenLayer, null);
-  expectEqual('F event-log-derived duration', scenarioF.durationComparison.eventLogDerived, 0);
-  expectEqual('F stats duration', scenarioF.durationComparison.stats, 0);
-  expectEqual('F END time clamps to startTime', scenarioF.events.at(-1).time, t0);
+  expectEqual('F event-log-derived duration', scenarioF.durationComparison.eventLogDerived, 90);
+  expectEqual('F stats duration', scenarioF.durationComparison.stats, 90);
+  expectEqual('F END time uses half checkpoint estimate', scenarioF.events.at(-1).time, t0 + 90_000);
 
   Date.now = REAL_DATE_NOW;
   const total = passed + failed;

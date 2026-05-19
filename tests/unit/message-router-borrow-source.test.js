@@ -63,9 +63,36 @@ function loadHandleMessage(stubs) {
 }
 
 async function run() {
+  const storageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'storage.js'), 'utf8');
+  const routerSource = fs.readFileSync(path.join(__dirname, '..', '..', 'message-router.js'), 'utf8');
+  const compositeCalls = [];
+  const temporaryCompositeRecords = [
+    { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
+    { tabId: 8, domain: 'new.example.com', createdAt: 2000 },
+  ];
   const { handleMessage } = loadHandleMessage({
     updateDeclarativeRules: async () => {},
+    getConfig: async () => ({
+      mode: 'study',
+      compositeList: [],
+      restrictedEntertainmentList: [],
+      unsafeList: [],
+      studyList: [],
+      quotaState: {},
+    }),
+    hasTemporaryCompositePermission: async () => false,
+    getTemporaryCompositePermissionRecords: async () => temporaryCompositeRecords,
+    addTemporaryCompositeDomain: async (tabId, domain) => {
+      compositeCalls.push({ tabId, domain });
+      return { added: true };
+    },
   });
+
+  section('C00 静态接口检查');
+  {
+    expectTrue('storage 暴露临时综合记录只读方法', storageSource.includes('export async function getTemporaryCompositePermissionRecords'));
+    expectTrue('router 支持 GET_TEMPORARY_COMPOSITE_DOMAINS', routerSource.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && routerSource.includes('getTemporaryCompositePermissionRecords'));
+  }
 
   section('B03-1 popup 调用 borrow 返回 V1-minimal 禁用响应');
   {
@@ -93,6 +120,34 @@ async function run() {
     const sender = { id: 'ext-id', tab: { id: 1 }, url: 'https://example.com/page' };
     const r = await handleMessage({ type: 'BORROW_REST_QUOTA' }, sender);
     expect('返回统一禁用结构', r, { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' });
+  }
+
+  section('C01-1 reminder 可用 sourceTabId 申请综合时间');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/reminder.html' };
+    const r = await handleMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com', sourceTabId: 42 }, sender);
+    expect('返回 added', r, { domain: 'example.com', added: true });
+    expect('使用 sourceTabId', compositeCalls.at(-1), { tabId: 42, domain: 'example.com' });
+  }
+
+  section('C01-2 非 reminder 扩展页不能伪造 sourceTabId');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/admin/admin.html' };
+    const r = await handleMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com', sourceTabId: 99 }, sender);
+    expect('返回 invalid tab context', r.code, 'INVALID_TAB_CONTEXT');
+  }
+
+  section('C01-3 读取临时综合网站记录按申请时间倒序');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/admin/admin.html' };
+    const r = await handleMessage({ type: 'GET_TEMPORARY_COMPOSITE_DOMAINS' }, sender);
+    expect('返回倒序 records', r, {
+      ok: true,
+      records: [
+        { tabId: 8, domain: 'new.example.com', createdAt: 2000 },
+        { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
+      ],
+    });
   }
 
   const total = passed + failed;

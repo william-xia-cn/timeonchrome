@@ -28,12 +28,12 @@
   let audioContextActive = false;
   let pipActive = false;
 
-  function sendMediaState(playing, isPiP = pipActive, kind = mediaKind) {
+  function sendMediaState(playing, isPiP = pipActive, kind = mediaKind, source = 'dom_media_event') {
     if (!chrome.runtime?.id) return;
-    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP, mediaKind: kind });
+    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP, mediaKind: kind, source });
   }
 
-  function updateMediaState(force = false) {
+  function updateMediaState(force = false, source = 'dom_media_event') {
     const elements = Array.from(document.querySelectorAll('video, audio'));
     const playingElements = elements.filter(el => !el.paused && !el.ended && el.readyState > 2);
     const htmlMediaPlaying = playingElements.length > 0;
@@ -46,19 +46,19 @@
       mediaPlaying = newState;
       mediaKind = newKind;
       pipActive = newPiP;
-      sendMediaState(mediaPlaying, pipActive, mediaKind);
+      sendMediaState(mediaPlaying, pipActive, mediaKind, source);
     } else if (force && (newState || newPiP)) {
-      sendMediaState(newState, newPiP, newKind);
+      sendMediaState(newState, newPiP, newKind, source);
     }
   }
 
   // 对已有媒体元素挂钩
   function attachMediaListeners(el) {
-    el.addEventListener('play',  updateMediaState);
-    el.addEventListener('pause', updateMediaState);
-    el.addEventListener('ended', updateMediaState);
-    el.addEventListener('enterpictureinpicture', updateMediaState);
-    el.addEventListener('leavepictureinpicture', updateMediaState);
+    el.addEventListener('play',  () => updateMediaState(false, 'dom_media_event'));
+    el.addEventListener('pause', () => updateMediaState(false, 'dom_media_event'));
+    el.addEventListener('ended', () => updateMediaState(false, 'dom_media_event'));
+    el.addEventListener('enterpictureinpicture', () => updateMediaState(false, 'pip_api'));
+    el.addEventListener('leavepictureinpicture', () => updateMediaState(false, 'pip_api'));
   }
   document.querySelectorAll('video, audio').forEach(attachMediaListeners);
 
@@ -71,16 +71,16 @@
         node.querySelectorAll && node.querySelectorAll('video, audio').forEach(attachMediaListeners);
       });
     });
-    updateMediaState();
+    updateMediaState(false, 'dom_media_event');
   });
   mediaObserver.observe(document.documentElement, { childList: true, subtree: true });
 
   // Some browser-controlled media documents and cross-world media events do not
   // reliably fire listener callbacks into the content script. Polling only
   // recomputes local media state and still sends a message only on state change.
-  setTimeout(updateMediaState, 500);
-  setInterval(updateMediaState, 1000);
-  setInterval(() => updateMediaState(true), 5000);
+  setTimeout(() => updateMediaState(false, 'dom_media_poll'), 500);
+  setInterval(() => updateMediaState(false, 'dom_media_poll'), 1000);
+  setInterval(() => updateMediaState(true, 'dom_media_poll'), 5000);
 
   // Web Audio API 检测：拦截 AudioContext 构造
   function patchAudioContext(CtxClass) {
@@ -90,9 +90,9 @@
       const ctx = new Original(...args);
       ctx.addEventListener('statechange', () => {
         audioContextActive = ctx.state === 'running';
-        updateMediaState();
+        updateMediaState(false, 'web_audio');
       });
-      if (ctx.state === 'running') { audioContextActive = true; updateMediaState(); }
+      if (ctx.state === 'running') { audioContextActive = true; updateMediaState(false, 'web_audio'); }
       return ctx;
     };
     window[CtxClass.name].prototype = Original.prototype;
@@ -139,7 +139,7 @@
 
   // ── 接收来自 background 的指令 ────────────────────────────────────────────
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'SHOW_WARNING') {
       showTimeWarning(msg.minutesLeft, msg.domain);
     } else if (msg.type === 'SHOW_OVERLAY') {
@@ -147,7 +147,15 @@
     } else if (msg.type === 'REMOVE_OVERLAY') {
       removeOverlay();
     } else if (msg.type === 'EXIT_PIP') {
-      exitPictureInPictureIfNeeded();
+      exitPictureInPictureIfNeeded()
+        .then((result) => sendResponse?.(result))
+        .catch((err) => sendResponse?.({
+          ok: false,
+          hadPiP: !!document.pictureInPictureElement,
+          exited: false,
+          error: err?.message || String(err),
+        }));
+      return true;
     } else if (msg.type === 'AUTO_MODE_PENDING_START') {
       if (!canRenderTopFrameUi) return;
       showAutoModePending(msg);
@@ -167,12 +175,26 @@
   } catch {}
 
   async function exitPictureInPictureIfNeeded() {
+    const hadPiP = !!document.pictureInPictureElement;
     try {
       if (document.pictureInPictureElement && document.exitPictureInPicture) {
         await document.exitPictureInPicture();
       }
-    } catch {}
+    } catch (err) {
+      updateMediaState();
+      return {
+        ok: false,
+        hadPiP,
+        exited: false,
+        error: err?.message || String(err),
+      };
+    }
     updateMediaState();
+    return {
+      ok: true,
+      hadPiP,
+      exited: hadPiP && !document.pictureInPictureElement,
+    };
   }
 
   // ── 时间警告（弹出角标提示，不影响使用）────────────────────────────────────
