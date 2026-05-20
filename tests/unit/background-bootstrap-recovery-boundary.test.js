@@ -45,8 +45,10 @@ check('popup fast status is handled before runtime bootstrap', fastStatusIndex >
 check('popup local snapshot is handled before runtime bootstrap', localSnapshotIndex >= 0 && runtimeBootstrapIndex >= 0 && localSnapshotIndex < runtimeBootstrapIndex);
 check('popup fast status does not route through message-router', !/handleMessage\(/.test(fastStatusBody));
 check('popup local snapshot does not call cloud hydration, sync, router config, or flush', !/hydrateCloudSyncStateFromStorage|syncNow|initCloudSync|getConfig|flushOpenSessionToStats|markSuspectUsageSegments/.test(fastStatusBody));
-check('popup fast status reads active tab and timing session only', /getPopupFastStatus\(\)/.test(fastStatusBody) && /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/.test(source) && /getTimingSession\(\)/.test(source));
-check('popup local snapshot reads config stats and cloud cache in one storage request', /getPopupLocalSnapshot\(\)/.test(fastStatusBody) && /CONFIG_KEY/.test(source) && /daily_usage_stats_v1/.test(source) && /cloud_profile_name/.test(source));
+check('popup fast status accepts active tab hint before background fallback', /getPopupFastStatus\(msg\?\.activeTabHint \|\| msg\?\.activeTab \|\| null\)/.test(fastStatusBody) && /normalizeActiveTabHint\(tabHint\)/.test(source) && /if \(hinted\) return hinted;/.test(source));
+check('popup fast status can use active tab lastAccessed when session is missing', /function resolvePopupLiveSessionSeconds/.test(source) && /tab\?\.lastAccessed/.test(source));
+check('popup fast status reads active tab and timing session only', /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/.test(source) && /getTimingSession\(\)/.test(source));
+check('popup local snapshot reads config stats and cloud cache in one storage request', /getPopupLocalSnapshot\(msg\?\.activeTabHint \|\| msg\?\.activeTab \|\| null\)/.test(fastStatusBody) && /CONFIG_KEY/.test(source) && /daily_usage_stats_v1/.test(source) && /cloud_profile_name/.test(source));
 check('onStartup calls recover', /await recover\(\)/.test(onStartupBody));
 check('onInstalled calls recover', /await recover\(\)/.test(onInstalledBody));
 check('cloud sync exposes storage hydration helper', /export async function hydrateCloudSyncStateFromStorage\(\)/.test(cloudSyncSource));

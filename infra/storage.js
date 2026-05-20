@@ -3,10 +3,10 @@ import { computeAllDomains, computeAllDomainsWithAudio } from '../core/aggregate
 import { domainForUrl, matchDomain as matchDomainV12, normalizeHostname } from '../core/domain-semantics.js';
 import {
   getSiteClassificationForUrl,
+  resolveSiteAccessClassification,
   normalizeSiteClassificationRequest,
   normalizeSiteClassificationTarget,
   siteDecisionMatchesUrl,
-  siteTargetScopesOverlap,
 } from '../core/site-classification.js';
 import { emitTrace } from '../core/timing-trace.js';
 
@@ -31,7 +31,7 @@ export const DEFAULT_CONFIG = {
   isInitialized: false,
   mode: 'study',
   studyList: [
-    'google.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com', 'slides.google.com', 'meet.google.com', 'calendar.google.com', 'classroom.google.com', 'keep.google.com', 'colab.research.google.com',
+    'drive.google.com', 'docs.google.com', 'sheets.google.com', 'slides.google.com', 'meet.google.com', 'calendar.google.com', 'classroom.google.com', 'keep.google.com', 'colab.research.google.com',
     'office.com', 'onenote.com', 'outlook.live.com', 'planner.microsoft.com', 'to-do.office.com', 'teams.microsoft.com',
     'openai.com', 'claude.ai', 'gemini.google.com', 'poe.com', 'perplexity.ai', 'notebooklm.google.com', 'elicit.org', 'consensus.app', 'scite.ai', 'wolframalpha.com', 'gamma.app',
     'quizlet.com', 'noredink.com', 'membean.com', 'achieve3000.com', 'quillbot.com', 'grammarly.com', 'overleaf.com', 'zotero.org', 'mendeley.com', 'owl.purdue.edu', 'citationmachine.net',
@@ -44,15 +44,14 @@ export const DEFAULT_CONFIG = {
     'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai',
     'collegeboard.org'
   ],
-  // System-configured composite sites (9, non-removable) + user-default initial sites (7, removable)
-  // Effective compositeList = 16 sites for new profiles
+  // System-configured composite sites (9, non-removable) + user-default initial sites (5, removable)
+  // Effective compositeList = 14 sites for new profiles
   compositeList: [
     // System-configured (9)
     'google.com', 'google.com.hk', 'bing.com', 'microsoft.com', 'apple.com', 'adobe.com',
     'music.youtube.com', 'spotify.com', 'music.163.com',
     // User-default initial (7) — seeded into customCompositeList, removable by user
-    'youtube.com', 'wikipedia.org', 'wikimedia.org', 'britannica.com',
-    'stackoverflow.com', 'stackexchange.com', 'reddit.com'
+    'youtube.com', 'wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'
   ],
   unsafeList: ['douyin.com', 'tiktok.com'],
   dailyOnlineQuota: 0,
@@ -365,70 +364,11 @@ function requestDecisionTarget(record) {
   };
 }
 
-const CLASSIFIED_SITE_LIST_FIELDS = [
-  { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'customBlockedSites', 'defaultUnsafeSites', 'customUnsafeSites'], classification: 'blocked' },
-  { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'customRestrictedEntertainmentList'], classification: 'restricted' },
-  { keys: ['studyList', 'defaultStudySites', 'customStudyList'], classification: 'study' },
-  { keys: ['compositeList', 'defaultCompositeSites', 'customCompositeList'], classification: 'composite' },
-  { keys: ['restList', 'entertainmentList', 'defaultRestSites', 'customRestList'], classification: 'rest' },
-];
-
-function getConfigListValues(config = {}, keys = []) {
-  const values = [];
-  for (const key of keys) {
-    const list = config?.[key];
-    if (!Array.isArray(list)) continue;
-    for (const item of list) {
-      if (typeof item === 'string' && item.trim()) values.push({ key, value: item.trim() });
-    }
-  }
-  return values;
-}
-
-function normalizePatternBase(pattern) {
-  const raw = String(pattern || '').trim().toLowerCase().replace(/\.+$/g, '');
-  if (!raw) return null;
-  if (raw.startsWith('*.')) return normalizeHostname(raw.slice(2));
-  return normalizeHostname(raw);
-}
-
-function patternOverlapsRequestTarget(pattern, target) {
-  const base = normalizePatternBase(pattern);
-  if (!base || !target?.host) return false;
-  if (target.targetType === 'url') {
-    return matchDomainV12(target.host, pattern);
-  }
-  return matchDomainV12(target.host, pattern) || matchDomainV12(base, target.normalizedValue);
-}
-
 function getConfiguredClassificationForTarget(config = {}, target) {
   if (!target?.ok) return null;
-
-  const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
-  for (const rule of rules) {
-    const decision = rule?.decision || rule?.classification;
-    if (!decision) continue;
-    const ruleTarget = {
-      targetType: rule.targetType,
-      normalizedValue: rule.normalizedValue || rule.targetValue,
-    };
-    if (siteTargetScopesOverlap(target, ruleTarget)) {
-      return { classification: decision === 'reject' ? 'rejected' : decision, source: 'siteClassificationRulesV1', rule };
-    }
-  }
-
-  for (const group of CLASSIFIED_SITE_LIST_FIELDS) {
-    for (const item of getConfigListValues(config, group.keys)) {
-      if (patternOverlapsRequestTarget(item.value, target)) {
-        return {
-          classification: group.classification,
-          source: item.key,
-          pattern: item.value,
-        };
-      }
-    }
-  }
-  return null;
+  const lookupValue = target.targetType === 'url' ? target.normalizedValue : target.host;
+  const resolved = resolveSiteAccessClassification(config, [], lookupValue);
+  return resolved.classification ? resolved : null;
 }
 
 async function setSiteClassificationRequestRecords(records) {
@@ -819,13 +759,15 @@ export async function getTodayStats() {
 export async function getTodayUndeterminedStats() {
   const config = await getConfig();
   const temporaryCompositeDomains = await getTemporaryCompositeDomains();
-  const compositeList = [...(config.compositeList || []), ...temporaryCompositeDomains];
+  const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
   const stats = await getTodayStats();
 
   const result = {};
   for (const [domain, seconds] of Object.entries(stats)) {
     if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain') continue;
-    if (compositeList.some(p => matchDomain(domain, p))) {
+    const resolved = resolveSiteAccessClassification(config, siteClassificationRecords, domain);
+    const isTemporaryComposite = temporaryCompositeDomains.some(p => matchDomain(domain, p));
+    if (resolved.classification === 'composite' || resolved.classification === 'pending_composite' || isTemporaryComposite) {
       result[domain] = seconds;
     }
   }

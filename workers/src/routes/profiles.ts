@@ -1,6 +1,7 @@
 // Profiles 路由 - 孩子 Profile CRUD
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { siteAccessDefaults, mergeWithDefaults } from '../config/site-access-defaults';
+import { validateSiteAccessConfig } from '../../../core/site-classification.js';
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
 
@@ -458,6 +459,15 @@ export const profilesRouter = {
         const validationError = validateTimeWindows(mergedConfig);
         if (validationError) {
           return json({ error: 'Invalid timeWindows: ' + validationError }, 400);
+        }
+
+        const siteAccessValidation = validateSiteAccessConfig(mergedConfig);
+        if (!siteAccessValidation.ok) {
+          return json({
+            error: 'SITE_ACCESS_CONFLICT',
+            message: '同一网站不能同时出现在不同归类中',
+            conflicts: siteAccessValidation.conflicts,
+          }, 400);
         }
 
         // 8. 清理派生字段，不持久化 source-of-truth

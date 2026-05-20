@@ -66,6 +66,23 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
     getSiteClassificationRequestRecords: async () => [],
     getSiteClassificationForUrl: () => ({ classification: null }),
+    resolveSiteAccessClassification: (cfg, _records, urlOrDomain) => {
+      let domain = String(urlOrDomain || '');
+      try { domain = new URL(domain).hostname; } catch (_) {}
+      const match = stubs.matchDomain || ((d, p) => d === p || d.endsWith(`.${p}`));
+      const candidates = [];
+      const add = (classification, list = []) => {
+        for (const p of list || []) {
+          if (match(domain, p)) candidates.push({ classification, specificity: String(p).split('.').length });
+        }
+      };
+      add('blocked', cfg.unsafeList || cfg.blacklist || []);
+      add('restricted', cfg.restrictedEntertainmentList || []);
+      add('study', cfg.studyList || []);
+      add('composite', cfg.compositeList || []);
+      candidates.sort((a, b) => b.specificity - a.specificity);
+      return { classification: candidates[0]?.classification || null };
+    },
     shouldEnforcePictureInPicturePolicy: () => true,
     closeForbiddenPictureInPicture: async ({ preferredTabId } = {}) => {
       if (Number.isInteger(preferredTabId)) {

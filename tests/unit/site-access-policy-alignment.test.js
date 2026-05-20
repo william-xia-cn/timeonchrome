@@ -125,8 +125,6 @@ const userCompositeDomains = [
   'youtube.com',
   'wikipedia.org',
   'wikimedia.org',
-  'britannica.com',
-  'stackoverflow.com',
   'stackexchange.com',
   'reddit.com',
 ];
@@ -138,7 +136,9 @@ for (const domain of userCompositeDomains) {
   check(`${domain} in defaultUserCompositeSites`, userCompositeSet.has(domain.toLowerCase()));
 }
 
-check('defaultUserCompositeSites count = 7', (defaults.defaultUserCompositeSites || []).length === 7);
+check('britannica.com stays study-only, not user composite', !userCompositeSet.has('britannica.com'));
+check('stackoverflow.com stays study-only, not user composite', !userCompositeSet.has('stackoverflow.com'));
+check('defaultUserCompositeSites count = 5', (defaults.defaultUserCompositeSites || []).length === 5);
 
 // ── Summary ──
 const total = passed + failed;

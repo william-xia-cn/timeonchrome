@@ -67,6 +67,7 @@ this.__resolveLiveSessionSeconds = resolveLiveSessionSeconds;
 this.__resolveModeUsageWithLive = resolveModeUsageWithLive;
 this.__formatRuntimeSessionDuration = formatRuntimeSessionDuration;
 this.__setMode = setMode;
+this.__renderRuntimeStatus = renderRuntimeStatus;
 `, context, { filename: 'popup.js' });
   const resolveDomainTag = context.__resolveDomainTag;
   const resolveTodayDomainSeconds = context.__resolveTodayDomainSeconds;
@@ -74,6 +75,7 @@ this.__setMode = setMode;
   const resolveModeUsageWithLive = context.__resolveModeUsageWithLive;
   const formatRuntimeSessionDuration = context.__formatRuntimeSessionDuration;
   const setMode = context.__setMode;
+  const renderRuntimeStatus = context.__renderRuntimeStatus;
 
   expectEqual('no domain -> 不计时页面', resolveDomainTag(null, {}), '不计时页面');
   expectEqual(
@@ -82,8 +84,28 @@ this.__setMode = setMode;
     '学习网站'
   );
   expectEqual(
+    'custom study domain -> 学习网站',
+    resolveDomainTag('baidu.com', { customStudyList: ['baidu.com'] }),
+    '学习网站'
+  );
+  expectEqual(
     'composite domain -> 综合网站',
     resolveDomainTag('youtube.com', { compositeList: ['youtube.com'] }),
+    '综合网站'
+  );
+  expectEqual(
+    'default composite domain -> 综合网站',
+    resolveDomainTag('wikipedia.org', { defaultCompositeSites: ['wikipedia.org'] }),
+    '综合网站'
+  );
+  expectEqual(
+    'child study domain overrides parent composite tag',
+    resolveDomainTag('docs.google.com', { compositeList: ['google.com'], studyList: ['docs.google.com'] }),
+    '学习网站'
+  );
+  expectEqual(
+    'unlisted child inherits parent composite tag',
+    resolveDomainTag('mail.google.com', { compositeList: ['google.com'], studyList: ['docs.google.com'] }),
     '综合网站'
   );
   expectEqual(
@@ -165,6 +187,16 @@ this.__setMode = setMode;
     String(source.includes('stats.backgroundMediaSeconds || stats.audioSeconds')),
     'true'
   );
+  renderRuntimeStatus({});
+  const compactHtml = elementFor('runtime-compact').innerHTML;
+  const notTimedCount = (compactHtml.match(/不计时页面/g) || []).length;
+  expectEqual('runtime status hides duplicate untracked page tag', notTimedCount, 1);
+  renderRuntimeStatus({ currentDomain: 'baidu.com', currentSessionDurationSeconds: 3, config: { customStudyList: ['baidu.com'] } });
+  expectEqual(
+    'runtime status uses snapshot config for current site tag',
+    elementFor('runtime-compact').innerHTML.includes('学习网站') ? 'tagged' : 'missing',
+    'tagged'
+  );
   await setMode('composite');
   const modeSwitch = sentMessages.find((msg) => msg?.type === 'SWITCH_TO_COMPOSITE');
   expectEqual('popup mode switch passes noticeTabId', JSON.stringify(modeSwitch), JSON.stringify({
@@ -177,7 +209,7 @@ this.__setMode = setMode;
     'active'
   );
 
-  console.log('[popup-current-site-tag] 18/18 passed');
+  console.log('[popup-current-site-tag] 24/24 passed');
 }
 
 run().catch((err) => {

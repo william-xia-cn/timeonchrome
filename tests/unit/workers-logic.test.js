@@ -352,17 +352,17 @@ const siteAccessDefaults = require('../../workers/config/site-access-defaults.js
   // compositeList effective = defaultCompositeSites + customCompositeList (user-default sites seeded)
   const customCompositeList = siteAccessDefaults.defaultUserCompositeSites || [];
   const effectiveComposite = mergeWithDefaults(customCompositeList, siteAccessDefaults.defaultCompositeSites);
-  check('new profile compositeList count = 9 system + 7 user-default = 16', effectiveComposite.length === 16, `actual=${effectiveComposite.length}`);
+  check('new profile compositeList count = 9 system + 5 user-default = 14', effectiveComposite.length === 14, `actual=${effectiveComposite.length}`);
 
   // 3 vendor/support domains in system defaults
   const vendors = ['microsoft.com', 'apple.com', 'adobe.com'];
   const allVendorsPresent = vendors.every(v => effectiveComposite.includes(v));
   check('new profile compositeList includes all 3 vendor/support domains', allVendorsPresent);
 
-  // 7 user-default sites should be present
-  const userDefaults = ['youtube.com', 'wikipedia.org', 'wikimedia.org', 'britannica.com', 'stackoverflow.com', 'stackexchange.com', 'reddit.com'];
+  // 5 user-default sites should be present
+  const userDefaults = ['youtube.com', 'wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'];
   const allUserDefaultsPresent = userDefaults.every(u => effectiveComposite.includes(u));
-  check('new profile compositeList includes all 7 user-default sites', allUserDefaultsPresent);
+  check('new profile compositeList includes all 5 user-default sites', allUserDefaultsPresent);
 
   // Removed sites should NOT be present
   const removedSites = ['baidu.com', 'duckduckgo.com', 'search.brave.com', 'baike.baidu.com'];
@@ -372,9 +372,9 @@ const siteAccessDefaults = require('../../workers/config/site-access-defaults.js
 
 {
   // User removal: if user removes youtube.com from customCompositeList, it must not reappear
-  const customCompositeList = ['wikipedia.org', 'wikimedia.org', 'britannica.com', 'stackoverflow.com', 'stackexchange.com', 'reddit.com'];
+  const customCompositeList = ['wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'];
   const effectiveComposite = mergeWithDefaults(customCompositeList, siteAccessDefaults.defaultCompositeSites);
-  check('after removing youtube.com, effective count = 15', effectiveComposite.length === 15, `actual=${effectiveComposite.length}`);
+  check('after removing youtube.com, effective count = 13', effectiveComposite.length === 13, `actual=${effectiveComposite.length}`);
   check('youtube.com NOT in effective list after removal', !effectiveComposite.includes('youtube.com'));
   check('remaining user-default sites still present', effectiveComposite.includes('wikipedia.org'));
 }

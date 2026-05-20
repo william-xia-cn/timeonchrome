@@ -98,12 +98,13 @@ function run() {
   expectTrue('Worker 应注册网站归类申请路由', workerIndexSource.includes('siteClassificationRequestsRouter') && workerIndexSource.includes('/site-classification-requests'));
   expectTrue('009 migration 应创建 site_classification_requests_v1', migration009.includes('CREATE TABLE IF NOT EXISTS site_classification_requests_v1'));
   expectTrue('009 migration 应按原申请对象去重', migration009.includes('UNIQUE (profile_id, requested_target_type, requested_normalized_value)'));
-  expectTrue('网站归类请求应支持设备提交和读取', siteRequestsSource.includes("path === '/device/site-classification-requests/v1'") && siteRequestsSource.includes('request.method === \'POST\'') && siteRequestsSource.includes('request.method === \'GET\''));
-  expectTrue('网站归类请求应支持家长读取和审批', siteRequestsSource.includes('/site-classification-requests/v1') && siteRequestsSource.includes('/decision') && siteRequestsSource.includes('verifyProfileOwner'));
-  expectTrue('网站归类请求应拒绝已归类对象重新申请', siteRequestsSource.includes('ALREADY_CLASSIFIED') && siteRequestsSource.includes('getConfiguredClassificationForTarget'));
-  expectTrue('网站归类审批应更新 profile config/version', siteRequestsSource.includes('siteClassificationRulesV1') && siteRequestsSource.includes('version = version + 1'));
-  expectTrue('网站归类审批应支持学习/综合/拒绝三类决定', siteRequestsSource.includes('normalizeSiteClassificationDecision') && siteRequestsSource.includes('decisionToStatus') && siteRequestsSource.includes('decision === \'study\'') && siteRequestsSource.includes('decision === \'composite\''));
+  expectTrue('网站归类申请应支持设备提交和读取', siteRequestsSource.includes("path === '/device/site-classification-requests/v1'") && siteRequestsSource.includes('request.method === \'POST\'') && siteRequestsSource.includes('request.method === \'GET\''));
+  expectTrue('网站归类申请应支持家长读取和审批', siteRequestsSource.includes('/site-classification-requests/v1') && siteRequestsSource.includes('/decision') && siteRequestsSource.includes('verifyProfileOwner'));
+  expectTrue('网站归类申请应拒绝已归类对象重新申请', siteRequestsSource.includes('ALREADY_CLASSIFIED') && siteRequestsSource.includes('getConfiguredClassificationForTarget'));
+  expectTrue('网站归类申请审批应更新 profile config/version', siteRequestsSource.includes('siteClassificationRulesV1') && siteRequestsSource.includes('version = version + 1'));
+  expectTrue('网站归类申请审批应支持学习/综合/拒绝三类决定', siteRequestsSource.includes('normalizeSiteClassificationDecision') && siteRequestsSource.includes('decisionToStatus') && siteRequestsSource.includes('decision === \'study\'') && siteRequestsSource.includes('decision === \'composite\''));
   expectTrue('profile 默认配置应包含 siteClassificationRulesV1', profileSource.includes('siteClassificationRulesV1: []') && profileSource.includes("'siteClassificationRulesV1'"));
+  expectTrue('profile 配置保存应校验访问规则精确跨类冲突', profileSource.includes('validateSiteAccessConfig') && profileSource.includes('SITE_ACCESS_CONFLICT'));
   expectTrue('usage-segments/v1 应校验账号 JWT', source.includes('verifyAccountToken(request, env.JWT_SECRET)'));
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
   expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));

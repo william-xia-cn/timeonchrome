@@ -193,28 +193,62 @@ function modeToLabel(mode) {
   return '学习';
 }
 
-async function getCurrentActiveDomain() {
+function normalizeActiveTabHint(tabHint = null) {
+  if (!tabHint || typeof tabHint !== 'object') return null;
+  const tabId = Number(tabHint.tabId ?? tabHint.id);
+  const windowId = Number(tabHint.windowId);
+  const lastAccessed = Number(tabHint.lastAccessed);
+  const url = typeof tabHint.url === 'string' ? tabHint.url : '';
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  } catch (_) {
+    return null;
+  }
+  const domain = extractDomain(url);
+  if (!domain) return null;
+  return {
+    tab: {
+      id: Number.isInteger(tabId) ? tabId : null,
+      windowId: Number.isInteger(windowId) ? windowId : null,
+      url,
+      lastAccessed: Number.isFinite(lastAccessed) && lastAccessed > 0 ? lastAccessed : null,
+    },
+    domain,
+  };
+}
+
+async function getCurrentActiveDomain(tabHint = null) {
+  const hinted = normalizeActiveTabHint(tabHint);
+  if (hinted) return hinted;
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const tab = tabs && tabs[0];
   const domain = extractDomain(tab?.url || '');
   return { tab, domain };
 }
 
-async function getPopupFastStatus() {
+function resolvePopupLiveSessionSeconds(timingSession, domain, tab = null) {
+  const activeDomain = normalizeDomainForFastStatus(domain);
+  if (timingSession?.state === 'ACTIVE' && timingSession?.startTime) {
+    const sessionDomain = normalizeDomainForFastStatus(timingSession.domain);
+    if (!activeDomain || !sessionDomain || activeDomain === sessionDomain) {
+      return Math.max(0, Math.floor(getCappedElapsedMs(timingSession, Date.now()) / 1000));
+    }
+  }
+
+  const lastAccessed = Number(tab?.lastAccessed);
+  if (!activeDomain || !Number.isFinite(lastAccessed) || lastAccessed <= 0) return 0;
+  return Math.max(0, Math.floor((Date.now() - lastAccessed) / 1000));
+}
+
+async function getPopupFastStatus(tabHint = null) {
   const [{ tab, domain }, timingSession, modeData] = await Promise.all([
-    getCurrentActiveDomain().catch(() => ({ tab: null, domain: null })),
+    getCurrentActiveDomain(tabHint).catch(() => ({ tab: null, domain: null })),
     getTimingSession().catch(() => null),
     chrome.storage.local.get(SESSION_KEY).catch(() => ({})),
   ]);
   const mode = normalizeMode(modeData?.[SESSION_KEY]?.currentMode || 'study');
-  let currentSessionDurationSeconds = 0;
-  if (timingSession?.state === 'ACTIVE' && timingSession?.startTime) {
-    const sessionDomain = normalizeDomainForFastStatus(timingSession.domain);
-    const activeDomain = normalizeDomainForFastStatus(domain);
-    if (!activeDomain || !sessionDomain || activeDomain === sessionDomain) {
-      currentSessionDurationSeconds = Math.max(0, Math.floor(getCappedElapsedMs(timingSession, Date.now()) / 1000));
-    }
-  }
+  const currentSessionDurationSeconds = resolvePopupLiveSessionSeconds(timingSession, domain, tab);
   return {
     mode,
     currentDomain: domain || null,
@@ -282,12 +316,12 @@ function buildPopupCloudStatus(storage = {}) {
   };
 }
 
-async function getPopupLocalSnapshot() {
+async function getPopupLocalSnapshot(tabHint = null) {
   const startedAt = Date.now();
   const timings = {};
   const mark = (key, from) => { timings[key] = Date.now() - from; };
   const activeStartedAt = Date.now();
-  const activePromise = getCurrentActiveDomain()
+  const activePromise = getCurrentActiveDomain(tabHint)
     .catch(() => ({ tab: null, domain: null }))
     .then((value) => {
       mark('activeTabMs', activeStartedAt);
@@ -321,14 +355,7 @@ async function getPopupLocalSnapshot() {
     storagePromise,
   ]);
   const mode = normalizeMode(storage?.[SESSION_KEY]?.currentMode || 'study');
-  let currentSessionDurationSeconds = 0;
-  if (timingSession?.state === 'ACTIVE' && timingSession?.startTime) {
-    const sessionDomain = normalizeDomainForFastStatus(timingSession.domain);
-    const activeDomain = normalizeDomainForFastStatus(domain);
-    if (!activeDomain || !sessionDomain || activeDomain === sessionDomain) {
-      currentSessionDurationSeconds = Math.max(0, Math.floor(getCappedElapsedMs(timingSession, Date.now()) / 1000));
-    }
-  }
+  const currentSessionDurationSeconds = resolvePopupLiveSessionSeconds(timingSession, domain, tab);
   const todayStats = storage?.daily_usage_stats_v1?.[getDateKey()] || null;
   const snapshot = {
     ok: true,
@@ -885,7 +912,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'GET_POPUP_FAST_STATUS') {
     (async () => {
       try {
-        sendResponse(await getPopupFastStatus());
+        sendResponse(await getPopupFastStatus(msg?.activeTabHint || msg?.activeTab || null));
       } catch (err) {
         sendResponse({
           mode: 'study',
@@ -901,7 +928,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'GET_POPUP_LOCAL_SNAPSHOT') {
     (async () => {
       try {
-        sendResponse(await getPopupLocalSnapshot());
+        sendResponse(await getPopupLocalSnapshot(msg?.activeTabHint || msg?.activeTab || null));
       } catch (err) {
         sendResponse({
           ok: false,

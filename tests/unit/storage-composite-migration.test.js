@@ -162,7 +162,8 @@ async function run() {
     mode: 'study',
   });
   expectTrue('empty studyList still has khanacademy.org', emptyStudyConfig.studyList.includes('khanacademy.org'));
-  expectTrue('empty studyList still has google.com', emptyStudyConfig.studyList.includes('google.com'));
+  expectTrue('empty studyList keeps google.com out of study parent defaults', !emptyStudyConfig.studyList.includes('google.com'));
+  expectTrue('empty studyList still has docs.google.com', emptyStudyConfig.studyList.includes('docs.google.com'));
   expectTrue('empty studyList still has coursera.org', emptyStudyConfig.studyList.includes('coursera.org'));
 
   // ── E. normalizeCloudRulesConfig: sparse studyList preserves defaults ──

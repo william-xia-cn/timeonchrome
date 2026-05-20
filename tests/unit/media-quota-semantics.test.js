@@ -81,7 +81,13 @@ const quotaApi = loadProdModule('product/quota.js', ['checkAllTabsQuota'], {
   getTodayUndeterminedStats: async () => undeterminedStats,
   getStatsRange: async () => ({ '2026-05-15': todayStats }),
   getTemporaryCompositeDomains: async () => [],
+  getSiteClassificationRequestRecords: async () => [],
   hasTemporaryCompositePermission: async () => false,
+  resolveSiteAccessClassification: (cfg, _records, domain) => {
+    const isStudy = (cfg.studyList || []).some(p => matchDomain(domain, p));
+    const isComposite = (cfg.compositeList || []).some(p => matchDomain(domain, p));
+    return { classification: isStudy ? 'study' : isComposite ? 'composite' : null };
+  },
   matchDomain,
   extractDomain: (url) => {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (_) { return null; }

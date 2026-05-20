@@ -172,7 +172,7 @@
       actions: ['switchToRest', 'viewDetails']
     },
     quota_undetermined: {
-      icon: '🔍', title: '待归类网站的时间用完啦',
+      icon: '🔍', title: '未归类网站的时间用完啦',
       subtitle: '明天再来探索吧',
       actions: ['switchToStudy', 'viewDetails']
     },

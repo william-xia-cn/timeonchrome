@@ -65,6 +65,10 @@ function run() {
   expectTrue('popup still supports runtime mode status after manual mode switches', popupJs.includes("type: 'GET_RUNTIME_MODE_STATUS'"));
   expectTrue('popup keeps fast status compatibility helper', popupJs.includes("type: 'GET_POPUP_FAST_STATUS'"));
   expectTrue('popup requests local snapshot for first render', popupJs.includes("type: 'GET_POPUP_LOCAL_SNAPSHOT'"));
+  expectTrue('popup sends active tab hint with first render request', popupJs.includes('function getPopupActiveTabHint') && popupJs.includes("activeTabHint") && popupJs.includes('chrome.tabs.query({ active: true, currentWindow: true })'));
+  expectTrue('popup falls back to active tab hint when snapshot misses domain', popupJs.includes('function withActiveTabHintFallback') && popupJs.includes('snapshot?.currentDomain || domain') && popupJs.includes('resolveHintLiveSeconds'));
+  expectTrue('popup first runtime render uses snapshot config context', popupJs.includes('popupStatsContext = {') && popupJs.includes('config: snapshot?.config || popupStatsContext.config || {}') && popupJs.includes('resolveDomainTag(domain, status?.config || popupStatsContext.config, status?.url || null)'));
+  expectTrue('popup current site tag supports custom/default site lists', popupJs.includes('function collectStudyPatterns') && popupJs.includes("'customStudyList'") && popupJs.includes("'defaultCompositeSites'"));
   expectTrue('popup renders snapshot before suspect summary completes', popupJs.includes('const snapshotPromise = getPopupLocalSnapshotSafe()') && popupJs.includes('snapshotPromise.then'));
   expectTrue('popup local snapshot uses shorter single-attempt timeout', popupJs.includes('attempts: 1') && popupJs.includes('timeoutMs: 900'));
   expectTrue('popup does not request cloud status on startup', !popupJs.includes("type: 'GET_CLOUD_STATUS'"));

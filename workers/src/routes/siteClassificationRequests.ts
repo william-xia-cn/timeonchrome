@@ -4,6 +4,7 @@ import {
   decisionToStatus,
   normalizeSiteClassificationDecision,
   normalizeSiteClassificationTarget,
+  resolveSiteAccessClassification,
   siteDecisionMatchesUrl,
   siteTargetScopesOverlap,
 } from '../../../core/site-classification.js';
@@ -98,30 +99,9 @@ async function getProfileConfig(env: Env, profileId: string): Promise<any> {
 }
 
 function getConfiguredClassificationForTarget(config: any, target: any) {
-  const rules = Array.isArray(config?.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
-  for (const rule of rules) {
-    const decision = rule?.decision || rule?.classification;
-    if (!decision) continue;
-    if (siteTargetScopesOverlap(target, {
-      targetType: rule.targetType,
-      normalizedValue: rule.normalizedValue || rule.targetValue,
-    })) {
-      return { classification: decision === 'reject' ? 'rejected' : decision, source: 'siteClassificationRulesV1', rule };
-    }
-  }
-  for (const group of CLASSIFIED_SITE_LIST_FIELDS) {
-    for (const key of group.keys) {
-      const list = config?.[key];
-      if (!Array.isArray(list)) continue;
-      for (const item of list) {
-        if (typeof item !== 'string' || !item.trim()) continue;
-        if (patternOverlapsRequestTarget(item.trim(), target)) {
-          return { classification: group.classification, source: key, pattern: item.trim() };
-        }
-      }
-    }
-  }
-  return null;
+  const lookupValue = target?.targetType === 'url' ? target.normalizedValue : target?.host;
+  const resolved = resolveSiteAccessClassification(config || {}, [], lookupValue);
+  return resolved.classification ? resolved : null;
 }
 
 async function findRejectedMatch(env: Env, profileId: string, target: any) {

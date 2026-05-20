@@ -1,21 +1,22 @@
 // product/analytics.js — 统计查询
 
-import { getTodayStats, getStatsRange, getTodayUndeterminedStats, getVisitSessions, getChangelog, matchDomain } from '../infra/storage.js';
+import { resolveSiteAccessClassification } from '../core/site-classification.js';
+import { getTodayStats, getStatsRange, getVisitSessions, getChangelog, getSiteClassificationRequestRecords } from '../infra/storage.js';
 import { computeAllDomains } from '../core/aggregate.js';
 import { getEvents } from '../core/event-log.js';
 
 export async function getTodayStatsWithCategories(config) {
   const stats = await getTodayStats();
-  const undeterminedStats = await getTodayUndeterminedStats();
+  const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
 
   let studySeconds = 0, compositeSeconds = 0, restSeconds = 0, totalSeconds = 0;
   for (const [domain, seconds] of Object.entries(stats)) {
     if (domain === 'audioSeconds' || domain === 'backgroundMediaByDomain' || domain === 'pipSeconds' || domain === 'pipByDomain' || domain === 'onlineSeconds' || domain === 'compositeSeconds' || domain === 'undeterminedSeconds') continue;
     totalSeconds += seconds;
-    const isStudy = (config?.studyList || []).some(p => matchDomain(domain, p));
-    if (isStudy) studySeconds += seconds;
+    const classification = resolveSiteAccessClassification(config || {}, siteClassificationRecords, domain).classification;
+    if (classification === 'study') studySeconds += seconds;
+    else if (classification === 'composite' || classification === 'pending_composite') compositeSeconds += seconds;
   }
-  for (const seconds of Object.values(undeterminedStats)) compositeSeconds += seconds;
   restSeconds = totalSeconds - studySeconds - compositeSeconds;
 
   return {

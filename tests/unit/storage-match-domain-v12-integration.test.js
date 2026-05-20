@@ -38,7 +38,8 @@ function loadStorageMatchDomain(deps) {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'storage.js'), 'utf8');
   const transformed = code
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/aggregate\.js';/, 'const computeAllDomains = __deps.computeAllDomains; const computeAllDomainsWithAudio = __deps.computeAllDomainsWithAudio;')
-    .replace(/import\s+\{\s*matchDomain\s+as\s+matchDomainV12,\s*normalizeHostname\s*\}\s+from\s+'\.\.\/core\/domain-semantics\.js';/, 'const matchDomainV12 = __deps.matchDomainV12; const normalizeHostname = __deps.normalizeHostname;')
+    .replace(/import\s+\{\s*domainForUrl,\s*matchDomain\s+as\s+matchDomainV12,\s*normalizeHostname\s*\}\s+from\s+'\.\.\/core\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl; const matchDomainV12 = __deps.matchDomainV12; const normalizeHostname = __deps.normalizeHostname;')
+    .replace(/import\s+\{[\s\S]*?\}\s+from\s+'\.\.\/core\/site-classification\.js';/, 'const resolveSiteAccessClassification = () => ({ classification: null }); const getSiteClassificationForUrl = () => ({ classification: null }); const normalizeSiteClassificationRequest = (record) => record; const normalizeSiteClassificationTarget = () => ({ ok: false }); const siteDecisionMatchesUrl = () => false;')
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/timing-trace\.js';/, 'const emitTrace = async () => {};')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ')
@@ -65,6 +66,7 @@ function run() {
   const storage = loadStorageMatchDomain({
     computeAllDomains: () => ({}),
     computeAllDomainsWithAudio: () => ({ domains: {}, audioSeconds: 0 }),
+    domainForUrl: () => null,
     matchDomainV12: domainSemantics.matchDomain,
     normalizeHostname: domainSemantics.normalizeHostname,
   });

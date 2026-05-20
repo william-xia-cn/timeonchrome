@@ -65,6 +65,23 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
     getSiteClassificationRequestRecords: async () => [],
     getSiteClassificationForUrl: () => ({ classification: null }),
+    resolveSiteAccessClassification: (cfg, _records, urlOrDomain) => {
+      let domain = String(urlOrDomain || '');
+      try { domain = new URL(domain).hostname; } catch (_) {}
+      const match = stubs.matchDomain || ((d, p) => d === p || d.endsWith(`.${p}`));
+      const candidates = [];
+      const add = (classification, list = []) => {
+        for (const p of list || []) {
+          if (match(domain, p)) candidates.push({ classification, specificity: String(p).split('.').length });
+        }
+      };
+      add('blocked', cfg.unsafeList || cfg.blacklist || []);
+      add('restricted', cfg.restrictedEntertainmentList || []);
+      add('study', cfg.studyList || []);
+      add('composite', cfg.compositeList || []);
+      candidates.sort((a, b) => b.specificity - a.specificity);
+      return { classification: candidates[0]?.classification || null };
+    },
     shouldEnforcePictureInPicturePolicy: () => true,
     closeForbiddenPictureInPicture: async ({ preferredTabId } = {}) => {
       const tabIds = [];
@@ -316,12 +333,12 @@ async function run() {
     expectTrue('unsafe subdomain reason', redirects.some((u) => u.includes('reason=unsafe') && u.includes('domain=m.tiktok.com')));
   }
 
-  section('IMT-1c Priority conflict: Study > Composite > Unclassified > Restricted');
+  section('IMT-1c Child classification overrides parent classification');
   {
     const redirectsStudy = [];
     const studyCfg = makeConfig({
       mode: 'study',
-      studyList: ['microsoft.com'],
+      studyList: ['learn.microsoft.com'],
       compositeList: ['microsoft.com'],
       restrictedEntertainmentList: ['microsoft.com'],
       unsafeList: [],
@@ -338,15 +355,15 @@ async function run() {
       tabs: { update: async (_id, payload) => redirectsStudy.push(payload.url) },
     });
 
-    const blockedInStudyMode = await checkInStudy(30, 'https://www.microsoft.com', 1);
-    expect('study wins over composite/restricted in study mode (no redirect)', blockedInStudyMode, false);
-    expect('no reminder fired when study wins', redirectsStudy.length, 0);
+    const blockedInStudyMode = await checkInStudy(30, 'https://learn.microsoft.com', 1);
+    expect('child study overrides parent composite/restricted in study mode', blockedInStudyMode, false);
+    expect('no reminder fired when child study wins', redirectsStudy.length, 0);
 
     const redirectsComposite = [];
     const compositeCfg = makeConfig({
       mode: 'composite',
-      studyList: ['microsoft.com'],
-      compositeList: ['microsoft.com'],
+      studyList: [],
+      compositeList: ['app.microsoft.com'],
       restrictedEntertainmentList: ['microsoft.com'],
       unsafeList: [],
     });
@@ -361,9 +378,9 @@ async function run() {
     }, {
       tabs: { update: async (_id, payload) => redirectsComposite.push(payload.url) },
     });
-    const blockedInCompositeMode = await checkInComposite(31, 'https://www.microsoft.com', 1);
-    expect('composite wins over restricted in composite mode (no redirect)', blockedInCompositeMode, false);
-    expect('still no reminder when composite wins', redirectsComposite.length, 0);
+    const blockedInCompositeMode = await checkInComposite(31, 'https://app.microsoft.com', 1);
+    expect('child composite overrides parent restricted in composite mode', blockedInCompositeMode, false);
+    expect('still no reminder when child composite wins', redirectsComposite.length, 0);
   }
 
   section('IMT-1d Exact subdomain config remains narrow (does not match parent)');

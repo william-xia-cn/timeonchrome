@@ -1565,6 +1565,83 @@ function getCustomList(effectiveList, defaultList) {
   return effectiveList.filter(d => !defaultSet.has(d.toLowerCase()));
 }
 
+const SITE_ACCESS_CATEGORY_FIELDS = [
+  { category: 'study', label: '学习网站', keys: ['defaultStudySites', 'studyList', 'customStudyList'] },
+  { category: 'composite', label: '综合网站', keys: ['defaultCompositeSites', 'compositeList', 'customCompositeList'] },
+  { category: 'restricted', label: '受限娱乐网站', keys: ['defaultRestrictedEntertainmentSites', 'restrictedEntertainmentList', 'customRestrictedEntertainmentList'] },
+  { category: 'blocked', label: '黑名单网站', keys: ['defaultBlockedSites', 'unsafeList', 'customBlockedSites'] },
+];
+
+function normalizeSiteAccessHostKey(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.+$/g, '');
+  if (!raw) return null;
+  const wildcard = raw.startsWith('*.');
+  const host = normalizeSiteAccessHostname(wildcard ? raw.slice(2) : raw);
+  if (!host) return null;
+  const canonicalHost = host.startsWith('www.') ? host.slice(4) : host;
+  return `${wildcard ? 'host-wildcard' : 'host'}:${canonicalHost}`;
+}
+
+function normalizeSiteAccessHostname(input) {
+  if (typeof input !== 'string') return null;
+  const raw = input.trim().toLowerCase().replace(/\.+$/g, '');
+  if (!raw) return null;
+  try {
+    return new URL(`http://${raw}`).hostname.toLowerCase().replace(/\.+$/g, '') || null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSiteAccessInput(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const key = normalizeSiteAccessHostKey(raw);
+  if (!key) return null;
+  return raw.replace(/\.+$/g, '');
+}
+
+function getSiteAccessListsForValidation(config = remoteConfig, defaults = siteAccessDefaults || {}) {
+  const customOrEffective = (customKey, effectiveKey, defaultList) => {
+    if (Array.isArray(config?.[customKey])) return config[customKey];
+    return getCustomList(config?.[effectiveKey] || [], defaultList || []);
+  };
+  const groups = [
+    { category: 'study', label: '学习网站', key: 'customStudyList', values: [...(defaults.defaultStudySites || []), ...customOrEffective('customStudyList', 'studyList', defaults.defaultStudySites)] },
+    { category: 'composite', label: '综合网站', key: 'customCompositeList', values: [...(defaults.defaultCompositeSites || []), ...customOrEffective('customCompositeList', 'compositeList', defaults.defaultCompositeSites)] },
+    { category: 'restricted', label: '受限娱乐网站', key: 'customRestrictedEntertainmentList', values: [...(defaults.defaultRestrictedEntertainmentSites || []), ...customOrEffective('customRestrictedEntertainmentList', 'restrictedEntertainmentList', defaults.defaultRestrictedEntertainmentSites)] },
+    { category: 'blocked', label: '黑名单网站', key: 'customBlockedSites', values: [...(defaults.defaultBlockedSites || []), ...customOrEffective('customBlockedSites', 'unsafeList', defaults.defaultBlockedSites)] },
+  ];
+  return groups.flatMap(group => group.values.map(value => ({ ...group, value })));
+}
+
+function findSiteAccessExactConflicts(config = remoteConfig, defaults = siteAccessDefaults || {}) {
+  const seen = new Map();
+  const conflicts = [];
+  for (const entry of getSiteAccessListsForValidation(config, defaults)) {
+    const key = normalizeSiteAccessHostKey(entry.value);
+    if (!key) continue;
+    const existing = seen.get(key) || [];
+    const conflict = existing.find(item => item.category !== entry.category);
+    if (conflict) {
+      conflicts.push({
+        key,
+        value: entry.value,
+        label: entry.label,
+        existingLabel: conflict.label,
+        existingValue: conflict.value,
+      });
+    }
+    existing.push(entry);
+    seen.set(key, existing);
+  }
+  return conflicts;
+}
+
+function formatSiteAccessConflict(conflict) {
+  const value = String(conflict?.value || conflict?.existingValue || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  return `${value} 已存在于${conflict.existingLabel || '其他归类'}，不能同时加入${conflict.label || '当前归类'}`;
+}
+
 function setupRules() {
   // 家长自定义输入框
   setupCustomDomainInput('r-studylist-input', 'r-studylist-add', 'r-studylist-tags', 'customStudyList', 'studyList');
@@ -1645,12 +1722,21 @@ function setupCustomDomainInput(inputId, btnId, tagsId, customKey, effectiveKey)
   const btn   = document.getElementById(btnId);
   if (!input || !btn) return;
   const doAdd = () => {
-    let val = input.value.trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*/,'');
+    let val = normalizeSiteAccessInput(input.value);
     if (!val) return;
     if (!remoteConfig) { toast('请先选择一个孩子档案', false); return; }
     if (!remoteConfig[customKey]) remoteConfig[customKey] = [];
     if (remoteConfig[customKey].includes(val)) { toast('该域名已在列表中', false); return; }
-    remoteConfig[customKey].push(val);
+    const nextConfig = {
+      ...remoteConfig,
+      [customKey]: [...remoteConfig[customKey], val],
+    };
+    const conflicts = findSiteAccessExactConflicts(nextConfig);
+    if (conflicts.length > 0) {
+      toast(formatSiteAccessConflict(conflicts[0]), false);
+      return;
+    }
+    remoteConfig[customKey] = nextConfig[customKey];
     if (customKey==='customStudyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
     renderTags(tagsId, remoteConfig[customKey], customKey);
     updateRuleCounts();
@@ -1768,10 +1854,20 @@ async function importSiteAccessConfig() {
         return result;
       };
 
-      remoteConfig.customStudyList = merge(remoteConfig.customStudyList, data.studySites);
-      remoteConfig.customCompositeList = merge(remoteConfig.customCompositeList, data.compositeSites);
-      remoteConfig.customRestrictedEntertainmentList = merge(remoteConfig.customRestrictedEntertainmentList, data.restrictedEntertainmentSites);
-      remoteConfig.customBlockedSites = merge(remoteConfig.customBlockedSites, data.blockedSites);
+      const nextConfig = {
+        ...remoteConfig,
+        customStudyList: merge(remoteConfig.customStudyList, data.studySites.map(normalizeSiteAccessInput).filter(Boolean)),
+        customCompositeList: merge(remoteConfig.customCompositeList, data.compositeSites.map(normalizeSiteAccessInput).filter(Boolean)),
+        customRestrictedEntertainmentList: merge(remoteConfig.customRestrictedEntertainmentList, data.restrictedEntertainmentSites.map(normalizeSiteAccessInput).filter(Boolean)),
+        customBlockedSites: merge(remoteConfig.customBlockedSites, data.blockedSites.map(normalizeSiteAccessInput).filter(Boolean)),
+      };
+      const conflicts = findSiteAccessExactConflicts(nextConfig);
+      if (conflicts.length > 0) throw new Error(formatSiteAccessConflict(conflicts[0]));
+
+      remoteConfig.customStudyList = nextConfig.customStudyList;
+      remoteConfig.customCompositeList = nextConfig.customCompositeList;
+      remoteConfig.customRestrictedEntertainmentList = nextConfig.customRestrictedEntertainmentList;
+      remoteConfig.customBlockedSites = nextConfig.customBlockedSites;
 
       renderRulesPage();
       toast('配置已导入，请记得保存');
@@ -1792,6 +1888,11 @@ async function saveSiteAccessConfig() {
     customRestrictedEntertainmentList: remoteConfig.customRestrictedEntertainmentList || [],
     customBlockedSites: remoteConfig.customBlockedSites || [],
   };
+  const conflicts = findSiteAccessExactConflicts({ ...remoteConfig, ...payload });
+  if (conflicts.length > 0) {
+    toast(formatSiteAccessConflict(conflicts[0]), false);
+    return;
+  }
 
   try {
     await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });

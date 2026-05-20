@@ -122,7 +122,7 @@ async function run() {
   const studyMode = simulateReminderRendering('study_mode');
   expectTrue('study_mode is known reason', !studyMode.isUnknownReason);
   expect('study_mode title', studyMode.config.title, '你正在打开未归类网站');
-  expectTrue('study_mode explains popup site classification request', studyMode.config.subtitle.includes('申请网站归类'));
+  expectTrue('study_mode explains popup pending-classification request', studyMode.config.subtitle.includes('申请网站归类'));
   expectTrue('study_mode default path still explains rest accounting', studyMode.config.subtitle.includes('休息时间'));
   expectTrue('study_mode actions are only backToStudy', JSON.stringify(studyMode.config.actions) === JSON.stringify(['backToStudy']));
   expectTrue('study_mode does NOT render legacy addComposite button', !studyMode.config.actions.includes('addComposite'));

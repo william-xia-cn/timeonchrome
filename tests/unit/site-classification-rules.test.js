@@ -36,7 +36,7 @@ function loadModule() {
     .replace(/export\s+const\s+/g, 'const ');
   const context = { URL, console, this: null };
   context.this = context;
-  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { normalizeSiteClassificationTarget, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl };`, context, { filename: 'site-classification.js' });
+  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { normalizeSiteClassificationTarget, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl, resolveSiteAccessClassification, validateSiteAccessConfig };`, context, { filename: 'site-classification.js' });
   return context.__m;
 }
 
@@ -116,6 +116,39 @@ async function run() {
   expectEqual('rejected decision range does not block outside scope',
     mod.getSiteClassificationForUrl({}, rejected, 'https://other.example.com/a').classification,
     null);
+
+  expectEqual('child host classification overrides parent host',
+    mod.resolveSiteAccessClassification({
+      compositeList: ['example.com'],
+      studyList: ['study.example.com'],
+    }, [], 'https://study.example.com/a').classification,
+    'study');
+  expectEqual('unlisted child inherits parent host classification',
+    mod.resolveSiteAccessClassification({
+      compositeList: ['example.com'],
+      studyList: ['study.example.com'],
+    }, [], 'https://other.example.com/a').classification,
+    'composite');
+  expectEqual('exact URL rule overrides host classification',
+    mod.resolveSiteAccessClassification({
+      compositeList: ['example.com'],
+      siteClassificationRulesV1: [{
+        targetType: 'url',
+        targetValue: 'https://example.com/lesson?id=1',
+        decision: 'study',
+      }],
+    }, [], 'https://example.com/lesson?id=1#hash').classification,
+    'study');
+  const exactConflict = mod.validateSiteAccessConfig({
+    studyList: ['www.example.com'],
+    compositeList: ['example.com'],
+  });
+  expectTrue('exact host duplicate across classifications is invalid', !exactConflict.ok && exactConflict.conflicts.length === 1);
+  const parentChild = mod.validateSiteAccessConfig({
+    studyList: ['study.example.com'],
+    compositeList: ['example.com'],
+  });
+  expectTrue('parent/child cross classification overlap is valid', parentChild.ok);
 
   const total = passed + failed;
   console.log(`\n[Site Classification Rules] ${passed}/${total} passed${failed ? ` - ${failed} FAILED` : ''}`);

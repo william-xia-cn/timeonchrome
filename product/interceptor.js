@@ -1,7 +1,7 @@
 // product/interceptor.js — 拦截逻辑 + 提醒触发
 
-import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl, getSiteClassificationRequestRecords } from '../infra/storage.js';
-import { getSiteClassificationForUrl } from '../core/site-classification.js';
+import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, extractDomain, isSpecialUrl, getSiteClassificationRequestRecords } from '../infra/storage.js';
+import { resolveSiteAccessClassification } from '../core/site-classification.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { enqueueModeBoundaryIntent } from '../core/mode-boundary-intents.js';
 import { closeForbiddenPictureInPicture, shouldEnforcePictureInPicturePolicy } from '../core/pip-policy.js';
@@ -474,22 +474,16 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
 
   const domain = extractDomain(url);
   if (!domain) return false;
-  const restrictedList = config.restrictedEntertainmentList || [];
-  const isRestricted = restrictedList.some(p => matchDomain(domain, p));
-  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
-  const isUnsafe = unsafeList.some(b => matchDomain(domain, b));
   const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
-  const siteClassification = (!isRestricted && !isUnsafe)
-    ? getSiteClassificationForUrl(config, siteClassificationRecords, url)
-    : { classification: null };
-  const isStudyDomain = (config.studyList || []).some(p => matchDomain(domain, p)) ||
-    siteClassification.classification === 'study';
-  const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && (
+  const siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, url);
+  const isUnsafe = siteClassification.classification === 'blocked';
+  const isRestricted = siteClassification.classification === 'restricted';
+  const isStudyDomain = siteClassification.classification === 'study';
+  const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && !isStudyDomain && (
     await hasTemporaryCompositePermission(tabId, domain) ||
     siteClassification.classification === 'pending_composite'
   );
   const isCompositeDomain = !isRestricted && !isUnsafe && (
-    (config.compositeList || []).some(p => matchDomain(domain, p)) ||
     siteClassification.classification === 'composite' ||
     isTemporaryCompositeDomain
   );

@@ -2,6 +2,7 @@
 
 let popupStatsContext = { config: {}, stats: {} };
 let lastPopupSnapshot = {};
+const POPUP_CONFIG_KEY = 'guardian_config';
 
 document.addEventListener('DOMContentLoaded', async () => {
   bindPopupEvents();
@@ -9,6 +10,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const snapshotPromise = getPopupLocalSnapshotSafe();
   snapshotPromise.then((snapshot) => {
     lastPopupSnapshot = snapshot || {};
+    popupStatsContext = {
+      config: snapshot?.config || popupStatsContext.config || {},
+      stats: snapshot?.stats || popupStatsContext.stats || {},
+    };
     renderModeButtons(snapshot || {});
     renderRuntimeStatus(snapshot || {});
   });
@@ -103,8 +108,8 @@ function closeSiteRequestPanel() {
 }
 
 function siteRequestErrorMessage(result = {}) {
-  if (result.code === 'REQUEST_REJECTED') return '家长已拒绝该范围，不能再次申请。';
-  if (result.code === 'ALREADY_CLASSIFIED') return '该网站已归类，不能重新申请归类。';
+  if (result.code === 'REQUEST_REJECTED') return '家长已拒绝该范围，不能再次申请归类。';
+  if (result.code === 'ALREADY_CLASSIFIED') return '该网站已归类，不能申请重新归类。';
   if (result.code === 'URL_REQUIRES_PROTOCOL') return '特定链接需要以 http:// 或 https:// 开头。';
   if (result.code === 'INVALID_HOST' || result.code === 'INVALID_URL' || result.code === 'INVALID_TARGET') return '请输入有效域名、子域名或 http/https 链接。';
   if (result.error) return `提交失败：${result.error}`;
@@ -146,8 +151,8 @@ async function submitSiteClassificationRequest() {
     if (status) {
       status.className = 'request-status ok';
       status.textContent = result.localOnly
-        ? '已在本机临时生效。登录并绑定云端后，才能提交给家长审批。'
-        : '已提交申请。审批前可以使用，时间计入综合时长。';
+        ? '已在本机记录网站归类申请。登录并绑定云端后，才能提交给家长审批。审批前本机可临时使用，时间计入综合时长。'
+        : '已提交网站归类申请。审批前可临时使用，时间计入综合时长。';
     }
     if (result.targetUrl && Number.isInteger(result.sourceTabId)) {
       chrome.tabs.update(result.sourceTabId, { url: result.targetUrl }).catch(() => {});
@@ -192,27 +197,120 @@ async function getRuntimeModeStatusSafe() {
 }
 
 async function getPopupFastStatusSafe() {
+  const activeTabHint = await getPopupActiveTabHint();
   try {
-    return await sendMsg({ type: 'GET_POPUP_FAST_STATUS' }, { attempts: 1, timeoutMs: 900 }) || {};
+    const snapshot = await sendMsg({ type: 'GET_POPUP_FAST_STATUS', activeTabHint }, { attempts: 1, timeoutMs: 900 }) || {};
+    return withActiveTabHintFallback(snapshot, activeTabHint);
   } catch (_) {
-    return {};
+    return withActiveTabHintFallback({}, activeTabHint);
   }
 }
 
 async function getPopupLocalSnapshotSafe() {
+  const activeTabHint = await getPopupActiveTabHint();
+  const cachedConfigPromise = getPopupCachedConfigSafe();
   try {
-    return await sendMsg({ type: 'GET_POPUP_LOCAL_SNAPSHOT' }, { attempts: 1, timeoutMs: 900 }) || {};
+    const snapshot = await sendMsg({ type: 'GET_POPUP_LOCAL_SNAPSHOT', activeTabHint }, { attempts: 1, timeoutMs: 900 }) || {};
+    const cachedConfig = hasClassificationConfig(snapshot?.config) ? null : await cachedConfigPromise;
+    return withActiveTabHintFallback(snapshot, activeTabHint, cachedConfig);
   } catch (_) {
-    return {
+    const cachedConfig = await cachedConfigPromise;
+    return withActiveTabHintFallback({
       mode: 'study',
       currentDomain: null,
       currentSessionDurationSeconds: 0,
-      config: {},
+      config: cachedConfig || {},
       stats: {},
       cloudStatus: { isBound: false, localMode: true, syncEnabled: false },
       childName: null,
-    };
+    }, activeTabHint, cachedConfig);
   }
+}
+
+async function getPopupActiveTabHint() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs && tabs[0] ? tabs[0] : null;
+    if (!tab?.url) return null;
+    const parsed = new URL(tab.url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return {
+      tabId: Number.isInteger(tab.id) ? tab.id : null,
+      windowId: Number.isInteger(tab.windowId) ? tab.windowId : null,
+      url: tab.url,
+      lastAccessed: Number.isFinite(Number(tab.lastAccessed)) ? Number(tab.lastAccessed) : null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function withActiveTabHintFallback(snapshot = {}, activeTabHint = null, fallbackConfig = null) {
+  const domain = extractDomain(activeTabHint?.url || '');
+  const config = hasClassificationConfig(snapshot?.config)
+    ? snapshot.config
+    : (fallbackConfig || snapshot?.config || {});
+  if (!domain) return { ...(snapshot || {}), config };
+  const currentSeconds = Number(snapshot?.currentSessionDurationSeconds);
+  const fallbackSeconds = resolveHintLiveSeconds(activeTabHint);
+  return {
+    ...(snapshot || {}),
+    config,
+    currentDomain: snapshot?.currentDomain || domain,
+    domain: snapshot?.domain || domain,
+    url: snapshot?.url || activeTabHint.url,
+    tabId: Number.isInteger(snapshot?.tabId) ? snapshot.tabId : activeTabHint.tabId,
+    currentSessionDurationSeconds: Number.isFinite(currentSeconds) && currentSeconds > 0
+      ? Math.floor(currentSeconds)
+      : fallbackSeconds,
+  };
+}
+
+function resolveHintLiveSeconds(activeTabHint = null) {
+  const lastAccessed = Number(activeTabHint?.lastAccessed);
+  if (!Number.isFinite(lastAccessed) || lastAccessed <= 0) return 0;
+  return Math.max(0, Math.floor((Date.now() - lastAccessed) / 1000));
+}
+
+async function getPopupCachedConfigSafe() {
+  try {
+    const result = await readChromeLocal([POPUP_CONFIG_KEY]);
+    const config = result?.[POPUP_CONFIG_KEY];
+    return config && typeof config === 'object' ? config : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readChromeLocal(keys) {
+  return new Promise((resolve) => {
+    try {
+      const maybePromise = chrome.storage?.local?.get(keys, (result) => resolve(result || {}));
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        maybePromise.then((result) => resolve(result || {})).catch(() => resolve({}));
+      }
+    } catch (_) {
+      resolve({});
+    }
+  });
+}
+
+function hasClassificationConfig(config = {}) {
+  if (!config || typeof config !== 'object') return false;
+  const keys = [
+    'studyList',
+    'defaultStudySites',
+    'customStudyList',
+    'compositeList',
+    'defaultCompositeSites',
+    'customCompositeList',
+    'restrictedEntertainmentList',
+    'defaultRestrictedEntertainmentList',
+    'customRestrictedEntertainmentList',
+    'entertainmentList',
+    'siteClassificationRulesV1',
+  ];
+  return keys.some((key) => Array.isArray(config[key]) && config[key].length > 0);
 }
 
 function renderModeButtons(status = {}) {
@@ -431,10 +529,13 @@ function renderRuntimeStatus(status = {}) {
   const runtimeCompact = document.getElementById('runtime-compact');
   if (!runtimeCompact) return;
   const domain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
-  const tag = resolveDomainTag(domain, popupStatsContext.config);
+  const tag = resolveDomainTag(domain, status?.config || popupStatsContext.config, status?.url || null);
   const liveSessionSeconds = resolveLiveSessionSeconds(domain, status);
   const sessionText = formatRuntimeSessionDuration(liveSessionSeconds);
   const domainText = domain || '不计时页面';
+  const tagHtml = tag && tag !== domainText
+    ? `<span class="runtime-tag">${escapeHtml(tag)}</span>`
+    : '';
   runtimeCompact.innerHTML = `
     <div class="runtime-compact-main">
       <div class="runtime-compact-title">当前访问</div>
@@ -442,7 +543,7 @@ function renderRuntimeStatus(status = {}) {
     </div>
     <div class="runtime-compact-main">
       <span class="runtime-domain">${escapeHtml(domainText)}</span>
-      <span class="runtime-tag">${tag}</span>
+      ${tagHtml}
     </div>
   `;
   runtimeCompact.style.display = 'block';
@@ -474,27 +575,143 @@ function resolveLiveSessionSeconds(domain, status = {}) {
   return Math.floor(seconds);
 }
 
-function resolveDomainTag(domain, config = {}) {
+function resolveDomainTag(domain, config = {}, urlOrDomain = null) {
   if (!domain) return '不计时页面';
-  const studyList = Array.isArray(config.studyList) ? config.studyList : [];
-  const compositeList = Array.isArray(config.compositeList) ? config.compositeList : [];
-  const restrictedPatterns = collectRestrictedPatterns(config);
-  const restPatterns = collectRestPatterns(config);
-  const structuredRules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
-
-  for (const rule of structuredRules) {
-    if (rule?.targetType !== 'host') continue;
-    const value = rule.normalizedValue || rule.targetValue;
-    if (!value || !matchDomain(domain, value)) continue;
-    if (rule.decision === 'study' || rule.classification === 'study') return '学习网站';
-    if (rule.decision === 'composite' || rule.classification === 'composite') return '综合网站';
-    if (rule.decision === 'reject' || rule.classification === 'reject') return '未批准网站';
-  }
-  if (studyList.some(p => matchDomain(domain, p))) return '学习网站';
-  if (compositeList.some(p => matchDomain(domain, p))) return '综合网站';
-  if (restrictedPatterns.some(p => matchDomain(domain, p))) return '受限娱乐网站';
-  if (restPatterns.some(p => matchDomain(domain, p))) return '休息网站';
+  const classification = resolveDomainClassification(domain, config, urlOrDomain);
+  if (classification === 'blocked') return '阻止网站';
+  if (classification === 'restricted') return '受限娱乐网站';
+  if (classification === 'study') return '学习网站';
+  if (classification === 'composite' || classification === 'pending_composite') return '综合网站';
+  if (classification === 'rest') return '休息网站';
+  if (classification === 'rejected') return '未批准网站';
+  if (classification === 'conflict') return '配置冲突';
   return '未归类网站';
+}
+
+function resolveDomainClassification(domain, config = {}, urlOrDomain = null) {
+  const normalizedDomain = normalizeHostname(domain);
+  if (!normalizedDomain) return null;
+  const candidates = [];
+  const structuredRules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
+  for (const rule of structuredRules) {
+    const decision = normalizeRuleDecision(rule?.decision || rule?.classification || rule?.status);
+    if (!decision) continue;
+    const targetType = rule.targetType || rule.type;
+    const value = rule.normalizedValue || rule.targetValue || rule.value;
+    if (targetType === 'url') {
+      const normalizedUrl = normalizeUrlTarget(urlOrDomain);
+      if (normalizedUrl && normalizedUrl === normalizeUrlTarget(value)) {
+        candidates.push({ classification: decision, specificity: 100000 + normalizedUrl.length });
+      }
+    } else if (targetType === 'host') {
+      const specificity = hostPatternSpecificity(value, normalizedDomain);
+      if (specificity != null) candidates.push({ classification: decision, specificity });
+    }
+  }
+  addPatternCandidates(candidates, 'blocked', collectBlockedPatterns(config), normalizedDomain);
+  addPatternCandidates(candidates, 'restricted', collectRestrictedPatterns(config), normalizedDomain);
+  addPatternCandidates(candidates, 'study', collectStudyPatterns(config), normalizedDomain);
+  addPatternCandidates(candidates, 'composite', collectCompositePatterns(config), normalizedDomain);
+  addPatternCandidates(candidates, 'rest', collectRestPatterns(config), normalizedDomain);
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.specificity - a.specificity || classificationTiePriority(b.classification) - classificationTiePriority(a.classification));
+  const top = candidates[0];
+  const tiedClasses = new Set(candidates.filter(c => c.specificity === top.specificity).map(c => c.classification));
+  return tiedClasses.size > 1 ? 'conflict' : top.classification;
+}
+
+function addPatternCandidates(candidates, classification, patterns, domain) {
+  for (const pattern of patterns || []) {
+    const specificity = hostPatternSpecificity(pattern, domain);
+    if (specificity != null) candidates.push({ classification, specificity });
+  }
+}
+
+function normalizeRuleDecision(value) {
+  if (value === 'approved_study' || value === 'study') return 'study';
+  if (value === 'approved_composite' || value === 'composite') return 'composite';
+  if (value === 'rejected' || value === 'reject') return 'rejected';
+  return null;
+}
+
+function classificationTiePriority(classification) {
+  return {
+    blocked: 100,
+    rejected: 95,
+    restricted: 90,
+    study: 80,
+    composite: 70,
+    pending_composite: 65,
+    rest: 60,
+  }[classification] || 0;
+}
+
+function normalizePatternHost(pattern) {
+  const raw = String(pattern || '').trim().toLowerCase().replace(/\.+$/g, '');
+  if (!raw) return null;
+  const wildcard = raw.startsWith('*.');
+  const value = wildcard ? raw.slice(2) : raw;
+  const host = normalizeHostname(value);
+  if (!host) return null;
+  return { host, wildcard, matchValue: wildcard ? `*.${host}` : host };
+}
+
+function hostPatternSpecificity(pattern, domain) {
+  const parsed = normalizePatternHost(pattern);
+  const normalizedDomain = normalizeHostname(domain);
+  if (!parsed || !normalizedDomain || !matchDomainForClassification(normalizedDomain, parsed.matchValue)) return null;
+  const depth = parsed.host.split('.').filter(Boolean).length;
+  const exact = matchDomainForClassification(normalizedDomain, parsed.host) && matchDomainForClassification(parsed.host, normalizedDomain);
+  return depth * 10 + (exact ? 9 : parsed.wildcard ? 5 : 0);
+}
+
+function matchDomainForClassification(domain, pattern) {
+  const d = normalizeHostname(domain);
+  const p = normalizePatternHost(pattern);
+  if (!d || !p) return false;
+  if (d === p.host) return true;
+  if (p.wildcard) return d !== p.host && d.endsWith(`.${p.host}`);
+  return d.endsWith(`.${p.host}`);
+}
+
+function normalizeUrlTarget(value) {
+  if (!value || !/^https?:\/\//i.test(String(value))) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const host = normalizeHostname(parsed.hostname);
+    if (!host) return null;
+    parsed.hash = '';
+    return `${parsed.protocol.toLowerCase()}//${host}${parsed.pathname || '/'}${parsed.search || ''}`;
+  } catch {
+    return null;
+  }
+}
+
+function collectStudyPatterns(config = {}) {
+  return collectPatternFields(config, [
+    'studyList',
+    'defaultStudySites',
+    'customStudyList',
+  ]);
+}
+
+function collectCompositePatterns(config = {}) {
+  return collectPatternFields(config, [
+    'compositeList',
+    'defaultCompositeSites',
+    'customCompositeList',
+  ]);
+}
+
+function collectPatternFields(config = {}, keys = []) {
+  const patterns = [];
+  for (const key of keys) {
+    const value = config[key];
+    if (!Array.isArray(value)) continue;
+    for (const item of value) patterns.push(item);
+  }
+  return patterns;
 }
 
 function collectRestrictedPatterns(config = {}) {
@@ -535,6 +752,17 @@ function formatRuntimeSessionDuration(seconds) {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   if (safe === 0) return '本次 0分';
   return `本次 ${formatRuntimeDuration(safe)}`;
+}
+
+function collectBlockedPatterns(config = {}) {
+  return collectPatternFields(config, [
+    'unsafeList',
+    'blacklist',
+    'defaultBlockedSites',
+    'customBlockedSites',
+    'defaultUnsafeSites',
+    'customUnsafeSites',
+  ]);
 }
 
 function formatRuntimeDuration(seconds) {
