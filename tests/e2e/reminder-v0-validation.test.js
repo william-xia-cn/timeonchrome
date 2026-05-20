@@ -66,9 +66,7 @@ async function openReminderPage(queryString) {
       const callback = args.length > 1 ? args[args.length - 1] : null;
       if (typeof callback === 'function') {
         // Return realistic responses matching reminder.js expectations
-        if (payload.type === 'ADD_TO_COMPOSITE_LIST') {
-          callback({ added: true });
-        } else if (payload.type === 'GET_RUNTIME_MODE_STATUS') {
+        if (payload.type === 'GET_RUNTIME_MODE_STATUS') {
           callback({ compositeRemainingSeconds: 3600, restRemainingSeconds: 1800 });
         } else if (payload.type === 'BORROW_REST_QUOTA') {
           callback({ ok: true, amount: 30 });
@@ -132,23 +130,23 @@ async function dragSlider(page, trackSelector, thumbSelector) {
 
 // ── T-R1: study_mode (Case #5) ───────────────────────────────────────────────
 
-test('T-R1: study_mode shows dual-path UI, rest slider dispatches SWITCH_TO_REST', async () => {
+test('T-R1: study_mode explains popup application path, rest slider dispatches SWITCH_TO_REST', async () => {
   const page = await openReminderPage('reason=study_mode&domain=example.com');
 
   // Title / subtitle
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
   const subtitleText = await page.locator('#subtitle').textContent();
   expect(subtitleText).toContain('休息时间');
+  expect(subtitleText).toContain('申请网站归类');
 
   // Rest slider visible
   await expect(page.locator('#slideTrack')).toBeVisible();
   await expect(page.locator('#slideThumb')).toBeVisible();
   await expect(page.locator('#slideThumb')).toHaveText('确认进入休息时间');
 
-  // Composite apply slider visible
-  await expect(page.locator('#dualPathCompositeSection')).toBeVisible();
-  await expect(page.locator('#slideTrackComposite')).toBeVisible();
-  await expect(page.locator('#slideThumbComposite')).toHaveText('申请使用综合时间');
+  // Application entry is in popup, not reminder
+  await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
+  await expect(page.locator('#slideTrackComposite')).toBeHidden();
 
   // Borrow section hidden
   await expect(page.locator('#dualPathBorrowSection')).toBeHidden();
@@ -175,7 +173,8 @@ test('T-R2a: study_mode&restLocked=1 rest slider dispatches SWITCH_TO_REST', asy
 
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
   const subtitleText = await page.locator('#subtitle').textContent();
-  expect(subtitleText).toContain('计入「休息时间」');
+  expect(subtitleText).toContain('休息时间');
+  expect(subtitleText).toContain('申请网站归类');
 
   // Rest slider visible
   await expect(page.locator('#slideTrack')).toBeVisible();
@@ -191,24 +190,15 @@ test('T-R2a: study_mode&restLocked=1 rest slider dispatches SWITCH_TO_REST', asy
   await page.close();
 });
 
-// ── T-R2b: study_mode&restLocked=1 — composite apply slider ──────────────────
+// ── T-R2b: study_mode&restLocked=1 — no composite apply slider ───────────────
 
-test('T-R2b: study_mode&restLocked=1 composite slider dispatches ADD_TO_COMPOSITE_LIST', async () => {
+test('T-R2b: study_mode&restLocked=1 does not expose legacy composite request slider', async () => {
   const page = await openReminderPage('reason=study_mode&restLocked=1&domain=example.com&sourceTabId=123');
 
-  // Composite apply slider visible
-  await expect(page.locator('#dualPathCompositeSection')).toBeVisible();
-  await expect(page.locator('#slideTrackComposite')).toBeVisible();
-  await expect(page.locator('#slideThumbComposite')).toHaveText('申请使用综合时间');
-
-  // Drag composite slider
-  await clearCalls(page);
-  await dragSlider(page, '#slideTrackComposite', '#slideThumbComposite');
-  const calls = await getCalls(page);
-  // ADD_TO_COMPOSITE_LIST + SEND_CLOUD_EVENT + GET_RUNTIME_MODE_STATUS
-  expect(calls.length).toBeGreaterThanOrEqual(2);
-  expect(calls[0]).toEqual({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com', sourceTabId: 123 });
-  expect(calls[1]).toEqual({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: 'example.com' });
+  await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
+  await expect(page.locator('#slideTrackComposite')).toBeHidden();
+  const bodyText = await page.locator('body').textContent();
+  expect(bodyText).not.toContain('申请使用综合时间');
 
   await page.close();
 });
@@ -298,7 +288,7 @@ test('T-R3b: to_rest_slide_confirm with originMode=study shows 返回学习, res
 
 // ── T-R4: to_rest_confirm + unclassified ─────────────────────────────────────
 
-test('T-R4: to_rest_confirm unclassified shows dual-path, sliders dispatch correct payloads', async () => {
+test('T-R4: to_rest_confirm unclassified keeps rest path only in reminder', async () => {
   const page = await openReminderPage('reason=to_rest_confirm&siteType=unclassified&domain=example.com&sourceTabId=123');
 
   // Title per docs/MODE_TRANSITION_UX_V0.md §8.5: 未归类网站：你正在打开未归类网站
@@ -308,15 +298,14 @@ test('T-R4: to_rest_confirm unclassified shows dual-path, sliders dispatch corre
   expect(subtitleText).toContain('休息时间');
   expect(subtitleText).toContain('综合时间');
 
-  // Dual-path section visible (confirms dual-path code executed)
-  await expect(page.locator('#dualPathCompositeSection')).toBeVisible();
+  // Website classification requests are submitted from popup, not reminder.
+  await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
 
   // Rest slider visible
   await expect(page.locator('#slideTrack')).toBeVisible();
   await expect(page.locator('#slideThumb')).toBeVisible();
 
-  // Composite apply slider visible
-  await expect(page.locator('#slideTrackComposite')).toBeVisible();
+  await expect(page.locator('#slideTrackComposite')).toBeHidden();
 
   // Only 1 button: 返回
   const buttons = page.locator('#actions .btn');
@@ -330,20 +319,12 @@ test('T-R4: to_rest_confirm unclassified shows dual-path, sliders dispatch corre
   expect(calls.length).toBeGreaterThanOrEqual(1);
   expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
 
-  // Drag composite slider (fresh calls)
-  await clearCalls(page);
-  await dragSlider(page, '#slideTrackComposite', '#slideThumbComposite');
-  calls = await getCalls(page);
-  expect(calls.length).toBeGreaterThanOrEqual(2);
-  expect(calls[0]).toEqual({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com', sourceTabId: 123 });
-  expect(calls[1]).toEqual({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: 'example.com' });
-
   await page.close();
 });
 
 // ── T-R5: to_rest_confirm + restricted ───────────────────────────────────────
 
-test('T-R5: to_rest_confirm restricted shows cannot-apply notice, rest slider dispatches SWITCH_TO_REST', async () => {
+test('T-R5: to_rest_confirm restricted does not expose application entry, rest slider dispatches SWITCH_TO_REST', async () => {
   const page = await openReminderPage('reason=to_rest_confirm&siteType=restricted&domain=restricted.example.com');
 
   // Title per docs/MODE_TRANSITION_UX_V0.md §8.5: 受限娱乐网站：你正在打开受限娱乐网站
@@ -356,11 +337,10 @@ test('T-R5: to_rest_confirm restricted shows cannot-apply notice, rest slider di
   // Rest slider visible
   await expect(page.locator('#slideTrack')).toBeVisible();
 
-  // Composite section visible but slider hidden + notice shown
-  await expect(page.locator('#dualPathCompositeSection')).toBeVisible();
+  await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
   await expect(page.locator('#slideConfirmWrapComposite')).toBeHidden();
-  const bodyText = await page.locator('#dualPathCompositeBody').textContent();
-  expect(bodyText).toContain('不能申请使用综合时间');
+  const bodyText = await page.locator('body').textContent();
+  expect(bodyText).not.toContain('不能申请使用综合时间');
 
   // Only 1 button: 返回
   const buttons = page.locator('#actions .btn');

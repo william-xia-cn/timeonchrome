@@ -182,7 +182,7 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 | Chrome window | `chrome.windows.onFocusChanged` | 已接入 | 主计时 | 是 | 是 | `transition_complete` / inactive close; `description` 使用 `windowFocusChanged` | Chrome 聚焦时按 active tab 开账；Chrome 失焦时关闭 foreground session |
 | Chrome window | synthetic focus polling / `windowFocusPolled` | 禁用 | 不计时 | 否 | 否 | 无 | 聚焦轮询不是 Chrome 原始边界事件；不得进入 foreground 开合，漏判由 `periodicCheckpoint` 采样修复 |
 | Chrome idle | `chrome.idle.onStateChanged` | 已接入 | 主计时边界提示 | 是 | 是 | `idle_inactive_close` / active reopen reason | 只处理 active/idle/locked 边界；不作为持续确认机制 |
-| Runtime message | `MEDIA_STATE` | 已接入 | 主计时（本地媒体账本） | 是 | 是 | media boundary / `periodic_checkpoint` | content script 上报媒体/PiP 状态，经 `timing-dispatcher` → `media-timing` → `runtime/media-session.js` 写本地媒体账本；media-only signal 不进入 foreground consumer |
+| Runtime message | `MEDIA_STATE` | 已接入 | 主计时（本地媒体账本） + PiP policy | 是 | 是 | media boundary / `periodic_checkpoint` / `pip_forbidden_cleanup` | content script 上报媒体/PiP 状态，经 `timing-dispatcher` → `media-timing` → `runtime/media-session.js` 写本地媒体账本；`isPiP=true` 先记录事实再触发全局退出 PiP；media-only signal 不进入 foreground consumer |
 | Runtime message | popup `GET_STATS source=popup` | 已接入 | 补充计时 | 是 | 是 | `popup_open` / `popup_open_reopen` | 用户打开 popup 时关闭当前 counted session 并立即重开，保证 popup 统计可见当前段 |
 | Runtime message | `SWITCH_TO_STUDY` / `SWITCH_TO_REST` / `SWITCH_TO_COMPOSITE` | 已接入 | 补充计时（模式边界） | 是 | 是 | `mode_effective_boundary` / `mode_effective_boundary_reopen` | 写入 `mode_boundary_intents_v1` 后返回；dispatcher 后续切 foreground 与所有 open media sessions |
 | Runtime message | `FLUSH_TIME` / 非 popup `GET_STATS` / `GET_STATS_RANGE` | 已接入 | 查询/有限补充 | 可能 | 可能 | `ui_flush` | 不允许直接切碎前台 ACTIVE；仅用于非前台或受限路径刷新 |
@@ -268,6 +268,14 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 | Chrome tab API | `tab.mutedInfo` | 已接入 | tab 是否被静音，用于区分 audible 事实 | 静音不等于未播放 |
 | Navigation / tab close | `tabs.onUpdated` URL/loading、`tabs.onRemoved` | 已接入 | 来源页面消失或导航，应关闭旧媒体 session | 不是媒体停止事件 |
 
+当前 PiP policy：
+- 当前版本将 PiP 定义为管控漏洞，不作为受支持使用方式。policy 固定为 `disallow_all`。
+- 任何 `isPiP === true` 都必须触发共享 `EXIT_PIP` cleanup；不按 mode、域名、Chrome 是否最小化区分。
+- 媒体账本仍保留真实 PiP 事实和清理窗口。`pip` segment 的语义是“检测到的禁用 PiP 事实 / cleanup window”，不是受支持的使用模式。
+- cleanup 成功或页面确认已无 PiP 后，open `pip` media session 使用 `settlementReason = pip_forbidden_cleanup` 关闭，清理该 tab 的 PiP frame fact，并按剩余非 PiP media fact 重分类。
+- cleanup 失败时不得伪造关闭：保留 open `pip` session，写入 `pip_forbidden_cleanup_failed` trace/diagnostic；后续 `media checkpoint` 会继续重试 cleanup，并在失败时按事实继续 checkpoint。
+- 正式发布前必须重新设计“是否允许学习/综合网站 PiP、如何计入统计/配额/云端/家长端展示”。未完成前不得以半支持 PiP 状态发布。
+
 当前归因约束：
 - 媒体计时已经从 foreground `usage_segments_v1` 解耦，使用本地-only 媒体账本：`media_frame_facts_v1`、`media_facts_v1`、`media_sessions_v2`、`media_segments_v1`、`daily_media_stats_v1`。
 - `dom_media_poll` 是注入脚本的页面采样事实，不是 Chrome 原生事件；30 秒重申只用于补足静音媒体/漏事件场景，不代表每 30 秒落账。
@@ -276,7 +284,7 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - 媒体分类优先级：PiP > video > audio；同一 tab 同时 video + audio 只计 video。
 - `foregroundAudio` / `foregroundVideo` 定义为：source tab 是某个未最小化 Chrome window 的 active tab；不要求 Chrome window focused。
 - `backgroundAudio` / `backgroundVideo` 定义为：播放源不是上述 foreground media，或所在窗口已最小化。
-- PiP 计为 `pip`，独立于 foreground/background media。
+- PiP 计为 `pip`，独立于 foreground/background media，但当前 policy 是全局禁止；`pip` 只表示被检测到且正在清理/清理失败的禁用事实。
 - `tabs.onActivated`、`tabs.onReplaced`、window minimized/restored 只允许对已知媒体 tab 做关闭、迁移或 foreground/background 重分类；没有既有 media fact 或 open media session 时不得凭空开媒体账。
 - 媒体细分时长写入本地媒体账本，不写入 `usage_segments_v1` 的 `backgroundMedia` / `pip` 云端 channel。当前 legacy compensation 仍可能影响 foreground `ACTIVE` 开合；该行为只作为待移除遗留路径保留。
 - 云端兼容差异：当前 `buildUsageSegmentsUploadPayload()` 不包含 `media_segments_v1`；Worker `VALID_CHANNELS`、D1 schema、云端查询和 Pages 展示暂不支持媒体细分。正式发布若要求云端可查媒体细分，需要升级上传 payload、Worker 校验/插入、D1 migration、云端查询和 Pages 展示。
@@ -339,11 +347,11 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 | `media_segments_v1` | segment id | 保存本地媒体逐段账本：start/end/domain/tabId/windowId/mediaClass/mediaKind/visibility/mode/reason/description |
 | `daily_media_stats_v1` | date + domain + mediaClass + mode | 从 `media_segments_v1` 增量聚合本地媒体秒数 |
 
-`mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟只处理当前 open media session，但必须先用该 session 的 `tabId` 精确确认当前媒体事实仍成立；确认成功才写 `periodic_checkpoint` 并重开。`lastObservedAt` 只代表真实媒体事实来源，checkpoint 不能把它刷新为当前时间。
+`mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟只处理当前 open media session。对于 open `pip` session，checkpoint 必须先按全局 PiP policy 重试 cleanup；cleanup 成功则关闭本地 `pip` session，不再进入普通 checkpoint 重开。cleanup 失败时，仍按真实媒体事实继续确认和 checkpoint，避免丢失禁用 PiP 仍在播放的事实。非 PiP session 必须先用该 session 的 `tabId` 精确确认当前媒体事实仍成立；确认成功才写 `periodic_checkpoint` 并重开。`lastObservedAt` 只代表真实媒体事实来源，checkpoint 不能把它刷新为当前时间。
 
 如果 checkpoint 无法确认 open media session（tab 不存在、分类不匹配、domain/window/tab 不匹配，或 PiP 已不存在），则按半未确认窗口估算闭合：`closeAt = lastConfirmedAt + (now - lastConfirmedAt) / 2`，写入 `settlementReason = media_checkpoint_estimated_close`，`description.end.reason = media_checkpoint_estimated_half_interval_close`，并删除 open session，不重开。tab close/navigation/分类变化仍会关闭旧 media session 并写本地 segment。
 
-Mode boundary 是系统级账务边界。对于会关闭浏览器 PiP 的切换（`rest -> composite`、进入 `study`），媒体账本中的 open `pip` session 必须在 boundary 关闭，不能以 `mode_effective_boundary_reopen` 重开 PiP；如页面内仍有非 PiP 视频/音频事实，可按新 mode 重分类为普通 foreground/background media。
+Mode boundary 是系统级账务边界。由于当前 PiP policy 为全局禁止，任何 mode boundary 发现 open `pip` session 时都必须先尝试共享 cleanup；cleanup 成功后用 `pip_forbidden_cleanup` 关闭 `pip` session，不以 `mode_effective_boundary_reopen` 重开 PiP；cleanup 失败时保留事实并按 mode boundary 切片，表示禁用 PiP 仍在持续。页面内仍有非 PiP 视频/音频事实时，可按新 mode 重分类为普通 foreground/background media。
 
 该账本当前不进入 `segment_sync_outbox_v1` 或 `stats_sync_outbox_v1`，不会被 `buildUsageSegmentsUploadPayload()` 上传。正式发布前必须决定媒体细分是否仍保持 local-only；如果要求云端可查，需要单独设计 cloud media schema 或扩展现有 cloud usage schema。
 

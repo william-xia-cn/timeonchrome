@@ -2,6 +2,13 @@
 import { getStatsRange } from './storage.js';
 import { DEFAULT_CONFIG } from './storage.js';
 import {
+  buildSiteClassificationRequestsUploadPayload,
+  getPendingSiteClassificationRequestUploads,
+  markSiteClassificationRequestUploadFailed,
+  markSiteClassificationRequestsUploaded,
+  mergeCloudSiteClassificationRequests,
+} from './storage.js';
+import {
   getPendingUsageSegments, getPendingDailyStats,
   buildUsageSegmentsUploadPayload, buildDailyStatsUploadPayload,
   markUsageSegmentsUploaded, markDailyStatsUploaded,
@@ -38,7 +45,8 @@ const CLOUD_CONFIG = {
     V1_LAST_SEGMENT_UPLOAD_AT: 'cloud_v1_last_segment_upload_at',
     V1_LAST_STATS_UPLOAD_AT: 'cloud_v1_last_stats_upload_at',
     V1_LAST_MEDIA_SEGMENT_UPLOAD_AT: 'cloud_v1_last_media_segment_upload_at',
-    V1_LAST_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_media_stats_upload_at'
+    V1_LAST_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_media_stats_upload_at',
+    V1_LAST_SITE_REQUEST_SYNC_AT: 'cloud_v1_last_site_request_sync_at'
   }
 };
 
@@ -652,7 +660,7 @@ export async function uploadStats() {
 export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, redirectAllTabsFn, redirectQuotaViolatingTabsFn, options = {}) {
   if (!syncState.deviceToken) {
     console.log('[Cloud] Sync skipped: no device token (not yet initialized or unbound)');
-    return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: false, errors: [] };
+    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: false, errors: [] };
   }
 
   if (syncState.isSyncing) {
@@ -663,7 +671,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       syncState.syncStartedAt = 0;
     } else {
     console.log('[Cloud] Sync already in progress');
-    return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['Sync already in progress'] };
+    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['Sync already in progress'] };
     }
   }
 
@@ -678,6 +686,15 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     const configPulled = configResult.status === 'updated';
     if (configResult.status === 'failed') {
       errors.push('config: ' + (configResult.error || 'unknown'));
+    }
+
+    const siteRequestResult = await syncSiteClassificationRequestsV1({
+      enabled: true,
+      forceRetryExhausted: !!options.forceRetryExhausted,
+    });
+    const siteRequestsSynced = siteRequestResult.failed === 0 && (siteRequestResult.errors || []).length === 0;
+    if (!siteRequestsSynced) {
+      errors.push(...(siteRequestResult.errors || ['site requests: unknown failure']).map((e) => `site_requests: ${e}`));
     }
 
     let statsUploaded = false;
@@ -726,10 +743,10 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       console.log('[Cloud] Sync completed successfully');
     }
 
-    return { configPulled, statsUploaded, quotaSynced, hadFailure, errors };
+    return { configPulled, siteRequestsSynced, statsUploaded, quotaSynced, hadFailure, errors };
   } catch (e) {
     console.error('[Cloud] Sync failed:', e.message);
-    return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [e.message] };
+    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [e.message] };
   } finally {
     syncState.isSyncing = false;
     syncState.syncStartedAt = 0;
@@ -759,11 +776,12 @@ export function isStatsFoundationV1SyncEnabled() {
 }
 
 export async function getStatsFoundationV1SyncStatus() {
-  const [segPending, statsPending, mediaSegPending, mediaStatsPending, storage] = await Promise.all([
+  const [segPending, statsPending, mediaSegPending, mediaStatsPending, siteRequestPending, storage] = await Promise.all([
     getPendingUsageSegments().catch(() => ({ pendingCount: 0 })),
     getPendingDailyStats().catch(() => ({ pendingCount: 0 })),
     getPendingMediaSegments().catch(() => ({ pendingCount: 0 })),
     getPendingDailyMediaStats().catch(() => ({ pendingCount: 0 })),
+    getPendingSiteClassificationRequestUploads().catch(() => ({ pendingCount: 0 })),
     chrome.storage.local.get([
       CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
       CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT,
@@ -772,6 +790,7 @@ export async function getStatsFoundationV1SyncStatus() {
       CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.V1_LAST_SITE_REQUEST_SYNC_AT,
     ]).catch(() => ({})),
   ]);
   return {
@@ -780,12 +799,14 @@ export async function getStatsFoundationV1SyncStatus() {
     pendingStatsDates: Number(statsPending?.pendingCount || 0),
     pendingMediaSegments: Number(mediaSegPending?.pendingCount || 0),
     pendingMediaStatsDates: Number(mediaStatsPending?.pendingCount || 0),
+    pendingSiteClassificationRequests: Number(siteRequestPending?.pendingCount || 0),
     lastSyncAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT] || 0),
     lastError: storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR] || null,
     lastSegmentUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT] || 0),
     lastStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT] || 0),
     lastMediaSegmentUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT] || 0),
     lastMediaStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT] || 0),
+    lastSiteRequestSyncAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SITE_REQUEST_SYNC_AT] || 0),
   };
 }
 
@@ -1114,6 +1135,111 @@ export async function uploadDailyMediaStatsV1({ enabled = false, forceRetryExhau
     return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyDates.length - uploaded, errors };
   } catch (e) {
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
+  }
+}
+
+export async function syncSiteClassificationRequestsV1({ enabled = true, forceRetryExhausted = false } = {}) {
+  if (!syncState.deviceToken) {
+    return { uploaded: 0, pulled: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: ['No device token'] };
+  }
+
+  try {
+    const pending = await getPendingSiteClassificationRequestUploads();
+    const requests = Array.isArray(pending.requests) ? pending.requests : [];
+    const exhaustedIds = requests
+      .filter((record) => Number(record.retryCount || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS)
+      .map((record) => record.id);
+    const candidates = forceRetryExhausted
+      ? requests
+      : requests.filter((record) => !exhaustedIds.includes(record.id));
+    const batchIds = candidates.slice(0, 50).map((record) => record.id);
+
+    if (!enabled) {
+      const samplePayload = batchIds.length > 0
+        ? await buildSiteClassificationRequestsUploadPayload(batchIds.slice(0, 3))
+        : null;
+      return {
+        uploaded: 0,
+        pulled: 0,
+        failed: 0,
+        skipped: true,
+        dryRun: true,
+        pendingCount: pending.pendingCount,
+        batchSize: batchIds.length,
+        payloadSample: samplePayload ? {
+          schemaVersion: samplePayload.schemaVersion,
+          requestCount: samplePayload.requests.length,
+          firstTarget: samplePayload.requests[0]?.requestedNormalizedValue || null,
+        } : null,
+        errors: [],
+      };
+    }
+
+    let uploaded = 0;
+    let failed = 0;
+    const errors = [];
+
+    if (exhaustedIds.length > 0 && !forceRetryExhausted) {
+      failed += exhaustedIds.length;
+      errors.push(...exhaustedIds.map((id) => `site request ${id}: retry exhausted`));
+    }
+
+    if (batchIds.length > 0) {
+      const payload = await buildSiteClassificationRequestsUploadPayload(batchIds);
+      try {
+        const result = await cloudRequest('POST', '/device/site-classification-requests/v1', {
+          requests: payload.requests,
+        });
+        const savedRequests = Array.isArray(result?.requests) ? result.requests : [];
+        const savedLocalIds = savedRequests
+          .map((record) => record.clientRequestId || record.id)
+          .filter((id) => batchIds.includes(id));
+        if (savedLocalIds.length > 0) {
+          await markSiteClassificationRequestsUploaded(savedLocalIds, savedRequests);
+          uploaded += savedLocalIds.length;
+        }
+        const failedErrors = Array.isArray(result?.errors) ? result.errors : [];
+        const failedIds = failedErrors
+          .map((item) => item?.id)
+          .filter((id) => batchIds.includes(id) && !savedLocalIds.includes(id));
+        if (failedIds.length > 0) {
+          const message = failedErrors.map((item) => item?.code || 'upload_failed').join('; ') || 'upload_failed';
+          await markSiteClassificationRequestUploadFailed(failedIds, message);
+          failed += failedIds.length;
+          errors.push(...failedIds.map((id) => `site request ${id}: ${message}`));
+        }
+      } catch (e) {
+        await markSiteClassificationRequestUploadFailed(batchIds, e.message);
+        failed += batchIds.length;
+        errors.push(`site requests: ${e.message}`);
+      }
+    }
+
+    let pulled = 0;
+    try {
+      const remote = await cloudRequest('GET', '/device/site-classification-requests/v1');
+      const remoteRequests = Array.isArray(remote?.requests) ? remote.requests : [];
+      pulled = remoteRequests.length;
+      await mergeCloudSiteClassificationRequests(remoteRequests);
+    } catch (e) {
+      errors.push(`site requests pull: ${e.message}`);
+    }
+
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.V1_LAST_SITE_REQUEST_SYNC_AT]: Date.now(),
+    }).catch(() => {});
+
+    return {
+      uploaded,
+      pulled,
+      failed,
+      skipped: batchIds.length === 0 && pulled === 0,
+      dryRun: false,
+      pendingCount: Math.max(0, Number(pending.pendingCount || 0) - uploaded),
+      errors,
+    };
+  } catch (e) {
+    return { uploaded: 0, pulled: 0, failed: 0, skipped: false, dryRun: false, pendingCount: 0, errors: [e.message] };
   }
 }
 

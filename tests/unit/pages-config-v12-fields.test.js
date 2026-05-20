@@ -75,6 +75,10 @@ function run() {
   expectTrue('Pages 统计对账应读取 stats-reconciliation/v1', source.includes('/stats-reconciliation/v1'));
   expectTrue('Pages 统计对账应展示统计表、落账聚合、差异、状态', source.includes('统计表') && source.includes('落账聚合') && source.includes('差异') && source.includes('状态'));
   expectTrue('Pages 统计对账应支持显示全部开关', source.includes('reconciliation-show-all'));
+  expectTrue('Pages 应包含网站归类申请审核入口', source.includes('网站归类申请') && source.includes('site-classification-requests/v1'));
+  expectTrue('Pages 网站归类申请应支持审批生效对象编辑', source.includes('审批生效对象') && source.includes('site-request-type-') && source.includes('site-request-target-'));
+  expectTrue('Pages 网站归类申请应支持三种审批动作', source.includes('批准为学习网站') && source.includes('批准为综合网站') && source.includes('拒绝'));
+  expectTrue('Pages 网站归类申请应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
 
   // 系统配置文案检查
   expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));

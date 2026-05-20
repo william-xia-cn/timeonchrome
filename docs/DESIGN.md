@@ -721,7 +721,9 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `SWITCH_TO_STUDY` | → background | — | session |
 | `SWITCH_TO_REST` | → background | — | session |
 | `SWITCH_TO_COMPOSITE` | → background | — | session |
-| `ADD_TO_COMPOSITE_LIST` | → background | `{ domain }` | `{ added, alreadyPresent }` |
+| `SUBMIT_SITE_CLASSIFICATION_REQUEST` | → background | `{ input, sourceTabId? }` | `{ ok, request, localOnly, target }`；孩子侧“申请网站归类”，审批前匹配对象按综合时长处理 |
+| `GET_SITE_CLASSIFICATION_REQUESTS` | → background | `{ status? }` | 本地持久申请记录 |
+| `ADD_TO_COMPOSITE_LIST` | → background | `{ domain }` | Legacy compatibility only；新申请入口不再使用 |
 | `BORROW_REST_QUOTA` | → background | — | `{ ok, amount }` 或 error |
 | `SEND_CLOUD_EVENT` | → background | `{ eventType, domain }` | — |
 | `HEARTBEAT` | content → background | `{ state }` | `{ ok }` |

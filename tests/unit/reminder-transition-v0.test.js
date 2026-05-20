@@ -98,7 +98,7 @@ function simulateReminderRendering(reason, msg = '') {
     if (effectiveReason === 'study_mode') {
       config = {
         ...config,
-        subtitle: '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。',
+        subtitle: '如需临时使用，请从扩展弹窗提交「申请网站归类」。继续进入休息会计入休息时间。',
         actions: ['backToStudy'],
       };
     }
@@ -122,27 +122,27 @@ async function run() {
   const studyMode = simulateReminderRendering('study_mode');
   expectTrue('study_mode is known reason', !studyMode.isUnknownReason);
   expect('study_mode title', studyMode.config.title, '你正在打开未归类网站');
-  // Dual-path: default path shows rest copy, application path in separate section
-  expectTrue('study_mode default path shows rest copy', studyMode.config.subtitle.includes('休息时间'));
+  expectTrue('study_mode explains popup site classification request', studyMode.config.subtitle.includes('申请网站归类'));
+  expectTrue('study_mode default path still explains rest accounting', studyMode.config.subtitle.includes('休息时间'));
   expectTrue('study_mode actions are only backToStudy', JSON.stringify(studyMode.config.actions) === JSON.stringify(['backToStudy']));
   expectTrue('study_mode does NOT render legacy addComposite button', !studyMode.config.actions.includes('addComposite'));
   expectTrue('study_mode does NOT render legacy borrowTime button', !studyMode.config.actions.includes('borrowTime'));
   expectTrue('study_mode does NOT show generic blocked text', !studyMode.config.title.includes('不在可访问范围内'));
   expectTrue('study_mode does NOT show switchToRest', !studyMode.config.actions.includes('switchToRest'));
 
-  // Dual-path DOM elements exist in HTML
+  // Request entrance is no longer in reminder HTML
   const htmlPath = path.join(__dirname, '..', '..', 'reminder.html');
   const htmlContent = fs.readFileSync(htmlPath, 'utf8');
-  expectTrue('dual-path composite section exists in HTML', htmlContent.includes('id="dualPathCompositeSection"'));
-  expectTrue('composite slider exists in HTML', htmlContent.includes('id="slideConfirmWrapComposite"'));
-  expectTrue('composite slider has correct drag text', htmlContent.includes('申请使用综合时间'));
+  expectTrue('dual-path composite section removed from HTML', !htmlContent.includes('id="dualPathCompositeSection"'));
+  expectTrue('composite slider removed from HTML', !htmlContent.includes('id="slideConfirmWrapComposite"'));
+  expectTrue('legacy composite request text removed from HTML', !htmlContent.includes('申请使用综合时间'));
   expectTrue('borrow section may still exist in HTML skeleton', htmlContent.includes('id="dualPathBorrowSection"'));
 
   // ── 2. study_mode with msg override ──
   section('2. study_mode with msg=这个网站当前不在可访问范围内');
   const studyModeWithMsg = simulateReminderRendering('study_mode', '这个网站当前不在可访问范围内');
   expectTrue('canonical title preserved despite msg', studyModeWithMsg.config.title === '你正在打开未归类网站');
-  expectTrue('canonical subtitle preserved despite msg', studyModeWithMsg.config.subtitle.includes('休息时间'));
+  expectTrue('canonical subtitle preserved despite msg', studyModeWithMsg.config.subtitle.includes('申请网站归类'));
   expectTrue('msg is not used as title', studyModeWithMsg.config.title !== '这个网站当前不在可访问范围内');
 
   // ── 3. Unknown reason safe error state ──
@@ -173,7 +173,7 @@ async function run() {
   expectTrue('to_rest_confirm dual-path logic exists in source', fullCode.includes("effectiveReason === 'to_rest_confirm'"));
   expectTrue('to_rest_confirm siteType param handling exists', fullCode.includes("params.get('siteType')"));
   expectTrue('to_rest_confirm restricted site handling exists', fullCode.includes("siteType === 'restricted'"));
-  expectTrue('to_rest_confirm unclassified composite slider exists', fullCode.includes('slideTrackComposite') && fullCode.includes("effectiveReason === 'to_rest_confirm'"));
+  expectTrue('to_rest_confirm no longer exposes composite request slider', !fullCode.includes('slideTrackComposite'));
 
   // ── 5. quota_composite ──
   section('5. quota_composite rendering');
@@ -218,8 +218,8 @@ async function run() {
 
   // Dual-path source validations
   expectTrue('bindSlideConfirm supports options', fullCode.includes('options = {}'));
-  expectTrue('study_mode dual-path rendering exists', fullCode.includes('dualPathCompositeSection'));
-  expectTrue('composite slider binding exists', fullCode.includes('slideTrackComposite'));
+  expectTrue('study_mode dual-path composite rendering removed', !fullCode.includes('dualPathCompositeSection'));
+  expectTrue('composite slider binding removed', !fullCode.includes('slideTrackComposite'));
   expectTrue('borrow slider binding removed in V1-minimal', !fullCode.includes('BORROW_REST_QUOTA'));
   expectTrue('study_mode config.actions override exists', fullCode.includes("config.actions = ['backToStudy']"));
   expectTrue('study_mode block is properly closed', fullCode.includes('config.actions = [') && fullCode.includes("if (customMsgEl)"));

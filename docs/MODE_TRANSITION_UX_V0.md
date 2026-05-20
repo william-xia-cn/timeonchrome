@@ -1659,10 +1659,9 @@ npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line
 ```
 
 通过条件：
-- Rest -> Composite manual: PiP closes.
-- Rest -> Composite auto: PiP closes.
-- Rest -> Study manual: PiP closes + Study prompt appears.
-- Rest -> Study auto: PiP closes + Study prompt appears.
+- 任意 mode transition 都会执行当前全局 PiP policy（`disallow_all`），并尝试关闭已存在的 PiP。
+- cleanup 成功时，PiP 不会作为新 mode 下的受支持媒体继续运行；cleanup 失败时，媒体账本保留真实 PiP fact 并记录诊断。
+- Rest -> Study / Composite -> Study manual/auto: Study prompt appears.
 - Prompt late-ready resend 与 domain guard 不退化。
 
 ---

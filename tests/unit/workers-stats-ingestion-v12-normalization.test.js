@@ -53,6 +53,10 @@ function ingestRows(rows, normalizeHostname) {
 function run() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'stats.ts'), 'utf8');
   const migration008 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '008_media_segments_v1.sql'), 'utf8');
+  const siteRequestsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'), 'utf8');
+  const workerIndexSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
+  const profileSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'profiles.ts'), 'utf8');
+  const migration009 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '009_site_classification_requests_v1.sql'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
 
   expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../core/domain-semantics.js';"));
@@ -63,6 +67,7 @@ function run() {
   expectTrue('auth.ts 登录应按 LOWER(email) 查询', authSource.includes('SELECT id, email FROM accounts WHERE LOWER(email) = ? AND password_hash = ?'));
   expectTrue('cloud sync 请求必须有 Abort 超时', cloudSyncSource.includes('REQUEST_TIMEOUT_MS') && cloudSyncSource.includes('new AbortController()') && cloudSyncSource.includes('controller.abort()'));
   expectTrue('cloud sync 应能释放过期 isSyncing 锁', cloudSyncSource.includes('SYNC_STALE_LOCK_MS') && cloudSyncSource.includes('Stale sync lock detected') && cloudSyncSource.includes('syncStartedAt'));
+  expectTrue('cloud sync 应同步网站归类申请', cloudSyncSource.includes('syncSiteClassificationRequestsV1') && cloudSyncSource.includes('/device/site-classification-requests/v1'));
   expectTrue('stats.ts 应在入库前执行 normalizeHostname', source.includes('const normalizedDomain = normalizeHostname(stat.domain);'));
   expectTrue('stats.ts 应跳过归一后非法域名', source.includes('if (!normalizedDomain) continue;'));
 
@@ -90,6 +95,15 @@ function run() {
   expectTrue('008 migration 应创建 daily_media_stats_v1', migration008.includes('CREATE TABLE IF NOT EXISTS daily_media_stats_v1'));
   expectTrue('008 migration 应有媒体倒序读取索引', migration008.includes('idx_media_segments_profile_start_id'));
   expectTrue('008 migration 媒体统计唯一键应包含 device_id', migration008.includes('UNIQUE (profile_id, device_id, date, domain, media_class, mode)'));
+  expectTrue('Worker 应注册网站归类申请路由', workerIndexSource.includes('siteClassificationRequestsRouter') && workerIndexSource.includes('/site-classification-requests'));
+  expectTrue('009 migration 应创建 site_classification_requests_v1', migration009.includes('CREATE TABLE IF NOT EXISTS site_classification_requests_v1'));
+  expectTrue('009 migration 应按原申请对象去重', migration009.includes('UNIQUE (profile_id, requested_target_type, requested_normalized_value)'));
+  expectTrue('网站归类请求应支持设备提交和读取', siteRequestsSource.includes("path === '/device/site-classification-requests/v1'") && siteRequestsSource.includes('request.method === \'POST\'') && siteRequestsSource.includes('request.method === \'GET\''));
+  expectTrue('网站归类请求应支持家长读取和审批', siteRequestsSource.includes('/site-classification-requests/v1') && siteRequestsSource.includes('/decision') && siteRequestsSource.includes('verifyProfileOwner'));
+  expectTrue('网站归类请求应拒绝已归类对象重新申请', siteRequestsSource.includes('ALREADY_CLASSIFIED') && siteRequestsSource.includes('getConfiguredClassificationForTarget'));
+  expectTrue('网站归类审批应更新 profile config/version', siteRequestsSource.includes('siteClassificationRulesV1') && siteRequestsSource.includes('version = version + 1'));
+  expectTrue('网站归类审批应支持学习/综合/拒绝三类决定', siteRequestsSource.includes('normalizeSiteClassificationDecision') && siteRequestsSource.includes('decisionToStatus') && siteRequestsSource.includes('decision === \'study\'') && siteRequestsSource.includes('decision === \'composite\''));
+  expectTrue('profile 默认配置应包含 siteClassificationRulesV1', profileSource.includes('siteClassificationRulesV1: []') && profileSource.includes("'siteClassificationRulesV1'"));
   expectTrue('usage-segments/v1 应校验账号 JWT', source.includes('verifyAccountToken(request, env.JWT_SECRET)'));
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
   expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));

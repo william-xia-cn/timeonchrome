@@ -64,6 +64,18 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     chrome,
     getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
     enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
+    getSiteClassificationRequestRecords: async () => [],
+    getSiteClassificationForUrl: () => ({ classification: null }),
+    shouldEnforcePictureInPicturePolicy: () => true,
+    closeForbiddenPictureInPicture: async ({ preferredTabId } = {}) => {
+      if (Number.isInteger(preferredTabId)) {
+        try {
+          await chrome.tabs.sendMessage(preferredTabId, { type: 'EXIT_PIP' });
+          return { ok: true, handled: true, closed: true, tabResults: [{ tabId: preferredTabId, ok: true, handled: true, closed: true }] };
+        } catch {}
+      }
+      return { ok: false, handled: false, closed: false, tabResults: [] };
+    },
     setCachedEffectiveMode: () => {},
     ...stubs,
   };

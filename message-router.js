@@ -1,6 +1,7 @@
 // message-router.js — 命令路由
 
-import { getConfig, saveConfig, getTodayStats, getStatsRange, getPopupSettledModeStats, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission, getTemporaryCompositePermissionRecords } from './infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getStatsRange, getPopupSettledModeStats, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission, getTemporaryCompositePermissionRecords, submitSiteClassificationRequest, getSiteClassificationRequestRecords } from './infra/storage.js';
+import { normalizeSiteClassificationTarget } from './core/site-classification.js';
 import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules, checkAndRemind, redirectToReminder, clearTabModeNotice, sendModeSwitchSuccessNotice, applyModeTransitionSideEffects } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
@@ -174,6 +175,46 @@ function resolveCompositeSourceTabId(msg, sender) {
   if (!isAuthorizedReminderSender(sender)) return null;
   const sourceTabId = Number(msg?.sourceTabId);
   return Number.isInteger(sourceTabId) && sourceTabId >= 0 ? sourceTabId : null;
+}
+
+async function resolveSiteClassificationSourceContext(msg = {}, sender = {}) {
+  const senderTab = sender?.tab;
+  if (senderTab?.id && senderTab?.url) {
+    return {
+      tabId: senderTab.id,
+      url: senderTab.url,
+      domain: extractDomain(senderTab.url),
+    };
+  }
+
+  const sourceTabId = Number(msg?.sourceTabId);
+  if (Number.isInteger(sourceTabId) && sourceTabId >= 0) {
+    try {
+      const tab = await chrome.tabs.get(sourceTabId);
+      return {
+        tabId: tab?.id ?? sourceTabId,
+        url: tab?.url || null,
+        domain: extractDomain(tab?.url || ''),
+      };
+    } catch (_) {
+      return { tabId: sourceTabId, url: null, domain: null };
+    }
+  }
+
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+  const tab = tabs && tabs[0] ? tabs[0] : null;
+  return {
+    tabId: Number.isInteger(tab?.id) ? tab.id : null,
+    url: tab?.url || null,
+    domain: extractDomain(tab?.url || ''),
+  };
+}
+
+function siteClassificationTargetUrl(target) {
+  if (!target?.ok) return null;
+  if (target.targetType === 'url') return target.normalizedValue;
+  if (target.targetType === 'host') return `https://${target.normalizedValue}`;
+  return null;
 }
 
 function isDateInSettlementRange(date, range) {
@@ -503,6 +544,42 @@ export async function handleMessage(msg, sender) {
           }))
           .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)),
       };
+    }
+
+    case 'GET_SITE_CLASSIFICATION_REQUESTS': {
+      const records = await getSiteClassificationRequestRecords({
+        status: msg.status || null,
+        includeAll: msg.status === 'all' || !msg.status,
+      });
+      return { ok: true, records };
+    }
+
+    case 'SUBMIT_SITE_CLASSIFICATION_REQUEST': {
+      const context = await resolveSiteClassificationSourceContext(msg, sender);
+      const target = normalizeSiteClassificationTarget(msg.input || msg.url || context.url || context.domain || '');
+      if (!target.ok) {
+        return { ok: false, code: target.code || 'INVALID_TARGET', error: target.error || 'invalid target' };
+      }
+      const result = await submitSiteClassificationRequest(msg.input || msg.url || target.normalizedValue, context);
+      if (result?.ok) {
+        const targetUrl = siteClassificationTargetUrl(target);
+        const syncStateRef = getSyncState();
+        if (syncStateRef.deviceToken) {
+          syncNow(getConfig, saveConfig, updateDeclarativeRules, redirectAllTabs, redirectQuotaViolatingTabs)
+            .catch(() => {});
+        }
+        return {
+          ...result,
+          targetUrl,
+          sourceTabId: context.tabId,
+          target: {
+            targetType: target.targetType,
+            normalizedValue: target.normalizedValue,
+            displayValue: target.displayValue,
+          },
+        };
+      }
+      return result;
     }
 
     case 'SWITCH_TO_STUDY':

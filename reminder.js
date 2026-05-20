@@ -16,14 +16,6 @@
     no_cross_week: '周日不能借用（防止跨周）',
     weekly_quota_exceeded: '本周配额已用完，无法借用',
   };
-  const COMPOSITE_ERROR_MESSAGES = {
-    INVALID_TAB_CONTEXT: '无法确认原始页面，请返回后重新打开该网站',
-    NOT_IN_STUDY_MODE: '当前不是学习模式，不能申请综合时间',
-    ONLINE_QUOTA_LOCKED: '今日上网时间已用完，不能继续访问',
-    UNDETERMINED_QUOTA_LOCKED: '今日综合时间已用完，不能申请综合时间',
-    DOMAIN_IN_RESTRICTED_LIST: '受限娱乐网站不能申请综合时间',
-    DOMAIN_IN_UNSAFE_LIST: '禁止访问网站不能申请综合时间',
-  };
 
   // 解析 URL 参数
   const params = new URLSearchParams(location.search);
@@ -61,14 +53,6 @@
   const slideThumb = document.getElementById('slideThumb');
   const slideHint = document.getElementById('slideHint');
   const restQuotaLine = document.getElementById('restQuotaLine');
-
-  // Dual-path elements (study_mode Case #5/#6)
-  const dualPathCompositeSection = document.getElementById('dualPathCompositeSection');
-  const dualPathCompositeBody = document.getElementById('dualPathCompositeBody');
-  const slideConfirmWrapComposite = document.getElementById('slideConfirmWrapComposite');
-  const slideTrackComposite = document.getElementById('slideTrackComposite');
-  const slideThumbComposite = document.getElementById('slideThumbComposite');
-  const slideHintComposite = document.getElementById('slideHintComposite');
 
   // Dual-path borrow elements (Case #6 restLocked variant)
   const dualPathBorrowSection = document.getElementById('dualPathBorrowSection');
@@ -144,7 +128,7 @@
     },
     study_mode: {
       icon: '🔍', title: '你正在打开未归类网站',
-      subtitle: '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。',
+      subtitle: '如需临时使用，请从扩展弹窗提交「申请网站归类」。',
       actions: ['backToStudy']
     },
     to_composite_confirm: {
@@ -218,22 +202,6 @@
           showStatus('已进入休息时间，正在跳转…', 'success');
           if (domain && domain !== 'all') {
             setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
-      }
-    },
-    addComposite: {
-      label: '📝 临时加入综合网站', style: 'primary',
-      handler: function() {
-        chrome.runtime.sendMessage(compositeRequestPayload(), function(result) {
-          if (result && result.added) {
-            chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
-            showStatus('✓ 已加入，正在跳转…', 'success');
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          } else if (result && result.alreadyPresent) {
-            showStatus('该网站已在列表中', 'info');
-          } else {
-            showStatus(compositeFailureMessage(result), 'error');
           }
         });
       }
@@ -362,7 +330,7 @@
       override = {
         icon: config.icon,
         title: '你正在打开受限娱乐网站',
-        subtitle: '该网站不能申请使用综合时间。\n\n今天的休息时间已用完。如果仍要继续访问，可以向明天借用休息时间。',
+        subtitle: '该网站不能申请网站归类。\n\n今天的休息时间已用完。如果仍要继续访问，可以向明天借用休息时间。',
         actions: ['borrowTime', 'backToStudy']
       };
     } else if (effectiveReason === 'to_rest_confirm') {
@@ -471,8 +439,8 @@
   if (effectiveReason === 'study_mode') {
     document.body.classList.add('study-rest-reminder');
 
-    // Override config to prevent legacy button rendering (sliders handle rest/apply/borrow)
-    config.subtitle = '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。';
+    // Application moved to popup. Reminder only explains and offers the safe fallback.
+    config.subtitle = '如需临时使用，请从扩展弹窗提交「申请网站归类」。继续进入休息会计入休息时间。';
     config.actions = ['backToStudy'];
 
     // Default path: enter rest
@@ -510,53 +478,7 @@
       boundFlag: 'slideBound',
     });
 
-    // Application path: apply composite time
-    if (dualPathCompositeSection) dualPathCompositeSection.style.display = 'block';
-    if (slideConfirmWrapComposite) slideConfirmWrapComposite.style.display = 'block';
-
-    // Bind composite slider
-    bindSlideConfirm({
-      track: slideTrackComposite,
-      thumb: slideThumbComposite,
-      hint: slideHintComposite,
-      wrap: slideConfirmWrapComposite,
-      onConfirm: function() {
-        chrome.runtime.sendMessage(compositeRequestPayload(), function(result) {
-          if (result && result.added) {
-            chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
-            chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
-              const remainingComposite = status ? formatDurationCN(status.compositeRemainingSeconds || 0) : '计算中';
-              showStatus(`已允许今天使用综合时间访问 · 今日剩余 ${remainingComposite}`, 'success');
-              if (domain && domain !== 'all') {
-                setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-              }
-            });
-          } else if (result && result.alreadyPresent) {
-            showStatus('该网站已在列表中', 'info');
-          } else {
-            showStatus(compositeFailureMessage(result), 'error');
-          }
-        });
-      },
-      dragText: '申请使用综合时间',
-      releaseText: '松手确认',
-      boundFlag: 'compositeSlideBound',
-    });
-
     // Rest exhausted variant no longer exposes borrowing in V1-minimal.
-  }
-
-  function compositeRequestPayload() {
-    const payload = { type: 'ADD_TO_COMPOSITE_LIST', domain: domain };
-    if (Number.isInteger(sourceTabId) && sourceTabId >= 0) payload.sourceTabId = sourceTabId;
-    return payload;
-  }
-
-  function compositeFailureMessage(result) {
-    const code = result && result.code;
-    if (code && COMPOSITE_ERROR_MESSAGES[code]) return COMPOSITE_ERROR_MESSAGES[code];
-    if (result && result.error) return `操作失败：${result.error}`;
-    return '操作失败，请稍后重试';
   }
 
   // Composite → Unclassified/Restricted dual-path (Case #14/#15/#16/#17)
@@ -611,50 +533,6 @@
       releaseText: '松手确认',
       boundFlag: 'slideBound',
     });
-
-    // Application path: apply composite time (ONLY for unclassified sites)
-    if (!isRestrictedSite) {
-      if (dualPathCompositeSection) dualPathCompositeSection.style.display = 'block';
-      if (slideConfirmWrapComposite) slideConfirmWrapComposite.style.display = 'block';
-
-      // Bind composite slider
-      bindSlideConfirm({
-        track: slideTrackComposite,
-        thumb: slideThumbComposite,
-        hint: slideHintComposite,
-        wrap: slideConfirmWrapComposite,
-        onConfirm: function() {
-          chrome.runtime.sendMessage(compositeRequestPayload(), function(result) {
-            if (result && result.added) {
-              chrome.runtime.sendMessage({ type: 'SEND_CLOUD_EVENT', eventType: 'composite_add', domain: domain });
-              chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
-                const remainingComposite = status ? formatDurationCN(status.compositeRemainingSeconds || 0) : '计算中';
-                showStatus(`已允许今天使用综合时间访问 · 今日剩余 ${remainingComposite}`, 'success');
-                if (domain && domain !== 'all') {
-                  setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-                }
-              });
-            } else if (result && result.alreadyPresent) {
-              showStatus('该网站已在列表中', 'info');
-            } else {
-              showStatus(compositeFailureMessage(result), 'error');
-            }
-          });
-        },
-        dragText: '申请使用综合时间',
-        releaseText: '松手确认',
-        boundFlag: 'compositeSlideBound',
-      });
-    } else {
-      // Restricted site: show "cannot apply composite" notice
-      if (dualPathCompositeSection) {
-        dualPathCompositeSection.style.display = 'block';
-        if (dualPathCompositeBody) {
-          dualPathCompositeBody.textContent = '该网站不能申请使用综合时间。';
-        }
-        if (slideConfirmWrapComposite) slideConfirmWrapComposite.style.display = 'none';
-      }
-    }
 
     // Rest exhausted variant no longer exposes borrowing in V1-minimal.
   }

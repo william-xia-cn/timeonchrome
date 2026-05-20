@@ -1,6 +1,13 @@
 // infra/storage.js — 配置/会话存储
 import { computeAllDomains, computeAllDomainsWithAudio } from '../core/aggregate.js';
 import { domainForUrl, matchDomain as matchDomainV12, normalizeHostname } from '../core/domain-semantics.js';
+import {
+  getSiteClassificationForUrl,
+  normalizeSiteClassificationRequest,
+  normalizeSiteClassificationTarget,
+  siteDecisionMatchesUrl,
+  siteTargetScopesOverlap,
+} from '../core/site-classification.js';
 import { emitTrace } from '../core/timing-trace.js';
 
 const STORAGE_VERSION = '1.3';
@@ -12,6 +19,7 @@ export const SESSION_KEY = 'guardian_session';
 const SESSIONS_KEY = 'guardian_sessions';
 export const VISIT_SESSIONS_KEY = 'visit_sessions';
 const TEMP_COMPOSITE_DOMAINS_KEY = 'temporary_composite_domains';
+export const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const CHANGELOG_KEY = 'guardian_changelog';
 const MAX_CHANGELOG_ENTRIES = 100;
 const MAX_SESSION_DAYS = 14;
@@ -55,6 +63,7 @@ export const DEFAULT_CONFIG = {
   quotaBorrow: null,
   domainQuotas: {},
   classificationRules: [],
+  siteClassificationRulesV1: [],
   quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
   schedule: {
     enabled: false,
@@ -333,6 +342,309 @@ export async function clearTemporaryCompositeDomains() {
   return new Promise((resolve) => {
     area.remove(TEMP_COMPOSITE_DOMAINS_KEY, resolve);
   });
+}
+
+// ── Site classification requests ───────────────────────────────────────────────
+
+function makeLocalId(prefix = 'scr') {
+  try {
+    if (crypto?.randomUUID) return `${prefix}_${crypto.randomUUID()}`;
+  } catch (_) {}
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function requestKey(targetType, normalizedValue) {
+  return `${targetType}:${normalizedValue}`;
+}
+
+function requestDecisionTarget(record) {
+  if (!record) return null;
+  return {
+    targetType: record.decisionTargetType || record.requestedTargetType,
+    normalizedValue: record.decisionNormalizedValue || record.requestedNormalizedValue,
+  };
+}
+
+const CLASSIFIED_SITE_LIST_FIELDS = [
+  { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'customBlockedSites', 'defaultUnsafeSites', 'customUnsafeSites'], classification: 'blocked' },
+  { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'customRestrictedEntertainmentList'], classification: 'restricted' },
+  { keys: ['studyList', 'defaultStudySites', 'customStudyList'], classification: 'study' },
+  { keys: ['compositeList', 'defaultCompositeSites', 'customCompositeList'], classification: 'composite' },
+  { keys: ['restList', 'entertainmentList', 'defaultRestSites', 'customRestList'], classification: 'rest' },
+];
+
+function getConfigListValues(config = {}, keys = []) {
+  const values = [];
+  for (const key of keys) {
+    const list = config?.[key];
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item === 'string' && item.trim()) values.push({ key, value: item.trim() });
+    }
+  }
+  return values;
+}
+
+function normalizePatternBase(pattern) {
+  const raw = String(pattern || '').trim().toLowerCase().replace(/\.+$/g, '');
+  if (!raw) return null;
+  if (raw.startsWith('*.')) return normalizeHostname(raw.slice(2));
+  return normalizeHostname(raw);
+}
+
+function patternOverlapsRequestTarget(pattern, target) {
+  const base = normalizePatternBase(pattern);
+  if (!base || !target?.host) return false;
+  if (target.targetType === 'url') {
+    return matchDomainV12(target.host, pattern);
+  }
+  return matchDomainV12(target.host, pattern) || matchDomainV12(base, target.normalizedValue);
+}
+
+function getConfiguredClassificationForTarget(config = {}, target) {
+  if (!target?.ok) return null;
+
+  const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
+  for (const rule of rules) {
+    const decision = rule?.decision || rule?.classification;
+    if (!decision) continue;
+    const ruleTarget = {
+      targetType: rule.targetType,
+      normalizedValue: rule.normalizedValue || rule.targetValue,
+    };
+    if (siteTargetScopesOverlap(target, ruleTarget)) {
+      return { classification: decision === 'reject' ? 'rejected' : decision, source: 'siteClassificationRulesV1', rule };
+    }
+  }
+
+  for (const group of CLASSIFIED_SITE_LIST_FIELDS) {
+    for (const item of getConfigListValues(config, group.keys)) {
+      if (patternOverlapsRequestTarget(item.value, target)) {
+        return {
+          classification: group.classification,
+          source: item.key,
+          pattern: item.value,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+async function setSiteClassificationRequestRecords(records) {
+  const normalized = (Array.isArray(records) ? records : [])
+    .map(normalizeSiteClassificationRequest)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.requestedAt || b.createdAt || 0) - Number(a.requestedAt || a.createdAt || 0));
+  await chrome.storage.local.set({ [SITE_CLASSIFICATION_REQUESTS_KEY]: normalized });
+  return normalized;
+}
+
+export async function getSiteClassificationRequestRecords({ status = null, includeAll = false } = {}) {
+  const data = await chrome.storage.local.get(SITE_CLASSIFICATION_REQUESTS_KEY).catch(() => ({}));
+  const records = (Array.isArray(data?.[SITE_CLASSIFICATION_REQUESTS_KEY]) ? data[SITE_CLASSIFICATION_REQUESTS_KEY] : [])
+    .map(normalizeSiteClassificationRequest)
+    .filter(Boolean);
+  const filtered = includeAll || !status
+    ? records
+    : records.filter((record) => record.status === status);
+  return filtered.sort((a, b) => Number(b.requestedAt || b.createdAt || 0) - Number(a.requestedAt || a.createdAt || 0));
+}
+
+export async function submitSiteClassificationRequest(input, context = {}) {
+  const target = normalizeSiteClassificationTarget(input);
+  if (!target.ok) {
+    return { ok: false, code: target.code || 'INVALID_TARGET', error: target.error || 'invalid target' };
+  }
+
+  const [records, config, cloud] = await Promise.all([
+    getSiteClassificationRequestRecords({ includeAll: true }),
+    getConfig(),
+    chrome.storage.local.get(['cloud_device_id', 'cloud_profile_id', 'cloud_device_token']).catch(() => ({})),
+  ]);
+  const lookupValue = target.targetType === 'url' ? target.normalizedValue : target.host;
+  const classification = getSiteClassificationForUrl(config, records, lookupValue);
+  if (classification.classification === 'rejected') {
+    return { ok: false, code: 'REQUEST_REJECTED', error: 'request rejected', request: classification.request || null, rule: classification.rule || null };
+  }
+  const configuredClassification = getConfiguredClassificationForTarget(config, target);
+  if (configuredClassification) {
+    const code = configuredClassification.classification === 'rejected'
+      ? 'REQUEST_REJECTED'
+      : 'ALREADY_CLASSIFIED';
+    return {
+      ok: false,
+      code,
+      error: code === 'REQUEST_REJECTED' ? 'request rejected' : 'target already classified',
+      classifiedAs: configuredClassification.classification,
+      source: configuredClassification.source || null,
+      pattern: configuredClassification.pattern || null,
+      rule: configuredClassification.rule || null,
+    };
+  }
+
+  const key = requestKey(target.targetType, target.normalizedValue);
+  const existing = records.find((record) => requestKey(record.requestedTargetType, record.requestedNormalizedValue) === key);
+  if (existing) {
+    if (existing.status === 'rejected') {
+      return { ok: false, code: 'REQUEST_REJECTED', error: 'request rejected', request: existing };
+    }
+    return { ok: true, alreadyPresent: true, request: existing, localOnly: !cloud.cloud_device_token };
+  }
+
+  const now = Date.now();
+  const record = {
+    id: makeLocalId(),
+    requestedTargetType: target.targetType,
+    requestedRawInput: target.rawInput,
+    requestedNormalizedValue: target.normalizedValue,
+    requestedHost: target.host || null,
+    displayValue: target.displayValue,
+    status: 'pending',
+    requestedAt: now,
+    createdAt: now,
+    updatedAt: now,
+    sourceTabId: Number.isInteger(context.sourceTabId) ? context.sourceTabId : null,
+    sourceUrl: context.url || null,
+    sourceDomain: context.domain || null,
+    profileId: cloud.cloud_profile_id || null,
+    deviceId: cloud.cloud_device_id || null,
+    syncStatus: cloud.cloud_device_token ? 'pending' : 'local_only',
+    lastSyncError: null,
+  };
+  await setSiteClassificationRequestRecords([...records, record]);
+  return { ok: true, added: true, request: record, localOnly: !cloud.cloud_device_token };
+}
+
+export async function getPendingSiteClassificationRequestUploads() {
+  const cloud = await chrome.storage.local.get(['cloud_device_token']).catch(() => ({}));
+  const hasCloudToken = !!cloud.cloud_device_token;
+  const records = await getSiteClassificationRequestRecords({ includeAll: true });
+  const pending = records.filter((record) =>
+    record.status === 'pending' &&
+    (
+      record.syncStatus === 'pending' ||
+      record.syncStatus === 'failed' ||
+      record.syncStatus == null ||
+      (hasCloudToken && record.syncStatus === 'local_only')
+    )
+  );
+  return {
+    pendingCount: pending.length,
+    requests: pending,
+    retryCounts: Object.fromEntries(pending.map((record) => [record.id, Number(record.retryCount || 0)])),
+    lastErrors: Object.fromEntries(pending.filter((record) => record.lastSyncError).map((record) => [record.id, record.lastSyncError])),
+  };
+}
+
+export async function buildSiteClassificationRequestsUploadPayload(ids = []) {
+  const idSet = new Set(ids);
+  const records = await getSiteClassificationRequestRecords({ includeAll: true });
+  const selected = records.filter((record) => idSet.size === 0 || idSet.has(record.id));
+  return {
+    schemaVersion: 1,
+    requests: selected.map((record) => ({
+      id: record.id,
+      requestedTargetType: record.requestedTargetType,
+      requestedRawInput: record.requestedRawInput,
+      requestedNormalizedValue: record.requestedNormalizedValue,
+      requestedHost: record.requestedHost || null,
+      displayValue: record.displayValue || record.requestedNormalizedValue,
+      requestedAt: record.requestedAt || record.createdAt || Date.now(),
+      sourceUrl: record.sourceUrl || null,
+      sourceDomain: record.sourceDomain || null,
+    })),
+  };
+}
+
+export async function markSiteClassificationRequestsUploaded(ids = [], cloudRequests = []) {
+  const idSet = new Set(ids);
+  const cloudById = new Map((Array.isArray(cloudRequests) ? cloudRequests : []).map((record) => [record.clientRequestId || record.id, record]));
+  const records = await getSiteClassificationRequestRecords({ includeAll: true });
+  const next = records.map((record) => {
+    if (!idSet.has(record.id)) return record;
+    const cloud = cloudById.get(record.id) || {};
+    return {
+      ...record,
+      cloudId: cloud.id || record.cloudId || null,
+      profileId: cloud.profileId || record.profileId || null,
+      deviceId: cloud.deviceId || record.deviceId || null,
+      syncStatus: 'uploaded',
+      uploadedAt: Date.now(),
+      lastSyncError: null,
+      retryCount: 0,
+    };
+  });
+  await setSiteClassificationRequestRecords(next);
+}
+
+export async function markSiteClassificationRequestUploadFailed(ids = [], error = 'upload_failed') {
+  const idSet = new Set(ids);
+  const records = await getSiteClassificationRequestRecords({ includeAll: true });
+  const next = records.map((record) => idSet.has(record.id)
+    ? { ...record, syncStatus: 'failed', lastSyncError: String(error || 'upload_failed'), retryCount: Number(record.retryCount || 0) + 1 }
+    : record
+  );
+  await setSiteClassificationRequestRecords(next);
+}
+
+export async function mergeCloudSiteClassificationRequests(cloudRecords = []) {
+  const local = await getSiteClassificationRequestRecords({ includeAll: true });
+  const byKey = new Map(local.map((record) => [requestKey(record.requestedTargetType, record.requestedNormalizedValue), record]));
+  for (const raw of Array.isArray(cloudRecords) ? cloudRecords : []) {
+    const normalized = normalizeSiteClassificationRequest({
+      id: raw.clientRequestId || raw.id,
+      cloudId: raw.id,
+      requestedTargetType: raw.requestedTargetType,
+      requestedRawInput: raw.requestedRawInput,
+      requestedNormalizedValue: raw.requestedNormalizedValue,
+      displayValue: raw.displayValue,
+      status: raw.status,
+      requestedAt: raw.requestedAt,
+      createdAt: raw.createdAt,
+      updatedAt: raw.updatedAt,
+      decidedAt: raw.decidedAt,
+      decision: raw.decision,
+      decisionTargetType: raw.decisionTargetType,
+      decisionNormalizedValue: raw.decisionNormalizedValue,
+      profileId: raw.profileId,
+      deviceId: raw.deviceId,
+      syncStatus: 'uploaded',
+    });
+    if (!normalized) continue;
+    const key = requestKey(normalized.requestedTargetType, normalized.requestedNormalizedValue);
+    const existing = byKey.get(key) || {};
+    byKey.set(key, {
+      ...existing,
+      ...normalized,
+      id: existing.id || normalized.id,
+      cloudId: normalized.cloudId || existing.cloudId || null,
+      syncStatus: 'uploaded',
+      lastSyncError: null,
+    });
+  }
+  return await setSiteClassificationRequestRecords([...byKey.values()]);
+}
+
+export async function hasPendingSiteClassificationPermission(urlOrDomain) {
+  const [records, config] = await Promise.all([
+    getSiteClassificationRequestRecords({ includeAll: true }),
+    getConfig(),
+  ]);
+  const classification = getSiteClassificationForUrl(config, records, urlOrDomain);
+  return classification.classification === 'pending_composite';
+}
+
+export async function getSiteClassificationDecision(urlOrDomain) {
+  const [records, config] = await Promise.all([
+    getSiteClassificationRequestRecords({ includeAll: true }),
+    getConfig(),
+  ]);
+  return getSiteClassificationForUrl(config, records, urlOrDomain);
+}
+
+export function requestDecisionTargetMatches(record, urlOrDomain) {
+  return siteDecisionMatchesUrl(requestDecisionTarget(record), urlOrDomain);
 }
 
 // ── Domain time tracking (daily_usage_stats_v1 primary, event-log fallback) ────

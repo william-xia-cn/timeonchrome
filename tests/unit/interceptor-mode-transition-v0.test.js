@@ -63,6 +63,23 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     chrome,
     getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
     enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
+    getSiteClassificationRequestRecords: async () => [],
+    getSiteClassificationForUrl: () => ({ classification: null }),
+    shouldEnforcePictureInPicturePolicy: () => true,
+    closeForbiddenPictureInPicture: async ({ preferredTabId } = {}) => {
+      const tabIds = [];
+      if (Number.isInteger(preferredTabId)) tabIds.push(preferredTabId);
+      let handled = false;
+      try {
+        for (const id of tabIds) {
+          await chrome.tabs.sendMessage(id, { type: 'EXIT_PIP' });
+          handled = true;
+        }
+        return { ok: handled, handled, closed: handled, tabResults: tabIds.map((tabId) => ({ tabId, ok: true, handled: true, closed: true })) };
+      } catch {
+        return { ok: false, handled, closed: false, tabResults: tabIds.map((tabId) => ({ tabId, ok: false, handled, closed: false })) };
+      }
+    },
     setCachedEffectiveMode: () => {},
     ...stubs,
   };

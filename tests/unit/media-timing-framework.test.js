@@ -57,6 +57,7 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'markMediaSegmentsUploaded',
   'markDailyMediaStatsUploaded',
   'getMediaSession',
+  'closeForbiddenPiPSessionsForTab',
   'getMediaFrameFacts',
   'getMediaSessions',
   'getMediaSegments',
@@ -435,26 +436,21 @@ async function testModeBoundaryBeforeStartOnlyUpdatesMode() {
   check('mode boundary at start updates open media mode', open?.mode === 'rest' && open.startTime === base, JSON.stringify(open));
 }
 
-async function testModeBoundaryClosesPiPWhenTargetModeDisallowsPiP() {
+async function testForbiddenPiPCleanupClosesOpenPiP() {
   resetAll();
   const base = 1778810000000;
   await mediaApi.applyMediaFacts({ ...videoFact(24, 'pip-close.example.com'), isPiP: true }, 'pip_api', base);
 
-  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
-    boundaryAtMs: base + 20_000,
-    fromMode: 'rest',
-    toMode: 'composite',
-  });
+  const cleanup = await mediaApi.closeForbiddenPiPSessionsForTab(24, 'pip_forbidden_cleanup', { now: base + 20_000 });
 
-  check('rest to composite closes open pip session', split.closedPiP === 1, JSON.stringify(split));
+  check('forbidden cleanup closes open pip session', cleanup.closedPiP === 1, JSON.stringify(cleanup));
   const rows = await segments();
-  check('pip close writes mode boundary segment', rows.length === 1 && rows[0].mediaClass === 'pip', JSON.stringify(rows));
-  check('closed pip segment keeps fromMode', rows[0].mode === 'rest', JSON.stringify(rows[0]));
+  check('pip cleanup writes explicit forbidden segment', rows.length === 1 && rows[0].mediaClass === 'pip' && rows[0].settlementReason === 'pip_forbidden_cleanup', JSON.stringify(rows));
   const sessions = Object.values(await mediaApi.getMediaSessions());
-  check('pip is not reopened after disallowing mode boundary', !sessions.some((session) => session.mediaClass === 'pip'), JSON.stringify(sessions));
+  check('pip is not reopened after forbidden cleanup', !sessions.some((session) => session.mediaClass === 'pip'), JSON.stringify(sessions));
 }
 
-async function testModeBoundaryClosesPiPAndReclassifiesRemainingVideo() {
+async function testForbiddenPiPCleanupReclassifiesRemainingVideo() {
   resetAll();
   const base = 1778811000000;
   await mediaApi.applyMediaFacts([
@@ -462,16 +458,12 @@ async function testModeBoundaryClosesPiPAndReclassifiesRemainingVideo() {
     { ...videoFact(25, 'pip-reclassify.example.com'), frameId: 2, isPiP: false },
   ], 'pip_api', base);
 
-  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
-    boundaryAtMs: base + 20_000,
-    fromMode: 'rest',
-    toMode: 'composite',
-  });
+  const cleanup = await mediaApi.closeForbiddenPiPSessionsForTab(25, 'pip_forbidden_cleanup', { now: base + 20_000 });
 
-  check('pip close can reclassify remaining non-pip video', split.closedPiP === 1 && split.reclassified === 1, JSON.stringify(split));
+  check('pip cleanup can reclassify remaining non-pip video', cleanup.closedPiP === 1 && cleanup.reclassified === 1, JSON.stringify(cleanup));
   const sessions = Object.values(await mediaApi.getMediaSessions());
   check('remaining video is reopened as foreground video, not pip', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
-  check('reclassified video uses target mode', sessions[0].mode === 'composite', JSON.stringify(sessions[0]));
+  check('reclassified video uses current cached mode', sessions[0].mode === 'study', JSON.stringify(sessions[0]));
 }
 
 async function run() {
@@ -495,8 +487,8 @@ async function run() {
     testModeBoundarySplitsMultipleOpenMediaSessions,
     testModeBoundaryNoOpenMediaSessionsNoop,
     testModeBoundaryBeforeStartOnlyUpdatesMode,
-    testModeBoundaryClosesPiPWhenTargetModeDisallowsPiP,
-    testModeBoundaryClosesPiPAndReclassifiesRemainingVideo,
+    testForbiddenPiPCleanupClosesOpenPiP,
+    testForbiddenPiPCleanupReclassifiesRemainingVideo,
   ];
   let passed = 0;
   for (const test of tests) {

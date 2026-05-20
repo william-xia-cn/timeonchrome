@@ -78,6 +78,7 @@ function run() {
   expectTrue('popup does not abort rendering when local snapshot fails', popupJs.includes('function getPopupLocalSnapshotSafe') && popupJs.includes('renderPopupLoadError'));
   expectTrue('popup has composite mode active class', popupJs.includes('active-composite'));
   expectTrue('popup supports SWITCH_TO_COMPOSITE', popupJs.includes("SWITCH_TO_COMPOSITE"));
+  expectTrue('popup mode switch renders optimistic state immediately', popupJs.includes('const previousMode') && popupJs.includes('renderModeButtons({ ...(lastPopupSnapshot || {}), mode })'));
   expectTrue('popup no longer reclassifies settled domains by current study list', !modeUsageSource.includes('studyList.some') && !modeUsageSource.includes('matchDomain(domain'));
   expectTrue('popup mode usage reads mode aggregate fields', popupJs.includes('stats?.studySeconds') && popupJs.includes('stats?.restSeconds') && popupJs.includes('stats?.compositeSeconds'));
   expectTrue('popup current access shows session-only duration', popupJs.includes('function formatRuntimeSessionDuration') && !popupJs.includes('formatRuntimeTodayDuration'));

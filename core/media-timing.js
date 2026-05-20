@@ -3,6 +3,7 @@
 import {
   applyMediaFacts,
   classifyMediaFact,
+  closeForbiddenPiPSessionsForTab,
   closeMediaForTab,
   getMediaFact,
   getMediaSessions,
@@ -10,6 +11,8 @@ import {
   splitOpenMediaSessionsAtModeBoundary,
 } from '../runtime/media-session.js';
 import { extractDomain } from '../infra/storage.js';
+import { closeForbiddenPictureInPicture, isPictureInPictureDisallowed } from './pip-policy.js';
+import { emitTrace } from './timing-trace.js';
 
 function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -18,6 +21,40 @@ function hasOwn(obj, key) {
 function numericTabId(tabId) {
   const n = Number(tabId);
   return Number.isInteger(n) ? n : null;
+}
+
+const FORBIDDEN_PIP_CLEANUP_PENDING_MS = 5000;
+const pendingForbiddenPiPCleanupByTab = new Map();
+
+function markPendingForbiddenPiPCleanup(tabId, reason, atMs) {
+  const normalizedTabId = numericTabId(tabId);
+  if (normalizedTabId == null) return null;
+  const entry = {
+    tabId: normalizedTabId,
+    reason: reason || 'pip_forbidden_cleanup',
+    markedAt: atMs,
+    expiresAt: atMs + FORBIDDEN_PIP_CLEANUP_PENDING_MS,
+  };
+  pendingForbiddenPiPCleanupByTab.set(normalizedTabId, entry);
+  return entry;
+}
+
+function clearPendingForbiddenPiPCleanup(tabId) {
+  const normalizedTabId = numericTabId(tabId);
+  if (normalizedTabId != null) pendingForbiddenPiPCleanupByTab.delete(normalizedTabId);
+}
+
+function consumePendingForbiddenPiPCleanup(tabId, atMs) {
+  const normalizedTabId = numericTabId(tabId);
+  if (normalizedTabId == null) return null;
+  const entry = pendingForbiddenPiPCleanupByTab.get(normalizedTabId);
+  if (!entry) return null;
+  if (Number(entry.expiresAt) < atMs) {
+    pendingForbiddenPiPCleanupByTab.delete(normalizedTabId);
+    return null;
+  }
+  pendingForbiddenPiPCleanupByTab.delete(normalizedTabId);
+  return entry;
 }
 
 async function getWindowSnapshot(windowId) {
@@ -90,6 +127,75 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
 
 function isForegroundMediaClassification(classification) {
   return classification?.mediaClass === 'foregroundAudio' || classification?.mediaClass === 'foregroundVideo';
+}
+
+function cleanupSucceededForTab(cleanup, tabId) {
+  const normalized = numericTabId(tabId);
+  const tabResult = (cleanup?.tabResults || []).find((result) => numericTabId(result?.tabId) === normalized);
+  return tabResult?.ok === true || tabResult?.closed === true || tabResult?.confirmedNoPiP === true;
+}
+
+async function emitPiPPolicyTrace(action, payload) {
+  if (typeof emitTrace !== 'function') return;
+  try {
+    await emitTrace(action, {
+      source: 'media-timing',
+      reason: payload?.reason || 'pip_forbidden_cleanup',
+      domain: payload?.domain || null,
+      payload,
+    });
+  } catch {}
+}
+
+async function enforceForbiddenPiPForTab(tabId, reason = 'pip_forbidden_cleanup', atMs = Date.now(), domain = null) {
+  const normalizedTabId = numericTabId(tabId);
+  if (normalizedTabId == null) return { ok: false, skipped: 'invalid_tab_id' };
+  const disallowed = typeof isPictureInPictureDisallowed === 'function'
+    ? isPictureInPictureDisallowed()
+    : true;
+  if (!disallowed) return { ok: true, skipped: 'pip_allowed_by_policy' };
+
+  markPendingForbiddenPiPCleanup(normalizedTabId, reason, atMs);
+  const cleanup = typeof closeForbiddenPictureInPicture === 'function'
+    ? await closeForbiddenPictureInPicture({ preferredTabId: normalizedTabId, reason })
+    : { ok: false, attempted: false, handled: false, tabResults: [], reason };
+  if (!cleanupSucceededForTab(cleanup, normalizedTabId)) {
+    await emitPiPPolicyTrace('pip_forbidden_cleanup_failed', {
+      reason,
+      tabId: normalizedTabId,
+      domain,
+      cleanup,
+    });
+    return { ok: false, cleanup, reason: 'pip_forbidden_cleanup_failed' };
+  }
+
+  const ledger = typeof closeForbiddenPiPSessionsForTab === 'function'
+    ? await closeForbiddenPiPSessionsForTab(normalizedTabId, 'pip_forbidden_cleanup', { now: atMs })
+    : { ok: false, reason: 'pip_ledger_cleanup_unavailable' };
+  clearPendingForbiddenPiPCleanup(normalizedTabId);
+  await emitPiPPolicyTrace('pip_forbidden_cleanup_applied', {
+    reason,
+    tabId: normalizedTabId,
+    domain,
+    cleanup,
+    ledger,
+  });
+  return { ok: true, cleanup, ledger };
+}
+
+async function enforceForbiddenPiPForOpenSessions(reason, atMs = Date.now()) {
+  const sessions = await getMediaSessions();
+  const pipSessions = Object.values(sessions || {})
+    .filter((session) => session?.startTime != null && session.mediaClass === 'pip');
+  const results = [];
+  for (const session of pipSessions) {
+    results.push(await enforceForbiddenPiPForTab(session.tabId, reason, atMs, session.domain));
+  }
+  return {
+    ok: results.every((result) => result.ok !== false),
+    attempted: results.length,
+    results,
+  };
 }
 
 function domainMismatchReason(domain) {
@@ -238,10 +344,31 @@ export async function observeMediaFromSignal(rawEvent = {}) {
   const sourceTabId = rawEvent.mediaSourceTabId ?? rawEvent.tabId;
   if (sourceTabId == null) return null;
   const fact = await queryTabMediaFact(sourceTabId, rawEvent);
-  await applyMediaFacts(fact, rawEvent._reason || 'media_fact', Date.now());
+  const atMs = Date.now();
+  const classification = classifyMediaFact(fact);
+  let pipPolicy = null;
+  const isPiPFact = fact?.isPiP === true || classification?.mediaClass === 'pip';
+  if (!isPiPFact) {
+    const pendingCleanup = consumePendingForbiddenPiPCleanup(fact.tabId, atMs);
+    if (pendingCleanup && typeof closeForbiddenPiPSessionsForTab === 'function') {
+      const ledger = await closeForbiddenPiPSessionsForTab(fact.tabId, 'pip_forbidden_cleanup', { now: atMs });
+      pipPolicy = {
+        ok: true,
+        reason: 'pip_forbidden_cleanup_confirmed_by_media_fact',
+        pendingCleanup,
+        ledger,
+      };
+    }
+  }
+  const result = await applyMediaFacts(fact, rawEvent._reason || 'media_fact', atMs);
+  if (isPiPFact) {
+    pipPolicy = await enforceForbiddenPiPForTab(fact.tabId, rawEvent._reason || 'media_fact', atMs, fact.domain);
+  }
   return {
     fact,
-    classification: classifyMediaFact(fact),
+    classification,
+    result,
+    pipPolicy,
   };
 }
 
@@ -330,9 +457,23 @@ export async function closeMediaForTabLifecycle(tabId, reason) {
 }
 
 export async function runMediaCheckpoint(now = Date.now()) {
-  return runMediaPeriodicCheckpoint(now);
+  const pipPolicy = await enforceForbiddenPiPForOpenSessions('media_checkpoint_pip_policy', now);
+  const checkpoint = await runMediaPeriodicCheckpoint(now);
+  return {
+    ...checkpoint,
+    pipPolicy,
+  };
 }
 
 export async function processMediaModeBoundary(intent = {}) {
-  return splitOpenMediaSessionsAtModeBoundary(intent);
+  const boundary = Number(intent.boundaryAtMs ?? intent.effectiveAtMs ?? intent.atMs);
+  const pipPolicy = await enforceForbiddenPiPForOpenSessions(
+    intent.reason || 'mode_boundary_pip_policy',
+    Number.isFinite(boundary) ? boundary : Date.now()
+  );
+  const split = await splitOpenMediaSessionsAtModeBoundary(intent);
+  return {
+    ...split,
+    pipPolicy,
+  };
 }

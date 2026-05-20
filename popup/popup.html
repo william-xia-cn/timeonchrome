@@ -174,6 +174,78 @@
       flex-shrink: 0;
     }
 
+    .request-entry {
+      margin: 8px 16px 0;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .request-open-btn {
+      border: 1px solid rgba(108,92,231,0.22);
+      background: rgba(108,92,231,0.08);
+      color: #5747d1;
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-size: 11px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .request-panel {
+      margin: 8px 16px 0;
+      padding: 10px;
+      border: 1px solid rgba(108,92,231,0.18);
+      border-radius: 9px;
+      background: rgba(255,255,255,0.7);
+    }
+    .request-panel-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 5px;
+    }
+    .request-help {
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .request-input {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 8px;
+      background: var(--card);
+      color: var(--text);
+      font-size: 11px;
+      outline: none;
+    }
+    .request-actions {
+      display: flex;
+      gap: 7px;
+      margin-top: 8px;
+    }
+    .request-actions button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .request-submit {
+      background: #6c5ce7;
+      border-color: #6c5ce7 !important;
+      color: #fff;
+      font-weight: 650;
+    }
+    .request-back { background: transparent; color: var(--muted); }
+    .request-status {
+      display: none;
+      margin-top: 7px;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+    .request-status.ok { display: block; color: var(--accent); }
+    .request-status.err { display: block; color: var(--danger); }
+
     .usage-panel {
       display: flex;
       flex-direction: column;
@@ -263,6 +335,19 @@
 
   <div id="popup-content">
     <div class="runtime-compact" id="runtime-compact"></div>
+    <div class="request-entry" id="site-request-entry">
+      <button class="request-open-btn" id="site-request-open-btn">临时添加网站</button>
+    </div>
+    <div class="request-panel" id="site-request-panel" style="display:none;">
+      <div class="request-panel-title">申请网站归类</div>
+      <div class="request-help">用于申请未归类网站的临时使用。审批前可以使用，时间计入综合时长。家长之后可以批准为学习网站或综合网站，也可以拒绝。</div>
+      <input class="request-input" id="site-request-input" placeholder="输入域名、子域名或 https:// 链接">
+      <div class="request-actions">
+        <button class="request-submit" id="site-request-submit-btn">添加</button>
+        <button class="request-back" id="site-request-back-btn">返回</button>
+      </div>
+      <div class="request-status" id="site-request-status"></div>
+    </div>
 
     <div class="mode-bar">
       <button class="mode-btn" id="btn-study">

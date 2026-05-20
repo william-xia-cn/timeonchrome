@@ -1428,12 +1428,24 @@ function formatRulesDateTime(ms) {
   return new Date(value).toLocaleString();
 }
 
-function renderTemporaryCompositeRecords(records) {
+function siteRequestStatusLabel(status) {
+  if (status === 'pending') return '待审批';
+  if (status === 'approved_study') return '已批准为学习';
+  if (status === 'approved_composite') return '已批准为综合';
+  if (status === 'rejected') return '已拒绝';
+  return status || '未知';
+}
+
+function siteRequestTypeLabel(type) {
+  return type === 'url' ? '精确链接' : '域名/子域名';
+}
+
+function renderSiteClassificationRequestRecords(records) {
   const el = document.getElementById('rules-temporary-composite-display');
   if (!el) return;
   const list = Array.isArray(records) ? records : [];
   if (list.length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无临时综合网站申请</div>';
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无网站归类申请</div>';
     return;
   }
   el.innerHTML = `
@@ -1441,17 +1453,21 @@ function renderTemporaryCompositeRecords(records) {
       <table class="settlement-table">
         <thead>
           <tr>
-            <th>域名</th>
-            <th>来源 Tab</th>
+            <th>申请对象</th>
+            <th>类型</th>
+            <th>状态</th>
+            <th>审批生效对象</th>
             <th>申请时间</th>
           </tr>
         </thead>
         <tbody>
           ${list.map((record) => `
             <tr>
-              <td class="settlement-domain-cell" title="${escAttr(record.domain || '')}">${escHtml(record.domain || '—')}</td>
-              <td>${Number.isInteger(Number(record.tabId)) ? escHtml(String(record.tabId)) : '—'}</td>
-              <td>${escHtml(formatRulesDateTime(record.createdAt))}</td>
+              <td class="settlement-domain-cell" title="${escAttr(record.displayValue || record.requestedNormalizedValue || '')}">${escHtml(record.displayValue || record.requestedNormalizedValue || '—')}</td>
+              <td>${escHtml(siteRequestTypeLabel(record.requestedTargetType))}</td>
+              <td>${escHtml(siteRequestStatusLabel(record.status))}</td>
+              <td>${escHtml(record.decisionNormalizedValue || '—')}</td>
+              <td>${escHtml(formatRulesDateTime(record.requestedAt || record.createdAt))}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -1460,13 +1476,13 @@ function renderTemporaryCompositeRecords(records) {
   `;
 }
 
-async function renderTemporaryCompositeSection() {
+async function renderSiteClassificationRequestSection() {
   const el = document.getElementById('rules-temporary-composite-display');
   if (!el) return;
   el.textContent = '加载中...';
   try {
-    const payload = await sendMsg({ type: 'GET_TEMPORARY_COMPOSITE_DOMAINS' });
-    renderTemporaryCompositeRecords(payload?.records || []);
+    const payload = await sendMsg({ type: 'GET_SITE_CLASSIFICATION_REQUESTS', status: 'all' });
+    renderSiteClassificationRequestRecords(payload?.records || []);
   } catch (error) {
     el.innerHTML = `<div style="color:var(--danger);font-size:12px;padding:8px 0;">${escHtml(error?.message || '加载失败')}</div>`;
   }
@@ -1525,7 +1541,7 @@ function renderRulesPage() {
 
   renderQuotaSection();
   renderScheduleSection();
-  renderTemporaryCompositeSection();
+  renderSiteClassificationRequestSection();
 }
 
 // ──────────────────────────────────────────────────────────────────────────

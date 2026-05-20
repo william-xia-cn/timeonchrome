@@ -9,6 +9,7 @@ import { sessionsRouter } from './routes/sessions';
 import { changelogRouter } from './routes/changelog';
 import { eventsRouter } from './routes/events';
 import { compositeSessionsRouter } from './routes/compositeSessions';
+import { siteClassificationRequestsRouter } from './routes/siteClassificationRequests';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -186,6 +187,8 @@ export default {
         return await authRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/(stats|usage-segments|stats-reconciliation)/)) {
         return await statsRouter.handle(request, env);
+      } else if (path.match(/^\/profiles\/[^/]+\/site-classification-requests/)) {
+        return await siteClassificationRequestsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
         return await compositeSessionsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/changelog/)) {
@@ -194,6 +197,8 @@ export default {
         return await profilesRouter.handle(request, env);
       } else if (path === '/device/heartbeat') {
         return await deviceRouter.handle(request, env);
+      } else if (path === '/device/site-classification-requests/v1') {
+        return await siteClassificationRequestsRouter.handle(request, env);
       } else if (path === '/device/usage-segments/v1' || path === '/device/stats/v1') {
         // Stats Foundation v1 endpoints (device_token auth)
         return await statsRouter.handle(request, env);

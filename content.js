@@ -27,6 +27,7 @@
   let mediaKind = null;
   let audioContextActive = false;
   let pipActive = false;
+  let suppressPiPLeaveReportUntil = 0;
   const MEDIA_POLL_INTERVAL_MS = 1000;
   const MEDIA_REAFFIRM_INTERVAL_MS = 30000;
   let lastMediaStateSentAt = 0;
@@ -38,7 +39,7 @@
     return true;
   }
 
-  function updateMediaState(force = false, source = 'dom_media_event') {
+  function readMediaSnapshot() {
     const elements = Array.from(document.querySelectorAll('video, audio'));
     const playingElements = elements.filter(el => !el.paused && !el.ended && el.readyState > 2);
     const htmlMediaPlaying = playingElements.length > 0;
@@ -47,10 +48,22 @@
       ? 'video'
       : (newState ? 'audio' : null);
     const newPiP = !!document.pictureInPictureElement;
+    return { playing: newState, kind: newKind, isPiP: newPiP };
+  }
+
+  function rememberMediaSnapshot(snapshot) {
+    mediaPlaying = snapshot.playing;
+    mediaKind = snapshot.kind;
+    pipActive = snapshot.isPiP;
+  }
+
+  function updateMediaState(force = false, source = 'dom_media_event') {
+    const snapshot = readMediaSnapshot();
+    const newState = snapshot.playing;
+    const newKind = snapshot.kind;
+    const newPiP = snapshot.isPiP;
     if (newState !== mediaPlaying || newPiP !== pipActive || newKind !== mediaKind) {
-      mediaPlaying = newState;
-      mediaKind = newKind;
-      pipActive = newPiP;
+      rememberMediaSnapshot(snapshot);
       return sendMediaState(mediaPlaying, pipActive, mediaKind, source);
     } else if (force && (newState || newPiP)) {
       return sendMediaState(newState, newPiP, newKind, source);
@@ -67,12 +80,20 @@
   }
 
   // 对已有媒体元素挂钩
+  function handlePictureInPictureLeave() {
+    if (Date.now() <= suppressPiPLeaveReportUntil) {
+      rememberMediaSnapshot(readMediaSnapshot());
+      return;
+    }
+    updateMediaState(false, 'pip_api');
+  }
+
   function attachMediaListeners(el) {
     el.addEventListener('play',  () => updateMediaState(false, 'dom_media_event'));
     el.addEventListener('pause', () => updateMediaState(false, 'dom_media_event'));
     el.addEventListener('ended', () => updateMediaState(false, 'dom_media_event'));
     el.addEventListener('enterpictureinpicture', () => updateMediaState(false, 'pip_api'));
-    el.addEventListener('leavepictureinpicture', () => updateMediaState(false, 'pip_api'));
+    el.addEventListener('leavepictureinpicture', handlePictureInPictureLeave);
   }
   document.querySelectorAll('video, audio').forEach(attachMediaListeners);
 
@@ -88,6 +109,18 @@
     updateMediaState(false, 'dom_media_event');
   });
   mediaObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+  function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function waitForPictureInPictureExit(timeoutMs = 1000) {
+    const deadline = Date.now() + timeoutMs;
+    while (document.pictureInPictureElement && Date.now() < deadline) {
+      await wait(50);
+    }
+    return !document.pictureInPictureElement;
+  }
 
   // Some browser-controlled media documents and cross-world media events do not
   // reliably fire listener callbacks into the content script. Polling only
@@ -192,9 +225,11 @@
     const hadPiP = !!document.pictureInPictureElement;
     try {
       if (document.pictureInPictureElement && document.exitPictureInPicture) {
+        suppressPiPLeaveReportUntil = Date.now() + 2000;
         await document.exitPictureInPicture();
       }
     } catch (err) {
+      suppressPiPLeaveReportUntil = 0;
       updateMediaState();
       return {
         ok: false,
@@ -203,11 +238,13 @@
         error: err?.message || String(err),
       };
     }
-    updateMediaState();
+    const exited = hadPiP ? await waitForPictureInPictureExit() : false;
+    rememberMediaSnapshot(readMediaSnapshot());
     return {
-      ok: true,
+      ok: !hadPiP || exited,
       hadPiP,
-      exited: hadPiP && !document.pictureInPictureElement,
+      exited: hadPiP && exited,
+      error: hadPiP && !exited ? 'pip_exit_not_confirmed' : undefined,
     };
   }
 

@@ -248,6 +248,24 @@
     .review-session-title { flex: 1; font-size: 13px; color: var(--text); line-height: 1.4; }
     .review-session-meta  { font-size: 12px; color: var(--muted); white-space: nowrap; }
     .review-session-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .site-request-row {
+      display: grid; grid-template-columns: minmax(160px, 1fr) 140px minmax(220px, 1.2fr) auto;
+      gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .site-request-row:last-child { border-bottom: none; }
+    .site-request-title { font-size: 13px; color: var(--text); line-height: 1.35; }
+    .site-request-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .site-request-target {
+      display: flex; gap: 6px; align-items: center; min-width: 0;
+    }
+    .site-request-target select,
+    .site-request-target input {
+      background: var(--card); color: var(--text); border: 1px solid var(--border);
+      border-radius: 7px; padding: 6px 8px; font-size: 12px; outline: none;
+    }
+    .site-request-target input { flex: 1; min-width: 130px; }
+    .site-request-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .site-request-status { font-size: 12px; color: var(--muted); white-space: nowrap; }
     .btn-classify {
       padding: 4px 10px; border-radius: 6px; border: 1px solid; font-size: 12px; cursor: pointer;
       background: transparent; transition: background .15s;
@@ -1038,7 +1056,31 @@
       <!-- 待审核 -->
       <div class="page" id="page-review">
         <div class="page-header">
-          <h2>待审核会话</h2>
+          <h2>待审核</h2>
+          <p>处理网站归类申请，以及复合型网站产生的待分类会话</p>
+        </div>
+
+        <div class="card" id="site-classification-review-card" style="margin-bottom:16px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">网站归类申请</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">可调整审批生效对象，支持扩大到根域名或缩小到子域名、精确链接。</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="site-classification-status-filter" style="padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:12px;">
+                <option value="pending">仅待审批</option>
+                <option value="all">全部历史</option>
+              </select>
+              <button class="btn-save" id="site-classification-load-btn" style="padding:6px 12px;font-size:12px;">刷新</button>
+            </div>
+          </div>
+          <div id="site-classification-requests-container">
+            <div class="empty-state">加载网站归类申请中…</div>
+          </div>
+        </div>
+
+        <div class="page-header" style="margin-top:4px;">
+          <h2 style="font-size:20px;">待审核会话</h2>
           <p>孩子访问复合型网站产生的会话记录，请分类为学习或休息</p>
         </div>
 
@@ -1300,8 +1342,13 @@ async function selectProfile(id) {
 async function updateReviewBadge(profileId) {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const r = await api(`/profiles/${profileId}/pending-reviews?date=${today}`);
-    const count = (r.groups || []).reduce((sum, g) => sum + g.sessions.length, 0);
+    const [reviewResult, siteResult] = await Promise.all([
+      api(`/profiles/${profileId}/pending-reviews?date=${today}`).catch(() => ({ groups: [] })),
+      api(`/profiles/${profileId}/site-classification-requests/v1?status=pending`).catch(() => ({ requests: [] })),
+    ]);
+    const sessionCount = (reviewResult.groups || []).reduce((sum, g) => sum + g.sessions.length, 0);
+    const siteCount = (siteResult.requests || []).length;
+    const count = sessionCount + siteCount;
     const badge = document.getElementById('review-badge');
     if (badge) {
       badge.textContent = count > 0 ? count : '';
@@ -3090,8 +3137,103 @@ function renderReviewPage() {
   if (!dateInput.value) dateInput.value = fmtDate(new Date());
 
   document.getElementById('review-load-btn').onclick = () => loadReviewGroups();
+  document.getElementById('site-classification-load-btn').onclick = () => loadSiteClassificationRequests();
+  document.getElementById('site-classification-status-filter').onchange = () => loadSiteClassificationRequests();
   // 首次进入自动加载
+  loadSiteClassificationRequests();
   loadReviewGroups();
+}
+
+function siteRequestStatusLabel(status) {
+  if (status === 'pending') return '待审批';
+  if (status === 'approved_study') return '已批准为学习';
+  if (status === 'approved_composite') return '已批准为综合';
+  if (status === 'rejected') return '已拒绝';
+  return status || '未知';
+}
+
+function siteRequestTargetTypeLabel(type) {
+  return type === 'url' ? '精确链接' : '域名/子域名';
+}
+
+function siteRequestDecisionDefault(request) {
+  return request.decisionNormalizedValue || request.requestedNormalizedValue || '';
+}
+
+function renderSiteRequestRow(request, idx) {
+  const isPending = request.status === 'pending';
+  const requestedType = request.requestedTargetType || 'host';
+  const requestedValue = request.displayValue || request.requestedNormalizedValue || '';
+  const decisionType = request.decisionTargetType || requestedType;
+  const decisionValue = siteRequestDecisionDefault(request);
+  const device = request.deviceId ? `终端 ${escHtml(request.deviceId)}` : '终端未记录';
+  const requestedAt = request.requestedAt ? new Date(Number(request.requestedAt)).toLocaleString('zh-CN') : '-';
+  const actionHtml = isPending ? `
+    <div class="site-request-actions">
+      <button class="btn-classify study" onclick="decideSiteClassificationRequest(${idx},'study')">批准为学习网站</button>
+      <button class="btn-classify rest" onclick="decideSiteClassificationRequest(${idx},'composite')">批准为综合网站</button>
+      <button class="btn-classify" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">拒绝</button>
+    </div>` : `<div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status))}</div>`;
+  return `
+    <div class="site-request-row" data-id="${escHtml(request.id)}">
+      <div>
+        <div class="site-request-title">${escHtml(requestedValue)}</div>
+        <div class="site-request-meta">申请对象：${siteRequestTargetTypeLabel(requestedType)} · ${escHtml(requestedAt)}</div>
+      </div>
+      <div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status))}<br><span style="color:var(--muted);">${device}</span></div>
+      <div class="site-request-target">
+        <select id="site-request-type-${idx}" ${isPending ? '' : 'disabled'}>
+          <option value="host" ${decisionType === 'host' ? 'selected' : ''}>域名/子域名</option>
+          <option value="url" ${decisionType === 'url' ? 'selected' : ''}>精确链接</option>
+        </select>
+        <input id="site-request-target-${idx}" value="${escHtml(decisionValue)}" ${isPending ? '' : 'disabled'} placeholder="审批生效对象">
+      </div>
+      ${actionHtml}
+    </div>`;
+}
+
+async function loadSiteClassificationRequests() {
+  if (!currentProfileId) return;
+  const container = document.getElementById('site-classification-requests-container');
+  if (!container) return;
+  container.innerHTML = '<div class="empty-state">加载网站归类申请中…</div>';
+  const status = document.getElementById('site-classification-status-filter')?.value || 'pending';
+  try {
+    const r = await api(`/profiles/${currentProfileId}/site-classification-requests/v1?status=${encodeURIComponent(status)}`);
+    const requests = Array.isArray(r.requests) ? r.requests : [];
+    window._siteClassificationRequests = requests;
+    if (requests.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="padding:36px;">暂无网站归类申请</div>';
+      updateReviewBadge(currentProfileId);
+      return;
+    }
+    container.innerHTML = requests.map(renderSiteRequestRow).join('');
+    updateReviewBadge(currentProfileId);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state" style="color:var(--danger);">加载失败：${escHtml(e.message)}</div>`;
+  }
+}
+
+async function decideSiteClassificationRequest(idx, decision) {
+  const request = window._siteClassificationRequests?.[idx];
+  if (!request) return;
+  const targetType = document.getElementById(`site-request-type-${idx}`)?.value || request.requestedTargetType;
+  const targetValue = document.getElementById(`site-request-target-${idx}`)?.value?.trim();
+  if (!targetValue) {
+    toast('请输入审批生效对象', false);
+    return;
+  }
+  try {
+    await api(`/profiles/${currentProfileId}/site-classification-requests/${encodeURIComponent(request.id)}/decision`, 'POST', {
+      decision,
+      targetType,
+      targetValue,
+    });
+    toast(decision === 'study' ? '已批准为学习网站' : decision === 'composite' ? '已批准为综合网站' : '已拒绝');
+    await loadSiteClassificationRequests();
+  } catch (e) {
+    toast('操作失败：' + e.message, false);
+  }
 }
 
 async function loadReviewGroups() {

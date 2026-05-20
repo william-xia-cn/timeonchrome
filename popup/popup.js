@@ -1,12 +1,14 @@
 // popup/popup.js - 孩子视角：只读时间用量展示
 
 let popupStatsContext = { config: {}, stats: {} };
+let lastPopupSnapshot = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   bindPopupEvents();
 
   const snapshotPromise = getPopupLocalSnapshotSafe();
   snapshotPromise.then((snapshot) => {
+    lastPopupSnapshot = snapshot || {};
     renderModeButtons(snapshot || {});
     renderRuntimeStatus(snapshot || {});
   });
@@ -25,10 +27,139 @@ function bindPopupEvents() {
   document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
   document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
   document.getElementById('btn-composite').addEventListener('click',  () => setMode('composite'));
+  document.getElementById('site-request-open-btn')?.addEventListener('click', openSiteRequestPanel);
+  document.getElementById('site-request-back-btn')?.addEventListener('click', closeSiteRequestPanel);
+  document.getElementById('site-request-submit-btn')?.addEventListener('click', submitSiteClassificationRequest);
+  document.getElementById('site-request-input')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') submitSiteClassificationRequest();
+  });
 
   document.getElementById('settings-btn').addEventListener('click', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
   });
+}
+
+function getReminderTargetFromUrl(url) {
+  if (!url || typeof url !== 'string' || !url.includes('reminder.html')) return null;
+  try {
+    const parsed = new URL(url);
+    const domain = parsed.searchParams.get('domain');
+    if (!domain || domain === 'all') return null;
+    const sourceTabId = Number(parsed.searchParams.get('sourceTabId'));
+    return {
+      input: `https://${domain}`,
+      sourceTabId: Number.isInteger(sourceTabId) && sourceTabId >= 0 ? sourceTabId : null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizePopupUrlInput(url) {
+  if (!url || typeof url !== 'string') return '';
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (_) {
+    return '';
+  }
+}
+
+function getDefaultSiteRequest() {
+  const reminderTarget = getReminderTargetFromUrl(lastPopupSnapshot?.url);
+  if (reminderTarget) return reminderTarget;
+  const currentUrl = normalizePopupUrlInput(lastPopupSnapshot?.url);
+  if (currentUrl) {
+    return { input: currentUrl, sourceTabId: lastPopupSnapshot?.tabId ?? null };
+  }
+  const domain = lastPopupSnapshot?.currentDomain || lastPopupSnapshot?.domain || '';
+  return { input: domain || '', sourceTabId: lastPopupSnapshot?.tabId ?? null };
+}
+
+function openSiteRequestPanel() {
+  const entry = document.getElementById('site-request-entry');
+  const panel = document.getElementById('site-request-panel');
+  const input = document.getElementById('site-request-input');
+  const status = document.getElementById('site-request-status');
+  const defaults = getDefaultSiteRequest();
+  if (entry) entry.style.display = 'none';
+  if (panel) panel.style.display = 'block';
+  if (input && !input.value.trim()) input.value = defaults.input || '';
+  if (status) {
+    status.style.display = 'none';
+    status.className = 'request-status';
+    status.textContent = '';
+  }
+  setTimeout(() => input?.focus?.(), 0);
+}
+
+function closeSiteRequestPanel() {
+  const entry = document.getElementById('site-request-entry');
+  const panel = document.getElementById('site-request-panel');
+  if (entry) entry.style.display = 'flex';
+  if (panel) panel.style.display = 'none';
+}
+
+function siteRequestErrorMessage(result = {}) {
+  if (result.code === 'REQUEST_REJECTED') return '家长已拒绝该范围，不能再次申请。';
+  if (result.code === 'ALREADY_CLASSIFIED') return '该网站已归类，不能重新申请归类。';
+  if (result.code === 'URL_REQUIRES_PROTOCOL') return '特定链接需要以 http:// 或 https:// 开头。';
+  if (result.code === 'INVALID_HOST' || result.code === 'INVALID_URL' || result.code === 'INVALID_TARGET') return '请输入有效域名、子域名或 http/https 链接。';
+  if (result.error) return `提交失败：${result.error}`;
+  return '提交失败，请稍后重试。';
+}
+
+async function submitSiteClassificationRequest() {
+  const inputEl = document.getElementById('site-request-input');
+  const status = document.getElementById('site-request-status');
+  const submitBtn = document.getElementById('site-request-submit-btn');
+  const value = inputEl?.value?.trim() || '';
+  const defaults = getDefaultSiteRequest();
+  if (status) {
+    status.className = 'request-status';
+    status.style.display = 'none';
+    status.textContent = '';
+  }
+  if (!value) {
+    if (status) {
+      status.className = 'request-status err';
+      status.textContent = '请输入要申请归类的网站或链接。';
+    }
+    return;
+  }
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    const result = await sendMsg({
+      type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST',
+      input: value,
+      sourceTabId: defaults.sourceTabId,
+    }, { attempts: 1, timeoutMs: 1200 });
+    if (!result?.ok) {
+      if (status) {
+        status.className = 'request-status err';
+        status.textContent = siteRequestErrorMessage(result || {});
+      }
+      return;
+    }
+    if (status) {
+      status.className = 'request-status ok';
+      status.textContent = result.localOnly
+        ? '已在本机临时生效。登录并绑定云端后，才能提交给家长审批。'
+        : '已提交申请。审批前可以使用，时间计入综合时长。';
+    }
+    if (result.targetUrl && Number.isInteger(result.sourceTabId)) {
+      chrome.tabs.update(result.sourceTabId, { url: result.targetUrl }).catch(() => {});
+    }
+  } catch (error) {
+    if (status) {
+      status.className = 'request-status err';
+      status.textContent = `提交失败：${error?.message || '后台暂不可用'}`;
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
 function renderPopupLoadError(error) {
@@ -102,17 +233,35 @@ async function setMode(mode) {
   const type = mode === 'study'
     ? 'SWITCH_TO_STUDY'
     : (mode === 'rest' ? 'SWITCH_TO_REST' : 'SWITCH_TO_COMPOSITE');
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  const activeTab = tabs && tabs[0] ? tabs[0] : null;
-  const noticeTabId = Number.isInteger(activeTab?.id) ? activeTab.id : null;
-  await sendMsg({ type, noticeTabId });
-  const runtimeStatus = await getRuntimeModeStatusSafe();
-  renderModeButtons(runtimeStatus);
-  renderRuntimeStatus(runtimeStatus);
+  const previousMode = lastPopupSnapshot?.mode || popupStatsContext?.config?.mode || 'study';
+  renderModeButtons({ ...(lastPopupSnapshot || {}), mode });
+  lastPopupSnapshot = { ...(lastPopupSnapshot || {}), mode };
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTab = tabs && tabs[0] ? tabs[0] : null;
+    const noticeTabId = Number.isInteger(activeTab?.id) ? activeTab.id : null;
+    const switchResult = await sendMsg({ type, noticeTabId });
+    const switchedMode = switchResult?.mode || switchResult?.currentMode || mode;
+    const runtimeStatus = await getRuntimeModeStatusSafe();
+    const nextStatus = {
+      ...(lastPopupSnapshot || {}),
+      ...(runtimeStatus || {}),
+      mode: runtimeStatus?.mode || runtimeStatus?.currentMode || switchedMode,
+    };
+    lastPopupSnapshot = nextStatus;
+    renderModeButtons(nextStatus);
+    renderRuntimeStatus(nextStatus);
+  } catch (error) {
+    lastPopupSnapshot = { ...(lastPopupSnapshot || {}), mode: previousMode };
+    renderModeButtons(lastPopupSnapshot);
+    renderRuntimeStatus(lastPopupSnapshot);
+    console.warn('[popup] mode switch failed:', error?.message || error);
+  }
 }
 
 async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
   const snapshot = await snapshotPromise;
+  lastPopupSnapshot = snapshot || {};
   const config = snapshot?.config || {};
   const stats = snapshot?.stats || {};
   const runtimeStatus = snapshot || {};
@@ -331,7 +480,16 @@ function resolveDomainTag(domain, config = {}) {
   const compositeList = Array.isArray(config.compositeList) ? config.compositeList : [];
   const restrictedPatterns = collectRestrictedPatterns(config);
   const restPatterns = collectRestPatterns(config);
+  const structuredRules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
 
+  for (const rule of structuredRules) {
+    if (rule?.targetType !== 'host') continue;
+    const value = rule.normalizedValue || rule.targetValue;
+    if (!value || !matchDomain(domain, value)) continue;
+    if (rule.decision === 'study' || rule.classification === 'study') return '学习网站';
+    if (rule.decision === 'composite' || rule.classification === 'composite') return '综合网站';
+    if (rule.decision === 'reject' || rule.classification === 'reject') return '未批准网站';
+  }
   if (studyList.some(p => matchDomain(domain, p))) return '学习网站';
   if (compositeList.some(p => matchDomain(domain, p))) return '综合网站';
   if (restrictedPatterns.some(p => matchDomain(domain, p))) return '受限娱乐网站';

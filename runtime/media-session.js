@@ -14,6 +14,7 @@ const MEDIA_CHECKPOINT_MS = 180 * 1000;
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
 const MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON = 'media_checkpoint_estimated_close';
 const MEDIA_CHECKPOINT_ESTIMATED_END_REASON = 'media_checkpoint_estimated_half_interval_close';
+const PIP_FORBIDDEN_CLEANUP_REASON = 'pip_forbidden_cleanup';
 
 const MEDIA_CLASSES = new Set([
   'foregroundAudio',
@@ -258,13 +259,6 @@ function normalizeModeValue(mode) {
   if (mode === 'whitelist') return 'study';
   if (mode === 'blacklist') return 'rest';
   return mode || 'unknown';
-}
-
-function modeBoundaryClosesPiP(intent = {}) {
-  const fromMode = normalizeModeValue(intent.fromMode);
-  const toMode = normalizeModeValue(intent.toMode);
-  if (toMode === 'study') return true;
-  return fromMode === 'rest' && toMode === 'composite';
 }
 
 function mediaDescriptionEndpoint(reason, atMs, source = 'media') {
@@ -742,6 +736,64 @@ async function closeSessionsForTabInMap(sessions, tabId, reason, atMs, exceptKey
   return { closed, appended };
 }
 
+export async function closeForbiddenPiPSessionsForTab(tabId, reason = PIP_FORBIDDEN_CLEANUP_REASON, options = {}) {
+  return runMediaSerialized(async () => {
+    const normalizedTabId = normalizeTabId(tabId);
+    if (!normalizedTabId) return { ok: false, reason: 'invalid_tab_id' };
+    const atMs = Number.isFinite(options.now) ? options.now : Date.now();
+    const sessions = await readSessions();
+    const facts = await readFacts();
+    const frameFacts = await readFrameFacts();
+    let closedPiP = 0;
+    let appended = 0;
+    let reclassified = 0;
+
+    for (const [key, session] of Object.entries(sessions)) {
+      if (!session?.startTime) continue;
+      if (normalizeTabId(session.tabId) !== normalizedTabId) continue;
+      if (session.mediaClass !== 'pip') continue;
+      const settlement = await settleMediaSession(session, atMs, reason, {
+        endReason: reason,
+      });
+      appended += settlement.appended || 0;
+      delete sessions[key];
+      closedPiP++;
+    }
+
+    const removedPiPFrameFacts = removePiPFrameFactsForTab(frameFacts, normalizedTabId);
+    const tabFact = aggregateCheckpointMediaFact(normalizedTabId, frameFacts, facts);
+    const classification = classifyMediaFact(tabFact);
+    if (!classification || classification.mediaClass === 'pip') {
+      delete facts[normalizedTabId];
+    } else {
+      facts[normalizedTabId] = tabFact;
+      const key = sessionKey(tabFact.tabId, classification.mediaClass);
+      if (!sessions[key]) {
+        sessions[key] = openSessionFromFact(
+          tabFact,
+          classification,
+          `${reason}_reclassify`,
+          atMs
+        );
+        reclassified++;
+      }
+    }
+
+    await writeFrameFacts(frameFacts);
+    await writeFacts(facts);
+    await writeSessions(sessions);
+    return {
+      ok: true,
+      reason,
+      tabId: normalizedTabId,
+      closedPiP,
+      appended,
+      reclassified,
+      removedPiPFrameFacts,
+    };
+  });
+}
+
 export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = Date.now()) {
   return runMediaSerialized(async () => {
     const factsList = Array.isArray(factsInput) ? factsInput : [factsInput];
@@ -896,34 +948,12 @@ export async function splitOpenMediaSessionsAtModeBoundary(intent = {}) {
     }
 
     const sessions = await readSessions();
-    const facts = await readFacts();
-    const frameFacts = await readFrameFacts();
-    const closesPiP = modeBoundaryClosesPiP(intent);
-    const reclassifyTabs = new Set();
     let split = 0;
     let appended = 0;
     let updated = 0;
-    let closedPiP = 0;
-    let reclassified = 0;
 
     for (const [key, session] of Object.entries(sessions)) {
       if (!session?.startTime) continue;
-      if (closesPiP && session.mediaClass === 'pip') {
-        if (boundary > session.startTime) {
-          const settlement = await settleMediaSession(session, boundary, 'mode_effective_boundary', {
-            modeOverride: intent.fromMode || null,
-          });
-          appended += settlement.appended || 0;
-          split++;
-        } else {
-          updated++;
-        }
-        delete sessions[key];
-        reclassifyTabs.add(session.tabId);
-        closedPiP++;
-        continue;
-      }
-
       if (boundary <= session.startTime) {
         sessions[key] = {
           ...session,
@@ -953,27 +983,6 @@ export async function splitOpenMediaSessionsAtModeBoundary(intent = {}) {
       split++;
     }
 
-    for (const tabId of reclassifyTabs) {
-      removePiPFrameFactsForTab(frameFacts, tabId);
-      const tabFact = aggregateCheckpointMediaFact(tabId, frameFacts, facts);
-      const classification = classifyMediaFact(tabFact);
-      if (!classification || classification.mediaClass === 'pip') {
-        delete facts[normalizeTabId(tabId)];
-        continue;
-      }
-      facts[normalizeTabId(tabId)] = tabFact;
-      const key = sessionKey(tabFact.tabId, classification.mediaClass);
-      if (!sessions[key]) {
-        sessions[key] = {
-          ...openSessionFromFact(tabFact, classification, 'mode_effective_boundary_pip_reclassify', boundary),
-          mode: toMode,
-        };
-        reclassified++;
-      }
-    }
-
-    await writeFrameFacts(frameFacts);
-    await writeFacts(facts);
     await writeSessions(sessions);
     return {
       ok: true,
@@ -981,8 +990,8 @@ export async function splitOpenMediaSessionsAtModeBoundary(intent = {}) {
       split,
       updated,
       appended,
-      closedPiP,
-      reclassified,
+      closedPiP: 0,
+      reclassified: 0,
       mode: toMode,
     };
   });

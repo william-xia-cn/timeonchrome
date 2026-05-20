@@ -44,7 +44,7 @@ async function run() {
         sendMessage(msg, cb) {
           sentMessages.push(msg);
           if (typeof cb === 'function') {
-            cb(msg?.type === 'GET_RUNTIME_MODE_STATUS' ? { mode: 'composite' } : {});
+            cb({});
           }
         },
         onMessage: { addListener() {} },
@@ -171,8 +171,13 @@ this.__setMode = setMode;
     type: 'SWITCH_TO_COMPOSITE',
     noticeTabId: 123,
   }));
+  expectEqual(
+    'popup mode switch keeps optimistic mode when runtime status is empty',
+    elementFor('btn-composite').className.includes('active-composite') ? 'active' : 'inactive',
+    'active'
+  );
 
-  console.log('[popup-current-site-tag] 17/17 passed');
+  console.log('[popup-current-site-tag] 18/18 passed');
 }
 
 run().catch((err) => {

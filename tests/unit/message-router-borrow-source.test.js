@@ -50,6 +50,10 @@ function loadHandleMessage(stubs) {
         id: 'ext-id',
         getURL: (p = '/') => `chrome-extension://ext-id${p}`,
       },
+      tabs: {
+        get: async (tabId) => ({ id: tabId, url: 'https://example.com/path?a=1' }),
+        query: async () => [{ id: 101, url: 'https://fallback.example.com/' }],
+      },
       storage: { local: { set: async () => {} } },
     },
     fetch: async () => ({ ok: true, json: async () => ({}) }),
@@ -70,6 +74,9 @@ async function run() {
     { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
     { tabId: 8, domain: 'new.example.com', createdAt: 2000 },
   ];
+  const siteClassificationRecords = [
+    { id: 'scr-1', requestedTargetType: 'host', requestedNormalizedValue: 'example.com', status: 'pending', requestedAt: 3000 },
+  ];
   const { handleMessage } = loadHandleMessage({
     updateDeclarativeRules: async () => {},
     getConfig: async () => ({
@@ -82,6 +89,28 @@ async function run() {
     }),
     hasTemporaryCompositePermission: async () => false,
     getTemporaryCompositePermissionRecords: async () => temporaryCompositeRecords,
+    getSiteClassificationRequestRecords: async () => siteClassificationRecords,
+    submitSiteClassificationRequest: async (input, context) => ({
+      ok: true,
+      added: true,
+      localOnly: true,
+      request: { id: 'scr-new', requestedNormalizedValue: input, sourceTabId: context.tabId },
+    }),
+    normalizeSiteClassificationTarget: (input) => {
+      const value = String(input || '').trim().toLowerCase();
+      if (!value) return { ok: false, code: 'EMPTY_TARGET' };
+      if (value.startsWith('http://') || value.startsWith('https://')) {
+        const parsed = new URL(value);
+        parsed.hash = '';
+        return { ok: true, targetType: 'url', normalizedValue: `${parsed.protocol}//${parsed.hostname}${parsed.pathname}${parsed.search}`, displayValue: `${parsed.protocol}//${parsed.hostname}${parsed.pathname}${parsed.search}` };
+      }
+      return { ok: true, targetType: 'host', normalizedValue: value, displayValue: value };
+    },
+    getSyncState: () => ({ deviceToken: null }),
+    syncNow: async () => ({}),
+    extractDomain: (url) => {
+      try { return new URL(url).hostname; } catch (_) { return ''; }
+    },
     addTemporaryCompositeDomain: async (tabId, domain) => {
       compositeCalls.push({ tabId, domain });
       return { added: true };
@@ -92,6 +121,7 @@ async function run() {
   {
     expectTrue('storage 暴露临时综合记录只读方法', storageSource.includes('export async function getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持 GET_TEMPORARY_COMPOSITE_DOMAINS', routerSource.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && routerSource.includes('getTemporaryCompositePermissionRecords'));
+    expectTrue('router 支持网站归类申请消息', routerSource.includes('SUBMIT_SITE_CLASSIFICATION_REQUEST') && routerSource.includes('GET_SITE_CLASSIFICATION_REQUESTS'));
     expectTrue('router CLOUD_LOGIN 统一小写邮箱', routerSource.includes("const email = String(msg.email || '').trim().toLowerCase();"));
   }
 
@@ -149,6 +179,22 @@ async function run() {
         { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
       ],
     });
+  }
+
+  section('C02-1 读取网站归类申请记录');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/admin/admin.html' };
+    const r = await handleMessage({ type: 'GET_SITE_CLASSIFICATION_REQUESTS', status: 'all' }, sender);
+    expect('返回网站归类申请 records', r, { ok: true, records: siteClassificationRecords });
+  }
+
+  section('C02-2 提交网站归类申请使用 sourceTabId 上下文');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
+    const r = await handleMessage({ type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST', input: 'example.com', sourceTabId: 42 }, sender);
+    expectTrue('提交成功', r.ok && r.added);
+    expect('返回目标 URL', r.targetUrl, 'https://example.com');
+    expect('使用 sourceTabId', r.sourceTabId, 42);
   }
 
   const total = passed + failed;

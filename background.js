@@ -258,6 +258,7 @@ function pickPopupConfig(rawConfig) {
     restrictedEntertainmentList: config.restrictedEntertainmentList || DEFAULT_CONFIG.restrictedEntertainmentList,
     entertainmentList: config.entertainmentList || DEFAULT_CONFIG.entertainmentList,
     unsafeList: config.unsafeList || DEFAULT_CONFIG.unsafeList,
+    siteClassificationRulesV1: Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [],
     dailyOnlineQuota: config.dailyOnlineQuota ?? DEFAULT_CONFIG.dailyOnlineQuota,
     dailyStudyQuota: config.dailyStudyQuota ?? DEFAULT_CONFIG.dailyStudyQuota,
     dailyRestQuota: config.dailyRestQuota ?? DEFAULT_CONFIG.dailyRestQuota,

@@ -140,8 +140,8 @@ function run() {
   expectTrue('admin 初始化配置失败不应阻断登录界面', code.includes('initial GET_CONFIG failed, keeping login available') && code.includes('showBindScreen();'));
   expectTrue('admin sendMsg 应支持 background 冷启动重试', code.includes('background_timeout') && code.includes('setTimeout(resolve, 180)'));
   expectTrue('admin 本地只读模式应保留登录绑定入口', code.includes('function openCloudLogin()') && code.includes('id="cloud-login-btn"') && code.includes('登录/绑定云端'));
-  expectTrue('admin 访问规则页应展示临时综合网站名单', html.includes('已申请加入的临时综合网站') && html.includes('rules-temporary-composite-display'));
-  expectTrue('admin 应读取临时综合网站名单消息', code.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && code.includes('renderTemporaryCompositeRecords'));
+  expectTrue('admin 访问规则页应展示网站归类申请记录', html.includes('网站归类申请记录') && html.includes('rules-temporary-composite-display'));
+  expectTrue('admin 应读取网站归类申请记录消息', code.includes('GET_SITE_CLASSIFICATION_REQUESTS') && code.includes('renderSiteClassificationRequestRecords'));
   expectTrue('admin local mode renders device status as sync disabled', code.includes('本机计时、popup 和使用分析可用；统计不会同步到云端。'));
   expectTrue('admin has settlement analysis nav item', html.includes('data-page="settlements"'));
   expectTrue('admin has settlement analysis page', html.includes('id="page-settlements"'));

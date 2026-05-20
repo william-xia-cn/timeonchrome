@@ -22,6 +22,7 @@ function buildSchemaDefaults(): object {
     weeklyRestQuota:        null,
     domainQuotas: {},
     classificationRules: [],
+    siteClassificationRulesV1: [],
     quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
     schedule: {
       enabled: false,
@@ -383,7 +384,7 @@ export const profilesRouter = {
           'customStudyList', 'customCompositeList', 'customRestrictedEntertainmentList', 'customBlockedSites',
           'dailyOnlineQuota', 'dailyStudyQuota', 'dailyRestQuota',
           'dailyUndeterminedQuota', 'weeklyRestQuota',
-          'domainQuotas', 'classificationRules',
+          'domainQuotas', 'classificationRules', 'siteClassificationRulesV1',
           'quotaState', 'schedule',
           'restConfig', 'autoStudyConfig',
           'timeQuota', 'timeWindows',

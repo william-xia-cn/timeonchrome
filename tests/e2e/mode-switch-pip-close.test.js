@@ -1,4 +1,4 @@
-// P0 E2E: mode switch PiP cleanup across manual + auto transition paths.
+// P0 E2E: global PiP disable policy plus mode switch prompt/boundary paths.
 // Run with: npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line
 
 const { test, expect, chromium } = require('@playwright/test');
@@ -191,7 +191,6 @@ async function seedFakePiP(page, sw) {
     }
   }
   await page.locator('#toc-open-pip').click();
-  await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(true);
   const tabId = await sw.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     return tab.id;
@@ -305,7 +304,7 @@ async function assertNoPiPPeriodicCheckpointAfterClose(sw, domain, toMode) {
   const ledger = await readLedgerSnapshot(sw);
   const badRows = ledger.media.filter((row) =>
     row.domain === domain &&
-    row.mode === toMode &&
+    (!toMode || row.mode === toMode) &&
     row.mediaClass === 'pip' &&
     row.settlementReason === 'periodic_checkpoint'
   );
@@ -348,24 +347,40 @@ async function anchorOpenPiPMediaSession(sw, domain, tabId, atMs, mode = 'rest')
   expect(result.success, JSON.stringify(result)).toBe(true);
 }
 
-async function assertModeBoundaryLedger(sw, domain, fromMode, toMode) {
+async function assertForbiddenPiPCleanup(sw, page, domain) {
+  await expect.poll(async () => {
+    const state = await fakePiPState(page);
+    return state.active === false && state.exitCalls > 0;
+  }, { timeout: 6000 }).toBe(true);
   try {
     await expect.poll(async () => {
       const ledger = await readLedgerSnapshot(sw);
       return ledger.media.some((row) =>
         row.domain === domain &&
-        row.mode === fromMode &&
-        row.settlementReason === 'mode_effective_boundary' &&
-        row.mediaClass === 'pip'
+        row.mediaClass === 'pip' &&
+        row.settlementReason === 'pip_forbidden_cleanup'
       );
     }, { timeout: 6000 }).toBe(true);
   } catch (err) {
     const ledger = await readLedgerSnapshot(sw);
-    console.log(`\n${fromMode}->${toMode} usage ledger\n${formatTimeline(ledger.usage)}`);
-    console.log(`\n${fromMode}->${toMode} media ledger\n${formatTimeline(ledger.media)}`);
+    console.log(`\nPiP cleanup usage ledger\n${formatTimeline(ledger.usage)}`);
+    console.log(`\nPiP cleanup media ledger\n${formatTimeline(ledger.media)}`);
     throw err;
   }
 
+  const ledger = await readLedgerSnapshot(sw);
+  assertMediaTimeline(ledger.media, [{
+    domain,
+    settlementReason: 'pip_forbidden_cleanup',
+    mediaClass: 'pip',
+    closeOperation: 'pip_forbidden_cleanup',
+    allowZeroDuration: true,
+  }], { label: 'global forbidden PiP cleanup ledger' });
+  await assertNoOpenPiPMediaSession(sw, domain);
+  await assertNoPiPPeriodicCheckpointAfterClose(sw, domain, null);
+}
+
+async function assertForegroundModeBoundaryLedger(sw, domain, fromMode, toMode) {
   try {
     await expect.poll(async () => {
       const ledger = await readLedgerSnapshot(sw);
@@ -390,22 +405,13 @@ async function assertModeBoundaryLedger(sw, domain, fromMode, toMode) {
     closeOperation: 'mode_effective_boundary',
     allowZeroDuration: true,
   }], { label: `${fromMode}->${toMode} foreground mode boundary ledger` });
-  assertMediaTimeline(ledger.media, [{
-    domain,
-    mode: fromMode,
-    settlementReason: 'mode_effective_boundary',
-    mediaClass: 'pip',
-    closeOperation: 'mode_effective_boundary',
-    allowZeroDuration: true,
-  }], { label: `${fromMode}->${toMode} media mode boundary ledger` });
   assertNoForbiddenForegroundOperations(ledger.usage);
   assertNoUnexpectedOverlap(ledger.usage, 'usage');
   assertNoUnexpectedOverlap(ledger.media, 'media');
   await assertNoOpenPiPMediaSession(sw, domain);
-  await assertNoPiPPeriodicCheckpointAfterClose(sw, domain, toMode);
 }
 
-test('Rest -> Composite (manual): closes PiP', async () => {
+test('Rest -> Composite (manual): globally closes forbidden PiP', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('rest');
   try {
@@ -414,14 +420,11 @@ test('Rest -> Composite (manual): closes PiP', async () => {
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
     const tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(page)).active).toBe(true);
+    await assertForbiddenPiPCleanup(sw, page, 'localhost');
     await ensureOpenForegroundSession(sw, 'localhost', tabId);
-    await waitForOpenPiPMediaSession(sw, 'localhost');
 
     await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
-    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
-    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
-    await assertModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
+    await assertForegroundModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
     await page.waitForTimeout(500);
     await page.close();
   } finally {
@@ -429,7 +432,7 @@ test('Rest -> Composite (manual): closes PiP', async () => {
   }
 });
 
-test('Rest -> Study (manual): closes PiP and shows study prompt', async () => {
+test('Rest -> Study (manual): globally closes forbidden PiP and shows study prompt', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('rest');
   try {
@@ -438,15 +441,12 @@ test('Rest -> Study (manual): closes PiP and shows study prompt', async () => {
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
     const tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(page)).active).toBe(true);
+    await assertForbiddenPiPCleanup(sw, page, '127.0.0.1');
     await ensureOpenForegroundSession(sw, '127.0.0.1', tabId);
-    await waitForOpenPiPMediaSession(sw, '127.0.0.1');
 
     await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
-    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
-    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习模式');
-    await assertModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
+    await assertForegroundModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
     await page.waitForTimeout(500);
     await page.close();
   } finally {
@@ -454,7 +454,7 @@ test('Rest -> Study (manual): closes PiP and shows study prompt', async () => {
   }
 });
 
-test('Rest -> Composite (auto): closes PiP', async () => {
+test('Rest -> Composite (auto): globally closes forbidden PiP', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('rest');
   try {
@@ -463,19 +463,15 @@ test('Rest -> Composite (auto): closes PiP', async () => {
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
     let tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(page)).active).toBe(true);
-    await waitForOpenPiPMediaSession(sw, 'localhost');
+    await assertForbiddenPiPCleanup(sw, page, 'localhost');
     const startMs = Date.now();
-    await anchorOpenPiPMediaSession(sw, 'localhost', tabId, startMs - 1000, 'rest');
     await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
     await ensureOpenForegroundSession(sw, 'localhost', tabId, startMs - 1000, true);
 
     const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 30_000, tabId);
     expect(res?.success).toBe(true);
     expect(res?.mode).toBe('composite');
-    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
-    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
-    await assertModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
+    await assertForegroundModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
     await page.waitForTimeout(500);
     await page.close();
   } finally {
@@ -483,7 +479,7 @@ test('Rest -> Composite (auto): closes PiP', async () => {
   }
 });
 
-test('Rest -> Study (auto): closes PiP and shows study prompt', async () => {
+test('Rest -> Study (auto): globally closes forbidden PiP and shows study prompt', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('rest');
   try {
@@ -492,20 +488,16 @@ test('Rest -> Study (auto): closes PiP and shows study prompt', async () => {
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
     let tabId = await seedFakePiP(page, sw);
-    expect((await fakePiPState(page)).active).toBe(true);
-    await waitForOpenPiPMediaSession(sw, '127.0.0.1');
+    await assertForbiddenPiPCleanup(sw, page, '127.0.0.1');
     const startMs = Date.now();
-    await anchorOpenPiPMediaSession(sw, '127.0.0.1', tabId, startMs - 1000, 'rest');
     await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
     await ensureOpenForegroundSession(sw, '127.0.0.1', tabId, startMs - 1000, true);
 
     const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 45_000, tabId);
     expect(res?.success).toBe(true);
     expect(res?.mode).toBe('study');
-    await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
-    expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习时间');
-    await assertModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
+    await assertForegroundModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
     await page.waitForTimeout(500);
     await page.close();
   } finally {

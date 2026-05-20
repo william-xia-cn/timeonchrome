@@ -1,8 +1,10 @@
 // product/interceptor.js — 拦截逻辑 + 提醒触发
 
-import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
+import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl, getSiteClassificationRequestRecords } from '../infra/storage.js';
+import { getSiteClassificationForUrl } from '../core/site-classification.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { enqueueModeBoundaryIntent } from '../core/mode-boundary-intents.js';
+import { closeForbiddenPictureInPicture, shouldEnforcePictureInPicturePolicy } from '../core/pip-policy.js';
 import { setCachedEffectiveMode } from '../runtime/session.js';
 
 const AUTO_TRANSITION_GATES = {
@@ -23,59 +25,6 @@ const TRANSIENT_NOTICE_DISPLAY_MS = 4_000;
 const SUCCESS_NOTICE_SEND_RETRIES = 20;
 const SUCCESS_NOTICE_RETRY_DELAY_MS = 100;
 const SUCCESS_NOTICE_DEFERRED_RETRY_MS = 300;
-const PIP_CLOSE_SEND_RETRIES = 6;
-const PIP_CLOSE_RETRY_DELAY_MS = 150;
-
-function shouldClosePiPOnModeTransition(fromMode, toMode) {
-  const prev = normalizeMode(fromMode);
-  const next = normalizeMode(toMode);
-  if (next === 'study') return true;
-  return prev === 'rest' && next === 'composite';
-}
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function closeActiveTabPictureInPicture(tabId) {
-  if (!Number.isInteger(tabId) || tabId < 0) return { handled: false, closed: false };
-  let handled = false;
-  for (let attempt = 0; attempt < PIP_CLOSE_SEND_RETRIES; attempt += 1) {
-    try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: 'EXIT_PIP' });
-      handled = true;
-      if (response?.exited === true) return { handled: true, closed: true };
-      if (response?.ok === true && response?.hadPiP === false) return { handled: true, closed: false };
-    } catch {}
-    if (attempt < PIP_CLOSE_SEND_RETRIES - 1) {
-      await delay(PIP_CLOSE_RETRY_DELAY_MS);
-    }
-  }
-  return { handled, closed: false };
-}
-
-async function closePictureInPictureAcrossTabs(preferredTabId = null) {
-  const tabIds = [];
-  if (Number.isInteger(preferredTabId) && preferredTabId >= 0) {
-    tabIds.push(preferredTabId);
-  }
-  try {
-    const tabs = await chrome.tabs.query({});
-    for (const tab of tabs || []) {
-      if (!Number.isInteger(tab?.id) || tab.id < 0) continue;
-      if (!tabIds.includes(tab.id)) tabIds.push(tab.id);
-    }
-  } catch {}
-
-  let sent = false;
-  let closed = false;
-  for (const id of tabIds) {
-    const result = await closeActiveTabPictureInPicture(id);
-    sent = sent || result.handled;
-    closed = closed || result.closed;
-  }
-  return closed || sent;
-}
 
 function normalizeDomainForNotice(domain) {
   if (typeof domain !== 'string') return null;
@@ -338,11 +287,20 @@ export async function applyModeTransitionSideEffects({
   const normalizedFrom = normalizeMode(fromMode);
   const normalizedTo = normalizeMode(toMode);
   const out = { pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false };
-  const shouldClosePip = shouldClosePiPOnModeTransition(normalizedFrom, normalizedTo);
+  const shouldClosePip = typeof shouldEnforcePictureInPicturePolicy === 'function'
+    ? shouldEnforcePictureInPicturePolicy()
+    : true;
 
   if (shouldClosePip) {
     out.pipCloseAttempted = true;
-    out.pipCloseSent = await closePictureInPictureAcrossTabs(tabId);
+    const cleanup = typeof closeForbiddenPictureInPicture === 'function'
+      ? await closeForbiddenPictureInPicture({
+        preferredTabId: Number.isInteger(tabId) ? tabId : null,
+        reason: 'mode_transition_pip_policy',
+      })
+      : { ok: false, handled: false, attempted: false };
+    out.pipCloseSent = cleanup.ok === true || cleanup.handled === true;
+    out.pipCloseResult = cleanup;
   }
 
   if (sendStudyNotice && normalizedTo === 'study' && Number.isInteger(tabId) && tabId >= 0) {
@@ -516,16 +474,28 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
 
   const domain = extractDomain(url);
   if (!domain) return false;
-  const isStudyDomain = (config.studyList || []).some(p => matchDomain(domain, p));
-  const isTemporaryCompositeDomain = await hasTemporaryCompositePermission(tabId, domain);
-  const isCompositeDomain = (config.compositeList || []).some(p => matchDomain(domain, p)) || isTemporaryCompositeDomain;
   const restrictedList = config.restrictedEntertainmentList || [];
   const isRestricted = restrictedList.some(p => matchDomain(domain, p));
+  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
+  const isUnsafe = unsafeList.some(b => matchDomain(domain, b));
+  const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
+  const siteClassification = (!isRestricted && !isUnsafe)
+    ? getSiteClassificationForUrl(config, siteClassificationRecords, url)
+    : { classification: null };
+  const isStudyDomain = (config.studyList || []).some(p => matchDomain(domain, p)) ||
+    siteClassification.classification === 'study';
+  const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && (
+    await hasTemporaryCompositePermission(tabId, domain) ||
+    siteClassification.classification === 'pending_composite'
+  );
+  const isCompositeDomain = !isRestricted && !isUnsafe && (
+    (config.compositeList || []).some(p => matchDomain(domain, p)) ||
+    siteClassification.classification === 'composite' ||
+    isTemporaryCompositeDomain
+  );
   const qs = config.quotaState || {};
 
   // 1. 不安全网站检查（唯一的硬拦截）
-  const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || [];
-  const isUnsafe = unsafeList.some(b => matchDomain(domain, b));
   if (isUnsafe) {
     await redirectToReminder(tabId, domain, 'unsafe', config.blockMessage);
     return true;
