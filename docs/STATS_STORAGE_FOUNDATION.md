@@ -941,6 +941,12 @@ Stats Upload 触发条件：
 
 ### B.4 重试与失败策略
 
+**请求超时与同步锁**：
+- 所有通过 `cloudRequest()` 发起的云端请求必须设置 AbortController 超时；当前默认 `REQUEST_TIMEOUT_MS = 15000`。
+- `syncNow()` 使用 `syncState.isSyncing` 防止重入，但必须记录 `syncStartedAt`。
+- 如果 `isSyncing` 持续超过 `SYNC_STALE_LOCK_MS`（当前 2 分钟），视为 stale lock，允许自动释放并继续下一次同步。
+- 设计目标：网络层、Worker、DNS、代理或 Chrome fetch 卡住时，最多造成一次同步失败，不得让绑定、手动同步或后续 alarm 失效数小时。
+
 **可重试**：
 - 网络超时
 - HTTP 5xx
