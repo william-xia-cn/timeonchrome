@@ -101,11 +101,15 @@ await sessionApi.settleCurrentSessionSegment({
   domain: 'bound.example.com',
   startTime: NOW - 60000,
   lastHeartbeat: NOW - 1000,
+  tabId: 321,
+  windowId: 654,
 }, NOW, 'periodic_checkpoint');
 let all = await usage.getAllUsageSegments();
 let seg = Object.values(all)[0];
 chk('segment profileId', seg.profileId, 'profile-real-1');
 chk('segment deviceId', seg.deviceId, 'device-id-real-1');
+chk('segment tabId', seg.tabId, 321);
+chk('segment windowId', seg.windowId, 654);
 chk('segment channel active', seg.channel, 'active');
 chk('segment description end periodic', seg.description.end.reason, 'periodic_checkpoint');
 chk('segment description end source timer', seg.description.end.source, 'timer');

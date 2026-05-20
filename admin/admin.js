@@ -67,12 +67,7 @@ const isChildView = urlParams.get('view') === 'stats';
 // ── 初始化 ─────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // 加载本地配置
-  config = await sendMsg({ type: 'GET_CONFIG' });
-
-  // 检查绑定状态
-  await checkAndHandleBinding();
-
+  // 登录/导航事件必须先绑定；background 冷启动失败不应让登录入口失效。
   setupLoginForm();
   setupNavigation();
 
@@ -83,6 +78,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       checkAndHandleBinding();
     }
   });
+
+  try {
+    // 加载本地配置
+    config = await sendMsg({ type: 'GET_CONFIG' });
+  } catch (e) {
+    console.warn('[Admin] initial GET_CONFIG failed, keeping login available:', e?.message || e);
+    config = {};
+  }
+
+  try {
+    // 检查绑定状态
+    await checkAndHandleBinding();
+  } catch (e) {
+    console.warn('[Admin] binding check failed, showing login screen:', e?.message || e);
+    showBindScreen();
+    showError('后台连接中，请稍后重试登录');
+  }
 });
 
 // ── 绑定状态检查与处理 ───────────────────────────────────────────────────
@@ -154,6 +166,10 @@ async function enterLocalReadOnlyMode() {
 
   config = await sendMsg({ type: 'GET_CONFIG' });
   await renderStatsPage();
+}
+
+function openCloudLogin() {
+  chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html') });
 }
 
 /**
@@ -976,8 +992,19 @@ function showToast(msg) {
 // ── 发送消息到 background ─────────────────────────────────────────────────
 
 function sendMsg(msg) {
-  return new Promise((resolve, reject) => {
+  const attempts = 2;
+  const timeoutMs = 2500;
+  const sendOnce = () => new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('background_timeout'));
+    }, timeoutMs);
     chrome.runtime.sendMessage(msg, (resp) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
       } else if (resp && resp.error) {
@@ -987,6 +1014,21 @@ function sendMsg(msg) {
       }
     });
   });
+
+  return (async () => {
+    let lastError = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await sendOnce();
+      } catch (error) {
+        lastError = error;
+        if (i < attempts - 1) {
+          await new Promise(resolve => setTimeout(resolve, 180));
+        }
+      }
+    }
+    throw lastError || new Error('background_unavailable');
+  })();
 }
 
 // ── 路由处理 ─────────────────────────────────────────────────────────────
@@ -1576,7 +1618,12 @@ async function renderSyncStatus() {
           <div style="font-size:15px; font-weight:600;">已停用</div>
         </div>
       </div>
+      <div style="margin-top:14px; display:flex; gap:10px;">
+        <button class="btn-save" id="cloud-login-btn" style="flex:1;">登录/绑定云端</button>
+      </div>
     `;
+    const loginBtn = container.querySelector('#cloud-login-btn');
+    if (loginBtn) loginBtn.addEventListener('click', openCloudLogin);
     return;
   }
 
@@ -1840,6 +1887,38 @@ function formatSettlementEndpointTitle(endpoint) {
   return parts.join('；');
 }
 
+function formatSettlementTabId(row) {
+  const tabId = row?.tabId ?? null;
+  return tabId != null && tabId !== '' ? String(tabId) : '—';
+}
+
+function formatSettlementWindowId(row) {
+  const windowId = row?.windowId ?? null;
+  return windowId != null && windowId !== '' ? String(windowId) : '—';
+}
+
+function buildSettlementRemarkHtml(row, sourceLabel = null) {
+  const source = sourceLabel || row?.sourceState || '—';
+  const tabText = formatSettlementTabId(row);
+  const windowText = formatSettlementWindowId(row);
+  const title = [
+    `tab=${tabText}`,
+    `window=${windowText}`,
+    `open=${row?.openOperation || '—'}`,
+    `close=${row?.closeOperation || '—'}`,
+    `source=${source}`,
+  ].join('；');
+  return `
+    <div class="settlement-remark-cell" title="${escAttr(title)}">
+      <div>tab：${escHtml(tabText)}</div>
+      <div>window：${escHtml(windowText)}</div>
+      <div>open：${escHtml(row?.openOperation || '—')}</div>
+      <div>close：${escHtml(row?.closeOperation || '—')}</div>
+      <div>来源：${escHtml(source)}</div>
+    </div>
+  `;
+}
+
 function normalizeSettlementRows(payload) {
   const rows = Array.isArray(payload?.segments) ? payload.segments : [];
   return rows
@@ -1850,6 +1929,8 @@ function normalizeSettlementRows(payload) {
       channel: row?.channel || '—',
       framework: row?.framework || '',
       sourceState: row?.sourceState || '—',
+      tabId: row?.tabId ?? null,
+      windowId: Number.isInteger(row?.windowId) ? row.windowId : null,
       mode: row?.mode || '—',
       startMs: Number(row?.startMs),
       endMs: Number(row?.endMs),
@@ -1996,9 +2077,7 @@ function renderSettlementRows() {
           <th class="settlement-col-type">计时类型</th>
           <th class="settlement-col-mode">模式</th>
           <th class="settlement-col-reason">落账原因</th>
-          <th class="settlement-col-operation">Open 操作</th>
-          <th class="settlement-col-operation">Close 操作</th>
-          <th class="settlement-col-source">来源状态</th>
+          <th class="settlement-col-remark">备注</th>
           <th class="settlement-col-status">状态</th>
         </tr>
       </thead>
@@ -2013,9 +2092,7 @@ function renderSettlementRows() {
             <td title="${escAttr(`${row.channel}${row.framework ? ` / ${row.framework}` : ''}`)}">${escHtml(getSettlementTypeLabel(row))}</td>
             <td>${escHtml(row.mode)}</td>
             <td class="settlement-reason-cell" title="${escAttr(row.settlementReason)}">${escHtml(row.settlementReason)}</td>
-            <td class="settlement-reason-cell" title="${escAttr(row.openOperationTitle)}">${escHtml(row.openOperation)}</td>
-            <td class="settlement-reason-cell" title="${escAttr(row.closeOperationTitle)}">${escHtml(row.closeOperation)}</td>
-            <td>${escHtml(row.sourceState)}</td>
+            <td>${buildSettlementRemarkHtml(row, row.sourceState)}</td>
             <td>${row.suspect
               ? `<span class="settlement-suspect" title="${escAttr(row.suspectReason)}">suspect</span>`
               : (row.uploaded ? '已上传' : '<span class="settlement-muted">本地</span>')}
@@ -2218,12 +2295,9 @@ function renderMediaSettlementRows() {
           <th class="settlement-col-duration">时长</th>
           <th class="settlement-col-domain">域名</th>
           <th class="settlement-col-type">媒体类型</th>
-          <th class="settlement-col-type">可见性</th>
           <th class="settlement-col-mode">模式</th>
           <th class="settlement-col-reason">落账原因</th>
-          <th class="settlement-col-operation">Open 操作</th>
-          <th class="settlement-col-operation">Close 操作</th>
-          <th class="settlement-col-source">Tab</th>
+          <th class="settlement-col-remark">备注</th>
           <th class="settlement-col-status">状态</th>
         </tr>
       </thead>
@@ -2236,12 +2310,9 @@ function renderMediaSettlementRows() {
             <td>${escHtml(formatSeconds(row.durationSeconds))}</td>
             <td class="settlement-domain-cell" title="${escAttr(row.domain)}">${escHtml(row.domain)}</td>
             <td title="${escAttr(row.mediaClass)}">${escHtml(getMediaClassLabel(row.mediaClass))}</td>
-            <td>${escHtml(row.visibility || '—')}</td>
             <td>${escHtml(row.mode)}</td>
             <td class="settlement-reason-cell" title="${escAttr(row.settlementReason)}">${escHtml(row.settlementReason)}</td>
-            <td class="settlement-reason-cell" title="${escAttr(row.openOperationTitle)}">${escHtml(row.openOperation)}</td>
-            <td class="settlement-reason-cell" title="${escAttr(row.closeOperationTitle)}">${escHtml(row.closeOperation)}</td>
-            <td>${escHtml(row.tabId)}</td>
+            <td>${buildSettlementRemarkHtml(row, row.visibility || row.mediaKind || '—')}</td>
             <td><span class="settlement-muted">本地</span></td>
           </tr>
         `).join('')}

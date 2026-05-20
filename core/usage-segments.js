@@ -319,6 +319,8 @@ export function buildUsageSegment(input) {
     endMs: input.endMs,
     durationSeconds: input.durationSeconds || Math.max(0, Math.floor((input.endMs - input.startMs) / 1000)),
     domain: input.domain || '',
+    tabId: Number.isInteger(input.tabId) ? input.tabId : null,
+    windowId: Number.isInteger(input.windowId) ? input.windowId : null,
     channel: input.channel,
     mode: input.mode || 'unknown',
     sourceState: input.sourceState || 'UNKNOWN',

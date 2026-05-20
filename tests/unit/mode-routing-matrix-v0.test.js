@@ -63,7 +63,8 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     setTimeout,
     chrome,
     getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
-    applyModeEffectiveBoundary: async () => ({ ok: true, applied: false }),
+    enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
+    setCachedEffectiveMode: () => {},
     ...stubs,
   };
 

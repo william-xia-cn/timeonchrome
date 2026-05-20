@@ -806,9 +806,9 @@
       border-radius: 8px;
     }
     .settlement-table {
-      width: max-content;
+      width: 100%;
       min-width: 100%;
-      table-layout: auto;
+      table-layout: fixed;
       border-collapse: collapse;
       font-size: 12px;
     }
@@ -819,7 +819,7 @@
       text-align: left;
       white-space: nowrap;
       word-break: normal;
-      vertical-align: middle;
+      vertical-align: top;
     }
     .settlement-table th {
       color: var(--muted);
@@ -827,22 +827,35 @@
       background: rgba(0,184,148,0.04);
     }
     .settlement-table tr:last-child td { border-bottom: none; }
-    .settlement-col-date { min-width: 88px; }
-    .settlement-col-time { min-width: 70px; }
-    .settlement-col-duration { min-width: 58px; }
-    .settlement-col-domain { min-width: 190px; }
-    .settlement-col-type { min-width: 84px; }
-    .settlement-col-mode { min-width: 54px; }
-    .settlement-col-reason { min-width: 128px; }
-    .settlement-col-operation { min-width: 154px; }
-    .settlement-col-source { min-width: 74px; }
-    .settlement-col-status { min-width: 68px; }
+    .settlement-col-date { width: 86px; }
+    .settlement-col-time { width: 68px; }
+    .settlement-col-duration { width: 58px; }
+    .settlement-col-domain { width: 19%; }
+    .settlement-col-type { width: 76px; }
+    .settlement-col-mode { width: 52px; }
+    .settlement-col-reason { width: 120px; }
+    .settlement-col-remark { width: 210px; }
+    .settlement-col-status { width: 62px; }
     .settlement-domain-cell {
-      max-width: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .settlement-reason-cell {
       color: var(--muted);
       line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .settlement-remark-cell {
+      color: var(--muted);
+      line-height: 1.35;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .settlement-remark-cell div {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .settlement-muted { color: var(--muted); }
     .settlement-suspect { color: var(--danger); font-weight: 600; }

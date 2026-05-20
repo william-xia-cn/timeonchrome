@@ -6,6 +6,12 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs   = require('fs');
 const http = require('http');
+const {
+  assertNoForbiddenForegroundOperations,
+  assertNoUnexpectedOverlap,
+  assertUsageTimeline,
+  readLedgerSnapshot,
+} = require('./helpers/ledger-assertions');
 
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
 const MOCKS_DIR      = path.resolve(__dirname, 'mocks');
@@ -92,7 +98,12 @@ async function initializeRestMode(sw) {
         chrome.storage.local.set({
           guardian_config: { ...config, mode: 'rest' },
           guardian_session: { ...session, currentMode: 'rest' },
-        }, () => resolve());
+        }, async () => {
+          if (typeof globalThis.debugSetRestMode === 'function') {
+            await globalThis.debugSetRestMode();
+          }
+          resolve();
+        });
       });
     });
   });
@@ -416,6 +427,7 @@ test('T-TV1: Rest-mode timing trace — real pipeline stats + synthetic aggregat
   const realTrace = await readTimingTrace(sw);
   const realEventLog = await readEventLog(sw);
   const realSession = await readSession(sw);
+  const realLedger = await readLedgerSnapshot(sw);
   const realAnalysis = classifyTrace(realTrace);
   const realStatsTrace = realTrace.filter(t => t.action === 'stats_calculated').at(-1);
   const realStatsDate = realStatsTrace?.payload?.date;
@@ -549,6 +561,9 @@ test('T-TV1: Rest-mode timing trace — real pipeline stats + synthetic aggregat
   expect(nonActiveRealSegments.length + activeRealSegments.length).toBeGreaterThan(0);
   expect(stripStatsSummaryFields(toLegacyStatsShape(realStatsTrace.statsAfter))).toEqual(stripStatsSummaryFields(realStats));
   expectStatsWithinTolerance(realStats, realEventLogAnalysis.stats, 0);
+  expect(realLedger.usage.length).toBeGreaterThan(0);
+  assertNoForbiddenForegroundOperations(realLedger.usage);
+  assertNoUnexpectedOverlap(realLedger.usage, 'usage');
 
   // Synthetic aggregation baseline: the injected 42s segment only proves
   // event-log -> stats aggregation consistency, not real browser timing.
@@ -610,6 +625,7 @@ test('T-TV2: Controlled ACTIVE timing pipeline — multi-segment/domain reconcil
   const trace = await readTimingTrace(sw);
   const eventLog = await readEventLog(sw);
   const session = await readSession(sw);
+  const ledger = await readLedgerSnapshot(sw);
 
   await browserCtx.close();
   if (fs.existsSync(userDataDir)) fs.rmSync(userDataDir, { recursive: true, force: true });
@@ -685,11 +701,43 @@ test('T-TV2: Controlled ACTIVE timing pipeline — multi-segment/domain reconcil
     { domain: domainB, state: 'ACTIVE', seconds: 4, start: baseTime + 2200, end: baseTime + 6500 },
   ]);
   expect(controlledPassiveSegments.length).toBe(0);
-  expect(eventLogAnalysis.stats).toEqual(expectedStats);
+  const controlledEventLogStats = Object.fromEntries(
+    Object.keys(expectedStats).map(domain => [domain, eventLogAnalysis.stats?.[domain] || 0])
+  );
+  expect(controlledEventLogStats).toEqual(expectedStats);
   expect(stripStatsSummaryFields(toLegacyStatsShape(statsTrace.statsAfter))).toEqual(stripStatsSummaryFields(controlledStats));
   expectStatsWithinTolerance(controlledStats, eventLogAnalysis.stats, 0);
   for (const [domain, seconds] of Object.entries(expectedStats)) {
     expect(controlledStats[domain]).toBe(seconds);
   }
   expect(controlledStats[passiveDomain]).toBeUndefined();
+  const controlledUsageRows = ledger.usage.filter((row) => controlledDomains.has(row.domain));
+  assertUsageTimeline(controlledUsageRows, [
+    {
+      domain: domainA,
+      mode: 'rest',
+      settlementReason: 'transition_complete',
+      openOperation: 'controlledActiveA1Start',
+      closeOperation: 'controlledActiveBStart',
+      duration: 2,
+    },
+    {
+      domain: domainB,
+      mode: 'rest',
+      settlementReason: 'transition_complete',
+      openOperation: 'controlledActiveBStart',
+      closeOperation: 'controlledActiveA2Start',
+      duration: 4,
+    },
+    {
+      domain: domainA,
+      mode: 'rest',
+      settlementReason: 'transition_complete',
+      openOperation: 'controlledActiveA2Start',
+      closeOperation: 'controlledActiveA2End',
+      duration: 3,
+    },
+  ], { label: 'T-TV2 controlled usage ledger', exact: true });
+  assertNoForbiddenForegroundOperations(controlledUsageRows);
+  assertNoUnexpectedOverlap(controlledUsageRows, 'usage');
 });

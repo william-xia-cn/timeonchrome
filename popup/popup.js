@@ -6,13 +6,16 @@ const CLOUD_KEYS = {
 let popupStatsContext = { config: {}, stats: {} };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const cloudStatus = await sendMsg({ type: 'GET_CLOUD_STATUS' });
+  const cloudStatus = await getCloudStatusSafe();
   renderCloudBindingNotice(cloudStatus);
 
-  const [, runtimeStatus] = await Promise.all([
-    init(),
+  const [initResult, runtimeStatus] = await Promise.all([
+    init().catch((error) => ({ ok: false, error })),
     getRuntimeModeStatusSafe(),
   ]);
+  if (initResult?.error) {
+    renderPopupLoadError(initResult.error);
+  }
 
   renderModeButtons(runtimeStatus);
   renderRuntimeStatus(runtimeStatus);
@@ -30,6 +33,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+async function getCloudStatusSafe() {
+  try {
+    return await sendMsg({ type: 'GET_CLOUD_STATUS' }) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function renderPopupLoadError(error) {
+  const top10El = document.getElementById('today-top10');
+  if (!top10El) return;
+  top10El.innerHTML = `<div class="empty">后台连接中，请稍后重新打开。${error?.message ? ` (${error.message})` : ''}</div>`;
+}
 
 function renderCloudBindingNotice(cloudStatus = {}) {
   const banner = document.getElementById('unbound-banner');
@@ -453,8 +470,44 @@ function matchDomain(domain, pattern) {
   return false;
 }
 
-function sendMsg(msg) {
-  return new Promise(resolve => chrome.runtime.sendMessage(msg, resolve));
+function sendMsg(msg, options = {}) {
+  const attempts = Number(options.attempts || 2);
+  const timeoutMs = Number(options.timeoutMs || 2500);
+  const sendOnce = () => new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('background_timeout'));
+    }, timeoutMs);
+    chrome.runtime.sendMessage(msg, (resp) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        reject(new Error(lastError.message || 'background_unavailable'));
+        return;
+      }
+      resolve(resp);
+    });
+  });
+
+  const run = async () => {
+    let lastError = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await sendOnce();
+      } catch (error) {
+        lastError = error;
+        if (i < attempts - 1) {
+          await new Promise(resolve => setTimeout(resolve, 180));
+        }
+      }
+    }
+    throw lastError || new Error('background_unavailable');
+  };
+  return run();
 }
 
 function formatSeconds(secs) {

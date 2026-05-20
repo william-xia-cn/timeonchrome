@@ -1,7 +1,7 @@
 // background-new.js — 完整 wiring 入口
 
 import { initSignal } from './core/signal.js';
-import { dispatchTimingSignal } from './core/timing-dispatcher.js';
+import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, getForegroundContext, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
 import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabReplaced, handleMediaWindowStateChanged, runMediaCheckpoint } from './core/media-timing.js';
 import { runForegroundCheckpoint, runTimingCheckpoints } from './core/checkpoint-scheduler.js';
@@ -9,9 +9,9 @@ import { closeCurrentSession, initSession, getSession as getTimingSession } from
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
-import { updateDeclarativeRules, checkAndRemind, getAutoModePendingStatus, cancelAutoModePendingForTab, cancelAllAutoModePending, reSendPendingNotice } from './product/interceptor.js';
+import { updateDeclarativeRules, checkAndRemind, getAutoModePendingStatus, cancelAutoModePendingForTab, cancelAllAutoModePending, reSendPendingNotice, setModeBoundaryDrainHook } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
-import { initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
+import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
 import { handleMessage } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
 import { getEvents, clearEvents } from './core/event-log.js';
@@ -29,7 +29,9 @@ let alarmsSetup = false;
 async function bootstrapServiceWorker(reason) {
   try {
     await initSession();
+    await hydrateCloudSyncStateFromStorage();
     setupAlarms();
+    scheduleModeBoundaryDrain(`bootstrap:${reason}`);
   } catch (err) {
     console.error(`[Bootstrap] failed (${reason}):`, err);
     bootstrapPromise = null;
@@ -43,6 +45,22 @@ function ensureBootstrapped(reason) {
   }
   return bootstrapPromise;
 }
+
+function scheduleModeBoundaryDrain(reason = 'scheduled') {
+  Promise.resolve()
+    .then(() => drainPendingModeBoundaries({
+      emitTrace,
+      warn: (...args) => console.warn(...args),
+      reason,
+    }))
+    .catch((err) => console.warn('[ModeBoundary] drain failed:', err?.message || err));
+}
+
+setModeBoundaryDrainHook((reason = 'autoModeTransition') => drainPendingModeBoundaries({
+  emitTrace,
+  warn: (...args) => console.warn(...args),
+  reason,
+}));
 
 // 模块级引导：普通 MV3 SW 唤醒只做 runtime wiring，不代表异常恢复边界。
 ensureBootstrapped('module-load');
@@ -295,6 +313,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   const { url, tabId } = details;
   await checkAndRemind(tabId, url, getSyncState().monitoringEnabled, { foreground: false });
+  scheduleModeBoundaryDrain('webNavigationCommitted');
 });
 
 
@@ -378,6 +397,7 @@ async function reevaluateTabById(tabId) {
   let targetUrl = tab.url;
 
   const blocked = await checkAndRemind(tabId, targetUrl, getSyncState().monitoringEnabled, { foreground: true });
+  scheduleModeBoundaryDrain('reevaluateTab');
   if (!blocked && targetUrl !== tab.url) {
     await chrome.tabs.update(tabId, { url: targetUrl }).catch(() => {});
   }
@@ -407,6 +427,11 @@ function setupAlarms() {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'periodicCheckpoint') {
     if (!isMonitoringEnabled()) return;
+    await drainPendingModeBoundaries({
+      emitTrace,
+      warn: (...args) => console.warn(...args),
+      reason: 'periodicCheckpoint',
+    });
     await runTimingCheckpoints({
       isMonitoringEnabled,
       confirmForegroundPage: confirmForegroundPageCheckpoint,
@@ -574,7 +599,28 @@ globalThis.debugResetTimingCalibration = async () => {
 globalThis.debugSetRestMode = async () => {
   try {
     const session = await handleMessage({ type: 'SWITCH_TO_REST' }, { id: 'debug' });
+    scheduleModeBoundaryDrain('debugSetRestModeGlobal');
     return { success: true, session };
+  } catch (err) {
+    return { success: false, error: err.message, stack: err.stack };
+  }
+};
+
+globalThis.debugSendModeSwitchMessage = async (msg = {}) => {
+  try {
+    const type = msg?.type;
+    if (!['SWITCH_TO_STUDY', 'SWITCH_TO_REST', 'SWITCH_TO_COMPOSITE'].includes(type)) {
+      return { success: false, error: 'unsupported_mode_switch_type' };
+    }
+    const response = await handleMessage({
+      type,
+      noticeTabId: msg?.noticeTabId ?? null,
+    }, {
+      id: chrome.runtime.id,
+      url: chrome.runtime.getURL('debug-mode-switch'),
+    });
+    scheduleModeBoundaryDrain('debugSendModeSwitchMessage');
+    return { success: true, response };
   } catch (err) {
     return { success: false, error: err.message, stack: err.stack };
   }
@@ -777,6 +823,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const session = await handleMessage({ type: 'SWITCH_TO_REST' }, sender);
         sendResponse({ success: true, session });
+        scheduleModeBoundaryDrain('debugSetRestMode');
       } catch (err) {
         sendResponse({ success: false, error: err.message, stack: err.stack });
       }
@@ -849,9 +896,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  handleMessage(msg, sender).then(sendResponse).catch(err => {
-    sendResponse({ error: err.message });
-  });
+  ensureBootstrapped('runtimeMessage')
+    .then(() => handleMessage(msg, sender))
+    .then((response) => {
+      sendResponse(response);
+      if (msg?.type === 'SWITCH_TO_STUDY' || msg?.type === 'SWITCH_TO_REST' || msg?.type === 'SWITCH_TO_COMPOSITE') {
+        scheduleModeBoundaryDrain('runtimeMessageModeSwitch');
+      }
+    }).catch(err => {
+      sendResponse({ error: err.message });
+    });
   return true;
 });
 

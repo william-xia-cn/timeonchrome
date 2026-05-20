@@ -92,6 +92,7 @@ async function run() {
   {
     expectTrue('storage 暴露临时综合记录只读方法', storageSource.includes('export async function getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持 GET_TEMPORARY_COMPOSITE_DOMAINS', routerSource.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && routerSource.includes('getTemporaryCompositePermissionRecords'));
+    expectTrue('router CLOUD_LOGIN 统一小写邮箱', routerSource.includes("const email = String(msg.email || '').trim().toLowerCase();"));
   }
 
   section('B03-1 popup 调用 borrow 返回 V1-minimal 禁用响应');

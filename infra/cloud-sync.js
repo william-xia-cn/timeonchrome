@@ -13,6 +13,8 @@ const CLOUD_CONFIG = {
   SYNC_INTERVAL_MS: 15 * 60 * 1000,
   SESSION_UPLOAD_HOUR: 8,
   MAX_RETRY_ATTEMPTS: 3,
+  REQUEST_TIMEOUT_MS: 15000,
+  SYNC_STALE_LOCK_MS: 2 * 60 * 1000,
   KEYS: {
     DEVICE_TOKEN: 'cloud_device_token',
     DEVICE_ID: 'cloud_device_id',
@@ -34,6 +36,7 @@ const CLOUD_CONFIG = {
 
 let syncState = {
   isSyncing: false,
+  syncStartedAt: 0,
   lastConfigVersion: 0,
   deviceToken: null,
   deviceId: null,
@@ -131,6 +134,34 @@ export function getSyncState() {
 
 export function getCloudConfig() {
   return { ...CLOUD_CONFIG };
+}
+
+export async function hydrateCloudSyncStateFromStorage() {
+  const storage = await chrome.storage.local.get([
+    CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
+    CLOUD_CONFIG.KEYS.DEVICE_ID,
+    CLOUD_CONFIG.KEYS.PROFILE_ID,
+    CLOUD_CONFIG.KEYS.CONFIG_VERSION,
+    CLOUD_CONFIG.KEYS.MONITORING_ENABLED,
+    CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
+  ]);
+
+  syncState.deviceToken = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN] || null;
+  syncState.deviceId = storage[CLOUD_CONFIG.KEYS.DEVICE_ID] || null;
+  syncState.profileId = storage[CLOUD_CONFIG.KEYS.PROFILE_ID] || null;
+  syncState.lastConfigVersion = storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0;
+  syncState.monitoringEnabled = storage[CLOUD_CONFIG.KEYS.MONITORING_ENABLED] ?? 1;
+
+  const v1Stored = storage[CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED];
+  statsFoundationV1SyncEnabled = typeof v1Stored === 'boolean' ? v1Stored : true;
+  syncState.v1SyncEnabled = statsFoundationV1SyncEnabled;
+  if (typeof v1Stored !== 'boolean') {
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED]: statsFoundationV1SyncEnabled,
+    }).catch(() => {});
+  }
+
+  return getSyncState();
 }
 
 function pickFirstArray(source, keys) {
@@ -286,9 +317,12 @@ async function cloudRequest(method, path, body = null, retries = 3) {
 
   let lastError = null;
   for (let attempt = 0; attempt < retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
     try {
       const options = {
         method,
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${syncState.deviceToken}`
@@ -300,6 +334,7 @@ async function cloudRequest(method, path, body = null, retries = 3) {
       }
 
       const resp = await fetch(`${CLOUD_CONFIG.API_BASE}${path}`, options);
+      clearTimeout(timeoutId);
 
       if (resp.ok) {
         const contentType = resp.headers.get('content-type');
@@ -331,8 +366,12 @@ async function cloudRequest(method, path, body = null, retries = 3) {
       throw error;
 
     } catch (e) {
+      clearTimeout(timeoutId);
       lastError = e;
-      console.error(`[Cloud] Attempt ${attempt + 1} failed:`, e.message);
+      const errorMessage = e?.name === 'AbortError'
+        ? `request timeout after ${CLOUD_CONFIG.REQUEST_TIMEOUT_MS}ms`
+        : e.message;
+      console.error(`[Cloud] Attempt ${attempt + 1} failed:`, errorMessage);
       if (e.message.includes('expired') || e.message.includes('Unauthorized') || e.nonRetryable) {
         throw e;
       }
@@ -609,11 +648,19 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
   }
 
   if (syncState.isSyncing) {
+    const ageMs = Date.now() - Number(syncState.syncStartedAt || 0);
+    if (ageMs > CLOUD_CONFIG.SYNC_STALE_LOCK_MS) {
+      console.warn('[Cloud] Stale sync lock detected, resetting:', ageMs);
+      syncState.isSyncing = false;
+      syncState.syncStartedAt = 0;
+    } else {
     console.log('[Cloud] Sync already in progress');
     return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['Sync already in progress'] };
+    }
   }
 
   syncState.isSyncing = true;
+  syncState.syncStartedAt = Date.now();
   const errors = [];
 
   try {
@@ -677,6 +724,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     return { configPulled: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [e.message] };
   } finally {
     syncState.isSyncing = false;
+    syncState.syncStartedAt = 0;
   }
 }
 
@@ -991,28 +1039,7 @@ export async function sendHeartbeat() {
 // ── Init cloud sync ─────────────────────────────────────────────────────────────
 
 export async function initCloudSync(syncNowFn) {
-  const storage = await chrome.storage.local.get([
-    CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
-    CLOUD_CONFIG.KEYS.DEVICE_ID,
-    CLOUD_CONFIG.KEYS.PROFILE_ID,
-    CLOUD_CONFIG.KEYS.CONFIG_VERSION,
-    CLOUD_CONFIG.KEYS.MONITORING_ENABLED,
-    CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
-  ]);
-
-  syncState.deviceToken = storage[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
-  syncState.deviceId = storage[CLOUD_CONFIG.KEYS.DEVICE_ID] || null;
-  syncState.profileId = storage[CLOUD_CONFIG.KEYS.PROFILE_ID];
-  syncState.lastConfigVersion = storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0;
-  syncState.monitoringEnabled = storage[CLOUD_CONFIG.KEYS.MONITORING_ENABLED] ?? 1;
-  const v1Stored = storage[CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED];
-  statsFoundationV1SyncEnabled = typeof v1Stored === 'boolean' ? v1Stored : true;
-  syncState.v1SyncEnabled = statsFoundationV1SyncEnabled;
-  if (typeof v1Stored !== 'boolean') {
-    await chrome.storage.local.set({
-      [CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED]: statsFoundationV1SyncEnabled,
-    }).catch(() => {});
-  }
+  await hydrateCloudSyncStateFromStorage();
 
   if (syncState.deviceToken) {
     console.log('[Cloud] Device token found, starting sync...');

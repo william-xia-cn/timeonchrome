@@ -5,6 +5,8 @@ import { isCountedState } from '../core/usage-segments.js';
 import { getSession, getSessionWithPersistenceSource, runSessionCommit, saveSession, settleCurrentSessionSegment } from './session.js';
 
 export const RECOVERY_ESTIMATE_MS = 90 * 1000;
+const GUARDIAN_SESSION_KEY = 'guardian_session';
+const GUARDIAN_CONFIG_KEY = 'guardian_config';
 
 function emptySession(now = Date.now()) {
   return {
@@ -13,6 +15,24 @@ function emptySession(now = Date.now()) {
     startTime: null,
     lastHeartbeat: now,
   };
+}
+
+function normalizeMode(mode) {
+  if (mode === 'whitelist') return 'study';
+  if (mode === 'blacklist') return 'rest';
+  if (mode === 'study' || mode === 'composite' || mode === 'rest' || mode === 'paused') return mode;
+  return null;
+}
+
+async function readRecoveryMode() {
+  try {
+    const data = await chrome.storage.local.get([GUARDIAN_SESSION_KEY, GUARDIAN_CONFIG_KEY]);
+    return normalizeMode(data?.[GUARDIAN_SESSION_KEY]?.currentMode) ||
+      normalizeMode(data?.[GUARDIAN_CONFIG_KEY]?.mode) ||
+      null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -85,10 +105,12 @@ export async function recover() {
       time: closeAt,
     });
 
+    const modeOverride = await readRecoveryMode();
     const settlement = await settleCurrentSessionSegment(session, closeAt, 'recovery_estimated_close', {
       endReason: 'recovery_estimated_half_checkpoint',
       endOperationSource: 'recovery',
       endAtMs: closeAt,
+      modeOverride,
     });
 
     await saveSession(emptySession(now));

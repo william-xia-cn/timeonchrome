@@ -1,0 +1,203 @@
+// Foreground legacy media helper tests
+// Run with: node tests/unit/foreground-media-open-session-helper.test.js
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+function loadProdModule(relPath, exportNames, injected = {}) {
+  const abs = path.join(__dirname, '..', '..', relPath);
+  let code = fs.readFileSync(abs, 'utf8');
+  code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
+  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
+  code = code.replace(/export\s+function\s+/g, 'function ');
+  code = code.replace(/export\s+const\s+/g, 'const ');
+  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
+  const keys = Object.keys(injected);
+  const prelude = keys.length ? `const { ${keys.join(', ')} } = __injected;\n` : '';
+  return new Function('__injected', `${prelude}${code}\nreturn { ${exportNames.join(', ')} };`)(injected);
+}
+
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch (_) {
+    return null;
+  }
+}
+
+function classifyMediaFact(fact = {}) {
+  if (fact.isPiP === true) return { mediaClass: 'pip' };
+  const foreground = fact.isActiveTab === true && fact.windowState !== 'minimized';
+  if (fact.playing !== true && fact.audible !== true) return { mediaClass: null };
+  if (fact.mediaKind === 'video') return { mediaClass: foreground ? 'foregroundVideo' : 'backgroundVideo' };
+  if (fact.mediaKind === 'audio' || fact.audible === true) return { mediaClass: foreground ? 'foregroundAudio' : 'backgroundAudio' };
+  return { mediaClass: null };
+}
+
+function check(name, condition, details = '') {
+  if (!condition) throw new Error(`${name}${details ? `: ${details}` : ''}`);
+}
+
+let tabsById = {};
+let windowsById = {};
+let mediaFactsById = {};
+let tabGetCalls = 0;
+let mediaFactCalls = 0;
+
+global.chrome = {
+  tabs: {
+    get: async (tabId) => {
+      tabGetCalls++;
+      if (!tabsById[tabId]) throw new Error('No tab');
+      return tabsById[tabId];
+    },
+  },
+  windows: {
+    get: async (windowId) => windowsById[windowId] || { focused: false, state: null },
+  },
+};
+
+const api = loadProdModule('core/media-timing.js', ['queryForegroundMediaForOpenSession'], {
+  applyMediaFacts: async () => ({}),
+  classifyMediaFact,
+  closeMediaForTab: async () => ({}),
+  getMediaFact: async (tabId) => {
+    mediaFactCalls++;
+    return mediaFactsById[tabId] || null;
+  },
+  getMediaSessions: async () => ({}),
+  runMediaPeriodicCheckpoint: async () => ({}),
+  splitOpenMediaSessionsAtModeBoundary: async () => ({}),
+  extractDomain,
+});
+
+function reset() {
+  tabsById = {};
+  windowsById = {};
+  mediaFactsById = {};
+  tabGetCalls = 0;
+  mediaFactCalls = 0;
+}
+
+async function testAudibleFastPathSkipsFallback() {
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://video.example.com/watch' };
+  windowsById[10] = { focused: false, state: 'normal' };
+
+  const result = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE',
+    tabId: 1,
+    windowId: 10,
+    domain: 'video.example.com',
+  }, 'test_audible');
+
+  check('audible fast path succeeds', result.ok === true && result.source === 'tab_audible', JSON.stringify(result));
+  check('audible fast path classifies foreground audio', result.classification.mediaClass === 'foregroundAudio', JSON.stringify(result));
+  check('audible fast path does not read media fact fallback', tabGetCalls === 1 && mediaFactCalls === 0, `${tabGetCalls}/${mediaFactCalls}`);
+}
+
+async function testAudibleFalseFallsBackToMediaFact() {
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: false, url: 'https://video.example.com/watch' };
+  windowsById[10] = { focused: true, state: 'normal' };
+  mediaFactsById[1] = {
+    tabId: 1,
+    windowId: 10,
+    domain: 'video.example.com',
+    playing: true,
+    mediaKind: 'video',
+    isActiveTab: true,
+    windowState: 'normal',
+  };
+
+  const result = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE',
+    tabId: 1,
+    windowId: 10,
+    domain: 'video.example.com',
+  }, 'test_fallback');
+
+  check('audible false falls back to media fact', result.ok === true && result.source === 'media_fact', JSON.stringify(result));
+  check('fallback classifies foreground video', result.classification.mediaClass === 'foregroundVideo', JSON.stringify(result));
+  check('fallback reuses tab snapshot and reads media fact once', tabGetCalls === 1 && mediaFactCalls === 1, `${tabGetCalls}/${mediaFactCalls}`);
+}
+
+async function testAudibleHardFailuresDoNotFallback() {
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: false, audible: true, url: 'https://video.example.com/watch' };
+  windowsById[10] = { focused: true, state: 'normal' };
+  mediaFactsById[1] = {
+    tabId: 1,
+    windowId: 10,
+    domain: 'video.example.com',
+    playing: true,
+    mediaKind: 'video',
+    isActiveTab: true,
+    windowState: 'normal',
+  };
+
+  const inactive = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE',
+    tabId: 1,
+    windowId: 10,
+    domain: 'video.example.com',
+  }, 'test_inactive');
+
+  check('audible inactive tab does not compensate', inactive.ok === false && inactive.reason === 'not_active_tab', JSON.stringify(inactive));
+  check('audible inactive tab does not fallback to stale media fact', mediaFactCalls === 0, String(mediaFactCalls));
+
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://other.example.com/watch' };
+  windowsById[10] = { focused: true, state: 'normal' };
+
+  const mismatch = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE',
+    tabId: 1,
+    windowId: 10,
+    domain: 'video.example.com',
+  }, 'test_mismatch');
+
+  check('audible domain mismatch is reported', mismatch.ok === false && mismatch.reason === 'observed_mismatch', JSON.stringify(mismatch));
+
+  reset();
+  tabsById[1] = { id: 1, windowId: 11, active: true, audible: true, url: 'https://video.example.com/watch' };
+  windowsById[11] = { focused: true, state: 'normal' };
+
+  const windowMismatch = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE',
+    tabId: 1,
+    windowId: 10,
+    domain: 'video.example.com',
+  }, 'test_window_mismatch');
+
+  check('audible window mismatch is reported', windowMismatch.ok === false && windowMismatch.reason === 'window_mismatch', JSON.stringify(windowMismatch));
+}
+
+async function testInvalidSessionDoesNotQuery() {
+  reset();
+  const result = await api.queryForegroundMediaForOpenSession({ state: 'IDLE', tabId: 1 }, 'test_invalid');
+  check('invalid session returns invalid_open_session', result.ok === false && result.reason === 'invalid_open_session', JSON.stringify(result));
+  check('invalid session does not query chrome or media facts', tabGetCalls === 0 && mediaFactCalls === 0, `${tabGetCalls}/${mediaFactCalls}`);
+}
+
+async function run() {
+  const tests = [
+    testAudibleFastPathSkipsFallback,
+    testAudibleFalseFallsBackToMediaFact,
+    testAudibleHardFailuresDoNotFallback,
+    testInvalidSessionDoesNotQuery,
+  ];
+  let passed = 0;
+  for (const test of tests) {
+    await test();
+    passed++;
+  }
+  console.log(`[Foreground Media Open Session Helper] ${passed}/${tests.length} passed`);
+}
+
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -146,6 +146,29 @@ async function runTests() {
     check('recover closeAt 不晚于 start+90s', recoverySettlements[0]?.closeAt <= base - 30_000 + 90_000);
   }
 
+  section('RI-1b recover preserves current mode for recovery segment');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    recoverySettlements.length = 0;
+
+    const base = Date.now();
+    await mockLocalStorage.set({
+      guardian_session: { currentMode: 'composite' },
+      guardian_config: { mode: 'rest' },
+    });
+    await sessionApi.saveSession({
+      state: 'ACTIVE',
+      domain: 'mode-recovery.example.com',
+      startTime: base - 30_000,
+      lastHeartbeat: base - 5_000,
+    });
+
+    await recoveryApi.recover();
+
+    check('recover 使用 guardian_session.currentMode 作为 modeOverride', recoverySettlements[0]?.options?.modeOverride === 'composite');
+  }
+
   section('RI-2 recover racing with transitionState yields legal sequence');
   {
     mockSessionStorage.reset();

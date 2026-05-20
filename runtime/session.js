@@ -272,7 +272,6 @@ function operationSourceForReason(reason) {
     value === 'tabUpdated' ||
     value === 'windowFocusChanged' ||
     value === 'windowFocusLost' ||
-    value === 'windowFocusPolled' ||
     value === 'tabClosedSuccessor' ||
     value === 'tabClosedNoActiveTab' ||
     value === 'idleStateChanged' ||
@@ -299,6 +298,43 @@ function operationSourceForReason(reason) {
 function isMediaOnlyTimingReason(reason) {
   const value = String(reason || '');
   return value === 'tabAudible' || value === 'mediaState';
+}
+
+function isDisabledTimingReason(reason) {
+  return String(reason || '') === 'windowFocusPolled';
+}
+
+function isCoalescibleForegroundOpenReason(reason) {
+  const value = String(reason || '');
+  return value === 'tabActivated' ||
+    value === 'tabUpdated' ||
+    value === 'webNavigationCommitted' ||
+    value === 'tabReplaced' ||
+    value === 'windowFocusChanged' ||
+    value === 'tabClosedSuccessor' ||
+    value === 'idle_active_reopen';
+}
+
+function numericIdentity(value) {
+  const n = Number(value);
+  return Number.isInteger(n) ? n : null;
+}
+
+function sameKnownIdentity(aValue, bValue) {
+  const a = numericIdentity(aValue);
+  const b = numericIdentity(bValue);
+  if (a == null || b == null) return true;
+  return a === b;
+}
+
+function isDuplicateForegroundOpen(session, newState, newDomain, reason, options = {}) {
+  return isForegroundPageSession(session) &&
+    newState === 'ACTIVE' &&
+    session.state === newState &&
+    session.domain === newDomain &&
+    isCoalescibleForegroundOpenReason(reason) &&
+    sameKnownIdentity(session.tabId, options.tabId) &&
+    sameKnownIdentity(session.windowId, options.windowId);
 }
 
 function normalizeOperationReason(reason) {
@@ -414,6 +450,17 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
     if (!session) return;
 
     const now = Number.isFinite(timestamp) ? timestamp : Date.now();
+    if (isDisabledTimingReason(reason)) {
+      await emitTrace('transition_skipped', {
+        source: 'runtime-session',
+        reason,
+        domain: newDomain || session.domain || null,
+        previousState: session.state || null,
+        nextState: newState || null,
+        payload: { skippedReason: 'disabled_timing_reason' },
+      });
+      return { ok: true, skipped: true, reason: 'disabled_timing_reason' };
+    }
     if (isMediaOnlyTimingReason(reason)) {
       await emitTrace('transition_skipped', {
         source: 'runtime-session',
@@ -429,6 +476,22 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
     const sessionBefore = { state: session.state, domain: session.domain, startTime: session.startTime };
     const hasOpenSession = !!(session.state && session.startTime);
 
+    if (hasOpenSession && newState && isDuplicateForegroundOpen(session, newState, newDomain, reason, options)) {
+      await emitTrace('transition_skipped', {
+        source: 'runtime-session',
+        reason,
+        domain: newDomain || session.domain || null,
+        previousState: session.state || null,
+        nextState: newState || null,
+        payload: {
+          skippedReason: 'duplicate_foreground_open',
+          tabId: options.tabId ?? session.tabId ?? null,
+          windowId: options.windowId ?? session.windowId ?? null,
+        },
+      });
+      return { ok: true, skipped: true, reason: 'duplicate_foreground_open' };
+    }
+
     if (!hasOpenSession && !newState) {
       const diagnostic = await settleBoundaryDiagnosticSegment({
         domain: observedCloseDomain(options) || newDomain || null,
@@ -438,6 +501,8 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         startReason: 'event_close_without_open',
         endReason: reason || 'event_close_without_open',
         operationSource: operationSourceForReason(reason),
+        tabId: Number.isInteger(options.tabId) ? options.tabId : null,
+        windowId: Number.isInteger(options.windowId) ? options.windowId : null,
       });
       await emitTrace('event_boundary_diagnostic_segment', {
         source: 'runtime-session',
@@ -514,6 +579,8 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
             startReason: 'event_close_domain_mismatch_observed',
             endReason: reason,
             operationSource: operationSourceForReason(reason),
+            tabId: Number.isInteger(options.tabId) ? options.tabId : null,
+            windowId: Number.isInteger(options.windowId) ? options.windowId : null,
           });
         }
       }
@@ -594,11 +661,17 @@ export function getCachedEffectiveMode() {
   return cachedEffectiveMode;
 }
 
+export function setCachedEffectiveMode(mode) {
+  cachedEffectiveMode = typeof mode === 'string' && mode.trim() ? mode.trim() : 'unknown';
+  return cachedEffectiveMode;
+}
+
 export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_mode_effective_boundary', options = {}) {
   return runSerialized(async () => {
     const session = await getSession();
     const boundary = Number(effectiveAtMs);
     if (!session?.state || !session?.startTime || !Number.isFinite(boundary)) {
+      if (options.toMode) setCachedEffectiveMode(options.toMode);
       return { ok: true, applied: false, reason: 'no_open_session' };
     }
 
@@ -612,7 +685,11 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
     };
 
     if (boundary <= session.startTime) {
-      await refreshCachedMode();
+      if (options.toMode) {
+        setCachedEffectiveMode(options.toMode);
+      } else {
+        await refreshCachedMode();
+      }
       await emitTrace('auto_mode_effective_boundary', {
         source: 'runtime-session',
         reason,
@@ -648,13 +725,18 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
     const settlement = isCountedState(session.state)
       ? await settleCurrentSessionSegment(session, boundary, 'mode_effective_boundary', {
           ...settlementResolverOptions(options),
+          modeOverride: options.fromMode || null,
           endReason: 'mode_effective_boundary',
           endOperationSource: 'mode_boundary',
           endAtMs: boundary,
         })
       : { appended: 0, durationSeconds: 0 };
 
-    await refreshCachedMode();
+    if (options.toMode) {
+      setCachedEffectiveMode(options.toMode);
+    } else {
+      await refreshCachedMode();
+    }
 
     const startEvent = {
       type: EVENT_TYPE.START,
@@ -828,13 +910,15 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     }
 
     // 使用 segment 打开时缓存的模式（而不是当前 guardian_session 中的模式）
-    const mode = cachedEffectiveMode || 'unknown';
+    const mode = options.modeOverride || cachedEffectiveMode || 'unknown';
     const identity = await resolveSettlementIdentity(effectiveSession, reason);
 
     const appended = await settleUsageDuration({
       startMs,
       endMs,
       domain: effectiveSession.domain || null,
+      tabId: Number.isInteger(effectiveSession.tabId) ? effectiveSession.tabId : null,
+      windowId: Number.isInteger(effectiveSession.windowId) ? effectiveSession.windowId : null,
       sourceState: effectiveSession.state,
       settlementReason: reason,
       description: makeSettlementDescription(
@@ -881,6 +965,8 @@ async function settleBoundaryDiagnosticSegment({
   startReason,
   endReason,
   operationSource,
+  tabId = null,
+  windowId = null,
 }) {
   const boundaryAt = Number.isFinite(atMs) ? atMs : Date.now();
   const diagnosticDomain = typeof domain === 'string' && domain.trim()
@@ -895,12 +981,16 @@ async function settleBoundaryDiagnosticSegment({
     startReason: startReason || settlementReason,
     startOperationSource: operationSource || operationSourceForReason(settlementReason),
     startAtMs: boundaryAt,
+    tabId: Number.isInteger(tabId) ? tabId : null,
+    windowId: Number.isInteger(windowId) ? windowId : null,
   };
   const identity = await resolveSettlementIdentity(timingSession, settlementReason);
   const appended = await settleUsageDuration({
     startMs: boundaryAt,
     endMs: boundaryAt,
     domain: diagnosticDomain,
+    tabId: Number.isInteger(tabId) ? tabId : null,
+    windowId: Number.isInteger(windowId) ? windowId : null,
     sourceState: diagnosticState,
     settlementReason,
     description: makeSettlementDescription(
@@ -1097,6 +1187,17 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
   const task = async () => {
     const session = await getSession();
     const now = Number.isFinite(options.now) ? options.now : Date.now();
+    if (isDisabledTimingReason(reason)) {
+      await emitTrace('transition_skipped', {
+        source: 'runtime-session',
+        reason,
+        domain: session?.domain || observedCloseDomain(options) || null,
+        previousState: session?.state || null,
+        nextState: null,
+        payload: { skippedReason: 'disabled_timing_reason' },
+      });
+      return { ok: true, closed: false, skipped: true, reason: 'disabled_timing_reason' };
+    }
     if (!session?.state || !session?.startTime) {
       const diagnostic = await settleBoundaryDiagnosticSegment({
         domain: observedCloseDomain(options),
@@ -1106,6 +1207,8 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
         startReason: 'event_close_without_open',
         endReason: reason,
         operationSource: operationSourceForReason(reason),
+        tabId: Number.isInteger(options.tabId) ? options.tabId : null,
+        windowId: Number.isInteger(options.windowId) ? options.windowId : null,
       });
       await saveSession({
         state: null,
@@ -1154,6 +1257,8 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
           startReason: 'event_close_domain_mismatch_observed',
           endReason: reason,
           operationSource: operationSourceForReason(reason),
+          tabId: Number.isInteger(options.tabId) ? options.tabId : null,
+          windowId: Number.isInteger(options.windowId) ? options.windowId : null,
         });
       }
     }

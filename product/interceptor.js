@@ -2,7 +2,8 @@
 
 import { getConfig, getSession, saveSession, hasTemporaryCompositePermission, matchDomain, extractDomain, isSpecialUrl } from '../infra/storage.js';
 import { getTodayStatsWithCategories } from './analytics.js';
-import { applyModeEffectiveBoundary } from '../runtime/session.js';
+import { enqueueModeBoundaryIntent } from '../core/mode-boundary-intents.js';
+import { setCachedEffectiveMode } from '../runtime/session.js';
 
 const AUTO_TRANSITION_GATES = {
   rest_to_composite: 30_000,
@@ -13,6 +14,7 @@ const AUTO_TRANSITION_GATES = {
 const autoTransitionCandidates = new Map();
 const autoModePendingByTab = new Map();
 const STUDY_PENDING_RULES = new Set(['rest_to_study', 'composite_to_study']);
+let modeBoundaryDrainHook = null;
 
 // Pending success notices stored by tabId for reliable delivery after reload.
 // TTL: 30 seconds — covers content script re-injection after page reload.
@@ -126,18 +128,41 @@ async function getEffectiveRuntimeMode(config, monitoringEnabled) {
   return normalizeMode(config?.mode);
 }
 
+export function setModeBoundaryDrainHook(fn) {
+  modeBoundaryDrainHook = typeof fn === 'function' ? fn : null;
+}
+
+async function drainQueuedModeBoundary(reason) {
+  if (!modeBoundaryDrainHook) return { ok: true, skipped: true, reason: 'mode_boundary_drain_hook_missing' };
+  try {
+    return await modeBoundaryDrainHook(reason);
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
 async function setRuntimeMode(nextMode, options = {}) {
   const normalized = normalizeMode(nextMode);
   if (normalized === 'paused') return;
   const session = await getSession();
-  if (normalizeMode(session?.currentMode) === normalized) return;
+  const fromMode = normalizeMode(session?.currentMode);
+  if (fromMode === normalized) return;
   await saveSession({
     ...(session || {}),
     currentMode: normalized,
     ...(Number.isFinite(options.effectiveAtMs) ? { modeEffectiveAtMs: options.effectiveAtMs } : {}),
   });
+  setCachedEffectiveMode(normalized);
   if (Number.isFinite(options.effectiveAtMs)) {
-    await applyModeEffectiveBoundary(options.effectiveAtMs, options.reason || 'auto_mode_effective_boundary');
+    const boundaryReason = options.reason || 'auto_mode_effective_boundary';
+    await enqueueModeBoundaryIntent({
+      boundaryAtMs: options.effectiveAtMs,
+      fromMode: fromMode || 'unknown',
+      toMode: normalized,
+      reason: boundaryReason,
+      source: 'auto_mode_transition',
+    });
+    await drainQueuedModeBoundary(boundaryReason);
   }
 }
 

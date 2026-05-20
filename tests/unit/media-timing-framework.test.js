@@ -51,9 +51,11 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'closeMediaSession',
   'getDailyMediaStats',
   'getMediaSession',
+  'getMediaFrameFacts',
   'getMediaSessions',
   'getMediaSegments',
   'runMediaPeriodicCheckpoint',
+  'splitOpenMediaSessionsAtModeBoundary',
   '__resetMediaSessionForTest',
 ], {
   getCachedEffectiveMode: () => 'study',
@@ -102,6 +104,22 @@ function audioFact(tabId, domain, overrides = {}) {
   };
 }
 
+function stoppedFact(tabId, domain, overrides = {}) {
+  return {
+    tabId,
+    frameId: overrides.frameId,
+    windowId: overrides.windowId ?? 10,
+    domain,
+    playing: false,
+    audible: false,
+    mediaKind: null,
+    isPiP: false,
+    isActiveTab: overrides.isActiveTab ?? true,
+    windowState: overrides.windowState || 'normal',
+    source: overrides.source || 'dom_media_event',
+  };
+}
+
 async function testClassifierRules() {
   resetAll();
   check('active normal video is foregroundVideo',
@@ -119,14 +137,16 @@ async function testClassifierRules() {
 async function testTwoTabsCountConcurrently() {
   resetAll();
   const base = 1778800000000;
-  await mediaApi.applyMediaFacts([
+  const facts = [
     audioFact(1, 'audio.example.com'),
     videoFact(2, 'video.example.com'),
-  ], 'mediaState', base);
+  ];
+  await mediaApi.applyMediaFacts(facts, 'mediaState', base);
 
   const sessions = await mediaApi.getMediaSessions();
   check('two media sessions are open', Object.keys(sessions).length === 2, JSON.stringify(sessions));
 
+  await mediaApi.applyMediaFacts(facts, 'mediaState', base + 180_000);
   const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 180_000);
   check('checkpoint reports media windows', checkpoint.checkpointWindows === 2, JSON.stringify(checkpoint));
 
@@ -155,12 +175,29 @@ async function testVideoTakesPrecedenceWithinTab() {
   check('same-tab video+audio is video', open[0].mediaClass === 'foregroundVideo', JSON.stringify(open[0]));
 }
 
+async function testRepeatedSameMediaFactDoesNotWriteSegment() {
+  resetAll();
+  const base = 1778801500000;
+  await mediaApi.applyMediaFacts({ ...videoFact(13, 'repeat.example.com'), frameId: 1 }, 'mediaState', base);
+  await mediaApi.applyMediaFacts({
+    ...videoFact(13, 'repeat.example.com', { source: 'dom_media_poll' }),
+    frameId: 1,
+  }, 'mediaState', base + 30_000);
+
+  const rows = await segments();
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  check('repeated unchanged MEDIA_STATE writes no segment', rows.length === 0, JSON.stringify(rows));
+  check('repeated unchanged MEDIA_STATE keeps one open session', sessions.length === 1 && sessions[0].startTime === base, JSON.stringify(sessions));
+}
+
 async function testPiPTakesPrecedence() {
   resetAll();
   const base = 1778802000000;
-  await mediaApi.applyMediaFacts({ ...videoFact(4, 'pip.example.com'), isPiP: true }, 'pip_api', base);
+  const fact = { ...videoFact(4, 'pip.example.com'), isPiP: true };
+  await mediaApi.applyMediaFacts(fact, 'pip_api', base);
   const legacy = await mediaApi.getMediaSession();
   check('legacy mirror exposes pip_video', legacy.framework === 'pip_video', JSON.stringify(legacy));
+  await mediaApi.applyMediaFacts(fact, 'pip_api', base + 180_000);
   const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 180_000);
   check('pip checkpoint writes segment', checkpoint.flushedSegments === 1, JSON.stringify(checkpoint));
   const [row] = await segments();
@@ -203,15 +240,231 @@ async function testCheckpointIgnoresFactsWithoutOpenSessions() {
   check('facts without open media sessions do not write segments', (await segments()).length === 0);
 }
 
+async function testCheckpointEstimatedCloseWithoutFreshConfirmation() {
+  resetAll();
+  const base = 1778805100000;
+  await mediaApi.applyMediaFacts(videoFact(18, 'stale-open.example.com'), 'mediaState', base);
+
+  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 180_000);
+  check('stale open media session is estimated closed', checkpoint.estimatedCloseWindows === 1, JSON.stringify(checkpoint));
+  check('stale open media session is not normal checkpointed', checkpoint.checkpointWindows === 0, JSON.stringify(checkpoint));
+
+  const rows = await segments();
+  check('estimated close writes one media segment', rows.length === 1, JSON.stringify(rows));
+  check('estimated close uses dedicated reason', rows[0].settlementReason === 'media_checkpoint_estimated_close', JSON.stringify(rows[0]));
+  check('estimated close description records half interval', rows[0].description.end.reason === 'media_checkpoint_estimated_half_interval_close', JSON.stringify(rows[0].description));
+  check('estimated close uses half unconfirmed window', rows[0].durationSeconds === 90, JSON.stringify(rows[0]));
+  check('estimated close removes open session', Object.keys(await mediaApi.getMediaSessions()).length === 0);
+}
+
+async function testCheckpointDoesNotRefreshLastObservedAt() {
+  resetAll();
+  const base = 1778805200000;
+  await mediaApi.applyMediaFacts(videoFact(19, 'observed.example.com'), 'mediaState', base);
+  await mediaApi.applyMediaFacts(videoFact(19, 'observed.example.com'), 'mediaState', base + 190_000);
+
+  const checkpoint = await mediaApi.runMediaPeriodicCheckpoint(base + 200_000);
+  check('freshly confirmed session is normally checkpointed', checkpoint.checkpointWindows === 1, JSON.stringify(checkpoint));
+
+  const open = Object.values(await mediaApi.getMediaSessions())[0];
+  check('checkpoint reopens at checkpoint boundary', open.startTime === base + 180_000, JSON.stringify(open));
+  check('checkpoint keeps last observed media fact time', open.lastObservedAt === base + 190_000, JSON.stringify(open));
+  check('checkpoint records separate checkpoint time', open.lastCheckpointAt === base + 180_000, JSON.stringify(open));
+}
+
+async function testStoppedFrameDoesNotClosePlayingFrameInSameTab() {
+  resetAll();
+  const base = 1778805500000;
+  await mediaApi.applyMediaFacts({ ...videoFact(20, 'frames.example.com'), frameId: 1 }, 'mediaState', base);
+  await mediaApi.applyMediaFacts(stoppedFact(20, 'frames.example.com', { frameId: 2 }), 'mediaState', base + 1000);
+
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  check('stopped sibling frame does not close tab media session', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
+  check('stopped sibling frame writes no segment', (await segments()).length === 0);
+
+  await mediaApi.applyMediaFacts(stoppedFact(20, 'frames.example.com', { frameId: 1 }), 'mediaState', base + 10_000);
+  const rows = await segments();
+  check('all frames stopped closes media session', rows.length === 1, JSON.stringify(rows));
+  check('all frames stopped duration uses original open time', rows[0].durationSeconds === 10, JSON.stringify(rows[0]));
+}
+
+async function testFrameAggregationVideoPrecedenceAndFallback() {
+  resetAll();
+  const base = 1778805600000;
+  await mediaApi.applyMediaFacts([
+    { ...audioFact(21, 'mixed-frames.example.com'), frameId: 1, isActiveTab: true },
+    { ...videoFact(21, 'mixed-frames.example.com'), frameId: 2 },
+  ], 'mediaState', base);
+  let sessions = Object.values(await mediaApi.getMediaSessions());
+  check('same-tab audio+video aggregates to one video session', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
+
+  await mediaApi.applyMediaFacts(stoppedFact(21, 'mixed-frames.example.com', { frameId: 2 }), 'mediaState', base + 5000);
+  sessions = Object.values(await mediaApi.getMediaSessions());
+  const rows = await segments();
+  check('video stop falls back to remaining audio session', sessions.length === 1 && sessions[0].mediaClass === 'foregroundAudio', JSON.stringify(sessions));
+  check('video-to-audio reclassification writes one video segment', rows.length === 1 && rows[0].mediaClass === 'foregroundVideo', JSON.stringify(rows));
+}
+
+async function testPiPFramePriorityAndFallback() {
+  resetAll();
+  const base = 1778805700000;
+  await mediaApi.applyMediaFacts({ ...videoFact(22, 'pip-frames.example.com'), frameId: 1, isPiP: true }, 'pip_api', base);
+  let sessions = Object.values(await mediaApi.getMediaSessions());
+  check('pip frame opens pip session', sessions.length === 1 && sessions[0].mediaClass === 'pip', JSON.stringify(sessions));
+
+  await mediaApi.applyMediaFacts({ ...videoFact(22, 'pip-frames.example.com'), frameId: 1, isPiP: false }, 'pip_api', base + 6000);
+  sessions = Object.values(await mediaApi.getMediaSessions());
+  const rows = await segments();
+  check('leaving pip falls back to video session', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
+  check('pip fallback writes pip segment', rows.length === 1 && rows[0].mediaClass === 'pip', JSON.stringify(rows));
+}
+
+async function testNavigationClearsFrameFactsForTab() {
+  resetAll();
+  const base = 1778805800000;
+  await mediaApi.applyMediaFacts({ ...videoFact(23, 'nav-old.example.com'), frameId: 1 }, 'mediaState', base);
+  await mediaApi.applyMediaFacts({
+    ...stoppedFact(23, 'nav-new.example.com', { frameId: 'tab' }),
+    clearMediaFrames: true,
+  }, 'tabUpdated', base + 7000);
+  const frameFacts = await mediaApi.getMediaFrameFacts();
+  const sessions = await mediaApi.getMediaSessions();
+  const rows = await segments();
+  check('navigation clears old frame facts for tab', Object.keys(frameFacts).length === 1 && frameFacts['23::tab'], JSON.stringify(frameFacts));
+  check('navigation closes media session', Object.keys(sessions).length === 0, JSON.stringify(sessions));
+  check('navigation writes media segment from old playing frame', rows.length === 1 && rows[0].durationSeconds === 7, JSON.stringify(rows));
+}
+
+async function testModeBoundarySplitsOpenMediaSessions() {
+  resetAll();
+  const base = 1778806000000;
+  await mediaApi.applyMediaFacts(videoFact(9, 'mode.example.com'), 'mediaState', base);
+  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
+    boundaryAtMs: base + 30_000,
+    fromMode: 'study',
+    toMode: 'composite',
+    reason: 'manual_mode_switch',
+    source: 'runtime_message',
+  });
+  check('mode boundary splits one media session', split.split === 1, JSON.stringify(split));
+  const rows = await segments();
+  check('mode boundary writes old-mode media segment', rows.length === 1 && rows[0].mode === 'study', JSON.stringify(rows));
+  check('mode boundary segment reason', rows[0].settlementReason === 'mode_effective_boundary', JSON.stringify(rows[0]));
+  const sessions = await mediaApi.getMediaSessions();
+  const open = Object.values(sessions)[0];
+  check('mode boundary reopens media session with new mode', open?.mode === 'composite' && open.startTime === base + 30_000, JSON.stringify(open));
+}
+
+async function testModeBoundarySplitsMultipleOpenMediaSessions() {
+  resetAll();
+  const base = 1778807000000;
+  await mediaApi.applyMediaFacts([
+    videoFact(10, 'mode-video.example.com'),
+    audioFact(11, 'mode-audio.example.com'),
+  ], 'mediaState', base);
+  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
+    boundaryAtMs: base + 45_000,
+    fromMode: 'study',
+    toMode: 'rest',
+    reason: 'manual_mode_switch',
+    source: 'runtime_message',
+  });
+  check('mode boundary splits two media sessions', split.split === 2, JSON.stringify(split));
+  const rows = await segments();
+  check('mode boundary writes two media segments', rows.length === 2, JSON.stringify(rows));
+  check('all mode boundary old segments use fromMode', rows.every((row) => row.mode === 'study'), JSON.stringify(rows));
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  check('all reopened media sessions use toMode', sessions.length === 2 && sessions.every((session) => session.mode === 'rest' && session.startTime === base + 45_000), JSON.stringify(sessions));
+}
+
+async function testModeBoundaryNoOpenMediaSessionsNoop() {
+  resetAll();
+  const base = 1778808000000;
+  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
+    boundaryAtMs: base + 10_000,
+    fromMode: 'study',
+    toMode: 'composite',
+  });
+  check('mode boundary without open media sessions is no-op', split.split === 0 && split.updated === 0 && split.appended === 0, JSON.stringify(split));
+  check('mode boundary no-op writes no media segments', (await segments()).length === 0);
+}
+
+async function testModeBoundaryBeforeStartOnlyUpdatesMode() {
+  resetAll();
+  const base = 1778809000000;
+  await mediaApi.applyMediaFacts(videoFact(12, 'mode-update.example.com'), 'mediaState', base);
+  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
+    boundaryAtMs: base,
+    fromMode: 'study',
+    toMode: 'rest',
+  });
+  check('mode boundary at session start updates without split', split.split === 0 && split.updated === 1 && split.appended === 0, JSON.stringify(split));
+  check('mode boundary at start writes no zero-ms media segment', (await segments()).length === 0);
+  const open = Object.values(await mediaApi.getMediaSessions())[0];
+  check('mode boundary at start updates open media mode', open?.mode === 'rest' && open.startTime === base, JSON.stringify(open));
+}
+
+async function testModeBoundaryClosesPiPWhenTargetModeDisallowsPiP() {
+  resetAll();
+  const base = 1778810000000;
+  await mediaApi.applyMediaFacts({ ...videoFact(24, 'pip-close.example.com'), isPiP: true }, 'pip_api', base);
+
+  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
+    boundaryAtMs: base + 20_000,
+    fromMode: 'rest',
+    toMode: 'composite',
+  });
+
+  check('rest to composite closes open pip session', split.closedPiP === 1, JSON.stringify(split));
+  const rows = await segments();
+  check('pip close writes mode boundary segment', rows.length === 1 && rows[0].mediaClass === 'pip', JSON.stringify(rows));
+  check('closed pip segment keeps fromMode', rows[0].mode === 'rest', JSON.stringify(rows[0]));
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  check('pip is not reopened after disallowing mode boundary', !sessions.some((session) => session.mediaClass === 'pip'), JSON.stringify(sessions));
+}
+
+async function testModeBoundaryClosesPiPAndReclassifiesRemainingVideo() {
+  resetAll();
+  const base = 1778811000000;
+  await mediaApi.applyMediaFacts([
+    { ...videoFact(25, 'pip-reclassify.example.com'), frameId: 1, isPiP: true },
+    { ...videoFact(25, 'pip-reclassify.example.com'), frameId: 2, isPiP: false },
+  ], 'pip_api', base);
+
+  const split = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
+    boundaryAtMs: base + 20_000,
+    fromMode: 'rest',
+    toMode: 'composite',
+  });
+
+  check('pip close can reclassify remaining non-pip video', split.closedPiP === 1 && split.reclassified === 1, JSON.stringify(split));
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  check('remaining video is reopened as foreground video, not pip', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
+  check('reclassified video uses target mode', sessions[0].mode === 'composite', JSON.stringify(sessions[0]));
+}
+
 async function run() {
   const tests = [
     testClassifierRules,
     testTwoTabsCountConcurrently,
     testVideoTakesPrecedenceWithinTab,
+    testRepeatedSameMediaFactDoesNotWriteSegment,
     testPiPTakesPrecedence,
     testCloseWritesLocalMediaSegment,
     testCloseAllSessions,
     testCheckpointIgnoresFactsWithoutOpenSessions,
+    testCheckpointEstimatedCloseWithoutFreshConfirmation,
+    testCheckpointDoesNotRefreshLastObservedAt,
+    testStoppedFrameDoesNotClosePlayingFrameInSameTab,
+    testFrameAggregationVideoPrecedenceAndFallback,
+    testPiPFramePriorityAndFallback,
+    testNavigationClearsFrameFactsForTab,
+    testModeBoundarySplitsOpenMediaSessions,
+    testModeBoundarySplitsMultipleOpenMediaSessions,
+    testModeBoundaryNoOpenMediaSessionsNoop,
+    testModeBoundaryBeforeStartOnlyUpdatesMode,
+    testModeBoundaryClosesPiPWhenTargetModeDisallowsPiP,
+    testModeBoundaryClosesPiPAndReclassifiesRemainingVideo,
   ];
   let passed = 0;
   for (const test of tests) {

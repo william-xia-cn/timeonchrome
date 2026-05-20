@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'background.js'), 'utf8');
+const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js'), 'utf8');
 
 let passed = 0;
 let failed = 0;
@@ -30,9 +31,13 @@ const onInstalledBody = onInstalledIndex >= 0 && nextSectionIndex > onInstalledI
   : source.slice(onInstalledIndex, onInstalledIndex + 2000);
 
 check('module bootstrap initializes session', /await initSession\(\)/.test(bootstrapBody));
+check('module bootstrap hydrates cloud sync state without waiting for alarm', /await hydrateCloudSyncStateFromStorage\(\)/.test(bootstrapBody));
 check('module bootstrap does not call recover', !/recover\(\)/.test(bootstrapBody));
+check('runtime messages wait for bootstrap before routing', /ensureBootstrapped\('runtimeMessage'\)[\s\S]{0,120}\.then\(\(\) => handleMessage\(msg, sender\)\)/.test(source));
 check('onStartup calls recover', /await recover\(\)/.test(onStartupBody));
 check('onInstalled calls recover', /await recover\(\)/.test(onInstalledBody));
+check('cloud sync exposes storage hydration helper', /export async function hydrateCloudSyncStateFromStorage\(\)/.test(cloudSyncSource));
+check('initCloudSync reuses storage hydration helper', /export async function initCloudSync\(syncNowFn\) \{\s*await hydrateCloudSyncStateFromStorage\(\);/.test(cloudSyncSource));
 check('heartbeat alarm is not created', !/chrome\.alarms\.create\('heartbeat'/.test(source));
 check('heartbeat alarm handler is removed', !/alarm\.name === 'heartbeat'/.test(source));
 check('foreground stabilization window is removed', !/FOREGROUND_STABILIZATION_MS|pendingForegroundBoundary|pendingForegroundTimer|foreground_boundary_pending/.test(source));

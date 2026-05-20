@@ -3,29 +3,60 @@
 import { buildContext } from './context.js';
 import { resolveState } from './state.js';
 import { emitTrace } from './timing-trace.js';
-import { queryKnownForegroundMediaFacts } from './media-timing.js';
+import { queryForegroundMediaForOpenSession } from './media-timing.js';
 import { extractDomain } from '../infra/storage.js';
-import { getSession as getTimingSession, transitionStateAt } from '../runtime/session.js';
+import { applyModeEffectiveBoundary, getSession as getTimingSession, transitionStateAt } from '../runtime/session.js';
 
 const UNKNOWN_FOREGROUND_DOMAIN = '__unknown__';
 const SHORT_FOREGROUND_GAP_DIAGNOSTIC_MS = 30 * 1000;
 const IDLE_DETECTION_SECONDS = 90;
 
 let currentContext = null;
-let appliedForegroundBoundary = { state: null, domain: null };
+let appliedForegroundBoundary = { state: null, domain: null, tabId: null, windowId: null };
 let pendingForegroundGapDiagnostic = null;
 
 function isOrdinaryForegroundFrameworkState(state) {
   return state === 'ACTIVE' || state === 'PASSIVE' || state === 'IDLE';
 }
 
-function sameBoundary(a, b) {
-  return (a?.state ?? null) === (b?.state ?? null) && (a?.domain ?? null) === (b?.domain ?? null);
+function boundaryFromSession(session) {
+  if (!session?.state || !session?.startTime) return null;
+  return {
+    state: session.state,
+    domain: session.state === 'ACTIVE'
+      ? (session.domain || UNKNOWN_FOREGROUND_DOMAIN)
+      : (session.domain || null),
+    tabId: numericTabId(session.tabId),
+    windowId: numericTabId(session.windowId),
+  };
 }
 
 function numericTabId(tabId) {
   const n = Number(tabId);
   return Number.isInteger(n) ? n : null;
+}
+
+function sameKnownIdentity(aValue, bValue) {
+  const a = numericTabId(aValue);
+  const b = numericTabId(bValue);
+  if (a == null || b == null) return true;
+  return a === b;
+}
+
+function sameBoundary(a, b) {
+  return (a?.state ?? null) === (b?.state ?? null) &&
+    (a?.domain ?? null) === (b?.domain ?? null) &&
+    sameKnownIdentity(a?.tabId, b?.tabId) &&
+    sameKnownIdentity(a?.windowId, b?.windowId);
+}
+
+function appliedBoundaryFrom(state, domain, metadata = {}) {
+  return {
+    state,
+    domain,
+    tabId: numericTabId(metadata.tabId),
+    windowId: numericTabId(metadata.windowId),
+  };
 }
 
 function tabMatchesContext(tab, context = {}) {
@@ -183,6 +214,7 @@ async function enrichContextWithForegroundMedia(context, previousContext, rawEve
   }
 
   let foreground = null;
+  let openSession = null;
   if (mediaObservation && isForegroundMediaClassification(mediaObservation.classification)) {
     foreground = mediaObservation;
   }
@@ -195,32 +227,12 @@ async function enrichContextWithForegroundMedia(context, previousContext, rawEve
       context.isFocused === false);
 
   if (shouldQueryForegroundMedia) {
-    const candidates = await queryKnownForegroundMediaFacts([
-      {
-        tabId: context.mediaSourceTabId ?? context.tabId,
-        overrides: {
-          windowId: context.windowId,
-          domain: context.domain,
-          windowState: context.windowState,
-          mediaFactSource: rawEvent?._reason || 'foreground_media_context_query',
-        },
-      },
-      {
-        tabId: previousContext?.mediaSourceTabId ?? previousContext?.tabId,
-        overrides: {
-          windowId: previousContext?.windowId,
-          domain: previousContext?.domain,
-          windowState: previousContext?.windowState,
-          mediaFactSource: rawEvent?._reason || 'foreground_media_previous_context_query',
-        },
-      },
-    ]);
-    foreground = candidates.find((candidate) =>
-      candidate.fact?.tabId === context.tabId ||
-      candidate.fact?.tabId === previousContext?.tabId ||
-      candidate.fact?.domain === context.domain ||
-      candidate.fact?.domain === previousContext?.domain
-    ) || candidates[0] || null;
+    openSession = await getTimingSession();
+    const mediaResult = await queryForegroundMediaForOpenSession(
+      openSession,
+      rawEvent?._reason || 'foreground_media_context_query'
+    );
+    foreground = mediaResult?.ok ? mediaResult : null;
   }
 
   if (!foreground) {
@@ -231,9 +243,9 @@ async function enrichContextWithForegroundMedia(context, previousContext, rawEve
   const factTabId = numericTabId(fact.tabId);
   return {
     ...context,
-    tabId: context.tabId ?? factTabId ?? previousContext?.tabId ?? null,
-    windowId: context.windowId ?? fact.windowId ?? previousContext?.windowId ?? null,
-    domain: context.domain || previousContext?.domain || fact.domain || 'unknown-page.chrome-local',
+    tabId: context.tabId ?? numericTabId(openSession?.tabId) ?? factTabId ?? null,
+    windowId: context.windowId ?? numericTabId(openSession?.windowId) ?? fact.windowId ?? null,
+    domain: context.domain || openSession?.domain || fact.domain || 'unknown-page.chrome-local',
     foregroundMediaActive: true,
     mediaSourceTabId: factTabId ?? context.mediaSourceTabId ?? null,
     mediaSourceDomain: fact.domain || context.mediaSourceDomain || null,
@@ -250,11 +262,15 @@ async function applyForegroundBoundary(boundary, applyReason) {
     ...(boundary.metadata || {}),
     resolveUnknownDomainForSettlement,
   });
-  appliedForegroundBoundary = { state: boundary.state, domain: boundary.domain };
+  appliedForegroundBoundary = appliedBoundaryFrom(boundary.state, boundary.domain, boundary.metadata || {});
 }
 
 async function handleForegroundBoundary(state, domain, reason, boundaryAt, metadata = {}) {
-  const target = { state, domain: state === 'ACTIVE' ? (domain || UNKNOWN_FOREGROUND_DOMAIN) : domain || null };
+  const target = appliedBoundaryFrom(
+    state,
+    state === 'ACTIVE' ? (domain || UNKNOWN_FOREGROUND_DOMAIN) : domain || null,
+    metadata
+  );
 
   if (appliedForegroundBoundary.state === 'ACTIVE' && target.state !== 'ACTIVE') {
     pendingForegroundGapDiagnostic = {
@@ -286,6 +302,24 @@ async function handleForegroundBoundary(state, domain, reason, boundaryAt, metad
   }
 
   if (sameBoundary(target, appliedForegroundBoundary)) return;
+
+  const openSessionBoundary = boundaryFromSession(await getTimingSession());
+  if (sameBoundary(target, openSessionBoundary)) {
+    appliedForegroundBoundary = { ...target };
+    await emitTrace('foreground_boundary_skipped', {
+      source: 'foreground-boundary',
+      reason,
+      domain: target.domain || null,
+      tabId: target.tabId ?? null,
+      windowId: target.windowId ?? null,
+      nextState: target.state,
+      payload: {
+        skippedReason: 'persisted_session_same_boundary',
+        boundaryAt,
+      },
+    });
+    return;
+  }
 
   await emitTrace('foreground_boundary_applied', {
     source: 'foreground-boundary',
@@ -368,19 +402,6 @@ export async function processForegroundSignal(rawEvent, options = {}) {
       mediaFactSource: currentContext?.mediaFactSource,
     },
   });
-
-  if (options.isMediaOnlySignal === true) {
-    await emitTrace('transition_skipped', {
-      source: 'session',
-      reason: signal._reason || 'media_signal',
-      tabId: currentContext?.tabId ?? null,
-      windowId: currentContext?.windowId ?? null,
-      domain: currentContext?.domain ?? null,
-      nextState: null,
-      payload: { skippedReason: 'media_signal_foreground_unchanged' },
-    });
-    return;
-  }
 
   const state = resolveState(currentContext);
   let domain = (state === 'BACKGROUND_ACTIVE' || state === 'PIP_ACTIVE')
@@ -474,7 +495,7 @@ export async function processForegroundSignal(rawEvent, options = {}) {
         ...metadata,
         resolveUnknownDomainForSettlement,
       });
-      appliedForegroundBoundary = { state: 'IDLE', domain: null };
+      appliedForegroundBoundary = appliedBoundaryFrom('IDLE', null, metadata);
       scheduleBadgeUpdate();
       return { state: 'IDLE', domain: null, context: currentContext };
     }
@@ -485,7 +506,7 @@ export async function processForegroundSignal(rawEvent, options = {}) {
       ...metadata,
       resolveUnknownDomainForSettlement,
     });
-    appliedForegroundBoundary = { state: 'ACTIVE', domain };
+    appliedForegroundBoundary = appliedBoundaryFrom('ACTIVE', domain, metadata);
     await emitTrace('idle_active_reopen', {
       source: 'runtime-session',
       reason: 'idleStateChanged',
@@ -530,6 +551,18 @@ export async function processForegroundSignal(rawEvent, options = {}) {
   return { state, domain, context: currentContext };
 }
 
+export async function processForegroundModeBoundary(intent = {}) {
+  const boundaryAtMs = Number(intent.boundaryAtMs ?? intent.effectiveAtMs ?? intent.atMs);
+  if (!Number.isFinite(boundaryAtMs)) {
+    return { ok: false, reason: 'invalid_mode_boundary_time' };
+  }
+  return applyModeEffectiveBoundary(boundaryAtMs, intent.reason || 'mode_boundary', {
+    fromMode: intent.fromMode || null,
+    toMode: intent.toMode || null,
+    modeBoundaryIntentId: intent.id || null,
+  });
+}
+
 function queryIdleState(seconds) {
   return new Promise((resolve, reject) => {
     try {
@@ -568,50 +601,37 @@ export async function confirmForegroundPageCheckpoint(session) {
       : null;
 
     const foregroundMediaSample = async (failureReason) => {
-      const candidates = await queryKnownForegroundMediaFacts([
-        {
-          tabId: session?.tabId,
-          overrides: {
-            windowId: session?.windowId ?? null,
-            mediaFactSource: 'checkpoint_session_media_query',
-          },
-        },
-        {
-          tabId: tab?.id,
-          overrides: {
-            windowId: tab?.windowId,
-            domain: observedDomain,
-            isActiveTab: true,
-            windowState: win.state || null,
-            isAudible: tab?.audible === true,
-            mediaFactSource: 'checkpoint_active_tab_media_query',
-          },
-        },
-      ]);
-      const match = candidates.find((candidate) =>
-        !session?.domain ||
-        candidate.fact?.domain === session.domain ||
-        candidate.fact?.tabId === session.tabId
-      ) || candidates[0] || null;
-      if (!match) return null;
+      if (session?.state !== 'ACTIVE' || numericTabId(session?.tabId) == null) return null;
+      const mediaResult = await queryForegroundMediaForOpenSession(session, 'checkpoint_session_media_query');
+      if (!mediaResult?.ok) {
+        if (mediaResult?.reason === 'observed_mismatch' || mediaResult?.reason === 'unknown_domain') {
+          return {
+            ok: false,
+            reason: mediaResult.reason,
+            observedDomain: mediaResult.fact?.domain ?? null,
+            observedState: 'ACTIVE',
+            tabId: numericTabId(mediaResult.fact?.tabId ?? session?.tabId),
+            windowId: Number.isInteger(mediaResult.fact?.windowId) ? mediaResult.fact.windowId : null,
+            idleState,
+            foregroundMediaActive: false,
+            mediaClass: mediaResult.classification?.mediaClass ?? null,
+            mediaCompensationAttempted: true,
+            mediaCompensationFailureReason: failureReason || null,
+          };
+        }
+        return null;
+      }
+      const fact = mediaResult.fact || {};
       const result = {
-        observedDomain: match.fact.domain,
+        observedDomain: fact.domain,
         observedState: 'ACTIVE',
-        tabId: numericTabId(match.fact.tabId),
-        windowId: Number.isInteger(match.fact.windowId) ? match.fact.windowId : null,
+        tabId: numericTabId(fact.tabId ?? session?.tabId),
+        windowId: Number.isInteger(fact.windowId) ? fact.windowId : null,
         idleState,
         foregroundMediaActive: true,
-        mediaClass: match.classification.mediaClass,
+        mediaClass: mediaResult.classification?.mediaClass ?? null,
+        mediaFactSource: mediaResult.source || null,
       };
-      if (session?.domain && match.fact.domain !== session.domain) {
-        return {
-          ...result,
-          ok: false,
-          reason: match.fact.domain === 'unknown-page.chrome-local' ? 'unknown_domain' : 'observed_mismatch',
-          mediaCompensationAttempted: true,
-          mediaCompensationFailureReason: failureReason || null,
-        };
-      }
       return {
         ...result,
         ok: true,

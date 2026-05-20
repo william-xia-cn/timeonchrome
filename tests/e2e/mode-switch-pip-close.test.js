@@ -5,6 +5,14 @@ const { test, expect, chromium } = require('@playwright/test');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const {
+  assertMediaTimeline,
+  assertNoForbiddenForegroundOperations,
+  assertNoUnexpectedOverlap,
+  assertUsageTimeline,
+  formatTimeline,
+  readLedgerSnapshot,
+} = require('./helpers/ledger-assertions');
 
 const EXT = path.resolve(__dirname, '../..');
 
@@ -83,17 +91,13 @@ async function tabIdForPage(sw, page) {
 async function sendRuntimeMessage(ctx, sw, page, type) {
   await page.bringToFront();
   const targetTabId = await tabIdForPage(sw, page);
-  const runtimeUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
-  const extensionPage = await ctx.newPage();
-  try {
-    await extensionPage.goto(runtimeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    return await extensionPage.evaluate(async ({ messageType, targetTabId }) => {
-      if (targetTabId) await chrome.tabs.update(targetTabId, { active: true });
-      return await chrome.runtime.sendMessage({ type: messageType, noticeTabId: targetTabId });
-    }, { messageType: type, targetTabId });
-  } finally {
-    await extensionPage.close().catch(() => {});
-  }
+  return await sw.evaluate(async ({ messageType, targetTabId }) => {
+    if (targetTabId) await chrome.tabs.update(targetTabId, { active: true });
+    if (typeof globalThis.debugSendModeSwitchMessage === 'function') {
+      return await globalThis.debugSendModeSwitchMessage({ type: messageType, noticeTabId: targetTabId });
+    }
+    return { success: false, error: 'debugSendModeSwitchMessage_missing' };
+  }, { messageType: type, targetTabId });
 }
 
 async function forceRuntimeMode(sw, mode) {
@@ -107,6 +111,9 @@ async function forceRuntimeMode(sw, mode) {
       guardian_config: cfg,
       guardian_session: session,
     });
+    if (nextMode === 'rest' && typeof globalThis.debugSetRestMode === 'function') {
+      await globalThis.debugSetRestMode();
+    }
   }, mode);
 }
 
@@ -207,6 +214,197 @@ async function fakePiPState(page) {
   });
 }
 
+async function waitForOpenForegroundSession(sw, domain) {
+  await expect.poll(async () => {
+    return await sw.evaluate(async (expectedDomain) => {
+      const data = await chrome.storage.session.get('session_v1');
+      const session = data.session_v1 || null;
+      return session?.state === 'ACTIVE' && session?.domain === expectedDomain;
+    }, domain);
+  }, { timeout: 6000 }).toBe(true);
+}
+
+async function ensureOpenForegroundSession(sw, domain, tabId, atMs = Date.now(), forceSeed = false) {
+  const result = await sw.evaluate(async ({ expectedDomain, targetTabId, atMs, forceSeed }) => {
+    const current = await chrome.storage.session.get('session_v1');
+    const existing = current.session_v1 || null;
+    if (!forceSeed && existing?.state === 'ACTIVE' && existing?.domain === expectedDomain) {
+      return { success: true, seeded: false, session: existing };
+    }
+
+    if (typeof globalThis.debugApplyControlledTimingSignal !== 'function') {
+      return { success: false, error: 'debugApplyControlledTimingSignal_missing' };
+    }
+
+    let tab = null;
+    try {
+      tab = await chrome.tabs.get(targetTabId);
+    } catch {
+      tab = null;
+    }
+    if (!tab?.id) {
+      return { success: false, error: 'target_tab_missing' };
+    }
+
+    const signalResult = await globalThis.debugApplyControlledTimingSignal({
+      _reason: 'e2eModeBoundaryForegroundSeed',
+      _debugNow: atMs,
+      tabId: tab.id,
+      windowId: tab.windowId,
+      domain: expectedDomain,
+      url: tab.url || `https://${expectedDomain}/`,
+      isFocused: true,
+      isIdle: false,
+      isAudible: Boolean(tab.audible),
+    });
+    if (!signalResult?.success) {
+      return { success: false, error: signalResult?.error || 'foreground_seed_failed', signalResult };
+    }
+    return { success: true, seeded: true, signalResult };
+  }, { expectedDomain: domain, targetTabId: tabId, atMs, forceSeed });
+
+  expect(result.success, JSON.stringify(result)).toBe(true);
+  await waitForOpenForegroundSession(sw, domain);
+}
+
+async function waitForOpenPiPMediaSession(sw, domain) {
+  await expect.poll(async () => {
+    return await sw.evaluate(async (expectedDomain) => {
+      const data = await chrome.storage.local.get('media_sessions_v2');
+      return Object.values(data.media_sessions_v2 || {}).some((session) =>
+        session?.domain === expectedDomain &&
+        session?.mediaClass === 'pip' &&
+        session?.startTime != null
+      );
+    }, domain);
+  }, { timeout: 6000 }).toBe(true);
+}
+
+async function assertNoOpenPiPMediaSession(sw, domain) {
+  await expect.poll(async () => {
+    return await sw.evaluate(async (expectedDomain) => {
+      const data = await chrome.storage.local.get('media_sessions_v2');
+      return Object.values(data.media_sessions_v2 || {}).filter((session) =>
+        session?.domain === expectedDomain &&
+        session?.mediaClass === 'pip' &&
+        session?.startTime != null
+      ).length;
+    }, domain);
+  }, { timeout: 6000 }).toBe(0);
+}
+
+async function assertNoPiPPeriodicCheckpointAfterClose(sw, domain, toMode) {
+  const checkpoint = await sw.evaluate(async (now) => {
+    if (typeof globalThis.debugRunMediaPeriodicCheckpoint !== 'function') {
+      return { ok: false, reason: 'debugRunMediaPeriodicCheckpoint_missing' };
+    }
+    return await globalThis.debugRunMediaPeriodicCheckpoint(now);
+  }, Date.now() + 181_000);
+  expect(checkpoint?.ok, JSON.stringify(checkpoint)).toBe(true);
+
+  const ledger = await readLedgerSnapshot(sw);
+  const badRows = ledger.media.filter((row) =>
+    row.domain === domain &&
+    row.mode === toMode &&
+    row.mediaClass === 'pip' &&
+    row.settlementReason === 'periodic_checkpoint'
+  );
+  expect(badRows, `unexpected PiP checkpoint rows after close\n${formatTimeline(ledger.media)}`).toEqual([]);
+}
+
+async function anchorOpenPiPMediaSession(sw, domain, tabId, atMs, mode = 'rest') {
+  const result = await sw.evaluate(async ({ expectedDomain, targetTabId, atMs, mode }) => {
+    let tab = null;
+    try {
+      tab = await chrome.tabs.get(targetTabId);
+    } catch {
+      tab = null;
+    }
+    if (!tab?.id) return { success: false, error: 'target_tab_missing' };
+
+    const data = await chrome.storage.local.get('media_sessions_v2');
+    const sessions = data.media_sessions_v2 || {};
+    const key = `${targetTabId}::pip`;
+    const existing = sessions[key] || {};
+    sessions[key] = {
+      ...existing,
+      tabId: targetTabId,
+      windowId: tab.windowId,
+      domain: expectedDomain,
+      mediaClass: 'pip',
+      mediaKind: 'pip',
+      visibility: 'pip',
+      startTime: atMs,
+      lastObservedAt: atMs,
+      startReason: existing.startReason || 'mediaState',
+      startOperationSource: existing.startOperationSource || 'media',
+      startAtMs: atMs,
+      mode,
+    };
+    await chrome.storage.local.set({ media_sessions_v2: sessions });
+    return { success: true, key, session: sessions[key] };
+  }, { expectedDomain: domain, targetTabId: tabId, atMs, mode });
+
+  expect(result.success, JSON.stringify(result)).toBe(true);
+}
+
+async function assertModeBoundaryLedger(sw, domain, fromMode, toMode) {
+  try {
+    await expect.poll(async () => {
+      const ledger = await readLedgerSnapshot(sw);
+      return ledger.media.some((row) =>
+        row.domain === domain &&
+        row.mode === fromMode &&
+        row.settlementReason === 'mode_effective_boundary' &&
+        row.mediaClass === 'pip'
+      );
+    }, { timeout: 6000 }).toBe(true);
+  } catch (err) {
+    const ledger = await readLedgerSnapshot(sw);
+    console.log(`\n${fromMode}->${toMode} usage ledger\n${formatTimeline(ledger.usage)}`);
+    console.log(`\n${fromMode}->${toMode} media ledger\n${formatTimeline(ledger.media)}`);
+    throw err;
+  }
+
+  try {
+    await expect.poll(async () => {
+      const ledger = await readLedgerSnapshot(sw);
+      return ledger.usage.some((row) =>
+        row.domain === domain &&
+        row.mode === fromMode &&
+        row.settlementReason === 'mode_effective_boundary'
+      );
+    }, { timeout: 6000 }).toBe(true);
+  } catch (err) {
+    const ledger = await readLedgerSnapshot(sw);
+    console.log(`\n${fromMode}->${toMode} usage ledger\n${formatTimeline(ledger.usage)}`);
+    console.log(`\n${fromMode}->${toMode} media ledger\n${formatTimeline(ledger.media)}`);
+    throw err;
+  }
+
+  const ledger = await readLedgerSnapshot(sw);
+  assertUsageTimeline(ledger.usage, [{
+    domain,
+    mode: fromMode,
+    settlementReason: 'mode_effective_boundary',
+    closeOperation: 'mode_effective_boundary',
+    allowZeroDuration: true,
+  }], { label: `${fromMode}->${toMode} foreground mode boundary ledger` });
+  assertMediaTimeline(ledger.media, [{
+    domain,
+    mode: fromMode,
+    settlementReason: 'mode_effective_boundary',
+    mediaClass: 'pip',
+    closeOperation: 'mode_effective_boundary',
+    allowZeroDuration: true,
+  }], { label: `${fromMode}->${toMode} media mode boundary ledger` });
+  assertNoForbiddenForegroundOperations(ledger.usage);
+  assertNoUnexpectedOverlap(ledger.usage, 'usage');
+  assertNoUnexpectedOverlap(ledger.media, 'media');
+  await assertNoOpenPiPMediaSession(sw, domain);
+  await assertNoPiPPeriodicCheckpointAfterClose(sw, domain, toMode);
+}
+
 test('Rest -> Composite (manual): closes PiP', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('rest');
@@ -217,10 +415,13 @@ test('Rest -> Composite (manual): closes PiP', async () => {
     await forceRuntimeMode(sw, 'rest');
     const tabId = await seedFakePiP(page, sw);
     expect((await fakePiPState(page)).active).toBe(true);
+    await ensureOpenForegroundSession(sw, 'localhost', tabId);
+    await waitForOpenPiPMediaSession(sw, 'localhost');
 
     await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
     await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
     expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
+    await assertModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
     await page.waitForTimeout(500);
     await page.close();
   } finally {
@@ -238,11 +439,14 @@ test('Rest -> Study (manual): closes PiP and shows study prompt', async () => {
     await forceRuntimeMode(sw, 'rest');
     const tabId = await seedFakePiP(page, sw);
     expect((await fakePiPState(page)).active).toBe(true);
+    await ensureOpenForegroundSession(sw, '127.0.0.1', tabId);
+    await waitForOpenPiPMediaSession(sw, '127.0.0.1');
 
     await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
     await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
     expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习模式');
+    await assertModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
     await page.waitForTimeout(500);
     await page.close();
   } finally {
@@ -258,17 +462,20 @@ test('Rest -> Composite (auto): closes PiP', async () => {
     await page.goto(serverCtx.compositeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
-    let tabId = await activeTabId(sw);
-    const startMs = Date.now();
-    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
-    tabId = await seedFakePiP(page, sw);
+    let tabId = await seedFakePiP(page, sw);
     expect((await fakePiPState(page)).active).toBe(true);
+    await waitForOpenPiPMediaSession(sw, 'localhost');
+    const startMs = Date.now();
+    await anchorOpenPiPMediaSession(sw, 'localhost', tabId, startMs - 1000, 'rest');
+    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
+    await ensureOpenForegroundSession(sw, 'localhost', tabId, startMs - 1000, true);
 
     const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 30_000, tabId);
     expect(res?.success).toBe(true);
     expect(res?.mode).toBe('composite');
     await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
     expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
+    await assertModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
     await page.waitForTimeout(500);
     await page.close();
   } finally {
@@ -284,11 +491,13 @@ test('Rest -> Study (auto): closes PiP and shows study prompt', async () => {
     await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
-    let tabId = await activeTabId(sw);
-    const startMs = Date.now();
-    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
-    tabId = await seedFakePiP(page, sw);
+    let tabId = await seedFakePiP(page, sw);
     expect((await fakePiPState(page)).active).toBe(true);
+    await waitForOpenPiPMediaSession(sw, '127.0.0.1');
+    const startMs = Date.now();
+    await anchorOpenPiPMediaSession(sw, '127.0.0.1', tabId, startMs - 1000, 'rest');
+    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
+    await ensureOpenForegroundSession(sw, '127.0.0.1', tabId, startMs - 1000, true);
 
     const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 45_000, tabId);
     expect(res?.success).toBe(true);
@@ -296,6 +505,7 @@ test('Rest -> Study (auto): closes PiP and shows study prompt', async () => {
     await expect.poll(() => fakePiPState(page).then((s) => s.active), { timeout: 5000 }).toBe(false);
     expect((await fakePiPState(page)).exitCalls).toBeGreaterThan(0);
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习时间');
+    await assertModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
     await page.waitForTimeout(500);
     await page.close();
   } finally {

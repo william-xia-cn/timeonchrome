@@ -64,12 +64,15 @@ export function initSignal(onContextChange) {
         ? 'video'
         : (incoming.mediaKind ?? pending.mediaKind),
       mediaSourceTabId: incoming.mediaSourceTabId ?? pending.mediaSourceTabId,
+      mediaFrameId: incoming.mediaFrameId ?? pending.mediaFrameId,
+      mediaDocumentId: incoming.mediaDocumentId ?? pending.mediaDocumentId,
       mediaSourceDomain: incoming.mediaSourceDomain ?? pending.mediaSourceDomain,
       isMuted: incoming.isMuted ?? pending.isMuted,
       isPiP: incoming.isPiP ?? pending.isPiP,
       isActiveTab: incoming.isActiveTab ?? pending.isActiveTab,
       windowState: incoming.windowState ?? pending.windowState,
       mediaFactSource: incoming.mediaFactSource ?? pending.mediaFactSource,
+      clearMediaFrames: incoming.clearMediaFrames ?? pending.clearMediaFrames,
       replacedTabId: incoming.replacedTabId ?? pending.replacedTabId,
       error: incoming.error ?? pending.error,
       _reason: incoming._reason ?? pending._reason ?? 'unknown',
@@ -78,6 +81,11 @@ export function initSignal(onContextChange) {
   }
 
   function onEvent(rawEvent) {
+    if (isMediaOnlyRawEvent(rawEvent)) {
+      if (Object.keys(pending).length > 0) emitMerged();
+      onContextChange({ ...rawEvent, timestamp: Date.now() });
+      return;
+    }
     if (Object.keys(pending).length > 0 && isMediaOnlyRawEvent(pending) !== isMediaOnlyRawEvent(rawEvent)) {
       emitMerged();
     }
@@ -121,28 +129,6 @@ export function initSignal(onContextChange) {
     }
   }
 
-  async function pollWindowFocusState() {
-    if (!chrome.windows?.getAll) return;
-    try {
-      const windows = await chrome.windows.getAll({ populate: false });
-      const focusedWindow = windows.find((win) => win.focused);
-      if (!focusedWindow) {
-        if (lastWindowFocusKey !== 'none') {
-          lastWindowFocusKey = 'none';
-          onEvent({ isFocused: false, _reason: 'windowFocusPolled' });
-        }
-        return;
-      }
-
-      const focusKey = `focused:${focusedWindow.id}`;
-      if (lastWindowFocusKey !== focusKey) {
-        await emitFocusedWindowSignal(focusedWindow.id, 'windowFocusPolled');
-      }
-    } catch (err) {
-      onEvent({ error: err?.message || String(err), _reason: 'windowFocusPolled' });
-    }
-  }
-
   // ── Chrome 事件监听 ─────────────────────────────────────────────
 
   // 标签页激活
@@ -175,7 +161,8 @@ export function initSignal(onContextChange) {
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const hasForegroundNavigation =
       Object.prototype.hasOwnProperty.call(changeInfo, 'url') ||
-      changeInfo.status === 'loading';
+      changeInfo.status === 'loading' ||
+      changeInfo.status === 'complete';
     if (hasForegroundNavigation && tab.active && tab.url) {
       const windowId = tab.windowId ?? null;
       const domain = extractDomain(tab.url);
@@ -187,7 +174,7 @@ export function initSignal(onContextChange) {
           windowId,
           url: tab.url,
           domain,
-          ...(navigationClearsMedia ? { playing: false, isAudible: false, mediaSourceTabId: tabId, mediaSourceDomain: null, isPiP: false } : {}),
+          ...(navigationClearsMedia ? { playing: false, isAudible: false, mediaSourceTabId: tabId, mediaSourceDomain: null, isPiP: false, clearMediaFrames: true } : {}),
           ...focus,
           _reason: 'tabUpdated',
         });
@@ -206,14 +193,44 @@ export function initSignal(onContextChange) {
         windowId,
         playing: tab?.audible === true,
         isAudible: tab?.audible === true,
-        mediaKind: tab?.audible ? 'audio' : null,
-        mediaSourceTabId: tabId,
-        mediaSourceDomain: domain,
+          mediaKind: tab?.audible ? 'audio' : null,
+          mediaSourceTabId: tabId,
+          mediaFrameId: 'tab',
+          mediaSourceDomain: domain,
         isMuted: tab?.mutedInfo?.muted === true,
         isActiveTab: tab?.active === true,
         windowState: focus.windowState ?? null,
         mediaFactSource: 'tabs_api_audible',
         _reason: 'tabAudible',
+      });
+    }
+  });
+
+  // 主 frame 导航提交是网页 URL 事实；只对当前 active tab 进入前台计时链路。
+  chrome.webNavigation?.onCommitted?.addListener?.(async (details) => {
+    if (!details || details.frameId !== 0 || details.tabId == null) return;
+    try {
+      const tab = await chrome.tabs.get(details.tabId);
+      if (!tab?.active) return;
+      const url = details.url || tab.url || null;
+      if (!isHttpUrl(url)) return;
+      const domain = url ? extractDomain(url) : null;
+      if (!domain) return;
+      const windowId = tab.windowId ?? null;
+      const focus = await getWindowFocusState(windowId);
+      onEvent({
+        tabId: details.tabId,
+        windowId,
+        url,
+        domain,
+        ...focus,
+        _reason: 'webNavigationCommitted',
+      });
+    } catch (err) {
+      onEvent({
+        tabId: details.tabId,
+        error: err?.message || String(err),
+        _reason: 'webNavigationCommitted',
       });
     }
   });
@@ -256,9 +273,6 @@ export function initSignal(onContextChange) {
     }
   });
 
-  const focusPollTimer = setInterval(pollWindowFocusState, 1000);
-  focusPollTimer?.unref?.();
-
   // 空闲状态变化
   chrome.idle.onStateChanged.addListener((state) => {
     onEvent({ idleState: state, isIdle: state !== 'active', _reason: 'idleStateChanged' });
@@ -278,6 +292,8 @@ export function initSignal(onContextChange) {
           isPiP: msg.isPiP === true,
           mediaKind: msg.mediaKind || null,
           mediaSourceTabId: sender.tab.id,
+          mediaFrameId: Number.isInteger(sender.frameId) ? sender.frameId : 0,
+          mediaDocumentId: typeof sender.documentId === 'string' ? sender.documentId : null,
           mediaSourceDomain: domain,
           isMuted: sender.tab.mutedInfo?.muted === true,
           isActiveTab: sender.tab.active === true,
@@ -321,4 +337,14 @@ export function initSignal(onContextChange) {
  */
 function extractDomain(url) {
   return domainForUrl(url);
+}
+
+function isHttpUrl(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
 }

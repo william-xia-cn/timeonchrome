@@ -4,11 +4,14 @@ import { getCachedEffectiveMode } from './session.js';
 
 const LEGACY_MEDIA_SESSION_KEY = 'media_session_v1';
 const MEDIA_FACTS_KEY = 'media_facts_v1';
+const MEDIA_FRAME_FACTS_KEY = 'media_frame_facts_v1';
 const MEDIA_SESSIONS_KEY = 'media_sessions_v2';
 const MEDIA_SEGMENTS_KEY = 'media_segments_v1';
 const DAILY_MEDIA_STATS_KEY = 'daily_media_stats_v1';
 const MEDIA_CHECKPOINT_MS = 180 * 1000;
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
+const MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON = 'media_checkpoint_estimated_close';
+const MEDIA_CHECKPOINT_ESTIMATED_END_REASON = 'media_checkpoint_estimated_half_interval_close';
 
 const MEDIA_CLASSES = new Set([
   'foregroundAudio',
@@ -74,6 +77,12 @@ function normalizeTabId(tabId) {
   return null;
 }
 
+function normalizeFrameId(frameId) {
+  if (Number.isInteger(frameId)) return String(frameId);
+  if (typeof frameId === 'string' && frameId.trim()) return frameId.trim();
+  return 'tab';
+}
+
 function normalizeDomain(domain) {
   return typeof domain === 'string' && domain.trim()
     ? domain.trim().toLowerCase().replace(/\.+$/g, '')
@@ -86,6 +95,10 @@ function normalizeMediaKind(kind) {
 
 function sessionKey(tabId, mediaClass) {
   return `${normalizeTabId(tabId)}::${mediaClass}`;
+}
+
+function frameFactKey(tabId, frameId) {
+  return `${normalizeTabId(tabId)}::${normalizeFrameId(frameId)}`;
 }
 
 function isForegroundMediaFact(fact) {
@@ -138,6 +151,10 @@ function normalizeMediaFact(fact = {}, reason = 'media_fact', atMs = Date.now())
   const playing = fact.playing ?? fact.isPlaying ?? (isPiP || audible);
   return {
     tabId,
+    frameId: normalizeFrameId(fact.frameId ?? fact.mediaFrameId),
+    documentId: typeof fact.documentId === 'string' && fact.documentId.trim()
+      ? fact.documentId.trim()
+      : (typeof fact.mediaDocumentId === 'string' && fact.mediaDocumentId.trim() ? fact.mediaDocumentId.trim() : null),
     windowId: Number.isInteger(fact.windowId) ? fact.windowId : null,
     domain: normalizeDomain(fact.domain ?? fact.mediaSourceDomain),
     playing: playing === true,
@@ -149,8 +166,103 @@ function normalizeMediaFact(fact = {}, reason = 'media_fact', atMs = Date.now())
     windowState: typeof fact.windowState === 'string' ? fact.windowState : null,
     source: typeof fact.source === 'string' && fact.source.trim() ? fact.source.trim() : 'unknown',
     reason: typeof reason === 'string' && reason.trim() ? reason.trim() : 'media_fact',
+    clearMediaFrames: fact.clearMediaFrames === true,
     lastObservedAt: observedAt,
   };
+}
+
+function factsForTab(frameFacts = {}, tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  return Object.values(frameFacts || {}).filter((fact) => normalizeTabId(fact?.tabId) === normalizedTabId);
+}
+
+function latestFact(facts = [], fallback = null) {
+  return facts
+    .filter(Boolean)
+    .sort((a, b) => (Number(b.lastObservedAt) || 0) - (Number(a.lastObservedAt) || 0))[0] || fallback || null;
+}
+
+function chooseActiveFact(activeFacts = [], kind = null) {
+  const filtered = kind ? activeFacts.filter((fact) => fact.mediaKind === kind) : activeFacts;
+  return latestFact(filtered);
+}
+
+function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
+  const tabFacts = factsForTab(frameFacts, tabId);
+  const latest = latestFact(tabFacts, fallbackFact);
+  if (!latest) return null;
+
+  const activeFacts = tabFacts.filter((fact) => factHasMedia(fact));
+  const pipFact = latestFact(activeFacts.filter((fact) => fact.isPiP === true));
+  const videoFact = chooseActiveFact(activeFacts, 'video');
+  const audioFact = chooseActiveFact(activeFacts, 'audio');
+  const chosen = pipFact || videoFact || audioFact || latest;
+  const hasVideo = !!(pipFact || videoFact);
+  const hasAudio = !hasVideo && !!audioFact;
+  const hasMedia = activeFacts.length > 0;
+  const lastObservedAt = Math.max(...tabFacts.map((fact) => Number(fact.lastObservedAt) || 0), Number(latest.lastObservedAt) || 0);
+
+  return {
+    tabId: normalizeTabId(tabId),
+    windowId: Number.isInteger(chosen?.windowId) ? chosen.windowId : (Number.isInteger(latest.windowId) ? latest.windowId : null),
+    domain: normalizeDomain(chosen?.domain || latest.domain),
+    playing: hasMedia,
+    mediaKind: pipFact ? 'video' : (hasVideo ? 'video' : (hasAudio ? 'audio' : null)),
+    isPiP: !!pipFact,
+    audible: activeFacts.some((fact) => fact.audible === true && fact.muted !== true),
+    muted: hasMedia ? activeFacts.every((fact) => fact.muted === true) : latest.muted === true,
+    isActiveTab: tabFacts.some((fact) => fact.isActiveTab === true) || latest.isActiveTab === true,
+    windowState: chosen?.windowState || latest.windowState || null,
+    source: chosen?.source || latest.source || 'unknown',
+    reason: chosen?.reason || latest.reason || 'media_fact',
+    lastObservedAt,
+    frameCount: tabFacts.length,
+    activeFrameCount: activeFacts.length,
+  };
+}
+
+function aggregateCheckpointMediaFact(tabId, frameFacts = {}, facts = {}) {
+  const tabFacts = factsForTab(frameFacts, tabId);
+  const fallback = facts?.[normalizeTabId(tabId)] || null;
+  return tabFacts.length > 0 ? aggregateTabMediaFact(tabId, frameFacts, fallback) : fallback;
+}
+
+function removeFrameFactsForTab(frameFacts = {}, tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  let removed = 0;
+  for (const [key, fact] of Object.entries(frameFacts || {})) {
+    if (normalizeTabId(fact?.tabId) === normalizedTabId) {
+      delete frameFacts[key];
+      removed++;
+    }
+  }
+  return removed;
+}
+
+function removePiPFrameFactsForTab(frameFacts = {}, tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  let removed = 0;
+  for (const [key, fact] of Object.entries(frameFacts || {})) {
+    if (normalizeTabId(fact?.tabId) === normalizedTabId && fact?.isPiP === true) {
+      delete frameFacts[key];
+      removed++;
+    }
+  }
+  return removed;
+}
+
+function normalizeModeValue(mode) {
+  if (mode === 'study' || mode === 'composite' || mode === 'rest' || mode === 'paused') return mode;
+  if (mode === 'whitelist') return 'study';
+  if (mode === 'blacklist') return 'rest';
+  return mode || 'unknown';
+}
+
+function modeBoundaryClosesPiP(intent = {}) {
+  const fromMode = normalizeModeValue(intent.fromMode);
+  const toMode = normalizeModeValue(intent.toMode);
+  if (toMode === 'study') return true;
+  return fromMode === 'rest' && toMode === 'composite';
 }
 
 function mediaDescriptionEndpoint(reason, atMs, source = 'media') {
@@ -173,7 +285,7 @@ function mediaSettlementDescription(session, endReason, endAtMs) {
   const end = mediaDescriptionEndpoint(
     endReason,
     endAtMs,
-    endReason === 'periodic_checkpoint' ? 'timer' : 'media'
+    (endReason === 'periodic_checkpoint' || String(endReason || '').includes('checkpoint')) ? 'timer' : 'media'
   );
   return {
     schemaVersion: 1,
@@ -297,6 +409,15 @@ async function readFacts() {
 
 async function writeFacts(facts) {
   await chrome.storage.local.set({ [MEDIA_FACTS_KEY]: facts || {} });
+}
+
+async function readFrameFacts() {
+  const data = await chrome.storage.local.get(MEDIA_FRAME_FACTS_KEY);
+  return data?.[MEDIA_FRAME_FACTS_KEY] || {};
+}
+
+async function writeFrameFacts(frameFacts) {
+  await chrome.storage.local.set({ [MEDIA_FRAME_FACTS_KEY]: frameFacts || {} });
 }
 
 async function readSessions() {
@@ -434,7 +555,7 @@ async function incrementDailyMediaStats(segment) {
   await chrome.storage.local.set({ [DAILY_MEDIA_STATS_KEY]: stats });
 }
 
-async function settleMediaSession(session, endMs, reason = 'media_boundary') {
+async function settleMediaSession(session, endMs, reason = 'media_boundary', options = {}) {
   if (!session?.startTime || endMs < session.startTime) {
     return { appended: 0, durationSeconds: 0, skipped: 'invalid_media_session' };
   }
@@ -447,10 +568,10 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary') {
     mediaClass: session.mediaClass,
     mediaKind: session.mediaKind,
     visibility: session.visibility,
-    mode: session.mode || getCachedEffectiveMode() || 'unknown',
+    mode: options.modeOverride || session.mode || getCachedEffectiveMode() || 'unknown',
     settlementReason: reason,
     reason,
-    description: mediaSettlementDescription(session, reason, endMs),
+    description: mediaSettlementDescription(session, options.endReason || reason, endMs),
   };
   const segments = splitMediaSegmentByLocalDate(input);
   const appended = await appendMediaSegments(segments);
@@ -466,6 +587,87 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary') {
     mediaClass: session.mediaClass,
     tabId: session.tabId,
   };
+}
+
+async function getTabCheckpointSnapshot(tabId) {
+  const normalizedTabId = Number(tabId);
+  if (!Number.isInteger(normalizedTabId) || !chrome.tabs?.get) {
+    return { ok: true, tab: null, window: null, reason: 'tab_api_unavailable' };
+  }
+
+  try {
+    const tab = await chrome.tabs.get(normalizedTabId);
+    let win = null;
+    if (Number.isInteger(tab?.windowId) && chrome.windows?.get) {
+      try {
+        win = await chrome.windows.get(tab.windowId);
+      } catch (_) {
+        win = null;
+      }
+    }
+    return { ok: true, tab, window: win };
+  } catch (err) {
+    return { ok: false, reason: 'tab_unavailable', error: err?.message || String(err) };
+  }
+}
+
+function overlayCheckpointSnapshot(fact, snapshot) {
+  if (!fact || !snapshot?.tab) return fact;
+  const tab = snapshot.tab;
+  const win = snapshot.window;
+  return {
+    ...fact,
+    windowId: Number.isInteger(tab.windowId) ? tab.windowId : fact.windowId,
+    audible: tab.audible === true || fact.audible === true,
+    muted: tab.mutedInfo?.muted === true || fact.muted === true,
+    isActiveTab: tab.active === true,
+    windowState: win?.state || fact.windowState || null,
+  };
+}
+
+async function confirmMediaSessionForCheckpoint(session, facts, frameFacts) {
+  const tabId = normalizeTabId(session?.tabId);
+  if (!tabId || !session?.mediaClass) return { ok: false, reason: 'invalid_media_session' };
+
+  const snapshot = await getTabCheckpointSnapshot(tabId);
+  if (snapshot.ok === false) {
+    return { ok: false, reason: snapshot.reason || 'tab_unavailable' };
+  }
+
+  const rawFact = aggregateCheckpointMediaFact(tabId, frameFacts, facts);
+  if (!rawFact) return { ok: false, reason: 'media_fact_missing' };
+
+  const fact = overlayCheckpointSnapshot(rawFact, snapshot);
+  const classification = classifyMediaFact(fact);
+  if (!classification) return { ok: false, reason: 'media_inactive', fact };
+  if (classification.mediaClass !== session.mediaClass) {
+    return { ok: false, reason: 'media_class_mismatch', fact, classification };
+  }
+  if (session.mediaClass === 'pip' && fact.isPiP !== true) {
+    return { ok: false, reason: 'pip_inactive', fact, classification };
+  }
+  if (normalizeTabId(fact.tabId) !== tabId) {
+    return { ok: false, reason: 'tab_mismatch', fact, classification };
+  }
+  if (session.domain && normalizeDomain(fact.domain) !== normalizeDomain(session.domain)) {
+    return { ok: false, reason: 'domain_mismatch', fact, classification };
+  }
+  if (Number.isInteger(session.windowId) && Number.isInteger(fact.windowId) && fact.windowId !== session.windowId) {
+    return { ok: false, reason: 'window_mismatch', fact, classification };
+  }
+  return {
+    ok: true,
+    fact,
+    classification,
+    lastConfirmedAt: Number(fact.lastObservedAt) || Number(session.lastObservedAt) || Number(session.startTime) || 0,
+  };
+}
+
+function estimatedMediaCheckpointCloseAt(session, now, lastConfirmedAt) {
+  const start = Number(session?.startTime) || 0;
+  const confirmed = Number(lastConfirmedAt) || start;
+  const end = confirmed + ((Number(now) - confirmed) / 2);
+  return Math.max(start, Math.min(Number(now), Math.floor(end)));
 }
 
 function openSessionFromFact(fact, classification, reason, atMs) {
@@ -509,11 +711,13 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
   return runMediaSerialized(async () => {
     const factsList = Array.isArray(factsInput) ? factsInput : [factsInput];
     const facts = await readFacts();
+    const frameFacts = await readFrameFacts();
     const sessions = await readSessions();
     const results = [];
     let opened = 0;
     let closed = 0;
     let appended = 0;
+    const changedTabs = new Map();
 
     for (const rawFact of factsList) {
       const fact = normalizeMediaFact(rawFact, reason, atMs);
@@ -521,37 +725,47 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
         results.push({ ok: false, reason: 'invalid_media_fact' });
         continue;
       }
-      const classification = classifyMediaFact(fact);
-      facts[fact.tabId] = fact;
-
-      if (!classification) {
-        const closeResult = await closeSessionsForTabInMap(sessions, fact.tabId, reason, atMs);
-        closed += closeResult.closed;
-        appended += closeResult.appended;
-        results.push({ ok: true, tabId: fact.tabId, mediaClass: null, closed: closeResult.closed });
-        continue;
+      if (fact.clearMediaFrames) {
+        removeFrameFactsForTab(frameFacts, fact.tabId);
       }
-
-      const key = sessionKey(fact.tabId, classification.mediaClass);
-      const existing = sessions[key];
-      if (existing && sameSessionFacts(existing, fact, classification)) {
-        sessions[key] = {
-          ...existing,
-          windowId: fact.windowId,
-          lastObservedAt: atMs,
-        };
-        results.push({ ok: true, tabId: fact.tabId, mediaClass: classification.mediaClass, changed: false });
-        continue;
-      }
-
-      const closeResult = await closeSessionsForTabInMap(sessions, fact.tabId, reason, atMs, key);
-      closed += closeResult.closed;
-      appended += closeResult.appended;
-      sessions[key] = openSessionFromFact(fact, classification, reason, atMs);
-      opened++;
-      results.push({ ok: true, tabId: fact.tabId, mediaClass: classification.mediaClass, changed: true });
+      frameFacts[frameFactKey(fact.tabId, fact.frameId)] = fact;
+      changedTabs.set(fact.tabId, fact);
     }
 
+    for (const fact of changedTabs.values()) {
+      const tabFact = aggregateTabMediaFact(fact.tabId, frameFacts, fact);
+      const classification = classifyMediaFact(tabFact);
+      facts[fact.tabId] = tabFact;
+
+      if (!classification) {
+        const closeResult = await closeSessionsForTabInMap(sessions, tabFact.tabId, reason, atMs);
+        closed += closeResult.closed;
+        appended += closeResult.appended;
+        results.push({ ok: true, tabId: tabFact.tabId, mediaClass: null, closed: closeResult.closed, frameId: fact.frameId });
+        continue;
+      }
+
+      const key = sessionKey(tabFact.tabId, classification.mediaClass);
+      const existing = sessions[key];
+      if (existing && sameSessionFacts(existing, tabFact, classification)) {
+        sessions[key] = {
+          ...existing,
+          windowId: tabFact.windowId,
+          lastObservedAt: atMs,
+        };
+        results.push({ ok: true, tabId: tabFact.tabId, mediaClass: classification.mediaClass, changed: false, frameId: fact.frameId });
+        continue;
+      }
+
+      const closeResult = await closeSessionsForTabInMap(sessions, tabFact.tabId, reason, atMs, key);
+      closed += closeResult.closed;
+      appended += closeResult.appended;
+      sessions[key] = openSessionFromFact(tabFact, classification, reason, atMs);
+      opened++;
+      results.push({ ok: true, tabId: tabFact.tabId, mediaClass: classification.mediaClass, changed: true, frameId: fact.frameId });
+    }
+
+    await writeFrameFacts(frameFacts);
     await writeFacts(facts);
     await writeSessions(sessions);
     return {
@@ -567,35 +781,174 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
 export async function runMediaPeriodicCheckpoint(now = Date.now()) {
   return runMediaSerialized(async () => {
     const sessions = await readSessions();
+    const facts = await readFacts();
+    const frameFacts = await readFrameFacts();
     let checkpointed = 0;
+    let estimatedClosed = 0;
     let flushedSegments = 0;
     let flushedSeconds = 0;
 
     for (const [key, session] of Object.entries(sessions)) {
       if (!session?.startTime) continue;
+      const confirmation = await confirmMediaSessionForCheckpoint(session, facts, frameFacts);
+      const lastConfirmedAt = confirmation.ok
+        ? confirmation.lastConfirmedAt
+        : (Number(session.lastObservedAt) || Number(session.startTime) || now);
+
+      if (!confirmation.ok) {
+        const closeAt = estimatedMediaCheckpointCloseAt(session, now, lastConfirmedAt);
+        const settlement = await settleMediaSession(session, closeAt, MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON, {
+          endReason: MEDIA_CHECKPOINT_ESTIMATED_END_REASON,
+        });
+        flushedSegments += settlement.appended || 0;
+        flushedSeconds += settlement.durationSeconds || 0;
+        delete sessions[key];
+        estimatedClosed++;
+        continue;
+      }
+
       while ((now - session.startTime) >= MEDIA_CHECKPOINT_MS) {
         const checkpointEnd = session.startTime + MEDIA_CHECKPOINT_MS;
+        if (lastConfirmedAt < checkpointEnd) {
+          const closeAt = estimatedMediaCheckpointCloseAt(session, now, lastConfirmedAt);
+          const settlement = await settleMediaSession(session, closeAt, MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON, {
+            endReason: MEDIA_CHECKPOINT_ESTIMATED_END_REASON,
+          });
+          flushedSegments += settlement.appended || 0;
+          flushedSeconds += settlement.durationSeconds || 0;
+          delete sessions[key];
+          estimatedClosed++;
+          break;
+        }
+
         const settlement = await settleMediaSession(session, checkpointEnd, 'periodic_checkpoint');
         flushedSegments += settlement.appended || 0;
         flushedSeconds += settlement.durationSeconds || 0;
         checkpointed++;
         session.startTime = checkpointEnd;
-        session.lastObservedAt = now;
+        session.lastCheckpointAt = checkpointEnd;
         session.startReason = 'periodic_checkpoint_reopen';
         session.startOperationSource = 'timer';
         session.startAtMs = checkpointEnd;
       }
-      sessions[key] = session;
+      if (sessions[key]) sessions[key] = session;
     }
 
     await writeSessions(sessions);
     return {
       ok: true,
       checkpointed: checkpointed > 0,
-      reason: checkpointed > 0 ? 'periodic_checkpoint' : 'interval_not_reached',
+      estimatedClosed: estimatedClosed > 0,
+      reason: checkpointed > 0
+        ? 'periodic_checkpoint'
+        : (estimatedClosed > 0 ? MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON : 'interval_not_reached'),
       flushedSegments,
       flushedSeconds,
       checkpointWindows: checkpointed,
+      estimatedCloseWindows: estimatedClosed,
+    };
+  });
+}
+
+export async function splitOpenMediaSessionsAtModeBoundary(intent = {}) {
+  return runMediaSerialized(async () => {
+    const boundary = Number(intent.boundaryAtMs ?? intent.effectiveAtMs ?? intent.atMs);
+    const toMode = typeof intent.toMode === 'string' && intent.toMode.trim()
+      ? intent.toMode.trim()
+      : (getCachedEffectiveMode() || 'unknown');
+    if (!Number.isFinite(boundary)) {
+      return { ok: false, reason: 'invalid_mode_boundary_time' };
+    }
+
+    const sessions = await readSessions();
+    const facts = await readFacts();
+    const frameFacts = await readFrameFacts();
+    const closesPiP = modeBoundaryClosesPiP(intent);
+    const reclassifyTabs = new Set();
+    let split = 0;
+    let appended = 0;
+    let updated = 0;
+    let closedPiP = 0;
+    let reclassified = 0;
+
+    for (const [key, session] of Object.entries(sessions)) {
+      if (!session?.startTime) continue;
+      if (closesPiP && session.mediaClass === 'pip') {
+        if (boundary > session.startTime) {
+          const settlement = await settleMediaSession(session, boundary, 'mode_effective_boundary', {
+            modeOverride: intent.fromMode || null,
+          });
+          appended += settlement.appended || 0;
+          split++;
+        } else {
+          updated++;
+        }
+        delete sessions[key];
+        reclassifyTabs.add(session.tabId);
+        closedPiP++;
+        continue;
+      }
+
+      if (boundary <= session.startTime) {
+        sessions[key] = {
+          ...session,
+          mode: toMode,
+          startReason: session.startReason || 'mode_effective_boundary_reopen',
+          startOperationSource: session.startOperationSource || 'mode_boundary',
+          startAtMs: session.startAtMs || session.startTime,
+        };
+        updated++;
+        continue;
+      }
+
+      const settlement = await settleMediaSession(session, boundary, 'mode_effective_boundary', {
+        modeOverride: intent.fromMode || null,
+      });
+      appended += settlement.appended || 0;
+      sessions[key] = {
+        ...session,
+        startTime: boundary,
+        lastObservedAt: session.lastObservedAt,
+        lastCheckpointAt: session.lastCheckpointAt,
+        startReason: 'mode_effective_boundary_reopen',
+        startOperationSource: 'mode_boundary',
+        startAtMs: boundary,
+        mode: toMode,
+      };
+      split++;
+    }
+
+    for (const tabId of reclassifyTabs) {
+      removePiPFrameFactsForTab(frameFacts, tabId);
+      const tabFact = aggregateCheckpointMediaFact(tabId, frameFacts, facts);
+      const classification = classifyMediaFact(tabFact);
+      if (!classification || classification.mediaClass === 'pip') {
+        delete facts[normalizeTabId(tabId)];
+        continue;
+      }
+      facts[normalizeTabId(tabId)] = tabFact;
+      const key = sessionKey(tabFact.tabId, classification.mediaClass);
+      if (!sessions[key]) {
+        sessions[key] = {
+          ...openSessionFromFact(tabFact, classification, 'mode_effective_boundary_pip_reclassify', boundary),
+          mode: toMode,
+        };
+        reclassified++;
+      }
+    }
+
+    await writeFrameFacts(frameFacts);
+    await writeFacts(facts);
+    await writeSessions(sessions);
+    return {
+      ok: true,
+      reason: 'mode_effective_boundary',
+      split,
+      updated,
+      appended,
+      closedPiP,
+      reclassified,
+      mode: toMode,
     };
   });
 }
@@ -604,7 +957,13 @@ export async function closeMediaForTab(tabId, reason = 'tab_close', options = {}
   return runMediaSerialized(async () => {
     const atMs = Number.isFinite(options.now) ? options.now : Date.now();
     const sessions = await readSessions();
+    const facts = await readFacts();
+    const frameFacts = await readFrameFacts();
     const result = await closeSessionsForTabInMap(sessions, tabId, reason, atMs);
+    delete facts[normalizeTabId(tabId)];
+    removeFrameFactsForTab(frameFacts, tabId);
+    await writeFrameFacts(frameFacts);
+    await writeFacts(facts);
     await writeSessions(sessions);
     return {
       ok: true,
@@ -628,6 +987,8 @@ export async function closeMediaSession(reason = 'close', options = {}) {
       delete sessions[key];
       closed++;
     }
+    await writeFrameFacts({});
+    await writeFacts({});
     await writeSessions(sessions);
     return {
       ok: true,
@@ -646,6 +1007,10 @@ export async function getMediaFact(tabId) {
 
 export async function getMediaFacts() {
   return readFacts();
+}
+
+export async function getMediaFrameFacts() {
+  return readFrameFacts();
 }
 
 export async function getMediaSessions() {

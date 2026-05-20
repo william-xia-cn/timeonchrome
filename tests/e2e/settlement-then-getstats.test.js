@@ -3,6 +3,12 @@
 const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
+const {
+  assertNoForbiddenForegroundOperations,
+  assertNoUnexpectedOverlap,
+  assertUsageTimeline,
+  readLedgerSnapshot,
+} = require('./helpers/ledger-assertions');
 
 const EXT = path.resolve(__dirname, '../..');
 
@@ -49,6 +55,11 @@ async function createContext() {
         });
       });
     });
+  });
+  await sw.evaluate(async () => {
+    if (typeof globalThis.debugSetRestMode === 'function') {
+      await globalThis.debugSetRestMode();
+    }
   });
   await new Promise(r => setTimeout(r, 1000));
   return { ctx, sw, udd };
@@ -99,6 +110,10 @@ test('P0-settle-1: GET_STATS from popup returns domain stats via event-log', asy
     expect(typeof stats?.audioSeconds).toBe('number');
     expect(stats?.backgroundMediaByDomain).toBeDefined();
     expect(stats?.pipSeconds).toBeDefined();
+
+    const ledger = await readLedgerSnapshot(sw);
+    assertNoForbiddenForegroundOperations(ledger.usage);
+    assertNoUnexpectedOverlap(ledger.usage, 'usage');
 
     await popup.close();
   } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }
@@ -163,6 +178,17 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
       s.domain === 'live-open.example.com' &&
       s.settlementReason === 'periodic_checkpoint'
     )).toBeTruthy();
+    const ledger1 = await readLedgerSnapshot(sw);
+    assertUsageTimeline(ledger1.usage, [{
+      domain: 'live-open.example.com',
+      mode: 'rest',
+      settlementReason: 'periodic_checkpoint',
+      sourceState: 'ACTIVE',
+      duration: { min: 180, max: 181 },
+    }], { label: 'P0-settle-3 checkpoint usage ledger' });
+    assertNoForbiddenForegroundOperations(ledger1.usage);
+    assertNoUnexpectedOverlap(ledger1.usage, 'usage');
+
     const profileIdCounts = segments1.reduce((acc, seg) => {
       const key = seg?.profileId || '(null)';
       acc[key] = (acc[key] || 0) + 1;
@@ -193,6 +219,16 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
       return new Promise(res => chrome.storage.local.get('usage_segments_v1', r => res(r)));
     });
     expect(Object.keys(snapshot2.usage_segments_v1 || {}).length).toBeLessThanOrEqual(segments1.length + 1);
+    const ledger2 = await readLedgerSnapshot(sw);
+    const popupRows = ledger2.usage.filter((row) => row.settlementReason === 'popup_open');
+    assertUsageTimeline(popupRows, popupRows.map((row) => ({
+      domain: row.domain,
+      mode: row.mode,
+      settlementReason: 'popup_open',
+      closeOperation: 'popup_open',
+      allowZeroDuration: row.durationSeconds === 0,
+    })), { label: 'P0-settle-3 popup_open usage ledger', exact: true });
+    assertNoForbiddenForegroundOperations(ledger2.usage);
 
     await popup.close();
   } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }

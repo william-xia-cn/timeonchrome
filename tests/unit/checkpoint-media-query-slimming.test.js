@@ -35,12 +35,17 @@ function run() {
   const foregroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'foreground-timing.js'), 'utf8');
   const mediaSource = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'media-timing.js'), 'utf8');
   const confirmBody = functionBody(foregroundSource, 'confirmForegroundPageCheckpoint');
+  const enrichBody = functionBody(foregroundSource, 'enrichContextWithForegroundMedia');
 
   expectTrue('background no longer imports getMediaFacts', !/getMediaFacts/.test(backgroundSource));
   expectTrue('checkpoint no longer uses all-window foreground media scan', !/queryForegroundMediaFacts/.test(confirmBody));
   expectTrue('background no longer calls windows.getAll for checkpoint media scan', !/windows\.getAll/.test(backgroundSource));
   expectTrue('periodic checkpoint no longer refreshes all media facts first', !/periodic_checkpoint_media_refresh|refreshStoredMediaFacts/.test(backgroundSource + mediaSource));
-  expectTrue('targeted media helper remains tabId based', /queryKnownForegroundMediaFacts/.test(foregroundSource) && /queryTabMediaFact\(tabId/.test(mediaSource));
+  expectTrue('foreground checkpoint legacy media compensation uses unified open-session helper', /queryForegroundMediaForOpenSession\(session,\s*'checkpoint_session_media_query'\)/.test(confirmBody) && /foreground_media_compensated|mediaCompensation/.test(confirmBody));
+  expectTrue('foreground checkpoint media compensation does not query observed active tab media', !/checkpoint_active_tab_media_query|tabId:\s*tab\?\.id/.test(confirmBody));
+  expectTrue('foreground checkpoint no longer builds media candidate arrays', !/queryKnownForegroundMediaFacts|\[\s*\{\s*tabId/.test(confirmBody));
+  expectTrue('event enrichment uses open session helper instead of previous context candidates', /getTimingSession\(\)/.test(enrichBody) && /queryForegroundMediaForOpenSession\(\s*openSession/.test(enrichBody) && !/foreground_media_previous_context_query|previousContext\?\.mediaSourceTabId|queryKnownForegroundMediaFacts/.test(enrichBody));
+  expectTrue('media helper has explicit foreground open-session entrypoint', /queryForegroundMediaForOpenSession/.test(mediaSource) && /queryTabMediaFact\(sessionTabId/.test(mediaSource));
 
   const total = passed + failed;
   console.log(`\n[Checkpoint Media Query Slimming] ${passed}/${total} passed${failed ? ' FAILED' : ''}`);

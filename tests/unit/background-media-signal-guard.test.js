@@ -25,18 +25,17 @@ function check(name, condition) {
 }
 
 const guardIndex = mediaSource.indexOf('function isMediaOnlyTimingSignal');
-const skipIndex = foregroundSource.indexOf('if (options.isMediaOnlySignal === true)');
-const stateIndex = foregroundSource.indexOf('const state = resolveState(currentContext)');
-const transitionBeginIndex = foregroundSource.indexOf("await emitTrace('transition_begin'");
+const dispatcherMediaSkipIndex = dispatcherSource.indexOf("reason: 'media_signal_foreground_unchanged'");
+const dispatcherForegroundIndex = dispatcherSource.indexOf('processForegroundSignal(rawEvent');
 
 check('media-only timing guard exists', guardIndex >= 0);
 check('guard explicitly treats tabAudible as media-only', /reason === 'tabAudible'/.test(mediaSource));
 check('guard explicitly treats mediaState as media-only', /reason === 'mediaState'/.test(mediaSource));
 check('guard treats mediaFactSource as media-only', /rawEvent\?\.mediaFactSource/.test(mediaSource));
-check('media-only skip happens before resolveState', skipIndex >= 0 && skipIndex < stateIndex);
-check('media-only skip happens before transition_begin', skipIndex >= 0 && skipIndex < transitionBeginIndex);
-check('media-only skip uses diagnostic trace', /media_signal_foreground_unchanged/.test(foregroundSource));
-check('dispatcher fans out media observation before foreground processing', dispatcherSource.lastIndexOf('observeMediaFromSignal') < dispatcherSource.lastIndexOf('processForegroundSignal'));
+check('media-only skip happens in dispatcher before foreground processing', dispatcherMediaSkipIndex >= 0 && dispatcherMediaSkipIndex < dispatcherForegroundIndex);
+check('media-only skip uses diagnostic result', /media_signal_foreground_unchanged/.test(dispatcherSource));
+check('foreground module keeps only unified legacy media query helper, not media ledger mutators', /queryForegroundMediaForOpenSession/.test(foregroundSource) && !/applyMediaFacts|closeMediaForTab|media_segments_v1/.test(foregroundSource));
+check('dispatcher observes media before optional foreground processing', dispatcherSource.lastIndexOf('observeMediaFromSignal') < dispatcherSource.lastIndexOf('processForegroundSignal'));
 check('background delegates normalized signals to dispatcher', /initSignal\(\(rawEvent\) => dispatchTimingSignal/.test(backgroundSource));
 
 if (failed) {

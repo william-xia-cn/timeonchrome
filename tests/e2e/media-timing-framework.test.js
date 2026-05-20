@@ -1,6 +1,12 @@
 const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
+const {
+  assertMediaTimeline,
+  assertNoForbiddenForegroundOperations,
+  assertNoUnexpectedOverlap,
+  readLedgerSnapshot,
+} = require('./helpers/ledger-assertions');
 
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
 
@@ -39,6 +45,9 @@ async function createContext() {
       daily_media_stats_v1: {},
       media_session_v1: { framework: 'none', domain: null, startTime: null },
     });
+    if (typeof globalThis.debugSetRestMode === 'function') {
+      await globalThis.debugSetRestMode();
+    }
   });
   await new Promise((resolve) => setTimeout(resolve, 1000));
   return { ctx, sw, udd };
@@ -150,6 +159,19 @@ for (const cfg of scenarios) {
         expect(dailyDomain[`${cfg.mediaClass}Seconds`]).toBeGreaterThanOrEqual(180);
       }
       expect(Object.values(snapshot.usage_segments_v1 || {}).filter((segment) => segment.domain === cfg.domain)).toHaveLength(0);
+
+      const ledger = await readLedgerSnapshot(sw);
+      assertMediaTimeline(ledger.media, [{
+        domain: cfg.domain,
+        mode: 'rest',
+        settlementReason: 'periodic_checkpoint',
+        mediaClass: cfg.mediaClass,
+        mediaKind: cfg.mediaClass === 'pip' ? 'pip' : cfg.mediaKind,
+        closeOperation: 'periodic_checkpoint',
+        duration: 180,
+      }], { label: `media checkpoint ledger: ${cfg.name}` });
+      assertNoUnexpectedOverlap(ledger.media, 'media');
+      assertNoForbiddenForegroundOperations(ledger.usage);
     } finally {
       await ctx.close();
       fs.rmSync(udd, { recursive: true, force: true });
@@ -173,6 +195,16 @@ test('media timing does not pollute foreground active stats and popup/admin mess
     expect(mediaDomainSegments.length).toBeGreaterThan(0);
     expect(mediaDomainSegments.every((segment) => segment.mediaClass === scenarios[0].mediaClass)).toBeTruthy();
     expect(mediaSegments.usage.filter((segment) => segment.domain === scenarios[0].domain)).toHaveLength(0);
+    const ledger = await readLedgerSnapshot(sw);
+    assertMediaTimeline(ledger.media, [{
+      domain: scenarios[0].domain,
+      mode: 'rest',
+      settlementReason: 'periodic_checkpoint',
+      mediaClass: scenarios[0].mediaClass,
+      duration: 180,
+    }], { label: 'media-only popup/admin ledger' });
+    assertNoForbiddenForegroundOperations(ledger.usage);
+    assertNoUnexpectedOverlap(ledger.media, 'media');
 
     const extensionId = new URL(sw.url()).hostname;
     const page = await ctx.newPage();

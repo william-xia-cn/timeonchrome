@@ -6,6 +6,12 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs   = require('fs');
 const http = require('http');
+const {
+  assertNoForbiddenForegroundOperations,
+  assertNoUnexpectedOverlap,
+  assertUsageTimeline,
+  readLedgerSnapshot,
+} = require('./helpers/ledger-assertions');
 
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
 const MOCKS_DIR      = path.resolve(__dirname, 'mocks');
@@ -90,7 +96,12 @@ async function initializeRestMode(sw) {
         chrome.storage.local.set({
           guardian_config: { ...config, mode: 'rest' },
           guardian_session: { ...session, currentMode: 'rest' },
-        }, () => resolve());
+        }, async () => {
+          if (typeof globalThis.debugSetRestMode === 'function') {
+            await globalThis.debugSetRestMode();
+          }
+          resolve();
+        });
       });
     });
   });
@@ -139,6 +150,7 @@ test('T-T1: Minimal timing trace smoke — study → non-study transition', asyn
   const trace = await readTimingTrace(sw);
   const eventLog = await readEventLog(sw);
   const session = await readSession(sw);
+  const ledger = await readLedgerSnapshot(sw);
 
   // Close browser
   await browserCtx.close();
@@ -227,4 +239,7 @@ test('T-T1: Minimal timing trace smoke — study → non-study transition', asyn
   expect(transitionBeginCount).toBeGreaterThanOrEqual(1);
   expect(transitionEndCount).toBeGreaterThanOrEqual(1);
   expect(eventAppendedCount).toBeGreaterThanOrEqual(1);
+  expect(ledger.usage.length).toBeGreaterThan(0);
+  assertNoForbiddenForegroundOperations(ledger.usage);
+  assertNoUnexpectedOverlap(ledger.usage, 'usage');
 });

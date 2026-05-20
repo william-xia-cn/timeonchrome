@@ -130,6 +130,9 @@ chk('description schemaVersion', seg4.description.schemaVersion, 1);
 chk('description start source default', seg4.description.start.source, 'unknown');
 chk('description end source default', seg4.description.end.source, 'unknown');
 chk('description summary default', seg4.description.summary, '开始：—；结束：—');
+const seg4b = api.buildUsageSegment({ ...input3, tabId: 123, windowId: 456 });
+chk('local tabId preserved', seg4b.tabId, 123);
+chk('local windowId preserved', seg4b.windowId, 456);
 
 const seg4c = api.buildUsageSegment({ ...input3, channel: 'pip', domain: 'pip.com', mode: 'rest', sourceState: 'PIP_ACTIVE' });
 chk('channel pip', seg4c.channel, 'pip');
@@ -551,6 +554,8 @@ chk('payload channel', pSeg.channel, 'active');
 chk('payload mode', pSeg.mode, 'rest');
 chk('payload settlementReason', pSeg.settlementReason, 'tab_close');
 chk('payload excludes local description', Object.prototype.hasOwnProperty.call(pSeg, 'description'), false);
+chk('payload excludes local tabId', Object.prototype.hasOwnProperty.call(pSeg, 'tabId'), false);
+chk('payload excludes local windowId', Object.prototype.hasOwnProperty.call(pSeg, 'windowId'), false);
 chk('payload durationSeconds', pSeg.durationSeconds, 60);
 chkT('payload has date', !!pSeg.date);
 chkT('payload has timezone', !!pSeg.timezone);

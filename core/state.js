@@ -32,13 +32,11 @@ function isSystemActive(context) {
  * 1. 无前台域名或媒体域名 → IDLE
  * 2. 空闲 → IDLE
  * 3. 窗口有焦点 + 有活跃 tab → ACTIVE
- * 4. 画中画 → PIP_ACTIVE（单独记录，不混入普通在线/后台媒体时长）
- * 5. 媒体播放（失焦但 audible）→ BACKGROUND_ACTIVE
- * 6. 其他 → PASSIVE（权重 = 0）
+ * 4. 媒体事实仍保留 legacy foreground compensation，后续需要正式移除
+ * 5. 其他媒体 → BACKGROUND_ACTIVE / PIP_ACTIVE，由独立媒体账本接管
  */
 export function resolveState(context) {
   if (!context?.domain && !context?.mediaSourceDomain) return AttentionState.IDLE;
-  // 媒体播放优先：即使系统 idle，也不能丢失媒体播放计时。
   if (context.isPiP) return AttentionState.PIP_ACTIVE;
   if (isForegroundPageEligible(context)) return AttentionState.ACTIVE;
   if (context.isAudible && context.mediaSourceTabId != null) return AttentionState.BACKGROUND_ACTIVE;

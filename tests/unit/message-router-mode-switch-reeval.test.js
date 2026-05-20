@@ -70,6 +70,8 @@ function loadHandleMessage(stubs, chromeOverride = {}) {
     clearTabModeNotice: async () => false,
     sendModeSwitchSuccessNotice: async () => false,
     applyModeTransitionSideEffects: async () => ({ pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false }),
+    enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
+    setCachedEffectiveMode: () => {},
     ...stubs,
     URL,
     chrome,
@@ -315,6 +317,56 @@ async function run() {
     const res = await handleMessage({ type: 'SWITCH_TO_COMPOSITE' }, {});
     expect('session currentMode composite', res.currentMode, 'composite');
     expect('rest -> composite side effect payload', sideEffects[0], { fromMode: 'rest', toMode: 'composite', tabId: 26 });
+  }
+
+  section('MSR-6c 手动 mode switch 只入队 mode boundary intent');
+  {
+    const intents = [];
+    const cacheUpdates = [];
+    const cfg = { mode: 'rest', compositeList: ['youtube.com'] };
+    const session = { currentMode: 'rest' };
+
+    const { handleMessage } = loadHandleMessage(
+      {
+        getConfig: async () => cfg,
+        saveConfig: async () => {},
+        updateDeclarativeRules: async () => {},
+        getSession: async () => session,
+        checkAndRemind: async () => false,
+        getSyncState: () => ({ monitoringEnabled: 1 }),
+        clearTabModeNotice: async () => true,
+        sendModeSwitchSuccessNotice: async () => true,
+        applyModeTransitionSideEffects: async () => ({ pipCloseAttempted: true, pipCloseSent: true, studyNoticeSent: false }),
+        enqueueModeBoundaryIntent: async (intent) => {
+          intents.push(intent);
+          return { ok: true, queued: true, intent };
+        },
+        setCachedEffectiveMode: (mode) => cacheUpdates.push(mode),
+      },
+      {
+        tabs: {
+          query: async () => [{ id: 27, url: 'https://youtube.com/watch' }],
+          update: async () => {},
+        },
+      }
+    );
+
+    await handleMessage({ type: 'SWITCH_TO_COMPOSITE' }, {});
+    expect('manual switch enqueues one mode boundary intent', intents.length, 1);
+    expect('manual switch intent shape', {
+      fromMode: intents[0].fromMode,
+      toMode: intents[0].toMode,
+      reason: intents[0].reason,
+      source: intents[0].source,
+      hasBoundary: Number.isFinite(intents[0].boundaryAtMs),
+    }, {
+      fromMode: 'rest',
+      toMode: 'composite',
+      reason: 'manual_mode_switch',
+      source: 'runtime_message',
+      hasBoundary: true,
+    });
+    expect('manual switch updates mode cache', cacheUpdates, ['composite']);
   }
 
   section('MSR-7 GET_STATS from popup uses popup_open foreground settlement');

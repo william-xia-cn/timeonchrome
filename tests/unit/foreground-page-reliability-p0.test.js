@@ -227,19 +227,34 @@ async function testUnknownDomainCountsAsUnknown() {
   check('unknown URL uses safe pseudo domain', ctx.domain === 'unknown-page.chrome-local');
 }
 
-async function testOpenOverlapSameDomainWritesZeroBoundarySegment() {
+async function testDuplicateSameTabSameDomainOpenIsNoop() {
   resetAll();
   const base = 1778800150000;
-  await seedActiveSession(base, 'same.example.com');
-  await withNow(base, () =>
-    sessionApi.transitionStateAt('ACTIVE', 'same.example.com', base, 'tabActivated')
+  await seedActiveSession(base, 'same.example.com', { tabId: 7, windowId: 1 });
+  const result = await withNow(base + 1000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'same.example.com', base + 1000, 'tabUpdated', { tabId: 7, windowId: 1 })
   );
-  check('same-domain open overlap writes boundary segment', settled.length === 1);
-  check('same-domain overlap segment is zero ms', settled[0].endMs === settled[0].startMs);
-  check('same-domain overlap allows zero duration', settled[0].allowZeroDurationSegment === true);
-  check('same-domain overlap keeps transition settlement reason', settled[0].settlementReason === 'transition_complete');
   const session = await sessionApi.getSession();
-  check('same-domain overlap reopens at boundary', session.state === 'ACTIVE' && session.domain === 'same.example.com' && session.startTime === base);
+  const events = await eventApi.getEvents();
+  check('duplicate same-tab same-domain open is skipped', result?.skipped === true && result.reason === 'duplicate_foreground_open');
+  check('duplicate same-tab same-domain writes no segment', settled.length === 0);
+  check('duplicate same-tab same-domain writes no transition event', events.filter((event) => event.time > base).length === 0);
+  check('duplicate same-tab same-domain keeps original session anchor', session.state === 'ACTIVE' && session.domain === 'same.example.com' && session.startTime === base);
+}
+
+async function testSameDomainDifferentTabOpenStillCutsBoundary() {
+  resetAll();
+  const base = 1778800155000;
+  await seedActiveSession(base, 'same.example.com', { tabId: 7, windowId: 1 });
+  const result = await withNow(base, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'same.example.com', base, 'tabActivated', { tabId: 8, windowId: 1 })
+  );
+  check('same-domain different-tab open is not skipped', result?.skipped !== true);
+  check('same-domain different-tab open writes boundary segment', settled.length === 1);
+  check('same-domain different-tab segment is zero ms', settled[0].endMs === settled[0].startMs);
+  check('same-domain different-tab keeps transition settlement reason', settled[0].settlementReason === 'transition_complete');
+  const session = await sessionApi.getSession();
+  check('same-domain different-tab reopens with new tab metadata', session.state === 'ACTIVE' && session.domain === 'same.example.com' && session.tabId === 8);
 }
 
 async function testCloseWithoutOpenWritesZeroDiagnosticSegment() {
@@ -437,10 +452,10 @@ async function testShortFocusBoundarySettlesImmediately() {
   const base = 1778807000000;
   await seedActiveSession(base, 'a.example.com');
   await withNow(base + 10_000, () =>
-    sessionApi.transitionStateAt(null, null, base + 10_000, 'windowFocusPolled')
+    sessionApi.transitionStateAt(null, null, base + 10_000, 'windowFocusLost')
   );
   await withNow(base + 10_500, () =>
-    sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + 10_500, 'windowFocusPolled')
+    sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + 10_500, 'windowFocusChanged')
   );
   const session = await sessionApi.getSession();
   const events = await eventApi.getEvents();
@@ -456,10 +471,10 @@ async function testRepeatedTransientFocusNoiseCreatesCompleteSegments() {
   await seedActiveSession(base, 'a.example.com');
   for (let t = 30_000; t <= 180_000; t += 30_000) {
     await withNow(base + t, () =>
-      sessionApi.transitionStateAt(null, null, base + t, 'windowFocusPolled')
+      sessionApi.transitionStateAt(null, null, base + t, 'windowFocusLost')
     );
     await withNow(base + t + 500, () =>
-      sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + t + 500, 'windowFocusPolled')
+      sessionApi.transitionStateAt('ACTIVE', 'a.example.com', base + t + 500, 'windowFocusChanged')
     );
   }
   const session = await sessionApi.getSession();
@@ -492,13 +507,32 @@ async function testUnfocusClosesForegroundImmediately() {
   const base = 1778808000000;
   await seedActiveSession(base, 'a.example.com');
   await withNow(base + 10_000, () =>
-    sessionApi.transitionStateAt(null, null, base + 10_000, 'windowFocusPolled')
+    sessionApi.transitionStateAt(null, null, base + 10_000, 'windowFocusLost')
   );
   const session = await sessionApi.getSession();
   check('unfocus closes foreground session immediately', session.state === null);
   check('unfocus creates durable segment', settled.length === 1);
   check('unfocus durable duration is 10s', settled[0].endMs - settled[0].startMs === 10_000);
   check('unfocus appears in live fallback', await liveActiveSeconds('a.example.com', base) === 10);
+}
+
+async function testWindowFocusPolledCannotWriteForegroundLedger() {
+  resetAll();
+  const base = 1778808250000;
+  await seedActiveSession(base, 'a.example.com');
+  const closeResult = await withNow(base + 10_000, () =>
+    sessionApi.transitionStateAt(null, null, base + 10_000, 'windowFocusPolled')
+  );
+  const openResult = await withNow(base + 11_000, () =>
+    sessionApi.transitionStateAt('ACTIVE', 'b.example.com', base + 11_000, 'windowFocusPolled')
+  );
+  const session = await sessionApi.getSession();
+  const events = await eventApi.getEvents();
+  check('windowFocusPolled close is skipped', closeResult?.skipped === true && closeResult.reason === 'disabled_timing_reason');
+  check('windowFocusPolled open is skipped', openResult?.skipped === true && openResult.reason === 'disabled_timing_reason');
+  check('windowFocusPolled does not change open session', session.domain === 'a.example.com' && session.startTime === base);
+  check('windowFocusPolled writes no transition events', events.filter((event) => event.time > base).length === 0);
+  check('windowFocusPolled writes no segments', settled.length === 0);
 }
 
 async function testDomainBoundaryAppliesImmediately() {
@@ -598,7 +632,7 @@ async function testIdleAndLockedBlockForegroundActive() {
   check('locked blocks foreground ACTIVE', stateApi.resolveState(lockedContext) === 'IDLE');
 }
 
-async function testForegroundMediaCompensatesIdleAndFocusLoss() {
+async function testForegroundMediaLegacyCompensationIsStillPresent() {
   resetAll();
   const baseContext = contextApi.buildContext(null, {
     tabId: 10,
@@ -620,14 +654,14 @@ async function testForegroundMediaCompensatesIdleAndFocusLoss() {
     mediaSourceDomain: 'media.example.com',
     windowState: 'normal',
   };
-  check('foreground media keeps unfocused visible Chrome tab ACTIVE', stateApi.resolveState(focusLossWithMedia) === 'ACTIVE');
+  check('legacy foreground media keeps unfocused Chrome tab ACTIVE', stateApi.resolveState(focusLossWithMedia) === 'ACTIVE');
 
   const idleWithMedia = {
     ...focusLossWithMedia,
     idleState: 'idle',
     isIdle: true,
   };
-  check('foreground media keeps idle visible Chrome tab ACTIVE', stateApi.resolveState(idleWithMedia) === 'ACTIVE');
+  check('legacy foreground media keeps idle Chrome tab ACTIVE', stateApi.resolveState(idleWithMedia) === 'ACTIVE');
 
   const lockedWithMedia = {
     ...focusLossWithMedia,
@@ -641,7 +675,8 @@ async function run() {
   const tests = [
     testOrdinaryPageActive180Settles,
     testNormalBoundaryCountsInLiveFallback,
-    testOpenOverlapSameDomainWritesZeroBoundarySegment,
+    testDuplicateSameTabSameDomainOpenIsNoop,
+    testSameDomainDifferentTabOpenStillCutsBoundary,
     testCloseWithoutOpenWritesZeroDiagnosticSegment,
     testCloseDomainMismatchWritesOldAndObservedSegments,
     testLiveFallbackDoesNotNeedCheckpoint,
@@ -664,13 +699,14 @@ async function run() {
     testRepeatedTransientFocusNoiseCreatesCompleteSegments,
     testShortDomainSwitchSettlesImmediately,
     testUnfocusClosesForegroundImmediately,
+    testWindowFocusPolledCannotWriteForegroundLedger,
     testDomainBoundaryAppliesImmediately,
     testMediaReasonCannotDriveForegroundTransition,
     testLegacyMediaStartReasonIsSanitizedOnSettlement,
     testCheckpointThenBoundaryDoesNotDoubleCountCheckpointWindow,
     testCheckpointReopenPreservesTabMetadata,
     testIdleAndLockedBlockForegroundActive,
-    testForegroundMediaCompensatesIdleAndFocusLoss,
+    testForegroundMediaLegacyCompensationIsStillPresent,
   ];
   let passed = 0;
   for (const test of tests) {

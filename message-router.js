@@ -6,10 +6,11 @@ import { updateDeclarativeRules, checkAndRemind, redirectToReminder, clearTabMod
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
 import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync, getStatsFoundationV1SyncStatus } from './infra/cloud-sync.js';
 import { getTodayStatsWithCategories } from './product/analytics.js';
-import { flushOpenSessionToStats, getSession as getTimingSession } from './runtime/session.js';
+import { flushOpenSessionToStats, getSession as getTimingSession, setCachedEffectiveMode } from './runtime/session.js';
 import { getMediaSegments } from './runtime/media-session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getAllUsageSegments, getDailyUsageStats, markSuspectUsageSegments } from './core/usage-segments.js';
+import { enqueueModeBoundaryIntent } from './core/mode-boundary-intents.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -89,6 +90,8 @@ function normalizeSettlementAnalysisSegment(segment) {
     channel: segment?.channel || null,
     framework: segment?.framework || null,
     sourceState: segment?.sourceState || null,
+    tabId: segment?.tabId ?? null,
+    windowId: Number.isInteger(segment?.windowId) ? segment.windowId : null,
     mode: segment?.mode || null,
     startMs: Number.isFinite(startMs) ? startMs : null,
     endMs: Number.isFinite(endMs) ? endMs : null,
@@ -334,6 +337,19 @@ function normalizeMode(mode) {
   return 'study';
 }
 
+async function enqueueManualModeBoundary(fromMode, toMode, boundaryAtMs) {
+  const normalizedFrom = normalizeMode(fromMode);
+  const normalizedTo = normalizeMode(toMode);
+  setCachedEffectiveMode(normalizedTo);
+  return enqueueModeBoundaryIntent({
+    boundaryAtMs,
+    fromMode: normalizedFrom,
+    toMode: normalizedTo,
+    reason: 'manual_mode_switch',
+    source: 'runtime_message',
+  });
+}
+
 const STATS_META_KEYS = new Set([
   'audioSeconds',
   'backgroundMediaByDomain',
@@ -519,7 +535,8 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'CLOUD_LOGIN': {
-      const { email, password } = msg;
+      const email = String(msg.email || '').trim().toLowerCase();
+      const { password } = msg;
       try {
         const { CLOUD_CONFIG } = await import('./infra/cloud-sync.js');
         const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/login`, {
@@ -715,6 +732,7 @@ async function switchToStudy(msg = {}) {
   const config = await getConfig();
   const session = await getSession();
   const fromMode = normalizeMode(session?.currentMode || config?.mode);
+  const boundaryAtMs = Date.now();
   const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
   if (activeTab?.id) {
     await clearTabModeNotice(activeTab.id, 'mode_changed');
@@ -723,14 +741,15 @@ async function switchToStudy(msg = {}) {
   config.mode = 'study';
   await saveConfig(config);
   await updateDeclarativeRules(config);
+  session.currentMode = 'study';
+  await chrome.storage.local.set({ guardian_session: session });
+  await enqueueManualModeBoundary(fromMode, 'study', boundaryAtMs);
   await applyModeTransitionSideEffects({
     fromMode,
     toMode: 'study',
     tabId: activeTab?.id ?? null,
     sendStudyNotice: false,
   });
-  session.currentMode = 'study';
-  await chrome.storage.local.set({ guardian_session: session });
   const reevaluatedTab = await reevaluateActiveTabAfterModeSwitch();
   const noticeTabId = activeTab?.id || reevaluatedTab?.id;
   if (noticeTabId) {
@@ -746,6 +765,7 @@ async function switchToComposite(msg = {}) {
   const config = await getConfig();
   const session = await getSession();
   const fromMode = normalizeMode(session?.currentMode || config?.mode);
+  const boundaryAtMs = Date.now();
   const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
   if (activeTab?.id) {
     await clearTabModeNotice(activeTab.id, 'mode_changed');
@@ -754,13 +774,14 @@ async function switchToComposite(msg = {}) {
   config.mode = 'composite';
   await saveConfig(config);
   await updateDeclarativeRules(config);
+  session.currentMode = 'composite';
+  await chrome.storage.local.set({ guardian_session: session });
+  await enqueueManualModeBoundary(fromMode, 'composite', boundaryAtMs);
   await applyModeTransitionSideEffects({
     fromMode,
     toMode: 'composite',
     tabId: activeTab?.id ?? null,
   });
-  session.currentMode = 'composite';
-  await chrome.storage.local.set({ guardian_session: session });
   const reevaluatedTab = await reevaluateActiveTabAfterModeSwitch();
   const noticeTabId = activeTab?.id || reevaluatedTab?.id;
   if (noticeTabId) {
@@ -776,6 +797,7 @@ async function switchToRest(msg = {}) {
   const config = await getConfig();
   const session = await getSession();
   const fromMode = normalizeMode(session?.currentMode || config?.mode);
+  const boundaryAtMs = Date.now();
   const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
   if (activeTab?.id) {
     await clearTabModeNotice(activeTab.id, 'mode_changed');
@@ -786,6 +808,7 @@ async function switchToRest(msg = {}) {
   await updateDeclarativeRules(config);
   session.currentMode = 'rest';
   await chrome.storage.local.set({ guardian_session: session });
+  await enqueueManualModeBoundary(fromMode, 'rest', boundaryAtMs);
   const reevaluatedTab = await reevaluateActiveTabAfterModeSwitch();
   const noticeTabId = activeTab?.id || reevaluatedTab?.id;
   if (noticeTabId) {

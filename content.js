@@ -27,10 +27,15 @@
   let mediaKind = null;
   let audioContextActive = false;
   let pipActive = false;
+  const MEDIA_POLL_INTERVAL_MS = 1000;
+  const MEDIA_REAFFIRM_INTERVAL_MS = 30000;
+  let lastMediaStateSentAt = 0;
 
   function sendMediaState(playing, isPiP = pipActive, kind = mediaKind, source = 'dom_media_event') {
-    if (!chrome.runtime?.id) return;
+    if (!chrome.runtime?.id) return false;
     chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP, mediaKind: kind, source });
+    lastMediaStateSentAt = Date.now();
+    return true;
   }
 
   function updateMediaState(force = false, source = 'dom_media_event') {
@@ -46,9 +51,18 @@
       mediaPlaying = newState;
       mediaKind = newKind;
       pipActive = newPiP;
-      sendMediaState(mediaPlaying, pipActive, mediaKind, source);
+      return sendMediaState(mediaPlaying, pipActive, mediaKind, source);
     } else if (force && (newState || newPiP)) {
-      sendMediaState(newState, newPiP, newKind, source);
+      return sendMediaState(newState, newPiP, newKind, source);
+    }
+    return false;
+  }
+
+  function pollMediaState() {
+    const sent = updateMediaState(false, 'dom_media_poll');
+    if (sent || !(mediaPlaying || pipActive)) return;
+    if (Date.now() - lastMediaStateSentAt >= MEDIA_REAFFIRM_INTERVAL_MS) {
+      updateMediaState(true, 'dom_media_poll');
     }
   }
 
@@ -77,10 +91,10 @@
 
   // Some browser-controlled media documents and cross-world media events do not
   // reliably fire listener callbacks into the content script. Polling only
-  // recomputes local media state and still sends a message only on state change.
+  // recomputes local media state. It sends immediately on state change, then
+  // reaffirms unchanged active media at a low frequency for muted/media edge cases.
   setTimeout(() => updateMediaState(false, 'dom_media_poll'), 500);
-  setInterval(() => updateMediaState(false, 'dom_media_poll'), 1000);
-  setInterval(() => updateMediaState(true, 'dom_media_poll'), 5000);
+  setInterval(pollMediaState, MEDIA_POLL_INTERVAL_MS);
 
   // Web Audio API 检测：拦截 AudioContext 构造
   function patchAudioContext(CtxClass) {

@@ -62,7 +62,8 @@ function loadCheckAndRemind(stubs, chromeOverride = {}) {
     setTimeout,
     chrome,
     getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
-    applyModeEffectiveBoundary: async () => ({ ok: true, applied: false }),
+    enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
+    setCachedEffectiveMode: () => {},
     ...stubs,
   };
 
@@ -435,9 +436,9 @@ async function run() {
       getConfig: async () => makeConfig({ mode: 'rest' }),
       getSession: async () => ({ currentMode: 'rest' }),
       saveSession: async (s) => saves.push(s.currentMode),
-      applyModeEffectiveBoundary: async (effectiveAtMs, reason) => {
-        boundaries.push({ effectiveAtMs, reason });
-        return { ok: true, applied: true };
+      enqueueModeBoundaryIntent: async (intent) => {
+        boundaries.push(intent);
+        return { ok: true, queued: true, intent };
       },
       hasTemporaryCompositePermission: async () => false,
       matchDomain: (d, p) => d === p,
@@ -448,7 +449,7 @@ async function run() {
     await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 44_000, userActive: false, foreground: true });
     await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, userActive: false, foreground: true });
     expect('rest->study switches only after 45s gate without idle gate', saves, ['study']);
-    expect('rest->study mode attribution starts at gate start', boundaries, [{ effectiveAtMs: 0, reason: 'rest_to_study' }]);
+    expect('rest->study mode attribution starts at gate start', boundaries.map(({ boundaryAtMs, fromMode, toMode, reason, source }) => ({ boundaryAtMs, fromMode, toMode, reason, source })), [{ boundaryAtMs: 0, fromMode: 'rest', toMode: 'study', reason: 'rest_to_study', source: 'auto_mode_transition' }]);
   }
 
   section('IMT-8 Composite + study => not immediate, then switch after 45s');
@@ -461,9 +462,9 @@ async function run() {
       getConfig: async () => makeConfig({ mode: 'composite' }),
       getSession: async () => ({ currentMode: 'composite' }),
       saveSession: async (s) => saves.push(s.currentMode),
-      applyModeEffectiveBoundary: async (effectiveAtMs, reason) => {
-        boundaries.push({ effectiveAtMs, reason });
-        return { ok: true, applied: true };
+      enqueueModeBoundaryIntent: async (intent) => {
+        boundaries.push(intent);
+        return { ok: true, queued: true, intent };
       },
       hasTemporaryCompositePermission: async () => false,
       matchDomain: (d, p) => d === p,
@@ -476,7 +477,7 @@ async function run() {
     await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 0, userActive: false, foreground: true });
     await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 45_000, userActive: false, foreground: true });
     expect('composite->study switches after 45s gate without idle gate', saves, ['study']);
-    expect('composite->study mode attribution starts at gate start', boundaries, [{ effectiveAtMs: 0, reason: 'composite_to_study' }]);
+    expect('composite->study mode attribution starts at gate start', boundaries.map(({ boundaryAtMs, fromMode, toMode, reason, source }) => ({ boundaryAtMs, fromMode, toMode, reason, source })), [{ boundaryAtMs: 0, fromMode: 'composite', toMode: 'study', reason: 'composite_to_study', source: 'auto_mode_transition' }]);
     const success = sent.find((m) => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study');
     expectTrue('composite -> study sends page success prompt', !!success);
     expect('composite -> study success carries domain', success?.domain, 'khanacademy.org');
@@ -493,9 +494,9 @@ async function run() {
       getConfig: async () => makeConfig({ mode: 'rest' }),
       getSession: async () => ({ currentMode: 'rest' }),
       saveSession: async (s) => saves.push(s.currentMode),
-      applyModeEffectiveBoundary: async (effectiveAtMs, reason) => {
-        boundaries.push({ effectiveAtMs, reason });
-        return { ok: true, applied: true };
+      enqueueModeBoundaryIntent: async (intent) => {
+        boundaries.push(intent);
+        return { ok: true, queued: true, intent };
       },
       hasTemporaryCompositePermission: async () => false,
       matchDomain: (d, p) => d === p,
@@ -507,7 +508,7 @@ async function run() {
     await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 0, foreground: true, userActive: false });
     await checkAndRemind(3, 'https://youtube.com', 1, { nowMs: 30_000, foreground: true, userActive: false });
     expect('switches to composite even without input activity', saves, ['composite']);
-    expect('rest->composite mode attribution starts at gate start', boundaries, [{ effectiveAtMs: 0, reason: 'rest_to_composite' }]);
+    expect('rest->composite mode attribution starts at gate start', boundaries.map(({ boundaryAtMs, fromMode, toMode, reason, source }) => ({ boundaryAtMs, fromMode, toMode, reason, source })), [{ boundaryAtMs: 0, fromMode: 'rest', toMode: 'composite', reason: 'rest_to_composite', source: 'auto_mode_transition' }]);
     expectTrue('pending success emitted without input activity', sent.some((m) => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'composite'));
   }
 

@@ -7,6 +7,7 @@ import {
   getMediaFact,
   getMediaSessions,
   runMediaPeriodicCheckpoint,
+  splitOpenMediaSessionsAtModeBoundary,
 } from '../runtime/media-session.js';
 import { extractDomain } from '../infra/storage.js';
 
@@ -37,8 +38,8 @@ async function getWindowSnapshot(windowId) {
 export async function queryTabMediaFact(tabId, overrides = {}) {
   const normalizedTabId = numericTabId(tabId);
   const stored = await getMediaFact(normalizedTabId ?? tabId);
-  let tab = null;
-  if (normalizedTabId != null && chrome.tabs?.get) {
+  let tab = hasOwn(overrides, 'tabSnapshot') ? overrides.tabSnapshot : null;
+  if (!tab && !hasOwn(overrides, 'tabSnapshot') && normalizedTabId != null && chrome.tabs?.get) {
     try {
       tab = await chrome.tabs.get(normalizedTabId);
     } catch (_) {
@@ -49,7 +50,7 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
   const windowId = Number.isInteger(overrides.windowId)
     ? overrides.windowId
     : (Number.isInteger(tab?.windowId) ? tab.windowId : (Number.isInteger(stored?.windowId) ? stored.windowId : null));
-  const win = await getWindowSnapshot(windowId);
+  const win = overrides.windowSnapshot || await getWindowSnapshot(windowId);
   const domain = overrides.mediaSourceDomain ||
     overrides.domain ||
     (tab?.url ? extractDomain(tab.url) : null) ||
@@ -71,6 +72,8 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
 
   return {
     tabId: normalizedTabId ?? tabId,
+    frameId: overrides.mediaFrameId ?? overrides.frameId ?? undefined,
+    documentId: overrides.mediaDocumentId ?? overrides.documentId ?? undefined,
     windowId,
     domain,
     playing,
@@ -81,11 +84,129 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     isActiveTab: overrides.isActiveTab === true || tab?.active === true,
     windowState: overrides.windowState || win.state || stored?.windowState || null,
     source: overrides.mediaFactSource || overrides.source || stored?.source || 'chrome_tab_query',
+    clearMediaFrames: overrides.clearMediaFrames === true,
   };
 }
 
 function isForegroundMediaClassification(classification) {
   return classification?.mediaClass === 'foregroundAudio' || classification?.mediaClass === 'foregroundVideo';
+}
+
+function domainMismatchReason(domain) {
+  return domain === 'unknown-page.chrome-local' || !domain ? 'unknown_domain' : 'observed_mismatch';
+}
+
+function buildAudibleFact(tab, win, reason) {
+  const domain = tab?.url ? (extractDomain(tab.url) || 'unknown-page.chrome-local') : 'unknown-page.chrome-local';
+  return {
+    tabId: numericTabId(tab?.id),
+    windowId: numericTabId(tab?.windowId),
+    domain,
+    playing: true,
+    mediaKind: 'audio',
+    isPiP: false,
+    audible: true,
+    muted: tab?.mutedInfo?.muted === true,
+    isActiveTab: tab?.active === true,
+    windowState: win?.state || null,
+    source: reason || 'tab_audible',
+  };
+}
+
+function buildTabSnapshotFact(tab, win, reason) {
+  const domain = tab?.url ? (extractDomain(tab.url) || 'unknown-page.chrome-local') : 'unknown-page.chrome-local';
+  return {
+    tabId: numericTabId(tab?.id),
+    windowId: numericTabId(tab?.windowId),
+    domain,
+    playing: tab?.audible === true,
+    mediaKind: tab?.audible === true ? 'audio' : null,
+    isPiP: false,
+    audible: tab?.audible === true,
+    muted: tab?.mutedInfo?.muted === true,
+    isActiveTab: tab?.active === true,
+    windowState: win?.state || null,
+    source: reason || 'tab_query',
+  };
+}
+
+export async function queryForegroundMediaForOpenSession(sessionLike = {}, reason = 'foreground_media_open_session_query') {
+  const sessionTabId = numericTabId(sessionLike?.tabId);
+  if (sessionLike?.state !== 'ACTIVE' || sessionTabId == null) {
+    return { ok: false, reason: 'invalid_open_session' };
+  }
+
+  const sessionWindowId = numericTabId(sessionLike?.windowId);
+  const sessionDomain = sessionLike?.domain || null;
+  let tab = null;
+  if (chrome.tabs?.get) {
+    try {
+      tab = await chrome.tabs.get(sessionTabId);
+    } catch (_) {
+      tab = null;
+    }
+  }
+
+  if (tab) {
+    const tabWindowId = numericTabId(tab.windowId);
+    if (sessionWindowId != null && tabWindowId != null && tabWindowId !== sessionWindowId) {
+      return {
+        ok: false,
+        reason: 'window_mismatch',
+        source: tab.audible === true ? 'tab_audible' : 'tab_query',
+        fact: buildTabSnapshotFact(tab, { state: null }, reason),
+      };
+    }
+
+    if (tab.audible === true) {
+      const win = await getWindowSnapshot(tabWindowId);
+      const fact = buildAudibleFact(tab, win, reason);
+      const classification = { mediaClass: 'foregroundAudio', visibility: 'foreground' };
+      if (tab.active !== true) {
+        return { ok: false, reason: 'not_active_tab', source: 'tab_audible', fact, classification };
+      }
+      if (win.state === 'minimized') {
+        return { ok: false, reason: 'window_minimized', source: 'tab_audible', fact, classification };
+      }
+      if (sessionDomain && fact.domain !== sessionDomain) {
+        return {
+          ok: false,
+          reason: domainMismatchReason(fact.domain),
+          source: 'tab_audible',
+          fact,
+          classification,
+        };
+      }
+      return { ok: true, source: 'tab_audible', fact, classification };
+    }
+  }
+
+  const fact = await queryTabMediaFact(sessionTabId, {
+    mediaFactSource: reason || 'foreground_media_open_session_query',
+    tabSnapshot: tab,
+  });
+  const factTabId = numericTabId(fact?.tabId);
+  if (factTabId !== sessionTabId) {
+    return { ok: false, reason: 'tab_mismatch', source: 'media_fact', fact };
+  }
+  const factWindowId = numericTabId(fact?.windowId);
+  if (sessionWindowId != null && factWindowId != null && factWindowId !== sessionWindowId) {
+    return { ok: false, reason: 'window_mismatch', source: 'media_fact', fact };
+  }
+  const classification = classifyMediaFact(fact);
+  if (sessionDomain && fact?.domain !== sessionDomain) {
+    return {
+      ok: false,
+      reason: domainMismatchReason(fact?.domain),
+      source: 'media_fact',
+      fact,
+      classification,
+    };
+  }
+  if (!isForegroundMediaClassification(classification)) {
+    return { ok: false, reason: 'no_foreground_media', source: 'media_fact', fact, classification };
+  }
+  return { ok: true, source: 'media_fact', fact, classification };
 }
 
 export async function queryKnownForegroundMediaFacts(requests = []) {
@@ -210,4 +331,8 @@ export async function closeMediaForTabLifecycle(tabId, reason) {
 
 export async function runMediaCheckpoint(now = Date.now()) {
   return runMediaPeriodicCheckpoint(now);
+}
+
+export async function processMediaModeBoundary(intent = {}) {
+  return splitOpenMediaSessionsAtModeBoundary(intent);
 }

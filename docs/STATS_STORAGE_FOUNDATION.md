@@ -129,13 +129,15 @@ transitionState / periodicCheckpoint / lifecycle recovery close
 | 前台状态切换 | tab activated / updated / focus / idle event 直接进入 `transitionStateAt()` | `transition_complete` / `idle_inactive_close` | 原始来源事件，例如 `tabActivated`、`tabUpdated` | 是 | 普通前台网页、特殊页、本地文件、扩展页都按 focused Chrome active tab 计时 |
 | Popup 打开 | popup `GET_STATS source=popup` | `popup_open` | `popup_open_reopen` | 是 | 低频用户动作，用作 durable settlement boundary |
 | 周期确认 | `periodicCheckpoint` alarm | `periodic_checkpoint` | `periodic_checkpoint_reopen` | 是，但必须主动确认 foreground | 普通运行期间的补充计时落账机制；同时承担采样对账 |
-| 模式生效边界 | `applyModeEffectiveBoundary()` | `mode_effective_boundary` | `mode_effective_boundary_reopen` | 是 | 保证 segment mode 反映打开时的模式 |
+| 模式生效边界 | `mode_boundary` intent → `dispatchTimingSignal()` | `mode_effective_boundary` | `mode_effective_boundary_reopen` | 是 | 系统级补充计时信号；foreground/media 各自按同一 boundary 切分 |
 | 标签关闭 | tab close handling | `tab_close` | 后续真实 foreground boundary | 是 | 关闭旧 session，后续由 successor active tab 打开新 session |
-| 监控关闭 | monitoring off / cloud sync disables monitoring | `monitoring_off` | 不重开 | 是 | 关闭当前 open session |
+| 监控关闭 | monitoring off / cloud sync disables monitoring | `monitoring_off` | 不重开 | 是 | 动作触发补充落账；关闭当前 open session |
 
 `recover()` 不属于正常计时落账触发；它是 extension lifecycle boundary 上的容错补救机制，只在发现残存 open session 时做最小估算关闭。正常运行期间不能依赖 recovery 产生或确认时长。
 
 `description.start/end` 保存原始触发源的 reason/source，例如 `tabUpdated`、`popup_open`、`periodic_checkpoint`。前台边界不做稳定窗口延迟，不改写 reason。recovery 容错写入的 segment 会使用 `recovery_estimated_half_checkpoint` 标明它不是正常计时边界。`settlementReason` 仍表示账务口径；`description` 是本地诊断字段，不参与 segment ID 幂等生成。
+
+Mode 切换不是普通配置写入，而是系统级账务边界。手动与自动 mode 切换必须先把 `mode_boundary` intent 写入本地 `mode_boundary_intents_v1`，然后由 dispatcher 按正常计时信号链路消费；mode 切换入口只等待 intent 可靠入队，不等待 foreground/media 完整落账。intent 消费成功后移除，失败保留并由后续 bootstrap、alarm 或计时事件继续 drain。popup/admin 的读前 `await flush` 暂维持现状，登记为后续 read model 收敛遗留项。
 
 前台 domain 语义收敛为三类，不再把 `candidateDomain` / `candidateKind` 作为计时落账模型的一等概念：
 - `eventDomain`：由精确事件当次 URL/tab 解析出的 domain，用于 open 或 transition。
@@ -144,25 +146,32 @@ transitionState / periodicCheckpoint / lifecycle recovery close
 
 `observedDomain == session.domain` 只适用于 checkpoint 判断“当前采样仍匹配 open session，可以做正常补充落账”。普通 close 事件如果已经明确指向旧 session，不需要再用当前 active tab domain 覆盖或重新判定旧账归属。特殊页/本地文件/扩展页的伪域名规则属于 URL 解析能力，不再归入 candidate 管理机制。
 
-当前策略优先保证账本完整性：只要 `endMs > startMs`，就写入 `usage_segments_v1`；明确的边界诊断允许 `endMs == startMs`。1 秒内切换网页也必须落账，允许 `durationSeconds = 0` 的 segment 保留精确 `startMs/endMs`、domain、mode、sourceState、settlementReason 和 `description`。是否在正式发布前引入短段合并、毫秒级 duration 字段或 UI 展示过滤，是 release blocker，不在当前落账完整性改造中提前处理。
+普通前台 open/re-eval 事件必须做账务身份去重：当当前 open session 已经是同一个 `state + domain + tabId/windowId` 时，`tabUpdated`、`webNavigationCommitted`、`tabActivated`、`tabReplaced`、`windowFocusChanged`、`tabClosedSuccessor`、`idle_active_reopen` 这类 URL/focus 事实只更新诊断 trace，不得关闭并重开 session。这样可以保留真实 tab/domain/mode 边界，又避免同一 tab 同一 domain 被 `tabUpdated` 与 `webNavigationCommitted` 互相切碎。同 domain 但 `tabId` 明确不同，仍然是不同前台 tab 边界，必须正常落账。
 
-边界事实也属于账本完整性的一部分：事件驱动 open 到来但旧 session 尚未关闭时，必须先关闭旧 session 并写入 segment，即使 `endMs == startMs`；事件驱动 close 到来但没有 open session 时，写入 `event_close_without_open` 的 0ms diagnostic segment；事件驱动 close 到来且关闭时观测到的 domain 与 `session.domain` 不一致时，写入旧 `session.domain` 的 `event_close_domain_mismatch_close` segment，并额外写入观测 domain 的 `event_close_domain_mismatch_observed` 0ms diagnostic segment。0ms segment 不增加 `activeSeconds/backgroundMediaSeconds/pipSeconds`，但会增加 segment 账本和 diagnostic 可见性。
+当前策略优先保证账本完整性：只要 `endMs > startMs`，就写入 `usage_segments_v1`；明确的边界诊断容错允许 `endMs == startMs`。1 秒内切换网页也必须落账，允许 `durationSeconds = 0` 的 segment 保留精确 `startMs/endMs`、domain、mode、sourceState、settlementReason 和 `description`。是否在正式发布前引入短段合并、毫秒级 duration 字段或 UI 展示过滤，是 release blocker，不在当前落账完整性改造中提前处理。
+
+URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivated` 先到但 URL 尚不可用时，可以打开 `unknown-page.chrome-local`；后续 `tabUpdated` 带来真实 URL 后，关闭 unknown 段并打开真实 domain。当前不做事后回填、不合并相邻段，短 unknown 段被视为保留原始事件顺序的可接受现象。但该策略不是最终发布形态，正式发布前必须重新评估并决定：继续保留、相邻段合并、真实 URL 到达后回填、仅在 UI 隐藏/折叠，或引入毫秒级/诊断层分离。
+
+边界事实也属于账本完整性的一部分：事件驱动 open 到来但旧 session 尚未关闭时，必须先关闭旧 session 并写入 segment，即使 `endMs == startMs`；事件驱动 close 到来但没有 open session 时，写入 `event_close_without_open` 的 0ms diagnostic segment；事件驱动 close 到来且关闭时观测到的 domain 与 `session.domain` 不一致时，写入旧 `session.domain` 的 `event_close_domain_mismatch_close` segment，并额外写入观测 domain 的 `event_close_domain_mismatch_observed` 0ms diagnostic segment。这三类不是正常主计时，也不是用户动作补充落账，而是诊断容错：用于保留“收到的事件与当前 session 状态不一致”的异常事实。0ms segment 不增加 `activeSeconds/backgroundMediaSeconds/pipSeconds`，但会增加 segment 账本和 diagnostic 可见性。
 
 #### 3.1.2 事件来源完备矩阵
 
-每个事件来源必须被判定为：`主计时`、`补充计时`、`容错`、`维护不计时`、`辅助重评估` 或 `未接入可选补强`。未列入主计时/补充计时/容错的来源不得直接写 `usage_segments_v1`。
+每个事件来源必须被判定为：`主计时`、`补充计时`、`容错`、`诊断容错`、`维护不计时`、`辅助重评估` 或 `未接入可选补强`。未列入主计时/补充计时/容错/诊断容错的来源不得直接写 `usage_segments_v1`。
 
-实现结构要求：Chrome 原始事件可以被多个计时消费者共享，但账本必须分轨。`background.js` 只负责 listener wiring、dispatcher 调用和 alarm 调度；foreground 计时只能写 `session_v1` / `usage_segments_v1` / `daily_usage_stats_v1`，media 计时只能写 `media_facts_v1` / `media_sessions_v2` / `media_segments_v1` / `daily_media_stats_v1`。同一个 `periodicCheckpoint` alarm 可以触发 foreground 与 media 两套 checkpoint，但两套执行必须独立 try/catch、独立 trace，任何一侧失败不得阻断另一侧。
+实现结构要求：Chrome 原始事件可以被多个计时消费者共享，但账本必须分轨。`background.js` 只负责 listener wiring、dispatcher 调用和 alarm 调度；foreground 计时只能写 `session_v1` / `usage_segments_v1` / `daily_usage_stats_v1`，media 计时只能写 `media_frame_facts_v1` / `media_facts_v1` / `media_sessions_v2` / `media_segments_v1` / `daily_media_stats_v1`。同一个 `periodicCheckpoint` alarm 可以触发 foreground 与 media 两套 checkpoint，但两套执行必须独立 try/catch、独立 trace，任何一侧失败不得阻断另一侧。
 
 当前代码分层：
 
 | 模块 | 职责 | 不允许做什么 |
 |---|---|---|
 | `background.js` | 注册 Chrome listeners、调用 `dispatchTimingSignal()`、触发 `runTimingCheckpoints()`、保留 debug/test-only handlers | 不直接执行 foreground transition；不直接写媒体账本 |
-| `core/timing-dispatcher.js` | 接收归一化 signal，先给 media 观察事实，再把非 media-only signal 交给 foreground | 不写 storage；不直接落账 |
-| `core/foreground-timing.js` | 前台网页状态解析、foreground media compensation、调用 `transitionStateAt()` 写 `usage_segments_v1` | 不调用 `applyMediaFacts()` / `closeMediaForTab()`；不写 `media_segments_v1` |
+| `core/timing-dispatcher.js` | 接收归一化 signal，drain mode boundary intent，先给 media 观察事实，再把非 media-only signal 交给 foreground | 不直接写 usage/media segment；除 mode intent queue 外不写 storage |
+| `core/mode-boundary-intents.js` | 持久化并 drain `mode_boundary` intent，保证 mode boundary 不因裸异步调用丢失 | 不直接写 usage/media segment；只负责可靠队列 |
+| `core/foreground-timing.js` | 前台网页状态解析、legacy foreground media compensation、调用 `transitionStateAt()` 写 `usage_segments_v1` | 不调用 `applyMediaFacts()` / `closeMediaForTab()`；不写 `media_segments_v1` |
 | `core/media-timing.js` | 媒体事实写入、tab 生命周期关闭、已知媒体 tab 重分类、调用 `runtime/media-session.js` | 不调用 `transitionStateAt()`；不写 `usage_segments_v1` |
 | `core/checkpoint-scheduler.js` | 将同一个 `periodicCheckpoint` 分别调度到 foreground checkpoint 与 media checkpoint，并分别 trace | 不把一侧失败传播为另一侧失败 |
+
+遗留边界：媒体事实的目标形态是只更新媒体账本，网页账本与媒体账本的综合分析只发生在读取展示层。但当前代码仍保留 legacy `foregroundMediaActive` compensation：foreground timing 在 idle/focus/checkpoint 等关闭旧 open foreground session 的路径，会调用 `queryForegroundMediaForOpenSession(sessionLike, reason)` 只查询旧 session 的 `tabId`，用于决定是否暂缓关闭。该 helper 先使用 Chrome 原生 `tab.audible === true` 作为 positive fast path；未命中时再 fallback 到 `media_facts_v1[session.tabId]`，覆盖静音媒体和漏事件场景。它不得用于 checkpoint estimated open 或新开 foreground 账。该路径已经标记为正式发布前需要处理的 release item；本轮只收敛查询语义，不删除。
 
 | 类型 | 事件 / 来源 | 当前接入状态 | 处理判定 | 开账 | 落账 | 账务 reason / 操作 | 处理方案 |
 |---|---|---:|---|---:|---:|---|---|
@@ -171,14 +180,15 @@ transitionState / periodicCheckpoint / lifecycle recovery close
 | Chrome tab | `chrome.tabs.onRemoved` | 已接入 | 主计时偏落账 + 媒体关闭 | 可能 | 是 | `tab_close` / successor reason | foreground 关闭被移除 tab 对应 session；media 关闭该 tab 的已知媒体 session；若存在 successor active tab，后续重评估可开新账 |
 | Chrome navigation | `chrome.webNavigation.onCommitted` | 已接入 | 辅助重评估 | 可能 | 可能 | 汇入 transition / redirect check | 不作为独立账务事实源；用于导航提交后的拦截检查和前台状态重评估 |
 | Chrome window | `chrome.windows.onFocusChanged` | 已接入 | 主计时 | 是 | 是 | `transition_complete` / inactive close; `description` 使用 `windowFocusChanged` | Chrome 聚焦时按 active tab 开账；Chrome 失焦时关闭 foreground session |
+| Chrome window | synthetic focus polling / `windowFocusPolled` | 禁用 | 不计时 | 否 | 否 | 无 | 聚焦轮询不是 Chrome 原始边界事件；不得进入 foreground 开合，漏判由 `periodicCheckpoint` 采样修复 |
 | Chrome idle | `chrome.idle.onStateChanged` | 已接入 | 主计时边界提示 | 是 | 是 | `idle_inactive_close` / active reopen reason | 只处理 active/idle/locked 边界；不作为持续确认机制 |
-| Runtime message | `MEDIA_STATE` | 已接入 | 主计时（本地媒体账本） | 是 | 是 | media boundary / `periodic_checkpoint` | content script 上报媒体/PiP 状态，经 `timing-dispatcher` → `media-timing` → `runtime/media-session.js` 写本地媒体账本；media-only signal 不进入 foreground transition |
+| Runtime message | `MEDIA_STATE` | 已接入 | 主计时（本地媒体账本） | 是 | 是 | media boundary / `periodic_checkpoint` | content script 上报媒体/PiP 状态，经 `timing-dispatcher` → `media-timing` → `runtime/media-session.js` 写本地媒体账本；media-only signal 不进入 foreground consumer |
 | Runtime message | popup `GET_STATS source=popup` | 已接入 | 补充计时 | 是 | 是 | `popup_open` / `popup_open_reopen` | 用户打开 popup 时关闭当前 counted session 并立即重开，保证 popup 统计可见当前段 |
-| Runtime message | `SWITCH_TO_STUDY` / `SWITCH_TO_REST` / `SWITCH_TO_COMPOSITE` | 已接入 | 补充计时（模式边界） | 是 | 是 | `mode_effective_boundary` / `mode_effective_boundary_reopen` | 模式生效边界关闭旧 mode segment 并用新 mode 重开 |
+| Runtime message | `SWITCH_TO_STUDY` / `SWITCH_TO_REST` / `SWITCH_TO_COMPOSITE` | 已接入 | 补充计时（模式边界） | 是 | 是 | `mode_effective_boundary` / `mode_effective_boundary_reopen` | 写入 `mode_boundary_intents_v1` 后返回；dispatcher 后续切 foreground 与所有 open media sessions |
 | Runtime message | `FLUSH_TIME` / 非 popup `GET_STATS` / `GET_STATS_RANGE` | 已接入 | 查询/有限补充 | 可能 | 可能 | `ui_flush` | 不允许直接切碎前台 ACTIVE；仅用于非前台或受限路径刷新 |
 | Runtime message | `CONTENT_SCRIPT_READY` | 已接入 | 维护不计时 | 否 | 否 | 无 | 只用于 transient notice 重发，不产生计时事实 |
 | Runtime message | `TITLE_CHANGE` | 已接入 | 维护不计时 | 否 | 否 | 无 | 页面标题信息，不产生计时事实 |
-| Config / sync action | monitoring off / cloud disables monitoring | 已接入 | 主计时偏落账 | 否 | 是 | `monitoring_off` | 关闭当前 open session，不重开 |
+| Config / sync action | monitoring off / cloud disables monitoring | 已接入 | 补充计时（配置动作） | 否 | 是 | `monitoring_off` | 用户或云端配置动作触发补充落账；关闭当前 open session，不重开 |
 | Alarm | `periodicCheckpoint` foreground runner | 已接入 | 补充计时 + 采样对账 | 是 | 是 | `periodic_checkpoint` / `checkpoint_estimated_close` / `checkpoint_estimated_open` | `checkpoint-scheduler` 调用 foreground checkpoint；正常匹配写 checkpoint；open/closed 与当前采样不一致时半 interval 估算修复 |
 | Alarm | `periodicCheckpoint` media runner | 已接入 | 补充计时（本地媒体账本） | 是 | 是 | `periodic_checkpoint` | `checkpoint-scheduler` 调用 media checkpoint；只切当前 open media sessions，写本地 `media_segments_v1` / `daily_media_stats_v1`，不影响云端 usage schema |
 | Alarm | `quota_check` | 已接入 | 维护不计时 | 否 | 否 | 无 | 配额检查和策略动作，不直接写计时事实 |
@@ -202,8 +212,9 @@ transitionState / periodicCheckpoint / lifecycle recovery close
 
 设计约束：
 - `主计时` 来源提供正常精确边界；如果关闭和打开同时发生，必须在同一 serialized session commit 中完成。
-- `补充计时` 来源只能来自明确用户动作或 alarm checkpoint；estimated reason 必须标识为估算。
-- `容错` 来源只处理 lifecycle 残留，不得参与普通运行期间持续计时。
+- `补充计时` 来源只能来自明确用户动作、配置动作、mode boundary 或 alarm checkpoint；estimated reason 必须标识为估算。
+- `容错` 来源只处理 lifecycle 残留或 checkpoint 采样不一致，不得参与普通运行期间持续计时。
+- `诊断容错` 只记录事件与当前 session 状态不一致的异常事实，例如 close without open、close observed domain mismatch；通常允许 0ms segment，但不得被当成正常使用时长来源。
 - `维护不计时` 来源不得直接写 `usage_segments_v1`，也不得更新 session open/close 边界。
 - `待实现` 来源已经确认需要补强，但实现前仍不得被视为已接入能力；落地时必须保持“re-eval 辅助，不直接写账”的边界。
 - `确认暂不实现` 来源不得在本轮接入；未来若重新评估，必须先修改本表判定，再实现。
@@ -234,35 +245,40 @@ transitionState / periodicCheckpoint / lifecycle recovery close
 #### 3.1.4 前台计时口径
 
 - “只要在使用 Chrome 就要计时”的前台定义是：Chrome 有聚焦窗口、存在 active tab、系统 idle 状态不是 idle/locked。
-- 媒体网页统一补偿定义：若 Chrome 失焦但窗口未最小化，且该窗口 active tab 正在播放音频/视频，则同时计入前台网页 `ACTIVE` 和本地前台媒体；`locked` 仍不计普通前台网页 `ACTIVE`。
-- HTTP/HTTPS 记录归一化 hostname。
+- 当前仍保留 legacy 媒体网页补偿：仅在旧 open foreground session 因 idle/focus/checkpoint 可能被关闭前，按 `session.tabId` 查询 `tab.audible` 或 `media_facts_v1[session.tabId]`，判断是否暂缓关闭普通网页 `ACTIVE`。它不得用于新开或补开普通网页账。目标形态是移除该补偿，让媒体只进入本地媒体账本；但本轮只收敛查询入口，不删除。
+- HTTP/HTTPS 记录归一化后的**精确 hostname**。`www.example.com`、`m.example.com`、`sub.example.com` 分别落账和聚合，不自动合并到 `example.com`。
+- 父域覆盖子域只用于规则匹配（study/composite/restricted/unsafe）和配额/拦截判断，不改变账本 `domain` key。
+- 如果未来需要“主站”视图，应在读取/展示层增加 `siteGroup` 聚合；不得改写 `usage_segments_v1` / `daily_usage_stats_v1` 的原始 domain 粒度。
 - 特殊 URL 不形成空窗，而是映射为安全伪域名：`chrome-extension:` → `extension-page.chrome-local`，`chrome://extensions` → `chrome-extensions.chrome-local`，`chrome://settings` → `chrome-settings.chrome-local`，其他 `chrome://` → `chrome-page.chrome-local`，`file:` → `local-file.chrome-local`，`about:` → `about-page.chrome-local`，`data:`/`blob:` → `embedded-page.chrome-local`。
 - 不记录本地文件路径、扩展 ID、完整内部 URL 查询参数。
 
 #### 3.1.5 媒体原始事实来源
 
-`MEDIA_STATE` 不是原始事实；它是 content script / Chrome tab 事实归一化后的 runtime signal。媒体计时设计必须先区分原始事实来源，再决定是否影响 foreground ACTIVE、background media 或 PiP。
+`MEDIA_STATE` 不是原始事实；它是 content script / Chrome tab 事实归一化后的 runtime signal。媒体计时设计必须先区分原始事实来源，再写入 frame-level facts 并派生 tab-level media fact。目标形态是它不得影响 foreground ACTIVE；当前仍有 legacy foreground compensation 查询路径，已标记为待处理。
 
 | 来源 | 原始事件 / 查询 | 当前状态 | 可证明 | 不可证明 |
 |---|---|---:|---|---|
 | DOM media element | `video/audio` 的 `play` / `pause` / `ended` | 已接入 | 页面 media element 播放状态变化 | 不保证有声音；单个元素停止不代表页面无其他媒体 |
-| DOM media element polling | 周期扫描 `video,audio`：`!paused && !ended && readyState > 2` | 已接入 | 当前页面存在正在播放的 media element | 不保证 audible；存在最多 1s/5s 延迟 |
+| DOM media element polling | content script 单一 1s 采样循环扫描 `video,audio`：`!paused && !ended && readyState > 2` | 已接入 | 当前页面存在正在播放的 media element；静音媒体也可被观察到 | 不保证 audible；状态变化最多约 1s 延迟，长期播放只每 30s 低频重申事实 |
 | Picture-in-Picture API | `enterpictureinpicture` / `leavepictureinpicture` / `document.pictureInPictureElement` | 已接入 | 当前 document 标准 PiP 状态 | 不覆盖所有浏览器/站点私有浮窗实现 |
 | Web Audio API | `AudioContext.statechange`、构造后读取 `ctx.state` | 已接入 | WebAudio context 处于 running | 只能覆盖 patch 后可见的 context；不区分具体音源 |
-| Content script message | `MEDIA_STATE { playing, isPiP, mediaKind, source }` + `sender.tab.id/url/windowId` | 已接入 | 将页面事实绑定到 `mediaSourceTabId/mediaSourceDomain`，并记录 `dom_media_event` / `dom_media_poll` / `web_audio` / `pip_api` 来源 | 它本身不是原始事实 |
+| Content script message | `MEDIA_STATE { playing, isPiP, mediaKind, source }` + `sender.tab.id/url/windowId/frameId` | 已接入 | 将页面事实绑定到 `tabId + frameId`，并记录 `dom_media_event` / `dom_media_poll` / `web_audio` / `pip_api` 来源 | 它本身不是原始事实 |
 | Chrome tab API | `chrome.tabs.get(tabId).audible` | 已接入 | Chrome 原生判断 tab 近期产生声音 | 不能证明静音视频播放；不区分 audio/video |
 | Chrome tab API | `tabs.onUpdated` 的 `changeInfo.audible` / `tab.audible` | 已接入 | tab audible 状态变化，可覆盖非 active tab 音频事实 | 不是完整媒体生命周期事件 |
 | Chrome tab API | `tab.mutedInfo` | 已接入 | tab 是否被静音，用于区分 audible 事实 | 静音不等于未播放 |
 | Navigation / tab close | `tabs.onUpdated` URL/loading、`tabs.onRemoved` | 已接入 | 来源页面消失或导航，应关闭旧媒体 session | 不是媒体停止事件 |
 
 当前归因约束：
-- 媒体计时已经从 foreground `usage_segments_v1` 解耦，使用本地-only 媒体账本：`media_facts_v1`、`media_sessions_v2`、`media_segments_v1`、`daily_media_stats_v1`。
+- 媒体计时已经从 foreground `usage_segments_v1` 解耦，使用本地-only 媒体账本：`media_frame_facts_v1`、`media_facts_v1`、`media_sessions_v2`、`media_segments_v1`、`daily_media_stats_v1`。
+- `dom_media_poll` 是注入脚本的页面采样事实，不是 Chrome 原生事件；30 秒重申只用于补足静音媒体/漏事件场景，不代表每 30 秒落账。
+- `media_frame_facts_v1` 保存 `tabId + frameId` 的页面媒体事实；`media_facts_v1` 是按 tab 派生出来的聚合事实，不再被最后一个 frame message 覆盖。
+- tab 聚合规则：PiP 优先；任一 frame video 播放则 tab 为 video；否则任一 frame audio/WebAudio/audible 则 tab 为 audio；只有同 tab 所有 frame 都停止时才关闭 tab media session。
 - 媒体分类优先级：PiP > video > audio；同一 tab 同时 video + audio 只计 video。
 - `foregroundAudio` / `foregroundVideo` 定义为：source tab 是某个未最小化 Chrome window 的 active tab；不要求 Chrome window focused。
 - `backgroundAudio` / `backgroundVideo` 定义为：播放源不是上述 foreground media，或所在窗口已最小化。
 - PiP 计为 `pip`，独立于 foreground/background media。
 - `tabs.onActivated`、`tabs.onReplaced`、window minimized/restored 只允许对已知媒体 tab 做关闭、迁移或 foreground/background 重分类；没有既有 media fact 或 open media session 时不得凭空开媒体账。
-- 前台网页补偿只改变 ordinary webpage `ACTIVE` 是否继续/补开；媒体细分时长写入本地媒体账本，不写入 `usage_segments_v1` 的 `backgroundMedia` / `pip` 云端 channel。
+- 媒体细分时长写入本地媒体账本，不写入 `usage_segments_v1` 的 `backgroundMedia` / `pip` 云端 channel。当前 legacy compensation 仍可能影响 foreground `ACTIVE` 开合；该行为只作为待移除遗留路径保留。
 - 云端兼容差异：当前 `buildUsageSegmentsUploadPayload()` 不包含 `media_segments_v1`；Worker `VALID_CHANNELS`、D1 schema、云端查询和 Pages 展示暂不支持媒体细分。正式发布若要求云端可查媒体细分，需要升级上传 payload、Worker 校验/插入、D1 migration、云端查询和 Pages 展示。
 
 #### 3.1.6 周期性 Checkpoint（补充计时落账与采样对账）
@@ -270,7 +286,7 @@ transitionState / periodicCheckpoint / lifecycle recovery close
 `periodicCheckpoint` 是补充计时落账机制：它不替代 tab/window/idle/popup/mode 等精确边界事件，但在普通运行期间定期主动采样当前 Chrome 前台事实，补充生成稳定的 durable segment，并发现 `session_v1` 与当前采样不一致的异常残留。
 
 - 终端后台新增 `periodicCheckpoint` alarm，间隔 3 分钟。
-- 每次触发时必须主动确认当前 Chrome 使用事实：普通网页要求 idle 为 active、存在 active tab、Chrome window focused、`observedDomain` 可解析；媒体网页补偿允许 idle/unfocused 下的未最小化 active media tab 作为 `ACTIVE` 采样；`locked` 一律不补偿 ordinary foreground `ACTIVE`。
+- 每次触发时必须主动确认当前 Chrome 使用事实：普通网页优先要求 idle 为 active、存在 active tab、Chrome window focused、`observedDomain` 可解析。legacy foreground checkpoint 只允许在关闭旧 open foreground session 前按 `session.tabId` 查询已知媒体事实，判断是否暂缓关闭旧账；不得查询 observed active tab 的媒体事实，也不得用媒体事实 estimated open / 补开新 foreground session。该查询是已标记的遗留行为。media checkpoint 由独立 runner 只切 open media sessions。
 - Checkpoint 对账矩阵：
 
 | `session_v1` | 当前采样 | 性质 | 动作 |
@@ -317,12 +333,17 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 
 | Key | 粒度 | 用途 |
 |---|---|---|
-| `media_facts_v1` | `tabId` | 保存最近一次媒体事实：domain/windowId/playing/mediaKind/isPiP/audible/muted/isActiveTab/windowState/source/lastObservedAt |
+| `media_frame_facts_v1` | `tabId + frameId` | 保存 content frame / tab native source 的最近一次媒体事实，避免同 tab 多 frame stopped/playing 互相覆盖 |
+| `media_facts_v1` | `tabId` | 从同 tab 所有 frame facts 派生的 tab 级媒体事实：domain/windowId/playing/mediaKind/isPiP/audible/muted/isActiveTab/windowState/source/lastObservedAt |
 | `media_sessions_v2` | `tabId + mediaClass` | 保存当前打开的媒体 session，支持多个 tab 并行 |
 | `media_segments_v1` | segment id | 保存本地媒体逐段账本：start/end/domain/tabId/windowId/mediaClass/mediaKind/visibility/mode/reason/description |
 | `daily_media_stats_v1` | date + domain + mediaClass + mode | 从 `media_segments_v1` 增量聚合本地媒体秒数 |
 
-`mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟把每个 open media session 切成 durable local segment 并重开；tab close/navigation/分类变化会关闭旧 media session 并写本地 segment。
+`mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟只处理当前 open media session，但必须先用该 session 的 `tabId` 精确确认当前媒体事实仍成立；确认成功才写 `periodic_checkpoint` 并重开。`lastObservedAt` 只代表真实媒体事实来源，checkpoint 不能把它刷新为当前时间。
+
+如果 checkpoint 无法确认 open media session（tab 不存在、分类不匹配、domain/window/tab 不匹配，或 PiP 已不存在），则按半未确认窗口估算闭合：`closeAt = lastConfirmedAt + (now - lastConfirmedAt) / 2`，写入 `settlementReason = media_checkpoint_estimated_close`，`description.end.reason = media_checkpoint_estimated_half_interval_close`，并删除 open session，不重开。tab close/navigation/分类变化仍会关闭旧 media session 并写本地 segment。
+
+Mode boundary 是系统级账务边界。对于会关闭浏览器 PiP 的切换（`rest -> composite`、进入 `study`），媒体账本中的 open `pip` session 必须在 boundary 关闭，不能以 `mode_effective_boundary_reopen` 重开 PiP；如页面内仍有非 PiP 视频/音频事实，可按新 mode 重分类为普通 foreground/background media。
 
 该账本当前不进入 `segment_sync_outbox_v1` 或 `stats_sync_outbox_v1`，不会被 `buildUsageSegmentsUploadPayload()` 上传。正式发布前必须决定媒体细分是否仍保持 local-only；如果要求云端可查，需要单独设计 cloud media schema 或扩展现有 cloud usage schema。
 
@@ -409,9 +430,9 @@ usage_segments_v1 (chrome.storage.local)
 
 #### 本地诊断字段与云端上传差异
 
-`usage_segments_v1` 的本地账本 schema 可以包含本地诊断字段，例如 `description`，用于保存 segment 的 open/close 操作来源、reason 和可读摘要。这类字段属于本地诊断/未来分析预留，不自动成为云端上传协议的一部分。
+`usage_segments_v1` 的本地账本 schema 可以包含本地诊断字段，例如 `description`、`tabId`、`windowId`，用于保存 segment 的 open/close 操作来源、reason、可读摘要和运行期 tab/window 引用。这类字段属于本地诊断/未来分析预留，不自动成为云端上传协议的一部分。
 
-当前 `buildUsageSegmentsUploadPayload()` 是显式白名单构造器：它只输出云端 v1 ingestion 固定字段，不会把本地 segment 对象上的所有字段透传到 Worker。当前 v1 上传字段不包含 `description`，因此 `description` 不上传、不写入 D1 `usage_segments_v1`、不参与云端查询或 Pages 展示。
+当前 `buildUsageSegmentsUploadPayload()` 是显式白名单构造器：它只输出云端 v1 ingestion 固定字段，不会把本地 segment 对象上的所有字段透传到 Worker。当前 v1 上传字段不包含 `description`、`tabId`、`windowId`，因此这些本地诊断字段不上传、不写入 D1 `usage_segments_v1`、不参与云端查询或 Pages 展示。
 
 正式发布前必须确认本地 runtime schema 与 cloud ingestion schema 是否需要收敛：若要求云端可查 Open/Close 操作，需要同步修改上传 payload、Worker 校验/插入、D1 migration、云端查询和 Pages 展示；若保持本地-only，则该差异必须继续作为已知设计约束记录。
 
@@ -468,8 +489,9 @@ daily_usage_stats_v1 (chrome.storage.local)
 
 1. **从 segments 增量更新**：当某个日期有新的 segment 时，增加对应的 by-domain by-channel by-mode 计数器
 2. **全量重建**：如果需要，可以通过对 `usage_segments_v1` 中某个日期的所有 segments 求和来全量重建聚合
-3. **`segmentsCount` 跟踪**：确保重建与增量更新匹配
-4. **保留 365 天**，与 `usage_segments_v1` 保留期匹配
+3. **domain key 保持精确 hostname**：聚合 key 必须直接使用 segment.domain；`www.example.com` 与 `m.example.com` 不合并。规则匹配的父域覆盖语义不得用于 daily stats 聚合。
+4. **`segmentsCount` 跟踪**：确保重建与增量更新匹配
+5. **保留 365 天**，与 `usage_segments_v1` 保留期匹配
 
 ---
 

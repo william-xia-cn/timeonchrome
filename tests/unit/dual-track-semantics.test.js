@@ -103,7 +103,7 @@ async function runTests() {
     expect('state should be ACTIVE', resolveState(ctx), AttentionState.ACTIVE);
   }
 
-  section('D4: unfocused + audible + mediaSourceTabId => BACKGROUND_ACTIVE');
+  section('D4: legacy unfocused media facts remain background media state');
   {
     const ctx = {
       domain: 'a.com',
@@ -131,7 +131,7 @@ async function runTests() {
     expect('state should be PASSIVE', resolveState(ctx), AttentionState.PASSIVE);
   }
 
-  section('D6: PiP is counted as separate PIP_ACTIVE, not BACKGROUND_ACTIVE');
+  section('D6: legacy PiP fact takes PiP state precedence');
   {
     const ctx = {
       domain: 'video.example',
@@ -172,7 +172,7 @@ async function runTests() {
     expect('mediaSourceDomain should be preserved separately', next.mediaSourceDomain, 'video.example');
   }
 
-  section('D8: idle must not suppress media accounting');
+  section('D8: legacy idle media facts remain media states');
   {
     const audibleIdleCtx = {
       domain: 'video.example',
@@ -184,7 +184,7 @@ async function runTests() {
       mediaSourceDomain: 'video.example',
       isPiP: false,
     };
-    expect('idle + audible should still be BACKGROUND_ACTIVE', resolveState(audibleIdleCtx), AttentionState.BACKGROUND_ACTIVE);
+    expect('idle + audible should be BACKGROUND_ACTIVE legacy media state', resolveState(audibleIdleCtx), AttentionState.BACKGROUND_ACTIVE);
 
     const pipIdleCtx = {
       domain: 'video.example',
@@ -196,10 +196,10 @@ async function runTests() {
       mediaSourceDomain: 'video.example',
       isPiP: true,
     };
-    expect('idle + PiP should still be PIP_ACTIVE', resolveState(pipIdleCtx), AttentionState.PIP_ACTIVE);
+    expect('idle + PiP should be PIP_ACTIVE legacy media state', resolveState(pipIdleCtx), AttentionState.PIP_ACTIVE);
   }
 
-  section('D9: locked blocks ordinary foreground but not media/PiP');
+  section('D9: locked blocks ordinary foreground and media facts do not compensate');
   {
     const foregroundLockedCtx = {
       domain: 'plain.example',
@@ -224,10 +224,10 @@ async function runTests() {
       mediaSourceDomain: 'video.example',
       isPiP: false,
     };
-    expect('locked + audible should still be BACKGROUND_ACTIVE', resolveState(mediaLockedCtx), AttentionState.BACKGROUND_ACTIVE);
+    expect('locked + audible remains BACKGROUND_ACTIVE legacy media state', resolveState(mediaLockedCtx), AttentionState.BACKGROUND_ACTIVE);
   }
 
-  section('D10: foreground media can keep visible active tab in webpage ACTIVE while Chrome is unfocused or idle');
+  section('D10: legacy foregroundMediaActive flag still compensates foreground webpage state');
   {
     const unfocusedForegroundMediaCtx = {
       domain: 'video.example',
@@ -241,21 +241,21 @@ async function runTests() {
       mediaSourceDomain: 'video.example',
       isPiP: false,
     };
-    expect('unfocused foreground media should count webpage ACTIVE', resolveState(unfocusedForegroundMediaCtx), AttentionState.ACTIVE);
+    expect('unfocused foreground media still counts ACTIVE by legacy compensation', resolveState(unfocusedForegroundMediaCtx), AttentionState.ACTIVE);
 
     const idleForegroundMediaCtx = {
       ...unfocusedForegroundMediaCtx,
       idleState: 'idle',
       isIdle: true,
     };
-    expect('idle foreground media should keep webpage ACTIVE', resolveState(idleForegroundMediaCtx), AttentionState.ACTIVE);
+    expect('idle foreground media still counts ACTIVE by legacy compensation', resolveState(idleForegroundMediaCtx), AttentionState.ACTIVE);
 
     const lockedForegroundMediaCtx = {
       ...unfocusedForegroundMediaCtx,
       idleState: 'locked',
       isIdle: true,
     };
-    expect('locked foreground media should not keep webpage ACTIVE', resolveState(lockedForegroundMediaCtx), AttentionState.BACKGROUND_ACTIVE);
+    expect('locked foreground media falls back to legacy background media state', resolveState(lockedForegroundMediaCtx), AttentionState.BACKGROUND_ACTIVE);
   }
 
   const total = passed + failed;

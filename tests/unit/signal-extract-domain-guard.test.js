@@ -56,6 +56,9 @@ function loadSignalInit(deps, hooks) {
       setDetectionInterval(seconds) { hooks.idleDetectionInterval = seconds; },
     },
     runtime: { onMessage: { addListener(fn) { hooks.onMessage = fn; } } },
+    webNavigation: {
+      onCommitted: { addListener(fn) { hooks.onCommitted = fn; } },
+    },
   };
 
   const context = {
@@ -114,8 +117,22 @@ async function run() {
   expectTrue('onUpdated should include window focus snapshot', emitted.some(e => e.domain === 'www.example.com' && e.isFocused === true && e.windowId === 10));
   expectTrue('onUpdated should clear stale media state for the navigating tab', emitted.some(e => e.tabId === 101 && e.isAudible === false && e.mediaSourceTabId === 101));
 
+  section('SG1a: onUpdated complete supplies active tab URL fact without media clearing');
+  emitted.length = 0;
+  await hooks.onUpdated(102, { status: 'complete' }, { id: 102, active: true, windowId: 10, url: 'https://Complete.Example/path' });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('status=complete active tab should emit foreground fact', emitted.some(e => e._reason === 'tabUpdated' && e.domain === 'complete.example' && e.tabId === 102));
+  expectTrue('status=complete should not clear media state', emitted.every(e => e.isAudible !== false && e.mediaSourceTabId !== 102));
+
+  section('SG1a2: onUpdated complete inactive tab is ignored');
+  emitted.length = 0;
+  await hooks.onUpdated(103, { status: 'complete' }, { id: 103, active: false, windowId: 10, url: 'https://InactiveComplete.Example/path' });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('inactive status=complete should not emit foreground fact', emitted.length === 0);
+
   section('SG1b: tabActivated signal includes current window focus snapshot');
   emitted.length = 0;
+  hooks.getTab = async () => ({ id: 303, windowId: 30, url: 'https://WWW.Example.COM./from-activated', active: true });
   await hooks.onActivated({ tabId: 303, windowId: 30 });
   await new Promise((r) => setTimeout(r, 100));
 
@@ -182,14 +199,12 @@ async function run() {
   expectTrue('query failure signal keeps windowId', emitted[0]?.windowId === 21);
   expectTrue('query failure signal includes error info', emitted[0]?.error === 'query failed');
 
-  section('SG5: focus polling emits focus lost when Chrome window is unfocused');
+  section('SG5: focus polling is not a foreground boundary source');
   emitted.length = 0;
   hooks.getAllWindows = async () => [{ id: 20, focused: false, type: 'normal' }];
   await new Promise((r) => setTimeout(r, 1100));
 
-  expectTrue('focus poll should emit signal', emitted.length >= 1);
-  expectTrue('focus poll should set isFocused=false', emitted.some(e => e.isFocused === false));
-  expectTrue('focus poll reason should be windowFocusPolled', emitted.some(e => e._reason === 'windowFocusPolled'));
+  expectTrue('focus poll should not emit foreground signal', emitted.length === 0);
 
   section('SG6: idle state signal preserves raw active/idle/locked value');
   emitted.length = 0;
@@ -205,17 +220,42 @@ async function run() {
   expectTrue('active idle signal should preserve idleState=active', emitted[0]?.idleState === 'active');
   expectTrue('active idle signal should mark isIdle=false', emitted[0]?.isIdle === false);
 
+  section('SG6b: webNavigation committed main frame supplies active tab URL fact');
+  emitted.length = 0;
+  hooks.getTab = async (tabId) => ({ id: tabId, windowId: 80, active: true, url: 'https://TabFallback.Example/path' });
+  await hooks.onCommitted({ frameId: 0, tabId: 808, url: 'https://Committed.Example/path' });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('main-frame committed should emit one foreground fact', emitted.length === 1);
+  expectTrue('committed signal should use committed URL', emitted[0]?.url === 'https://Committed.Example/path');
+  expectTrue('committed signal should normalize committed domain', emitted[0]?.domain === 'committed.example');
+  expectTrue('committed signal should include reason', emitted[0]?._reason === 'webNavigationCommitted');
+
+  section('SG6c: webNavigation committed subframe is ignored');
+  emitted.length = 0;
+  await hooks.onCommitted({ frameId: 1, tabId: 809, url: 'https://Subframe.Example/path' });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('subframe committed should not emit foreground fact', emitted.length === 0);
+
+  section('SG6d: webNavigation committed inactive tab is ignored');
+  emitted.length = 0;
+  hooks.getTab = async (tabId) => ({ id: tabId, windowId: 80, active: false, url: 'https://InactiveCommitted.Example/path' });
+  await hooks.onCommitted({ frameId: 0, tabId: 810, url: 'https://InactiveCommitted.Example/path' });
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('inactive committed tab should not emit foreground fact', emitted.length === 0);
+
   section('SG7: content MEDIA_STATE carries media fact source and window snapshot');
   emitted.length = 0;
   await hooks.onMessage(
     { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', source: 'dom_media_event' },
-    { tab: { id: 501, windowId: 50, active: true, url: 'https://Video.Example/watch', mutedInfo: { muted: false } } }
+    { frameId: 12, documentId: 'doc-501', tab: { id: 501, windowId: 50, active: true, url: 'https://Video.Example/watch', mutedInfo: { muted: false } } }
   );
   await new Promise((r) => setTimeout(r, 100));
   expectTrue('MEDIA_STATE should emit media source tab id', emitted[0]?.mediaSourceTabId === 501);
   expectTrue('MEDIA_STATE should preserve media kind', emitted[0]?.mediaKind === 'video');
   expectTrue('MEDIA_STATE should carry source label', emitted[0]?.mediaFactSource === 'dom_media_event');
   expectTrue('MEDIA_STATE should carry active tab fact', emitted[0]?.isActiveTab === true);
+  expectTrue('MEDIA_STATE should carry frame id', emitted[0]?.mediaFrameId === 12);
+  expectTrue('MEDIA_STATE should carry document id', emitted[0]?.mediaDocumentId === 'doc-501');
 
   section('SG8: tabs.onUpdated audible emits native media fact for inactive tabs');
   emitted.length = 0;
@@ -230,6 +270,7 @@ async function run() {
   await new Promise((r) => setTimeout(r, 100));
   expectTrue('tabAudible should emit media fact', emitted.length === 1);
   expectTrue('tabAudible should use tab id as media source', emitted[0]?.mediaSourceTabId === 606);
+  expectTrue('tabAudible should use tab-level media frame id', emitted[0]?.mediaFrameId === 'tab');
   expectTrue('tabAudible should normalize source domain', emitted[0]?.mediaSourceDomain === 'audio.example');
   expectTrue('tabAudible should mark source', emitted[0]?.mediaFactSource === 'tabs_api_audible');
 
@@ -267,7 +308,7 @@ async function run() {
   emitted.length = 0;
   await hooks.onMessage(
     { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', source: 'dom_media_event' },
-    { tab: { id: 707, windowId: 70, active: true, url: 'https://Mixed.Example/watch', mutedInfo: { muted: false } } }
+    { frameId: 0, tab: { id: 707, windowId: 70, active: true, url: 'https://Mixed.Example/watch', mutedInfo: { muted: false } } }
   );
   await hooks.onUpdated(707, { audible: true }, {
     id: 707,

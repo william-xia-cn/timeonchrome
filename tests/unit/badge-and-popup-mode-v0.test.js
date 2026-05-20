@@ -47,8 +47,11 @@ function run() {
   expectTrue('popup requests runtime mode status', popupJs.includes("type: 'GET_RUNTIME_MODE_STATUS'"));
   expectTrue('popup requests cloud status without blocking local stats', popupJs.includes("type: 'GET_CLOUD_STATUS'") && !popupJs.includes("document.getElementById('popup-content').style.display = 'none'"));
   expectTrue('popup local mode notice text is present', popupHtml.includes('本地模式：未绑定云端，统计不会同步'));
-  expectTrue('popup local mode keeps admin button', popupJs.includes("admin/admin.html?view=stats"));
+  expectTrue('popup local mode keeps admin button', popupHtml.includes('打开管理中心') && popupJs.includes("admin/admin.html?view=stats"));
+  expectTrue('popup local mode does not show cloud login button', !popupHtml.includes('id="login-cloud-btn"') && !popupHtml.includes('登录/绑定云端'));
   expectTrue('popup still requests local config and popup-sourced stats', popupJs.includes("type: 'GET_CONFIG'") && popupJs.includes("type: 'GET_STATS', source: 'popup'"));
+  expectTrue('popup retries background messages after MV3 cold start', popupJs.includes('background_timeout') && popupJs.includes('attempts') && popupJs.includes('setTimeout(resolve, 180)'));
+  expectTrue('popup does not abort rendering when initial cloud status fails', popupJs.includes('function getCloudStatusSafe') && popupJs.includes('renderPopupLoadError'));
   expectTrue('popup has composite mode active class', popupJs.includes('active-composite'));
   expectTrue('popup supports SWITCH_TO_COMPOSITE', popupJs.includes("SWITCH_TO_COMPOSITE"));
   expectTrue('popup has composite stats adapter', popupJs.includes('function readCompositeSeconds('));

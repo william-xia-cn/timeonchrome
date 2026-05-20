@@ -68,18 +68,32 @@ for (const forbidden of [
 }
 
 expect(
-  'passive media polling is local only',
-  /setInterval\(\(\)\s*=>\s*updateMediaState\(false,\s*'dom_media_poll'\),\s*1000\)/.test(mediaBlock)
+  'media poll interval is explicit',
+  /MEDIA_POLL_INTERVAL_MS\s*=\s*1000/.test(mediaBlock)
 );
 
 expect(
-  'heartbeat interval is throttled to 5 seconds',
-  /setInterval\(\(\)\s*=>\s*updateMediaState\(true,\s*'dom_media_poll'\),\s*5000\)/.test(mediaBlock)
+  'media reaffirm interval is throttled to 30 seconds',
+  /MEDIA_REAFFIRM_INTERVAL_MS\s*=\s*30000/.test(mediaBlock)
 );
 
 expect(
-  'forced heartbeat is guarded by active media or PiP',
+  'media polling uses a single sampling loop',
+  (mediaBlock.match(/setInterval\(/g) || []).length === 1
+    && /setInterval\(pollMediaState,\s*MEDIA_POLL_INTERVAL_MS\)/.test(mediaBlock)
+    && !/setInterval\(\(\)\s*=>\s*updateMediaState/.test(mediaBlock)
+    && !/5000/.test(mediaBlock)
+);
+
+expect(
+  'forced reaffirm is guarded by active media or PiP',
   /else if \(force && \(newState \|\| newPiP\)\)/.test(mediaBlock)
+);
+
+expect(
+  'unchanged media reaffirm checks active state and throttle',
+  /!\(mediaPlaying \|\| pipActive\)/.test(mediaBlock)
+    && /Date\.now\(\) - lastMediaStateSentAt >= MEDIA_REAFFIRM_INTERVAL_MS/.test(mediaBlock)
 );
 
 expect(

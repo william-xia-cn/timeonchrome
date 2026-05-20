@@ -56,9 +56,12 @@ function run() {
 
   expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../core/domain-semantics.js';"));
   const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'auth.ts'), 'utf8');
+  const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js'), 'utf8');
   expectTrue('auth.ts 应规范化邮箱大小写', authSource.includes('function normalizeEmail') && authSource.includes('toLowerCase()'));
   expectTrue('auth.ts 注册应按 LOWER(email) 检查重复', authSource.includes('SELECT id FROM accounts WHERE LOWER(email) = ?'));
   expectTrue('auth.ts 登录应按 LOWER(email) 查询', authSource.includes('SELECT id, email FROM accounts WHERE LOWER(email) = ? AND password_hash = ?'));
+  expectTrue('cloud sync 请求必须有 Abort 超时', cloudSyncSource.includes('REQUEST_TIMEOUT_MS') && cloudSyncSource.includes('new AbortController()') && cloudSyncSource.includes('controller.abort()'));
+  expectTrue('cloud sync 应能释放过期 isSyncing 锁', cloudSyncSource.includes('SYNC_STALE_LOCK_MS') && cloudSyncSource.includes('Stale sync lock detected') && cloudSyncSource.includes('syncStartedAt'));
   expectTrue('stats.ts 应在入库前执行 normalizeHostname', source.includes('const normalizedDomain = normalizeHostname(stat.domain);'));
   expectTrue('stats.ts 应跳过归一后非法域名', source.includes('if (!normalizedDomain) continue;'));
 

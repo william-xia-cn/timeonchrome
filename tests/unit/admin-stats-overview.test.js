@@ -136,6 +136,10 @@ function run() {
   expectTrue('admin local mode sidebar label is present', code.includes("sidebarNameEl.textContent = '本地模式'"));
   expectTrue('admin local mode renders stats page', code.includes('await renderStatsPage();'));
   expectTrue('admin 登录注册邮箱应统一小写', code.includes('function normalizeEmailInput') && code.includes("normalizeEmailInput(document.getElementById('email-input')?.value)") && code.includes("normalizeEmailInput(document.getElementById('reg-email')?.value)"));
+  expectTrue('admin 初始化应先绑定登录事件再读取配置', code.indexOf('setupLoginForm();') >= 0 && code.indexOf("sendMsg({ type: 'GET_CONFIG' })") >= 0 && code.indexOf('setupLoginForm();') < code.indexOf("sendMsg({ type: 'GET_CONFIG' })"));
+  expectTrue('admin 初始化配置失败不应阻断登录界面', code.includes('initial GET_CONFIG failed, keeping login available') && code.includes('showBindScreen();'));
+  expectTrue('admin sendMsg 应支持 background 冷启动重试', code.includes('background_timeout') && code.includes('setTimeout(resolve, 180)'));
+  expectTrue('admin 本地只读模式应保留登录绑定入口', code.includes('function openCloudLogin()') && code.includes('id="cloud-login-btn"') && code.includes('登录/绑定云端'));
   expectTrue('admin 访问规则页应展示临时综合网站名单', html.includes('已申请加入的临时综合网站') && html.includes('rules-temporary-composite-display'));
   expectTrue('admin 应读取临时综合网站名单消息', code.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && code.includes('renderTemporaryCompositeRecords'));
   expectTrue('admin local mode renders device status as sync disabled', code.includes('本机计时、popup 和使用分析可用；统计不会同步到云端。'));
@@ -149,8 +153,9 @@ function run() {
   expectTrue('admin settlement table shows date for multi-day ranges', html.includes('settlement-col-date') && code.includes('row.date'));
   expectTrue('admin settlement page renders readable timing type label', code.includes('计时类型'));
   expectTrue('admin settlement page maps framework to readable labels', code.includes('getSettlementTypeLabel'));
-  expectTrue('admin settlement table shows open close operations', code.includes('Open 操作') && code.includes('Close 操作') && code.includes('openOperation') && code.includes('closeOperation'));
-  expectTrue('admin settlement table keeps reason/open/close compact and horizontally scrollable', html.includes('overflow-x: auto') && html.includes('white-space: nowrap') && html.includes('settlement-col-operation'));
+  expectTrue('admin settlement table folds open close into remarks', code.includes('备注') && code.includes('openOperation') && code.includes('closeOperation') && code.includes('buildSettlementRemarkHtml'));
+  expectTrue('admin settlement remarks split tab and window lines', code.includes('tab：') && code.includes('window：') && code.includes('来源：'));
+  expectTrue('admin settlement table uses compact remarks column', html.includes('overflow-x: auto') && html.includes('settlement-col-remark') && html.includes('settlement-remark-cell'));
   expectTrue('admin settlement open close displays source reason before operation', code.includes("return normalizeSettlementEventReason(endpoint?.reason || endpoint?.operation) || '—';"));
   expectTrue('admin settlement hides invalid media-only operation reasons', code.includes("value === 'tabAudible' || value === 'mediaState'"));
   expectTrue('admin settlement rows sort newest first', code.includes('return bStart - aStart;'));
