@@ -50,6 +50,12 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'closeMediaForTab',
   'closeMediaSession',
   'getDailyMediaStats',
+  'getPendingMediaSegments',
+  'getPendingDailyMediaStats',
+  'buildMediaSegmentsUploadPayload',
+  'buildDailyMediaStatsUploadPayload',
+  'markMediaSegmentsUploaded',
+  'markDailyMediaStatsUploaded',
   'getMediaSession',
   'getMediaFrameFacts',
   'getMediaSessions',
@@ -215,6 +221,31 @@ async function testCloseWritesLocalMediaSegment() {
   check('tab close writes local media segment', row.mediaClass === 'backgroundVideo', JSON.stringify(row));
   check('tab close duration is 12s', row.durationSeconds === 12, JSON.stringify(row));
   check('description records close reason', row.description.end.reason === 'tab_close', JSON.stringify(row.description));
+}
+
+async function testMediaOutboxAndPayloadBuilders() {
+  resetAll();
+  const base = 1778803500000;
+  await mediaApi.applyMediaFacts(audioFact(51, 'sync-media.example.com'), 'mediaState', base);
+  await mediaApi.closeMediaForTab(51, 'tab_close', { now: base + 15_000 });
+  const rows = await segments();
+  check('media sync test writes one segment', rows.length === 1, JSON.stringify(rows));
+
+  const pendingSegments = await mediaApi.getPendingMediaSegments();
+  check('new media segment enters pending outbox', pendingSegments.pendingCount === 1, JSON.stringify(pendingSegments));
+  const segmentPayload = await mediaApi.buildMediaSegmentsUploadPayload([rows[0].id]);
+  check('media segment payload preserves mediaClass', segmentPayload.segments[0]?.mediaClass === 'backgroundAudio', JSON.stringify(segmentPayload));
+  check('media segment payload preserves tab/window/domain', segmentPayload.segments[0]?.tabId === '51' && segmentPayload.segments[0]?.domain === 'sync-media.example.com', JSON.stringify(segmentPayload));
+
+  const pendingStats = await mediaApi.getPendingDailyMediaStats();
+  check('daily media stats date enters dirty outbox', pendingStats.pendingCount === 1, JSON.stringify(pendingStats));
+  const statsPayload = await mediaApi.buildDailyMediaStatsUploadPayload(rows[0].date);
+  check('daily media stats payload preserves byMode', statsPayload.domains[0]?.byMode?.study?.backgroundAudioSeconds === 15, JSON.stringify(statsPayload));
+
+  await mediaApi.markMediaSegmentsUploaded([rows[0].id], base + 20_000);
+  await mediaApi.markDailyMediaStatsUploaded([rows[0].date], base + 20_000);
+  check('uploaded media segment leaves pending outbox', (await mediaApi.getPendingMediaSegments()).pendingCount === 0);
+  check('uploaded daily media stats leaves dirty outbox', (await mediaApi.getPendingDailyMediaStats()).pendingCount === 0);
 }
 
 async function testCloseAllSessions() {
@@ -451,6 +482,7 @@ async function run() {
     testRepeatedSameMediaFactDoesNotWriteSegment,
     testPiPTakesPrecedence,
     testCloseWritesLocalMediaSegment,
+    testMediaOutboxAndPayloadBuilders,
     testCloseAllSessions,
     testCheckpointIgnoresFactsWithoutOpenSessions,
     testCheckpointEstimatedCloseWithoutFreshConfirmation,

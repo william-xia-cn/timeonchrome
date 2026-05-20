@@ -174,41 +174,67 @@
       flex-shrink: 0;
     }
 
-    /* Progress Bars */
-    .quota-bar-item { margin-bottom: 12px; }
-    .quota-bar-header {
+    .usage-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .usage-panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .usage-metric {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: rgba(255,255,255,0.58);
+      padding: 9px 10px;
+    }
+    .usage-metric-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 5px;
+      gap: 10px;
+      min-width: 0;
     }
-    .quota-bar-label { font-size: 12px; font-weight: 500; }
-    .quota-bar-value { font-size: 11px; color: var(--muted); }
+    .usage-metric-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--text);
+    }
+    .usage-metric-icon { width: 18px; text-align: center; flex-shrink: 0; }
+    .usage-metric-value {
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 700;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .usage-metric-sub {
+      margin-top: 3px;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .usage-metric.locked .usage-metric-value { color: var(--danger); }
+    .usage-metric.locked .usage-metric-sub { color: var(--danger); }
     .progress-track {
-      height: 6px;
+      height: 5px;
       background: rgba(0,184,148,0.08);
       border-radius: 100px;
       overflow: hidden;
+      margin-top: 8px;
     }
     .progress-fill {
       height: 100%;
       border-radius: 100px;
       transition: width 0.5s;
     }
-
-    /* Top 10 */
-    .stat-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 7px 10px;
-      background: var(--card);
-      border-radius: 8px;
-      margin-bottom: 5px;
-      border: 1px solid var(--border);
-    }
-    .stat-row-left  { font-size: 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; margin-right:8px; }
-    .stat-row-right { font-size: 11px; color: var(--accent); font-weight: 600; white-space:nowrap; }
 
     .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
   </style>
@@ -254,24 +280,14 @@
     </div>
 
     <div class="body">
-    <!-- Progress Bars (Online + Composite + Media) -->
+    <!-- Usage metrics -->
     <div id="quota-bars">
       <div class="empty">加载中...</div>
-    </div>
-    <div id="backend-media-row" style="display:none;margin-top:8px;font-size:12px;color:var(--muted);">
-      🎵 后台媒体  <span id="backend-media-value" style="color:var(--text);font-weight:600;">0分钟</span>
-    </div>
-    <div id="pip-media-row" style="display:none;margin-top:6px;font-size:12px;color:var(--muted);">
-      🖼️ PiP  <span id="pip-media-value" style="color:var(--text);font-weight:600;">0分钟</span>
     </div>
     <div id="suspect-segments-row" style="display:none;margin-top:8px;font-size:12px;color:var(--warn);line-height:1.5;">
       ⚠️ 历史异常计时 <span id="suspect-segments-value" style="color:var(--text);font-weight:600;">0段</span>
       <div style="font-size:11px;color:var(--muted);">可在管理中心标记后从本地统计排除</div>
     </div>
-
-    <!-- Top 10 -->
-    <div class="section-title">今日访问</div>
-    <div id="today-top10"><div class="empty">暂无数据</div></div>
     </div>
   </div>
 

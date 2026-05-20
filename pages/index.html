@@ -497,6 +497,9 @@
         <div class="nav-item" data-page="settlements">
           <span class="nav-icon">🧾</span><span>落账明细</span>
         </div>
+        <div class="nav-item" data-page="media-settlements">
+          <span class="nav-icon">🎬</span><span>媒体落账</span>
+        </div>
         <div class="nav-item" data-page="reconciliation">
           <span class="nav-icon">⚖️</span><span>统计对账</span>
         </div>
@@ -819,12 +822,56 @@
             <button class="tab-btn" data-settlement-range="all">全部</button>
             <input type="date" id="settlement-date-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
             <input type="text" id="settlement-domain-input" placeholder="域名筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <select id="settlement-device-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:160px;">
+              <option value="">全部终端</option>
+            </select>
             <button class="btn-save" id="settlement-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
           </div>
           <div id="cloud-settlement-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
           <div id="cloud-settlement-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
           <div style="margin-top:12px;text-align:center;">
             <button class="btn-save" id="settlement-load-more-btn" style="display:none;padding:8px 18px;font-size:13px;">加载更多</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 媒体落账 -->
+      <div class="page" id="page-media-settlements">
+        <div class="page-header">
+          <h2>媒体落账</h2>
+          <p>云端已上传的媒体逐段落账记录，独立于前台网页落账</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">媒体落账明细</div>
+              <div class="card-subtitle">来自云端 media_segments_v1；保留媒体类型与可见性</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="tab-btn active" data-media-settlement-range="today">今日</button>
+            <button class="tab-btn" data-media-settlement-range="yesterday">昨日</button>
+            <button class="tab-btn" data-media-settlement-range="week">本周</button>
+            <button class="tab-btn" data-media-settlement-range="all">全部</button>
+            <input type="date" id="media-settlement-date-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+            <input type="text" id="media-settlement-domain-input" placeholder="域名筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <select id="media-settlement-device-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:160px;">
+              <option value="">全部终端</option>
+            </select>
+            <select id="media-settlement-class-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+              <option value="">全部媒体</option>
+              <option value="foregroundAudio">前台音频</option>
+              <option value="backgroundAudio">后台音频</option>
+              <option value="foregroundVideo">前台视频</option>
+              <option value="backgroundVideo">后台视频</option>
+              <option value="pip">PiP</option>
+            </select>
+            <button class="btn-save" id="media-settlement-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
+          </div>
+          <div id="cloud-media-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
+          <div id="cloud-media-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
+          <div style="margin-top:12px;text-align:center;">
+            <button class="btn-save" id="media-settlement-load-more-btn" style="display:none;padding:8px 18px;font-size:13px;">加载更多</button>
           </div>
         </div>
       </div>
@@ -1042,7 +1089,9 @@ let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
 let siteAccessDefaults = null; // 系统缺省清单 { defaultStudySites, defaultRestrictedEntertainmentSites, defaultBlockedSites }
 let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
+let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
+let cloudDevicesCache = { profileId: null, devices: [] };
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1069,6 +1118,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupSchedule();
   setupStats();
   setupCloudSettlements();
+  setupCloudMediaSettlements();
   setupReconciliation();
   setupDevices();
   setupAccount();
@@ -1210,6 +1260,7 @@ function renderProfileOptions() {
 async function selectProfile(id) {
   currentProfileId = id;
   saveLocal('currentProfileId', id);
+  cloudDevicesCache = { profileId: null, devices: [] };
 
   const profile = profiles.find(p => p.id === id);
   if (!profile) return;
@@ -1325,6 +1376,7 @@ function renderPage(name) {
   if (name === 'schedule')  renderSchedulePage();
   if (name === 'stats')     renderStatsPage('today');
   if (name === 'settlements') renderCloudSettlementsPage({ reset: true });
+  if (name === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
   if (name === 'reconciliation') renderReconciliationPage();
   if (name === 'devices')   renderDevicesPage();
   if (name === 'account')   renderAccountPage();
@@ -2318,6 +2370,45 @@ async function renderReconciliationPage() {
 }
 
 // ── Cloud settlements ─────────────────────────────────────────
+async function ensureCloudDevices() {
+  if (!currentProfileId) return [];
+  if (cloudDevicesCache.profileId === currentProfileId) return cloudDevicesCache.devices;
+  try {
+    const r = await api(`/profiles/${currentProfileId}/devices`);
+    cloudDevicesCache = {
+      profileId: currentProfileId,
+      devices: Array.isArray(r.devices) ? r.devices : [],
+    };
+  } catch (_) {
+    cloudDevicesCache = { profileId: currentProfileId, devices: [] };
+  }
+  return cloudDevicesCache.devices;
+}
+
+function cloudDeviceLabel(deviceId) {
+  if (!deviceId) return '未记录终端';
+  const device = (cloudDevicesCache.devices || []).find(d => d.id === deviceId);
+  return device?.device_name || device?.name || `终端 ${String(deviceId).slice(0, 8)}`;
+}
+
+function selectedCloudDeviceLabel(selectId) {
+  const value = document.getElementById(selectId)?.value || '';
+  return value ? cloudDeviceLabel(value) : '全部终端';
+}
+
+function renderCloudDeviceOptions(selectId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const selected = select.value || '';
+  const options = ['<option value="">全部终端</option>']
+    .concat((cloudDevicesCache.devices || []).map((device) => {
+      const label = device.device_name || device.name || `终端 ${String(device.id || '').slice(0, 8)}`;
+      return `<option value="${escHtml(device.id || '')}">${escHtml(label)}</option>`;
+    }));
+  select.innerHTML = options.join('');
+  if ([...select.options].some(opt => opt.value === selected)) select.value = selected;
+}
+
 function setupCloudSettlements() {
   document.querySelectorAll('[data-settlement-range]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2330,6 +2421,7 @@ function setupCloudSettlements() {
     });
   });
   document.getElementById('settlement-load-btn')?.addEventListener('click', () => renderCloudSettlementsPage({ reset: true }));
+  document.getElementById('settlement-device-input')?.addEventListener('change', () => renderCloudSettlementsPage({ reset: true }));
   document.getElementById('settlement-load-more-btn')?.addEventListener('click', () => renderCloudSettlementsPage({ reset: false }));
 }
 
@@ -2370,6 +2462,7 @@ function formatSettlementTime(ms) {
 async function fetchCloudUsageSegments({ range, cursor = null }) {
   const dateInput = document.getElementById('settlement-date-input');
   const domainInput = document.getElementById('settlement-domain-input');
+  const deviceInput = document.getElementById('settlement-device-input');
   const params = new URLSearchParams();
   let rangeInfo = getSettlementRange(range);
   if (dateInput?.value && range !== 'all') {
@@ -2378,6 +2471,7 @@ async function fetchCloudUsageSegments({ range, cursor = null }) {
   if (rangeInfo.from) params.set('from', rangeInfo.from);
   if (rangeInfo.to) params.set('to', rangeInfo.to);
   if (domainInput?.value?.trim()) params.set('domain', domainInput.value.trim());
+  if (deviceInput?.value) params.set('deviceId', deviceInput.value);
   if (cursor) params.set('cursor', cursor);
   params.set('limit', '200');
   const qs = params.toString();
@@ -2400,6 +2494,7 @@ function renderCloudSettlementTable(rows) {
             <th style="padding:8px;">结束</th>
             <th style="padding:8px;">时长</th>
             <th style="padding:8px;min-width:180px;">域名</th>
+            <th style="padding:8px;min-width:120px;">终端</th>
             <th style="padding:8px;">计时类型</th>
             <th style="padding:8px;">模式</th>
             <th style="padding:8px;min-width:150px;">落账原因</th>
@@ -2414,6 +2509,7 @@ function renderCloudSettlementTable(rows) {
               <td style="padding:8px;">${escHtml(formatSettlementTime(row.endMs))}</td>
               <td style="padding:8px;">${escHtml(fmtSecs(row.durationSeconds || 0))}</td>
               <td style="padding:8px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(row.domain || '')}">${escHtml(row.domain || '(无域名)')}</td>
+              <td style="padding:8px;">${escHtml(cloudDeviceLabel(row.deviceId))}</td>
               <td style="padding:8px;">${escHtml(settlementTypeLabel(row))}</td>
               <td style="padding:8px;">${escHtml(row.mode || '—')}</td>
               <td style="padding:8px;">${escHtml(row.settlementReason || '—')}</td>
@@ -2433,6 +2529,8 @@ async function renderCloudSettlementsPage({ reset = true } = {}) {
   const tableEl = document.getElementById('cloud-settlement-table');
   const moreBtn = document.getElementById('settlement-load-more-btn');
   const range = getSelectedSettlementRange();
+  await ensureCloudDevices();
+  renderCloudDeviceOptions('settlement-device-input');
   if (reset) {
     cloudSettlementState = { range, rows: [], nextCursor: null, hasMore: false };
     if (summaryEl) summaryEl.textContent = '加载中...';
@@ -2456,6 +2554,7 @@ async function renderCloudSettlementsPage({ reset = true } = {}) {
     if (summaryEl) {
       summaryEl.innerHTML = `
         <span>范围：${escHtml(rangeInfo.label)}</span>
+        <span>终端：${escHtml(selectedCloudDeviceLabel('settlement-device-input'))}</span>
         <span>当前显示：${cloudSettlementState.rows.length} 段</span>
         <span>总段数：${Number(summary.count || 0)}</span>
         <span>总时长：${escHtml(fmtSecs(Number(summary.totalSeconds || 0)))}</span>
@@ -2466,6 +2565,155 @@ async function renderCloudSettlementsPage({ reset = true } = {}) {
     renderCloudSettlementTable(cloudSettlementState.rows);
     if (moreBtn) {
       moreBtn.style.display = cloudSettlementState.hasMore ? 'inline-block' : 'none';
+      moreBtn.disabled = false;
+    }
+  } catch(e) {
+    if (summaryEl) summaryEl.textContent = '加载失败';
+    if (tableEl) tableEl.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${escHtml(e.message || '加载失败')}</div>`;
+  }
+}
+
+// ── Cloud media settlements ───────────────────────────────────
+function setupCloudMediaSettlements() {
+  document.querySelectorAll('[data-media-settlement-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-media-settlement-range]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      cloudMediaSettlementState.range = btn.dataset.mediaSettlementRange || 'today';
+      const dateInput = document.getElementById('media-settlement-date-input');
+      if (dateInput && cloudMediaSettlementState.range !== 'all') dateInput.value = getSettlementRange(cloudMediaSettlementState.range).from || '';
+      renderCloudMediaSettlementsPage({ reset: true });
+    });
+  });
+  document.getElementById('media-settlement-load-btn')?.addEventListener('click', () => renderCloudMediaSettlementsPage({ reset: true }));
+  document.getElementById('media-settlement-device-input')?.addEventListener('change', () => renderCloudMediaSettlementsPage({ reset: true }));
+  document.getElementById('media-settlement-load-more-btn')?.addEventListener('click', () => renderCloudMediaSettlementsPage({ reset: false }));
+}
+
+function getSelectedMediaSettlementRange() {
+  const active = document.querySelector('[data-media-settlement-range].active');
+  return active?.dataset?.mediaSettlementRange || cloudMediaSettlementState.range || 'today';
+}
+
+function mediaClassLabel(mediaClass) {
+  if (mediaClass === 'foregroundAudio') return '前台音频';
+  if (mediaClass === 'backgroundAudio') return '后台音频';
+  if (mediaClass === 'foregroundVideo') return '前台视频';
+  if (mediaClass === 'backgroundVideo') return '后台视频';
+  if (mediaClass === 'pip') return 'PiP';
+  return mediaClass || '未知';
+}
+
+async function fetchCloudMediaSegments({ range, cursor = null }) {
+  const dateInput = document.getElementById('media-settlement-date-input');
+  const domainInput = document.getElementById('media-settlement-domain-input');
+  const deviceInput = document.getElementById('media-settlement-device-input');
+  const classInput = document.getElementById('media-settlement-class-input');
+  const params = new URLSearchParams();
+  let rangeInfo = getSettlementRange(range);
+  if (dateInput?.value && range !== 'all') {
+    rangeInfo = { from: dateInput.value, to: dateInput.value, label: dateInput.value };
+  }
+  if (rangeInfo.from) params.set('from', rangeInfo.from);
+  if (rangeInfo.to) params.set('to', rangeInfo.to);
+  if (domainInput?.value?.trim()) params.set('domain', domainInput.value.trim());
+  if (deviceInput?.value) params.set('deviceId', deviceInput.value);
+  if (classInput?.value) params.set('mediaClass', classInput.value);
+  if (cursor) params.set('cursor', cursor);
+  params.set('limit', '200');
+  const qs = params.toString();
+  return await api(`/profiles/${currentProfileId}/media-segments/v1${qs ? `?${qs}` : ''}`);
+}
+
+function renderCloudMediaTable(rows) {
+  const tableEl = document.getElementById('cloud-media-table');
+  if (!tableEl) return;
+  if (!rows.length) {
+    tableEl.innerHTML = '<div class="empty"><div class="icon">📭</div>该范围暂无媒体落账记录</div>';
+    return;
+  }
+  tableEl.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border);">
+            <th style="padding:8px;">开始</th>
+            <th style="padding:8px;">结束</th>
+            <th style="padding:8px;">时长</th>
+            <th style="padding:8px;min-width:180px;">域名</th>
+            <th style="padding:8px;min-width:120px;">终端</th>
+            <th style="padding:8px;">媒体类型</th>
+            <th style="padding:8px;">可见性</th>
+            <th style="padding:8px;">模式</th>
+            <th style="padding:8px;min-width:150px;">落账原因</th>
+            <th style="padding:8px;">状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px;">${escHtml(formatSettlementTime(row.startMs))}</td>
+              <td style="padding:8px;">${escHtml(formatSettlementTime(row.endMs))}</td>
+              <td style="padding:8px;">${escHtml(fmtSecs(row.durationSeconds || 0))}</td>
+              <td style="padding:8px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(row.domain || '')}">${escHtml(row.domain || '(无域名)')}</td>
+              <td style="padding:8px;">${escHtml(cloudDeviceLabel(row.deviceId))}</td>
+              <td style="padding:8px;">${escHtml(mediaClassLabel(row.mediaClass))}</td>
+              <td style="padding:8px;">${escHtml(row.visibility || '—')}</td>
+              <td style="padding:8px;">${escHtml(row.mode || '—')}</td>
+              <td style="padding:8px;">${escHtml(row.settlementReason || '—')}</td>
+              <td style="padding:8px;">云端</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderCloudMediaSettlementsPage({ reset = true } = {}) {
+  if (!currentProfileId) return;
+  const summaryEl = document.getElementById('cloud-media-summary');
+  const tableEl = document.getElementById('cloud-media-table');
+  const moreBtn = document.getElementById('media-settlement-load-more-btn');
+  const range = getSelectedMediaSettlementRange();
+  await ensureCloudDevices();
+  renderCloudDeviceOptions('media-settlement-device-input');
+  if (reset) {
+    cloudMediaSettlementState = { range, rows: [], nextCursor: null, hasMore: false };
+    if (summaryEl) summaryEl.textContent = '加载中...';
+    if (tableEl) tableEl.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+  }
+  if (moreBtn) {
+    moreBtn.style.display = 'none';
+    moreBtn.disabled = true;
+  }
+  try {
+    const payload = await fetchCloudMediaSegments({
+      range,
+      cursor: reset ? null : cloudMediaSettlementState.nextCursor,
+    });
+    const nextRows = Array.isArray(payload?.segments) ? payload.segments : [];
+    cloudMediaSettlementState.rows = reset ? nextRows : [...cloudMediaSettlementState.rows, ...nextRows];
+    cloudMediaSettlementState.nextCursor = payload?.nextCursor || null;
+    cloudMediaSettlementState.hasMore = !!payload?.hasMore;
+    const summary = payload?.summary || {};
+    const rangeInfo = getSettlementRange(range);
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <span>范围：${escHtml(rangeInfo.label)}</span>
+        <span>终端：${escHtml(selectedCloudDeviceLabel('media-settlement-device-input'))}</span>
+        <span>当前显示：${cloudMediaSettlementState.rows.length} 段</span>
+        <span>总时长：${escHtml(fmtSecs(Number(summary.totalSeconds || 0)))}</span>
+        <span>前台音频：${escHtml(fmtSecs(Number(summary.mediaClassSeconds?.foregroundAudio || 0)))}</span>
+        <span>后台音频：${escHtml(fmtSecs(Number(summary.mediaClassSeconds?.backgroundAudio || 0)))}</span>
+        <span>前台视频：${escHtml(fmtSecs(Number(summary.mediaClassSeconds?.foregroundVideo || 0)))}</span>
+        <span>后台视频：${escHtml(fmtSecs(Number(summary.mediaClassSeconds?.backgroundVideo || 0)))}</span>
+        <span>PiP：${escHtml(fmtSecs(Number(summary.mediaClassSeconds?.pip || 0)))}</span>
+      `;
+    }
+    renderCloudMediaTable(cloudMediaSettlementState.rows);
+    if (moreBtn) {
+      moreBtn.style.display = cloudMediaSettlementState.hasMore ? 'inline-block' : 'none';
       moreBtn.disabled = false;
     }
   } catch(e) {

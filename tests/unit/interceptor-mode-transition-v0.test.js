@@ -452,7 +452,7 @@ async function run() {
     expect('rest->study mode attribution starts at gate start', boundaries.map(({ boundaryAtMs, fromMode, toMode, reason, source }) => ({ boundaryAtMs, fromMode, toMode, reason, source })), [{ boundaryAtMs: 0, fromMode: 'rest', toMode: 'study', reason: 'rest_to_study', source: 'auto_mode_transition' }]);
   }
 
-  section('IMT-8 Composite + study => not immediate, then switch after 45s');
+  section('IMT-8 Composite + study => immediate switch without gate');
   {
     const saves = [];
     const sent = [];
@@ -474,10 +474,10 @@ async function run() {
       tabs: { update: async () => {}, sendMessage: async (_id, msg) => { sent.push(msg); } },
       notifications: { create: (payload) => notifications.push(payload) },
     });
-    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 0, userActive: false, foreground: true });
-    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 45_000, userActive: false, foreground: true });
-    expect('composite->study switches after 45s gate without idle gate', saves, ['study']);
-    expect('composite->study mode attribution starts at gate start', boundaries.map(({ boundaryAtMs, fromMode, toMode, reason, source }) => ({ boundaryAtMs, fromMode, toMode, reason, source })), [{ boundaryAtMs: 0, fromMode: 'composite', toMode: 'study', reason: 'composite_to_study', source: 'auto_mode_transition' }]);
+    await checkAndRemind(2, 'https://khanacademy.org', 1, { nowMs: 1234, userActive: false, foreground: true });
+    expect('composite->study switches immediately', saves, ['study']);
+    expect('composite->study mode attribution uses current detection point', boundaries.map(({ boundaryAtMs, fromMode, toMode, reason, source }) => ({ boundaryAtMs, fromMode, toMode, reason, source })), [{ boundaryAtMs: 1234, fromMode: 'composite', toMode: 'study', reason: 'composite_to_study', source: 'auto_mode_transition' }]);
+    expectTrue('composite -> study does not send pending start', !sent.some((m) => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
     const success = sent.find((m) => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study');
     expectTrue('composite -> study sends page success prompt', !!success);
     expect('composite -> study success carries domain', success?.domain, 'khanacademy.org');
@@ -663,13 +663,13 @@ async function run() {
     expectTrue('leave triggers pending cancel', sent.some((m) => m.type === 'AUTO_MODE_PENDING_CANCEL' && m.reason === 'candidate_changed'));
   }
 
-  section('IMT-14 Composite -> Study domain switch resets countdown');
+  section('IMT-14 Rest -> Study domain switch resets countdown');
   {
     const saves = [];
     const sent = [];
     const { checkAndRemind } = loadCheckAndRemind({
-      getConfig: async () => makeConfig({ mode: 'composite', studyList: ['khanacademy.org', 'coursera.org'] }),
-      getSession: async () => ({ currentMode: 'composite' }),
+      getConfig: async () => makeConfig({ mode: 'rest', studyList: ['khanacademy.org', 'coursera.org'] }),
+      getSession: async () => ({ currentMode: 'rest' }),
       saveSession: async (s) => saves.push(s.currentMode),
       hasTemporaryCompositePermission: async () => false,
       matchDomain: (d, p) => d === p,

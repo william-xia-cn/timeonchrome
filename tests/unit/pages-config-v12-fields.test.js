@@ -62,6 +62,12 @@ function run() {
   expectTrue('Pages 日期应使用本地日期，不应使用 toISOString 作为显示/查询日期', !/function fmtDate\(d\)\s*\{\s*return d\.toISOString\(\)/.test(source));
   expectTrue('Pages 应包含落账明细导航', source.includes('data-page="settlements"') && source.includes('落账明细'));
   expectTrue('Pages 落账页应读取 usage-segments/v1', source.includes('/usage-segments/v1'));
+  expectTrue('Pages 落账页应支持终端筛选和终端列', source.includes('settlement-device-input') && source.includes("params.set('deviceId', deviceInput.value)") && source.includes('终端'));
+  expectTrue('Pages 应有媒体落账入口', source.includes('data-page="media-settlements"') && source.includes('媒体落账'));
+  expectTrue('Pages 媒体落账页应读取 media-segments/v1', source.includes('/media-segments/v1'));
+  expectTrue('Pages 媒体落账页应支持终端筛选', source.includes('media-settlement-device-input') && source.includes('selectedCloudDeviceLabel'));
+  expectTrue('Pages 媒体落账页应支持媒体类型筛选', source.includes('media-settlement-class-input') && source.includes('mediaClass'));
+  expectTrue('Pages 媒体落账页应展示五类媒体统计', source.includes('前台音频') && source.includes('后台音频') && source.includes('前台视频') && source.includes('后台视频') && source.includes('PiP'));
   expectTrue('Pages 落账页应支持今日/昨日/本周/全部', source.includes('data-settlement-range="today"') && source.includes('data-settlement-range="yesterday"') && source.includes('data-settlement-range="week"') && source.includes('data-settlement-range="all"'));
   expectTrue('Pages 落账页应支持 nextCursor 加载更多', source.includes('nextCursor') && source.includes('settlement-load-more-btn'));
   expectTrue('Pages 落账页应标明最新记录在最上方', source.includes('最新记录显示在最上方'));

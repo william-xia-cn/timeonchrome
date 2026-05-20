@@ -52,6 +52,7 @@ function ingestRows(rows, normalizeHostname) {
 
 function run() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'stats.ts'), 'utf8');
+  const migration008 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '008_media_segments_v1.sql'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
 
   expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../core/domain-semantics.js';"));
@@ -77,8 +78,22 @@ function run() {
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats/v1 路由', source.includes('/stats/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/usage-segments/v1 路由', source.includes('/usage-segments/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats-reconciliation/v1 路由', source.includes('/stats-reconciliation/v1'));
+  expectTrue('stats.ts 应包含 POST /device/media-segments/v1 路由', source.includes("path === '/device/media-segments/v1'"));
+  expectTrue('stats.ts 应包含 POST /device/media-stats/v1 路由', source.includes("path === '/device/media-stats/v1'"));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/media-segments/v1 路由', source.includes('/media-segments/v1'));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/media-stats/v1 路由', source.includes('/media-stats/v1'));
+  expectTrue('media-segments/v1 应校验 mediaClass', source.includes('VALID_MEDIA_CLASSES') && source.includes('foregroundAudio') && source.includes('backgroundVideo'));
+  expectTrue('media-segments/v1 应支持按终端过滤并返回 deviceId', source.includes("url.searchParams.get('deviceId')") && source.includes('device_id = ?') && source.includes('deviceId: row.device_id'));
+  expectTrue('media-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('FROM media_segments_v1') && source.includes('ORDER BY start_ms DESC, id DESC'));
+  expectTrue('media-stats/v1 应展开 byMode', source.includes('daily_media_stats_v1') && source.includes('byMode') && source.includes('MEDIA_CLASS_FIELDS'));
+  expectTrue('008 migration 应创建 media_segments_v1', migration008.includes('CREATE TABLE IF NOT EXISTS media_segments_v1'));
+  expectTrue('008 migration 应创建 daily_media_stats_v1', migration008.includes('CREATE TABLE IF NOT EXISTS daily_media_stats_v1'));
+  expectTrue('008 migration 应有媒体倒序读取索引', migration008.includes('idx_media_segments_profile_start_id'));
+  expectTrue('008 migration 媒体统计唯一键应包含 device_id', migration008.includes('UNIQUE (profile_id, device_id, date, domain, media_class, mode)'));
   expectTrue('usage-segments/v1 应校验账号 JWT', source.includes('verifyAccountToken(request, env.JWT_SECRET)'));
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
+  expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));
+  expectTrue('usage-segments/v1 应支持按终端过滤并返回 deviceId', source.includes('device_id = ?') && source.includes('SELECT id, device_id, date') && source.includes('deviceId: row.device_id'));
   expectTrue('usage-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('ORDER BY start_ms DESC, id DESC'));
   expectTrue('usage-segments/v1 应支持 keyset cursor', source.includes('decodeSegmentCursor') && source.includes('nextCursor'));
   expectTrue('usage-segments/v1 应返回 summary 聚合', source.includes('totalSeconds') && source.includes('activeSeconds') && source.includes('mediaSeconds'));

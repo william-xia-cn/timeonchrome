@@ -8,7 +8,7 @@ import { runForegroundCheckpoint, runTimingCheckpoints } from './core/checkpoint
 import { closeCurrentSession, initSession, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
-import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
+import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, CONFIG_KEY, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, getDateKey, formatDate, extractDomain, matchDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
 import { updateDeclarativeRules, checkAndRemind, getAutoModePendingStatus, cancelAutoModePendingForTab, cancelAllAutoModePending, reSendPendingNotice, setModeBoundaryDrainHook } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs } from './product/quota.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
@@ -173,6 +173,12 @@ function normalizeMode(mode) {
   return 'study';
 }
 
+function normalizeDomainForFastStatus(domain) {
+  if (typeof domain !== 'string') return null;
+  const value = domain.trim().toLowerCase().replace(/^www\./, '').replace(/\.+$/g, '');
+  return value || null;
+}
+
 function modeToBadgeText(mode) {
   if (mode === 'paused') return '停';
   if (mode === 'composite') return '综';
@@ -192,6 +198,156 @@ async function getCurrentActiveDomain() {
   const tab = tabs && tabs[0];
   const domain = extractDomain(tab?.url || '');
   return { tab, domain };
+}
+
+async function getPopupFastStatus() {
+  const [{ tab, domain }, timingSession, modeData] = await Promise.all([
+    getCurrentActiveDomain().catch(() => ({ tab: null, domain: null })),
+    getTimingSession().catch(() => null),
+    chrome.storage.local.get(SESSION_KEY).catch(() => ({})),
+  ]);
+  const mode = normalizeMode(modeData?.[SESSION_KEY]?.currentMode || 'study');
+  let currentSessionDurationSeconds = 0;
+  if (timingSession?.state === 'ACTIVE' && timingSession?.startTime) {
+    const sessionDomain = normalizeDomainForFastStatus(timingSession.domain);
+    const activeDomain = normalizeDomainForFastStatus(domain);
+    if (!activeDomain || !sessionDomain || activeDomain === sessionDomain) {
+      currentSessionDurationSeconds = Math.max(0, Math.floor(getCappedElapsedMs(timingSession, Date.now()) / 1000));
+    }
+  }
+  return {
+    mode,
+    currentDomain: domain || null,
+    currentSessionDurationSeconds,
+    tabId: Number.isInteger(tab?.id) ? tab.id : null,
+    url: tab?.url || null,
+  };
+}
+
+function addPopupModeSeconds(target, source = {}) {
+  target.studySeconds += Math.max(0, Number(source.study) || 0);
+  target.restSeconds += Math.max(0, Number(source.rest) || 0);
+  target.compositeSeconds += Math.max(0, Number(source.composite) || 0);
+}
+
+function buildPopupSettledModeStatsFromDay(dayStats) {
+  const summary = {
+    studySeconds: 0,
+    restSeconds: 0,
+    compositeSeconds: 0,
+    onlineSeconds: 0,
+    backgroundMediaSeconds: 0,
+    pipSeconds: 0,
+  };
+  if (!dayStats?.domains) return summary;
+  for (const ds of Object.values(dayStats.domains)) {
+    if (!ds) continue;
+    addPopupModeSeconds(summary, ds.activeByMode || {});
+    summary.onlineSeconds += Math.max(0, Number(ds.activeSeconds) || 0) + Math.max(0, Number(ds.pipSeconds) || 0);
+    summary.backgroundMediaSeconds += Math.max(0, Number(ds.backgroundMediaSeconds) || 0);
+    summary.pipSeconds += Math.max(0, Number(ds.pipSeconds) || 0);
+  }
+  return summary;
+}
+
+function pickPopupConfig(rawConfig) {
+  const config = { ...DEFAULT_CONFIG, ...(rawConfig || {}) };
+  return {
+    studyList: config.studyList || DEFAULT_CONFIG.studyList,
+    compositeList: config.compositeList || DEFAULT_CONFIG.compositeList,
+    restrictedEntertainmentList: config.restrictedEntertainmentList || DEFAULT_CONFIG.restrictedEntertainmentList,
+    entertainmentList: config.entertainmentList || DEFAULT_CONFIG.entertainmentList,
+    unsafeList: config.unsafeList || DEFAULT_CONFIG.unsafeList,
+    dailyOnlineQuota: config.dailyOnlineQuota ?? DEFAULT_CONFIG.dailyOnlineQuota,
+    dailyStudyQuota: config.dailyStudyQuota ?? DEFAULT_CONFIG.dailyStudyQuota,
+    dailyRestQuota: config.dailyRestQuota ?? DEFAULT_CONFIG.dailyRestQuota,
+    dailyUndeterminedQuota: config.dailyUndeterminedQuota ?? DEFAULT_CONFIG.dailyUndeterminedQuota,
+    weeklyRestQuota: config.weeklyRestQuota ?? DEFAULT_CONFIG.weeklyRestQuota,
+    quotaBorrow: config.quotaBorrow ?? DEFAULT_CONFIG.quotaBorrow,
+    quotaState: config.quotaState || DEFAULT_CONFIG.quotaState,
+  };
+}
+
+function buildPopupCloudStatus(storage = {}) {
+  const isBound = !!storage.cloud_device_token;
+  return {
+    isBound,
+    localMode: !isBound,
+    syncEnabled: isBound,
+    reason: isBound ? null : 'no_device_token',
+    deviceId: storage.cloud_device_id || null,
+    profileId: storage.cloud_profile_id || null,
+    v1SyncEnabled: storage.statsFoundationV1SyncEnabled ?? true,
+  };
+}
+
+async function getPopupLocalSnapshot() {
+  const startedAt = Date.now();
+  const timings = {};
+  const mark = (key, from) => { timings[key] = Date.now() - from; };
+  const activeStartedAt = Date.now();
+  const activePromise = getCurrentActiveDomain()
+    .catch(() => ({ tab: null, domain: null }))
+    .then((value) => {
+      mark('activeTabMs', activeStartedAt);
+      return value;
+    });
+  const sessionStartedAt = Date.now();
+  const timingSessionPromise = getTimingSession()
+    .catch(() => null)
+    .then((value) => {
+      mark('sessionMs', sessionStartedAt);
+      return value;
+    });
+  const storageStartedAt = Date.now();
+  const storagePromise = chrome.storage.local.get([
+    CONFIG_KEY,
+    SESSION_KEY,
+    'daily_usage_stats_v1',
+    'cloud_profile_name',
+    'cloud_device_token',
+    'cloud_device_id',
+    'cloud_profile_id',
+    'statsFoundationV1SyncEnabled',
+  ]).catch(() => ({})).then((value) => {
+    mark('storageMs', storageStartedAt);
+    return value;
+  });
+
+  const [{ tab, domain }, timingSession, storage] = await Promise.all([
+    activePromise,
+    timingSessionPromise,
+    storagePromise,
+  ]);
+  const mode = normalizeMode(storage?.[SESSION_KEY]?.currentMode || 'study');
+  let currentSessionDurationSeconds = 0;
+  if (timingSession?.state === 'ACTIVE' && timingSession?.startTime) {
+    const sessionDomain = normalizeDomainForFastStatus(timingSession.domain);
+    const activeDomain = normalizeDomainForFastStatus(domain);
+    if (!activeDomain || !sessionDomain || activeDomain === sessionDomain) {
+      currentSessionDurationSeconds = Math.max(0, Math.floor(getCappedElapsedMs(timingSession, Date.now()) / 1000));
+    }
+  }
+  const todayStats = storage?.daily_usage_stats_v1?.[getDateKey()] || null;
+  const snapshot = {
+    ok: true,
+    mode,
+    currentDomain: domain || null,
+    currentSessionDurationSeconds,
+    tabId: Number.isInteger(tab?.id) ? tab.id : null,
+    url: tab?.url || null,
+    config: pickPopupConfig(storage?.[CONFIG_KEY]),
+    stats: buildPopupSettledModeStatsFromDay(todayStats),
+    cloudStatus: buildPopupCloudStatus(storage || {}),
+    childName: storage?.cloud_profile_name || null,
+    timings,
+  };
+  const totalMs = Date.now() - startedAt;
+  snapshot.timings.totalMs = totalMs;
+  if (totalMs > 300) {
+    console.warn('[PopupSnapshot] slow local snapshot', snapshot.timings);
+  }
+  return snapshot;
 }
 
 async function updateCurrentTabBadge() {
@@ -722,6 +878,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
     }
     sendResponse({ ok: true });
+    return true;
+  }
+
+  if (msg.type === 'GET_POPUP_FAST_STATUS') {
+    (async () => {
+      try {
+        sendResponse(await getPopupFastStatus());
+      } catch (err) {
+        sendResponse({
+          mode: 'study',
+          currentDomain: null,
+          currentSessionDurationSeconds: 0,
+          error: err?.message || String(err),
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'GET_POPUP_LOCAL_SNAPSHOT') {
+    (async () => {
+      try {
+        sendResponse(await getPopupLocalSnapshot());
+      } catch (err) {
+        sendResponse({
+          ok: false,
+          mode: 'study',
+          currentDomain: null,
+          currentSessionDurationSeconds: 0,
+          config: pickPopupConfig(null),
+          stats: buildPopupSettledModeStatsFromDay(null),
+          cloudStatus: { isBound: false, localMode: true, syncEnabled: false, reason: 'snapshot_failed' },
+          childName: null,
+          error: err?.message || String(err),
+        });
+      }
+    })();
     return true;
   }
 

@@ -369,21 +369,21 @@ async function run() {
     expect('manual switch updates mode cache', cacheUpdates, ['composite']);
   }
 
-  section('MSR-7 GET_STATS from popup uses popup_open foreground settlement');
+  section('MSR-7 GET_SETTLED_TODAY_STATS is read-only and does not flush');
   {
     const flushCalls = [];
     const { handleMessage } = loadHandleMessage({
-      getConfig: async () => ({}),
-      getTodayStats: async () => ({}),
+      getConfig: async () => ({ compositeList: ['video.example'] }),
+      getTodayStats: async () => ({ 'video.example': 120 }),
       flushOpenSessionToStats: async (reason, options) => {
         flushCalls.push({ reason, options });
         return { ok: true };
       },
     });
 
-    await handleMessage({ type: 'GET_STATS', source: 'popup' }, {});
-    expect('popup GET_STATS flush reason', flushCalls[0]?.reason, 'popup_open');
-    expect('popup GET_STATS allows foreground', flushCalls[0]?.options?.allowForeground, true);
+    const res = await handleMessage({ type: 'GET_SETTLED_TODAY_STATS' }, {});
+    expect('settled stats does not flush', flushCalls.length, 0);
+    expect('settled stats keeps usage summary', res.compositeSeconds, 120);
   }
 
   section('MSR-8 regular GET_STATS keeps ui_flush behavior');
@@ -403,7 +403,46 @@ async function run() {
     expect('regular GET_STATS has no foreground override', flushCalls[0]?.options, undefined);
   }
 
-  section('MSR-9 GET_STATS 返回 compositeSeconds 并兼容 legacy undeterminedSeconds');
+  section('MSR-9 GET_POPUP_SETTLED_MODE_STATS is read-only and mode authoritative');
+  {
+    const flushCalls = [];
+    const { handleMessage } = loadHandleMessage({
+      getPopupSettledModeStats: async () => ({
+        studySeconds: 120,
+        restSeconds: 30,
+        compositeSeconds: 60,
+        onlineSeconds: 240,
+        backgroundMediaSeconds: 10,
+        pipSeconds: 30,
+      }),
+      flushOpenSessionToStats: async (reason, options) => {
+        flushCalls.push({ reason, options });
+        return { ok: true };
+      },
+    });
+
+    const res = await handleMessage({ type: 'GET_POPUP_SETTLED_MODE_STATS' }, {});
+    expect('popup mode stats does not flush', flushCalls.length, 0);
+    expect('popup mode stats returns mode aggregate', res, {
+      studySeconds: 120,
+      restSeconds: 30,
+      compositeSeconds: 60,
+      onlineSeconds: 240,
+      backgroundMediaSeconds: 10,
+      pipSeconds: 30,
+    });
+  }
+
+  section('MSR-9b cloud sync status includes media pending fields');
+  {
+    const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js'), 'utf8');
+    expectTrue('cloud sync imports media pending builders', cloudSyncSource.includes('getPendingMediaSegments') && cloudSyncSource.includes('buildMediaSegmentsUploadPayload'));
+    expectTrue('cloud sync uploads media segments and media stats', cloudSyncSource.includes("'/device/media-segments/v1'") && cloudSyncSource.includes("'/device/media-stats/v1'"));
+    expectTrue('cloud sync status exposes media pending counts', cloudSyncSource.includes('pendingMediaSegments') && cloudSyncSource.includes('pendingMediaStatsDates'));
+    expectTrue('cloud sync records media upload timestamps', cloudSyncSource.includes('lastMediaSegmentUploadAt') && cloudSyncSource.includes('lastMediaStatsUploadAt'));
+  }
+
+  section('MSR-10 GET_STATS 返回 compositeSeconds 并兼容 legacy undeterminedSeconds');
   {
     const { handleMessage } = loadHandleMessage({
       getConfig: async () => ({ compositeList: ['video.example'] }),
@@ -423,7 +462,7 @@ async function run() {
     expect('onlineSeconds excludes summary aliases', res.onlineSeconds, 180);
   }
 
-  section('MSR-10 GET_STATS 优先使用 explicit compositeSeconds');
+  section('MSR-11 GET_STATS 优先使用 explicit compositeSeconds');
   {
     const { handleMessage } = loadHandleMessage({
       getConfig: async () => ({ compositeList: ['video.example'] }),
@@ -440,7 +479,7 @@ async function run() {
     expect('onlineSeconds excludes explicit composite alias', res.onlineSeconds, 120);
   }
 
-  section('MSR-11 popup lightweight runtime status skips usage summary');
+  section('MSR-12 popup lightweight runtime status skips usage summary');
   {
     let analyticsCalls = 0;
     const { handleMessage } = loadHandleMessage(

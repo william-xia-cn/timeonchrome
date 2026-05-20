@@ -334,10 +334,9 @@ async function runCompositeModeTests() {
     });
 
     await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: false });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: false });
 
-    expect('Composite→Study: auto switch after 45s gate without idle gate', saves, ['study']);
-    expectTrue('Composite→Study: pending START sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
+    expect('Composite→Study: auto switch immediately without gate', saves, ['study']);
+    expectTrue('Composite→Study: no pending START sent', !sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
     expectTrue('Composite→Study: pending SUCCESS sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study'));
     expect('Composite→Study: no system notification on successful page prompt', notifications.length, 0);
   }

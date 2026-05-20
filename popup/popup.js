@@ -1,31 +1,18 @@
 // popup/popup.js - 孩子视角：只读时间用量展示
 
-const CLOUD_KEYS = {
-  PROFILE_NAME: 'cloud_profile_name'
-};
 let popupStatsContext = { config: {}, stats: {} };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const cloudStatus = await getCloudStatusSafe();
-  renderCloudBindingNotice(cloudStatus);
+  bindPopupEvents();
 
-  const [initResult, runtimeStatus] = await Promise.all([
-    init().catch((error) => ({ ok: false, error })),
-    getRuntimeModeStatusSafe(),
-  ]);
-  if (initResult?.error) {
-    renderPopupLoadError(initResult.error);
-  }
-
-  renderModeButtons(runtimeStatus);
-  renderRuntimeStatus(runtimeStatus);
-  document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
-  document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
-  document.getElementById('btn-composite').addEventListener('click',  () => setMode('composite'));
-
-  document.getElementById('settings-btn').addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
+  const snapshotPromise = getPopupLocalSnapshotSafe();
+  snapshotPromise.then((snapshot) => {
+    renderModeButtons(snapshot || {});
+    renderRuntimeStatus(snapshot || {});
   });
+
+  init(snapshotPromise).catch((error) => renderPopupLoadError(error));
+  getSuspectSegmentSummarySafe().then(renderSuspectSegmentStatus);
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'DEVICE_UNBOUND') {
@@ -34,18 +21,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 });
 
-async function getCloudStatusSafe() {
-  try {
-    return await sendMsg({ type: 'GET_CLOUD_STATUS' }) || {};
-  } catch (_) {
-    return {};
-  }
+function bindPopupEvents() {
+  document.getElementById('btn-study').addEventListener('click', () => setMode('study'));
+  document.getElementById('btn-rest').addEventListener('click',  () => setMode('rest'));
+  document.getElementById('btn-composite').addEventListener('click',  () => setMode('composite'));
+
+  document.getElementById('settings-btn').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
+  });
 }
 
 function renderPopupLoadError(error) {
-  const top10El = document.getElementById('today-top10');
-  if (!top10El) return;
-  top10El.innerHTML = `<div class="empty">后台连接中，请稍后重新打开。${error?.message ? ` (${error.message})` : ''}</div>`;
+  const quotaBarsEl = document.getElementById('quota-bars');
+  if (!quotaBarsEl) return;
+  quotaBarsEl.innerHTML = `<div class="empty">后台连接中，请稍后重新打开。${error?.message ? ` (${error.message})` : ''}</div>`;
 }
 
 function renderCloudBindingNotice(cloudStatus = {}) {
@@ -68,6 +57,30 @@ async function getRuntimeModeStatusSafe() {
     return await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS', includeUsageSummary: false }) || {};
   } catch (_) {
     return {};
+  }
+}
+
+async function getPopupFastStatusSafe() {
+  try {
+    return await sendMsg({ type: 'GET_POPUP_FAST_STATUS' }, { attempts: 1, timeoutMs: 900 }) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+async function getPopupLocalSnapshotSafe() {
+  try {
+    return await sendMsg({ type: 'GET_POPUP_LOCAL_SNAPSHOT' }, { attempts: 1, timeoutMs: 900 }) || {};
+  } catch (_) {
+    return {
+      mode: 'study',
+      currentDomain: null,
+      currentSessionDurationSeconds: 0,
+      config: {},
+      stats: {},
+      cloudStatus: { isBound: false, localMode: true, syncEnabled: false },
+      childName: null,
+    };
   }
 }
 
@@ -98,38 +111,29 @@ async function setMode(mode) {
   renderRuntimeStatus(runtimeStatus);
 }
 
-async function init() {
-  const [config, stats] = await Promise.all([
-    sendMsg({ type: 'GET_CONFIG' }),
-    sendMsg({ type: 'GET_STATS', source: 'popup' }),
-  ]);
-  popupStatsContext = { config: config || {}, stats: stats || {} };
-  renderSuspectSegmentStatus(await getSuspectSegmentSummarySafe());
+async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
+  const snapshot = await snapshotPromise;
+  const config = snapshot?.config || {};
+  const stats = snapshot?.stats || {};
+  const runtimeStatus = snapshot || {};
+  popupStatsContext = { config, stats };
 
-  const nameStorage = await new Promise(resolve =>
-    chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME], resolve)
-  );
-  const childName = nameStorage[CLOUD_KEYS.PROFILE_NAME];
+  const childName = snapshot?.childName;
   const nameEl = document.getElementById('child-name-header');
   if (nameEl && childName) nameEl.textContent = childName + ' 的时间';
+  renderCloudBindingNotice(snapshot?.cloudStatus || {});
 
-  const studyList     = config.studyList     || [];
-  let studySeconds = 0, restSeconds = 0, onlineSeconds = 0;
-  const compositeSeconds = readCompositeSeconds(stats, config);
+  const modeUsage = resolveModeUsageWithLive(stats, config, runtimeStatus);
+  renderModeButtons(runtimeStatus || {});
+  renderRuntimeStatus(runtimeStatus || {});
+  const {
+    studySeconds,
+    restSeconds,
+    compositeSeconds,
+    onlineSeconds,
+  } = modeUsage;
 
-  for (const [domain, seconds] of Object.entries(stats)) {
-    if (isStatsMetaKey(domain)) continue;
-    onlineSeconds += seconds;
-    const isStudy     = studyList.some(p => matchDomain(domain, p));
-    if (isStudy) {
-      studySeconds += seconds;
-    } else {
-      restSeconds += seconds;
-    }
-  }
-  restSeconds = Math.max(0, restSeconds - compositeSeconds);
-
-  const backendMediaSeconds = stats.audioSeconds || 0;
+  const backendMediaSeconds = stats.backgroundMediaSeconds || stats.audioSeconds || 0;
   const pipMediaSeconds = stats.pipSeconds || 0;
 
   // Mode Buttons with quota display
@@ -153,70 +157,64 @@ async function init() {
     ? `${formatSeconds(compositeSeconds)} / ${formatSeconds(undeterminedLimit)}`
     : `${formatSeconds(compositeSeconds)}`;
 
-  // Backend Media (plain text, no card, no quota)
-  const backendMediaRow = document.getElementById('backend-media-row');
-  const backendMediaValue = document.getElementById('backend-media-value');
-  if (backendMediaRow && backendMediaValue) {
-    if (backendMediaSeconds > 0) {
-      backendMediaRow.style.display = 'block';
-      backendMediaValue.textContent = formatSeconds(backendMediaSeconds);
-    } else {
-      backendMediaRow.style.display = 'none';
-    }
-  }
-  const pipMediaRow = document.getElementById('pip-media-row');
-  const pipMediaValue = document.getElementById('pip-media-value');
-  if (pipMediaRow && pipMediaValue) {
-    if (pipMediaSeconds > 0) {
-      pipMediaRow.style.display = 'block';
-      pipMediaValue.textContent = formatSeconds(pipMediaSeconds);
-    } else {
-      pipMediaRow.style.display = 'none';
-    }
-  }
-
-  // Progress Bars (Online + Composite)
+  // Usage metrics
   const onlineLimit        = (config.dailyOnlineQuota       ?? 0) * 60;
   const qs = config.quotaState || {};
 
   const quotaBarsEl = document.getElementById('quota-bars');
   if (quotaBarsEl) {
-    const bar = (icon, label, used, limit, color, locked) => {
+    const metric = ({ icon, label, used, limit = 0, color = 'var(--accent)', locked = false, sub = '' }) => {
       const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
       const barColor = locked ? 'var(--danger)' : pct >= 90 ? 'var(--warn)' : color;
       const valueText = limit > 0 ? `${formatSeconds(used)} / ${formatSeconds(limit)}` : formatSeconds(used);
+      const subText = locked ? '已用完' : sub;
       return `
-        <div class="quota-bar-item">
-          <div class="quota-bar-header">
-            <span class="quota-bar-label">${icon} ${label}${locked ? ' <span style="font-size:10px;color:var(--danger);">已用完</span>' : ''}</span>
-            <span class="quota-bar-value">${valueText}</span>
+        <div class="usage-metric${locked ? ' locked' : ''}">
+          <div class="usage-metric-header">
+            <span class="usage-metric-label"><span class="usage-metric-icon">${icon}</span>${label}</span>
+            <span class="usage-metric-value">${valueText}</span>
           </div>
-          <div class="progress-track">
+          ${subText ? `<div class="usage-metric-sub">${subText}</div>` : ''}
+          ${limit > 0 ? `<div class="progress-track">
             <div class="progress-fill" style="width:${pct}%;background:${barColor};"></div>
-          </div>
+          </div>` : ''}
         </div>`;
     };
+    const items = [
+      metric({
+        icon: '🌐',
+        label: '在线时长',
+        used: onlineSeconds,
+        limit: onlineLimit,
+        color: 'var(--accent)',
+        locked: qs.onlineLocked,
+        sub: '前台网页和 PiP'
+      })
+    ];
+    if (backendMediaSeconds > 0) {
+      items.push(metric({
+        icon: '🎵',
+        label: '后台媒体',
+        used: backendMediaSeconds,
+        sub: '后台播放'
+      }));
+    }
+    if (pipMediaSeconds > 0) {
+      items.push(metric({
+        icon: '🖼️',
+        label: 'PiP',
+        used: pipMediaSeconds,
+        sub: '画中画'
+      }));
+    }
 
-    quotaBarsEl.innerHTML =
-      bar('🌐', '在线时长', onlineSeconds, onlineLimit, 'var(--accent)', qs.onlineLocked);
+    quotaBarsEl.innerHTML = `
+      <div class="usage-panel">
+        <div class="usage-panel-title">今日概览</div>
+        ${items.join('')}
+      </div>`;
   }
-
-  // Top 10
-  const entries = Object.entries(stats)
-    .filter(([domain]) => !isStatsMetaKey(domain))
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-  const top10El = document.getElementById('today-top10');
-  if (entries.length === 0) {
-    top10El.innerHTML = '<div class="empty">暂无数据</div>';
-  } else {
-    top10El.innerHTML = entries.map(([domain, seconds]) => `
-      <div class="stat-row">
-        <span class="stat-row-left">${domain}</span>
-        <span class="stat-row-right">${formatSeconds(seconds)}</span>
-      </div>
-    `).join('');
-  }
+  return { ok: true, runtimeStatus };
 }
 
 async function getSuspectSegmentSummarySafe() {
@@ -256,22 +254,28 @@ function isStatsMetaKey(key) {
     key === 'undeterminedSeconds';
 }
 
-function readCompositeSeconds(statsLike, configLike) {
-  const explicitComposite = Number(statsLike?.compositeSeconds);
-  if (Number.isFinite(explicitComposite)) return Math.max(0, explicitComposite);
-
-  const legacyUndetermined = Number(statsLike?.undeterminedSeconds);
-  if (Number.isFinite(legacyUndetermined)) return Math.max(0, legacyUndetermined);
-
-  const compositeList = configLike?.compositeList || [];
-  let total = 0;
-  for (const [domain, seconds] of Object.entries(statsLike || {})) {
-    if (isStatsMetaKey(domain)) continue;
-    const value = Number(seconds);
-    if (!Number.isFinite(value) || value <= 0) continue;
-    if (compositeList.some(p => matchDomain(domain, p))) total += value;
+function resolveModeUsageWithLive(stats = {}, config = {}, status = {}) {
+  let studySeconds = Math.max(0, Number(stats?.studySeconds) || 0);
+  let restSeconds = Math.max(0, Number(stats?.restSeconds) || 0);
+  let compositeSeconds = Math.max(0, Number(stats?.compositeSeconds) || 0);
+  let onlineSeconds = Math.max(0, Number(stats?.onlineSeconds) || 0);
+  const currentDomain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
+  const liveSeconds = resolveLiveSessionSeconds(currentDomain, status);
+  const mode = status?.mode;
+  if (liveSeconds > 0) {
+    if (mode === 'study') studySeconds += liveSeconds;
+    if (mode === 'rest') restSeconds += liveSeconds;
+    if (mode === 'composite') compositeSeconds += liveSeconds;
+    onlineSeconds += liveSeconds;
   }
-  return total;
+
+  return {
+    studySeconds,
+    restSeconds,
+    compositeSeconds,
+    onlineSeconds,
+    liveSeconds,
+  };
 }
 
 function renderRuntimeStatus(status = {}) {
@@ -279,15 +283,13 @@ function renderRuntimeStatus(status = {}) {
   if (!runtimeCompact) return;
   const domain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
   const tag = resolveDomainTag(domain, popupStatsContext.config);
-  const durableTodaySeconds = resolveTodayDomainSeconds(domain, popupStatsContext.stats);
   const liveSessionSeconds = resolveLiveSessionSeconds(domain, status);
-  const todaySeconds = durableTodaySeconds + liveSessionSeconds;
-  const todayText = formatRuntimeTodayDuration(todaySeconds);
+  const sessionText = formatRuntimeSessionDuration(liveSessionSeconds);
   const domainText = domain || '不计时页面';
   runtimeCompact.innerHTML = `
     <div class="runtime-compact-main">
       <div class="runtime-compact-title">当前访问</div>
-      <div class="runtime-duration">${todayText}</div>
+      <div class="runtime-duration">${sessionText}</div>
     </div>
     <div class="runtime-compact-main">
       <span class="runtime-domain">${escapeHtml(domainText)}</span>
@@ -371,10 +373,10 @@ function collectRestPatterns(config = {}) {
   return patterns;
 }
 
-function formatRuntimeTodayDuration(seconds) {
+function formatRuntimeSessionDuration(seconds) {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
-  if (safe === 0) return '今日 0分';
-  return `今日 ${formatRuntimeDuration(safe)}`;
+  if (safe === 0) return '本次 0分';
+  return `本次 ${formatRuntimeDuration(safe)}`;
 }
 
 function formatRuntimeDuration(seconds) {

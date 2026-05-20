@@ -7,6 +7,12 @@ import {
   markUsageSegmentsUploaded, markDailyStatsUploaded,
   markUsageSegmentUploadFailed, markDailyStatsUploadFailed,
 } from '../core/usage-segments.js';
+import {
+  getPendingMediaSegments, getPendingDailyMediaStats,
+  buildMediaSegmentsUploadPayload, buildDailyMediaStatsUploadPayload,
+  markMediaSegmentsUploaded, markDailyMediaStatsUploaded,
+  markMediaSegmentUploadFailed, markDailyMediaStatsUploadFailed,
+} from '../runtime/media-session.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -30,7 +36,9 @@ const CLOUD_CONFIG = {
     V1_LAST_SYNC_AT: 'cloud_v1_last_sync_at',
     V1_LAST_SYNC_ERROR: 'cloud_v1_last_sync_error',
     V1_LAST_SEGMENT_UPLOAD_AT: 'cloud_v1_last_segment_upload_at',
-    V1_LAST_STATS_UPLOAD_AT: 'cloud_v1_last_stats_upload_at'
+    V1_LAST_STATS_UPLOAD_AT: 'cloud_v1_last_stats_upload_at',
+    V1_LAST_MEDIA_SEGMENT_UPLOAD_AT: 'cloud_v1_last_media_segment_upload_at',
+    V1_LAST_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_media_stats_upload_at'
   }
 };
 
@@ -751,25 +759,33 @@ export function isStatsFoundationV1SyncEnabled() {
 }
 
 export async function getStatsFoundationV1SyncStatus() {
-  const [segPending, statsPending, storage] = await Promise.all([
+  const [segPending, statsPending, mediaSegPending, mediaStatsPending, storage] = await Promise.all([
     getPendingUsageSegments().catch(() => ({ pendingCount: 0 })),
     getPendingDailyStats().catch(() => ({ pendingCount: 0 })),
+    getPendingMediaSegments().catch(() => ({ pendingCount: 0 })),
+    getPendingDailyMediaStats().catch(() => ({ pendingCount: 0 })),
     chrome.storage.local.get([
       CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
       CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR,
       CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT,
     ]).catch(() => ({})),
   ]);
   return {
     enabled: !!(storage?.[CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED] ?? statsFoundationV1SyncEnabled),
     pendingSegments: Number(segPending?.pendingCount || 0),
     pendingStatsDates: Number(statsPending?.pendingCount || 0),
+    pendingMediaSegments: Number(mediaSegPending?.pendingCount || 0),
+    pendingMediaStatsDates: Number(mediaStatsPending?.pendingCount || 0),
     lastSyncAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT] || 0),
     lastError: storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR] || null,
     lastSegmentUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT] || 0),
     lastStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT] || 0),
+    lastMediaSegmentUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT] || 0),
+    lastMediaStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT] || 0),
   };
 }
 
@@ -976,6 +992,131 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
   }
 }
 
+export async function uploadMediaSegmentsV1({ enabled = false } = {}) {
+  const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
+  if (!syncState.deviceToken) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: ['No device token'] };
+  }
+  if (syncState.monitoringEnabled === 0) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: [] };
+  }
+  try {
+    const pending = await getPendingMediaSegments();
+    if (pending.pendingCount === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
+    }
+    const MAX_SEGMENTS_PER_BATCH = 200;
+    const batchIds = pending.segments.slice(0, MAX_SEGMENTS_PER_BATCH).map((s) => s.id);
+    if (!effectiveEnabled) {
+      const payload = await buildMediaSegmentsUploadPayload(batchIds.slice(0, 5));
+      return {
+        uploaded: 0,
+        failed: 0,
+        skipped: true,
+        dryRun: true,
+        pendingCount: pending.pendingCount,
+        batchSize: batchIds.length,
+        payloadSample: {
+          schemaVersion: payload.schemaVersion,
+          segmentCount: payload.segments.length,
+          firstDomain: payload.segments[0]?.domain || null,
+          firstMediaClass: payload.segments[0]?.mediaClass || null,
+        },
+        retryCounts: pending.retryCounts,
+        errors: [],
+      };
+    }
+    const payload = await buildMediaSegmentsUploadPayload(batchIds);
+    if (payload.segments.length === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: false, pendingCount: pending.pendingCount, errors: [] };
+    }
+    try {
+      await cloudRequest('POST', '/device/media-segments/v1', { segments: payload.segments });
+      await markMediaSegmentsUploaded(batchIds);
+      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT]: Date.now() });
+      return { uploaded: batchIds.length, failed: 0, skipped: false, dryRun: false, pendingCount: pending.pendingCount - batchIds.length, errors: [] };
+    } catch (e) {
+      await markMediaSegmentUploadFailed(batchIds, e.message);
+      return { uploaded: 0, failed: batchIds.length, skipped: false, dryRun: false, pendingCount: pending.pendingCount, errors: [`media segments: ${e.message}`] };
+    }
+  } catch (e) {
+    return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
+  }
+}
+
+export async function uploadDailyMediaStatsV1({ enabled = false, forceRetryExhausted = false } = {}) {
+  const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
+  if (!syncState.deviceToken) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: ['No device token'] };
+  }
+  if (syncState.monitoringEnabled === 0) {
+    return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: [] };
+  }
+  try {
+    const pending = await getPendingDailyMediaStats();
+    const dirtyDates = Object.keys(pending.stats || {});
+    if (dirtyDates.length === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
+    }
+    const exhaustedDates = dirtyDates.filter((date) =>
+      Number(pending.retryCounts?.[date] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
+    );
+    const candidateDates = forceRetryExhausted ? dirtyDates : dirtyDates.filter((date) => !exhaustedDates.includes(date));
+    const batchDates = candidateDates.slice(0, 7);
+    if (!effectiveEnabled) {
+      const samplePayload = batchDates.length > 0 ? await buildDailyMediaStatsUploadPayload(batchDates[0]) : null;
+      return {
+        uploaded: 0,
+        failed: 0,
+        skipped: true,
+        dryRun: true,
+        pendingCount: dirtyDates.length,
+        batchSize: batchDates.length,
+        payloadSample: samplePayload ? {
+          schemaVersion: samplePayload.schemaVersion,
+          date: samplePayload.date,
+          domainCount: samplePayload.domains.length,
+        } : null,
+        retryCounts: pending.retryCounts,
+        errors: [],
+      };
+    }
+    if (batchDates.length === 0 && exhaustedDates.length > 0) {
+      return {
+        uploaded: 0,
+        failed: exhaustedDates.length,
+        skipped: false,
+        dryRun: false,
+        pendingCount: dirtyDates.length,
+        errors: exhaustedDates.map((date) => `media stats ${date}: retry exhausted (${pending.retryCounts?.[date] || 0})`),
+      };
+    }
+    let uploaded = 0;
+    let failed = 0;
+    const errors = [];
+    for (const date of batchDates) {
+      const payload = await buildDailyMediaStatsUploadPayload(date);
+      if (!payload || payload.domains.length === 0) {
+        await markDailyMediaStatsUploaded([date]);
+        continue;
+      }
+      try {
+        await cloudRequest('POST', '/device/media-stats/v1', payload);
+        await markDailyMediaStatsUploaded([date]);
+        uploaded++;
+        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT]: Date.now() });
+      } catch (e) {
+        await markDailyMediaStatsUploadFailed([date], e.message);
+        failed++;
+        errors.push(`media stats ${date}: ${e.message}`);
+      }
+    }
+    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyDates.length - uploaded, errors };
+  } catch (e) {
+    return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
+  }
+}
+
 /**
  * 编排完整的 Stats Foundation v1 同步。
  * 顺序：先上传 segments，再上传 stats（云端可以从 segments 重建 stats）。
@@ -1002,7 +1143,21 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
     errors.push(...statsResult.errors);
   }
 
-  const dryRun = segmentResult.dryRun && statsResult.dryRun;
+  // 3. Media segments 独立事实源
+  const mediaSegmentResult = await uploadMediaSegmentsV1({ enabled });
+  if (mediaSegmentResult.failed > 0 || mediaSegmentResult.errors.length > 0) {
+    hadFailure = true;
+    errors.push(...mediaSegmentResult.errors);
+  }
+
+  // 4. Daily media stats 独立物化视图
+  const mediaStatsResult = await uploadDailyMediaStatsV1({ enabled, forceRetryExhausted });
+  if (mediaStatsResult.failed > 0 || mediaStatsResult.errors.length > 0) {
+    hadFailure = true;
+    errors.push(...mediaStatsResult.errors);
+  }
+
+  const dryRun = segmentResult.dryRun && statsResult.dryRun && mediaSegmentResult.dryRun && mediaStatsResult.dryRun;
 
   if (!dryRun && !hadFailure) {
     console.log('[Cloud-V1] Stats Foundation sync completed successfully');
@@ -1018,6 +1173,8 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
   return {
     segments: segmentResult,
     stats: statsResult,
+    mediaSegments: mediaSegmentResult,
+    mediaStats: mediaStatsResult,
     hadFailure,
     dryRun,
     errors,

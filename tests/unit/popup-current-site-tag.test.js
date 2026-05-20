@@ -64,13 +64,15 @@ ${source}
 this.__resolveDomainTag = resolveDomainTag;
 this.__resolveTodayDomainSeconds = resolveTodayDomainSeconds;
 this.__resolveLiveSessionSeconds = resolveLiveSessionSeconds;
-this.__formatRuntimeTodayDuration = formatRuntimeTodayDuration;
+this.__resolveModeUsageWithLive = resolveModeUsageWithLive;
+this.__formatRuntimeSessionDuration = formatRuntimeSessionDuration;
 this.__setMode = setMode;
 `, context, { filename: 'popup.js' });
   const resolveDomainTag = context.__resolveDomainTag;
   const resolveTodayDomainSeconds = context.__resolveTodayDomainSeconds;
   const resolveLiveSessionSeconds = context.__resolveLiveSessionSeconds;
-  const formatRuntimeTodayDuration = context.__formatRuntimeTodayDuration;
+  const resolveModeUsageWithLive = context.__resolveModeUsageWithLive;
+  const formatRuntimeSessionDuration = context.__formatRuntimeSessionDuration;
   const setMode = context.__setMode;
 
   expectEqual('no domain -> 不计时页面', resolveDomainTag(null, {}), '不计时页面');
@@ -121,16 +123,47 @@ this.__setMode = setMode;
   );
   expectEqual(
     'runtime duration shows seconds for live debugging',
-    formatRuntimeTodayDuration(75),
-    '今日 1分15秒'
+    formatRuntimeSessionDuration(75),
+    '本次 1分15秒'
   );
   expectEqual(
-    'runtime duration adds durable plus live seconds',
-    formatRuntimeTodayDuration(
-      resolveTodayDomainSeconds('desmos.com', { 'www.desmos.com': 180 }) +
+    'runtime duration uses live session only',
+    formatRuntimeSessionDuration(
       resolveLiveSessionSeconds('desmos.com', { currentDomain: 'desmos.com', currentSessionDurationSeconds: 60 })
     ),
-    '今日 4分'
+    '本次 1分'
+  );
+  expectEqual(
+    'mode usage adds live seconds to current study mode only',
+    JSON.stringify(resolveModeUsageWithLive(
+      { studySeconds: 120, restSeconds: 15, compositeSeconds: 90, onlineSeconds: 225 },
+      { studyList: ['desmos.com'] },
+      { mode: 'study', currentDomain: 'desmos.com', currentSessionDurationSeconds: 30 }
+    )),
+    JSON.stringify({ studySeconds: 150, restSeconds: 15, compositeSeconds: 90, onlineSeconds: 255, liveSeconds: 30 })
+  );
+  expectEqual(
+    'mode usage keeps settled mode attribution instead of reclassifying domains',
+    JSON.stringify(resolveModeUsageWithLive(
+      { studySeconds: 0, restSeconds: 0, compositeSeconds: 60, onlineSeconds: 60, 'desmos.com': 999 },
+      { studyList: ['desmos.com'] },
+      { mode: 'rest', currentDomain: 'other.example', currentSessionDurationSeconds: 0 }
+    )),
+    JSON.stringify({ studySeconds: 0, restSeconds: 0, compositeSeconds: 60, onlineSeconds: 60, liveSeconds: 0 })
+  );
+  expectEqual(
+    'mode usage ignores mismatched live session domain',
+    JSON.stringify(resolveModeUsageWithLive(
+      { studySeconds: 180, compositeSeconds: 0, onlineSeconds: 180 },
+      { studyList: ['desmos.com'] },
+      { mode: 'study', currentDomain: '', currentSessionDurationSeconds: 30 }
+    )),
+    JSON.stringify({ studySeconds: 180, restSeconds: 0, compositeSeconds: 0, onlineSeconds: 180, liveSeconds: 0 })
+  );
+  expectEqual(
+    'popup reads backgroundMediaSeconds from mode stats',
+    String(source.includes('stats.backgroundMediaSeconds || stats.audioSeconds')),
+    'true'
   );
   await setMode('composite');
   const modeSwitch = sentMessages.find((msg) => msg?.type === 'SWITCH_TO_COMPOSITE');
@@ -139,7 +172,7 @@ this.__setMode = setMode;
     noticeTabId: 123,
   }));
 
-  console.log('[popup-current-site-tag] 14/14 passed');
+  console.log('[popup-current-site-tag] 17/17 passed');
 }
 
 run().catch((err) => {

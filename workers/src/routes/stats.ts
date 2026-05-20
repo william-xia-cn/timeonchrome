@@ -21,6 +21,14 @@ async function verifyDeviceToken(env: Env, token: string): Promise<{ profileId: 
 
 const VALID_CHANNELS = new Set(['active', 'backgroundMedia', 'pip']);
 const VALID_MODES = new Set(['study', 'rest', 'paused', 'unknown', 'composite']);
+const VALID_MEDIA_CLASSES = new Set(['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip']);
+const MEDIA_CLASS_FIELDS = [
+  ['foregroundAudio', 'foregroundAudioSeconds'],
+  ['backgroundAudio', 'backgroundAudioSeconds'],
+  ['foregroundVideo', 'foregroundVideoSeconds'],
+  ['backgroundVideo', 'backgroundVideoSeconds'],
+  ['pip', 'pipSeconds'],
+] as const;
 
 function validateSegment(s: any): string | null {
   if (!s || typeof s !== 'object') return 'segment must be an object';
@@ -41,6 +49,19 @@ function validateStatsV1Domain(d: any): string | null {
   if (!d.channel || !VALID_CHANNELS.has(d.channel)) return `domain.channel must be one of: ${[...VALID_CHANNELS].join(', ')}`;
   if (!d.mode || !VALID_MODES.has(d.mode)) return `domain.mode must be one of: ${[...VALID_MODES].join(', ')}`;
   if (typeof d.durationSeconds !== 'number' || d.durationSeconds < 0) return 'domain.durationSeconds must be >= 0';
+  return null;
+}
+
+function validateMediaSegment(s: any): string | null {
+  if (!s || typeof s !== 'object') return 'segment must be an object';
+  if (!s.id || typeof s.id !== 'string') return 'segment.id is required';
+  if (!s.date || typeof s.date !== 'string') return 'segment.date is required';
+  if (typeof s.startMs !== 'number' || typeof s.endMs !== 'number') return 'segment.startMs/endMs must be numbers';
+  if (s.endMs <= s.startMs) return 'segment.endMs must be > startMs';
+  if (typeof s.durationSeconds !== 'number' || !Number.isFinite(s.durationSeconds) || s.durationSeconds < 0) return 'segment.durationSeconds must be >= 0';
+  if (!s.domain || typeof s.domain !== 'string') return 'segment.domain is required';
+  if (!s.mediaClass || !VALID_MEDIA_CLASSES.has(s.mediaClass)) return `segment.mediaClass must be one of: ${[...VALID_MEDIA_CLASSES].join(', ')}`;
+  if (!s.mode || !VALID_MODES.has(s.mode)) return `segment.mode must be one of: ${[...VALID_MODES].join(', ')}`;
   return null;
 }
 
@@ -81,10 +102,190 @@ function reconciliationStatus(statsSeconds: number, segmentSeconds: number): str
   return 'mismatch';
 }
 
+async function verifyProfileDevice(env: Env, profileId: string, deviceId: string | null): Promise<boolean> {
+  if (!deviceId) return true;
+  const device = await env.DB.prepare(
+    `SELECT id FROM devices WHERE id = ? AND profile_id = ?`
+  ).bind(deviceId, profileId).first<{ id: string }>();
+  return !!device;
+}
+
 export const statsRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
     const path = url.pathname;
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: POST /device/media-segments/v1 — 上传已结算的媒体分段
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (request.method === 'POST' && path === '/device/media-segments/v1') {
+      const auth = request.headers.get('Authorization');
+      if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
+
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+
+      try {
+        const body = await request.json<{ segments?: any[] }>();
+        const segments = body?.segments;
+        if (!Array.isArray(segments) || segments.length === 0) {
+          return json({ error: 'segments array required' }, 400);
+        }
+
+        const now = Date.now();
+        let inserted = 0;
+        let updated = 0;
+        let failed = 0;
+        const errors: string[] = [];
+
+        for (const s of segments) {
+          const validationError = validateMediaSegment(s);
+          if (validationError) {
+            failed++;
+            errors.push(`${s?.id || 'unknown'}: ${validationError}`);
+            continue;
+          }
+          const normalizedDomain = normalizeHostname(s.domain);
+          if (!normalizedDomain) {
+            failed++;
+            errors.push(`${s.id}: invalid domain`);
+            continue;
+          }
+
+          const existing = await env.DB.prepare(
+            `SELECT id FROM media_segments_v1 WHERE id = ?`
+          ).bind(s.id).first<{ id: string }>();
+
+          if (existing) {
+            await env.DB.prepare(
+              `UPDATE media_segments_v1 SET uploaded_at = ?, updated_at = ? WHERE id = ?`
+            ).bind(now, now, s.id).run();
+            updated++;
+          } else {
+            await env.DB.prepare(
+              `INSERT INTO media_segments_v1
+               (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
+                start_ms, end_ms, duration_seconds, domain, tab_id, window_id,
+                media_class, media_kind, visibility, mode, settlement_reason,
+                parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              s.id, device.profileId, s.deviceId || device.deviceId, s.date, s.timezone || 'Asia/Shanghai',
+              typeof s.dayStartMs === 'number' ? s.dayStartMs : 0,
+              typeof s.dayEndMs === 'number' ? s.dayEndMs : 0,
+              s.startMs, s.endMs, s.durationSeconds, normalizedDomain,
+              s.tabId == null ? null : String(s.tabId),
+              typeof s.windowId === 'number' ? s.windowId : null,
+              s.mediaClass, s.mediaKind || null, s.visibility || null, s.mode,
+              s.settlementReason || '', s.parentSegmentId || null,
+              typeof s.partIndex === 'number' ? s.partIndex : 1,
+              typeof s.partCount === 'number' ? s.partCount : 1,
+              s.createdAt || now, s.updatedAt || now, now
+            ).run();
+            inserted++;
+          }
+        }
+
+        return json({
+          success: true,
+          count: inserted + updated,
+          inserted,
+          updated,
+          failed: failed > 0 ? failed : undefined,
+          errors: errors.length > 0 ? errors : undefined,
+        });
+      } catch (e: any) {
+        return json({ error: 'Failed to upload media segments: ' + e.message }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: POST /device/media-stats/v1 — 上传每日媒体聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (request.method === 'POST' && path === '/device/media-stats/v1') {
+      const auth = request.headers.get('Authorization');
+      if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
+
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+
+      try {
+        const body = await request.json<{
+          date?: string; timezone?: string; dayStartMs?: number; dayEndMs?: number;
+          domains?: Array<{ domain: string; byMode?: Record<string, any>; [key: string]: any }>;
+        }>();
+        const date = body?.date;
+        const domains = body?.domains;
+        if (!date || !Array.isArray(domains)) {
+          return json({ error: 'date and domains[] required' }, 400);
+        }
+
+        const expandedRows: Array<{ domain: string; mediaClass: string; mode: string; durationSeconds: number; firstSeenAt?: number; lastSeenAt?: number }> = [];
+        for (const d of domains) {
+          if (!d?.domain || typeof d.domain !== 'string') continue;
+          const normalizedDomain = normalizeHostname(d.domain);
+          if (!normalizedDomain) continue;
+          const byMode = d.byMode && typeof d.byMode === 'object' ? d.byMode : {};
+          let hasRows = false;
+          for (const [mode, modeStats] of Object.entries(byMode)) {
+            if (!VALID_MODES.has(mode) || !modeStats || typeof modeStats !== 'object') continue;
+            for (const [mediaClass, field] of MEDIA_CLASS_FIELDS) {
+              const seconds = Number((modeStats as any)[field] || 0);
+              if (seconds > 0) {
+                expandedRows.push({ domain: normalizedDomain, mediaClass, mode, durationSeconds: seconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+                hasRows = true;
+              }
+            }
+          }
+          if (!hasRows) {
+            for (const [mediaClass, field] of MEDIA_CLASS_FIELDS) {
+              const seconds = Number(d[field] || 0);
+              if (seconds > 0) {
+                expandedRows.push({ domain: normalizedDomain, mediaClass, mode: 'unknown', durationSeconds: seconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+              }
+            }
+          }
+        }
+
+        if (expandedRows.length === 0) {
+          return json({ error: 'no valid media stats rows after expansion' }, 400);
+        }
+
+        const now = Date.now();
+        let upserted = 0;
+        for (const row of expandedRows) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM daily_media_stats_v1
+             WHERE profile_id = ? AND device_id = ? AND date = ? AND domain = ? AND media_class = ? AND mode = ?`
+          ).bind(device.profileId, device.deviceId, date, row.domain, row.mediaClass, row.mode).first<{ id: string }>();
+          if (existing) {
+            await env.DB.prepare(
+              `UPDATE daily_media_stats_v1
+               SET duration_seconds = ?, first_seen_at = ?, last_seen_at = ?, updated_at = ?
+               WHERE id = ?`
+            ).bind(row.durationSeconds, row.firstSeenAt || null, row.lastSeenAt || null, now, existing.id).run();
+          } else {
+            await env.DB.prepare(
+              `INSERT INTO daily_media_stats_v1
+               (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
+                domain, media_class, mode, duration_seconds, first_seen_at, last_seen_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              crypto.randomUUID(), device.profileId, device.deviceId, date, body.timezone || 'Asia/Shanghai',
+              typeof body.dayStartMs === 'number' ? body.dayStartMs : 0,
+              typeof body.dayEndMs === 'number' ? body.dayEndMs : 0,
+              row.domain, row.mediaClass, row.mode, row.durationSeconds,
+              row.firstSeenAt || null, row.lastSeenAt || null, now, now
+            ).run();
+          }
+          upserted++;
+        }
+
+        return json({ success: true, count: upserted, date, expandedRows: expandedRows.length });
+      } catch (e: any) {
+        return json({ error: 'Failed to upload media stats v1: ' + e.message }, 500);
+      }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // V1: POST /device/usage-segments/v1 — 上传已结算的使用分段
@@ -376,19 +577,157 @@ export const statsRouter = {
         return d.toISOString().split('T')[0];
       })();
       const to = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
+      const deviceId = url.searchParams.get('deviceId');
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
 
+      const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
+      const binds: any[] = [profileId, from, to];
+      if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
       const result = await env.DB.prepare(
-        `SELECT date, timezone, day_start_ms, day_end_ms,
+        `SELECT device_id, date, timezone, day_start_ms, day_end_ms,
                 domain, channel, mode, duration_seconds,
                 first_seen_at, last_seen_at, updated_at
          FROM stats_v1
-         WHERE profile_id = ? AND date >= ? AND date <= ?
+         WHERE ${where.join(' AND ')}
          ORDER BY date DESC, domain ASC, channel ASC, mode ASC`
-      ).bind(profileId, from, to).all<{
-        date: string; timezone: string; day_start_ms: number; day_end_ms: number;
+      ).bind(...binds).all<{
+        device_id: string; date: string; timezone: string; day_start_ms: number; day_end_ms: number;
         domain: string; channel: string; mode: string; duration_seconds: number;
         first_seen_at: number; last_seen_at: number; updated_at: number;
       }>();
+
+      return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/media-segments/v1 — 查询云端媒体落账明细
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const mediaSegmentsV1Match = path.match(/^\/profiles\/([^/]+)\/media-segments\/v1$/);
+    if (request.method === 'GET' && mediaSegmentsV1Match) {
+      const profileId = mediaSegmentsV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      const rawDomain = url.searchParams.get('domain');
+      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
+      const mediaClass = url.searchParams.get('mediaClass');
+      const deviceId = url.searchParams.get('deviceId');
+      const limit = parsePositiveInt(url.searchParams.get('limit'), 200, 500);
+      const cursor = decodeSegmentCursor(url.searchParams.get('cursor'));
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      if (rawDomain && !domain) return json({ error: 'invalid domain' }, 400);
+      if (mediaClass && !VALID_MEDIA_CLASSES.has(mediaClass)) return json({ error: 'invalid mediaClass' }, 400);
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+
+      const where: string[] = ['profile_id = ?'];
+      const binds: any[] = [profileId];
+      if (from) { where.push('date >= ?'); binds.push(from); }
+      if (to) { where.push('date <= ?'); binds.push(to); }
+      if (domain) { where.push('domain = ?'); binds.push(domain); }
+      if (mediaClass) { where.push('media_class = ?'); binds.push(mediaClass); }
+      if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
+      if (cursor) {
+        where.push('(start_ms < ? OR (start_ms = ? AND id < ?))');
+        binds.push(cursor.startMs, cursor.startMs, cursor.id);
+      }
+      binds.push(limit + 1);
+
+      const result = await env.DB.prepare(
+        `SELECT id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
+                start_ms, end_ms, duration_seconds, domain, tab_id, window_id,
+                media_class, media_kind, visibility, mode, settlement_reason,
+                parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at
+         FROM media_segments_v1
+         WHERE ${where.join(' AND ')}
+         ORDER BY start_ms DESC, id DESC
+         LIMIT ?`
+      ).bind(...binds).all<any>();
+
+      const rows = result.results || [];
+      const page = rows.slice(0, limit);
+      const hasMore = rows.length > limit;
+      const last = page[page.length - 1];
+      const summary = page.reduce((acc: any, row: any) => {
+        const seconds = Number(row.duration_seconds || 0);
+        acc.totalSeconds += seconds;
+        acc.mediaClassSeconds[row.media_class] = (acc.mediaClassSeconds[row.media_class] || 0) + seconds;
+        return acc;
+      }, { totalSeconds: 0, mediaClassSeconds: {} as Record<string, number> });
+
+      return json({
+        segments: page.map((row: any) => ({
+          id: row.id,
+          deviceId: row.device_id,
+          date: row.date,
+          timezone: row.timezone,
+          dayStartMs: row.day_start_ms,
+          dayEndMs: row.day_end_ms,
+          startMs: row.start_ms,
+          endMs: row.end_ms,
+          durationSeconds: row.duration_seconds,
+          domain: row.domain,
+          tabId: row.tab_id,
+          windowId: row.window_id,
+          mediaClass: row.media_class,
+          mediaKind: row.media_kind,
+          visibility: row.visibility,
+          mode: row.mode,
+          settlementReason: row.settlement_reason,
+          parentSegmentId: row.parent_segment_id,
+          partIndex: row.part_index,
+          partCount: row.part_count,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          uploadedAt: row.uploaded_at,
+        })),
+        summary,
+        hasMore,
+        nextCursor: hasMore && last ? encodeSegmentCursor(last.start_ms, last.id) : null,
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/media-stats/v1 — 查询云端媒体每日聚合
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const mediaStatsV1Match = path.match(/^\/profiles\/([^/]+)\/media-stats\/v1$/);
+    if (request.method === 'GET' && mediaStatsV1Match) {
+      const profileId = mediaStatsV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from') || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+      })();
+      const to = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
+      const deviceId = url.searchParams.get('deviceId');
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+
+      const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
+      const binds: any[] = [profileId, from, to];
+      if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
+      const result = await env.DB.prepare(
+        `SELECT device_id, date, timezone, day_start_ms, day_end_ms,
+                domain, media_class, mode, duration_seconds,
+                first_seen_at, last_seen_at, updated_at
+         FROM daily_media_stats_v1
+         WHERE ${where.join(' AND ')}
+         ORDER BY date DESC, domain ASC, media_class ASC, mode ASC`
+      ).bind(...binds).all<any>();
 
       return json({ stats: result.results || [] });
     }
@@ -528,6 +867,7 @@ export const statsRouter = {
       const to = url.searchParams.get('to');
       const rawDomain = url.searchParams.get('domain');
       const domain = rawDomain ? normalizeHostname(rawDomain) : null;
+      const deviceId = url.searchParams.get('deviceId');
       const limit = parsePositiveInt(url.searchParams.get('limit'), 200, 500);
       const cursor = decodeSegmentCursor(url.searchParams.get('cursor'));
       if ((from && !isDateKey(from)) || (to && !isDateKey(to))) {
@@ -538,6 +878,9 @@ export const statsRouter = {
       }
       if (url.searchParams.get('cursor') && !cursor) {
         return json({ error: 'invalid cursor' }, 400);
+      }
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) {
+        return json({ error: 'Device not found' }, 404);
       }
 
       const where: string[] = ['profile_id = ?'];
@@ -553,6 +896,10 @@ export const statsRouter = {
       if (domain) {
         where.push('domain = ?');
         binds.push(domain);
+      }
+      if (deviceId) {
+        where.push('device_id = ?');
+        binds.push(deviceId);
       }
 
       const summaryWhere = where.join(' AND ');
@@ -575,7 +922,7 @@ export const statsRouter = {
       }
 
       const result = await env.DB.prepare(
-        `SELECT id, date, timezone, day_start_ms, day_end_ms,
+        `SELECT id, device_id, date, timezone, day_start_ms, day_end_ms,
                 start_ms, end_ms, duration_seconds, domain, channel, mode,
                 source_state, settlement_reason,
                 parent_segment_id, part_index, part_count,
@@ -585,7 +932,7 @@ export const statsRouter = {
          ORDER BY start_ms DESC, id DESC
          LIMIT ?`
       ).bind(...queryBinds, limit + 1).all<{
-        id: string; date: string; timezone: string; day_start_ms: number; day_end_ms: number;
+        id: string; device_id: string; date: string; timezone: string; day_start_ms: number; day_end_ms: number;
         start_ms: number; end_ms: number; duration_seconds: number; domain: string; channel: string; mode: string;
         source_state: string; settlement_reason: string;
         parent_segment_id: string | null; part_index: number; part_count: number;
@@ -598,6 +945,7 @@ export const statsRouter = {
       return json({
         segments: pageRows.map((row) => ({
           id: row.id,
+          deviceId: row.device_id,
           date: row.date,
           timezone: row.timezone,
           dayStartMs: row.day_start_ms,

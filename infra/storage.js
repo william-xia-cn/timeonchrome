@@ -396,6 +396,43 @@ function isDailyUsageStatsAuthoritative(dayStats) {
   return !!dayStats.suspectCleanup?.excludeSuspect;
 }
 
+function addModeSeconds(target, source = {}) {
+  target.studySeconds += Math.max(0, Number(source.study) || 0);
+  target.restSeconds += Math.max(0, Number(source.rest) || 0);
+  target.compositeSeconds += Math.max(0, Number(source.composite) || 0);
+}
+
+function buildPopupSettledModeStats(dayStats) {
+  const summary = {
+    studySeconds: 0,
+    restSeconds: 0,
+    compositeSeconds: 0,
+    onlineSeconds: 0,
+    backgroundMediaSeconds: 0,
+    pipSeconds: 0,
+  };
+  if (!dayStats || !dayStats.domains) return summary;
+
+  for (const ds of Object.values(dayStats.domains)) {
+    if (!ds) continue;
+    addModeSeconds(summary, ds.activeByMode || {});
+    summary.onlineSeconds += Math.max(0, Number(ds.activeSeconds) || 0) + Math.max(0, Number(ds.pipSeconds) || 0);
+    summary.backgroundMediaSeconds += Math.max(0, Number(ds.backgroundMediaSeconds) || 0);
+    summary.pipSeconds += Math.max(0, Number(ds.pipSeconds) || 0);
+  }
+  return summary;
+}
+
+export async function getPopupSettledModeStats(date = getDateKey()) {
+  try {
+    const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
+    const allStats = data[DAILY_USAGE_STATS_KEY] || {};
+    return buildPopupSettledModeStats(allStats[date]);
+  } catch (_) {
+    return buildPopupSettledModeStats(null);
+  }
+}
+
 /**
  * 从 event-log 聚合指定日期的域名时长（调试/验证/回退保留）。
  */

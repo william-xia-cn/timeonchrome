@@ -196,7 +196,7 @@ test('综合 → 学习：自动切换后显示短暂成功提示并自动消失
   }
 });
 
-test('综合 → 学习：自动 gate 成功后显示页面角标', async () => {
+test('综合 → 学习：自动立即切换后显示页面角标', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('composite');
   try {
@@ -207,7 +207,7 @@ test('综合 → 学习：自动 gate 成功后显示页面角标', async () => 
     await forceMode(sw, page, 'composite');
     expect(await getMode(sw)).toBe('composite');
 
-    const result = await triggerAutoTransition(sw, page, 45_000);
+    const result = await triggerAutoTransition(sw, page, 0);
     expect(result.success).toBeTruthy();
     expect(result.tabUrl).toBe(page.url());
     expect(await getMode(sw)).toBe('study');

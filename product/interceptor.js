@@ -8,12 +8,11 @@ import { setCachedEffectiveMode } from '../runtime/session.js';
 const AUTO_TRANSITION_GATES = {
   rest_to_composite: 30_000,
   rest_to_study: 45_000,
-  composite_to_study: 45_000,
 };
 
 const autoTransitionCandidates = new Map();
 const autoModePendingByTab = new Map();
-const STUDY_PENDING_RULES = new Set(['rest_to_study', 'composite_to_study']);
+const STUDY_PENDING_RULES = new Set(['rest_to_study']);
 let modeBoundaryDrainHook = null;
 
 // Pending success notices stored by tabId for reliable delivery after reload.
@@ -424,7 +423,7 @@ async function checkAutoModeTransitionGate(tabId, candidate, nowMs) {
       lastSeenAt: nowMs,
       lastUserActiveAt: nowMs,
     });
-    if (candidate.rule === 'rest_to_composite' || candidate.rule === 'rest_to_study' || candidate.rule === 'composite_to_study') {
+    if (candidate.rule === 'rest_to_composite' || candidate.rule === 'rest_to_study') {
       const targetMode = candidate.toMode;
       const fromMode = candidate.fromMode;
       const remainingCompositeSeconds = (candidate.rule === 'rest_to_composite')
@@ -469,7 +468,7 @@ async function checkAutoModeTransitionGate(tabId, candidate, nowMs) {
     clearPendingNotice(tabId);
     return { passed: true, startAt: existing.startAt, deadlineAt: existing.deadlineAt };
   }
-  if ((candidate.rule === 'rest_to_composite' || candidate.rule === 'rest_to_study' || candidate.rule === 'composite_to_study') && existing.deadlineAt) {
+  if ((candidate.rule === 'rest_to_composite' || candidate.rule === 'rest_to_study') && existing.deadlineAt) {
     const remainingCompositeSeconds = (candidate.rule === 'rest_to_composite')
       ? await computeCompositeRemainingSeconds(candidate.config)
       : 0;
@@ -555,7 +554,24 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
   } else if (currentMode === 'rest' && isStudyDomain && isForeground) {
     pendingAutoCandidate = { rule: 'rest_to_study', fromMode: 'rest', toMode: 'study', domain, config };
   } else if (currentMode === 'composite' && isStudyDomain && isForeground) {
-    pendingAutoCandidate = { rule: 'composite_to_study', fromMode: 'composite', toMode: 'study', domain, config };
+    clearAutoTransitionCandidate(tabId);
+    await clearAutoModePending(tabId, 'mode_changed');
+    await setRuntimeMode('study', {
+      effectiveAtMs: nowMs,
+      reason: 'composite_to_study',
+    });
+    await applyModeTransitionSideEffects({
+      fromMode: 'composite',
+      toMode: 'study',
+      tabId,
+      domain,
+      sendStudyNotice: false,
+    });
+    await sendModeSwitchSuccessNotice(tabId, 'study', 'composite', {
+      domain,
+      noticeText: '已进入学习时间',
+      displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
+    });
   }
 
   if (pendingAutoCandidate) {
@@ -583,7 +599,7 @@ export async function checkAndRemind(tabId, url, monitoringEnabled, options = {}
           remainingCompositeTime: formatSecondsCompact(remainingCompositeSeconds),
           displayDuration: TRANSIENT_NOTICE_DISPLAY_MS,
         }, `已进入综合时间 · 今日综合剩余 ${formatSecondsCompact(remainingCompositeSeconds)}`);
-      } else if (pendingAutoCandidate.rule === 'rest_to_study' || pendingAutoCandidate.rule === 'composite_to_study') {
+      } else if (pendingAutoCandidate.rule === 'rest_to_study') {
         await applyModeTransitionSideEffects({
           fromMode: pendingAutoCandidate.fromMode,
           toMode: pendingAutoCandidate.toMode,

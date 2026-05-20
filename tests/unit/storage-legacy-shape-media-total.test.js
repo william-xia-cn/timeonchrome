@@ -40,7 +40,7 @@ function loadProdModule(relPath, exportNames, injected = {}) {
   return factory(injected);
 }
 
-const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getDateKey'], {
+const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getPopupSettledModeStats', 'getDateKey'], {
   computeAllDomains: () => ({}),
   computeAllDomainsWithAudio: () => ({ domains: {}, audioSeconds: 0, backgroundMediaByDomain: {}, pipSeconds: 0, pipByDomain: {} }),
   matchDomainV12: () => false,
@@ -60,6 +60,18 @@ async function run() {
             backgroundMediaSeconds: 30,
             pipSeconds: 50,
             totalSeconds: 200,
+            activeByMode: { study: 40, composite: 80 },
+            backgroundMediaByMode: { composite: 30 },
+            pipByMode: { study: 10, rest: 40 },
+          },
+          'study.example.com': {
+            activeSeconds: 90,
+            backgroundMediaSeconds: 0,
+            pipSeconds: 0,
+            totalSeconds: 90,
+            activeByMode: { rest: 90 },
+            backgroundMediaByMode: {},
+            pipByMode: {},
           },
         },
       },
@@ -81,6 +93,33 @@ async function run() {
   }
   if ((stats.pipByDomain || {})['video.example.com'] !== 50) {
     throw new Error('expected pipByDomain to retain domain contribution');
+  }
+
+  const popupModeStats = await storageApi.getPopupSettledModeStats();
+  const expectedPopupModeStats = {
+    studySeconds: 40,
+    restSeconds: 90,
+    compositeSeconds: 80,
+    onlineSeconds: 260,
+    backgroundMediaSeconds: 30,
+    pipSeconds: 50,
+  };
+  if (JSON.stringify(popupModeStats) !== JSON.stringify(expectedPopupModeStats)) {
+    throw new Error(`expected popup mode stats ${JSON.stringify(expectedPopupModeStats)}, got ${JSON.stringify(popupModeStats)}`);
+  }
+
+  await mockLocal.set({ daily_usage_stats_v1: {} });
+  const emptyPopupModeStats = await storageApi.getPopupSettledModeStats();
+  const expectedEmpty = {
+    studySeconds: 0,
+    restSeconds: 0,
+    compositeSeconds: 0,
+    onlineSeconds: 0,
+    backgroundMediaSeconds: 0,
+    pipSeconds: 0,
+  };
+  if (JSON.stringify(emptyPopupModeStats) !== JSON.stringify(expectedEmpty)) {
+    throw new Error('expected missing popup mode stats to return zeros without fallback');
   }
 
   console.log('PASS storage-legacy-shape-media-total');

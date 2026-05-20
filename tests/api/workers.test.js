@@ -186,6 +186,7 @@ async function testDeviceBind() {
     check('bind returns device_token', typeof data?.device_token === 'string' && data.device_token.length === 64, JSON.stringify(data));
     // Save the server-generated token for all subsequent requests
     if (data?.device_token) state.deviceToken = data.device_token;
+    if (data?.device_id) state.deviceId = data.device_id;
   }
 
   // Heartbeat with device token
@@ -421,6 +422,12 @@ async function testUsageSegmentsReadV1() {
     check('usage segments domain filter → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
     check('usage segments domain filter returns matching domain', (data?.segments || []).every(s => s.domain === 'api-new.example.com'), JSON.stringify(data?.segments));
   }
+
+  if (state.deviceId) {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/usage-segments/v1?deviceId=${encodeURIComponent(state.deviceId)}&from=${dateStr}&to=${dateStr}`, null, state.accountToken);
+    check('usage segments device filter → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('usage segments return deviceId', (data?.segments || []).every(s => s.deviceId === state.deviceId), JSON.stringify(data?.segments));
+  }
 }
 
 async function testStatsReconciliationV1() {
@@ -515,6 +522,95 @@ async function testStatsReconciliationV1() {
     check('reconciliation returns stats_missing', byDomain['api-rec-segonly.example.com']?.status === 'stats_missing', JSON.stringify(byDomain['api-rec-segonly.example.com']));
     check('reconciliation returns segments_missing', byDomain['api-rec-statsonly.example.com']?.status === 'segments_missing', JSON.stringify(byDomain['api-rec-statsonly.example.com']));
     check('reconciliation summary has mismatch count', Number(data?.summary?.mismatchCount || 0) >= 3, JSON.stringify(data?.summary));
+  }
+}
+
+async function testMediaSegmentsAndStatsV1() {
+  section('Media Segments and Stats v1');
+
+  if (!state.deviceToken || !state.accountToken || !state.profileId) {
+    console.log('  ⚠ Skipped (missing tokens)');
+    return;
+  }
+
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const dayStartMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const dayEndMs = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
+  const base = Date.now() - 240000;
+  const classes = ['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip'];
+  const segments = classes.map((mediaClass, idx) => ({
+    id: `api-media-${mediaClass}-${base}`,
+    date: dateStr,
+    timezone: 'Asia/Shanghai',
+    dayStartMs,
+    dayEndMs,
+    startMs: base + idx * 60000,
+    endMs: base + idx * 60000 + 30000,
+    durationSeconds: 30,
+    domain: `api-media-${mediaClass.toLowerCase()}.example.com`,
+    tabId: 100 + idx,
+    windowId: 200 + idx,
+    mediaClass,
+    mediaKind: mediaClass === 'pip' || mediaClass.includes('Video') ? 'video' : 'audio',
+    visibility: mediaClass === 'pip' ? 'pip' : (mediaClass.startsWith('foreground') ? 'foreground' : 'background'),
+    mode: idx % 2 === 0 ? 'study' : 'rest',
+    settlementReason: 'media_checkpoint_estimated_close',
+  }));
+
+  {
+    const { status, data } = await api('POST', '/device/media-segments/v1', { segments }, state.deviceToken);
+    check('POST /device/media-segments/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('media segments accepted all classes', Number(data?.count || 0) === classes.length, JSON.stringify(data));
+  }
+
+  {
+    const { status, data } = await api('POST', '/device/media-segments/v1', { segments: [segments[0]] }, state.deviceToken);
+    check('duplicate media segment upsert → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+  }
+
+  {
+    const { status, data } = await api('POST', '/device/media-stats/v1', {
+      schemaVersion: 1,
+      date: dateStr,
+      timezone: 'Asia/Shanghai',
+      dayStartMs,
+      dayEndMs,
+      domains: [{
+        domain: 'api-media-stats.example.com',
+        byMode: {
+          study: { foregroundAudioSeconds: 10, backgroundVideoSeconds: 20, pipSeconds: 30 },
+          rest: { backgroundAudioSeconds: 40, foregroundVideoSeconds: 50 },
+        },
+      }],
+    }, state.deviceToken);
+    check('POST /device/media-stats/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('media stats expanded rows', Number(data?.expandedRows || 0) === 5, JSON.stringify(data));
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/media-segments/v1?from=${dateStr}&to=${dateStr}&limit=2`, null, state.accountToken);
+    check('GET /profiles/:id/media-segments/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('media segments are newest first', data?.segments?.[0]?.mediaClass === 'pip', JSON.stringify(data?.segments));
+    check('media segments pagination exposes nextCursor', data?.hasMore === true && typeof data?.nextCursor === 'string', JSON.stringify(data));
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/media-segments/v1?mediaClass=backgroundAudio`, null, state.accountToken);
+    check('media segments mediaClass filter → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('mediaClass filter returns matching rows', (data?.segments || []).every(s => s.mediaClass === 'backgroundAudio'), JSON.stringify(data?.segments));
+  }
+
+  if (state.deviceId) {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/media-segments/v1?deviceId=${encodeURIComponent(state.deviceId)}&from=${dateStr}&to=${dateStr}`, null, state.accountToken);
+    check('media segments device filter → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('media segments return deviceId', (data?.segments || []).every(s => s.deviceId === state.deviceId), JSON.stringify(data?.segments));
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/media-stats/v1?from=${dateStr}&to=${dateStr}`, null, state.accountToken);
+    check('GET /profiles/:id/media-stats/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('media stats returns expanded classes', (data?.stats || []).some(s => s.media_class === 'pip' || s.mediaClass === 'pip'), JSON.stringify(data?.stats));
   }
 }
 
@@ -685,6 +781,7 @@ async function testCleanup() {
     await testSessionUpload();
     await testUsageSegmentsReadV1();
     await testStatsReconciliationV1();
+    await testMediaSegmentsAndStatsV1();
     await testChangelog();
     await testCompositeSessionsEmpty();
     await testDeviceManagement();

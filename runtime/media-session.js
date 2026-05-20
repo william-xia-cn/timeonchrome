@@ -8,6 +8,8 @@ const MEDIA_FRAME_FACTS_KEY = 'media_frame_facts_v1';
 const MEDIA_SESSIONS_KEY = 'media_sessions_v2';
 const MEDIA_SEGMENTS_KEY = 'media_segments_v1';
 const DAILY_MEDIA_STATS_KEY = 'daily_media_stats_v1';
+const MEDIA_SEGMENT_OUTBOX_KEY = 'media_segment_sync_outbox_v1';
+const MEDIA_STATS_OUTBOX_KEY = 'media_stats_sync_outbox_v1';
 const MEDIA_CHECKPOINT_MS = 180 * 1000;
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
 const MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON = 'media_checkpoint_estimated_close';
@@ -481,8 +483,40 @@ async function appendMediaSegments(segments) {
   }
   if (appended > 0) {
     await chrome.storage.local.set({ [MEDIA_SEGMENTS_KEY]: all });
+    await markMediaSegmentsPending(flat.filter((segment) => segment?.id && all[segment.id]).map((segment) => segment.id));
   }
   return appended;
+}
+
+async function markMediaSegmentsPending(segmentIds) {
+  const ids = Array.isArray(segmentIds) ? segmentIds.filter(Boolean) : [segmentIds].filter(Boolean);
+  if (ids.length === 0) return;
+  const data = await chrome.storage.local.get(MEDIA_SEGMENT_OUTBOX_KEY);
+  const outbox = data?.[MEDIA_SEGMENT_OUTBOX_KEY] || { pendingIds: [], retryCounts: {}, lastErrors: {} };
+  const pending = new Set(outbox.pendingIds || []);
+  ids.forEach((id) => pending.add(id));
+  await chrome.storage.local.set({
+    [MEDIA_SEGMENT_OUTBOX_KEY]: {
+      pendingIds: [...pending],
+      retryCounts: outbox.retryCounts || {},
+      lastErrors: outbox.lastErrors || {},
+    },
+  });
+}
+
+async function markMediaStatsDirty(date) {
+  if (!date) return;
+  const data = await chrome.storage.local.get(MEDIA_STATS_OUTBOX_KEY);
+  const outbox = data?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  const dirty = new Set(outbox.dirtyDates || []);
+  dirty.add(date);
+  await chrome.storage.local.set({
+    [MEDIA_STATS_OUTBOX_KEY]: {
+      dirtyDates: [...dirty],
+      retryCounts: outbox.retryCounts || {},
+      lastErrors: outbox.lastErrors || {},
+    },
+  });
 }
 
 function makeEmptyMediaDomainStats() {
@@ -553,6 +587,7 @@ async function incrementDailyMediaStats(segment) {
   day.segmentsCount = Number(day.segmentsCount || 0) + 1;
   day.lastSegmentId = segment.id;
   await chrome.storage.local.set({ [DAILY_MEDIA_STATS_KEY]: stats });
+  await markMediaStatsDirty(segment.date);
 }
 
 async function settleMediaSession(session, endMs, reason = 'media_boundary', options = {}) {
@@ -1026,6 +1061,192 @@ export async function getDailyMediaStats(date = null) {
   const data = await chrome.storage.local.get(DAILY_MEDIA_STATS_KEY);
   const stats = data?.[DAILY_MEDIA_STATS_KEY] || {};
   return date ? (stats[date] || null) : stats;
+}
+
+export async function getPendingMediaSegments() {
+  const [segmentData, outboxData] = await Promise.all([
+    chrome.storage.local.get(MEDIA_SEGMENTS_KEY),
+    chrome.storage.local.get(MEDIA_SEGMENT_OUTBOX_KEY),
+  ]);
+  const allSegments = segmentData?.[MEDIA_SEGMENTS_KEY] || {};
+  const outbox = outboxData?.[MEDIA_SEGMENT_OUTBOX_KEY] || { pendingIds: [], retryCounts: {}, lastErrors: {} };
+  const segments = (outbox.pendingIds || [])
+    .map((id) => allSegments[id])
+    .filter(Boolean)
+    .sort((a, b) => (Number(a.startMs) || 0) - (Number(b.startMs) || 0));
+  return {
+    pendingCount: segments.length,
+    segments,
+    retryCounts: outbox.retryCounts || {},
+    lastErrors: outbox.lastErrors || {},
+  };
+}
+
+export async function markMediaSegmentsUploaded(segmentIds, uploadedAt = Date.now()) {
+  const ids = new Set((Array.isArray(segmentIds) ? segmentIds : [segmentIds]).filter(Boolean));
+  if (ids.size === 0) return;
+  const [segmentData, outboxData] = await Promise.all([
+    chrome.storage.local.get(MEDIA_SEGMENTS_KEY),
+    chrome.storage.local.get(MEDIA_SEGMENT_OUTBOX_KEY),
+  ]);
+  const allSegments = segmentData?.[MEDIA_SEGMENTS_KEY] || {};
+  const outbox = outboxData?.[MEDIA_SEGMENT_OUTBOX_KEY] || { pendingIds: [], retryCounts: {}, lastErrors: {} };
+  for (const id of ids) {
+    if (allSegments[id]) {
+      allSegments[id] = { ...allSegments[id], uploadedAt, updatedAt: Date.now() };
+    }
+    delete outbox.retryCounts?.[id];
+    delete outbox.lastErrors?.[id];
+  }
+  outbox.pendingIds = (outbox.pendingIds || []).filter((id) => !ids.has(id));
+  await chrome.storage.local.set({
+    [MEDIA_SEGMENTS_KEY]: allSegments,
+    [MEDIA_SEGMENT_OUTBOX_KEY]: outbox,
+  });
+}
+
+export async function markMediaSegmentUploadFailed(segmentIds, error) {
+  const ids = (Array.isArray(segmentIds) ? segmentIds : [segmentIds]).filter(Boolean);
+  if (ids.length === 0) return;
+  const data = await chrome.storage.local.get(MEDIA_SEGMENT_OUTBOX_KEY);
+  const outbox = data?.[MEDIA_SEGMENT_OUTBOX_KEY] || { pendingIds: [], retryCounts: {}, lastErrors: {} };
+  const pending = new Set(outbox.pendingIds || []);
+  outbox.retryCounts = outbox.retryCounts || {};
+  outbox.lastErrors = outbox.lastErrors || {};
+  for (const id of ids) {
+    pending.add(id);
+    outbox.retryCounts[id] = Number(outbox.retryCounts[id] || 0) + 1;
+    outbox.lastErrors[id] = String(error || 'upload_failed');
+  }
+  outbox.pendingIds = [...pending];
+  await chrome.storage.local.set({ [MEDIA_SEGMENT_OUTBOX_KEY]: outbox });
+}
+
+export async function getPendingDailyMediaStats() {
+  const [statsData, outboxData] = await Promise.all([
+    chrome.storage.local.get(DAILY_MEDIA_STATS_KEY),
+    chrome.storage.local.get(MEDIA_STATS_OUTBOX_KEY),
+  ]);
+  const allStats = statsData?.[DAILY_MEDIA_STATS_KEY] || {};
+  const outbox = outboxData?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  const stats = {};
+  for (const date of outbox.dirtyDates || []) {
+    if (allStats[date]) stats[date] = allStats[date];
+  }
+  return {
+    pendingCount: Object.keys(stats).length,
+    stats,
+    retryCounts: outbox.retryCounts || {},
+    lastErrors: outbox.lastErrors || {},
+  };
+}
+
+export async function markDailyMediaStatsUploaded(dates, uploadedAt = Date.now()) {
+  const dateSet = new Set((Array.isArray(dates) ? dates : [dates]).filter(Boolean));
+  if (dateSet.size === 0) return;
+  const [statsData, outboxData] = await Promise.all([
+    chrome.storage.local.get(DAILY_MEDIA_STATS_KEY),
+    chrome.storage.local.get(MEDIA_STATS_OUTBOX_KEY),
+  ]);
+  const allStats = statsData?.[DAILY_MEDIA_STATS_KEY] || {};
+  const outbox = outboxData?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  for (const date of dateSet) {
+    if (allStats[date]) {
+      allStats[date] = { ...allStats[date], uploadedAt, lastUploadedAt: uploadedAt };
+    }
+    delete outbox.retryCounts?.[date];
+    delete outbox.lastErrors?.[date];
+  }
+  outbox.dirtyDates = (outbox.dirtyDates || []).filter((date) => !dateSet.has(date));
+  await chrome.storage.local.set({
+    [DAILY_MEDIA_STATS_KEY]: allStats,
+    [MEDIA_STATS_OUTBOX_KEY]: outbox,
+  });
+}
+
+export async function markDailyMediaStatsUploadFailed(dates, error) {
+  const dateList = (Array.isArray(dates) ? dates : [dates]).filter(Boolean);
+  if (dateList.length === 0) return;
+  const data = await chrome.storage.local.get(MEDIA_STATS_OUTBOX_KEY);
+  const outbox = data?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  const dirty = new Set(outbox.dirtyDates || []);
+  outbox.retryCounts = outbox.retryCounts || {};
+  outbox.lastErrors = outbox.lastErrors || {};
+  for (const date of dateList) {
+    dirty.add(date);
+    outbox.retryCounts[date] = Number(outbox.retryCounts[date] || 0) + 1;
+    outbox.lastErrors[date] = String(error || 'upload_failed');
+  }
+  outbox.dirtyDates = [...dirty];
+  await chrome.storage.local.set({ [MEDIA_STATS_OUTBOX_KEY]: outbox });
+}
+
+export async function buildMediaSegmentsUploadPayload(segmentIds) {
+  const ids = Array.isArray(segmentIds) ? segmentIds : [segmentIds];
+  if (ids.length === 0) return { schemaVersion: 1, segments: [] };
+  const data = await chrome.storage.local.get(MEDIA_SEGMENTS_KEY);
+  const allSegments = data?.[MEDIA_SEGMENTS_KEY] || {};
+  const segments = [];
+  for (const id of ids) {
+    const seg = allSegments[id];
+    if (!seg) continue;
+    segments.push({
+      id: seg.id,
+      date: seg.date,
+      timezone: seg.timezone,
+      dayStartMs: seg.dayStartMs,
+      dayEndMs: seg.dayEndMs,
+      startMs: seg.startMs,
+      endMs: seg.endMs,
+      durationSeconds: seg.durationSeconds,
+      domain: seg.domain,
+      tabId: seg.tabId ?? null,
+      windowId: seg.windowId ?? null,
+      mediaClass: seg.mediaClass,
+      mediaKind: seg.mediaKind,
+      visibility: seg.visibility,
+      mode: seg.mode,
+      settlementReason: seg.settlementReason,
+      parentSegmentId: seg.parentSegmentId || null,
+      partIndex: seg.partIndex || 1,
+      partCount: seg.partCount || 1,
+      createdAt: seg.createdAt,
+      updatedAt: seg.updatedAt,
+    });
+  }
+  return { schemaVersion: 1, segments };
+}
+
+export async function buildDailyMediaStatsUploadPayload(date) {
+  const data = await chrome.storage.local.get(DAILY_MEDIA_STATS_KEY);
+  const allStats = data?.[DAILY_MEDIA_STATS_KEY] || {};
+  const dayStats = allStats[date];
+  if (!dayStats || !dayStats.domains) {
+    return { schemaVersion: 1, date, timezone: 'Asia/Shanghai', dayStartMs: null, dayEndMs: null, domains: [] };
+  }
+  const domains = Object.entries(dayStats.domains).map(([domain, ds]) => ({
+    domain,
+    foregroundAudioSeconds: Number(ds?.foregroundAudioSeconds || 0),
+    backgroundAudioSeconds: Number(ds?.backgroundAudioSeconds || 0),
+    foregroundVideoSeconds: Number(ds?.foregroundVideoSeconds || 0),
+    backgroundVideoSeconds: Number(ds?.backgroundVideoSeconds || 0),
+    pipSeconds: Number(ds?.pipSeconds || 0),
+    totalSeconds: Number(ds?.totalSeconds || 0),
+    byMode: ds?.byMode || {},
+    firstSeenAt: ds?.firstSeenAt || null,
+    lastSeenAt: ds?.lastSeenAt || null,
+    lastUpdatedAt: ds?.lastUpdatedAt || null,
+  }));
+  return {
+    schemaVersion: 1,
+    date,
+    timezone: dayStats.timezone || 'Asia/Shanghai',
+    dayStartMs: dayStats.dayStartMs,
+    dayEndMs: dayStats.dayEndMs,
+    segmentsCount: dayStats.segmentsCount || 0,
+    lastSegmentId: dayStats.lastSegmentId || null,
+    domains,
+  };
 }
 
 export async function getMediaSession() {

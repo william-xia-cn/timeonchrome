@@ -1,6 +1,6 @@
 // message-router.js — 命令路由
 
-import { getConfig, saveConfig, getTodayStats, getStatsRange, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission, getTemporaryCompositePermissionRecords } from './infra/storage.js';
+import { getConfig, saveConfig, getTodayStats, getStatsRange, getPopupSettledModeStats, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission, getTemporaryCompositePermissionRecords } from './infra/storage.js';
 import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules, checkAndRemind, redirectToReminder, clearTabModeNotice, sendModeSwitchSuccessNotice, applyModeTransitionSideEffects } from './product/interceptor.js';
 import { checkAllTabsQuota, redirectAllTabs, redirectQuotaViolatingTabs, redirectLockedTabs, getWeekRestSeconds } from './product/quota.js';
@@ -414,6 +414,14 @@ export async function handleMessage(msg, sender) {
       const [config, stats] = await Promise.all([getConfig(), getTodayStats()]);
       return withUsageSummary(stats, config);
     }
+
+    case 'GET_SETTLED_TODAY_STATS': {
+      const [config, stats] = await Promise.all([getConfig(), getTodayStats()]);
+      return withUsageSummary(stats, config);
+    }
+
+    case 'GET_POPUP_SETTLED_MODE_STATS':
+      return await getPopupSettledModeStats();
 
     case 'GET_STATS_RANGE': {
       await flushStatsForRead();

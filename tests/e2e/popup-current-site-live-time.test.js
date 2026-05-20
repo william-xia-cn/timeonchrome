@@ -67,7 +67,7 @@ async function renderRuntime(popup, status, stats = { 'desmos.com': 180 }) {
   }, status);
 }
 
-test('popup current site shows durable plus live session seconds', async () => {
+test('popup current site shows current live session seconds only', async () => {
   const { ctx, sw, udd } = await createContext();
   try {
     const popup = await openPopup(ctx, sw);
@@ -78,14 +78,15 @@ test('popup current site shows durable plus live session seconds', async () => {
 
     expect(rendered.text).toContain('desmos.com');
     expect(rendered.text).toContain('学习网站');
-    expect(rendered.text).toContain('今日 4分15秒');
+    expect(rendered.text).toContain('本次 1分15秒');
+    expect(rendered.text).not.toContain('4分15秒');
     await popup.close();
   } finally {
     await cleanup(ctx, udd);
   }
 });
 
-test('popup current site does not add live seconds for another domain', async () => {
+test('popup current site follows current domain live session only', async () => {
   const { ctx, sw, udd } = await createContext();
   try {
     const popup = await openPopup(ctx, sw);
@@ -93,15 +94,15 @@ test('popup current site does not add live seconds for another domain', async ()
       currentDomain: 'desmos.com',
       currentSessionDurationSeconds: 75,
     }, { 'desmos.com': 180, 'khanacademy.org': 75 });
-    expect(rendered.text).toContain('今日 4分15秒');
+    expect(rendered.text).toContain('本次 1分15秒');
 
     const mismatched = await renderRuntime(popup, {
       currentDomain: 'khanacademy.org',
       currentSessionDurationSeconds: 75,
     }, { 'desmos.com': 180 });
     expect(mismatched.text).toContain('khanacademy.org');
-    expect(mismatched.text).toContain('今日 1分15秒');
-    expect(mismatched.text).not.toContain('今日 4分15秒');
+    expect(mismatched.text).toContain('本次 1分15秒');
+    expect(mismatched.text).not.toContain('4分15秒');
     await popup.close();
   } finally {
     await cleanup(ctx, udd);
