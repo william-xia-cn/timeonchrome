@@ -1,6 +1,6 @@
 // runtime/media-session.js — independent multi-tab media timing ledger
 
-import { getCachedEffectiveMode } from './session.js';
+import { getCachedEffectiveMode, resolveSettlementIdentity } from './session.js';
 
 const LEGACY_MEDIA_SESSION_KEY = 'media_session_v1';
 const MEDIA_FACTS_KEY = 'media_facts_v1';
@@ -384,6 +384,8 @@ function mediaSettlementDescription(session, endReason, endAtMs) {
 
 function makeMediaSegmentId(input) {
   const composite = [
+    input.profileId || '',
+    input.deviceId || '',
     input.date || '',
     String(input.startMs || 0),
     String(input.endMs || 0),
@@ -409,6 +411,8 @@ function buildMediaSegment(input) {
   return {
     id: input.id || makeMediaSegmentId({ ...input, date }),
     schemaVersion: 1,
+    profileId: input.profileId || null,
+    deviceId: input.deviceId || null,
     date,
     timezone: input.timezone || DEFAULT_TIMEZONE,
     dayStartMs: input.dayStartMs || info.dayStartMs,
@@ -766,7 +770,13 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary', opt
   if (!session?.startTime || endMs < session.startTime) {
     return { appended: 0, durationSeconds: 0, skipped: 'invalid_media_session' };
   }
+  const identity = await resolveSettlementIdentity(
+    { domain: session.domain, state: 'MEDIA_ACTIVE' },
+    reason
+  );
   const input = {
+    profileId: identity.profileId,
+    deviceId: identity.deviceId,
     startMs: session.startTime,
     endMs,
     domain: session.domain,
@@ -1512,6 +1522,7 @@ export async function buildMediaSegmentsUploadPayload(segmentIds) {
       visibility: seg.visibility,
       mode: seg.mode,
       settlementReason: seg.settlementReason,
+      description: seg.description || null,
       parentSegmentId: seg.parentSegmentId || null,
       partIndex: seg.partIndex || 1,
       partCount: seg.partCount || 1,

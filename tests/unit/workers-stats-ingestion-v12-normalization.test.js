@@ -59,6 +59,7 @@ function run() {
   const migration009 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '009_site_classification_requests_v1.sql'), 'utf8');
   const migration010 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '010_client_logs_v1.sql'), 'utf8');
   const migration011 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '011_hourly_stats_v1.sql'), 'utf8');
+  const migration012 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '012_cloud_terminal_stats_consistency.sql'), 'utf8');
   const clientLogsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'clientLogs.ts'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
 
@@ -96,6 +97,7 @@ function run() {
   expectTrue('stats.ts 应包含 GET /profiles/:id/hourly-media-stats/v1 路由', source.includes('/hourly-media-stats/v1'));
   expectTrue('media-segments/v1 应校验 mediaClass', source.includes('VALID_MEDIA_CLASSES') && source.includes('foregroundAudio') && source.includes('backgroundVideo'));
   expectTrue('media-segments/v1 应支持按终端过滤并返回 deviceId', source.includes("url.searchParams.get('deviceId')") && source.includes('device_id = ?') && source.includes('deviceId: row.device_id'));
+  expectTrue('media-segments/v1 应保存并返回 description', source.includes('INSERT INTO media_segments_v1') && source.includes('description_json') && source.includes('description: parseJsonField(row.description_json)'));
   expectTrue('media-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('FROM media_segments_v1') && source.includes('ORDER BY start_ms DESC, id DESC'));
   expectTrue('media-stats/v1 应展开 byMode', source.includes('daily_media_stats_v1') && source.includes('byMode') && source.includes('MEDIA_CLASS_FIELDS'));
   expectTrue('008 migration 应创建 media_segments_v1', migration008.includes('CREATE TABLE IF NOT EXISTS media_segments_v1'));
@@ -107,6 +109,10 @@ function run() {
   expectTrue('011 migration 应保留小时 segments 元数据', migration011.includes('segments_count') && migration011.includes('last_segment_id'));
   expectTrue('011 migration usage 小时唯一键应包含 device_id', migration011.includes('UNIQUE (profile_id, device_id, hour_key, domain, channel, mode)'));
   expectTrue('011 migration media 小时唯一键应包含 device_id', migration011.includes('UNIQUE (profile_id, device_id, hour_key, domain, media_class, mode)'));
+  expectTrue('012 migration 应为 usage segments 增加 tab/window/description 字段', migration012.includes('ALTER TABLE usage_segments_v1 ADD COLUMN tab_id') && migration012.includes('ALTER TABLE usage_segments_v1 ADD COLUMN window_id') && migration012.includes('ALTER TABLE usage_segments_v1 ADD COLUMN description_json'));
+  expectTrue('012 migration 应为 media segments 增加 description 字段', migration012.includes('ALTER TABLE media_segments_v1 ADD COLUMN description_json'));
+  expectTrue('012 migration 应将 stats_v1 唯一键改为包含 device_id', migration012.includes('UNIQUE (profile_id, device_id, date, domain, channel, mode)'));
+  expectTrue('012 migration 旧 stats_v1 设备缺失应写为 unknown-device', migration012.includes("'unknown-device'"));
   expectTrue('Worker 应注册网站归类申请路由', workerIndexSource.includes('siteClassificationRequestsRouter') && workerIndexSource.includes('/site-classification-requests'));
   expectTrue('009 migration 应创建 site_classification_requests_v1', migration009.includes('CREATE TABLE IF NOT EXISTS site_classification_requests_v1'));
   expectTrue('009 migration 应按原申请对象去重', migration009.includes('UNIQUE (profile_id, requested_target_type, requested_normalized_value)'));
@@ -129,6 +135,7 @@ function run() {
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
   expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));
   expectTrue('usage-segments/v1 应支持按终端过滤并返回 deviceId', source.includes('device_id = ?') && source.includes('SELECT id, device_id, date') && source.includes('deviceId: row.device_id'));
+  expectTrue('usage-segments/v1 应保存并返回 tab/window/description', source.includes('tab_id = ?') && source.includes('window_id = ?') && source.includes('description_json = ?') && source.includes('tabId: row.tab_id') && source.includes('windowId: row.window_id') && source.includes('description: parseJsonField(row.description_json)'));
   expectTrue('usage-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('ORDER BY start_ms DESC, id DESC'));
   expectTrue('usage-segments/v1 应支持 keyset cursor', source.includes('decodeSegmentCursor') && source.includes('nextCursor'));
   expectTrue('usage-segments/v1 应返回 summary 聚合', source.includes('totalSeconds') && source.includes('activeSeconds') && source.includes('mediaSeconds'));
@@ -141,6 +148,9 @@ function run() {
   expectTrue('stats.ts 应写入 stats_upload_log', source.includes('stats_upload_log'));
   expectTrue('stats.ts 应验证 channel 字段', source.includes("VALID_CHANNELS"));
   expectTrue('stats.ts 应验证 mode 字段', source.includes("VALID_MODES"));
+  expectTrue('stats.ts 应允许 locked 作为云端 mode', source.includes("['study', 'rest', 'locked', 'paused', 'unknown', 'composite']"));
+  expectTrue('Worker /device 上传不得信任 payload deviceId', !source.includes('s.deviceId || device.deviceId'));
+  expectTrue('stats_v1 upsert 应按 device_id 隔离', source.includes('WHERE profile_id = ? AND device_id = ? AND date = ? AND domain = ? AND channel = ? AND mode = ?'));
   expectTrue(
     'usage-segments/v1 应允许正时长亚秒 segment 上传为 durationSeconds=0',
     source.includes("s.durationSeconds < 0") && source.includes("segment.durationSeconds must be >= 0")

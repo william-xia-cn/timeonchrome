@@ -71,6 +71,7 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   '__resetMediaSessionForTest',
 ], {
   getCachedEffectiveMode: () => 'study',
+  resolveSettlementIdentity: async () => ({ profileId: 'media-profile-1', deviceId: 'media-device-1' }),
 });
 
 function check(name, condition, details = '') {
@@ -236,12 +237,15 @@ async function testMediaOutboxAndPayloadBuilders() {
   await mediaApi.closeMediaForTab(51, 'tab_close', { now: base + 15_000 });
   const rows = await segments();
   check('media sync test writes one segment', rows.length === 1, JSON.stringify(rows));
+  check('new media segment stores profile/device identity', rows[0].profileId === 'media-profile-1' && rows[0].deviceId === 'media-device-1', JSON.stringify(rows[0]));
 
   const pendingSegments = await mediaApi.getPendingMediaSegments();
   check('new media segment enters pending outbox', pendingSegments.pendingCount === 1, JSON.stringify(pendingSegments));
   const segmentPayload = await mediaApi.buildMediaSegmentsUploadPayload([rows[0].id]);
   check('media segment payload preserves mediaClass', segmentPayload.segments[0]?.mediaClass === 'backgroundAudio', JSON.stringify(segmentPayload));
   check('media segment payload preserves tab/window/domain', segmentPayload.segments[0]?.tabId === '51' && segmentPayload.segments[0]?.domain === 'sync-media.example.com', JSON.stringify(segmentPayload));
+  check('media segment payload includes description', segmentPayload.segments[0]?.description?.end?.reason === 'tab_close', JSON.stringify(segmentPayload));
+  check('media segment payload excludes profileId', !Object.prototype.hasOwnProperty.call(segmentPayload.segments[0] || {}, 'profileId'), JSON.stringify(segmentPayload));
 
   const pendingStats = await mediaApi.getPendingDailyMediaStats();
   check('daily media stats date enters dirty outbox', pendingStats.pendingCount === 1, JSON.stringify(pendingStats));
@@ -263,6 +267,31 @@ async function testMediaOutboxAndPayloadBuilders() {
   check('uploaded media segment leaves pending outbox', (await mediaApi.getPendingMediaSegments()).pendingCount === 0);
   check('uploaded daily media stats leaves dirty outbox', (await mediaApi.getPendingDailyMediaStats()).pendingCount === 0);
   check('uploaded hourly media stats leaves dirty outbox', (await mediaApi.getPendingHourlyMediaStats()).pendingCount === 0);
+}
+
+async function testMediaSegmentIdIncludesDeviceIdentity() {
+  resetAll();
+  const base = 1778803600000;
+  const mediaApiDevice2 = loadProdModule('runtime/media-session.js', [
+    'applyMediaFacts',
+    'closeMediaForTab',
+    'getMediaSegments',
+    '__resetMediaSessionForTest',
+  ], {
+    getCachedEffectiveMode: () => 'study',
+    resolveSettlementIdentity: async () => ({ profileId: 'media-profile-1', deviceId: 'media-device-2' }),
+  });
+
+  await mediaApi.applyMediaFacts(audioFact(52, 'device-id-media.example.com'), 'mediaState', base);
+  await mediaApi.closeMediaForTab(52, 'tab_close', { now: base + 15_000 });
+  await mediaApiDevice2.applyMediaFacts(audioFact(52, 'device-id-media.example.com'), 'mediaState', base);
+  await mediaApiDevice2.closeMediaForTab(52, 'tab_close', { now: base + 15_000 });
+
+  const rows = await segments();
+  const ids = new Set(rows.map((row) => row.id));
+  const deviceIds = new Set(rows.map((row) => row.deviceId));
+  check('same media fact on different devices keeps two segment ids', rows.length === 2 && ids.size === 2, JSON.stringify(rows));
+  check('media segment device identities are stored', deviceIds.has('media-device-1') && deviceIds.has('media-device-2'), JSON.stringify(rows));
 }
 
 async function testCloseAllSessions() {
@@ -491,6 +520,7 @@ async function run() {
     testPiPTakesPrecedence,
     testCloseWritesLocalMediaSegment,
     testMediaOutboxAndPayloadBuilders,
+    testMediaSegmentIdIncludesDeviceIdentity,
     testCloseAllSessions,
     testCheckpointIgnoresFactsWithoutOpenSessions,
     testCheckpointEstimatedCloseWithoutFreshConfirmation,

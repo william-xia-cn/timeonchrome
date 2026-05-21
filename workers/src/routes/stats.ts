@@ -20,7 +20,7 @@ async function verifyDeviceToken(env: Env, token: string): Promise<{ profileId: 
 // ── Segment payload schema validation ───────────────────────────────────────────
 
 const VALID_CHANNELS = new Set(['active', 'backgroundMedia', 'pip']);
-const VALID_MODES = new Set(['study', 'rest', 'paused', 'unknown', 'composite']);
+const VALID_MODES = new Set(['study', 'rest', 'locked', 'paused', 'unknown', 'composite']);
 const VALID_MEDIA_CLASSES = new Set(['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip']);
 const MEDIA_CLASS_FIELDS = [
   ['foregroundAudio', 'foregroundAudioSeconds'],
@@ -99,6 +99,24 @@ function decodeSegmentCursor(cursor: string | null): { startMs: number; id: stri
   }
 }
 
+function stringifyJsonField(value: any): string | null {
+  if (value === null || value === undefined) return null;
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+function parseJsonField(value: string | null): any | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return null;
+  }
+}
+
 function reconciliationStatus(statsSeconds: number, segmentSeconds: number): string {
   if (statsSeconds === segmentSeconds) return 'match';
   if (statsSeconds <= 0 && segmentSeconds > 0) return 'stats_missing';
@@ -159,11 +177,21 @@ export const statsRouter = {
           const existing = await env.DB.prepare(
             `SELECT id FROM media_segments_v1 WHERE id = ?`
           ).bind(s.id).first<{ id: string }>();
+          const descriptionJson = stringifyJsonField(s.description || null);
 
           if (existing) {
             await env.DB.prepare(
-              `UPDATE media_segments_v1 SET uploaded_at = ?, updated_at = ? WHERE id = ?`
-            ).bind(now, now, s.id).run();
+              `UPDATE media_segments_v1
+               SET tab_id = ?, window_id = ?, description_json = ?, uploaded_at = ?, updated_at = ?
+               WHERE id = ?`
+            ).bind(
+              s.tabId == null ? null : String(s.tabId),
+              typeof s.windowId === 'number' ? s.windowId : null,
+              descriptionJson,
+              now,
+              now,
+              s.id
+            ).run();
             updated++;
           } else {
             await env.DB.prepare(
@@ -171,10 +199,11 @@ export const statsRouter = {
                (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
                 start_ms, end_ms, duration_seconds, domain, tab_id, window_id,
                 media_class, media_kind, visibility, mode, settlement_reason,
-                parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at,
+                description_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
-              s.id, device.profileId, s.deviceId || device.deviceId, s.date, s.timezone || 'Asia/Shanghai',
+              s.id, device.profileId, device.deviceId, s.date, s.timezone || 'Asia/Shanghai',
               typeof s.dayStartMs === 'number' ? s.dayStartMs : 0,
               typeof s.dayEndMs === 'number' ? s.dayEndMs : 0,
               s.startMs, s.endMs, s.durationSeconds, normalizedDomain,
@@ -184,7 +213,8 @@ export const statsRouter = {
               s.settlementReason || '', s.parentSegmentId || null,
               typeof s.partIndex === 'number' ? s.partIndex : 1,
               typeof s.partCount === 'number' ? s.partCount : 1,
-              s.createdAt || now, s.updatedAt || now, now
+              s.createdAt || now, s.updatedAt || now, now,
+              descriptionJson
             ).run();
             inserted++;
           }
@@ -524,7 +554,8 @@ export const statsRouter = {
           const dayEndMs = typeof s.dayEndMs === 'number' ? s.dayEndMs : 0;
           const sourceState = s.sourceState || '';
           const settlementReason = s.settlementReason || '';
-          const deviceId = s.deviceId || device.deviceId;
+          const deviceId = device.deviceId;
+          const descriptionJson = stringifyJsonField(s.description || null);
 
           // Idempotent upsert by segment id
           const existing = await env.DB.prepare(
@@ -532,10 +563,19 @@ export const statsRouter = {
           ).bind(s.id).first<{ id: string }>();
 
           if (existing) {
-            // 已存在：仅更新 uploaded_at
+            // 已存在：更新上传时间与终端诊断字段
             await env.DB.prepare(
-              `UPDATE usage_segments_v1 SET uploaded_at = ?, updated_at = ? WHERE id = ?`
-            ).bind(now, now, s.id).run();
+              `UPDATE usage_segments_v1
+               SET tab_id = ?, window_id = ?, description_json = ?, uploaded_at = ?, updated_at = ?
+               WHERE id = ?`
+            ).bind(
+              s.tabId == null ? null : String(s.tabId),
+              typeof s.windowId === 'number' ? s.windowId : null,
+              descriptionJson,
+              now,
+              now,
+              s.id
+            ).run();
             updated++;
           } else {
             await env.DB.prepare(
@@ -544,15 +584,18 @@ export const statsRouter = {
                 start_ms, end_ms, duration_seconds, domain, channel, mode,
                 source_state, settlement_reason,
                 parent_segment_id, part_index, part_count,
-                created_at, updated_at, uploaded_at)
+                created_at, updated_at, uploaded_at, tab_id, window_id, description_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?)`
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               s.id, device.profileId, deviceId, s.date, timezone, dayStartMs, dayEndMs,
               s.startMs, s.endMs, s.durationSeconds, normalizedDomain, s.channel, s.mode,
               sourceState, settlementReason,
               parentSegmentId, partIndex, partCount,
-              createdAt, updatedAt, now
+              createdAt, updatedAt, now,
+              s.tabId == null ? null : String(s.tabId),
+              typeof s.windowId === 'number' ? s.windowId : null,
+              descriptionJson
             ).run();
             inserted++;
           }
@@ -685,11 +728,11 @@ export const statsRouter = {
         let upserted = 0;
 
         for (const row of expandedRows) {
-          // Idempotent upsert by (profile_id, date, domain, channel, mode)
+          // Idempotent upsert by (profile_id, device_id, date, domain, channel, mode)
           const existing = await env.DB.prepare(
             `SELECT id FROM stats_v1
-             WHERE profile_id = ? AND date = ? AND domain = ? AND channel = ? AND mode = ?`
-          ).bind(device.profileId, date, row.domain, row.channel, row.mode).first<{ id: string }>();
+             WHERE profile_id = ? AND device_id = ? AND date = ? AND domain = ? AND channel = ? AND mode = ?`
+          ).bind(device.profileId, device.deviceId, date, row.domain, row.channel, row.mode).first<{ id: string }>();
 
           if (existing) {
             await env.DB.prepare(
@@ -881,7 +924,8 @@ export const statsRouter = {
         `SELECT id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
                 start_ms, end_ms, duration_seconds, domain, tab_id, window_id,
                 media_class, media_kind, visibility, mode, settlement_reason,
-                parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at
+                parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at,
+                description_json
          FROM media_segments_v1
          WHERE ${where.join(' AND ')}
          ORDER BY start_ms DESC, id DESC
@@ -924,6 +968,7 @@ export const statsRouter = {
           createdAt: row.created_at,
           updatedAt: row.updated_at,
           uploadedAt: row.uploaded_at,
+          description: parseJsonField(row.description_json),
         })),
         summary,
         hasMore,
@@ -1212,9 +1257,9 @@ export const statsRouter = {
       const result = await env.DB.prepare(
         `SELECT id, device_id, date, timezone, day_start_ms, day_end_ms,
                 start_ms, end_ms, duration_seconds, domain, channel, mode,
-                source_state, settlement_reason,
+                tab_id, window_id, source_state, settlement_reason,
                 parent_segment_id, part_index, part_count,
-                created_at, updated_at, uploaded_at
+                created_at, updated_at, uploaded_at, description_json
          FROM usage_segments_v1
          WHERE ${queryWhere.join(' AND ')}
          ORDER BY start_ms DESC, id DESC
@@ -1222,9 +1267,9 @@ export const statsRouter = {
       ).bind(...queryBinds, limit + 1).all<{
         id: string; device_id: string; date: string; timezone: string; day_start_ms: number; day_end_ms: number;
         start_ms: number; end_ms: number; duration_seconds: number; domain: string; channel: string; mode: string;
-        source_state: string; settlement_reason: string;
+        tab_id: string | null; window_id: number | null; source_state: string; settlement_reason: string;
         parent_segment_id: string | null; part_index: number; part_count: number;
-        created_at: number; updated_at: number; uploaded_at: number | null;
+        created_at: number; updated_at: number; uploaded_at: number | null; description_json: string | null;
       }>();
 
       const rows = result.results || [];
@@ -1244,8 +1289,11 @@ export const statsRouter = {
           domain: row.domain,
           channel: row.channel,
           mode: row.mode,
+          tabId: row.tab_id,
+          windowId: row.window_id,
           sourceState: row.source_state,
           settlementReason: row.settlement_reason,
+          description: parseJsonField(row.description_json),
           parentSegmentId: row.parent_segment_id,
           partIndex: row.part_index,
           partCount: row.part_count,

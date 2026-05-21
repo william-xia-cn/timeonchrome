@@ -154,7 +154,7 @@ core/timing-dispatcher.js
 
 ### 1.3.2 Timing settlement 主文档
 
-计时落账、`periodicCheckpoint`、popup 落账、recovery 生命周期容错边界、`heartbeat` 废弃语义、`usage_segments_v1` 本地/云端 schema 差异，统一维护在 `docs/STATS_STORAGE_FOUNDATION.md`。Recovery 是生命周期残留容错机制，不是正常计时落账机制。
+计时落账、`periodicCheckpoint`、popup 落账、recovery 生命周期容错边界、`heartbeat` 废弃语义、`usage_segments_v1` 本地/云端 schema contract，统一维护在 `docs/STATS_STORAGE_FOUNDATION.md`。Recovery 是生命周期残留容错机制，不是正常计时落账机制。
 
 本文件只保留系统架构与测试分级说明；不要在这里新增或复制计时落账规则，避免与 Stats Storage Foundation 产生双份口径。
 
@@ -238,7 +238,7 @@ core/timing-dispatcher.js
 
 `daily_usage_stats_v1` / `hourly_usage_stats_v1`（或等效的云端 `stats_v1` / `hourly_stats_v1` 表）存储**原始用量事实 + 模式上下文**，不存储任何分类、策略决策或解释结果。
 
-`usage_segments_v1` 是 Stats Foundation 的本地事实账本。daily/hourly 都是从 segments 构建的物化索引；跨小时切分只发生在 `hourly_usage_stats_v1` 聚合层，不拆原始 segment。字段、身份解析、上传白名单、本地 `description` 与云端 ingestion schema 差异，统一以 `docs/STATS_STORAGE_FOUNDATION.md` 为准。
+`usage_segments_v1` 是 Stats Foundation 的本地事实账本。daily/hourly 都是从 segments 构建的物化索引；跨小时切分只发生在 `hourly_usage_stats_v1` 聚合层，不拆原始 segment。字段、身份解析、上传白名单、Open/Close 诊断字段与云端 ingestion schema，统一以 `docs/STATS_STORAGE_FOUNDATION.md` 为准。
 
 **必须存储的字段（原始用量事实）：**
 - `date` — 日期（YYYY-MM-DD，用户本地时区）
