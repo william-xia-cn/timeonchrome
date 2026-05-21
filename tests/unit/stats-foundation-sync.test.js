@@ -91,6 +91,14 @@ await usageApi.settleUsageDuration({
   domain: 'sync-seg.com', channel: 'active', mode: 'study',
   sourceState: 'ACTIVE', settlementReason: 'transition_complete',
   profileId: 'p1', deviceId: 'd1',
+  tabId: 101,
+  windowId: 202,
+  description: {
+    schemaVersion: 1,
+    start: { reason: 'tabActivated', operation: null, source: 'chrome_event', atMs: MOCK_TIME - 600000 },
+    end: { reason: 'periodic_checkpoint', operation: null, source: 'timer', atMs: MOCK_TIME },
+    summary: '开始：tabActivated；结束：periodic_checkpoint',
+  },
 });
 
 // Step 2: Verify outbox is dirty
@@ -112,6 +120,10 @@ chk('seg payload channel', sp.channel, 'active');
 chkT('seg payload has date', !!sp.date);
 chkT('seg payload has startMs', typeof sp.startMs === 'number');
 chkT('seg payload has settlementReason', !!sp.settlementReason);
+chk('seg payload has tabId', sp.tabId, 101);
+chk('seg payload has windowId', sp.windowId, 202);
+chk('seg payload has description', sp.description?.end?.reason, 'periodic_checkpoint');
+chk('seg payload excludes profileId', Object.prototype.hasOwnProperty.call(sp, 'profileId'), false);
 
 // Step 4: Simulate successful upload (mock cloud success)
 const uploadTime = Date.now();

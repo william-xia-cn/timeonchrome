@@ -572,7 +572,25 @@ chk('stats last error', df3.lastErrors[todayStr], 'timeout');
 // ── TB29: buildUsageSegmentsUploadPayload ──
 sec('TB29: buildUsageSegmentsUploadPayload');
 mockLocal.reset();
-await api.settleUsageDuration({ startMs: MOCK_TIME-60000, endMs: MOCK_TIME, domain: 'payload.com', channel: 'active', mode: 'rest', sourceState: 'ACTIVE', settlementReason: 'tab_close', profileId: 'p1', deviceId: 'd1' });
+await api.settleUsageDuration({
+  startMs: MOCK_TIME-60000,
+  endMs: MOCK_TIME,
+  domain: 'payload.com',
+  channel: 'active',
+  mode: 'rest',
+  sourceState: 'ACTIVE',
+  settlementReason: 'tab_close',
+  profileId: 'p1',
+  deviceId: 'd1',
+  tabId: 778,
+  windowId: 991,
+  description: {
+    schemaVersion: 1,
+    start: { reason: 'tabActivated', operation: null, source: 'chrome_event', atMs: MOCK_TIME - 60000 },
+    end: { reason: 'tab_close', operation: null, source: 'chrome_event', atMs: MOCK_TIME },
+    summary: '开始：tabActivated；结束：tab_close',
+  },
+});
 const p = await api.getPendingUsageSegments();
 const payload = await api.buildUsageSegmentsUploadPayload(p.segments.map(s => s.id));
 chk('payload schemaVersion', payload.schemaVersion, 1);
@@ -583,9 +601,10 @@ chk('payload domain', pSeg.domain, 'payload.com');
 chk('payload channel', pSeg.channel, 'active');
 chk('payload mode', pSeg.mode, 'rest');
 chk('payload settlementReason', pSeg.settlementReason, 'tab_close');
-chk('payload excludes local description', Object.prototype.hasOwnProperty.call(pSeg, 'description'), false);
-chk('payload excludes local tabId', Object.prototype.hasOwnProperty.call(pSeg, 'tabId'), false);
-chk('payload excludes local windowId', Object.prototype.hasOwnProperty.call(pSeg, 'windowId'), false);
+chk('payload includes description end reason', pSeg.description?.end?.reason, 'tab_close');
+chk('payload includes tabId', pSeg.tabId, 778);
+chk('payload includes windowId', pSeg.windowId, 991);
+chk('payload excludes profileId', Object.prototype.hasOwnProperty.call(pSeg, 'profileId'), false);
 chk('payload durationSeconds', pSeg.durationSeconds, 60);
 chkT('payload has date', !!pSeg.date);
 chkT('payload has timezone', !!pSeg.timezone);

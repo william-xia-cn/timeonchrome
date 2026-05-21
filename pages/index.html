@@ -2634,6 +2634,30 @@ function cloudDeviceLabel(deviceId) {
   return device?.device_name || device?.name || `终端 ${String(deviceId).slice(0, 8)}`;
 }
 
+function cloudEndpointOperation(description, side) {
+  const endpoint = description?.[side];
+  if (!endpoint || typeof endpoint !== 'object') return '—';
+  return endpoint.reason || endpoint.operation || '—';
+}
+
+function buildCloudSettlementRemarkHtml(row, sourceLabel = null) {
+  const tab = row?.tabId != null && row.tabId !== '' ? String(row.tabId) : '—';
+  const win = row?.windowId != null && row.windowId !== '' ? String(row.windowId) : '—';
+  const open = cloudEndpointOperation(row?.description, 'start');
+  const close = cloudEndpointOperation(row?.description, 'end');
+  const source = sourceLabel || row?.sourceState || '—';
+  const title = `tab=${tab}; window=${win}; open=${open}; close=${close}; source=${source}`;
+  return `
+    <div style="line-height:1.45;white-space:nowrap;" title="${escHtml(title)}">
+      <div>tab：${escHtml(tab)}</div>
+      <div>window：${escHtml(win)}</div>
+      <div>open：${escHtml(open)}</div>
+      <div>close：${escHtml(close)}</div>
+      <div>来源：${escHtml(source)}</div>
+    </div>
+  `;
+}
+
 function selectedCloudDeviceLabel(selectId) {
   const value = document.getElementById(selectId)?.value || '';
   return value ? cloudDeviceLabel(value) : '全部终端';
@@ -2741,7 +2765,7 @@ function renderCloudSettlementTable(rows) {
             <th style="padding:8px;">计时类型</th>
             <th style="padding:8px;">模式</th>
             <th style="padding:8px;min-width:150px;">落账原因</th>
-            <th style="padding:8px;">来源状态</th>
+            <th style="padding:8px;min-width:130px;">备注</th>
             <th style="padding:8px;">状态</th>
           </tr>
         </thead>
@@ -2756,7 +2780,7 @@ function renderCloudSettlementTable(rows) {
               <td style="padding:8px;">${escHtml(settlementTypeLabel(row))}</td>
               <td style="padding:8px;">${escHtml(row.mode || '—')}</td>
               <td style="padding:8px;">${escHtml(row.settlementReason || '—')}</td>
-              <td style="padding:8px;">${escHtml(row.sourceState || '—')}</td>
+              <td style="padding:8px;">${buildCloudSettlementRemarkHtml(row)}</td>
               <td style="padding:8px;">云端</td>
             </tr>
           `).join('')}
@@ -2889,6 +2913,7 @@ function renderCloudMediaTable(rows) {
             <th style="padding:8px;">可见性</th>
             <th style="padding:8px;">模式</th>
             <th style="padding:8px;min-width:150px;">落账原因</th>
+            <th style="padding:8px;min-width:130px;">备注</th>
             <th style="padding:8px;">状态</th>
           </tr>
         </thead>
@@ -2904,6 +2929,7 @@ function renderCloudMediaTable(rows) {
               <td style="padding:8px;">${escHtml(row.visibility || '—')}</td>
               <td style="padding:8px;">${escHtml(row.mode || '—')}</td>
               <td style="padding:8px;">${escHtml(row.settlementReason || '—')}</td>
+              <td style="padding:8px;">${buildCloudSettlementRemarkHtml(row, row.visibility || row.mediaKind || '—')}</td>
               <td style="padding:8px;">云端</td>
             </tr>
           `).join('')}

@@ -5,7 +5,7 @@
 关联：`docs/DESIGN.md` 只保留架构索引
 日期：2026-05-06（Revised 2026-05-20）
 
-> **Authoritative source**：计时落账、session close/open、checkpoint、recovery、`usage_segments_v1` 本地/云端 schema 差异，以本文档为准。其他文档不再重复维护这些细节，只链接到本文档。
+> **Authoritative source**：计时落账、session close/open、checkpoint、recovery、`usage_segments_v1` 本地/云端 schema contract，以本文档为准。其他文档不再重复维护这些细节，只链接到本文档。
 
 ---
 
@@ -370,6 +370,8 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 
 `mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟只处理当前 open media session。对于 open `pip` session，checkpoint 必须先按全局 PiP policy 重试 cleanup；cleanup 成功则关闭本地 `pip` session，不再进入普通 checkpoint 重开。cleanup 失败时，仍按真实媒体事实继续确认和 checkpoint，避免丢失禁用 PiP 仍在播放的事实。非 PiP session 必须先用该 session 的 `tabId` 精确确认当前媒体事实仍成立；确认成功才写 `periodic_checkpoint` 并重开。`lastObservedAt` 只代表真实媒体事实来源，checkpoint 不能把它刷新为当前时间。
 
+云端媒体 segment mirror 使用独立 `/device/media-segments/v1` 协议。当前 `buildMediaSegmentsUploadPayload()` 会上传 `description`；D1 `media_segments_v1` 以 `description_json` 保存并在 Pages 媒体落账明细中显示 Open/Close 备注。媒体 segment 的 `profile_id/device_id` 仍由 device token 归属决定，payload 中的 identity 不作为写入归属依据。
+
 如果 checkpoint 无法确认 open media session（tab 不存在、分类不匹配、domain/window/tab 不匹配，或 PiP 已不存在），则按半未确认窗口估算闭合：`closeAt = lastConfirmedAt + (now - lastConfirmedAt) / 2`，写入 `settlementReason = media_checkpoint_estimated_close`，`description.end.reason = media_checkpoint_estimated_half_interval_close`，并删除 open session，不重开。tab close/navigation/分类变化仍会关闭旧 media session 并写本地 segment。
 
 Mode boundary 是系统级账务边界。由于当前 PiP policy 为全局禁止，任何 mode boundary 发现 open `pip` session 时都必须先尝试共享 cleanup；cleanup 成功后用 `pip_forbidden_cleanup` 关闭 `pip` session，不以 `mode_effective_boundary_reopen` 重开 PiP；cleanup 失败时保留事实并按 mode boundary 切片，表示禁用 PiP 仍在持续。页面内仍有非 PiP 视频/音频事实时，可按新 mode 重分类为普通 foreground/background media。
@@ -457,13 +459,13 @@ usage_segments_v1 (chrome.storage.local)
 | `createdAt` | number | ✅ | Segment 创建 epoch ms |
 | `uploadedAt` | number｜null | ❌ | Segment 上传到云端的 epoch ms（或 null） |
 
-#### 本地诊断字段与云端上传差异
+#### 诊断字段与云端同步
 
-`usage_segments_v1` 的本地账本 schema 可以包含本地诊断字段，例如 `description`、`tabId`、`windowId`，用于保存 segment 的 open/close 操作来源、reason、可读摘要和运行期 tab/window 引用。这类字段属于本地诊断/未来分析预留，不自动成为云端上传协议的一部分。
+`usage_segments_v1` 的本地账本 schema 可以包含诊断字段，例如 `description`、`tabId`、`windowId`，用于保存 segment 的 open/close 操作来源、reason、可读摘要和运行期 tab/window 引用。
 
-当前 `buildUsageSegmentsUploadPayload()` 是显式白名单构造器：它只输出云端 v1 ingestion 固定字段，不会把本地 segment 对象上的所有字段透传到 Worker。当前 v1 上传字段不包含 `description`、`tabId`、`windowId`，因此这些本地诊断字段不上传、不写入 D1 `usage_segments_v1`、不参与云端查询或 Pages 展示。
+当前 `buildUsageSegmentsUploadPayload()` 仍是显式白名单构造器：它只输出云端 v1 ingestion 固定字段，不会把本地 segment 对象上的所有字段透传到 Worker。当前白名单已经包含 `description`、`tabId`、`windowId`；云端 D1 `usage_segments_v1` 以 `description_json`、`tab_id`、`window_id` 保存，并在 Pages 云端落账明细中以紧凑备注列展示。
 
-正式发布前必须确认本地 runtime schema 与 cloud ingestion schema 是否需要收敛：若要求云端可查 Open/Close 操作，需要同步修改上传 payload、Worker 校验/插入、D1 migration、云端查询和 Pages 展示；若保持本地-only，则该差异必须继续作为已知设计约束记录。
+字段一致性仍以白名单为准：新增本地字段不会自动进入云端；若未来增加新的诊断或分析字段，必须同步修改上传 payload、Worker 校验/插入、D1 migration、云端查询、Pages/admin 展示和测试。
 
 ### 4.3 结算规则
 
@@ -685,15 +687,20 @@ export async function ingestUsageSegments(profileId: string, segments: SegmentPa
       INSERT INTO usage_segments_v1 (id, profile_id, device_id, date, timezone,
         day_start_ms, day_end_ms, start_ms, end_ms, duration_seconds,
         domain, channel, mode, source_state, settlement_reason,
-        parent_segment_id, part_index, part_count, created_at, uploaded_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at,
+        tab_id, window_id, description_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (id) DO UPDATE SET
+        tab_id = excluded.tab_id,
+        window_id = excluded.window_id,
+        description_json = excluded.description_json,
         uploaded_at = excluded.uploaded_at
     `).bind(
-      seg.id, profileId, seg.deviceId, seg.date, seg.timezone,
+      seg.id, profileId, tokenDeviceId, seg.date, seg.timezone,
       seg.dayStartMs, seg.dayEndMs, seg.startMs, seg.endMs, seg.durationSeconds,
       normalizedDomain, seg.channel, seg.mode, seg.sourceState, seg.settlementReason,
-      seg.parentSegmentId, seg.partIndex, seg.partCount, seg.createdAt, Date.now()
+      seg.parentSegmentId, seg.partIndex, seg.partCount, seg.createdAt, Date.now(), Date.now(),
+      seg.tabId, seg.windowId, JSON.stringify(seg.description || null)
     ).run();
     inserted++;
   }
@@ -724,7 +731,11 @@ CREATE TABLE usage_segments_v1 (
   part_index          INTEGER NOT NULL DEFAULT 1,
   part_count          INTEGER NOT NULL DEFAULT 1,
   created_at          INTEGER NOT NULL,
-  uploaded_at         INTEGER
+  updated_at          INTEGER,
+  uploaded_at         INTEGER,
+  tab_id              TEXT,
+  window_id           INTEGER,
+  description_json    TEXT
 );
 
 CREATE INDEX idx_useg_profile_date      ON usage_segments_v1 (profile_id, date);
@@ -736,23 +747,23 @@ CREATE INDEX idx_useg_domain_channel    ON usage_segments_v1 (domain, channel);
 
 ```sql
 CREATE TABLE stats_v1 (
-  id                        TEXT PRIMARY KEY,
-  profile_id                TEXT NOT NULL,
-  date                      TEXT NOT NULL,
-  domain                    TEXT NOT NULL,
-  active_seconds            INTEGER NOT NULL DEFAULT 0,
-  background_media_seconds  INTEGER NOT NULL DEFAULT 0,
-  pip_seconds               INTEGER NOT NULL DEFAULT 0,
-  active_by_mode            TEXT NOT NULL DEFAULT '{}',
-  background_media_by_mode  TEXT NOT NULL DEFAULT '{}',
-  pip_by_mode               TEXT NOT NULL DEFAULT '{}',
-  segments_count            INTEGER NOT NULL DEFAULT 0,
-  last_segment_id           TEXT,
-  first_seen_at             INTEGER NOT NULL,
-  last_seen_at              INTEGER NOT NULL,
-  updated_at                INTEGER NOT NULL,
+  id                TEXT PRIMARY KEY,
+  profile_id        TEXT NOT NULL,
+  device_id         TEXT NOT NULL,
+  date              TEXT NOT NULL,
+  timezone          TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+  day_start_ms      INTEGER,
+  day_end_ms        INTEGER,
+  domain            TEXT NOT NULL,
+  channel           TEXT NOT NULL,
+  mode              TEXT NOT NULL,
+  duration_seconds  INTEGER NOT NULL,
+  first_seen_at     INTEGER,
+  last_seen_at      INTEGER,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL,
 
-  UNIQUE (profile_id, date, domain)
+  UNIQUE (profile_id, device_id, date, domain, channel, mode)
 );
 ```
 
@@ -810,12 +821,13 @@ CREATE TABLE hourly_media_stats_v1 (
 
 1. **不允许 date-level replace**
 2. Segments：使用 `ON CONFLICT (id) DO UPDATE` — idempotent；重复 segment ID 不创建新行
-3. Stats：使用 `ON CONFLICT (profile_id, date, domain) DO UPDATE` — 合并 by-domain
+3. Stats：使用 `(profile_id, device_id, date, domain, channel, mode)` 唯一键逐行 upsert；未传 `deviceId` 查询时返回所有终端行，由读取层汇总
 4. Hourly stats：使用 `ON CONFLICT (profile_id, device_id, hour_key, domain, channel, mode) DO UPDATE`
 5. Hourly media stats：使用 `ON CONFLICT (profile_id, device_id, hour_key, domain, media_class, mode) DO UPDATE`
 6. 当前有效载荷中缺失的数据不暗示删除
 7. 所有三个 usage duration channels + by-mode，以及媒体五类 mediaClass + byMode，从一开始就支持
-8. Cloud audit log（`segment_upload_log`、`stats_upload_log`）跟踪每次上传操作；小时聚合沿用 stats sync trace，后续如需独立 audit log 再补 schema
+8. `/device/*` 上传端点的 `device_id` 一律来自 `device_token` 解析出的设备身份；payload 中的 `deviceId` 只作为历史兼容输入，不决定云端写入归属
+9. Cloud audit log（`segment_upload_log`、`stats_upload_log`）跟踪每次上传操作；小时聚合沿用 stats sync trace，后续如需独立 audit log 再补 schema
 
 ---
 
@@ -926,7 +938,7 @@ GET /profiles/:id/reconcile?date=2026-05-06
 | T3 | 跨日会话拆分为多个 segments | 午夜分割产生两个 by-date segments，parent/part 元数据正确 |
 | T4 | event-log 压缩不影响 segments 或聚合 | `usage_segments_v1`、`daily_usage_stats_v1` 和 `hourly_usage_stats_v1` 在压缩后保留完整数据 |
 | T5 | Segment 上传是幂等的 | 重复 `POST /device/usage-segments/v1` 不创建重复行 |
-| T6 | Cloud aggregate 可以从 cloud segments 对账 | `SUM(segments) WHERE profile+date+domain+channel` 等于 `stats_v1` 值 |
+| T6 | Cloud aggregate 可以从 cloud segments 对账 | `SUM(segments) WHERE profile+device+date+domain+channel+mode` 等于 `stats_v1` 值 |
 | T7 | active/backgroundMedia/PiP 保持分离 | Duration channels 在本地存储和云端中保持独立 |
 | T8 | Mode breakdown 跨 segments 保留 | `mode` 字段在 segment 上传和聚合重建中存活 |
 | T9 | 分类在原始统计数据之外派生 | 策略变更修改分类结果而不修改原始统计数据 |
@@ -1219,7 +1231,11 @@ CREATE TABLE usage_segments_v1 (
   part_index          INTEGER NOT NULL DEFAULT 1,
   part_count          INTEGER NOT NULL DEFAULT 1,
   created_at          INTEGER NOT NULL,
+  updated_at          INTEGER,
   uploaded_at         INTEGER,
+  tab_id              TEXT,
+  window_id           INTEGER,
+  description_json    TEXT,
   FOREIGN KEY (profile_id) REFERENCES profiles(id)
 );
 
@@ -1231,23 +1247,23 @@ CREATE INDEX idx_usegs_profile_date_domain ON usage_segments_v1 (profile_id, dat
 
 ```sql
 CREATE TABLE stats_v1 (
-  id                        TEXT PRIMARY KEY,
-  profile_id                TEXT NOT NULL,
-  date                      TEXT NOT NULL,
-  domain                    TEXT NOT NULL,
-  active_seconds            INTEGER NOT NULL DEFAULT 0,
-  background_media_seconds  INTEGER NOT NULL DEFAULT 0,
-  pip_seconds               INTEGER NOT NULL DEFAULT 0,
-  active_by_mode            TEXT NOT NULL DEFAULT '{}',
-  background_media_by_mode  TEXT NOT NULL DEFAULT '{}',
-  pip_by_mode               TEXT NOT NULL DEFAULT '{}',
-  segments_count            INTEGER NOT NULL DEFAULT 0,
-  last_segment_id           TEXT,
-  first_seen_at             INTEGER NOT NULL,
-  last_seen_at              INTEGER NOT NULL,
-  updated_at                INTEGER NOT NULL,
+  id                TEXT PRIMARY KEY,
+  profile_id        TEXT NOT NULL,
+  device_id         TEXT NOT NULL,
+  date              TEXT NOT NULL,
+  timezone          TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+  day_start_ms      INTEGER,
+  day_end_ms        INTEGER,
+  domain            TEXT NOT NULL,
+  channel           TEXT NOT NULL,
+  mode              TEXT NOT NULL,
+  duration_seconds  INTEGER NOT NULL,
+  first_seen_at     INTEGER,
+  last_seen_at      INTEGER,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL,
   FOREIGN KEY (profile_id) REFERENCES profiles(id),
-  UNIQUE (profile_id, date, domain)
+  UNIQUE (profile_id, device_id, date, domain, channel, mode)
 );
 
 CREATE INDEX idx_stats_v1_pd ON stats_v1 (profile_id, date);
