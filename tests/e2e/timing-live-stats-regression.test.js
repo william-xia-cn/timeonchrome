@@ -5,10 +5,10 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
 
 async function createContext() {
-  const udd = path.resolve(__dirname, `../../test-e2e-profile-p0-${Date.now()}`);
+  const udd = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-p0-${Date.now()}`);
   fs.mkdirSync(udd, { recursive: true });
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,

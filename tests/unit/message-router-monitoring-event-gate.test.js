@@ -34,7 +34,7 @@ function section(name) {
 }
 
 function loadHandleMessage(stubs, fetchImpl) {
-  const abs = path.join(__dirname, '..', '..', 'message-router.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'message-router.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');

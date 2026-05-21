@@ -18,7 +18,7 @@ function check(desc, condition) {
 }
 
 function read(rel) {
-  return fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf8');
+  return fs.readFileSync(path.join(__dirname, '..', '..', 'extension', rel), 'utf8');
 }
 
 const background = read('background.js');
@@ -26,6 +26,10 @@ const dispatcher = read('core/timing-dispatcher.js');
 const foreground = read('core/foreground-timing.js');
 const media = read('core/media-timing.js');
 const scheduler = read('core/checkpoint-scheduler.js');
+const managedStats = read('stats/managed-statistics.js');
+const messageRouter = read('message-router.js');
+const quota = read('product/quota.js');
+const cloudSync = read('infra/cloud-sync.js');
 
 check('background delegates timing signal processing to dispatcher', background.includes('dispatchTimingSignal') && !background.includes('async function processTimingSignal'));
 check('background does not directly import media ledger mutators', !/applyMediaFacts|runMediaPeriodicCheckpoint|getMediaFact/.test(background));
@@ -37,6 +41,18 @@ check('foreground module owns foreground session transitions', /transitionStateA
 check('media module does not touch foreground usage ledger', !/transitionStateAt|usage_segments_v1/.test(media));
 check('media module owns media ledger mutators', /applyMediaFacts/.test(media) && /closeMediaForTab/.test(media));
 check('checkpoint scheduler has independent foreground and media try blocks', /foreground checkpoint failed/.test(scheduler) && /media checkpoint failed/.test(scheduler));
+check('managed statistics module owns read model semantics', /getTodayUsageView/.test(managedStats) && /getQuotaUsageView/.test(managedStats) && /getSettlementAnalysisView/.test(managedStats));
+check('managed statistics does not import ledger mutators or product actions', !/transitionStateAt|flushOpenSessionToStats|applyMediaFacts|closeMediaForTab|redirect|notify|checkAllTabsQuota/.test(managedStats));
+check('message router delegates stats views to managed statistics', /from '\.\/stats\/managed-statistics\.js'/.test(messageRouter) && /getTodayUsageView|getUsageRangeView|getSettlementAnalysisView/.test(messageRouter));
+check('message router no longer owns usage summary helpers', !/function\s+withUsageSummary|function\s+readCompositeSeconds|function\s+getSettlementAnalysisRange/.test(messageRouter));
+check('quota consumes managed quota usage view', /getQuotaUsageView/.test(quota) && !/getTodayStats|getStatsRange|getTodayUndeterminedStats/.test(quota));
+check('background registers local quota_check alarm as message entry', /chrome\.alarms\.create\('quota_check'/.test(background) && /EVALUATE_QUOTA_STATE/.test(background));
+check('background quota_check does not call legacy all-tab quota redirect', !/checkAllTabsQuota|redirectAllTabs|redirectQuotaViolatingTabs/.test(background));
+check('background has no legacy auto-study scanner', !/checkAutoStudy|autoStudyConfig|auto_study_legacy/.test(background));
+check('quota module has no tab redirect helpers', !/checkAllTabsQuota|redirectAllTabs|redirectQuotaViolatingTabs|redirectLockedTabs/.test(quota));
+check('background computes foreground facts for navigation route checks', /webNavigation\.onCommitted[\s\S]*isForegroundTab\(tab\)[\s\S]*source: 'webNavigationCommitted'/.test(background));
+check('background re-evaluates active tab when URL fact arrives', /tabs\.onUpdated[\s\S]*hasUrlFact[\s\S]*reevaluateTabById\(tabId,[\s\S]*tabUpdatedUrl/.test(background));
+check('cloud quota pull saves facts without redirect callbacks', /pullCloudQuotaState\(getConfigFn, saveConfigFn\)/.test(cloudSync) && !/redirectAllTabsFn|redirectQuotaViolatingTabsFn|chrome\.notifications\.create/.test(cloudSync));
 
 const total = passed + failed;
 console.log(`\n[Timing Decoupling Structure] ${passed}/${total} passed${failed ? ' FAILED' : ''}`);

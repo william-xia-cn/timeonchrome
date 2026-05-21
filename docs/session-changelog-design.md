@@ -103,7 +103,7 @@ ChangeLogEntry {
 | `change_daily_quota` | 修改每日配额 | 每日上网时间限制从 60 分钟改为 90 分钟 |
 | `change_schedule` | 修改时间段 | 修改了允许上网时间段设置 |
 | `toggle_enabled` | 启用/停用 | 启用了家长守护 / 暂停了家长守护 |
-| `toggle_auto_switch` | 切换自动模式 | 启用了自动切换学习模式 |
+| `toggle_auto_switch` | 切换自动模式 | 旧自动切换开关事件，当前 Mode Service 不再使用 |
 | `manual_switch_to_study` | 手动切学习 | 手动切换到学习模式 |
 | `manual_switch_to_rest` | 手动切休息 | 手动切换到休息模式 |
 | `auto_switch_to_study` | 自动切学习 | 系统自动切换到学习模式 |

@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 function loadProdModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf8');
 
   code = code.replace(/^\s*import .*?;\s*$/gm, '');

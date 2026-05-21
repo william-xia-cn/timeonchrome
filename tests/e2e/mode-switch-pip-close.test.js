@@ -14,7 +14,7 @@ const {
   readLedgerSnapshot,
 } = require('./helpers/ledger-assertions');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
 
 async function startServer() {
   const server = http.createServer((req, res) => {
@@ -38,7 +38,7 @@ async function startServer() {
 }
 
 async function createContext(initialMode) {
-  const udd = path.resolve(__dirname, `../../test-e2e-profile-mode-pip-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const udd = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-mode-pip-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   fs.mkdirSync(udd, { recursive: true });
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,
@@ -200,7 +200,7 @@ async function seedFakePiP(page, sw) {
 
 async function bannerText(page) {
   return await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     if (!host || !host.shadowRoot) return '';
     const banner = host.shadowRoot.getElementById('toc-pending-banner');
     return banner ? banner.textContent || '' : '';

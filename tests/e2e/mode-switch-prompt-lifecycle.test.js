@@ -6,7 +6,31 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
+
+async function seedModePromptConfig(sw, mode) {
+  await sw.evaluate(async (nextMode) => {
+    await chrome.storage.local.set({
+      guardian_config: {
+        enabled: true,
+        mode: nextMode,
+        studyList: ['127.0.0.1'],
+        compositeList: ['localhost'],
+        restrictedEntertainmentList: [],
+        unsafeList: [],
+        blacklist: [],
+        quotaState: {
+          onlineLocked: false,
+          studyLocked: false,
+          restLocked: false,
+          undeterminedLocked: false,
+        },
+      },
+      guardian_session: { currentMode: nextMode },
+      cloud_monitoring_enabled: 1,
+    });
+  }, mode);
+}
 
 async function startServer() {
   const server = http.createServer((req, res) => {
@@ -28,7 +52,7 @@ async function startServer() {
 }
 
 async function createContext(initialMode) {
-  const udd = path.resolve(__dirname, `../../test-e2e-profile-mode-prompt-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const udd = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-mode-prompt-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   fs.mkdirSync(udd, { recursive: true });
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,
@@ -36,26 +60,44 @@ async function createContext(initialMode) {
   });
   let sw = ctx.serviceWorkers()[0];
   if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
+  // On a fresh unpacked profile, runtime.onInstalled can still be writing the
+  // default config after the service worker is visible. Seed after that initial
+  // install write settles, otherwise the test study/composite lists can be
+  // overwritten and the page may redirect to reminder.html before assertions.
+  await sw.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
+  await seedModePromptConfig(sw, initialMode);
   await sw.evaluate(async (mode) => {
-    await chrome.storage.local.set({
-      guardian_config: {
-        enabled: true,
-        mode,
-        studyList: ['127.0.0.1'],
-        compositeList: ['localhost'],
-        restrictedEntertainmentList: [],
-        unsafeList: [],
-        blacklist: [],
-        quotaState: {
-          onlineLocked: false,
-          studyLocked: false,
-          restLocked: false,
-          undeterminedLocked: false,
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+      if (
+        stored.guardian_config?.studyList?.includes('127.0.0.1') &&
+        stored.guardian_config?.compositeList?.includes('localhost') &&
+        stored.guardian_session?.currentMode === mode
+      ) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await chrome.storage.local.set({
+        guardian_config: {
+          enabled: true,
+          mode,
+          studyList: ['127.0.0.1'],
+          compositeList: ['localhost'],
+          restrictedEntertainmentList: [],
+          unsafeList: [],
+          blacklist: [],
+          quotaState: {
+            onlineLocked: false,
+            studyLocked: false,
+            restLocked: false,
+            undeterminedLocked: false,
+          },
         },
-      },
-      guardian_session: { currentMode: mode },
-      cloud_monitoring_enabled: 1,
-    });
+        guardian_session: { currentMode: mode },
+        cloud_monitoring_enabled: 1,
+      });
+    }
+    throw new Error('mode prompt test config did not stabilize');
   }, initialMode);
   return { ctx, sw, udd };
 }
@@ -124,6 +166,26 @@ async function forceMode(sw, page, mode) {
   }, { tabId, mode });
 }
 
+async function setModeSession(sw, patch) {
+  await sw.evaluate(async (patch) => {
+    const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
+    await chrome.storage.local.set({
+      guardian_config: {
+        ...(stored.guardian_config || {}),
+        studyList: [],
+        compositeList: [],
+        restrictedEntertainmentList: [],
+        unsafeList: [],
+        blacklist: [],
+      },
+      guardian_session: {
+        ...(stored.guardian_session || {}),
+        ...patch,
+      },
+    });
+  }, patch);
+}
+
 async function triggerAutoTransition(sw, page, durationMs = 45_000) {
   await page.bringToFront();
   const tabId = await tabIdForPage(sw, page);
@@ -162,7 +224,7 @@ async function sendSyntheticPending(sw, page, targetMode, fromMode) {
 
 async function bannerText(page) {
   return await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     if (!host || !host.shadowRoot) return '';
     const banner = host.shadowRoot.getElementById('toc-pending-banner');
     return banner ? banner.textContent || '' : '';
@@ -171,9 +233,21 @@ async function bannerText(page) {
 
 async function bannerExists(page) {
   return await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
   });
+}
+
+async function recentModeEffectTraces(sw) {
+  return await sw.evaluate(async () => {
+    const data = await chrome.storage.local.get('mode_effect_trace_v1');
+    return Array.isArray(data.mode_effect_trace_v1) ? data.mode_effect_trace_v1 : [];
+  });
+}
+
+async function hasRenderedModeNoticeTrace(sw) {
+  const rows = await recentModeEffectTraces(sw);
+  return rows.some((row) => row?.result?.noticeAttempted === true && row?.result?.noticeRendered === true);
 }
 
 test('综合 → 学习：自动切换后显示短暂成功提示并自动消失', async () => {
@@ -185,10 +259,12 @@ test('综合 → 学习：自动切换后显示短暂成功提示并自动消失
     await page.bringToFront();
     await page.waitForTimeout(500);
 
-    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
+    const switchResponse = await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
     expect(await getMode(sw)).toBe('study');
+    expect(switchResponse.noticeRendered).toBe(true);
 
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已回到学习模式');
+    await expect.poll(() => hasRenderedModeNoticeTrace(sw), { timeout: 5000 }).toBe(true);
     await expect.poll(() => bannerExists(page), { timeout: 8000 }).toBe(false);
     await page.close();
   } finally {
@@ -212,7 +288,10 @@ test('综合 → 学习：自动立即切换后显示页面角标', async () => 
     expect(result.tabUrl).toBe(page.url());
     expect(await getMode(sw)).toBe('study');
 
-    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已进入学习时间');
+    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('你正在打开学习网站');
+    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('即将进入学习模式');
+    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('今日剩余 不限');
+    await expect.poll(() => hasRenderedModeNoticeTrace(sw), { timeout: 5000 }).toBe(true);
     await expect.poll(() => bannerExists(page), { timeout: 8000 }).toBe(false);
     await page.close();
   } finally {
@@ -232,12 +311,68 @@ test('学习 → 综合：切换前旧 pending 被清理，成功提示按 TTL �
     await sendSyntheticPending(sw, page, 'composite', 'study');
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('秒后进入综合时间');
 
-    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
+    const switchResponse = await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
     expect(await getMode(sw)).toBe('composite');
+    expect(switchResponse.noticeRendered).toBe(true);
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已进入综合模式');
     expect(await bannerText(page)).not.toContain('秒后进入综合时间');
 
     await expect.poll(() => bannerExists(page), { timeout: 8000 }).toBe(false);
+    await page.close();
+  } finally {
+    await cleanup(ctx, udd, serverCtx.server);
+  }
+});
+
+test('Rest Exit Grace 生效时访问未归类目标自动回 Rest 且不弹 Reminder', async () => {
+  const serverCtx = await startServer();
+  const { ctx, sw, udd } = await createContext('study');
+  try {
+    const page = await ctx.newPage();
+    await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.bringToFront();
+    await page.waitForTimeout(500);
+
+    const nowMs = Date.now();
+    await setModeSession(sw, {
+      currentMode: 'study',
+      currentModeStartedAtMs: nowMs - 30_000,
+      restExitGraceUntilMs: nowMs + 30_000,
+    });
+
+    const result = await triggerAutoTransition(sw, page, 0);
+    expect(result.success).toBeTruthy();
+    expect(result.blockedStart || result.blockedEnd).toBeFalsy();
+    expect(await getMode(sw)).toBe('rest');
+    expect(page.url()).not.toContain('reminder.html');
+    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已临时回到休息时间');
+    await page.close();
+  } finally {
+    await cleanup(ctx, udd, serverCtx.server);
+  }
+});
+
+test('Rest Exit Grace 过期后即使 currentModeStartedAtMs 很新也必须弹 Reminder', async () => {
+  const serverCtx = await startServer();
+  const { ctx, sw, udd } = await createContext('composite');
+  try {
+    const page = await ctx.newPage();
+    await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.bringToFront();
+    await page.waitForTimeout(500);
+
+    const nowMs = Date.now();
+    await setModeSession(sw, {
+      currentMode: 'composite',
+      currentModeStartedAtMs: nowMs,
+      restExitGraceUntilMs: nowMs - 1000,
+    });
+
+    const result = await triggerAutoTransition(sw, page, 0);
+    expect(result.success).toBeTruthy();
+    expect(result.blockedStart || result.blockedEnd).toBeTruthy();
+    expect(await getMode(sw)).toBe('composite');
+    await expect.poll(() => page.url(), { timeout: 5000 }).toContain('reminder.html');
     await page.close();
   } finally {
     await cleanup(ctx, udd, serverCtx.server);

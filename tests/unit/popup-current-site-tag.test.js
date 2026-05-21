@@ -12,7 +12,7 @@ function expectEqual(name, actual, expected) {
 }
 
 async function run() {
-  const popupJsPath = path.join(__dirname, '..', '..', 'popup', 'popup.js');
+  const popupJsPath = path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.js');
   const source = fs.readFileSync(popupJsPath, 'utf8');
   const elements = new Map();
   const elementFor = (id) => {
@@ -124,6 +124,28 @@ this.__renderRuntimeStatus = renderRuntimeStatus;
     '未归类网站'
   );
   expectEqual(
+    'pending site classification request -> 已申请待归类网站',
+    resolveDomainTag('sina.com.cn', {
+      siteClassificationRequestsV1: [{
+        status: 'pending',
+        requestedTargetType: 'host',
+        requestedNormalizedValue: 'sina.com.cn',
+      }],
+    }, 'https://sina.com.cn/'),
+    '已申请待归类网站'
+  );
+  expectEqual(
+    'pending exact url request -> 已申请待归类网站',
+    resolveDomainTag('example.com', {
+      siteClassificationRequestsV1: [{
+        status: 'pending',
+        requestedTargetType: 'url',
+        requestedNormalizedValue: 'https://example.com/path?a=1',
+      }],
+    }, 'https://example.com/path?a=1#hash'),
+    '已申请待归类网站'
+  );
+  expectEqual(
     'durable today stats normalize matching www domain',
     resolveTodayDomainSeconds('desmos.com', { 'www.desmos.com': 180 }),
     180
@@ -198,9 +220,12 @@ this.__renderRuntimeStatus = renderRuntimeStatus;
     'tagged'
   );
   await setMode('composite');
-  const modeSwitch = sentMessages.find((msg) => msg?.type === 'SWITCH_TO_COMPOSITE');
+  const modeSwitch = sentMessages.find((msg) => msg?.type === 'REQUEST_MODE_CHANGE');
   expectEqual('popup mode switch passes noticeTabId', JSON.stringify(modeSwitch), JSON.stringify({
-    type: 'SWITCH_TO_COMPOSITE',
+    type: 'REQUEST_MODE_CHANGE',
+    toMode: 'composite',
+    source: 'popup',
+    reason: 'manual_mode_switch',
     noticeTabId: 123,
   }));
   expectEqual(
@@ -209,7 +234,7 @@ this.__renderRuntimeStatus = renderRuntimeStatus;
     'active'
   );
 
-  console.log('[popup-current-site-tag] 24/24 passed');
+  console.log('[popup-current-site-tag] 26/26 passed');
 }
 
 run().catch((err) => {

@@ -10,7 +10,7 @@ const path = require('path');
 const { execFile, spawn } = require('child_process');
 const { chromium } = require('@playwright/test');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
 const MOCKS_DIR = path.resolve(__dirname, '../e2e/mocks');
 const PROFILE_ROOT = path.join(os.tmpdir(), `timeonchrome-real-active-${Date.now()}`);
 

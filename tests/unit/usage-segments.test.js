@@ -31,7 +31,7 @@ global.chrome = { storage: { local: mockLocal, session: mockLocal } };
 // ── Module loader ────────────────────────────────────────────────────────────────
 
 function loadProdModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf-8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -45,19 +45,20 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 }
 
 const api = loadProdModule('core/usage-segments.js', [
-  'generateSegmentId', 'stateToChannel', 'isCountedState', 'getLocalDateInfo',
-  'splitSegmentByLocalDate', 'buildUsageSegment',
-  'appendUsageSegments', 'incrementDailyUsageStats',
-  'getUsageSegmentsByDate', 'getAllUsageSegments', 'getDailyUsageStats',
-  'rebuildDailyUsageStats',
-  'markSegmentSyncDirty', 'markStatsSyncDirty',
-  'clearSegmentSyncOutbox', 'clearStatsSyncOutbox',
-  'getPendingUsageSegments', 'getPendingDailyStats',
+  'generateSegmentId', 'stateToChannel', 'isCountedState', 'getLocalDateInfo', 'getLocalHourInfo',
+  'splitSegmentByLocalDate', 'splitSegmentByLocalHour', 'buildUsageSegment',
+  'appendUsageSegments', 'incrementDailyUsageStats', 'incrementHourlyUsageStats',
+  'getUsageSegmentsByDate', 'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
+  'rebuildDailyUsageStats', 'rebuildHourlyUsageStats',
+  'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
+  'clearSegmentSyncOutbox', 'clearStatsSyncOutbox', 'clearHourlyStatsSyncOutbox',
+  'getPendingUsageSegments', 'getPendingDailyStats', 'getPendingHourlyStats',
   'markUsageSegmentsUploaded', 'markUsageSegmentUploadFailed',
   'markDailyStatsUploaded', 'markDailyStatsUploadFailed',
-  'buildUsageSegmentsUploadPayload', 'buildDailyStatsUploadPayload',
-  'pruneSegmentSyncOutbox', 'pruneStatsSyncOutbox',
-  'pruneUsageSegments', 'pruneDailyUsageStats',
+  'markHourlyStatsUploaded', 'markHourlyStatsUploadFailed',
+  'buildUsageSegmentsUploadPayload', 'buildDailyStatsUploadPayload', 'buildHourlyStatsUploadPayload',
+  'pruneSegmentSyncOutbox', 'pruneStatsSyncOutbox', 'pruneHourlyStatsSyncOutbox',
+  'pruneUsageSegments', 'pruneDailyUsageStats', 'pruneHourlyUsageStats',
   'settleUsageDuration',
 ]);
 
@@ -188,6 +189,29 @@ st = await api.getDailyUsageStats(as.date);
 chk('pip=100', st.domains['pip.com'].pipSeconds, 100);
 chk('segCount=3', st.segmentsCount, 3);
 
+// ── TB6b: Increment hourly aggregate ──
+sec('TB6b: Hourly aggregate increment');
+mockLocal.reset();
+const crossHourStart = new Date('2026-05-08T12:59:30+08:00').getTime();
+const crossHourEnd = new Date('2026-05-08T13:00:30+08:00').getTime();
+const hs = api.buildUsageSegment({
+  startMs: crossHourStart,
+  endMs: crossHourEnd,
+  domain: 'hour.com',
+  channel: 'active',
+  mode: 'rest',
+  sourceState: 'ACTIVE',
+  settlementReason: 'tc',
+});
+const hourSlices = api.splitSegmentByLocalHour(hs);
+chk('cross-hour slice count', hourSlices.length, 2);
+chk('hour slice seconds preserved', hourSlices.reduce((sum, slice) => sum + slice.durationSeconds, 0), 60);
+await api.incrementHourlyUsageStats(hs);
+let hourly = await api.getHourlyUsageStats();
+chk('hourly entry count', Object.keys(hourly).length, 2);
+chk('first hour active=30', hourly['2026-05-08T12'].domains['hour.com'].activeSeconds, 30);
+chk('second hour active=30', hourly['2026-05-08T13'].domains['hour.com'].activeSeconds, 30);
+
 // ── TB7: Cross-day split ──
 sec('TB7: Cross-day split');
 mockLocal.reset();
@@ -226,12 +250,16 @@ chk('segment stored', Object.keys(all).length, 1);
 
 st = await api.getDailyUsageStats(todayStr);
 chk('agg active=300', st.domains['settle.com'].activeSeconds, 300);
+hourly = await api.getHourlyUsageStats(`${todayStr}T11`);
+chk('hourly agg active=300', hourly.domains['settle.com'].activeSeconds, 300);
 
 // Check outbox
 let outbox1 = (await chrome.storage.local.get('segment_sync_outbox_v1'))['segment_sync_outbox_v1'];
 chkT('segment outbox dirty', (outbox1?.dirtySegmentIds || []).length > 0);
 let outbox2 = (await chrome.storage.local.get('stats_sync_outbox_v1'))['stats_sync_outbox_v1'];
 chkT('stats outbox dirty', (outbox2?.dirtyDates || []).length > 0);
+let hourlyOutbox = (await chrome.storage.local.get('hourly_stats_sync_outbox_v1'))['hourly_stats_sync_outbox_v1'];
+chkT('hourly stats outbox dirty', (hourlyOutbox?.dirtyHourKeys || []).length > 0);
 
 // Idempotent: same settlement again
 n = await api.settleUsageDuration({
@@ -241,6 +269,8 @@ n = await api.settleUsageDuration({
 chk('idempotent settle 0', n, 0);
 st = await api.getDailyUsageStats(todayStr);
 chk('agg unchanged', st.domains['settle.com'].activeSeconds, 300);
+hourly = await api.getHourlyUsageStats(`${todayStr}T11`);
+chk('hourly agg unchanged', hourly.domains['settle.com'].activeSeconds, 300);
 
 // ── TB9: PASSIVE/IDLE skipped ──
 sec('TB9: PASSIVE/IDLE skipped');
@@ -575,6 +605,23 @@ chk('statsp bgSeconds', sd.backgroundMediaSeconds, 0);
 chk('statsp pipSeconds', sd.pipSeconds, 0);
 chkT('statsp activeByMode exists', !!sd.activeByMode);
 chk('statsp activeByMode.rest', sd.activeByMode.rest, 60);
+
+// ── TB30b: buildHourlyStatsUploadPayload ──
+sec('TB30b: buildHourlyStatsUploadPayload');
+const hPending = await api.getPendingHourlyStats();
+chkT('hourly stats pending exists', hPending.pendingCount > 0);
+const payloadHourKey = `${todayStr}T11`;
+const hp = await api.buildHourlyStatsUploadPayload(payloadHourKey);
+chk('hoursp schemaVersion', hp.schemaVersion, 1);
+chk('hoursp hourKey', hp.hourKey, payloadHourKey);
+chk('hoursp date', hp.date, todayStr);
+chk('hoursp hour', hp.hour, 11);
+chkT('hoursp domains array', Array.isArray(hp.domains));
+chk('hoursp domain name', hp.domains[0].domain, 'payload.com');
+chk('hoursp activeByMode.rest', hp.domains[0].activeByMode.rest, 60);
+await api.markHourlyStatsUploaded([payloadHourKey]);
+const hPending2 = await api.getPendingHourlyStats();
+chk('hourly stats outbox cleared', hPending2.pendingCount, 0);
 
 // ── TB31: Prune outboxes ──
 sec('TB31: Prune outboxes');

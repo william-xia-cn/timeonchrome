@@ -34,7 +34,7 @@ function section(name) {
 }
 
 function loadHandleMessage(stubs, chromeOverride = {}) {
-  const abs = path.join(__dirname, '..', '..', 'message-router.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'message-router.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -55,6 +55,36 @@ function loadHandleMessage(stubs, chromeOverride = {}) {
     ...chromeOverride,
   };
 
+  const normalizeMode = (mode) => {
+    if (mode === 'whitelist') return 'study';
+    if (mode === 'blacklist') return 'rest';
+    return ['study', 'rest', 'composite', 'locked', 'paused'].includes(mode) ? mode : 'study';
+  };
+  const statsMetaKeys = new Set(['audioSeconds', 'backgroundMediaByDomain', 'pipSeconds', 'pipByDomain', 'onlineSeconds', 'compositeSeconds', 'undeterminedSeconds']);
+  const summarizeStats = (stats = {}, cfg = {}) => {
+    let onlineSeconds = 0;
+    for (const [key, value] of Object.entries(stats || {})) {
+      if (statsMetaKeys.has(key)) continue;
+      if (typeof value === 'number' && Number.isFinite(value)) onlineSeconds += value;
+    }
+    let compositeSeconds = Number(stats?.compositeSeconds);
+    if (!Number.isFinite(compositeSeconds)) {
+      const legacy = Number(stats?.undeterminedSeconds);
+      compositeSeconds = Number.isFinite(legacy) ? legacy : 0;
+    }
+    if (!compositeSeconds) {
+      for (const [domain, value] of Object.entries(stats || {})) {
+        if (statsMetaKeys.has(domain)) continue;
+        const seconds = Number(value);
+        if (!Number.isFinite(seconds) || seconds <= 0) continue;
+        if ((cfg.compositeList || []).some((pattern) => domain === pattern || domain.endsWith(`.${pattern}`))) {
+          compositeSeconds += seconds;
+        }
+      }
+    }
+    return { ...stats, onlineSeconds, compositeSeconds, undeterminedSeconds: compositeSeconds };
+  };
+
   const context = {
     extractDomain: (url) => {
       try { return new URL(url).hostname; } catch { return null; }
@@ -64,14 +94,162 @@ function loadHandleMessage(stubs, chromeOverride = {}) {
     getTodayStatsWithCategories: async () => ({ studySeconds: 0, restSeconds: 0, undeterminedSeconds: 0 }),
     getTodayStats: async () => ({}),
     getStatsRange: async () => ({}),
+    getTodayUsageView: async (options = {}) => {
+      const cfg = options.config || (stubs.getConfig ? await stubs.getConfig() : {});
+      const stats = stubs.getTodayStats ? await stubs.getTodayStats() : {};
+      return { stats, statsWithSummary: summarizeStats(stats, cfg) };
+    },
+    getUsageRangeView: async (days = 7, options = {}) => {
+      const cfg = options.config || (stubs.getConfig ? await stubs.getConfig() : {});
+      const range = stubs.getStatsRange ? await stubs.getStatsRange(days) : {};
+      const statsWithSummaryByDate = {};
+      for (const [date, stats] of Object.entries(range || {})) {
+        statsWithSummaryByDate[date] = summarizeStats(stats, cfg);
+      }
+      return { statsByDate: range, statsWithSummaryByDate };
+    },
+    getPopupModeStatsView: async () => ({
+      summary: stubs.getPopupSettledModeStats
+        ? await stubs.getPopupSettledModeStats()
+        : { studySeconds: 0, restSeconds: 0, compositeSeconds: 0, onlineSeconds: 0, backgroundMediaSeconds: 0, pipSeconds: 0 },
+    }),
+    getSettlementAnalysisView: async () => ({ ok: true, segments: [], reconciliation: { rows: [], summary: {} } }),
+    getMediaSettlementAnalysisView: async () => ({ ok: true, rows: [], summary: {} }),
+    getModeEffectTrace: async (limit = 50) => [{ atMs: 123, result: { noticeRendered: true }, limit }],
     flushOpenSessionToStats: async () => ({ ok: true }),
     getTimingSession: async () => null,
     getCappedElapsedMs: () => 0,
     clearTabModeNotice: async () => false,
     sendModeSwitchSuccessNotice: async () => false,
     applyModeTransitionSideEffects: async () => ({ pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false }),
-    enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
-    setCachedEffectiveMode: () => {},
+    updateDeclarativeRules: async () => {},
+    normalizeMode,
+    commitModeChangeStub: async ({ toMode, effectiveAtMs = Date.now() } = {}) => {
+      const session = stubs.getSession ? await stubs.getSession() : {};
+      const config = stubs.getConfig ? await stubs.getConfig() : {};
+      const fromMode = normalizeMode(session?.currentMode || config?.mode);
+      const mode = normalizeMode(toMode);
+      const changed = fromMode !== mode;
+      return {
+        ok: true,
+        changed,
+        fromMode,
+        toMode: mode,
+        mode,
+        currentMode: mode,
+        currentModeStartedAtMs: changed
+          ? Number(effectiveAtMs)
+          : (Number.isFinite(Number(session?.currentModeStartedAtMs)) ? Number(session.currentModeStartedAtMs) : null),
+        session: {
+          ...(session || {}),
+          currentMode: mode,
+          currentModeStartedAtMs: changed
+            ? Number(effectiveAtMs)
+            : session?.currentModeStartedAtMs,
+        },
+      };
+    },
+    handleModeEvent: async (event = {}) => {
+      if (event.type === 'ACCESS_OBSERVED') {
+        const blocked = typeof stubs.accessObserved === 'function'
+          ? await stubs.accessObserved(event.tabId, event.url, 1, {
+            foreground: event.foreground,
+            source: event.source,
+          })
+          : false;
+        return blocked
+          ? { ok: true, access: 'reminder', reminder: { reason: 'test', params: {} } }
+          : { ok: true, access: 'allow' };
+      }
+      if (event.type === 'EVALUATE_QUOTA_STATE') {
+        const quota = typeof stubs.evaluateQuotaState === 'function'
+          ? await stubs.evaluateQuotaState()
+          : { ok: true, config: {}, newState: {} };
+        const route = typeof stubs.evaluateQuotaModeTransition === 'function'
+          ? stubs.evaluateQuotaModeTransition()
+          : { kind: 'none', reason: 'quota_allows_current_mode' };
+        return {
+          ok: true,
+          access: 'allow',
+          quota,
+          modeChange: route.kind === 'mode_change' ? {
+            toMode: route.toMode,
+            reason: route.reason,
+            source: route.source || event.source || 'quota_alarm',
+            effectiveAtMs: Date.now(),
+            persistConfigMode: false,
+          } : null,
+          recheckActiveTab: true,
+        };
+      }
+      const toMode = normalizeMode(event.requestedMode || event.toMode || event.mode);
+      return {
+        ok: true,
+        access: 'allow',
+        modeChange: {
+          toMode,
+          reason: event.reason || 'manual_mode_switch',
+          source: event.source || 'runtime_message',
+          effectiveAtMs: Number(event.nowMs) || Date.now(),
+          persistConfigMode: true,
+        },
+        notice: { kind: 'manual_mode_change', targetMode: toMode, text: `已切换到${toMode}` },
+        recheckActiveTab: true,
+      };
+    },
+    executeModeDecision: async (decision = {}, execContext = {}) => {
+      const modeChange = decision.modeChange
+        ? await (stubs.commitModeChangeStub || (async ({ toMode, effectiveAtMs = Date.now() } = {}) => {
+          const session = stubs.getSession ? await stubs.getSession() : {};
+          const config = stubs.getConfig ? await stubs.getConfig() : {};
+          const fromMode = normalizeMode(session?.currentMode || config?.mode);
+          const mode = normalizeMode(toMode);
+          return {
+            ok: true,
+            changed: fromMode !== mode,
+            fromMode,
+            toMode: mode,
+            mode,
+            currentMode: mode,
+            currentModeStartedAtMs: Number(effectiveAtMs),
+            session: { ...(session || {}), currentMode: mode, currentModeStartedAtMs: Number(effectiveAtMs) },
+          };
+        }))(decision.modeChange)
+        : null;
+      if (modeChange?.changed && typeof stubs.applyModeTransitionSideEffects === 'function') {
+        await stubs.applyModeTransitionSideEffects({
+          fromMode: modeChange.fromMode,
+          toMode: modeChange.toMode,
+          tabId: execContext.tabId ?? null,
+          sendStudyNotice: false,
+        });
+      }
+      if (decision.notice && Number.isInteger(execContext.tabId)) {
+        if (typeof stubs.clearTabModeNotice === 'function') {
+          await stubs.clearTabModeNotice(execContext.tabId, 'mode_changed');
+        }
+        if (typeof stubs.sendModeSwitchSuccessNotice === 'function') {
+          await stubs.sendModeSwitchSuccessNotice(
+            execContext.tabId,
+            decision.notice.targetMode || modeChange?.toMode,
+            modeChange?.fromMode || null,
+            { noticeText: decision.notice.text, displayDuration: 4000 }
+          );
+        }
+      }
+      return {
+        ok: decision.ok !== false,
+        blocked: decision.access === 'reminder',
+        decision,
+        modeChange,
+        noticeAttempted: Boolean(decision.notice),
+        noticeTargetTabId: Number.isInteger(execContext.tabId) ? execContext.tabId : null,
+        noticeSent: Boolean(decision.notice),
+        noticeAck: decision.notice ? { ok: true, handled: true, rendered: true } : null,
+        noticeRendered: Boolean(decision.notice),
+        noticeError: null,
+      };
+    },
     ...stubs,
     URL,
     chrome,
@@ -98,7 +276,7 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async (tabId, url, monitoringEnabled) => {
+        accessObserved: async (tabId, url, monitoringEnabled) => {
           checkCalls.push({ tabId, url, monitoringEnabled });
           return false;
         },
@@ -118,6 +296,77 @@ async function run() {
     expect('重评估 url', checkCalls[0]?.url, 'https://reddit.com');
   }
 
+  section('MSR-1b EVALUATE_QUOTA_STATE uses Mode Service and rechecks current tab');
+  {
+    const checkCalls = [];
+    const modeRequests = [];
+    const sideEffects = [];
+    const cfg = { mode: 'rest', quotaState: { restLocked: true, studyLocked: false } };
+    const session = { currentMode: 'rest', currentModeStartedAtMs: 100 };
+
+    const { handleMessage } = loadHandleMessage(
+      {
+        getConfig: async () => cfg,
+        saveConfig: async () => {},
+        getSession: async () => session,
+        getSyncState: () => ({ monitoringEnabled: 1 }),
+        evaluateQuotaState: async () => ({
+          ok: true,
+          usage: {},
+          oldState: {},
+          newState: cfg.quotaState,
+          stateChanged: true,
+          newlyLockedDomains: [],
+          config: cfg,
+        }),
+        evaluateQuotaModeTransition: () => ({
+          kind: 'mode_change',
+          toMode: 'study',
+          reason: 'quota_rest_exhausted',
+          source: 'quota_alarm',
+        }),
+        commitModeChangeStub: async (input) => {
+          modeRequests.push(input);
+          return {
+            ok: true,
+            changed: true,
+            fromMode: 'rest',
+            toMode: 'study',
+            mode: 'study',
+            currentMode: 'study',
+            session: { currentMode: 'study' },
+          };
+        },
+        applyModeTransitionSideEffects: async (input) => {
+          sideEffects.push(input);
+          return {};
+        },
+        accessObserved: async (tabId, url, monitoringEnabled, options) => {
+          checkCalls.push({ tabId, url, monitoringEnabled, options });
+          return false;
+        },
+      },
+      {
+        tabs: {
+          query: async () => [{ id: 17, url: 'https://study.example' }],
+          update: async () => {},
+        },
+      }
+    );
+
+    const res = await handleMessage({ type: 'EVALUATE_QUOTA_STATE', source: 'quota_alarm' }, {});
+    expect('quota mode request target', modeRequests[0]?.toMode, 'study');
+    expect('quota mode request reason', modeRequests[0]?.reason, 'quota_rest_exhausted');
+    expect('quota side effects old/new', sideEffects.map((item) => ({ fromMode: item.fromMode, toMode: item.toMode })), [{ fromMode: 'rest', toMode: 'study' }]);
+    expect('quota current tab recheck', checkCalls, [{
+      tabId: 17,
+      url: 'https://study.example',
+      monitoringEnabled: 1,
+      options: { foreground: true, source: 'quota_state_change' },
+    }]);
+    expectTrue('quota response reports mode change', res.modeChange?.changed === true);
+  }
+
   section('MSR-2 reminder 活动页在允许时应立即 unblocked 到域名页');
   {
     let updated = null;
@@ -130,7 +379,7 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async () => false,
+        accessObserved: async () => false,
         getSyncState: () => ({ monitoringEnabled: 1 }),
       },
       {
@@ -157,7 +406,7 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async () => true,
+        accessObserved: async () => true,
         getSyncState: () => ({ monitoringEnabled: 1 }),
       },
       {
@@ -184,7 +433,7 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async () => false,
+        accessObserved: async () => false,
         getSyncState: () => ({ monitoringEnabled: 1 }),
         applyModeTransitionSideEffects: async (payload) => {
           sideEffects.push(payload);
@@ -221,7 +470,7 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async () => false,
+        accessObserved: async () => false,
         getSyncState: () => ({ monitoringEnabled: 1 }),
         clearTabModeNotice: async (tabId, reason) => { notices.push({ type: 'clear', tabId, reason }); return true; },
         sendModeSwitchSuccessNotice: async (tabId, targetMode, fromMode, options) => {
@@ -241,6 +490,19 @@ async function run() {
 
     const res = await handleMessage({ type: 'SWITCH_TO_STUDY' }, {});
     expect('session currentMode study', res.currentMode, 'study');
+    expect('notice diagnostics returned', {
+      noticeAttempted: res.noticeAttempted,
+      noticeTargetTabId: res.noticeTargetTabId,
+      noticeSent: res.noticeSent,
+      noticeRendered: res.noticeRendered,
+      noticeError: res.noticeError,
+    }, {
+      noticeAttempted: true,
+      noticeTargetTabId: 21,
+      noticeSent: true,
+      noticeRendered: true,
+      noticeError: null,
+    });
     expect('先清理旧提示', notices[0], { type: 'clear', tabId: 21, reason: 'mode_changed' });
     expect('再发送 study success notice', notices[1]?.targetMode, 'study');
     expect('success notice from composite', notices[1]?.fromMode, 'composite');
@@ -260,7 +522,7 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async () => false,
+        accessObserved: async () => false,
         getSyncState: () => ({ monitoringEnabled: 1 }),
         clearTabModeNotice: async (tabId, reason) => { notices.push({ type: 'clear', tabId, reason }); return true; },
         applyModeTransitionSideEffects: async (payload) => { sideEffects.push(payload); return { pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false }; },
@@ -285,7 +547,19 @@ async function run() {
     expect('再发送 composite success notice', notices[1]?.targetMode, 'composite');
     expect('success notice from study', notices[1]?.fromMode, 'study');
     expect('success notice TTL 4s', notices[1]?.options?.displayDuration, 4000);
-    expect('study -> composite side effects called', sideEffects[0], { fromMode: 'study', toMode: 'composite', tabId: 22 });
+    expect('study -> composite side effects called', sideEffects[0], { fromMode: 'study', toMode: 'composite', tabId: 22, sendStudyNotice: false });
+  }
+
+  section('MSR-6d GET_MODE_EFFECT_TRACE exposes recent notice diagnostics');
+  {
+    const { handleMessage } = loadHandleMessage({}, {
+      tabs: { query: async () => [], update: async () => {} },
+    });
+    const res = await handleMessage({ type: 'GET_MODE_EFFECT_TRACE', limit: 5 }, {});
+    expect('trace rows returned', { ok: res.ok, rendered: res.rows[0]?.result?.noticeRendered }, {
+      ok: true,
+      rendered: true,
+    });
   }
 
   section('MSR-6b 手动 Rest -> Composite 必须触发 PiP cleanup side effect');
@@ -300,7 +574,7 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async () => false,
+        accessObserved: async () => false,
         getSyncState: () => ({ monitoringEnabled: 1 }),
         clearTabModeNotice: async () => true,
         sendModeSwitchSuccessNotice: async () => true,
@@ -316,13 +590,12 @@ async function run() {
 
     const res = await handleMessage({ type: 'SWITCH_TO_COMPOSITE' }, {});
     expect('session currentMode composite', res.currentMode, 'composite');
-    expect('rest -> composite side effect payload', sideEffects[0], { fromMode: 'rest', toMode: 'composite', tabId: 26 });
+    expect('rest -> composite side effect payload', sideEffects[0], { fromMode: 'rest', toMode: 'composite', tabId: 26, sendStudyNotice: false });
   }
 
-  section('MSR-6c 手动 mode switch 只入队 mode boundary intent');
+  section('MSR-6c 手动 mode switch 通过 Mode Service 请求提交');
   {
-    const intents = [];
-    const cacheUpdates = [];
+    const modeRequests = [];
     const cfg = { mode: 'rest', compositeList: ['youtube.com'] };
     const session = { currentMode: 'rest' };
 
@@ -332,16 +605,27 @@ async function run() {
         saveConfig: async () => {},
         updateDeclarativeRules: async () => {},
         getSession: async () => session,
-        checkAndRemind: async () => false,
+        accessObserved: async () => false,
         getSyncState: () => ({ monitoringEnabled: 1 }),
         clearTabModeNotice: async () => true,
         sendModeSwitchSuccessNotice: async () => true,
         applyModeTransitionSideEffects: async () => ({ pipCloseAttempted: true, pipCloseSent: true, studyNoticeSent: false }),
-        enqueueModeBoundaryIntent: async (intent) => {
-          intents.push(intent);
-          return { ok: true, queued: true, intent };
+        commitModeChangeStub: async (request) => {
+          modeRequests.push(request);
+          return {
+            ok: true,
+            changed: true,
+            fromMode: 'rest',
+            toMode: request.toMode,
+            mode: request.toMode,
+            currentMode: request.toMode,
+            currentModeStartedAtMs: request.effectiveAtMs,
+            session: {
+              currentMode: request.toMode,
+              currentModeStartedAtMs: request.effectiveAtMs,
+            },
+          };
         },
-        setCachedEffectiveMode: (mode) => cacheUpdates.push(mode),
       },
       {
         tabs: {
@@ -352,21 +636,20 @@ async function run() {
     );
 
     await handleMessage({ type: 'SWITCH_TO_COMPOSITE' }, {});
-    expect('manual switch enqueues one mode boundary intent', intents.length, 1);
-    expect('manual switch intent shape', {
-      fromMode: intents[0].fromMode,
-      toMode: intents[0].toMode,
-      reason: intents[0].reason,
-      source: intents[0].source,
-      hasBoundary: Number.isFinite(intents[0].boundaryAtMs),
+    expect('manual switch sends one mode service request', modeRequests.length, 1);
+    expect('manual switch request shape', {
+      toMode: modeRequests[0].toMode,
+      reason: modeRequests[0].reason,
+      source: modeRequests[0].source,
+      persistConfigMode: modeRequests[0].persistConfigMode,
+      hasBoundary: Number.isFinite(modeRequests[0].effectiveAtMs),
     }, {
-      fromMode: 'rest',
       toMode: 'composite',
       reason: 'manual_mode_switch',
       source: 'runtime_message',
+      persistConfigMode: true,
       hasBoundary: true,
     });
-    expect('manual switch updates mode cache', cacheUpdates, ['composite']);
   }
 
   section('MSR-7 GET_SETTLED_TODAY_STATS is read-only and does not flush');
@@ -435,7 +718,7 @@ async function run() {
 
   section('MSR-9b cloud sync status includes media pending fields');
   {
-    const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js'), 'utf8');
+    const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
     expectTrue('cloud sync imports media pending builders', cloudSyncSource.includes('getPendingMediaSegments') && cloudSyncSource.includes('buildMediaSegmentsUploadPayload'));
     expectTrue('cloud sync uploads media segments and media stats', cloudSyncSource.includes("'/device/media-segments/v1'") && cloudSyncSource.includes("'/device/media-stats/v1'"));
     expectTrue('cloud sync status exposes media pending counts', cloudSyncSource.includes('pendingMediaSegments') && cloudSyncSource.includes('pendingMediaStatsDates'));

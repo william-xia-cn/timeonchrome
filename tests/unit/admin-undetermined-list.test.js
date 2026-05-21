@@ -47,7 +47,7 @@ function extractFunctionSource(code, functionName) {
 }
 
 function loadRenderUndeterminedList() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'admin', 'admin.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
   const fns = [
     extractFunctionSource(code, 'escHtml'),
     extractFunctionSource(code, 'formatSeconds'),

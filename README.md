@@ -23,7 +23,7 @@
 1. 打开 Chrome，访问 `chrome://extensions/`
 2. 开启右上角「开发者模式」
 3. 点击「加载已解压的扩展程序」
-4. 选择仓库目录（`timeonchrome/`）
+4. 选择扩展源码目录（`timeonchrome/extension/`）
 
 ---
 
@@ -49,19 +49,23 @@ node tests/run-all.js
 
 ```text
 timeonchrome/
-├── manifest.json
-├── background.js
-├── message-router.js
-├── content.js
-├── reminder.html / reminder.js
-├── popup/
-├── admin/
-├── core/        # signal/context/state/event-log/aggregate
-├── runtime/     # session/recovery
-├── product/     # interceptor/quota/analytics
-├── infra/       # storage/cloud-sync
+├── extension/   # Chrome 扩展源码，开发时直接加载这个目录
+│   ├── manifest.json
+│   ├── background.js
+│   ├── message-router.js
+│   ├── content.js
+│   ├── reminder.html / reminder.js
+│   ├── popup/
+│   ├── admin/
+│   ├── core/        # signal/context/state/event-log/aggregate
+│   ├── runtime/     # session/recovery
+│   ├── product/     # interceptor/quota/analytics
+│   └── infra/       # storage/cloud-sync
 ├── pages/       # 家长 Web 控制台（Cloudflare Pages）
 ├── workers/     # Cloudflare Workers 后端
+├── tests/
+├── tools/
+├── dist/
 └── docs/
 ```
 

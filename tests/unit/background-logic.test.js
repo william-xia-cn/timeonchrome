@@ -1,5 +1,5 @@
 // Unit tests for client-side business logic from background.js
-// Tests: timing rules, quota calculation, checkAndRemind routing, auto-study switching
+// Tests: timing rules, quota calculation, and Mode Service decision routing
 // Run with: node tests/unit/background-logic.test.js
 
 'use strict';
@@ -61,7 +61,7 @@ function getTodayEffectiveRestLimit(config, todayOverride) {
   return baseLimit;
 }
 
-// ── Pure logic extracted from checkAllTabsQuota ───────────────────────────────
+// ── Pure logic extracted from quota state calculation ─────────────────────────
 // Takes: config, stats {domain:secs}, undeterminedStats {domain:secs}, weekRestMinutes, todayOverride
 // Returns: { totalMinutes, studyMinutes, restMinutes, undeterminedMinutes, newState }
 function computeQuotaState(config, stats, undeterminedStats, weekRestMinutes, todayOverride) {
@@ -99,7 +99,7 @@ function computeQuotaState(config, stats, undeterminedStats, weekRestMinutes, to
   return { totalMinutes, studyMinutes, restMinutes, undeterminedMinutes, newState };
 }
 
-// ── Pure logic extracted from checkAndRemind ──────────────────────────────────
+// ── Pure logic extracted from Mode Service decision ──────────────────────────────────
 // Returns: { blocked: boolean, reason: string|null }
 // schedule check skipped if config.schedule.enabled is false or schedule is null
 function computeRemindReason(url, config, scheduleResultOverride) {
@@ -131,7 +131,7 @@ function computeRemindReason(url, config, scheduleResultOverride) {
   if (qs.onlineLocked)
     return { blocked: true, reason: 'quota_online' };
   if (qs.restLocked && !isStudyDomain && !isCompositeDomain)
-    return { blocked: true, reason: 'quota_rest' };
+    return { blocked: true, reason: 'rest_locked' };
   if (qs.studyLocked && isStudyDomain)
     return { blocked: true, reason: 'quota_study' };
   if (qs.undeterminedLocked && isCompositeDomain && !isStudyDomain)
@@ -171,31 +171,7 @@ function categorizeHeartbeat(domain, config, heartbeatType) {
   return result;
 }
 
-// ── Pure logic extracted from checkAutoStudy ─────────────────────────────────
-// Returns: 'start_tracking' | 'keep_tracking' | 'should_switch' | 'reset' | 'skip'
-function computeAutoStudyAction(state, config, session, now) {
-  // state: { autoStudyDomain, autoStudyStartTime, activeTabDomain, windowHasFocus, userIsIdle }
-  if (session.currentMode !== 'rest') return 'skip';
-  if (!config?.autoStudyConfig?.enabled) return 'skip';
-
-  const isOnStudySite = state.activeTabDomain &&
-    (config.studyList || []).some(w => matchDomain(state.activeTabDomain, w));
-  const isActive = state.windowHasFocus && !state.userIsIdle;
-
-  if (!isOnStudySite || !isActive) return 'reset';
-
-  const required = config.autoStudyConfig.requiredSeconds || 60;
-
-  if (state.autoStudyDomain !== state.activeTabDomain) {
-    return 'start_tracking';
-  }
-
-  const elapsed = Math.floor((now - state.autoStudyStartTime) / 1000);
-  if (elapsed >= required) return 'should_switch';
-  return 'keep_tracking';
-}
-
-// ── Per-domain quota check (from checkAllTabsQuota) ───────────────────────────
+// ── Per-domain quota lock calculation ─────────────────────────────────────────
 function computeNewlyLockedDomains(stats, config) {
   const newlyLocked = [];
   const alreadyLocked = config.lockedDomains || [];
@@ -244,7 +220,6 @@ function makeConfig(overrides = {}) {
     lockedDomains: [],
     quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
     schedule: { enabled: false, days: {} },
-    autoStudyConfig: { enabled: true, requiredSeconds: 90 },
     ...overrides,
   };
 }
@@ -467,9 +442,9 @@ section('Quota: state calculation');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3: checkAndRemind routing logic
+// SECTION 3: Mode Service decision routing logic
 // ═══════════════════════════════════════════════════════════════════════════════
-section('checkAndRemind: routing decision');
+section('Mode Service decision: routing decision');
 
 {
   // Special URLs — never blocked
@@ -593,7 +568,7 @@ section('checkAndRemind: routing decision');
   const rRest     = computeRemindReason('https://instagram.com', config, true);
   check('restLocked + study domain → NOT blocked', !rStudy.blocked, JSON.stringify(rStudy));
   check('restLocked + composite domain → NOT blocked', !rComposite.blocked, JSON.stringify(rComposite));
-  check('restLocked + rest domain → blocked with quota_rest', rRest.blocked && rRest.reason === 'quota_rest', JSON.stringify(rRest));
+  check('restLocked + rest domain → blocked with rest_locked', rRest.blocked && rRest.reason === 'rest_locked', JSON.stringify(rRest));
 }
 
 {
@@ -668,121 +643,7 @@ section('Domain matching: parent covers subdomains');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 4: Auto-study mode switching
-// ═══════════════════════════════════════════════════════════════════════════════
-section('Auto-study: mode switch logic');
-
-const baseState = {
-  autoStudyDomain: null,
-  autoStudyStartTime: null,
-  activeTabDomain: 'khanacademy.org',
-  windowHasFocus: true,
-  userIsIdle: false,
-};
-
-{
-  // Already in study mode → skip
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'study' };
-  const action = computeAutoStudyAction(baseState, config, session, Date.now());
-  check('already in study mode → skip (no action)', action === 'skip', action);
-}
-
-{
-  // Feature disabled → skip
-  const config = makeConfig({ autoStudyConfig: { enabled: false, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const action = computeAutoStudyAction(baseState, config, session, Date.now());
-  check('feature disabled → skip', action === 'skip', action);
-}
-
-{
-  // Not on study site → reset
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const state = { ...baseState, activeTabDomain: 'instagram.com' };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('not on study site → reset counter', action === 'reset', action);
-}
-
-{
-  // Window not focused → reset
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const state = { ...baseState, windowHasFocus: false };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('window not focused → reset counter', action === 'reset', action);
-}
-
-{
-  // User idle → reset
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const state = { ...baseState, userIsIdle: true };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('user idle → reset counter', action === 'reset', action);
-}
-
-{
-  // First time on study site → start tracking
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const state = { ...baseState, autoStudyDomain: null, autoStudyStartTime: null };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('first time on study site → start_tracking', action === 'start_tracking', action);
-}
-
-{
-  // Different study site from what was being tracked → start_tracking (restart)
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const state = { ...baseState, autoStudyDomain: 'github.com', autoStudyStartTime: Date.now() - 50000, activeTabDomain: 'khanacademy.org' };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('switched study site → restart tracking (start_tracking)', action === 'start_tracking', action);
-}
-
-{
-  // On study site, time not yet reached → keep tracking
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const startTime = Date.now() - 60000; // 60s ago, need 90
-  const state = { ...baseState, autoStudyDomain: 'khanacademy.org', autoStudyStartTime: startTime };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('60s elapsed (< 90s required) → keep_tracking', action === 'keep_tracking', action);
-}
-
-{
-  // Time threshold reached → should_switch
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const startTime = Date.now() - 91000; // 91s ago
-  const state = { ...baseState, autoStudyDomain: 'khanacademy.org', autoStudyStartTime: startTime };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('91s elapsed (>= 90s required) → should_switch', action === 'should_switch', action);
-}
-
-{
-  // Exactly at threshold → should_switch
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 90 } });
-  const session = { currentMode: 'rest' };
-  const startTime = Date.now() - 90000; // exactly 90s
-  const state = { ...baseState, autoStudyDomain: 'khanacademy.org', autoStudyStartTime: startTime };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('exactly 90s → should_switch', action === 'should_switch', action);
-}
-
-{
-  // Custom threshold respected
-  const config = makeConfig({ autoStudyConfig: { enabled: true, requiredSeconds: 30 } });
-  const session = { currentMode: 'rest' };
-  const startTime = Date.now() - 31000;
-  const state = { ...baseState, autoStudyDomain: 'khanacademy.org', autoStudyStartTime: startTime };
-  const action = computeAutoStudyAction(state, config, session, Date.now());
-  check('custom 30s threshold respected', action === 'should_switch', action);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 5: GAP-2 — 配额 = 0 表示不限制
+// SECTION 4: GAP-2 — 配额 = 0 表示不限制
 // ═══════════════════════════════════════════════════════════════════════════════
 section('Quota: zero = unlimited (GAP-2)');
 

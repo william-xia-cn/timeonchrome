@@ -614,6 +614,88 @@ async function testMediaSegmentsAndStatsV1() {
   }
 }
 
+async function testClientLogsV1() {
+  section('Client Logs v1');
+
+  if (!state.deviceToken || !state.accountToken || !state.profileId) {
+    console.log('  ⚠ Skipped (missing tokens)');
+    return;
+  }
+
+  const now = Date.now();
+  const logs = [
+    {
+      id: `api-client-log-warning-${now}`,
+      timestamp: now - 1000,
+      level: 'warning',
+      category: 'cloud',
+      eventCode: 'api_cloud_warning',
+      message: 'Cloud warning for API test',
+      bindingState: 'bound',
+      extensionVersion: 'api-test',
+      domain: 'https://client-log.example.com/private/path?token=secret',
+      module: 'api-test',
+      details: {
+        token: 'secret-token',
+        email: 'child@example.com',
+        url: 'https://client-log.example.com/private/path?token=secret',
+      },
+    },
+    {
+      id: `api-client-log-error-${now}`,
+      timestamp: now,
+      level: 'error',
+      category: 'popup',
+      eventCode: 'api_popup_error',
+      message: 'Popup error for API test',
+      bindingState: 'bound',
+      extensionVersion: 'api-test',
+      domain: 'client-log.example.com',
+      module: 'api-test',
+      details: {
+        reason: 'test',
+      },
+    },
+  ];
+
+  {
+    const { status, data } = await api('POST', '/device/client-logs/v1', { logs }, state.deviceToken);
+    check('POST /device/client-logs/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('client logs accepted', Number(data?.accepted || 0) === logs.length, JSON.stringify(data));
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/client-logs/v1?from=${now - 5000}&to=${now + 5000}&limit=1`, null, state.accountToken);
+    check('GET /profiles/:id/client-logs/v1 → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('client logs are newest first', data?.logs?.[0]?.eventCode === 'api_popup_error', JSON.stringify(data?.logs));
+    check('client logs pagination exposes nextCursor', data?.hasMore === true && typeof data?.nextCursor === 'string', JSON.stringify(data));
+
+    if (data?.nextCursor) {
+      const next = await api('GET', `/profiles/${state.profileId}/client-logs/v1?from=${now - 5000}&to=${now + 5000}&limit=1&cursor=${encodeURIComponent(data.nextCursor)}`, null, state.accountToken);
+      check('client logs next page → 200', next.status === 200, `got ${next.status}: ${JSON.stringify(next.data)}`);
+      check('client logs next page has older row', next.data?.logs?.[0]?.eventCode === 'api_cloud_warning', JSON.stringify(next.data?.logs));
+    }
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/client-logs/v1?level=warning&category=cloud`, null, state.accountToken);
+    check('client logs level/category filter → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('client logs filter returns matching rows', (data?.logs || []).every(l => l.level === 'warning' && l.category === 'cloud'), JSON.stringify(data?.logs));
+  }
+
+  if (state.deviceId) {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/client-logs/v1?deviceId=${encodeURIComponent(state.deviceId)}&from=${now - 5000}&to=${now + 5000}`, null, state.accountToken);
+    check('client logs device filter → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
+    check('client logs return deviceId', (data?.logs || []).every(l => l.deviceId === state.deviceId), JSON.stringify(data?.logs));
+  }
+
+  {
+    const { status, data } = await api('GET', `/profiles/${state.profileId}/client-logs/v1?category=cloud&from=${now - 5000}&to=${now + 5000}`, null, state.accountToken);
+    const raw = JSON.stringify(data || {});
+    check('client logs redacts sensitive fields', status !== 200 || (!raw.includes('secret-token') && !raw.includes('/private/path') && !raw.includes('child@example.com')), raw);
+  }
+}
+
 async function testChangelog() {
   section('Changelog');
 
@@ -782,6 +864,7 @@ async function testCleanup() {
     await testUsageSegmentsReadV1();
     await testStatsReconciliationV1();
     await testMediaSegmentsAndStatsV1();
+    await testClientLogsV1();
     await testChangelog();
     await testCompositeSessionsEmpty();
     await testDeviceManagement();

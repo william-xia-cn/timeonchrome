@@ -1,0 +1,386 @@
+// mode-service.test.js
+// Run with: node tests/unit/mode-service.test.js
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+let passed = 0;
+let failed = 0;
+
+function expect(desc, actual, expected) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  if (ok) passed++;
+  else {
+    failed++;
+    console.error(`  ✗ ${desc}`);
+    console.error(`    expected: ${JSON.stringify(expected)}`);
+    console.error(`    actual:   ${JSON.stringify(actual)}`);
+  }
+}
+
+function expectTrue(desc, cond) {
+  if (cond) passed++;
+  else {
+    failed++;
+    console.error(`  ✗ ${desc}`);
+  }
+}
+
+function section(name) {
+  console.log(`\n[${name}]`);
+}
+
+function loadModeService(stubs = {}) {
+  const abs = path.join(__dirname, '..', '..', 'extension', 'product', 'mode-service.js');
+  let code = fs.readFileSync(abs, 'utf8');
+  code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
+  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
+  code = code.replace(/export\s+function\s+/g, 'function ');
+  code = code.replace(/export\s+const\s+/g, 'const ');
+  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
+
+  const context = {
+    console,
+    Date,
+    getConfig: async () => ({ mode: 'study' }),
+    getSession: async () => ({}),
+    saveConfig: async () => {},
+    saveSession: async () => {},
+    extractDomain: (url) => {
+      try { return new URL(url).hostname; } catch { return null; }
+    },
+    isSpecialUrl: (url) => /^(chrome|about|file|data|blob):/.test(String(url || '')),
+    hasTemporaryCompositePermission: async () => false,
+    getSiteClassificationRequestRecords: async () => [],
+    resolveSiteAccessClassification: (config, records, url) => {
+      const host = (() => { try { return new URL(url).hostname; } catch { return ''; } })();
+      const match = (patterns = []) => patterns.some((p) => host === p || host.endsWith(`.${p}`));
+      if (match(config.unsafeList || [])) return { classification: 'blocked' };
+      if (match(config.studyList || [])) return { classification: 'study' };
+      if (match(config.compositeList || [])) return { classification: 'composite' };
+      if (match(config.restrictedEntertainmentList || [])) return { classification: 'restricted' };
+      return { classification: 'unclassified' };
+    },
+    getTodayStatsWithCategories: async () => ({ restSeconds: 0, undeterminedSeconds: 0 }),
+    getTodayEffectiveRestLimit: () => 120,
+    evaluateQuotaState: async () => ({ ok: true, config: { quotaState: {} }, newState: {} }),
+    enqueueModeBoundaryIntent: async (intent) => ({ ok: true, intent }),
+    setCachedEffectiveMode: () => {},
+    ...stubs,
+  };
+
+  vm.createContext(context);
+  vm.runInContext(`${code}
+this.__modeService = {
+  REST_EXIT_GRACE_MS,
+  normalizeMode,
+  getCurrentModeSnapshot,
+  isRestExitGraceActive,
+  commitModeChange,
+  evaluateModeRoute,
+  handleModeEvent,
+  evaluateQuotaModeTransition,
+};`, context, { filename: 'mode-service.js' });
+  return context.__modeService;
+}
+
+(async function main() {
+  section('MSVC-1 mode commit writes single runtime truth and Rest Exit Grace');
+  {
+    const writes = [];
+    const boundaries = [];
+    const cached = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest', currentModeStartedAtMs: 100 }),
+      saveSession: async (session) => { writes.push(session); },
+      enqueueModeBoundaryIntent: async (intent) => { boundaries.push(intent); return { ok: true, id: 'b1' }; },
+      setCachedEffectiveMode: (mode) => { cached.push(mode); },
+    });
+    const res = await svc.commitModeChange({
+      toMode: 'study',
+      reason: 'rest_to_study',
+      source: 'auto_mode_route',
+      effectiveAtMs: 1000,
+    });
+    expectTrue('commit changed', res.changed === true && res.currentMode === 'study');
+    expect('session write includes startedAt', writes, [{
+      currentMode: 'study',
+      currentModeStartedAtMs: 1000,
+      modeEffectiveAtMs: 1000,
+      restExitGraceUntilMs: 61_000,
+    }]);
+    expect('boundary queued once', boundaries, [{
+      boundaryAtMs: 1000,
+      fromMode: 'rest',
+      toMode: 'study',
+      reason: 'rest_to_study',
+      source: 'auto_mode_route',
+    }]);
+    expect('runtime cache updated', cached, ['study']);
+  }
+
+  section('MSVC-6 quota expiry drives mode transitions');
+  {
+    const svc = loadModeService();
+    expect('online quota locks any active mode', svc.evaluateQuotaModeTransition({
+      currentMode: 'rest',
+      quotaState: { onlineLocked: true },
+      source: 'quota_alarm',
+    }), {
+      kind: 'mode_change',
+      toMode: 'locked',
+      reason: 'quota_online_exhausted',
+      source: 'quota_alarm',
+    });
+    expect('study quota locks study mode', svc.evaluateQuotaModeTransition({
+      currentMode: 'study',
+      quotaState: { studyLocked: true },
+      source: 'quota_alarm',
+    }), {
+      kind: 'mode_change',
+      toMode: 'locked',
+      reason: 'quota_study_exhausted',
+      source: 'quota_alarm',
+    });
+    expect('rest quota returns to study when study is available', svc.evaluateQuotaModeTransition({
+      currentMode: 'rest',
+      quotaState: { restLocked: true, studyLocked: false },
+      source: 'quota_alarm',
+    }), {
+      kind: 'mode_change',
+      toMode: 'study',
+      reason: 'quota_rest_exhausted',
+      source: 'quota_alarm',
+    });
+    expect('rest quota locks when study is also exhausted', svc.evaluateQuotaModeTransition({
+      currentMode: 'rest',
+      quotaState: { restLocked: true, studyLocked: true },
+      source: 'quota_alarm',
+    }), {
+      kind: 'mode_change',
+      toMode: 'locked',
+      reason: 'quota_rest_exhausted_study_locked',
+      source: 'quota_alarm',
+    });
+    expect('composite quota returns to study when study is available', svc.evaluateQuotaModeTransition({
+      currentMode: 'composite',
+      quotaState: { undeterminedLocked: true, studyLocked: false },
+      source: 'quota_alarm',
+    }), {
+      kind: 'mode_change',
+      toMode: 'study',
+      reason: 'quota_composite_exhausted',
+      source: 'quota_alarm',
+    });
+    expect('daily reset unlocks locked mode', svc.evaluateQuotaModeTransition({
+      currentMode: 'locked',
+      quotaState: { onlineLocked: false, studyLocked: false },
+      source: 'daily_cleanup',
+    }), {
+      kind: 'mode_change',
+      toMode: 'study',
+      reason: 'quota_reset_unlock',
+      source: 'daily_cleanup',
+    });
+  }
+
+  section('MSVC-2 same-mode no-op does not refresh startedAt or Rest Exit Grace');
+  {
+    const writes = [];
+    const boundaries = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'study' }),
+      getSession: async () => ({
+        currentMode: 'study',
+        currentModeStartedAtMs: 123,
+        restExitGraceUntilMs: 456,
+      }),
+      saveSession: async (session) => { writes.push(session); },
+      enqueueModeBoundaryIntent: async (intent) => { boundaries.push(intent); return { ok: true }; },
+    });
+    const res = await svc.commitModeChange({ toMode: 'study', effectiveAtMs: 999 });
+    expectTrue('same mode ok unchanged', res.ok === true && res.changed === false);
+    expect('startedAt preserved', res.currentModeStartedAtMs, 123);
+    expect('rest exit grace preserved', res.restExitGraceUntilMs, 456);
+    expect('no session write', writes, []);
+    expect('no boundary intent', boundaries, []);
+  }
+
+  section('MSVC-2b Study/Composite does not extend Rest Exit Grace and Rest clears it');
+  {
+    const writes = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'study' }),
+      getSession: async () => ({
+        currentMode: 'study',
+        currentModeStartedAtMs: 1000,
+        restExitGraceUntilMs: 61_000,
+      }),
+      saveSession: async (session) => { writes.push(session); },
+    });
+    const composite = await svc.commitModeChange({ toMode: 'composite', effectiveAtMs: 30_000 });
+    expect('study -> composite preserves original rest exit grace', {
+      changed: composite.changed,
+      restExitGraceUntilMs: composite.restExitGraceUntilMs,
+      writeGrace: writes[0]?.restExitGraceUntilMs,
+    }, {
+      changed: true,
+      restExitGraceUntilMs: 61_000,
+      writeGrace: 61_000,
+    });
+  }
+  {
+    const writes = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'composite' }),
+      getSession: async () => ({
+        currentMode: 'composite',
+        currentModeStartedAtMs: 30_000,
+        restExitGraceUntilMs: 61_000,
+      }),
+      saveSession: async (session) => { writes.push(session); },
+    });
+    const study = await svc.commitModeChange({ toMode: 'study', effectiveAtMs: 45_000 });
+    expect('composite -> study preserves original rest exit grace', {
+      restExitGraceUntilMs: study.restExitGraceUntilMs,
+      writeGrace: writes[0]?.restExitGraceUntilMs,
+    }, {
+      restExitGraceUntilMs: 61_000,
+      writeGrace: 61_000,
+    });
+  }
+  {
+    const writes = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'study' }),
+      getSession: async () => ({
+        currentMode: 'study',
+        currentModeStartedAtMs: 45_000,
+        restExitGraceUntilMs: 61_000,
+      }),
+      saveSession: async (session) => { writes.push(session); },
+    });
+    const rest = await svc.commitModeChange({ toMode: 'rest', effectiveAtMs: 50_000 });
+    expect('study -> rest clears rest exit grace', {
+      restExitGraceUntilMs: rest.restExitGraceUntilMs,
+      writeGrace: writes[0]?.restExitGraceUntilMs,
+    }, {
+      restExitGraceUntilMs: null,
+      writeGrace: null,
+    });
+  }
+
+  section('MSVC-3 Rest opens Study/Composite immediately');
+  {
+    const svc = loadModeService();
+    expect('rest -> study', svc.evaluateModeRoute({
+      currentMode: 'rest',
+      isStudyDomain: true,
+      isCompositeDomain: false,
+      foreground: true,
+      quotaState: {},
+      nowMs: 10,
+    }), {
+      kind: 'mode_change',
+      toMode: 'study',
+      reason: 'rest_to_study',
+      source: 'auto_mode_route',
+      notice: 'rest_to_study_success',
+    });
+    expect('rest -> composite', svc.evaluateModeRoute({
+      currentMode: 'rest',
+      isStudyDomain: false,
+      isCompositeDomain: true,
+      remainingCompositeSeconds: 60,
+      foreground: true,
+      quotaState: {},
+      nowMs: 10,
+    }), {
+      kind: 'mode_change',
+      toMode: 'composite',
+      reason: 'rest_to_composite',
+      source: 'auto_mode_route',
+      notice: 'rest_to_composite_success',
+    });
+  }
+
+  section('MSVC-4 Rest Exit Grace returns Rest target to Rest without Reminder');
+  {
+    const svc = loadModeService();
+    expect('study grace -> rest', svc.evaluateModeRoute({
+      currentMode: 'study',
+      currentModeStartedAtMs: 1000,
+      restExitGraceUntilMs: 61_000,
+      nowMs: 30_000,
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      isRestricted: false,
+      quotaState: { restLocked: false },
+    }), {
+      kind: 'mode_change',
+      toMode: 'rest',
+      reason: 'mode_grace_to_rest',
+      source: 'auto_mode_route',
+      notice: 'mode_grace_to_rest',
+    });
+    expect('composite grace -> rest', svc.evaluateModeRoute({
+      currentMode: 'composite',
+      currentModeStartedAtMs: 30_000,
+      restExitGraceUntilMs: 61_000,
+      nowMs: 30_000,
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      isRestricted: true,
+      quotaState: { restLocked: false },
+    }), {
+      kind: 'mode_change',
+      toMode: 'rest',
+      reason: 'mode_grace_to_rest',
+      source: 'auto_mode_route',
+      notice: 'mode_grace_to_rest',
+    });
+  }
+
+  section('MSVC-5 missing/expired Rest Exit Grace uses Reminder');
+  {
+    const svc = loadModeService();
+    expect('missing startedAt -> study reminder', svc.evaluateModeRoute({
+      currentMode: 'study',
+      currentModeStartedAtMs: 29_000,
+      restExitGraceUntilMs: null,
+      nowMs: 30_000,
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      isRestricted: false,
+      quotaState: { restLocked: false },
+    }), {
+      kind: 'reminder',
+      reminderReason: 'study_mode',
+      extraParams: { originMode: 'study' },
+    });
+    expect('expired startedAt -> composite reminder', svc.evaluateModeRoute({
+      currentMode: 'composite',
+      currentModeStartedAtMs: 61_900,
+      restExitGraceUntilMs: 61_000,
+      nowMs: 62_000,
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      isRestricted: true,
+      quotaState: { restLocked: false },
+    }), {
+      kind: 'reminder',
+      reminderReason: 'to_rest_confirm',
+      extraParams: { siteType: 'restricted' },
+    });
+  }
+
+  if (failed > 0) {
+    console.error(`\n${failed} failed, ${passed} passed`);
+    process.exit(1);
+  }
+  console.log(`\nAll ${passed} mode-service tests passed`);
+})();

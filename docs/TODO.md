@@ -74,7 +74,7 @@
 
 ### v1.2.0 基础功能
 - [x] `studyList` / `allowList` 白名单拆分
-- [x] 自动切换学习模式（90 秒）
+- [x] Mode Service 访问事件自动切换
 - [x] HEARTBEAT 计时
 - [x] 注册/绑定流程
 - [x] `pullCloudConfig` 版本保护

@@ -126,7 +126,7 @@ async function run() {
   await page.waitForTimeout(1500);
 
   // Screenshot full rules page
-  const screenshotDir = path.resolve(__dirname, '../../test-results');
+  const screenshotDir = path.resolve(__dirname, '../../.artifacts/test-results');
   if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
 
   const screenshotPath = path.join(screenshotDir, 'site-access-alignment-rules.png');

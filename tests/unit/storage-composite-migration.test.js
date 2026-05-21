@@ -34,7 +34,7 @@ function section(name) {
 
 // Load storage.js functions
 function loadStorage() {
-  const abs = path.join(__dirname, '..', '..', 'infra', 'storage.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js');
   let code = fs.readFileSync(abs, 'utf8');
 
   // Extract studyList from DEFAULT_CONFIG - domains can be on same line separated by commas
@@ -95,11 +95,11 @@ function loadStorage() {
 
 // Load cloud-sync.js normalizeCloudRulesConfig
 function loadCloudSync() {
-  const abs = path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js');
   let code = fs.readFileSync(abs, 'utf8');
 
   // Extract studyList from storage.js DEFAULT_CONFIG
-  const storagePath = path.join(__dirname, '..', '..', 'infra', 'storage.js');
+  const storagePath = path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js');
   let storageCode = fs.readFileSync(storagePath, 'utf8');
   const studyListMatch = storageCode.match(/studyList:\s*\[([\s\S]*?)\],\s*(?:\/\/[^\n]*\n\s*)*compositeList/);
   const studyList = studyListMatch ? studyListMatch[1]

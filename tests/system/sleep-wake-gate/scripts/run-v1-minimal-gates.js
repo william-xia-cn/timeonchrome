@@ -4,9 +4,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '../../../..');
+const ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 const REPORT_DIR_DEFAULT = path.join(ROOT, 'tests/system/sleep-wake-gate/reports');
-const PROFILE_DEFAULT = path.join(ROOT, 'tests/test-results/sleep-wake-gate/bound-profile');
+const PROFILE_DEFAULT = path.join(ROOT, '.artifacts/sleep-wake-gate/bound-profile');
 
 const { runDryRun } = require('../scenarios/dry-run');
 const { runChromeRestart } = require('../scenarios/chrome-restart');

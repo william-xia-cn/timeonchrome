@@ -4,7 +4,7 @@ const { chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../../../..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', '..', '..', 'extension');
 
 async function _launchInternal(userDataDir, shouldClean) {
   if (shouldClean && fs.existsSync(userDataDir)) {

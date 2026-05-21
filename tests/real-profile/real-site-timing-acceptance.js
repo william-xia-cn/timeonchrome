@@ -42,7 +42,7 @@ function parseArgs(argv) {
     launch: false,
     browser: 'chromium',
     userDataDir: path.resolve(__dirname, '..', '..', 'test-real-site-profile'),
-    extensionDir: path.resolve(__dirname, '..', '..'),
+    extensionDir: path.resolve(__dirname, '..', '..', 'extension'),
   };
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];

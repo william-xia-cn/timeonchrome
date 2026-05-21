@@ -33,7 +33,7 @@ global.chrome = { storage: { local: mockLocalStorage } };
 
 // ── Tiny test adapter: load production ESM-like exports in CJS test harness ──
 function loadProdModule(relPath, exportNames) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -56,7 +56,7 @@ const getEvents = eventApi.getEvents;
 const appendEvent = eventApi.appendEvent;
 const clearEvents = eventApi.clearEvents;
 const STORAGE_KEY = 'event_log_v1';
-const sourcePath = path.join(__dirname, '..', '..', 'core/event-log.js');
+const sourcePath = path.join(__dirname, '..', '..', 'extension', 'core', 'event-log.js');
 const sourceCode = fs.readFileSync(sourcePath, 'utf8');
 const hasGetLastEventExport = /export\s+async\s+function\s+getLastEvent|export\s+function\s+getLastEvent/.test(sourceCode);
 const getLastEvent = hasGetLastEventExport

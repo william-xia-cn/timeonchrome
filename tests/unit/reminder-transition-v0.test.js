@@ -35,7 +35,7 @@ function section(name) {
 
 // Extract reminder.js configs and actionDefs by parsing the source
 function loadReminderConfigs() {
-  const abs = path.join(__dirname, '..', '..', 'reminder.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'reminder.js');
   const fullCode = fs.readFileSync(abs, 'utf8');
 
   const configsMatch = fullCode.match(/const configs = \{([\s\S]*?)\n  \};/);
@@ -49,7 +49,7 @@ function loadReminderConfigs() {
 
 // Simulate reminder.js rendering logic for a given reason
 function simulateReminderRendering(reason, msg = '') {
-  const abs = path.join(__dirname, '..', '..', 'reminder.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'reminder.js');
   const fullCode = fs.readFileSync(abs, 'utf8');
 
   // Extract the configs object
@@ -85,7 +85,7 @@ function simulateReminderRendering(reason, msg = '') {
   const V0_KNOWN_REASONS = new Set([
     'unsafe', 'study_mode', 'to_composite_confirm', 'to_rest_confirm',
     'to_rest_slide_confirm', 'restricted_study_mode',
-    'quota_composite', 'quota_composite_and_rest', 'quota_rest',
+    'quota_composite_and_rest', 'rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule'
   ]);
 
@@ -131,7 +131,7 @@ async function run() {
   expectTrue('study_mode does NOT show switchToRest', !studyMode.config.actions.includes('switchToRest'));
 
   // Request entrance is no longer in reminder HTML
-  const htmlPath = path.join(__dirname, '..', '..', 'reminder.html');
+  const htmlPath = path.join(__dirname, '..', '..', 'extension', 'reminder.html');
   const htmlContent = fs.readFileSync(htmlPath, 'utf8');
   expectTrue('dual-path composite section removed from HTML', !htmlContent.includes('id="dualPathCompositeSection"'));
   expectTrue('composite slider removed from HTML', !htmlContent.includes('id="slideConfirmWrapComposite"'));
@@ -175,15 +175,25 @@ async function run() {
   expectTrue('to_rest_confirm restricted site handling exists', fullCode.includes("siteType === 'restricted'"));
   expectTrue('to_rest_confirm no longer exposes composite request slider', !fullCode.includes('slideTrackComposite'));
 
-  // ── 5. quota_composite ──
-  section('5. quota_composite rendering');
-  const quotaComposite = simulateReminderRendering('quota_composite');
-  expectTrue('quota_composite is known reason', !quotaComposite.isUnknownReason);
-  expect('quota_composite title', quotaComposite.config.title, '今日综合时间已用完');
-  expectTrue('quota_composite has enterRestContinue', quotaComposite.config.actions.includes('enterRestContinue'));
-  expectTrue('quota_composite has backGeneric', quotaComposite.config.actions.includes('backGeneric'));
-  expectTrue('quota_composite has no addComposite', !quotaComposite.config.actions.includes('addComposite'));
-  expectTrue('quota_composite has no borrowTime', !quotaComposite.config.actions.includes('borrowTime'));
+  // ── 5. rest_locked ──
+  section('5. rest_locked rendering');
+  const restLocked = simulateReminderRendering('rest_locked');
+  expectTrue('rest_locked is known reason', !restLocked.isUnknownReason);
+  expect('rest_locked title', restLocked.config.title, '今天的休息时间已用完');
+  expect('rest_locked subtitle', restLocked.config.subtitle, '当前不能继续访问。请返回。');
+  expectTrue('rest_locked has only backGeneric', JSON.stringify(restLocked.config.actions) === JSON.stringify(['backGeneric']));
+  expectTrue('rest_locked has no switchToRest', !restLocked.config.actions.includes('switchToRest'));
+  expectTrue('rest_locked has no addComposite', !restLocked.config.actions.includes('addComposite'));
+  expectTrue('rest_locked has no borrowTime', !restLocked.config.actions.includes('borrowTime'));
+
+  section('5b. quota_locked rendering');
+  const quotaLocked = simulateReminderRendering('quota_locked');
+  expectTrue('quota_locked is known reason', !quotaLocked.isUnknownReason);
+  expect('quota_locked title', quotaLocked.config.title, '当前配额已用完');
+  expect('quota_locked subtitle', quotaLocked.config.subtitle, '当前不能继续访问。请返回。');
+  expectTrue('quota_locked has only backGeneric', JSON.stringify(quotaLocked.config.actions) === JSON.stringify(['backGeneric']));
+  expectTrue('quota_locked has no switchToRest', !quotaLocked.config.actions.includes('switchToRest'));
+  expectTrue('quota_locked has no borrowTime', !quotaLocked.config.actions.includes('borrowTime'));
 
   // ── 6. quota_composite_and_rest ──
   section('6. quota_composite_and_rest rendering');
@@ -205,10 +215,8 @@ async function run() {
 
   // ── 8. Source-level validations ──
   section('8. Source-level validations');
-  expectTrue('quota_composite has correct body line 1', configsCode.includes('综合时间不会自动占用休息时间'));
-  expectTrue('quota_composite has correct body line 2', configsCode.includes('如果仍要继续访问，可以进入休息时间继续'));
-  expectTrue('enterRestContinue action exists', actionDefsCode.includes('enterRestContinue:'));
-  expectTrue('enterRestContinue label is 进入休息继续', actionDefsCode.includes("label: '进入休息继续'"));
+  expectTrue('quota_composite active config removed', !configsCode.includes('quota_composite:'));
+  expectTrue('enterRestContinue action removed', !actionDefsCode.includes('enterRestContinue:'));
   expectTrue('quota_composite_and_rest has correct body', configsCode.includes('当前不能继续访问。请返回。'));
   expectTrue('study_mode has backToStudy action', configsCode.includes("'backToStudy'"));
   expectTrue('V0_KNOWN_REASONS set exists in source', fullCode.includes('V0_KNOWN_REASONS'));

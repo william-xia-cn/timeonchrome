@@ -35,10 +35,10 @@ function extractFunctionSource(code, functionName) {
 }
 
 function run() {
-  const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'background.js'), 'utf8');
-  const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', '..', 'message-router.js'), 'utf8');
-  const popupHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'popup', 'popup.html'), 'utf8');
-  const popupJs = fs.readFileSync(path.join(__dirname, '..', '..', 'popup', 'popup.js'), 'utf8');
+  const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
+  const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
+  const popupHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.html'), 'utf8');
+  const popupJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.js'), 'utf8');
   const modeUsageSource = extractFunctionSource(popupJs, 'resolveModeUsageWithLive');
 
   expectTrue('badge mode map includes 学', backgroundSource.includes("return '学';"));
@@ -46,9 +46,9 @@ function run() {
   expectTrue('badge mode map includes 休', backgroundSource.includes("return '休';"));
   expectTrue('badge mode map includes 停', backgroundSource.includes("return '停';"));
   expectTrue('badge text set from mode', /setBadgeText\(\{ text: modeText \}\)/.test(backgroundSource));
-  expectTrue('pending badge uses mode-aware ellipsis', backgroundSource.includes("pending.fromMode === 'composite' ? '综…' : '休…'"));
-  expectTrue('pending composite title contains remaining seconds', backgroundSource.includes('休息中 · 正在使用综合网站 · ${pending.remainingSeconds}秒后进入综合时间'));
-  expectTrue('pending study title contains remaining seconds', backgroundSource.includes("正在使用学习网站 · ${pending.remainingSeconds}秒后进入学习时间"));
+  expectTrue('badge no longer renders legacy pending mode ellipsis', !backgroundSource.includes('pending.remainingSeconds') && !backgroundSource.includes('getAutoModePendingStatus'));
+  expectTrue('background no longer sends legacy pending START from badge refresh', !backgroundSource.includes("type: 'AUTO_MODE_PENDING_START'"));
+  expectTrue('badge title uses current stable mode', backgroundSource.includes('模式 ${modeToLabel(runtimeMode)}'));
 
   expectTrue('popup has compact runtime field', popupHtml.includes('id="runtime-compact"'));
   expectTrue('popup has study mode button', popupHtml.includes('id="btn-study"'));
@@ -81,7 +81,7 @@ function run() {
   expectTrue('popup retries background messages after MV3 cold start', popupJs.includes('background_timeout') && popupJs.includes('attempts') && popupJs.includes('setTimeout(resolve, 180)'));
   expectTrue('popup does not abort rendering when local snapshot fails', popupJs.includes('function getPopupLocalSnapshotSafe') && popupJs.includes('renderPopupLoadError'));
   expectTrue('popup has composite mode active class', popupJs.includes('active-composite'));
-  expectTrue('popup supports SWITCH_TO_COMPOSITE', popupJs.includes("SWITCH_TO_COMPOSITE"));
+  expectTrue('popup sends REQUEST_MODE_CHANGE for manual switches', popupJs.includes("type: 'REQUEST_MODE_CHANGE'") && popupJs.includes("toMode: mode"));
   expectTrue('popup mode switch renders optimistic state immediately', popupJs.includes('const previousMode') && popupJs.includes('renderModeButtons({ ...(lastPopupSnapshot || {}), mode })'));
   expectTrue('popup no longer reclassifies settled domains by current study list', !modeUsageSource.includes('studyList.some') && !modeUsageSource.includes('matchDomain(domain'));
   expectTrue('popup mode usage reads mode aggregate fields', popupJs.includes('stats?.studySeconds') && popupJs.includes('stats?.restSeconds') && popupJs.includes('stats?.compositeSeconds'));

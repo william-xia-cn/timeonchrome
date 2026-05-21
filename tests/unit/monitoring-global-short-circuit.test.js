@@ -18,13 +18,14 @@ function expectTrue(desc, cond) {
 }
 
 function run() {
-  const bg = fs.readFileSync(path.join(__dirname, '..', '..', 'background.js'), 'utf8');
-  const interceptor = fs.readFileSync(path.join(__dirname, '..', '..', 'product', 'interceptor.js'), 'utf8');
+  const bg = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
+  const interceptor = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'interceptor.js'), 'utf8');
 
-  // 背景链路：monitoring_enabled=0 时短路 periodicCheckpoint/quota_check/checkAutoStudy
+  // 背景链路：monitoring_enabled=0 时短路 periodicCheckpoint/quota_check。
   expectTrue('background: periodicCheckpoint 分支应有 monitoring guard', /if \(alarm\.name === 'periodicCheckpoint'\) \{\s*if \(!isMonitoringEnabled\(\)\) return;/s.test(bg));
-  expectTrue('background: quota_check 分支应有 monitoring guard', /else if \(alarm\.name === 'quota_check'\) \{\s*if \(!isMonitoringEnabled\(\)\) return;\s*await checkAllTabsQuota\(/s.test(bg));
-  expectTrue('background: checkAutoStudy 应在函数开头短路', /async function checkAutoStudy\(\) \{\s*if \(!isMonitoringEnabled\(\)\) return;/s.test(bg));
+  expectTrue('background: quota_check 分支应有 monitoring guard', /alarm\.name === 'quota_check'\) \{\s*if \(!isMonitoringEnabled\(\)\) return;/s.test(bg));
+  expectTrue('background: quota_check should enter message path', /EVALUATE_QUOTA_STATE/.test(bg) && !/checkAllTabsQuota/.test(bg));
+  expectTrue('background: legacy checkAutoStudy should be removed', !/checkAutoStudy|auto_study_legacy/.test(bg));
 
   // 拦截规则：monitoring_enabled=0 时清规则后不再 addRules
   expectTrue('interceptor: updateDeclarativeRules 应支持 monitoringEnabled 参数', /export async function updateDeclarativeRules\(config, monitoringEnabled\)/.test(interceptor));

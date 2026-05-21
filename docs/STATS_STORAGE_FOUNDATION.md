@@ -49,23 +49,26 @@
 
 ## 2. Core Principles
 
-### 2.1 四层区分
+### 2.1 三层边界
 
 | 层 | 内容 | 存储位置 | 可变性 |
 |---|------|---------|--------|
-| **已结算用量分段（Settled Usage Segments）** | 逐段事实：domain、channel、mode、start/end、duration | `usage_segments_v1` | 不可变（append-only） |
-| **原始用量事实（Raw Usage Facts）** | 每日聚合：by-domain by-channel by-mode 汇总 | `daily_usage_stats_v1`（物化视图） | 不可变（从 segments 构建） |
-| **模式上下文（Mode Context）** | 该用量发生在哪个模式下 | `usage_segments_v1` + `daily_usage_stats_v1` | 不可变 |
-| **分类/报表解释（Classification / Report Interpretation）** | 学习时间/休息时间/待定时间/拦截/借用/允许 | 读取时动态计算 | 随策略变更而变 |
+| **计时落账与账务统计层** | 已结算事实和内生物化索引：`usage_segments_v1` / `daily_usage_stats_v1` / `hourly_usage_stats_v1`，以及独立 media ledger / `daily_media_stats_v1` / `hourly_media_stats_v1` | Chrome local storage + sync outbox | 事实 append-only；物化索引可从账本重建 |
+| **管理统计口径层** | 读取账本并输出 domain/mode/media/settlement/reconciliation/quota usage 等管理视图 | `extension/stats/managed-statistics.js` | 读取时动态计算；随产品口径变更 |
+| **消费层** | Popup/Admin 展示、配额管理、云端/Pages 查询消费统计视图 | `message-router.js`、`product/quota.js`、UI、cloud sync/Pages | 不定义事实，不自行解释 raw stats |
 
 > 引用自 `docs/DESIGN.md` §1.3.7.1
+
+`daily_usage_stats_v1` / `hourly_usage_stats_v1` 和 `daily_media_stats_v1` / `hourly_media_stats_v1` 不属于独立业务统计模块；它们是账本内生的物化索引，和 segment 写入天然耦合。业务含义（学习/综合/休息、在线、配额口径、settlement analysis 展示 shape）统一进入管理统计口径层。
+
+配额链路按当前实现分层：`extension/stats/managed-statistics.js` 提供 `getQuotaUsageView()`；`product/quota.js` 包含 quota calculator 与 quota state updater，负责从 usage view 计算并保存 `quotaState` / `lockedDomains`；`message-router` 的 `EVALUATE_QUOTA_STATE` 是本地 quota lifecycle 编排入口；`product/mode-service.js` 产出模式迁移 decision；`product/mode-effects.js` 执行 Reminder / notice / redirect 等 Chrome UI effects。
 
 ### 2.2 `usage_segments_v1` 是核心持久事实账本（Core Durable Fact Ledger）
 
 - `usage_segments_v1` 是已完成持续时间的**唯一持久事实源**
 - 记录每次使用会话的完整持续时间，并按自然日边界分割
 - 每个 segment 是不可变的：一旦写入，永远不修改
-- `daily_usage_stats_v1` 是从 segments 构建的**物化聚合**，不应独立写入
+- `daily_usage_stats_v1` 与 `hourly_usage_stats_v1` 是从 segments 构建的**物化聚合**，不应独立写入
 - 云同步先上传 segments，然后可以从云端 segments 派生/对账聚合数据
 
 ### 2.3 这些存储禁止包含的内容
@@ -79,7 +82,7 @@
 
 - `event_log_v1` 是短期恢复/调试追踪（24 小时保留）
 - 它既不是持久的逐段记录，也不是每日聚合存储
-- 统计数据必须持久化到 `usage_segments_v1` 和 `daily_usage_stats_v1`
+- 统计数据必须持久化到 `usage_segments_v1`，并同步维护 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 物化索引
 
 ---
 
@@ -93,8 +96,16 @@
 | `event_log_v1` | `event_log_v1` | 短期恢复/调试追踪（START/END 事件）| 24 小时 | Append-only，压缩时删除旧数据 |
 | **`usage_segments_v1`** | **`usage_segments_v1`** | **持久化已结算逐段账本（核心事实源）** | **365 天** | **Append-only，永远不删除** |
 | `daily_usage_stats_v1` | `daily_usage_stats_v1` | 从 segments 构建的物化每日聚合 | **365 天** | 从 segments 重建，可替换 |
+| `hourly_usage_stats_v1` | `hourly_usage_stats_v1` | 从 segments 构建的物化小时聚合 | **365 天** | 从 segments 重建，可替换 |
 | `segment_sync_outbox_v1` | `segment_sync_outbox_v1` | 逐段上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `stats_sync_outbox_v1` | `stats_sync_outbox_v1` | 聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
+| `hourly_stats_sync_outbox_v1` | `hourly_stats_sync_outbox_v1` | 小时 usage 聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
+| `media_segments_v1` | `media_segments_v1` | 本地媒体逐段账本 | **365 天** | Append-only，永远不删除 |
+| `daily_media_stats_v1` | `daily_media_stats_v1` | 从 media segments 构建的物化每日聚合 | **365 天** | 从 media segments 重建，可替换 |
+| `hourly_media_stats_v1` | `hourly_media_stats_v1` | 从 media segments 构建的物化小时聚合 | **365 天** | 从 media segments 重建，可替换 |
+| `media_segment_sync_outbox_v1` | `media_segment_sync_outbox_v1` | 媒体逐段上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
+| `media_stats_sync_outbox_v1` | `media_stats_sync_outbox_v1` | 媒体每日聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
+| `hourly_media_stats_sync_outbox_v1` | `hourly_media_stats_sync_outbox_v1` | 媒体小时聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 
 ### 3.1 结算路径（Settlement Path）
 
@@ -113,9 +124,15 @@ transitionState / periodicCheckpoint / lifecycle recovery close
          │      activeSeconds += duration
          │      activeByMode[mode] += duration
          │
+         ├──→ 增量更新 hourly_usage_stats_v1
+         │      按本地小时边界生成聚合 slice
+         │      所有 slice 秒数之和等于 segment.durationSeconds
+         │
          ├──→ 标记 segment_sync_outbox_v1 脏
          │
          ├──→ 标记 stats_sync_outbox_v1 脏
+         │
+         ├──→ 标记 hourly_stats_sync_outbox_v1 脏
          │
          └──→ (可选) 追加 event_log_v1 trace
 ```
@@ -158,7 +175,7 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 
 每个事件来源必须被判定为：`主计时`、`补充计时`、`容错`、`诊断容错`、`维护不计时`、`辅助重评估` 或 `未接入可选补强`。未列入主计时/补充计时/容错/诊断容错的来源不得直接写 `usage_segments_v1`。
 
-实现结构要求：Chrome 原始事件可以被多个计时消费者共享，但账本必须分轨。`background.js` 只负责 listener wiring、dispatcher 调用和 alarm 调度；foreground 计时只能写 `session_v1` / `usage_segments_v1` / `daily_usage_stats_v1`，media 计时只能写 `media_frame_facts_v1` / `media_facts_v1` / `media_sessions_v2` / `media_segments_v1` / `daily_media_stats_v1`。同一个 `periodicCheckpoint` alarm 可以触发 foreground 与 media 两套 checkpoint，但两套执行必须独立 try/catch、独立 trace，任何一侧失败不得阻断另一侧。
+实现结构要求：Chrome 原始事件可以被多个计时消费者共享，但账本必须分轨。`background.js` 只负责 listener wiring、dispatcher 调用和 alarm 调度；foreground 计时只能写 `session_v1` / `usage_segments_v1` / `daily_usage_stats_v1` / `hourly_usage_stats_v1`，media 计时只能写 `media_frame_facts_v1` / `media_facts_v1` / `media_sessions_v2` / `media_segments_v1` / `daily_media_stats_v1` / `hourly_media_stats_v1`。同一个 `periodicCheckpoint` alarm 可以触发 foreground 与 media 两套 checkpoint，但两套执行必须独立 try/catch、独立 trace，任何一侧失败不得阻断另一侧。
 
 当前代码分层：
 
@@ -184,14 +201,14 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 | Chrome idle | `chrome.idle.onStateChanged` | 已接入 | 主计时边界提示 | 是 | 是 | `idle_inactive_close` / active reopen reason | 只处理 active/idle/locked 边界；不作为持续确认机制 |
 | Runtime message | `MEDIA_STATE` | 已接入 | 主计时（本地媒体账本） + PiP policy | 是 | 是 | media boundary / `periodic_checkpoint` / `pip_forbidden_cleanup` | content script 上报媒体/PiP 状态，经 `timing-dispatcher` → `media-timing` → `runtime/media-session.js` 写本地媒体账本；`isPiP=true` 先记录事实再触发全局退出 PiP；media-only signal 不进入 foreground consumer |
 | Runtime message | popup `GET_STATS source=popup` | 已接入 | 补充计时 | 是 | 是 | `popup_open` / `popup_open_reopen` | 用户打开 popup 时关闭当前 counted session 并立即重开，保证 popup 统计可见当前段 |
-| Runtime message | `SWITCH_TO_STUDY` / `SWITCH_TO_REST` / `SWITCH_TO_COMPOSITE` | 已接入 | 补充计时（模式边界） | 是 | 是 | `mode_effective_boundary` / `mode_effective_boundary_reopen` | 写入 `mode_boundary_intents_v1` 后返回；dispatcher 后续切 foreground 与所有 open media sessions |
+| Runtime message | `REQUEST_MODE_CHANGE`（legacy alias: `SWITCH_TO_STUDY` / `SWITCH_TO_REST` / `SWITCH_TO_COMPOSITE`） | 已接入 | 补充计时（模式边界） | 是 | 是 | `mode_effective_boundary` / `mode_effective_boundary_reopen` | `product/mode-service.js` 提交 `guardian_session.currentMode/currentModeStartedAtMs`，维护 `restExitGraceUntilMs`，并写入 `mode_boundary_intents_v1` 后返回；dispatcher 后续切 foreground 与所有 open media sessions |
 | Runtime message | `FLUSH_TIME` / 非 popup `GET_STATS` / `GET_STATS_RANGE` | 已接入 | 查询/有限补充 | 可能 | 可能 | `ui_flush` | 不允许直接切碎前台 ACTIVE；仅用于非前台或受限路径刷新 |
 | Runtime message | `CONTENT_SCRIPT_READY` | 已接入 | 维护不计时 | 否 | 否 | 无 | 只用于 transient notice 重发，不产生计时事实 |
 | Runtime message | `TITLE_CHANGE` | 已接入 | 维护不计时 | 否 | 否 | 无 | 页面标题信息，不产生计时事实 |
 | Config / sync action | monitoring off / cloud disables monitoring | 已接入 | 补充计时（配置动作） | 否 | 是 | `monitoring_off` | 用户或云端配置动作触发补充落账；关闭当前 open session，不重开 |
 | Alarm | `periodicCheckpoint` foreground runner | 已接入 | 补充计时 + 采样对账 | 是 | 是 | `periodic_checkpoint` / `checkpoint_estimated_close` / `checkpoint_estimated_open` | `checkpoint-scheduler` 调用 foreground checkpoint；正常匹配写 checkpoint；open/closed 与当前采样不一致时半 interval 估算修复 |
-| Alarm | `periodicCheckpoint` media runner | 已接入 | 补充计时（本地媒体账本） | 是 | 是 | `periodic_checkpoint` | `checkpoint-scheduler` 调用 media checkpoint；只切当前 open media sessions，写本地 `media_segments_v1` / `daily_media_stats_v1`，不影响云端 usage schema |
-| Alarm | `quota_check` | 已接入 | 维护不计时 | 否 | 否 | 无 | 配额检查和策略动作，不直接写计时事实 |
+| Alarm | `periodicCheckpoint` media runner | 已接入 | 补充计时（本地媒体账本） | 是 | 是 | `periodic_checkpoint` | `checkpoint-scheduler` 调用 media checkpoint；只切当前 open media sessions，写本地 `media_segments_v1` / `daily_media_stats_v1` / `hourly_media_stats_v1`，不影响云端 usage schema |
+| Alarm | `quota_check` | 已接入 | 补充模式边界触发 | 可能 | 可能 | `mode_effective_boundary` / quota reason | 1 分钟本地配额到期入口：`quota_check -> EVALUATE_QUOTA_STATE -> handleModeEvent -> executeModeDecision -> current active tab ACCESS_OBSERVED recheck`。它不直接写 `usage_segments_v1`，不扫全量 tabs，不直接 redirect；若触发 mode change，会通过 `mode-service` 产生 `mode_boundary`，由 foreground/media 账本各自切分 open sessions |
 | Alarm | `cloudSync` | 已接入 | 维护不计时 | 否 | 否 | 无 | 云同步，不改变本地计时事实 |
 | Alarm | `cloudHeartbeat` | 已接入 | 维护不计时 | 否 | 否 | 无 | 云端在线心跳，不证明 session 存活 |
 | Alarm | `daily_cleanup` | 已接入 | 维护不计时 | 否 | 否 | 无 | 清理旧数据/日常维护，不产生计时事实 |
@@ -248,7 +265,7 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - 当前仍保留 legacy 媒体网页补偿：仅在旧 open foreground session 因 idle/focus/checkpoint 可能被关闭前，按 `session.tabId` 查询 `tab.audible` 或 `media_facts_v1[session.tabId]`，判断是否暂缓关闭普通网页 `ACTIVE`。它不得用于新开或补开普通网页账。目标形态是移除该补偿，让媒体只进入本地媒体账本；但本轮只收敛查询入口，不删除。
 - HTTP/HTTPS 记录归一化后的**精确 hostname**。`www.example.com`、`m.example.com`、`sub.example.com` 分别落账和聚合，不自动合并到 `example.com`。
 - 父域覆盖子域只用于规则匹配（study/composite/restricted/unsafe）和配额/拦截判断，不改变账本 `domain` key。
-- 如果未来需要“主站”视图，应在读取/展示层增加 `siteGroup` 聚合；不得改写 `usage_segments_v1` / `daily_usage_stats_v1` 的原始 domain 粒度。
+- 如果未来需要“主站”视图，应在读取/展示层增加 `siteGroup` 聚合；不得改写 `usage_segments_v1` / `daily_usage_stats_v1` / `hourly_usage_stats_v1` 的原始 domain 粒度。
 - 特殊 URL 不形成空窗，而是映射为安全伪域名：`chrome-extension:` → `extension-page.chrome-local`，`chrome://extensions` → `chrome-extensions.chrome-local`，`chrome://settings` → `chrome-settings.chrome-local`，其他 `chrome://` → `chrome-page.chrome-local`，`file:` → `local-file.chrome-local`，`about:` → `about-page.chrome-local`，`data:`/`blob:` → `embedded-page.chrome-local`。
 - 不记录本地文件路径、扩展 ID、完整内部 URL 查询参数。
 
@@ -277,7 +294,7 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - 正式发布前必须重新设计“是否允许学习/综合网站 PiP、如何计入统计/配额/云端/家长端展示”。未完成前不得以半支持 PiP 状态发布。
 
 当前归因约束：
-- 媒体计时已经从 foreground `usage_segments_v1` 解耦，使用本地-only 媒体账本：`media_frame_facts_v1`、`media_facts_v1`、`media_sessions_v2`、`media_segments_v1`、`daily_media_stats_v1`。
+- 媒体计时已经从 foreground `usage_segments_v1` 解耦，使用独立媒体账本：`media_frame_facts_v1`、`media_facts_v1`、`media_sessions_v2`、`media_segments_v1`、`daily_media_stats_v1`、`hourly_media_stats_v1`。
 - `dom_media_poll` 是注入脚本的页面采样事实，不是 Chrome 原生事件；30 秒重申只用于补足静音媒体/漏事件场景，不代表每 30 秒落账。
 - `media_frame_facts_v1` 保存 `tabId + frameId` 的页面媒体事实；`media_facts_v1` 是按 tab 派生出来的聚合事实，不再被最后一个 frame message 覆盖。
 - tab 聚合规则：PiP 优先；任一 frame video 播放则 tab 为 video；否则任一 frame audio/WebAudio/audible 则 tab 为 audio；只有同 tab 所有 frame 都停止时才关闭 tab media session。
@@ -286,8 +303,8 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - `backgroundAudio` / `backgroundVideo` 定义为：播放源不是上述 foreground media，或所在窗口已最小化。
 - PiP 计为 `pip`，独立于 foreground/background media，但当前 policy 是全局禁止；`pip` 只表示被检测到且正在清理/清理失败的禁用事实。
 - `tabs.onActivated`、`tabs.onReplaced`、window minimized/restored 只允许对已知媒体 tab 做关闭、迁移或 foreground/background 重分类；没有既有 media fact 或 open media session 时不得凭空开媒体账。
-- 媒体细分时长写入本地媒体账本，不写入 `usage_segments_v1` 的 `backgroundMedia` / `pip` 云端 channel。当前 legacy compensation 仍可能影响 foreground `ACTIVE` 开合；该行为只作为待移除遗留路径保留。
-- 云端兼容差异：当前 `buildUsageSegmentsUploadPayload()` 不包含 `media_segments_v1`；Worker `VALID_CHANNELS`、D1 schema、云端查询和 Pages 展示暂不支持媒体细分。正式发布若要求云端可查媒体细分，需要升级上传 payload、Worker 校验/插入、D1 migration、云端查询和 Pages 展示。
+- 媒体细分时长写入独立媒体账本，不写入 foreground `usage_segments_v1`，也不进入 `buildUsageSegmentsUploadPayload()`。当前 legacy compensation 仍可能影响 foreground `ACTIVE` 开合；该行为只作为待移除遗留路径保留。
+- 云端同步边界：媒体账本已有独立 outbox、上传函数和 Worker endpoints（`/device/media-segments/v1`、`/device/media-stats/v1`），但它仍不混入普通 `usage_segments_v1` / `stats_v1` 协议。Pages/admin/popup 的最终媒体统计口径、配额口径和家长端展示仍是发布前需要确认的产品项。
 
 #### 3.1.6 周期性 Checkpoint（补充计时落账与采样对账）
 
@@ -324,20 +341,23 @@ Recovery 是容错机制，不是正常计时落账机制。它只处理扩展�
 ```
 session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_stats_v1
                                     │                        │
-                        (uplSessionUpload) ▼   (uploadStats)  ▼
-                    segment_sync_outbox_v1         stats_sync_outbox_v1
+                                    │                        ├──→ stats_sync_outbox_v1 → Cloud stats_v1
                                     │                        │
-                                    ▼                        ▼
-                           Cloud usage_segments_v1    Cloud stats_v1
+                                    ├──────────────→ hourly_usage_stats_v1
+                                    │                        │
+                                    │                        └──→ hourly_stats_sync_outbox_v1 → Cloud hourly_stats_v1
+                                    │
+                                    └──→ segment_sync_outbox_v1 → Cloud usage_segments_v1
 ```
 
 - `uploadSessionUpload()` 从 `segment_sync_outbox_v1` 读取，上传到云端
 - `uploadStats()` 从 `stats_sync_outbox_v1` 读取，上传到云端（或可以从云端 segments 重建以进行对账）
+- `uploadHourlyStats()` 从 `hourly_stats_sync_outbox_v1` 读取，上传到云端；小时聚合不替代每日聚合
 - `event_log_v1` 不再直接用于上传或聚合
 
-### 3.3 本地媒体账本
+### 3.3 独立媒体账本
 
-媒体账本是本地诊断/统计能力，和云端 `usage_segments_v1` 上传协议解耦：
+媒体账本是独立事实账本，和普通前台 `usage_segments_v1` 上传协议解耦：
 
 | Key | 粒度 | 用途 |
 |---|---|---|
@@ -346,6 +366,7 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 | `media_sessions_v2` | `tabId + mediaClass` | 保存当前打开的媒体 session，支持多个 tab 并行 |
 | `media_segments_v1` | segment id | 保存本地媒体逐段账本：start/end/domain/tabId/windowId/mediaClass/mediaKind/visibility/mode/reason/description |
 | `daily_media_stats_v1` | date + domain + mediaClass + mode | 从 `media_segments_v1` 增量聚合本地媒体秒数 |
+| `hourly_media_stats_v1` | hourKey + domain + mediaClass + mode | 从 `media_segments_v1` 增量聚合本地媒体小时秒数 |
 
 `mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟只处理当前 open media session。对于 open `pip` session，checkpoint 必须先按全局 PiP policy 重试 cleanup；cleanup 成功则关闭本地 `pip` session，不再进入普通 checkpoint 重开。cleanup 失败时，仍按真实媒体事实继续确认和 checkpoint，避免丢失禁用 PiP 仍在播放的事实。非 PiP session 必须先用该 session 的 `tabId` 精确确认当前媒体事实仍成立；确认成功才写 `periodic_checkpoint` 并重开。`lastObservedAt` 只代表真实媒体事实来源，checkpoint 不能把它刷新为当前时间。
 
@@ -353,7 +374,7 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 
 Mode boundary 是系统级账务边界。由于当前 PiP policy 为全局禁止，任何 mode boundary 发现 open `pip` session 时都必须先尝试共享 cleanup；cleanup 成功后用 `pip_forbidden_cleanup` 关闭 `pip` session，不以 `mode_effective_boundary_reopen` 重开 PiP；cleanup 失败时保留事实并按 mode boundary 切片，表示禁用 PiP 仍在持续。页面内仍有非 PiP 视频/音频事实时，可按新 mode 重分类为普通 foreground/background media。
 
-该账本当前不进入 `segment_sync_outbox_v1` 或 `stats_sync_outbox_v1`，不会被 `buildUsageSegmentsUploadPayload()` 上传。正式发布前必须决定媒体细分是否仍保持 local-only；如果要求云端可查，需要单独设计 cloud media schema 或扩展现有 cloud usage schema。
+该账本不进入 `segment_sync_outbox_v1` 或 `stats_sync_outbox_v1`，不会被 `buildUsageSegmentsUploadPayload()` 上传；它使用独立 `media_segment_sync_outbox_v1` / `media_stats_sync_outbox_v1` / `hourly_media_stats_sync_outbox_v1` 和 dedicated Worker endpoints。正式发布前仍必须确认媒体细分是否进入正式产品统计/配额/家长端口径，以及 Pages/admin/popup 是否以同一 managed statistics view 展示。
 
 ---
 
@@ -422,7 +443,7 @@ usage_segments_v1 (chrome.storage.local)
 |------|------|------|------|
 | `domain` | string | ✅ | 归一化域名 |
 | `channel` | string | ✅ | `active` / `backgroundMedia` / `pip` |
-| `mode` | string | ✅ | `study` / `rest` / `paused` / `unknown` / `composite` |
+| `mode` | string | ✅ | Runtime/product mode：`study` / `composite` / `rest` / `locked` / `paused`；`unknown` 只允许作为 ledger fallback，不是产品/runtime mode |
 | `sourceState` | string | ✅ | 产生该 segment 的原始 STATE_WEIGHTS 状态（`ACTIVE` / `BACKGROUND_ACTIVE` / `PIP_ACTIVE`）|
 
 #### 结算元数据
@@ -455,7 +476,7 @@ usage_segments_v1 (chrome.storage.local)
 
 ---
 
-## 5. `daily_usage_stats_v1` Schema（物化聚合）
+## 5. `daily_usage_stats_v1` / `hourly_usage_stats_v1` Schema（物化聚合）
 
 ### 5.1 存储键
 
@@ -463,7 +484,7 @@ usage_segments_v1 (chrome.storage.local)
 daily_usage_stats_v1 (chrome.storage.local)
 ```
 
-与之前相同的 schema（§4 of original），但现在明确定义为从 `usage_segments_v1` 构建的**物化视图**：
+与之前相同的 schema（§4 of original），但现在明确定义为从 `usage_segments_v1` 构建的**每日物化视图**：
 
 ```javascript
 {
@@ -480,7 +501,7 @@ daily_usage_stats_v1 (chrome.storage.local)
         "backgroundMediaSeconds": 600,
         "pipSeconds": 0,
         "totalSeconds": 2400,
-        "activeByMode": { "study": 0, "rest": 1800, "paused": 0, "unknown": 0 },
+        "activeByMode": { "study": 0, "composite": 0, "rest": 1800, "locked": 0, "paused": 0, "unknown": 0 },
         "backgroundMediaByMode": { "rest": 600 },
         "pipByMode": {},
         "firstSeenAt": 1777860000000,
@@ -501,6 +522,18 @@ daily_usage_stats_v1 (chrome.storage.local)
 4. **`segmentsCount` 跟踪**：确保重建与增量更新匹配
 5. **保留 365 天**，与 `usage_segments_v1` 保留期匹配
 
+### 5.3 小时聚合规则
+
+```
+hourly_usage_stats_v1 (chrome.storage.local)
+```
+
+`hourly_usage_stats_v1` 是从 `usage_segments_v1` 构建的**小时物化视图**，用于小时级报表、配额对账和云端小时查询。它不是新的事实账本，不替代 `usage_segments_v1` 或 `daily_usage_stats_v1`。
+
+小时 key 使用用户本地时间：`hourKey = YYYY-MM-DDTHH`，例如 `2026-05-21T14`。每个 hour entry 包含 `hourKey/date/hour/timezone/hourStartMs/hourEndMs/segmentsCount/lastSegmentId/domains`。domain shape 与 `daily_usage_stats_v1` 对齐：`activeSeconds/backgroundMediaSeconds/pipSeconds/totalSeconds`、`activeByMode/backgroundMediaByMode/pipByMode`、`firstSeenAt/lastSeenAt/lastUpdatedAt`。
+
+跨小时 segment 不物理拆分 `usage_segments_v1`。聚合时按本地小时边界生成 hour slices，每个 slice 继承原 segment 的 `domain/channel/mode`。所有 slice 的秒数之和必须等于原 segment 的 `durationSeconds`；毫秒余数按确定性规则分配给余数较大的 slice，保证小时聚合与 segment 总秒数可对账。`rebuildHourlyUsageStats(dateOrHourKey)` 必须从 segments 重建小时索引，用于修复、测试和 suspect cleanup 后的对账。
+
 ---
 
 ## 6. 与现有系统的关系
@@ -509,7 +542,7 @@ daily_usage_stats_v1 (chrome.storage.local)
 
 - `event_log_v1` 保留用于短期恢复/调试追踪
 - 它不能替代 `usage_segments_v1`（没有 segment ID、24 小时保留、没有 mode、没有稳定的 settlement）
-- 它不能替代 `daily_usage_stats_v1`（压缩后消失）
+- 它不能替代 `daily_usage_stats_v1` / `hourly_usage_stats_v1`（压缩后消失）
 
 ### 6.2 现有 R2 `/device/sessions/upload` → 不足够
 
@@ -561,7 +594,7 @@ export async function uploadSegments() {
 }
 ```
 
-### 7.2 Aggregate Upload — `uploadStats()`
+### 7.2 Daily Aggregate Upload — `uploadStats()`
 
 ```javascript
 // 新：从 stats_sync_outbox_v1 读取，而不是 event_log_v1
@@ -591,14 +624,47 @@ export async function uploadStats() {
 }
 ```
 
-### 7.3 同步规则
+### 7.3 Hourly Aggregate Upload — `uploadHourlyStats()`
+
+```javascript
+// 从 hourly_stats_sync_outbox_v1 读取小时 key，上传小时物化索引
+export async function uploadHourlyStats() {
+  const hourlyStats = await getHourlyUsageStats();
+  const outbox = await getHourlyStatsSyncOutbox();
+  const dirtyHourKeys = outbox.dirtyHourKeys || [];
+  if (dirtyHourKeys.length === 0) {
+    return { uploaded: 0, failed: 0, skipped: true };
+  }
+
+  let uploaded = 0;
+  let failed = 0;
+  for (const hourKey of dirtyHourKeys) {
+    const hourData = hourlyStats[hourKey];
+    if (!hourData) { clearDirtyHourKey(hourKey); continue; }
+
+    const payload = buildHourlyStatsUploadPayload(hourKey);
+    try {
+      await cloudRequest('POST', '/device/hourly-stats/v1', payload);
+      clearDirtyHourKey(hourKey);
+      uploaded++;
+    } catch (e) { failed++; }
+  }
+  return { uploaded, failed, skipped: false };
+}
+```
+
+媒体小时聚合使用同样模式：`hourly_media_stats_sync_outbox_v1` → `buildHourlyMediaStatsUploadPayload(hourKey)` → `POST /device/hourly-media-stats/v1`。媒体小时聚合只来自 `media_segments_v1`，不进入普通 usage 上传协议。
+
+### 7.4 同步规则
 
 1. Segments 在 aggregates 之前上传（cloud 可以从 segments 重建 aggregates）
 2. `segment_sync_outbox_v1` 跟踪脏 segment IDs
 3. `stats_sync_outbox_v1` 跟踪脏日期
-4. 上传成功后清除出站状态；源数据（segments/aggregates）保留完整
-5. 有效载荷中缺失的数据不暗示删除
-6. 云端使用 upsert 进行 idempotent ingest
+4. `hourly_stats_sync_outbox_v1` 跟踪脏小时
+5. 媒体账本使用独立 outbox：`media_segment_sync_outbox_v1`、`media_stats_sync_outbox_v1`、`hourly_media_stats_sync_outbox_v1`
+6. 上传成功后清除出站状态；源数据（segments/aggregates）保留完整
+7. 有效载荷中缺失的数据不暗示删除
+8. 云端使用 upsert 进行 idempotent ingest
 
 ---
 
@@ -651,7 +717,7 @@ CREATE TABLE usage_segments_v1 (
   duration_seconds    INTEGER NOT NULL,
   domain              TEXT NOT NULL,
   channel             TEXT NOT NULL,      -- active / backgroundMedia / pip
-  mode                TEXT NOT NULL,      -- study / rest / paused / unknown / composite
+  mode                TEXT NOT NULL,      -- study / composite / rest / locked / paused; unknown is ledger fallback only
   source_state        TEXT NOT NULL,      -- ACTIVE / BACKGROUND_ACTIVE / PIP_ACTIVE
   settlement_reason   TEXT NOT NULL,
   parent_segment_id   TEXT,
@@ -690,14 +756,66 @@ CREATE TABLE stats_v1 (
 );
 ```
 
-### 8.4 Cloud Ingest Rules
+### 8.4 Cloud `hourly_stats_v1` / `hourly_media_stats_v1` Tables
+
+小时云端表是 materialized index，不是事实账本。唯一键必须包含 `device_id`，避免多终端同 profile 下互相覆盖。
+
+```sql
+CREATE TABLE hourly_stats_v1 (
+  id                        TEXT PRIMARY KEY,
+  profile_id                TEXT NOT NULL,
+  device_id                 TEXT NOT NULL,
+  hour_key                  TEXT NOT NULL,
+  date                      TEXT NOT NULL,
+  hour                      INTEGER NOT NULL,
+  domain                    TEXT NOT NULL,
+  channel                   TEXT NOT NULL,
+  mode                      TEXT NOT NULL,
+  duration_seconds          INTEGER NOT NULL DEFAULT 0,
+  segments_count            INTEGER NOT NULL DEFAULT 0,
+  last_segment_id           TEXT,
+  first_seen_at             INTEGER,
+  last_seen_at              INTEGER,
+  created_at                INTEGER NOT NULL,
+  updated_at                INTEGER NOT NULL,
+  UNIQUE (profile_id, device_id, hour_key, domain, channel, mode)
+);
+
+CREATE TABLE hourly_media_stats_v1 (
+  id                        TEXT PRIMARY KEY,
+  profile_id                TEXT NOT NULL,
+  device_id                 TEXT NOT NULL,
+  hour_key                  TEXT NOT NULL,
+  date                      TEXT NOT NULL,
+  hour                      INTEGER NOT NULL,
+  domain                    TEXT NOT NULL,
+  media_class               TEXT NOT NULL,
+  mode                      TEXT NOT NULL,
+  duration_seconds          INTEGER NOT NULL DEFAULT 0,
+  segments_count            INTEGER NOT NULL DEFAULT 0,
+  last_segment_id           TEXT,
+  first_seen_at             INTEGER,
+  last_seen_at              INTEGER,
+  created_at                INTEGER NOT NULL,
+  updated_at                INTEGER NOT NULL,
+  UNIQUE (profile_id, device_id, hour_key, domain, media_class, mode)
+);
+```
+
+云端读取接口：
+- `GET /profiles/:id/hourly-stats/v1`：支持 `from/to`、`deviceId`、`domain`、`channel`、`mode`。
+- `GET /profiles/:id/hourly-media-stats/v1`：支持 `from/to`、`deviceId`、`domain`、`mediaClass`、`mode`。
+
+### 8.5 Cloud Ingest Rules
 
 1. **不允许 date-level replace**
 2. Segments：使用 `ON CONFLICT (id) DO UPDATE` — idempotent；重复 segment ID 不创建新行
 3. Stats：使用 `ON CONFLICT (profile_id, date, domain) DO UPDATE` — 合并 by-domain
-4. 当前有效载荷中缺失的数据不暗示删除
-5. 所有三个 duration channels + by-mode 按模式拆解从一开始就支持
-6. Cloud audit log（`segment_upload_log`、`stats_upload_log`）跟踪每次上传操作
+4. Hourly stats：使用 `ON CONFLICT (profile_id, device_id, hour_key, domain, channel, mode) DO UPDATE`
+5. Hourly media stats：使用 `ON CONFLICT (profile_id, device_id, hour_key, domain, media_class, mode) DO UPDATE`
+6. 当前有效载荷中缺失的数据不暗示删除
+7. 所有三个 usage duration channels + by-mode，以及媒体五类 mediaClass + byMode，从一开始就支持
+8. Cloud audit log（`segment_upload_log`、`stats_upload_log`）跟踪每次上传操作；小时聚合沿用 stats sync trace，后续如需独立 audit log 再补 schema
 
 ---
 
@@ -803,16 +921,18 @@ GET /profiles/:id/reconcile?date=2026-05-06
 
 | # | 测试 | 断言 |
 |---|------|------|
-| T1 | 一个已结算的 segment 恰好增量更新一次聚合 | `daily_usage_stats_v1` 反映准确的增量 |
+| T1 | 一个已结算的 segment 恰好增量更新一次聚合 | `daily_usage_stats_v1` / `hourly_usage_stats_v1` 反映准确的增量 |
 | T2 | Recovery 不产生重复 segments | 同一个 event-log 关闭只产生一个 segment |
 | T3 | 跨日会话拆分为多个 segments | 午夜分割产生两个 by-date segments，parent/part 元数据正确 |
-| T4 | event-log 压缩不影响 segments 或聚合 | `usage_segments_v1` 和 `daily_usage_stats_v1` 在压缩后保留完整数据 |
+| T4 | event-log 压缩不影响 segments 或聚合 | `usage_segments_v1`、`daily_usage_stats_v1` 和 `hourly_usage_stats_v1` 在压缩后保留完整数据 |
 | T5 | Segment 上传是幂等的 | 重复 `POST /device/usage-segments/v1` 不创建重复行 |
 | T6 | Cloud aggregate 可以从 cloud segments 对账 | `SUM(segments) WHERE profile+date+domain+channel` 等于 `stats_v1` 值 |
 | T7 | active/backgroundMedia/PiP 保持分离 | Duration channels 在本地存储和云端中保持独立 |
 | T8 | Mode breakdown 跨 segments 保留 | `mode` 字段在 segment 上传和聚合重建中存活 |
 | T9 | 分类在原始统计数据之外派生 | 策略变更修改分类结果而不修改原始统计数据 |
 | T10 | 交叉模式 segments 是正确的 | 模式切换产生单独的 segments，各自带有正确的 mode 字段 |
+| T11 | 跨小时 segment 不拆事实账本但拆聚合 slice | `usage_segments_v1` 保持单段；`hourly_usage_stats_v1` 多 hourKey 秒数之和等于 segment 秒数 |
+| T12 | 媒体小时聚合可从媒体 segments 重建 | `hourly_media_stats_v1` 与 `media_segments_v1` 对账一致 |
 
 ---
 
@@ -823,7 +943,7 @@ GET /profiles/:id/reconcile?date=2026-05-06
 | # | 决策点 | 决定 | 状态 |
 |---|--------|------|------|
 | 1 | `usage_segments_v1` 是核心持久事实账本 | **是**，始终是必需的。之前缺失于文档中，现已添加 | ✅ APPROVED |
-| 2 | `daily_usage_stats_v1` 是从 segments 构建的物化聚合 | **是**，不应独立写入 | ✅ APPROVED |
+| 2 | `daily_usage_stats_v1` / `hourly_usage_stats_v1` 是从 segments 构建的物化聚合 | **是**，不应独立写入 | ✅ APPROVED |
 | 3 | 本地保留 365 天 | **是**，适用于 segments 和 aggregates | ✅ APPROVED |
 | 4 | 日期键使用本地日历日期 | **是**，包含 timezone/dayStartMs/dayEndMs | ✅ APPROVED |
 | 5 | 三个 duration channels 从一开始就支持 | **是**，active/backgroundMedia/PiP | ✅ APPROVED |
@@ -841,8 +961,8 @@ GET /profiles/:id/reconcile?date=2026-05-06
 
 | Phase | 内容 | 顺序 |
 |-------|------|------|
-| Phase 1 | Terminal settlement：`usage_segments_v1` + `daily_usage_stats_v1`（一起创建） | 1 |
-| Phase 2 | Read path：终端 GET_STATS 从 `daily_usage_stats_v1` 读取 | 2 |
+| Phase 1 | Terminal settlement：`usage_segments_v1` + `daily_usage_stats_v1` + `hourly_usage_stats_v1`（一起创建） | 1 |
+| Phase 2 | Read path：终端 GET_STATS 从 `daily_usage_stats_v1` 读取；小时接口从 `hourly_usage_stats_v1` 读取 | 2 |
 | Phase 3 | Segment cloud upload：`POST /device/usage-segments/v1` + `usage_segments_v1` table + `segment_upload_log` | 3 |
 | Phase 4 | Aggregate cloud upload：`POST /device/stats/v1` + `stats_v1` upsert + `stats_upload_log` | 4 |
 | Phase 5 | Reconciliation tests + regression + docs closeout | 5 |
@@ -856,12 +976,12 @@ GET /profiles/:id/reconcile?date=2026-05-06
 | 方面 | 当前（V0） | 目标（V1） |
 |------|-----------|-----------|
 | 持久 segment 账本 | 不存在 | `usage_segments_v1`（365 天保留） |
-| 本地统计存储 | `event_log_v1`（24 小时保留） | `daily_usage_stats_v1`（365 天保留，来自 segments） |
+| 本地统计存储 | `event_log_v1`（24 小时保留） | `daily_usage_stats_v1` + `hourly_usage_stats_v1`（365 天保留，来自 segments） |
 | Segment 同步 | 不存在 | `segment_sync_outbox_v1` → `POST /device/usage-segments/v1` |
-| Stats 同步源 | `getStatsRange(7)` ← `event_log_v1` 聚合 | `daily_usage_stats_v1` 直接读取（来自 segments） |
-| Stats 同步状态 | `cloud_pending_stats`（覆盖） | `stats_sync_outbox_v1`（追踪但不修改统计数据） |
+| Stats 同步源 | `getStatsRange(7)` ← `event_log_v1` 聚合 | `daily_usage_stats_v1` / `hourly_usage_stats_v1` 直接读取（来自 segments） |
+| Stats 同步状态 | `cloud_pending_stats`（覆盖） | `stats_sync_outbox_v1` / `hourly_stats_sync_outbox_v1`（追踪但不修改统计数据） |
 | 云端 segment 表 | 不存在 | `usage_segments_v1`（indexed by profile/date/domain/channel/mode） |
-| 云端 stats ingest | `DELETE` + `INSERT`（replace-by-date） | `ON CONFLICT DO UPDATE`（merge-by-domain） |
+| 云端 stats ingest | `DELETE` + `INSERT`（replace-by-date） | `ON CONFLICT DO UPDATE`（merge-by-domain / hour-domain-channel-mode） |
 | 时长通道 | `duration`（合并，部分丢失） | `active_seconds`、`background_media_seconds`、`pip_seconds`（保留） |
 | 按模式拆解 | 不存在 | `mode` on segments + `*ByMode` on aggregates |
 | 审计日志 | 不存在 | `segment_upload_log`、`stats_upload_log` |
@@ -871,7 +991,7 @@ GET /profiles/:id/reconcile?date=2026-05-06
 
 ### B.1 Sync 子系统分离
 
-Stats Storage Foundation 定义了六个独立的同步子系统。每个子系统独立调度、独立报告成功/失败、独立重试。
+Stats Storage Foundation 定义了多个独立的同步子系统。每个子系统独立调度、独立报告成功/失败、独立重试。
 
 | 子系统 | 方向 | 数据 | 保留期限 |
 |--------|------|------|---------|
@@ -880,6 +1000,10 @@ Stats Storage Foundation 定义了六个独立的同步子系统。每个子系�
 | **Heartbeat** | Terminal → Cloud | 设备存活信号 | 无数据 |
 | **Usage Segment Upload** | Terminal → Cloud | `usage_segments_v1`（逐段持久事实） | segment_sync_outbox_v1 |
 | **Daily Stats Upload** | Terminal → Cloud | `stats_v1`（物化每日聚合） | stats_sync_outbox_v1 |
+| **Hourly Stats Upload** | Terminal → Cloud | `hourly_stats_v1`（物化小时聚合） | hourly_stats_sync_outbox_v1 |
+| **Media Segment Upload** | Terminal → Cloud | `media_segments_v1`（独立媒体逐段事实） | media_segment_sync_outbox_v1 |
+| **Daily Media Stats Upload** | Terminal → Cloud | `daily_media_stats_v1`（物化媒体每日聚合） | media_stats_sync_outbox_v1 |
+| **Hourly Media Stats Upload** | Terminal → Cloud | `hourly_media_stats_v1`（物化媒体小时聚合） | hourly_media_stats_sync_outbox_v1 |
 | **Legacy Stats Upload** | Terminal → Cloud | Old-style `/device/stats` aggregate | 过度期间保留；Phase 3 替换 |
 
 **独立性要求**：
@@ -899,6 +1023,9 @@ Stats Storage Foundation 定义了六个独立的同步子系统。每个子系�
 | Heartbeat | 5 分钟 | 在 Cloudflare dash 中保持设备 "last_seen" 为当前时间 |
 | Usage Segment Upload | 5 分钟 | 防止本地 outbox 膨胀；低延迟事实同步 |
 | Daily Stats Upload | 15 分钟 | 聚合重计算代价更高；低频面 |
+| Hourly Stats Upload | 15 分钟 | 小时聚合是报表索引，低频上传即可 |
+| Media Segment Upload | 5 分钟 | 防止本地媒体 outbox 膨胀；低延迟事实同步 |
+| Daily/Hourly Media Stats Upload | 15 分钟 | 媒体聚合是报表索引，低频上传即可 |
 | Legacy `/device/stats` | 15 分钟 | 仅在过渡期间；Phase 3 移除 |
 
 **事件触发**：
@@ -917,6 +1044,7 @@ Segment Upload 触发条件：
 
 Stats Upload 触发条件：
 - 成功上传 segments 后，如果脏日期依然存在
+- 成功上传 segments 后，如果脏小时依然存在
 - 日界（本地午夜后立即上传前一天的聚合）
 - 启动时，如果脏日期依然存在
 - 定期 15 分钟上传 alarm
@@ -944,6 +1072,12 @@ Stats Upload 触发条件：
 - 远端按 profile/date/domain 覆盖
 - 仅确认的日期从 `stats_sync_outbox_v1` 中清除（`markDailyStatsUploaded`）
 - `daily_usage_stats_v1` 在上传成功后**绝不**删除 — 仅清除 outbox 状态
+
+**Hourly Stats Upload 成功**：
+- 载荷从 `hourly_usage_stats_v1` 或 `hourly_media_stats_v1` 构建
+- 远端按 profile/device/hour/domain/channel/mode 或 profile/device/hour/domain/mediaClass/mode upsert
+- 仅确认的小时 key 从对应 outbox 中清除
+- 小时聚合源数据在上传成功后**绝不**删除 — 仅清除 outbox 状态
 
 **关键**：同步成功意味着远端**事实性地接受**了本地事实（幂等），而不仅仅是发起了一次尝试。HTTP 200 不代表持久化。
 

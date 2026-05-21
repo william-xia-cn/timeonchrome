@@ -13,7 +13,7 @@ const {
   readLedgerSnapshot,
 } = require('./helpers/ledger-assertions');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
 const MOCKS_DIR      = path.resolve(__dirname, 'mocks');
 
 // ── Local mock server ────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ test.afterAll(async () => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function createFreshContext() {
-  const userDataDir = path.resolve(__dirname, `../../test-e2e-profile-timing-${Date.now()}`);
+  const userDataDir = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-timing-${Date.now()}`);
   if (fs.existsSync(userDataDir)) fs.rmSync(userDataDir, { recursive: true, force: true });
   fs.mkdirSync(userDataDir, { recursive: true });
 

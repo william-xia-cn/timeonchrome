@@ -2,7 +2,7 @@ const { chromium } = require('@playwright/test');
 const path = require('path');
 
 async function testBlockedPage() {
-  const extPath = path.join(__dirname);
+  const extPath = path.join(__dirname, '..', 'extension');
   
   console.log('=== Testing blocked.html Directly ===\n');
   

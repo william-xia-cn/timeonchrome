@@ -2,7 +2,7 @@ const { chromium } = require('@playwright/test');
 const path = require('path');
 
 async function testRealBlocking() {
-  const extPath = path.join(__dirname);
+  const extPath = path.join(__dirname, '..', 'extension');
   const extId = 'test-extension-id';
   
   console.log('=== Testing Real Blocking Flow ===\n');

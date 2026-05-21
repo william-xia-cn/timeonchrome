@@ -46,8 +46,8 @@ function extractFunctionSource(code, functionName) {
 }
 
 function loadComputeOverview() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'admin', 'admin.js'), 'utf8');
-  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'admin', 'admin.html'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.html'), 'utf8');
   const fns = [
     extractFunctionSource(code, 'matchDomain'),
     extractFunctionSource(code, 'classifyDomain'),
@@ -127,7 +127,7 @@ function run() {
   expectTrue('renderOverviewList includes background media row', overviewHtml.includes('后台媒体'));
   expectTrue('renderOverviewList includes PiP row', overviewHtml.includes('PiP'));
 
-  expectTrue('admin stats calls suspect summary message', code.includes("GET_SUSPECT_SEGMENT_SUMMARY"));
+  expectTrue('admin stats reads suspect summary from local read model', code.includes('usageView.suspectSummary'));
   expectTrue('admin stats exposes suspect maintenance action', code.includes('标记并重建本地统计'));
   expectTrue('admin stats explains active over 3h reason', code.includes('active 超过 3 小时'));
   expectTrue('admin stats has clean suspect state text', code.includes('未发现'));
@@ -148,7 +148,12 @@ function run() {
   expectTrue('admin settlement page has domain filter', html.includes('id="settlement-domain-filter"'));
   expectTrue('admin settlement page has range buttons', html.includes('data-settlement-range="today"') && html.includes('data-settlement-range="yesterday"') && html.includes('data-settlement-range="week"') && html.includes('data-settlement-range="all"'));
   expectTrue('admin settlement page has local reconciliation summary', html.includes('id="settlement-reconciliation-summary"'));
-  expectTrue('admin settlement page calls range settlement analysis message', code.includes('GET_SETTLEMENT_ANALYSIS_RANGE'));
+  expectTrue('admin html loads admin as module', html.includes('<script type="module" src="admin.js"></script>'));
+  expectTrue('admin imports pure read stats model', code.includes("from '../stats/admin-read-model.js'"));
+  expectTrue('admin stats no longer calls background stats range message', !code.includes('GET_STATS_RANGE'));
+  expectTrue('admin stats no longer calls settlement analysis message', !code.includes('GET_SETTLEMENT_ANALYSIS_RANGE') && !code.includes('GET_TODAY_SETTLEMENT_ANALYSIS'));
+  expectTrue('admin stats no longer calls media settlement message', !code.includes('GET_MEDIA_SETTLEMENT_ANALYSIS_RANGE'));
+  expectTrue('admin stats no longer calls timeline/suspect read messages', !code.includes('GET_TIMELINE_SEGMENTS') && !code.includes('GET_SUSPECT_SEGMENT_SUMMARY'));
   expectTrue('admin settlement page renders refresh control', code.includes('settlement-refresh-btn'));
   expectTrue('admin settlement table shows date for multi-day ranges', html.includes('settlement-col-date') && code.includes('row.date'));
   expectTrue('admin settlement page renders readable timing type label', code.includes('计时类型'));
@@ -162,11 +167,14 @@ function run() {
   expectTrue('admin settlement page renders reconciliation delta', code.includes('renderSettlementReconciliationSummary') && code.includes('formatSignedSeconds'));
   expectTrue('admin has media settlement nav item', html.includes('data-page="media-settlements"'));
   expectTrue('admin has media settlement page', html.includes('id="page-media-settlements"'));
-  expectTrue('admin media settlement page calls local media analysis message', code.includes('GET_MEDIA_SETTLEMENT_ANALYSIS_RANGE'));
+  expectTrue('admin media settlement page calls local read model', code.includes('getAdminMediaSettlementView'));
   expectTrue('admin media settlement page has domain and class filters', html.includes('id="media-settlement-domain-filter"') && html.includes('id="media-settlement-class-filter"'));
   expectTrue('admin media settlement page shows media classes', code.includes('foregroundAudio') && code.includes('backgroundVideo') && code.includes('pip'));
   expectTrue('admin media settlement rows keep media-only reasons visible', code.includes('function normalizeMediaSettlementEventReason') && !extractFunctionSource(code, 'normalizeMediaSettlementEventReason').includes("value === 'tabAudible'"));
-  expectTrue('admin media settlement table stays local-only', html.includes('media_segments_v1') && code.includes('<span class="settlement-muted">本地</span>'));
+  expectTrue('admin media settlement table shows media ledger sync status', html.includes('media_segments_v1') && html.includes('独立媒体同步链路') && code.includes("row.uploaded ? '已上传'"));
+  expectTrue('admin has client logs nav item and page', html.includes('data-page="client-logs"') && html.includes('id="page-client-logs"'));
+  expectTrue('admin client logs use local log messages', code.includes('GET_CLIENT_LOGS') && code.includes('GET_CLIENT_LOG_STATUS') && code.includes('CLEAR_CLIENT_LOGS'));
+  expectTrue('admin client logs support level/category filters', html.includes('client-log-level-filter') && html.includes('client-log-category-filter'));
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

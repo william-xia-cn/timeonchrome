@@ -10,12 +10,12 @@ const path = require('path');
 const fs = require('fs');
 const { chromium } = require('@playwright/test');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../../../..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', '..', '..', 'extension');
 
 const DEFAULT_API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DEFAULT_PROFILE_NAME = 'Gate Test Child';
 const DEFAULT_DEVICE_NAME = 'Gate Runner Windows Chrome';
-const DEFAULT_USER_DATA_DIR = path.resolve(__dirname, '../../../test-results/sleep-wake-gate/bound-profile');
+const DEFAULT_USER_DATA_DIR = path.resolve(__dirname, '../../../../.artifacts/sleep-wake-gate/bound-profile');
 
 // ── CLI 参数解析 ─────────────────────────────────────────────────────────────
 function parseArgs(argv) {

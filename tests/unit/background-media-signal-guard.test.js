@@ -6,10 +6,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'background.js'), 'utf8');
-const dispatcherSource = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'timing-dispatcher.js'), 'utf8');
-const mediaSource = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'media-timing.js'), 'utf8');
-const foregroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'foreground-timing.js'), 'utf8');
+const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
+const dispatcherSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'timing-dispatcher.js'), 'utf8');
+const mediaSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'media-timing.js'), 'utf8');
+const foregroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'foreground-timing.js'), 'utf8');
 
 let passed = 0;
 let failed = 0;

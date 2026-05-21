@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 function loadProdModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -71,12 +71,64 @@ global.chrome = {
   },
 };
 
-const quotaApi = loadProdModule('product/quota.js', ['checkAllTabsQuota'], {
+function isStatsMetaKey(key) {
+  return ['audioSeconds', 'backgroundMediaByDomain', 'pipSeconds', 'pipByDomain', 'onlineSeconds', 'compositeSeconds', 'undeterminedSeconds'].includes(key);
+}
+
+async function getQuotaUsageView(_date, options = {}) {
+  const cfg = options.config || config;
+  let totalSeconds = 0;
+  let studySeconds = 0;
+  let compositeSeconds = 0;
+  const domainSeconds = {};
+  const domainClassifications = {};
+
+  for (const [domain, value] of Object.entries(todayStats || {})) {
+    if (isStatsMetaKey(domain)) continue;
+    const seconds = Math.max(0, Number(value) || 0);
+    if (!seconds) continue;
+    domainSeconds[domain] = seconds;
+    totalSeconds += seconds;
+    const isStudy = (cfg.studyList || []).some(p => matchDomain(domain, p));
+    const isComposite = (cfg.compositeList || []).some(p => matchDomain(domain, p));
+    const classification = isStudy ? 'study' : isComposite ? 'composite' : null;
+    domainClassifications[domain] = classification;
+    if (classification === 'study') studySeconds += seconds;
+    else if (classification === 'composite') compositeSeconds += seconds;
+  }
+
+  const restSeconds = Math.max(0, totalSeconds - studySeconds - compositeSeconds);
+  return {
+    totalSeconds,
+    studySeconds,
+    compositeSeconds,
+    undeterminedSeconds: compositeSeconds,
+    restSeconds,
+    weekRestSeconds: restSeconds,
+    totalMinutes: Math.floor(totalSeconds / 60),
+    studyMinutes: Math.floor(studySeconds / 60),
+    compositeMinutes: Math.floor(compositeSeconds / 60),
+    undeterminedMinutes: Math.floor(compositeSeconds / 60),
+    restMinutes: Math.floor(restSeconds / 60),
+    weekRestMinutes: Math.floor(restSeconds / 60),
+    domainSeconds,
+    domainClassifications,
+    media: {
+      backgroundMediaSeconds: Number(todayStats?.audioSeconds || 0),
+      backgroundMediaByDomain: todayStats?.backgroundMediaByDomain || {},
+      pipSeconds: Number(todayStats?.pipSeconds || 0),
+      pipByDomain: todayStats?.pipByDomain || {},
+    },
+  };
+}
+
+const quotaApi = loadProdModule('product/quota.js', ['evaluateQuotaState'], {
   getConfig: async () => config,
   saveConfig: async (next) => {
     savedConfig = JSON.parse(JSON.stringify(next));
     config = next;
   },
+  getQuotaUsageView,
   getTodayStats: async () => todayStats,
   getTodayUndeterminedStats: async () => undeterminedStats,
   getStatsRange: async () => ({ '2026-05-15': todayStats }),
@@ -109,12 +161,7 @@ function reset({ cfg = {}, stats = {}, undetermined = {} } = {}) {
 }
 
 async function runQuotaCheck() {
-  await quotaApi.checkAllTabsQuota(
-    null,
-    async () => { redirectAllCalls += 1; },
-    async () => { redirectQuotaCalls += 1; },
-    async () => { redirectLockedCalls += 1; },
-  );
+  await quotaApi.evaluateQuotaState();
   return savedConfig?.quotaState || config.quotaState;
 }
 
@@ -143,7 +190,7 @@ async function testRestDomainPipLocksRestQuota() {
   });
   const state = await runQuotaCheck();
   check('rest domain active+pip reaches rest quota', state.restLocked === true, JSON.stringify(state));
-  check('rest quota invokes quota redirect', redirectQuotaCalls === 1, `redirectQuotaCalls=${redirectQuotaCalls}`);
+  check('quota evaluation does not redirect tabs directly', redirectQuotaCalls === 0 && redirectAllCalls === 0, `redirectQuotaCalls=${redirectQuotaCalls}, redirectAllCalls=${redirectAllCalls}`);
 }
 
 async function testStudyDomainPipLocksStudyQuota() {

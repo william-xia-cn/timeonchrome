@@ -34,7 +34,7 @@ function section(name) {
 }
 
 function loadHandleMessage(stubs) {
-  const abs = path.join(__dirname, '..', '..', 'message-router.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'message-router.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -67,8 +67,8 @@ function loadHandleMessage(stubs) {
 }
 
 async function run() {
-  const storageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'storage.js'), 'utf8');
-  const routerSource = fs.readFileSync(path.join(__dirname, '..', '..', 'message-router.js'), 'utf8');
+  const storageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js'), 'utf8');
+  const routerSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
   const compositeCalls = [];
   const temporaryCompositeRecords = [
     { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
@@ -122,6 +122,7 @@ async function run() {
     expectTrue('storage 暴露临时综合记录只读方法', storageSource.includes('export async function getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持 GET_TEMPORARY_COMPOSITE_DOMAINS', routerSource.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && routerSource.includes('getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持网站归类申请消息', routerSource.includes('SUBMIT_SITE_CLASSIFICATION_REQUEST') && routerSource.includes('GET_SITE_CLASSIFICATION_REQUESTS'));
+    expectTrue('router 支持客户端日志消息', routerSource.includes('GET_CLIENT_LOGS') && routerSource.includes('GET_CLIENT_LOG_STATUS') && routerSource.includes('UPDATE_CLIENT_LOG_CONFIG'));
     expectTrue('router CLOUD_LOGIN 统一小写邮箱', routerSource.includes("const email = String(msg.email || '').trim().toLowerCase();"));
   }
 

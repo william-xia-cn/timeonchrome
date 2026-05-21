@@ -2,7 +2,7 @@ const { chromium } = require('@playwright/test');
 const path = require('path');
 
 async function testExtensionBlocking() {
-  const extPath = path.join(__dirname);
+  const extPath = path.join(__dirname, '..', 'extension');
   
   console.log('=== Testing Chrome Extension Blocking ===\n');
   console.log('Extension path:', extPath);

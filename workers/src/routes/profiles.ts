@@ -1,7 +1,7 @@
 // Profiles 路由 - 孩子 Profile CRUD
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { siteAccessDefaults, mergeWithDefaults } from '../config/site-access-defaults';
-import { validateSiteAccessConfig } from '../../../core/site-classification.js';
+import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
 
@@ -61,6 +61,18 @@ function buildSchemaDefaults(): object {
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
+    clientLoggingPolicyV1: {
+      localEnabled: true,
+      localMinLevel: 'warning',
+      uploadEnabled: false,
+      uploadMinLevel: 'error',
+      categories: [],
+      uploadCategories: [],
+      targetDeviceIds: [],
+      sampleRate: 1,
+      retentionDays: 7,
+      expiresAt: null,
+    },
   };
 }
 
@@ -388,6 +400,7 @@ export const profilesRouter = {
           'domainQuotas', 'classificationRules', 'siteClassificationRulesV1',
           'quotaState', 'schedule',
           'restConfig', 'autoStudyConfig',
+          'clientLoggingPolicyV1',
           'timeQuota', 'timeWindows',
         ]);
 

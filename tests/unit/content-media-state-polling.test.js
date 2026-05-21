@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const repoRoot = path.resolve(__dirname, '..', '..');
+const repoRoot = path.resolve(__dirname, '..', '..', 'extension');
 const contentJs = fs.readFileSync(path.join(repoRoot, 'content.js'), 'utf8');
 const manifest = fs.readFileSync(path.join(repoRoot, 'manifest.json'), 'utf8');
 
@@ -33,8 +33,8 @@ const mediaBlock = sectionBetween(
 expect('media block found', mediaBlock.length > 0);
 
 expect(
-  'manifest does not request scripting',
-  !/"scripting"/.test(manifest)
+  'manifest keeps scripting only for in-page notice content-script fallback',
+  /"scripting"/.test(manifest)
 );
 
 expect(

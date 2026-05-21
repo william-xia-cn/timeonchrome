@@ -27,7 +27,7 @@ function expectTrue(desc, cond) {
 }
 
 function loadNormalizeHostname() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8');
   const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { normalizeHostname };';
   const context = { console, URL, this: null };
   context.this = context;
@@ -57,11 +57,14 @@ function run() {
   const workerIndexSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
   const profileSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'profiles.ts'), 'utf8');
   const migration009 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '009_site_classification_requests_v1.sql'), 'utf8');
+  const migration010 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '010_client_logs_v1.sql'), 'utf8');
+  const migration011 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '011_hourly_stats_v1.sql'), 'utf8');
+  const clientLogsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'clientLogs.ts'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
 
-  expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../core/domain-semantics.js';"));
+  expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../extension/core/domain-semantics.js';"));
   const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'auth.ts'), 'utf8');
-  const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js'), 'utf8');
+  const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
   expectTrue('auth.ts 应规范化邮箱大小写', authSource.includes('function normalizeEmail') && authSource.includes('toLowerCase()'));
   expectTrue('auth.ts 注册应按 LOWER(email) 检查重复', authSource.includes('SELECT id FROM accounts WHERE LOWER(email) = ?'));
   expectTrue('auth.ts 登录应按 LOWER(email) 查询', authSource.includes('SELECT id, email FROM accounts WHERE LOWER(email) = ? AND password_hash = ?'));
@@ -80,13 +83,17 @@ function run() {
   // Phase 3C: V1 endpoints
   expectTrue('stats.ts 应包含 POST /device/usage-segments/v1 路由', source.includes("path === '/device/usage-segments/v1'"));
   expectTrue('stats.ts 应包含 POST /device/stats/v1 路由', source.includes("path === '/device/stats/v1'"));
+  expectTrue('stats.ts 应包含 POST /device/hourly-stats/v1 路由', source.includes("path === '/device/hourly-stats/v1'"));
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats/v1 路由', source.includes('/stats/v1'));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/hourly-stats/v1 路由', source.includes('/hourly-stats/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/usage-segments/v1 路由', source.includes('/usage-segments/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats-reconciliation/v1 路由', source.includes('/stats-reconciliation/v1'));
   expectTrue('stats.ts 应包含 POST /device/media-segments/v1 路由', source.includes("path === '/device/media-segments/v1'"));
   expectTrue('stats.ts 应包含 POST /device/media-stats/v1 路由', source.includes("path === '/device/media-stats/v1'"));
+  expectTrue('stats.ts 应包含 POST /device/hourly-media-stats/v1 路由', source.includes("path === '/device/hourly-media-stats/v1'"));
   expectTrue('stats.ts 应包含 GET /profiles/:id/media-segments/v1 路由', source.includes('/media-segments/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/media-stats/v1 路由', source.includes('/media-stats/v1'));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/hourly-media-stats/v1 路由', source.includes('/hourly-media-stats/v1'));
   expectTrue('media-segments/v1 应校验 mediaClass', source.includes('VALID_MEDIA_CLASSES') && source.includes('foregroundAudio') && source.includes('backgroundVideo'));
   expectTrue('media-segments/v1 应支持按终端过滤并返回 deviceId', source.includes("url.searchParams.get('deviceId')") && source.includes('device_id = ?') && source.includes('deviceId: row.device_id'));
   expectTrue('media-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('FROM media_segments_v1') && source.includes('ORDER BY start_ms DESC, id DESC'));
@@ -95,6 +102,11 @@ function run() {
   expectTrue('008 migration 应创建 daily_media_stats_v1', migration008.includes('CREATE TABLE IF NOT EXISTS daily_media_stats_v1'));
   expectTrue('008 migration 应有媒体倒序读取索引', migration008.includes('idx_media_segments_profile_start_id'));
   expectTrue('008 migration 媒体统计唯一键应包含 device_id', migration008.includes('UNIQUE (profile_id, device_id, date, domain, media_class, mode)'));
+  expectTrue('011 migration 应创建 hourly_stats_v1', migration011.includes('CREATE TABLE IF NOT EXISTS hourly_stats_v1'));
+  expectTrue('011 migration 应创建 hourly_media_stats_v1', migration011.includes('CREATE TABLE IF NOT EXISTS hourly_media_stats_v1'));
+  expectTrue('011 migration 应保留小时 segments 元数据', migration011.includes('segments_count') && migration011.includes('last_segment_id'));
+  expectTrue('011 migration usage 小时唯一键应包含 device_id', migration011.includes('UNIQUE (profile_id, device_id, hour_key, domain, channel, mode)'));
+  expectTrue('011 migration media 小时唯一键应包含 device_id', migration011.includes('UNIQUE (profile_id, device_id, hour_key, domain, media_class, mode)'));
   expectTrue('Worker 应注册网站归类申请路由', workerIndexSource.includes('siteClassificationRequestsRouter') && workerIndexSource.includes('/site-classification-requests'));
   expectTrue('009 migration 应创建 site_classification_requests_v1', migration009.includes('CREATE TABLE IF NOT EXISTS site_classification_requests_v1'));
   expectTrue('009 migration 应按原申请对象去重', migration009.includes('UNIQUE (profile_id, requested_target_type, requested_normalized_value)'));
@@ -104,7 +116,15 @@ function run() {
   expectTrue('网站归类申请审批应更新 profile config/version', siteRequestsSource.includes('siteClassificationRulesV1') && siteRequestsSource.includes('version = version + 1'));
   expectTrue('网站归类申请审批应支持学习/综合/拒绝三类决定', siteRequestsSource.includes('normalizeSiteClassificationDecision') && siteRequestsSource.includes('decisionToStatus') && siteRequestsSource.includes('decision === \'study\'') && siteRequestsSource.includes('decision === \'composite\''));
   expectTrue('profile 默认配置应包含 siteClassificationRulesV1', profileSource.includes('siteClassificationRulesV1: []') && profileSource.includes("'siteClassificationRulesV1'"));
+  expectTrue('profile 默认配置应包含 clientLoggingPolicyV1', profileSource.includes('clientLoggingPolicyV1') && profileSource.includes("'clientLoggingPolicyV1'"));
   expectTrue('profile 配置保存应校验访问规则精确跨类冲突', profileSource.includes('validateSiteAccessConfig') && profileSource.includes('SITE_ACCESS_CONFLICT'));
+  expectTrue('Worker 应注册客户端日志路由', workerIndexSource.includes('clientLogsRouter') && workerIndexSource.includes('/client-logs'));
+  expectTrue('010 migration 应创建 client_logs_v1 并按 profile/device 建索引', migration010.includes('CREATE TABLE IF NOT EXISTS client_logs_v1') && migration010.includes('idx_client_logs_profile_device_time'));
+  expectTrue('client logs 上传必须使用 device token 归属 profile/device', clientLogsSource.includes("path === '/device/client-logs/v1'") && clientLogsSource.includes('verifyDeviceToken') && clientLogsSource.includes('profileId: identity.profileId'));
+  expectTrue('client logs 查询必须校验账号 JWT 和 profile ownership', clientLogsSource.includes('verifyAccountToken(request, env.JWT_SECRET)') && clientLogsSource.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
+  expectTrue('client logs 查询支持 device/level/category/cursor', clientLogsSource.includes("url.searchParams.get('deviceId')") && clientLogsSource.includes("url.searchParams.get('level')") && clientLogsSource.includes("url.searchParams.get('category')") && clientLogsSource.includes('decodeCursor'));
+  expectTrue('client logs 服务端会二次脱敏敏感字段', clientLogsSource.includes('sanitizeDetails') && clientLogsSource.includes('[redacted]') && clientLogsSource.includes('[redacted-url]'));
+  expectTrue('client logs 云端默认 30 天保留清理', clientLogsSource.includes('CLOUD_RETENTION_MS') && clientLogsSource.includes('DELETE FROM client_logs_v1'));
   expectTrue('usage-segments/v1 应校验账号 JWT', source.includes('verifyAccountToken(request, env.JWT_SECRET)'));
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
   expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));

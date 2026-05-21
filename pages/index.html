@@ -524,6 +524,9 @@
         <div class="nav-item" data-page="devices">
           <span class="nav-icon">💻</span><span>设备管理</span>
         </div>
+        <div class="nav-item" data-page="client-logs">
+          <span class="nav-icon">🧭</span><span>系统日志</span>
+        </div>
         <div class="nav-item" data-page="review">
           <span class="nav-icon">🔍</span><span>待审核 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
@@ -1053,6 +1056,95 @@
         </div>
       </div>
 
+      <!-- 系统日志 -->
+      <div class="page" id="page-client-logs">
+        <div class="page-header">
+          <h2>系统日志</h2>
+          <p>按孩子和终端查看脱敏后的客户端诊断日志</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">远程诊断开关</div>
+              <div class="card-subtitle">开启后由孩子端按策略上传日志；info 必须设置过期时间</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+            <select id="client-log-policy-device" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+              <option value="">全部终端</option>
+            </select>
+            <select id="client-log-policy-level" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+              <option value="error">仅 error</option>
+              <option value="warning">warning + error</option>
+              <option value="info">info + warning + error</option>
+            </select>
+            <select id="client-log-policy-category" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+              <option value="">全部类别</option>
+              <option value="cloud">cloud</option>
+              <option value="timing">timing</option>
+              <option value="media">media</option>
+              <option value="runtime">runtime</option>
+              <option value="access">access</option>
+              <option value="popup">popup</option>
+              <option value="admin">admin</option>
+              <option value="content">content</option>
+            </select>
+            <select id="client-log-policy-ttl" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+              <option value="3600000">1 小时</option>
+              <option value="21600000">6 小时</option>
+              <option value="86400000">24 小时</option>
+            </select>
+            <button class="btn-save" id="client-log-policy-enable-btn" style="padding:7px 14px;font-size:13px;">开启上传</button>
+            <button class="btn-save" id="client-log-policy-disable-btn" style="padding:7px 14px;font-size:13px;background:rgba(248,113,113,0.12);color:var(--danger);">关闭上传</button>
+          </div>
+          <div id="client-log-policy-summary" style="font-size:12px;color:var(--muted);line-height:1.6;">加载中...</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">日志查询</div>
+              <div class="card-subtitle">只显示脱敏后的 domain、模块、事件代码和摘要消息</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="tab-btn active" data-client-log-range="today">今日</button>
+            <button class="tab-btn" data-client-log-range="week">本周</button>
+            <button class="tab-btn" data-client-log-range="all">全部</button>
+            <select id="client-log-device-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:160px;">
+              <option value="">全部终端</option>
+            </select>
+            <select id="client-log-level-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+              <option value="">全部等级</option>
+              <option value="error">error</option>
+              <option value="warning">warning</option>
+              <option value="info">info</option>
+            </select>
+            <select id="client-log-category-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+              <option value="">全部类别</option>
+              <option value="runtime">runtime</option>
+              <option value="timing">timing</option>
+              <option value="foreground">foreground</option>
+              <option value="media">media</option>
+              <option value="cloud">cloud</option>
+              <option value="storage">storage</option>
+              <option value="access">access</option>
+              <option value="popup">popup</option>
+              <option value="admin">admin</option>
+              <option value="content">content</option>
+              <option value="release">release</option>
+            </select>
+            <button class="btn-save" id="client-log-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
+          </div>
+          <div id="cloud-client-log-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
+          <div id="cloud-client-log-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
+          <div style="margin-top:12px;text-align:center;">
+            <button class="btn-save" id="client-log-load-more-btn" style="display:none;padding:8px 18px;font-size:13px;">加载更多</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 待审核 -->
       <div class="page" id="page-review">
         <div class="page-header">
@@ -1133,6 +1225,7 @@ let siteAccessDefaults = null; // 系统缺省清单 { defaultStudySites, defaul
 let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
+let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudDevicesCache = { profileId: null, devices: [] };
 
 function normalizeEmailInput(value) {
@@ -1162,6 +1255,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupCloudSettlements();
   setupCloudMediaSettlements();
   setupReconciliation();
+  setupCloudClientLogs();
   setupDevices();
   setupAccount();
   setupProfileDropdown();
@@ -1426,6 +1520,7 @@ function renderPage(name) {
   if (name === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
   if (name === 'reconciliation') renderReconciliationPage();
   if (name === 'devices')   renderDevicesPage();
+  if (name === 'client-logs') renderCloudClientLogsPage({ reset: true });
   if (name === 'account')   renderAccountPage();
   if (name === 'review')    renderReviewPage();
 }
@@ -2865,6 +2960,223 @@ async function renderCloudMediaSettlementsPage({ reset = true } = {}) {
       moreBtn.disabled = false;
     }
   } catch(e) {
+    if (summaryEl) summaryEl.textContent = '加载失败';
+    if (tableEl) tableEl.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${escHtml(e.message || '加载失败')}</div>`;
+  }
+}
+
+// ── Cloud client logs ─────────────────────────────────────────
+function setupCloudClientLogs() {
+  document.querySelectorAll('[data-client-log-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-client-log-range]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      cloudClientLogState.range = btn.dataset.clientLogRange || 'today';
+      renderCloudClientLogsPage({ reset: true });
+    });
+  });
+  document.getElementById('client-log-load-btn')?.addEventListener('click', () => renderCloudClientLogsPage({ reset: true }));
+  document.getElementById('client-log-device-input')?.addEventListener('change', () => renderCloudClientLogsPage({ reset: true }));
+  document.getElementById('client-log-level-input')?.addEventListener('change', () => renderCloudClientLogsPage({ reset: true }));
+  document.getElementById('client-log-category-input')?.addEventListener('change', () => renderCloudClientLogsPage({ reset: true }));
+  document.getElementById('client-log-load-more-btn')?.addEventListener('click', () => renderCloudClientLogsPage({ reset: false }));
+  document.getElementById('client-log-policy-enable-btn')?.addEventListener('click', () => saveClientLoggingPolicy(true));
+  document.getElementById('client-log-policy-disable-btn')?.addEventListener('click', () => saveClientLoggingPolicy(false));
+}
+
+function getClientLogRange(range) {
+  const today = new Date();
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const endOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() - 1;
+  if (range === 'all') return { from: null, to: null, label: '全部' };
+  if (range === 'week') {
+    const dow = today.getDay() === 0 ? 6 : today.getDay() - 1;
+    const start = new Date(today);
+    start.setDate(today.getDate() - dow);
+    return { from: startOfDay(start), to: endOfDay(today), label: '本周' };
+  }
+  return { from: startOfDay(today), to: endOfDay(today), label: '今日' };
+}
+
+function getSelectedClientLogRange() {
+  const active = document.querySelector('[data-client-log-range].active');
+  return active?.dataset?.clientLogRange || cloudClientLogState.range || 'today';
+}
+
+function formatClientLogTimestamp(value) {
+  const timestamp = Number(value || 0);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '—';
+  return new Date(timestamp).toLocaleString('zh-CN');
+}
+
+function clientLogLevelText(level) {
+  if (level === 'error') return 'error';
+  if (level === 'warning') return 'warning';
+  if (level === 'info') return 'info';
+  return level || '—';
+}
+
+function renderClientLogPolicySummary() {
+  const el = document.getElementById('client-log-policy-summary');
+  if (!el) return;
+  const policy = remoteConfig?.clientLoggingPolicyV1 || {};
+  const uploadEnabled = policy.uploadEnabled === true;
+  const target = Array.isArray(policy.targetDeviceIds) && policy.targetDeviceIds.length
+    ? policy.targetDeviceIds.map(cloudDeviceLabel).join('、')
+    : '全部终端';
+  const categories = Array.isArray(policy.uploadCategories) && policy.uploadCategories.length
+    ? policy.uploadCategories.join('、')
+    : '全部类别';
+  const expiresAt = Number(policy.expiresAt || 0);
+  el.innerHTML = uploadEnabled
+    ? `当前：已开启 · 等级 ${escHtml(policy.uploadMinLevel || 'error')} · ${escHtml(target)} · ${escHtml(categories)} · 过期 ${escHtml(expiresAt ? new Date(expiresAt).toLocaleString('zh-CN') : '未设置')}`
+    : '当前：云端日志上传关闭。孩子端仍会按默认策略在本地保留 warning/error。';
+}
+
+async function saveClientLoggingPolicy(enabled) {
+  if (!currentProfileId || !remoteConfig) return;
+  await ensureCloudDevices();
+  const deviceId = document.getElementById('client-log-policy-device')?.value || '';
+  const level = document.getElementById('client-log-policy-level')?.value || 'error';
+  const category = document.getElementById('client-log-policy-category')?.value || '';
+  const ttlMs = Number(document.getElementById('client-log-policy-ttl')?.value || 3600000);
+  const nextPolicy = enabled ? {
+    localEnabled: true,
+    localMinLevel: level === 'info' ? 'info' : 'warning',
+    uploadEnabled: true,
+    uploadMinLevel: level,
+    categories: category ? [category] : [],
+    uploadCategories: category ? [category] : [],
+    targetDeviceIds: deviceId ? [deviceId] : [],
+    sampleRate: 1,
+    retentionDays: 7,
+    expiresAt: Date.now() + Math.max(60000, ttlMs),
+  } : {
+    ...(remoteConfig.clientLoggingPolicyV1 || {}),
+    uploadEnabled: false,
+    uploadMinLevel: 'error',
+    uploadCategories: [],
+    targetDeviceIds: [],
+    expiresAt: null,
+  };
+  remoteConfig.clientLoggingPolicyV1 = nextPolicy;
+  try {
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: remoteConfig });
+    const r = await api(`/profiles/${currentProfileId}/config`);
+    remoteConfig = r.data || remoteConfig;
+    renderClientLogPolicySummary();
+    toast(enabled ? '远程诊断日志已开启' : '远程诊断日志已关闭');
+  } catch (e) {
+    toast('保存日志策略失败：' + e.message, false);
+  }
+}
+
+async function fetchCloudClientLogs({ range, cursor = null }) {
+  const params = new URLSearchParams();
+  const rangeInfo = getClientLogRange(range);
+  const deviceInput = document.getElementById('client-log-device-input');
+  const levelInput = document.getElementById('client-log-level-input');
+  const categoryInput = document.getElementById('client-log-category-input');
+  if (rangeInfo.from) params.set('from', String(rangeInfo.from));
+  if (rangeInfo.to) params.set('to', String(rangeInfo.to));
+  if (deviceInput?.value) params.set('deviceId', deviceInput.value);
+  if (levelInput?.value) params.set('level', levelInput.value);
+  if (categoryInput?.value) params.set('category', categoryInput.value);
+  if (cursor) params.set('cursor', cursor);
+  params.set('limit', '200');
+  return await api(`/profiles/${currentProfileId}/client-logs/v1?${params.toString()}`);
+}
+
+function renderCloudClientLogTable(rows) {
+  const tableEl = document.getElementById('cloud-client-log-table');
+  if (!tableEl) return;
+  if (!rows.length) {
+    tableEl.innerHTML = '<div class="empty"><div class="icon">📭</div>该范围暂无系统日志</div>';
+    return;
+  }
+  tableEl.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border);">
+            <th style="padding:8px;">时间</th>
+            <th style="padding:8px;">等级</th>
+            <th style="padding:8px;">类别</th>
+            <th style="padding:8px;min-width:130px;">事件</th>
+            <th style="padding:8px;min-width:120px;">终端</th>
+            <th style="padding:8px;min-width:120px;">模块</th>
+            <th style="padding:8px;min-width:140px;">域名</th>
+            <th style="padding:8px;min-width:220px;">消息</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px;">${escHtml(formatClientLogTimestamp(row.timestamp))}</td>
+              <td style="padding:8px;">${escHtml(clientLogLevelText(row.level))}</td>
+              <td style="padding:8px;">${escHtml(row.category || '—')}</td>
+              <td style="padding:8px;">${escHtml(row.eventCode || '—')}</td>
+              <td style="padding:8px;">${escHtml(cloudDeviceLabel(row.deviceId))}</td>
+              <td style="padding:8px;">${escHtml(row.module || '—')}</td>
+              <td style="padding:8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(row.domain || '')}">${escHtml(row.domain || '—')}</td>
+              <td style="padding:8px;">${escHtml(row.message || '')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderCloudClientLogsPage({ reset = true } = {}) {
+  if (!currentProfileId) return;
+  const summaryEl = document.getElementById('cloud-client-log-summary');
+  const tableEl = document.getElementById('cloud-client-log-table');
+  const moreBtn = document.getElementById('client-log-load-more-btn');
+  const range = getSelectedClientLogRange();
+  await ensureCloudDevices();
+  renderCloudDeviceOptions('client-log-device-input');
+  renderCloudDeviceOptions('client-log-policy-device');
+  renderClientLogPolicySummary();
+  if (reset) {
+    cloudClientLogState = { range, rows: [], nextCursor: null, hasMore: false };
+    if (summaryEl) summaryEl.textContent = '加载中...';
+    if (tableEl) tableEl.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
+  }
+  if (moreBtn) {
+    moreBtn.style.display = 'none';
+    moreBtn.disabled = true;
+  }
+  try {
+    const payload = await fetchCloudClientLogs({
+      range,
+      cursor: reset ? null : cloudClientLogState.nextCursor,
+    });
+    const nextRows = Array.isArray(payload?.logs) ? payload.logs : [];
+    cloudClientLogState.rows = reset ? nextRows : [...cloudClientLogState.rows, ...nextRows];
+    cloudClientLogState.nextCursor = payload?.nextCursor || null;
+    cloudClientLogState.hasMore = !!payload?.hasMore;
+    const rangeInfo = getClientLogRange(range);
+    const counts = cloudClientLogState.rows.reduce((acc, row) => {
+      acc[row.level] = (acc[row.level] || 0) + 1;
+      return acc;
+    }, {});
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <span>范围：${escHtml(rangeInfo.label)}</span>
+        <span>终端：${escHtml(selectedCloudDeviceLabel('client-log-device-input'))}</span>
+        <span>当前显示：${cloudClientLogState.rows.length} 条</span>
+        <span>error：${Number(counts.error || 0)}</span>
+        <span>warning：${Number(counts.warning || 0)}</span>
+        <span>info：${Number(counts.info || 0)}</span>
+      `;
+    }
+    renderCloudClientLogTable(cloudClientLogState.rows);
+    if (moreBtn) {
+      moreBtn.style.display = cloudClientLogState.hasMore ? 'inline-block' : 'none';
+      moreBtn.disabled = false;
+    }
+  } catch (e) {
     if (summaryEl) summaryEl.textContent = '加载失败';
     if (tableEl) tableEl.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${escHtml(e.message || '加载失败')}</div>`;
   }

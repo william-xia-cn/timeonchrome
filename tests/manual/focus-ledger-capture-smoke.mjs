@@ -8,8 +8,8 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
-const LOG_DIR = path.resolve(__dirname, '../../test-results');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
+const LOG_DIR = path.resolve(__dirname, '../../.artifacts/test-results');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
 async function callInSW(context, fnName, ...args) {

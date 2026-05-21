@@ -223,7 +223,7 @@ async function collectRuntimeMetrics({ userDataDir, allowCloudForceSync = false 
       },
       gateProfile: {
         userDataDir: null,
-        sourceProfileDir: path.resolve('tests/test-results/sleep-wake-gate/bound-profile'),
+        sourceProfileDir: path.resolve('.artifacts/sleep-wake-gate/bound-profile'),
         deviceTokenPresent: typeof payload.localObj.cloud_device_token === 'string' && payload.localObj.cloud_device_token.length > 0,
         cloudDeviceTokenMasked: typeof payload.localObj.cloud_device_token === 'string' && payload.localObj.cloud_device_token.length > 8
           ? `${payload.localObj.cloud_device_token.slice(0, 4)}***${payload.localObj.cloud_device_token.slice(-4)}`

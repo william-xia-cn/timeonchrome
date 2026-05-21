@@ -26,10 +26,46 @@ class MockStorage {
 const mockLocal = new MockStorage();
 global.chrome = { storage: { local: mockLocal, session: mockLocal } };
 
+function convertDailyStatsToLegacyShape(dayStats) {
+  if (!dayStats || !dayStats.domains) {
+    return { audioSeconds: 0, backgroundMediaByDomain: {}, pipSeconds: 0, pipByDomain: {} };
+  }
+  const out = {};
+  const backgroundMediaByDomain = {};
+  const pipByDomain = {};
+  let audioSeconds = 0;
+  let pipSeconds = 0;
+  for (const [domain, ds] of Object.entries(dayStats.domains)) {
+    out[domain] = (ds.activeSeconds || 0) + (ds.pipSeconds || 0);
+    if (ds.backgroundMediaSeconds > 0) {
+      backgroundMediaByDomain[domain] = ds.backgroundMediaSeconds;
+      audioSeconds += ds.backgroundMediaSeconds;
+    }
+    if (ds.pipSeconds > 0) {
+      pipByDomain[domain] = ds.pipSeconds;
+      pipSeconds += ds.pipSeconds;
+    }
+  }
+  return { ...out, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain };
+}
+
+function popupModeStats(dayStats) {
+  const summary = { studySeconds: 0, restSeconds: 0, compositeSeconds: 0, onlineSeconds: 0, backgroundMediaSeconds: 0, pipSeconds: 0 };
+  for (const ds of Object.values(dayStats?.domains || {})) {
+    summary.studySeconds += ds.activeByMode?.study || 0;
+    summary.restSeconds += ds.activeByMode?.rest || 0;
+    summary.compositeSeconds += ds.activeByMode?.composite || 0;
+    summary.onlineSeconds += (ds.activeSeconds || 0) + (ds.pipSeconds || 0);
+    summary.backgroundMediaSeconds += ds.backgroundMediaSeconds || 0;
+    summary.pipSeconds += ds.pipSeconds || 0;
+  }
+  return summary;
+}
+
 function loadProdModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf-8');
-  code = code.replace(/^\s*import .*?;\s*$/gm, '');
+  code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
@@ -46,6 +82,16 @@ const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getPopu
   matchDomainV12: () => false,
   normalizeHostname: (h) => h,
   emitTrace: () => {},
+  getTodayUsageView: async () => {
+    const today = storageApi.getDateKey();
+    const dayStats = mockLocal.data.daily_usage_stats_v1?.[today];
+    return { stats: convertDailyStatsToLegacyShape(dayStats) };
+  },
+  getPopupModeStatsView: async () => {
+    const today = storageApi.getDateKey();
+    const dayStats = mockLocal.data.daily_usage_stats_v1?.[today];
+    return { summary: popupModeStats(dayStats) };
+  },
 });
 
 async function run() {

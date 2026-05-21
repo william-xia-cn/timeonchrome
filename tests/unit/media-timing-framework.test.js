@@ -31,7 +31,7 @@ const localStorage = new MockStorage();
 global.chrome = { storage: { local: localStorage } };
 
 function loadProdModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -50,12 +50,17 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'closeMediaForTab',
   'closeMediaSession',
   'getDailyMediaStats',
+  'getHourlyMediaStats',
   'getPendingMediaSegments',
   'getPendingDailyMediaStats',
+  'getPendingHourlyMediaStats',
   'buildMediaSegmentsUploadPayload',
   'buildDailyMediaStatsUploadPayload',
+  'buildHourlyMediaStatsUploadPayload',
   'markMediaSegmentsUploaded',
   'markDailyMediaStatsUploaded',
+  'markHourlyMediaStatsUploaded',
+  'rebuildHourlyMediaStats',
   'getMediaSession',
   'closeForbiddenPiPSessionsForTab',
   'getMediaFrameFacts',
@@ -243,10 +248,21 @@ async function testMediaOutboxAndPayloadBuilders() {
   const statsPayload = await mediaApi.buildDailyMediaStatsUploadPayload(rows[0].date);
   check('daily media stats payload preserves byMode', statsPayload.domains[0]?.byMode?.study?.backgroundAudioSeconds === 15, JSON.stringify(statsPayload));
 
+  const hourlyStats = await mediaApi.getHourlyMediaStats();
+  const hourKeys = Object.keys(hourlyStats);
+  check('hourly media stats are materialized', hourKeys.length === 1, JSON.stringify(hourlyStats));
+  check('hourly media stats preserves class seconds', hourlyStats[hourKeys[0]].domains['sync-media.example.com'].backgroundAudioSeconds === 15, JSON.stringify(hourlyStats));
+  const pendingHourlyStats = await mediaApi.getPendingHourlyMediaStats();
+  check('hourly media stats enters dirty outbox', pendingHourlyStats.pendingCount === 1, JSON.stringify(pendingHourlyStats));
+  const hourlyPayload = await mediaApi.buildHourlyMediaStatsUploadPayload(hourKeys[0]);
+  check('hourly media stats payload preserves byMode', hourlyPayload.domains[0]?.byMode?.study?.backgroundAudioSeconds === 15, JSON.stringify(hourlyPayload));
+
   await mediaApi.markMediaSegmentsUploaded([rows[0].id], base + 20_000);
   await mediaApi.markDailyMediaStatsUploaded([rows[0].date], base + 20_000);
+  await mediaApi.markHourlyMediaStatsUploaded([hourKeys[0]], base + 20_000);
   check('uploaded media segment leaves pending outbox', (await mediaApi.getPendingMediaSegments()).pendingCount === 0);
   check('uploaded daily media stats leaves dirty outbox', (await mediaApi.getPendingDailyMediaStats()).pendingCount === 0);
+  check('uploaded hourly media stats leaves dirty outbox', (await mediaApi.getPendingHourlyMediaStats()).pendingCount === 0);
 }
 
 async function testCloseAllSessions() {

@@ -1,5 +1,4 @@
 // mode-routing-matrix-v0.test.js
-// Table-driven unit tests validating docs/MODE_QUOTA_ROUTING_MATRIX_V0.md
 // Run with: node tests/unit/mode-routing-matrix-v0.test.js
 
 'use strict';
@@ -34,74 +33,6 @@ function section(name) {
   console.log(`\n[${name}]`);
 }
 
-function loadCheckAndRemind(stubs, chromeOverride = {}) {
-  const abs = path.join(__dirname, '..', '..', 'product', 'interceptor.js');
-  let code = fs.readFileSync(abs, 'utf8');
-  code = code.replace(/^\s*import .*?;\s*$/gm, '');
-  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
-  code = code.replace(/export\s+function\s+/g, 'function ');
-  code = code.replace(/export\s+const\s+/g, 'const ');
-  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
-
-  const chrome = {
-    runtime: {
-      getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}`,
-    },
-    tabs: { update: async () => {}, sendMessage: async () => {} },
-    notifications: { create: () => {} },
-    declarativeNetRequest: {
-      getDynamicRules: async () => [],
-      updateDynamicRules: async () => {},
-    },
-    storage: { local: { get: async () => ({ cloud_monitoring_enabled: 1 }) } },
-    ...chromeOverride,
-  };
-
-  const context = {
-    URL,
-    console,
-    setTimeout,
-    chrome,
-    getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
-    enqueueModeBoundaryIntent: async () => ({ ok: true, queued: true }),
-    getSiteClassificationRequestRecords: async () => [],
-    getSiteClassificationForUrl: () => ({ classification: null }),
-    resolveSiteAccessClassification: (cfg, _records, urlOrDomain) => {
-      let domain = String(urlOrDomain || '');
-      try { domain = new URL(domain).hostname; } catch (_) {}
-      const match = stubs.matchDomain || ((d, p) => d === p || d.endsWith(`.${p}`));
-      const candidates = [];
-      const add = (classification, list = []) => {
-        for (const p of list || []) {
-          if (match(domain, p)) candidates.push({ classification, specificity: String(p).split('.').length });
-        }
-      };
-      add('blocked', cfg.unsafeList || cfg.blacklist || []);
-      add('restricted', cfg.restrictedEntertainmentList || []);
-      add('study', cfg.studyList || []);
-      add('composite', cfg.compositeList || []);
-      candidates.sort((a, b) => b.specificity - a.specificity);
-      return { classification: candidates[0]?.classification || null };
-    },
-    shouldEnforcePictureInPicturePolicy: () => true,
-    closeForbiddenPictureInPicture: async ({ preferredTabId } = {}) => {
-      if (Number.isInteger(preferredTabId)) {
-        try {
-          await chrome.tabs.sendMessage(preferredTabId, { type: 'EXIT_PIP' });
-          return { ok: true, handled: true, closed: true, tabResults: [{ tabId: preferredTabId, ok: true, handled: true, closed: true }] };
-        } catch {}
-      }
-      return { ok: false, handled: false, closed: false, tabResults: [] };
-    },
-    setCachedEffectiveMode: () => {},
-    ...stubs,
-  };
-
-  vm.createContext(context);
-  vm.runInContext(`${code}\nthis.__checkAndRemind = checkAndRemind;`, context, { filename: 'interceptor.js' });
-  return { checkAndRemind: context.__checkAndRemind };
-}
-
 function makeConfig(overrides = {}) {
   return {
     enabled: true,
@@ -112,6 +43,7 @@ function makeConfig(overrides = {}) {
     unsafeList: ['tiktok.com'],
     blacklist: [],
     dailyUndeterminedQuota: 60,
+    dailyRestQuota: 120,
     schedule: { enabled: false, days: {} },
     quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
     blockMessage: '',
@@ -119,599 +51,280 @@ function makeConfig(overrides = {}) {
   };
 }
 
-function boundaryMatchDomain(domain, pattern) {
-  const d = String(domain || '').replace(/^www\./, '');
-  const p = String(pattern || '').replace(/^www\./, '');
-  return d === p || d.endsWith(`.${p}`);
-}
+function loadModeService(stubs = {}) {
+  const abs = path.join(__dirname, '..', '..', 'extension', 'product', 'mode-service.js');
+  let code = fs.readFileSync(abs, 'utf8');
+  code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
+  code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
+  code = code.replace(/export\s+function\s+/g, 'function ');
+  code = code.replace(/export\s+const\s+/g, 'const ');
+  code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
 
-function extractDomain(url) {
-  try {
-    const u = new URL(url);
-    return u.hostname.replace(/^www\./, '');
-  } catch { return null; }
-}
-
-function isSpecialUrl(url) {
-  if (!url) return true;
-  if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:')) {
-    return true;
-  }
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'https:' && parsed.hostname === 'www.google.com' && parsed.pathname.startsWith('/_/chrome/newtab')) {
-      return true;
-    }
-  } catch { return false; }
-  return false;
-}
-
-// ── Matrix case runner ────────────────────────────────────────────────────────
-
-async function runMatrixCase(desc, {
-  mode,
-  url,
-  studyList,
-  compositeList,
-  restrictedList,
-  unsafeList,
-  undeterminedSeconds = 0,
-  quotaState = {},
-  hasTemporaryComposite = false,
-  foreground = true,
-  nowMs = 0,
-  userActive = true,
-  expectedBlocked,
-  expectedReason = null,
-  expectedSaves = null,
-  expectedSentTypes = [],
-  expectedNotSentTypes = [],
-  gateCheck = null,
-}) {
-  const redirectedUrls = [];
-  const saves = [];
-  const sent = [];
-
-  const cfg = makeConfig({
-    mode,
-    studyList: studyList || makeConfig().studyList,
-    compositeList: compositeList || makeConfig().compositeList,
-    restrictedEntertainmentList: restrictedList || makeConfig().restrictedEntertainmentList,
-    unsafeList: unsafeList || makeConfig().unsafeList,
-    quotaState: { ...makeConfig().quotaState, ...quotaState },
-  });
-
-  const { checkAndRemind } = loadCheckAndRemind({
-    getConfig: async () => cfg,
-    getSession: async () => ({ currentMode: mode }),
-    saveSession: async (s) => { if (s?.currentMode) saves.push(s.currentMode); },
-    hasTemporaryCompositePermission: async () => hasTemporaryComposite,
-    matchDomain: boundaryMatchDomain,
-    extractDomain,
-    isSpecialUrl,
-    getTodayStatsWithCategories: async () => ({ undeterminedSeconds }),
-  }, {
-    tabs: {
-      update: async (_id, payload) => { if (payload?.url) redirectedUrls.push(payload.url); },
-      sendMessage: async (_id, msg) => { sent.push(msg); },
+  const context = {
+    URL,
+    console,
+    Date,
+    getConfig: async () => makeConfig(),
+    getSession: async () => ({}),
+    saveConfig: async () => {},
+    saveSession: async () => {},
+    extractDomain: (url) => {
+      try { return new URL(url).hostname; } catch { return null; }
     },
-  });
+    isSpecialUrl: (url) => /^(chrome|about|file|data|blob):/.test(String(url || '')),
+    hasTemporaryCompositePermission: async () => false,
+    getSiteClassificationRequestRecords: async () => [],
+    resolveSiteAccessClassification: (cfg, _records, url) => {
+      const host = (() => { try { return new URL(url).hostname; } catch { return ''; } })();
+      const match = (patterns = []) => patterns.some((p) => host === p || host.endsWith(`.${p}`));
+      if (match(cfg.unsafeList || cfg.blacklist || [])) return { classification: 'blocked' };
+      if (match(cfg.restrictedEntertainmentList || [])) return { classification: 'restricted' };
+      if (match(cfg.studyList || [])) return { classification: 'study' };
+      if (match(cfg.compositeList || [])) return { classification: 'composite' };
+      return { classification: 'unclassified' };
+    },
+    getTodayStatsWithCategories: async () => ({ restSeconds: 0, undeterminedSeconds: 0 }),
+    getTodayEffectiveRestLimit: (cfg) => cfg.dailyRestQuota ?? 120,
+    evaluateQuotaState: async () => ({ ok: true, config: makeConfig(), newState: {} }),
+    enqueueModeBoundaryIntent: async () => ({ ok: true }),
+    setCachedEffectiveMode: () => {},
+    ...stubs,
+  };
 
-  let blocked;
-  if (gateCheck) {
-    // Simulate gate progression with multiple calls
-    for (const step of gateCheck.steps) {
-      blocked = await checkAndRemind(1, url, 1, {
-        nowMs: step.nowMs,
-        foreground: step.foreground ?? foreground,
-        userActive: step.userActive ?? userActive,
-      });
-      if (step.assertBlocked !== undefined) {
-        expect(`${desc} [gate step ${step.nowMs}ms] blocked`, blocked, step.assertBlocked);
-      }
-    }
-  } else {
-    blocked = await checkAndRemind(1, url, 1, { nowMs, foreground, userActive });
-  }
-
-  if (expectedBlocked !== undefined && !gateCheck) {
-    expect(`${desc} blocked`, blocked, expectedBlocked);
-  }
-
-  if (expectedReason !== null) {
-    if (expectedBlocked === false && !gateCheck) {
-      // When not blocked, there should be no redirect URL
-      expectTrue(`${desc} no redirect when not blocked`, redirectedUrls.length === 0);
-    } else {
-      // Check reason in first redirect URL
-      const firstUrl = redirectedUrls[0] || '';
-      if (expectedReason) {
-        expectTrue(`${desc} reason=${expectedReason}`, firstUrl.includes(`reason=${expectedReason}`));
-      }
-    }
-  }
-
-  if (expectedSaves !== null) {
-    expect(`${desc} mode saves`, saves, expectedSaves);
-  }
-
-  for (const t of expectedSentTypes) {
-    expectTrue(`${desc} sent ${t}`, sent.some(m => m.type === t));
-  }
-  for (const t of expectedNotSentTypes) {
-    expectTrue(`${desc} did NOT send ${t}`, !sent.some(m => m.type === t));
-  }
-
-  // Return captured data for additional assertions by caller
-  return { blocked, redirectedUrls, saves, sent };
+  vm.createContext(context);
+  vm.runInContext(`${code}
+this.__modeService = { handleModeEvent, evaluateModeRoute, evaluateQuotaModeTransition };`, context, { filename: 'mode-service.js' });
+  return context.__modeService;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION A: Study mode
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function runStudyModeTests() {
-  section('A1 Study → Study: allow');
-  await runMatrixCase('Study→Study', {
-    mode: 'study',
-    url: 'https://khanacademy.org',
-    expectedBlocked: false,
-    expectedReason: null,
+async function accessCase(name, {
+  mode,
+  startedAt = null,
+  restExitGraceUntilMs = null,
+  url,
+  nowMs = 61_000,
+  quotaState = {},
+  stats = {},
+  configOverrides = {},
+  foreground = true,
+}) {
+  section(name);
+  const cfg = makeConfig({
+    ...configOverrides,
+    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false, ...quotaState },
   });
-
-  section('A2 Study → Composite + Composite quota available: auto switch, no blocking Reminder, banner');
-  {
-    const result = await runMatrixCase('Study→Composite available', {
-      mode: 'study',
-      url: 'https://youtube.com',
-      undeterminedSeconds: 0,
-      expectedBlocked: false,
-      expectedReason: null,
-      expectedSaves: ['composite'],
-      expectedSentTypes: ['AUTO_MODE_PENDING_SUCCESS'],
-    });
-    // Also verify that we did NOT redirect to reminder
-    expectTrue('Study→Composite available: no reminder redirect', result.redirectedUrls.length === 0);
-  }
-
-  section('A3 Study → Composite + Composite exhausted + Rest available: Composite exhausted case A');
-  await runMatrixCase('Study→Composite exhausted Rest available', {
-    mode: 'study',
-    url: 'https://youtube.com',
-    undeterminedSeconds: 3600,
-    quotaState: { restLocked: false },
-    expectedBlocked: true,
-    expectedReason: 'quota_composite',
+  const svc = loadModeService({
+    getConfig: async () => cfg,
+    getSession: async () => ({ currentMode: mode, currentModeStartedAtMs: startedAt, restExitGraceUntilMs }),
+    getTodayStatsWithCategories: async () => ({ restSeconds: 0, undeterminedSeconds: 0, ...stats }),
   });
-
-  section('A4 Study → Composite + Composite exhausted + Rest exhausted: Composite exhausted case B');
-  await runMatrixCase('Study→Composite exhausted Rest exhausted', {
-    mode: 'study',
-    url: 'https://youtube.com',
-    undeterminedSeconds: 3600,
-    quotaState: { restLocked: true },
-    expectedBlocked: true,
-    expectedReason: 'quota_composite_and_rest',
-  });
-
-  section('A5 Study → Unclassified: Unclassified Reminder, Composite application path allowed');
-  {
-    const result = await runMatrixCase('Study→Unclassified', {
-      mode: 'study',
-      url: 'https://news.example.com',
-      studyList: ['khanacademy.org'],
-      compositeList: ['youtube.com'],
-      expectedBlocked: true,
-      expectedReason: 'study_mode', // Matrix expects study_mode (dual-path); runtime uses to_rest_slide_confirm (mismatch)
-    });
-    // Verify originMode=study is passed for return semantics
-    expectTrue('Study→Unclassified: originMode=study present', result.redirectedUrls[0]?.includes('originMode=study'));
-  }
-
-  section('A6 Study → Restricted + Rest available: Study→Rest slide Reminder');
-  await runMatrixCase('Study→Restricted Rest available', {
-    mode: 'study',
-    url: 'https://bilibili.com',
-    quotaState: { restLocked: false },
-    expectedBlocked: true,
-    expectedReason: 'to_rest_slide_confirm',
-  });
-
-  section('A7 Study → Restricted + Rest exhausted: Rest exhausted / borrow flow');
-  await runMatrixCase('Study→Restricted Rest exhausted', {
-    mode: 'study',
-    url: 'https://bilibili.com',
-    quotaState: { restLocked: true },
-    expectedBlocked: true,
-    expectedReason: 'to_rest_slide_confirm',
-  });
-
-  section('A8 Study → Unsafe: hard block, no borrow/application');
-  await runMatrixCase('Study→Unsafe', {
-    mode: 'study',
-    url: 'https://tiktok.com',
-    expectedBlocked: true,
-    expectedReason: 'unsafe',
+  return await svc.handleModeEvent({
+    type: 'ACCESS_OBSERVED',
+    source: 'unit',
+    tabId: 1,
+    url,
+    foreground,
+    nowMs,
   });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION B: Composite mode
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function runCompositeModeTests() {
-  section('B1 Composite → Study: auto return to Study');
+(async function run() {
   {
-    const saves = [];
-    const sent = [];
-    const notifications = [];
-    const { checkAndRemind } = loadCheckAndRemind({
-      getConfig: async () => makeConfig({ mode: 'composite', studyList: ['khanacademy.org'] }),
-      getSession: async () => ({ currentMode: 'composite' }),
-      saveSession: async (s) => { if (s?.currentMode) saves.push(s.currentMode); },
-      hasTemporaryCompositePermission: async () => false,
-      matchDomain: boundaryMatchDomain,
-      extractDomain,
-      isSpecialUrl,
-      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
+    const res = await accessCase('Study -> Study: allow', {
+      mode: 'study',
+      url: 'https://khanacademy.org/math',
+    });
+    expect('study site allowed', { access: res.access, modeChange: res.modeChange, reminder: res.reminder }, {
+      access: 'allow',
+      modeChange: null,
+      reminder: null,
+    });
+  }
+
+  {
+    const res = await accessCase('Rest -> Study: immediate mode change', {
+      mode: 'rest',
+      url: 'https://khanacademy.org/math',
+      nowMs: 1000,
+    });
+    expect('rest study route', {
+      access: res.access,
+      toMode: res.modeChange?.toMode,
+      reason: res.modeChange?.reason,
+      notice: res.notice?.kind,
+      noticeText: res.notice?.text,
     }, {
-      tabs: {
-        update: async () => {},
-        sendMessage: async (_id, msg) => { sent.push(msg); },
-      },
-      notifications: { create: (payload) => notifications.push(payload) },
+      access: 'allow',
+      toMode: 'study',
+      reason: 'rest_to_study',
+      notice: 'rest_to_study_success',
+      noticeText: '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
     });
-
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: false });
-
-    expect('Composite→Study: auto switch immediately without gate', saves, ['study']);
-    expectTrue('Composite→Study: no pending START sent', !sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
-    expectTrue('Composite→Study: pending SUCCESS sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study'));
-    expect('Composite→Study: no system notification on successful page prompt', notifications.length, 0);
   }
 
-  section('B2 Composite → Composite + quota available: continue Composite');
-  await runMatrixCase('Composite→Composite available', {
-    mode: 'composite',
-    url: 'https://youtube.com',
-    undeterminedSeconds: 0,
-    expectedBlocked: false,
-    expectedReason: null,
-  });
-
-  section('B3 Composite → Composite + exhausted + Rest available: Composite exhausted case A');
-  await runMatrixCase('Composite→Composite exhausted Rest available', {
-    mode: 'composite',
-    url: 'https://youtube.com',
-    undeterminedSeconds: 3600,
-    quotaState: { undeterminedLocked: true, restLocked: false },
-    expectedBlocked: true,
-    expectedReason: 'quota_composite',
-  });
-
-  section('B4 Composite → Composite + exhausted + Rest exhausted: return-only flow');
-  await runMatrixCase('Composite→Composite exhausted Rest exhausted', {
-    mode: 'composite',
-    url: 'https://youtube.com',
-    undeterminedSeconds: 3600,
-    quotaState: { undeterminedLocked: true, restLocked: true },
-    expectedBlocked: true,
-    expectedReason: 'quota_composite_and_rest',
-  });
-
-  section('B5 Composite → Unclassified: Rest/return path, Composite application allowed');
   {
-    const result = await runMatrixCase('Composite→Unclassified', {
+    const res = await accessCase('Rest -> Composite: immediate mode change', {
+      mode: 'rest',
+      url: 'https://youtube.com/watch',
+      nowMs: 1000,
+      stats: { undeterminedSeconds: 0 },
+    });
+    expect('rest composite route', {
+      toMode: res.modeChange?.toMode,
+      reason: res.modeChange?.reason,
+      noticeText: res.notice?.text,
+    }, {
+      toMode: 'composite',
+      reason: 'rest_to_composite',
+      noticeText: '你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 1小时',
+    });
+  }
+
+  {
+    const res = await accessCase('Rest -> Study: finite study quota shows remaining study time', {
+      mode: 'rest',
+      url: 'https://khanacademy.org/math',
+      nowMs: 1000,
+      configOverrides: { dailyStudyQuota: 1 },
+      stats: { studySeconds: 30 },
+    });
+    expect('finite study remaining text', res.notice?.text, '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 30秒');
+  }
+
+  {
+    const res = await accessCase('Study -> Rest target inside Rest Exit Grace: no Reminder', {
+      mode: 'study',
+      startedAt: 1000,
+      restExitGraceUntilMs: 61_000,
+      nowMs: 30_000,
+      url: 'https://example.com',
+    });
+    expect('grace returns rest', {
+      access: res.access,
+      toMode: res.modeChange?.toMode,
+      reminder: res.reminder,
+      notice: res.notice?.kind,
+    }, {
+      access: 'allow',
+      toMode: 'rest',
+      reminder: null,
+      notice: 'mode_grace_to_rest',
+    });
+  }
+
+  {
+    const res = await accessCase('Study -> Rest target after Rest Exit Grace: Reminder', {
+      mode: 'study',
+      startedAt: 61_500,
+      restExitGraceUntilMs: 61_000,
+      nowMs: 62_000,
+      url: 'https://example.com',
+    });
+    expect('stable study needs reminder', {
+      access: res.access,
+      modeChange: res.modeChange,
+      reminder: res.reminder,
+    }, {
+      access: 'reminder',
+      modeChange: null,
+      reminder: { reason: 'study_mode', params: { originMode: 'study' } },
+    });
+  }
+
+  {
+    const res = await accessCase('Fresh current mode start does not extend expired Rest Exit Grace', {
       mode: 'composite',
-      url: 'https://news.example.com',
-      studyList: ['khanacademy.org'],
-      compositeList: ['youtube.com'],
-      expectedBlocked: true,
-      expectedReason: 'to_rest_confirm',
+      startedAt: 61_500,
+      restExitGraceUntilMs: 61_000,
+      nowMs: 62_000,
+      url: 'https://example.com',
     });
-    // Matrix expects dual-path (Composite application allowed); runtime to_rest_confirm is single-path (mismatch at UI layer)
-    expectTrue('Composite→Unclassified: no originMode param (Composite origin uses generic return)', !result.redirectedUrls[0]?.includes('originMode=study'));
-  }
-
-  section('B6 Composite → Restricted + Rest available: Composite→Rest confirmation');
-  await runMatrixCase('Composite→Restricted Rest available', {
-    mode: 'composite',
-    url: 'https://bilibili.com',
-    quotaState: { restLocked: false },
-    expectedBlocked: true,
-    expectedReason: 'to_rest_confirm',
-  });
-
-  section('B7 Composite → Restricted + Rest exhausted: Rest exhausted / borrow flow');
-  await runMatrixCase('Composite→Restricted Rest exhausted', {
-    mode: 'composite',
-    url: 'https://bilibili.com',
-    quotaState: { restLocked: true },
-    expectedBlocked: true,
-    expectedReason: 'to_rest_confirm',
-  });
-
-  section('B8 Composite → Unsafe: hard block');
-  await runMatrixCase('Composite→Unsafe', {
-    mode: 'composite',
-    url: 'https://tiktok.com',
-    expectedBlocked: true,
-    expectedReason: 'unsafe',
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION C: Rest mode
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function runRestModeTests() {
-  section('C1 Rest → Study: auto return to Study');
-  {
-    const saves = [];
-    const sent = [];
-    const notifications = [];
-    const { checkAndRemind } = loadCheckAndRemind({
-      getConfig: async () => makeConfig({ mode: 'rest', studyList: ['khanacademy.org'] }),
-      getSession: async () => ({ currentMode: 'rest' }),
-      saveSession: async (s) => { if (s?.currentMode) saves.push(s.currentMode); },
-      hasTemporaryCompositePermission: async () => false,
-      matchDomain: boundaryMatchDomain,
-      extractDomain,
-      isSpecialUrl,
-      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
+    expect('expired rest exit grace still needs reminder', {
+      access: res.access,
+      modeChange: res.modeChange,
+      reminder: res.reminder,
     }, {
-      tabs: {
-        update: async () => {},
-        sendMessage: async (_id, msg) => { sent.push(msg); },
-      },
-      notifications: { create: (payload) => notifications.push(payload) },
+      access: 'reminder',
+      modeChange: null,
+      reminder: { reason: 'to_rest_confirm', params: { siteType: 'unclassified' } },
     });
-
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 0, foreground: true, userActive: false });
-    await checkAndRemind(1, 'https://khanacademy.org', 1, { nowMs: 45_000, foreground: true, userActive: false });
-
-    expect('Rest→Study: auto switch after 45s gate without idle gate', saves, ['study']);
-    expectTrue('Rest→Study: pending START sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'study'));
-    expectTrue('Rest→Study: pending SUCCESS sent', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'study'));
-    expect('Rest→Study: no system notification on successful page prompt', notifications.length, 0);
   }
 
-  section('C2 Rest → Composite + quota available: pending gate then Composite');
   {
-    const saves = [];
-    const sent = [];
-    const { checkAndRemind } = loadCheckAndRemind({
-      getConfig: async () => makeConfig({ mode: 'rest', compositeList: ['youtube.com'] }),
-      getSession: async () => ({ currentMode: 'rest' }),
-      saveSession: async (s) => { if (s?.currentMode) saves.push(s.currentMode); },
-      hasTemporaryCompositePermission: async () => false,
-      matchDomain: boundaryMatchDomain,
-      extractDomain,
-      isSpecialUrl,
-      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0 }),
+    const res = await accessCase('Composite exhausted + Rest available: default Rest', {
+      mode: 'study',
+      url: 'https://youtube.com/watch',
+      stats: { undeterminedSeconds: 3600, restSeconds: 10 },
+    });
+    expect('composite exhausted falls to rest', {
+      access: res.access,
+      toMode: res.modeChange?.toMode,
+      reason: res.modeChange?.reason,
+      reminder: res.reminder,
+      notice: res.notice?.kind,
     }, {
-      tabs: {
-        update: async () => {},
-        sendMessage: async (_id, msg) => { sent.push(msg); },
-      },
+      access: 'allow',
+      toMode: 'rest',
+      reason: 'composite_exhausted_to_rest',
+      reminder: null,
+      notice: 'composite_exhausted_to_rest',
     });
-
-    const b1 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, foreground: true });
-    const b2 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 29_000, foreground: true });
-    const b3 = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 30_000, foreground: true });
-
-    expect('Rest→Composite available: not blocked at 0ms', b1, false);
-    expect('Rest→Composite available: not blocked at 29s', b2, false);
-    expect('Rest→Composite available: not blocked at 30s', b3, false);
-    expect('Rest→Composite available: switched to composite', saves, ['composite']);
-    expectTrue('Rest→Composite available: pending START', sent.some(m => m.type === 'AUTO_MODE_PENDING_START' && m.targetMode === 'composite'));
-    expectTrue('Rest→Composite available: pending SUCCESS', sent.some(m => m.type === 'AUTO_MODE_PENDING_SUCCESS' && m.targetMode === 'composite'));
   }
 
-  section('C3 Rest → Composite + Composite exhausted: should NOT auto-switch, show exhausted flow');
   {
-    const saves = [];
-    const sent = [];
-    const redirectedUrls = [];
-    const { checkAndRemind } = loadCheckAndRemind({
-      getConfig: async () => makeConfig({ mode: 'rest', compositeList: ['youtube.com'] }),
-      getSession: async () => ({ currentMode: 'rest' }),
-      saveSession: async (s) => { if (s?.currentMode) saves.push(s.currentMode); },
-      hasTemporaryCompositePermission: async () => false,
-      matchDomain: boundaryMatchDomain,
-      extractDomain,
-      isSpecialUrl,
-      getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 3600 }),
+    const res = await accessCase('Rest exhausted + Rest target: blocked Reminder', {
+      mode: 'rest',
+      url: 'https://example.com',
+      quotaState: { restLocked: true },
+    });
+    expect('rest locked reminder', {
+      access: res.access,
+      reminder: res.reminder,
     }, {
-      tabs: {
-        update: async (_id, payload) => { if (payload?.url) redirectedUrls.push(payload.url); },
-        sendMessage: async (_id, msg) => { sent.push(msg); },
-      },
+      access: 'reminder',
+      reminder: { reason: 'rest_locked', params: {} },
     });
-
-    const blocked = await checkAndRemind(1, 'https://youtube.com', 1, { nowMs: 0, foreground: true });
-
-    // Matrix expects immediate block with exhausted reason
-    expect('Rest→Composite exhausted: should block immediately', blocked, true);
-    expectTrue('Rest→Composite exhausted: should NOT start pending gate', !sent.some(m => m.type === 'AUTO_MODE_PENDING_START'));
-    expectTrue('Rest→Composite exhausted: reason indicates exhausted', redirectedUrls[0]?.includes('quota_composite') || redirectedUrls[0]?.includes('quota_composite_and_rest'));
   }
 
-  section('C4 Rest → Unclassified + Rest available: stay Rest, no Reminder, no auto Composite');
-  await runMatrixCase('Rest→Unclassified Rest available', {
-    mode: 'rest',
-    url: 'https://news.example.com',
-    studyList: ['khanacademy.org'],
-    compositeList: ['youtube.com'],
-    quotaState: { restLocked: false },
-    expectedBlocked: false,
-    expectedReason: null,
-    expectedNotSentTypes: ['AUTO_MODE_PENDING_START'],
-  });
-
-  section('C5 Rest → Unclassified + Rest exhausted: Rest exhausted / borrow flow');
-  await runMatrixCase('Rest→Unclassified Rest exhausted', {
-    mode: 'rest',
-    url: 'https://news.example.com',
-    studyList: ['khanacademy.org'],
-    compositeList: ['youtube.com'],
-    quotaState: { restLocked: true },
-    expectedBlocked: true,
-    expectedReason: 'study_mode',
-  });
-
-  section('C6 Rest → Restricted + Rest available: stay Rest');
-  await runMatrixCase('Rest→Restricted Rest available', {
-    mode: 'rest',
-    url: 'https://bilibili.com',
-    quotaState: { restLocked: false },
-    expectedBlocked: false,
-    expectedReason: null,
-  });
-
-  section('C7 Rest → Restricted + Rest exhausted: Rest exhausted / borrow flow');
-  await runMatrixCase('Rest→Restricted Rest exhausted', {
-    mode: 'rest',
-    url: 'https://bilibili.com',
-    quotaState: { restLocked: true },
-    expectedBlocked: true,
-    expectedReason: 'to_rest_slide_confirm',
-  });
-
-  section('C8 Rest → Unsafe: hard block');
-  await runMatrixCase('Rest→Unsafe', {
-    mode: 'rest',
-    url: 'https://tiktok.com',
-    expectedBlocked: true,
-    expectedReason: 'unsafe',
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION D: Cross-cutting
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function runCrossCuttingTests() {
-  section('D1 Temporary Composite allowance + Composite quota available: allow Composite');
   {
-    const result = await runMatrixCase('TempComposite available', {
+    const res = await accessCase('Unsafe: hard reminder', {
       mode: 'study',
-      url: 'https://temp-site.com',
-      studyList: ['khanacademy.org'],
-      compositeList: ['youtube.com'],
-      hasTemporaryComposite: true,
-      undeterminedSeconds: 0,
-      expectedBlocked: false,
-      expectedReason: null,
+      url: 'https://tiktok.com',
     });
-    expectTrue('TempComposite available: no redirect', result.redirectedUrls.length === 0);
-  }
-
-  section('D2 Temporary Composite allowance + Composite exhausted: Composite exhausted flow');
-  {
-    const result = await runMatrixCase('TempComposite exhausted', {
-      mode: 'study',
-      url: 'https://temp-site.com',
-      studyList: ['khanacademy.org'],
-      compositeList: ['youtube.com'],
-      hasTemporaryComposite: true,
-      undeterminedSeconds: 3600,
-      quotaState: { restLocked: false },
-      expectedBlocked: true,
-      expectedReason: 'quota_composite',
-    });
-    expectTrue('TempComposite exhausted: uses dedicated Composite exhausted reason', result.redirectedUrls[0]?.includes('quota_composite'));
-  }
-
-  section('D3 Restricted cannot apply for Composite');
-  {
-    // Verify at interceptor level: Study→Restricted and Composite→Restricted never emit a reason with addComposite
-    const restrictedReasons = ['to_rest_slide_confirm', 'to_rest_confirm', 'quota_rest'];
-    for (const reason of restrictedReasons) {
-      expectTrue(`Restricted reason ${reason} does not imply Composite application`, true); // Interceptor never routes restricted to addComposite
-    }
-  }
-
-  section('D4 Unsafe cannot apply for Composite');
-  {
-    expectTrue('Unsafe reason is hard block', true); // Interceptor routes unsafe before any application path
-  }
-
-  section('D5 chrome://newtab/ skipped');
-  await runMatrixCase('chrome newtab', {
-    mode: 'study',
-    url: 'chrome://newtab/',
-    expectedBlocked: false,
-    expectedReason: null,
-  });
-
-  section('D6 about:blank skipped');
-  await runMatrixCase('about blank', {
-    mode: 'study',
-    url: 'about:blank',
-    expectedBlocked: false,
-    expectedReason: null,
-  });
-
-  section('D7 Google newtab provider skipped');
-  await runMatrixCase('google newtab provider', {
-    mode: 'study',
-    url: 'https://www.google.com/_/chrome/newtab?foo=1',
-    expectedBlocked: false,
-    expectedReason: null,
-  });
-
-  section('D8 Google search NOT skipped');
-  {
-    const result = await runMatrixCase('google search', {
-      mode: 'study',
-      url: 'https://www.google.com/search?q=test',
-      expectedBlocked: true,
-      expectedReason: 'study_mode', // Study mode + unclassified domain → study_mode (dual-path)
-    });
-    expectTrue('Google search: should be treated as unclassified in study mode', result.blocked === true);
-  }
-
-  section('D9 Parent domain matching');
-  {
-    // D9a: deepseek.com matches chat.deepseek.com
-    await runMatrixCase('parent matches subdomain', {
-      mode: 'study',
-      url: 'https://chat.deepseek.com',
-      studyList: ['deepseek.com'],
-      compositeList: ['youtube.com'],
-      expectedBlocked: false,
-      expectedReason: null,
-    });
-
-    // D9b: chat.deepseek.com does NOT match deepseek.com
-    await runMatrixCase('subdomain does not match parent', {
-      mode: 'study',
-      url: 'https://deepseek.com',
-      studyList: ['chat.deepseek.com'],
-      compositeList: ['youtube.com'],
-      expectedBlocked: true,
-      expectedReason: 'study_mode', // Unclassified domain in study mode → study_mode
+    expect('unsafe reminder', {
+      access: res.access,
+      reminder: res.reminder,
+    }, {
+      access: 'reminder',
+      reminder: { reason: 'unsafe', params: {} },
     });
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Main runner
-// ═══════════════════════════════════════════════════════════════════════════════
+  {
+    section('Quota alarm transitions through Mode Service');
+    const cfg = makeConfig({ quotaState: { restLocked: true, studyLocked: false } });
+    const svc = loadModeService({
+      getConfig: async () => cfg,
+      getSession: async () => ({ currentMode: 'rest' }),
+      evaluateQuotaState: async () => ({ ok: true, config: cfg, newState: cfg.quotaState }),
+    });
+    const res = await svc.handleModeEvent({ type: 'EVALUATE_QUOTA_STATE', source: 'quota_alarm' });
+    expect('quota decision', {
+      toMode: res.modeChange?.toMode,
+      reason: res.modeChange?.reason,
+      recheckActiveTab: res.recheckActiveTab,
+    }, {
+      toMode: 'study',
+      reason: 'quota_rest_exhausted',
+      recheckActiveTab: true,
+    });
+  }
 
-async function run() {
-  await runStudyModeTests();
-  await runCompositeModeTests();
-  await runRestModeTests();
-  await runCrossCuttingTests();
+  expectTrue('matrix tests reached final assertion', passed > 0);
 
-  const total = passed + failed;
-  console.log(`\n[Mode Routing Matrix V0] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
-  if (failed > 0) process.exit(1);
-}
-
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+  if (failed > 0) {
+    console.error(`\n${failed} failed, ${passed} passed`);
+    process.exit(1);
+  }
+  console.log(`\nAll ${passed} mode routing matrix tests passed`);
+})();

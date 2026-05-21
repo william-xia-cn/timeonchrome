@@ -86,7 +86,7 @@ async function runChromeRestart({
   const isCustomDir = !!explicitUserDataDir;
   const userDataDir = explicitUserDataDir
     ? path.resolve(explicitUserDataDir)
-    : path.resolve(__dirname, `../../../test-system-gate-${Date.now()}`);
+    : path.resolve(__dirname, `../../../../.artifacts/test-system-gate-${Date.now()}`);
   let browserCtx = null;
   let sw = null;
   let extensionId = null;

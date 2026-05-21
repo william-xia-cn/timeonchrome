@@ -38,7 +38,7 @@ function todayKey() {
 }
 
 function loadHandleMessage(stubs = {}) {
-  const abs = path.join(__dirname, '..', '..', 'message-router.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'message-router.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -49,11 +49,7 @@ function loadHandleMessage(stubs = {}) {
   const context = {
     getDateKey: todayKey,
     formatDate,
-    getMediaSegments: async () => ({}),
-    getAllUsageSegments: async () => ({}),
-    getDailyUsageStats: async () => ({}),
-    getTodayStats: async () => ({}),
-    getStatsRange: async () => ({}),
+    getMediaSettlementAnalysisView: async () => ({ ok: true, rows: [], summary: { totalSeconds: 0 } }),
     getConfig: async () => ({}),
     flushOpenSessionToStats: async () => ({ ok: true }),
     ...stubs,
@@ -103,19 +99,51 @@ function mediaSegment(id, overrides = {}) {
 }
 
 async function run() {
-  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'message-router.js'), 'utf8');
-  expectTrue('router imports local media segment reader', source.includes("from './runtime/media-session.js'") && source.includes('getMediaSegments'));
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
+  expectTrue('router imports managed media settlement view', source.includes("from './stats/managed-statistics.js'") && source.includes('getMediaSettlementAnalysisView'));
   expectTrue('router exposes media settlement analysis message', source.includes('GET_MEDIA_SETTLEMENT_ANALYSIS_RANGE'));
 
   let flushCalls = 0;
   const oldDate = '1970-01-01';
-  const segments = {
-    a: mediaSegment('a', { mediaClass: 'foregroundVideo', durationSeconds: 15 }),
-    b: mediaSegment('b', { mediaClass: 'backgroundAudio', durationSeconds: 20 }),
-    c: mediaSegment('c', { date: oldDate, mediaClass: 'pip', durationSeconds: 30, description: null }),
+  const rows = [
+    {
+      ...mediaSegment('a', { mediaClass: 'foregroundVideo', durationSeconds: 15 }),
+      openOperation: 'mediaState',
+      closeOperation: 'tabAudible',
+    },
+    {
+      ...mediaSegment('b', { mediaClass: 'backgroundAudio', durationSeconds: 20 }),
+      openOperation: 'mediaState',
+      closeOperation: 'tabAudible',
+    },
+    {
+      ...mediaSegment('c', { date: oldDate, mediaClass: 'pip', durationSeconds: 30, description: null }),
+      openOperation: null,
+      closeOperation: null,
+    },
+  ];
+  const byRange = {
+    today: {
+      ok: true,
+      range: 'today',
+      rows: rows.filter((row) => row.date === todayKey()),
+      summary: { totalSeconds: 35, foregroundVideoSeconds: 15, backgroundAudioSeconds: 20 },
+    },
+    all: {
+      ok: true,
+      range: 'all',
+      rows,
+      summary: { totalSeconds: 65 },
+    },
+    week: {
+      ok: true,
+      range: 'week',
+      rows: rows.filter((row) => row.date !== oldDate),
+      summary: { totalSeconds: 35 },
+    },
   };
   const { handleMessage } = loadHandleMessage({
-    getMediaSegments: async () => segments,
+    getMediaSettlementAnalysisView: async (range) => byRange[range] || byRange.today,
     flushOpenSessionToStats: async () => { flushCalls++; return { ok: true }; },
   });
 

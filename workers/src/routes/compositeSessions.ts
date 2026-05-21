@@ -1,6 +1,6 @@
 // compositeSessions.ts - 复合型会话 CRUD + 家长审核 + 自动分类规则
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';
+import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 
 // ── device_token 验证辅助 ──────────────────────────────────────────────────────
 

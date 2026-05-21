@@ -2,8 +2,9 @@
   "name": "guardian-extension",
   "version": "1.0.0",
   "description": "> 上网时间管理助手 · 学习模式/休息模式 · 时长统计 · 智能提醒",
-  "main": "background.js",
+  "main": "extension/background.js",
   "scripts": {
+    "check:extension-root": "node tools/check-extension-root.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
