@@ -78,6 +78,16 @@ export interface Env {
   RESEND_API_KEY?: string;
 }
 
+const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|usage-segments|stats-reconciliation|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
+const DEVICE_STATS_ROUTES = new Set([
+  '/device/usage-segments/v1',
+  '/device/stats/v1',
+  '/device/hourly-stats/v1',
+  '/device/media-segments/v1',
+  '/device/media-stats/v1',
+  '/device/hourly-media-stats/v1',
+]);
+
 // ── 待审核提醒邮件 ───────────────────────────────────────────────────────────
 
 async function sendPendingReviewNotifications(env: Env): Promise<void> {
@@ -186,7 +196,7 @@ export default {
       // 路由分发
       if (path.startsWith('/auth/')) {
         return await authRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/(stats|usage-segments|stats-reconciliation)/)) {
+      } else if (PROFILE_STATS_ROUTE_RE.test(path)) {
         return await statsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/client-logs/)) {
         return await clientLogsRouter.handle(request, env);
@@ -204,7 +214,7 @@ export default {
         return await siteClassificationRequestsRouter.handle(request, env);
       } else if (path === '/device/client-logs/v1') {
         return await clientLogsRouter.handle(request, env);
-      } else if (path === '/device/usage-segments/v1' || path === '/device/stats/v1') {
+      } else if (DEVICE_STATS_ROUTES.has(path)) {
         // Stats Foundation v1 endpoints (device_token auth)
         return await statsRouter.handle(request, env);
       } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog') || path === '/device/events' || path === '/device/composite-sessions' || path === '/device/weekly-sessions' || path === '/device/appeal') {
