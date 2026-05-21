@@ -8,7 +8,7 @@ const path = require('path');
 const fs   = require('fs');
 const http = require('http');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
 const MOCKS_DIR      = path.resolve(__dirname, 'mocks');
 
 // ── Local mock server ────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ async function readSession(sw) {
 }
 
 async function createFreshContext() {
-  const userDataDir = path.resolve(__dirname, `../../test-e2e-profile-accuracy-${Date.now()}`);
+  const userDataDir = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-accuracy-${Date.now()}`);
   if (fs.existsSync(userDataDir)) fs.rmSync(userDataDir, { recursive: true, force: true });
   fs.mkdirSync(userDataDir, { recursive: true });
 

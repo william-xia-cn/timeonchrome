@@ -21,7 +21,7 @@ function expectEqual(desc, actual, expected) {
 function section(name) { console.log(`\n[${name}]`); }
 
 function loadSignalExtractDomain(deps) {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'signal.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'signal.js'), 'utf8');
   const transformed = code
     .replace(/import\s+\{\s*domainForUrl\s*\}\s+from\s+'\.\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl;')
     .replace(/export\s+function\s+/g, 'function ')
@@ -47,7 +47,7 @@ function loadSignalExtractDomain(deps) {
 }
 
 function loadNormalizeHostname() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8');
   const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { normalizeHostname, domainForUrl };';
   const context = { console, URL, this: null };
   context.this = context;

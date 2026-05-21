@@ -1,6 +1,6 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';
+import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 import { siteAccessDefaults } from '../config/site-access-defaults';
 
 // 验证 device_token，可选同时刷新 last_seen；返回 profile_id + device_id 或 null

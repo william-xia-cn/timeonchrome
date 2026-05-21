@@ -21,7 +21,7 @@ function expectTrue(desc, cond) {
 function section(name) { console.log(`\n[${name}]`); }
 
 function loadNormalizeHostname() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8');
   const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { normalizeHostname, domainForUrl };';
   const context = { console, URL, this: null };
   context.this = context;
@@ -30,7 +30,7 @@ function loadNormalizeHostname() {
 }
 
 function loadSignalInit(deps, hooks) {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'signal.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'signal.js'), 'utf8');
   const transformed = code
     .replace(/import\s+\{\s*domainForUrl\s*\}\s+from\s+'\.\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl;')
     .replace(/export\s+function\s+/g, 'function ')
@@ -78,7 +78,7 @@ function loadSignalInit(deps, hooks) {
 }
 
 function loadProdModule(relPath, exportNames) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');

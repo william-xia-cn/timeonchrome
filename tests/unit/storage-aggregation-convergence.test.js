@@ -39,9 +39,9 @@ global.chrome = {
 };
 
 function loadProdModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf8');
-  code = code.replace(/^\s*import .*?;\s*$/gm, '');
+  code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
@@ -54,10 +54,84 @@ function loadProdModule(relPath, exportNames, injected = {}) {
 }
 
 const aggregateApi = loadProdModule('core/aggregate.js', ['computeAllDomains', 'computeAllDomainsWithAudio']);
+
+function dateKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function convertDailyStatsToLegacyShape(dayStats) {
+  if (!dayStats || !dayStats.domains) {
+    return { audioSeconds: 0, backgroundMediaByDomain: {}, pipSeconds: 0, pipByDomain: {} };
+  }
+  const out = {};
+  const backgroundMediaByDomain = {};
+  const pipByDomain = {};
+  let audioSeconds = 0;
+  let pipSeconds = 0;
+  for (const [domain, ds] of Object.entries(dayStats.domains || {})) {
+    const active = Number(ds?.activeSeconds || 0);
+    const pip = Number(ds?.pipSeconds || 0);
+    const background = Number(ds?.backgroundMediaSeconds || 0);
+    out[domain] = active + pip;
+    if (background > 0) {
+      backgroundMediaByDomain[domain] = background;
+      audioSeconds += background;
+    }
+    if (pip > 0) {
+      pipByDomain[domain] = pip;
+      pipSeconds += pip;
+    }
+  }
+  return { ...out, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain };
+}
+
+function aggregateFromEvents(events, date) {
+  const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } =
+    aggregateApi.computeAllDomainsWithAudio(events, date);
+  const merged = { ...(domains || {}) };
+  for (const [domain, seconds] of Object.entries(pipByDomain || {})) {
+    merged[domain] = (merged[domain] || 0) + (Number(seconds) || 0);
+  }
+  return {
+    ...merged,
+    audioSeconds: Number(audioSeconds || 0),
+    backgroundMediaByDomain: backgroundMediaByDomain || {},
+    pipSeconds: Number(pipSeconds || 0),
+    pipByDomain: pipByDomain || {},
+  };
+}
+
+async function getTodayUsageView({ date = dateKey() } = {}) {
+  const dayStats = mockLocalStorage.data.daily_usage_stats_v1?.[date];
+  if (dayStats?.domains && Object.keys(dayStats.domains).length > 0) {
+    return { stats: convertDailyStatsToLegacyShape(dayStats), statsWithSummary: convertDailyStatsToLegacyShape(dayStats), source: 'daily_usage_stats_v1' };
+  }
+  const events = mockLocalStorage.data[EVENT_LOG_KEY] || [];
+  const stats = aggregateFromEvents(events, date);
+  return { stats, statsWithSummary: stats, source: 'event_log_v1_fallback' };
+}
+
+async function getUsageRangeView(days = 7) {
+  const statsByDate = {};
+  for (let i = 0; i < days; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = dateKey(d);
+    const view = await getTodayUsageView({ date: key });
+    statsByDate[key] = view.stats;
+  }
+  return { statsByDate, statsWithSummaryByDate: statsByDate };
+}
+
 const storageApi = loadProdModule('infra/storage.js', ['getTodayStats', 'getStatsRange', 'getDateKey'], {
   computeAllDomains: aggregateApi.computeAllDomains,
   computeAllDomainsWithAudio: aggregateApi.computeAllDomainsWithAudio,
   emitTrace: async () => {}, // no-op for unit tests
+  getTodayUsageView,
+  getUsageRangeView,
 });
 
 const EVENT_LOG_KEY = 'event_log_v1';

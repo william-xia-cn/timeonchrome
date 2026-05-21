@@ -27,10 +27,10 @@ function expectEqual(desc, actual, expected) {
 }
 
 function loadModule() {
-  const domainSource = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8')
+  const domainSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ');
-  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'site-classification.js'), 'utf8')
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'site-classification.js'), 'utf8')
     .replace(/^\s*import .*?;\s*$/gm, '')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ');

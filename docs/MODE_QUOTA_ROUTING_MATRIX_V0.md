@@ -1,115 +1,230 @@
-# TimeOnChrome V0 Mode / Quota Routing Matrix
+# TimeOnChrome V0 Mode Transition / Quota Routing Matrix
 
 ## 1) Purpose
-This document is the canonical V0 source of truth for routing behavior across:
+This document is the single canonical V0 source of truth for mode transition, quota routing, Reminder behavior, in-page notices, and mode-boundary accounting semantics across:
 - current mode
 - target site type
 - quota state
-- same-day temporary Composite allowance state
+- Pending Composite classification state
 
 It defines:
-- route target (allow / reminder / block)
+- route target (`allow`, `reminder`, `block`)
 - reminder or in-page notice selection
 - allowed actions
 - forbidden actions
 - copy templates for quota/reminder cases
+- mode-transition prompt lifecycle
+- mode-boundary ledger slicing expectations
 
 ## 2) Document Boundaries
 - `docs/SITE_ACCESS_POLICY.md`: site category and list policy.
-- `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` (this file): routing and quota behavior matrix.
-- `docs/MODE_TRANSITION_UX_V0.md`: visual structure, interaction style, layout constraints.
+- `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md` (this file): the only active product source of truth for mode transition, quota routing, Reminder, in-page notice, and mode-boundary behavior.
+- `docs/MODE_TRANSITION_UX_V0.md`: retired. Do not cite it as a source of truth and do not add new requirements there.
 - `DECISIONS.md`: high-level decisions only (not full matrix rows).
 
-## 3) Terms
-- Modes: `Study` / `Composite` / `Rest`
-- Site types: `Study` / `Composite` / `Unclassified` / `Restricted Entertainment` / `HardBlocked or Unsafe`
+## 3) Bilingual Terminology
+
+Use the English term in this document body. Chinese is listed here only as product copy/reference.
+
+| English term | 中文产品名 | Implementation value / source |
+|---|---|---|
+| Study | 学习模式 / 学习时间 | mode `study` |
+| Composite | 综合模式 / 综合时间 | mode `composite` |
+| Rest | 休息模式 / 休息时间 | mode `rest` |
+| Locked | 锁定模式 / 当前不可继续使用 | mode `locked` |
+| Study Site | 学习网站 | classification `study` |
+| Composite Site | 综合网站 | classification `composite` |
+| Pending Composite | 已申请待归类 | classification `pending_composite` |
+| Unclassified | 未归类网站 | no resolved classification |
+| Restricted Entertainment | 受限娱乐网站 | classification `restricted` |
+| HardBlocked / Unsafe | 禁止访问 / 不安全网站 | classification `blocked`, `unsafeList`, `blacklist` |
+
+## 4) Terms
+- Modes: `Study` / `Composite` / `Rest` / `Locked`
+- Access targets:
+  - `Study Site`
+  - `Composite Site / Pending Composite`
+  - `Unclassified`
+  - `Restricted Entertainment`
+  - `HardBlocked / Unsafe`
 - Quota states:
   - Composite available
   - Composite exhausted
   - Rest available
   - Rest exhausted
   - Composite + Rest both exhausted
-- Same-day temporary Composite allowance:
-  - keyed by `domain + local date`
-  - non-permanent
-  - not import/export visible
+- Pending Composite:
+  - implementation value: `pending_composite`
+  - routing behavior: same as Composite Site
+  - not treated as Study time
+  - does not permanently mutate `compositeList` / `customCompositeList`
+- `unknown` is not a product mode. It is allowed only as a ledger fallback when an accounting segment cannot recover a runtime mode.
 
-## 4) Core Product Rules (V0)
-1. Composite quota and Rest quota are independent pools.
-2. Composite exhausted must not auto-consume Rest quota.
-3. Composite borrowing is not supported.
-4. If Composite exhausted and Rest available, user may explicitly choose `进入休息继续`.
-5. If Composite and Rest both exhausted, user cannot continue and should return.
-6. Restricted Entertainment cannot apply for Composite time.
-7. Restricted Entertainment may borrow Rest time when Rest quota is exhausted.
-8. Unclassified may apply same-day Composite time.
-9. Unclassified may borrow Rest time when Rest quota is exhausted.
-10. Temporary Composite allowance:
-   - same-day only (`domain + local date`)
-   - does not mutate `compositeList` / `customCompositeList`
-   - not counted as Study time
-   - not exposed in import/export
-11. Popup exposes neither borrow entry nor Composite application entry.
-12. HardBlocked / Unsafe allow neither borrow nor Composite application.
+## 5) Core Product Rules (V0)
+1. Access control decides whether a mode transition can execute.
+2. Mode transition changes only `Study` / `Composite` / `Rest` / `Locked`.
+3. Composite quota and Rest quota are independent pools.
+4. Composite exhausted must not borrow or extend Composite quota.
+5. If Composite exhausted and Rest is available, access to Composite Site / Pending Composite defaults to Rest with an in-page notice.
+6. If Composite and Rest are both exhausted, user cannot continue and should return.
+7. `Composite Site` and `Pending Composite` share the same routing path.
+8. Current Reminder pages for `Unclassified` and `Restricted Entertainment` provide Rest confirmation / return; website classification requests live in popup/site-governance flow, not in mode transition.
+9. HardBlocked / Unsafe allow no mode transition.
+10. `mode-service.js` is the only mode owner. It reads `guardian_session.currentMode`, commits `currentModeStartedAtMs`, maintains `restExitGraceUntilMs`, and emits mode-boundary intents.
+11. Rest-origin auto transitions are immediate. `Rest -> Study/Composite` starts a 60s Rest Exit Grace window: Rest targets return to Rest without Reminder and show an in-page notice.
+12. Study <-> Composite transitions do not extend Rest Exit Grace. Missing or expired `restExitGraceUntilMs` is treated as no grace.
+13. Local quota expiry is a mode-transition event. The local `quota_check` alarm evaluates quota state and requests a mode change through Mode Service.
+14. Cloud quota sync only saves `quotaState` facts. It must not request mode changes, show Reminder, or recheck tabs.
 
-## 5) Routing Matrix (Canonical)
+## 6) Access Control + Mode Transition Matrix (Canonical)
 
-| # | Current Mode | Target Site Type | Quota/State | Route | Primary Feedback | Allowed Actions | Forbidden | UX Ref |
-|---|---|---|---|---|---|---|---|---|
-| 1 | Study | Study | N/A | allow | none | continue | N/A | — |
-| 2 | Study | Composite | Composite available | auto switch to Composite | 45s in-page notice | continue in Composite | N/A | §8.1 |
-| 3 | Study | Composite | Composite exhausted + Rest available | reminder (`quota_composite`) | Composite exhausted case A | `进入休息继续` / `返回` | auto Rest fallback, Composite borrow | §12.1 Case A |
-| 4 | Study | Composite | Composite exhausted + Rest exhausted | reminder (`quota_composite_and_rest`) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
-| 5 | Study | Unclassified | Rest available | reminder (`study_mode`) | Unclassified dual-path copy | enter_rest (slide), apply_composite (slide), `返回学习` | N/A | §8.2b |
-| 6 | Study | Unclassified | Rest exhausted | reminder (`study_mode` + `restLocked=1`) | Unclassified + borrow-rest copy | borrow_rest (slide), apply_composite (slide), `返回学习` | hide Composite apply | §8.2b + §6.5 |
-| 7 | Study | Restricted Entertainment | Rest available | reminder (`to_rest_slide_confirm`) | Restricted copy | enter_rest (slide), `返回学习` | Composite apply | §8.6 |
-| 8 | Study | Restricted Entertainment | Rest exhausted | reminder (`to_rest_slide_confirm` + `restLocked=1`) | Restricted + borrow-rest copy | borrow_rest (slide), `返回学习` | Composite apply | §8.6 + §6.7 |
-| 9 | Study | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow | §8.7 |
-| 10 | Composite | Study | N/A | auto switch to Study (90s gate) | pending/success | continue | N/A | §8.3 |
-| 11 | Composite | Composite | Composite available | allow | none | continue in Composite | N/A | — |
-| 12 | Composite | Composite | Composite exhausted + Rest available | reminder (`quota_composite`) | Composite exhausted case A | `进入休息继续`, `返回` | auto Rest, Composite borrow | §12.1 Case A |
-| 13 | Composite | Composite | Composite exhausted + Rest exhausted | reminder (`quota_composite_and_rest`) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
-| 14 | Composite | Unclassified | Rest available | reminder (`to_rest_confirm`) | Unclassified dual-path copy | enter_rest (slide), apply_composite (slide), `返回` | N/A | §8.5 |
-| 15 | Composite | Unclassified | Rest exhausted | reminder (`to_rest_confirm` + `restLocked=1`) | Unclassified + borrow-rest copy | borrow_rest (slide), apply_composite (slide), `返回` | hide Composite apply | §8.5 + §6.5 |
-| 16 | Composite | Restricted Entertainment | Rest available | reminder (`to_rest_confirm`) | Restricted copy | enter_rest (slide), `返回` | Composite apply | §8.5 |
-| 17 | Composite | Restricted Entertainment | Rest exhausted | reminder (`to_rest_confirm` + `restLocked=1`) | Restricted + borrow-rest copy | borrow_rest (slide), `返回` | Composite apply | §8.5 + §6.7 |
-| 18 | Composite | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow | §8.7 |
-| 19 | Rest | Study | N/A | auto switch to Study (90s gate) | pending/success | continue | N/A | §8.4 |
-| 20 | Rest | Composite | Composite available | pending gate (60s), then Composite | pending/success banner | continue | immediate forced switch | §8.2 |
-| 21 | Rest | Composite | Composite exhausted + Rest available | reminder (`quota_composite`) | Composite exhausted case A | `进入休息继续`, `返回` | auto Rest, Composite borrow | §12.1 Case A |
-| 22 | Rest | Composite | Composite exhausted + Rest exhausted | reminder (`quota_composite_and_rest`) | Composite exhausted case B | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
-| 23 | Rest | Unclassified | Rest available | allow (stays Rest, no reminder) | normal Rest path | continue | auto Composite, Composite apply prompt | — |
-| 24 | Rest | Restricted Entertainment | Rest available | allow (stays Rest) or existing reminder policy | normal Rest path | continue | Composite apply | — |
-| 25 | Rest | Restricted Entertainment | Rest exhausted | reminder (`to_rest_slide_confirm` + `restLocked=1`) | Restricted + borrow-rest copy | borrow_rest (slide), `返回` | Composite apply | §6.7 |
-| 26 | Rest | HardBlocked / Unsafe | N/A | blocked reminder | block copy | return | borrow/apply/temporary allow | §8.7 |
-| 27 | Any | Temporary Composite allowance domain | Composite available | treat as Composite usage | Composite path feedback | continue in Composite | count as Study, permanent classify | — |
-| 28 | Any | Temporary Composite allowance domain | Composite exhausted + Rest available | unified Composite exhausted case A | reminder (`quota_composite`) | `进入休息继续`, `返回` | Composite borrow, auto Rest | §12.1 Case A |
-| 29 | Any | Temporary Composite allowance domain | Composite exhausted + Rest exhausted | unified Composite exhausted case B | reminder (`quota_composite_and_rest`) | `返回` | `进入休息继续`, Composite borrow, auto Rest | §12.1 Case B |
+Matrix vocabulary:
+- `allow`: access is allowed now; mode may stay unchanged or switch immediately.
+- `reminder`: user action is required before any target mode transition.
+- `blocked reminder`: Reminder page with no continue path; return only.
+- `block`: direct hard block; no mode transition.
+- `Rest Exit Grace active`: `now < restExitGraceUntilMs`, set only by `Rest -> Study/Composite`.
+- `Rest Exit Grace expired`: `restExitGraceUntilMs` is missing or no longer in the future.
 
-## 6) Reminder / In-Page Notice Copy Matrix (Canonical)
+### 6.1 Study mode
 
-### 6.1 Study -> Composite (Composite available)
-In-page lightweight notice (45s):
+| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+|---|---|---|---|---|---|
+| Study | Study Site | N/A | allow | Study | no-op |
+| Study | Composite Site /<br>Pending Composite | Composite quota available | allow | Composite | [notice: study_to_composite](#notice-study-to-composite) |
+| Study | Composite Site /<br>Pending Composite | Composite exhausted + Rest available | allow | Rest | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
+| Study | Composite Site /<br>Pending Composite | Composite exhausted + Rest exhausted | blocked reminder | none | [blocked reminder: quota_composite_and_rest](#reminder-quota-composite-and-rest) |
+| Study | Unclassified /<br>Restricted Entertainment | Rest available + Rest Exit Grace active | allow | Rest | [notice: mode_grace_to_rest](#notice-mode-grace-to-rest) |
+| Study | Unclassified /<br>Restricted Entertainment | Rest available + Rest Exit Grace expired | reminder | none | [reminder: rest_confirm](#reminder-rest-confirm) |
+| Study | Unclassified /<br>Restricted Entertainment | Rest exhausted | blocked reminder | none | [blocked reminder: rest_locked](#reminder-rest-locked) |
+| Study | HardBlocked / Unsafe | N/A | block | none | [block: hard_blocked](#block-hard-blocked) |
 
-`你正在打开综合网站 · 即将离开学习时间进入综合时间 · 今日剩余 {remainingCompositeTime}`
+### 6.2 Composite mode
 
-No countdown, no blocking page.
+| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+|---|---|---|---|---|---|
+| Composite | Study Site | N/A | allow | Study | [notice: composite_to_study](#notice-composite-to-study) |
+| Composite | Composite Site /<br>Pending Composite | Composite quota available | allow | Composite | no-op |
+| Composite | Composite Site /<br>Pending Composite | Composite exhausted + Rest available | allow | Rest | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
+| Composite | Composite Site /<br>Pending Composite | Composite exhausted + Rest exhausted | blocked reminder | none | [blocked reminder: quota_composite_and_rest](#reminder-quota-composite-and-rest) |
+| Composite | Unclassified /<br>Restricted Entertainment | Rest available + Rest Exit Grace active | allow | Rest | [notice: mode_grace_to_rest](#notice-mode-grace-to-rest) |
+| Composite | Unclassified /<br>Restricted Entertainment | Rest available + Rest Exit Grace expired | reminder | none | [reminder: rest_confirm](#reminder-rest-confirm) |
+| Composite | Unclassified /<br>Restricted Entertainment | Rest exhausted | blocked reminder | none | [blocked reminder: rest_locked](#reminder-rest-locked) |
+| Composite | HardBlocked / Unsafe | N/A | block | none | [block: hard_blocked](#block-hard-blocked) |
 
-### 6.2 Composite exhausted + Rest available (Unified)
-Title:
+### 6.3 Rest mode
 
-`今日综合时间已用完`
+| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+|---|---|---|---|---|---|
+| Rest | Study Site | foreground access | allow | Study | [notice: rest_to_study_success](#notice-rest-to-study-success) |
+| Rest | Composite Site /<br>Pending Composite | Composite quota available + foreground access | allow | Composite | [notice: rest_to_composite_success](#notice-rest-to-composite-success) |
+| Rest | Composite Site /<br>Pending Composite | Composite exhausted + Rest available | allow | Rest | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
+| Rest | Composite Site /<br>Pending Composite | Composite exhausted + Rest exhausted | blocked reminder | none | [blocked reminder: quota_composite_and_rest](#reminder-quota-composite-and-rest) |
+| Rest | Unclassified /<br>Restricted Entertainment | Rest available | allow | Rest | no-op |
+| Rest | Unclassified /<br>Restricted Entertainment | Rest exhausted | blocked reminder | none | [blocked reminder: rest_locked](#reminder-rest-locked) |
+| Rest | HardBlocked / Unsafe | N/A | block | none | [block: hard_blocked](#block-hard-blocked) |
 
-Body:
-- `综合时间不会自动占用休息时间。`
-- `如果仍要继续访问，可以进入休息时间继续。`
+### 6.4 Locked mode
 
-Actions:
-- `进入休息继续`
-- `返回`
+| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+|---|---|---|---|---|---|
+| Locked | Any normal target | current mode remains Locked | blocked reminder | Locked | [blocked reminder: quota_locked](#reminder-quota-locked) |
+| Locked | HardBlocked / Unsafe | N/A | block | none | [block: hard_blocked](#block-hard-blocked) |
 
-### 6.3 Composite exhausted + Rest exhausted (Unified)
-Title:
+### 6.5 System quota transition events
+
+Local quota expiry is a mode transition source, but it enters through the same request path as manual and access-driven transitions.
+
+| Source | Message path | Precondition | Target mode | Follow-up |
+|---|---|---|---|---|
+| `quota_check` alarm | `EVALUATE_QUOTA_STATE -> handleModeEvent` | `onlineLocked === true` | Locked | recheck current focused active tab only |
+| `quota_check` alarm | `EVALUATE_QUOTA_STATE -> handleModeEvent` | current Study + `studyLocked === true` | Locked | recheck current focused active tab only |
+| `quota_check` alarm | `EVALUATE_QUOTA_STATE -> handleModeEvent` | current Rest + `restLocked === true` + Study available | Study | recheck current focused active tab only |
+| `quota_check` alarm | `EVALUATE_QUOTA_STATE -> handleModeEvent` | current Rest + `restLocked === true` + `studyLocked === true` | Locked | recheck current focused active tab only |
+| `quota_check` alarm | `EVALUATE_QUOTA_STATE -> handleModeEvent` | current Composite + `undeterminedLocked === true` + Study available | Study | recheck current focused active tab only |
+| `quota_check` alarm | `EVALUATE_QUOTA_STATE -> handleModeEvent` | current Composite + `undeterminedLocked === true` + `studyLocked === true` | Locked | recheck current focused active tab only |
+| `daily_cleanup` | `EVALUATE_QUOTA_STATE -> handleModeEvent` | current Locked + reset cleared online/study locks | Study | recheck current focused active tab only |
+| cloud quota pull | save `config.quotaState` only | any cloud quota fact changed | no mode change | no Reminder, no tab recheck |
+
+## 7) Execution Definitions
+
+### 7.1 Notice Definitions
+
+<a id="notice-study-to-composite"></a>
+#### notice: study_to_composite
+- Trigger: Study mode + Composite Site / Pending Composite + Composite quota available.
+- Behavior: switch to Composite immediately.
+- Notice: 4s transient info notice.
+- Copy:
+
+`你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 {remainingCompositeTime}`
+
+<a id="notice-composite-exhausted-to-rest"></a>
+#### notice: composite_exhausted_to_rest
+- Trigger: Composite Site / Pending Composite + Composite quota exhausted + Rest available.
+- Behavior: enter or remain in Rest immediately.
+- Notice: 4s transient info notice.
+- Copy:
+
+`你正在打开综合/待归类网站 · 当前综合时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 {remainingRestTime}`
+
+<a id="notice-composite-to-study"></a>
+#### notice: composite_to_study
+- Trigger: Composite mode + Study Site.
+- Behavior: switch to Study immediately.
+- Notice: 4s transient success notice.
+- Copy: `你正在打开学习网站 · 即将进入学习模式 · 今日剩余 {remainingStudyTime}`
+
+<a id="notice-rest-to-composite-success"></a>
+#### notice: rest_to_composite_success
+- Trigger: Rest mode + Composite Site / Pending Composite + Composite quota available + foreground access.
+- Behavior: switch to Composite immediately; set `currentModeStartedAtMs`; start Rest Exit Grace.
+- Notice: 4s transient success notice.
+- Copy:
+
+`你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 {remainingCompositeTime}`
+
+<a id="notice-rest-to-study-success"></a>
+#### notice: rest_to_study_success
+- Trigger: Rest mode + Study Site + foreground access.
+- Behavior: switch to Study immediately; set `currentModeStartedAtMs`; start Rest Exit Grace.
+- Notice: 4s transient success notice.
+- Copy: `你正在打开学习网站 · 即将进入学习模式 · 今日剩余 {remainingStudyTime}`
+
+<a id="notice-mode-grace-to-rest"></a>
+#### notice: mode_grace_to_rest
+- Trigger: Study or Composite mode + Unclassified / Restricted Entertainment + Rest available + Rest Exit Grace active.
+- Behavior: switch to Rest immediately without Reminder.
+- Notice: 4s transient info notice.
+- Copy: `刚进入{fromModeLabel}时间 · 已临时回到休息时间`
+
+<a id="mode-quota-reset-unlock"></a>
+#### mode: quota_reset_unlock
+- Trigger: daily quota reset clears online/study locks while current mode is Locked.
+- Behavior: switch to Study.
+- Notice: optional; not required for correctness.
+- Copy: `新的一天开始了 · 已回到学习时间`
+
+### 7.2 Rest Exit Grace Definition
+
+- Rest-origin Study/Composite transitions are immediate.
+- `mode-service.js` writes `guardian_session.currentModeStartedAtMs` when the mode changes.
+- `Rest -> Study/Composite` also writes `guardian_session.restExitGraceUntilMs = effectiveAtMs + 60_000`.
+- While `now < restExitGraceUntilMs`, opening Unclassified / Restricted Entertainment returns to Rest without Reminder and shows `notice: mode_grace_to_rest`.
+- Study <-> Composite transitions preserve the existing `restExitGraceUntilMs`; they must not extend it.
+- Entering Rest, Locked, or Paused clears `restExitGraceUntilMs`.
+- When `restExitGraceUntilMs` is missing or expired, Unclassified / Restricted Entertainment uses `reminder: rest_confirm`.
+- Same-mode no-op must not refresh `currentModeStartedAtMs` or `restExitGraceUntilMs`.
+
+### 7.3 Reminder Definitions
+
+<a id="reminder-quota-composite-and-rest"></a>
+#### reminder: quota_composite_and_rest
+- Trigger: Composite quota exhausted + Rest exhausted.
+- Page type: blocked quota Reminder.
+- Allowed actions: return only.
+- Forbidden: Enter Rest and continue; Composite borrowing; automatic fallback.
+- Title:
 
 `今日综合时间和休息时间均已用完`
 
@@ -120,172 +235,136 @@ Body:
 Actions:
 - `返回`
 
-### 6.4 Unclassified (dual-path)
+<a id="reminder-rest-confirm"></a>
+#### reminder: rest_confirm
+- Trigger: Unclassified / Restricted Entertainment while Rest is available and current mode is Study or Composite.
+- Page type: contextual Reminder.
+- Allowed actions: confirm Rest; return.
+- Website classification requests are handled outside this Reminder flow.
 
-Applies to Matrix Case #5 (Study→Unclassified) and Case #14 (Composite→Unclassified).
+Title:
 
-**Title** (shared by both paths):
+- Unclassified: `你正在打开未归类网站`
+- Restricted Entertainment: `你正在打开受限娱乐网站`
 
-`你正在打开未归类网站`
+Body copy:
 
-**Default path** (enter Rest):
-
-Body:
 - `继续后，这段时间会计入「休息时间」，不会计入「学习时间」。`
 
 Slider:
 - `拖动到右侧确认进入休息时间`
 - `松手确认进入休息时间`
 
-**Application path** (apply Composite time):
-
-Body:
-- `如果你认为这个网站是为了学习用途使用，可以申请使用今天的综合时间继续访问。`
-- `本次申请不会计入学习时间，也不会永久修改网站分类。`
-- `系统未来可能会根据实际用途进一步自动判定。`
-
-Slider:
-- `拖动到右侧申请使用综合时间`
-- `松手确认使用综合时间`
-
-Success:
-- `已允许今天使用综合时间访问 · 今日剩余 {remainingCompositeTime}`
-
-**Return action**:
+Return action:
 - Study origin: `返回学习`
 - Composite origin: `返回`
 
-Full visual layout and interaction details: see `docs/MODE_TRANSITION_UX_V0.md` §8.2b (Study origin) and §8.5 (Composite origin).
+<a id="reminder-rest-locked"></a>
+#### reminder: rest_locked
+- Trigger: Unclassified / Restricted Entertainment while Rest is exhausted.
+- Page type: blocked contextual Reminder.
+- Current V1-minimal Reminder does not expose Rest borrowing or Composite request.
+- Allowed actions: return only.
+- Forbidden: Enter Rest and continue; Rest borrowing; Composite request.
 
-### 6.5 Unclassified + Rest exhausted
-Rest borrow section:
+Classification request note:
+- `SUBMIT_SITE_CLASSIFICATION_REQUEST` belongs to popup/site-governance flow.
+- A successful or pending request may later make the target resolve as `pending_composite`, which then follows the Composite site routing path.
+- This request flow is not a mode-transition action.
 
-`今天的休息时间已用完。继续休息使用需要向明天借用休息时间。`
+Reminder layout and interaction requirements are maintained in this document. Do not split UX requirements back into a second mode-transition document.
 
-Borrow slider:
+<a id="reminder-quota-locked"></a>
+#### reminder: quota_locked
+- Trigger: current mode is Locked and quota state still prevents normal use.
+- Page type: blocked quota Reminder.
+- Allowed actions: return only.
+- Forbidden: Enter Study, Enter Rest, Enter Composite, borrow, or bypass.
+- Title: `当前配额已用完`
+- Body: `当前不能继续访问。请返回。`
 
-`滑动向明天借用休息时间`
+### 7.4 Block Definitions
 
-Important:
-- Unclassified still keeps Composite application path.
-- Must not show: `该网站不能申请使用综合时间。`
+<a id="block-hard-blocked"></a>
+#### block: hard_blocked
+- Trigger: HardBlocked / Unsafe target.
+- Behavior: block access; no mode transition.
+- Page type: blocked Reminder or equivalent blocking overlay.
+- Allowed actions: return only.
+- Forbidden: Rest confirmation; Composite request; bypass action.
 
-### 6.6 Restricted Entertainment
-Title:
+### 7.5 In-page mode-transition notice protocol
+In-page notices are a UI projection of mode transition state. They are not the source of mode truth, and delivery failure must not block mode changes.
 
-`你正在打开受限娱乐网站`
+Protocol expectations:
+- `AUTO_MODE_PENDING_START` is a legacy renderer for retired Rest-origin dwell gates; it is not used by the current routing matrix.
+- `AUTO_MODE_PENDING_CANCEL` clears pending or transient notices for the current tab.
+- `AUTO_MODE_PENDING_SUCCESS` renders the 4s transient success/info notice.
+- `CONTENT_SCRIPT_READY` may replay only an unexpired transient notice whose `domainSnapshot` still matches the current page domain.
+- `chrome.tabs.sendMessage` failure is diagnostic only; fallback notification is allowed, but mode truth must remain independent of notice delivery.
+- Mode effects must return explicit notice delivery fields: `noticeAttempted`, `noticeTargetTabId`, `noticeSent`, and `noticeError`.
 
-Restricted rule:
+### 7.6 Mode truth and ledger boundary relationship
+Mode truth comes from runtime session state, currently `guardian_session.currentMode`. `guardian_session.currentModeStartedAtMs` records when the current mode began. `guardian_session.restExitGraceUntilMs` records the independent Rest Exit Grace deadline. `config.mode` is only a legacy fallback.
 
-`该网站不能申请使用综合时间。`
+All manual and automatic mode transitions enter through `mode-service.js`:
+- automatic access routing: Chrome listeners build facts and dispatch `ACCESS_OBSERVED` to `handleModeEvent()`.
+- popup/manual/reminder actions: send `REQUEST_MODE_CHANGE` / `REMINDER_CONFIRMED`, then UI may query `GET_RUNTIME_MODE_STATUS`.
+- local quota expiry: `quota_check` sends `EVALUATE_QUOTA_STATE` to `handleModeEvent()`.
+- legacy `SWITCH_TO_STUDY` / `SWITCH_TO_REST` / `SWITCH_TO_COMPOSITE` messages are compatibility aliases that route into `REQUEST_MODE_CHANGE`.
 
-### 6.7 Restricted Entertainment + Rest exhausted
-Copy:
-- `今天的休息时间已用完。`
-- `如果仍要继续访问，可以向明天借用休息时间。`
+Reminder pages and in-page notices display or request transitions; they are not accounting facts.
 
-Must not show Composite application slider.
+Mode Service returns a complete decision object:
+- `access`: `allow` / `reminder` / `block` / `ignore`.
+- `modeChange`: the requested mode transition, or `null`.
+- `reminder`: Reminder reason and params, or `null`.
+- `notice`: in-page notice projection, or `null`.
+- `recheckActiveTab`: whether the current focused active tab should be re-evaluated after execution.
 
-### 6.8 HardBlocked / Unsafe
-Only block/return path.
-No borrow, no Composite application, no temporary allow.
-In V0 runtime, `HardBlocked / Unsafe` are product-level terms for the same hard-blocking overlay; implementation may express this overlay through `unsafeList` / `blacklist` matching, without creating a separate borrow/application path.
+The old mixed "check + remind + switch + quota fallback" function is retired. Reminder, notice, PiP cleanup and tab redirect are execution effects of a Mode Service decision, not independent routing logic.
 
-## 7) Rest Borrow Execution Flow (V0)
-
-### 7.1 Trigger conditions
-Rest borrow may appear only when all conditions hold:
-- Rest quota is exhausted or insufficient for the current rest-use path.
-- Target site is eligible for Rest use in the current flow.
-- Site is not `HardBlocked / Unsafe`.
-- Entry is shown in a contextual Reminder page, not popup.
-
-Eligible examples:
-- Unclassified site on rest-use path with Rest quota exhausted.
-- Restricted Entertainment site with Rest quota exhausted.
-
-Not eligible:
-- Study site.
-- Composite site as Composite usage.
-- HardBlocked / Unsafe.
-- Composite quota exhaustion as Composite borrowing.
-
-### 7.2 UI / interaction
-Borrow is an explicit user action.
-
-Unclassified rest-exhausted rest-use copy:
-- `今天的休息时间已用完。继续休息使用需要向明天借用休息时间。`
-
-Restricted Entertainment rest-exhausted copy:
-- `今天的休息时间已用完。`
-- `如果仍要继续访问，可以向明天借用休息时间。`
-
-Borrow slider copy:
-- `滑动向明天借用休息时间`
-
-Clarifications:
-- Borrow must not be a silent fallback.
-- Borrow must not happen from popup.
-- Borrow must not be confused with `申请使用综合时间`.
-
-### 7.3 Message / action
-Borrow uses existing action:
-- `BORROW_REST_QUOTA`
-
-Source is limited to contextual Reminder pages (runtime sender restriction), not popup.
-
-### 7.4 Success behavior
-On successful borrow:
-- Rest quota becomes available according to the existing borrow policy.
-- User may continue by entering Rest.
-- Subsequent time counts as Rest time.
-- No Composite allowance is created.
-- Site classification is not modified.
-
-### 7.5 Failure behavior
-On failed borrow:
-- Stay on Reminder and show failure feedback.
-- Do not enter Rest automatically.
-- Do not create Composite allowance.
-- Do not modify site classification.
-
-### 7.6 Quota accounting
-- Borrow affects Rest quota only.
-- Composite quota does not support borrowing.
-- Borrowed Rest time is not Composite time.
-- Borrowed Rest time is not Study time.
-- Current implementation includes next-day deduction/repayment behavior via existing `quotaBorrow` accounting in runtime code; the exact algorithm remains implementation detail and can be clarified further in V1 audit docs if needed.
-
-### 7.7 Forbidden actions
-- No `BORROW_COMPOSITE_QUOTA`.
-- No borrowing for `HardBlocked / Unsafe`.
-- No borrow entry in popup.
-- No automatic Rest fallback when Composite quota is exhausted.
-- No conversion from Restricted Entertainment to Composite.
+Mode boundary accounting rules:
+- Mode switches enqueue a `mode_boundary` intent containing `id`, `boundaryAtMs`, `fromMode`, `toMode`, `reason`, and `source`.
+- The mode switch path waits only for the boundary intent to be durably queued; it does not need to wait for foreground/media ledger slicing to finish.
+- Foreground and media ledgers consume the same system-level `mode_boundary` signal independently and split only already-open sessions at `boundaryAtMs`.
+- Closed ledgers are not opened by mode boundary alone.
+- The old segment keeps `fromMode`; the reopened segment uses `toMode`.
+- Popup/admin read-before-flush remains a separate legacy path and is not the mode-transition model.
 
 ## 8) Forbidden Actions (V0)
-- Composite exhausted -> automatic Rest fallback.
 - Composite exhausted -> any Composite borrowing UI/action.
-- Restricted Entertainment -> Composite application UI/action.
-- HardBlocked / Unsafe -> borrow/apply/temporary allow.
-- Popup -> borrow/application entry.
-- Temporary Composite allowance -> permanent list mutation.
+- `Unclassified` / `Restricted Entertainment` Reminder -> embedded Composite request action.
+- Current Reminder -> embedded Rest borrowing action.
+- HardBlocked / Unsafe -> Rest confirmation, Composite request, or bypass action.
+- Pending Composite (`pending_composite`) -> permanent list mutation.
 
 ## 8.1 Return Semantics (Resolved V0)
 - `返回学习`:
   - used for Study-origin reminder pages (`Study -> Rest`, `Study -> Unclassified`, `Study -> Restricted Entertainment`).
   - behavior: cancel current access, return to Study context where possible.
-  - must not switch to Rest, must not create Composite allowance.
+  - must not switch to Rest, must not create Pending Composite.
 - `返回`:
   - used for Composite-origin reminder pages and blocked/quota pages.
   - behavior: cancel reminder, no mode switch, no quota consumption, no temporary allowance.
   - close reminder tab preferred; fallback to history/back/safe page if needed.
 - Quota exhausted return:
   - return means do not continue current access.
-  - no automatic Rest fallback, no borrow, no Composite application.
+  - no borrow and no embedded Composite request.
   - continuation requires explicit user action.
 
-## 9) Implementation Anchors
+## 9) Non-Mode-Transition Responsibilities
+- `mode_boundary` and foreground/media ledger slicing are downstream accounting responses.
+- `SUBMIT_SITE_CLASSIFICATION_REQUEST` is site-governance behavior, not a mode-transition action.
+- `AUTO_MODE_PENDING_*` is UI projection, not mode truth.
+- Pending Composite (`pending_composite`) changes access target resolution only; it does not add a fourth mode.
+- Quota calculation is owned by managed statistics + quota state code; quota expiry orchestration enters through `EVALUATE_QUOTA_STATE`, and any resulting mode change must be committed through Mode Service.
+- `quota_check` must not scan all tabs or redirect directly. After a quota-driven mode change, only the current focused active tab is rechecked through `ACCESS_OBSERVED`.
+- Cloud quota pull only saves `quotaState`; it is not a mode-transition trigger.
+
+## 10) Implementation Anchors
+- `product/mode-service.js`
+- `product/mode-effects.js`
 - `product/interceptor.js`
 - `reminder.js`
 - `message-router.js`
@@ -293,20 +372,22 @@ On failed borrow:
 - `background.js`
 - `content.js`
 
-## 10) Test Anchors
+## 11) Test Anchors
 - `tests/unit/interceptor-mode-transition-v0.test.js`
 - `tests/unit/reminder-transition-v0.test.js`
 - `tests/unit/message-router-mode-switch-reeval.test.js`
 - `tests/unit/badge-and-popup-mode-v0.test.js`
 - `tests/unit/background-logic.test.js`
+- `tests/e2e/mode-switch-prompt-lifecycle.test.js`
+- `tests/e2e/mode-switch-pip-close.test.js`
 
-## 11) Resolved PO Decisions and Remaining Items
+## 12) Resolved PO Decisions and Remaining Items
 Resolved in V0:
 1. Rest -> Unclassified:
    - continues as Rest without reminder while Rest quota is available.
    - counts as Rest time.
-   - does not auto-become Composite and does not auto-trigger Composite application.
-   - if Rest quota is exhausted, route to Rest exhausted/borrow flow.
+   - does not auto-become Composite and does not auto-trigger site classification request.
+   - if Rest quota is exhausted, route to current exhausted Reminder flow.
 2. Return semantics:
    - `返回学习` for Study-origin reminder pages.
    - `返回` for Composite-origin reminder pages and blocked/quota pages.
@@ -314,5 +395,5 @@ Resolved in V0:
    - use `docs/site-access-config.example.json` as the single sample location.
 
 Remaining V1 refinement items:
-1. Borrow confirmation copy and amount presentation style (target vs actual borrowed amount) in all reminder variants.
-2. Rest borrow mechanism refinements (amount policy, repayment explainability, limits, parent controls, and audit/failure visibility).
+1. If Rest borrowing returns to Reminder, define the entry point, copy, amount policy, repayment explainability, and parent-control behavior.
+2. If site-classification request returns to Reminder, define how it differs from popup/site-governance flow and how it maps to Pending Composite (`pending_composite`).

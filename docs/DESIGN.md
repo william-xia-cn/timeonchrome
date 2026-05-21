@@ -103,9 +103,12 @@
 ┌──────────────────────────────────────────────────────────────┐
 │  product/  (业务逻辑层)                                       │
 │                                                              │
-│  quota.js       配额检查 + 借用逻辑                            │
-│  interceptor.js 拦截逻辑 + 提醒触发 (checkAndRemind)          │
-│  analytics.js   统计查询                                      │
+│  mode-service.js Mode event/decision + mode truth             │
+│  quota.js       quotaState 计算/保存 + 借用                    │
+│  mode-effects.js Reminder / notice / mode execution effects   │
+│  interceptor.js declarative unsafe rules + notice helpers      │
+│  analytics.js   统计查询 adapter                              │
+│  stats/managed-statistics.js 统计/配额 usage view             │
 └──────────────────────────────────────────────────────────────┘
            │
            ▼
@@ -129,8 +132,8 @@ core/signal.js
        │
        ▼
 core/timing-dispatcher.js
-       ├── foreground-timing.js → runtime/session.js → usage_segments_v1
-       └── media-timing.js      → runtime/media-session.js → media_segments_v1
+       ├── foreground-timing.js → runtime/session.js → usage_segments_v1 + daily/hourly usage indexes
+       └── media-timing.js      → runtime/media-session.js → media_segments_v1 + daily/hourly media indexes
 ```
 
 **严格单向依赖，禁止循环引用。**
@@ -227,18 +230,19 @@ core/timing-dispatcher.js
 
 | 层 | 内容 | 存储位置 | 可变性 |
 |---|------|---------|--------|
-| **原始用量事实（Raw Usage Facts）** | domain、active/background/PiP 时长、时间戳 | `daily_usage_stats_v1` | 不可变（append-only） |
-| **模式上下文（Mode Context）** | 该用量发生在哪个模式下的按模式时长拆解 | `daily_usage_stats_v1`（与 raw facts 同层） | 不可变 |
+| **原始用量事实（Raw Usage Facts）** | domain、active/background/PiP 时长、时间戳 | `usage_segments_v1`；`daily_usage_stats_v1` / `hourly_usage_stats_v1` 是物化索引 | segment append-only；索引可重建 |
+| **模式上下文（Mode Context）** | 该用量发生在哪个模式下的按模式时长拆解 | `usage_segments_v1` 与 daily/hourly 物化索引（与 raw facts 同层） | segment append-only；索引可重建 |
 | **分类/报表解释（Classification / Report Interpretation）** | 学习时间/休息时间/待定时间/拦截/借用/允许 | 读取时动态计算 | 随策略变更而变 |
 
-#### 1.3.7.2 `daily_usage_stats_v1` 存储契约
+#### 1.3.7.2 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 存储契约
 
-`daily_usage_stats_v1`（或等效的云端 `stats` 表）存储**原始用量事实 + 模式上下文**，不存储任何分类、策略决策或解释结果。
+`daily_usage_stats_v1` / `hourly_usage_stats_v1`（或等效的云端 `stats_v1` / `hourly_stats_v1` 表）存储**原始用量事实 + 模式上下文**，不存储任何分类、策略决策或解释结果。
 
-`usage_segments_v1` 是 Stats Foundation 的本地事实账本。字段、身份解析、上传白名单、本地 `description` 与云端 ingestion schema 差异，统一以 `docs/STATS_STORAGE_FOUNDATION.md` 为准。
+`usage_segments_v1` 是 Stats Foundation 的本地事实账本。daily/hourly 都是从 segments 构建的物化索引；跨小时切分只发生在 `hourly_usage_stats_v1` 聚合层，不拆原始 segment。字段、身份解析、上传白名单、本地 `description` 与云端 ingestion schema 差异，统一以 `docs/STATS_STORAGE_FOUNDATION.md` 为准。
 
 **必须存储的字段（原始用量事实）：**
 - `date` — 日期（YYYY-MM-DD，用户本地时区）
+- `hourKey` / `hour` — 仅小时聚合使用，例如 `2026-05-21T14`
 - `timezone` — 用户本地时区标识
 - `domain` — 域名（归一化后）
 - `activeSeconds` — 前台 ACTIVE 时长（秒）
@@ -248,10 +252,11 @@ core/timing-dispatcher.js
 **必须存储的字段（模式上下文 — 允许存在，因为模式是运行时事实，不是分类）：**
 - `activeByMode` — 按模式拆解的 ACTIVE 时长，模式值包括：
   - `study`
+  - `composite`
   - `rest`
+  - `locked`
   - `paused`
-  - `unknown`（无法确定模式时）
-  - 未来可能扩展 `composite`
+  - `unknown`（仅账本 fallback，不是产品模式）
 - `backgroundMediaByMode` — 按模式拆解的后台媒体时长（同上模式值）
 - `pipByMode` — 按模式拆解的 PiP 时长（同上模式值）
 
@@ -269,8 +274,8 @@ core/timing-dispatcher.js
 **说明：**
 - 按模式拆解属于**原始用量事实层**：某域名在 study 模式下产生了多少 ACTIVE 秒，这是事实，不是分类。
 - 完整的事件日志（START/END 序列）属于 `event_log_v1`，不在此表。
-- `daily_usage_stats_v1` 存储的是**聚合后的按模式拆解**，而非逐事件记录。
-- UI 读取 stats 前会通过 `FLUSH_TIME` 语义把当前 open counted session 结算到当前时间，写入 `usage_segments_v1` 并增量更新 `daily_usage_stats_v1`，随后以同一 state/domain/mode 从当前时间重新打开 session，避免 popup/admin 在未切 tab 前看不到实时统计。
+- `daily_usage_stats_v1` / `hourly_usage_stats_v1` 存储的是**聚合后的按模式拆解**，而非逐事件记录。
+- UI 读取 stats 前会通过 `FLUSH_TIME` 语义把当前 open counted session 结算到当前时间，写入 `usage_segments_v1` 并增量更新 daily/hourly 物化索引，随后以同一 state/domain/mode 从当前时间重新打开 session，避免 popup/admin 在未切 tab 前看不到实时统计。
 
 #### 1.3.7.3 综合时间兼容读口径
 
@@ -294,7 +299,7 @@ compositeSeconds = readCompositeSeconds(statsLike)
 
 所有分类、解释和报表必须**在读取时动态计算**，计算输入包括：
 
-1. **原始用量数据**：`daily_usage_stats_v1` 中的 raw facts + mode context
+1. **原始用量数据**：`usage_segments_v1` 事实账本，以及 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 中的 raw facts + mode context
 2. **网站访问策略**：`SITE_ACCESS_POLICY.md` 定义的五类分类规则
 3. **系统配置清单**：`defaultStudyList` / `defaultCompositeList` / `defaultRestrictedEntertainmentList` / `defaultBlockedList`
 4. **用户自定义清单**：`customStudyList` / `customCompositeList` / `customRestrictedEntertainmentList` / `customBlockedSites`
@@ -398,12 +403,6 @@ compositeSeconds = readCompositeSeconds(statsLike)
     }
   },
 
-  // 自动切换学习模式
-  autoStudyConfig: {
-    enabled: true,
-    requiredSeconds: 90,
-  },
-
   // 其他
   enabled: true,
   blockMessage: '这个网站当前不在可访问范围内',
@@ -469,33 +468,18 @@ composite_sessions(id, profile_id, device_id, domain, duration_seconds, session_
 
 ## 3. 核心模块
 
-### 3.1 提醒触发（checkAndRemind）
+### 3.1 Mode Service 与访问决策
 
-```
-checkAndRemind(tabId, url):
+`product/mode-service.js` 是模式迁移的高内聚模块。Chrome 事件、popup、Reminder、quota alarm 都先归一为 Mode Event，再由 `handleModeEvent()` 返回完整 decision。旧的“检查 + 提醒 + 切换 + quota 兜底”混合函数已经废弃，不再作为架构概念存在。
 
-1. unsafeList 检查
-   → config.unsafeList.includes(domain)
-   → redirectToReminder(tabId, domain, 'unsafe')
+完整模式路由、配额到期、Reminder 类型和页内提示口径只维护在 `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md`。本文件只记录模块边界，避免重复维护 routing matrix。
 
-2. 时间段检查
-   → schedule.enabled && !isWithinSchedule()
-   → redirectToReminder(tabId, domain, 'schedule')
-
-3. 学习模式检查
-   → mode === 'study'
-   → !isStudyDomain && !isCompositeDomain
-   → redirectToReminder(tabId, domain, 'study_mode')
-
-4. 配额检查
-   → quotaState.onlineLocked → 'quota_online'
-   → quotaState.restLocked && !isStudyDomain && !isCompositeDomain → 'quota_rest'
-   → quotaState.studyLocked && isStudyDomain → 'quota_study'
-   → quotaState.undeterminedLocked && isCompositeDomain → 'quota_undetermined'
-   → lockedDomains.includes(domain) → 'quota'
-```
-
-`redirectToReminder(tabId, domain, reason)` → `reminder.html?reason=X&domain=Y`
+当前职责边界：
+- `extension/stats/managed-statistics.js`：输出统计与配额 usage view。
+- `product/quota.js`：计算并保存 `quotaState` / `lockedDomains`。
+- `product/mode-service.js`：`ACCESS_OBSERVED` / `REQUEST_MODE_CHANGE` / `REMINDER_CONFIRMED` / `EVALUATE_QUOTA_STATE` 的状态迁移 decision，且唯一提交 runtime mode truth。
+- `product/mode-effects.js`：执行 Mode Service decision，负责 Reminder 跳转、页内 notice、PiP 清理、必要的 current-tab recheck 编排。
+- `product/interceptor.js`：保留 declarative unsafe rules 与 notice helper；不拥有访问路由。
 
 ### 3.2 事件驱动计时链路（当前架构）
 
@@ -514,11 +498,11 @@ Chrome listener / content signal
       ├─ media-timing.js
       │    → media facts / known media reclassification
       │    → runtime/media-session.js
-      │    → media_segments_v1 / daily_media_stats_v1
+      │    → media_segments_v1 / daily_media_stats_v1 / hourly_media_stats_v1
       └─ foreground-timing.js
            → context.js + state.js
            → runtime/session.js transitionStateAt()
-           → usage_segments_v1 / daily_usage_stats_v1
+           → usage_segments_v1 / daily_usage_stats_v1 / hourly_usage_stats_v1
 
 periodicCheckpoint alarm
   → checkpoint-scheduler.js
@@ -571,34 +555,22 @@ sendMessage({ type: 'HEARTBEAT', state: 'active' | 'passive' })
   → timing-dispatcher.js
   → foreground-timing.js 构建上下文并解析状态
   → session.js transitionStateAt()
-  → usage_segments_v1 / daily_usage_stats_v1 durable 落账
+  → usage_segments_v1 / daily_usage_stats_v1 / hourly_usage_stats_v1 durable 落账
 ```
 
-### 3.3 自动切换学习模式
+### 3.3 模式切换入口
 
-```javascript
-// 内存变量（不持久化）
-let autoStudyCounter = 0;
-let autoStudyLastTick = 0;
+旧的定时自动学习扫描已废弃。模式切换只通过 `product/mode-service.js` 处理：
 
-// 每次 active 心跳时：
-if currentMode !== 'rest') return;
-
-if isStudyDomain:
-  if Date.now() - autoStudyLastTick > 120000:  // 超 2 分钟无心跳，重置
-    autoStudyCounter = 0;
-  autoStudyCounter += 10;
-  autoStudyLastTick = Date.now();
-  if autoStudyCounter >= autoStudyConfig.requiredSeconds:
-    switchToStudy();
-    autoStudyCounter = 0;
-
-else if isCompositeDomain:
-  autoStudyLastTick = Date.now();    // 暂停（更新时间戳但不累加）
-
-else:
-  autoStudyCounter = 0;              // 重置
+```text
+Chrome access event / Popup / Reminder / quota_check
+  -> Mode Event: ACCESS_OBSERVED / REQUEST_MODE_CHANGE / REMINDER_CONFIRMED / EVALUATE_QUOTA_STATE
+  -> mode-service.js handleModeEvent()
+  -> mode-effects.js executeModeDecision()
+  -> currentMode commit + Reminder / in-page notice UI projection
 ```
+
+`Rest -> Study/Composite` 不再等待独立 auto-study counter。用户访问学习/综合网站时，由带 `tabId/url/foreground` 的 `ACCESS_OBSERVED` 事件立即驱动模式迁移和页面内提示。
 
 ### 3.4 配额借用（BORROW_REST_QUOTA）
 
@@ -718,9 +690,11 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `FLUSH_TIME` | → background | — | `{ ok, flushed, flushedSeconds, domain, state, reason }`；将当前 open counted session durable flush 到本地 Stats Foundation 账本并重新打开 |
 | `GET_SESSION` | → background | — | session |
 | `GET_SESSIONS_RANGE` | → background | `{ days }` | 历史会话 |
-| `SWITCH_TO_STUDY` | → background | — | session |
-| `SWITCH_TO_REST` | → background | — | session |
-| `SWITCH_TO_COMPOSITE` | → background | — | session |
+| `REQUEST_MODE_CHANGE` | → background | `{ toMode, source?, reason?, noticeTabId? }` | session；统一进入 `product/mode-service.js` |
+| `GET_RUNTIME_MODE_STATUS` | → background | `{ includeUsageSummary? }` | runtime mode、当前域名、quota remaining、`currentModeStartedAtMs`、`restExitGraceUntilMs` |
+| `SWITCH_TO_STUDY` | → background | — | Legacy alias；内部转为 `REQUEST_MODE_CHANGE` |
+| `SWITCH_TO_REST` | → background | — | Legacy alias；内部转为 `REQUEST_MODE_CHANGE` |
+| `SWITCH_TO_COMPOSITE` | → background | — | Legacy alias；内部转为 `REQUEST_MODE_CHANGE` |
 | `SUBMIT_SITE_CLASSIFICATION_REQUEST` | → background | `{ input, sourceTabId? }` | `{ ok, request, localOnly, target }`；孩子侧“申请网站归类”，审批前匹配对象按综合时长处理 |
 | `GET_SITE_CLASSIFICATION_REQUESTS` | → background | `{ status? }` | 本地持久申请记录 |
 | `ADD_TO_COMPOSITE_LIST` | → background | `{ domain }` | Legacy compatibility only；新申请入口不再使用 |
@@ -737,11 +711,17 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 
 ### 4.1 模式切换页面内提示生命周期
 
-- 模式优先级：学习 > 综合 > 休息。
-- 更宽松 → 更专注（综合→学习、休息→综合、休息→学习）不需要确认；切换成功后可向 active tab 发送 `AUTO_MODE_PENDING_SUCCESS`，`noticeKind = "transient_success"`，TTL 为 3–5 秒。
-- 更专注 → 更宽松（学习→综合、综合→休息、学习→休息）必须有页面内确认或提示；一旦 mode 已切换，旧 pending/confirm notice 必须通过 `AUTO_MODE_PENDING_CANCEL` 清理，再显示短暂 success/info notice。
-- `CONTENT_SCRIPT_READY` 只重发未过期、未 clear 的 transient notice；已过期或已 clear 的提示不得复活。
-- `chrome.tabs.sendMessage` 失败不得阻断 mode 切换；仅用于页面内反馈，失败时可降级为浏览器通知。
+- 模式切换、配额路由、Reminder、页内提示和 mode boundary 的唯一产品口径维护在 `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md`；`docs/MODE_TRANSITION_UX_V0.md` 已停用，不再作为 source of truth。
+- `product/mode-service.js` 是唯一 mode owner：读取 `guardian_session.currentMode`，提交 `currentModeStartedAtMs`，维护 `restExitGraceUntilMs`，并写入 `mode_boundary` intent。`product/interceptor.js` 只负责访问事件适配和执行 redirect/notice。
+- `quota_check` alarm 是本地配额到期的 mode-transition 入口：`EVALUATE_QUOTA_STATE -> handleModeEvent -> executeModeDecision -> current active tab ACCESS_OBSERVED recheck`。它不扫描全部 tab，不直接 redirect。
+- 云端 quota pull 只合并保存 `config.quotaState` 事实；不触发 Mode Service、不跳 Reminder、不重查 tab。
+- `locked` 是正式产品 mode，表示当前配额状态下 Chrome 不能继续正常使用；`unknown` 只允许作为账本 fallback。
+- 页内提示是 mode transition 的 UI projection，不是 mode 真值来源；提示发送失败不得阻断模式切换。
+- `Rest -> Study` / `Rest -> Composite` 在规则允许时立即切换，并写 `currentModeStartedAtMs`；同时设置 `restExitGraceUntilMs = effectiveAtMs + 60_000`。60 秒 Rest Exit Grace 内打开 Rest 目标会自动回 Rest 并显示页内提示，不弹 Reminder；Study <-> Composite 不刷新该窗口。
+- `Study -> Composite` 和 `Composite -> Study` 在规则允许时立即切换，并向目标网页发送 4 秒 `AUTO_MODE_PENDING_SUCCESS` transient notice。
+- 手动 popup / Reminder 切换通过 `REQUEST_MODE_CHANGE` / `REMINDER_CONFIRMED` 进入 Mode Service，再用 `GET_RUNTIME_MODE_STATUS` 刷新 UI；旧 `SWITCH_TO_*` 仅作为兼容别名。
+- `CONTENT_SCRIPT_READY` 只重发未过期、未 clear 且 `domainSnapshot === currentDomain` 的 transient notice；已过期、已 clear 或域名不一致的提示不得复活。
+- `chrome.tabs.sendMessage` 失败只记录诊断并触发 fallback notification，不改变 mode 真值。
 
 ---
 
@@ -749,48 +729,45 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 
 ```
 timeonchrome/
-├── manifest.json              MV3 扩展清单，版本 1.7.2, "type": "module" (Chrome 95+), "incognito": "split"
-├── background.js              Service Worker 入口（Chrome listener wiring）
-├── message-router.js          消息路由（20+ case 拆分）
-├── content.js                 注入每个页面：活动信号、媒体检测、覆盖层
-├── content.css                content.js 注入的样式
-├── reminder.html              提醒页 HTML（7 种场景）
-├── reminder.js                提醒页逻辑：场景渲染、操作按钮处理
-├── bind.html                  设备绑定页（写入 cloud_device_token/cloud_profile_id）
-├── config.js, auth.js, sync.js  云同步配置（cloud_ 前缀统一）
-├── core/                      timing orchestration + 纯函数支持
-│   ├── signal.js              信号输入 + micro-batching (80ms)
-│   ├── timing-dispatcher.js   signal fan-out 到 foreground/media
-│   ├── foreground-timing.js   前台网页计时链路
-│   ├── media-timing.js        媒体计时链路与重分类
-│   ├── checkpoint-scheduler.js checkpoint 分轨调度
-│   ├── context.js             上下文构建（纯函数）
-│   ├── state.js               状态机（纯函数）
-│   ├── event-log.js           append-only 事件日志
-│   └── aggregate.js           时长计算（纯函数）
-├── runtime/                   状态管理层（有副作用）
-│   ├── session.js             前台网页 open session 快照
-│   ├── media-session.js       本地媒体 facts/sessions/segments
-│   └── recovery.js            lifecycle recovery
-├── product/                   业务逻辑层
-│   ├── quota.js               配额检查 + 借用
-│   ├── interceptor.js         拦截逻辑 + 提醒
-│   └── analytics.js           统计查询
-├── infra/                     基础设施层
-│   ├── storage.js             配置/会话存储
-│   └── cloud-sync.js          云同步 + 心跳
-├── popup/
-│   ├── popup.html             扩展弹窗 UI（孩子只读激励视图）
-│   └── popup.js               弹窗逻辑
-├── admin/
-│   ├── admin.html             管理面板 UI（家长，密码保护）
-│   └── admin.js               管理面板逻辑
-├── icons/
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
-├── rules/
-│   └── block_rules.json       静态拦截规则（空占位）
+├── extension/                 Chrome 扩展源码根；开发时在 chrome://extensions 直接加载此目录
+│   ├── manifest.json          MV3 扩展清单，版本 1.7.2, "type": "module" (Chrome 95+), "incognito": "split"
+│   ├── background.js          Service Worker 入口（Chrome listener wiring）
+│   ├── message-router.js      消息路由（20+ case 拆分）
+│   ├── content.js             注入每个页面：活动信号、媒体检测、覆盖层
+│   ├── content.css            content.js 注入的样式
+│   ├── reminder.html          提醒页 HTML（7 种场景）
+│   ├── reminder.js            提醒页逻辑：场景渲染、操作按钮处理
+│   ├── bind.html              设备绑定页（写入 cloud_device_token/cloud_profile_id）
+│   ├── config.js, auth.js, sync.js  云同步配置（cloud_ 前缀统一）
+│   ├── core/                  timing orchestration + 纯函数支持
+│   │   ├── signal.js          信号输入 + micro-batching (80ms)
+│   │   ├── timing-dispatcher.js signal fan-out 到 foreground/media
+│   │   ├── foreground-timing.js 前台网页计时链路
+│   │   ├── media-timing.js    媒体计时链路与重分类
+│   │   ├── checkpoint-scheduler.js checkpoint 分轨调度
+│   │   ├── context.js         上下文构建（纯函数）
+│   │   ├── state.js           状态机（纯函数）
+│   │   ├── event-log.js       append-only 事件日志
+│   │   └── aggregate.js       时长计算（纯函数）
+│   ├── runtime/               状态管理层（有副作用）
+│   │   ├── session.js         前台网页 open session 快照
+│   │   ├── media-session.js   本地媒体 facts/sessions/segments
+│   │   └── recovery.js        lifecycle recovery
+│   ├── product/               业务逻辑层
+│   │   ├── mode-service.js    Mode 真值、路由决策、提交和 mode_boundary intent
+│   │   ├── quota.js           quotaState 计算/保存 + 借用
+│   │   ├── mode-effects.js    执行 Mode Service decision：Reminder/notice/redirect/PiP
+│   │   ├── interceptor.js     declarative unsafe rules + notice helper
+│   │   └── analytics.js       统计查询 adapter
+│   ├── stats/                 管理统计口径层
+│   │   └── managed-statistics.js 统计/配额 usage view、settlement/reconciliation view
+│   ├── infra/                 基础设施层
+│   │   ├── storage.js         配置/会话存储
+│   │   └── cloud-sync.js      云同步 + 心跳
+│   ├── popup/                 扩展弹窗 UI
+│   ├── admin/                 本地管理面板
+│   ├── icons/                 扩展图标
+│   └── rules/                 静态拦截规则（空占位）
 ├── workers/                   Cloudflare Workers 后端
 │   ├── wrangler.toml
 │   ├── migrations/            D1 数据库迁移文件
@@ -833,8 +810,9 @@ timeonchrome/
 | `chrome.storage.local` | 配置、统计、会话持久化 |
 | `chrome.storage.session` | 运行时会话快照（Chrome 95+），split 模式下常规/无痕各自独立 |
 | `chrome.declarativeNetRequest` | unsafeList 域名重定向规则 |
-| `chrome.webNavigation.onCommitted` | 导航拦截，触发 checkAndRemind |
+| `chrome.webNavigation.onCommitted` | 采集当前 tab/url/foreground facts，派发 `ACCESS_OBSERVED` |
 | `chrome.tabs` | 获取/更新标签页状态 |
+| `chrome.scripting` | 页内模式切换提示的 content script 注入兜底；媒体采样和普通计时不依赖它 |
 | `chrome.alarms` | 定时任务：配额检查、每日重置、保活 |
 | `chrome.notifications` | 系统通知（配额锁定等）|
 | `chrome.runtime.sendMessage` | popup/admin/content ↔ background 通信 |
@@ -860,6 +838,39 @@ timeonchrome/
 - **recovery.js**：lifecycle recovery 仅作为容错机制作用于当前上下文的残存 session；具体触发边界和估算口径见 `STATS_STORAGE_FOUNDATION.md`
 - **cloud-sync.js**：云同步在两种模式下共享 `chrome.storage.local` 中的配置和 token
 - **declarativeNetRequest**：规则按标签页应用，split 模式下正常工作
+
+---
+
+## 6.2 Client Logging Foundation v1
+
+TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是业务功能，任何写入、查询或上传失败都不能影响计时、访问控制、模式切换、配额、云同步、popup 或 admin。
+
+### 本地日志
+
+- 存储键：`client_logs_v1`
+- 默认策略：本地记录 `warning` / `error`，`info` 仅在远程诊断策略带 TTL 时启用
+- 归属字段：`profileId`、`deviceId`、`bindingState`
+- 未绑定阶段：`profileId = null`、`deviceId = null`、`bindingState = unbound`
+- 保留策略：默认 7 天、最多 1000 条、限制总体积
+- 本地 admin 的“系统日志”页只展示脱敏后的日志摘要
+
+### 云端日志
+
+- D1 表：`client_logs_v1`
+- 设备上传：`POST /device/client-logs/v1`，使用 device token 鉴权，Worker 按 token 归属写入真实 `profile_id/device_id`
+- 家长查询：`GET /profiles/:profileId/client-logs/v1`，支持按 device、level、category、时间范围和 cursor 查询
+- 云端默认不上传；只有 profile config 中的 `clientLoggingPolicyV1.uploadEnabled = true` 才上传
+
+### 隐私边界
+
+日志不得保存 token、password、cookie、JWT、完整邮箱、孩子姓名、完整 URL path/query、页面文本、DOM、输入内容、鼠标坐标、截图、本地 Chrome profile 路径或 API 密钥。允许保存 domain、模块名、事件代码、错误类型、脱敏消息、profileId、deviceId 和扩展版本。
+
+### 与现有诊断关系
+
+- `__timingTrace`：细粒度本地调试 trace
+- `foreground_page_diagnostics_v1`：前台计时健康统计
+- `cloud_v1_last_sync_error` / outbox retry：当前同步状态摘要
+- `client_logs_v1`：长期可查询的统一运行日志摘要
 
 ---
 

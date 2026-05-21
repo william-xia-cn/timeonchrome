@@ -40,7 +40,7 @@ node tests/run-all.js
 | F-04 | 单域名配额 | ✅ | — | — | **A** |
 | F-05 | 周配额 | ✅ | ✅ | — | **A** |
 | F-02 | 向明天借时间（有效期/边界） | ✅ | — | ✅ | **B** |
-| F-06/07 | 自动切换学习模式（90s计数器） | ✅ | — | — | **A** |
+| F-06/07 | Mode Service 访问事件自动切换 | ✅ | — | ✅ | **A** |
 | F-01 | 加入 compositeList + 通知家长 | — | ✅ | ✅ | **B** |
 | F-10 | 时间段管控（schedule） | ✅ | — | ✅ | **A** |
 | 安全 | unsafeList 硬拦截 | ✅ | — | ✅ | **A** |
@@ -145,7 +145,7 @@ node tests/run-all.js
 | BL-Q12 | 已在 lockedDomains → 不重复添加 | newlyLocked 为空 |
 | BL-Q13 | 未超域名配额 → 不添加 | newlyLocked 为空 |
 
-#### Section 3：checkAndRemind 决策路由（21 用例）
+#### Section 3：Mode Service decision 决策路由（21 用例）
 
 | TC | 场景 | 期望 reason |
 |----|------|------------|
@@ -174,21 +174,14 @@ node tests/run-all.js
 | BL-R23 | legacy blacklist（unsafeList = undefined）| unsafe |
 | BL-R24 | 空 unsafeList（[] 为 truthy）→ blacklist 不回退 | study_mode（bug 记录）|
 
-#### Section 4：自动切换学习模式（11 用例）
+#### Section 4：自动学习扫描（Retired）
 
-| TC | 场景 | 期望 action |
-|----|------|------------|
-| BL-A01 | currentMode = 'study' | skip |
-| BL-A02 | autoStudyConfig.enabled = false | skip |
-| BL-A03 | 当前 tab 不在 studyList | reset |
-| BL-A04 | windowHasFocus = false | reset |
-| BL-A05 | userIsIdle = true | reset |
-| BL-A06 | 首次进入学习域名（autoStudyDomain = null）| start_tracking |
-| BL-A07 | 切换到不同学习域名 | start_tracking（重置计时）|
-| BL-A08 | 同一域名，已过 60s（< 90s 阈值）| keep_tracking |
-| BL-A09 | 同一域名，已过 91s（>= 90s 阈值）| should_switch |
-| BL-A10 | 同一域名，恰好 90s | should_switch（边界值）|
-| BL-A11 | 自定义阈值 30s，已过 31s | should_switch |
+旧 `autoStudyConfig` / `checkAutoStudy` 计数器已停用。当前模式迁移测试应覆盖：
+
+| TC | 场景 | 期望 |
+|----|------|------|
+| BL-A01 | Rest 中访问 Study site | `ACCESS_OBSERVED` 触发 `Rest -> Study`，目标 tab 收到页内 notice |
+| BL-A02 | Rest 中访问 Composite site | `ACCESS_OBSERVED` 触发 `Rest -> Composite`，目标 tab 收到页内 notice |
 
 ---
 
@@ -338,10 +331,10 @@ const stats = { 'reddit.com': 999999 }; // 无论多久
 
 ### BUG-2：`unsafeList = []` 时 `blacklist` 兼容回退失效
 
-**现象：** `config.unsafeList || config.blacklist` 中，`[]` 为 truthy，blacklist 永远不被使用  
-**根因：** JS 空数组是 truthy 值  
-**影响：** 从旧版本升级的用户，若迁移后 `unsafeList = []`（空数组）但保留了 `blacklist` 数据，不安全网站拦截失效  
-**位置：** `background.js checkAndRemind()` L1767  
+**现象：** `config.unsafeList || config.blacklist` 中，`[]` 为 truthy，blacklist 永远不被使用
+**根因：** JS 空数组是 truthy 值
+**影响：** 从旧版本升级的用户，若迁移后 `unsafeList = []`（空数组）但保留了 `blacklist` 数据，不安全网站拦截失效
+**位置：** `background.js Mode Service decision()` L1767
 **修复：** 改为 `const unsafeList = (config.unsafeList?.length ? config.unsafeList : null) || config.blacklist || []`
 
 ---
@@ -465,7 +458,7 @@ section('Quota: state transition detection (GAP-4)');
 | 4 | 后台视频播放 | **不计入 activeSeconds**，可进入 background media 补充统计；当前焦点页继续计入 activeSeconds；视频站点 activeSeconds 不应在后台继续增加 |
 | 5 | 音乐后台播放 | **不计入 activeSeconds**，可进入 background audio 补充统计；不与焦点页 activeSeconds 混合 |
 | 6 | 画中画 (PiP) | **不计入 activeSeconds**，可进入 background media 补充统计；当前焦点页继续计入 activeSeconds |
-| 7 | 学习模式切换 | 休息模式下访问学习网站 60s → 自动切换学习模式并正常计时 |
+| 7 | 学习模式切换 | 休息模式下访问学习网站 → `ACCESS_OBSERVED` 立即切换学习模式并显示页内提示 |
 | 8 | 空闲锁定 | 离开电脑 15 分钟 → 状态切换为 IDLE，时长停止累加 |
 
 > **口径说明**：`activeSeconds` 仅统计焦点页（ACTIVE 状态）。BACKGROUND_ACTIVE（视频/PiP/音频）不计入在线时长，可独立进入 background media / background audio 补充统计。

@@ -3,6 +3,7 @@ node_modules/
 
 # Build outputs
 dist/
+extension/_metadata/
 
 # IDE
 .vscode/
@@ -30,10 +31,17 @@ pages/.env
 
 # Playwright test output
 test-results/
+tests/test-results/
+.artifacts/*
+!.artifacts/
+!.artifacts/.gitkeep
 
 # E2E test browser profiles (generated)
 test-e2e-profile-*/
 test-e2e-p0-regression-*/
+timeonchrome-acceptance-profile*/
+timeonchrome-real-site-profile*/
+chrome-profile-validation*/
 
 # Local backup files
 backup/

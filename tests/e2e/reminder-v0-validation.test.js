@@ -6,8 +6,8 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
-const USER_DATA_DIR = path.resolve(__dirname, '../../test-e2e-profile-reminder-v0');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
+const USER_DATA_DIR = path.resolve(__dirname, '../../.artifacts/test-e2e-profile-reminder-v0');
 
 // ── Shared browser context ────────────────────────────────────────────────────
 
@@ -130,7 +130,7 @@ async function dragSlider(page, trackSelector, thumbSelector) {
 
 // ── T-R1: study_mode (Case #5) ───────────────────────────────────────────────
 
-test('T-R1: study_mode explains popup application path, rest slider dispatches SWITCH_TO_REST', async () => {
+test('T-R1: study_mode explains popup application path, rest slider dispatches REQUEST_MODE_CHANGE', async () => {
   const page = await openReminderPage('reason=study_mode&domain=example.com');
 
   // Title / subtitle
@@ -156,19 +156,19 @@ test('T-R1: study_mode explains popup application path, rest slider dispatches S
   await expect(buttons).toHaveCount(1);
   await expect(buttons.first()).toHaveText('返回学习');
 
-  // Drag rest slider → SWITCH_TO_REST
+  // Drag rest slider → REQUEST_MODE_CHANGE(rest)
   await clearCalls(page);
   await dragSlider(page, '#slideTrack', '#slideThumb');
   const calls = await getCalls(page);
   expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
+  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
 
   await page.close();
 });
 
 // ── T-R2a: study_mode&restLocked=1 — rest slider ─────────────────────────────
 
-test('T-R2a: study_mode&restLocked=1 rest slider dispatches SWITCH_TO_REST', async () => {
+test('T-R2a: study_mode&restLocked=1 rest slider dispatches REQUEST_MODE_CHANGE', async () => {
   const page = await openReminderPage('reason=study_mode&restLocked=1&domain=example.com');
 
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
@@ -185,7 +185,7 @@ test('T-R2a: study_mode&restLocked=1 rest slider dispatches SWITCH_TO_REST', asy
   await dragSlider(page, '#slideTrack', '#slideThumb');
   const calls = await getCalls(page);
   expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
+  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
 
   await page.close();
 });
@@ -216,7 +216,7 @@ test('T-R2c: study_mode&restLocked=1 keeps borrow slider hidden', async () => {
 
 // ── T-R3: to_rest_slide_confirm (restricted entertainment) ───────────────────
 
-test('T-R3: to_rest_slide_confirm shows restricted UI, rest slider dispatches SWITCH_TO_REST', async () => {
+test('T-R3: to_rest_slide_confirm shows restricted UI, rest slider dispatches REQUEST_MODE_CHANGE', async () => {
   const page = await openReminderPage('reason=to_rest_slide_confirm&domain=restricted.example.com');
 
   // Title
@@ -245,14 +245,14 @@ test('T-R3: to_rest_slide_confirm shows restricted UI, rest slider dispatches SW
   await dragSlider(page, '#slideTrack', '#slideThumb');
   const calls = await getCalls(page);
   expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
+  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
 
   await page.close();
 });
 
 // ── T-R3b: to_rest_slide_confirm + originMode=study (Study-origin return) ──────
 
-test('T-R3b: to_rest_slide_confirm with originMode=study shows 返回学习, rest slider dispatches SWITCH_TO_REST', async () => {
+test('T-R3b: to_rest_slide_confirm with originMode=study shows 返回学习, rest slider dispatches REQUEST_MODE_CHANGE', async () => {
   const page = await openReminderPage('reason=to_rest_slide_confirm&originMode=study&domain=restricted.example.com');
 
   // Title
@@ -281,7 +281,7 @@ test('T-R3b: to_rest_slide_confirm with originMode=study shows 返回学习, res
   await dragSlider(page, '#slideTrack', '#slideThumb');
   const calls = await getCalls(page);
   expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
+  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
 
   await page.close();
 });
@@ -317,14 +317,14 @@ test('T-R4: to_rest_confirm unclassified keeps rest path only in reminder', asyn
   await dragSlider(page, '#slideTrack', '#slideThumb');
   let calls = await getCalls(page);
   expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
+  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
 
   await page.close();
 });
 
 // ── T-R5: to_rest_confirm + restricted ───────────────────────────────────────
 
-test('T-R5: to_rest_confirm restricted does not expose application entry, rest slider dispatches SWITCH_TO_REST', async () => {
+test('T-R5: to_rest_confirm restricted does not expose application entry, rest slider dispatches REQUEST_MODE_CHANGE', async () => {
   const page = await openReminderPage('reason=to_rest_confirm&siteType=restricted&domain=restricted.example.com');
 
   // Title per docs/MODE_TRANSITION_UX_V0.md §8.5: 受限娱乐网站：你正在打开受限娱乐网站
@@ -352,40 +352,35 @@ test('T-R5: to_rest_confirm restricted does not expose application entry, rest s
   await dragSlider(page, '#slideTrack', '#slideThumb');
   const calls = await getCalls(page);
   expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
+  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
 
   await page.close();
 });
 
-// ── T-R6: quota_composite ────────────────────────────────────────────────────
+// ── T-R6: rest_locked ────────────────────────────────────────────────────────
 
-test('T-R6: quota_composite shows enter-rest + return buttons, enter-rest dispatches SWITCH_TO_REST', async () => {
-  const page = await openReminderPage('reason=quota_composite&domain=example.com');
+test('T-R6: rest_locked shows only return button, no continue actions', async () => {
+  const page = await openReminderPage('reason=rest_locked&domain=example.com');
 
-  // Title
-  await expect(page.locator('#mainTitle')).toHaveText('今日综合时间已用完');
+  await expect(page.locator('#mainTitle')).toHaveText('今天的休息时间已用完');
 
-  // Subtitle
   const subtitleText = await page.locator('#subtitle').textContent();
-  expect(subtitleText).toContain('综合时间不会自动占用休息时间');
-  expect(subtitleText).toContain('进入休息时间继续');
+  expect(subtitleText).toContain('当前不能继续访问');
 
-  // Slider hidden
   await expect(page.locator('#slideTrack')).toBeHidden();
 
-  // 2 buttons: 进入休息继续 + 返回
   const buttons = page.locator('#actions .btn');
-  await expect(buttons).toHaveCount(2);
+  await expect(buttons).toHaveCount(1);
   const allText = await page.locator('#actions').textContent();
-  expect(allText).toContain('进入休息继续');
   expect(allText).toContain('返回');
+  expect(allText).not.toContain('进入休息继续');
+  expect(allText).not.toContain('开始休息');
 
-  // Click 进入休息继续
   await clearCalls(page);
-  await page.locator('#actions .btn').filter({ hasText: '进入休息继续' }).click();
+  await page.locator('#actions .btn').filter({ hasText: '返回' }).click();
   const calls = await getCalls(page);
-  expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'SWITCH_TO_REST' });
+  expect(calls.some(call => call.type === 'REQUEST_MODE_CHANGE' && call.toMode === 'rest')).toBe(false);
+  expect(calls.some(call => call.type === 'BORROW_REST_QUOTA')).toBe(false);
 
   await page.close();
 });

@@ -22,7 +22,7 @@ const local = new MockStorage();
 global.chrome = { storage: { local } };
 
 function loadModule() {
-  const abs = path.join(__dirname, '..', '..', 'core', 'mode-boundary-intents.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'core', 'mode-boundary-intents.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/export\s+const\s+/g, 'const ');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');

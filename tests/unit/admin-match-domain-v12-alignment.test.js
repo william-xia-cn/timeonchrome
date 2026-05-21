@@ -38,7 +38,7 @@ function extractFunctionSource(code, functionName) {
 }
 
 function loadAdminMatchDomain() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'admin', 'admin.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
   const fnSource = extractFunctionSource(code, 'matchDomain');
   const context = { URL, this: null };
   context.this = context;

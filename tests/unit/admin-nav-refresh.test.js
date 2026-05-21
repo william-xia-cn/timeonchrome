@@ -48,7 +48,7 @@ function extractFunctionSource(code, functionName) {
 }
 
 function loadNavRefreshFns() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'admin', 'admin.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
   const fns = [
     extractFunctionSource(code, 'isLatestAdminRefreshRequest'),
     extractFunctionSource(code, 'refreshPageByNav'),

@@ -11,7 +11,7 @@ import http from 'http';
 import fs from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const EXT_PATH = resolve(__dirname, '..', '..');
+const EXT_PATH = resolve(__dirname, '..', '..', 'extension');
 const MOCKS_DIR = resolve(__dirname, '..', 'e2e', 'mocks');
 
 // ── Mock server ──────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ async function run() {
   await startMockServer();
   console.log(`Mock server: ${MOCK_BASE}`);
 
-  const udd = resolve(__dirname, `../../test-e2e-p0-regression-${Date.now()}`);
+  const udd = resolve(__dirname, `../../.artifacts/test-e2e-p0-regression-${Date.now()}`);
   if (existsSync(udd)) rmSync(udd, { recursive: true, force: true });
   mkdirSync(udd, { recursive: true });
 

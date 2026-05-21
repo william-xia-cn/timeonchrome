@@ -18,7 +18,7 @@ function check(desc, condition, details = '') {
 }
 
 function loadMediaTiming(stubs = {}) {
-  const abs = path.join(__dirname, '..', '..', 'core', 'media-timing.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'core', 'media-timing.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');

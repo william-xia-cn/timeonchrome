@@ -38,7 +38,7 @@ function extractFunctionSource(code, functionName) {
 }
 
 function loadPopupMatchDomain() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'popup', 'popup.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.js'), 'utf8');
   const fnSource = extractFunctionSource(code, 'matchDomain');
   const context = { URL, this: null };
   context.this = context;

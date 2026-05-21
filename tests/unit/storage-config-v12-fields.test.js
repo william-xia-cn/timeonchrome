@@ -18,7 +18,7 @@ function expectTrue(desc, cond) {
 }
 
 function run() {
-  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'storage.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js'), 'utf8');
 
   expectTrue('DEFAULT_CONFIG 应保留 studyList', /studyList\s*:\s*\[/.test(source));
   expectTrue('DEFAULT_CONFIG 应保留 compositeList', /compositeList\s*:\s*\[/.test(source));

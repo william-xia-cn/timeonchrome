@@ -3,10 +3,10 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
 
 async function createContext() {
-  const udd = path.resolve(__dirname, `../../test-e2e-profile-admin-${Date.now()}`);
+  const udd = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-admin-${Date.now()}`);
   fs.mkdirSync(udd, { recursive: true });
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,
@@ -50,6 +50,28 @@ test('admin-summary: GET_STATS_RANGE vs GET_TIMELINE_SEGMENTS shapes', async () 
         createdAt: now,
         updatedAt: now,
       };
+      const dayStats = {
+        date,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        dayStartMs: new Date(`${date}T00:00:00`).getTime(),
+        dayEndMs: new Date(`${date}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
+        segmentsCount: 1,
+        lastSegmentId: segment.id,
+        domains: {
+          'admin-test.example.com': {
+            activeSeconds: 30,
+            backgroundMediaSeconds: 0,
+            pipSeconds: 0,
+            totalSeconds: 30,
+            activeByMode: { rest: 30 },
+            backgroundMediaByMode: {},
+            pipByMode: {},
+            firstSeenAt: segment.startMs,
+            lastSeenAt: segment.endMs,
+            lastUpdatedAt: now,
+          },
+        },
+      };
       return new Promise(res => {
         chrome.storage.local.set({
           event_log_v1: [
@@ -57,6 +79,8 @@ test('admin-summary: GET_STATS_RANGE vs GET_TIMELINE_SEGMENTS shapes', async () 
             { type: 'END', state: 'ACTIVE', domain: 'admin-test.example.com', time: now },
           ],
           usage_segments_v1: { [segment.id]: segment },
+          usage_segments_index_v1: { byDate: { [date]: [segment.id] } },
+          daily_usage_stats_v1: { [date]: dayStats },
         }, res);
       });
     }, n);

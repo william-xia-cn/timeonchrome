@@ -10,6 +10,7 @@ import { changelogRouter } from './routes/changelog';
 import { eventsRouter } from './routes/events';
 import { compositeSessionsRouter } from './routes/compositeSessions';
 import { siteClassificationRequestsRouter } from './routes/siteClassificationRequests';
+import { clientLogsRouter } from './routes/clientLogs';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -187,6 +188,8 @@ export default {
         return await authRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/(stats|usage-segments|stats-reconciliation)/)) {
         return await statsRouter.handle(request, env);
+      } else if (path.match(/^\/profiles\/[^/]+\/client-logs/)) {
+        return await clientLogsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/site-classification-requests/)) {
         return await siteClassificationRequestsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
@@ -199,6 +202,8 @@ export default {
         return await deviceRouter.handle(request, env);
       } else if (path === '/device/site-classification-requests/v1') {
         return await siteClassificationRequestsRouter.handle(request, env);
+      } else if (path === '/device/client-logs/v1') {
+        return await clientLogsRouter.handle(request, env);
       } else if (path === '/device/usage-segments/v1' || path === '/device/stats/v1') {
         // Stats Foundation v1 endpoints (device_token auth)
         return await statsRouter.handle(request, env);

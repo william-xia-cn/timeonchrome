@@ -1,5 +1,5 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';
+import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 import {
   decisionToStatus,
   normalizeSiteClassificationDecision,
@@ -7,7 +7,7 @@ import {
   resolveSiteAccessClassification,
   siteDecisionMatchesUrl,
   siteTargetScopesOverlap,
-} from '../../../core/site-classification.js';
+} from '../../../extension/core/site-classification.js';
 
 async function verifyDeviceToken(env: Env, token: string): Promise<{ profileId: string; deviceId: string } | null> {
   const device = await env.DB.prepare(

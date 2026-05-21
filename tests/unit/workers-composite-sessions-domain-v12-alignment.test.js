@@ -27,7 +27,7 @@ function expectTrue(desc, cond) {
 }
 
 function loadDomainMatch() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8');
   const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { matchDomain };';
   const context = { console, URL, this: null };
   context.this = context;
@@ -46,7 +46,7 @@ function run() {
     return null;
   };
 
-  expectTrue('compositeSessions.ts 应复用 v1.2 matchDomain 实现', source.includes("import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';"));
+  expectTrue('compositeSessions.ts 应复用 v1.2 matchDomain 实现', source.includes("import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';"));
   expectTrue('autoClassify 应使用 matchDomainV12', source.includes('if (!matchDomainV12(domain, rule.domain)) continue;'));
   expectTrue('scope=domain 应使用对称域名等价判断', source.includes('const isSameDomain = (a: string, b: string) => matchDomainV12(a, b) && matchDomainV12(b, a);'));
 

@@ -27,7 +27,7 @@ function expectTrue(desc, cond) {
 }
 
 function loadDomainSemantics() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8');
   const transformed = code.replace(/export\s+function\s+/g, 'function ') + '\nthis.__d = { matchDomain };';
   const context = { console, URL, this: null };
   context.this = context;
@@ -55,7 +55,7 @@ function run() {
   const deviceSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'device.ts'), 'utf8');
   const matchDomain = loadDomainSemantics();
 
-  expectTrue('device.ts 应复用 v1.2 matchDomain 实现', deviceSource.includes("import { matchDomain as matchDomainV12 } from '../../../core/domain-semantics.js';"));
+  expectTrue('device.ts 应复用 v1.2 matchDomain 实现', deviceSource.includes("import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';"));
   expectTrue('device.ts 中 matchDomain 应委托到 matchDomainV12', /const\s+matchDomain\s*=\s*matchDomainV12\s*;/.test(deviceSource));
 
   // 5 条 V0 断言（父域匹配子域）

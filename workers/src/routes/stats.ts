@@ -1,6 +1,6 @@
 // Stats 路由 - 统计上传/查询 (legacy + v1)
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { normalizeHostname } from '../../../core/domain-semantics.js';
+import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
 
 // 验证 device_token，同时刷新 last_seen；返回 profile_id + device_id 或 null
 async function verifyDeviceToken(env: Env, token: string): Promise<{ profileId: string; deviceId: string } | null> {
@@ -73,6 +73,10 @@ function parsePositiveInt(value: string | null, fallback: number, max: number): 
 
 function isDateKey(value: string | null): value is string {
   return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isHourKey(value: string | null): value is string {
+  return !!value && /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(value);
 }
 
 function encodeSegmentCursor(startMs: number, id: string): string {
@@ -284,6 +288,190 @@ export const statsRouter = {
         return json({ success: true, count: upserted, date, expandedRows: expandedRows.length });
       } catch (e: any) {
         return json({ error: 'Failed to upload media stats v1: ' + e.message }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: POST /device/hourly-stats/v1 — 上传每小时前台/网页聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (request.method === 'POST' && path === '/device/hourly-stats/v1') {
+      const auth = request.headers.get('Authorization');
+      if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
+
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+
+      try {
+        const body = await request.json<{
+          hourKey?: string; date?: string; hour?: number; timezone?: string; hourStartMs?: number; hourEndMs?: number;
+          segmentsCount?: number; lastSegmentId?: string | null;
+          domains?: Array<{ domain: string; activeByMode?: Record<string, number>; backgroundMediaByMode?: Record<string, number>; pipByMode?: Record<string, number>; [key: string]: any }>;
+        }>();
+        const hourKey = body?.hourKey;
+        const date = body?.date || (hourKey ? hourKey.slice(0, 10) : null);
+        const hour = typeof body?.hour === 'number' ? body.hour : (hourKey ? Number(hourKey.slice(11, 13)) : null);
+        const domains = body?.domains;
+        if (!isHourKey(hourKey || null) || !date || !isDateKey(date) || !Number.isInteger(hour) || hour < 0 || hour > 23 || !Array.isArray(domains)) {
+          return json({ error: 'hourKey/date/hour and domains[] required' }, 400);
+        }
+        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
+        const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
+
+        const expandedRows: Array<{ domain: string; channel: string; mode: string; durationSeconds: number; firstSeenAt?: number; lastSeenAt?: number }> = [];
+        for (const d of domains) {
+          if (!d?.domain || typeof d.domain !== 'string') continue;
+          const normalizedDomain = normalizeHostname(d.domain);
+          if (!normalizedDomain) continue;
+          const modeMaps = [
+            { channel: 'active', byMode: d.activeByMode },
+            { channel: 'backgroundMedia', byMode: d.backgroundMediaByMode },
+            { channel: 'pip', byMode: d.pipByMode },
+          ];
+          let hasRows = false;
+          for (const item of modeMaps) {
+            const byMode = item.byMode && typeof item.byMode === 'object' ? item.byMode : {};
+            for (const [mode, secs] of Object.entries(byMode)) {
+              const durationSeconds = Number(secs || 0);
+              if (durationSeconds > 0 && VALID_CHANNELS.has(item.channel) && VALID_MODES.has(mode)) {
+                expandedRows.push({ domain: normalizedDomain, channel: item.channel, mode, durationSeconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+                hasRows = true;
+              }
+            }
+          }
+          if (!hasRows) {
+            const total = Number(d.activeSeconds || 0) + Number(d.backgroundMediaSeconds || 0) + Number(d.pipSeconds || 0);
+            if (total > 0) {
+              expandedRows.push({ domain: normalizedDomain, channel: 'active', mode: 'unknown', durationSeconds: total, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+            }
+          }
+        }
+
+        if (expandedRows.length === 0) return json({ error: 'no valid hourly stats rows after expansion' }, 400);
+
+        const now = Date.now();
+        let upserted = 0;
+        for (const row of expandedRows) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM hourly_stats_v1
+             WHERE profile_id = ? AND device_id = ? AND hour_key = ? AND domain = ? AND channel = ? AND mode = ?`
+          ).bind(device.profileId, device.deviceId, hourKey, row.domain, row.channel, row.mode).first<{ id: string }>();
+          if (existing) {
+            await env.DB.prepare(
+              `UPDATE hourly_stats_v1
+               SET duration_seconds = ?, segments_count = ?, last_segment_id = ?, first_seen_at = ?, last_seen_at = ?, updated_at = ?
+               WHERE id = ?`
+            ).bind(row.durationSeconds, segmentsCount, lastSegmentId, row.firstSeenAt || null, row.lastSeenAt || null, now, existing.id).run();
+          } else {
+            await env.DB.prepare(
+              `INSERT INTO hourly_stats_v1
+               (id, profile_id, device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
+                domain, channel, mode, duration_seconds, segments_count, last_segment_id, first_seen_at, last_seen_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              crypto.randomUUID(), device.profileId, device.deviceId, hourKey, date, hour, body.timezone || 'Asia/Shanghai',
+              typeof body.hourStartMs === 'number' ? body.hourStartMs : 0,
+              typeof body.hourEndMs === 'number' ? body.hourEndMs : 0,
+              row.domain, row.channel, row.mode, row.durationSeconds, segmentsCount, lastSegmentId,
+              row.firstSeenAt || null, row.lastSeenAt || null, now, now
+            ).run();
+          }
+          upserted++;
+        }
+
+        return json({ success: true, count: upserted, hourKey, expandedRows: expandedRows.length });
+      } catch (e: any) {
+        return json({ error: 'Failed to upload hourly stats v1: ' + e.message }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: POST /device/hourly-media-stats/v1 — 上传每小时媒体聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (request.method === 'POST' && path === '/device/hourly-media-stats/v1') {
+      const auth = request.headers.get('Authorization');
+      if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
+
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+
+      try {
+        const body = await request.json<{
+          hourKey?: string; date?: string; hour?: number; timezone?: string; hourStartMs?: number; hourEndMs?: number;
+          segmentsCount?: number; lastSegmentId?: string | null;
+          domains?: Array<{ domain: string; byMode?: Record<string, any>; [key: string]: any }>;
+        }>();
+        const hourKey = body?.hourKey;
+        const date = body?.date || (hourKey ? hourKey.slice(0, 10) : null);
+        const hour = typeof body?.hour === 'number' ? body.hour : (hourKey ? Number(hourKey.slice(11, 13)) : null);
+        const domains = body?.domains;
+        if (!isHourKey(hourKey || null) || !date || !isDateKey(date) || !Number.isInteger(hour) || hour < 0 || hour > 23 || !Array.isArray(domains)) {
+          return json({ error: 'hourKey/date/hour and domains[] required' }, 400);
+        }
+        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
+        const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
+
+        const expandedRows: Array<{ domain: string; mediaClass: string; mode: string; durationSeconds: number; firstSeenAt?: number; lastSeenAt?: number }> = [];
+        for (const d of domains) {
+          if (!d?.domain || typeof d.domain !== 'string') continue;
+          const normalizedDomain = normalizeHostname(d.domain);
+          if (!normalizedDomain) continue;
+          const byMode = d.byMode && typeof d.byMode === 'object' ? d.byMode : {};
+          let hasRows = false;
+          for (const [mode, modeStats] of Object.entries(byMode)) {
+            if (!VALID_MODES.has(mode) || !modeStats || typeof modeStats !== 'object') continue;
+            for (const [mediaClass, field] of MEDIA_CLASS_FIELDS) {
+              const seconds = Number((modeStats as any)[field] || 0);
+              if (seconds > 0) {
+                expandedRows.push({ domain: normalizedDomain, mediaClass, mode, durationSeconds: seconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+                hasRows = true;
+              }
+            }
+          }
+          if (!hasRows) {
+            for (const [mediaClass, field] of MEDIA_CLASS_FIELDS) {
+              const seconds = Number(d[field] || 0);
+              if (seconds > 0) {
+                expandedRows.push({ domain: normalizedDomain, mediaClass, mode: 'unknown', durationSeconds: seconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+              }
+            }
+          }
+        }
+
+        if (expandedRows.length === 0) return json({ error: 'no valid hourly media stats rows after expansion' }, 400);
+
+        const now = Date.now();
+        let upserted = 0;
+        for (const row of expandedRows) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM hourly_media_stats_v1
+             WHERE profile_id = ? AND device_id = ? AND hour_key = ? AND domain = ? AND media_class = ? AND mode = ?`
+          ).bind(device.profileId, device.deviceId, hourKey, row.domain, row.mediaClass, row.mode).first<{ id: string }>();
+          if (existing) {
+            await env.DB.prepare(
+              `UPDATE hourly_media_stats_v1
+               SET duration_seconds = ?, segments_count = ?, last_segment_id = ?, first_seen_at = ?, last_seen_at = ?, updated_at = ?
+               WHERE id = ?`
+            ).bind(row.durationSeconds, segmentsCount, lastSegmentId, row.firstSeenAt || null, row.lastSeenAt || null, now, existing.id).run();
+          } else {
+            await env.DB.prepare(
+              `INSERT INTO hourly_media_stats_v1
+               (id, profile_id, device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
+                domain, media_class, mode, duration_seconds, segments_count, last_segment_id, first_seen_at, last_seen_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              crypto.randomUUID(), device.profileId, device.deviceId, hourKey, date, hour, body.timezone || 'Asia/Shanghai',
+              typeof body.hourStartMs === 'number' ? body.hourStartMs : 0,
+              typeof body.hourEndMs === 'number' ? body.hourEndMs : 0,
+              row.domain, row.mediaClass, row.mode, row.durationSeconds, segmentsCount, lastSegmentId,
+              row.firstSeenAt || null, row.lastSeenAt || null, now, now
+            ).run();
+          }
+          upserted++;
+        }
+
+        return json({ success: true, count: upserted, hourKey, expandedRows: expandedRows.length });
+      } catch (e: any) {
+        return json({ error: 'Failed to upload hourly media stats v1: ' + e.message }, 500);
       }
     }
 
@@ -600,6 +788,56 @@ export const statsRouter = {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/hourly-stats/v1 — 查询 v1 每小时聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const hourlyStatsV1Match = path.match(/^\/profiles\/([^/]+)\/hourly-stats\/v1$/);
+    if (request.method === 'GET' && hourlyStatsV1Match) {
+      const profileId = hourlyStatsV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from') || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+      })();
+      const to = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
+      const rawDomain = url.searchParams.get('domain');
+      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
+      const channel = url.searchParams.get('channel');
+      const mode = url.searchParams.get('mode');
+      const deviceId = url.searchParams.get('deviceId');
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      if (rawDomain && !domain) return json({ error: 'invalid domain' }, 400);
+      if (channel && !VALID_CHANNELS.has(channel)) return json({ error: 'invalid channel' }, 400);
+      if (mode && !VALID_MODES.has(mode)) return json({ error: 'invalid mode' }, 400);
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+
+      const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
+      const binds: any[] = [profileId, from, to];
+      if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
+      if (domain) { where.push('domain = ?'); binds.push(domain); }
+      if (channel) { where.push('channel = ?'); binds.push(channel); }
+      if (mode) { where.push('mode = ?'); binds.push(mode); }
+
+      const result = await env.DB.prepare(
+        `SELECT device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
+                domain, channel, mode, duration_seconds,
+                segments_count, last_segment_id, first_seen_at, last_seen_at, updated_at
+         FROM hourly_stats_v1
+         WHERE ${where.join(' AND ')}
+         ORDER BY hour_key DESC, domain ASC, channel ASC, mode ASC`
+      ).bind(...binds).all<any>();
+
+      return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // V1: GET /profiles/:id/media-segments/v1 — 查询云端媒体落账明细
     // ═══════════════════════════════════════════════════════════════════════════════
     const mediaSegmentsV1Match = path.match(/^\/profiles\/([^/]+)\/media-segments\/v1$/);
@@ -727,6 +965,56 @@ export const statsRouter = {
          FROM daily_media_stats_v1
          WHERE ${where.join(' AND ')}
          ORDER BY date DESC, domain ASC, media_class ASC, mode ASC`
+      ).bind(...binds).all<any>();
+
+      return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/hourly-media-stats/v1 — 查询云端媒体每小时聚合
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const hourlyMediaStatsV1Match = path.match(/^\/profiles\/([^/]+)\/hourly-media-stats\/v1$/);
+    if (request.method === 'GET' && hourlyMediaStatsV1Match) {
+      const profileId = hourlyMediaStatsV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from') || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+      })();
+      const to = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
+      const rawDomain = url.searchParams.get('domain');
+      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
+      const mediaClass = url.searchParams.get('mediaClass');
+      const mode = url.searchParams.get('mode');
+      const deviceId = url.searchParams.get('deviceId');
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      if (rawDomain && !domain) return json({ error: 'invalid domain' }, 400);
+      if (mediaClass && !VALID_MEDIA_CLASSES.has(mediaClass)) return json({ error: 'invalid mediaClass' }, 400);
+      if (mode && !VALID_MODES.has(mode)) return json({ error: 'invalid mode' }, 400);
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+
+      const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
+      const binds: any[] = [profileId, from, to];
+      if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
+      if (domain) { where.push('domain = ?'); binds.push(domain); }
+      if (mediaClass) { where.push('media_class = ?'); binds.push(mediaClass); }
+      if (mode) { where.push('mode = ?'); binds.push(mode); }
+
+      const result = await env.DB.prepare(
+        `SELECT device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
+                domain, media_class, mode, duration_seconds,
+                segments_count, last_segment_id, first_seen_at, last_seen_at, updated_at
+         FROM hourly_media_stats_v1
+         WHERE ${where.join(' AND ')}
+         ORDER BY hour_key DESC, domain ASC, media_class ASC, mode ASC`
       ).bind(...binds).all<any>();
 
       return json({ stats: result.results || [] });

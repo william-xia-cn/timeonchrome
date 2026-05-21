@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
 const FIXTURE_PATH = path.resolve(__dirname, './fixtures/video-playback-test.html');
 const TEST_DOMAIN = '127.0.0.1';
 
@@ -28,7 +28,7 @@ async function startFixtureServer() {
 }
 
 async function createContext() {
-  const udd = fs.mkdtempSync(path.resolve(__dirname, '../../test-e2e-profile-video-live-'));
+  const udd = fs.mkdtempSync(path.resolve(__dirname, '../../.artifacts/test-e2e-profile-video-live-'));
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox'],

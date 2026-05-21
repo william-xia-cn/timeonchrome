@@ -8,7 +8,7 @@ async function main() {
     manualNetworkToggle: true,
     verbose: true,
     outputDir: './tests/system/sleep-wake-gate/reports',
-    userDataDir: './tests/test-results/sleep-wake-gate/bound-profile',
+    userDataDir: './.artifacts/sleep-wake-gate/bound-profile',
     networkOfflineTimeoutSeconds: 120,
     networkOnlineTimeoutSeconds: 120,
   });

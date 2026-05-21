@@ -1,0 +1,65 @@
+{
+  "manifest_version": 3,
+  "name": "TimeOnChrome",
+  "version": "1.7.2",
+  "description": "上网时间管理助手 - 学习模式、时长统计、智能提醒",
+  "incognito": "split",
+
+  "permissions": [
+    "tabs",
+    "storage",
+    "alarms",
+    "scripting",
+    "declarativeNetRequest",
+    "webNavigation",
+    "idle",
+    "notifications"
+  ],
+
+  "host_permissions": ["<all_urls>"],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "TimeOnChrome"
+  },
+
+  "options_page": "admin/admin.html",
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "block_rules",
+        "enabled": true,
+        "path": "rules/block_rules.json"
+      }
+    ]
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["reminder.html", "reminder.js", "bind.html", "config.js", "auth.js", "sync.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

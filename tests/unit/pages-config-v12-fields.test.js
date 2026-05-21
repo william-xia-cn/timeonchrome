@@ -45,8 +45,8 @@ function extractFunctionSource(code, functionName) {
 
 function run() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'pages', 'index.html'), 'utf8');
-  const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'auth.js'), 'utf8');
-  const bindSource = fs.readFileSync(path.join(__dirname, '..', '..', 'bind.js'), 'utf8');
+  const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'auth.js'), 'utf8');
+  const bindSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'bind.js'), 'utf8');
 
   // 源码残留检查
   expectTrue('pages 不应再出现 allowList 字段', !/\ballowList\b/.test(source));
@@ -80,6 +80,9 @@ function run() {
   expectTrue('Pages 网站归类申请应支持三种审批动作', source.includes('批准为学习网站') && source.includes('批准为综合网站') && source.includes('拒绝'));
   expectTrue('Pages 网站归类申请应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
   expectTrue('Pages 访问规则添加/导入/保存应校验精确跨类重复', source.includes('function findSiteAccessExactConflicts') && source.includes('formatSiteAccessConflict') && source.includes('SITE_ACCESS_CATEGORY_FIELDS'));
+  expectTrue('Pages 应包含系统日志导航和查询接口', source.includes('data-page="client-logs"') && source.includes('/client-logs/v1'));
+  expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));
+  expectTrue('Pages 系统日志应支持远程诊断策略和 TTL', source.includes('clientLoggingPolicyV1') && source.includes('client-log-policy-ttl') && source.includes('expiresAt'));
 
   // 系统配置文案检查
   expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));

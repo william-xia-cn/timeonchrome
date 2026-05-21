@@ -15,8 +15,8 @@ const path = require('path');
 const fs = require('fs');
 
 // 配置
-const EXTENSION_PATH = path.resolve(__dirname);
-const USER_DATA_DIR = path.resolve(__dirname, 'test-user-data');
+const EXTENSION_PATH = path.resolve(__dirname, '..', 'extension');
+const USER_DATA_DIR = path.resolve(__dirname, '..', '.artifacts', 'test-user-data');
 const EXTENSION_ID = 'hoelbdpoglmallgflolmommghdfjbdgn';  // 扩展 ID
 const TEST_ACCOUNT = {
   email: 'testuser@example.com',

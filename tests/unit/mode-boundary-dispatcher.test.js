@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 function loadDispatcher(stubs = {}) {
-  const abs = path.join(__dirname, '..', '..', 'core', 'timing-dispatcher.js');
+  const abs = path.join(__dirname, '..', '..', 'extension', 'core', 'timing-dispatcher.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');

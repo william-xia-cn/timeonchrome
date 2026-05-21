@@ -3,7 +3,7 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
 
 const BOUND_SEED = {
   guardian_config: {
@@ -15,7 +15,6 @@ const BOUND_SEED = {
     schedule: { enabled: false, days: {} },
     timeQuota: { daily: {} }, timeWindows: { daily: {} },
     restConfig: { reminderInterval: 15, maxRestDuration: 60 },
-    autoStudyConfig: { enabled: true, requiredSeconds: 60 },
     adminPasswordHash: '', isInitialized: true,
   },
   guardian_session: { currentMode: 'rest' },
@@ -26,7 +25,7 @@ const BOUND_SEED = {
 };
 
 async function createContext() {
-  const udd = path.resolve(__dirname, `../../test-e2e-profile-bound-${Date.now()}`);
+  const udd = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-bound-${Date.now()}`);
   fs.mkdirSync(udd, { recursive: true });
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,

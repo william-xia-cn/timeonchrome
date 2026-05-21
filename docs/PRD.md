@@ -108,21 +108,20 @@
 - `weeklyRestQuota`：限制每周总休息时长
 - 超出后 `quotaState.weeklyRestLocked = true`，休息模式受限
 
-### 4.3 自动切换学习模式
+### 4.3 Mode Service 自动切换
 
 #### F-06 触发条件
 - 当前处于 `rest` 模式
-- 活跃 Tab 是 `studyList` 中的域名
-- 心跳类型为 `active`（有实际键鼠操作）
-- 以上条件连续满足 90 秒（可配置）
+- 活跃 Tab 是 `studyList` 或 `compositeList` 中的域名
+- Chrome 访问事件携带当前 tab/url/foreground 事实
+- `Mode Service` 立即执行目标模式迁移，并向目标 tab 投递页内提示
 
-#### F-07 重置/暂停条件
-| 情况 | 计数器行为 |
-|------|-----------|
-| 离开 studyList 网站 | 重置为 0 |
-| 切换到 compositeList 网站 | 暂停（不增不减）|
-| 心跳为 passive | 暂停 |
-| 超过 2 分钟无心跳 | 重置为 0 |
+#### F-07 稳定期规则
+| 情况 | 行为 |
+|------|------|
+| 刚进入 Study/Composite 未满 60 秒访问 Rest target | 自动回 Rest，只显示页内提示 |
+| Study/Composite 已稳定后访问 Rest target | 进入 Reminder |
+| 手动模式切换 | 通过 `REQUEST_MODE_CHANGE` 进入同一 Mode Service 提交流程 |
 
 ### 4.4 时间统计
 

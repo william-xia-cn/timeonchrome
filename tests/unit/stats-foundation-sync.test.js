@@ -30,7 +30,7 @@ global.chrome = { storage: { local: mockLocal, session: mockLocal } };
 // ── Module loader ────────────────────────────────────────────────────────────────
 
 function loadModule(relPath, exportNames, injected = {}) {
-  const abs = path.join(__dirname, '..', '..', relPath);
+  const abs = path.join(__dirname, '..', '..', 'extension', relPath);
   let code = fs.readFileSync(abs, 'utf-8');
   code = code.replace(/^\s*import .*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
@@ -71,13 +71,14 @@ const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2
 
 // ── Load modules ──
 const usageApi = loadModule('core/usage-segments.js', [
-  'settleUsageDuration', 'buildUsageSegmentsUploadPayload', 'buildDailyStatsUploadPayload',
-  'getPendingUsageSegments', 'getPendingDailyStats',
+  'settleUsageDuration', 'buildUsageSegmentsUploadPayload', 'buildDailyStatsUploadPayload', 'buildHourlyStatsUploadPayload',
+  'getPendingUsageSegments', 'getPendingDailyStats', 'getPendingHourlyStats',
   'markUsageSegmentsUploaded', 'markUsageSegmentUploadFailed',
   'markDailyStatsUploaded', 'markDailyStatsUploadFailed',
-  'markSegmentSyncDirty', 'markStatsSyncDirty',
-  'getAllUsageSegments', 'getDailyUsageStats',
-  'clearSegmentSyncOutbox', 'clearStatsSyncOutbox',
+  'markHourlyStatsUploaded', 'markHourlyStatsUploadFailed',
+  'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
+  'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
+  'clearSegmentSyncOutbox', 'clearStatsSyncOutbox', 'clearHourlyStatsSyncOutbox',
 ]);
 
 // ── TB1: Full segment upload pipeline (settle → outbox → payload → mock upload → outbox cleared) ──
@@ -240,6 +241,23 @@ chk('stats outbox cleared after upload', statsPending.pendingCount, 0);
 const dailyStatsAfter = await usageApi.getDailyUsageStats(todayStr);
 chkT('daily stats still exist after upload', !!dailyStatsAfter);
 chk('daily active still 200', dailyStatsAfter.domains['daily.com'].activeSeconds, 200);
+
+// ── TB4b: Hourly stats upload pipeline ──
+sec('TB4b: Hourly stats upload pipeline');
+const hourlyStats = await usageApi.getHourlyUsageStats();
+const hourlyKeys = Object.keys(hourlyStats);
+chkT('hourly stats materialized', hourlyKeys.length > 0);
+const hourlyPending = await usageApi.getPendingHourlyStats();
+chkT('hourly stats outbox has entries', hourlyPending.pendingCount > 0);
+const hourlyPayload = await usageApi.buildHourlyStatsUploadPayload(hourlyKeys[0]);
+chk('hourly payload schemaVersion 1', hourlyPayload.schemaVersion, 1);
+chkT('hourly payload has hourKey', !!hourlyPayload.hourKey);
+chkT('hourly payload has domains', Array.isArray(hourlyPayload.domains));
+chk('hourly payload domain name', hourlyPayload.domains[0].domain, 'daily.com');
+chkT('hourly payload has activeByMode', !!hourlyPayload.domains[0].activeByMode);
+await usageApi.markHourlyStatsUploaded(hourlyKeys);
+const hourlyPendingAfter = await usageApi.getPendingHourlyStats();
+chk('hourly stats outbox cleared after upload', hourlyPendingAfter.pendingCount, 0);
 
 // ── TB5: Daily stats upload failure preserves outbox ──
 sec('TB5: Daily stats upload failure preserves outbox');

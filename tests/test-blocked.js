@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 async function testExtension() {
-  const extPath = __dirname;
+  const extPath = path.join(__dirname, '..', 'extension');
   
   // 创建浏览器实例并加载扩展
   const browser = await chromium.launch({ headless: true });

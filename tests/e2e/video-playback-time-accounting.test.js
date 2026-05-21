@@ -2,10 +2,10 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
 
 async function createContext() {
-  const udd = fs.mkdtempSync(path.resolve(__dirname, '../../test-e2e-profile-video-'));
+  const udd = fs.mkdtempSync(path.resolve(__dirname, '../../.artifacts/test-e2e-profile-video-'));
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox'],

@@ -94,7 +94,7 @@ function checkBlockedHtmlFile() {
   console.log('\n=== Checking blocked.html File ===\n');
   
   const fs = require('fs');
-  const blockedHtmlPath = path.join(__dirname, 'blocked.html');
+  const blockedHtmlPath = path.join(__dirname, '..', 'extension', 'blocked.html');
   
   if (!fs.existsSync(blockedHtmlPath)) {
     console.log('❌ blocked.html not found!');
@@ -123,7 +123,7 @@ function checkBackgroundJs() {
   console.log('\n=== Checking background.js ===\n');
   
   const fs = require('fs');
-  const bgPath = path.join(__dirname, 'background.js');
+  const bgPath = path.join(__dirname, '..', 'extension', 'background.js');
   
   if (!fs.existsSync(bgPath)) {
     console.log('❌ background.js not found!');

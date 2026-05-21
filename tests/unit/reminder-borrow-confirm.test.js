@@ -86,7 +86,7 @@ function setupAndRun(search) {
   };
   context.window = context;
 
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'reminder.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'reminder.js'), 'utf8');
   vm.runInNewContext(code, context, { filename: 'reminder.js' });
 
   return { elements, sentMessages };

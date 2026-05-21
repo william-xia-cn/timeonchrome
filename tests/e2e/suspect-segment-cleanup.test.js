@@ -2,7 +2,7 @@ const { test, expect, chromium } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
 
 function localDateKeyParts() {
   const d = new Date();
@@ -13,7 +13,7 @@ function localDateKeyParts() {
 }
 
 async function createContext() {
-  const udd = path.resolve(__dirname, `../../test-e2e-profile-suspect-${Date.now()}`);
+  const udd = path.resolve(__dirname, `../../.artifacts/test-e2e-profile-suspect-${Date.now()}`);
   fs.mkdirSync(udd, { recursive: true });
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,

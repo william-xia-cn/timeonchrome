@@ -24,7 +24,7 @@ function section(name) {
 }
 
 async function run() {
-  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'domain-semantics.js'), 'utf8');
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8');
   const wrapped = code
     .replace(/export\s+function\s+/g, 'function ')
     + '\nthis.__domainSemantics = { normalizeHostname, domainForUrl, matchDomain };';

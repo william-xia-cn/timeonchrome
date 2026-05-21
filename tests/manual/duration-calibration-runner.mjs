@@ -21,7 +21,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
 
 // ── CLI Args ──────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
@@ -49,7 +49,7 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 
 // ── Log File ──────────────────────────────────────────────────────────────────
-const LOG_DIR = path.resolve(__dirname, '../../test-results');
+const LOG_DIR = path.resolve(__dirname, '../../.artifacts/test-results');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 const LOG_FILE = path.join(LOG_DIR, `calibration-${Date.now()}.jsonl`);
 const REPORT_FILE = path.join(LOG_DIR, `calibration-report-${Date.now()}.json`);

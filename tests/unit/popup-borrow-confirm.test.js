@@ -26,8 +26,8 @@ function section(name) {
 async function run() {
   section('B02-0 popup P0 不再包含借用 UI');
   {
-    const html = fs.readFileSync(path.join(__dirname, '..', '..', 'popup', 'popup.html'), 'utf8');
-    const js = fs.readFileSync(path.join(__dirname, '..', '..', 'popup', 'popup.js'), 'utf8');
+    const html = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.html'), 'utf8');
+    const js = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.js'), 'utf8');
     expectTrue('popup.html 不含 borrow-btn', !html.includes('borrow-btn'));
     expectTrue('popup.html 不含 borrow-section', !html.includes('borrow-section'));
     expectTrue('popup.js 不含 renderBorrowSection', !js.includes('renderBorrowSection'));

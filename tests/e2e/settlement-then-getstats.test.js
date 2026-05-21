@@ -10,10 +10,10 @@ const {
   readLedgerSnapshot,
 } = require('./helpers/ledger-assertions');
 
-const EXT = path.resolve(__dirname, '../..');
+const EXT = path.resolve(__dirname, '..', '..', 'extension');
 
 async function createContext() {
-  const udd = fs.mkdtempSync(path.resolve(__dirname, '../../test-e2e-profile-settle-'));
+  const udd = fs.mkdtempSync(path.resolve(__dirname, '../../.artifacts/test-e2e-profile-settle-'));
   const ctx = await chromium.launchPersistentContext(udd, {
     headless: false,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox'],

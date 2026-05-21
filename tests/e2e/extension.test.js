@@ -5,8 +5,8 @@ const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs   = require('fs');
 
-const EXTENSION_PATH = path.resolve(__dirname, '../..');
-const USER_DATA_DIR  = path.resolve(__dirname, '../../test-e2e-profile');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
+const USER_DATA_DIR  = path.resolve(__dirname, '../../.artifacts/test-e2e-profile');
 
 // ── Shared browser context ────────────────────────────────────────────────────
 
@@ -320,25 +320,26 @@ test('T-E12: Study → Composite light prompt appears, shows correct copy, and r
   await page.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
 
   // Wait for the banner host element to appear (content script runs at document_start)
-  const bannerHost = page.locator('#__toc_auto_mode_pending__');
+  const bannerHost = page.locator('#__toc_mode_notice__');
   await expect(bannerHost).toBeAttached({ timeout: 10000 });
 
   // Verify banner text via shadow DOM
   const bannerText = await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     if (!host || !host.shadowRoot) return null;
     const banner = host.shadowRoot.getElementById('toc-pending-banner');
     return banner ? banner.textContent : null;
   });
 
   expect(bannerText).toBeTruthy();
-  expect(bannerText).toContain('你正在打开综合网站');
-  expect(bannerText).toContain('即将离开学习时间进入综合时间');
+  expect(bannerText).toContain('你正在打开综合/待归类网站');
+  expect(bannerText).toContain('即将进入综合模式');
+  expect(bannerText).toContain('今日剩余');
 
   // Verify banner remains visible after 1 second
   await page.waitForTimeout(1000);
   const visibleAfter1s = await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
   });
   expect(visibleAfter1s).toBe(true);
@@ -346,7 +347,7 @@ test('T-E12: Study → Composite light prompt appears, shows correct copy, and r
   // Verify banner remains visible after 3 seconds total
   await page.waitForTimeout(2000);
   const visibleAfter3s = await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
   });
   expect(visibleAfter3s).toBe(true);
@@ -377,7 +378,7 @@ test('T-E12b: Study → Composite light prompt appears on page refresh', async (
   await page.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
 
   // Wait for initial banner to appear
-  const bannerHost = page.locator('#__toc_auto_mode_pending__');
+  const bannerHost = page.locator('#__toc_mode_notice__');
   await expect(bannerHost).toBeAttached({ timeout: 10000 });
 
   // Reset mode back to Study before reload (simulates user switching back to Study mode)
@@ -398,20 +399,21 @@ test('T-E12b: Study → Composite light prompt appears on page refresh', async (
 
   // Verify banner text via shadow DOM
   const bannerText = await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     if (!host || !host.shadowRoot) return null;
     const banner = host.shadowRoot.getElementById('toc-pending-banner');
     return banner ? banner.textContent : null;
   });
 
   expect(bannerText).toBeTruthy();
-  expect(bannerText).toContain('你正在打开综合网站');
-  expect(bannerText).toContain('即将离开学习时间进入综合时间');
+  expect(bannerText).toContain('你正在打开综合/待归类网站');
+  expect(bannerText).toContain('即将进入综合模式');
+  expect(bannerText).toContain('今日剩余');
 
   // Verify banner remains visible after 1 second
   await page.waitForTimeout(1000);
   const visibleAfter1s = await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
   });
   expect(visibleAfter1s).toBe(true);
@@ -419,7 +421,7 @@ test('T-E12b: Study → Composite light prompt appears on page refresh', async (
   // Verify banner remains visible after 3 seconds total
   await page.waitForTimeout(2000);
   const visibleAfter3s = await page.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
   });
   expect(visibleAfter3s).toBe(true);
@@ -450,7 +452,7 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   await compositePage.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
 
   // Wait for initial banner
-  const bannerHost = compositePage.locator('#__toc_auto_mode_pending__');
+  const bannerHost = compositePage.locator('#__toc_mode_notice__');
   await expect(bannerHost).toBeAttached({ timeout: 10000 });
 
   // Step 2: Open a neutral tab (example.com) and switch to it
@@ -460,7 +462,7 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   // Step 3: Bring the composite tab back to foreground
   await compositePage.bringToFront();
 
-  // Wait a moment for the tab activation to trigger checkAndRemind
+  // Wait a moment for the tab activation to trigger Mode Service access routing
   await new Promise(r => setTimeout(r, 2000));
 
   // Step 4: Verify banner appears on the activated composite tab
@@ -468,31 +470,34 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
 
   // Verify banner text
   const bannerText = await compositePage.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     if (!host || !host.shadowRoot) return null;
     const banner = host.shadowRoot.getElementById('toc-pending-banner');
     return banner ? banner.textContent : null;
   });
 
   expect(bannerText).toBeTruthy();
-  expect(bannerText).toContain('你正在打开综合网站');
-  expect(bannerText).toContain('即将离开学习时间进入综合时间');
+  expect(bannerText).toContain('你正在打开综合/待归类网站');
+  expect(bannerText).toContain('即将进入综合模式');
+  expect(bannerText).toContain('今日剩余');
 
   // Verify banner remains visible after 1 second
   await compositePage.waitForTimeout(1000);
   const visibleAfter1s = await compositePage.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+    const host = document.getElementById('__toc_mode_notice__');
     return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
   });
   expect(visibleAfter1s).toBe(true);
 
-  // Verify banner remains visible after 3 seconds total
+  // Verify transient banner auto-hides after TTL. The activation path waits
+  // before reading the text, so requiring visibility after another 3 seconds is
+  // longer than the 4s notice contract.
   await compositePage.waitForTimeout(2000);
-  const visibleAfter3s = await compositePage.evaluate(() => {
-    const host = document.getElementById('__toc_auto_mode_pending__');
+  const visibleAfterTtl = await compositePage.evaluate(() => {
+    const host = document.getElementById('__toc_mode_notice__');
     return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
   });
-  expect(visibleAfter3s).toBe(true);
+  expect(visibleAfterTtl).toBe(false);
 
   // Verify non-blocking
   const pageTitle = await compositePage.title();

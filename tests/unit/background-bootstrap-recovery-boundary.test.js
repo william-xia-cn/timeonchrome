@@ -6,8 +6,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const source = fs.readFileSync(path.join(__dirname, '..', '..', 'background.js'), 'utf8');
-const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'infra', 'cloud-sync.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
+const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
 
 let passed = 0;
 let failed = 0;
@@ -34,6 +34,7 @@ check('module bootstrap initializes session', /await initSession\(\)/.test(boots
 check('module bootstrap hydrates cloud sync state without waiting for alarm', /await hydrateCloudSyncStateFromStorage\(\)/.test(bootstrapBody));
 check('module bootstrap does not call recover', !/recover\(\)/.test(bootstrapBody));
 check('runtime messages wait for bootstrap before routing', /ensureBootstrapped\('runtimeMessage'\)[\s\S]{0,120}\.then\(\(\) => handleMessage\(msg, sender\)\)/.test(source));
+check('runtime message failures are logged without blocking response', source.includes('runtime_message_failed') && source.includes('logClientEventBestEffort'));
 const fastStatusIndex = source.indexOf("msg.type === 'GET_POPUP_FAST_STATUS'");
 const localSnapshotIndex = source.indexOf("msg.type === 'GET_POPUP_LOCAL_SNAPSHOT'");
 const runtimeBootstrapIndex = source.indexOf("ensureBootstrapped('runtimeMessage')");
@@ -49,6 +50,7 @@ check('popup fast status accepts active tab hint before background fallback', /g
 check('popup fast status can use active tab lastAccessed when session is missing', /function resolvePopupLiveSessionSeconds/.test(source) && /tab\?\.lastAccessed/.test(source));
 check('popup fast status reads active tab and timing session only', /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/.test(source) && /getTimingSession\(\)/.test(source));
 check('popup local snapshot reads config stats and cloud cache in one storage request', /getPopupLocalSnapshot\(msg\?\.activeTabHint \|\| msg\?\.activeTab \|\| null\)/.test(fastStatusBody) && /CONFIG_KEY/.test(source) && /daily_usage_stats_v1/.test(source) && /cloud_profile_name/.test(source));
+check('popup slow snapshot emits client log warning', source.includes('popup_local_snapshot_slow'));
 check('onStartup calls recover', /await recover\(\)/.test(onStartupBody));
 check('onInstalled calls recover', /await recover\(\)/.test(onInstalledBody));
 check('cloud sync exposes storage hydration helper', /export async function hydrateCloudSyncStateFromStorage\(\)/.test(cloudSyncSource));
