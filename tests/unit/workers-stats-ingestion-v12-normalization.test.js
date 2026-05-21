@@ -124,6 +124,9 @@ function run() {
   expectTrue('profile 默认配置应包含 siteClassificationRulesV1', profileSource.includes('siteClassificationRulesV1: []') && profileSource.includes("'siteClassificationRulesV1'"));
   expectTrue('profile 默认配置应包含 clientLoggingPolicyV1', profileSource.includes('clientLoggingPolicyV1') && profileSource.includes("'clientLoggingPolicyV1'"));
   expectTrue('profile 配置保存应校验访问规则精确跨类冲突', profileSource.includes('validateSiteAccessConfig') && profileSource.includes('SITE_ACCESS_CONFLICT'));
+  const siteAccessKeyBlock = (profileSource.match(/const SITE_ACCESS_CONFIG_KEYS[\s\S]*?\]\);/) || [''])[0];
+  expectTrue('profile 配置保存仅在访问规则字段提交时校验冲突', profileSource.includes('shouldValidateSiteAccess') && profileSource.includes('if (shouldValidateSiteAccess)'));
+  expectTrue('profile 日志策略保存不应触发访问规则冲突校验', siteAccessKeyBlock.includes("'siteClassificationRulesV1'") && !siteAccessKeyBlock.includes('clientLoggingPolicyV1'));
   expectTrue('Worker 应注册客户端日志路由', workerIndexSource.includes('clientLogsRouter') && workerIndexSource.includes('/client-logs'));
   expectTrue('010 migration 应创建 client_logs_v1 并按 profile/device 建索引', migration010.includes('CREATE TABLE IF NOT EXISTS client_logs_v1') && migration010.includes('idx_client_logs_profile_device_time'));
   expectTrue('client logs 上传必须使用 device token 归属 profile/device', clientLogsSource.includes("path === '/device/client-logs/v1'") && clientLogsSource.includes('verifyDeviceToken') && clientLogsSource.includes('profileId: identity.profileId'));

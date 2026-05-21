@@ -76,6 +76,19 @@ function buildSchemaDefaults(): object {
   };
 }
 
+const SITE_ACCESS_CONFIG_KEYS = new Set([
+  'studyList',
+  'compositeList',
+  'unsafeList',
+  'restrictedEntertainmentList',
+  'customStudyList',
+  'customCompositeList',
+  'customRestrictedEntertainmentList',
+  'customBlockedSites',
+  'classificationRules',
+  'siteClassificationRulesV1',
+]);
+
 // 计算单日的在线时段 = studyWindows ∪ restWindows 的并集
 // 如果任一子时段为 null（无限制），在线时段也为 null（全天允许）
 // 如果两者都是有限数组，返回排序合并后的并集
@@ -404,7 +417,10 @@ export const profilesRouter = {
           'timeQuota', 'timeWindows',
         ]);
 
-        for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+        const incomingConfig = data as Record<string, unknown>;
+        const shouldValidateSiteAccess = Object.keys(incomingConfig).some((key) => SITE_ACCESS_CONFIG_KEYS.has(key));
+
+        for (const [key, value] of Object.entries(incomingConfig)) {
           if (ALLOWED_KEYS.has(key)) {
             mergedConfig[key] = value;
           }
@@ -474,13 +490,15 @@ export const profilesRouter = {
           return json({ error: 'Invalid timeWindows: ' + validationError }, 400);
         }
 
-        const siteAccessValidation = validateSiteAccessConfig(mergedConfig);
-        if (!siteAccessValidation.ok) {
-          return json({
-            error: 'SITE_ACCESS_CONFLICT',
-            message: '同一网站不能同时出现在不同归类中',
-            conflicts: siteAccessValidation.conflicts,
-          }, 400);
+        if (shouldValidateSiteAccess) {
+          const siteAccessValidation = validateSiteAccessConfig(mergedConfig);
+          if (!siteAccessValidation.ok) {
+            return json({
+              error: 'SITE_ACCESS_CONFLICT',
+              message: '同一网站不能同时出现在不同归类中',
+              conflicts: siteAccessValidation.conflicts,
+            }, 400);
+          }
         }
 
         // 8. 清理派生字段，不持久化 source-of-truth
