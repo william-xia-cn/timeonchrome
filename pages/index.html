@@ -1091,9 +1091,9 @@
               <option value="content">content</option>
             </select>
             <select id="client-log-policy-ttl" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
-              <option value="3600000">1 小时</option>
-              <option value="21600000">6 小时</option>
-              <option value="86400000">24 小时</option>
+              <option value="86400000">1 天</option>
+              <option value="259200000">3 天</option>
+              <option value="604800000">7 天</option>
             </select>
             <button class="btn-save" id="client-log-policy-enable-btn" style="padding:7px 14px;font-size:13px;">开启上传</button>
             <button class="btn-save" id="client-log-policy-disable-btn" style="padding:7px 14px;font-size:13px;background:rgba(248,113,113,0.12);color:var(--danger);">关闭上传</button>
@@ -3085,9 +3085,8 @@ async function saveClientLoggingPolicy(enabled) {
     targetDeviceIds: [],
     expiresAt: null,
   };
-  remoteConfig.clientLoggingPolicyV1 = nextPolicy;
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: remoteConfig });
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: { clientLoggingPolicyV1: nextPolicy } });
     const r = await api(`/profiles/${currentProfileId}/config`);
     remoteConfig = r.data || remoteConfig;
     renderClientLogPolicySummary();
@@ -3499,7 +3498,7 @@ async function api(path, method='GET', body=null) {
 
   const r = await fetch(API_BASE + path, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  if (!r.ok) throw new Error(data.message || data.error || `HTTP ${r.status}`);
   return data;
 }
 
