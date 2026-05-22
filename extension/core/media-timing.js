@@ -183,7 +183,7 @@ async function enforceForbiddenPiPForTab(tabId, reason = 'pip_forbidden_cleanup'
   return { ok: true, cleanup, ledger };
 }
 
-async function enforceForbiddenPiPForOpenSessions(reason, atMs = Date.now()) {
+export async function enforceForbiddenPiPForOpenSessions(reason, atMs = Date.now()) {
   const sessions = await getMediaSessions();
   const pipSessions = Object.values(sessions || {})
     .filter((session) => session?.startTime != null && session.mediaClass === 'pip');

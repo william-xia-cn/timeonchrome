@@ -16,7 +16,7 @@ import { setCachedEffectiveMode } from '../runtime/session.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { evaluateQuotaState, getTodayEffectiveRestLimit } from './quota.js';
 
-export const REST_EXIT_GRACE_MS = 60_000;
+export const REST_EXIT_GRACE_MS = 30_000;
 
 const VALID_MODES = new Set(['study', 'composite', 'rest', 'locked', 'paused']);
 
@@ -105,12 +105,20 @@ export function isRestExitGraceActive({ restExitGraceUntilMs, nowMs = Date.now()
   return now < untilMs;
 }
 
-function nextRestExitGraceUntilMs({ fromMode, toMode, existingSession, boundaryAtMs }) {
+function nextRestExitGraceUntilMs({
+  fromMode,
+  toMode,
+  existingSession,
+  boundaryAtMs,
+  setRestExitGrace = false,
+  clearRestExitGrace = false,
+}) {
   const existingGraceUntilMs = finiteNumberOrNull(existingSession?.restExitGraceUntilMs);
-  if (fromMode === toMode) return existingGraceUntilMs;
+  if (fromMode === toMode) return clearRestExitGrace ? null : existingGraceUntilMs;
   if (fromMode === 'rest' && (toMode === 'study' || toMode === 'composite')) {
-    return boundaryAtMs + REST_EXIT_GRACE_MS;
+    return setRestExitGrace ? boundaryAtMs + REST_EXIT_GRACE_MS : null;
   }
+  if (clearRestExitGrace) return null;
   if (toMode === 'rest' || toMode === 'locked' || fromMode === 'locked' || fromMode === 'paused') {
     return null;
   }
@@ -129,6 +137,8 @@ export async function commitModeChange({
   source = 'mode_service',
   effectiveAtMs = Date.now(),
   persistConfigMode = false,
+  setRestExitGrace = false,
+  clearRestExitGrace = false,
   config = null,
   session = null,
   drainModeBoundary = null,
@@ -146,7 +156,15 @@ export async function commitModeChange({
   const boundaryAtMs = Number.isFinite(Number(effectiveAtMs)) ? Number(effectiveAtMs) : Date.now();
 
   if (fromMode === normalizedTo) {
-    const restExitGraceUntilMs = finiteNumberOrNull(existingSession?.restExitGraceUntilMs);
+    const existingGraceUntilMs = finiteNumberOrNull(existingSession?.restExitGraceUntilMs);
+    const restExitGraceUntilMs = clearRestExitGrace === true ? null : existingGraceUntilMs;
+    const shouldClearGrace = clearRestExitGrace === true && existingGraceUntilMs !== null;
+    const nextSession = shouldClearGrace
+      ? { ...(existingSession || {}), restExitGraceUntilMs: null }
+      : (existingSession || {});
+    if (shouldClearGrace) {
+      await saveSession(nextSession);
+    }
     return {
       ok: true,
       changed: false,
@@ -156,7 +174,7 @@ export async function commitModeChange({
       currentMode: normalizedTo,
       currentModeStartedAtMs: finiteNumberOrNull(existingSession?.currentModeStartedAtMs),
       restExitGraceUntilMs,
-      session: existingSession || {},
+      session: nextSession,
     };
   }
 
@@ -165,6 +183,8 @@ export async function commitModeChange({
     toMode: normalizedTo,
     existingSession,
     boundaryAtMs,
+    setRestExitGrace: setRestExitGrace === true,
+    clearRestExitGrace: clearRestExitGrace === true,
   });
 
   const nextSession = {
@@ -318,6 +338,8 @@ function modeChangeFromRoute(route, nowMs) {
     source: route.source || 'auto_mode_route',
     effectiveAtMs: Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now(),
     persistConfigMode: false,
+    setRestExitGrace: route.setRestExitGrace === true,
+    clearRestExitGrace: route.clearRestExitGrace === true,
   };
 }
 
@@ -369,6 +391,7 @@ export function evaluateModeRoute(facts = {}) {
         reason: 'rest_to_study',
         source: 'auto_mode_route',
         notice: 'rest_to_study_success',
+        setRestExitGrace: true,
       };
     }
 
@@ -390,6 +413,7 @@ export function evaluateModeRoute(facts = {}) {
         reason: 'rest_to_composite',
         source: 'auto_mode_route',
         notice: 'rest_to_composite_success',
+        setRestExitGrace: true,
       };
     }
 
@@ -634,6 +658,7 @@ function handleRequestedModeChange(event = {}) {
       source,
       effectiveAtMs: nowMs,
       persistConfigMode: true,
+      clearRestExitGrace: event.type === 'REQUEST_MODE_CHANGE',
     },
     notice: {
       kind: 'manual_mode_change',

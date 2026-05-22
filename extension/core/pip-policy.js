@@ -4,6 +4,8 @@ export const PIP_POLICY = 'disallow_all';
 
 const PIP_CLOSE_SEND_RETRIES = 6;
 const PIP_CLOSE_RETRY_DELAY_MS = 150;
+const PIP_POLICY_NOTICE_TEXT = 'TimeOnChrome 当前禁止 PiP 播放，后续版本会陆续放开。';
+const PIP_POLICY_NOTICE_DURATION_MS = 5000;
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -33,7 +35,12 @@ export async function closeTabPictureInPicture(tabId, options = {}) {
   let lastError = null;
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: 'EXIT_PIP' });
+      const response = await chrome.tabs.sendMessage(tabId, {
+        type: 'EXIT_PIP',
+        showPolicyNotice: options.showPolicyNotice !== false,
+        noticeText: options.noticeText || PIP_POLICY_NOTICE_TEXT,
+        noticeDurationMs: Number(options.noticeDurationMs) || PIP_POLICY_NOTICE_DURATION_MS,
+      });
       handled = true;
       if (response?.exited === true) {
         return { ok: true, handled: true, closed: true, confirmedNoPiP: true, response };

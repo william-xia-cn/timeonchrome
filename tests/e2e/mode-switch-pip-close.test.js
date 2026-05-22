@@ -80,11 +80,21 @@ async function cleanup(ctx, udd, server) {
 async function tabIdForPage(sw, page) {
   const pageUrl = page.url();
   return await sw.evaluate(async (targetUrl) => {
+    const samePageUrl = (a, b) => {
+      try {
+        const left = new URL(a);
+        const right = new URL(b);
+        return left.origin === right.origin &&
+          left.pathname === right.pathname &&
+          left.search === right.search;
+      } catch {
+        return a === b;
+      }
+    };
     const tabs = await chrome.tabs.query({});
-    const tab = tabs.find((t) => t.url === targetUrl);
+    const tab = tabs.find((t) => samePageUrl(t.url || '', targetUrl));
     if (tab?.id) return tab.id;
-    const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    return active?.id || null;
+    return null;
   }, pageUrl);
 }
 
@@ -115,26 +125,6 @@ async function forceRuntimeMode(sw, mode) {
       await globalThis.debugSetRestMode();
     }
   }, mode);
-}
-
-async function triggerAutoTransitionHarness(sw, nowStartMs, nowEndMs, tabId) {
-  return await sw.evaluate(async ({ start, end, tabId }) => {
-    if (typeof globalThis.debugTriggerAutoTransition !== 'function') {
-      return { success: false, error: 'debugTriggerAutoTransition_missing' };
-    }
-    return await globalThis.debugTriggerAutoTransition({
-      nowStartMs: start,
-      nowEndMs: end,
-      tabId,
-    });
-  }, { start: nowStartMs, end: nowEndMs, tabId });
-}
-
-async function activeTabId(sw) {
-  return await sw.evaluate(async () => {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    return tab?.id || null;
-  });
 }
 
 async function seedFakePiP(page, sw) {
@@ -196,15 +186,6 @@ async function seedFakePiP(page, sw) {
     return tab.id;
   });
   return tabId;
-}
-
-async function bannerText(page) {
-  return await page.evaluate(() => {
-    const host = document.getElementById('__toc_mode_notice__');
-    if (!host || !host.shadowRoot) return '';
-    const banner = host.shadowRoot.getElementById('toc-pending-banner');
-    return banner ? banner.textContent || '' : '';
-  });
 }
 
 async function fakePiPState(page) {
@@ -411,7 +392,7 @@ async function assertForegroundModeBoundaryLedger(sw, domain, fromMode, toMode) 
   await assertNoOpenPiPMediaSession(sw, domain);
 }
 
-test('Rest -> Composite (manual): globally closes forbidden PiP', async () => {
+test('MEDIA_STATE PiP fact: globally closes forbidden PiP', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('rest');
   try {
@@ -419,85 +400,27 @@ test('Rest -> Composite (manual): globally closes forbidden PiP', async () => {
     await page.goto(serverCtx.compositeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.bringToFront();
     await forceRuntimeMode(sw, 'rest');
-    const tabId = await seedFakePiP(page, sw);
+    await seedFakePiP(page, sw);
     await assertForbiddenPiPCleanup(sw, page, 'localhost');
+    await page.close();
+  } finally {
+    await cleanup(ctx, udd, serverCtx.server);
+  }
+});
+
+test('Rest -> Composite (manual): mode boundary is independent of PiP cleanup', async () => {
+  const serverCtx = await startServer();
+  const { ctx, sw, udd } = await createContext('rest');
+  try {
+    const page = await ctx.newPage();
+    await page.goto(serverCtx.compositeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.bringToFront();
+    await forceRuntimeMode(sw, 'rest');
+    const tabId = await tabIdForPage(sw, page);
     await ensureOpenForegroundSession(sw, 'localhost', tabId);
 
     await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
     await assertForegroundModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
-    await page.waitForTimeout(500);
-    await page.close();
-  } finally {
-    await cleanup(ctx, udd, serverCtx.server);
-  }
-});
-
-test('Rest -> Study (manual): globally closes forbidden PiP and shows study prompt', async () => {
-  const serverCtx = await startServer();
-  const { ctx, sw, udd } = await createContext('rest');
-  try {
-    const page = await ctx.newPage();
-    await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.bringToFront();
-    await forceRuntimeMode(sw, 'rest');
-    const tabId = await seedFakePiP(page, sw);
-    await assertForbiddenPiPCleanup(sw, page, '127.0.0.1');
-    await ensureOpenForegroundSession(sw, '127.0.0.1', tabId);
-
-    await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_STUDY');
-    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习模式');
-    await assertForegroundModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
-    await page.waitForTimeout(500);
-    await page.close();
-  } finally {
-    await cleanup(ctx, udd, serverCtx.server);
-  }
-});
-
-test('Rest -> Composite (auto): globally closes forbidden PiP', async () => {
-  const serverCtx = await startServer();
-  const { ctx, sw, udd } = await createContext('rest');
-  try {
-    const page = await ctx.newPage();
-    await page.goto(serverCtx.compositeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.bringToFront();
-    await forceRuntimeMode(sw, 'rest');
-    let tabId = await seedFakePiP(page, sw);
-    await assertForbiddenPiPCleanup(sw, page, 'localhost');
-    const startMs = Date.now();
-    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
-    await ensureOpenForegroundSession(sw, 'localhost', tabId, startMs - 1000, true);
-
-    const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 30_000, tabId);
-    expect(res?.success).toBe(true);
-    expect(res?.mode).toBe('composite');
-    await assertForegroundModeBoundaryLedger(sw, 'localhost', 'rest', 'composite');
-    await page.waitForTimeout(500);
-    await page.close();
-  } finally {
-    await cleanup(ctx, udd, serverCtx.server);
-  }
-});
-
-test('Rest -> Study (auto): globally closes forbidden PiP and shows study prompt', async () => {
-  const serverCtx = await startServer();
-  const { ctx, sw, udd } = await createContext('rest');
-  try {
-    const page = await ctx.newPage();
-    await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.bringToFront();
-    await forceRuntimeMode(sw, 'rest');
-    let tabId = await seedFakePiP(page, sw);
-    await assertForbiddenPiPCleanup(sw, page, '127.0.0.1');
-    const startMs = Date.now();
-    await triggerAutoTransitionHarness(sw, startMs, startMs, tabId);
-    await ensureOpenForegroundSession(sw, '127.0.0.1', tabId, startMs - 1000, true);
-
-    const res = await triggerAutoTransitionHarness(sw, startMs, startMs + 45_000, tabId);
-    expect(res?.success).toBe(true);
-    expect(res?.mode).toBe('study');
-    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('学习时间');
-    await assertForegroundModeBoundaryLedger(sw, '127.0.0.1', 'rest', 'study');
     await page.waitForTimeout(500);
     await page.close();
   } finally {

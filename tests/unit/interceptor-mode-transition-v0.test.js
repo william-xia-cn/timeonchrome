@@ -56,9 +56,9 @@ function loadEffects(stubs = {}) {
     URL,
     console,
     setTimeout,
+    clearTimeout,
     chrome: {
       runtime: { getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}` },
-      scripting: { executeScript: async () => [] },
       tabs: {
         get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
         sendMessage: async (tabId, payload) => { sentMessages.push({ tabId, payload }); return true; },
@@ -85,8 +85,6 @@ function loadEffects(stubs = {}) {
     clearTemporaryCompositeDomains: async () => {},
     getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0, restSeconds: 0 }),
     getTodayEffectiveRestLimit: () => 120,
-    shouldEnforcePictureInPicturePolicy: () => true,
-    closeForbiddenPictureInPicture: async () => ({ ok: true, handled: true }),
     logClientEventBestEffort: () => {},
     normalizeMode: (mode) => ['study', 'composite', 'rest', 'locked', 'paused'].includes(mode) ? mode : 'study',
     commitModeChange: async ({ toMode, reason, source, effectiveAtMs }) => ({
@@ -114,6 +112,7 @@ this.__exports = {
   executeModeDecision,
   sendModeSwitchSuccessNotice,
   reSendPendingNotice,
+  markContentScriptReady,
   redirectToReminder,
 };`, context, { filename: 'mode-effects.js' });
   return {
@@ -125,6 +124,18 @@ this.__exports = {
 }
 
 (async function run() {
+  section('IMT-0 mode effects do not own PiP cleanup');
+  {
+    const interceptorAbs = path.join(__dirname, '..', '..', 'extension', 'product', 'interceptor.js');
+    const source = fs.readFileSync(interceptorAbs, 'utf8');
+    expectTrue('product interceptor does not import pip-policy', !source.includes('../core/pip-policy.js'));
+    expectTrue('product interceptor does not call PiP cleanup helper', !source.includes('closeForbidden' + 'PictureInPicture'));
+    expectTrue(
+      'product interceptor does not expose PiP cleanup result fields',
+      !source.includes('pipClose' + 'Attempted') && !source.includes('pipClose' + 'Sent')
+    );
+  }
+
   section('IMT-1 executeModeDecision commits mode change and sends decision notice');
   {
     const commits = [];
@@ -141,6 +152,7 @@ this.__exports = {
         };
       },
     });
+    effects.markContentScriptReady(7, 'youtube.com');
     const result = await effects.executeModeDecision({
       ok: true,
       access: 'allow',
@@ -163,6 +175,8 @@ this.__exports = {
       source: 'auto_mode_route',
       effectiveAtMs: 1234,
       persistConfigMode: false,
+      setRestExitGrace: false,
+      clearRestExitGrace: false,
       config: { mode: 'study', quotaState: {}, blockMessage: '' },
       session: { currentMode: 'study', currentModeStartedAtMs: 1000 },
       drainModeBoundary: commits[0].drainModeBoundary,
@@ -231,20 +245,21 @@ this.__exports = {
   section('IMT-3 pending success notice can be resent after content script ready');
   {
     const effects = loadEffects();
-    await effects.sendModeSwitchSuccessNotice(11, 'study', 'composite', {
+    const queued = await effects.sendModeSwitchSuccessNotice(11, 'study', 'composite', {
       domain: 'example.com',
       noticeText: '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
       displayDuration: 4000,
     });
+    expectTrue('notice queued before content ready', queued === false);
+    effects.markContentScriptReady(11, 'example.com');
     const resent = await effects.reSendPendingNotice(11, 'example.com');
     expectTrue('resent notice', resent === true);
-    expect('two success sends', effects.sentMessages.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 2);
+    expect('one success send after ready', effects.sentMessages.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 1);
   }
 
-  section('IMT-4 missing content listener triggers programmatic content injection');
+  section('IMT-4 missing content listener queues pending notice until CONTENT_SCRIPT_READY');
   {
     const sent = [];
-    const injections = [];
     const effects = loadEffects({
       chrome: {
         runtime: { getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}` },
@@ -252,13 +267,9 @@ this.__exports = {
           get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
           sendMessage: async (tabId, payload) => {
             sent.push({ tabId, payload });
-            if (sent.length === 1) throw new Error('Could not establish connection. Receiving end does not exist.');
             return { ok: true, handled: true, rendered: true };
           },
           update: async () => {},
-        },
-        scripting: {
-          executeScript: async (payload) => { injections.push(payload); return []; },
         },
         notifications: { create: () => {} },
         declarativeNetRequest: {
@@ -277,9 +288,12 @@ this.__exports = {
       domain: 'example.com',
       noticeText: '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
     });
-    expectTrue('notice succeeds after injection retry', result === true);
-    expectTrue('content script injected once', injections.length === 1);
-    expect('injection target', injections[0]?.target, { tabId: 31, allFrames: true });
+    expectTrue('notice deferred before content ready', result === false);
+    expectTrue('no send before content ready', sent.length === 0);
+    effects.markContentScriptReady(31, 'example.com');
+    const resent = await effects.reSendPendingNotice(31, 'example.com');
+    expectTrue('notice succeeds after ready', resent === true);
+    expectTrue('sent once after ready', sent.length === 1);
   }
 
   if (failed > 0) {

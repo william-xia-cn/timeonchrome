@@ -121,7 +121,7 @@ function loadHandleMessage(stubs, chromeOverride = {}) {
     getCappedElapsedMs: () => 0,
     clearTabModeNotice: async () => false,
     sendModeSwitchSuccessNotice: async () => false,
-    applyModeTransitionSideEffects: async () => ({ pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false }),
+    applyModeTransitionSideEffects: async () => ({ studyNoticeSent: false }),
     updateDeclarativeRules: async () => {},
     normalizeMode,
     commitModeChangeStub: async ({ toMode, effectiveAtMs = Date.now() } = {}) => {
@@ -192,6 +192,7 @@ function loadHandleMessage(stubs, chromeOverride = {}) {
           source: event.source || 'runtime_message',
           effectiveAtMs: Number(event.nowMs) || Date.now(),
           persistConfigMode: true,
+          clearRestExitGrace: event.type === 'REQUEST_MODE_CHANGE',
         },
         notice: { kind: 'manual_mode_change', targetMode: toMode, text: `已切换到${toMode}` },
         recheckActiveTab: true,
@@ -437,7 +438,7 @@ async function run() {
         getSyncState: () => ({ monitoringEnabled: 1 }),
         applyModeTransitionSideEffects: async (payload) => {
           sideEffects.push(payload);
-          return { pipCloseAttempted: true, pipCloseSent: true, studyNoticeSent: false };
+          return { studyNoticeSent: false };
         },
       },
       {
@@ -525,7 +526,7 @@ async function run() {
         accessObserved: async () => false,
         getSyncState: () => ({ monitoringEnabled: 1 }),
         clearTabModeNotice: async (tabId, reason) => { notices.push({ type: 'clear', tabId, reason }); return true; },
-        applyModeTransitionSideEffects: async (payload) => { sideEffects.push(payload); return { pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false }; },
+        applyModeTransitionSideEffects: async (payload) => { sideEffects.push(payload); return { studyNoticeSent: false }; },
         sendModeSwitchSuccessNotice: async (tabId, targetMode, fromMode, options) => {
           notices.push({ type: 'success', tabId, targetMode, fromMode, options });
           return true;
@@ -562,7 +563,7 @@ async function run() {
     });
   }
 
-  section('MSR-6b 手动 Rest -> Composite 必须触发 PiP cleanup side effect');
+  section('MSR-6b 手动 Rest -> Composite 只触发 mode side effect，不依赖 PiP cleanup');
   {
     const sideEffects = [];
     const cfg = { mode: 'rest', compositeList: ['youtube.com'] };
@@ -578,7 +579,7 @@ async function run() {
         getSyncState: () => ({ monitoringEnabled: 1 }),
         clearTabModeNotice: async () => true,
         sendModeSwitchSuccessNotice: async () => true,
-        applyModeTransitionSideEffects: async (payload) => { sideEffects.push(payload); return { pipCloseAttempted: true, pipCloseSent: true, studyNoticeSent: false }; },
+        applyModeTransitionSideEffects: async (payload) => { sideEffects.push(payload); return { studyNoticeSent: false }; },
       },
       {
         tabs: {
@@ -609,7 +610,7 @@ async function run() {
         getSyncState: () => ({ monitoringEnabled: 1 }),
         clearTabModeNotice: async () => true,
         sendModeSwitchSuccessNotice: async () => true,
-        applyModeTransitionSideEffects: async () => ({ pipCloseAttempted: true, pipCloseSent: true, studyNoticeSent: false }),
+        applyModeTransitionSideEffects: async () => ({ studyNoticeSent: false }),
         commitModeChangeStub: async (request) => {
           modeRequests.push(request);
           return {
@@ -642,12 +643,14 @@ async function run() {
       reason: modeRequests[0].reason,
       source: modeRequests[0].source,
       persistConfigMode: modeRequests[0].persistConfigMode,
+      clearRestExitGrace: modeRequests[0].clearRestExitGrace,
       hasBoundary: Number.isFinite(modeRequests[0].effectiveAtMs),
     }, {
       toMode: 'composite',
       reason: 'manual_mode_switch',
       source: 'runtime_message',
       persistConfigMode: true,
+      clearRestExitGrace: true,
       hasBoundary: true,
     });
   }

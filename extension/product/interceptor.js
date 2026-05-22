@@ -4,20 +4,18 @@ import { getConfig, hasTemporaryCompositePermission, extractDomain, isSpecialUrl
 import { resolveSiteAccessClassification } from '../core/site-classification.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { getTodayEffectiveRestLimit } from './quota.js';
-import { closeForbiddenPictureInPicture, shouldEnforcePictureInPicturePolicy } from '../core/pip-policy.js';
 import { logClientEventBestEffort } from '../infra/client-logs.js';
 import { normalizeMode } from './mode-service.js';
 
 let modeBoundaryDrainHook = null;
 
-// Pending success notices stored by tabId for reliable delivery after reload.
-// TTL: 30 seconds — covers content script re-injection after page reload.
+// Pending success notices stored by tabId for reliable delivery after content.js
+// announces that its top-frame listener is ready.
 const pendingSuccessNoticesByTab = new Map();
+const contentReadyByTab = new Map();
 const PENDING_NOTICE_TTL_MS = 30_000;
 const TRANSIENT_NOTICE_DISPLAY_MS = 4_000;
-const SUCCESS_NOTICE_SEND_RETRIES = 20;
-const SUCCESS_NOTICE_RETRY_DELAY_MS = 100;
-const SUCCESS_NOTICE_DEFERRED_RETRY_MS = 300;
+const CONTENT_READY_TTL_MS = 10 * 60_000;
 
 function buildNoticeDeliveryResult(overrides = {}) {
   return {
@@ -30,6 +28,7 @@ function buildNoticeDeliveryResult(overrides = {}) {
     type: null,
     payload: null,
     attempted: false,
+    deferred: false,
     ...overrides,
   };
 }
@@ -82,7 +81,7 @@ function extractDomainFromTabUrl(url) {
   }
 }
 
-function isProgrammaticNoticeInjectionAllowed(url = '') {
+function isStaticContentScriptNoticeUrl(url = '') {
   if (!url || typeof url !== 'string') return false;
   try {
     const parsed = new URL(url);
@@ -92,37 +91,102 @@ function isProgrammaticNoticeInjectionAllowed(url = '') {
   }
 }
 
-function shouldAttemptContentScriptInjection(error) {
+function isMissingContentListenerError(error) {
   const message = String(error?.message || error || '').toLowerCase();
   return message.includes('receiving end does not exist') ||
     message.includes('could not establish connection') ||
     message.includes('no receiving end');
 }
 
-async function ensureNoticeContentScript(tabId) {
-  if (!Number.isInteger(tabId) || tabId < 0) {
-    return { ok: false, injected: false, error: 'invalid_tab_id' };
+function storePendingSuccessNotice(tabId, payload, domainSnapshot, fallbackMessage = null) {
+  const now = Date.now();
+  const expiresAt = Number(payload?.expiresAt) || now + PENDING_NOTICE_TTL_MS;
+  pendingSuccessNoticesByTab.set(tabId, {
+    payload: { ...payload, expiresAt },
+    fallbackMessage,
+    storedAt: now,
+    expiresAt,
+    domainSnapshot,
+    expiryTimer: schedulePendingNoticeExpiryFallback(tabId, expiresAt),
+  });
+}
+
+function isContentReadyForTab(tabId, domain = null) {
+  const ready = contentReadyByTab.get(tabId);
+  if (!ready) return false;
+  if (Date.now() > ready.expiresAt) {
+    contentReadyByTab.delete(tabId);
+    return false;
   }
-  if (!chrome.scripting?.executeScript) {
-    return { ok: false, injected: false, error: 'scripting_api_unavailable' };
-  }
-  let tab = null;
-  try {
-    tab = await chrome.tabs?.get?.(tabId);
-  } catch (err) {
-    return { ok: false, injected: false, error: err?.message || String(err) };
-  }
-  if (!isProgrammaticNoticeInjectionAllowed(tab?.url || '')) {
-    return { ok: false, injected: false, error: 'notice_url_not_injectable' };
-  }
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      files: ['content.js'],
+  const normalizedReadyDomain = normalizeDomainForNotice(ready.domain);
+  const normalizedDomain = normalizeDomainForNotice(domain);
+  return !!normalizedReadyDomain && !!normalizedDomain && normalizedReadyDomain === normalizedDomain;
+}
+
+function markPendingDeliveredForCurrentReady(tabId) {
+  const stored = pendingSuccessNoticesByTab.get(tabId);
+  const ready = contentReadyByTab.get(tabId);
+  if (!stored || !ready) return;
+  stored.lastDeliveredReadyAt = ready.readyAt || Date.now();
+}
+
+function schedulePendingNoticeExpiryFallback(tabId, expiresAt) {
+  const delayMs = Math.max(0, Number(expiresAt) - Date.now() + 5);
+  if (!Number.isFinite(delayMs)) return null;
+  return setTimeout(() => {
+    const stored = pendingSuccessNoticesByTab.get(tabId);
+    if (!stored || Date.now() <= stored.expiresAt) return;
+    pendingSuccessNoticesByTab.delete(tabId);
+    if (stored.fallbackMessage) notifyRuntimeModeSwitch(stored.fallbackMessage);
+    logClientEventBestEffort({
+      level: 'warning',
+      category: 'content',
+      eventCode: 'page_notice_delivery_failed',
+      module: 'product/interceptor',
+      message: 'Page notice delivery timed out waiting for content script readiness',
+      domain: stored.domainSnapshot || null,
+      details: { tabId, type: stored.payload?.type || null, error: 'content_ready_timeout' },
     });
-    return { ok: true, injected: true };
-  } catch (err) {
-    return { ok: false, injected: false, error: err?.message || String(err) };
+  }, delayMs);
+}
+
+function clearPendingSuccessNotice(tabId) {
+  const stored = pendingSuccessNoticesByTab.get(tabId);
+  if (stored?.expiryTimer) {
+    clearTimeout(stored.expiryTimer);
+  }
+  pendingSuccessNoticesByTab.delete(tabId);
+}
+
+export function markContentScriptReady(tabId, currentDomain = null) {
+  if (!Number.isInteger(tabId) || tabId < 0) return { ok: false, error: 'invalid_tab_id' };
+  const normalizedDomain = normalizeDomainForNotice(currentDomain);
+  if (!normalizedDomain) return { ok: false, error: 'ready_domain_missing' };
+  const now = Date.now();
+  contentReadyByTab.set(tabId, {
+    tabId,
+    domain: normalizedDomain,
+    readyAt: now,
+    expiresAt: now + CONTENT_READY_TTL_MS,
+  });
+  return { ok: true, tabId, domain: normalizedDomain };
+}
+
+export function clearModeNoticeTabState(tabId, reason = 'tab_state_changed') {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  clearPendingSuccessNotice(tabId);
+  contentReadyByTab.delete(tabId);
+}
+
+export function clearModeNoticeTabNavigationState(tabId, nextDomain = null) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  clearPendingSuccessNotice(tabId);
+  const ready = contentReadyByTab.get(tabId);
+  if (!ready) return;
+  const normalizedNextDomain = normalizeDomainForNotice(nextDomain);
+  const normalizedReadyDomain = normalizeDomainForNotice(ready.domain);
+  if (!normalizedNextDomain || !normalizedReadyDomain || normalizedNextDomain !== normalizedReadyDomain) {
+    contentReadyByTab.delete(tabId);
   }
 }
 
@@ -188,104 +252,106 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
   }
   const snapshotDomainFromPayload = normalizeDomainForNotice(payload?.domain);
   let snapshotDomain = snapshotDomainFromPayload;
+  let tabUrl = null;
   if (!snapshotDomain) {
     try {
       const tab = await chrome.tabs?.get?.(tabId);
+      tabUrl = tab?.url || null;
       snapshotDomain = extractDomainFromTabUrl(tab?.url);
     } catch {
       snapshotDomain = null;
     }
+  } else {
+    try {
+      const tab = await chrome.tabs?.get?.(tabId);
+      tabUrl = tab?.url || null;
+    } catch {}
   }
   const isSuccessNotice = payload?.type === 'AUTO_MODE_PENDING_SUCCESS';
   const isModeNotice = payload?.type === 'AUTO_MODE_PENDING_START' ||
     payload?.type === 'AUTO_MODE_PENDING_CANCEL' ||
     payload?.type === 'AUTO_MODE_PENDING_SUCCESS';
   const sendOptions = isModeNotice ? { frameId: 0 } : undefined;
-  const maxAttempts = isSuccessNotice ? SUCCESS_NOTICE_SEND_RETRIES : 1;
-  let lastError = null;
-  let lastAck = null;
-  let lastRendered = false;
-  let messageWasSent = false;
-  let injectionAttempted = false;
-  let injectionResult = null;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const ack = await chrome.tabs.sendMessage(tabId, payload, sendOptions);
-      messageWasSent = true;
-      lastAck = ack ?? null;
-      const ackResult = isModeNotice
-        ? evaluateModeNoticeAck(payload, ack)
-        : { ok: true, rendered: false, error: null };
-      lastRendered = ackResult.rendered === true;
-      if (!ackResult.ok) {
-        lastError = new Error(ackResult.error || 'notice_ack_failed');
-        if (attempt < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, SUCCESS_NOTICE_RETRY_DELAY_MS));
-          continue;
-        }
-        break;
-      }
-      // Store pending success notice for reliable re-delivery after reload
-      if (isSuccessNotice && options.storePendingOnSuccess !== false) {
-        const now = Date.now();
-        pendingSuccessNoticesByTab.set(tabId, {
-          payload: { ...payload },
-          storedAt: now,
-          expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
-          domainSnapshot: snapshotDomain,
-        });
-      }
+  if (isSuccessNotice && options.storePendingOnSuccess !== false) {
+    storePendingSuccessNotice(tabId, payload, snapshotDomain, fallbackMessage);
+  }
+  if (isSuccessNotice && tabUrl && !isStaticContentScriptNoticeUrl(tabUrl)) {
+    clearPendingSuccessNotice(tabId);
+    if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
+    logClientEventBestEffort({
+      level: 'warning',
+      category: 'content',
+      eventCode: 'page_notice_delivery_failed',
+      module: 'product/interceptor',
+      message: 'Page notice target URL cannot run the static content script; system notification fallback used',
+      domain: snapshotDomain,
+      details: { tabId, type: payload?.type || null, error: 'notice_url_not_injectable' },
+    });
+    return {
+      ...resultBase,
+      ok: false,
+      sent: false,
+      ack: null,
+      rendered: false,
+      error: 'notice_url_not_injectable',
+      attempted: false,
+    };
+  }
+  if (isSuccessNotice && options.requireReady !== false && !isContentReadyForTab(tabId, snapshotDomain)) {
+    return {
+      ...resultBase,
+      ok: false,
+      sent: false,
+      ack: null,
+      rendered: false,
+      error: 'content_not_ready',
+      attempted: false,
+      deferred: true,
+    };
+  }
+  try {
+    const ack = await chrome.tabs.sendMessage(tabId, payload, sendOptions);
+    const ackResult = isModeNotice
+      ? evaluateModeNoticeAck(payload, ack)
+      : { ok: true, rendered: false, error: null };
+    if (!ackResult.ok) {
+      if (fallbackMessage && !isSuccessNotice) notifyRuntimeModeSwitch(fallbackMessage);
       return {
         ...resultBase,
-        ok: true,
+        ok: false,
         sent: true,
-        ack: lastAck,
-        rendered: lastRendered,
-        error: null,
+        ack: ack ?? null,
+        rendered: ackResult.rendered === true,
+        error: ackResult.error || 'notice_ack_failed',
         attempted: true,
-        injectionAttempted,
-        injectionResult,
       };
-    } catch (err) {
-      lastError = err;
-      if (!injectionAttempted && shouldAttemptContentScriptInjection(err)) {
-        injectionAttempted = true;
-        injectionResult = await ensureNoticeContentScript(tabId);
-        if (injectionResult.ok === true && attempt < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, SUCCESS_NOTICE_RETRY_DELAY_MS));
-          continue;
-        }
-      }
-      if (attempt < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, SUCCESS_NOTICE_RETRY_DELAY_MS));
-      }
     }
-  }
-
-  // Store pending notice after delivery failure so CONTENT_SCRIPT_READY can retry.
-  if (isSuccessNotice && options.allowDeferredRetry !== false) {
-    const now = Date.now();
-    pendingSuccessNoticesByTab.set(tabId, {
-      payload: { ...payload },
-      storedAt: now,
-      expiresAt: Number(payload.expiresAt) || now + PENDING_NOTICE_TTL_MS,
-      domainSnapshot: snapshotDomain,
-    });
-    await new Promise(resolve => setTimeout(resolve, SUCCESS_NOTICE_DEFERRED_RETRY_MS));
-    const resent = await reSendPendingNoticeDetailed(tabId, snapshotDomain);
-    if (resent.ok) return resent;
-    if (resent.attempted) {
-      lastAck = resent.ack;
-      lastRendered = resent.rendered;
-      messageWasSent = messageWasSent || resent.sent;
-      injectionAttempted = injectionAttempted || resent.injectionAttempted === true;
-      injectionResult = resent.injectionResult || injectionResult;
-      lastError = new Error(resent.error || 'notice_resend_failed');
+    if (isSuccessNotice) markPendingDeliveredForCurrentReady(tabId);
+    return {
+      ...resultBase,
+      ok: true,
+      sent: true,
+      ack: ack ?? null,
+      rendered: ackResult.rendered === true,
+      error: null,
+      attempted: true,
+    };
+  } catch (err) {
+    if (isSuccessNotice && options.allowDeferredRetry !== false && isMissingContentListenerError(err)) {
+      contentReadyByTab.delete(tabId);
+      return {
+        ...resultBase,
+        ok: false,
+        sent: false,
+        ack: null,
+        rendered: false,
+        error: 'content_not_ready',
+        attempted: true,
+        deferred: true,
+      };
     }
-  }
-  if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
-  if (lastError) {
-    console.warn('[ModeNotice] page notice delivery failed:', lastError?.message || lastError);
+    if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
+    console.warn('[ModeNotice] page notice delivery failed:', err?.message || err);
     logClientEventBestEffort({
       level: 'warning',
       category: 'content',
@@ -293,20 +359,18 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
       module: 'product/interceptor',
       message: 'Page notice delivery failed; system notification fallback used',
       domain: snapshotDomain,
-      details: { tabId, type: payload?.type || null, error: lastError?.message || String(lastError) },
+      details: { tabId, type: payload?.type || null, error: err?.message || String(err) },
     });
+    return {
+      ...resultBase,
+      ok: false,
+      sent: false,
+      ack: null,
+      rendered: false,
+      error: err?.message || 'notice_send_failed',
+      attempted: true,
+    };
   }
-  return {
-    ...resultBase,
-    ok: false,
-    sent: messageWasSent,
-    ack: lastAck,
-    rendered: lastRendered,
-    error: lastError?.message || 'notice_send_failed',
-    attempted: true,
-    injectionAttempted,
-    injectionResult,
-  };
 }
 
 async function sendTabPendingMessage(tabId, payload, fallbackMessage = null) {
@@ -324,7 +388,7 @@ export async function reSendPendingNoticeDetailed(tabId, currentDomain = null) {
   if (!stored) return { ...resultBase, error: 'pending_notice_missing' };
   // Check TTL
   if (Date.now() > (stored.expiresAt || stored.storedAt + PENDING_NOTICE_TTL_MS)) {
-    pendingSuccessNoticesByTab.delete(tabId);
+    clearPendingSuccessNotice(tabId);
     return { ...resultBase, error: 'pending_notice_expired', payload: stored.payload || null };
   }
   const normalizedCurrentDomain = normalizeDomainForNotice(currentDomain);
@@ -335,20 +399,27 @@ export async function reSendPendingNoticeDetailed(tabId, currentDomain = null) {
   // - both present but mismatch: do not resend
   // - only both present and equal may resend
   if (!normalizedCurrentDomain || !normalizedStoredDomain) {
-    pendingSuccessNoticesByTab.delete(tabId);
+    clearPendingSuccessNotice(tabId);
     return { ...resultBase, error: 'pending_notice_domain_missing', payload: stored.payload || null };
   }
   if (normalizedCurrentDomain !== normalizedStoredDomain) {
-    pendingSuccessNoticesByTab.delete(tabId);
+    clearPendingSuccessNotice(tabId);
     return { ...resultBase, error: 'pending_notice_domain_mismatch', payload: stored.payload || null };
+  }
+  const ready = contentReadyByTab.get(tabId);
+  if (ready?.readyAt && stored.lastDeliveredReadyAt === ready.readyAt) {
+    return {
+      ...resultBase,
+      error: 'pending_notice_already_delivered_to_ready_document',
+      payload: stored.payload || null,
+    };
   }
   const delivery = await sendTabPendingMessageDetailed(tabId, stored.payload, null, {
     storePendingOnSuccess: false,
     allowDeferredRetry: false,
+    requireReady: false,
   });
-  if (delivery.ok) {
-    pendingSuccessNoticesByTab.delete(tabId);
-  }
+  if (delivery.ok) markPendingDeliveredForCurrentReady(tabId);
   return delivery;
 }
 
@@ -361,7 +432,7 @@ export async function reSendPendingNotice(tabId, currentDomain = null) {
  */
 export function clearPendingNotice(tabId) {
   if (!Number.isInteger(tabId) || tabId < 0) return;
-  pendingSuccessNoticesByTab.delete(tabId);
+  clearPendingSuccessNotice(tabId);
 }
 
 function modeLabel(mode) {
@@ -405,27 +476,9 @@ export async function applyModeTransitionSideEffects({
 } = {}) {
   const normalizedFrom = normalizeMode(fromMode);
   const normalizedTo = normalizeMode(toMode);
-  const out = { pipCloseAttempted: false, pipCloseSent: false, studyNoticeSent: false };
-  const shouldClosePip = typeof shouldEnforcePictureInPicturePolicy === 'function'
-    ? shouldEnforcePictureInPicturePolicy()
-    : true;
-
-  if (shouldClosePip) {
-    out.pipCloseAttempted = true;
-    const cleanup = typeof closeForbiddenPictureInPicture === 'function'
-      ? await closeForbiddenPictureInPicture({
-        preferredTabId: Number.isInteger(tabId) ? tabId : null,
-        reason: 'mode_transition_pip_policy',
-      })
-      : { ok: false, handled: false, attempted: false };
-    out.pipCloseSent = cleanup.ok === true || cleanup.handled === true;
-    out.pipCloseResult = cleanup;
-  }
+  const out = { studyNoticeSent: false };
 
   if (sendStudyNotice && normalizedTo === 'study' && Number.isInteger(tabId) && tabId >= 0) {
-    if (shouldClosePip) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
     out.studyNoticeSent = await sendModeSwitchSuccessNotice(tabId, 'study', normalizedFrom, {
       domain,
       noticeText: studyNoticeText || '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
@@ -599,8 +652,8 @@ export async function sendNoticeForDecision(decision, { tabId, domain, fromMode,
 }
 
 // Mode access decisions are owned by product/mode-service.js. This module only
-// contains Chrome UI effects such as notices, Reminder redirects, PiP cleanup,
-// and declarative unsafe rules.
+// contains Chrome UI effects such as notices, Reminder redirects, and
+// declarative unsafe rules. PiP policy is enforced by media timing.
 
 export async function redirectToReminder(tabId, domain, reason, message, extraParams = null) {
   const queryParts = [

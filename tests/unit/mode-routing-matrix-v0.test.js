@@ -102,7 +102,7 @@ async function accessCase(name, {
   startedAt = null,
   restExitGraceUntilMs = null,
   url,
-  nowMs = 61_000,
+  nowMs = 31_000,
   quotaState = {},
   stats = {},
   configOverrides = {},
@@ -151,12 +151,14 @@ async function accessCase(name, {
       access: res.access,
       toMode: res.modeChange?.toMode,
       reason: res.modeChange?.reason,
+      setRestExitGrace: res.modeChange?.setRestExitGrace,
       notice: res.notice?.kind,
       noticeText: res.notice?.text,
     }, {
       access: 'allow',
       toMode: 'study',
       reason: 'rest_to_study',
+      setRestExitGrace: true,
       notice: 'rest_to_study_success',
       noticeText: '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
     });
@@ -172,10 +174,12 @@ async function accessCase(name, {
     expect('rest composite route', {
       toMode: res.modeChange?.toMode,
       reason: res.modeChange?.reason,
+      setRestExitGrace: res.modeChange?.setRestExitGrace,
       noticeText: res.notice?.text,
     }, {
       toMode: 'composite',
       reason: 'rest_to_composite',
+      setRestExitGrace: true,
       noticeText: '你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 1小时',
     });
   }
@@ -195,7 +199,7 @@ async function accessCase(name, {
     const res = await accessCase('Study -> Rest target inside Rest Exit Grace: no Reminder', {
       mode: 'study',
       startedAt: 1000,
-      restExitGraceUntilMs: 61_000,
+      restExitGraceUntilMs: 31_000,
       nowMs: 30_000,
       url: 'https://example.com',
     });
@@ -215,9 +219,9 @@ async function accessCase(name, {
   {
     const res = await accessCase('Study -> Rest target after Rest Exit Grace: Reminder', {
       mode: 'study',
-      startedAt: 61_500,
-      restExitGraceUntilMs: 61_000,
-      nowMs: 62_000,
+      startedAt: 31_500,
+      restExitGraceUntilMs: 31_000,
+      nowMs: 32_000,
       url: 'https://example.com',
     });
     expect('stable study needs reminder', {
@@ -234,9 +238,9 @@ async function accessCase(name, {
   {
     const res = await accessCase('Fresh current mode start does not extend expired Rest Exit Grace', {
       mode: 'composite',
-      startedAt: 61_500,
-      restExitGraceUntilMs: 61_000,
-      nowMs: 62_000,
+      startedAt: 31_500,
+      restExitGraceUntilMs: 31_000,
+      nowMs: 32_000,
       url: 'https://example.com',
     });
     expect('expired rest exit grace still needs reminder', {

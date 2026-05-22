@@ -71,8 +71,8 @@ Use the English term in this document body. Chinese is listed here only as produ
 8. Current Reminder pages for `Unclassified` and `Restricted Entertainment` provide Rest confirmation / return; website classification requests live in popup/site-governance flow, not in mode transition.
 9. HardBlocked / Unsafe allow no mode transition.
 10. `mode-service.js` is the only mode owner. It reads `guardian_session.currentMode`, commits `currentModeStartedAtMs`, maintains `restExitGraceUntilMs`, and emits mode-boundary intents.
-11. Rest-origin auto transitions are immediate. `Rest -> Study/Composite` starts a 60s Rest Exit Grace window: Rest targets return to Rest without Reminder and show an in-page notice.
-12. Study <-> Composite transitions do not extend Rest Exit Grace. Missing or expired `restExitGraceUntilMs` is treated as no grace.
+11. Rest-origin automatic access transitions are immediate. Only `Rest -> Study/Composite` caused by opening a Study Site or Composite Site / Pending Composite starts a 30s Rest Exit Grace window: Rest targets return to Rest without Reminder and show an in-page notice.
+12. Popup/manual mode switches clear any existing Rest Exit Grace and do not create a new one. Reminder-confirmed switches, quota-driven switches, and automatic Study <-> Composite transitions do not create or extend Rest Exit Grace. Missing or expired `restExitGraceUntilMs` is treated as no grace.
 13. Local quota expiry is a mode-transition event. The local `quota_check` alarm evaluates quota state and requests a mode change through Mode Service.
 14. Cloud quota sync only saves `quotaState` facts. It must not request mode changes, show Reminder, or recheck tabs.
 
@@ -83,7 +83,7 @@ Matrix vocabulary:
 - `reminder`: user action is required before any target mode transition.
 - `blocked reminder`: Reminder page with no continue path; return only.
 - `block`: direct hard block; no mode transition.
-- `Rest Exit Grace active`: `now < restExitGraceUntilMs`, set only by `Rest -> Study/Composite`.
+- `Rest Exit Grace active`: `now < restExitGraceUntilMs`, set only by automatic access-route `Rest -> Study/Composite`.
 - `Rest Exit Grace expired`: `restExitGraceUntilMs` is missing or no longer in the future.
 
 ### 6.1 Study mode
@@ -178,7 +178,7 @@ Local quota expiry is a mode transition source, but it enters through the same r
 <a id="notice-rest-to-composite-success"></a>
 #### notice: rest_to_composite_success
 - Trigger: Rest mode + Composite Site / Pending Composite + Composite quota available + foreground access.
-- Behavior: switch to Composite immediately; set `currentModeStartedAtMs`; start Rest Exit Grace.
+- Behavior: switch to Composite immediately; set `currentModeStartedAtMs`; start 30s Rest Exit Grace because this is an automatic access-route transition.
 - Notice: 4s transient success notice.
 - Copy:
 
@@ -187,7 +187,7 @@ Local quota expiry is a mode transition source, but it enters through the same r
 <a id="notice-rest-to-study-success"></a>
 #### notice: rest_to_study_success
 - Trigger: Rest mode + Study Site + foreground access.
-- Behavior: switch to Study immediately; set `currentModeStartedAtMs`; start Rest Exit Grace.
+- Behavior: switch to Study immediately; set `currentModeStartedAtMs`; start 30s Rest Exit Grace because this is an automatic access-route transition.
 - Notice: 4s transient success notice.
 - Copy: `你正在打开学习网站 · 即将进入学习模式 · 今日剩余 {remainingStudyTime}`
 
@@ -207,9 +207,11 @@ Local quota expiry is a mode transition source, but it enters through the same r
 
 ### 7.2 Rest Exit Grace Definition
 
-- Rest-origin Study/Composite transitions are immediate.
+- Rest-origin Study/Composite access-route transitions are immediate.
 - `mode-service.js` writes `guardian_session.currentModeStartedAtMs` when the mode changes.
-- `Rest -> Study/Composite` also writes `guardian_session.restExitGraceUntilMs = effectiveAtMs + 60_000`.
+- Only automatic access-route `Rest -> Study/Composite` writes `guardian_session.restExitGraceUntilMs = effectiveAtMs + 30_000`.
+- Popup/manual `REQUEST_MODE_CHANGE` clears any existing Rest Exit Grace and does not create a new one; this applies even when the requested mode equals the current mode.
+- `REMINDER_CONFIRMED` and quota-driven `EVALUATE_QUOTA_STATE` mode changes do not create Rest Exit Grace.
 - While `now < restExitGraceUntilMs`, opening Unclassified / Restricted Entertainment returns to Rest without Reminder and shows `notice: mode_grace_to_rest`.
 - Study <-> Composite transitions preserve the existing `restExitGraceUntilMs`; they must not extend it.
 - Entering Rest, Locked, or Paused clears `restExitGraceUntilMs`.
@@ -300,15 +302,18 @@ Protocol expectations:
 - `AUTO_MODE_PENDING_START` is a legacy renderer for retired Rest-origin dwell gates; it is not used by the current routing matrix.
 - `AUTO_MODE_PENDING_CANCEL` clears pending or transient notices for the current tab.
 - `AUTO_MODE_PENDING_SUCCESS` renders the 4s transient success/info notice.
-- `CONTENT_SCRIPT_READY` may replay only an unexpired transient notice whose `domainSnapshot` still matches the current page domain.
-- `chrome.tabs.sendMessage` failure is diagnostic only; fallback notification is allowed, but mode truth must remain independent of notice delivery.
-- Mode effects must return explicit notice delivery fields: `noticeAttempted`, `noticeTargetTabId`, `noticeSent`, and `noticeError`.
+- Page notices are provided by static `content_scripts`; dynamic `chrome.scripting.executeScript` fallback injection is not part of the release model.
+- `AUTO_MODE_PENDING_SUCCESS` is queued before delivery. If the tab is not ready, it waits for `CONTENT_SCRIPT_READY` instead of attempting dynamic injection.
+- `CONTENT_SCRIPT_READY` marks the sender tab ready and may deliver only an unexpired transient notice whose `domainSnapshot` still matches the current page domain.
+- `chrome.tabs.sendMessage` ACK decides whether the page notice rendered. Failure, missing ACK, ready timeout, or a non-injectable page is diagnostic only; fallback notification is allowed, but mode truth must remain independent of notice delivery.
+- Mode effects must return explicit notice delivery fields: `noticeAttempted`, `noticeTargetTabId`, `noticeSent`, `noticeAck`, `noticeRendered`, and `noticeError`.
 
 ### 7.6 Mode truth and ledger boundary relationship
 Mode truth comes from runtime session state, currently `guardian_session.currentMode`. `guardian_session.currentModeStartedAtMs` records when the current mode began. `guardian_session.restExitGraceUntilMs` records the independent Rest Exit Grace deadline. `config.mode` is only a legacy fallback.
 
 All manual and automatic mode transitions enter through `mode-service.js`:
 - automatic access routing: Chrome listeners build facts and dispatch `ACCESS_OBSERVED` to `handleModeEvent()`.
+- Normal and SPA navigations enter through `webNavigation.onCommitted` / `webNavigation.onHistoryStateUpdated`; ordinary access control must not depend on a one-second active-tab polling loop.
 - popup/manual/reminder actions: send `REQUEST_MODE_CHANGE` / `REMINDER_CONFIRMED`, then UI may query `GET_RUNTIME_MODE_STATUS`.
 - local quota expiry: `quota_check` sends `EVALUATE_QUOTA_STATE` to `handleModeEvent()`.
 - legacy `SWITCH_TO_STUDY` / `SWITCH_TO_REST` / `SWITCH_TO_COMPOSITE` messages are compatibility aliases that route into `REQUEST_MODE_CHANGE`.
@@ -322,7 +327,7 @@ Mode Service returns a complete decision object:
 - `notice`: in-page notice projection, or `null`.
 - `recheckActiveTab`: whether the current focused active tab should be re-evaluated after execution.
 
-The old mixed "check + remind + switch + quota fallback" function is retired. Reminder, notice, PiP cleanup and tab redirect are execution effects of a Mode Service decision, not independent routing logic.
+The old mixed "check + remind + switch + quota fallback" function is retired. Reminder, notice, and tab redirect are execution effects of a Mode Service decision, not independent routing logic. PiP cleanup is not a mode/product side effect: mode transition must not detect PiP, close PiP, scan media sessions, or record PiP cleanup results. The global PiP policy is owned by media timing / pip-policy and may run when media facts, media checkpoint, or media mode-boundary consumption observe an open `pip` session.
 
 Mode boundary accounting rules:
 - Mode switches enqueue a `mode_boundary` intent containing `id`, `boundaryAtMs`, `fromMode`, `toMode`, `reason`, and `source`.
