@@ -23,6 +23,8 @@ const HOURLY_STATS_KEY = 'hourly_usage_stats_v1';
 const SEGMENT_OUTBOX_KEY = 'segment_sync_outbox_v1';
 const STATS_OUTBOX_KEY = 'stats_sync_outbox_v1';
 const HOURLY_STATS_OUTBOX_KEY = 'hourly_stats_sync_outbox_v1';
+const TARGET_STATS_OUTBOX_KEY = 'target_stats_sync_outbox_v1';
+const HOURLY_TARGET_STATS_OUTBOX_KEY = 'hourly_target_stats_sync_outbox_v1';
 
 const DEFAULT_RETENTION_DAYS = 365;
 
@@ -589,6 +591,7 @@ export async function incrementHourlyUsageStats(segment) {
 
   await chrome.storage.local.set({ [HOURLY_STATS_KEY]: stats });
   await markHourlyStatsSyncDirty([...dirtyHourKeys]);
+  await markHourlyTargetStatsSyncDirty([...dirtyHourKeys]);
 }
 
 function applySegmentToDailyStats(day, segment) {
@@ -761,6 +764,7 @@ export async function rebuildDailyUsageStats(date, options = {}) {
   }
 
   await chrome.storage.local.set({ [DAILY_STATS_KEY]: stats });
+  await markTargetStatsSyncDirty([date]);
 
   return {
     date,
@@ -823,6 +827,7 @@ export async function rebuildHourlyUsageStats(dateOrHourKey, options = {}) {
   }
   const rebuiltHours = Object.keys(nextByHour).sort();
   await markHourlyStatsSyncDirty(rebuiltHours);
+  await markHourlyTargetStatsSyncDirty(rebuiltHours);
   return { target, date, rebuilt: true, rebuiltHours, segmentsUsed: includedSegments.length };
 }
 
@@ -951,6 +956,21 @@ export async function markStatsSyncDirty(dates) {
   await chrome.storage.local.set({ [STATS_OUTBOX_KEY]: outbox });
 }
 
+export async function markTargetStatsSyncDirty(dates) {
+  const dateList = Array.isArray(dates) ? dates : [dates];
+  const validDates = dateList.filter(d => d && typeof d === 'string');
+  if (validDates.length === 0) return;
+
+  const data = await chrome.storage.local.get(TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  const dirtySet = new Set(outbox.dirtyDates || []);
+
+  for (const d of validDates) dirtySet.add(d);
+
+  outbox.dirtyDates = [...dirtySet];
+  await chrome.storage.local.set({ [TARGET_STATS_OUTBOX_KEY]: outbox });
+}
+
 export async function markHourlyStatsSyncDirty(hourKeys) {
   const hourKeyList = Array.isArray(hourKeys) ? hourKeys : [hourKeys];
   const validHourKeys = hourKeyList.filter((key) => key && typeof key === 'string');
@@ -964,6 +984,21 @@ export async function markHourlyStatsSyncDirty(hourKeys) {
 
   outbox.dirtyHourKeys = [...dirtySet];
   await chrome.storage.local.set({ [HOURLY_STATS_OUTBOX_KEY]: outbox });
+}
+
+export async function markHourlyTargetStatsSyncDirty(hourKeys) {
+  const hourKeyList = Array.isArray(hourKeys) ? hourKeys : [hourKeys];
+  const validHourKeys = hourKeyList.filter((key) => key && typeof key === 'string');
+  if (validHourKeys.length === 0) return;
+
+  const data = await chrome.storage.local.get(HOURLY_TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
+  const dirtySet = new Set(outbox.dirtyHourKeys || []);
+
+  for (const key of validHourKeys) dirtySet.add(key);
+
+  outbox.dirtyHourKeys = [...dirtySet];
+  await chrome.storage.local.set({ [HOURLY_TARGET_STATS_OUTBOX_KEY]: outbox });
 }
 
 /**
@@ -984,6 +1019,18 @@ export async function clearStatsSyncOutbox() {
 export async function clearHourlyStatsSyncOutbox() {
   await chrome.storage.local.set({
     [HOURLY_STATS_OUTBOX_KEY]: { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} },
+  });
+}
+
+export async function clearTargetStatsSyncOutbox() {
+  await chrome.storage.local.set({
+    [TARGET_STATS_OUTBOX_KEY]: { dirtyDates: [], retryCounts: {}, lastErrors: {} },
+  });
+}
+
+export async function clearHourlyTargetStatsSyncOutbox() {
+  await chrome.storage.local.set({
+    [HOURLY_TARGET_STATS_OUTBOX_KEY]: { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} },
   });
 }
 
@@ -1037,6 +1084,30 @@ export async function getPendingDailyStats(dates = null) {
   };
 }
 
+export async function getPendingTargetStats(dates = null) {
+  const data = await chrome.storage.local.get([DAILY_STATS_KEY, TARGET_STATS_OUTBOX_KEY]);
+  const allStats = data[DAILY_STATS_KEY] || {};
+  const outbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [] };
+
+  const targetDates = dates
+    ? (Array.isArray(dates) ? dates : [dates])
+    : outbox.dirtyDates;
+
+  const stats = {};
+  for (const date of targetDates || []) {
+    if (allStats[date] && allStats[date].targets) {
+      stats[date] = allStats[date];
+    }
+  }
+
+  return {
+    stats,
+    pendingCount: (outbox.dirtyDates || []).length,
+    retryCounts: outbox.retryCounts || {},
+    lastErrors: outbox.lastErrors || {},
+  };
+}
+
 function targetStatsKey(segment) {
   if (typeof segment?.managedTargetId === 'string' && segment.managedTargetId.trim()) {
     return segment.managedTargetId.trim();
@@ -1069,6 +1140,7 @@ function makeEmptyTargetStats(segment, key) {
     activeByQuotaBucket: {},
     backgroundMediaByQuotaBucket: {},
     pipByQuotaBucket: {},
+    rows: {},
     firstSeenAt: null,
     lastSeenAt: null,
     lastUpdatedAt: null,
@@ -1089,6 +1161,17 @@ function applySegmentToTargetStats(targets, segment, nowMs = Date.now()) {
   const seconds = Number(segment.durationSeconds || 0);
   const modeKey = segment.mode || 'unknown';
   const quotaKey = segment.quotaBucketAtTime || modeKey || 'unknown';
+  const rowKey = `${segment.channel || 'active'}::${modeKey}::${quotaKey}`;
+  if (!ts.rows || typeof ts.rows !== 'object') ts.rows = {};
+  if (!ts.rows[rowKey]) {
+    ts.rows[rowKey] = {
+      channel: segment.channel || 'active',
+      mode: modeKey,
+      quotaBucket: quotaKey,
+      durationSeconds: 0,
+    };
+  }
+  ts.rows[rowKey].durationSeconds += seconds;
 
   if (segment.channel === 'active') {
     ts.activeSeconds += seconds;
@@ -1122,6 +1205,30 @@ export async function getPendingHourlyStats(hourKeys = null) {
   const stats = {};
   for (const hourKey of targetHourKeys || []) {
     if (allStats[hourKey] && allStats[hourKey].domains) {
+      stats[hourKey] = allStats[hourKey];
+    }
+  }
+
+  return {
+    stats,
+    pendingCount: (outbox.dirtyHourKeys || []).length,
+    retryCounts: outbox.retryCounts || {},
+    lastErrors: outbox.lastErrors || {},
+  };
+}
+
+export async function getPendingHourlyTargetStats(hourKeys = null) {
+  const data = await chrome.storage.local.get([HOURLY_STATS_KEY, HOURLY_TARGET_STATS_OUTBOX_KEY]);
+  const allStats = data[HOURLY_STATS_KEY] || {};
+  const outbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [] };
+
+  const targetHourKeys = hourKeys
+    ? (Array.isArray(hourKeys) ? hourKeys : [hourKeys])
+    : outbox.dirtyHourKeys;
+
+  const stats = {};
+  for (const hourKey of targetHourKeys || []) {
+    if (allStats[hourKey] && allStats[hourKey].targets) {
       stats[hourKey] = allStats[hourKey];
     }
   }
@@ -1250,6 +1357,44 @@ export async function markHourlyStatsUploaded(hourKeys, uploadedAt = Date.now())
   });
 }
 
+export async function markTargetStatsUploaded(dates, uploadedAt = Date.now()) {
+  const dateList = Array.isArray(dates) ? dates : [dates];
+  if (dateList.length === 0) return;
+
+  const data = await chrome.storage.local.get(TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [] };
+
+  const dateSet = new Set(dateList);
+  outbox.dirtyDates = (outbox.dirtyDates || []).filter(d => !dateSet.has(d));
+  if (!outbox.retryCounts || typeof outbox.retryCounts !== 'object') outbox.retryCounts = {};
+  if (!outbox.lastErrors || typeof outbox.lastErrors !== 'object') outbox.lastErrors = {};
+  for (const date of dateSet) {
+    delete outbox.retryCounts[date];
+    delete outbox.lastErrors[date];
+  }
+
+  await chrome.storage.local.set({ [TARGET_STATS_OUTBOX_KEY]: outbox });
+}
+
+export async function markHourlyTargetStatsUploaded(hourKeys, uploadedAt = Date.now()) {
+  const hourKeyList = Array.isArray(hourKeys) ? hourKeys : [hourKeys];
+  if (hourKeyList.length === 0) return;
+
+  const data = await chrome.storage.local.get(HOURLY_TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [] };
+
+  const hourKeySet = new Set(hourKeyList);
+  outbox.dirtyHourKeys = (outbox.dirtyHourKeys || []).filter((key) => !hourKeySet.has(key));
+  if (!outbox.retryCounts || typeof outbox.retryCounts !== 'object') outbox.retryCounts = {};
+  if (!outbox.lastErrors || typeof outbox.lastErrors !== 'object') outbox.lastErrors = {};
+  for (const hourKey of hourKeySet) {
+    delete outbox.retryCounts[hourKey];
+    delete outbox.lastErrors[hourKey];
+  }
+
+  await chrome.storage.local.set({ [HOURLY_TARGET_STATS_OUTBOX_KEY]: outbox });
+}
+
 /**
  * 记录统计数据上传失败。保留出站中的脏日期。
  */
@@ -1286,6 +1431,46 @@ export async function markHourlyStatsUploadFailed(hourKeys, error = 'unknown_err
   outbox.dirtyHourKeys = [...dirtySet];
 
   await chrome.storage.local.set({ [HOURLY_STATS_OUTBOX_KEY]: outbox });
+}
+
+export async function markTargetStatsUploadFailed(dates, error = 'unknown_error') {
+  const dateList = Array.isArray(dates) ? dates : [dates];
+  if (dateList.length === 0) return;
+
+  const data = await chrome.storage.local.get(TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  const dirtySet = new Set(outbox.dirtyDates || []);
+  if (!outbox.retryCounts || typeof outbox.retryCounts !== 'object') outbox.retryCounts = {};
+  if (!outbox.lastErrors || typeof outbox.lastErrors !== 'object') outbox.lastErrors = {};
+
+  for (const d of dateList) {
+    dirtySet.add(d);
+    outbox.retryCounts[d] = (outbox.retryCounts[d] || 0) + 1;
+    outbox.lastErrors[d] = error;
+  }
+  outbox.dirtyDates = [...dirtySet];
+
+  await chrome.storage.local.set({ [TARGET_STATS_OUTBOX_KEY]: outbox });
+}
+
+export async function markHourlyTargetStatsUploadFailed(hourKeys, error = 'unknown_error') {
+  const hourKeyList = Array.isArray(hourKeys) ? hourKeys : [hourKeys];
+  if (hourKeyList.length === 0) return;
+
+  const data = await chrome.storage.local.get(HOURLY_TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
+  const dirtySet = new Set(outbox.dirtyHourKeys || []);
+  if (!outbox.retryCounts || typeof outbox.retryCounts !== 'object') outbox.retryCounts = {};
+  if (!outbox.lastErrors || typeof outbox.lastErrors !== 'object') outbox.lastErrors = {};
+
+  for (const key of hourKeyList) {
+    dirtySet.add(key);
+    outbox.retryCounts[key] = (outbox.retryCounts[key] || 0) + 1;
+    outbox.lastErrors[key] = error;
+  }
+  outbox.dirtyHourKeys = [...dirtySet];
+
+  await chrome.storage.local.set({ [HOURLY_TARGET_STATS_OUTBOX_KEY]: outbox });
 }
 
 // ── 出站清理 ────────────────────────────────────────────────────────────────────
@@ -1355,6 +1540,29 @@ export async function pruneStatsSyncOutbox(retentionDays = DEFAULT_RETENTION_DAY
   return originalDates.length - outbox.dirtyDates.length;
 }
 
+export async function pruneTargetStatsSyncOutbox(retentionDays = DEFAULT_RETENTION_DAYS) {
+  const data = await chrome.storage.local.get(TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+
+  const originalDates = outbox.dirtyDates || [];
+  outbox.dirtyDates = originalDates.filter(d => new Date(d) >= cutoff);
+
+  const prunedRetry = {};
+  for (const [date, count] of Object.entries(outbox.retryCounts || {})) {
+    if (new Date(date) >= cutoff) {
+      prunedRetry[date] = count;
+    }
+  }
+  outbox.retryCounts = prunedRetry;
+
+  await chrome.storage.local.set({ [TARGET_STATS_OUTBOX_KEY]: outbox });
+
+  return originalDates.length - outbox.dirtyDates.length;
+}
+
 export async function pruneHourlyStatsSyncOutbox(retentionDays = DEFAULT_RETENTION_DAYS) {
   const data = await chrome.storage.local.get(HOURLY_STATS_OUTBOX_KEY);
   const outbox = data[HOURLY_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
@@ -1374,6 +1582,28 @@ export async function pruneHourlyStatsSyncOutbox(retentionDays = DEFAULT_RETENTI
   outbox.retryCounts = prunedRetry;
 
   await chrome.storage.local.set({ [HOURLY_STATS_OUTBOX_KEY]: outbox });
+  return originalHourKeys.length - outbox.dirtyHourKeys.length;
+}
+
+export async function pruneHourlyTargetStatsSyncOutbox(retentionDays = DEFAULT_RETENTION_DAYS) {
+  const data = await chrome.storage.local.get(HOURLY_TARGET_STATS_OUTBOX_KEY);
+  const outbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+
+  const originalHourKeys = outbox.dirtyHourKeys || [];
+  outbox.dirtyHourKeys = originalHourKeys.filter((key) => new Date(String(key).slice(0, 10)) >= cutoff);
+
+  const prunedRetry = {};
+  for (const [hourKey, count] of Object.entries(outbox.retryCounts || {})) {
+    if (new Date(String(hourKey).slice(0, 10)) >= cutoff) {
+      prunedRetry[hourKey] = count;
+    }
+  }
+  outbox.retryCounts = prunedRetry;
+
+  await chrome.storage.local.set({ [HOURLY_TARGET_STATS_OUTBOX_KEY]: outbox });
   return originalHourKeys.length - outbox.dirtyHourKeys.length;
 }
 
@@ -1496,6 +1726,77 @@ export async function buildDailyStatsUploadPayload(date) {
   };
 }
 
+function buildTargetRows(targets) {
+  const rows = [];
+  for (const [targetKey, ts] of Object.entries(targets || {})) {
+    if (!ts || typeof ts !== 'object') continue;
+    const activeSeconds = Number(ts.activeSeconds || 0);
+    const backgroundMediaSeconds = Number(ts.backgroundMediaSeconds || 0);
+    const pipSeconds = Number(ts.pipSeconds || 0);
+    const totalSeconds = Number.isFinite(ts.totalSeconds)
+      ? Number(ts.totalSeconds)
+      : activeSeconds + backgroundMediaSeconds + pipSeconds;
+    if (totalSeconds <= 0) continue;
+
+    rows.push({
+      targetKey: ts.targetKey || targetKey,
+      managedTargetId: ts.managedTargetId || null,
+      managedTargetType: ts.managedTargetType || null,
+      managedTargetNamespace: ts.managedTargetNamespace || null,
+      managedTargetValue: ts.managedTargetValue || null,
+      managedTargetLabelAtTime: ts.managedTargetLabelAtTime || null,
+      targetSourceAtTime: ts.targetSourceAtTime || null,
+      targetRuleId: ts.targetRuleId || null,
+      targetMatchLevel: ts.targetMatchLevel || null,
+      targetClassificationAtTime: ts.targetClassificationAtTime || null,
+      fallbackDomain: ts.fallbackDomain || null,
+      isFallback: !!ts.isFallback,
+      activeSeconds,
+      backgroundMediaSeconds,
+      pipSeconds,
+      totalSeconds,
+      activeByMode: ts.activeByMode || {},
+      backgroundMediaByMode: ts.backgroundMediaByMode || {},
+      pipByMode: ts.pipByMode || {},
+      activeByQuotaBucket: ts.activeByQuotaBucket || {},
+      backgroundMediaByQuotaBucket: ts.backgroundMediaByQuotaBucket || {},
+      pipByQuotaBucket: ts.pipByQuotaBucket || {},
+      rows: Object.values(ts.rows || {}).filter((row) =>
+        row && typeof row === 'object' && Number(row.durationSeconds || 0) > 0
+      ),
+      firstSeenAt: ts.firstSeenAt || null,
+      lastSeenAt: ts.lastSeenAt || null,
+      lastUpdatedAt: ts.lastUpdatedAt || null,
+    });
+  }
+  return rows;
+}
+
+/**
+ * 构建每日 managed target 统计上传载荷。
+ * 目标端点：POST /device/target-stats/v1
+ */
+export async function buildTargetStatsUploadPayload(date) {
+  const data = await chrome.storage.local.get(DAILY_STATS_KEY);
+  const allStats = data[DAILY_STATS_KEY] || {};
+  const dayStats = allStats[date];
+
+  if (!dayStats || !dayStats.targets) {
+    return { schemaVersion: 1, date, timezone: 'Asia/Shanghai', dayStartMs: null, dayEndMs: null, targets: [] };
+  }
+
+  return {
+    schemaVersion: 1,
+    date,
+    timezone: dayStats.timezone || 'Asia/Shanghai',
+    dayStartMs: dayStats.dayStartMs,
+    dayEndMs: dayStats.dayEndMs,
+    segmentsCount: dayStats.segmentsCount || 0,
+    lastSegmentId: dayStats.lastSegmentId || null,
+    targets: buildTargetRows(dayStats.targets),
+  };
+}
+
 export async function buildHourlyStatsUploadPayload(hourKey) {
   const data = await chrome.storage.local.get(HOURLY_STATS_KEY);
   const allStats = data[HOURLY_STATS_KEY] || {};
@@ -1539,6 +1840,35 @@ export async function buildHourlyStatsUploadPayload(hourKey) {
     segmentsCount: hourStats.segmentsCount || 0,
     lastSegmentId: hourStats.lastSegmentId || null,
     domains,
+  };
+}
+
+/**
+ * 构建每小时 managed target 统计上传载荷。
+ * 目标端点：POST /device/hourly-target-stats/v1
+ */
+export async function buildHourlyTargetStatsUploadPayload(hourKey) {
+  const data = await chrome.storage.local.get(HOURLY_STATS_KEY);
+  const allStats = data[HOURLY_STATS_KEY] || {};
+  const hourStats = allStats[hourKey];
+
+  if (!hourStats || !hourStats.targets) {
+    const date = typeof hourKey === 'string' ? hourKey.slice(0, 10) : null;
+    const hour = typeof hourKey === 'string' ? Number(hourKey.slice(11, 13)) : null;
+    return { schemaVersion: 1, hourKey, date, hour, timezone: 'Asia/Shanghai', hourStartMs: null, hourEndMs: null, targets: [] };
+  }
+
+  return {
+    schemaVersion: 1,
+    hourKey,
+    date: hourStats.date || String(hourKey).slice(0, 10),
+    hour: Number.isInteger(hourStats.hour) ? hourStats.hour : Number(String(hourKey).slice(11, 13)),
+    timezone: hourStats.timezone || 'Asia/Shanghai',
+    hourStartMs: hourStats.hourStartMs,
+    hourEndMs: hourStats.hourEndMs,
+    segmentsCount: hourStats.segmentsCount || 0,
+    lastSegmentId: hourStats.lastSegmentId || null,
+    targets: buildTargetRows(hourStats.targets),
   };
 }
 
@@ -1698,6 +2028,8 @@ export async function settleUsageDuration(input) {
   }
   await markStatsSyncDirty([...datesSet]);
   await markHourlyStatsSyncDirty([...hourKeysSet]);
+  await markTargetStatsSyncDirty([...datesSet]);
+  await markHourlyTargetStatsSyncDirty([...hourKeysSet]);
 
   return appended;
 }

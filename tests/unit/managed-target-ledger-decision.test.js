@@ -30,16 +30,16 @@ const usageSegments = read('extension/core/usage-segments.js');
 const managedStatistics = read('extension/stats/managed-statistics.js');
 
 check('D-045 is recorded in decisions', decisions.includes('D-045') && decisions.includes('ManagedTarget 统计账本身份模型升级'));
-check('managed target decision doc is explicitly pending implementation', decisionDoc.includes('Status: Accepted architecture direction; implementation pending.'));
+check('managed target decision doc marks partial implementation', decisionDoc.includes('Status: Partially implemented.'));
 check('decision doc keeps domain as factual compatibility field', decisionDoc.includes('`domain` remains required as a factual and compatibility field.'));
 check('decision doc states unmanaged URLs are not persisted', decisionDoc.includes('Unmanaged browsing must not persist full URLs.'));
-check('stats foundation marks D-045 as not implemented', statsFoundation.includes('D-045，未实现') || statsFoundation.includes('D-045 实施时'));
-check('design marks current implementation as domain-first', design.includes('当前实现仍是 domain-first'));
-check('changelog says code remains domain-first until a separate milestone', changelog.includes('current code remains domain-first until a separate implementation milestone'));
+check('stats foundation marks D-045 first phase implemented', statsFoundation.includes('D-045，已实现第一阶段') && statsFoundation.includes('target_stats_v1'));
+check('design marks managedTarget first phase implemented', design.includes('当前实现已完成 D-045 第一阶段'));
+check('changelog records managedTarget implementation', changelog.includes('ManagedTarget ledger implementation'));
 
 check('usage segment builder now supports managed target snapshot fields', usageSegments.includes('managedTargetId:') && usageSegments.includes('quotaBucketAtTime'));
 check('daily aggregate keeps domain compatibility and adds target rows', usageSegments.includes('const domainKey = segment.domain') && usageSegments.includes('day.targets') && usageSegments.includes('fallback:domain:'));
-check('current managed statistics still classifies domain stats before implementation', managedStatistics.includes('classifyDomainForManagedStats') && managedStatistics.includes('resolveSiteAccessClassification'));
+check('managed statistics exposes target-first quota view', managedStatistics.includes('quotaSource') && managedStatistics.includes('target_quota_bucket'));
 
 const total = passed + failed;
 console.log(`\n[ManagedTarget Ledger Decision] ${passed}/${total} passed${failed ? ' FAILED' : ''}`);

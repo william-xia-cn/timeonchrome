@@ -71,17 +71,17 @@
 - `daily_usage_stats_v1` 与 `hourly_usage_stats_v1` 是从 segments 构建的**物化聚合**，不应独立写入
 - 云同步先上传 segments，然后可以从云端 segments 派生/对账聚合数据
 
-### 2.2.1 ManagedTarget 账本身份升级（已决策，未实现）
+### 2.2.1 ManagedTarget 账本身份升级（已实现第一阶段）
 
-D-045 确认后续统计身份模型将从 `domain-only` 升级为 `managedTarget + fallback domain`。当前代码和 schema 仍是 domain-first；本节只记录后续架构方向，详细决策见 `docs/MANAGED_TARGET_LEDGER.md`。
+D-045 确认统计身份模型从 `domain-only` 升级为 `managedTarget + fallback domain`。当前第一阶段已经实现本地 resolver、segment 快照、本地 daily/hourly target 聚合、云端 usage segment 快照字段、`target_stats_v1` / `hourly_target_stats_v1` 上传查询，以及 admin/Pages target-first 读取。详细决策见 `docs/MANAGED_TARGET_LEDGER.md`。
 
-后续实现时，`usage_segments_v1` 必须在 segment open / split 时固化当时命中的 managedTarget 与 `quotaBucketAtTime` 快照。历史 segment 不得在读取统计时按当前规则重新解释。`domain` 保持必填事实字段，用于诊断、兼容和未命中显式 target 时的 fallback。
+`usage_segments_v1` 在 segment open / split 时固化当时命中的 managedTarget 与 `quotaBucketAtTime` 快照。历史 segment 不得在读取统计时按当前规则重新解释。`domain` 保持必填事实字段，用于诊断、兼容和未命中显式 target 时的 fallback。
 
 managedTarget 只表示显式配置的管理对象，不代表所有浏览 URL。未命中显式 target 时不得保存完整 URL。普通统计按层级归集：playlist > standalone video / explicit URL（无 playlist 上下文时）> platform entry > subdomain > domain > unmanaged domain fallback。
 
 ### 2.3 这些存储禁止包含的内容
 
-当前 domain-first schema 中，以下业务解释不得写入 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 作为可变读时分类：
+当前 schema 中，以下业务解释不得写入 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 作为可变读时分类：
 
 - 网站分类标签（study site / composite site / restricted / blocked）
 - 策略决策（allowed / blocked / borrow / temporary composite）
@@ -94,7 +94,7 @@ D-045 实施后，`targetClassificationAtTime` / `quotaBucketAtTime` 属于 segm
 
 - `event_log_v1` 是短期恢复/调试追踪（24 小时保留）
 - 它既不是持久的逐段记录，也不是每日聚合存储
-- 统计数据必须持久化到 `usage_segments_v1`，并同步维护 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 物化索引
+- 统计数据必须持久化到 `usage_segments_v1`，并同步维护 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 的 `domains` 与 `targets` 物化索引
 
 ---
 
@@ -462,11 +462,13 @@ usage_segments_v1 (chrome.storage.local)
 | `mode` | string | ✅ | Runtime/product mode：`study` / `composite` / `rest` / `locked` / `paused`；`unknown` 只允许作为 ledger fallback，不是产品/runtime mode |
 | `sourceState` | string | ✅ | 产生该 segment 的原始 STATE_WEIGHTS 状态（`ACTIVE` / `BACKGROUND_ACTIVE` / `PIP_ACTIVE`）|
 
-#### ManagedTarget 快照字段（D-045，未实现）
+#### ManagedTarget 快照字段（D-045，已实现第一阶段）
 
-当前 schema 尚未包含 managedTarget 字段。D-045 实施时，`usage_segments_v1` 需要新增开账时快照字段，至少包括：`managedTargetId`、`managedTargetType`、`managedTargetNamespace`、`managedTargetValue`、`managedTargetLabelAtTime`、`targetSourceAtTime`、`targetRuleId`、`targetMatchLevel`、`targetClassificationAtTime`、`quotaBucketAtTime`。
+当前 `usage_segments_v1` 本地账本与云端上传 schema 包含开账时 managedTarget 快照字段：`managedTargetId`、`managedTargetType`、`managedTargetNamespace`、`managedTargetValue`、`managedTargetLabelAtTime`、`targetSourceAtTime`、`targetRuleId`、`targetMatchLevel`、`targetClassificationAtTime`、`quotaBucketAtTime`。
 
 这些字段必须按 segment open / split 时的匹配结果固化，不得在读取统计时按当前规则回算。未命中显式 managedTarget 时不得保存完整 URL，只允许保留 `domain` fallback。
+
+这些字段不参与 segment ID 生成，避免 target label、诊断字段或规则展示信息变化破坏幂等上传。
 
 #### 结算元数据
 
@@ -483,7 +485,7 @@ usage_segments_v1 (chrome.storage.local)
 
 `usage_segments_v1` 的本地账本 schema 可以包含诊断字段，例如 `description`、`tabId`、`windowId`，用于保存 segment 的 open/close 操作来源、reason、可读摘要和运行期 tab/window 引用。
 
-当前 `buildUsageSegmentsUploadPayload()` 仍是显式白名单构造器：它只输出云端 v1 ingestion 固定字段，不会把本地 segment 对象上的所有字段透传到 Worker。当前白名单已经包含 `description`、`tabId`、`windowId`；云端 D1 `usage_segments_v1` 以 `description_json`、`tab_id`、`window_id` 保存，并在 Pages 云端落账明细中以紧凑备注列展示。
+当前 `buildUsageSegmentsUploadPayload()` 仍是显式白名单构造器：它只输出云端 v1 ingestion 固定字段，不会把本地 segment 对象上的所有字段透传到 Worker。当前白名单已经包含 `description`、`tabId`、`windowId` 和 managedTarget 快照字段；云端 D1 `usage_segments_v1` 以 `description_json`、`tab_id`、`window_id` 和 `managed_target_*` / `quota_bucket_at_time` 保存，并在 Pages 云端落账明细中以紧凑备注列展示。
 
 字段一致性仍以白名单为准：新增本地字段不会自动进入云端；若未来增加新的诊断或分析字段，必须同步修改上传 payload、Worker 校验/插入、D1 migration、云端查询、Pages/admin 展示和测试。
 
@@ -552,7 +554,7 @@ hourly_usage_stats_v1 (chrome.storage.local)
 
 `hourly_usage_stats_v1` 是从 `usage_segments_v1` 构建的**小时物化视图**，用于小时级报表、配额对账和云端小时查询。它不是新的事实账本，不替代 `usage_segments_v1` 或 `daily_usage_stats_v1`。
 
-小时 key 使用用户本地时间：`hourKey = YYYY-MM-DDTHH`，例如 `2026-05-21T14`。每个 hour entry 包含 `hourKey/date/hour/timezone/hourStartMs/hourEndMs/segmentsCount/lastSegmentId/domains`。domain shape 与 `daily_usage_stats_v1` 对齐：`activeSeconds/backgroundMediaSeconds/pipSeconds/totalSeconds`、`activeByMode/backgroundMediaByMode/pipByMode`、`firstSeenAt/lastSeenAt/lastUpdatedAt`。
+小时 key 使用用户本地时间：`hourKey = YYYY-MM-DDTHH`，例如 `2026-05-21T14`。每个 hour entry 包含 `hourKey/date/hour/timezone/hourStartMs/hourEndMs/segmentsCount/lastSegmentId/domains/targets`。domain shape 与 `daily_usage_stats_v1` 对齐：`activeSeconds/backgroundMediaSeconds/pipSeconds/totalSeconds`、`activeByMode/backgroundMediaByMode/pipByMode`、`firstSeenAt/lastSeenAt/lastUpdatedAt`。target shape 额外包含 managedTarget 快照、`fallbackDomain/isFallback`、`activeByQuotaBucket/backgroundMediaByQuotaBucket/pipByQuotaBucket` 和精确的 `rows[{channel, mode, quotaBucket, durationSeconds}]`，用于云端 `target_stats_v1` / `hourly_target_stats_v1`。
 
 跨小时 segment 不物理拆分 `usage_segments_v1`。聚合时按本地小时边界生成 hour slices，每个 slice 继承原 segment 的 `domain/channel/mode`。所有 slice 的秒数之和必须等于原 segment 的 `durationSeconds`；毫秒余数按确定性规则分配给余数较大的 slice，保证小时聚合与 segment 总秒数可对账。`rebuildHourlyUsageStats(dateOrHourKey)` 必须从 segments 重建小时索引，用于修复、测试和 suspect cleanup 后的对账。
 

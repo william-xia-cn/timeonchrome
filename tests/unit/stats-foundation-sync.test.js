@@ -72,13 +72,19 @@ const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2
 // ── Load modules ──
 const usageApi = loadModule('core/usage-segments.js', [
   'settleUsageDuration', 'buildUsageSegmentsUploadPayload', 'buildDailyStatsUploadPayload', 'buildHourlyStatsUploadPayload',
+  'buildTargetStatsUploadPayload', 'buildHourlyTargetStatsUploadPayload',
   'getPendingUsageSegments', 'getPendingDailyStats', 'getPendingHourlyStats',
+  'getPendingTargetStats', 'getPendingHourlyTargetStats',
   'markUsageSegmentsUploaded', 'markUsageSegmentUploadFailed',
   'markDailyStatsUploaded', 'markDailyStatsUploadFailed',
   'markHourlyStatsUploaded', 'markHourlyStatsUploadFailed',
+  'markTargetStatsUploaded', 'markTargetStatsUploadFailed',
+  'markHourlyTargetStatsUploaded', 'markHourlyTargetStatsUploadFailed',
   'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
+  'markTargetStatsSyncDirty', 'markHourlyTargetStatsSyncDirty',
   'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
   'clearSegmentSyncOutbox', 'clearStatsSyncOutbox', 'clearHourlyStatsSyncOutbox',
+  'clearTargetStatsSyncOutbox', 'clearHourlyTargetStatsSyncOutbox',
 ]);
 
 // ── TB1: Full segment upload pipeline (settle → outbox → payload → mock upload → outbox cleared) ──
@@ -242,12 +248,23 @@ chk('stats payload activeByMode.rest', spDom.activeByMode.rest, 100);
 chk('stats payload has backgroundMediaByMode', typeof spDom.backgroundMediaByMode, 'object');
 chk('stats payload backgroundMediaByMode.rest', spDom.backgroundMediaByMode.rest, 400);
 
+const targetStatsPayload = await usageApi.buildTargetStatsUploadPayload(todayStr);
+chkT('target stats payload has targets', Array.isArray(targetStatsPayload.targets));
+chk('target stats payload target count', targetStatsPayload.targets.length, 1);
+chk('target stats fallback key', targetStatsPayload.targets[0].targetKey, 'fallback:domain:daily.com');
+chk('target stats fallback domain', targetStatsPayload.targets[0].fallbackDomain, 'daily.com');
+chk('target stats activeByMode.study', targetStatsPayload.targets[0].activeByMode.study, 100);
+chk('target stats activeByQuotaBucket.study', targetStatsPayload.targets[0].activeByQuotaBucket.study, 100);
+
 // Simulate successful upload
 await usageApi.markDailyStatsUploaded([todayStr]);
+await usageApi.markTargetStatsUploaded([todayStr]);
 
 // Verify outbox cleared
 statsPending = await usageApi.getPendingDailyStats();
 chk('stats outbox cleared after upload', statsPending.pendingCount, 0);
+const targetStatsPendingAfterUpload = await usageApi.getPendingTargetStats();
+chk('target stats outbox cleared after upload', targetStatsPendingAfterUpload.pendingCount, 0);
 
 // Verify daily_usage_stats_v1 is NOT deleted after upload
 const dailyStatsAfter = await usageApi.getDailyUsageStats(todayStr);
@@ -267,9 +284,15 @@ chkT('hourly payload has hourKey', !!hourlyPayload.hourKey);
 chkT('hourly payload has domains', Array.isArray(hourlyPayload.domains));
 chk('hourly payload domain name', hourlyPayload.domains[0].domain, 'daily.com');
 chkT('hourly payload has activeByMode', !!hourlyPayload.domains[0].activeByMode);
+const hourlyTargetPayload = await usageApi.buildHourlyTargetStatsUploadPayload(hourlyKeys[0]);
+chkT('hourly target payload has targets', Array.isArray(hourlyTargetPayload.targets));
+chk('hourly target payload key', hourlyTargetPayload.targets[0].targetKey, 'fallback:domain:daily.com');
 await usageApi.markHourlyStatsUploaded(hourlyKeys);
+await usageApi.markHourlyTargetStatsUploaded(hourlyKeys);
 const hourlyPendingAfter = await usageApi.getPendingHourlyStats();
 chk('hourly stats outbox cleared after upload', hourlyPendingAfter.pendingCount, 0);
+const hourlyTargetPendingAfter = await usageApi.getPendingHourlyTargetStats();
+chk('hourly target stats outbox cleared after upload', hourlyTargetPendingAfter.pendingCount, 0);
 
 // ── TB5: Daily stats upload failure preserves outbox ──
 sec('TB5: Daily stats upload failure preserves outbox');

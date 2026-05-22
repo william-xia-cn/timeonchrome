@@ -2646,9 +2646,11 @@ function buildCloudSettlementRemarkHtml(row, sourceLabel = null) {
   const open = cloudEndpointOperation(row?.description, 'start');
   const close = cloudEndpointOperation(row?.description, 'end');
   const source = sourceLabel || row?.sourceState || '—';
-  const title = `tab=${tab}; window=${win}; open=${open}; close=${close}; source=${source}`;
+  const target = row?.managedTargetLabelAtTime || row?.managedTargetValue || row?.managedTargetId || '—';
+  const title = `target=${target}; tab=${tab}; window=${win}; open=${open}; close=${close}; source=${source}`;
   return `
     <div style="line-height:1.45;white-space:nowrap;" title="${escHtml(title)}">
+      <div>target：${escHtml(target)}</div>
       <div>tab：${escHtml(tab)}</div>
       <div>window：${escHtml(win)}</div>
       <div>open：${escHtml(open)}</div>
@@ -3510,7 +3512,30 @@ function normalizeStatsRows(rows = []) {
   })).filter((s) => s.date && s.domain && s.duration > 0);
 }
 
+function normalizeTargetStatsRows(rows = []) {
+  return (rows || []).map((s) => {
+    const label = s.managed_target_label_at_time || s.managedTargetLabelAtTime ||
+      s.managed_target_value || s.managedTargetValue ||
+      s.fallback_domain || s.fallbackDomain ||
+      s.managed_target_id || s.managedTargetId ||
+      s.target_key || s.targetKey;
+    return {
+      date: s.date,
+      domain: label,
+      duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
+    };
+  }).filter((s) => s.date && s.domain && s.duration > 0);
+}
+
 async function fetchProfileStats(from, to) {
+  try {
+    const targetV1 = await api(`/profiles/${currentProfileId}/target-stats/v1?from=${from}&to=${to}`);
+    const stats = normalizeTargetStatsRows(targetV1.stats || []);
+    if (stats.length > 0) return { stats, source: 'target-v1' };
+  } catch (e) {
+    console.warn('[Stats] target v1 read failed, falling back to domain stats:', e?.message || e);
+  }
+
   try {
     const v1 = await api(`/profiles/${currentProfileId}/stats/v1?from=${from}&to=${to}`);
     const stats = normalizeStatsRows(v1.stats || []);

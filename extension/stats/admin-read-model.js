@@ -147,7 +147,7 @@ function addModeSeconds(target, source = {}) {
 }
 
 function convertDailyStatsToLegacyShape(dayStats) {
-  if (!dayStats || !dayStats.domains) {
+  if (!dayStats || (!dayStats.domains && !dayStats.targets)) {
     return {
       audioSeconds: 0,
       backgroundMediaByDomain: {},
@@ -155,6 +155,74 @@ function convertDailyStatsToLegacyShape(dayStats) {
       pipByDomain: {},
     };
   }
+
+  if (dayStats.targets && Object.keys(dayStats.targets).length > 0) {
+    const result = {};
+    const backgroundMediaByDomain = {};
+    const pipByDomain = {};
+    const targetRows = [];
+    let audioSeconds = 0;
+    let pipSeconds = 0;
+    let studySeconds = 0;
+    let restSeconds = 0;
+    let compositeSeconds = 0;
+    let lockedSeconds = 0;
+
+    for (const [targetKey, ts] of Object.entries(dayStats.targets || {})) {
+      if (!ts) continue;
+      const label = ts.managedTargetLabelAtTime || ts.managedTargetValue || ts.fallbackDomain || targetKey;
+      const active = Math.max(0, Number(ts.activeSeconds) || 0);
+      const pip = Math.max(0, Number(ts.pipSeconds) || 0);
+      const background = Math.max(0, Number(ts.backgroundMediaSeconds) || 0);
+      const online = active + pip;
+      if (online > 0) result[label] = (result[label] || 0) + online;
+      if (background > 0) {
+        backgroundMediaByDomain[label] = (backgroundMediaByDomain[label] || 0) + background;
+        audioSeconds += background;
+      }
+      if (pip > 0) {
+        pipByDomain[label] = (pipByDomain[label] || 0) + pip;
+        pipSeconds += pip;
+      }
+      const addQuota = (bucketMap = {}) => {
+        studySeconds += Math.max(0, Number(bucketMap.study) || 0);
+        compositeSeconds += Math.max(0, Number(bucketMap.composite) || 0);
+        restSeconds += Math.max(0, Number(bucketMap.rest) || 0);
+        lockedSeconds += Math.max(0, Number(bucketMap.locked) || 0);
+      };
+      addQuota(ts.activeByQuotaBucket);
+      addQuota(ts.pipByQuotaBucket);
+      targetRows.push({
+        targetKey,
+        label,
+        seconds: online,
+        fallbackDomain: ts.fallbackDomain || null,
+        managedTargetId: ts.managedTargetId || null,
+        managedTargetType: ts.managedTargetType || null,
+        targetClassificationAtTime: ts.targetClassificationAtTime || null,
+        quotaBuckets: {
+          active: ts.activeByQuotaBucket || {},
+          pip: ts.pipByQuotaBucket || {},
+        },
+        isFallback: !!ts.isFallback,
+      });
+    }
+    return {
+      ...result,
+      audioSeconds,
+      backgroundMediaByDomain,
+      pipSeconds,
+      pipByDomain,
+      studySeconds,
+      restSeconds,
+      compositeSeconds,
+      undeterminedSeconds: compositeSeconds,
+      lockedSeconds,
+      targetRows,
+      sourceKind: 'target',
+    };
+  }
+
   const result = {};
   const backgroundMediaByDomain = {};
   const pipByDomain = {};
@@ -200,12 +268,24 @@ function splitStatsDay(dayStats, config, storage) {
   const audioSeconds = Number(safe.audioSeconds) || 0;
   const pipSeconds = Number(safe.pipSeconds) || 0;
   const compositeSeconds = readCompositeSeconds(safe, config, storage);
+  const hasExplicitBuckets = Number.isFinite(Number(safe.studySeconds)) || Number.isFinite(Number(safe.restSeconds));
   const domainStats = {};
   for (const [domain, seconds] of Object.entries(safe)) {
     if (isAdminStatsMetaKey(domain)) continue;
+    if (['studySeconds', 'restSeconds', 'lockedSeconds', 'targetRows', 'sourceKind'].includes(domain)) continue;
     domainStats[domain] = Number(seconds) || 0;
   }
-  return { domainStats, audioSeconds, pipSeconds, compositeSeconds };
+  return {
+    domainStats,
+    audioSeconds,
+    pipSeconds,
+    compositeSeconds,
+    studySeconds: hasExplicitBuckets ? Math.max(0, Number(safe.studySeconds) || 0) : null,
+    restSeconds: hasExplicitBuckets ? Math.max(0, Number(safe.restSeconds) || 0) : null,
+    lockedSeconds: hasExplicitBuckets ? Math.max(0, Number(safe.lockedSeconds) || 0) : null,
+    targetRows: Array.isArray(safe.targetRows) ? safe.targetRows : [],
+    sourceKind: safe.sourceKind || 'domain',
+  };
 }
 
 function mergeStatsRange(rangeData, config, storage) {
@@ -222,19 +302,34 @@ function mergeStatsRange(rangeData, config, storage) {
       merged[domain] = (merged[domain] || 0) + seconds;
     }
   }
-  return { domainStats: merged, audioSeconds, pipSeconds, compositeSeconds };
+  const explicitStudy = Object.values(rangeData || {}).some((stats) => splitStatsDay(stats, config, storage).studySeconds !== null);
+  if (!explicitStudy) return { domainStats: merged, audioSeconds, pipSeconds, compositeSeconds };
+  let studySeconds = 0;
+  let restSeconds = 0;
+  let lockedSeconds = 0;
+  for (const dayStats of Object.values(rangeData || {})) {
+    const day = splitStatsDay(dayStats, config, storage);
+    studySeconds += Math.max(0, Number(day.studySeconds) || 0);
+    restSeconds += Math.max(0, Number(day.restSeconds) || 0);
+    lockedSeconds += Math.max(0, Number(day.lockedSeconds) || 0);
+  }
+  return { domainStats: merged, audioSeconds, pipSeconds, compositeSeconds, studySeconds, restSeconds, lockedSeconds, sourceKind: 'target' };
 }
 
 function computeOverview(data, config, storage) {
   let online = 0;
-  let study = 0;
-  let rest = 0;
+  const hasExplicitStudy = data?.studySeconds !== null && data?.studySeconds !== undefined && Number.isFinite(Number(data.studySeconds));
+  const hasExplicitRest = data?.restSeconds !== null && data?.restSeconds !== undefined && Number.isFinite(Number(data.restSeconds));
+  let study = hasExplicitStudy ? Math.max(0, Number(data.studySeconds) || 0) : 0;
+  let rest = hasExplicitRest ? Math.max(0, Number(data.restSeconds) || 0) : 0;
   const audio = Number(data?.audioSeconds) || 0;
   const pip = Number(data?.pipSeconds) || 0;
   const composite = readCompositeSeconds(data, config, storage);
+  const useExplicitBuckets = hasExplicitStudy || hasExplicitRest;
   for (const [domain, seconds] of Object.entries(data?.domainStats || {})) {
     const value = Math.max(0, Number(seconds) || 0);
     online += value;
+    if (useExplicitBuckets) continue;
     const type = classifyDomain(domain, config, storage);
     if (type === 'study') study += value;
     else if (type === 'composite' || type === 'pending_composite') {

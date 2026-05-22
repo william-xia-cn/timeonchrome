@@ -60,6 +60,7 @@ function run() {
   const migration010 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '010_client_logs_v1.sql'), 'utf8');
   const migration011 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '011_hourly_stats_v1.sql'), 'utf8');
   const migration012 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '012_cloud_terminal_stats_consistency.sql'), 'utf8');
+  const migration013 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '013_managed_target_stats_v1.sql'), 'utf8');
   const clientLogsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'clientLogs.ts'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
 
@@ -85,8 +86,12 @@ function run() {
   expectTrue('stats.ts 应包含 POST /device/usage-segments/v1 路由', source.includes("path === '/device/usage-segments/v1'"));
   expectTrue('stats.ts 应包含 POST /device/stats/v1 路由', source.includes("path === '/device/stats/v1'"));
   expectTrue('stats.ts 应包含 POST /device/hourly-stats/v1 路由', source.includes("path === '/device/hourly-stats/v1'"));
+  expectTrue('stats.ts 应包含 POST /device/target-stats/v1 路由', source.includes("path === '/device/target-stats/v1'"));
+  expectTrue('stats.ts 应包含 POST /device/hourly-target-stats/v1 路由', source.includes("path === '/device/hourly-target-stats/v1'"));
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats/v1 路由', source.includes('/stats/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/hourly-stats/v1 路由', source.includes('/hourly-stats/v1'));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/target-stats/v1 路由', source.includes('/target-stats/v1'));
+  expectTrue('stats.ts 应包含 GET /profiles/:id/hourly-target-stats/v1 路由', source.includes('/hourly-target-stats/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/usage-segments/v1 路由', source.includes('/usage-segments/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats-reconciliation/v1 路由', source.includes('/stats-reconciliation/v1'));
   expectTrue('stats.ts 应包含 POST /device/media-segments/v1 路由', source.includes("path === '/device/media-segments/v1'"));
@@ -113,6 +118,11 @@ function run() {
   expectTrue('012 migration 应为 media segments 增加 description 字段', migration012.includes('ALTER TABLE media_segments_v1 ADD COLUMN description_json'));
   expectTrue('012 migration 应将 stats_v1 唯一键改为包含 device_id', migration012.includes('UNIQUE (profile_id, device_id, date, domain, channel, mode)'));
   expectTrue('012 migration 旧 stats_v1 设备缺失应写为 unknown-device', migration012.includes("'unknown-device'"));
+  expectTrue('013 migration 应为 usage segments 增加 managedTarget 快照字段', migration013.includes('ALTER TABLE usage_segments_v1 ADD COLUMN managed_target_id') && migration013.includes('quota_bucket_at_time'));
+  expectTrue('013 migration 应创建 target_stats_v1', migration013.includes('CREATE TABLE IF NOT EXISTS target_stats_v1'));
+  expectTrue('013 migration 应创建 hourly_target_stats_v1', migration013.includes('CREATE TABLE IF NOT EXISTS hourly_target_stats_v1'));
+  expectTrue('013 migration target stats 唯一键应包含 device_id 和 quota_bucket', migration013.includes('UNIQUE (profile_id, device_id, date, target_key, channel, mode, quota_bucket)'));
+  expectTrue('013 migration hourly target stats 唯一键应包含 device_id 和 quota_bucket', migration013.includes('UNIQUE (profile_id, device_id, hour_key, target_key, channel, mode, quota_bucket)'));
   expectTrue('Worker 应注册网站归类申请路由', workerIndexSource.includes('siteClassificationRequestsRouter') && workerIndexSource.includes('/site-classification-requests'));
   expectTrue('009 migration 应创建 site_classification_requests_v1', migration009.includes('CREATE TABLE IF NOT EXISTS site_classification_requests_v1'));
   expectTrue('009 migration 应按原申请对象去重', migration009.includes('UNIQUE (profile_id, requested_target_type, requested_normalized_value)'));
@@ -139,6 +149,7 @@ function run() {
   expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));
   expectTrue('usage-segments/v1 应支持按终端过滤并返回 deviceId', source.includes('device_id = ?') && source.includes('SELECT id, device_id, date') && source.includes('deviceId: row.device_id'));
   expectTrue('usage-segments/v1 应保存并返回 tab/window/description', source.includes('tab_id = ?') && source.includes('window_id = ?') && source.includes('description_json = ?') && source.includes('tabId: row.tab_id') && source.includes('windowId: row.window_id') && source.includes('description: parseJsonField(row.description_json)'));
+  expectTrue('usage-segments/v1 应保存并返回 managedTarget 快照', source.includes('managed_target_id = ?') && source.includes('quota_bucket_at_time = ?') && source.includes('managedTargetId: row.managed_target_id') && source.includes('quotaBucketAtTime: row.quota_bucket_at_time'));
   expectTrue('usage-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('ORDER BY start_ms DESC, id DESC'));
   expectTrue('usage-segments/v1 应支持 keyset cursor', source.includes('decodeSegmentCursor') && source.includes('nextCursor'));
   expectTrue('usage-segments/v1 应返回 summary 聚合', source.includes('totalSeconds') && source.includes('activeSeconds') && source.includes('mediaSeconds'));
@@ -154,6 +165,9 @@ function run() {
   expectTrue('stats.ts 应允许 locked 作为云端 mode', source.includes("['study', 'rest', 'locked', 'paused', 'unknown', 'composite']"));
   expectTrue('Worker /device 上传不得信任 payload deviceId', !source.includes('s.deviceId || device.deviceId'));
   expectTrue('stats_v1 upsert 应按 device_id 隔离', source.includes('WHERE profile_id = ? AND device_id = ? AND date = ? AND domain = ? AND channel = ? AND mode = ?'));
+  expectTrue('target_stats_v1 upsert 应按 device_id 和 target_key 隔离', source.includes('FROM target_stats_v1') && source.includes('WHERE profile_id = ? AND device_id = ? AND date = ? AND target_key = ? AND channel = ? AND mode = ? AND quota_bucket = ?'));
+  expectTrue('hourly_target_stats_v1 upsert 应按 device_id 和 target_key 隔离', source.includes('FROM hourly_target_stats_v1') && source.includes('WHERE profile_id = ? AND device_id = ? AND hour_key = ? AND target_key = ? AND channel = ? AND mode = ? AND quota_bucket = ?'));
+  expectTrue('target stats 应展开 rows 或 byMode fallback', source.includes('expandTargetStatsRows') && source.includes('activeByQuotaBucket') && source.includes('quotaBucket'));
   expectTrue(
     'usage-segments/v1 应允许正时长亚秒 segment 上传为 durationSeconds=0',
     source.includes("s.durationSeconds < 0") && source.includes("segment.durationSeconds must be >= 0")

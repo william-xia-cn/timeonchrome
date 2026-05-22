@@ -52,6 +52,104 @@ function validateStatsV1Domain(d: any): string | null {
   return null;
 }
 
+function normalizeTargetKey(t: any): string | null {
+  const raw = typeof t?.targetKey === 'string' && t.targetKey.trim()
+    ? t.targetKey.trim()
+    : (typeof t?.managedTargetId === 'string' && t.managedTargetId.trim() ? t.managedTargetId.trim() : null);
+  if (raw) return raw.slice(0, 512);
+  const fallbackDomain = t?.fallbackDomain ? normalizeHostname(t.fallbackDomain) : null;
+  return fallbackDomain ? `fallback:domain:${fallbackDomain}` : null;
+}
+
+function normalizeOptionalString(value: any, max = 512): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : null;
+}
+
+function expandTargetStatsRows(targets: any[] | undefined): Array<{
+  targetKey: string;
+  managedTargetId: string | null;
+  managedTargetType: string | null;
+  managedTargetNamespace: string | null;
+  managedTargetValue: string | null;
+  managedTargetLabelAtTime: string | null;
+  targetSourceAtTime: string | null;
+  targetRuleId: string | null;
+  targetMatchLevel: string | null;
+  targetClassificationAtTime: string | null;
+  fallbackDomain: string | null;
+  isFallback: number;
+  channel: string;
+  mode: string;
+  quotaBucket: string;
+  durationSeconds: number;
+  firstSeenAt: number | null;
+  lastSeenAt: number | null;
+}> {
+  const expandedRows: Array<any> = [];
+  if (!Array.isArray(targets)) return expandedRows;
+
+  for (const t of targets) {
+    if (!t || typeof t !== 'object') continue;
+    const targetKey = normalizeTargetKey(t);
+    if (!targetKey) continue;
+    const fallbackDomain = t.fallbackDomain ? normalizeHostname(t.fallbackDomain) : null;
+    const base = {
+      targetKey,
+      managedTargetId: normalizeOptionalString(t.managedTargetId, 128),
+      managedTargetType: normalizeOptionalString(t.managedTargetType, 64),
+      managedTargetNamespace: normalizeOptionalString(t.managedTargetNamespace, 64),
+      managedTargetValue: normalizeOptionalString(t.managedTargetValue, 1024),
+      managedTargetLabelAtTime: normalizeOptionalString(t.managedTargetLabelAtTime, 512),
+      targetSourceAtTime: normalizeOptionalString(t.targetSourceAtTime, 64),
+      targetRuleId: normalizeOptionalString(t.targetRuleId, 128),
+      targetMatchLevel: normalizeOptionalString(t.targetMatchLevel, 64),
+      targetClassificationAtTime: normalizeOptionalString(t.targetClassificationAtTime, 64),
+      fallbackDomain,
+      isFallback: t.isFallback ? 1 : 0,
+      firstSeenAt: typeof t.firstSeenAt === 'number' ? t.firstSeenAt : null,
+      lastSeenAt: typeof t.lastSeenAt === 'number' ? t.lastSeenAt : null,
+    };
+
+    if (Array.isArray(t.rows) && t.rows.length > 0) {
+      for (const row of t.rows) {
+        const channel = row?.channel;
+        const mode = row?.mode;
+        const quotaBucket = row?.quotaBucket || mode;
+        const durationSeconds = Number(row?.durationSeconds || 0);
+        if (!VALID_CHANNELS.has(channel) || !VALID_MODES.has(mode) || !VALID_MODES.has(quotaBucket)) continue;
+        if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
+        expandedRows.push({ ...base, channel, mode, quotaBucket, durationSeconds });
+      }
+      continue;
+    }
+
+    const byChannel = [
+      ['active', t.activeByMode || {}, t.activeByQuotaBucket || {}],
+      ['backgroundMedia', t.backgroundMediaByMode || {}, t.backgroundMediaByQuotaBucket || {}],
+      ['pip', t.pipByMode || {}, t.pipByQuotaBucket || {}],
+    ] as const;
+    for (const [channel, byMode, byQuota] of byChannel) {
+      for (const [mode, seconds] of Object.entries(byMode || {})) {
+        const durationSeconds = Number(seconds || 0);
+        if (!VALID_MODES.has(mode) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
+        const quotaBucket = VALID_MODES.has(mode) ? mode : 'unknown';
+        expandedRows.push({ ...base, channel, mode, quotaBucket, durationSeconds });
+      }
+      if (Object.keys(byMode || {}).length === 0) {
+        for (const [quotaBucket, seconds] of Object.entries(byQuota || {})) {
+          const durationSeconds = Number(seconds || 0);
+          if (!VALID_MODES.has(quotaBucket) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
+          expandedRows.push({ ...base, channel, mode: quotaBucket, quotaBucket, durationSeconds });
+        }
+      }
+    }
+  }
+  return expandedRows;
+}
+
 function validateMediaSegment(s: any): string | null {
   if (!s || typeof s !== 'object') return 'segment must be an object';
   if (!s.id || typeof s.id !== 'string') return 'segment.id is required';
@@ -556,6 +654,16 @@ export const statsRouter = {
           const settlementReason = s.settlementReason || '';
           const deviceId = device.deviceId;
           const descriptionJson = stringifyJsonField(s.description || null);
+          const managedTargetId = normalizeOptionalString(s.managedTargetId, 128);
+          const managedTargetType = normalizeOptionalString(s.managedTargetType, 64);
+          const managedTargetNamespace = normalizeOptionalString(s.managedTargetNamespace, 64);
+          const managedTargetValue = normalizeOptionalString(s.managedTargetValue, 1024);
+          const managedTargetLabelAtTime = normalizeOptionalString(s.managedTargetLabelAtTime, 512);
+          const targetSourceAtTime = normalizeOptionalString(s.targetSourceAtTime, 64);
+          const targetRuleId = normalizeOptionalString(s.targetRuleId, 128);
+          const targetMatchLevel = normalizeOptionalString(s.targetMatchLevel, 64);
+          const targetClassificationAtTime = normalizeOptionalString(s.targetClassificationAtTime, 64);
+          const quotaBucketAtTime = VALID_MODES.has(s.quotaBucketAtTime) ? s.quotaBucketAtTime : null;
 
           // Idempotent upsert by segment id
           const existing = await env.DB.prepare(
@@ -566,12 +674,26 @@ export const statsRouter = {
             // 已存在：更新上传时间与终端诊断字段
             await env.DB.prepare(
               `UPDATE usage_segments_v1
-               SET tab_id = ?, window_id = ?, description_json = ?, uploaded_at = ?, updated_at = ?
+               SET tab_id = ?, window_id = ?, description_json = ?,
+                   managed_target_id = ?, managed_target_type = ?, managed_target_namespace = ?,
+                   managed_target_value = ?, managed_target_label_at_time = ?, target_source_at_time = ?,
+                   target_rule_id = ?, target_match_level = ?, target_classification_at_time = ?,
+                   quota_bucket_at_time = ?, uploaded_at = ?, updated_at = ?
                WHERE id = ?`
             ).bind(
               s.tabId == null ? null : String(s.tabId),
               typeof s.windowId === 'number' ? s.windowId : null,
               descriptionJson,
+              managedTargetId,
+              managedTargetType,
+              managedTargetNamespace,
+              managedTargetValue,
+              managedTargetLabelAtTime,
+              targetSourceAtTime,
+              targetRuleId,
+              targetMatchLevel,
+              targetClassificationAtTime,
+              quotaBucketAtTime,
               now,
               now,
               s.id
@@ -584,9 +706,13 @@ export const statsRouter = {
                 start_ms, end_ms, duration_seconds, domain, channel, mode,
                 source_state, settlement_reason,
                 parent_segment_id, part_index, part_count,
-                created_at, updated_at, uploaded_at, tab_id, window_id, description_json)
+                created_at, updated_at, uploaded_at, tab_id, window_id, description_json,
+                managed_target_id, managed_target_type, managed_target_namespace,
+                managed_target_value, managed_target_label_at_time, target_source_at_time,
+                target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               s.id, device.profileId, deviceId, s.date, timezone, dayStartMs, dayEndMs,
               s.startMs, s.endMs, s.durationSeconds, normalizedDomain, s.channel, s.mode,
@@ -595,7 +721,17 @@ export const statsRouter = {
               createdAt, updatedAt, now,
               s.tabId == null ? null : String(s.tabId),
               typeof s.windowId === 'number' ? s.windowId : null,
-              descriptionJson
+              descriptionJson,
+              managedTargetId,
+              managedTargetType,
+              managedTargetNamespace,
+              managedTargetValue,
+              managedTargetLabelAtTime,
+              targetSourceAtTime,
+              targetRuleId,
+              targetMatchLevel,
+              targetClassificationAtTime,
+              quotaBucketAtTime
             ).run();
             inserted++;
           }
@@ -789,6 +925,172 @@ export const statsRouter = {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: POST /device/target-stats/v1 — 上传每日 managed target 聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (request.method === 'POST' && path === '/device/target-stats/v1') {
+      const auth = request.headers.get('Authorization');
+      if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
+
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+
+      try {
+        const body = await request.json<{
+          date?: string; timezone?: string; dayStartMs?: number; dayEndMs?: number;
+          segmentsCount?: number; lastSegmentId?: string | null; targets?: any[];
+        }>();
+        const date = body?.date;
+        if (!isDateKey(date || null) || !Array.isArray(body?.targets)) {
+          return json({ error: 'date and targets[] required' }, 400);
+        }
+
+        const expandedRows = expandTargetStatsRows(body.targets);
+        if (expandedRows.length === 0) {
+          return json({ error: 'no valid target stats rows after expansion' }, 400);
+        }
+
+        const now = Date.now();
+        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
+        const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
+        let upserted = 0;
+
+        for (const row of expandedRows) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM target_stats_v1
+             WHERE profile_id = ? AND device_id = ? AND date = ? AND target_key = ? AND channel = ? AND mode = ? AND quota_bucket = ?`
+          ).bind(device.profileId, device.deviceId, date, row.targetKey, row.channel, row.mode, row.quotaBucket).first<{ id: string }>();
+
+          if (existing) {
+            await env.DB.prepare(
+              `UPDATE target_stats_v1
+               SET managed_target_id = ?, managed_target_type = ?, managed_target_namespace = ?,
+                   managed_target_value = ?, managed_target_label_at_time = ?, target_source_at_time = ?,
+                   target_rule_id = ?, target_match_level = ?, target_classification_at_time = ?,
+                   fallback_domain = ?, is_fallback = ?, duration_seconds = ?, segments_count = ?,
+                   last_segment_id = ?, first_seen_at = ?, last_seen_at = ?, updated_at = ?
+               WHERE id = ?`
+            ).bind(
+              row.managedTargetId, row.managedTargetType, row.managedTargetNamespace,
+              row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
+              row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
+              row.fallbackDomain, row.isFallback, row.durationSeconds, segmentsCount,
+              lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, existing.id
+            ).run();
+          } else {
+            await env.DB.prepare(
+              `INSERT INTO target_stats_v1
+               (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
+                target_key, managed_target_id, managed_target_type, managed_target_namespace,
+                managed_target_value, managed_target_label_at_time, target_source_at_time,
+                target_rule_id, target_match_level, target_classification_at_time,
+                fallback_domain, is_fallback, channel, mode, quota_bucket, duration_seconds,
+                segments_count, last_segment_id, first_seen_at, last_seen_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              crypto.randomUUID(), device.profileId, device.deviceId, date,
+              body.timezone || 'Asia/Shanghai',
+              typeof body.dayStartMs === 'number' ? body.dayStartMs : 0,
+              typeof body.dayEndMs === 'number' ? body.dayEndMs : 0,
+              row.targetKey, row.managedTargetId, row.managedTargetType, row.managedTargetNamespace,
+              row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
+              row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
+              row.fallbackDomain, row.isFallback, row.channel, row.mode, row.quotaBucket, row.durationSeconds,
+              segmentsCount, lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, now
+            ).run();
+          }
+          upserted++;
+        }
+
+        return json({ success: true, count: upserted, date, expandedRows: expandedRows.length });
+      } catch (e: any) {
+        return json({ error: 'Failed to upload target stats v1: ' + e.message }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: POST /device/hourly-target-stats/v1 — 上传每小时 managed target 聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (request.method === 'POST' && path === '/device/hourly-target-stats/v1') {
+      const auth = request.headers.get('Authorization');
+      if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
+
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+
+      try {
+        const body = await request.json<{
+          hourKey?: string; date?: string; hour?: number; timezone?: string; hourStartMs?: number; hourEndMs?: number;
+          segmentsCount?: number; lastSegmentId?: string | null; targets?: any[];
+        }>();
+        const hourKey = body?.hourKey;
+        const date = body?.date || (hourKey ? hourKey.slice(0, 10) : null);
+        const hour = typeof body?.hour === 'number' ? body.hour : (hourKey ? Number(hourKey.slice(11, 13)) : null);
+        if (!isHourKey(hourKey || null) || !isDateKey(date || null) || !Number.isInteger(hour) || hour < 0 || hour > 23 || !Array.isArray(body?.targets)) {
+          return json({ error: 'hourKey/date/hour and targets[] required' }, 400);
+        }
+
+        const expandedRows = expandTargetStatsRows(body.targets);
+        if (expandedRows.length === 0) return json({ error: 'no valid hourly target stats rows after expansion' }, 400);
+
+        const now = Date.now();
+        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
+        const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
+        let upserted = 0;
+
+        for (const row of expandedRows) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM hourly_target_stats_v1
+             WHERE profile_id = ? AND device_id = ? AND hour_key = ? AND target_key = ? AND channel = ? AND mode = ? AND quota_bucket = ?`
+          ).bind(device.profileId, device.deviceId, hourKey, row.targetKey, row.channel, row.mode, row.quotaBucket).first<{ id: string }>();
+
+          if (existing) {
+            await env.DB.prepare(
+              `UPDATE hourly_target_stats_v1
+               SET managed_target_id = ?, managed_target_type = ?, managed_target_namespace = ?,
+                   managed_target_value = ?, managed_target_label_at_time = ?, target_source_at_time = ?,
+                   target_rule_id = ?, target_match_level = ?, target_classification_at_time = ?,
+                   fallback_domain = ?, is_fallback = ?, duration_seconds = ?, segments_count = ?,
+                   last_segment_id = ?, first_seen_at = ?, last_seen_at = ?, updated_at = ?
+               WHERE id = ?`
+            ).bind(
+              row.managedTargetId, row.managedTargetType, row.managedTargetNamespace,
+              row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
+              row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
+              row.fallbackDomain, row.isFallback, row.durationSeconds, segmentsCount,
+              lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, existing.id
+            ).run();
+          } else {
+            await env.DB.prepare(
+              `INSERT INTO hourly_target_stats_v1
+               (id, profile_id, device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
+                target_key, managed_target_id, managed_target_type, managed_target_namespace,
+                managed_target_value, managed_target_label_at_time, target_source_at_time,
+                target_rule_id, target_match_level, target_classification_at_time,
+                fallback_domain, is_fallback, channel, mode, quota_bucket, duration_seconds,
+                segments_count, last_segment_id, first_seen_at, last_seen_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              crypto.randomUUID(), device.profileId, device.deviceId, hourKey, date, hour,
+              body.timezone || 'Asia/Shanghai',
+              typeof body.hourStartMs === 'number' ? body.hourStartMs : 0,
+              typeof body.hourEndMs === 'number' ? body.hourEndMs : 0,
+              row.targetKey, row.managedTargetId, row.managedTargetType, row.managedTargetNamespace,
+              row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
+              row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
+              row.fallbackDomain, row.isFallback, row.channel, row.mode, row.quotaBucket, row.durationSeconds,
+              segmentsCount, lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, now
+            ).run();
+          }
+          upserted++;
+        }
+
+        return json({ success: true, count: upserted, hourKey, expandedRows: expandedRows.length });
+      } catch (e: any) {
+        return json({ error: 'Failed to upload hourly target stats v1: ' + e.message }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // V1: GET /profiles/:id/stats/v1 — 查询 v1 每日聚合统计
     // ═══════════════════════════════════════════════════════════════════════════════
     const statsV1Match = path.match(/^\/profiles\/([^/]+)\/stats\/v1$/);
@@ -875,6 +1177,114 @@ export const statsRouter = {
          FROM hourly_stats_v1
          WHERE ${where.join(' AND ')}
          ORDER BY hour_key DESC, domain ASC, channel ASC, mode ASC`
+      ).bind(...binds).all<any>();
+
+      return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/target-stats/v1 — 查询每日 managed target 聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const targetStatsV1Match = path.match(/^\/profiles\/([^/]+)\/target-stats\/v1$/);
+    if (request.method === 'GET' && targetStatsV1Match) {
+      const profileId = targetStatsV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from') || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+      })();
+      const to = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
+      const deviceId = url.searchParams.get('deviceId');
+      const targetKey = url.searchParams.get('targetKey');
+      const channel = url.searchParams.get('channel');
+      const mode = url.searchParams.get('mode');
+      const quotaBucket = url.searchParams.get('quotaBucket');
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      if (channel && !VALID_CHANNELS.has(channel)) return json({ error: 'invalid channel' }, 400);
+      if (mode && !VALID_MODES.has(mode)) return json({ error: 'invalid mode' }, 400);
+      if (quotaBucket && !VALID_MODES.has(quotaBucket)) return json({ error: 'invalid quotaBucket' }, 400);
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+
+      const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
+      const binds: any[] = [profileId, from, to];
+      if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
+      if (targetKey) { where.push('target_key = ?'); binds.push(targetKey); }
+      if (channel) { where.push('channel = ?'); binds.push(channel); }
+      if (mode) { where.push('mode = ?'); binds.push(mode); }
+      if (quotaBucket) { where.push('quota_bucket = ?'); binds.push(quotaBucket); }
+
+      const result = await env.DB.prepare(
+        `SELECT device_id, date, timezone, day_start_ms, day_end_ms,
+                target_key, managed_target_id, managed_target_type, managed_target_namespace,
+                managed_target_value, managed_target_label_at_time, target_source_at_time,
+                target_rule_id, target_match_level, target_classification_at_time,
+                fallback_domain, is_fallback, channel, mode, quota_bucket, duration_seconds,
+                segments_count, last_segment_id, first_seen_at, last_seen_at, updated_at
+         FROM target_stats_v1
+         WHERE ${where.join(' AND ')}
+         ORDER BY date DESC, target_key ASC, channel ASC, mode ASC, quota_bucket ASC`
+      ).bind(...binds).all<any>();
+
+      return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/hourly-target-stats/v1 — 查询每小时 managed target 聚合统计
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const hourlyTargetStatsV1Match = path.match(/^\/profiles\/([^/]+)\/hourly-target-stats\/v1$/);
+    if (request.method === 'GET' && hourlyTargetStatsV1Match) {
+      const profileId = hourlyTargetStatsV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const from = url.searchParams.get('from') || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+      })();
+      const to = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
+      const deviceId = url.searchParams.get('deviceId');
+      const targetKey = url.searchParams.get('targetKey');
+      const channel = url.searchParams.get('channel');
+      const mode = url.searchParams.get('mode');
+      const quotaBucket = url.searchParams.get('quotaBucket');
+      if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
+      if (channel && !VALID_CHANNELS.has(channel)) return json({ error: 'invalid channel' }, 400);
+      if (mode && !VALID_MODES.has(mode)) return json({ error: 'invalid mode' }, 400);
+      if (quotaBucket && !VALID_MODES.has(quotaBucket)) return json({ error: 'invalid quotaBucket' }, 400);
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+
+      const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
+      const binds: any[] = [profileId, from, to];
+      if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
+      if (targetKey) { where.push('target_key = ?'); binds.push(targetKey); }
+      if (channel) { where.push('channel = ?'); binds.push(channel); }
+      if (mode) { where.push('mode = ?'); binds.push(mode); }
+      if (quotaBucket) { where.push('quota_bucket = ?'); binds.push(quotaBucket); }
+
+      const result = await env.DB.prepare(
+        `SELECT device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
+                target_key, managed_target_id, managed_target_type, managed_target_namespace,
+                managed_target_value, managed_target_label_at_time, target_source_at_time,
+                target_rule_id, target_match_level, target_classification_at_time,
+                fallback_domain, is_fallback, channel, mode, quota_bucket, duration_seconds,
+                segments_count, last_segment_id, first_seen_at, last_seen_at, updated_at
+         FROM hourly_target_stats_v1
+         WHERE ${where.join(' AND ')}
+         ORDER BY hour_key DESC, target_key ASC, channel ASC, mode ASC, quota_bucket ASC`
       ).bind(...binds).all<any>();
 
       return json({ stats: result.results || [] });
@@ -1259,7 +1669,10 @@ export const statsRouter = {
                 start_ms, end_ms, duration_seconds, domain, channel, mode,
                 tab_id, window_id, source_state, settlement_reason,
                 parent_segment_id, part_index, part_count,
-                created_at, updated_at, uploaded_at, description_json
+                created_at, updated_at, uploaded_at, description_json,
+                managed_target_id, managed_target_type, managed_target_namespace,
+                managed_target_value, managed_target_label_at_time, target_source_at_time,
+                target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time
          FROM usage_segments_v1
          WHERE ${queryWhere.join(' AND ')}
          ORDER BY start_ms DESC, id DESC
@@ -1270,6 +1683,9 @@ export const statsRouter = {
         tab_id: string | null; window_id: number | null; source_state: string; settlement_reason: string;
         parent_segment_id: string | null; part_index: number; part_count: number;
         created_at: number; updated_at: number; uploaded_at: number | null; description_json: string | null;
+        managed_target_id: string | null; managed_target_type: string | null; managed_target_namespace: string | null;
+        managed_target_value: string | null; managed_target_label_at_time: string | null; target_source_at_time: string | null;
+        target_rule_id: string | null; target_match_level: string | null; target_classification_at_time: string | null; quota_bucket_at_time: string | null;
       }>();
 
       const rows = result.results || [];
@@ -1294,6 +1710,16 @@ export const statsRouter = {
           sourceState: row.source_state,
           settlementReason: row.settlement_reason,
           description: parseJsonField(row.description_json),
+          managedTargetId: row.managed_target_id,
+          managedTargetType: row.managed_target_type,
+          managedTargetNamespace: row.managed_target_namespace,
+          managedTargetValue: row.managed_target_value,
+          managedTargetLabelAtTime: row.managed_target_label_at_time,
+          targetSourceAtTime: row.target_source_at_time,
+          targetRuleId: row.target_rule_id,
+          targetMatchLevel: row.target_match_level,
+          targetClassificationAtTime: row.target_classification_at_time,
+          quotaBucketAtTime: row.quota_bucket_at_time,
           parentSegmentId: row.parent_segment_id,
           partIndex: row.part_index,
           partCount: row.part_count,

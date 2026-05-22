@@ -1,8 +1,8 @@
 # ManagedTarget Ledger Decision
 
-Status: Accepted architecture direction; implementation pending.
+Status: Partially implemented.
 
-This document records the next statistics identity model for TimeOnChrome. It is a product and ledger architecture decision, not an implementation record. Current code remains domain-first until this decision is implemented in a separate milestone.
+This document records the statistics identity model for TimeOnChrome. The first implementation milestone is now present in the terminal ledger, local materialized stats, cloud ingestion/query, and admin read model. Domain-compatible stats remain available and are not removed.
 
 ## 1. Decision
 
@@ -57,7 +57,7 @@ Same exact target conflicts are invalid. More specific targets may override pare
 
 ## 4. Segment Snapshot
 
-Future `usage_segments_v1` entries should snapshot target attribution and quota decision fields at segment open or split time:
+New `usage_segments_v1` entries snapshot target attribution and quota decision fields at segment open or split time:
 
 - `managedTargetId`
 - `managedTargetType`
@@ -87,7 +87,7 @@ Configured URL, video, playlist, and platform-entry targets may persist their no
 
 ## 6. Aggregates And Views
 
-`daily_usage_stats_v1` and `hourly_usage_stats_v1` should eventually support target-oriented materialized aggregation in addition to existing domain-compatible aggregation.
+`daily_usage_stats_v1` and `hourly_usage_stats_v1` support target-oriented materialized aggregation in addition to existing domain-compatible aggregation. The existing `domains` aggregate remains unchanged; the `targets` aggregate is keyed by `managedTargetId` or by `fallback:domain:{domain}` for unmanaged usage.
 
 The target aggregate should be the ordinary user and quota view. Domain aggregate remains a compatibility and diagnostic view.
 
@@ -95,7 +95,7 @@ Current "今日落账 / 落账明细" tables are system diagnostics, not ordinar
 
 ## 7. Cloud And Compatibility
 
-Terminal and cloud must be upgraded together when this model is implemented:
+Terminal and cloud must stay upgraded together for this model:
 
 - terminal segment builder
 - local daily/hourly aggregation
@@ -107,6 +107,13 @@ Terminal and cloud must be upgraded together when this model is implemented:
 - migration and compatibility tests
 
 Old domain-only segments remain valid and display as domain fallback. No historical URL backfill is allowed.
+
+Current implementation notes:
+- `extension/core/managed-targets.js` resolves configured targets and YouTube v1 targets.
+- `usage_segments_v1` upload includes target snapshot fields, but segment IDs still exclude them for idempotency.
+- `daily_usage_stats_v1.targets` and `hourly_usage_stats_v1.targets` are uploaded through `/device/target-stats/v1` and `/device/hourly-target-stats/v1`.
+- Cloud D1 stores segment snapshots plus `target_stats_v1` and `hourly_target_stats_v1`.
+- Pages usage analysis reads target stats first and falls back to domain stats when target rows are unavailable.
 
 ## 8. Non-Goals For The First Milestone
 

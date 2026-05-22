@@ -282,6 +282,65 @@ async function run() {
   const missingConfig = await adminStats.getAdminUsageAnalysisView();
   eq('missing config falls back without throwing', missingConfig.todayOverview.rest, 10);
 
+  local.reset();
+  await local.set({
+    daily_usage_stats_v1: {
+      [today]: {
+        date: today,
+        domains: {
+          'youtube.com': {
+            activeSeconds: 90,
+            backgroundMediaSeconds: 0,
+            pipSeconds: 0,
+            activeByMode: { composite: 90 },
+            backgroundMediaByMode: {},
+            pipByMode: {},
+          },
+        },
+        targets: {
+          mt_playlist_math: {
+            targetKey: 'mt_playlist_math',
+            managedTargetId: 'mt_playlist_math',
+            managedTargetType: 'playlist',
+            managedTargetNamespace: 'youtube',
+            managedTargetValue: 'PLMATH',
+            managedTargetLabelAtTime: '数学播放列表',
+            fallbackDomain: 'youtube.com',
+            isFallback: false,
+            activeSeconds: 60,
+            pipSeconds: 0,
+            backgroundMediaSeconds: 0,
+            activeByMode: { study: 60 },
+            pipByMode: {},
+            backgroundMediaByMode: {},
+            activeByQuotaBucket: { study: 60 },
+            pipByQuotaBucket: {},
+            backgroundMediaByQuotaBucket: {},
+          },
+          'fallback:domain:youtube.com': {
+            targetKey: 'fallback:domain:youtube.com',
+            fallbackDomain: 'youtube.com',
+            isFallback: true,
+            activeSeconds: 30,
+            pipSeconds: 0,
+            backgroundMediaSeconds: 0,
+            activeByMode: { composite: 30 },
+            pipByMode: {},
+            backgroundMediaByMode: {},
+            activeByQuotaBucket: { composite: 30 },
+            pipByQuotaBucket: {},
+            backgroundMediaByQuotaBucket: {},
+          },
+        },
+      },
+    },
+  });
+  const targetUsage = await adminStats.getAdminUsageAnalysisView();
+  eq('target view uses playlist label as usage row', targetUsage.todayData.domainStats['数学播放列表'], 60);
+  eq('target view keeps domain fallback row', targetUsage.todayData.domainStats['youtube.com'], 30);
+  eq('target view study seconds from quota bucket', targetUsage.todayOverview.study, 60);
+  eq('target view composite seconds from quota bucket', targetUsage.todayOverview.composite, 30);
+
   const total = passed + failed;
   console.log(`\n[Admin Read Model] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

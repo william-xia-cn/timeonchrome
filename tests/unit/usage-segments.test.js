@@ -51,13 +51,20 @@ const api = loadProdModule('core/usage-segments.js', [
   'getUsageSegmentsByDate', 'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
   'rebuildDailyUsageStats', 'rebuildHourlyUsageStats',
   'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
+  'markTargetStatsSyncDirty', 'markHourlyTargetStatsSyncDirty',
   'clearSegmentSyncOutbox', 'clearStatsSyncOutbox', 'clearHourlyStatsSyncOutbox',
+  'clearTargetStatsSyncOutbox', 'clearHourlyTargetStatsSyncOutbox',
   'getPendingUsageSegments', 'getPendingDailyStats', 'getPendingHourlyStats',
+  'getPendingTargetStats', 'getPendingHourlyTargetStats',
   'markUsageSegmentsUploaded', 'markUsageSegmentUploadFailed',
   'markDailyStatsUploaded', 'markDailyStatsUploadFailed',
   'markHourlyStatsUploaded', 'markHourlyStatsUploadFailed',
+  'markTargetStatsUploaded', 'markTargetStatsUploadFailed',
+  'markHourlyTargetStatsUploaded', 'markHourlyTargetStatsUploadFailed',
   'buildUsageSegmentsUploadPayload', 'buildDailyStatsUploadPayload', 'buildHourlyStatsUploadPayload',
+  'buildTargetStatsUploadPayload', 'buildHourlyTargetStatsUploadPayload',
   'pruneSegmentSyncOutbox', 'pruneStatsSyncOutbox', 'pruneHourlyStatsSyncOutbox',
+  'pruneTargetStatsSyncOutbox', 'pruneHourlyTargetStatsSyncOutbox',
   'pruneUsageSegments', 'pruneDailyUsageStats', 'pruneHourlyUsageStats',
   'settleUsageDuration',
 ]);
@@ -683,6 +690,26 @@ chk('statsp pipSeconds', sd.pipSeconds, 0);
 chkT('statsp activeByMode exists', !!sd.activeByMode);
 chk('statsp activeByMode.rest', sd.activeByMode.rest, 60);
 
+const tsp = await api.buildTargetStatsUploadPayload(todayStr);
+chk('target statsp schemaVersion', tsp.schemaVersion, 1);
+chk('target statsp date', tsp.date, todayStr);
+chkT('target statsp targets array', Array.isArray(tsp.targets));
+chk('target statsp target count', tsp.targets.length, 1);
+const tsd = tsp.targets[0];
+chk('target statsp target id', tsd.managedTargetId, 'mt_payload');
+chk('target statsp value snapshot', tsd.managedTargetValue, 'https://payload.com/lesson');
+chk('target statsp fallbackDomain', tsd.fallbackDomain, 'payload.com');
+chk('target statsp activeByMode.rest', tsd.activeByMode.rest, 60);
+chk('target statsp activeByQuotaBucket.composite', tsd.activeByQuotaBucket.composite, 60);
+chkT('target statsp rows array', Array.isArray(tsd.rows));
+chk('target statsp row quota bucket', tsd.rows[0].quotaBucket, 'composite');
+
+const targetPending = await api.getPendingTargetStats();
+chkT('target stats outbox has entries', targetPending.pendingCount > 0);
+await api.markTargetStatsUploaded([todayStr]);
+const targetPendingAfter = await api.getPendingTargetStats();
+chk('target stats outbox cleared after upload', targetPendingAfter.pendingCount, 0);
+
 // ── TB30b: buildHourlyStatsUploadPayload ──
 sec('TB30b: buildHourlyStatsUploadPayload');
 const hPending = await api.getPendingHourlyStats();
@@ -696,9 +723,18 @@ chk('hoursp hour', hp.hour, 11);
 chkT('hoursp domains array', Array.isArray(hp.domains));
 chk('hoursp domain name', hp.domains[0].domain, 'payload.com');
 chk('hoursp activeByMode.rest', hp.domains[0].activeByMode.rest, 60);
+const htp = await api.buildHourlyTargetStatsUploadPayload(payloadHourKey);
+chk('hourly target payload schemaVersion', htp.schemaVersion, 1);
+chk('hourly target payload hourKey', htp.hourKey, payloadHourKey);
+chkT('hourly target payload targets array', Array.isArray(htp.targets));
+chk('hourly target payload id', htp.targets[0].managedTargetId, 'mt_payload');
+chk('hourly target row quota bucket', htp.targets[0].rows[0].quotaBucket, 'composite');
 await api.markHourlyStatsUploaded([payloadHourKey]);
+await api.markHourlyTargetStatsUploaded([payloadHourKey]);
 const hPending2 = await api.getPendingHourlyStats();
 chk('hourly stats outbox cleared', hPending2.pendingCount, 0);
+const hTargetPending2 = await api.getPendingHourlyTargetStats();
+chk('hourly target stats outbox cleared', hTargetPending2.pendingCount, 0);
 
 // ── TB31: Prune outboxes ──
 sec('TB31: Prune outboxes');

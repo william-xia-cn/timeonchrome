@@ -54,6 +54,7 @@ function run() {
   expectTrue('pages 不应再出现 dailyQuota fallback 字段', !/\bdailyQuota\b/.test(source));
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
   expectTrue('Pages 控制台应优先读取 stats/v1', source.includes('/stats/v1?from='));
+  expectTrue('Pages 控制台应优先读取 target-stats/v1', source.includes('/target-stats/v1?from=') && source.includes('normalizeTargetStatsRows'));
   expectTrue('Pages 控制台应包含 v1 stats 适配器', source.includes('function fetchProfileStats'));
   expectTrue('Pages 登录注册邮箱应统一小写', source.includes('function normalizeEmailInput') && source.includes("normalizeEmailInput(document.getElementById('login-email').value)") && source.includes("normalizeEmailInput(document.getElementById('reg-email').value)"));
   expectTrue('auth.js 绑定登录邮箱应统一小写', authSource.includes('const normalizedEmail') && authSource.includes('email: normalizedEmail'));
@@ -63,7 +64,7 @@ function run() {
   expectTrue('Pages 应包含落账明细导航', source.includes('data-page="settlements"') && source.includes('落账明细'));
   expectTrue('Pages 落账页应读取 usage-segments/v1', source.includes('/usage-segments/v1'));
   expectTrue('Pages 落账页应支持终端筛选和终端列', source.includes('settlement-device-input') && source.includes("params.set('deviceId', deviceInput.value)") && source.includes('终端'));
-  expectTrue('Pages 云端落账页应展示紧凑备注列', source.includes('function buildCloudSettlementRemarkHtml') && source.includes('cloudEndpointOperation') && source.includes('tab：') && source.includes('window：') && source.includes('open：') && source.includes('close：') && source.includes('来源：'));
+  expectTrue('Pages 云端落账页应展示紧凑备注列', source.includes('function buildCloudSettlementRemarkHtml') && source.includes('cloudEndpointOperation') && source.includes('target：') && source.includes('tab：') && source.includes('window：') && source.includes('open：') && source.includes('close：') && source.includes('来源：'));
   expectTrue('Pages 云端落账页备注应读取 Open/Close description', source.includes("cloudEndpointOperation(row?.description, 'start')") && source.includes("cloudEndpointOperation(row?.description, 'end')"));
   expectTrue('Pages 应有媒体落账入口', source.includes('data-page="media-settlements"') && source.includes('媒体落账'));
   expectTrue('Pages 媒体落账页应读取 media-segments/v1', source.includes('/media-segments/v1'));
