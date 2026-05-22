@@ -5,6 +5,7 @@ import { emitTrace } from '../core/timing-trace.js';
 import { getReliableCloseTime } from './time-boundary.js';
 import { isCountedState, settleUsageDuration } from '../core/usage-segments.js';
 import { logClientEventBestEffort } from '../infra/client-logs.js';
+import * as managedTargets from '../core/managed-targets.js';
 
 const SESSION_KEY = 'session_v1';
 const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
@@ -13,6 +14,7 @@ const GUARDIAN_CONFIG_KEY = 'guardian_config';
 const CLOUD_PROFILE_ID_KEY = 'cloud_profile_id';
 const CLOUD_DEVICE_ID_KEY = 'cloud_device_id';
 const CLOUD_DEVICE_TOKEN_KEY = 'cloud_device_token';
+const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const UI_FLUSH_GUARD_KEY = 'ui_flush_guard_v1';
 const UI_FLUSH_MIN_INTERVAL_MS = 30 * 1000;
 const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 3 * 60 * 1000;
@@ -210,6 +212,81 @@ function sessionMetadataFromOptions(options = {}) {
   };
 }
 
+const MANAGED_TARGET_SESSION_FIELDS = [
+  'managedTargetId',
+  'managedTargetType',
+  'managedTargetNamespace',
+  'managedTargetValue',
+  'managedTargetLabelAtTime',
+  'targetSourceAtTime',
+  'targetRuleId',
+  'targetMatchLevel',
+  'targetClassificationAtTime',
+  'quotaBucketAtTime',
+];
+
+function hasManagedTargetSnapshot(value = {}) {
+  return MANAGED_TARGET_SESSION_FIELDS.some((key) => typeof value?.[key] === 'string' && value[key].trim());
+}
+
+function managedTargetFieldsFrom(value = {}, mode = null) {
+  const out = {};
+  for (const key of MANAGED_TARGET_SESSION_FIELDS) {
+    const field = value?.[key];
+    out[key] = typeof field === 'string' && field.trim() ? field.trim() : null;
+  }
+  const quotaBucketForModeFn = typeof managedTargets !== 'undefined' && typeof managedTargets.quotaBucketForMode === 'function'
+    ? managedTargets.quotaBucketForMode
+    : ((inputMode) => {
+        const normalized = typeof inputMode === 'string' && inputMode.trim() ? inputMode.trim() : 'unknown';
+        return ['study', 'composite', 'rest', 'locked'].includes(normalized) ? normalized : 'unknown';
+      });
+  out.quotaBucketAtTime = quotaBucketForModeFn(mode || out.quotaBucketAtTime || cachedEffectiveMode);
+  return out;
+}
+
+async function readManagedTargetInputs() {
+  try {
+    const data = await chrome.storage.local.get([GUARDIAN_CONFIG_KEY, SITE_CLASSIFICATION_REQUESTS_KEY]);
+    return {
+      config: data?.[GUARDIAN_CONFIG_KEY] || {},
+      requests: Array.isArray(data?.[SITE_CLASSIFICATION_REQUESTS_KEY])
+        ? data[SITE_CLASSIFICATION_REQUESTS_KEY]
+        : [],
+    };
+  } catch (_) {
+    return { config: {}, requests: [] };
+  }
+}
+
+async function resolveManagedTargetForOpen(domain, options = {}, mode = null) {
+  if (hasManagedTargetSnapshot(options)) {
+    return managedTargetFieldsFrom(options, mode);
+  }
+  const source = options.url || options.observedUrl || options.eventUrl || domain || '';
+  const { config, requests } = await readManagedTargetInputs();
+  const resolveAttribution = typeof managedTargets !== 'undefined' && typeof managedTargets.resolveManagedTargetAttribution === 'function'
+    ? managedTargets.resolveManagedTargetAttribution
+    : null;
+  const fallbackAttribution = typeof managedTargets !== 'undefined' && typeof managedTargets.fallbackDomainAttribution === 'function'
+    ? managedTargets.fallbackDomainAttribution
+    : ((value) => ({ domain: value || null, fallback: true }));
+  const snapshotFields = typeof managedTargets !== 'undefined' && typeof managedTargets.managedTargetSnapshotFields === 'function'
+    ? managedTargets.managedTargetSnapshotFields
+    : ((attribution, inputMode) => managedTargetFieldsFrom({ targetMatchLevel: attribution?.fallback ? 'domain_fallback' : null }, inputMode));
+  const attribution = source && resolveAttribution
+    ? resolveAttribution(config, requests, source)
+    : fallbackAttribution(domain || '');
+  return snapshotFields(attribution, mode);
+}
+
+async function managedTargetFieldsForReopen(session = {}, domain = null, options = {}, mode = null) {
+  if (hasManagedTargetSnapshot(session) && (!domain || !session.domain || domain === session.domain)) {
+    return managedTargetFieldsFrom(session, mode);
+  }
+  return resolveManagedTargetForOpen(domain || session.domain || null, options, mode);
+}
+
 function sampleStateFromConfirmation(confirmation) {
   if (!confirmation?.ok) return null;
   return confirmation?.observedState || confirmation?.candidateState || 'ACTIVE';
@@ -246,6 +323,7 @@ function mismatchCheckpointActiveSample(confirmation) {
     domain,
     tabId: sampleTabIdFromConfirmation(confirmation),
     windowId: sampleWindowIdFromConfirmation(confirmation),
+    url: confirmation?.observedUrl || confirmation?.candidateUrl || confirmation?.url || null,
   };
 }
 
@@ -261,6 +339,9 @@ function emptySession(now = Date.now()) {
 function settlementResolverOptions(options = {}) {
   return {
     resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
+    url: options.url || null,
+    observedUrl: options.observedUrl || null,
+    eventUrl: options.eventUrl || null,
     endReason: options.endReason,
     endOperationSource: options.endOperationSource,
     endAtMs: options.endAtMs,
@@ -612,6 +693,9 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
     }
 
     // 4. 更新 session
+    const managedTargetFields = newState
+      ? await resolveManagedTargetForOpen(newDomain, options, cachedEffectiveMode)
+      : {};
     const sessionAfter = {
       state: newState,
       domain: newDomain,
@@ -621,6 +705,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
       startOperationSource: newState ? operationSourceForReason(reason) : null,
       startAtMs: newState ? now : null,
       ...sessionMetadataFromOptions(options),
+      ...managedTargetFields,
     };
     await saveSession(sessionAfter);
   });
@@ -691,6 +776,10 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
       } else {
         await refreshCachedMode();
       }
+      await saveSession({
+        ...session,
+        ...managedTargetFieldsFrom(session, cachedEffectiveMode),
+      });
       await emitTrace('auto_mode_effective_boundary', {
         source: 'runtime-session',
         reason,
@@ -767,6 +856,7 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
       windowId: session.windowId ?? null,
       domainResolutionReason: session.domainResolutionReason || null,
       domainResolutionError: session.domainResolutionError || null,
+      ...(await managedTargetFieldsForReopen(session, session.domain, options, cachedEffectiveMode)),
     });
 
     await emitTrace('auto_mode_effective_boundary', {
@@ -913,6 +1003,9 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
     // 使用 segment 打开时缓存的模式（而不是当前 guardian_session 中的模式）
     const mode = options.modeOverride || cachedEffectiveMode || 'unknown';
     const identity = await resolveSettlementIdentity(effectiveSession, reason);
+    const managedTargetFields = hasManagedTargetSnapshot(effectiveSession)
+      ? managedTargetFieldsFrom(effectiveSession, mode)
+      : await resolveManagedTargetForOpen(effectiveSession.domain || null, options, mode);
 
     const appended = await settleUsageDuration({
       startMs,
@@ -920,6 +1013,7 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       domain: effectiveSession.domain || null,
       tabId: Number.isInteger(effectiveSession.tabId) ? effectiveSession.tabId : null,
       windowId: Number.isInteger(effectiveSession.windowId) ? effectiveSession.windowId : null,
+      ...managedTargetFields,
       sourceState: effectiveSession.state,
       settlementReason: reason,
       description: makeSettlementDescription(
@@ -995,12 +1089,14 @@ async function settleBoundaryDiagnosticSegment({
     windowId: Number.isInteger(windowId) ? windowId : null,
   };
   const identity = await resolveSettlementIdentity(timingSession, settlementReason);
+  const managedTargetFields = await resolveManagedTargetForOpen(diagnosticDomain, {}, cachedEffectiveMode || 'unknown');
   const appended = await settleUsageDuration({
     startMs: boundaryAt,
     endMs: boundaryAt,
     domain: diagnosticDomain,
     tabId: Number.isInteger(tabId) ? tabId : null,
     windowId: Number.isInteger(windowId) ? windowId : null,
+    ...managedTargetFields,
     sourceState: diagnosticState,
     settlementReason,
     description: makeSettlementDescription(
@@ -1158,6 +1254,7 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
         ? 'unknown_recovered_at_settlement'
         : session.domainResolutionReason || null,
       domainResolutionError: null,
+      ...(await managedTargetFieldsForReopen(session, reopenedDomain, options, cachedEffectiveMode)),
     });
 
     if (reason === 'ui_flush') {
@@ -1338,6 +1435,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         nextState: state,
         event: startEvent,
       });
+      await refreshCachedMode();
       await saveSession({
         state,
         domain,
@@ -1348,6 +1446,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         startAtMs: openAt,
         tabId: sampleTabIdFromConfirmation(confirmation),
         windowId: sampleWindowIdFromConfirmation(confirmation),
+        ...(await resolveManagedTargetForOpen(domain, { observedUrl: confirmation?.observedUrl || null }, cachedEffectiveMode)),
       });
       await recordForegroundDiagnostic({
         checkpointEstimatedOpens: 1,
@@ -1431,6 +1530,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
             nextState: nextSample.state,
             event: startEvent,
           });
+          await refreshCachedMode();
           await saveSession({
             state: nextSample.state,
             domain: nextSample.domain,
@@ -1441,6 +1541,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
             startAtMs: openAt,
             tabId: nextSample.tabId,
             windowId: nextSample.windowId,
+            ...(await resolveManagedTargetForOpen(nextSample.domain, { observedUrl: nextSample.url || null }, cachedEffectiveMode)),
           });
         } else {
           await saveSession(emptySession(now));
@@ -1521,6 +1622,9 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         startAtMs: checkpointEnd,
         tabId: session.tabId ?? sampleTabIdFromConfirmation(confirmation),
         windowId: session.windowId ?? sampleWindowIdFromConfirmation(confirmation),
+        ...(await managedTargetFieldsForReopen(session, session.domain || FOREGROUND_UNKNOWN_DOMAIN, {
+          observedUrl: confirmation?.observedUrl || null,
+        }, cachedEffectiveMode)),
       });
       return {
         ok: true,

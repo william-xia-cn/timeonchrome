@@ -83,6 +83,63 @@ export function convertDailyStatsToLegacyShape(dayStats) {
   };
 }
 
+function targetDisplayLabel(target = {}) {
+  if (typeof target.managedTargetLabelAtTime === 'string' && target.managedTargetLabelAtTime.trim()) {
+    return target.managedTargetLabelAtTime.trim();
+  }
+  if (target.isFallback && target.fallbackDomain) return target.fallbackDomain;
+  return target.managedTargetValue || target.fallbackDomain || target.targetKey || 'unknown';
+}
+
+export function convertDailyStatsToTargetShape(dayStats) {
+  const targets = dayStats?.targets && typeof dayStats.targets === 'object' ? dayStats.targets : {};
+  const rows = Object.entries(targets).map(([targetKey, row]) => {
+    const activeSeconds = Number(row?.activeSeconds || 0);
+    const backgroundMediaSeconds = Number(row?.backgroundMediaSeconds || 0);
+    const pipSeconds = Number(row?.pipSeconds || 0);
+    return {
+      targetKey,
+      managedTargetId: row?.managedTargetId || null,
+      managedTargetType: row?.managedTargetType || null,
+      managedTargetNamespace: row?.managedTargetNamespace || null,
+      managedTargetValue: row?.managedTargetValue || null,
+      managedTargetLabelAtTime: row?.managedTargetLabelAtTime || null,
+      targetLabel: targetDisplayLabel({ ...row, targetKey }),
+      targetSourceAtTime: row?.targetSourceAtTime || null,
+      targetRuleId: row?.targetRuleId || null,
+      targetMatchLevel: row?.targetMatchLevel || null,
+      targetClassificationAtTime: row?.targetClassificationAtTime || null,
+      fallbackDomain: row?.fallbackDomain || null,
+      isFallback: !!row?.isFallback,
+      activeSeconds,
+      backgroundMediaSeconds,
+      pipSeconds,
+      totalSeconds: Number.isFinite(Number(row?.totalSeconds))
+        ? Number(row.totalSeconds)
+        : activeSeconds + backgroundMediaSeconds + pipSeconds,
+      activeByMode: row?.activeByMode || {},
+      backgroundMediaByMode: row?.backgroundMediaByMode || {},
+      pipByMode: row?.pipByMode || {},
+      activeByQuotaBucket: row?.activeByQuotaBucket || {},
+      backgroundMediaByQuotaBucket: row?.backgroundMediaByQuotaBucket || {},
+      pipByQuotaBucket: row?.pipByQuotaBucket || {},
+      firstSeenAt: row?.firstSeenAt || null,
+      lastSeenAt: row?.lastSeenAt || null,
+      lastUpdatedAt: row?.lastUpdatedAt || null,
+    };
+  }).sort((a, b) => {
+    const delta = (b.activeSeconds + b.pipSeconds) - (a.activeSeconds + a.pipSeconds);
+    if (delta !== 0) return delta;
+    return a.targetLabel.localeCompare(b.targetLabel);
+  });
+  return {
+    targets,
+    rows,
+    rowCount: rows.length,
+    source: rows.length > 0 ? 'daily_usage_stats_v1.targets' : 'empty',
+  };
+}
+
 function aggregateFromEvents(events, date) {
   const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } =
     computeAllDomainsWithAudio(events, date);
@@ -202,6 +259,7 @@ export async function getTodayUsageView(options = {}) {
     date,
     source,
     dayStats,
+    targetStats: convertDailyStatsToTargetShape(dayStats),
     stats,
     statsWithSummary: withUsageSummary(stats, config),
     meta: { source, date },
@@ -211,10 +269,12 @@ export async function getTodayUsageView(options = {}) {
 export async function getUsageRangeView(days = 7, options = {}) {
   const result = {};
   const sources = {};
+  let allStatsForTargetView = {};
 
   try {
     const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
     const allStats = data[DAILY_USAGE_STATS_KEY] || {};
+    allStatsForTargetView = allStats;
 
     for (let i = 0; i < days; i++) {
       const d = new Date();
@@ -270,6 +330,10 @@ export async function getUsageRangeView(days = 7, options = {}) {
     days,
     statsByDate: result,
     statsWithSummaryByDate,
+    targetStatsByDate: Object.fromEntries(Object.entries(result).map(([date]) => {
+      const dayStats = allStatsForTargetView?.[date];
+      return [date, convertDailyStatsToTargetShape(dayStats)];
+    })),
     sources,
     meta: { sources },
   };
@@ -317,9 +381,64 @@ function domainEntries(stats = {}) {
     .map(([domain, seconds]) => [domain, Math.max(0, Number(seconds) || 0)]);
 }
 
+function addQuotaBucketSeconds(target, bucketMap = {}, secondsMultiplier = 1) {
+  for (const [bucket, seconds] of Object.entries(bucketMap || {})) {
+    const key = typeof bucket === 'string' && bucket.trim() ? bucket.trim() : 'unknown';
+    target[key] = (target[key] || 0) + Math.max(0, Number(seconds || 0) * secondsMultiplier);
+  }
+}
+
+function quotaBucketsFromTargetStats(dayStats) {
+  const rows = convertDailyStatsToTargetShape(dayStats).rows || [];
+  const buckets = {};
+  const targetSeconds = {};
+  const targetClassifications = {};
+  const targetRows = [];
+  let totalSeconds = 0;
+
+  for (const row of rows) {
+    const onlineSeconds = Math.max(0, Number(row.activeSeconds || 0)) + Math.max(0, Number(row.pipSeconds || 0));
+    if (onlineSeconds <= 0) continue;
+    const bucketAccumulator = {};
+    addQuotaBucketSeconds(bucketAccumulator, row.activeByQuotaBucket || {});
+    addQuotaBucketSeconds(bucketAccumulator, row.pipByQuotaBucket || {});
+    if (Object.keys(bucketAccumulator).length === 0) {
+      bucketAccumulator.unknown = onlineSeconds;
+    }
+    for (const [bucket, seconds] of Object.entries(bucketAccumulator)) {
+      buckets[bucket] = (buckets[bucket] || 0) + Math.max(0, Number(seconds) || 0);
+    }
+    targetSeconds[row.targetKey] = onlineSeconds;
+    targetClassifications[row.targetKey] = row.targetClassificationAtTime || null;
+    targetRows.push({ ...row, onlineSeconds, quotaBuckets: bucketAccumulator });
+    totalSeconds += onlineSeconds;
+  }
+
+  return {
+    hasTargetRows: rows.length > 0,
+    buckets,
+    targetSeconds,
+    targetClassifications,
+    targetRows,
+    totalSeconds,
+  };
+}
+
+async function readDailyUsageStatsByDate(date) {
+  try {
+    const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
+    return data?.[DAILY_USAGE_STATS_KEY]?.[date] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function getQuotaUsageView(date = getDateKey(), options = {}) {
   const config = options.config || {};
-  const stats = options.stats || (await getTodayUsageView({ date, config })).stats;
+  const todayUsageView = options.stats ? null : await getTodayUsageView({ date, config });
+  const stats = options.stats || todayUsageView.stats;
+  const dayStats = options.dayStats || todayUsageView?.dayStats || await readDailyUsageStatsByDate(date);
+  const targetQuota = quotaBucketsFromTargetStats(dayStats);
   const temporaryCompositeDomains = options.temporaryCompositeDomains || await readTemporaryCompositeDomains();
   const siteClassificationRecords = options.siteClassificationRecords || await readSiteClassificationRecords();
 
@@ -328,14 +447,29 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
   let totalSeconds = 0;
   const domainSeconds = {};
   const domainClassifications = {};
+  let targetSeconds = {};
+  let targetClassifications = {};
+  let targetRows = [];
 
-  for (const [domain, seconds] of domainEntries(stats)) {
-    totalSeconds += seconds;
-    domainSeconds[domain] = seconds;
-    const classification = classifyDomainForManagedStats(config, siteClassificationRecords, temporaryCompositeDomains, domain);
-    domainClassifications[domain] = classification;
-    if (classification === 'study') studySeconds += seconds;
-    else if (classification === 'composite' || classification === 'pending_composite') compositeSeconds += seconds;
+  if (targetQuota.hasTargetRows) {
+    totalSeconds = targetQuota.totalSeconds;
+    studySeconds = Math.max(0, Number(targetQuota.buckets.study || 0));
+    compositeSeconds = Math.max(0, Number(targetQuota.buckets.composite || 0));
+    targetSeconds = targetQuota.targetSeconds;
+    targetClassifications = targetQuota.targetClassifications;
+    targetRows = targetQuota.targetRows;
+    for (const [domain, seconds] of domainEntries(stats)) {
+      domainSeconds[domain] = seconds;
+    }
+  } else {
+    for (const [domain, seconds] of domainEntries(stats)) {
+      totalSeconds += seconds;
+      domainSeconds[domain] = seconds;
+      const classification = classifyDomainForManagedStats(config, siteClassificationRecords, temporaryCompositeDomains, domain);
+      domainClassifications[domain] = classification;
+      if (classification === 'study') studySeconds += seconds;
+      else if (classification === 'composite' || classification === 'pending_composite') compositeSeconds += seconds;
+    }
   }
 
   const restSeconds = Math.max(0, totalSeconds - studySeconds - compositeSeconds);
@@ -344,6 +478,15 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
   const range = await getUsageRangeView(dayOfWeek + 1, { config });
   let weekRestSeconds = 0;
   for (const [dateKey, dayStats] of Object.entries(range.statsByDate || {})) {
+    const dayTargetStats = range.targetStatsByDate?.[dateKey];
+    if (dayTargetStats?.rows?.length) {
+      const dayQuota = quotaBucketsFromTargetStats({ targets: dayTargetStats.targets || {} });
+      const dayTotal = dayQuota.totalSeconds;
+      const dayStudy = Math.max(0, Number(dayQuota.buckets.study || 0));
+      const dayComposite = Math.max(0, Number(dayQuota.buckets.composite || 0));
+      weekRestSeconds += Math.max(0, dayTotal - dayStudy - dayComposite);
+      continue;
+    }
     const tempComposite = dateKey === today ? temporaryCompositeDomains : [];
     let dayTotal = 0;
     let dayStudy = 0;
@@ -374,6 +517,10 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
     weekRestMinutes: Math.floor(weekRestSeconds / 60),
     domainSeconds,
     domainClassifications,
+    targetSeconds,
+    targetClassifications,
+    targetRows,
+    quotaSource: targetQuota.hasTargetRows ? 'target_quota_bucket' : 'domain_classification_fallback',
     media: {
       backgroundMediaSeconds: Number(stats?.audioSeconds || 0),
       backgroundMediaByDomain: stats?.backgroundMediaByDomain || {},

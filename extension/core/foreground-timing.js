@@ -468,6 +468,7 @@ export async function processForegroundSignal(rawEvent, options = {}) {
   const metadata = {
     tabId: currentContext?.tabId ?? null,
     windowId: currentContext?.windowId ?? null,
+    url: currentContext?.url || signal.url || null,
     domainResolutionReason: domainResolution.reason,
     domainResolutionError: domainResolution.error,
   };
@@ -658,20 +659,21 @@ export async function confirmForegroundPageCheckpoint(session) {
     }
 
     if (!session?.domain) {
-      return { ok: true, observedDomain, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, idleState };
+      return { ok: true, observedDomain, observedUrl: tab.url || null, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, idleState };
     }
     if (observedDomain !== session.domain) {
       return {
         ok: false,
         reason: observedDomain === 'unknown-page.chrome-local' ? 'unknown_domain' : 'observed_mismatch',
         observedDomain,
+        observedUrl: tab.url || null,
         observedState: 'ACTIVE',
         tabId: numericTabId(tab.id),
         windowId: tab.windowId ?? null,
         idleState,
       };
     }
-    return { ok: true, observedDomain, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, idleState };
+    return { ok: true, observedDomain, observedUrl: tab.url || null, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, idleState };
   } catch (err) {
     return { ok: false, reason: 'observed_query_failed', error: err?.message || String(err) };
   }

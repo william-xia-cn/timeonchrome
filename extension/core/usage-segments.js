@@ -47,6 +47,19 @@ const DESCRIPTION_SOURCES = new Set([
   'unknown',
 ]);
 
+const TARGET_SNAPSHOT_FIELDS = [
+  'managedTargetId',
+  'managedTargetType',
+  'managedTargetNamespace',
+  'managedTargetValue',
+  'managedTargetLabelAtTime',
+  'targetSourceAtTime',
+  'targetRuleId',
+  'targetMatchLevel',
+  'targetClassificationAtTime',
+  'quotaBucketAtTime',
+];
+
 // ── 纯函数：segment ID 生成 ─────────────────────────────────────────────────────
 
 /**
@@ -144,6 +157,20 @@ export function getLocalDateInfo(epochMs, timezoneOffsetMinutes) {
   const dayEndMs = dayStartMs + 86399999;
 
   return { date, dayStartMs, dayEndMs };
+}
+
+function normalizeTargetSnapshot(input = {}) {
+  const out = {};
+  for (const key of TARGET_SNAPSHOT_FIELDS) {
+    const value = input?.[key];
+    out[key] = typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+  if (!out.quotaBucketAtTime) {
+    out.quotaBucketAtTime = typeof input.mode === 'string' && input.mode.trim()
+      ? input.mode.trim()
+      : 'unknown';
+  }
+  return out;
 }
 
 export function getLocalHourInfo(epochMs, timezoneOffsetMinutes) {
@@ -402,6 +429,7 @@ export function buildUsageSegment(input) {
     date = info.date;
   }
   if (!date) date = '1970-01-01';
+  const targetSnapshot = normalizeTargetSnapshot({ ...input, mode: input.mode || 'unknown' });
 
   const seg = {
     id: input.id || generateSegmentId({ ...input, date }),
@@ -418,6 +446,7 @@ export function buildUsageSegment(input) {
     domain: input.domain || '',
     tabId: Number.isInteger(input.tabId) ? input.tabId : null,
     windowId: Number.isInteger(input.windowId) ? input.windowId : null,
+    ...targetSnapshot,
     channel: input.channel,
     mode: input.mode || 'unknown',
     sourceState: input.sourceState || 'UNKNOWN',
@@ -519,6 +548,7 @@ export async function incrementDailyUsageStats(segment) {
       segmentsCount: 0,
       lastSegmentId: null,
       domains: {},
+      targets: {},
     };
   }
 
@@ -550,6 +580,7 @@ export async function incrementHourlyUsageStats(segment) {
         segmentsCount: 0,
         lastSegmentId: null,
         domains: {},
+        targets: {},
       };
     }
     applySegmentToHourlyStats(stats[slice.hourKey], slice);
@@ -563,6 +594,8 @@ export async function incrementHourlyUsageStats(segment) {
 function applySegmentToDailyStats(day, segment) {
   if (!day || !segment || !segment.domain) return;
 
+  if (!day.domains) day.domains = {};
+  if (!day.targets) day.targets = {};
   const domainKey = segment.domain;
   if (!day.domains[domainKey]) {
     day.domains[domainKey] = makeEmptyDomainStats();
@@ -597,6 +630,8 @@ function applySegmentToDailyStats(day, segment) {
   }
   ds.lastUpdatedAt = nowMs;
 
+  applySegmentToTargetStats(day.targets, segment, nowMs);
+
   day.segmentsCount = (day.segmentsCount || 0) + 1;
   day.lastSegmentId = segment.id;
 }
@@ -604,6 +639,8 @@ function applySegmentToDailyStats(day, segment) {
 function applySegmentToHourlyStats(hourStats, slice) {
   if (!hourStats || !slice || !slice.domain) return;
 
+  if (!hourStats.domains) hourStats.domains = {};
+  if (!hourStats.targets) hourStats.targets = {};
   const domainKey = slice.domain;
   if (!hourStats.domains[domainKey]) {
     hourStats.domains[domainKey] = makeEmptyDomainStats();
@@ -634,6 +671,8 @@ function applySegmentToHourlyStats(hourStats, slice) {
     ds.lastSeenAt = slice.endMs;
   }
   ds.lastUpdatedAt = nowMs;
+
+  applySegmentToTargetStats(hourStats.targets, slice, nowMs);
 
   hourStats.segmentsCount = (hourStats.segmentsCount || 0) + 1;
   hourStats.lastSegmentId = slice.id;
@@ -695,6 +734,7 @@ export async function rebuildDailyUsageStats(date, options = {}) {
     segmentsCount: 0,
     lastSegmentId: null,
     domains: {},
+    targets: {},
   };
 
   if (cleanupMetadata) {
@@ -761,6 +801,7 @@ export async function rebuildHourlyUsageStats(dateOrHourKey, options = {}) {
           segmentsCount: 0,
           lastSegmentId: null,
           domains: {},
+          targets: {},
         };
       }
       applySegmentToHourlyStats(nextByHour[slice.hourKey], slice);
@@ -994,6 +1035,79 @@ export async function getPendingDailyStats(dates = null) {
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
   };
+}
+
+function targetStatsKey(segment) {
+  if (typeof segment?.managedTargetId === 'string' && segment.managedTargetId.trim()) {
+    return segment.managedTargetId.trim();
+  }
+  return `fallback:domain:${segment?.domain || 'unknown'}`;
+}
+
+function makeEmptyTargetStats(segment, key) {
+  const fallback = !(typeof segment?.managedTargetId === 'string' && segment.managedTargetId.trim());
+  return {
+    managedTargetId: fallback ? null : segment.managedTargetId,
+    managedTargetType: fallback ? null : (segment.managedTargetType || null),
+    managedTargetNamespace: fallback ? null : (segment.managedTargetNamespace || null),
+    managedTargetValue: fallback ? null : (segment.managedTargetValue || null),
+    managedTargetLabelAtTime: fallback ? null : (segment.managedTargetLabelAtTime || null),
+    targetSourceAtTime: fallback ? null : (segment.targetSourceAtTime || null),
+    targetRuleId: fallback ? null : (segment.targetRuleId || null),
+    targetMatchLevel: fallback ? 'domain_fallback' : (segment.targetMatchLevel || null),
+    targetClassificationAtTime: fallback ? null : (segment.targetClassificationAtTime || null),
+    fallbackDomain: segment?.domain || null,
+    targetKey: key,
+    isFallback: fallback,
+    activeSeconds: 0,
+    backgroundMediaSeconds: 0,
+    pipSeconds: 0,
+    totalSeconds: 0,
+    activeByMode: {},
+    backgroundMediaByMode: {},
+    pipByMode: {},
+    activeByQuotaBucket: {},
+    backgroundMediaByQuotaBucket: {},
+    pipByQuotaBucket: {},
+    firstSeenAt: null,
+    lastSeenAt: null,
+    lastUpdatedAt: null,
+  };
+}
+
+function incrementBucket(map, key, seconds) {
+  const bucket = typeof key === 'string' && key.trim() ? key.trim() : 'unknown';
+  map[bucket] = (map[bucket] || 0) + seconds;
+}
+
+function applySegmentToTargetStats(targets, segment, nowMs = Date.now()) {
+  if (!targets || !segment || !segment.domain) return;
+  const key = targetStatsKey(segment);
+  if (!targets[key]) targets[key] = makeEmptyTargetStats(segment, key);
+
+  const ts = targets[key];
+  const seconds = Number(segment.durationSeconds || 0);
+  const modeKey = segment.mode || 'unknown';
+  const quotaKey = segment.quotaBucketAtTime || modeKey || 'unknown';
+
+  if (segment.channel === 'active') {
+    ts.activeSeconds += seconds;
+    incrementBucket(ts.activeByMode, modeKey, seconds);
+    incrementBucket(ts.activeByQuotaBucket, quotaKey, seconds);
+  } else if (segment.channel === 'backgroundMedia') {
+    ts.backgroundMediaSeconds += seconds;
+    incrementBucket(ts.backgroundMediaByMode, modeKey, seconds);
+    incrementBucket(ts.backgroundMediaByQuotaBucket, quotaKey, seconds);
+  } else if (segment.channel === 'pip') {
+    ts.pipSeconds += seconds;
+    incrementBucket(ts.pipByMode, modeKey, seconds);
+    incrementBucket(ts.pipByQuotaBucket, quotaKey, seconds);
+  }
+
+  ts.totalSeconds = ts.activeSeconds + ts.backgroundMediaSeconds + ts.pipSeconds;
+  if (!ts.firstSeenAt || segment.startMs < ts.firstSeenAt) ts.firstSeenAt = segment.startMs;
+  if (!ts.lastSeenAt || segment.endMs > ts.lastSeenAt) ts.lastSeenAt = segment.endMs;
+  ts.lastUpdatedAt = nowMs;
 }
 
 export async function getPendingHourlyStats(hourKeys = null) {
@@ -1292,6 +1406,16 @@ export async function buildUsageSegmentsUploadPayload(segmentIds) {
       domain: seg.domain,
       tabId: seg.tabId ?? null,
       windowId: seg.windowId ?? null,
+      managedTargetId: seg.managedTargetId || null,
+      managedTargetType: seg.managedTargetType || null,
+      managedTargetNamespace: seg.managedTargetNamespace || null,
+      managedTargetValue: seg.managedTargetValue || null,
+      managedTargetLabelAtTime: seg.managedTargetLabelAtTime || null,
+      targetSourceAtTime: seg.targetSourceAtTime || null,
+      targetRuleId: seg.targetRuleId || null,
+      targetMatchLevel: seg.targetMatchLevel || null,
+      targetClassificationAtTime: seg.targetClassificationAtTime || null,
+      quotaBucketAtTime: seg.quotaBucketAtTime || null,
       channel: seg.channel,
       mode: seg.mode,
       sourceState: seg.sourceState,

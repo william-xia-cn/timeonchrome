@@ -70,6 +70,7 @@ function resolveSiteAccessClassification(config, _records, domain) {
 
 const statsApi = loadProdModule('stats/managed-statistics.js', [
   'convertDailyStatsToLegacyShape',
+  'convertDailyStatsToTargetShape',
   'getTodayUsageView',
   'getUsageRangeView',
   'getPopupModeStatsView',
@@ -153,6 +154,36 @@ async function run() {
             pipByMode: {},
           },
         },
+        targets: {
+          mt_study_playlist: {
+            managedTargetId: 'mt_study_playlist',
+            managedTargetType: 'playlist',
+            managedTargetNamespace: 'youtube',
+            managedTargetValue: 'PLSTUDY',
+            managedTargetLabelAtTime: 'Study Playlist',
+            targetClassificationAtTime: 'study',
+            fallbackDomain: 'www.youtube.com',
+            isFallback: false,
+            activeSeconds: 150,
+            backgroundMediaSeconds: 0,
+            pipSeconds: 0,
+            totalSeconds: 150,
+            activeByMode: { rest: 150 },
+            activeByQuotaBucket: { study: 150 },
+          },
+          'fallback:domain:video.example': {
+            fallbackDomain: 'video.example',
+            isFallback: true,
+            activeSeconds: 80,
+            backgroundMediaSeconds: 0,
+            pipSeconds: 20,
+            totalSeconds: 100,
+            activeByMode: { rest: 80 },
+            pipByMode: { rest: 20 },
+            activeByQuotaBucket: { composite: 80 },
+            pipByQuotaBucket: { composite: 20 },
+          },
+        },
       },
     },
   });
@@ -165,6 +196,8 @@ async function run() {
   eq('today view uses daily source', todayView.source, 'daily_usage_stats_v1');
   eq('summary computes online seconds from legacy domain totals', todayView.statsWithSummary.onlineSeconds, 300);
   eq('summary computes composite seconds from config', todayView.statsWithSummary.compositeSeconds, 80);
+  eq('today view exposes target rows', todayView.targetStats.rows.length, 2);
+  eq('target row prefers snapshot label', todayView.targetStats.rows[0].targetLabel, 'Study Playlist');
 
   const popupView = await statsApi.getPopupModeStatsView(today);
   eq('popup mode stats uses active mode seconds only for mode buckets', {
@@ -175,10 +208,11 @@ async function run() {
   eq('popup online includes pip', popupView.summary.onlineSeconds, 300);
 
   const quotaView = await statsApi.getQuotaUsageView(today, { config: { studyList: ['study.example'], compositeList: ['video.example'] } });
-  eq('quota classifies study seconds', quotaView.studySeconds, 130);
-  eq('quota classifies composite plus temporary composite seconds', quotaView.compositeSeconds, 170);
+  eq('quota uses target bucket study seconds', quotaView.studySeconds, 150);
+  eq('quota uses target bucket composite seconds', quotaView.compositeSeconds, 100);
   eq('quota keeps background media outside online/domain quota', quotaView.media.backgroundMediaSeconds, 30);
-  eq('quota rest excludes study/composite domains', quotaView.restSeconds, 0);
+  eq('quota source is target bucket', quotaView.quotaSource, 'target_quota_bucket');
+  eq('quota rest excludes target study/composite buckets', quotaView.restSeconds, 0);
 
   await local.set({ daily_usage_stats_v1: {}, event_log_v1: [{ type: 'START' }] });
   const fallbackView = await statsApi.getTodayUsageView({ date: today });

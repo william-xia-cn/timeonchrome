@@ -37,8 +37,8 @@ check('stats foundation marks D-045 as not implemented', statsFoundation.include
 check('design marks current implementation as domain-first', design.includes('当前实现仍是 domain-first'));
 check('changelog says code remains domain-first until a separate milestone', changelog.includes('current code remains domain-first until a separate implementation milestone'));
 
-check('current usage segment builder remains domain-first before implementation', usageSegments.includes('domain: input.domain') && !usageSegments.includes('managedTargetId:'));
-check('current daily aggregate still keys by domain before implementation', usageSegments.includes('const domainKey = segment.domain') && usageSegments.includes('day.domains[domainKey]'));
+check('usage segment builder now supports managed target snapshot fields', usageSegments.includes('managedTargetId:') && usageSegments.includes('quotaBucketAtTime'));
+check('daily aggregate keeps domain compatibility and adds target rows', usageSegments.includes('const domainKey = segment.domain') && usageSegments.includes('day.targets') && usageSegments.includes('fallback:domain:'));
 check('current managed statistics still classifies domain stats before implementation', managedStatistics.includes('classifyDomainForManagedStats') && managedStatistics.includes('resolveSiteAccessClassification'));
 
 const total = passed + failed;

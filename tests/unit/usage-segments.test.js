@@ -134,6 +134,23 @@ chk('description summary default', seg4.description.summary, '开始：—；结
 const seg4b = api.buildUsageSegment({ ...input3, tabId: 123, windowId: 456 });
 chk('local tabId preserved', seg4b.tabId, 123);
 chk('local windowId preserved', seg4b.windowId, 456);
+const seg4Target = api.buildUsageSegment({
+  ...input3,
+  managedTargetId: 'mt_target',
+  managedTargetType: 'playlist',
+  managedTargetNamespace: 'youtube',
+  managedTargetValue: 'PL123',
+  managedTargetLabelAtTime: 'Algebra Playlist',
+  targetSourceAtTime: 'parent',
+  targetRuleId: 'rule-1',
+  targetMatchLevel: 'playlist',
+  targetClassificationAtTime: 'study',
+  quotaBucketAtTime: 'study',
+});
+chk('managedTargetId preserved', seg4Target.managedTargetId, 'mt_target');
+chk('managedTargetType preserved', seg4Target.managedTargetType, 'playlist');
+chk('quotaBucketAtTime preserved', seg4Target.quotaBucketAtTime, 'study');
+chk('managed target fields do not change segment id', seg4Target.id, seg4.id);
 
 const seg4c = api.buildUsageSegment({ ...input3, channel: 'pip', domain: 'pip.com', mode: 'rest', sourceState: 'PIP_ACTIVE' });
 chk('channel pip', seg4c.channel, 'pip');
@@ -175,6 +192,8 @@ chkT('stats exist', !!st);
 chk('active=600', st.domains['ex.com'].activeSeconds, 600);
 chk('bg=0', st.domains['ex.com'].backgroundMediaSeconds, 0);
 chk('mode study=600', st.domains['ex.com'].activeByMode.study, 600);
+chk('fallback target active=600', st.targets['fallback:domain:ex.com'].activeSeconds, 600);
+chk('fallback target quota study=600', st.targets['fallback:domain:ex.com'].activeByQuotaBucket.study, 600);
 
 const bs = api.buildUsageSegment({ startMs: MOCK_TIME-300000, endMs: MOCK_TIME, domain: 'ex.com', channel: 'backgroundMedia', mode: 'rest', sourceState: 'BACKGROUND_ACTIVE', settlementReason: 'tc' });
 await api.incrementDailyUsageStats(bs);
@@ -188,6 +207,32 @@ await api.incrementDailyUsageStats(ps);
 st = await api.getDailyUsageStats(as.date);
 chk('pip=100', st.domains['pip.com'].pipSeconds, 100);
 chk('segCount=3', st.segmentsCount, 3);
+
+const ts = api.buildUsageSegment({
+  startMs: MOCK_TIME - 120000,
+  endMs: MOCK_TIME,
+  domain: 'www.youtube.com',
+  channel: 'active',
+  mode: 'rest',
+  sourceState: 'ACTIVE',
+  settlementReason: 'tc',
+  managedTargetId: 'mt_playlist',
+  managedTargetType: 'playlist',
+  managedTargetNamespace: 'youtube',
+  managedTargetValue: 'PLSTUDY',
+  managedTargetLabelAtTime: 'Study Playlist',
+  targetSourceAtTime: 'parent',
+  targetRuleId: 'rule-playlist',
+  targetMatchLevel: 'playlist',
+  targetClassificationAtTime: 'study',
+  quotaBucketAtTime: 'study',
+});
+await api.incrementDailyUsageStats(ts);
+st = await api.getDailyUsageStats(as.date);
+chk('target aggregate exists', !!st.targets.mt_playlist, true);
+chk('target aggregate active=120', st.targets.mt_playlist.activeSeconds, 120);
+chk('target aggregate classification snapshot', st.targets.mt_playlist.targetClassificationAtTime, 'study');
+chk('target aggregate quota study=120', st.targets.mt_playlist.activeByQuotaBucket.study, 120);
 
 // ── TB6b: Increment hourly aggregate ──
 sec('TB6b: Hourly aggregate increment');
@@ -584,6 +629,16 @@ await api.settleUsageDuration({
   deviceId: 'd1',
   tabId: 778,
   windowId: 991,
+  managedTargetId: 'mt_payload',
+  managedTargetType: 'url',
+  managedTargetNamespace: 'generic',
+  managedTargetValue: 'https://payload.com/lesson',
+  managedTargetLabelAtTime: 'Payload Lesson',
+  targetSourceAtTime: 'parent',
+  targetRuleId: 'rule-payload',
+  targetMatchLevel: 'url',
+  targetClassificationAtTime: 'study',
+  quotaBucketAtTime: 'composite',
   description: {
     schemaVersion: 1,
     start: { reason: 'tabActivated', operation: null, source: 'chrome_event', atMs: MOCK_TIME - 60000 },
@@ -604,6 +659,9 @@ chk('payload settlementReason', pSeg.settlementReason, 'tab_close');
 chk('payload includes description end reason', pSeg.description?.end?.reason, 'tab_close');
 chk('payload includes tabId', pSeg.tabId, 778);
 chk('payload includes windowId', pSeg.windowId, 991);
+chk('payload includes managedTargetId', pSeg.managedTargetId, 'mt_payload');
+chk('payload includes managedTargetType', pSeg.managedTargetType, 'url');
+chk('payload includes quotaBucketAtTime', pSeg.quotaBucketAtTime, 'composite');
 chk('payload excludes profileId', Object.prototype.hasOwnProperty.call(pSeg, 'profileId'), false);
 chk('payload durationSeconds', pSeg.durationSeconds, 60);
 chkT('payload has date', !!pSeg.date);
