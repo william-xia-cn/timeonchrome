@@ -234,6 +234,8 @@ core/timing-dispatcher.js
 | **模式上下文（Mode Context）** | 该用量发生在哪个模式下的按模式时长拆解 | `usage_segments_v1` 与 daily/hourly 物化索引（与 raw facts 同层） | segment append-only；索引可重建 |
 | **分类/报表解释（Classification / Report Interpretation）** | 学习时间/休息时间/待定时间/拦截/借用/允许 | 读取时动态计算 | 随策略变更而变 |
 
+当前实现仍是 domain-first。D-045 已接受下一阶段 managedTarget 账本身份升级：普通统计和配额归属将转向 `managedTarget + fallback domain`，并在 `usage_segments_v1` 开账/切片时固化 target 与 quota decision 快照。该升级是独立里程碑，详见 `docs/MANAGED_TARGET_LEDGER.md`；在实现前，本节其余内容描述现有 domain-first schema。
+
 #### 1.3.7.2 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 存储契约
 
 `daily_usage_stats_v1` / `hourly_usage_stats_v1`（或等效的云端 `stats_v1` / `hourly_stats_v1` 表）存储**原始用量事实 + 模式上下文**，不存储任何分类、策略决策或解释结果。
@@ -271,6 +273,8 @@ core/timing-dispatcher.js
 - AI 分类结果或内容级判断
 - 完整的模式切换事件日志（mode transition event log — 属于 `event_log_v1` 的职责）
 
+D-045 例外说明：未来 `targetClassificationAtTime` 与 `quotaBucketAtTime` 会作为 segment open 时固化的历史事实进入 managedTarget 快照；它们不是读取时动态分类，也不得因规则变化回写历史。
+
 **说明：**
 - 按模式拆解属于**原始用量事实层**：某域名在 study 模式下产生了多少 ACTIVE 秒，这是事实，不是分类。
 - 完整的事件日志（START/END 序列）属于 `event_log_v1`，不在此表。
@@ -305,6 +309,8 @@ compositeSeconds = readCompositeSeconds(statsLike)
 4. **用户自定义清单**：`customStudyList` / `customCompositeList` / `customRestrictedEntertainmentList` / `customBlockedSites`
 5. **当前模式规则**：study / composite / rest / paused 模式下的不同行为
 6. **未来扩展**：AI 分类规则、URL/channel/query 级规则、用户手动分类回填
+
+D-045 后，普通统计的主身份应从 domain 分类视图升级为 managedTarget 视图。未命中显式 managedTarget 的访问仍走 domain fallback；未显式配置的普通 URL 不得被保存为 target。
 
 **计算示例（使用通用域名，不绑定特定分类）：**
 ```

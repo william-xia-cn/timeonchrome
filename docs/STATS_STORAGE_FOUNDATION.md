@@ -71,12 +71,24 @@
 - `daily_usage_stats_v1` 与 `hourly_usage_stats_v1` 是从 segments 构建的**物化聚合**，不应独立写入
 - 云同步先上传 segments，然后可以从云端 segments 派生/对账聚合数据
 
+### 2.2.1 ManagedTarget 账本身份升级（已决策，未实现）
+
+D-045 确认后续统计身份模型将从 `domain-only` 升级为 `managedTarget + fallback domain`。当前代码和 schema 仍是 domain-first；本节只记录后续架构方向，详细决策见 `docs/MANAGED_TARGET_LEDGER.md`。
+
+后续实现时，`usage_segments_v1` 必须在 segment open / split 时固化当时命中的 managedTarget 与 `quotaBucketAtTime` 快照。历史 segment 不得在读取统计时按当前规则重新解释。`domain` 保持必填事实字段，用于诊断、兼容和未命中显式 target 时的 fallback。
+
+managedTarget 只表示显式配置的管理对象，不代表所有浏览 URL。未命中显式 target 时不得保存完整 URL。普通统计按层级归集：playlist > standalone video / explicit URL（无 playlist 上下文时）> platform entry > subdomain > domain > unmanaged domain fallback。
+
 ### 2.3 这些存储禁止包含的内容
+
+当前 domain-first schema 中，以下业务解释不得写入 `daily_usage_stats_v1` / `hourly_usage_stats_v1` 作为可变读时分类：
 
 - 网站分类标签（study site / composite site / restricted / blocked）
 - 策略决策（allowed / blocked / borrow / temporary composite）
 - 解释性报表时间类型（学习时间 / 休息时间 / 待定时间）
 - AI 分类结果或内容级判断
+
+D-045 实施后，`targetClassificationAtTime` / `quotaBucketAtTime` 属于 segment open 时固化的历史快照，而不是读时解释；该变更必须同步更新本章 schema、上传协议、Worker/D1、统计视图和测试。
 
 ### 2.4 `event_log_v1` 不是持久统计存储
 
@@ -265,7 +277,7 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - 当前仍保留 legacy 媒体网页补偿：仅在旧 open foreground session 因 idle/focus/checkpoint 可能被关闭前，按 `session.tabId` 查询 `tab.audible` 或 `media_facts_v1[session.tabId]`，判断是否暂缓关闭普通网页 `ACTIVE`。它不得用于新开或补开普通网页账。目标形态是移除该补偿，让媒体只进入本地媒体账本；但本轮只收敛查询入口，不删除。
 - HTTP/HTTPS 记录归一化后的**精确 hostname**。`www.example.com`、`m.example.com`、`sub.example.com` 分别落账和聚合，不自动合并到 `example.com`。
 - 父域覆盖子域只用于规则匹配（study/composite/restricted/unsafe）和配额/拦截判断，不改变账本 `domain` key。
-- 如果未来需要“主站”视图，应在读取/展示层增加 `siteGroup` 聚合；不得改写 `usage_segments_v1` / `daily_usage_stats_v1` / `hourly_usage_stats_v1` 的原始 domain 粒度。
+- 当前 v1 若需要“主站”视图，应在读取/展示层增加 `siteGroup` 聚合，不改写原始 domain 粒度。D-045 已确认下一阶段会引入 managedTarget 快照和 target 聚合；该升级不是当前 domain schema 的隐式行为，必须作为独立里程碑实施。
 - 特殊 URL 不形成空窗，而是映射为安全伪域名：`chrome-extension:` → `extension-page.chrome-local`，`chrome://extensions` → `chrome-extensions.chrome-local`，`chrome://settings` → `chrome-settings.chrome-local`，其他 `chrome://` → `chrome-page.chrome-local`，`file:` → `local-file.chrome-local`，`about:` → `about-page.chrome-local`，`data:`/`blob:` → `embedded-page.chrome-local`。
 - 不记录本地文件路径、扩展 ID、完整内部 URL 查询参数。
 
@@ -449,6 +461,12 @@ usage_segments_v1 (chrome.storage.local)
 | `channel` | string | ✅ | `active` / `backgroundMedia` / `pip` |
 | `mode` | string | ✅ | Runtime/product mode：`study` / `composite` / `rest` / `locked` / `paused`；`unknown` 只允许作为 ledger fallback，不是产品/runtime mode |
 | `sourceState` | string | ✅ | 产生该 segment 的原始 STATE_WEIGHTS 状态（`ACTIVE` / `BACKGROUND_ACTIVE` / `PIP_ACTIVE`）|
+
+#### ManagedTarget 快照字段（D-045，未实现）
+
+当前 schema 尚未包含 managedTarget 字段。D-045 实施时，`usage_segments_v1` 需要新增开账时快照字段，至少包括：`managedTargetId`、`managedTargetType`、`managedTargetNamespace`、`managedTargetValue`、`managedTargetLabelAtTime`、`targetSourceAtTime`、`targetRuleId`、`targetMatchLevel`、`targetClassificationAtTime`、`quotaBucketAtTime`。
+
+这些字段必须按 segment open / split 时的匹配结果固化，不得在读取统计时按当前规则回算。未命中显式 managedTarget 时不得保存完整 URL，只允许保留 `domain` fallback。
 
 #### 结算元数据
 

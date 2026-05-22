@@ -16,6 +16,7 @@
 - **ReleaseMg production acceptance**: PARTIAL / NOT CLOSED; production-profile readonly smoke still requires completion or explicit Product Owner waiver.
 
 ### V1-minimal gate close-out
+- **ManagedTarget ledger architecture decision**: D-045 accepts the next statistics identity model: ordinary stats and quota attribution will move from `domain-only` to `managedTarget + fallback domain`, while `domain` remains a factual/diagnostic/compatibility field. This is documentation-only in this change; current code remains domain-first until a separate implementation milestone updates terminal ledger fields, local aggregates, cloud ingestion/query, Pages/admin views, and quota usage views. See `docs/MANAGED_TARGET_LEDGER.md`.
 - **Cloud Stats v1 minimal sync**: `usage_segments_v1` + `stats_v1` active release truth path verified.
 - **Recovery/System Gate**: closed with manual evidence; manual network, lock/unlock, and sleep/wake checks are recorded as operator-confirmed evidence, not fully automated PASS.
 - **Mode transition UX**: prompt delivery restored; popup/reminder mode switches now enter the Mode Service request path; Study/Composite/Rest routing uses `guardian_session.currentMode` as truth; automatic Rest -> Study/Composite access routing switches immediately and starts a 30s `restExitGraceUntilMs` window before Rest-target reminders are shown. Manual popup switches clear any existing grace and do not create a new one; Reminder confirmations and quota-driven mode changes do not create that grace window.
