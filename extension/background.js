@@ -19,6 +19,7 @@ import { getEvents, clearEvents } from './core/event-log.js';
 import { emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
 import { computeAllDomains } from './core/aggregate.js';
 import { logClientEventBestEffort } from './infra/client-logs.js';
+import { resolveManagedTargetAttribution } from './core/managed-targets.js';
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
@@ -310,6 +311,19 @@ function buildPopupSettledModeStatsFromDay(dayStats) {
     backgroundMediaSeconds: 0,
     pipSeconds: 0,
   };
+  if (dayStats?.targets && typeof dayStats.targets === 'object') {
+    for (const ts of Object.values(dayStats.targets)) {
+      if (!ts) continue;
+      const quota = ts.activeByQuotaBucket || {};
+      summary.studySeconds += Math.max(0, Number(quota.study) || 0);
+      summary.restSeconds += Math.max(0, Number(quota.rest) || 0);
+      summary.compositeSeconds += Math.max(0, Number(quota.composite) || 0);
+      summary.onlineSeconds += Math.max(0, Number(ts.activeSeconds) || 0) + Math.max(0, Number(ts.pipSeconds) || 0);
+      summary.backgroundMediaSeconds += Math.max(0, Number(ts.backgroundMediaSeconds) || 0);
+      summary.pipSeconds += Math.max(0, Number(ts.pipSeconds) || 0);
+    }
+    return summary;
+  }
   if (!dayStats?.domains) return summary;
   for (const ds of Object.values(dayStats.domains)) {
     if (!ds) continue;
@@ -330,6 +344,7 @@ function pickPopupConfig(rawConfig, siteClassificationRequests = []) {
     entertainmentList: config.entertainmentList || DEFAULT_CONFIG.entertainmentList,
     unsafeList: config.unsafeList || DEFAULT_CONFIG.unsafeList,
     siteClassificationRulesV1: Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [],
+    managedTargetsV1: Array.isArray(config.managedTargetsV1) ? config.managedTargetsV1 : [],
     siteClassificationRequestsV1: Array.isArray(siteClassificationRequests) ? siteClassificationRequests : [],
     dailyOnlineQuota: config.dailyOnlineQuota ?? DEFAULT_CONFIG.dailyOnlineQuota,
     dailyStudyQuota: config.dailyStudyQuota ?? DEFAULT_CONFIG.dailyStudyQuota,
@@ -396,6 +411,12 @@ async function getPopupLocalSnapshot(tabHint = null) {
   const mode = normalizeMode(storage?.[SESSION_KEY]?.currentMode || 'study');
   const currentSessionDurationSeconds = resolvePopupLiveSessionSeconds(timingSession, domain, tab);
   const todayStats = storage?.daily_usage_stats_v1?.[getDateKey()] || null;
+  const popupConfig = pickPopupConfig(storage?.[CONFIG_KEY], storage?.[SITE_CLASSIFICATION_REQUESTS_KEY]);
+  const currentTarget = resolveManagedTargetAttribution(
+    popupConfig,
+    popupConfig.siteClassificationRequestsV1,
+    tab?.url || domain || ''
+  );
   const snapshot = {
     ok: true,
     mode,
@@ -403,7 +424,8 @@ async function getPopupLocalSnapshot(tabHint = null) {
     currentSessionDurationSeconds,
     tabId: Number.isInteger(tab?.id) ? tab.id : null,
     url: tab?.url || null,
-    config: pickPopupConfig(storage?.[CONFIG_KEY], storage?.[SITE_CLASSIFICATION_REQUESTS_KEY]),
+    currentManagedTarget: currentTarget?.fallback ? null : currentTarget,
+    config: popupConfig,
     stats: buildPopupSettledModeStatsFromDay(todayStats),
     cloudStatus: buildPopupCloudStatus(storage || {}),
     childName: storage?.cloud_profile_name || null,

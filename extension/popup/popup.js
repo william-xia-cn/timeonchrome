@@ -539,7 +539,10 @@ function renderRuntimeStatus(status = {}) {
   const runtimeCompact = document.getElementById('runtime-compact');
   if (!runtimeCompact) return;
   const domain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
-  const tag = resolveDomainTag(domain, status?.config || popupStatsContext.config, status?.url || null);
+  const targetLabel = status?.currentManagedTarget?.managedTargetLabelAtTime ||
+    status?.currentManagedTarget?.managedTargetValue ||
+    null;
+  const tag = targetLabel || resolveDomainTag(domain, status?.config || popupStatsContext.config, status?.url || null);
   const liveSessionSeconds = resolveLiveSessionSeconds(domain, status);
   const sessionText = formatRuntimeSessionDuration(liveSessionSeconds);
   const domainText = domain || '不计时页面';
