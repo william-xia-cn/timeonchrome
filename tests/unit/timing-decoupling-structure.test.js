@@ -49,8 +49,10 @@ check('quota consumes managed quota usage view', /getQuotaUsageView/.test(quota)
 check('background registers local quota_check alarm as message entry', /chrome\.alarms\.create\('quota_check'/.test(background) && /EVALUATE_QUOTA_STATE/.test(background));
 check('background quota_check does not call legacy all-tab quota redirect', !/checkAllTabsQuota|redirectAllTabs|redirectQuotaViolatingTabs/.test(background));
 check('background has no legacy auto-study scanner', !/checkAutoStudy|autoStudyConfig|auto_study_legacy/.test(background));
+check('background has no ordinary one-second access-control reeval scanner', !/restCompositeGateTickTimer|periodicReevaluateActiveTab|active_tab_reeval/.test(background));
 check('quota module has no tab redirect helpers', !/checkAllTabsQuota|redirectAllTabs|redirectQuotaViolatingTabs|redirectLockedTabs/.test(quota));
 check('background computes foreground facts for navigation route checks', /webNavigation\.onCommitted[\s\S]*isForegroundTab\(tab\)[\s\S]*source: 'webNavigationCommitted'/.test(background));
+check('background handles SPA history navigation route checks', /webNavigation\.onHistoryStateUpdated[\s\S]*source: 'webNavigationHistoryStateUpdated'/.test(background));
 check('background re-evaluates active tab when URL fact arrives', /tabs\.onUpdated[\s\S]*hasUrlFact[\s\S]*reevaluateTabById\(tabId,[\s\S]*tabUpdatedUrl/.test(background));
 check('cloud quota pull saves facts without redirect callbacks', /pullCloudQuotaState\(getConfigFn, saveConfigFn\)/.test(cloudSync) && !/redirectAllTabsFn|redirectQuotaViolatingTabsFn|chrome\.notifications\.create/.test(cloudSync));
 

@@ -9,7 +9,7 @@ import { closeCurrentSession, initSession, getSession as getTimingSession } from
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, CONFIG_KEY, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, SITE_CLASSIFICATION_REQUESTS_KEY, getDateKey, formatDate, extractDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
-import { updateDeclarativeRules, reSendPendingNoticeDetailed, setModeBoundaryDrainHook } from './product/interceptor.js';
+import { updateDeclarativeRules, reSendPendingNoticeDetailed, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
@@ -474,19 +474,6 @@ const badgeTimer = setInterval(scheduleCurrentTabBadgeUpdate, 1000);
 badgeTimer?.unref?.();
 scheduleCurrentTabBadgeUpdate();
 
-async function periodicReevaluateActiveTab() {
-  if (!isMonitoringEnabled()) return;
-  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const tab = tabs && tabs[0];
-  if (!tab?.id) return;
-  await reevaluateTabById(tab.id);
-}
-
-const restCompositeGateTickTimer = setInterval(() => {
-  periodicReevaluateActiveTab().catch(() => {});
-}, 1000);
-restCompositeGateTickTimer?.unref?.();
-
 async function processDebugControlledTimingSignal(rawEvent = {}) {
   const { _debugNow, ...event } = rawEvent;
   const originalNow = Date.now;
@@ -537,23 +524,46 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   scheduleModeBoundaryDrain('webNavigationCommitted');
 });
 
+chrome.webNavigation.onHistoryStateUpdated?.addListener?.(async (details) => {
+  if (details.frameId !== 0) return;
+  const { url, tabId } = details;
+  if (!url || url.includes('reminder.html')) return;
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch {}
+  if (!tab?.active) return;
+  const foreground = await isForegroundTab(tab);
+  await dispatchModeEvent({
+    type: 'ACCESS_OBSERVED',
+    source: 'webNavigationHistoryStateUpdated',
+    tabId,
+    url: url || tab?.url || '',
+    foreground,
+  }, { recheck: false });
+  scheduleModeBoundaryDrain('webNavigationHistoryStateUpdated');
+});
+
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const previousTabId = Number.isInteger(lastActiveTabId) ? lastActiveTabId : null;
   lastActiveTabId = activeInfo.tabId;
   await handleMediaTabActivated(previousTabId, activeInfo.tabId).catch(() => {});
-  await reevaluateTabById(activeInfo.tabId);
+  await reevaluateTabById(activeInfo.tabId, { source: 'tabActivated' });
 });
 
 chrome.tabs.onReplaced?.addListener?.(async (addedTabId, removedTabId) => {
+  clearModeNoticeTabState(removedTabId, 'tab_replaced');
+  clearModeNoticeTabState(addedTabId, 'tab_replaced');
   await handleMediaTabReplaced(addedTabId, removedTabId).catch(() => {});
   if (Number.isInteger(lastActiveTabId) && lastActiveTabId === removedTabId) {
     lastActiveTabId = addedTabId;
-    await reevaluateTabById(addedTabId);
+    await reevaluateTabById(addedTabId, { source: 'tabReplaced' });
   }
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  clearModeNoticeTabState(tabId, 'tab_removed');
   await clearTemporaryCompositeDomainByTab(tabId);
   await closeMediaForTabLifecycle(tabId, 'tab_close').catch(() => {});
   // 如果被关闭的标签页是当前跟踪的活跃标签页，结算当前的 timing session
@@ -573,6 +583,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const hasUrlFact = hasUrlChange || changeInfo.status === 'complete';
   if (hasUrlChange) {
     const domain = extractDomain(changeInfo.url || tab?.url || '');
+    clearModeNoticeTabNavigationState(tabId, domain);
     await clearTemporaryCompositeDomainByTabDomainMismatch(tabId, domain);
   }
   if (hasUrlFact && tab?.active) {
@@ -629,7 +640,7 @@ async function reevaluateTabById(tabId, options = {}) {
   const foreground = await isForegroundTab(tab);
   const result = await dispatchModeEvent({
     type: 'ACCESS_OBSERVED',
-    source: options.source || 'active_tab_reeval',
+    source: options.source || 'tabReevaluate',
     tabId,
     url: targetUrl,
     foreground,
@@ -646,7 +657,7 @@ async function reevaluateFocusedWindowActiveTab(windowId) {
   const tab = tabs && tabs[0];
   if (!tab?.id) return;
   lastActiveTabId = tab.id;
-  await reevaluateTabById(tab.id);
+  await reevaluateTabById(tab.id, { source: 'windowFocusChanged' });
 }
 
 // ── Alarms ──────────────────────────────────────────────────────────────────────
@@ -974,8 +985,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (Number.isInteger(tabId) && tabId > 0) {
       (async () => {
         const currentDomain = extractDomain(sender?.tab?.url || '');
+        markContentScriptReady(tabId, currentDomain);
         const delivery = await reSendPendingNoticeDetailed(tabId, currentDomain);
-        if (delivery?.attempted === true || delivery?.sent === true || delivery?.ack) {
+        if (delivery?.attempted === true || delivery?.sent === true || delivery?.ack || delivery?.deferred === true) {
           await recordModeEffectTrace({
             event: {
               type: 'CONTENT_SCRIPT_READY',
@@ -998,7 +1010,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               noticeSent: delivery?.sent === true,
               noticeAck: delivery?.ack ?? null,
               noticeRendered: delivery?.rendered === true,
-              noticeError: delivery?.ok === true ? null : (delivery?.error || 'pending_notice_resend_failed'),
+              noticeError: delivery?.ok === true || delivery?.deferred === true ? null : (delivery?.error || 'pending_notice_resend_failed'),
+              noticeDelivery: delivery || null,
             },
           });
         }

@@ -478,7 +478,7 @@ composite_sessions(id, profile_id, device_id, domain, duration_seconds, session_
 - `extension/stats/managed-statistics.js`：输出统计与配额 usage view。
 - `product/quota.js`：计算并保存 `quotaState` / `lockedDomains`。
 - `product/mode-service.js`：`ACCESS_OBSERVED` / `REQUEST_MODE_CHANGE` / `REMINDER_CONFIRMED` / `EVALUATE_QUOTA_STATE` 的状态迁移 decision，且唯一提交 runtime mode truth。
-- `product/mode-effects.js`：执行 Mode Service decision，负责 Reminder 跳转、页内 notice、PiP 清理、必要的 current-tab recheck 编排。
+- `product/mode-effects.js`：执行 Mode Service decision，负责 Reminder 跳转、页内 notice、必要的 current-tab recheck 编排。它不检测 PiP、不关闭 PiP、不扫描 media sessions、不记录 PiP cleanup 结果；PiP policy 由 media timing / pip-policy 统一负责。
 - `product/interceptor.js`：保留 declarative unsafe rules 与 notice helper；不拥有访问路由。
 
 ### 3.2 事件驱动计时链路（当前架构）
@@ -701,7 +701,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `BORROW_REST_QUOTA` | → background | — | `{ ok, amount }` 或 error |
 | `SEND_CLOUD_EVENT` | → background | `{ eventType, domain }` | — |
 | `HEARTBEAT` | content → background | `{ state }` | `{ ok }` |
-| `CONTENT_SCRIPT_READY` | content → background | — | `{ ok }`；content listener 就绪后只允许重发未过期的 transient notice |
+| `CONTENT_SCRIPT_READY` | content → background | — | `{ ok }`；content listener 就绪后标记 tab ready，并投递同域、未过期的 queued transient notice |
 | `SHOW_WARNING` | background → content | `{ minutesLeft, domain }` | — |
 | `SHOW_OVERLAY` | background → content | `{ message, reason }` | — |
 | `REMOVE_OVERLAY` | background → content | — | — |
@@ -717,11 +717,12 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 - 云端 quota pull 只合并保存 `config.quotaState` 事实；不触发 Mode Service、不跳 Reminder、不重查 tab。
 - `locked` 是正式产品 mode，表示当前配额状态下 Chrome 不能继续正常使用；`unknown` 只允许作为账本 fallback。
 - 页内提示是 mode transition 的 UI projection，不是 mode 真值来源；提示发送失败不得阻断模式切换。
-- `Rest -> Study` / `Rest -> Composite` 在规则允许时立即切换，并写 `currentModeStartedAtMs`；同时设置 `restExitGraceUntilMs = effectiveAtMs + 60_000`。60 秒 Rest Exit Grace 内打开 Rest 目标会自动回 Rest 并显示页内提示，不弹 Reminder；Study <-> Composite 不刷新该窗口。
+- `Rest -> Study` / `Rest -> Composite` 的自动访问路由在规则允许时立即切换，并写 `currentModeStartedAtMs`；同时设置 `restExitGraceUntilMs = effectiveAtMs + 30_000`。30 秒 Rest Exit Grace 内打开 Rest 目标会自动回 Rest 并显示页内提示，不弹 Reminder；自动 Study <-> Composite 不刷新该窗口。Popup 手动切换会清空既有 Rest Exit Grace 且不创建新窗口，即使请求模式与当前模式相同；Reminder 确认和 quota alarm 驱动的 mode change 不创建该窗口。
 - `Study -> Composite` 和 `Composite -> Study` 在规则允许时立即切换，并向目标网页发送 4 秒 `AUTO_MODE_PENDING_SUCCESS` transient notice。
 - 手动 popup / Reminder 切换通过 `REQUEST_MODE_CHANGE` / `REMINDER_CONFIRMED` 进入 Mode Service，再用 `GET_RUNTIME_MODE_STATUS` 刷新 UI；旧 `SWITCH_TO_*` 仅作为兼容别名。
-- `CONTENT_SCRIPT_READY` 只重发未过期、未 clear 且 `domainSnapshot === currentDomain` 的 transient notice；已过期、已 clear 或域名不一致的提示不得复活。
-- `chrome.tabs.sendMessage` 失败只记录诊断并触发 fallback notification，不改变 mode 真值。
+- 页内提示只依赖 manifest 静态 `content_scripts`；不使用动态 `chrome.scripting.executeScript` 注入兜底。
+- Mode success notice 先进入 per-tab pending queue，再等待 `CONTENT_SCRIPT_READY` 或已知 ready tab 投递；`CONTENT_SCRIPT_READY` 只投递未过期、未 clear 且 `domainSnapshot === currentDomain` 的 transient notice，已过期、已 clear 或域名不一致的提示不得复活。
+- `chrome.tabs.sendMessage` 的 ACK 才代表提示渲染成功；发送失败、ACK 未渲染或 ready 超时只记录诊断并触发 fallback notification，不改变 mode 真值。
 
 ---
 
@@ -756,7 +757,7 @@ timeonchrome/
 │   ├── product/               业务逻辑层
 │   │   ├── mode-service.js    Mode 真值、路由决策、提交和 mode_boundary intent
 │   │   ├── quota.js           quotaState 计算/保存 + 借用
-│   │   ├── mode-effects.js    执行 Mode Service decision：Reminder/notice/redirect/PiP
+│   │   ├── mode-effects.js    执行 Mode Service decision：Reminder/notice/redirect
 │   │   ├── interceptor.js     declarative unsafe rules + notice helper
 │   │   └── analytics.js       统计查询 adapter
 │   ├── stats/                 管理统计口径层
@@ -810,9 +811,8 @@ timeonchrome/
 | `chrome.storage.local` | 配置、统计、会话持久化 |
 | `chrome.storage.session` | 运行时会话快照（Chrome 95+），split 模式下常规/无痕各自独立 |
 | `chrome.declarativeNetRequest` | unsafeList 域名重定向规则 |
-| `chrome.webNavigation.onCommitted` | 采集当前 tab/url/foreground facts，派发 `ACCESS_OBSERVED` |
+| `chrome.webNavigation.onCommitted` / `onHistoryStateUpdated` | 采集当前 tab/url/foreground facts，派发 `ACCESS_OBSERVED`；覆盖普通导航与 SPA history 导航 |
 | `chrome.tabs` | 获取/更新标签页状态 |
-| `chrome.scripting` | 页内模式切换提示的 content script 注入兜底；媒体采样和普通计时不依赖它 |
 | `chrome.alarms` | 定时任务：配额检查、每日重置、保活 |
 | `chrome.notifications` | 系统通知（配额锁定等）|
 | `chrome.runtime.sendMessage` | popup/admin/content ↔ background 通信 |

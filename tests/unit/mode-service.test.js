@@ -105,13 +105,14 @@ this.__modeService = {
       reason: 'rest_to_study',
       source: 'auto_mode_route',
       effectiveAtMs: 1000,
+      setRestExitGrace: true,
     });
     expectTrue('commit changed', res.changed === true && res.currentMode === 'study');
     expect('session write includes startedAt', writes, [{
       currentMode: 'study',
       currentModeStartedAtMs: 1000,
       modeEffectiveAtMs: 1000,
-      restExitGraceUntilMs: 61_000,
+      restExitGraceUntilMs: 31_000,
     }]);
     expect('boundary queued once', boundaries, [{
       boundaryAtMs: 1000,
@@ -121,6 +122,50 @@ this.__modeService = {
       source: 'auto_mode_route',
     }]);
     expect('runtime cache updated', cached, ['study']);
+  }
+
+  section('MSVC-1b manual Rest -> Study/Composite does not create Rest Exit Grace');
+  {
+    const writes = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest', currentModeStartedAtMs: 100 }),
+      saveSession: async (session) => { writes.push(session); },
+    });
+    const study = await svc.commitModeChange({
+      toMode: 'study',
+      reason: 'manual_mode_switch',
+      source: 'runtime_message',
+      effectiveAtMs: 1000,
+    });
+    expect('manual rest -> study clears grace', {
+      restExitGraceUntilMs: study.restExitGraceUntilMs,
+      writeGrace: writes[0]?.restExitGraceUntilMs,
+    }, {
+      restExitGraceUntilMs: null,
+      writeGrace: null,
+    });
+  }
+  {
+    const writes = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'rest' }),
+      getSession: async () => ({ currentMode: 'rest', currentModeStartedAtMs: 100 }),
+      saveSession: async (session) => { writes.push(session); },
+    });
+    const composite = await svc.commitModeChange({
+      toMode: 'composite',
+      reason: 'manual_mode_switch',
+      source: 'runtime_message',
+      effectiveAtMs: 1000,
+    });
+    expect('manual rest -> composite clears grace', {
+      restExitGraceUntilMs: composite.restExitGraceUntilMs,
+      writeGrace: writes[0]?.restExitGraceUntilMs,
+    }, {
+      restExitGraceUntilMs: null,
+      writeGrace: null,
+    });
   }
 
   section('MSVC-6 quota expiry drives mode transitions');
@@ -218,7 +263,7 @@ this.__modeService = {
       getSession: async () => ({
         currentMode: 'study',
         currentModeStartedAtMs: 1000,
-        restExitGraceUntilMs: 61_000,
+        restExitGraceUntilMs: 31_000,
       }),
       saveSession: async (session) => { writes.push(session); },
     });
@@ -229,8 +274,8 @@ this.__modeService = {
       writeGrace: writes[0]?.restExitGraceUntilMs,
     }, {
       changed: true,
-      restExitGraceUntilMs: 61_000,
-      writeGrace: 61_000,
+      restExitGraceUntilMs: 31_000,
+      writeGrace: 31_000,
     });
   }
   {
@@ -240,7 +285,7 @@ this.__modeService = {
       getSession: async () => ({
         currentMode: 'composite',
         currentModeStartedAtMs: 30_000,
-        restExitGraceUntilMs: 61_000,
+        restExitGraceUntilMs: 31_000,
       }),
       saveSession: async (session) => { writes.push(session); },
     });
@@ -249,8 +294,8 @@ this.__modeService = {
       restExitGraceUntilMs: study.restExitGraceUntilMs,
       writeGrace: writes[0]?.restExitGraceUntilMs,
     }, {
-      restExitGraceUntilMs: 61_000,
-      writeGrace: 61_000,
+      restExitGraceUntilMs: 31_000,
+      writeGrace: 31_000,
     });
   }
   {
@@ -260,7 +305,7 @@ this.__modeService = {
       getSession: async () => ({
         currentMode: 'study',
         currentModeStartedAtMs: 45_000,
-        restExitGraceUntilMs: 61_000,
+        restExitGraceUntilMs: 31_000,
       }),
       saveSession: async (session) => { writes.push(session); },
     });
@@ -290,6 +335,7 @@ this.__modeService = {
       reason: 'rest_to_study',
       source: 'auto_mode_route',
       notice: 'rest_to_study_success',
+      setRestExitGrace: true,
     });
     expect('rest -> composite', svc.evaluateModeRoute({
       currentMode: 'rest',
@@ -305,6 +351,102 @@ this.__modeService = {
       reason: 'rest_to_composite',
       source: 'auto_mode_route',
       notice: 'rest_to_composite_success',
+      setRestExitGrace: true,
+    });
+  }
+
+  section('MSVC-3b manual request mode change does not request Rest Exit Grace');
+  {
+    const svc = loadModeService();
+    const study = await svc.handleModeEvent({
+      type: 'REQUEST_MODE_CHANGE',
+      requestedMode: 'study',
+      source: 'popup',
+      nowMs: 1000,
+    });
+    expect('manual study modeChange has no rest grace flag', {
+      toMode: study.modeChange?.toMode,
+      setRestExitGrace: study.modeChange?.setRestExitGrace === true,
+      clearRestExitGrace: study.modeChange?.clearRestExitGrace === true,
+    }, {
+      toMode: 'study',
+      setRestExitGrace: false,
+      clearRestExitGrace: true,
+    });
+    const rest = await svc.handleModeEvent({
+      type: 'REMINDER_CONFIRMED',
+      requestedMode: 'rest',
+      source: 'reminder',
+      nowMs: 1000,
+    });
+    expect('reminder confirmed has no rest grace flag', {
+      toMode: rest.modeChange?.toMode,
+      setRestExitGrace: rest.modeChange?.setRestExitGrace === true,
+      clearRestExitGrace: rest.modeChange?.clearRestExitGrace === true,
+    }, {
+      toMode: 'rest',
+      setRestExitGrace: false,
+      clearRestExitGrace: false,
+    });
+  }
+
+  section('MSVC-3c manual Study/Composite request clears existing Rest Exit Grace');
+  {
+    const writes = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'study' }),
+      getSession: async () => ({
+        currentMode: 'study',
+        currentModeStartedAtMs: 1000,
+        restExitGraceUntilMs: 31_000,
+      }),
+      saveSession: async (session) => { writes.push(session); },
+    });
+    const sameMode = await svc.commitModeChange({
+      toMode: 'study',
+      reason: 'manual_mode_switch',
+      source: 'runtime_message',
+      effectiveAtMs: 10_000,
+      clearRestExitGrace: true,
+    });
+    expect('manual same-mode clears grace without boundary change', {
+      changed: sameMode.changed,
+      startedAt: sameMode.currentModeStartedAtMs,
+      restExitGraceUntilMs: sameMode.restExitGraceUntilMs,
+      writeGrace: writes[0]?.restExitGraceUntilMs,
+    }, {
+      changed: false,
+      startedAt: 1000,
+      restExitGraceUntilMs: null,
+      writeGrace: null,
+    });
+  }
+  {
+    const writes = [];
+    const svc = loadModeService({
+      getConfig: async () => ({ mode: 'study' }),
+      getSession: async () => ({
+        currentMode: 'study',
+        currentModeStartedAtMs: 1000,
+        restExitGraceUntilMs: 31_000,
+      }),
+      saveSession: async (session) => { writes.push(session); },
+    });
+    const composite = await svc.commitModeChange({
+      toMode: 'composite',
+      reason: 'manual_mode_switch',
+      source: 'runtime_message',
+      effectiveAtMs: 10_000,
+      clearRestExitGrace: true,
+    });
+    expect('manual study -> composite clears grace', {
+      changed: composite.changed,
+      restExitGraceUntilMs: composite.restExitGraceUntilMs,
+      writeGrace: writes[0]?.restExitGraceUntilMs,
+    }, {
+      changed: true,
+      restExitGraceUntilMs: null,
+      writeGrace: null,
     });
   }
 
@@ -314,7 +456,7 @@ this.__modeService = {
     expect('study grace -> rest', svc.evaluateModeRoute({
       currentMode: 'study',
       currentModeStartedAtMs: 1000,
-      restExitGraceUntilMs: 61_000,
+      restExitGraceUntilMs: 31_000,
       nowMs: 30_000,
       isStudyDomain: false,
       isCompositeDomain: false,
@@ -330,7 +472,7 @@ this.__modeService = {
     expect('composite grace -> rest', svc.evaluateModeRoute({
       currentMode: 'composite',
       currentModeStartedAtMs: 30_000,
-      restExitGraceUntilMs: 61_000,
+      restExitGraceUntilMs: 31_000,
       nowMs: 30_000,
       isStudyDomain: false,
       isCompositeDomain: false,
@@ -364,9 +506,9 @@ this.__modeService = {
     });
     expect('expired startedAt -> composite reminder', svc.evaluateModeRoute({
       currentMode: 'composite',
-      currentModeStartedAtMs: 61_900,
-      restExitGraceUntilMs: 61_000,
-      nowMs: 62_000,
+      currentModeStartedAtMs: 31_900,
+      restExitGraceUntilMs: 31_000,
+      nowMs: 32_000,
       isStudyDomain: false,
       isCompositeDomain: false,
       isRestricted: true,

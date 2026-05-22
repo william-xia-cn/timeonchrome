@@ -33,8 +33,8 @@ const mediaBlock = sectionBetween(
 expect('media block found', mediaBlock.length > 0);
 
 expect(
-  'manifest keeps scripting only for in-page notice content-script fallback',
-  /"scripting"/.test(manifest)
+  'manifest does not request scripting; mode notices use static content_scripts',
+  !/"scripting"/.test(manifest)
 );
 
 expect(

@@ -29,6 +29,8 @@ function compactModeChange(change) {
     reason: change.reason || null,
     source: change.source || null,
     effectiveAtMs: Number.isFinite(Number(change.effectiveAtMs)) ? Number(change.effectiveAtMs) : null,
+    setRestExitGrace: change.setRestExitGrace === true,
+    clearRestExitGrace: change.clearRestExitGrace === true,
     changed: change.changed === true,
   };
 }
@@ -58,8 +60,7 @@ function compactModeEffectResult(result = {}) {
     noticeAck: result.noticeAck ?? null,
     noticeRendered: result.noticeRendered === true,
     noticeError: result.noticeError || null,
-    noticeInjectionAttempted: result.noticeDelivery?.injectionAttempted === true,
-    noticeInjectionResult: result.noticeDelivery?.injectionResult || null,
+    noticeDeferred: result.noticeDelivery?.deferred === true,
   };
 }
 
@@ -152,6 +153,8 @@ export async function executeModeDecision(decision = {}, context = {}) {
       source: decision.modeChange.source,
       effectiveAtMs: decision.modeChange.effectiveAtMs,
       persistConfigMode: decision.modeChange.persistConfigMode === true,
+      setRestExitGrace: decision.modeChange.setRestExitGrace === true,
+      clearRestExitGrace: decision.modeChange.clearRestExitGrace === true,
       config,
       session,
       drainModeBoundary: (reason) => drainQueuedModeBoundary(context.drainModeBoundary, reason),
@@ -197,7 +200,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
       result.noticeSent = delivery?.sent === true;
       result.noticeAck = delivery?.ack ?? null;
       result.noticeRendered = delivery?.rendered === true;
-      if (delivery?.ok !== true) {
+      if (delivery?.ok !== true && delivery?.deferred !== true) {
         result.noticeError = delivery?.error || 'notice_send_failed';
       }
     } catch (err) {

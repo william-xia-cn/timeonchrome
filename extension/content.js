@@ -20,6 +20,11 @@
   let modeNoticeShadow = null;
   let modeNoticeCountdownTimer = null;
   let modeNoticeHideTimer = null;
+  let pipPolicyNoticeHost = null;
+  let pipPolicyNoticeShadow = null;
+  let pipPolicyNoticeHideTimer = null;
+  const PIP_POLICY_NOTICE_TEXT = 'TimeOnChrome 当前禁止 PiP 播放，后续版本会陆续放开。';
+  const PIP_POLICY_NOTICE_DEFAULT_MS = 5000;
 
   // ── 媒体状态检测（content 只负责报告这一件事）────────────────────────────────
 
@@ -195,7 +200,15 @@
       removeOverlay();
     } else if (msg.type === 'EXIT_PIP') {
       exitPictureInPictureIfNeeded()
-        .then((result) => sendResponse?.(result))
+        .then((result) => {
+          if (result?.hadPiP === true && result?.exited === true && msg.showPolicyNotice !== false) {
+            result.notice = showPiPPolicyNotice({
+              text: msg.noticeText || PIP_POLICY_NOTICE_TEXT,
+              durationMs: msg.noticeDurationMs,
+            });
+          }
+          sendResponse?.(result);
+        })
         .catch((err) => sendResponse?.({
           ok: false,
           hadPiP: !!document.pictureInPictureElement,
@@ -256,6 +269,115 @@
       exited: hadPiP && exited,
       error: hadPiP && !exited ? 'pip_exit_not_confirmed' : undefined,
     };
+  }
+
+  function clearPiPPolicyNotice() {
+    if (pipPolicyNoticeHideTimer) {
+      clearTimeout(pipPolicyNoticeHideTimer);
+      pipPolicyNoticeHideTimer = null;
+    }
+    if (pipPolicyNoticeHost) {
+      pipPolicyNoticeHost.remove();
+      pipPolicyNoticeHost = null;
+      pipPolicyNoticeShadow = null;
+    }
+  }
+
+  function ensurePiPPolicyNotice() {
+    if (pipPolicyNoticeHost && pipPolicyNoticeShadow) return pipPolicyNoticeShadow;
+    pipPolicyNoticeHost = document.getElementById('__toc_pip_policy_notice__');
+    if (!pipPolicyNoticeHost) {
+      pipPolicyNoticeHost = document.createElement('div');
+      pipPolicyNoticeHost.id = '__toc_pip_policy_notice__';
+      const parent = document.documentElement || document.body;
+      if (!parent) return null;
+      parent.appendChild(pipPolicyNoticeHost);
+    }
+    pipPolicyNoticeShadow = pipPolicyNoticeHost.shadowRoot || pipPolicyNoticeHost.attachShadow({ mode: 'open' });
+    pipPolicyNoticeShadow.innerHTML = `
+      <style>
+        .toc-pip-policy-notice {
+          position: fixed;
+          top: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 2147483647;
+          box-sizing: border-box;
+          width: min(680px, calc(100vw - 28px));
+          min-height: 96px;
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          gap: 16px;
+          align-items: center;
+          padding: 20px 22px;
+          border-radius: 8px;
+          border: 2px solid #b91c1c;
+          background: #dc2626;
+          color: #ffffff;
+          box-shadow: 0 22px 48px rgba(127, 29, 29, 0.36);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          pointer-events: auto;
+        }
+        .toc-pip-policy-icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          display: inline-grid;
+          place-items: center;
+          background: #ffffff;
+          color: #b91c1c;
+          font-weight: 800;
+          font-size: 24px;
+          line-height: 1;
+        }
+        .toc-pip-policy-title {
+          margin: 0 0 6px;
+          font-size: 18px;
+          font-weight: 700;
+          line-height: 1.25;
+        }
+        .toc-pip-policy-body {
+          margin: 0;
+          font-size: 15px;
+          line-height: 1.45;
+          color: #ffffff;
+        }
+        .toc-pip-policy-close {
+          border: 0;
+          background: transparent;
+          color: #ffffff;
+          cursor: pointer;
+          font-size: 26px;
+          line-height: 1;
+          padding: 0 4px;
+          opacity: 0.9;
+        }
+      </style>
+      <section class="toc-pip-policy-notice" role="status" aria-live="polite">
+        <div class="toc-pip-policy-icon">!</div>
+        <div>
+          <p class="toc-pip-policy-title">PiP 已被关闭</p>
+          <p class="toc-pip-policy-body" id="toc-pip-policy-body"></p>
+        </div>
+        <button class="toc-pip-policy-close" type="button" aria-label="关闭">×</button>
+      </section>
+    `;
+    const closeBtn = pipPolicyNoticeShadow.querySelector('.toc-pip-policy-close');
+    if (closeBtn) closeBtn.addEventListener('click', clearPiPPolicyNotice);
+    return pipPolicyNoticeShadow;
+  }
+
+  function showPiPPolicyNotice({ text = PIP_POLICY_NOTICE_TEXT, durationMs = PIP_POLICY_NOTICE_DEFAULT_MS } = {}) {
+    if (!canRenderTopFrameUi) return { ok: false, rendered: false, reason: 'not_top_frame' };
+    const shadow = ensurePiPPolicyNotice();
+    if (!shadow) return { ok: false, rendered: false, reason: 'notice_host_unavailable' };
+    const body = shadow.getElementById('toc-pip-policy-body');
+    if (!body) return { ok: false, rendered: false, reason: 'notice_body_unavailable' };
+    body.textContent = text || PIP_POLICY_NOTICE_TEXT;
+    if (pipPolicyNoticeHideTimer) clearTimeout(pipPolicyNoticeHideTimer);
+    const hideMs = Math.min(Math.max(Number(durationMs) || PIP_POLICY_NOTICE_DEFAULT_MS, 4000), 6000);
+    pipPolicyNoticeHideTimer = setTimeout(clearPiPPolicyNotice, hideMs);
+    return { ok: true, rendered: true, noticeType: 'PIP_POLICY_NOTICE', durationMs: hideMs };
   }
 
   // ── 时间警告（弹出角标提示，不影响使用）────────────────────────────────────

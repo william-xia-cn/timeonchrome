@@ -287,9 +287,11 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 
 当前 PiP policy：
 - 当前版本将 PiP 定义为管控漏洞，不作为受支持使用方式。policy 固定为 `disallow_all`。
+- PiP cleanup ownership 收敛在 `core/media-timing.js` / `core/pip-policy.js`。Mode/product 层只能产生 mode boundary 和 UI side effects；不得检测 PiP、关闭 PiP、扫描 media sessions 或记录 PiP cleanup 结果。
 - 任何 `isPiP === true` 都必须触发共享 `EXIT_PIP` cleanup；不按 mode、域名、Chrome 是否最小化区分。
 - 媒体账本仍保留真实 PiP 事实和清理窗口。`pip` segment 的语义是“检测到的禁用 PiP 事实 / cleanup window”，不是受支持的使用模式。
 - cleanup 成功或页面确认已无 PiP 后，open `pip` media session 使用 `settlementReason = pip_forbidden_cleanup` 关闭，清理该 tab 的 PiP frame fact，并按剩余非 PiP media fact 重分类。
+- 前台页面实际退出 PiP 时，content script 显示专用、明确、非阻断的 PiP policy notice：`TimeOnChrome 当前禁止 PiP 播放，后续版本会陆续放开。` 该提示是用户反馈，不改变媒体事实、segment、checkpoint 或 mode boundary 语义。
 - cleanup 失败时不得伪造关闭：保留 open `pip` session，写入 `pip_forbidden_cleanup_failed` trace/diagnostic；后续 `media checkpoint` 会继续重试 cleanup，并在失败时按事实继续 checkpoint。
 - 正式发布前必须重新设计“是否允许学习/综合网站 PiP、如何计入统计/配额/云端/家长端展示”。未完成前不得以半支持 PiP 状态发布。
 
@@ -374,7 +376,7 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 
 如果 checkpoint 无法确认 open media session（tab 不存在、分类不匹配、domain/window/tab 不匹配，或 PiP 已不存在），则按半未确认窗口估算闭合：`closeAt = lastConfirmedAt + (now - lastConfirmedAt) / 2`，写入 `settlementReason = media_checkpoint_estimated_close`，`description.end.reason = media_checkpoint_estimated_half_interval_close`，并删除 open session，不重开。tab close/navigation/分类变化仍会关闭旧 media session 并写本地 segment。
 
-Mode boundary 是系统级账务边界。由于当前 PiP policy 为全局禁止，任何 mode boundary 发现 open `pip` session 时都必须先尝试共享 cleanup；cleanup 成功后用 `pip_forbidden_cleanup` 关闭 `pip` session，不以 `mode_effective_boundary_reopen` 重开 PiP；cleanup 失败时保留事实并按 mode boundary 切片，表示禁用 PiP 仍在持续。页面内仍有非 PiP 视频/音频事实时，可按新 mode 重分类为普通 foreground/background media。
+Mode boundary 是系统级账务边界。Mode/product 层只入队 boundary intent；media timing 在消费该 intent 时执行 PiP policy。由于当前 PiP policy 为全局禁止，任何 media mode-boundary 消费发现 open `pip` session 时都必须先尝试共享 cleanup；cleanup 成功后用 `pip_forbidden_cleanup` 关闭 `pip` session，不以 `mode_effective_boundary_reopen` 重开 PiP；cleanup 失败时保留事实并按 mode boundary 切片，表示禁用 PiP 仍在持续。页面内仍有非 PiP 视频/音频事实时，可按新 mode 重分类为普通 foreground/background media。
 
 该账本不进入 `segment_sync_outbox_v1` 或 `stats_sync_outbox_v1`，不会被 `buildUsageSegmentsUploadPayload()` 上传；它使用独立 `media_segment_sync_outbox_v1` / `media_stats_sync_outbox_v1` / `hourly_media_stats_sync_outbox_v1` 和 dedicated Worker endpoints。正式发布前仍必须确认媒体细分是否进入正式产品统计/配额/家长端口径，以及 Pages/admin/popup 是否以同一 managed statistics view 展示。
 
