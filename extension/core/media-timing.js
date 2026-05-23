@@ -13,6 +13,7 @@ import {
 import { extractDomain } from '../infra/storage.js';
 import { closeForbiddenPictureInPicture, isPictureInPictureDisallowed } from './pip-policy.js';
 import { emitTrace } from './timing-trace.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
 function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -25,6 +26,9 @@ function numericTabId(tabId) {
 
 const FORBIDDEN_PIP_CLEANUP_PENDING_MS = 5000;
 const pendingForbiddenPiPCleanupByTab = new Map();
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 function markPendingForbiddenPiPCleanup(tabId, reason, atMs) {
   const normalizedTabId = numericTabId(tabId);
@@ -165,6 +169,16 @@ async function enforceForbiddenPiPForTab(tabId, reason = 'pip_forbidden_cleanup'
       tabId: normalizedTabId,
       domain,
       cleanup,
+    });
+    recordFallbackLog({
+      level: 'error',
+      category: 'media',
+      eventCode: 'pip_forbidden_cleanup_failed',
+      module: 'core/media-timing',
+      reason: 'pip_forbidden_cleanup_failed',
+      message: 'PiP policy cleanup fallback failed; PiP session remains factual until confirmed closed',
+      domain,
+      details: { tabId: normalizedTabId, cleanup },
     });
     return { ok: false, cleanup, reason: 'pip_forbidden_cleanup_failed' };
   }

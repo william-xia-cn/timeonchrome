@@ -231,18 +231,42 @@
       sendResponse?.({ ok: true, handled: true, rendered: false, reason: 'cleared' });
     } else if (msg.type === 'AUTO_MODE_PENDING_SUCCESS') {
       if (!canRenderTopFrameUi) {
-        sendResponse?.({ ok: false, handled: true, rendered: false, reason: 'not_top_frame' });
+        sendResponse?.({ ok: false, handled: true, rendered: false, visible: false, reason: 'not_top_frame' });
         return;
       }
-      sendResponse?.(showModeNoticeSuccess(msg));
+      showModeNoticeSuccess(msg)
+        .then((result) => sendResponse?.(result))
+        .catch((err) => sendResponse?.({
+          ok: false,
+          handled: true,
+          rendered: false,
+          visible: false,
+          reason: err?.message || String(err),
+        }));
+      return true;
     }
   });
 
-  // Notify background that content script is ready, so any pending auto-mode
-  // notice (sent before listener was registered) can be re-delivered.
-  try {
-    chrome.runtime.sendMessage({ type: 'CONTENT_SCRIPT_READY' });
-  } catch {}
+  function notifyContentScriptReady(readyReason = 'initial') {
+    if (!canRenderTopFrameUi) return;
+    try {
+      chrome.runtime.sendMessage({
+        type: 'CONTENT_SCRIPT_READY',
+        readyReason,
+        readyAt: Date.now(),
+      });
+    } catch {}
+  }
+
+  // Notify background that the top-frame listener is ready, so a pending
+  // auto-mode notice can be re-delivered exactly once. Subframes cannot render
+  // the page notice and must not trigger tab-level resend.
+  notifyContentScriptReady('initial');
+  window.addEventListener('pageshow', () => notifyContentScriptReady('pageshow'));
+  window.addEventListener('focus', () => notifyContentScriptReady('window_focus'));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') notifyContentScriptReady('visibilitychange');
+  });
 
   async function exitPictureInPictureIfNeeded() {
     const hadPiP = !!document.pictureInPictureElement;
@@ -537,6 +561,47 @@
     }
   }
 
+  function waitForNextFrame(timeoutMs = 125) {
+    return new Promise((resolve) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve(false);
+      }, timeoutMs);
+      requestAnimationFrame(() => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+  }
+
+  async function waitForModeNoticeVisible(bannerEl) {
+    if (!canRenderTopFrameUi) return { ok: false, reason: 'not_top_frame' };
+    if (document.visibilityState !== 'visible') return { ok: false, reason: 'document_not_visible' };
+
+    const startedAt = Date.now();
+    await waitForNextFrame();
+    if (Date.now() - startedAt < 250) {
+      await waitForNextFrame(Math.max(1, 250 - (Date.now() - startedAt)));
+    }
+
+    if (document.visibilityState !== 'visible') return { ok: false, reason: 'document_not_visible' };
+    if (!modeNoticeHost?.isConnected) return { ok: false, reason: 'notice_host_unavailable' };
+    if (!bannerEl?.isConnected) return { ok: false, reason: 'notice_banner_unavailable' };
+
+    const rect = bannerEl.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return { ok: false, reason: 'notice_not_visible' };
+
+    const style = getComputedStyle(bannerEl);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) <= 0) {
+      return { ok: false, reason: 'notice_not_visible' };
+    }
+    return { ok: true };
+  }
+
   function showModeNoticePending(payload) {
     const shadow = ensureModeNoticeBanner();
     if (!shadow) {
@@ -574,23 +639,24 @@
   document.addEventListener('fullscreenchange', updateMediaState);
   document.addEventListener('webkitfullscreenchange', updateMediaState);
 
-  function showModeNoticeSuccess(payload) {
+  async function showModeNoticeSuccess(payload) {
     if (Number(payload?.expiresAt) && Date.now() > Number(payload.expiresAt)) {
       clearModeNotice();
-      return { ok: false, handled: true, rendered: false, reason: 'expired_notice' };
+      return { ok: false, handled: true, rendered: false, visible: false, reason: 'expired_notice' };
     }
     const shadow = ensureModeNoticeBanner();
     if (!shadow) {
-      return { ok: false, handled: true, rendered: false, reason: 'notice_host_unavailable' };
+      return { ok: false, handled: true, rendered: false, visible: false, reason: 'notice_host_unavailable' };
     }
 
     clearPendingTimers();
     const targetMode = payload?.targetMode === 'study' ? 'study' : 'composite';
     const remainingCompositeSeconds = Number(payload?.remainingCompositeSeconds) || 0;
     const remainingCompositeTime = payload?.remainingCompositeTime || formatDurationCN(remainingCompositeSeconds);
+    const remainingStudyTime = payload?.remainingStudyTime || '不限';
     const bannerEl = shadow.getElementById('toc-pending-banner');
     if (!bannerEl) {
-      return { ok: false, handled: true, rendered: false, reason: 'notice_banner_unavailable' };
+      return { ok: false, handled: true, rendered: false, visible: false, reason: 'notice_banner_unavailable' };
     }
     if (payload?.noticeText) {
       bannerEl.textContent = payload.noticeText;
@@ -600,12 +666,22 @@
       bannerEl.textContent = `你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}`;
     }
 
-    clearPendingTimers();
+    const visibleResult = await waitForModeNoticeVisible(bannerEl);
+    if (!visibleResult.ok) {
+      return {
+        ok: false,
+        handled: true,
+        rendered: false,
+        visible: false,
+        reason: visibleResult.reason || 'notice_not_visible',
+      };
+    }
+
     const hideDuration = Math.min(Math.max(Number(payload?.displayDuration) || 4000, 1000), 10000);
     modeNoticeHideTimer = setTimeout(() => {
       clearModeNotice();
     }, hideDuration);
-    return { ok: true, handled: true, rendered: true, noticeType: 'AUTO_MODE_PENDING_SUCCESS' };
+    return { ok: true, handled: true, rendered: true, visible: true, noticeType: 'AUTO_MODE_PENDING_SUCCESS' };
   }
 
 })();

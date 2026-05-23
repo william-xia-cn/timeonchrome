@@ -4,6 +4,7 @@ let popupStatsContext = { config: {}, stats: {} };
 let lastPopupSnapshot = {};
 const POPUP_CONFIG_KEY = 'guardian_config';
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
+const QUOTA_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 document.addEventListener('DOMContentLoaded', async () => {
   bindPopupEvents();
@@ -448,22 +449,23 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
   const studyBtnValue = document.getElementById('btn-study-value');
   const restBtnValue = document.getElementById('btn-rest-value');
   const compositeBtnValue = document.getElementById('btn-composite-value');
-  const undeterminedLimit  = (config.dailyUndeterminedQuota ?? 60)  * 60;
+  const quota = getTodayEffectiveQuota(config);
 
-  const studyLimit = (config.dailyStudyQuota ?? 0) * 60;
-  const effectiveRestLimit = getEffectiveDailyRestLimit(config) * 60;
-  studyBtnValue.textContent = studyLimit > 0
+  const studyLimit = quota.studyMinutes === null ? null : Math.max(0, Number(quota.studyMinutes) * 60);
+  const effectiveRestLimit = quota.restMinutes === null ? null : Math.max(0, Number(quota.restMinutes) * 60);
+  const undeterminedLimit = quota.compositeMinutes === null ? null : Math.max(0, Number(quota.compositeMinutes) * 60);
+  studyBtnValue.textContent = studyLimit !== null
     ? `${formatSeconds(studySeconds)} / ${formatSeconds(studyLimit)}`
     : `${formatSeconds(studySeconds)}`;
-  restBtnValue.textContent = effectiveRestLimit > 0
+  restBtnValue.textContent = effectiveRestLimit !== null
     ? `${formatSeconds(restSeconds)} / ${formatSeconds(effectiveRestLimit)}`
     : `${formatSeconds(restSeconds)}`;
-  compositeBtnValue.textContent = undeterminedLimit > 0
+  compositeBtnValue.textContent = undeterminedLimit !== null
     ? `${formatSeconds(compositeSeconds)} / ${formatSeconds(undeterminedLimit)}`
     : `${formatSeconds(compositeSeconds)}`;
 
   // Usage metrics
-  const onlineLimit        = (config.dailyOnlineQuota       ?? 0) * 60;
+  const onlineLimit = quota.onlineMinutes === null ? 0 : Math.max(0, Number(quota.onlineMinutes) * 60);
   const qs = config.quotaState || {};
 
   const quotaBarsEl = document.getElementById('quota-bars');
@@ -902,16 +904,57 @@ function formatMinutes(secs) {
 }
 
 function getEffectiveDailyRestLimit(config) {
-  const base   = config.dailyRestQuota ?? 120;
+  return getTodayEffectiveQuota(config).restMinutes;
+}
+
+function legacyQuotaMinutes(value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  if (value === null || Number(value) === 0) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function timeQuotaField(dayConfig, field, legacyValue, fallback) {
+  if (dayConfig && Object.prototype.hasOwnProperty.call(dayConfig, field)) {
+    const raw = dayConfig[field];
+    if (raw === null) return null;
+    const number = Number(raw);
+    if (Number.isFinite(number) && number >= 0) return number;
+  }
+  return legacyQuotaMinutes(legacyValue, fallback);
+}
+
+function getTodayEffectiveQuota(config = {}) {
+  const now = new Date();
+  const dayKey = QUOTA_DAYS[now.getDay()];
+  const dayQuota = config.timeQuota?.daily?.[dayKey] || null;
+  const baseRest = timeQuotaField(dayQuota, 'restMinutes', config.dailyRestQuota, 120);
+  const restMinutes = applyRestBorrowForToday(baseRest, config);
+  const onlineRaw = config.dailyOnlineQuota ?? config.dailyQuota;
+  const onlineNumber = Number(onlineRaw);
+  return {
+    studyMinutes: timeQuotaField(dayQuota, 'studyMinutes', config.dailyStudyQuota, null),
+    restMinutes,
+    compositeMinutes: timeQuotaField(dayQuota, 'compositeMinutes', config.dailyUndeterminedQuota, 120),
+    onlineMinutes: Number.isFinite(onlineNumber) && onlineNumber > 0 ? onlineNumber : null,
+  };
+}
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function applyRestBorrowForToday(base, config = {}) {
+  if (base === null) return null;
   const borrow = config.quotaBorrow;
   if (!borrow || borrow.repaid) return base;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   if (today === borrow.borrowedFrom) return base + borrow.amount;
 
   const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
   repayD.setDate(repayD.getDate() + 1);
-  const repayStr = repayD.toISOString().slice(0, 10);
+  const repayStr = localDateKey(repayD);
   if (today === repayStr) return Math.max(0, base - borrow.amount);
   return base;
 }

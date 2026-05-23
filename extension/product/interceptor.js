@@ -4,7 +4,8 @@ import { getConfig, hasTemporaryCompositePermission, extractDomain, isSpecialUrl
 import { resolveSiteAccessClassification } from '../core/site-classification.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { getTodayEffectiveRestLimit } from './quota.js';
-import { logClientEventBestEffort } from '../infra/client-logs.js';
+import { getEffectiveQuotaForDate } from '../core/quota-config.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { normalizeMode } from './mode-service.js';
 
 let modeBoundaryDrainHook = null;
@@ -16,6 +17,9 @@ const contentReadyByTab = new Map();
 const PENDING_NOTICE_TTL_MS = 30_000;
 const TRANSIENT_NOTICE_DISPLAY_MS = 4_000;
 const CONTENT_READY_TTL_MS = 10 * 60_000;
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 function buildNoticeDeliveryResult(overrides = {}) {
   return {
@@ -23,6 +27,7 @@ function buildNoticeDeliveryResult(overrides = {}) {
     sent: false,
     ack: null,
     rendered: false,
+    visible: false,
     error: null,
     tabId: null,
     type: null,
@@ -38,30 +43,52 @@ function evaluateModeNoticeAck(payload, ack) {
     return {
       ok: true,
       rendered: payload?.type !== 'AUTO_MODE_PENDING_CANCEL',
+      visible: payload?.type === 'AUTO_MODE_PENDING_SUCCESS',
       error: null,
     };
   }
   if (!ack || typeof ack !== 'object') {
-    return { ok: false, rendered: false, error: 'missing_notice_ack' };
+    return { ok: false, rendered: false, visible: false, error: 'missing_notice_ack' };
   }
+  const retryableReasons = new Set([
+    'document_not_visible',
+    'notice_host_unavailable',
+    'notice_banner_unavailable',
+    'notice_not_visible',
+  ]);
   if (ack.ok !== true) {
+    const error = ack.reason || ack.error || 'notice_ack_failed';
     return {
       ok: false,
       rendered: ack.rendered === true,
-      error: ack.reason || ack.error || 'notice_ack_failed',
+      visible: ack.visible === true,
+      error,
+      retryable: payload?.type === 'AUTO_MODE_PENDING_SUCCESS' && retryableReasons.has(error),
     };
   }
   if (payload?.type === 'AUTO_MODE_PENDING_CANCEL') {
-    return { ok: true, rendered: ack.rendered === true, error: null };
+    return { ok: true, rendered: ack.rendered === true, visible: false, error: null };
   }
   if (ack.rendered !== true) {
+    const error = ack.reason || 'notice_not_rendered';
     return {
       ok: false,
       rendered: false,
-      error: ack.reason || 'notice_not_rendered',
+      visible: ack.visible === true,
+      error,
+      retryable: payload?.type === 'AUTO_MODE_PENDING_SUCCESS' && retryableReasons.has(error),
     };
   }
-  return { ok: true, rendered: true, error: null };
+  if (payload?.type === 'AUTO_MODE_PENDING_SUCCESS' && ack.visible !== true) {
+    return {
+      ok: false,
+      rendered: true,
+      visible: false,
+      error: ack.reason || 'notice_not_visible',
+      retryable: true,
+    };
+  }
+  return { ok: true, rendered: true, visible: ack.visible === true, error: null };
 }
 
 function normalizeDomainForNotice(domain) {
@@ -138,11 +165,12 @@ function schedulePendingNoticeExpiryFallback(tabId, expiresAt) {
     if (!stored || Date.now() <= stored.expiresAt) return;
     pendingSuccessNoticesByTab.delete(tabId);
     if (stored.fallbackMessage) notifyRuntimeModeSwitch(stored.fallbackMessage);
-    logClientEventBestEffort({
+    recordFallbackLog({
       level: 'warning',
       category: 'content',
       eventCode: 'page_notice_delivery_failed',
       module: 'product/interceptor',
+      reason: 'content_ready_timeout',
       message: 'Page notice delivery timed out waiting for content script readiness',
       domain: stored.domainSnapshot || null,
       details: { tabId, type: stored.payload?.type || null, error: 'content_ready_timeout' },
@@ -278,11 +306,12 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
   if (isSuccessNotice && tabUrl && !isStaticContentScriptNoticeUrl(tabUrl)) {
     clearPendingSuccessNotice(tabId);
     if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
-    logClientEventBestEffort({
+    recordFallbackLog({
       level: 'warning',
       category: 'content',
       eventCode: 'page_notice_delivery_failed',
       module: 'product/interceptor',
+      reason: 'notice_url_not_injectable',
       message: 'Page notice target URL cannot run the static content script; system notification fallback used',
       domain: snapshotDomain,
       details: { tabId, type: payload?.type || null, error: 'notice_url_not_injectable' },
@@ -315,24 +344,57 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
       ? evaluateModeNoticeAck(payload, ack)
       : { ok: true, rendered: false, error: null };
     if (!ackResult.ok) {
-      if (fallbackMessage && !isSuccessNotice) notifyRuntimeModeSwitch(fallbackMessage);
+      if (isSuccessNotice) {
+        if (ackResult.retryable === true) {
+          return {
+            ...resultBase,
+            ok: false,
+            sent: true,
+            ack: ack ?? null,
+            rendered: ackResult.rendered === true,
+            visible: ackResult.visible === true,
+            error: ackResult.error || 'notice_not_visible',
+            attempted: true,
+            deferred: true,
+          };
+        }
+        clearPendingSuccessNotice(tabId);
+        if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
+        recordFallbackLog({
+          level: 'warning',
+          category: 'content',
+          eventCode: 'page_notice_delivery_failed',
+          module: 'product/interceptor',
+          reason: ackResult.error || 'notice_ack_failed',
+          message: 'Page notice delivery acknowledged without rendering; system notification fallback used',
+          domain: snapshotDomain,
+          details: { tabId, type: payload?.type || null, error: ackResult.error || 'notice_ack_failed' },
+        });
+      } else if (fallbackMessage) {
+        notifyRuntimeModeSwitch(fallbackMessage);
+      }
       return {
         ...resultBase,
         ok: false,
         sent: true,
         ack: ack ?? null,
         rendered: ackResult.rendered === true,
+        visible: ackResult.visible === true,
         error: ackResult.error || 'notice_ack_failed',
         attempted: true,
       };
     }
-    if (isSuccessNotice) markPendingDeliveredForCurrentReady(tabId);
+    if (isSuccessNotice) {
+      markPendingDeliveredForCurrentReady(tabId);
+      clearPendingSuccessNotice(tabId);
+    }
     return {
       ...resultBase,
       ok: true,
       sent: true,
       ack: ack ?? null,
       rendered: ackResult.rendered === true,
+      visible: ackResult.visible === true,
       error: null,
       attempted: true,
     };
@@ -345,18 +407,21 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
         sent: false,
         ack: null,
         rendered: false,
+        visible: false,
         error: 'content_not_ready',
         attempted: true,
         deferred: true,
       };
     }
+    if (isSuccessNotice) clearPendingSuccessNotice(tabId);
     if (fallbackMessage) notifyRuntimeModeSwitch(fallbackMessage);
     console.warn('[ModeNotice] page notice delivery failed:', err?.message || err);
-    logClientEventBestEffort({
+    recordFallbackLog({
       level: 'warning',
       category: 'content',
       eventCode: 'page_notice_delivery_failed',
       module: 'product/interceptor',
+      reason: err?.message || 'notice_send_failed',
       message: 'Page notice delivery failed; system notification fallback used',
       domain: snapshotDomain,
       details: { tabId, type: payload?.type || null, error: err?.message || String(err) },
@@ -367,6 +432,7 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
       sent: false,
       ack: null,
       rendered: false,
+      visible: false,
       error: err?.message || 'notice_send_failed',
       attempted: true,
     };
@@ -389,6 +455,16 @@ export async function reSendPendingNoticeDetailed(tabId, currentDomain = null) {
   // Check TTL
   if (Date.now() > (stored.expiresAt || stored.storedAt + PENDING_NOTICE_TTL_MS)) {
     clearPendingSuccessNotice(tabId);
+    recordFallbackLog({
+      level: 'warning',
+      category: 'content',
+      eventCode: 'pending_notice_fallback_dropped',
+      module: 'product/interceptor',
+      reason: 'pending_notice_expired',
+      message: 'Pending page notice expired before it could be delivered',
+      domain: stored.domainSnapshot || null,
+      details: { tabId, type: stored.payload?.type || null },
+    });
     return { ...resultBase, error: 'pending_notice_expired', payload: stored.payload || null };
   }
   const normalizedCurrentDomain = normalizeDomainForNotice(currentDomain);
@@ -400,14 +476,35 @@ export async function reSendPendingNoticeDetailed(tabId, currentDomain = null) {
   // - only both present and equal may resend
   if (!normalizedCurrentDomain || !normalizedStoredDomain) {
     clearPendingSuccessNotice(tabId);
+    recordFallbackLog({
+      level: 'warning',
+      category: 'content',
+      eventCode: 'pending_notice_fallback_dropped',
+      module: 'product/interceptor',
+      reason: 'pending_notice_domain_missing',
+      message: 'Pending page notice dropped because the delivery domain was unavailable',
+      domain: normalizedStoredDomain || normalizedCurrentDomain || null,
+      details: { tabId, type: stored.payload?.type || null },
+    });
     return { ...resultBase, error: 'pending_notice_domain_missing', payload: stored.payload || null };
   }
   if (normalizedCurrentDomain !== normalizedStoredDomain) {
     clearPendingSuccessNotice(tabId);
+    recordFallbackLog({
+      level: 'warning',
+      category: 'content',
+      eventCode: 'pending_notice_fallback_dropped',
+      module: 'product/interceptor',
+      reason: 'pending_notice_domain_mismatch',
+      message: 'Pending page notice dropped because the active domain changed',
+      domain: normalizedStoredDomain,
+      details: { tabId, currentDomain: normalizedCurrentDomain, expectedDomain: normalizedStoredDomain, type: stored.payload?.type || null },
+    });
     return { ...resultBase, error: 'pending_notice_domain_mismatch', payload: stored.payload || null };
   }
   const ready = contentReadyByTab.get(tabId);
   if (ready?.readyAt && stored.lastDeliveredReadyAt === ready.readyAt) {
+    clearPendingSuccessNotice(tabId);
     return {
       ...resultBase,
       error: 'pending_notice_already_delivered_to_ready_document',
@@ -419,12 +516,26 @@ export async function reSendPendingNoticeDetailed(tabId, currentDomain = null) {
     allowDeferredRetry: false,
     requireReady: false,
   });
-  if (delivery.ok) markPendingDeliveredForCurrentReady(tabId);
   return delivery;
 }
 
 export async function reSendPendingNotice(tabId, currentDomain = null) {
   return (await reSendPendingNoticeDetailed(tabId, currentDomain)).ok;
+}
+
+export async function deliverPendingNoticeForFocusedTab(tabId, source = 'foreground_activation') {
+  const resultBase = buildNoticeDeliveryResult({ tabId, type: 'AUTO_MODE_PENDING_SUCCESS' });
+  if (!Number.isInteger(tabId) || tabId < 0) return { ...resultBase, error: 'invalid_tab_id', source };
+  if (!pendingSuccessNoticesByTab.has(tabId)) return { ...resultBase, error: 'pending_notice_missing', source };
+  let tab = null;
+  try {
+    tab = await chrome.tabs?.get?.(tabId);
+  } catch (err) {
+    return { ...resultBase, error: err?.message || 'tab_lookup_failed', source };
+  }
+  const currentDomain = extractDomainFromTabUrl(tab?.url);
+  const delivery = await reSendPendingNoticeDetailed(tabId, currentDomain);
+  return { ...delivery, source, domain: currentDomain || null };
 }
 
 /**
@@ -492,22 +603,26 @@ export async function applyModeTransitionSideEffects({
 async function computeCompositeRemainingSeconds(config) {
   const stats = await getTodayStatsWithCategories(config);
   const used = Math.max(0, Number(stats?.undeterminedSeconds) || 0);
-  const limit = Math.max(0, Number(config?.dailyUndeterminedQuota ?? 60) * 60);
+  const limitMinutes = getEffectiveQuotaForDate(config).todayEffectiveQuota.compositeMinutes;
+  if (limitMinutes === null || limitMinutes === undefined) return null;
+  const limit = Math.max(0, Number(limitMinutes) * 60);
   return Math.max(0, limit - used);
 }
 
 async function computeStudyRemainingSeconds(config) {
-  const quotaMinutes = Number(config?.dailyStudyQuota ?? 0);
-  if (!Number.isFinite(quotaMinutes) || quotaMinutes <= 0) return null;
+  const quotaMinutes = getEffectiveQuotaForDate(config).todayEffectiveQuota.studyMinutes;
+  if (quotaMinutes === null || quotaMinutes === undefined) return null;
   const stats = await getTodayStatsWithCategories(config);
   const used = Math.max(0, Number(stats?.studySeconds) || 0);
-  return Math.max(0, quotaMinutes * 60 - used);
+  return Math.max(0, Number(quotaMinutes) * 60 - used);
 }
 
 async function computeRestRemainingSeconds(config) {
   const stats = await getTodayStatsWithCategories(config);
   const used = Math.max(0, Number(stats?.restSeconds) || 0);
-  const limit = Math.max(0, getTodayEffectiveRestLimit(config) * 60);
+  const restMinutes = getTodayEffectiveRestLimit(config);
+  if (restMinutes === null || restMinutes === undefined) return null;
+  const limit = Math.max(0, Number(restMinutes) * 60);
   return Math.max(0, limit - used);
 }
 
@@ -516,7 +631,7 @@ function formatStudyRemainingTime(seconds) {
 }
 
 async function sendCompositeExhaustedToRestNotice(tabId, domain, fromMode, remainingRestSeconds) {
-  const remainingRestTime = formatSecondsCompact(remainingRestSeconds);
+  const remainingRestTime = remainingRestSeconds === null ? '不限' : formatSecondsCompact(remainingRestSeconds);
   const noticeText = `你正在打开综合/待归类网站 · 当前综合时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
   return await sendTabPendingMessage(tabId, {
     type: 'AUTO_MODE_PENDING_SUCCESS',
@@ -546,7 +661,7 @@ async function sendModeGraceToRestNotice(tabId, domain, fromMode) {
 
 async function sendCompositeEntryNotice(tabId, domain, fromMode, config) {
   const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
-  const remainingCompositeTime = formatSecondsCompact(remainingCompositeSeconds);
+  const remainingCompositeTime = remainingCompositeSeconds === null ? '不限' : formatSecondsCompact(remainingCompositeSeconds);
   const noticeText = `你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}`;
   return await sendTabPendingMessage(tabId, {
     type: 'AUTO_MODE_PENDING_SUCCESS',
@@ -589,7 +704,7 @@ export async function sendNoticeForDecision(decision, { tabId, domain, fromMode,
   }
   if (decision.notice === 'study_to_composite' || decision.notice === 'rest_to_composite_success') {
     const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
-    const remainingCompositeTime = formatSecondsCompact(remainingCompositeSeconds);
+    const remainingCompositeTime = remainingCompositeSeconds === null ? '不限' : formatSecondsCompact(remainingCompositeSeconds);
     const noticeText = `你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}`;
     return await sendTabPendingMessageDetailed(tabId, {
       type: 'AUTO_MODE_PENDING_SUCCESS',
@@ -622,7 +737,7 @@ export async function sendNoticeForDecision(decision, { tabId, domain, fromMode,
   }
   if (decision.notice === 'composite_exhausted_to_rest') {
     const remainingRestSeconds = await computeRestRemainingSeconds(config);
-    const remainingRestTime = formatSecondsCompact(remainingRestSeconds);
+    const remainingRestTime = remainingRestSeconds === null ? '不限' : formatSecondsCompact(remainingRestSeconds);
     const noticeText = `你正在打开综合/待归类网站 · 当前综合时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
     return await sendTabPendingMessageDetailed(tabId, {
       type: 'AUTO_MODE_PENDING_SUCCESS',

@@ -351,6 +351,22 @@ export async function logClientEventBestEffort(event = {}) {
   }
 }
 
+export async function logFallbackEventBestEffort(event = {}) {
+  const level = event.level === 'error' ? 'error' : 'warning';
+  const reason = event.reason || event.details?.reason || event.eventCode || 'fallback';
+  await logClientEventBestEffort({
+    ...event,
+    level,
+    eventCode: event.eventCode || 'runtime_fallback',
+    message: event.message || `Runtime fallback: ${reason}`,
+    details: {
+      ...(event.details || {}),
+      fallback: true,
+      reason,
+    },
+  });
+}
+
 function filterLogs(logs, filter = {}) {
   const level = filter.level && filter.level !== 'all' ? normalizeLevel(filter.level) : null;
   const category = filter.category && filter.category !== 'all' ? normalizeCategory(filter.category) : null;

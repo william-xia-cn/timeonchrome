@@ -1725,8 +1725,13 @@ async function renderOverview() {
     }
     weekRestSec = Math.max(0, wOnline - wStudy - wUndetermined);
 
-    const effectiveDailyRest = cfg.dailyRestQuota ?? 120;
-    const weeklyLimit        = cfg.weeklyRestQuota ?? (effectiveDailyRest * 7); // minutes
+    const effectiveQuota = buildEffectiveTimeQuotaView(cfg || {});
+    const weeklyLimit = cfg.weeklyRestQuota !== undefined && cfg.weeklyRestQuota !== null && Number(cfg.weeklyRestQuota) > 0
+      ? Number(cfg.weeklyRestQuota)
+      : QUOTA_DAYS.reduce((total, day) => {
+          const rest = effectiveQuota.daily[day]?.restMinutes;
+          return rest === null || total === null ? null : total + (Number(rest) || 0);
+        }, 0);
 
     document.getElementById('stat-study').textContent  = fmtSec(studySec);
     document.getElementById('stat-rest').textContent   = fmtSec(restSec);
@@ -1734,7 +1739,7 @@ async function renderOverview() {
     const wrEl = document.getElementById('stat-weekly-rest');
     const wrLimitEl = document.getElementById('stat-weekly-rest-limit');
     if (wrEl) wrEl.textContent = fmtSec(weekRestSec);
-    if (wrLimitEl) wrLimitEl.textContent = weeklyLimit > 0 ? `上限 ${fmtSec(weeklyLimit * 60)}` : '无上限';
+    if (wrLimitEl) wrLimitEl.textContent = weeklyLimit !== null && weeklyLimit > 0 ? `上限 ${fmtSec(weeklyLimit * 60)}` : '无上限';
 
     // Top 10
     const sorted = Object.entries(byDomain).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -2157,6 +2162,42 @@ async function saveSiteAccessConfig() {
 const QUOTA_DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
 const QUOTA_DAY_LABELS = { monday:'周一', tuesday:'周二', wednesday:'周三', thursday:'周四', friday:'周五', saturday:'周六', sunday:'周日' };
 
+function quotaFiniteNumber(value) {
+  if (value === undefined || value === '') return undefined;
+  if (value === null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : undefined;
+}
+
+function quotaLegacyMinutes(value, fallback) {
+  const number = quotaFiniteNumber(value);
+  if (number === undefined) return fallback;
+  if (number === null || number === 0) return null;
+  return number;
+}
+
+function quotaTimeField(dayConfig, field, legacyValue, fallback) {
+  if (dayConfig && Object.prototype.hasOwnProperty.call(dayConfig, field)) {
+    const value = quotaFiniteNumber(dayConfig[field]);
+    if (value !== undefined) return value;
+  }
+  return quotaLegacyMinutes(legacyValue, fallback);
+}
+
+function buildEffectiveTimeQuotaView(cfg = {}) {
+  const daily = {};
+  const sourceDaily = cfg.timeQuota?.daily || {};
+  for (const day of QUOTA_DAYS) {
+    const d = sourceDaily[day];
+    daily[day] = {
+      studyMinutes: quotaTimeField(d, 'studyMinutes', cfg.dailyStudyQuota, null),
+      restMinutes: quotaTimeField(d, 'restMinutes', cfg.dailyRestQuota, 120),
+      compositeMinutes: quotaTimeField(d, 'compositeMinutes', cfg.dailyUndeterminedQuota, 120),
+    };
+  }
+  return { daily };
+}
+
 function setupQuota() {
   document.getElementById('q-add-btn').addEventListener('click', () => {
     const domain  = document.getElementById('q-domain-input').value.trim().toLowerCase();
@@ -2172,20 +2213,7 @@ function setupQuota() {
 }
 
 function renderQuotaPage() {
-  // 懒迁移：旧 profile 没有 timeQuota 时，从旧字段反推
-  if (!remoteConfig.timeQuota) {
-    const daily = {};
-    for (const day of QUOTA_DAYS) {
-      daily[day] = {
-        studyMinutes: remoteConfig.dailyStudyQuota ?? null,
-        restMinutes: remoteConfig.dailyRestQuota ?? 120,
-        compositeMinutes: remoteConfig.dailyUndeterminedQuota ?? 120,
-      };
-    }
-    remoteConfig.timeQuota = { daily };
-  }
-
-  const daily = remoteConfig.timeQuota.daily;
+  const daily = buildEffectiveTimeQuotaView(remoteConfig || {}).daily;
   const container = document.getElementById('quota-daily-table');
 
   // Table header
@@ -2243,8 +2271,8 @@ window.toggleQuotaUnlimited = (day, type) => {
 };
 
 function updateWeeklyQuotaTotals() {
-  let studyTotal = 0, restTotal = 0, compositeTotal = 0, onlineTotal = 0;
-  let studyUnlimited = false, restUnlimited = false, compositeUnlimited = false, onlineUnlimited = false;
+  let studyTotal = 0, restTotal = 0, compositeTotal = 0;
+  let studyUnlimited = false, restUnlimited = false, compositeUnlimited = false;
 
   for (const day of QUOTA_DAYS) {
     const studyUnl = document.getElementById(`q-${day}-study-unlimited`)?.checked;
@@ -2254,7 +2282,6 @@ function updateWeeklyQuotaTotals() {
     if (studyUnl) studyUnlimited = true;
     if (restUnl) restUnlimited = true;
     if (compositeUnl) compositeUnlimited = true;
-    if (studyUnl || restUnl || compositeUnl) onlineUnlimited = true;
 
     const studyMin = studyUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-study`)?.value) || 0);
     const restMin = restUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-rest`)?.value) || 0);
@@ -2263,15 +2290,14 @@ function updateWeeklyQuotaTotals() {
     studyTotal += studyMin;
     restTotal += restMin;
     compositeTotal += compositeMin;
-    if (!studyUnl && !restUnl && !compositeUnl) onlineTotal += studyMin + restMin + compositeMin;
-    else onlineUnlimited = true;
   }
 
   const fmt = (val, unlimited) => unlimited ? '无限制' : `${(val / 60).toFixed(1).replace('.0', '')} 小时`;
   document.getElementById('weekly-study-total').textContent = fmt(studyTotal, studyUnlimited);
   document.getElementById('weekly-rest-total').textContent = fmt(restTotal, restUnlimited);
   document.getElementById('weekly-composite-total').textContent = fmt(compositeTotal, compositeUnlimited);
-  document.getElementById('weekly-online-total').textContent = fmt(onlineTotal, onlineUnlimited);
+  const onlineLimit = quotaLegacyMinutes(remoteConfig?.dailyOnlineQuota, null);
+  document.getElementById('weekly-online-total').textContent = onlineLimit === null ? '未设置' : `${onlineLimit} 分钟/天`;
 }
 
 async function saveTimeQuotaConfig() {

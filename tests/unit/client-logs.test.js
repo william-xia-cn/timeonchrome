@@ -43,6 +43,7 @@ function loadProdModule(relPath, exportNames) {
 const logs = loadProdModule('infra/client-logs.js', [
   'CLIENT_LOGS_KEY',
   'logClientEvent',
+  'logFallbackEventBestEffort',
   'getClientLogs',
   'getClientLogStatus',
   'updateClientLogConfig',
@@ -161,14 +162,42 @@ async function testRetentionMaxEntries() {
   check('oldest pruned entry absent', !result.logs.some((log) => log.eventCode === 'retention_1'));
 }
 
+async function testFallbackHelper() {
+  mockLocal.reset();
+  await logs.logFallbackEventBestEffort({
+    level: 'info',
+    category: 'access',
+    eventCode: 'fallback_helper_case',
+    module: 'test',
+    reason: 'legacy_path',
+    domain: 'https://www.youtube.com/watch?v=secret',
+    details: {
+      url: 'https://example.com/private/path?token=secret',
+      reason: 'legacy_path',
+    },
+  });
+  const result = await logs.getClientLogs({ limit: 1 });
+  const log = result.logs[0];
+  check('fallback helper records as warning by default', log.level === 'warning');
+  check('fallback helper marks details as fallback', log.details?.fallback === true && log.details?.reason === 'legacy_path');
+  check('fallback helper sanitizes domain/url details', log.domain === 'youtube.com' && !JSON.stringify(log).includes('/private/path'));
+}
+
 function testStaticWiring() {
   const adminHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.html'), 'utf8');
   const adminJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
   const pages = fs.readFileSync(path.join(__dirname, '..', '..', 'pages', 'index.html'), 'utf8');
   const worker = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'clientLogs.ts'), 'utf8');
+  const interceptor = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'interceptor.js'), 'utf8');
+  const session = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'runtime', 'session.js'), 'utf8');
+  const mediaTiming = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'media-timing.js'), 'utf8');
   check('local admin exposes system logs page', adminHtml.includes('data-page="client-logs"') && adminJs.includes('GET_CLIENT_LOGS'));
   check('pages exposes cloud system logs page', pages.includes('/client-logs/v1') && pages.includes('clientLoggingPolicyV1'));
   check('worker supports client log upload and query', worker.includes("path === '/device/client-logs/v1'") && worker.includes('/client-logs/v1'));
+  check('runtime fallback helper is exported', fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'client-logs.js'), 'utf8').includes('logFallbackEventBestEffort'));
+  check('page notice fallback uses fallback logger', interceptor.includes('logFallbackEventBestEffort') && interceptor.includes('pending_notice_fallback_dropped'));
+  check('checkpoint fallback uses fallback logger', session.includes('foreground_checkpoint_estimated_close') && session.includes('logFallbackEventBestEffort'));
+  check('PiP cleanup fallback uses fallback logger', mediaTiming.includes('pip_forbidden_cleanup_failed') && mediaTiming.includes('logFallbackEventBestEffort'));
 }
 
 (async () => {
@@ -176,6 +205,7 @@ function testStaticWiring() {
   await testBoundIdentityAndRedaction();
   await testUploadPolicyAndTtl();
   await testRetentionMaxEntries();
+  await testFallbackHelper();
   testStaticWiring();
   console.log(`\nclient-logs: ${passed}/${passed + failed} passed`);
   if (failed > 0) process.exit(1);

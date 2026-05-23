@@ -1,6 +1,7 @@
 // runtime/media-session.js — independent multi-tab media timing ledger
 
 import { getCachedEffectiveMode, resolveSettlementIdentity } from './session.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
 const LEGACY_MEDIA_SESSION_KEY = 'media_session_v1';
 const MEDIA_FACTS_KEY = 'media_facts_v1';
@@ -25,6 +26,9 @@ const MEDIA_CLASSES = new Set([
   'backgroundVideo',
   'pip',
 ]);
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 let mediaQueue = Promise.resolve();
 
@@ -1079,6 +1083,22 @@ export async function runMediaPeriodicCheckpoint(now = Date.now()) {
         const settlement = await settleMediaSession(session, closeAt, MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON, {
           endReason: MEDIA_CHECKPOINT_ESTIMATED_END_REASON,
         });
+        recordFallbackLog({
+          level: 'warning',
+          category: 'media',
+          eventCode: 'media_checkpoint_estimated_close',
+          module: 'runtime/media-session',
+          reason: confirmation?.reason || 'media_checkpoint_confirmation_failed',
+          message: 'Media checkpoint used estimated close fallback',
+          domain: session.domain || null,
+          details: {
+            tabId: session.tabId ?? null,
+            windowId: session.windowId ?? null,
+            mediaClass: session.mediaClass || null,
+            closeAt,
+            lastConfirmedAt,
+          },
+        });
         flushedSegments += settlement.appended || 0;
         flushedSeconds += settlement.durationSeconds || 0;
         delete sessions[key];
@@ -1092,6 +1112,23 @@ export async function runMediaPeriodicCheckpoint(now = Date.now()) {
           const closeAt = estimatedMediaCheckpointCloseAt(session, now, lastConfirmedAt);
           const settlement = await settleMediaSession(session, closeAt, MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON, {
             endReason: MEDIA_CHECKPOINT_ESTIMATED_END_REASON,
+          });
+          recordFallbackLog({
+            level: 'warning',
+            category: 'media',
+            eventCode: 'media_checkpoint_estimated_close',
+            module: 'runtime/media-session',
+            reason: 'last_confirmed_before_checkpoint',
+            message: 'Media checkpoint used estimated close fallback because confirmation was stale',
+            domain: session.domain || null,
+            details: {
+              tabId: session.tabId ?? null,
+              windowId: session.windowId ?? null,
+              mediaClass: session.mediaClass || null,
+              closeAt,
+              lastConfirmedAt,
+              checkpointEnd,
+            },
           });
           flushedSegments += settlement.appended || 0;
           flushedSeconds += settlement.durationSeconds || 0;

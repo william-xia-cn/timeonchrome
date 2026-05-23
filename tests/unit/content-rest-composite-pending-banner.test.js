@@ -26,6 +26,7 @@ function run() {
   expectTrue('top-frame-only render guard exists', src.includes('const canRenderTopFrameUi = (() => {'));
   expectTrue('pending START guarded by top frame check', src.includes("reason: 'not_top_frame'"));
   expectTrue('mode notice replies with render ack', src.includes('rendered: true'));
+  expectTrue('mode notice success confirms visibility', src.includes('visible: true') && src.includes('waitForModeNoticeVisible'));
   expectTrue('mode notice can report expired payload', src.includes("reason: 'expired_notice'"));
 
   expectTrue('uses Shadow DOM for banner container', src.includes("attachShadow({ mode: 'open' })"));
@@ -48,6 +49,8 @@ function run() {
   expectTrue('SUCCESS default TTL is 4s', src.includes('Number(payload?.displayDuration) || 4000'));
   expectTrue('SUCCESS auto-hide is capped', src.includes('Math.min(Math.max'));
   expectTrue('SUCCESS auto-hide exists', src.includes('setTimeout(() => {'));
+  expectTrue('SUCCESS waits for paint before ACK', src.includes('requestAnimationFrame') && src.includes('document.visibilityState'));
+  expectTrue('top-frame ready includes visibility/focus recovery signals', src.includes("notifyContentScriptReady('visibilitychange')") && src.includes("notifyContentScriptReady('window_focus')"));
 
   const total = passed + failed;
   console.log(`\n[Content Rest->Composite Pending Banner] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

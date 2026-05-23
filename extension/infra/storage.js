@@ -58,6 +58,17 @@ export const DEFAULT_CONFIG = {
   dailyRestQuota: 120,
   dailyUndeterminedQuota: 60,
   weeklyRestQuota: null,
+  timeQuota: {
+    daily: {
+      monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      wednesday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      thursday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      friday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      saturday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      sunday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+    },
+  },
   quotaBorrow: null,
   domainQuotas: {},
   classificationRules: [],

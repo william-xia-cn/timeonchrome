@@ -59,6 +59,7 @@ function compactModeEffectResult(result = {}) {
     noticeSent: result.noticeSent === true,
     noticeAck: result.noticeAck ?? null,
     noticeRendered: result.noticeRendered === true,
+    noticeVisible: result.noticeVisible === true || result.noticeDelivery?.visible === true,
     noticeError: result.noticeError || null,
     noticeDeferred: result.noticeDelivery?.deferred === true,
   };
@@ -90,6 +91,9 @@ export async function recordModeEffectTrace(entry = {}) {
         tabId: Number.isInteger(event.tabId) ? event.tabId : null,
         url: event.url || null,
         domain: event.domain || null,
+        frameId: Number.isInteger(event.frameId) ? event.frameId : null,
+        hasPending: event.hasPending === true,
+        readyReason: event.readyReason || null,
         foreground: event.foreground === true,
       },
       domain: entry.domain || null,
@@ -134,6 +138,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
     noticeSent: false,
     noticeAck: null,
     noticeRendered: false,
+    noticeVisible: false,
     noticeError: null,
     noticeDelivery: null,
     reminderSent: false,
@@ -214,6 +219,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
       result.noticeSent = delivery?.sent === true;
       result.noticeAck = delivery?.ack ?? null;
       result.noticeRendered = delivery?.rendered === true;
+      result.noticeVisible = delivery?.visible === true;
       if (delivery?.ok !== true && delivery?.deferred !== true) {
         result.noticeError = delivery?.error || 'notice_send_failed';
       }
@@ -221,6 +227,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
       result.noticeSent = false;
       result.noticeAck = null;
       result.noticeRendered = false;
+      result.noticeVisible = false;
       result.noticeError = err?.message || String(err);
     }
   }

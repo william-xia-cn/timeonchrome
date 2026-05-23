@@ -6,11 +6,15 @@ import { resolveSiteAccessClassification } from '../core/site-classification.js'
 import { emitTrace } from '../core/timing-trace.js';
 import { getAllUsageSegments, getDailyUsageStats, getHourlyUsageStats } from '../core/usage-segments.js';
 import { getHourlyMediaStats, getMediaSegments } from '../runtime/media-session.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
 const EVENT_LOG_KEY = 'event_log_v1';
 const DAILY_USAGE_STATS_KEY = 'daily_usage_stats_v1';
 const TEMP_COMPOSITE_DOMAINS_KEY = 'temporary_composite_domains';
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 export const STATS_META_KEYS = new Set([
   'audioSeconds',
@@ -244,6 +248,15 @@ export async function getTodayUsageView(options = {}) {
     const eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
     const events = eventData[EVENT_LOG_KEY] || [];
     stats = aggregateFromEvents(events, date);
+    recordFallbackLog({
+      level: 'warning',
+      category: 'storage',
+      eventCode: 'stats_read_model_event_log_fallback',
+      module: 'stats/managed-statistics',
+      reason: 'daily_usage_stats_unavailable',
+      message: 'Usage statistics fell back to event log aggregation',
+      details: { date, eventCount: events.length },
+    });
     await emitTrace('stats_calculated', {
       source,
       reason: 'dailyAggregation',
@@ -300,6 +313,17 @@ export async function getUsageRangeView(days = 7, options = {}) {
       const hasDomains = Object.keys(fallback).some((key) =>
         !isStatsMetaKey(key) && Number(fallback[key] || 0) > 0
       );
+      if (hasDomains) {
+        recordFallbackLog({
+          level: 'warning',
+          category: 'storage',
+          eventCode: 'stats_read_model_event_log_fallback',
+          module: 'stats/managed-statistics',
+          reason: 'range_daily_usage_stats_unavailable',
+          message: 'Usage range statistics fell back to event log aggregation',
+          details: { date: dateStr, eventCount: events.length },
+        });
+      }
       result[dateStr] = hasDomains ? fallback : {
         audioSeconds: 0,
         backgroundMediaByDomain: {},
@@ -311,6 +335,15 @@ export async function getUsageRangeView(days = 7, options = {}) {
   } catch (_) {
     const eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
     const events = eventData[EVENT_LOG_KEY] || [];
+    recordFallbackLog({
+      level: 'error',
+      category: 'storage',
+      eventCode: 'stats_read_model_event_log_fallback',
+      module: 'stats/managed-statistics',
+      reason: 'daily_usage_stats_read_failed',
+      message: 'Usage range statistics read failed and fell back to event log aggregation',
+      details: { days, eventCount: events.length },
+    });
     for (let i = 0; i < days; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);

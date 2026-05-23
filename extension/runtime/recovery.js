@@ -2,11 +2,15 @@
 
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 import { isCountedState } from '../core/usage-segments.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { getSession, getSessionWithPersistenceSource, runSessionCommit, saveSession, settleCurrentSessionSegment } from './session.js';
 
 export const RECOVERY_ESTIMATE_MS = 90 * 1000;
 const GUARDIAN_SESSION_KEY = 'guardian_session';
 const GUARDIAN_CONFIG_KEY = 'guardian_config';
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 function emptySession(now = Date.now()) {
   return {
@@ -114,6 +118,24 @@ export async function recover() {
     });
 
     await saveSession(emptySession(now));
+    recordFallbackLog({
+      level: 'warning',
+      category: 'timing',
+      eventCode: 'recovery_estimated_close',
+      module: 'runtime/recovery',
+      reason: 'recovery_estimated_half_checkpoint',
+      message: 'Recovery used estimated close fallback for residual open session',
+      domain: session.domain || null,
+      details: {
+        state: session.state || null,
+        source,
+        startTime,
+        closeAt,
+        estimateMs: RECOVERY_ESTIMATE_MS,
+        durationSeconds,
+        settled: (settlement?.appended || 0) > 0,
+      },
+    });
     return {
       ok: true,
       recovered: true,

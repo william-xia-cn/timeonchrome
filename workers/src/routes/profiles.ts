@@ -2,6 +2,7 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { siteAccessDefaults, mergeWithDefaults } from '../config/site-access-defaults';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
+import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
 
@@ -132,6 +133,14 @@ function injectDerivedOnlineWindows(config: Record<string, unknown>): void {
     if (!dayCfg) continue;
     dayCfg.onlineWindows = computeOnlineWindowsForDay(dayCfg);
   }
+}
+
+function injectEffectiveTimeQuota(config: Record<string, unknown>): void {
+  const effective = buildEffectiveTimeQuota(config as any);
+  config.timeQuota = {
+    ...((config.timeQuota as any) || {}),
+    daily: effective.daily,
+  };
 }
 
 // 将旧全局 timeWindows 懒迁移为 per-day 结构（内存中转换，不写入 DB）
@@ -360,6 +369,9 @@ export const profilesRouter = {
 
       // 注入派生的 onlineWindows（只读，不写入 DB）
       injectDerivedOnlineWindows(config);
+
+      // 注入有效 timeQuota（日配额主读模型，只读，不写入 DB）
+      injectEffectiveTimeQuota(config);
 
       // 返回时包含 custom 字段（如已存在），不触发写 DB
       return json({

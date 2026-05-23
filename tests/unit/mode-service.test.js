@@ -66,6 +66,15 @@ function loadModeService(stubs = {}) {
     },
     getTodayStatsWithCategories: async () => ({ restSeconds: 0, undeterminedSeconds: 0 }),
     getTodayEffectiveRestLimit: () => 120,
+    getEffectiveQuotaForDate: (cfg = {}) => ({
+      todayEffectiveQuota: {
+        studyMinutes: cfg.dailyStudyQuota === 0 ? null : (cfg.dailyStudyQuota ?? null),
+        restMinutes: cfg.dailyRestQuota === 0 ? null : (cfg.dailyRestQuota ?? 120),
+        compositeMinutes: cfg.dailyUndeterminedQuota === 0 ? null : (cfg.dailyUndeterminedQuota ?? 60),
+        onlineMinutes: cfg.dailyOnlineQuota === 0 ? null : (cfg.dailyOnlineQuota ?? null),
+        weeklyRestMinutes: cfg.weeklyRestQuota === 0 ? null : (cfg.weeklyRestQuota ?? ((cfg.dailyRestQuota ?? 120) * 7)),
+      },
+    }),
     evaluateQuotaState: async () => ({ ok: true, config: { quotaState: {} }, newState: {} }),
     enqueueModeBoundaryIntent: async (intent) => ({ ok: true, intent }),
     setCachedEffectiveMode: () => {},
@@ -387,6 +396,68 @@ this.__modeService = {
       toMode: 'rest',
       setRestExitGrace: false,
       clearRestExitGrace: false,
+    });
+  }
+
+  section('MSVC-3b2 requested mode changes synchronously honor exhausted quotas');
+  {
+    const svc = loadModeService({
+      evaluateQuotaState: async () => ({
+        ok: true,
+        config: { quotaState: { studyLocked: true, restLocked: true, undeterminedLocked: true } },
+        newState: { studyLocked: true, restLocked: true, undeterminedLocked: true },
+      }),
+    });
+    const study = await svc.handleModeEvent({
+      type: 'REQUEST_MODE_CHANGE',
+      requestedMode: 'study',
+      source: 'reminder',
+      nowMs: 1000,
+    });
+    expect('study exhausted blocks study request', {
+      ok: study.ok,
+      access: study.access,
+      reason: study.reminder?.reason,
+      modeChange: study.modeChange,
+    }, {
+      ok: false,
+      access: 'reminder',
+      reason: 'quota_study',
+      modeChange: null,
+    });
+    const composite = await svc.handleModeEvent({
+      type: 'REQUEST_MODE_CHANGE',
+      requestedMode: 'composite',
+      source: 'reminder',
+      nowMs: 1000,
+    });
+    expect('composite exhausted blocks composite request', {
+      ok: composite.ok,
+      access: composite.access,
+      reason: composite.reminder?.reason,
+      modeChange: composite.modeChange,
+    }, {
+      ok: false,
+      access: 'reminder',
+      reason: 'quota_undetermined',
+      modeChange: null,
+    });
+    const rest = await svc.handleModeEvent({
+      type: 'REQUEST_MODE_CHANGE',
+      requestedMode: 'rest',
+      source: 'reminder',
+      nowMs: 1000,
+    });
+    expect('rest exhausted blocks rest request', {
+      ok: rest.ok,
+      access: rest.access,
+      reason: rest.reminder?.reason,
+      modeChange: rest.modeChange,
+    }, {
+      ok: false,
+      access: 'reminder',
+      reason: 'rest_locked',
+      modeChange: null,
     });
   }
 

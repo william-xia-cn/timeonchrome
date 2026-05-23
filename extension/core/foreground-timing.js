@@ -5,11 +5,15 @@ import { resolveState } from './state.js';
 import { emitTrace } from './timing-trace.js';
 import { queryForegroundMediaForOpenSession } from './media-timing.js';
 import { extractDomain } from '../infra/storage.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { applyModeEffectiveBoundary, getSession as getTimingSession, transitionStateAt } from '../runtime/session.js';
 
 const UNKNOWN_FOREGROUND_DOMAIN = '__unknown__';
 const SHORT_FOREGROUND_GAP_DIAGNOSTIC_MS = 30 * 1000;
 const IDLE_DETECTION_SECONDS = 90;
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 let currentContext = null;
 let appliedForegroundBoundary = { state: null, domain: null, tabId: null, windowId: null };
@@ -232,7 +236,26 @@ async function enrichContextWithForegroundMedia(context, previousContext, rawEve
       openSession,
       rawEvent?._reason || 'foreground_media_context_query'
     );
-    foreground = mediaResult?.ok ? mediaResult : null;
+    if (mediaResult?.ok) {
+      recordFallbackLog({
+        level: 'warning',
+        category: 'foreground',
+        eventCode: 'foreground_media_compensation_applied',
+        module: 'core/foreground-timing',
+        reason: rawEvent?._reason || 'foreground_media_context_query',
+        message: 'Foreground timing used legacy media compensation for an open session',
+        domain: openSession?.domain || mediaResult.fact?.domain || null,
+        details: {
+          tabId: openSession?.tabId ?? mediaResult.fact?.tabId ?? null,
+          windowId: openSession?.windowId ?? mediaResult.fact?.windowId ?? null,
+          source: mediaResult.source || null,
+          mediaClass: mediaResult.classification?.mediaClass || null,
+        },
+      });
+      foreground = mediaResult;
+    } else {
+      foreground = null;
+    }
   }
 
   if (!foreground) {

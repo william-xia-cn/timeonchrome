@@ -147,6 +147,15 @@ const quotaApi = loadProdModule('product/quota.js', ['evaluateQuotaState'], {
   isSpecialUrl: () => false,
   getDateKey: () => '2026-05-15',
   formatDate: (date) => date.toISOString().slice(0, 10),
+  getEffectiveQuotaForDate: (cfg = {}) => ({
+    todayEffectiveQuota: {
+      studyMinutes: cfg.dailyStudyQuota === 0 ? null : (cfg.dailyStudyQuota ?? null),
+      restMinutes: cfg.dailyRestQuota === 0 ? null : (cfg.dailyRestQuota ?? 120),
+      compositeMinutes: cfg.dailyUndeterminedQuota === 0 ? null : (cfg.dailyUndeterminedQuota ?? 60),
+      onlineMinutes: cfg.dailyOnlineQuota === 0 ? null : (cfg.dailyOnlineQuota ?? null),
+      weeklyRestMinutes: cfg.weeklyRestQuota === 0 ? null : (cfg.weeklyRestQuota ?? ((cfg.dailyRestQuota ?? 120) * 7)),
+    },
+  }),
 });
 
 function reset({ cfg = {}, stats = {}, undetermined = {} } = {}) {

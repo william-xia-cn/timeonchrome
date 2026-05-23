@@ -2,6 +2,7 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 import { siteAccessDefaults } from '../config/site-access-defaults';
+import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 
 // 验证 device_token，可选同时刷新 last_seen；返回 profile_id + device_id 或 null
 async function verifyDeviceToken(
@@ -133,6 +134,11 @@ export const deviceRouter = {
       if (!Array.isArray(configData.defaultBlockedSites)) {
         configData.defaultBlockedSites = siteAccessDefaults.defaultBlockedSites;
       }
+      const effectiveTimeQuota = buildEffectiveTimeQuota(configData);
+      configData.timeQuota = {
+        ...(configData.timeQuota || {}),
+        daily: effectiveTimeQuota.daily,
+      };
 
       return json({
         data:               configData,
@@ -188,28 +194,17 @@ export const deviceRouter = {
       const studyList: string[]     = config.studyList     || [];
       const compositeList: string[] = config.compositeList || [];
       const borrow                  = config.quotaBorrow   ?? null;
-      const dailyOnlineQuota        = (config.dailyOnlineQuota       ?? 0) * 60; // minutes → seconds
-      const dailyStudyQuota         = (config.dailyStudyQuota        ?? 0)  * 60;
-      const dailyUndeterminedQuota  = (config.dailyUndeterminedQuota ?? 60)  * 60;
-
-      // Effective daily rest limit (seconds) — adjusted for borrow
-      const baseDailyRest = (config.dailyRestQuota ?? 120); // minutes
-      let effectiveDailyRestMin = baseDailyRest;
-      if (borrow && !borrow.repaid) {
-        if (dateParam === borrow.borrowedFrom) {
-          effectiveDailyRestMin = baseDailyRest + borrow.amount;
-        } else {
-          const repayD = new Date(borrow.borrowedFrom + 'T00:00:00Z');
-          repayD.setDate(repayD.getDate() + 1);
-          const repayStr = repayD.toISOString().slice(0, 10);
-          if (dateParam === repayStr) effectiveDailyRestMin = Math.max(0, baseDailyRest - borrow.amount);
-        }
-      }
-      const effectiveDailyRestSec = effectiveDailyRestMin * 60;
-
-      // Weekly rest limit (seconds)
-      const weeklyRestLimitMin = config.weeklyRestQuota ?? (baseDailyRest * 7);
-      const weeklyRestLimitSec = weeklyRestLimitMin * 60;
+      const effectiveQuota = getEffectiveQuotaForDate(config, dateParam).todayEffectiveQuota;
+      const limitSeconds = (minutes: number | null | undefined) => {
+        if (minutes === null || minutes === undefined) return null;
+        const number = Number(minutes);
+        return Number.isFinite(number) ? Math.max(0, number * 60) : null;
+      };
+      const dailyOnlineQuota = limitSeconds(effectiveQuota.onlineMinutes);
+      const dailyStudyQuota = limitSeconds(effectiveQuota.studyMinutes);
+      const dailyUndeterminedQuota = limitSeconds(effectiveQuota.compositeMinutes);
+      const effectiveDailyRestSec = limitSeconds(effectiveQuota.restMinutes);
+      const weeklyRestLimitSec = limitSeconds(effectiveQuota.weeklyRestMinutes);
 
       const matchDomain = matchDomainV12;
 
@@ -246,15 +241,16 @@ export const deviceRouter = {
         else if (compositeList.some(p => matchDomain(row.domain, p))) wUndetermined += row.total;
       }
       const weekRestSeconds    = Math.max(0, wOnline - wStudy - wUndetermined);
-      const restLockedByDay    = effectiveDailyRestSec > 0 && restSeconds    >= effectiveDailyRestSec;
-      const restLockedByWeek   = weeklyRestLimitSec    > 0 && weekRestSeconds >= weeklyRestLimitSec;
+      const isLimited = (seconds: number | null) => seconds !== null && Number.isFinite(Number(seconds));
+      const restLockedByDay    = isLimited(effectiveDailyRestSec) && restSeconds    >= Number(effectiveDailyRestSec);
+      const restLockedByWeek   = isLimited(weeklyRestLimitSec)    && weekRestSeconds >= Number(weeklyRestLimitSec);
 
       return json({
-        onlineLocked:       dailyOnlineQuota      > 0 && onlineSeconds      >= dailyOnlineQuota,
-        studyLocked:        dailyStudyQuota       > 0 && studySeconds       >= dailyStudyQuota,
+        onlineLocked:       isLimited(dailyOnlineQuota)      && onlineSeconds      >= Number(dailyOnlineQuota),
+        studyLocked:        isLimited(dailyStudyQuota)       && studySeconds       >= Number(dailyStudyQuota),
         restLocked:         restLockedByDay || restLockedByWeek,
         weeklyRestLocked:   restLockedByWeek,
-        undeterminedLocked: dailyUndeterminedQuota > 0 && undeterminedSeconds >= dailyUndeterminedQuota,
+        undeterminedLocked: isLimited(dailyUndeterminedQuota) && undeterminedSeconds >= Number(dailyUndeterminedQuota),
         onlineSeconds, studySeconds, undeterminedSeconds, restSeconds,
         weekRestSeconds, weeklyRestLimitSec,
         quotaBorrow: borrow,

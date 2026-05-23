@@ -15,10 +15,15 @@ import { enqueueModeBoundaryIntent } from '../core/mode-boundary-intents.js';
 import { setCachedEffectiveMode } from '../runtime/session.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { evaluateQuotaState, getTodayEffectiveRestLimit } from './quota.js';
+import { getEffectiveQuotaForDate } from '../core/quota-config.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
 export const REST_EXIT_GRACE_MS = 30_000;
 
 const VALID_MODES = new Set(['study', 'composite', 'rest', 'locked', 'paused']);
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 function baseDecision(overrides = {}) {
   return {
@@ -235,22 +240,26 @@ export async function commitModeChange({
 async function computeCompositeRemainingSeconds(config) {
   const stats = await getTodayStatsWithCategories(config);
   const used = Math.max(0, Number(stats?.undeterminedSeconds ?? stats?.compositeSeconds) || 0);
-  const limit = Math.max(0, Number(config?.dailyUndeterminedQuota ?? 60) * 60);
+  const limitMinutes = getEffectiveQuotaForDate(config).todayEffectiveQuota.compositeMinutes;
+  if (limitMinutes === null || limitMinutes === undefined) return null;
+  const limit = Math.max(0, Number(limitMinutes) * 60);
   return Math.max(0, limit - used);
 }
 
 async function computeStudyRemainingSeconds(config) {
-  const quotaMinutes = Number(config?.dailyStudyQuota ?? 0);
-  if (!Number.isFinite(quotaMinutes) || quotaMinutes <= 0) return null;
+  const quotaMinutes = getEffectiveQuotaForDate(config).todayEffectiveQuota.studyMinutes;
+  if (quotaMinutes === null || quotaMinutes === undefined) return null;
   const stats = await getTodayStatsWithCategories(config);
   const used = Math.max(0, Number(stats?.studySeconds) || 0);
-  return Math.max(0, quotaMinutes * 60 - used);
+  return Math.max(0, Number(quotaMinutes) * 60 - used);
 }
 
 async function computeRestRemainingSeconds(config) {
   const stats = await getTodayStatsWithCategories(config);
   const used = Math.max(0, Number(stats?.restSeconds) || 0);
-  const limit = Math.max(0, getTodayEffectiveRestLimit(config) * 60);
+  const restMinutes = getTodayEffectiveRestLimit(config);
+  if (restMinutes === null || restMinutes === undefined) return null;
+  const limit = Math.max(0, Number(restMinutes) * 60);
   return Math.max(0, limit - used);
 }
 
@@ -282,7 +291,7 @@ function noticeForRoute(route, {
 } = {}) {
   if (!route?.notice) return null;
   if (route.notice === 'study_to_composite' || route.notice === 'rest_to_composite_success') {
-    const remainingCompositeTime = formatSecondsCompact(remainingCompositeSeconds);
+    const remainingCompositeTime = remainingCompositeSeconds === null ? '不限' : formatSecondsCompact(remainingCompositeSeconds);
     return {
       kind: route.notice,
       targetMode: 'composite',
@@ -306,7 +315,7 @@ function noticeForRoute(route, {
     };
   }
   if (route.notice === 'composite_exhausted_to_rest') {
-    const remainingRestTime = formatSecondsCompact(remainingRestSeconds);
+    const remainingRestTime = remainingRestSeconds === null ? '不限' : formatSecondsCompact(remainingRestSeconds);
     return {
       kind: route.notice,
       targetMode: 'rest',
@@ -374,6 +383,9 @@ export function evaluateModeRoute(facts = {}) {
   const nowMs = Number.isFinite(Number(facts.nowMs)) ? Number(facts.nowMs) : Date.now();
   const restLocked = facts.quotaState?.restLocked === true;
   const isRestTarget = !facts.isStudyDomain && !facts.isCompositeDomain;
+  const compositeExhausted = facts.remainingCompositeSeconds !== null &&
+    facts.remainingCompositeSeconds !== undefined &&
+    Number(facts.remainingCompositeSeconds) <= 0;
 
   if (facts.isUnsafe) {
     return { kind: 'reminder', reminderReason: 'unsafe' };
@@ -396,7 +408,7 @@ export function evaluateModeRoute(facts = {}) {
     }
 
     if (facts.isCompositeDomain) {
-      if (Number(facts.remainingCompositeSeconds) <= 0) {
+      if (compositeExhausted) {
         if (restLocked) {
           return { kind: 'reminder', reminderReason: 'quota_composite_and_rest' };
         }
@@ -427,7 +439,7 @@ export function evaluateModeRoute(facts = {}) {
     if (facts.isStudyDomain) return { kind: 'allow' };
 
     if (facts.isCompositeDomain) {
-      if (Number(facts.remainingCompositeSeconds) > 0) {
+      if (!compositeExhausted) {
         return {
           kind: 'mode_change',
           toMode: 'composite',
@@ -479,7 +491,7 @@ export function evaluateModeRoute(facts = {}) {
     }
 
     if (facts.isCompositeDomain) {
-      if (Number(facts.remainingCompositeSeconds) <= 0) {
+      if (compositeExhausted) {
         if (restLocked) {
           return { kind: 'reminder', reminderReason: 'quota_composite_and_rest' };
         }
@@ -637,7 +649,23 @@ async function handleAccessObserved(event = {}) {
   };
 }
 
-function handleRequestedModeChange(event = {}) {
+function quotaBlockedReminderForRequestedMode(requestedMode, quotaState = {}) {
+  if (quotaState.onlineLocked === true) {
+    return { reason: 'quota_locked', code: 'ONLINE_QUOTA_LOCKED' };
+  }
+  if (requestedMode === 'study' && quotaState.studyLocked === true) {
+    return { reason: 'quota_study', code: 'STUDY_QUOTA_LOCKED' };
+  }
+  if (requestedMode === 'composite' && quotaState.undeterminedLocked === true) {
+    return { reason: 'quota_undetermined', code: 'COMPOSITE_QUOTA_LOCKED' };
+  }
+  if (requestedMode === 'rest' && quotaState.restLocked === true) {
+    return { reason: 'rest_locked', code: 'REST_QUOTA_LOCKED' };
+  }
+  return null;
+}
+
+async function handleRequestedModeChange(event = {}) {
   const requested = normalizeMode(event.requestedMode || event.toMode || event.mode);
   if (requested === 'paused') {
     return baseDecision({
@@ -651,6 +679,44 @@ function handleRequestedModeChange(event = {}) {
     : Date.now();
   const source = event.source || 'runtime_message';
   const reason = event.reason || (event.type === 'REMINDER_CONFIRMED' ? 'reminder_confirm_rest' : 'manual_mode_switch');
+  if (requested === 'study' || requested === 'composite' || requested === 'rest') {
+    const quotaResult = await evaluateQuotaState().catch((err) => ({
+      ok: false,
+      error: err?.message || String(err),
+    }));
+    if (quotaResult?.skipped !== 'config_disabled') {
+      const latestConfig = quotaResult?.config || await getConfig().catch(() => null);
+      const latestQuotaState = quotaResult?.newState || latestConfig?.quotaState || {};
+      const blocked = quotaBlockedReminderForRequestedMode(requested, latestQuotaState);
+      if (blocked || quotaResult?.ok === false) {
+        recordFallbackLog({
+          level: quotaResult?.ok === false ? 'error' : 'warning',
+          category: 'access',
+          eventCode: 'mode_request_quota_fallback',
+          module: 'product/mode-service',
+          reason: blocked?.code || 'QUOTA_EVALUATION_FAILED',
+          message: blocked
+            ? 'Mode request blocked by latest quota state'
+            : 'Mode request fell back to quota-locked reminder because quota evaluation failed',
+          details: {
+            requestedMode: requested,
+            source,
+            quotaError: quotaResult?.error || null,
+            quotaSkipped: quotaResult?.skipped || null,
+            blockedCode: blocked?.code || null,
+          },
+        });
+        return baseDecision({
+          ok: false,
+          access: 'reminder',
+          reason: blocked?.code || 'QUOTA_EVALUATION_FAILED',
+          reminder: { reason: blocked?.reason || 'quota_locked', params: {} },
+          quota: quotaResult,
+          recheckActiveTab: true,
+        });
+      }
+    }
+  }
   return baseDecision({
     modeChange: {
       toMode: requested,
@@ -721,7 +787,7 @@ export async function handleModeEvent(event = {}) {
   const type = event?.type;
   if (type === 'ACCESS_OBSERVED') return await handleAccessObserved(event);
   if (type === 'REQUEST_MODE_CHANGE' || type === 'REMINDER_CONFIRMED') {
-    return handleRequestedModeChange(event);
+    return await handleRequestedModeChange(event);
   }
   if (type === 'EVALUATE_QUOTA_STATE') return await handleQuotaEvaluation(event);
   return baseDecision({

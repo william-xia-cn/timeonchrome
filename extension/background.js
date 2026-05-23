@@ -9,7 +9,7 @@ import { closeCurrentSession, initSession, getSession as getTimingSession } from
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, CONFIG_KEY, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, SITE_CLASSIFICATION_REQUESTS_KEY, getDateKey, formatDate, extractDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
-import { updateDeclarativeRules, reSendPendingNoticeDetailed, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
+import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
@@ -18,11 +18,14 @@ import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationRep
 import { getEvents, clearEvents } from './core/event-log.js';
 import { emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
 import { computeAllDomains } from './core/aggregate.js';
-import { logClientEventBestEffort } from './infra/client-logs.js';
+import { logClientEventBestEffort, logFallbackEventBestEffort } from './infra/client-logs.js';
 import { resolveManagedTargetAttribution } from './core/managed-targets.js';
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 // ── SW 模块引导（幂等）：只保证基础状态与 alarms/listeners 可用，recovery 由 lifecycle 事件触发 ──
 
@@ -64,7 +67,18 @@ function scheduleModeBoundaryDrain(reason = 'scheduled') {
       warn: (...args) => console.warn(...args),
       reason,
     }))
-    .catch((err) => console.warn('[ModeBoundary] drain failed:', err?.message || err));
+    .catch((err) => {
+      console.warn('[ModeBoundary] drain failed:', err?.message || err);
+      recordFallbackLog({
+        level: 'error',
+        category: 'runtime',
+        eventCode: 'mode_boundary_drain_failed',
+        module: 'background',
+        reason: 'mode_boundary_drain_failed',
+        message: err?.message || 'Mode boundary drain failed',
+        details: { reason, error: err?.message || String(err) },
+      });
+    });
 }
 
 setModeBoundaryDrainHook((reason = 'modeTransition') => drainPendingModeBoundaries({
@@ -93,7 +107,18 @@ async function dispatchModeEvent(event = {}, options = {}) {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
     const tab = tabs && tabs[0] ? tabs[0] : null;
     if (tab?.id) {
-      await reevaluateTabById(tab.id, { source: 'mode_event_recheck' }).catch(() => {});
+      await reevaluateTabById(tab.id, { source: 'mode_event_recheck' }).catch((err) => {
+        recordFallbackLog({
+          level: 'warning',
+          category: 'access',
+          eventCode: 'active_tab_recheck_failed',
+          module: 'background',
+          reason: 'mode_event_recheck_failed',
+          message: err?.message || 'Active tab recheck failed after mode event',
+          domain: decision.domain || event.domain || extractDomain(event.url || ''),
+          details: { tabId: tab.id, source: 'mode_event_recheck', error: err?.message || String(err) },
+        });
+      });
     }
   }
   return result;
@@ -163,6 +188,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         dailyRestQuota: existingConfig.dailyRestQuota ?? DEFAULT_CONFIG.dailyRestQuota,
         dailyUndeterminedQuota: existingConfig.dailyUndeterminedQuota ?? DEFAULT_CONFIG.dailyUndeterminedQuota,
         weeklyRestQuota: existingConfig.weeklyRestQuota ?? DEFAULT_CONFIG.weeklyRestQuota,
+        timeQuota: existingConfig.timeQuota ?? DEFAULT_CONFIG.timeQuota,
         quotaBorrow: existingConfig.quotaBorrow ?? DEFAULT_CONFIG.quotaBorrow,
         classificationRules: existingConfig.classificationRules ?? [],
         quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false }
@@ -351,6 +377,7 @@ function pickPopupConfig(rawConfig, siteClassificationRequests = []) {
     dailyRestQuota: config.dailyRestQuota ?? DEFAULT_CONFIG.dailyRestQuota,
     dailyUndeterminedQuota: config.dailyUndeterminedQuota ?? DEFAULT_CONFIG.dailyUndeterminedQuota,
     weeklyRestQuota: config.weeklyRestQuota ?? DEFAULT_CONFIG.weeklyRestQuota,
+    timeQuota: config.timeQuota ?? DEFAULT_CONFIG.timeQuota,
     quotaBorrow: config.quotaBorrow ?? DEFAULT_CONFIG.quotaBorrow,
     quotaState: config.quotaState || DEFAULT_CONFIG.quotaState,
   };
@@ -572,6 +599,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   lastActiveTabId = activeInfo.tabId;
   await handleMediaTabActivated(previousTabId, activeInfo.tabId).catch(() => {});
   await reevaluateTabById(activeInfo.tabId, { source: 'tabActivated' });
+  await deliverPendingModeNoticeForTabWithDelayedRetry(activeInfo.tabId, 'tabActivated');
 });
 
 chrome.tabs.onReplaced?.addListener?.(async (addedTabId, removedTabId) => {
@@ -680,6 +708,57 @@ async function reevaluateFocusedWindowActiveTab(windowId) {
   if (!tab?.id) return;
   lastActiveTabId = tab.id;
   await reevaluateTabById(tab.id, { source: 'windowFocusChanged' });
+  await deliverPendingModeNoticeForTabWithDelayedRetry(tab.id, 'windowFocusChanged');
+}
+
+async function deliverPendingModeNoticeForTabWithDelayedRetry(tabId, source) {
+  await deliverPendingModeNoticeForTab(tabId, source);
+  setTimeout(() => {
+    deliverPendingModeNoticeForTab(tabId, `${source}_delayed`).catch(() => {});
+  }, 250);
+}
+
+async function deliverPendingModeNoticeForTab(tabId, source) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  let delivery = null;
+  try {
+    delivery = await deliverPendingNoticeForFocusedTab(tabId, source);
+  } catch (err) {
+    delivery = {
+      ok: false,
+      error: err?.message || String(err),
+      tabId,
+      source,
+    };
+  }
+  if (!delivery || delivery.error === 'pending_notice_missing') return;
+  if (delivery.attempted !== true && delivery.sent !== true && !delivery.ack && delivery.deferred !== true && !delivery.error) return;
+  await recordModeEffectTrace({
+    event: {
+      type: 'PENDING_NOTICE_DELIVERY',
+      source,
+      tabId,
+      domain: delivery.domain || null,
+      foreground: true,
+    },
+    domain: delivery.domain || null,
+    decision: {
+      ok: true,
+      access: 'allow',
+      notice: delivery?.payload || null,
+    },
+    result: {
+      ok: delivery.ok === true,
+      noticeAttempted: delivery.attempted === true,
+      noticeTargetTabId: tabId,
+      noticeSent: delivery.sent === true,
+      noticeAck: delivery.ack ?? null,
+      noticeRendered: delivery.rendered === true,
+      noticeVisible: delivery.visible === true,
+      noticeError: delivery.ok === true || delivery.deferred === true ? null : (delivery.error || 'pending_notice_delivery_failed'),
+      noticeDelivery: delivery || null,
+    },
+  });
 }
 
 // ── Alarms ──────────────────────────────────────────────────────────────────────
@@ -1004,6 +1083,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // before the content script's listener was registered (e.g., after page reload).
   if (msg.type === 'CONTENT_SCRIPT_READY') {
     const tabId = sender?.tab?.id;
+    const frameId = Number.isInteger(sender?.frameId) ? sender.frameId : null;
+    if (frameId !== null && frameId !== 0) {
+      sendResponse({ ok: true, skipped: true, reason: 'non_top_frame' });
+      return true;
+    }
     if (Number.isInteger(tabId) && tabId > 0) {
       (async () => {
         const currentDomain = extractDomain(sender?.tab?.url || '');
@@ -1015,8 +1099,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               type: 'CONTENT_SCRIPT_READY',
               source: 'content_script_ready',
               tabId,
-              url: sender?.tab?.url || null,
               domain: currentDomain || null,
+              frameId: frameId ?? 0,
+              hasPending: !!delivery?.payload,
+              readyReason: typeof msg.readyReason === 'string' ? msg.readyReason : null,
               foreground: sender?.tab?.active === true,
             },
             domain: currentDomain || null,
@@ -1032,6 +1118,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               noticeSent: delivery?.sent === true,
               noticeAck: delivery?.ack ?? null,
               noticeRendered: delivery?.rendered === true,
+              noticeVisible: delivery?.visible === true,
               noticeError: delivery?.ok === true || delivery?.deferred === true ? null : (delivery?.error || 'pending_notice_resend_failed'),
               noticeDelivery: delivery || null,
             },

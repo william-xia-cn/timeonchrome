@@ -1,9 +1,15 @@
 // product/quota.js — 配额事实计算 + 借用逻辑
 
-import { getConfig, saveConfig, getDateKey, formatDate } from '../infra/storage.js';
+import { getConfig, saveConfig, getDateKey } from '../infra/storage.js';
 import { getQuotaUsageView } from '../stats/managed-statistics.js';
+import { getEffectiveQuotaForDate } from '../core/quota-config.js';
+import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
 let borrowInProgress = false;
+let lastLegacyQuotaFallbackLogAt = 0;
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 // ── Week rest calculation ───────────────────────────────────────────────────────
 
@@ -14,47 +20,29 @@ export async function getWeekRestSeconds() {
 }
 
 export function getTodayEffectiveRestLimit(config) {
-  const baseLimit = config.dailyRestQuota ?? 120;
-  const borrow = config.quotaBorrow;
-  if (!borrow || borrow.repaid) return baseLimit;
-
-  const today = getDateKey();
-  if (today === borrow.borrowedFrom) {
-    return baseLimit + borrow.amount;
-  }
-
-  const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
-  repayD.setDate(repayD.getDate() + 1);
-  const repayStr = formatDate(repayD);
-  if (today === repayStr) {
-    return Math.max(0, baseLimit - borrow.amount);
-  }
-
-  return baseLimit;
+  return getEffectiveQuotaForDate(config, getDateKey()).todayEffectiveQuota.restMinutes;
 }
 
 // ── Quota check ─────────────────────────────────────────────────────────────────
 
 export function buildQuotaStateFromUsage(config = {}, usage = {}) {
-  const totalMinutes = usage.totalMinutes;
-  const studyMinutes = usage.studyMinutes;
-  const restMinutes = usage.restMinutes;
-  const undeterminedMinutes = usage.undeterminedMinutes;
-  const weekRestMinutes = usage.weekRestMinutes;
+  const totalMinutes = Math.max(0, Number(usage.totalMinutes) || 0);
+  const studyMinutes = Math.max(0, Number(usage.studyMinutes) || 0);
+  const restMinutes = Math.max(0, Number(usage.restMinutes) || 0);
+  const undeterminedMinutes = Math.max(0, Number(usage.undeterminedMinutes ?? usage.compositeMinutes) || 0);
+  const weekRestMinutes = Math.max(0, Number(usage.weekRestMinutes) || 0);
 
-  const dailyOnlineQuota = config.dailyOnlineQuota ?? config.dailyQuota ?? 0;
-  const dailyUndeterminedQuota = config.dailyUndeterminedQuota ?? 60;
-  const effectiveDailyRest = getTodayEffectiveRestLimit(config);
-  const weeklyRestLimit = config.weeklyRestQuota ?? (effectiveDailyRest * 7);
+  const quota = getEffectiveQuotaForDate(config, getDateKey()).todayEffectiveQuota;
+  const isLimited = (minutes) => minutes !== null && minutes !== undefined && Number.isFinite(Number(minutes));
 
-  const restLockedByDay = effectiveDailyRest > 0 && restMinutes >= effectiveDailyRest;
-  const restLockedByWeek = weeklyRestLimit > 0 && weekRestMinutes >= weeklyRestLimit;
+  const restLockedByDay = isLimited(quota.restMinutes) && restMinutes >= Number(quota.restMinutes);
+  const restLockedByWeek = isLimited(quota.weeklyRestMinutes) && weekRestMinutes >= Number(quota.weeklyRestMinutes);
 
   return {
-    onlineLocked: dailyOnlineQuota > 0 && totalMinutes >= dailyOnlineQuota,
-    studyLocked: (config.dailyStudyQuota || 0) > 0 && studyMinutes >= config.dailyStudyQuota,
+    onlineLocked: isLimited(quota.onlineMinutes) && totalMinutes >= Number(quota.onlineMinutes),
+    studyLocked: isLimited(quota.studyMinutes) && studyMinutes >= Number(quota.studyMinutes),
     restLocked: restLockedByDay || restLockedByWeek,
-    undeterminedLocked: dailyUndeterminedQuota > 0 && undeterminedMinutes >= dailyUndeterminedQuota,
+    undeterminedLocked: isLimited(quota.compositeMinutes) && undeterminedMinutes >= Number(quota.compositeMinutes),
     weeklyRestLocked: restLockedByWeek,
   };
 }
@@ -71,6 +59,30 @@ export async function evaluateQuotaState() {
   const config = await getConfig();
   if (!config.enabled) {
     return { ok: true, skipped: 'config_disabled', stateChanged: false, config };
+  }
+
+  const effectiveQuota = getEffectiveQuotaForDate(config, getDateKey());
+  const daySources = effectiveQuota?.source?.day || {};
+  const usesLegacyQuota = Object.values(daySources).includes('legacy') ||
+    effectiveQuota?.source?.online === 'legacy' ||
+    effectiveQuota?.source?.weeklyRest === 'legacy';
+  const nowMs = Date.now();
+  if (usesLegacyQuota && nowMs - lastLegacyQuotaFallbackLogAt > 60 * 60 * 1000) {
+    lastLegacyQuotaFallbackLogAt = nowMs;
+    recordFallbackLog({
+      level: 'warning',
+      category: 'access',
+      eventCode: 'quota_eval_fallback_legacy_config',
+      module: 'product/quota',
+      reason: 'legacy_quota_config',
+      message: 'Quota evaluation used legacy quota fields as compatibility fallback',
+      details: {
+        dateKey: getDateKey(),
+        daySources,
+        onlineSource: effectiveQuota?.source?.online || null,
+        weeklyRestSource: effectiveQuota?.source?.weeklyRest || null,
+      },
+    });
   }
 
   const usage = await getQuotaUsageView(getDateKey(), { config });

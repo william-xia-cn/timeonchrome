@@ -85,6 +85,15 @@ function loadEffects(stubs = {}) {
     clearTemporaryCompositeDomains: async () => {},
     getTodayStatsWithCategories: async () => ({ undeterminedSeconds: 0, restSeconds: 0 }),
     getTodayEffectiveRestLimit: () => 120,
+    getEffectiveQuotaForDate: (cfg = {}) => ({
+      todayEffectiveQuota: {
+        studyMinutes: cfg.dailyStudyQuota === 0 ? null : (cfg.dailyStudyQuota ?? null),
+        restMinutes: cfg.dailyRestQuota === 0 ? null : (cfg.dailyRestQuota ?? 120),
+        compositeMinutes: cfg.dailyUndeterminedQuota === 0 ? null : (cfg.dailyUndeterminedQuota ?? 60),
+        onlineMinutes: cfg.dailyOnlineQuota === 0 ? null : (cfg.dailyOnlineQuota ?? null),
+        weeklyRestMinutes: cfg.weeklyRestQuota === 0 ? null : (cfg.weeklyRestQuota ?? ((cfg.dailyRestQuota ?? 120) * 7)),
+      },
+    }),
     logClientEventBestEffort: () => {},
     normalizeMode: (mode) => ['study', 'composite', 'rest', 'locked', 'paused'].includes(mode) ? mode : 'study',
     commitModeChange: async ({ toMode, reason, source, effectiveAtMs }) => ({
@@ -112,6 +121,7 @@ this.__exports = {
   executeModeDecision,
   sendModeSwitchSuccessNotice,
   reSendPendingNotice,
+  deliverPendingNoticeForFocusedTab,
   markContentScriptReady,
   redirectToReminder,
 };`, context, { filename: 'mode-effects.js' });
@@ -255,7 +265,7 @@ this.__exports = {
     expectTrue('special URL is not forwarded as targetUrl', !effects.tabUpdates[0]?.payload?.url?.includes('targetUrl='));
   }
 
-  section('IMT-3 pending success notice can be resent after content script ready');
+  section('IMT-3 rendered success notice is one-shot and not replayed after ready');
   {
     const effects = loadEffects();
     const queued = await effects.sendModeSwitchSuccessNotice(11, 'study', 'composite', {
@@ -268,9 +278,12 @@ this.__exports = {
     const resent = await effects.reSendPendingNotice(11, 'example.com');
     expectTrue('resent notice', resent === true);
     expect('one success send after ready', effects.sentMessages.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 1);
+    const replayed = await effects.reSendPendingNotice(11, 'example.com');
+    expectTrue('rendered notice is cleared and cannot replay', replayed === false);
+    expect('still only one success send', effects.sentMessages.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 1);
   }
 
-  section('IMT-4 missing content listener queues pending notice until CONTENT_SCRIPT_READY');
+  section('IMT-4 missing content listener queues pending notice until foreground recovery');
   {
     const sent = [];
     const effects = loadEffects({
@@ -280,7 +293,7 @@ this.__exports = {
           get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
           sendMessage: async (tabId, payload) => {
             sent.push({ tabId, payload });
-            return { ok: true, handled: true, rendered: true };
+            return { ok: true, handled: true, rendered: true, visible: true };
           },
           update: async () => {},
         },
@@ -303,10 +316,70 @@ this.__exports = {
     });
     expectTrue('notice deferred before content ready', result === false);
     expectTrue('no send before content ready', sent.length === 0);
-    effects.markContentScriptReady(31, 'example.com');
-    const resent = await effects.reSendPendingNotice(31, 'example.com');
-    expectTrue('notice succeeds after ready', resent === true);
-    expectTrue('sent once after ready', sent.length === 1);
+    const delivery = await effects.deliverPendingNoticeForFocusedTab(31, 'tabActivated');
+    expectTrue('notice succeeds on foreground recovery', delivery.ok === true && delivery.source === 'tabActivated');
+    expectTrue('sent once after foreground recovery', sent.length === 1);
+    const replayed = await effects.deliverPendingNoticeForFocusedTab(31, 'tabActivated');
+    expectTrue('foreground recovery does not replay rendered notice', replayed.ok === false);
+    expectTrue('still sent once after foreground recovery', sent.length === 1);
+  }
+
+  section('IMT-5 invisible success ack keeps pending until visible retry');
+  {
+    const sent = [];
+    let visible = false;
+    const effects = loadEffects({
+      chrome: {
+        runtime: { getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}` },
+        tabs: {
+          get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
+          sendMessage: async (tabId, payload) => {
+            sent.push({ tabId, payload, visible });
+            return visible
+              ? { ok: true, handled: true, rendered: true, visible: true }
+              : { ok: false, handled: true, rendered: false, visible: false, reason: 'document_not_visible' };
+          },
+          update: async () => {},
+        },
+        notifications: { create: () => {} },
+        declarativeNetRequest: {
+          getDynamicRules: async () => [],
+          updateDynamicRules: async () => {},
+        },
+        storage: {
+          local: {
+            get: async () => ({}),
+            set: async () => {},
+          },
+        },
+      },
+    });
+    effects.markContentScriptReady(41, 'example.com');
+    const first = await effects.sendModeSwitchSuccessNotice(41, 'study', 'rest', {
+      domain: 'example.com',
+      noticeText: '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
+    });
+    expectTrue('invisible ack does not complete delivery', first === false);
+    expectTrue('first invisible send attempted', sent.length === 1);
+    visible = true;
+    const recovered = await effects.deliverPendingNoticeForFocusedTab(41, 'tabActivated_delayed');
+    expectTrue('visible retry succeeds', recovered.ok === true && recovered.visible === true);
+    expectTrue('second send recovers pending notice', sent.length === 2);
+    const replayed = await effects.deliverPendingNoticeForFocusedTab(41, 'tabActivated_delayed');
+    expectTrue('visible success clears pending', replayed.ok === false);
+    expectTrue('no third send after visible success', sent.length === 2);
+  }
+
+  section('IMT-6 content ready is top-frame only');
+  {
+    const contentAbs = path.join(__dirname, '..', '..', 'extension', 'content.js');
+    const backgroundAbs = path.join(__dirname, '..', '..', 'extension', 'background.js');
+    const contentSource = fs.readFileSync(contentAbs, 'utf8');
+    const backgroundSource = fs.readFileSync(backgroundAbs, 'utf8');
+    expectTrue('content ready send is guarded by top-frame UI capability', contentSource.includes('if (!canRenderTopFrameUi) return;') && contentSource.includes("type: 'CONTENT_SCRIPT_READY'"));
+    expectTrue('content ready sends visible lifecycle reasons', contentSource.includes("notifyContentScriptReady('visibilitychange')") && contentSource.includes("notifyContentScriptReady('pageshow')") && contentSource.includes("notifyContentScriptReady('window_focus')"));
+    expectTrue('background ignores non-top-frame content ready', backgroundSource.includes("reason: 'non_top_frame'") && backgroundSource.includes('frameId !== 0'));
+    expectTrue('background schedules delayed pending retry', backgroundSource.includes('deliverPendingModeNoticeForTabWithDelayedRetry') && backgroundSource.includes('250'));
   }
 
   if (failed > 0) {

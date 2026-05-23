@@ -4,7 +4,7 @@ import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 import { emitTrace } from '../core/timing-trace.js';
 import { getReliableCloseTime } from './time-boundary.js';
 import { isCountedState, settleUsageDuration } from '../core/usage-segments.js';
-import { logClientEventBestEffort } from '../infra/client-logs.js';
+import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
 import * as managedTargets from '../core/managed-targets.js';
 
 const SESSION_KEY = 'session_v1';
@@ -18,6 +18,9 @@ const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const UI_FLUSH_GUARD_KEY = 'ui_flush_guard_v1';
 const UI_FLUSH_MIN_INTERVAL_MS = 30 * 1000;
 const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 3 * 60 * 1000;
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 const FOREGROUND_CHECKPOINT_MS = 180 * 1000;
 const FOREGROUND_CHECKPOINT_REPAIR_MS = Math.floor(FOREGROUND_CHECKPOINT_MS / 2);
 const FOREGROUND_UNKNOWN_DOMAIN = '__unknown__';
@@ -1562,6 +1565,23 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           ...(confirmation?.reason === 'unknown_domain' ? { unknownDomainSeconds: Math.floor(Math.max(0, closeTime - session.startTime) / 1000) } : {}),
           ...((confirmation?.reason === 'observed_query_failed' || confirmation?.reason === 'candidate_query_failed') ? { observedQueryFailures: 1 } : {}),
           ...(confirmation?.reason === 'idle_query_failed' ? { idleQueryFailures: 1 } : {}),
+        });
+        recordFallbackLog({
+          level: 'warning',
+          category: 'timing',
+          eventCode: 'foreground_checkpoint_estimated_close',
+          module: 'runtime/session',
+          reason: confirmation?.reason || 'checkpoint_confirmation_failed',
+          message: 'Foreground checkpoint used estimated close fallback',
+          domain: session.domain || null,
+          details: {
+            state: session.state || null,
+            tabId: session.tabId ?? null,
+            windowId: session.windowId ?? null,
+            closeAt: closeTime,
+            opened: !!nextSample,
+            observedDomain: observedDomainFromConfirmation(confirmation),
+          },
         });
         return {
           ok: true,

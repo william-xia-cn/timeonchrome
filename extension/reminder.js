@@ -67,6 +67,7 @@
   const CONFIRM_STANDARD_REASONS = new Set(['to_composite_confirm', 'to_rest_confirm']);
   const CONFIRM_INFO_REASONS = new Set(['to_composite_confirm', 'to_rest_confirm', 'to_rest_slide_confirm', 'study_mode']);
   let slideBound = false;
+  let restEntryDisabled = false;
 
   function getInteractionStyle(el) {
     if (!el) return null;
@@ -119,6 +120,65 @@
         location.replace('about:blank');
       });
     }, 80);
+  }
+
+  function getReturnTargetUrl() {
+    if (/^https?:\/\//i.test(targetUrlParam)) return targetUrlParam;
+    if (domain && domain !== 'all') return 'https://' + domain;
+    return null;
+  }
+
+  function quotaFailureMessage(result, targetMode) {
+    const reasonCode = result?.reason || result?.reminder?.reason || result?.modeDecision?.reason || result?.error || '';
+    const reminderReason = result?.reminder?.reason || result?.modeDecision?.reminder?.reason || '';
+    const code = `${reasonCode} ${reminderReason}`.toLowerCase();
+    if (code.includes('rest')) return '今天的休息时间已用完，当前不能继续访问。';
+    if (code.includes('study')) return '今天的学习时间已用完，当前不能切换到学习模式。';
+    if (code.includes('composite') || code.includes('undetermined')) return '今天的综合时间已用完，当前不能进入综合时间。';
+    if (code.includes('online') || code.includes('quota')) return '当前配额已用完，当前不能继续访问。';
+    if (targetMode === 'rest') return '当前不能进入休息时间。';
+    if (targetMode === 'composite') return '当前不能进入综合时间。';
+    return '当前不能切换到该模式。';
+  }
+
+  function disableRestEntry(message) {
+    restEntryDisabled = true;
+    if (slideConfirmWrap) slideConfirmWrap.style.display = 'none';
+    if (slideTrack) slideTrack.style.pointerEvents = 'none';
+    if (slideThumb) slideThumb.style.pointerEvents = 'none';
+    if (restQuotaLine) {
+      restQuotaLine.textContent = message || '今天的休息时间已用完';
+      restQuotaLine.style.display = 'block';
+    }
+  }
+
+  function requestModeChange(toMode, reasonCode, successText) {
+    if (toMode === 'rest' && restEntryDisabled) {
+      showStatus('今天的休息时间已用完，当前不能继续访问。', 'error');
+      return;
+    }
+    showStatus('正在切换…', 'info');
+    chrome.runtime.sendMessage({
+      type: 'REQUEST_MODE_CHANGE',
+      toMode,
+      source: 'reminder',
+      reason: reasonCode
+    }, function(result) {
+      const runtimeError = chrome.runtime.lastError;
+      if (runtimeError) {
+        showStatus(runtimeError.message || '切换失败，请稍后重试。', 'error');
+        return;
+      }
+      if (!result || result.ok === false || result.blocked === true) {
+        showStatus(quotaFailureMessage(result || {}, toMode), 'error');
+        return;
+      }
+      showStatus(successText, 'success');
+      const targetUrl = getReturnTargetUrl();
+      if (targetUrl) {
+        setTimeout(function() { window.location.href = targetUrl; }, 600);
+      }
+    });
   }
 
   // 原因配置
@@ -205,33 +265,13 @@
     switchToRest: {
       label: '开始休息', style: 'primary',
       handler: function() {
-        chrome.runtime.sendMessage({
-          type: 'REQUEST_MODE_CHANGE',
-          toMode: 'rest',
-          source: 'reminder',
-          reason: 'reminder_confirm_rest'
-        }, function() {
-          showStatus('已切换到休息模式，正在跳转…', 'success');
-          if (domain && domain !== 'all') {
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
+        requestModeChange('rest', 'reminder_confirm_rest', '已切换到休息模式，正在跳转…');
       }
     },
     switchToComposite: {
       label: '继续（进入综合时间）', style: 'primary',
       handler: function() {
-        chrome.runtime.sendMessage({
-          type: 'REQUEST_MODE_CHANGE',
-          toMode: 'composite',
-          source: 'reminder',
-          reason: 'reminder_confirm_composite'
-        }, function() {
-          showStatus('已进入综合时间，正在跳转…', 'success');
-          if (domain && domain !== 'all') {
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
+        requestModeChange('composite', 'reminder_confirm_composite', '已进入综合时间，正在跳转…');
       }
     },
     slideToRest: {
@@ -245,17 +285,7 @@
     switchToStudy: {
       label: '📚 切换到学习模式', style: 'secondary',
       handler: function() {
-        chrome.runtime.sendMessage({
-          type: 'REQUEST_MODE_CHANGE',
-          toMode: 'study',
-          source: 'reminder',
-          reason: 'reminder_confirm_study'
-        }, function() {
-          showStatus('已切换到学习模式', 'success');
-          if (domain && domain !== 'all') {
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
+        requestModeChange('study', 'reminder_confirm_study', '已切换到学习模式');
       }
     },
     viewDetails: {
@@ -330,6 +360,9 @@
       actions: [originMode === 'study' ? 'backToStudy' : 'backGeneric'],
     };
   }
+  if (params.get('restLocked') === '1') {
+    disableRestEntry('今天的休息时间已用完，当前不能继续访问。');
+  }
 
   if (mainIcon) mainIcon.textContent = config.icon;
   if (mainTitle) mainTitle.textContent = config.title;
@@ -351,6 +384,10 @@
       if (effectiveReason === 'to_composite_confirm') {
         const remainingComposite = formatDurationCN(status.compositeRemainingSeconds || 0);
         restQuotaLine.textContent = `今日综合时间剩余：${remainingComposite}`;
+        return;
+      }
+      if (typeof status.restRemainingSeconds === 'number' && status.restRemainingSeconds <= 0) {
+        disableRestEntry('今天的休息时间已用完，当前不能继续访问。');
         return;
       }
       const remainingRest = formatDurationCN(status.restRemainingSeconds || 0);
@@ -385,17 +422,7 @@
     document.body.classList.add('study-rest-reminder');
     bindSlideConfirm({
       onConfirm: function() {
-        chrome.runtime.sendMessage({
-          type: 'REQUEST_MODE_CHANGE',
-          toMode: 'rest',
-          source: 'reminder',
-          reason: 'reminder_confirm_rest'
-        }, function(result) {
-          showStatus('已切换到休息模式，正在跳转…', 'success');
-          if (domain && domain !== 'all') {
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
+        requestModeChange('rest', 'reminder_confirm_rest', '已切换到休息模式，正在跳转…');
       },
       dragText: '确认进入休息时间',
       releaseText: '松手确认',
@@ -447,6 +474,10 @@
           restQuotaLine.textContent = '剩余时间：暂不可用';
           return;
         }
+        if (typeof status.restRemainingSeconds === 'number' && status.restRemainingSeconds <= 0) {
+          disableRestEntry('今天的休息时间已用完，当前不能继续访问。');
+          return;
+        }
         const remainingRest = formatDurationCN(status.restRemainingSeconds || 0);
         restQuotaLine.textContent = `今日休息时间剩余：${remainingRest}`;
       });
@@ -455,17 +486,7 @@
     // Bind rest slider
     bindSlideConfirm({
       onConfirm: function() {
-        chrome.runtime.sendMessage({
-          type: 'REQUEST_MODE_CHANGE',
-          toMode: 'rest',
-          source: 'reminder',
-          reason: 'reminder_confirm_rest'
-        }, function(result) {
-          showStatus('已切换到休息模式，正在跳转…', 'success');
-          if (domain && domain !== 'all') {
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
+        requestModeChange('rest', 'reminder_confirm_rest', '已切换到休息模式，正在跳转…');
       },
       dragText: '确认进入休息时间',
       releaseText: '松手确认',
@@ -508,6 +529,10 @@
           restQuotaLine.textContent = '剩余时间：暂不可用';
           return;
         }
+        if (typeof status.restRemainingSeconds === 'number' && status.restRemainingSeconds <= 0) {
+          disableRestEntry('今天的休息时间已用完，当前不能继续访问。');
+          return;
+        }
         const remainingRest = formatDurationCN(status.restRemainingSeconds || 0);
         restQuotaLine.textContent = `今日休息时间剩余：${remainingRest}`;
       });
@@ -516,17 +541,7 @@
     // Bind rest slider (default path for both unclassified and restricted)
     bindSlideConfirm({
       onConfirm: function() {
-        chrome.runtime.sendMessage({
-          type: 'REQUEST_MODE_CHANGE',
-          toMode: 'rest',
-          source: 'reminder',
-          reason: 'reminder_confirm_rest'
-        }, function(result) {
-          showStatus('已切换到休息模式，正在跳转…', 'success');
-          if (domain && domain !== 'all') {
-            setTimeout(function() { window.location.href = 'https://' + domain; }, 600);
-          }
-        });
+        requestModeChange('rest', 'reminder_confirm_rest', '已切换到休息模式，正在跳转…');
       },
       dragText: '确认进入休息时间',
       releaseText: '松手确认',
@@ -580,6 +595,10 @@
     } = options;
 
     if (!track || !thumb) return;
+    if (wrap === slideConfirmWrap && restEntryDisabled) {
+      if (wrap) wrap.style.display = 'none';
+      return;
+    }
 
     // Use a per-instance bound flag if provided
     const boundKey = boundFlag;

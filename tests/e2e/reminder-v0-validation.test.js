@@ -166,9 +166,9 @@ test('T-R1: study_mode explains popup application path, rest slider dispatches R
   await page.close();
 });
 
-// ── T-R2a: study_mode&restLocked=1 — rest slider ─────────────────────────────
+// ── T-R2a: study_mode&restLocked=1 — rest exhausted ──────────────────────────
 
-test('T-R2a: study_mode&restLocked=1 rest slider dispatches REQUEST_MODE_CHANGE', async () => {
+test('T-R2a: study_mode&restLocked=1 hides rest slider and does not dispatch REQUEST_MODE_CHANGE', async () => {
   const page = await openReminderPage('reason=study_mode&restLocked=1&domain=example.com');
 
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
@@ -176,16 +176,13 @@ test('T-R2a: study_mode&restLocked=1 rest slider dispatches REQUEST_MODE_CHANGE'
   expect(subtitleText).toContain('休息时间');
   expect(subtitleText).toContain('申请网站归类');
 
-  // Rest slider visible
-  await expect(page.locator('#slideTrack')).toBeVisible();
-  await expect(page.locator('#slideThumb')).toBeVisible();
+  // Rest slider hidden when quota is already exhausted.
+  await expect(page.locator('#slideTrack')).toBeHidden();
+  await expect(page.locator('#slideThumb')).toBeHidden();
 
-  // Drag rest slider
   await clearCalls(page);
-  await dragSlider(page, '#slideTrack', '#slideThumb');
   const calls = await getCalls(page);
-  expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
+  expect(calls.some(call => call.type === 'REQUEST_MODE_CHANGE' && call.toMode === 'rest')).toBe(false);
 
   await page.close();
 });

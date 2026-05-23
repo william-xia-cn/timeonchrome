@@ -10,14 +10,18 @@ import { getTodayStatsWithCategories } from './product/analytics.js';
 import { flushOpenSessionToStats, getSession as getTimingSession } from './runtime/session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { markSuspectUsageSegments } from './core/usage-segments.js';
-import { clearClientLogs, getClientLogConfig, getClientLogs, getClientLogStatus, logClientEventBestEffort, updateClientLogConfig } from './infra/client-logs.js';
+import { clearClientLogs, getClientLogConfig, getClientLogs, getClientLogStatus, logClientEventBestEffort, logFallbackEventBestEffort, updateClientLogConfig } from './infra/client-logs.js';
 import { handleModeEvent, normalizeMode } from './product/mode-service.js';
 import { executeModeDecision, getModeEffectTrace } from './product/mode-effects.js';
 import { getHourlyMediaStatsRangeView, getHourlyUsageStatsRangeView, getMediaSettlementAnalysisView, getPopupModeStatsView, getSettlementAnalysisView, getTodayUsageView, getUsageRangeView } from './stats/managed-statistics.js';
+import { getEffectiveQuotaForDate } from './core/quota-config.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
 ]);
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 function isAuthorizedBorrowSender(sender) {
   if (!sender?.id || sender.id !== chrome.runtime.id) return false;
@@ -140,6 +144,24 @@ function normalizeHttpTargetUrl(value) {
   } catch (_) {
     return null;
   }
+}
+
+function getReminderOriginalTarget(tabUrl = '') {
+  if (!tabUrl || typeof tabUrl !== 'string' || !tabUrl.includes('reminder.html')) {
+    return { url: tabUrl || null, domain: extractDomain(tabUrl || '') };
+  }
+  try {
+    const parsed = new URL(tabUrl);
+    const targetUrl = normalizeHttpTargetUrl(parsed.searchParams.get('targetUrl') || '');
+    if (targetUrl) {
+      return { url: targetUrl, domain: extractDomain(targetUrl) };
+    }
+    const domain = String(parsed.searchParams.get('domain') || '').trim().replace(/\.+$/g, '');
+    if (domain && domain !== 'all') {
+      return { url: `https://${domain}/`, domain };
+    }
+  } catch {}
+  return { url: tabUrl || null, domain: extractDomain(tabUrl || '') };
 }
 
 async function flushStatsForRead(source = null) {
@@ -608,6 +630,7 @@ async function handleModeChangeRequest(msg = {}) {
     return { ok: false, error: 'invalid_target_mode' };
   }
   const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
+  const originalTarget = getReminderOriginalTarget(activeTab?.url || '');
   const modeEvent = {
     type: msg.type === 'REMINDER_CONFIRMED' ? 'REMINDER_CONFIRMED' : 'REQUEST_MODE_CHANGE',
     requestedMode: toMode,
@@ -615,33 +638,70 @@ async function handleModeChangeRequest(msg = {}) {
     reason: msg.reason || 'manual_mode_switch',
     nowMs: Date.now(),
     tabId: activeTab?.id ?? null,
-    url: activeTab?.url || null,
-    domain: extractDomain(activeTab?.url || ''),
+    url: originalTarget.url || activeTab?.url || null,
+    domain: originalTarget.domain || extractDomain(activeTab?.url || ''),
   };
   const decision = await handleModeEvent(modeEvent);
   const executed = await executeModeDecision(decision, {
     tabId: activeTab?.id ?? null,
-    domain: extractDomain(activeTab?.url || ''),
+    domain: originalTarget.domain || extractDomain(activeTab?.url || ''),
     updateDeclarativeRules,
     event: modeEvent,
   });
   let reevaluatedTab = null;
   if (decision.recheckActiveTab) {
-    reevaluatedTab = await reevaluateActiveTabAfterModeSwitch({
-      foreground: true,
-      source: 'mode_request_recheck',
-    });
+    try {
+      reevaluatedTab = await reevaluateActiveTabAfterModeSwitch({
+        foreground: true,
+        source: 'mode_request_recheck',
+      });
+    } catch (err) {
+      recordFallbackLog({
+        level: 'warning',
+        category: 'access',
+        eventCode: 'active_tab_recheck_failed',
+        module: 'message-router',
+        reason: 'mode_request_recheck_failed',
+        message: err?.message || 'Active tab recheck failed after mode request',
+        domain: modeEvent.domain || null,
+        details: { toMode, source: modeEvent.source, error: err?.message || String(err) },
+      });
+      reevaluatedTab = null;
+    }
   }
-  const sessionResult = executed.modeChange?.session || {
-    currentMode: toMode,
-    currentModeStartedAtMs: executed.modeChange?.currentModeStartedAtMs || Date.now(),
-    restExitGraceUntilMs: executed.modeChange?.restExitGraceUntilMs ?? null,
-  };
+  const fallbackSession = await getSession().catch((err) => {
+    recordFallbackLog({
+      level: 'warning',
+      category: 'runtime',
+      eventCode: 'mode_response_session_fallback_failed',
+      module: 'message-router',
+      reason: 'mode_response_session_lookup_failed',
+      message: err?.message || 'Mode response could not read fallback session',
+      details: { toMode, source: modeEvent.source, error: err?.message || String(err) },
+    });
+    return null;
+  });
+  const sessionResult = executed.modeChange?.session || fallbackSession || {};
+  const effectiveMode = sessionResult.currentMode || normalizeMode((await getConfig().catch((err) => {
+    recordFallbackLog({
+      level: 'warning',
+      category: 'runtime',
+      eventCode: 'mode_response_config_fallback_failed',
+      module: 'message-router',
+      reason: 'mode_response_config_lookup_failed',
+      message: err?.message || 'Mode response could not read fallback config',
+      details: { toMode, source: modeEvent.source, error: err?.message || String(err) },
+    });
+    return null;
+  }))?.mode);
   return {
-    ok: executed.ok !== false,
+    ok: executed.ok !== false && executed.blocked !== true,
     ...sessionResult,
-    mode: sessionResult.currentMode || toMode,
-    currentMode: sessionResult.currentMode || toMode,
+    mode: effectiveMode,
+    currentMode: effectiveMode,
+    blocked: executed.blocked === true,
+    reason: executed.decision?.reason || null,
+    reminder: executed.decision?.reminder || null,
     recheckedTabId: reevaluatedTab?.id ?? null,
     modeDecision: decision,
     modeEffect: executed,
@@ -772,25 +832,18 @@ async function getRuntimeModeStatus(options = {}) {
   let compositeRemainingSeconds = null;
   let restRemainingSeconds = null;
   if (includeUsageSummary) {
+    const effectiveQuota = getEffectiveQuotaForDate(config).todayEffectiveQuota;
     const compositeUsedSeconds = Math.max(0, Number(statsWithCategories?.compositeSeconds ?? statsWithCategories?.undeterminedSeconds) || 0);
-    const compositeLimitSeconds = Math.max(0, (config.dailyUndeterminedQuota ?? 60) * 60);
-    compositeRemainingSeconds = Math.max(0, compositeLimitSeconds - compositeUsedSeconds);
+    const compositeLimitSeconds = effectiveQuota.compositeMinutes === null || effectiveQuota.compositeMinutes === undefined
+      ? null
+      : Math.max(0, Number(effectiveQuota.compositeMinutes) * 60);
+    compositeRemainingSeconds = compositeLimitSeconds === null ? null : Math.max(0, compositeLimitSeconds - compositeUsedSeconds);
 
-    const effectiveRestLimitMinutes = (() => {
-      const baseLimit = config.dailyRestQuota ?? 120;
-      const borrow = config.quotaBorrow;
-      if (!borrow || borrow.repaid) return baseLimit;
-      const today = getDateKey();
-      if (today === borrow.borrowedFrom) return baseLimit + borrow.amount;
-      const repayD = new Date(borrow.borrowedFrom + 'T00:00:00');
-      repayD.setDate(repayD.getDate() + 1);
-      const repayStr = formatDate(repayD);
-      if (today === repayStr) return Math.max(0, baseLimit - borrow.amount);
-      return baseLimit;
-    })();
-    const restLimitSeconds = Math.max(0, effectiveRestLimitMinutes * 60);
+    const restLimitSeconds = effectiveQuota.restMinutes === null || effectiveQuota.restMinutes === undefined
+      ? null
+      : Math.max(0, Number(effectiveQuota.restMinutes) * 60);
     const restUsedSeconds = Math.max(0, Number(statsWithCategories?.restSeconds) || 0);
-    restRemainingSeconds = Math.max(0, restLimitSeconds - restUsedSeconds);
+    restRemainingSeconds = restLimitSeconds === null ? null : Math.max(0, restLimitSeconds - restUsedSeconds);
   }
 
   return {

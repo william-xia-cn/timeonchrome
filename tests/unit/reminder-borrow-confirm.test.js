@@ -104,6 +104,7 @@ function run() {
   section('B01-2 study_mode + restLocked 不显示借用滑轨区');
   {
     const r = setupAndRun('?reason=study_mode&restLocked=1&domain=example.com');
+    expectTrue('restLocked 时休息滑轨不显示', r.elements.slideConfirmWrap.style.display !== 'block');
     expectTrue('dualPathBorrowSection 不显示', r.elements.dualPathBorrowSection.style.display !== 'block');
     expectTrue('slideConfirmWrapBorrow 不显示', r.elements.slideConfirmWrapBorrow.style.display !== 'block');
     expectTrue('不发送 BORROW_REST_QUOTA', !r.sentMessages.some((m) => m?.type === 'BORROW_REST_QUOTA'));

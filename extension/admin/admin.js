@@ -9,6 +9,7 @@ import {
   getAdminSettlementView,
   getAdminUsageAnalysisView,
 } from '../stats/admin-read-model.js';
+import { buildEffectiveTimeQuota } from '../core/quota-config.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -1316,7 +1317,8 @@ function renderSiteGroup(containerId, options) {
 }
 
 function formatQuotaText(minutes) {
-  if (minutes === null || minutes === undefined) return '无限制';
+  if (minutes === null) return '无限制';
+  if (minutes === undefined) return '暂无配置';
   const mins = Number(minutes);
   if (!Number.isFinite(mins) || mins < 0) return '暂无配置';
   if (mins === 0) return '0 分钟';
@@ -1329,18 +1331,12 @@ function formatQuotaText(minutes) {
 }
 
 function getDailyQuotaByDay(dayKey) {
-  const fromTimeQuota = config?.timeQuota?.daily?.[dayKey];
-  if (fromTimeQuota) {
-    return {
-      study: fromTimeQuota.studyMinutes ?? null,
-      rest: fromTimeQuota.restMinutes ?? null,
-      composite: fromTimeQuota.compositeMinutes ?? null,
-    };
-  }
+  const daily = buildEffectiveTimeQuota(config || {}).daily;
+  const fromTimeQuota = daily?.[dayKey];
   return {
-    study: config?.dailyStudyQuota ?? null,
-    rest: config?.dailyRestQuota ?? null,
-    composite: config?.dailyUndeterminedQuota ?? null,
+    study: fromTimeQuota?.studyMinutes,
+    rest: fromTimeQuota?.restMinutes,
+    composite: fromTimeQuota?.compositeMinutes,
   };
 }
 
@@ -3064,7 +3060,8 @@ function escHtml(s) {
 }
 
 function getAdminEffectiveDailyRestLimit(config) {
-  return config.dailyRestQuota ?? 120;
+  const dayKey = QUOTA_DAYS[(new Date().getDay() + 6) % 7];
+  return buildEffectiveTimeQuota(config || {}).daily?.[dayKey]?.restMinutes ?? 120;
 }
 function escAttr(s) {
   return String(s).replace(/"/g,'&quot;');

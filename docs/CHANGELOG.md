@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+- No unreleased changes.
+
+---
+
+## [1.7.3] — 2026-05-24
+
 ### V1-minimal release candidate
 - **Release artifact prepared**: `dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
 - **Release SHA256**: `A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
@@ -18,6 +24,9 @@
 ### V1-minimal gate close-out
 - **ManagedTarget ledger implementation**: ordinary stats and quota attribution now have a `managedTarget + fallback domain` path while `domain` remains factual/diagnostic/compatible. Terminal `usage_segments_v1` snapshots target attribution and `quotaBucketAtTime`; local daily/hourly stats include `targets`; cloud upload/Worker/D1 adds target segment fields plus `target_stats_v1` / `hourly_target_stats_v1`; Pages and admin read models prefer target stats when available. See `docs/MANAGED_TARGET_LEDGER.md`.
 - **Screen Time usage analysis**: cloud Pages and local Admin “使用分析” now use the same parent-facing Screen Time structure: day/week switch, device scope, date navigation, total time, stacked category bars, category legend, and managedTarget/category lists. Cloud labels the source as sync data and reads target/hourly target stats with media stats merged into the `媒体` category; local Admin labels the source as local data and reads only `chrome.storage.local` through `admin-read-model.js`. Raw segments, Open/Close reasons, tab/window ids, and reconciliation remain diagnostic views, not the ordinary usage analysis page.
+- **Quota config read model alignment**: `timeQuota.daily` is now the primary quota source across Pages, Worker/device config, local Admin and runtime quota evaluation. Legacy flat quota fields remain compatibility fallback only, and exhausted Study/Composite/Rest/Online quotas are synchronously re-evaluated before user-confirmed mode entry.
+- **Fallback observability**: extension runtime operational fallbacks now write client logs with warning/error severity through `logFallbackEventBestEffort()`, covering page-notice delivery fallback, quota/config fallback, checkpoint/recovery estimated settlement, stats read-model fallback, active-tab recheck fallback, and PiP cleanup failure. Normal managedTarget/domain fallback attribution is not logged per row.
+- **Reminder/site classification reliability**: reminder redirects preserve the original http/https target URL for popup classification requests, YouTube watch URLs with playlist context are canonicalized to playlist URLs at submission time, and popup request results are shown directly in the popup instead of relying on automatic tab navigation.
 - **Release blocker — YouTube managed target redesign**: current YouTube handling is a temporary canonical URL policy. Watch URLs with `list` are stored as `https://www.youtube.com/playlist?list={playlistId}` and standalone videos as `https://www.youtube.com/watch?v={videoId}`, but both remain `targetType=url`. Before formal release, design explicit YouTube playlist/video/platform-entry targets, labels, conflict rules, approval UX, quota wording, cloud/Pages display, and migration from the temporary canonical URL representation.
 - **Cloud Stats v1 minimal sync**: `usage_segments_v1` + `stats_v1` active release truth path verified.
 - **Recovery/System Gate**: closed with manual evidence; manual network, lock/unlock, and sleep/wake checks are recorded as operator-confirmed evidence, not fully automated PASS.

@@ -379,7 +379,44 @@ test('Rest Exit Grace 过期后即使 currentModeStartedAtMs 很新也必须弹 
   }
 });
 
-test('CONTENT_SCRIPT_READY 只恢复未过期提示，且提示不污染新 tab', async () => {
+test('普通 tabActivated 切换到学习页时无需刷新即可显示提示', async () => {
+  const serverCtx = await startServer();
+  const { ctx, sw, udd } = await createContext('composite');
+  try {
+    const compositePage = await ctx.newPage();
+    await compositePage.goto(serverCtx.compositeUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    const studyPage = await ctx.newPage();
+    await studyPage.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await studyPage.waitForTimeout(500);
+
+    const studyTabId = await tabIdForPage(sw, studyPage);
+    await sw.evaluate(async ({ studyTabId }) => {
+      if (Number.isInteger(studyTabId)) {
+        await chrome.tabs.sendMessage(studyTabId, {
+          type: 'AUTO_MODE_PENDING_CANCEL',
+          reason: 'test_reset',
+        }, { frameId: 0 }).catch(() => {});
+      }
+      await chrome.storage.local.set({
+        guardian_session: { currentMode: 'composite' },
+      });
+    }, { studyTabId });
+
+    await compositePage.bringToFront();
+    await compositePage.waitForTimeout(300);
+    await studyPage.bringToFront();
+
+    await expect.poll(() => getMode(sw), { timeout: 5000 }).toBe('study');
+    await expect.poll(() => bannerText(studyPage), { timeout: 5000 }).toContain('学习');
+
+    await compositePage.close();
+    await studyPage.close();
+  } finally {
+    await cleanup(ctx, udd, serverCtx.server);
+  }
+});
+
+test('CONTENT_SCRIPT_READY 只恢复未渲染提示，已渲染提示刷新后不重复', async () => {
   const serverCtx = await startServer();
   const { ctx, sw, udd } = await createContext('composite');
   try {
@@ -392,7 +429,8 @@ test('CONTENT_SCRIPT_READY 只恢复未过期提示，且提示不污染新 tab'
     await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已回到学习模式');
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已回到学习模式');
+    await page.waitForTimeout(1000);
+    expect(await bannerExists(page)).toBe(false);
 
     const otherPage = await ctx.newPage();
     await otherPage.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });

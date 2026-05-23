@@ -424,6 +424,51 @@ async function run() {
     expect('access recheck 使用原始 URL', observed, [{ tabId: 14, url: 'https://example.com/course?v=1' }]);
   }
 
+  section('MSR-2c reminder mode request blocked by quota does not report requested mode');
+  {
+    const cfg = { mode: 'study' };
+    const session = { currentMode: 'study', currentModeStartedAtMs: 1000 };
+    const targetUrl = 'https%3A%2F%2Fexample.com%2Fwatch%3Fx%3D1';
+    const { handleMessage } = loadHandleMessage(
+      {
+        getConfig: async () => cfg,
+        saveConfig: async () => {},
+        updateDeclarativeRules: async () => {},
+        getSession: async () => session,
+        getSyncState: () => ({ monitoringEnabled: 1 }),
+        handleModeEvent: async () => ({
+          ok: false,
+          access: 'reminder',
+          reason: 'REST_QUOTA_LOCKED',
+          reminder: { reason: 'rest_locked', params: {} },
+          modeChange: null,
+          recheckActiveTab: false,
+        }),
+      },
+      {
+        tabs: {
+          query: async () => [{ id: 15, url: `chrome-extension://ext-id/reminder.html?reason=study_mode&domain=example.com&targetUrl=${targetUrl}` }],
+          update: async () => {},
+        },
+      }
+    );
+
+    const res = await handleMessage({ type: 'SWITCH_TO_REST', source: 'reminder' }, {});
+    expect('blocked rest request reports actual mode', {
+      ok: res.ok,
+      blocked: res.blocked,
+      currentMode: res.currentMode,
+      reason: res.reason,
+      reminder: res.reminder?.reason,
+    }, {
+      ok: false,
+      blocked: true,
+      currentMode: 'study',
+      reason: 'REST_QUOTA_LOCKED',
+      reminder: 'rest_locked',
+    });
+  }
+
   section('MSR-3 reminder 活动页若仍应 blocked 不应执行 unblocked 跳转');
   {
     let updateCount = 0;
