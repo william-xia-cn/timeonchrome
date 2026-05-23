@@ -92,6 +92,7 @@ async function resolveSiteClassificationSourceContext(msg = {}, sender = {}) {
   if (senderTab?.id && senderTab?.url) {
     return {
       tabId: senderTab.id,
+      sourceTabId: senderTab.id,
       url: senderTab.url,
       domain: extractDomain(senderTab.url),
     };
@@ -103,11 +104,12 @@ async function resolveSiteClassificationSourceContext(msg = {}, sender = {}) {
       const tab = await chrome.tabs.get(sourceTabId);
       return {
         tabId: tab?.id ?? sourceTabId,
+        sourceTabId,
         url: tab?.url || null,
         domain: extractDomain(tab?.url || ''),
       };
     } catch (_) {
-      return { tabId: sourceTabId, url: null, domain: null };
+      return { tabId: sourceTabId, sourceTabId, url: null, domain: null };
     }
   }
 
@@ -115,6 +117,7 @@ async function resolveSiteClassificationSourceContext(msg = {}, sender = {}) {
   const tab = tabs && tabs[0] ? tabs[0] : null;
   return {
     tabId: Number.isInteger(tab?.id) ? tab.id : null,
+    sourceTabId: Number.isInteger(tab?.id) ? tab.id : null,
     url: tab?.url || null,
     domain: extractDomain(tab?.url || ''),
   };
@@ -125,6 +128,18 @@ function siteClassificationTargetUrl(target) {
   if (target.targetType === 'url') return target.normalizedValue;
   if (target.targetType === 'host') return `https://${target.normalizedValue}`;
   return null;
+}
+
+function normalizeHttpTargetUrl(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (_) {
+    return null;
+  }
 }
 
 async function flushStatsForRead(source = null) {
@@ -281,31 +296,45 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'SUBMIT_SITE_CLASSIFICATION_REQUEST': {
-      const context = await resolveSiteClassificationSourceContext(msg, sender);
-      const target = normalizeSiteClassificationTarget(msg.input || msg.url || context.url || context.domain || '');
-      if (!target.ok) {
-        return { ok: false, code: target.code || 'INVALID_TARGET', error: target.error || 'invalid target' };
-      }
-      const result = await submitSiteClassificationRequest(msg.input || msg.url || target.normalizedValue, context);
-      if (result?.ok) {
-        const targetUrl = siteClassificationTargetUrl(target);
-        const syncStateRef = getSyncState();
-        if (syncStateRef.deviceToken) {
-          syncNow(getConfig, saveConfig, updateDeclarativeRules)
-            .catch(() => {});
+      try {
+        const context = await resolveSiteClassificationSourceContext(msg, sender);
+        const target = normalizeSiteClassificationTarget(msg.input || msg.url || context.url || context.domain || '');
+        if (!target.ok) {
+          return { ok: false, code: target.code || 'INVALID_TARGET', error: target.error || 'invalid target' };
         }
+        const requestContext = {
+          ...context,
+          sourceTabId: Number.isInteger(context.sourceTabId) ? context.sourceTabId : context.tabId,
+          url: target.targetType === 'url' ? target.normalizedValue : context.url,
+          domain: target.host || context.domain,
+        };
+        const result = await submitSiteClassificationRequest(msg.input || msg.url || target.normalizedValue, requestContext);
+        if (result?.ok) {
+          const targetUrl = siteClassificationTargetUrl(target);
+          const syncStateRef = getSyncState();
+          if (syncStateRef.deviceToken) {
+            syncNow(getConfig, saveConfig, updateDeclarativeRules)
+              .catch(() => {});
+          }
+          return {
+            ...result,
+            targetUrl,
+            sourceTabId: requestContext.sourceTabId,
+            target: {
+              targetType: target.targetType,
+              normalizedValue: target.normalizedValue,
+              displayValue: target.displayValue,
+            },
+          };
+        }
+        return result || { ok: false, code: 'SITE_CLASSIFICATION_REQUEST_FAILED', error: 'request failed' };
+      } catch (error) {
         return {
-          ...result,
-          targetUrl,
-          sourceTabId: context.tabId,
-          target: {
-            targetType: target.targetType,
-            normalizedValue: target.normalizedValue,
-            displayValue: target.displayValue,
-          },
+          ok: false,
+          code: 'SITE_CLASSIFICATION_REQUEST_FAILED',
+          error: error?.message || String(error) || 'request failed',
         };
       }
-      return result;
     }
 
     case 'SWITCH_TO_STUDY':
@@ -508,9 +537,14 @@ async function reevaluateActiveTabAfterModeSwitch(options = {}) {
   if (tab.url.includes('reminder.html')) {
     try {
       const u = new URL(tab.url);
-      const domain = u.searchParams.get('domain');
-      if (!domain || domain === 'all') return tab;
-      targetUrl = `https://${domain}`;
+      const originalTargetUrl = normalizeHttpTargetUrl(u.searchParams.get('targetUrl') || '');
+      if (originalTargetUrl) {
+        targetUrl = originalTargetUrl;
+      } else {
+        const domain = u.searchParams.get('domain');
+        if (!domain || domain === 'all') return tab;
+        targetUrl = `https://${domain}`;
+      }
     } catch {
       return tab;
     }

@@ -70,6 +70,7 @@ async function run() {
   const storageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js'), 'utf8');
   const routerSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
   const compositeCalls = [];
+  const siteRequestCalls = [];
   const temporaryCompositeRecords = [
     { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
     { tabId: 8, domain: 'new.example.com', createdAt: 2000 },
@@ -90,12 +91,15 @@ async function run() {
     hasTemporaryCompositePermission: async () => false,
     getTemporaryCompositePermissionRecords: async () => temporaryCompositeRecords,
     getSiteClassificationRequestRecords: async () => siteClassificationRecords,
-    submitSiteClassificationRequest: async (input, context) => ({
-      ok: true,
-      added: true,
-      localOnly: true,
-      request: { id: 'scr-new', requestedNormalizedValue: input, sourceTabId: context.tabId },
-    }),
+    submitSiteClassificationRequest: async (input, context) => {
+      siteRequestCalls.push({ input, context });
+      return {
+        ok: true,
+        added: true,
+        localOnly: true,
+        request: { id: 'scr-new', requestedNormalizedValue: input, sourceTabId: context.sourceTabId },
+      };
+    },
     normalizeSiteClassificationTarget: (input) => {
       const value = String(input || '').trim().toLowerCase();
       if (!value) return { ok: false, code: 'EMPTY_TARGET' };
@@ -122,6 +126,8 @@ async function run() {
     expectTrue('storage 暴露临时综合记录只读方法', storageSource.includes('export async function getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持 GET_TEMPORARY_COMPOSITE_DOMAINS', routerSource.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && routerSource.includes('getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持网站归类申请消息', routerSource.includes('SUBMIT_SITE_CLASSIFICATION_REQUEST') && routerSource.includes('GET_SITE_CLASSIFICATION_REQUESTS'));
+    expectTrue('router 网站归类申请失败返回结构化响应', routerSource.includes("code: 'SITE_CLASSIFICATION_REQUEST_FAILED'") && routerSource.includes('catch (error)'));
+    expectTrue('router reminder recheck 优先使用 targetUrl', routerSource.includes("searchParams.get('targetUrl')") && routerSource.includes('normalizeHttpTargetUrl'));
     expectTrue('router 支持客户端日志消息', routerSource.includes('GET_CLIENT_LOGS') && routerSource.includes('GET_CLIENT_LOG_STATUS') && routerSource.includes('UPDATE_CLIENT_LOG_CONFIG'));
     expectTrue('router CLOUD_LOGIN 统一小写邮箱', routerSource.includes("const email = String(msg.email || '').trim().toLowerCase();"));
   }
@@ -196,6 +202,45 @@ async function run() {
     expectTrue('提交成功', r.ok && r.added);
     expect('返回目标 URL', r.targetUrl, 'https://example.com');
     expect('使用 sourceTabId', r.sourceTabId, 42);
+    expect('提交上下文保留 sourceTabId', siteRequestCalls.at(-1).context.sourceTabId, 42);
+  }
+
+  section('C02-2b 提交完整 URL 申请时上下文保存原始 URL');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
+    const r = await handleMessage({ type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST', input: 'https://Example.com/path?q=1#frag', sourceTabId: 42 }, sender);
+    expectTrue('URL 提交成功', r.ok && r.target.targetType === 'url');
+    expect('URL target 去掉 hash', r.target.normalizedValue, 'https://example.com/path?q=1');
+    expect('提交上下文 sourceUrl 是原始目标 URL', siteRequestCalls.at(-1).context.url, 'https://example.com/path?q=1');
+    expect('提交上下文 sourceDomain 是目标 host', siteRequestCalls.at(-1).context.domain, 'example.com');
+  }
+
+  section('C02-3 提交网站归类申请异常返回结构化失败');
+  {
+    const { handleMessage: failingHandleMessage } = loadHandleMessage({
+      updateDeclarativeRules: async () => {},
+      getConfig: async () => ({ mode: 'study' }),
+      getSiteClassificationRequestRecords: async () => [],
+      submitSiteClassificationRequest: async () => { throw new Error('storage write failed'); },
+      normalizeSiteClassificationTarget: (input) => {
+        const value = String(input || '').trim();
+        return value ? { ok: true, targetType: 'host', normalizedValue: value, displayValue: value } : { ok: false };
+      },
+      getSyncState: () => ({ deviceToken: null }),
+      syncNow: async () => ({}),
+      extractDomain: (url) => {
+        try { return new URL(url).hostname; } catch (_) { return ''; }
+      },
+      hasTemporaryCompositePermission: async () => false,
+      getTemporaryCompositePermissionRecords: async () => [],
+      addTemporaryCompositeDomain: async () => ({ added: true }),
+    });
+    const r = await failingHandleMessage({ type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST', input: 'example.com' }, { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' });
+    expect('返回结构化失败', { ok: r.ok, code: r.code, error: r.error }, {
+      ok: false,
+      code: 'SITE_CLASSIFICATION_REQUEST_FAILED',
+      error: 'storage write failed',
+    });
   }
 
   const total = passed + failed;

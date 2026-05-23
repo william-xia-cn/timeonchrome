@@ -385,7 +385,8 @@ function targetSpecificity(target, context) {
     return platform.videoId === target.normalizedValue ? MATCH_LEVEL_WEIGHT.video + target.normalizedValue.length : null;
   }
   if (target.targetType === 'url') {
-    return context.normalizedUrl && context.normalizedUrl === target.normalizedValue
+    if (!context.normalizedUrl) return null;
+    return context.normalizedUrl === target.normalizedValue
       ? MATCH_LEVEL_WEIGHT.url + target.normalizedValue.length
       : null;
   }

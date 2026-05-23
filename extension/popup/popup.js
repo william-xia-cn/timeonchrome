@@ -37,7 +37,10 @@ function bindPopupEvents() {
   document.getElementById('site-request-back-btn')?.addEventListener('click', closeSiteRequestPanel);
   document.getElementById('site-request-submit-btn')?.addEventListener('click', submitSiteClassificationRequest);
   document.getElementById('site-request-input')?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') submitSiteClassificationRequest();
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submitSiteClassificationRequest();
+    }
   });
 
   document.getElementById('settings-btn').addEventListener('click', () => {
@@ -50,8 +53,15 @@ function getReminderTargetFromUrl(url) {
   try {
     const parsed = new URL(url);
     const domain = parsed.searchParams.get('domain');
-    if (!domain || domain === 'all') return null;
+    const targetUrl = normalizePopupUrlInput(parsed.searchParams.get('targetUrl') || '');
     const sourceTabId = Number(parsed.searchParams.get('sourceTabId'));
+    if (targetUrl) {
+      return {
+        input: targetUrl,
+        sourceTabId: Number.isInteger(sourceTabId) && sourceTabId >= 0 ? sourceTabId : null,
+      };
+    }
+    if (!domain || domain === 'all') return null;
     return {
       input: `https://${domain}`,
       sourceTabId: Number.isInteger(sourceTabId) && sourceTabId >= 0 ? sourceTabId : null,
@@ -117,22 +127,48 @@ function siteRequestErrorMessage(result = {}) {
   return '提交失败，请稍后重试。';
 }
 
+function resetSiteRequestStatus(status) {
+  if (!status) return;
+  status.className = 'request-status';
+  status.style.display = 'none';
+  status.replaceChildren?.();
+  status.textContent = '';
+}
+
+function appendSiteRequestStatusLine(parent, className, text) {
+  if (!parent || !text) return null;
+  const el = document.createElement('div');
+  el.className = className;
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+
+function renderSiteRequestStatus({ kind = 'ok', title = '', body = '', targetText = '', extra = '' } = {}) {
+  const status = document.getElementById('site-request-status');
+  if (!status) return;
+  status.className = `request-status ${kind === 'err' ? 'err' : 'ok'}`;
+  status.style.display = 'block';
+  status.replaceChildren?.();
+  appendSiteRequestStatusLine(status, 'request-status-title', title);
+  appendSiteRequestStatusLine(status, 'request-status-body', body);
+  appendSiteRequestStatusLine(status, 'request-status-target', targetText ? `申请对象：${targetText}` : '');
+  appendSiteRequestStatusLine(status, 'request-status-extra', extra);
+}
+
 async function submitSiteClassificationRequest() {
   const inputEl = document.getElementById('site-request-input');
   const status = document.getElementById('site-request-status');
   const submitBtn = document.getElementById('site-request-submit-btn');
   const value = inputEl?.value?.trim() || '';
   const defaults = getDefaultSiteRequest();
-  if (status) {
-    status.className = 'request-status';
-    status.style.display = 'none';
-    status.textContent = '';
-  }
+  resetSiteRequestStatus(status);
   if (!value) {
-    if (status) {
-      status.className = 'request-status err';
-      status.textContent = '请输入要申请归类的网站或链接。';
-    }
+    renderSiteRequestStatus({
+      kind: 'err',
+      title: '无法提交',
+      body: '请输入要申请归类的网站或链接。',
+    });
     return;
   }
   if (submitBtn) submitBtn.disabled = true;
@@ -143,26 +179,38 @@ async function submitSiteClassificationRequest() {
       sourceTabId: defaults.sourceTabId,
     }, { attempts: 1, timeoutMs: 1200 });
     if (!result?.ok) {
-      if (status) {
-        status.className = 'request-status err';
-        status.textContent = siteRequestErrorMessage(result || {});
-      }
+      renderSiteRequestStatus({
+        kind: 'err',
+        title: '提交失败',
+        body: siteRequestErrorMessage(result || {}),
+      });
       return;
     }
-    if (status) {
-      status.className = 'request-status ok';
-      status.textContent = result.localOnly
-        ? '已在本机记录网站归类申请。登录并绑定云端后，才能提交给家长审批。审批前本机可临时使用，时间计入综合时长。'
-        : '已提交网站归类申请。审批前可临时使用，时间计入综合时长。';
-    }
-    if (result.targetUrl && Number.isInteger(result.sourceTabId)) {
-      chrome.tabs.update(result.sourceTabId, { url: result.targetUrl }).catch(() => {});
-    }
+    const targetText = result.target?.displayValue ||
+      result.target?.normalizedValue ||
+      result.request?.displayValue ||
+      result.request?.requestedNormalizedValue ||
+      value;
+    renderSiteRequestStatus({
+      kind: 'ok',
+      title: result.alreadyPresent
+        ? '已提交过'
+        : result.localOnly
+        ? '已在本机记录'
+        : '申请已提交',
+      body: result.alreadyPresent
+        ? '已提交过该网站归类申请，不会重复创建。'
+        : result.localOnly
+        ? '登录并绑定云端后，才能提交给家长审批。审批前本机可临时使用，时间计入综合时长。'
+        : '审批前可临时使用，时间计入综合时长。',
+      targetText,
+    });
   } catch (error) {
-    if (status) {
-      status.className = 'request-status err';
-      status.textContent = `提交失败：${error?.message || '后台暂不可用'}`;
-    }
+    renderSiteRequestStatus({
+      kind: 'err',
+      title: '提交失败',
+      body: `提交失败：${error?.message || '后台暂不可用'}`,
+    });
   } finally {
     if (submitBtn) submitBtn.disabled = false;
   }

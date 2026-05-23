@@ -70,6 +70,13 @@ function run() {
   expectTrue('popup first runtime render uses snapshot config context', popupJs.includes('popupStatsContext = {') && popupJs.includes('config: snapshot?.config || popupStatsContext.config || {}') && popupJs.includes('resolveDomainTag(domain, status?.config || popupStatsContext.config, status?.url || null)'));
   expectTrue('popup runtime tag prefers managed target label when present', popupJs.includes('status?.currentManagedTarget?.managedTargetLabelAtTime') && backgroundSource.includes('resolveManagedTargetAttribution') && backgroundSource.includes('currentManagedTarget'));
   expectTrue('popup settled mode stats prefer target quota aggregates', backgroundSource.includes('dayStats?.targets') && backgroundSource.includes('activeByQuotaBucket'));
+  expectTrue('popup reminder request default prefers original targetUrl', popupJs.includes("parsed.searchParams.get('targetUrl')") && popupJs.includes('if (targetUrl)') && popupJs.includes('input: targetUrl'));
+  expectTrue('popup site request input wraps long URLs', popupHtml.includes('<textarea class="request-input"') && popupHtml.includes('overflow-wrap: anywhere') && popupHtml.includes('word-break: break-word'));
+  expectTrue('popup site request enter submit prevents textarea newline', popupJs.includes('event.preventDefault();') && popupJs.includes('!event.shiftKey'));
+  expectTrue('popup site request renders inline result card', popupHtml.includes('.request-status-title') && !popupHtml.includes('.request-return-btn') && popupJs.includes('function renderSiteRequestStatus'));
+  expectTrue('popup site request reports already-present state', popupJs.includes('result.alreadyPresent') && !popupJs.includes('返回申请页面失败'));
+  expectTrue('popup site request does not auto navigate after submit', !popupJs.includes('waitMs') && !popupJs.includes('即将返回申请页面'));
+  expectTrue('popup site request does not render return button', !popupJs.includes("btn.textContent = '返回申请页面'") && !popupJs.includes('request-return-btn') && !popupJs.includes('chrome.tabs.update(returnInfo.sourceTabId'));
   expectTrue('popup current site tag supports custom/default site lists', popupJs.includes('function collectStudyPatterns') && popupJs.includes("'customStudyList'") && popupJs.includes("'defaultCompositeSites'"));
   expectTrue('popup renders snapshot before suspect summary completes', popupJs.includes('const snapshotPromise = getPopupLocalSnapshotSafe()') && popupJs.includes('snapshotPromise.then'));
   expectTrue('popup local snapshot uses shorter single-attempt timeout', popupJs.includes('attempts: 1') && popupJs.includes('timeoutMs: 900'));

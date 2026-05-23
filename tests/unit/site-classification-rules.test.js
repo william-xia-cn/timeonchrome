@@ -53,6 +53,15 @@ async function run() {
   expectEqual('url target type', url.targetType, 'url');
   expectEqual('url strips hash and preserves query', url.normalizedValue, 'https://example.com/path?a=1');
 
+  const youtubePlaylist = mod.normalizeSiteClassificationTarget('https://www.youtube.com/watch?v=4CTQpUJRcSM&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=3&t=2s');
+  expectTrue('YouTube playlist URL should normalize', youtubePlaylist.ok);
+  expectEqual('YouTube playlist URL canonical target', youtubePlaylist.normalizedValue, 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M');
+  expectEqual('YouTube playlist canonical host', youtubePlaylist.host, 'www.youtube.com');
+  const youtubeVideo = mod.normalizeSiteClassificationTarget('https://www.youtube.com/watch?v=4CTQpUJRcSM&t=2s');
+  expectEqual('YouTube standalone video URL canonical target', youtubeVideo.normalizedValue, 'https://www.youtube.com/watch?v=4CTQpUJRcSM');
+  const youtuBeVideo = mod.normalizeSiteClassificationTarget('https://youtu.be/4CTQpUJRcSM?t=2');
+  expectEqual('youtu.be standalone video URL canonical target', youtuBeVideo.normalizedValue, 'https://www.youtube.com/watch?v=4CTQpUJRcSM');
+
   const invalid = mod.normalizeSiteClassificationTarget('example.com/path');
   expectTrue('path target without protocol should be rejected', !invalid.ok);
 
@@ -62,6 +71,26 @@ async function run() {
     mod.siteTargetMatchesUrl({ targetType: 'url', normalizedValue: 'https://example.com/path?a=1' }, 'https://example.com/path?a=1#x'));
   expectTrue('url rule does not match prefix path',
     !mod.siteTargetMatchesUrl({ targetType: 'url', normalizedValue: 'https://example.com/path?a=1' }, 'https://example.com/path?a=1&b=2'));
+  expectTrue('canonical YouTube playlist URL rule matches same playlist with changing video/time params',
+    mod.siteTargetMatchesUrl(
+      { targetType: 'url', normalizedValue: 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M' },
+      'https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9'
+    ));
+  expectTrue('canonical YouTube playlist URL rule does not match another playlist',
+    !mod.siteTargetMatchesUrl(
+      { targetType: 'url', normalizedValue: 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M' },
+      'https://www.youtube.com/watch?v=4CTQpUJRcSM&list=OTHER_LIST'
+    ));
+  expectTrue('canonical YouTube standalone video URL rule matches same video with different time param',
+    mod.siteTargetMatchesUrl(
+      { targetType: 'url', normalizedValue: 'https://www.youtube.com/watch?v=4CTQpUJRcSM' },
+      'https://www.youtube.com/watch?v=4CTQpUJRcSM&t=30s'
+    ));
+  expectTrue('canonical YouTube standalone video URL rule does not override playlist context',
+    !mod.siteTargetMatchesUrl(
+      { targetType: 'url', normalizedValue: 'https://www.youtube.com/watch?v=4CTQpUJRcSM' },
+      'https://www.youtube.com/watch?v=4CTQpUJRcSM&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M'
+    ));
   expectTrue('host request overlaps parent classified host',
     mod.siteTargetScopesOverlap(
       { ok: true, targetType: 'host', normalizedValue: 'study.example.com', host: 'study.example.com' },
@@ -139,6 +168,23 @@ async function run() {
       }],
     }, [], 'https://example.com/lesson?id=1#hash').classification,
     'study');
+  expectEqual('YouTube playlist URL rule overrides parent restricted classification for same playlist',
+    mod.resolveSiteAccessClassification({
+      restrictedEntertainmentList: ['youtube.com'],
+      siteClassificationRulesV1: [{
+        targetType: 'url',
+        targetValue: 'https://www.youtube.com/watch?v=4CTQpUJRcSM&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=3&t=2s',
+        decision: 'study',
+      }],
+    }, [], 'https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9').classification,
+    'study');
+  expectEqual('pending YouTube playlist URL request grants composite for same playlist',
+    mod.resolveSiteAccessClassification({}, [{
+      requestedTargetType: 'url',
+      requestedNormalizedValue: 'https://www.youtube.com/watch?v=4CTQpUJRcSM&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=3&t=2s',
+      status: 'pending',
+    }], 'https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9').classification,
+    'pending_composite');
   const exactConflict = mod.validateSiteAccessConfig({
     studyList: ['www.example.com'],
     compositeList: ['example.com'],

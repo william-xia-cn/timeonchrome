@@ -21,6 +21,8 @@ const CLASSIFICATION_TIE_PRIORITY = {
   rest: 60,
 };
 
+const SITE_CLASSIFICATION_YOUTUBE_HOSTS = new Set(['youtube.com', 'youtu.be']);
+
 export function normalizeSiteClassificationTarget(input) {
   const rawInput = String(input || '').trim();
   if (!rawInput) {
@@ -39,6 +41,17 @@ export function normalizeSiteClassificationTarget(input) {
       const host = normalizeHostname(parsed.hostname);
       if (!host) {
         return { ok: false, code: 'INVALID_TARGET', error: 'invalid URL host' };
+      }
+      const canonicalYouTube = canonicalizeYouTubeUrl(parsed, host);
+      if (canonicalYouTube) {
+        return {
+          ok: true,
+          targetType: 'url',
+          rawInput,
+          normalizedValue: canonicalYouTube.normalizedValue,
+          displayValue: canonicalYouTube.normalizedValue,
+          host: canonicalYouTube.host,
+        };
       }
       parsed.hash = '';
       parsed.hostname = host;
@@ -115,6 +128,44 @@ function stripWwwAlias(host) {
   return normalized.startsWith('www.') ? normalized.slice(4) : normalized;
 }
 
+function isSiteClassificationYouTubeHost(host) {
+  const normalized = normalizeHostname(host);
+  if (!normalized) return false;
+  if (normalized === 'youtube.com' || normalized.endsWith('.youtube.com')) return true;
+  return SITE_CLASSIFICATION_YOUTUBE_HOSTS.has(stripWwwAlias(normalized) || normalized);
+}
+
+function normalizeYouTubeId(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  return text.replace(/[^a-zA-Z0-9_-]/g, '') || null;
+}
+
+function canonicalizeYouTubeUrl(parsed, host) {
+  if (!parsed || !isSiteClassificationYouTubeHost(host)) return null;
+  const path = parsed.pathname || '/';
+  const playlistId = normalizeYouTubeId(parsed.searchParams.get('list'));
+  if (playlistId) {
+    return {
+      host: 'www.youtube.com',
+      normalizedValue: `https://www.youtube.com/playlist?list=${playlistId}`,
+    };
+  }
+  let videoId = null;
+  if ((stripWwwAlias(host) || host) === 'youtu.be') {
+    videoId = normalizeYouTubeId(path.split('/').filter(Boolean)[0]);
+  } else if (path === '/watch') {
+    videoId = normalizeYouTubeId(parsed.searchParams.get('v'));
+  } else if (path.startsWith('/shorts/')) {
+    videoId = normalizeYouTubeId(path.split('/').filter(Boolean)[1]);
+  }
+  if (!videoId) return null;
+  return {
+    host: 'www.youtube.com',
+    normalizedValue: `https://www.youtube.com/watch?v=${videoId}`,
+  };
+}
+
 function normalizeHostPattern(pattern) {
   const raw = String(pattern || '').trim().toLowerCase().replace(/\.+$/g, '');
   if (!raw) return null;
@@ -166,7 +217,10 @@ function targetSpecificity(target, normalizedInput) {
   const normalizedValue = target.normalizedValue || target.targetValue || target.decisionNormalizedValue || target.requestedNormalizedValue || target.value;
   if (targetType === 'url') {
     const current = normalizedInput.normalizedUrl;
-    return current && current === normalizedValue ? 100000 + normalizedValue.length : null;
+    if (!current) return null;
+    const normalizedTarget = normalizeSiteClassificationTarget(normalizedValue);
+    const effectiveValue = normalizedTarget.ok && normalizedTarget.targetType === 'url' ? normalizedTarget.normalizedValue : normalizedValue;
+    return current === effectiveValue ? 100000 + effectiveValue.length : null;
   }
   if (targetType === 'host') {
     return hostSpecificity(normalizedValue, normalizedInput.host);
@@ -351,7 +405,7 @@ export function normalizeSiteClassificationRequest(record) {
     requestedTargetType,
     requestedNormalizedValue: requested.normalizedValue,
     requestedRawInput: record.requestedRawInput || record.rawInput || requested.rawInput,
-    displayValue: record.displayValue || requested.displayValue,
+    displayValue: requested.displayValue,
     status,
   };
   if (record.decisionTargetType && record.decisionNormalizedValue) {
@@ -387,8 +441,8 @@ export function siteTargetMatchesUrl(target, urlOrDomain) {
   }
 
   if (targetType === 'url') {
-    const current = normalizeSiteClassificationTarget(urlOrDomain);
-    return current.ok && current.targetType === 'url' && current.normalizedValue === normalizedValue;
+    const input = normalizeUrlOrDomainInput(urlOrDomain);
+    return Number.isFinite(targetSpecificity({ targetType: 'url', normalizedValue }, input));
   }
   return false;
 }

@@ -210,13 +210,19 @@
     }
     .request-input {
       width: 100%;
+      min-height: 58px;
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 7px 8px;
       background: var(--card);
       color: var(--text);
       font-size: 11px;
+      line-height: 1.45;
       outline: none;
+      resize: vertical;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .request-actions {
       display: flex;
@@ -239,12 +245,42 @@
     .request-back { background: transparent; color: var(--muted); }
     .request-status {
       display: none;
-      margin-top: 7px;
-      font-size: 10px;
-      line-height: 1.45;
+      margin-top: 8px;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.72);
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
-    .request-status.ok { display: block; color: var(--accent); }
-    .request-status.err { display: block; color: var(--danger); }
+    .request-status.ok {
+      display: block;
+      color: #047857;
+      border-color: rgba(0,184,148,0.24);
+      background: rgba(0,184,148,0.08);
+    }
+    .request-status.err {
+      display: block;
+      color: var(--danger);
+      border-color: rgba(214,48,49,0.22);
+      background: rgba(214,48,49,0.07);
+    }
+    .request-status-title {
+      font-size: 12px;
+      font-weight: 750;
+      color: inherit;
+    }
+    .request-status-body,
+    .request-status-target,
+    .request-status-extra {
+      margin-top: 4px;
+    }
+    .request-status-target {
+      color: var(--text);
+    }
 
     .usage-panel {
       display: flex;
@@ -341,12 +377,12 @@
     <div class="request-panel" id="site-request-panel" style="display:none;">
       <div class="request-panel-title">申请网站归类</div>
       <div class="request-help">仅适用于未归类网站。提交申请后可先临时使用，审批前按综合时长计入。家长之后可批准为学习网站或综合网站，也可以拒绝。提交申请后，可以在管理页面的访问规则中查看相关申请及批复情况。</div>
-      <input class="request-input" id="site-request-input" placeholder="输入域名、子域名或 https:// 链接">
+      <textarea class="request-input" id="site-request-input" rows="3" placeholder="输入域名、子域名或 https:// 链接"></textarea>
+      <div class="request-status" id="site-request-status"></div>
       <div class="request-actions">
         <button class="request-submit" id="site-request-submit-btn">提交申请</button>
         <button class="request-back" id="site-request-back-btn">返回</button>
       </div>
-      <div class="request-status" id="site-request-status"></div>
     </div>
 
     <div class="mode-bar">

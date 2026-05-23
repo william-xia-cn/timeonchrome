@@ -655,6 +655,18 @@ export async function sendNoticeForDecision(decision, { tabId, domain, fromMode,
 // contains Chrome UI effects such as notices, Reminder redirects, and
 // declarative unsafe rules. PiP policy is enforced by media timing.
 
+function sanitizeReminderTargetUrl(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function redirectToReminder(tabId, domain, reason, message, extraParams = null) {
   const queryParts = [
     `reason=${encodeURIComponent(reason || '')}`,
@@ -667,6 +679,12 @@ export async function redirectToReminder(tabId, domain, reason, message, extraPa
   if (extraParams && typeof extraParams === 'object') {
     for (const [k, v] of Object.entries(extraParams)) {
       if (v === undefined || v === null || v === '') continue;
+      if (k === 'targetUrl') {
+        const targetUrl = sanitizeReminderTargetUrl(v);
+        if (!targetUrl) continue;
+        queryParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(targetUrl)}`);
+        continue;
+      }
       queryParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
     }
   }

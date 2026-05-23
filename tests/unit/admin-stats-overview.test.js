@@ -141,6 +141,7 @@ function run() {
   expectTrue('admin sendMsg 应支持 background 冷启动重试', code.includes('background_timeout') && code.includes('setTimeout(resolve, 180)'));
   expectTrue('admin 本地只读模式应保留登录绑定入口', code.includes('function openCloudLogin()') && code.includes('id="cloud-login-btn"') && code.includes('登录/绑定云端'));
   expectTrue('admin 访问规则页应展示网站归类申请记录', html.includes('网站归类申请记录') && html.includes('rules-temporary-composite-display'));
+  expectTrue('admin 网站归类申请目标列应加宽并允许长 URL 换行', html.includes('site-request-target-cell') && html.includes('site-request-target-table') && html.includes('overflow-wrap: anywhere') && code.includes('site-request-target-cell'));
   expectTrue('admin 应读取网站归类申请记录消息', code.includes('GET_SITE_CLASSIFICATION_REQUESTS') && code.includes('renderSiteClassificationRequestRecords'));
   expectTrue('admin local mode renders device status as sync disabled', code.includes('本机计时、popup 和使用分析可用；统计不会同步到云端。'));
   expectTrue('admin has settlement analysis nav item', html.includes('data-page="settlements"'));

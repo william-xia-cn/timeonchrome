@@ -236,10 +236,23 @@ this.__exports = {
       ok: true,
       access: 'reminder',
       reminder: { reason: 'study_mode', params: { originMode: 'study' } },
-    }, { tabId: 9, domain: 'example.com' });
+    }, { tabId: 9, domain: 'example.com', event: { url: 'https://example.com/path?a=1#private' } });
     expectTrue('blocked result', result.blocked === true && result.reminderSent === true);
     expectTrue('no mode commit', committed === false);
     expectTrue('reminder URL used', effects.tabUpdates[0]?.payload?.url?.includes('reason=study_mode'));
+    expectTrue('reminder URL carries sanitized original targetUrl', effects.tabUpdates[0]?.payload?.url?.includes('targetUrl=https%3A%2F%2Fexample.com%2Fpath%3Fa%3D1'));
+    expectTrue('reminder URL does not carry hash fragment', !effects.tabUpdates[0]?.payload?.url?.includes('private'));
+  }
+
+  section('IMT-2b reminder targetUrl only allows http/https');
+  {
+    const effects = loadEffects();
+    await effects.executeModeDecision({
+      ok: true,
+      access: 'reminder',
+      reminder: { reason: 'study_mode', params: {} },
+    }, { tabId: 10, domain: 'extension-page.chrome-local', event: { url: 'chrome-extension://ext-id/admin/admin.html' } });
+    expectTrue('special URL is not forwarded as targetUrl', !effects.tabUpdates[0]?.payload?.url?.includes('targetUrl='));
   }
 
   section('IMT-3 pending success notice can be resent after content script ready');

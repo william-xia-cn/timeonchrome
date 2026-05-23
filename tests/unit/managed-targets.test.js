@@ -104,6 +104,17 @@ async function run() {
   expectEqual('legacy exact URL rule adapts to managed target', legacy.managedTargetType, 'url');
   expectEqual('legacy URL classification', legacy.targetClassificationAtTime, 'study');
 
+  const legacyPlaylist = mod.resolveManagedTargetAttribution({
+    siteClassificationRulesV1: [{
+      targetType: 'url',
+      targetValue: 'https://www.youtube.com/watch?v=4CTQpUJRcSM&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=3&t=2s',
+      decision: 'study',
+    }],
+  }, [], 'https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9');
+  expectEqual('legacy YouTube playlist URL rule attributes same canonical playlist URL', legacyPlaylist.managedTargetType, 'url');
+  expectEqual('legacy YouTube playlist URL canonical target value', legacyPlaylist.managedTargetValue, 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M');
+  expectEqual('legacy YouTube playlist URL classification', legacyPlaylist.targetClassificationAtTime, 'study');
+
   const pending = mod.resolveManagedTargetAttribution({}, [{
     requestedTargetType: 'host',
     requestedNormalizedValue: 'pending.example.com',

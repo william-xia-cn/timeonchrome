@@ -1469,7 +1469,7 @@ function renderSiteClassificationRequestRecords(records) {
   }
   el.innerHTML = `
     <div style="overflow-x:auto;">
-      <table class="settlement-table">
+      <table class="settlement-table site-request-target-table">
         <thead>
           <tr>
             <th>申请对象</th>
@@ -1482,7 +1482,7 @@ function renderSiteClassificationRequestRecords(records) {
         <tbody>
           ${list.map((record) => `
             <tr>
-              <td class="settlement-domain-cell" title="${escAttr(record.displayValue || record.requestedNormalizedValue || '')}">${escHtml(record.displayValue || record.requestedNormalizedValue || '—')}</td>
+              <td class="site-request-target-cell" title="${escAttr(record.displayValue || record.requestedNormalizedValue || '')}">${escHtml(record.displayValue || record.requestedNormalizedValue || '—')}</td>
               <td>${escHtml(siteRequestTypeLabel(record.requestedTargetType))}</td>
               <td>${escHtml(siteRequestStatusLabel(record.status))}</td>
               <td>${escHtml(record.decisionNormalizedValue || '—')}</td>

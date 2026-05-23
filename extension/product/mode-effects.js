@@ -64,6 +64,19 @@ function compactModeEffectResult(result = {}) {
   };
 }
 
+function reminderTargetUrlFromEvent(event = {}) {
+  const raw = event?.url;
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function recordModeEffectTrace(entry = {}) {
   try {
     const chromeApi = globalThis.chrome;
@@ -139,6 +152,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
   if (decision.access === 'reminder' && decision.reminder) {
     await redirectToReminder(tabId, domain, decision.reminder.reason, config?.blockMessage, {
       ...(decision.reminder.params || {}),
+      targetUrl: reminderTargetUrlFromEvent(context.event),
       restLocked: config?.quotaState?.restLocked ? '1' : null,
     });
     result.blocked = true;

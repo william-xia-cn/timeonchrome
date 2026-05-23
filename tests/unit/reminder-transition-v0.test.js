@@ -222,6 +222,8 @@ async function run() {
   expectTrue('V0_KNOWN_REASONS set exists in source', fullCode.includes('V0_KNOWN_REASONS'));
   expectTrue('Unknown reason safe fallback exists', fullCode.includes('页面异常'));
   expectTrue('Unknown reason logs warning', fullCode.includes("console.warn('[reminder] unknown reason:'"));
+  expectTrue('Reminder diagnostics do not log full location href', !fullCode.includes('url: location.href') && !fullCode.includes("'url:', location.href"));
+  expectTrue('Reminder diagnostics expose targetUrl presence only', fullCode.includes('hasTargetUrl') && fullCode.includes("params.get('targetUrl')"));
   expectTrue('msg suppressed for all reasons (V0 canonical-only)', fullCode.includes("customMsgEl.style.display = 'none'"));
 
   // Dual-path source validations

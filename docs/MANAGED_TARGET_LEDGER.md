@@ -115,6 +115,14 @@ Current implementation notes:
 - Cloud D1 stores segment snapshots plus `target_stats_v1` and `hourly_target_stats_v1`.
 - Pages usage analysis reads target stats first and falls back to domain stats when target rows are unavailable.
 
+YouTube v1 is a temporary product and implementation compromise:
+- Submitted YouTube watch URLs with a `list` parameter are canonicalized to `https://www.youtube.com/playlist?list={playlistId}`.
+- Standalone YouTube watch/short/youtu.be video URLs are canonicalized to `https://www.youtube.com/watch?v={videoId}`.
+- These canonical URLs are still stored as `targetType=url`, not as first-class `playlist` / `video` target records.
+- This keeps access control, statistics, and display aligned for the current release, but it is not the final YouTube management model.
+
+Before formal release, YouTube needs a dedicated design pass covering explicit playlist/video target types, labels, conflict rules, platform-entry handling, approval UX, quota wording, cloud/Page display, and migration from the temporary canonical URL representation.
+
 ## 8. Non-Goals For The First Milestone
 
 - no automatic saving of ordinary browsed full URLs

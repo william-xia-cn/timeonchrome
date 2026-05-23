@@ -395,6 +395,35 @@ async function run() {
     expect('应导航回原域名', updated, { id: 12, payload: { url: 'https://example.com' } });
   }
 
+  section('MSR-2b reminder 活动页优先使用原始 targetUrl');
+  {
+    let updated = null;
+    const observed = [];
+    const cfg = { mode: 'study' };
+    const session = { currentMode: 'study' };
+
+    const { handleMessage } = loadHandleMessage(
+      {
+        getConfig: async () => cfg,
+        saveConfig: async () => {},
+        updateDeclarativeRules: async () => {},
+        getSession: async () => session,
+        accessObserved: async (tabId, url) => { observed.push({ tabId, url }); return false; },
+        getSyncState: () => ({ monitoringEnabled: 1 }),
+      },
+      {
+        tabs: {
+          query: async () => [{ id: 14, url: 'chrome-extension://ext-id/reminder.html?reason=study_mode&domain=example.com&targetUrl=https%3A%2F%2Fexample.com%2Fcourse%3Fv%3D1%23frag' }],
+          update: async (id, payload) => { updated = { id, payload }; },
+        },
+      }
+    );
+
+    await handleMessage({ type: 'SWITCH_TO_REST' }, {});
+    expect('应导航回原始 URL 且去掉 hash', updated, { id: 14, payload: { url: 'https://example.com/course?v=1' } });
+    expect('access recheck 使用原始 URL', observed, [{ tabId: 14, url: 'https://example.com/course?v=1' }]);
+  }
+
   section('MSR-3 reminder 活动页若仍应 blocked 不应执行 unblocked 跳转');
   {
     let updateCount = 0;

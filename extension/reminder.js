@@ -22,12 +22,14 @@
   const reason = params.get('reason') || 'unsafe';
   const originMode = params.get('originMode') || '';
   const sourceTabId = Number.parseInt(params.get('sourceTabId') || '', 10);
+  const targetUrlParam = params.get('targetUrl') || '';
   let domain = params.get('domain') || '';
   const msg = params.get('msg') || '';
   diag('load', {
     version: DIAG_VERSION,
-    url: location.href,
     reason,
+    domain,
+    hasTargetUrl: /^https?:\/\//i.test(targetUrlParam),
     readyState: document.readyState,
   });
 
@@ -320,7 +322,7 @@
       subtitle: '无法识别当前提醒类型。请返回重试。',
       actions: ['backGeneric']
     };
-    console.warn('[reminder] unknown reason:', reason, 'url:', location.href);
+    console.warn('[reminder] unknown reason:', reason, 'domain:', domain, 'hasTargetUrl:', /^https?:\/\//i.test(targetUrlParam));
   }
   if (effectiveReason === 'to_rest_slide_confirm') {
     config = {
