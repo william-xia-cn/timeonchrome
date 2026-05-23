@@ -209,6 +209,117 @@
     .domain-bar { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), #00cba9); }
     .domain-time { color: var(--muted); font-size: 12px; min-width: 52px; text-align: right; }
 
+    /* Screen Time usage analysis */
+    #page-stats { max-width: 1120px; }
+    .usage-analysis-shell { display: flex; flex-direction: column; gap: 14px; }
+    .usage-analysis-topbar {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 18px; margin-bottom: 4px;
+    }
+    .usage-analysis-title h2 { font-size: 24px; line-height: 1.2; margin-bottom: 4px; }
+    .usage-analysis-title p { color: var(--muted); font-size: 13px; }
+    .usage-analysis-controls {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: 14px; flex-wrap: wrap;
+    }
+    .usage-segmented {
+      display: inline-flex; border: 1px solid var(--border);
+      border-radius: 9px; overflow: hidden; background: var(--card);
+    }
+    .usage-segmented button {
+      min-width: 72px; padding: 8px 18px; border: 0;
+      background: transparent; color: var(--muted); font-weight: 650; cursor: pointer;
+    }
+    .usage-segmented button.active { background: #2563eb; color: white; }
+    .usage-device-select { display: flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap; }
+    .usage-device-select select,
+    .usage-list-toolbar select,
+    .usage-list-toolbar input {
+      border: 1px solid var(--border); border-radius: 9px; background: var(--card);
+      color: var(--text); padding: 8px 10px; font-size: 13px; outline: none;
+    }
+    .usage-analysis-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px 20px;
+    }
+    .usage-card-head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 18px; margin-bottom: 16px;
+    }
+    .usage-total-label { font-size: 13px; margin-bottom: 6px; }
+    .usage-total-value { font-size: 28px; font-weight: 800; letter-spacing: 0; }
+    .usage-date-nav {
+      display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+      gap: 8px; font-size: 15px; font-weight: 650;
+    }
+    .usage-date-nav button {
+      border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+      padding: 7px 11px; cursor: pointer; color: var(--text); font-weight: 650;
+    }
+    .usage-chart-title { font-size: 12px; color: var(--muted); margin: 10px 0 8px; }
+    .usage-stack-chart {
+      display: flex; align-items: end; gap: 8px; height: 120px;
+      border-bottom: 1px solid var(--border); padding: 6px 0 0;
+    }
+    .usage-stack-slot {
+      flex: 1; min-width: 8px; height: 100%; display: flex;
+      flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 2px;
+    }
+    .usage-stack-bar {
+      min-height: 2px; border-radius: 4px 4px 0 0; overflow: hidden;
+      display: flex; flex-direction: column-reverse; background: rgba(0,0,0,0.04);
+    }
+    .usage-stack-part.study { background: #1d6ff2; }
+    .usage-stack-part.composite { background: #f59e0b; }
+    .usage-stack-part.rest { background: #37b7b7; }
+    .usage-stack-part.media { background: #6c63ff; }
+    .usage-stack-part.other { background: #b6b8bb; }
+    .usage-stack-label {
+      text-align: center; font-size: 10px; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .usage-legend {
+      display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr));
+      gap: 12px; margin-top: 16px;
+    }
+    .usage-legend-item { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; }
+    .usage-dot { width: 10px; height: 10px; border-radius: 3px; margin-top: 3px; flex-shrink: 0; }
+    .usage-dot.study { background: #1d6ff2; }
+    .usage-dot.composite { background: #f59e0b; }
+    .usage-dot.rest { background: #37b7b7; }
+    .usage-dot.media { background: #6c63ff; }
+    .usage-dot.other { background: #b6b8bb; }
+    .usage-legend-name { font-weight: 650; margin-bottom: 2px; }
+    .usage-legend-time { color: var(--muted); }
+    .usage-list-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; margin-bottom: 12px;
+    }
+    .usage-list-toolbar input { width: 220px; }
+    .usage-analysis-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .usage-analysis-table th {
+      text-align: left; color: var(--muted); font-weight: 650;
+      background: rgba(0,0,0,0.025); padding: 9px 10px; border-bottom: 1px solid var(--border);
+    }
+    .usage-analysis-table td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .usage-analysis-table tr { cursor: pointer; }
+    .usage-analysis-table tr:hover { background: rgba(37,99,235,0.035); }
+    .usage-target-name { display: flex; align-items: center; gap: 10px; font-weight: 650; }
+    .usage-target-icon {
+      width: 24px; height: 24px; border-radius: 7px; background: rgba(37,99,235,0.10);
+      color: #1d6ff2; display: inline-flex; align-items: center; justify-content: center;
+      flex-shrink: 0; font-size: 13px;
+    }
+    .usage-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .usage-status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #2db7a3; }
+    .usage-status.pending::before { background: #2563eb; }
+    .usage-detail-panel {
+      display: none; margin-top: 12px; border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px; background: rgba(0,0,0,0.015); font-size: 13px;
+    }
+    .usage-detail-panel.visible { display: block; }
+    .usage-empty { color: var(--muted); text-align: center; padding: 24px; font-size: 13px; }
+
     /* Tabs */
     .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
     .tab-btn {
@@ -808,18 +919,57 @@
 
       <!-- 使用统计 -->
       <div class="page" id="page-stats">
-        <div class="page-header">
-          <h2>使用统计</h2>
-          <p>孩子的上网行为分析</p>
-        </div>
-        <div style="display:flex;gap:8px;margin-bottom:20px;">
-          <button class="tab-btn active" data-range="today" id="st-today">今天</button>
-          <button class="tab-btn" data-range="week" id="st-week">近7天</button>
-          <button class="tab-btn" data-range="month" id="st-month">近30天</button>
-        </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title">访问时长排行</div></div>
-          <div id="stats-list"><div class="empty"><div class="icon">📊</div>暂无数据</div></div>
+        <div class="usage-analysis-shell">
+          <div class="usage-analysis-topbar">
+            <div class="usage-analysis-title">
+              <h2>使用分析</h2>
+              <p id="cloud-usage-sync-label">同步于 加载中...</p>
+            </div>
+            <div class="usage-analysis-controls">
+              <div class="usage-segmented" aria-label="日周切换">
+                <button type="button" class="active" data-cloud-usage-mode="day">日</button>
+                <button type="button" data-cloud-usage-mode="week">周</button>
+              </div>
+              <label class="usage-device-select">
+                设备：
+                <select id="cloud-usage-device">
+                  <option value="">全部设备</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="usage-analysis-card">
+            <div class="usage-card-head">
+              <div>
+                <div class="usage-total-label">使用时间</div>
+                <div class="usage-total-value" id="cloud-usage-total">加载中...</div>
+              </div>
+              <div class="usage-date-nav">
+                <span id="cloud-usage-range-label">今天</span>
+                <button type="button" id="cloud-usage-prev" aria-label="上一日或上一周">‹</button>
+                <button type="button" id="cloud-usage-today">今天</button>
+                <button type="button" id="cloud-usage-next" aria-label="下一日或下一周">›</button>
+              </div>
+            </div>
+            <div class="usage-chart-title">本周每日结构</div>
+            <div class="usage-stack-chart" id="cloud-usage-week-chart">加载中...</div>
+            <div class="usage-chart-title" id="cloud-usage-main-title">24 小时分布</div>
+            <div class="usage-stack-chart" id="cloud-usage-main-chart">加载中...</div>
+            <div class="usage-legend" id="cloud-usage-legend"></div>
+          </div>
+
+          <div class="usage-analysis-card">
+            <div class="usage-list-toolbar">
+              <select id="cloud-usage-list-mode">
+                <option value="targets">显示管理对象</option>
+                <option value="categories">显示分类</option>
+              </select>
+              <input type="search" id="cloud-usage-search" placeholder="搜索管理对象">
+            </div>
+            <div id="cloud-usage-table"><div class="usage-empty">加载中...</div></div>
+            <div class="usage-detail-panel" id="cloud-usage-detail"></div>
+          </div>
         </div>
       </div>
 
@@ -1227,6 +1377,8 @@ let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, ha
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
 let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudDevicesCache = { profileId: null, devices: [] };
+let cloudUsageState = { mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
+let cloudUsageLastView = null;
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1515,7 +1667,7 @@ function renderPage(name) {
   if (name === 'rules')     renderRulesPage();
   if (name === 'quota')     renderQuotaPage();
   if (name === 'schedule')  renderSchedulePage();
-  if (name === 'stats')     renderStatsPage('today');
+  if (name === 'stats')     renderStatsPage();
   if (name === 'settlements') renderCloudSettlementsPage({ reset: true });
   if (name === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
   if (name === 'reconciliation') renderReconciliationPage();
@@ -2425,46 +2577,594 @@ async function saveScheduleConfig() {
 
 // ── Stats ────────────────────────────────────────────────────
 function setupStats() {
-  document.querySelectorAll('[data-range]').forEach(btn => {
+  document.querySelectorAll('[data-cloud-usage-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      renderStatsPage(btn.dataset.range);
+      cloudUsageState.mode = btn.dataset.cloudUsageMode === 'week' ? 'week' : 'day';
+      cloudUsageState.detail = null;
+      renderStatsPage();
     });
+  });
+  document.getElementById('cloud-usage-prev')?.addEventListener('click', () => {
+    cloudUsageState.date = shiftCloudUsageDate(cloudUsageState.date, cloudUsageState.mode === 'week' ? -7 : -1);
+    cloudUsageState.detail = null;
+    renderStatsPage();
+  });
+  document.getElementById('cloud-usage-next')?.addEventListener('click', () => {
+    cloudUsageState.date = shiftCloudUsageDate(cloudUsageState.date, cloudUsageState.mode === 'week' ? 7 : 1);
+    cloudUsageState.detail = null;
+    renderStatsPage();
+  });
+  document.getElementById('cloud-usage-today')?.addEventListener('click', () => {
+    cloudUsageState.date = null;
+    cloudUsageState.detail = null;
+    renderStatsPage();
+  });
+  document.getElementById('cloud-usage-device')?.addEventListener('change', (event) => {
+    cloudUsageState.deviceId = event.target.value || '';
+    cloudUsageState.detail = null;
+    renderStatsPage();
+  });
+  document.getElementById('cloud-usage-list-mode')?.addEventListener('change', (event) => {
+    cloudUsageState.listMode = event.target.value === 'categories' ? 'categories' : 'targets';
+    cloudUsageState.detail = null;
+    renderCloudUsageList(cloudUsageLastView);
+  });
+  document.getElementById('cloud-usage-search')?.addEventListener('input', (event) => {
+    cloudUsageState.query = event.target.value || '';
+    renderCloudUsageList(cloudUsageLastView);
   });
 }
 
-async function renderStatsPage(range) {
+function shiftCloudUsageDate(currentKey, days) {
+  const base = currentKey ? new Date(`${currentKey}T00:00:00`) : new Date();
+  base.setDate(base.getDate() + days);
+  return fmtDate(base);
+}
+
+function startOfCloudWeek(date) {
+  const d = new Date(date);
+  const dow = d.getDay() === 0 ? 6 : d.getDay() - 1;
+  d.setDate(d.getDate() - dow);
+  return d;
+}
+
+function cloudDateKeysBetween(from, to) {
+  const keys = [];
+  const cursor = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  while (cursor <= end) {
+    keys.push(fmtDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
+}
+
+function cloudUsageRange() {
+  const anchor = cloudUsageState.date ? new Date(`${cloudUsageState.date}T00:00:00`) : new Date();
+  if (cloudUsageState.mode === 'week') {
+    const start = startOfCloudWeek(anchor);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return { mode: 'week', from: fmtDate(start), to: fmtDate(end), label: `${fmtDate(start).slice(5)} — ${fmtDate(end).slice(5)}` };
+  }
+  const key = fmtDate(anchor);
+  return { mode: 'day', from: key, to: key, label: key };
+}
+
+function usageCategoryLabel(key) {
+  return ({ study: '学习', composite: '综合', rest: '休息', media: '媒体', other: '其他' })[key] || key || '其他';
+}
+
+function emptyCloudCategories() {
+  return { study: 0, composite: 0, rest: 0, media: 0, other: 0 };
+}
+
+function cloudRowCategory(row) {
+  if (row.channel === 'backgroundMedia' || row.channel === 'pip') return 'media';
+  const bucket = row.quotaBucket || row.mode;
+  if (bucket === 'study') return 'study';
+  if (bucket === 'composite' || bucket === 'pending_composite') return 'composite';
+  if (bucket === 'rest') return 'rest';
+  return 'other';
+}
+
+function normalizeCloudTargetRows(rows = []) {
+  return (rows || []).map((s) => {
+    const targetKey = s.target_key || s.targetKey || s.managed_target_id || s.managedTargetId || `fallback:domain:${s.fallback_domain || s.fallbackDomain || s.domain || 'unknown'}`;
+    const label = s.managed_target_label_at_time || s.managedTargetLabelAtTime ||
+      s.managed_target_value || s.managedTargetValue ||
+      s.fallback_domain || s.fallbackDomain ||
+      targetKey;
+    return {
+      date: s.date,
+      hour: Number.isFinite(Number(s.hour)) ? Number(s.hour) : null,
+      hourKey: s.hour_key || s.hourKey || null,
+      deviceId: s.device_id || s.deviceId || '',
+      targetKey,
+      label,
+      fallbackDomain: s.fallback_domain || s.fallbackDomain || null,
+      managedTargetId: s.managed_target_id || s.managedTargetId || null,
+      managedTargetType: s.managed_target_type || s.managedTargetType || null,
+      managedTargetNamespace: s.managed_target_namespace || s.managedTargetNamespace || null,
+      managedTargetValue: s.managed_target_value || s.managedTargetValue || null,
+      targetClassificationAtTime: s.target_classification_at_time || s.targetClassificationAtTime || null,
+      isFallback: !!(s.is_fallback ?? s.isFallback),
+      channel: s.channel || 'active',
+      mode: s.mode || 'unknown',
+      quotaBucket: s.quota_bucket || s.quotaBucket || s.mode || 'unknown',
+      duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
+      firstSeenAt: s.first_seen_at || s.firstSeenAt || null,
+      lastSeenAt: s.last_seen_at || s.lastSeenAt || null,
+    };
+  }).filter(row => row.date && row.duration > 0);
+}
+
+function normalizeCloudDomainRows(rows = []) {
+  return (rows || []).map((s) => ({
+    date: s.date,
+    targetKey: `fallback:domain:${s.domain}`,
+    label: s.domain,
+    fallbackDomain: s.domain,
+    isFallback: true,
+    channel: s.channel || 'active',
+    mode: s.mode || 'unknown',
+    quotaBucket: s.mode || 'unknown',
+    duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
+  })).filter(row => row.date && row.label && row.duration > 0);
+}
+
+function normalizeCloudMediaRows(rows = []) {
+  return (rows || []).map((s) => ({
+    date: s.date,
+    hour: Number.isFinite(Number(s.hour)) ? Number(s.hour) : null,
+    hourKey: s.hour_key || s.hourKey || null,
+    deviceId: s.device_id || s.deviceId || '',
+    targetKey: `fallback:domain:${s.domain || 'unknown'}`,
+    label: s.domain || '媒体',
+    fallbackDomain: s.domain || null,
+    isFallback: true,
+    channel: 'backgroundMedia',
+    mode: s.mode || 'unknown',
+    quotaBucket: 'media',
+    mediaClass: s.media_class || s.mediaClass || null,
+    duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
+    firstSeenAt: s.first_seen_at || s.firstSeenAt || null,
+    lastSeenAt: s.last_seen_at || s.lastSeenAt || null,
+  })).filter(row => row.date && row.duration > 0);
+}
+
+async function fetchCloudTargetRows(from, to, options = {}) {
+  const params = new URLSearchParams({ from, to });
+  if (options.deviceId) params.set('deviceId', options.deviceId);
+  const result = await api(`/profiles/${currentProfileId}/target-stats/v1?${params.toString()}`);
+  return normalizeCloudTargetRows(result.stats || []);
+}
+
+async function fetchCloudHourlyTargetRows(from, to, options = {}) {
+  const params = new URLSearchParams({ from, to });
+  if (options.deviceId) params.set('deviceId', options.deviceId);
+  const result = await api(`/profiles/${currentProfileId}/hourly-target-stats/v1?${params.toString()}`);
+  return normalizeCloudTargetRows(result.stats || []);
+}
+
+async function fetchCloudDomainFallbackRows(from, to, options = {}) {
+  const params = new URLSearchParams({ from, to });
+  if (options.deviceId) params.set('deviceId', options.deviceId);
+  const result = await api(`/profiles/${currentProfileId}/stats/v1?${params.toString()}`);
+  return normalizeCloudDomainRows(result.stats || []);
+}
+
+async function fetchCloudMediaRows(from, to, options = {}) {
+  const params = new URLSearchParams({ from, to });
+  if (options.deviceId) params.set('deviceId', options.deviceId);
+  const result = await api(`/profiles/${currentProfileId}/media-stats/v1?${params.toString()}`);
+  return normalizeCloudMediaRows(result.stats || []);
+}
+
+async function fetchCloudHourlyMediaRows(from, to, options = {}) {
+  const params = new URLSearchParams({ from, to });
+  if (options.deviceId) params.set('deviceId', options.deviceId);
+  const result = await api(`/profiles/${currentProfileId}/hourly-media-stats/v1?${params.toString()}`);
+  return normalizeCloudMediaRows(result.stats || []);
+}
+
+function aggregateCloudRows(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    const entry = map.get(row.targetKey) || {
+      key: row.targetKey,
+      label: row.label,
+      fallbackDomain: row.fallbackDomain,
+      managedTargetType: row.managedTargetType,
+      managedTargetNamespace: row.managedTargetNamespace,
+      managedTargetValue: row.managedTargetValue,
+      targetClassificationAtTime: row.targetClassificationAtTime,
+      isFallback: row.isFallback,
+      categories: emptyCloudCategories(),
+      seconds: 0,
+      lastSeenAt: row.lastSeenAt || null,
+    };
+    const category = cloudRowCategory(row);
+    entry.categories[category] += row.duration;
+    entry.seconds += row.duration;
+    if (row.lastSeenAt && (!entry.lastSeenAt || row.lastSeenAt > entry.lastSeenAt)) entry.lastSeenAt = row.lastSeenAt;
+    map.set(row.targetKey, entry);
+  }
+  return map;
+}
+
+function dominantCloudCategory(categories) {
+  let best = 'other', bestSeconds = -1;
+  for (const key of ['study', 'composite', 'rest', 'media', 'other']) {
+    const seconds = Number(categories?.[key] || 0);
+    if (seconds > bestSeconds) { best = key; bestSeconds = seconds; }
+  }
+  return best;
+}
+
+function cloudTargetStatus(row) {
+  if (row.targetClassificationAtTime === 'pending_composite') return '待归类';
+  if (row.targetClassificationAtTime === 'blocked' || row.targetClassificationAtTime === 'restricted') return '已限制';
+  return '正常';
+}
+
+function buildCloudTargetRows(todayRows, weekRows, rangeRows) {
+  const todayMap = aggregateCloudRows(todayRows);
+  const weekMap = aggregateCloudRows(weekRows);
+  const rangeMap = aggregateCloudRows(rangeRows);
+  const keys = new Set([...todayMap.keys(), ...weekMap.keys(), ...rangeMap.keys()]);
+  return [...keys].map(key => {
+    const range = rangeMap.get(key) || weekMap.get(key) || todayMap.get(key);
+    const category = dominantCloudCategory(range?.categories);
+    return {
+      key,
+      label: range?.label || key,
+      category,
+      categoryLabel: usageCategoryLabel(category),
+      todaySeconds: todayMap.get(key)?.seconds || 0,
+      weekSeconds: weekMap.get(key)?.seconds || 0,
+      rangeSeconds: rangeMap.get(key)?.seconds || 0,
+      limitLabel: '—',
+      status: cloudTargetStatus(range || {}),
+      fallbackDomain: range?.fallbackDomain || null,
+      managedTargetType: range?.managedTargetType || null,
+      managedTargetNamespace: range?.managedTargetNamespace || null,
+      managedTargetValue: range?.managedTargetValue || null,
+      categories: range?.categories || emptyCloudCategories(),
+    };
+  }).filter(row => row.rangeSeconds > 0 || row.todaySeconds > 0 || row.weekSeconds > 0)
+    .sort((a, b) => b.rangeSeconds - a.rangeSeconds || a.label.localeCompare(b.label));
+}
+
+function sumCloudRowsByCategory(rows = []) {
+  const totals = emptyCloudCategories();
+  for (const row of rows) totals[cloudRowCategory(row)] += row.duration;
+  return totals;
+}
+
+function buildCloudDailySeries(rows = [], dates = []) {
+  return dates.map(date => ({
+    key: date,
+    label: date.slice(5),
+    categories: sumCloudRowsByCategory(rows.filter(row => row.date === date)),
+  }));
+}
+
+function buildCloudHourlySeries(rows = [], date) {
+  return Array.from({ length: 24 }, (_, hour) => ({
+    key: `${date}-${hour}`,
+    hour,
+    label: `${hour}时`,
+    categories: sumCloudRowsByCategory(rows.filter(row => row.date === date && Number(row.hour) === hour)),
+  }));
+}
+
+function sumCloudSeries(series = []) {
+  const totals = emptyCloudCategories();
+  for (const row of series) {
+    for (const key of Object.keys(totals)) totals[key] += Number(row.categories?.[key] || 0);
+  }
+  return totals;
+}
+
+async function buildCloudUsageView() {
   if (!currentProfileId) return;
-  const today = fmtDate(new Date());
-  let from = today;
-  if (range === 'week')  from = fmtDate(new Date(Date.now() - 6*86400000));
-  if (range === 'month') from = fmtDate(new Date(Date.now() - 29*86400000));
-
-  const c = document.getElementById('stats-list');
-  c.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
-
+  const devices = await ensureCloudDevices();
+  renderCloudDeviceOptions('cloud-usage-device');
+  const deviceSelect = document.getElementById('cloud-usage-device');
+  if (deviceSelect) deviceSelect.value = cloudUsageState.deviceId || '';
+  const range = cloudUsageRange();
+  const todayKey = cloudUsageState.mode === 'day' ? range.from : fmtDate(new Date());
+  const weekStart = startOfCloudWeek(new Date(`${range.from}T00:00:00`));
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+  const weekKeys = cloudDateKeysBetween(fmtDate(weekStart), fmtDate(weekEnd));
+  const selectedKeys = cloudDateKeysBetween(range.from, range.to);
+  const options = { deviceId: cloudUsageState.deviceId || '' };
+  let source = 'target-v1';
+  let selectedRows = [];
+  let todayRows = [];
+  let weekRows = [];
+  let hourlyRows = [];
+  let selectedMediaRows = [];
+  let todayMediaRows = [];
+  let weekMediaRows = [];
+  let hourlyMediaRows = [];
   try {
-    const r = await fetchProfileStats(from, today);
-    const stats = r.stats || [];
-    const byDomain = {};
-    for (const s of stats) byDomain[s.domain] = (byDomain[s.domain]||0) + s.duration;
-    const sorted = Object.entries(byDomain).sort((a,b)=>b[1]-a[1]).slice(0,20);
-    const max = sorted[0]?.[1] || 1;
+    [selectedRows, todayRows, weekRows, hourlyRows, selectedMediaRows, todayMediaRows, weekMediaRows, hourlyMediaRows] = await Promise.all([
+      fetchCloudTargetRows(range.from, range.to, options),
+      fetchCloudTargetRows(todayKey, todayKey, options),
+      fetchCloudTargetRows(weekKeys[0], weekKeys[weekKeys.length - 1], options),
+      fetchCloudHourlyTargetRows(range.from, range.to, options).catch(() => []),
+      fetchCloudMediaRows(range.from, range.to, options).catch(() => []),
+      fetchCloudMediaRows(todayKey, todayKey, options).catch(() => []),
+      fetchCloudMediaRows(weekKeys[0], weekKeys[weekKeys.length - 1], options).catch(() => []),
+      fetchCloudHourlyMediaRows(range.from, range.to, options).catch(() => []),
+    ]);
+    if (selectedRows.length === 0 && todayRows.length === 0 && weekRows.length === 0) {
+      source = 'domain-v1';
+      [selectedRows, todayRows, weekRows] = await Promise.all([
+        fetchCloudDomainFallbackRows(range.from, range.to, options),
+        fetchCloudDomainFallbackRows(todayKey, todayKey, options),
+        fetchCloudDomainFallbackRows(weekKeys[0], weekKeys[weekKeys.length - 1], options),
+      ]);
+    }
+  } catch (e) {
+    source = 'domain-v1';
+    selectedRows = await fetchCloudDomainFallbackRows(range.from, range.to, options);
+    todayRows = await fetchCloudDomainFallbackRows(todayKey, todayKey, options);
+    weekRows = await fetchCloudDomainFallbackRows(weekKeys[0], weekKeys[weekKeys.length - 1], options);
+    selectedMediaRows = await fetchCloudMediaRows(range.from, range.to, options).catch(() => []);
+    todayMediaRows = await fetchCloudMediaRows(todayKey, todayKey, options).catch(() => []);
+    weekMediaRows = await fetchCloudMediaRows(weekKeys[0], weekKeys[weekKeys.length - 1], options).catch(() => []);
+    hourlyMediaRows = await fetchCloudHourlyMediaRows(range.from, range.to, options).catch(() => []);
+  }
+  selectedRows = [...selectedRows, ...selectedMediaRows];
+  todayRows = [...todayRows, ...todayMediaRows];
+  weekRows = [...weekRows, ...weekMediaRows];
+  hourlyRows = [...hourlyRows, ...hourlyMediaRows];
+  const chartSeries = range.mode === 'week'
+    ? buildCloudDailySeries(selectedRows, selectedKeys)
+    : buildCloudHourlySeries(hourlyRows, range.from);
+  const categoryTotals = sumCloudRowsByCategory(selectedRows);
+  const targetRows = buildCloudTargetRows(todayRows, weekRows, selectedRows);
+  const categoryRows = ['study', 'composite', 'rest', 'media', 'other'].map(key => ({
+    key,
+    label: usageCategoryLabel(key),
+    seconds: categoryTotals[key] || 0,
+    limitLabel: key === 'composite' || key === 'rest' ? '按配额管理' : '—',
+    status: '正常',
+  }));
+  return {
+    meta: {
+      source,
+      syncLabel: `同步于 今天 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
+      deviceScope: {
+        selected: cloudUsageState.deviceId || '',
+        label: cloudUsageState.deviceId ? cloudDeviceLabel(cloudUsageState.deviceId) : '全部设备',
+        options: [{ id: '', label: '全部设备' }].concat(devices.map(d => ({ id: d.id, label: d.device_name || d.name || `终端 ${String(d.id || '').slice(0, 8)}` }))),
+      },
+    },
+    range,
+    totalSeconds: Object.values(categoryTotals).reduce((sum, value) => sum + value, 0),
+    categoryTotals,
+    chartSeries,
+    weekSummarySeries: buildCloudDailySeries(weekRows, weekKeys),
+    targetRows,
+    categoryRows,
+    pendingRows: targetRows.filter(row => row.status === '待归类'),
+  };
+}
 
-    if (sorted.length === 0) {
-      c.innerHTML = '<div class="empty"><div class="icon">📊</div>该时段暂无数据</div>';
+function usageSeriesTotal(row) {
+  return ['study', 'composite', 'rest', 'media', 'other']
+    .reduce((sum, key) => sum + Math.max(0, Number(row?.categories?.[key]) || 0), 0);
+}
+
+function renderCloudUsageStackChart(id, series = [], options = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!Array.isArray(series) || series.length === 0 || !series.some(row => usageSeriesTotal(row) > 0)) {
+    el.innerHTML = `<div class="usage-empty">${escHtml(options.emptyMessage || '当前范围没有使用记录')}</div>`;
+    return;
+  }
+  const max = Math.max(...series.map(usageSeriesTotal), 1);
+  el.innerHTML = series.map(row => {
+    const total = usageSeriesTotal(row);
+    const title = ['study', 'composite', 'rest', 'media', 'other']
+      .filter(key => Number(row.categories?.[key] || 0) > 0)
+      .map(key => `${usageCategoryLabel(key)} ${fmtSec(row.categories[key])}`)
+      .join(' / ');
+    return `
+      <div class="usage-stack-slot" title="${escHtml(title)}">
+        <div class="usage-stack-bar" style="height:${Math.max(2, Math.round(total / max * 100))}%">
+          ${['study', 'composite', 'rest', 'media', 'other'].map(key => {
+            const seconds = Number(row.categories?.[key] || 0);
+            if (seconds <= 0 || total <= 0) return '';
+            return `<div class="usage-stack-part ${key}" style="height:${Math.max(2, Math.round(seconds / total * 100))}%"></div>`;
+          }).join('')}
+        </div>
+        <div class="usage-stack-label">${escHtml(row.label || '')}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderCloudUsageLegend(view) {
+  const el = document.getElementById('cloud-usage-legend');
+  if (!el) return;
+  const totals = view?.categoryTotals || {};
+  el.innerHTML = ['study', 'composite', 'rest', 'media', 'other'].map(key => `
+    <div class="usage-legend-item">
+      <span class="usage-dot ${key}"></span>
+      <span>
+        <div class="usage-legend-name">${usageCategoryLabel(key)}</div>
+        <div class="usage-legend-time">${fmtSec(totals[key] || 0)}</div>
+      </span>
+    </div>
+  `).join('');
+}
+
+function usageTargetIcon(row = {}) {
+  if (row.managedTargetNamespace === 'youtube' || /youtube/i.test(row.label || '')) return '▶';
+  if (row.managedTargetType === 'playlist') return '▤';
+  if (row.managedTargetType === 'url') return '↗';
+  if (row.isFallback) return '◎';
+  return '◆';
+}
+
+function cloudUsageStatusClass(status) {
+  return status === '待归类' ? 'pending' : '';
+}
+
+function filteredCloudUsageRows(view) {
+  const query = cloudUsageState.query.trim().toLowerCase();
+  if (cloudUsageState.listMode === 'categories') {
+    return (view?.categoryRows || []).filter(row => !query || row.label.toLowerCase().includes(query));
+  }
+  return (view?.targetRows || []).filter(row => {
+    if (!query) return true;
+    return String(row.label || '').toLowerCase().includes(query) ||
+      String(row.fallbackDomain || '').toLowerCase().includes(query);
+  });
+}
+
+function renderCloudUsageList(view) {
+  const wrap = document.getElementById('cloud-usage-table');
+  const detail = document.getElementById('cloud-usage-detail');
+  if (!wrap) return;
+  if (!view) {
+    wrap.innerHTML = '<div class="usage-empty">使用分析加载中...</div>';
+    if (detail) detail.className = 'usage-detail-panel';
+    return;
+  }
+  const listMode = document.getElementById('cloud-usage-list-mode');
+  const search = document.getElementById('cloud-usage-search');
+  if (listMode) listMode.value = cloudUsageState.listMode;
+  if (search) {
+    search.value = cloudUsageState.query;
+    search.placeholder = cloudUsageState.listMode === 'categories' ? '搜索分类' : '搜索管理对象';
+  }
+  const rows = filteredCloudUsageRows(view);
+  if (rows.length === 0) {
+    wrap.innerHTML = '<div class="usage-empty">当前时间范围内没有管理对象使用记录</div>';
+    if (detail) detail.className = 'usage-detail-panel';
+    return;
+  }
+  if (cloudUsageState.listMode === 'categories') {
+    wrap.innerHTML = `
+      <table class="usage-analysis-table">
+        <thead><tr><th>分类</th><th>时间</th><th>限额</th><th>状态</th></tr></thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr data-cloud-usage-kind="category" data-cloud-usage-key="${escHtml(row.key)}">
+              <td><span class="usage-target-name"><span class="usage-dot ${escHtml(row.key)}"></span>${escHtml(row.label)}</span></td>
+              <td>${fmtSec(row.seconds)}</td>
+              <td>${escHtml(row.limitLabel || '—')}</td>
+              <td><span class="usage-status ${cloudUsageStatusClass(row.status)}">${escHtml(row.status || '正常')}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } else {
+    wrap.innerHTML = `
+      <table class="usage-analysis-table">
+        <thead><tr><th>管理对象</th><th>分类</th><th>今日时间</th><th>本周时间</th><th>限额</th><th>状态</th></tr></thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr data-cloud-usage-kind="target" data-cloud-usage-key="${escHtml(row.key)}">
+              <td><span class="usage-target-name"><span class="usage-target-icon">${escHtml(usageTargetIcon(row))}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span></td>
+              <td>${escHtml(row.categoryLabel || usageCategoryLabel(row.category))}</td>
+              <td>${fmtSec(row.todaySeconds || 0)}</td>
+              <td>${fmtSec(row.weekSeconds || 0)}</td>
+              <td>${escHtml(row.limitLabel || '—')}</td>
+              <td><span class="usage-status ${cloudUsageStatusClass(row.status)}">${escHtml(row.status || '正常')}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+  wrap.querySelectorAll('[data-cloud-usage-key]').forEach(row => {
+    row.addEventListener('click', () => {
+      cloudUsageState.detail = { kind: row.dataset.cloudUsageKind, key: row.dataset.cloudUsageKey };
+      renderCloudUsageDetail(view);
+    });
+  });
+  renderCloudUsageDetail(view);
+}
+
+function renderCloudUsageDetail(view) {
+  const detail = document.getElementById('cloud-usage-detail');
+  if (!detail || !cloudUsageState.detail) {
+    if (detail) detail.className = 'usage-detail-panel';
+    return;
+  }
+  if (cloudUsageState.detail.kind === 'category') {
+    const category = (view.categoryRows || []).find(row => row.key === cloudUsageState.detail.key);
+    const targets = (view.targetRows || []).filter(row => row.category === cloudUsageState.detail.key).slice(0, 6);
+    if (!category) {
+      detail.className = 'usage-detail-panel';
       return;
     }
-    c.innerHTML = sorted.map(([domain, sec]) => `
-      <div class="domain-row">
-        <span style="min-width:180px;font-size:13px;">${domain}</span>
-        <div class="domain-bar-wrap"><div class="domain-bar" style="width:${Math.round(sec/max*100)}%;"></div></div>
-        <span class="domain-time">${fmtSec(sec)}</span>
-      </div>
-    `).join('');
-  } catch(e) {
-    c.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${e.message}</div>`;
+    detail.className = 'usage-detail-panel visible';
+    detail.innerHTML = `
+      <strong>${escHtml(category.label)}</strong>
+      <div style="margin-top:8px;color:var(--muted);">使用时间：${fmtSec(category.seconds)} · 限额：${escHtml(category.limitLabel || '—')}</div>
+      <div style="margin-top:10px;">${targets.map(row => `${escHtml(row.label)}：${fmtSec(row.rangeSeconds)}`).join('<br>') || '当前范围没有该分类下的管理对象。'}</div>
+    `;
+    return;
+  }
+  const target = (view.targetRows || []).find(row => row.key === cloudUsageState.detail.key);
+  if (!target) {
+    detail.className = 'usage-detail-panel';
+    return;
+  }
+  detail.className = 'usage-detail-panel visible';
+  detail.innerHTML = `
+    <strong>${escHtml(target.label)}</strong>
+    <div style="margin-top:8px;color:var(--muted);">
+      分类：${escHtml(target.categoryLabel || usageCategoryLabel(target.category))} · 类型：${escHtml(target.managedTargetType || (target.isFallback ? 'fallback domain' : 'managed target'))} · 来源：${escHtml(target.fallbackDomain || target.managedTargetNamespace || '—')}
+    </div>
+    <div style="margin-top:10px;display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;">
+      <div>当前范围<br><strong>${fmtSec(target.rangeSeconds || 0)}</strong></div>
+      <div>今日时间<br><strong>${fmtSec(target.todaySeconds || 0)}</strong></div>
+      <div>本周时间<br><strong>${fmtSec(target.weekSeconds || 0)}</strong></div>
+      <div>状态<br><strong>${escHtml(target.status || '正常')}</strong></div>
+    </div>
+  `;
+}
+
+function renderCloudUsageView(view) {
+  cloudUsageLastView = view;
+  document.querySelectorAll('[data-cloud-usage-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cloudUsageMode === view.range.mode);
+  });
+  const syncLabel = document.getElementById('cloud-usage-sync-label');
+  if (syncLabel) syncLabel.textContent = view.meta?.syncLabel || '同步于 今天';
+  const total = document.getElementById('cloud-usage-total');
+  if (total) total.textContent = fmtSec(view.totalSeconds || 0);
+  const rangeLabel = document.getElementById('cloud-usage-range-label');
+  if (rangeLabel) rangeLabel.textContent = view.range.mode === 'week' ? view.range.label : `${view.range.label} ${DAY_NAMES[new Date(`${view.range.from}T00:00:00`).getDay()]}`;
+  const todayBtn = document.getElementById('cloud-usage-today');
+  if (todayBtn) todayBtn.textContent = view.range.mode === 'week' ? '本周' : '今天';
+  const mainTitle = document.getElementById('cloud-usage-main-title');
+  if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
+  renderCloudUsageStackChart('cloud-usage-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录' });
+  renderCloudUsageStackChart('cloud-usage-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录' });
+  renderCloudUsageLegend(view);
+  renderCloudUsageList(view);
+}
+
+async function renderStatsPage() {
+  if (!currentProfileId) return;
+  const table = document.getElementById('cloud-usage-table');
+  if (table) table.innerHTML = '<div class="usage-empty">加载中...</div>';
+  try {
+    const view = await buildCloudUsageView();
+    renderCloudUsageView(view);
+  } catch (e) {
+    console.warn('[Pages] cloud usage analysis unavailable:', e);
+    if (table) table.innerHTML = '<div class="usage-empty">部分数据暂时不可用</div>';
   }
 }
 

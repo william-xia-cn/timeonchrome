@@ -235,6 +235,18 @@ async function run() {
   check('admin read model reads chrome.storage.local', /chrome\.storage\.local\.get/.test(source));
 
   const usage = await adminStats.getAdminUsageAnalysisView();
+  eq('usage analysis meta is local read model', usage.meta.source, 'chrome.storage.local');
+  check('usage analysis sync label uses local copy', /^本机数据：/.test(usage.meta.syncLabel), usage.meta.syncLabel);
+  eq('usage analysis default range is day', usage.range.mode, 'day');
+  eq('usage analysis total seconds includes local target/domain buckets', usage.totalSeconds, 282);
+  eq('usage analysis study category seconds', usage.categoryTotals.study, 120);
+  eq('usage analysis composite category seconds', usage.categoryTotals.composite, 60);
+  eq('usage analysis rest category seconds', usage.categoryTotals.rest, 30);
+  eq('usage analysis media category seconds', usage.categoryTotals.media, 72);
+  eq('usage analysis day chart has 24 buckets', usage.chartSeries.length, 24);
+  check('usage analysis day chart includes hourly media stats', usage.chartSeries.some(row => row.categories.media === 60), JSON.stringify(usage.chartSeries));
+  eq('usage analysis has five category rows', usage.categoryRows.length, 5);
+  check('usage analysis target rows are managed-object shaped', usage.targetRows.some(row => row.label === 'study.example' && row.category === 'study'), JSON.stringify(usage.targetRows));
   eq('today overview online seconds', usage.todayOverview.online, 217);
   eq('today overview study seconds', usage.todayOverview.study, 120);
   eq('today overview composite seconds', usage.todayOverview.composite, 60);
@@ -340,6 +352,8 @@ async function run() {
   eq('target view keeps domain fallback row', targetUsage.todayData.domainStats['youtube.com'], 30);
   eq('target view study seconds from quota bucket', targetUsage.todayOverview.study, 60);
   eq('target view composite seconds from quota bucket', targetUsage.todayOverview.composite, 30);
+  check('usage analysis target rows prefer managed target label', targetUsage.targetRows.some(row => row.label === '数学播放列表' && row.category === 'study'), JSON.stringify(targetUsage.targetRows));
+  check('usage analysis fallback target row remains available', targetUsage.targetRows.some(row => row.label === 'youtube.com' && row.isFallback === true), JSON.stringify(targetUsage.targetRows));
 
   const total = passed + failed;
   console.log(`\n[Admin Read Model] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

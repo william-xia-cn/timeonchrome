@@ -1039,6 +1039,276 @@
     .ud-status.rest { background: rgba(239,68,68,0.1); color: var(--danger); }
     .ud-status.appealing { background: rgba(108,99,255,0.1); color: var(--accent2); }
 
+    /* 使用分析 Screen Time 视图 */
+    .usage-analysis-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .usage-analysis-topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 4px;
+    }
+    .usage-analysis-title h2 {
+      font-size: 24px;
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+    .usage-analysis-title p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .usage-analysis-controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .usage-segmented {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      overflow: hidden;
+      background: var(--card);
+    }
+    .usage-segmented button {
+      min-width: 72px;
+      padding: 8px 18px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .usage-segmented button.active {
+      background: #2563eb;
+      color: white;
+    }
+    .usage-device-select {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .usage-device-select select,
+    .usage-list-toolbar select,
+    .usage-list-toolbar input {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--card);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+    .usage-analysis-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .usage-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 16px;
+    }
+    .usage-total-label {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .usage-total-value {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .usage-date-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 650;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .usage-date-nav button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      padding: 7px 11px;
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 650;
+    }
+    .usage-chart-title {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 10px 0 8px;
+    }
+    .usage-stack-chart {
+      display: flex;
+      align-items: end;
+      gap: 8px;
+      height: 120px;
+      border-bottom: 1px solid var(--border);
+      padding: 6px 0 0;
+    }
+    .usage-stack-slot {
+      flex: 1;
+      min-width: 8px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: stretch;
+      gap: 2px;
+    }
+    .usage-stack-bar {
+      min-height: 2px;
+      border-radius: 4px 4px 0 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column-reverse;
+      background: rgba(0,0,0,0.04);
+    }
+    .usage-stack-part.study { background: #1d6ff2; }
+    .usage-stack-part.composite { background: #f59e0b; }
+    .usage-stack-part.rest { background: #37b7b7; }
+    .usage-stack-part.media { background: #6c63ff; }
+    .usage-stack-part.other { background: #b6b8bb; }
+    .usage-stack-label {
+      text-align: center;
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .usage-legend {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(90px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .usage-legend-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .usage-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+    .usage-dot.study { background: #1d6ff2; }
+    .usage-dot.composite { background: #f59e0b; }
+    .usage-dot.rest { background: #37b7b7; }
+    .usage-dot.media { background: #6c63ff; }
+    .usage-dot.other { background: #b6b8bb; }
+    .usage-legend-name {
+      font-weight: 650;
+      margin-bottom: 2px;
+    }
+    .usage-legend-time {
+      color: var(--muted);
+    }
+    .usage-list-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .usage-list-toolbar input {
+      width: 220px;
+    }
+    .usage-analysis-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .usage-analysis-table th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 650;
+      background: rgba(0,0,0,0.025);
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .usage-analysis-table td {
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .usage-analysis-table tr {
+      cursor: pointer;
+    }
+    .usage-analysis-table tr:hover {
+      background: rgba(37,99,235,0.035);
+    }
+    .usage-target-name {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      font-weight: 650;
+    }
+    .usage-target-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      background: rgba(37,99,235,0.10);
+      color: #1d6ff2;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 13px;
+    }
+    .usage-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .usage-status::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #2db7a3;
+    }
+    .usage-status.pending::before { background: #2563eb; }
+    .usage-detail-panel {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      background: rgba(0,0,0,0.015);
+      display: none;
+      font-size: 13px;
+    }
+    .usage-detail-panel.visible { display: block; }
+    .usage-empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+      font-size: 13px;
+    }
+
     /* 响应式调整 */
     @media (max-width: 1100px) {
       .stats-columns {
@@ -1220,74 +1490,56 @@
 
     <!-- 使用分析 -->
     <div class="page active" id="page-stats">
-      <div class="page-header">
-        <h2>使用分析</h2>
-        <p>了解上网习惯，优化时间管理</p>
-      </div>
-
-      <div class="stats-columns">
-        <!-- 今日 -->
-        <div class="stats-column">
-          <div class="column-header" id="stats-today-header">今日</div>
-
-          <!-- 今日总览 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">今日总览</div></div>
-            <div class="overview-list" id="today-overview-list">加载中...</div>
+      <div class="usage-analysis-shell">
+        <div class="usage-analysis-topbar">
+          <div class="usage-analysis-title">
+            <h2>使用分析</h2>
+            <p id="usage-analysis-sync-label">本机数据：加载中...</p>
           </div>
-
-          <!-- 本地数据维护 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">本地数据维护</div></div>
-            <div class="overview-list" id="suspect-segment-status">检测中...</div>
-          </div>
-
-          <!-- 今日时间轴 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">今日时间轴</div></div>
-            <div class="timeline-chart" id="today-timeline">加载中...</div>
-          </div>
-
-          <!-- 今日网站排行 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">今日网站排行</div></div>
-            <div class="rank-list" id="today-rank-list">加载中...</div>
-          </div>
-
-          <!-- 今日综合明细 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">今日综合明细</div></div>
-            <div class="undetermined-list" id="today-undetermined-list">加载中...</div>
+          <div class="usage-analysis-controls">
+            <div class="usage-segmented" aria-label="日周切换">
+              <button type="button" class="active" data-usage-range-mode="day">日</button>
+              <button type="button" data-usage-range-mode="week">周</button>
+            </div>
+            <label class="usage-device-select">
+              设备：
+              <select id="usage-analysis-device">
+                <option value="local">这台电脑</option>
+              </select>
+            </label>
           </div>
         </div>
 
-        <!-- 本周 -->
-        <div class="stats-column">
-          <div class="column-header" id="stats-week-header">本周</div>
-
-          <!-- 本周总览 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">本周总览</div></div>
-            <div class="overview-list" id="week-overview-list">加载中...</div>
+        <div class="usage-analysis-card">
+          <div class="usage-card-head">
+            <div>
+              <div class="usage-total-label">使用时间</div>
+              <div class="usage-total-value" id="usage-analysis-total">加载中...</div>
+            </div>
+            <div class="usage-date-nav">
+              <span id="usage-analysis-range-label">今天</span>
+              <button type="button" id="usage-analysis-prev" aria-label="上一日或上一周">‹</button>
+              <button type="button" id="usage-analysis-today">今天</button>
+              <button type="button" id="usage-analysis-next" aria-label="下一日或下一周">›</button>
+            </div>
           </div>
+          <div class="usage-chart-title" id="usage-analysis-summary-title">本周每日结构</div>
+          <div class="usage-stack-chart" id="usage-analysis-week-chart">加载中...</div>
+          <div class="usage-chart-title" id="usage-analysis-main-title">24 小时分布</div>
+          <div class="usage-stack-chart" id="usage-analysis-main-chart">加载中...</div>
+          <div class="usage-legend" id="usage-analysis-legend"></div>
+        </div>
 
-          <!-- 本周每日分布 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">本周每日分布</div></div>
-            <div class="daily-bars" id="week-daily-bars">加载中...</div>
+        <div class="usage-analysis-card">
+          <div class="usage-list-toolbar">
+            <select id="usage-analysis-list-mode">
+              <option value="targets">显示管理对象</option>
+              <option value="categories">显示分类</option>
+            </select>
+            <input type="search" id="usage-analysis-search" placeholder="搜索管理对象">
           </div>
-
-          <!-- 本周网站排行 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">本周网站排行</div></div>
-            <div class="rank-list" id="week-rank-list">加载中...</div>
-          </div>
-
-          <!-- 本周综合明细 -->
-          <div class="card">
-            <div class="card-header"><div class="card-title">本周综合明细</div></div>
-            <div class="undetermined-list" id="week-undetermined-list">加载中...</div>
-          </div>
+          <div id="usage-analysis-table-wrap">加载中...</div>
+          <div class="usage-detail-panel" id="usage-analysis-detail"></div>
         </div>
       </div>
     </div>

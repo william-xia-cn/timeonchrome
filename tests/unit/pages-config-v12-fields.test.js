@@ -55,6 +55,10 @@ function run() {
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
   expectTrue('Pages 控制台应优先读取 stats/v1', source.includes('/stats/v1?from='));
   expectTrue('Pages 控制台应优先读取 target-stats/v1', source.includes('/target-stats/v1?from=') && source.includes('normalizeTargetStatsRows'));
+  expectTrue('Pages 使用分析应采用 Screen Time 结构', source.includes('id="cloud-usage-total"') && source.includes('id="cloud-usage-week-chart"') && source.includes('id="cloud-usage-main-chart"') && source.includes('id="cloud-usage-list-mode"'));
+  expectTrue('Pages 使用分析默认全部设备并支持日周切换', source.includes('设备：') && source.includes('全部设备') && source.includes('data-cloud-usage-mode="day"') && source.includes('data-cloud-usage-mode="week"'));
+  expectTrue('Pages 使用分析应优先 target stats 并合入 media stats', source.includes('/target-stats/v1?') && source.includes('/hourly-target-stats/v1?') && source.includes('/media-stats/v1?') && source.includes('/hourly-media-stats/v1?'));
+  expectTrue('Pages 使用分析普通列表不暴露落账诊断字段', source.includes('显示管理对象') && source.includes('显示分类') && !extractFunctionSource(source, 'renderCloudUsageList').includes('settlementReason') && !extractFunctionSource(source, 'renderCloudUsageList').includes('tabId'));
   expectTrue('Pages 控制台应包含 v1 stats 适配器', source.includes('function fetchProfileStats'));
   expectTrue('Pages 登录注册邮箱应统一小写', source.includes('function normalizeEmailInput') && source.includes("normalizeEmailInput(document.getElementById('login-email').value)") && source.includes("normalizeEmailInput(document.getElementById('reg-email').value)"));
   expectTrue('auth.js 绑定登录邮箱应统一小写', authSource.includes('const normalizedEmail') && authSource.includes('email: normalizedEmail'));

@@ -12,6 +12,14 @@ const DAILY_MEDIA_STATS_KEY = 'daily_media_stats_v1';
 const HOURLY_MEDIA_STATS_KEY = 'hourly_media_stats_v1';
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const TEMP_COMPOSITE_DOMAINS_KEY = 'temporary_composite_domains';
+const ANALYSIS_CATEGORY_KEYS = ['study', 'composite', 'rest', 'media', 'other'];
+const ANALYSIS_CATEGORY_LABELS = {
+  study: '学习',
+  composite: '综合',
+  rest: '休息',
+  media: '媒体',
+  other: '其他',
+};
 
 const STATS_KEYS = [
   'audioSeconds',
@@ -38,6 +46,37 @@ export const ADMIN_READ_MODEL_KEYS = [
 
 export function getAdminDateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function parseAdminDateKey(key) {
+  if (typeof key !== 'string') return new Date();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!match) return new Date();
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function addDays(date, days) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function startOfAdminWeek(date) {
+  const dow = date.getDay() === 0 ? 6 : date.getDay() - 1;
+  return addDays(date, -dow);
+}
+
+function dateKeysBetween(from, to) {
+  const keys = [];
+  let cursor = parseAdminDateKey(from);
+  const end = parseAdminDateKey(to);
+  while (cursor <= end) {
+    keys.push(getAdminDateKey(cursor));
+    cursor = addDays(cursor, 1);
+  }
+  return keys;
+}
+
+function formatAdminClock(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function storageGet(keys) {
@@ -341,6 +380,298 @@ function computeOverview(data, config, storage) {
   return { online, study, rest: Math.max(0, rest), audio, pip, composite, undetermined: composite };
 }
 
+function emptyAnalysisCategories() {
+  return { study: 0, composite: 0, rest: 0, media: 0, other: 0 };
+}
+
+function addBucketSecondsToCategories(categories, bucketMap = {}, secondsFallback = 0, fallbackBucket = 'other') {
+  let assigned = 0;
+  for (const [bucket, rawSeconds] of Object.entries(bucketMap || {})) {
+    const seconds = Math.max(0, Number(rawSeconds) || 0);
+    if (seconds <= 0) continue;
+    if (bucket === 'study') categories.study += seconds;
+    else if (bucket === 'composite' || bucket === 'pending_composite') categories.composite += seconds;
+    else if (bucket === 'rest') categories.rest += seconds;
+    else categories.other += seconds;
+    assigned += seconds;
+  }
+  const fallbackSeconds = Math.max(0, Number(secondsFallback) || 0) - assigned;
+  if (fallbackSeconds > 0) {
+    if (fallbackBucket === 'study') categories.study += fallbackSeconds;
+    else if (fallbackBucket === 'composite') categories.composite += fallbackSeconds;
+    else if (fallbackBucket === 'rest') categories.rest += fallbackSeconds;
+    else categories.other += fallbackSeconds;
+  }
+}
+
+function classificationToCategory(classification) {
+  if (classification === 'study') return 'study';
+  if (classification === 'composite' || classification === 'pending_composite') return 'composite';
+  if (classification === 'rest') return 'rest';
+  return null;
+}
+
+function dominantCategory(categories) {
+  let best = 'other';
+  let bestSeconds = -1;
+  for (const key of ANALYSIS_CATEGORY_KEYS) {
+    const seconds = Number(categories?.[key] || 0);
+    if (seconds > bestSeconds) {
+      best = key;
+      bestSeconds = seconds;
+    }
+  }
+  return best;
+}
+
+function targetStatusFromStat(stat) {
+  const classification = stat?.targetClassificationAtTime;
+  if (classification === 'pending_composite') return '待归类';
+  if (classification === 'blocked' || classification === 'restricted') return '已限制';
+  return '正常';
+}
+
+function makeFallbackTargetStat(domain, ds = {}, config, storage) {
+  const classification = classifyDomain(domain, config, storage);
+  return {
+    targetKey: `fallback:domain:${domain}`,
+    managedTargetId: null,
+    managedTargetType: null,
+    managedTargetNamespace: null,
+    managedTargetValue: null,
+    managedTargetLabelAtTime: null,
+    targetClassificationAtTime: classification === 'pending_composite' ? 'pending_composite' : null,
+    fallbackDomain: domain,
+    isFallback: true,
+    activeSeconds: Math.max(0, Number(ds.activeSeconds) || 0),
+    backgroundMediaSeconds: Math.max(0, Number(ds.backgroundMediaSeconds) || 0),
+    pipSeconds: Math.max(0, Number(ds.pipSeconds) || 0),
+    activeByQuotaBucket: ds.activeByMode || {},
+    backgroundMediaByQuotaBucket: ds.backgroundMediaByMode || {},
+    pipByQuotaBucket: ds.pipByMode || {},
+    firstSeenAt: ds.firstSeenAt || null,
+    lastSeenAt: ds.lastSeenAt || null,
+  };
+}
+
+function dayTargetStats(dayStats, config, storage) {
+  if (dayStats?.targets && Object.keys(dayStats.targets).length > 0) {
+    return Object.entries(dayStats.targets).map(([targetKey, stat]) => ({ targetKey, ...stat }));
+  }
+  return Object.entries(dayStats?.domains || {}).map(([domain, ds]) => makeFallbackTargetStat(domain, ds, config, storage));
+}
+
+function mediaClassTotalSeconds(stats = {}) {
+  return ['foregroundAudioSeconds', 'backgroundAudioSeconds', 'foregroundVideoSeconds', 'backgroundVideoSeconds', 'pipSeconds']
+    .reduce((sum, key) => sum + Math.max(0, Number(stats?.[key]) || 0), 0);
+}
+
+function mediaDomainTotalSeconds(mediaStats = {}) {
+  const directTotal = Math.max(0, Number(mediaStats?.totalSeconds) || 0) || mediaClassTotalSeconds(mediaStats);
+  if (directTotal > 0) return directTotal;
+  return Object.values(mediaStats?.byMode || {}).reduce((sum, modeStats) => {
+    return sum + (Math.max(0, Number(modeStats?.totalSeconds) || 0) || mediaClassTotalSeconds(modeStats));
+  }, 0);
+}
+
+function dayMediaTargetStats(dayMediaStats) {
+  return Object.entries(dayMediaStats?.domains || {}).map(([domain, mediaStats]) => ({
+    targetKey: `fallback:domain:${domain}`,
+    fallbackDomain: domain,
+    isFallback: true,
+    activeSeconds: 0,
+    backgroundMediaSeconds: mediaDomainTotalSeconds(mediaStats),
+    pipSeconds: 0,
+    activeByQuotaBucket: {},
+    backgroundMediaByQuotaBucket: {},
+    pipByQuotaBucket: {},
+    firstSeenAt: mediaStats?.firstSeenAt || null,
+    lastSeenAt: mediaStats?.lastSeenAt || null,
+  })).filter(stat => stat.backgroundMediaSeconds > 0);
+}
+
+function applyTargetStatToCategories(categories, stat) {
+  const activeSeconds = Math.max(0, Number(stat?.activeSeconds) || 0);
+  const mediaSeconds = Math.max(0, Number(stat?.backgroundMediaSeconds) || 0) + Math.max(0, Number(stat?.pipSeconds) || 0);
+  const fallbackCategory = classificationToCategory(stat?.targetClassificationAtTime) || 'other';
+  addBucketSecondsToCategories(categories, stat?.activeByQuotaBucket || {}, activeSeconds, fallbackCategory);
+  categories.media += mediaSeconds;
+}
+
+function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage, dailyMediaStats = {}) {
+  const map = new Map();
+  for (const date of dateKeys) {
+    const dayStats = dailyStats?.[date] || {};
+    const stats = [
+      ...dayTargetStats(dayStats, config, storage),
+      ...dayMediaTargetStats(dailyMediaStats?.[date]),
+    ];
+    for (const stat of stats) {
+      const key = stat.targetKey || stat.managedTargetId || `fallback:domain:${stat.fallbackDomain || 'unknown'}`;
+      const row = map.get(key) || {
+        key,
+        label: stat.managedTargetLabelAtTime || stat.managedTargetValue || stat.fallbackDomain || key,
+        fallbackDomain: stat.fallbackDomain || null,
+        managedTargetId: stat.managedTargetId || null,
+        managedTargetType: stat.managedTargetType || null,
+        managedTargetNamespace: stat.managedTargetNamespace || null,
+        managedTargetValue: stat.managedTargetValue || null,
+        targetClassificationAtTime: stat.targetClassificationAtTime || null,
+        isFallback: !!stat.isFallback,
+        categories: emptyAnalysisCategories(),
+        seconds: 0,
+        firstSeenAt: null,
+        lastSeenAt: null,
+      };
+      const statCategories = emptyAnalysisCategories();
+      applyTargetStatToCategories(statCategories, stat);
+      for (const category of ANALYSIS_CATEGORY_KEYS) row.categories[category] += statCategories[category];
+      const statTotal = ANALYSIS_CATEGORY_KEYS.reduce((sum, category) => sum + statCategories[category], 0);
+      row.seconds += statTotal;
+      if (stat.firstSeenAt && (!row.firstSeenAt || stat.firstSeenAt < row.firstSeenAt)) row.firstSeenAt = stat.firstSeenAt;
+      if (stat.lastSeenAt && (!row.lastSeenAt || stat.lastSeenAt > row.lastSeenAt)) row.lastSeenAt = stat.lastSeenAt;
+      map.set(key, row);
+    }
+  }
+  return map;
+}
+
+function targetRowsForAnalysis(dailyStats, dailyMediaStats, selectedDateKey, weekDateKeys, rangeDateKeys, config, storage) {
+  const todayMap = aggregateTargetStatsByDate(dailyStats, [selectedDateKey], config, storage, dailyMediaStats);
+  const weekMap = aggregateTargetStatsByDate(dailyStats, weekDateKeys, config, storage, dailyMediaStats);
+  const rangeMap = aggregateTargetStatsByDate(dailyStats, rangeDateKeys, config, storage, dailyMediaStats);
+  const allKeys = new Set([...todayMap.keys(), ...weekMap.keys(), ...rangeMap.keys()]);
+  return [...allKeys].map((key) => {
+    const range = rangeMap.get(key) || weekMap.get(key) || todayMap.get(key);
+    const today = todayMap.get(key);
+    const week = weekMap.get(key);
+    const category = dominantCategory(range?.categories || {});
+    return {
+      key,
+      label: range?.label || key,
+      category,
+      categoryLabel: ANALYSIS_CATEGORY_LABELS[category],
+      todaySeconds: today?.seconds || 0,
+      weekSeconds: week?.seconds || 0,
+      rangeSeconds: range?.seconds || 0,
+      limitLabel: '—',
+      status: targetStatusFromStat(range),
+      fallbackDomain: range?.fallbackDomain || null,
+      managedTargetId: range?.managedTargetId || null,
+      managedTargetType: range?.managedTargetType || null,
+      managedTargetNamespace: range?.managedTargetNamespace || null,
+      managedTargetValue: range?.managedTargetValue || null,
+      targetClassificationAtTime: range?.targetClassificationAtTime || null,
+      isFallback: !!range?.isFallback,
+      lastSeenAt: range?.lastSeenAt || null,
+      categories: range?.categories || emptyAnalysisCategories(),
+    };
+  }).filter(row => row.rangeSeconds > 0 || row.todaySeconds > 0 || row.weekSeconds > 0)
+    .sort((a, b) => b.rangeSeconds - a.rangeSeconds || a.label.localeCompare(b.label));
+}
+
+function categoryRowsForAnalysis(categoryTotals) {
+  return ANALYSIS_CATEGORY_KEYS.map((key) => ({
+    key,
+    label: ANALYSIS_CATEGORY_LABELS[key],
+    seconds: Math.max(0, Number(categoryTotals?.[key]) || 0),
+    limitLabel: key === 'composite' || key === 'rest' ? '按配额管理' : '—',
+    status: '正常',
+  }));
+}
+
+function dailyCategoryTotals(dayStats, config, storage, dayMediaStats = null) {
+  const categories = emptyAnalysisCategories();
+  for (const stat of dayTargetStats(dayStats || {}, config, storage)) {
+    applyTargetStatToCategories(categories, stat);
+  }
+  for (const stat of dayMediaTargetStats(dayMediaStats || {})) {
+    applyTargetStatToCategories(categories, stat);
+  }
+  return categories;
+}
+
+function buildDailySeries(dailyStats, dateKeys, config, storage, dailyMediaStats = {}) {
+  return dateKeys.map((date) => ({
+    key: date,
+    label: date.slice(5),
+    categories: dailyCategoryTotals(dailyStats?.[date], config, storage, dailyMediaStats?.[date]),
+  }));
+}
+
+function buildHourlySeries(hourlyStats, dateKey, config, storage, hourlyMediaStats = {}) {
+  const rows = [];
+  for (let hour = 0; hour < 24; hour++) {
+    const hourKeyPrefix = `${dateKey}T${String(hour).padStart(2, '0')}`;
+    const entry = Object.entries(hourlyStats || {}).find(([hourKey, hs]) =>
+      hourKey.startsWith(hourKeyPrefix) || (hs?.date === dateKey && Number(hs?.hour) === hour)
+    );
+    const mediaEntry = Object.entries(hourlyMediaStats || {}).find(([hourKey, hs]) =>
+      hourKey.startsWith(hourKeyPrefix) || (hs?.date === dateKey && Number(hs?.hour) === hour)
+    );
+    rows.push({
+      key: `${dateKey}-${hour}`,
+      hour,
+      label: `${hour}时`,
+      categories: dailyCategoryTotals(entry?.[1], config, storage, mediaEntry?.[1]),
+    });
+  }
+  return rows;
+}
+
+function sumSeriesCategories(series) {
+  const totals = emptyAnalysisCategories();
+  for (const row of series || []) {
+    for (const key of ANALYSIS_CATEGORY_KEYS) totals[key] += Math.max(0, Number(row.categories?.[key]) || 0);
+  }
+  return totals;
+}
+
+function buildUsageAnalysisView(storage, config, options = {}) {
+  const dailyStats = storage[DAILY_USAGE_STATS_KEY] || {};
+  const hourlyStats = storage[HOURLY_USAGE_STATS_KEY] || {};
+  const dailyMediaStats = storage[DAILY_MEDIA_STATS_KEY] || {};
+  const hourlyMediaStats = storage[HOURLY_MEDIA_STATS_KEY] || {};
+  const anchor = options.date ? parseAdminDateKey(options.date) : new Date();
+  const mode = options.mode === 'week' ? 'week' : 'day';
+  const selectedDateKey = getAdminDateKey(anchor);
+  const weekStart = startOfAdminWeek(anchor);
+  const weekEnd = addDays(weekStart, 6);
+  const weekDateKeys = dateKeysBetween(getAdminDateKey(weekStart), getAdminDateKey(weekEnd));
+  const rangeDateKeys = mode === 'week' ? weekDateKeys : [selectedDateKey];
+  const chartSeries = mode === 'week'
+    ? buildDailySeries(dailyStats, weekDateKeys, config, storage, dailyMediaStats)
+    : buildHourlySeries(hourlyStats, selectedDateKey, config, storage, hourlyMediaStats);
+  const totalSeries = buildDailySeries(dailyStats, rangeDateKeys, config, storage, dailyMediaStats);
+  const categoryTotals = sumSeriesCategories(totalSeries);
+  const targetRows = targetRowsForAnalysis(dailyStats, dailyMediaStats, selectedDateKey, weekDateKeys, rangeDateKeys, config, storage);
+  const pendingRows = targetRows.filter(row => row.status === '待归类');
+  const range = mode === 'week'
+    ? { mode, from: getAdminDateKey(weekStart), to: getAdminDateKey(weekEnd), label: `${getAdminDateKey(weekStart).slice(5)} — ${getAdminDateKey(weekEnd).slice(5)}` }
+    : { mode, from: selectedDateKey, to: selectedDateKey, label: selectedDateKey };
+  return {
+    meta: {
+      source: 'chrome.storage.local',
+      readOnly: true,
+      updatedAt: Date.now(),
+      syncLabel: `本机数据：今天 ${formatAdminClock()}`,
+      deviceScope: {
+        selected: 'local',
+        label: '这台电脑',
+        options: [{ id: 'local', label: '这台电脑' }],
+      },
+    },
+    range,
+    totalSeconds: ANALYSIS_CATEGORY_KEYS.reduce((sum, key) => sum + categoryTotals[key], 0),
+    categoryTotals,
+    chartSeries,
+    weekSummarySeries: buildDailySeries(dailyStats, weekDateKeys, config, storage, dailyMediaStats),
+    targetRows,
+    categoryRows: categoryRowsForAnalysis(categoryTotals),
+    pendingRows,
+  };
+}
+
 function dateKeysForDays(days, now = new Date()) {
   const keys = [];
   for (let i = days - 1; i >= 0; i--) {
@@ -597,7 +928,7 @@ function buildSuspectSummary(segments) {
   return { ok: true, markedCount: suspect.length, excludedSeconds, suspectByReason };
 }
 
-export async function getAdminUsageAnalysisView() {
+export async function getAdminUsageAnalysisView(options = {}) {
   const storage = await readAdminStatsStorage();
   const config = safeConfig(storage[CONFIG_KEY]);
   const dailyStats = storage[DAILY_USAGE_STATS_KEY] || {};
@@ -609,6 +940,7 @@ export async function getAdminUsageAnalysisView() {
   const segments = allUsageSegments(storage);
   const todayOverview = computeOverview(todayData, config, storage);
   const weekOverview = computeOverview(weekData, config, storage);
+  const analysisView = buildUsageAnalysisView(storage, config, options);
   return {
     ok: true,
     source: 'admin_read_model',
@@ -624,7 +956,15 @@ export async function getAdminUsageAnalysisView() {
     todayCompositeSessions: compositeSessionsFromRange(todayRangeData, config, storage).filter((row) => row.date === today),
     weekCompositeSessions: compositeSessionsFromRange(weekRangeData, config, storage),
     suspectSummary: buildSuspectSummary(segments),
-    meta: { source: 'chrome.storage.local', readOnly: true },
+    ...analysisView,
+    legacy: {
+      todayRangeData,
+      weekRangeData,
+      todayData,
+      weekData,
+      todayOverview,
+      weekOverview,
+    },
   };
 }
 
