@@ -377,6 +377,10 @@ chkT('rebuild ok', rResult.rebuilt);
 chk('used 2', rResult.segmentsUsed, 2);
 st = await api.getDailyUsageStats(r1.date);
 chk('rebuilt active=600', st.domains['rebuild.com'].activeSeconds, 600);
+let rebuiltPending = await api.getPendingDailyStats();
+chkT('rebuild marks daily stats dirty', rebuiltPending.dirtyDates.includes(r1.date));
+let rebuiltTargetPending = await api.getPendingTargetStats();
+chkT('rebuild marks target stats dirty', rebuiltTargetPending.dirtyDates.includes(r1.date));
 
 // ── TB13: Prune ──
 sec('TB13: Prune');
@@ -604,6 +608,10 @@ const df = await api.getPendingDailyStats();
 chkT('pending stats exist', Object.keys(df.stats).length > 0);
 chkT('stats pendingCount > 0', df.pendingCount > 0);
 chk('domain in stats', df.stats[todayStr].domains['stats.com'].activeSeconds, 60);
+await mockLocal.set({ daily_usage_stats_v1: {} });
+const missingDailyPending = await api.getPendingDailyStats();
+chkT('pending dirtyDates preserved when daily stats missing', missingDailyPending.dirtyDates.includes(todayStr));
+chk('missing daily stats not returned as payload stats', Object.keys(missingDailyPending.stats).length, 0);
 
 // ── TB27: markDailyStatsUploaded clears dirty ──
 sec('TB27: markDailyStatsUploaded');
@@ -789,8 +797,8 @@ chkT('v1 outbox has dirtyDates', Array.isArray(v1Ob.dirtyDates));
 await api.clearStatsSyncOutbox();
 await api.clearSegmentSyncOutbox();
 
-// ── P0 Regression TB35: Empty daily_usage_stats_v1 must not block getTodayStats ──
-sec('TB35: P0 Regression — empty daily stats must fall back to event-log');
+// ── P0 Regression TB35: Empty daily_usage_stats_v1 must be treated as non-authoritative ──
+sec('TB35: P0 Regression — empty daily stats is non-authoritative');
 mockLocal.reset();
 const emptyStatsEntry = {
   date: todayStr,
@@ -807,8 +815,8 @@ const storedDay = stored['daily_usage_stats_v1'][todayStr];
 chk('empty domains exists', typeof storedDay.domains, 'object');
 chk('empty domains has 0 keys', Object.keys(storedDay.domains).length, 0);
 chkT('empty domains is truthy (would have triggered the bug)', !!storedDay.domains);
-const shouldUseEventLogFallback = !storedDay || !storedDay.domains || Object.keys(storedDay.domains).length === 0;
-chkT('guard condition triggers fallback', shouldUseEventLogFallback);
+const shouldTreatAsNonAuthoritative = !storedDay || !storedDay.domains || Object.keys(storedDay.domains).length === 0;
+chkT('guard condition treats empty daily as non-authoritative', shouldTreatAsNonAuthoritative);
 await api.settleUsageDuration({ startMs: MOCK_TIME-60000, endMs: MOCK_TIME, domain: 'p0test.com', channel: 'active', mode: 'rest', sourceState: 'ACTIVE', settlementReason: 'tc', profileId: 'p1', deviceId: 'd1' });
 const stored2 = await chrome.storage.local.get('daily_usage_stats_v1');
 const storedDay2 = stored2['daily_usage_stats_v1'][todayStr];

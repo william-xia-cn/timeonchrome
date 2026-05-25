@@ -79,13 +79,14 @@ export interface Env {
   RESEND_API_KEY?: string;
 }
 
-const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|stats-reconciliation|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
+const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|stats-reconciliation|stats-integrity|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
 const DEVICE_STATS_ROUTES = new Set([
   '/device/usage-segments/v1',
   '/device/stats/v1',
   '/device/hourly-stats/v1',
   '/device/target-stats/v1',
   '/device/hourly-target-stats/v1',
+  '/device/stats-integrity/v1',
   '/device/media-segments/v1',
   '/device/media-stats/v1',
   '/device/hourly-media-stats/v1',

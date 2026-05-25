@@ -318,7 +318,7 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - PiP 计为 `pip`，独立于 foreground/background media，但当前 policy 是全局禁止；`pip` 只表示被检测到且正在清理/清理失败的禁用事实。
 - `tabs.onActivated`、`tabs.onReplaced`、window minimized/restored 只允许对已知媒体 tab 做关闭、迁移或 foreground/background 重分类；没有既有 media fact 或 open media session 时不得凭空开媒体账。
 - 媒体细分时长写入独立媒体账本，不写入 foreground `usage_segments_v1`，也不进入 `buildUsageSegmentsUploadPayload()`。当前 legacy compensation 仍可能影响 foreground `ACTIVE` 开合；该行为只作为待移除遗留路径保留。
-- 云端同步边界：媒体账本已有独立 outbox、上传函数和 Worker endpoints（`/device/media-segments/v1`、`/device/media-stats/v1`），但它仍不混入普通 `usage_segments_v1` / `stats_v1` 协议。Pages/admin/popup 的最终媒体统计口径、配额口径和家长端展示仍是发布前需要确认的产品项。
+- 云端同步边界：媒体账本已有独立 outbox、上传函数和 Worker endpoints（`/device/media-segments/v1`、`/device/media-stats/v1`），但它仍不混入普通 `usage_segments_v1` / `stats_v1` 协议。Pages/Admin 使用分析以独立 `媒体使用` Tab 展示聚合媒体统计；popup 是否展示媒体统计、媒体是否进入配额口径，仍是发布前需要确认的产品项。
 
 #### 3.1.6 周期性 Checkpoint（补充计时落账与采样对账）
 
@@ -390,7 +390,7 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 
 Mode boundary 是系统级账务边界。Mode/product 层只入队 boundary intent；media timing 在消费该 intent 时执行 PiP policy。由于当前 PiP policy 为全局禁止，任何 media mode-boundary 消费发现 open `pip` session 时都必须先尝试共享 cleanup；cleanup 成功后用 `pip_forbidden_cleanup` 关闭 `pip` session，不以 `mode_effective_boundary_reopen` 重开 PiP；cleanup 失败时保留事实并按 mode boundary 切片，表示禁用 PiP 仍在持续。页面内仍有非 PiP 视频/音频事实时，可按新 mode 重分类为普通 foreground/background media。
 
-该账本不进入 `segment_sync_outbox_v1` 或 `stats_sync_outbox_v1`，不会被 `buildUsageSegmentsUploadPayload()` 上传；它使用独立 `media_segment_sync_outbox_v1` / `media_stats_sync_outbox_v1` / `hourly_media_stats_sync_outbox_v1` 和 dedicated Worker endpoints。正式发布前仍必须确认媒体细分是否进入正式产品统计/配额/家长端口径，以及 Pages/admin/popup 是否以同一 managed statistics view 展示。
+该账本不进入 `segment_sync_outbox_v1` 或 `stats_sync_outbox_v1`，不会被 `buildUsageSegmentsUploadPayload()` 上传；它使用独立 `media_segment_sync_outbox_v1` / `media_stats_sync_outbox_v1` / `hourly_media_stats_sync_outbox_v1` 和 dedicated Worker endpoints。普通“使用分析”展示层必须把网页/前台使用和媒体使用作为两个并列账本视图处理：`网页使用` 只读 foreground/page target stats，`媒体使用` 只读 media stats/mediaClass，不把媒体秒数混入网页分类图表。正式发布前仍必须确认媒体细分是否进入配额和家长端长期口径。
 
 ---
 

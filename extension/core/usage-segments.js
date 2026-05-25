@@ -764,6 +764,7 @@ export async function rebuildDailyUsageStats(date, options = {}) {
   }
 
   await chrome.storage.local.set({ [DAILY_STATS_KEY]: stats });
+  await markStatsSyncDirty([date]);
   await markTargetStatsSyncDirty([date]);
 
   return {
@@ -1067,7 +1068,7 @@ export async function getPendingDailyStats(dates = null) {
 
   const targetDates = dates
     ? (Array.isArray(dates) ? dates : [dates])
-    : outbox.dirtyDates;
+    : (outbox.dirtyDates || []);
 
   const stats = {};
   for (const date of targetDates) {
@@ -1078,7 +1079,8 @@ export async function getPendingDailyStats(dates = null) {
 
   return {
     stats,
-    pendingCount: outbox.dirtyDates.length,
+    dirtyDates: targetDates || [],
+    pendingCount: (outbox.dirtyDates || []).length,
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
   };
@@ -1091,7 +1093,7 @@ export async function getPendingTargetStats(dates = null) {
 
   const targetDates = dates
     ? (Array.isArray(dates) ? dates : [dates])
-    : outbox.dirtyDates;
+    : (outbox.dirtyDates || []);
 
   const stats = {};
   for (const date of targetDates || []) {
@@ -1102,6 +1104,7 @@ export async function getPendingTargetStats(dates = null) {
 
   return {
     stats,
+    dirtyDates: targetDates || [],
     pendingCount: (outbox.dirtyDates || []).length,
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},

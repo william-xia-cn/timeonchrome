@@ -258,10 +258,77 @@ async function verifyProfileDevice(env: Env, profileId: string, deviceId: string
   return !!device;
 }
 
+async function readUsageStatsIntegrity(env: Env, profileId: string, deviceId: string, date: string): Promise<Record<string, { count: number; seconds: number }>> {
+  const readMetric = async (table: string) => {
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) as count, COALESCE(SUM(duration_seconds), 0) as seconds
+       FROM ${table}
+       WHERE profile_id = ? AND device_id = ? AND date = ?`
+    ).bind(profileId, deviceId, date).first<{ count: number; seconds: number }>();
+    return {
+      count: Number(row?.count || 0),
+      seconds: Number(row?.seconds || 0),
+    };
+  };
+
+  const [usageSegments, dailyStats, targetStats, hourlyStats, hourlyTargetStats] = await Promise.all([
+    readMetric('usage_segments_v1'),
+    readMetric('stats_v1'),
+    readMetric('target_stats_v1'),
+    readMetric('hourly_stats_v1'),
+    readMetric('hourly_target_stats_v1'),
+  ]);
+
+  const usageSeconds = Number(usageSegments.seconds || 0);
+  const checks = {
+    dailyMatchesUsage: Number(dailyStats.seconds || 0) === usageSeconds,
+    targetMatchesUsage: Number(targetStats.seconds || 0) === usageSeconds,
+    hourlyMatchesUsage: Number(hourlyStats.seconds || 0) === usageSeconds,
+    hourlyTargetMatchesUsage: Number(hourlyTargetStats.seconds || 0) === usageSeconds,
+  };
+  const issues = Object.entries(checks)
+    .filter(([, ok]) => !ok)
+    .map(([key]) => key);
+  const complete = issues.length === 0;
+
+  return {
+    usageSegments,
+    dailyStats,
+    targetStats,
+    hourlyStats,
+    hourlyTargetStats,
+    complete,
+    issues,
+    checks,
+  };
+}
+
 export const statsRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
     const path = url.pathname;
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /device/stats-integrity/v1 — 终端按日期校验云端普通 usage 数据完整性
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (request.method === 'GET' && path === '/device/stats-integrity/v1') {
+      const auth = request.headers.get('Authorization');
+      if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
+
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+
+      const date = url.searchParams.get('date');
+      if (!isDateKey(date)) return json({ error: 'date must be YYYY-MM-DD' }, 400);
+
+      const integrity = await readUsageStatsIntegrity(env, device.profileId, device.deviceId, date);
+      return json({
+        profileId: device.profileId,
+        deviceId: device.deviceId,
+        date,
+        ...integrity,
+      });
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // V1: POST /device/media-segments/v1 — 上传已结算的媒体分段
@@ -1316,6 +1383,35 @@ export const statsRouter = {
       ).bind(...binds).all<any>();
 
       return json({ stats: result.results || [] });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V1: GET /profiles/:id/stats-integrity/v1 — 查询某终端某日期普通 usage 数据完整性
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const statsIntegrityV1Match = path.match(/^\/profiles\/([^/]+)\/stats-integrity\/v1$/);
+    if (request.method === 'GET' && statsIntegrityV1Match) {
+      const profileId = statsIntegrityV1Match[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+
+      const profile = await env.DB.prepare(
+        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+      ).bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      const date = url.searchParams.get('date');
+      const deviceId = url.searchParams.get('deviceId');
+      if (!isDateKey(date)) return json({ error: 'date must be YYYY-MM-DD' }, 400);
+      if (!deviceId) return json({ error: 'deviceId required' }, 400);
+      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+
+      const integrity = await readUsageStatsIntegrity(env, profileId, deviceId, date);
+      return json({
+        profileId,
+        deviceId,
+        date,
+        ...integrity,
+      });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════

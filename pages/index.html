@@ -274,6 +274,11 @@
     .usage-stack-part.rest { background: #37b7b7; }
     .usage-stack-part.media { background: #6c63ff; }
     .usage-stack-part.other { background: #b6b8bb; }
+    .usage-stack-part.foregroundAudio { background: #2fb8ac; }
+    .usage-stack-part.backgroundAudio { background: #7cc6c2; }
+    .usage-stack-part.foregroundVideo { background: #6c63ff; }
+    .usage-stack-part.backgroundVideo { background: #9b8cff; }
+    .usage-stack-part.pip { background: #ef476f; }
     .usage-stack-label {
       text-align: center; font-size: 10px; color: var(--muted);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -289,6 +294,11 @@
     .usage-dot.rest { background: #37b7b7; }
     .usage-dot.media { background: #6c63ff; }
     .usage-dot.other { background: #b6b8bb; }
+    .usage-dot.foregroundAudio { background: #2fb8ac; }
+    .usage-dot.backgroundAudio { background: #7cc6c2; }
+    .usage-dot.foregroundVideo { background: #6c63ff; }
+    .usage-dot.backgroundVideo { background: #9b8cff; }
+    .usage-dot.pip { background: #ef476f; }
     .usage-legend-name { font-weight: 650; margin-bottom: 2px; }
     .usage-legend-time { color: var(--muted); }
     .usage-list-toolbar {
@@ -939,6 +949,11 @@
             </div>
           </div>
 
+          <div class="usage-segmented" aria-label="使用分析账本" style="width:max-content;margin-bottom:12px;">
+            <button type="button" class="active" data-cloud-usage-ledger="web">网页使用</button>
+            <button type="button" data-cloud-usage-ledger="media">媒体使用</button>
+          </div>
+
           <div class="usage-analysis-card">
             <div class="usage-card-head">
               <div>
@@ -1407,7 +1422,7 @@ let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, ha
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
 let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudDevicesCache = { profileId: null, devices: [] };
-let cloudUsageState = { mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
+let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
 
 function normalizeEmailInput(value) {
@@ -2744,6 +2759,14 @@ async function saveScheduleConfig() {
 
 // ── Stats ────────────────────────────────────────────────────
 function setupStats() {
+  document.querySelectorAll('[data-cloud-usage-ledger]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      cloudUsageState.ledger = btn.dataset.cloudUsageLedger === 'media' ? 'media' : 'web';
+      cloudUsageState.detail = null;
+      cloudUsageState.query = '';
+      renderStatsPage();
+    });
+  });
   document.querySelectorAll('[data-cloud-usage-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
       cloudUsageState.mode = btn.dataset.cloudUsageMode === 'week' ? 'week' : 'day';
@@ -2818,20 +2841,37 @@ function cloudUsageRange() {
 }
 
 function usageCategoryLabel(key) {
-  return ({ study: '学习', composite: '综合', rest: '休息', media: '媒体', other: '其他' })[key] || key || '其他';
+  return ({
+    study: '学习',
+    composite: '综合',
+    rest: '休息',
+    other: '其他',
+    foregroundAudio: '前台音频',
+    backgroundAudio: '后台音频',
+    foregroundVideo: '前台视频',
+    backgroundVideo: '后台视频',
+    pip: 'PiP',
+  })[key] || key || '其他';
 }
 
 function emptyCloudCategories() {
-  return { study: 0, composite: 0, rest: 0, media: 0, other: 0 };
+  return { study: 0, composite: 0, rest: 0, other: 0 };
+}
+
+function emptyCloudMediaCategories() {
+  return { foregroundAudio: 0, backgroundAudio: 0, foregroundVideo: 0, backgroundVideo: 0, pip: 0 };
 }
 
 function cloudRowCategory(row) {
-  if (row.channel === 'backgroundMedia' || row.channel === 'pip') return 'media';
   const bucket = row.quotaBucket || row.mode;
   if (bucket === 'study') return 'study';
   if (bucket === 'composite' || bucket === 'pending_composite') return 'composite';
   if (bucket === 'rest') return 'rest';
   return 'other';
+}
+
+function isCloudWebUsageRow(row) {
+  return row?.channel !== 'backgroundMedia' && row?.channel !== 'pip' && row?.channel !== 'media';
 }
 
 function normalizeCloudTargetRows(rows = []) {
@@ -2899,6 +2939,16 @@ function normalizeCloudMediaRows(rows = []) {
   })).filter(row => row.date && row.duration > 0);
 }
 
+function cloudMediaCategory(row = {}) {
+  const cls = row.mediaClass || '';
+  if (cls === 'foregroundAudio') return 'foregroundAudio';
+  if (cls === 'backgroundAudio') return 'backgroundAudio';
+  if (cls === 'foregroundVideo') return 'foregroundVideo';
+  if (cls === 'backgroundVideo') return 'backgroundVideo';
+  if (cls === 'pip') return 'pip';
+  return row.mode === 'pip' ? 'pip' : 'backgroundAudio';
+}
+
 async function fetchCloudTargetRows(from, to, options = {}) {
   const params = new URLSearchParams({ from, to });
   if (options.deviceId) params.set('deviceId', options.deviceId);
@@ -2961,7 +3011,7 @@ function aggregateCloudRows(rows = []) {
 
 function dominantCloudCategory(categories) {
   let best = 'other', bestSeconds = -1;
-  for (const key of ['study', 'composite', 'rest', 'media', 'other']) {
+  for (const key of Object.keys(categories || {})) {
     const seconds = Number(categories?.[key] || 0);
     if (seconds > bestSeconds) { best = key; bestSeconds = seconds; }
   }
@@ -3002,9 +3052,64 @@ function buildCloudTargetRows(todayRows, weekRows, rangeRows) {
     .sort((a, b) => b.rangeSeconds - a.rangeSeconds || a.label.localeCompare(b.label));
 }
 
+function aggregateCloudMediaRows(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    const entry = map.get(row.targetKey) || {
+      key: row.targetKey,
+      label: row.label,
+      fallbackDomain: row.fallbackDomain,
+      managedTargetType: 'media',
+      isFallback: true,
+      categories: emptyCloudMediaCategories(),
+      seconds: 0,
+      lastSeenAt: row.lastSeenAt || null,
+    };
+    const category = cloudMediaCategory(row);
+    entry.categories[category] += row.duration;
+    entry.seconds += row.duration;
+    if (row.lastSeenAt && (!entry.lastSeenAt || row.lastSeenAt > entry.lastSeenAt)) entry.lastSeenAt = row.lastSeenAt;
+    map.set(row.targetKey, entry);
+  }
+  return map;
+}
+
+function buildCloudMediaTargetRows(todayRows, weekRows, rangeRows) {
+  const todayMap = aggregateCloudMediaRows(todayRows);
+  const weekMap = aggregateCloudMediaRows(weekRows);
+  const rangeMap = aggregateCloudMediaRows(rangeRows);
+  const keys = new Set([...todayMap.keys(), ...weekMap.keys(), ...rangeMap.keys()]);
+  return [...keys].map(key => {
+    const range = rangeMap.get(key) || weekMap.get(key) || todayMap.get(key);
+    const category = dominantCloudCategory(range?.categories);
+    return {
+      key,
+      label: range?.label || key,
+      category,
+      categoryLabel: usageCategoryLabel(category),
+      todaySeconds: todayMap.get(key)?.seconds || 0,
+      weekSeconds: weekMap.get(key)?.seconds || 0,
+      rangeSeconds: rangeMap.get(key)?.seconds || 0,
+      limitLabel: '—',
+      status: '正常',
+      fallbackDomain: range?.fallbackDomain || null,
+      managedTargetType: 'media',
+      isFallback: true,
+      categories: range?.categories || emptyCloudMediaCategories(),
+    };
+  }).filter(row => row.rangeSeconds > 0 || row.todaySeconds > 0 || row.weekSeconds > 0)
+    .sort((a, b) => b.rangeSeconds - a.rangeSeconds || a.label.localeCompare(b.label));
+}
+
 function sumCloudRowsByCategory(rows = []) {
   const totals = emptyCloudCategories();
   for (const row of rows) totals[cloudRowCategory(row)] += row.duration;
+  return totals;
+}
+
+function sumCloudMediaRowsByCategory(rows = []) {
+  const totals = emptyCloudMediaCategories();
+  for (const row of rows) totals[cloudMediaCategory(row)] += row.duration;
   return totals;
 }
 
@@ -3016,12 +3121,29 @@ function buildCloudDailySeries(rows = [], dates = []) {
   }));
 }
 
+function buildCloudMediaDailySeries(rows = [], dates = []) {
+  return dates.map(date => ({
+    key: date,
+    label: date.slice(5),
+    categories: sumCloudMediaRowsByCategory(rows.filter(row => row.date === date)),
+  }));
+}
+
 function buildCloudHourlySeries(rows = [], date) {
   return Array.from({ length: 24 }, (_, hour) => ({
     key: `${date}-${hour}`,
     hour,
     label: `${hour}时`,
     categories: sumCloudRowsByCategory(rows.filter(row => row.date === date && Number(row.hour) === hour)),
+  }));
+}
+
+function buildCloudMediaHourlySeries(rows = [], date) {
+  return Array.from({ length: 24 }, (_, hour) => ({
+    key: `${date}-${hour}`,
+    hour,
+    label: `${hour}时`,
+    categories: sumCloudMediaRowsByCategory(rows.filter(row => row.date === date && Number(row.hour) === hour)),
   }));
 }
 
@@ -3046,25 +3168,64 @@ async function buildCloudUsageView() {
   const weekKeys = cloudDateKeysBetween(fmtDate(weekStart), fmtDate(weekEnd));
   const selectedKeys = cloudDateKeysBetween(range.from, range.to);
   const options = { deviceId: cloudUsageState.deviceId || '' };
+  const isMediaUsage = cloudUsageState.ledger === 'media';
   let source = 'target-v1';
   let selectedRows = [];
   let todayRows = [];
   let weekRows = [];
   let hourlyRows = [];
-  let selectedMediaRows = [];
-  let todayMediaRows = [];
-  let weekMediaRows = [];
-  let hourlyMediaRows = [];
+  if (isMediaUsage) {
+    source = 'media-stats-v1';
+    [selectedRows, todayRows, weekRows, hourlyRows] = await Promise.all([
+      fetchCloudMediaRows(range.from, range.to, options),
+      fetchCloudMediaRows(todayKey, todayKey, options),
+      fetchCloudMediaRows(weekKeys[0], weekKeys[weekKeys.length - 1], options),
+      fetchCloudHourlyMediaRows(range.from, range.to, options).catch(() => []),
+    ]);
+    const chartSeries = range.mode === 'week'
+      ? buildCloudMediaDailySeries(selectedRows, selectedKeys)
+      : buildCloudMediaHourlySeries(hourlyRows, range.from);
+    const categoryTotals = sumCloudMediaRowsByCategory(selectedRows);
+    const targetRows = buildCloudMediaTargetRows(todayRows, weekRows, selectedRows);
+    const categoryRows = ['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip'].map(key => ({
+      key,
+      label: usageCategoryLabel(key),
+      seconds: categoryTotals[key] || 0,
+      limitLabel: '—',
+      status: '正常',
+    }));
+    return {
+      meta: {
+        source,
+        syncLabel: `同步于 今天 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
+        deviceScope: {
+          selected: cloudUsageState.deviceId || '',
+          label: cloudUsageState.deviceId ? cloudDeviceLabel(cloudUsageState.deviceId) : '全部设备',
+          options: [{ id: '', label: '全部设备' }].concat(devices.map(d => ({ id: d.id, label: d.device_name || d.name || `终端 ${String(d.id || '').slice(0, 8)}` }))),
+        },
+      },
+      kind: 'media',
+      categoryKeys: ['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip'],
+      totalLabel: '媒体使用时间',
+      targetColumnLabel: '媒体来源',
+      categoryColumnLabel: '媒体类型',
+      searchTargetPlaceholder: '搜索媒体来源',
+      range,
+      totalSeconds: Object.values(categoryTotals).reduce((sum, value) => sum + value, 0),
+      categoryTotals,
+      chartSeries,
+      weekSummarySeries: buildCloudMediaDailySeries(weekRows, weekKeys),
+      targetRows,
+      categoryRows,
+      pendingRows: [],
+    };
+  }
   try {
-    [selectedRows, todayRows, weekRows, hourlyRows, selectedMediaRows, todayMediaRows, weekMediaRows, hourlyMediaRows] = await Promise.all([
+    [selectedRows, todayRows, weekRows, hourlyRows] = await Promise.all([
       fetchCloudTargetRows(range.from, range.to, options),
       fetchCloudTargetRows(todayKey, todayKey, options),
       fetchCloudTargetRows(weekKeys[0], weekKeys[weekKeys.length - 1], options),
       fetchCloudHourlyTargetRows(range.from, range.to, options).catch(() => []),
-      fetchCloudMediaRows(range.from, range.to, options).catch(() => []),
-      fetchCloudMediaRows(todayKey, todayKey, options).catch(() => []),
-      fetchCloudMediaRows(weekKeys[0], weekKeys[weekKeys.length - 1], options).catch(() => []),
-      fetchCloudHourlyMediaRows(range.from, range.to, options).catch(() => []),
     ]);
     if (selectedRows.length === 0 && todayRows.length === 0 && weekRows.length === 0) {
       source = 'domain-v1';
@@ -3079,21 +3240,17 @@ async function buildCloudUsageView() {
     selectedRows = await fetchCloudDomainFallbackRows(range.from, range.to, options);
     todayRows = await fetchCloudDomainFallbackRows(todayKey, todayKey, options);
     weekRows = await fetchCloudDomainFallbackRows(weekKeys[0], weekKeys[weekKeys.length - 1], options);
-    selectedMediaRows = await fetchCloudMediaRows(range.from, range.to, options).catch(() => []);
-    todayMediaRows = await fetchCloudMediaRows(todayKey, todayKey, options).catch(() => []);
-    weekMediaRows = await fetchCloudMediaRows(weekKeys[0], weekKeys[weekKeys.length - 1], options).catch(() => []);
-    hourlyMediaRows = await fetchCloudHourlyMediaRows(range.from, range.to, options).catch(() => []);
   }
-  selectedRows = [...selectedRows, ...selectedMediaRows];
-  todayRows = [...todayRows, ...todayMediaRows];
-  weekRows = [...weekRows, ...weekMediaRows];
-  hourlyRows = [...hourlyRows, ...hourlyMediaRows];
+  selectedRows = selectedRows.filter(isCloudWebUsageRow);
+  todayRows = todayRows.filter(isCloudWebUsageRow);
+  weekRows = weekRows.filter(isCloudWebUsageRow);
+  hourlyRows = hourlyRows.filter(isCloudWebUsageRow);
   const chartSeries = range.mode === 'week'
     ? buildCloudDailySeries(selectedRows, selectedKeys)
     : buildCloudHourlySeries(hourlyRows, range.from);
   const categoryTotals = sumCloudRowsByCategory(selectedRows);
   const targetRows = buildCloudTargetRows(todayRows, weekRows, selectedRows);
-  const categoryRows = ['study', 'composite', 'rest', 'media', 'other'].map(key => ({
+  const categoryRows = ['study', 'composite', 'rest', 'other'].map(key => ({
     key,
     label: usageCategoryLabel(key),
     seconds: categoryTotals[key] || 0,
@@ -3110,6 +3267,12 @@ async function buildCloudUsageView() {
         options: [{ id: '', label: '全部设备' }].concat(devices.map(d => ({ id: d.id, label: d.device_name || d.name || `终端 ${String(d.id || '').slice(0, 8)}` }))),
       },
     },
+    kind: 'web',
+    categoryKeys: ['study', 'composite', 'rest', 'other'],
+    totalLabel: '网页使用时间',
+    targetColumnLabel: '管理对象',
+    categoryColumnLabel: '分类',
+    searchTargetPlaceholder: '搜索管理对象',
     range,
     totalSeconds: Object.values(categoryTotals).reduce((sum, value) => sum + value, 0),
     categoryTotals,
@@ -3121,29 +3284,36 @@ async function buildCloudUsageView() {
   };
 }
 
-function usageSeriesTotal(row) {
-  return ['study', 'composite', 'rest', 'media', 'other']
+function cloudUsageCategoryKeys(view = cloudUsageLastView) {
+  return Array.isArray(view?.categoryKeys) && view.categoryKeys.length
+    ? view.categoryKeys
+    : ['study', 'composite', 'rest', 'other'];
+}
+
+function usageSeriesTotal(row, keys = cloudUsageCategoryKeys()) {
+  return keys
     .reduce((sum, key) => sum + Math.max(0, Number(row?.categories?.[key]) || 0), 0);
 }
 
 function renderCloudUsageStackChart(id, series = [], options = {}) {
   const el = document.getElementById(id);
   if (!el) return;
-  if (!Array.isArray(series) || series.length === 0 || !series.some(row => usageSeriesTotal(row) > 0)) {
+  const keys = Array.isArray(options.categoryKeys) && options.categoryKeys.length ? options.categoryKeys : cloudUsageCategoryKeys();
+  if (!Array.isArray(series) || series.length === 0 || !series.some(row => usageSeriesTotal(row, keys) > 0)) {
     el.innerHTML = `<div class="usage-empty">${escHtml(options.emptyMessage || '当前范围没有使用记录')}</div>`;
     return;
   }
-  const max = Math.max(...series.map(usageSeriesTotal), 1);
+  const max = Math.max(...series.map(row => usageSeriesTotal(row, keys)), 1);
   el.innerHTML = series.map(row => {
-    const total = usageSeriesTotal(row);
-    const title = ['study', 'composite', 'rest', 'media', 'other']
+    const total = usageSeriesTotal(row, keys);
+    const title = keys
       .filter(key => Number(row.categories?.[key] || 0) > 0)
       .map(key => `${usageCategoryLabel(key)} ${fmtSec(row.categories[key])}`)
       .join(' / ');
     return `
       <div class="usage-stack-slot" title="${escHtml(title)}">
         <div class="usage-stack-bar" style="height:${Math.max(2, Math.round(total / max * 100))}%">
-          ${['study', 'composite', 'rest', 'media', 'other'].map(key => {
+          ${keys.map(key => {
             const seconds = Number(row.categories?.[key] || 0);
             if (seconds <= 0 || total <= 0) return '';
             return `<div class="usage-stack-part ${key}" style="height:${Math.max(2, Math.round(seconds / total * 100))}%"></div>`;
@@ -3159,7 +3329,7 @@ function renderCloudUsageLegend(view) {
   const el = document.getElementById('cloud-usage-legend');
   if (!el) return;
   const totals = view?.categoryTotals || {};
-  el.innerHTML = ['study', 'composite', 'rest', 'media', 'other'].map(key => `
+  el.innerHTML = cloudUsageCategoryKeys(view).map(key => `
     <div class="usage-legend-item">
       <span class="usage-dot ${key}"></span>
       <span>
@@ -3208,7 +3378,7 @@ function renderCloudUsageList(view) {
   if (listMode) listMode.value = cloudUsageState.listMode;
   if (search) {
     search.value = cloudUsageState.query;
-    search.placeholder = cloudUsageState.listMode === 'categories' ? '搜索分类' : '搜索管理对象';
+    search.placeholder = cloudUsageState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
   }
   const rows = filteredCloudUsageRows(view);
   if (rows.length === 0) {
@@ -3235,7 +3405,7 @@ function renderCloudUsageList(view) {
   } else {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>管理对象</th><th>分类</th><th>今日时间</th><th>本周时间</th><th>限额</th><th>状态</th></tr></thead>
+        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>限额</th><th>状态</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-cloud-usage-kind="target" data-cloud-usage-key="${escHtml(row.key)}">
@@ -3303,11 +3473,16 @@ function renderCloudUsageDetail(view) {
 
 function renderCloudUsageView(view) {
   cloudUsageLastView = view;
+  document.querySelectorAll('[data-cloud-usage-ledger]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cloudUsageLedger === (view.kind || 'web'));
+  });
   document.querySelectorAll('[data-cloud-usage-mode]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.cloudUsageMode === view.range.mode);
   });
   const syncLabel = document.getElementById('cloud-usage-sync-label');
   if (syncLabel) syncLabel.textContent = view.meta?.syncLabel || '同步于 今天';
+  const totalLabel = document.querySelector('#page-stats .usage-total-label');
+  if (totalLabel) totalLabel.textContent = view.totalLabel || '使用时间';
   const total = document.getElementById('cloud-usage-total');
   if (total) total.textContent = fmtSec(view.totalSeconds || 0);
   const rangeLabel = document.getElementById('cloud-usage-range-label');
@@ -3316,8 +3491,8 @@ function renderCloudUsageView(view) {
   if (todayBtn) todayBtn.textContent = view.range.mode === 'week' ? '本周' : '今天';
   const mainTitle = document.getElementById('cloud-usage-main-title');
   if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
-  renderCloudUsageStackChart('cloud-usage-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录' });
-  renderCloudUsageStackChart('cloud-usage-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录' });
+  renderCloudUsageStackChart('cloud-usage-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
+  renderCloudUsageStackChart('cloud-usage-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
   renderCloudUsageLegend(view);
   renderCloudUsageList(view);
 }

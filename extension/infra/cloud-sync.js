@@ -1,5 +1,5 @@
 // infra/cloud-sync.js — 云同步 + 心跳
-import { getStatsRange } from './storage.js';
+import { getStatsRange, getDateKey } from './storage.js';
 import { DEFAULT_CONFIG } from './storage.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
@@ -17,6 +17,10 @@ import {
   buildHourlyStatsUploadPayload,
   buildTargetStatsUploadPayload,
   buildHourlyTargetStatsUploadPayload,
+  getAllUsageSegments,
+  getDailyUsageStats,
+  getHourlyUsageStats,
+  getUsageSegmentsByDate,
   markUsageSegmentsUploaded, markDailyStatsUploaded,
   markHourlyStatsUploaded,
   markTargetStatsUploaded,
@@ -51,6 +55,7 @@ const CLOUD_CONFIG = {
   MAX_RETRY_ATTEMPTS: 3,
   REQUEST_TIMEOUT_MS: 15000,
   SYNC_STALE_LOCK_MS: 2 * 60 * 1000,
+  MAX_HISTORY_USAGE_DATES_PER_SYNC: 7,
   KEYS: {
     DEVICE_TOKEN: 'cloud_device_token',
     DEVICE_ID: 'cloud_device_id',
@@ -70,6 +75,11 @@ const CLOUD_CONFIG = {
     V1_LAST_HOURLY_STATS_UPLOAD_AT: 'cloud_v1_last_hourly_stats_upload_at',
     V1_LAST_TARGET_STATS_UPLOAD_AT: 'cloud_v1_last_target_stats_upload_at',
     V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT: 'cloud_v1_last_hourly_target_stats_upload_at',
+    USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE: 'usage_stats_history_synced_through_date_v1',
+    USAGE_STATS_TODAY_LAST_UPLOAD_AT: 'usage_stats_today_last_upload_at_v1',
+    USAGE_STATS_TODAY_LAST_ERROR: 'usage_stats_today_last_error_v1',
+    USAGE_STATS_HISTORY_LAST_UPLOAD_AT: 'usage_stats_history_last_upload_at_v1',
+    USAGE_STATS_HISTORY_LAST_ERROR: 'usage_stats_history_last_error_v1',
     V1_LAST_MEDIA_SEGMENT_UPLOAD_AT: 'cloud_v1_last_media_segment_upload_at',
     V1_LAST_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_media_stats_upload_at',
     V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_hourly_media_stats_upload_at',
@@ -88,6 +98,23 @@ let syncState = {
   monitoringEnabled: 1,
   v1SyncEnabled: false,
 };
+
+async function usageSegmentCountForDate(date) {
+  try {
+    const segments = await getUsageSegmentsByDate(date);
+    return Array.isArray(segments) ? segments.length : 0;
+  } catch (error) {
+    logClientEventBestEffort({
+      level: 'error',
+      category: 'storage',
+      eventCode: 'cloud_stats_segment_check_failed',
+      module: 'infra/cloud-sync',
+      message: error?.message || 'Failed to check usage segments before stats upload',
+      details: { date },
+    });
+    return null;
+  }
+}
 
 function safeDecodeCredentials(encoded) {
   if (typeof encoded !== 'string' || !encoded) return null;
@@ -874,6 +901,11 @@ export async function getStatsFoundationV1SyncStatus() {
       CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE,
+      CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_ERROR,
+      CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR,
       CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT,
@@ -900,6 +932,11 @@ export async function getStatsFoundationV1SyncStatus() {
     lastHourlyStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT] || 0),
     lastTargetStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT] || 0),
     lastHourlyTargetStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT] || 0),
+    usageStatsHistorySyncedThroughDate: storage?.[CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE] || null,
+    usageStatsTodayLastUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_UPLOAD_AT] || 0),
+    usageStatsTodayLastError: storage?.[CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_ERROR] || null,
+    usageStatsHistoryLastUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT] || 0),
+    usageStatsHistoryLastError: storage?.[CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR] || null,
     lastMediaSegmentUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT] || 0),
     lastMediaStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT] || 0),
     lastHourlyMediaStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT] || 0),
@@ -1026,7 +1063,7 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
 
   try {
     const pending = await getPendingDailyStats();
-    const dirtyDates = Object.keys(pending.stats);
+    const dirtyDates = pending.dirtyDates || Object.keys(pending.stats || {});
 
     if (dirtyDates.length === 0) {
       return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
@@ -1083,7 +1120,25 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
     for (const date of batchDates) {
       const payload = await buildDailyStatsUploadPayload(date);
       if (!payload || payload.domains.length === 0) {
-        await markDailyStatsUploaded([date]);
+        const segmentCount = await usageSegmentCountForDate(date);
+        if (segmentCount === 0) {
+          await markDailyStatsUploaded([date]);
+        } else {
+          const message = segmentCount === null
+            ? 'Daily stats payload empty and usage segment check failed'
+            : 'Daily stats payload empty while usage segments exist';
+          await markDailyStatsUploadFailed([date], message);
+          failed++;
+          errors.push(`stats ${date}: ${message}`);
+          logClientEventBestEffort({
+            level: 'error',
+            category: 'cloud',
+            eventCode: 'cloud_daily_stats_payload_inconsistent',
+            module: 'infra/cloud-sync',
+            message,
+            details: { date, segmentCount },
+          });
+        }
         continue;
       }
 
@@ -1125,6 +1180,245 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
     console.error('[Cloud-V1] Stats upload orchestration failed:', e.message);
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
   }
+}
+
+function isDateKeyString(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function addDaysToDateKey(dateKey, days) {
+  if (!isDateKeyString(dateKey)) return null;
+  const [year, month, day] = dateKey.split('-').map((part) => Number(part));
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + Number(days || 0));
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function compareDateKeys(a, b) {
+  if (a === b) return 0;
+  return String(a) < String(b) ? -1 : 1;
+}
+
+function sumObjectSeconds(value) {
+  if (!value || typeof value !== 'object') return 0;
+  return Object.values(value).reduce((sum, seconds) => {
+    const n = Number(seconds || 0);
+    return sum + (Number.isFinite(n) && n > 0 ? n : 0);
+  }, 0);
+}
+
+function sumStatsDomainsSeconds(domains) {
+  return (Array.isArray(domains) ? domains : []).reduce((sum, domainStats) => {
+    const byModeSeconds =
+      sumObjectSeconds(domainStats?.activeByMode) +
+      sumObjectSeconds(domainStats?.backgroundMediaByMode) +
+      sumObjectSeconds(domainStats?.pipByMode);
+    if (byModeSeconds > 0) return sum + byModeSeconds;
+    return sum +
+      Number(domainStats?.activeSeconds || 0) +
+      Number(domainStats?.backgroundMediaSeconds || 0) +
+      Number(domainStats?.pipSeconds || 0);
+  }, 0);
+}
+
+function sumTargetPayloadSeconds(targets) {
+  return (Array.isArray(targets) ? targets : []).reduce((sum, targetStats) => {
+    if (Array.isArray(targetStats?.rows) && targetStats.rows.length > 0) {
+      return sum + targetStats.rows.reduce((rowSum, row) => rowSum + Number(row?.durationSeconds || 0), 0);
+    }
+    const byModeSeconds =
+      sumObjectSeconds(targetStats?.activeByMode) +
+      sumObjectSeconds(targetStats?.backgroundMediaByMode) +
+      sumObjectSeconds(targetStats?.pipByMode);
+    if (byModeSeconds > 0) return sum + byModeSeconds;
+    return sum +
+      Number(targetStats?.activeSeconds || 0) +
+      Number(targetStats?.backgroundMediaSeconds || 0) +
+      Number(targetStats?.pipSeconds || 0);
+  }, 0);
+}
+
+function sumSegmentSeconds(segments) {
+  return (Array.isArray(segments) ? segments : []).reduce((sum, segment) => {
+    const seconds = Number(segment?.durationSeconds || 0);
+    return sum + (Number.isFinite(seconds) && seconds > 0 ? seconds : 0);
+  }, 0);
+}
+
+async function getHourKeysForDate(date) {
+  const allHourlyStats = await getHourlyUsageStats();
+  return Object.entries(allHourlyStats || {})
+    .filter(([hourKey, stats]) => stats?.date === date || String(hourKey).startsWith(`${date}T`))
+    .map(([hourKey]) => hourKey)
+    .sort();
+}
+
+async function getEarliestLocalUsageDate(today) {
+  const dates = new Set();
+  const [segmentsById, dailyStats, hourlyStats] = await Promise.all([
+    getAllUsageSegments().catch(() => ({})),
+    getDailyUsageStats().catch(() => ({})),
+    getHourlyUsageStats().catch(() => ({})),
+  ]);
+
+  for (const segment of Object.values(segmentsById || {})) {
+    if (isDateKeyString(segment?.date) && compareDateKeys(segment.date, today) < 0) {
+      dates.add(segment.date);
+    }
+  }
+  for (const date of Object.keys(dailyStats || {})) {
+    if (isDateKeyString(date) && compareDateKeys(date, today) < 0) dates.add(date);
+  }
+  for (const [hourKey, stat] of Object.entries(hourlyStats || {})) {
+    const date = isDateKeyString(stat?.date) ? stat.date : String(hourKey).slice(0, 10);
+    if (isDateKeyString(date) && compareDateKeys(date, today) < 0) dates.add(date);
+  }
+
+  return [...dates].sort()[0] || null;
+}
+
+async function buildUsageDateUploadPackage(date) {
+  const segments = await getUsageSegmentsByDate(date).catch((error) => {
+    logClientEventBestEffort({
+      level: 'error',
+      category: 'storage',
+      eventCode: 'cloud_usage_date_segments_read_failed',
+      module: 'infra/cloud-sync',
+      message: error?.message || 'Failed to read usage segments for date upload',
+      details: { date },
+    });
+    return [];
+  });
+  const segmentIds = (segments || []).map((segment) => segment?.id).filter(Boolean);
+  const segmentSeconds = sumSegmentSeconds(segments);
+  const dailyPayload = await buildDailyStatsUploadPayload(date);
+  const targetPayload = await buildTargetStatsUploadPayload(date);
+  const hourKeys = await getHourKeysForDate(date);
+  const hourlyPayloads = [];
+  const hourlyTargetPayloads = [];
+
+  for (const hourKey of hourKeys) {
+    hourlyPayloads.push(await buildHourlyStatsUploadPayload(hourKey));
+    hourlyTargetPayloads.push(await buildHourlyTargetStatsUploadPayload(hourKey));
+  }
+
+  const dailySeconds = sumStatsDomainsSeconds(dailyPayload?.domains);
+  const targetSeconds = sumTargetPayloadSeconds(targetPayload?.targets);
+  const hourlySeconds = hourlyPayloads.reduce((sum, payload) => sum + sumStatsDomainsSeconds(payload?.domains), 0);
+  const hourlyTargetSeconds = hourlyTargetPayloads.reduce((sum, payload) => sum + sumTargetPayloadSeconds(payload?.targets), 0);
+  const errors = [];
+
+  if (segmentSeconds > 0 && dailySeconds <= 0) errors.push({ part: 'stats', message: 'Daily stats payload empty while usage segments exist' });
+  if (segmentSeconds > 0 && targetSeconds <= 0) errors.push({ part: 'targetStats', message: 'Target stats payload empty while usage segments exist' });
+  if (segmentSeconds > 0 && hourlySeconds <= 0) errors.push({ part: 'hourlyStats', message: 'Hourly stats payload empty while usage segments exist' });
+  if (segmentSeconds > 0 && hourlyTargetSeconds <= 0) errors.push({ part: 'hourlyTargetStats', message: 'Hourly target stats payload empty while usage segments exist' });
+
+  return {
+    date,
+    segments,
+    segmentIds,
+    dailyPayload,
+    targetPayload,
+    hourKeys,
+    hourlyPayloads,
+    hourlyTargetPayloads,
+    errors,
+    summary: {
+      usageSegments: { count: segmentIds.length, seconds: segmentSeconds },
+      dailyStats: { count: Array.isArray(dailyPayload?.domains) ? dailyPayload.domains.length : 0, seconds: dailySeconds },
+      targetStats: { count: Array.isArray(targetPayload?.targets) ? targetPayload.targets.length : 0, seconds: targetSeconds },
+      hourlyStats: { count: hourlyPayloads.reduce((sum, payload) => sum + (Array.isArray(payload?.domains) ? payload.domains.length : 0), 0), seconds: hourlySeconds },
+      hourlyTargetStats: { count: hourlyTargetPayloads.reduce((sum, payload) => sum + (Array.isArray(payload?.targets) ? payload.targets.length : 0), 0), seconds: hourlyTargetSeconds },
+    },
+  };
+}
+
+function makeUploadPartResult({ dryRun = false, skipped = false } = {}) {
+  return { uploaded: 0, failed: 0, skipped, dryRun, pendingCount: 0, errors: [] };
+}
+
+function addUploadError(result, part, message) {
+  result.failed++;
+  result.errors.push(`${part}: ${message}`);
+}
+
+function mergeUsageDatePartResults(target, source) {
+  for (const part of ['segments', 'stats', 'hourlyStats', 'targetStats', 'hourlyTargetStats']) {
+    target[part].uploaded += source[part].uploaded;
+    target[part].failed += source[part].failed;
+    target[part].pendingCount += source[part].pendingCount;
+    target[part].errors.push(...source[part].errors);
+    target[part].dryRun = target[part].dryRun && source[part].dryRun;
+    target[part].skipped = target[part].skipped && source[part].skipped;
+  }
+  target.errors.push(...source.errors);
+  target.failed += source.failed;
+  target.uploaded += source.uploaded;
+  return target;
+}
+
+function makeUsageDateSyncResult({ dryRun = false } = {}) {
+  return {
+    uploaded: 0,
+    failed: 0,
+    skipped: false,
+    dryRun,
+    pendingCount: 0,
+    errors: [],
+    segments: makeUploadPartResult({ dryRun }),
+    stats: makeUploadPartResult({ dryRun }),
+    hourlyStats: makeUploadPartResult({ dryRun }),
+    targetStats: makeUploadPartResult({ dryRun }),
+    hourlyTargetStats: makeUploadPartResult({ dryRun }),
+  };
+}
+
+function metricComplete(metric, expectedSeconds, expectedCount, requireRows = false) {
+  const cloudSeconds = Math.round(Number(metric?.seconds || 0));
+  const localSeconds = Math.round(Number(expectedSeconds || 0));
+  const cloudCount = Number(metric?.count || 0);
+  if (localSeconds <= 0 && Number(expectedCount || 0) <= 0) {
+    return cloudSeconds === 0 && cloudCount === 0;
+  }
+  if (cloudSeconds !== localSeconds) return false;
+  if (requireRows && cloudCount <= 0) return false;
+  return true;
+}
+
+function isCloudIntegrityCompleteForPackage(integrity, pkg) {
+  if (!integrity || typeof integrity !== 'object') return false;
+  const localHasData =
+    pkg.summary.usageSegments.seconds > 0 ||
+    pkg.summary.dailyStats.seconds > 0 ||
+    pkg.summary.targetStats.seconds > 0 ||
+    pkg.summary.hourlyStats.seconds > 0 ||
+    pkg.summary.hourlyTargetStats.seconds > 0;
+  if (localHasData && integrity.complete === false) return false;
+  const segmentSeconds = pkg.summary.usageSegments.seconds;
+  const segmentCount = pkg.summary.usageSegments.count;
+  const expectedDailySeconds = pkg.summary.dailyStats.seconds > 0 ? pkg.summary.dailyStats.seconds : segmentSeconds;
+  const expectedTargetSeconds = pkg.summary.targetStats.seconds > 0 ? pkg.summary.targetStats.seconds : segmentSeconds;
+  const expectedHourlySeconds = pkg.summary.hourlyStats.seconds > 0 ? pkg.summary.hourlyStats.seconds : segmentSeconds;
+  const expectedHourlyTargetSeconds = pkg.summary.hourlyTargetStats.seconds > 0 ? pkg.summary.hourlyTargetStats.seconds : segmentSeconds;
+  return metricComplete(integrity.usageSegments, segmentSeconds, segmentCount) &&
+    metricComplete(integrity.dailyStats, expectedDailySeconds, pkg.summary.dailyStats.count, expectedDailySeconds > 0) &&
+    metricComplete(integrity.targetStats, expectedTargetSeconds, pkg.summary.targetStats.count, expectedTargetSeconds > 0) &&
+    metricComplete(integrity.hourlyStats, expectedHourlySeconds, pkg.summary.hourlyStats.count, expectedHourlySeconds > 0) &&
+    metricComplete(integrity.hourlyTargetStats, expectedHourlyTargetSeconds, pkg.summary.hourlyTargetStats.count, expectedHourlyTargetSeconds > 0);
+}
+
+async function getRemoteUsageDateIntegrity(date) {
+  return cloudRequest('GET', `/device/stats-integrity/v1?date=${encodeURIComponent(date)}`, null, 2);
+}
+
+async function markUsageDatePackageUploaded(pkg, uploadedAt = Date.now()) {
+  await Promise.all([
+    pkg.segmentIds.length ? markUsageSegmentsUploaded(pkg.segmentIds, uploadedAt) : Promise.resolve(),
+    markDailyStatsUploaded([pkg.date], uploadedAt),
+    pkg.hourKeys.length ? markHourlyStatsUploaded(pkg.hourKeys, uploadedAt) : Promise.resolve(),
+    markTargetStatsUploaded([pkg.date], uploadedAt),
+    pkg.hourKeys.length ? markHourlyTargetStatsUploaded(pkg.hourKeys, uploadedAt) : Promise.resolve(),
+  ]);
 }
 
 export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted = false } = {}) {
@@ -1230,7 +1524,7 @@ export async function uploadTargetStatsV1({ enabled = false, forceRetryExhausted
 
   try {
     const pending = await getPendingTargetStats();
-    const dirtyDates = Object.keys(pending.stats || {});
+    const dirtyDates = pending.dirtyDates || Object.keys(pending.stats || {});
     if (dirtyDates.length === 0) {
       return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
     }
@@ -1278,7 +1572,25 @@ export async function uploadTargetStatsV1({ enabled = false, forceRetryExhausted
     for (const date of batchDates) {
       const payload = await buildTargetStatsUploadPayload(date);
       if (!payload || payload.targets.length === 0) {
-        await markTargetStatsUploaded([date]);
+        const segmentCount = await usageSegmentCountForDate(date);
+        if (segmentCount === 0) {
+          await markTargetStatsUploaded([date]);
+        } else {
+          const message = segmentCount === null
+            ? 'Target stats payload empty and usage segment check failed'
+            : 'Target stats payload empty while usage segments exist';
+          await markTargetStatsUploadFailed([date], message);
+          failed++;
+          errors.push(`target stats ${date}: ${message}`);
+          logClientEventBestEffort({
+            level: 'error',
+            category: 'cloud',
+            eventCode: 'cloud_target_stats_payload_inconsistent',
+            module: 'infra/cloud-sync',
+            message,
+            details: { date, segmentCount },
+          });
+        }
         continue;
       }
       try {
@@ -1395,6 +1707,342 @@ export async function uploadHourlyTargetStatsV1({ enabled = false, forceRetryExh
   } catch (e) {
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
   }
+}
+
+async function markUsageDateMaterializationError(pkg, part, message) {
+  if (part === 'stats') {
+    await markDailyStatsUploadFailed([pkg.date], message);
+  } else if (part === 'targetStats') {
+    await markTargetStatsUploadFailed([pkg.date], message);
+  } else if (part === 'hourlyStats' && pkg.hourKeys.length > 0) {
+    await markHourlyStatsUploadFailed(pkg.hourKeys, message);
+  } else if (part === 'hourlyTargetStats' && pkg.hourKeys.length > 0) {
+    await markHourlyTargetStatsUploadFailed(pkg.hourKeys, message);
+  }
+  logClientEventBestEffort({
+    level: 'error',
+    category: 'cloud',
+    eventCode: 'cloud_usage_date_payload_inconsistent',
+    module: 'infra/cloud-sync',
+    message,
+    details: {
+      date: pkg.date,
+      part,
+      segmentCount: pkg.summary.usageSegments.count,
+      segmentSeconds: pkg.summary.usageSegments.seconds,
+    },
+  });
+}
+
+async function uploadUsageDatePackageParts(pkg, { enabled = false } = {}) {
+  const result = makeUsageDateSyncResult({ dryRun: !enabled });
+  const partErrors = new Map((pkg.errors || []).map((item) => [item.part, item.message]));
+
+  if (!enabled) {
+    result.skipped = true;
+    result.pendingCount = pkg.segmentIds.length + pkg.hourKeys.length;
+    for (const part of ['segments', 'stats', 'hourlyStats', 'targetStats', 'hourlyTargetStats']) {
+      result[part].skipped = true;
+      result[part].pendingCount = part === 'segments'
+        ? pkg.segmentIds.length
+        : (part === 'stats' || part === 'targetStats' ? 1 : pkg.hourKeys.length);
+    }
+    return result;
+  }
+
+  if (
+    pkg.summary.usageSegments.seconds <= 0 &&
+    pkg.summary.dailyStats.seconds <= 0 &&
+    pkg.summary.targetStats.seconds <= 0 &&
+    pkg.summary.hourlyStats.seconds <= 0 &&
+    pkg.summary.hourlyTargetStats.seconds <= 0
+  ) {
+    result.skipped = true;
+    for (const part of ['segments', 'stats', 'hourlyStats', 'targetStats', 'hourlyTargetStats']) {
+      result[part].skipped = true;
+    }
+    return result;
+  }
+
+  if (pkg.segmentIds.length > 0) {
+    try {
+      const payload = await buildUsageSegmentsUploadPayload(pkg.segmentIds);
+      if (payload.segments.length > 0) {
+        await cloudRequest('POST', '/device/usage-segments/v1', { segments: payload.segments });
+        await markUsageSegmentsUploaded(pkg.segmentIds);
+        result.segments.uploaded += pkg.segmentIds.length;
+        result.uploaded += pkg.segmentIds.length;
+        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT]: Date.now() });
+      }
+    } catch (error) {
+      await markUsageSegmentUploadFailed(pkg.segmentIds, error.message);
+      result.segments.failed += pkg.segmentIds.length;
+      result.segments.errors.push(`segments ${pkg.date}: ${error.message}`);
+      result.failed += pkg.segmentIds.length;
+      result.errors.push(`segments ${pkg.date}: ${error.message}`);
+      logClientEventBestEffort({
+        level: 'error',
+        category: 'cloud',
+        eventCode: 'cloud_usage_segment_upload_failed',
+        module: 'infra/cloud-sync',
+        message: error?.message || 'Usage segment upload failed',
+        details: { date: pkg.date, count: pkg.segmentIds.length },
+      });
+    }
+  } else {
+    result.segments.skipped = true;
+  }
+
+  if (partErrors.has('stats')) {
+    const message = partErrors.get('stats');
+    await markUsageDateMaterializationError(pkg, 'stats', message);
+    addUploadError(result.stats, `stats ${pkg.date}`, message);
+    result.failed++;
+    result.errors.push(`stats ${pkg.date}: ${message}`);
+  } else if (pkg.summary.dailyStats.count > 0) {
+    try {
+      await cloudRequest('POST', '/device/stats/v1', pkg.dailyPayload);
+      await markDailyStatsUploaded([pkg.date]);
+      result.stats.uploaded++;
+      result.uploaded++;
+      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT]: Date.now() });
+    } catch (error) {
+      await markDailyStatsUploadFailed([pkg.date], error.message);
+      addUploadError(result.stats, `stats ${pkg.date}`, error.message);
+      result.failed++;
+      result.errors.push(`stats ${pkg.date}: ${error.message}`);
+    }
+  } else {
+    result.stats.skipped = true;
+  }
+
+  if (partErrors.has('targetStats')) {
+    const message = partErrors.get('targetStats');
+    await markUsageDateMaterializationError(pkg, 'targetStats', message);
+    addUploadError(result.targetStats, `target stats ${pkg.date}`, message);
+    result.failed++;
+    result.errors.push(`target stats ${pkg.date}: ${message}`);
+  } else if (pkg.summary.targetStats.count > 0) {
+    try {
+      await cloudRequest('POST', '/device/target-stats/v1', pkg.targetPayload);
+      await markTargetStatsUploaded([pkg.date]);
+      result.targetStats.uploaded++;
+      result.uploaded++;
+      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT]: Date.now() });
+    } catch (error) {
+      await markTargetStatsUploadFailed([pkg.date], error.message);
+      addUploadError(result.targetStats, `target stats ${pkg.date}`, error.message);
+      result.failed++;
+      result.errors.push(`target stats ${pkg.date}: ${error.message}`);
+    }
+  } else {
+    result.targetStats.skipped = true;
+  }
+
+  if (partErrors.has('hourlyStats')) {
+    const message = partErrors.get('hourlyStats');
+    await markUsageDateMaterializationError(pkg, 'hourlyStats', message);
+    addUploadError(result.hourlyStats, `hourly stats ${pkg.date}`, message);
+    result.failed++;
+    result.errors.push(`hourly stats ${pkg.date}: ${message}`);
+  } else {
+    let uploadedHours = 0;
+    for (const payload of pkg.hourlyPayloads) {
+      if (!payload || !Array.isArray(payload.domains) || payload.domains.length === 0) continue;
+      try {
+        await cloudRequest('POST', '/device/hourly-stats/v1', payload);
+        await markHourlyStatsUploaded([payload.hourKey]);
+        uploadedHours++;
+      } catch (error) {
+        await markHourlyStatsUploadFailed([payload.hourKey], error.message);
+        result.hourlyStats.failed++;
+        result.hourlyStats.errors.push(`hourly stats ${payload.hourKey}: ${error.message}`);
+        result.failed++;
+        result.errors.push(`hourly stats ${payload.hourKey}: ${error.message}`);
+      }
+    }
+    if (uploadedHours > 0) {
+      result.hourlyStats.uploaded += uploadedHours;
+      result.uploaded += uploadedHours;
+      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT]: Date.now() });
+    } else if (result.hourlyStats.failed === 0) {
+      result.hourlyStats.skipped = true;
+    }
+  }
+
+  if (partErrors.has('hourlyTargetStats')) {
+    const message = partErrors.get('hourlyTargetStats');
+    await markUsageDateMaterializationError(pkg, 'hourlyTargetStats', message);
+    addUploadError(result.hourlyTargetStats, `hourly target stats ${pkg.date}`, message);
+    result.failed++;
+    result.errors.push(`hourly target stats ${pkg.date}: ${message}`);
+  } else {
+    let uploadedHours = 0;
+    for (const payload of pkg.hourlyTargetPayloads) {
+      if (!payload || !Array.isArray(payload.targets) || payload.targets.length === 0) continue;
+      try {
+        await cloudRequest('POST', '/device/hourly-target-stats/v1', payload);
+        await markHourlyTargetStatsUploaded([payload.hourKey]);
+        uploadedHours++;
+      } catch (error) {
+        await markHourlyTargetStatsUploadFailed([payload.hourKey], error.message);
+        result.hourlyTargetStats.failed++;
+        result.hourlyTargetStats.errors.push(`hourly target stats ${payload.hourKey}: ${error.message}`);
+        result.failed++;
+        result.errors.push(`hourly target stats ${payload.hourKey}: ${error.message}`);
+      }
+    }
+    if (uploadedHours > 0) {
+      result.hourlyTargetStats.uploaded += uploadedHours;
+      result.uploaded += uploadedHours;
+      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT]: Date.now() });
+    } else if (result.hourlyTargetStats.failed === 0) {
+      result.hourlyTargetStats.skipped = true;
+    }
+  }
+
+  return result;
+}
+
+async function uploadTodayUsageStatsSnapshotV1({ enabled = false } = {}) {
+  const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
+  if (!syncState.deviceToken) {
+    return { ...makeUsageDateSyncResult({ dryRun: true }), skipped: true, errors: ['No device token'] };
+  }
+  if (syncState.monitoringEnabled === 0) {
+    return { ...makeUsageDateSyncResult({ dryRun: true }), skipped: true, errors: [] };
+  }
+
+  const date = getDateKey();
+  const pkg = await buildUsageDateUploadPackage(date);
+  const result = await uploadUsageDatePackageParts(pkg, { enabled: effectiveEnabled });
+  result.date = date;
+
+  if (effectiveEnabled) {
+    if (result.failed > 0 || result.errors.length > 0) {
+      await chrome.storage.local.set({
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_ERROR]: result.errors.join('; ') || 'today usage stats upload failed',
+      }).catch(() => {});
+    } else if (!result.skipped) {
+      await chrome.storage.local.set({
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_UPLOAD_AT]: Date.now(),
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_ERROR]: null,
+      }).catch(() => {});
+    }
+  }
+  return result;
+}
+
+async function getUsageHistoryWatermark(today) {
+  const yesterday = addDaysToDateKey(today, -1);
+  const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE);
+  const stored = storage?.[CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE];
+  if (isDateKeyString(stored)) {
+    return compareDateKeys(stored, yesterday) >= 0 ? yesterday : stored;
+  }
+  const earliest = await getEarliestLocalUsageDate(today);
+  return earliest ? addDaysToDateKey(earliest, -1) : yesterday;
+}
+
+async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {}) {
+  const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
+  if (!syncState.deviceToken) {
+    return { ...makeUsageDateSyncResult({ dryRun: true }), skipped: true, errors: ['No device token'] };
+  }
+  if (syncState.monitoringEnabled === 0) {
+    return { ...makeUsageDateSyncResult({ dryRun: true }), skipped: true, errors: [] };
+  }
+
+  const today = getDateKey();
+  const yesterday = addDaysToDateKey(today, -1);
+  let waterline = await getUsageHistoryWatermark(today);
+  const start = addDaysToDateKey(waterline, 1);
+  const result = makeUsageDateSyncResult({ dryRun: !effectiveEnabled });
+  result.waterlineBefore = waterline;
+  result.dates = [];
+
+  if (!start || compareDateKeys(start, yesterday) > 0) {
+    result.skipped = true;
+    result.waterlineAfter = waterline;
+    return result;
+  }
+
+  let date = start;
+  while (
+    compareDateKeys(date, yesterday) <= 0 &&
+    result.dates.length < CLOUD_CONFIG.MAX_HISTORY_USAGE_DATES_PER_SYNC
+  ) {
+    result.dates.push(date);
+    if (!effectiveEnabled) {
+      date = addDaysToDateKey(date, 1);
+      continue;
+    }
+
+    const pkg = await buildUsageDateUploadPackage(date);
+    let cloudComplete = false;
+    try {
+      const integrity = await getRemoteUsageDateIntegrity(date);
+      cloudComplete = isCloudIntegrityCompleteForPackage(integrity, pkg);
+    } catch (error) {
+      logClientEventBestEffort({
+        level: 'warning',
+        category: 'cloud',
+        eventCode: 'cloud_usage_history_integrity_check_failed',
+        module: 'infra/cloud-sync',
+        message: error?.message || 'Usage history integrity check failed',
+        details: { date },
+      });
+    }
+
+    if (cloudComplete) {
+      await markUsageDatePackageUploaded(pkg);
+      waterline = date;
+      await chrome.storage.local.set({
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE]: waterline,
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT]: Date.now(),
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: null,
+      }).catch(() => {});
+      date = addDaysToDateKey(date, 1);
+      continue;
+    }
+
+    const dateResult = await uploadUsageDatePackageParts(pkg, { enabled: true });
+    mergeUsageDatePartResults(result, dateResult);
+    if (dateResult.failed > 0 || dateResult.errors.length > 0) {
+      await chrome.storage.local.set({
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: dateResult.errors.join('; ') || `history usage stats upload failed: ${date}`,
+      }).catch(() => {});
+      break;
+    }
+
+    waterline = date;
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE]: waterline,
+      [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT]: Date.now(),
+      [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: null,
+    }).catch(() => {});
+    date = addDaysToDateKey(date, 1);
+  }
+
+  result.waterlineAfter = waterline;
+  if (!effectiveEnabled) result.skipped = true;
+  return result;
+}
+
+export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) {
+  const today = await uploadTodayUsageStatsSnapshotV1({ enabled });
+  const history = await uploadHistoricalUsageStatsByWatermarkV1({ enabled });
+  const result = makeUsageDateSyncResult({ dryRun: today.dryRun && history.dryRun });
+  mergeUsageDatePartResults(result, today);
+  mergeUsageDatePartResults(result, history);
+  result.today = today;
+  result.history = history;
+  result.skipped = today.skipped && history.skipped;
+  result.dryRun = today.dryRun && history.dryRun;
+  result.errors = [...today.errors, ...history.errors];
+  result.failed = today.failed + history.failed;
+  result.uploaded = today.uploaded + history.uploaded;
+  return result;
 }
 
 export async function uploadMediaSegmentsV1({ enabled = false } = {}) {
@@ -1779,39 +2427,16 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
   const errors = [];
   let hadFailure = false;
 
-  // 1. Segments 先上传（事实源）
-  const segmentResult = await uploadUsageSegmentsV1({ enabled });
-  if (segmentResult.failed > 0 || segmentResult.errors.length > 0) {
+  // 普通 usage 统计主路径：今天覆盖上传，历史按连续日期水位补齐。
+  const usageStatsResult = await syncUsageStatsByDateWatermarkV1({ enabled });
+  const segmentResult = usageStatsResult.segments;
+  const statsResult = usageStatsResult.stats;
+  const hourlyStatsResult = usageStatsResult.hourlyStats;
+  const targetStatsResult = usageStatsResult.targetStats;
+  const hourlyTargetStatsResult = usageStatsResult.hourlyTargetStats;
+  if (usageStatsResult.failed > 0 || usageStatsResult.errors.length > 0) {
     hadFailure = true;
-    errors.push(...segmentResult.errors);
-  }
-
-  // 2. Stats 后上传（物化视图）
-  const statsResult = await uploadDailyStatsV1({ enabled, forceRetryExhausted });
-  if (statsResult.failed > 0 || statsResult.errors.length > 0) {
-    hadFailure = true;
-    errors.push(...statsResult.errors);
-  }
-
-  // 3. Hourly usage stats 物化视图
-  const hourlyStatsResult = await uploadHourlyStatsV1({ enabled, forceRetryExhausted });
-  if (hourlyStatsResult.failed > 0 || hourlyStatsResult.errors.length > 0) {
-    hadFailure = true;
-    errors.push(...hourlyStatsResult.errors);
-  }
-
-  // 4. Target usage stats 并行物化视图
-  const targetStatsResult = await uploadTargetStatsV1({ enabled, forceRetryExhausted });
-  if (targetStatsResult.failed > 0 || targetStatsResult.errors.length > 0) {
-    hadFailure = true;
-    errors.push(...targetStatsResult.errors);
-  }
-
-  // 5. Hourly target usage stats 并行物化视图
-  const hourlyTargetStatsResult = await uploadHourlyTargetStatsV1({ enabled, forceRetryExhausted });
-  if (hourlyTargetStatsResult.failed > 0 || hourlyTargetStatsResult.errors.length > 0) {
-    hadFailure = true;
-    errors.push(...hourlyTargetStatsResult.errors);
+    errors.push(...usageStatsResult.errors);
   }
 
   // 6. Media segments 独立事实源
@@ -1851,6 +2476,7 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
   }
 
   return {
+    usageStats: usageStatsResult,
     segments: segmentResult,
     stats: statsResult,
     hourlyStats: hourlyStatsResult,

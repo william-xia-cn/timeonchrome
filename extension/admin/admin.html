@@ -1185,6 +1185,11 @@
     .usage-stack-part.rest { background: #37b7b7; }
     .usage-stack-part.media { background: #6c63ff; }
     .usage-stack-part.other { background: #b6b8bb; }
+    .usage-stack-part.foregroundAudio { background: #2fb8ac; }
+    .usage-stack-part.backgroundAudio { background: #7cc6c2; }
+    .usage-stack-part.foregroundVideo { background: #6c63ff; }
+    .usage-stack-part.backgroundVideo { background: #9b8cff; }
+    .usage-stack-part.pip { background: #ef476f; }
     .usage-stack-label {
       text-align: center;
       font-size: 10px;
@@ -1218,6 +1223,11 @@
     .usage-dot.rest { background: #37b7b7; }
     .usage-dot.media { background: #6c63ff; }
     .usage-dot.other { background: #b6b8bb; }
+    .usage-dot.foregroundAudio { background: #2fb8ac; }
+    .usage-dot.backgroundAudio { background: #7cc6c2; }
+    .usage-dot.foregroundVideo { background: #6c63ff; }
+    .usage-dot.backgroundVideo { background: #9b8cff; }
+    .usage-dot.pip { background: #ef476f; }
     .usage-legend-name {
       font-weight: 650;
       margin-bottom: 2px;
@@ -1508,6 +1518,11 @@
               </select>
             </label>
           </div>
+        </div>
+
+        <div class="usage-segmented" aria-label="使用分析账本" style="width:max-content;margin-bottom:12px;">
+          <button type="button" class="active" data-usage-ledger="web">网页使用</button>
+          <button type="button" data-usage-ledger="media">媒体使用</button>
         </div>
 
         <div class="usage-analysis-card">

@@ -113,7 +113,7 @@ Current implementation notes:
 - `usage_segments_v1` upload includes target snapshot fields, but segment IDs still exclude them for idempotency.
 - `daily_usage_stats_v1.targets` and `hourly_usage_stats_v1.targets` are uploaded through `/device/target-stats/v1` and `/device/hourly-target-stats/v1`.
 - Cloud D1 stores segment snapshots plus `target_stats_v1` and `hourly_target_stats_v1`.
-- Pages usage analysis reads target stats first and falls back to domain stats when target rows are unavailable.
+- Pages/Admin usage analysis reads foreground/page target stats first and falls back to domain stats when target rows are unavailable. Media stats are presented in a separate `媒体使用` ledger tab, not merged into foreground/page managedTarget totals.
 
 YouTube v1 is a temporary product and implementation compromise:
 - Submitted YouTube watch URLs with a `list` parameter are canonicalized to `https://www.youtube.com/playlist?list={playlistId}`.

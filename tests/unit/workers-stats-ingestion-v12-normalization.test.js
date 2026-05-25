@@ -73,6 +73,13 @@ function run() {
   expectTrue('cloud sync 请求必须有 Abort 超时', cloudSyncSource.includes('REQUEST_TIMEOUT_MS') && cloudSyncSource.includes('new AbortController()') && cloudSyncSource.includes('controller.abort()'));
   expectTrue('cloud sync 应能释放过期 isSyncing 锁', cloudSyncSource.includes('SYNC_STALE_LOCK_MS') && cloudSyncSource.includes('Stale sync lock detected') && cloudSyncSource.includes('syncStartedAt'));
   expectTrue('cloud sync 应同步网站归类申请', cloudSyncSource.includes('syncSiteClassificationRequestsV1') && cloudSyncSource.includes('/device/site-classification-requests/v1'));
+  expectTrue('cloud sync daily 空 payload 且存在落账时不得清 dirty', cloudSyncSource.includes('cloud_daily_stats_payload_inconsistent') && cloudSyncSource.includes('markDailyStatsUploadFailed([date], message)'));
+  expectTrue('cloud sync target 空 payload 且存在落账时不得清 dirty', cloudSyncSource.includes('cloud_target_stats_payload_inconsistent') && cloudSyncSource.includes('markTargetStatsUploadFailed([date], message)'));
+  expectTrue('cloud sync 普通 usage 主路径应使用今日快照和历史水位', cloudSyncSource.includes('syncUsageStatsByDateWatermarkV1') && cloudSyncSource.includes('uploadTodayUsageStatsSnapshotV1') && cloudSyncSource.includes('uploadHistoricalUsageStatsByWatermarkV1'));
+  expectTrue('cloud sync 应持久化普通 usage 历史连续同步水位', cloudSyncSource.includes('usage_stats_history_synced_through_date_v1') && cloudSyncSource.includes('USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE'));
+  expectTrue('cloud sync 历史上传前应查询云端完整性', cloudSyncSource.includes('/device/stats-integrity/v1?date=') && cloudSyncSource.includes('isCloudIntegrityCompleteForPackage'));
+  expectTrue('cloud sync 历史跳过上传前应要求云端自判完整', cloudSyncSource.includes('localHasData') && cloudSyncSource.includes('integrity.complete === false'));
+  expectTrue('cloud sync 普通 usage 主流程不再调用 dirty 上传函数', !cloudSyncSource.includes('const segmentResult = await uploadUsageSegmentsV1({ enabled })'));
   expectTrue('stats.ts 应在入库前执行 normalizeHostname', source.includes('const normalizedDomain = normalizeHostname(stat.domain);'));
   expectTrue('stats.ts 应跳过归一后非法域名', source.includes('if (!normalizedDomain) continue;'));
 
@@ -94,6 +101,10 @@ function run() {
   expectTrue('stats.ts 应包含 GET /profiles/:id/hourly-target-stats/v1 路由', source.includes('/hourly-target-stats/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/usage-segments/v1 路由', source.includes('/usage-segments/v1'));
   expectTrue('stats.ts 应包含 GET /profiles/:id/stats-reconciliation/v1 路由', source.includes('/stats-reconciliation/v1'));
+  expectTrue('stats.ts 应包含终端数据完整性查询路由', source.includes("path === '/device/stats-integrity/v1'") && source.includes('readUsageStatsIntegrity'));
+  expectTrue('stats.ts 应包含家长端按终端数据完整性查询路由', source.includes('/stats-integrity/v1') && source.includes('deviceId required'));
+  expectTrue('stats-integrity 应由云端判断物化统计是否匹配 segments', source.includes('dailyMatchesUsage') && source.includes('hourlyTargetMatchesUsage') && source.includes('complete') && source.includes('issues'));
+  expectTrue('Worker index 应注册 stats-integrity 路由', workerIndexSource.includes('stats-integrity') && workerIndexSource.includes('/device/stats-integrity/v1'));
   expectTrue('stats.ts 应包含 POST /device/media-segments/v1 路由', source.includes("path === '/device/media-segments/v1'"));
   expectTrue('stats.ts 应包含 POST /device/media-stats/v1 路由', source.includes("path === '/device/media-stats/v1'"));
   expectTrue('stats.ts 应包含 POST /device/hourly-media-stats/v1 路由', source.includes("path === '/device/hourly-media-stats/v1'"));

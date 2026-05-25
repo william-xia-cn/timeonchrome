@@ -52,6 +52,10 @@ const hourlyUsageStats = {};
 const hourlyMediaStats = {};
 const traces = [];
 
+function resetObject(obj) {
+  for (const key of Object.keys(obj)) delete obj[key];
+}
+
 function matchDomain(domain, pattern) {
   const d = String(domain || '').replace(/^www\./, '');
   const p = String(pattern || '').replace(/^www\./, '');
@@ -80,17 +84,69 @@ const statsApi = loadProdModule('stats/managed-statistics.js', [
   'getHourlyUsageStatsRangeView',
   'getHourlyMediaStatsRangeView',
 ], {
-  computeAllDomainsWithAudio: () => ({
-    domains: { 'fallback.example': 42 },
-    audioSeconds: 5,
-    backgroundMediaByDomain: { 'audio.example': 5 },
-    pipSeconds: 7,
-    pipByDomain: { 'pip.example': 7 },
-  }),
   matchDomain,
   resolveSiteAccessClassification,
   emitTrace: async (...args) => traces.push(args),
   getAllUsageSegments: async () => usageSegments,
+  getUsageSegmentsByDate: async (date) => Object.values(usageSegments).filter((seg) => seg?.date === date),
+  rebuildDailyUsageStats: async (date) => {
+    const segments = Object.values(usageSegments).filter((seg) => seg?.date === date);
+    const data = await local.get('daily_usage_stats_v1');
+    const allStats = data.daily_usage_stats_v1 || {};
+    const day = {
+      date,
+      timezone: 'Asia/Shanghai',
+      dayStartMs: null,
+      dayEndMs: null,
+      segmentsCount: 0,
+      lastSegmentId: null,
+      domains: {},
+      targets: {},
+    };
+    for (const seg of segments) {
+      const domain = seg.domain;
+      const seconds = Number(seg.durationSeconds || 0);
+      const mode = seg.mode || 'unknown';
+      if (!day.domains[domain]) {
+        day.domains[domain] = {
+          activeSeconds: 0,
+          backgroundMediaSeconds: 0,
+          pipSeconds: 0,
+          totalSeconds: 0,
+          activeByMode: {},
+          backgroundMediaByMode: {},
+          pipByMode: {},
+        };
+      }
+      const ds = day.domains[domain];
+      ds.activeSeconds += seconds;
+      ds.totalSeconds += seconds;
+      ds.activeByMode[mode] = (ds.activeByMode[mode] || 0) + seconds;
+      const targetKey = `fallback:domain:${domain}`;
+      if (!day.targets[targetKey]) {
+        day.targets[targetKey] = {
+          targetKey,
+          fallbackDomain: domain,
+          isFallback: true,
+          activeSeconds: 0,
+          totalSeconds: 0,
+          activeByMode: {},
+          activeByQuotaBucket: {},
+          rows: {},
+        };
+      }
+      const ts = day.targets[targetKey];
+      ts.activeSeconds += seconds;
+      ts.totalSeconds += seconds;
+      ts.activeByMode[mode] = (ts.activeByMode[mode] || 0) + seconds;
+      ts.activeByQuotaBucket[mode] = (ts.activeByQuotaBucket[mode] || 0) + seconds;
+      day.segmentsCount += 1;
+      day.lastSegmentId = seg.id;
+    }
+    allStats[date] = day;
+    await local.set({ daily_usage_stats_v1: allStats });
+    return { date, rebuilt: true, segmentsUsed: segments.length };
+  },
   getDailyUsageStats: async () => dailyStats,
   getMediaSegments: async () => mediaSegments,
   getHourlyUsageStats: async () => hourlyUsageStats,
@@ -214,11 +270,25 @@ async function run() {
   eq('quota source is target bucket', quotaView.quotaSource, 'target_quota_bucket');
   eq('quota rest excludes target study/composite buckets', quotaView.restSeconds, 0);
 
+  resetObject(usageSegments);
   await local.set({ daily_usage_stats_v1: {}, event_log_v1: [{ type: 'START' }] });
-  const fallbackView = await statsApi.getTodayUsageView({ date: today });
-  eq('fallback source is explicit', fallbackView.source, 'event_log_v1_fallback');
-  eq('fallback merges pip into legacy domain total', fallbackView.stats['pip.example'], 7);
+  const emptyView = await statsApi.getTodayUsageView({ date: today });
+  eq('missing daily with no segments returns empty segment source', emptyView.source, 'usage_segments_v1_empty');
+  eq('missing daily does not fall back to event log', emptyView.stats['fallback.example'], undefined);
 
+  usageSegments.rebuild = {
+    id: 'rebuild',
+    date: today,
+    domain: 'rebuild.example',
+    channel: 'active',
+    mode: 'study',
+    durationSeconds: 42,
+  };
+  const rebuiltView = await statsApi.getTodayUsageView({ date: today });
+  eq('missing daily with segments rebuilds from usage ledger', rebuiltView.source, 'daily_usage_stats_v1_rebuilt');
+  eq('rebuilt daily returns segment-derived seconds', rebuiltView.stats['rebuild.example'], 42);
+
+  resetObject(usageSegments);
   usageSegments.a = {
     id: 'a',
     date: today,

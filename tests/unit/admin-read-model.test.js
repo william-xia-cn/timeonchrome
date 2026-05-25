@@ -71,6 +71,7 @@ const sourcePath = path.join(__dirname, '..', '..', 'extension', 'stats', 'admin
 const source = fs.readFileSync(sourcePath, 'utf8');
 const adminStats = loadProdModule('stats/admin-read-model.js', [
   'getAdminUsageAnalysisView',
+  'getAdminMediaUsageAnalysisView',
   'getAdminSettlementView',
   'getAdminMediaSettlementView',
   'getAdminHourlyUsageView',
@@ -238,15 +239,19 @@ async function run() {
   eq('usage analysis meta is local read model', usage.meta.source, 'chrome.storage.local');
   check('usage analysis sync label uses local copy', /^本机数据：/.test(usage.meta.syncLabel), usage.meta.syncLabel);
   eq('usage analysis default range is day', usage.range.mode, 'day');
-  eq('usage analysis total seconds includes local target/domain buckets', usage.totalSeconds, 282);
+  eq('usage analysis total seconds includes foreground web buckets only', usage.totalSeconds, 210);
   eq('usage analysis study category seconds', usage.categoryTotals.study, 120);
   eq('usage analysis composite category seconds', usage.categoryTotals.composite, 60);
   eq('usage analysis rest category seconds', usage.categoryTotals.rest, 30);
-  eq('usage analysis media category seconds', usage.categoryTotals.media, 72);
+  check('usage analysis does not mix media category into web view', !('media' in usage.categoryTotals), JSON.stringify(usage.categoryTotals));
   eq('usage analysis day chart has 24 buckets', usage.chartSeries.length, 24);
-  check('usage analysis day chart includes hourly media stats', usage.chartSeries.some(row => row.categories.media === 60), JSON.stringify(usage.chartSeries));
-  eq('usage analysis has five category rows', usage.categoryRows.length, 5);
+  check('usage analysis day chart excludes hourly media stats', !usage.chartSeries.some(row => row.categories.media === 60), JSON.stringify(usage.chartSeries));
+  eq('usage analysis has four web category rows', usage.categoryRows.length, 4);
   check('usage analysis target rows are managed-object shaped', usage.targetRows.some(row => row.label === 'study.example' && row.category === 'study'), JSON.stringify(usage.targetRows));
+  const mediaUsage = await adminStats.getAdminMediaUsageAnalysisView();
+  eq('media usage total seconds comes from media ledger only', mediaUsage.totalSeconds, 60);
+  eq('media usage foreground video category seconds', mediaUsage.categoryTotals.foregroundVideo, 60);
+  check('media usage target rows are media-source shaped', mediaUsage.targetRows.some(row => row.label === 'video.example' && row.category === 'foregroundVideo'), JSON.stringify(mediaUsage.targetRows));
   eq('today overview online seconds', usage.todayOverview.online, 217);
   eq('today overview study seconds', usage.todayOverview.study, 120);
   eq('today overview composite seconds', usage.todayOverview.composite, 60);

@@ -130,6 +130,7 @@ function run() {
   expectTrue('admin 使用分析页面采用 Screen Time 结构', html.includes('id="usage-analysis-total"') && html.includes('id="usage-analysis-week-chart"') && html.includes('id="usage-analysis-main-chart"') && html.includes('id="usage-analysis-list-mode"'));
   expectTrue('admin 使用分析默认本机数据口径', html.includes('本机数据：加载中') && html.includes('这台电脑'));
   expectTrue('admin 使用分析支持日周切换和管理对象/分类切换', html.includes('data-usage-range-mode="day"') && html.includes('data-usage-range-mode="week"') && html.includes('显示管理对象') && html.includes('显示分类'));
+  expectTrue('admin 使用分析应拆分网页使用和媒体使用 Tab', html.includes('data-usage-ledger="web"') && html.includes('data-usage-ledger="media"') && code.includes('getAdminMediaUsageAnalysisView'));
   expectTrue('admin 使用分析渲染 managedTarget-first view', code.includes('renderUsageAnalysisView') && code.includes('targetRows') && code.includes('categoryRows') && code.includes('usageAnalysisState'));
   expectTrue('admin stats error state targets usage analysis DOM', code.includes('usage-analysis-table-wrap') && code.includes('usage-analysis-week-chart') && !extractFunctionSource(code, 'setStatsPageError').includes('today-overview-list'));
   expectTrue('admin 使用分析不把 suspect 诊断放入普通视图', !code.includes('usageView.suspectSummary'));

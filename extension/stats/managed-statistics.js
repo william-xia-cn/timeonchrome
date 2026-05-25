@@ -1,14 +1,12 @@
 // stats/managed-statistics.js — managed statistics semantics layer
 
-import { computeAllDomainsWithAudio } from '../core/aggregate.js';
 import { matchDomain } from '../core/domain-semantics.js';
 import { resolveSiteAccessClassification } from '../core/site-classification.js';
 import { emitTrace } from '../core/timing-trace.js';
-import { getAllUsageSegments, getDailyUsageStats, getHourlyUsageStats } from '../core/usage-segments.js';
+import { getAllUsageSegments, getDailyUsageStats, getHourlyUsageStats, getUsageSegmentsByDate, rebuildDailyUsageStats } from '../core/usage-segments.js';
 import { getHourlyMediaStats, getMediaSegments } from '../runtime/media-session.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
-const EVENT_LOG_KEY = 'event_log_v1';
 const DAILY_USAGE_STATS_KEY = 'daily_usage_stats_v1';
 const TEMP_COMPOSITE_DOMAINS_KEY = 'temporary_composite_domains';
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
@@ -45,6 +43,10 @@ function isDailyUsageStatsAuthoritative(dayStats) {
   if (!dayStats || !dayStats.domains) return false;
   if (Object.keys(dayStats.domains).length > 0) return true;
   return !!dayStats.suspectCleanup?.excludeSuspect;
+}
+
+function hasDailyTargetStats(dayStats) {
+  return !!(dayStats?.targets && typeof dayStats.targets === 'object' && Object.keys(dayStats.targets).length > 0);
 }
 
 export function convertDailyStatsToLegacyShape(dayStats) {
@@ -144,20 +146,125 @@ export function convertDailyStatsToTargetShape(dayStats) {
   };
 }
 
-function aggregateFromEvents(events, date) {
-  const { domains, audioSeconds, backgroundMediaByDomain, pipSeconds, pipByDomain } =
-    computeAllDomainsWithAudio(events, date);
-  const mergedDomains = { ...domains };
-  for (const [domain, seconds] of Object.entries(pipByDomain || {})) {
-    mergedDomains[domain] = (mergedDomains[domain] || 0) + (Number(seconds) || 0);
-  }
+function emptyLegacyStats() {
   return {
-    ...mergedDomains,
-    audioSeconds: Number.isFinite(audioSeconds) ? audioSeconds : 0,
-    backgroundMediaByDomain: backgroundMediaByDomain || {},
-    pipSeconds: Number.isFinite(pipSeconds) ? pipSeconds : 0,
-    pipByDomain: pipByDomain || {},
+    audioSeconds: 0,
+    backgroundMediaByDomain: {},
+    pipSeconds: 0,
+    pipByDomain: {},
   };
+}
+
+async function readDailyUsageStatsByDate(date) {
+  try {
+    const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
+    return data?.[DAILY_USAGE_STATS_KEY]?.[date] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function getSegmentsForDateSafe(date) {
+  try {
+    const segments = await getUsageSegmentsByDate(date);
+    return Array.isArray(segments) ? segments : [];
+  } catch (error) {
+    recordFallbackLog({
+      level: 'error',
+      category: 'storage',
+      eventCode: 'usage_segments_read_failed_for_daily_rebuild',
+      module: 'stats/managed-statistics',
+      reason: 'usage_segments_read_failed',
+      message: error?.message || 'Failed to read usage segments before daily stats rebuild',
+      details: { date },
+    });
+    throw error;
+  }
+}
+
+async function ensureDailyStatsForRead(date, reason = 'read_model') {
+  const existing = await readDailyUsageStatsByDate(date);
+  if (isDailyUsageStatsAuthoritative(existing) && (hasDailyTargetStats(existing) || existing?.suspectCleanup?.excludeSuspect)) {
+    return { ok: true, dayStats: existing, rebuilt: false, source: 'daily_usage_stats_v1' };
+  }
+
+  const startedAt = Date.now();
+  const segments = await getSegmentsForDateSafe(date);
+  if (segments.length === 0) {
+    if (isDailyUsageStatsAuthoritative(existing)) {
+      return { ok: true, dayStats: existing, rebuilt: false, source: 'daily_usage_stats_v1_legacy_no_segments', segmentCount: 0 };
+    }
+    return { ok: true, dayStats: null, rebuilt: false, source: 'usage_segments_v1_empty', segmentCount: 0 };
+  }
+
+  recordFallbackLog({
+    level: 'error',
+    category: 'storage',
+    eventCode: 'daily_usage_stats_missing_rebuild_started',
+    module: 'stats/managed-statistics',
+    reason: 'daily_usage_stats_unavailable',
+    message: 'Daily usage stats missing; rebuilding from usage segments',
+    details: { date, readReason: reason, segmentCount: segments.length },
+  });
+
+  try {
+    const result = await rebuildDailyUsageStats(date);
+    const rebuiltDayStats = await readDailyUsageStatsByDate(date);
+    const durationMs = Date.now() - startedAt;
+    if (!isDailyUsageStatsAuthoritative(rebuiltDayStats)) {
+      const error = new Error('daily_usage_stats_v1 rebuild produced no authoritative stats');
+      recordFallbackLog({
+        level: 'error',
+        category: 'storage',
+        eventCode: 'daily_usage_stats_rebuild_invalid',
+        module: 'stats/managed-statistics',
+        reason: 'daily_usage_stats_rebuild_invalid',
+        message: error.message,
+        details: { date, readReason: reason, segmentCount: segments.length, rebuildDurationMs: durationMs },
+      });
+      return { ok: false, error: error.message, dayStats: null, rebuilt: false, source: 'usage_segments_v1_rebuild_failed' };
+    }
+    recordFallbackLog({
+      level: 'warning',
+      category: 'storage',
+      eventCode: 'daily_usage_stats_rebuilt_from_segments',
+      module: 'stats/managed-statistics',
+      reason: 'daily_usage_stats_rebuilt_from_segments',
+      message: 'Daily usage stats rebuilt from usage segments',
+      details: {
+        date,
+        readReason: reason,
+        segmentCount: segments.length,
+        segmentsUsed: result?.segmentsUsed || null,
+        rebuildDurationMs: durationMs,
+      },
+    });
+    return {
+      ok: true,
+      dayStats: rebuiltDayStats,
+      rebuilt: true,
+      source: 'daily_usage_stats_v1_rebuilt',
+      segmentCount: segments.length,
+      rebuildDurationMs: durationMs,
+    };
+  } catch (error) {
+    recordFallbackLog({
+      level: 'error',
+      category: 'storage',
+      eventCode: 'daily_usage_stats_rebuild_failed',
+      module: 'stats/managed-statistics',
+      reason: 'daily_usage_stats_rebuild_failed',
+      message: error?.message || 'Failed to rebuild daily usage stats',
+      details: { date, readReason: reason, segmentCount: segments.length, rebuildDurationMs: Date.now() - startedAt },
+    });
+    return {
+      ok: false,
+      error: error?.message || 'Failed to rebuild daily usage stats',
+      dayStats: null,
+      rebuilt: false,
+      source: 'usage_segments_v1_rebuild_failed',
+    };
+  }
 }
 
 function addModeSeconds(target, source = {}) {
@@ -221,50 +328,54 @@ export function withUsageSummary(stats = {}, config = {}) {
 
 export async function getTodayUsageView(options = {}) {
   const date = options.date || getDateKey();
-  let source = 'daily_usage_stats_v1';
-  let stats = null;
-  let dayStats = null;
-
-  try {
-    const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
-    const allStats = data[DAILY_USAGE_STATS_KEY] || {};
-    dayStats = allStats[date];
-    if (isDailyUsageStatsAuthoritative(dayStats)) {
-      stats = convertDailyStatsToLegacyShape(dayStats);
-      await emitTrace('stats_calculated', {
-        source,
-        reason: 'dailyAggregation',
-        domain: null,
-        statsAfter: dayStats,
-        payload: { date },
-      });
-    }
-  } catch (_) {
-    stats = null;
-  }
-
-  if (!stats) {
-    source = 'event_log_v1_fallback';
-    const eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
-    const events = eventData[EVENT_LOG_KEY] || [];
-    stats = aggregateFromEvents(events, date);
+  const ensured = await ensureDailyStatsForRead(date, 'today_usage_view');
+  if (!ensured.ok) {
+    const emptyStats = emptyLegacyStats();
     recordFallbackLog({
-      level: 'warning',
+      level: 'error',
       category: 'storage',
-      eventCode: 'stats_read_model_event_log_fallback',
+      eventCode: 'daily_usage_stats_unavailable_for_read',
       module: 'stats/managed-statistics',
-      reason: 'daily_usage_stats_unavailable',
-      message: 'Usage statistics fell back to event log aggregation',
-      details: { date, eventCount: events.length },
+      reason: 'daily_usage_stats_rebuild_failed',
+      message: ensured.error || 'Daily usage stats unavailable for read',
+      details: { date },
     });
     await emitTrace('stats_calculated', {
-      source,
+      source: ensured.source,
       reason: 'dailyAggregation',
       domain: null,
-      statsAfter: stats,
-      payload: { date, eventCount: events.length, note: 'event-log fallback — compacted history may be lost' },
+      statsAfter: emptyStats,
+      payload: { date, error: ensured.error || null },
     });
+    const config = options.config || {};
+    return {
+      ok: false,
+      date,
+      source: ensured.source,
+      error: ensured.error,
+      dayStats: null,
+      targetStats: convertDailyStatsToTargetShape(null),
+      stats: emptyStats,
+      statsWithSummary: withUsageSummary(emptyStats, config),
+      meta: { source: ensured.source, date, error: ensured.error },
+    };
   }
+
+  const source = ensured.source;
+  const dayStats = ensured.dayStats;
+  const stats = dayStats ? convertDailyStatsToLegacyShape(dayStats) : emptyLegacyStats();
+  await emitTrace('stats_calculated', {
+    source,
+    reason: 'dailyAggregation',
+    domain: null,
+    statsAfter: dayStats || stats,
+    payload: {
+      date,
+      rebuilt: !!ensured.rebuilt,
+      rebuildDurationMs: ensured.rebuildDurationMs || null,
+      segmentCount: ensured.segmentCount || null,
+    },
+  });
 
   const config = options.config || {};
   return {
@@ -284,72 +395,57 @@ export async function getUsageRangeView(days = 7, options = {}) {
   const sources = {};
   let allStatsForTargetView = {};
 
-  try {
+  const readFreshAllStats = async () => {
     const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
-    const allStats = data[DAILY_USAGE_STATS_KEY] || {};
-    allStatsForTargetView = allStats;
+    return data?.[DAILY_USAGE_STATS_KEY] || {};
+  };
 
+  try {
+    allStatsForTargetView = await readFreshAllStats();
     for (let i = 0; i < days; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateStr = formatDate(d);
-      const dayStats = allStats[dateStr];
-      if (isDailyUsageStatsAuthoritative(dayStats)) {
-        result[dateStr] = convertDailyStatsToLegacyShape(dayStats);
-        sources[dateStr] = 'daily_usage_stats_v1';
+      let dayStats = allStatsForTargetView[dateStr];
+      if (!isDailyUsageStatsAuthoritative(dayStats)) {
+        const ensured = await ensureDailyStatsForRead(dateStr, 'usage_range_view');
+        if (ensured.ok && ensured.dayStats) {
+          dayStats = ensured.dayStats;
+          allStatsForTargetView[dateStr] = ensured.dayStats;
+          sources[dateStr] = ensured.source;
+        } else if (ensured.ok) {
+          result[dateStr] = emptyLegacyStats();
+          sources[dateStr] = ensured.source || 'empty';
+          continue;
+        } else {
+          result[dateStr] = emptyLegacyStats();
+          sources[dateStr] = ensured.source || 'daily_usage_stats_unavailable';
+          continue;
+        }
       } else {
-        result[dateStr] = null;
+        sources[dateStr] = 'daily_usage_stats_v1';
       }
+      result[dateStr] = convertDailyStatsToLegacyShape(dayStats);
     }
-
-    let events = null;
-    for (const dateStr of Object.keys(result)) {
-      if (result[dateStr] !== null) continue;
-      if (!events) {
-        const eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
-        events = eventData[EVENT_LOG_KEY] || [];
-      }
-      const fallback = aggregateFromEvents(events, dateStr);
-      const hasDomains = Object.keys(fallback).some((key) =>
-        !isStatsMetaKey(key) && Number(fallback[key] || 0) > 0
-      );
-      if (hasDomains) {
-        recordFallbackLog({
-          level: 'warning',
-          category: 'storage',
-          eventCode: 'stats_read_model_event_log_fallback',
-          module: 'stats/managed-statistics',
-          reason: 'range_daily_usage_stats_unavailable',
-          message: 'Usage range statistics fell back to event log aggregation',
-          details: { date: dateStr, eventCount: events.length },
-        });
-      }
-      result[dateStr] = hasDomains ? fallback : {
-        audioSeconds: 0,
-        backgroundMediaByDomain: {},
-        pipSeconds: 0,
-        pipByDomain: {},
-      };
-      sources[dateStr] = hasDomains ? 'event_log_v1_fallback' : 'empty';
-    }
-  } catch (_) {
-    const eventData = await chrome.storage.local.get(EVENT_LOG_KEY);
-    const events = eventData[EVENT_LOG_KEY] || [];
+  } catch (error) {
     recordFallbackLog({
       level: 'error',
       category: 'storage',
-      eventCode: 'stats_read_model_event_log_fallback',
+      eventCode: 'daily_usage_stats_range_read_failed',
       module: 'stats/managed-statistics',
-      reason: 'daily_usage_stats_read_failed',
-      message: 'Usage range statistics read failed and fell back to event log aggregation',
-      details: { days, eventCount: events.length },
+      reason: 'daily_usage_stats_range_read_failed',
+      message: error?.message || 'Usage range statistics read failed',
+      details: { days },
     });
-    for (let i = 0; i < days; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = formatDate(d);
-      result[dateStr] = aggregateFromEvents(events, dateStr);
-      sources[dateStr] = 'event_log_v1_fallback';
+  }
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = formatDate(d);
+    if (!result[dateStr]) {
+      result[dateStr] = emptyLegacyStats();
+      sources[dateStr] = sources[dateStr] || 'empty';
     }
   }
 
@@ -457,18 +553,43 @@ function quotaBucketsFromTargetStats(dayStats) {
   };
 }
 
-async function readDailyUsageStatsByDate(date) {
-  try {
-    const data = await chrome.storage.local.get(DAILY_USAGE_STATS_KEY);
-    return data?.[DAILY_USAGE_STATS_KEY]?.[date] || null;
-  } catch (_) {
-    return null;
-  }
-}
-
 export async function getQuotaUsageView(date = getDateKey(), options = {}) {
   const config = options.config || {};
   const todayUsageView = options.stats ? null : await getTodayUsageView({ date, config });
+  if (todayUsageView?.ok === false) {
+    const emptyStats = emptyLegacyStats();
+    return {
+      ok: false,
+      date,
+      error: todayUsageView.error || 'daily_usage_stats_unavailable',
+      totalSeconds: 0,
+      studySeconds: 0,
+      compositeSeconds: 0,
+      undeterminedSeconds: 0,
+      restSeconds: 0,
+      weekRestSeconds: 0,
+      totalMinutes: 0,
+      studyMinutes: 0,
+      compositeMinutes: 0,
+      undeterminedMinutes: 0,
+      restMinutes: 0,
+      weekRestMinutes: 0,
+      domainSeconds: {},
+      domainClassifications: {},
+      targetSeconds: {},
+      targetClassifications: {},
+      targetRows: [],
+      quotaSource: todayUsageView.source || 'daily_usage_stats_unavailable',
+      media: {
+        backgroundMediaSeconds: 0,
+        backgroundMediaByDomain: {},
+        pipSeconds: 0,
+        pipByDomain: {},
+      },
+      stats: emptyStats,
+      source: 'managed_statistics',
+    };
+  }
   const stats = options.stats || todayUsageView.stats;
   const dayStats = options.dayStats || todayUsageView?.dayStats || await readDailyUsageStatsByDate(date);
   const targetQuota = quotaBucketsFromTargetStats(dayStats);

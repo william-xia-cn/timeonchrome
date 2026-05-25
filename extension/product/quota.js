@@ -86,6 +86,25 @@ export async function evaluateQuotaState() {
   }
 
   const usage = await getQuotaUsageView(getDateKey(), { config });
+  if (usage?.ok === false) {
+    recordFallbackLog({
+      level: 'error',
+      category: 'storage',
+      eventCode: 'quota_usage_view_failed',
+      module: 'product/quota',
+      reason: 'quota_usage_view_failed',
+      message: usage.error || 'Quota usage view failed',
+      details: { dateKey: getDateKey(), quotaSource: usage.quotaSource || usage.source || null },
+    });
+    return {
+      ok: true,
+      skipped: 'quota_usage_unavailable',
+      error: usage.error || 'Quota usage view failed',
+      usage,
+      config,
+      stateChanged: false,
+    };
+  }
   const oldState = config.quotaState || {};
   const newState = buildQuotaStateFromUsage(config, usage);
   const stateChanged = quotaStateChanged(newState, oldState);

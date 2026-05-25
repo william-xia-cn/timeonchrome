@@ -12,13 +12,18 @@ const DAILY_MEDIA_STATS_KEY = 'daily_media_stats_v1';
 const HOURLY_MEDIA_STATS_KEY = 'hourly_media_stats_v1';
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const TEMP_COMPOSITE_DOMAINS_KEY = 'temporary_composite_domains';
-const ANALYSIS_CATEGORY_KEYS = ['study', 'composite', 'rest', 'media', 'other'];
+const ANALYSIS_CATEGORY_KEYS = ['study', 'composite', 'rest', 'other'];
+const MEDIA_ANALYSIS_CATEGORY_KEYS = ['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip'];
 const ANALYSIS_CATEGORY_LABELS = {
   study: '学习',
   composite: '综合',
   rest: '休息',
-  media: '媒体',
   other: '其他',
+  foregroundAudio: '前台音频',
+  backgroundAudio: '后台音频',
+  foregroundVideo: '前台视频',
+  backgroundVideo: '后台视频',
+  pip: 'PiP',
 };
 
 const STATS_KEYS = [
@@ -381,7 +386,7 @@ function computeOverview(data, config, storage) {
 }
 
 function emptyAnalysisCategories() {
-  return { study: 0, composite: 0, rest: 0, media: 0, other: 0 };
+  return { study: 0, composite: 0, rest: 0, other: 0 };
 }
 
 function addBucketSecondsToCategories(categories, bucketMap = {}, secondsFallback = 0, fallbackBucket = 'other') {
@@ -414,7 +419,7 @@ function classificationToCategory(classification) {
 function dominantCategory(categories) {
   let best = 'other';
   let bestSeconds = -1;
-  for (const key of ANALYSIS_CATEGORY_KEYS) {
+  for (const key of Object.keys(categories || {})) {
     const seconds = Number(categories?.[key] || 0);
     if (seconds > bestSeconds) {
       best = key;
@@ -474,38 +479,17 @@ function mediaDomainTotalSeconds(mediaStats = {}) {
   }, 0);
 }
 
-function dayMediaTargetStats(dayMediaStats) {
-  return Object.entries(dayMediaStats?.domains || {}).map(([domain, mediaStats]) => ({
-    targetKey: `fallback:domain:${domain}`,
-    fallbackDomain: domain,
-    isFallback: true,
-    activeSeconds: 0,
-    backgroundMediaSeconds: mediaDomainTotalSeconds(mediaStats),
-    pipSeconds: 0,
-    activeByQuotaBucket: {},
-    backgroundMediaByQuotaBucket: {},
-    pipByQuotaBucket: {},
-    firstSeenAt: mediaStats?.firstSeenAt || null,
-    lastSeenAt: mediaStats?.lastSeenAt || null,
-  })).filter(stat => stat.backgroundMediaSeconds > 0);
-}
-
 function applyTargetStatToCategories(categories, stat) {
   const activeSeconds = Math.max(0, Number(stat?.activeSeconds) || 0);
-  const mediaSeconds = Math.max(0, Number(stat?.backgroundMediaSeconds) || 0) + Math.max(0, Number(stat?.pipSeconds) || 0);
   const fallbackCategory = classificationToCategory(stat?.targetClassificationAtTime) || 'other';
   addBucketSecondsToCategories(categories, stat?.activeByQuotaBucket || {}, activeSeconds, fallbackCategory);
-  categories.media += mediaSeconds;
 }
 
-function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage, dailyMediaStats = {}) {
+function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage) {
   const map = new Map();
   for (const date of dateKeys) {
     const dayStats = dailyStats?.[date] || {};
-    const stats = [
-      ...dayTargetStats(dayStats, config, storage),
-      ...dayMediaTargetStats(dailyMediaStats?.[date]),
-    ];
+    const stats = dayTargetStats(dayStats, config, storage);
     for (const stat of stats) {
       const key = stat.targetKey || stat.managedTargetId || `fallback:domain:${stat.fallbackDomain || 'unknown'}`;
       const row = map.get(key) || {
@@ -536,10 +520,10 @@ function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage, daily
   return map;
 }
 
-function targetRowsForAnalysis(dailyStats, dailyMediaStats, selectedDateKey, weekDateKeys, rangeDateKeys, config, storage) {
-  const todayMap = aggregateTargetStatsByDate(dailyStats, [selectedDateKey], config, storage, dailyMediaStats);
-  const weekMap = aggregateTargetStatsByDate(dailyStats, weekDateKeys, config, storage, dailyMediaStats);
-  const rangeMap = aggregateTargetStatsByDate(dailyStats, rangeDateKeys, config, storage, dailyMediaStats);
+function targetRowsForAnalysis(dailyStats, selectedDateKey, weekDateKeys, rangeDateKeys, config, storage) {
+  const todayMap = aggregateTargetStatsByDate(dailyStats, [selectedDateKey], config, storage);
+  const weekMap = aggregateTargetStatsByDate(dailyStats, weekDateKeys, config, storage);
+  const rangeMap = aggregateTargetStatsByDate(dailyStats, rangeDateKeys, config, storage);
   const allKeys = new Set([...todayMap.keys(), ...weekMap.keys(), ...rangeMap.keys()]);
   return [...allKeys].map((key) => {
     const range = rangeMap.get(key) || weekMap.get(key) || todayMap.get(key);
@@ -580,49 +564,45 @@ function categoryRowsForAnalysis(categoryTotals) {
   }));
 }
 
-function dailyCategoryTotals(dayStats, config, storage, dayMediaStats = null) {
+function dailyCategoryTotals(dayStats, config, storage) {
   const categories = emptyAnalysisCategories();
   for (const stat of dayTargetStats(dayStats || {}, config, storage)) {
-    applyTargetStatToCategories(categories, stat);
-  }
-  for (const stat of dayMediaTargetStats(dayMediaStats || {})) {
     applyTargetStatToCategories(categories, stat);
   }
   return categories;
 }
 
-function buildDailySeries(dailyStats, dateKeys, config, storage, dailyMediaStats = {}) {
+function buildDailySeries(dailyStats, dateKeys, config, storage) {
   return dateKeys.map((date) => ({
     key: date,
     label: date.slice(5),
-    categories: dailyCategoryTotals(dailyStats?.[date], config, storage, dailyMediaStats?.[date]),
+    categories: dailyCategoryTotals(dailyStats?.[date], config, storage),
   }));
 }
 
-function buildHourlySeries(hourlyStats, dateKey, config, storage, hourlyMediaStats = {}) {
+function buildHourlySeries(hourlyStats, dateKey, config, storage) {
   const rows = [];
   for (let hour = 0; hour < 24; hour++) {
     const hourKeyPrefix = `${dateKey}T${String(hour).padStart(2, '0')}`;
     const entry = Object.entries(hourlyStats || {}).find(([hourKey, hs]) =>
       hourKey.startsWith(hourKeyPrefix) || (hs?.date === dateKey && Number(hs?.hour) === hour)
     );
-    const mediaEntry = Object.entries(hourlyMediaStats || {}).find(([hourKey, hs]) =>
-      hourKey.startsWith(hourKeyPrefix) || (hs?.date === dateKey && Number(hs?.hour) === hour)
-    );
     rows.push({
       key: `${dateKey}-${hour}`,
       hour,
       label: `${hour}时`,
-      categories: dailyCategoryTotals(entry?.[1], config, storage, mediaEntry?.[1]),
+      categories: dailyCategoryTotals(entry?.[1], config, storage),
     });
   }
   return rows;
 }
 
 function sumSeriesCategories(series) {
-  const totals = emptyAnalysisCategories();
+  const keys = Array.from(new Set((series || []).flatMap((row) => Object.keys(row.categories || {}))));
+  const totals = {};
+  for (const key of keys) totals[key] = 0;
   for (const row of series || []) {
-    for (const key of ANALYSIS_CATEGORY_KEYS) totals[key] += Math.max(0, Number(row.categories?.[key]) || 0);
+    for (const key of keys) totals[key] += Math.max(0, Number(row.categories?.[key]) || 0);
   }
   return totals;
 }
@@ -630,8 +610,6 @@ function sumSeriesCategories(series) {
 function buildUsageAnalysisView(storage, config, options = {}) {
   const dailyStats = storage[DAILY_USAGE_STATS_KEY] || {};
   const hourlyStats = storage[HOURLY_USAGE_STATS_KEY] || {};
-  const dailyMediaStats = storage[DAILY_MEDIA_STATS_KEY] || {};
-  const hourlyMediaStats = storage[HOURLY_MEDIA_STATS_KEY] || {};
   const anchor = options.date ? parseAdminDateKey(options.date) : new Date();
   const mode = options.mode === 'week' ? 'week' : 'day';
   const selectedDateKey = getAdminDateKey(anchor);
@@ -640,11 +618,11 @@ function buildUsageAnalysisView(storage, config, options = {}) {
   const weekDateKeys = dateKeysBetween(getAdminDateKey(weekStart), getAdminDateKey(weekEnd));
   const rangeDateKeys = mode === 'week' ? weekDateKeys : [selectedDateKey];
   const chartSeries = mode === 'week'
-    ? buildDailySeries(dailyStats, weekDateKeys, config, storage, dailyMediaStats)
-    : buildHourlySeries(hourlyStats, selectedDateKey, config, storage, hourlyMediaStats);
-  const totalSeries = buildDailySeries(dailyStats, rangeDateKeys, config, storage, dailyMediaStats);
+    ? buildDailySeries(dailyStats, weekDateKeys, config, storage)
+    : buildHourlySeries(hourlyStats, selectedDateKey, config, storage);
+  const totalSeries = buildDailySeries(dailyStats, rangeDateKeys, config, storage);
   const categoryTotals = sumSeriesCategories(totalSeries);
-  const targetRows = targetRowsForAnalysis(dailyStats, dailyMediaStats, selectedDateKey, weekDateKeys, rangeDateKeys, config, storage);
+  const targetRows = targetRowsForAnalysis(dailyStats, selectedDateKey, weekDateKeys, rangeDateKeys, config, storage);
   const pendingRows = targetRows.filter(row => row.status === '待归类');
   const range = mode === 'week'
     ? { mode, from: getAdminDateKey(weekStart), to: getAdminDateKey(weekEnd), label: `${getAdminDateKey(weekStart).slice(5)} — ${getAdminDateKey(weekEnd).slice(5)}` }
@@ -661,14 +639,194 @@ function buildUsageAnalysisView(storage, config, options = {}) {
         options: [{ id: 'local', label: '这台电脑' }],
       },
     },
+    kind: 'web',
+    categoryKeys: ANALYSIS_CATEGORY_KEYS,
+    totalLabel: '网页使用时间',
+    targetColumnLabel: '管理对象',
+    categoryColumnLabel: '分类',
+    searchTargetPlaceholder: '搜索管理对象',
     range,
     totalSeconds: ANALYSIS_CATEGORY_KEYS.reduce((sum, key) => sum + categoryTotals[key], 0),
     categoryTotals,
     chartSeries,
-    weekSummarySeries: buildDailySeries(dailyStats, weekDateKeys, config, storage, dailyMediaStats),
+    weekSummarySeries: buildDailySeries(dailyStats, weekDateKeys, config, storage),
     targetRows,
     categoryRows: categoryRowsForAnalysis(categoryTotals),
     pendingRows,
+  };
+}
+
+function emptyMediaAnalysisCategories() {
+  return { foregroundAudio: 0, backgroundAudio: 0, foregroundVideo: 0, backgroundVideo: 0, pip: 0 };
+}
+
+function applyMediaStatsToCategories(categories, mediaStats = {}) {
+  const direct = {
+    foregroundAudio: Math.max(0, Number(mediaStats?.foregroundAudioSeconds) || 0),
+    backgroundAudio: Math.max(0, Number(mediaStats?.backgroundAudioSeconds) || 0),
+    foregroundVideo: Math.max(0, Number(mediaStats?.foregroundVideoSeconds) || 0),
+    backgroundVideo: Math.max(0, Number(mediaStats?.backgroundVideoSeconds) || 0),
+    pip: Math.max(0, Number(mediaStats?.pipSeconds) || 0),
+  };
+  const directTotal = MEDIA_ANALYSIS_CATEGORY_KEYS.reduce((sum, key) => sum + direct[key], 0);
+  if (directTotal > 0) {
+    for (const key of MEDIA_ANALYSIS_CATEGORY_KEYS) categories[key] += direct[key];
+    return;
+  }
+  for (const modeStats of Object.values(mediaStats?.byMode || {})) {
+    applyMediaStatsToCategories(categories, modeStats);
+  }
+}
+
+function dayMediaCategoryTotals(dayMediaStats = {}) {
+  const categories = emptyMediaAnalysisCategories();
+  for (const mediaStats of Object.values(dayMediaStats?.domains || {})) {
+    applyMediaStatsToCategories(categories, mediaStats);
+  }
+  return categories;
+}
+
+function buildMediaDailySeries(dailyMediaStats, dateKeys) {
+  return dateKeys.map((date) => ({
+    key: date,
+    label: date.slice(5),
+    categories: dayMediaCategoryTotals(dailyMediaStats?.[date]),
+  }));
+}
+
+function buildMediaHourlySeries(hourlyMediaStats, dateKey) {
+  const rows = [];
+  for (let hour = 0; hour < 24; hour++) {
+    const hourKeyPrefix = `${dateKey}T${String(hour).padStart(2, '0')}`;
+    const entry = Object.entries(hourlyMediaStats || {}).find(([hourKey, hs]) =>
+      hourKey.startsWith(hourKeyPrefix) || (hs?.date === dateKey && Number(hs?.hour) === hour)
+    );
+    rows.push({
+      key: `${dateKey}-${hour}`,
+      hour,
+      label: `${hour}时`,
+      categories: dayMediaCategoryTotals(entry?.[1]),
+    });
+  }
+  return rows;
+}
+
+function aggregateMediaStatsByDate(dailyMediaStats, dateKeys) {
+  const map = new Map();
+  for (const date of dateKeys) {
+    for (const [domain, mediaStats] of Object.entries(dailyMediaStats?.[date]?.domains || {})) {
+      const key = `media:domain:${domain}`;
+      const row = map.get(key) || {
+        key,
+        label: domain,
+        fallbackDomain: domain,
+        managedTargetType: 'media',
+        managedTargetNamespace: null,
+        managedTargetValue: domain,
+        isFallback: true,
+        categories: emptyMediaAnalysisCategories(),
+        seconds: 0,
+        firstSeenAt: null,
+        lastSeenAt: null,
+      };
+      const statCategories = emptyMediaAnalysisCategories();
+      applyMediaStatsToCategories(statCategories, mediaStats);
+      for (const category of MEDIA_ANALYSIS_CATEGORY_KEYS) row.categories[category] += statCategories[category];
+      const statTotal = MEDIA_ANALYSIS_CATEGORY_KEYS.reduce((sum, category) => sum + statCategories[category], 0);
+      row.seconds += statTotal;
+      if (mediaStats.firstSeenAt && (!row.firstSeenAt || mediaStats.firstSeenAt < row.firstSeenAt)) row.firstSeenAt = mediaStats.firstSeenAt;
+      if (mediaStats.lastSeenAt && (!row.lastSeenAt || mediaStats.lastSeenAt > row.lastSeenAt)) row.lastSeenAt = mediaStats.lastSeenAt;
+      map.set(key, row);
+    }
+  }
+  return map;
+}
+
+function mediaRowsForAnalysis(dailyMediaStats, selectedDateKey, weekDateKeys, rangeDateKeys) {
+  const todayMap = aggregateMediaStatsByDate(dailyMediaStats, [selectedDateKey]);
+  const weekMap = aggregateMediaStatsByDate(dailyMediaStats, weekDateKeys);
+  const rangeMap = aggregateMediaStatsByDate(dailyMediaStats, rangeDateKeys);
+  const allKeys = new Set([...todayMap.keys(), ...weekMap.keys(), ...rangeMap.keys()]);
+  return [...allKeys].map((key) => {
+    const range = rangeMap.get(key) || weekMap.get(key) || todayMap.get(key);
+    const today = todayMap.get(key);
+    const week = weekMap.get(key);
+    const category = dominantCategory(range?.categories || {});
+    return {
+      key,
+      label: range?.label || key,
+      category,
+      categoryLabel: ANALYSIS_CATEGORY_LABELS[category],
+      todaySeconds: today?.seconds || 0,
+      weekSeconds: week?.seconds || 0,
+      rangeSeconds: range?.seconds || 0,
+      limitLabel: '—',
+      status: '正常',
+      fallbackDomain: range?.fallbackDomain || null,
+      managedTargetType: 'media',
+      isFallback: true,
+      lastSeenAt: range?.lastSeenAt || null,
+      categories: range?.categories || emptyMediaAnalysisCategories(),
+    };
+  }).filter(row => row.rangeSeconds > 0 || row.todaySeconds > 0 || row.weekSeconds > 0)
+    .sort((a, b) => b.rangeSeconds - a.rangeSeconds || a.label.localeCompare(b.label));
+}
+
+function mediaCategoryRowsForAnalysis(categoryTotals) {
+  return MEDIA_ANALYSIS_CATEGORY_KEYS.map((key) => ({
+    key,
+    label: ANALYSIS_CATEGORY_LABELS[key],
+    seconds: Math.max(0, Number(categoryTotals?.[key]) || 0),
+    limitLabel: '—',
+    status: '正常',
+  }));
+}
+
+function buildMediaUsageAnalysisView(storage, options = {}) {
+  const dailyMediaStats = storage[DAILY_MEDIA_STATS_KEY] || {};
+  const hourlyMediaStats = storage[HOURLY_MEDIA_STATS_KEY] || {};
+  const anchor = options.date ? parseAdminDateKey(options.date) : new Date();
+  const mode = options.mode === 'week' ? 'week' : 'day';
+  const selectedDateKey = getAdminDateKey(anchor);
+  const weekStart = startOfAdminWeek(anchor);
+  const weekEnd = addDays(weekStart, 6);
+  const weekDateKeys = dateKeysBetween(getAdminDateKey(weekStart), getAdminDateKey(weekEnd));
+  const rangeDateKeys = mode === 'week' ? weekDateKeys : [selectedDateKey];
+  const chartSeries = mode === 'week'
+    ? buildMediaDailySeries(dailyMediaStats, weekDateKeys)
+    : buildMediaHourlySeries(hourlyMediaStats, selectedDateKey);
+  const totalSeries = buildMediaDailySeries(dailyMediaStats, rangeDateKeys);
+  const categoryTotals = sumSeriesCategories(totalSeries);
+  const targetRows = mediaRowsForAnalysis(dailyMediaStats, selectedDateKey, weekDateKeys, rangeDateKeys);
+  const range = mode === 'week'
+    ? { mode, from: getAdminDateKey(weekStart), to: getAdminDateKey(weekEnd), label: `${getAdminDateKey(weekStart).slice(5)} — ${getAdminDateKey(weekEnd).slice(5)}` }
+    : { mode, from: selectedDateKey, to: selectedDateKey, label: selectedDateKey };
+  return {
+    meta: {
+      source: 'chrome.storage.local',
+      readOnly: true,
+      updatedAt: Date.now(),
+      syncLabel: `本机数据：今天 ${formatAdminClock()}`,
+      deviceScope: {
+        selected: 'local',
+        label: '这台电脑',
+        options: [{ id: 'local', label: '这台电脑' }],
+      },
+    },
+    kind: 'media',
+    categoryKeys: MEDIA_ANALYSIS_CATEGORY_KEYS,
+    totalLabel: '媒体使用时间',
+    targetColumnLabel: '媒体来源',
+    categoryColumnLabel: '媒体类型',
+    searchTargetPlaceholder: '搜索媒体来源',
+    range,
+    totalSeconds: MEDIA_ANALYSIS_CATEGORY_KEYS.reduce((sum, key) => sum + categoryTotals[key], 0),
+    categoryTotals,
+    chartSeries,
+    weekSummarySeries: buildMediaDailySeries(dailyMediaStats, weekDateKeys),
+    targetRows,
+    categoryRows: mediaCategoryRowsForAnalysis(categoryTotals),
+    pendingRows: [],
   };
 }
 
@@ -965,6 +1123,15 @@ export async function getAdminUsageAnalysisView(options = {}) {
       todayOverview,
       weekOverview,
     },
+  };
+}
+
+export async function getAdminMediaUsageAnalysisView(options = {}) {
+  const storage = await readAdminStatsStorage();
+  return {
+    ok: true,
+    source: 'admin_read_model',
+    ...buildMediaUsageAnalysisView(storage, options),
   };
 }
 

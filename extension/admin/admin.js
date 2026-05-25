@@ -5,6 +5,7 @@
 // 3. 绑定后不能退出
 
 import {
+  getAdminMediaUsageAnalysisView,
   getAdminMediaSettlementView,
   getAdminSettlementView,
   getAdminUsageAnalysisView,
@@ -66,6 +67,7 @@ let mediaSettlementRange = 'today';
 let mediaSettlementLabel = '今日';
 let isLocalReadOnlyMode = false;
 let usageAnalysisState = {
+  ledger: 'web',
   mode: 'day',
   date: null,
   listMode: 'targets',
@@ -2431,6 +2433,14 @@ async function renderMediaSettlementsPage() {
 }
 
 function setupUsageAnalysisControls() {
+  document.querySelectorAll('[data-usage-ledger]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      usageAnalysisState.ledger = btn.dataset.usageLedger === 'media' ? 'media' : 'web';
+      usageAnalysisState.detail = null;
+      usageAnalysisState.query = '';
+      await renderStatsPage();
+    });
+  });
   document.querySelectorAll('[data-usage-range-mode]').forEach(btn => {
     btn.addEventListener('click', async () => {
       usageAnalysisState.mode = btn.dataset.usageRangeMode === 'week' ? 'week' : 'day';
@@ -2471,37 +2481,54 @@ function shiftUsageAnalysisDate(currentKey, days) {
 }
 
 function usageCategoryLabel(key) {
-  return ({ study: '学习', composite: '综合', rest: '休息', media: '媒体', other: '其他' })[key] || key || '其他';
+  return ({
+    study: '学习',
+    composite: '综合',
+    rest: '休息',
+    other: '其他',
+    foregroundAudio: '前台音频',
+    backgroundAudio: '后台音频',
+    foregroundVideo: '前台视频',
+    backgroundVideo: '后台视频',
+    pip: 'PiP',
+  })[key] || key || '其他';
 }
 
 function usageStatusClass(status) {
   return status === '待归类' ? 'pending' : '';
 }
 
-function usageSeriesTotal(row) {
-  return ['study', 'composite', 'rest', 'media', 'other']
+function usageCategoryKeys(view = usageAnalysisLastView) {
+  return Array.isArray(view?.categoryKeys) && view.categoryKeys.length
+    ? view.categoryKeys
+    : ['study', 'composite', 'rest', 'other'];
+}
+
+function usageSeriesTotal(row, keys = usageCategoryKeys()) {
+  return keys
     .reduce((sum, key) => sum + Math.max(0, Number(row?.categories?.[key]) || 0), 0);
 }
 
 function renderUsageStackChart(id, series = [], options = {}) {
   const el = document.getElementById(id);
   if (!el) return;
-  if (!Array.isArray(series) || series.length === 0 || !series.some(row => usageSeriesTotal(row) > 0)) {
+  const keys = Array.isArray(options.categoryKeys) && options.categoryKeys.length ? options.categoryKeys : usageCategoryKeys();
+  if (!Array.isArray(series) || series.length === 0 || !series.some(row => usageSeriesTotal(row, keys) > 0)) {
     el.innerHTML = `<div class="usage-empty">${escHtml(options.emptyMessage || '当前范围没有使用记录')}</div>`;
     return;
   }
-  const max = Math.max(...series.map(usageSeriesTotal), 1);
+  const max = Math.max(...series.map(row => usageSeriesTotal(row, keys)), 1);
   el.innerHTML = series.map(row => {
-    const total = usageSeriesTotal(row);
+    const total = usageSeriesTotal(row, keys);
     const barHeight = Math.max(2, Math.round((total / max) * 100));
-    const title = ['study', 'composite', 'rest', 'media', 'other']
+    const title = keys
       .filter(key => Number(row.categories?.[key] || 0) > 0)
       .map(key => `${usageCategoryLabel(key)} ${formatSeconds(row.categories[key])}`)
       .join(' / ');
     return `
       <div class="usage-stack-slot" title="${escAttr(title)}">
         <div class="usage-stack-bar" style="height:${barHeight}%">
-          ${['study', 'composite', 'rest', 'media', 'other'].map(key => {
+          ${keys.map(key => {
             const seconds = Number(row.categories?.[key] || 0);
             if (seconds <= 0 || total <= 0) return '';
             return `<div class="usage-stack-part ${key}" style="height:${Math.max(2, Math.round(seconds / total * 100))}%"></div>`;
@@ -2517,7 +2544,7 @@ function renderUsageLegend(view) {
   const el = document.getElementById('usage-analysis-legend');
   if (!el) return;
   const totals = view?.categoryTotals || {};
-  el.innerHTML = ['study', 'composite', 'rest', 'media', 'other'].map(key => `
+  el.innerHTML = usageCategoryKeys(view).map(key => `
     <div class="usage-legend-item">
       <span class="usage-dot ${key}"></span>
       <span>
@@ -2562,7 +2589,7 @@ function renderUsageAnalysisList(view) {
   if (listModeEl) listModeEl.value = usageAnalysisState.listMode;
   if (searchEl) {
     searchEl.value = usageAnalysisState.query;
-    searchEl.placeholder = usageAnalysisState.listMode === 'categories' ? '搜索分类' : '搜索管理对象';
+    searchEl.placeholder = usageAnalysisState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
   }
   const rows = filteredUsageRows(view);
   if (rows.length === 0) {
@@ -2589,7 +2616,7 @@ function renderUsageAnalysisList(view) {
   } else {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>管理对象</th><th>分类</th><th>今日时间</th><th>本周时间</th><th>限额</th><th>状态</th></tr></thead>
+        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>限额</th><th>状态</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-usage-detail-kind="target" data-usage-detail-key="${escAttr(row.key)}">
@@ -2657,11 +2684,16 @@ function renderUsageDetail(view) {
 
 function renderUsageAnalysisView(view) {
   usageAnalysisLastView = view;
+  document.querySelectorAll('[data-usage-ledger]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.usageLedger === (view.kind || 'web'));
+  });
   document.querySelectorAll('[data-usage-range-mode]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.usageRangeMode === view.range.mode);
   });
   const syncLabel = document.getElementById('usage-analysis-sync-label');
   if (syncLabel) syncLabel.textContent = view.meta?.syncLabel || '本机数据';
+  const totalLabel = document.querySelector('#page-stats .usage-total-label');
+  if (totalLabel) totalLabel.textContent = view.totalLabel || '使用时间';
   const total = document.getElementById('usage-analysis-total');
   if (total) total.textContent = formatSeconds(view.totalSeconds || 0);
   const rangeLabel = document.getElementById('usage-analysis-range-label');
@@ -2672,15 +2704,18 @@ function renderUsageAnalysisView(view) {
   if (summaryTitle) summaryTitle.textContent = '本周每日结构';
   const mainTitle = document.getElementById('usage-analysis-main-title');
   if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
-  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录' });
-  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录' });
+  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: usageCategoryKeys(view) });
   renderUsageLegend(view);
   renderUsageAnalysisList(view);
 }
 
 async function renderStatsPage() {
   try {
-    const usageView = await getAdminUsageAnalysisView({
+    const getView = usageAnalysisState.ledger === 'media'
+      ? getAdminMediaUsageAnalysisView
+      : getAdminUsageAnalysisView;
+    const usageView = await getView({
       mode: usageAnalysisState.mode,
       date: usageAnalysisState.date || undefined,
     });
