@@ -75,6 +75,23 @@ function loadModeService(stubs = {}) {
         weeklyRestMinutes: cfg.weeklyRestQuota === 0 ? null : (cfg.weeklyRestQuota ?? ((cfg.dailyRestQuota ?? 120) * 7)),
       },
     }),
+    hasTimeWindowsDaily: (cfg = {}) => !!cfg?.timeWindows?.daily,
+    getModeWindowStatus: (cfg = {}, mode = 'study', at = new Date()) => {
+      const dayKey = 'monday';
+      const field = mode === 'composite' ? 'compositeWindows' : mode === 'rest' ? 'restWindows' : 'studyWindows';
+      const dayCfg = cfg?.timeWindows?.daily?.[dayKey] || {};
+      const windows = dayCfg[field];
+      if (!Array.isArray(windows) || windows.length === 0) return { configured: !!cfg?.timeWindows?.daily, allowed: true, mode, field, dayKey, windows: null };
+      const d = at instanceof Date ? at : new Date(at);
+      const current = d.getHours() * 60 + d.getMinutes();
+      const allowed = windows.some((w) => {
+        const [sh, sm] = String(w.start).split(':').map(Number);
+        const [eh, em] = String(w.end).split(':').map(Number);
+        return current >= sh * 60 + sm && current < eh * 60 + em;
+      });
+      return { configured: true, allowed, mode, field, dayKey, windows };
+    },
+    reminderReasonForModeWindow: (mode) => `${mode}_schedule_locked`,
     evaluateQuotaState: async () => ({ ok: true, config: { quotaState: {} }, newState: {} }),
     enqueueModeBoundaryIntent: async (intent) => ({ ok: true, intent }),
     setCachedEffectiveMode: () => {},
@@ -364,6 +381,89 @@ this.__modeService = {
     });
   }
 
+  section('MSVC-3a mode time windows block target mode routes');
+  {
+    const svc = loadModeService();
+    expect('study target outside study window blocks', svc.evaluateModeRoute({
+      currentMode: 'composite',
+      isStudyDomain: true,
+      isCompositeDomain: false,
+      foreground: true,
+      studyWindowAllowed: false,
+      quotaState: {},
+      nowMs: 10,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'study_schedule_locked',
+    });
+    expect('composite target outside composite window blocks', svc.evaluateModeRoute({
+      currentMode: 'study',
+      isStudyDomain: false,
+      isCompositeDomain: true,
+      remainingCompositeSeconds: 60,
+      compositeWindowAllowed: false,
+      quotaState: {},
+      nowMs: 10,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'composite_schedule_locked',
+    });
+    expect('rest target outside rest window blocks', svc.evaluateModeRoute({
+      currentMode: 'study',
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      restWindowAllowed: false,
+      quotaState: {},
+      nowMs: 10,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'rest_schedule_locked',
+    });
+  }
+
+  section('MSVC-3a2 access observed applies configured time windows');
+  {
+    const cfg = {
+      enabled: true,
+      mode: 'study',
+      studyList: ['khanacademy.org'],
+      compositeList: ['youtube.com'],
+      restrictedEntertainmentList: [],
+      unsafeList: [],
+      quotaState: {},
+      timeWindows: {
+        daily: {
+          monday: {
+            studyWindows: null,
+            compositeWindows: [{ start: '08:00', end: '09:00' }],
+            restWindows: null,
+          },
+        },
+      },
+    };
+    const svc = loadModeService({
+      getConfig: async () => cfg,
+      getSession: async () => ({ currentMode: 'study' }),
+      evaluateQuotaState: async () => ({ ok: true, config: cfg, newState: {} }),
+    });
+    const result = await svc.handleModeEvent({
+      type: 'ACCESS_OBSERVED',
+      url: 'https://www.youtube.com/watch?v=x',
+      domain: 'www.youtube.com',
+      foreground: true,
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('composite access outside composite window goes to reminder', {
+      access: result.access,
+      reason: result.reminder?.reason,
+      modeChange: result.modeChange,
+    }, {
+      access: 'reminder',
+      reason: 'composite_schedule_locked',
+      modeChange: null,
+    });
+  }
+
   section('MSVC-3b manual request mode change does not request Rest Exit Grace');
   {
     const svc = loadModeService();
@@ -457,6 +557,80 @@ this.__modeService = {
       ok: false,
       access: 'reminder',
       reason: 'rest_locked',
+      modeChange: null,
+    });
+  }
+
+  section('MSVC-3b3 requested mode changes synchronously honor time windows');
+  {
+    const restrictedConfig = {
+      quotaState: {},
+      timeWindows: {
+        daily: {
+          monday: {
+            studyWindows: [{ start: '08:00', end: '09:00' }],
+            compositeWindows: [{ start: '08:00', end: '09:00' }],
+            restWindows: [{ start: '08:00', end: '09:00' }],
+          },
+        },
+      },
+    };
+    const svc = loadModeService({
+      evaluateQuotaState: async () => ({
+        ok: true,
+        config: restrictedConfig,
+        newState: {},
+      }),
+    });
+    const study = await svc.handleModeEvent({
+      type: 'REQUEST_MODE_CHANGE',
+      requestedMode: 'study',
+      source: 'reminder',
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('study request outside study window is blocked', {
+      ok: study.ok,
+      access: study.access,
+      reason: study.reminder?.reason,
+      modeChange: study.modeChange,
+    }, {
+      ok: false,
+      access: 'reminder',
+      reason: 'study_schedule_locked',
+      modeChange: null,
+    });
+    const composite = await svc.handleModeEvent({
+      type: 'REQUEST_MODE_CHANGE',
+      requestedMode: 'composite',
+      source: 'reminder',
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('composite request outside composite window is blocked', {
+      ok: composite.ok,
+      access: composite.access,
+      reason: composite.reminder?.reason,
+      modeChange: composite.modeChange,
+    }, {
+      ok: false,
+      access: 'reminder',
+      reason: 'composite_schedule_locked',
+      modeChange: null,
+    });
+    const rest = await svc.handleModeEvent({
+      type: 'REQUEST_MODE_CHANGE',
+      requestedMode: 'rest',
+      source: 'reminder',
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('rest request outside rest window is blocked', {
+      ok: rest.ok,
+      access: rest.access,
+      reason: rest.reminder?.reason,
+      modeChange: rest.modeChange,
+    }, {
+      ok: false,
+      access: 'reminder',
+      reason: 'rest_schedule_locked',
       modeChange: null,
     });
   }

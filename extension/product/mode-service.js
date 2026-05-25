@@ -16,6 +16,7 @@ import { setCachedEffectiveMode } from '../runtime/session.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { evaluateQuotaState, getTodayEffectiveRestLimit } from './quota.js';
 import { getEffectiveQuotaForDate } from '../core/quota-config.js';
+import { getModeWindowStatus, hasTimeWindowsDaily, reminderReasonForModeWindow } from '../core/time-windows.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
 export const REST_EXIT_GRACE_MS = 30_000;
@@ -59,8 +60,8 @@ function formatSecondsCompact(seconds) {
   return m > 0 ? `${h}小时${m}分` : `${h}小时`;
 }
 
-export function isWithinSchedule(schedule) {
-  const now = new Date();
+export function isWithinSchedule(schedule, at = new Date()) {
+  const now = at instanceof Date ? at : new Date(at);
   const dayOfWeek = now.getDay();
   const dayConfig = schedule?.days?.[dayOfWeek];
 
@@ -378,6 +379,17 @@ function decisionFromRoute(route, context = {}) {
   return baseDecision();
 }
 
+function scheduleBlockForMode(facts, mode) {
+  if (facts.legacyScheduleAllowed === false) {
+    return { kind: 'reminder', reminderReason: 'schedule' };
+  }
+  const key = `${mode}WindowAllowed`;
+  if (facts[key] === false) {
+    return { kind: 'reminder', reminderReason: reminderReasonForModeWindow(mode) };
+  }
+  return null;
+}
+
 export function evaluateModeRoute(facts = {}) {
   const currentMode = normalizeMode(facts.currentMode);
   const nowMs = Number.isFinite(Number(facts.nowMs)) ? Number(facts.nowMs) : Date.now();
@@ -397,6 +409,8 @@ export function evaluateModeRoute(facts = {}) {
 
   if (currentMode === 'rest') {
     if (facts.isStudyDomain && facts.foreground === true) {
+      const scheduleBlock = scheduleBlockForMode(facts, 'study');
+      if (scheduleBlock) return scheduleBlock;
       return {
         kind: 'mode_change',
         toMode: 'study',
@@ -419,6 +433,8 @@ export function evaluateModeRoute(facts = {}) {
         };
       }
       if (facts.foreground !== true) return { kind: 'allow' };
+      const scheduleBlock = scheduleBlockForMode(facts, 'composite');
+      if (scheduleBlock) return scheduleBlock;
       return {
         kind: 'mode_change',
         toMode: 'composite',
@@ -432,14 +448,24 @@ export function evaluateModeRoute(facts = {}) {
     if (isRestTarget && restLocked) {
       return { kind: 'reminder', reminderReason: 'rest_locked' };
     }
+    if (isRestTarget) {
+      const scheduleBlock = scheduleBlockForMode(facts, 'rest');
+      if (scheduleBlock) return scheduleBlock;
+    }
     return { kind: 'allow' };
   }
 
   if (currentMode === 'study') {
-    if (facts.isStudyDomain) return { kind: 'allow' };
+    if (facts.isStudyDomain) {
+      const scheduleBlock = scheduleBlockForMode(facts, 'study');
+      if (scheduleBlock) return scheduleBlock;
+      return { kind: 'allow' };
+    }
 
     if (facts.isCompositeDomain) {
       if (!compositeExhausted) {
+        const scheduleBlock = scheduleBlockForMode(facts, 'composite');
+        if (scheduleBlock) return scheduleBlock;
         return {
           kind: 'mode_change',
           toMode: 'composite',
@@ -462,6 +488,8 @@ export function evaluateModeRoute(facts = {}) {
 
     if (isRestTarget) {
       if (restLocked) return { kind: 'reminder', reminderReason: 'rest_locked' };
+      const scheduleBlock = scheduleBlockForMode(facts, 'rest');
+      if (scheduleBlock) return scheduleBlock;
       if (isRestExitGraceActive({ restExitGraceUntilMs: facts.restExitGraceUntilMs, nowMs })) {
         return {
           kind: 'mode_change',
@@ -481,6 +509,8 @@ export function evaluateModeRoute(facts = {}) {
 
   if (currentMode === 'composite') {
     if (facts.isStudyDomain) {
+      const scheduleBlock = scheduleBlockForMode(facts, 'study');
+      if (scheduleBlock) return scheduleBlock;
       return {
         kind: 'mode_change',
         toMode: 'study',
@@ -503,11 +533,15 @@ export function evaluateModeRoute(facts = {}) {
           notice: 'composite_exhausted_to_rest',
         };
       }
+      const scheduleBlock = scheduleBlockForMode(facts, 'composite');
+      if (scheduleBlock) return scheduleBlock;
       return { kind: 'allow' };
     }
 
     if (isRestTarget) {
       if (restLocked) return { kind: 'reminder', reminderReason: 'rest_locked' };
+      const scheduleBlock = scheduleBlockForMode(facts, 'rest');
+      if (scheduleBlock) return scheduleBlock;
       if (isRestExitGraceActive({ restExitGraceUntilMs: facts.restExitGraceUntilMs, nowMs })) {
         return {
           kind: 'mode_change',
@@ -571,15 +605,6 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
-  if (config.schedule?.enabled && !isWithinSchedule(config.schedule)) {
-    return baseDecision({
-      access: 'reminder',
-      reminder: { reason: 'schedule', params: {} },
-      domain,
-      config,
-    });
-  }
-
   if (quotaState.onlineLocked) {
     return baseDecision({
       access: 'reminder',
@@ -609,6 +634,14 @@ async function handleAccessObserved(event = {}) {
 
   const modeSnapshot = await getCurrentModeSnapshot(config, monitoringEnabled);
   const currentMode = modeSnapshot.mode;
+  const windowCheckAt = new Date(nowMs);
+  const hasModeWindows = hasTimeWindowsDaily(config);
+  const studyWindow = getModeWindowStatus(config, 'study', windowCheckAt);
+  const compositeWindow = getModeWindowStatus(config, 'composite', windowCheckAt);
+  const restWindow = getModeWindowStatus(config, 'rest', windowCheckAt);
+  const legacyScheduleAllowed = hasModeWindows || !config.schedule?.enabled
+    ? true
+    : isWithinSchedule(config.schedule, windowCheckAt);
   const remainingCompositeSeconds = isCompositeDomain
     ? await computeCompositeRemainingSeconds(config)
     : null;
@@ -622,6 +655,10 @@ async function handleAccessObserved(event = {}) {
     isRestricted,
     isStudyDomain,
     isCompositeDomain,
+    studyWindowAllowed: studyWindow.allowed,
+    compositeWindowAllowed: compositeWindow.allowed,
+    restWindowAllowed: restWindow.allowed,
+    legacyScheduleAllowed,
     remainingCompositeSeconds,
     quotaState,
   });
@@ -661,6 +698,24 @@ function quotaBlockedReminderForRequestedMode(requestedMode, quotaState = {}) {
   }
   if (requestedMode === 'rest' && quotaState.restLocked === true) {
     return { reason: 'rest_locked', code: 'REST_QUOTA_LOCKED' };
+  }
+  return null;
+}
+
+function scheduleBlockedReminderForRequestedMode(requestedMode, config = {}, at = new Date()) {
+  if (!hasTimeWindowsDaily(config)) {
+    if (config.schedule?.enabled && !isWithinSchedule(config.schedule, at)) {
+      return { reason: 'schedule', code: 'LEGACY_SCHEDULE_LOCKED' };
+    }
+    return null;
+  }
+  const status = getModeWindowStatus(config, requestedMode, at);
+  if (status.allowed === false) {
+    return {
+      reason: reminderReasonForModeWindow(requestedMode),
+      code: `${String(requestedMode || 'mode').toUpperCase()}_SCHEDULE_LOCKED`,
+      status,
+    };
   }
   return null;
 }
@@ -711,6 +766,31 @@ async function handleRequestedModeChange(event = {}) {
           access: 'reminder',
           reason: blocked?.code || 'QUOTA_EVALUATION_FAILED',
           reminder: { reason: blocked?.reason || 'quota_locked', params: {} },
+          quota: quotaResult,
+          recheckActiveTab: true,
+        });
+      }
+      const scheduleBlocked = scheduleBlockedReminderForRequestedMode(requested, latestConfig || {}, new Date(nowMs));
+      if (scheduleBlocked) {
+        recordFallbackLog({
+          level: 'warning',
+          category: 'access',
+          eventCode: 'mode_request_time_window_blocked',
+          module: 'product/mode-service',
+          reason: scheduleBlocked.code,
+          message: 'Mode request blocked by configured time window',
+          details: {
+            requestedMode: requested,
+            source,
+            dayKey: scheduleBlocked.status?.dayKey || null,
+            field: scheduleBlocked.status?.field || null,
+          },
+        });
+        return baseDecision({
+          ok: false,
+          access: 'reminder',
+          reason: scheduleBlocked.code,
+          reminder: { reason: scheduleBlocked.reason, params: {} },
           quota: quotaResult,
           recheckActiveTab: true,
         });

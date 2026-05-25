@@ -95,7 +95,8 @@ function run() {
   expectTrue('Pages 网站归类申请应支持审批生效对象编辑', source.includes('审批生效对象') && source.includes('site-request-type-') && source.includes('site-request-target-'));
   expectTrue('Pages 网站归类申请应支持三种审批动作', source.includes('批准为学习网站') && source.includes('批准为综合网站') && source.includes('拒绝'));
   expectTrue('Pages 网站归类申请应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
-  expectTrue('Pages 访问规则页应单独展示已批准精确链接规则', source.includes('已批准精确链接 / 管理对象规则') && source.includes('r-approved-target-rules-display') && source.includes('renderApprovedTargetRules'));
+  expectTrue('Pages 访问规则页不应单独展示已批准精确链接规则', !source.includes('已批准精确链接 / 管理对象规则') && !source.includes('r-approved-target-rules-display') && !source.includes('renderApprovedTargetRules'));
+  expectTrue('Pages 访问规则页应把已批准 URL 规则合并到对应分类', source.includes('approvedUrlRulesForListKey') && source.includes("listKey === 'customStudyList'") && source.includes("listKey === 'customCompositeList'") && source.includes("listKey === 'customBlockedSites'"));
   expectTrue('Pages 访问规则添加/导入/保存应校验精确跨类重复', source.includes('function findSiteAccessExactConflicts') && source.includes('formatSiteAccessConflict') && source.includes('SITE_ACCESS_CATEGORY_FIELDS'));
   expectTrue('Pages 应包含系统日志导航和查询接口', source.includes('data-page="client-logs"') && source.includes('/client-logs/v1'));
   expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));

@@ -86,7 +86,8 @@ function simulateReminderRendering(reason, msg = '') {
     'unsafe', 'study_mode', 'to_composite_confirm', 'to_rest_confirm',
     'to_rest_slide_confirm', 'restricted_study_mode',
     'quota_composite_and_rest', 'rest_locked', 'quota_locked', 'quota_rest',
-    'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule'
+    'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
+    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked'
   ]);
 
   let config;
@@ -202,6 +203,25 @@ async function run() {
   expect('quota_composite_and_rest title', quotaBoth.config.title, '今日综合时间和休息时间均已用完');
   expectTrue('quota_composite_and_rest has only backGeneric', JSON.stringify(quotaBoth.config.actions) === JSON.stringify(['backGeneric']));
   expectTrue('quota_composite_and_rest has no continue action', !quotaBoth.config.actions.some(a => a !== 'backGeneric'));
+
+  section('6b. mode schedule locked rendering');
+  const studySchedule = simulateReminderRendering('study_schedule_locked');
+  expectTrue('study_schedule_locked is known reason', !studySchedule.isUnknownReason);
+  expect('study_schedule_locked title', studySchedule.config.title, '当前时间段未允许学习模式的使用');
+  expectTrue('study_schedule_locked explains study mode window', studySchedule.config.subtitle.includes('这个网站的使用需要进入学习模式，但是当前时间未允许使用学习模式'));
+  expectTrue('study_schedule_locked has only back', JSON.stringify(studySchedule.config.actions) === JSON.stringify(['back']));
+
+  const compositeSchedule = simulateReminderRendering('composite_schedule_locked');
+  expectTrue('composite_schedule_locked is known reason', !compositeSchedule.isUnknownReason);
+  expect('composite_schedule_locked title', compositeSchedule.config.title, '当前时间段未允许综合模式的使用');
+  expectTrue('composite_schedule_locked explains composite mode window', compositeSchedule.config.subtitle.includes('这个网站的使用需要进入综合模式，但是当前时间未允许使用综合模式'));
+  expectTrue('composite_schedule_locked has only back', JSON.stringify(compositeSchedule.config.actions) === JSON.stringify(['back']));
+
+  const restSchedule = simulateReminderRendering('rest_schedule_locked');
+  expectTrue('rest_schedule_locked is known reason', !restSchedule.isUnknownReason);
+  expect('rest_schedule_locked title', restSchedule.config.title, '当前时间段未允许休息模式的使用');
+  expectTrue('rest_schedule_locked explains rest mode window', restSchedule.config.subtitle.includes('这个网站的使用需要进入休息模式，但是当前时间未允许使用休息模式'));
+  expectTrue('rest_schedule_locked has only back', JSON.stringify(restSchedule.config.actions) === JSON.stringify(['back']));
 
   // ── 7. unsafe ──
   section('7. unsafe rendering');

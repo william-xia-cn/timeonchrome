@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     renderModeButtons(snapshot || {});
     renderRuntimeStatus(snapshot || {});
+    hydrateSiteRequestInputFromSnapshot('snapshot_ready');
   });
 
   init(snapshotPromise).catch((error) => renderPopupLoadError(error));
@@ -72,6 +73,16 @@ function getReminderTargetFromUrl(url) {
   }
 }
 
+function isReminderExtensionUrl(url) {
+  if (!url || typeof url !== 'string' || !url.includes('reminder.html')) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'chrome-extension:' && parsed.pathname.endsWith('/reminder.html');
+  } catch (_) {
+    return false;
+  }
+}
+
 function normalizePopupUrlInput(url) {
   if (!url || typeof url !== 'string') return '';
   try {
@@ -105,11 +116,35 @@ function openSiteRequestPanel() {
   if (panel) panel.style.display = 'block';
   if (input && !input.value.trim()) input.value = defaults.input || '';
   if (status) {
-    status.style.display = 'none';
     status.className = 'request-status';
+    status.replaceChildren?.();
     status.textContent = '';
+    if (!defaults.input) {
+      status.style.display = 'block';
+      appendSiteRequestStatusLine(status, 'request-status-body', '正在读取被拦截链接…');
+    } else {
+      status.style.display = 'none';
+    }
   }
   setTimeout(() => input?.focus?.(), 0);
+}
+
+function hydrateSiteRequestInputFromSnapshot(reason = 'snapshot') {
+  const panel = document.getElementById('site-request-panel');
+  const input = document.getElementById('site-request-input');
+  const status = document.getElementById('site-request-status');
+  if (!panel || panel.style.display === 'none' || !input) return false;
+  if (input.value.trim()) return false;
+  const defaults = getDefaultSiteRequest();
+  if (!defaults.input) return false;
+  input.value = defaults.input;
+  if (status && status.textContent.includes('正在读取被拦截链接')) {
+    status.style.display = 'none';
+    status.className = 'request-status';
+    status.replaceChildren?.();
+    status.textContent = '';
+  }
+  return true;
 }
 
 function closeSiteRequestPanel() {
@@ -283,7 +318,7 @@ async function getPopupActiveTabHint() {
     const tab = tabs && tabs[0] ? tabs[0] : null;
     if (!tab?.url) return null;
     const parsed = new URL(tab.url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' && !isReminderExtensionUrl(tab.url)) return null;
     return {
       tabId: Number.isInteger(tab.id) ? tab.id : null,
       windowId: Number.isInteger(tab.windowId) ? tab.windowId : null,
@@ -296,6 +331,18 @@ async function getPopupActiveTabHint() {
 }
 
 function withActiveTabHintFallback(snapshot = {}, activeTabHint = null, fallbackConfig = null) {
+  if (isReminderExtensionUrl(activeTabHint?.url || '')) {
+    const config = hasClassificationConfig(snapshot?.config)
+      ? snapshot.config
+      : (fallbackConfig || snapshot?.config || {});
+    return {
+      ...(snapshot || {}),
+      config,
+      url: snapshot?.url || activeTabHint.url,
+      tabId: Number.isInteger(snapshot?.tabId) ? snapshot.tabId : activeTabHint.tabId,
+      windowId: Number.isInteger(snapshot?.windowId) ? snapshot.windowId : activeTabHint.windowId,
+    };
+  }
   const domain = extractDomain(activeTabHint?.url || '');
   const config = hasClassificationConfig(snapshot?.config)
     ? snapshot.config
@@ -419,6 +466,7 @@ async function setMode(mode) {
 async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
   const snapshot = await snapshotPromise;
   lastPopupSnapshot = snapshot || {};
+  hydrateSiteRequestInputFromSnapshot('init_snapshot');
   const config = snapshot?.config || {};
   const stats = snapshot?.stats || {};
   const runtimeStatus = snapshot || {};

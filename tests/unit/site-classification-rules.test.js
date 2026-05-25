@@ -120,6 +120,20 @@ async function run() {
   expectEqual('pending request grants composite classification',
     mod.getSiteClassificationForUrl({}, pending, 'https://unknown.example.com/x').classification,
     'pending_composite');
+  expectEqual('approved study request alone is not treated as pending',
+    mod.getSiteClassificationForUrl({}, [{
+      requestedTargetType: 'host',
+      requestedNormalizedValue: 'approved.example.com',
+      status: 'approved_study',
+    }], 'https://approved.example.com/x').classification,
+    null);
+  expectEqual('approved composite request alone is not treated as pending',
+    mod.resolveSiteAccessClassification({}, [{
+      requestedTargetType: 'host',
+      requestedNormalizedValue: 'approved-composite.example.com',
+      status: 'approved_composite',
+    }], 'https://approved-composite.example.com/x').classification,
+    null);
 
   const approvedConfig = {
     siteClassificationRulesV1: [{

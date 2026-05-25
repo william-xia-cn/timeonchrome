@@ -75,6 +75,20 @@ Use the English term in this document body. Chinese is listed here only as produ
 12. Popup/manual mode switches clear any existing Rest Exit Grace and do not create a new one. Reminder-confirmed switches, quota-driven switches, and automatic Study <-> Composite transitions do not create or extend Rest Exit Grace. Missing or expired `restExitGraceUntilMs` is treated as no grace.
 13. Local quota expiry is a mode-transition event. The local `quota_check` alarm evaluates quota state and requests a mode change through Mode Service.
 14. Cloud quota sync only saves `quotaState` facts. It must not request mode changes, show Reminder, or recheck tabs.
+15. `timeWindows.daily` is the active time-window source of truth. Study, Composite, and Rest each have their own mode window.
+16. Time windows are checked before entering a target mode. Outside the target mode window, access goes to `study_schedule_locked`, `composite_schedule_locked`, or `rest_schedule_locked`.
+17. Quota exhaustion has priority over time-window blocking when both apply. HardBlocked / Unsafe remains highest priority.
+18. Legacy `schedule` is used only when `timeWindows.daily` is absent.
+
+### 5.1 Mode Time Windows
+
+| Target mode | Config field | Outside-window Reminder |
+|---|---|---|
+| Study | `studyWindows` | `study_schedule_locked` |
+| Composite | `compositeWindows` | `composite_schedule_locked` |
+| Rest | `restWindows` | `rest_schedule_locked` |
+
+`null`, missing fields, and empty arrays mean the target mode is allowed all day. `onlineWindows` is derived as `study ∪ composite ∪ rest` for display only, not edited directly.
 
 ## 6) Access Control + Mode Transition Matrix (Canonical)
 

@@ -69,6 +69,17 @@ export const DEFAULT_CONFIG = {
       sunday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
     },
   },
+  timeWindows: {
+    daily: {
+      monday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      tuesday:   { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      wednesday: { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      thursday:  { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      friday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      saturday:  { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+      sunday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+    },
+  },
   quotaBorrow: null,
   domainQuotas: {},
   classificationRules: [],

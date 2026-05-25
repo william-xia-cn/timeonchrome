@@ -1261,13 +1261,28 @@ function renderSiteGroup(containerId, options) {
   const systemList = normalizeDomainList(options.systemList);
   const customList = normalizeDomainList(options.customList);
   const effectiveList = normalizeDomainList(options.effectiveList);
-  const hasHierarchy = systemList.length > 0 || customList.length > 0;
+  const targetRules = Array.isArray(options.targetRules) ? options.targetRules : [];
+  const hasHierarchy = systemList.length > 0 || customList.length > 0 || targetRules.length > 0;
 
   const renderTagList = (domains, muted) => {
     if (!domains.length) return '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
     return `<div class="domains-container">${domains.map((d) =>
       `<span class="domain-tag" style="cursor:default;${muted ? 'background:rgba(0,184,148,0.04);color:var(--muted);' : ''}">${escHtml(d)}</span>`
     ).join('')}</div>`;
+  };
+
+  const renderTargetRules = (rules) => {
+    if (!rules.length) return '';
+    return `
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">已批准精确链接</div>
+        <div class="domains-container">${rules.map((rule) => {
+          const value = siteRuleValue(rule);
+          const type = siteRuleTypeLabel(rule);
+          return `<span class="domain-tag" title="${escAttr(value)}" style="cursor:default;max-width:100%;white-space:normal;line-height:1.35;">${escHtml(type)}：${escHtml(value)}</span>`;
+        }).join('')}</div>
+      </div>
+    `;
   };
 
   if (!hasHierarchy) {
@@ -1292,6 +1307,7 @@ function renderSiteGroup(containerId, options) {
       <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义</div>
       ${renderTagList(customList, false)}
     </div>
+    ${renderTargetRules(targetRules)}
   `;
 
   const row = document.getElementById(`${toggleId}-row`);
@@ -1374,8 +1390,8 @@ function renderQuotaSection() {
 }
 
 function formatWindowsLabel(windows) {
-  if (windows === null) return '全天允许';
-  if (!Array.isArray(windows) || windows.length === 0) return '暂无配置';
+  if (windows === null || windows === undefined) return '全天允许';
+  if (!Array.isArray(windows) || windows.length === 0) return '全天允许';
   return windows.map((w) => {
     const start = escHtml(w?.start || '--:--');
     const end = escHtml(w?.end || '--:--');
@@ -1383,13 +1399,16 @@ function formatWindowsLabel(windows) {
   }).join('，');
 }
 
-function computeOnlineWindowsLabel(studyWindows, restWindows) {
-  if (studyWindows === null || restWindows === null) return '全天允许';
-  if (!Array.isArray(studyWindows) && !Array.isArray(restWindows)) return '暂无配置';
+function computeOnlineWindowsLabel(studyWindows, compositeWindows, restWindows) {
+  if (
+    studyWindows === null || studyWindows === undefined || !Array.isArray(studyWindows) || studyWindows.length === 0 ||
+    compositeWindows === null || compositeWindows === undefined || !Array.isArray(compositeWindows) || compositeWindows.length === 0 ||
+    restWindows === null || restWindows === undefined || !Array.isArray(restWindows) || restWindows.length === 0
+  ) return '全天允许';
   const merged = [];
   for (const w of (Array.isArray(studyWindows) ? studyWindows : [])) merged.push(w);
+  for (const w of (Array.isArray(compositeWindows) ? compositeWindows : [])) merged.push(w);
   for (const w of (Array.isArray(restWindows) ? restWindows : [])) merged.push(w);
-  if (!merged.length) return '暂无配置';
   return merged.map((w) => {
     const start = escHtml(w?.start || '--:--');
     const end = escHtml(w?.end || '--:--');
@@ -1406,21 +1425,24 @@ function renderScheduleSection() {
     const rows = QUOTA_DAYS.map((day) => {
       const dayCfg = config.timeWindows.daily?.[day] || {};
       const studyLabel = formatWindowsLabel(dayCfg.studyWindows);
+      const compositeLabel = formatWindowsLabel(dayCfg.compositeWindows);
       const restLabel = formatWindowsLabel(dayCfg.restWindows);
-      const onlineLabel = computeOnlineWindowsLabel(dayCfg.studyWindows, dayCfg.restWindows);
+      const onlineLabel = computeOnlineWindowsLabel(dayCfg.studyWindows, dayCfg.compositeWindows, dayCfg.restWindows);
       return `
-        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
           <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
           <div style="font-size:12px;">${studyLabel}</div>
+          <div style="font-size:12px;">${compositeLabel}</div>
           <div style="font-size:12px;">${restLabel}</div>
           <div style="font-size:12px;color:var(--muted);">${onlineLabel}</div>
         </div>
       `;
     }).join('');
     scheduleEl.innerHTML = `
-      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
         <div style="font-size:12px;color:var(--muted);font-weight:600;">星期</div>
         <div style="font-size:12px;color:var(--muted);font-weight:600;">学习时段</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">综合时段</div>
         <div style="font-size:12px;color:var(--muted);font-weight:600;">休息时段</div>
         <div style="font-size:12px;color:var(--muted);font-weight:600;">在线时段</div>
       </div>
@@ -1441,8 +1463,9 @@ function renderScheduleSection() {
       ? `${escHtml(day?.start || '--:--')} - ${escHtml(day?.end || '--:--')}`
       : '不限制';
     return `
-      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
         <div style="font-size:13px;font-weight:500;">${name}</div>
+        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
         <div style="font-size:12px;color:var(--muted);">暂无配置</div>
         <div style="font-size:12px;color:var(--muted);">暂无配置</div>
         <div style="font-size:12px;">${online}</div>
@@ -1467,6 +1490,31 @@ function siteRequestStatusLabel(status) {
 
 function siteRequestTypeLabel(type) {
   return type === 'url' ? '精确链接' : '域名/子域名';
+}
+
+function siteRuleDecision(rule = {}) {
+  const decision = String(rule.decision || rule.classification || rule.status || '').trim();
+  if (decision === 'study' || decision === 'approved_study') return 'study';
+  if (decision === 'composite' || decision === 'approved_composite') return 'composite';
+  if (decision === 'reject' || decision === 'rejected') return 'reject';
+  return null;
+}
+
+function siteRuleValue(rule = {}) {
+  return rule.normalizedValue || rule.targetValue || rule.decisionNormalizedValue || rule.requestedNormalizedValue || rule.value || '—';
+}
+
+function siteRuleTypeLabel(rule = {}) {
+  const value = siteRuleValue(rule);
+  if (/^https:\/\/www\.youtube\.com\/playlist\?list=/i.test(value)) return 'YouTube 播放列表';
+  if (/^https:\/\/www\.youtube\.com\/watch\?v=/i.test(value)) return 'YouTube 视频';
+  return '精确链接';
+}
+
+function approvedUrlRulesForDecision(decision) {
+  return (Array.isArray(config?.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [])
+    .filter((rule) => (rule.targetType || rule.type || rule.decisionTargetType || rule.requestedTargetType) === 'url')
+    .filter((rule) => siteRuleDecision(rule) === decision);
 }
 
 function renderSiteClassificationRequestRecords(records) {
@@ -1532,6 +1580,7 @@ function renderRulesPage() {
       'systemConfiguredStudyList',
     ]),
     customList: config?.customStudyList,
+    targetRules: approvedUrlRulesForDecision('study'),
   });
   renderSiteGroup('rules-composite-display', {
     effectiveList: config?.compositeList,
@@ -1542,6 +1591,7 @@ function renderRulesPage() {
       'systemConfiguredCompositeList',
     ]),
     customList: config?.customCompositeList,
+    targetRules: approvedUrlRulesForDecision('composite'),
   });
   renderSiteGroup('rules-restricted-display', {
     effectiveList: config?.restrictedEntertainmentList,
@@ -1566,6 +1616,7 @@ function renderRulesPage() {
       'systemConfiguredUnsafeList',
     ]),
     customList: config?.customBlockedSites,
+    targetRules: approvedUrlRulesForDecision('reject'),
   });
 
   renderQuotaSection();

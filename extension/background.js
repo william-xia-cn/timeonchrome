@@ -20,6 +20,7 @@ import { emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
 import { computeAllDomains } from './core/aggregate.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from './infra/client-logs.js';
 import { resolveManagedTargetAttribution } from './core/managed-targets.js';
+import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
@@ -81,6 +82,28 @@ function scheduleModeBoundaryDrain(reason = 'scheduled') {
     });
 }
 
+async function runPostClassificationSyncEffects({ source = 'cloud_sync' } = {}) {
+  return runClassificationSyncEffects({
+    source,
+    recheckActiveTab: async () => {
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+      const tab = tabs && tabs[0] ? tabs[0] : null;
+      if (!tab?.id) return { ok: true, rechecked: false, reason: 'no_active_tab' };
+      await reevaluateTabById(tab.id, { source: `${source}_recheck` });
+      return { ok: true, rechecked: true, tabId: tab.id };
+    },
+  });
+}
+
+function syncNowWithRuntimeEffects(options = {}, source = 'cloud_sync') {
+  return syncNow(getConfig, saveConfig, updateDeclarativeRules, {
+    ...(options || {}),
+    afterClassificationSync: (payload = {}) => runPostClassificationSyncEffects({
+      source: payload.source || source,
+    }),
+  });
+}
+
 setModeBoundaryDrainHook((reason = 'modeTransition') => drainPendingModeBoundaries({
   emitTrace,
   warn: (...args) => console.warn(...args),
@@ -133,7 +156,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await ensureBootstrapped('onStartup');
   await recover();
   await resetDailyLockedDomains(true);
-  await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules));
+  await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onStartup_cloud_sync'));
 });
 
 // ── 安装/更新 ──────────────────────────────────────────────────────────────────
@@ -203,7 +226,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   // 4. 云同步初始化
   try {
-    await initCloudSync(() => syncNow(getConfig, saveConfig, updateDeclarativeRules));
+    await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onInstalled_cloud_sync'));
   } catch (err) {
     console.error('[onInstalled] initCloudSync failed:', err);
   }
@@ -810,7 +833,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
   } else if (alarm.name === 'cloudSync') {
     const wasEnabled = isMonitoringEnabled();
-    await syncNow(getConfig, saveConfig, updateDeclarativeRules);
+    await syncNowWithRuntimeEffects({}, 'cloudSync_alarm');
     // 监控被远程关闭时，结算当前的 timing session
     if (wasEnabled && !isMonitoringEnabled()) {
       try {

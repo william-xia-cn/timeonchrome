@@ -132,6 +132,9 @@
     const reasonCode = result?.reason || result?.reminder?.reason || result?.modeDecision?.reason || result?.error || '';
     const reminderReason = result?.reminder?.reason || result?.modeDecision?.reminder?.reason || '';
     const code = `${reasonCode} ${reminderReason}`.toLowerCase();
+    if (code.includes('schedule') && targetMode === 'study') return '当前时间段未允许学习模式的使用，不能切换到学习模式。';
+    if (code.includes('schedule') && targetMode === 'composite') return '当前时间段未允许综合模式的使用，不能进入综合模式。';
+    if (code.includes('schedule') && targetMode === 'rest') return '当前时间段未允许休息模式的使用，不能进入休息模式。';
     if (code.includes('rest')) return '今天的休息时间已用完，当前不能继续访问。';
     if (code.includes('study')) return '今天的学习时间已用完，当前不能切换到学习模式。';
     if (code.includes('composite') || code.includes('undetermined')) return '今天的综合时间已用完，当前不能进入综合时间。';
@@ -254,8 +257,23 @@
       actions: ['viewDetails']
     },
     schedule: {
-      icon: '🌙', title: '现在是休息时段',
-      subtitle: '到点了再来！',
+      icon: '🌙', title: '当前时间段未允许使用',
+      subtitle: '当前时间未允许使用 TimeOnChrome 管控的网站，请在开放时段再试。',
+      actions: ['back']
+    },
+    study_schedule_locked: {
+      icon: '📚', title: '当前时间段未允许学习模式的使用',
+      subtitle: '这个网站的使用需要进入学习模式，但是当前时间未允许使用学习模式',
+      actions: ['back']
+    },
+    composite_schedule_locked: {
+      icon: '🧭', title: '当前时间段未允许综合模式的使用',
+      subtitle: '这个网站的使用需要进入综合模式，但是当前时间未允许使用综合模式',
+      actions: ['back']
+    },
+    rest_schedule_locked: {
+      icon: '☕', title: '当前时间段未允许休息模式的使用',
+      subtitle: '这个网站的使用需要进入休息模式，但是当前时间未允许使用休息模式',
       actions: ['back']
     }
   };
@@ -338,7 +356,8 @@
     'unsafe', 'study_mode', 'to_composite_confirm', 'to_rest_confirm',
     'to_rest_slide_confirm', 'restricted_study_mode',
     'quota_composite_and_rest', 'rest_locked', 'quota_locked', 'quota_rest',
-    'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule'
+    'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
+    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked'
   ]);
 
   var config;

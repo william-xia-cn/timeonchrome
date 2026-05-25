@@ -722,6 +722,33 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       errors.push(...(siteRequestResult.errors || ['site requests: unknown failure']).map((e) => `site_requests: ${e}`));
     }
 
+    let classificationSyncEffects = null;
+    const shouldRunClassificationEffects = !!(
+      configPulled ||
+      Number(siteRequestResult.uploaded || 0) > 0 ||
+      Number(siteRequestResult.pulled || 0) > 0
+    );
+    if (shouldRunClassificationEffects && typeof options.afterClassificationSync === 'function') {
+      try {
+        classificationSyncEffects = await options.afterClassificationSync({
+          source: 'cloud_sync',
+          configPulled,
+          siteRequestResult,
+        });
+      } catch (e) {
+        const message = e?.message || String(e);
+        errors.push(`classification_effects: ${message}`);
+        logClientEventBestEffort({
+          level: 'warning',
+          category: 'access',
+          eventCode: 'classification_sync_effects_failed',
+          module: 'infra/cloud-sync',
+          message,
+          details: { configPulled, siteRequestsPulled: siteRequestResult.pulled || 0 },
+        });
+      }
+    }
+
     const clientLogResult = await uploadClientLogsV1({ enabled: true });
 
     let statsUploaded = false;
@@ -778,7 +805,16 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       console.log('[Cloud] Sync completed successfully');
     }
 
-    return { configPulled, siteRequestsSynced, statsUploaded, quotaSynced, clientLogsUploaded: clientLogResult.uploaded || 0, hadFailure, errors };
+    return {
+      configPulled,
+      siteRequestsSynced,
+      classificationSyncEffects,
+      statsUploaded,
+      quotaSynced,
+      clientLogsUploaded: clientLogResult.uploaded || 0,
+      hadFailure,
+      errors,
+    };
   } catch (e) {
     console.error('[Cloud] Sync failed:', e.message);
     logClientEventBestEffort({

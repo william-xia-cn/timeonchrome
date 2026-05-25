@@ -51,13 +51,13 @@ function buildSchemaDefaults(): object {
     },
     timeWindows: {
       daily: {
-        monday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
-        tuesday:   { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
-        wednesday: { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
-        thursday:  { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
-        friday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
-        saturday:  { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
-        sunday:    { studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        monday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        tuesday:   { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        wednesday: { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        thursday:  { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        friday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        saturday:  { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
+        sunday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
       },
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
@@ -90,26 +90,24 @@ const SITE_ACCESS_CONFIG_KEYS = new Set([
   'siteClassificationRulesV1',
 ]);
 
-// 计算单日的在线时段 = studyWindows ∪ restWindows 的并集
-// 如果任一子时段为 null（无限制），在线时段也为 null（全天允许）
-// 如果两者都是有限数组，返回排序合并后的并集
-function computeOnlineWindowsForDay(dayWindows: { studyWindows: any; restWindows: any }): any[] | null {
-  const { studyWindows, restWindows } = dayWindows;
+function normalizeWindowList(windows: any): any[] | null {
+  if (!Array.isArray(windows) || windows.length === 0) return null;
+  return windows;
+}
 
-  // 或关系：任一子时段为 null，则在线时段为 null（全天允许）
-  if (studyWindows === null || restWindows === null) {
+// 计算单日的在线时段 = studyWindows ∪ compositeWindows ∪ restWindows 的并集
+// 任一模式全天允许时，在线时段也显示为全天允许
+function computeOnlineWindowsForDay(dayWindows: { studyWindows: any; compositeWindows?: any; restWindows: any }): any[] | null {
+  const study = normalizeWindowList(dayWindows.studyWindows);
+  const composite = normalizeWindowList(dayWindows.compositeWindows);
+  const rest = normalizeWindowList(dayWindows.restWindows);
+
+  if (study === null || composite === null || rest === null) {
     return null;
   }
 
-  const sArr = Array.isArray(studyWindows) ? studyWindows : [];
-  const rArr = Array.isArray(restWindows) ? restWindows : [];
-
-  if (sArr.length === 0 && rArr.length === 0) {
-    return [];
-  }
-
   // 合并、排序、合并重叠区间
-  const merged = [...sArr, ...rArr].sort((a: any, b: any) => a.start.localeCompare(b.start));
+  const merged = [...study, ...composite, ...rest].sort((a: any, b: any) => a.start.localeCompare(b.start));
   const result: any[] = [];
   for (const w of merged) {
     if (result.length === 0 || w.start > result[result.length - 1].end) {
@@ -151,8 +149,9 @@ function migrateLegacyTimeWindows(config: Record<string, unknown>): void {
   // 如果已有 daily 结构，无需迁移
   if (tw.daily) return;
 
-  // 旧全局结构：{ studyWindows, restWindows, onlineWindows }
+  // 旧全局结构：{ studyWindows, compositeWindows?, restWindows, onlineWindows }
   const oldStudy = tw.studyWindows;
+  const oldComposite = tw.compositeWindows;
   const oldRest = tw.restWindows;
 
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -160,6 +159,7 @@ function migrateLegacyTimeWindows(config: Record<string, unknown>): void {
   for (const day of days) {
     daily[day] = {
       studyWindows: oldStudy !== undefined ? oldStudy : null,
+      compositeWindows: oldComposite !== undefined ? oldComposite : null,
       restWindows: oldRest !== undefined ? oldRest : [{ start: '15:30', end: '24:00' }],
     };
   }
@@ -177,6 +177,9 @@ function normalizeEmptyArraysToNull(config: Record<string, unknown>): void {
     if (Array.isArray(dayCfg.studyWindows) && dayCfg.studyWindows.length === 0) {
       dayCfg.studyWindows = null;
     }
+    if (Array.isArray(dayCfg.compositeWindows) && dayCfg.compositeWindows.length === 0) {
+      dayCfg.compositeWindows = null;
+    }
     if (Array.isArray(dayCfg.restWindows) && dayCfg.restWindows.length === 0) {
       dayCfg.restWindows = null;
     }
@@ -191,7 +194,7 @@ function validateTimeWindows(config: Record<string, unknown>): string | null {
   for (const day of days) {
     const dayCfg = daily[day];
     if (!dayCfg) continue;
-    for (const type of ['studyWindows', 'restWindows'] as const) {
+    for (const type of ['studyWindows', 'compositeWindows', 'restWindows'] as const) {
       const arr = dayCfg[type];
       if (!Array.isArray(arr)) continue;
       for (const w of arr) {

@@ -15,6 +15,7 @@ import { handleModeEvent, normalizeMode } from './product/mode-service.js';
 import { executeModeDecision, getModeEffectTrace } from './product/mode-effects.js';
 import { getHourlyMediaStatsRangeView, getHourlyUsageStatsRangeView, getMediaSettlementAnalysisView, getPopupModeStatsView, getSettlementAnalysisView, getTodayUsageView, getUsageRangeView } from './stats/managed-statistics.js';
 import { getEffectiveQuotaForDate } from './core/quota-config.js';
+import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -212,7 +213,8 @@ export async function handleMessage(msg, sender) {
       }
       await saveConfig(newConfig);
       await updateDeclarativeRules(newConfig);
-      return { ok: true };
+      const classificationEffects = await runRouterClassificationSyncEffects('config_update');
+      return { ok: true, classificationEffects };
     }
 
     case 'FLUSH_TIME':
@@ -335,7 +337,9 @@ export async function handleMessage(msg, sender) {
           const targetUrl = siteClassificationTargetUrl(target);
           const syncStateRef = getSyncState();
           if (syncStateRef.deviceToken) {
-            syncNow(getConfig, saveConfig, updateDeclarativeRules)
+            syncNow(getConfig, saveConfig, updateDeclarativeRules, {
+              afterClassificationSync: () => runRouterClassificationSyncEffects('site_request_submit_sync'),
+            })
               .catch(() => {});
           }
           return {
@@ -392,7 +396,9 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'CLOUD_BIND': {
-      const bindResult = await cloudBind(() => syncNow(getConfig, saveConfig, updateDeclarativeRules));
+      const bindResult = await cloudBind(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, {
+        afterClassificationSync: () => runRouterClassificationSyncEffects('cloud_bind_sync'),
+      }));
       return bindResult;
     }
 
@@ -469,7 +475,10 @@ export async function handleMessage(msg, sender) {
         getConfig,
         saveConfig,
         updateDeclarativeRules,
-        { forceRetryExhausted: true }
+        {
+          forceRetryExhausted: true,
+          afterClassificationSync: () => runRouterClassificationSyncEffects('cloud_force_sync'),
+        }
       );
       return syncResult;
     }
@@ -584,6 +593,21 @@ async function reevaluateActiveTabAfterModeSwitch(options = {}) {
     await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => {});
   }
   return tab;
+}
+
+async function runRouterClassificationSyncEffects(source = 'classification_sync') {
+  return runClassificationSyncEffects({
+    source,
+    recheckActiveTab: async () => {
+      const tab = await reevaluateActiveTabAfterModeSwitch({
+        foreground: true,
+        source: `${source}_recheck`,
+      });
+      return tab?.id
+        ? { ok: true, rechecked: true, tabId: tab.id }
+        : { ok: true, rechecked: false, reason: 'no_active_tab' };
+    },
+  });
 }
 
 function isInjectableNoticeUrl(url = '') {

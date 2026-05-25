@@ -273,14 +273,14 @@ section('SQL: parameterized queries (static analysis)');
 section('timeWindows: computeOnlineWindowsForDay');
 
 function computeOnlineWindowsForDay(dayWindows) {
-  const { studyWindows, restWindows } = dayWindows;
-  if (studyWindows === null || studyWindows === undefined || restWindows === null || restWindows === undefined) {
+  const normalize = (windows) => (!Array.isArray(windows) || windows.length === 0 ? null : windows);
+  const studyWindows = normalize(dayWindows.studyWindows);
+  const compositeWindows = normalize(dayWindows.compositeWindows);
+  const restWindows = normalize(dayWindows.restWindows);
+  if (studyWindows === null || compositeWindows === null || restWindows === null) {
     return null;
   }
-  const sArr = Array.isArray(studyWindows) ? studyWindows : [];
-  const rArr = Array.isArray(restWindows) ? restWindows : [];
-  if (sArr.length === 0 && rArr.length === 0) return [];
-  const merged = [...sArr, ...rArr].sort((a, b) => a.start.localeCompare(b.start));
+  const merged = [...studyWindows, ...compositeWindows, ...restWindows].sort((a, b) => a.start.localeCompare(b.start));
   const result = [];
   for (const w of merged) {
     if (result.length === 0 || w.start > result[result.length - 1].end) {
@@ -294,13 +294,13 @@ function computeOnlineWindowsForDay(dayWindows) {
 
 {
   // study null + rest array => online unrestricted
-  const r = computeOnlineWindowsForDay({ studyWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] });
+  const r = computeOnlineWindowsForDay({ studyWindows: null, compositeWindows: [{ start: '08:00', end: '12:00' }], restWindows: [{ start: '15:30', end: '24:00' }] });
   check('study null + rest array => online null', r === null);
 }
 
 {
   // study array + rest null => online unrestricted
-  const r = computeOnlineWindowsForDay({ studyWindows: [{ start: '08:00', end: '12:00' }], restWindows: null });
+  const r = computeOnlineWindowsForDay({ studyWindows: [{ start: '08:00', end: '12:00' }], compositeWindows: [{ start: '12:00', end: '14:00' }], restWindows: null });
   check('study array + rest null => online null', r === null);
 }
 
@@ -308,10 +308,11 @@ function computeOnlineWindowsForDay(dayWindows) {
   // study array + rest array => merged union
   const r = computeOnlineWindowsForDay({
     studyWindows: [{ start: '08:00', end: '12:00' }],
+    compositeWindows: [{ start: '12:00', end: '13:00' }],
     restWindows: [{ start: '14:00', end: '18:00' }],
   });
-  check('study + rest non-overlap => two windows', r.length === 2);
-  check('first window is 08:00-12:00', r[0].start === '08:00' && r[0].end === '12:00');
+  check('study + composite + rest non-overlap => two windows', r.length === 2);
+  check('first window is 08:00-13:00', r[0].start === '08:00' && r[0].end === '13:00');
   check('second window is 14:00-18:00', r[1].start === '14:00' && r[1].end === '18:00');
 }
 
@@ -319,6 +320,7 @@ function computeOnlineWindowsForDay(dayWindows) {
   // study/rest overlap => merged
   const r = computeOnlineWindowsForDay({
     studyWindows: [{ start: '08:00', end: '12:00' }, { start: '14:00', end: '18:00' }],
+    compositeWindows: [{ start: '10:00', end: '15:00' }],
     restWindows: [{ start: '12:00', end: '14:00' }],
   });
   check('study/rest overlap merged => single 08:00-18:00', r.length === 1);
@@ -327,14 +329,14 @@ function computeOnlineWindowsForDay(dayWindows) {
 
 {
   // both null => online null
-  const r = computeOnlineWindowsForDay({ studyWindows: null, restWindows: null });
+  const r = computeOnlineWindowsForDay({ studyWindows: null, compositeWindows: null, restWindows: null });
   check('both null => online null', r === null);
 }
 
 {
-  // both empty arrays => online empty
-  const r = computeOnlineWindowsForDay({ studyWindows: [], restWindows: [] });
-  check('both empty => online empty', Array.isArray(r) && r.length === 0);
+  // empty arrays => unrestricted
+  const r = computeOnlineWindowsForDay({ studyWindows: [], compositeWindows: [], restWindows: [] });
+  check('empty arrays => online null', r === null);
 }
 
 // ── Section 9: mergeWithDefaults and new-profile effective lists ─────────────

@@ -123,6 +123,13 @@ async function run() {
   expectEqual('pending request becomes managed target attribution', pending.targetClassificationAtTime, 'pending_composite');
   expectEqual('pending request source is retained', pending.targetSourceAtTime, 'pending');
 
+  const approvedRequestOnly = mod.resolveManagedTargetAttribution({}, [{
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'approved.example.com',
+    status: 'approved_study',
+  }], 'https://approved.example.com/x');
+  expect('approved request record alone is not a managed target', approvedRequestOnly.fallback === true && !approvedRequestOnly.managedTargetId);
+
   const fallback = mod.resolveManagedTargetAttribution({}, [], 'https://private.example.com/deep/path?secret=1');
   expect('unmanaged URL returns fallback attribution', fallback.fallback === true && !fallback.managedTargetId);
   expectEqual('unmanaged fallback keeps only domain', fallback.domain, 'private.example.com');

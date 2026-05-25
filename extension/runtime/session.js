@@ -95,6 +95,7 @@ function isForegroundSettlementReasonAllowed(reason) {
   return reason === 'periodic_checkpoint' ||
     reason === 'checkpoint_estimated_close' ||
     reason === 'transition_complete' ||
+    reason === 'classification_effective_boundary' ||
     reason === 'idle_inactive_close' ||
     reason === 'mode_effective_boundary' ||
     reason === 'tab_close' ||
@@ -375,6 +376,7 @@ function operationSourceForReason(reason) {
     value === 'recovery_estimated_close' ||
     value === 'recovery_estimated_half_checkpoint') return 'recovery';
   if (value === 'mode_effective_boundary' || value === 'mode_effective_boundary_reopen' || value.includes('mode_effective')) return 'mode_boundary';
+  if (value === 'classification_effective_boundary') return 'config_action';
   if (value === 'controlledTimingSignal' || value.startsWith('debug_')) return 'debug';
   if (value === 'tab_close' || value === 'monitoring_off') return 'chrome_event';
   return 'unknown';
@@ -648,7 +650,9 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         // 稳定事件边界是普通 foreground_page 的基础落账入口；checkpoint 只负责长段切片。
         const settlementReason = reason === 'idle_inactive_close'
           ? 'idle_inactive_close'
-          : (closeDomainMismatch ? 'event_close_domain_mismatch_close' : (stale ? 'transition_stale_close' : 'transition_complete'));
+          : (reason === 'classification_effective_boundary'
+            ? 'classification_effective_boundary'
+            : (closeDomainMismatch ? 'event_close_domain_mismatch_close' : (stale ? 'transition_stale_close' : 'transition_complete')));
         await settleCurrentSessionSegment(session, closeTime, settlementReason, {
           ...settlementResolverOptions(options),
           endReason: reason,

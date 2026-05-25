@@ -4,7 +4,8 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- **Mode time-window enforcement**: `timeWindows.daily` now controls runtime access and user-confirmed mode entry for Study, Composite, and Rest. `compositeWindows` is added as a first-class mode window; `onlineWindows` is display-only (`study ∪ composite ∪ rest`). Empty arrays, missing fields, and `null` all mean all-day allowed.
+- **Clear schedule Reminder copy**: outside-window blocks now use mode-specific reasons and copy: `study_schedule_locked`, `composite_schedule_locked`, and `rest_schedule_locked`. Legacy `schedule` remains only as a fallback when `timeWindows.daily` is absent.
 
 ---
 
