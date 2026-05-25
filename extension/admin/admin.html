@@ -748,7 +748,7 @@
       color: var(--accent);
     }
 
-    /* 今日落账分析（临时测试页） */
+    /* 网页落账分析 */
     .settlement-toolbar {
       display: flex;
       align-items: center;
@@ -1088,6 +1088,16 @@
       background: #2563eb;
       color: white;
     }
+    .system-management-tabs {
+      width: max-content;
+      margin-bottom: 16px;
+    }
+    .system-management-panel {
+      display: none;
+    }
+    .system-management-panel.active {
+      display: block;
+    }
     .usage-device-select {
       display: flex;
       align-items: center;
@@ -1387,20 +1397,14 @@
     <div class="nav-item active" data-page="stats">
       <span class="nav-icon">📊</span> 使用分析
     </div>
-    <div class="nav-item" data-page="settlements">
-      <span class="nav-icon">🧾</span> 今日落账
-    </div>
-    <div class="nav-item" data-page="media-settlements">
-      <span class="nav-icon">🎬</span> 媒体落账
-    </div>
     <div class="nav-item" data-page="rules">
       <span class="nav-icon">📋</span> 访问规则
     </div>
     <div class="nav-item" data-page="devices">
       <span class="nav-icon">📡</span> 本机状态
     </div>
-    <div class="nav-item" data-page="client-logs">
-      <span class="nav-icon">🧭</span> 系统日志
+    <div class="nav-item" data-page="system-management">
+      <span class="nav-icon">🧭</span> 系统管理
     </div>
 
     <div class="sidebar-footer">
@@ -1559,17 +1563,24 @@
       </div>
     </div>
 
-    <!-- 今日落账分析（临时测试页） -->
-    <div class="page" id="page-settlements">
+    <!-- 系统管理 -->
+    <div class="page" id="page-system-management">
       <div class="page-header">
-        <h2>今日落账分析</h2>
-        <p>测试页面：直接查看今日 usage_segments_v1 已落账片段，后续可能关闭</p>
+        <h2>系统管理</h2>
+        <p>查看网页落账、媒体落账和本机系统日志</p>
       </div>
 
+      <div class="usage-segmented system-management-tabs" aria-label="系统管理功能">
+        <button type="button" class="active" data-system-management-tab="web-settlements">网页落账</button>
+        <button type="button" data-system-management-tab="media-settlements">媒体落账</button>
+        <button type="button" data-system-management-tab="client-logs">系统日志</button>
+      </div>
+
+      <section class="system-management-panel active" data-system-management-panel="web-settlements">
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">落账明细</div>
+            <div class="card-title">网页落账明细</div>
             <div class="card-subtitle">按开始时间排序；不触发 flush，不改变 storage</div>
           </div>
         </div>
@@ -1592,21 +1603,15 @@
           <div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>
         </div>
       </div>
-    </div>
+      </section>
 
 
-    <!-- 媒体落账分析 -->
-    <div class="page" id="page-media-settlements">
-      <div class="page-header">
-        <h2>媒体落账分析</h2>
-        <p>查看 media_segments_v1 已落账片段；状态来自独立媒体同步链路</p>
-      </div>
-
+      <section class="system-management-panel" data-system-management-panel="media-settlements">
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">媒体明细</div>
-            <div class="card-subtitle">按开始时间倒序；只读 storage，不触发 flush</div>
+            <div class="card-title">媒体落账明细</div>
+            <div class="card-subtitle">来自 media_segments_v1；按开始时间倒序；只读 storage，不触发 flush；状态来自独立媒体同步链路</div>
           </div>
         </div>
         <div class="settlement-toolbar">
@@ -1633,46 +1638,9 @@
           <div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>
         </div>
       </div>
-    </div>
+      </section>
 
-
-    <!-- 本机状态 -->
-    <div class="page" id="page-devices">
-      <div class="page-header">
-        <h2>本机状态</h2>
-        <p>当前设备与云端的连接状态</p>
-      </div>
-
-      <!-- 同步状态 -->
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">云端同步</div>
-            <div class="card-subtitle">配置与统计数据同步状态</div>
-          </div>
-        </div>
-        <div id="sync-status">加载中...</div>
-      </div>
-
-      <!-- 最近变更 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">📜 最近变更</div>
-          <div class="card-subtitle">规则变更历史记录</div>
-        </div>
-        <div class="changelog-timeline" id="changelog-timeline">
-          <!-- 由 JS 生成 -->
-        </div>
-      </div>
-    </div>
-
-    <!-- 系统日志 -->
-    <div class="page" id="page-client-logs">
-      <div class="page-header">
-        <h2>系统日志</h2>
-        <p>本机客户端 warning / error 诊断日志；仅显示脱敏后的摘要信息</p>
-      </div>
-
+      <section class="system-management-panel" data-system-management-panel="client-logs">
       <div class="card">
         <div class="card-header">
           <div>
@@ -1713,6 +1681,37 @@
         <div class="settlement-summary" id="client-log-summary">加载中...</div>
         <div class="settlement-table-wrap" id="client-log-table-wrap">
           <div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>
+        </div>
+      </div>
+      </section>
+    </div>
+
+    <!-- 本机状态 -->
+    <div class="page" id="page-devices">
+      <div class="page-header">
+        <h2>本机状态</h2>
+        <p>当前设备与云端的连接状态</p>
+      </div>
+
+      <!-- 同步状态 -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">云端同步</div>
+            <div class="card-subtitle">配置与统计数据同步状态</div>
+          </div>
+        </div>
+        <div id="sync-status">加载中...</div>
+      </div>
+
+      <!-- 最近变更 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📜 最近变更</div>
+          <div class="card-subtitle">规则变更历史记录</div>
+        </div>
+        <div class="changelog-timeline" id="changelog-timeline">
+          <!-- 由 JS 生成 -->
         </div>
       </div>
     </div>

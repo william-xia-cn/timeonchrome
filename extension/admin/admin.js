@@ -65,6 +65,7 @@ let settlementAnalysisLabel = '今日';
 let mediaSettlementRows = [];
 let mediaSettlementRange = 'today';
 let mediaSettlementLabel = '今日';
+let systemManagementActiveTab = 'web-settlements';
 let isLocalReadOnlyMode = false;
 let usageAnalysisState = {
   ledger: 'web',
@@ -1146,6 +1147,32 @@ function setClientLogsPageError(message) {
   if (tableEl) tableEl.innerHTML = `<div style="color:var(--danger);text-align:center;padding:16px;">${safeMessage}</div>`;
 }
 
+function syncSystemManagementTabs() {
+  document.querySelectorAll('[data-system-management-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.systemManagementTab === systemManagementActiveTab);
+  });
+  document.querySelectorAll('[data-system-management-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.systemManagementPanel === systemManagementActiveTab);
+  });
+}
+
+async function renderSystemManagementPage() {
+  syncSystemManagementTabs();
+  if (systemManagementActiveTab === 'web-settlements') {
+    await renderSettlementsPage();
+  } else if (systemManagementActiveTab === 'media-settlements') {
+    await renderMediaSettlementsPage();
+  } else if (systemManagementActiveTab === 'client-logs') {
+    await renderClientLogsPage();
+  }
+}
+
+function setSystemManagementPageError(message) {
+  if (systemManagementActiveTab === 'web-settlements') setSettlementsPageError(message);
+  else if (systemManagementActiveTab === 'media-settlements') setMediaSettlementsPageError(message);
+  else if (systemManagementActiveTab === 'client-logs') setClientLogsPageError(message);
+}
+
 function isLatestAdminRefreshRequest(requestSeq) {
   return requestSeq === adminPageRefreshSeq;
 }
@@ -1167,12 +1194,8 @@ async function refreshPageByNav(page, requestSeq) {
       await renderStatsPage();
       return;
     }
-    if (page === 'settlements') {
-      await renderSettlementsPage();
-      return;
-    }
-    if (page === 'media-settlements') {
-      await renderMediaSettlementsPage();
+    if (page === 'system-management') {
+      await renderSystemManagementPage();
       return;
     }
     if (page === 'devices') {
@@ -1187,8 +1210,7 @@ async function refreshPageByNav(page, requestSeq) {
     const message = error?.message || '未知错误';
     if (page === 'rules') setRulesPageError(message);
     else if (page === 'stats') setStatsPageError(message);
-    else if (page === 'settlements') setSettlementsPageError(message);
-    else if (page === 'media-settlements') setMediaSettlementsPageError(message);
+    else if (page === 'system-management') setSystemManagementPageError(message);
     else if (page === 'devices') setDevicesPageError(message);
     else if (page === 'client-logs') setClientLogsPageError(message);
   }
@@ -1208,6 +1230,21 @@ function setupNavigation() {
 
       const requestSeq = ++adminPageRefreshSeq;
       await refreshPageByNav(page, requestSeq);
+    });
+  });
+  document.querySelectorAll('[data-system-management-tab]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tab = btn.dataset.systemManagementTab || 'web-settlements';
+      systemManagementActiveTab = tab;
+      const navItem = document.querySelector('.nav-item[data-page="system-management"]');
+      if (navItem && !navItem.classList.contains('active')) {
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        navItem.classList.add('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-system-management')?.classList.add('active');
+      }
+      const requestSeq = ++adminPageRefreshSeq;
+      await refreshPageByNav('system-management', requestSeq);
     });
   });
 }

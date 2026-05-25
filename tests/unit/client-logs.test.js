@@ -191,7 +191,7 @@ function testStaticWiring() {
   const interceptor = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'interceptor.js'), 'utf8');
   const session = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'runtime', 'session.js'), 'utf8');
   const mediaTiming = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'media-timing.js'), 'utf8');
-  check('local admin exposes system logs page', adminHtml.includes('data-page="client-logs"') && adminJs.includes('GET_CLIENT_LOGS'));
+  check('local admin exposes system logs tab', adminHtml.includes('data-page="system-management"') && adminHtml.includes('data-system-management-tab="client-logs"') && adminJs.includes('GET_CLIENT_LOGS'));
   check('pages exposes cloud system logs page', pages.includes('/client-logs/v1') && pages.includes('clientLoggingPolicyV1'));
   check('worker supports client log upload and query', worker.includes("path === '/device/client-logs/v1'") && worker.includes('/client-logs/v1'));
   check('runtime fallback helper is exported', fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'client-logs.js'), 'utf8').includes('logFallbackEventBestEffort'));

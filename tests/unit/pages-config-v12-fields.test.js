@@ -69,12 +69,15 @@ function run() {
   expectTrue('bind.js 登录与保存凭据邮箱应统一小写', bindSource.includes("document.getElementById('email').value.trim().toLowerCase()"));
   expectTrue('Pages 控制台应兼容 stats_v1 duration_seconds', source.includes('duration_seconds'));
   expectTrue('Pages 日期应使用本地日期，不应使用 toISOString 作为显示/查询日期', !/function fmtDate\(d\)\s*\{\s*return d\.toISOString\(\)/.test(source));
-  expectTrue('Pages 应包含落账明细导航', source.includes('data-page="settlements"') && source.includes('落账明细'));
+  expectTrue('Pages 应包含系统管理导航', source.includes('data-page="system-management"') && source.includes('系统管理'));
+  expectTrue('Pages 系统管理导航应位于账户设置之后', source.indexOf('data-page="account"') < source.indexOf('data-page="system-management"'));
+  expectTrue('Pages 系统管理应包含网页落账/媒体落账/系统日志/数据备份与恢复 Tab', source.includes('data-system-management-tab="web-settlements"') && source.includes('data-system-management-tab="media-settlements"') && source.includes('data-system-management-tab="client-logs"') && source.includes('data-system-management-tab="backup-restore"'));
+  expectTrue('Pages 普通落账应改名为网页落账', source.includes('网页落账') && !source.includes('落账明细</span>'));
   expectTrue('Pages 落账页应读取 usage-segments/v1', source.includes('/usage-segments/v1'));
   expectTrue('Pages 落账页应支持终端筛选和终端列', source.includes('settlement-device-input') && source.includes("params.set('deviceId', deviceInput.value)") && source.includes('终端'));
   expectTrue('Pages 云端落账页应展示紧凑备注列', source.includes('function buildCloudSettlementRemarkHtml') && source.includes('cloudEndpointOperation') && source.includes('target：') && source.includes('tab：') && source.includes('window：') && source.includes('open：') && source.includes('close：') && source.includes('来源：'));
   expectTrue('Pages 云端落账页备注应读取 Open/Close description', source.includes("cloudEndpointOperation(row?.description, 'start')") && source.includes("cloudEndpointOperation(row?.description, 'end')"));
-  expectTrue('Pages 应有媒体落账入口', source.includes('data-page="media-settlements"') && source.includes('媒体落账'));
+  expectTrue('Pages 媒体落账应在系统管理 Tab 中', source.includes('data-system-management-panel="media-settlements"') && source.includes('媒体落账'));
   expectTrue('Pages 媒体落账页应读取 media-segments/v1', source.includes('/media-segments/v1'));
   expectTrue('Pages 媒体落账页应支持终端筛选', source.includes('media-settlement-device-input') && source.includes('selectedCloudDeviceLabel'));
   expectTrue('Pages 媒体落账页应支持媒体类型筛选', source.includes('media-settlement-class-input') && source.includes('mediaClass'));
@@ -83,7 +86,11 @@ function run() {
   expectTrue('Pages 系统日志页应包含云端数据下载卡片', source.includes('id="cloud-export-download-btn"') && source.includes('选择目录并下载') && source.includes('id="cloud-export-categories"'));
   expectTrue('Pages 云端数据下载应使用目录选择 API', source.includes('window.showDirectoryPicker') && source.includes('getDirectoryHandle(`${profileName}-${timestamp}`'));
   expectTrue('Pages 云端数据下载应写入 manifest 和分类路径', source.includes("writeExportFile(exportRoot, 'manifest.json'") && source.includes('dataset.path'));
+  expectTrue('Pages 云端数据下载应写入可恢复 manifest 元数据', source.includes('workerSchemaVersion') && source.includes('rowCount') && source.includes('sha256') && source.includes('deviceScope'));
+  expectTrue('Pages 云端数据下载应说明 site-access-editable 可手动修改', source.includes('site-access-editable.json') && source.includes('可手动修改'));
   expectTrue('Pages 云端数据下载应提示不支持目录选择的浏览器', source.includes('当前浏览器不支持直接选择目录下载'));
+  expectTrue('Pages 应支持备份目录预检和恢复', source.includes('cloud-restore-select-btn') && source.includes('/restore/v1/preflight') && source.includes('/restore/v1/commit'));
+  expectTrue('Pages 恢复应区分安全合并和整包覆盖', source.includes('安全合并恢复') && source.includes('整包覆盖恢复') && source.includes("confirmText: replace ? confirmText : undefined"));
   expectTrue('Pages 落账相关域名筛选应标明关键词筛选', (source.match(/placeholder="域名关键词筛选"/g) || []).length >= 3);
   expectTrue('Pages 落账页应支持今日/昨日/本周/全部', source.includes('data-settlement-range="today"') && source.includes('data-settlement-range="yesterday"') && source.includes('data-settlement-range="week"') && source.includes('data-settlement-range="all"'));
   expectTrue('Pages 落账页应支持 nextCursor 加载更多', source.includes('nextCursor') && source.includes('settlement-load-more-btn'));
@@ -99,7 +106,7 @@ function run() {
   expectTrue('Pages 访问规则页不应单独展示已批准精确链接规则', !source.includes('已批准精确链接 / 管理对象规则') && !source.includes('r-approved-target-rules-display') && !source.includes('renderApprovedTargetRules'));
   expectTrue('Pages 访问规则页应把已批准 URL 规则合并到对应分类', source.includes('approvedUrlRulesForListKey') && source.includes("listKey === 'customStudyList'") && source.includes("listKey === 'customCompositeList'") && source.includes("listKey === 'customBlockedSites'"));
   expectTrue('Pages 访问规则添加/导入/保存应校验精确跨类重复', source.includes('function findSiteAccessExactConflicts') && source.includes('formatSiteAccessConflict') && source.includes('SITE_ACCESS_CATEGORY_FIELDS'));
-  expectTrue('Pages 应包含系统日志导航和查询接口', source.includes('data-page="client-logs"') && source.includes('/client-logs/v1'));
+  expectTrue('Pages 应包含系统日志 Tab 和查询接口', source.includes('data-system-management-panel="client-logs"') && source.includes('/client-logs/v1'));
   expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));
   expectTrue('Pages 系统日志应支持远程诊断策略和 TTL', source.includes('clientLoggingPolicyV1') && source.includes('client-log-policy-ttl') && source.includes('expiresAt'));
   expectTrue('Pages 日志上传 TTL 应为 1/3/7 天', source.includes('value="86400000">1 天') && source.includes('value="259200000">3 天') && source.includes('value="604800000">7 天'));

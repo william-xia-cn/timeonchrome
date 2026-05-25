@@ -22,6 +22,7 @@ const DATASETS: DatasetDef[] = [
   { id: 'profile', category: 'config', path: 'config/profile.json', format: 'json', order: [] },
   { id: 'config', category: 'config', path: 'config/config.json', format: 'json', order: [] },
   { id: 'defaults', category: 'config', path: 'config/defaults.json', format: 'json', order: [] },
+  { id: 'site-access-editable', category: 'config', path: 'config/site-access-editable.json', format: 'json', order: [] },
   {
     id: 'devices', category: 'devices', path: 'devices/devices.json', format: 'json',
     table: 'devices',
@@ -277,7 +278,44 @@ async function exportTableDataset(env: Env, dataset: DatasetDef, profileId: stri
   });
 }
 
-async function exportObjectDataset(profile: any, dataset: DatasetDef) {
+function editableRuleType(rule: any): string {
+  const targetType = rule.targetType || rule.decisionTargetType || 'url';
+  const value = rule.normalizedValue || rule.decisionNormalizedValue || '';
+  if (targetType === 'host') return String(value).split('.').length > 2 ? 'subdomain' : 'domain';
+  if (/^https:\/\/www\.youtube\.com\/playlist\?list=/i.test(value)) return 'youtube_playlist';
+  if (/^https:\/\/www\.youtube\.com\/watch\?v=/i.test(value)) return 'youtube_video';
+  return 'url';
+}
+
+function siteAccessEditableFromConfig(config: any, requests: any[] = []) {
+  const rules = Array.isArray(config?.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
+  const byDecision = (decision: string) => rules
+    .filter((rule: any) => rule?.decision === decision)
+    .map((rule: any) => ({
+      type: rule.targetType || rule.decisionTargetType || 'url',
+      displayType: editableRuleType(rule),
+      value: rule.normalizedValue || rule.decisionNormalizedValue || '',
+      label: rule.label || rule.displayValue || rule.normalizedValue || '',
+      source: rule.source || 'parent',
+      rule,
+    }));
+  return {
+    app: 'TimeOnChrome',
+    configType: 'site-access-editable',
+    configVersion: 1,
+    description: 'Editable site access rules and review history. Ledger and stats files are not intended for manual editing.',
+    studySites: config?.customStudyList || [],
+    compositeSites: config?.customCompositeList || [],
+    restrictedEntertainmentSites: config?.customRestrictedEntertainmentList || [],
+    blockedSites: config?.customBlockedSites || [],
+    studyRules: byDecision('study'),
+    compositeRules: byDecision('composite'),
+    rejectedRules: byDecision('reject'),
+    classificationRequests: requests,
+  };
+}
+
+async function exportObjectDataset(env: Env, profile: any, dataset: DatasetDef) {
   if (dataset.id === 'profile') {
     return json({ dataset: dataset.id, rows: [{
       id: profile.id,
@@ -292,6 +330,22 @@ async function exportObjectDataset(profile: any, dataset: DatasetDef) {
   }
   if (dataset.id === 'defaults') {
     return json({ dataset: dataset.id, rows: [siteAccessDefaults], hasMore: false, nextCursor: null });
+  }
+  if (dataset.id === 'site-access-editable') {
+    const requests = await env.DB.prepare(
+      `SELECT id, profile_id, device_id, client_request_id, requested_target_type, requested_raw_input,
+              requested_normalized_value, requested_host, display_value, status, decision,
+              decision_target_type, decision_normalized_value, requested_at, decided_at, created_at, updated_at
+       FROM site_classification_requests_v1
+       WHERE profile_id = ?
+       ORDER BY requested_at DESC, id DESC`
+    ).bind(profile.id).all<any>();
+    return json({
+      dataset: dataset.id,
+      rows: [siteAccessEditableFromConfig(profile.config ? JSON.parse(profile.config) : {}, (requests.results || []).map(normalizeRow))],
+      hasMore: false,
+      nextCursor: null,
+    });
   }
   if (dataset.id === 'changelog') {
     return json({ dataset: dataset.id, rows: [profile.changelog ? JSON.parse(profile.changelog) : []], hasMore: false, nextCursor: null });
@@ -370,7 +424,7 @@ export const exportRouter = {
     const dataset = DATASET_BY_ID.get(datasetMatch![2]);
     if (!dataset) return json({ error: 'Unknown dataset' }, 404);
 
-    const objectResponse = await exportObjectDataset(profile, dataset);
+    const objectResponse = await exportObjectDataset(env, profile, dataset);
     if (objectResponse) return objectResponse;
     if (dataset.id === 'stats-reconciliation') return await exportReconciliation(env, profileId, url);
     return await exportTableDataset(env, dataset, profileId, url);

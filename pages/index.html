@@ -176,6 +176,9 @@
     .page-header { margin-bottom: 28px; }
     .page-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
     .page-header p  { font-size: 13px; color: var(--muted); }
+    .system-management-tabs { margin-bottom: 16px; }
+    .system-management-panel { display: none; }
+    .system-management-panel.active { display: block; }
 
     /* Cards */
     .card {
@@ -633,26 +636,20 @@
         <div class="nav-item" data-page="stats">
           <span class="nav-icon">📈</span><span>使用统计</span>
         </div>
-        <div class="nav-item" data-page="settlements">
-          <span class="nav-icon">🧾</span><span>落账明细</span>
-        </div>
-        <div class="nav-item" data-page="media-settlements">
-          <span class="nav-icon">🎬</span><span>媒体落账</span>
-        </div>
         <div class="nav-item" data-page="reconciliation">
           <span class="nav-icon">⚖️</span><span>统计对账</span>
         </div>
         <div class="nav-item" data-page="devices">
           <span class="nav-icon">💻</span><span>设备管理</span>
         </div>
-        <div class="nav-item" data-page="client-logs">
-          <span class="nav-icon">🧭</span><span>系统日志</span>
-        </div>
         <div class="nav-item" data-page="review">
           <span class="nav-icon">🔍</span><span>待审核 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
         <div class="nav-item" data-page="account">
           <span class="nav-icon">👤</span><span>账户设置</span>
+        </div>
+        <div class="nav-item" data-page="system-management">
+          <span class="nav-icon">🧭</span><span>系统管理</span>
         </div>
       </div>
 
@@ -988,16 +985,24 @@
         </div>
       </div>
 
-      <!-- 落账明细 -->
-      <div class="page" id="page-settlements">
+      <!-- 系统管理 -->
+      <div class="page" id="page-system-management">
         <div class="page-header">
-          <h2>落账明细</h2>
-          <p>云端已上传的逐段落账记录，最新记录显示在最上方</p>
+          <h2>系统管理</h2>
+          <p>集中查看网页落账、媒体落账和系统日志；落账记录最新记录显示在最上方</p>
         </div>
+        <div class="tabs system-management-tabs" aria-label="系统管理功能">
+          <button class="tab-btn active" data-system-management-tab="web-settlements">网页落账</button>
+          <button class="tab-btn" data-system-management-tab="media-settlements">媒体落账</button>
+          <button class="tab-btn" data-system-management-tab="client-logs">系统日志</button>
+          <button class="tab-btn" data-system-management-tab="backup-restore">数据备份与恢复</button>
+        </div>
+
+        <section class="system-management-panel active" data-system-management-panel="web-settlements">
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">落账明细</div>
+              <div class="card-title">网页落账明细</div>
               <div class="card-subtitle">来自云端 usage_segments_v1；不展示设备 token 或 profile id</div>
             </div>
           </div>
@@ -1019,14 +1024,9 @@
             <button class="btn-save" id="settlement-load-more-btn" style="display:none;padding:8px 18px;font-size:13px;">加载更多</button>
           </div>
         </div>
-      </div>
+        </section>
 
-      <!-- 媒体落账 -->
-      <div class="page" id="page-media-settlements">
-        <div class="page-header">
-          <h2>媒体落账</h2>
-          <p>云端已上传的媒体逐段落账记录，独立于前台网页落账</p>
-        </div>
+        <section class="system-management-panel" data-system-management-panel="media-settlements">
         <div class="card">
           <div class="card-header">
             <div>
@@ -1060,7 +1060,7 @@
             <button class="btn-save" id="media-settlement-load-more-btn" style="display:none;padding:8px 18px;font-size:13px;">加载更多</button>
           </div>
         </div>
-      </div>
+        </section>
 
       <!-- 统计对账 -->
       <div class="page" id="page-reconciliation">
@@ -1221,13 +1221,7 @@
         </div>
       </div>
 
-      <!-- 系统日志 -->
-      <div class="page" id="page-client-logs">
-        <div class="page-header">
-          <h2>系统日志</h2>
-          <p>按孩子和终端查看脱敏后的客户端诊断日志</p>
-        </div>
-
+        <section class="system-management-panel" data-system-management-panel="client-logs">
         <div class="card">
           <div class="card-header">
             <div>
@@ -1309,11 +1303,14 @@
           </div>
         </div>
 
+        </section>
+
+        <section class="system-management-panel" data-system-management-panel="backup-restore">
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">数据下载</div>
-              <div class="card-subtitle">选择范围后，将云端配置、落账、统计、日志和审核数据保存到本地目录</div>
+              <div class="card-title">数据备份下载</div>
+              <div class="card-subtitle">选择范围后，将云端配置、落账、统计、日志、审核数据和可编辑网站数据保存到本地目录</div>
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
@@ -1336,8 +1333,33 @@
             <label><input type="checkbox" value="reviews" checked> 审核</label>
             <label><input type="checkbox" value="diagnostics" checked> 诊断</label>
           </div>
-          <div id="cloud-export-status" style="font-size:12px;color:var(--muted);line-height:1.7;">默认导出近 30 天、全部终端、全部类别。需要使用支持目录选择的 Chrome/Chromium。</div>
+          <div id="cloud-export-status" style="font-size:12px;color:var(--muted);line-height:1.7;">默认导出近 30 天、全部终端、全部类别。需要使用支持目录选择的 Chrome/Chromium。网站数据会额外生成 config/site-access-editable.json，可手动修改后上传恢复。</div>
         </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">上传并恢复</div>
+              <div class="card-subtitle">先选择备份目录进行预检；默认安全合并，整包覆盖需要二次确认</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn-save" id="cloud-restore-select-btn" style="padding:7px 14px;font-size:13px;">选择备份目录并预检</button>
+            <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="cloud-restore-include-logs">
+              恢复系统日志
+            </label>
+            <button class="btn-save" id="cloud-restore-merge-btn" style="padding:7px 14px;font-size:13px;" disabled>安全合并恢复</button>
+            <input type="text" id="cloud-restore-confirm-input" placeholder="覆盖恢复请输入 RESTORE" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:210px;">
+            <button class="btn-save" id="cloud-restore-replace-btn" style="padding:7px 14px;font-size:13px;background:rgba(248,113,113,0.12);color:var(--danger);" disabled>整包覆盖恢复</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px;">
+            可恢复：配置、网站规则、审核记录、网页/媒体落账和统计索引。不会恢复账号登录凭证、device token 或诊断对账文件。zip 包请先解压后选择备份目录。
+          </div>
+          <div id="cloud-restore-status" style="font-size:12px;color:var(--muted);line-height:1.7;">尚未选择备份目录。</div>
+          <div id="cloud-restore-preflight" style="margin-top:12px;"></div>
+        </div>
+        </section>
       </div>
 
       <!-- 待审核 -->
@@ -1421,9 +1443,11 @@ let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore
 let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
 let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
+let cloudSystemManagementActiveTab = 'web-settlements';
 let cloudDevicesCache = { profileId: null, devices: [] };
 let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
+let cloudRestoreState = { package: null, preflight: null };
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1705,6 +1729,19 @@ function setupNav() {
       renderPage(item.dataset.page);
     });
   });
+  document.querySelectorAll('[data-system-management-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      cloudSystemManagementActiveTab = btn.dataset.systemManagementTab || 'web-settlements';
+      const navItem = document.querySelector('.nav-item[data-page="system-management"]');
+      if (navItem && !navItem.classList.contains('active')) {
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        navItem.classList.add('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-system-management')?.classList.add('active');
+      }
+      renderSystemManagementPage();
+    });
+  });
 }
 
 function renderPage(name) {
@@ -1714,13 +1751,27 @@ function renderPage(name) {
   if (name === 'quota')     renderQuotaPage();
   if (name === 'schedule')  renderSchedulePage();
   if (name === 'stats')     renderStatsPage();
-  if (name === 'settlements') renderCloudSettlementsPage({ reset: true });
-  if (name === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
+  if (name === 'system-management') renderSystemManagementPage();
   if (name === 'reconciliation') renderReconciliationPage();
   if (name === 'devices')   renderDevicesPage();
-  if (name === 'client-logs') renderCloudClientLogsPage({ reset: true });
   if (name === 'account')   renderAccountPage();
   if (name === 'review')    renderReviewPage();
+}
+
+function syncSystemManagementTabs() {
+  document.querySelectorAll('[data-system-management-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.systemManagementTab === cloudSystemManagementActiveTab);
+  });
+  document.querySelectorAll('[data-system-management-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.systemManagementPanel === cloudSystemManagementActiveTab);
+  });
+}
+
+function renderSystemManagementPage() {
+  syncSystemManagementTabs();
+  if (cloudSystemManagementActiveTab === 'web-settlements') renderCloudSettlementsPage({ reset: true });
+  if (cloudSystemManagementActiveTab === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
+  if (cloudSystemManagementActiveTab === 'client-logs') renderCloudClientLogsPage({ reset: true });
 }
 
 // ── Overview ─────────────────────────────────────────────────
@@ -4264,6 +4315,9 @@ function setupCloudDataExport() {
     toEl.value = fmtDate(today);
   }
   document.getElementById('cloud-export-download-btn')?.addEventListener('click', downloadCloudDataExport);
+  document.getElementById('cloud-restore-select-btn')?.addEventListener('click', selectCloudRestoreDirectory);
+  document.getElementById('cloud-restore-merge-btn')?.addEventListener('click', () => commitCloudRestore('merge'));
+  document.getElementById('cloud-restore-replace-btn')?.addEventListener('click', () => commitCloudRestore('replace'));
 }
 
 function sanitizeExportPathPart(value, fallback = 'TimeOnChrome') {
@@ -4309,6 +4363,12 @@ async function writeExportFile(rootHandle, relativePath, content) {
 
 function jsonlFromRows(rows = []) {
   return (rows || []).map(row => JSON.stringify(row)).join('\n') + ((rows || []).length ? '\n' : '');
+}
+
+async function sha256Hex(text) {
+  const bytes = new TextEncoder().encode(String(text || ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 async function fetchCloudExportDataset(dataset, params) {
@@ -4358,9 +4418,9 @@ async function downloadCloudDataExport() {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const profileName = sanitizeExportPathPart(manifest?.profile?.name || currentProfileId || 'child');
     const exportRoot = await picker.getDirectoryHandle(`${profileName}-${timestamp}`, { create: true });
-    await writeExportFile(exportRoot, 'manifest.json', JSON.stringify(manifest, null, 2));
 
     const failures = [];
+    const datasetSummaries = [];
     for (const dataset of manifest.datasets || []) {
       try {
         const rows = await fetchCloudExportDataset(dataset, params);
@@ -4368,10 +4428,27 @@ async function downloadCloudDataExport() {
           ? JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2)
           : jsonlFromRows(rows);
         await writeExportFile(exportRoot, dataset.path, content);
+        datasetSummaries.push({
+          ...dataset,
+          rowCount: rows.length,
+          sha256: await sha256Hex(content),
+        });
       } catch (e) {
         failures.push(`${dataset.id}: ${e.message}`);
       }
     }
+
+    const backupManifest = {
+      ...manifest,
+      appVersion: '1.7.3',
+      workerSchemaVersion: '013',
+      range: { from, to },
+      deviceScope: deviceId ? { type: 'single', deviceId } : { type: 'all' },
+      datasets: datasetSummaries,
+      checksums: Object.fromEntries(datasetSummaries.map(d => [d.path, d.sha256])),
+      failures,
+    };
+    await writeExportFile(exportRoot, 'manifest.json', JSON.stringify(backupManifest, null, 2));
 
     if (failures.length) {
       await writeExportFile(exportRoot, 'export-errors.json', JSON.stringify({ failures }, null, 2));
@@ -4388,6 +4465,146 @@ async function downloadCloudDataExport() {
     }
   } finally {
     btn.disabled = false;
+  }
+}
+
+function setCloudRestoreStatus(message, ok = true) {
+  const el = document.getElementById('cloud-restore-status');
+  if (!el) return;
+  el.style.color = ok ? 'var(--muted)' : 'var(--danger)';
+  el.innerHTML = message;
+}
+
+function setCloudRestoreButtons(enabled) {
+  const mergeBtn = document.getElementById('cloud-restore-merge-btn');
+  const replaceBtn = document.getElementById('cloud-restore-replace-btn');
+  if (mergeBtn) mergeBtn.disabled = !enabled;
+  if (replaceBtn) replaceBtn.disabled = !enabled;
+}
+
+function normalizeRestoreRelativePath(path) {
+  const parts = String(path || '').replace(/\\/g, '/').split('/').filter(Boolean);
+  const manifestIndex = parts.findIndex(part => part === 'manifest.json');
+  if (manifestIndex >= 0) return 'manifest.json';
+  const knownIndex = parts.findIndex(part => ['config', 'devices', 'ledgers', 'stats', 'reviews', 'logs', 'diagnostics'].includes(part));
+  return (knownIndex >= 0 ? parts.slice(knownIndex) : parts).join('/');
+}
+
+function parseRestoreRows(text, path) {
+  if (path.endsWith('.jsonl')) {
+    return String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => JSON.parse(line));
+  }
+  const parsed = JSON.parse(text || 'null');
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function readRestoreFilesFromInput(files) {
+  const map = {};
+  for (const file of [...files]) {
+    const rawPath = file.webkitRelativePath || file.name;
+    const relPath = normalizeRestoreRelativePath(rawPath);
+    if (!relPath || relPath.endsWith('/')) continue;
+    map[relPath] = await file.text();
+  }
+  const manifestText = map['manifest.json'];
+  if (!manifestText) throw new Error('未找到 manifest.json，请选择备份目录根目录或其子目录');
+  const manifest = JSON.parse(manifestText);
+  return { manifest, files: map };
+}
+
+function renderRestorePreflight(preflight) {
+  const el = document.getElementById('cloud-restore-preflight');
+  if (!el) return;
+  const tables = Array.isArray(preflight?.tables) ? preflight.tables : [];
+  const rows = tables.map(t => `
+    <tr>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);">${escHtml(t.id)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;">${Number(t.rows || 0)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;">${Number(t.insertable || 0)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;">${Number(t.skipped || 0)}</td>
+    </tr>`).join('');
+  const warnings = (preflight?.warnings || []).map(w => `<div style="color:var(--warning);">${escHtml(w)}</div>`).join('');
+  const errors = (preflight?.errors || []).map(e => `<div style="color:var(--danger);">${escHtml(e)}</div>`).join('');
+  el.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:rgba(0,0,0,0.015);">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px;">预检结果：${preflight?.ok ? '可以恢复' : '存在阻塞问题'}</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:8px;">
+        当前档案：${escHtml(preflight?.profile?.current?.name || '—')}；
+        备份档案：${escHtml(preflight?.profile?.backup?.name || '—')}；
+        设备记录仅作为显示和归属参考，不恢复 device token。
+      </div>
+      ${warnings}${errors}
+      <div style="overflow:auto;margin-top:8px;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr>
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);">数据集</th>
+            <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);">备份行</th>
+            <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);">可新增</th>
+            <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);">已存在</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="4" style="padding:8px;color:var(--muted);">没有可恢复数据集</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function selectCloudRestoreDirectory() {
+  if (!currentProfileId) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.webkitdirectory = true;
+  input.onchange = async (e) => {
+    const files = e.target.files || [];
+    if (!files.length) return;
+    setCloudRestoreButtons(false);
+    setCloudRestoreStatus('正在读取备份目录并预检...');
+    try {
+      const restorePackage = await readRestoreFilesFromInput(files);
+      const includeLogs = !!document.getElementById('cloud-restore-include-logs')?.checked;
+      const payload = { ...restorePackage, includeLogs };
+      const preflight = await api(`/profiles/${currentProfileId}/restore/v1/preflight`, 'POST', payload);
+      cloudRestoreState = { package: payload, preflight };
+      renderRestorePreflight(preflight);
+      setCloudRestoreButtons(!!preflight.ok);
+      setCloudRestoreStatus(preflight.ok ? '预检完成，可以执行恢复。' : '预检发现阻塞问题，请先修正备份内容。', !!preflight.ok);
+    } catch (e) {
+      cloudRestoreState = { package: null, preflight: null };
+      renderRestorePreflight(null);
+      setCloudRestoreStatus('预检失败：' + escHtml(e.message || e), false);
+    }
+  };
+  input.click();
+}
+
+async function commitCloudRestore(mode) {
+  if (!currentProfileId || !cloudRestoreState?.preflight?.preflightId) return;
+  const replace = mode === 'replace';
+  const confirmText = document.getElementById('cloud-restore-confirm-input')?.value || '';
+  if (replace && confirmText !== 'RESTORE') {
+    setCloudRestoreStatus('整包覆盖恢复需要输入 RESTORE。', false);
+    return;
+  }
+  const btn = document.getElementById(replace ? 'cloud-restore-replace-btn' : 'cloud-restore-merge-btn');
+  if (btn) btn.disabled = true;
+  setCloudRestoreStatus(replace ? '正在执行整包覆盖恢复...' : '正在执行安全合并恢复...');
+  try {
+    const result = await api(`/profiles/${currentProfileId}/restore/v1/commit`, 'POST', {
+      preflightId: cloudRestoreState.preflight.preflightId,
+      restoreMode: replace ? 'replace' : 'merge',
+      confirmProfileId: replace ? currentProfileId : undefined,
+      confirmText: replace ? confirmText : undefined,
+    });
+    const tableSummary = (result.tables || []).map(t => `${t.id}: +${t.inserted || 0}/跳过${t.skipped || 0}`).join('；');
+    setCloudRestoreStatus(`恢复完成：${escHtml(tableSummary || '配置已处理')}`);
+    toast('云端数据恢复完成');
+    setCloudRestoreButtons(false);
+    cloudRestoreState = { package: null, preflight: null };
+  } catch (e) {
+    setCloudRestoreStatus('恢复失败：' + escHtml(e.message || e), false);
+    setCloudRestoreButtons(true);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

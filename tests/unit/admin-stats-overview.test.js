@@ -152,8 +152,11 @@ function run() {
   expectTrue('admin 网站归类申请目标列应加宽并允许长 URL 换行', html.includes('site-request-target-cell') && html.includes('site-request-target-table') && html.includes('overflow-wrap: anywhere') && code.includes('site-request-target-cell'));
   expectTrue('admin 应读取网站归类申请记录消息', code.includes('GET_SITE_CLASSIFICATION_REQUESTS') && code.includes('renderSiteClassificationRequestRecords'));
   expectTrue('admin local mode renders device status as sync disabled', code.includes('本机计时、popup 和使用分析可用；统计不会同步到云端。'));
-  expectTrue('admin has settlement analysis nav item', html.includes('data-page="settlements"'));
-  expectTrue('admin has settlement analysis page', html.includes('id="page-settlements"'));
+  expectTrue('admin has system management nav item', html.includes('data-page="system-management"') && html.includes('系统管理'));
+  expectTrue('admin keeps local device status before system management', html.includes('本机状态') && html.indexOf('data-page="devices"') < html.indexOf('data-page="system-management"'));
+  expectTrue('admin has system management page', html.includes('id="page-system-management"'));
+  expectTrue('admin system management has web/media/log tabs', html.includes('data-system-management-tab="web-settlements"') && html.includes('data-system-management-tab="media-settlements"') && html.includes('data-system-management-tab="client-logs"'));
+  expectTrue('admin settlement tab is named web settlement', html.includes('网页落账') && !html.includes('今日落账'));
   expectTrue('admin settlement page has domain filter', html.includes('id="settlement-domain-filter"'));
   expectTrue('admin settlement page has range buttons', html.includes('data-settlement-range="today"') && html.includes('data-settlement-range="yesterday"') && html.includes('data-settlement-range="week"') && html.includes('data-settlement-range="all"'));
   expectTrue('admin settlement page has local reconciliation summary', html.includes('id="settlement-reconciliation-summary"'));
@@ -174,14 +177,13 @@ function run() {
   expectTrue('admin settlement hides invalid media-only operation reasons', code.includes("value === 'tabAudible' || value === 'mediaState'"));
   expectTrue('admin settlement rows sort newest first', code.includes('return bStart - aStart;'));
   expectTrue('admin settlement page renders reconciliation delta', code.includes('renderSettlementReconciliationSummary') && code.includes('formatSignedSeconds'));
-  expectTrue('admin has media settlement nav item', html.includes('data-page="media-settlements"'));
-  expectTrue('admin has media settlement page', html.includes('id="page-media-settlements"'));
+  expectTrue('admin media settlement is inside system management tabs', html.includes('data-system-management-panel="media-settlements"'));
   expectTrue('admin media settlement page calls local read model', code.includes('getAdminMediaSettlementView'));
   expectTrue('admin media settlement page has domain and class filters', html.includes('id="media-settlement-domain-filter"') && html.includes('id="media-settlement-class-filter"'));
   expectTrue('admin media settlement page shows media classes', code.includes('foregroundAudio') && code.includes('backgroundVideo') && code.includes('pip'));
   expectTrue('admin media settlement rows keep media-only reasons visible', code.includes('function normalizeMediaSettlementEventReason') && !extractFunctionSource(code, 'normalizeMediaSettlementEventReason').includes("value === 'tabAudible'"));
   expectTrue('admin media settlement table shows media ledger sync status', html.includes('media_segments_v1') && html.includes('独立媒体同步链路') && code.includes("row.uploaded ? '已上传'"));
-  expectTrue('admin has client logs nav item and page', html.includes('data-page="client-logs"') && html.includes('id="page-client-logs"'));
+  expectTrue('admin client logs are inside system management tabs', html.includes('data-system-management-panel="client-logs"'));
   expectTrue('admin client logs use local log messages', code.includes('GET_CLIENT_LOGS') && code.includes('GET_CLIENT_LOG_STATUS') && code.includes('CLEAR_CLIENT_LOGS'));
   expectTrue('admin client logs support level/category filters', html.includes('client-log-level-filter') && html.includes('client-log-category-filter'));
 
