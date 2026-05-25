@@ -11,6 +11,7 @@ import { eventsRouter } from './routes/events';
 import { compositeSessionsRouter } from './routes/compositeSessions';
 import { siteClassificationRequestsRouter } from './routes/siteClassificationRequests';
 import { clientLogsRouter } from './routes/clientLogs';
+import { exportRouter } from './routes/export';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -200,6 +201,8 @@ export default {
         return await authRouter.handle(request, env);
       } else if (PROFILE_STATS_ROUTE_RE.test(path)) {
         return await statsRouter.handle(request, env);
+      } else if (path.match(/^\/profiles\/[^/]+\/export\/v1/)) {
+        return await exportRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/client-logs/)) {
         return await clientLogsRouter.handle(request, env);
       } else if (path.match(/^\/profiles\/[^/]+\/site-classification-requests/)) {

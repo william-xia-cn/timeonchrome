@@ -215,6 +215,34 @@ function parseJsonField(value: string | null): any | null {
   }
 }
 
+function normalizeDomainFilterInput(value: string | null): string | null {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return null;
+  let normalized = raw;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      normalized = parsed.hostname;
+    }
+  } catch {
+    normalized = raw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  }
+  normalized = normalized.replace(/\.+$/g, '').trim();
+  return normalized || null;
+}
+
+function escapeSqlLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+function addDomainLikeFilter(where: string[], binds: any[], column: string, rawValue: string | null): string | null {
+  const normalized = normalizeDomainFilterInput(rawValue);
+  if (!normalized) return rawValue ? 'invalid domain' : null;
+  where.push(`${column} LIKE ? ESCAPE '\\'`);
+  binds.push(`%${escapeSqlLike(normalized)}%`);
+  return null;
+}
+
 function reconciliationStatus(statsSeconds: number, segmentSeconds: number): string {
   if (statsSeconds === segmentSeconds) return 'match';
   if (statsSeconds <= 0 && segmentSeconds > 0) return 'stats_missing';
@@ -1307,13 +1335,12 @@ export const statsRouter = {
       const from = url.searchParams.get('from');
       const to = url.searchParams.get('to');
       const rawDomain = url.searchParams.get('domain');
-      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
       const mediaClass = url.searchParams.get('mediaClass');
       const deviceId = url.searchParams.get('deviceId');
       const limit = parsePositiveInt(url.searchParams.get('limit'), 200, 500);
       const cursor = decodeSegmentCursor(url.searchParams.get('cursor'));
       if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
-      if (rawDomain && !domain) return json({ error: 'invalid domain' }, 400);
+      if (rawDomain && !normalizeDomainFilterInput(rawDomain)) return json({ error: 'invalid domain' }, 400);
       if (mediaClass && !VALID_MEDIA_CLASSES.has(mediaClass)) return json({ error: 'invalid mediaClass' }, 400);
       if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
 
@@ -1321,7 +1348,10 @@ export const statsRouter = {
       const binds: any[] = [profileId];
       if (from) { where.push('date >= ?'); binds.push(from); }
       if (to) { where.push('date <= ?'); binds.push(to); }
-      if (domain) { where.push('domain = ?'); binds.push(domain); }
+      if (rawDomain) {
+        const domainError = addDomainLikeFilter(where, binds, 'domain', rawDomain);
+        if (domainError) return json({ error: domainError }, 400);
+      }
       if (mediaClass) { where.push('media_class = ?'); binds.push(mediaClass); }
       if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
       if (cursor) {
@@ -1492,19 +1522,18 @@ export const statsRouter = {
       const from = url.searchParams.get('from') || new Date().toISOString().split('T')[0];
       const to = url.searchParams.get('to') || from;
       const rawDomain = url.searchParams.get('domain');
-      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
       if ((from && !isDateKey(from)) || (to && !isDateKey(to))) {
         return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
       }
-      if (rawDomain && !domain) {
+      if (rawDomain && !normalizeDomainFilterInput(rawDomain)) {
         return json({ error: 'invalid domain' }, 400);
       }
 
       const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
       const binds: any[] = [profileId, from, to];
-      if (domain) {
-        where.push('domain = ?');
-        binds.push(domain);
+      if (rawDomain) {
+        const domainError = addDomainLikeFilter(where, binds, 'domain', rawDomain);
+        if (domainError) return json({ error: domainError }, 400);
       }
       const whereSql = where.join(' AND ');
 
@@ -1609,14 +1638,13 @@ export const statsRouter = {
       const from = url.searchParams.get('from');
       const to = url.searchParams.get('to');
       const rawDomain = url.searchParams.get('domain');
-      const domain = rawDomain ? normalizeHostname(rawDomain) : null;
       const deviceId = url.searchParams.get('deviceId');
       const limit = parsePositiveInt(url.searchParams.get('limit'), 200, 500);
       const cursor = decodeSegmentCursor(url.searchParams.get('cursor'));
       if ((from && !isDateKey(from)) || (to && !isDateKey(to))) {
         return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
       }
-      if (rawDomain && !domain) {
+      if (rawDomain && !normalizeDomainFilterInput(rawDomain)) {
         return json({ error: 'invalid domain' }, 400);
       }
       if (url.searchParams.get('cursor') && !cursor) {
@@ -1636,9 +1664,9 @@ export const statsRouter = {
         where.push('date <= ?');
         binds.push(to);
       }
-      if (domain) {
-        where.push('domain = ?');
-        binds.push(domain);
+      if (rawDomain) {
+        const domainError = addDomainLikeFilter(where, binds, 'domain', rawDomain);
+        if (domainError) return json({ error: domainError }, 400);
       }
       if (deviceId) {
         where.push('device_id = ?');

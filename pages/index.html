@@ -827,6 +827,13 @@
           </div>
         </div>
 
+        <div class="card" id="r-approved-target-rules-card">
+          <div class="card-header">
+            <div><div class="card-title">已批准精确链接 / 管理对象规则</div><div class="card-subtitle">URL 审批不会扩大为整个域名；批准后的精确链接在这里单独展示。</div></div>
+          </div>
+          <div id="r-approved-target-rules-display" class="domains-container"></div>
+        </div>
+
         <!-- ℹ️ 分类说明区 -->
         <div class="card" style="background:rgba(0,184,148,0.03);">
           <div class="card-header">
@@ -902,12 +909,12 @@
       <div class="page" id="page-schedule">
         <div class="page-header">
           <h2>时间段管理</h2>
-          <p>学习时段和休息时段表示「允许对应模式运行」的时间窗口，二者可以重叠。</p>
+          <p>学习、综合、休息时段表示对应模式允许运行的时间窗口。留空表示全天允许。</p>
         </div>
 
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title">📅 每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 休息时段（自动计算）</div></div>
+            <div><div class="card-title">📅 每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 综合时段 ∪ 休息时段（只读自动合并）</div></div>
           </div>
           <div id="time-windows-table" style="overflow-x:auto;">
             <!-- per-day table rendered by JS -->
@@ -992,7 +999,7 @@
             <button class="tab-btn" data-settlement-range="week">本周</button>
             <button class="tab-btn" data-settlement-range="all">全部</button>
             <input type="date" id="settlement-date-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
-            <input type="text" id="settlement-domain-input" placeholder="域名筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <input type="text" id="settlement-domain-input" placeholder="域名关键词筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
             <select id="settlement-device-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:160px;">
               <option value="">全部终端</option>
             </select>
@@ -1025,7 +1032,7 @@
             <button class="tab-btn" data-media-settlement-range="week">本周</button>
             <button class="tab-btn" data-media-settlement-range="all">全部</button>
             <input type="date" id="media-settlement-date-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
-            <input type="text" id="media-settlement-domain-input" placeholder="域名筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <input type="text" id="media-settlement-domain-input" placeholder="域名关键词筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
             <select id="media-settlement-device-input" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:160px;">
               <option value="">全部终端</option>
             </select>
@@ -1064,7 +1071,7 @@
             <button class="tab-btn active" data-reconciliation-range="today">今日</button>
             <button class="tab-btn" data-reconciliation-range="week">本周</button>
             <button class="tab-btn" data-reconciliation-range="month">本月</button>
-            <input type="text" id="reconciliation-domain-input" placeholder="域名筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <input type="text" id="reconciliation-domain-input" placeholder="域名关键词筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
             <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
               <input type="checkbox" id="reconciliation-show-all">
               显示全部
@@ -1293,6 +1300,36 @@
             <button class="btn-save" id="client-log-load-more-btn" style="display:none;padding:8px 18px;font-size:13px;">加载更多</button>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">数据下载</div>
+              <div class="card-subtitle">选择范围后，将云端配置、落账、统计、日志和审核数据保存到本地目录</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+            <label style="font-size:12px;color:var(--muted);">开始</label>
+            <input type="date" id="cloud-export-from" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+            <label style="font-size:12px;color:var(--muted);">结束</label>
+            <input type="date" id="cloud-export-to" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+            <select id="cloud-export-device" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:160px;">
+              <option value="">全部终端</option>
+            </select>
+            <button class="btn-save" id="cloud-export-download-btn" style="padding:7px 14px;font-size:13px;">选择目录并下载</button>
+          </div>
+          <div id="cloud-export-categories" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px;font-size:12px;color:var(--text);">
+            <label><input type="checkbox" value="config" checked> 配置</label>
+            <label><input type="checkbox" value="devices" checked> 设备</label>
+            <label><input type="checkbox" value="ledgers" checked> 落账</label>
+            <label><input type="checkbox" value="stats" checked> 统计</label>
+            <label><input type="checkbox" value="media" checked> 媒体</label>
+            <label><input type="checkbox" value="logs" checked> 日志</label>
+            <label><input type="checkbox" value="reviews" checked> 审核</label>
+            <label><input type="checkbox" value="diagnostics" checked> 诊断</label>
+          </div>
+          <div id="cloud-export-status" style="font-size:12px;color:var(--muted);line-height:1.7;">默认导出近 30 天、全部终端、全部类别。需要使用支持目录选择的 Chrome/Chromium。</div>
+        </div>
       </div>
 
       <!-- 待审核 -->
@@ -1408,6 +1445,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupCloudMediaSettlements();
   setupReconciliation();
   setupCloudClientLogs();
+  setupCloudDataExport();
   setupDevices();
   setupAccount();
   setupProfileDropdown();
@@ -1950,6 +1988,7 @@ function renderRulesPage() {
   const blockedCustom = remoteConfig.customBlockedSites || getCustomList(remoteConfig.unsafeList, defaults.defaultBlockedSites);
   renderReadOnlyTags('r-blocked-default-tags', defaults.defaultBlockedSites || []);
   renderTags('r-blocked-tags', blockedCustom, 'customBlockedSites');
+  renderApprovedTargetRules();
 
   updateRuleCounts();
 }
@@ -2009,6 +2048,30 @@ function renderReadOnlyTags(containerId, domains) {
   c.innerHTML = domains.map(d =>
     `<span class="domain-tag" style="cursor:default;background:rgba(0,184,148,0.04);color:var(--muted);">${d}</span>`
   ).join('');
+}
+
+function siteRuleDecisionLabel(rule = {}) {
+  const decision = String(rule.decision || rule.classification || rule.status || '').trim();
+  if (decision === 'study' || decision === 'approved_study') return '学习';
+  if (decision === 'composite' || decision === 'approved_composite') return '综合';
+  if (decision === 'reject' || decision === 'rejected') return '已拒绝';
+  return decision || '未知';
+}
+
+function renderApprovedTargetRules() {
+  const c = document.getElementById('r-approved-target-rules-display');
+  if (!c) return;
+  const rules = (Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : [])
+    .filter((rule) => (rule.targetType || rule.type || rule.decisionTargetType || rule.requestedTargetType) === 'url');
+  if (rules.length === 0) {
+    c.innerHTML = '<span style="color:var(--muted);font-size:12px;padding:4px 0;">暂无已批准精确链接规则</span>';
+    return;
+  }
+  c.innerHTML = rules.map((rule) => {
+    const value = rule.normalizedValue || rule.targetValue || rule.decisionNormalizedValue || rule.requestedNormalizedValue || rule.value || '—';
+    const label = siteRuleDecisionLabel(rule);
+    return `<span class="domain-tag" style="max-width:100%;white-space:normal;line-height:1.35;">${escHtml(value)} · ${escHtml(label)}</span>`;
+  }).join('');
 }
 
 function renderTags(containerId, domains, listKey) {
@@ -2367,6 +2430,7 @@ function ensureTimeWindowsDaily() {
     for (const day of SCHEDULE_DAYS) {
       remoteConfig.timeWindows.daily[day] = {
         studyWindows: null,
+        compositeWindows: null,
         restWindows: [{ start: '15:30', end: '24:00' }],
       };
     }
@@ -2384,6 +2448,7 @@ function renderSchedulePage() {
         <tr style="border-bottom:2px solid var(--border);">
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);width:60px;">星期</th>
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">📚 学习时段</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">🧭 综合时段</th>
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">☕ 休息时段</th>
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">🌐 在线时段（只读）</th>
         </tr>
@@ -2397,6 +2462,7 @@ function renderSchedulePage() {
       <tr style="border-bottom:1px solid var(--border);">
         <td style="padding:12px 8px;font-weight:500;vertical-align:top;">${SCHEDULE_DAY_LABELS[day]}</td>
         <td style="padding:12px 8px;vertical-align:top;">${renderDayStudyCell(day, dayCfg)}</td>
+        <td style="padding:12px 8px;vertical-align:top;">${renderDayCompositeCell(day, dayCfg)}</td>
         <td style="padding:12px 8px;vertical-align:top;">${renderDayRestCell(day, dayCfg)}</td>
         <td style="padding:12px 8px;vertical-align:top;background:rgba(0,0,0,0.02);border-radius:8px;">${renderDayOnlineCell(dayCfg)}</td>
       </tr>
@@ -2424,6 +2490,29 @@ function renderDayStudyCell(day, dayCfg) {
     </div>
   `).join('');
   html += `<button class="btn-add" onclick="addStudyWindow('${day}')" style="padding:4px 10px;font-size:11px;margin-top:4px;">+ 添加时段</button>`;
+  return html;
+}
+
+function renderDayCompositeCell(day, dayCfg) {
+  const windows = dayCfg?.compositeWindows;
+  if (windows === null || windows === undefined) {
+    return `<div style="color:var(--accent);font-size:12px;margin-bottom:6px;">🟢 全天允许</div>
+      <button class="btn-add" onclick="addCompositeWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>`;
+  }
+  if (!Array.isArray(windows) || windows.length === 0) {
+    return `<div style="color:var(--accent);font-size:12px;margin-bottom:6px;">🟢 全天允许</div>
+      <button class="btn-add" onclick="addCompositeWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>`;
+  }
+  let html = windows.map((w, idx) => `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+      <span style="font-size:12px;">${w.start} — ${w.end}</span>
+      <button onclick="removeCompositeWindow('${day}', ${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">×</button>
+    </div>
+  `).join('');
+  html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+    <button class="btn-add" onclick="addCompositeWindow('${day}')" style="padding:4px 10px;font-size:11px;">+ 添加时段</button>
+    <button onclick="setCompositeUnlimited('${day}')" style="padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">设为无限制</button>
+  </div>`;
   return html;
 }
 
@@ -2473,22 +2562,16 @@ function renderDayOnlineCell(dayCfg) {
 // 前端计算单日在线时段（与后端一致）
 function computeOnlineWindowsForDay(dayCfg) {
   if (!dayCfg) return null;
-  const study = dayCfg.studyWindows;
-  const rest = dayCfg.restWindows;
+  const study = normalizeScheduleWindowList(dayCfg.studyWindows);
+  const composite = normalizeScheduleWindowList(dayCfg.compositeWindows);
+  const rest = normalizeScheduleWindowList(dayCfg.restWindows);
 
   // 或关系：任一子项为 null，则在线为 null
-  if (study === null || study === undefined || rest === null || rest === undefined) {
+  if (study === null || composite === null || rest === null) {
     return null;
   }
 
-  const sArr = Array.isArray(study) ? study : [];
-  const rArr = Array.isArray(rest) ? rest : [];
-
-  if (sArr.length === 0 && rArr.length === 0) {
-    return [];
-  }
-
-  const merged = [...sArr, ...rArr].sort((a, b) => a.start.localeCompare(b.start));
+  const merged = [...study, ...composite, ...rest].sort((a, b) => a.start.localeCompare(b.start));
   const result = [];
   for (const w of merged) {
     if (result.length === 0 || w.start > result[result.length - 1].end) {
@@ -2498,6 +2581,11 @@ function computeOnlineWindowsForDay(dayCfg) {
     }
   }
   return result;
+}
+
+function normalizeScheduleWindowList(windows) {
+  if (!Array.isArray(windows) || windows.length === 0) return null;
+  return windows;
 }
 
 window.addStudyWindow = (day) => {
@@ -2529,6 +2617,42 @@ window.removeStudyWindow = (day, idx) => {
     if (dayCfg.studyWindows.length === 0) dayCfg.studyWindows = null;
     renderSchedulePage();
   }
+};
+
+window.addCompositeWindow = (day) => {
+  ensureTimeWindowsDaily();
+  const dayCfg = remoteConfig.timeWindows.daily[day];
+  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加综合时段\n开始时间 (HH:MM):`, '18:00');
+  if (!start) return;
+  const end = prompt(`结束时间 (HH:MM):`, '21:00');
+  if (!end) return;
+  if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(start) || !/^([01]?\d|2[0-3]|24):00$/.test(end)) {
+    toast('时间格式错误，请使用 HH:MM', false); return;
+  }
+  if (start >= end && end !== '24:00') { toast('结束时间必须晚于开始时间', false); return; }
+  if (start === '24:00') { toast('24:00 不能作为开始时间', false); return; }
+
+  if (dayCfg.compositeWindows === null || dayCfg.compositeWindows === undefined) dayCfg.compositeWindows = [];
+  const exists = dayCfg.compositeWindows.some(w => w.start === start && w.end === end);
+  if (exists) { toast('该时段已存在', false); return; }
+  dayCfg.compositeWindows.push({ start, end });
+  renderSchedulePage();
+};
+
+window.removeCompositeWindow = (day, idx) => {
+  ensureTimeWindowsDaily();
+  const dayCfg = remoteConfig.timeWindows.daily[day];
+  if (Array.isArray(dayCfg?.compositeWindows)) {
+    dayCfg.compositeWindows.splice(idx, 1);
+    if (dayCfg.compositeWindows.length === 0) dayCfg.compositeWindows = null;
+    renderSchedulePage();
+  }
+};
+
+window.setCompositeUnlimited = (day) => {
+  ensureTimeWindowsDaily();
+  remoteConfig.timeWindows.daily[day].compositeWindows = null;
+  renderSchedulePage();
 };
 
 window.addRestWindow = (day) => {
@@ -2582,6 +2706,7 @@ async function saveScheduleConfig() {
     const dayCfg = remoteConfig.timeWindows.daily[day];
     daily[day] = {
       studyWindows: dayCfg?.studyWindows ?? null,
+      compositeWindows: dayCfg?.compositeWindows ?? null,
       restWindows: dayCfg?.restWindows ?? null,
     };
   }
@@ -3890,6 +4015,7 @@ async function renderCloudClientLogsPage({ reset = true } = {}) {
   await ensureCloudDevices();
   renderCloudDeviceOptions('client-log-device-input');
   renderCloudDeviceOptions('client-log-policy-device');
+  renderCloudDeviceOptions('cloud-export-device');
   renderClientLogPolicySummary();
   if (reset) {
     cloudClientLogState = { range, rows: [], nextCursor: null, hasMore: false };
@@ -3932,6 +4058,145 @@ async function renderCloudClientLogsPage({ reset = true } = {}) {
   } catch (e) {
     if (summaryEl) summaryEl.textContent = '加载失败';
     if (tableEl) tableEl.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${escHtml(e.message || '加载失败')}</div>`;
+  }
+}
+
+// ── Cloud data export ─────────────────────────────────────────
+function setupCloudDataExport() {
+  const fromEl = document.getElementById('cloud-export-from');
+  const toEl = document.getElementById('cloud-export-to');
+  if (fromEl && toEl) {
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(today.getDate() - 29);
+    fromEl.value = fmtDate(from);
+    toEl.value = fmtDate(today);
+  }
+  document.getElementById('cloud-export-download-btn')?.addEventListener('click', downloadCloudDataExport);
+}
+
+function sanitizeExportPathPart(value, fallback = 'TimeOnChrome') {
+  return String(value || fallback)
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/^\.+$/g, '_')
+    .slice(0, 80) || fallback;
+}
+
+function selectedCloudExportCategories() {
+  return [...document.querySelectorAll('#cloud-export-categories input[type="checkbox"]:checked')]
+    .map(input => input.value)
+    .filter(Boolean);
+}
+
+function setCloudExportStatus(message, ok = true) {
+  const el = document.getElementById('cloud-export-status');
+  if (!el) return;
+  el.style.color = ok ? 'var(--muted)' : 'var(--danger)';
+  el.innerHTML = message;
+}
+
+async function ensureExportDirectory(rootHandle, path) {
+  const parts = String(path || '').split('/').filter(Boolean);
+  let dir = rootHandle;
+  for (const part of parts) {
+    dir = await dir.getDirectoryHandle(sanitizeExportPathPart(part), { create: true });
+  }
+  return dir;
+}
+
+async function writeExportFile(rootHandle, relativePath, content) {
+  const parts = String(relativePath || '').split('/').filter(Boolean);
+  const filename = sanitizeExportPathPart(parts.pop() || 'data.json');
+  const dir = await ensureExportDirectory(rootHandle, parts.join('/'));
+  const fileHandle = await dir.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+function jsonlFromRows(rows = []) {
+  return (rows || []).map(row => JSON.stringify(row)).join('\n') + ((rows || []).length ? '\n' : '');
+}
+
+async function fetchCloudExportDataset(dataset, params) {
+  const resultRows = [];
+  let cursor = null;
+  do {
+    const pageParams = new URLSearchParams(params);
+    if (cursor) pageParams.set('cursor', cursor);
+    pageParams.set('limit', '500');
+    const payload = await api(`/profiles/${currentProfileId}/export/v1/${encodeURIComponent(dataset.id)}?${pageParams.toString()}`);
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    resultRows.push(...rows);
+    cursor = payload?.hasMore ? payload.nextCursor : null;
+    setCloudExportStatus(`正在下载 ${escHtml(dataset.id)}：${resultRows.length} 行`);
+  } while (cursor);
+  return resultRows;
+}
+
+async function downloadCloudDataExport() {
+  if (!currentProfileId) return;
+  if (typeof window.showDirectoryPicker !== 'function') {
+    setCloudExportStatus('当前浏览器不支持直接选择目录下载；请使用支持 File System Access API 的 Chrome/Chromium。', false);
+    return;
+  }
+  const categories = selectedCloudExportCategories();
+  if (categories.length === 0) {
+    setCloudExportStatus('请至少选择一个数据类别。', false);
+    return;
+  }
+  const from = document.getElementById('cloud-export-from')?.value || '';
+  const to = document.getElementById('cloud-export-to')?.value || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+    setCloudExportStatus('请选择有效的开始和结束日期。', false);
+    return;
+  }
+  const btn = document.getElementById('cloud-export-download-btn');
+  btn.disabled = true;
+  try {
+    await ensureCloudDevices();
+    renderCloudDeviceOptions('cloud-export-device');
+    const deviceId = document.getElementById('cloud-export-device')?.value || '';
+    const params = new URLSearchParams({ from, to, categories: categories.join(',') });
+    if (deviceId) params.set('deviceId', deviceId);
+    setCloudExportStatus('正在读取导出清单...');
+    const manifest = await api(`/profiles/${currentProfileId}/export/v1/manifest?${params.toString()}`);
+    const picker = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const profileName = sanitizeExportPathPart(manifest?.profile?.name || currentProfileId || 'child');
+    const exportRoot = await picker.getDirectoryHandle(`${profileName}-${timestamp}`, { create: true });
+    await writeExportFile(exportRoot, 'manifest.json', JSON.stringify(manifest, null, 2));
+
+    const failures = [];
+    for (const dataset of manifest.datasets || []) {
+      try {
+        const rows = await fetchCloudExportDataset(dataset, params);
+        const content = dataset.format === 'json'
+          ? JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2)
+          : jsonlFromRows(rows);
+        await writeExportFile(exportRoot, dataset.path, content);
+      } catch (e) {
+        failures.push(`${dataset.id}: ${e.message}`);
+      }
+    }
+
+    if (failures.length) {
+      await writeExportFile(exportRoot, 'export-errors.json', JSON.stringify({ failures }, null, 2));
+      setCloudExportStatus(`下载完成，但有 ${failures.length} 个数据集失败：${escHtml(failures.join('；'))}`, false);
+    } else {
+      setCloudExportStatus(`下载完成：${escHtml(profileName)}-${escHtml(timestamp)}`);
+      toast('云端数据已下载');
+    }
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      setCloudExportStatus('已取消目录选择。');
+    } else {
+      setCloudExportStatus('下载失败：' + escHtml(e.message || e), false);
+    }
+  } finally {
+    btn.disabled = false;
   }
 }
 

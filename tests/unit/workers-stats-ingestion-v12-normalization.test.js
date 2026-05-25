@@ -183,6 +183,9 @@ function run() {
   expectTrue('stats.ts stats/v1 应接受嵌套的 pipByMode', source.includes("pipByMode"));
   expectTrue('stats.ts stats/v1 应将 byMode 对象展开为展开的行', source.includes("expandedRows"));
   expectTrue('stats.ts stats/v1 expandedRows 包含 channel 和 mode', source.includes("channel: 'active'"));
+  expectTrue('落账域名筛选应使用安全 LIKE 模糊匹配', source.includes('function addDomainLikeFilter') && source.includes("LIKE ? ESCAPE '\\\\'") && source.includes('escapeSqlLike'));
+  expectTrue('落账域名筛选应覆盖普通落账/媒体落账/统计对账', (source.match(/addDomainLikeFilter\(where, binds, 'domain', rawDomain\)/g) || []).length >= 3);
+  expectTrue('落账域名筛选应绑定转义后的包含关键词', source.includes('binds.push(`%${escapeSqlLike(normalized)}%`)'));
 
   const row = ingestRows([{ domain: 'WWW.Example.COM.', active_sec: 30, passive_sec: 10 }], normalizeHostname);
   expectEqual('WWW + 大小写 + 尾点组合应归一为 www.example.com', row[0].domain, 'www.example.com');

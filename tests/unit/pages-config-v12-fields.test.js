@@ -79,6 +79,11 @@ function run() {
   expectTrue('Pages 媒体落账页应支持媒体类型筛选', source.includes('media-settlement-class-input') && source.includes('mediaClass'));
   expectTrue('Pages 媒体落账页应展示五类媒体统计', source.includes('前台音频') && source.includes('后台音频') && source.includes('前台视频') && source.includes('后台视频') && source.includes('PiP'));
   expectTrue('Pages 媒体落账页应复用备注列展示 tab/window/open/close/source', source.includes("buildCloudSettlementRemarkHtml(row, row.visibility || row.mediaKind || '—')"));
+  expectTrue('Pages 系统日志页应包含云端数据下载卡片', source.includes('id="cloud-export-download-btn"') && source.includes('选择目录并下载') && source.includes('id="cloud-export-categories"'));
+  expectTrue('Pages 云端数据下载应使用目录选择 API', source.includes('window.showDirectoryPicker') && source.includes('getDirectoryHandle(`${profileName}-${timestamp}`'));
+  expectTrue('Pages 云端数据下载应写入 manifest 和分类路径', source.includes("writeExportFile(exportRoot, 'manifest.json'") && source.includes('dataset.path'));
+  expectTrue('Pages 云端数据下载应提示不支持目录选择的浏览器', source.includes('当前浏览器不支持直接选择目录下载'));
+  expectTrue('Pages 落账相关域名筛选应标明关键词筛选', (source.match(/placeholder="域名关键词筛选"/g) || []).length >= 3);
   expectTrue('Pages 落账页应支持今日/昨日/本周/全部', source.includes('data-settlement-range="today"') && source.includes('data-settlement-range="yesterday"') && source.includes('data-settlement-range="week"') && source.includes('data-settlement-range="all"'));
   expectTrue('Pages 落账页应支持 nextCursor 加载更多', source.includes('nextCursor') && source.includes('settlement-load-more-btn'));
   expectTrue('Pages 落账页应标明最新记录在最上方', source.includes('最新记录显示在最上方'));
@@ -90,6 +95,7 @@ function run() {
   expectTrue('Pages 网站归类申请应支持审批生效对象编辑', source.includes('审批生效对象') && source.includes('site-request-type-') && source.includes('site-request-target-'));
   expectTrue('Pages 网站归类申请应支持三种审批动作', source.includes('批准为学习网站') && source.includes('批准为综合网站') && source.includes('拒绝'));
   expectTrue('Pages 网站归类申请应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
+  expectTrue('Pages 访问规则页应单独展示已批准精确链接规则', source.includes('已批准精确链接 / 管理对象规则') && source.includes('r-approved-target-rules-display') && source.includes('renderApprovedTargetRules'));
   expectTrue('Pages 访问规则添加/导入/保存应校验精确跨类重复', source.includes('function findSiteAccessExactConflicts') && source.includes('formatSiteAccessConflict') && source.includes('SITE_ACCESS_CATEGORY_FIELDS'));
   expectTrue('Pages 应包含系统日志导航和查询接口', source.includes('data-page="client-logs"') && source.includes('/client-logs/v1'));
   expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));
@@ -116,8 +122,11 @@ function run() {
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
   expectTrue('pages 应包含七天配置', source.includes("'monday'") && source.includes("'sunday'"));
   expectTrue('pages 学习时段默认应为 null（全天允许）', source.includes('studyWindows: null'));
+  expectTrue('pages 综合时段默认应为 null（全天允许）', source.includes('compositeWindows: null'));
   expectTrue('pages 休息时段默认应为 15:30-24:00', source.includes("'15:30'") && source.includes("'24:00'"));
+  expectTrue('pages 时间段管理应显示综合时段', source.includes('综合时段') && source.includes('addCompositeWindow') && source.includes('removeCompositeWindow'));
   expectTrue('saveScheduleConfig 应提交 daily 结构', source.includes('timeWindows: { daily }'));
+  expectTrue('saveScheduleConfig 应提交 compositeWindows', extractFunctionSource(source, 'saveScheduleConfig').includes('compositeWindows'));
   expectTrue('saveScheduleConfig 不应提交 onlineWindows', !/saveScheduleConfig[\s\S]{0,500}onlineWindows/.test(source));
   expectTrue('schedule 不应被 saveScheduleConfig 覆盖', !/saveScheduleConfig[\s\S]{0,300}schedule/.test(source));
 
