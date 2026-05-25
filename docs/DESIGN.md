@@ -739,7 +739,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 ```
 timeonchrome/
 ├── extension/                 Chrome 扩展源码根；开发时在 chrome://extensions 直接加载此目录
-│   ├── manifest.json          MV3 扩展清单，版本 1.7.2, "type": "module" (Chrome 95+), "incognito": "split"
+│   ├── manifest.json          MV3 扩展清单，版本 1.7.3, "type": "module" (Chrome 95+), "incognito": "split"
 │   ├── background.js          Service Worker 入口（Chrome listener wiring）
 │   ├── message-router.js      消息路由（20+ case 拆分）
 │   ├── content.js             注入每个页面：活动信号、媒体检测、覆盖层
@@ -822,6 +822,7 @@ timeonchrome/
 | `chrome.webNavigation.onCommitted` / `onHistoryStateUpdated` | 采集当前 tab/url/foreground facts，派发 `ACCESS_OBSERVED`；覆盖普通导航与 SPA history 导航 |
 | `chrome.tabs` | 获取/更新标签页状态 |
 | `chrome.alarms` | 定时任务：配额检查、每日重置、保活 |
+| `chrome.idle` | 系统 active/idle/locked 边界与 checkpoint 查询 |
 | `chrome.notifications` | 系统通知（配额锁定等）|
 | `chrome.runtime.sendMessage` | popup/admin/content ↔ background 通信 |
 
