@@ -6,6 +6,7 @@
 
 - **Mode time-window enforcement**: `timeWindows.daily` now controls runtime access and user-confirmed mode entry for Study, Composite, and Rest. `compositeWindows` is added as a first-class mode window; `onlineWindows` is display-only (`study ∪ composite ∪ rest`). Empty arrays, missing fields, and `null` all mean all-day allowed.
 - **Clear schedule Reminder copy**: outside-window blocks now use mode-specific reasons and copy: `study_schedule_locked`, `composite_schedule_locked`, and `rest_schedule_locked`. Legacy `schedule` remains only as a fallback when `timeWindows.daily` is absent.
+- **Chrome Web Store materials refreshed**: v1.7.3 CWS package and submission notes were regenerated from the current `extension/` root at `dist/cws-v1.7.3-20260526-001206/`. ZIP SHA256: `2021828E0C94C36629C946E30E971FC93F5B875690C78731324048A4CD020766`.
 
 ---
 
