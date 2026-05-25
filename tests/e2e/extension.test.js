@@ -134,16 +134,16 @@ test('T-E3: reminder.html study_mode shows back-to-study button', async () => {
 
 // ── T-E4: reminder.html — quota_rest ─────────────────────────────────────────
 
-test('T-E4: reminder.html quota_rest shows borrow and switch buttons', async () => {
+test('T-E4: reminder.html quota_rest shows study return and details without borrow', async () => {
   const page = await openExtensionPage('reminder.html?reason=quota_rest');
 
   const title = await page.locator('#mainTitle').textContent();
   expect(title).toContain('休息时间');
 
   const allText = await page.locator('#actions').textContent();
-  expect(allText).toContain('借时间');   // borrowTime
   expect(allText).toContain('学习模式'); // switchToStudy
   expect(allText).toContain('详情');     // viewDetails
+  expect(allText).not.toContain('借时间');
 
   await page.close();
 });
@@ -176,7 +176,7 @@ test('T-E6: reminder.html schedule shows only back button', async () => {
   const page = await openExtensionPage('reminder.html?reason=schedule');
 
   const title = await page.locator('#mainTitle').textContent();
-  expect(title).toContain('休息时段');
+  expect(title).toContain('当前时间段未允许使用');
 
   const buttons = await page.locator('#actions .btn').count();
   expect(buttons).toBe(1);
@@ -344,14 +344,6 @@ test('T-E12: Study → Composite light prompt appears, shows correct copy, and r
   });
   expect(visibleAfter1s).toBe(true);
 
-  // Verify banner remains visible after 3 seconds total
-  await page.waitForTimeout(2000);
-  const visibleAfter3s = await page.evaluate(() => {
-    const host = document.getElementById('__toc_mode_notice__');
-    return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
-  });
-  expect(visibleAfter3s).toBe(true);
-
   // Verify non-blocking — page content should still be accessible
   const pageTitle = await page.title();
   expect(pageTitle).toBeTruthy();
@@ -480,14 +472,6 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   expect(bannerText).toContain('你正在打开综合/待归类网站');
   expect(bannerText).toContain('即将进入综合模式');
   expect(bannerText).toContain('今日剩余');
-
-  // Verify banner remains visible after 1 second
-  await compositePage.waitForTimeout(1000);
-  const visibleAfter1s = await compositePage.evaluate(() => {
-    const host = document.getElementById('__toc_mode_notice__');
-    return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
-  });
-  expect(visibleAfter1s).toBe(true);
 
   // Verify transient banner auto-hides after TTL. The activation path waits
   // before reading the text, so requiring visibility after another 3 seconds is

@@ -166,7 +166,9 @@ test('admin-local-mode: ?view=stats opens read-only stats without binding', asyn
     await expect(admin.locator('#user-info')).toBeHidden();
     await expect(admin.locator('#logout-btn')).toBeHidden();
     await expect(admin.locator('#page-stats')).toHaveClass(/active/);
-    await expect(admin.locator('#today-overview-list')).toContainText('在线');
+    await expect(admin.locator('#usage-analysis-total')).toBeVisible();
+    await expect(admin.locator('[data-usage-ledger="web"]')).toContainText('网页使用');
+    await expect(admin.locator('[data-usage-ledger="media"]')).toContainText('媒体使用');
 
     await admin.locator('.nav-item[data-page="settlements"]').click();
     await expect(admin.locator('#page-settlements')).toHaveClass(/active/);

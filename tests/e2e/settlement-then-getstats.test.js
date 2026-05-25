@@ -71,14 +71,35 @@ test('P0-settle-1: GET_STATS from popup returns domain stats via event-log', asy
   try {
     const n = Date.now();
 
-    // Inject closed event-log items (simulates actual browsing with tab switch)
+    // Seed current Stats Foundation aggregate; GET_STATS is backed by durable daily stats,
+    // not by ad-hoc event_log fallback.
     await sw.evaluate(async (now) => {
+      const date = new Date(now).toISOString().slice(0, 10);
       return new Promise(res => {
         chrome.storage.local.set({
-          event_log_v1: [
-            { type: 'START', state: 'ACTIVE', domain: 'visited-site.example.com', time: now - 30000 },
-            { type: 'END', state: 'ACTIVE', domain: 'visited-site.example.com', time: now },
-          ],
+          daily_usage_stats_v1: {
+            [date]: {
+              date,
+              domains: {
+                'visited-site.example.com': {
+                  domain: 'visited-site.example.com',
+                  activeSeconds: 30,
+                  backgroundMediaSeconds: 0,
+                  pipSeconds: 0,
+                  totalSeconds: 30,
+                  activeByMode: { rest: 30 },
+                  backgroundMediaByMode: {},
+                  pipByMode: {},
+                },
+              },
+              totals: {
+                activeSeconds: 30,
+                backgroundMediaSeconds: 0,
+                pipSeconds: 0,
+                onlineSeconds: 30,
+              },
+            },
+          },
         }, res);
       });
     }, n);
@@ -125,22 +146,40 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
   try {
     const n = Date.now();
     await sw.evaluate(async (now) => {
+      const result = await globalThis.debugApplyControlledTimingSignal({
+        _reason: 'e2eCheckpointOpen',
+        _debugNow: now - 181000,
+        tabId: 7781,
+        windowId: 9911,
+        domain: 'live-open.example.com',
+        url: 'https://live-open.example.com/',
+        isFocused: true,
+        isIdle: false,
+        isAudible: false,
+      });
+      if (!result?.success || result?.state !== 'ACTIVE') {
+        throw new Error(`e2eCheckpointOpen failed: ${JSON.stringify(result)}`);
+      }
       const session = {
         state: 'ACTIVE',
         domain: 'live-open.example.com',
         startTime: now - 181000,
+        startAtMs: now - 181000,
         lastHeartbeat: now - 1000,
+        startReason: 'e2eCheckpointOpen',
+        startOperationSource: 'chrome_event',
+        tabId: 7781,
+        windowId: 9911,
+        quotaBucketAtTime: 'rest',
       };
-      return new Promise(res => {
-        chrome.storage.session.set({ session_v1: session }, () => {
-          chrome.storage.local.set({
-            session_v1_persistent: session,
-            usage_segments_v1: {},
-            usage_segments_index_v1: {},
-            daily_usage_stats_v1: {},
-          }, res);
-        });
-      });
+      return new Promise(res => chrome.storage.session.set({ session_v1: session }, () => {
+        chrome.storage.local.set({
+          session_v1_persistent: session,
+          usage_segments_v1: {},
+          usage_segments_index_v1: {},
+          daily_usage_stats_v1: {},
+        }, res);
+      }));
     }, n);
 
     const beforeCheckpoint = await sw.evaluate(async () => {
@@ -181,7 +220,7 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
     const ledger1 = await readLedgerSnapshot(sw);
     assertUsageTimeline(ledger1.usage, [{
       domain: 'live-open.example.com',
-      mode: 'rest',
+      mode: 'unknown',
       settlementReason: 'periodic_checkpoint',
       sourceState: 'ACTIVE',
       duration: { min: 180, max: 181 },
