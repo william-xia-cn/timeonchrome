@@ -633,6 +633,7 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
 
   const quotaBarsEl = document.getElementById('quota-bars');
   if (quotaBarsEl) {
+    const appIconHtml = '<img class="popup-mini-logo" src="../icons/app-icon.png" alt="">';
     const metric = ({ icon, label, used, limit = 0, color = 'var(--accent)', locked = false, sub = '' }) => {
       const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
       const barColor = locked ? 'var(--danger)' : pct >= 90 ? 'var(--warn)' : color;
@@ -652,7 +653,7 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
     };
     const items = [
       metric({
-        icon: '🌐',
+        icon: appIconHtml,
         label: '在线时长',
         used: onlineSeconds,
         limit: onlineLimit,
@@ -663,7 +664,7 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
     ];
     if (backendMediaSeconds > 0) {
       items.push(metric({
-        icon: '🎵',
+        icon: appIconHtml,
         label: '后台媒体',
         used: backendMediaSeconds,
         sub: '后台播放'
@@ -671,7 +672,7 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
     }
     if (pipMediaSeconds > 0) {
       items.push(metric({
-        icon: '🖼️',
+        icon: appIconHtml,
         label: 'PiP',
         used: pipMediaSeconds,
         sub: '画中画'

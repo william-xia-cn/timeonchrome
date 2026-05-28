@@ -646,7 +646,7 @@ function showRegisterForm() {
   const loginScreen = document.getElementById('login-screen');
   loginScreen.innerHTML = `
     <div class="login-box">
-      <div class="login-logo">⏱</div>
+      <div class="login-logo"><img src="../icons/app-icon.png" alt="TimeOnChrome"></div>
       <h1>TimeOnChrome</h1>
       <p>创建家长账户</p>
 
@@ -824,7 +824,7 @@ async function showProfileSelector() {
   // 替换登录表单为孩子选择器
   loginScreen.innerHTML = `
     <div class="login-box">
-      <div class="login-logo">⏱</div>
+      <div class="login-logo"><img src="../icons/app-icon.png" alt="TimeOnChrome"></div>
       <h1>TimeOnChrome</h1>
       <p>选择要绑定的孩子</p>
       
@@ -1810,13 +1810,13 @@ async function renderModeSwitchCard() {
   newRest.addEventListener('click',  () => switchMode('rest'));
 
   if (mode === 'study') {
-    labelEl.textContent = '📚 学习模式';
+    labelEl.innerHTML = '<img class="toc-ui-icon small" src="../icons/ui/study.svg" alt="">学习模式';
     labelEl.style.color = 'var(--accent)';
     descEl.textContent  = '学习模式，仅允许访问学习网站';
     newStudy.style.cssText = 'padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:rgba(124,111,255,0.2);color:var(--accent);';
     newRest.style.cssText  = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
   } else {
-    labelEl.textContent = '☕ 休息模式';
+    labelEl.innerHTML = '<img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">休息模式';
     labelEl.style.color = 'var(--warn)';
     descEl.textContent  = '休息模式，所有网站可访问';
     newStudy.style.cssText = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);';
@@ -2741,11 +2741,12 @@ function renderUsageLegend(view) {
 }
 
 function usageTargetIcon(row = {}) {
-  if (row.managedTargetNamespace === 'youtube' || /youtube/i.test(row.label || '')) return '▶';
-  if (row.managedTargetType === 'playlist') return '▤';
-  if (row.managedTargetType === 'url') return '↗';
-  if (row.isFallback) return '◎';
-  return '◆';
+  let icon = 'current-site';
+  if (row.managedTargetNamespace === 'youtube' || /youtube/i.test(row.label || '')) icon = 'background-media';
+  if (row.managedTargetType === 'playlist') icon = 'rules';
+  if (row.managedTargetType === 'url') icon = 'current-site';
+  if (row.isFallback) icon = 'pending';
+  return `<img class="toc-ui-icon small" src="../icons/ui/${icon}.svg" alt="">`;
 }
 
 function filteredUsageRows(view) {
@@ -2805,7 +2806,7 @@ function renderUsageAnalysisList(view) {
         <tbody>
           ${rows.map(row => `
             <tr data-usage-detail-kind="target" data-usage-detail-key="${escAttr(row.key)}">
-              <td><span class="usage-target-name"><span class="usage-target-icon">${escHtml(usageTargetIcon(row))}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span></td>
+              <td><span class="usage-target-name"><span class="usage-target-icon">${usageTargetIcon(row)}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span></td>
               <td>${escHtml(row.categoryLabel || usageCategoryLabel(row.category))}</td>
               <td>${formatSeconds(row.todaySeconds || 0)}</td>
               <td>${formatSeconds(row.weekSeconds || 0)}</td>

@@ -79,8 +79,8 @@ function run() {
   const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="review"', 'data-page="account"', 'data-page="system-management"'].map(item => source.indexOf(item));
   expectTrue('Pages 左侧导航顺序应为使用统计/访问管理/网站归类申请/子用户管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
   expectTrue('Pages 左侧不应再包含一级设备管理入口', !source.includes('data-page="devices"') && !source.includes('<span class="nav-icon">💻</span><span>设备管理</span>'));
-  expectTrue('Pages 账户设置可见文案应改为子用户管理', source.includes('子用户管理') && !source.includes('<span class="nav-icon">👤</span><span>账户设置</span>') && !source.includes('<span class="nav-icon">👤</span><span>用户管理</span>'));
-  expectTrue('Pages 待审核一级导航应改为网站归类申请', source.includes('<span class="nav-icon">🔍</span><span>网站归类申请') && !source.includes('<span class="nav-icon">🔍</span><span>待审核'));
+  expectTrue('Pages 账户设置可见文案应改为子用户管理', source.includes('子用户管理') && !source.includes('<span>账户设置</span>') && !source.includes('<span>用户管理</span>'));
+  expectTrue('Pages 待审核一级导航应改为网站归类申请', source.includes('<span>网站归类申请') && !source.includes('<span>待审核'));
   expectTrue('Pages 应包含系统管理导航', source.includes('data-page="system-management"') && source.includes('系统管理'));
   expectTrue('Pages 系统管理导航应位于用户管理之后', source.indexOf('data-page="account"') < source.indexOf('data-page="system-management"'));
   expectTrue('Pages 系统管理应包含统计对账/网页落账/媒体落账/系统日志/数据备份与恢复/账户管理 Tab', source.includes('data-system-management-tab="reconciliation"') && source.includes('data-system-management-tab="web-settlements"') && source.includes('data-system-management-tab="media-settlements"') && source.includes('data-system-management-tab="client-logs"') && source.includes('data-system-management-tab="backup-restore"') && source.includes('data-system-management-tab="account-management"'));

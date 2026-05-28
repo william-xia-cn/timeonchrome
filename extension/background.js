@@ -264,12 +264,31 @@ function normalizeDomainForFastStatus(domain) {
   return value || null;
 }
 
+function modeToActionIconPath(mode) {
+  const normalized = mode === 'composite' || mode === 'rest' || mode === 'study'
+    ? mode
+    : 'locked';
+  return {
+    16: `icons/action-${normalized}16.png`,
+    32: `icons/action-${normalized}32.png`,
+    48: `icons/action-${normalized}48.png`,
+  };
+}
+
 function modeToBadgeText(mode) {
   if (mode === 'paused') return '停';
   if (mode === 'locked') return '锁';
   if (mode === 'composite') return '综';
   if (mode === 'rest') return '休';
   return '学';
+}
+
+function modeToBadgeColor(mode) {
+  if (mode === 'paused') return '#e2e8f0';
+  if (mode === 'locked') return '#fecaca';
+  if (mode === 'composite') return '#d8d2ff';
+  if (mode === 'rest') return '#fde7b3';
+  return '#b8f3df';
 }
 
 function modeToLabel(mode) {
@@ -508,9 +527,10 @@ async function updateCurrentTabBadge() {
       : normalizeMode(rawSession?.[SESSION_KEY]?.currentMode || 'study');
 
     const { domain } = await getCurrentActiveDomain();
+    await chrome.action.setIcon?.({ path: modeToActionIconPath(runtimeMode) }).catch(() => {});
     const modeText = modeToBadgeText(runtimeMode);
     await chrome.action.setBadgeText({ text: modeText });
-    await chrome.action.setBadgeBackgroundColor({ color: '#00b894' });
+    await chrome.action.setBadgeBackgroundColor({ color: modeToBadgeColor(runtimeMode) });
 
     if (!domain) {
       await chrome.action.setTitle({ title: `TimeOnChrome\n模式 ${modeToLabel(runtimeMode)}` });

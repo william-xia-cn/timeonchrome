@@ -34,7 +34,12 @@
 
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "TimeOnChrome"
+    "default_title": "TimeOnChrome",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
   },
 
   "options_page": "admin/admin.html",
@@ -57,7 +62,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["reminder.html", "reminder.js", "bind.html", "config.js", "auth.js", "sync.js"],
+      "resources": ["reminder.html", "reminder.js", "bind.html", "config.js", "auth.js", "sync.js", "icons/ui/*.svg"],
       "matches": ["<all_urls>"]
     }
   ]

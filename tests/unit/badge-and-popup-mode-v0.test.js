@@ -41,11 +41,12 @@ function run() {
   const popupJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.js'), 'utf8');
   const modeUsageSource = extractFunctionSource(popupJs, 'resolveModeUsageWithLive');
 
-  expectTrue('badge mode map includes 学', backgroundSource.includes("return '学';"));
-  expectTrue('badge mode map includes 综', backgroundSource.includes("return '综';"));
-  expectTrue('badge mode map includes 休', backgroundSource.includes("return '休';"));
-  expectTrue('badge mode map includes 停', backgroundSource.includes("return '停';"));
-  expectTrue('badge text set from mode', /setBadgeText\(\{ text: modeText \}\)/.test(backgroundSource));
+  expectTrue('action icon map normalizes study/composite/rest modes', backgroundSource.includes("mode === 'composite' || mode === 'rest' || mode === 'study'"));
+  expectTrue('action icon map falls back to locked icon', backgroundSource.includes(": 'locked'"));
+  expectTrue('action icon map references action icon assets', backgroundSource.includes('icons/action-${normalized}16.png') && backgroundSource.includes('icons/action-${normalized}32.png') && backgroundSource.includes('icons/action-${normalized}48.png'));
+  expectTrue('badge mode text includes 学/综/休/停/锁', backgroundSource.includes("return '学';") && backgroundSource.includes("return '综';") && backgroundSource.includes("return '休';") && backgroundSource.includes("return '停';") && backgroundSource.includes("return '锁';"));
+  expectTrue('badge mode color uses pale backgrounds', backgroundSource.includes('function modeToBadgeColor') && backgroundSource.includes('#b8f3df') && backgroundSource.includes('#d8d2ff') && backgroundSource.includes('#fde7b3') && backgroundSource.includes('#e2e8f0') && backgroundSource.includes('#fecaca'));
+  expectTrue('toolbar mode uses dynamic action icon and badge text', /setIcon\?\.\(\{ path: modeToActionIconPath\(runtimeMode\) \}\)/.test(backgroundSource) && /setBadgeText\(\{ text: modeText \}\)/.test(backgroundSource));
   expectTrue('badge no longer renders legacy pending mode ellipsis', !backgroundSource.includes('pending.remainingSeconds') && !backgroundSource.includes('getAutoModePendingStatus'));
   expectTrue('background no longer sends legacy pending START from badge refresh', !backgroundSource.includes("type: 'AUTO_MODE_PENDING_START'"));
   expectTrue('badge title uses current stable mode', backgroundSource.includes('模式 ${modeToLabel(runtimeMode)}'));

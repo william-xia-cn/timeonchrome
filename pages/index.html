@@ -45,10 +45,17 @@
     }
     .auth-logo {
       width: 64px; height: 64px;
-      background: linear-gradient(135deg, #00b894, #00cba9);
       border-radius: 18px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 32px; margin: 0 auto 20px;
+      margin: 0 auto 20px;
+      overflow: hidden;
+    }
+    .auth-logo img,
+    .sidebar-logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
     .auth-box h1 { font-size: 22px; margin-bottom: 6px; }
     .auth-box p  { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
@@ -94,9 +101,9 @@
     .sidebar-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
     .sidebar-logo-icon {
       width: 36px; height: 36px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
       border-radius: 10px;
-      display: flex; align-items: center; justify-content: center; font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
     }
     .sidebar-logo-text { font-size: 14px; font-weight: 700; }
     .sidebar-logo-sub  { font-size: 11px; color: var(--muted); }
@@ -157,7 +164,17 @@
     }
     .nav-item:hover  { background: rgba(0,184,148,0.07); color: var(--text); }
     .nav-item.active { background: rgba(0,184,148,0.12); color: #00b894; font-weight: 500; }
-    .nav-icon { font-size: 15px; width: 20px; text-align: center; }
+    .toc-ui-icon,
+    .nav-icon img {
+      width: 18px;
+      height: 18px;
+      display: inline-block;
+      object-fit: contain;
+      vertical-align: -4px;
+      flex-shrink: 0;
+    }
+    .toc-ui-icon.small { width: 16px; height: 16px; vertical-align: -3px; }
+    .nav-icon { width: 20px; text-align: center; display: inline-flex; align-items: center; justify-content: center; }
 
     /* Sidebar footer */
     .sidebar-footer {
@@ -188,7 +205,7 @@
       border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
     }
     .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .card-title    { font-size: 15px; font-weight: 600; }
+    .card-title    { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
     .card-subtitle { font-size: 12px; color: var(--muted); margin-top: 3px; }
 
     /* Stats grid */
@@ -325,6 +342,7 @@
       color: #1d6ff2; display: inline-flex; align-items: center; justify-content: center;
       flex-shrink: 0; font-size: 13px;
     }
+    .usage-target-icon img { width: 16px; height: 16px; display: block; }
     .usage-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .usage-status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #2db7a3; }
     .usage-status.pending::before { background: #2563eb; }
@@ -547,7 +565,7 @@
 <!-- ── 登录界面 ── -->
 <div id="login-screen" class="auth-screen">
   <div class="auth-box">
-    <div class="auth-logo">⏱</div>
+    <div class="auth-logo"><img src="assets/app-icon.png" alt="TimeOnChrome"></div>
     <h1>TimeOnChrome</h1>
     <p>家长控制台 · 登录账户</p>
     <div class="form-group">
@@ -569,7 +587,7 @@
 <!-- ── 注册界面 ── -->
 <div id="register-screen" class="auth-screen" style="display:none">
   <div class="auth-box">
-    <div class="auth-logo">⏱</div>
+    <div class="auth-logo"><img src="assets/app-icon.png" alt="TimeOnChrome"></div>
     <h1>TimeOnChrome</h1>
     <p>创建家长账户</p>
     <div class="form-group">
@@ -600,7 +618,7 @@
     <div class="sidebar">
       <div class="sidebar-top">
         <div class="sidebar-logo">
-          <div class="sidebar-logo-icon">⏱</div>
+          <div class="sidebar-logo-icon"><img src="assets/app-icon.png" alt="TimeOnChrome"></div>
           <div>
             <div class="sidebar-logo-text">TimeOnChrome</div>
             <div class="sidebar-logo-sub">家长控制台</div>
@@ -625,19 +643,19 @@
       <!-- 导航 -->
       <div class="sidebar-nav">
         <div class="nav-item active" data-page="stats">
-          <span class="nav-icon">📈</span><span>使用统计</span>
+          <span class="nav-icon"><img src="assets/icons/stats.svg" alt=""></span><span>使用统计</span>
         </div>
         <div class="nav-item" data-page="rules">
-          <span class="nav-icon">📋</span><span>访问管理</span>
+          <span class="nav-icon"><img src="assets/icons/rules.svg" alt=""></span><span>访问管理</span>
         </div>
         <div class="nav-item" data-page="review">
-          <span class="nav-icon">🔍</span><span>网站归类申请 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
+          <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站归类申请 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
         <div class="nav-item" data-page="account">
-          <span class="nav-icon">👤</span><span>子用户管理</span>
+          <span class="nav-icon"><img src="assets/icons/user.svg" alt=""></span><span>子用户管理</span>
         </div>
         <div class="nav-item" data-page="system-management">
-          <span class="nav-icon">🧭</span><span>系统管理</span>
+          <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>系统管理</span>
         </div>
       </div>
 
@@ -663,10 +681,10 @@
         </div>
 
         <section class="rules-management-panel active" data-rules-management-panel="site-management">
-        <!-- 📚 学习网站 -->
+        <!-- 学习网站 -->
         <div class="card" id="r-studylist-card">
           <div class="card-header">
-            <div><div class="card-title">📚 学习网站</div><div class="card-subtitle">学习模式下允许访问，计入学习时长</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/study.svg" alt="">学习网站</div><div class="card-subtitle">学习模式下允许访问，计入学习时长</div></div>
           </div>
           <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
@@ -683,7 +701,7 @@
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义学习网站</div>
             <div class="domain-input-row">
-              <input type="text" id="r-studylist-search" placeholder="🔍 搜索..." style="max-width:180px;">
+              <input type="text" id="r-studylist-search" placeholder="搜索..." style="max-width:180px;">
               <input type="text" id="r-studylist-input" placeholder="例：khanacademy.org">
               <button class="btn-add" id="r-studylist-add">+ 添加</button>
             </div>
@@ -692,10 +710,10 @@
           </div>
         </div>
 
-        <!-- 🔀 综合网站 -->
+        <!-- 综合网站 -->
         <div class="card" id="r-composite-card">
           <div class="card-header">
-            <div><div class="card-title">🔀 综合网站</div><div class="card-subtitle">学习模式下可访问，产生「综合网站时间（待分类）」，不自动计入学习或休息时间</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">综合网站</div><div class="card-subtitle">学习模式下可访问，产生「综合网站时间（待分类）」，不自动计入学习或休息时间</div></div>
           </div>
           <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
@@ -720,10 +738,10 @@
           </div>
         </div>
 
-        <!-- 🎮 受限娱乐网站 -->
+        <!-- 受限娱乐网站 -->
         <div class="card" id="r-restricted-card">
           <div class="card-header">
-            <div><div class="card-title">🎮 受限娱乐网站</div><div class="card-subtitle">自由时间可访问，学习模式 blocked，不支持临时使用综合网站时间，可借时间</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">受限娱乐网站</div><div class="card-subtitle">自由时间可访问，学习模式 blocked，不支持临时使用综合网站时间，可借时间</div></div>
           </div>
           <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
@@ -748,10 +766,10 @@
           </div>
         </div>
 
-        <!-- ⛔ 黑名单网站 -->
+        <!-- 黑名单网站 -->
         <div class="card" id="r-blocked-card">
           <div class="card-header">
-            <div><div class="card-title">⛔ 黑名单网站</div><div class="card-subtitle">硬禁止，任何时间不可访问，不可借时间</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/blocked.svg" alt="">黑名单网站</div><div class="card-subtitle">硬禁止，任何时间不可访问，不可借时间</div></div>
           </div>
           <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
@@ -776,10 +794,10 @@
           </div>
         </div>
 
-        <!-- ℹ️ 分类说明区 -->
+        <!-- 分类说明区 -->
         <div class="card" style="background:rgba(0,184,148,0.03);">
           <div class="card-header">
-            <div class="card-title">ℹ️ 分类说明</div>
+            <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/info.svg" alt="">分类说明</div>
           </div>
           <div style="font-size:13px;line-height:1.8;color:var(--text);">
             <p style="margin-bottom:10px;"><strong>综合网站时间（待分类）</strong><br>
@@ -793,7 +811,7 @@
         </div>
 
         <div class="save-bar">
-          <button class="btn-save" id="save-rules-btn">💾 保存配置</button>
+          <button class="btn-save" id="save-rules-btn">保存配置</button>
         </div>
         </section>
 
@@ -801,7 +819,7 @@
       <section class="rules-management-panel" data-rules-management-panel="quota">
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title">每日配额</div><div class="card-subtitle">按天配置，勾选「无限制」表示不限制（单位：分钟）</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日配额</div><div class="card-subtitle">按天配置，勾选「无限制」表示不限制（单位：分钟）</div></div>
           </div>
           <div id="quota-daily-table"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
@@ -827,7 +845,7 @@
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><div><div class="card-title">单站点配额</div><div class="card-subtitle">为特定网站单独设置时间上限</div></div></div>
+          <div class="card-header"><div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/current-site.svg" alt="">单站点配额</div><div class="card-subtitle">为特定网站单独设置时间上限</div></div></div>
           <div class="domain-input-row">
             <input type="text" id="q-domain-input" placeholder="域名，如 bilibili.com">
             <input type="number" id="q-minutes-input" placeholder="分钟" style="width:90px;flex:none;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;outline:none;">
@@ -835,21 +853,21 @@
           </div>
           <div id="q-quotas-list"></div>
         </div>
-        <div class="save-bar"><button class="btn-save" id="save-quota-btn">💾 保存配置</button></div>
+        <div class="save-bar"><button class="btn-save" id="save-quota-btn">保存配置</button></div>
       </section>
 
       <!-- 时间段管理 -->
       <section class="rules-management-panel" data-rules-management-panel="schedule">
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title">📅 每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 综合时段 ∪ 休息时段（只读自动合并）</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 综合时段 ∪ 休息时段（只读自动合并）</div></div>
           </div>
           <div id="time-windows-table" style="overflow-x:auto;">
             <!-- per-day table rendered by JS -->
           </div>
         </div>
 
-        <div class="save-bar"><button class="btn-save" id="save-schedule-btn">💾 保存配置</button></div>
+        <div class="save-bar"><button class="btn-save" id="save-schedule-btn">保存配置</button></div>
       </section>
       </div>
 
@@ -933,7 +951,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">双轨对账</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/stats.svg" alt="">双轨对账</div>
               <div class="card-subtitle">默认只显示差异行；统计表为现有统计页口径，落账聚合为实时 segment 汇总</div>
             </div>
           </div>
@@ -957,7 +975,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">网页落账明细</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/current-site.svg" alt="">网页落账明细</div>
               <div class="card-subtitle">来自云端 usage_segments_v1；不展示设备 token 或 profile id</div>
             </div>
           </div>
@@ -985,7 +1003,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">媒体落账明细</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/background-media.svg" alt="">媒体落账明细</div>
               <div class="card-subtitle">来自云端 media_segments_v1；保留媒体类型与可见性</div>
             </div>
           </div>
@@ -1021,7 +1039,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">远程诊断开关</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/notice.svg" alt="">远程诊断开关</div>
               <div class="card-subtitle">开启后由孩子端按策略上传日志；info 必须设置过期时间</div>
             </div>
           </div>
@@ -1059,7 +1077,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">日志查询</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">日志查询</div>
               <div class="card-subtitle">只显示脱敏后的 domain、模块、事件代码和摘要消息</div>
             </div>
           </div>
@@ -1105,7 +1123,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">数据备份下载</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/import-export.svg" alt="">数据备份下载</div>
               <div class="card-subtitle">选择范围后，将云端配置、落账、统计、日志、审核数据和可编辑网站数据保存到本地目录</div>
             </div>
           </div>
@@ -1135,7 +1153,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">上传并恢复</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/import-export.svg" alt="">上传并恢复</div>
               <div class="card-subtitle">先选择备份目录进行预检；默认安全合并，整包覆盖需要二次确认</div>
             </div>
           </div>
@@ -1161,7 +1179,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">修改密码</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/user.svg" alt="">修改密码</div>
               <div class="card-subtitle">修改后家长端需要重新登录；已绑定终端会继续同步</div>
             </div>
           </div>
@@ -1202,7 +1220,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">编辑档案</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/user.svg" alt="">编辑档案</div>
               <div class="card-subtitle">修改孩子的名字和头像颜色</div>
             </div>
             <div id="acct-profile-avatar" class="avatar" style="width:36px;height:36px;font-size:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:#7c6fff;"></div>
@@ -1226,13 +1244,13 @@
         <!-- Card 2: 设备管理 -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title">绑定设备</div>
+            <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/devices.svg" alt="">绑定设备</div>
             <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
           </div>
-          <div id="devices-list"><div class="empty"><div class="icon">💻</div>暂无绑定设备</div></div>
+          <div id="devices-list"><div class="empty"><div class="icon"><img class="toc-ui-icon" src="assets/icons/devices.svg" alt=""></div>暂无绑定设备</div></div>
         </div>
         <div class="card" style="margin-top:16px;">
-          <div class="card-header"><div class="card-title">如何绑定新设备</div></div>
+          <div class="card-header"><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/devices.svg" alt="">如何绑定新设备</div></div>
           <ol style="font-size:13px;color:var(--muted);line-height:2;padding-left:18px;margin:4px 0;">
             <li>在孩子的 Chrome 浏览器中安装 <strong style="color:var(--text);">TimeOnChrome</strong> 扩展</li>
             <li>点击扩展图标，打开管理面板</li>
@@ -1248,7 +1266,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">配置导入与导出</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/import-export.svg" alt="">配置导入与导出</div>
               <div class="card-subtitle">导入/导出网站管理、配额管理和时间段管理配置；完整数据备份请使用「系统管理 → 数据备份与恢复」</div>
             </div>
           </div>
@@ -1312,7 +1330,7 @@
         <div class="card" id="site-classification-review-card" style="margin-bottom:16px;">
           <div class="card-header">
             <div>
-              <div class="card-title">网站归类申请</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/request.svg" alt="">网站归类申请</div>
               <div style="font-size:12px;color:var(--muted);margin-top:3px;">可调整审批生效对象，支持扩大到根域名或缩小到子域名、精确链接。</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
@@ -2950,9 +2968,9 @@ function renderSchedulePage() {
       <thead>
         <tr style="border-bottom:2px solid var(--border);">
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);width:60px;">星期</th>
-          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">📚 学习时段</th>
-          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">🧭 综合时段</th>
-          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">☕ 休息时段</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);"><img class="toc-ui-icon small" src="assets/icons/study.svg" alt="">学习时段</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">综合时段</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);"><img class="toc-ui-icon small" src="assets/icons/rest.svg" alt="">休息时段</th>
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">🌐 在线时段（只读）</th>
         </tr>
       </thead>
@@ -3813,11 +3831,12 @@ function renderCloudUsageLegend(view) {
 }
 
 function usageTargetIcon(row = {}) {
-  if (row.managedTargetNamespace === 'youtube' || /youtube/i.test(row.label || '')) return '▶';
-  if (row.managedTargetType === 'playlist') return '▤';
-  if (row.managedTargetType === 'url') return '↗';
-  if (row.isFallback) return '◎';
-  return '◆';
+  let icon = 'current-site';
+  if (row.managedTargetNamespace === 'youtube' || /youtube/i.test(row.label || '')) icon = 'background-media';
+  if (row.managedTargetType === 'playlist') icon = 'rules';
+  if (row.managedTargetType === 'url') icon = 'current-site';
+  if (row.isFallback) icon = 'pending';
+  return `<img class="toc-ui-icon small" src="assets/icons/${icon}.svg" alt="">`;
 }
 
 function cloudUsageStatusClass(status) {
@@ -3881,7 +3900,7 @@ function renderCloudUsageList(view) {
         <tbody>
           ${rows.map(row => `
             <tr data-cloud-usage-kind="target" data-cloud-usage-key="${escHtml(row.key)}">
-              <td><span class="usage-target-name"><span class="usage-target-icon">${escHtml(usageTargetIcon(row))}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span></td>
+              <td><span class="usage-target-name"><span class="usage-target-icon">${usageTargetIcon(row)}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span></td>
               <td>${escHtml(row.categoryLabel || usageCategoryLabel(row.category))}</td>
               <td>${fmtSec(row.todaySeconds || 0)}</td>
               <td>${fmtSec(row.weekSeconds || 0)}</td>
@@ -5052,7 +5071,7 @@ async function renderDevicesPage() {
     const r = await api(`/profiles/${currentProfileId}/devices`);
     const devices = r.devices || [];
     if (devices.length === 0) {
-      c.innerHTML = '<div class="empty"><div class="icon">💻</div>暂无绑定设备<br><small style="margin-top:8px;display:block;">在孩子的 Chrome 浏览器中安装插件并登录此账号进行绑定</small></div>';
+      c.innerHTML = '<div class="empty"><div class="icon"><img class="toc-ui-icon" src="assets/icons/devices.svg" alt=""></div>暂无绑定设备<br><small style="margin-top:8px;display:block;">在孩子的 Chrome 浏览器中安装插件并登录此账号进行绑定</small></div>';
       return;
     }
     c.innerHTML = devices.map(d => {
@@ -5066,7 +5085,7 @@ async function renderDevicesPage() {
       const trackCls = isMonOn ? 'monitor-track on' : 'monitor-track';
       return `
         <div class="device-item" data-device-id="${d.id}">
-          <div class="device-icon">${isMonOn ? '🖥️' : '😴'}</div>
+          <div class="device-icon"><img class="toc-ui-icon" src="assets/icons/devices.svg" alt=""></div>
           <div style="flex:1;min-width:0;">
             <div class="device-name" id="dname-${d.id}">${name}</div>
             <div class="device-meta">最后活跃：${time} · 绑定于 ${boundAt}</div>
@@ -5568,8 +5587,8 @@ async function loadReviewGroups() {
           <div class="review-session-title">${escHtml(s.title)}</div>
           <div class="review-session-meta">${fmtSecs(s.duration)}</div>
           <div class="review-session-actions">
-            <button class="btn-classify study" onclick="classifySingle('${s.id}','study',${gi})">📚 学习</button>
-            <button class="btn-classify rest"  onclick="classifySingle('${s.id}','rest',${gi})">🎵 休息</button>
+            <button class="btn-classify study" onclick="classifySingle('${s.id}','study',${gi})">学习</button>
+            <button class="btn-classify rest"  onclick="classifySingle('${s.id}','rest',${gi})">休息</button>
           </div>
         </div>
       `).join('');
@@ -5582,8 +5601,8 @@ async function loadReviewGroups() {
               ${suggestionLabel ? `<div style="font-size:11px;color:${suggestionColor};margin-top:2px;">${suggestionLabel}</div>` : ''}
             </div>
             <div class="review-group-btns">
-              <button class="btn-classify study" onclick="classifyGroup(${gi},'study')">📚 全部学习</button>
-              <button class="btn-classify rest"  onclick="classifyGroup(${gi},'rest')">🎵 全部休息</button>
+              <button class="btn-classify study" onclick="classifyGroup(${gi},'study')">全部学习</button>
+              <button class="btn-classify rest"  onclick="classifyGroup(${gi},'rest')">全部休息</button>
             </div>
           </div>
           <div class="review-sessions" id="review-sessions-${gi}">${sessionRows}</div>
@@ -5592,8 +5611,8 @@ async function loadReviewGroups() {
           <div class="review-rule-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
             <span style="font-size:12px;color:var(--muted);">保存关键词规则：</span>
             <input type="text" id="rule-kw-${gi}" placeholder="关键词（如 MIT）" style="flex:1;min-width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--card);color:var(--text);">
-            <button class="btn-classify study" style="font-size:11px;" onclick="saveRule(${gi},'study')">📚 自动=学习</button>
-            <button class="btn-classify rest"  style="font-size:11px;" onclick="saveRule(${gi},'rest')">🎵 自动=休息</button>
+            <button class="btn-classify study" style="font-size:11px;" onclick="saveRule(${gi},'study')">自动=学习</button>
+            <button class="btn-classify rest"  style="font-size:11px;" onclick="saveRule(${gi},'rest')">自动=休息</button>
           </div>
         </div>`;
     }).join('');

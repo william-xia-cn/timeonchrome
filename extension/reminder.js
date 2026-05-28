@@ -10,7 +10,7 @@
   }
 
   const BORROW_CONFIRM_TEXT = '确认借用明天时间？\n\n本次将立即增加今日可用休息时间 30 分钟，\n明天会扣减同等时长。\n明天不能连续再次借用。是否继续？';
-  const BORROW_BUTTON_TEXT = '⏱ 向明天借时间';
+  const BORROW_BUTTON_TEXT = '向明天借时间';
   const BORROW_ERROR_MESSAGES = {
     already_borrowed: '已有未还借用，无法再借',
     no_cross_week: '周日不能借用（防止跨周）',
@@ -187,92 +187,92 @@
   // 原因配置
   const configs = {
     unsafe: {
-      icon: '🛡️', title: '此网站不可访问',
+      icon: 'blocked', title: '此网站不可访问',
       subtitle: '该网站属于禁止访问范围。',
       actions: ['back']
     },
     study_mode: {
-      icon: '🔍', title: '你正在打开未归类网站',
+      icon: 'pending', title: '你正在打开未归类网站',
       subtitle: '如需临时使用，请从扩展弹窗提交「申请网站归类」。',
       actions: ['backToStudy']
     },
     to_composite_confirm: {
-      icon: '🧭', title: '你正在打开综合网站',
+      icon: 'composite', title: '你正在打开综合网站',
       subtitle: '继续后将进入综合时间，本段不会计入学习时间。',
       actions: ['switchToComposite', 'backToStudy']
     },
     to_rest_confirm: {
-      icon: '☕', title: '你正在进入休息时间',
+      icon: 'rest', title: '你正在进入休息时间',
       subtitle: '继续后将进入休息时间，并消耗休息配额。',
       actions: ['switchToRest', 'backGeneric']
     },
     to_rest_slide_confirm: {
-      icon: '🎮', title: '你正在打开受限娱乐网站',
+      icon: 'restricted', title: '你正在打开受限娱乐网站',
       subtitle: '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。',
       actions: ['backToStudy']
     },
     restricted_study_mode: {
-      icon: '🎮', title: '当前是学习模式',
+      icon: 'restricted', title: '当前是学习模式',
       subtitle: '这是受限娱乐网站，学习模式下不可访问',
       actions: ['switchToRest', 'back']
     },
     quota_composite_and_rest: {
-      icon: '⏱', title: '今日综合时间和休息时间均已用完',
+      icon: 'online-time', title: '今日综合时间和休息时间均已用完',
       subtitle: '当前不能继续访问。请返回。',
       actions: ['backGeneric']
     },
     rest_locked: {
-      icon: '⏰', title: '今天的休息时间已用完',
+      icon: 'notice', title: '今天的休息时间已用完',
       subtitle: '当前不能继续访问。请返回。',
       actions: ['backGeneric']
     },
     quota_locked: {
-      icon: '⏰', title: '当前配额已用完',
+      icon: 'notice', title: '当前配额已用完',
       subtitle: '当前不能继续访问。请返回。',
       actions: ['backGeneric']
     },
     quota_rest: {
-      icon: '⏰', title: '今天的休息时间用完啦',
+      icon: 'notice', title: '今天的休息时间用完啦',
       subtitle: '放松过了，切换到学习模式继续加油！',
       actions: ['switchToStudy', 'viewDetails']
     },
     quota_study: {
-      icon: '🎓', title: '今天学得够多啦',
+      icon: 'study', title: '今天学得够多啦',
       subtitle: '劳逸结合才高效！',
       actions: ['switchToRest', 'viewDetails']
     },
     quota_undetermined: {
-      icon: '🔍', title: '未归类网站的时间用完啦',
+      icon: 'pending', title: '未归类网站的时间用完啦',
       subtitle: '明天再来探索吧',
       actions: ['switchToStudy', 'viewDetails']
     },
     quota_online: {
-      icon: '🌙', title: '今天的上网时间用完啦',
+      icon: 'online-time', title: '今天的上网时间用完啦',
       subtitle: '休息一下，明天继续！',
       actions: ['viewDetails']
     },
     quota: {
-      icon: '🌙', title: '今天的上网时间用完啦',
+      icon: 'online-time', title: '今天的上网时间用完啦',
       subtitle: '休息一下，明天继续！',
       actions: ['viewDetails']
     },
     schedule: {
-      icon: '🌙', title: '当前时间段未允许使用',
+      icon: 'notice', title: '当前时间段未允许使用',
       subtitle: '当前时间未允许使用 TimeOnChrome 管控的网站，请在开放时段再试。',
       actions: ['back']
     },
     study_schedule_locked: {
-      icon: '📚', title: '当前时间段未允许学习模式的使用',
+      icon: 'study', title: '当前时间段未允许学习模式的使用',
       subtitle: '这个网站的使用需要进入学习模式，但是当前时间未允许使用学习模式',
       actions: ['back']
     },
     composite_schedule_locked: {
-      icon: '🧭', title: '当前时间段未允许综合模式的使用',
+      icon: 'composite', title: '当前时间段未允许综合模式的使用',
       subtitle: '这个网站的使用需要进入综合模式，但是当前时间未允许使用综合模式',
       actions: ['back']
     },
     rest_schedule_locked: {
-      icon: '☕', title: '当前时间段未允许休息模式的使用',
+      icon: 'rest', title: '当前时间段未允许休息模式的使用',
       subtitle: '这个网站的使用需要进入休息模式，但是当前时间未允许使用休息模式',
       actions: ['back']
     }
@@ -293,7 +293,7 @@
       }
     },
     slideToRest: {
-      label: '👉 拖动确认进入休息时间', style: 'secondary',
+      label: '拖动确认进入休息时间', style: 'secondary',
       handler: function() {
         if (!slideConfirmWrap || !slideTrack || !slideThumb) return;
         slideConfirmWrap.style.display = 'block';
@@ -301,13 +301,13 @@
       }
     },
     switchToStudy: {
-      label: '📚 切换到学习模式', style: 'secondary',
+      label: '切换到学习模式', style: 'secondary',
       handler: function() {
         requestModeChange('study', 'reminder_confirm_study', '已切换到学习模式');
       }
     },
     viewDetails: {
-      label: '📊 查看详情', style: 'outline',
+      label: '查看详情', style: 'outline',
       handler: function() { chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') }); }
     },
     backGeneric: {
@@ -367,7 +367,7 @@
   } else {
     isUnknownReason = true;
     config = {
-      icon: '⚠️', title: '页面异常',
+      icon: 'notice', title: '页面异常',
       subtitle: '无法识别当前提醒类型。请返回重试。',
       actions: ['backGeneric']
     };
@@ -383,7 +383,7 @@
     disableRestEntry('今天的休息时间已用完，当前不能继续访问。');
   }
 
-  if (mainIcon) mainIcon.textContent = config.icon;
+  if (mainIcon) mainIcon.innerHTML = `<img src="icons/ui/${config.icon}.svg" alt="">`;
   if (mainTitle) mainTitle.textContent = config.title;
   if (subtitle) subtitle.textContent = config.subtitle;
 

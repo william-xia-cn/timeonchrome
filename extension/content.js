@@ -412,8 +412,9 @@
 
     const toast = document.createElement('div');
     toast.id = '__guardian_toast__';
+    const noticeIconUrl = chrome.runtime.getURL('icons/ui/notice.svg');
     toast.innerHTML = `
-      <div class="g-toast-icon">⏱</div>
+      <div class="g-toast-icon"><img src="${noticeIconUrl}" alt=""></div>
       <div class="g-toast-body">
         <strong>${domain || '此网站'}</strong> 还有 <strong>${minutesLeft} 分钟</strong>到达今日上限
       </div>
@@ -440,9 +441,10 @@
     const isWarn = reason === 'warn';
     const countdownSeconds = 10;
 
+    const overlayIconUrl = chrome.runtime.getURL(isWarn ? 'icons/ui/notice.svg' : 'icons/ui/online-time.svg');
     overlayEl.innerHTML = `
       <div class="g-overlay-box">
-        <div class="g-overlay-icon">${isWarn ? '⏰' : '⏱'}</div>
+        <div class="g-overlay-icon"><img src="${overlayIconUrl}" alt=""></div>
         <h2 class="g-overlay-title">${isWarn ? '时间快到啦' : '时间提醒'}</h2>
         <p class="g-overlay-msg">${message || '这个网站当前不在可访问范围内'}</p>
         ${isWarn ? `
