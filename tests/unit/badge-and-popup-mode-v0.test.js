@@ -77,6 +77,9 @@ function run() {
   expectTrue('popup late snapshot does not overwrite typed site request', popupJs.includes('if (input.value.trim()) return false'));
   expectTrue('popup shows reading state when request default is not ready', popupJs.includes('正在读取被拦截链接…') && popupJs.includes('appendSiteRequestStatusLine(status'));
   expectTrue('popup site request input wraps long URLs', popupHtml.includes('<textarea class="request-input"') && popupHtml.includes('overflow-wrap: anywhere') && popupHtml.includes('word-break: break-word'));
+  expectTrue('popup site request has scope preview', popupHtml.includes('id="site-request-preview"') && popupHtml.includes('.request-preview-title') && popupJs.includes('function previewSiteClassificationTarget') && popupJs.includes('updateSiteRequestPreview'));
+  expectTrue('popup site request explains editable scope', popupHtml.includes('你可以修改下方内容来调整申请范围') && popupHtml.includes('example.com 表示整个网站') && popupHtml.includes('learn.example.com 表示子域名') && popupHtml.includes('表示这个具体链接'));
+  expectTrue('popup site request previews YouTube playlist/video canonical target', popupJs.includes('YouTube 播放列表') && popupJs.includes('https://www.youtube.com/playlist?list=') && popupJs.includes('系统将按「YouTube 播放列表」申请，已识别为 YouTube 播放列表 list=') && popupJs.includes('YouTube 视频') && popupJs.includes('https://www.youtube.com/watch?v='));
   expectTrue('popup site request enter submit prevents textarea newline', popupJs.includes('event.preventDefault();') && popupJs.includes('!event.shiftKey'));
   expectTrue('popup site request renders inline result card', popupHtml.includes('.request-status-title') && !popupHtml.includes('.request-return-btn') && popupJs.includes('function renderSiteRequestStatus'));
   expectTrue('popup site request reports already-present state', popupJs.includes('result.alreadyPresent') && !popupJs.includes('返回申请页面失败'));

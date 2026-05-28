@@ -65,7 +65,8 @@ let settlementAnalysisLabel = '今日';
 let mediaSettlementRows = [];
 let mediaSettlementRange = 'today';
 let mediaSettlementLabel = '今日';
-let systemManagementActiveTab = 'web-settlements';
+let systemManagementActiveTab = 'device-status';
+let rulesActiveTab = 'site-management';
 let isLocalReadOnlyMode = false;
 let usageAnalysisState = {
   ledger: 'web',
@@ -1147,6 +1148,15 @@ function setClientLogsPageError(message) {
   if (tableEl) tableEl.innerHTML = `<div style="color:var(--danger);text-align:center;padding:16px;">${safeMessage}</div>`;
 }
 
+function syncRulesTabs() {
+  document.querySelectorAll('[data-rules-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.rulesTab === rulesActiveTab);
+  });
+  document.querySelectorAll('[data-rules-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.rulesPanel === rulesActiveTab);
+  });
+}
+
 function syncSystemManagementTabs() {
   document.querySelectorAll('[data-system-management-tab]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.systemManagementTab === systemManagementActiveTab);
@@ -1158,7 +1168,9 @@ function syncSystemManagementTabs() {
 
 async function renderSystemManagementPage() {
   syncSystemManagementTabs();
-  if (systemManagementActiveTab === 'web-settlements') {
+  if (systemManagementActiveTab === 'device-status') {
+    await setupDevicesPage();
+  } else if (systemManagementActiveTab === 'web-settlements') {
     await renderSettlementsPage();
   } else if (systemManagementActiveTab === 'media-settlements') {
     await renderMediaSettlementsPage();
@@ -1168,7 +1180,8 @@ async function renderSystemManagementPage() {
 }
 
 function setSystemManagementPageError(message) {
-  if (systemManagementActiveTab === 'web-settlements') setSettlementsPageError(message);
+  if (systemManagementActiveTab === 'device-status') setDevicesPageError(message);
+  else if (systemManagementActiveTab === 'web-settlements') setSettlementsPageError(message);
   else if (systemManagementActiveTab === 'media-settlements') setMediaSettlementsPageError(message);
   else if (systemManagementActiveTab === 'client-logs') setClientLogsPageError(message);
 }
@@ -1234,7 +1247,7 @@ function setupNavigation() {
   });
   document.querySelectorAll('[data-system-management-tab]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const tab = btn.dataset.systemManagementTab || 'web-settlements';
+      const tab = btn.dataset.systemManagementTab || 'device-status';
       systemManagementActiveTab = tab;
       const navItem = document.querySelector('.nav-item[data-page="system-management"]');
       if (navItem && !navItem.classList.contains('active')) {
@@ -1245,6 +1258,19 @@ function setupNavigation() {
       }
       const requestSeq = ++adminPageRefreshSeq;
       await refreshPageByNav('system-management', requestSeq);
+    });
+  });
+  document.querySelectorAll('[data-rules-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      rulesActiveTab = btn.dataset.rulesTab || 'site-management';
+      const navItem = document.querySelector('.nav-item[data-page="rules"]');
+      if (navItem && !navItem.classList.contains('active')) {
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        navItem.classList.add('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-rules')?.classList.add('active');
+      }
+      syncRulesTabs();
     });
   });
 }
@@ -1311,11 +1337,13 @@ function renderSiteGroup(containerId, options) {
   };
 
   const renderTargetRules = (rules) => {
-    if (!rules.length) return '';
+    const uniqueRules = uniqueSiteRules(rules);
+    if (!uniqueRules.length) return '';
+    const title = options.targetRuleTitle || '已批准精确链接';
     return `
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">已批准精确链接</div>
-        <div class="domains-container">${rules.map((rule) => {
+        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">${escHtml(title)}</div>
+        <div class="domains-container">${uniqueRules.map((rule) => {
           const value = siteRuleValue(rule);
           const type = siteRuleTypeLabel(rule);
           return `<span class="domain-tag" title="${escAttr(value)}" style="cursor:default;max-width:100%;white-space:normal;line-height:1.35;">${escHtml(type)}：${escHtml(value)}</span>`;
@@ -1540,7 +1568,28 @@ function siteRuleDecision(rule = {}) {
 }
 
 function siteRuleValue(rule = {}) {
-  return rule.normalizedValue || rule.targetValue || rule.decisionNormalizedValue || rule.requestedNormalizedValue || rule.value || '—';
+  return canonicalDisplayUrlValue(rule.normalizedValue || rule.targetValue || rule.decisionNormalizedValue || rule.requestedNormalizedValue || rule.value || '—');
+}
+
+function canonicalDisplayUrlValue(value) {
+  const raw = String(value || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return raw;
+  try {
+    const parsed = new URL(raw);
+    const host = normalizeHostname(parsed.hostname);
+    const bareHost = host?.startsWith('www.') ? host.slice(4) : host;
+    const playlistId = String(parsed.searchParams.get('list') || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    if (playlistId && (host === 'youtube.com' || host?.endsWith('.youtube.com') || bareHost === 'youtu.be')) {
+      return `https://www.youtube.com/playlist?list=${playlistId}`;
+    }
+    const videoId = String(parsed.searchParams.get('v') || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    if (videoId && parsed.pathname === '/watch' && (host === 'youtube.com' || host?.endsWith('.youtube.com'))) {
+      return `https://www.youtube.com/watch?v=${videoId}`;
+    }
+    return raw;
+  } catch (_) {
+    return raw;
+  }
 }
 
 function siteRuleTypeLabel(rule = {}) {
@@ -1550,10 +1599,25 @@ function siteRuleTypeLabel(rule = {}) {
   return '精确链接';
 }
 
+function uniqueSiteRules(rules = []) {
+  const seen = new Set();
+  const out = [];
+  for (const rule of Array.isArray(rules) ? rules : []) {
+    const targetType = rule?.targetType || rule?.type || rule?.decisionTargetType || rule?.requestedTargetType || 'url';
+    const decision = siteRuleDecision(rule) || 'unknown';
+    const value = siteRuleValue(rule);
+    const key = `${decision}::${targetType}::${value}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(rule);
+  }
+  return out;
+}
+
 function approvedUrlRulesForDecision(decision) {
-  return (Array.isArray(config?.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [])
+  return uniqueSiteRules((Array.isArray(config?.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [])
     .filter((rule) => (rule.targetType || rule.type || rule.decisionTargetType || rule.requestedTargetType) === 'url')
-    .filter((rule) => siteRuleDecision(rule) === decision);
+    .filter((rule) => siteRuleDecision(rule) === decision));
 }
 
 function renderSiteClassificationRequestRecords(records) {
@@ -1569,23 +1633,23 @@ function renderSiteClassificationRequestRecords(records) {
       <table class="settlement-table site-request-target-table">
         <thead>
           <tr>
-            <th>申请对象</th>
-            <th>类型</th>
-            <th>状态</th>
-            <th>审批生效对象</th>
-            <th>申请时间</th>
+            <th class="site-request-col-object">对象</th>
+            <th class="site-request-col-type">类型</th>
+            <th class="site-request-col-status">状态</th>
+            <th class="site-request-col-time">申请时间</th>
           </tr>
         </thead>
         <tbody>
-          ${list.map((record) => `
+          ${list.map((record) => {
+            const targetValue = record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue || '—';
+            return `
             <tr>
-              <td class="site-request-target-cell" title="${escAttr(record.displayValue || record.requestedNormalizedValue || '')}">${escHtml(record.displayValue || record.requestedNormalizedValue || '—')}</td>
-              <td>${escHtml(siteRequestTypeLabel(record.requestedTargetType))}</td>
-              <td>${escHtml(siteRequestStatusLabel(record.status))}</td>
-              <td>${escHtml(record.decisionNormalizedValue || '—')}</td>
-              <td>${escHtml(formatRulesDateTime(record.requestedAt || record.createdAt))}</td>
+              <td class="site-request-target-cell" title="${escAttr(targetValue)}">${escHtml(targetValue)}</td>
+              <td class="site-request-type-cell">${escHtml(siteRequestTypeLabel(record.requestedTargetType))}</td>
+              <td class="site-request-status-cell">${escHtml(siteRequestStatusLabel(record.status))}</td>
+              <td class="site-request-time-cell">${escHtml(formatRulesDateTime(record.requestedAt || record.createdAt))}</td>
             </tr>
-          `).join('')}
+          `;}).join('')}
         </tbody>
       </table>
     </div>
@@ -1605,6 +1669,8 @@ async function renderSiteClassificationRequestSection() {
 }
 
 function renderRulesPage() {
+  syncRulesTabs();
+
   const modeDescEl = document.getElementById('rules-mode-desc');
   if (modeDescEl) {
     modeDescEl.textContent = '当前规则由家长在云端设定，本设备仅展示当前生效规则';
@@ -1620,6 +1686,7 @@ function renderRulesPage() {
     ]),
     customList: config?.customStudyList,
     targetRules: approvedUrlRulesForDecision('study'),
+    targetRuleTitle: '已批准学习精确链接',
   });
   renderSiteGroup('rules-composite-display', {
     effectiveList: config?.compositeList,
@@ -1631,6 +1698,7 @@ function renderRulesPage() {
     ]),
     customList: config?.customCompositeList,
     targetRules: approvedUrlRulesForDecision('composite'),
+    targetRuleTitle: '已批准综合精确链接',
   });
   renderSiteGroup('rules-restricted-display', {
     effectiveList: config?.restrictedEntertainmentList,
@@ -1641,6 +1709,8 @@ function renderRulesPage() {
       'systemConfiguredRestrictedEntertainmentList',
     ]),
     customList: config?.customRestrictedEntertainmentList,
+    targetRules: approvedUrlRulesForDecision('reject'),
+    targetRuleTitle: '已拒绝 / 受限精确链接',
   });
   renderSiteGroup('rules-blocked-display', {
     effectiveList: config?.unsafeList || config?.blacklist,
@@ -1655,7 +1725,6 @@ function renderRulesPage() {
       'systemConfiguredUnsafeList',
     ]),
     customList: config?.customBlockedSites,
-    targetRules: approvedUrlRulesForDecision('reject'),
   });
 
   renderQuotaSection();
@@ -1718,7 +1787,10 @@ async function renderSyncStatus() {
   const storage = await new Promise(resolve => {
     chrome.storage.local.get([
       CLOUD_KEYS.DEVICE_TOKEN,
+      CLOUD_KEYS.CREDENTIALS,
       CLOUD_KEYS.PROFILE_ID,
+      CLOUD_KEYS.PROFILE_NAME,
+      CLOUD_KEYS.ACCOUNT_TOKEN,
       'cloud_last_sync',
       'cloud_config_version',
       'cloud_device_name',
@@ -1730,6 +1802,19 @@ async function renderSyncStatus() {
 
   // 本机设备名（首次绑定时保存的）
   const deviceName = escHtml(storage['cloud_device_name'] || '本机');
+  const credentials = storage[CLOUD_KEYS.CREDENTIALS] || '';
+  let decodedEmail = currentEmail || '';
+  if (credentials) {
+    try {
+      decodedEmail = atob(credentials).split(':')[0] || decodedEmail;
+    } catch (_) {
+      decodedEmail = currentEmail || '';
+    }
+  }
+  const accountEmail = escHtml(decodedEmail || '—');
+  const profileName = escHtml(storage[CLOUD_KEYS.PROFILE_NAME] || (storage[CLOUD_KEYS.DEVICE_TOKEN] ? '—' : '本地模式'));
+  const profileId = storage[CLOUD_KEYS.PROFILE_ID] || '';
+  const profileShortId = escHtml(profileId ? profileId.slice(0, 8) : '—');
   // device_token 前8位作为短码
   const token = storage[CLOUD_KEYS.DEVICE_TOKEN] || '';
   const shortId = escHtml(token ? token.slice(0, 8).toUpperCase() : '—');
@@ -1739,6 +1824,13 @@ async function renderSyncStatus() {
   if (!token) {
     container.innerHTML = `
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+        <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+          <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">登录信息</div>
+          <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap; font-size:13px; line-height:1.8;">
+            <span>账户：<strong>${accountEmail}</strong></span>
+            <span>用户：<strong>${profileName}</strong></span>
+          </div>
+        </div>
         <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
           <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">运行模式</div>
           <div style="font-size:15px; font-weight:600;">本地模式</div>
@@ -1780,9 +1872,19 @@ async function renderSyncStatus() {
   container.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
       <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">登录信息</div>
+        <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap; font-size:13px; line-height:1.8;">
+          <span>账户：<strong>${accountEmail}</strong></span>
+          <span>用户：<strong>${profileName}</strong></span>
+          <span style="font-size:11px; color:var(--muted); font-family:monospace;">Profile: ${profileShortId}</span>
+        </div>
+      </div>
+      <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">本机设备</div>
-        <div style="font-size:15px; font-weight:600;">${deviceName}</div>
-        <div style="font-size:11px; color:var(--muted); margin-top:2px; font-family:monospace;">ID: ${shortId}</div>
+        <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap; font-size:13px; line-height:1.8;">
+          <span style="font-size:15px; font-weight:600;">${deviceName}</span>
+          <span style="font-size:11px; color:var(--muted); font-family:monospace;">ID: ${shortId}</span>
+        </div>
       </div>
       <div style="padding:12px; background:var(--surface); border-radius:8px;">
         <div style="font-size:12px; color:var(--muted);">绑定状态</div>

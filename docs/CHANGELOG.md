@@ -4,9 +4,16 @@
 
 ## [Unreleased]
 
+---
+
+## [1.7.4] — 2026-05-28
+
 - **Mode time-window enforcement**: `timeWindows.daily` now controls runtime access and user-confirmed mode entry for Study, Composite, and Rest. `compositeWindows` is added as a first-class mode window; `onlineWindows` is display-only (`study ∪ composite ∪ rest`). Empty arrays, missing fields, and `null` all mean all-day allowed.
 - **Clear schedule Reminder copy**: outside-window blocks now use mode-specific reasons and copy: `study_schedule_locked`, `composite_schedule_locked`, and `rest_schedule_locked`. Legacy `schedule` remains only as a fallback when `timeWindows.daily` is absent.
-- **Chrome Web Store materials refreshed**: v1.7.3 CWS package and submission notes were regenerated from the current `extension/` root at `dist/cws-v1.7.3-20260526-001206/`. ZIP SHA256: `2021828E0C94C36629C946E30E971FC93F5B875690C78731324048A4CD020766`.
+- **Cloud profile config import/export**: cloud Pages account settings now export/import profile-level configuration for site access, quotas, and time windows. The site access export separates system defaults, parent custom lists, approval-generated URL rules, and request history; the old site-management-only import/export entry has been removed.
+- **Local Admin system status**: terminal Admin `系统管理 → 本机状态` now displays the current account email, bound user/profile, profile short id, local device name, and device short id in compact rows.
+- **Pages structure fixes**: cloud Pages `统计对账` and `设备管理` are restored as top-level pages instead of being hidden inside `系统管理`.
+- **Chrome Web Store materials note**: prior v1.7.3 CWS package and submission notes remain at `dist/cws-v1.7.3-20260526-001206/`. ZIP SHA256: `2021828E0C94C36629C946E30E971FC93F5B875690C78731324048A4CD020766`.
 
 ---
 

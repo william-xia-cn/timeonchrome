@@ -492,6 +492,7 @@ export async function processForegroundSignal(rawEvent, options = {}) {
     tabId: currentContext?.tabId ?? null,
     windowId: currentContext?.windowId ?? null,
     url: currentContext?.url || signal.url || null,
+    incognito: currentContext?.incognito === true || signal.incognito === true,
     domainResolutionReason: domainResolution.reason,
     domainResolutionError: domainResolution.error,
   };
@@ -651,6 +652,7 @@ export async function confirmForegroundPageCheckpoint(session) {
         observedState: 'ACTIVE',
         tabId: numericTabId(fact.tabId ?? session?.tabId),
         windowId: Number.isInteger(fact.windowId) ? fact.windowId : null,
+        incognito: fact.incognito === true || session?.incognito === true,
         idleState,
         foregroundMediaActive: true,
         mediaClass: mediaResult.classification?.mediaClass ?? null,
@@ -682,7 +684,7 @@ export async function confirmForegroundPageCheckpoint(session) {
     }
 
     if (!session?.domain) {
-      return { ok: true, observedDomain, observedUrl: tab.url || null, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, idleState };
+      return { ok: true, observedDomain, observedUrl: tab.url || null, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, incognito: tab.incognito === true, idleState };
     }
     if (observedDomain !== session.domain) {
       return {
@@ -693,10 +695,11 @@ export async function confirmForegroundPageCheckpoint(session) {
         observedState: 'ACTIVE',
         tabId: numericTabId(tab.id),
         windowId: tab.windowId ?? null,
+        incognito: tab.incognito === true,
         idleState,
       };
     }
-    return { ok: true, observedDomain, observedUrl: tab.url || null, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, idleState };
+    return { ok: true, observedDomain, observedUrl: tab.url || null, observedState: 'ACTIVE', tabId: numericTabId(tab.id), windowId: tab.windowId ?? null, incognito: tab.incognito === true, idleState };
   } catch (err) {
     return { ok: false, reason: 'observed_query_failed', error: err?.message || String(err) };
   }

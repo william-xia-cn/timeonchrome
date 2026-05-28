@@ -850,11 +850,6 @@
           </div>
         </div>
 
-        <!-- 导入导出 + 保存 -->
-        <div style="display:flex;gap:10px;margin-bottom:16px;">
-          <button class="btn-save" id="import-rules-btn" style="flex:1;background:transparent;color:var(--accent);border:1px solid var(--accent);">📥 导入配置</button>
-          <button class="btn-save" id="export-rules-btn" style="flex:1;background:transparent;color:var(--accent);border:1px solid var(--accent);">📤 导出配置</button>
-        </div>
         <div class="save-bar">
           <button class="btn-save" id="save-rules-btn">💾 保存配置</button>
         </div>
@@ -1062,165 +1057,6 @@
         </div>
         </section>
 
-      <!-- 统计对账 -->
-      <div class="page" id="page-reconciliation">
-        <div class="page-header">
-          <h2>统计对账</h2>
-          <p>对比 stats_v1 统计表与 usage_segments_v1 落账聚合，不修改任何数据</p>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">双轨对账</div>
-              <div class="card-subtitle">默认只显示差异行；统计表为现有统计页口径，落账聚合为实时 segment 汇总</div>
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
-            <button class="tab-btn active" data-reconciliation-range="today">今日</button>
-            <button class="tab-btn" data-reconciliation-range="week">本周</button>
-            <button class="tab-btn" data-reconciliation-range="month">本月</button>
-            <input type="text" id="reconciliation-domain-input" placeholder="域名关键词筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
-            <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
-              <input type="checkbox" id="reconciliation-show-all">
-              显示全部
-            </label>
-            <button class="btn-save" id="reconciliation-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
-          </div>
-          <div id="reconciliation-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
-          <div id="reconciliation-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
-        </div>
-      </div>
-
-      <!-- 账户设置 -->
-      <div class="page" id="page-account">
-        <div class="page-header">
-          <h2>账户设置</h2>
-          <p>管理你的档案、密码和账户安全</p>
-        </div>
-
-        <!-- Card 1: 编辑档案 -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">编辑档案</div>
-              <div class="card-subtitle">修改孩子的名字和头像颜色</div>
-            </div>
-            <div id="acct-profile-avatar" class="avatar" style="width:36px;height:36px;font-size:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:#7c6fff;"></div>
-          </div>
-          <div class="form-group" style="margin-bottom:16px;">
-            <label>孩子的名字</label>
-            <input type="text" id="acct-name-input" placeholder="输入名字"
-              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-          </div>
-          <div style="margin-bottom:16px;">
-            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">头像颜色</div>
-            <div id="acct-color-picker" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
-          </div>
-          <div id="acct-profile-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
-          <div class="save-bar" style="margin-top:8px;">
-            <button class="btn-save" id="acct-save-profile-btn">保存档案</button>
-          </div>
-        </div>
-
-        <!-- Card 2: 修改密码 -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">修改密码</div>
-              <div class="card-subtitle">修改后将自动退出登录</div>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label>当前密码</label>
-            <input type="password" id="acct-old-pw" placeholder="当前密码"
-              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label>新密码</label>
-            <input type="password" id="acct-new-pw" placeholder="至少6位"
-              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-          </div>
-          <div class="form-group" style="margin-bottom:16px;">
-            <label>确认新密码</label>
-            <input type="password" id="acct-confirm-pw" placeholder="再次输入新密码"
-              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-          </div>
-          <div id="acct-pw-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
-          <div class="save-bar" style="margin-top:8px;">
-            <button class="btn-save" id="acct-save-pw-btn">修改密码</button>
-          </div>
-        </div>
-
-        <!-- Card 3: 危险操作 -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title" style="color:var(--danger);">危险操作</div>
-              <div class="card-subtitle">以下操作不可撤销，请谨慎</div>
-            </div>
-          </div>
-          <div id="acct-delete-confirm-wrap" style="display:none;margin-bottom:16px;">
-            <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">请输入孩子的名字以确认删除：</div>
-            <input type="text" id="acct-delete-confirm-input" placeholder="输入名字确认"
-              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid rgba(239,68,68,0.35);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;margin-bottom:10px;">
-            <div style="display:flex;gap:8px;">
-              <button id="acct-delete-confirm-btn"
-                style="padding:9px 18px;background:rgba(248,113,113,0.15);border:1px solid rgba(248,113,113,0.4);border-radius:9px;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer;">
-                确认删除
-              </button>
-              <button id="acct-delete-cancel-btn"
-                style="padding:9px 18px;background:transparent;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-size:13px;cursor:pointer;">
-                取消
-              </button>
-            </div>
-          </div>
-          <div id="acct-danger-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button id="acct-delete-profile-btn"
-              style="padding:10px 18px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.3);border-radius:10px;color:var(--danger);font-size:14px;font-weight:500;cursor:pointer;transition:all .15s;"
-              onmouseover="this.style.background='rgba(248,113,113,0.18)'" onmouseout="this.style.background='rgba(248,113,113,0.08)'">
-              删除孩子档案
-            </button>
-            <button id="acct-logout-btn"
-              style="padding:10px 18px;background:transparent;border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;transition:all .15s;"
-              onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
-              退出登录
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 设备管理 -->
-      <div class="page" id="page-devices">
-        <div class="page-header">
-          <h2>设备管理</h2>
-          <p>管理绑定此孩子档案的所有设备</p>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">绑定设备</div>
-            <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
-          </div>
-          <div id="devices-list"><div class="empty"><div class="icon">💻</div>暂无绑定设备</div></div>
-        </div>
-        <div class="card" style="margin-top:16px;">
-          <div class="card-header"><div class="card-title">如何绑定新设备</div></div>
-          <ol style="font-size:13px;color:var(--muted);line-height:2;padding-left:18px;margin:4px 0;">
-            <li>在孩子的 Chrome 浏览器中安装 <strong style="color:var(--text);">TimeOnChrome</strong> 扩展</li>
-            <li>点击扩展图标，打开管理面板</li>
-            <li>使用家长账号（当前账号）登录</li>
-            <li>选择「<strong style="color:var(--text);">此孩子档案</strong>」，自动完成绑定</li>
-          </ol>
-          <p style="font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
-            💡 每台设备只能绑定一个孩子档案。如需换绑，请先在此页面解绑，再重新操作。
-          </p>
-        </div>
-      </div>
-
         <section class="system-management-panel" data-system-management-panel="client-logs">
         <div class="card">
           <div class="card-header">
@@ -1360,6 +1196,183 @@
           <div id="cloud-restore-preflight" style="margin-top:12px;"></div>
         </div>
         </section>
+      </div>
+
+      <!-- 统计对账 -->
+      <div class="page" id="page-reconciliation">
+        <div class="page-header">
+          <h2>统计对账</h2>
+          <p>对比 stats_v1 统计表与 usage_segments_v1 落账聚合，不修改任何数据</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">双轨对账</div>
+              <div class="card-subtitle">默认只显示差异行；统计表为现有统计页口径，落账聚合为实时 segment 汇总</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="tab-btn active" data-reconciliation-range="today">今日</button>
+            <button class="tab-btn" data-reconciliation-range="week">本周</button>
+            <button class="tab-btn" data-reconciliation-range="month">本月</button>
+            <input type="text" id="reconciliation-domain-input" placeholder="域名关键词筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="reconciliation-show-all">
+              显示全部
+            </label>
+            <button class="btn-save" id="reconciliation-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
+          </div>
+          <div id="reconciliation-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
+          <div id="reconciliation-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
+        </div>
+      </div>
+
+      <!-- 账户设置 -->
+      <div class="page" id="page-account">
+        <div class="page-header">
+          <h2>账户设置</h2>
+          <p>管理你的档案、密码和账户安全</p>
+        </div>
+
+        <!-- Card 1: 编辑档案 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">编辑档案</div>
+              <div class="card-subtitle">修改孩子的名字和头像颜色</div>
+            </div>
+            <div id="acct-profile-avatar" class="avatar" style="width:36px;height:36px;font-size:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:#7c6fff;"></div>
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label>孩子的名字</label>
+            <input type="text" id="acct-name-input" placeholder="输入名字"
+              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">头像颜色</div>
+            <div id="acct-color-picker" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+          </div>
+          <div id="acct-profile-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div class="save-bar" style="margin-top:8px;">
+            <button class="btn-save" id="acct-save-profile-btn">保存档案</button>
+          </div>
+        </div>
+
+        <!-- Card 2: 修改密码 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">修改密码</div>
+              <div class="card-subtitle">修改后将自动退出登录</div>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>当前密码</label>
+            <input type="password" id="acct-old-pw" placeholder="当前密码"
+              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>新密码</label>
+            <input type="password" id="acct-new-pw" placeholder="至少6位"
+              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label>确认新密码</label>
+            <input type="password" id="acct-confirm-pw" placeholder="再次输入新密码"
+              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div id="acct-pw-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div class="save-bar" style="margin-top:8px;">
+            <button class="btn-save" id="acct-save-pw-btn">修改密码</button>
+          </div>
+        </div>
+
+        <!-- Card 3: 配置导入与导出 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">配置导入与导出</div>
+              <div class="card-subtitle">导入/导出网站管理、配额管理和时间段管理配置；完整数据备份请使用「系统管理 → 数据备份与恢复」</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-bottom:12px;">
+            导出文件会区分系统配置、家长自定义、审批生成规则和申请历史。系统配置只用于查看和手动参考，导入时不会覆盖系统默认清单。
+          </div>
+          <div id="acct-config-io-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn-save" id="acct-export-config-btn" style="padding:10px 18px;">导出配置</button>
+            <button class="btn-save" id="acct-import-config-btn" style="padding:10px 18px;background:transparent;color:var(--accent);border:1px solid var(--accent);">导入配置</button>
+          </div>
+        </div>
+
+        <!-- Card 4: 危险操作 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title" style="color:var(--danger);">危险操作</div>
+              <div class="card-subtitle">以下操作不可撤销，请谨慎</div>
+            </div>
+          </div>
+          <div id="acct-delete-confirm-wrap" style="display:none;margin-bottom:16px;">
+            <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">请输入孩子的名字以确认删除：</div>
+            <input type="text" id="acct-delete-confirm-input" placeholder="输入名字确认"
+              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid rgba(239,68,68,0.35);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;margin-bottom:10px;">
+            <div style="display:flex;gap:8px;">
+              <button id="acct-delete-confirm-btn"
+                style="padding:9px 18px;background:rgba(248,113,113,0.15);border:1px solid rgba(248,113,113,0.4);border-radius:9px;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer;">
+                确认删除
+              </button>
+              <button id="acct-delete-cancel-btn"
+                style="padding:9px 18px;background:transparent;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-size:13px;cursor:pointer;">
+                取消
+              </button>
+            </div>
+          </div>
+          <div id="acct-danger-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button id="acct-delete-profile-btn"
+              style="padding:10px 18px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.3);border-radius:10px;color:var(--danger);font-size:14px;font-weight:500;cursor:pointer;transition:all .15s;"
+              onmouseover="this.style.background='rgba(248,113,113,0.18)'" onmouseout="this.style.background='rgba(248,113,113,0.08)'">
+              删除孩子档案
+            </button>
+            <button id="acct-logout-btn"
+              style="padding:10px 18px;background:transparent;border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:14px;cursor:pointer;transition:all .15s;"
+              onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+              退出登录
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 设备管理 -->
+      <div class="page" id="page-devices">
+        <div class="page-header">
+          <h2>设备管理</h2>
+          <p>管理绑定此孩子档案的所有设备</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">绑定设备</div>
+            <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
+          </div>
+          <div id="devices-list"><div class="empty"><div class="icon">💻</div>暂无绑定设备</div></div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><div class="card-title">如何绑定新设备</div></div>
+          <ol style="font-size:13px;color:var(--muted);line-height:2;padding-left:18px;margin:4px 0;">
+            <li>在孩子的 Chrome 浏览器中安装 <strong style="color:var(--text);">TimeOnChrome</strong> 扩展</li>
+            <li>点击扩展图标，打开管理面板</li>
+            <li>使用家长账号（当前账号）登录</li>
+            <li>选择「<strong style="color:var(--text);">此孩子档案</strong>」，自动完成绑定</li>
+          </ol>
+          <p style="font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+            💡 每台设备只能绑定一个孩子档案。如需换绑，请先在此页面解绑，再重新操作。
+          </p>
+        </div>
       </div>
 
       <!-- 待审核 -->
@@ -2007,10 +2020,6 @@ function setupRules() {
 
   // 保存
   document.getElementById('save-rules-btn').addEventListener('click', saveSiteAccessConfig);
-
-  // 导入导出
-  document.getElementById('export-rules-btn').addEventListener('click', exportSiteAccessConfig);
-  document.getElementById('import-rules-btn').addEventListener('click', importSiteAccessConfig);
 }
 
 window.toggleSystemConfig = (header) => {
@@ -2123,7 +2132,28 @@ function siteRuleDecision(rule = {}) {
 }
 
 function siteRuleValue(rule = {}) {
-  return rule.normalizedValue || rule.targetValue || rule.decisionNormalizedValue || rule.requestedNormalizedValue || rule.value || '—';
+  return canonicalDisplayUrlValue(rule.normalizedValue || rule.targetValue || rule.decisionNormalizedValue || rule.requestedNormalizedValue || rule.value || '—');
+}
+
+function canonicalDisplayUrlValue(value) {
+  const raw = String(value || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return raw;
+  try {
+    const parsed = new URL(raw);
+    const host = normalizeHostname(parsed.hostname);
+    const bareHost = host?.startsWith('www.') ? host.slice(4) : host;
+    const playlistId = String(parsed.searchParams.get('list') || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    if (playlistId && (host === 'youtube.com' || host?.endsWith('.youtube.com') || bareHost === 'youtu.be')) {
+      return `https://www.youtube.com/playlist?list=${playlistId}`;
+    }
+    const videoId = String(parsed.searchParams.get('v') || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    if (videoId && parsed.pathname === '/watch' && (host === 'youtube.com' || host?.endsWith('.youtube.com'))) {
+      return `https://www.youtube.com/watch?v=${videoId}`;
+    }
+    return raw;
+  } catch (_) {
+    return raw;
+  }
 }
 
 function siteRuleTypeLabel(rule = {}) {
@@ -2133,18 +2163,33 @@ function siteRuleTypeLabel(rule = {}) {
   return '精确链接';
 }
 
+function uniqueSiteRules(rules = []) {
+  const seen = new Set();
+  const out = [];
+  for (const rule of Array.isArray(rules) ? rules : []) {
+    const targetType = rule?.targetType || rule?.type || rule?.decisionTargetType || rule?.requestedTargetType || 'url';
+    const decision = siteRuleDecision(rule) || 'unknown';
+    const value = siteRuleValue(rule);
+    const key = `${decision}::${targetType}::${value}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(rule);
+  }
+  return out;
+}
+
 function approvedUrlRulesForListKey(listKey) {
   const decision = listKey === 'customStudyList'
     ? 'study'
     : listKey === 'customCompositeList'
       ? 'composite'
-      : listKey === 'customBlockedSites'
+      : listKey === 'customRestrictedEntertainmentList'
         ? 'reject'
         : null;
   if (!decision) return [];
-  return (Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : [])
+  return uniqueSiteRules((Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : [])
     .filter((rule) => (rule.targetType || rule.type || rule.decisionTargetType || rule.requestedTargetType) === 'url')
-    .filter((rule) => siteRuleDecision(rule) === decision);
+    .filter((rule) => siteRuleDecision(rule) === decision));
 }
 
 function renderTags(containerId, domains, listKey) {
@@ -2190,33 +2235,182 @@ window.removeDomain = (listKey, idx) => {
   }
 };
 
-// ── 导入/导出 ──────────────────────────────────────────────
-function exportSiteAccessConfig() {
+// ── Profile config import/export ─────────────────────────────
+function buildProfileConfigExportData(classificationRequests = []) {
+  const cfg = remoteConfig || {};
   const defaults = siteAccessDefaults || {};
-
-  // 只导出 custom 部分
-  const exportData = {
+  return {
     app: 'TimeOnChrome',
-    configType: 'site-access',
+    configType: 'profile-config',
     configVersion: 1,
-    description: 'User-managed site access configuration. System-configured lists are not included.',
-    studySites: remoteConfig.customStudyList || getCustomList(remoteConfig.studyList, defaults.defaultStudySites) || [],
-    compositeSites: remoteConfig.customCompositeList || getCustomList(remoteConfig.compositeList, defaults.defaultCompositeSites) || [],
-    restrictedEntertainmentSites: remoteConfig.customRestrictedEntertainmentList || getCustomList(remoteConfig.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites) || [],
-    blockedSites: remoteConfig.customBlockedSites || getCustomList(remoteConfig.unsafeList, defaults.defaultBlockedSites) || [],
+    exportedAt: new Date().toISOString(),
+    profile: {
+      id: currentProfileId || '',
+      name: profiles.find(p => p.id === currentProfileId)?.name || '',
+    },
+    siteAccess: {
+      systemDefaults: {
+        studySites: defaults.defaultStudySites || [],
+        compositeSites: defaults.defaultCompositeSites || [],
+        restrictedEntertainmentSites: defaults.defaultRestrictedEntertainmentSites || [],
+        blockedSites: defaults.defaultBlockedSites || [],
+      },
+      customLists: {
+        studySites: cfg.customStudyList || getCustomList(cfg.studyList, defaults.defaultStudySites) || [],
+        compositeSites: cfg.customCompositeList || getCustomList(cfg.compositeList, defaults.defaultCompositeSites) || [],
+        restrictedEntertainmentSites: cfg.customRestrictedEntertainmentList || getCustomList(cfg.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites) || [],
+        blockedSites: cfg.customBlockedSites || getCustomList(cfg.unsafeList, defaults.defaultBlockedSites) || [],
+      },
+      classificationRules: uniqueSiteRules(Array.isArray(cfg.siteClassificationRulesV1) ? cfg.siteClassificationRulesV1 : []).map(rule => ({
+        decision: siteRuleDecision(rule),
+        targetType: rule.targetType || rule.type || rule.decisionTargetType || rule.requestedTargetType || 'url',
+        displayType: siteRuleTypeLabel(rule),
+        normalizedValue: siteRuleValue(rule),
+        rawRule: rule,
+      })),
+      classificationRequests,
+    },
+    quota: {
+      timeQuota: cfg.timeQuota ? { daily: cfg.timeQuota.daily || {} } : { daily: {} },
+      domainQuotas: cfg.domainQuotas || {},
+      legacyQuotaSnapshot: {
+        dailyStudyQuota: cfg.dailyStudyQuota,
+        dailyRestQuota: cfg.dailyRestQuota,
+        dailyUndeterminedQuota: cfg.dailyUndeterminedQuota,
+        weeklyRestQuota: cfg.weeklyRestQuota,
+        dailyOnlineQuota: cfg.dailyOnlineQuota,
+      },
+    },
+    timeWindows: {
+      daily: sanitizeTimeWindowsDailyForConfigIo(cfg.timeWindows?.daily || {}),
+      note: 'onlineWindows is derived from study/composite/rest windows and is not imported as an editable field.',
+    },
   };
+}
 
+function sanitizeTimeWindowsDailyForConfigIo(daily = {}) {
+  const out = {};
+  for (const day of QUOTA_DAYS) {
+    const value = daily?.[day] || {};
+    out[day] = {
+      studyWindows: normalizeWindowListForConfigIo(value.studyWindows),
+      compositeWindows: normalizeWindowListForConfigIo(value.compositeWindows),
+      restWindows: normalizeWindowListForConfigIo(value.restWindows),
+    };
+  }
+  return out;
+}
+
+function normalizeWindowListForConfigIo(value) {
+  if (value === null) return null;
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .map(item => ({ start: String(item?.start || '').trim(), end: String(item?.end || '').trim() }))
+    .filter(item => item.start && item.end);
+}
+
+async function fetchAllSiteClassificationRequestsForExport() {
+  if (!currentProfileId) return [];
+  try {
+    const result = await api(`/profiles/${currentProfileId}/site-classification-requests/v1?status=all`);
+    return Array.isArray(result.requests) ? result.requests : [];
+  } catch (e) {
+    console.warn('[ConfigExport] classification request export failed:', e?.message || e);
+    return [];
+  }
+}
+
+async function exportProfileConfig() {
+  const requests = await fetchAllSiteClassificationRequestsForExport();
+  const exportData = buildProfileConfigExportData(requests);
   const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `timeonchrome-site-access-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `timeonchrome-profile-config-v1-${new Date().toISOString().slice(0,10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
   toast('配置已导出');
 }
 
-async function importSiteAccessConfig() {
+function assertStringArrayField(obj, field, label) {
+  if (obj[field] === undefined) return undefined;
+  if (!Array.isArray(obj[field])) throw new Error(`${label} 必须是数组`);
+  if (!obj[field].every(item => typeof item === 'string')) throw new Error(`${label} 必须全部是字符串`);
+  return obj[field];
+}
+
+function mergeImportedHostList(existing, incoming) {
+  if (incoming === undefined) return Array.isArray(existing) ? existing : [];
+  const result = [...(Array.isArray(existing) ? existing : [])];
+  const seen = new Set(result.map(item => String(item || '').toLowerCase()));
+  for (const item of incoming.map(normalizeSiteAccessInput).filter(Boolean)) {
+    const key = item.toLowerCase();
+    if (!seen.has(key)) {
+      result.push(item);
+      seen.add(key);
+    }
+  }
+  return result;
+}
+
+function normalizeImportedRule(rule) {
+  const raw = rule?.rawRule && typeof rule.rawRule === 'object' ? rule.rawRule : rule;
+  const decision = siteRuleDecision(rule) || siteRuleDecision(raw);
+  const value = rule?.normalizedValue || raw?.normalizedValue || raw?.targetValue || raw?.decisionNormalizedValue || raw?.requestedNormalizedValue || '';
+  const targetType = rule?.targetType || raw?.targetType || raw?.type || raw?.decisionTargetType || raw?.requestedTargetType || 'url';
+  if (!decision || !value) return null;
+  return {
+    ...raw,
+    decision,
+    targetType: targetType === 'host' ? 'host' : 'url',
+    normalizedValue: canonicalDisplayUrlValue(value),
+  };
+}
+
+function buildProfileConfigImportPayload(data) {
+  if (!data || typeof data !== 'object') throw new Error('无效的配置文件');
+  if (data.app !== 'TimeOnChrome' || data.configType !== 'profile-config') throw new Error('不是 TimeOnChrome profile 配置文件');
+  if (data.configVersion !== 1) throw new Error(`不支持的配置版本: ${data.configVersion}`);
+
+  const customLists = data.siteAccess?.customLists || {};
+  const importedRules = Array.isArray(data.siteAccess?.classificationRules)
+    ? data.siteAccess.classificationRules.map(normalizeImportedRule).filter(Boolean)
+    : [];
+  const importedTimeQuotaDaily = data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object'
+    ? data.quota.timeQuota.daily
+    : null;
+  const importedTimeWindowsDaily = data.timeWindows?.daily && typeof data.timeWindows.daily === 'object'
+    ? data.timeWindows.daily
+    : null;
+  const payload = {
+    customStudyList: mergeImportedHostList(remoteConfig?.customStudyList, assertStringArrayField(customLists, 'studySites', '学习网站')),
+    customCompositeList: mergeImportedHostList(remoteConfig?.customCompositeList, assertStringArrayField(customLists, 'compositeSites', '综合网站')),
+    customRestrictedEntertainmentList: mergeImportedHostList(remoteConfig?.customRestrictedEntertainmentList, assertStringArrayField(customLists, 'restrictedEntertainmentSites', '受限娱乐网站')),
+    customBlockedSites: mergeImportedHostList(remoteConfig?.customBlockedSites, assertStringArrayField(customLists, 'blockedSites', '黑名单网站')),
+    siteClassificationRulesV1: uniqueSiteRules([
+      ...(Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : []),
+      ...importedRules,
+    ]),
+    timeQuota: {
+      daily: importedTimeQuotaDaily || remoteConfig?.timeQuota?.daily || {},
+    },
+    domainQuotas: {
+      ...(remoteConfig?.domainQuotas || {}),
+      ...(data.quota?.domainQuotas && typeof data.quota.domainQuotas === 'object' ? data.quota.domainQuotas : {}),
+    },
+    timeWindows: {
+      daily: importedTimeWindowsDaily
+        ? sanitizeTimeWindowsDailyForConfigIo(importedTimeWindowsDaily)
+        : sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}),
+    },
+  };
+  const conflicts = findSiteAccessExactConflicts({ ...remoteConfig, ...payload });
+  if (conflicts.length > 0) throw new Error(formatSiteAccessConflict(conflicts[0]));
+  return payload;
+}
+
+async function importProfileConfig() {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/json';
@@ -2226,50 +2420,16 @@ async function importSiteAccessConfig() {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-
-      // Schema 校验
-      if (!data || typeof data !== 'object') throw new Error('无效的配置文件');
-      const requiredFields = ['studySites', 'compositeSites', 'restrictedEntertainmentSites', 'blockedSites'];
-      for (const field of requiredFields) {
-        if (!Array.isArray(data[field])) throw new Error(`缺少或无效字段: ${field}`);
-        if (!data[field].every(d => typeof d === 'string')) throw new Error(`${field} 必须全部是字符串`);
-      }
-
-      // 禁止内部字段
-      const forbiddenFields = ['defaultStudySites', 'effectiveStudyList', 'ruleOverrides', 'preferences', 'label', 'category', 'note', 'enabled'];
-      for (const field of forbiddenFields) {
-        if (data[field] !== undefined) throw new Error(`不允许包含字段: ${field}`);
-      }
-
-      // 合并到现有 custom 列表
-      const merge = (existing, incoming) => {
-        const set = new Set((existing || []).map(d => d.toLowerCase()));
-        const result = [...(existing || [])];
-        for (const d of incoming) {
-          if (!set.has(d.toLowerCase())) { result.push(d); set.add(d.toLowerCase()); }
-        }
-        return result;
-      };
-
-      const nextConfig = {
-        ...remoteConfig,
-        customStudyList: merge(remoteConfig.customStudyList, data.studySites.map(normalizeSiteAccessInput).filter(Boolean)),
-        customCompositeList: merge(remoteConfig.customCompositeList, data.compositeSites.map(normalizeSiteAccessInput).filter(Boolean)),
-        customRestrictedEntertainmentList: merge(remoteConfig.customRestrictedEntertainmentList, data.restrictedEntertainmentSites.map(normalizeSiteAccessInput).filter(Boolean)),
-        customBlockedSites: merge(remoteConfig.customBlockedSites, data.blockedSites.map(normalizeSiteAccessInput).filter(Boolean)),
-      };
-      const conflicts = findSiteAccessExactConflicts(nextConfig);
-      if (conflicts.length > 0) throw new Error(formatSiteAccessConflict(conflicts[0]));
-
-      remoteConfig.customStudyList = nextConfig.customStudyList;
-      remoteConfig.customCompositeList = nextConfig.customCompositeList;
-      remoteConfig.customRestrictedEntertainmentList = nextConfig.customRestrictedEntertainmentList;
-      remoteConfig.customBlockedSites = nextConfig.customBlockedSites;
-
-      renderRulesPage();
-      toast('配置已导入，请记得保存');
+      const payload = buildProfileConfigImportPayload(data);
+      await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+      const refreshed = await api(`/profiles/${currentProfileId}/config`);
+      remoteConfig = refreshed.data || {};
+      renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'account');
+      toast('配置已导入');
     } catch (err) {
-      toast('导入失败: ' + err.message, false);
+      toast('导入失败: ' + (err.message || err), false);
+      const msgEl = document.getElementById('acct-config-io-msg');
+      if (msgEl) showAcctMsg(msgEl, '导入失败：' + (err.message || err), false);
     }
   };
   input.click();
@@ -4440,7 +4600,7 @@ async function downloadCloudDataExport() {
 
     const backupManifest = {
       ...manifest,
-      appVersion: '1.7.3',
+      appVersion: '1.7.4',
       workerSchemaVersion: '013',
       range: { from, to },
       deviceScope: deviceId ? { type: 'single', deviceId } : { type: 'all' },
@@ -4830,6 +4990,9 @@ function setupAccount() {
 
   // Logout button in danger card
   document.getElementById('acct-logout-btn').addEventListener('click', logout);
+
+  document.getElementById('acct-export-config-btn')?.addEventListener('click', exportProfileConfig);
+  document.getElementById('acct-import-config-btn')?.addEventListener('click', importProfileConfig);
 }
 
 function renderAccountPage() {

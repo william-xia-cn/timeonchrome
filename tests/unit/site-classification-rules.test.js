@@ -57,6 +57,10 @@ async function run() {
   expectTrue('YouTube playlist URL should normalize', youtubePlaylist.ok);
   expectEqual('YouTube playlist URL canonical target', youtubePlaylist.normalizedValue, 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M');
   expectEqual('YouTube playlist canonical host', youtubePlaylist.host, 'www.youtube.com');
+  const youtubePlaylistPage = mod.normalizeSiteClassificationTarget('https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9');
+  expectEqual('YouTube playlist page URL canonical target', youtubePlaylistPage.normalizedValue, youtubePlaylist.normalizedValue);
+  const youtubePlaylistOtherVideo = mod.normalizeSiteClassificationTarget('https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=2');
+  expectEqual('YouTube playlist watch variants share canonical target', youtubePlaylistOtherVideo.normalizedValue, youtubePlaylist.normalizedValue);
   const youtubeVideo = mod.normalizeSiteClassificationTarget('https://www.youtube.com/watch?v=4CTQpUJRcSM&t=2s');
   expectEqual('YouTube standalone video URL canonical target', youtubeVideo.normalizedValue, 'https://www.youtube.com/watch?v=4CTQpUJRcSM');
   const youtuBeVideo = mod.normalizeSiteClassificationTarget('https://youtu.be/4CTQpUJRcSM?t=2');
@@ -75,6 +79,11 @@ async function run() {
     mod.siteTargetMatchesUrl(
       { targetType: 'url', normalizedValue: 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M' },
       'https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9'
+    ));
+  expectTrue('canonical YouTube playlist URL rule matches playlist page URL',
+    mod.siteTargetMatchesUrl(
+      { targetType: 'url', normalizedValue: 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M' },
+      'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=3'
     ));
   expectTrue('canonical YouTube playlist URL rule does not match another playlist',
     !mod.siteTargetMatchesUrl(

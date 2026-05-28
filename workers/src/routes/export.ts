@@ -1,5 +1,6 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { siteAccessDefaults } from '../config/site-access-defaults';
+import { normalizeSiteClassificationTarget } from '../../../extension/core/site-classification.js';
 
 type DatasetDef = {
   id: string;
@@ -280,11 +281,17 @@ async function exportTableDataset(env: Env, dataset: DatasetDef, profileId: stri
 
 function editableRuleType(rule: any): string {
   const targetType = rule.targetType || rule.decisionTargetType || 'url';
-  const value = rule.normalizedValue || rule.decisionNormalizedValue || '';
+  const value = editableRuleValue(rule);
   if (targetType === 'host') return String(value).split('.').length > 2 ? 'subdomain' : 'domain';
   if (/^https:\/\/www\.youtube\.com\/playlist\?list=/i.test(value)) return 'youtube_playlist';
   if (/^https:\/\/www\.youtube\.com\/watch\?v=/i.test(value)) return 'youtube_video';
   return 'url';
+}
+
+function editableRuleValue(rule: any): string {
+  const value = rule.normalizedValue || rule.decisionNormalizedValue || rule.targetValue || rule.requestedNormalizedValue || '';
+  const normalized = normalizeSiteClassificationTarget(value);
+  return normalized.ok && normalized.targetType === 'url' ? normalized.normalizedValue : value;
 }
 
 function siteAccessEditableFromConfig(config: any, requests: any[] = []) {
@@ -294,8 +301,8 @@ function siteAccessEditableFromConfig(config: any, requests: any[] = []) {
     .map((rule: any) => ({
       type: rule.targetType || rule.decisionTargetType || 'url',
       displayType: editableRuleType(rule),
-      value: rule.normalizedValue || rule.decisionNormalizedValue || '',
-      label: rule.label || rule.displayValue || rule.normalizedValue || '',
+      value: editableRuleValue(rule),
+      label: rule.label || rule.displayValue || editableRuleValue(rule),
       source: rule.source || 'parent',
       rule,
     }));

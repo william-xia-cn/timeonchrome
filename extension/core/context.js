@@ -54,6 +54,7 @@ function foregroundDomainFromEvent({ tabId = null, url = undefined, domain = und
  * @property {number} timestamp
  * @property {number|null} lastActiveTabId
  * @property {number|null} lastFocusedWindowId
+ * @property {boolean} incognito
  */
 export function buildContext(current, rawEvent) {
   const isMediaSignal = rawEvent.mediaSourceTabId != null && rawEvent.domain == null;
@@ -117,5 +118,6 @@ export function buildContext(current, rawEvent) {
     // 关键：追踪最后状态，防止 window blur/focus 循环导致状态错乱
     lastActiveTabId: isMediaSignal ? current?.lastActiveTabId : (rawEvent.tabId ?? current?.lastActiveTabId),
     lastFocusedWindowId: rawEvent.windowId ?? current?.lastFocusedWindowId,
+    incognito: rawEvent.incognito ?? current?.incognito ?? false,
   };
 }

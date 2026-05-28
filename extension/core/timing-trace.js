@@ -1,6 +1,11 @@
 // core/timing-trace.js — structured timing trace collector (test/diagnostic only)
 // Uses chrome.storage.local key __timingTrace for Playwright retrieval.
 // Does NOT affect business logic; all emitTrace calls are fire-and-forget.
+import { sanitizeIncognitoForPersistence } from './incognito-persistence.js';
+
+const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
+  ? sanitizeIncognitoForPersistence
+  : (value) => value;
 
 const TRACE_KEY = '__timingTrace';
 const MAX_TRACE_ENTRIES = 1000;
@@ -51,7 +56,7 @@ export async function emitTrace(action, fields = {}) {
       statsAfter: fields.statsAfter ?? null,
       payload: fields.payload ?? {},
     };
-    trace.push(entry);
+    trace.push(sanitizePersistence(entry, fields));
     if (trace.length > MAX_TRACE_ENTRIES) {
       trace.splice(0, trace.length - MAX_TRACE_ENTRIES);
     }

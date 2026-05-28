@@ -72,6 +72,13 @@ function run() {
   expectTrue('Pages 应包含系统管理导航', source.includes('data-page="system-management"') && source.includes('系统管理'));
   expectTrue('Pages 系统管理导航应位于账户设置之后', source.indexOf('data-page="account"') < source.indexOf('data-page="system-management"'));
   expectTrue('Pages 系统管理应包含网页落账/媒体落账/系统日志/数据备份与恢复 Tab', source.includes('data-system-management-tab="web-settlements"') && source.includes('data-system-management-tab="media-settlements"') && source.includes('data-system-management-tab="client-logs"') && source.includes('data-system-management-tab="backup-restore"'));
+  const systemPageStart = source.indexOf('<div class="page" id="page-system-management">');
+  const reconciliationPageStart = source.indexOf('<div class="page" id="page-reconciliation">');
+  const devicesPageStart = source.indexOf('<div class="page" id="page-devices">');
+  const systemPageSlice = source.slice(systemPageStart, reconciliationPageStart);
+  expectTrue('Pages 统计对账应是顶层页面而不是系统管理子页面', systemPageStart >= 0 && reconciliationPageStart > systemPageStart && !systemPageSlice.includes('id="page-reconciliation"'));
+  expectTrue('Pages 设备管理应是顶层页面而不是系统管理子页面', devicesPageStart > reconciliationPageStart && !systemPageSlice.includes('id="page-devices"'));
+  expectTrue('Pages 系统管理仍应包含全部内部面板', systemPageSlice.includes('data-system-management-panel="web-settlements"') && systemPageSlice.includes('data-system-management-panel="media-settlements"') && systemPageSlice.includes('data-system-management-panel="client-logs"') && systemPageSlice.includes('data-system-management-panel="backup-restore"'));
   expectTrue('Pages 普通落账应改名为网页落账', source.includes('网页落账') && !source.includes('落账明细</span>'));
   expectTrue('Pages 落账页应读取 usage-segments/v1', source.includes('/usage-segments/v1'));
   expectTrue('Pages 落账页应支持终端筛选和终端列', source.includes('settlement-device-input') && source.includes("params.set('deviceId', deviceInput.value)") && source.includes('终端'));
@@ -91,6 +98,14 @@ function run() {
   expectTrue('Pages 云端数据下载应提示不支持目录选择的浏览器', source.includes('当前浏览器不支持直接选择目录下载'));
   expectTrue('Pages 应支持备份目录预检和恢复', source.includes('cloud-restore-select-btn') && source.includes('/restore/v1/preflight') && source.includes('/restore/v1/commit'));
   expectTrue('Pages 恢复应区分安全合并和整包覆盖', source.includes('安全合并恢复') && source.includes('整包覆盖恢复') && source.includes("confirmText: replace ? confirmText : undefined"));
+  expectTrue('Pages 网站管理不应再包含独立导入导出按钮', !source.includes('import-rules-btn') && !source.includes('export-rules-btn'));
+  expectTrue('Pages 账户设置应包含配置导入与导出入口', source.includes('配置导入与导出') && source.includes('acct-export-config-btn') && source.includes('acct-import-config-btn'));
+  expectTrue('Pages 配置导出应为 profile-config 结构', source.includes("configType: 'profile-config'") && source.includes('siteAccess') && source.includes('quota') && source.includes('timeWindows'));
+  expectTrue('Pages 配置导出应区分系统配置和家长自定义', source.includes('systemDefaults') && source.includes('customLists') && source.includes('classificationRules') && source.includes('classificationRequests'));
+  expectTrue('Pages 配置导入不应写回 systemDefaults', !extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('systemDefaults'));
+  expectTrue('Pages 配置导入应提交最小可写字段', extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('customStudyList') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('siteClassificationRulesV1') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeQuota') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeWindows'));
+  expectTrue('Pages 配置导入成功后应重新读取 config', extractFunctionSource(source, 'importProfileConfig').includes("api(`/profiles/${currentProfileId}/config`)"));
+  expectTrue('Pages 配置导入应复用现有 PUT config API', extractFunctionSource(source, 'importProfileConfig').includes("api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload })"));
   expectTrue('Pages 落账相关域名筛选应标明关键词筛选', (source.match(/placeholder="域名关键词筛选"/g) || []).length >= 3);
   expectTrue('Pages 落账页应支持今日/昨日/本周/全部', source.includes('data-settlement-range="today"') && source.includes('data-settlement-range="yesterday"') && source.includes('data-settlement-range="week"') && source.includes('data-settlement-range="all"'));
   expectTrue('Pages 落账页应支持 nextCursor 加载更多', source.includes('nextCursor') && source.includes('settlement-load-more-btn'));
@@ -104,7 +119,9 @@ function run() {
   expectTrue('Pages 网站归类申请应支持三种审批动作', source.includes('批准为学习网站') && source.includes('批准为综合网站') && source.includes('拒绝'));
   expectTrue('Pages 网站归类申请应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
   expectTrue('Pages 访问规则页不应单独展示已批准精确链接规则', !source.includes('已批准精确链接 / 管理对象规则') && !source.includes('r-approved-target-rules-display') && !source.includes('renderApprovedTargetRules'));
-  expectTrue('Pages 访问规则页应把已批准 URL 规则合并到对应分类', source.includes('approvedUrlRulesForListKey') && source.includes("listKey === 'customStudyList'") && source.includes("listKey === 'customCompositeList'") && source.includes("listKey === 'customBlockedSites'"));
+  expectTrue('Pages 访问规则页应把已批准 URL 规则合并到对应分类', source.includes('approvedUrlRulesForListKey') && source.includes("listKey === 'customStudyList'") && source.includes("listKey === 'customCompositeList'") && source.includes("listKey === 'customRestrictedEntertainmentList'") && !source.includes("listKey === 'customBlockedSites'\\n        ? 'reject'"));
+  expectTrue('Pages URL 规则展示应去重', source.includes('function uniqueSiteRules') && source.includes('return uniqueSiteRules'));
+  expectTrue('Pages URL 规则展示应规范化 YouTube playlist 历史值', source.includes('function canonicalDisplayUrlValue') && source.includes('https://www.youtube.com/playlist?list=${playlistId}'));
   expectTrue('Pages 访问规则添加/导入/保存应校验精确跨类重复', source.includes('function findSiteAccessExactConflicts') && source.includes('formatSiteAccessConflict') && source.includes('SITE_ACCESS_CATEGORY_FIELDS'));
   expectTrue('Pages 应包含系统日志 Tab 和查询接口', source.includes('data-system-management-panel="client-logs"') && source.includes('/client-logs/v1'));
   expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));
@@ -149,8 +166,6 @@ function run() {
     },
     renderTagsFiltered: () => {},
     saveSiteAccessConfig: () => {},
-    exportSiteAccessConfig: () => {},
-    importSiteAccessConfig: () => {},
     remoteConfig: { studyList: [] },
     this: null
   };

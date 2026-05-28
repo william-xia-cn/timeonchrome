@@ -1,4 +1,9 @@
 // core/event-log.js — append-only 事件日志（唯一写入点）
+import { sanitizeIncognitoForPersistence } from './incognito-persistence.js';
+
+const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
+  ? sanitizeIncognitoForPersistence
+  : (value) => value;
 
 export const EVENT_TYPE = {
   START: 'START',
@@ -34,7 +39,7 @@ export async function getLastEvent() {
  */
 export async function appendEvent(event) {
   const events = await getEvents();
-  events.push(event);
+  events.push(sanitizePersistence(event));
 
   // 定期压缩：每小时清理一次超过 24 小时的旧事件
   const now = Date.now();

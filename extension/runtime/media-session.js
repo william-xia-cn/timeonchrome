@@ -2,6 +2,11 @@
 
 import { getCachedEffectiveMode, resolveSettlementIdentity } from './session.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
+import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
+
+const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
+  ? sanitizeIncognitoForPersistence
+  : (value) => value;
 
 const LEGACY_MEDIA_SESSION_KEY = 'media_session_v1';
 const MEDIA_FACTS_KEY = 'media_facts_v1';
@@ -264,6 +269,7 @@ function normalizeMediaFact(fact = {}, reason = 'media_fact', atMs = Date.now())
     windowState: typeof fact.windowState === 'string' ? fact.windowState : null,
     source: typeof fact.source === 'string' && fact.source.trim() ? fact.source.trim() : 'unknown',
     reason: typeof reason === 'string' && reason.trim() ? reason.trim() : 'media_fact',
+    incognito: fact.incognito === true,
     clearMediaFrames: fact.clearMediaFrames === true,
     lastObservedAt: observedAt,
   };
@@ -313,6 +319,7 @@ function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
     windowState: chosen?.windowState || latest.windowState || null,
     source: chosen?.source || latest.source || 'unknown',
     reason: chosen?.reason || latest.reason || 'media_fact',
+    incognito: tabFacts.some((fact) => fact.incognito === true) || latest.incognito === true,
     lastObservedAt,
     frameCount: tabFacts.length,
     activeFrameCount: activeFacts.length,
@@ -409,11 +416,12 @@ function makeMediaSegmentId(input) {
 }
 
 function buildMediaSegment(input) {
+  input = sanitizePersistence(input);
   const info = getLocalDateInfo(input.startMs, input.timezone || DEFAULT_TIMEZONE);
   const date = input.date || info.date;
   const durationMs = Math.max(0, (input.endMs || 0) - (input.startMs || 0));
   return {
-    id: input.id || makeMediaSegmentId({ ...input, date }),
+    id: input.incognito === true ? makeMediaSegmentId({ ...input, date }) : (input.id || makeMediaSegmentId({ ...input, date })),
     schemaVersion: 1,
     profileId: input.profileId || null,
     deviceId: input.deviceId || null,
@@ -427,6 +435,7 @@ function buildMediaSegment(input) {
     domain: normalizeDomain(input.domain),
     tabId: input.tabId ?? null,
     windowId: Number.isInteger(input.windowId) ? input.windowId : null,
+    incognito: input.incognito === true,
     mediaClass: MEDIA_CLASSES.has(input.mediaClass) ? input.mediaClass : 'backgroundAudio',
     mediaKind: input.mediaKind || 'audio',
     visibility: input.visibility || 'background',
@@ -558,6 +567,7 @@ async function syncLegacyMediaSession(sessions = {}) {
       tabId: open.tabId ?? null,
       windowId: open.windowId ?? null,
       mediaClass: open.mediaClass,
+      incognito: open.incognito === true,
     },
   });
 }
@@ -568,7 +578,8 @@ async function appendMediaSegments(segments) {
   const data = await chrome.storage.local.get(MEDIA_SEGMENTS_KEY);
   const all = data?.[MEDIA_SEGMENTS_KEY] || {};
   let appended = 0;
-  for (const segment of flat) {
+  for (const rawSegment of flat) {
+    const segment = sanitizePersistence(rawSegment);
     if (!segment?.id) continue;
     if (all[segment.id]) continue;
     all[segment.id] = { ...segment, updatedAt: Date.now() };
@@ -775,7 +786,7 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary', opt
     return { appended: 0, durationSeconds: 0, skipped: 'invalid_media_session' };
   }
   const identity = await resolveSettlementIdentity(
-    { domain: session.domain, state: 'MEDIA_ACTIVE' },
+    { domain: session.domain, state: 'MEDIA_ACTIVE', incognito: session.incognito === true },
     reason
   );
   const input = {
@@ -786,6 +797,7 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary', opt
     domain: session.domain,
     tabId: session.tabId,
     windowId: session.windowId,
+    incognito: session.incognito === true,
     mediaClass: session.mediaClass,
     mediaKind: session.mediaKind,
     visibility: session.visibility,
@@ -909,6 +921,7 @@ function openSessionFromFact(fact, classification, reason, atMs) {
     startOperationSource: 'media',
     startAtMs: atMs,
     mode: getCachedEffectiveMode() || 'unknown',
+    incognito: fact.incognito === true,
   };
 }
 
@@ -1035,6 +1048,7 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
           ...existing,
           windowId: tabFact.windowId,
           lastObservedAt: atMs,
+          incognito: existing.incognito === true || tabFact.incognito === true,
         };
         results.push({ ok: true, tabId: tabFact.tabId, mediaClass: classification.mediaClass, changed: false, frameId: fact.frameId });
         continue;
@@ -1091,12 +1105,14 @@ export async function runMediaPeriodicCheckpoint(now = Date.now()) {
           reason: confirmation?.reason || 'media_checkpoint_confirmation_failed',
           message: 'Media checkpoint used estimated close fallback',
           domain: session.domain || null,
+          incognito: session.incognito === true,
           details: {
             tabId: session.tabId ?? null,
             windowId: session.windowId ?? null,
             mediaClass: session.mediaClass || null,
             closeAt,
             lastConfirmedAt,
+            incognito: session.incognito === true,
           },
         });
         flushedSegments += settlement.appended || 0;
@@ -1121,11 +1137,13 @@ export async function runMediaPeriodicCheckpoint(now = Date.now()) {
             reason: 'last_confirmed_before_checkpoint',
             message: 'Media checkpoint used estimated close fallback because confirmation was stale',
             domain: session.domain || null,
+            incognito: session.incognito === true,
             details: {
               tabId: session.tabId ?? null,
               windowId: session.windowId ?? null,
               mediaClass: session.mediaClass || null,
               closeAt,
+              incognito: session.incognito === true,
               lastConfirmedAt,
               checkpointEnd,
             },
@@ -1540,7 +1558,7 @@ export async function buildMediaSegmentsUploadPayload(segmentIds) {
   const allSegments = data?.[MEDIA_SEGMENTS_KEY] || {};
   const segments = [];
   for (const id of ids) {
-    const seg = allSegments[id];
+    const seg = sanitizePersistence(allSegments[id]);
     if (!seg) continue;
     segments.push({
       id: seg.id,

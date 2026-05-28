@@ -13,6 +13,11 @@
 // - background.js        → tab close, monitoring off
 
 import { evaluateSuspectSegment } from './suspect-segments.js';
+import { sanitizeIncognitoForPersistence } from './incognito-persistence.js';
+
+const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
+  ? sanitizeIncognitoForPersistence
+  : (value) => value;
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────────
 
@@ -424,6 +429,7 @@ function normalizeSegmentDescription(description) {
  * 从结算后的输入构建完整的 segment 对象。
  */
 export function buildUsageSegment(input) {
+  input = sanitizePersistence(input);
   // 从 startMs 推导日期（如果未提供）
   let date = input.date;
   if (!date && typeof input.startMs === 'number') {
@@ -434,7 +440,7 @@ export function buildUsageSegment(input) {
   const targetSnapshot = normalizeTargetSnapshot({ ...input, mode: input.mode || 'unknown' });
 
   const seg = {
-    id: input.id || generateSegmentId({ ...input, date }),
+    id: input.incognito === true ? generateSegmentId({ ...input, date }) : (input.id || generateSegmentId({ ...input, date })),
     schemaVersion: 1,
     profileId: input.profileId || null,
     deviceId: input.deviceId || null,
@@ -448,6 +454,7 @@ export function buildUsageSegment(input) {
     domain: input.domain || '',
     tabId: Number.isInteger(input.tabId) ? input.tabId : null,
     windowId: Number.isInteger(input.windowId) ? input.windowId : null,
+    incognito: input.incognito === true,
     ...targetSnapshot,
     channel: input.channel,
     mode: input.mode || 'unknown',
@@ -486,7 +493,8 @@ export async function appendUsageSegments(segments) {
   let appended = 0;
   const flatSegments = Array.isArray(segments) ? segments : [segments];
 
-  for (const seg of flatSegments) {
+  for (const rawSeg of flatSegments) {
+    const seg = sanitizePersistence(rawSeg);
     if (!seg || !seg.id || !isValidSegmentId(seg.id)) continue;
     if (allSegments[seg.id]) continue; // 幂等
 
@@ -1625,7 +1633,7 @@ export async function buildUsageSegmentsUploadPayload(segmentIds) {
 
   const segments = [];
   for (const id of ids) {
-    const seg = allSegments[id];
+    const seg = sanitizePersistence(allSegments[id]);
     if (!seg) continue;
     segments.push({
       id: seg.id,

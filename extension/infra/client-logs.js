@@ -1,4 +1,12 @@
 // infra/client-logs.js — local client logging foundation
+import { INCOGNITO_PLACEHOLDER_DOMAIN, sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
+
+const INCOGNITO_DOMAIN = typeof INCOGNITO_PLACEHOLDER_DOMAIN === 'string'
+  ? INCOGNITO_PLACEHOLDER_DOMAIN
+  : 'anonymous.private';
+const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
+  ? sanitizeIncognitoForPersistence
+  : (value) => value;
 
 export const CLIENT_LOGS_KEY = 'client_logs_v1';
 export const CLIENT_LOG_CONFIG_KEY = 'client_log_config_v1';
@@ -310,6 +318,8 @@ export async function logClientEvent(event = {}) {
     if (!shouldRecordLocal({ level, category, policy })) return { ok: true, skipped: 'policy' };
 
     const timestamp = nowMs();
+    const incognito = event.incognito === true || event.details?.incognito === true;
+    const sanitizedDetails = sanitizePersistence(sanitizeDetails(event.details || null), { incognito });
     const log = {
       id: makeLogId(timestamp),
       timestamp,
@@ -321,9 +331,9 @@ export async function logClientEvent(event = {}) {
       deviceId,
       bindingState,
       extensionVersion: runtimeManifestVersion(),
-      domain: normalizeDomain(event.domain || '') || null,
+      domain: incognito ? INCOGNITO_DOMAIN : (normalizeDomain(event.domain || '') || null),
       module: redactString(event.module || category).slice(0, 80),
-      details: sanitizeDetails(event.details || null),
+      details: sanitizedDetails,
       uploadStatus: 'local_only',
       uploadAttempts: 0,
       lastUploadError: null,
@@ -508,7 +518,8 @@ export async function markClientLogUploadFailed(ids = [], error = 'upload_failed
 }
 
 export function sanitizeClientLogForUpload(log) {
-  return {
+  const incognito = log?.incognito === true || log?.details?.incognito === true || log?.domain === INCOGNITO_DOMAIN;
+  return sanitizePersistence({
     id: log.id,
     timestamp: Number(log.timestamp || 0),
     level: normalizeLevel(log.level),
@@ -517,8 +528,9 @@ export function sanitizeClientLogForUpload(log) {
     message: redactString(log.message || ''),
     bindingState: log.bindingState || 'unknown',
     extensionVersion: log.extensionVersion || null,
-    domain: normalizeDomain(log.domain || '') || null,
+    domain: incognito ? INCOGNITO_DOMAIN : (normalizeDomain(log.domain || '') || null),
     module: redactString(log.module || '').slice(0, 80),
     details: sanitizeDetails(log.details || null),
-  };
+    incognito,
+  }, { incognito });
 }

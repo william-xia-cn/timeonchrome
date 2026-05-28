@@ -68,6 +68,7 @@ this.__resolveModeUsageWithLive = resolveModeUsageWithLive;
 this.__formatRuntimeSessionDuration = formatRuntimeSessionDuration;
 this.__setMode = setMode;
 this.__renderRuntimeStatus = renderRuntimeStatus;
+this.__previewSiteClassificationTarget = previewSiteClassificationTarget;
 `, context, { filename: 'popup.js' });
   const resolveDomainTag = context.__resolveDomainTag;
   const resolveTodayDomainSeconds = context.__resolveTodayDomainSeconds;
@@ -76,8 +77,24 @@ this.__renderRuntimeStatus = renderRuntimeStatus;
   const formatRuntimeSessionDuration = context.__formatRuntimeSessionDuration;
   const setMode = context.__setMode;
   const renderRuntimeStatus = context.__renderRuntimeStatus;
+  const previewSiteClassificationTarget = context.__previewSiteClassificationTarget;
 
   expectEqual('no domain -> 不计时页面', resolveDomainTag(null, {}), '不计时页面');
+  let preview = previewSiteClassificationTarget('example.com');
+  expectEqual('preview domain scope', preview.scopeLabel, '整个域名');
+  expectEqual('preview domain normalized', preview.normalizedValue, 'example.com');
+  preview = previewSiteClassificationTarget('learn.example.com');
+  expectEqual('preview subdomain scope', preview.scopeLabel, '子域名');
+  preview = previewSiteClassificationTarget('https://example.com/a?x=1#hash');
+  expectEqual('preview exact url scope', preview.scopeLabel, '当前完整链接');
+  expectEqual('preview exact url strips hash', preview.normalizedValue, 'https://example.com/a?x=1');
+  preview = previewSiteClassificationTarget('https://www.youtube.com/watch?v=4CTQpUJRcSM&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=3&t=2s');
+  expectEqual('preview youtube playlist scope', preview.scopeLabel, 'YouTube 播放列表');
+  expectEqual('preview youtube playlist canonical', preview.normalizedValue, 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M');
+  expectEqual('preview youtube playlist summary text', preview.summaryValue, '系统将按「YouTube 播放列表」申请，已识别为 YouTube 播放列表 list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M。');
+  preview = previewSiteClassificationTarget('https://youtu.be/4CTQpUJRcSM?t=2');
+  expectEqual('preview youtube video scope', preview.scopeLabel, 'YouTube 视频');
+  expectEqual('preview youtube video canonical', preview.normalizedValue, 'https://www.youtube.com/watch?v=4CTQpUJRcSM');
   expectEqual(
     'study domain -> 学习网站',
     resolveDomainTag('chatgpt.com', { studyList: ['chatgpt.com'] }),
@@ -87,6 +104,17 @@ this.__renderRuntimeStatus = renderRuntimeStatus;
     'custom study domain -> 学习网站',
     resolveDomainTag('baidu.com', { customStudyList: ['baidu.com'] }),
     '学习网站'
+  );
+  expectEqual(
+    'rejected exact URL -> 受限娱乐网站',
+    resolveDomainTag('www.youtube.com', {
+      siteClassificationRulesV1: [{
+        targetType: 'url',
+        normalizedValue: 'https://www.youtube.com/playlist?list=PL1',
+        decision: 'reject',
+      }],
+    }, 'https://www.youtube.com/playlist?list=PL1'),
+    '受限娱乐网站'
   );
   expectEqual(
     'composite domain -> 综合网站',

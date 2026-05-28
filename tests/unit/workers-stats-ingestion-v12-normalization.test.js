@@ -62,6 +62,7 @@ function run() {
   const migration012 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '012_cloud_terminal_stats_consistency.sql'), 'utf8');
   const migration013 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '013_managed_target_stats_v1.sql'), 'utf8');
   const clientLogsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'clientLogs.ts'), 'utf8');
+  const exportSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'export.ts'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
 
   expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../extension/core/domain-semantics.js';"));
@@ -140,6 +141,7 @@ function run() {
   expectTrue('网站归类申请应支持设备提交和读取', siteRequestsSource.includes("path === '/device/site-classification-requests/v1'") && siteRequestsSource.includes('request.method === \'POST\'') && siteRequestsSource.includes('request.method === \'GET\''));
   expectTrue('网站归类申请应支持家长读取和审批', siteRequestsSource.includes('/site-classification-requests/v1') && siteRequestsSource.includes('/decision') && siteRequestsSource.includes('verifyProfileOwner'));
   expectTrue('网站归类申请应拒绝已归类对象重新申请', siteRequestsSource.includes('ALREADY_CLASSIFIED') && siteRequestsSource.includes('getConfiguredClassificationForTarget'));
+  expectTrue('网站归类申请应使用规范化对象做重复判断', siteRequestsSource.includes('requested_normalized_value') && siteRequestsSource.includes('target.normalizedValue'));
   expectTrue('网站归类申请审批应更新 profile config/version', siteRequestsSource.includes('siteClassificationRulesV1') && siteRequestsSource.includes('version = version + 1'));
   expectTrue('网站归类申请审批应支持学习/综合/拒绝三类决定', siteRequestsSource.includes('normalizeSiteClassificationDecision') && siteRequestsSource.includes('decisionToStatus') && siteRequestsSource.includes('decision === \'study\'') && siteRequestsSource.includes('decision === \'composite\''));
   expectTrue('profile 默认配置应包含 siteClassificationRulesV1', profileSource.includes('siteClassificationRulesV1: []') && profileSource.includes("'siteClassificationRulesV1'"));
@@ -148,6 +150,7 @@ function run() {
   const siteAccessKeyBlock = (profileSource.match(/const SITE_ACCESS_CONFIG_KEYS[\s\S]*?\]\);/) || [''])[0];
   expectTrue('profile 配置保存仅在访问规则字段提交时校验冲突', profileSource.includes('shouldValidateSiteAccess') && profileSource.includes('if (shouldValidateSiteAccess)'));
   expectTrue('profile 日志策略保存不应触发访问规则冲突校验', siteAccessKeyBlock.includes("'siteClassificationRulesV1'") && !siteAccessKeyBlock.includes('clientLoggingPolicyV1'));
+  expectTrue('备份导出网站规则应规范化 YouTube URL', exportSource.includes('normalizeSiteClassificationTarget') && exportSource.includes('editableRuleValue'));
   expectTrue('Worker 应注册客户端日志路由', workerIndexSource.includes('clientLogsRouter') && workerIndexSource.includes('/client-logs'));
   expectTrue('010 migration 应创建 client_logs_v1 并按 profile/device 建索引', migration010.includes('CREATE TABLE IF NOT EXISTS client_logs_v1') && migration010.includes('idx_client_logs_profile_device_time'));
   expectTrue('client logs 上传必须使用 device token 归属 profile/device', clientLogsSource.includes("path === '/device/client-logs/v1'") && clientLogsSource.includes('verifyDeviceToken') && clientLogsSource.includes('profileId: identity.profileId'));

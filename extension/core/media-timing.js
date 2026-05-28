@@ -125,6 +125,7 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     isActiveTab: overrides.isActiveTab === true || tab?.active === true,
     windowState: overrides.windowState || win.state || stored?.windowState || null,
     source: overrides.mediaFactSource || overrides.source || stored?.source || 'chrome_tab_query',
+    incognito: overrides.incognito === true || tab?.incognito === true || stored?.incognito === true,
     clearMediaFrames: overrides.clearMediaFrames === true,
   };
 }
@@ -151,7 +152,7 @@ async function emitPiPPolicyTrace(action, payload) {
   } catch {}
 }
 
-async function enforceForbiddenPiPForTab(tabId, reason = 'pip_forbidden_cleanup', atMs = Date.now(), domain = null) {
+async function enforceForbiddenPiPForTab(tabId, reason = 'pip_forbidden_cleanup', atMs = Date.now(), domain = null, incognito = false) {
   const normalizedTabId = numericTabId(tabId);
   if (normalizedTabId == null) return { ok: false, skipped: 'invalid_tab_id' };
   const disallowed = typeof isPictureInPictureDisallowed === 'function'
@@ -178,7 +179,8 @@ async function enforceForbiddenPiPForTab(tabId, reason = 'pip_forbidden_cleanup'
       reason: 'pip_forbidden_cleanup_failed',
       message: 'PiP policy cleanup fallback failed; PiP session remains factual until confirmed closed',
       domain,
-      details: { tabId: normalizedTabId, cleanup },
+      incognito: incognito === true,
+      details: { tabId: normalizedTabId, cleanup, incognito: incognito === true },
     });
     return { ok: false, cleanup, reason: 'pip_forbidden_cleanup_failed' };
   }
@@ -203,7 +205,7 @@ export async function enforceForbiddenPiPForOpenSessions(reason, atMs = Date.now
     .filter((session) => session?.startTime != null && session.mediaClass === 'pip');
   const results = [];
   for (const session of pipSessions) {
-    results.push(await enforceForbiddenPiPForTab(session.tabId, reason, atMs, session.domain));
+    results.push(await enforceForbiddenPiPForTab(session.tabId, reason, atMs, session.domain, session.incognito === true));
   }
   return {
     ok: results.every((result) => result.ok !== false),
@@ -376,7 +378,7 @@ export async function observeMediaFromSignal(rawEvent = {}) {
   }
   const result = await applyMediaFacts(fact, rawEvent._reason || 'media_fact', atMs);
   if (isPiPFact) {
-    pipPolicy = await enforceForbiddenPiPForTab(fact.tabId, rawEvent._reason || 'media_fact', atMs, fact.domain);
+    pipPolicy = await enforceForbiddenPiPForTab(fact.tabId, rawEvent._reason || 'media_fact', atMs, fact.domain, fact.incognito === true);
   }
   return {
     fact,

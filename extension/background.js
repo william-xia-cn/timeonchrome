@@ -591,6 +591,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     source: 'webNavigationCommitted',
     tabId,
     url: url || tab?.url || '',
+    incognito: tab?.incognito === true,
     foreground,
   }, { recheck: false });
   scheduleModeBoundaryDrain('webNavigationCommitted');
@@ -611,6 +612,7 @@ chrome.webNavigation.onHistoryStateUpdated?.addListener?.(async (details) => {
     source: 'webNavigationHistoryStateUpdated',
     tabId,
     url: url || tab?.url || '',
+    incognito: tab?.incognito === true,
     foreground,
   }, { recheck: false });
   scheduleModeBoundaryDrain('webNavigationHistoryStateUpdated');
@@ -716,6 +718,7 @@ async function reevaluateTabById(tabId, options = {}) {
     source: options.source || 'tabReevaluate',
     tabId,
     url: targetUrl,
+    incognito: tab?.incognito === true,
     foreground,
   }, { recheck: false });
   scheduleModeBoundaryDrain('reevaluateTab');
@@ -1069,6 +1072,7 @@ globalThis.debugTriggerAutoTransition = async (options = {}) => {
       source: 'debug_auto_transition_start',
       tabId: tab.id,
       url: tab.url,
+      incognito: tab?.incognito === true,
       nowMs: startMs,
       foreground: true,
     }, { recheck: false });
@@ -1077,6 +1081,7 @@ globalThis.debugTriggerAutoTransition = async (options = {}) => {
       source: 'debug_auto_transition_end',
       tabId: tab.id,
       url: tab.url,
+      incognito: tab?.incognito === true,
       nowMs: endMs,
       foreground: true,
     }, { recheck: false });
@@ -1340,6 +1345,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           source: 'debug_auto_transition_start',
           tabId: tab.id,
           url: tab.url,
+          incognito: tab?.incognito === true,
           nowMs: startMs,
           foreground: true,
         }, { recheck: false });
@@ -1348,6 +1354,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           source: 'debug_auto_transition_end',
           tabId: tab.id,
           url: tab.url,
+          incognito: tab?.incognito === true,
           nowMs: endMs,
           foreground: true,
         }, { recheck: false });

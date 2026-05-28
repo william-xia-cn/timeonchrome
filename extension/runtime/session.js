@@ -6,6 +6,11 @@ import { getReliableCloseTime } from './time-boundary.js';
 import { isCountedState, settleUsageDuration } from '../core/usage-segments.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
 import * as managedTargets from '../core/managed-targets.js';
+import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
+
+const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
+  ? sanitizeIncognitoForPersistence
+  : (value) => value;
 
 const SESSION_KEY = 'session_v1';
 const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
@@ -45,6 +50,7 @@ async function recordForegroundDiagnostic(updates = {}) {
   try {
     const data = await chrome.storage.local.get(FOREGROUND_DIAGNOSTICS_KEY);
     const current = data?.[FOREGROUND_DIAGNOSTICS_KEY] || {};
+    updates = sanitizePersistence(updates);
     const next = { ...current };
     for (const [key, value] of Object.entries(updates)) {
       if (typeof value === 'number' && !FOREGROUND_DIAGNOSTIC_ASSIGN_KEYS.has(key)) {
@@ -211,6 +217,7 @@ function sessionMetadataFromOptions(options = {}) {
   return {
     tabId: Number.isInteger(options.tabId) ? options.tabId : null,
     windowId: Number.isInteger(options.windowId) ? options.windowId : null,
+    incognito: options.incognito === true,
     domainResolutionReason: options.domainResolutionReason || null,
     domainResolutionError: options.domainResolutionError || null,
   };
@@ -506,6 +513,7 @@ async function resolveUnknownSessionForSettlement(timingSession, reason, options
       lastUnknownRecoveryAt: Date.now(),
       lastUnknownRecoveryDomain: recovered.domain,
       lastUnknownRecoveryReason: result.reason || 'unknown_recovered_at_settlement',
+      incognito: timingSession.incognito === true,
     });
     return recovered;
   }
@@ -590,6 +598,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         operationSource: operationSourceForReason(reason),
         tabId: Number.isInteger(options.tabId) ? options.tabId : null,
         windowId: Number.isInteger(options.windowId) ? options.windowId : null,
+        incognito: options.incognito === true,
       });
       await emitTrace('event_boundary_diagnostic_segment', {
         source: 'runtime-session',
@@ -615,6 +624,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         state: session.state,
         domain: session.domain,
         time: closeTime,
+        incognito: session.incognito === true,
       };
       const countForegroundEnd = !foreground || shouldCountForegroundTransitionEnd(reason);
       const endEvent = countForegroundEnd
@@ -670,6 +680,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
             operationSource: operationSourceForReason(reason),
             tabId: Number.isInteger(options.tabId) ? options.tabId : null,
             windowId: Number.isInteger(options.windowId) ? options.windowId : null,
+            incognito: options.incognito === true,
           });
         }
       }
@@ -682,6 +693,7 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
         state: newState,
         domain: newDomain,
         time: now,
+        incognito: options.incognito === true,
       };
       await appendEvent(startEvent);
       await emitTrace('event_appended', {
@@ -808,6 +820,7 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
       state: session.state,
       domain: session.domain,
       time: boundary,
+      incognito: session.incognito === true,
     };
     await appendEvent(endEvent);
     await emitTrace('event_appended', {
@@ -840,6 +853,7 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
       state: session.state,
       domain: session.domain,
       time: boundary,
+      incognito: session.incognito === true,
     };
     await appendEvent(startEvent);
     await emitTrace('event_appended', {
@@ -861,6 +875,7 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
       startAtMs: boundary,
       tabId: session.tabId ?? null,
       windowId: session.windowId ?? null,
+      incognito: session.incognito === true,
       domainResolutionReason: session.domainResolutionReason || null,
       domainResolutionError: session.domainResolutionError || null,
       ...(await managedTargetFieldsForReopen(session, session.domain, options, cachedEffectiveMode)),
@@ -1020,6 +1035,7 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       domain: effectiveSession.domain || null,
       tabId: Number.isInteger(effectiveSession.tabId) ? effectiveSession.tabId : null,
       windowId: Number.isInteger(effectiveSession.windowId) ? effectiveSession.windowId : null,
+      incognito: effectiveSession.incognito === true || options.incognito === true,
       ...managedTargetFields,
       sourceState: effectiveSession.state,
       settlementReason: reason,
@@ -1061,7 +1077,8 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       module: 'runtime/session',
       message: e?.message || 'Settlement failed',
       domain: timingSession?.domain || null,
-      details: { reason, sourceState: timingSession?.state || null },
+      incognito: timingSession?.incognito === true,
+      details: { reason, sourceState: timingSession?.state || null, incognito: timingSession?.incognito === true },
     });
     // 结算失败不破坏现有的管线；后续明确边界或 periodicCheckpoint 可再次推进。
     return { appended: 0, durationSeconds: 0, error: e?.message || String(e) };
@@ -1078,6 +1095,7 @@ async function settleBoundaryDiagnosticSegment({
   operationSource,
   tabId = null,
   windowId = null,
+  incognito = false,
 }) {
   const boundaryAt = Number.isFinite(atMs) ? atMs : Date.now();
   const diagnosticDomain = typeof domain === 'string' && domain.trim()
@@ -1094,6 +1112,7 @@ async function settleBoundaryDiagnosticSegment({
     startAtMs: boundaryAt,
     tabId: Number.isInteger(tabId) ? tabId : null,
     windowId: Number.isInteger(windowId) ? windowId : null,
+    incognito: incognito === true,
   };
   const identity = await resolveSettlementIdentity(timingSession, settlementReason);
   const managedTargetFields = await resolveManagedTargetForOpen(diagnosticDomain, {}, cachedEffectiveMode || 'unknown');
@@ -1103,6 +1122,7 @@ async function settleBoundaryDiagnosticSegment({
     domain: diagnosticDomain,
     tabId: Number.isInteger(tabId) ? tabId : null,
     windowId: Number.isInteger(windowId) ? windowId : null,
+    incognito: incognito === true,
     ...managedTargetFields,
     sourceState: diagnosticState,
     settlementReason,
@@ -1236,6 +1256,7 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       state: session.state,
       domain: reopenedDomain,
       time: reopenTime,
+      incognito: session.incognito === true,
     };
     await appendEvent(startEvent);
     await emitTrace('event_appended', {
@@ -1257,6 +1278,7 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       startAtMs: reopenTime,
       tabId: session.tabId ?? null,
       windowId: session.windowId ?? null,
+      incognito: session.incognito === true,
       domainResolutionReason: settlement?.domain && settlement.domain !== session.domain
         ? 'unknown_recovered_at_settlement'
         : session.domainResolutionReason || null,
@@ -1266,14 +1288,15 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
 
     if (reason === 'ui_flush') {
       try {
-        await chrome.storage.local.set({
+        await chrome.storage.local.set(sanitizePersistence({
           [UI_FLUSH_GUARD_KEY]: {
             state: session.state || null,
             domain: reopenedDomain || null,
             mode: cachedEffectiveMode || 'unknown',
             lastFlushAt: now,
+            incognito: session.incognito === true,
           },
-        });
+        }, { incognito: session.incognito === true }));
       } catch (_) {
         // Guard write failure must not block popup/read path.
       }
@@ -1323,6 +1346,7 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
         operationSource: operationSourceForReason(reason),
         tabId: Number.isInteger(options.tabId) ? options.tabId : null,
         windowId: Number.isInteger(options.windowId) ? options.windowId : null,
+        incognito: options.incognito === true,
       });
       await saveSession({
         state: null,
@@ -1351,6 +1375,7 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
       state: session.state,
       domain: session.domain,
       time: closeTime,
+      incognito: session.incognito === true,
     };
     await appendEvent(endEvent);
 
@@ -1373,6 +1398,7 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
           operationSource: operationSourceForReason(reason),
           tabId: Number.isInteger(options.tabId) ? options.tabId : null,
           windowId: Number.isInteger(options.windowId) ? options.windowId : null,
+          incognito: session.incognito === true || options.incognito === true,
         });
       }
     }
@@ -1433,6 +1459,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         state,
         domain,
         time: openAt,
+        incognito: confirmation?.incognito === true,
       };
       await appendEvent(startEvent);
       await emitTrace('event_appended', {
@@ -1453,6 +1480,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         startAtMs: openAt,
         tabId: sampleTabIdFromConfirmation(confirmation),
         windowId: sampleWindowIdFromConfirmation(confirmation),
+        incognito: confirmation?.incognito === true,
         ...(await resolveManagedTargetForOpen(domain, { observedUrl: confirmation?.observedUrl || null }, cachedEffectiveMode)),
       });
       await recordForegroundDiagnostic({
@@ -1505,6 +1533,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           state: session.state,
           domain: session.domain,
           time: closeTime,
+          incognito: session.incognito === true,
         };
         await appendEvent(endEvent);
         await emitTrace('event_appended', {
@@ -1528,6 +1557,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
             state: nextSample.state,
             domain: nextSample.domain,
             time: openAt,
+            incognito: nextSample.incognito === true || session.incognito === true,
           };
           await appendEvent(startEvent);
           await emitTrace('event_appended', {
@@ -1548,6 +1578,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
             startAtMs: openAt,
             tabId: nextSample.tabId,
             windowId: nextSample.windowId,
+            incognito: nextSample.incognito === true || session.incognito === true,
             ...(await resolveManagedTargetForOpen(nextSample.domain, { observedUrl: nextSample.url || null }, cachedEffectiveMode)),
           });
         } else {
@@ -1562,6 +1593,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           lastCheckpointFailureReason: confirmation?.reason || 'checkpoint_confirmation_failed',
           lastCheckpointObservedDomain: observedDomainFromConfirmation(confirmation),
           lastCheckpointIdleState: confirmation?.idleState || null,
+          incognito: session.incognito === true || confirmation?.incognito === true,
           ...(nextSample ? {
             checkpointEstimatedOpens: 1,
             estimatedOpenSeconds: Math.floor(Math.max(0, now - openAt) / 1000),
@@ -1578,6 +1610,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           reason: confirmation?.reason || 'checkpoint_confirmation_failed',
           message: 'Foreground checkpoint used estimated close fallback',
           domain: session.domain || null,
+          incognito: session.incognito === true || confirmation?.incognito === true,
           details: {
             state: session.state || null,
             tabId: session.tabId ?? null,
@@ -1585,6 +1618,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
             closeAt: closeTime,
             opened: !!nextSample,
             observedDomain: observedDomainFromConfirmation(confirmation),
+            incognito: session.incognito === true || confirmation?.incognito === true,
           },
         });
         return {
@@ -1623,7 +1657,8 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           module: 'runtime/session',
           message: flushResult?.error || 'Foreground checkpoint settlement failed',
           domain: session.domain || null,
-          details: { state: session.state || null },
+          incognito: session.incognito === true || confirmation?.incognito === true,
+          details: { state: session.state || null, incognito: session.incognito === true || confirmation?.incognito === true },
         });
         return { ok: false, checkpointed: false, reason: 'settlement_failed', error: flushResult?.error || null };
       }
@@ -1634,6 +1669,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           lastCheckpointAt: Date.now(),
           lastCheckpointDomain: session.domain || FOREGROUND_UNKNOWN_DOMAIN,
           lastCheckpointIdleState: confirmation?.idleState || null,
+          incognito: session.incognito === true || confirmation?.incognito === true,
         });
       }
       await saveSession({
@@ -1646,6 +1682,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         startAtMs: checkpointEnd,
         tabId: session.tabId ?? sampleTabIdFromConfirmation(confirmation),
         windowId: session.windowId ?? sampleWindowIdFromConfirmation(confirmation),
+        incognito: session.incognito === true || confirmation?.incognito === true,
         ...(await managedTargetFieldsForReopen(session, session.domain || FOREGROUND_UNKNOWN_DOMAIN, {
           observedUrl: confirmation?.observedUrl || null,
         }, cachedEffectiveMode)),
@@ -1678,7 +1715,8 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         module: 'runtime/session',
         message: flushResult?.error || 'Periodic checkpoint settlement failed',
         domain: session.domain || null,
-        details: { state: session.state || null },
+        incognito: session.incognito === true,
+        details: { state: session.state || null, incognito: session.incognito === true },
       });
       return { ok: false, checkpointed: false, reason: 'settlement_failed', error: flushResult?.error || null };
     }

@@ -44,6 +44,7 @@ function bindPopupEvents() {
       submitSiteClassificationRequest();
     }
   });
+  document.getElementById('site-request-input')?.addEventListener('input', updateSiteRequestPreview);
 
   document.getElementById('settings-btn').addEventListener('click', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
@@ -115,6 +116,7 @@ function openSiteRequestPanel() {
   if (entry) entry.style.display = 'none';
   if (panel) panel.style.display = 'block';
   if (input && !input.value.trim()) input.value = defaults.input || '';
+  updateSiteRequestPreview();
   if (status) {
     status.className = 'request-status';
     status.replaceChildren?.();
@@ -138,6 +140,7 @@ function hydrateSiteRequestInputFromSnapshot(reason = 'snapshot') {
   const defaults = getDefaultSiteRequest();
   if (!defaults.input) return false;
   input.value = defaults.input;
+  updateSiteRequestPreview();
   if (status && status.textContent.includes('正在读取被拦截链接')) {
     status.style.display = 'none';
     status.className = 'request-status';
@@ -178,6 +181,118 @@ function appendSiteRequestStatusLine(parent, className, text) {
   el.textContent = text;
   parent.appendChild(el);
   return el;
+}
+
+function renderSiteRequestPreview(preview = null) {
+  const el = document.getElementById('site-request-preview');
+  if (!el) return;
+  el.replaceChildren?.();
+  el.textContent = '';
+  if (!preview?.ok) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  if (preview.summaryValue) {
+    appendSiteRequestStatusLine(el, 'request-preview-title', preview.summaryValue);
+    return;
+  }
+  appendSiteRequestStatusLine(el, 'request-preview-title', `系统将按「${preview.scopeLabel}」申请`);
+  appendSiteRequestStatusLine(el, 'request-preview-target', preview.displayValue || preview.normalizedValue);
+  appendSiteRequestStatusLine(el, 'request-preview-note', preview.note || '');
+}
+
+function updateSiteRequestPreview() {
+  const input = document.getElementById('site-request-input');
+  const value = input?.value?.trim() || '';
+  renderSiteRequestPreview(previewSiteClassificationTarget(value));
+}
+
+function previewSiteClassificationTarget(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return previewUrlTarget(raw);
+  if (/[/?#]/.test(raw)) return null;
+  const host = normalizeHostname(raw);
+  if (!host) return null;
+  const parts = host.split('.').filter(Boolean);
+  return {
+    ok: true,
+    scopeLabel: parts.length > 2 ? '子域名' : '整个域名',
+    normalizedValue: host,
+    note: '',
+  };
+}
+
+function previewUrlTarget(raw) {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (parsed.username || parsed.password) return null;
+    const host = normalizeHostname(parsed.hostname);
+    if (!host) return null;
+    const youtube = canonicalizeYouTubePreview(parsed, host);
+    if (youtube) return youtube;
+    parsed.hash = '';
+    return {
+      ok: true,
+      scopeLabel: '当前完整链接',
+      normalizedValue: `${parsed.protocol.toLowerCase()}//${host}${parsed.pathname || '/'}${parsed.search || ''}`,
+      note: '',
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function canonicalizeYouTubePreview(parsed, host) {
+  if (!isYouTubePreviewHost(host)) return null;
+  const path = parsed.pathname || '/';
+  const playlistId = normalizeYouTubePreviewId(parsed.searchParams.get('list'));
+  if (playlistId) {
+    return {
+      ok: true,
+      scopeLabel: 'YouTube 播放列表',
+      normalizedValue: `https://www.youtube.com/playlist?list=${playlistId}`,
+      summaryValue: `系统将按「YouTube 播放列表」申请，已识别为 YouTube 播放列表 list=${playlistId}。`,
+      note: '',
+    };
+  }
+  let videoId = null;
+  if ((stripWwwAlias(host) || host) === 'youtu.be') {
+    videoId = normalizeYouTubePreviewId(path.split('/').filter(Boolean)[0]);
+  } else if (path === '/watch') {
+    videoId = normalizeYouTubePreviewId(parsed.searchParams.get('v'));
+  } else if (path.startsWith('/shorts/')) {
+    videoId = normalizeYouTubePreviewId(path.split('/').filter(Boolean)[1]);
+  }
+  if (!videoId) return null;
+  return {
+    ok: true,
+    scopeLabel: 'YouTube 视频',
+    normalizedValue: `https://www.youtube.com/watch?v=${videoId}`,
+    note: '已识别为 YouTube 视频，将按这个视频申请。',
+  };
+}
+
+function isYouTubePreviewHost(host) {
+  const normalized = normalizeHostname(host);
+  if (!normalized) return false;
+  if (normalized === 'youtube.com' || normalized.endsWith('.youtube.com')) return true;
+  const bare = stripWwwAlias(normalized) || normalized;
+  return bare === 'youtu.be';
+}
+
+function normalizeYouTubePreviewId(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  return text.replace(/[^a-zA-Z0-9_-]/g, '') || null;
+}
+
+function stripWwwAlias(host) {
+  const normalized = normalizeHostname(host);
+  if (!normalized) return null;
+  return normalized.startsWith('www.') ? normalized.slice(4) : normalized;
 }
 
 function renderSiteRequestStatus({ kind = 'ok', title = '', body = '', targetText = '', extra = '' } = {}) {
@@ -695,7 +810,7 @@ function resolveDomainTag(domain, config = {}, urlOrDomain = null) {
   if (classification === 'pending_composite') return '已申请待归类网站';
   if (classification === 'composite') return '综合网站';
   if (classification === 'rest') return '休息网站';
-  if (classification === 'rejected') return '未批准网站';
+  if (classification === 'rejected') return '受限娱乐网站';
   if (classification === 'conflict') return '配置冲突';
   return '未归类网站';
 }

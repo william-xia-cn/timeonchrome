@@ -295,6 +295,20 @@
     .domain-tag-remove:hover { color: var(--danger); }
 
     .domains-container { min-height: 48px; }
+    .site-request-target-table {
+      table-layout: fixed;
+      min-width: 760px;
+    }
+    .site-request-col-object { width: 58%; }
+    .site-request-col-type { width: 14%; }
+    .site-request-col-status { width: 14%; }
+    .site-request-col-time { width: 14%; }
+    .site-request-target-cell {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.45;
+    }
 
     /* 时间段设置 */
     .schedule-row {
@@ -840,13 +854,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .site-request-target-table {
-      min-width: 760px;
-    }
     .site-request-target-cell {
-      width: 42%;
-      min-width: 300px;
-      max-width: 520px;
       white-space: normal !important;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -1091,6 +1099,16 @@
     .system-management-tabs {
       width: max-content;
       margin-bottom: 16px;
+    }
+    .rules-tabs {
+      width: max-content;
+      margin-bottom: 16px;
+    }
+    .rules-panel {
+      display: none;
+    }
+    .rules-panel.active {
+      display: block;
     }
     .system-management-panel {
       display: none;
@@ -1398,10 +1416,7 @@
       <span class="nav-icon">📊</span> 使用分析
     </div>
     <div class="nav-item" data-page="rules">
-      <span class="nav-icon">📋</span> 访问规则
-    </div>
-    <div class="nav-item" data-page="devices">
-      <span class="nav-icon">📡</span> 本机状态
+      <span class="nav-icon">📋</span> 访问管理
     </div>
     <div class="nav-item" data-page="system-management">
       <span class="nav-icon">🧭</span> 系统管理
@@ -1417,88 +1432,103 @@
   </div>
 
   <div class="content">
-    <!-- 访问规则（只读） -->
+    <!-- 访问管理（只读） -->
     <div class="page" id="page-rules">
       <div class="page-header">
-        <h2>访问规则</h2>
+        <h2>访问管理</h2>
         <p id="rules-mode-desc">当前规则由家长在云端设定，本设备仅展示当前生效规则</p>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">📚 学习网站</div>
-            <div class="card-subtitle">学习模式下允许访问，计入学习时长</div>
-          </div>
-        </div>
-        <div id="rules-studylist-display">暂无配置</div>
+      <div class="usage-segmented rules-tabs" aria-label="访问管理功能">
+        <button type="button" class="active" data-rules-tab="site-management">网站管理</button>
+        <button type="button" data-rules-tab="quota-management">配额管理</button>
+        <button type="button" data-rules-tab="schedule-management">时间段管理</button>
+        <button type="button" data-rules-tab="classification-requests">网站归类申请记录</button>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">🔀 综合网站</div>
-            <div class="card-subtitle">学习模式下可访问，计入综合时间</div>
+      <div class="rules-panel active" data-rules-panel="site-management">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">📚 学习网站</div>
+              <div class="card-subtitle">学习模式下允许访问，计入学习时长</div>
+            </div>
           </div>
+          <div id="rules-studylist-display">暂无配置</div>
         </div>
-        <div id="rules-composite-display">暂无配置</div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🔀 综合网站</div>
+              <div class="card-subtitle">学习模式下可访问，计入综合时间</div>
+            </div>
+          </div>
+          <div id="rules-composite-display">暂无配置</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🎮 受限娱乐网站</div>
+              <div class="card-subtitle">自由时间可访问，学习模式下受限</div>
+            </div>
+          </div>
+          <div id="rules-restricted-display">暂无配置</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">⛔ 黑名单网站</div>
+              <div class="card-subtitle">任何时间均不可访问</div>
+            </div>
+          </div>
+          <div id="rules-blocked-display">暂无配置</div>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">🎮 受限娱乐网站</div>
-            <div class="card-subtitle">自由时间可访问，学习模式下受限</div>
+      <div class="rules-panel" data-rules-panel="quota-management">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">配额规则</div>
+              <div class="card-subtitle">只读展示当前生效配额配置</div>
+            </div>
           </div>
+          <div id="rules-quota-daily-display">暂无配置</div>
         </div>
-        <div id="rules-restricted-display">暂无配置</div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">单站点配额</div>
+          </div>
+          <div id="rules-domain-quotas-display">暂无配置</div>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">⛔ 黑名单网站</div>
-            <div class="card-subtitle">任何时间均不可访问</div>
+      <div class="rules-panel" data-rules-panel="schedule-management">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">时间段规则</div>
+              <div class="card-subtitle">学习时段 / 休息时段 / 在线时段（只读）</div>
+            </div>
           </div>
+          <div id="rules-schedule-display">暂无配置</div>
         </div>
-        <div id="rules-blocked-display">暂无配置</div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">配额规则</div>
-            <div class="card-subtitle">只读展示当前生效配额配置</div>
+      <div class="rules-panel" data-rules-panel="classification-requests">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">网站归类申请记录</div>
+              <div class="card-subtitle">进入名单后，审批前匹配的网站按综合时长处理；登录并绑定云端后提交给家长审批，审批结果可为学习网站、综合网站或拒绝。</div>
+            </div>
           </div>
+          <div id="rules-temporary-composite-display">加载中...</div>
         </div>
-        <div id="rules-quota-daily-display">暂无配置</div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">单站点配额</div>
-        </div>
-        <div id="rules-domain-quotas-display">暂无配置</div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">时间段规则</div>
-            <div class="card-subtitle">学习时段 / 休息时段 / 在线时段（只读）</div>
-          </div>
-        </div>
-        <div id="rules-schedule-display">暂无配置</div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">网站归类申请记录</div>
-            <div class="card-subtitle">进入名单后，审批前匹配的网站按综合时长处理；登录并绑定云端后提交给家长审批，审批结果可为学习网站、综合网站或拒绝。</div>
-          </div>
-        </div>
-        <div id="rules-temporary-composite-display">加载中...</div>
       </div>
     </div>
 
@@ -1567,16 +1597,39 @@
     <div class="page" id="page-system-management">
       <div class="page-header">
         <h2>系统管理</h2>
-        <p>查看网页落账、媒体落账和本机系统日志</p>
+        <p>查看本机状态、网页落账、媒体落账和本机系统日志</p>
       </div>
 
       <div class="usage-segmented system-management-tabs" aria-label="系统管理功能">
-        <button type="button" class="active" data-system-management-tab="web-settlements">网页落账</button>
+        <button type="button" class="active" data-system-management-tab="device-status">本机状态</button>
+        <button type="button" data-system-management-tab="web-settlements">网页落账</button>
         <button type="button" data-system-management-tab="media-settlements">媒体落账</button>
         <button type="button" data-system-management-tab="client-logs">系统日志</button>
       </div>
 
-      <section class="system-management-panel active" data-system-management-panel="web-settlements">
+      <section class="system-management-panel active" data-system-management-panel="device-status">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">云端同步</div>
+            <div class="card-subtitle">配置与统计数据同步状态</div>
+          </div>
+        </div>
+        <div id="sync-status">加载中...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📜 最近变更</div>
+          <div class="card-subtitle">规则变更历史记录</div>
+        </div>
+        <div class="changelog-timeline" id="changelog-timeline">
+          <!-- 由 JS 生成 -->
+        </div>
+      </div>
+      </section>
+
+      <section class="system-management-panel" data-system-management-panel="web-settlements">
       <div class="card">
         <div class="card-header">
           <div>
@@ -1684,36 +1737,6 @@
         </div>
       </div>
       </section>
-    </div>
-
-    <!-- 本机状态 -->
-    <div class="page" id="page-devices">
-      <div class="page-header">
-        <h2>本机状态</h2>
-        <p>当前设备与云端的连接状态</p>
-      </div>
-
-      <!-- 同步状态 -->
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">云端同步</div>
-            <div class="card-subtitle">配置与统计数据同步状态</div>
-          </div>
-        </div>
-        <div id="sync-status">加载中...</div>
-      </div>
-
-      <!-- 最近变更 -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">📜 最近变更</div>
-          <div class="card-subtitle">规则变更历史记录</div>
-        </div>
-        <div class="changelog-timeline" id="changelog-timeline">
-          <!-- 由 JS 生成 -->
-        </div>
-      </div>
     </div>
 
   </div>

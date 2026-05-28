@@ -464,6 +464,40 @@ this.__modeService = {
     });
   }
 
+  section('MSVC-3a3 rejected exact URL follows restricted rest path');
+  {
+    const cfg = {
+      enabled: true,
+      mode: 'study',
+      quotaState: {},
+    };
+    const svc = loadModeService({
+      getConfig: async () => cfg,
+      getSession: async () => ({ currentMode: 'study' }),
+      resolveSiteAccessClassification: () => ({ classification: 'rejected' }),
+    });
+    const result = await svc.handleModeEvent({
+      type: 'ACCESS_OBSERVED',
+      url: 'https://www.youtube.com/playlist?list=PL1',
+      domain: 'www.youtube.com',
+      foreground: true,
+      nowMs: 1000,
+    });
+    expect('rejected url asks for restricted rest confirmation', {
+      access: result.access,
+      reason: result.reminder?.reason,
+      siteType: result.reminder?.params?.siteType || null,
+      modeChange: result.modeChange,
+      classification: result.classification,
+    }, {
+      access: 'reminder',
+      reason: 'to_rest_slide_confirm',
+      siteType: null,
+      modeChange: null,
+      classification: 'rejected',
+    });
+  }
+
   section('MSVC-3b manual request mode change does not request Rest Exit Grace');
   {
     const svc = loadModeService();

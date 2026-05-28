@@ -74,6 +74,7 @@ export function initSignal(onContextChange) {
       mediaFactSource: incoming.mediaFactSource ?? pending.mediaFactSource,
       clearMediaFrames: incoming.clearMediaFrames ?? pending.clearMediaFrames,
       replacedTabId: incoming.replacedTabId ?? pending.replacedTabId,
+      incognito: incoming.incognito ?? pending.incognito,
       error: incoming.error ?? pending.error,
       _reason: incoming._reason ?? pending._reason ?? 'unknown',
       timestamp: Date.now(),
@@ -116,6 +117,7 @@ export function initSignal(onContextChange) {
         tabId: tab?.id ?? null,
         url,
         domain,
+        incognito: tab?.incognito === true,
         _reason: reason,
       });
     } catch (err) {
@@ -144,6 +146,7 @@ export function initSignal(onContextChange) {
         windowId: activeInfo.windowId,
         url,
         domain,
+        incognito: tab?.incognito === true,
         ...focus,
         _reason: 'tabActivated',
       });
@@ -174,6 +177,7 @@ export function initSignal(onContextChange) {
           windowId,
           url: tab.url,
           domain,
+          incognito: tab?.incognito === true,
           ...(navigationClearsMedia ? { playing: false, isAudible: false, mediaSourceTabId: tabId, mediaSourceDomain: null, isPiP: false, clearMediaFrames: true } : {}),
           ...focus,
           _reason: 'tabUpdated',
@@ -194,9 +198,10 @@ export function initSignal(onContextChange) {
         playing: tab?.audible === true,
         isAudible: tab?.audible === true,
           mediaKind: tab?.audible ? 'audio' : null,
-          mediaSourceTabId: tabId,
-          mediaFrameId: 'tab',
-          mediaSourceDomain: domain,
+        mediaSourceTabId: tabId,
+        mediaFrameId: 'tab',
+        mediaSourceDomain: domain,
+        incognito: tab?.incognito === true,
         isMuted: tab?.mutedInfo?.muted === true,
         isActiveTab: tab?.active === true,
         windowState: focus.windowState ?? null,
@@ -223,6 +228,7 @@ export function initSignal(onContextChange) {
         windowId,
         url,
         domain,
+        incognito: tab?.incognito === true,
         ...focus,
         _reason: 'webNavigationCommitted',
       });
@@ -250,6 +256,7 @@ export function initSignal(onContextChange) {
         windowId,
         url,
         domain,
+        incognito: tab?.incognito === true,
         ...focus,
         _reason: 'tabReplaced',
       });
@@ -295,6 +302,7 @@ export function initSignal(onContextChange) {
           mediaFrameId: Number.isInteger(sender.frameId) ? sender.frameId : 0,
           mediaDocumentId: typeof sender.documentId === 'string' ? sender.documentId : null,
           mediaSourceDomain: domain,
+          incognito: sender.tab?.incognito === true,
           isMuted: sender.tab.mutedInfo?.muted === true,
           isActiveTab: sender.tab.active === true,
           windowState: focus.windowState ?? null,
@@ -321,6 +329,7 @@ export function initSignal(onContextChange) {
         windowId: tab.windowId ?? null,
         url,
         domain: url ? extractDomain(url) : null,
+        incognito: tab?.incognito === true,
         ...focus,
         _reason: 'tabClosedSuccessor',
       });

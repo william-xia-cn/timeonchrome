@@ -583,7 +583,8 @@ async function handleAccessObserved(event = {}) {
   const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
   const siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, url);
   const isUnsafe = siteClassification.classification === 'blocked';
-  const isRestricted = siteClassification.classification === 'restricted';
+  const isRejected = siteClassification.classification === 'rejected';
+  const isRestricted = siteClassification.classification === 'restricted' || isRejected;
   const isStudyDomain = siteClassification.classification === 'study';
   const tabId = Number(event.tabId);
   const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && !isStudyDomain && (
