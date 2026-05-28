@@ -633,11 +633,8 @@
         <div class="nav-item" data-page="review">
           <span class="nav-icon">🔍</span><span>网站归类申请 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
-        <div class="nav-item" data-page="devices">
-          <span class="nav-icon">💻</span><span>设备管理</span>
-        </div>
         <div class="nav-item" data-page="account">
-          <span class="nav-icon">👤</span><span>用户管理</span>
+          <span class="nav-icon">👤</span><span>子用户管理</span>
         </div>
         <div class="nav-item" data-page="system-management">
           <span class="nav-icon">🧭</span><span>系统管理</span>
@@ -929,6 +926,7 @@
           <button class="tab-btn" data-system-management-tab="media-settlements">媒体落账</button>
           <button class="tab-btn" data-system-management-tab="client-logs">系统日志</button>
           <button class="tab-btn" data-system-management-tab="backup-restore">数据备份与恢复</button>
+          <button class="tab-btn" data-system-management-tab="account-management">账户管理</button>
         </div>
 
         <section class="system-management-panel active" data-system-management-panel="reconciliation">
@@ -1158,41 +1156,8 @@
           <div id="cloud-restore-preflight" style="margin-top:12px;"></div>
         </div>
         </section>
-      </div>
 
-      <!-- 用户管理 -->
-      <div class="page" id="page-account">
-        <div class="page-header">
-          <h2>用户管理</h2>
-          <p>管理你的档案、密码和账户安全</p>
-        </div>
-
-        <!-- Card 1: 编辑档案 -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">编辑档案</div>
-              <div class="card-subtitle">修改孩子的名字和头像颜色</div>
-            </div>
-            <div id="acct-profile-avatar" class="avatar" style="width:36px;height:36px;font-size:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:#7c6fff;"></div>
-          </div>
-          <div class="form-group" style="margin-bottom:16px;">
-            <label>孩子的名字</label>
-            <input type="text" id="acct-name-input" placeholder="输入名字"
-              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-          </div>
-          <div style="margin-bottom:16px;">
-            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">头像颜色</div>
-            <div id="acct-color-picker" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
-          </div>
-          <div id="acct-profile-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
-          <div class="save-bar" style="margin-top:8px;">
-            <button class="btn-save" id="acct-save-profile-btn">保存档案</button>
-          </div>
-        </div>
-
-        <!-- Card 2: 修改密码 -->
+        <section class="system-management-panel" data-system-management-panel="account-management">
         <div class="card">
           <div class="card-header">
             <div>
@@ -1222,6 +1187,61 @@
           <div class="save-bar" style="margin-top:8px;">
             <button class="btn-save" id="acct-save-pw-btn">修改密码</button>
           </div>
+        </div>
+        </section>
+      </div>
+
+      <!-- 子用户管理 -->
+      <div class="page" id="page-account">
+        <div class="page-header">
+          <h2>子用户管理</h2>
+          <p>管理孩子档案、绑定设备、配置导入导出和账户安全</p>
+        </div>
+
+        <!-- Card 1: 编辑档案 -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">编辑档案</div>
+              <div class="card-subtitle">修改孩子的名字和头像颜色</div>
+            </div>
+            <div id="acct-profile-avatar" class="avatar" style="width:36px;height:36px;font-size:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:#7c6fff;"></div>
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label>孩子的名字</label>
+            <input type="text" id="acct-name-input" placeholder="输入名字"
+              style="width:100%;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">头像颜色</div>
+            <div id="acct-color-picker" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+          </div>
+          <div id="acct-profile-msg" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+          <div class="save-bar" style="margin-top:8px;">
+            <button class="btn-save" id="acct-save-profile-btn">保存档案</button>
+          </div>
+        </div>
+
+        <!-- Card 2: 设备管理 -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">绑定设备</div>
+            <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
+          </div>
+          <div id="devices-list"><div class="empty"><div class="icon">💻</div>暂无绑定设备</div></div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><div class="card-title">如何绑定新设备</div></div>
+          <ol style="font-size:13px;color:var(--muted);line-height:2;padding-left:18px;margin:4px 0;">
+            <li>在孩子的 Chrome 浏览器中安装 <strong style="color:var(--text);">TimeOnChrome</strong> 扩展</li>
+            <li>点击扩展图标，打开管理面板</li>
+            <li>使用家长账号（当前账号）登录</li>
+            <li>选择「<strong style="color:var(--text);">此孩子档案</strong>」，自动完成绑定</li>
+          </ol>
+          <p style="font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+            💡 每台设备只能绑定一个孩子档案。如需换绑，请先在此页面解绑，再重新操作。
+          </p>
         </div>
 
         <!-- Card 3: 配置导入与导出 -->
@@ -1279,33 +1299,6 @@
               退出登录
             </button>
           </div>
-        </div>
-      </div>
-
-      <!-- 设备管理 -->
-      <div class="page" id="page-devices">
-        <div class="page-header">
-          <h2>设备管理</h2>
-          <p>管理绑定此孩子档案的所有设备</p>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">绑定设备</div>
-            <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
-          </div>
-          <div id="devices-list"><div class="empty"><div class="icon">💻</div>暂无绑定设备</div></div>
-        </div>
-        <div class="card" style="margin-top:16px;">
-          <div class="card-header"><div class="card-title">如何绑定新设备</div></div>
-          <ol style="font-size:13px;color:var(--muted);line-height:2;padding-left:18px;margin:4px 0;">
-            <li>在孩子的 Chrome 浏览器中安装 <strong style="color:var(--text);">TimeOnChrome</strong> 扩展</li>
-            <li>点击扩展图标，打开管理面板</li>
-            <li>使用家长账号（当前账号）登录</li>
-            <li>选择「<strong style="color:var(--text);">此孩子档案</strong>」，自动完成绑定</li>
-          </ol>
-          <p style="font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
-            💡 每台设备只能绑定一个孩子档案。如需换绑，请先在此页面解绑，再重新操作。
-          </p>
         </div>
       </div>
 
@@ -1711,7 +1704,6 @@ function renderPage(name) {
   if (name === 'rules')     renderRulesManagementPage();
   if (name === 'stats')     renderStatsPage();
   if (name === 'system-management') renderSystemManagementPage();
-  if (name === 'devices')   renderDevicesPage();
   if (name === 'account')   renderAccountPage();
   if (name === 'review')    renderReviewPage();
 }
@@ -1747,6 +1739,7 @@ function renderSystemManagementPage() {
   if (cloudSystemManagementActiveTab === 'web-settlements') renderCloudSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'client-logs') renderCloudClientLogsPage({ reset: true });
+  if (cloudSystemManagementActiveTab === 'account-management') clearAccountPasswordForm();
 }
 
 // ── Overview ─────────────────────────────────────────────────
@@ -5257,14 +5250,21 @@ function renderAccountPage() {
     d.style.transform = isSelected ? 'scale(1.2)' : 'scale(1)';
   });
 
-  // Clear password fields and messages
-  ['acct-old-pw','acct-new-pw','acct-confirm-pw'].forEach(id => {
-    document.getElementById(id).value = '';
-  });
-  ['acct-profile-msg','acct-pw-msg','acct-danger-msg'].forEach(id => {
+  // Clear page-local messages
+  ['acct-profile-msg','acct-danger-msg'].forEach(id => {
     document.getElementById(id).style.display = 'none';
   });
   document.getElementById('acct-delete-confirm-wrap').style.display = 'none';
+  renderDevicesPage();
+}
+
+function clearAccountPasswordForm() {
+  ['acct-old-pw','acct-new-pw','acct-confirm-pw'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const msgEl = document.getElementById('acct-pw-msg');
+  if (msgEl) msgEl.style.display = 'none';
 }
 
 function showAcctMsg(el, text, ok) {

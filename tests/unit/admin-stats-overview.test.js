@@ -165,7 +165,7 @@ function run() {
   expectTrue('admin 本机状态应显示账户和用户', extractFunctionSource(code, 'renderSyncStatus').includes('账户：') && extractFunctionSource(code, 'renderSyncStatus').includes('用户：'));
   expectTrue('admin 本机状态账户应从 base64 凭据解析邮箱', extractFunctionSource(code, 'renderSyncStatus').includes('atob(credentials).split'));
   expectTrue('admin 本机状态账户和用户应横向同列展示', extractFunctionSource(code, 'renderSyncStatus').includes('display:flex; gap:24px'));
-  expectTrue('admin 本机状态设备名和 ID 应横向同列展示', extractFunctionSource(code, 'renderSyncStatus').includes('<span style="font-size:15px; font-weight:600;">${deviceName}</span>') && extractFunctionSource(code, 'renderSyncStatus').includes('ID: ${shortId}'));
+  expectTrue('admin 本机状态设备名、DeviceID 和 ID 应横向同列展示', extractFunctionSource(code, 'renderSyncStatus').includes('<span style="font-size:15px; font-weight:600;">${deviceName}</span>') && extractFunctionSource(code, 'renderSyncStatus').includes('DeviceID: ${deviceId}') && extractFunctionSource(code, 'renderSyncStatus').includes('ID: ${shortId}'));
   expectTrue('admin 本机状态未绑定分支应保留本地模式用户显示', extractFunctionSource(code, 'renderSyncStatus').includes("'本地模式'"));
   expectTrue('admin has system management nav item', html.includes('data-page="system-management"') && html.includes('系统管理'));
   expectTrue('admin local device status should be under system management only', !html.includes('data-page="devices"') && html.includes('data-system-management-tab="device-status"') && html.includes('data-system-management-panel="device-status"'));

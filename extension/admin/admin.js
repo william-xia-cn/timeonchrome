@@ -1794,6 +1794,7 @@ async function renderSyncStatus() {
       'cloud_last_sync',
       'cloud_config_version',
       'cloud_device_name',
+      'cloud_device_id',
     ], resolve);
   });
 
@@ -1818,6 +1819,7 @@ async function renderSyncStatus() {
   // device_token 前8位作为短码
   const token = storage[CLOUD_KEYS.DEVICE_TOKEN] || '';
   const shortId = escHtml(token ? token.slice(0, 8).toUpperCase() : '—');
+  const deviceId = escHtml(storage['cloud_device_id'] || '—');
   const versionText = escHtml(storage['cloud_config_version'] || '—');
   const syncText = escHtml(storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步');
 
@@ -1883,6 +1885,7 @@ async function renderSyncStatus() {
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">本机设备</div>
         <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap; font-size:13px; line-height:1.8;">
           <span style="font-size:15px; font-weight:600;">${deviceName}</span>
+          <span style="font-size:11px; color:var(--muted); font-family:monospace;">DeviceID: ${deviceId}</span>
           <span style="font-size:11px; color:var(--muted); font-family:monospace;">ID: ${shortId}</span>
         </div>
       </div>
