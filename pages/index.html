@@ -179,6 +179,8 @@
     .system-management-tabs { margin-bottom: 16px; }
     .system-management-panel { display: none; }
     .system-management-panel.active { display: block; }
+    .rules-management-panel { display: none; }
+    .rules-management-panel.active { display: block; }
 
     /* Cards */
     .card {
@@ -503,6 +505,7 @@
     .device-icon { font-size: 24px; }
     .device-name { font-size: 14px; font-weight: 500; }
     .device-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .device-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; word-break: break-all; }
     .device-status { margin-left: auto; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
     .device-status.online  { background: rgba(0,184,148,0.12); color: var(--green); }
     .device-status.recent  { background: rgba(245,158,11,0.12); color: var(--warn); }
@@ -621,32 +624,20 @@
 
       <!-- 导航 -->
       <div class="sidebar-nav">
-        <div class="nav-item active" data-page="overview">
-          <span class="nav-icon">📊</span><span>总览</span>
-        </div>
-        <div class="nav-item" data-page="rules">
-          <span class="nav-icon">📋</span><span>网站管理</span>
-        </div>
-        <div class="nav-item" data-page="quota">
-          <span class="nav-icon">⏱</span><span>时间配额</span>
-        </div>
-        <div class="nav-item" data-page="schedule">
-          <span class="nav-icon">📅</span><span>时间段控制</span>
-        </div>
-        <div class="nav-item" data-page="stats">
+        <div class="nav-item active" data-page="stats">
           <span class="nav-icon">📈</span><span>使用统计</span>
         </div>
-        <div class="nav-item" data-page="reconciliation">
-          <span class="nav-icon">⚖️</span><span>统计对账</span>
+        <div class="nav-item" data-page="rules">
+          <span class="nav-icon">📋</span><span>访问管理</span>
+        </div>
+        <div class="nav-item" data-page="review">
+          <span class="nav-icon">🔍</span><span>网站归类申请 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
         <div class="nav-item" data-page="devices">
           <span class="nav-icon">💻</span><span>设备管理</span>
         </div>
-        <div class="nav-item" data-page="review">
-          <span class="nav-icon">🔍</span><span>待审核 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
-        </div>
         <div class="nav-item" data-page="account">
-          <span class="nav-icon">👤</span><span>账户设置</span>
+          <span class="nav-icon">👤</span><span>用户管理</span>
         </div>
         <div class="nav-item" data-page="system-management">
           <span class="nav-icon">🧭</span><span>系统管理</span>
@@ -662,65 +653,19 @@
     <!-- 主内容 -->
     <div class="main-content">
 
-      <!-- 总览 -->
-      <div class="page active" id="page-overview">
-        <div class="page-header">
-          <h2>今日总览</h2>
-          <p id="overview-date"></p>
-        </div>
-        <div class="stats-grid" id="overview-stats">
-          <div class="stat-card">
-            <div class="label">📚 学习时长</div>
-            <div class="value accent" id="stat-study">--</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">🎮 今日休息</div>
-            <div class="value warn" id="stat-rest">--</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">🌐 在线总时长</div>
-            <div class="value green" id="stat-online">--</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">📅 本周休息</div>
-            <div class="value" id="stat-weekly-rest" style="color:#e17055;">--</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px;" id="stat-weekly-rest-limit"></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">今日访问 Top 10</div>
-              <div class="card-subtitle" id="overview-stat-note">基于云端上报数据</div>
-            </div>
-          </div>
-          <div id="top-domains-list"><div class="empty"><div class="icon">📭</div>暂无数据</div></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">近7天趋势</div>
-            </div>
-            <div class="chart-legend">
-              <span><span class="legend-dot" style="background:var(--accent);"></span>学习</span>
-              <span><span class="legend-dot" style="background:var(--warn);"></span>娱乐</span>
-            </div>
-          </div>
-          <div class="chart-wrap">
-            <div class="chart-bars" id="week-chart"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 网站管理 -->
+      <!-- 访问管理 -->
       <div class="page" id="page-rules">
         <div class="page-header">
-          <h2>网站管理</h2>
-          <p>修改后点击保存，将实时同步到孩子设备</p>
+          <h2>访问管理</h2>
+          <p>管理网站分类、时间配额和时间段规则，修改后点击保存同步到孩子设备</p>
+        </div>
+        <div class="tabs" aria-label="访问管理功能" style="margin-bottom:16px;">
+          <button class="tab-btn active" data-rules-management-tab="site-management">网站管理</button>
+          <button class="tab-btn" data-rules-management-tab="quota">时间配额</button>
+          <button class="tab-btn" data-rules-management-tab="schedule">时间段管理</button>
         </div>
 
+        <section class="rules-management-panel active" data-rules-management-panel="site-management">
         <!-- 📚 学习网站 -->
         <div class="card" id="r-studylist-card">
           <div class="card-header">
@@ -853,14 +798,10 @@
         <div class="save-bar">
           <button class="btn-save" id="save-rules-btn">💾 保存配置</button>
         </div>
-      </div>
+        </section>
 
       <!-- 时间配额 -->
-      <div class="page" id="page-quota">
-        <div class="page-header">
-          <h2>时间配额</h2>
-          <p>设置每天允许的上网时长</p>
-        </div>
+      <section class="rules-management-panel" data-rules-management-panel="quota">
         <div class="card">
           <div class="card-header">
             <div><div class="card-title">每日配额</div><div class="card-subtitle">按天配置，勾选「无限制」表示不限制（单位：分钟）</div></div>
@@ -898,15 +839,10 @@
           <div id="q-quotas-list"></div>
         </div>
         <div class="save-bar"><button class="btn-save" id="save-quota-btn">💾 保存配置</button></div>
-      </div>
+      </section>
 
       <!-- 时间段管理 -->
-      <div class="page" id="page-schedule">
-        <div class="page-header">
-          <h2>时间段管理</h2>
-          <p>学习、综合、休息时段表示对应模式允许运行的时间窗口。留空表示全天允许。</p>
-        </div>
-
+      <section class="rules-management-panel" data-rules-management-panel="schedule">
         <div class="card">
           <div class="card-header">
             <div><div class="card-title">📅 每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 综合时段 ∪ 休息时段（只读自动合并）</div></div>
@@ -917,10 +853,11 @@
         </div>
 
         <div class="save-bar"><button class="btn-save" id="save-schedule-btn">💾 保存配置</button></div>
+      </section>
       </div>
 
       <!-- 使用统计 -->
-      <div class="page" id="page-stats">
+      <div class="page active" id="page-stats">
         <div class="usage-analysis-shell">
           <div class="usage-analysis-topbar">
             <div class="usage-analysis-title">
@@ -984,16 +921,41 @@
       <div class="page" id="page-system-management">
         <div class="page-header">
           <h2>系统管理</h2>
-          <p>集中查看网页落账、媒体落账和系统日志；落账记录最新记录显示在最上方</p>
+          <p>集中查看统计对账、网页落账、媒体落账和系统日志；落账记录最新记录显示在最上方</p>
         </div>
         <div class="tabs system-management-tabs" aria-label="系统管理功能">
-          <button class="tab-btn active" data-system-management-tab="web-settlements">网页落账</button>
+          <button class="tab-btn active" data-system-management-tab="reconciliation">统计对账</button>
+          <button class="tab-btn" data-system-management-tab="web-settlements">网页落账</button>
           <button class="tab-btn" data-system-management-tab="media-settlements">媒体落账</button>
           <button class="tab-btn" data-system-management-tab="client-logs">系统日志</button>
           <button class="tab-btn" data-system-management-tab="backup-restore">数据备份与恢复</button>
         </div>
 
-        <section class="system-management-panel active" data-system-management-panel="web-settlements">
+        <section class="system-management-panel active" data-system-management-panel="reconciliation">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">双轨对账</div>
+              <div class="card-subtitle">默认只显示差异行；统计表为现有统计页口径，落账聚合为实时 segment 汇总</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="tab-btn active" data-reconciliation-range="today">今日</button>
+            <button class="tab-btn" data-reconciliation-range="week">本周</button>
+            <button class="tab-btn" data-reconciliation-range="month">本月</button>
+            <input type="text" id="reconciliation-domain-input" placeholder="域名关键词筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
+            <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="reconciliation-show-all">
+              显示全部
+            </label>
+            <button class="btn-save" id="reconciliation-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
+          </div>
+          <div id="reconciliation-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
+          <div id="reconciliation-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
+        </div>
+        </section>
+
+        <section class="system-management-panel" data-system-management-panel="web-settlements">
         <div class="card">
           <div class="card-header">
             <div>
@@ -1198,39 +1160,10 @@
         </section>
       </div>
 
-      <!-- 统计对账 -->
-      <div class="page" id="page-reconciliation">
-        <div class="page-header">
-          <h2>统计对账</h2>
-          <p>对比 stats_v1 统计表与 usage_segments_v1 落账聚合，不修改任何数据</p>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">双轨对账</div>
-              <div class="card-subtitle">默认只显示差异行；统计表为现有统计页口径，落账聚合为实时 segment 汇总</div>
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
-            <button class="tab-btn active" data-reconciliation-range="today">今日</button>
-            <button class="tab-btn" data-reconciliation-range="week">本周</button>
-            <button class="tab-btn" data-reconciliation-range="month">本月</button>
-            <input type="text" id="reconciliation-domain-input" placeholder="域名关键词筛选" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;min-width:180px;">
-            <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
-              <input type="checkbox" id="reconciliation-show-all">
-              显示全部
-            </label>
-            <button class="btn-save" id="reconciliation-load-btn" style="padding:7px 14px;font-size:13px;">查询</button>
-          </div>
-          <div id="reconciliation-summary" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">加载中...</div>
-          <div id="reconciliation-table"><div class="empty"><div class="icon">⏳</div>加载中...</div></div>
-        </div>
-      </div>
-
-      <!-- 账户设置 -->
+      <!-- 用户管理 -->
       <div class="page" id="page-account">
         <div class="page-header">
-          <h2>账户设置</h2>
+          <h2>用户管理</h2>
           <p>管理你的档案、密码和账户安全</p>
         </div>
 
@@ -1307,6 +1240,7 @@
             <button class="btn-save" id="acct-export-config-btn" style="padding:10px 18px;">导出配置</button>
             <button class="btn-save" id="acct-import-config-btn" style="padding:10px 18px;background:transparent;color:var(--accent);border:1px solid var(--accent);">导入配置</button>
           </div>
+          <div id="acct-config-import-diff" style="display:none;margin-top:14px;"></div>
         </div>
 
         <!-- Card 4: 危险操作 -->
@@ -1375,10 +1309,10 @@
         </div>
       </div>
 
-      <!-- 待审核 -->
+      <!-- 网站归类申请 -->
       <div class="page" id="page-review">
         <div class="page-header">
-          <h2>待审核</h2>
+          <h2>网站归类申请</h2>
           <p>处理网站归类申请，以及复合型网站产生的待分类会话</p>
         </div>
 
@@ -1456,11 +1390,13 @@ let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore
 let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
 let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
-let cloudSystemManagementActiveTab = 'web-settlements';
+let cloudSystemManagementActiveTab = 'reconciliation';
+let cloudRulesManagementActiveTab = 'site-management';
 let cloudDevicesCache = { profileId: null, devices: [] };
 let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
+let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all' };
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1664,7 +1600,7 @@ async function selectProfile(id) {
   updateReviewBadge(id);
 
   // 渲染当前页
-  const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'overview';
+  const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'stats';
   renderPage(activePage);
 }
 
@@ -1744,7 +1680,7 @@ function setupNav() {
   });
   document.querySelectorAll('[data-system-management-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
-      cloudSystemManagementActiveTab = btn.dataset.systemManagementTab || 'web-settlements';
+      cloudSystemManagementActiveTab = btn.dataset.systemManagementTab || 'reconciliation';
       const navItem = document.querySelector('.nav-item[data-page="system-management"]');
       if (navItem && !navItem.classList.contains('active')) {
         document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
@@ -1755,20 +1691,45 @@ function setupNav() {
       renderSystemManagementPage();
     });
   });
+  document.querySelectorAll('[data-rules-management-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      cloudRulesManagementActiveTab = btn.dataset.rulesManagementTab || 'site-management';
+      const navItem = document.querySelector('.nav-item[data-page="rules"]');
+      if (navItem && !navItem.classList.contains('active')) {
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        navItem.classList.add('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-rules')?.classList.add('active');
+      }
+      renderRulesManagementPage();
+    });
+  });
 }
 
 function renderPage(name) {
   if (!remoteConfig) return;
-  if (name === 'overview')  renderOverview();
-  if (name === 'rules')     renderRulesPage();
-  if (name === 'quota')     renderQuotaPage();
-  if (name === 'schedule')  renderSchedulePage();
+  if (name === 'rules')     renderRulesManagementPage();
   if (name === 'stats')     renderStatsPage();
   if (name === 'system-management') renderSystemManagementPage();
-  if (name === 'reconciliation') renderReconciliationPage();
   if (name === 'devices')   renderDevicesPage();
   if (name === 'account')   renderAccountPage();
   if (name === 'review')    renderReviewPage();
+}
+
+function syncRulesManagementTabs() {
+  document.querySelectorAll('[data-rules-management-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.rulesManagementTab === cloudRulesManagementActiveTab);
+  });
+  document.querySelectorAll('[data-rules-management-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.rulesManagementPanel === cloudRulesManagementActiveTab);
+  });
+}
+
+function renderRulesManagementPage() {
+  syncRulesManagementTabs();
+  if (cloudRulesManagementActiveTab === 'site-management') renderRulesPage();
+  if (cloudRulesManagementActiveTab === 'quota') renderQuotaPage();
+  if (cloudRulesManagementActiveTab === 'schedule') renderSchedulePage();
 }
 
 function syncSystemManagementTabs() {
@@ -1782,6 +1743,7 @@ function syncSystemManagementTabs() {
 
 function renderSystemManagementPage() {
   syncSystemManagementTabs();
+  if (cloudSystemManagementActiveTab === 'reconciliation') renderReconciliationPage();
   if (cloudSystemManagementActiveTab === 'web-settlements') renderCloudSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'client-logs') renderCloudClientLogsPage({ reset: true });
@@ -2340,20 +2302,6 @@ function assertStringArrayField(obj, field, label) {
   return obj[field];
 }
 
-function mergeImportedHostList(existing, incoming) {
-  if (incoming === undefined) return Array.isArray(existing) ? existing : [];
-  const result = [...(Array.isArray(existing) ? existing : [])];
-  const seen = new Set(result.map(item => String(item || '').toLowerCase()));
-  for (const item of incoming.map(normalizeSiteAccessInput).filter(Boolean)) {
-    const key = item.toLowerCase();
-    if (!seen.has(key)) {
-      result.push(item);
-      seen.add(key);
-    }
-  }
-  return result;
-}
-
 function normalizeImportedRule(rule) {
   const raw = rule?.rawRule && typeof rule.rawRule === 'object' ? rule.rawRule : rule;
   const decision = siteRuleDecision(rule) || siteRuleDecision(raw);
@@ -2368,46 +2316,316 @@ function normalizeImportedRule(rule) {
   };
 }
 
-function buildProfileConfigImportPayload(data) {
+const CONFIG_IMPORT_LIST_FIELDS = [
+  { key: 'study', label: '学习网站', exportKey: 'studySites', configKey: 'customStudyList' },
+  { key: 'composite', label: '综合网站', exportKey: 'compositeSites', configKey: 'customCompositeList' },
+  { key: 'restricted', label: '受限娱乐网站', exportKey: 'restrictedEntertainmentSites', configKey: 'customRestrictedEntertainmentList' },
+  { key: 'blocked', label: '黑名单网站', exportKey: 'blockedSites', configKey: 'customBlockedSites' },
+];
+
+const CONFIG_IMPORT_QUOTA_FIELDS = [
+  { key: 'studyMinutes', label: '学习配额' },
+  { key: 'compositeMinutes', label: '综合配额' },
+  { key: 'restMinutes', label: '休息配额' },
+];
+
+const CONFIG_IMPORT_WINDOW_FIELDS = [
+  { key: 'studyWindows', label: '学习时段' },
+  { key: 'compositeWindows', label: '综合时段' },
+  { key: 'restWindows', label: '休息时段' },
+];
+
+function normalizeProfileConfigImportData(data) {
   if (!data || typeof data !== 'object') throw new Error('无效的配置文件');
   if (data.app !== 'TimeOnChrome' || data.configType !== 'profile-config') throw new Error('不是 TimeOnChrome profile 配置文件');
   if (data.configVersion !== 1) throw new Error(`不支持的配置版本: ${data.configVersion}`);
 
   const customLists = data.siteAccess?.customLists || {};
+  const lists = {};
+  for (const field of CONFIG_IMPORT_LIST_FIELDS) {
+    const values = assertStringArrayField(customLists, field.exportKey, field.label);
+    lists[field.configKey] = (values || []).map(normalizeSiteAccessInput).filter(Boolean);
+  }
   const importedRules = Array.isArray(data.siteAccess?.classificationRules)
     ? data.siteAccess.classificationRules.map(normalizeImportedRule).filter(Boolean)
     : [];
-  const importedTimeQuotaDaily = data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object'
-    ? data.quota.timeQuota.daily
-    : null;
-  const importedTimeWindowsDaily = data.timeWindows?.daily && typeof data.timeWindows.daily === 'object'
-    ? data.timeWindows.daily
-    : null;
-  const payload = {
-    customStudyList: mergeImportedHostList(remoteConfig?.customStudyList, assertStringArrayField(customLists, 'studySites', '学习网站')),
-    customCompositeList: mergeImportedHostList(remoteConfig?.customCompositeList, assertStringArrayField(customLists, 'compositeSites', '综合网站')),
-    customRestrictedEntertainmentList: mergeImportedHostList(remoteConfig?.customRestrictedEntertainmentList, assertStringArrayField(customLists, 'restrictedEntertainmentSites', '受限娱乐网站')),
-    customBlockedSites: mergeImportedHostList(remoteConfig?.customBlockedSites, assertStringArrayField(customLists, 'blockedSites', '黑名单网站')),
-    siteClassificationRulesV1: uniqueSiteRules([
-      ...(Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : []),
-      ...importedRules,
-    ]),
-    timeQuota: {
-      daily: importedTimeQuotaDaily || remoteConfig?.timeQuota?.daily || {},
-    },
-    domainQuotas: {
-      ...(remoteConfig?.domainQuotas || {}),
-      ...(data.quota?.domainQuotas && typeof data.quota.domainQuotas === 'object' ? data.quota.domainQuotas : {}),
-    },
-    timeWindows: {
-      daily: importedTimeWindowsDaily
-        ? sanitizeTimeWindowsDailyForConfigIo(importedTimeWindowsDaily)
-        : sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}),
-    },
+  return {
+    customStudyList: lists.customStudyList || [],
+    customCompositeList: lists.customCompositeList || [],
+    customRestrictedEntertainmentList: lists.customRestrictedEntertainmentList || [],
+    customBlockedSites: lists.customBlockedSites || [],
+    siteClassificationRulesV1: uniqueSiteRules(importedRules),
+    timeQuota: { daily: data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object' ? data.quota.timeQuota.daily : {} },
+    domainQuotas: data.quota?.domainQuotas && typeof data.quota.domainQuotas === 'object' ? data.quota.domainQuotas : {},
+    timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(data.timeWindows?.daily || {}) },
   };
+}
+
+function configImportHostKey(value) {
+  return normalizeSiteAccessInput(value).toLowerCase();
+}
+
+function configImportRuleKey(rule) {
+  const type = rule?.targetType || rule?.type || 'url';
+  const value = canonicalDisplayUrlValue(siteRuleValue(rule));
+  return `${type}::${value.toLowerCase()}`;
+}
+
+function configImportJsonKey(value) {
+  return value === undefined ? '__undefined__' : JSON.stringify(value);
+}
+
+function configImportValueLabel(value) {
+  if (value === undefined) return '未设置';
+  if (value === null) return '无限制';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '全天允许';
+    return value.map(item => `${item.start}-${item.end}`).join('，');
+  }
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function configImportDiffLabel(type) {
+  return type === 'add' ? '新增' : type === 'delete' ? '删除' : type === 'modify' ? '修改' : '不变';
+}
+
+function htmlEscape(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+
+function addConfigImportDiff(diffs, diff) {
+  diffs.push({ ...diff, id: `${diff.area}:${diff.key}:${diff.type}:${diff.field || ''}` });
+}
+
+function buildCategoryMapsForImport(config) {
+  const maps = { byKey: new Map() };
+  for (const field of CONFIG_IMPORT_LIST_FIELDS) {
+    for (const value of (Array.isArray(config?.[field.configKey]) ? config[field.configKey] : [])) {
+      const key = configImportHostKey(value);
+      if (key) maps.byKey.set(key, { category: field.key, configKey: field.configKey, label: field.label, value });
+    }
+  }
+  return maps;
+}
+
+function buildRuleMapForImport(rules = []) {
+  const map = new Map();
+  for (const rule of uniqueSiteRules(Array.isArray(rules) ? rules : [])) {
+    const key = configImportRuleKey(rule);
+    if (key && !key.endsWith('::—')) map.set(key, { rule, decision: siteRuleDecision(rule), value: siteRuleValue(rule), targetType: rule.targetType || rule.type || 'url' });
+  }
+  return map;
+}
+
+function buildProfileConfigImportDiffs(importedConfig) {
+  const diffs = [];
+  const currentListMap = buildCategoryMapsForImport(remoteConfig || {}).byKey;
+  const importedListMap = buildCategoryMapsForImport(importedConfig).byKey;
+  const hostKeys = new Set([...currentListMap.keys(), ...importedListMap.keys()]);
+  for (const key of hostKeys) {
+    const current = currentListMap.get(key);
+    const incoming = importedListMap.get(key);
+    if (!current && incoming) {
+      addConfigImportDiff(diffs, { type: 'add', area: 'site-list', key, label: `${incoming.label}：${incoming.value}`, importedValue: incoming.value, importedHost: incoming.value, importedCategory: incoming.category, importedConfigKey: incoming.configKey });
+    } else if (current && !incoming) {
+      addConfigImportDiff(diffs, { type: 'delete', area: 'site-list', key, label: `${current.label}：${current.value}`, currentValue: current.value, currentCategory: current.category, currentConfigKey: current.configKey });
+    } else if (current.category !== incoming.category) {
+      addConfigImportDiff(diffs, { type: 'modify', area: 'site-list', key, label: incoming.value, currentValue: current.label, importedValue: incoming.label, importedHost: incoming.value, importedCategory: incoming.category, importedConfigKey: incoming.configKey });
+    } else {
+      addConfigImportDiff(diffs, { type: 'same', area: 'site-list', key, label: incoming.value, currentValue: current.label, importedValue: incoming.label });
+    }
+  }
+
+  const currentRuleMap = buildRuleMapForImport(remoteConfig?.siteClassificationRulesV1 || []);
+  const importedRuleMap = buildRuleMapForImport(importedConfig.siteClassificationRulesV1 || []);
+  const ruleKeys = new Set([...currentRuleMap.keys(), ...importedRuleMap.keys()]);
+  for (const key of ruleKeys) {
+    const current = currentRuleMap.get(key);
+    const incoming = importedRuleMap.get(key);
+    if (!current && incoming) {
+      addConfigImportDiff(diffs, { type: 'add', area: 'rule', key, label: `${siteRuleTypeLabel(incoming.rule)}：${incoming.value}`, importedValue: incoming.decision, importedRule: incoming.rule });
+    } else if (current && !incoming) {
+      addConfigImportDiff(diffs, { type: 'delete', area: 'rule', key, label: `${siteRuleTypeLabel(current.rule)}：${current.value}`, currentValue: current.decision, currentRule: current.rule });
+    } else if (current.decision !== incoming.decision) {
+      addConfigImportDiff(diffs, { type: 'modify', area: 'rule', key, label: `${siteRuleTypeLabel(incoming.rule)}：${incoming.value}`, currentValue: current.decision, importedValue: incoming.decision, importedRule: incoming.rule });
+    } else {
+      addConfigImportDiff(diffs, { type: 'same', area: 'rule', key, label: `${siteRuleTypeLabel(incoming.rule)}：${incoming.value}`, currentValue: current.decision, importedValue: incoming.decision });
+    }
+  }
+
+  const currentDaily = remoteConfig?.timeQuota?.daily || {};
+  const importedDaily = importedConfig.timeQuota?.daily || {};
+  for (const day of QUOTA_DAYS) {
+    for (const field of CONFIG_IMPORT_QUOTA_FIELDS) {
+      const current = currentDaily?.[day]?.[field.key];
+      const incoming = importedDaily?.[day]?.[field.key];
+      if (configImportJsonKey(current) === configImportJsonKey(incoming)) {
+        addConfigImportDiff(diffs, { type: 'same', area: 'quota', key: `${day}:${field.key}`, field: field.key, day, label: `${QUOTA_DAY_LABELS[day]} ${field.label}`, currentValue: configImportValueLabel(current), importedValue: configImportValueLabel(incoming) });
+      } else {
+        const type = current === undefined ? 'add' : incoming === undefined ? 'delete' : 'modify';
+        addConfigImportDiff(diffs, { type, area: 'quota', key: `${day}:${field.key}`, field: field.key, day, label: `${QUOTA_DAY_LABELS[day]} ${field.label}`, currentValue: configImportValueLabel(current), importedValue: configImportValueLabel(incoming), importedRawValue: incoming });
+      }
+    }
+  }
+
+  const currentDomainQuotas = remoteConfig?.domainQuotas || {};
+  const importedDomainQuotas = importedConfig.domainQuotas || {};
+  const quotaDomains = new Set([...Object.keys(currentDomainQuotas), ...Object.keys(importedDomainQuotas)]);
+  for (const domain of quotaDomains) {
+    const current = currentDomainQuotas[domain];
+    const incoming = importedDomainQuotas[domain];
+    if (configImportJsonKey(current) === configImportJsonKey(incoming)) {
+      addConfigImportDiff(diffs, { type: 'same', area: 'domain-quota', key: domain, label: `单站点配额：${domain}`, currentValue: configImportValueLabel(current), importedValue: configImportValueLabel(incoming) });
+    } else {
+      const type = current === undefined ? 'add' : incoming === undefined ? 'delete' : 'modify';
+      addConfigImportDiff(diffs, { type, area: 'domain-quota', key: domain, label: `单站点配额：${domain}`, currentValue: configImportValueLabel(current), importedValue: configImportValueLabel(incoming), importedRawValue: incoming });
+    }
+  }
+
+  const currentWindows = sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {});
+  const importedWindows = sanitizeTimeWindowsDailyForConfigIo(importedConfig.timeWindows?.daily || {});
+  for (const day of QUOTA_DAYS) {
+    for (const field of CONFIG_IMPORT_WINDOW_FIELDS) {
+      const current = currentWindows?.[day]?.[field.key];
+      const incoming = importedWindows?.[day]?.[field.key];
+      if (configImportJsonKey(current) === configImportJsonKey(incoming)) {
+        addConfigImportDiff(diffs, { type: 'same', area: 'time-window', key: `${day}:${field.key}`, field: field.key, day, label: `${QUOTA_DAY_LABELS[day]} ${field.label}`, currentValue: configImportValueLabel(current), importedValue: configImportValueLabel(incoming) });
+      } else {
+        const type = current === undefined ? 'add' : incoming === undefined ? 'delete' : 'modify';
+        addConfigImportDiff(diffs, { type, area: 'time-window', key: `${day}:${field.key}`, field: field.key, day, label: `${QUOTA_DAY_LABELS[day]} ${field.label}`, currentValue: configImportValueLabel(current), importedValue: configImportValueLabel(incoming), importedRawValue: incoming });
+      }
+    }
+  }
+
+  return diffs;
+}
+
+function removeHostFromAllImportLists(payload, hostKey) {
+  for (const field of CONFIG_IMPORT_LIST_FIELDS) {
+    payload[field.configKey] = (payload[field.configKey] || []).filter(value => configImportHostKey(value) !== hostKey);
+  }
+}
+
+function addHostToImportList(payload, configKey, value) {
+  const key = configImportHostKey(value);
+  if (!key) return;
+  const list = payload[configKey] || [];
+  if (!list.some(item => configImportHostKey(item) === key)) list.push(normalizeSiteAccessInput(value));
+  payload[configKey] = list;
+}
+
+function buildProfileConfigImportPayload(selectedDiffs) {
+  const payload = {
+    customStudyList: [...(Array.isArray(remoteConfig?.customStudyList) ? remoteConfig.customStudyList : [])],
+    customCompositeList: [...(Array.isArray(remoteConfig?.customCompositeList) ? remoteConfig.customCompositeList : [])],
+    customRestrictedEntertainmentList: [...(Array.isArray(remoteConfig?.customRestrictedEntertainmentList) ? remoteConfig.customRestrictedEntertainmentList : [])],
+    customBlockedSites: [...(Array.isArray(remoteConfig?.customBlockedSites) ? remoteConfig.customBlockedSites : [])],
+    siteClassificationRulesV1: uniqueSiteRules(Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : []),
+    timeQuota: { daily: JSON.parse(JSON.stringify(remoteConfig?.timeQuota?.daily || {})) },
+    domainQuotas: { ...(remoteConfig?.domainQuotas || {}) },
+    timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}) },
+  };
+
+  for (const diff of selectedDiffs) {
+    if (diff.area === 'site-list') {
+      removeHostFromAllImportLists(payload, diff.key);
+      if (diff.type !== 'delete') addHostToImportList(payload, diff.importedConfigKey, diff.importedHost || diff.importedValue || diff.label);
+    } else if (diff.area === 'rule') {
+      payload.siteClassificationRulesV1 = payload.siteClassificationRulesV1.filter(rule => configImportRuleKey(rule) !== diff.key);
+      if (diff.type !== 'delete' && diff.importedRule) payload.siteClassificationRulesV1.push(diff.importedRule);
+      payload.siteClassificationRulesV1 = uniqueSiteRules(payload.siteClassificationRulesV1);
+    } else if (diff.area === 'quota') {
+      payload.timeQuota.daily[diff.day] = payload.timeQuota.daily[diff.day] || {};
+      if (diff.type === 'delete') delete payload.timeQuota.daily[diff.day][diff.field];
+      else payload.timeQuota.daily[diff.day][diff.field] = diff.importedRawValue;
+    } else if (diff.area === 'domain-quota') {
+      if (diff.type === 'delete') delete payload.domainQuotas[diff.key];
+      else payload.domainQuotas[diff.key] = diff.importedRawValue;
+    } else if (diff.area === 'time-window') {
+      payload.timeWindows.daily[diff.day] = payload.timeWindows.daily[diff.day] || {};
+      if (diff.type === 'delete') delete payload.timeWindows.daily[diff.day][diff.field];
+      else payload.timeWindows.daily[diff.day][diff.field] = diff.importedRawValue;
+    }
+  }
+
+  payload.timeWindows.daily = sanitizeTimeWindowsDailyForConfigIo(payload.timeWindows.daily);
   const conflicts = findSiteAccessExactConflicts({ ...remoteConfig, ...payload });
   if (conflicts.length > 0) throw new Error(formatSiteAccessConflict(conflicts[0]));
   return payload;
+}
+
+function renderConfigImportDiffPanel() {
+  const el = document.getElementById('acct-config-import-diff');
+  if (!el) return;
+  const state = configImportDiffState;
+  const actionable = state.diffs.filter(diff => diff.type !== 'same');
+  if (!state.importedConfig) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = 'block';
+  const counts = {
+    add: actionable.filter(diff => diff.type === 'add').length,
+    delete: actionable.filter(diff => diff.type === 'delete').length,
+    modify: actionable.filter(diff => diff.type === 'modify').length,
+    same: state.diffs.filter(diff => diff.type === 'same').length,
+  };
+  const visible = actionable.filter(diff => state.filter === 'all' || diff.type === state.filter);
+  const allSelected = actionable.length > 0 && actionable.every(diff => state.selectedIds.has(diff.id));
+  const applyText = allSelected ? '应用全部差异（覆盖当前配置）' : '应用选中差异';
+  el.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700;">导入差异确认</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:4px;">文件：${htmlEscape(state.fileName || '配置文件')}。新增 ${counts.add} 项，删除 ${counts.delete} 项，修改 ${counts.modify} 项，不变 ${counts.same} 项。</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-save" id="acct-config-import-select-all" style="padding:7px 11px;">全选差异</button>
+          <button class="btn-save" id="acct-config-import-clear" style="padding:7px 11px;background:transparent;color:var(--muted);border:1px solid var(--border);">取消全选</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+        ${['all','add','delete','modify'].map(type => `<button class="seg-btn ${state.filter === type ? 'active' : ''}" data-config-import-filter="${type}" style="padding:6px 10px;">${type === 'all' ? '全部' : configImportDiffLabel(type)}</button>`).join('')}
+      </div>
+      <div style="margin-top:12px;display:grid;gap:8px;max-height:320px;overflow:auto;">
+        ${visible.length ? visible.map(diff => `
+          <label style="display:grid;grid-template-columns:auto 64px 1fr;gap:10px;align-items:start;border:1px solid var(--border);border-radius:10px;padding:10px;">
+            <input type="checkbox" data-config-import-diff-id="${htmlEscape(diff.id)}" ${state.selectedIds.has(diff.id) ? 'checked' : ''} style="margin-top:3px;">
+            <span style="font-size:12px;font-weight:700;color:${diff.type === 'delete' ? 'var(--danger)' : diff.type === 'add' ? 'var(--accent)' : '#b45309'};">${configImportDiffLabel(diff.type)}</span>
+            <span>
+              <span style="display:block;font-weight:600;overflow-wrap:anywhere;">${htmlEscape(diff.label)}</span>
+              <span style="display:block;font-size:12px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere;">当前：${htmlEscape(diff.currentValue ?? '—')} → 导入：${htmlEscape(diff.importedValue ?? '—')}</span>
+            </span>
+          </label>
+        `).join('') : '<div style="font-size:13px;color:var(--muted);padding:8px 2px;">当前筛选下没有差异。</div>'}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;">
+        <div style="font-size:12px;color:var(--muted);">删除项只有勾选后才会生效；未选中项保持当前配置。</div>
+        <button class="btn-save" id="acct-config-import-apply" style="padding:9px 16px;">${applyText}</button>
+      </div>
+    </div>
+  `;
+  el.querySelectorAll('[data-config-import-filter]').forEach(btn => btn.addEventListener('click', () => {
+    configImportDiffState.filter = btn.dataset.configImportFilter || 'all';
+    renderConfigImportDiffPanel();
+  }));
+  el.querySelectorAll('[data-config-import-diff-id]').forEach(input => input.addEventListener('change', () => {
+    if (input.checked) configImportDiffState.selectedIds.add(input.dataset.configImportDiffId);
+    else configImportDiffState.selectedIds.delete(input.dataset.configImportDiffId);
+    renderConfigImportDiffPanel();
+  }));
+  el.querySelector('#acct-config-import-select-all')?.addEventListener('click', () => {
+    configImportDiffState.selectedIds = new Set(actionable.map(diff => diff.id));
+    renderConfigImportDiffPanel();
+  });
+  el.querySelector('#acct-config-import-clear')?.addEventListener('click', () => {
+    configImportDiffState.selectedIds = new Set();
+    renderConfigImportDiffPanel();
+  });
+  el.querySelector('#acct-config-import-apply')?.addEventListener('click', applySelectedConfigImportDiffs);
 }
 
 async function importProfileConfig() {
@@ -2420,12 +2638,13 @@ async function importProfileConfig() {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      const payload = buildProfileConfigImportPayload(data);
-      await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
-      const refreshed = await api(`/profiles/${currentProfileId}/config`);
-      remoteConfig = refreshed.data || {};
-      renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'account');
-      toast('配置已导入');
+      const importedConfig = normalizeProfileConfigImportData(data);
+      const diffs = buildProfileConfigImportDiffs(importedConfig);
+      configImportDiffState = { fileName: file.name, importedConfig, diffs, selectedIds: new Set(), filter: 'all' };
+      renderConfigImportDiffPanel();
+      toast('已生成导入差异，请确认后应用');
+      const msgEl = document.getElementById('acct-config-io-msg');
+      if (msgEl) showAcctMsg(msgEl, '已生成导入差异，请选择需要应用的项目。', true);
     } catch (err) {
       toast('导入失败: ' + (err.message || err), false);
       const msgEl = document.getElementById('acct-config-io-msg');
@@ -2433,6 +2652,27 @@ async function importProfileConfig() {
     }
   };
   input.click();
+}
+
+async function applySelectedConfigImportDiffs() {
+  const selectedDiffs = configImportDiffState.diffs.filter(diff => configImportDiffState.selectedIds.has(diff.id));
+  if (selectedDiffs.length === 0) {
+    toast('请先选择要应用的差异', false);
+    return;
+  }
+  try {
+    const payload = buildProfileConfigImportPayload(selectedDiffs);
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    const refreshed = await api(`/profiles/${currentProfileId}/config`);
+    remoteConfig = refreshed.data || {};
+    configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all' };
+    renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'account');
+    toast('配置导入已应用');
+  } catch (err) {
+    toast('应用导入失败: ' + (err.message || err), false);
+    const msgEl = document.getElementById('acct-config-io-msg');
+    if (msgEl) showAcctMsg(msgEl, '应用导入失败：' + (err.message || err), false);
+  }
 }
 
 // 保存网站访问配置（只提交 custom 字段，后端自动合并缺省值）
@@ -4809,6 +5049,7 @@ async function renderDevicesPage() {
           <div style="flex:1;min-width:0;">
             <div class="device-name" id="dname-${d.id}">${name}</div>
             <div class="device-meta">最后活跃：${time} · 绑定于 ${boundAt}</div>
+            <div class="device-meta device-id" title="${escHtml(d.id || '')}">设备ID：${escHtml(d.id || '未记录')}</div>
           </div>
           <div class="device-status ${cls}" title="${cls === 'offline' && d.last_seen ? '超过 1 小时未收到心跳。可能原因包括：设备离线、Chrome 未运行、网络中断，或扩展被禁用/移除。请检查设备。' : ''}">${text}</div>
           <label class="monitor-toggle" title="${isMonOn ? '点击停用监控' : '点击启用监控'}">
@@ -4978,11 +5219,11 @@ function setupAccount() {
       toast('档案已删除');
       if (profiles.length > 0) selectProfile(profiles[0].id);
       else renderNoProfile();
-      // Switch to overview page
+      // Switch to usage stats page
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-      document.querySelector('.nav-item[data-page="overview"]').classList.add('active');
+      document.querySelector('.nav-item[data-page="stats"]').classList.add('active');
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.getElementById('page-overview').classList.add('active');
+      document.getElementById('page-stats').classList.add('active');
     } catch(e) {
       showAcctMsg(msgEl, '删除失败：' + e.message, false);
     } finally { btn.disabled = false; btn.textContent = '确认删除'; }
