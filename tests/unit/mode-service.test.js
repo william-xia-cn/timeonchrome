@@ -464,6 +464,51 @@ this.__modeService = {
     });
   }
 
+  section('MSVC-3a2b access observed ignores internal pseudo domains');
+  {
+    const cfg = {
+      enabled: true,
+      mode: 'study',
+      quotaState: {},
+      timeWindows: {
+        daily: {
+          monday: {
+            studyWindows: null,
+            compositeWindows: null,
+            restWindows: [{ start: '08:00', end: '09:00' }],
+          },
+        },
+      },
+    };
+    let classificationCalled = false;
+    const svc = loadModeService({
+      getConfig: async () => cfg,
+      getSession: async () => ({ currentMode: 'study' }),
+      resolveSiteAccessClassification: () => {
+        classificationCalled = true;
+        return { classification: 'unclassified' };
+      },
+    });
+    const result = await svc.handleModeEvent({
+      type: 'ACCESS_OBSERVED',
+      url: 'unknown-page.chrome-local',
+      domain: 'unknown-page.chrome-local',
+      foreground: true,
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('internal pseudo domain is ignored before schedule routing', {
+      access: result.access,
+      reason: result.reason,
+      domain: result.domain,
+      classificationCalled,
+    }, {
+      access: 'ignore',
+      reason: 'internal_pseudo_domain',
+      domain: 'unknown-page.chrome-local',
+      classificationCalled: false,
+    });
+  }
+
   section('MSVC-3a3 rejected exact URL follows restricted rest path');
   {
     const cfg = {

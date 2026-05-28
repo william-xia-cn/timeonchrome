@@ -878,7 +878,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
 
     const hadFailure = errors.length > 0;
     if (hadFailure) {
-      console.warn('[Cloud] Sync completed with errors:', errors);
+      console.warn('[Cloud] Sync completed with errors:', errors.join('; '), errors);
       logClientEventBestEffort({
         level: 'warning',
         category: 'cloud',

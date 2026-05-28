@@ -44,6 +44,10 @@ function finiteNumberOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function isInternalPseudoDomain(domain) {
+  return typeof domain === 'string' && domain.endsWith('.chrome-local');
+}
+
 export function normalizeMode(mode) {
   if (mode === 'whitelist') return 'study';
   if (mode === 'blacklist') return 'rest';
@@ -579,6 +583,9 @@ async function handleAccessObserved(event = {}) {
 
   const domain = event.domain || extractDomain(url);
   if (!domain) return baseDecision({ access: 'ignore', reason: 'domain_unresolved' });
+  if (isInternalPseudoDomain(domain)) {
+    return baseDecision({ access: 'ignore', reason: 'internal_pseudo_domain', domain });
+  }
 
   const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
   const siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, url);
