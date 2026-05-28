@@ -1207,6 +1207,12 @@ Stats Upload 触发条件：
 - `/device/*` (POST): `device_token` → 查询 `devices` → `profile_id`
 - `/profiles/:id/*` (GET): JWT `account_token` → `account_id` → 验证 profile 所有权
 
+**账号会话与终端绑定边界（当前兼容口径）**:
+- `device_token` 是终端同步凭据，绑定后长期有效。账号改密码不会吊销它；只有云端解绑设备、本地卸载/清除扩展数据、扩展 ID 变化或服务端删除设备记录才会导致终端重新绑定。
+- `account_token` 是家长/管理端账号访问令牌，用于 `/profiles/:id/*` 等账号级接口。新 token 带过期时间；旧无过期 token 继续兼容。
+- `account_refresh_token` 是家长端登录会话，用 `/auth/refresh` 轮换，用 `/auth/logout` 或 `/auth/change-password` 吊销。Worker 只保存 refresh token hash。
+- 新终端不再保存可逆 `cloud_credentials`；升级后的旧终端如发现该字段，只允许一次性用它换取 refresh token，成功后删除。迁移失败不得清除 `device_token`。
+
 **当前 `stats` 表** (`workers/schema.sql:37-45`):
 ```sql
 CREATE TABLE stats (

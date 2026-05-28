@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+- **Account session refresh tokens**: cloud auth now supports refresh-token sessions alongside the legacy `/auth/login -> token` response. New clients store `account_token`, `account_refresh_token`, and `cloud_account_email`; they no longer save reversible `cloud_credentials`. Existing clients and legacy no-exp account tokens remain compatible.
+- **Password-change binding safety**: changing an account password revokes parent refresh sessions but does not revoke `device_token`. Already bound terminals continue syncing until explicitly unbound in cloud device management, local extension data is cleared/uninstalled, or the Chrome extension ID changes.
+
 ---
 
 ## [1.7.4] — 2026-05-28

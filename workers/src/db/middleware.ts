@@ -93,6 +93,7 @@ export async function verifyAccountToken(request: Request, secret: string): Prom
   const auth = request.headers.get('Authorization');
   if (!auth?.startsWith('Bearer ')) return null;
   const payload = await verifyToken(auth.slice(7), secret);
+  if (Number(payload?.exp || 0) > 0 && Number(payload.exp) <= Math.floor(Date.now() / 1000)) return null;
   return payload?.account_id ?? null;
 }
 

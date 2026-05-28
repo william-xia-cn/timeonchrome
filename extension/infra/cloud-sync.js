@@ -61,6 +61,9 @@ const CLOUD_CONFIG = {
     DEVICE_ID: 'cloud_device_id',
     PROFILE_ID: 'cloud_profile_id',
     CREDENTIALS: 'cloud_credentials',
+    ACCOUNT_TOKEN: 'account_token',
+    ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
+    ACCOUNT_EMAIL: 'cloud_account_email',
     LAST_SYNC: 'cloud_last_sync',
     PENDING_STATS: 'cloud_pending_stats',
     PENDING_SESSIONS: 'cloud_pending_sessions',
@@ -131,33 +134,89 @@ function safeDecodeCredentials(encoded) {
   }
 }
 
+async function saveAccountSession({ token, refreshToken, email }) {
+  const updates = {};
+  if (token) updates[CLOUD_CONFIG.KEYS.ACCOUNT_TOKEN] = token;
+  if (refreshToken) updates[CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN] = refreshToken;
+  if (email) updates[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL] = String(email).trim().toLowerCase();
+  updates[CLOUD_CONFIG.KEYS.CREDENTIALS] = null;
+  await chrome.storage.local.set(updates);
+  return token || null;
+}
+
+async function refreshAccountSession(refreshToken) {
+  if (!refreshToken) return null;
+  const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json().catch(() => null);
+  if (!data?.token) return null;
+  await saveAccountSession({
+    token: data.token,
+    refreshToken: data.refreshToken || refreshToken,
+  });
+  return data.token;
+}
+
+async function loginWithLegacyCredentials(encodedCredentials) {
+  const creds = safeDecodeCredentials(encodedCredentials);
+  if (!creds) return null;
+  const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: creds.email, password: creds.password }),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json().catch(() => null);
+  if (!data?.token) return null;
+  await saveAccountSession({
+    token: data.token,
+    refreshToken: data.refreshToken || null,
+    email: creds.email,
+  });
+  return data.token;
+}
+
+function isAccountTokenLikelyExpired(token) {
+  try {
+    const body = String(token || '').split('.')[1];
+    if (!body) return false;
+    const json = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+    return Number(json?.exp || 0) > 0 && Number(json.exp) <= Math.floor(Date.now() / 1000);
+  } catch (_) {
+    return false;
+  }
+}
+
+export async function getAccountTokenForCloudAccount() {
+  const storage = await chrome.storage.local.get([
+    CLOUD_CONFIG.KEYS.ACCOUNT_TOKEN,
+    CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN,
+    CLOUD_CONFIG.KEYS.CREDENTIALS,
+  ]);
+  const storedToken = storage[CLOUD_CONFIG.KEYS.ACCOUNT_TOKEN] || null;
+  if (storedToken && !isAccountTokenLikelyExpired(storedToken)) return storedToken;
+
+  const refreshed = await refreshAccountSession(storage[CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN]);
+  if (refreshed) return refreshed;
+
+  const migrated = await loginWithLegacyCredentials(storage[CLOUD_CONFIG.KEYS.CREDENTIALS]);
+  if (migrated) return migrated;
+  return null;
+}
+
 async function hydrateDeviceIdFromBindIfMissing() {
   if (syncState.deviceId || !syncState.deviceToken || !syncState.profileId) {
     return false;
   }
 
-  const storage = await chrome.storage.local.get([CLOUD_CONFIG.KEYS.CREDENTIALS]);
-  const creds = safeDecodeCredentials(storage?.[CLOUD_CONFIG.KEYS.CREDENTIALS]);
-  if (!creds) {
-    console.warn('[Cloud] cloud_device_id missing and no valid credentials to hydrate');
-    return false;
-  }
-
   try {
-    const loginResp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: creds.email, password: creds.password }),
-    });
-    if (!loginResp.ok) {
-      console.warn('[Cloud] cloud_device_id hydrate login failed:', loginResp.status);
-      return false;
-    }
-
-    const loginData = await loginResp.json().catch(() => null);
-    const accountToken = loginData?.token;
+    const accountToken = await getAccountTokenForCloudAccount();
     if (!accountToken) {
-      console.warn('[Cloud] cloud_device_id hydrate login missing token');
+      console.warn('[Cloud] cloud_device_id missing and no account session available to hydrate');
       return false;
     }
 

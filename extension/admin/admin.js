@@ -38,6 +38,8 @@ const CLOUD_KEYS = {
   PROFILE_NAME: 'cloud_profile_name',
   CREDENTIALS: 'cloud_credentials',
   ACCOUNT_TOKEN: 'account_token',
+  ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
+  ACCOUNT_EMAIL: 'cloud_account_email',
   REMEMBER_ME: 'cloud_remember_me',
   IS_BOUND: 'cloud_is_bound'  // 标记是否已绑定
 };
@@ -208,6 +210,8 @@ async function checkAndHandleBinding() {
       CLOUD_KEYS.DEVICE_TOKEN,
       CLOUD_KEYS.CREDENTIALS,
       CLOUD_KEYS.ACCOUNT_TOKEN,
+      CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN,
+      CLOUD_KEYS.ACCOUNT_EMAIL,
       CLOUD_KEYS.PROFILE_ID
     ], resolve);
   });
@@ -215,15 +219,16 @@ async function checkAndHandleBinding() {
   const deviceToken = storage[CLOUD_KEYS.DEVICE_TOKEN];
   const credentials = storage[CLOUD_KEYS.CREDENTIALS];
   const savedToken = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
+  const refreshToken = storage[CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN];
   const profileId = storage[CLOUD_KEYS.PROFILE_ID];
   
-  if (deviceToken && credentials) {
-    // 有 device_token + 凭据 → 自动登录进主界面
-    console.log('[Admin] Device is bound, auto logging in...');
-    await autoLogin(credentials);
-  } else if (credentials && !deviceToken) {
-    // 有凭据但 device_token 已失效（被解绑）→ 自动填入邮箱，提示重新绑定
-    console.log('[Admin] Credentials exist but device token missing, need rebind');
+  if (deviceToken && (savedToken || refreshToken || credentials)) {
+    console.log('[Admin] Device is bound, restoring account session...');
+    const token = await ensureAccountToken({ allowLegacyCredentials: true });
+    if (token) await enterMainScreen();
+    else showBindScreen();
+  } else if (!deviceToken && (savedToken || refreshToken || credentials)) {
+    console.log('[Admin] Account session exists but device token missing, need rebind');
     await autoLoginForRebind(credentials);
   } else {
     // 全新状态 → 显示绑定页面
@@ -254,32 +259,14 @@ function showBindScreen() {
  */
 async function autoLogin(encryptedCredentials) {
   try {
-    const decoded = atob(encryptedCredentials);
-    const [email, password] = decoded.split(':');
-    currentEmail = email;
-    
-    // 验证登录
-    const resp = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    
-    if (!resp.ok) {
+    const token = await migrateLegacyCredentials(encryptedCredentials);
+    if (!token) {
       // 登录失败，可能是凭据过期，跳转到绑定页面
       console.log('[Admin] Auto login failed, showing bind screen');
       showBindScreen();
       return;
     }
-    
-    const result = await resp.json();
-    accountToken = result.token;
-    await new Promise((resolve) => {
-      chrome.storage.local.set({
-        [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token,
-      }, resolve);
-    });
-    
+
     // 登录成功，进入主界面
     await enterMainScreen();
     
@@ -295,39 +282,23 @@ async function autoLogin(encryptedCredentials) {
  */
 async function autoLoginForRebind(encryptedCredentials) {
   try {
-    const decoded = atob(encryptedCredentials);
-    const [email, password] = decoded.split(':');
-    currentEmail = email;
-
-    const resp = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-
-    if (!resp.ok) {
-      // 连账号登录都失败，清空凭据显示登录页
-      await chrome.storage.local.remove([CLOUD_KEYS.CREDENTIALS, CLOUD_KEYS.ACCOUNT_TOKEN]);
+    const token = await ensureAccountToken({ allowLegacyCredentials: true });
+    if (!token) {
+      await chrome.storage.local.remove([CLOUD_KEYS.CREDENTIALS, CLOUD_KEYS.ACCOUNT_TOKEN, CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN]);
       showBindScreen();
       return;
     }
 
-    const result = await resp.json();
-    accountToken = result.token;
-    // 更新 account_token
-    chrome.storage.local.set({ [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token });
-
     // 拉取孩子列表
-    const profilesResp = await fetch(`${API_BASE}/profiles`, {
-      headers: { 'Authorization': `Bearer ${accountToken}` }
-    });
+    const profilesResp = await accountFetch(`${API_BASE}/profiles`);
     if (!profilesResp.ok) { showBindScreen(); return; }
 
     const profilesData = await profilesResp.json();
     cloudProfiles = profilesData.profiles || [];
 
     // 显示重绑提示页
-    showRebindScreen(email);
+    const storage = await new Promise(resolve => chrome.storage.local.get([CLOUD_KEYS.ACCOUNT_EMAIL], resolve));
+    showRebindScreen(storage[CLOUD_KEYS.ACCOUNT_EMAIL] || currentEmail || '');
 
   } catch (e) {
     console.error('[Admin] autoLoginForRebind error:', e);
@@ -408,11 +379,10 @@ async function rebindToProfile(profileId, profileName, avatarColor) {
   const errorEl = document.getElementById('rebind-error');
   try {
     const devName = getDeviceName();
-    const resp = await fetch(`${API_BASE}/device/bind`, {
+    const resp = await accountFetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accountToken}`
       },
       body: JSON.stringify({ profile_id: profileId, device_name: devName })
     });
@@ -521,16 +491,10 @@ async function enterMainScreen() {
  */
 async function loadProfiles() {
   try {
-    const storage = await new Promise(resolve => {
-      chrome.storage.local.get(CLOUD_KEYS.ACCOUNT_TOKEN, resolve);
-    });
-    const token = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
-    
+    const token = await ensureAccountToken({ allowLegacyCredentials: true });
     if (!token) return;
-    
-    const resp = await fetch(`${API_BASE}/profiles`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+
+    const resp = await accountFetch(`${API_BASE}/profiles`);
     
     if (resp.ok) {
       const data = await resp.json();
@@ -626,23 +590,15 @@ function setupLoginForm() {
       }
       
       const result = await resp.json();
-      accountToken = result.token;
-      currentEmail = email;
-      
-      // 保存凭据
-      const encrypted = btoa(`${email}:${password}`);
-      await new Promise(resolve => {
-        chrome.storage.local.set({
-          [CLOUD_KEYS.CREDENTIALS]: encrypted,
-          [CLOUD_KEYS.ACCOUNT_TOKEN]: result.token,
-          [CLOUD_KEYS.REMEMBER_ME]: true
-        }, resolve);
+      await saveAccountSession({
+        token: result.token,
+        refreshToken: result.refreshToken || null,
+        email,
       });
+      await new Promise(resolve => chrome.storage.local.set({ [CLOUD_KEYS.REMEMBER_ME]: true }, resolve));
       
       // 2. 获取孩子列表
-      const profilesResp = await fetch(`${API_BASE}/profiles`, {
-        headers: { 'Authorization': `Bearer ${accountToken}` }
-      });
+      const profilesResp = await accountFetch(`${API_BASE}/profiles`);
       
       if (!profilesResp.ok) {
         throw new Error('获取孩子列表失败');
@@ -777,26 +733,19 @@ async function handleRegister() {
     }
 
     const regResult = await regResp.json();
-    accountToken = regResult.token;
-    currentEmail = email;
-
-    // 保存凭据
-    const encrypted = btoa(`${email}:${password}`);
-    await new Promise(resolve => {
-      chrome.storage.local.set({
-        [CLOUD_KEYS.CREDENTIALS]: encrypted,
-        [CLOUD_KEYS.ACCOUNT_TOKEN]: regResult.token
-      }, resolve);
+    await saveAccountSession({
+      token: regResult.token,
+      refreshToken: regResult.refreshToken || null,
+      email,
     });
 
     btn.textContent = '创建孩子档案...';
 
     // Step 2: 创建孩子 Profile
-    const profileResp = await fetch(`${API_BASE}/profiles`, {
+    const profileResp = await accountFetch(`${API_BASE}/profiles`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accountToken}`
       },
       body: JSON.stringify({ name: childName, avatar_color: '#7c6fff' })
     });
@@ -812,11 +761,10 @@ async function handleRegister() {
     btn.textContent = '绑定设备...';
 
     // Step 3: 绑定设备
-    const bindResp = await fetch(`${API_BASE}/device/bind`, {
+    const bindResp = await accountFetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accountToken}`
       },
       body: JSON.stringify({ profile_id: newProfileId, device_name: getDeviceName() })
     });
@@ -923,11 +871,10 @@ async function bindToProfile(profileId, profileName, avatarColor) {
   try {
     // 1. 调用设备绑定 API（需要 account_token，不是 device_token）
     console.log('[Admin] Calling /device/bind with accountToken...');
-    const resp = await fetch(`${API_BASE}/device/bind`, {
+    const resp = await accountFetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accountToken}`
       },
       body: JSON.stringify({
         profile_id: profileId,
@@ -1049,6 +996,108 @@ function sendMsg(msg) {
     }
     throw lastError || new Error('background_unavailable');
   })();
+}
+
+async function saveAccountSession({ token, refreshToken, email }) {
+  const updates = {
+    [CLOUD_KEYS.CREDENTIALS]: null,
+  };
+  if (token) updates[CLOUD_KEYS.ACCOUNT_TOKEN] = token;
+  if (refreshToken) updates[CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN] = refreshToken;
+  if (email) updates[CLOUD_KEYS.ACCOUNT_EMAIL] = String(email).trim().toLowerCase();
+  await new Promise(resolve => chrome.storage.local.set(updates, resolve));
+  if (token) accountToken = token;
+  if (email) currentEmail = String(email).trim().toLowerCase();
+  return token || null;
+}
+
+async function refreshAccountSession(refreshToken) {
+  if (!refreshToken) return null;
+  const resp = await fetch(`${API_BASE}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken })
+  });
+  if (!resp.ok) return null;
+  const result = await resp.json();
+  return saveAccountSession({
+    token: result.token,
+    refreshToken: result.refreshToken || refreshToken,
+  });
+}
+
+async function migrateLegacyCredentials(encryptedCredentials) {
+  if (!encryptedCredentials) return null;
+  try {
+    const decoded = atob(encryptedCredentials);
+    const [email, password] = decoded.split(':');
+    if (!email || !password) return null;
+    const resp = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    if (!resp.ok) return null;
+    const result = await resp.json();
+    return saveAccountSession({
+      token: result.token,
+      refreshToken: result.refreshToken || null,
+      email,
+    });
+  } catch (e) {
+    console.warn('[Admin] legacy credential migration failed:', e?.message || e);
+    return null;
+  }
+}
+
+function isAccountTokenLikelyExpired(token) {
+  try {
+    const body = String(token || '').split('.')[1];
+    if (!body) return false;
+    const json = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+    return Number(json?.exp || 0) > 0 && Number(json.exp) <= Math.floor(Date.now() / 1000);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function ensureAccountToken({ allowLegacyCredentials = true } = {}) {
+  const storage = await new Promise(resolve => {
+    chrome.storage.local.get([
+      CLOUD_KEYS.ACCOUNT_TOKEN,
+      CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN,
+      CLOUD_KEYS.CREDENTIALS,
+    ], resolve);
+  });
+  if (storage[CLOUD_KEYS.ACCOUNT_TOKEN] && !isAccountTokenLikelyExpired(storage[CLOUD_KEYS.ACCOUNT_TOKEN])) {
+    accountToken = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
+    return accountToken;
+  }
+  const refreshed = await refreshAccountSession(storage[CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN]);
+  if (refreshed) return refreshed;
+  if (allowLegacyCredentials) {
+    return migrateLegacyCredentials(storage[CLOUD_KEYS.CREDENTIALS]);
+  }
+  return null;
+}
+
+async function accountFetch(url, options = {}) {
+  const buildOptions = () => ({
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(accountToken ? { Authorization: `Bearer ${accountToken}` } : {}),
+    },
+  });
+
+  await ensureAccountToken({ allowLegacyCredentials: true });
+  let resp = await fetch(url, buildOptions());
+  if (resp.status === 401) {
+    const storage = await new Promise(resolve => chrome.storage.local.get(CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN, resolve));
+    const refreshed = await refreshAccountSession(storage[CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN]);
+    if (refreshed) resp = await fetch(url, buildOptions());
+  }
+  return resp;
 }
 
 // ── 路由处理 ─────────────────────────────────────────────────────────────
@@ -1791,6 +1840,7 @@ async function renderSyncStatus() {
       CLOUD_KEYS.PROFILE_ID,
       CLOUD_KEYS.PROFILE_NAME,
       CLOUD_KEYS.ACCOUNT_TOKEN,
+      CLOUD_KEYS.ACCOUNT_EMAIL,
       'cloud_last_sync',
       'cloud_config_version',
       'cloud_device_name',
@@ -1804,7 +1854,7 @@ async function renderSyncStatus() {
   // 本机设备名（首次绑定时保存的）
   const deviceName = escHtml(storage['cloud_device_name'] || '本机');
   const credentials = storage[CLOUD_KEYS.CREDENTIALS] || '';
-  let decodedEmail = currentEmail || '';
+  let decodedEmail = storage[CLOUD_KEYS.ACCOUNT_EMAIL] || currentEmail || '';
   if (credentials) {
     try {
       decodedEmail = atob(credentials).split(':')[0] || decodedEmail;
@@ -1903,6 +1953,10 @@ async function renderSyncStatus() {
           ${syncText}
         </div>
       </div>
+      <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">绑定有效性</div>
+        <div style="font-size:12px; color:var(--muted); line-height:1.7;">终端绑定长期有效；只有云端解绑、本地卸载或清除扩展数据、扩展 ID 变化才会失效。</div>
+      </div>
     </div>
     <div style="margin-top:14px; display:flex; gap:10px;">
       <button class="btn-save" id="force-sync-btn" style="flex:1;" ${syncBtnDisabled}>${syncBtnText}</button>
@@ -1957,7 +2011,7 @@ async function forceSync() {
 async function confirmRebind() {
   if (!confirm('确定要解绑此设备并重新绑定吗？\n\n本地配置和统计数据不会丢失。')) return;
 
-  // 清除 device token（保留 credentials 以便重绑时自动登录）
+  // 用户明确要求重新绑定时才清除 device token；账号会话保留用于选择档案。
   await new Promise(resolve => chrome.storage.local.set({
     [CLOUD_KEYS.DEVICE_TOKEN]: null,
     [CLOUD_KEYS.PROFILE_ID]: null,
@@ -1965,19 +2019,8 @@ async function confirmRebind() {
     [CLOUD_KEYS.IS_BOUND]: false,
   }, resolve));
 
-  // 通知 background 清除同步状态
-  try { await sendMsg({ type: 'CLOUD_LOGOUT' }); } catch (e) { /* pass */ }
-
   // 重新进入绑定流程
-  const credentials = await new Promise(resolve =>
-    chrome.storage.local.get([CLOUD_KEYS.CREDENTIALS], r => resolve(r[CLOUD_KEYS.CREDENTIALS]))
-  );
-
-  if (credentials) {
-    await autoLoginForRebind(credentials);
-  } else {
-    location.reload();
-  }
+  await autoLoginForRebind();
 }
 
 // 全局函数（供 HTML onclick 调用）

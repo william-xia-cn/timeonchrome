@@ -65,6 +65,11 @@ function run() {
   expectTrue('Pages 配额页在线限额未设置时不应伪装成三类合计', extractFunctionSource(source, 'updateWeeklyQuotaTotals').includes("'未设置'") && extractFunctionSource(source, 'updateWeeklyQuotaTotals').includes('dailyOnlineQuota'));
   expectTrue('Pages 控制台应包含 v1 stats 适配器', source.includes('function fetchProfileStats'));
   expectTrue('Pages 登录注册邮箱应统一小写', source.includes('function normalizeEmailInput') && source.includes("normalizeEmailInput(document.getElementById('login-email').value)") && source.includes("normalizeEmailInput(document.getElementById('reg-email').value)"));
+  expectTrue('Pages 登录注册应保存 refreshToken', extractFunctionSource(source, 'doLogin').includes('refreshToken: r.refreshToken || null') && extractFunctionSource(source, 'doRegister').includes('refreshToken: r.refreshToken || null'));
+  expectTrue('Pages 应支持 auth/refresh 并轮换本地 session', source.includes('function refreshAccountTokenForPage') && extractFunctionSource(source, 'refreshAccountTokenForPage').includes('/auth/refresh') && extractFunctionSource(source, 'refreshAccountTokenForPage').includes('refreshToken: data.refreshToken || saved.refreshToken'));
+  expectTrue('Pages API 401 应先尝试 refresh 再重试', extractFunctionSource(source, 'api').includes("r.status === 401") && extractFunctionSource(source, 'api').includes('await refreshAccountTokenForPage()'));
+  expectTrue('Pages logout 应吊销 refreshToken', extractFunctionSource(source, 'logout').includes('/auth/logout') && extractFunctionSource(source, 'logout').includes('refreshToken: saved.refreshToken'));
+  expectTrue('Pages 改密码提示应说明终端继续同步', source.includes('修改后家长端需要重新登录；已绑定终端会继续同步') && source.includes('密码已修改，家长端需要重新登录；已绑定终端会继续同步'));
   expectTrue('auth.js 绑定登录邮箱应统一小写', authSource.includes('const normalizedEmail') && authSource.includes('email: normalizedEmail'));
   expectTrue('bind.js 登录与保存凭据邮箱应统一小写', bindSource.includes("document.getElementById('email').value.trim().toLowerCase()"));
   expectTrue('Pages 控制台应兼容 stats_v1 duration_seconds', source.includes('duration_seconds'));

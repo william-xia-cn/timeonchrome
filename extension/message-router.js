@@ -419,10 +419,11 @@ export async function handleMessage(msg, sender) {
         }
 
         const result = await resp.json();
-        const encrypted = btoa(`${email}:${password}`);
         await chrome.storage.local.set({
-          [CLOUD_CONFIG.KEYS.CREDENTIALS]: encrypted,
-          account_token: result.token
+          [CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL]: email,
+          [CLOUD_CONFIG.KEYS.ACCOUNT_TOKEN]: result.token,
+          [CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN]: result.refreshToken || null,
+          [CLOUD_CONFIG.KEYS.CREDENTIALS]: null
         });
 
         return { success: true, token: result.token };
@@ -433,11 +434,20 @@ export async function handleMessage(msg, sender) {
 
     case 'CLOUD_LOGOUT': {
       const { CLOUD_CONFIG } = await import('./infra/cloud-sync.js');
+      const storage = await chrome.storage.local.get([
+        CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN,
+      ]);
+      if (storage[CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN]) {
+        fetch(`${CLOUD_CONFIG.API_BASE}/auth/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: storage[CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN] })
+        }).catch(() => {});
+      }
       await chrome.storage.local.set({
-        [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null,
-        [CLOUD_CONFIG.KEYS.PROFILE_ID]: null,
         [CLOUD_CONFIG.KEYS.CREDENTIALS]: null,
-        account_token: null
+        [CLOUD_CONFIG.KEYS.ACCOUNT_TOKEN]: null,
+        [CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN]: null
       });
       return { success: true };
     }
@@ -450,6 +460,7 @@ export async function handleMessage(msg, sender) {
         'cloud_last_sync',
         'cloud_config_version',
         'cloud_credentials',
+        'account_refresh_token',
         'cloud_monitoring_enabled'
       ]);
 
@@ -462,7 +473,7 @@ export async function handleMessage(msg, sender) {
         reason: isBound ? null : 'no_device_token',
         deviceId: storage['cloud_device_id'] || null,
         profileId: storage['cloud_profile_id'] || null,
-        hasCredentials: !!storage['cloud_credentials'],
+        hasCredentials: !!storage['account_refresh_token'] || !!storage['cloud_credentials'],
         lastSync: storage['cloud_last_sync'] || 0,
         configVersion: storage['cloud_config_version'] || 0,
         monitoringEnabled: storage['cloud_monitoring_enabled'] ?? 1,

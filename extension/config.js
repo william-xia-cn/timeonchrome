@@ -21,6 +21,9 @@ const GUARDIAN_CONFIG = {
   KEYS: {
     DEVICE_TOKEN: 'cloud_device_token',
     PROFILE_ID: 'cloud_profile_id',
+    ACCOUNT_TOKEN: 'account_token',
+    ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
+    ACCOUNT_EMAIL: 'cloud_account_email',
     LAST_SYNC: 'cloud_last_sync',
     PENDING_STATS: 'pending_stats',
     PENDING_CHANGELOGS: 'pending_changelogs',

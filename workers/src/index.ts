@@ -50,6 +50,15 @@ async function initDatabase(env: Env): Promise<Response> {
       last_seen INTEGER,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE account_sessions (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      refresh_token_hash TEXT UNIQUE NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked_at INTEGER,
+      last_used_at INTEGER
+    );
     CREATE TABLE stats (
       id TEXT PRIMARY KEY,
       profile_id TEXT NOT NULL,

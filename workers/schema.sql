@@ -33,6 +33,18 @@ CREATE TABLE IF NOT EXISTS devices (
   FOREIGN KEY (profile_id) REFERENCES profiles(id)
 );
 
+-- 家长账号 refresh token 会话。只保存 token hash；改密码时吊销，不影响 device_token。
+CREATE TABLE IF NOT EXISTS account_sessions (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  refresh_token_hash TEXT UNIQUE NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  last_used_at INTEGER,
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
 -- 统计上报表
 CREATE TABLE IF NOT EXISTS stats (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,5 +91,7 @@ CREATE TABLE IF NOT EXISTS session_appeals (
 CREATE INDEX IF NOT EXISTS idx_stats_date ON stats(date);
 CREATE INDEX IF NOT EXISTS idx_stats_profile_date ON stats(profile_id, date);
 CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(device_token);
+CREATE INDEX IF NOT EXISTS idx_account_sessions_account ON account_sessions(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_sessions_hash ON account_sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS idx_cs_profile_date ON composite_sessions(profile_id, date);
 CREATE INDEX IF NOT EXISTS idx_appeals_profile ON session_appeals(profile_id, status);

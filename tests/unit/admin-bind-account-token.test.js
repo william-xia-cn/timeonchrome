@@ -11,12 +11,31 @@ function assert(condition, message) {
 }
 
 function extractFunctionSource(source, functionName) {
-  const start = source.indexOf(`async function ${functionName}`);
+  let start = source.indexOf(`async function ${functionName}`);
+  if (start < 0) start = source.indexOf(`function ${functionName}`);
   if (start < 0) {
     throw new Error(`Missing function ${functionName}`);
   }
 
-  const braceStart = source.indexOf('{', start);
+  const parenStart = source.indexOf('(', start);
+  let parenDepth = 0;
+  let parenEnd = -1;
+  for (let i = parenStart; i < source.length; i += 1) {
+    const char = source[i];
+    if (char === '(') parenDepth += 1;
+    if (char === ')') {
+      parenDepth -= 1;
+      if (parenDepth === 0) {
+        parenEnd = i;
+        break;
+      }
+    }
+  }
+  if (parenEnd < 0) {
+    throw new Error(`Could not find parameter list for ${functionName}`);
+  }
+
+  const braceStart = source.indexOf('{', parenEnd);
   let depth = 0;
   for (let i = braceStart; i < source.length; i += 1) {
     const char = source[i];
@@ -78,7 +97,12 @@ function runAdminAutoLoginTest(fetchImpl, existingStorage = {}) {
   const calls = [];
   const context = {
     API_BASE: 'https://api.example.test',
-    CLOUD_KEYS: { ACCOUNT_TOKEN: 'account_token' },
+    CLOUD_KEYS: {
+      ACCOUNT_TOKEN: 'account_token',
+      ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
+      ACCOUNT_EMAIL: 'cloud_account_email',
+      CREDENTIALS: 'cloud_credentials',
+    },
     atob: (value) => Buffer.from(value, 'base64').toString('binary'),
     chrome: { storage: storage },
     console,
@@ -94,6 +118,8 @@ function runAdminAutoLoginTest(fetchImpl, existingStorage = {}) {
   vm.runInNewContext(`
     let accountToken = null;
     let currentEmail = null;
+    ${extractFunctionSource(source, 'saveAccountSession')}
+    ${extractFunctionSource(source, 'migrateLegacyCredentials')}
     ${extractFunctionSource(source, 'autoLogin')}
     this.__autoLogin = autoLogin;
   `, context);
@@ -111,7 +137,7 @@ async function testAdminAutoLoginPersistsAccountToken() {
     loginUrl = url;
     return {
       ok: true,
-      json: async () => ({ token: 'fresh-account-token' }),
+      json: async () => ({ token: 'fresh-account-token', refreshToken: 'fresh-refresh-token' }),
     };
   });
 
@@ -119,6 +145,8 @@ async function testAdminAutoLoginPersistsAccountToken() {
 
   assert(loginUrl === 'https://api.example.test/auth/login', 'admin auto-login should call /auth/login');
   assert(harness.storage.data.account_token === 'fresh-account-token', 'admin auto-login should persist account_token');
+  assert(harness.storage.data.account_refresh_token === 'fresh-refresh-token', 'admin auto-login should persist refresh token');
+  assert(harness.storage.data.cloud_credentials === null, 'admin auto-login should clear legacy cloud_credentials');
   assert(harness.calls.includes('enterMainScreen'), 'admin auto-login should enter main screen on success');
   assert(!harness.calls.includes('showBindScreen'), 'admin auto-login should not show bind screen on success');
 }
@@ -170,6 +198,7 @@ function runBindFunction(functionName, options = {}) {
       },
     },
     fetch: options.fetch,
+    accountFetch: options.fetch,
     setTimeout: () => 0,
     showStep: (step) => {
       calls.push(['showStep', step]);
@@ -184,6 +213,7 @@ function runBindFunction(functionName, options = {}) {
 
   vm.runInNewContext(`
     let accountToken = ${JSON.stringify(options.accountToken || null)};
+    let accountRefreshToken = ${JSON.stringify(options.accountRefreshToken || null)};
     let selectedProfileId = null;
     ${extractFunctionSource(source, functionName)}
     this.__target = ${functionName};
@@ -224,7 +254,9 @@ async function testBindPersistsAccountTokenWithCloudState() {
   assert(harness.storage.data.cloud_device_id === 'device-id', 'bind should persist cloud_device_id');
   assert(harness.storage.data.cloud_profile_id === 'profile-1', 'bind should persist cloud_profile_id');
   assert(harness.storage.data.account_token === 'parent-account-token', 'bind should persist account_token');
-  assert(harness.storage.data.cloud_credentials === Buffer.from('parent@example.com:secret', 'binary').toString('base64'), 'bind should persist cloud_credentials');
+  assert(harness.storage.data.account_refresh_token === null, 'bind should persist refresh token field');
+  assert(harness.storage.data.cloud_account_email === 'parent@example.com', 'bind should persist account email');
+  assert(harness.storage.data.cloud_credentials === null, 'bind should not persist reversible cloud_credentials');
   assert(typeof harness.storage.data.cloud_last_sync === 'number', 'bind should persist cloud_last_sync timestamp');
 }
 
@@ -250,7 +282,9 @@ function testCloudLogoutClearsAccountToken() {
   assert(logoutStart >= 0, 'message-router should define CLOUD_LOGOUT');
   const nextCase = source.indexOf("case '", logoutStart + 1);
   const logoutBlock = source.slice(logoutStart, nextCase);
-  assert(/account_token\s*:\s*null/.test(logoutBlock), 'CLOUD_LOGOUT should clear account_token');
+  assert(/ACCOUNT_TOKEN\]\s*:\s*null/.test(logoutBlock), 'CLOUD_LOGOUT should clear account_token');
+  assert(/ACCOUNT_REFRESH_TOKEN\]\s*:\s*null/.test(logoutBlock), 'CLOUD_LOGOUT should clear account_refresh_token');
+  assert(!/DEVICE_TOKEN\]\s*:\s*null/.test(logoutBlock), 'CLOUD_LOGOUT should not clear cloud_device_token');
 }
 
 const tests = [

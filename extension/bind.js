@@ -6,6 +6,7 @@ if (new URLSearchParams(location.search).get('welcome') === '1') {
 }
 
 let accountToken = null;
+let accountRefreshToken = null;
 let profiles = [];
 let selectedProfileId = null;
 
@@ -47,6 +48,7 @@ async function doLogin() {
     
     const data = await resp.json();
     accountToken = data.token;
+    accountRefreshToken = data.refreshToken || null;
     
     // 获取 profile 列表
     const profilesResp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/profiles`, {
@@ -119,10 +121,8 @@ async function doBind(profileId) {
     
     const data = await resp.json();
     
-    // 保存凭据（用于 admin 面板自动登录）
+    // 保存账号会话（不保存可逆密码）
     const email = document.getElementById('email').value.trim().toLowerCase();
-    const password = document.getElementById('password').value;
-    const encrypted = btoa(`${email}:${password}`);
     
     // 保存到本地
     await new Promise((resolve) => {
@@ -131,7 +131,9 @@ async function doBind(profileId) {
         cloud_device_id: data.device_id || null,
         cloud_profile_id: data.profile_id,
         account_token: accountToken,
-        cloud_credentials: encrypted,
+        account_refresh_token: accountRefreshToken,
+        cloud_account_email: email,
+        cloud_credentials: null,
         cloud_last_sync: Date.now()
       }, resolve);
     });

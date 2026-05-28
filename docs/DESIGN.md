@@ -466,11 +466,22 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 
 ```sql
 accounts(id, email, password_hash, created_at)
+account_sessions(id, account_id, refresh_token_hash, created_at, expires_at,
+                 revoked_at, last_used_at)
 profiles(id, account_id, name, config JSON, version INT, avatar_color, created_at)
 devices(id, profile_id, device_token, device_name, last_seen, monitoring_enabled, created_at)
 composite_sessions(id, profile_id, device_id, domain, duration_seconds, session_date,
                    classification, parent_note, child_appeal, status, created_at)
 ```
+
+**Cloud credential roles:**
+
+- `device_token`: long-lived terminal binding credential used by `/device/*`. It is not revoked by account password changes. It only becomes invalid when the cloud device is unbound, local extension data is removed, the extension is reinstalled under a different ID, or the server-side device record is deleted.
+- `account_token`: short-lived parent/admin API token used by `/profiles/:id/*` and other account-level routes. New tokens include `exp`; legacy no-exp tokens remain accepted for compatibility during the transition.
+- `account_refresh_token`: revocable parent login session stored only as `account_sessions.refresh_token_hash` in D1. `/auth/refresh` rotates it and `/auth/logout` revokes it.
+- `cloud_credentials`: legacy reversible email/password cache. New clients must not write it. If an upgraded client finds it, it may use it once to obtain a refresh token, then clear it. Migration failure must not clear `device_token`.
+
+Changing account password revokes refresh sessions only. It does not unbind child terminals or stop device-token sync.
 
 ---
 
@@ -708,6 +719,8 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `ADD_TO_COMPOSITE_LIST` | → background | `{ domain }` | Legacy compatibility only；新申请入口不再使用 |
 | `BORROW_REST_QUOTA` | → background | — | `{ ok, amount }` 或 error |
 | `SEND_CLOUD_EVENT` | → background | `{ eventType, domain }` | — |
+| `CLOUD_LOGIN` | → background | `{ email, password }` | stores `account_token` + `account_refresh_token`; does not store reversible password |
+| `CLOUD_LOGOUT` | → background | — | revokes/clears parent account session fields only; keeps `cloud_device_token` so terminal binding remains valid |
 | `HEARTBEAT` | content → background | `{ state }` | `{ ok }` |
 | `CONTENT_SCRIPT_READY` | content → background | — | `{ ok }`；content listener 就绪后标记 tab ready，并投递同域、未过期的 queued transient notice |
 | `SHOW_WARNING` | background → content | `{ minutesLeft, domain }` | — |
@@ -716,6 +729,22 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `AUTO_MODE_PENDING_START` | background → content | `{ deadlineAt, targetMode, fromMode, domain }` | 页面内 pending auto-switch notice，倒计时型 |
 | `AUTO_MODE_PENDING_CANCEL` | background → content | `{ reason }` | 清理当前 tab 的 pending/success notice |
 | `AUTO_MODE_PENDING_SUCCESS` | background → content | `{ targetMode, fromMode, noticeKind, displayDuration }` | 页面内 transient success/info notice，必须按 TTL 自动消失 |
+
+### 4.0 Cloud Auth Session Contract
+
+Account login and device binding are intentionally separate:
+
+- `/auth/login` remains backward-compatible and returns the legacy `token` field; new clients also receive `refreshToken`.
+- `/auth/refresh` exchanges a valid refresh token for a new short-lived `token` and a rotated refresh token. The previous refresh token is revoked immediately.
+- `/auth/logout` revokes the current refresh token when supplied. Legacy clients without refresh tokens may still call logout without breaking compatibility.
+- `/auth/change-password` revokes all refresh-token sessions for that account. It does not delete `devices`, mutate `device_token`, or force already bound child terminals to rebind.
+- `/device/*` routes continue to use `device_token`; `/profiles/:id/*` routes continue to use `account_token`.
+
+Extension-side storage follows the same split:
+
+- `cloud_device_token` / `cloud_profile_id`: terminal binding and sync.
+- `account_token` / `account_refresh_token` / `cloud_account_email`: parent/admin account session.
+- `cloud_credentials`: legacy migration-only field; new writes must set it to `null`.
 
 ### 4.1 模式切换页面内提示生命周期
 

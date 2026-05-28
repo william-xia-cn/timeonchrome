@@ -7,6 +7,9 @@ const GC = window.GC || {
   KEYS: {
     DEVICE_TOKEN: 'cloud_device_token',
     PROFILE_ID: 'cloud_profile_id',
+    ACCOUNT_TOKEN: 'account_token',
+    ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
+    ACCOUNT_EMAIL: 'cloud_account_email',
     LAST_SYNC: 'cloud_last_sync'
   }
 };
@@ -53,7 +56,7 @@ const Auth = {
       throw new Error(err.error || 'Login failed');
     }
 
-    const { token: accountToken } = await loginResp.json();
+    const { token: accountToken, refreshToken } = await loginResp.json();
 
     // 获取孩子的 profile 列表
     const profilesResp = await fetch(`${GC.API_BASE}/profiles`, {
@@ -75,7 +78,7 @@ const Auth = {
     // 绑定设备
     const bindResp = await fetch(`${GC.API_BASE}/device/bind`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accountToken}` },
       body: JSON.stringify({ profile_id: profileId, device_name: deviceName })
     });
 
@@ -91,6 +94,9 @@ const Auth = {
       chrome.storage.local.set({
         [GC.KEYS.DEVICE_TOKEN]: device_token,
         [GC.KEYS.PROFILE_ID]: profile_id,
+        [GC.KEYS.ACCOUNT_TOKEN]: accountToken,
+        [GC.KEYS.ACCOUNT_REFRESH_TOKEN]: refreshToken || null,
+        [GC.KEYS.ACCOUNT_EMAIL]: normalizedEmail,
         [GC.KEYS.LAST_SYNC]: Date.now()
       }, resolve);
     });
