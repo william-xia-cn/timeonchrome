@@ -4,10 +4,18 @@
 
 ## [Unreleased]
 
+---
+
+## [1.7.5] — 2026-05-29
+
 - **Account session refresh tokens**: cloud auth now supports refresh-token sessions alongside the legacy `/auth/login -> token` response. New clients store `account_token`, `account_refresh_token`, and `cloud_account_email`; they no longer save reversible `cloud_credentials`. Existing clients and legacy no-exp account tokens remain compatible.
 - **Password-change binding safety**: changing an account password revokes parent refresh sessions but does not revoke `device_token`. Already bound terminals continue syncing until explicitly unbound in cloud device management, local extension data is cleared/uninstalled, or the Chrome extension ID changes.
+- **Product icon refresh**: extension toolbar icons, mode badge overlays, local Admin, Popup, Reminder, and cloud Pages now use the updated TimeOnChrome visual system and high-contrast app icon assets.
+- **Cloud and local management IA refresh**: cloud Pages now emphasizes `使用统计`, `访问管理`, `网站归类申请`, `子用户管理`, and `系统管理`; local Admin access management is split into website, quota, schedule, and classification request tabs.
+- **Configuration import review**: cloud profile config import now uses a diff-confirmation flow for site access, quota, and time-window settings before applying selected changes.
 - **Unified timing and mode audit logs**: checkpoint health now records before/after foreground/media session and segment counts, mode-boundary queue health, and ledger-gap status. `client_logs_v1` accepts `checkpoint`, `ledger_gap`, and `mode_transition` categories, and local Admin can filter by category and `auditId`. The gap detector reports when TimeOnChrome observes eligible browser activity or media facts but no durable `usage_segments_v1` / `media_segments_v1` result appears after checkpoint; it does not read Chrome History or backfill history.
 - **Timing inbound audit log**: local `__timingTrace` now records normalized timing-module inbound messages with `timing_inbound_received/routed/skipped` and shared `auditId` correlation for dispatcher signals, mode boundaries, checkpoints, read/action flushes, and lifecycle recovery. This is diagnostic-only local trace data and is not uploaded or used for settlement aggregation.
+- **Known risk — YouTube canonical URL policy**: YouTube playlist/video handling remains a temporary canonical URL strategy, not the final managedTarget model.
 
 ---
 
