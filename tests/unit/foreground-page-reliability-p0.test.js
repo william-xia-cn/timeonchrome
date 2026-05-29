@@ -194,6 +194,48 @@ async function testMissedIdleEventCountsAtMost180() {
   check('missed idle only settles one checkpoint window', settled.length === 1 && settled[0].endMs - settled[0].startMs === 180_000);
 }
 
+async function testCheckpointRepairsMissingForegroundSessionFromActiveTab() {
+  resetAll();
+  const now = 1778802500000;
+  const result = await withNow(now, () =>
+    sessionApi.runPeriodicCheckpoint(now, {
+      confirmForegroundPage: async () => ({
+        ok: true,
+        observedDomain: 'repair.example.com',
+        observedUrl: 'https://repair.example.com/course',
+        observedState: 'ACTIVE',
+        tabId: 70,
+        windowId: 7,
+        idleState: 'active',
+      }),
+    })
+  );
+  const session = await sessionApi.getSession();
+  check('missing session repair opens checkpoint session', result.opened === true && result.sessionOpened === true);
+  check('missing session repair verifies readback', result.readBackVerified === true);
+  check('repair session domain persisted', session.domain === 'repair.example.com');
+  check('repair session tab metadata persisted', session.tabId === 70 && session.windowId === 7);
+  check('repair session uses estimated open anchor', session.startTime === now - 90_000);
+}
+
+async function testCheckpointMissingForegroundSessionReportsExplicitFailure() {
+  resetAll();
+  const now = 1778802600000;
+  const result = await withNow(now, () =>
+    sessionApi.runPeriodicCheckpoint(now, {
+      confirmForegroundPage: async () => ({
+        ok: false,
+        reason: 'window_unfocused',
+        idleState: 'active',
+      }),
+    })
+  );
+  const session = await sessionApi.getSession();
+  check('missing session repair returns no_open_session reason', result.reason === 'no_open_session');
+  check('missing session repair returns explicit failure reason', result.failureReason === 'window_unfocused');
+  check('failed repair does not create session', !session?.state && !session?.startTime);
+}
+
 async function testMissedTabCloseDropsUnconfirmedLiveFallback() {
   resetAll();
   const base = 1778803000000;
@@ -682,6 +724,8 @@ async function run() {
     testLiveFallbackDoesNotNeedCheckpoint,
     testIdleBeforeCheckpointDropsWindow,
     testMissedIdleEventCountsAtMost180,
+    testCheckpointRepairsMissingForegroundSessionFromActiveTab,
+    testCheckpointMissingForegroundSessionReportsExplicitFailure,
     testMissedTabCloseDropsUnconfirmedLiveFallback,
     testRecoveryDoesNotBackfillLongGap,
     testUnknownDomainCountsAsUnknown,

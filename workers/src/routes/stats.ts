@@ -2,16 +2,23 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
 
-// 验证 device_token，同时刷新 last_seen；返回 profile_id + device_id 或 null
-async function verifyDeviceToken(env: Env, token: string): Promise<{ profileId: string; deviceId: string } | null> {
+type DeviceIdentity = { profileId: string; deviceId: string; unbound?: boolean };
+
+function deviceUnboundResponse(deviceId?: string | null): Response {
+  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound', device_id: deviceId || null }, 403);
+}
+
+// 验证 device_token，同时刷新 last_seen；返回 profile_id + device_id，或显式 unbound 状态
+async function verifyDeviceToken(env: Env, token: string): Promise<DeviceIdentity | null> {
   const device = await env.DB.prepare(
-    `SELECT id, profile_id FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ id: string; profile_id: string }>();
+    `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
+  ).bind(token).first<{ id: string; profile_id: string; status?: string }>();
 
   if (!device?.profile_id) return null;
+  if (device.status === 'unbound') return { profileId: device.profile_id, deviceId: device.id, unbound: true };
 
   await env.DB.prepare(
-    `UPDATE devices SET last_seen = ? WHERE device_token = ?`
+    `UPDATE devices SET last_seen = ? WHERE device_token = ? AND COALESCE(status, 'bound') = 'bound'`
   ).bind(Date.now(), token).run();
 
   return { profileId: device.profile_id, deviceId: device.id };
@@ -258,7 +265,19 @@ async function verifyProfileDevice(env: Env, profileId: string, deviceId: string
   return !!device;
 }
 
-async function readUsageStatsIntegrity(env: Env, profileId: string, deviceId: string, date: string): Promise<Record<string, { count: number; seconds: number }>> {
+type UsageStatsMetric = { count: number; seconds: number };
+type UsageStatsIntegrity = {
+  usageSegments: UsageStatsMetric;
+  dailyStats: UsageStatsMetric;
+  targetStats: UsageStatsMetric;
+  hourlyStats: UsageStatsMetric;
+  hourlyTargetStats: UsageStatsMetric;
+  complete: boolean;
+  issues: string[];
+  checks: Record<string, boolean>;
+};
+
+async function readUsageStatsIntegrity(env: Env, profileId: string, deviceId: string, date: string): Promise<UsageStatsIntegrity> {
   const readMetric = async (table: string) => {
     const row = await env.DB.prepare(
       `SELECT COUNT(*) as count, COALESCE(SUM(duration_seconds), 0) as seconds
@@ -317,6 +336,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       const date = url.searchParams.get('date');
       if (!isDateKey(date)) return json({ error: 'date must be YYYY-MM-DD' }, 400);
@@ -339,6 +359,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{ segments?: any[] }>();
@@ -435,6 +456,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{
@@ -523,6 +545,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{
@@ -616,6 +639,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{
@@ -707,6 +731,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{ segments?: any[] }>();
@@ -876,6 +901,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{
@@ -1028,6 +1054,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{
@@ -1111,6 +1138,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
         const body = await request.json<{
@@ -1873,6 +1901,7 @@ export const statsRouter = {
 
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
       const profileId = device.profileId;
 
       try {

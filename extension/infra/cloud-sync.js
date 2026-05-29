@@ -102,6 +102,30 @@ let syncState = {
   v1SyncEnabled: false,
 };
 
+function isDeviceUnboundPayload(payload) {
+  return payload?.code === 'DEVICE_UNBOUND' || (payload?.bound === false && payload?.reason === 'unbound');
+}
+
+async function clearCloudBindingState(reason = 'device_unbound') {
+  syncState.deviceToken = null;
+  syncState.deviceId = null;
+  syncState.profileId = null;
+  await chrome.storage.local.set({
+    [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null,
+    [CLOUD_CONFIG.KEYS.DEVICE_ID]: null,
+    [CLOUD_CONFIG.KEYS.PROFILE_ID]: null,
+  });
+  console.warn('[Cloud] Device explicitly unbound by cloud, cleared binding state:', reason);
+  chrome.runtime.sendMessage({ type: 'DEVICE_UNBOUND', reason }).catch(() => {});
+}
+
+function makeDeviceUnboundError(message = 'Device unbound') {
+  const error = new Error(message);
+  error.code = 'DEVICE_UNBOUND';
+  error.nonRetryable = true;
+  return error;
+}
+
 async function usageSegmentCountForDate(date) {
   try {
     const segments = await getUsageSegmentsByDate(date);
@@ -233,6 +257,11 @@ async function hydrateDeviceIdFromBindIfMissing() {
       }),
     });
     if (!bindResp.ok) {
+      const bindError = await bindResp.json().catch(() => null);
+      if (isDeviceUnboundPayload(bindError)) {
+        await clearCloudBindingState('hydrate_bind_unbound');
+        throw makeDeviceUnboundError(bindError?.error || 'Device unbound');
+      }
       console.warn('[Cloud] cloud_device_id hydrate bind failed:', bindResp.status);
       return false;
     }
@@ -469,24 +498,21 @@ async function cloudRequest(method, path, body = null, retries = 3) {
       if (resp.ok) {
         const contentType = resp.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
-          return await resp.json();
+          const payload = await resp.json();
+          if (isDeviceUnboundPayload(payload)) {
+            await clearCloudBindingState('cloud_response_unbound');
+            throw makeDeviceUnboundError(payload?.error || 'Device unbound');
+          }
+          return payload;
         }
         return { success: true };
       }
 
-      if (resp.status === 401) {
-        syncState.deviceToken = null;
-        syncState.profileId = null;
-        await chrome.storage.local.set({
-          [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null,
-          [CLOUD_CONFIG.KEYS.PROFILE_ID]: null
-        });
-        console.warn('[Cloud] Device token invalidated, cleared from storage');
-        chrome.runtime.sendMessage({ type: 'DEVICE_UNBOUND' }).catch(() => {});
-        throw new Error('Device token expired');
-      }
-
       const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+      if (isDeviceUnboundPayload(err)) {
+        await clearCloudBindingState('cloud_error_unbound');
+        throw makeDeviceUnboundError(err?.error || 'Device unbound');
+      }
       const message = err?.error || err?.message || `HTTP ${resp.status}`;
       const nonRetryable = resp.status >= 400 && resp.status < 500 && resp.status !== 429;
       const error = new Error(`HTTP ${resp.status}: ${message}`);
@@ -910,7 +936,8 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       module: 'infra/cloud-sync',
       message: e?.message || 'Cloud sync failed',
     });
-    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [e.message] };
+    const code = e?.code ? `${e.code}: ` : '';
+    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [`${code}${e.message}`] };
   } finally {
     syncState.isSyncing = false;
     syncState.syncStartedAt = 0;

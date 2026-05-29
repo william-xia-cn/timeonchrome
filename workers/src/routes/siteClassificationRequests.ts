@@ -9,12 +9,19 @@ import {
   siteTargetScopesOverlap,
 } from '../../../extension/core/site-classification.js';
 
-async function verifyDeviceToken(env: Env, token: string): Promise<{ profileId: string; deviceId: string } | null> {
+type DeviceIdentity = { profileId: string; deviceId: string; unbound?: boolean };
+
+function deviceUnboundResponse(deviceId?: string | null): Response {
+  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound', device_id: deviceId || null }, 403);
+}
+
+async function verifyDeviceToken(env: Env, token: string): Promise<DeviceIdentity | null> {
   const device = await env.DB.prepare(
-    `SELECT id, profile_id FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ id: string; profile_id: string }>();
+    `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
+  ).bind(token).first<{ id: string; profile_id: string; status?: string }>();
   if (!device?.profile_id) return null;
-  await env.DB.prepare(`UPDATE devices SET last_seen = ? WHERE device_token = ?`).bind(Date.now(), token).run();
+  if (device.status === 'unbound') return { profileId: device.profile_id, deviceId: device.id, unbound: true };
+  await env.DB.prepare(`UPDATE devices SET last_seen = ? WHERE device_token = ? AND COALESCE(status, 'bound') = 'bound'`).bind(Date.now(), token).run();
   return { profileId: device.profile_id, deviceId: device.id };
 }
 
@@ -135,6 +142,7 @@ function removeHost(list: string[] = [], host: string) {
 }
 
 async function applyDecisionToProfileConfig(env: Env, profileId: string, requestId: string, decision: string, target: any, now: number) {
+  if (decision === 'return') return;
   const row = await env.DB.prepare(`SELECT config FROM profiles WHERE id = ?`).bind(profileId).first<{ config: string }>();
   const config = row?.config ? JSON.parse(row.config) : {};
   const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
@@ -161,6 +169,16 @@ async function applyDecisionToProfileConfig(env: Env, profileId: string, request
     config.studyList = removeHost(config.studyList || [], target.normalizedValue);
     config.customCompositeList = addUniqueHost(config.customCompositeList || [], target.normalizedValue);
     config.compositeList = addUniqueHost(config.compositeList || [], target.normalizedValue);
+  } else if (target.targetType === 'host' && decision === 'reject') {
+    config.customStudyList = removeHost(config.customStudyList || [], target.normalizedValue);
+    config.studyList = removeHost(config.studyList || [], target.normalizedValue);
+    config.customCompositeList = removeHost(config.customCompositeList || [], target.normalizedValue);
+    config.compositeList = removeHost(config.compositeList || [], target.normalizedValue);
+    config.customRestList = removeHost(config.customRestList || [], target.normalizedValue);
+    config.restList = removeHost(config.restList || [], target.normalizedValue);
+    config.entertainmentList = removeHost(config.entertainmentList || [], target.normalizedValue);
+    config.customRestrictedEntertainmentList = addUniqueHost(config.customRestrictedEntertainmentList || [], target.normalizedValue);
+    config.restrictedEntertainmentList = addUniqueHost(config.restrictedEntertainmentList || [], target.normalizedValue);
   }
 
   await env.DB.prepare(
@@ -178,8 +196,9 @@ export const siteClassificationRequestsRouter = {
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
       const device = await verifyDeviceToken(env, auth.slice(7));
       if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
-      const body = await request.json<{ requests?: any[] }>().catch(() => ({}));
+      const body = await request.json<{ requests?: any[] }>().catch(() => ({} as { requests?: any[] }));
       const requests = Array.isArray(body?.requests) ? body.requests.slice(0, 200) : [];
       if (requests.length === 0) return json({ error: 'requests array required' }, 400);
 
@@ -210,7 +229,10 @@ export const siteClassificationRequestsRouter = {
         }
         const existing = await env.DB.prepare(
           `SELECT * FROM site_classification_requests_v1
-           WHERE profile_id = ? AND requested_target_type = ? AND requested_normalized_value = ?`
+           WHERE profile_id = ? AND requested_target_type = ? AND requested_normalized_value = ?
+             AND status != 'returned'
+           ORDER BY requested_at DESC
+           LIMIT 1`
         ).bind(device.profileId, target.targetType, target.normalizedValue).first<any>();
         if (existing) {
           saved.push(rowToResponse(existing));
@@ -274,17 +296,22 @@ export const siteClassificationRequestsRouter = {
       const profileId = decisionMatch[1];
       const requestId = decisionMatch[2];
       if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
-      const body = await request.json<{ decision?: string; targetType?: string; targetValue?: string }>().catch(() => ({}));
+      const body = await request.json<{ decision?: string; targetType?: string; targetValue?: string }>()
+        .catch(() => ({} as { decision?: string; targetType?: string; targetValue?: string }));
       const decision = normalizeSiteClassificationDecision(body?.decision);
       if (!decision) return json({ error: 'invalid decision' }, 400);
-      const target = normalizeSiteClassificationTarget(body?.targetValue || '');
-      if (!target.ok) return json({ error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' }, 400);
-      if (body?.targetType && body.targetType !== target.targetType) return json({ error: 'target type mismatch' }, 400);
-
       const existing = await env.DB.prepare(
         `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
       ).bind(requestId, profileId).first<any>();
       if (!existing) return json({ error: 'Request not found' }, 404);
+
+      const targetValue = body?.targetValue ||
+        existing.decision_normalized_value ||
+        existing.requested_normalized_value ||
+        '';
+      const target = normalizeSiteClassificationTarget(targetValue);
+      if (!target.ok) return json({ error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' }, 400);
+      if (body?.targetType && body.targetType !== target.targetType) return json({ error: 'target type mismatch' }, 400);
 
       const now = Date.now();
       const status = decisionToStatus(decision);

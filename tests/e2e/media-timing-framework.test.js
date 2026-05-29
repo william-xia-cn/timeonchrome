@@ -73,42 +73,71 @@ async function createMediaSourceTab(ctx, sw) {
     await page.close().catch(() => {});
     throw new Error('Failed to resolve real media source tab id');
   }
-  const foregroundPage = await ctx.newPage();
-  await foregroundPage.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 10000 });
-  await foregroundPage.bringToFront();
-  return { page, foregroundPage, tabId: tabInfo.tabId, windowId: tabInfo.windowId || 1 };
+  const foregroundTab = await sw.evaluate(async ({ windowId }) => {
+    const tab = await chrome.tabs.create({
+      windowId,
+      active: true,
+      url: 'about:blank',
+    });
+    return { tabId: tab?.id || null, windowId: tab?.windowId || windowId };
+  }, { windowId: tabInfo.windowId || 1 });
+  await sw.evaluate(async ({ sourceTabId, foregroundTabId }) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const [sourceTab, foregroundTab] = await Promise.all([
+        chrome.tabs.get(sourceTabId).catch(() => null),
+        chrome.tabs.get(foregroundTabId).catch(() => null),
+      ]);
+      if (sourceTab && foregroundTab?.active === true && sourceTab.active !== true) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }, { sourceTabId: tabInfo.tabId, foregroundTabId: foregroundTab.tabId });
+  return { page, foregroundTabId: foregroundTab.tabId, tabId: tabInfo.tabId, windowId: tabInfo.windowId || 1 };
 }
 
-async function sendControlledMedia(sw, cfg, source) {
-  return sw.evaluate(async ({ cfg, source }) => {
+async function sendControlledMedia(sw, cfg, source, atMs = null) {
+  return sw.evaluate(async ({ cfg, source, atMs }) => {
     return globalThis.debugApplyControlledTimingSignal({
+      ...(Number.isFinite(atMs) ? { _debugNow: atMs } : {}),
       tabId: source.tabId,
       windowId: source.windowId,
       domain: null,
       isFocused: true,
       isIdle: false,
+      isActiveTab: false,
+      playing: true,
       isAudible: true,
       isPiP: cfg.pip,
       mediaKind: cfg.mediaKind,
       mediaSourceTabId: source.tabId,
+      mediaFrameId: 'debug-controlled-media',
+      mediaDocumentId: 'debug-controlled-media',
       mediaSourceDomain: cfg.domain,
       _reason: `e2e_${cfg.framework}_start`,
     });
-  }, { cfg, source });
+  }, { cfg, source, atMs });
 }
 
 async function settleControlledMedia(ctx, sw, cfg) {
   const source = await createMediaSourceTab(ctx, sw);
   try {
     await sendControlledMedia(sw, cfg, { tabId: source.tabId, windowId: source.windowId });
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await expect.poll(async () => {
+      const opened = await sw.evaluate(() => chrome.storage.local.get('media_session_v1'));
+      return opened.media_session_v1?.framework || 'none';
+    }, { timeout: 3000 }).toBe(cfg.framework);
     const opened = await sw.evaluate(() => chrome.storage.local.get('media_session_v1'));
     expect(opened.media_session_v1?.framework).toBe(cfg.framework);
     expect(opened.media_session_v1?.domain).toBe(cfg.domain);
 
     const now = Date.now();
+    await sendControlledMedia(sw, cfg, { tabId: source.tabId, windowId: source.windowId }, now);
     await sw.evaluate(async ({ now }) => {
-      const data = await chrome.storage.local.get(['media_session_v1', 'media_sessions_v2']);
+      const data = await chrome.storage.local.get([
+        'media_session_v1',
+        'media_sessions_v2',
+        'media_facts_v1',
+        'media_frame_facts_v1',
+      ]);
       const sessions = data.media_sessions_v2 || {};
       for (const key of Object.keys(sessions)) {
         sessions[key] = {
@@ -118,8 +147,24 @@ async function settleControlledMedia(ctx, sw, cfg) {
           lastObservedAt: now,
         };
       }
+      const facts = data.media_facts_v1 || {};
+      for (const key of Object.keys(facts)) {
+        facts[key] = {
+          ...facts[key],
+          lastObservedAt: now,
+        };
+      }
+      const frameFacts = data.media_frame_facts_v1 || {};
+      for (const key of Object.keys(frameFacts)) {
+        frameFacts[key] = {
+          ...frameFacts[key],
+          lastObservedAt: now,
+        };
+      }
       await chrome.storage.local.set({
         media_sessions_v2: sessions,
+        media_facts_v1: facts,
+        media_frame_facts_v1: frameFacts,
         media_session_v1: {
           ...data.media_session_v1,
           startTime: now - 181000,
@@ -130,10 +175,18 @@ async function settleControlledMedia(ctx, sw, cfg) {
 
     const checkpoint = await sw.evaluate((checkpointNow) => globalThis.debugRunMediaPeriodicCheckpoint(checkpointNow), now);
     expect(checkpoint.ok).toBeTruthy();
-    expect(checkpoint.checkpointed).toBeTruthy();
+    expect(checkpoint.checkpointed, JSON.stringify(checkpoint)).toBeTruthy();
     return checkpoint;
   } finally {
-    await source.foregroundPage.close().catch(() => {});
+    if (Number.isInteger(source.foregroundTabId)) {
+      await sw.evaluate((tabId) => new Promise((resolve) => {
+        try {
+          chrome.tabs.remove(tabId, () => resolve());
+        } catch (_) {
+          resolve();
+        }
+      }), source.foregroundTabId).catch(() => {});
+    }
     await source.page.close().catch(() => {});
   }
 }

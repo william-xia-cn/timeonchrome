@@ -1,8 +1,8 @@
 import { matchDomain, normalizeHostname } from './domain-semantics.js';
 
 export const SITE_CLASSIFICATION_TARGET_TYPES = new Set(['host', 'url']);
-export const SITE_CLASSIFICATION_DECISIONS = new Set(['study', 'composite', 'reject']);
-export const SITE_CLASSIFICATION_STATUSES = new Set(['pending', 'approved_study', 'approved_composite', 'rejected']);
+export const SITE_CLASSIFICATION_DECISIONS = new Set(['study', 'composite', 'return', 'reject']);
+export const SITE_CLASSIFICATION_STATUSES = new Set(['pending', 'returned', 'approved_study', 'approved_composite', 'rejected']);
 export const SITE_ACCESS_CLASSIFICATION_GROUPS = [
   { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'customBlockedSites', 'defaultUnsafeSites', 'customUnsafeSites'], classification: 'blocked' },
   { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'customRestrictedEntertainmentList'], classification: 'restricted' },
@@ -91,6 +91,7 @@ export function normalizeSiteClassificationTarget(input) {
 export function normalizeSiteClassificationDecision(decision) {
   if (decision === 'approved_study' || decision === 'study') return 'study';
   if (decision === 'approved_composite' || decision === 'composite') return 'composite';
+  if (decision === 'returned' || decision === 'return') return 'return';
   if (decision === 'rejected' || decision === 'reject') return 'reject';
   return null;
 }
@@ -99,6 +100,7 @@ export function decisionToStatus(decision) {
   const normalized = normalizeSiteClassificationDecision(decision);
   if (normalized === 'study') return 'approved_study';
   if (normalized === 'composite') return 'approved_composite';
+  if (normalized === 'return') return 'returned';
   if (normalized === 'reject') return 'rejected';
   return null;
 }
@@ -111,7 +113,7 @@ export function normalizeSiteClassificationRule(rule) {
   const target = normalizeSiteClassificationTarget(targetType === 'url' ? value : value.trim());
   if (!target.ok || target.targetType !== targetType) return null;
   const decision = normalizeSiteClassificationDecision(rule.decision || rule.classification || rule.status);
-  if (!decision) return null;
+  if (!decision || decision === 'return') return null;
   return {
     ...rule,
     targetType,
@@ -207,6 +209,7 @@ function decisionToClassification(decision) {
   const normalized = normalizeSiteClassificationDecision(decision);
   if (normalized === 'study') return 'study';
   if (normalized === 'composite') return 'composite';
+  if (normalized === 'return') return null;
   if (normalized === 'reject') return 'rejected';
   return null;
 }

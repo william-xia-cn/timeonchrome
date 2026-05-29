@@ -165,12 +165,12 @@ function getReminderOriginalTarget(tabUrl = '') {
   return { url: tabUrl || null, domain: extractDomain(tabUrl || '') };
 }
 
-async function flushStatsForRead(source = null) {
+async function flushStatsForRead(source = null, auditSource = 'stats_read') {
   try {
     if (source === 'popup') {
-      return await flushOpenSessionToStats('popup_open', { allowForeground: true });
+      return await flushOpenSessionToStats('popup_open', { allowForeground: true, auditSource });
     }
-    return await flushOpenSessionToStats('ui_flush');
+    return await flushOpenSessionToStats('ui_flush', { auditSource });
   } catch (e) {
     console.error('[Stats] flush before stats read failed:', e?.message || e);
     return { ok: false, error: e?.message || String(e) };
@@ -183,7 +183,7 @@ export async function handleMessage(msg, sender) {
       return await getConfig();
 
     case 'GET_STATS': {
-      await flushStatsForRead(msg.source || null);
+      await flushStatsForRead(msg.source || null, 'GET_STATS');
       const config = await getConfig();
       const view = await getTodayUsageView({ config });
       return view.statsWithSummary;
@@ -199,7 +199,7 @@ export async function handleMessage(msg, sender) {
       return (await getPopupModeStatsView()).summary;
 
     case 'GET_STATS_RANGE': {
-      await flushStatsForRead();
+      await flushStatsForRead(null, 'GET_STATS_RANGE');
       const config = await getConfig();
       const view = await getUsageRangeView(msg.days || 7, { config });
       return view.statsWithSummaryByDate;
@@ -218,7 +218,7 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'FLUSH_TIME':
-      return await flushOpenSessionToStats('ui_flush');
+      return await flushOpenSessionToStats('ui_flush', { auditSource: 'FLUSH_TIME' });
 
     case 'GET_SUSPECT_SEGMENT_SUMMARY':
       try {
@@ -253,7 +253,7 @@ export async function handleMessage(msg, sender) {
       return await getVisitSessions(msg.days || 14);
 
     case 'GET_TIMELINE_SEGMENTS': {
-      await flushStatsForRead();
+      await flushStatsForRead(null, 'GET_TIMELINE_SEGMENTS');
       const events = await getEvents();
       return buildTodayTimelineSegmentsFromEventLog(events, new Date());
     }

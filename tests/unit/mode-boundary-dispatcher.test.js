@@ -21,10 +21,37 @@ function check(name, condition, details = '') {
   if (!condition) throw new Error(`${name}${details ? `: ${details}` : ''}`);
 }
 
+const auditStubs = {
+  createTimingAuditId: (() => {
+    let i = 0;
+    return () => `audit-${++i}`;
+  })(),
+  inboundAuditFields: (raw = {}) => ({
+    auditId: raw.auditId || null,
+    type: raw.type || null,
+    _reason: raw._reason || null,
+    source: raw.source || null,
+    tabId: Number.isInteger(raw.tabId) ? raw.tabId : null,
+    windowId: Number.isInteger(raw.windowId) ? raw.windowId : null,
+    domain: typeof raw.domain === 'string' ? raw.domain : null,
+    url: typeof raw.url === 'string' ? raw.url : null,
+    mediaSourceTabId: Number.isInteger(raw.mediaSourceTabId) ? raw.mediaSourceTabId : null,
+    mediaFrameId: Number.isInteger(raw.mediaFrameId) ? raw.mediaFrameId : null,
+    isPiP: raw.isPiP === true ? true : (raw.isPiP === false ? false : null),
+    idleState: typeof raw.idleState === 'string' ? raw.idleState : null,
+    isFocused: raw.isFocused === true ? true : (raw.isFocused === false ? false : null),
+    timestamp: Number.isFinite(raw.timestamp) ? raw.timestamp : null,
+    incognito: raw.incognito === true,
+    error: raw.error ? String(raw.error) : null,
+  }),
+};
+
 async function run() {
   {
     const calls = [];
+    const traces = [];
     const api = loadDispatcher({
+      ...auditStubs,
       isMediaOnlyTimingSignal: () => false,
       observeMediaFromSignal: async () => null,
       processForegroundSignal: async () => ({ ok: true }),
@@ -38,14 +65,18 @@ async function run() {
       fromMode: 'rest',
       toMode: 'study',
       reason: 'rest_to_study',
-    });
+    }, { emitTrace: async (event, payload) => traces.push({ event, payload }) });
     check('mode boundary dispatch succeeds', result.ok === true, JSON.stringify(result));
     check('mode boundary fans out to foreground and media', JSON.stringify(calls) === JSON.stringify([['foreground', 'study'], ['media', 'study']]), JSON.stringify(calls));
+    check('mode boundary produces inbound audit', traces.some((trace) => trace.event === 'timing_inbound_received'), JSON.stringify(traces));
+    check('mode boundary result carries audit id', traces.some((trace) => trace.event === 'mode_boundary_result' && trace.payload?.payload?.auditId), JSON.stringify(traces));
   }
 
   {
     const calls = [];
+    const traces = [];
     const api = loadDispatcher({
+      ...auditStubs,
       isMediaOnlyTimingSignal: () => false,
       observeMediaFromSignal: async () => null,
       processForegroundSignal: async () => ({ ok: true }),
@@ -57,13 +88,17 @@ async function run() {
         return { ok: true, processed: 1 };
       },
     });
-    const result = await api.dispatchTimingSignal({ _reason: 'tabActivated', domain: 'example.com' });
+    const result = await api.dispatchTimingSignal({ _reason: 'tabActivated', domain: 'example.com' }, {
+      emitTrace: async (event, payload) => traces.push({ event, payload }),
+    });
     check('normal signal drains pending mode boundaries first', calls[0] === 'drain', JSON.stringify(calls));
     check('normal signal still processes foreground', result.ok === true);
+    check('normal signal produces received and routed audit', traces.some((trace) => trace.event === 'timing_inbound_received') && traces.some((trace) => trace.event === 'timing_inbound_routed'), JSON.stringify(traces));
   }
 
   {
     const api = loadDispatcher({
+      ...auditStubs,
       isMediaOnlyTimingSignal: () => false,
       observeMediaFromSignal: async () => null,
       processForegroundSignal: async () => ({ ok: true }),
@@ -82,7 +117,9 @@ async function run() {
 
   {
     let foregroundCalls = 0;
+    const traces = [];
     const api = loadDispatcher({
+      ...auditStubs,
       isMediaOnlyTimingSignal: () => false,
       observeMediaFromSignal: async () => null,
       processForegroundSignal: async () => { foregroundCalls += 1; return { ok: true }; },
@@ -90,15 +127,20 @@ async function run() {
       processMediaModeBoundary: async () => ({ ok: true }),
       drainModeBoundaryIntents: async () => ({ ok: true, processed: 0 }),
     });
-    const result = await api.dispatchTimingSignal({ _reason: 'windowFocusPolled', isFocused: false });
+    const result = await api.dispatchTimingSignal({ _reason: 'windowFocusPolled', isFocused: false }, {
+      emitTrace: async (event, payload) => traces.push({ event, payload }),
+    });
     check('windowFocusPolled is skipped by dispatcher', result.skipped === true && result.reason === 'focus_polling_disabled', JSON.stringify(result));
     check('windowFocusPolled does not enter foreground consumer', foregroundCalls === 0, String(foregroundCalls));
+    check('windowFocusPolled produces inbound skipped audit', traces.some((trace) => trace.event === 'timing_inbound_skipped' && trace.payload.reason === 'focus_polling_disabled'), JSON.stringify(traces));
   }
 
   {
     let foregroundCalls = 0;
     let mediaCalls = 0;
+    const traces = [];
     const api = loadDispatcher({
+      ...auditStubs,
       isMediaOnlyTimingSignal: () => true,
       observeMediaFromSignal: async () => { mediaCalls += 1; return { ok: true }; },
       processForegroundSignal: async () => { foregroundCalls += 1; return { ok: true }; },
@@ -106,13 +148,16 @@ async function run() {
       processMediaModeBoundary: async () => ({ ok: true }),
       drainModeBoundaryIntents: async () => ({ ok: true, processed: 0 }),
     });
-    const result = await api.dispatchTimingSignal({ _reason: 'tabAudible', mediaSourceTabId: 1 });
+    const result = await api.dispatchTimingSignal({ _reason: 'tabAudible', mediaSourceTabId: 1 }, {
+      emitTrace: async (event, payload) => traces.push({ event, payload }),
+    });
     check('media-only signal is observed by media side', mediaCalls === 1, String(mediaCalls));
     check('media-only signal skips foreground consumer', foregroundCalls === 0, String(foregroundCalls));
     check('media-only signal returns foreground unchanged reason', result.reason === 'media_signal_foreground_unchanged', JSON.stringify(result));
+    check('media-only signal produces inbound skipped audit', traces.some((trace) => trace.event === 'timing_inbound_skipped' && trace.payload.reason === 'media_signal_foreground_unchanged'), JSON.stringify(traces));
   }
 
-  console.log('[Mode Boundary Dispatcher] 8/8 passed');
+  console.log('[Mode Boundary Dispatcher] passed');
 }
 
 run().catch((err) => {

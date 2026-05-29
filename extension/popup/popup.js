@@ -158,7 +158,7 @@ function closeSiteRequestPanel() {
 }
 
 function siteRequestErrorMessage(result = {}) {
-  if (result.code === 'REQUEST_REJECTED') return '家长已拒绝该范围，不能再次申请归类。';
+  if (result.code === 'REQUEST_REJECTED') return '该范围已归为受限娱乐，不能再次申请归类。';
   if (result.code === 'ALREADY_CLASSIFIED') return '该网站已归类，不能申请重新归类。';
   if (result.code === 'URL_REQUIRES_PROTOCOL') return '特定链接需要以 http:// 或 https:// 开头。';
   if (result.code === 'INVALID_HOST' || result.code === 'INVALID_URL' || result.code === 'INVALID_TARGET') return '请输入有效域名、子域名或 http/https 链接。';

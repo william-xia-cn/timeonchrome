@@ -456,7 +456,10 @@ export async function submitSiteClassificationRequest(input, context = {}) {
   }
 
   const key = requestKey(target.targetType, target.normalizedValue);
-  const existing = records.find((record) => requestKey(record.requestedTargetType, record.requestedNormalizedValue) === key);
+  const existing = records.find((record) =>
+    record.status !== 'returned' &&
+    requestKey(record.requestedTargetType, record.requestedNormalizedValue) === key
+  );
   if (existing) {
     if (existing.status === 'rejected') {
       return { ok: false, code: 'REQUEST_REJECTED', error: 'request rejected', request: existing };
@@ -562,7 +565,15 @@ export async function markSiteClassificationRequestUploadFailed(ids = [], error 
 
 export async function mergeCloudSiteClassificationRequests(cloudRecords = []) {
   const local = await getSiteClassificationRequestRecords({ includeAll: true });
-  const byKey = new Map(local.map((record) => [requestKey(record.requestedTargetType, record.requestedNormalizedValue), record]));
+  const byKey = new Map();
+  const recordIdentity = (record = {}) => {
+    if (record.cloudId) return `cloud:${record.cloudId}`;
+    if (record.id) return `local:${record.id}`;
+    return `target:${requestKey(record.requestedTargetType, record.requestedNormalizedValue)}`;
+  };
+  for (const record of local) {
+    byKey.set(recordIdentity(record), record);
+  }
   for (const raw of Array.isArray(cloudRecords) ? cloudRecords : []) {
     const normalized = normalizeSiteClassificationRequest({
       id: raw.clientRequestId || raw.id,
@@ -584,7 +595,11 @@ export async function mergeCloudSiteClassificationRequests(cloudRecords = []) {
       syncStatus: 'uploaded',
     });
     if (!normalized) continue;
-    const key = requestKey(normalized.requestedTargetType, normalized.requestedNormalizedValue);
+    const key = byKey.has(recordIdentity(normalized))
+      ? recordIdentity(normalized)
+      : normalized.id && byKey.has(`local:${normalized.id}`)
+      ? `local:${normalized.id}`
+      : recordIdentity(normalized);
     const existing = byKey.get(key) || {};
     byKey.set(key, {
       ...existing,

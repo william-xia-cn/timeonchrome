@@ -129,6 +129,13 @@ async function run() {
   expectEqual('pending request grants composite classification',
     mod.getSiteClassificationForUrl({}, pending, 'https://unknown.example.com/x').classification,
     'pending_composite');
+  expectEqual('returned request does not grant temporary composite classification',
+    mod.getSiteClassificationForUrl({}, [{
+      requestedTargetType: 'host',
+      requestedNormalizedValue: 'returned.example.com',
+      status: 'returned',
+    }], 'https://returned.example.com/x').classification,
+    null);
   expectEqual('approved study request alone is not treated as pending',
     mod.getSiteClassificationForUrl({}, [{
       requestedTargetType: 'host',

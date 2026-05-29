@@ -4,25 +4,32 @@ import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-se
 import { siteAccessDefaults } from '../config/site-access-defaults';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 
-// 验证 device_token，可选同时刷新 last_seen；返回 profile_id + device_id 或 null
+type DeviceIdentity = { profileId: string; deviceId: string; unbound?: boolean };
+
+function deviceUnboundResponse(deviceId?: string | null): Response {
+  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound', device_id: deviceId || null }, 403);
+}
+
+// 验证 device_token，可选同时刷新 last_seen；返回 profile_id + device_id，或显式 unbound 状态
 async function verifyDeviceToken(
   request: Request,
   env: Env,
   updateLastSeen = false
-): Promise<{ profileId: string; deviceId: string } | null> {
+): Promise<DeviceIdentity | null> {
   const auth = request.headers.get('Authorization');
   if (!auth?.startsWith('Bearer ')) return null;
 
   const token  = auth.slice(7);
   const device = await env.DB.prepare(
-    `SELECT id, profile_id FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ id: string; profile_id: string }>();
+    `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
+  ).bind(token).first<{ id: string; profile_id: string; status?: string }>();
 
   if (!device?.profile_id) return null;
+  if (device.status === 'unbound') return { profileId: device.profile_id, deviceId: device.id, unbound: true };
 
   if (updateLastSeen) {
     await env.DB.prepare(
-      `UPDATE devices SET last_seen = ? WHERE device_token = ?`
+      `UPDATE devices SET last_seen = ? WHERE device_token = ? AND COALESCE(status, 'bound') = 'bound'`
     ).bind(Date.now(), token).run();
   }
 
@@ -79,8 +86,12 @@ export const deviceRouter = {
           ).bind(deviceId, profile_id, deviceToken, devName, now, now).run();
         } else {
           const existing = await env.DB.prepare(
-            `SELECT id FROM devices WHERE device_token = ?`
-          ).bind(deviceToken).first<{ id: string }>();
+            `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
+          ).bind(deviceToken).first<{ id: string; profile_id: string; status?: string }>();
+          if (!existing || existing.profile_id !== profile_id) {
+            return json({ error: 'Device token not found', code: 'DEVICE_TOKEN_NOT_FOUND' }, 404);
+          }
+          if (existing.status === 'unbound') return deviceUnboundResponse(existing.id);
           deviceId = existing?.id || null;
         }
 
@@ -94,6 +105,7 @@ export const deviceRouter = {
     if (request.method === 'POST' && path === '/device/heartbeat') {
       const deviceIdentity = await verifyDeviceToken(request, env, true);
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
       return json({ ok: true, ts: Date.now() });
     }
 
@@ -103,6 +115,7 @@ export const deviceRouter = {
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       const deviceIdentity = await verifyDeviceToken(request, env, true);
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
       const profileId = deviceIdentity.profileId;
 
       const row = await env.DB.prepare(
@@ -153,6 +166,7 @@ export const deviceRouter = {
     if (request.method === 'PUT' && path === '/device/config') {
       const deviceIdentity = await verifyDeviceToken(request, env, true);
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
       const profileId = deviceIdentity.profileId;
 
       try {
@@ -178,6 +192,7 @@ export const deviceRouter = {
     if (request.method === 'GET' && path === '/device/quota-state') {
       const deviceIdentity = await verifyDeviceToken(request, env);
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
       const profileId = deviceIdentity.profileId;
 
       const dateParam = url.searchParams.get('date');
@@ -194,7 +209,7 @@ export const deviceRouter = {
       const studyList: string[]     = config.studyList     || [];
       const compositeList: string[] = config.compositeList || [];
       const borrow                  = config.quotaBorrow   ?? null;
-      const effectiveQuota = getEffectiveQuotaForDate(config, dateParam).todayEffectiveQuota;
+      const effectiveQuota = getEffectiveQuotaForDate(config, dateParam as any).todayEffectiveQuota;
       const limitSeconds = (minutes: number | null | undefined) => {
         if (minutes === null || minutes === undefined) return null;
         const number = Number(minutes);

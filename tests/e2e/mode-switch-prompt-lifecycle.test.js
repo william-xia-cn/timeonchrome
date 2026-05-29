@@ -288,7 +288,7 @@ test('综合 → 学习：自动切换后显示短暂成功提示并自动消失
 
 test('综合 → 学习：自动立即切换后显示页面角标', async () => {
   const serverCtx = await startServer();
-  const { ctx, sw, udd } = await createContext('composite');
+  const { ctx, sw, udd } = await createContext('study');
   try {
     const page = await ctx.newPage();
     await page.goto(serverCtx.studyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });

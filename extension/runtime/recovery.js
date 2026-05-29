@@ -1,6 +1,7 @@
 // runtime/recovery.js — extension lifecycle boundary recovery
 
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
+import { emitTimingInbound } from '../core/timing-trace.js';
 import { isCountedState } from '../core/usage-segments.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { getSession, getSessionWithPersistenceSource, runSessionCommit, saveSession, settleCurrentSessionSegment } from './session.js';
@@ -11,6 +12,11 @@ const GUARDIAN_CONFIG_KEY = 'guardian_config';
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
+const emitInboundTrace = (...args) => (
+  typeof emitTimingInbound === 'function'
+    ? emitTimingInbound(...args)
+    : null
+);
 
 function emptySession(now = Date.now()) {
   return {
@@ -45,6 +51,14 @@ async function readRecoveryMode() {
  * 不把普通 MV3 Service Worker module-load / alarm / message 唤醒当作恢复边界。
  */
 export async function recover() {
+  const auditId = await emitInboundTrace('timing_inbound_received', {
+    type: 'lifecycle_recovery',
+    _reason: 'recover',
+    source: 'extension_lifecycle',
+    timestamp: Date.now(),
+  }, {
+    source: 'recovery',
+  });
   const commit = typeof runSessionCommit === 'function'
     ? runSessionCommit
     : async (task) => task();
@@ -56,11 +70,35 @@ export async function recover() {
     const { session, source } = snapshot;
     const now = Date.now();
     if (!session || !session.state || !session.startTime) {
+      await emitInboundTrace('timing_inbound_skipped', {
+        type: 'lifecycle_recovery',
+        _reason: 'recover',
+        source: 'extension_lifecycle',
+        timestamp: now,
+        auditId,
+      }, {
+        auditId,
+        source: 'recovery',
+        reason: 'no_open_session',
+        payload: { skippedReason: 'no_open_session', persistenceSource: source },
+      });
       return { ok: true, recovered: false, reason: 'no_open_session', source };
     }
 
     if (!isCountedState(session.state)) {
       await saveSession(emptySession(now));
+      await emitInboundTrace('timing_inbound_skipped', {
+        type: 'lifecycle_recovery',
+        _reason: 'recover',
+        source: 'extension_lifecycle',
+        timestamp: now,
+        auditId,
+      }, {
+        auditId,
+        source: 'recovery',
+        reason: 'non_counted_state',
+        payload: { skippedReason: 'non_counted_state', persistenceSource: source },
+      });
       return {
         ok: true,
         recovered: true,
@@ -75,6 +113,18 @@ export async function recover() {
     const startTime = Number(session.startTime);
     if (!Number.isFinite(startTime) || startTime <= 0) {
       await saveSession(emptySession(now));
+      await emitInboundTrace('timing_inbound_skipped', {
+        type: 'lifecycle_recovery',
+        _reason: 'recover',
+        source: 'extension_lifecycle',
+        timestamp: now,
+        auditId,
+      }, {
+        auditId,
+        source: 'recovery',
+        reason: 'invalid_start_time',
+        payload: { skippedReason: 'invalid_start_time', persistenceSource: source },
+      });
       return {
         ok: true,
         recovered: true,
@@ -91,6 +141,18 @@ export async function recover() {
     const durationSeconds = Math.floor(durationMs / 1000);
     if (durationMs <= 0) {
       await saveSession(emptySession(now));
+      await emitInboundTrace('timing_inbound_skipped', {
+        type: 'lifecycle_recovery',
+        _reason: 'recover',
+        source: 'extension_lifecycle',
+        timestamp: now,
+        auditId,
+      }, {
+        auditId,
+        source: 'recovery',
+        reason: 'non_positive_duration',
+        payload: { skippedReason: 'non_positive_duration', persistenceSource: source },
+      });
       return {
         ok: true,
         recovered: true,
@@ -118,6 +180,25 @@ export async function recover() {
     });
 
     await saveSession(emptySession(now));
+    await emitInboundTrace('timing_inbound_routed', {
+      type: 'lifecycle_recovery',
+      _reason: 'recover',
+      source: 'extension_lifecycle',
+      timestamp: now,
+      auditId,
+      domain: session.domain || null,
+    }, {
+      auditId,
+      source: 'recovery',
+      reason: 'recovery_estimated_close',
+      payload: {
+        route: 'residual_open_session',
+        persistenceSource: source,
+        state: session.state || null,
+        closeAt,
+        durationSeconds,
+      },
+    });
     recordFallbackLog({
       level: 'warning',
       category: 'timing',

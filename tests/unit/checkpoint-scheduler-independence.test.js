@@ -22,17 +22,37 @@ function loadScheduler(stubs = {}) {
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
+  code = code.replace(/export\s+const\s+/g, 'const ');
   const keys = Object.keys(stubs);
   const prelude = keys.length ? `const { ${keys.join(', ')} } = __injected;\n` : '';
   const factory = new Function('__injected', `${prelude}${code}\nreturn { runTimingCheckpoints };`);
   return factory(stubs);
 }
 
+function installHealthStorage() {
+  const data = {};
+  global.chrome = {
+    storage: {
+      local: {
+        async get(key) {
+          return { [key]: data[key] };
+        },
+        async set(obj) {
+          Object.assign(data, obj);
+        },
+      },
+    },
+  };
+  return data;
+}
+
 async function run() {
   {
+    const storage = installHealthStorage();
     const calls = [];
     const traces = [];
     const { runTimingCheckpoints } = loadScheduler({
+      createTimingAuditId: () => 'checkpoint-audit-1',
       runPeriodicCheckpoint: async () => {
         calls.push('foreground');
         throw new Error('foreground failed');
@@ -50,12 +70,17 @@ async function run() {
     check('media checkpoint still runs when foreground checkpoint fails', calls.join(',') === 'foreground,media', calls.join(','));
     check('result records foreground error and media success', result.ok === false && result.foreground.ok === false && result.media.ok === true, JSON.stringify(result));
     check('media checkpoint trace is still emitted', traces.some((trace) => trace.event === 'media_checkpoint_result'));
+    check('checkpoint inbound audit is emitted', traces.some((trace) => trace.event === 'timing_inbound_received' && trace.payload?.payload?.auditId === 'checkpoint-audit-1'));
+    check('checkpoint result traces carry audit id', traces.some((trace) => trace.event === 'media_checkpoint_result' && trace.payload?.payload?.auditId === 'checkpoint-audit-1'));
+    check('checkpoint health records foreground failure', storage.timing_checkpoint_health_v1?.foreground?.status === 'error', JSON.stringify(storage.timing_checkpoint_health_v1));
   }
 
   {
+    installHealthStorage();
     const calls = [];
     const traces = [];
     const { runTimingCheckpoints } = loadScheduler({
+      createTimingAuditId: () => 'checkpoint-audit-2',
       runPeriodicCheckpoint: async () => {
         calls.push('foreground');
         return { ok: true, reason: 'periodic_checkpoint', domain: 'a.example' };
@@ -72,15 +97,24 @@ async function run() {
     });
     check('foreground checkpoint result is kept when media checkpoint fails', result.ok === false && result.foreground.ok === true && result.media.ok === false, JSON.stringify(result));
     check('foreground checkpoint trace is emitted before media failure', traces.some((trace) => trace.event === 'foreground_checkpoint_result'));
+    check('checkpoint routed audit is emitted', traces.some((trace) => trace.event === 'timing_inbound_routed' && trace.payload?.payload?.route === 'foreground+media'));
   }
 
   {
+    const storage = installHealthStorage();
     const { runTimingCheckpoints } = loadScheduler({
+      createTimingAuditId: () => 'checkpoint-audit-3',
       runPeriodicCheckpoint: async () => { throw new Error('should not run'); },
       runMediaCheckpoint: async () => { throw new Error('should not run'); },
     });
-    const result = await runTimingCheckpoints({ isMonitoringEnabled: () => false });
+    const traces = [];
+    const result = await runTimingCheckpoints({
+      isMonitoringEnabled: () => false,
+      emitTrace: async (event, payload) => traces.push({ event, payload }),
+    });
     check('scheduler respects monitoring disabled guard', result.skipped === 'monitoring_disabled');
+    check('monitoring disabled checkpoint emits inbound skipped audit', traces.some((trace) => trace.event === 'timing_inbound_skipped' && trace.payload?.payload?.skippedReason === 'monitoring_disabled'));
+    check('monitoring disabled writes info health', storage.timing_checkpoint_health_v1?.foreground?.status === 'info', JSON.stringify(storage.timing_checkpoint_health_v1));
   }
 
   const total = passed + failed;

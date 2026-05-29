@@ -3,6 +3,7 @@
 const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const {
   assertNoForbiddenForegroundOperations,
   assertNoUnexpectedOverlap,
@@ -85,6 +86,75 @@ async function createContext() {
   return { ctx, sw, udd };
 }
 
+async function startCheckpointServer() {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(`<!doctype html><title>Checkpoint Fixture</title><body>${req.url}</body>`);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  return {
+    server,
+    domain: '127.0.0.1',
+    url: `http://127.0.0.1:${port}/checkpoint-open`,
+  };
+}
+
+async function tabInfoForPage(sw, page) {
+  const pageUrl = page.url();
+  return await sw.evaluate(async (targetUrl) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const tabs = await chrome.tabs.query({});
+      const tab = tabs.find((candidate) => candidate.url === targetUrl);
+      if (tab?.id) return { tabId: tab.id, windowId: tab.windowId || null };
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { tabId: null, windowId: null };
+  }, pageUrl);
+}
+
+async function focusTabForCheckpoint(sw, tabInfo) {
+  return await sw.evaluate(async ({ tabId, windowId }) => {
+    if (Number.isInteger(windowId) && chrome.windows?.update) {
+      try {
+        await chrome.windows.update(windowId, { focused: true });
+      } catch (_) {}
+    }
+    if (Number.isInteger(tabId) && chrome.tabs?.update) {
+      try {
+        await chrome.tabs.update(tabId, { active: true });
+      } catch (_) {}
+    }
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const activeTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const active = activeTabs?.[0] || null;
+      if (active?.id === tabId) {
+        return {
+          ok: true,
+          tabId: active.id,
+          windowId: active.windowId || windowId || null,
+          url: active.url || null,
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const activeTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return {
+      ok: false,
+      reason: 'active_tab_not_confirmed',
+      expectedTabId: tabId,
+      actualTabId: activeTabs?.[0]?.id ?? null,
+      actualUrl: activeTabs?.[0]?.url || null,
+    };
+  }, tabInfo);
+}
+
+async function closeServer(server) {
+  if (!server) return;
+  server.closeAllConnections?.();
+  await new Promise((resolve) => server.close(() => resolve()));
+}
+
 async function sendRuntimeMessageFromExtensionPage(ctx, sw, type) {
   const debugResponse = await sw.evaluate(async (messageType) => {
     if (typeof globalThis.debugSendModeSwitchMessage !== 'function') return null;
@@ -116,8 +186,36 @@ test('P0-settle-1: GET_STATS from popup returns domain stats via event-log', asy
     // Seed current Stats Foundation aggregate; GET_STATS is backed by durable daily stats,
     // not by ad-hoc event_log fallback.
     await sw.evaluate(async (date) => {
+      const endMs = Date.now();
+      const startMs = endMs - 30_000;
+      const segment = {
+        id: `e2e-seed-${date}-visited-site`,
+        profileId: 'e2e-profile-settle',
+        deviceId: 'e2e-device-id-settle',
+        date,
+        timezone: 'Asia/Shanghai',
+        startMs,
+        endMs,
+        durationSeconds: 30,
+        domain: 'visited-site.example.com',
+        sourceState: 'ACTIVE',
+        channel: 'active',
+        mode: 'rest',
+        settlementReason: 'e2e_seed',
+        reason: 'e2e_seed',
+        description: {
+          start: { operation: 'e2e_seed' },
+          end: { operation: 'e2e_seed' },
+        },
+      };
       return new Promise(res => {
         chrome.storage.local.set({
+          usage_segments_v1: {
+            [segment.id]: segment,
+          },
+          usage_segments_index_v1: {
+            [date]: [segment.id],
+          },
           daily_usage_stats_v1: {
             [date]: {
               date,
@@ -184,16 +282,29 @@ test('P0-settle-1: GET_STATS from popup returns domain stats via event-log', asy
 // ── Test 3: Checkpoint-first foreground settlement makes stats durable ──────
 test('P0-settle-3: checkpoint settles open bound foreground session into Stats Foundation', async () => {
   const { ctx, sw, udd } = await createContext();
+  const serverCtx = await startCheckpointServer();
+  let foregroundPage = null;
   try {
+    foregroundPage = await ctx.newPage();
+    await foregroundPage.goto(serverCtx.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await foregroundPage.bringToFront();
+    await foregroundPage.waitForTimeout(250);
+    const tabInfo = await tabInfoForPage(sw, foregroundPage);
+    expect(Number.isInteger(tabInfo.tabId)).toBeTruthy();
+    expect(Number.isInteger(tabInfo.windowId)).toBeTruthy();
+    const focused = await focusTabForCheckpoint(sw, tabInfo);
+    expect(focused.ok, JSON.stringify(focused)).toBeTruthy();
+    await foregroundPage.waitForTimeout(250);
+
     const n = Date.now();
-    await sw.evaluate(async (now) => {
+    await sw.evaluate(async ({ now, tabInfo, domain, url }) => {
       const result = await globalThis.debugApplyControlledTimingSignal({
         _reason: 'e2eCheckpointOpen',
         _debugNow: now - 181000,
-        tabId: 7781,
-        windowId: 9911,
-        domain: 'live-open.example.com',
-        url: 'https://live-open.example.com/',
+        tabId: tabInfo.tabId,
+        windowId: tabInfo.windowId,
+        domain,
+        url,
         isFocused: true,
         isIdle: false,
         isAudible: false,
@@ -203,14 +314,14 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
       }
       const session = {
         state: 'ACTIVE',
-        domain: 'live-open.example.com',
+        domain,
         startTime: now - 181000,
         startAtMs: now - 181000,
         lastHeartbeat: now - 1000,
         startReason: 'e2eCheckpointOpen',
         startOperationSource: 'chrome_event',
-        tabId: 7781,
-        windowId: 9911,
+        tabId: tabInfo.tabId,
+        windowId: tabInfo.windowId,
         quotaBucketAtTime: 'rest',
       };
       return new Promise(res => chrome.storage.session.set({ session_v1: session }, () => {
@@ -221,7 +332,7 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
           daily_usage_stats_v1: {},
         }, res);
       }));
-    }, n);
+    }, { now: n, tabInfo, domain: serverCtx.domain, url: serverCtx.url });
 
     const beforeCheckpoint = await sw.evaluate(async () => {
       return new Promise(res => {
@@ -232,7 +343,7 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
 
     const checkpoint = await sw.evaluate(async (now) => globalThis.debugRunPeriodicCheckpoint(now), n);
     expect(checkpoint.ok).toBeTruthy();
-    expect(checkpoint.checkpointed).toBeTruthy();
+    expect(checkpoint.checkpointed, JSON.stringify(checkpoint)).toBeTruthy();
 
     const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
     const popup = await ctx.newPage();
@@ -244,7 +355,7 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
         chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {}));
       });
     });
-    expect(afterCheckpoint['live-open.example.com']).toBeGreaterThan(0);
+    expect(afterCheckpoint[serverCtx.domain]).toBeGreaterThan(0);
     expect(afterCheckpoint.onlineSeconds).toBeGreaterThan(0);
 
     const snapshot1 = await sw.evaluate(async () => {
@@ -255,13 +366,12 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
     const segments1 = Object.values(snapshot1.usage_segments_v1 || {});
     expect(segments1.length).toBeGreaterThanOrEqual(1);
     expect(segments1.some(s =>
-      s.domain === 'live-open.example.com' &&
+      s.domain === serverCtx.domain &&
       s.settlementReason === 'periodic_checkpoint'
     )).toBeTruthy();
     const ledger1 = await readLedgerSnapshot(sw);
     assertUsageTimeline(ledger1.usage, [{
-      domain: 'live-open.example.com',
-      mode: 'unknown',
+      domain: serverCtx.domain,
       settlementReason: 'periodic_checkpoint',
       sourceState: 'ACTIVE',
       duration: { min: 180, max: 181 },
@@ -293,8 +403,8 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
         chrome.runtime.sendMessage({ type: 'GET_STATS' }, r => res(r || {}));
       });
     });
-    expect(second['live-open.example.com']).toBeGreaterThanOrEqual(afterCheckpoint['live-open.example.com']);
-    expect(second['live-open.example.com']).toBeLessThanOrEqual(afterCheckpoint['live-open.example.com'] + 5);
+    expect(second[serverCtx.domain]).toBeGreaterThanOrEqual(afterCheckpoint[serverCtx.domain]);
+    expect(second[serverCtx.domain]).toBeLessThanOrEqual(afterCheckpoint[serverCtx.domain] + 5);
     const snapshot2 = await sw.evaluate(async () => {
       return new Promise(res => chrome.storage.local.get('usage_segments_v1', r => res(r)));
     });
@@ -311,7 +421,12 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
     assertNoForbiddenForegroundOperations(ledger2.usage);
 
     await popup.close();
-  } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }
+  } finally {
+    if (foregroundPage) await foregroundPage.close().catch(() => {});
+    await closeServer(serverCtx.server);
+    await ctx.close();
+    fs.rmSync(udd, { recursive: true, force: true });
+  }
 });
 
 // ── Test 2: Mode switch changes session mode ────────────────────────────────

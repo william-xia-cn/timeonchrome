@@ -1331,7 +1331,7 @@
           <div class="card-header">
             <div>
               <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/request.svg" alt="">网站归类申请</div>
-              <div style="font-size:12px;color:var(--muted);margin-top:3px;">可调整审批生效对象，支持扩大到根域名或缩小到子域名、精确链接。</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">可调整审批生效对象。退回申请表示不归类并结束本次临时综合使用，后续可重新申请。</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <select id="site-classification-status-filter" style="padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:12px;">
@@ -5465,9 +5465,10 @@ function renderReviewPage() {
 
 function siteRequestStatusLabel(status) {
   if (status === 'pending') return '待审批';
+  if (status === 'returned') return '已退回';
   if (status === 'approved_study') return '已批准为学习';
   if (status === 'approved_composite') return '已批准为综合';
-  if (status === 'rejected') return '已拒绝';
+  if (status === 'rejected') return '已归为受限娱乐';
   return status || '未知';
 }
 
@@ -5491,7 +5492,8 @@ function renderSiteRequestRow(request, idx) {
     <div class="site-request-actions">
       <button class="btn-classify study" onclick="decideSiteClassificationRequest(${idx},'study')">批准为学习网站</button>
       <button class="btn-classify rest" onclick="decideSiteClassificationRequest(${idx},'composite')">批准为综合网站</button>
-      <button class="btn-classify" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">拒绝</button>
+      <button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'return')">退回申请</button>
+      <button class="btn-classify" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">归为受限娱乐</button>
     </div>` : `<div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status))}</div>`;
   return `
     <div class="site-request-row" data-id="${escHtml(request.id)}">
@@ -5548,7 +5550,13 @@ async function decideSiteClassificationRequest(idx, decision) {
       targetType,
       targetValue,
     });
-    toast(decision === 'study' ? '已批准为学习网站' : decision === 'composite' ? '已批准为综合网站' : '已拒绝');
+    toast(decision === 'study'
+      ? '已批准为学习网站'
+      : decision === 'composite'
+      ? '已批准为综合网站'
+      : decision === 'return'
+      ? '已退回申请'
+      : '已归为受限娱乐');
     await loadSiteClassificationRequests();
   } catch (e) {
     toast('操作失败：' + e.message, false);

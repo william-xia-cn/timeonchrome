@@ -39,8 +39,11 @@ export function parseAuth(request: Request): { type: string; token: string } | n
 
 // ── JWT 工具（HMAC-SHA256）────────────────────────────────────────────────
 
-function b64url(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+function b64url(buf: ArrayBuffer | ArrayBufferView): string {
+  const bytes = buf instanceof ArrayBuffer
+    ? new Uint8Array(buf)
+    : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
@@ -104,5 +107,5 @@ export interface Env {
   CONFIG_CACHE: KVNamespace;
   JWT_SECRET: string;
   DEVICE_TOKEN_SECRET: string;
-  RESEND_API_KEY: string;   // Resend 邮件通知 API key（可选，不配置则跳过邮件）
+  RESEND_API_KEY?: string;  // Resend 邮件通知 API key（可选，不配置则跳过邮件）
 }

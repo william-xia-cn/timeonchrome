@@ -1598,9 +1598,10 @@ function formatRulesDateTime(ms) {
 
 function siteRequestStatusLabel(status) {
   if (status === 'pending') return '待审批';
+  if (status === 'returned') return '已退回';
   if (status === 'approved_study') return '已批准为学习';
   if (status === 'approved_composite') return '已批准为综合';
-  if (status === 'rejected') return '已拒绝';
+  if (status === 'rejected') return '已归为受限娱乐';
   return status || '未知';
 }
 
@@ -1759,7 +1760,7 @@ function renderRulesPage() {
     ]),
     customList: config?.customRestrictedEntertainmentList,
     targetRules: approvedUrlRulesForDecision('reject'),
-    targetRuleTitle: '已拒绝 / 受限精确链接',
+    targetRuleTitle: '受限娱乐精确链接',
   });
   renderSiteGroup('rules-blocked-display', {
     effectiveList: config?.unsafeList || config?.blacklist,
@@ -1989,7 +1990,18 @@ async function forceSync() {
   await renderSyncStatus();
 
   try {
-    await sendMsg({ type: 'CLOUD_FORCE_SYNC' });
+    const syncResult = await sendMsg({ type: 'CLOUD_FORCE_SYNC' });
+    if (syncResult?.hadFailure) {
+      const message = (syncResult.errors || []).join('；') || '同步失败';
+      if (/DEVICE_UNBOUND|Device unbound|设备.*解绑/i.test(message)) {
+        syncFeedbackState = { phase: 'error', message: '设备已被解绑，请重新绑定' };
+        await renderSyncStatus();
+        await checkAndHandleBinding();
+        showError('设备已被解绑，请重新绑定');
+        return;
+      }
+      throw new Error(message);
+    }
     syncFeedbackState = { phase: 'success', message: '同步完成' };
     showToast('同步完成');
     await renderSyncStatus();

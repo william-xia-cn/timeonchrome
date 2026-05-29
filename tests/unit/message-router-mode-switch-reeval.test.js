@@ -760,7 +760,8 @@ async function run() {
 
     await handleMessage({ type: 'GET_STATS' }, {});
     expect('regular GET_STATS flush reason', flushCalls[0]?.reason, 'ui_flush');
-    expect('regular GET_STATS has no foreground override', flushCalls[0]?.options, undefined);
+    expect('regular GET_STATS has no foreground override', flushCalls[0]?.options?.allowForeground, undefined);
+    expect('regular GET_STATS carries audit source', flushCalls[0]?.options?.auditSource, 'GET_STATS');
   }
 
   section('MSR-9 GET_POPUP_SETTLED_MODE_STATS is read-only and mode authoritative');

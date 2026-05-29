@@ -1,7 +1,7 @@
 // runtime/session.js — 当前会话快照（单一真相源）+ 状态切换 + 周期 checkpoint
 
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
-import { emitTrace } from '../core/timing-trace.js';
+import { emitTimingInbound, emitTrace } from '../core/timing-trace.js';
 import { getReliableCloseTime } from './time-boundary.js';
 import { isCountedState, settleUsageDuration } from '../core/usage-segments.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
@@ -11,6 +11,11 @@ import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.j
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
   : (value) => value;
+const emitInboundTrace = (...args) => (
+  typeof emitTimingInbound === 'function'
+    ? emitTimingInbound(...args)
+    : null
+);
 
 const SESSION_KEY = 'session_v1';
 const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
@@ -324,6 +329,26 @@ function observedDomainFromConfirmation(confirmation) {
 
 function isCheckpointActiveSample(confirmation) {
   return !!(confirmation?.ok && sampleStateFromConfirmation(confirmation) === 'ACTIVE' && sampleDomainFromConfirmation(confirmation));
+}
+
+function checkpointNoSessionFailureReason(confirmation) {
+  if (!confirmation) return 'checkpoint_confirmation_unavailable';
+  if (confirmation?.ok === false) return confirmation.reason || 'checkpoint_confirmation_failed';
+  if (sampleStateFromConfirmation(confirmation) !== 'ACTIVE') {
+    return confirmation.reason || 'idle_not_active';
+  }
+  if (!sampleDomainFromConfirmation(confirmation)) {
+    return confirmation.reason || 'domain_unresolved';
+  }
+  return confirmation.reason || 'no_active_sample';
+}
+
+function checkpointSessionReadbackMatches(expected, actual) {
+  if (!expected || !actual) return false;
+  return actual.state === expected.state &&
+    actual.domain === expected.domain &&
+    actual.startTime === expected.startTime &&
+    actual.lastHeartbeat === expected.lastHeartbeat;
 }
 
 function mismatchCheckpointActiveSample(confirmation) {
@@ -1145,15 +1170,67 @@ function observedCloseDomain(options = {}) {
   return typeof domain === 'string' && domain.trim() ? domain.trim() : null;
 }
 
+function shouldAuditFlushInbound(reason, options = {}) {
+  if (options.skipInboundAudit) return false;
+  if (reason === 'periodic_checkpoint') return false;
+  return reason === 'popup_open' || reason === 'ui_flush' || !!options.auditSource;
+}
+
 export async function flushOpenSessionToStats(reason = 'ui_flush', options = {}) {
   const task = async () => {
+    let auditId = null;
+    const auditFlush = shouldAuditFlushInbound(reason, options);
+    if (auditFlush) {
+      auditId = await emitInboundTrace('timing_inbound_received', {
+        type: 'action_flush',
+        _reason: reason,
+        source: options.auditSource || options.source || 'flushOpenSessionToStats',
+        timestamp: Date.now(),
+      }, {
+        source: 'runtime-session',
+        payload: {
+          actionSource: options.auditSource || options.source || null,
+          allowForeground: options.allowForeground === true,
+          alreadySerialized: options.alreadySerialized === true,
+        },
+      });
+    }
     const session = await getSession();
     const now = Date.now();
 
     if (!session?.state || !session?.startTime) {
+      if (auditFlush) {
+        await emitInboundTrace('timing_inbound_skipped', {
+          type: 'action_flush',
+          _reason: reason,
+          source: options.auditSource || options.source || 'flushOpenSessionToStats',
+          timestamp: now,
+          auditId,
+        }, {
+          auditId,
+          source: 'runtime-session',
+          reason: 'no_open_session',
+          payload: { skippedReason: 'no_open_session' },
+        });
+      }
       return { ok: true, flushed: false, flushedSeconds: 0, reason: 'no_open_session' };
     }
     if (!isCountedState(session.state)) {
+      if (auditFlush) {
+        await emitInboundTrace('timing_inbound_skipped', {
+          type: 'action_flush',
+          _reason: reason,
+          source: options.auditSource || options.source || 'flushOpenSessionToStats',
+          timestamp: now,
+          auditId,
+          domain: session.domain || null,
+        }, {
+          auditId,
+          source: 'runtime-session',
+          reason: 'non_counted_state',
+          payload: { skippedReason: 'non_counted_state', state: session.state || null },
+        });
+      }
       return {
         ok: true,
         flushed: false,
@@ -1164,6 +1241,23 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       };
     }
     if (isForegroundPageSession(session) && !options.allowForeground) {
+      if (auditFlush) {
+        await emitInboundTrace('timing_inbound_skipped', {
+          type: 'action_flush',
+          _reason: reason,
+          source: options.auditSource || options.source || 'flushOpenSessionToStats',
+          timestamp: now,
+          auditId,
+          domain: session.domain || null,
+          tabId: session.tabId,
+          windowId: session.windowId,
+        }, {
+          auditId,
+          source: 'runtime-session',
+          reason: 'foreground_checkpoint_required',
+          payload: { skippedReason: 'foreground_checkpoint_required', state: session.state || null },
+        });
+      }
       return {
         ok: true,
         flushed: false,
@@ -1194,6 +1288,25 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
         guard.mode === mode;
       const lastFlushAt = Number(guard?.lastFlushAt) || 0;
       if (isSameContext && (now - lastFlushAt) < UI_FLUSH_MIN_INTERVAL_MS) {
+        if (auditFlush) {
+          await emitInboundTrace('timing_inbound_skipped', {
+            type: 'action_flush',
+            _reason: reason,
+            source: options.auditSource || options.source || 'flushOpenSessionToStats',
+            timestamp: now,
+            auditId,
+            domain: sessionDomain,
+          }, {
+            auditId,
+            source: 'runtime-session',
+            reason: 'ui_flush_guard_interval',
+            payload: {
+              skippedReason: 'ui_flush_guard_interval',
+              guardIntervalMs: UI_FLUSH_MIN_INTERVAL_MS,
+              sinceLastFlushMs: Math.max(0, now - lastFlushAt),
+            },
+          });
+        }
         return {
           ok: true,
           flushed: false,
@@ -1212,6 +1325,23 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       : getReliableCloseTime(session, now);
     const { closeTime, stale } = closeBoundary;
     if (closeTime <= session.startTime) {
+      if (auditFlush) {
+        await emitInboundTrace('timing_inbound_skipped', {
+          type: 'action_flush',
+          _reason: reason,
+          source: options.auditSource || options.source || 'flushOpenSessionToStats',
+          timestamp: now,
+          auditId,
+          domain: session.domain || null,
+          tabId: session.tabId,
+          windowId: session.windowId,
+        }, {
+          auditId,
+          source: 'runtime-session',
+          reason: 'non_positive_duration',
+          payload: { skippedReason: 'non_positive_duration', state: session.state || null },
+        });
+      }
       return {
         ok: true,
         flushed: false,
@@ -1300,6 +1430,30 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       } catch (_) {
         // Guard write failure must not block popup/read path.
       }
+    }
+
+    if (auditFlush) {
+      await emitInboundTrace('timing_inbound_routed', {
+        type: 'action_flush',
+        _reason: reason,
+        source: options.auditSource || options.source || 'flushOpenSessionToStats',
+        timestamp: now,
+        auditId,
+        domain: reopenedDomain || null,
+        tabId: session.tabId,
+        windowId: session.windowId,
+      }, {
+        auditId,
+        source: 'runtime-session',
+        reason,
+        payload: {
+          route: 'flush_open_session',
+          flushedSegments: settlement?.appended || 0,
+          flushedSeconds: settlement?.durationSeconds || 0,
+          stale: !!stale,
+          reopened: true,
+        },
+      });
     }
 
     return {
@@ -1449,7 +1603,44 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         ? await options.confirmForegroundPage(null, now)
         : null;
       if (!isCheckpointActiveSample(confirmation)) {
-        return { ok: true, checkpointed: false, reason: 'no_open_session' };
+        const failureReason = checkpointNoSessionFailureReason(confirmation);
+        await recordForegroundDiagnostic({
+          lastCheckpointAt: Date.now(),
+          lastCheckpointFailureAt: Date.now(),
+          lastCheckpointFailureReason: failureReason,
+          lastCheckpointObservedDomain: observedDomainFromConfirmation(confirmation),
+          lastCheckpointIdleState: confirmation?.idleState || null,
+          ...(failureReason === 'observed_query_failed' ? { observedQueryFailures: 1 } : {}),
+          ...(failureReason === 'idle_query_failed' ? { idleQueryFailures: 1 } : {}),
+        });
+        recordFallbackLog({
+          level: 'warning',
+          category: 'timing',
+          eventCode: 'foreground_checkpoint_no_session_repair_skipped',
+          module: 'runtime/session',
+          reason: failureReason,
+          message: 'Foreground checkpoint could not repair missing open session',
+          domain: observedDomainFromConfirmation(confirmation),
+          incognito: confirmation?.incognito === true,
+          details: {
+            observedDomain: observedDomainFromConfirmation(confirmation),
+            observedState: confirmation?.observedState || confirmation?.candidateState || null,
+            idleState: confirmation?.idleState || null,
+            tabId: sampleTabIdFromConfirmation(confirmation),
+            windowId: sampleWindowIdFromConfirmation(confirmation),
+            error: confirmation?.error || null,
+            incognito: confirmation?.incognito === true,
+          },
+        });
+        return {
+          ok: true,
+          checkpointed: false,
+          opened: false,
+          repaired: false,
+          reason: 'no_open_session',
+          failureReason,
+          domain: observedDomainFromConfirmation(confirmation),
+        };
       }
       const openAt = checkpointEstimatedOpenTime(now);
       const state = sampleStateFromConfirmation(confirmation);
@@ -1470,7 +1661,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         event: startEvent,
       });
       await refreshCachedMode();
-      await saveSession({
+      const repairedSession = {
         state,
         domain,
         startTime: openAt,
@@ -1482,7 +1673,75 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         windowId: sampleWindowIdFromConfirmation(confirmation),
         incognito: confirmation?.incognito === true,
         ...(await resolveManagedTargetForOpen(domain, { observedUrl: confirmation?.observedUrl || null }, cachedEffectiveMode)),
-      });
+      };
+      try {
+        await saveSession(repairedSession);
+        const readBack = await getSession();
+        if (!checkpointSessionReadbackMatches(repairedSession, readBack)) {
+          recordFallbackLog({
+            level: 'error',
+            category: 'timing',
+            eventCode: 'foreground_checkpoint_open_readback_failed',
+            module: 'runtime/session',
+            reason: 'session_readback_mismatch',
+            message: 'Foreground checkpoint repaired session was not readable after save',
+            domain,
+            incognito: confirmation?.incognito === true,
+            details: {
+              expectedState: repairedSession.state,
+              actualState: readBack?.state || null,
+              expectedDomain: repairedSession.domain,
+              actualDomain: readBack?.domain || null,
+              expectedStartTime: repairedSession.startTime,
+              actualStartTime: readBack?.startTime || null,
+              tabId: repairedSession.tabId ?? null,
+              windowId: repairedSession.windowId ?? null,
+              incognito: confirmation?.incognito === true,
+            },
+          });
+          return {
+            ok: false,
+            checkpointed: false,
+            opened: false,
+            repaired: false,
+            reason: 'checkpoint_estimated_open_failed',
+            failureReason: 'session_readback_mismatch',
+            state,
+            domain,
+            openAt,
+          };
+        }
+      } catch (err) {
+        recordFallbackLog({
+          level: 'error',
+          category: 'timing',
+          eventCode: 'foreground_checkpoint_open_save_failed',
+          module: 'runtime/session',
+          reason: 'session_save_failed',
+          message: err?.message || 'Foreground checkpoint failed to save repaired session',
+          domain,
+          incognito: confirmation?.incognito === true,
+          details: {
+            state,
+            tabId: sampleTabIdFromConfirmation(confirmation),
+            windowId: sampleWindowIdFromConfirmation(confirmation),
+            error: err?.message || String(err),
+            incognito: confirmation?.incognito === true,
+          },
+        });
+        return {
+          ok: false,
+          checkpointed: false,
+          opened: false,
+          repaired: false,
+          reason: 'checkpoint_estimated_open_failed',
+          failureReason: 'session_save_failed',
+          error: err?.message || String(err),
+          state,
+          domain,
+          openAt,
+        };
+      }
       await recordForegroundDiagnostic({
         checkpointEstimatedOpens: 1,
         estimatedOpenSeconds: Math.floor(Math.max(0, now - openAt) / 1000),
@@ -1496,6 +1755,8 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         opened: true,
         repaired: true,
         reason: 'checkpoint_estimated_open',
+        sessionOpened: true,
+        readBackVerified: true,
         state,
         domain,
         openAt,

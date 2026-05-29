@@ -154,7 +154,7 @@ function run() {
   expectTrue('admin 访问规则页应展示网站归类申请记录', html.includes('网站归类申请记录') && html.includes('rules-temporary-composite-display'));
   expectTrue('admin 访问规则页不应单独展示已批准精确链接规则', !html.includes('已批准精确链接 / 管理对象规则') && !html.includes('rules-approved-target-rules-display') && !code.includes('renderApprovedTargetRules'));
   expectTrue('admin 访问规则页应把已批准 URL 规则合并到对应分类', code.includes('approvedUrlRulesForDecision') && code.includes("targetRules: approvedUrlRulesForDecision('study')") && code.includes("targetRules: approvedUrlRulesForDecision('composite')") && code.includes("targetRules: approvedUrlRulesForDecision('reject')") && code.indexOf("targetRules: approvedUrlRulesForDecision('reject')") < code.indexOf("renderSiteGroup('rules-blocked-display'"));
-  expectTrue('admin 已拒绝 URL 规则应作为受限精确链接展示', code.includes('已拒绝 / 受限精确链接') && code.includes('uniqueSiteRules'));
+  expectTrue('admin 归为受限娱乐 URL 规则应作为受限精确链接展示', code.includes('受限娱乐精确链接') && code.includes('uniqueSiteRules'));
   expectTrue('admin URL 规则展示应规范化 YouTube playlist 历史值', code.includes('function canonicalDisplayUrlValue') && code.includes('https://www.youtube.com/playlist?list=${playlistId}'));
   expectTrue('admin 网站归类申请记录应简化为单一对象列', code.includes('<th class="site-request-col-object">对象</th>') && !code.includes('审批生效对象') && !html.includes('site-request-col-decision') && !code.includes('site-request-decision-cell'));
   expectTrue('admin 网站归类申请对象列应优先显示审批生效对象', code.includes('record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue'));

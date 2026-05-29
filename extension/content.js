@@ -198,6 +198,16 @@
       showFullOverlay(msg.message, msg.reason);
     } else if (msg.type === 'REMOVE_OVERLAY') {
       removeOverlay();
+    } else if (msg.type === 'GET_MEDIA_SNAPSHOT') {
+      const snapshot = readMediaSnapshot();
+      sendResponse?.({
+        ok: true,
+        playing: snapshot.playing === true,
+        isPiP: snapshot.isPiP === true,
+        mediaKind: snapshot.kind || null,
+        visible: document.visibilityState === 'visible',
+        source: 'content_media_snapshot',
+      });
     } else if (msg.type === 'EXIT_PIP') {
       exitPictureInPictureIfNeeded()
         .then((result) => {

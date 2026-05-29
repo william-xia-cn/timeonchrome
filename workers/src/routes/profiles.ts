@@ -554,11 +554,11 @@ export const profilesRouter = {
       let devices: any[] = [];
       try {
         const result = await env.DB.prepare(
-          `SELECT id, device_name, last_seen, monitoring_enabled, created_at
-           FROM devices WHERE profile_id = ? ORDER BY last_seen DESC`
+          `SELECT id, device_name, last_seen, monitoring_enabled, created_at, status, unbound_at
+           FROM devices WHERE profile_id = ? AND COALESCE(status, 'bound') = 'bound' ORDER BY last_seen DESC`
         ).bind(profileId).all<{
           id: string; device_name: string; last_seen: number;
-          monitoring_enabled: number; created_at: number;
+          monitoring_enabled: number; created_at: number; status?: string; unbound_at?: number;
         }>();
         devices = result.results || [];
       } catch (_) {
@@ -629,8 +629,8 @@ export const profilesRouter = {
       if (!dev) return json({ error: 'Device not found' }, 404);
 
       await env.DB.prepare(
-        `DELETE FROM devices WHERE id = ?`
-      ).bind(deviceId).run();
+        `UPDATE devices SET status = 'unbound', unbound_at = ? WHERE id = ?`
+      ).bind(Date.now(), deviceId).run();
 
       return json({ success: true });
     }

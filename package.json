@@ -5,6 +5,7 @@
   "main": "extension/background.js",
   "scripts": {
     "check:extension-root": "node tools/check-extension-root.js",
+    "typecheck": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,5 +14,9 @@
   "type": "commonjs",
   "dependencies": {
     "@playwright/test": "^1.59.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260529.1",
+    "typescript": "^6.0.3"
   }
 }

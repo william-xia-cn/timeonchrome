@@ -47,6 +47,24 @@ expect(
   /chrome\.runtime\.sendMessage\(\{\s*type:\s*'MEDIA_STATE',\s*playing,\s*isPiP,\s*mediaKind:\s*kind,\s*source\s*\}\)/.test(mediaBlock)
 );
 
+expect(
+  'content supports read-only media checkpoint snapshot',
+  /msg\.type === 'GET_MEDIA_SNAPSHOT'/.test(contentJs)
+    && /source:\s*'content_media_snapshot'/.test(contentJs)
+);
+
+const mediaSnapshotBranch = sectionBetween(
+  contentJs,
+  "msg.type === 'GET_MEDIA_SNAPSHOT'",
+  "msg.type === 'EXIT_PIP'"
+);
+
+expect(
+  'media checkpoint snapshot does not expose page URL/domain/title',
+  mediaSnapshotBranch.length > 0
+    && !/location\.href|document\.URL|document\.title|domain|url|title/.test(mediaSnapshotBranch)
+);
+
 for (const forbidden of [
   'location.href',
   'document.URL',

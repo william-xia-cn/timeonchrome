@@ -147,6 +147,7 @@ async function bootstrapActiveTabTiming(reason = 'bootstrap_active_tab') {
   }, {
     ensureBootstrapped,
     scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
+    emitTrace,
   });
 }
 
@@ -196,7 +197,17 @@ async function dispatchModeEvent(event = {}, options = {}) {
 // 模块级引导：普通 MV3 SW 唤醒只做 runtime wiring，不代表异常恢复边界。
 ensureBootstrapped('module-load')
   .then(() => bootstrapActiveTabTiming('bootstrap_active_tab'))
-  .catch(() => {});
+  .catch((err) => {
+    recordFallbackLog({
+      level: 'warning',
+      category: 'timing',
+      eventCode: 'bootstrap_active_tab_timing_failed',
+      module: 'background',
+      reason: 'bootstrap_active_tab_failed',
+      message: err?.message || 'Bootstrap active tab timing failed',
+      details: { error: err?.message || String(err) },
+    });
+  });
 
 // ── Chrome 启动 lifecycle boundary → 恢复残存 open session ─────────────────────
 
@@ -282,10 +293,33 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 // ── 信号接入：background 只负责 wiring，业务分发由 dispatcher 完成 ─────────────
 
-initSignal((rawEvent) => dispatchTimingSignal(rawEvent, {
-  ensureBootstrapped,
-  scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
-}));
+initSignal((rawEvent) => {
+  Promise.resolve(dispatchTimingSignal(rawEvent, {
+    ensureBootstrapped,
+    scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
+    emitTrace,
+  })).catch((err) => {
+    const domain = rawEvent?.domain || extractDomain(rawEvent?.url || '') || null;
+    recordFallbackLog({
+      level: 'error',
+      category: 'timing',
+      eventCode: 'timing_dispatch_failed',
+      module: 'background',
+      reason: rawEvent?._reason || rawEvent?.type || 'timing_signal',
+      message: err?.message || 'Timing dispatch failed',
+      domain,
+      incognito: rawEvent?.incognito === true,
+      details: {
+        type: rawEvent?.type || null,
+        reason: rawEvent?._reason || null,
+        tabId: rawEvent?.tabId ?? rawEvent?.mediaSourceTabId ?? null,
+        windowId: rawEvent?.windowId ?? null,
+        error: err?.message || String(err),
+        incognito: rawEvent?.incognito === true,
+      },
+    });
+  });
+});
 
 // ── Action badge: current active tab's today duration ─────────────────────────
 
@@ -869,7 +903,14 @@ function setupAlarms() {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'periodicCheckpoint') {
-    if (!isMonitoringEnabled()) return;
+    if (!isMonitoringEnabled()) {
+      await runTimingCheckpoints({
+        isMonitoringEnabled,
+        emitTrace,
+        warn: (...args) => console.warn(...args),
+      });
+      return;
+    }
     await drainPendingModeBoundaries({
       emitTrace,
       warn: (...args) => console.warn(...args),
@@ -1102,7 +1143,7 @@ globalThis.debugClearTimingTrace = async () => {
 
 globalThis.debugRunPeriodicCheckpoint = async (now = Date.now()) => {
   try {
-    return await runForegroundCheckpoint(now, { confirmForegroundPage: async () => ({ ok: true, reason: 'debug_confirmed' }) });
+    return await runForegroundCheckpoint(now, { confirmForegroundPage: confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement });
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   }

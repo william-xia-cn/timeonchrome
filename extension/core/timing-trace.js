@@ -9,6 +9,52 @@ const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function
 
 const TRACE_KEY = '__timingTrace';
 const MAX_TRACE_ENTRIES = 1000;
+let auditSequence = 0;
+
+export function createTimingAuditId(prefix = 'audit') {
+  auditSequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${auditSequence.toString(36)}`;
+}
+
+export function inboundAuditFields(raw = {}) {
+  return {
+    auditId: raw.auditId || null,
+    type: raw.type || null,
+    _reason: raw._reason || null,
+    source: raw.source || null,
+    tabId: Number.isInteger(raw.tabId) ? raw.tabId : null,
+    windowId: Number.isInteger(raw.windowId) ? raw.windowId : null,
+    domain: typeof raw.domain === 'string' ? raw.domain : null,
+    url: typeof raw.url === 'string' ? raw.url : null,
+    mediaSourceTabId: Number.isInteger(raw.mediaSourceTabId) ? raw.mediaSourceTabId : null,
+    mediaFrameId: Number.isInteger(raw.mediaFrameId) ? raw.mediaFrameId : null,
+    isPiP: raw.isPiP === true ? true : (raw.isPiP === false ? false : null),
+    idleState: typeof raw.idleState === 'string' ? raw.idleState : null,
+    isFocused: raw.isFocused === true ? true : (raw.isFocused === false ? false : null),
+    timestamp: Number.isFinite(raw.timestamp) ? raw.timestamp : null,
+    incognito: raw.incognito === true,
+    error: raw.error ? String(raw.error) : null,
+  };
+}
+
+export async function emitTimingInbound(action, raw = {}, fields = {}) {
+  const auditId = fields.auditId || raw.auditId || createTimingAuditId();
+  const inbound = inboundAuditFields({ ...raw, auditId });
+  await emitTrace(action, {
+    source: fields.source || 'timing-inbound',
+    reason: fields.reason || raw._reason || raw.reason || raw.type || null,
+    tabId: inbound.tabId,
+    windowId: inbound.windowId,
+    url: inbound.url,
+    domain: inbound.domain,
+    payload: {
+      ...inbound,
+      ...(fields.payload || {}),
+      auditId,
+    },
+  });
+  return auditId;
+}
 
 /**
  * Emit a trace entry with normalized schema.

@@ -48,6 +48,8 @@ async function initDatabase(env: Env): Promise<Response> {
       device_token TEXT UNIQUE NOT NULL,
       device_name TEXT,
       last_seen INTEGER,
+      status TEXT DEFAULT 'bound',
+      unbound_at INTEGER,
       created_at INTEGER NOT NULL
     );
     CREATE TABLE account_sessions (

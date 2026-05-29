@@ -24,6 +24,7 @@ function check(name, condition, details = '') {
 }
 
 function makeHarness(overrides = {}) {
+  global.chrome = overrides.chrome || { tabs: {}, windows: {} };
   const calls = {
     applied: [],
     cleanup: [],
@@ -31,6 +32,7 @@ function makeHarness(overrides = {}) {
     checkpoint: [],
     split: [],
     trace: [],
+    fallback: [],
   };
   const cleanupResult = overrides.cleanupResult || ((tabId) => ({
     ok: true,
@@ -72,6 +74,7 @@ function makeHarness(overrides = {}) {
     closeMediaForTab: async () => ({}),
     extractDomain: () => 'pip.example.com',
     emitTrace: async (action, payload) => calls.trace.push({ action, payload }),
+    logFallbackEventBestEffort: (entry) => calls.fallback.push(entry),
   });
   return { api, calls };
 }
@@ -185,6 +188,81 @@ async function testCheckpointFailureStillRunsFactualCheckpoint() {
   check('factual media checkpoint still runs after cleanup failure', calls.checkpoint.length === 1 && result.ok === true, JSON.stringify(result));
 }
 
+async function testCheckpointDiscoversActiveTabMediaSnapshot() {
+  const chromeMock = {
+    tabs: {
+      query: async (queryInfo) => {
+        if (queryInfo.active) {
+          return [{
+            id: 80,
+            windowId: 8,
+            active: true,
+            audible: false,
+            url: 'https://www.youtube.com/watch?v=abc',
+          }];
+        }
+        if (queryInfo.audible) return [];
+        return [];
+      },
+      get: async (tabId) => ({
+        id: tabId,
+        windowId: 8,
+        active: true,
+        audible: false,
+        url: 'https://www.youtube.com/watch?v=abc',
+      }),
+      sendMessage: async (_tabId, msg) => {
+        if (msg?.type !== 'GET_MEDIA_SNAPSHOT') throw new Error('unexpected message');
+        return { ok: true, playing: true, isPiP: false, mediaKind: 'video' };
+      },
+    },
+    windows: {
+      get: async () => ({ focused: true, state: 'normal' }),
+    },
+  };
+  const { api, calls } = makeHarness({ chrome: chromeMock });
+  const result = await api.runMediaCheckpoint(181000);
+  check('checkpoint applies discovered active-tab media fact', calls.applied.some((entry) => entry.reason === 'media_checkpoint_discovery'), JSON.stringify(calls.applied));
+  check('checkpoint discovery records applied fact', result.discovery?.factsApplied === 1, JSON.stringify(result.discovery));
+  check('media checkpoint still runs after discovery', calls.checkpoint.length === 1, JSON.stringify(calls.checkpoint));
+}
+
+async function testCheckpointMissingContentSnapshotOnlyWarns() {
+  const chromeMock = {
+    tabs: {
+      query: async (queryInfo) => {
+        if (queryInfo.active) {
+          return [{
+            id: 81,
+            windowId: 8,
+            active: true,
+            audible: false,
+            url: 'https://www.youtube.com/watch?v=def',
+          }];
+        }
+        if (queryInfo.audible) return [];
+        return [];
+      },
+      get: async (tabId) => ({
+        id: tabId,
+        windowId: 8,
+        active: true,
+        audible: false,
+        url: 'https://www.youtube.com/watch?v=def',
+      }),
+      sendMessage: async () => { throw new Error('Receiving end does not exist.'); },
+    },
+    windows: {
+      get: async () => ({ focused: true, state: 'normal' }),
+    },
+  };
+  const { api, calls } = makeHarness({ chrome: chromeMock });
+  const result = await api.runMediaCheckpoint(181000);
+  check('missing content snapshot does not apply a fake media fact', calls.applied.length === 0, JSON.stringify(calls.applied));
+  check('missing content snapshot records warning', calls.fallback.some((entry) => entry.eventCode === 'media_checkpoint_content_snapshot_unavailable'), JSON.stringify(calls.fallback));
+  check('media checkpoint continues after snapshot warning', calls.checkpoint.length === 1 && result.ok === true, JSON.stringify(result));
+}
+
 async function testModeBoundaryEnforcesGlobalPiPPolicy() {
   const { api, calls } = makeHarness({
     sessions: {
@@ -214,6 +292,8 @@ async function run() {
     testConfirmedExitAfterCleanupAttemptUsesPolicyReason,
     testCheckpointRetriesCleanupBeforeMediaCheckpoint,
     testCheckpointFailureStillRunsFactualCheckpoint,
+    testCheckpointDiscoversActiveTabMediaSnapshot,
+    testCheckpointMissingContentSnapshotOnlyWarns,
     testModeBoundaryEnforcesGlobalPiPPolicy,
   ];
   let passed = 0;

@@ -326,18 +326,10 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
       attempted: false,
     };
   }
-  if (isSuccessNotice && options.requireReady !== false && !isContentReadyForTab(tabId, snapshotDomain)) {
-    return {
-      ...resultBase,
-      ok: false,
-      sent: false,
-      ack: null,
-      rendered: false,
-      error: 'content_not_ready',
-      attempted: false,
-      deferred: true,
-    };
-  }
+  // A missing ready marker is not proof that the static content script listener
+  // is unavailable. Try the message once; if the listener is genuinely missing
+  // or the page is not visible, the existing pending notice path keeps it for
+  // the next ready/focus retry.
   try {
     const ack = await chrome.tabs.sendMessage(tabId, payload, sendOptions);
     const ackResult = isModeNotice

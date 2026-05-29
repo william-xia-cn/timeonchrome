@@ -200,6 +200,14 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 | `core/media-timing.js` | 媒体事实写入、tab 生命周期关闭、已知媒体 tab 重分类、调用 `runtime/media-session.js` | 不调用 `transitionStateAt()`；不写 `usage_segments_v1` |
 | `core/checkpoint-scheduler.js` | 将同一个 `periodicCheckpoint` 分别调度到 foreground checkpoint 与 media checkpoint，并分别 trace | 不把一侧失败传播为另一侧失败 |
 
+#### Inbound audit log
+
+落账入口审计日志写入现有 `__timingTrace` ring buffer，只用于本地诊断，不参与落账、聚合、去重、配额或云同步。它记录的是“落账模块收到的归一化消息”，不是 Chrome API 原始事件全集。
+
+审计入口只允许放在模块边界：`dispatchTimingSignal()` 记录普通 foreground/media/debug timing signal；`processModeBoundarySignal()` 记录被 dispatcher 消费的 `mode_boundary` intent；`runTimingCheckpoints()` 记录一次 checkpoint alarm inbound，并关联 foreground/media runner 结果；`flushOpenSessionToStats()` 记录 `popup_open`、`ui_flush`、`FLUSH_TIME` 等读前/动作补充落账入口；`recover()` 只记录 lifecycle recovery inbound。`core/signal.js` 的 Chrome listener 层不得写 inbound audit，foreground/media consumer 内部也不得重复写“收到消息”。
+
+审计 action 固定为 `timing_inbound_received`、`timing_inbound_routed`、`timing_inbound_skipped`。每个 inbound 生成 `auditId`，后续 result trace 尽量带同一个 `auditId`，用于排查“收到没收到、何时收到、来源是什么、分发到哪条链路、是否被跳过”。记录字段限定为 `type/_reason/source/tabId/windowId/domain/url/mediaSourceTabId/mediaFrameId/isPiP/idleState/isFocused/timestamp/incognito/error`，URL 仍走既有 persistence sanitize，不新增隐私面。
+
 遗留边界：媒体事实的目标形态是只更新媒体账本，网页账本与媒体账本的综合分析只发生在读取展示层。但当前代码仍保留 legacy `foregroundMediaActive` compensation：foreground timing 在 idle/focus/checkpoint 等关闭旧 open foreground session 的路径，会调用 `queryForegroundMediaForOpenSession(sessionLike, reason)` 只查询旧 session 的 `tabId`，用于决定是否暂缓关闭。该 helper 先使用 Chrome 原生 `tab.audible === true` 作为 positive fast path；未命中时再 fallback 到 `media_facts_v1[session.tabId]`，覆盖静音媒体和漏事件场景。它不得用于 checkpoint estimated open 或新开 foreground 账。该路径已经标记为正式发布前需要处理的 release item；本轮只收敛查询语义，不删除。
 
 | 类型 | 事件 / 来源 | 当前接入状态 | 处理判定 | 开账 | 落账 | 账务 reason / 操作 | 处理方案 |

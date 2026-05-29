@@ -27,7 +27,7 @@ const DATASETS: DatasetDef[] = [
   {
     id: 'devices', category: 'devices', path: 'devices/devices.json', format: 'json',
     table: 'devices',
-    select: 'id, profile_id, device_name, monitoring_enabled, last_seen, created_at',
+    select: 'id, profile_id, device_name, monitoring_enabled, last_seen, status, unbound_at, created_at',
     deviceColumn: 'id',
     order: ['last_seen DESC', 'id DESC'],
   },

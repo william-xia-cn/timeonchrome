@@ -122,7 +122,7 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     isPiP,
     audible,
     muted: overrides.isMuted === true || overrides.muted === true || tab?.mutedInfo?.muted === true || stored?.muted === true,
-    isActiveTab: overrides.isActiveTab === true || tab?.active === true,
+    isActiveTab: hasOwn(overrides, 'isActiveTab') ? overrides.isActiveTab === true : tab?.active === true,
     windowState: overrides.windowState || win.state || stored?.windowState || null,
     source: overrides.mediaFactSource || overrides.source || stored?.source || 'chrome_tab_query',
     incognito: overrides.incognito === true || tab?.incognito === true || stored?.incognito === true,
@@ -472,11 +472,223 @@ export async function closeMediaForTabLifecycle(tabId, reason) {
   return closeMediaForTab(tabId, reason);
 }
 
+async function queryTabsSafe(queryInfo, reason) {
+  if (!chrome.tabs?.query) return { ok: false, reason: 'tabs_query_unavailable', tabs: [] };
+  try {
+    const tabs = await chrome.tabs.query(queryInfo);
+    return { ok: true, reason, tabs: Array.isArray(tabs) ? tabs : [] };
+  } catch (err) {
+    return { ok: false, reason: `${reason}_failed`, error: err?.message || String(err), tabs: [] };
+  }
+}
+
+async function getTabSafe(tabId, reason) {
+  const normalized = numericTabId(tabId);
+  if (normalized == null) return { ok: false, reason: 'invalid_tab_id', tab: null };
+  if (!chrome.tabs?.get) return { ok: false, reason: 'tabs_get_unavailable', tab: null };
+  try {
+    const tab = await chrome.tabs.get(normalized);
+    return { ok: !!tab?.id, reason, tab: tab || null };
+  } catch (err) {
+    return { ok: false, reason: `${reason}_failed`, error: err?.message || String(err), tab: null };
+  }
+}
+
+function isPositiveMediaSnapshot(snapshot) {
+  return snapshot?.playing === true || snapshot?.isPiP === true || snapshot?.audible === true;
+}
+
+function isHttpTab(tab) {
+  if (!tab?.url) return false;
+  try {
+    const parsed = new URL(tab.url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
+function normalizedMediaSnapshot(snapshot = {}) {
+  return {
+    playing: snapshot.playing === true,
+    isPiP: snapshot.isPiP === true,
+    mediaKind: snapshot.mediaKind || snapshot.kind || null,
+  };
+}
+
+async function requestContentMediaSnapshot(tabId, reason) {
+  const normalized = numericTabId(tabId);
+  if (normalized == null) return { ok: false, reason: 'invalid_tab_id' };
+  if (!chrome.tabs?.sendMessage) return { ok: false, reason: 'content_snapshot_unavailable' };
+  try {
+    const response = await chrome.tabs.sendMessage(normalized, {
+      type: 'GET_MEDIA_SNAPSHOT',
+      source: reason,
+    });
+    if (response?.ok !== true) {
+      return { ok: false, reason: response?.reason || 'content_snapshot_failed', response };
+    }
+    return { ok: true, snapshot: normalizedMediaSnapshot(response), response };
+  } catch (err) {
+    return { ok: false, reason: 'content_snapshot_missing_listener', error: err?.message || String(err) };
+  }
+}
+
+function addMediaCandidate(candidates, candidate) {
+  const tabId = numericTabId(candidate?.tabId ?? candidate?.tab?.id);
+  if (tabId == null) return;
+  const existing = candidates.get(tabId);
+  candidates.set(tabId, {
+    ...(existing || {}),
+    ...candidate,
+    tabId,
+    sources: [...new Set([...(existing?.sources || []), ...(candidate?.sources || [candidate?.source]).filter(Boolean)])],
+  });
+}
+
+async function discoverCheckpointMediaFacts(now = Date.now()) {
+  const candidates = new Map();
+  const activeResult = await queryTabsSafe({ active: true, lastFocusedWindow: true }, 'active_tab_query');
+  const activeTab = activeResult.tabs[0] || null;
+  if (activeTab?.id) {
+    addMediaCandidate(candidates, {
+      tabId: activeTab.id,
+      tab: activeTab,
+      source: 'checkpoint_active_tab',
+      requestSnapshot: isHttpTab(activeTab),
+    });
+  }
+
+  const audibleResult = await queryTabsSafe({ audible: true }, 'audible_tabs_query');
+  for (const tab of audibleResult.tabs) {
+    if (!tab?.id) continue;
+    addMediaCandidate(candidates, {
+      tabId: tab.id,
+      tab,
+      source: 'checkpoint_audible_tab',
+      audible: true,
+      requestSnapshot: isHttpTab(tab),
+    });
+  }
+
+  let knownSessions = {};
+  try {
+    knownSessions = await getMediaSessions();
+  } catch (err) {
+    recordFallbackLog({
+      level: 'warning',
+      category: 'media',
+      eventCode: 'media_checkpoint_session_scan_failed',
+      module: 'core/media-timing',
+      reason: 'media_session_scan_failed',
+      message: err?.message || 'Media checkpoint could not scan known media sessions',
+      details: { error: err?.message || String(err) },
+    });
+    knownSessions = {};
+  }
+  for (const session of Object.values(knownSessions || {})) {
+    const tabId = numericTabId(session?.tabId);
+    if (tabId == null || !session?.startTime) continue;
+    const candidate = candidates.get(tabId);
+    if (candidate?.tab) {
+      addMediaCandidate(candidates, {
+        tabId,
+        source: 'checkpoint_known_media_session',
+        session,
+        requestSnapshot: isHttpTab(candidate.tab),
+      });
+      continue;
+    }
+    const tabResult = await getTabSafe(tabId, 'known_media_tab_get');
+    addMediaCandidate(candidates, {
+      tabId,
+      tab: tabResult.tab,
+      source: 'checkpoint_known_media_session',
+      session,
+      requestSnapshot: isHttpTab(tabResult.tab),
+      tabError: tabResult.ok ? null : (tabResult.error || tabResult.reason),
+    });
+  }
+
+  const summary = {
+    ok: true,
+    reason: 'media_checkpoint_discovery',
+    candidates: candidates.size,
+    snapshotsRequested: 0,
+    snapshotFailures: 0,
+    factsObserved: 0,
+    factsApplied: 0,
+    sessionsOpened: 0,
+    warnings: [],
+  };
+
+  for (const candidate of candidates.values()) {
+    const tab = candidate.tab || null;
+    let snapshotResult = null;
+    if (candidate.requestSnapshot) {
+      summary.snapshotsRequested++;
+      snapshotResult = await requestContentMediaSnapshot(candidate.tabId, 'media_checkpoint_discovery');
+      if (snapshotResult.ok !== true) {
+        summary.snapshotFailures++;
+        const warning = {
+          tabId: candidate.tabId,
+          reason: snapshotResult.reason,
+          source: candidate.sources?.join('+') || candidate.source || null,
+        };
+        summary.warnings.push(warning);
+        recordFallbackLog({
+          level: 'warning',
+          category: 'media',
+          eventCode: 'media_checkpoint_content_snapshot_unavailable',
+          module: 'core/media-timing',
+          reason: snapshotResult.reason || 'content_snapshot_unavailable',
+          message: 'Media checkpoint could not read content media snapshot',
+          domain: tab?.url ? extractDomain(tab.url) : candidate.session?.domain || null,
+          incognito: tab?.incognito === true || candidate.session?.incognito === true,
+          details: {
+            tabId: candidate.tabId,
+            windowId: tab?.windowId ?? candidate.session?.windowId ?? null,
+            source: warning.source,
+            error: snapshotResult.error || null,
+            incognito: tab?.incognito === true || candidate.session?.incognito === true,
+          },
+        });
+      }
+    }
+
+    const snapshot = snapshotResult?.ok === true ? snapshotResult.snapshot : null;
+    const hasAudibleEvidence = candidate.audible === true || tab?.audible === true;
+    const hasSnapshotEvidence = isPositiveMediaSnapshot(snapshot);
+    if (!hasAudibleEvidence && !hasSnapshotEvidence) continue;
+
+    const fact = await queryTabMediaFact(candidate.tabId, {
+      tabSnapshot: tab,
+      isAudible: hasAudibleEvidence,
+      ...(hasSnapshotEvidence ? {
+        playing: snapshot.playing === true || snapshot.isPiP === true,
+        isPiP: snapshot.isPiP === true,
+        mediaKind: snapshot.mediaKind || (snapshot.isPiP ? 'video' : null),
+      } : {}),
+      mediaFactSource: candidate.sources?.join('+') || candidate.source || 'media_checkpoint_discovery',
+    });
+    summary.factsObserved++;
+    const applied = await applyMediaFacts(fact, 'media_checkpoint_discovery', now);
+    summary.factsApplied++;
+    if (applied?.opened === true || applied?.sessionOpened === true || applied?.created === true) {
+      summary.sessionsOpened++;
+    }
+  }
+
+  return summary;
+}
+
 export async function runMediaCheckpoint(now = Date.now()) {
+  const discovery = await discoverCheckpointMediaFacts(now);
   const pipPolicy = await enforceForbiddenPiPForOpenSessions('media_checkpoint_pip_policy', now);
   const checkpoint = await runMediaPeriodicCheckpoint(now);
   return {
     ...checkpoint,
+    discovery,
     pipPolicy,
   };
 }

@@ -305,6 +305,7 @@ function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
   const hasAudio = !hasVideo && !!audioFact;
   const hasMedia = activeFacts.length > 0;
   const lastObservedAt = Math.max(...tabFacts.map((fact) => Number(fact.lastObservedAt) || 0), Number(latest.lastObservedAt) || 0);
+  const isActiveTab = hasMedia ? chosen?.isActiveTab === true : latest.isActiveTab === true;
 
   return {
     tabId: normalizeTabId(tabId),
@@ -315,7 +316,7 @@ function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
     isPiP: !!pipFact,
     audible: activeFacts.some((fact) => fact.audible === true && fact.muted !== true),
     muted: hasMedia ? activeFacts.every((fact) => fact.muted === true) : latest.muted === true,
-    isActiveTab: tabFacts.some((fact) => fact.isActiveTab === true) || latest.isActiveTab === true,
+    isActiveTab,
     windowState: chosen?.windowState || latest.windowState || null,
     source: chosen?.source || latest.source || 'unknown',
     reason: chosen?.reason || latest.reason || 'media_fact',

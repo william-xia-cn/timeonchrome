@@ -61,6 +61,7 @@ function run() {
   const migration011 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '011_hourly_stats_v1.sql'), 'utf8');
   const migration012 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '012_cloud_terminal_stats_consistency.sql'), 'utf8');
   const migration013 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '013_managed_target_stats_v1.sql'), 'utf8');
+  const migration015 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '015_site_classification_returned_requests.sql'), 'utf8');
   const clientLogsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'clientLogs.ts'), 'utf8');
   const exportSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'export.ts'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
@@ -137,13 +138,14 @@ function run() {
   expectTrue('013 migration hourly target stats 唯一键应包含 device_id 和 quota_bucket', migration013.includes('UNIQUE (profile_id, device_id, hour_key, target_key, channel, mode, quota_bucket)'));
   expectTrue('Worker 应注册网站归类申请路由', workerIndexSource.includes('siteClassificationRequestsRouter') && workerIndexSource.includes('/site-classification-requests'));
   expectTrue('009 migration 应创建 site_classification_requests_v1', migration009.includes('CREATE TABLE IF NOT EXISTS site_classification_requests_v1'));
-  expectTrue('009 migration 应按原申请对象去重', migration009.includes('UNIQUE (profile_id, requested_target_type, requested_normalized_value)'));
+  expectTrue('015 migration 应允许退回后再次提交同一申请对象', migration015.includes('site_classification_requests_v1_next') && !migration015.includes('UNIQUE (profile_id, requested_target_type, requested_normalized_value)'));
   expectTrue('网站归类申请应支持设备提交和读取', siteRequestsSource.includes("path === '/device/site-classification-requests/v1'") && siteRequestsSource.includes('request.method === \'POST\'') && siteRequestsSource.includes('request.method === \'GET\''));
   expectTrue('网站归类申请应支持家长读取和审批', siteRequestsSource.includes('/site-classification-requests/v1') && siteRequestsSource.includes('/decision') && siteRequestsSource.includes('verifyProfileOwner'));
   expectTrue('网站归类申请应拒绝已归类对象重新申请', siteRequestsSource.includes('ALREADY_CLASSIFIED') && siteRequestsSource.includes('getConfiguredClassificationForTarget'));
   expectTrue('网站归类申请应使用规范化对象做重复判断', siteRequestsSource.includes('requested_normalized_value') && siteRequestsSource.includes('target.normalizedValue'));
+  expectTrue('网站归类申请退回后应允许同一对象再次提交', siteRequestsSource.includes("status != 'returned'"));
   expectTrue('网站归类申请审批应更新 profile config/version', siteRequestsSource.includes('siteClassificationRulesV1') && siteRequestsSource.includes('version = version + 1'));
-  expectTrue('网站归类申请审批应支持学习/综合/拒绝三类决定', siteRequestsSource.includes('normalizeSiteClassificationDecision') && siteRequestsSource.includes('decisionToStatus') && siteRequestsSource.includes('decision === \'study\'') && siteRequestsSource.includes('decision === \'composite\''));
+  expectTrue('网站归类申请审批应支持学习/综合/退回/归为受限娱乐', siteRequestsSource.includes('normalizeSiteClassificationDecision') && siteRequestsSource.includes('decisionToStatus') && siteRequestsSource.includes("decision === 'return'") && siteRequestsSource.includes("decision === 'reject'") && siteRequestsSource.includes('customRestrictedEntertainmentList'));
   expectTrue('profile 默认配置应包含 siteClassificationRulesV1', profileSource.includes('siteClassificationRulesV1: []') && profileSource.includes("'siteClassificationRulesV1'"));
   expectTrue('profile 默认配置应包含 clientLoggingPolicyV1', profileSource.includes('clientLoggingPolicyV1') && profileSource.includes("'clientLoggingPolicyV1'"));
   expectTrue('profile 配置保存应校验访问规则精确跨类冲突', profileSource.includes('validateSiteAccessConfig') && profileSource.includes('SITE_ACCESS_CONFLICT'));

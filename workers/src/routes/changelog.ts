@@ -1,11 +1,18 @@
 // Changelog 路由 - 配置变更日志
 import { json, Env, verifyAccountToken } from '../db/middleware';
 
-async function verifyDeviceToken(env: Env, token: string): Promise<string | null> {
+type DeviceIdentity = { profileId: string; unbound?: boolean };
+
+function deviceUnboundResponse(): Response {
+  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound' }, 403);
+}
+
+async function verifyDeviceToken(env: Env, token: string): Promise<DeviceIdentity | null> {
   const device = await env.DB.prepare(
-    `SELECT profile_id FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ profile_id: string }>();
-  return device?.profile_id || null;
+    `SELECT profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
+  ).bind(token).first<{ profile_id: string; status?: string }>();
+  if (!device?.profile_id) return null;
+  return { profileId: device.profile_id, unbound: device.status === 'unbound' };
 }
 
 export const changelogRouter = {
@@ -18,8 +25,10 @@ export const changelogRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const profileId = await verifyDeviceToken(env, auth.slice(7));
-      if (!profileId) return json({ error: 'Invalid device token' }, 401);
+      const device = await verifyDeviceToken(env, auth.slice(7));
+      if (!device) return json({ error: 'Invalid device token' }, 401);
+      if (device.unbound) return deviceUnboundResponse();
+      const profileId = device.profileId;
 
       try {
         const { action, before_data, after_data } =

@@ -3,12 +3,16 @@ import { json, Env } from '../db/middleware';
 
 async function verifyDeviceToken(
   env: Env, token: string
-): Promise<{ profileId: string; deviceName: string } | null> {
+): Promise<{ profileId: string; deviceName: string; unbound?: boolean } | null> {
   const device = await env.DB.prepare(
-    `SELECT profile_id, device_name FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ profile_id: string; device_name: string }>();
+    `SELECT profile_id, device_name, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
+  ).bind(token).first<{ profile_id: string; device_name: string; status?: string }>();
   if (!device?.profile_id) return null;
-  return { profileId: device.profile_id, deviceName: device.device_name || 'Unknown Device' };
+  return { profileId: device.profile_id, deviceName: device.device_name || 'Unknown Device', unbound: device.status === 'unbound' };
+}
+
+function deviceUnboundResponse(): Response {
+  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound' }, 403);
 }
 
 // 需要发邮件的事件类型
@@ -107,6 +111,7 @@ export const eventsRouter = {
 
     const device = await verifyDeviceToken(env, auth.slice(7));
     if (!device) return json({ error: 'Invalid device token' }, 401);
+    if (device.unbound) return deviceUnboundResponse();
 
     const { profileId, deviceName } = device;
 

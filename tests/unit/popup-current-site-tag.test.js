@@ -174,6 +174,17 @@ this.__previewSiteClassificationTarget = previewSiteClassificationTarget;
     '已申请待归类网站'
   );
   expectEqual(
+    'returned site classification request -> 未归类网站',
+    resolveDomainTag('returned.example.com', {
+      siteClassificationRequestsV1: [{
+        status: 'returned',
+        requestedTargetType: 'host',
+        requestedNormalizedValue: 'returned.example.com',
+      }],
+    }, 'https://returned.example.com/'),
+    '未归类网站'
+  );
+  expectEqual(
     'durable today stats normalize matching www domain',
     resolveTodayDomainSeconds('desmos.com', { 'www.desmos.com': 180 }),
     180
