@@ -7,6 +7,14 @@ import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 
 export const TIMING_CHECKPOINT_HEALTH_KEY = 'timing_checkpoint_health_v1';
 
+const SESSION_KEY = 'session_v1';
+const PERSISTENT_SESSION_KEY = 'session_v1_persistent';
+const USAGE_SEGMENTS_KEY = 'usage_segments_v1';
+const MEDIA_SEGMENTS_KEY = 'media_segments_v1';
+const MEDIA_SESSIONS_KEY = 'media_sessions_v2';
+const MEDIA_FACTS_KEY = 'media_facts_v1';
+const MODE_BOUNDARY_INTENTS_KEY = 'mode_boundary_intents_v1';
+
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
@@ -21,12 +29,22 @@ function checkpointStatus(result, type = 'foreground') {
     return { status: 'error', reason: result.failureReason || result.reason || result.error || 'checkpoint_failed' };
   }
   const reason = result.failureReason || result.reason || 'ok';
-  const warningReasons = new Set([
-    'no_open_session',
-    'checkpoint_confirmation_unavailable',
+  const infoReasons = new Set([
+    'monitoring_disabled',
     'no_active_tab',
     'window_unfocused',
     'idle_not_active',
+    'interval_not_reached',
+    'non_counted_state',
+    'no_media_sessions',
+    'no_media_candidates',
+  ]);
+  if (!result.failureReason && (infoReasons.has(reason) || infoReasons.has(result.reason))) {
+    return { status: 'info', reason };
+  }
+  const warningReasons = new Set([
+    'no_open_session',
+    'checkpoint_confirmation_unavailable',
     'observed_query_failed',
     'candidate_query_failed',
     'idle_query_failed',
@@ -64,7 +82,10 @@ function summarizeForeground(result) {
     secondsWritten: Number(result?.flushedSeconds || 0),
     checkpointed: result?.checkpointed === true,
     repaired: result?.repaired === true,
+    opened: result?.opened === true,
     failureReason: result?.failureReason || null,
+    tabId: Number.isInteger(result?.tabId) ? result.tabId : null,
+    windowId: Number.isInteger(result?.windowId) ? result.windowId : null,
     error: result?.error || null,
   };
 }
@@ -85,7 +106,165 @@ function summarizeMedia(result) {
   };
 }
 
-async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foreground, media, skipped = null }) {
+async function storageLocalGet(keys) {
+  try {
+    return await chrome.storage.local.get(keys);
+  } catch (_) {
+    return {};
+  }
+}
+
+async function storageSessionGet(keys) {
+  try {
+    if (!chrome.storage?.session?.get) return {};
+    return await chrome.storage.session.get(keys);
+  } catch (_) {
+    return {};
+  }
+}
+
+function countObjectRows(value) {
+  if (!value || typeof value !== 'object') return 0;
+  return Object.keys(value).length;
+}
+
+function compactOpenForegroundSession(session) {
+  if (!session || typeof session !== 'object') return null;
+  return {
+    state: session.state || null,
+    domain: session.domain || null,
+    startTime: Number.isFinite(Number(session.startTime)) ? Number(session.startTime) : null,
+    tabId: Number.isInteger(session.tabId) ? session.tabId : null,
+    windowId: Number.isInteger(session.windowId) ? session.windowId : null,
+    mode: session.mode || session.currentMode || null,
+    startReason: session.startReason || null,
+  };
+}
+
+function hasOpenForegroundSession(session) {
+  return !!(session && session.state === 'ACTIVE' && session.domain && Number.isFinite(Number(session.startTime)));
+}
+
+function summarizeModeBoundaryIntents(intents = {}) {
+  const rows = Object.values(intents || {}).filter((intent) => intent?.id);
+  return {
+    pending: rows.length,
+    failed: rows.filter((intent) => intent.lastError).length,
+    oldestCreatedAtMs: rows.reduce((min, intent) => {
+      const created = Number(intent.createdAtMs || 0);
+      if (!created) return min;
+      return min == null ? created : Math.min(min, created);
+    }, null),
+  };
+}
+
+async function readCheckpointAuditSnapshot() {
+  const [local, sessionStore] = await Promise.all([
+    storageLocalGet([
+      PERSISTENT_SESSION_KEY,
+      USAGE_SEGMENTS_KEY,
+      MEDIA_SEGMENTS_KEY,
+      MEDIA_SESSIONS_KEY,
+      MEDIA_FACTS_KEY,
+      MODE_BOUNDARY_INTENTS_KEY,
+    ]),
+    storageSessionGet(SESSION_KEY),
+  ]);
+  const openSession = sessionStore?.[SESSION_KEY] || local?.[PERSISTENT_SESSION_KEY] || null;
+  const modeBoundary = summarizeModeBoundaryIntents(local?.[MODE_BOUNDARY_INTENTS_KEY] || {});
+  return {
+    openSession: compactOpenForegroundSession(openSession),
+    openForegroundSession: hasOpenForegroundSession(openSession),
+    usageSegments: countObjectRows(local?.[USAGE_SEGMENTS_KEY]),
+    mediaSegments: countObjectRows(local?.[MEDIA_SEGMENTS_KEY]),
+    mediaSessions: countObjectRows(local?.[MEDIA_SESSIONS_KEY]),
+    mediaFacts: countObjectRows(local?.[MEDIA_FACTS_KEY]),
+    modeBoundary,
+  };
+}
+
+function safeDelta(after, before) {
+  return Math.max(0, Number(after || 0) - Number(before || 0));
+}
+
+function hasForegroundObservation(summary = {}) {
+  if (!summary) return false;
+  if (summary.sessionOpened || summary.opened || summary.repaired || summary.checkpointed || summary.segmentsWritten > 0) {
+    return true;
+  }
+  const noEvidenceReasons = new Set([
+    'monitoring_disabled',
+    'no_active_tab',
+    'window_unfocused',
+    'idle_not_active',
+    'observed_query_failed',
+    'candidate_query_failed',
+    'idle_query_failed',
+    'interval_not_reached',
+    'non_counted_state',
+    'invalid_domain',
+    'invalid_start_time',
+  ]);
+  return !!(summary.domain && !noEvidenceReasons.has(summary.reason));
+}
+
+function hasMediaObservation(summary = {}, before = {}, after = {}) {
+  return !!(
+    summary?.discoveredFacts > 0 ||
+    summary?.sessionsOpened > 0 ||
+    summary?.segmentsWritten > 0 ||
+    safeDelta(after.mediaFacts, before.mediaFacts) > 0 ||
+    safeDelta(after.mediaSessions, before.mediaSessions) > 0 ||
+    safeDelta(after.mediaSegments, before.mediaSegments) > 0
+  );
+}
+
+function computeLedgerGap({ previous, before, after, foreground, media }) {
+  const previousGap = previous?.ledgerGap || {};
+  const foregroundObserved = hasForegroundObservation(foreground);
+  const foregroundResolved = !!(
+    after?.openForegroundSession ||
+    foreground?.sessionOpened ||
+    foreground?.opened ||
+    foreground?.segmentsWritten > 0 ||
+    safeDelta(after?.usageSegments, before?.usageSegments) > 0
+  );
+  const foregroundConsecutive = foregroundObserved && !foregroundResolved
+    ? Number(previousGap.foregroundConsecutive || 0) + 1
+    : 0;
+
+  const mediaObserved = hasMediaObservation(media, before, after);
+  const mediaResolved = !!(
+    after?.mediaSessions > 0 ||
+    media?.sessionsOpened > 0 ||
+    media?.segmentsWritten > 0 ||
+    safeDelta(after?.mediaSegments, before?.mediaSegments) > 0
+  );
+  const mediaConsecutive = mediaObserved && !mediaResolved
+    ? Number(previousGap.mediaConsecutive || 0) + 1
+    : 0;
+
+  const maxConsecutive = Math.max(foregroundConsecutive, mediaConsecutive);
+  const status = maxConsecutive >= 2
+    ? 'confirmed'
+    : (maxConsecutive === 1 ? 'suspected' : 'none');
+  const reason = status === 'none'
+    ? 'no_gap'
+    : [
+      foregroundConsecutive > 0 ? 'foreground_observed_without_ledger' : null,
+      mediaConsecutive > 0 ? 'media_observed_without_ledger' : null,
+    ].filter(Boolean).join('+');
+  return {
+    status,
+    reason,
+    foregroundConsecutive,
+    mediaConsecutive,
+    usageSegmentDelta: safeDelta(after?.usageSegments, before?.usageSegments),
+    mediaSegmentDelta: safeDelta(after?.mediaSegments, before?.mediaSegments),
+  };
+}
+
+async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foreground, media, before = null, after = null, skipped = null }) {
   const previous = await readPreviousHealth();
   const foregroundSummary = foreground || {
     status: skipped === 'monitoring_disabled' ? 'info' : 'warning',
@@ -103,6 +282,22 @@ async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foregrou
   };
   const foregroundFailed = foregroundSummary.status === 'warning' || foregroundSummary.status === 'error';
   const mediaFailed = mediaSummary.status === 'warning' || mediaSummary.status === 'error';
+  const ledgerGap = skipped
+    ? {
+      status: 'none',
+      reason: skipped,
+      foregroundConsecutive: 0,
+      mediaConsecutive: 0,
+      usageSegmentDelta: 0,
+      mediaSegmentDelta: 0,
+    }
+    : computeLedgerGap({
+      previous,
+      before,
+      after,
+      foreground: foregroundSummary,
+      media: mediaSummary,
+    });
   const health = {
     lastRunAt: now,
     updatedAt: Date.now(),
@@ -110,6 +305,29 @@ async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foregrou
     monitoringEnabled: monitoringEnabled === true,
     foreground: foregroundSummary,
     media: mediaSummary,
+    modeBoundary: {
+      pendingBefore: before?.modeBoundary?.pending ?? null,
+      pendingAfter: after?.modeBoundary?.pending ?? null,
+      failedAfter: after?.modeBoundary?.failed ?? null,
+      drained: Math.max(0, Number(before?.modeBoundary?.pending || 0) - Number(after?.modeBoundary?.pending || 0)),
+    },
+    ledgerGap,
+    counters: {
+      before: before ? {
+        usageSegments: before.usageSegments,
+        mediaSegments: before.mediaSegments,
+        mediaSessions: before.mediaSessions,
+        mediaFacts: before.mediaFacts,
+        openForegroundSession: before.openForegroundSession,
+      } : null,
+      after: after ? {
+        usageSegments: after.usageSegments,
+        mediaSegments: after.mediaSegments,
+        mediaSessions: after.mediaSessions,
+        mediaFacts: after.mediaFacts,
+        openForegroundSession: after.openForegroundSession,
+      } : null,
+    },
     consecutiveForegroundFailures: foregroundFailed
       ? Number(previous?.consecutiveForegroundFailures || 0) + 1
       : 0,
@@ -122,7 +340,7 @@ async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foregrou
   } catch (err) {
     recordFallbackLog({
       level: 'error',
-      category: 'timing',
+      category: 'storage',
       module: 'core/checkpoint-scheduler',
       eventCode: 'checkpoint_health_write_failed',
       reason: 'storage_write_failed',
@@ -133,11 +351,45 @@ async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foregrou
   return health;
 }
 
+function logLedgerGapIfNeeded(ledgerGap, auditId, before, after) {
+  if (!ledgerGap || ledgerGap.status === 'none') return;
+  const confirmed = ledgerGap.status === 'confirmed';
+  recordFallbackLog({
+    level: confirmed ? 'error' : 'warning',
+    category: 'ledger_gap',
+    module: 'core/checkpoint-scheduler',
+    eventCode: confirmed ? 'ledger_gap_confirmed' : 'ledger_gap_suspected',
+    reason: ledgerGap.reason || 'ledger_gap',
+    message: confirmed
+      ? 'Checkpoint observed browser activity without durable ledger for consecutive runs'
+      : 'Checkpoint observed browser activity without durable ledger',
+    domain: after?.openSession?.domain || before?.openSession?.domain || null,
+    details: {
+      auditId,
+      ledgerGap,
+      before: {
+        usageSegments: before?.usageSegments ?? null,
+        mediaSegments: before?.mediaSegments ?? null,
+        mediaSessions: before?.mediaSessions ?? null,
+        mediaFacts: before?.mediaFacts ?? null,
+        openForegroundSession: before?.openForegroundSession === true,
+      },
+      after: {
+        usageSegments: after?.usageSegments ?? null,
+        mediaSegments: after?.mediaSegments ?? null,
+        mediaSessions: after?.mediaSessions ?? null,
+        mediaFacts: after?.mediaFacts ?? null,
+        openForegroundSession: after?.openForegroundSession === true,
+      },
+    },
+  });
+}
+
 function logCheckpointOutcome(type, summary, auditId) {
   if (!summary || summary.status === 'ok' || summary.status === 'info') return;
   recordFallbackLog({
     level: summary.status === 'error' ? 'error' : 'warning',
-    category: type === 'media' ? 'media' : 'timing',
+    category: 'checkpoint',
     module: 'core/checkpoint-scheduler',
     eventCode: `${type}_checkpoint_${summary.status}`,
     reason: summary.reason || 'checkpoint_failed',
@@ -161,6 +413,7 @@ export async function runTimingCheckpoints(options = {}) {
   const now = Number.isFinite(options.now) ? options.now : Date.now();
   const emitTrace = typeof options.emitTrace === 'function' ? options.emitTrace : async () => {};
   const auditId = createTimingAuditId('checkpoint');
+  const beforeSnapshot = await readCheckpointAuditSnapshot();
   await emitTrace('timing_inbound_received', {
     source: 'checkpoint',
     reason: 'periodic_checkpoint',
@@ -185,6 +438,8 @@ export async function runTimingCheckpoints(options = {}) {
       now,
       auditId,
       monitoringEnabled: false,
+      before: beforeSnapshot,
+      after: await readCheckpointAuditSnapshot(),
       skipped: 'monitoring_disabled',
     });
     return { ok: true, skipped: 'monitoring_disabled', auditId, health };
@@ -241,13 +496,17 @@ export async function runTimingCheckpoints(options = {}) {
 
   const foregroundSummary = summarizeForeground(result.foreground);
   const mediaSummary = summarizeMedia(result.media);
+  const afterSnapshot = await readCheckpointAuditSnapshot();
   result.health = await writeCheckpointHealth({
     now,
     auditId,
     monitoringEnabled: true,
     foreground: foregroundSummary,
     media: mediaSummary,
+    before: beforeSnapshot,
+    after: afterSnapshot,
   });
+  logLedgerGapIfNeeded(result.health.ledgerGap, auditId, beforeSnapshot, afterSnapshot);
 
   return result;
 }

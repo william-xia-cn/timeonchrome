@@ -1733,6 +1733,9 @@
               <option value="all">全部类别</option>
               <option value="runtime">runtime</option>
               <option value="timing">timing</option>
+              <option value="checkpoint">checkpoint</option>
+              <option value="ledger_gap">ledger_gap</option>
+              <option value="mode_transition">mode_transition</option>
               <option value="foreground">foreground</option>
               <option value="media">media</option>
               <option value="cloud">cloud</option>
@@ -1744,9 +1747,14 @@
               <option value="release">release</option>
             </select>
           </label>
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;">
+            AuditID
+            <input id="client-log-audit-filter" type="search" placeholder="auditId" style="width:160px;">
+          </label>
           <button class="settlement-refresh-btn" id="client-log-refresh-btn">刷新</button>
           <button class="settlement-refresh-btn" id="client-log-clear-btn" style="background:rgba(248,113,113,0.1);border-color:rgba(248,113,113,0.25);color:var(--danger);">清理本地日志</button>
         </div>
+        <div class="settlement-summary" id="checkpoint-health-summary">计时健康加载中...</div>
         <div class="settlement-summary" id="client-log-summary">加载中...</div>
         <div class="settlement-table-wrap" id="client-log-table-wrap">
           <div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>

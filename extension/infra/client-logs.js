@@ -21,6 +21,7 @@ const VALID_LEVELS = new Set(Object.keys(LEVEL_WEIGHT));
 const VALID_CATEGORIES = new Set([
   'runtime', 'timing', 'foreground', 'media', 'cloud', 'storage',
   'access', 'popup', 'admin', 'content', 'release',
+  'checkpoint', 'ledger_gap', 'mode_transition',
 ]);
 
 const DEFAULT_POLICY = {
@@ -380,6 +381,7 @@ export async function logFallbackEventBestEffort(event = {}) {
 function filterLogs(logs, filter = {}) {
   const level = filter.level && filter.level !== 'all' ? normalizeLevel(filter.level) : null;
   const category = filter.category && filter.category !== 'all' ? normalizeCategory(filter.category) : null;
+  const auditId = filter.auditId ? String(filter.auditId).trim() : null;
   const profileId = filter.profileId ? String(filter.profileId) : null;
   const deviceId = filter.deviceId ? String(filter.deviceId) : null;
   const from = Number(filter.from || 0);
@@ -388,6 +390,7 @@ function filterLogs(logs, filter = {}) {
   return (Array.isArray(logs) ? logs : [])
     .filter((log) => !level || log.level === level)
     .filter((log) => !category || log.category === category)
+    .filter((log) => !auditId || String(log.details?.auditId || '').includes(auditId))
     .filter((log) => !profileId || log.profileId === profileId)
     .filter((log) => !deviceId || log.deviceId === deviceId)
     .filter((log) => !from || Number(log.timestamp || 0) >= from)

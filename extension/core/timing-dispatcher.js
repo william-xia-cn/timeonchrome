@@ -4,6 +4,14 @@ import { processForegroundModeBoundary, processForegroundSignal } from './foregr
 import { isMediaOnlyTimingSignal, observeMediaFromSignal, processMediaModeBoundary } from './media-timing.js';
 import { drainModeBoundaryIntents } from './mode-boundary-intents.js';
 import { createTimingAuditId, inboundAuditFields } from './timing-trace.js';
+import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
+
+const recordClientLog = typeof logClientEventBestEffort === 'function'
+  ? logClientEventBestEffort
+  : () => {};
+const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
+  ? logFallbackEventBestEffort
+  : () => {};
 
 async function emitInboundAudit(action, rawEvent = {}, options = {}, extra = {}) {
   const emitTrace = typeof options.emitTrace === 'function' ? options.emitTrace : async () => {};
@@ -96,6 +104,44 @@ export async function processModeBoundarySignal(rawEvent = {}, options = {}) {
       media: result.media,
     },
   });
+  if (result.ok === false) {
+    recordFallbackLog({
+      level: 'error',
+      category: 'mode_transition',
+      eventCode: 'mode_boundary_failed',
+      module: 'core/timing-dispatcher',
+      reason: result.foreground?.error || result.media?.error || 'mode_boundary_failed',
+      message: 'Mode boundary failed while splitting ledgers',
+      details: {
+        auditId,
+        phase: 'mode_boundary_consumed',
+        intentId: signal.id || null,
+        fromMode: signal.fromMode || null,
+        toMode: signal.toMode || null,
+        boundaryAtMs: signal.boundaryAtMs || null,
+        foreground: result.foreground,
+        media: result.media,
+      },
+    });
+  } else {
+    recordClientLog({
+      level: 'info',
+      category: 'mode_transition',
+      eventCode: 'mode_boundary_consumed',
+      module: 'core/timing-dispatcher',
+      message: 'Mode boundary consumed',
+      details: {
+        auditId,
+        phase: 'mode_boundary_consumed',
+        intentId: signal.id || null,
+        fromMode: signal.fromMode || null,
+        toMode: signal.toMode || null,
+        boundaryAtMs: signal.boundaryAtMs || null,
+        foreground: result.foreground,
+        media: result.media,
+      },
+    });
+  }
   return result;
 }
 

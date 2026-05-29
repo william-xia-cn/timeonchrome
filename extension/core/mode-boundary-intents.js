@@ -41,6 +41,7 @@ function normalizeIntent(input = {}) {
   const createdAtMs = Number(input.createdAtMs);
   const intent = {
     id: normalizeString(input.id, null),
+    auditId: normalizeString(input.auditId, null),
     type: 'mode_boundary',
     boundaryAtMs: Number.isFinite(boundaryAtMs) ? boundaryAtMs : Date.now(),
     fromMode: normalizeMode(input.fromMode),

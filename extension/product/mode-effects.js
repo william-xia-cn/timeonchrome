@@ -85,6 +85,7 @@ export async function recordModeEffectTrace(entry = {}) {
     const event = entry.event || {};
     const traceEntry = {
       atMs: Date.now(),
+      auditId: entry.auditId || event.auditId || entry.result?.modeChange?.boundary?.intent?.auditId || null,
       event: {
         type: event.type || null,
         source: event.source || null,
@@ -147,6 +148,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
   const finalize = async () => {
     await recordModeEffectTrace({
       event: context.event || {},
+      auditId: context.event?.auditId || decision.modeChange?.auditId || null,
       domain,
       decision,
       result,
@@ -174,6 +176,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
       persistConfigMode: decision.modeChange.persistConfigMode === true,
       setRestExitGrace: decision.modeChange.setRestExitGrace === true,
       clearRestExitGrace: decision.modeChange.clearRestExitGrace === true,
+      auditId: decision.modeChange.auditId || context.event?.auditId || null,
       config,
       session,
       drainModeBoundary: (reason) => drainQueuedModeBoundary(context.drainModeBoundary, reason),

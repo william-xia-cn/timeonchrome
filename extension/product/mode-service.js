@@ -17,7 +17,8 @@ import { getTodayStatsWithCategories } from './analytics.js';
 import { evaluateQuotaState, getTodayEffectiveRestLimit } from './quota.js';
 import { getEffectiveQuotaForDate } from '../core/quota-config.js';
 import { getModeWindowStatus, hasTimeWindowsDaily, reminderReasonForModeWindow } from '../core/time-windows.js';
-import { logFallbackEventBestEffort } from '../infra/client-logs.js';
+import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
+import { createTimingAuditId } from '../core/timing-trace.js';
 
 export const REST_EXIT_GRACE_MS = 30_000;
 
@@ -25,6 +26,38 @@ const VALID_MODES = new Set(['study', 'composite', 'rest', 'locked', 'paused']);
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
+const recordClientLog = typeof logClientEventBestEffort === 'function'
+  ? logClientEventBestEffort
+  : () => {};
+
+function modeAuditId(event = {}) {
+  if (event.auditId) return event.auditId;
+  if (typeof createTimingAuditId === 'function') return createTimingAuditId('mode');
+  return `mode-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function logModeTransitionEvent({
+  level = 'info',
+  eventCode,
+  auditId,
+  reason,
+  message,
+  details = {},
+} = {}) {
+  recordClientLog({
+    level,
+    category: 'mode_transition',
+    eventCode: eventCode || 'mode_transition_event',
+    module: 'product/mode-service',
+    reason: reason || details.reason || eventCode || null,
+    message: message || eventCode || 'Mode transition event',
+    details: {
+      ...(details || {}),
+      auditId: auditId || details.auditId || null,
+      phase: details.phase || eventCode || null,
+    },
+  });
+}
 
 function baseDecision(overrides = {}) {
   return {
@@ -152,6 +185,7 @@ export async function commitModeChange({
   config = null,
   session = null,
   drainModeBoundary = null,
+  auditId = null,
 } = {}) {
   const normalizedTo = normalizeMode(toMode);
   if (normalizedTo === 'paused') {
@@ -221,11 +255,68 @@ export async function commitModeChange({
     reason,
     source,
   };
+  if (auditId) {
+    boundaryIntent.auditId = auditId;
+  }
   const boundary = await enqueueModeBoundaryIntent(boundaryIntent);
+  logModeTransitionEvent({
+    level: boundary?.queued === false ? 'info' : 'info',
+    eventCode: 'mode_boundary_queued',
+    auditId,
+    reason: boundary?.skipped || reason,
+    message: boundary?.queued === false ? 'Mode boundary was not queued' : 'Mode boundary intent queued',
+    details: {
+      phase: 'mode_boundary_queued',
+      fromMode,
+      toMode: normalizedTo,
+      source,
+      boundaryAtMs,
+      queued: boundary?.queued === true,
+      skipped: boundary?.skipped || null,
+      duplicate: boundary?.duplicate === true,
+      intentId: boundary?.intent?.id || null,
+    },
+  });
   let drainResult = null;
   if (typeof drainModeBoundary === 'function') {
     drainResult = await drainModeBoundary(reason);
+    if (drainResult?.ok === false) {
+      recordFallbackLog({
+        level: 'warning',
+        category: 'mode_transition',
+        eventCode: 'mode_boundary_failed',
+        module: 'product/mode-service',
+        reason: drainResult.error || 'mode_boundary_drain_failed',
+        message: 'Mode boundary drain failed after mode commit',
+        details: {
+          auditId,
+          phase: 'mode_boundary_drain',
+          fromMode,
+          toMode: normalizedTo,
+          source,
+          boundaryAtMs,
+          drainResult,
+        },
+      });
+    }
   }
+  logModeTransitionEvent({
+    level: 'info',
+    eventCode: 'mode_transition_committed',
+    auditId,
+    reason,
+    message: 'Mode transition committed',
+    details: {
+      phase: 'mode_transition_committed',
+      fromMode,
+      toMode: normalizedTo,
+      source,
+      boundaryAtMs,
+      restExitGraceUntilMs,
+      boundaryQueued: boundary?.queued === true,
+      drainOk: drainResult ? drainResult.ok !== false : null,
+    },
+  });
 
   return {
     ok: true,
@@ -729,8 +820,30 @@ function scheduleBlockedReminderForRequestedMode(requestedMode, config = {}, at 
 }
 
 async function handleRequestedModeChange(event = {}) {
+  const auditId = modeAuditId(event);
   const requested = normalizeMode(event.requestedMode || event.toMode || event.mode);
+  logModeTransitionEvent({
+    level: 'info',
+    eventCode: 'mode_transition_requested',
+    auditId,
+    reason: event.reason || null,
+    message: 'Mode transition requested',
+    details: {
+      phase: 'mode_transition_requested',
+      eventType: event.type || null,
+      requestedMode: requested,
+      source: event.source || 'runtime_message',
+    },
+  });
   if (requested === 'paused') {
+    logModeTransitionEvent({
+      level: 'warning',
+      eventCode: 'mode_transition_blocked',
+      auditId,
+      reason: 'invalid_target_mode',
+      message: 'Mode transition blocked',
+      details: { requestedMode: requested, source: event.source || 'runtime_message' },
+    });
     return baseDecision({
       ok: false,
       access: 'ignore',
@@ -767,6 +880,21 @@ async function handleRequestedModeChange(event = {}) {
             quotaError: quotaResult?.error || null,
             quotaSkipped: quotaResult?.skipped || null,
             blockedCode: blocked?.code || null,
+            auditId,
+          },
+        });
+        logModeTransitionEvent({
+          level: quotaResult?.ok === false ? 'error' : 'warning',
+          eventCode: 'mode_transition_blocked',
+          auditId,
+          reason: blocked?.code || 'QUOTA_EVALUATION_FAILED',
+          message: 'Mode transition blocked by quota',
+          details: {
+            phase: 'mode_transition_blocked',
+            requestedMode: requested,
+            source,
+            quotaError: quotaResult?.error || null,
+            blockedCode: blocked?.code || null,
           },
         });
         return baseDecision({
@@ -792,6 +920,21 @@ async function handleRequestedModeChange(event = {}) {
             source,
             dayKey: scheduleBlocked.status?.dayKey || null,
             field: scheduleBlocked.status?.field || null,
+            auditId,
+          },
+        });
+        logModeTransitionEvent({
+          level: 'warning',
+          eventCode: 'mode_transition_blocked',
+          auditId,
+          reason: scheduleBlocked.code,
+          message: 'Mode transition blocked by time window',
+          details: {
+            phase: 'mode_transition_blocked',
+            requestedMode: requested,
+            source,
+            dayKey: scheduleBlocked.status?.dayKey || null,
+            field: scheduleBlocked.status?.field || null,
           },
         });
         return baseDecision({
@@ -813,6 +956,7 @@ async function handleRequestedModeChange(event = {}) {
       effectiveAtMs: nowMs,
       persistConfigMode: true,
       clearRestExitGrace: event.type === 'REQUEST_MODE_CHANGE',
+      auditId,
     },
     notice: {
       kind: 'manual_mode_change',
@@ -824,9 +968,31 @@ async function handleRequestedModeChange(event = {}) {
 }
 
 async function handleQuotaEvaluation(event = {}) {
+  const auditId = modeAuditId(event);
   const source = event.source || 'quota_alarm';
+  logModeTransitionEvent({
+    level: 'info',
+    eventCode: 'mode_transition_requested',
+    auditId,
+    reason: source,
+    message: 'Quota mode evaluation requested',
+    details: { phase: 'mode_transition_requested', eventType: 'EVALUATE_QUOTA_STATE', source },
+  });
   const quotaResult = await evaluateQuotaState();
   if (!quotaResult?.ok || quotaResult.skipped) {
+    logModeTransitionEvent({
+      level: quotaResult?.ok === false ? 'error' : 'info',
+      eventCode: quotaResult?.ok === false ? 'mode_transition_blocked' : 'mode_transition_decided',
+      auditId,
+      reason: quotaResult?.skipped || 'quota_evaluation_failed',
+      message: quotaResult?.ok === false ? 'Quota mode evaluation failed' : 'Quota mode evaluation skipped',
+      details: {
+        phase: quotaResult?.ok === false ? 'mode_transition_blocked' : 'mode_transition_decided',
+        source,
+        skipped: quotaResult?.skipped || null,
+        error: quotaResult?.error || null,
+      },
+    });
     return baseDecision({
       access: 'ignore',
       reason: quotaResult?.skipped || 'quota_evaluation_failed',
@@ -844,6 +1010,19 @@ async function handleQuotaEvaluation(event = {}) {
   });
 
   if (quotaRoute.kind !== 'mode_change') {
+    logModeTransitionEvent({
+      level: 'info',
+      eventCode: 'mode_transition_decided',
+      auditId,
+      reason: quotaRoute.reason,
+      message: 'Quota mode evaluation did not require mode change',
+      details: {
+        phase: 'mode_transition_decided',
+        source,
+        currentMode,
+        routeKind: quotaRoute.kind,
+      },
+    });
     return baseDecision({
       access: 'allow',
       reason: quotaRoute.reason,
@@ -860,6 +1039,7 @@ async function handleQuotaEvaluation(event = {}) {
       source: quotaRoute.source || source,
       effectiveAtMs: Number.isFinite(Number(event.nowMs)) ? Number(event.nowMs) : Date.now(),
       persistConfigMode: false,
+      auditId,
     },
     notice: {
       kind: quotaRoute.reason,

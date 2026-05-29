@@ -118,6 +118,8 @@ D-045 实施后，`targetClassificationAtTime` / `quotaBucketAtTime` 属于 segm
 | `media_segment_sync_outbox_v1` | `media_segment_sync_outbox_v1` | 媒体逐段上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `media_stats_sync_outbox_v1` | `media_stats_sync_outbox_v1` | 媒体每日聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `hourly_media_stats_sync_outbox_v1` | `hourly_media_stats_sync_outbox_v1` | 媒体小时聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
+| `timing_checkpoint_health_v1` | `timing_checkpoint_health_v1` | 最近一次 checkpoint 健康摘要：foreground/media 运行结果、session/segment 前后计数、mode boundary 队列状态、ledger gap 状态 | 最近一次 | 可替换诊断快照 |
+| `client_logs_v1` | `client_logs_v1` | 长期运行诊断摘要，记录 checkpoint、ledger gap、mode transition、storage 等 warning/error | 默认 7 天 / 1000 条 | 诊断日志；不得影响业务链路 |
 
 ### 3.1 结算路径（Settlement Path）
 
@@ -346,6 +348,19 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - `checkpoint_estimated_close` / `checkpoint_estimated_open` 都是 timer-source 容错修复，不代表精确用户边界；估算窗口最多半个 checkpoint interval，避免长时间残留产生大段虚假时长。
 - `heartbeat` 不再作为计时机制；若保留维护 tick，也只能作为 maintenance，不得更新计时边界或证明 session 存活。
 - `ui_flush` 的 30 秒 guard 仅作用于 `reason === ui_flush`，不影响 `periodic_checkpoint`、tab switch、mode switch、tab close、monitoring off、recovery 等非 `ui_flush` 结算路径。
+
+#### 3.1.6.1 Checkpoint health 与 ledger gap 诊断
+
+`periodicCheckpoint` 是唯一系统级计时兜底入口；Popup、Admin、统计读取和访问控制不得另行补账。每次 checkpoint 结束后，`checkpoint-scheduler` 写入 `timing_checkpoint_health_v1`，记录本轮 `auditId`、foreground/media 结果、open session 与 durable segment 的前后计数、mode boundary pending/failed 数，以及 ledger gap 状态。
+
+Ledger gap detector 只做诊断，不补写历史。它基于 TimeOnChrome 自身观测事实判断：
+
+- foreground：监控开启、Chrome 处于 active 使用状态、存在 eligible http(s) active tab，但 checkpoint 后没有 open foreground session，也没有新增 `usage_segments_v1`。
+- media：观测到 media fact、audible tab 或已知 media session，但 checkpoint 后没有 media session，也没有新增 `media_segments_v1`。
+
+第一次命中记录 `ledger_gap_suspected` warning；连续 checkpoint 窗口仍成立时记录 `ledger_gap_confirmed` error。该机制不读取 Chrome History API，不增加权限，也不根据日志或历史反推补写 segment。
+
+`client_logs_v1` 只保存长期异常摘要；`__timingTrace` 保存短期高频过程 trace。正常过程可写 trace，只有 checkpoint 失败、storage read-back 失败、ledger gap、mode boundary 未消费等需要长期排查的情况进入 client log。
 
 #### 3.1.7 Recovery 生命周期容错边界
 

@@ -890,7 +890,7 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - 归属字段：`profileId`、`deviceId`、`bindingState`
 - 未绑定阶段：`profileId = null`、`deviceId = null`、`bindingState = unbound`
 - 保留策略：默认 7 天、最多 1000 条、限制总体积
-- 本地 admin 的“系统日志”页只展示脱敏后的日志摘要
+- 本地 admin 的“系统日志”页只展示脱敏后的日志摘要，可按 `timing` / `media` / `checkpoint` / `ledger_gap` / `mode_transition` / `storage` 等 category 和 `auditId` 搜索
 
 ### 云端日志
 
@@ -905,10 +905,17 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 ### 与现有诊断关系
 
-- `__timingTrace`：细粒度本地调试 trace
+- `__timingTrace`：细粒度本地调试 trace，覆盖 timing signal、checkpoint、mode boundary 等高频过程
 - `foreground_page_diagnostics_v1`：前台计时健康统计
+- `timing_checkpoint_health_v1`：最近一次 checkpoint 健康摘要，包含 foreground/media 前后计数、mode boundary 队列状态和 ledger gap 状态
 - `cloud_v1_last_sync_error` / outbox retry：当前同步状态摘要
-- `client_logs_v1`：长期可查询的统一运行日志摘要
+- `client_logs_v1`：长期可查询的统一运行日志摘要，只记录异常、fallback、gap、重要健康结论；不重复记录所有正常过程
+
+### Timing / mode 审计口径
+
+- 计时落账链路使用 `__timingTrace` 记录过程，使用 `client_logs_v1` 的 `checkpoint` / `ledger_gap` category 记录可长期排查的缺口：例如系统观测到 eligible active tab 或 media fact，但 checkpoint 后没有 open session 或 durable segment。
+- 模式切换链路使用共享 `auditId` 串联 `REQUEST_MODE_CHANGE` / `EVALUATE_QUOTA_STATE`、Mode Service decision/commit、mode boundary intent、dispatcher consume 和 active tab recheck。`mode_transition` category 只保存重要结果、warning 和 error。
+- 这些日志不读 Chrome History，不反推补写历史，不改变访问控制、配额或统计读取行为。
 
 ---
 

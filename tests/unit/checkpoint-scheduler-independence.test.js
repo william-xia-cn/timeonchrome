@@ -35,10 +35,17 @@ function installHealthStorage() {
     storage: {
       local: {
         async get(key) {
+          if (Array.isArray(key)) return Object.fromEntries(key.map((k) => [k, data[k]]));
           return { [key]: data[key] };
         },
         async set(obj) {
           Object.assign(data, obj);
+        },
+      },
+      session: {
+        async get(key) {
+          if (Array.isArray(key)) return Object.fromEntries(key.map((k) => [k, data[k]]));
+          return { [key]: data[key] };
         },
       },
     },
@@ -73,6 +80,7 @@ async function run() {
     check('checkpoint inbound audit is emitted', traces.some((trace) => trace.event === 'timing_inbound_received' && trace.payload?.payload?.auditId === 'checkpoint-audit-1'));
     check('checkpoint result traces carry audit id', traces.some((trace) => trace.event === 'media_checkpoint_result' && trace.payload?.payload?.auditId === 'checkpoint-audit-1'));
     check('checkpoint health records foreground failure', storage.timing_checkpoint_health_v1?.foreground?.status === 'error', JSON.stringify(storage.timing_checkpoint_health_v1));
+    check('checkpoint health records counters', storage.timing_checkpoint_health_v1?.counters?.before && storage.timing_checkpoint_health_v1?.counters?.after, JSON.stringify(storage.timing_checkpoint_health_v1));
   }
 
   {
@@ -115,6 +123,60 @@ async function run() {
     check('scheduler respects monitoring disabled guard', result.skipped === 'monitoring_disabled');
     check('monitoring disabled checkpoint emits inbound skipped audit', traces.some((trace) => trace.event === 'timing_inbound_skipped' && trace.payload?.payload?.skippedReason === 'monitoring_disabled'));
     check('monitoring disabled writes info health', storage.timing_checkpoint_health_v1?.foreground?.status === 'info', JSON.stringify(storage.timing_checkpoint_health_v1));
+  }
+
+  {
+    const storage = installHealthStorage();
+    storage.usage_segments_v1 = {};
+    const fallbackLogs = [];
+    const { runTimingCheckpoints } = loadScheduler({
+      createTimingAuditId: () => 'checkpoint-audit-gap',
+      logFallbackEventBestEffort: (entry) => fallbackLogs.push(entry),
+      runPeriodicCheckpoint: async () => ({
+        ok: true,
+        reason: 'checkpoint_estimated_open_failed',
+        failureReason: 'session_save_failed',
+        domain: 'youtube.com',
+        checkpointed: false,
+        sessionOpened: false,
+      }),
+      runMediaCheckpoint: async () => ({ ok: true, reason: 'interval_not_reached' }),
+    });
+    await runTimingCheckpoints({
+      isMonitoringEnabled: () => true,
+      emitTrace: async () => {},
+      warn: () => {},
+    });
+    check('ledger gap is suspected after observed foreground without ledger', storage.timing_checkpoint_health_v1?.ledgerGap?.status === 'suspected', JSON.stringify(storage.timing_checkpoint_health_v1));
+    check('ledger gap warning is logged', fallbackLogs.some((log) => log.eventCode === 'ledger_gap_suspected' && log.category === 'ledger_gap'), JSON.stringify(fallbackLogs));
+    await runTimingCheckpoints({
+      isMonitoringEnabled: () => true,
+      emitTrace: async () => {},
+      warn: () => {},
+    });
+    check('ledger gap is confirmed after consecutive observed foreground without ledger', storage.timing_checkpoint_health_v1?.ledgerGap?.status === 'confirmed', JSON.stringify(storage.timing_checkpoint_health_v1));
+    check('ledger gap error is logged', fallbackLogs.some((log) => log.eventCode === 'ledger_gap_confirmed' && log.level === 'error'), JSON.stringify(fallbackLogs));
+  }
+
+  {
+    const storage = installHealthStorage();
+    const fallbackLogs = [];
+    const { runTimingCheckpoints } = loadScheduler({
+      createTimingAuditId: () => 'checkpoint-audit-benign',
+      logFallbackEventBestEffort: (entry) => fallbackLogs.push(entry),
+      runPeriodicCheckpoint: async () => ({
+        ok: true,
+        reason: 'no_active_tab',
+      }),
+      runMediaCheckpoint: async () => ({ ok: true, reason: 'no_media_sessions' }),
+    });
+    await runTimingCheckpoints({
+      isMonitoringEnabled: () => true,
+      emitTrace: async () => {},
+      warn: () => {},
+    });
+    check('benign checkpoint skip is health info', storage.timing_checkpoint_health_v1?.foreground?.status === 'info', JSON.stringify(storage.timing_checkpoint_health_v1));
+    check('benign checkpoint skip does not write warning/error logs', fallbackLogs.length === 0, JSON.stringify(fallbackLogs));
   }
 
   const total = passed + failed;

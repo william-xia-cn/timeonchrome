@@ -16,6 +16,7 @@ import { executeModeDecision, getModeEffectTrace } from './product/mode-effects.
 import { getHourlyMediaStatsRangeView, getHourlyUsageStatsRangeView, getMediaSettlementAnalysisView, getPopupModeStatsView, getSettlementAnalysisView, getTodayUsageView, getUsageRangeView } from './stats/managed-statistics.js';
 import { getEffectiveQuotaForDate } from './core/quota-config.js';
 import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
+import { createTimingAuditId } from './core/timing-trace.js';
 
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
@@ -23,6 +24,16 @@ const BORROW_ALLOWED_PATHS = new Set([
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
+const recordClientLog = typeof logClientEventBestEffort === 'function'
+  ? logClientEventBestEffort
+  : () => {};
+
+function createMessageAuditId(prefix = 'mode') {
+  if (typeof createTimingAuditId === 'function') {
+    return createTimingAuditId(prefix);
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function isAuthorizedBorrowSender(sender) {
   if (!sender?.id || sender.id !== chrome.runtime.id) return false;
@@ -281,6 +292,11 @@ export async function handleMessage(msg, sender) {
 
     case 'GET_CLIENT_LOG_STATUS':
       return await getClientLogStatus();
+
+    case 'GET_TIMING_CHECKPOINT_HEALTH': {
+      const data = await chrome.storage.local.get('timing_checkpoint_health_v1').catch(() => ({}));
+      return { ok: true, health: data?.timing_checkpoint_health_v1 || null };
+    }
 
     case 'CLEAR_CLIENT_LOGS':
       return await clearClientLogs(msg.filter || null);
@@ -542,7 +558,7 @@ export async function handleMessage(msg, sender) {
     }
 
     default:
-      logClientEventBestEffort({
+      recordClientLog({
         level: 'warning',
         category: 'runtime',
         eventCode: 'message_unknown_type',
@@ -660,6 +676,7 @@ function manualModeNoticeText(mode) {
 }
 
 async function handleModeChangeRequest(msg = {}) {
+  const auditId = msg.auditId || createMessageAuditId('mode');
   const toMode = normalizeMode(msg.toMode || msg.mode);
   if (toMode === 'paused') {
     return { ok: false, error: 'invalid_target_mode' };
@@ -672,6 +689,7 @@ async function handleModeChangeRequest(msg = {}) {
     source: msg.source || 'runtime_message',
     reason: msg.reason || 'manual_mode_switch',
     nowMs: Date.now(),
+    auditId,
     tabId: activeTab?.id ?? null,
     url: originalTarget.url || activeTab?.url || null,
     domain: originalTarget.domain || extractDomain(activeTab?.url || ''),
@@ -693,15 +711,32 @@ async function handleModeChangeRequest(msg = {}) {
     } catch (err) {
       recordFallbackLog({
         level: 'warning',
-        category: 'access',
+        category: 'mode_transition',
         eventCode: 'active_tab_recheck_failed',
         module: 'message-router',
         reason: 'mode_request_recheck_failed',
         message: err?.message || 'Active tab recheck failed after mode request',
         domain: modeEvent.domain || null,
-        details: { toMode, source: modeEvent.source, error: err?.message || String(err) },
+        details: { auditId, phase: 'active_tab_recheck_completed', toMode, source: modeEvent.source, error: err?.message || String(err) },
       });
       reevaluatedTab = null;
+    }
+    if (reevaluatedTab?.id) {
+      recordClientLog({
+        level: 'info',
+        category: 'mode_transition',
+        eventCode: 'active_tab_recheck_completed',
+        module: 'message-router',
+        message: 'Active tab rechecked after mode request',
+        domain: modeEvent.domain || null,
+        details: {
+          auditId,
+          phase: 'active_tab_recheck_completed',
+          tabId: reevaluatedTab.id,
+          source: 'mode_request_recheck',
+          toMode,
+        },
+      });
     }
   }
   const fallbackSession = await getSession().catch((err) => {
@@ -752,11 +787,13 @@ async function handleModeChangeRequest(msg = {}) {
 }
 
 async function handleEvaluateQuotaState(msg = {}) {
+  const auditId = msg.auditId || createMessageAuditId('mode');
   const source = msg.source || 'quota_alarm';
   const modeEvent = {
     type: 'EVALUATE_QUOTA_STATE',
     source,
     nowMs: Date.now(),
+    auditId,
   };
   const decision = await handleModeEvent(modeEvent);
   const activeTab = decision.notice ? await getActiveTabForModeNotice(null) : null;
@@ -769,6 +806,7 @@ async function handleEvaluateQuotaState(msg = {}) {
       tabId: activeTab?.id ?? null,
       url: activeTab?.url || null,
       domain: extractDomain(activeTab?.url || ''),
+      auditId,
     },
   });
   const recheckedTab = decision.recheckActiveTab
@@ -777,6 +815,22 @@ async function handleEvaluateQuotaState(msg = {}) {
       source: 'quota_state_change',
     })
     : null;
+  if (decision.recheckActiveTab) {
+    recordClientLog({
+      level: recheckedTab?.id ? 'info' : 'warning',
+      category: 'mode_transition',
+      eventCode: recheckedTab?.id ? 'active_tab_recheck_completed' : 'active_tab_recheck_failed',
+      module: 'message-router',
+      message: recheckedTab?.id ? 'Active tab rechecked after quota evaluation' : 'Active tab recheck did not return a tab after quota evaluation',
+      domain: extractDomain(activeTab?.url || '') || null,
+      details: {
+        auditId,
+        phase: 'active_tab_recheck_completed',
+        source: 'quota_state_change',
+        tabId: recheckedTab?.id ?? null,
+      },
+    });
+  }
 
   return {
     ok: true,

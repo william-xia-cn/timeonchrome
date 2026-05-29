@@ -183,6 +183,29 @@ async function testFallbackHelper() {
   check('fallback helper sanitizes domain/url details', log.domain === 'youtube.com' && !JSON.stringify(log).includes('/private/path'));
 }
 
+async function testAuditCategoryAndFilter() {
+  mockLocal.reset();
+  await logs.updateClientLogConfig({ localMinLevel: 'warning' });
+  await logs.logClientEvent({
+    level: 'warning',
+    category: 'ledger_gap',
+    eventCode: 'ledger_gap_suspected',
+    message: 'gap',
+    details: { auditId: 'audit-gap-1', reason: 'foreground_observed_without_ledger' },
+  });
+  await logs.logClientEvent({
+    level: 'warning',
+    category: 'mode_transition',
+    eventCode: 'mode_boundary_failed',
+    message: 'boundary',
+    details: { auditId: 'audit-mode-1' },
+  });
+  const byCategory = await logs.getClientLogs({ category: 'ledger_gap', limit: 10 });
+  check('new ledger_gap category is accepted', byCategory.logs.length === 1 && byCategory.logs[0].eventCode === 'ledger_gap_suspected', JSON.stringify(byCategory.logs));
+  const byAudit = await logs.getClientLogs({ auditId: 'audit-mode', limit: 10 });
+  check('client logs can filter by auditId', byAudit.logs.length === 1 && byAudit.logs[0].category === 'mode_transition', JSON.stringify(byAudit.logs));
+}
+
 function testStaticWiring() {
   const adminHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.html'), 'utf8');
   const adminJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
@@ -192,6 +215,8 @@ function testStaticWiring() {
   const session = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'runtime', 'session.js'), 'utf8');
   const mediaTiming = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'media-timing.js'), 'utf8');
   check('local admin exposes system logs tab', adminHtml.includes('data-page="system-management"') && adminHtml.includes('data-system-management-tab="client-logs"') && adminJs.includes('GET_CLIENT_LOGS'));
+  check('local admin exposes checkpoint/ledger/mode log filters', adminHtml.includes('value="checkpoint"') && adminHtml.includes('value="ledger_gap"') && adminHtml.includes('value="mode_transition"') && adminHtml.includes('client-log-audit-filter'));
+  check('local admin reads checkpoint health', adminJs.includes('GET_TIMING_CHECKPOINT_HEALTH') && adminJs.includes('checkpoint-health-summary'));
   check('pages exposes cloud system logs page', pages.includes('/client-logs/v1') && pages.includes('clientLoggingPolicyV1'));
   check('worker supports client log upload and query', worker.includes("path === '/device/client-logs/v1'") && worker.includes('/client-logs/v1'));
   check('runtime fallback helper is exported', fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'client-logs.js'), 'utf8').includes('logFallbackEventBestEffort'));
@@ -206,6 +231,7 @@ function testStaticWiring() {
   await testUploadPolicyAndTtl();
   await testRetentionMaxEntries();
   await testFallbackHelper();
+  await testAuditCategoryAndFilter();
   testStaticWiring();
   console.log(`\nclient-logs: ${passed}/${passed + failed} passed`);
   if (failed > 0) process.exit(1);

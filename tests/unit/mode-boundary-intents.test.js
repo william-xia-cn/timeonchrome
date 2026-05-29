@@ -46,9 +46,11 @@ async function run() {
     toMode: 'study',
     reason: 'rest_to_study',
     source: 'auto_mode_transition',
+    auditId: 'mode-audit-1',
   });
   check('enqueue stores intent', enqueue.queued === true);
   check('stored intent count is one', Object.keys(await api.getModeBoundaryIntents()).length === 1);
+  check('stored intent preserves auditId', (await api.getModeBoundaryIntents())['intent-a']?.auditId === 'mode-audit-1');
 
   const same = await api.enqueueModeBoundaryIntent({
     boundaryAtMs: 2000,
@@ -79,7 +81,7 @@ async function run() {
   check('ok false drain reports failure', okFalse.ok === false && okFalse.failures[0]?.error === 'media_failed', JSON.stringify(okFalse));
   check('ok false drain keeps intent', Object.keys(await api.getModeBoundaryIntents()).length === 1);
 
-  console.log('[Mode Boundary Intents] 9/9 passed');
+  console.log('[Mode Boundary Intents] 10/10 passed');
 }
 
 run().catch((err) => {

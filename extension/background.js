@@ -16,7 +16,7 @@ import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat
 import { handleMessage } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
 import { getEvents, clearEvents } from './core/event-log.js';
-import { emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
+import { createTimingAuditId, emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
 import { computeAllDomains } from './core/aggregate.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from './infra/client-logs.js';
 import { resolveManagedTargetAttribution } from './core/managed-targets.js';
@@ -72,7 +72,7 @@ function scheduleModeBoundaryDrain(reason = 'scheduled') {
       console.warn('[ModeBoundary] drain failed:', err?.message || err);
       recordFallbackLog({
         level: 'error',
-        category: 'runtime',
+        category: 'mode_transition',
         eventCode: 'mode_boundary_drain_failed',
         module: 'background',
         reason: 'mode_boundary_drain_failed',
@@ -158,15 +158,17 @@ setModeBoundaryDrainHook((reason = 'modeTransition') => drainPendingModeBoundari
 }));
 
 async function dispatchModeEvent(event = {}, options = {}) {
+  const auditId = event.auditId || createTimingAuditId('mode');
   const decision = await handleModeEvent({
     ...event,
+    auditId,
     monitoringEnabled: event.monitoringEnabled ?? getSyncState().monitoringEnabled,
   });
   const result = await executeModeDecision(decision, {
     tabId: event.tabId,
     domain: decision.domain || event.domain || extractDomain(event.url || ''),
     updateDeclarativeRules,
-    event,
+    event: { ...event, auditId },
     drainModeBoundary: (reason = 'modeEvent') => drainPendingModeBoundaries({
       emitTrace,
       warn: (...args) => console.warn(...args),
@@ -177,18 +179,36 @@ async function dispatchModeEvent(event = {}, options = {}) {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
     const tab = tabs && tabs[0] ? tabs[0] : null;
     if (tab?.id) {
+      let recheckOk = true;
       await reevaluateTabById(tab.id, { source: 'mode_event_recheck' }).catch((err) => {
+        recheckOk = false;
         recordFallbackLog({
           level: 'warning',
-          category: 'access',
+          category: 'mode_transition',
           eventCode: 'active_tab_recheck_failed',
           module: 'background',
           reason: 'mode_event_recheck_failed',
           message: err?.message || 'Active tab recheck failed after mode event',
           domain: decision.domain || event.domain || extractDomain(event.url || ''),
-          details: { tabId: tab.id, source: 'mode_event_recheck', error: err?.message || String(err) },
+          details: { auditId, phase: 'active_tab_recheck_completed', tabId: tab.id, source: 'mode_event_recheck', error: err?.message || String(err) },
         });
       });
+      if (recheckOk) {
+        logClientEventBestEffort({
+          level: 'info',
+          category: 'mode_transition',
+          eventCode: 'active_tab_recheck_completed',
+          module: 'background',
+          message: 'Active tab rechecked after mode event',
+          domain: decision.domain || event.domain || extractDomain(event.url || ''),
+          details: {
+            auditId,
+            phase: 'active_tab_recheck_completed',
+            tabId: tab.id,
+            source: 'mode_event_recheck',
+          },
+        });
+      }
     }
   }
   return result;

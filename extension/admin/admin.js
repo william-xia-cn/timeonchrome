@@ -3258,7 +3258,37 @@ function formatClientLogTime(timestamp) {
 function clientLogFilter() {
   const level = document.getElementById('client-log-level-filter')?.value || 'all';
   const category = document.getElementById('client-log-category-filter')?.value || 'all';
-  return { level, category, limit: 200 };
+  const auditId = document.getElementById('client-log-audit-filter')?.value?.trim() || '';
+  return { level, category, auditId, limit: 200 };
+}
+
+function checkpointStatusLabel(status) {
+  if (status === 'error') return '错误';
+  if (status === 'warning') return '警告';
+  if (status === 'info') return '信息';
+  if (status === 'ok') return '正常';
+  return status || '—';
+}
+
+function renderCheckpointHealthSummary(health) {
+  const el = document.getElementById('checkpoint-health-summary');
+  if (!el) return;
+  if (!health) {
+    el.innerHTML = '<span>最近计时健康：暂无 checkpoint 记录</span>';
+    return;
+  }
+  const gap = health.ledgerGap || {};
+  const foreground = health.foreground || {};
+  const media = health.media || {};
+  const when = health.lastRunAt ? new Date(health.lastRunAt).toLocaleString() : '—';
+  el.innerHTML = `
+    <span>最近 checkpoint：${escHtml(when)}</span>
+    <span>前台：${escHtml(checkpointStatusLabel(foreground.status))}${foreground.reason ? ` / ${escHtml(foreground.reason)}` : ''}</span>
+    <span>媒体：${escHtml(checkpointStatusLabel(media.status))}${media.reason ? ` / ${escHtml(media.reason)}` : ''}</span>
+    <span>缺口：${escHtml(gap.status || 'none')}${gap.reason ? ` / ${escHtml(gap.reason)}` : ''}</span>
+    <span>连续失败：F${Number(health.consecutiveForegroundFailures || 0)} / M${Number(health.consecutiveMediaFailures || 0)}</span>
+    <span>AuditID：${escHtml(health.auditId || '—')}</span>
+  `;
 }
 
 function renderClientLogRows(logs = []) {
@@ -3316,10 +3346,12 @@ async function renderClientLogsPage() {
   }
   document.getElementById('client-log-level-filter')?.addEventListener('change', () => renderClientLogsPage(), { once: true });
   document.getElementById('client-log-category-filter')?.addEventListener('change', () => renderClientLogsPage(), { once: true });
+  document.getElementById('client-log-audit-filter')?.addEventListener('change', () => renderClientLogsPage(), { once: true });
 
-  const [status, payload] = await Promise.all([
+  const [status, payload, checkpointHealth] = await Promise.all([
     sendMsg({ type: 'GET_CLIENT_LOG_STATUS' }),
     sendMsg({ type: 'GET_CLIENT_LOGS', filter: clientLogFilter() }),
+    sendMsg({ type: 'GET_TIMING_CHECKPOINT_HEALTH' }).catch(() => ({ ok: false, health: null })),
   ]);
   const logs = Array.isArray(payload?.logs) ? payload.logs : [];
   if (summaryEl) {
@@ -3334,6 +3366,7 @@ async function renderClientLogsPage() {
       <span>设备：${escHtml(identity.deviceId || '未绑定')}</span>
     `;
   }
+  renderCheckpointHealthSummary(checkpointHealth?.health || null);
   renderClientLogRows(logs);
 }
 
