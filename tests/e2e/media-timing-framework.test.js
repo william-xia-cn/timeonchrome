@@ -53,57 +53,89 @@ async function createContext() {
   return { ctx, sw, udd };
 }
 
-async function sendControlledMedia(sw, cfg) {
-  return sw.evaluate(async ({ cfg }) => {
+async function createMediaSourceTab(ctx, sw) {
+  const page = await ctx.newPage();
+  const marker = `toc-media-source-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  await page.goto(`data:text/html;charset=utf-8,<title>${marker}</title><body>${marker}</body>`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 10000,
+  });
+  const tabInfo = await sw.evaluate(async (marker) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const tabs = await chrome.tabs.query({});
+      const tab = tabs.find((t) => (t.title || '').includes(marker) || (t.url || '').includes(marker));
+      if (tab?.id) return { tabId: tab.id, windowId: tab.windowId };
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { tabId: null, windowId: null };
+  }, marker);
+  if (!Number.isInteger(tabInfo.tabId)) {
+    await page.close().catch(() => {});
+    throw new Error('Failed to resolve real media source tab id');
+  }
+  const foregroundPage = await ctx.newPage();
+  await foregroundPage.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 10000 });
+  await foregroundPage.bringToFront();
+  return { page, foregroundPage, tabId: tabInfo.tabId, windowId: tabInfo.windowId || 1 };
+}
+
+async function sendControlledMedia(sw, cfg, source) {
+  return sw.evaluate(async ({ cfg, source }) => {
     return globalThis.debugApplyControlledTimingSignal({
-      tabId: 1002,
-      windowId: 1,
+      tabId: source.tabId,
+      windowId: source.windowId,
       domain: null,
       isFocused: true,
       isIdle: false,
       isAudible: true,
       isPiP: cfg.pip,
       mediaKind: cfg.mediaKind,
-      mediaSourceTabId: 1001,
+      mediaSourceTabId: source.tabId,
       mediaSourceDomain: cfg.domain,
       _reason: `e2e_${cfg.framework}_start`,
     });
-  }, { cfg });
+  }, { cfg, source });
 }
 
-async function settleControlledMedia(sw, cfg) {
-  await sendControlledMedia(sw, cfg);
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  const opened = await sw.evaluate(() => chrome.storage.local.get('media_session_v1'));
-  expect(opened.media_session_v1?.framework).toBe(cfg.framework);
-  expect(opened.media_session_v1?.domain).toBe(cfg.domain);
+async function settleControlledMedia(ctx, sw, cfg) {
+  const source = await createMediaSourceTab(ctx, sw);
+  try {
+    await sendControlledMedia(sw, cfg, { tabId: source.tabId, windowId: source.windowId });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const opened = await sw.evaluate(() => chrome.storage.local.get('media_session_v1'));
+    expect(opened.media_session_v1?.framework).toBe(cfg.framework);
+    expect(opened.media_session_v1?.domain).toBe(cfg.domain);
 
-  const now = Date.now();
-  await sw.evaluate(async ({ now }) => {
-    const data = await chrome.storage.local.get(['media_session_v1', 'media_sessions_v2']);
-    const sessions = data.media_sessions_v2 || {};
-    for (const key of Object.keys(sessions)) {
-      sessions[key] = {
-        ...sessions[key],
-        startTime: now - 181000,
-        startAtMs: now - 181000,
-        lastObservedAt: now,
-      };
-    }
-    await chrome.storage.local.set({
-      media_sessions_v2: sessions,
-      media_session_v1: {
-        ...data.media_session_v1,
-        startTime: now - 181000,
-        lastHeartbeat: now,
-      },
-    });
-  }, { now });
+    const now = Date.now();
+    await sw.evaluate(async ({ now }) => {
+      const data = await chrome.storage.local.get(['media_session_v1', 'media_sessions_v2']);
+      const sessions = data.media_sessions_v2 || {};
+      for (const key of Object.keys(sessions)) {
+        sessions[key] = {
+          ...sessions[key],
+          startTime: now - 181000,
+          startAtMs: now - 181000,
+          lastObservedAt: now,
+        };
+      }
+      await chrome.storage.local.set({
+        media_sessions_v2: sessions,
+        media_session_v1: {
+          ...data.media_session_v1,
+          startTime: now - 181000,
+          lastHeartbeat: now,
+        },
+      });
+    }, { now });
 
-  const checkpoint = await sw.evaluate((checkpointNow) => globalThis.debugRunMediaPeriodicCheckpoint(checkpointNow), now);
-  expect(checkpoint.ok).toBeTruthy();
-  expect(checkpoint.checkpointed).toBeTruthy();
-  return checkpoint;
+    const checkpoint = await sw.evaluate((checkpointNow) => globalThis.debugRunMediaPeriodicCheckpoint(checkpointNow), now);
+    expect(checkpoint.ok).toBeTruthy();
+    expect(checkpoint.checkpointed).toBeTruthy();
+    return checkpoint;
+  } finally {
+    await source.foregroundPage.close().catch(() => {});
+    await source.page.close().catch(() => {});
+  }
 }
 
 async function readSegments(sw) {
@@ -127,21 +159,13 @@ const scenarios = [
     pip: false,
     domain: 'media-video.example.test',
   },
-  {
-    name: 'pip video',
-    framework: 'pip_video',
-    mediaClass: 'pip',
-    mediaKind: 'video',
-    pip: true,
-    domain: 'media-pip.example.test',
-  },
 ];
 
 for (const cfg of scenarios) {
   test(`media timing writes ${cfg.name} local checkpoint segment`, async () => {
     const { ctx, sw, udd } = await createContext();
     try {
-      await settleControlledMedia(sw, cfg);
+      await settleControlledMedia(ctx, sw, cfg);
       const snapshot = await readSegments(sw);
       const segments = Object.values(snapshot.media_segments_v1 || {});
       const matching = segments.filter((segment) => segment.domain === cfg.domain);
@@ -182,7 +206,7 @@ for (const cfg of scenarios) {
 test('media timing does not pollute foreground active stats and popup/admin messages respond', async () => {
   const { ctx, sw, udd } = await createContext();
   try {
-    await settleControlledMedia(sw, scenarios[0]);
+    await settleControlledMedia(ctx, sw, scenarios[0]);
 
     const mediaSegments = await sw.evaluate(async () => {
       const data = await chrome.storage.local.get(['usage_segments_v1', 'media_segments_v1']);

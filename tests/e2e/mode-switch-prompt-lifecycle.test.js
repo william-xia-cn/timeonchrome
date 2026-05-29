@@ -7,13 +7,25 @@ const http = require('http');
 const path = require('path');
 
 const EXT = path.resolve(__dirname, '..', '..', 'extension');
+const TIME_WINDOW_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function allDayModeTimeWindows() {
+  return {
+    daily: Object.fromEntries(TIME_WINDOW_DAYS.map((day) => [day, {
+      studyWindows: null,
+      compositeWindows: null,
+      restWindows: null,
+    }])),
+  };
+}
 
 async function seedModePromptConfig(sw, mode) {
-  await sw.evaluate(async (nextMode) => {
+  await sw.evaluate(async ({ nextMode, timeWindows }) => {
     await chrome.storage.local.set({
       guardian_config: {
         enabled: true,
         mode: nextMode,
+        timeWindows,
         studyList: ['127.0.0.1'],
         compositeList: ['localhost'],
         restrictedEntertainmentList: [],
@@ -29,7 +41,7 @@ async function seedModePromptConfig(sw, mode) {
       guardian_session: { currentMode: nextMode },
       cloud_monitoring_enabled: 1,
     });
-  }, mode);
+  }, { nextMode: mode, timeWindows: allDayModeTimeWindows() });
 }
 
 async function startServer() {
@@ -66,7 +78,7 @@ async function createContext(initialMode) {
   // overwritten and the page may redirect to reminder.html before assertions.
   await sw.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
   await seedModePromptConfig(sw, initialMode);
-  await sw.evaluate(async (mode) => {
+  await sw.evaluate(async ({ mode, timeWindows }) => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
       if (
@@ -81,6 +93,7 @@ async function createContext(initialMode) {
         guardian_config: {
           enabled: true,
           mode,
+          timeWindows,
           studyList: ['127.0.0.1'],
           compositeList: ['localhost'],
           restrictedEntertainmentList: [],
@@ -98,7 +111,7 @@ async function createContext(initialMode) {
       });
     }
     throw new Error('mode prompt test config did not stabilize');
-  }, initialMode);
+  }, { mode: initialMode, timeWindows: allDayModeTimeWindows() });
   return { ctx, sw, udd };
 }
 
@@ -167,11 +180,12 @@ async function forceMode(sw, page, mode) {
 }
 
 async function setModeSession(sw, patch) {
-  await sw.evaluate(async (patch) => {
+  await sw.evaluate(async ({ patch, timeWindows }) => {
     const stored = await chrome.storage.local.get(['guardian_config', 'guardian_session']);
     await chrome.storage.local.set({
       guardian_config: {
         ...(stored.guardian_config || {}),
+        timeWindows,
         studyList: [],
         compositeList: [],
         restrictedEntertainmentList: [],
@@ -183,7 +197,7 @@ async function setModeSession(sw, patch) {
         ...patch,
       },
     });
-  }, patch);
+  }, { patch, timeWindows: allDayModeTimeWindows() });
 }
 
 async function triggerAutoTransition(sw, page, durationMs = 45_000) {

@@ -172,6 +172,33 @@ async function runTests() {
     expect('mediaSourceDomain should be preserved separately', next.mediaSourceDomain, 'video.example');
   }
 
+  section('D7b: active media source may repair stale foreground attribution');
+  {
+    const current = {
+      tabId: 1,
+      windowId: 10,
+      domain: 'forms.office.com',
+      isFocused: true,
+      isIdle: false,
+      isAudible: false,
+      isPiP: false,
+      lastActiveTabId: 1,
+      lastFocusedWindowId: 10,
+    };
+
+    const mediaEvent = {
+      isAudible: true,
+      isActiveTab: true,
+      mediaSourceTabId: 1,
+      mediaSourceDomain: 'www.youtube.com',
+    };
+    const next = buildContext(current, mediaEvent);
+
+    expect('active media source should update foreground domain', next.domain, 'www.youtube.com');
+    expect('active media source should keep active tab id', next.tabId, 1);
+    expect('last active tab should follow active media source', next.lastActiveTabId, 1);
+  }
+
   section('D8: legacy idle media facts remain media states');
   {
     const audibleIdleCtx = {

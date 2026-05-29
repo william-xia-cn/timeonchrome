@@ -289,8 +289,8 @@ export function initSignal(onContextChange) {
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (msg.type === 'MEDIA_STATE' && sender.tab) {
       (async () => {
-        const url = sender.tab.url || null;
-        const domain = url ? extractDomain(url) : null;
+        const sourceUrl = sender.url || sender.documentUrl || sender.tab.url || null;
+        const domain = sourceUrl ? domainForUrl(sourceUrl) : null;
         const focus = await getWindowFocusState(sender.tab.windowId);
         onEvent({
           windowId: sender.tab.windowId ?? null,

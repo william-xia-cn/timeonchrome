@@ -60,11 +60,17 @@ export function buildContext(current, rawEvent) {
   const isMediaSignal = rawEvent.mediaSourceTabId != null && rawEvent.domain == null;
   const hasExplicitFocusLoss = rawEvent.isFocused === false;
   const hasTabSignal = !isMediaSignal && rawEvent.tabId != null;
+  const mediaSourceDomain = typeof rawEvent.mediaSourceDomain === 'string' && rawEvent.mediaSourceDomain.trim()
+    ? rawEvent.mediaSourceDomain.trim().toLowerCase().replace(/\.+$/g, '')
+    : null;
+  const activeMediaForegroundSignal = isMediaSignal &&
+    rawEvent.isActiveTab === true &&
+    mediaSourceDomain != null;
   const hasForegroundObservation = hasTabSignal ||
     Object.prototype.hasOwnProperty.call(rawEvent, 'url') ||
     Object.prototype.hasOwnProperty.call(rawEvent, 'domain');
   const nextDomain = isMediaSignal
-    ? (current?.domain ?? null)
+    ? (activeMediaForegroundSignal ? mediaSourceDomain : (current?.domain ?? null))
     : (hasExplicitFocusLoss
         ? null
         : (hasForegroundObservation
@@ -76,7 +82,9 @@ export function buildContext(current, rawEvent) {
               })
             : (current?.domain ?? null)));
   const nextTabId = isMediaSignal
-    ? (current?.lastActiveTabId ?? current?.tabId ?? null)
+    ? (activeMediaForegroundSignal
+        ? (rawEvent.mediaSourceTabId ?? current?.lastActiveTabId ?? current?.tabId ?? null)
+        : (current?.lastActiveTabId ?? current?.tabId ?? null))
     : (rawEvent.tabId ?? current?.lastActiveTabId ?? null);
   const nextMediaSourceTabId = rawEvent.isAudible === false
     ? null
@@ -116,7 +124,9 @@ export function buildContext(current, rawEvent) {
     isPiP: rawEvent.isPiP ?? current?.isPiP ?? false,
     timestamp: Date.now(),
     // 关键：追踪最后状态，防止 window blur/focus 循环导致状态错乱
-    lastActiveTabId: isMediaSignal ? current?.lastActiveTabId : (rawEvent.tabId ?? current?.lastActiveTabId),
+    lastActiveTabId: isMediaSignal
+      ? (activeMediaForegroundSignal ? (rawEvent.mediaSourceTabId ?? current?.lastActiveTabId) : current?.lastActiveTabId)
+      : (rawEvent.tabId ?? current?.lastActiveTabId),
     lastFocusedWindowId: rawEvent.windowId ?? current?.lastFocusedWindowId,
     incognito: rawEvent.incognito ?? current?.incognito ?? false,
   };

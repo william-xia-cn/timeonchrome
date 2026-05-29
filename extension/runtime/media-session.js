@@ -1054,6 +1054,12 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
         continue;
       }
 
+      if (existing) {
+        const settlement = await settleMediaSession(existing, atMs, reason);
+        appended += settlement.appended || 0;
+        delete sessions[key];
+        closed++;
+      }
       const closeResult = await closeSessionsForTabInMap(sessions, tabFact.tabId, reason, atMs, key);
       closed += closeResult.closed;
       appended += closeResult.appended;

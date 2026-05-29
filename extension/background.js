@@ -104,6 +104,52 @@ function syncNowWithRuntimeEffects(options = {}, source = 'cloud_sync') {
   });
 }
 
+async function bootstrapActiveTabTiming(reason = 'bootstrap_active_tab') {
+  if (!isMonitoringEnabled()) return { ok: true, skipped: true, reason: 'monitoring_disabled' };
+  let tab = null;
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    tab = tabs && tabs[0] ? tabs[0] : null;
+  } catch (err) {
+    return { ok: false, skipped: true, reason: 'active_tab_query_failed', error: err?.message || String(err) };
+  }
+  if (!tab?.id || !tab?.url) return { ok: true, skipped: true, reason: 'no_active_tab' };
+
+  let parsed = null;
+  try {
+    parsed = new URL(tab.url);
+  } catch (_) {
+    parsed = null;
+  }
+  if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+    return { ok: true, skipped: true, reason: 'non_http_active_tab' };
+  }
+
+  const domain = extractDomain(tab.url || '');
+  if (!domain) return { ok: true, skipped: true, reason: 'domain_unresolved' };
+
+  let focused = true;
+  try {
+    const win = Number.isInteger(tab.windowId) ? await chrome.windows.get(tab.windowId) : null;
+    focused = win?.focused !== false;
+  } catch (_) {
+    focused = true;
+  }
+
+  return dispatchTimingSignal({
+    tabId: tab.id,
+    windowId: tab.windowId ?? null,
+    url: tab.url,
+    domain,
+    incognito: tab.incognito === true,
+    isFocused: focused,
+    _reason: reason,
+  }, {
+    ensureBootstrapped,
+    scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
+  });
+}
+
 setModeBoundaryDrainHook((reason = 'modeTransition') => drainPendingModeBoundaries({
   emitTrace,
   warn: (...args) => console.warn(...args),
@@ -148,7 +194,9 @@ async function dispatchModeEvent(event = {}, options = {}) {
 }
 
 // 模块级引导：普通 MV3 SW 唤醒只做 runtime wiring，不代表异常恢复边界。
-ensureBootstrapped('module-load');
+ensureBootstrapped('module-load')
+  .then(() => bootstrapActiveTabTiming('bootstrap_active_tab'))
+  .catch(() => {});
 
 // ── Chrome 启动 lifecycle boundary → 恢复残存 open session ─────────────────────
 

@@ -412,6 +412,21 @@ async function testNavigationClearsFrameFactsForTab() {
   check('navigation writes media segment from old playing frame', rows.length === 1 && rows[0].durationSeconds === 7, JSON.stringify(rows));
 }
 
+async function testEmbeddedMediaFrameDomainReplacesStaleTopLevelFact() {
+  resetAll();
+  const base = 1778805900000;
+  await mediaApi.applyMediaFacts({ ...videoFact(24, 'forms.office.com'), frameId: 0 }, 'mediaState', base);
+  await mediaApi.applyMediaFacts({
+    ...videoFact(24, 'www.youtube.com'),
+    frameId: 7,
+    documentId: 'youtube-frame',
+  }, 'mediaState', base + 5000);
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  const rows = await segments();
+  check('new embedded video source opens youtube media session', sessions.length === 1 && sessions[0].domain === 'www.youtube.com', JSON.stringify(sessions));
+  check('stale top-level media source is closed at source change', rows.length === 1 && rows[0].domain === 'forms.office.com' && rows[0].durationSeconds === 5, JSON.stringify(rows));
+}
+
 async function testModeBoundarySplitsOpenMediaSessions() {
   resetAll();
   const base = 1778806000000;
@@ -529,6 +544,7 @@ async function run() {
     testFrameAggregationVideoPrecedenceAndFallback,
     testPiPFramePriorityAndFallback,
     testNavigationClearsFrameFactsForTab,
+    testEmbeddedMediaFrameDomainReplacesStaleTopLevelFact,
     testModeBoundarySplitsOpenMediaSessions,
     testModeBoundarySplitsMultipleOpenMediaSessions,
     testModeBoundaryNoOpenMediaSessionsNoop,

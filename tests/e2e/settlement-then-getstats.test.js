@@ -11,6 +11,25 @@ const {
 } = require('./helpers/ledger-assertions');
 
 const EXT = path.resolve(__dirname, '..', '..', 'extension');
+const TIME_WINDOW_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function allDayModeTimeWindows() {
+  return {
+    daily: Object.fromEntries(TIME_WINDOW_DAYS.map((day) => [day, {
+      studyWindows: null,
+      compositeWindows: null,
+      restWindows: null,
+    }])),
+  };
+}
+
+function localDateKey(now = Date.now()) {
+  const d = new Date(now);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 async function createContext() {
   const udd = fs.mkdtempSync(path.resolve(__dirname, '../../.artifacts/test-e2e-profile-settle-'));
@@ -20,7 +39,7 @@ async function createContext() {
   });
   let sw = ctx.serviceWorkers()[0];
   if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
-  await sw.evaluate(async () => {
+  await sw.evaluate(async (timeWindows) => {
     return new Promise(res => {
       chrome.storage.local.clear(() => {
         chrome.storage.session.clear(() => {
@@ -33,6 +52,7 @@ async function createContext() {
                 enabled: true,
                 profileId: 'e2e-profile-settle',
                 deviceId: 'e2e-device-id-settle',
+                timeWindows,
               },
               guardian_session: {
                 ...s,
@@ -55,7 +75,7 @@ async function createContext() {
         });
       });
     });
-  });
+  }, allDayModeTimeWindows());
   await sw.evaluate(async () => {
     if (typeof globalThis.debugSetRestMode === 'function') {
       await globalThis.debugSetRestMode();
@@ -65,16 +85,37 @@ async function createContext() {
   return { ctx, sw, udd };
 }
 
+async function sendRuntimeMessageFromExtensionPage(ctx, sw, type) {
+  const debugResponse = await sw.evaluate(async (messageType) => {
+    if (typeof globalThis.debugSendModeSwitchMessage !== 'function') return null;
+    return await globalThis.debugSendModeSwitchMessage({ type: messageType });
+  }, type);
+  if (debugResponse?.success === true) return debugResponse.response;
+
+  const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
+  const page = await ctx.newPage();
+  try {
+    await page.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    return await page.evaluate(async (messageType) => {
+      return new Promise(res => {
+        chrome.runtime.sendMessage({ type: messageType }, r => res(r));
+      });
+    }, type);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 // ── Test 1: GET_STATS from popup returns domain data after usage ─────────────
 test('P0-settle-1: GET_STATS from popup returns domain stats via event-log', async () => {
   const { ctx, sw, udd } = await createContext();
   try {
     const n = Date.now();
+    const date = localDateKey(n);
 
     // Seed current Stats Foundation aggregate; GET_STATS is backed by durable daily stats,
     // not by ad-hoc event_log fallback.
-    await sw.evaluate(async (now) => {
-      const date = new Date(now).toISOString().slice(0, 10);
+    await sw.evaluate(async (date) => {
       return new Promise(res => {
         chrome.storage.local.set({
           daily_usage_stats_v1: {
@@ -102,7 +143,7 @@ test('P0-settle-1: GET_STATS from popup returns domain stats via event-log', asy
           },
         }, res);
       });
-    }, n);
+    }, date);
 
     // Open popup and get stats (exact product path: popup.js → sendMsg('GET_STATS'))
     const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
@@ -277,17 +318,10 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
 test('P0-settle-2: SWITCH_TO_STUDY/REST from popup changes mode', async () => {
   const { ctx, sw, udd } = await createContext();
   try {
-    const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
-    const popup = await ctx.newPage();
-    await popup.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-    await popup.waitForTimeout(2000);
-
-    // Switch to study
-    await popup.evaluate(async () => {
-      return new Promise(res => {
-        chrome.runtime.sendMessage({ type: 'SWITCH_TO_STUDY' }, r => res(r));
-      });
-    });
+    // Send each runtime message from a fresh extension page. Mode changes can
+    // navigate/close the previous popup context, so reusing it makes the test
+    // depend on page lifetime rather than message-router behavior.
+    await sendRuntimeMessageFromExtensionPage(ctx, sw, 'SWITCH_TO_STUDY');
     let s1 = await sw.evaluate(async () => {
       return new Promise(res => {
         chrome.storage.local.get('guardian_session', r => res(r['guardian_session']?.currentMode));
@@ -297,11 +331,7 @@ test('P0-settle-2: SWITCH_TO_STUDY/REST from popup changes mode', async () => {
     expect(s1).toBe('study');
 
     // Switch back to rest
-    await popup.evaluate(async () => {
-      return new Promise(res => {
-        chrome.runtime.sendMessage({ type: 'SWITCH_TO_REST' }, r => res(r));
-      });
-    });
+    await sendRuntimeMessageFromExtensionPage(ctx, sw, 'SWITCH_TO_REST');
     let s2 = await sw.evaluate(async () => {
       return new Promise(res => {
         chrome.storage.local.get('guardian_session', r => res(r['guardian_session']?.currentMode));
@@ -309,7 +339,5 @@ test('P0-settle-2: SWITCH_TO_STUDY/REST from popup changes mode', async () => {
     });
     console.log(`REST: mode=${s2}`);
     expect(s2).toBe('rest');
-
-    await popup.close();
   } finally { await ctx.close(); fs.rmSync(udd, { recursive: true, force: true }); }
 });

@@ -33,6 +33,8 @@ const onInstalledBody = onInstalledIndex >= 0 && nextSectionIndex > onInstalledI
 check('module bootstrap initializes session', /await initSession\(\)/.test(bootstrapBody));
 check('module bootstrap hydrates cloud sync state without waiting for alarm', /await hydrateCloudSyncStateFromStorage\(\)/.test(bootstrapBody));
 check('module bootstrap does not call recover', !/recover\(\)/.test(bootstrapBody));
+check('module bootstrap primes foreground timing from current active tab', /function bootstrapActiveTabTiming/.test(source) && /ensureBootstrapped\('module-load'\)[\s\S]{0,120}\.then\(\(\) => bootstrapActiveTabTiming\('bootstrap_active_tab'\)\)/.test(source));
+check('active tab timing bootstrap only uses http tabs and dispatcher', /parsed\.protocol !== 'http:'[\s\S]{0,80}parsed\.protocol !== 'https:'/.test(source) && /dispatchTimingSignal\(\{[\s\S]*_reason: reason/.test(source));
 check('runtime messages wait for bootstrap before routing', /ensureBootstrapped\('runtimeMessage'\)[\s\S]{0,120}\.then\(\(\) => handleMessage\(msg, sender\)\)/.test(source));
 check('runtime message failures are logged without blocking response', source.includes('runtime_message_failed') && source.includes('logClientEventBestEffort'));
 const fastStatusIndex = source.indexOf("msg.type === 'GET_POPUP_FAST_STATUS'");

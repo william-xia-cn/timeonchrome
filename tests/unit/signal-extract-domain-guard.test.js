@@ -256,6 +256,22 @@ async function run() {
   expectTrue('MEDIA_STATE should carry active tab fact', emitted[0]?.isActiveTab === true);
   expectTrue('MEDIA_STATE should carry frame id', emitted[0]?.mediaFrameId === 12);
   expectTrue('MEDIA_STATE should carry document id', emitted[0]?.mediaDocumentId === 'doc-501');
+  expectTrue('MEDIA_STATE should use sender tab URL when frame URL is absent', emitted[0]?.mediaSourceDomain === 'video.example');
+
+  section('SG7b: content MEDIA_STATE uses frame URL for embedded media attribution');
+  emitted.length = 0;
+  await hooks.onMessage(
+    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', source: 'dom_media_event' },
+    {
+      frameId: 7,
+      documentId: 'youtube-frame',
+      url: 'https://www.youtube.com/embed/abc123',
+      tab: { id: 502, windowId: 50, active: true, url: 'https://forms.office.com/r/form', mutedInfo: { muted: false } },
+    }
+  );
+  await new Promise((r) => setTimeout(r, 100));
+  expectTrue('embedded media should use sender frame URL domain', emitted[0]?.mediaSourceDomain === 'www.youtube.com');
+  expectTrue('embedded media should not expose a foreground domain in signal layer', emitted[0]?.domain == null);
 
   section('SG8: tabs.onUpdated audible emits native media fact for inactive tabs');
   emitted.length = 0;
