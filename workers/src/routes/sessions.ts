@@ -1,19 +1,6 @@
 // Sessions 路由 - Session 文件上传到 R2
 import { json, Env } from '../db/middleware';
-
-type DeviceIdentity = { profileId: string; unbound?: boolean };
-
-function deviceUnboundResponse(): Response {
-  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound' }, 403);
-}
-
-async function verifyDeviceToken(env: Env, token: string): Promise<DeviceIdentity | null> {
-  const device = await env.DB.prepare(
-    `SELECT profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ profile_id: string; status?: string }>();
-  if (!device?.profile_id) return null;
-  return { profileId: device.profile_id, unbound: device.status === 'unbound' };
-}
+import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 
 export const sessionsRouter = {
   async handle(request: Request, env: Env): Promise<Response> {

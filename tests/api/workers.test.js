@@ -215,7 +215,7 @@ async function testDeviceConfig() {
     initialVersion = data?.version;
   }
 
-  // PUT config
+  // PUT config is deprecated for device tokens; profile config writes must use account auth.
   {
     const testConfig = {
       mode: 'study',
@@ -225,15 +225,15 @@ async function testDeviceConfig() {
       dailyRestQuota: 120,
     };
     const { status, data } = await api('PUT', '/device/config', { data: testConfig }, state.deviceToken);
-    check('PUT /device/config → 200', status === 200, `got ${status}: ${JSON.stringify(data)}`);
-    check('version incremented', data?.version > initialVersion, `was ${initialVersion}, got ${data?.version}`);
+    check('PUT /device/config → 410', status === 410, `got ${status}: ${JSON.stringify(data)}`);
+    check('PUT /device/config returns deprecation code', data?.code === 'DEVICE_CONFIG_WRITE_DEPRECATED', JSON.stringify(data));
   }
 
-  // GET config again — verify data round-trips
+  // GET config again — verify device PUT did not replace profile config.
   {
     const { status, data } = await api('GET', '/device/config', null, state.deviceToken);
     check('GET config after PUT → 200', status === 200, `got ${status}`);
-    check('config data persisted (studyList)', data?.data?.studyList?.[0] === 'khanacademy.org', JSON.stringify(data?.data?.studyList));
+    check('device config version did not change after deprecated PUT', data?.version === initialVersion, `was ${initialVersion}, got ${data?.version}`);
   }
 }
 

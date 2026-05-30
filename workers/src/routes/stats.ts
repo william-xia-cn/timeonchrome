@@ -1,28 +1,7 @@
 // Stats 路由 - 统计上传/查询 (legacy + v1)
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
-
-type DeviceIdentity = { profileId: string; deviceId: string; unbound?: boolean };
-
-function deviceUnboundResponse(deviceId?: string | null): Response {
-  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound', device_id: deviceId || null }, 403);
-}
-
-// 验证 device_token，同时刷新 last_seen；返回 profile_id + device_id，或显式 unbound 状态
-async function verifyDeviceToken(env: Env, token: string): Promise<DeviceIdentity | null> {
-  const device = await env.DB.prepare(
-    `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ id: string; profile_id: string; status?: string }>();
-
-  if (!device?.profile_id) return null;
-  if (device.status === 'unbound') return { profileId: device.profile_id, deviceId: device.id, unbound: true };
-
-  await env.DB.prepare(
-    `UPDATE devices SET last_seen = ? WHERE device_token = ? AND COALESCE(status, 'bound') = 'bound'`
-  ).bind(Date.now(), token).run();
-
-  return { profileId: device.profile_id, deviceId: device.id };
-}
+import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 
 // ── Segment payload schema validation ───────────────────────────────────────────
 
@@ -334,7 +313,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -357,7 +336,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -454,7 +433,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -543,7 +522,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -637,7 +616,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -729,7 +708,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -899,7 +878,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -1052,7 +1031,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -1136,7 +1115,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
@@ -1899,7 +1878,7 @@ export const statsRouter = {
       const auth = request.headers.get('Authorization');
       if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-      const device = await verifyDeviceToken(env, auth.slice(7));
+      const device = await verifyDeviceToken(env, auth.slice(7), { updateLastSeen: true });
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
       const profileId = device.profileId;

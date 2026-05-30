@@ -3,38 +3,7 @@ import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 import { siteAccessDefaults } from '../config/site-access-defaults';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
-
-type DeviceIdentity = { profileId: string; deviceId: string; unbound?: boolean };
-
-function deviceUnboundResponse(deviceId?: string | null): Response {
-  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound', device_id: deviceId || null }, 403);
-}
-
-// 验证 device_token，可选同时刷新 last_seen；返回 profile_id + device_id，或显式 unbound 状态
-async function verifyDeviceToken(
-  request: Request,
-  env: Env,
-  updateLastSeen = false
-): Promise<DeviceIdentity | null> {
-  const auth = request.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-
-  const token  = auth.slice(7);
-  const device = await env.DB.prepare(
-    `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ id: string; profile_id: string; status?: string }>();
-
-  if (!device?.profile_id) return null;
-  if (device.status === 'unbound') return { profileId: device.profile_id, deviceId: device.id, unbound: true };
-
-  if (updateLastSeen) {
-    await env.DB.prepare(
-      `UPDATE devices SET last_seen = ? WHERE device_token = ? AND COALESCE(status, 'bound') = 'bound'`
-    ).bind(Date.now(), token).run();
-  }
-
-  return { profileId: device.profile_id, deviceId: device.id };
-}
+import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
 // 生成 64 字符随机 device_token
 function generateDeviceToken(): string {
@@ -85,14 +54,12 @@ export const deviceRouter = {
              VALUES (?, ?, ?, ?, ?, ?)`
           ).bind(deviceId, profile_id, deviceToken, devName, now, now).run();
         } else {
-          const existing = await env.DB.prepare(
-            `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
-          ).bind(deviceToken).first<{ id: string; profile_id: string; status?: string }>();
-          if (!existing || existing.profile_id !== profile_id) {
+          const existing = await verifyDeviceToken(env, deviceToken);
+          if (!existing || existing.profileId !== profile_id) {
             return json({ error: 'Device token not found', code: 'DEVICE_TOKEN_NOT_FOUND' }, 404);
           }
-          if (existing.status === 'unbound') return deviceUnboundResponse(existing.id);
-          deviceId = existing?.id || null;
+          if (existing.unbound) return deviceUnboundResponse(existing.deviceId);
+          deviceId = existing.deviceId || null;
         }
 
         return json({ success: true, device_token: deviceToken, profile_id, device_id: deviceId });
@@ -103,7 +70,7 @@ export const deviceRouter = {
 
     // POST /device/heartbeat
     if (request.method === 'POST' && path === '/device/heartbeat') {
-      const deviceIdentity = await verifyDeviceToken(request, env, true);
+      const deviceIdentity = await verifyDeviceTokenFromRequest(request, env, { updateLastSeen: true });
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
       if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
       return json({ ok: true, ts: Date.now() });
@@ -111,86 +78,80 @@ export const deviceRouter = {
 
     // GET /device/config
     if (request.method === 'GET' && path === '/device/config') {
-      const authHeader = request.headers.get('Authorization');
-      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-      const deviceIdentity = await verifyDeviceToken(request, env, true);
-      if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
-      if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
-      const profileId = deviceIdentity.profileId;
-
-      const row = await env.DB.prepare(
-        `SELECT config, version FROM profiles WHERE id = ?`
-      ).bind(profileId).first<{ config: string; version: number }>();
-
-      // Fetch monitoring_enabled (column added in migration 002; default 1 if not present)
-      let monitoringEnabled = 1;
       try {
-        const deviceRow = token ? await env.DB.prepare(
-          `SELECT monitoring_enabled FROM devices WHERE device_token = ?`
-        ).bind(token).first<{ monitoring_enabled: number }>() : null;
-        monitoringEnabled = deviceRow?.monitoring_enabled ?? 1;
-      } catch (_) { /* column not yet migrated */ }
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const deviceIdentity = await verifyDeviceTokenFromRequest(request, env, { updateLastSeen: true });
+        if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+        if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
+        const profileId = deviceIdentity.profileId;
 
-      const configData = row?.config ? JSON.parse(row.config) : {};
-      if (!Array.isArray(configData.defaultStudySites)) {
-        configData.defaultStudySites = siteAccessDefaults.defaultStudySites;
-      }
-      if (!Array.isArray(configData.defaultCompositeSites)) {
-        configData.defaultCompositeSites = siteAccessDefaults.defaultCompositeSites;
-      }
-      if (!Array.isArray(configData.defaultUserCompositeSites)) {
-        configData.defaultUserCompositeSites = siteAccessDefaults.defaultUserCompositeSites || [];
-      }
-      if (!Array.isArray(configData.defaultRestrictedEntertainmentSites)) {
-        configData.defaultRestrictedEntertainmentSites = siteAccessDefaults.defaultRestrictedEntertainmentSites;
-      }
-      if (!Array.isArray(configData.defaultBlockedSites)) {
-        configData.defaultBlockedSites = siteAccessDefaults.defaultBlockedSites;
-      }
-      const effectiveTimeQuota = buildEffectiveTimeQuota(configData);
-      configData.timeQuota = {
-        ...(configData.timeQuota || {}),
-        daily: effectiveTimeQuota.daily,
-      };
+        const row = await env.DB.prepare(
+          `SELECT config, version FROM profiles WHERE id = ?`
+        ).bind(profileId).first<{ config: string; version: number }>();
 
-      return json({
-        data:               configData,
-        version:            row?.version || 0,
-        profile_id:         profileId,
-        device_id:          deviceIdentity.deviceId,
-        monitoring_enabled: monitoringEnabled,
-      });
+        // Fetch monitoring_enabled (column added in migration 002; default 1 if not present)
+        let monitoringEnabled = 1;
+        try {
+          const deviceRow = token ? await env.DB.prepare(
+            `SELECT monitoring_enabled FROM devices WHERE device_token = ?`
+          ).bind(token).first<{ monitoring_enabled: number }>() : null;
+          monitoringEnabled = deviceRow?.monitoring_enabled ?? 1;
+        } catch (_) { /* column not yet migrated */ }
+
+        const configData = row?.config ? JSON.parse(row.config) : {};
+        if (!Array.isArray(configData.defaultStudySites)) {
+          configData.defaultStudySites = siteAccessDefaults.defaultStudySites;
+        }
+        if (!Array.isArray(configData.defaultCompositeSites)) {
+          configData.defaultCompositeSites = siteAccessDefaults.defaultCompositeSites;
+        }
+        if (!Array.isArray(configData.defaultUserCompositeSites)) {
+          configData.defaultUserCompositeSites = siteAccessDefaults.defaultUserCompositeSites || [];
+        }
+        if (!Array.isArray(configData.defaultRestrictedEntertainmentSites)) {
+          configData.defaultRestrictedEntertainmentSites = siteAccessDefaults.defaultRestrictedEntertainmentSites;
+        }
+        if (!Array.isArray(configData.defaultBlockedSites)) {
+          configData.defaultBlockedSites = siteAccessDefaults.defaultBlockedSites;
+        }
+        const effectiveTimeQuota = buildEffectiveTimeQuota(configData);
+        configData.timeQuota = {
+          ...(configData.timeQuota || {}),
+          daily: effectiveTimeQuota.daily,
+        };
+
+        return json({
+          data:               configData,
+          version:            row?.version || 0,
+          profile_id:         profileId,
+          device_id:          deviceIdentity.deviceId,
+          monitoring_enabled: monitoringEnabled,
+        });
+      } catch (e: any) {
+        return json({
+          error: 'Failed to read device config',
+          code: 'DEVICE_CONFIG_READ_FAILED',
+          message: e?.message || String(e),
+        }, 500);
+      }
     }
 
     // PUT /device/config
     if (request.method === 'PUT' && path === '/device/config') {
-      const deviceIdentity = await verifyDeviceToken(request, env, true);
+      const deviceIdentity = await verifyDeviceTokenFromRequest(request, env, { updateLastSeen: true });
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
       if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
-      const profileId = deviceIdentity.profileId;
-
-      try {
-        const { data } = await request.json<{ data: unknown }>();
-        const now       = Date.now();
-        const configStr = JSON.stringify(data);
-
-        await env.DB.prepare(
-          `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-        ).bind(configStr, now, profileId).run();
-
-        const row = await env.DB.prepare(
-          `SELECT version FROM profiles WHERE id = ?`
-        ).bind(profileId).first<{ version: number }>();
-
-        return json({ success: true, version: row?.version || 1 });
-      } catch (e: any) {
-        return json({ error: 'Failed to update config: ' + e.message }, 500);
-      }
+      return json({
+        success: false,
+        error: 'Device config writes are deprecated',
+        code: 'DEVICE_CONFIG_WRITE_DEPRECATED',
+      }, 410);
     }
 
     // GET /device/quota-state?date=YYYY-MM-DD
     if (request.method === 'GET' && path === '/device/quota-state') {
-      const deviceIdentity = await verifyDeviceToken(request, env);
+      const deviceIdentity = await verifyDeviceTokenFromRequest(request, env);
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
       if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
       const profileId = deviceIdentity.profileId;

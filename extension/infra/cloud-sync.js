@@ -508,7 +508,15 @@ async function cloudRequest(method, path, body = null, retries = 3) {
         return { success: true };
       }
 
-      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+      const responseText = await resp.text().catch(() => '');
+      let err = { error: `HTTP ${resp.status}` };
+      if (responseText) {
+        try {
+          err = JSON.parse(responseText);
+        } catch {
+          err = { error: responseText.slice(0, 300) };
+        }
+      }
       if (isDeviceUnboundPayload(err)) {
         await clearCloudBindingState('cloud_error_unbound');
         throw makeDeviceUnboundError(err?.error || 'Device unbound');
@@ -516,6 +524,10 @@ async function cloudRequest(method, path, body = null, retries = 3) {
       const message = err?.error || err?.message || `HTTP ${resp.status}`;
       const nonRetryable = resp.status >= 400 && resp.status < 500 && resp.status !== 429;
       const error = new Error(`HTTP ${resp.status}: ${message}`);
+      error.status = resp.status;
+      error.code = err?.code || null;
+      error.response = err;
+      error.endpoint = path;
       if (nonRetryable) {
         error.nonRetryable = true;
       }
@@ -598,6 +610,28 @@ function summarizeDailyStatsPayload(date, payload) {
   };
 }
 
+function isCloudSchemaIncompatibilityError(error) {
+  const text = [
+    error?.message,
+    error?.code,
+    error?.response?.message,
+    error?.response?.error,
+  ].filter(Boolean).join(' ');
+  return /no such column|no such table|schema/i.test(text);
+}
+
+function logCloudSchemaIncompatibility(endpoint, error) {
+  if (!isCloudSchemaIncompatibilityError(error)) return;
+  logClientEventBestEffort({
+    level: 'error',
+    category: 'cloud',
+    eventCode: 'cloud_schema_incompatibility_detected',
+    module: 'infra/cloud-sync',
+    message: error?.message || 'Cloud schema incompatibility detected',
+    details: { endpoint, status: error?.status || null, code: error?.code || null, response: error?.response || null },
+  });
+}
+
 // ── Pull config ─────────────────────────────────────────────────────────────────
 
 /**
@@ -670,12 +704,14 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     return { status: 'updated', version: cloudVersion, error: null };
   } catch (e) {
     console.error('[Cloud] Failed to pull config:', e.message);
+    logCloudSchemaIncompatibility('/device/config', e);
     logClientEventBestEffort({
       level: 'error',
       category: 'cloud',
       eventCode: 'cloud_config_pull_failed',
       module: 'infra/cloud-sync',
       message: e?.message || 'Cloud config pull failed',
+      details: { endpoint: '/device/config', status: e?.status || null, code: e?.code || null, response: e?.response || null },
     });
     return { status: 'failed', version: null, error: e.message };
   }
@@ -1104,13 +1140,14 @@ export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
       failed = batchIds.length;
       errors.push(`segments: ${e.message}`);
       console.error('[Cloud-V1] Failed to upload segments:', e.message);
+      logCloudSchemaIncompatibility('/device/usage-segments/v1', e);
       logClientEventBestEffort({
         level: 'error',
         category: 'cloud',
         eventCode: 'cloud_usage_segment_upload_failed',
         module: 'infra/cloud-sync',
         message: e?.message || 'Usage segment upload failed',
-        details: { count: batchIds.length },
+        details: { endpoint: '/device/usage-segments/v1', count: batchIds.length, status: e?.status || null, code: e?.code || null, response: e?.response || null },
       });
     }
 

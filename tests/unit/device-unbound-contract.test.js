@@ -26,6 +26,7 @@ function run() {
   const index = read('workers/src/index.ts');
   const profiles = read('workers/src/routes/profiles.ts');
   const device = read('workers/src/routes/device.ts');
+  const deviceIdentity = read('workers/src/routes/deviceIdentity.ts');
   const stats = read('workers/src/routes/stats.ts');
   const cloudSync = read('extension/infra/cloud-sync.js');
   const admin = read('extension/admin/admin.js');
@@ -41,11 +42,13 @@ function run() {
   expectTrue('device unbind should be soft update not physical delete', profiles.includes("UPDATE devices SET status = 'unbound', unbound_at = ? WHERE id = ?") && !profiles.includes('DELETE FROM devices WHERE id = ?'));
   expectTrue('device list hides soft-unbound devices by default', profiles.includes("COALESCE(status, 'bound') = 'bound'"));
 
-  expectTrue('device bind returns explicit DEVICE_UNBOUND for unbound token', device.includes("existing.status === 'unbound'") && device.includes("code: 'DEVICE_UNBOUND'"));
+  expectTrue('device bind returns explicit DEVICE_UNBOUND for unbound token', device.includes('existing.unbound') && deviceIdentity.includes("code: 'DEVICE_UNBOUND'"));
   expectTrue('device bind missing token is not treated as unbound', device.includes("code: 'DEVICE_TOKEN_NOT_FOUND'") && device.includes('Device token not found'));
-  expectTrue('device routes return explicit unbound response', device.includes('function deviceUnboundResponse') && device.includes('bound: false') && device.includes("reason: 'unbound'"));
-  expectTrue('stats upload rejects unbound token explicitly', stats.includes('function deviceUnboundResponse') && (stats.match(/device\.unbound/g) || []).length >= 8);
-  expectTrue('legacy device upload routes reject unbound token explicitly', (legacyUploadSources.match(/DEVICE_UNBOUND/g) || []).length >= 4 && (legacyUploadSources.match(/device\.unbound/g) || []).length >= 4);
+  expectTrue('device identity helper returns explicit unbound response', deviceIdentity.includes('function deviceUnboundResponse') && deviceIdentity.includes('bound: false') && deviceIdentity.includes("reason: 'unbound'"));
+  expectTrue('device identity helper tolerates legacy devices schema', deviceIdentity.includes('isMissingDeviceStatusColumn') && deviceIdentity.includes('treating legacy device token as bound') && deviceIdentity.includes('using legacy update'));
+  expectTrue('device config write is deprecated and must not replace profile config', device.includes("path === '/device/config'") && device.includes('DEVICE_CONFIG_WRITE_DEPRECATED') && !device.includes('UPDATE profiles SET config = ?, version = version + 1'));
+  expectTrue('stats upload rejects unbound token explicitly', stats.includes('deviceUnboundResponse') && (stats.match(/device\.unbound/g) || []).length >= 8);
+  expectTrue('legacy device upload routes use shared unbound handling', legacyUploadSources.includes("from './deviceIdentity'") && (legacyUploadSources.match(/device\.unbound/g) || []).length >= 4);
 
   expectTrue('cloud sync detects only explicit DEVICE_UNBOUND payload', cloudSync.includes('function isDeviceUnboundPayload') && cloudSync.includes("payload?.code === 'DEVICE_UNBOUND'"));
   expectTrue('cloud sync clears device id/token/profile only on explicit unbound', cloudSync.includes('async function clearCloudBindingState') && cloudSync.includes('[CLOUD_CONFIG.KEYS.DEVICE_ID]: null') && cloudSync.includes('[CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null'));

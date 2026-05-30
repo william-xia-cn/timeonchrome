@@ -1,25 +1,9 @@
 // compositeSessions.ts - 复合型会话 CRUD + 家长审核 + 自动分类规则
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
+import { deviceUnboundResponse, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
 // ── device_token 验证辅助 ──────────────────────────────────────────────────────
-
-type DeviceIdentity = { profileId: string; deviceId: string | null; unbound?: boolean };
-
-function deviceUnboundResponse(deviceId?: string | null): Response {
-  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound', device_id: deviceId || null }, 403);
-}
-
-async function verifyDeviceToken(request: Request, env: Env): Promise<DeviceIdentity | null> {
-  const auth = request.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token  = auth.slice(7);
-  const device = await env.DB.prepare(
-    `SELECT id, profile_id, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ id: string; profile_id: string; status?: string }>();
-  if (!device?.profile_id) return null;
-  return { profileId: device.profile_id, deviceId: device.id || null, unbound: device.status === 'unbound' };
-}
 
 // ── 自动分类规则匹配 ────────────────────────────────────────────────────────────
 
@@ -48,7 +32,7 @@ export const compositeSessionsRouter = {
 
     // POST /device/composite-sessions  上传本地缓存的会话记录
     if (request.method === 'POST' && path === '/device/composite-sessions') {
-      const device = await verifyDeviceToken(request, env);
+      const device = await verifyDeviceTokenFromRequest(request, env);
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
       const profileId = device.profileId;
@@ -105,7 +89,7 @@ export const compositeSessionsRouter = {
 
     // GET /device/weekly-sessions?week_start=YYYY-MM-DD  孩子端拉取本周待定时段全览
     if (request.method === 'GET' && path === '/device/weekly-sessions') {
-      const device = await verifyDeviceToken(request, env);
+      const device = await verifyDeviceTokenFromRequest(request, env);
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
       const profileId = device.profileId;
@@ -141,7 +125,7 @@ export const compositeSessionsRouter = {
 
     // POST /device/appeal  孩子提交申诉
     if (request.method === 'POST' && path === '/device/appeal') {
-      const device = await verifyDeviceToken(request, env);
+      const device = await verifyDeviceTokenFromRequest(request, env);
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
       const profileId = device.profileId;

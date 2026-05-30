@@ -1,19 +1,6 @@
 // Events 路由 - 设备端事件上报 + 邮件通知
 import { json, Env } from '../db/middleware';
-
-async function verifyDeviceToken(
-  env: Env, token: string
-): Promise<{ profileId: string; deviceName: string; unbound?: boolean } | null> {
-  const device = await env.DB.prepare(
-    `SELECT profile_id, device_name, COALESCE(status, 'bound') AS status FROM devices WHERE device_token = ?`
-  ).bind(token).first<{ profile_id: string; device_name: string; status?: string }>();
-  if (!device?.profile_id) return null;
-  return { profileId: device.profile_id, deviceName: device.device_name || 'Unknown Device', unbound: device.status === 'unbound' };
-}
-
-function deviceUnboundResponse(): Response {
-  return json({ error: 'Device unbound', code: 'DEVICE_UNBOUND', bound: false, reason: 'unbound' }, 403);
-}
+import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 
 // 需要发邮件的事件类型
 const NOTIFIABLE_TYPES = new Set([
@@ -109,7 +96,7 @@ export const eventsRouter = {
     const auth = request.headers.get('Authorization');
     if (!auth?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
-    const device = await verifyDeviceToken(env, auth.slice(7));
+    const device = await verifyDeviceToken(env, auth.slice(7), { includeDeviceName: true });
     if (!device) return json({ error: 'Invalid device token' }, 401);
     if (device.unbound) return deviceUnboundResponse();
 
