@@ -102,6 +102,9 @@ function run() {
   const renderDevicesPageSource = extractFunctionSource(source, 'renderDevicesPage');
   expectTrue('Pages 设备管理应显示云端设备 ID', renderDevicesPageSource.includes('设备ID：') && renderDevicesPageSource.includes("escHtml(d.id || '未记录')"));
   expectTrue('Pages 设备管理不应展示 device token', !renderDevicesPageSource.includes('device_token') && !renderDevicesPageSource.includes('DEVICE_TOKEN'));
+  expectTrue('Pages 设备管理应包含连接诊断入口', source.includes('device-audit-panel') && renderDevicesPageSource.includes('连接诊断') && source.includes('renderDeviceAccessAudit'));
+  expectTrue('Pages 连接诊断应读取 device access audit API', source.includes('/device-access-audit/v1?'));
+  expectTrue('Pages 连接诊断应展示最近请求成功失败和鉴权结果', source.includes('最后成功') && source.includes('最后失败') && source.includes('auth_result') && source.includes('result_code'));
   expectTrue('Pages 普通落账应改名为网页落账', source.includes('网页落账') && !source.includes('落账明细</span>'));
   expectTrue('Pages 落账页应读取 usage-segments/v1', source.includes('/usage-segments/v1'));
   expectTrue('Pages 落账页应支持终端筛选和终端列', source.includes('settlement-device-input') && source.includes("params.set('deviceId', deviceInput.value)") && source.includes('终端'));

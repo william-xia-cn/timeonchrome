@@ -64,6 +64,7 @@ const CLOUD_CONFIG = {
     ACCOUNT_TOKEN: 'account_token',
     ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
     ACCOUNT_EMAIL: 'cloud_account_email',
+    CONNECTION_STATE: 'cloud_connection_state_v1',
     LAST_SYNC: 'cloud_last_sync',
     PENDING_STATS: 'cloud_pending_stats',
     PENDING_SESSIONS: 'cloud_pending_sessions',
@@ -100,7 +101,94 @@ let syncState = {
   profileId: null,
   monitoringEnabled: 1,
   v1SyncEnabled: false,
+  currentRequestId: null,
 };
+
+function createCloudRequestId(scope = 'cloud') {
+  const random = Math.random().toString(36).slice(2, 8);
+  return `${scope}-${Date.now().toString(36)}-${random}`;
+}
+
+function getCloudClientVersion() {
+  try {
+    return chrome.runtime.getManifest()?.version || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeConnectionError(error, endpoint) {
+  const status = Number(error?.status || 0) || null;
+  const code = error?.code || error?.response?.code || null;
+  const message = error?.name === 'AbortError'
+    ? `request timeout after ${CLOUD_CONFIG.REQUEST_TIMEOUT_MS}ms`
+    : (error?.message || String(error || 'unknown_error'));
+  return {
+    endpoint,
+    status,
+    code,
+    message,
+    response: error?.response || null,
+    at: Date.now(),
+  };
+}
+
+async function updateCloudConnectionState(patch) {
+  try {
+    const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.CONNECTION_STATE);
+    const previous = storage?.[CLOUD_CONFIG.KEYS.CONNECTION_STATE] || {};
+    await chrome.storage.local.set({
+      [CLOUD_CONFIG.KEYS.CONNECTION_STATE]: {
+        ...previous,
+        ...patch,
+        updatedAt: Date.now(),
+      },
+    });
+  } catch (_) {
+    // Connection diagnostics must never affect sync.
+  }
+}
+
+async function markCloudConnectionAttempt(endpoint) {
+  await updateCloudConnectionState({
+    lastAttemptAt: Date.now(),
+    lastEndpoint: endpoint,
+    deviceId: syncState.deviceId || null,
+    profileId: syncState.profileId || null,
+    hasDeviceToken: !!syncState.deviceToken,
+  });
+}
+
+async function markCloudConnectionSuccess(endpoint, status = 200) {
+  await updateCloudConnectionState({
+    lastSuccessAt: Date.now(),
+    lastEndpoint: endpoint,
+    lastStatus: status,
+    lastError: null,
+    consecutiveFailures: 0,
+    deviceId: syncState.deviceId || null,
+    profileId: syncState.profileId || null,
+    hasDeviceToken: !!syncState.deviceToken,
+  });
+}
+
+async function markCloudConnectionFailure(endpoint, error) {
+  try {
+    const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.CONNECTION_STATE);
+    const previous = storage?.[CLOUD_CONFIG.KEYS.CONNECTION_STATE] || {};
+    await updateCloudConnectionState({
+      lastFailureAt: Date.now(),
+      lastEndpoint: endpoint,
+      lastError: normalizeConnectionError(error, endpoint),
+      consecutiveFailures: Number(previous.consecutiveFailures || 0) + 1,
+      deviceId: syncState.deviceId || null,
+      profileId: syncState.profileId || null,
+      hasDeviceToken: !!syncState.deviceToken,
+    });
+  } catch (_) {
+    // Connection diagnostics must never affect sync.
+  }
+}
 
 function isDeviceUnboundPayload(payload) {
   return payload?.code === 'DEVICE_UNBOUND' || (payload?.bound === false && payload?.reason === 'unbound');
@@ -475,17 +563,24 @@ async function cloudRequest(method, path, body = null, retries = 3) {
   }
 
   let lastError = null;
+  await markCloudConnectionAttempt(path);
   for (let attempt = 0; attempt < retries; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
     try {
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${syncState.deviceToken}`,
+      };
+      const clientVersion = getCloudClientVersion();
+      const requestId = syncState.currentRequestId || createCloudRequestId('request');
+      if (clientVersion) headers['X-TimeOnChrome-Version'] = clientVersion;
+      if (syncState.deviceId) headers['X-TimeOnChrome-Device-Id'] = syncState.deviceId;
+      if (requestId) headers['X-TimeOnChrome-Request-Id'] = requestId;
       const options = {
         method,
         signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${syncState.deviceToken}`
-        }
+        headers,
       };
 
       if (body) {
@@ -503,8 +598,10 @@ async function cloudRequest(method, path, body = null, retries = 3) {
             await clearCloudBindingState('cloud_response_unbound');
             throw makeDeviceUnboundError(payload?.error || 'Device unbound');
           }
+          await markCloudConnectionSuccess(path, resp.status);
           return payload;
         }
+        await markCloudConnectionSuccess(path, resp.status);
         return { success: true };
       }
 
@@ -541,6 +638,9 @@ async function cloudRequest(method, path, body = null, retries = 3) {
         : e.message;
       console.error(`[Cloud] Attempt ${attempt + 1} failed:`, errorMessage);
       if (e.message.includes('expired') || e.message.includes('Unauthorized') || e.nonRetryable) {
+        if (e?.code !== 'DEVICE_UNBOUND') {
+          await markCloudConnectionFailure(path, e);
+        }
         throw e;
       }
       if (attempt < retries - 1) {
@@ -550,7 +650,14 @@ async function cloudRequest(method, path, body = null, retries = 3) {
   }
 
   const rootMessage = lastError?.message || 'unknown_error';
-  throw new Error(`Max retries exceeded: ${rootMessage}`);
+  const error = new Error(`Max retries exceeded: ${rootMessage}`);
+  error.endpoint = path;
+  error.cause = lastError;
+  if (lastError?.status) error.status = lastError.status;
+  if (lastError?.code) error.code = lastError.code;
+  if (lastError?.response) error.response = lastError.response;
+  await markCloudConnectionFailure(path, error);
+  throw error;
 }
 
 function summarizeDailyStatsPayload(date, payload) {
@@ -831,6 +938,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
   const options = typeof optionsOrLegacyRedirectAllTabs === 'function'
     ? (legacyOptions || {})
     : (optionsOrLegacyRedirectAllTabs || {});
+  await hydrateCloudSyncStateFromStorage();
   if (!syncState.deviceToken) {
     console.log('[Cloud] Sync skipped: no device token (not yet initialized or unbound)');
     return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: false, errors: [] };
@@ -850,6 +958,8 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
 
   syncState.isSyncing = true;
   syncState.syncStartedAt = Date.now();
+  const previousRequestId = syncState.currentRequestId;
+  syncState.currentRequestId = createCloudRequestId('sync');
   const errors = [];
 
   try {
@@ -975,6 +1085,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     const code = e?.code ? `${e.code}: ` : '';
     return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [`${code}${e.message}`] };
   } finally {
+    syncState.currentRequestId = previousRequestId;
     syncState.isSyncing = false;
     syncState.syncStartedAt = 0;
   }
@@ -1033,6 +1144,7 @@ export async function getStatsFoundationV1SyncStatus() {
       CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_SITE_REQUEST_SYNC_AT,
       CLOUD_CONFIG.KEYS.V1_LAST_CLIENT_LOG_UPLOAD_AT,
+      CLOUD_CONFIG.KEYS.CONNECTION_STATE,
     ]).catch(() => ({})),
   ]);
   return {
@@ -1064,6 +1176,7 @@ export async function getStatsFoundationV1SyncStatus() {
     lastHourlyMediaStatsUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT] || 0),
     lastSiteRequestSyncAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SITE_REQUEST_SYNC_AT] || 0),
     lastClientLogUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_CLIENT_LOG_UPLOAD_AT] || 0),
+    connectionState: storage?.[CLOUD_CONFIG.KEYS.CONNECTION_STATE] || null,
   };
 }
 
@@ -2617,12 +2730,17 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
 // ── Heartbeat ───────────────────────────────────────────────────────────────────
 
 export async function sendHeartbeat() {
+  await hydrateCloudSyncStateFromStorage();
   if (!syncState.deviceToken) return;
+  const previousRequestId = syncState.currentRequestId;
+  syncState.currentRequestId = createCloudRequestId('heartbeat');
   try {
     await cloudRequest('POST', '/device/heartbeat');
     console.log('[Cloud] Heartbeat sent');
   } catch (e) {
     console.warn('[Cloud] Heartbeat failed:', e.message);
+  } finally {
+    syncState.currentRequestId = previousRequestId;
   }
 }
 

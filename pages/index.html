@@ -1248,6 +1248,7 @@
             <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
           </div>
           <div id="devices-list"><div class="empty"><div class="icon"><img class="toc-ui-icon" src="assets/icons/devices.svg" alt=""></div>暂无绑定设备</div></div>
+          <div id="device-audit-panel" style="margin-top:12px;"></div>
         </div>
         <div class="card" style="margin-top:16px;">
           <div class="card-header"><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/devices.svg" alt="">如何绑定新设备</div></div>
@@ -5065,6 +5066,8 @@ function deviceStatusInfo(lastSeen) {
 async function renderDevicesPage() {
   if (!currentProfileId) return;
   const c = document.getElementById('devices-list');
+  const auditPanel = document.getElementById('device-audit-panel');
+  if (auditPanel) auditPanel.innerHTML = '';
   c.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
 
   try {
@@ -5097,6 +5100,7 @@ async function renderDevicesPage() {
             <span>${isMonOn ? '监控中' : '已停用'}</span>
           </label>
           <div class="device-actions">
+            <button class="device-btn" onclick="renderDeviceAccessAudit('${d.id}','${safeName}')">连接诊断</button>
             <button class="device-btn" onclick="startRename('${d.id}','${safeName}')">重命名</button>
             <button class="device-btn danger" onclick="unbindDevice('${d.id}','${safeName}')">解绑</button>
           </div>
@@ -5107,6 +5111,86 @@ async function renderDevicesPage() {
     c.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${e.message}</div>`;
   }
 }
+
+function formatDeviceAuditTime(ms) {
+  const value = Number(ms || 0);
+  return value > 0 ? new Date(value).toLocaleString('zh-CN') : '—';
+}
+
+function summarizeDeviceAccessAudit(rows) {
+  const lastSuccess = rows.find((row) => Number(row.status || 0) >= 200 && Number(row.status || 0) < 400);
+  const lastFailure = rows.find((row) => Number(row.status || 0) >= 400);
+  const latest = rows[0] || null;
+  return {
+    latest,
+    lastSuccess,
+    lastFailure,
+    reachedCloud: rows.length > 0,
+  };
+}
+
+window.renderDeviceAccessAudit = async function(deviceId, deviceName = '') {
+  const panel = document.getElementById('device-audit-panel');
+  if (!panel || !currentProfileId) return;
+  panel.innerHTML = '<div class="empty"><div class="icon">⏳</div>正在读取连接诊断...</div>';
+  try {
+    const params = new URLSearchParams({ deviceId, limit: '50' });
+    const result = await api(`/profiles/${currentProfileId}/device-access-audit/v1?${params.toString()}`);
+    const rows = Array.isArray(result.audits) ? result.audits : [];
+    const summary = summarizeDeviceAccessAudit(rows);
+    const safeDeviceName = escHtml(deviceName || rows[0]?.device_name || deviceId);
+    if (!rows.length) {
+      panel.innerHTML = `
+        <div class="card" style="margin-top:12px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">连接诊断：${safeDeviceName}</div>
+              <div class="card-subtitle">云端最近没有收到这台设备的请求。可能原因包括 Chrome 未运行、扩展被停用、设备离线或本地网络不可达。</div>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    const rowsHtml = rows.slice(0, 20).map((row) => {
+      const status = Number(row.status || 0);
+      const statusColor = status >= 500 ? 'var(--danger)' : (status >= 400 ? 'var(--warn)' : 'var(--green)');
+      return `
+        <tr>
+          <td>${escHtml(formatDeviceAuditTime(row.timestamp))}</td>
+          <td>${escHtml(row.request_kind || 'device')}</td>
+          <td>${escHtml(row.endpoint || '—')}</td>
+          <td style="color:${statusColor};font-weight:600;">${escHtml(status || '—')}</td>
+          <td>${escHtml(row.auth_result || '—')}</td>
+          <td>${escHtml(row.result_code || '—')}</td>
+          <td>${escHtml(row.client_version || '—')}</td>
+        </tr>
+      `;
+    }).join('');
+    panel.innerHTML = `
+      <div class="card" style="margin-top:12px;">
+        <div class="card-header">
+          <div>
+            <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">连接诊断：${safeDeviceName}</div>
+            <div class="card-subtitle">只显示脱敏后的请求摘要；不保存 token、URL、域名或 payload 内容。</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px;font-size:12px;color:var(--muted);">
+          <div>最近请求<br><strong style="color:var(--text);">${escHtml(formatDeviceAuditTime(summary.latest?.timestamp))}</strong></div>
+          <div>最后成功<br><strong style="color:var(--green);">${escHtml(formatDeviceAuditTime(summary.lastSuccess?.timestamp))}</strong></div>
+          <div>最后失败<br><strong style="color:${summary.lastFailure ? 'var(--danger)' : 'var(--muted)'};">${escHtml(formatDeviceAuditTime(summary.lastFailure?.timestamp))}</strong></div>
+          <div>请求到达云端<br><strong style="color:var(--text);">${summary.reachedCloud ? '是' : '否'}</strong></div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>时间</th><th>类型</th><th>接口</th><th>状态</th><th>鉴权</th><th>结果</th><th>版本</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    panel.innerHTML = `<div class="empty"><div class="icon">⚠️</div>连接诊断读取失败：${escHtml(e.message)}</div>`;
+  }
+};
 
 // 内联重命名
 window.startRename = function(deviceId, currentName) {

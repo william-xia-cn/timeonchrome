@@ -13,6 +13,7 @@ import { siteClassificationRequestsRouter } from './routes/siteClassificationReq
 import { clientLogsRouter } from './routes/clientLogs';
 import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
+import { handleDeviceAccessAuditQuery, recordDeviceAccessAudit } from './routes/deviceAccessAudit';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -103,6 +104,69 @@ const DEVICE_STATS_ROUTES = new Set([
   '/device/media-stats/v1',
   '/device/hourly-media-stats/v1',
 ]);
+
+async function routeRequest(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  // 路由分发
+  if (path.startsWith('/auth/')) {
+    return await authRouter.handle(request, env);
+  } else if (PROFILE_STATS_ROUTE_RE.test(path)) {
+    return await statsRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/device-access-audit\/v1$/)) {
+    return await handleDeviceAccessAuditQuery(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/export\/v1/)) {
+    return await exportRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/restore\/v1/)) {
+    return await restoreRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/client-logs/)) {
+    return await clientLogsRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/site-classification-requests/)) {
+    return await siteClassificationRequestsRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
+    return await compositeSessionsRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/changelog/)) {
+    return await changelogRouter.handle(request, env);
+  } else if (path.startsWith('/profiles')) {
+    return await profilesRouter.handle(request, env);
+  } else if (path === '/device/heartbeat') {
+    return await deviceRouter.handle(request, env);
+  } else if (path === '/device/site-classification-requests/v1') {
+    return await siteClassificationRequestsRouter.handle(request, env);
+  } else if (path === '/device/client-logs/v1') {
+    return await clientLogsRouter.handle(request, env);
+  } else if (DEVICE_STATS_ROUTES.has(path)) {
+    // Stats Foundation v1 endpoints (device_token auth)
+    return await statsRouter.handle(request, env);
+  } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog') || path === '/device/events' || path === '/device/composite-sessions' || path === '/device/weekly-sessions' || path === '/device/appeal') {
+    // 设备端 API（device_token 鉴权）
+    if (path.startsWith('/device/stats')) {
+      return await statsRouter.handle(request, env);
+    } else if (path.startsWith('/device/sessions')) {
+      return await sessionsRouter.handle(request, env);
+    } else if (path.startsWith('/device/changelog')) {
+      return await changelogRouter.handle(request, env);
+    } else if (path === '/device/events') {
+      return await eventsRouter.handle(request, env);
+    } else if (path === '/device/composite-sessions' || path === '/device/weekly-sessions' || path === '/device/appeal') {
+      return await compositeSessionsRouter.handle(request, env);
+    }
+  } else if (path.startsWith('/device/')) {
+    return await deviceRouter.handle(request, env);
+  } else if (path.startsWith('/stats')) {
+    return await statsRouter.handle(request, env);
+  } else if (path.startsWith('/sessions')) {
+    return await sessionsRouter.handle(request, env);
+  } else if (path.startsWith('/changelog')) {
+    return await changelogRouter.handle(request, env);
+  } else if (path === '/api/init') {
+    // 数据库初始化端点
+    return await initDatabase(env);
+  }
+
+  return new Response('TimeOnChrome API v1.0', { status: 200 });
+}
 
 // ── 待审核提醒邮件 ───────────────────────────────────────────────────────────
 
@@ -201,78 +265,45 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-TimeOnChrome-Version, X-TimeOnChrome-Device-Id, X-TimeOnChrome-Request-Id',
     };
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    try {
-      // 路由分发
-      if (path.startsWith('/auth/')) {
-        return await authRouter.handle(request, env);
-      } else if (PROFILE_STATS_ROUTE_RE.test(path)) {
-        return await statsRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/export\/v1/)) {
-        return await exportRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/restore\/v1/)) {
-        return await restoreRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/client-logs/)) {
-        return await clientLogsRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/site-classification-requests/)) {
-        return await siteClassificationRequestsRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
-        return await compositeSessionsRouter.handle(request, env);
-      } else if (path.match(/^\/profiles\/[^/]+\/changelog/)) {
-        return await changelogRouter.handle(request, env);
-      } else if (path.startsWith('/profiles')) {
-        return await profilesRouter.handle(request, env);
-      } else if (path === '/device/heartbeat') {
-        return await deviceRouter.handle(request, env);
-      } else if (path === '/device/site-classification-requests/v1') {
-        return await siteClassificationRequestsRouter.handle(request, env);
-      } else if (path === '/device/client-logs/v1') {
-        return await clientLogsRouter.handle(request, env);
-      } else if (DEVICE_STATS_ROUTES.has(path)) {
-        // Stats Foundation v1 endpoints (device_token auth)
-        return await statsRouter.handle(request, env);
-      } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog') || path === '/device/events' || path === '/device/composite-sessions' || path === '/device/weekly-sessions' || path === '/device/appeal') {
-        // 设备端 API（device_token 鉴权）
-        if (path.startsWith('/device/stats')) {
-          return await statsRouter.handle(request, env);
-        } else if (path.startsWith('/device/sessions')) {
-          return await sessionsRouter.handle(request, env);
-        } else if (path.startsWith('/device/changelog')) {
-          return await changelogRouter.handle(request, env);
-        } else if (path === '/device/events') {
-          return await eventsRouter.handle(request, env);
-        } else if (path === '/device/composite-sessions' || path === '/device/weekly-sessions' || path === '/device/appeal') {
-          return await compositeSessionsRouter.handle(request, env);
-        }
-      } else if (path.startsWith('/device/')) {
-        return await deviceRouter.handle(request, env);
-      } else if (path.startsWith('/stats')) {
-        return await statsRouter.handle(request, env);
-      } else if (path.startsWith('/sessions')) {
-        return await sessionsRouter.handle(request, env);
-      } else if (path.startsWith('/changelog')) {
-        return await changelogRouter.handle(request, env);
-      } else if (path === '/api/init') {
-        // 数据库初始化端点
-        return await initDatabase(env);
-      }
+    const auditRequest = path.startsWith('/device/') ? request.clone() : null;
+    const auditStartedAt = Date.now();
+    let response: Response;
 
-      return new Response('TimeOnChrome API v1.0', { 
-        status: 200,
-        headers: corsHeaders
-      });
-    } catch (e) {
-      return new Response('Internal Error: ' + e.message, {
+    try {
+      response = await routeRequest(request, env);
+    } catch (e: any) {
+      response = new Response('Internal Error: ' + e.message, {
         status: 500,
         headers: corsHeaders
       });
     }
+
+    if (auditRequest) {
+      ctx.waitUntil(
+        recordDeviceAccessAudit(auditRequest as unknown as Request, env, response.clone(), auditStartedAt).catch((error) => {
+          console.warn('[device-access-audit] failed', error);
+        })
+      );
+    }
+
+    if (!response.headers.has('Access-Control-Allow-Origin')) {
+      const withCors = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+      Object.entries(corsHeaders).forEach(([key, value]) => withCors.headers.set(key, value));
+      return withCors;
+    }
+
+    return response;
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {

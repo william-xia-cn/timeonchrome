@@ -1846,6 +1846,7 @@ async function renderSyncStatus() {
       'cloud_config_version',
       'cloud_device_name',
       'cloud_device_id',
+      'cloud_connection_state_v1',
     ], resolve);
   });
 
@@ -1873,6 +1874,27 @@ async function renderSyncStatus() {
   const deviceId = escHtml(storage['cloud_device_id'] || '—');
   const versionText = escHtml(storage['cloud_config_version'] || '—');
   const syncText = escHtml(storage['cloud_last_sync'] ? new Date(storage['cloud_last_sync']).toLocaleString() : '从未同步');
+  const connectionState = storage['cloud_connection_state_v1'] || {};
+  const formatConnectionTime = (value) => {
+    const ms = Number(value || 0);
+    return ms > 0 ? new Date(ms).toLocaleString() : '—';
+  };
+  const connectionLastError = connectionState.lastError || {};
+  const connectionLastErrorText = connectionLastError.message || connectionState.lastErrorMessage || '—';
+  const connectionEndpoint = connectionState.lastEndpoint || connectionLastError.endpoint || '—';
+  const connectionFailureCount = Number(connectionState.consecutiveFailures || 0);
+  const connectionCardHtml = `
+    <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+      <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">云端连接</div>
+      <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 18px; font-size:12px; line-height:1.7;">
+        <span>最近尝试：<strong>${escHtml(formatConnectionTime(connectionState.lastAttemptAt))}</strong></span>
+        <span>最近成功：<strong>${escHtml(formatConnectionTime(connectionState.lastSuccessAt))}</strong></span>
+        <span>连续失败：<strong style="color:${connectionFailureCount > 0 ? 'var(--danger)' : 'var(--green)'};">${connectionFailureCount}</strong></span>
+        <span>最近接口：<strong>${escHtml(connectionEndpoint)}</strong></span>
+        <span style="grid-column:1/-1;">最后错误：<strong>${escHtml(connectionLastErrorText)}</strong></span>
+      </div>
+    </div>
+  `;
 
   if (!token) {
     container.innerHTML = `
@@ -1897,6 +1919,7 @@ async function renderSyncStatus() {
           <div style="font-size:12px; color:var(--muted);">云端同步</div>
           <div style="font-size:15px; font-weight:600;">已停用</div>
         </div>
+        ${connectionCardHtml}
       </div>
       <div style="margin-top:14px; display:flex; gap:10px;">
         <button class="btn-save" id="cloud-login-btn" style="flex:1;">登录/绑定云端</button>
@@ -1954,6 +1977,7 @@ async function renderSyncStatus() {
           ${syncText}
         </div>
       </div>
+      ${connectionCardHtml}
       <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">绑定有效性</div>
         <div style="font-size:12px; color:var(--muted); line-height:1.7;">终端绑定长期有效；只有云端解绑、本地卸载或清除扩展数据、扩展 ID 变化才会失效。</div>
