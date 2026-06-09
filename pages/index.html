@@ -1249,6 +1249,7 @@
           </div>
           <div id="devices-list"><div class="empty"><div class="icon"><img class="toc-ui-icon" src="assets/icons/devices.svg" alt=""></div>暂无绑定设备</div></div>
           <div id="device-audit-panel" style="margin-top:12px;"></div>
+          <div id="device-recovery-requests" style="margin-top:12px;"></div>
         </div>
         <div class="card" style="margin-top:16px;">
           <div class="card-header"><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/devices.svg" alt="">如何绑定新设备</div></div>
@@ -5067,11 +5068,18 @@ async function renderDevicesPage() {
   if (!currentProfileId) return;
   const c = document.getElementById('devices-list');
   const auditPanel = document.getElementById('device-audit-panel');
+  const recoveryPanel = document.getElementById('device-recovery-requests');
   if (auditPanel) auditPanel.innerHTML = '';
+  if (recoveryPanel) recoveryPanel.innerHTML = '';
   c.innerHTML = '<div class="empty"><div class="icon">⏳</div>加载中...</div>';
 
   try {
-    const r = await api(`/profiles/${currentProfileId}/devices`);
+    const [r] = await Promise.all([
+      api(`/profiles/${currentProfileId}/devices`),
+      renderDeviceRecoveryRequests().catch((e) => {
+        if (recoveryPanel) recoveryPanel.innerHTML = `<div class="empty"><div class="icon">⚠️</div>设备恢复请求读取失败：${escHtml(e.message || e)}</div>`;
+      }),
+    ]);
     const devices = r.devices || [];
     if (devices.length === 0) {
       c.innerHTML = '<div class="empty"><div class="icon"><img class="toc-ui-icon" src="assets/icons/devices.svg" alt=""></div>暂无绑定设备<br><small style="margin-top:8px;display:block;">在孩子的 Chrome 浏览器中安装插件并登录此账号进行绑定</small></div>';
@@ -5083,6 +5091,14 @@ async function renderDevicesPage() {
       const boundAt = d.created_at
         ? new Date(d.created_at).toLocaleDateString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit' })
         : '未知';
+      const identityLinked = Number(d.chrome_identity_linked || d.chromeIdentityLinked || 0) === 1;
+      const recoveredAt = d.last_recovered_at ? new Date(Number(d.last_recovered_at)).toLocaleString('zh-CN') : '';
+      const recoveryMeta = [
+        d.platform ? `平台：${escHtml(d.platform)}` : '',
+        d.browser ? `浏览器：${escHtml(d.browser)}` : '',
+        identityLinked ? 'Chrome 身份已记录' : 'Chrome 身份未记录',
+        recoveredAt ? `最近恢复：${escHtml(recoveredAt)}` : '',
+      ].filter(Boolean).join(' · ');
       const safeName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
       const isMonOn  = (d.monitoring_enabled ?? 1) === 1;
       const trackCls = isMonOn ? 'monitor-track on' : 'monitor-track';
@@ -5093,6 +5109,7 @@ async function renderDevicesPage() {
             <div class="device-name" id="dname-${d.id}">${name}</div>
             <div class="device-meta">最后活跃：${time} · 绑定于 ${boundAt}</div>
             <div class="device-meta device-id" title="${escHtml(d.id || '')}">设备ID：${escHtml(d.id || '未记录')}</div>
+            <div class="device-meta">${recoveryMeta || '恢复信息未记录'}</div>
           </div>
           <div class="device-status ${cls}" title="${cls === 'offline' && d.last_seen ? '超过 1 小时未收到心跳。可能原因包括：设备离线、Chrome 未运行、网络中断，或扩展被禁用/移除。请检查设备。' : ''}">${text}</div>
           <label class="monitor-toggle" title="${isMonOn ? '点击停用监控' : '点击启用监控'}">
@@ -5111,6 +5128,75 @@ async function renderDevicesPage() {
     c.innerHTML = `<div class="empty"><div class="icon">⚠️</div>${e.message}</div>`;
   }
 }
+
+async function renderDeviceRecoveryRequests() {
+  const panel = document.getElementById('device-recovery-requests');
+  if (!panel || !currentProfileId) return;
+  panel.innerHTML = '<div class="empty"><div class="icon">⏳</div>正在读取设备恢复请求...</div>';
+  const result = await api(`/profiles/${currentProfileId}/device-recovery-requests/v1`);
+  const requests = Array.isArray(result.recoveryRequests) ? result.recoveryRequests : [];
+  const visible = requests.filter((r) => r.status === 'pending').slice(0, 20);
+  if (!visible.length) {
+    panel.innerHTML = `
+      <div class="card" style="margin-top:12px;">
+        <div class="card-header">
+          <div>
+            <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">设备恢复请求</div>
+            <div class="card-subtitle">当前没有等待云端确认的设备恢复请求。</div>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  const rows = visible.map((r) => {
+    const createdAt = r.created_at ? new Date(Number(r.created_at)).toLocaleString('zh-CN') : '—';
+    const candidate = r.candidate_device_name || r.candidate_device_id || '—';
+    const platform = [r.platform, r.browser, r.extension_version].filter(Boolean).join(' · ') || '—';
+    const hint = r.device_name_hint || '—';
+    return `
+      <tr>
+        <td>${escHtml(createdAt)}</td>
+        <td>${escHtml(platform)}</td>
+        <td>${escHtml(hint)}</td>
+        <td>${escHtml(candidate)}</td>
+        <td>${escHtml(r.status || 'pending')}</td>
+        <td style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="device-btn" onclick="handleDeviceRecoveryRequest('${escHtml(r.id)}','approve','${escHtml(r.candidate_device_id || '')}')">恢复到此设备</button>
+          <button class="device-btn" onclick="handleDeviceRecoveryRequest('${escHtml(r.id)}','create_new','')">作为新设备</button>
+          <button class="device-btn danger" onclick="handleDeviceRecoveryRequest('${escHtml(r.id)}','ignore','')">忽略</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  panel.innerHTML = `
+    <div class="card" style="margin-top:12px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">设备恢复请求</div>
+          <div class="card-subtitle">扩展重装后无法找到本地 device token 时，可在这里确认是否恢复到原设备。</div>
+        </div>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>时间</th><th>来源</th><th>设备提示</th><th>候选设备</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+window.handleDeviceRecoveryRequest = async function(requestId, action, deviceId = '') {
+  if (!currentProfileId || !requestId || !action) return;
+  try {
+    const body = { action };
+    if (deviceId) body.deviceId = deviceId;
+    await api(`/profiles/${currentProfileId}/device-recovery-requests/v1/${encodeURIComponent(requestId)}`, 'PATCH', body);
+    toast(action === 'ignore' ? '已忽略恢复请求' : '设备恢复请求已确认');
+    renderDevicesPage();
+  } catch (e) {
+    toast('处理恢复请求失败：' + (e.message || e), false);
+  }
+};
 
 function formatDeviceAuditTime(ms) {
   const value = Number(ms || 0);

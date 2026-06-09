@@ -10,6 +10,27 @@ let accountRefreshToken = null;
 let profiles = [];
 let selectedProfileId = null;
 
+function getClientPlatform() {
+  const raw = (navigator.userAgentData?.platform || navigator.platform || '').toString().toLowerCase();
+  if (/mac/.test(raw)) return 'macos';
+  if (/win/.test(raw)) return 'windows';
+  if (/cros|chromeos/.test(raw)) return 'chromeos';
+  if (/linux/.test(raw)) return 'linux';
+  return raw || 'unknown';
+}
+
+async function getChromeIdentityPayload() {
+  try {
+    if (!chrome.identity?.getProfileUserInfo) return {};
+    const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
+    const id = typeof info?.id === 'string' ? info.id.trim() : '';
+    if (!id) return {};
+    return { chromeIdentityId: id };
+  } catch (_) {
+    return {};
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // 绑定登录按钮事件
   const btnLogin = document.getElementById('btnLogin');
@@ -105,13 +126,20 @@ async function doBind(profileId) {
   showStep('loading');
   
   try {
+    const identityPayload = await getChromeIdentityPayload();
     const resp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/device/bind`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accountToken}`
       },
-      body: JSON.stringify({ profile_id: profileId, device_name: 'Chrome Extension' })
+      body: JSON.stringify({
+        profile_id: profileId,
+        device_name: 'Chrome Extension',
+        platform: getClientPlatform(),
+        browser: 'Chrome',
+        ...identityPayload,
+      })
     });
     
     if (!resp.ok) {

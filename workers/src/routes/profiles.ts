@@ -4,6 +4,12 @@ import { siteAccessDefaults, mergeWithDefaults } from '../config/site-access-def
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
 
+type DeviceRecoveryActionBody = {
+  action?: string;
+  deviceId?: string;
+  message?: string;
+};
+
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
 
 // ── Schema defaults：仅用于 merge / repair / 缺字段补齐 ──
@@ -345,11 +351,14 @@ export const profilesRouter = {
     const defaultsMatch    = path.match(/^\/profiles\/([^/]+)\/defaults$/);
     const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
     const deviceIdMatch    = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)$/);
+    const recoveryRequestsMatch = path.match(/^\/profiles\/([^/]+)\/device-recovery-requests\/v1$/);
+    const recoveryRequestIdMatch = path.match(/^\/profiles\/([^/]+)\/device-recovery-requests\/v1\/([^/]+)$/);
     const profileSelfMatch = path.match(/^\/profiles\/([^/]+)$/);
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
+      configMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ??
+      recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
 
@@ -358,6 +367,71 @@ export const profilesRouter = {
     ).bind(profileId, accountId).first<{ id: string }>();
 
     if (!owner) return json({ error: 'Profile not found' }, 404);
+
+    // GET /profiles/:id/device-recovery-requests/v1
+    if (request.method === 'GET' && recoveryRequestsMatch) {
+      const rows = await env.DB.prepare(
+        `SELECT r.id, r.profile_id, r.platform, r.browser, r.extension_version, r.device_name_hint,
+                r.candidate_device_id, r.candidate_count, r.status, r.message, r.created_at,
+                r.updated_at, r.decided_at, r.result_device_id, d.device_name AS candidate_device_name,
+                d.last_seen AS candidate_last_seen
+         FROM device_recovery_requests_v1 r
+         LEFT JOIN devices d ON d.id = r.candidate_device_id
+         WHERE r.profile_id = ?
+         ORDER BY r.created_at DESC
+         LIMIT 50`
+      ).bind(profileId).all();
+      return json({ recoveryRequests: rows.results || [] });
+    }
+
+    // PATCH /profiles/:id/device-recovery-requests/v1/:requestId
+    if (request.method === 'PATCH' && recoveryRequestIdMatch) {
+      const requestId = recoveryRequestIdMatch[2];
+      const body = await request.json<DeviceRecoveryActionBody>().catch(() => ({} as DeviceRecoveryActionBody));
+      const action = String(body.action || '').trim();
+      const now = Date.now();
+
+      const recovery = await env.DB.prepare(
+        `SELECT id, status, candidate_device_id FROM device_recovery_requests_v1 WHERE id = ? AND profile_id = ?`
+      ).bind(requestId, profileId).first<{ id: string; status: string; candidate_device_id?: string }>();
+      if (!recovery) return json({ error: 'Recovery request not found' }, 404);
+      if (recovery.status !== 'pending') return json({ error: 'Recovery request is not pending', code: 'RECOVERY_REQUEST_NOT_PENDING' }, 409);
+
+      if (action === 'approve') {
+        const deviceId = body.deviceId || recovery.candidate_device_id;
+        if (!deviceId) return json({ error: 'deviceId required' }, 400);
+        const dev = await env.DB.prepare(
+          `SELECT id FROM devices WHERE id = ? AND profile_id = ? AND COALESCE(status, 'bound') = 'bound'`
+        ).bind(deviceId, profileId).first<{ id: string }>();
+        if (!dev) return json({ error: 'Device not found or unbound' }, 404);
+        await env.DB.prepare(
+          `UPDATE device_recovery_requests_v1
+           SET status = 'approved', result_device_id = ?, result_profile_id = ?, message = ?, updated_at = ?, decided_at = ?
+           WHERE id = ?`
+        ).bind(deviceId, profileId, body.message || null, now, now, requestId).run();
+        return json({ success: true, status: 'approved' });
+      }
+
+      if (action === 'create_new') {
+        await env.DB.prepare(
+          `UPDATE device_recovery_requests_v1
+           SET status = 'approved_new', result_profile_id = ?, message = ?, updated_at = ?, decided_at = ?
+           WHERE id = ?`
+        ).bind(profileId, body.message || null, now, now, requestId).run();
+        return json({ success: true, status: 'approved_new' });
+      }
+
+      if (action === 'ignore' || action === 'reject') {
+        await env.DB.prepare(
+          `UPDATE device_recovery_requests_v1
+           SET status = 'ignored', message = ?, updated_at = ?, decided_at = ?
+           WHERE id = ?`
+        ).bind(body.message || null, now, now, requestId).run();
+        return json({ success: true, status: 'ignored' });
+      }
+
+      return json({ error: 'Unsupported recovery action', code: 'UNSUPPORTED_RECOVERY_ACTION' }, 400);
+    }
 
     // GET /profiles/:id/config
     if (request.method === 'GET' && configMatch) {
@@ -554,11 +628,14 @@ export const profilesRouter = {
       let devices: any[] = [];
       try {
         const result = await env.DB.prepare(
-          `SELECT id, device_name, last_seen, monitoring_enabled, created_at, status, unbound_at
+          `SELECT id, device_name, last_seen, monitoring_enabled, created_at, status, unbound_at,
+                  platform, browser, identity_linked_at, last_recovered_at, recovery_status,
+                  CASE WHEN chrome_identity_hash IS NOT NULL AND chrome_identity_hash != '' THEN 1 ELSE 0 END AS chrome_identity_linked
            FROM devices WHERE profile_id = ? AND COALESCE(status, 'bound') = 'bound' ORDER BY last_seen DESC`
         ).bind(profileId).all<{
           id: string; device_name: string; last_seen: number;
           monitoring_enabled: number; created_at: number; status?: string; unbound_at?: number;
+          platform?: string; browser?: string; identity_linked_at?: number; last_recovered_at?: number; recovery_status?: string; chrome_identity_linked?: number;
         }>();
         devices = result.results || [];
       } catch (_) {

@@ -32,6 +32,27 @@ function getDeviceName() {
   return `${os} · Chrome · ${shortCode}`;
 }
 
+function getClientPlatform() {
+  const raw = (navigator.userAgentData?.platform || navigator.platform || '').toString().toLowerCase();
+  if (/mac/.test(raw)) return 'macos';
+  if (/win/.test(raw)) return 'windows';
+  if (/cros|chromeos/.test(raw)) return 'chromeos';
+  if (/linux/.test(raw)) return 'linux';
+  return raw || 'unknown';
+}
+
+async function getChromeIdentityPayload() {
+  try {
+    if (!chrome.identity?.getProfileUserInfo) return {};
+    const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
+    const id = typeof info?.id === 'string' ? info.id.trim() : '';
+    if (!id) return {};
+    return { chromeIdentityId: id };
+  } catch (_) {
+    return {};
+  }
+}
+
 const CLOUD_KEYS = {
   DEVICE_TOKEN: 'cloud_device_token',
   PROFILE_ID: 'cloud_profile_id',
@@ -41,7 +62,9 @@ const CLOUD_KEYS = {
   ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
   ACCOUNT_EMAIL: 'cloud_account_email',
   REMEMBER_ME: 'cloud_remember_me',
-  IS_BOUND: 'cloud_is_bound'  // 标记是否已绑定
+  IS_BOUND: 'cloud_is_bound',  // 标记是否已绑定
+  CHROME_IDENTITY_STATUS: 'cloud_chrome_identity_status_v1',
+  RECOVERY_STATE: 'cloud_device_recovery_state_v1'
 };
 
 function normalizeEmailInput(value) {
@@ -379,12 +402,19 @@ async function rebindToProfile(profileId, profileName, avatarColor) {
   const errorEl = document.getElementById('rebind-error');
   try {
     const devName = getDeviceName();
+    const identityPayload = await getChromeIdentityPayload();
     const resp = await accountFetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ profile_id: profileId, device_name: devName })
+      body: JSON.stringify({
+        profile_id: profileId,
+        device_name: devName,
+        platform: getClientPlatform(),
+        browser: 'Chrome',
+        ...identityPayload,
+      })
     });
 
     if (!resp.ok) {
@@ -396,6 +426,7 @@ async function rebindToProfile(profileId, profileName, avatarColor) {
 
     await new Promise(resolve => chrome.storage.local.set({
       [CLOUD_KEYS.DEVICE_TOKEN]: bindResult.device_token,
+      cloud_device_id:          bindResult.device_id || null,
       [CLOUD_KEYS.PROFILE_ID]:   profileId,
       [CLOUD_KEYS.PROFILE_NAME]: profileName,
       [CLOUD_KEYS.IS_BOUND]:     true,
@@ -761,12 +792,20 @@ async function handleRegister() {
     btn.textContent = '绑定设备...';
 
     // Step 3: 绑定设备
+    const devNameReg = getDeviceName();
+    const identityPayload = await getChromeIdentityPayload();
     const bindResp = await accountFetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ profile_id: newProfileId, device_name: getDeviceName() })
+      body: JSON.stringify({
+        profile_id: newProfileId,
+        device_name: devNameReg,
+        platform: getClientPlatform(),
+        browser: 'Chrome',
+        ...identityPayload,
+      })
     });
 
     if (!bindResp.ok) {
@@ -777,10 +816,10 @@ async function handleRegister() {
     const bindResult = await bindResp.json();
 
     // Step 4: 保存绑定信息（含本机设备名，用于"本机"页展示）
-    const devNameReg = getDeviceName();
     await new Promise(resolve => {
       chrome.storage.local.set({
         [CLOUD_KEYS.DEVICE_TOKEN]: bindResult.device_token,
+        cloud_device_id: bindResult.device_id || null,
         [CLOUD_KEYS.PROFILE_ID]: newProfileId,
         [CLOUD_KEYS.PROFILE_NAME]: childName,
         [CLOUD_KEYS.IS_BOUND]: true,
@@ -793,7 +832,7 @@ async function handleRegister() {
       await sendMsg({
         type: 'CLOUD_BIND',
         profile_id: newProfileId,
-        device_name: getDeviceName()
+        device_name: devNameReg
       });
     } catch (e) {
       console.warn('[Admin] sendMsg CLOUD_BIND error (non-fatal):', e);
@@ -871,6 +910,8 @@ async function bindToProfile(profileId, profileName, avatarColor) {
   try {
     // 1. 调用设备绑定 API（需要 account_token，不是 device_token）
     console.log('[Admin] Calling /device/bind with accountToken...');
+    const devNameBind = getDeviceName();
+    const identityPayload = await getChromeIdentityPayload();
     const resp = await accountFetch(`${API_BASE}/device/bind`, {
       method: 'POST',
       headers: { 
@@ -878,7 +919,10 @@ async function bindToProfile(profileId, profileName, avatarColor) {
       },
       body: JSON.stringify({
         profile_id: profileId,
-        device_name: getDeviceName()
+        device_name: devNameBind,
+        platform: getClientPlatform(),
+        browser: 'Chrome',
+        ...identityPayload,
       })
     });
     
@@ -894,10 +938,10 @@ async function bindToProfile(profileId, profileName, avatarColor) {
     console.log('[Admin] Bind success, device_token:', bindResult.device_token);
     
     // 2. 保存绑定信息
-    const devNameBind = getDeviceName();
     await new Promise(resolve => {
       chrome.storage.local.set({
         [CLOUD_KEYS.DEVICE_TOKEN]: bindResult.device_token,
+        cloud_device_id: bindResult.device_id || null,
         [CLOUD_KEYS.PROFILE_ID]: profileId,
         [CLOUD_KEYS.PROFILE_NAME]: profileName,
         [CLOUD_KEYS.IS_BOUND]: true,
@@ -912,7 +956,7 @@ async function bindToProfile(profileId, profileName, avatarColor) {
       const bgResult = await sendMsg({ 
         type: 'CLOUD_BIND',
         profile_id: profileId,
-        device_name: getDeviceName()
+        device_name: devNameBind
       });
       console.log('[Admin] sendMsg result:', bgResult);
     } catch (e) {
@@ -1847,6 +1891,8 @@ async function renderSyncStatus() {
       'cloud_device_name',
       'cloud_device_id',
       'cloud_connection_state_v1',
+      CLOUD_KEYS.CHROME_IDENTITY_STATUS,
+      CLOUD_KEYS.RECOVERY_STATE,
     ], resolve);
   });
 
@@ -1883,6 +1929,26 @@ async function renderSyncStatus() {
   const connectionLastErrorText = connectionLastError.message || connectionState.lastErrorMessage || '—';
   const connectionEndpoint = connectionState.lastEndpoint || connectionLastError.endpoint || '—';
   const connectionFailureCount = Number(connectionState.consecutiveFailures || 0);
+  const identityStatus = storage[CLOUD_KEYS.CHROME_IDENTITY_STATUS] || {};
+  const recoveryState = storage[CLOUD_KEYS.RECOVERY_STATE] || {};
+  const identityText = identityStatus.available === true
+    ? (identityStatus.linked === false ? '可用，待记录' : '可用，已记录')
+    : (identityStatus.available === false ? '不可用' : '未检测');
+  const recoveryStatusMap = {
+    attempting: '自动恢复中',
+    pending_cloud_confirmation: '等待云端确认',
+    recovered: '已恢复',
+    identity_unavailable: '身份不可用',
+    failed: '恢复失败',
+    no_candidate: '未找到候选设备',
+    NO_CANDIDATE: '未找到候选设备',
+    UNSUPPORTED_PLATFORM: '当前平台不支持自动恢复',
+    MULTIPLE_CANDIDATES: '需要云端确认',
+  };
+  const recoveryStatusText = recoveryStatusMap[recoveryState.status] || (token ? '正常' : '未绑定');
+  const recoveryLastAttempt = recoveryState.lastAttemptAt ? new Date(recoveryState.lastAttemptAt).toLocaleString() : '—';
+  const recoveryLastRecovered = recoveryState.lastRecoveredAt ? new Date(recoveryState.lastRecoveredAt).toLocaleString() : '—';
+  const recoveryLastError = recoveryState.lastError || identityStatus.reason || identityStatus.error || '—';
   const connectionCardHtml = `
     <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
       <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">云端连接</div>
@@ -1893,6 +1959,19 @@ async function renderSyncStatus() {
         <span>最近接口：<strong>${escHtml(connectionEndpoint)}</strong></span>
         <span style="grid-column:1/-1;">最后错误：<strong>${escHtml(connectionLastErrorText)}</strong></span>
       </div>
+    </div>
+  `;
+  const recoveryCardHtml = `
+    <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+      <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Chrome 身份与绑定恢复</div>
+      <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 18px; font-size:12px; line-height:1.7;">
+        <span>Chrome 身份：<strong>${escHtml(identityText)}</strong></span>
+        <span>绑定恢复：<strong>${escHtml(recoveryStatusText)}</strong></span>
+        <span>最近尝试：<strong>${escHtml(recoveryLastAttempt)}</strong></span>
+        <span>最近恢复：<strong>${escHtml(recoveryLastRecovered)}</strong></span>
+        <span style="grid-column:1/-1;">最后原因：<strong>${escHtml(recoveryLastError)}</strong></span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:6px;">Chrome 身份只用于 macOS 扩展重装后的弱匹配恢复；本机不显示或保存原始标识。</div>
     </div>
   `;
 
@@ -1920,6 +1999,7 @@ async function renderSyncStatus() {
           <div style="font-size:15px; font-weight:600;">已停用</div>
         </div>
         ${connectionCardHtml}
+        ${recoveryCardHtml}
       </div>
       <div style="margin-top:14px; display:flex; gap:10px;">
         <button class="btn-save" id="cloud-login-btn" style="flex:1;">登录/绑定云端</button>
@@ -1978,6 +2058,7 @@ async function renderSyncStatus() {
         </div>
       </div>
       ${connectionCardHtml}
+      ${recoveryCardHtml}
       <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">绑定有效性</div>
         <div style="font-size:12px; color:var(--muted); line-height:1.7;">终端绑定长期有效；只有云端解绑、本地卸载或清除扩展数据、扩展 ID 变化才会失效。</div>

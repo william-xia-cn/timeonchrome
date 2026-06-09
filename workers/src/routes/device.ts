@@ -5,11 +5,88 @@ import { siteAccessDefaults } from '../config/site-access-defaults';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
+type DeviceIdentityLinkBody = {
+  chromeIdentityId?: string;
+  platform?: string;
+  browser?: string;
+  extensionVersion?: string;
+};
+
+type DeviceRecoveryBootstrapBody = DeviceIdentityLinkBody & {
+  deviceNameHint?: string;
+};
+
 // 生成 64 字符随机 device_token
 function generateDeviceToken(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function normalizePlatform(value: unknown): string {
+  const raw = String(value || '').trim().toLowerCase();
+  if (/mac|darwin|os x/.test(raw)) return 'macos';
+  if (/win/.test(raw)) return 'windows';
+  if (/cros|chromeos/.test(raw)) return 'chromeos';
+  if (/linux/.test(raw)) return 'linux';
+  return raw || 'unknown';
+}
+
+function trimString(value: unknown, max = 128): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : null;
+}
+
+async function hmacHex(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function chromeIdentityHash(env: Env, value: unknown): Promise<string | null> {
+  const id = trimString(value, 256);
+  if (!id) return null;
+  return hmacHex(env.DEVICE_TOKEN_SECRET || env.JWT_SECRET, `chrome-identity:${id}`);
+}
+
+async function pollTokenHash(env: Env, value: string): Promise<string> {
+  return hmacHex(env.DEVICE_TOKEN_SECRET || env.JWT_SECRET, `device-recovery-poll:${value}`);
+}
+
+async function updateDeviceIdentityMetadata(
+  env: Env,
+  deviceId: string,
+  patch: { chromeIdentityHash?: string | null; platform?: string; browser?: string | null; extensionVersion?: string | null }
+): Promise<void> {
+  const identityHash = patch.chromeIdentityHash || null;
+  const platform = patch.platform ? normalizePlatform(patch.platform) : null;
+  const browser = patch.browser ? trimString(patch.browser, 64) : null;
+  if (!identityHash && !platform && !browser) return;
+  const now = Date.now();
+  await env.DB.prepare(
+    `UPDATE devices
+     SET chrome_identity_hash = COALESCE(?, chrome_identity_hash),
+         identity_linked_at = CASE WHEN ? IS NOT NULL THEN ? ELSE identity_linked_at END,
+         platform = COALESCE(?, platform),
+         browser = COALESCE(?, browser),
+         recovery_status = ?
+     WHERE id = ?`
+  ).bind(
+    identityHash,
+    identityHash,
+    now,
+    platform,
+    browser,
+    'identity_linked',
+    deviceId
+  ).run();
 }
 
 export const deviceRouter = {
@@ -23,8 +100,8 @@ export const deviceRouter = {
         const accountId = await verifyAccountToken(request, env.JWT_SECRET);
         if (!accountId) return json({ error: 'Unauthorized' }, 401);
 
-        const { profile_id, device_name, device_token: tokenFromBody } =
-          await request.json<{ profile_id: string; device_name?: string; device_token?: string }>();
+        const { profile_id, device_name, device_token: tokenFromBody, chromeIdentityId, platform, browser } =
+          await request.json<{ profile_id: string; device_name?: string; device_token?: string; chromeIdentityId?: string; platform?: string; browser?: string }>();
 
         if (!profile_id) {
           return json({ error: 'profile_id required' }, 400);
@@ -49,10 +126,23 @@ export const deviceRouter = {
           const now      = Date.now();
           const devName  = (device_name || 'Chrome Extension').slice(0, 64);
 
+          const identityHash = await chromeIdentityHash(env, chromeIdentityId);
           await env.DB.prepare(
-            `INSERT INTO devices (id, profile_id, device_token, device_name, last_seen, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)`
-          ).bind(deviceId, profile_id, deviceToken, devName, now, now).run();
+            `INSERT INTO devices (id, profile_id, device_token, device_name, last_seen, created_at, platform, browser, chrome_identity_hash, identity_linked_at, recovery_status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            deviceId,
+            profile_id,
+            deviceToken,
+            devName,
+            now,
+            now,
+            platform ? normalizePlatform(platform) : null,
+            trimString(browser, 64),
+            identityHash,
+            identityHash ? now : null,
+            identityHash ? 'identity_linked' : null
+          ).run();
         } else {
           const existing = await verifyDeviceToken(env, deviceToken);
           if (!existing || existing.profileId !== profile_id) {
@@ -60,6 +150,14 @@ export const deviceRouter = {
           }
           if (existing.unbound) return deviceUnboundResponse(existing.deviceId);
           deviceId = existing.deviceId || null;
+          const identityHash = await chromeIdentityHash(env, chromeIdentityId);
+          if (deviceId && (identityHash || platform || browser)) {
+            await updateDeviceIdentityMetadata(env, deviceId, {
+              chromeIdentityHash: identityHash,
+              platform,
+              browser,
+            }).catch(() => {});
+          }
         }
 
         return json({ success: true, device_token: deviceToken, profile_id, device_id: deviceId });
@@ -135,6 +233,217 @@ export const deviceRouter = {
           message: e?.message || String(e),
         }, 500);
       }
+    }
+
+    // POST /device/identity-link - 绑定后补写弱 Chrome identity metadata
+    if (request.method === 'POST' && path === '/device/identity-link') {
+      const deviceIdentity = await verifyDeviceTokenFromRequest(request, env, { updateLastSeen: true });
+      if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
+      const body = await request.json<DeviceIdentityLinkBody>().catch(() => ({} as DeviceIdentityLinkBody));
+      const identityHash = await chromeIdentityHash(env, body.chromeIdentityId);
+      if (!identityHash) return json({ success: false, code: 'IDENTITY_UNAVAILABLE', error: 'Chrome identity unavailable' }, 200);
+      await updateDeviceIdentityMetadata(env, deviceIdentity.deviceId, {
+        chromeIdentityHash: identityHash,
+        platform: body.platform,
+        browser: body.browser,
+        extensionVersion: body.extensionVersion,
+      });
+      return json({ success: true, identityLinked: true });
+    }
+
+    // POST /device/recover/bootstrap - weak identity based recovery without device token
+    if (request.method === 'POST' && path === '/device/recover/bootstrap') {
+      const now = Date.now();
+      const body = await request.json<DeviceRecoveryBootstrapBody>().catch(() => ({} as DeviceRecoveryBootstrapBody));
+      const platform = normalizePlatform(body.platform);
+      const identityHash = await chromeIdentityHash(env, body.chromeIdentityId);
+      if (!identityHash) {
+        return json({ success: false, status: 'IDENTITY_UNAVAILABLE', code: 'IDENTITY_UNAVAILABLE' }, 200);
+      }
+      if (platform !== 'macos') {
+        return json({ success: false, status: 'UNSUPPORTED_PLATFORM', code: 'UNSUPPORTED_PLATFORM' }, 200);
+      }
+
+      const candidateResult = await env.DB.prepare(
+        `SELECT d.id, d.profile_id, d.device_name, d.last_seen, d.status, p.name AS profile_name
+         FROM devices d
+         JOIN profiles p ON p.id = d.profile_id
+         WHERE d.chrome_identity_hash = ?
+           AND d.platform = ?
+           AND COALESCE(d.status, 'bound') = 'bound'
+         ORDER BY COALESCE(d.last_seen, 0) DESC`
+      ).bind(identityHash, platform).all<{ id: string; profile_id: string; device_name?: string; last_seen?: number; status?: string; profile_name?: string }>();
+      const candidates = candidateResult.results || [];
+
+      if (candidates.length === 1) {
+        const candidate = candidates[0];
+        const recentlyActive = Number(candidate.last_seen || 0) > 0 && now - Number(candidate.last_seen || 0) < 15 * 60 * 1000;
+        if (recentlyActive) {
+          const pollToken = generateDeviceToken();
+          const requestId = crypto.randomUUID();
+          const pollHash = await pollTokenHash(env, pollToken);
+          await env.DB.prepare(
+            `INSERT INTO device_recovery_requests_v1 (
+              id, profile_id, chrome_identity_hash, platform, browser, extension_version, device_name_hint,
+              candidate_device_id, candidate_count, poll_token_hash, status, message, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'pending', ?, ?, ?)`
+          ).bind(
+            requestId,
+            candidate.profile_id,
+            identityHash,
+            platform,
+            trimString(body.browser, 64),
+            trimString(body.extensionVersion, 32),
+            trimString(body.deviceNameHint, 128),
+            candidate.id,
+            pollHash,
+            'Candidate device is recently active; cloud confirmation is required before recovery.',
+            now,
+            now
+          ).run();
+          return json({
+            success: false,
+            status: 'PENDING_CLOUD_CONFIRMATION',
+            code: 'PENDING_CLOUD_CONFIRMATION',
+            recoveryRequestId: requestId,
+            recoveryPollToken: pollToken,
+          }, 202);
+        }
+        const newToken = generateDeviceToken();
+        await env.DB.prepare(
+          `UPDATE devices
+           SET device_token = ?, last_seen = ?, last_recovered_at = ?, recovery_status = 'auto_recovered'
+           WHERE id = ? AND COALESCE(status, 'bound') = 'bound'`
+        ).bind(newToken, now, now, candidate.id).run();
+        return json({
+          success: true,
+          status: 'RECOVERED',
+          device_token: newToken,
+          device_id: candidate.id,
+          profile_id: candidate.profile_id,
+          profile_name: candidate.profile_name || null,
+          recovered: true,
+        });
+      }
+
+      if (candidates.length <= 0) {
+        return json({ success: false, status: 'NO_CANDIDATE', code: 'NO_CANDIDATE' }, 200);
+      }
+
+      const sameProfile = new Set(candidates.map(c => c.profile_id));
+      if (sameProfile.size !== 1) {
+        return json({ success: false, status: 'MULTIPLE_CANDIDATES', code: 'MULTIPLE_CANDIDATES' }, 200);
+      }
+
+      const pollToken = generateDeviceToken();
+      const requestId = crypto.randomUUID();
+      const pollHash = await pollTokenHash(env, pollToken);
+      const candidate = candidates[0];
+      await env.DB.prepare(
+        `INSERT INTO device_recovery_requests_v1 (
+          id, profile_id, chrome_identity_hash, platform, browser, extension_version, device_name_hint,
+          candidate_device_id, candidate_count, poll_token_hash, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+      ).bind(
+        requestId,
+        candidate.profile_id,
+        identityHash,
+        platform,
+        trimString(body.browser, 64),
+        trimString(body.extensionVersion, 32),
+        trimString(body.deviceNameHint, 128),
+        candidate.id,
+        candidates.length,
+        pollHash,
+        now,
+        now
+      ).run();
+      return json({
+        success: false,
+        status: 'PENDING_CLOUD_CONFIRMATION',
+        code: 'PENDING_CLOUD_CONFIRMATION',
+        recoveryRequestId: requestId,
+        recoveryPollToken: pollToken,
+      }, 202);
+    }
+
+    // GET /device/recover/status?requestId=...&pollToken=...
+    if (request.method === 'GET' && path === '/device/recover/status') {
+      const requestId = url.searchParams.get('requestId') || '';
+      const pollToken = url.searchParams.get('pollToken') || '';
+      if (!requestId || !pollToken) return json({ error: 'requestId and pollToken required' }, 400);
+      const pollHash = await pollTokenHash(env, pollToken);
+      const row = await env.DB.prepare(
+        `SELECT r.id, r.status, r.result_device_id, r.result_profile_id, r.message,
+                r.platform, r.browser, r.device_name_hint, r.chrome_identity_hash,
+                d.profile_id AS device_profile_id, p.name AS profile_name, d.status AS device_status
+         FROM device_recovery_requests_v1 r
+         LEFT JOIN devices d ON d.id = r.result_device_id
+         LEFT JOIN profiles p ON p.id = COALESCE(r.result_profile_id, d.profile_id)
+         WHERE r.id = ? AND r.poll_token_hash = ?`
+      ).bind(requestId, pollHash).first<{
+        id: string; status: string; result_device_id?: string; result_profile_id?: string; message?: string;
+        platform?: string; browser?: string; device_name_hint?: string; chrome_identity_hash?: string;
+        device_profile_id?: string; profile_name?: string; device_status?: string;
+      }>();
+      if (!row) return json({ error: 'Recovery request not found', code: 'RECOVERY_REQUEST_NOT_FOUND' }, 404);
+      if (row.status === 'approved' && row.result_device_id) {
+        if (row.device_status === 'unbound') return deviceUnboundResponse(row.result_device_id);
+        const now = Date.now();
+        const newToken = generateDeviceToken();
+        await env.DB.prepare(
+          `UPDATE devices SET device_token = ?, last_seen = ?, last_recovered_at = ?, recovery_status = 'cloud_approved_recovered'
+           WHERE id = ? AND COALESCE(status, 'bound') = 'bound'`
+        ).bind(newToken, now, now, row.result_device_id).run();
+        await env.DB.prepare(
+          `UPDATE device_recovery_requests_v1 SET status = 'recovered', updated_at = ?, decided_at = COALESCE(decided_at, ?) WHERE id = ?`
+        ).bind(now, now, requestId).run();
+        return json({
+          success: true,
+          status: 'RECOVERED',
+          device_token: newToken,
+          device_id: row.result_device_id,
+          profile_id: row.result_profile_id || row.device_profile_id,
+          profile_name: row.profile_name || null,
+        });
+      }
+      if (row.status === 'approved_new' && row.result_profile_id) {
+        const now = Date.now();
+        const newToken = generateDeviceToken();
+        const deviceId = crypto.randomUUID();
+        const deviceName = (row.device_name_hint || 'Recovered Chrome Extension').slice(0, 64);
+        await env.DB.prepare(
+          `INSERT INTO devices (
+            id, profile_id, device_token, device_name, last_seen, created_at,
+            platform, browser, chrome_identity_hash, identity_linked_at, last_recovered_at, recovery_status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cloud_approved_new')`
+        ).bind(
+          deviceId,
+          row.result_profile_id,
+          newToken,
+          deviceName,
+          now,
+          now,
+          row.platform || null,
+          row.browser || null,
+          row.chrome_identity_hash || null,
+          row.chrome_identity_hash ? now : null,
+          now
+        ).run();
+        await env.DB.prepare(
+          `UPDATE device_recovery_requests_v1 SET status = 'recovered', result_device_id = ?, updated_at = ?, decided_at = COALESCE(decided_at, ?) WHERE id = ?`
+        ).bind(deviceId, now, now, requestId).run();
+        return json({
+          success: true,
+          status: 'RECOVERED',
+          device_token: newToken,
+          device_id: deviceId,
+          profile_id: row.result_profile_id,
+          profile_name: row.profile_name || null,
+        });
+      }
+      return json({ success: false, status: row.status, message: row.message || null });
     }
 
     // PUT /device/config

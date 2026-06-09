@@ -36,6 +36,7 @@ function run() {
   expectTrue('audit resolves auth without storing token', audit.includes('tokenHashPrefix') && audit.includes("crypto.subtle.digest('SHA-256'") && !audit.includes('device_token, timestamp'));
   expectTrue('audit tolerates legacy devices schema without status column', audit.includes('legacy_ok') && audit.includes('no such column') && audit.includes('SELECT id, profile_id FROM devices WHERE device_token = ?'));
   expectTrue('audit captures request kind and payload count only', audit.includes('requestKindForEndpoint') && audit.includes('payloadCount') && audit.includes('(body as any).segments') && !audit.includes('JSON.stringify(body)'));
+  expectTrue('audit classifies identity and recovery device requests', audit.includes("endpoint === '/device/identity-link'") && audit.includes("return 'identity_link'") && audit.includes("endpoint.includes('/device/recover')") && audit.includes("return 'device_recovery'"));
   expectTrue('audit query requires account token and profile ownership', audit.includes('verifyAccountToken') && audit.includes('WHERE id = ? AND account_id = ?'));
   expectTrue('audit retention limits rows', audit.includes('14 * 24 * 60 * 60 * 1000') && audit.includes('LIMIT 1000'));
 

@@ -20,6 +20,7 @@ This checklist is the default releaseMg checklist for release gate execution. Sp
 - [ ] SHA256 is recorded.
 - [ ] Package opens successfully.
 - [ ] Package excludes repo-only, test-only, build-only, credential, browser-profile, cookie, token, and private local data.
+- [ ] Chrome Web Store browser-control flow follows `docs/release/CWS_BROWSER_CONTROL_RUNBOOK.md` when CWS upload or submission is in scope.
 
 ## Test Evidence
 
@@ -47,4 +48,3 @@ This checklist is the default releaseMg checklist for release gate execution. Sp
 
 - [ ] releaseMg recommendation is recorded.
 - [ ] Product Owner final decision is still required.
-

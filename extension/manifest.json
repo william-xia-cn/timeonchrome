@@ -12,7 +12,9 @@
     "declarativeNetRequest",
     "webNavigation",
     "idle",
-    "notifications"
+    "notifications",
+    "identity",
+    "identity.email"
   ],
 
   "host_permissions": ["<all_urls>"],

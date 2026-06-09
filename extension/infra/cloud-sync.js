@@ -65,6 +65,11 @@ const CLOUD_CONFIG = {
     ACCOUNT_REFRESH_TOKEN: 'account_refresh_token',
     ACCOUNT_EMAIL: 'cloud_account_email',
     CONNECTION_STATE: 'cloud_connection_state_v1',
+    CHROME_IDENTITY_STATUS: 'cloud_chrome_identity_status_v1',
+    IDENTITY_LINK_LAST_AT: 'cloud_identity_link_last_at',
+    RECOVERY_REQUEST_ID: 'cloud_device_recovery_request_id',
+    RECOVERY_POLL_TOKEN: 'cloud_device_recovery_poll_token',
+    RECOVERY_STATE: 'cloud_device_recovery_state_v1',
     LAST_SYNC: 'cloud_last_sync',
     PENDING_STATS: 'cloud_pending_stats',
     PENDING_SESSIONS: 'cloud_pending_sessions',
@@ -92,6 +97,9 @@ const CLOUD_CONFIG = {
   }
 };
 
+const DEVICE_RECOVERY_RETRY_MS = 5 * 60 * 1000;
+const DEVICE_IDENTITY_LINK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 let syncState = {
   isSyncing: false,
   syncStartedAt: 0,
@@ -115,6 +123,54 @@ function getCloudClientVersion() {
   } catch (_) {
     return null;
   }
+}
+
+function getClientPlatform() {
+  const uaPlatform = (globalThis.navigator?.userAgentData?.platform || globalThis.navigator?.platform || '').toString().toLowerCase();
+  if (/mac/.test(uaPlatform)) return 'macos';
+  if (/win/.test(uaPlatform)) return 'windows';
+  if (/cros|chromeos/.test(uaPlatform)) return 'chromeos';
+  if (/linux/.test(uaPlatform)) return 'linux';
+  return uaPlatform || 'unknown';
+}
+
+function getClientBrowserName() {
+  return 'Chrome';
+}
+
+async function getChromeProfileIdentity() {
+  try {
+    if (!chrome.identity?.getProfileUserInfo) {
+      return { ok: false, reason: 'identity_api_unavailable' };
+    }
+    const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
+    const id = typeof info?.id === 'string' ? info.id.trim() : '';
+    const email = typeof info?.email === 'string' ? info.email.trim().toLowerCase() : '';
+    if (!id) return { ok: false, reason: 'identity_empty', email: email || null };
+    return { ok: true, id, email: email || null };
+  } catch (error) {
+    return { ok: false, reason: 'identity_read_failed', error: error?.message || String(error) };
+  }
+}
+
+async function writeChromeIdentityStatus(status = {}) {
+  await chrome.storage.local.set({
+    [CLOUD_CONFIG.KEYS.CHROME_IDENTITY_STATUS]: {
+      ...status,
+      platform: getClientPlatform(),
+      updatedAt: Date.now(),
+    },
+  }).catch(() => {});
+}
+
+function buildDeviceIdentityPayload(identity) {
+  return {
+    chromeIdentityId: identity?.id || null,
+    platform: getClientPlatform(),
+    browser: getClientBrowserName(),
+    extensionVersion: getCloudClientVersion(),
+    deviceNameHint: `${getClientPlatform()} Chrome`,
+  };
 }
 
 function normalizeConnectionError(error, endpoint) {
@@ -660,6 +716,183 @@ async function cloudRequest(method, path, body = null, retries = 3) {
   throw error;
 }
 
+async function cloudAnonymousRequest(method, path, body = null) {
+  await markCloudConnectionAttempt(path);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    const clientVersion = getCloudClientVersion();
+    const requestId = syncState.currentRequestId || createCloudRequestId('recover');
+    if (clientVersion) headers['X-TimeOnChrome-Version'] = clientVersion;
+    if (requestId) headers['X-TimeOnChrome-Request-Id'] = requestId;
+    const resp = await fetch(`${CLOUD_CONFIG.API_BASE}${path}`, {
+      method,
+      signal: controller.signal,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    clearTimeout(timeoutId);
+    const payload = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      const error = new Error(payload?.error || payload?.message || `HTTP ${resp.status}`);
+      error.status = resp.status;
+      error.code = payload?.code || null;
+      error.response = payload;
+      error.endpoint = path;
+      await markCloudConnectionFailure(path, error);
+      throw error;
+    }
+    await markCloudConnectionSuccess(path, resp.status);
+    return payload || { success: true };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    await markCloudConnectionFailure(path, error);
+    throw error;
+  }
+}
+
+async function linkChromeIdentityIfPossible({ force = false } = {}) {
+  if (!syncState.deviceToken) return { ok: false, skipped: true, reason: 'no_device_token' };
+  const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT).catch(() => ({}));
+  const lastAt = Number(storage?.[CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT] || 0);
+  if (!force && lastAt > 0 && Date.now() - lastAt < DEVICE_IDENTITY_LINK_INTERVAL_MS) {
+    return { ok: true, skipped: true, reason: 'recently_linked' };
+  }
+  const identity = await getChromeProfileIdentity();
+  if (!identity.ok) {
+    await writeChromeIdentityStatus({ available: false, reason: identity.reason, error: identity.error || null });
+    logClientEventBestEffort({
+      level: 'warning',
+      category: 'cloud',
+      eventCode: 'chrome_identity_unavailable',
+      module: 'infra/cloud-sync',
+      message: 'Chrome profile identity is unavailable for device recovery',
+      details: { reason: identity.reason, platform: getClientPlatform() },
+    });
+    return { ok: false, skipped: true, reason: identity.reason };
+  }
+  const result = await cloudRequest('POST', '/device/identity-link', buildDeviceIdentityPayload(identity), 1);
+  await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT]: Date.now() }).catch(() => {});
+  await writeChromeIdentityStatus({ available: true, linked: result?.identityLinked !== false, reason: null });
+  return { ok: true, linked: result?.identityLinked !== false };
+}
+
+async function saveRecoveryState(patch = {}) {
+  const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.RECOVERY_STATE).catch(() => ({}));
+  const previous = storage?.[CLOUD_CONFIG.KEYS.RECOVERY_STATE] || {};
+  await chrome.storage.local.set({
+    [CLOUD_CONFIG.KEYS.RECOVERY_STATE]: {
+      ...previous,
+      ...patch,
+      updatedAt: Date.now(),
+    },
+  }).catch(() => {});
+}
+
+async function persistRecoveredBinding(payload, source = 'device_recovery') {
+  const updates = {
+    [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: payload.device_token || payload.deviceToken || null,
+    [CLOUD_CONFIG.KEYS.DEVICE_ID]: payload.device_id || payload.deviceId || null,
+    [CLOUD_CONFIG.KEYS.PROFILE_ID]: payload.profile_id || payload.profileId || null,
+    [CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID]: null,
+    [CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN]: null,
+  };
+  if (!updates[CLOUD_CONFIG.KEYS.DEVICE_TOKEN] || !updates[CLOUD_CONFIG.KEYS.PROFILE_ID]) {
+    throw new Error('Recovered binding is missing device token or profile id');
+  }
+  if (payload.profile_name || payload.profileName) updates.cloud_profile_name = payload.profile_name || payload.profileName;
+  await chrome.storage.local.set(updates);
+  syncState.deviceToken = updates[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
+  syncState.deviceId = updates[CLOUD_CONFIG.KEYS.DEVICE_ID];
+  syncState.profileId = updates[CLOUD_CONFIG.KEYS.PROFILE_ID];
+  await saveRecoveryState({ status: 'recovered', source, lastRecoveredAt: Date.now(), lastError: null });
+  logClientEventBestEffort({
+    level: 'warning',
+    category: 'cloud',
+    eventCode: 'device_binding_recovered',
+    module: 'infra/cloud-sync',
+    message: 'Device binding recovered by cloud',
+    details: {
+      source,
+      deviceId: syncState.deviceId || null,
+      profileId: syncState.profileId || null,
+      platform: getClientPlatform(),
+    },
+  });
+}
+
+async function pollPendingDeviceRecovery() {
+  const storage = await chrome.storage.local.get([
+    CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID,
+    CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN,
+  ]).catch(() => ({}));
+  const requestId = storage?.[CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID];
+  const pollToken = storage?.[CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN];
+  if (!requestId || !pollToken) return { ok: false, skipped: true, reason: 'no_pending_recovery' };
+  const result = await cloudAnonymousRequest('GET', `/device/recover/status?requestId=${encodeURIComponent(requestId)}&pollToken=${encodeURIComponent(pollToken)}`);
+  if (result?.status === 'RECOVERED') {
+    await persistRecoveredBinding(result, 'cloud_approved_recovery');
+    return { ok: true, recovered: true };
+  }
+  await saveRecoveryState({ status: result?.status || 'pending', lastPollAt: Date.now(), lastError: result?.message || null });
+  return { ok: true, recovered: false, status: result?.status || 'pending' };
+}
+
+async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
+  if (syncState.deviceToken) return { ok: true, skipped: true, reason: 'has_device_token' };
+  const storage = await chrome.storage.local.get([
+    CLOUD_CONFIG.KEYS.RECOVERY_STATE,
+    CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID,
+    CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN,
+  ]).catch(() => ({}));
+  const previous = storage?.[CLOUD_CONFIG.KEYS.RECOVERY_STATE] || {};
+  const lastAttemptAt = Number(previous.lastAttemptAt || 0);
+  if (lastAttemptAt > 0 && Date.now() - lastAttemptAt < DEVICE_RECOVERY_RETRY_MS) {
+    if (storage?.[CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID] && storage?.[CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN]) {
+      return pollPendingDeviceRecovery().catch((error) => ({ ok: false, reason: 'recovery_poll_failed', error: error?.message || String(error) }));
+    }
+    return { ok: false, skipped: true, reason: 'retry_backoff' };
+  }
+
+  await saveRecoveryState({ status: 'attempting', reason, lastAttemptAt: Date.now(), platform: getClientPlatform() });
+  const pending = await pollPendingDeviceRecovery().catch(() => null);
+  if (pending?.recovered) return pending;
+
+  const identity = await getChromeProfileIdentity();
+  if (!identity.ok) {
+    await writeChromeIdentityStatus({ available: false, reason: identity.reason, error: identity.error || null });
+    await saveRecoveryState({ status: 'identity_unavailable', lastError: identity.reason });
+    return { ok: false, reason: identity.reason };
+  }
+  await writeChromeIdentityStatus({ available: true, reason: null });
+
+  try {
+    const result = await cloudAnonymousRequest('POST', '/device/recover/bootstrap', buildDeviceIdentityPayload(identity));
+    if (result?.status === 'RECOVERED') {
+      await persistRecoveredBinding(result, 'auto_recovery');
+      return { ok: true, recovered: true };
+    }
+    if (result?.status === 'PENDING_CLOUD_CONFIRMATION') {
+      await chrome.storage.local.set({
+        [CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID]: result.recoveryRequestId || null,
+        [CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN]: result.recoveryPollToken || null,
+      }).catch(() => {});
+      await saveRecoveryState({ status: 'pending_cloud_confirmation', recoveryRequestId: result.recoveryRequestId || null, lastError: null });
+      return { ok: true, recovered: false, status: 'pending_cloud_confirmation' };
+    }
+    if (result?.status === 'DEVICE_UNBOUND' || result?.code === 'DEVICE_UNBOUND') {
+      await clearCloudBindingState('recovery_unbound');
+      return { ok: false, reason: 'device_unbound' };
+    }
+    await saveRecoveryState({ status: result?.status || result?.code || 'not_recovered', lastError: result?.code || null });
+    return { ok: false, reason: result?.code || result?.status || 'not_recovered' };
+  } catch (error) {
+    await saveRecoveryState({ status: 'failed', lastError: error?.message || String(error) });
+    return { ok: false, reason: 'recovery_failed', error: error?.message || String(error) };
+  }
+}
+
 function summarizeDailyStatsPayload(date, payload) {
   const domains = Array.isArray(payload?.domains) ? payload.domains : [];
   const modeCounts = {};
@@ -940,8 +1173,11 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     : (optionsOrLegacyRedirectAllTabs || {});
   await hydrateCloudSyncStateFromStorage();
   if (!syncState.deviceToken) {
+    await tryRecoverCloudBindingIfMissing('sync_now');
+  }
+  if (!syncState.deviceToken) {
     console.log('[Cloud] Sync skipped: no device token (not yet initialized or unbound)');
-    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: false, errors: [] };
+    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['device recovery pending or unavailable'] };
   }
 
   if (syncState.isSyncing) {
@@ -964,6 +1200,9 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
 
   try {
     await hydrateDeviceIdFromBindIfMissing();
+    await linkChromeIdentityIfPossible().catch((error) => {
+      console.warn('[Cloud] Chrome identity link failed:', error?.message || error);
+    });
 
     const configResult = await pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarativeRulesFn);
     const configPulled = configResult.status === 'updated';
@@ -2731,6 +2970,9 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
 
 export async function sendHeartbeat() {
   await hydrateCloudSyncStateFromStorage();
+  if (!syncState.deviceToken) {
+    await tryRecoverCloudBindingIfMissing('heartbeat');
+  }
   if (!syncState.deviceToken) return;
   const previousRequestId = syncState.currentRequestId;
   syncState.currentRequestId = createCloudRequestId('heartbeat');
@@ -2748,6 +2990,10 @@ export async function sendHeartbeat() {
 
 export async function initCloudSync(syncNowFn) {
   await hydrateCloudSyncStateFromStorage();
+
+  if (!syncState.deviceToken) {
+    await tryRecoverCloudBindingIfMissing('init_cloud_sync');
+  }
 
   if (syncState.deviceToken) {
     console.log('[Cloud] Device token found, starting sync...');

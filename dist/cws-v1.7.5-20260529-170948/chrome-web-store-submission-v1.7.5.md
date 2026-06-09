@@ -15,11 +15,14 @@ Permissions:
 - webNavigation
 - idle
 - notifications
+- identity
+- identity.email
 
 Host permissions:
 - <all_urls>
 
 This version does **not** request scripting, management, or declarativeNetRequestFeedback.
+The identity permissions are used only with `chrome.identity.getProfileUserInfo()` to read the Chrome profile account identifier for macOS device-binding recovery after reinstall. TimeOnChrome does not call `chrome.identity.getAuthToken()`, does not request Google OAuth scopes, and does not store Google OAuth tokens.
 
 ## What's New
 - Refreshed TimeOnChrome icon system and Chrome toolbar mode badge.
@@ -27,16 +30,19 @@ This version does **not** request scripting, management, or declarativeNetReques
 - Configuration import now uses a difference confirmation workflow before applying changes.
 - Account login sessions use refresh tokens; new clients no longer save reversible account passwords.
 - Timing settlement diagnostics now include checkpoint health, ledger-gap detection, and mode-transition audit logs.
+- macOS child terminals can recover an existing cloud device binding after extension reinstall when a previously linked Chrome profile identity uniquely matches one bound macOS device.
 - Website classification continues to canonicalize YouTube playlist/video URLs as a temporary compatibility policy.
 
 ## Reviewer Notes
 - The extension is intended for parent-managed Chrome usage control.
 - Core local behavior works without cloud login; cloud sync and parent console features require login.
 - The extension uses static content scripts from the manifest. It does not use dynamic scripting permission.
+- The extension uses `identity.email` only to read the Chrome profile account identifier for weak device recovery. The raw identifier is not stored in the cloud; only a keyed non-reversible hash is stored. No OAuth token flow is used.
 - <all_urls> is required because access decisions, time tracking, and classification requests must work across arbitrary child browsing destinations.
 - declarativeNetRequest is used for access-management support. The extension does not request DNR feedback permission.
 - Incognito unmanaged/fallback records are sanitized before durable local storage and cloud upload.
 - PiP is currently globally restricted by policy and may show a clear notice when closed by TimeOnChrome.
+- Privacy policy remediation for Purple Nickel: the privacy policy has been updated to describe user data collection, processing, storage, sharing, diagnostic logs, cloud sync, incognito sanitization, current permissions, and the Chrome Web Store Limited Use statement. The stale management permission reference was removed.
 
 ## Test Instructions
 1. Load the ZIP or unpacked extension/ directory in Chrome.

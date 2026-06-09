@@ -480,6 +480,7 @@ composite_sessions(id, profile_id, device_id, domain, duration_seconds, session_
 - `account_token`: short-lived parent/admin API token used by `/profiles/:id/*` and other account-level routes. New tokens include `exp`; legacy no-exp tokens remain accepted for compatibility during the transition.
 - `account_refresh_token`: revocable parent login session stored only as `account_sessions.refresh_token_hash` in D1. `/auth/refresh` rotates it and `/auth/logout` revokes it.
 - `cloud_credentials`: legacy reversible email/password cache. New clients must not write it. If an upgraded client finds it, it may use it once to obtain a refresh token, then clear it. Migration failure must not clear `device_token`.
+- `chromeIdentityHash`: weak recovery signal derived from `chrome.identity.getProfileUserInfo().id` and stored only as a server-side HMAC hash. It is not an authentication credential, not a Google OAuth token, and not a physical-machine proof. The first supported recovery rule is intentionally narrow: a macOS child terminal may recover the original `deviceId` after reinstall only when the cloud profile has a unique, still-bound macOS device with the same hash. Explicit cloud unbind always wins and prevents recovery.
 
 Changing account password revokes refresh sessions only. It does not unbind child terminals or stop device-token sync.
 

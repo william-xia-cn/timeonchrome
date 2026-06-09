@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- **macOS device binding recovery**: new clients may read the Chrome profile account identifier with `chrome.identity.getProfileUserInfo()` and send it only as a server-side HMAC hash. This supports recovering the same `deviceId` after extension reinstall when a child profile has one eligible macOS device. The feature does not use Google OAuth, does not call `getAuthToken()`, and does not store Google OAuth tokens or raw Chrome identity values.
+
 ---
 
 ## [1.7.5] — 2026-05-29
