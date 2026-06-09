@@ -152,6 +152,40 @@ async function recordRecoveredDeviceRequest(
   await cleanupDeviceRecoveryRequests(env, input.profileId, input.now);
 }
 
+async function markPendingRecoveryRequestsRecovered(
+  env: Env,
+  input: {
+    profileId: string;
+    identityHash: string;
+    platform: string;
+    deviceId: string;
+    now: number;
+  }
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE device_recovery_requests_v1
+     SET status = 'recovered',
+         result_device_id = ?,
+         result_profile_id = ?,
+         updated_at = ?,
+         decided_at = COALESCE(decided_at, ?)
+     WHERE profile_id = ?
+       AND chrome_identity_hash = ?
+       AND platform = ?
+       AND candidate_device_id = ?
+       AND status = 'pending'`
+  ).bind(
+    input.deviceId,
+    input.profileId,
+    input.now,
+    input.now,
+    input.profileId,
+    input.identityHash,
+    input.platform,
+    input.deviceId
+  ).run();
+}
+
 export const deviceRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
@@ -341,45 +375,19 @@ export const deviceRouter = {
 
       if (candidates.length === 1) {
         const candidate = candidates[0];
-        const recentlyActive = Number(candidate.last_seen || 0) > 0 && now - Number(candidate.last_seen || 0) < 15 * 60 * 1000;
-        if (recentlyActive) {
-          const pollToken = generateDeviceToken();
-          const requestId = crypto.randomUUID();
-          const pollHash = await pollTokenHash(env, pollToken);
-          await env.DB.prepare(
-            `INSERT INTO device_recovery_requests_v1 (
-              id, profile_id, chrome_identity_hash, platform, browser, extension_version, device_name_hint,
-              candidate_device_id, candidate_count, poll_token_hash, status, message, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'pending', ?, ?, ?)`
-          ).bind(
-            requestId,
-            candidate.profile_id,
-            identityHash,
-            platform,
-            trimString(body.browser, 64),
-            trimString(body.extensionVersion, 32),
-            trimString(body.deviceNameHint, 128),
-            candidate.id,
-            pollHash,
-            'Candidate device is recently active; cloud confirmation is required before recovery.',
-            now,
-            now
-          ).run();
-          await cleanupDeviceRecoveryRequests(env, candidate.profile_id, now);
-          return json({
-            success: false,
-            status: 'PENDING_CLOUD_CONFIRMATION',
-            code: 'PENDING_CLOUD_CONFIRMATION',
-            recoveryRequestId: requestId,
-            recoveryPollToken: pollToken,
-          }, 202);
-        }
         const newToken = generateDeviceToken();
         await env.DB.prepare(
           `UPDATE devices
            SET device_token = ?, last_seen = ?, last_recovered_at = ?, recovery_status = 'auto_recovered'
            WHERE id = ? AND COALESCE(status, 'bound') = 'bound'`
         ).bind(newToken, now, now, candidate.id).run();
+        await markPendingRecoveryRequestsRecovered(env, {
+          profileId: candidate.profile_id,
+          identityHash,
+          platform,
+          deviceId: candidate.id,
+          now,
+        }).catch(() => {});
         await recordRecoveredDeviceRequest(env, {
           profileId: candidate.profile_id,
           identityHash,

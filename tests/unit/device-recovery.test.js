@@ -49,7 +49,8 @@ function run() {
   expectTrue('worker allows macOS and Windows recovery platforms', device.includes('function isSupportedRecoveryPlatform') && device.includes("platform === 'macos' || platform === 'windows'"));
   expectTrue('worker still rejects unsupported recovery platforms', device.includes('!isSupportedRecoveryPlatform(platform)') && device.includes('UNSUPPORTED_PLATFORM'));
   expectTrue('worker recovery candidates are platform-scoped', device.includes('AND d.platform = ?') && device.includes('chromeIdentityHash(env, chromeIdentityId)'));
-  expectTrue('worker requires cloud confirmation when candidate is recently active', device.includes('recentlyActive') && device.includes('Candidate device is recently active'));
+  expectTrue('worker does not block unique candidates only because they are recently active', !device.includes('recentlyActive') && !device.includes('Candidate device is recently active'));
+  expectTrue('worker marks matching pending recovery requests recovered after auto recovery', device.includes('markPendingRecoveryRequestsRecovered') && device.includes("status = 'recovered'") && device.includes("status = 'pending'") && device.includes('candidate_device_id = ?'));
   expectTrue('worker returns recovery states', device.includes("status: 'RECOVERED'") && device.includes('PENDING_CLOUD_CONFIRMATION') && device.includes('NO_CANDIDATE'));
   expectTrue('worker keeps unbound devices unrecoverable', device.includes("COALESCE(d.status, 'bound') = 'bound'") && device.includes('deviceUnboundResponse'));
   expectTrue('worker stores only poll token hash for pending requests', device.includes('pollTokenHash') && device.includes('poll_token_hash') && !device.includes('recoveryPollToken,'));
@@ -63,6 +64,9 @@ function run() {
 
   expectTrue('cloud sync persists recovery binding on RECOVERED', cloudSync.includes('persistRecoveredBinding') && cloudSync.includes('/device/recover/bootstrap') && cloudSync.includes('/device/recover/status'));
   expectTrue('cloud sync saves pending recovery state', cloudSync.includes('cloud_device_recovery_request_id') && cloudSync.includes('cloud_device_recovery_poll_token') && cloudSync.includes('pending_cloud_confirmation'));
+  expectTrue('cloud sync polls pending recovery instead of bootstrapping a duplicate request', cloudSync.includes('hasPendingRecoveryRequest') && cloudSync.indexOf('if (hasPendingRecoveryRequest)') < cloudSync.indexOf("cloudAnonymousRequest('POST', '/device/recover/bootstrap'"));
+  expectTrue('cloud sync keeps pending recovery on poll failure', cloudSync.includes("pending: true, reason: 'recovery_poll_failed'") && cloudSync.includes('status: \'pending_cloud_confirmation\''));
+  expectTrue('cloud sync clears terminal pending recovery requests with retry backoff', cloudSync.includes('isTerminalDeviceRecoveryStatus') && cloudSync.includes('clearPendingDeviceRecoveryState') && cloudSync.includes('RECOVERY_REQUEST_NOT_FOUND') && cloudSync.includes('lastAttemptAt: Date.now()'));
   expectTrue('cloud sync links identity after binding', cloudSync.includes('/device/identity-link') && cloudSync.includes('cloud_chrome_identity_status_v1'));
   expectTrue('cloud sync does not block existing token sync on identity unavailable', cloudSync.includes('if (!syncState.deviceToken) return') && cloudSync.includes('chrome_identity_unavailable'));
   expectTrue('cloud sync logs recovery lifecycle events', cloudSync.includes('device_recovery_attempt_started') && cloudSync.includes('device_recovery_bootstrap_result') && cloudSync.includes('device_recovery_poll_result') && cloudSync.includes('device_recovery_failed'));
