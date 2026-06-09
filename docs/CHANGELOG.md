@@ -4,7 +4,16 @@
 
 ## [Unreleased]
 
+---
+
+## [1.7.6] — 2026-06-09
+
+- **Legacy cloud sync hardening**: old device clients remain compatible with current Worker schema, and device-token endpoints now avoid schema drift turning into opaque 500 responses.
+- **Device connection audit**: cloud Worker records server-side `/device/*` request summaries so parents and maintainers can distinguish no request arrival, auth failure, server failure, payload failure, and successful heartbeat/config/sync paths.
 - **macOS / Windows device binding recovery**: new clients may read the Chrome profile account identifier with `chrome.identity.getProfileUserInfo()` and send it only as a server-side HMAC hash. This supports recovering the same `deviceId` after extension reinstall when a child profile has one eligible device on the same macOS or Windows platform. The feature does not use Google OAuth, does not call `getAuthToken()`, and does not store Google OAuth tokens or raw Chrome identity values.
+- **Recovery request stability**: pending recovery requests are now idempotent. A terminal waiting for cloud confirmation polls the existing request instead of creating duplicate requests, and unique same-platform candidates recover automatically even when the old device was recently active.
+- **Immediate sync after recovery**: when a heartbeat path restores a device binding, the extension immediately triggers a full sync so website rules, quotas, time windows, and pending requests return to the terminal without waiting for the next regular sync cycle.
+- **CWS privacy and permission notes**: Chrome Web Store materials now explicitly document the `identity` / `identity.email` purpose, the non-use of OAuth, server-side hashing of Chrome identity, device audit boundaries, and Purple Nickel privacy-policy remediation.
 
 ---
 
