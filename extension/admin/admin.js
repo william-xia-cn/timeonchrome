@@ -64,7 +64,8 @@ const CLOUD_KEYS = {
   REMEMBER_ME: 'cloud_remember_me',
   IS_BOUND: 'cloud_is_bound',  // 标记是否已绑定
   CHROME_IDENTITY_STATUS: 'cloud_chrome_identity_status_v1',
-  RECOVERY_STATE: 'cloud_device_recovery_state_v1'
+  RECOVERY_STATE: 'cloud_device_recovery_state_v1',
+  RECOVERY_REQUEST_ID: 'cloud_device_recovery_request_id'
 };
 
 function normalizeEmailInput(value) {
@@ -1947,17 +1948,23 @@ async function renderSyncStatus() {
     MULTIPLE_CANDIDATES: '需要云端确认',
   };
   const recoveryActiveStates = new Set(['attempting', 'pending_cloud_confirmation', 'recovered']);
-  const recoveryStatusText = token && !recoveryActiveStates.has(String(recoveryState.status || ''))
-    ? '正常'
-    : (recoveryStatusMap[recoveryState.status] || (token ? '正常' : '未绑定'));
+  const recoveryStatusRaw = String(recoveryState.status || '');
+  const recoveryNeedsManualRebind = !token && recoveryStatusRaw === 'UNSUPPORTED_PLATFORM';
+  const recoveryStatusText = recoveryNeedsManualRebind
+    ? '需要重新绑定'
+    : (token && !recoveryActiveStates.has(recoveryStatusRaw)
+      ? '正常'
+      : (recoveryStatusMap[recoveryState.status] || (token ? '正常' : '未绑定')));
   const recoveryLastAttempt = recoveryState.lastAttemptAt ? new Date(recoveryState.lastAttemptAt).toLocaleString() : '—';
   const recoveryLastPoll = recoveryState.lastPollAt ? new Date(recoveryState.lastPollAt).toLocaleString() : '—';
   const recoveryLastRecovered = recoveryState.lastRecoveredAt ? new Date(recoveryState.lastRecoveredAt).toLocaleString() : '—';
   const recoveryRequestId = storage[CLOUD_KEYS.RECOVERY_REQUEST_ID] || recoveryState.recoveryRequestId || '';
   const recoveryShortRequestId = recoveryRequestId ? String(recoveryRequestId).slice(0, 8) : '—';
-  const recoveryLastError = token && !recoveryActiveStates.has(String(recoveryState.status || ''))
-    ? '—'
-    : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—');
+  const recoveryLastError = recoveryNeedsManualRebind
+    ? '当前 Windows 终端暂不支持自动恢复，请点击“登录/绑定云端”重新绑定。'
+    : (token && !recoveryActiveStates.has(recoveryStatusRaw)
+      ? '—'
+      : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—'));
   const connectionCardHtml = `
     <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
       <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">云端连接</div>
@@ -1983,7 +1990,7 @@ async function renderSyncStatus() {
         <span>最近恢复：<strong>${escHtml(recoveryLastRecovered)}</strong></span>
         <span style="grid-column:1/-1;">最后原因：<strong>${escHtml(recoveryLastError)}</strong></span>
       </div>
-      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:6px;">Chrome 身份只用于 macOS 扩展重装后的弱匹配恢复；本机不显示或保存原始标识。</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:6px;">Chrome 身份只用于 macOS 扩展重装后的弱匹配恢复；Windows 或其他平台丢失 Device Token 后需要重新绑定。本机不显示或保存原始标识。</div>
     </div>
   `;
 
