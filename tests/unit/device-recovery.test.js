@@ -46,12 +46,14 @@ function run() {
   expectTrue('worker hashes chrome identity before storage', device.includes('function chromeIdentityHash') && device.includes('chrome-identity:') && device.includes('hmacHex'));
   expectTrue('worker exposes identity link endpoint', device.includes("path === '/device/identity-link'") && device.includes('IDENTITY_UNAVAILABLE') && device.includes('updateDeviceIdentityMetadata'));
   expectTrue('worker exposes recovery bootstrap/status endpoints', device.includes("path === '/device/recover/bootstrap'") && device.includes("path === '/device/recover/status'"));
-  expectTrue('worker auto recovery is restricted to macos', device.includes("platform !== 'macos'") && device.includes('UNSUPPORTED_PLATFORM'));
+  expectTrue('worker allows macOS and Windows recovery platforms', device.includes('function isSupportedRecoveryPlatform') && device.includes("platform === 'macos' || platform === 'windows'"));
+  expectTrue('worker still rejects unsupported recovery platforms', device.includes('!isSupportedRecoveryPlatform(platform)') && device.includes('UNSUPPORTED_PLATFORM'));
+  expectTrue('worker recovery candidates are platform-scoped', device.includes('AND d.platform = ?') && device.includes('chromeIdentityHash(env, chromeIdentityId)'));
   expectTrue('worker requires cloud confirmation when candidate is recently active', device.includes('recentlyActive') && device.includes('Candidate device is recently active'));
   expectTrue('worker returns recovery states', device.includes("status: 'RECOVERED'") && device.includes('PENDING_CLOUD_CONFIRMATION') && device.includes('NO_CANDIDATE'));
   expectTrue('worker keeps unbound devices unrecoverable', device.includes("COALESCE(d.status, 'bound') = 'bound'") && device.includes('deviceUnboundResponse'));
   expectTrue('worker stores only poll token hash for pending requests', device.includes('pollTokenHash') && device.includes('poll_token_hash') && !device.includes('recoveryPollToken,'));
-  expectTrue('worker records auto recovery as recovery history', device.includes('recordRecoveredDeviceRequest') && device.includes("status, result_device_id") && device.includes('Auto recovered unique macOS device candidate'));
+  expectTrue('worker records auto recovery as recovery history', device.includes('recordRecoveredDeviceRequest') && device.includes("status, result_device_id") && device.includes('Auto recovered unique device candidate'));
   expectTrue('worker retains recovery history with cleanup', device.includes('cleanupDeviceRecoveryRequests') && device.includes("status != 'pending'") && device.includes('LIMIT 100'));
 
   expectTrue('profiles route lists recovery requests', profiles.includes('/device-recovery-requests/v1') && profiles.includes('device_recovery_requests_v1 r') && profiles.includes('recoveryRequests'));
@@ -67,8 +69,9 @@ function run() {
 
   expectTrue('bind/admin include identity metadata in device bind', bind.includes('chromeIdentityId') && bind.includes('platform: getClientPlatform()') && admin.includes('chromeIdentityId') && admin.includes('platform: getClientPlatform()'));
   expectTrue('local admin displays Chrome identity and recovery status', admin.includes('Chrome 身份与绑定恢复') && admin.includes('cloud_chrome_identity_status_v1') && admin.includes('cloud_device_recovery_state_v1') && admin.includes('Device Token') && admin.includes('最近轮询') && admin.includes('恢复请求'));
+  expectTrue('local admin recovery copy includes macOS and Windows', admin.includes('macOS / Windows') && !admin.includes('当前 Windows 终端暂不支持自动恢复'));
   expectTrue('cloud Pages display recovery requests and history', pages.includes('device-recovery-requests') && pages.includes('renderDeviceRecoveryRequests') && pages.includes('恢复到此设备') && pages.includes('作为新设备') && pages.includes('待处理恢复请求') && pages.includes('最近恢复历史'));
-  expectTrue('privacy policy explains identity.email and no OAuth token use', privacy.includes('identity / identity.email') && privacy.includes('does not call <code>chrome.identity.getAuthToken()</code>') && privacy.includes('non-reversible hash'));
+  expectTrue('privacy policy explains identity.email and no OAuth token use', privacy.includes('identity / identity.email') && privacy.includes('does not call <code>chrome.identity.getAuthToken()</code>') && privacy.includes('non-reversible hash') && privacy.includes('macOS or Windows'));
 
   console.log(`\n[Device Recovery] ${passed}/${passed + failed} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed) process.exit(1);

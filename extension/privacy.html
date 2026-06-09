@@ -102,7 +102,7 @@
             <tr>
                 <td>Device and profile data</td>
                 <td>Parent account email, child profile name, device name, device ID, platform/browser label, device binding status, last sync/heartbeat time, and a non-reversible hash of the Chrome profile account identifier when available.</td>
-                <td>To authenticate parent access, bind child terminals, sync configuration, show device connection status, and help recover a macOS child terminal binding after the extension is reinstalled.</td>
+                <td>To authenticate parent access, bind child terminals, sync configuration, show device connection status, and help recover a macOS or Windows child terminal binding after the extension is reinstalled.</td>
             </tr>
             <tr>
                 <td>Media usage metadata</td>
@@ -150,7 +150,7 @@
 
     <h3>Local storage</h3>
     <p>The extension stores configuration, device binding state, usage ledgers, usage statistics, media statistics, and diagnostic logs in Chrome extension storage on the local device.</p>
-    <p>When Chrome profile identity is available, the extension may read the Chrome profile account identifier to support device binding recovery. The raw identifier is not stored in the cloud; the cloud service stores only a keyed, non-reversible hash for matching a previously bound macOS device.</p>
+    <p>When Chrome profile identity is available, the extension may read the Chrome profile account identifier to support device binding recovery. The raw identifier is not stored in the cloud; the cloud service stores only a keyed, non-reversible hash for matching a previously bound macOS or Windows device.</p>
 
     <h3>Optional cloud sync</h3>
     <p>If cloud sync is enabled, TimeOnChrome transmits selected configuration, usage, media, device, request, and diagnostic records to the TimeOnChrome cloud service so a parent can review and manage the child profile from the cloud console.</p>
@@ -197,7 +197,7 @@
         <li><strong>webNavigation:</strong> Needed to observe navigation boundaries relevant to access management and time accounting.</li>
         <li><strong>idle:</strong> Needed to pause or adjust timing when Chrome/user activity is inactive.</li>
         <li><strong>notifications:</strong> Needed to show reminders or fallback notices when in-page notices are unavailable.</li>
-        <li><strong>identity / identity.email:</strong> Needed to read the Chrome profile account identifier via <code>chrome.identity.getProfileUserInfo()</code> so a macOS child terminal can recover its existing device binding after extension reinstall. TimeOnChrome does not call <code>chrome.identity.getAuthToken()</code>, does not request OAuth scopes, and does not store Google OAuth tokens.</li>
+        <li><strong>identity / identity.email:</strong> Needed to read the Chrome profile account identifier via <code>chrome.identity.getProfileUserInfo()</code> so a macOS or Windows child terminal can recover its existing device binding after extension reinstall. TimeOnChrome does not call <code>chrome.identity.getAuthToken()</code>, does not request OAuth scopes, and does not store Google OAuth tokens.</li>
     </ul>
 
     <p>TimeOnChrome does not request the <strong>scripting</strong>, <strong>management</strong>, or <strong>declarativeNetRequestFeedback</strong> permissions.</p>

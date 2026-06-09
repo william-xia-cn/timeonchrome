@@ -22,7 +22,7 @@ Host permissions:
 - <all_urls>
 
 This version does **not** request scripting, management, or declarativeNetRequestFeedback.
-The identity permissions are used only with `chrome.identity.getProfileUserInfo()` to read the Chrome profile account identifier for macOS device-binding recovery after reinstall. TimeOnChrome does not call `chrome.identity.getAuthToken()`, does not request Google OAuth scopes, and does not store Google OAuth tokens.
+The identity permissions are used only with `chrome.identity.getProfileUserInfo()` to read the Chrome profile account identifier for macOS / Windows device-binding recovery after reinstall. TimeOnChrome does not call `chrome.identity.getAuthToken()`, does not request Google OAuth scopes, and does not store Google OAuth tokens.
 
 ## What's New
 - Refreshed TimeOnChrome icon system and Chrome toolbar mode badge.
@@ -30,7 +30,7 @@ The identity permissions are used only with `chrome.identity.getProfileUserInfo(
 - Configuration import now uses a difference confirmation workflow before applying changes.
 - Account login sessions use refresh tokens; new clients no longer save reversible account passwords.
 - Timing settlement diagnostics now include checkpoint health, ledger-gap detection, and mode-transition audit logs.
-- macOS child terminals can recover an existing cloud device binding after extension reinstall when a previously linked Chrome profile identity uniquely matches one bound macOS device.
+- macOS / Windows child terminals can recover an existing cloud device binding after extension reinstall when a previously linked Chrome profile identity uniquely matches one bound device on the same platform.
 - Website classification continues to canonicalize YouTube playlist/video URLs as a temporary compatibility policy.
 
 ## Reviewer Notes

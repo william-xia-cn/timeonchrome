@@ -32,6 +32,10 @@ function normalizePlatform(value: unknown): string {
   return raw || 'unknown';
 }
 
+function isSupportedRecoveryPlatform(platform: string): boolean {
+  return platform === 'macos' || platform === 'windows';
+}
+
 function trimString(value: unknown, max = 128): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -320,7 +324,7 @@ export const deviceRouter = {
       if (!identityHash) {
         return json({ success: false, status: 'IDENTITY_UNAVAILABLE', code: 'IDENTITY_UNAVAILABLE' }, 200);
       }
-      if (platform !== 'macos') {
+      if (!isSupportedRecoveryPlatform(platform)) {
         return json({ success: false, status: 'UNSUPPORTED_PLATFORM', code: 'UNSUPPORTED_PLATFORM' }, 200);
       }
 
@@ -384,7 +388,7 @@ export const deviceRouter = {
           extensionVersion: body.extensionVersion,
           deviceNameHint: body.deviceNameHint,
           deviceId: candidate.id,
-          message: 'Auto recovered unique macOS device candidate.',
+          message: 'Auto recovered unique device candidate.',
           now,
         }).catch(() => {});
         return json({

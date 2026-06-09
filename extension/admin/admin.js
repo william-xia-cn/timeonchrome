@@ -1961,7 +1961,7 @@ async function renderSyncStatus() {
   const recoveryRequestId = storage[CLOUD_KEYS.RECOVERY_REQUEST_ID] || recoveryState.recoveryRequestId || '';
   const recoveryShortRequestId = recoveryRequestId ? String(recoveryRequestId).slice(0, 8) : '—';
   const recoveryLastError = recoveryNeedsManualRebind
-    ? '当前 Windows 终端暂不支持自动恢复，请点击“登录/绑定云端”重新绑定。'
+    ? '当前平台暂不支持自动恢复，请点击“登录/绑定云端”重新绑定。'
     : (token && !recoveryActiveStates.has(recoveryStatusRaw)
       ? '—'
       : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—'));
@@ -1990,7 +1990,7 @@ async function renderSyncStatus() {
         <span>最近恢复：<strong>${escHtml(recoveryLastRecovered)}</strong></span>
         <span style="grid-column:1/-1;">最后原因：<strong>${escHtml(recoveryLastError)}</strong></span>
       </div>
-      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:6px;">Chrome 身份只用于 macOS 扩展重装后的弱匹配恢复；Windows 或其他平台丢失 Device Token 后需要重新绑定。本机不显示或保存原始标识。</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:6px;">Chrome 身份用于 macOS / Windows 扩展重装后的弱匹配恢复；本机不显示或保存原始标识。</div>
     </div>
   `;
 
