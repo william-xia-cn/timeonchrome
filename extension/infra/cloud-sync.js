@@ -3050,10 +3050,27 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
 
 // ── Heartbeat ───────────────────────────────────────────────────────────────────
 
-export async function sendHeartbeat() {
+export async function sendHeartbeat(afterRecoveredSync = null) {
   await hydrateCloudSyncStateFromStorage();
+  let recoveredByHeartbeat = false;
   if (!syncState.deviceToken) {
-    await tryRecoverCloudBindingIfMissing('heartbeat');
+    const recoveryResult = await tryRecoverCloudBindingIfMissing('heartbeat');
+    recoveredByHeartbeat = !!(recoveryResult?.recovered && syncState.deviceToken);
+  }
+  if (recoveredByHeartbeat && typeof afterRecoveredSync === 'function') {
+    try {
+      await afterRecoveredSync();
+    } catch (e) {
+      console.warn('[Cloud] Follow-up sync after device recovery failed:', e?.message || e);
+      logClientEventBestEffort({
+        level: 'warning',
+        category: 'cloud',
+        eventCode: 'device_recovery_followup_sync_failed',
+        module: 'infra/cloud-sync',
+        message: 'Full cloud sync after device recovery failed',
+        details: { source: 'heartbeat', error: e?.message || String(e) },
+      });
+    }
   }
   if (!syncState.deviceToken) return;
   const previousRequestId = syncState.currentRequestId;

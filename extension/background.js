@@ -973,7 +973,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       } catch (_) { /* 尽力而为 */ }
     }
   } else if (alarm.name === 'cloudHeartbeat') {
-    await sendHeartbeat();
+    await sendHeartbeat(() => syncNowWithRuntimeEffects({}, 'cloudHeartbeat_recovery_sync'));
   }
 });
 
