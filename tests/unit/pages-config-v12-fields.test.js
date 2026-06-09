@@ -105,9 +105,11 @@ function run() {
   expectTrue('Pages 设备管理应包含连接诊断入口', source.includes('device-audit-panel') && renderDevicesPageSource.includes('连接诊断') && source.includes('renderDeviceAccessAudit'));
   expectTrue('Pages 连接诊断应读取 device access audit API', source.includes('/device-access-audit/v1?'));
   expectTrue('Pages 连接诊断应展示最近请求成功失败和鉴权结果', source.includes('最后成功') && source.includes('最后失败') && source.includes('auth_result') && source.includes('result_code'));
+  expectTrue('Pages 连接诊断应支持恢复相关筛选和摘要', source.includes('identity_link') && source.includes('device_recovery') && source.includes('最近 recover bootstrap') && source.includes('最近 recover status') && source.includes('诊断结论'));
   expectTrue('Pages 设备管理应显示 Chrome 身份记录和最近恢复时间', renderDevicesPageSource.includes('Chrome 身份已记录') && renderDevicesPageSource.includes('last_recovered_at') && renderDevicesPageSource.includes('最近恢复'));
   expectTrue('Pages 设备管理应包含恢复请求面板', source.includes('device-recovery-requests') && source.includes('renderDeviceRecoveryRequests'));
   expectTrue('Pages 恢复请求应读取恢复 API 并提供云端确认动作', source.includes('/device-recovery-requests/v1') && source.includes('恢复到此设备') && source.includes('作为新设备') && source.includes('handleDeviceRecoveryRequest'));
+  expectTrue('Pages 恢复请求应拆分待处理和最近恢复历史', source.includes('待处理恢复请求') && source.includes('最近恢复历史') && source.includes('result_device_name') && source.includes('deviceRecoveryStatusLabel'));
   expectTrue('Pages 普通落账应改名为网页落账', source.includes('网页落账') && !source.includes('落账明细</span>'));
   expectTrue('Pages 落账页应读取 usage-segments/v1', source.includes('/usage-segments/v1'));
   expectTrue('Pages 落账页应支持终端筛选和终端列', source.includes('settlement-device-input') && source.includes("params.set('deviceId', deviceInput.value)") && source.includes('终端'));

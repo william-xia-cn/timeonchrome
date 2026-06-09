@@ -1893,6 +1893,7 @@ async function renderSyncStatus() {
       'cloud_connection_state_v1',
       CLOUD_KEYS.CHROME_IDENTITY_STATUS,
       CLOUD_KEYS.RECOVERY_STATE,
+      CLOUD_KEYS.RECOVERY_REQUEST_ID,
     ], resolve);
   });
 
@@ -1945,10 +1946,18 @@ async function renderSyncStatus() {
     UNSUPPORTED_PLATFORM: '当前平台不支持自动恢复',
     MULTIPLE_CANDIDATES: '需要云端确认',
   };
-  const recoveryStatusText = recoveryStatusMap[recoveryState.status] || (token ? '正常' : '未绑定');
+  const recoveryActiveStates = new Set(['attempting', 'pending_cloud_confirmation', 'recovered']);
+  const recoveryStatusText = token && !recoveryActiveStates.has(String(recoveryState.status || ''))
+    ? '正常'
+    : (recoveryStatusMap[recoveryState.status] || (token ? '正常' : '未绑定'));
   const recoveryLastAttempt = recoveryState.lastAttemptAt ? new Date(recoveryState.lastAttemptAt).toLocaleString() : '—';
+  const recoveryLastPoll = recoveryState.lastPollAt ? new Date(recoveryState.lastPollAt).toLocaleString() : '—';
   const recoveryLastRecovered = recoveryState.lastRecoveredAt ? new Date(recoveryState.lastRecoveredAt).toLocaleString() : '—';
-  const recoveryLastError = recoveryState.lastError || identityStatus.reason || identityStatus.error || '—';
+  const recoveryRequestId = storage[CLOUD_KEYS.RECOVERY_REQUEST_ID] || recoveryState.recoveryRequestId || '';
+  const recoveryShortRequestId = recoveryRequestId ? String(recoveryRequestId).slice(0, 8) : '—';
+  const recoveryLastError = token && !recoveryActiveStates.has(String(recoveryState.status || ''))
+    ? '—'
+    : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—');
   const connectionCardHtml = `
     <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
       <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">云端连接</div>
@@ -1967,7 +1976,10 @@ async function renderSyncStatus() {
       <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 18px; font-size:12px; line-height:1.7;">
         <span>Chrome 身份：<strong>${escHtml(identityText)}</strong></span>
         <span>绑定恢复：<strong>${escHtml(recoveryStatusText)}</strong></span>
+        <span>Device Token：<strong>${token ? '存在' : '缺失'}</strong></span>
+        <span>恢复请求：<strong>${escHtml(recoveryShortRequestId)}</strong></span>
         <span>最近尝试：<strong>${escHtml(recoveryLastAttempt)}</strong></span>
+        <span>最近轮询：<strong>${escHtml(recoveryLastPoll)}</strong></span>
         <span>最近恢复：<strong>${escHtml(recoveryLastRecovered)}</strong></span>
         <span style="grid-column:1/-1;">最后原因：<strong>${escHtml(recoveryLastError)}</strong></span>
       </div>

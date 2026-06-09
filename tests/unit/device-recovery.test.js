@@ -51,19 +51,23 @@ function run() {
   expectTrue('worker returns recovery states', device.includes("status: 'RECOVERED'") && device.includes('PENDING_CLOUD_CONFIRMATION') && device.includes('NO_CANDIDATE'));
   expectTrue('worker keeps unbound devices unrecoverable', device.includes("COALESCE(d.status, 'bound') = 'bound'") && device.includes('deviceUnboundResponse'));
   expectTrue('worker stores only poll token hash for pending requests', device.includes('pollTokenHash') && device.includes('poll_token_hash') && !device.includes('recoveryPollToken,'));
+  expectTrue('worker records auto recovery as recovery history', device.includes('recordRecoveredDeviceRequest') && device.includes("status, result_device_id") && device.includes('Auto recovered unique macOS device candidate'));
+  expectTrue('worker retains recovery history with cleanup', device.includes('cleanupDeviceRecoveryRequests') && device.includes("status != 'pending'") && device.includes('LIMIT 100'));
 
   expectTrue('profiles route lists recovery requests', profiles.includes('/device-recovery-requests/v1') && profiles.includes('device_recovery_requests_v1 r') && profiles.includes('recoveryRequests'));
   expectTrue('profiles route supports approve/create_new/ignore', profiles.includes("action === 'approve'") && profiles.includes("action === 'create_new'") && profiles.includes("action === 'ignore'"));
+  expectTrue('profiles route returns candidate and result device names', profiles.includes('candidate_device_name') && profiles.includes('result_device_name'));
   expectTrue('device audit classifies recovery endpoints', audit.includes("return 'identity_link'") && audit.includes("return 'device_recovery'"));
 
   expectTrue('cloud sync persists recovery binding on RECOVERED', cloudSync.includes('persistRecoveredBinding') && cloudSync.includes('/device/recover/bootstrap') && cloudSync.includes('/device/recover/status'));
   expectTrue('cloud sync saves pending recovery state', cloudSync.includes('cloud_device_recovery_request_id') && cloudSync.includes('cloud_device_recovery_poll_token') && cloudSync.includes('pending_cloud_confirmation'));
   expectTrue('cloud sync links identity after binding', cloudSync.includes('/device/identity-link') && cloudSync.includes('cloud_chrome_identity_status_v1'));
   expectTrue('cloud sync does not block existing token sync on identity unavailable', cloudSync.includes('if (!syncState.deviceToken) return') && cloudSync.includes('chrome_identity_unavailable'));
+  expectTrue('cloud sync logs recovery lifecycle events', cloudSync.includes('device_recovery_attempt_started') && cloudSync.includes('device_recovery_bootstrap_result') && cloudSync.includes('device_recovery_poll_result') && cloudSync.includes('device_recovery_failed'));
 
   expectTrue('bind/admin include identity metadata in device bind', bind.includes('chromeIdentityId') && bind.includes('platform: getClientPlatform()') && admin.includes('chromeIdentityId') && admin.includes('platform: getClientPlatform()'));
-  expectTrue('local admin displays Chrome identity and recovery status', admin.includes('Chrome 身份与绑定恢复') && admin.includes('cloud_chrome_identity_status_v1') && admin.includes('cloud_device_recovery_state_v1'));
-  expectTrue('cloud Pages display recovery requests', pages.includes('device-recovery-requests') && pages.includes('renderDeviceRecoveryRequests') && pages.includes('恢复到此设备') && pages.includes('作为新设备'));
+  expectTrue('local admin displays Chrome identity and recovery status', admin.includes('Chrome 身份与绑定恢复') && admin.includes('cloud_chrome_identity_status_v1') && admin.includes('cloud_device_recovery_state_v1') && admin.includes('Device Token') && admin.includes('最近轮询') && admin.includes('恢复请求'));
+  expectTrue('cloud Pages display recovery requests and history', pages.includes('device-recovery-requests') && pages.includes('renderDeviceRecoveryRequests') && pages.includes('恢复到此设备') && pages.includes('作为新设备') && pages.includes('待处理恢复请求') && pages.includes('最近恢复历史'));
   expectTrue('privacy policy explains identity.email and no OAuth token use', privacy.includes('identity / identity.email') && privacy.includes('does not call <code>chrome.identity.getAuthToken()</code>') && privacy.includes('non-reversible hash'));
 
   console.log(`\n[Device Recovery] ${passed}/${passed + failed} passed${failed ? ` — ${failed} FAILED` : ''}`);

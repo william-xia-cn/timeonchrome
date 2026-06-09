@@ -89,6 +89,65 @@ async function updateDeviceIdentityMetadata(
   ).run();
 }
 
+async function cleanupDeviceRecoveryRequests(env: Env, profileId: string | null, now: number): Promise<void> {
+  if (!profileId) return;
+  const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+  await env.DB.prepare(
+    `DELETE FROM device_recovery_requests_v1
+     WHERE profile_id = ? AND status != 'pending' AND updated_at < ?`
+  ).bind(profileId, cutoff).run().catch(() => {});
+  await env.DB.prepare(
+    `DELETE FROM device_recovery_requests_v1
+     WHERE profile_id = ? AND status != 'pending' AND id NOT IN (
+       SELECT id FROM device_recovery_requests_v1
+       WHERE profile_id = ? AND status != 'pending'
+       ORDER BY updated_at DESC
+       LIMIT 100
+     )`
+  ).bind(profileId, profileId).run().catch(() => {});
+}
+
+async function recordRecoveredDeviceRequest(
+  env: Env,
+  input: {
+    profileId: string;
+    identityHash: string;
+    platform: string;
+    browser?: string | null;
+    extensionVersion?: string | null;
+    deviceNameHint?: string | null;
+    deviceId: string;
+    message: string;
+    now: number;
+  }
+): Promise<void> {
+  const pollHash = await pollTokenHash(env, generateDeviceToken());
+  await env.DB.prepare(
+    `INSERT INTO device_recovery_requests_v1 (
+      id, profile_id, chrome_identity_hash, platform, browser, extension_version, device_name_hint,
+      candidate_device_id, candidate_count, poll_token_hash, status, result_device_id,
+      result_profile_id, message, created_at, updated_at, decided_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'recovered', ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    crypto.randomUUID(),
+    input.profileId,
+    input.identityHash,
+    input.platform,
+    trimString(input.browser, 64),
+    trimString(input.extensionVersion, 32),
+    trimString(input.deviceNameHint, 128),
+    input.deviceId,
+    pollHash,
+    input.deviceId,
+    input.profileId,
+    input.message,
+    input.now,
+    input.now,
+    input.now
+  ).run();
+  await cleanupDeviceRecoveryRequests(env, input.profileId, input.now);
+}
+
 export const deviceRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
@@ -302,6 +361,7 @@ export const deviceRouter = {
             now,
             now
           ).run();
+          await cleanupDeviceRecoveryRequests(env, candidate.profile_id, now);
           return json({
             success: false,
             status: 'PENDING_CLOUD_CONFIRMATION',
@@ -316,6 +376,17 @@ export const deviceRouter = {
            SET device_token = ?, last_seen = ?, last_recovered_at = ?, recovery_status = 'auto_recovered'
            WHERE id = ? AND COALESCE(status, 'bound') = 'bound'`
         ).bind(newToken, now, now, candidate.id).run();
+        await recordRecoveredDeviceRequest(env, {
+          profileId: candidate.profile_id,
+          identityHash,
+          platform,
+          browser: body.browser,
+          extensionVersion: body.extensionVersion,
+          deviceNameHint: body.deviceNameHint,
+          deviceId: candidate.id,
+          message: 'Auto recovered unique macOS device candidate.',
+          now,
+        }).catch(() => {});
         return json({
           success: true,
           status: 'RECOVERED',
@@ -359,6 +430,7 @@ export const deviceRouter = {
         now,
         now
       ).run();
+      await cleanupDeviceRecoveryRequests(env, candidate.profile_id, now);
       return json({
         success: false,
         status: 'PENDING_CLOUD_CONFIRMATION',

@@ -374,9 +374,10 @@ export const profilesRouter = {
         `SELECT r.id, r.profile_id, r.platform, r.browser, r.extension_version, r.device_name_hint,
                 r.candidate_device_id, r.candidate_count, r.status, r.message, r.created_at,
                 r.updated_at, r.decided_at, r.result_device_id, d.device_name AS candidate_device_name,
-                d.last_seen AS candidate_last_seen
+                d.last_seen AS candidate_last_seen, rd.device_name AS result_device_name
          FROM device_recovery_requests_v1 r
          LEFT JOIN devices d ON d.id = r.candidate_device_id
+         LEFT JOIN devices rd ON rd.id = r.result_device_id
          WHERE r.profile_id = ?
          ORDER BY r.created_at DESC
          LIMIT 50`

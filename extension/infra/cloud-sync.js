@@ -173,6 +173,22 @@ function buildDeviceIdentityPayload(identity) {
   };
 }
 
+function logDeviceRecoveryEvent(level, eventCode, message, details = {}) {
+  logClientEventBestEffort({
+    level,
+    category: 'cloud',
+    eventCode,
+    module: 'infra/cloud-sync',
+    message,
+    details: {
+      platform: getClientPlatform(),
+      deviceId: syncState.deviceId || null,
+      profileId: syncState.profileId || null,
+      ...details,
+    },
+  });
+}
+
 function normalizeConnectionError(error, endpoint) {
   const status = Number(error?.status || 0) || null;
   const code = error?.code || error?.response?.code || null;
@@ -775,6 +791,9 @@ async function linkChromeIdentityIfPossible({ force = false } = {}) {
   const result = await cloudRequest('POST', '/device/identity-link', buildDeviceIdentityPayload(identity), 1);
   await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT]: Date.now() }).catch(() => {});
   await writeChromeIdentityStatus({ available: true, linked: result?.identityLinked !== false, reason: null });
+  logDeviceRecoveryEvent('info', 'device_recovery_identity_linked', 'Chrome profile identity linked for device recovery', {
+    linked: result?.identityLinked !== false,
+  });
   return { ok: true, linked: result?.identityLinked !== false };
 }
 
@@ -833,9 +852,17 @@ async function pollPendingDeviceRecovery() {
   const result = await cloudAnonymousRequest('GET', `/device/recover/status?requestId=${encodeURIComponent(requestId)}&pollToken=${encodeURIComponent(pollToken)}`);
   if (result?.status === 'RECOVERED') {
     await persistRecoveredBinding(result, 'cloud_approved_recovery');
+    logDeviceRecoveryEvent('info', 'device_recovery_poll_result', 'Device recovery polling completed with recovered binding', {
+      status: 'RECOVERED',
+      recoveryRequestId: requestId,
+    });
     return { ok: true, recovered: true };
   }
   await saveRecoveryState({ status: result?.status || 'pending', lastPollAt: Date.now(), lastError: result?.message || null });
+  logDeviceRecoveryEvent('info', 'device_recovery_poll_result', 'Device recovery polling did not return a binding yet', {
+    status: result?.status || 'pending',
+    recoveryRequestId: requestId,
+  });
   return { ok: true, recovered: false, status: result?.status || 'pending' };
 }
 
@@ -856,6 +883,7 @@ async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
   }
 
   await saveRecoveryState({ status: 'attempting', reason, lastAttemptAt: Date.now(), platform: getClientPlatform() });
+  logDeviceRecoveryEvent('info', 'device_recovery_attempt_started', 'Device binding recovery attempt started', { reason });
   const pending = await pollPendingDeviceRecovery().catch(() => null);
   if (pending?.recovered) return pending;
 
@@ -863,12 +891,20 @@ async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
   if (!identity.ok) {
     await writeChromeIdentityStatus({ available: false, reason: identity.reason, error: identity.error || null });
     await saveRecoveryState({ status: 'identity_unavailable', lastError: identity.reason });
+    logDeviceRecoveryEvent('warning', 'device_recovery_identity_unavailable', 'Chrome profile identity unavailable during device recovery', {
+      reason: identity.reason,
+      error: identity.error || null,
+    });
     return { ok: false, reason: identity.reason };
   }
   await writeChromeIdentityStatus({ available: true, reason: null });
 
   try {
     const result = await cloudAnonymousRequest('POST', '/device/recover/bootstrap', buildDeviceIdentityPayload(identity));
+    logDeviceRecoveryEvent(result?.status === 'RECOVERED' ? 'info' : 'warning', 'device_recovery_bootstrap_result', 'Device recovery bootstrap returned a result', {
+      status: result?.status || result?.code || 'unknown',
+      recoveryRequestId: result?.recoveryRequestId || null,
+    });
     if (result?.status === 'RECOVERED') {
       await persistRecoveredBinding(result, 'auto_recovery');
       return { ok: true, recovered: true };
@@ -879,6 +915,9 @@ async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
         [CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN]: result.recoveryPollToken || null,
       }).catch(() => {});
       await saveRecoveryState({ status: 'pending_cloud_confirmation', recoveryRequestId: result.recoveryRequestId || null, lastError: null });
+      logDeviceRecoveryEvent('warning', 'device_recovery_pending_cloud_confirmation', 'Device recovery is waiting for cloud confirmation', {
+        recoveryRequestId: result.recoveryRequestId || null,
+      });
       return { ok: true, recovered: false, status: 'pending_cloud_confirmation' };
     }
     if (result?.status === 'DEVICE_UNBOUND' || result?.code === 'DEVICE_UNBOUND') {
@@ -889,6 +928,9 @@ async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
     return { ok: false, reason: result?.code || result?.status || 'not_recovered' };
   } catch (error) {
     await saveRecoveryState({ status: 'failed', lastError: error?.message || String(error) });
+    logDeviceRecoveryEvent('error', 'device_recovery_failed', 'Device recovery request failed', {
+      error: error?.message || String(error),
+    });
     return { ok: false, reason: 'recovery_failed', error: error?.message || String(error) };
   }
 }

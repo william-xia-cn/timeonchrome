@@ -5064,6 +5064,24 @@ function deviceStatusInfo(lastSeen) {
   return { cls: 'offline', text: '可能失联', time: `${ago}，设备可能离线或 Chrome 未运行` };
 }
 
+function deviceRecoveryStatusLabel(status) {
+  const value = String(status || '').trim();
+  const map = {
+    identity_linked: '身份已记录',
+    auto_recovered: '已自动恢复',
+    cloud_approved_recovered: '云端确认恢复',
+    cloud_approved_new: '已作为新设备恢复',
+    pending: '等待云端确认',
+    approved: '已批准，等待终端领取',
+    approved_new: '已批准作为新设备，等待终端领取',
+    recovered: '已恢复',
+    ignored: '已忽略',
+    expired: '已过期',
+    failed: '恢复失败',
+  };
+  return map[value] || value || '正常';
+}
+
 async function renderDevicesPage() {
   if (!currentProfileId) return;
   const c = document.getElementById('devices-list');
@@ -5097,6 +5115,7 @@ async function renderDevicesPage() {
         d.platform ? `平台：${escHtml(d.platform)}` : '',
         d.browser ? `浏览器：${escHtml(d.browser)}` : '',
         identityLinked ? 'Chrome 身份已记录' : 'Chrome 身份未记录',
+        d.recovery_status ? `恢复状态：${escHtml(deviceRecoveryStatusLabel(d.recovery_status))}` : '',
         recoveredAt ? `最近恢复：${escHtml(recoveredAt)}` : '',
       ].filter(Boolean).join(' · ');
       const safeName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -5135,32 +5154,21 @@ async function renderDeviceRecoveryRequests() {
   panel.innerHTML = '<div class="empty"><div class="icon">⏳</div>正在读取设备恢复请求...</div>';
   const result = await api(`/profiles/${currentProfileId}/device-recovery-requests/v1`);
   const requests = Array.isArray(result.recoveryRequests) ? result.recoveryRequests : [];
-  const visible = requests.filter((r) => r.status === 'pending').slice(0, 20);
-  if (!visible.length) {
-    panel.innerHTML = `
-      <div class="card" style="margin-top:12px;">
-        <div class="card-header">
-          <div>
-            <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">设备恢复请求</div>
-            <div class="card-subtitle">当前没有等待云端确认的设备恢复请求。</div>
-          </div>
-        </div>
-      </div>
-    `;
-    return;
-  }
-  const rows = visible.map((r) => {
+  const pending = requests.filter((r) => r.status === 'pending').slice(0, 20);
+  const history = requests.filter((r) => r.status !== 'pending').slice(0, 20);
+  const renderRequestSource = (r) => [r.platform, r.browser, r.extension_version].filter(Boolean).join(' · ') || '—';
+  const pendingRows = pending.map((r) => {
     const createdAt = r.created_at ? new Date(Number(r.created_at)).toLocaleString('zh-CN') : '—';
     const candidate = r.candidate_device_name || r.candidate_device_id || '—';
-    const platform = [r.platform, r.browser, r.extension_version].filter(Boolean).join(' · ') || '—';
     const hint = r.device_name_hint || '—';
     return `
       <tr>
         <td>${escHtml(createdAt)}</td>
-        <td>${escHtml(platform)}</td>
+        <td>${escHtml(renderRequestSource(r))}</td>
         <td>${escHtml(hint)}</td>
         <td>${escHtml(candidate)}</td>
-        <td>${escHtml(r.status || 'pending')}</td>
+        <td>${escHtml(r.candidate_count || 0)}</td>
+        <td>${escHtml(deviceRecoveryStatusLabel(r.status || 'pending'))}</td>
         <td style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="device-btn" onclick="handleDeviceRecoveryRequest('${escHtml(r.id)}','approve','${escHtml(r.candidate_device_id || '')}')">恢复到此设备</button>
           <button class="device-btn" onclick="handleDeviceRecoveryRequest('${escHtml(r.id)}','create_new','')">作为新设备</button>
@@ -5169,20 +5177,61 @@ async function renderDeviceRecoveryRequests() {
       </tr>
     `;
   }).join('');
-  panel.innerHTML = `
+  const historyRows = history.map((r) => {
+    const createdAt = r.created_at ? new Date(Number(r.created_at)).toLocaleString('zh-CN') : '—';
+    const updatedAt = r.updated_at ? new Date(Number(r.updated_at)).toLocaleString('zh-CN') : '—';
+    const candidate = r.candidate_device_name || r.candidate_device_id || '—';
+    const resultDevice = r.result_device_name || r.result_device_id || '—';
+    return `
+      <tr>
+        <td>${escHtml(createdAt)}</td>
+        <td>${escHtml(updatedAt)}</td>
+        <td>${escHtml(renderRequestSource(r))}</td>
+        <td>${escHtml(candidate)}</td>
+        <td>${escHtml(resultDevice)}</td>
+        <td>${escHtml(deviceRecoveryStatusLabel(r.status))}</td>
+        <td>${escHtml(r.message || '—')}</td>
+      </tr>
+    `;
+  }).join('');
+  const pendingHtml = pendingRows ? `
     <div class="card" style="margin-top:12px;">
       <div class="card-header">
         <div>
-          <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">设备恢复请求</div>
+          <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">待处理恢复请求</div>
           <div class="card-subtitle">扩展重装后无法找到本地 device token 时，可在这里确认是否恢复到原设备。</div>
         </div>
       </div>
       <table class="data-table">
-        <thead><tr><th>时间</th><th>来源</th><th>设备提示</th><th>候选设备</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>${rows}</tbody>
+        <thead><tr><th>时间</th><th>来源</th><th>设备提示</th><th>候选设备</th><th>候选数</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${pendingRows}</tbody>
       </table>
     </div>
+  ` : `
+    <div class="card" style="margin-top:12px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">待处理恢复请求</div>
+          <div class="card-subtitle">当前没有等待云端确认的设备恢复请求。</div>
+        </div>
+      </div>
+    </div>
   `;
+  const historyHtml = historyRows ? `
+    <div class="card" style="margin-top:12px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/cloud-sync.svg" alt="">最近恢复历史</div>
+          <div class="card-subtitle">显示自动恢复、云端确认、忽略、作为新设备等最近结果。</div>
+        </div>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>请求时间</th><th>更新时间</th><th>来源</th><th>候选设备</th><th>结果设备</th><th>状态</th><th>说明</th></tr></thead>
+        <tbody>${historyRows}</tbody>
+      </table>
+    </div>
+  ` : '';
+  panel.innerHTML = pendingHtml + historyHtml;
 }
 
 window.handleDeviceRecoveryRequest = async function(requestId, action, deviceId = '') {
@@ -5207,15 +5256,32 @@ function summarizeDeviceAccessAudit(rows) {
   const lastSuccess = rows.find((row) => Number(row.status || 0) >= 200 && Number(row.status || 0) < 400);
   const lastFailure = rows.find((row) => Number(row.status || 0) >= 400);
   const latest = rows[0] || null;
+  const lastIdentityLink = rows.find((row) => row.request_kind === 'identity_link');
+  const lastRecovery = rows.find((row) => row.request_kind === 'device_recovery');
+  const lastHeartbeat = rows.find((row) => row.request_kind === 'heartbeat');
+  const lastRecoverBootstrap = rows.find((row) => row.request_kind === 'device_recovery' && String(row.endpoint || '').includes('/bootstrap'));
+  const lastRecoverStatus = rows.find((row) => row.request_kind === 'device_recovery' && String(row.endpoint || '').includes('/status'));
+  let conclusion = '最近没有任何请求到达云端';
+  if (latest) conclusion = '终端请求已到达云端';
+  if (lastRecovery && String(lastRecovery.result_code || '').includes('PENDING_CLOUD_CONFIRMATION')) conclusion = '终端正在等待云端确认';
+  if (lastRecovery && String(lastRecovery.result_code || '').includes('RECOVERED')) conclusion = '终端已恢复连接';
+  if (lastRecovery && Number(lastRecovery.status || 0) >= 400) conclusion = '终端请求失败，请查看错误状态';
+  if (lastRecovery && !lastSuccess && Number(lastRecovery.status || 0) < 400) conclusion = '终端正在尝试恢复绑定';
   return {
     latest,
     lastSuccess,
     lastFailure,
+    lastIdentityLink,
+    lastRecovery,
+    lastHeartbeat,
+    lastRecoverBootstrap,
+    lastRecoverStatus,
     reachedCloud: rows.length > 0,
+    conclusion,
   };
 }
 
-window.renderDeviceAccessAudit = async function(deviceId, deviceName = '') {
+window.renderDeviceAccessAudit = async function(deviceId, deviceName = '', filterKind = 'all') {
   const panel = document.getElementById('device-audit-panel');
   if (!panel || !currentProfileId) return;
   panel.innerHTML = '<div class="empty"><div class="icon">⏳</div>正在读取连接诊断...</div>';
@@ -5225,6 +5291,7 @@ window.renderDeviceAccessAudit = async function(deviceId, deviceName = '') {
     const rows = Array.isArray(result.audits) ? result.audits : [];
     const summary = summarizeDeviceAccessAudit(rows);
     const safeDeviceName = escHtml(deviceName || rows[0]?.device_name || deviceId);
+    const safeDeviceNameArg = String(deviceName || rows[0]?.device_name || deviceId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
     if (!rows.length) {
       panel.innerHTML = `
         <div class="card" style="margin-top:12px;">
@@ -5238,7 +5305,23 @@ window.renderDeviceAccessAudit = async function(deviceId, deviceName = '') {
       `;
       return;
     }
-    const rowsHtml = rows.slice(0, 20).map((row) => {
+    const filterOptions = [
+      ['all', '全部'],
+      ['heartbeat', 'heartbeat'],
+      ['config', 'config'],
+      ['identity_link', 'identity_link'],
+      ['device_recovery', 'device_recovery'],
+      ['failure', '失败'],
+    ];
+    const filteredRows = rows.filter((row) => {
+      if (filterKind === 'all') return true;
+      if (filterKind === 'failure') return Number(row.status || 0) >= 400;
+      return row.request_kind === filterKind;
+    });
+    const filterHtml = filterOptions.map(([kind, label]) => `
+      <button class="device-btn ${filterKind === kind ? 'primary' : ''}" onclick="renderDeviceAccessAudit('${escHtml(deviceId)}','${escHtml(safeDeviceNameArg)}','${kind}')">${label}</button>
+    `).join('');
+    const rowsHtml = filteredRows.slice(0, 20).map((row) => {
       const status = Number(row.status || 0);
       const statusColor = status >= 500 ? 'var(--danger)' : (status >= 400 ? 'var(--warn)' : 'var(--green)');
       return `
@@ -5266,10 +5349,16 @@ window.renderDeviceAccessAudit = async function(deviceId, deviceName = '') {
           <div>最后成功<br><strong style="color:var(--green);">${escHtml(formatDeviceAuditTime(summary.lastSuccess?.timestamp))}</strong></div>
           <div>最后失败<br><strong style="color:${summary.lastFailure ? 'var(--danger)' : 'var(--muted)'};">${escHtml(formatDeviceAuditTime(summary.lastFailure?.timestamp))}</strong></div>
           <div>请求到达云端<br><strong style="color:var(--text);">${summary.reachedCloud ? '是' : '否'}</strong></div>
+          <div>最近 identity link<br><strong style="color:var(--text);">${escHtml(formatDeviceAuditTime(summary.lastIdentityLink?.timestamp))}</strong></div>
+          <div>最近 recover bootstrap<br><strong style="color:var(--text);">${escHtml(formatDeviceAuditTime(summary.lastRecoverBootstrap?.timestamp))}</strong></div>
+          <div>最近 recover status<br><strong style="color:var(--text);">${escHtml(formatDeviceAuditTime(summary.lastRecoverStatus?.timestamp))}</strong></div>
+          <div>最近 heartbeat<br><strong style="color:var(--text);">${escHtml(formatDeviceAuditTime(summary.lastHeartbeat?.timestamp))}</strong></div>
+          <div style="grid-column:1/-1;">诊断结论<br><strong style="color:var(--text);">${escHtml(summary.conclusion)}</strong></div>
         </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${filterHtml}</div>
         <table class="data-table">
           <thead><tr><th>时间</th><th>类型</th><th>接口</th><th>状态</th><th>鉴权</th><th>结果</th><th>版本</th></tr></thead>
-          <tbody>${rowsHtml}</tbody>
+          <tbody>${rowsHtml || '<tr><td colspan="7" style="color:var(--muted);">当前筛选没有记录</td></tr>'}</tbody>
         </table>
       </div>
     `;
