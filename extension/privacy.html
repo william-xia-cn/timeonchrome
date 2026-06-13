@@ -64,15 +64,21 @@
 </head>
 <body>
     <h1>Privacy Policy for TimeOnChrome</h1>
-    <p><strong>Last Updated:</strong> June 8, 2026</p>
+    <p><strong>Last Updated:</strong> June 14, 2026</p>
 
     <p>TimeOnChrome is a browser extension for family-managed Chrome usage. It helps parents and guardians manage study, composite, rest, and restricted browsing, review website classification requests, view usage statistics, and diagnose sync or timing issues.</p>
 
     <div class="notice">
-        <p><strong>Summary:</strong> TimeOnChrome handles browsing activity and device usage data only to provide its time-management, access-management, statistics, diagnostics, and optional cloud sync features. TimeOnChrome does not sell user data, does not use user data for advertising, and does not share user data with data brokers or advertising platforms.</p>
+        <p><strong>Prominent Disclosure:</strong> TimeOnChrome processes browsing usage metadata so it can provide its core family time-management features. This includes visited domains or configured site targets, usage start and end times, duration, current mode, website classification requests, device sync status, media usage metadata, diagnostic logs, and account/session data for optional cloud sync. Parents or guardians associated with a child profile can view and manage that profile's rules, device state, classification requests, usage statistics, and diagnostics.</p>
+        <p>TimeOnChrome does not sell user data, does not use user data for advertising, and does not share user data with data brokers or advertising platforms. It does not collect page body content, form input, private messages, comments, passwords, payment details, site cookies, Google OAuth tokens, or raw Chrome profile identity values.</p>
     </div>
 
-    <h2>1. Data We Collect Or Process</h2>
+    <h2>1. User Consent And When Collection Starts</h2>
+    <p>Installing and enabling TimeOnChrome means the extension may begin processing local browsing usage metadata that is required for its user-facing time-management, access-management, reminder, statistics, and diagnostic features. The Chrome Web Store listing and this Privacy Policy provide the disclosure before installation.</p>
+    <p>Cloud sync is optional and starts only after a parent or guardian signs in and binds a child terminal to a cloud profile. After cloud sync is enabled, selected configuration, usage, request, device, and diagnostic records are sent to the TimeOnChrome cloud service so the parent or guardian can manage the child profile from the cloud console.</p>
+    <p>Users can stop future local collection by disabling or uninstalling the extension. Parents or guardians can stop cloud sync for a terminal by unbinding the device in the cloud console. Clearing Chrome extension data removes local TimeOnChrome data from that Chrome profile, but it may also remove local binding state and require reconfiguration or recovery.</p>
+
+    <h2>2. Data We Collect Or Process</h2>
     <p>TimeOnChrome collects or processes the minimum data needed to provide its user-facing functionality.</p>
 
     <table>
@@ -80,49 +86,65 @@
             <tr>
                 <th>Data category</th>
                 <th>Examples</th>
+                <th>When collected</th>
                 <th>Purpose</th>
+                <th>Storage and sharing</th>
             </tr>
         </thead>
         <tbody>
             <tr>
                 <td>Browsing and usage activity</td>
                 <td>Domain names, configured site targets, normalized website or YouTube playlist/video rules, usage start and end times, usage duration, current mode, and access-control result.</td>
+                <td>When Chrome tabs are used while the extension is enabled.</td>
                 <td>To calculate usage time, apply study/rest/composite rules, enforce quotas and schedules, and show usage analysis.</td>
+                <td>Stored locally in Chrome extension storage. If cloud sync is enabled, selected records may be uploaded to the TimeOnChrome cloud service and shown to the parent or guardian for the child profile.</td>
             </tr>
             <tr>
                 <td>Website classification requests</td>
                 <td>User-submitted website, domain, subdomain, URL, or canonical YouTube playlist/video URL; approval status; parent decision.</td>
+                <td>When a child submits a classification request or when a parent reviews it.</td>
                 <td>To let a child request classification of an unclassified website and let a parent approve, reject, or classify it.</td>
+                <td>Stored locally and, when cloud sync is enabled, in the cloud profile so the parent or guardian can review and decide the request.</td>
             </tr>
             <tr>
                 <td>Configuration data</td>
                 <td>Study/composite/restricted/blocked site lists, URL rules, quotas, mode time windows, logging policy, and import/export configuration.</td>
+                <td>When a parent or guardian configures TimeOnChrome locally or in the cloud console.</td>
                 <td>To provide access management, quota management, time-window control, and configuration backup/restore.</td>
+                <td>Stored locally and, when cloud sync is enabled, in the cloud profile. Exported configuration files are created only when the user chooses to export them.</td>
             </tr>
             <tr>
                 <td>Device and profile data</td>
                 <td>Parent account email, child profile name, device name, device ID, platform/browser label, device binding status, last sync/heartbeat time, and a non-reversible hash of the Chrome profile account identifier when available.</td>
+                <td>When a parent signs in, creates or selects a child profile, binds a terminal, or when a bound terminal sends heartbeat/sync/recovery requests.</td>
                 <td>To authenticate parent access, bind child terminals, sync configuration, show device connection status, and help recover a macOS or Windows child terminal binding after the extension is reinstalled.</td>
+                <td>Stored locally for the bound terminal and in the cloud account/profile. The raw Chrome profile account identifier is not stored; only a server-side keyed non-reversible hash is used for recovery matching.</td>
             </tr>
             <tr>
                 <td>Media usage metadata</td>
                 <td>Media usage class such as foreground/background audio or video, source domain or configured target, duration, and timing information.</td>
+                <td>When media playback state is observed while the extension is enabled.</td>
                 <td>To separate media usage from ordinary foreground web usage and show media statistics.</td>
+                <td>Stored locally. If cloud sync is enabled, selected media usage records may be uploaded for parent-visible usage analysis.</td>
             </tr>
             <tr>
                 <td>Diagnostic logs</td>
                 <td>Error codes, checkpoint health, ledger-gap status, mode-transition audit IDs, sync endpoint category, app version, request ID, and sanitized details.</td>
+                <td>When TimeOnChrome detects sync, timing, access, mode-switching, or recovery events that need troubleshooting.</td>
                 <td>To diagnose timing settlement, sync, mode switching, access control, and device connection problems.</td>
+                <td>Stored locally. Warning/error summaries may be uploaded if cloud diagnostics are enabled. Logs are sanitized and are not intended to contain passwords, tokens, full page content, form input, or raw Chrome identity.</td>
             </tr>
             <tr>
                 <td>Authentication and session data</td>
                 <td>Account access tokens, refresh tokens, device tokens, and token status.</td>
+                <td>When a parent signs in, a device is bound, a session is refreshed, or a bound terminal syncs.</td>
                 <td>To keep parent sessions and device bindings working securely. Passwords are not stored in reversible form by new clients.</td>
+                <td>Stored locally for session/device operation and stored server-side as token records or token hashes as needed. Tokens are not shared with third parties and are not shown in logs or UI.</td>
             </tr>
         </tbody>
     </table>
 
-    <h2>2. Data We Do Not Collect</h2>
+    <h2>3. Data We Do Not Collect</h2>
     <p>TimeOnChrome does not intentionally collect or store:</p>
     <ul>
         <li>Page content, comments, private messages, form contents, or typed text.</li>
@@ -130,9 +152,10 @@
         <li>Cookies from visited websites.</li>
         <li>Advertising identifiers.</li>
         <li>Personalized advertising data.</li>
+        <li>Google OAuth access tokens or raw Chrome profile identity values.</li>
     </ul>
 
-    <h2>3. How We Use And Process Data</h2>
+    <h2>4. How We Use And Process Data</h2>
     <p>TimeOnChrome uses collected data only for the following product purposes:</p>
     <ul>
         <li>Classifying websites and applying parent-defined access rules.</li>
@@ -146,7 +169,7 @@
 
     <p>TimeOnChrome does not use user data for advertising, user profiling for advertising, sale of data, creditworthiness, or unrelated analytics.</p>
 
-    <h2>4. Local Storage And Cloud Storage</h2>
+    <h2>5. Local Storage And Cloud Storage</h2>
 
     <h3>Local storage</h3>
     <p>The extension stores configuration, device binding state, usage ledgers, usage statistics, media statistics, and diagnostic logs in Chrome extension storage on the local device.</p>
@@ -159,8 +182,9 @@
 
     <h3>Retention</h3>
     <p>Configuration, profile, device, usage, and request data are retained while the parent account/profile is active or until the user deletes or replaces the relevant data. Diagnostic logs and device access audit records may be kept on a limited rolling basis for troubleshooting and abuse prevention.</p>
+    <p>Parents or guardians can delete or replace configuration through the product UI, unbind devices, export or import configuration, and request deletion by using the support channel listed on the Chrome Web Store item or project repository. Local Chrome extension data can also be removed by clearing extension data or uninstalling the extension from the Chrome profile.</p>
 
-    <h2>5. Data Sharing</h2>
+    <h2>6. Data Sharing</h2>
     <p>TimeOnChrome does not sell, rent, or trade user data. TimeOnChrome does not share user data with advertising networks, data brokers, or information resellers.</p>
 
     <p>User data may be shared only in these limited situations:</p>
@@ -171,13 +195,13 @@
         <li><strong>User-directed export/import:</strong> A parent may export configuration or backup data and later import it. The user controls where exported files are stored or shared.</li>
     </ul>
 
-    <h2>6. Human Access To User Data</h2>
+    <h2>7. Human Access To User Data</h2>
     <p>TimeOnChrome is designed so ordinary product operation is automated. Human access to user data is limited to cases where it is necessary for support requested by the user, security investigation, abuse prevention, legal compliance, or operation of the service.</p>
 
-    <h2>7. Incognito Handling</h2>
+    <h2>8. Incognito Handling</h2>
     <p>In incognito windows, TimeOnChrome may briefly read the current URL or domain at runtime to apply existing access rules. For unclassified, unmanaged, or fallback incognito browsing, persistent records are sanitized before durable local storage or cloud upload so the real domain, URL, title, YouTube resource, and media source are not saved. Approved or explicitly configured managed targets may still be attributed to their configured target where needed to enforce parent-defined rules.</p>
 
-    <h2>8. Security</h2>
+    <h2>9. Security</h2>
     <ul>
         <li>Cloud communication uses HTTPS.</li>
         <li>Device sync uses device tokens; parent account sessions use account and refresh tokens.</li>
@@ -186,7 +210,7 @@
         <li>Diagnostic logs are sanitized and are not intended to store passwords, tokens, cookies, or full private page content.</li>
     </ul>
 
-    <h2>9. Chrome Permissions</h2>
+    <h2>10. Chrome Permissions</h2>
     <p>TimeOnChrome requests the following Chrome permissions for its core features:</p>
     <ul>
         <li><strong>&lt;all_urls&gt;:</strong> Needed to observe the current website, apply access-management rules, show reminders, and calculate usage time across arbitrary browsing destinations.</li>
@@ -202,22 +226,23 @@
 
     <p>TimeOnChrome does not request the <strong>scripting</strong>, <strong>management</strong>, or <strong>declarativeNetRequestFeedback</strong> permissions.</p>
 
-    <h2>10. User Controls</h2>
+    <h2>11. User Controls</h2>
     <ul>
         <li>Users can disable or remove the extension from Chrome.</li>
         <li>Parents can edit website rules, quotas, time windows, and child profile settings.</li>
         <li>Parents can unbind devices from the cloud console.</li>
+        <li>Parents can delete or replace profile configuration and request deletion through the support channel.</li>
         <li>Parents can export and import configuration data.</li>
         <li>Users can clear local extension data through Chrome, but doing so may remove local binding and configuration state.</li>
     </ul>
 
-    <h2>11. Limited Use Statement</h2>
+    <h2>12. Limited Use Statement</h2>
     <p>The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.</p>
 
-    <h2>12. Changes To This Policy</h2>
+    <h2>13. Changes To This Policy</h2>
     <p>We may update this Privacy Policy from time to time. The updated policy will be posted at the privacy policy URL provided in the Chrome Web Store Developer Dashboard and may also be included in the extension package.</p>
 
-    <h2>13. Contact</h2>
+    <h2>14. Contact</h2>
     <p>If you have questions about this Privacy Policy, please contact the developer through the support channel listed on the Chrome Web Store item or the project's repository.</p>
 
     <div class="footer">

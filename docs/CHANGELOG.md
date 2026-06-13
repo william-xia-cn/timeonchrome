@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- **CWS Purple Nickel privacy remediation**: public privacy policy and v1.7.6 Chrome Web Store materials now include a prominent user-data disclosure near the top, explicit consent/collection-start language, detailed collection/use/storage/sharing/retention/deletion coverage, and an `identity.email` explanation that confirms no OAuth, no raw Chrome identity storage, and server-side HMAC hashing only.
+
 ---
 
 ## [1.7.6] — 2026-06-09
