@@ -75,3 +75,14 @@ The source privacy page is fixed, but Chrome Web Store compliance also depends o
 - the public URL returning HTTP 200 and the latest policy content;
 - the CWS listing and privacy/data-use fields matching the public policy;
 - stopping at the final submit confirmation until the Product Owner confirms resubmission.
+
+## v1.7.7 Follow-up After Second Purple Nickel Rejection
+
+The metadata-only v1.7.6 resubmission was rejected again. The concrete packaging gap found afterward was that `dist/cws-v1.7.6-20260609-182055/timeonchrome-v1.7.6-cws.zip` still contained the old `privacy.html`; the public policy and dashboard metadata had been updated later, but the submitted package did not contain the same policy text.
+
+The v1.7.7 remediation therefore uses a new package upload instead of metadata-only resubmission:
+
+- `extension/privacy.html` is Chinese-first and includes prominent disclosure in the first screen.
+- The policy explicitly covers collection, processing, storage, sharing, retention/deletion controls, cloud sync start conditions, user stop controls, and `identity.email` no-OAuth/no-raw-identity boundaries.
+- The CWS ZIP contains the updated `privacy.html`.
+- The listing copy, reviewer notes, CWS privacy fields, and public privacy policy URL must be kept consistent with the package policy.
