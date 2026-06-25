@@ -10,6 +10,35 @@ let accountRefreshToken = null;
 let profiles = [];
 let selectedProfileId = null;
 
+const PRIVACY_CONSENT_KEY = 'privacy_consent_v1';
+const PRIVACY_POLICY_VERSION = '2026-06-22';
+
+async function hasPrivacyConsent() {
+  try {
+    const storage = await chrome.storage.local.get([PRIVACY_CONSENT_KEY]);
+    const record = storage?.[PRIVACY_CONSENT_KEY];
+    return record?.accepted === true && record?.policyVersion === PRIVACY_POLICY_VERSION;
+  } catch (_) {
+    return false;
+  }
+}
+
+function getPrivacyConsentUrl() {
+  return chrome.runtime.getURL('privacy-consent.html?reason=bind&next=bind.html%3Fwelcome%3D1');
+}
+
+function showPrivacyConsentRequired() {
+  const error = document.getElementById('error1');
+  const btnLogin = document.getElementById('btnLogin');
+  if (error) {
+    error.innerHTML = '隐私与数据使用说明待确认。<button type="button" id="openPrivacyConsentBtn" style="margin-left:8px;">查看并同意</button>';
+    error.classList.add('show');
+    const openBtn = document.getElementById('openPrivacyConsentBtn');
+    if (openBtn) openBtn.addEventListener('click', () => { location.href = getPrivacyConsentUrl(); });
+  }
+  if (btnLogin) btnLogin.disabled = true;
+}
+
 function getClientPlatform() {
   const raw = (navigator.userAgentData?.platform || navigator.platform || '').toString().toLowerCase();
   if (/mac/.test(raw)) return 'macos';
@@ -21,6 +50,7 @@ function getClientPlatform() {
 
 async function getChromeIdentityPayload() {
   try {
+    if (!(await hasPrivacyConsent())) return {};
     if (!chrome.identity?.getProfileUserInfo) return {};
     const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
     const id = typeof info?.id === 'string' ? info.id.trim() : '';
@@ -31,7 +61,11 @@ async function getChromeIdentityPayload() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!(await hasPrivacyConsent())) {
+    showPrivacyConsentRequired();
+    return;
+  }
   // 绑定登录按钮事件
   const btnLogin = document.getElementById('btnLogin');
   if (btnLogin) {
@@ -40,6 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function doLogin() {
+  if (!(await hasPrivacyConsent())) {
+    showPrivacyConsentRequired();
+    return;
+  }
   const email = document.getElementById('email').value.trim().toLowerCase();
   const password = document.getElementById('password').value;
   const btn = document.getElementById('btnLogin');

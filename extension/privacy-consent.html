@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeOnChrome · 隐私与数据使用说明</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0faf6;
+      color: #14372d;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+    }
+    .shell {
+      width: min(760px, 100%);
+      background: #fff;
+      border: 1px solid rgba(0, 184, 148, 0.16);
+      border-radius: 18px;
+      box-shadow: 0 12px 40px rgba(15, 46, 36, 0.08);
+      padding: 30px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .brand img {
+      width: 48px;
+      height: 48px;
+      border-radius: 13px;
+    }
+    h1 {
+      font-size: 24px;
+      margin: 0 0 4px;
+      color: #0f2e24;
+    }
+    .subtitle {
+      margin: 0;
+      color: #6b8a7a;
+      font-size: 14px;
+    }
+    .notice {
+      border: 1px solid rgba(0, 184, 148, 0.18);
+      background: rgba(0, 184, 148, 0.06);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 18px;
+    }
+    h2 {
+      font-size: 16px;
+      margin: 20px 0 8px;
+      color: #164b3c;
+    }
+    p, li {
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    ul {
+      padding-left: 20px;
+      margin: 8px 0 0;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: flex-end;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+    .link {
+      color: #00836a;
+      text-decoration: none;
+      font-size: 13px;
+      margin-right: auto;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .primary {
+      background: linear-gradient(135deg, #00b894, #00cba9);
+      color: #fff;
+    }
+    .secondary {
+      background: rgba(0, 184, 148, 0.08);
+      color: #34675a;
+    }
+    .status {
+      display: none;
+      margin-top: 12px;
+      color: #b45309;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="brand">
+      <img src="icons/app-icon.png" alt="TimeOnChrome">
+      <div>
+        <h1>TimeOnChrome 隐私与数据使用说明</h1>
+        <p class="subtitle">请先阅读并同意，再启用计时、访问管理、云同步和设备恢复。</p>
+      </div>
+    </div>
+
+    <section class="notice">
+      <p><strong>显著披露：</strong>TimeOnChrome 会处理浏览使用元数据，用于家庭上网时间管理、网站归类、访问规则、使用统计、提醒、诊断和可选云同步。</p>
+      <p>在你点击下方同意按钮之前，TimeOnChrome 不会启动新的网页计时落账、媒体计时、云同步、诊断日志上传或 Chrome 身份恢复。</p>
+    </section>
+
+    <h2>会处理哪些数据</h2>
+    <ul>
+      <li>访问域名或家长配置的管理对象、开始/结束时间、使用时长、当前模式和访问控制结果。</li>
+      <li>网站归类申请、家长审批结果、配额、时间段和访问规则配置。</li>
+      <li>设备绑定状态、同步状态、诊断日志、媒体使用元数据和可选云同步所需的账户/会话状态。</li>
+      <li><code>identity.email</code> 仅用于调用 <code>chrome.identity.getProfileUserInfo()</code>，帮助 macOS / Windows 扩展重装后恢复原设备绑定；不使用 Google OAuth，不保存 Google token，不保存原始 Chrome 身份标识。</li>
+    </ul>
+
+    <h2>何时本地记录，何时上传云端</h2>
+    <p>同意后才开始在本机处理和保存核心计时、访问管理和诊断数据；绑定云端后才会上传配置、使用记录、申请、设备和诊断摘要到 TimeOnChrome 云端服务。</p>
+
+    <h2>谁可以看到，如何共享</h2>
+    <p>绑定云端后，与该子用户档案关联的家长或监护人可以在云端控制台查看和管理规则、设备状态、网站归类申请、使用统计和诊断信息。云端基础设施由 Cloudflare 提供。TimeOnChrome 不出售用户数据，不用于广告，也不与广告平台或数据经纪商共享。</p>
+
+    <h2>不会收集的内容</h2>
+    <p>TimeOnChrome 不收集网页正文、表单输入、聊天或评论内容、密码、支付信息、网站 Cookie、Google OAuth token 或原始 Chrome profile 身份标识。</p>
+
+    <h2>停止和删除</h2>
+    <p>你可以禁用或卸载扩展来停止后续本地记录。家长可以在云端解绑设备以停止同步，也可以删除或替换档案配置，并通过支持渠道请求删除云端数据。</p>
+
+    <div class="actions">
+      <a class="link" id="privacy-link" href="privacy.html" target="_blank" rel="noopener">查看完整隐私权政策</a>
+      <button class="secondary" id="decline-btn" type="button">暂不启用</button>
+      <button class="primary" id="accept-btn" type="button">我已阅读并同意，启用 TimeOnChrome</button>
+    </div>
+    <div class="status" id="status"></div>
+  </main>
+  <script type="module" src="privacy-consent.js"></script>
+</body>
+</html>
+

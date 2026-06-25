@@ -377,13 +377,27 @@ function renderCloudBindingNotice(cloudStatus = {}) {
   const banner = document.getElementById('unbound-banner');
   const content = document.getElementById('popup-content');
   const adminBtn = document.getElementById('goto-admin-btn');
+  const titleEl = banner ? banner.querySelector('div:first-child') : null;
+  const bodyEl = banner ? banner.querySelector('div:nth-child(2)') : null;
+  const needsConsent = cloudStatus?.reason === 'privacy_consent_required';
   const isLocalMode = !!cloudStatus && !cloudStatus.isBound;
 
   if (banner) banner.style.display = isLocalMode ? 'block' : 'none';
   if (content) content.style.display = 'block';
+  if (titleEl) titleEl.textContent = needsConsent ? '隐私与数据使用说明待确认' : '本地模式';
+  if (bodyEl) {
+    bodyEl.textContent = needsConsent
+      ? '同意后才会启用计时、云同步、诊断上传和设备恢复。'
+      : '当前未绑定云端，数据仅保存在本机。';
+  }
   if (adminBtn) {
+    adminBtn.textContent = needsConsent ? '查看并同意' : '打开管理中心';
     adminBtn.onclick = () => {
-      chrome.tabs.create({ url: chrome.runtime.getURL('admin/admin.html?view=stats') });
+      chrome.tabs.create({
+        url: needsConsent
+          ? chrome.runtime.getURL('privacy-consent.html?reason=popup&next=popup.html')
+          : chrome.runtime.getURL('admin/admin.html?view=stats'),
+      });
     };
   }
 }

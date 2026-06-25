@@ -47,6 +47,7 @@ import {
   sanitizeClientLogForUpload,
   logClientEventBestEffort,
 } from './client-logs.js';
+import { hasPrivacyConsent } from '../core/privacy-consent.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -140,6 +141,9 @@ function getClientBrowserName() {
 
 async function getChromeProfileIdentity() {
   try {
+    if (!(await hasPrivacyConsent())) {
+      return { ok: false, reason: 'privacy_consent_required' };
+    }
     if (!chrome.identity?.getProfileUserInfo) {
       return { ok: false, reason: 'identity_api_unavailable' };
     }
@@ -769,6 +773,7 @@ async function cloudAnonymousRequest(method, path, body = null) {
 }
 
 async function linkChromeIdentityIfPossible({ force = false } = {}) {
+  if (!(await hasPrivacyConsent())) return { ok: false, skipped: true, reason: 'privacy_consent_required' };
   if (!syncState.deviceToken) return { ok: false, skipped: true, reason: 'no_device_token' };
   const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT).catch(() => ({}));
   const lastAt = Number(storage?.[CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT] || 0);
@@ -906,6 +911,10 @@ async function pollPendingDeviceRecovery() {
 }
 
 async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
+  if (!(await hasPrivacyConsent())) {
+    await saveRecoveryState({ status: 'privacy_consent_required', lastError: 'privacy_consent_required' });
+    return { ok: false, skipped: true, reason: 'privacy_consent_required' };
+  }
   if (syncState.deviceToken) return { ok: true, skipped: true, reason: 'has_device_token' };
   const storage = await chrome.storage.local.get([
     CLOUD_CONFIG.KEYS.RECOVERY_STATE,
@@ -1250,6 +1259,19 @@ export async function uploadStats() {
  * @returns {Promise<{configPulled: boolean, statsUploaded: boolean, quotaSynced: boolean, hadFailure: boolean, errors: string[]}>}
  */
 export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, optionsOrLegacyRedirectAllTabs = {}, _legacyRedirectQuotaViolatingTabs = null, legacyOptions = {}) {
+  if (!(await hasPrivacyConsent())) {
+    console.log('[Cloud] Sync skipped: privacy consent required');
+    return {
+      configPulled: false,
+      siteRequestsSynced: false,
+      statsUploaded: false,
+      quotaSynced: false,
+      hadFailure: false,
+      skipped: true,
+      reason: 'privacy_consent_required',
+      errors: [],
+    };
+  }
   const options = typeof optionsOrLegacyRedirectAllTabs === 'function'
     ? (legacyOptions || {})
     : (optionsOrLegacyRedirectAllTabs || {});
@@ -3051,6 +3073,10 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
 // ── Heartbeat ───────────────────────────────────────────────────────────────────
 
 export async function sendHeartbeat(afterRecoveredSync = null) {
+  if (!(await hasPrivacyConsent())) {
+    console.log('[Cloud] Heartbeat skipped: privacy consent required');
+    return { skipped: true, reason: 'privacy_consent_required' };
+  }
   await hydrateCloudSyncStateFromStorage();
   let recoveredByHeartbeat = false;
   if (!syncState.deviceToken) {
@@ -3088,6 +3114,10 @@ export async function sendHeartbeat(afterRecoveredSync = null) {
 // ── Init cloud sync ─────────────────────────────────────────────────────────────
 
 export async function initCloudSync(syncNowFn) {
+  if (!(await hasPrivacyConsent())) {
+    console.log('[Cloud] Init skipped: privacy consent required');
+    return { skipped: true, reason: 'privacy_consent_required' };
+  }
   await hydrateCloudSyncStateFromStorage();
 
   if (!syncState.deviceToken) {
@@ -3108,6 +3138,9 @@ export async function initCloudSync(syncNowFn) {
  * @returns {Promise<{success: boolean, device_token?: string, syncOk?: boolean, syncErrors?: string[], error?: string}>}
  */
 export async function cloudBind(syncNowFn) {
+  if (!(await hasPrivacyConsent())) {
+    return { success: false, error: 'privacy_consent_required', privacyConsentRequired: true };
+  }
   const storage = await chrome.storage.local.get([
     CLOUD_CONFIG.KEYS.DEVICE_TOKEN,
     CLOUD_CONFIG.KEYS.DEVICE_ID,

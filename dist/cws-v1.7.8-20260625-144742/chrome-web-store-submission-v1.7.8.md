@@ -1,0 +1,62 @@
+# Chrome Web Store Submission - TimeOnChrome v1.7.8
+
+## Package
+- ZIP: timeonchrome-v1.7.8-cws.zip
+- SHA256: C1C30149BCA4CE930CACDFB369414681122BA948037362711182EB9060CD6A28
+- Manifest version: 1.7.8
+- Package root: extension/ contents, with manifest.json at ZIP root.
+
+## Permission Summary
+Permissions:
+- tabs
+- storage
+- alarms
+- declarativeNetRequest
+- webNavigation
+- idle
+- notifications
+- identity
+- identity.email
+
+Host permissions:
+- <all_urls>
+
+This version does not request scripting, management, or declarativeNetRequestFeedback.
+The identity permissions are used only with chrome.identity.getProfileUserInfo() to read the Chrome profile account identifier for macOS / Windows device-binding recovery after reinstall. TimeOnChrome does not call chrome.identity.getAuthToken(), does not request Google OAuth scopes, does not store Google OAuth tokens, and does not store raw Chrome identity values. The cloud stores only a server-side keyed non-reversible HMAC hash for recovery matching.
+
+## Purple Nickel Remediation
+- This is a new package upload because CWS continued to reject prior submissions under Purple Nickel after privacy-policy text remediation.
+- v1.7.8 adds an in-extension prominent disclosure and explicit consent gate before any new timing, media recording, cloud sync, diagnostic upload, or Chrome identity recovery starts.
+- First install, updates without a consent record, and locally cleared extension data open privacy-consent.html before binding or monitoring.
+- The user must click 我已阅读并同意，启用 TimeOnChrome before TimeOnChrome starts new local collection or cloud sync.
+- Popup, local Admin, and bind flow show 隐私与数据使用说明待确认 when consent is missing.
+- The submitted ZIP, public privacy policy URL, CWS listing, privacy fields, and reviewer notes now consistently state what data is collected, when local collection starts, when cloud upload begins, how data is used, where it is stored, who can access it, how it is shared, how long it is retained, and how users can stop collection or delete data.
+
+## Reviewer Notes
+- Review path: install or load the extension, then observe the first-run TimeOnChrome 隐私与数据使用说明 page. Core timing/cloud/identity features stay paused until the explicit consent button is clicked.
+- TimeOnChrome is intended for parent-managed Chrome usage control.
+- Core local behavior begins only after product-internal consent. Cloud sync and parent console features require parent login and device binding.
+- Parent/guardian users can see child-profile rules, device state, usage statistics, classification requests, and diagnostics in the cloud console after binding.
+- The extension uses static content scripts from the manifest. It does not use dynamic scripting permission.
+- The extension uses identity.email only for weak device-binding recovery. The raw Chrome profile identifier is not stored locally or in the cloud; only a keyed non-reversible hash is stored server-side. No Google OAuth token flow is used.
+- <all_urls> is required because access decisions, time tracking, and classification requests must work across arbitrary child browsing destinations.
+- declarativeNetRequest is used for access-management support. The extension does not request DNR feedback permission.
+- Incognito unmanaged/fallback records are sanitized before durable local storage and cloud upload.
+- Device access audit logs store request summaries only: endpoint category, status/result, device/profile references, version, request id, and counts. They do not store browsing URLs, page content, device tokens, poll tokens, Google tokens, passwords, or raw Chrome identity.
+- Users can stop future local collection by disabling or uninstalling the extension. Parents can stop cloud sync by unbinding a device, and can delete or replace profile configuration through the product UI or support channel.
+
+## Test Instructions
+1. Load the ZIP or unpacked extension/ directory in Chrome.
+2. Confirm the first visible flow is TimeOnChrome 隐私与数据使用说明 and that the main button reads 我已阅读并同意，启用 TimeOnChrome.
+3. Before consent, open Popup/Admin and verify they show 隐私与数据使用说明待确认 rather than starting sync or binding.
+4. Click the consent button, then continue to binding/login.
+5. Open the popup and verify mode status, current-site display, and management entry.
+6. Open local Admin and verify 使用分析, 访问管理, 系统管理, cloud connection status, and binding recovery status.
+7. In the cloud console, verify 使用统计, 访问管理, 网站归类申请, 子用户管理, device connection diagnostics, and 系统管理 with demo/test data.
+8. Submit a classification request from a Reminder page and verify the canonical URL appears in the review list.
+9. For reinstall recovery validation, use a test child profile with one bound macOS or Windows device and confirm the extension recovers the same device id after local extension data is removed.
+
+## Known Risks / Follow-up Items
+- YouTube playlist/video handling is still a temporary canonical URL policy, not the final explicit managedTarget model.
+- Ledger-gap diagnostics identify observed activity without durable segment results, but they do not read Chrome History and do not backfill historical browsing.
+- Full PiP product support remains deferred; current policy is restrictive.

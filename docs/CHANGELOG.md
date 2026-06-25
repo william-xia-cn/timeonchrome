@@ -6,6 +6,14 @@
 
 ---
 
+## [1.7.8] — 2026-06-25
+
+- **CWS Purple Nickel consent gate**: added an in-extension prominent disclosure and explicit consent page before TimeOnChrome starts new timing, media recording, cloud sync, diagnostic upload, or Chrome identity recovery. Missing `privacy_consent_v1` now keeps the extension paused and preserves existing local credentials/config without deleting them.
+- **Privacy policy alignment**: package privacy policy and CWS materials now state that collection starts only after the user clicks `我已阅读并同意，启用 TimeOnChrome`, and that cloud upload starts only after parent login and device binding.
+- **UI consent state**: Popup, local Admin, and bind flow now show `隐私与数据使用说明待确认` and route users to the consent page instead of starting cloud login or identity recovery before consent.
+
+---
+
 ## [1.7.7] — 2026-06-22
 
 - **CWS Purple Nickel privacy remediation**: public privacy policy, package privacy page, CWS listing, and reviewer notes now use a Chinese-first prominent disclosure that explicitly covers collection, processing, storage, sharing, retention/deletion controls, cloud sync timing, and `identity.email` no-OAuth/no-raw-identity boundaries.

@@ -11,6 +11,7 @@ import {
   getAdminUsageAnalysisView,
 } from '../stats/admin-read-model.js';
 import { buildEffectiveTimeQuota } from '../core/quota-config.js';
+import { getPrivacyConsentPageUrl, hasPrivacyConsent } from '../core/privacy-consent.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -43,6 +44,7 @@ function getClientPlatform() {
 
 async function getChromeIdentityPayload() {
   try {
+    if (!(await hasPrivacyConsent())) return {};
     if (!chrome.identity?.getProfileUserInfo) return {};
     const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
     const id = typeof info?.id === 'string' ? info.id.trim() : '';
@@ -65,8 +67,15 @@ const CLOUD_KEYS = {
   IS_BOUND: 'cloud_is_bound',  // 标记是否已绑定
   CHROME_IDENTITY_STATUS: 'cloud_chrome_identity_status_v1',
   RECOVERY_STATE: 'cloud_device_recovery_state_v1',
-  RECOVERY_REQUEST_ID: 'cloud_device_recovery_request_id'
+  RECOVERY_REQUEST_ID: 'cloud_device_recovery_request_id',
+  PRIVACY_CONSENT: 'privacy_consent_v1'
 };
+
+function openPrivacyConsentFromAdmin() {
+  chrome.tabs.create({
+    url: getPrivacyConsentPageUrl({ reason: 'admin', next: 'admin/admin.html?view=system-management' }),
+  });
+}
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1895,11 +1904,14 @@ async function renderSyncStatus() {
       CLOUD_KEYS.CHROME_IDENTITY_STATUS,
       CLOUD_KEYS.RECOVERY_STATE,
       CLOUD_KEYS.RECOVERY_REQUEST_ID,
+      CLOUD_KEYS.PRIVACY_CONSENT,
     ], resolve);
   });
 
   const container = document.getElementById('sync-status');
   if (!container) return;
+  const privacyConsentRecord = storage[CLOUD_KEYS.PRIVACY_CONSENT] || null;
+  const privacyConsentAccepted = privacyConsentRecord?.accepted === true && privacyConsentRecord?.policyVersion === '2026-06-22';
 
   // 本机设备名（首次绑定时保存的）
   const deviceName = escHtml(storage['cloud_device_name'] || '本机');
@@ -1965,6 +1977,24 @@ async function renderSyncStatus() {
     : (token && !recoveryActiveStates.has(recoveryStatusRaw)
       ? '—'
       : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—'));
+  if (!privacyConsentAccepted) {
+    const tokenPresent = !!storage[CLOUD_KEYS.DEVICE_TOKEN];
+    container.innerHTML = `
+      <div style="display:grid; grid-template-columns:1fr; gap:14px;">
+        <div style="padding:14px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
+          <div style="font-size:13px; color:var(--muted); margin-bottom:6px;">隐私与数据使用说明待确认</div>
+          <div style="font-size:15px; font-weight:700; margin-bottom:6px;">TimeOnChrome 暂未启用</div>
+          <div style="font-size:12px; color:var(--muted); line-height:1.7;">确认前不会启动计时、媒体记录、云端同步、诊断上传或 Chrome 身份恢复。已有配置和 Device Token 会保留。</div>
+          <div style="font-size:12px; color:var(--muted); margin-top:8px;">Device Token：<strong>${tokenPresent ? '存在' : '缺失'}</strong></div>
+        </div>
+        <button class="btn-save" id="open-privacy-consent-btn">查看并同意</button>
+      </div>
+    `;
+    const consentBtn = container.querySelector("#open-privacy-consent-btn");
+    if (consentBtn) consentBtn.addEventListener("click", openPrivacyConsentFromAdmin);
+    return;
+  }
+
   const connectionCardHtml = `
     <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
       <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">云端连接</div>

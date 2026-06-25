@@ -21,6 +21,7 @@ import { computeAllDomains } from './core/aggregate.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from './infra/client-logs.js';
 import { resolveManagedTargetAttribution } from './core/managed-targets.js';
 import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
+import { acceptPrivacyConsent, getPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
@@ -32,11 +33,39 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
 
 let bootstrapPromise = null;
 let alarmsSetup = false;
+let privacyConsentAccepted = false;
+
+async function refreshPrivacyConsentCache() {
+  const state = await getPrivacyConsent();
+  privacyConsentAccepted = state.accepted === true;
+  return state;
+}
+
+async function openPrivacyConsentPage(reason = 'privacy_consent_required', next = 'bind.html?welcome=1') {
+  const url = getPrivacyConsentPageUrl({ reason, next });
+  const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL('privacy-consent.html*') }).catch(() => []);
+  if (tabs && tabs[0]?.id) {
+    await chrome.tabs.update(tabs[0].id, { active: true }).catch(() => {});
+    return { opened: false, focused: true, tabId: tabs[0].id };
+  }
+  const tab = await chrome.tabs.create({ url }).catch(() => null);
+  return { opened: !!tab, tabId: tab?.id || null };
+}
+
+function privacyConsentRequiredResponse() {
+  return {
+    ok: false,
+    error: 'privacy_consent_required',
+    code: 'PRIVACY_CONSENT_REQUIRED',
+    privacyConsentRequired: true,
+  };
+}
 
 async function bootstrapServiceWorker(reason) {
   try {
     await initSession();
     await hydrateCloudSyncStateFromStorage();
+    await refreshPrivacyConsentCache();
     setupAlarms();
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
   } catch (err) {
@@ -216,7 +245,11 @@ async function dispatchModeEvent(event = {}, options = {}) {
 
 // 模块级引导：普通 MV3 SW 唤醒只做 runtime wiring，不代表异常恢复边界。
 ensureBootstrapped('module-load')
-  .then(() => bootstrapActiveTabTiming('bootstrap_active_tab'))
+  .then(async () => {
+    const consent = await refreshPrivacyConsentCache();
+    if (!consent.accepted) return { ok: true, skipped: true, reason: 'privacy_consent_required' };
+    return bootstrapActiveTabTiming('bootstrap_active_tab');
+  })
   .catch((err) => {
     recordFallbackLog({
       level: 'warning',
@@ -233,6 +266,11 @@ ensureBootstrapped('module-load')
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureBootstrapped('onStartup');
+  const consent = await refreshPrivacyConsentCache();
+  if (!consent.accepted) {
+    await openPrivacyConsentPage('onStartup', 'bind.html?welcome=1');
+    return;
+  }
   await recover();
   await resetDailyLockedDomains(true);
   await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onStartup_cloud_sync'));
@@ -251,7 +289,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       console.error('[onInstalled] Failed to save initial config:', err);
     }
     try {
-      await chrome.tabs.create({ url: chrome.runtime.getURL('bind.html?welcome=1') });
+      await openPrivacyConsentPage('onInstalled', 'bind.html?welcome=1');
     } catch (err) {
       console.error('[onInstalled] Failed to open bind page:', err);
     }
@@ -260,8 +298,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // 2. Bootstrap + 规则更新：失败不阻断安装流程
   try {
     await ensureBootstrapped('onInstalled');
-    await recover();
-    await updateDeclarativeRules();
+    const consent = await refreshPrivacyConsentCache();
+    if (consent.accepted) {
+      await recover();
+      await updateDeclarativeRules();
+    }
   } catch (err) {
     console.error('[onInstalled] Bootstrap/rules failed:', err);
   }
@@ -305,7 +346,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   // 4. 云同步初始化
   try {
-    await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onInstalled_cloud_sync'));
+    const consent = await refreshPrivacyConsentCache();
+    if (consent.accepted) {
+      await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onInstalled_cloud_sync'));
+    } else if (details.reason === 'update') {
+      await openPrivacyConsentPage('onUpdated', 'admin/admin.html?view=system-management');
+    }
   } catch (err) {
     console.error('[onInstalled] initCloudSync failed:', err);
   }
@@ -314,6 +360,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // ── 信号接入：background 只负责 wiring，业务分发由 dispatcher 完成 ─────────────
 
 initSignal((rawEvent) => {
+  if (!isMonitoringEnabled()) return;
   Promise.resolve(dispatchTimingSignal(rawEvent, {
     ensureBootstrapped,
     scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
@@ -450,6 +497,18 @@ function resolvePopupLiveSessionSeconds(timingSession, domain, tab = null) {
 }
 
 async function getPopupFastStatus(tabHint = null) {
+  const privacyConsent = await getPrivacyConsent().catch(() => ({ accepted: false }));
+  if (!privacyConsent.accepted) {
+    const { tab, domain } = await getCurrentActiveDomain(tabHint).catch(() => ({ tab: null, domain: null }));
+    return {
+      mode: 'paused',
+      currentDomain: domain || null,
+      currentSessionDurationSeconds: 0,
+      tabId: Number.isInteger(tab?.id) ? tab.id : null,
+      url: tab?.url || null,
+      privacyConsent,
+    };
+  }
   const [{ tab, domain }, timingSession, modeData] = await Promise.all([
     getCurrentActiveDomain(tabHint).catch(() => ({ tab: null, domain: null })),
     getTimingSession().catch(() => null),
@@ -579,8 +638,11 @@ async function getPopupLocalSnapshot(tabHint = null) {
     timingSessionPromise,
     storagePromise,
   ]);
+  const privacyConsent = await getPrivacyConsent().catch(() => ({ accepted: false }));
   const mode = normalizeMode(storage?.[SESSION_KEY]?.currentMode || 'study');
-  const currentSessionDurationSeconds = resolvePopupLiveSessionSeconds(timingSession, domain, tab);
+  const currentSessionDurationSeconds = privacyConsent.accepted
+    ? resolvePopupLiveSessionSeconds(timingSession, domain, tab)
+    : 0;
   const todayStats = storage?.daily_usage_stats_v1?.[getDateKey()] || null;
   const popupConfig = pickPopupConfig(storage?.[CONFIG_KEY], storage?.[SITE_CLASSIFICATION_REQUESTS_KEY]);
   const currentTarget = resolveManagedTargetAttribution(
@@ -590,7 +652,7 @@ async function getPopupLocalSnapshot(tabHint = null) {
   );
   const snapshot = {
     ok: true,
-    mode,
+    mode: privacyConsent.accepted ? mode : 'paused',
     currentDomain: domain || null,
     currentSessionDurationSeconds,
     tabId: Number.isInteger(tab?.id) ? tab.id : null,
@@ -598,7 +660,10 @@ async function getPopupLocalSnapshot(tabHint = null) {
     currentManagedTarget: currentTarget?.fallback ? null : currentTarget,
     config: popupConfig,
     stats: buildPopupSettledModeStatsFromDay(todayStats),
-    cloudStatus: buildPopupCloudStatus(storage || {}),
+    cloudStatus: privacyConsent.accepted
+      ? buildPopupCloudStatus(storage || {})
+      : { isBound: false, localMode: true, syncEnabled: false, reason: 'privacy_consent_required' },
+    privacyConsent,
     childName: storage?.cloud_profile_name || null,
     timings,
   };
@@ -802,7 +867,7 @@ chrome.windows.onBoundsChanged?.addListener?.(async (win) => {
 });
 
 function isMonitoringEnabled() {
-  return getSyncState().monitoringEnabled !== 0;
+  return privacyConsentAccepted === true && getSyncState().monitoringEnabled !== 0;
 }
 
 
@@ -817,6 +882,7 @@ async function isForegroundTab(tab) {
 }
 
 async function reevaluateTabById(tabId, options = {}) {
+  if (!isMonitoringEnabled()) return;
   if (!tabId) return;
 
   let tab;
@@ -1235,6 +1301,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return sender.url.startsWith(chrome.runtime.getURL(''));
   };
 
+  if (msg.type === 'GET_PRIVACY_CONSENT_STATUS') {
+    (async () => {
+      const state = await refreshPrivacyConsentCache();
+      sendResponse(state);
+    })();
+    return true;
+  }
+
+  if (msg.type === 'OPEN_PRIVACY_CONSENT') {
+    (async () => {
+      const result = await openPrivacyConsentPage(msg?.reason || 'user_requested', msg?.next || 'bind.html?welcome=1');
+      sendResponse({ ok: true, ...result });
+    })();
+    return true;
+  }
+
+  if (msg.type === 'PRIVACY_CONSENT_ACCEPTED') {
+    (async () => {
+      const result = await acceptPrivacyConsent(msg?.source || 'runtime_message');
+      await refreshPrivacyConsentCache();
+      await ensureBootstrapped('privacyConsentAccepted');
+      await initCloudSync(() => syncNowWithRuntimeEffects({}, 'privacy_consent_accepted_sync')).catch((err) => {
+        logClientEventBestEffort({
+          level: 'warning',
+          category: 'cloud',
+          eventCode: 'privacy_consent_initial_sync_failed',
+          module: 'background',
+          message: err?.message || 'Initial sync after privacy consent failed',
+          details: { error: err?.message || String(err) },
+        });
+      });
+      sendResponse({ ok: true, ...result });
+    })();
+    return true;
+  }
   // Content script ready: re-send any pending auto-mode notice for this tab.
   // This handles the case where the background sent AUTO_MODE_PENDING_SUCCESS
   // before the content script's listener was registered (e.g., after page reload).
@@ -1500,6 +1601,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ success: false, error: err?.message || String(err) });
       }
     })();
+    return true;
+  }
+
+  if (!privacyConsentAccepted) {
+    sendResponse(privacyConsentRequiredResponse());
     return true;
   }
 
