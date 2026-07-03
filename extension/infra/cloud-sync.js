@@ -47,7 +47,7 @@ import {
   sanitizeClientLogForUpload,
   logClientEventBestEffort,
 } from './client-logs.js';
-import { hasPrivacyConsent } from '../core/privacy-consent.js';
+import { resolveActivationState } from '../core/activation-gate.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -139,10 +139,45 @@ function getClientBrowserName() {
   return 'Chrome';
 }
 
+async function getRuntimeActivationStateSafe() {
+  try {
+    return await resolveActivationState();
+  } catch (error) {
+    return {
+      activated: false,
+      activationMode: 'disabled',
+      reason: 'runtime_activation_check_failed',
+      privacyConsentRequired: false,
+      error: error?.message || String(error),
+    };
+  }
+}
+
+async function requireRuntimeActivation() {
+  const activation = await getRuntimeActivationStateSafe();
+  if (activation.activated === true) return { ok: true, activation };
+  return {
+    ok: false,
+    activation,
+    reason: activation.reason || 'runtime_activation_required',
+    privacyConsentRequired: activation.privacyConsentRequired === true,
+  };
+}
+
+async function requireIdentityRecoveryActivation() {
+  const runtime = await requireRuntimeActivation();
+  if (!runtime.ok) return runtime;
+  if (runtime.activation?.activationMode === 'managed_policy' && runtime.activation?.managedPolicy?.allowIdentityRecovery === false) {
+    return { ok: false, activation: runtime.activation, reason: 'identity_recovery_disabled_by_policy' };
+  }
+  return runtime;
+}
+
 async function getChromeProfileIdentity() {
   try {
-    if (!(await hasPrivacyConsent())) {
-      return { ok: false, reason: 'privacy_consent_required' };
+    const activation = await requireIdentityRecoveryActivation();
+    if (!activation.ok) {
+      return { ok: false, reason: activation.reason || 'runtime_activation_required' };
     }
     if (!chrome.identity?.getProfileUserInfo) {
       return { ok: false, reason: 'identity_api_unavailable' };
@@ -773,7 +808,8 @@ async function cloudAnonymousRequest(method, path, body = null) {
 }
 
 async function linkChromeIdentityIfPossible({ force = false } = {}) {
-  if (!(await hasPrivacyConsent())) return { ok: false, skipped: true, reason: 'privacy_consent_required' };
+  const activation = await requireIdentityRecoveryActivation();
+  if (!activation.ok) return { ok: false, skipped: true, reason: activation.reason || 'runtime_activation_required' };
   if (!syncState.deviceToken) return { ok: false, skipped: true, reason: 'no_device_token' };
   const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT).catch(() => ({}));
   const lastAt = Number(storage?.[CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT] || 0);
@@ -911,9 +947,10 @@ async function pollPendingDeviceRecovery() {
 }
 
 async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
-  if (!(await hasPrivacyConsent())) {
-    await saveRecoveryState({ status: 'privacy_consent_required', lastError: 'privacy_consent_required' });
-    return { ok: false, skipped: true, reason: 'privacy_consent_required' };
+  const activation = await requireIdentityRecoveryActivation();
+  if (!activation.ok) {
+    await saveRecoveryState({ status: activation.reason || 'runtime_activation_required', lastError: activation.reason || 'runtime_activation_required' });
+    return { ok: false, skipped: true, reason: activation.reason || 'runtime_activation_required' };
   }
   if (syncState.deviceToken) return { ok: true, skipped: true, reason: 'has_device_token' };
   const storage = await chrome.storage.local.get([
@@ -1259,8 +1296,9 @@ export async function uploadStats() {
  * @returns {Promise<{configPulled: boolean, statsUploaded: boolean, quotaSynced: boolean, hadFailure: boolean, errors: string[]}>}
  */
 export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, optionsOrLegacyRedirectAllTabs = {}, _legacyRedirectQuotaViolatingTabs = null, legacyOptions = {}) {
-  if (!(await hasPrivacyConsent())) {
-    console.log('[Cloud] Sync skipped: privacy consent required');
+  const activation = await requireRuntimeActivation();
+  if (!activation.ok) {
+    console.log('[Cloud] Sync skipped: runtime activation required');
     return {
       configPulled: false,
       siteRequestsSynced: false,
@@ -1268,7 +1306,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       quotaSynced: false,
       hadFailure: false,
       skipped: true,
-      reason: 'privacy_consent_required',
+      reason: activation.reason || 'runtime_activation_required',
       errors: [],
     };
   }
@@ -3073,9 +3111,10 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
 // ── Heartbeat ───────────────────────────────────────────────────────────────────
 
 export async function sendHeartbeat(afterRecoveredSync = null) {
-  if (!(await hasPrivacyConsent())) {
-    console.log('[Cloud] Heartbeat skipped: privacy consent required');
-    return { skipped: true, reason: 'privacy_consent_required' };
+  const activation = await requireRuntimeActivation();
+  if (!activation.ok) {
+    console.log('[Cloud] Heartbeat skipped: runtime activation required');
+    return { skipped: true, reason: activation.reason || 'runtime_activation_required' };
   }
   await hydrateCloudSyncStateFromStorage();
   let recoveredByHeartbeat = false;
@@ -3114,9 +3153,10 @@ export async function sendHeartbeat(afterRecoveredSync = null) {
 // ── Init cloud sync ─────────────────────────────────────────────────────────────
 
 export async function initCloudSync(syncNowFn) {
-  if (!(await hasPrivacyConsent())) {
-    console.log('[Cloud] Init skipped: privacy consent required');
-    return { skipped: true, reason: 'privacy_consent_required' };
+  const activation = await requireRuntimeActivation();
+  if (!activation.ok) {
+    console.log('[Cloud] Init skipped: runtime activation required');
+    return { skipped: true, reason: activation.reason || 'runtime_activation_required' };
   }
   await hydrateCloudSyncStateFromStorage();
 
@@ -3138,8 +3178,9 @@ export async function initCloudSync(syncNowFn) {
  * @returns {Promise<{success: boolean, device_token?: string, syncOk?: boolean, syncErrors?: string[], error?: string}>}
  */
 export async function cloudBind(syncNowFn) {
-  if (!(await hasPrivacyConsent())) {
-    return { success: false, error: 'privacy_consent_required', privacyConsentRequired: true };
+  const activation = await requireRuntimeActivation();
+  if (!activation.ok) {
+    return { success: false, error: activation.reason || 'runtime_activation_required', privacyConsentRequired: activation.privacyConsentRequired === true, activationRequired: true };
   }
   const storage = await chrome.storage.local.get([
     CLOUD_CONFIG.KEYS.DEVICE_TOKEN,

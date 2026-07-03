@@ -28,6 +28,7 @@ function run() {
   const consentJs = read('extension/privacy-consent.js');
   const privacy = read('extension/privacy.html');
   const background = read('extension/background.js');
+  const activationGate = read('extension/core/activation-gate.js');
   const cloudSync = read('extension/infra/cloud-sync.js');
   const bind = read('extension/bind.js');
   const admin = read('extension/admin/admin.js');
@@ -44,24 +45,26 @@ function run() {
   expectTrue('consent page discloses identity.email no OAuth boundary', consentHtml.includes('identity.email') && consentHtml.includes('不使用 Google OAuth'));
   expectTrue('consent script writes consent record and notifies background', consentJs.includes('acceptPrivacyConsent') && consentJs.includes('PRIVACY_CONSENT_ACCEPTED'));
 
-  expectTrue('background imports privacy consent helpers', background.includes("from './core/privacy-consent.js'"));
-  expectTrue('background caches privacy consent state', background.includes('privacyConsentAccepted') && background.includes('refreshPrivacyConsentCache'));
+  expectTrue('background imports privacy consent helpers and activation gate', background.includes("from './core/privacy-consent.js'") && background.includes("from './core/activation-gate.js'"));
+  expectTrue('background caches activation and privacy consent state', background.includes('runtimeActivationState') && background.includes('privacyConsentAccepted') && background.includes('refreshPrivacyConsentCache'));
+  expectTrue('activation gate preserves CWS user consent fallback', activationGate.includes('ACTIVATION_MODE_USER_CONSENT') && activationGate.includes('getPrivacyConsent') && activationGate.includes('privacyConsentRequired'));
+  expectTrue('activation gate supports managed policy without broad config', activationGate.includes('chrome.storage.managed.get') && activationGate.includes('ACTIVATION_MODE_MANAGED_POLICY') && !activationGate.includes('studyList') && !activationGate.includes('timeQuota'));
   expectTrue('background opens consent page on install/startup/update', background.includes('openPrivacyConsentPage') && background.includes('onInstalled') && background.includes('onStartup') && background.includes('onUpdated'));
   expectTrue('background gates module-load active tab bootstrap', background.includes("reason: 'privacy_consent_required'") && background.includes("bootstrapActiveTabTiming('bootstrap_active_tab')"));
-  expectTrue('background gates monitoring enabled on privacy consent', background.includes('return privacyConsentAccepted === true && getSyncState().monitoringEnabled !== 0'));
+  expectTrue('background gates monitoring enabled on runtime activation', background.includes('return runtimeActivationState?.activated === true && getSyncState().monitoringEnabled !== 0'));
   expectTrue('background gates timing signal dispatch', background.includes('initSignal((rawEvent) => {') && background.includes('if (!isMonitoringEnabled()) return;'));
   expectTrue('background exposes consent status/open/accepted messages', background.includes('GET_PRIVACY_CONSENT_STATUS') && background.includes('OPEN_PRIVACY_CONSENT') && background.includes('PRIVACY_CONSENT_ACCEPTED'));
-  expectTrue('background blocks regular runtime messages before consent', background.includes('privacyConsentRequiredResponse') && background.includes('if (!privacyConsentAccepted)'));
-  expectTrue('popup snapshot shows paused consent-required state', background.includes("mode: privacyConsent.accepted ? mode : 'paused'") && background.includes("reason: 'privacy_consent_required'"));
+  expectTrue('background blocks regular runtime messages before activation', background.includes('privacyConsentRequiredResponse') && background.includes('if (!runtimeActivationState?.activated)'));
+  expectTrue('popup snapshot shows paused activation-required state', background.includes("mode: activation.activated ? mode : 'paused'") && background.includes('privacyConsentRequired: activation.privacyConsentRequired === true'));
 
-  expectTrue('cloud sync imports consent helper', cloudSync.includes("import { hasPrivacyConsent } from '../core/privacy-consent.js';"));
-  expectTrue('cloud sync blocks Chrome identity before consent', cloudSync.includes("return { ok: false, reason: 'privacy_consent_required' }") && cloudSync.indexOf('privacy_consent_required') < cloudSync.indexOf('getProfileUserInfo'));
-  expectTrue('cloud sync skips sync/heartbeat/init before consent', cloudSync.includes('Sync skipped: privacy consent required') && cloudSync.includes('Heartbeat skipped: privacy consent required') && cloudSync.includes('Init skipped: privacy consent required'));
-  expectTrue('cloud bind refuses before consent', cloudSync.includes("privacyConsentRequired: true"));
+  expectTrue('cloud sync imports activation gate', cloudSync.includes("import { resolveActivationState } from '../core/activation-gate.js';"));
+  expectTrue('cloud sync blocks Chrome identity before runtime activation', cloudSync.includes('requireIdentityRecoveryActivation') && cloudSync.indexOf('requireIdentityRecoveryActivation') < cloudSync.indexOf('getProfileUserInfo'));
+  expectTrue('cloud sync skips sync/heartbeat/init before activation', cloudSync.includes('Sync skipped: runtime activation required') && cloudSync.includes('Heartbeat skipped: runtime activation required') && cloudSync.includes('Init skipped: runtime activation required'));
+  expectTrue('cloud bind refuses before activation', cloudSync.includes('activationRequired: true') && cloudSync.includes('privacyConsentRequired: activation.privacyConsentRequired === true'));
 
-  expectTrue('bind page blocks login before consent', bind.includes('showPrivacyConsentRequired') && bind.includes('document.addEventListener') && bind.includes('btnLogin.disabled = true'));
-  expectTrue('bind page does not read Chrome identity before consent', bind.includes('if (!(await hasPrivacyConsent())) return {};') && bind.includes('getProfileUserInfo'));
-  expectTrue('admin does not read Chrome identity before consent', admin.includes('if (!(await hasPrivacyConsent())) return {};') && admin.includes('getProfileUserInfo'));
+  expectTrue('bind page blocks login before activation', bind.includes('showPrivacyConsentRequired') && bind.includes('document.addEventListener') && bind.includes('btnLogin.disabled = true'));
+  expectTrue('bind page does not read Chrome identity before activation', bind.includes('canUseChromeIdentityForBind') && bind.includes('getProfileUserInfo'));
+  expectTrue('admin does not read Chrome identity before activation', admin.includes('canUseChromeIdentityForAdmin') && admin.includes('getProfileUserInfo'));
   expectTrue('admin status shows consent-required entry', admin.includes('隐私与数据使用说明待确认') && admin.includes('TimeOnChrome 暂未启用') && admin.includes('openPrivacyConsentFromAdmin'));
   expectTrue('popup shows consent-required entry', popup.includes('隐私与数据使用说明待确认') && popup.includes('查看并同意') && popup.includes('privacy-consent.html?reason=popup'));
 

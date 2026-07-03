@@ -11,7 +11,8 @@ import {
   getAdminUsageAnalysisView,
 } from '../stats/admin-read-model.js';
 import { buildEffectiveTimeQuota } from '../core/quota-config.js';
-import { getPrivacyConsentPageUrl, hasPrivacyConsent } from '../core/privacy-consent.js';
+import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
+import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -44,7 +45,7 @@ function getClientPlatform() {
 
 async function getChromeIdentityPayload() {
   try {
-    if (!(await hasPrivacyConsent())) return {};
+    if (!(await canUseChromeIdentityForAdmin())) return {};
     if (!chrome.identity?.getProfileUserInfo) return {};
     const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
     const id = typeof info?.id === 'string' ? info.id.trim() : '';
@@ -248,13 +249,13 @@ async function checkAndHandleBinding() {
       CLOUD_KEYS.PROFILE_ID
     ], resolve);
   });
-  
+
   const deviceToken = storage[CLOUD_KEYS.DEVICE_TOKEN];
   const credentials = storage[CLOUD_KEYS.CREDENTIALS];
   const savedToken = storage[CLOUD_KEYS.ACCOUNT_TOKEN];
   const refreshToken = storage[CLOUD_KEYS.ACCOUNT_REFRESH_TOKEN];
   const profileId = storage[CLOUD_KEYS.PROFILE_ID];
-  
+
   if (deviceToken && (savedToken || refreshToken || credentials)) {
     console.log('[Admin] Device is bound, restoring account session...');
     const token = await ensureAccountToken({ allowLegacyCredentials: true });
@@ -924,7 +925,7 @@ async function bindToProfile(profileId, profileName, avatarColor) {
     const identityPayload = await getChromeIdentityPayload();
     const resp = await accountFetch(`${API_BASE}/device/bind`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -946,7 +947,7 @@ async function bindToProfile(profileId, profileName, avatarColor) {
     
     const bindResult = await resp.json();
     console.log('[Admin] Bind success, device_token:', bindResult.device_token);
-    
+
     // 2. 保存绑定信息
     await new Promise(resolve => {
       chrome.storage.local.set({
@@ -963,7 +964,7 @@ async function bindToProfile(profileId, profileName, avatarColor) {
     // 3. 通知 background.js 同步
     console.log('[Admin] Calling sendMsg to background...');
     try {
-      const bgResult = await sendMsg({ 
+      const bgResult = await sendMsg({
         type: 'CLOUD_BIND',
         profile_id: profileId,
         device_name: devNameBind
@@ -1912,6 +1913,14 @@ async function renderSyncStatus() {
   if (!container) return;
   const privacyConsentRecord = storage[CLOUD_KEYS.PRIVACY_CONSENT] || null;
   const privacyConsentAccepted = privacyConsentRecord?.accepted === true && privacyConsentRecord?.policyVersion === '2026-06-22';
+  const activationState = await resolveActivationState().catch(() => ({ activated: privacyConsentAccepted, activationMode: privacyConsentAccepted ? 'user_consent' : 'disabled', reason: privacyConsentAccepted ? null : 'activation_check_failed' }));
+  const activationActive = activationState.activated === true;
+  const activationModeText = activationState.activationMode === 'managed_policy'
+    ? '受管理策略启用'
+    : (activationState.activationMode === 'user_consent' ? '用户同意启用' : '未启用');
+  const activationDetailText = activationState.activationMode === 'managed_policy'
+    ? '租户：' + (activationState.managedPolicy?.tenantId || '—') + ' · 设备策略：' + (activationState.managedPolicy?.devicePolicyId || '—')
+    : (activationState.reason || '—');
 
   // 本机设备名（首次绑定时保存的）
   const deviceName = escHtml(storage['cloud_device_name'] || '本机');
@@ -1977,7 +1986,7 @@ async function renderSyncStatus() {
     : (token && !recoveryActiveStates.has(recoveryStatusRaw)
       ? '—'
       : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—'));
-  if (!privacyConsentAccepted) {
+  if (!activationActive) {
     const tokenPresent = !!storage[CLOUD_KEYS.DEVICE_TOKEN];
     container.innerHTML = `
       <div style="display:grid; grid-template-columns:1fr; gap:14px;">
@@ -1995,6 +2004,13 @@ async function renderSyncStatus() {
     return;
   }
 
+  const activationCardHtml = `
+    <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
+      <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">启用来源</div>
+      <div style="font-size:15px; font-weight:600;">${escHtml(activationModeText)}</div>
+      <div style="font-size:12px; color:var(--muted); margin-top:4px; line-height:1.7;">${escHtml(activationDetailText)}</div>
+    </div>
+  `;
   const connectionCardHtml = `
     <div style="padding:12px; background:var(--surface); border-radius:8px; grid-column:1/-1;">
       <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">云端连接</div>

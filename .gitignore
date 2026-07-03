@@ -5,6 +5,14 @@ node_modules/
 dist/
 extension/_metadata/
 
+# Chrome self-hosted signing material
+*.pem
+*.crx
+*.crx3
+*.p12
+*.key
+signing-keys/
+
 # IDE
 .vscode/
 .idea/

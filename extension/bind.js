@@ -23,6 +23,45 @@ async function hasPrivacyConsent() {
   }
 }
 
+async function getManagedActivationPolicy() {
+  try {
+    if (!chrome.storage?.managed?.get) return null;
+    const policy = await new Promise((resolve) => {
+      chrome.storage.managed.get([
+        'enabled',
+        'deploymentMode',
+        'tenantId',
+        'devicePolicyId',
+        'cloudEndpoint',
+        'allowIdentityRecovery',
+      ], (value) => resolve(chrome.runtime?.lastError ? null : (value || null)));
+    });
+    const endpoint = String(policy?.cloudEndpoint || '').trim();
+    const endpointOk = /^https:\/\//i.test(endpoint);
+    if (policy?.enabled === true && policy?.deploymentMode === 'managed' && policy?.tenantId && policy?.devicePolicyId && endpointOk) {
+      return {
+        active: true,
+        allowIdentityRecovery: policy.allowIdentityRecovery !== false,
+      };
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
+async function hasRuntimeActivation() {
+  if (await hasPrivacyConsent()) return true;
+  const managed = await getManagedActivationPolicy();
+  return managed?.active === true;
+}
+
+async function canUseChromeIdentityForBind() {
+  if (await hasPrivacyConsent()) return true;
+  const managed = await getManagedActivationPolicy();
+  return managed?.active === true && managed.allowIdentityRecovery !== false;
+}
+
 function getPrivacyConsentUrl() {
   return chrome.runtime.getURL('privacy-consent.html?reason=bind&next=bind.html%3Fwelcome%3D1');
 }
@@ -50,7 +89,7 @@ function getClientPlatform() {
 
 async function getChromeIdentityPayload() {
   try {
-    if (!(await hasPrivacyConsent())) return {};
+    if (!(await canUseChromeIdentityForBind())) return {};
     if (!chrome.identity?.getProfileUserInfo) return {};
     const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
     const id = typeof info?.id === 'string' ? info.id.trim() : '';
@@ -62,7 +101,7 @@ async function getChromeIdentityPayload() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  if (!(await hasPrivacyConsent())) {
+  if (!(await hasRuntimeActivation())) {
     showPrivacyConsentRequired();
     return;
   }
@@ -74,7 +113,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function doLogin() {
-  if (!(await hasPrivacyConsent())) {
+  if (!(await hasRuntimeActivation())) {
     showPrivacyConsentRequired();
     return;
   }
@@ -82,58 +121,58 @@ async function doLogin() {
   const password = document.getElementById('password').value;
   const btn = document.getElementById('btnLogin');
   const error = document.getElementById('error1');
-  
+
   if (!email || !password) {
     error.textContent = '请填写邮箱和密码';
     error.classList.add('show');
     return;
   }
-  
+
   btn.disabled = true;
   btn.textContent = '登录中...';
   error.classList.remove('show');
-  
+
   try {
     const resp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
-    
+
     if (!resp.ok) {
       const err = await resp.json();
       throw new Error(err.error || '登录失败');
     }
-    
+
     const data = await resp.json();
     accountToken = data.token;
     accountRefreshToken = data.refreshToken || null;
-    
+
     // 获取 profile 列表
     const profilesResp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/profiles`, {
       headers: { 'Authorization': `Bearer ${accountToken}` }
     });
-    
+
     if (!profilesResp.ok) {
       throw new Error('获取孩子列表失败');
     }
-    
+
     const profilesData = await profilesResp.json();
     profiles = profilesData.profiles || [];
-    
+
     if (profiles.length === 0) {
       throw new Error('请先在家长后台创建孩子Profile');
     }
-    
+
     // 显示 Step 2
     showStep('step2');
     renderProfiles();
-    
+
   } catch (e) {
     error.textContent = e.message;
     error.classList.add('show');
   }
-  
+
   btn.disabled = false;
   btn.textContent = '登录';
 }
@@ -162,12 +201,12 @@ function renderProfiles() {
 
 async function doBind(profileId) {
   showStep('loading');
-  
+
   try {
     const identityPayload = await getChromeIdentityPayload();
     const resp = await fetch(`${window.GUARDIAN_CONFIG.API_BASE}/device/bind`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accountToken}`
       },
@@ -179,17 +218,17 @@ async function doBind(profileId) {
         ...identityPayload,
       })
     });
-    
+
     if (!resp.ok) {
       const err = await resp.json();
       throw new Error(err.error || '绑定失败');
     }
-    
+
     const data = await resp.json();
-    
+
     // 保存账号会话（不保存可逆密码）
     const email = document.getElementById('email').value.trim().toLowerCase();
-    
+
     // 保存到本地
     await new Promise((resolve) => {
       chrome.storage.local.set({
@@ -231,12 +270,12 @@ async function doBind(profileId) {
     }
 
     showStep('step3');
-    
+
     // 3 秒后关闭
     setTimeout(() => {
       window.close();
     }, 3000);
-    
+
   } catch (e) {
     document.getElementById('error2').textContent = e.message;
     document.getElementById('error2').classList.add('show');

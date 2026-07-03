@@ -21,7 +21,8 @@ import { computeAllDomains } from './core/aggregate.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from './infra/client-logs.js';
 import { resolveManagedTargetAttribution } from './core/managed-targets.js';
 import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
-import { acceptPrivacyConsent, getPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
+import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
+import { resolveActivationState } from './core/activation-gate.js';
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
@@ -34,10 +35,12 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
 let bootstrapPromise = null;
 let alarmsSetup = false;
 let privacyConsentAccepted = false;
+let runtimeActivationState = { activated: false, activationMode: 'disabled', reason: 'privacy_consent_required' };
 
 async function refreshPrivacyConsentCache() {
-  const state = await getPrivacyConsent();
-  privacyConsentAccepted = state.accepted === true;
+  const state = await resolveActivationState();
+  runtimeActivationState = state;
+  privacyConsentAccepted = state.privacyConsent?.accepted === true;
   return state;
 }
 
@@ -55,9 +58,11 @@ async function openPrivacyConsentPage(reason = 'privacy_consent_required', next 
 function privacyConsentRequiredResponse() {
   return {
     ok: false,
-    error: 'privacy_consent_required',
-    code: 'PRIVACY_CONSENT_REQUIRED',
-    privacyConsentRequired: true,
+    error: runtimeActivationState?.reason || 'runtime_activation_required',
+    code: runtimeActivationState?.privacyConsentRequired === true ? 'PRIVACY_CONSENT_REQUIRED' : 'RUNTIME_ACTIVATION_REQUIRED',
+    privacyConsentRequired: runtimeActivationState?.privacyConsentRequired === true,
+    activationRequired: true,
+    activation: runtimeActivationState,
   };
 }
 
@@ -246,8 +251,8 @@ async function dispatchModeEvent(event = {}, options = {}) {
 // 模块级引导：普通 MV3 SW 唤醒只做 runtime wiring，不代表异常恢复边界。
 ensureBootstrapped('module-load')
   .then(async () => {
-    const consent = await refreshPrivacyConsentCache();
-    if (!consent.accepted) return { ok: true, skipped: true, reason: 'privacy_consent_required' };
+    const activation = await refreshPrivacyConsentCache();
+    if (!activation.activated) return { ok: true, skipped: true, reason: activation.reason || 'runtime_activation_required' };
     return bootstrapActiveTabTiming('bootstrap_active_tab');
   })
   .catch((err) => {
@@ -266,9 +271,9 @@ ensureBootstrapped('module-load')
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureBootstrapped('onStartup');
-  const consent = await refreshPrivacyConsentCache();
-  if (!consent.accepted) {
-    await openPrivacyConsentPage('onStartup', 'bind.html?welcome=1');
+  const activation = await refreshPrivacyConsentCache();
+  if (!activation.activated) {
+    if (activation.privacyConsentRequired) await openPrivacyConsentPage('onStartup', 'bind.html?welcome=1');
     return;
   }
   await recover();
@@ -289,7 +294,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       console.error('[onInstalled] Failed to save initial config:', err);
     }
     try {
-      await openPrivacyConsentPage('onInstalled', 'bind.html?welcome=1');
+      const activation = await refreshPrivacyConsentCache();
+      if (activation.activationMode !== 'managed_policy') {
+        await openPrivacyConsentPage('onInstalled', 'bind.html?welcome=1');
+      }
     } catch (err) {
       console.error('[onInstalled] Failed to open bind page:', err);
     }
@@ -298,8 +306,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // 2. Bootstrap + 规则更新：失败不阻断安装流程
   try {
     await ensureBootstrapped('onInstalled');
-    const consent = await refreshPrivacyConsentCache();
-    if (consent.accepted) {
+    const activation = await refreshPrivacyConsentCache();
+    if (activation.activated) {
       await recover();
       await updateDeclarativeRules();
     }
@@ -346,10 +354,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   // 4. 云同步初始化
   try {
-    const consent = await refreshPrivacyConsentCache();
-    if (consent.accepted) {
+    const activation = await refreshPrivacyConsentCache();
+    if (activation.activated) {
       await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onInstalled_cloud_sync'));
-    } else if (details.reason === 'update') {
+    } else if (details.reason === 'update' && activation.privacyConsentRequired) {
       await openPrivacyConsentPage('onUpdated', 'admin/admin.html?view=system-management');
     }
   } catch (err) {
@@ -497,8 +505,9 @@ function resolvePopupLiveSessionSeconds(timingSession, domain, tab = null) {
 }
 
 async function getPopupFastStatus(tabHint = null) {
-  const privacyConsent = await getPrivacyConsent().catch(() => ({ accepted: false }));
-  if (!privacyConsent.accepted) {
+  const activation = await resolveActivationState().catch(() => ({ activated: false, reason: 'privacy_consent_required', privacyConsent: { accepted: false } }));
+  const privacyConsent = activation.privacyConsent || { accepted: false };
+  if (!activation.activated) {
     const { tab, domain } = await getCurrentActiveDomain(tabHint).catch(() => ({ tab: null, domain: null }));
     return {
       mode: 'paused',
@@ -507,6 +516,7 @@ async function getPopupFastStatus(tabHint = null) {
       tabId: Number.isInteger(tab?.id) ? tab.id : null,
       url: tab?.url || null,
       privacyConsent,
+      activation,
     };
   }
   const [{ tab, domain }, timingSession, modeData] = await Promise.all([
@@ -586,8 +596,16 @@ function pickPopupConfig(rawConfig, siteClassificationRequests = []) {
   };
 }
 
-function buildPopupCloudStatus(storage = {}) {
+function buildPopupCloudStatus(storage = {}, activation = null) {
   const isBound = !!storage.cloud_device_token;
+  const managedPolicy = activation?.managedPolicy
+    ? {
+        tenantId: activation.managedPolicy.tenantId || null,
+        devicePolicyId: activation.managedPolicy.devicePolicyId || null,
+        cloudEndpoint: activation.managedPolicy.cloudEndpoint || null,
+        allowIdentityRecovery: activation.managedPolicy.allowIdentityRecovery !== false,
+      }
+    : null;
   return {
     isBound,
     localMode: !isBound,
@@ -596,6 +614,9 @@ function buildPopupCloudStatus(storage = {}) {
     deviceId: storage.cloud_device_id || null,
     profileId: storage.cloud_profile_id || null,
     v1SyncEnabled: storage.statsFoundationV1SyncEnabled ?? true,
+    activationMode: activation?.activationMode || null,
+    activationSource: activation?.source || null,
+    managedPolicy,
   };
 }
 
@@ -638,9 +659,10 @@ async function getPopupLocalSnapshot(tabHint = null) {
     timingSessionPromise,
     storagePromise,
   ]);
-  const privacyConsent = await getPrivacyConsent().catch(() => ({ accepted: false }));
+  const activation = await resolveActivationState().catch(() => ({ activated: false, reason: 'privacy_consent_required', privacyConsent: { accepted: false } }));
+  const privacyConsent = activation.privacyConsent || { accepted: false };
   const mode = normalizeMode(storage?.[SESSION_KEY]?.currentMode || 'study');
-  const currentSessionDurationSeconds = privacyConsent.accepted
+  const currentSessionDurationSeconds = activation.activated
     ? resolvePopupLiveSessionSeconds(timingSession, domain, tab)
     : 0;
   const todayStats = storage?.daily_usage_stats_v1?.[getDateKey()] || null;
@@ -652,7 +674,7 @@ async function getPopupLocalSnapshot(tabHint = null) {
   );
   const snapshot = {
     ok: true,
-    mode: privacyConsent.accepted ? mode : 'paused',
+    mode: activation.activated ? mode : 'paused',
     currentDomain: domain || null,
     currentSessionDurationSeconds,
     tabId: Number.isInteger(tab?.id) ? tab.id : null,
@@ -660,10 +682,11 @@ async function getPopupLocalSnapshot(tabHint = null) {
     currentManagedTarget: currentTarget?.fallback ? null : currentTarget,
     config: popupConfig,
     stats: buildPopupSettledModeStatsFromDay(todayStats),
-    cloudStatus: privacyConsent.accepted
-      ? buildPopupCloudStatus(storage || {})
-      : { isBound: false, localMode: true, syncEnabled: false, reason: 'privacy_consent_required' },
+    cloudStatus: activation.activated
+      ? buildPopupCloudStatus(storage || {}, activation)
+      : { isBound: false, localMode: true, syncEnabled: false, reason: activation.reason || 'runtime_activation_required', privacyConsentRequired: activation.privacyConsentRequired === true, activationMode: activation.activationMode || 'disabled' },
     privacyConsent,
+    activation,
     childName: storage?.cloud_profile_name || null,
     timings,
   };
@@ -687,9 +710,9 @@ async function updateCurrentTabBadge() {
   if (!chrome.action?.setBadgeText) return;
 
   try {
-    const monitoringEnabled = getSyncState().monitoringEnabled;
+    const monitoringEnabled = isMonitoringEnabled();
     const rawSession = await chrome.storage.local.get(SESSION_KEY);
-    const runtimeMode = monitoringEnabled === 0
+    const runtimeMode = !monitoringEnabled
       ? 'paused'
       : normalizeMode(rawSession?.[SESSION_KEY]?.currentMode || 'study');
 
@@ -867,7 +890,7 @@ chrome.windows.onBoundsChanged?.addListener?.(async (win) => {
 });
 
 function isMonitoringEnabled() {
-  return privacyConsentAccepted === true && getSyncState().monitoringEnabled !== 0;
+  return runtimeActivationState?.activated === true && getSyncState().monitoringEnabled !== 0;
 }
 
 
@@ -1309,6 +1332,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'GET_ACTIVATION_STATUS') {
+    (async () => {
+      const state = await refreshPrivacyConsentCache();
+      sendResponse({ ok: true, ...state });
+    })();
+    return true;
+  }
   if (msg.type === 'OPEN_PRIVACY_CONSENT') {
     (async () => {
       const result = await openPrivacyConsentPage(msg?.reason || 'user_requested', msg?.next || 'bind.html?welcome=1');
@@ -1604,7 +1634,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (!privacyConsentAccepted) {
+  if (!runtimeActivationState?.activated) {
     sendResponse(privacyConsentRequiredResponse());
     return true;
   }
