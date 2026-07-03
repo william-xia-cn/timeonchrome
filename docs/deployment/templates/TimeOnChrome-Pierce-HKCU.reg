@@ -1,0 +1,26 @@
+Windows Registry Editor Version 5.00
+
+; TimeOnChrome Managed Internal Channel
+; Target: Pierce.xia@icloud.com
+; Scope: HKCU current Windows user only
+; Extension ID: jdcancbiocacabbjdkngadmjpjmkdnih
+; Update URL: https://timeonchrome-update.pages.dev/timeonchrome/update.xml
+
+; Remove older nested-key ExtensionSettings shape if it was imported during testing.
+[-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\ExtensionSettings\jdcancbiocacabbjdkngadmjpjmkdnih]
+
+; Chrome ExtensionSettings is a compact JSON policy value.
+[HKEY_CURRENT_USER\Software\Policies\Google\Chrome]
+"ExtensionSettings"="{\"jdcancbiocacabbjdkngadmjpjmkdnih\":{\"installation_mode\":\"force_installed\",\"toolbar_pin\":\"force_pinned\",\"update_url\":\"https://timeonchrome-update.pages.dev/timeonchrome/update.xml\"}}"
+
+; Replace any previous managed storage policy for this extension.
+[-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih]
+
+; chrome.storage.managed payload for TimeOnChrome activation.
+[HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih\policy]
+"enabled"=dword:00000001
+"deploymentMode"="managed"
+"tenantId"="pierce-xia-icloud"
+"devicePolicyId"="pierce-windows-chrome-001"
+"cloudEndpoint"="https://guardian-api.william-xia-cn.workers.dev"
+"allowIdentityRecovery"=dword:00000001
