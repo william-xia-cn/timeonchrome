@@ -23,7 +23,7 @@ function requestKindForEndpoint(endpoint: string): string {
   if (endpoint === '/device/heartbeat') return 'heartbeat';
   if (endpoint === '/device/config') return 'config';
   if (endpoint === '/device/identity-link') return 'identity_link';
-  if (endpoint.includes('/device/recover')) return 'device_recovery';
+  if (endpoint.includes('/device/recover') || endpoint.includes('/device/managed-recover')) return 'device_recovery';
   if (endpoint.includes('usage-segments')) return 'usage_segments';
   if (endpoint.includes('media-segments')) return 'media_segments';
   if (endpoint.includes('client-logs')) return 'client_logs';

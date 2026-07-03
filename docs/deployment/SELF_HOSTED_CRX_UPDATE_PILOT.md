@@ -172,3 +172,24 @@ and update `update.xml` to that higher rollback version.
 - This does not bypass school or enterprise MDM.
 - This does not implement `tenantId + devicePolicyId` device recovery; that is Task E.
 - This does not upload real artifacts.
+
+## 10. Release Helper Update
+
+The dry-run helper now also supports a guarded release path:
+
+```powershell
+$env:TIMEONCHROME_CRX_KEY_PATH = "<path-outside-repo>\timeonchrome-managed.pem"
+$env:TIMEONCHROME_MANAGED_EXTENSION_ID = "<stable-extension-id>"
+$env:TIMEONCHROME_UPDATE_BASE_URL = "https://timeonchrome-update.pages.dev/timeonchrome"
+node tools/self-hosted-crx-dry-run.js --pack --prepare-host
+```
+
+Rules:
+
+- the PEM must be outside the repository;
+- the script derives and validates the managed extension ID;
+- the script writes CRX/update artifacts only under ignored `dist/` paths;
+- the script prepares the independent Pages layout under `dist/self-hosted-update/timeonchrome/`;
+- no key path or key content is printed in JSON output.
+
+Deploy the update host only after the CRX, `update.xml`, and `SHA256SUMS.txt` have been verified.

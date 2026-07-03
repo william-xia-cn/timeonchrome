@@ -230,3 +230,21 @@ Pages:
 - Whether `devicePolicyId` should be human-readable or random.
 - Whether managed mapping creation belongs in cloud console or a separate admin import file.
 - Whether update host and Worker endpoint should share a tenant namespace.
+
+## 13. Implementation Status
+
+The first managed recovery implementation adds:
+
+- D1 table `managed_device_mappings_v1` via migration `019_managed_device_mappings_v1.sql`;
+- account API `GET /profiles/:id/managed-device-mappings/v1` to list mappings;
+- account API `PUT /profiles/:id/managed-device-mappings/v1` to upsert `tenantId + devicePolicyId -> deviceId`;
+- device API `POST /device/managed-recover/bootstrap` to recover an existing mapped device token when local `device_token` is missing.
+
+The extension recovery order is now:
+
+1. existing local `device_token`;
+2. managed policy recovery by `tenantId + devicePolicyId`;
+3. Chrome identity weak recovery if policy allows it;
+4. pending/manual cloud handling.
+
+Managed recovery never creates a new device silently and never stores device tokens in policy.

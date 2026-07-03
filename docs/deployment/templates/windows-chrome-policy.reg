@@ -1,0 +1,14 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionSettings\REPLACE_WITH_MANAGED_EXTENSION_ID]
+"installation_mode"="force_installed"
+"toolbar_pin"="force_pinned"
+"update_url"="https://timeonchrome-update.pages.dev/timeonchrome/update.xml"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\3rdparty\extensions\REPLACE_WITH_MANAGED_EXTENSION_ID\policy]
+"enabled"=dword:00000001
+"deploymentMode"="managed"
+"tenantId"="internal-family-001"
+"devicePolicyId"="windows-child-001"
+"cloudEndpoint"="https://guardian-api.william-xia-cn.workers.dev"
+"allowIdentityRecovery"=dword:00000001

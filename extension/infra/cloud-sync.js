@@ -111,6 +111,7 @@ let syncState = {
   monitoringEnabled: 1,
   v1SyncEnabled: false,
   currentRequestId: null,
+  apiBase: CLOUD_CONFIG.API_BASE,
 };
 
 function createCloudRequestId(scope = 'cloud') {
@@ -153,8 +154,17 @@ async function getRuntimeActivationStateSafe() {
   }
 }
 
+function applyActivationCloudEndpoint(activation) {
+  syncState.apiBase = activation?.managedPolicy?.cloudEndpoint || CLOUD_CONFIG.API_BASE;
+}
+
+function getCloudApiBase() {
+  return syncState.apiBase || CLOUD_CONFIG.API_BASE;
+}
+
 async function requireRuntimeActivation() {
   const activation = await getRuntimeActivationStateSafe();
+  applyActivationCloudEndpoint(activation);
   if (activation.activated === true) return { ok: true, activation };
   return {
     ok: false,
@@ -210,6 +220,44 @@ function buildDeviceIdentityPayload(identity) {
     extensionVersion: getCloudClientVersion(),
     deviceNameHint: `${getClientPlatform()} Chrome`,
   };
+}
+
+function buildManagedRecoveryPayload(managedPolicy) {
+  return {
+    tenantId: managedPolicy?.tenantId || null,
+    devicePolicyId: managedPolicy?.devicePolicyId || null,
+    platform: getClientPlatform(),
+    browser: getClientBrowserName(),
+    extensionVersion: getCloudClientVersion(),
+    deviceNameHint: `${getClientPlatform()} Chrome`,
+  };
+}
+
+async function tryManagedPolicyRecovery(activation, reason = 'sync') {
+  const managedPolicy = activation?.managedPolicy;
+  if (activation?.activationMode !== 'managed_policy' || !managedPolicy?.tenantId || !managedPolicy?.devicePolicyId) {
+    return { ok: false, skipped: true, reason: 'managed_policy_recovery_unavailable' };
+  }
+  logDeviceRecoveryEvent('info', 'managed_device_recovery_attempt_started', 'Managed policy device recovery attempt started', {
+    reason,
+    tenantId: managedPolicy.tenantId,
+    devicePolicyId: managedPolicy.devicePolicyId,
+  });
+  const result = await cloudAnonymousRequest('POST', '/device/managed-recover/bootstrap', buildManagedRecoveryPayload(managedPolicy));
+  logDeviceRecoveryEvent(result?.status === 'RECOVERED' ? 'info' : 'warning', 'managed_device_recovery_bootstrap_result', 'Managed policy device recovery returned a result', {
+    status: result?.status || result?.code || 'unknown',
+  });
+  if (result?.status === 'RECOVERED') {
+    await persistRecoveredBinding(result, 'managed_policy_recovery');
+    return { ok: true, recovered: true, source: 'managed_policy' };
+  }
+  if (result?.status === 'DEVICE_UNBOUND' || result?.code === 'DEVICE_UNBOUND') {
+    await clearCloudBindingState('managed_recovery_unbound');
+    return { ok: false, terminal: true, reason: 'device_unbound' };
+  }
+  const status = result?.status || result?.code || 'not_recovered';
+  await saveRecoveryState({ status, lastError: status, reason: 'managed_policy_recovery' });
+  return { ok: false, recovered: false, reason: status, status };
 }
 
 function logDeviceRecoveryEvent(level, eventCode, message, details = {}) {
@@ -369,7 +417,7 @@ async function saveAccountSession({ token, refreshToken, email }) {
 
 async function refreshAccountSession(refreshToken) {
   if (!refreshToken) return null;
-  const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/refresh`, {
+  const resp = await fetch(`${getCloudApiBase()}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
@@ -387,7 +435,7 @@ async function refreshAccountSession(refreshToken) {
 async function loginWithLegacyCredentials(encodedCredentials) {
   const creds = safeDecodeCredentials(encodedCredentials);
   if (!creds) return null;
-  const resp = await fetch(`${CLOUD_CONFIG.API_BASE}/auth/login`, {
+  const resp = await fetch(`${getCloudApiBase()}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: creds.email, password: creds.password }),
@@ -443,7 +491,7 @@ async function hydrateDeviceIdFromBindIfMissing() {
       return false;
     }
 
-    const bindResp = await fetch(`${CLOUD_CONFIG.API_BASE}/device/bind`, {
+    const bindResp = await fetch(`${getCloudApiBase()}/device/bind`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -698,7 +746,7 @@ async function cloudRequest(method, path, body = null, retries = 3) {
         options.body = JSON.stringify(body);
       }
 
-      const resp = await fetch(`${CLOUD_CONFIG.API_BASE}${path}`, options);
+      const resp = await fetch(`${getCloudApiBase()}${path}`, options);
       clearTimeout(timeoutId);
 
       if (resp.ok) {
@@ -781,7 +829,7 @@ async function cloudAnonymousRequest(method, path, body = null) {
     const requestId = syncState.currentRequestId || createCloudRequestId('recover');
     if (clientVersion) headers['X-TimeOnChrome-Version'] = clientVersion;
     if (requestId) headers['X-TimeOnChrome-Request-Id'] = requestId;
-    const resp = await fetch(`${CLOUD_CONFIG.API_BASE}${path}`, {
+    const resp = await fetch(`${getCloudApiBase()}${path}`, {
       method,
       signal: controller.signal,
       headers,
@@ -947,7 +995,7 @@ async function pollPendingDeviceRecovery() {
 }
 
 async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
-  const activation = await requireIdentityRecoveryActivation();
+  const activation = await requireRuntimeActivation();
   if (!activation.ok) {
     await saveRecoveryState({ status: activation.reason || 'runtime_activation_required', lastError: activation.reason || 'runtime_activation_required' });
     return { ok: false, skipped: true, reason: activation.reason || 'runtime_activation_required' };
@@ -972,6 +1020,19 @@ async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
 
   await saveRecoveryState({ status: 'attempting', reason, lastAttemptAt: Date.now(), platform: getClientPlatform() });
   logDeviceRecoveryEvent('info', 'device_recovery_attempt_started', 'Device binding recovery attempt started', { reason });
+
+  if (activation.activation?.activationMode === 'managed_policy') {
+    const managedResult = await tryManagedPolicyRecovery(activation.activation, reason).catch((error) => {
+      logDeviceRecoveryEvent('error', 'managed_device_recovery_failed', 'Managed policy device recovery request failed', {
+        error: error?.message || String(error),
+      });
+      return { ok: false, reason: 'managed_policy_recovery_failed', error: error?.message || String(error) };
+    });
+    if (managedResult?.recovered || managedResult?.terminal) return managedResult;
+    if (activation.activation?.managedPolicy?.allowIdentityRecovery === false) {
+      return managedResult || { ok: false, reason: 'identity_recovery_disabled_by_policy' };
+    }
+  }
 
   const identity = await getChromeProfileIdentity();
   if (!identity.ok) {

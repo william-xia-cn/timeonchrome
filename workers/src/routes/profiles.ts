@@ -10,6 +10,20 @@ type DeviceRecoveryActionBody = {
   message?: string;
 };
 
+type ManagedDeviceMappingBody = {
+  tenantId?: string;
+  devicePolicyId?: string;
+  deviceId?: string;
+  status?: string;
+};
+
+function normalizeManagedPolicyId(value: unknown, max = 128): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim().slice(0, max);
+  if (!text || !/^[A-Za-z0-9._:-]+$/.test(text)) return null;
+  return text;
+}
+
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
 
 // ── Schema defaults：仅用于 merge / repair / 缺字段补齐 ──
@@ -353,12 +367,13 @@ export const profilesRouter = {
     const deviceIdMatch    = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)$/);
     const recoveryRequestsMatch = path.match(/^\/profiles\/([^/]+)\/device-recovery-requests\/v1$/);
     const recoveryRequestIdMatch = path.match(/^\/profiles\/([^/]+)\/device-recovery-requests\/v1\/([^/]+)$/);
+    const managedMappingsMatch = path.match(/^\/profiles\/([^/]+)\/managed-device-mappings\/v1$/);
     const profileSelfMatch = path.match(/^\/profiles\/([^/]+)$/);
 
     // 抽取 profileId 并验证归属
     const profileId =
       configMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ??
-      recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
+      recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? managedMappingsMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
 
@@ -368,6 +383,56 @@ export const profilesRouter = {
 
     if (!owner) return json({ error: 'Profile not found' }, 404);
 
+    // GET/PUT /profiles/:id/managed-device-mappings/v1
+    if (managedMappingsMatch) {
+      if (request.method === 'GET') {
+        const rows = await env.DB.prepare(
+          `SELECT m.id, m.tenant_id, m.device_policy_id, m.profile_id, m.device_id, m.status,
+                  m.created_at, m.updated_at, m.last_recovered_at, d.device_name, d.last_seen
+           FROM managed_device_mappings_v1 m
+           LEFT JOIN devices d ON d.id = m.device_id
+           WHERE m.profile_id = ?
+           ORDER BY m.updated_at DESC`
+        ).bind(profileId).all();
+        return json({ managedDeviceMappings: rows.results || [] });
+      }
+
+      if (request.method === 'PUT') {
+        const body = await request.json<ManagedDeviceMappingBody>().catch(() => ({} as ManagedDeviceMappingBody));
+        const tenantId = normalizeManagedPolicyId(body.tenantId);
+        const devicePolicyId = normalizeManagedPolicyId(body.devicePolicyId);
+        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+        const status = body.status === 'disabled' ? 'disabled' : 'active';
+        if (!tenantId || !devicePolicyId || !deviceId) {
+          return json({ error: 'tenantId, devicePolicyId and deviceId required', code: 'MANAGED_MAPPING_INVALID' }, 400);
+        }
+        const dev = await env.DB.prepare(
+          `SELECT id FROM devices WHERE id = ? AND profile_id = ? AND COALESCE(status, 'bound') = 'bound'`
+        ).bind(deviceId, profileId).first<{ id: string }>();
+        if (!dev) return json({ error: 'Device not found or unbound', code: 'MANAGED_MAPPING_DEVICE_NOT_FOUND' }, 404);
+        const now = Date.now();
+        const existing = await env.DB.prepare(
+          `SELECT id FROM managed_device_mappings_v1 WHERE tenant_id = ? AND device_policy_id = ?`
+        ).bind(tenantId, devicePolicyId).first<{ id: string }>();
+        if (existing) {
+          await env.DB.prepare(
+            `UPDATE managed_device_mappings_v1
+             SET profile_id = ?, device_id = ?, status = ?, updated_at = ?
+             WHERE id = ?`
+          ).bind(profileId, deviceId, status, now, existing.id).run();
+          return json({ success: true, id: existing.id, updated: true });
+        }
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          `INSERT INTO managed_device_mappings_v1 (
+            id, tenant_id, device_policy_id, profile_id, device_id, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(id, tenantId, devicePolicyId, profileId, deviceId, status, now, now).run();
+        return json({ success: true, id, created: true });
+      }
+
+      return json({ error: 'Method not allowed' }, 405);
+    }
     // GET /profiles/:id/device-recovery-requests/v1
     if (request.method === 'GET' && recoveryRequestsMatch) {
       const rows = await env.DB.prepare(

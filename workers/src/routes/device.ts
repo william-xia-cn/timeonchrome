@@ -16,6 +16,15 @@ type DeviceRecoveryBootstrapBody = DeviceIdentityLinkBody & {
   deviceNameHint?: string;
 };
 
+type ManagedRecoveryBootstrapBody = {
+  tenantId?: string;
+  devicePolicyId?: string;
+  platform?: string;
+  browser?: string;
+  extensionVersion?: string;
+  deviceNameHint?: string;
+};
+
 // 生成 64 字符随机 device_token
 function generateDeviceToken(): string {
   const array = new Uint8Array(32);
@@ -40,6 +49,12 @@ function trimString(value: unknown, max = 128): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed.slice(0, max) : null;
+}
+
+function normalizeManagedPolicyId(value: unknown, max = 128): string | null {
+  const text = trimString(value, max);
+  if (!text || !/^[A-Za-z0-9._:-]+$/.test(text)) return null;
+  return text;
 }
 
 async function hmacHex(secret: string, value: string): Promise<string> {
@@ -152,6 +167,44 @@ async function recordRecoveredDeviceRequest(
   await cleanupDeviceRecoveryRequests(env, input.profileId, input.now);
 }
 
+async function recordManagedRecoveredDeviceRequest(
+  env: Env,
+  input: {
+    profileId: string;
+    platform: string;
+    browser?: string | null;
+    extensionVersion?: string | null;
+    deviceNameHint?: string | null;
+    deviceId: string;
+    message: string;
+    now: number;
+  }
+): Promise<void> {
+  const pollHash = await pollTokenHash(env, generateDeviceToken());
+  await env.DB.prepare(
+    `INSERT INTO device_recovery_requests_v1 (
+      id, profile_id, chrome_identity_hash, platform, browser, extension_version, device_name_hint,
+      candidate_device_id, candidate_count, poll_token_hash, status, result_device_id,
+      result_profile_id, message, created_at, updated_at, decided_at
+    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 1, ?, 'recovered', ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    crypto.randomUUID(),
+    input.profileId,
+    input.platform,
+    trimString(input.browser, 64),
+    trimString(input.extensionVersion, 32),
+    trimString(input.deviceNameHint, 128),
+    input.deviceId,
+    pollHash,
+    input.deviceId,
+    input.profileId,
+    input.message,
+    input.now,
+    input.now,
+    input.now
+  ).run();
+  await cleanupDeviceRecoveryRequests(env, input.profileId, input.now);
+}
 async function markPendingRecoveryRequestsRecovered(
   env: Env,
   input: {
@@ -349,6 +402,87 @@ export const deviceRouter = {
       return json({ success: true, identityLinked: true });
     }
 
+    // POST /device/managed-recover/bootstrap - managed policy anchor recovery without device token
+    if (request.method === 'POST' && path === '/device/managed-recover/bootstrap') {
+      const now = Date.now();
+      const body = await request.json<ManagedRecoveryBootstrapBody>().catch(() => ({} as ManagedRecoveryBootstrapBody));
+      const tenantId = normalizeManagedPolicyId(body.tenantId, 128);
+      const devicePolicyId = normalizeManagedPolicyId(body.devicePolicyId, 128);
+      const platform = normalizePlatform(body.platform);
+      if (!tenantId || !devicePolicyId) {
+        return json({ success: false, status: 'MANAGED_POLICY_MALFORMED', code: 'MANAGED_POLICY_MALFORMED' }, 200);
+      }
+      if (!isSupportedRecoveryPlatform(platform)) {
+        return json({ success: false, status: 'UNSUPPORTED_PLATFORM', code: 'UNSUPPORTED_PLATFORM' }, 200);
+      }
+
+      const rows = await env.DB.prepare(
+        `SELECT m.id AS mapping_id, m.profile_id, m.device_id, m.status AS mapping_status,
+                d.device_name, d.status AS device_status, p.name AS profile_name
+         FROM managed_device_mappings_v1 m
+         JOIN devices d ON d.id = m.device_id AND d.profile_id = m.profile_id
+         JOIN profiles p ON p.id = m.profile_id
+         WHERE m.tenant_id = ? AND m.device_policy_id = ?`
+      ).bind(tenantId, devicePolicyId).all<{
+        mapping_id: string; profile_id: string; device_id: string; mapping_status?: string;
+        device_name?: string; device_status?: string; profile_name?: string;
+      }>();
+      const mappings = rows.results || [];
+      if (mappings.length <= 0) {
+        return json({ success: false, status: 'NO_MAPPING', code: 'NO_MAPPING' }, 200);
+      }
+      if (mappings.length > 1) {
+        return json({ success: false, status: 'MAPPING_CONFLICT', code: 'MAPPING_CONFLICT' }, 200);
+      }
+      const mapping = mappings[0];
+      if (mapping.mapping_status && mapping.mapping_status !== 'active') {
+        return json({ success: false, status: 'MAPPING_DISABLED', code: 'MAPPING_DISABLED' }, 200);
+      }
+      if (mapping.device_status === 'unbound') {
+        return deviceUnboundResponse(mapping.device_id);
+      }
+
+      const newToken = generateDeviceToken();
+      await env.DB.prepare(
+        `UPDATE devices
+         SET device_token = ?, last_seen = ?, last_recovered_at = ?, recovery_status = 'managed_policy_recovered',
+             platform = COALESCE(?, platform), browser = COALESCE(?, browser)
+         WHERE id = ? AND COALESCE(status, 'bound') = 'bound'`
+      ).bind(
+        newToken,
+        now,
+        now,
+        platform,
+        trimString(body.browser, 64),
+        mapping.device_id
+      ).run();
+      await env.DB.prepare(
+        `UPDATE managed_device_mappings_v1
+         SET last_recovered_at = ?, updated_at = ?
+         WHERE id = ?`
+      ).bind(now, now, mapping.mapping_id).run().catch(() => {});
+      await recordManagedRecoveredDeviceRequest(env, {
+        profileId: mapping.profile_id,
+        platform,
+        browser: body.browser,
+        extensionVersion: body.extensionVersion,
+        deviceNameHint: body.deviceNameHint,
+        deviceId: mapping.device_id,
+        message: 'Managed policy recovered mapped device candidate.',
+        now,
+      }).catch(() => {});
+
+      return json({
+        success: true,
+        status: 'RECOVERED',
+        device_token: newToken,
+        device_id: mapping.device_id,
+        profile_id: mapping.profile_id,
+        profile_name: mapping.profile_name || null,
+        recovered: true,
+        recoverySource: 'managed_policy',
+      });
+    }
     // POST /device/recover/bootstrap - weak identity based recovery without device token
     if (request.method === 'POST' && path === '/device/recover/bootstrap') {
       const now = Date.now();
