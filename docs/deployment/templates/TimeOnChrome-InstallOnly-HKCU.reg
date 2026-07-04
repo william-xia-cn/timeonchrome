@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+; TimeOnChrome self-hosted install-only policy.
+; Scope: HKCU current Windows user only.
+; Purpose: verify update.xml / CRX install chain without managed activation.
+; Extension ID: jdcancbiocacabbjdkngadmjpjmkdnih
+; Update URL: https://timeonchrome-update.pages.dev/timeonchrome/update.xml
+
+; Remove older nested-key ExtensionSettings shape if it was imported during testing.
+[-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\ExtensionSettings\jdcancbiocacabbjdkngadmjpjmkdnih]
+
+; Force install from the self-hosted update.xml. This is install-only.
+[HKEY_CURRENT_USER\Software\Policies\Google\Chrome]
+"ExtensionSettings"="{\"jdcancbiocacabbjdkngadmjpjmkdnih\":{\"installation_mode\":\"force_installed\",\"toolbar_pin\":\"force_pinned\",\"update_url\":\"https://timeonchrome-update.pages.dev/timeonchrome/update.xml\"}}"
+
+; Explicitly remove managed storage so this test does not activate managed_policy.
+[-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih]

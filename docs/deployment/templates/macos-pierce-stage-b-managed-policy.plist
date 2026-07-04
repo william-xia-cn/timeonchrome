@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.google.Chrome.extensions.jdcancbiocacabbjdkngadmjpjmkdnih</key>
+  <dict>
+    <key>enabled</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <true/>
+    </dict>
+    <key>deploymentMode</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>managed</string>
+    </dict>
+    <key>tenantId</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>pierce-xia-icloud</string>
+    </dict>
+    <key>devicePolicyId</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>pierce-macos-chrome-001</string>
+    </dict>
+    <key>cloudEndpoint</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>https://guardian-api.william-xia-cn.workers.dev</string>
+    </dict>
+    <key>allowIdentityRecovery</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <true/>
+    </dict>
+  </dict>
+</dict>
+</plist>
