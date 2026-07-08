@@ -7,7 +7,7 @@ Use this test before managed activation. It validates only the self-hosted CRX/u
 - Chrome reads `update.xml`.
 - Chrome installs the CRX.
 - Extension ID is `jdcancbiocacabbjdkngadmjpjmkdnih`.
-- Version is `1.7.8`.
+- Version is `1.7.9`.
 
 This test intentionally removes `chrome.storage.managed` values for TimeOnChrome, so Popup/Admin should not show `managed_policy`.
 
@@ -51,7 +51,7 @@ If this fails with `访问注册表时出错`, the current Windows account canno
 
 ```text
 ID: jdcancbiocacabbjdkngadmjpjmkdnih
-Version: 1.7.8
+Version: 1.7.9
 ```
 
 ## Expected Result
@@ -59,7 +59,7 @@ Version: 1.7.8
 - Extension is installed by policy.
 - Toolbar is pinned.
 - Extension ID is `jdcancbiocacabbjdkngadmjpjmkdnih`.
-- Version is `1.7.8`.
+- Version is `1.7.9`.
 - Popup/Admin does not show `managed_policy`.
 - If opened before privacy consent or binding, the extension follows the normal non-managed path.
 

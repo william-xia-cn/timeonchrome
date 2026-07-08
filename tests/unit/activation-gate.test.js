@@ -33,21 +33,26 @@ function run() {
     activationGate.includes("ACTIVATION_MODE_MANAGED_POLICY = 'managed_policy'") &&
     activationGate.includes("ACTIVATION_MODE_USER_CONSENT = 'user_consent'") &&
     activationGate.includes("ACTIVATION_MODE_DISABLED = 'disabled'"));
-  expectTrue('managed policy schema is limited to activation and identity anchor',
+  expectTrue('managed policy schema is limited to activation endpoint and device token',
     activationGate.includes("'enabled'") &&
     activationGate.includes("'deploymentMode'") &&
-    activationGate.includes("'tenantId'") &&
-    activationGate.includes("'devicePolicyId'") &&
     activationGate.includes("'cloudEndpoint'") &&
+    activationGate.includes("'managedDeviceToken'") &&
+    activationGate.includes("'managedDeviceLabel'") &&
     activationGate.includes("'allowIdentityRecovery'") &&
     !activationGate.includes('studyList') &&
     !activationGate.includes('timeQuota') &&
     !activationGate.includes('timeWindows'));
+  expectTrue('legacy tenant/devicePolicy anchors are retained only for compatibility',
+    activationGate.includes('Legacy recovery anchors') &&
+    activationGate.includes("'tenantId'") &&
+    activationGate.includes("'devicePolicyId'"));
   expectTrue('managed policy is read from chrome.storage.managed',
     activationGate.includes('chrome.storage.managed.get') && activationGate.includes('MANAGED_POLICY_KEYS'));
-  expectTrue('managed activation requires managed deployment and https endpoint',
+  expectTrue('managed activation requires managed deployment, https endpoint and token or legacy anchor',
     activationGate.includes("deploymentMode !== 'managed'") &&
     activationGate.includes("url.protocol === 'https:'") &&
+    activationGate.includes('managedDeviceToken') &&
     activationGate.includes("'managed_policy_malformed'"));
   expectTrue('managed policy wins before user consent fallback',
     activationGate.indexOf('if (managed.active)') < activationGate.indexOf('if (privacyConsent?.accepted === true)'));
@@ -64,8 +69,9 @@ function run() {
   expectTrue('background install does not force privacy consent page in managed mode',
     background.includes("activation.activationMode !== 'managed_policy'") &&
     background.includes("openPrivacyConsentPage('onInstalled'"));
-  expectTrue('background exposes activation status message',
-    background.includes('GET_ACTIVATION_STATUS'));
+  expectTrue('background exposes managed token presence but not token value',
+    background.includes('hasManagedDeviceToken') &&
+    !background.includes('managedDeviceToken: activation.managedPolicy.managedDeviceToken'));
 
   expectTrue('cloud sync depends on activation gate instead of direct privacy consent',
     cloudSync.includes("from '../core/activation-gate.js'") &&
@@ -74,11 +80,15 @@ function run() {
     !cloudSync.includes('hasPrivacyConsent'));
   expectTrue('cloud sync blocks identity recovery when policy disables it',
     cloudSync.includes("identity_recovery_disabled_by_policy"));
+  expectTrue('cloud sync can adopt managedDeviceToken before legacy recovery',
+    cloudSync.includes('tryManagedDeviceTokenBootstrap') &&
+    cloudSync.includes('managed_device_token_adopted'));
 
   expectTrue('bind page can use managed activation without module imports',
     bind.includes('getManagedActivationPolicy') &&
     bind.includes('hasRuntimeActivation') &&
-    bind.includes('canUseChromeIdentityForBind'));
+    bind.includes('canUseChromeIdentityForBind') &&
+    bind.includes('managedDeviceToken'));
   expectTrue('admin shows read-only activation source',
     admin.includes('启用来源') &&
     admin.includes('受管理策略启用') &&

@@ -17,11 +17,39 @@ type ManagedDeviceMappingBody = {
   status?: string;
 };
 
+type CreateDeviceBody = {
+  device_name?: string;
+  platform?: string;
+  browser?: string;
+};
+
 function normalizeManagedPolicyId(value: unknown, max = 128): string | null {
   if (typeof value !== 'string') return null;
   const text = value.trim().slice(0, max);
   if (!text || !/^[A-Za-z0-9._:-]+$/.test(text)) return null;
   return text;
+}
+
+function trimString(value: unknown, max = 128): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function normalizePlatform(value: unknown): string | null {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (/mac|darwin|os x/.test(raw)) return 'macos';
+  if (/win/.test(raw)) return 'windows';
+  if (/cros|chromeos/.test(raw)) return 'chromeos';
+  if (/linux/.test(raw)) return 'linux';
+  return raw.slice(0, 64);
+}
+
+function generateDeviceToken(): string {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
@@ -365,6 +393,7 @@ export const profilesRouter = {
     const defaultsMatch    = path.match(/^\/profiles\/([^/]+)\/defaults$/);
     const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
     const deviceIdMatch    = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)$/);
+    const deviceTokenActionMatch = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)\/token\/(export|reset)$/);
     const recoveryRequestsMatch = path.match(/^\/profiles\/([^/]+)\/device-recovery-requests\/v1$/);
     const recoveryRequestIdMatch = path.match(/^\/profiles\/([^/]+)\/device-recovery-requests\/v1\/([^/]+)$/);
     const managedMappingsMatch = path.match(/^\/profiles\/([^/]+)\/managed-device-mappings\/v1$/);
@@ -372,7 +401,7 @@ export const profilesRouter = {
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ??
+      configMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
       recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? managedMappingsMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
@@ -688,6 +717,35 @@ export const profilesRouter = {
       }
     }
 
+    // POST /profiles/:id/devices - 云端主动创建受管或预绑定设备
+    if (request.method === 'POST' && devicesMatch) {
+      const body = await request.json<CreateDeviceBody>().catch(() => ({} as CreateDeviceBody));
+      const deviceId = crypto.randomUUID();
+      const deviceToken = generateDeviceToken();
+      const now = Date.now();
+      const deviceName = trimString(body.device_name, 64) || 'Managed Chrome Extension';
+      const platform = normalizePlatform(body.platform);
+      const browser = trimString(body.browser, 64) || 'Chrome';
+      await env.DB.prepare(
+        `INSERT INTO devices (id, profile_id, device_token, device_name, last_seen, created_at, platform, browser, recovery_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(deviceId, profileId, deviceToken, deviceName, now, now, platform, browser, 'cloud_created').run();
+      return json({
+        success: true,
+        profile_id: profileId,
+        device_id: deviceId,
+        device_token: deviceToken,
+        device: {
+          id: deviceId,
+          profile_id: profileId,
+          device_name: deviceName,
+          platform,
+          browser,
+          created_at: now,
+          status: 'bound',
+        },
+      });
+    }
     // GET /profiles/:id/devices
     if (request.method === 'GET' && devicesMatch) {
       // Try to include monitoring_enabled (added in migration 002); fall back if column missing
@@ -718,6 +776,35 @@ export const profilesRouter = {
       return json({ devices });
     }
 
+    // POST /profiles/:id/devices/:deviceId/token/export|reset
+    if (request.method === 'POST' && deviceTokenActionMatch) {
+      const deviceId = deviceTokenActionMatch[2];
+      const action = deviceTokenActionMatch[3];
+      const dev = await env.DB.prepare(
+        `SELECT id, profile_id, device_token, device_name, status FROM devices WHERE id = ? AND profile_id = ?`
+      ).bind(deviceId, profileId).first<{ id: string; profile_id: string; device_token: string; device_name?: string; status?: string }>();
+      if (!dev) return json({ error: 'Device not found', code: 'DEVICE_NOT_FOUND' }, 404);
+      if ((dev.status || 'bound') === 'unbound') {
+        return json({ error: 'Device is unbound; create a new device or bind again before exporting token', code: 'DEVICE_UNBOUND' }, 409);
+      }
+
+      let deviceToken = dev.device_token;
+      if (action === 'reset') {
+        deviceToken = generateDeviceToken();
+        await env.DB.prepare(
+          `UPDATE devices SET device_token = ?, recovery_status = ?, last_recovered_at = ? WHERE id = ? AND profile_id = ?`
+        ).bind(deviceToken, 'token_reset', Date.now(), deviceId, profileId).run();
+      }
+
+      return json({
+        success: true,
+        action,
+        profile_id: profileId,
+        device_id: deviceId,
+        device_name: dev.device_name || null,
+        device_token: deviceToken,
+      });
+    }
     // PATCH /profiles/:id/devices/:deviceId - 重命名设备 或 切换监控
     if (request.method === 'PATCH' && deviceIdMatch) {
       const deviceId = deviceIdMatch[2];

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TimeOnChrome",
-  "version": "1.7.8",
+  "version": "1.7.9",
   "description": "上网时间管理助手 - 学习模式、时长统计、智能提醒",
   "incognito": "split",
 

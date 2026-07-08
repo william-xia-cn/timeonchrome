@@ -5,6 +5,7 @@ Windows Registry Editor Version 5.00
 ; Scope: HKCU current Windows user only
 ; Extension ID: jdcancbiocacabbjdkngadmjpjmkdnih
 ; Update URL: https://timeonchrome-update.pages.dev/timeonchrome/update.xml
+; Replace <MANAGED_DEVICE_TOKEN_FROM_CLOUD> with the token exported from TimeOnChrome cloud console.
 
 ; Remove older nested-key ExtensionSettings shape if it was imported during testing.
 [-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\ExtensionSettings\jdcancbiocacabbjdkngadmjpjmkdnih]
@@ -20,7 +21,6 @@ Windows Registry Editor Version 5.00
 [HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih\policy]
 "enabled"=dword:00000001
 "deploymentMode"="managed"
-"tenantId"="pierce-xia-icloud"
-"devicePolicyId"="pierce-windows-chrome-001"
+"managedDeviceToken"="<MANAGED_DEVICE_TOKEN_FROM_CLOUD>"
+"managedDeviceLabel"="Pierce Windows Chrome"
 "cloudEndpoint"="https://guardian-api.william-xia-cn.workers.dev"
-"allowIdentityRecovery"=dword:00000001

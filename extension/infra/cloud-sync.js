@@ -232,31 +232,100 @@ function buildManagedRecoveryPayload(managedPolicy) {
     deviceNameHint: `${getClientPlatform()} Chrome`,
   };
 }
+async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
+  const managedPolicy = activation?.managedPolicy;
+  const managedDeviceToken = typeof managedPolicy?.managedDeviceToken === 'string'
+    ? managedPolicy.managedDeviceToken.trim()
+    : '';
+  if (activation?.activationMode !== 'managed_policy' || !managedDeviceToken) {
+    return { ok: false, skipped: true, reason: 'managed_device_token_unavailable' };
+  }
+
+  logDeviceRecoveryEvent('info', 'managed_device_token_adoption_started', 'Managed device token adoption started', {
+    reason,
+    managedDeviceLabel: managedPolicy?.managedDeviceLabel || null,
+  });
+
+  syncState.deviceToken = managedDeviceToken;
+  await chrome.storage.local.set({
+    [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: managedDeviceToken,
+  });
+
+  try {
+    const result = await cloudRequest('GET', '/device/config', null, 1);
+    const profileId = typeof result?.profile_id === 'string' && result.profile_id.trim() ? result.profile_id.trim() : null;
+    const deviceId = typeof result?.device_id === 'string' && result.device_id.trim() ? result.device_id.trim() : null;
+    if (!profileId || !deviceId) {
+      throw new Error('Managed device token config response missing profile_id or device_id');
+    }
+    await persistRecoveredBinding({
+      device_token: managedDeviceToken,
+      device_id: deviceId,
+      profile_id: profileId,
+    }, 'managed_device_token');
+    await saveRecoveryState({
+      status: 'managed_device_token_adopted',
+      source: 'managed_device_token',
+      lastError: null,
+      lastRecoveredAt: Date.now(),
+    });
+    logDeviceRecoveryEvent('info', 'managed_device_token_adopted', 'Managed device token adopted successfully', {
+      deviceId,
+      profileId,
+      managedDeviceLabel: managedPolicy?.managedDeviceLabel || null,
+    });
+    return { ok: true, recovered: true, source: 'managed_device_token' };
+  } catch (error) {
+    if (error?.code === 'DEVICE_UNBOUND') {
+      return { ok: false, terminal: true, reason: 'device_unbound' };
+    }
+    syncState.deviceToken = null;
+    await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null }).catch(() => {});
+    await saveRecoveryState({
+      status: 'managed_device_token_failed',
+      source: 'managed_device_token',
+      lastError: error?.message || String(error),
+      lastAttemptAt: Date.now(),
+    });
+    logDeviceRecoveryEvent('error', 'managed_device_token_failed', 'Managed device token adoption failed', {
+      error: error?.message || String(error),
+      status: error?.status || null,
+      code: error?.code || null,
+    });
+    return { ok: false, reason: 'managed_device_token_failed', error: error?.message || String(error) };
+  }
+}
 
 async function tryManagedPolicyRecovery(activation, reason = 'sync') {
   const managedPolicy = activation?.managedPolicy;
-  if (activation?.activationMode !== 'managed_policy' || !managedPolicy?.tenantId || !managedPolicy?.devicePolicyId) {
+  if (activation?.activationMode !== 'managed_policy') {
     return { ok: false, skipped: true, reason: 'managed_policy_recovery_unavailable' };
   }
-  logDeviceRecoveryEvent('info', 'managed_device_recovery_attempt_started', 'Managed policy device recovery attempt started', {
+
+  const tokenResult = await tryManagedDeviceTokenBootstrap(activation, reason);
+  if (tokenResult?.recovered || tokenResult?.terminal) return tokenResult;
+  if (managedPolicy?.managedDeviceToken) return tokenResult;
+
+  if (!managedPolicy?.tenantId || !managedPolicy?.devicePolicyId) {
+    return { ok: false, skipped: true, reason: 'legacy_managed_policy_recovery_unavailable' };
+  }
+  logDeviceRecoveryEvent('info', 'managed_device_recovery_attempt_started', 'Legacy managed policy device recovery attempt started', {
     reason,
-    tenantId: managedPolicy.tenantId,
-    devicePolicyId: managedPolicy.devicePolicyId,
   });
   const result = await cloudAnonymousRequest('POST', '/device/managed-recover/bootstrap', buildManagedRecoveryPayload(managedPolicy));
-  logDeviceRecoveryEvent(result?.status === 'RECOVERED' ? 'info' : 'warning', 'managed_device_recovery_bootstrap_result', 'Managed policy device recovery returned a result', {
+  logDeviceRecoveryEvent(result?.status === 'RECOVERED' ? 'info' : 'warning', 'managed_device_recovery_bootstrap_result', 'Legacy managed policy device recovery returned a result', {
     status: result?.status || result?.code || 'unknown',
   });
   if (result?.status === 'RECOVERED') {
-    await persistRecoveredBinding(result, 'managed_policy_recovery');
-    return { ok: true, recovered: true, source: 'managed_policy' };
+    await persistRecoveredBinding(result, 'legacy_managed_policy_recovery');
+    return { ok: true, recovered: true, source: 'legacy_managed_policy' };
   }
   if (result?.status === 'DEVICE_UNBOUND' || result?.code === 'DEVICE_UNBOUND') {
     await clearCloudBindingState('managed_recovery_unbound');
     return { ok: false, terminal: true, reason: 'device_unbound' };
   }
   const status = result?.status || result?.code || 'not_recovered';
-  await saveRecoveryState({ status, lastError: status, reason: 'managed_policy_recovery' });
+  await saveRecoveryState({ status, lastError: status, reason: 'legacy_managed_policy_recovery' });
   return { ok: false, recovered: false, reason: status, status };
 }
 

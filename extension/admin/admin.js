@@ -1919,7 +1919,7 @@ async function renderSyncStatus() {
     ? '受管理策略启用'
     : (activationState.activationMode === 'user_consent' ? '用户同意启用' : '未启用');
   const activationDetailText = activationState.activationMode === 'managed_policy'
-    ? '租户：' + (activationState.managedPolicy?.tenantId || '—') + ' · 设备策略：' + (activationState.managedPolicy?.devicePolicyId || '—')
+    ? '受管终端：' + (activationState.managedPolicy?.managedDeviceLabel || '—') + ' · Device Token：' + (activationState.managedPolicy?.managedDeviceToken ? '已配置' : '未配置')
     : (activationState.reason || '—');
 
   // 本机设备名（首次绑定时保存的）

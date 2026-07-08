@@ -6,6 +6,14 @@
 
 ---
 
+## [1.7.9] — 2026-07-09
+
+- **Managed DeviceToken 统一绑定**：内部受管部署通道收敛为 `Device + DeviceToken` 模型。受管 policy 使用 `managedDeviceToken + cloudEndpoint` 激活终端；legacy `tenantId/devicePolicyId` 仅作为旧模板兼容 fallback。
+- **云端受管终端管理**：家长控制台可在子用户设备区域预创建受管终端、导出 Device Token、重置 Device Token，并生成 macOS / Windows managed policy 片段。手动绑定创建的 device 与云端预创建 device 使用同一种 `device_token` 同步协议。
+- **终端自动采用受管 token**：扩展在 managed policy 激活且本地缺少 `cloud_device_token` 时，会采用 `managedDeviceToken`，通过 `/device/config` hydrate profile/device 信息，并立即执行完整云同步。已有本地 token 时不会被 policy 覆盖。
+- **受管部署文档更新**：新增 `MANAGED_DEVICE_TOKEN_POLICY_DEPLOYMENT.md`，统一说明 Windows HKCU、macOS policy keeper、云端 token 创建/导出/重置、验证、回滚和 token 保密边界。真实 token、PEM、CRX 产物仍不得提交到 Git。
+
+---
 ## [1.7.8] — 2026-06-25
 
 - **CWS Purple Nickel consent gate**: added an in-extension prominent disclosure and explicit consent page before TimeOnChrome starts new timing, media recording, cloud sync, diagnostic upload, or Chrome identity recovery. Missing `privacy_consent_v1` now keeps the extension paused and preserves existing local credentials/config without deleting them.

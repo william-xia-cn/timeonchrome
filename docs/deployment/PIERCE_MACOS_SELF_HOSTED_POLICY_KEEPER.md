@@ -1,257 +1,566 @@
-# Pierce macOS Self-hosted Policy Keeper
+# Chrome 管理 LaunchDaemon + 恢复脚本  Pierce
 
-## 概要
+> **LaunchDaemon + 恢复脚本**
+> 作用：在开机、定时检查时，自动把 Chrome 策略文件恢复到指定内容。
 
-本文档把 Thomas 的 LaunchDaemon 策略恢复方案，和 TimeOnChrome 当前的 self-hosted managed internal channel 合并为一套 Pierce 专用 macOS 部署方案。
+这个方案适用于你已说明的场景：**学校授权你使用管理员账号做单机本地补充配置，但学校不方便为单个家长修改 Jamf 策略**。
 
-目标对象：
+Apple 的 `launchd` 是 macOS 标准后台任务机制，`RunAtLoad` 可在任务加载时运行，`StartInterval` 可做周期运行；配置 profile/managed preferences 也是 Apple 设备管理体系中的标准配置方式。([Apple Developer](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html?utm_source=chatgpt.com "Creating Launch Daemons and Agents"))
 
-- 子用户 / Chrome profile 使用者：`Pierce`
-- 启用 Chrome 硬化后允许登录的 Chrome 账号：`Pierce.xia@icloud.com`
-- TimeOnChrome self-hosted 扩展 ID：`jdcancbiocacabbjdkngadmjpjmkdnih`
-- Update URL：`https://timeonchrome-update.pages.dev/timeonchrome/update.xml`
+---
 
-本文档不使用公开 CWS 版 TimeOnChrome 扩展 ID `mkggamgaeemnlmlflpekacbknochbmom`，也不使用 CWS update URL `https://clients2.google.com/service/update2/crx`。
-
-## 目标机器即时可用文件
-
-Pierce 这一版已经整理成目标 Mac 可直接复制使用的脚本目录：
-
-```text
-docs/deployment/pierce-macos-target/
-```
-
-把整个目录复制到目标 Mac 后，可以直接执行：
-
-```bash
-cd ~/Downloads/timeonchrome-pierce-macos-target
-sudo bash ./install-stage-a.sh
-sudo bash ./enable-stage-b-managed-activation.sh
-sudo bash ./enable-stage-c-hardening.sh
-bash ./validate.sh
-```
-
-如果需要卸载：
-
-```bash
-sudo bash ./uninstall.sh
-```
-
-后续正文保留每个阶段的机制说明、验证点和手工命令；实际部署优先使用上面的目标机器脚本目录。
-## 部署模型
-
-目标 Mac 本地保存一份 Chrome policy 的“期望状态”，并通过 LaunchDaemon 定期恢复到 Chrome 实际读取的 managed preferences 位置：
+# 0. 最终机制
 
 ```text
 /usr/local/timeonchrome-policy/com.google.Chrome.plist
-        |
-        v
-/usr/local/sbin/timeonchrome-restore-chrome-policy.sh
-        |
-        v
+        ↓
+恢复脚本定期检查
+        ↓
 /Library/Managed Preferences/com.google.Chrome.plist
-        |
-        v
-Chrome policy / chrome://policy
+        ↓
+Chrome / Chrome Beta 读取
+        ↓
+chrome://policy 生效
 ```
 
-Policy keeper 只是本机策略恢复层，不是 MDM 替代品，也不能用于绕过学校、雇主或企业 MDM。如果 Jamf 或其它 MDM 持续删除 keeper 文件，应停止本地对抗式恢复，转为让学校 IT 明确允许这套本机策略机制。
+你已经验证过：**Chrome Beta 读取的也是 `com.google.Chrome.plist`，不是 `com.google.Chrome.beta.plist`。**
 
-## 阶段 A：只验证安装策略
+---
 
-先执行阶段 A。这个阶段只验证 self-hosted update host 和 CRX 安装链路。
+# 1. 文件清单
 
-阶段 A 只写入 `ExtensionSettings`：
-
-- 强制安装 TimeOnChrome；
-- 在 Chrome 支持时强制固定工具栏按钮；
-- 从 `https://timeonchrome-update.pages.dev/timeonchrome/update.xml` 获取更新；
-- 不写入 TimeOnChrome managed activation；
-- 不限制 Chrome 登录账号或 Profile。
-
-Policy 模板：
+安装完成后会有这些文件：
 
 ```text
-docs/deployment/templates/macos-pierce-stage-a-com.google.Chrome.plist
+/usr/local/timeonchrome-policy/com.google.Chrome.plist
+/usr/local/sbin/timeonchrome-restore-chrome-policy.sh
+/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist
+/var/log/timeonchrome-policy-restore.log
+/var/log/timeonchrome-policy-restore.out.log
+/var/log/timeonchrome-policy-restore.err.log
 ```
 
-预期结果：
+含义：
 
-- `chrome://policy` 显示 `ExtensionSettings`，状态为 `OK`。
-- `chrome://extensions` 显示 TimeOnChrome 由 policy 安装。
-- 扩展 ID 为 `jdcancbiocacabbjdkngadmjpjmkdnih`。
-- TimeOnChrome 不能被手动禁用或移除。
-- Popup/Admin 暂时不应显示 `managed_policy`。
+| 文件                                                                      | 作用               |
+| ----------------------------------------------------------------------- | ---------------- |
+| `/usr/local/timeonchrome-policy/com.google.Chrome.plist`                | 策略模板，作为“期望状态”    |
+| `/usr/local/sbin/timeonchrome-restore-chrome-policy.sh`                 | 恢复脚本             |
+| `/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist` | 开机 + 定时运行恢复脚本    |
+| `/Library/Managed Preferences/com.google.Chrome.plist`                  | Chrome 实际读取的策略文件 |
+|                                                                         |                  |
 
-## 阶段 B：启用 Managed Activation
+TimeOnChrome managed activation 数据通过 `dscl -mcximport` 写入 Chrome 扩展 managed storage，不作为单独文件手工维护；它只包含 `cloudEndpoint`、`managedDeviceToken` 和可选的 `managedDeviceLabel`。`managedDeviceToken` 等同于这台受管终端访问云端的凭据，必须只保存在目标机器 policy 中，不提交到 Git、公共文档或聊天。
 
-阶段 A 通过后，再执行阶段 B。
+---
 
-阶段 B 通过 Chrome extension managed storage 写入 TimeOnChrome 的 managed activation anchor：
+# 2. 完整安装脚本
 
-- `tenantId = pierce-xia-icloud`
-- `devicePolicyId = pierce-macos-chrome-001`
-- `cloudEndpoint = https://guardian-api.william-xia-cn.workers.dev`
-- `allowIdentityRecovery = true`
+直接复制执行。
 
-Managed storage MCX 导入模板：
+这版策略会：
 
-```text
-docs/deployment/templates/macos-pierce-stage-b-managed-policy.plist
-```
+- 强制安装 2 个扩展
 
-Managed policy 只包含 activation 和 identity anchor。不得包含网站规则、配额、时间段、profile 数据、device token、account token、密码或完整 URL 列表。
+- 二个扩展不可删除、不可禁用
 
-在 macOS 上，managed storage 不写进用于 `ExtensionSettings` 的 `com.google.Chrome.plist`。Chrome 扩展 managed storage policy 配置在下面这个 extension preference domain 下：
+- 二个扩展固定在工具栏
 
-```text
-com.google.Chrome.extensions.jdcancbiocacabbjdkngadmjpjmkdnih
-```
+- 不禁止其他扩展
 
-使用管理员账号导入：
+- 强制 Chrome 登录
 
-```bash
-sudo dscl /Local/Default -mcximport /Computers/local_computer "macos-pierce-stage-b-managed-policy.plist"
-sudo mcxrefresh -n "$(id -un)" 2>/dev/null || true
-sudo killall cfprefsd >/dev/null 2>&1 || true
-```
+- 只允许 `pierce.xia@icloud.com`
 
-如果 `dscl` 提示 `/Computers/local_computer` 不存在，先创建一次：
+- 禁止新增 Chrome 用户
 
-```bash
-GUID="$(uuidgen)"
-ETHER="$(ifconfig en0 | awk '/ether/ {print $2; exit}')"
-sudo dscl /Local/Default -create /Computers/local_computer
-sudo dscl /Local/Default -create /Computers/local_computer RealName "Local Computer"
-sudo dscl /Local/Default -create /Computers/local_computer GeneratedUID "$GUID"
-sudo dscl /Local/Default -create /Computers/local_computer ENetAddress "$ETHER"
-```
+- 禁止访客模式
 
-预期结果：
+- 禁用无痕模式
 
-- `chrome://policy` 能看到 TimeOnChrome 的 managed storage values。
-- Popup/Admin 显示 `activationMode = managed_policy`。
-- 内部 managed channel 下，本地 privacy consent 不再阻塞激活。
-- 网站规则、配额、时间段和子用户配置仍然来自云端 config，不来自 policy。
-- 如果本地 device token 缺失，扩展使用 `pierce-xia-icloud + pierce-macos-chrome-001` 执行 managed recovery。
+- 不使用 `MandatoryExtensionsForIncognitoNavigation`
 
-## 阶段 C：Chrome Profile 硬化
+- 写入 TimeOnChrome managed activation 数据，用于内部通道激活和云端同步
 
-阶段 A 和阶段 B 都通过后，再执行阶段 C。
-
-阶段 C 增加 Chrome 账号和 Profile 控制：
-
-- 要求 Chrome 登录；
-- 只允许 `Pierce.xia@icloud.com` 登录；
-- 禁止新增 Chrome 用户；
-- 禁止访客模式；
-- 禁用无痕模式；
-- 不使用 `MandatoryExtensionsForIncognitoNavigation`。
-
-Policy 模板：
-
-```text
-docs/deployment/templates/macos-pierce-stage-c-com.google.Chrome.plist
-```
-
-预期结果：
-
-- Chrome 只允许 `Pierce.xia@icloud.com` 登录。
-- 不能新增 Chrome profile。
-- 访客模式不可用。
-- 无痕模式不可用。
-
-## 安装 Keeper
-
-把选定的阶段 A/C policy 模板复制到 keeper source path，然后安装恢复脚本和 LaunchDaemon。
-
-在目标 Mac 上执行：
 
 ```bash
 sudo mkdir -p "/Library/Managed Preferences"
 sudo mkdir -p "/usr/local/timeonchrome-policy"
 sudo mkdir -p "/usr/local/sbin"
 
-sudo cp "macos-pierce-stage-a-com.google.Chrome.plist" "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
-sudo cp "timeonchrome-pierce-restore-chrome-policy.sh" "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"
-sudo cp "local.timeonchrome.restore-chrome-policy.plist" "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
+# 1. 写入 Chrome 策略模板：这是“期望状态”
+sudo tee "/usr/local/timeonchrome-policy/com.google.Chrome.plist" > /dev/null <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- 二个指定扩展：强制安装、不可删除、不可禁用、强制固定到工具栏 -->
+    <key>ExtensionSettings</key>
+    <dict>
+
+        <key>bokjekfjghliieopghopibmhjokgkjkb</key>
+        <dict>
+            <key>installation_mode</key>
+            <string>force_installed</string>
+            <key>toolbar_pin</key>
+            <string>force_pinned</string>
+            <key>update_url</key>
+            <string>https://clients2.google.com/service/update2/crx</string>
+        </dict>
+
+        <key>jdcancbiocacabbjdkngadmjpjmkdnih</key>
+        <dict>
+            <key>installation_mode</key>
+            <string>force_installed</string>
+            <key>toolbar_pin</key>
+            <string>force_pinned</string>
+            <key>update_url</key>
+            <string>https://timeonchrome-update.pages.dev/timeonchrome/update.xml</string>
+        </dict>
+
+    </dict>
+
+    <!-- 强制 Chrome 登录 -->
+    <key>BrowserSignin</key>
+    <integer>2</integer>
+
+    <!-- 只允许指定账号登录 -->
+    <key>RestrictSigninToPattern</key>
+    <string>^pierce\.xia@icloud\.com$</string>
+
+    <!-- 禁止新增 Chrome 用户/Profile -->
+    <key>BrowserAddPersonEnabled</key>
+    <false/>
+
+    <!-- 禁止访客模式 -->
+    <key>BrowserGuestModeEnabled</key>
+    <false/>
+
+    <!-- 禁用无痕模式 -->
+    <key>IncognitoModeAvailability</key>
+    <integer>1</integer>
+
+</dict>
+</plist>
+EOF
 
 sudo chown root:wheel "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
 sudo chmod 644 "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
+plutil -lint "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
+# 1b. 写入 TimeOnChrome managed activation 数据：只用于内部通道激活和云端同步
+# 先在云端「子用户管理 → 绑定设备」创建或选择终端，导出 Device Token。
+# 该 Token 是敏感凭据，只能粘贴到目标机器 policy 中。
+read -rsp "Paste managedDeviceToken from TimeOnChrome cloud console: " MANAGED_DEVICE_TOKEN
+echo
+if [ -z "$MANAGED_DEVICE_TOKEN" ]; then
+  echo "managedDeviceToken is required"
+  exit 1
+fi
+
+MANAGED_POLICY="/tmp/timeonchrome-managed-policy.plist"
+sudo tee "$MANAGED_POLICY" > /dev/null <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.google.Chrome.extensions.jdcancbiocacabbjdkngadmjpjmkdnih</key>
+    <dict>
+        <key>enabled</key>
+        <dict>
+            <key>state</key>
+            <string>always</string>
+            <key>value</key>
+            <true/>
+        </dict>
+        <key>deploymentMode</key>
+        <dict>
+            <key>state</key>
+            <string>always</string>
+            <key>value</key>
+            <string>managed</string>
+        </dict>
+        <key>cloudEndpoint</key>
+        <dict>
+            <key>state</key>
+            <string>always</string>
+            <key>value</key>
+            <string>https://guardian-api.william-xia-cn.workers.dev</string>
+        </dict>
+        <key>managedDeviceToken</key>
+        <dict>
+            <key>state</key>
+            <string>always</string>
+            <key>value</key>
+            <string>${MANAGED_DEVICE_TOKEN}</string>
+        </dict>
+        <key>managedDeviceLabel</key>
+        <dict>
+            <key>state</key>
+            <string>always</string>
+            <key>value</key>
+            <string>Pierce MacBook Chrome</string>
+        </dict>
+    </dict>
+</dict>
+</plist>
+EOF
+
+plutil -lint "$MANAGED_POLICY"
+if ! sudo dscl /Local/Default -read /Computers/local_computer >/dev/null 2>&1; then
+  GUID="$(uuidgen)"
+  ETHER="$(ifconfig en0 | awk '/ether/ {print $2; exit}')"
+  sudo dscl /Local/Default -create /Computers/local_computer
+  sudo dscl /Local/Default -create /Computers/local_computer RealName "Local Computer"
+  sudo dscl /Local/Default -create /Computers/local_computer GeneratedUID "$GUID"
+  sudo dscl /Local/Default -create /Computers/local_computer ENetAddress "$ETHER"
+fi
+
+sudo dscl /Local/Default -mcximport /Computers/local_computer "$MANAGED_POLICY"
+sudo rm -f "$MANAGED_POLICY"
+sudo mcxrefresh -n "$(id -un)" 2>/dev/null || true
+sudo killall cfprefsd >/dev/null 2>&1 || true
+
+# 2. 写入恢复脚本
+sudo tee "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh" > /dev/null <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+SRC="/usr/local/timeonchrome-policy/com.google.Chrome.plist"
+DST="/Library/Managed Preferences/com.google.Chrome.plist"
+DST_DIR="/Library/Managed Preferences"
+TMP="/Library/Managed Preferences/com.google.Chrome.plist.tmp"
+LOG="/var/log/timeonchrome-policy-restore.log"
+
+timestamp() {
+  /bin/date "+%Y-%m-%d %H:%M:%S"
+}
+
+log() {
+  echo "$(timestamp) $1" >> "$LOG"
+  /usr/bin/logger -t timeonchrome-policy "$1"
+}
+
+if [ ! -f "$SRC" ]; then
+  log "ERROR: source policy missing: $SRC"
+  exit 1
+fi
+
+if ! /usr/bin/plutil -lint "$SRC" >/dev/null 2>&1; then
+  log "ERROR: source policy invalid: $SRC"
+  exit 1
+fi
+
+/bin/mkdir -p "$DST_DIR"
+
+if [ ! -f "$DST" ] || ! /usr/bin/cmp -s "$SRC" "$DST"; then
+  /bin/cp "$SRC" "$TMP"
+  /usr/sbin/chown root:wheel "$TMP"
+  /bin/chmod 644 "$TMP"
+
+  if ! /usr/bin/plutil -lint "$TMP" >/dev/null 2>&1; then
+    /bin/rm -f "$TMP"
+    log "ERROR: temp policy failed plist validation"
+    exit 1
+  fi
+
+  /bin/mv "$TMP" "$DST"
+  /usr/sbin/chown root:wheel "$DST"
+  /bin/chmod 644 "$DST"
+
+  /usr/bin/killall cfprefsd >/dev/null 2>&1 || true
+
+  log "Restored Chrome policy to $DST"
+else
+  log "Chrome policy already correct; no change"
+fi
+
+exit 0
+EOF
 
 sudo chown root:wheel "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"
 sudo chmod 755 "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"
 
+
+# 3. 写入 LaunchDaemon
+sudo tee "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist" > /dev/null <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>local.timeonchrome.restore-chrome-policy</string>
+
+    <key>UserName</key>
+    <string>root</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/sbin/timeonchrome-restore-chrome-policy.sh</string>
+    </array>
+
+    <!-- 加载时立即运行一次 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 每 5 分钟检查一次 -->
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <!-- 目录变化时也尝试运行 -->
+    <key>WatchPaths</key>
+    <array>
+        <string>/Library/Managed Preferences</string>
+        <string>/usr/local/timeonchrome-policy/com.google.Chrome.plist</string>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/timeonchrome-policy-restore.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/timeonchrome-policy-restore.err.log</string>
+
+</dict>
+</plist>
+EOF
+
 sudo chown root:wheel "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
 sudo chmod 644 "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
-
-plutil -lint "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
 plutil -lint "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
-```
 
-立即恢复一次并加载 LaunchDaemon：
 
-```bash
+# 4. 立即恢复一次
 sudo "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"
+
+
+# 5. 注册 LaunchDaemon
 sudo launchctl bootout system "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist" 2>/dev/null || true
 sudo launchctl bootstrap system "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
 sudo launchctl kickstart -k system/local.timeonchrome.restore-chrome-policy
 ```
 
-## 切换策略阶段
+---
 
-从阶段 A 切到阶段 C：
+# 3. 预期输出
 
-```bash
-sudo cp "<next-stage-template>.plist" "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
-sudo chown root:wheel "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
-sudo chmod 644 "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
-plutil -lint "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
-sudo launchctl kickstart -k system/local.timeonchrome.restore-chrome-policy
-sudo killall cfprefsd >/dev/null 2>&1 || true
+你应该至少看到：
+
+```text
+/usr/local/timeonchrome-policy/com.google.Chrome.plist: OK
+/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist: OK
 ```
 
-然后完全退出并重启 Chrome。
+如果没有报错，说明：
 
-阶段 B 不复制到 `/usr/local/timeonchrome-policy/com.google.Chrome.plist`；阶段 B 需要用 `dscl` 单独作为 extension managed storage 导入。
+- 策略模板有效
 
-## 验证
+- 恢复脚本已安装
 
-文件和 LaunchDaemon 检查：
+- LaunchDaemon 已安装
+
+- 已立即执行过一次恢复
+
+    - TimeOnChrome managed activation 数据已导入本机 Chrome 扩展 managed storage，其中 `managedDeviceToken` 来自云端终端管理
+
+
+---
+
+# 4. 验证文件是否恢复成功
 
 ```bash
-ls -l "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
-ls -l "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"
-ls -l "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
 ls -l "/Library/Managed Preferences/com.google.Chrome.plist"
+```
+
+预期类似：
+
+```text
+-rw-r--r--  1 root  wheel  ... /Library/Managed Preferences/com.google.Chrome.plist
+```
+
+校验目标文件：
+
+```bash
 plutil -lint "/Library/Managed Preferences/com.google.Chrome.plist"
-sudo launchctl print system/local.timeonchrome.restore-chrome-policy
+```
+
+预期：
+
+```text
+/Library/Managed Preferences/com.google.Chrome.plist: OK
+```
+
+查看恢复日志：
+
+```bash
 tail -n 50 /var/log/timeonchrome-policy-restore.log
 ```
 
-Chrome 检查：
+可能看到：
 
-1. 完全退出 Chrome。
-2. 执行 `sudo killall cfprefsd >/dev/null 2>&1 || true`。
-3. 重新打开 Chrome。
-4. 打开 `chrome://policy`。
-5. 点击 `Reload policies`。
-6. 确认预期 policy values 已生效。
-7. 打开 `chrome://extensions`。
-8. 确认 TimeOnChrome 由 policy 安装，扩展 ID 为 `jdcancbiocacabbjdkngadmjpjmkdnih`。
-9. 打开 TimeOnChrome Popup/Admin，确认 activation 状态符合当前阶段。
+```text
+Restored Chrome policy to /Library/Managed Preferences/com.google.Chrome.plist
+```
 
-## 暂停
+或者：
 
-停止 keeper，但不删除 policy 文件：
+```text
+Chrome policy already correct; no change
+```
+
+---
+
+# 5. 验证 LaunchDaemon 是否加载
+
+执行：
+
+```bash
+sudo launchctl print system/local.timeonchrome.restore-chrome-policy
+```
+
+如果能看到 job 信息，说明已经加载。
+
+手动触发一次：
+
+```bash
+sudo launchctl kickstart -k system/local.timeonchrome.restore-chrome-policy
+```
+
+再查看日志：
+
+```bash
+tail -n 50 /var/log/timeonchrome-policy-restore.log
+```
+
+---
+
+# 6. 验证 Chrome 是否读取策略
+
+刷新缓存：
+
+```bash
+sudo killall cfprefsd
+```
+
+完全退出 Chrome 和 Chrome Beta：
+
+```bash
+osascript -e 'quit app "Google Chrome"' 2>/dev/null || true
+osascript -e 'quit app "Google Chrome Beta"' 2>/dev/null || true
+```
+
+重新打开 Chrome Beta：
+
+```bash
+open -a "Google Chrome Beta"
+```
+
+打开：
+
+```text
+chrome://policy
+```
+
+应看到：
+
+|Policy|预期状态|
+|---|---|
+|ExtensionSettings|OK|
+|TimeOnChrome managed storage|OK / 在扩展 policy 区域可见|
+|BrowserSignin|OK|
+|RestrictSigninToPattern|OK|
+|BrowserAddPersonEnabled|OK|
+|BrowserGuestModeEnabled|OK|
+|IncognitoModeAvailability|OK|
+
+不应该再使用：
+
+```text
+MandatoryExtensionsForIncognitoNavigation
+```
+
+因为你已经看到它的状态是：
+
+```text
+Unreleased
+```
+
+---
+
+# 7. 重启验证
+
+重启后等 1–5 分钟，然后检查：
+
+```bash
+ls -l "/Library/Managed Preferences/com.google.Chrome.plist"
+tail -n 50 /var/log/timeonchrome-policy-restore.log
+```
+
+再打开：
+
+```text
+chrome://policy
+```
+
+如果策略恢复正常，说明本地维护机制有效。
+
+---
+
+# 8. 以后如何更新策略
+
+以后不要直接改：
+
+```text
+/Library/Managed Preferences/com.google.Chrome.plist
+```
+
+应该改模板：
+
+```text
+/usr/local/timeonchrome-policy/com.google.Chrome.plist
+```
+
+更新流程：
+
+```bash
+sudo tee "/usr/local/timeonchrome-policy/com.google.Chrome.plist" > /dev/null <<'EOF'
+新的 plist 内容
+EOF
+
+sudo chown root:wheel "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
+sudo chmod 644 "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
+
+plutil -lint "/usr/local/timeonchrome-policy/com.google.Chrome.plist"
+
+sudo launchctl kickstart -k system/local.timeonchrome.restore-chrome-policy
+```
+
+然后：
+
+```bash
+sudo killall cfprefsd
+```
+
+重启 Chrome / Chrome Beta。
+
+---
+
+# 9. 如何暂停
 
 ```bash
 sudo launchctl bootout system "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
 ```
 
-## 卸载
+这会停止 LaunchDaemon，但不删除文件。
 
-删除本地 keeper 和 Chrome policy：
+---
+
+# 10. 如何卸载
+
+如果以后不用这套机制：
 
 ```bash
 sudo launchctl bootout system "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist" 2>/dev/null || true
@@ -259,17 +568,68 @@ sudo launchctl bootout system "/Library/LaunchDaemons/local.timeonchrome.restore
 sudo rm -f "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"
 sudo rm -f "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"
 sudo rm -rf "/usr/local/timeonchrome-policy"
+
 sudo rm -f "/Library/Managed Preferences/com.google.Chrome.plist"
 
-sudo killall cfprefsd >/dev/null 2>&1 || true
+sudo dscl /Local/Default -mcxdelete /Computers/local_computer com.google.Chrome.extensions.jdcancbiocacabbjdkngadmjpjmkdnih 2>/dev/null || true
+
+sudo killall cfprefsd
 ```
 
-重启 Chrome 后，确认 `chrome://policy` 不再显示 TimeOnChrome force-install policy。
+然后完全退出并重启 Chrome / Chrome Beta。
 
-## 边界
+---
 
-- 不要把 CRX private signing key 复制到目标 policy folder。
-- 不要在 policy 中保存 device token、account token、密码、raw Chrome identity 或完整网站规则集。
-- 不要使用 `chflags schg`。
-- 不要和学校 MDM 对抗。如果 MDM 删除 policy keeper，应找学校 IT 支持，而不是升级本地恢复脚本。
-- 调试时不要混用阶段 A/B/C。每个阶段通过后，再进入下一阶段。
+# 11. 重要边界
+
+managed activation 数据只能加入 `cloudEndpoint`、`managedDeviceToken` 和可选显示标签。`managedDeviceToken` 是敏感凭据，等同于该终端的云端访问 token；不要加入 account token、密码、raw Chrome identity、完整网站规则、配额或时间段，也不要把该 token 写入 Git、公共文档或聊天。
+
+不要加：
+
+```bash
+sudo chflags schg ...
+```
+
+原因：
+
+- 不利于学校 IT 审计
+
+- 维护麻烦
+
+- 可能和 Jamf 冲突
+
+- 更新时必须先解除 immutable flag
+
+
+如果 Jamf 每隔几分钟主动删除或覆盖这个文件，LaunchDaemon 会反复恢复。此时不应继续对抗式配置，应让学校 IT 明确允许这个本地维护机制，或给这台设备做一个单机 scope 的 Jamf policy。
+
+
+# 4. 你应该检查这些权限
+
+执行：
+
+```
+ls -l "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"ls -l "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"ls -l "/usr/local/timeonchrome-policy/com.google.Chrome.plist"ls -l "/Library/Managed Preferences/com.google.Chrome.plist"
+```
+
+理想结果类似：
+
+```
+-rw-r--r--  1 root  wheel  ... local.timeonchrome.restore-chrome-policy.plist-rwxr-xr-x  1 root  wheel  ... timeonchrome-restore-chrome-policy.sh-rw-r--r--  1 root  wheel  ... com.google.Chrome.plist-rw-r--r--  1 root  wheel  ... com.google.Chrome.plist
+```
+
+---
+
+# 5. 再加固一次权限
+
+可以执行：
+
+```
+sudo chown root:wheel "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"sudo chmod 644 "/Library/LaunchDaemons/local.timeonchrome.restore-chrome-policy.plist"sudo chown root:wheel "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"sudo chmod 755 "/usr/local/sbin/timeonchrome-restore-chrome-policy.sh"sudo chown root:wheel "/usr/local/timeonchrome-policy/com.google.Chrome.plist"sudo chmod 644 "/usr/local/timeonchrome-policy/com.google.Chrome.plist"sudo chown root:wheel "/Library/Managed Preferences/com.google.Chrome.plist"sudo chmod 644 "/Library/Managed Preferences/com.google.Chrome.plist"
+```
+
+再检查 LaunchDaemon 是否还在运行：
+
+```
+sudo launchctl print system/local.timeonchrome.restore-chrome-policy
+```

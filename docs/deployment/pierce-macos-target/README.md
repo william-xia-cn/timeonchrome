@@ -37,12 +37,11 @@ sudo bash ./uninstall.sh
 - Chrome 账号：`Pierce.xia@icloud.com`
 - TimeOnChrome self-hosted extension ID：`jdcancbiocacabbjdkngadmjpjmkdnih`
 - Update URL：`https://timeonchrome-update.pages.dev/timeonchrome/update.xml`
-- `tenantId`：`pierce-xia-icloud`
-- `devicePolicyId`：`pierce-macos-chrome-001`
+- managedDeviceToken：从云端「子用户管理 → 绑定设备」创建/导出，安装时粘贴；不要写入 Git、公共文档或聊天
 
 边界：
 
-- 不保存 device token、account token、密码、raw Chrome identity 或网站规则。
+- 只在目标机器 policy 中保存 `managedDeviceToken`；不保存 account token、密码、raw Chrome identity 或网站规则。
 - 不保存 CRX private signing key。
 - 不使用 `chflags schg`。
 - 不与学校 MDM 对抗；如果 MDM 删除本地 keeper 资产，应找学校 IT 明确允许本地策略机制。

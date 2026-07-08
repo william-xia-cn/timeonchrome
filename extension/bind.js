@@ -30,17 +30,22 @@ async function getManagedActivationPolicy() {
       chrome.storage.managed.get([
         'enabled',
         'deploymentMode',
+        'cloudEndpoint',
+        'managedDeviceToken',
+        'managedDeviceLabel',
+        'allowIdentityRecovery',
         'tenantId',
         'devicePolicyId',
-        'cloudEndpoint',
-        'allowIdentityRecovery',
       ], (value) => resolve(chrome.runtime?.lastError ? null : (value || null)));
     });
     const endpoint = String(policy?.cloudEndpoint || '').trim();
+    const managedDeviceToken = String(policy?.managedDeviceToken || '').trim();
     const endpointOk = /^https:\/\//i.test(endpoint);
-    if (policy?.enabled === true && policy?.deploymentMode === 'managed' && policy?.tenantId && policy?.devicePolicyId && endpointOk) {
+    const legacyAnchorOk = !!(policy?.tenantId && policy?.devicePolicyId);
+    if (policy?.enabled === true && policy?.deploymentMode === 'managed' && endpointOk && (managedDeviceToken || legacyAnchorOk)) {
       return {
         active: true,
+        hasManagedDeviceToken: !!managedDeviceToken,
         allowIdentityRecovery: policy.allowIdentityRecovery !== false,
       };
     }

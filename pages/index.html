@@ -1245,7 +1245,10 @@
         <div class="card">
           <div class="card-header">
             <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/devices.svg" alt="">绑定设备</div>
-            <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-add" onclick="createManagedDevice()" style="font-size:12px;padding:4px 10px;">创建受管终端</button>
+              <button class="btn-add" onclick="renderDevicesPage()" style="font-size:12px;padding:4px 10px;">刷新</button>
+            </div>
           </div>
           <div id="devices-list"><div class="empty"><div class="icon"><img class="toc-ui-icon" src="assets/icons/devices.svg" alt=""></div>暂无绑定设备</div></div>
           <div id="device-audit-panel" style="margin-top:12px;"></div>
@@ -5137,6 +5140,8 @@ async function renderDevicesPage() {
           </label>
           <div class="device-actions">
             <button class="device-btn" onclick="renderDeviceAccessAudit('${d.id}','${safeName}')">连接诊断</button>
+            <button class="device-btn" onclick="exportManagedDeviceToken('${d.id}','${safeName}')">导出 Token</button>
+            <button class="device-btn" onclick="resetManagedDeviceToken('${d.id}','${safeName}')">重置 Token</button>
             <button class="device-btn" onclick="startRename('${d.id}','${safeName}')">重命名</button>
             <button class="device-btn danger" onclick="unbindDevice('${d.id}','${safeName}')">解绑</button>
           </div>
@@ -5148,6 +5153,99 @@ async function renderDevicesPage() {
   }
 }
 
+function buildManagedPolicySnippet(managedDeviceToken, managedDeviceLabel = '') {
+  const cloudEndpoint = 'https://guardian-api.william-xia-cn.workers.dev';
+  const labelLine = managedDeviceLabel ? `\n      <key>managedDeviceLabel</key>\n      <string>${managedDeviceLabel}</string>` : '';
+  return `<key>jdcancbiocacabbjdkngadmjpjmkdnih</key>\n<dict>\n  <key>enabled</key>\n  <true/>\n  <key>deploymentMode</key>\n  <string>managed</string>\n  <key>cloudEndpoint</key>\n  <string>${cloudEndpoint}</string>\n  <key>managedDeviceToken</key>\n  <string>${managedDeviceToken}</string>${labelLine}\n</dict>`;
+}
+
+function showManagedDeviceTokenResult(title, result) {
+  const panel = document.getElementById('device-audit-panel') || document.getElementById('devices-list');
+  if (!panel) return;
+  const token = result?.device_token || '';
+  const deviceId = result?.device_id || '';
+  const deviceName = result?.device_name || result?.device?.device_name || 'Managed Chrome Extension';
+  const snippet = buildManagedPolicySnippet(token, deviceName);
+  const textId = `managed-token-${Date.now()}`;
+  const snippetId = `${textId}-policy`;
+  panel.innerHTML = `
+    <div class="card" style="margin-top:12px;border-color:rgba(239,68,68,0.35);">
+      <div class="card-header">
+        <div>
+          <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/devices.svg" alt="">${escHtml(title)}</div>
+          <div class="card-subtitle">managedDeviceToken 是该终端的云端访问凭据，只能放入目标机器 policy，不要提交到 Git、公共文档或聊天。</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-bottom:8px;">设备ID：<strong style="color:var(--text);">${escHtml(deviceId)}</strong></div>
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px;">Device Token</label>
+      <textarea id="${textId}" readonly style="width:100%;min-height:72px;border:1px solid var(--border);border-radius:8px;padding:8px;font-family:monospace;font-size:12px;color:var(--text);background:rgba(0,184,148,0.04);">${escHtml(token)}</textarea>
+      <label style="font-size:12px;color:var(--muted);display:block;margin:10px 0 6px;">macOS managed storage 片段</label>
+      <textarea id="${snippetId}" readonly style="width:100%;min-height:210px;border:1px solid var(--border);border-radius:8px;padding:8px;font-family:monospace;font-size:12px;color:var(--text);background:rgba(0,184,148,0.04);">${escHtml(snippet)}</textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="device-btn" onclick="copyTextareaValue('${textId}')">复制 Token</button>
+        <button class="device-btn" onclick="copyTextareaValue('${snippetId}')">复制 policy 片段</button>
+        <button class="device-btn" onclick="renderDevicesPage()">关闭</button>
+      </div>
+    </div>
+  `;
+}
+
+window.copyTextareaValue = async function(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  try {
+    await navigator.clipboard.writeText(el.value || '');
+    toast('已复制');
+  } catch (e) {
+    el.focus();
+    el.select();
+    toast('请手动复制选中文本', false);
+  }
+};
+
+window.createManagedDevice = async function() {
+  if (!currentProfileId) return;
+  const name = prompt('受管终端名称，例如 Pierce MacBook Chrome：', 'Pierce MacBook Chrome');
+  if (!name) return;
+  const platform = prompt('平台：macos / windows', 'macos');
+  if (!platform) return;
+  const browser = prompt('浏览器：', 'Chrome') || 'Chrome';
+  try {
+    const result = await api(`/profiles/${currentProfileId}/devices`, 'POST', {
+      device_name: name,
+      platform,
+      browser,
+    });
+    toast('受管终端已创建，请立即保存 Token');
+    showManagedDeviceTokenResult('受管终端已创建', result);
+  } catch (e) {
+    toast('创建受管终端失败：' + (e.message || e), false);
+  }
+};
+
+window.exportManagedDeviceToken = async function(deviceId, deviceName = '') {
+  if (!currentProfileId || !deviceId) return;
+  if (!confirm(`导出「${deviceName || deviceId}」的 Device Token？\n\n该 Token 等同于这台终端的云端访问凭据，只能用于受管安装 policy。`)) return;
+  try {
+    const result = await api(`/profiles/${currentProfileId}/devices/${encodeURIComponent(deviceId)}/token/export`, 'POST', {});
+    showManagedDeviceTokenResult('Device Token 已导出', result);
+  } catch (e) {
+    toast('导出 Token 失败：' + (e.message || e), false);
+  }
+};
+
+window.resetManagedDeviceToken = async function(deviceId, deviceName = '') {
+  if (!currentProfileId || !deviceId) return;
+  if (!confirm(`重置「${deviceName || deviceId}」的 Device Token？\n\n旧 Token 会立即失效，目标机器 policy 必须更新为新 Token。`)) return;
+  try {
+    const result = await api(`/profiles/${currentProfileId}/devices/${encodeURIComponent(deviceId)}/token/reset`, 'POST', {});
+    toast('Token 已重置，请立即更新目标机器 policy');
+    showManagedDeviceTokenResult('Device Token 已重置', result);
+    renderDevicesPage();
+  } catch (e) {
+    toast('重置 Token 失败：' + (e.message || e), false);
+  }
+};
 async function renderDeviceRecoveryRequests() {
   const panel = document.getElementById('device-recovery-requests');
   if (!panel || !currentProfileId) return;

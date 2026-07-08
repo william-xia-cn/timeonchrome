@@ -18,20 +18,6 @@
       <key>value</key>
       <string>managed</string>
     </dict>
-    <key>tenantId</key>
-    <dict>
-      <key>state</key>
-      <string>always</string>
-      <key>value</key>
-      <string>pierce-xia-icloud</string>
-    </dict>
-    <key>devicePolicyId</key>
-    <dict>
-      <key>state</key>
-      <string>always</string>
-      <key>value</key>
-      <string>pierce-macos-chrome-001</string>
-    </dict>
     <key>cloudEndpoint</key>
     <dict>
       <key>state</key>
@@ -39,12 +25,19 @@
       <key>value</key>
       <string>https://guardian-api.william-xia-cn.workers.dev</string>
     </dict>
-    <key>allowIdentityRecovery</key>
+    <key>managedDeviceToken</key>
     <dict>
       <key>state</key>
       <string>always</string>
       <key>value</key>
-      <true/>
+      <string>&lt;MANAGED_DEVICE_TOKEN_FROM_CLOUD&gt;</string>
+    </dict>
+    <key>managedDeviceLabel</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>Pierce MacBook Chrome</string>
     </dict>
   </dict>
 </dict>

@@ -600,13 +600,14 @@ function buildPopupCloudStatus(storage = {}, activation = null) {
   const isBound = !!storage.cloud_device_token;
   const managedPolicy = activation?.managedPolicy
     ? {
-        tenantId: activation.managedPolicy.tenantId || null,
-        devicePolicyId: activation.managedPolicy.devicePolicyId || null,
         cloudEndpoint: activation.managedPolicy.cloudEndpoint || null,
+        managedDeviceLabel: activation.managedPolicy.managedDeviceLabel || null,
+        hasManagedDeviceToken: !!activation.managedPolicy.managedDeviceToken,
         allowIdentityRecovery: activation.managedPolicy.allowIdentityRecovery !== false,
+        legacyTenantId: activation.managedPolicy.tenantId || null,
+        legacyDevicePolicyId: activation.managedPolicy.devicePolicyId || null,
       }
-    : null;
-  return {
+    : null;  return {
     isBound,
     localMode: !isBound,
     syncEnabled: isBound,

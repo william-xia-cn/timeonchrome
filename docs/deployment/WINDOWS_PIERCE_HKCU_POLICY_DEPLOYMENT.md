@@ -6,12 +6,19 @@ This deployment file is for `Pierce.xia@icloud.com` on a single Windows user acc
 
 - Extension ID: `jdcancbiocacabbjdkngadmjpjmkdnih`
 - Update URL: `https://timeonchrome-update.pages.dev/timeonchrome/update.xml`
-- CRX version: `1.7.8`
-- Tenant ID: `pierce-xia-icloud`
-- Device policy ID: `pierce-windows-chrome-001`
+- CRX version: `1.7.9`
 - Policy file: `docs/deployment/templates/TimeOnChrome-Pierce-HKCU.reg`
 
-`Pierce.xia@icloud.com` is not written into Chrome policy. The managed identity anchor is `tenantId + devicePolicyId`; the cloud maps that pair to the profile/device.
+`Pierce.xia@icloud.com` is not written into Chrome policy. The managed credential is `managedDeviceToken`, exported from TimeOnChrome cloud console for the target device. Treat it as a secret device access token.
+
+## Before Install
+
+In TimeOnChrome cloud console, open `子用户管理 -> 绑定设备` and either:
+
+- create a new managed device, then copy the generated Device Token; or
+- select an existing bound device and export or reset its Device Token.
+
+Replace `<MANAGED_DEVICE_TOKEN_FROM_CLOUD>` in `TimeOnChrome-Pierce-HKCU.reg` with that token before importing the file. Do not commit the filled `.reg` file or paste the token into public docs or chat.
 
 ## Install
 
@@ -49,66 +56,35 @@ Managed storage is stored under:
 HKCU\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih\policy
 ```
 
-The managed storage payload contains only activation and identity-anchor values:
+The managed storage payload contains only activation and device credential values:
 
 ```json
 {
   "enabled": true,
   "deploymentMode": "managed",
-  "tenantId": "pierce-xia-icloud",
-  "devicePolicyId": "pierce-windows-chrome-001",
   "cloudEndpoint": "https://guardian-api.william-xia-cn.workers.dev",
-  "allowIdentityRecovery": true
+  "managedDeviceToken": "<MANAGED_DEVICE_TOKEN_FROM_CLOUD>",
+  "managedDeviceLabel": "Pierce Windows Chrome"
 }
 ```
 
-It must not contain website rules, quotas, time windows, account tokens, or device tokens.
+It must not contain website rules, quotas, time windows, account tokens, passwords, raw Chrome identity, or private browsing data.
 
-## Cloud Mapping
+## Device Identity
 
-Managed recovery requires a cloud mapping:
-
-```json
-{
-  "tenantId": "pierce-xia-icloud",
-  "devicePolicyId": "pierce-windows-chrome-001",
-  "deviceId": "<Pierce current cloud device ID>",
-  "status": "active"
-}
-```
-
-Use the account API:
-
-```http
-PUT /profiles/:profileId/managed-device-mappings/v1
-Authorization: Bearer <account_token>
-Content-Type: application/json
-```
-
-Request body:
-
-```json
-{
-  "tenantId": "pierce-xia-icloud",
-  "devicePolicyId": "pierce-windows-chrome-001",
-  "deviceId": "<Pierce current cloud device ID>",
-  "status": "active"
-}
-```
-
-If there is no reusable Pierce device yet, perform one normal bind/sync first so the cloud creates a `deviceId`, then create this mapping.
+The cloud and client only recognize the Device and its Device Token. A device can be created by normal child-side binding or pre-created in the cloud console. Both are the same `devices` record and use the same `device_token` for `/device/config`, heartbeat, and sync.
 
 ## Acceptance Checks
 
 - `chrome://policy` shows `ExtensionSettings` with status `OK`.
 - `chrome://extensions` shows TimeOnChrome installed by policy.
 - Extension ID is `jdcancbiocacabbjdkngadmjpjmkdnih`.
-- Version is `1.7.8`.
+- Version is `1.7.9`.
 - Toolbar is pinned.
 - Popup/Admin shows `managed_policy` activation.
 - Site rules, quotas, and time windows still come from cloud config.
-- When local `device_token` is missing, managed recovery tries `pierce-xia-icloud + pierce-windows-chrome-001`.
-- `RECOVERED` restores the mapped device; `NO_MAPPING` does not create a duplicate device.
+- When local `cloud_device_token` is missing, the extension adopts `managedDeviceToken`, calls `/device/config`, hydrates `profileId/deviceId`, then performs a full sync.
+- Resetting the token in the cloud invalidates the old token; the target policy must be updated with the new token.
 
 ## Rollback
 

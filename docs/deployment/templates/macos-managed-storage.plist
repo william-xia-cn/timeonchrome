@@ -8,14 +8,12 @@
     <true/>
     <key>deploymentMode</key>
     <string>managed</string>
-    <key>tenantId</key>
-    <string>internal-family-001</string>
-    <key>devicePolicyId</key>
-    <string>macbook-child-001</string>
+    <key>managedDeviceToken</key>
+    <string>&lt;MANAGED_DEVICE_TOKEN_FROM_CLOUD&gt;</string>
+    <key>managedDeviceLabel</key>
+    <string>Pierce MacBook Chrome</string>
     <key>cloudEndpoint</key>
     <string>https://guardian-api.william-xia-cn.workers.dev</string>
-    <key>allowIdentityRecovery</key>
-    <true/>
   </dict>
 </dict>
 </plist>

@@ -20,7 +20,14 @@ if ! dscl /Local/Default -read "$COMPUTER_RECORD" >/dev/null 2>&1; then
   fi
 fi
 
-cat > "$MCX_FILE" <<'EOF'
+read -rsp "Paste managedDeviceToken from TimeOnChrome cloud console: " MANAGED_DEVICE_TOKEN
+echo
+if [ -z "$MANAGED_DEVICE_TOKEN" ]; then
+  echo "managedDeviceToken is required"
+  exit 1
+fi
+
+cat > "$MCX_FILE" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -41,20 +48,6 @@ cat > "$MCX_FILE" <<'EOF'
       <key>value</key>
       <string>managed</string>
     </dict>
-    <key>tenantId</key>
-    <dict>
-      <key>state</key>
-      <string>always</string>
-      <key>value</key>
-      <string>pierce-xia-icloud</string>
-    </dict>
-    <key>devicePolicyId</key>
-    <dict>
-      <key>state</key>
-      <string>always</string>
-      <key>value</key>
-      <string>pierce-macos-chrome-001</string>
-    </dict>
     <key>cloudEndpoint</key>
     <dict>
       <key>state</key>
@@ -62,18 +55,24 @@ cat > "$MCX_FILE" <<'EOF'
       <key>value</key>
       <string>https://guardian-api.william-xia-cn.workers.dev</string>
     </dict>
-    <key>allowIdentityRecovery</key>
+    <key>managedDeviceToken</key>
     <dict>
       <key>state</key>
       <string>always</string>
       <key>value</key>
-      <true/>
+      <string>${MANAGED_DEVICE_TOKEN}</string>
+    </dict>
+    <key>managedDeviceLabel</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>Pierce MacBook Chrome</string>
     </dict>
   </dict>
 </dict>
 </plist>
 EOF
-
 plutil -lint "$MCX_FILE"
 dscl /Local/Default -mcximport "$COMPUTER_RECORD" "$MCX_FILE"
 mcxrefresh -n "$(id -un)" 2>/dev/null || true

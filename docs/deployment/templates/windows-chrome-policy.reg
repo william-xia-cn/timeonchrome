@@ -1,14 +1,26 @@
 Windows Registry Editor Version 5.00
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionSettings\jdcancbiocacabbjdkngadmjpjmkdnih]
-"installation_mode"="force_installed"
-"toolbar_pin"="force_pinned"
-"update_url"="https://timeonchrome-update.pages.dev/timeonchrome/update.xml"
+; TimeOnChrome Managed Internal Channel
+; Generic template
+; Scope: HKCU current Windows user only
+; Extension ID: jdcancbiocacabbjdkngadmjpjmkdnih
+; Update URL: https://timeonchrome-update.pages.dev/timeonchrome/update.xml
+; Replace <MANAGED_DEVICE_TOKEN_FROM_CLOUD> with the token exported from TimeOnChrome cloud console.
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih\policy]
+; Remove older nested-key ExtensionSettings shape if it was imported during testing.
+[-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\ExtensionSettings\jdcancbiocacabbjdkngadmjpjmkdnih]
+
+; Chrome ExtensionSettings is a compact JSON policy value.
+[HKEY_CURRENT_USER\Software\Policies\Google\Chrome]
+"ExtensionSettings"="{\"jdcancbiocacabbjdkngadmjpjmkdnih\":{\"installation_mode\":\"force_installed\",\"toolbar_pin\":\"force_pinned\",\"update_url\":\"https://timeonchrome-update.pages.dev/timeonchrome/update.xml\"}}"
+
+; Replace any previous managed storage policy for this extension.
+[-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih]
+
+; chrome.storage.managed payload for TimeOnChrome activation.
+[HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih\policy]
 "enabled"=dword:00000001
 "deploymentMode"="managed"
-"tenantId"="internal-family-001"
-"devicePolicyId"="windows-child-001"
+"managedDeviceToken"="<MANAGED_DEVICE_TOKEN_FROM_CLOUD>"
+"managedDeviceLabel"="Managed Windows Chrome"
 "cloudEndpoint"="https://guardian-api.william-xia-cn.workers.dev"
-"allowIdentityRecovery"=dword:00000001

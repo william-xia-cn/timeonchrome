@@ -7,10 +7,13 @@ export const ACTIVATION_MODE_MANAGED_POLICY = 'managed_policy';
 export const MANAGED_POLICY_KEYS = [
   'enabled',
   'deploymentMode',
+  'cloudEndpoint',
+  'managedDeviceToken',
+  'managedDeviceLabel',
+  'allowIdentityRecovery',
+  // Legacy recovery anchors. Kept only for older managed policy templates.
   'tenantId',
   'devicePolicyId',
-  'cloudEndpoint',
-  'allowIdentityRecovery',
 ];
 
 function asTrimmedString(value) {
@@ -45,17 +48,23 @@ export function normalizeManagedActivationPolicy(raw = null) {
 
   const enabled = raw?.enabled === true;
   const deploymentMode = asTrimmedString(raw?.deploymentMode);
+  const cloudEndpoint = normalizeHttpsEndpoint(raw?.cloudEndpoint);
+  const managedDeviceToken = asTrimmedString(raw?.managedDeviceToken);
+  const managedDeviceLabel = asTrimmedString(raw?.managedDeviceLabel);
+  const allowIdentityRecovery = raw?.allowIdentityRecovery !== false;
+  // Legacy recovery anchors. They do not make a managed policy active by themselves
+  // unless no managedDeviceToken is configured and old templates are still deployed.
   const tenantId = asTrimmedString(raw?.tenantId);
   const devicePolicyId = asTrimmedString(raw?.devicePolicyId);
-  const cloudEndpoint = normalizeHttpsEndpoint(raw?.cloudEndpoint);
-  const allowIdentityRecovery = raw?.allowIdentityRecovery !== false;
   const policy = {
     enabled,
     deploymentMode,
+    cloudEndpoint,
+    managedDeviceToken,
+    managedDeviceLabel,
+    allowIdentityRecovery,
     tenantId,
     devicePolicyId,
-    cloudEndpoint,
-    allowIdentityRecovery,
   };
 
   if (!enabled) {
@@ -64,7 +73,7 @@ export function normalizeManagedActivationPolicy(raw = null) {
   if (deploymentMode !== 'managed') {
     return { configured: true, active: false, reason: 'managed_policy_not_managed', policy };
   }
-  if (!tenantId || !devicePolicyId || !cloudEndpoint) {
+  if (!cloudEndpoint || (!managedDeviceToken && (!tenantId || !devicePolicyId))) {
     return { configured: true, active: false, reason: 'managed_policy_malformed', policy };
   }
 
