@@ -60,11 +60,11 @@ TimeOnChrome managed activation 数据通过 `dscl -mcximport` 写入 Chrome 扩
 
 这版策略会：
 
-- 强制安装 2 个扩展
+- 强制安装 TimeOnChrome 一个扩展
 
-- 二个扩展不可删除、不可禁用
+- TimeOnChrome 不可删除、不可禁用
 
-- 二个扩展固定在工具栏
+- TimeOnChrome 固定在工具栏
 
 - 不禁止其他扩展
 
@@ -96,19 +96,10 @@ sudo tee "/usr/local/timeonchrome-policy/com.google.Chrome.plist" > /dev/null <<
 <plist version="1.0">
 <dict>
 
-    <!-- 二个指定扩展：强制安装、不可删除、不可禁用、强制固定到工具栏 -->
+    <!-- TimeOnChrome：强制安装、不可删除、不可禁用、强制固定到工具栏 -->
     <key>ExtensionSettings</key>
     <dict>
 
-        <key>bokjekfjghliieopghopibmhjokgkjkb</key>
-        <dict>
-            <key>installation_mode</key>
-            <string>force_installed</string>
-            <key>toolbar_pin</key>
-            <string>force_pinned</string>
-            <key>update_url</key>
-            <string>https://clients2.google.com/service/update2/crx</string>
-        </dict>
 
         <key>jdcancbiocacabbjdkngadmjpjmkdnih</key>
         <dict>
