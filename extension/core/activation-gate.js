@@ -10,6 +10,7 @@ export const MANAGED_POLICY_KEYS = [
   'cloudEndpoint',
   'managedDeviceToken',
   'managedDeviceLabel',
+  'managedProfileEmail',
   'allowIdentityRecovery',
   // Legacy recovery anchors. Kept only for older managed policy templates.
   'tenantId',
@@ -18,6 +19,10 @@ export const MANAGED_POLICY_KEYS = [
 
 function asTrimmedString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeEmail(value) {
+  return asTrimmedString(value).toLowerCase();
 }
 
 function hasManagedPolicyValue(raw) {
@@ -51,6 +56,7 @@ export function normalizeManagedActivationPolicy(raw = null) {
   const cloudEndpoint = normalizeHttpsEndpoint(raw?.cloudEndpoint);
   const managedDeviceToken = asTrimmedString(raw?.managedDeviceToken);
   const managedDeviceLabel = asTrimmedString(raw?.managedDeviceLabel);
+  const managedProfileEmail = normalizeEmail(raw?.managedProfileEmail);
   const allowIdentityRecovery = raw?.allowIdentityRecovery !== false;
   // Legacy recovery anchors. They do not make a managed policy active by themselves
   // unless no managedDeviceToken is configured and old templates are still deployed.
@@ -62,6 +68,7 @@ export function normalizeManagedActivationPolicy(raw = null) {
     cloudEndpoint,
     managedDeviceToken,
     managedDeviceLabel,
+    managedProfileEmail,
     allowIdentityRecovery,
     tenantId,
     devicePolicyId,
@@ -81,14 +88,15 @@ export function normalizeManagedActivationPolicy(raw = null) {
 }
 
 export async function readManagedActivationPolicy() {
-  if (!chrome?.storage?.managed?.get) {
+  const chromeApi = globalThis.chrome;
+  if (!chromeApi?.storage?.managed?.get) {
     return { available: false, raw: null, error: 'managed_storage_unavailable' };
   }
 
   return await new Promise((resolve) => {
     try {
-      chrome.storage.managed.get(MANAGED_POLICY_KEYS, (raw) => {
-        const lastError = chrome.runtime?.lastError;
+      chromeApi.storage.managed.get(MANAGED_POLICY_KEYS, (raw) => {
+        const lastError = chromeApi.runtime?.lastError;
         if (lastError) {
           resolve({
             available: false,
@@ -109,12 +117,101 @@ export async function readManagedActivationPolicy() {
   });
 }
 
+async function readChromeProfileEmailForManagedGate() {
+  const chromeApi = globalThis.chrome;
+  if (!chromeApi?.identity?.getProfileUserInfo) {
+    return { ok: false, email: '', reason: 'managed_profile_identity_unavailable' };
+  }
+
+  return await new Promise((resolve) => {
+    try {
+      chromeApi.identity.getProfileUserInfo({ accountStatus: 'ANY' }, (info) => {
+        const lastError = chromeApi.runtime?.lastError;
+        if (lastError) {
+          resolve({ ok: false, email: '', reason: 'managed_profile_identity_read_failed', error: lastError.message || null });
+          return;
+        }
+        const email = normalizeEmail(info?.email);
+        if (!email) {
+          resolve({ ok: false, email: '', reason: 'managed_profile_email_mismatch' });
+          return;
+        }
+        resolve({ ok: true, email, reason: null });
+      });
+    } catch (err) {
+      resolve({ ok: false, email: '', reason: 'managed_profile_identity_read_failed', error: err?.message || String(err) });
+    }
+  });
+}
+
+async function resolveManagedProfileEmailGate(policy) {
+  const expectedEmail = normalizeEmail(policy?.managedProfileEmail);
+  if (!expectedEmail) {
+    return { required: false, matches: true, reason: null, hasCurrentProfileEmail: false };
+  }
+
+  const current = await readChromeProfileEmailForManagedGate();
+  if (!current.ok || current.email !== expectedEmail) {
+    return {
+      required: true,
+      matches: false,
+      reason: 'managed_profile_email_mismatch',
+      expectedEmail,
+      hasCurrentProfileEmail: !!current.email,
+      identityReason: current.reason || null,
+      error: current.error || null,
+    };
+  }
+
+  return {
+    required: true,
+    matches: true,
+    reason: null,
+    expectedEmail,
+    hasCurrentProfileEmail: true,
+  };
+}
+
+function buildManagedPolicyStatus(managed, managedRead, profileGate = null) {
+  return {
+    configured: managed.configured,
+    active: managed.active && profileGate?.matches !== false,
+    reason: profileGate?.reason || managed.reason,
+    available: managedRead.available,
+    error: profileGate?.error || managedRead.error || null,
+    profileGate: profileGate ? {
+      required: profileGate.required === true,
+      matches: profileGate.matches === true,
+      reason: profileGate.reason || null,
+      expectedEmail: profileGate.expectedEmail || null,
+      hasCurrentProfileEmail: profileGate.hasCurrentProfileEmail === true,
+      identityReason: profileGate.identityReason || null,
+    } : null,
+  };
+}
+
 export async function resolveActivationState() {
   const [managedRead, privacyConsent] = await Promise.all([
     readManagedActivationPolicy(),
     getPrivacyConsent().catch(() => ({ accepted: false })),
   ]);
   const managed = normalizeManagedActivationPolicy(managedRead.raw);
+  const profileGate = await resolveManagedProfileEmailGate(managed.policy);
+
+  // managedProfileEmail is a strong runtime profile gate. When it is configured
+  // and the current Chrome profile does not match, user consent fallback is blocked.
+  if (profileGate.required && !profileGate.matches) {
+    return {
+      activated: false,
+      activationMode: ACTIVATION_MODE_DISABLED,
+      source: ACTIVATION_MODE_DISABLED,
+      reason: 'managed_profile_email_mismatch',
+      privacyConsentRequired: false,
+      privacyConsent,
+      managedPolicy: managed.policy,
+      managedPolicyStatus: buildManagedPolicyStatus(managed, managedRead, profileGate),
+    };
+  }
 
   if (managed.active) {
     return {
@@ -125,13 +222,7 @@ export async function resolveActivationState() {
       privacyConsentRequired: false,
       privacyConsent,
       managedPolicy: managed.policy,
-      managedPolicyStatus: {
-        configured: managed.configured,
-        active: managed.active,
-        reason: managed.reason,
-        available: managedRead.available,
-        error: managedRead.error || null,
-      },
+      managedPolicyStatus: buildManagedPolicyStatus(managed, managedRead, profileGate),
     };
   }
 
@@ -144,13 +235,7 @@ export async function resolveActivationState() {
       privacyConsentRequired: false,
       privacyConsent,
       managedPolicy: managed.policy,
-      managedPolicyStatus: {
-        configured: managed.configured,
-        active: managed.active,
-        reason: managed.reason,
-        available: managedRead.available,
-        error: managedRead.error || null,
-      },
+      managedPolicyStatus: buildManagedPolicyStatus(managed, managedRead, profileGate),
     };
   }
 
@@ -162,13 +247,7 @@ export async function resolveActivationState() {
     privacyConsentRequired: true,
     privacyConsent,
     managedPolicy: managed.policy,
-    managedPolicyStatus: {
-      configured: managed.configured,
-      active: managed.active,
-      reason: managed.reason,
-      available: managedRead.available,
-      error: managedRead.error || null,
-    },
+    managedPolicyStatus: buildManagedPolicyStatus(managed, managedRead, profileGate),
   };
 }
 
@@ -185,6 +264,8 @@ export async function isIdentityRecoveryAllowed() {
 }
 
 export async function canUseChromeIdentityForAdmin() {
-  if (await hasPrivacyConsent()) return true;
-  return await isIdentityRecoveryAllowed();
+  const state = await resolveActivationState();
+  if (state.activated !== true) return false;
+  if (state.activationMode !== ACTIVATION_MODE_MANAGED_POLICY) return true;
+  return state.managedPolicy?.allowIdentityRecovery !== false;
 }

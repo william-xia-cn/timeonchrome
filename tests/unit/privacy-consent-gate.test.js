@@ -34,7 +34,7 @@ function run() {
   const admin = read('extension/admin/admin.js');
   const popup = read('extension/popup/popup.js');
 
-  expectTrue('manifest is bumped to 1.7.8', manifest.version === '1.7.8');
+  expectTrue('manifest is bumped to 1.7.9', manifest.version === '1.7.9');
   expectTrue('manifest keeps identity permissions for disclosed recovery feature', manifest.permissions.includes('identity') && manifest.permissions.includes('identity.email'));
   expectTrue('manifest still has no OAuth config', !Object.prototype.hasOwnProperty.call(manifest, 'oauth2'));
 
@@ -48,7 +48,7 @@ function run() {
   expectTrue('background imports privacy consent helpers and activation gate', background.includes("from './core/privacy-consent.js'") && background.includes("from './core/activation-gate.js'"));
   expectTrue('background caches activation and privacy consent state', background.includes('runtimeActivationState') && background.includes('privacyConsentAccepted') && background.includes('refreshPrivacyConsentCache'));
   expectTrue('activation gate preserves CWS user consent fallback', activationGate.includes('ACTIVATION_MODE_USER_CONSENT') && activationGate.includes('getPrivacyConsent') && activationGate.includes('privacyConsentRequired'));
-  expectTrue('activation gate supports managed policy without broad config', activationGate.includes('chrome.storage.managed.get') && activationGate.includes('ACTIVATION_MODE_MANAGED_POLICY') && !activationGate.includes('studyList') && !activationGate.includes('timeQuota'));
+  expectTrue('activation gate supports managed policy without broad config', (activationGate.includes('chrome.storage.managed.get') || activationGate.includes('chromeApi.storage.managed.get')) && activationGate.includes('ACTIVATION_MODE_MANAGED_POLICY') && !activationGate.includes('studyList') && !activationGate.includes('timeQuota'));
   expectTrue('background opens consent page on install/startup/update', background.includes('openPrivacyConsentPage') && background.includes('onInstalled') && background.includes('onStartup') && background.includes('onUpdated'));
   expectTrue('background gates module-load active tab bootstrap', background.includes("reason: 'privacy_consent_required'") && background.includes("bootstrapActiveTabTiming('bootstrap_active_tab')"));
   expectTrue('background gates monitoring enabled on runtime activation', background.includes('return runtimeActivationState?.activated === true && getSyncState().monitoringEnabled !== 0'));

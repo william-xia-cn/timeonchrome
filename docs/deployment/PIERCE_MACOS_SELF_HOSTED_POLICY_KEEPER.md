@@ -50,7 +50,7 @@ chrome://policy 生效
 | `/Library/Managed Preferences/com.google.Chrome.plist`                  | Chrome 实际读取的策略文件 |
 |                                                                         |                  |
 
-TimeOnChrome managed activation 数据通过 `dscl -mcximport` 写入 Chrome 扩展 managed storage，不作为单独文件手工维护；它只包含 `cloudEndpoint`、`managedDeviceToken` 和可选的 `managedDeviceLabel`。`managedDeviceToken` 等同于这台受管终端访问云端的凭据，必须只保存在目标机器 policy 中，不提交到 Git、公共文档或聊天。
+TimeOnChrome managed activation 数据通过 `dscl -mcximport` 写入 Chrome 扩展 managed storage，不作为单独文件手工维护；它只包含 `cloudEndpoint`、`managedDeviceToken`、可选的 `managedDeviceLabel` 和可选的 `managedProfileEmail`。`managedDeviceToken` 等同于这台受管终端访问云端的凭据，必须只保存在目标机器 policy 中，不提交到 Git、公共文档或聊天。
 
 ---
 
@@ -193,6 +193,13 @@ sudo tee "$MANAGED_POLICY" > /dev/null <<EOF
             <string>always</string>
             <key>value</key>
             <string>Pierce MacBook Chrome</string>
+        </dict>
+        <key>managedProfileEmail</key>
+        <dict>
+            <key>state</key>
+            <string>always</string>
+            <key>value</key>
+            <string>pierce.xia@icloud.com</string>
         </dict>
     </dict>
 </dict>
@@ -573,7 +580,7 @@ sudo killall cfprefsd
 
 # 11. 重要边界
 
-managed activation 数据只能加入 `cloudEndpoint`、`managedDeviceToken` 和可选显示标签。`managedDeviceToken` 是敏感凭据，等同于该终端的云端访问 token；不要加入 account token、密码、raw Chrome identity、完整网站规则、配额或时间段，也不要把该 token 写入 Git、公共文档或聊天。
+managed activation 数据只能加入 `cloudEndpoint`、`managedDeviceToken`、可选显示标签和可选 `managedProfileEmail`。`managedProfileEmail` 只用于扩展运行时校验当前 Chrome Profile 邮箱；不匹配时扩展不启用 managed activation。`managedDeviceToken` 是敏感凭据，等同于该终端的云端访问 token；不要加入 account token、密码、raw Chrome identity、完整网站规则、配额或时间段，也不要把该 token 写入 Git、公共文档或聊天。
 
 不要加：
 

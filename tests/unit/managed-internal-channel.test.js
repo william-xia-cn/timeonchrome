@@ -34,6 +34,7 @@ function run() {
   expectTrue('activation gate supports managedDeviceToken as primary managed policy credential',
     activationGate.includes("'managedDeviceToken'") &&
     activationGate.includes("'managedDeviceLabel'") &&
+    activationGate.includes("'managedProfileEmail'") &&
     activationGate.includes('managedDeviceToken') &&
     !activationGate.includes('studyList') &&
     !activationGate.includes('timeQuota'));

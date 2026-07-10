@@ -4,6 +4,7 @@
 # - Current Windows user only (HKCU).
 # - Installs and keeps Chrome policy for the current user's Chrome.
 # - Does not target a single Chrome profile.
+# - TimeOnChrome activates only when the current Chrome profile email matches Pierce.
 #
 # Secret handling:
 # - This template does not contain a real managedDeviceToken.
@@ -12,7 +13,8 @@
 
 [CmdletBinding()]
 param(
-  [switch]$Uninstall
+  [switch]$Uninstall,
+  [switch]$UseExistingToken
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +29,7 @@ $ExtensionId = 'jdcancbiocacabbjdkngadmjpjmkdnih'
 $UpdateUrl = 'https://timeonchrome-update.pages.dev/timeonchrome/update.xml'
 $CloudEndpoint = 'https://guardian-api.william-xia-cn.workers.dev'
 $ManagedDeviceLabel = 'Pierce Windows Chrome'
+$ManagedProfileEmail = 'pierce.xia@icloud.com'
 
 function Write-PolicyLog {
   param([string]$Message)
@@ -54,13 +57,24 @@ if ($Uninstall) {
 
 New-Item -ItemType Directory -Force -Path $PolicyRoot | Out-Null
 
-$secureToken = Read-Host 'Paste managedDeviceToken from TimeOnChrome cloud console' -AsSecureString
-$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-try {
-  $managedDeviceToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-} finally {
-  if ($bstr -ne [IntPtr]::Zero) {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+if ($UseExistingToken) {
+  if (-not (Test-Path -LiteralPath $ExpectedPolicyPath)) {
+    throw "Cannot use existing token because expected policy snapshot is missing: $ExpectedPolicyPath"
+  }
+  $existingPolicy = Get-Content -LiteralPath $ExpectedPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $managedDeviceToken = [string]$existingPolicy.managedDeviceToken
+  if ([string]::IsNullOrWhiteSpace($managedDeviceToken)) {
+    throw 'Existing expected policy snapshot does not contain managedDeviceToken.'
+  }
+} else {
+  $secureToken = Read-Host 'Paste managedDeviceToken from TimeOnChrome cloud console' -AsSecureString
+  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+  try {
+    $managedDeviceToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+  } finally {
+    if ($bstr -ne [IntPtr]::Zero) {
+      [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
   }
 }
 
@@ -74,6 +88,7 @@ $expectedPolicy = [ordered]@{
   cloudEndpoint = $CloudEndpoint
   managedDeviceToken = $managedDeviceToken
   managedDeviceLabel = $ManagedDeviceLabel
+  managedProfileEmail = $ManagedProfileEmail
 }
 
 $expectedPolicy | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ExpectedPolicyPath -Encoding UTF8
@@ -97,7 +112,7 @@ if (-not (Test-Path -LiteralPath $ExpectedPolicyPath)) {
 }
 
 $policy = Get-Content -LiteralPath $ExpectedPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if (-not $policy.extensionId -or -not $policy.updateUrl -or -not $policy.cloudEndpoint -or -not $policy.managedDeviceToken) {
+if (-not $policy.extensionId -or -not $policy.updateUrl -or -not $policy.cloudEndpoint -or -not $policy.managedDeviceToken -or -not $policy.managedProfileEmail) {
   Write-PolicyLog 'ERROR: expected policy snapshot is incomplete.'
   exit 1
 }
@@ -126,8 +141,9 @@ Set-ItemProperty -Path $managedPolicyPath -Name 'deploymentMode' -Type String -V
 Set-ItemProperty -Path $managedPolicyPath -Name 'cloudEndpoint' -Type String -Value $policy.cloudEndpoint
 Set-ItemProperty -Path $managedPolicyPath -Name 'managedDeviceToken' -Type String -Value $policy.managedDeviceToken
 Set-ItemProperty -Path $managedPolicyPath -Name 'managedDeviceLabel' -Type String -Value $policy.managedDeviceLabel
+Set-ItemProperty -Path $managedPolicyPath -Name 'managedProfileEmail' -Type String -Value $policy.managedProfileEmail
 
-Write-PolicyLog "Restored TimeOnChrome HKCU Chrome policy for extension $($policy.extensionId)."
+Write-PolicyLog "Restored TimeOnChrome HKCU Chrome policy for extension $($policy.extensionId), gated to Chrome profile $($policy.managedProfileEmail)."
 '@
 
 Set-Content -LiteralPath $RestoreScriptPath -Value $restoreScript -Encoding UTF8
@@ -140,7 +156,7 @@ if ($LASTEXITCODE -ne 0) {
 $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$RestoreScriptPath`""
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
 $repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
-$taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel LeastPrivilege
+$taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
 
 Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger @($logonTrigger, $repeatTrigger) -Principal $taskPrincipal -Settings $taskSettings -Force | Out-Null

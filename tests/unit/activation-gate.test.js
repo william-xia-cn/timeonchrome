@@ -39,6 +39,7 @@ function run() {
     activationGate.includes("'cloudEndpoint'") &&
     activationGate.includes("'managedDeviceToken'") &&
     activationGate.includes("'managedDeviceLabel'") &&
+    activationGate.includes("'managedProfileEmail'") &&
     activationGate.includes("'allowIdentityRecovery'") &&
     !activationGate.includes('studyList') &&
     !activationGate.includes('timeQuota') &&
@@ -48,12 +49,15 @@ function run() {
     activationGate.includes("'tenantId'") &&
     activationGate.includes("'devicePolicyId'"));
   expectTrue('managed policy is read from chrome.storage.managed',
-    activationGate.includes('chrome.storage.managed.get') && activationGate.includes('MANAGED_POLICY_KEYS'));
+    (activationGate.includes('chrome.storage.managed.get') || activationGate.includes('chromeApi.storage.managed.get')) && activationGate.includes('MANAGED_POLICY_KEYS'));
   expectTrue('managed activation requires managed deployment, https endpoint and token or legacy anchor',
     activationGate.includes("deploymentMode !== 'managed'") &&
     activationGate.includes("url.protocol === 'https:'") &&
     activationGate.includes('managedDeviceToken') &&
     activationGate.includes("'managed_policy_malformed'"));
+  expectTrue('managed profile email mismatch blocks user consent fallback',
+    activationGate.includes('managed_profile_email_mismatch') &&
+    activationGate.indexOf('if (profileGate.required && !profileGate.matches)') < activationGate.indexOf('if (privacyConsent?.accepted === true)'));
   expectTrue('managed policy wins before user consent fallback',
     activationGate.indexOf('if (managed.active)') < activationGate.indexOf('if (privacyConsent?.accepted === true)'));
   expectTrue('identity recovery can be disabled by managed policy',
@@ -70,7 +74,9 @@ function run() {
     background.includes("activation.activationMode !== 'managed_policy'") &&
     background.includes("openPrivacyConsentPage('onInstalled'"));
   expectTrue('background exposes managed token presence but not token value',
+    background.includes('sanitizeActivationForUi') &&
     background.includes('hasManagedDeviceToken') &&
+    background.includes('managedDeviceToken: undefined') &&
     !background.includes('managedDeviceToken: activation.managedPolicy.managedDeviceToken'));
 
   expectTrue('cloud sync depends on activation gate instead of direct privacy consent',

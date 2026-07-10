@@ -13,6 +13,10 @@ let selectedProfileId = null;
 const PRIVACY_CONSENT_KEY = 'privacy_consent_v1';
 const PRIVACY_POLICY_VERSION = '2026-06-22';
 
+function normalizeEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
 async function hasPrivacyConsent() {
   try {
     const storage = await chrome.storage.local.get([PRIVACY_CONSENT_KEY]);
@@ -33,6 +37,7 @@ async function getManagedActivationPolicy() {
         'cloudEndpoint',
         'managedDeviceToken',
         'managedDeviceLabel',
+        'managedProfileEmail',
         'allowIdentityRecovery',
         'tenantId',
         'devicePolicyId',
@@ -44,8 +49,18 @@ async function getManagedActivationPolicy() {
     const legacyAnchorOk = !!(policy?.tenantId && policy?.devicePolicyId);
     if (policy?.enabled === true && policy?.deploymentMode === 'managed' && endpointOk && (managedDeviceToken || legacyAnchorOk)) {
       return {
+        configured: true,
         active: true,
         hasManagedDeviceToken: !!managedDeviceToken,
+        managedProfileEmail: normalizeEmail(policy.managedProfileEmail),
+        allowIdentityRecovery: policy.allowIdentityRecovery !== false,
+      };
+    }
+    if (policy?.managedProfileEmail) {
+      return {
+        configured: true,
+        active: false,
+        managedProfileEmail: normalizeEmail(policy.managedProfileEmail),
         allowIdentityRecovery: policy.allowIdentityRecovery !== false,
       };
     }
@@ -55,20 +70,65 @@ async function getManagedActivationPolicy() {
   return null;
 }
 
-async function hasRuntimeActivation() {
-  if (await hasPrivacyConsent()) return true;
+async function getCurrentChromeProfileEmail() {
+  try {
+    if (!chrome.identity?.getProfileUserInfo) return '';
+    const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' });
+    return normalizeEmail(info?.email);
+  } catch (_) {
+    return '';
+  }
+}
+
+async function resolveBindActivationState() {
   const managed = await getManagedActivationPolicy();
-  return managed?.active === true;
+  if (managed?.managedProfileEmail) {
+    const currentEmail = await getCurrentChromeProfileEmail();
+    if (currentEmail !== managed.managedProfileEmail) {
+      return {
+        active: false,
+        reason: 'managed_profile_email_mismatch',
+        managed,
+      };
+    }
+  }
+  if (managed?.active === true) return { active: true, reason: null, managed };
+  if (await hasPrivacyConsent()) return { active: true, reason: null, managed };
+  return { active: false, reason: 'privacy_consent_required', managed };
+}
+
+async function hasRuntimeActivation() {
+  const state = await resolveBindActivationState();
+  return state.active === true;
 }
 
 async function canUseChromeIdentityForBind() {
-  if (await hasPrivacyConsent()) return true;
-  const managed = await getManagedActivationPolicy();
-  return managed?.active === true && managed.allowIdentityRecovery !== false;
+  const state = await resolveBindActivationState();
+  if (state.active !== true) return false;
+  if (state.managed?.active === true) return state.managed.allowIdentityRecovery !== false;
+  return true;
 }
 
 function getPrivacyConsentUrl() {
   return chrome.runtime.getURL('privacy-consent.html?reason=bind&next=bind.html%3Fwelcome%3D1');
+}
+
+function showManagedProfileMismatch() {
+  const error = document.getElementById('error1');
+  const btnLogin = document.getElementById('btnLogin');
+  if (error) {
+    error.textContent = '此 Chrome Profile 未被此受管部署授权。请切换到 pierce.xia@icloud.com 的 Chrome Profile 后再继续。';
+    error.classList.add('show');
+  }
+  if (btnLogin) btnLogin.disabled = true;
+}
+
+function showActivationRequired(reason) {
+  if (reason === 'managed_profile_email_mismatch') {
+    showManagedProfileMismatch();
+    return;
+  }
+  showPrivacyConsentRequired();
 }
 
 function showPrivacyConsentRequired() {
@@ -106,8 +166,9 @@ async function getChromeIdentityPayload() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  if (!(await hasRuntimeActivation())) {
-    showPrivacyConsentRequired();
+  const activation = await resolveBindActivationState();
+  if (!activation.active) {
+    showActivationRequired(activation.reason);
     return;
   }
   // 绑定登录按钮事件
@@ -118,8 +179,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function doLogin() {
-  if (!(await hasRuntimeActivation())) {
-    showPrivacyConsentRequired();
+  const activation = await resolveBindActivationState();
+  if (!activation.active) {
+    showActivationRequired(activation.reason);
     return;
   }
   const email = document.getElementById('email').value.trim().toLowerCase();

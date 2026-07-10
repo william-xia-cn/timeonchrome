@@ -25,9 +25,19 @@ Update URL：https://timeonchrome-update.pages.dev/timeonchrome/update.xml
 Cloud Endpoint：https://guardian-api.william-xia-cn.workers.dev
 CRX version：1.7.9
 Managed label：Pierce Windows Chrome
+Managed profile email：pierce.xia@icloud.com
 ```
 
 `managedDeviceToken` 从云端「子用户管理 → 绑定设备」创建、导出或重置。它等同于该终端访问云端的 Device Token，只能保存在目标机器 policy 中，不要提交到 Git、公共文档、聊天或截图。
+
+Windows HKCU policy 会把扩展安装到当前 Windows 用户的 Chrome 环境，不能只安装到某一个 Chrome Profile。为避免同一 Windows 用户下其他 Google Profile 被当作 Pierce 终端，本文模板会写入 `managedProfileEmail=pierce.xia@icloud.com`。扩展启动时会读取当前 Chrome Profile 邮箱；不匹配、未登录或 identity 为空时，扩展保持未激活，不采用 `managedDeviceToken`，不执行同步、心跳、计时、拦截或绑定登录。
+
+重要限制：普通未受企业管理的 Windows Chrome 会阻止 self-hosted CRX 的 `force_installed` 安装。`chrome://policy` 可能把扩展 ID 显示为 `[BLOCKED]jdcancbiocacabbjdkngadmjpjmkdnih`，并提示该计算机不是由企业管理，因此只能自动安装 Chrome Web Store 更新地址 `https://clients2.google.com/service/update2/crx` 的扩展。这不是 registry JSON 写错，也不是 keeper 脚本失败，而是 Chrome 对 unmanaged Windows 环境的策略限制。
+
+因此 Windows self-hosted 强装方案只适用于真正受管理的 Chrome/设备环境。未受管理的个人 Windows 设备有两个可行方向：
+
+1. 走 Chrome Web Store 通道：使用 CWS 扩展 ID 和 `clients2.google.com` 更新地址，managed storage 仍可保留 `managedDeviceToken` / `managedProfileEmail`。
+2. 先把 Chrome/设备纳入企业管理，再使用 self-hosted `timeonchrome-update.pages.dev` 更新地址。
 
 ## 2. 文件清单
 
@@ -49,7 +59,7 @@ TimeOnChrome Restore Chrome Policy
 
 | 项目 | 作用 |
 | --- | --- |
-| `expected-policy.json` | 本机期望策略快照，包含 TimeOnChrome 扩展 ID、update URL、cloud endpoint 和目标机器 token |
+| `expected-policy.json` | 本机期望策略快照，包含 TimeOnChrome 扩展 ID、update URL、cloud endpoint、目标机器 token 和目标 Chrome Profile 邮箱 |
 | `restore-timeonchrome-policy.ps1` | 恢复脚本，按期望状态写回 HKCU Chrome policy |
 | `restore.log` | 恢复日志 |
 | Scheduled Task | 登录时和每 5 分钟运行恢复脚本 |
@@ -119,9 +129,12 @@ HKCU\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadm
   "deploymentMode": "managed",
   "cloudEndpoint": "https://guardian-api.william-xia-cn.workers.dev",
   "managedDeviceToken": "<运行时输入>",
-  "managedDeviceLabel": "Pierce Windows Chrome"
+  "managedDeviceLabel": "Pierce Windows Chrome",
+  "managedProfileEmail": "pierce.xia@icloud.com"
 }
 ```
+
+`managedProfileEmail` 是运行时 gate，不是 Chrome 安装策略。它不会阻止扩展出现在其他 Chrome Profile 中，但会阻止扩展在非 Pierce Profile 下激活。
 
 不得把网站规则、配额、时间段、account token、密码、raw Chrome identity 或完整 URL 写入 policy。
 
@@ -138,6 +151,7 @@ chrome://policy
 - `ExtensionSettings` 存在
 - 状态为 `OK`
 - policy value 包含 `jdcancbiocacabbjdkngadmjpjmkdnih`
+- 如果显示 `[BLOCKED]jdcancbiocacabbjdkngadmjpjmkdnih`，说明当前 Chrome 未受企业管理，self-hosted force install 被 Chrome 阻止；此时不要继续排查 token 或 keeper 脚本，需切换到 CWS 通道或管理 Chrome/设备。
 
 再打开：
 
@@ -165,9 +179,12 @@ reg query HKCU\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocaca
 打开 TimeOnChrome Popup/Admin，确认：
 
 - activation source 显示 `managed_policy`
+- 当前 Chrome Profile 邮箱为 `pierce.xia@icloud.com`
 - 本地没有 `cloud_device_token` 时，会采用 `managedDeviceToken`
 - `/device/config` hydrate profile/device
 - 随后执行完整云同步
+
+切换到同一 Windows 用户下的其他 Chrome Profile 时，Popup/Admin 应显示未激活状态；不应采用 Pierce 的 `managedDeviceToken`。
 
 ## 6. 卸载
 
@@ -190,6 +207,7 @@ D:\Opencode\ChromeExtension\timeonchrome\docs\deployment\templates\TimeOnChrome-
 
 - HKCU policy 只影响当前 Windows 登录用户。
 - HKCU policy 不能只作用于某一个 Chrome Profile。
+- `managedProfileEmail` 只能在扩展运行时阻止非目标 Profile 激活，不能阻止 Chrome policy 把扩展安装到该 Windows 用户下的其他 Profile。
 - 如果需要管理整台机器所有 Windows 用户，应另行设计 HKLM 版本。
 - 如果目标 Windows 用户没有权限写 HKCU Chrome policy 或创建 Scheduled Task，需要在该用户上下文中提升 PowerShell 后重试。
 - 填入真实 token 的本地文件不要提交到 Git，不要上传到公共共享位置。

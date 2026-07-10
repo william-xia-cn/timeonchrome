@@ -3,6 +3,7 @@ Windows Registry Editor Version 5.00
 ; TimeOnChrome Managed Internal Channel
 ; Target: Pierce.xia@icloud.com
 ; Scope: HKCU current Windows user only
+; Runtime profile gate: only Chrome profile pierce.xia@icloud.com activates TimeOnChrome
 ; Extension ID: jdcancbiocacabbjdkngadmjpjmkdnih
 ; Update URL: https://timeonchrome-update.pages.dev/timeonchrome/update.xml
 ; Replace <MANAGED_DEVICE_TOKEN_FROM_CLOUD> with the token exported from TimeOnChrome cloud console.
@@ -23,4 +24,5 @@ Windows Registry Editor Version 5.00
 "deploymentMode"="managed"
 "managedDeviceToken"="<MANAGED_DEVICE_TOKEN_FROM_CLOUD>"
 "managedDeviceLabel"="Pierce Windows Chrome"
+"managedProfileEmail"="pierce.xia@icloud.com"
 "cloudEndpoint"="https://guardian-api.william-xia-cn.workers.dev"

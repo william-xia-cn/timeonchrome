@@ -55,6 +55,21 @@ async function openPrivacyConsentPage(reason = 'privacy_consent_required', next 
   return { opened: !!tab, tabId: tab?.id || null };
 }
 
+function sanitizeActivationForUi(activation = null) {
+  if (!activation || typeof activation !== 'object') return activation;
+  const managedPolicy = activation.managedPolicy && typeof activation.managedPolicy === 'object'
+    ? {
+        ...activation.managedPolicy,
+        hasManagedDeviceToken: !!activation.managedPolicy.managedDeviceToken,
+        managedDeviceToken: undefined,
+      }
+    : activation.managedPolicy;
+  return {
+    ...activation,
+    managedPolicy,
+  };
+}
+
 function privacyConsentRequiredResponse() {
   return {
     ok: false,
@@ -62,7 +77,7 @@ function privacyConsentRequiredResponse() {
     code: runtimeActivationState?.privacyConsentRequired === true ? 'PRIVACY_CONSENT_REQUIRED' : 'RUNTIME_ACTIVATION_REQUIRED',
     privacyConsentRequired: runtimeActivationState?.privacyConsentRequired === true,
     activationRequired: true,
-    activation: runtimeActivationState,
+    activation: sanitizeActivationForUi(runtimeActivationState),
   };
 }
 
@@ -1336,7 +1351,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'GET_ACTIVATION_STATUS') {
     (async () => {
       const state = await refreshPrivacyConsentCache();
-      sendResponse({ ok: true, ...state });
+      sendResponse({ ok: true, ...sanitizeActivationForUi(state) });
     })();
     return true;
   }

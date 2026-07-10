@@ -17,7 +17,7 @@ Cloud Endpoint: https://guardian-api.william-xia-cn.workers.dev
 Current CRX version: 1.7.9
 ```
 
-`managedDeviceToken` 是受管终端的云端访问凭据，等同于这台终端的 Device Token。它只能放在目标机器的 Chrome managed policy 中，不得提交到 Git、公共文档、聊天记录、截图或安装包模板。
+`managedDeviceToken` 是受管终端的云端访问凭据，等同于这台终端的 Device Token。它只能放在目标机器的 Chrome managed policy 中，不得提交到 Git、公共文档、聊天记录、截图或安装包模板。`managedProfileEmail` 是可选的本地 Chrome Profile gate；配置后，扩展只有在当前 Chrome Profile 邮箱精确匹配该值时才会启用 managed activation。
 
 ## 2. 云端准备 DeviceToken
 
@@ -79,13 +79,16 @@ deploymentMode = managed
 cloudEndpoint
 managedDeviceToken
 managedDeviceLabel
+managedProfileEmail
 ```
 
 不得把网站规则、配额、时间段、account token、密码、raw Chrome identity 或完整 URL 写入 policy。
 
 ## 4. Windows HKCU 部署
 
-Windows 用户级 policy 使用 HKCU，只影响导入 `.reg` 的 Windows 用户。
+Windows 用户级 policy 使用 HKCU，只影响导入 `.reg` 的 Windows 用户。HKCU 不能只把扩展安装到某一个 Chrome Profile；如果同一 Windows 用户下面存在多个 Chrome Profile，应配置 `managedProfileEmail`，让扩展在运行时只对目标 Chrome Profile 启用。
+
+未受企业管理的 Windows Chrome 会阻止 self-hosted CRX 的 `force_installed` 安装；`chrome://policy` 会把扩展 ID 标记为 `[BLOCKED]...`，并提示只能自动安装 Chrome Web Store 更新地址 `https://clients2.google.com/service/update2/crx` 的扩展。因此 Windows self-hosted update URL 只适合真正受管理的 Chrome/设备环境。普通个人 Windows 设备应改用 Chrome Web Store 通道，或先完成 Chrome/设备管理 enrollment。
 
 模板：
 
@@ -128,10 +131,12 @@ chrome://extensions
 
 当扩展处于 managed policy activation，且本地没有 `cloud_device_token` 时：
 
-1. 读取 `chrome.storage.managed.managedDeviceToken`。
-2. 写入本地 `cloud_device_token`。
-3. 调用 `/device/config` hydrate `cloud_profile_id`、`cloud_device_id` 和 profile 名称。
-4. 立即执行完整云同步。
+1. 读取 `chrome.storage.managed.managedProfileEmail`；如果已配置，先用 `chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' })` 校验当前 Chrome Profile 邮箱。
+2. 邮箱不匹配、未登录或 identity 为空时，不启用 managed activation，不采用 token，不同步、心跳或计时。
+3. 邮箱匹配后读取 `chrome.storage.managed.managedDeviceToken`。
+4. 写入本地 `cloud_device_token`。
+5. 调用 `/device/config` hydrate `cloud_profile_id`、`cloud_device_id` 和 profile 名称。
+6. 立即执行完整云同步。
 
 如果本地已有 `cloud_device_token`，不会被 policy token 覆盖。需要强制更换 token 时，应先在云端 reset token，再更新目标机器 policy。
 
@@ -148,6 +153,7 @@ chrome://extensions
 - `chrome://policy` 显示 force install policy。
 - `chrome://extensions` 显示 policy 安装，扩展不可被普通用户移除。
 - Popup/Admin 显示 `managed_policy` 或受管终端状态。
+- 如配置 `managedProfileEmail`，目标 Chrome Profile 邮箱匹配时才显示 active；其他 Profile 应显示未激活原因。
 - 本地无 token 时，扩展采用 `managedDeviceToken` 并同步成功。
 - 网站规则、配额、时间段仍来自云端配置，不来自 policy。
 
