@@ -1,5 +1,21 @@
 // bind.js - 设备绑定页面逻辑
 
+let managedDeploymentMarkerPromise = null;
+function readManagedDeploymentMarker() {
+  if (!managedDeploymentMarkerPromise) {
+    try {
+      const markerUrl = chrome.runtime.getURL('deployment-profile.json');
+      managedDeploymentMarkerPromise = fetch(markerUrl)
+        .then((response) => (response.ok ? response.json() : null))
+        .then((marker) => marker?.mode === 'managed')
+        .catch(() => false);
+    } catch (_) {
+      managedDeploymentMarkerPromise = Promise.resolve(false);
+    }
+  }
+  return managedDeploymentMarkerPromise;
+}
+
 // 首次安装时显示欢迎横幅
 if (new URLSearchParams(location.search).get('welcome') === '1') {
   document.getElementById('welcomeBanner').style.display = 'block';
@@ -29,7 +45,9 @@ async function hasPrivacyConsent() {
 
 async function getManagedActivationPolicy() {
   try {
-    if (!chrome.storage?.managed?.get) return null;
+    if (!chrome.storage?.managed?.get) {
+      return (await readManagedDeploymentMarker()) ? { configured: true, active: false, pending: true } : null;
+    }
     const policy = await new Promise((resolve) => {
       chrome.storage.managed.get([
         'enabled',
@@ -65,9 +83,9 @@ async function getManagedActivationPolicy() {
       };
     }
   } catch (_) {
-    return null;
+    return (await readManagedDeploymentMarker()) ? { configured: true, active: false, pending: true } : null;
   }
-  return null;
+  return (await readManagedDeploymentMarker()) ? { configured: true, active: false, pending: true } : null;
 }
 
 async function getCurrentChromeProfileEmail() {
@@ -92,6 +110,7 @@ async function resolveBindActivationState() {
       };
     }
   }
+  if (managed?.pending === true) return { active: false, reason: 'managed_policy_pending', managed };
   if (managed?.active === true) return { active: true, reason: null, managed };
   if (await hasPrivacyConsent()) return { active: true, reason: null, managed };
   return { active: false, reason: 'privacy_consent_required', managed };
@@ -126,6 +145,16 @@ function showManagedProfileMismatch() {
 function showActivationRequired(reason) {
   if (reason === 'managed_profile_email_mismatch') {
     showManagedProfileMismatch();
+    return;
+  }
+  if (reason === 'managed_policy_pending') {
+    const error = document.getElementById('error1');
+    if (error) {
+      error.textContent = '受管策略正在加载，请稍候后重试。';
+      error.classList.add('show');
+    }
+    const btnLogin = document.getElementById('btnLogin');
+    if (btnLogin) btnLogin.disabled = true;
     return;
   }
   showPrivacyConsentRequired();

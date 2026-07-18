@@ -86,6 +86,26 @@
   - `storage-aggregation-convergence 36/36`
 
 ## NOW（P0）
+- [x] [V1-minimal 1.7.12] 修复 managed storage schema、更新链路及受管绑定显示元数据
+  - [x] manifest 声明并打包 `managed-storage-schema.json`，字段与 activation gate / macOS / Windows 模板一致
+  - [x] install/update lifecycle 在 managed Profile 匹配时立即采用 Token、hydrate `/device/config` 并完整同步，不打开手动绑定页
+  - [x] 自动测试、完整回归、CRX schema 入包与签名 ID 门通过；逐文件 unit、API 103/103、duration flow 53/53、E2E 14/14 全绿
+  - [x] 使用真实 Chrome 验证自动升级、`managed_policy` 激活和无人工操作绑定
+  - [x] 原 PEM 已找回，派生 ID 精确匹配 `jdcancbiocacabbjdkngadmjpjmkdnih`；1.7.10 CRX 已构建并记录 SHA256，密钥仍被 Git ignore
+  - [x] Wrangler OAuth 与 `timeonchrome-update` Pages 项目已确认
+  - [x] Cloudflare Pages 生产源已部署 1.7.10；规范 `update.xml`、CRX、`SHA256SUMS.txt` 回读一致，CRX SHA256 为 `1496f68f6d73340ef6c654c114f3796e0cc956d6138c4d08adfb4d7b2f0f15f2`
+  - [x] managed 专项证据：schema 36/36、activation behavior 6/6、activation gate 18/18、managed channel 14/14、plist/shell lint 与 self-hosted staging dry-run 通过
+  - [x] 经 Product Owner 授权，过时 test harness / 静态断言已适配当前依赖和激活门；未为通过测试修改对应产品逻辑
+  - [x] Product Owner 已授权仅修复过时测试 harness / 静态断言，不改变对应产品逻辑
+  - [x] **P0 缺陷已修复：受管自托管扩展未自动更新。** 旧策略下真实 Chrome 正常重启、重新打开 Default Profile 并手动触发更新后仍停留在 1.7.9；加入 `override_update_url: true` 并发布新路径的 1.7.11 后，仅正常重启 Chrome 即自动升级成功。
+  - [x] 自动更新根因确认：`ExtensionSettings.update_url` 默认用于首次安装，后续更新使用扩展 manifest 的 `update_url`；1.7.9 manifest 未声明该字段，且策略未设置 `override_update_url: true`，导致后续更新没有可用来源。
+  - [x] 自动更新修复验收：1.7.11 manifest 声明自托管 `update_url`，macOS/Windows 策略设置 `override_update_url: true`，并使用新的 CRX 文件路径规避同版本 CDN 缓存；已证明无需开发者模式或人工点击“更新”即可从 1.7.9 升级到 1.7.11。
+  - [x] 1.7.11 生产包回读：线上 `update.xml` 指向新 CRX 路径，包内 version/update_url/managed schema 正确，线上与本地 SHA256 均为 `cfdc7385fae90e61866dad5277cca7af212b6bf88df89709b2ea05a05ead9f7c`。
+  - [x] **P0 缺陷已修复：macOS MCX 策略存在但未对当前电脑生效。** 修复前显式查询 `/Computers/local_computer` 可读取六个受管字段，但自动查询当前电脑返回 `no data found`，导致 `chrome.storage.managed` 为空并回退本地模式。
+  - [x] MCX 根因确认：本地计算机记录只有 `ENetAddress`，当前电脑无法被 ManagedClient 自动匹配；显式指定记录可正常合成策略。部署脚本必须写入 `IOPlatformUUID` 对应的 `HardwareUUID`，且不得吞掉 `mcxrefresh`/有效策略查询失败。
+  - [x] MCX 修复验收：补齐 HardwareUUID 后，`mcxquery -user william_xia_cn` 已无需显式 `-computer` 返回 TimeOnChrome 域及 managed/token/profile 字段；真实 Chrome 已确认 Token 自动采用、设备已绑定、恢复正常且云同步健康。
+  - [x] **P0 显示缺陷：受管 Token 绑定后账户/用户为空。** `/device/config` 与扩展持久化已修复并发布 1.7.12；生产接口只读验证账户邮箱、Profile 名称、Profile ID、Device ID 均存在，相关测试 114/114 通过。生产 `update.xml` 与 CRX 回读一致，SHA256 为 `025661e70d93a16ed9c72cc7ed310c3e4033ab33da2a84e0e39bc75862fa4084`；真实 Chrome 管理中心已显示账户 `william.xia.cn@gmail.com` 与用户 `william.xia`，连续失败为 0。
+  - [ ] Chrome UI 自动化限制：真实 Chrome 控制已连接，但安全策略禁止自动访问 `chrome://policy` / `chrome://extensions`；人工触发更新只能用于继续 Token 绑定诊断，不能作为自动更新缺陷的关闭证据。
 - [x] [V1-minimal] Docs-only close-out plan created（`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`）
 - [x] [V1-minimal] Working tree status inventory recorded（`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; ownership not closed）
 - [x] [V1-minimal] Build&Test dirty product/test ownership audit recorded（`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`）

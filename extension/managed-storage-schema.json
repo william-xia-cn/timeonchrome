@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "deploymentMode": {
+      "type": "string"
+    },
+    "cloudEndpoint": {
+      "type": "string"
+    },
+    "managedDeviceToken": {
+      "type": "string"
+    },
+    "managedDeviceLabel": {
+      "type": "string"
+    },
+    "managedProfileEmail": {
+      "type": "string"
+    },
+    "allowIdentityRecovery": {
+      "type": "boolean"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "devicePolicyId": {
+      "type": "string"
+    }
+  }
+}

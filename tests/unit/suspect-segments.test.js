@@ -176,7 +176,7 @@ async function seedSegments(segments, extra = {}) {
 
   const outboxes = await chrome.storage.local.get(['segment_sync_outbox_v1', 'stats_sync_outbox_v1']);
   eq('segment outbox not dirtied', JSON.stringify(outboxes.segment_sync_outbox_v1), JSON.stringify({ dirtySegmentIds: ['existing'], retryCounts: {}, lastErrors: {} }));
-  eq('stats outbox not dirtied', JSON.stringify(outboxes.stats_sync_outbox_v1), JSON.stringify({ dirtyDates: ['2026-05-10'], retryCounts: {}, lastErrors: {} }));
+  eq('stats outbox includes rebuilt date for cloud correction', JSON.stringify(outboxes.stats_sync_outbox_v1), JSON.stringify({ dirtyDates: ['2026-05-10', DAY], retryCounts: {}, lastErrors: {} }));
 
   section('Idempotency and media preservation');
   const second = await usage.markSuspectUsageSegments({ dryRun: false });

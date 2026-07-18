@@ -57,7 +57,7 @@ function run() {
 
   expectTrue('device.ts 应复用 v1.2 matchDomain 实现', deviceSource.includes("import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';"));
   expectTrue('device.ts 中 matchDomain 应委托到 matchDomainV12', /const\s+matchDomain\s*=\s*matchDomainV12\s*;/.test(deviceSource));
-  expectTrue('device.ts quota-state 应读取 effective timeQuota', deviceSource.includes("getEffectiveQuotaForDate(config, dateParam)") && !deviceSource.includes('config.dailyUndeterminedQuota ?? 60)  * 60'));
+  expectTrue('device.ts quota-state 应读取 effective timeQuota', /getEffectiveQuotaForDate\(config,\s*dateParam(?:\s+as\s+any)?\)/.test(deviceSource) && !deviceSource.includes('config.dailyUndeterminedQuota ?? 60)  * 60'));
   expectTrue('device config GET 应返回补齐后的 timeQuota.daily', deviceSource.includes('buildEffectiveTimeQuota(configData)') && deviceSource.includes('configData.timeQuota ='));
 
   // 5 条 V0 断言（父域匹配子域）

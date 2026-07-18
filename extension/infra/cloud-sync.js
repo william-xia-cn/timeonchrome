@@ -243,7 +243,7 @@ async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
 
   logDeviceRecoveryEvent('info', 'managed_device_token_adoption_started', 'Managed device token adoption started', {
     reason,
-    managedDeviceLabel: managedPolicy?.managedDeviceLabel || null,
+    hasManagedDeviceToken: true,
   });
 
   syncState.deviceToken = managedDeviceToken;
@@ -262,6 +262,8 @@ async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
       device_token: managedDeviceToken,
       device_id: deviceId,
       profile_id: profileId,
+      profile_name: result?.profile_name || result?.profileName || null,
+      account_email: result?.account_email || result?.accountEmail || null,
     }, 'managed_device_token');
     await saveRecoveryState({
       status: 'managed_device_token_adopted',
@@ -270,9 +272,8 @@ async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
       lastRecoveredAt: Date.now(),
     });
     logDeviceRecoveryEvent('info', 'managed_device_token_adopted', 'Managed device token adopted successfully', {
-      deviceId,
-      profileId,
-      managedDeviceLabel: managedPolicy?.managedDeviceLabel || null,
+      hasDeviceId: true,
+      hasProfileId: true,
     });
     return { ok: true, recovered: true, source: 'managed_device_token' };
   } catch (error) {
@@ -979,6 +980,9 @@ async function persistRecoveredBinding(payload, source = 'device_recovery') {
     throw new Error('Recovered binding is missing device token or profile id');
   }
   if (payload.profile_name || payload.profileName) updates.cloud_profile_name = payload.profile_name || payload.profileName;
+  if (payload.account_email || payload.accountEmail) {
+    updates[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL] = String(payload.account_email || payload.accountEmail).trim().toLowerCase();
+  }
   await chrome.storage.local.set(updates);
   syncState.deviceToken = updates[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
   syncState.deviceId = updates[CLOUD_CONFIG.KEYS.DEVICE_ID];
@@ -1261,6 +1265,10 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     const syncMetadata = { [CLOUD_CONFIG.KEYS.MONITORING_ENABLED]: monitoringEnabled };
     if (maybeProfileId) syncMetadata[CLOUD_CONFIG.KEYS.PROFILE_ID] = maybeProfileId;
     if (maybeDeviceId) syncMetadata[CLOUD_CONFIG.KEYS.DEVICE_ID] = maybeDeviceId;
+    if (result.profile_name || result.profileName) syncMetadata.cloud_profile_name = result.profile_name || result.profileName;
+    if (result.account_email || result.accountEmail) {
+      syncMetadata[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL] = String(result.account_email || result.accountEmail).trim().toLowerCase();
+    }
     await chrome.storage.local.set(syncMetadata);
     syncState.monitoringEnabled = monitoringEnabled;
     if (maybeProfileId) syncState.profileId = maybeProfileId;

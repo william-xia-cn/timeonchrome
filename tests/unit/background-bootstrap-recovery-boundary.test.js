@@ -33,7 +33,9 @@ const onInstalledBody = onInstalledIndex >= 0 && nextSectionIndex > onInstalledI
 check('module bootstrap initializes session', /await initSession\(\)/.test(bootstrapBody));
 check('module bootstrap hydrates cloud sync state without waiting for alarm', /await hydrateCloudSyncStateFromStorage\(\)/.test(bootstrapBody));
 check('module bootstrap does not call recover', !/recover\(\)/.test(bootstrapBody));
-check('module bootstrap primes foreground timing from current active tab', /function bootstrapActiveTabTiming/.test(source) && /ensureBootstrapped\('module-load'\)[\s\S]{0,120}\.then\(\(\) => bootstrapActiveTabTiming\('bootstrap_active_tab'\)\)/.test(source));
+check('module bootstrap primes foreground timing from current active tab after activation',
+  /function bootstrapActiveTabTiming/.test(source) &&
+  /ensureBootstrapped\('module-load'\)[\s\S]{0,320}if \(!activation\.activated\)[\s\S]{0,180}bootstrapActiveTabTiming\('bootstrap_active_tab'\)/.test(source));
 check('active tab timing bootstrap only uses http tabs and dispatcher', /parsed\.protocol !== 'http:'[\s\S]{0,80}parsed\.protocol !== 'https:'/.test(source) && /dispatchTimingSignal\(\{[\s\S]*_reason: reason/.test(source));
 check('runtime messages wait for bootstrap before routing', /ensureBootstrapped\('runtimeMessage'\)[\s\S]{0,120}\.then\(\(\) => handleMessage\(msg, sender\)\)/.test(source));
 check('runtime message failures are logged without blocking response', source.includes('runtime_message_failed') && source.includes('logClientEventBestEffort'));
@@ -56,7 +58,11 @@ check('popup slow snapshot emits client log warning', source.includes('popup_loc
 check('onStartup calls recover', /await recover\(\)/.test(onStartupBody));
 check('onInstalled calls recover', /await recover\(\)/.test(onInstalledBody));
 check('cloud sync exposes storage hydration helper', /export async function hydrateCloudSyncStateFromStorage\(\)/.test(cloudSyncSource));
-check('initCloudSync reuses storage hydration helper', /export async function initCloudSync\(syncNowFn\) \{\s*await hydrateCloudSyncStateFromStorage\(\);/.test(cloudSyncSource));
+const initCloudSyncBody = cloudSyncSource.match(/export async function initCloudSync\(syncNowFn\) \{([\s\S]*?)\n\}/)?.[1] || '';
+check('initCloudSync checks activation before reusing storage hydration helper',
+  /await requireRuntimeActivation\(\)/.test(initCloudSyncBody) &&
+  /await hydrateCloudSyncStateFromStorage\(\)/.test(initCloudSyncBody) &&
+  initCloudSyncBody.indexOf('requireRuntimeActivation()') < initCloudSyncBody.indexOf('hydrateCloudSyncStateFromStorage()'));
 check('heartbeat alarm is not created', !/chrome\.alarms\.create\('heartbeat'/.test(source));
 check('heartbeat alarm handler is removed', !/alarm\.name === 'heartbeat'/.test(source));
 check('foreground stabilization window is removed', !/FOREGROUND_STABILIZATION_MS|pendingForegroundBoundary|pendingForegroundTimer|foreground_boundary_pending/.test(source));

@@ -310,7 +310,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
     try {
       const activation = await refreshPrivacyConsentCache();
-      if (activation.activationMode !== 'managed_policy') {
+      if (activation.privacyConsentRequired === true) {
         await openPrivacyConsentPage('onInstalled', 'bind.html?welcome=1');
       }
     } catch (err) {
@@ -372,7 +372,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     const activation = await refreshPrivacyConsentCache();
     if (activation.activated) {
       await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onInstalled_cloud_sync'));
-    } else if (details.reason === 'update' && activation.privacyConsentRequired) {
+    } else if (details.reason === 'update' && activation.privacyConsentRequired === true) {
       await openPrivacyConsentPage('onUpdated', 'admin/admin.html?view=system-management');
     }
   } catch (err) {

@@ -52,6 +52,7 @@ function run() {
   expectTrue('worker does not block unique candidates only because they are recently active', !device.includes('recentlyActive') && !device.includes('Candidate device is recently active'));
   expectTrue('worker marks matching pending recovery requests recovered after auto recovery', device.includes('markPendingRecoveryRequestsRecovered') && device.includes("status = 'recovered'") && device.includes("status = 'pending'") && device.includes('candidate_device_id = ?'));
   expectTrue('worker returns recovery states', device.includes("status: 'RECOVERED'") && device.includes('PENDING_CLOUD_CONFIRMATION') && device.includes('NO_CANDIDATE'));
+  expectTrue('device config returns account and profile display metadata', device.includes('p.name AS profile_name') && device.includes('a.email AS account_email') && device.includes('profile_name:       row?.profile_name') && device.includes('account_email:      row?.account_email'));
   expectTrue('worker keeps unbound devices unrecoverable', device.includes("COALESCE(d.status, 'bound') = 'bound'") && device.includes('deviceUnboundResponse'));
   expectTrue('worker stores only poll token hash for pending requests', device.includes('pollTokenHash') && device.includes('poll_token_hash') && !device.includes('recoveryPollToken,'));
   expectTrue('worker records auto recovery as recovery history', device.includes('recordRecoveredDeviceRequest') && device.includes("status, result_device_id") && device.includes('Auto recovered unique device candidate'));
@@ -63,6 +64,7 @@ function run() {
   expectTrue('device audit classifies recovery endpoints', audit.includes("return 'identity_link'") && audit.includes("return 'device_recovery'"));
 
   expectTrue('cloud sync persists recovery binding on RECOVERED', cloudSync.includes('persistRecoveredBinding') && cloudSync.includes('/device/recover/bootstrap') && cloudSync.includes('/device/recover/status'));
+  expectTrue('managed token adoption persists account and profile display metadata', cloudSync.includes('account_email: result?.account_email') && cloudSync.includes('updates[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL]') && cloudSync.includes('syncMetadata.cloud_profile_name'));
   expectTrue('cloud sync saves pending recovery state', cloudSync.includes('cloud_device_recovery_request_id') && cloudSync.includes('cloud_device_recovery_poll_token') && cloudSync.includes('pending_cloud_confirmation'));
   expectTrue('cloud sync polls pending recovery instead of bootstrapping a duplicate request', cloudSync.includes('hasPendingRecoveryRequest') && cloudSync.indexOf('if (hasPendingRecoveryRequest)') < cloudSync.indexOf("cloudAnonymousRequest('POST', '/device/recover/bootstrap'"));
   expectTrue('cloud sync keeps pending recovery on poll failure', cloudSync.includes("pending: true, reason: 'recovery_poll_failed'") && cloudSync.includes('status: \'pending_cloud_confirmation\''));

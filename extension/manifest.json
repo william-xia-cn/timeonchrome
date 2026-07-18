@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "TimeOnChrome",
-  "version": "1.7.9",
+  "version": "1.7.13",
   "description": "上网时间管理助手 - 学习模式、时长统计、智能提醒",
+  "update_url": "https://timeonchrome-update.pages.dev/timeonchrome/update.xml",
   "incognito": "split",
 
   "permissions": [
@@ -16,6 +17,10 @@
     "identity",
     "identity.email"
   ],
+
+  "storage": {
+    "managed_schema": "managed-storage-schema.json"
+  },
 
   "host_permissions": ["<all_urls>"],
 

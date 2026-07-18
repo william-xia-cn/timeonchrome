@@ -11,7 +11,7 @@ Windows Registry Editor Version 5.00
 
 ; Force install from the self-hosted update.xml. This is install-only.
 [HKEY_CURRENT_USER\Software\Policies\Google\Chrome]
-"ExtensionSettings"="{\"jdcancbiocacabbjdkngadmjpjmkdnih\":{\"installation_mode\":\"force_installed\",\"toolbar_pin\":\"force_pinned\",\"update_url\":\"https://timeonchrome-update.pages.dev/timeonchrome/update.xml\"}}"
+"ExtensionSettings"="{\"jdcancbiocacabbjdkngadmjpjmkdnih\":{\"installation_mode\":\"force_installed\",\"toolbar_pin\":\"force_pinned\",\"update_url\":\"https://timeonchrome-update.pages.dev/timeonchrome/update.xml\",\"override_update_url\":true}}"
 
 ; Explicitly remove managed storage so this test does not activate managed_policy.
 [-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih]

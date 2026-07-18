@@ -22,7 +22,8 @@ function run() {
   const interceptor = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'interceptor.js'), 'utf8');
 
   // 背景链路：monitoring_enabled=0 时短路 periodicCheckpoint/quota_check。
-  expectTrue('background: periodicCheckpoint 分支应有 monitoring guard', /if \(alarm\.name === 'periodicCheckpoint'\) \{\s*if \(!isMonitoringEnabled\(\)\) return;/s.test(bg));
+  expectTrue('background: periodicCheckpoint 分支应有 monitoring guard',
+    /if \(alarm\.name === 'periodicCheckpoint'\) \{\s*if \(!isMonitoringEnabled\(\)\) \{[\s\S]{0,220}runTimingCheckpoints\([\s\S]{0,180}return;/.test(bg));
   expectTrue('background: quota_check 分支应有 monitoring guard', /alarm\.name === 'quota_check'\) \{\s*if \(!isMonitoringEnabled\(\)\) return;/s.test(bg));
   expectTrue('background: quota_check should enter message path', /EVALUATE_QUOTA_STATE/.test(bg) && !/checkAllTabsQuota/.test(bg));
   expectTrue('background: legacy checkAutoStudy should be removed', !/checkAutoStudy|auto_study_legacy/.test(bg));

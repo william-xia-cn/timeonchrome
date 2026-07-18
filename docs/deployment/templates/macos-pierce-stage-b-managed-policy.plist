@@ -39,6 +39,20 @@
       <key>value</key>
       <string>Pierce MacBook Chrome</string>
     </dict>
+    <key>managedProfileEmail</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>pierce.xia@icloud.com</string>
+    </dict>
+    <key>allowIdentityRecovery</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <false/>
+    </dict>
   </dict>
 </dict>
 </plist>

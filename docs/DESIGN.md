@@ -1,7 +1,7 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.7.2
-更新：2026-05-20
+版本：1.7.12
+更新：2026-07-19
 
 ---
 
@@ -747,7 +747,17 @@ Extension-side storage follows the same split:
 - `account_token` / `account_refresh_token` / `cloud_account_email`: parent/admin account session.
 - `cloud_credentials`: legacy migration-only field; new writes must set it to `null`.
 
-### 4.1 模式切换页面内提示生命周期
+### 4.1 受管激活与 Device Token 自动绑定
+
+- `extension/manifest.json` 必须通过 `storage.managed_schema` 指向随包发布的 `managed-storage-schema.json`；没有该声明时，Chrome 不会把 OS 企业策略发布到 `chrome.storage.managed`。
+- 自托管扩展的 manifest 必须声明生产 `update_url`。`ExtensionSettings.update_url` 默认只负责首次安装，后续更新使用 manifest 的 URL；部署策略同时设置 `override_update_url: true`，以便仍未声明 manifest URL 的旧版本也能从策略 URL 升级。
+- macOS MCX 的 `/Computers/local_computer` 记录必须同时写入当前 `IOPlatformUUID` 作为 `HardwareUUID`；仅写 `ENetAddress` 在部分 macOS 机器上不能让 ManagedClient 自动匹配当前电脑。导入后必须运行 `mcxrefresh -n <user>`，并以不带显式 `-computer` 的 `mcxquery -user <user>` 验证扩展策略域实际生效。
+- schema 与 `core/activation-gate.js` 共用同一字段集合：`enabled`、`deploymentMode`、`cloudEndpoint`、`managedDeviceToken`、`managedDeviceLabel`、`managedProfileEmail`、`allowIdentityRecovery`，以及只用于旧模板兼容的 `tenantId/devicePolicyId`。
+- `managedProfileEmail` 是强 Profile gate；不匹配时不得采用 Token，也不得回退到用户同意激活。匹配且 policy 有效时，managed activation 优先于用户同意路径。
+- 首次安装和版本升级都必须在 lifecycle 内重新读取 policy。若本地没有 `cloud_device_token`，扩展采用 `managedDeviceToken`，调用 `/device/config` hydrate `profile_id/device_id`，随后执行完整同步；已有本地 Token 时不覆盖。
+- Token adoption 日志不得包含 Token、完整邮箱、device ID 或 profile ID，只允许保存结果状态、HTTP 状态、错误码、触发原因和扩展版本。
+
+### 4.2 模式切换页面内提示生命周期
 
 - 模式切换、配额路由、Reminder、页内提示和 mode boundary 的唯一产品口径维护在 `docs/MODE_QUOTA_ROUTING_MATRIX_V0.md`；`docs/MODE_TRANSITION_UX_V0.md` 已停用，不再作为 source of truth。
 - `product/mode-service.js` 是唯一 mode owner：读取 `guardian_session.currentMode`，提交 `currentModeStartedAtMs`，维护 `restExitGraceUntilMs`，并写入 `mode_boundary` intent。`product/interceptor.js` 只负责访问事件适配和执行 redirect/notice。
@@ -769,7 +779,8 @@ Extension-side storage follows the same split:
 ```
 timeonchrome/
 ├── extension/                 Chrome 扩展源码根；开发时在 chrome://extensions 直接加载此目录
-│   ├── manifest.json          MV3 扩展清单，版本 1.7.3, "type": "module" (Chrome 95+), "incognito": "split"
+│   ├── manifest.json          MV3 扩展清单，版本 1.7.12, "type": "module" (Chrome 95+), "incognito": "split"
+│   ├── managed-storage-schema.json  Chrome managed storage 策略字段 schema
 │   ├── background.js          Service Worker 入口（Chrome listener wiring）
 │   ├── message-router.js      消息路由（20+ case 拆分）
 │   ├── content.js             注入每个页面：活动信号、媒体检测、覆盖层

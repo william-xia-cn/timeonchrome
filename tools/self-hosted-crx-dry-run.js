@@ -89,9 +89,37 @@ function validateExtensionPackageRoot(extensionDir) {
   if (banned.length > 0) {
     throw new Error(`staged extension package contains banned entries: ${banned.join(', ')}`);
   }
+  const manifest = readJson(path.join(extensionDir, 'manifest.json'));
+  if (manifest.update_url !== 'https://timeonchrome-update.pages.dev/timeonchrome/update.xml') {
+    throw new Error('manifest update_url must reference the production self-hosted update manifest');
+  }
+  const schemaName = manifest?.storage?.managed_schema;
+  if (schemaName !== 'managed-storage-schema.json') {
+    throw new Error('manifest storage.managed_schema must reference managed-storage-schema.json');
+  }
+  const schemaPath = path.join(extensionDir, schemaName);
+  if (!fs.existsSync(schemaPath)) throw new Error('managed storage schema is missing from extension package');
+  const schema = readJson(schemaPath);
+  const expectedTypes = {
+    enabled: 'boolean',
+    deploymentMode: 'string',
+    cloudEndpoint: 'string',
+    managedDeviceToken: 'string',
+    managedDeviceLabel: 'string',
+    managedProfileEmail: 'string',
+    allowIdentityRecovery: 'boolean',
+    tenantId: 'string',
+    devicePolicyId: 'string',
+  };
+  if (schema.type !== 'object') throw new Error('managed storage schema top-level type must be object');
+  for (const [key, type] of Object.entries(expectedTypes)) {
+    if (schema.properties?.[key]?.type !== type) {
+      throw new Error(`managed storage schema field ${key} must have type ${type}`);
+    }
+  }
 }
 
-function stageExtensionPackage(extensionDir, stagingDir) {
+function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = false) {
   fs.rmSync(stagingDir, { recursive: true, force: true });
   ensureDir(stagingDir);
   for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
@@ -99,6 +127,9 @@ function stageExtensionPackage(extensionDir, stagingDir) {
     const source = path.join(extensionDir, entry.name);
     const target = path.join(stagingDir, entry.name);
     fs.cpSync(source, target, { recursive: true, force: true });
+  }
+  if (managedDeployment) {
+    fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: 'managed' }, null, 2) + '\n', 'utf8');
   }
   validateExtensionPackageRoot(stagingDir);
 }
@@ -191,6 +222,7 @@ function main() {
     : (args['prepare-host'] ? path.resolve(repoRoot, 'dist', 'self-hosted-update') : null);
   const keyPathRaw = args.key || process.env.TIMEONCHROME_CRX_KEY_PATH || '';
   const pack = args.pack === true;
+  const managedDeployment = args['managed-deployment'] === true || args['managed-deployment'] === 'true';
   const keyPath = pack ? validateExternalKey(repoRoot, keyPathRaw) : (keyPathRaw ? validateExternalKey(repoRoot, keyPathRaw) : null);
   const derivedExtensionId = keyPath ? chromeIdFromPem(keyPath) : null;
   const extensionId = args['extension-id'] || process.env.TIMEONCHROME_MANAGED_EXTENSION_ID || derivedExtensionId || 'REPLACE_WITH_STABLE_EXTENSION_ID';
@@ -208,7 +240,7 @@ function main() {
   }
   if (!/^https:\/\//i.test(baseUrl)) throw new Error('base-url must be HTTPS for production policy use');
 
-  stageExtensionPackage(extensionDir, packageDir);
+  stageExtensionPackage(extensionDir, packageDir, managedDeployment);
 
   if (pack) {
     const chromePath = findChromeExecutable(args.chrome || process.env.CHROME_EXE || '');

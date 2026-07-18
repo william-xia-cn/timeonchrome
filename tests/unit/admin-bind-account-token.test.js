@@ -199,6 +199,10 @@ function runBindFunction(functionName, options = {}) {
     },
     fetch: options.fetch,
     accountFetch: options.fetch,
+    getChromeIdentityPayload: async () => ({}),
+    getClientPlatform: () => 'macos',
+    resolveBindActivationState: async () => ({ active: true, reason: null, managed: null }),
+    showActivationRequired: (reason) => calls.push(['showActivationRequired', reason]),
     setTimeout: () => 0,
     showStep: (step) => {
       calls.push(['showStep', step]);

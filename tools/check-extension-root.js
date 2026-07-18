@@ -9,6 +9,7 @@ const extensionRoot = path.join(root, 'extension');
 
 const requiredFiles = [
   'manifest.json',
+  'managed-storage-schema.json',
   'background.js',
   'content.js',
   'content.css',
@@ -68,6 +69,12 @@ else {
   else {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     if (manifest.manifest_version !== 3) fail('manifest_version is not 3');
+    if (manifest.storage?.managed_schema !== 'managed-storage-schema.json') {
+      fail('manifest does not declare storage.managed_schema');
+    }
+    if (manifest.update_url !== 'https://timeonchrome-update.pages.dev/timeonchrome/update.xml') {
+      fail('manifest does not declare the production self-hosted update_url');
+    }
   }
 
   for (const rel of requiredFiles) {

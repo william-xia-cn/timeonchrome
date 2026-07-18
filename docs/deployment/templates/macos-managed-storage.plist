@@ -12,6 +12,10 @@
     <string>&lt;MANAGED_DEVICE_TOKEN_FROM_CLOUD&gt;</string>
     <key>managedDeviceLabel</key>
     <string>Pierce MacBook Chrome</string>
+    <key>managedProfileEmail</key>
+    <string>pierce.xia@icloud.com</string>
+    <key>allowIdentityRecovery</key>
+    <false/>
     <key>cloudEndpoint</key>
     <string>https://guardian-api.william-xia-cn.workers.dev</string>
   </dict>

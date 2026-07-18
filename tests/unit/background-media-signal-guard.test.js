@@ -26,7 +26,7 @@ function check(name, condition) {
 
 const guardIndex = mediaSource.indexOf('function isMediaOnlyTimingSignal');
 const dispatcherMediaSkipIndex = dispatcherSource.indexOf("reason: 'media_signal_foreground_unchanged'");
-const dispatcherForegroundIndex = dispatcherSource.indexOf('processForegroundSignal(rawEvent');
+const dispatcherForegroundIndex = dispatcherSource.indexOf('processForegroundSignal(auditedEvent');
 
 check('media-only timing guard exists', guardIndex >= 0);
 check('guard explicitly treats tabAudible as media-only', /reason === 'tabAudible'/.test(mediaSource));
@@ -36,7 +36,8 @@ check('media-only skip happens in dispatcher before foreground processing', disp
 check('media-only skip uses diagnostic result', /media_signal_foreground_unchanged/.test(dispatcherSource));
 check('foreground module keeps only unified legacy media query helper, not media ledger mutators', /queryForegroundMediaForOpenSession/.test(foregroundSource) && !/applyMediaFacts|closeMediaForTab|media_segments_v1/.test(foregroundSource));
 check('dispatcher observes media before optional foreground processing', dispatcherSource.lastIndexOf('observeMediaFromSignal') < dispatcherSource.lastIndexOf('processForegroundSignal'));
-check('background delegates normalized signals to dispatcher', /initSignal\(\(rawEvent\) => dispatchTimingSignal/.test(backgroundSource));
+check('background delegates normalized signals to dispatcher',
+  /initSignal\(\(rawEvent\) => \{[\s\S]{0,160}dispatchTimingSignal\(rawEvent/.test(backgroundSource));
 
 if (failed) {
   console.error(`\n${failed} failed, ${passed} passed`);

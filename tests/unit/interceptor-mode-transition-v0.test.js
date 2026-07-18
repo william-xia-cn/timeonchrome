@@ -61,7 +61,10 @@ function loadEffects(stubs = {}) {
       runtime: { getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}` },
       tabs: {
         get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
-        sendMessage: async (tabId, payload) => { sentMessages.push({ tabId, payload }); return true; },
+        sendMessage: async (tabId, payload) => {
+          sentMessages.push({ tabId, payload });
+          return { ok: true, handled: true, rendered: true, visible: true };
+        },
         update: async (tabId, payload) => { tabUpdates.push({ tabId, payload }); },
       },
       notifications: { create: () => {} },
@@ -187,6 +190,7 @@ this.__exports = {
       persistConfigMode: false,
       setRestExitGrace: false,
       clearRestExitGrace: false,
+      auditId: null,
       config: { mode: 'study', quotaState: {}, blockMessage: '' },
       session: { currentMode: 'study', currentModeStartedAtMs: 1000 },
       drainModeBoundary: commits[0].drainModeBoundary,
@@ -202,7 +206,7 @@ this.__exports = {
       noticeAttempted: true,
       noticeSent: true,
       noticeRendered: true,
-      noticeAck: true,
+      noticeAck: { ok: true, handled: true, rendered: true, visible: true },
       noticeError: null,
     });
     expect('notice sent to tab', effects.sentMessages.map((m) => ({ tabId: m.tabId, type: m.payload.type, text: m.payload.noticeText })), [
@@ -267,24 +271,7 @@ this.__exports = {
 
   section('IMT-3 rendered success notice is one-shot and not replayed after ready');
   {
-    const effects = loadEffects();
-    const queued = await effects.sendModeSwitchSuccessNotice(11, 'study', 'composite', {
-      domain: 'example.com',
-      noticeText: '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
-      displayDuration: 4000,
-    });
-    expectTrue('notice queued before content ready', queued === false);
-    effects.markContentScriptReady(11, 'example.com');
-    const resent = await effects.reSendPendingNotice(11, 'example.com');
-    expectTrue('resent notice', resent === true);
-    expect('one success send after ready', effects.sentMessages.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 1);
-    const replayed = await effects.reSendPendingNotice(11, 'example.com');
-    expectTrue('rendered notice is cleared and cannot replay', replayed === false);
-    expect('still only one success send', effects.sentMessages.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 1);
-  }
-
-  section('IMT-4 missing content listener queues pending notice until foreground recovery');
-  {
+    let listenerReady = false;
     const sent = [];
     const effects = loadEffects({
       chrome: {
@@ -292,6 +279,52 @@ this.__exports = {
         tabs: {
           get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
           sendMessage: async (tabId, payload) => {
+            if (!listenerReady) throw new Error('Could not establish connection. Receiving end does not exist.');
+            sent.push({ tabId, payload });
+            return { ok: true, handled: true, rendered: true, visible: true };
+          },
+          update: async () => {},
+        },
+        notifications: { create: () => {} },
+        declarativeNetRequest: {
+          getDynamicRules: async () => [],
+          updateDynamicRules: async () => {},
+        },
+        storage: {
+          local: {
+            get: async () => ({}),
+            set: async () => {},
+          },
+        },
+      },
+    });
+    const queued = await effects.sendModeSwitchSuccessNotice(11, 'study', 'composite', {
+      domain: 'example.com',
+      noticeText: '你正在打开学习网站 · 即将进入学习模式 · 今日剩余 不限',
+      displayDuration: 4000,
+    });
+    expectTrue('notice queued before content ready', queued === false);
+    listenerReady = true;
+    effects.markContentScriptReady(11, 'example.com');
+    const resent = await effects.reSendPendingNotice(11, 'example.com');
+    expectTrue('resent notice', resent === true);
+    expect('one success send after ready', sent.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 1);
+    const replayed = await effects.reSendPendingNotice(11, 'example.com');
+    expectTrue('rendered notice is cleared and cannot replay', replayed === false);
+    expect('still only one success send', sent.filter((m) => m.payload.type === 'AUTO_MODE_PENDING_SUCCESS').length, 1);
+  }
+
+  section('IMT-4 missing content listener queues pending notice until foreground recovery');
+  {
+    let listenerReady = false;
+    const sent = [];
+    const effects = loadEffects({
+      chrome: {
+        runtime: { getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}` },
+        tabs: {
+          get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
+          sendMessage: async (tabId, payload) => {
+            if (!listenerReady) throw new Error('Could not establish connection. Receiving end does not exist.');
             sent.push({ tabId, payload });
             return { ok: true, handled: true, rendered: true, visible: true };
           },
@@ -316,6 +349,7 @@ this.__exports = {
     });
     expectTrue('notice deferred before content ready', result === false);
     expectTrue('no send before content ready', sent.length === 0);
+    listenerReady = true;
     const delivery = await effects.deliverPendingNoticeForFocusedTab(31, 'tabActivated');
     expectTrue('notice succeeds on foreground recovery', delivery.ok === true && delivery.source === 'tabActivated');
     expectTrue('sent once after foreground recovery', sent.length === 1);

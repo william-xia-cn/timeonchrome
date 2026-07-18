@@ -129,6 +129,7 @@ $extensionSettings = @{
     installation_mode = 'force_installed'
     toolbar_pin = 'force_pinned'
     update_url = $policy.updateUrl
+    override_update_url = $true
   }
 } | ConvertTo-Json -Compress -Depth 6
 

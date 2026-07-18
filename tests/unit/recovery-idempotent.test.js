@@ -72,8 +72,15 @@ const timeBoundaryApi = loadProdModule('runtime/time-boundary.js', [
 const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSession', 'getSessionWithPersistenceSource', 'saveSession', 'transitionState', 'runSessionCommit'], {
   appendEvent: eventApi.appendEvent,
   EVENT_TYPE: eventApi.EVENT_TYPE,
+  emitTimingInbound: async () => {}, // no-op for unit tests
   emitTrace: async () => {}, // no-op for unit tests
   getReliableCloseTime: timeBoundaryApi.getReliableCloseTime,
+  isCountedState: (state) => ['ACTIVE', 'BACKGROUND_ACTIVE', 'PIP_ACTIVE'].includes(state),
+  settleUsageDuration: async () => 1,
+  logClientEventBestEffort: () => {},
+  logFallbackEventBestEffort: () => {},
+  managedTargets: {},
+  sanitizeIncognitoForPersistence: (value) => value,
 });
 const recoverySettlements = [];
 const recoveryApi = loadProdModule('runtime/recovery.js', ['recover'], {

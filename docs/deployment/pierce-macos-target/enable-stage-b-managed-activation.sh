@@ -1,8 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-MCX_FILE="/tmp/timeonchrome-pierce-stage-b-managed-policy.plist"
+MCX_FILE="$(mktemp /tmp/timeonchrome-pierce-stage-b-managed-policy.XXXXXX)"
 COMPUTER_RECORD="/Computers/local_computer"
+trap 'rm -f "$MCX_FILE"' EXIT
+chmod 600 "$MCX_FILE"
+
+HARDWARE_UUID="$(ioreg -rd1 -c IOPlatformExpertDevice | awk -F'\"' '/IOPlatformUUID/ { print $(NF-1); exit }')"
+if [ -z "$HARDWARE_UUID" ]; then
+  echo "Unable to resolve the current Mac Hardware UUID"
+  exit 1
+fi
 
 echo "[TimeOnChrome] Enabling Stage B: managed activation"
 
@@ -19,11 +27,12 @@ if ! dscl /Local/Default -read "$COMPUTER_RECORD" >/dev/null 2>&1; then
     dscl /Local/Default -create "$COMPUTER_RECORD" ENetAddress "$ETHER"
   fi
 fi
+dscl /Local/Default -create "$COMPUTER_RECORD" HardwareUUID "$HARDWARE_UUID"
 
 read -rsp "Paste managedDeviceToken from TimeOnChrome cloud console: " MANAGED_DEVICE_TOKEN
 echo
-if [ -z "$MANAGED_DEVICE_TOKEN" ]; then
-  echo "managedDeviceToken is required"
+if [[ ! "$MANAGED_DEVICE_TOKEN" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+  echo "managedDeviceToken must be a 64-character hexadecimal token"
   exit 1
 fi
 
@@ -69,13 +78,28 @@ cat > "$MCX_FILE" <<EOF
       <key>value</key>
       <string>Pierce MacBook Chrome</string>
     </dict>
+    <key>managedProfileEmail</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <string>pierce.xia@icloud.com</string>
+    </dict>
+    <key>allowIdentityRecovery</key>
+    <dict>
+      <key>state</key>
+      <string>always</string>
+      <key>value</key>
+      <false/>
+    </dict>
   </dict>
 </dict>
 </plist>
 EOF
 plutil -lint "$MCX_FILE"
 dscl /Local/Default -mcximport "$COMPUTER_RECORD" "$MCX_FILE"
-mcxrefresh -n "$(id -un)" 2>/dev/null || true
+mcxrefresh -n "$(id -un)"
 killall cfprefsd >/dev/null 2>&1 || true
+mcxquery -user "$(id -un)" -format space | grep -Fq "com.google.Chrome.extensions.jdcancbiocacabbjdkngadmjpjmkdnih"
 
 echo "[TimeOnChrome] Stage B imported. Restart Chrome and check Popup/Admin activationMode."

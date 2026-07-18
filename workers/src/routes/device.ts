@@ -335,8 +335,16 @@ export const deviceRouter = {
         const profileId = deviceIdentity.profileId;
 
         const row = await env.DB.prepare(
-          `SELECT config, version FROM profiles WHERE id = ?`
-        ).bind(profileId).first<{ config: string; version: number }>();
+          `SELECT p.config, p.version, p.name AS profile_name, a.email AS account_email
+           FROM profiles p
+           JOIN accounts a ON a.id = p.account_id
+           WHERE p.id = ?`
+        ).bind(profileId).first<{
+          config: string;
+          version: number;
+          profile_name: string;
+          account_email: string;
+        }>();
 
         // Fetch monitoring_enabled (column added in migration 002; default 1 if not present)
         let monitoringEnabled = 1;
@@ -374,6 +382,8 @@ export const deviceRouter = {
           version:            row?.version || 0,
           profile_id:         profileId,
           device_id:          deviceIdentity.deviceId,
+          profile_name:       row?.profile_name || null,
+          account_email:      row?.account_email || null,
           monitoring_enabled: monitoringEnabled,
         });
       } catch (e: any) {

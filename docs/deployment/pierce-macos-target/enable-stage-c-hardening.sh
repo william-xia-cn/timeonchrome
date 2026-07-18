@@ -26,6 +26,8 @@ cat > "$POLICY_SRC" <<'EOF'
       <string>force_pinned</string>
       <key>update_url</key>
       <string>https://timeonchrome-update.pages.dev/timeonchrome/update.xml</string>
+      <key>override_update_url</key>
+      <true/>
     </dict>
   </dict>
 

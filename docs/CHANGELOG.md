@@ -6,6 +6,36 @@
 
 ---
 
+## [1.7.13] — 2026-07-19
+
+- **受管部署免人工同意**：私有受管 CRX 携带部署标记；首次安装或更新时若 managed policy 尚未就绪，扩展保持暂停并重试，不再进入普通用户的隐私同意或手动绑定页面。
+- **受管 Token 自动恢复**：读取到匹配目标 Chrome Profile 的 managed policy 后，自动采用 Device Token、刷新 `/device/config` 绑定信息并启动完整同步；普通非受管构建继续保留原有同意流程。
+- **部署与更新校验同步升级**：manifest、managed schema、部署模板和自托管打包校验统一到 1.7.13，并保持原扩展 ID 与生产更新地址不变。
+
+---
+
+## [1.7.12] — 2026-07-19
+
+- **修复受管绑定账户信息为空**：`/device/config` 随 Device Token 配置返回所属账户邮箱与 Profile 名称；扩展在首次采用 Token 及后续配置同步时持久化显示元数据，使管理中心的“账户/用户”与实际云端绑定一致。
+
+---
+
+## [1.7.11] — 2026-07-18
+
+- **修复自托管后续更新链路**：manifest 声明生产 `update_url`，部署策略设置 `override_update_url: true`，使缺少 manifest 更新地址的 1.7.9 也能通过受管策略升级。
+- **使用新版本与新 CRX 路径发布**：避免同版本、同路径覆盖产生的 CDN 旧 CRX 缓存，确保 Chrome 获取包含 managed schema 与更新地址的实际新包。
+- **修复 macOS MCX 计算机匹配**：本地计算机记录补齐 Hardware UUID，导入后强制刷新并验证当前用户的有效策略，避免 MCX 数据存在但 `chrome.storage.managed` 仍为空。
+
+---
+
+## [1.7.10] — 2026-07-18
+
+- **修复受管 Token 自动绑定**：扩展 manifest 声明 `storage.managed_schema` 并随包携带严格的 managed storage JSON Schema，使 Chrome 能向扩展发布 `managedDeviceToken`、`cloudEndpoint`、`managedProfileEmail` 等受管字段。
+- **更新后立即采用受管 Token**：安装或升级完成后重新解析受管激活状态；目标 Profile 匹配时立即通过 `/device/config` hydrate 绑定并触发完整同步，不打开手动绑定欢迎页。
+- **发布与验收加固**：自托管 CRX 打包门检查 schema 入包、manifest/schema/策略字段一致性和原签名私钥派生 ID；真实验收日志只记录布尔状态、版本、HTTP 状态与错误码。
+
+---
+
 ## [1.7.9] — 2026-07-09
 
 - **Managed DeviceToken 统一绑定**：内部受管部署通道收敛为 `Device + DeviceToken` 模型。受管 policy 使用 `managedDeviceToken + cloudEndpoint` 激活终端；legacy `tenantId/devicePolicyId` 仅作为旧模板兼容 fallback。

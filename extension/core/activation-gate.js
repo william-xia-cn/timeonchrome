@@ -1,4 +1,5 @@
 import { getPrivacyConsent, hasPrivacyConsent } from './privacy-consent.js';
+import { readManagedDeploymentMarker } from './deployment-mode.js';
 
 export const ACTIVATION_MODE_DISABLED = 'disabled';
 export const ACTIVATION_MODE_USER_CONSENT = 'user_consent';
@@ -191,9 +192,10 @@ function buildManagedPolicyStatus(managed, managedRead, profileGate = null) {
 }
 
 export async function resolveActivationState() {
-  const [managedRead, privacyConsent] = await Promise.all([
+  const [managedRead, privacyConsent, managedDeployment] = await Promise.all([
     readManagedActivationPolicy(),
     getPrivacyConsent().catch(() => ({ accepted: false })),
+    readManagedDeploymentMarker(),
   ]);
   const managed = normalizeManagedActivationPolicy(managedRead.raw);
   const profileGate = await resolveManagedProfileEmailGate(managed.policy);
@@ -226,6 +228,20 @@ export async function resolveActivationState() {
     };
   }
 
+  if (managedDeployment) {
+    return {
+      activated: false,
+      activationMode: 'managed_policy_pending',
+      source: 'managed_policy_pending',
+      reason: 'managed_policy_pending',
+      privacyConsentRequired: false,
+      managedDeployment: true,
+      privacyConsent,
+      managedPolicy: managed.policy,
+      managedPolicyStatus: buildManagedPolicyStatus(managed, managedRead, profileGate),
+    };
+  }
+
   if (privacyConsent?.accepted === true) {
     return {
       activated: true,
@@ -247,6 +263,7 @@ export async function resolveActivationState() {
     privacyConsentRequired: true,
     privacyConsent,
     managedPolicy: managed.policy,
+    managedDeployment: false,
     managedPolicyStatus: buildManagedPolicyStatus(managed, managedRead, profileGate),
   };
 }

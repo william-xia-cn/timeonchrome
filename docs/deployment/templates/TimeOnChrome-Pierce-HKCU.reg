@@ -13,7 +13,7 @@ Windows Registry Editor Version 5.00
 
 ; Chrome ExtensionSettings is a compact JSON policy value.
 [HKEY_CURRENT_USER\Software\Policies\Google\Chrome]
-"ExtensionSettings"="{\"jdcancbiocacabbjdkngadmjpjmkdnih\":{\"installation_mode\":\"force_installed\",\"toolbar_pin\":\"force_pinned\",\"update_url\":\"https://timeonchrome-update.pages.dev/timeonchrome/update.xml\"}}"
+"ExtensionSettings"="{\"jdcancbiocacabbjdkngadmjpjmkdnih\":{\"installation_mode\":\"force_installed\",\"toolbar_pin\":\"force_pinned\",\"update_url\":\"https://timeonchrome-update.pages.dev/timeonchrome/update.xml\",\"override_update_url\":true}}"
 
 ; Replace any previous managed storage policy for this extension.
 [-HKEY_CURRENT_USER\Software\Policies\Google\Chrome\3rdparty\extensions\jdcancbiocacabbjdkngadmjpjmkdnih]
@@ -25,4 +25,5 @@ Windows Registry Editor Version 5.00
 "managedDeviceToken"="<MANAGED_DEVICE_TOKEN_FROM_CLOUD>"
 "managedDeviceLabel"="Pierce Windows Chrome"
 "managedProfileEmail"="pierce.xia@icloud.com"
+"allowIdentityRecovery"=dword:00000000
 "cloudEndpoint"="https://guardian-api.william-xia-cn.workers.dev"
