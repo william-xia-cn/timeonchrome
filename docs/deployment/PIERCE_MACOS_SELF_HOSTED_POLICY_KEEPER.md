@@ -9,6 +9,36 @@ Apple 的 `launchd` 是 macOS 标准后台任务机制，`RunAtLoad` 可在任�
 
 ---
 
+# 0. 当前推荐入口（2026-07-22 验证版）
+
+新的 Pierce macOS 安装默认使用仓库目录：
+
+```text
+docs/deployment/pierce-macos-target/
+```
+
+推荐入口：
+
+```bash
+sudo ./timeonchrome-managed-installer.sh install
+sudo ./timeonchrome-managed-installer.sh uninstall
+```
+
+本入口已根据 `timeonchrome-pierce-managed-installer-1.7.13-fixed-2026-07-22.tar.gz` 的目标 Mac 最终验证结果同步，覆盖以下修订：
+
+- 从 `private-config.plist` 读取 `targetProfileEmail`、`managedDeviceToken`、扩展 ID、update URL、cloud endpoint 和期望版本；仓库只保留 `private-config.example.plist`，真实 token 不进入 Git。
+- 自动解析当前控制台用户下唯一匹配 `pierce.xia@icloud.com` 的 Chrome Profile。
+- 启动 Chrome 时设置目标用户 `HOME`、`USER`、`LOGNAME`，并传入解析出的 `--profile-directory`，避免落到 Profile Picker 或错误 Profile。
+- keeper 周期为 60 秒，并同时维护 Chrome 主 policy、扩展 managed-preferences plist 和 MCX directory record。
+- controlled keeper restore 阶段只验证恢复源、active plist、managed preferences 和 MCX directory record 已恢复；effective MCX 与 Chrome-readable managed policy 放到 Chrome 打开后的三轮稳定性检查。
+- controlled keeper restore 等待边界为 30 秒。
+- 安装验收检查 Chrome 自己生成的 `Managed Extension Settings/<extensionId>`，确认 required keys、Device Token、Profile email 和 cloud endpoint 已被 Chrome 实际采用。
+- `install -> uninstall -> install`、repair/reinstall、学校 MDM 单文件删除模拟均已在目标 Mac 记录为通过；详见 `docs/deployment/pierce-macos-target/INSTALLER_FIX_REPORT_2026-07-22.md`。
+
+下方“完整安装脚本”章节是早期手工复制方案，保留为排障参考；新安装优先使用上述仓库版一体化安装器。
+
+---
+
 # 0. 最终机制
 
 ```text

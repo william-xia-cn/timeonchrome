@@ -86,6 +86,12 @@
   - `storage-aggregation-convergence 36/36`
 
 ## NOW（P0）
+- [x] [V1-minimal 1.7.13] 同步 Pierce macOS 最终验证安装器修订
+  - [x] 从 Google Drive 私有压缩包 `timeonchrome-pierce-managed-installer-1.7.13-fixed-2026-07-22.tar.gz` 同步非敏感安装资产到 `docs/deployment/pierce-macos-target/`
+  - [x] 新增一体化 `timeonchrome-managed-installer.sh`、`install.command`、`uninstall.command` 和 `private-config.example.plist`，并同步 keeper / LaunchDaemon 模板
+  - [x] 记录目标 Mac 验证修复：目标用户环境 + profile-directory 启动、30 秒 controlled keeper restore、Chrome Managed Extension Settings 三轮稳定性检查、repair/reinstall 与 MDM 单文件删除模拟
+  - [x] 真实 `private-config.plist` / `managedDeviceToken` 不进入 Git；`.gitignore` 已补保护
+  - [x] 独立模块已拆出到 `tools/managed-chrome-extension-installer/`，包含通用安装器、模板、TimeOnChrome 示例和打包脚本
 - [x] [V1-minimal 1.7.12] 修复 managed storage schema、更新链路及受管绑定显示元数据
   - [x] manifest 声明并打包 `managed-storage-schema.json`，字段与 activation gate / macOS / Windows 模板一致
   - [x] install/update lifecycle 在 managed Profile 匹配时立即采用 Token、hydrate `/device/config` 并完整同步，不打开手动绑定页

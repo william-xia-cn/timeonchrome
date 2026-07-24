@@ -56,3 +56,10 @@ backup/
 
 # AI conversation logs
 docs/conversation-log/
+
+# Private deployment configs containing managed Device Tokens
+docs/deployment/**/private-config.plist
+# Managed Chrome extension installer private configs and package outputs
+tools/managed-chrome-extension-installer/**/private-config.plist
+tools/managed-chrome-extension-installer/out/
+tools/managed-chrome-extension-installer/dist/

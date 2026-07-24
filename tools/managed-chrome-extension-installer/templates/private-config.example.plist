@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>deploymentName</key>
+	<string>ManagedChromeExtension</string>
+	<key>policySlug</key>
+	<string>managed-chrome-extension</string>
+	<key>launchDaemonLabel</key>
+	<string>local.managed-chrome-extension.restore-chrome-policy</string>
+	<key>appSupportName</key>
+	<string>ManagedChromeExtension</string>
+	<key>extensionName</key>
+	<string>Example Extension</string>
+	<key>extensionId</key>
+	<string>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</string>
+	<key>expectedVersion</key>
+	<string>1.0.0</string>
+	<key>updateUrl</key>
+	<string>https://example.com/update.xml</string>
+	<key>expectedCrxCodebaseSuffix</key>
+	<string>example-1.0.0.crx</string>
+	<key>targetProfileEmail</key>
+	<string>child@example.com</string>
+	<key>managedDeviceToken</key>
+	<string>REPLACE_WITH_64_HEX_MANAGED_DEVICE_TOKEN</string>
+	<key>managedDeviceLabel</key>
+	<string>Child Mac Chrome</string>
+	<key>cloudEndpoint</key>
+	<string>https://api.example.com</string>
+	<key>cloudConfigPath</key>
+	<string>/device/config</string>
+	<key>enableHardening</key>
+	<true/>
+	<key>validateUpdateFeed</key>
+	<true/>
+	<key>validateCloudToken</key>
+	<false/>
+	<key>validateManagedSchema</key>
+	<true/>
+	<key>allowIdentityRecovery</key>
+	<false/>
+	<key>requiredManagedKeys</key>
+	<array>
+		<string>enabled</string>
+		<string>deploymentMode</string>
+		<string>managedDeviceToken</string>
+		<string>managedDeviceLabel</string>
+		<string>managedProfileEmail</string>
+		<string>allowIdentityRecovery</string>
+		<string>cloudEndpoint</string>
+	</array>
+</dict>
+</plist>

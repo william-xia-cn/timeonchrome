@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>cloudEndpoint</key>
+	<string>https://guardian-api.william-xia-cn.workers.dev</string>
+	<key>deviceLabel</key>
+	<string>Pierce MacBook Chrome</string>
+	<key>enableHardening</key>
+	<true/>
+	<key>expectedVersion</key>
+	<string>1.7.13</string>
+	<key>extensionId</key>
+	<string>jdcancbiocacabbjdkngadmjpjmkdnih</string>
+	<key>managedDeviceToken</key>
+	<string>REPLACE_WITH_64_HEX_MANAGED_DEVICE_TOKEN</string>
+	<key>targetProfileEmail</key>
+	<string>pierce.xia@icloud.com</string>
+	<key>updateUrl</key>
+	<string>https://timeonchrome-update.pages.dev/timeonchrome/update.xml</string>
+</dict>
+</plist>

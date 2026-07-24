@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>deploymentName</key>
+	<string>TimeOnChrome</string>
+	<key>policySlug</key>
+	<string>timeonchrome</string>
+	<key>launchDaemonLabel</key>
+	<string>local.timeonchrome.restore-chrome-policy</string>
+	<key>appSupportName</key>
+	<string>TimeOnChrome</string>
+	<key>extensionName</key>
+	<string>TimeOnChrome</string>
+	<key>cloudEndpoint</key>
+	<string>https://guardian-api.william-xia-cn.workers.dev</string>
+	<key>cloudConfigPath</key>
+	<string>/device/config</string>
+	<key>managedDeviceLabel</key>
+	<string>Pierce MacBook Chrome</string>
+	<key>enableHardening</key>
+	<true/>
+	<key>validateUpdateFeed</key>
+	<true/>
+	<key>validateCloudToken</key>
+	<true/>
+	<key>validateManagedSchema</key>
+	<true/>
+	<key>expectedVersion</key>
+	<string>1.7.13</string>
+	<key>extensionId</key>
+	<string>jdcancbiocacabbjdkngadmjpjmkdnih</string>
+	<key>managedDeviceToken</key>
+	<string>REPLACE_WITH_64_HEX_MANAGED_DEVICE_TOKEN</string>
+	<key>targetProfileEmail</key>
+	<string>pierce.xia@icloud.com</string>
+	<key>updateUrl</key>
+	<string>https://timeonchrome-update.pages.dev/timeonchrome/update.xml</string>
+	<key>expectedCrxCodebaseSuffix</key>
+	<string>timeonchrome-1.7.13.crx</string>
+	<key>allowIdentityRecovery</key>
+	<false/>
+	<key>requiredManagedKeys</key>
+	<array>
+		<string>enabled</string>
+		<string>deploymentMode</string>
+		<string>cloudEndpoint</string>
+		<string>managedDeviceToken</string>
+		<string>managedDeviceLabel</string>
+		<string>managedProfileEmail</string>
+		<string>allowIdentityRecovery</string>
+	</array>
+</dict>
+</plist>
