@@ -160,7 +160,7 @@ async function run() {
     expect('返回统一禁用结构', r, { ok: false, error: 'TIME_BORROWING_DISABLED_FOR_V1_MINIMAL' });
   }
 
-  section('C01-1 reminder 可用 sourceTabId 申请综合时间');
+  section('C01-1 reminder 可用 sourceTabId 申请待归类时间');
   {
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/reminder.html' };
     const r = await handleMessage({ type: 'ADD_TO_COMPOSITE_LIST', domain: 'example.com', sourceTabId: 42 }, sender);
@@ -175,7 +175,7 @@ async function run() {
     expect('返回 invalid tab context', r.code, 'INVALID_TAB_CONTEXT');
   }
 
-  section('C01-3 读取临时综合网站记录按申请时间倒序');
+  section('C01-3 读取临时待归类记录按申请时间倒序');
   {
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/admin/admin.html' };
     const r = await handleMessage({ type: 'GET_TEMPORARY_COMPOSITE_DOMAINS' }, sender);
@@ -188,34 +188,49 @@ async function run() {
     });
   }
 
-  section('C02-1 读取网站归类申请记录');
+  section('C02-1 读取网站归类记录');
   {
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/admin/admin.html' };
     const r = await handleMessage({ type: 'GET_SITE_CLASSIFICATION_REQUESTS', status: 'all' }, sender);
-    expect('返回网站归类申请 records', r, { ok: true, records: siteClassificationRecords });
+    expect('返回网站归类记录 records', r, { ok: true, records: siteClassificationRecords });
   }
 
-  section('C02-2 提交网站归类申请使用 sourceTabId 上下文');
+  section('C02-2 提交学习网站归类申请使用 sourceTabId 上下文');
   {
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
-    const r = await handleMessage({ type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST', input: 'example.com', sourceTabId: 42 }, sender);
+    const r = await handleMessage({ type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST', input: 'example.com', sourceTabId: 42, requestedClassification: 'study' }, sender);
     expectTrue('提交成功', r.ok && r.added);
     expect('返回目标 URL', r.targetUrl, 'https://example.com');
     expect('使用 sourceTabId', r.sourceTabId, 42);
     expect('提交上下文保留 sourceTabId', siteRequestCalls.at(-1).context.sourceTabId, 42);
+    expect('提交上下文声明学习归类方向', siteRequestCalls.at(-1).context.requestedClassification, 'study');
   }
 
   section('C02-2b 提交完整 URL 申请时上下文保存原始 URL');
   {
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
-    const r = await handleMessage({ type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST', input: 'https://Example.com/path?q=1#frag', sourceTabId: 42 }, sender);
+    const r = await handleMessage({ type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST', input: 'https://Example.com/path?q=1#frag', sourceTabId: 42, requestedClassification: 'study' }, sender);
     expectTrue('URL 提交成功', r.ok && r.target.targetType === 'url');
     expect('URL target 去掉 hash', r.target.normalizedValue, 'https://example.com/path?q=1');
     expect('提交上下文 sourceUrl 是原始目标 URL', siteRequestCalls.at(-1).context.url, 'https://example.com/path?q=1');
     expect('提交上下文 sourceDomain 是目标 host', siteRequestCalls.at(-1).context.domain, 'example.com');
   }
 
-  section('C02-3 提交网站归类申请异常返回结构化失败');
+  section('C02-2c 非学习归类方向被拒绝');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
+    const r = await handleMessage({
+      type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST',
+      input: 'example.com',
+      requestedClassification: 'composite',
+    }, sender);
+    expect('只允许手动申请学习归类', { ok: r.ok, code: r.code }, {
+      ok: false,
+      code: 'INVALID_REQUESTED_CLASSIFICATION',
+    });
+  }
+
+  section('C02-3 提交学习网站归类申请异常返回结构化失败');
   {
     const { handleMessage: failingHandleMessage } = loadHandleMessage({
       updateDeclarativeRules: async () => {},

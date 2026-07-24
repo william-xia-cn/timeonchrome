@@ -423,7 +423,59 @@ export async function getSiteClassificationRequestRecords({ status = null, inclu
   return filtered.sort((a, b) => Number(b.requestedAt || b.createdAt || 0) - Number(a.requestedAt || a.createdAt || 0));
 }
 
-export async function submitSiteClassificationRequest(input, context = {}) {
+const COUNTABLE_SITE_OBSERVATION_SOURCES = new Set([
+  'webNavigationCommitted',
+  'webNavigationHistoryStateUpdated',
+]);
+
+function siteObservationNavigationKey(context = {}, now = Date.now()) {
+  if (!COUNTABLE_SITE_OBSERVATION_SOURCES.has(context.observedEventSource)) return null;
+  const tabId = Number.isInteger(context.sourceTabId) ? context.sourceTabId : 'no-tab';
+  const url = String(context.url || context.domain || '').trim();
+  return `${context.observedEventSource}:${tabId}:${url}:${Math.floor(now / 1000)}`;
+}
+
+function pendingSyncStatus(hasCloudToken) {
+  return hasCloudToken ? 'pending' : 'local_only';
+}
+
+function applyUnclassifiedObservation(record, context, now, hasCloudToken) {
+  const navigationKey = siteObservationNavigationKey(context, now);
+  const firstObservation = !Number(record.firstObservedAt);
+  const shouldIncrement = firstObservation || (
+    navigationKey && navigationKey !== record.lastCountedNavigationKey
+  );
+  const previousSourceObservationCount = Math.max(0, Number(record.sourceObservationCount || 0));
+  const sourceObservationCount = previousSourceObservationCount + (shouldIncrement ? 1 : 0);
+  const previousAggregateCount = Math.max(
+    Math.max(0, Number(record.observationCount || 0)),
+    previousSourceObservationCount,
+  );
+  const firstObservedAt = Number(record.firstObservedAt || now);
+  const sourceFirstObservedAt = Number(record.sourceFirstObservedAt || now);
+  return {
+    ...record,
+    recordSource: record.recordSource === 'legacy' ? 'auto_unclassified_access' : record.recordSource,
+    firstObservedAt,
+    lastObservedAt: now,
+    observationCount: previousAggregateCount + (shouldIncrement ? 1 : 0),
+    observationSourceId: record.observationSourceId || makeLocalId('obs'),
+    sourceFirstObservedAt,
+    sourceLastObservedAt: now,
+    sourceObservationCount,
+    lastCountedNavigationKey: shouldIncrement && navigationKey
+      ? navigationKey
+      : record.lastCountedNavigationKey || null,
+    sourceTabId: Number.isInteger(context.sourceTabId) ? context.sourceTabId : record.sourceTabId ?? null,
+    sourceUrl: context.url || record.sourceUrl || null,
+    sourceDomain: context.domain || record.sourceDomain || null,
+    updatedAt: now,
+    syncStatus: pendingSyncStatus(hasCloudToken),
+    lastSyncError: null,
+  };
+}
+
+async function upsertPendingSiteClassificationRecord(input, context = {}, options = {}) {
   const target = normalizeSiteClassificationTarget(input);
   if (!target.ok) {
     return { ok: false, code: target.code || 'INVALID_TARGET', error: target.error || 'invalid target' };
@@ -460,14 +512,38 @@ export async function submitSiteClassificationRequest(input, context = {}) {
     record.status !== 'returned' &&
     requestKey(record.requestedTargetType, record.requestedNormalizedValue) === key
   );
-  if (existing) {
-    if (existing.status === 'rejected') {
-      return { ok: false, code: 'REQUEST_REJECTED', error: 'request rejected', request: existing };
-    }
-    return { ok: true, alreadyPresent: true, request: existing, localOnly: !cloud.cloud_device_token };
+  if (existing?.status === 'rejected') {
+    return { ok: false, code: 'REQUEST_REJECTED', error: 'request rejected', request: existing };
   }
 
-  const now = Date.now();
+  const observedAt = Number(context.observedAt);
+  const now = Number.isFinite(observedAt) && observedAt > 0 ? observedAt : Date.now();
+  const hasCloudToken = !!cloud.cloud_device_token;
+  const requestedClassification = options.requestedClassification === 'study' ? 'study' : null;
+
+  if (existing) {
+    if (requestedClassification === 'study') {
+      if (existing.requestedClassification === 'study') {
+        return { ok: true, alreadyPresent: true, request: existing, localOnly: !hasCloudToken };
+      }
+      const promoted = {
+        ...existing,
+        recordSource: 'manual_learning_request',
+        requestedClassification: 'study',
+        manualRequestedAt: now,
+        updatedAt: now,
+        syncStatus: pendingSyncStatus(hasCloudToken),
+        lastSyncError: null,
+      };
+      await setSiteClassificationRequestRecords(records.map((record) => record.id === existing.id ? promoted : record));
+      return { ok: true, promoted: true, request: promoted, localOnly: !hasCloudToken };
+    }
+
+    const observed = applyUnclassifiedObservation(existing, context, now, hasCloudToken);
+    await setSiteClassificationRequestRecords(records.map((record) => record.id === existing.id ? observed : record));
+    return { ok: true, alreadyPresent: true, observed: true, request: observed, localOnly: !hasCloudToken };
+  }
+
   const record = {
     id: makeLocalId(),
     requestedTargetType: target.targetType,
@@ -476,6 +552,12 @@ export async function submitSiteClassificationRequest(input, context = {}) {
     requestedHost: target.host || null,
     displayValue: target.displayValue,
     status: 'pending',
+    recordSource: requestedClassification === 'study' ? 'manual_learning_request' : 'auto_unclassified_access',
+    requestedClassification,
+    manualRequestedAt: requestedClassification === 'study' ? now : null,
+    firstObservedAt: null,
+    lastObservedAt: null,
+    observationCount: 0,
     requestedAt: now,
     createdAt: now,
     updatedAt: now,
@@ -484,11 +566,28 @@ export async function submitSiteClassificationRequest(input, context = {}) {
     sourceDomain: context.domain || null,
     profileId: cloud.cloud_profile_id || null,
     deviceId: cloud.cloud_device_id || null,
-    syncStatus: cloud.cloud_device_token ? 'pending' : 'local_only',
+    syncStatus: pendingSyncStatus(hasCloudToken),
     lastSyncError: null,
   };
-  await setSiteClassificationRequestRecords([...records, record]);
-  return { ok: true, added: true, request: record, localOnly: !cloud.cloud_device_token };
+  const nextRecord = requestedClassification === 'study'
+    ? record
+    : applyUnclassifiedObservation(record, context, now, hasCloudToken);
+  await setSiteClassificationRequestRecords([...records, nextRecord]);
+  return { ok: true, added: true, request: nextRecord, localOnly: !hasCloudToken };
+}
+
+export async function recordUnclassifiedSiteAccess(input, context = {}) {
+  return upsertPendingSiteClassificationRecord(input, context, {
+    recordSource: 'auto_unclassified_access',
+    requestedClassification: null,
+  });
+}
+
+export async function submitSiteClassificationRequest(input, context = {}) {
+  return upsertPendingSiteClassificationRecord(input, context, {
+    recordSource: 'manual_learning_request',
+    requestedClassification: 'study',
+  });
 }
 
 export async function getPendingSiteClassificationRequestUploads() {
@@ -517,7 +616,7 @@ export async function buildSiteClassificationRequestsUploadPayload(ids = []) {
   const records = await getSiteClassificationRequestRecords({ includeAll: true });
   const selected = records.filter((record) => idSet.size === 0 || idSet.has(record.id));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     requests: selected.map((record) => ({
       id: record.id,
       requestedTargetType: record.requestedTargetType,
@@ -528,6 +627,13 @@ export async function buildSiteClassificationRequestsUploadPayload(ids = []) {
       requestedAt: record.requestedAt || record.createdAt || Date.now(),
       sourceUrl: record.sourceUrl || null,
       sourceDomain: record.sourceDomain || null,
+      recordSource: record.recordSource || 'legacy',
+      requestedClassification: record.requestedClassification || null,
+      manualRequestedAt: record.manualRequestedAt || null,
+      observationSourceId: record.observationSourceId || null,
+      sourceObservationCount: Number(record.sourceObservationCount || 0),
+      sourceFirstObservedAt: record.sourceFirstObservedAt || null,
+      sourceLastObservedAt: record.sourceLastObservedAt || null,
     })),
   };
 }
@@ -544,6 +650,12 @@ export async function markSiteClassificationRequestsUploaded(ids = [], cloudRequ
       cloudId: cloud.id || record.cloudId || null,
       profileId: cloud.profileId || record.profileId || null,
       deviceId: cloud.deviceId || record.deviceId || null,
+      recordSource: cloud.recordSource || record.recordSource || 'legacy',
+      requestedClassification: cloud.requestedClassification || record.requestedClassification || null,
+      manualRequestedAt: cloud.manualRequestedAt || record.manualRequestedAt || null,
+      firstObservedAt: cloud.firstObservedAt || record.firstObservedAt || null,
+      lastObservedAt: cloud.lastObservedAt || record.lastObservedAt || null,
+      observationCount: Math.max(Number(cloud.observationCount || 0), Number(record.observationCount || 0)),
       syncStatus: 'uploaded',
       uploadedAt: Date.now(),
       lastSyncError: null,
@@ -592,6 +704,12 @@ export async function mergeCloudSiteClassificationRequests(cloudRecords = []) {
       decisionNormalizedValue: raw.decisionNormalizedValue,
       profileId: raw.profileId,
       deviceId: raw.deviceId,
+      recordSource: raw.recordSource,
+      requestedClassification: raw.requestedClassification,
+      manualRequestedAt: raw.manualRequestedAt,
+      firstObservedAt: raw.firstObservedAt,
+      lastObservedAt: raw.lastObservedAt,
+      observationCount: raw.observationCount,
       syncStatus: 'uploaded',
     });
     if (!normalized) continue;
@@ -606,6 +724,19 @@ export async function mergeCloudSiteClassificationRequests(cloudRecords = []) {
       ...normalized,
       id: existing.id || normalized.id,
       cloudId: normalized.cloudId || existing.cloudId || null,
+      recordSource: normalized.recordSource === 'legacy'
+        ? existing.recordSource || 'legacy'
+        : normalized.recordSource,
+      requestedClassification: normalized.requestedClassification || existing.requestedClassification || null,
+      manualRequestedAt: normalized.manualRequestedAt || existing.manualRequestedAt || null,
+      firstObservedAt: normalized.firstObservedAt || existing.firstObservedAt || null,
+      lastObservedAt: Math.max(Number(normalized.lastObservedAt || 0), Number(existing.lastObservedAt || 0)) || null,
+      observationCount: Math.max(Number(normalized.observationCount || 0), Number(existing.observationCount || 0)),
+      observationSourceId: existing.observationSourceId || null,
+      sourceFirstObservedAt: existing.sourceFirstObservedAt || null,
+      sourceLastObservedAt: existing.sourceLastObservedAt || null,
+      sourceObservationCount: Number(existing.sourceObservationCount || 0),
+      lastCountedNavigationKey: existing.lastCountedNavigationKey || null,
       syncStatus: 'uploaded',
       lastSyncError: null,
     });

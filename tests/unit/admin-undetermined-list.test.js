@@ -85,15 +85,15 @@ function run() {
 
   const testCases = [
     {
-      desc: 'pending -> 综合',
+      desc: 'pending -> 待归类',
       sessions: [{ domain: 'example.com', duration: 120, classification: 'pending' }],
-      expectContains: ['综合'],
+      expectContains: ['待归类'],
       expectNotContains: ['待审核', '申诉中', '已改判', '标为学习', '标为休息', '<button', 'onclick']
     },
     {
-      desc: 'appealing -> 综合',
+      desc: 'appealing -> 待归类',
       sessions: [{ domain: 'example.com', duration: 120, classification: 'appealing' }],
-      expectContains: ['综合'],
+      expectContains: ['待归类'],
       expectNotContains: ['待审核', '申诉中', '已改判', '标为学习', '标为休息', '<button', 'onclick']
     },
     {
@@ -109,9 +109,9 @@ function run() {
       expectNotContains: ['待审核', '申诉中', '已改判', '标为学习', '标为休息', '<button', 'onclick']
     },
     {
-      desc: 'empty list -> 暂无综合明细',
+      desc: 'empty list -> 暂无待归类明细',
       sessions: [],
-      expectContains: ['暂无综合明细'],
+      expectContains: ['暂无待归类明细'],
       expectNotContains: ['待审核', '申诉中', '已改判', '标为学习', '标为休息', '<button', 'onclick']
     },
     {
@@ -122,7 +122,7 @@ function run() {
         { domain: 'c.com', duration: 120, classification: 'study' },
         { domain: 'd.com', duration: 30, classification: 'rest' }
       ],
-      expectContains: ['综合', '学习', '休息'],
+      expectContains: ['待归类', '学习', '休息'],
       expectNotContains: ['待审核', '申诉中', '已改判', '标为学习', '标为休息', '<button', 'onclick']
     }
   ];

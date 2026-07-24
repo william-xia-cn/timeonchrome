@@ -539,7 +539,7 @@ export function clearPendingNotice(tabId) {
 }
 
 function modeLabel(mode) {
-  if (mode === 'composite') return '综合';
+  if (mode === 'composite') return '复合';
   if (mode === 'rest') return '休息';
   return '学习';
 }
@@ -624,7 +624,7 @@ function formatStudyRemainingTime(seconds) {
 
 async function sendCompositeExhaustedToRestNotice(tabId, domain, fromMode, remainingRestSeconds) {
   const remainingRestTime = remainingRestSeconds === null ? '不限' : formatSecondsCompact(remainingRestSeconds);
-  const noticeText = `你正在打开综合/待归类网站 · 当前综合时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
+  const noticeText = `你正在打开复合网站或待归类记录 · 当前待归类时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
   return await sendTabPendingMessage(tabId, {
     type: 'AUTO_MODE_PENDING_SUCCESS',
     noticeKind: 'transient_success',
@@ -654,7 +654,7 @@ async function sendModeGraceToRestNotice(tabId, domain, fromMode) {
 async function sendCompositeEntryNotice(tabId, domain, fromMode, config) {
   const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
   const remainingCompositeTime = remainingCompositeSeconds === null ? '不限' : formatSecondsCompact(remainingCompositeSeconds);
-  const noticeText = `你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}`;
+  const noticeText = `你正在打开复合网站或待归类记录 · 即将进入复合模式 · 今日待归类剩余 ${remainingCompositeTime}`;
   return await sendTabPendingMessage(tabId, {
     type: 'AUTO_MODE_PENDING_SUCCESS',
     noticeKind: 'transient_success',
@@ -697,7 +697,7 @@ export async function sendNoticeForDecision(decision, { tabId, domain, fromMode,
   if (decision.notice === 'study_to_composite' || decision.notice === 'rest_to_composite_success') {
     const remainingCompositeSeconds = await computeCompositeRemainingSeconds(config);
     const remainingCompositeTime = remainingCompositeSeconds === null ? '不限' : formatSecondsCompact(remainingCompositeSeconds);
-    const noticeText = `你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}`;
+    const noticeText = `你正在打开复合网站或待归类记录 · 即将进入复合模式 · 今日待归类剩余 ${remainingCompositeTime}`;
     return await sendTabPendingMessageDetailed(tabId, {
       type: 'AUTO_MODE_PENDING_SUCCESS',
       noticeKind: 'transient_success',
@@ -730,7 +730,7 @@ export async function sendNoticeForDecision(decision, { tabId, domain, fromMode,
   if (decision.notice === 'composite_exhausted_to_rest') {
     const remainingRestSeconds = await computeRestRemainingSeconds(config);
     const remainingRestTime = remainingRestSeconds === null ? '不限' : formatSecondsCompact(remainingRestSeconds);
-    const noticeText = `你正在打开综合/待归类网站 · 当前综合时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
+    const noticeText = `你正在打开复合网站或待归类记录 · 当前待归类时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
     return await sendTabPendingMessageDetailed(tabId, {
       type: 'AUTO_MODE_PENDING_SUCCESS',
       noticeKind: 'transient_success',

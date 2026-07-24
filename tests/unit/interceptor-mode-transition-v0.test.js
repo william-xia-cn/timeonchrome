@@ -179,7 +179,7 @@ this.__exports = {
       notice: {
         kind: 'study_to_composite',
         targetMode: 'composite',
-        text: '你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 1小时',
+        text: '你正在打开复合网站/待归类对象 · 即将进入复合模式 · 今日待归类剩余 1小时',
       },
     }, { tabId: 7, domain: 'youtube.com' });
     expect('commit payload', commits[0], {
@@ -211,7 +211,7 @@ this.__exports = {
     });
     expect('notice sent to tab', effects.sentMessages.map((m) => ({ tabId: m.tabId, type: m.payload.type, text: m.payload.noticeText })), [
       { tabId: 7, type: 'AUTO_MODE_PENDING_CANCEL', text: undefined },
-      { tabId: 7, type: 'AUTO_MODE_PENDING_SUCCESS', text: '你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 1小时' },
+      { tabId: 7, type: 'AUTO_MODE_PENDING_SUCCESS', text: '你正在打开复合网站/待归类对象 · 即将进入复合模式 · 今日待归类剩余 1小时' },
     ]);
     expectTrue('mode effect trace stores rendered notice', effects.storageState.mode_effect_trace_v1?.[0]?.result?.noticeRendered === true);
   }

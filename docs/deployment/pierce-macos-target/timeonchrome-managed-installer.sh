@@ -17,6 +17,12 @@ config_bool() {
   /usr/bin/plutil -extract "$1" raw -n "$CONFIG_FILE" 2>/dev/null
 }
 
+config_optional_string() {
+  local value
+  value="$(/usr/bin/plutil -extract "$1" raw -n "$CONFIG_FILE" 2>/dev/null || true)"
+  if [ -n "$value" ]; then /bin/echo "$value"; else /bin/echo "$2"; fi
+}
+
 [ -f "$CONFIG_FILE" ] || fail "private-config.plist is missing beside the installer."
 [ -d "$TEMP_ROOT" ] && [ -w "$TEMP_ROOT" ] || fail "A writable temporary directory is unavailable."
 /usr/bin/plutil -lint "$CONFIG_FILE" >/dev/null || fail "private-config.plist is invalid."
@@ -26,9 +32,10 @@ TARGET_LABEL="$(config_string deviceLabel)"
 EXTENSION_ID="$(config_string extensionId)"
 UPDATE_URL="$(config_string updateUrl)"
 CLOUD_ENDPOINT="$(config_string cloudEndpoint)"
-EXPECTED_VERSION="$(config_string expectedVersion)"
+EXPECTED_VERSION="$(config_optional_string expectedVersion latest)"
 ENABLE_HARDENING="$(config_bool enableHardening)"
 MANAGED_DEVICE_TOKEN="$(config_string managedDeviceToken)"
+EXPECTED_INSTALL_VERSION=""
 
 POLICY_SRC="/usr/local/timeonchrome-policy/com.google.Chrome.plist"
 MCX_SRC="/usr/local/timeonchrome-policy/timeonchrome-managed-mcx.plist"
@@ -71,7 +78,11 @@ validate_private_config() {
   [[ "$TARGET_EMAIL" == *@* ]] || fail "Configured target Profile email is invalid."
   [[ "$UPDATE_URL" == https://* ]] || fail "Configured update URL must use HTTPS."
   [[ "$CLOUD_ENDPOINT" == https://* ]] || fail "Configured cloud endpoint must use HTTPS."
-  [ "$EXPECTED_VERSION" = "1.7.13" ] || fail "Configured version must be 1.7.13."
+  case "$EXPECTED_VERSION" in
+    ""|latest|LATEST) EXPECTED_VERSION="latest" ;;
+    *) [[ "$EXPECTED_VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]] || fail "Configured expectedVersion must be latest or a Chrome extension version." ;;
+  esac
+  if [ "$EXPECTED_VERSION" != "latest" ]; then EXPECTED_INSTALL_VERSION="$EXPECTED_VERSION"; fi
   case "$ENABLE_HARDENING" in
     true|1|yes) ;;
     *) fail "This Pierce private package requires full Chrome hardening." ;;
@@ -136,21 +147,65 @@ validate_update_feed() {
   /bin/chmod 600 "$feed"
   status="$(/usr/bin/curl --silent --show-error --connect-timeout 15 --max-time 30 --output "$feed" --write-out '%{http_code}' "$UPDATE_URL")" || fail "Production update feed request failed."
   [ "$status" = "200" ] || fail "Production update feed returned HTTP $status."
-  /usr/bin/python3 - "$feed" "$EXTENSION_ID" "$EXPECTED_VERSION" <<'PY'
-import sys, xml.etree.ElementTree as ET
-path, extension_id, expected = sys.argv[1:]
+  EXPECTED_INSTALL_VERSION="$(/usr/bin/python3 - "$CONFIG_FILE" "$feed" "$EXTENSION_ID" "$EXPECTED_VERSION" <<'PY'
+import os, re, sys, urllib.parse, xml.etree.ElementTree as ET
+cfg_path, path, extension_id, expected = sys.argv[1:]
+try:
+    import plistlib
+    with open(cfg_path, "rb") as fh:
+        cfg = plistlib.load(fh)
+except Exception:
+    cfg = {}
+
+def valid_version(value):
+    parts = str(value).split(".")
+    return 1 <= len(parts) <= 4 and all(re.fullmatch(r"0|[1-9][0-9]*", p) and int(p) <= 65535 for p in parts)
+
+def fail():
+    raise SystemExit(1)
+
 root = ET.parse(path).getroot()
 ns = {"g": "http://www.google.com/update2/response"}
-app = root.find("g:app", ns)
-check = app.find("g:updatecheck", ns) if app is not None else None
-if app is None or app.attrib.get("appid") != extension_id or check is None:
-    raise SystemExit(1)
-if check.attrib.get("version") != expected:
-    raise SystemExit(1)
-if not check.attrib.get("codebase", "").endswith(f"timeonchrome-{expected}.crx"):
-    raise SystemExit(1)
+apps = root.findall("g:app", ns)
+if not apps:
+    apps = root.findall("app")
+app = next((item for item in apps if item.attrib.get("appid") == extension_id), None)
+if app is None:
+    fail()
+check = app.find("g:updatecheck", ns)
+if check is None:
+    check = app.find("updatecheck")
+if check is None:
+    fail()
+feed_version = check.attrib.get("version", "").strip()
+codebase = check.attrib.get("codebase", "").strip()
+if not valid_version(feed_version):
+    fail()
+parsed = urllib.parse.urlparse(codebase)
+if parsed.scheme != "https" or not parsed.netloc:
+    fail()
+filename = os.path.basename(parsed.path)
+if not filename.endswith(".crx") or feed_version not in filename:
+    fail()
+mode = "latest" if expected.strip().lower() in ("", "latest") else "pinned"
+if mode == "pinned":
+    if not valid_version(expected) or feed_version != expected:
+        fail()
+    suffix = str(cfg.get("expectedCrxCodebaseSuffix") or "")
+    if suffix:
+        suffix = suffix.replace("{version}", expected)
+        if not codebase.endswith(suffix):
+            fail()
+else:
+    suffix = str(cfg.get("expectedCrxCodebaseSuffix") or "")
+    if suffix:
+        suffix = suffix.replace("{version}", feed_version)
+        if not codebase.endswith(suffix):
+            fail()
+print(feed_version)
 PY
-  say "Production update feed targets the expected extension ID and version."
+  )" || fail "Production update feed is invalid for the configured version policy."
+  say "Production update feed targets the expected extension ID and version $EXPECTED_INSTALL_VERSION."
 }
 
 validate_api_token() {
@@ -672,7 +727,8 @@ validate_system_installation() {
 }
 
 installed_manifest_path() {
-  /usr/bin/python3 - "$CHROME_PROFILE_ROOT" "$EXTENSION_ID" "$EXPECTED_VERSION" <<'PY'
+  [ -n "$EXPECTED_INSTALL_VERSION" ] || fail "Expected install version is unavailable; enable update feed validation or pin expectedVersion."
+  /usr/bin/python3 - "$CHROME_PROFILE_ROOT" "$EXTENSION_ID" "$EXPECTED_INSTALL_VERSION" <<'PY'
 import json, os, sys
 profile, eid, expected = sys.argv[1:]
 root = os.path.join(profile, "Extensions", eid)
@@ -961,3 +1017,4 @@ case "${1:-}" in
   uninstall) uninstall_all ;;
   *) /bin/echo "Usage: sudo $0 {install|uninstall}" >&2; exit 2 ;;
 esac
+

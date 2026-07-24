@@ -78,7 +78,7 @@ async function createContext() {
   return { ctx, sw, udd, today };
 }
 
-test('popup/admin 统一显示 legacy 综合时间，不显示待归类口径', async () => {
+test('popup/admin 统一显示 legacy composite 为待归类时间，不显示旧综合口径', async () => {
   const { ctx, sw, udd, today } = await createContext();
   try {
     const popupUrl = await sw.evaluate(() => chrome.runtime.getURL('popup/popup.html'));
@@ -131,12 +131,12 @@ test('popup/admin 统一显示 legacy 综合时间，不显示待归类口径', 
     await admin.goto(adminUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
     await expect.poll(async () => {
       return (await admin.locator('#today-overview-list').textContent()).replace(/\s+/g, ' ');
-    }, { timeout: 5000 }).toContain('综合');
+    }, { timeout: 5000 }).toContain('待归类');
 
     const overviewText = (await admin.locator('#today-overview-list').textContent()).replace(/\s+/g, ' ');
-    expect(overviewText).toContain('综合');
+    expect(overviewText).toContain('待归类');
     expect(overviewText).toContain('3分');
-    expect(overviewText).not.toContain('待归类');
+    expect(overviewText).not.toContain('综合');
     expect(overviewText).not.toContain('未归类');
 
     await popup.close();

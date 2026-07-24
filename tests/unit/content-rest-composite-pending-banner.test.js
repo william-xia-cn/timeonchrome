@@ -31,7 +31,7 @@ function run() {
 
   expectTrue('uses Shadow DOM for banner container', src.includes("attachShadow({ mode: 'open' })"));
   expectTrue('uses mode notice container id', src.includes("__toc_mode_notice__"));
-  expectTrue('pending composite copy includes exact required template', src.includes('正在使用综合网站 · ${secondsRemaining}秒后进入综合时间 · 今日剩余 ${remainingCompositeTime}'));
+  expectTrue('pending composite copy includes exact required template', src.includes('正在使用复合网站 · ${secondsRemaining}秒后进入待归类时间 · 今日剩余 ${remainingCompositeTime}'));
   expectTrue('pending study copy includes exact required template', src.includes('正在使用学习网站 · ${secondsRemaining}秒后进入学习时间'));
   expectTrue('banner uses fixed positioning', src.includes('position: fixed;'));
   expectTrue('banner uses top offset', src.includes('top: 16px;'));
@@ -42,7 +42,7 @@ function run() {
   expectTrue('local countdown interval exists', src.includes('setInterval(updateCountdown, 250)'));
   expectTrue('pending START has local stale cleanup', src.includes('deadlineAt - Date.now() + 5000'));
   expectTrue('CANCEL clears timers and removes host', src.includes('function clearModeNotice()'));
-  expectTrue('SUCCESS composite copy is exact', src.includes('你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}'));
+  expectTrue('SUCCESS composite copy identifies a composite site or pending record', src.includes('复合网站或待归类记录'));
   expectTrue('SUCCESS study copy is exact', src.includes('你正在打开学习网站 · 即将进入学习模式 · 今日剩余 ${remainingStudyTime}'));
   expectTrue('Study unlimited fallback exists', src.includes("const remainingStudyTime = payload?.remainingStudyTime || '不限';"));
   expectTrue('SUCCESS ignores expired payload', src.includes('Date.now() > Number(payload.expiresAt)'));

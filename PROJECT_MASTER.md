@@ -21,27 +21,22 @@
 - **V1-minimal close-out plan**：`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`
 - **Product Owner decision brief**：`docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`
 - **Product Owner decision proposal**：`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`
-- **CWS least-permission Build&Test handoff**：`docs/handoffs/outbox/HANDOFF-cws-least-permission-report-to-build-test.md`
-- **CWS least-permission Build&Test report**：`docs/audits/CWS_LEAST_PERMISSION_IMPLEMENTATION_REPORT_2026-05-09.md`
-- **CWS least-permission minimal verification handoff**：`docs/handoffs/outbox/HANDOFF-cws-least-permission-min-verify-to-build-test.md`
-- **CWS least-permission minimal verification report**：`docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`
-- **工作树状态归档**：`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`
-- **工作树归属审计**：`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`
-- **Git/local consistency audit**：`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`
-- **Commit set plan**：`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`（completed commits recorded; follow-up packages later committed and pushed）
-- **Commit approval proposal**：`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`（superseded by completed push; tag/release still require separate approval）
-- **Admin/bind ownership resolution**：`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`
-- **Admin/bind account-token Build&Test report**：`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`
-- **Admin/bind account-token minimum verification**：`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_MIN_VERIFY_2026-05-09.md`
-- **Admin/bind account-token test package handoff**：`docs/handoffs/outbox/HANDOFF-admin-bind-account-token-test-package-to-build-test.md`
-- **Admin/bind account-token test package report**：`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_TEST_PACKAGE_REPORT_2026-05-09.md`
+- **历史证据归档**：旧 audit / release / handoff / smoke / checklist / plan 已统一移入 docs/archive/，仅作为历史证据；当前开发入口以 AGENTS.md §9、DECISIONS.md 和当前 docs 权威文档为准。
 - **Admin/bind include decision**：`DECISIONS.md:D-038`
-- **Pages stats-v1 ownership review**：`docs/audits/PAGES_STATS_V1_OWNERSHIP_REVIEW_2026-05-09.md`
-- **Pages stats-v1 minimum verification**：`docs/audits/PAGES_STATS_V1_MIN_VERIFY_2026-05-09.md`
 - **V1-minimal artifact strategy**：`DECISIONS.md:D-039`
 - **ReleaseMg SOP 已合并**：生产 profile / release package / Chrome Web Store / real binding / final acceptance 相关强制规则统一收敛在 `docs/agents/ReleaseMg.md`
 - **ChatGPT 定位**：Product Owner 的外部顾问、架构审查者和关键决策辅助者；不负责日常开发调度、不负责每个 Codex session 的日常任务指导。
 - **ChatGPT 升级场景**：产品模型变化、架构不确定、存储/云同步/统计口径/权限模型变化、release blocker 判断争议、三角色职责冲突、Agent 输出疑似越界、Product Owner 需要第二意见。
+
+## 当前产品语义基线（2026-07-24）
+- **待归类时间**：原“综合时间”的新用户可见名称；它是尚未归入学习或休息的过渡归因池，不是第三类最终时间。
+- **复合网站**：原“综合网站”的新用户可见名称；指仅凭域名无法判断使用性质，需要内容、URL、标题、频道、行为或人工回看进一步归因的网站。
+- **复合模式**：原“综合模式”的新用户可见名称；内部实现值仍为 `mode: composite`。
+- **内部兼容**：`compositeList`、`defaultCompositeSites`、`compositeSeconds`、`undeterminedSeconds`、`dailyUndeterminedQuota`、`undeterminedLocked` 暂不改名，不做 schema/API/代码迁移。
+- **边界**：未归类网站仍是 fallback 状态，可能是潜在学习、娱乐、复合或应阻断对象，不自动等同复合网站。
+- **未归类网站访问记录**：系统自动记录未归类网站被访问的事实，供家长检查；不是孩子提交的申请。
+- **学习网站归类申请**：孩子通过 Popup 主动申请归为学习网站；家长批准前仍计入待归类时间。
+- **同站处理**：同一有效 pending 目标只保留一条主记录，手动申请会升级已有自动记录并保留首次/最近访问和顶层导航次数。
 
 ## 版本边界
 - **V0（功能冻结 / 发布闸门未完成）**
@@ -164,41 +159,31 @@
 ### V1-minimal release preparation（2026-05-09）
 - **Package**：`dist/v1-minimal-20260509-023832/timeonchrome-v1.7.2-v1-minimal.zip`
 - **SHA256**：`A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
-- **Size**：141,357 bytes（per `docs/releases/v1-minimal-release-2026-05-09.md`; SHA256 remains the primary artifact identity）
+- **Size**：141,357 bytes（per `docs/archive/releases/v1-minimal-release-2026-05-09.md`; SHA256 remains the primary artifact identity）
 - **Manifest version**：`1.7.2`
 - **Package verification**：PASS
   - ZIP opens and contains `manifest.json`
   - Manifest is MV3 and version `1.7.2`
   - Required runtime files are present
   - Disallowed private/build/test paths are absent (`docs/`, `tests/`, `workers/`, `pages/`, `node_modules/`, `.env`, `.wrangler`, local Chrome profile data)
-- **Release record**：`docs/releases/v1-minimal-release-2026-05-09.md`
+- **Historical release evidence**：旧 release / readiness / CWS submission / audit 证据已归档到 docs/archive/，只供追溯；当前 release SOP 与模板以 docs/release/ 为准。
 - **Close-out plan**：`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`
 - **Product Owner decision brief**：`docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`
 - **Product Owner decision proposal**：`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`
 - **Release gate matrix**：`docs/release/V1_MINIMAL_RELEASE_GATE_MATRIX_2026-05-09.md`
-- **Worktree status inventory**：`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`
-- **Worktree ownership audit**：`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`
-- **Git/local consistency audit**：`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`
-- **Commit set plan**：`docs/audits/COMMIT_SET_PLAN_2026-05-09.md`
-- **Commit approval proposal**：`docs/audits/COMMIT_APPROVAL_PROPOSAL_2026-05-09.md`
-- **Admin/bind ownership resolution**：`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`
-- **ReleaseMg readiness report**：`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`
-- **Chrome Web Store submission text**：`docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
 - **Chrome Web Store resubmission package**：`dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
 - **Chrome Web Store resubmission SHA256**：`BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
 - **Chrome Web Store status**：`TimeOnChrome 1.7.2` submitted / `待审核`; not publicly released.
 - **Artifact strategy**：D-039 / Strategy A active. The already-submitted reduced-permission CWS package remains the active review artifact. Current `origin/master` is the source follow-up line; no rebuild/package/resubmission is approved unless CWS requires it or Product Owner later approves.
-- **ReleaseMg production acceptance**：PARTIAL / NOT CLOSED（`docs/releases/releasemg-production-acceptance-2026-05-09.md`）；production functional smoke for the unpacked/local-load instance is `PASS_WITH_MANUAL_EVIDENCE`（installed/version/enabled, popup-core, borrowing disabled, bind-sync）。CWS installed-ID parity remains `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` until CWS approval.
-- **ReleaseMg production smoke addendum**：`docs/releases/releasemg-production-smoke-blocked-2026-05-09.md`；Product Owner observed installed TimeOnChrome ID `flnneafdppomlhgciohadpdfmhkkkkpp`, indicating an unpacked/local-load instance. Functional production smoke may continue against that instance if enabled/version `1.7.2` is visible. CWS installed-ID parity is `BLOCKED_BY_CWS_REVIEW / NOT YET APPLICABLE` until the CWS item is approved and installable.
+- **ReleaseMg historical evidence**：production smoke / readiness 的旧报告已归档到 docs/archive/；当前 release gate 需按 docs/release/ 重新执行或复核。
 - **Windows/macOS informal smoke**：PASS_WITH_MANUAL_EVIDENCE；非正式手工 smoke 已完成，按当前个人/小团队首发轻流程接受；不是自动化 lab evidence。
-- **ReleaseMg readiness report**：`BLOCKED / NOT READY FOR PUBLIC RELEASE`（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`）.
 - **Close-out planning status**：docs-only close-out board is ready; releaseMg readonly readiness classification completed; Product Owner decisions remain open.
 - **Product Owner decision status**：default next-step proposal approved; CWS least-permission, admin/bind, and Pages stats-v1 follow-up packages have been reviewed, verified, committed, and pushed. Rebuild/package/resubmission, public release, and tag remain unauthorized.
 - **Git/local status**：local `master` and `origin/master` are synchronized at `2260943 docs: refresh v1-minimal release readiness`; ahead/behind `0/0` before the D-039 docs-only sync; tag remains blocked pending separate Product Owner approval.
 - **Commit planning status**：docs package `9174900`, CWS least-permission package `7072163`, admin/bind account-token package `f498d13`, Pages stats-v1 package `4d4ebfb`, and readiness refresh `2260943` are committed and pushed.
 - **Commit approval status**：push completed; no tag or release action approved.
 - **Changelog grouping**：`docs/CHANGELOG.md` belongs with V1-minimal release evidence docs; it does not imply public release ready.
-- **Working tree status**：prior dirty working tree was recorded in `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md` and resolved through scoped commits; no dirty product/test package remained before this D-039 docs-only sync.
+- **Working tree status**：prior dirty working tree was recorded in `docs/archive/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md` and resolved through scoped commits; no dirty product/test package remained before this D-039 docs-only sync.
 - **Admin/bind status**：ownership resolution, Build&Test implementation report, minimum verification report, and test package report recorded.
 - **Admin/bind account-token persistence status**：Product Owner approved include as V1-minimal follow-up candidate; focused unit package added in `tests/unit/admin-bind-account-token.test.js`; `node tests/unit/admin-bind-account-token.test.js` passed `5/5`; not release-ready evidence.
 - **Admin/bind residual risk**：`CLOUD_LOGOUT` coverage is static rather than end-to-end message-router invocation; ordinary admin auto-login stale-token semantics are accepted as a separate follow-up and do not block this package include decision.

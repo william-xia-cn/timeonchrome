@@ -9,6 +9,7 @@ import {
   isSpecialUrl,
   hasTemporaryCompositePermission,
   getSiteClassificationRequestRecords,
+  recordUnclassifiedSiteAccess,
 } from '../infra/storage.js';
 import { resolveSiteAccessClassification } from '../core/site-classification.js';
 import { enqueueModeBoundaryIntent } from '../core/mode-boundary-intents.js';
@@ -365,7 +366,7 @@ function formatStudyRemainingTime(seconds) {
 
 function manualModeNoticeText(mode) {
   if (mode === 'study') return '已回到学习模式';
-  if (mode === 'composite') return '已进入综合模式';
+  if (mode === 'composite') return '已进入复合模式';
   if (mode === 'locked') return '当前配额已用完';
   return '已进入休息模式';
 }
@@ -373,17 +374,30 @@ function manualModeNoticeText(mode) {
 function quotaModeNoticeText(toMode, reason) {
   if (toMode === 'locked') return '当前配额已用完';
   if (reason === 'quota_rest_exhausted') return '休息时间配额已用完 · 已回到学习时间';
-  if (reason === 'quota_composite_exhausted') return '综合时间配额已用完 · 已回到学习时间';
+  if (reason === 'quota_composite_exhausted') return '待归类时间配额已用完 · 已回到学习时间';
   if (reason === 'quota_reset_unlock') return '配额已重置 · 已回到学习时间';
   return manualModeNoticeText(toMode);
 }
 
+function pendingRouteTargetText(pendingRecordKind) {
+  if (pendingRecordKind === 'learning_request') {
+    return '学习网站归类申请待家长确认 · 当前仍计入待归类时间';
+  }
+  if (pendingRecordKind === 'unclassified_visit') {
+    return '已生成未归类网站访问记录 · 当前计入待归类时间';
+  }
+  if (pendingRecordKind === 'legacy') {
+    return '历史网站归类记录待家长确认 · 当前计入待归类时间';
+  }
+  return '你正在打开复合网站';
+}
 function noticeForRoute(route, {
   fromMode,
   domain,
   remainingCompositeSeconds = null,
   remainingStudySeconds = null,
   remainingRestSeconds = null,
+  pendingRecordKind = null,
 } = {}) {
   if (!route?.notice) return null;
   if (route.notice === 'study_to_composite' || route.notice === 'rest_to_composite_success') {
@@ -393,7 +407,7 @@ function noticeForRoute(route, {
       targetMode: 'composite',
       fromMode,
       domain,
-      text: `你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}`,
+      text: `${pendingRouteTargetText(pendingRecordKind)} · 即将进入复合模式 · 今日待归类剩余 ${remainingCompositeTime}`,
       remainingCompositeSeconds,
       remainingCompositeTime,
     };
@@ -417,13 +431,13 @@ function noticeForRoute(route, {
       targetMode: 'rest',
       fromMode,
       domain,
-      text: `你正在打开综合/待归类网站 · 当前综合时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`,
+      text: `${pendingRouteTargetText(pendingRecordKind)} · 当前待归类时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`,
       remainingRestSeconds,
       remainingRestTime,
     };
   }
   if (route.notice === 'mode_grace_to_rest') {
-    const label = fromMode === 'composite' ? '综合' : '学习';
+    const label = fromMode === 'composite' ? '待归类' : '学习';
     return {
       kind: route.notice,
       targetMode: 'rest',
@@ -489,7 +503,7 @@ export function evaluateModeRoute(facts = {}) {
   const currentMode = normalizeMode(facts.currentMode);
   const nowMs = Number.isFinite(Number(facts.nowMs)) ? Number(facts.nowMs) : Date.now();
   const restLocked = facts.quotaState?.restLocked === true;
-  const isRestTarget = !facts.isStudyDomain && !facts.isCompositeDomain;
+  const isRestTarget = facts.isRestricted === true;
   const compositeExhausted = facts.remainingCompositeSeconds !== null &&
     facts.remainingCompositeSeconds !== undefined &&
     Number(facts.remainingCompositeSeconds) <= 0;
@@ -679,12 +693,41 @@ async function handleAccessObserved(event = {}) {
   }
 
   const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
-  const siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, url);
+  let siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, url);
+  const tabId = Number(event.tabId);
+  const normalizedInitialClassification = siteClassification.classification || 'unclassified';
+  if (normalizedInitialClassification === 'unclassified' || normalizedInitialClassification === 'pending_composite') {
+    try {
+      const requestResult = await recordUnclassifiedSiteAccess(domain, {
+        sourceTabId: Number.isInteger(tabId) ? tabId : null,
+        url,
+        domain,
+        source: 'access_observed_auto_pending',
+        observedEventSource: event.source || null,
+        observedAt: nowMs,
+      });
+      if (requestResult?.ok) {
+        siteClassification = {
+          classification: 'pending_composite',
+          source: 'unclassified_site_access_record',
+          request: requestResult.request || null,
+        };
+      }
+    } catch (error) {
+      recordFallbackLog({
+        level: 'warn',
+        eventCode: 'unclassified_site_access_record_failed',
+        module: 'product/mode-service',
+        reason: 'auto_pending_failed',
+        message: 'Failed to record unclassified site access',
+        details: { domain, error: error?.message || String(error) },
+      });
+    }
+  }
   const isUnsafe = siteClassification.classification === 'blocked';
   const isRejected = siteClassification.classification === 'rejected';
   const isRestricted = siteClassification.classification === 'restricted' || isRejected;
   const isStudyDomain = siteClassification.classification === 'study';
-  const tabId = Number(event.tabId);
   const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && !isStudyDomain && (
     await hasTemporaryCompositePermission(Number.isInteger(tabId) ? tabId : null, domain) ||
     siteClassification.classification === 'pending_composite'
@@ -775,6 +818,13 @@ async function handleAccessObserved(event = {}) {
     remainingCompositeSeconds,
     remainingStudySeconds,
     remainingRestSeconds,
+    pendingRecordKind: siteClassification.classification === 'pending_composite'
+      ? siteClassification.request?.requestedClassification === 'study'
+        ? 'learning_request'
+        : siteClassification.request?.recordSource === 'legacy'
+        ? 'legacy'
+        : 'unclassified_visit'
+      : null,
   });
   return {
     ...decision,

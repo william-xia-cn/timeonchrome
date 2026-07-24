@@ -310,7 +310,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
     try {
       const activation = await refreshPrivacyConsentCache();
-      if (activation.privacyConsentRequired === true) {
+      if (activation.activationMode !== 'managed_policy' && activation.privacyConsentRequired === true) {
         await openPrivacyConsentPage('onInstalled', 'bind.html?welcome=1');
       }
     } catch (err) {
@@ -466,7 +466,7 @@ function modeToBadgeColor(mode) {
 function modeToLabel(mode) {
   if (mode === 'paused') return '暂停';
   if (mode === 'locked') return '锁定';
-  if (mode === 'composite') return '综合';
+  if (mode === 'composite') return '复合';
   if (mode === 'rest') return '休息';
   return '学习';
 }

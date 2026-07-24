@@ -314,15 +314,21 @@
       table-layout: fixed;
       min-width: 760px;
     }
-    .site-request-col-object { width: 58%; }
-    .site-request-col-type { width: 14%; }
-    .site-request-col-status { width: 14%; }
+    .site-request-col-object { width: 40%; }
+    .site-request-col-type { width: 18%; }
+    .site-request-col-status { width: 10%; }
+    .site-request-col-observation { width: 18%; }
     .site-request-col-time { width: 14%; }
-    .site-request-target-cell {
+    .site-request-target-cell,
+    .site-request-type-cell,
+    .site-request-status-cell,
+    .site-request-observation-cell,
+    .site-request-time-cell {
       white-space: normal;
       overflow-wrap: anywhere;
       word-break: break-word;
       line-height: 1.45;
+      vertical-align: top;
     }
 
     /* 时间段设置 */
@@ -1030,7 +1036,7 @@
     .rank-domain { font-weight: 500; }
     .rank-time { color: var(--muted); }
 
-    /* 综合明细列表（legacy DOM class 保持 undetermined 兼容） */
+    /* 待归类明细列表（legacy DOM class 保持 undetermined 兼容） */
     .undetermined-list { padding: 4px 0; }
     .undetermined-summary {
       font-size: 13px;
@@ -1459,7 +1465,7 @@
         <button type="button" class="active" data-rules-tab="site-management">网站管理</button>
         <button type="button" data-rules-tab="quota-management">配额管理</button>
         <button type="button" data-rules-tab="schedule-management">时间段管理</button>
-        <button type="button" data-rules-tab="classification-requests">网站归类申请记录</button>
+        <button type="button" data-rules-tab="classification-requests">网站归类记录</button>
       </div>
 
       <div class="rules-panel active" data-rules-panel="site-management">
@@ -1476,8 +1482,8 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/composite.svg" alt="">综合网站</div>
-              <div class="card-subtitle">学习模式下可访问，计入综合时间</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/composite.svg" alt="">复合网站</div>
+              <div class="card-subtitle">学习模式下可访问，计入待归类时间</div>
             </div>
           </div>
           <div id="rules-composite-display">暂无配置</div>
@@ -1539,8 +1545,8 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/request.svg" alt="">网站归类申请记录</div>
-              <div class="card-subtitle">进入名单后，审批前匹配的网站按综合时长处理；登录并绑定云端后提交给家长审批，审批结果可为学习网站、综合网站或拒绝。</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/request.svg" alt="">网站归类记录</div>
+              <div class="card-subtitle">系统自动记录未归类网站访问；孩子也可申请归为学习网站。家长批准前，两者都按待归类时间处理。</div>
             </div>
           </div>
           <div id="rules-temporary-composite-display">加载中...</div>

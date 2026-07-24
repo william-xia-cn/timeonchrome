@@ -457,7 +457,7 @@ section('Scenario 6: 媒体播放跨标签（YouTube 后台播放）');
 
 // ── Scenario 7: 域名分类统计 ────────────────────────────────────────────────
 
-section('Scenario 7: 域名分类统计（学习/待定/休息）');
+section('Scenario 7: 域名分类统计（学习/待归类/休息）');
 {
   resetAll();
   await initSession();
@@ -501,7 +501,7 @@ section('Scenario 7: 域名分类统计（学习/待定/休息）');
   }
 
   expect('学习时长 = 30s', studySeconds, 30);
-  expect('待定时长 = 20s', undeterminedSeconds, 20);
+  expect('待归类时长 = 20s', undeterminedSeconds, 20);
   expect('休息时长 = 10s', restSeconds, 10);
 }
 

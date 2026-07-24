@@ -636,7 +636,7 @@
       if (targetMode === 'study') {
         bannerEl.textContent = `正在使用学习网站 · ${secondsRemaining}秒后进入学习时间`;
       } else {
-        bannerEl.textContent = `正在使用综合网站 · ${secondsRemaining}秒后进入综合时间 · 今日剩余 ${remainingCompositeTime}`;
+        bannerEl.textContent = `正在使用复合网站 · ${secondsRemaining}秒后进入待归类时间 · 今日剩余 ${remainingCompositeTime}`;
       }
     };
 
@@ -675,7 +675,7 @@
     } else if (targetMode === 'study') {
       bannerEl.textContent = `你正在打开学习网站 · 即将进入学习模式 · 今日剩余 ${remainingStudyTime}`;
     } else {
-      bannerEl.textContent = `你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 ${remainingCompositeTime}`;
+      bannerEl.textContent = `你正在打开复合网站或待归类记录 · 即将进入复合模式 · 今日待归类剩余 ${remainingCompositeTime}`;
     }
 
     const visibleResult = await waitForModeNoticeVisible(bannerEl);

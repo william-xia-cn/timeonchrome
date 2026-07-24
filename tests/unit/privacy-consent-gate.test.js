@@ -34,7 +34,7 @@ function run() {
   const admin = read('extension/admin/admin.js');
   const popup = read('extension/popup/popup.js');
 
-  expectTrue('manifest is bumped to 1.7.13', manifest.version === '1.7.13');
+  expectTrue('manifest is bumped to 1.7.15', manifest.version === '1.7.15');
   expectTrue('manifest keeps identity permissions for disclosed recovery feature', manifest.permissions.includes('identity') && manifest.permissions.includes('identity.email'));
   expectTrue('manifest still has no OAuth config', !Object.prototype.hasOwnProperty.call(manifest, 'oauth2'));
 

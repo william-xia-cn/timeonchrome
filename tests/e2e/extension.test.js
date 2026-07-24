@@ -31,6 +31,19 @@ async function getContext() {
     ],
   });
 
+  // Keep extension-origin E2E deterministic while preserving normal HTTPS URLs
+  // and content-script injection behavior.
+  await browserCtx.route('https://www.example.com/**', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: '<!doctype html><html><head><title>Example Domain</title></head><body><main>Example Domain</main></body></html>',
+  }));
+  await browserCtx.route('https://www.youtube.com/**', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: '<!doctype html><html><head><title>YouTube Test Page</title></head><body><main>YouTube Test Page</main></body></html>',
+  }));
+
   // Discover extension ID from service worker URL
   let sw = browserCtx.serviceWorkers()[0];
   if (!sw) {
@@ -62,6 +75,31 @@ async function openExtensionPage(relPath) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
   await page.waitForTimeout(1500); // let scripts initialise
   return page;
+}
+
+async function closePrivacyConsentTabs(sw) {
+  return await sw.evaluate(async () => {
+    const tabs = await chrome.tabs.query({});
+    const setupTabIds = tabs
+      .filter((tab) => tab.url?.includes('/privacy-consent.html'))
+      .map((tab) => tab.id)
+      .filter(Number.isInteger);
+    if (setupTabIds.length > 0) await chrome.tabs.remove(setupTabIds);
+    return { ok: true, removed: setupTabIds.length };
+  });
+}
+
+async function activateChromeTabByUrlPrefix(sw, urlPrefix) {
+  return await sw.evaluate(async (prefix) => {
+    const tabs = await chrome.tabs.query({});
+    const tab = tabs.find((candidate) => candidate.url?.startsWith(prefix));
+    if (!tab?.id) {
+      return { ok: false, error: 'tab_not_found', prefix, tabs: tabs.map((candidate) => candidate.url || '') };
+    }
+    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    await chrome.tabs.update(tab.id, { active: true });
+    return { ok: true, tabId: tab.id, windowId: tab.windowId, url: tab.url };
+  }, urlPrefix);
 }
 
 // ── T-E1: Extension loads ─────────────────────────────────────────────────────
@@ -253,33 +291,22 @@ test('T-E10: Duration tracking records events on real webpage', async () => {
   await page.goto('https://www.example.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
   await page.waitForTimeout(3000); // Wait 3 seconds for signals to fire
 
-  // Check event log via page evaluation
-  const eventLog = await page.evaluate(async () => {
-    return new Promise(resolve => {
-      chrome.storage.local.get('event_log_v1', result => {
-        resolve(result['event_log_v1'] || []);
-      });
-    });
-  });
-
-  // Check session state
-  const sessionState = await page.evaluate(async () => {
-    return new Promise(resolve => {
-      chrome.storage.session.get('session_v1', result => {
-        resolve(result['session_v1'] || null);
-      });
-    });
-  });
-
-  // Check stats
+  // Read extension storage from the service worker context. Ordinary web pages
+  // do not expose chrome.storage even when an extension content script runs.
   const today = new Date().toISOString().slice(0, 10);
-  const stats = await page.evaluate(async (key) => {
-    return new Promise(resolve => {
-      chrome.storage.local.get(key, result => {
-        resolve(result[key] || {});
-      });
-    });
+  const sw = ctx.serviceWorkers()[0];
+  const storageSnapshot = await sw.evaluate(async (statsKey) => {
+    const [localResult, sessionResult] = await Promise.all([
+      chrome.storage.local.get(['event_log_v1', statsKey]),
+      chrome.storage.session.get('session_v1'),
+    ]);
+    return {
+      eventLog: localResult.event_log_v1 || [],
+      sessionState: sessionResult.session_v1 || null,
+      stats: localResult[statsKey] || {},
+    };
   }, `stats_${today}`);
+  const { eventLog, sessionState, stats } = storageSnapshot;
 
   console.log(`\n  [T-E10 Debug] event_log_v1: ${JSON.stringify(eventLog).slice(0, 200)}`);
   console.log(`  [T-E10 Debug] session_v1: ${JSON.stringify(sessionState)}`);
@@ -356,9 +383,9 @@ test('T-E12: Study → Composite light prompt appears, shows correct copy, and i
   });
 
   expect(bannerText).toBeTruthy();
-  expect(bannerText).toContain('你正在打开综合/待归类网站');
-  expect(bannerText).toContain('即将进入综合模式');
-  expect(bannerText).toContain('今日剩余');
+  expect(bannerText).toContain('你正在打开复合网站');
+  expect(bannerText).toContain('即将进入复合模式');
+  expect(bannerText).toContain('今日待归类剩余');
 
   // Verify non-blocking — page content should still be accessible
   const pageTitle = await page.title();
@@ -414,9 +441,9 @@ test('T-E12b: Study → Composite light prompt appears on page refresh', async (
   });
 
   expect(bannerText).toBeTruthy();
-  expect(bannerText).toContain('你正在打开综合/待归类网站');
-  expect(bannerText).toContain('即将进入综合模式');
-  expect(bannerText).toContain('今日剩余');
+  expect(bannerText).toContain('你正在打开复合网站');
+  expect(bannerText).toContain('即将进入复合模式');
+  expect(bannerText).toContain('今日待归类剩余');
 
   // Verify banner remains visible after 1 second
   await page.waitForTimeout(1000);
@@ -445,38 +472,67 @@ test('T-E12b: Study → Composite light prompt appears on page refresh', async (
 
 test('T-E12c: Study → Composite light prompt appears when activating existing composite tab', async () => {
   const ctx = await getContext();
-
-  // Reset runtime mode to Study before the test
   const sw = ctx.serviceWorkers()[0];
+
+  // This test verifies tab activation, not the privacy gate. Accept consent and
+  // close the asynchronous onboarding tab so it cannot steal foreground focus.
+  const consentPage = await openExtensionPage('privacy-consent.html');
+  const activation = await consentPage.evaluate(async () => chrome.runtime.sendMessage({
+    type: 'PRIVACY_CONSENT_ACCEPTED',
+    source: 'playwright_e2e_tab_activation',
+  }));
+  expect(activation?.ok).toBe(true);
+  await consentPage.close();
+  const setupCleanup = await closePrivacyConsentTabs(sw);
+  expect(setupCleanup.ok).toBe(true);
+
+  // Reset runtime mode to Study before the test.
   await sw.evaluate(async () => {
     await chrome.storage.local.set({
-      guardian_session: { currentMode: 'study' },
+      guardian_session: { currentMode: 'study', currentModeStartedAtMs: Date.now() },
+      mode_effect_trace_v1: [],
     });
   });
   await new Promise(r => setTimeout(r, 500));
 
-  // Step 1: Open a composite site tab and wait for it to load
+  // Step 1: Open a composite site tab and wait for the initial prompt.
   const compositePage = await ctx.newPage();
   await compositePage.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
-
-  // Wait for initial banner
   const bannerHost = compositePage.locator('#__toc_mode_notice__');
   await expect(bannerHost).toBeAttached({ timeout: 10000 });
+  await expect(bannerHost).not.toBeAttached({ timeout: 8000 });
 
-  // Step 2: Open a neutral tab (example.com) and switch to it
-  const neutralPage = await ctx.newPage();
-  await neutralPage.goto('https://www.example.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  // Step 2: Open an extension page that does not participate in site classification.
+  const neutralPage = await openExtensionPage('popup/popup.html');
+  const neutralActivation = await activateChromeTabByUrlPrefix(sw, `chrome-extension://${extensionId}/popup/popup.html`);
+  expect(neutralActivation.ok).toBe(true);
+  await new Promise(r => setTimeout(r, 500));
+  const midCleanup = await closePrivacyConsentTabs(sw);
+  expect(midCleanup.ok).toBe(true);
 
-  // Step 3: Bring the composite tab back to foreground
-  await compositePage.bringToFront();
+  // Opening the composite tab transitions the runtime to Composite. Reset to
+  // Study while the extension page is active, then activate the existing tab
+  // through the Chrome extension API so chrome.tabs.onActivated is exercised.
+  await sw.evaluate(async () => {
+    await chrome.storage.local.set({
+      guardian_session: { currentMode: 'study', currentModeStartedAtMs: Date.now() },
+      mode_effect_trace_v1: [],
+    });
+  });
+  const compositeActivation = await activateChromeTabByUrlPrefix(sw, 'https://www.youtube.com/');
+  expect(compositeActivation.ok).toBe(true);
 
-  // Wait a moment for the tab activation to trigger Mode Service access routing
-  await new Promise(r => setTimeout(r, 2000));
-
-  // Step 4: Verify banner appears on the activated composite tab
+  // Step 4: Verify banner appears on the activated composite tab. Wait for the
+  // transient UI first so slower trace reads cannot miss its 4s visible window.
   await expect(bannerHost).toBeAttached({ timeout: 10000 });
 
-  // Verify banner text
+  const sessionAfterActivation = await sw.evaluate(async () => {
+    const data = await chrome.storage.local.get('guardian_session');
+    return data.guardian_session || null;
+  });
+  expect(sessionAfterActivation?.currentMode).toBe('composite');
+
+  // Verify banner text.
   const bannerText = await compositePage.evaluate(() => {
     const host = document.getElementById('__toc_mode_notice__');
     if (!host || !host.shadowRoot) return null;
@@ -485,21 +541,14 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   });
 
   expect(bannerText).toBeTruthy();
-  expect(bannerText).toContain('你正在打开综合/待归类网站');
-  expect(bannerText).toContain('即将进入综合模式');
-  expect(bannerText).toContain('今日剩余');
+  expect(bannerText).toContain('你正在打开复合网站');
+  expect(bannerText).toContain('即将进入复合模式');
+  expect(bannerText).toContain('今日待归类剩余');
 
-  // Verify transient banner auto-hides after TTL. The activation path waits
-  // before reading the text, so requiring visibility after another 3 seconds is
-  // longer than the 4s notice contract.
-  await compositePage.waitForTimeout(2000);
-  const visibleAfterTtl = await compositePage.evaluate(() => {
-    const host = document.getElementById('__toc_mode_notice__');
-    return !!(host && host.shadowRoot && host.shadowRoot.getElementById('toc-pending-banner'));
-  });
-  expect(visibleAfterTtl).toBe(false);
+  // Verify transient banner auto-hides after the delivery-time TTL.
+  await expect(bannerHost).not.toBeAttached({ timeout: 8000 });
 
-  // Verify non-blocking
+  // Verify non-blocking.
   const pageTitle = await compositePage.title();
   expect(pageTitle).toBeTruthy();
 

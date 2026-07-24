@@ -34,13 +34,19 @@ chmod 700 . timeonchrome-managed-installer.sh install.command uninstall.command
 
 ## 安装效果
 
-- 强制安装并固定 TimeOnChrome `1.7.13`。
+- 强制安装 TimeOnChrome，并默认跟随稳定 self-hosted update feed 的 latest 版本。
 - 使用 managed Device Token 自动绑定云端设备。
 - 启用 Chrome 硬化：强制登录、仅允许 Pierce 账号、禁止新增 Profile、访客模式和无痕模式。
 - 自动解析当前控制台用户下唯一匹配 `pierce.xia@icloud.com` 的 Chrome Profile。
 - 启动 Chrome 时显式传入目标 `--profile-directory`，避免落到 Profile Picker 或错误 Profile。
 - keeper 每 60 秒检查 Chrome plist、扩展 managed-preferences 域和 MCX；任一项缺失或不匹配时自动重建。
 - 验收检查覆盖 Chrome policy、effective MCX、扩展版本、managed schema，以及 Chrome 自己生成的 `Managed Extension Settings/<extensionId>` 数据。
+
+## 版本策略
+
+日常版本发布只需要更新 self-hosted 平台上的 `update.xml`、CRX 和 SHA256 审计材料。已安装设备会继续通过稳定 `updateUrl` 自动更新；重新运行安装器、repair 或 reinstall 时，默认读取 update feed 当前指向的版本作为本次验收版本，不需要修改本地 `private-config.plist` 或重新打包。
+
+`private-config.plist` 的 `expectedVersion` 可省略、留空或设为 `latest`，表示跟随稳定 update feed。只有审计、排障或指定版本安装场景才填写具体版本，并配合 pinned feed 或 `expectedCrxCodebaseSuffix` 做严格校验。
 
 ## 验证闭环
 
@@ -63,3 +69,4 @@ sudo ./timeonchrome-managed-installer.sh install
 ## 独立模块来源
 
 通用安装器模块已拆出到 `tools/managed-chrome-extension-installer/`。本目录是 TimeOnChrome/Pierce 的项目内集成实例；如果要迁移到其他仓库，优先复制整个独立模块目录，再用 `examples/timeonchrome/private-config.example.plist` 作为配置映射参考。
+

@@ -36,7 +36,7 @@ function loadModule() {
     .replace(/export\s+const\s+/g, 'const ');
   const context = { URL, console, this: null };
   context.this = context;
-  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { normalizeSiteClassificationTarget, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl, resolveSiteAccessClassification, validateSiteAccessConfig };`, context, { filename: 'site-classification.js' });
+  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { normalizeSiteClassificationTarget, normalizeSiteClassificationRequest, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl, resolveSiteAccessClassification, validateSiteAccessConfig };`, context, { filename: 'site-classification.js' });
   return context.__m;
 }
 
@@ -121,6 +121,58 @@ async function run() {
       { targetType: 'url', normalizedValue: 'https://study.example.com/path?a=1' }
     ));
 
+  const legacyRecord = mod.normalizeSiteClassificationRequest({
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'legacy.example.com',
+    status: 'pending',
+  });
+  expectEqual('missing record source normalizes to legacy', legacyRecord.recordSource, 'legacy');
+  expectEqual('legacy record has no requested classification', legacyRecord.requestedClassification, null);
+
+  const observedRecord = mod.normalizeSiteClassificationRequest({
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'observed.example.com',
+    status: 'pending',
+    recordSource: 'auto_unclassified_access',
+    firstObservedAt: 1000,
+    lastObservedAt: 3000,
+    observationCount: 2.9,
+  });
+  expectEqual('auto record source is preserved', observedRecord.recordSource, 'auto_unclassified_access');
+  expectEqual('observation count is normalized to an integer', observedRecord.observationCount, 2);
+  expectEqual('last observation time is preserved', observedRecord.lastObservedAt, 3000);
+
+  const manualRecord = mod.normalizeSiteClassificationRequest({
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'manual.example.com',
+    status: 'pending',
+    recordSource: 'manual_learning_request',
+    requestedClassification: 'study',
+    manualRequestedAt: 4000,
+  });
+  expectEqual('manual learning direction is preserved', manualRecord.requestedClassification, 'study');
+  expectEqual('manual request timestamp is preserved', manualRecord.manualRequestedAt, 4000);
+  const inferredManualRecord = mod.normalizeSiteClassificationRequest({
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'inferred-manual.example.com',
+    recordSource: 'manual_learning_request',
+  });
+  expectEqual('manual source implies study direction', inferredManualRecord.requestedClassification, 'study');
+
+  const studyDirectionRecord = mod.normalizeSiteClassificationRequest({
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'study-direction.example.com',
+    recordSource: 'auto_unclassified_access',
+    requestedClassification: 'study',
+  });
+  expectEqual('study direction normalizes source to manual request', studyDirectionRecord.recordSource, 'manual_learning_request');
+
+  const invalidDirection = mod.normalizeSiteClassificationRequest({
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'invalid.example.com',
+    requestedClassification: 'composite',
+  });
+  expectEqual('unsupported manual direction normalizes to null', invalidDirection.requestedClassification, null);
   const pending = [{
     requestedTargetType: 'host',
     requestedNormalizedValue: 'unknown.example.com',

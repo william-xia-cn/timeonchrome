@@ -133,14 +133,14 @@
     const reminderReason = result?.reminder?.reason || result?.modeDecision?.reminder?.reason || '';
     const code = `${reasonCode} ${reminderReason}`.toLowerCase();
     if (code.includes('schedule') && targetMode === 'study') return '当前时间段未允许学习模式的使用，不能切换到学习模式。';
-    if (code.includes('schedule') && targetMode === 'composite') return '当前时间段未允许综合模式的使用，不能进入综合模式。';
+    if (code.includes('schedule') && targetMode === 'composite') return '当前时间段未允许复合模式的使用，不能进入复合模式。';
     if (code.includes('schedule') && targetMode === 'rest') return '当前时间段未允许休息模式的使用，不能进入休息模式。';
     if (code.includes('rest')) return '今天的休息时间已用完，当前不能继续访问。';
     if (code.includes('study')) return '今天的学习时间已用完，当前不能切换到学习模式。';
-    if (code.includes('composite') || code.includes('undetermined')) return '今天的综合时间已用完，当前不能进入综合时间。';
+    if (code.includes('composite') || code.includes('undetermined')) return '今天的待归类时间已用完，当前不能进入待归类时间。';
     if (code.includes('online') || code.includes('quota')) return '当前配额已用完，当前不能继续访问。';
     if (targetMode === 'rest') return '当前不能进入休息时间。';
-    if (targetMode === 'composite') return '当前不能进入综合时间。';
+    if (targetMode === 'composite') return '当前不能进入待归类时间。';
     return '当前不能切换到该模式。';
   }
 
@@ -193,12 +193,12 @@
     },
     study_mode: {
       icon: 'pending', title: '你正在打开未归类网站',
-      subtitle: '如需临时使用，请从扩展弹窗提交「申请网站归类」。',
+      subtitle: '系统会自动生成未归类网站访问记录，并在可用时进入待归类时间。',
       actions: ['backToStudy']
     },
     to_composite_confirm: {
-      icon: 'composite', title: '你正在打开综合网站',
-      subtitle: '继续后将进入综合时间，本段不会计入学习时间。',
+      icon: 'composite', title: '你正在打开复合网站',
+      subtitle: '继续后将进入待归类时间，本段不会计入学习时间。',
       actions: ['switchToComposite', 'backToStudy']
     },
     to_rest_confirm: {
@@ -217,7 +217,7 @@
       actions: ['switchToRest', 'back']
     },
     quota_composite_and_rest: {
-      icon: 'online-time', title: '今日综合时间和休息时间均已用完',
+      icon: 'online-time', title: '今日待归类时间和休息时间均已用完',
       subtitle: '当前不能继续访问。请返回。',
       actions: ['backGeneric']
     },
@@ -267,8 +267,8 @@
       actions: ['back']
     },
     composite_schedule_locked: {
-      icon: 'composite', title: '当前时间段未允许综合模式的使用',
-      subtitle: '这个网站的使用需要进入综合模式，但是当前时间未允许使用综合模式',
+      icon: 'composite', title: '当前时间段未允许复合模式的使用',
+      subtitle: '这个网站的使用需要进入复合模式，但是当前时间未允许使用复合模式',
       actions: ['back']
     },
     rest_schedule_locked: {
@@ -287,9 +287,9 @@
       }
     },
     switchToComposite: {
-      label: '继续（进入综合时间）', style: 'primary',
+      label: '继续（进入待归类时间）', style: 'primary',
       handler: function() {
-        requestModeChange('composite', 'reminder_confirm_composite', '已进入综合时间，正在跳转…');
+        requestModeChange('composite', 'reminder_confirm_composite', '已进入复合模式，正在跳转…');
       }
     },
     slideToRest: {
@@ -402,7 +402,7 @@
       }
       if (effectiveReason === 'to_composite_confirm') {
         const remainingComposite = formatDurationCN(status.compositeRemainingSeconds || 0);
-        restQuotaLine.textContent = `今日综合时间剩余：${remainingComposite}`;
+        restQuotaLine.textContent = `今日待归类时间剩余：${remainingComposite}`;
         return;
       }
       if (typeof status.restRemainingSeconds === 'number' && status.restRemainingSeconds <= 0) {
@@ -470,75 +470,41 @@
     }
   }
 
-  // Study → Unclassified dual-path (Case #5/#6)
+  // Legacy Study -> Unclassified compatibility. Normal unclassified access now
+  // auto-creates an unclassified access record and routes through pending_composite.
   if (effectiveReason === 'study_mode') {
     document.body.classList.add('study-rest-reminder');
-
-    // Application moved to popup. Reminder only explains and offers the safe fallback.
-    config.subtitle = '如需临时使用，请从扩展弹窗提交「申请网站归类」。继续进入休息会计入休息时间。';
+    config.subtitle = '系统会自动生成未归类网站访问记录，并在可用时进入待归类时间。';
     config.actions = ['backToStudy'];
 
-    // Default path: enter rest
     if (subtitle) {
       subtitle.textContent = config.subtitle;
     }
-
-    // Show rest quota line
     if (restQuotaLine) {
-      restQuotaLine.textContent = '剩余时间计算中...';
-      restQuotaLine.style.display = 'block';
-      chrome.runtime.sendMessage({ type: 'GET_RUNTIME_MODE_STATUS' }, function(status) {
-        if (!restQuotaLine) return;
-        if (!status) {
-          restQuotaLine.textContent = '剩余时间：暂不可用';
-          return;
-        }
-        if (typeof status.restRemainingSeconds === 'number' && status.restRemainingSeconds <= 0) {
-          disableRestEntry('今天的休息时间已用完，当前不能继续访问。');
-          return;
-        }
-        const remainingRest = formatDurationCN(status.restRemainingSeconds || 0);
-        restQuotaLine.textContent = `今日休息时间剩余：${remainingRest}`;
-      });
+      restQuotaLine.style.display = 'none';
     }
-
-    // Bind rest slider
-    bindSlideConfirm({
-      onConfirm: function() {
-        requestModeChange('rest', 'reminder_confirm_rest', '已切换到休息模式，正在跳转…');
-      },
-      dragText: '确认进入休息时间',
-      releaseText: '松手确认',
-      boundFlag: 'slideBound',
-    });
-
-    // Rest exhausted variant no longer exposes borrowing in V1-minimal.
   }
 
-  // Composite → Unclassified/Restricted dual-path (Case #14/#15/#16/#17)
+  // Rest confirmation remains only for Restricted Entertainment or fallback paths.
   if (effectiveReason === 'to_rest_confirm') {
     document.body.classList.add('study-rest-reminder');
-    var siteType = params.get('siteType') || 'unclassified';
+    var siteType = params.get('siteType') || 'restricted';
     var isRestrictedSite = siteType === 'restricted';
 
-    // Override config to prevent legacy button rendering (sliders handle rest/apply/borrow)
     if (isRestrictedSite) {
       config.title = '你正在打开受限娱乐网站';
-      config.subtitle = '继续后，这段时间会计入「休息时间」，不会计入「综合时间」。';
+      config.subtitle = '继续后，这段时间会计入「休息时间」，不会计入「学习时间」。';
     } else {
-      config.title = '你正在打开未归类网站';
-      config.subtitle = '继续后，这段时间会计入「休息时间」，不会计入「综合时间」。';
+      config.title = '待归类时间暂不可用';
+      config.subtitle = '待归类时间暂不可用时，继续后将临时进入「休息时间」。';
     }
-    // Re-apply title to DOM after dual-path override (fixes T-R4/T-R5 title mismatch)
     if (mainTitle) mainTitle.textContent = config.title;
     config.actions = ['backGeneric'];
 
-    // Default path: enter rest
     if (subtitle) {
       subtitle.textContent = config.subtitle;
     }
 
-    // Show rest quota line
     if (restQuotaLine) {
       restQuotaLine.textContent = '剩余时间计算中...';
       restQuotaLine.style.display = 'block';
@@ -557,19 +523,15 @@
       });
     }
 
-    // Bind rest slider (default path for both unclassified and restricted)
     bindSlideConfirm({
       onConfirm: function() {
         requestModeChange('rest', 'reminder_confirm_rest', '已切换到休息模式，正在跳转…');
       },
       dragText: '确认进入休息时间',
       releaseText: '松手确认',
-      boundFlag: 'slideBound',
+      boundFlag: 'slideBoundRest',
     });
-
-    // Rest exhausted variant no longer exposes borrowing in V1-minimal.
   }
-
   // V0: msg is a legacy blocked.js parameter. Canonical reason configs define all copy.
   // Never render msg — it can override the intended page semantics visually.
   var customMsgEl = document.getElementById('customMsg');

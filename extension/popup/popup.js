@@ -158,7 +158,7 @@ function closeSiteRequestPanel() {
 }
 
 function siteRequestErrorMessage(result = {}) {
-  if (result.code === 'REQUEST_REJECTED') return '该范围已归为受限娱乐，不能再次申请归类。';
+  if (result.code === 'REQUEST_REJECTED') return '该范围已归为受限娱乐，不能申请归为学习网站。';
   if (result.code === 'ALREADY_CLASSIFIED') return '该网站已归类，不能申请重新归类。';
   if (result.code === 'URL_REQUIRES_PROTOCOL') return '特定链接需要以 http:// 或 https:// 开头。';
   if (result.code === 'INVALID_HOST' || result.code === 'INVALID_URL' || result.code === 'INVALID_TARGET') return '请输入有效域名、子域名或 http/https 链接。';
@@ -318,7 +318,7 @@ async function submitSiteClassificationRequest() {
     renderSiteRequestStatus({
       kind: 'err',
       title: '无法提交',
-      body: '请输入要申请归类的网站或链接。',
+      body: '请输入要申请归为学习网站的网站或链接。',
     });
     return;
   }
@@ -328,6 +328,7 @@ async function submitSiteClassificationRequest() {
       type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST',
       input: value,
       sourceTabId: defaults.sourceTabId,
+      requestedClassification: 'study',
     }, { attempts: 1, timeoutMs: 1200 });
     if (!result?.ok) {
       renderSiteRequestStatus({
@@ -345,15 +346,19 @@ async function submitSiteClassificationRequest() {
     renderSiteRequestStatus({
       kind: 'ok',
       title: result.alreadyPresent
-        ? '已提交过'
+        ? '已申请过'
+        : result.promoted
+        ? '已从访问记录升级'
         : result.localOnly
-        ? '已在本机记录'
-        : '申请已提交',
+        ? '已在本机创建学习归类申请'
+        : '已创建学习归类申请',
       body: result.alreadyPresent
-        ? '已提交过该网站归类申请，不会重复创建。'
+        ? '该网站已经申请归为学习网站，不会重复创建。'
+        : result.promoted
+        ? '原未归类网站访问记录已升级为学习网站归类申请，访问概况已保留。家长批准前仍计入待归类时间。'
         : result.localOnly
-        ? '登录并绑定云端后，才能提交给家长审批。审批前本机可临时使用，时间计入综合时长。'
-        : '审批前可临时使用，时间计入综合时长。',
+        ? '登录并绑定云端后，学习网站归类申请才能同步给家长。批准前本机仍计入待归类时间。'
+        : '家长批准前仍计入待归类时间。',
       targetText,
     });
   } catch (error) {
@@ -829,14 +834,42 @@ function resolveDomainTag(domain, config = {}, urlOrDomain = null) {
   if (classification === 'blocked') return '阻止网站';
   if (classification === 'restricted') return '受限娱乐网站';
   if (classification === 'study') return '学习网站';
-  if (classification === 'pending_composite') return '已申请待归类网站';
-  if (classification === 'composite') return '综合网站';
+  if (classification === 'pending_composite') {
+    const pendingRecord = findMatchingPendingSiteRecord(domain, config, urlOrDomain);
+    if (pendingRecord?.requestedClassification === 'study') return '已申请归为学习网站';
+    if (!pendingRecord?.recordSource || pendingRecord.recordSource === 'legacy') return '历史网站归类记录';
+    return '未归类网站访问记录';
+  }
+  if (classification === 'composite') return '复合网站';
   if (classification === 'rest') return '休息网站';
   if (classification === 'rejected') return '受限娱乐网站';
   if (classification === 'conflict') return '配置冲突';
   return '未归类网站';
 }
 
+function findMatchingPendingSiteRecord(domain, config = {}, urlOrDomain = null) {
+  const normalizedDomain = normalizeHostname(domain);
+  if (!normalizedDomain) return null;
+  const candidates = [];
+  const records = Array.isArray(config.siteClassificationRequestsV1) ? config.siteClassificationRequestsV1 : [];
+  for (const record of records) {
+    if ((record?.status || 'pending') !== 'pending') continue;
+    const targetType = record?.requestedTargetType || record?.targetType || record?.type;
+    const value = record?.requestedNormalizedValue || record?.normalizedValue || record?.targetValue || record?.value;
+    if (targetType === 'url') {
+      const currentUrl = normalizeUrlTarget(urlOrDomain);
+      const targetUrl = normalizeUrlTarget(value);
+      if (currentUrl && targetUrl && currentUrl === targetUrl) {
+        candidates.push({ record, specificity: 100000 + currentUrl.length });
+      }
+    } else if (targetType === 'host') {
+      const specificity = hostPatternSpecificity(value, normalizedDomain);
+      if (specificity != null) candidates.push({ record, specificity });
+    }
+  }
+  candidates.sort((a, b) => b.specificity - a.specificity);
+  return candidates[0]?.record || null;
+}
 function resolveDomainClassification(domain, config = {}, urlOrDomain = null) {
   const normalizedDomain = normalizeHostname(domain);
   if (!normalizedDomain) return null;

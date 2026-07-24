@@ -16,7 +16,7 @@ const ANALYSIS_CATEGORY_KEYS = ['study', 'composite', 'rest', 'other'];
 const MEDIA_ANALYSIS_CATEGORY_KEYS = ['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip'];
 const ANALYSIS_CATEGORY_LABELS = {
   study: '学习',
-  composite: '综合',
+  composite: '待归类',
   rest: '休息',
   other: '其他',
   foregroundAudio: '前台音频',

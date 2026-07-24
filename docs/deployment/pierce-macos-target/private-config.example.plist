@@ -9,7 +9,7 @@
 	<key>enableHardening</key>
 	<true/>
 	<key>expectedVersion</key>
-	<string>1.7.13</string>
+	<string>latest</string>
 	<key>extensionId</key>
 	<string>jdcancbiocacabbjdkngadmjpjmkdnih</string>
 	<key>managedDeviceToken</key>

@@ -30,6 +30,12 @@ function rowToResponse(row: any) {
     requestedNormalizedValue: row.requested_normalized_value,
     requestedHost: row.requested_host,
     displayValue: row.display_value,
+    recordSource: row.record_source || 'legacy',
+    requestedClassification: row.requested_classification || null,
+    manualRequestedAt: row.manual_requested_at || null,
+    firstObservedAt: row.first_observed_at || null,
+    lastObservedAt: row.last_observed_at || null,
+    observationCount: Number(row.observation_count || 0),
     status: row.status,
     decision: row.decision,
     decisionTargetType: row.decision_target_type,
@@ -52,6 +58,156 @@ function normalizeRequestInput(input: any) {
   return normalized;
 }
 
+type SiteClassificationUploadItem = {
+  id?: string;
+  clientRequestId?: string;
+  requestedTargetType?: string;
+  targetType?: string;
+  requestedRawInput?: string;
+  requestedNormalizedValue?: string;
+  input?: string;
+  targetValue?: string;
+  requestedAt?: number;
+  recordSource?: string;
+  requestedClassification?: string | null;
+  manualRequestedAt?: number | null;
+  observationSourceId?: string | null;
+  sourceObservationCount?: number;
+  sourceFirstObservedAt?: number | null;
+  sourceLastObservedAt?: number | null;
+};
+
+type ObservationAggregateRow = {
+  first_observed_at: number | null;
+  last_observed_at: number | null;
+  observation_count: number | null;
+};
+const SITE_CLASSIFICATION_RECORD_SOURCES = new Set([
+  'auto_unclassified_access',
+  'manual_learning_request',
+  'legacy',
+]);
+
+function normalizeRecordSource(value: unknown): string {
+  return typeof value === 'string' && SITE_CLASSIFICATION_RECORD_SOURCES.has(value)
+    ? value
+    : 'legacy';
+}
+
+function normalizeRequestedClassification(value: unknown): 'study' | null | undefined {
+  if (value == null || value === '') return null;
+  if (value === 'study') return 'study';
+  return undefined;
+}
+
+function normalizePositiveInteger(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
+function normalizePositiveTimestamp(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+async function mergeRequestMetadata(
+  env: Env,
+  requestId: string,
+  item: SiteClassificationUploadItem,
+  recordSource: string,
+  requestedClassification: 'study' | null,
+  now: number,
+) {
+  const manualRequestedAt = requestedClassification === 'study'
+    ? normalizePositiveTimestamp(item.manualRequestedAt) || now
+    : null;
+  await env.DB.prepare(
+    `UPDATE site_classification_requests_v1
+     SET record_source = CASE
+           WHEN ? = 'study' THEN 'manual_learning_request'
+           WHEN record_source IS NULL OR record_source = 'legacy' THEN ?
+           ELSE record_source
+         END,
+         requested_classification = CASE
+           WHEN ? = 'study' THEN 'study'
+           ELSE requested_classification
+         END,
+         manual_requested_at = CASE
+           WHEN ? = 'study' THEN MAX(COALESCE(manual_requested_at, 0), ?)
+           ELSE manual_requested_at
+         END,
+         updated_at = ?
+     WHERE id = ?`
+  ).bind(
+    requestedClassification,
+    recordSource,
+    requestedClassification,
+    requestedClassification,
+    manualRequestedAt || 0,
+    now,
+    requestId,
+  ).run();
+}
+
+async function mergeObservationSummary(
+  env: Env,
+  requestId: string,
+  profileId: string,
+  deviceId: string,
+  item: SiteClassificationUploadItem,
+  now: number,
+) {
+  const observationSourceId = typeof item.observationSourceId === 'string'
+    ? item.observationSourceId.trim().slice(0, 200)
+    : '';
+  const observationCount = normalizePositiveInteger(item.sourceObservationCount);
+  if (!observationSourceId || observationCount === 0) return;
+
+  const firstObservedAt = normalizePositiveTimestamp(item.sourceFirstObservedAt) || now;
+  const lastObservedAt = normalizePositiveTimestamp(item.sourceLastObservedAt) || firstObservedAt;
+  await env.DB.prepare(
+    `INSERT INTO site_classification_observation_counters_v1
+       (request_id, profile_id, device_id, observation_source_id, observation_count,
+        first_observed_at, last_observed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(request_id, observation_source_id) DO UPDATE SET
+       device_id = excluded.device_id,
+       observation_count = MAX(observation_count, excluded.observation_count),
+       first_observed_at = MIN(first_observed_at, excluded.first_observed_at),
+       last_observed_at = MAX(last_observed_at, excluded.last_observed_at),
+       updated_at = excluded.updated_at`
+  ).bind(
+    requestId,
+    profileId,
+    deviceId,
+    observationSourceId,
+    observationCount,
+    firstObservedAt,
+    lastObservedAt,
+    now,
+    now,
+  ).run();
+
+  const aggregate = await env.DB.prepare(
+    `SELECT MIN(first_observed_at) AS first_observed_at,
+            MAX(last_observed_at) AS last_observed_at,
+            SUM(observation_count) AS observation_count
+     FROM site_classification_observation_counters_v1
+     WHERE request_id = ? AND profile_id = ?`
+  ).bind(requestId, profileId).first<ObservationAggregateRow>();
+  await env.DB.prepare(
+    `UPDATE site_classification_requests_v1
+     SET first_observed_at = ?, last_observed_at = ?, observation_count = ?, updated_at = ?
+     WHERE id = ? AND profile_id = ?`
+  ).bind(
+    aggregate?.first_observed_at || null,
+    aggregate?.last_observed_at || null,
+    Number(aggregate?.observation_count || 0),
+    now,
+    requestId,
+    profileId,
+  ).run();
+}
 const CLASSIFIED_SITE_LIST_FIELDS = [
   { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'customBlockedSites', 'defaultUnsafeSites', 'customUnsafeSites'], classification: 'blocked' },
   { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'customRestrictedEntertainmentList'], classification: 'restricted' },
@@ -183,24 +339,35 @@ export const siteClassificationRequestsRouter = {
       if (!device) return json({ error: 'Invalid device token' }, 401);
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
-      const body = await request.json<{ requests?: any[] }>().catch(() => ({} as { requests?: any[] }));
+      const body = await request.json<{ requests?: SiteClassificationUploadItem[] }>()
+        .catch(() => ({} as { requests?: SiteClassificationUploadItem[] }));
       const requests = Array.isArray(body?.requests) ? body.requests.slice(0, 200) : [];
       if (requests.length === 0) return json({ error: 'requests array required' }, 400);
 
-      const saved: any[] = [];
-      const errors: any[] = [];
+      const saved: ReturnType<typeof rowToResponse>[] = [];
+      const errors: Array<Record<string, unknown>> = [];
       const now = Date.now();
       const profileConfig = await getProfileConfig(env, device.profileId);
       for (const item of requests) {
+        let requestedClassification = normalizeRequestedClassification(item.requestedClassification);
+        if (requestedClassification === undefined) {
+          errors.push({ id: item.id || null, code: 'INVALID_REQUESTED_CLASSIFICATION' });
+          continue;
+        }
+        let recordSource = normalizeRecordSource(item.recordSource);
+        if (requestedClassification === 'study' || recordSource === 'manual_learning_request') {
+          requestedClassification = 'study';
+          recordSource = 'manual_learning_request';
+        }
         const target = normalizeRequestInput(item);
         if (!target.ok) {
-          errors.push({ id: item?.id || null, code: target.code || 'INVALID_TARGET' });
+          errors.push({ id: item.id || null, code: target.code || 'INVALID_TARGET' });
           continue;
         }
         const configured = getConfiguredClassificationForTarget(profileConfig, target);
         if (configured) {
           errors.push({
-            id: item?.id || null,
+            id: item.id || null,
             code: configured.classification === 'rejected' ? 'REQUEST_REJECTED' : 'ALREADY_CLASSIFIED',
             classifiedAs: configured.classification,
             source: configured.source,
@@ -209,7 +376,7 @@ export const siteClassificationRequestsRouter = {
         }
         const rejected = await findRejectedMatch(env, device.profileId, target);
         if (rejected) {
-          errors.push({ id: item?.id || null, code: 'REQUEST_REJECTED', rejectedId: rejected.id });
+          errors.push({ id: item.id || null, code: 'REQUEST_REJECTED', rejectedId: rejected.id });
           continue;
         }
         const existing = await env.DB.prepare(
@@ -220,22 +387,46 @@ export const siteClassificationRequestsRouter = {
            LIMIT 1`
         ).bind(device.profileId, target.targetType, target.normalizedValue).first<any>();
         if (existing) {
-          saved.push(rowToResponse(existing));
+          await mergeRequestMetadata(env, existing.id, item, recordSource, requestedClassification, now);
+          await mergeObservationSummary(env, existing.id, device.profileId, device.deviceId, item, now);
+          const updated = await env.DB.prepare(
+            `SELECT * FROM site_classification_requests_v1 WHERE id = ?`
+          ).bind(existing.id).first<any>();
+          if (updated) saved.push(rowToResponse(updated));
           continue;
         }
+
         const id = crypto.randomUUID();
+        const manualRequestedAt = requestedClassification === 'study'
+          ? normalizePositiveTimestamp(item.manualRequestedAt) || now
+          : null;
         await env.DB.prepare(
           `INSERT INTO site_classification_requests_v1
            (id, profile_id, device_id, client_request_id, requested_target_type, requested_raw_input,
-            requested_normalized_value, requested_host, display_value, status, requested_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+            requested_normalized_value, requested_host, display_value, status, record_source,
+            requested_classification, manual_requested_at, requested_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
         ).bind(
-          id, device.profileId, device.deviceId, item.id || item.clientRequestId || null,
-          target.targetType, item.requestedRawInput || target.rawInput,
-          target.normalizedValue, target.host || null, target.displayValue,
-          Number(item.requestedAt || 0) || now, now, now
+          id,
+          device.profileId,
+          device.deviceId,
+          item.id || item.clientRequestId || null,
+          target.targetType,
+          item.requestedRawInput || target.rawInput,
+          target.normalizedValue,
+          target.host || null,
+          target.displayValue,
+          recordSource,
+          requestedClassification,
+          manualRequestedAt,
+          Number(item.requestedAt || 0) || now,
+          now,
+          now,
         ).run();
-        const inserted = await env.DB.prepare(`SELECT * FROM site_classification_requests_v1 WHERE id = ?`).bind(id).first<any>();
+        await mergeObservationSummary(env, id, device.profileId, device.deviceId, item, now);
+        const inserted = await env.DB.prepare(
+          `SELECT * FROM site_classification_requests_v1 WHERE id = ?`
+        ).bind(id).first<any>();
         if (inserted) saved.push(rowToResponse(inserted));
       }
 

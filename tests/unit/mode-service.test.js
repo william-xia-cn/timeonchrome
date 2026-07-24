@@ -408,10 +408,11 @@ this.__modeService = {
       kind: 'reminder',
       reminderReason: 'composite_schedule_locked',
     });
-    expect('rest target outside rest window blocks', svc.evaluateModeRoute({
+    expect('restricted rest target outside rest window blocks', svc.evaluateModeRoute({
       currentMode: 'study',
       isStudyDomain: false,
       isCompositeDomain: false,
+      isRestricted: true,
       restWindowAllowed: false,
       quotaState: {},
       nowMs: 10,
@@ -777,14 +778,14 @@ this.__modeService = {
   section('MSVC-4 Rest Exit Grace returns Rest target to Rest without Reminder');
   {
     const svc = loadModeService();
-    expect('study grace -> rest', svc.evaluateModeRoute({
+    expect('study restricted grace -> rest', svc.evaluateModeRoute({
       currentMode: 'study',
       currentModeStartedAtMs: 1000,
       restExitGraceUntilMs: 31_000,
       nowMs: 30_000,
       isStudyDomain: false,
       isCompositeDomain: false,
-      isRestricted: false,
+      isRestricted: true,
       quotaState: { restLocked: false },
     }), {
       kind: 'mode_change',
@@ -814,18 +815,18 @@ this.__modeService = {
   section('MSVC-5 missing/expired Rest Exit Grace uses Reminder');
   {
     const svc = loadModeService();
-    expect('missing startedAt -> study reminder', svc.evaluateModeRoute({
+    expect('missing startedAt -> restricted reminder', svc.evaluateModeRoute({
       currentMode: 'study',
       currentModeStartedAtMs: 29_000,
       restExitGraceUntilMs: null,
       nowMs: 30_000,
       isStudyDomain: false,
       isCompositeDomain: false,
-      isRestricted: false,
+      isRestricted: true,
       quotaState: { restLocked: false },
     }), {
       kind: 'reminder',
-      reminderReason: 'study_mode',
+      reminderReason: 'to_rest_slide_confirm',
       extraParams: { originMode: 'study' },
     });
     expect('expired startedAt -> composite reminder', svc.evaluateModeRoute({

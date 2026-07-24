@@ -40,7 +40,7 @@ function run() {
     devicePolicyId: 'string',
   };
 
-  expectTrue('manifest version is 1.7.13', manifest.version === '1.7.13');
+  expectTrue('manifest version is 1.7.15', manifest.version === '1.7.15');
   expectTrue('manifest declares the production self-hosted update URL', manifest.update_url === productionUpdateUrl);
   expectTrue('manifest declares the managed storage schema', schemaName === 'managed-storage-schema.json');
   expectTrue('managed storage schema is packaged at the declared path', fs.existsSync(schemaPath));

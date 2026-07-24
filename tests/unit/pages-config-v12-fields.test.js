@@ -77,10 +77,10 @@ function run() {
   expectTrue('Pages 不应再包含总览一级入口', !source.includes('data-page="overview"') && !source.includes('id="page-overview"'));
   expectTrue('Pages 默认 active 导航应为使用统计', source.includes('<div class="nav-item active" data-page="stats">') && source.includes('<div class="page active" id="page-stats">'));
   const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="review"', 'data-page="account"', 'data-page="system-management"'].map(item => source.indexOf(item));
-  expectTrue('Pages 左侧导航顺序应为使用统计/访问管理/网站归类申请/子用户管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
+  expectTrue('Pages 左侧导航顺序应为使用统计/访问管理/网站归类审核/子用户管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
   expectTrue('Pages 左侧不应再包含一级设备管理入口', !source.includes('data-page="devices"') && !source.includes('<span class="nav-icon">💻</span><span>设备管理</span>'));
   expectTrue('Pages 账户设置可见文案应改为子用户管理', source.includes('子用户管理') && !source.includes('<span>账户设置</span>') && !source.includes('<span>用户管理</span>'));
-  expectTrue('Pages 待审核一级导航应改为网站归类申请', source.includes('<span>网站归类申请') && !source.includes('<span>待审核'));
+  expectTrue('Pages 待审核一级导航应改为网站归类审核', source.includes('<span>网站归类审核') && !source.includes('<span>待审核'));
   expectTrue('Pages 应包含系统管理导航', source.includes('data-page="system-management"') && source.includes('系统管理'));
   expectTrue('Pages 系统管理导航应位于用户管理之后', source.indexOf('data-page="account"') < source.indexOf('data-page="system-management"'));
   expectTrue('Pages 系统管理应包含统计对账/网页落账/媒体落账/系统日志/数据备份与恢复/账户管理 Tab', source.includes('data-system-management-tab="reconciliation"') && source.includes('data-system-management-tab="web-settlements"') && source.includes('data-system-management-tab="media-settlements"') && source.includes('data-system-management-tab="client-logs"') && source.includes('data-system-management-tab="backup-restore"') && source.includes('data-system-management-tab="account-management"'));
@@ -152,10 +152,13 @@ function run() {
   expectTrue('Pages 统计对账应读取 stats-reconciliation/v1', source.includes('/stats-reconciliation/v1'));
   expectTrue('Pages 统计对账应展示统计表、落账聚合、差异、状态', source.includes('统计表') && source.includes('落账聚合') && source.includes('差异') && source.includes('状态'));
   expectTrue('Pages 统计对账应支持显示全部开关', source.includes('reconciliation-show-all'));
-  expectTrue('Pages 应包含网站归类申请审核入口', source.includes('网站归类申请') && source.includes('site-classification-requests/v1'));
-  expectTrue('Pages 网站归类申请应支持审批生效对象编辑', source.includes('审批生效对象') && source.includes('site-request-type-') && source.includes('site-request-target-'));
-  expectTrue('Pages 网站归类申请应支持学习/综合/退回/归为受限娱乐四种动作', source.includes('批准为学习网站') && source.includes('批准为综合网站') && source.includes('退回申请') && source.includes('归为受限娱乐'));
-  expectTrue('Pages 网站归类申请应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
+  expectTrue('Pages 应包含网站归类审核入口', source.includes('网站归类审核') && source.includes('site-classification-requests/v1'));
+  expectTrue('Pages 网站归类记录应支持审批生效对象编辑', source.includes('审批生效对象') && source.includes('site-request-type-') && source.includes('site-request-target-'));
+  expectTrue('Pages 应为访问记录提供确认/暂不归类动作', source.includes('确认为学习网站') && source.includes('确认为复合网站') && source.includes('暂不归类') && source.includes('归为受限娱乐'));
+  expectTrue('Pages 应为学习申请提供批准/改为复合/退回动作', source.includes('批准归为学习网站') && source.includes('改为复合网站') && source.includes('退回申请'));
+  expectTrue('Pages 应展示两类记录及聚合访问字段', source.includes('未归类网站访问记录') && source.includes('学习网站归类申请') && source.includes('firstObservedAt') && source.includes('lastObservedAt') && source.includes('observationCount'));
+  expectTrue('Pages 移动端归类审核应使用单列记录和两列动作', source.includes('grid-template-columns: minmax(0, 1fr)') && source.includes('.site-request-actions .btn-classify') && source.includes('grid-template-columns: 1fr 1fr'));
+  expectTrue('Pages 网站归类记录应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
   expectTrue('Pages 访问规则页不应单独展示已批准精确链接规则', !source.includes('已批准精确链接 / 管理对象规则') && !source.includes('r-approved-target-rules-display') && !source.includes('renderApprovedTargetRules'));
   expectTrue('Pages 访问规则页应把已批准 URL 规则合并到对应分类', source.includes('approvedUrlRulesForListKey') && source.includes("listKey === 'customStudyList'") && source.includes("listKey === 'customCompositeList'") && source.includes("listKey === 'customRestrictedEntertainmentList'") && !source.includes("listKey === 'customBlockedSites'\\n        ? 'reject'"));
   expectTrue('Pages URL 规则展示应去重', source.includes('function uniqueSiteRules') && source.includes('return uniqueSiteRules'));
@@ -177,24 +180,24 @@ function run() {
   expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));
   expectTrue('pages 不应再使用"系统默认"文案', !/系统默认（不可编辑）/.test(source));
 
-  // 综合网站系统配置拆分检查
-  expectTrue('pages 应包含系统配置综合网站区', source.includes('系统配置综合网站（只读）'));
-  expectTrue('pages 应包含家长自定义综合网站区', source.includes('家长自定义综合网站'));
-  expectTrue('pages 应包含综合网站系统配置标签容器', source.includes('id="r-composite-default-tags"'));
+  // 复合网站系统配置拆分检查
+  expectTrue('pages 应包含系统配置复合网站区', source.includes('系统配置复合网站（只读）'));
+  expectTrue('pages 应包含家长自定义复合网站区', source.includes('家长自定义复合网站'));
+  expectTrue('pages 应包含复合网站系统配置标签容器', source.includes('id="r-composite-default-tags"'));
 
   // 时间段管理：per-day 结构检查
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
   expectTrue('pages 应包含七天配置', source.includes("'monday'") && source.includes("'sunday'"));
   expectTrue('pages 学习时段默认应为 null（全天允许）', source.includes('studyWindows: null'));
-  expectTrue('pages 综合时段默认应为 null（全天允许）', source.includes('compositeWindows: null'));
+  expectTrue('pages 复合时段默认应为 null（全天允许）', source.includes('compositeWindows: null'));
   expectTrue('pages 休息时段默认应为 15:30-24:00', source.includes("'15:30'") && source.includes("'24:00'"));
-  expectTrue('pages 时间段管理应显示综合时段', source.includes('综合时段') && source.includes('addCompositeWindow') && source.includes('removeCompositeWindow'));
+  expectTrue('pages 时间段管理应显示复合时段', source.includes('复合时段') && source.includes('addCompositeWindow') && source.includes('removeCompositeWindow'));
   expectTrue('saveScheduleConfig 应提交 daily 结构', source.includes('timeWindows: { daily }'));
   expectTrue('saveScheduleConfig 应提交 compositeWindows', extractFunctionSource(source, 'saveScheduleConfig').includes('compositeWindows'));
   expectTrue('saveScheduleConfig 不应提交 onlineWindows', !/saveScheduleConfig[\s\S]{0,500}onlineWindows/.test(source));
   expectTrue('schedule 不应被 saveScheduleConfig 覆盖', !/saveScheduleConfig[\s\S]{0,300}schedule/.test(source));
 
-  // 最小行为级断言：综合网站列表绑定 compositeList
+  // 最小行为级断言：复合网站列表绑定 compositeList
   const setupRulesSource = extractFunctionSource(source, 'setupRules');
   const captured = [];
   const context = {
@@ -213,8 +216,8 @@ function run() {
   context.__fn();
 
   const composite = captured.find((entry) => entry[0] === 'r-composite-input');
-  expectTrue('综合网站列表应完成 setupCustomDomainInput 绑定', !!composite);
-  expectEqual('综合网站列表 customKey 应为 customCompositeList', composite?.[3], 'customCompositeList');
+  expectTrue('复合网站列表应完成 setupCustomDomainInput 绑定', !!composite);
+  expectEqual('复合网站列表 customKey 应为 customCompositeList', composite?.[3], 'customCompositeList');
 
   const total = passed + failed;
   console.log(`\n[Pages Config v1.2 Fields] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

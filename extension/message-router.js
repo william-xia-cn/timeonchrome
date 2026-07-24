@@ -337,6 +337,10 @@ export async function handleMessage(msg, sender) {
 
     case 'SUBMIT_SITE_CLASSIFICATION_REQUEST': {
       try {
+        const requestedClassification = msg.requestedClassification || 'study';
+        if (requestedClassification !== 'study') {
+          return { ok: false, code: 'INVALID_REQUESTED_CLASSIFICATION', error: 'only study classification requests are supported' };
+        }
         const context = await resolveSiteClassificationSourceContext(msg, sender);
         const target = normalizeSiteClassificationTarget(msg.input || msg.url || context.url || context.domain || '');
         if (!target.ok) {
@@ -347,6 +351,7 @@ export async function handleMessage(msg, sender) {
           sourceTabId: Number.isInteger(context.sourceTabId) ? context.sourceTabId : context.tabId,
           url: target.targetType === 'url' ? target.normalizedValue : context.url,
           domain: target.host || context.domain,
+          requestedClassification,
         };
         const result = await submitSiteClassificationRequest(msg.input || msg.url || target.normalizedValue, requestContext);
         if (result?.ok) {
@@ -670,7 +675,7 @@ async function getActiveTabForModeNotice(preferredTabId = null) {
 
 function manualModeNoticeText(mode) {
   if (mode === 'study') return '已回到学习模式';
-  if (mode === 'composite') return '已进入综合模式';
+  if (mode === 'composite') return '已进入复合模式';
   if (mode === 'locked') return '当前配额已用完';
   return '已进入休息模式';
 }

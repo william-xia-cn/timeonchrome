@@ -1537,7 +1537,7 @@ function renderQuotaSection() {
           <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
           <div style="font-size:12px;">学习：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.study)}</span></div>
           <div style="font-size:12px;">休息：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.rest)}</span></div>
-          <div style="font-size:12px;">综合：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.composite)}</span></div>
+          <div style="font-size:12px;">待归类：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.composite)}</span></div>
         </div>
       `;
     }).join('');
@@ -1613,7 +1613,7 @@ function renderScheduleSection() {
       <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
         <div style="font-size:12px;color:var(--muted);font-weight:600;">星期</div>
         <div style="font-size:12px;color:var(--muted);font-weight:600;">学习时段</div>
-        <div style="font-size:12px;color:var(--muted);font-weight:600;">综合时段</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">复合时段</div>
         <div style="font-size:12px;color:var(--muted);font-weight:600;">休息时段</div>
         <div style="font-size:12px;color:var(--muted);font-weight:600;">在线时段</div>
       </div>
@@ -1655,7 +1655,7 @@ function siteRequestStatusLabel(status) {
   if (status === 'pending') return '待审批';
   if (status === 'returned') return '已退回';
   if (status === 'approved_study') return '已批准为学习';
-  if (status === 'approved_composite') return '已批准为综合';
+  if (status === 'approved_composite') return '已批准为复合';
   if (status === 'rejected') return '已归为受限娱乐';
   return status || '未知';
 }
@@ -1725,12 +1725,26 @@ function approvedUrlRulesForDecision(decision) {
     .filter((rule) => siteRuleDecision(rule) === decision));
 }
 
+function siteClassificationRecordTypeLabel(record = {}) {
+  if (record.requestedClassification === 'study') return '学习网站归类申请';
+  if (!record.recordSource || record.recordSource === 'legacy') return '历史网站归类记录';
+  return '未归类网站访问记录';
+}
+
+function siteClassificationObservationSummary(record = {}) {
+  const count = Math.max(0, Number(record.observationCount || 0));
+  if (!record.firstObservedAt && !record.lastObservedAt && count === 0) return '暂无访问概况';
+  const first = formatRulesDateTime(record.firstObservedAt);
+  const last = formatRulesDateTime(record.lastObservedAt);
+  return `首次 ${first}<br>最近 ${last}<br>顶层导航 ${count} 次`;
+}
+
 function renderSiteClassificationRequestRecords(records) {
   const el = document.getElementById('rules-temporary-composite-display');
   if (!el) return;
   const list = Array.isArray(records) ? records : [];
   if (list.length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无网站归类申请</div>';
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无网站归类记录</div>';
     return;
   }
   el.innerHTML = `
@@ -1739,20 +1753,27 @@ function renderSiteClassificationRequestRecords(records) {
         <thead>
           <tr>
             <th class="site-request-col-object">对象</th>
-            <th class="site-request-col-type">类型</th>
+            <th class="site-request-col-type">记录类型</th>
             <th class="site-request-col-status">状态</th>
-            <th class="site-request-col-time">申请时间</th>
+            <th class="site-request-col-observation">访问概况</th>
+            <th class="site-request-col-time">申请/记录时间</th>
           </tr>
         </thead>
         <tbody>
           ${list.map((record) => {
             const targetValue = record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue || '—';
+            const recordType = siteClassificationRecordTypeLabel(record);
+            const targetType = siteRequestTypeLabel(record.requestedTargetType);
+            const timestamp = record.requestedClassification === 'study'
+              ? record.manualRequestedAt || record.requestedAt || record.createdAt
+              : record.requestedAt || record.createdAt;
             return `
             <tr>
               <td class="site-request-target-cell" title="${escAttr(targetValue)}">${escHtml(targetValue)}</td>
-              <td class="site-request-type-cell">${escHtml(siteRequestTypeLabel(record.requestedTargetType))}</td>
+              <td class="site-request-type-cell">${escHtml(recordType)}<br><span style="color:var(--muted);">${escHtml(targetType)}</span></td>
               <td class="site-request-status-cell">${escHtml(siteRequestStatusLabel(record.status))}</td>
-              <td class="site-request-time-cell">${escHtml(formatRulesDateTime(record.requestedAt || record.createdAt))}</td>
+              <td class="site-request-observation-cell">${siteClassificationObservationSummary(record)}</td>
+              <td class="site-request-time-cell">${escHtml(formatRulesDateTime(timestamp))}</td>
             </tr>
           `;}).join('')}
         </tbody>
@@ -1760,7 +1781,6 @@ function renderSiteClassificationRequestRecords(records) {
     </div>
   `;
 }
-
 async function renderSiteClassificationRequestSection() {
   const el = document.getElementById('rules-temporary-composite-display');
   if (!el) return;
@@ -1803,7 +1823,7 @@ function renderRulesPage() {
     ]),
     customList: config?.customCompositeList,
     targetRules: approvedUrlRulesForDecision('composite'),
-    targetRuleTitle: '已批准综合精确链接',
+    targetRuleTitle: '已批准复合精确链接',
   });
   renderSiteGroup('rules-restricted-display', {
     effectiveList: config?.restrictedEntertainmentList,
@@ -2850,7 +2870,7 @@ function shiftUsageAnalysisDate(currentKey, days) {
 function usageCategoryLabel(key) {
   return ({
     study: '学习',
-    composite: '综合',
+    composite: '待归类',
     rest: '休息',
     other: '其他',
     foregroundAudio: '前台音频',
@@ -3121,7 +3141,7 @@ function renderOverviewList(id, overview) {
     { label: '休息', value: formatSeconds(overview.rest) },
     { label: '后台媒体', value: formatSeconds(overview.audio) },
     { label: 'PiP', value: formatSeconds(overview.pip) },
-    { label: '综合', value: formatSeconds(overview.composite ?? overview.undetermined) },
+    { label: '待归类', value: formatSeconds(overview.composite ?? overview.undetermined) },
   ];
   el.innerHTML = rows.map(r => `
     <div class="overview-row">
@@ -3273,11 +3293,11 @@ function renderTimeline(id, sessions, options = {}) {
     const compactParts = [];
     if (typeData.study > 0) compactParts.push(`学习${formatSeconds(typeData.study)}`);
     if (typeData.rest > 0) compactParts.push(`休息${formatSeconds(typeData.rest)}`);
-    if (typeData.composite > 0) compactParts.push(`综合${formatSeconds(typeData.composite)}`);
+    if (typeData.composite > 0) compactParts.push(`待归类${formatSeconds(typeData.composite)}`);
     const label = seconds > 0 ? compactParts.join('，') : '';
     const detail = [];
     if (typeData.study > 0) detail.push(`学习时间 ${formatSeconds(typeData.study)}`);
-    if (typeData.composite > 0) detail.push(`综合时间 ${formatSeconds(typeData.composite)}`);
+    if (typeData.composite > 0) detail.push(`待归类时间 ${formatSeconds(typeData.composite)}`);
     if (typeData.rest > 0) detail.push(`休息时间 ${formatSeconds(typeData.rest)}`);
     const title = detail.join(' / ');
     return `
@@ -3348,15 +3368,15 @@ function renderUndeterminedList(id, sessions) {
   if (!el) return;
   const totalMin = Math.round(sessions.reduce((a, s) => a + (s.duration || 0), 0) / 60);
   if (sessions.length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无综合明细</div>';
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">暂无待归类明细</div>';
     return;
   }
 
   const statusMap = {
     study:       { cls: 'study',       text: '学习' },
     rest:        { cls: 'rest',        text: '休息' },
-    pending:     { cls: 'pending',     text: '综合' },
-    appealing:   { cls: 'appealing',   text: '综合' },
+    pending:     { cls: 'pending',     text: '待归类' },
+    appealing:   { cls: 'appealing',   text: '待归类' },
   };
 
   el.innerHTML = `

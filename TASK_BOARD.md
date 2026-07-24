@@ -25,11 +25,11 @@
 ## V1-minimal must-have（release readiness）
 - [x] release gate matrix reset（V1-minimal 口径 docs matrix created; releaseMg validation/execution pending）
 - [x] V1-minimal close-out plan（docs-only board created: `docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`）
-- [x] working tree status inventory（docs-only inventory created: `docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; ownership not closed）
-- [x] dirty product/test working-tree ownership audit（Build&Test report created: `docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`）
+- [x] working tree status inventory（历史证据见 docs/archive/）
+- [x] dirty product/test working-tree ownership audit（历史证据见 docs/archive/）
 - [x] Product Owner decision brief（docs-only brief created: `docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`）
 - [x] Product Owner decision proposal（docs-only proposal created: `docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`）
-- [x] Build&Test worktree ownership handoff（`docs/handoffs/outbox/HANDOFF-v1-minimal-worktree-ownership-to-build-test.md`）
+- [x] Build&Test worktree ownership handoff（历史证据见 docs/archive/）
 - [x] Cloud Stats v1 minimal sync gate（usage_segments_v1 + stats_v1）
 - [x] Chrome Web Store reduced-permission package submitted（CWS status: `待审核`; not publicly released）
 - [x] manifest permissions / host permissions wording review（submission text prepared）
@@ -44,13 +44,13 @@
 - [x] SHA256 recorded: `A0A5C541A5A7D047E040D2163BF8735971798112E18E1D223BB9D55D80D7190B`
 - [x] ZIP extraction verified: MV3 manifest, version `1.7.2`, required runtime files present
 - [x] Package excludes `docs/`, `tests/`, `workers/`, `pages/`, `node_modules/`, `.env`, `.wrangler`, local Chrome profile data, cookies/history/login data
-- [x] Release record prepared: `docs/releases/v1-minimal-release-2026-05-09.md`
-- [x] Chrome Web Store submission text prepared: `docs/releases/chrome-web-store-submission-v1-minimal-2026-05-09.md`
+- [x] Release record prepared：历史证据见 docs/archive/
+- [x] Chrome Web Store submission text prepared：历史证据见 docs/archive/
 - [x] Chrome Web Store reduced-permission package submitted: `dist/cws-resubmit-20260509-122919/timeonchrome-v1.7.2-cws-resubmit-minimal-permissions.zip`
 - [x] Chrome Web Store resubmission SHA256 recorded: `BE0F712285B6661C293175C649DDDC48E0D04217B18626EB3C284EEAB32DD71C`
 - [x] Chrome Web Store status recorded: `TimeOnChrome 1.7.2` submitted / `待审核`
 - [x] Artifact strategy A recorded（D-039: keep submitted CWS package as active review artifact; current `origin/master` is source follow-up line; no rebuild/resubmission now）
-- [x] ReleaseMg readonly readiness report recorded: `docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md` — `BLOCKED / NOT READY FOR PUBLIC RELEASE`
+- [x] ReleaseMg readonly readiness report recorded：历史证据见 docs/archive/
 - [ ] Public release（blocked until Chrome Web Store review completes and PO approves release close-out）
 - [ ] ReleaseMg production acceptance close-out（currently PARTIAL / NOT CLOSED; CWS review and CWS installed-ID parity remain unavailable until CWS approval）
 - [ ] **Release blocker: sub-second segment product policy**（当前本地账本保留 1 秒内网页切换 segment，`durationSeconds=0` 但 `startMs/endMs` 完整；正式发布前必须决定并实现最终策略：保留、毫秒级 duration、短段合并或 UI/cloud 过滤）
@@ -86,6 +86,12 @@
   - `storage-aggregation-convergence 36/36`
 
 ## NOW（P0）
+- [x] [Version] 当前源版本提升到 `1.7.15`：`extension/manifest.json`、`docs/CHANGELOG.md` 与当前 managed installer expectedVersion 示例已同步；历史 1.7.13 验证材料保持历史事实。
+- [x] [Regression] 修复 tests/e2e/extension.test.js 中 T-E12c：根因是 Playwright `page.bringToFront()` 与异步 `privacy-consent.html` 抢前台导致 tab activation 场景不稳定；已改为显式接受隐私门、关闭引导页、通过 Chrome tabs API 激活目标 tab，并验证 `extension.test.js` 14/14 通过。
+- [x] [P0/V1] 拆分“未归类网站访问记录”与“学习网站归类申请”：同站手动升级、导航次数聚合、Worker v2 兼容字段和 Popup/Admin/Pages/Reminder 展示；96 个 unit 文件、migration SQLite 校验及三端桌面/移动端视觉验证通过，待后续执行远端 D1 migration 与部署。
+- [x] [Docs-only] 概念语义修订：综合时间 -> 待归类时间，综合网站 -> 复合网站，综合模式 -> 复合模式；新增 D-046，权威文档已统一，代码字段暂不迁移。
+- [x] [Docs-only] 文档分层与历史归档：旧 audit/release/handoff/smoke/plan/PRD/TODO 移入 docs/archive/
+- [x] [Docs/UI] 待归类/复合用户可见语义迁移：Popup/Admin/Reminder/Pages/页面内提示与对应测试断言统一新文案；内部 composite 字段和值保持不变。
 - [x] [V1-minimal 1.7.13] 同步 Pierce macOS 最终验证安装器修订
   - [x] 从 Google Drive 私有压缩包 `timeonchrome-pierce-managed-installer-1.7.13-fixed-2026-07-22.tar.gz` 同步非敏感安装资产到 `docs/deployment/pierce-macos-target/`
   - [x] 新增一体化 `timeonchrome-managed-installer.sh`、`install.command`、`uninstall.command` 和 `private-config.example.plist`，并同步 keeper / LaunchDaemon 模板
@@ -113,36 +119,36 @@
   - [x] **P0 显示缺陷：受管 Token 绑定后账户/用户为空。** `/device/config` 与扩展持久化已修复并发布 1.7.12；生产接口只读验证账户邮箱、Profile 名称、Profile ID、Device ID 均存在，相关测试 114/114 通过。生产 `update.xml` 与 CRX 回读一致，SHA256 为 `025661e70d93a16ed9c72cc7ed310c3e4033ab33da2a84e0e39bc75862fa4084`；真实 Chrome 管理中心已显示账户 `william.xia.cn@gmail.com` 与用户 `william.xia`，连续失败为 0。
   - [ ] Chrome UI 自动化限制：真实 Chrome 控制已连接，但安全策略禁止自动访问 `chrome://policy` / `chrome://extensions`；人工触发更新只能用于继续 Token 绑定诊断，不能作为自动更新缺陷的关闭证据。
 - [x] [V1-minimal] Docs-only close-out plan created（`docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`）
-- [x] [V1-minimal] Working tree status inventory recorded（`docs/audits/WORKTREE_STATUS_INVENTORY_2026-05-09.md`; ownership not closed）
-- [x] [V1-minimal] Build&Test dirty product/test ownership audit recorded（`docs/audits/WORKTREE_OWNERSHIP_AUDIT_2026-05-09.md`）
+- [x] [V1-minimal] Working tree status inventory recorded（历史证据见 docs/archive/）
+- [x] [V1-minimal] Build&Test dirty product/test ownership audit recorded（历史证据见 docs/archive/）
 - [x] [V1-minimal] Product Owner decision brief created（`docs/release/V1_MINIMAL_PRODUCT_OWNER_DECISION_BRIEF_2026-05-09.md`）
 - [x] [V1-minimal] Product Owner decision proposal created（`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`）
 - [x] [V1-minimal] Product Owner approved default decision proposal（`docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`）
-- [x] [V1-minimal] Build&Test CWS least-permission report handoff created（`docs/handoffs/outbox/HANDOFF-cws-least-permission-report-to-build-test.md`）
-- [x] [V1-minimal] Build&Test worktree ownership handoff created（`docs/handoffs/outbox/HANDOFF-v1-minimal-worktree-ownership-to-build-test.md`）
-- [x] [V1-minimal] releaseMg readonly readiness report recorded（`docs/releases/releasemg-readiness-v1-minimal-2026-05-09.md`; result `BLOCKED / NOT READY FOR PUBLIC RELEASE`）
+- [x] [V1-minimal] Build&Test CWS least-permission report handoff created（历史证据见 docs/archive/）
+- [x] [V1-minimal] Build&Test worktree ownership handoff created（历史证据见 docs/archive/）
+- [x] [V1-minimal] releaseMg readonly readiness report recorded（历史证据见 docs/archive/）
 - [x] [V1-minimal] production functional smoke closed with Product Owner manual visual evidence（unpacked/local-load instance）
 - [x] [V1-minimal] Windows/macOS informal smoke completed（PASS_WITH_MANUAL_EVIDENCE; not automated lab evidence）
 - [x] [V1-minimal] Product Owner decisions on prior worktree audit findings resolved except Pages stats-v1 later package
-- [x] [V1-minimal] admin/bind ownership resolution recorded（`docs/audits/ADMIN_BIND_OWNERSHIP_RESOLUTION_2026-05-09.md`）
-- [x] [V1-minimal] Build&Test admin/bind account-token implementation review recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_IMPLEMENTATION_REPORT_2026-05-09.md`; recommendation `include, after minimal verification`; tests not run）
-- [x] [V1-minimal] Build&Test admin/bind account-token minimum verification recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_MIN_VERIFY_2026-05-09.md`; static PASS; requested unit tests missing; recommendation `hold`）
+- [x] [V1-minimal] admin/bind ownership resolution recorded（历史证据见 docs/archive/）
+- [x] [V1-minimal] Build&Test admin/bind account-token implementation review recorded（历史证据见 docs/archive/）
+- [x] [V1-minimal] Build&Test admin/bind account-token minimum verification recorded（历史证据见 docs/archive/）
 - [x] [V1-minimal] Product Owner authorized admin/bind small unit test package（no product code edits, no rebuild, no commit/release）
-- [x] [V1-minimal] Build&Test admin/bind test package handoff created（`docs/handoffs/outbox/HANDOFF-admin-bind-account-token-test-package-to-build-test.md`）
-- [x] [V1-minimal] Build&Test admin/bind test package report recorded（`docs/audits/ADMIN_BIND_ACCOUNT_TOKEN_TEST_PACKAGE_REPORT_2026-05-09.md`; `admin-bind-account-token` 5/5 PASS）
+- [x] [V1-minimal] Build&Test admin/bind test package handoff created（历史证据见 docs/archive/）
+- [x] [V1-minimal] Build&Test admin/bind test package report recorded（历史证据见 docs/archive/）
 - [x] [V1-minimal] Product Owner approved admin/bind package inclusion as V1-minimal follow-up candidate（`DECISIONS.md:D-038`; not release-ready, no rebuild/commit/release authorization）
 - [ ] [V1-minimal follow-up] Track admin auto-login stale-token semantics separately（non-blocking for admin/bind include）
 - [ ] [V1-minimal] Product Owner approval/revision of `docs/release/V1_MINIMAL_PO_DECISION_PROPOSAL_2026-05-09.md`
-- [x] [V1-minimal] Build&Test CWS least-permission implementation report recorded（`docs/audits/CWS_LEAST_PERMISSION_IMPLEMENTATION_REPORT_2026-05-09.md`; tests not run）
+- [x] [V1-minimal] Build&Test CWS least-permission implementation report recorded（历史证据见 docs/archive/）
 - [x] [V1-minimal] Product Owner decision on CWS least-permission minimal verification plan（authorized）
 - [x] [V1-minimal] Product Owner authorized CWS least-permission minimal verification only（no fixes/rebuild/commit/release）
-- [x] [V1-minimal] Build&Test CWS least-permission minimal verification handoff created（`docs/handoffs/outbox/HANDOFF-cws-least-permission-min-verify-to-build-test.md`）
-- [x] [V1-minimal] Build&Test CWS least-permission minimal verification report recorded（`docs/audits/CWS_LEAST_PERMISSION_MIN_VERIFY_2026-05-09.md`; unit 193/193, E2E 7/7 passed after Playwright sandbox blocker handled）
-- [x] [V1-minimal] Git/local consistency audit recorded（`docs/audits/GIT_LOCAL_CONSISTENCY_AUDIT_2026-05-09.md`; remote not verified）
+- [x] [V1-minimal] Build&Test CWS least-permission minimal verification handoff created（历史证据见 docs/archive/）
+- [x] [V1-minimal] Build&Test CWS least-permission minimal verification report recorded（历史证据见 docs/archive/）
+- [x] [V1-minimal] Git/local consistency audit recorded（历史证据见 docs/archive/）
 - [x] [V1-minimal] Completed local commits recorded（`9174900` docs package; `7072163` CWS least-permission package; `f498d13` admin/bind account-token package）
 - [x] [V1-minimal] Remote consistency check completed（after push, local `master` and `origin/master` synchronized at `2260943`; no tag/release）
-- [x] [V1-minimal] Pages stats-v1 ownership review recorded（`docs/audits/PAGES_STATS_V1_OWNERSHIP_REVIEW_2026-05-09.md`; classification `include later`; tests not run）
-- [x] [V1-minimal follow-up] Pages stats-v1 minimum verification recorded（`docs/audits/PAGES_STATS_V1_MIN_VERIFY_2026-05-09.md`; `pages-config-v12-fields` 22/22 PASS; `workers-stats-ingestion-v12-normalization` 25/25 PASS）
+- [x] [V1-minimal] Pages stats-v1 ownership review recorded（历史证据见 docs/archive/）
+- [x] [V1-minimal follow-up] Pages stats-v1 minimum verification recorded（历史证据见 docs/archive/）
 - [x] [V1-minimal follow-up] Pages stats-v1 package committed and pushed as source follow-up line（no Pages deploy authorized）
 - [x] [V1-minimal] Git push completed to `origin/master`（tag/release still blocked）
 - [x] [V1-minimal] Product Owner artifact strategy A recorded（submitted CWS package remains active review artifact; current `origin/master` is source follow-up line）
@@ -195,7 +201,7 @@
 - [ ] **[P0] Chrome Web Store review follow-up / public release close-out** — reduced-permission package submitted; CWS status `待审核`; public release remains blocked until CWS review state is known and Product Owner approves release close-out
 
 ## LATER（P2）
-- [ ] [V1] macOS smoke checklist 执行与记录（`docs/macos_v0_smoke_test_checklist.md`）
+- [ ] [V1] macOS smoke checklist 后续如需重启，先基于当前 release gate 重新制定；历史 V0 smoke 证据见 docs/archive/
   - 状态：Product Owner accepted V0 release risk（deferred, not passed）
   - 口径：该项从 V0 active blocker 移至 V1 follow-up
 - [ ] [V1] Playwright E2E alternate-environment rerun（duration-accuracy / timing-trace-smoke / timing-trace-verify）

@@ -195,7 +195,7 @@ test('T-R2b: study_mode&restLocked=1 does not expose legacy composite request sl
   await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
   await expect(page.locator('#slideTrackComposite')).toBeHidden();
   const bodyText = await page.locator('body').textContent();
-  expect(bodyText).not.toContain('申请使用综合时间');
+  expect(bodyText).not.toContain('申请使用待归类时间');
 
   await page.close();
 });
@@ -293,7 +293,7 @@ test('T-R4: to_rest_confirm unclassified keeps rest path only in reminder', asyn
 
   const subtitleText = await page.locator('#subtitle').textContent();
   expect(subtitleText).toContain('休息时间');
-  expect(subtitleText).toContain('综合时间');
+  expect(subtitleText).toContain('待归类时间');
 
   // Website classification requests are submitted from popup, not reminder.
   await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
@@ -329,7 +329,7 @@ test('T-R5: to_rest_confirm restricted does not expose application entry, rest s
 
   const subtitleText = await page.locator('#subtitle').textContent();
   expect(subtitleText).toContain('休息时间');
-  expect(subtitleText).toContain('综合时间');
+  expect(subtitleText).toContain('待归类时间');
 
   // Rest slider visible
   await expect(page.locator('#slideTrack')).toBeVisible();
@@ -337,7 +337,7 @@ test('T-R5: to_rest_confirm restricted does not expose application entry, rest s
   await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
   await expect(page.locator('#slideConfirmWrapComposite')).toBeHidden();
   const bodyText = await page.locator('body').textContent();
-  expect(bodyText).not.toContain('不能申请使用综合时间');
+  expect(bodyText).not.toContain('不能申请使用待归类时间');
 
   // Only 1 button: 返回
   const buttons = page.locator('#actions .btn');
@@ -388,7 +388,7 @@ test('T-R7: quota_composite_and_rest shows only return button, no continue actio
   const page = await openReminderPage('reason=quota_composite_and_rest&domain=example.com');
 
   // Title
-  await expect(page.locator('#mainTitle')).toHaveText('今日综合时间和休息时间均已用完');
+  await expect(page.locator('#mainTitle')).toHaveText('今日待归类时间和休息时间均已用完');
 
   // Subtitle
   const subtitleText = await page.locator('#subtitle').textContent();

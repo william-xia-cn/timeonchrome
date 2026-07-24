@@ -52,7 +52,7 @@
 │  POST /device/events         事件上报（含邮件通知）           │
 │  POST /device/sessions/upload  会话上传 → R2               │
 │  GET /profiles/:id/devices   设备列表                        │
-│  GET/POST /composite-sessions  待定会话审核                  │
+│  GET/POST /composite-sessions  待归类会话审核                  │
 │                                                             │
 │  Storage:                                                   │
 │  D1 (guardian-db)    账号/设备/配置/统计                     │
@@ -232,7 +232,7 @@ core/timing-dispatcher.js
 |---|------|---------|--------|
 | **原始用量事实（Raw Usage Facts）** | domain、managedTarget 快照、active/background/PiP 时长、时间戳 | `usage_segments_v1`；`daily_usage_stats_v1` / `hourly_usage_stats_v1` 是物化索引 | segment append-only；索引可重建 |
 | **模式上下文（Mode Context）** | 该用量发生在哪个模式下的按模式时长拆解 | `usage_segments_v1` 与 daily/hourly 物化索引（与 raw facts 同层） | segment append-only；索引可重建 |
-| **分类/报表解释（Classification / Report Interpretation）** | 学习时间/休息时间/待定时间/拦截/借用/允许 | 读取时动态计算 | 随策略变更而变 |
+| **分类/报表解释（Classification / Report Interpretation）** | 学习时间/休息时间/待归类时间/拦截/借用/允许 | 读取时动态计算 | 随策略变更而变 |
 
 当前实现已完成 D-045 第一阶段：普通统计和配额归属具备 `managedTarget + fallback domain` 路径，并在 `usage_segments_v1` 开账/切片时固化 target 与 quota decision 快照。`domain` 仍保留为事实、诊断和兼容字段。详见 `docs/MANAGED_TARGET_LEDGER.md`。
 
@@ -270,7 +270,7 @@ core/timing-dispatcher.js
 **禁止存储的字段：**
 - 网站分类标签（study site / composite site / restricted entertainment / blocked / unclassified）
 - 策略决策（allowed / blocked / borrow / temporary composite / redirected）
-- 解释性报表时间类型（学习时间 / 休息时间 / 待定时间 / 综合时间）
+- 解释性报表时间类型（学习时间 / 休息时间 / 待归类时间）
 - AI 分类结果或内容级判断
 - 完整的模式切换事件日志（mode transition event log — 属于 `event_log_v1` 的职责）
 
@@ -282,11 +282,11 @@ D-045 例外说明：`targetClassificationAtTime` 与 `quotaBucketAtTime` 已作
 - `daily_usage_stats_v1` / `hourly_usage_stats_v1` 存储的是**聚合后的按模式拆解**，而非逐事件记录。
 - UI 读取 stats 前会通过 `FLUSH_TIME` 语义把当前 open counted session 结算到当前时间，写入 `usage_segments_v1` 并增量更新 daily/hourly 物化索引，随后以同一 state/domain/mode 从当前时间重新打开 session，避免 popup/admin 在未切 tab 前看不到实时统计。
 
-#### 1.3.7.3 综合时间兼容读口径
+#### 1.3.7.3 待归类时间兼容读口径
 
-用户可见口径统一为**综合时间**。历史字段名 `undetermined` / `undeterminedSeconds` / `dailyUndeterminedQuota` / `undeterminedLocked` 仅作为本地 legacy compatibility term 保留，不应在 popup/admin 的用户可见文案中继续显示为“未归类”或“待归类时间”。
+用户可见口径统一为**待归类时间**。它不是学习/休息之外的第三类最终时间，而是尚未实时或半实时归入学习时间或休息时间的过渡归因池。历史字段名 `composite` / `compositeSeconds` / `undetermined` / `undeterminedSeconds` / `dailyUndeterminedQuota` / `undeterminedLocked` 仅作为本地 legacy compatibility term 保留，不应在 popup/admin 的用户可见文案中继续显示为“综合时间”或“未归类时间”。
 
-UI 与消息 adapter 读取综合用量时必须使用统一口径：
+UI 与消息 adapter 读取待归类用量时必须使用统一口径：
 
 ```javascript
 compositeSeconds = readCompositeSeconds(statsLike)
@@ -295,10 +295,10 @@ compositeSeconds = readCompositeSeconds(statsLike)
 读取优先级：
 1. 若新 shape 明确提供 `compositeSeconds`，使用该值；
 2. 否则兼容旧 shape 的 `undeterminedSeconds`；
-3. 对仅有 domain stats 的旧数据，按当前 `compositeList` / 临时综合权限分类求和；
-4. 不把同一秒数同时展示为“综合时间”和“未归类时间”。
+3. 对仅有 domain stats 的旧数据，按当前 `compositeList` / 临时待归类权限分类求和；
+4. 不把同一秒数同时展示为“待归类时间”和“未归类时间”；未归类网站是网站状态，待归类时间是时间归因状态，二者不等价。
 
-配额配置在代码层可继续读取 `dailyUndeterminedQuota` / `undeterminedLocked` 以兼容现有存储和 reminder reason，但用户可见标签应显示为“综合时间/综合配额”。本规则不做历史数据迁移、不改云端接口、不改变网站分类策略。
+配额配置在代码层可继续读取 `dailyUndeterminedQuota` / `undeterminedLocked` 以兼容现有存储和 reminder reason，但用户可见标签应显示为“待归类时间/待归类配额”。本规则不做历史数据迁移、不改云端接口、不改变网站分类策略。未来归因层应尽量将待归类时间实时或半实时回填到学习时间或休息时间；无法可靠判断时才保留 pending。
 
 #### 1.3.7.4 分类计算层（Classification Layer）
 
@@ -324,7 +324,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
   - 查 SITE_ACCESS_POLICY.md 分类规则 → 确定 site category
   - 结合 activeByMode.rest → 该用量发生在 rest 模式下
   - 结合分类规则 + 模式规则 → 计算结果
-  - 输出：具体报表时间类型（学习/休息/待定）+ 配额消耗
+  - 输出：具体报表时间类型（学习/休息/待归类）+ 配额消耗
 
 关键：策略变更时，同样的 raw stats 可以产生不同的分类结果，
        因为分类是在读取时计算的，不在写入时固化。
@@ -357,8 +357,8 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
     'schoolsbuddy.cn',
     'afficienta.com',
   ],
-  compositeList: [],                 // 综合网站 effective（系统配置 + 家长自定义合并，运行时兼容）
-  customCompositeList: [],           // 家长自定义综合网站（source-of-truth，新增）
+  compositeList: [],                 // 复合网站 effective（系统配置 + 家长自定义合并，运行时兼容）
+  customCompositeList: [],           // 家长自定义复合网站（source-of-truth，新增）
   unsafeList: ['douyin.com', 'tiktok.com'],  // 黑名单网站 effective（系统配置 + 家长自定义合并）
   customBlockedSites: [],            // 家长自定义黑名单网站（source-of-truth）
   restrictedEntertainmentList: [],   // 受限娱乐网站 effective（系统配置 + 家长自定义合并）
@@ -368,7 +368,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
   dailyOnlineQuota: 0,               // 总在线时长上限
   dailyStudyQuota: 0,                // 学习时长上限
   dailyRestQuota: 120,               // 休息时长上限
-  dailyUndeterminedQuota: 60,        // 待定网站时长上限
+  dailyUndeterminedQuota: 60,        // 待归类时长上限
 
   // 单域名配额
   domainQuotas: {},                  // { 'domain': minutes }
@@ -427,12 +427,12 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 **`timeWindows` 语义说明：**
 
 - `studyWindows`: `null` = 该日学习模式全天允许（默认）；`array` = 显式配置的学习模式允许窗口
-- `compositeWindows`: `null` = 该日综合模式全天允许（默认）；`array` = 显式配置的综合模式允许窗口
+- `compositeWindows`: `null` = 该日复合模式全天允许（默认）；`array` = 显式配置的复合模式允许窗口
 - `restWindows`: `null` = 该日休息模式全天允许；`array` = 显式配置的休息模式允许窗口；默认值为 `[{ start: '15:30', end: '24:00' }]`
 - `onlineWindows`: **不存储**，由后端按天实时计算为 `studyWindows ∪ compositeWindows ∪ restWindows` 的并集
   - 任一模式窗口为 `null` / 缺失 / 空数组时，该模式全天允许，派生 `onlineWindows = null`（全天允许）
   - 三者都是有限数组时，计算排序合并后的并集
-- 学习、综合、休息时段**允许重叠**，重叠部分在并集中自然合并
+- 学习、复合、休息时段**允许重叠**，重叠部分在并集中自然合并
 - 空数组 `[]` 应归一化为 `null`（表示 unrestricted），不作为默认保存值
 - `24:00` 允许作为 `end` 值（表示当天结束），不允许作为 `start`
 
@@ -447,7 +447,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
   currentMode: 'study',              // 'study' | 'rest'
   studySeconds: 0,                   // 今日学习时长（秒）
   restSeconds: 0,                    // 今日休息时长（秒）
-  undeterminedSeconds: 0,            // 今日待定时长（秒）
+  undeterminedSeconds: 0,            // 今日待归类时长（秒）
   lastActiveDate: '2026-04-14',
 }
 ```
@@ -590,7 +590,7 @@ Chrome access event / Popup / Reminder / quota_check
   -> currentMode commit + Reminder / in-page notice UI projection
 ```
 
-`Rest -> Study/Composite` 不再等待独立 auto-study counter。用户访问学习/综合网站时，由带 `tabId/url/foreground` 的 `ACCESS_OBSERVED` 事件立即驱动模式迁移和页面内提示。
+`Rest -> Study/Composite` 不再等待独立 auto-study counter。用户访问学习/复合网站时，由带 `tabId/url/foreground` 的 `ACCESS_OBSERVED` 事件立即驱动模式迁移和页面内提示。
 
 ### 3.4 配额借用（BORROW_REST_QUOTA）
 
@@ -715,7 +715,7 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `SWITCH_TO_STUDY` | → background | — | Legacy alias；内部转为 `REQUEST_MODE_CHANGE` |
 | `SWITCH_TO_REST` | → background | — | Legacy alias；内部转为 `REQUEST_MODE_CHANGE` |
 | `SWITCH_TO_COMPOSITE` | → background | — | Legacy alias；内部转为 `REQUEST_MODE_CHANGE` |
-| `SUBMIT_SITE_CLASSIFICATION_REQUEST` | → background | `{ input, sourceTabId? }` | `{ ok, request, localOnly, target }`；孩子侧“申请网站归类”，审批前匹配对象按综合时长处理 |
+| `SUBMIT_SITE_CLASSIFICATION_REQUEST` | → background | `{ input, sourceTabId?, requestedClassification: "study" }` | `{ ok, request, localOnly, target, promoted? }`；孩子侧“申请归为学习网站”，已有自动访问记录时升级同一记录；审批前仍按待归类时长处理 |
 | `GET_SITE_CLASSIFICATION_REQUESTS` | → background | `{ status? }` | 本地持久申请记录 |
 | `ADD_TO_COMPOSITE_LIST` | → background | `{ domain }` | Legacy compatibility only；新申请入口不再使用 |
 | `BORROW_REST_QUOTA` | → background | — | `{ ok, amount }` 或 error |
@@ -731,6 +731,21 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 | `AUTO_MODE_PENDING_CANCEL` | background → content | `{ reason }` | 清理当前 tab 的 pending/success notice |
 | `AUTO_MODE_PENDING_SUCCESS` | background → content | `{ targetMode, fromMode, noticeKind, displayDuration }` | 页面内 transient success/info notice，必须按 TTL 自动消失 |
 
+### 4.0a 未归类访问记录与学习归类申请
+
+`site_classification_requests_v1` 继续作为兼容 storage key 和云端主表，但产品层区分两种 pending 对象：
+
+| 对象 | 创建入口 | `recordSource` | `requestedClassification` | 审批前路由 |
+|---|---|---|---|---|
+| 未归类网站访问记录 | Mode Service 自动观察 | `auto_unclassified_access` | `null` | `pending_composite` |
+| 学习网站归类申请 | Popup 手动提交 | `manual_learning_request` 或由自动记录升级 | `study` | `pending_composite` |
+| 历史网站归类记录 | 旧数据兼容 | `legacy` | `null` | 按原 status |
+
+同一 profile、target 和有效 pending 周期只保留一条主记录。手动申请若命中自动记录，必须保留原 ID、首次/最近访问与导航次数，补充 `requestedClassification=study` 和 `manualRequestedAt`；后续自动观察不得降级该意图。
+
+访问概况字段为 `firstObservedAt`、`lastObservedAt`、`observationCount`。计数只接受 `webNavigationCommitted` 和 `webNavigationHistoryStateUpdated` 顶层导航；首次由恢复/重检发现时允许建立一次基线观察，tab 激活、后台重检和心跳不继续累计。上传 payload 使用兼容 schema v2；Worker `/device/site-classification-requests/v1` 路径不变，旧 payload 缺失新字段时按 legacy 处理。
+
+为保证上传重试和多观察源幂等，终端为本地累计创建稳定 `observationSourceId`，云端按 `(request_id, observation_source_id)` 保存累计值并以 `max` 合并，再汇总到主记录；不保存逐次访问明细。
 ### 4.0 Cloud Auth Session Contract
 
 Account login and device binding are intentionally separate:
@@ -832,7 +847,7 @@ timeonchrome/
 │           ├── events.ts      事件上报 + 邮件通知
 │           ├── profiles.ts    账户/设备管理
 │           ├── sessions.ts    会话上传
-│           ├── compositeSessions.ts  待定会话审核
+│           ├── compositeSessions.ts  待归类会话审核
 │           ├── stats.ts       统计查询
 │           └── changelog.ts   配置变更日志
 ├── pages/                     家长 Web 控制台（Cloudflare Pages）

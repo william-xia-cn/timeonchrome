@@ -117,14 +117,14 @@ this.__previewSiteClassificationTarget = previewSiteClassificationTarget;
     '受限娱乐网站'
   );
   expectEqual(
-    'composite domain -> 综合网站',
+    'composite domain -> 复合网站',
     resolveDomainTag('youtube.com', { compositeList: ['youtube.com'] }),
-    '综合网站'
+    '复合网站'
   );
   expectEqual(
-    'default composite domain -> 综合网站',
+    'default composite domain -> 复合网站',
     resolveDomainTag('wikipedia.org', { defaultCompositeSites: ['wikipedia.org'] }),
-    '综合网站'
+    '复合网站'
   );
   expectEqual(
     'child study domain overrides parent composite tag',
@@ -134,7 +134,7 @@ this.__previewSiteClassificationTarget = previewSiteClassificationTarget;
   expectEqual(
     'unlisted child inherits parent composite tag',
     resolveDomainTag('mail.google.com', { compositeList: ['google.com'], studyList: ['docs.google.com'] }),
-    '综合网站'
+    '复合网站'
   );
   expectEqual(
     'restricted domain -> 受限娱乐网站',
@@ -152,28 +152,53 @@ this.__previewSiteClassificationTarget = previewSiteClassificationTarget;
     '未归类网站'
   );
   expectEqual(
-    'pending site classification request -> 已申请待归类网站',
+    'auto pending host record -> 未归类网站访问记录',
     resolveDomainTag('sina.com.cn', {
       siteClassificationRequestsV1: [{
         status: 'pending',
+        recordSource: 'auto_unclassified_access',
         requestedTargetType: 'host',
         requestedNormalizedValue: 'sina.com.cn',
       }],
     }, 'https://sina.com.cn/'),
-    '已申请待归类网站'
+    '未归类网站访问记录'
   );
   expectEqual(
-    'pending exact url request -> 已申请待归类网站',
+    'manual learning request -> 已申请归为学习网站',
+    resolveDomainTag('study-request.example', {
+      siteClassificationRequestsV1: [{
+        status: 'pending',
+        recordSource: 'manual_learning_request',
+        requestedClassification: 'study',
+        requestedTargetType: 'host',
+        requestedNormalizedValue: 'study-request.example',
+      }],
+    }, 'https://study-request.example/'),
+    '已申请归为学习网站'
+  );
+  expectEqual(
+    'legacy pending record -> 历史网站归类记录',
+    resolveDomainTag('legacy.example', {
+      siteClassificationRequestsV1: [{
+        status: 'pending',
+        requestedTargetType: 'host',
+        requestedNormalizedValue: 'legacy.example',
+      }],
+    }, 'https://legacy.example/'),
+    '历史网站归类记录'
+  );
+  expectEqual(
+    'auto pending exact url record -> 未归类网站访问记录',
     resolveDomainTag('example.com', {
       siteClassificationRequestsV1: [{
         status: 'pending',
+        recordSource: 'auto_unclassified_access',
         requestedTargetType: 'url',
         requestedNormalizedValue: 'https://example.com/path?a=1',
       }],
     }, 'https://example.com/path?a=1#hash'),
-    '已申请待归类网站'
-  );
-  expectEqual(
+    '未归类网站访问记录'
+  );  expectEqual(
     'returned site classification request -> 未归类网站',
     resolveDomainTag('returned.example.com', {
       siteClassificationRequestsV1: [{

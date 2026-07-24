@@ -147,19 +147,21 @@ function run() {
   expectTrue('admin sendMsg 应支持 background 冷启动重试', code.includes('background_timeout') && code.includes('setTimeout(resolve, 180)'));
   expectTrue('admin 本地只读模式应保留登录绑定入口', code.includes('function openCloudLogin()') && code.includes('id="cloud-login-btn"') && code.includes('登录/绑定云端'));
   expectTrue('admin 左侧导航应将访问规则改为访问管理', html.includes('data-page="rules"') && html.includes('访问管理') && !html.includes('<span class="nav-icon">📋</span> 访问规则'));
-  expectTrue('admin 访问管理页应拆分为四个页内 Tab', html.includes('data-rules-tab="site-management"') && html.includes('data-rules-tab="quota-management"') && html.includes('data-rules-tab="schedule-management"') && html.includes('data-rules-tab="classification-requests"') && html.includes('网站管理') && html.includes('配额管理') && html.includes('时间段管理') && html.includes('网站归类申请记录'));
+  expectTrue('admin 访问管理页应拆分为四个页内 Tab', html.includes('data-rules-tab="site-management"') && html.includes('data-rules-tab="quota-management"') && html.includes('data-rules-tab="schedule-management"') && html.includes('data-rules-tab="classification-requests"') && html.includes('网站管理') && html.includes('配额管理') && html.includes('时间段管理') && html.includes('网站归类记录'));
   expectTrue('admin 访问管理页应包含四个内容面板', html.includes('data-rules-panel="site-management"') && html.includes('data-rules-panel="quota-management"') && html.includes('data-rules-panel="schedule-management"') && html.includes('data-rules-panel="classification-requests"'));
   expectTrue('admin 访问管理页默认展示网站管理', code.includes("let rulesActiveTab = 'site-management'") && html.includes('<div class="rules-panel active" data-rules-panel="site-management">'));
   expectTrue('admin 访问管理 Tab 切换只同步显示状态', code.includes('function syncRulesTabs()') && code.includes('[data-rules-tab]') && code.includes('[data-rules-panel]') && code.includes('rulesActiveTab = btn.dataset.rulesTab'));
-  expectTrue('admin 访问规则页应展示网站归类申请记录', html.includes('网站归类申请记录') && html.includes('rules-temporary-composite-display'));
+  expectTrue('admin 访问规则页应展示网站归类记录', html.includes('网站归类记录') && html.includes('rules-temporary-composite-display'));
   expectTrue('admin 访问规则页不应单独展示已批准精确链接规则', !html.includes('已批准精确链接 / 管理对象规则') && !html.includes('rules-approved-target-rules-display') && !code.includes('renderApprovedTargetRules'));
   expectTrue('admin 访问规则页应把已批准 URL 规则合并到对应分类', code.includes('approvedUrlRulesForDecision') && code.includes("targetRules: approvedUrlRulesForDecision('study')") && code.includes("targetRules: approvedUrlRulesForDecision('composite')") && code.includes("targetRules: approvedUrlRulesForDecision('reject')") && code.indexOf("targetRules: approvedUrlRulesForDecision('reject')") < code.indexOf("renderSiteGroup('rules-blocked-display'"));
   expectTrue('admin 归为受限娱乐 URL 规则应作为受限精确链接展示', code.includes('受限娱乐精确链接') && code.includes('uniqueSiteRules'));
   expectTrue('admin URL 规则展示应规范化 YouTube playlist 历史值', code.includes('function canonicalDisplayUrlValue') && code.includes('https://www.youtube.com/playlist?list=${playlistId}'));
-  expectTrue('admin 网站归类申请记录应简化为单一对象列', code.includes('<th class="site-request-col-object">对象</th>') && !code.includes('审批生效对象') && !html.includes('site-request-col-decision') && !code.includes('site-request-decision-cell'));
+  expectTrue('admin 网站归类记录应简化为单一对象列', code.includes('<th class="site-request-col-object">对象</th>') && !code.includes('审批生效对象') && !html.includes('site-request-col-decision') && !code.includes('site-request-decision-cell'));
   expectTrue('admin 网站归类申请对象列应优先显示审批生效对象', code.includes('record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue'));
-  expectTrue('admin 网站归类申请对象列应加宽并允许长 URL 换行', html.includes('.site-request-col-object { width: 58%; }') && html.includes('site-request-target-cell') && html.includes('site-request-target-table') && html.includes('overflow-wrap: anywhere') && code.includes('site-request-target-cell'));
-  expectTrue('admin 应读取网站归类申请记录消息', code.includes('GET_SITE_CLASSIFICATION_REQUESTS') && code.includes('renderSiteClassificationRequestRecords'));
+  expectTrue('admin 网站归类申请对象列应加宽并允许长 URL 换行', html.includes('.site-request-col-object { width: 40%; }') && html.includes('site-request-target-cell') && html.includes('site-request-target-table') && html.includes('overflow-wrap: anywhere') && code.includes('site-request-target-cell'));
+  expectTrue('admin 应读取网站归类记录消息', code.includes('GET_SITE_CLASSIFICATION_REQUESTS') && code.includes('renderSiteClassificationRequestRecords'));
+  expectTrue('admin 应区分访问记录和学习归类申请', code.includes('未归类网站访问记录') && code.includes('学习网站归类申请') && code.includes('顶层导航'));
+  expectTrue('admin 五列表格应为访问概况分配独立列宽并允许换行', html.includes('.site-request-col-observation { width: 18%; }') && html.includes('site-request-observation-cell') && html.includes('vertical-align: top'))
   expectTrue('admin local mode renders device status as sync disabled', code.includes('本机计时、popup 和使用分析可用；统计不会同步到云端。'));
   expectTrue('admin 本机状态应读取账户和用户信息', extractFunctionSource(code, 'renderSyncStatus').includes('CLOUD_KEYS.CREDENTIALS') && extractFunctionSource(code, 'renderSyncStatus').includes('CLOUD_KEYS.PROFILE_NAME'));
   expectTrue('admin 本机状态应显示账户和用户', extractFunctionSource(code, 'renderSyncStatus').includes('账户：') && extractFunctionSource(code, 'renderSyncStatus').includes('用户：'));

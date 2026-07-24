@@ -3,6 +3,8 @@ import { matchDomain, normalizeHostname } from './domain-semantics.js';
 export const SITE_CLASSIFICATION_TARGET_TYPES = new Set(['host', 'url']);
 export const SITE_CLASSIFICATION_DECISIONS = new Set(['study', 'composite', 'return', 'reject']);
 export const SITE_CLASSIFICATION_STATUSES = new Set(['pending', 'returned', 'approved_study', 'approved_composite', 'rejected']);
+export const SITE_CLASSIFICATION_RECORD_SOURCES = new Set(['auto_unclassified_access', 'manual_learning_request', 'legacy']);
+export const SITE_CLASSIFICATION_REQUESTED_CLASSIFICATIONS = new Set(['study']);
 export const SITE_ACCESS_CLASSIFICATION_GROUPS = [
   { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'customBlockedSites', 'defaultUnsafeSites', 'customUnsafeSites'], classification: 'blocked' },
   { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'customRestrictedEntertainmentList'], classification: 'restricted' },
@@ -395,6 +397,16 @@ export function validateSiteAccessConfig(config = {}) {
   };
 }
 
+function normalizeOptionalTimestamp(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function normalizeNonNegativeInteger(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
 export function normalizeSiteClassificationRequest(record) {
   if (!record || typeof record !== 'object') return null;
   const requestedTargetType = record.requestedTargetType || record.targetType || record.type;
@@ -403,6 +415,15 @@ export function normalizeSiteClassificationRequest(record) {
   const requested = normalizeSiteClassificationTarget(requestedTargetType === 'url' ? requestedValue : requestedValue.trim());
   if (!requested.ok || requested.targetType !== requestedTargetType) return null;
   const status = SITE_CLASSIFICATION_STATUSES.has(record.status) ? record.status : 'pending';
+  const explicitRecordSource = SITE_CLASSIFICATION_RECORD_SOURCES.has(record.recordSource)
+    ? record.recordSource
+    : 'legacy';
+  const explicitRequestedClassification = SITE_CLASSIFICATION_REQUESTED_CLASSIFICATIONS.has(record.requestedClassification)
+    ? record.requestedClassification
+    : null;
+  const isManualLearningRequest = explicitRecordSource === 'manual_learning_request' || explicitRequestedClassification === 'study';
+  const recordSource = isManualLearningRequest ? 'manual_learning_request' : explicitRecordSource;
+  const requestedClassification = isManualLearningRequest ? 'study' : null;
   const out = {
     ...record,
     requestedTargetType,
@@ -410,6 +431,15 @@ export function normalizeSiteClassificationRequest(record) {
     requestedRawInput: record.requestedRawInput || record.rawInput || requested.rawInput,
     displayValue: requested.displayValue,
     status,
+    recordSource,
+    requestedClassification,
+    manualRequestedAt: normalizeOptionalTimestamp(record.manualRequestedAt),
+    firstObservedAt: normalizeOptionalTimestamp(record.firstObservedAt),
+    lastObservedAt: normalizeOptionalTimestamp(record.lastObservedAt),
+    observationCount: normalizeNonNegativeInteger(record.observationCount),
+    sourceFirstObservedAt: normalizeOptionalTimestamp(record.sourceFirstObservedAt),
+    sourceLastObservedAt: normalizeOptionalTimestamp(record.sourceLastObservedAt),
+    sourceObservationCount: normalizeNonNegativeInteger(record.sourceObservationCount),
   };
   if (record.decisionTargetType && record.decisionNormalizedValue) {
     const decision = normalizeSiteClassificationTarget(
@@ -422,7 +452,6 @@ export function normalizeSiteClassificationRequest(record) {
   }
   return out;
 }
-
 export function siteTargetMatchesUrl(target, urlOrDomain) {
   if (!target || !urlOrDomain) return false;
   const targetType = target.targetType || target.type || target.decisionTargetType || target.requestedTargetType;

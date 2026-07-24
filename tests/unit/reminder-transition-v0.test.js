@@ -95,11 +95,11 @@ function simulateReminderRendering(reason, msg = '') {
   if (V0_KNOWN_REASONS.has(effectiveReason)) {
     config = configs[effectiveReason] || configs.unsafe;
 
-    // Dual-path override for study_mode: default path shows rest copy, actions only return
+    // Legacy override for study_mode: unclassified now auto-routes to pending attribution
     if (effectiveReason === 'study_mode') {
       config = {
         ...config,
-        subtitle: '如需临时使用，请从扩展弹窗提交「申请网站归类」。继续进入休息会计入休息时间。',
+        subtitle: '系统会自动生成未归类网站访问记录，并在可用时进入待归类时间。',
         actions: ['backToStudy'],
       };
     }
@@ -123,8 +123,8 @@ async function run() {
   const studyMode = simulateReminderRendering('study_mode');
   expectTrue('study_mode is known reason', !studyMode.isUnknownReason);
   expect('study_mode title', studyMode.config.title, '你正在打开未归类网站');
-  expectTrue('study_mode explains popup pending-classification request', studyMode.config.subtitle.includes('申请网站归类'));
-  expectTrue('study_mode default path still explains rest accounting', studyMode.config.subtitle.includes('休息时间'));
+  expectTrue('study_mode explains automatic pending-classification request', studyMode.config.subtitle.includes('自动生成未归类网站访问记录'));
+  expectTrue('study_mode no longer explains rest accounting', !studyMode.config.subtitle.includes('休息时间'));
   expectTrue('study_mode actions are only backToStudy', JSON.stringify(studyMode.config.actions) === JSON.stringify(['backToStudy']));
   expectTrue('study_mode does NOT render legacy addComposite button', !studyMode.config.actions.includes('addComposite'));
   expectTrue('study_mode does NOT render legacy borrowTime button', !studyMode.config.actions.includes('borrowTime'));
@@ -136,14 +136,14 @@ async function run() {
   const htmlContent = fs.readFileSync(htmlPath, 'utf8');
   expectTrue('dual-path composite section removed from HTML', !htmlContent.includes('id="dualPathCompositeSection"'));
   expectTrue('composite slider removed from HTML', !htmlContent.includes('id="slideConfirmWrapComposite"'));
-  expectTrue('legacy composite request text removed from HTML', !htmlContent.includes('申请使用综合时间'));
+  expectTrue('legacy composite request text removed from HTML', !htmlContent.includes('申请使用待归类时间'));
   expectTrue('borrow section may still exist in HTML skeleton', htmlContent.includes('id="dualPathBorrowSection"'));
 
   // ── 2. study_mode with msg override ──
   section('2. study_mode with msg=这个网站当前不在可访问范围内');
   const studyModeWithMsg = simulateReminderRendering('study_mode', '这个网站当前不在可访问范围内');
   expectTrue('canonical title preserved despite msg', studyModeWithMsg.config.title === '你正在打开未归类网站');
-  expectTrue('canonical subtitle preserved despite msg', studyModeWithMsg.config.subtitle.includes('申请网站归类'));
+  expectTrue('canonical subtitle preserved despite msg', studyModeWithMsg.config.subtitle.includes('自动生成未归类网站访问记录'));
   expectTrue('msg is not used as title', studyModeWithMsg.config.title !== '这个网站当前不在可访问范围内');
 
   // ── 3. Unknown reason safe error state ──
@@ -200,7 +200,7 @@ async function run() {
   section('6. quota_composite_and_rest rendering');
   const quotaBoth = simulateReminderRendering('quota_composite_and_rest');
   expectTrue('quota_composite_and_rest is known reason', !quotaBoth.isUnknownReason);
-  expect('quota_composite_and_rest title', quotaBoth.config.title, '今日综合时间和休息时间均已用完');
+  expect('quota_composite_and_rest title', quotaBoth.config.title, '今日待归类时间和休息时间均已用完');
   expectTrue('quota_composite_and_rest has only backGeneric', JSON.stringify(quotaBoth.config.actions) === JSON.stringify(['backGeneric']));
   expectTrue('quota_composite_and_rest has no continue action', !quotaBoth.config.actions.some(a => a !== 'backGeneric'));
 
@@ -213,8 +213,8 @@ async function run() {
 
   const compositeSchedule = simulateReminderRendering('composite_schedule_locked');
   expectTrue('composite_schedule_locked is known reason', !compositeSchedule.isUnknownReason);
-  expect('composite_schedule_locked title', compositeSchedule.config.title, '当前时间段未允许综合模式的使用');
-  expectTrue('composite_schedule_locked explains composite mode window', compositeSchedule.config.subtitle.includes('这个网站的使用需要进入综合模式，但是当前时间未允许使用综合模式'));
+  expect('composite_schedule_locked title', compositeSchedule.config.title, '当前时间段未允许复合模式的使用');
+  expectTrue('composite_schedule_locked explains composite mode window', compositeSchedule.config.subtitle.includes('这个网站的使用需要进入复合模式，但是当前时间未允许使用复合模式'));
   expectTrue('composite_schedule_locked has only back', JSON.stringify(compositeSchedule.config.actions) === JSON.stringify(['back']));
 
   const restSchedule = simulateReminderRendering('rest_schedule_locked');

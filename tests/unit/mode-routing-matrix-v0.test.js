@@ -74,6 +74,19 @@ function loadModeService(stubs = {}) {
     isSpecialUrl: (url) => /^(chrome|about|file|data|blob):/.test(String(url || '')),
     hasTemporaryCompositePermission: async () => false,
     getSiteClassificationRequestRecords: async () => [],
+    recordUnclassifiedSiteAccess: async (input, context = {}) => ({
+      ok: true,
+      added: true,
+      request: {
+        id: 'auto-request',
+        status: 'pending',
+        requestedTargetType: 'host',
+        requestedNormalizedValue: input,
+        sourceTabId: context.sourceTabId ?? null,
+        sourceUrl: context.url || null,
+        sourceDomain: context.domain || null,
+      },
+    }),
     resolveSiteAccessClassification: (cfg, _records, url) => {
       const host = (() => { try { return new URL(url).hostname; } catch { return ''; } })();
       const match = (patterns = []) => patterns.some((p) => host === p || host.endsWith(`.${p}`));
@@ -119,6 +132,8 @@ async function accessCase(name, {
   stats = {},
   configOverrides = {},
   foreground = true,
+  source = 'unit',
+  stubs = {},
 }) {
   section(name);
   const cfg = makeConfig({
@@ -129,10 +144,11 @@ async function accessCase(name, {
     getConfig: async () => cfg,
     getSession: async () => ({ currentMode: mode, currentModeStartedAtMs: startedAt, restExitGraceUntilMs }),
     getTodayStatsWithCategories: async () => ({ restSeconds: 0, undeterminedSeconds: 0, ...stats }),
+    ...stubs,
   });
   return await svc.handleModeEvent({
     type: 'ACCESS_OBSERVED',
-    source: 'unit',
+    source,
     tabId: 1,
     url,
     foreground,
@@ -192,7 +208,7 @@ async function accessCase(name, {
       toMode: 'composite',
       reason: 'rest_to_composite',
       setRestExitGrace: true,
-      noticeText: '你正在打开综合/待归类网站 · 即将进入综合模式 · 今日剩余 1小时',
+      noticeText: '你正在打开复合网站 · 即将进入复合模式 · 今日待归类剩余 1小时',
     });
   }
 
@@ -208,12 +224,12 @@ async function accessCase(name, {
   }
 
   {
-    const res = await accessCase('Study -> Rest target inside Rest Exit Grace: no Reminder', {
+    const res = await accessCase('Study -> Restricted target inside Rest Exit Grace: no Reminder', {
       mode: 'study',
       startedAt: 1000,
       restExitGraceUntilMs: 31_000,
       nowMs: 30_000,
-      url: 'https://example.com',
+      url: 'https://bilibili.com/video'
     });
     expect('grace returns rest', {
       access: res.access,
@@ -229,12 +245,12 @@ async function accessCase(name, {
   }
 
   {
-    const res = await accessCase('Study -> Rest target after Rest Exit Grace: Reminder', {
+    const res = await accessCase('Study -> Restricted target after Rest Exit Grace: Reminder', {
       mode: 'study',
       startedAt: 31_500,
       restExitGraceUntilMs: 31_000,
       nowMs: 32_000,
-      url: 'https://example.com',
+      url: 'https://bilibili.com/video'
     });
     expect('stable study needs reminder', {
       access: res.access,
@@ -243,7 +259,7 @@ async function accessCase(name, {
     }, {
       access: 'reminder',
       modeChange: null,
-      reminder: { reason: 'study_mode', params: { originMode: 'study' } },
+      reminder: { reason: 'to_rest_slide_confirm', params: { originMode: 'study' } },
     });
   }
 
@@ -253,7 +269,7 @@ async function accessCase(name, {
       startedAt: 31_500,
       restExitGraceUntilMs: 31_000,
       nowMs: 32_000,
-      url: 'https://example.com',
+      url: 'https://bilibili.com/video'
     });
     expect('expired rest exit grace still needs reminder', {
       access: res.access,
@@ -262,7 +278,138 @@ async function accessCase(name, {
     }, {
       access: 'reminder',
       modeChange: null,
-      reminder: { reason: 'to_rest_confirm', params: { siteType: 'unclassified' } },
+      reminder: { reason: 'to_rest_confirm', params: { siteType: 'restricted' } },
+    });
+  }
+
+  {
+    const autoRequests = [];
+    const res = await accessCase('Study -> Unclassified: auto pending to composite', {
+      mode: 'study',
+      url: 'https://example.com/article',
+      stats: { undeterminedSeconds: 0 },
+      stubs: {
+        recordUnclassifiedSiteAccess: async (input, context = {}) => {
+          autoRequests.push({ input, context });
+          return {
+            ok: true,
+            added: true,
+            request: {
+              id: 'auto-example',
+              status: 'pending',
+              requestedTargetType: 'host',
+              requestedNormalizedValue: input,
+              sourceTabId: context.sourceTabId,
+              sourceUrl: context.url,
+              sourceDomain: context.domain,
+            },
+          };
+        },
+      },
+    });
+    expect('unclassified creates pending request and enters composite', {
+      access: res.access,
+      toMode: res.modeChange?.toMode,
+      reason: res.modeChange?.reason,
+      requestInput: autoRequests[0]?.input,
+      sourceDomain: autoRequests[0]?.context.domain,
+      sourceTabId: autoRequests[0]?.context.sourceTabId,
+      observedEventSource: autoRequests[0]?.context.observedEventSource,
+      notice: res.notice?.kind,
+      noticeText: res.notice?.text,
+    }, {
+      access: 'allow',
+      toMode: 'composite',
+      reason: 'study_to_composite',
+      requestInput: 'example.com',
+      sourceDomain: 'example.com',
+      sourceTabId: 1,
+      observedEventSource: 'unit',
+      notice: 'study_to_composite',
+      noticeText: '已生成未归类网站访问记录 · 当前计入待归类时间 · 即将进入复合模式 · 今日待归类剩余 1小时',
+    });
+  }
+
+  {
+    const observations = [];
+    const res = await accessCase('Existing manual learning request: observe navigation without downgrade', {
+      mode: 'study',
+      source: 'webNavigationCommitted',
+      url: 'https://manual-pending.example/lesson',
+      stats: { undeterminedSeconds: 0 },
+      stubs: {
+        resolveSiteAccessClassification: () => ({
+          classification: 'pending_composite',
+          request: {
+            id: 'manual-pending',
+            status: 'pending',
+            recordSource: 'manual_learning_request',
+            requestedClassification: 'study',
+          },
+        }),
+        recordUnclassifiedSiteAccess: async (input, context = {}) => {
+          observations.push({ input, context });
+          return {
+            ok: true,
+            alreadyPresent: true,
+            observed: true,
+            request: {
+              id: 'manual-pending',
+              status: 'pending',
+              recordSource: 'manual_learning_request',
+              requestedClassification: 'study',
+            },
+          };
+        },
+      },
+    });
+    expect('existing pending record continues receiving top-level observations', {
+      observedInput: observations[0]?.input,
+      observedEventSource: observations[0]?.context.observedEventSource,
+      toMode: res.modeChange?.toMode,
+      noticeText: res.notice?.text,
+    }, {
+      observedInput: 'manual-pending.example',
+      observedEventSource: 'webNavigationCommitted',
+      toMode: 'composite',
+      noticeText: '学习网站归类申请待家长确认 · 当前仍计入待归类时间 · 即将进入复合模式 · 今日待归类剩余 1小时',
+    });
+  }
+  {
+    const res = await accessCase('Rest -> Unclassified: auto pending enters composite', {
+      mode: 'rest',
+      url: 'https://newsite.example/path',
+      stats: { undeterminedSeconds: 0 },
+    });
+    expect('rest unclassified no longer remains rest', {
+      access: res.access,
+      toMode: res.modeChange?.toMode,
+      reason: res.modeChange?.reason,
+      notice: res.notice?.kind,
+    }, {
+      access: 'allow',
+      toMode: 'composite',
+      reason: 'rest_to_composite',
+      notice: 'rest_to_composite_success',
+    });
+  }
+
+  {
+    const res = await accessCase('Unclassified exhausted + Rest available: fallback Rest', {
+      mode: 'study',
+      url: 'https://quota.example',
+      stats: { undeterminedSeconds: 3600, restSeconds: 10 },
+    });
+    expect('unclassified pending quota exhausted falls to rest', {
+      access: res.access,
+      toMode: res.modeChange?.toMode,
+      reason: res.modeChange?.reason,
+      notice: res.notice?.kind,
+    }, {
+      access: 'allow',
+      toMode: 'rest',
+      reason: 'composite_exhausted_to_rest',
+      notice: 'composite_exhausted_to_rest',
     });
   }
 
@@ -290,7 +437,7 @@ async function accessCase(name, {
   {
     const res = await accessCase('Rest exhausted + Rest target: blocked Reminder', {
       mode: 'rest',
-      url: 'https://example.com',
+      url: 'https://bilibili.com/video',
       quotaState: { restLocked: true },
     });
     expect('rest locked reminder', {
@@ -299,6 +446,30 @@ async function accessCase(name, {
     }, {
       access: 'reminder',
       reminder: { reason: 'rest_locked', params: {} },
+    });
+  }
+
+  {
+    let autoPendingCalled = false;
+    const res = await accessCase('Rejected object: no auto pending and follows restricted path', {
+      mode: 'study',
+      url: 'https://rejected.example/path',
+      stubs: {
+        resolveSiteAccessClassification: () => ({ classification: 'rejected' }),
+        recordUnclassifiedSiteAccess: async () => {
+          autoPendingCalled = true;
+          return { ok: true };
+        },
+      },
+    });
+    expect('rejected object does not auto-create pending request', {
+      access: res.access,
+      reminder: res.reminder,
+      autoPendingCalled,
+    }, {
+      access: 'reminder',
+      reminder: { reason: 'to_rest_slide_confirm', params: { originMode: 'study' } },
+      autoPendingCalled: false,
     });
   }
 

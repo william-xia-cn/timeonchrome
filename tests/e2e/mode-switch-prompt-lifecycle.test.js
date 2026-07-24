@@ -323,13 +323,13 @@ test('学习 → 综合：切换前旧 pending 被清理，成功提示按 TTL �
     await page.waitForTimeout(500);
 
     await sendSyntheticPending(sw, page, 'composite', 'study');
-    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('秒后进入综合时间');
+    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('秒后进入待归类时间');
 
     const switchResponse = await sendRuntimeMessage(ctx, sw, page, 'SWITCH_TO_COMPOSITE');
     expect(await getMode(sw)).toBe('composite');
     expect(switchResponse.noticeRendered).toBe(true);
-    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已进入综合模式');
-    expect(await bannerText(page)).not.toContain('秒后进入综合时间');
+    await expect.poll(() => bannerText(page), { timeout: 5000 }).toContain('已进入复合模式');
+    expect(await bannerText(page)).not.toContain('秒后进入待归类时间');
 
     await expect.poll(() => bannerExists(page), { timeout: 8000 }).toBe(false);
     await page.close();

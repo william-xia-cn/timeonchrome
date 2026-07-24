@@ -557,6 +557,44 @@
       .sidebar-footer .email, .logout-btn { display: none; }
       .page { padding: 20px 16px; }
       .stats-grid { grid-template-columns: 1fr 1fr; }
+      #site-classification-review-card .card-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .site-request-row {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
+        gap: 8px;
+        padding: 14px 0;
+      }
+      .site-request-title,
+      .site-request-meta,
+      .site-request-status {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .site-request-target {
+        align-items: stretch;
+        flex-direction: column;
+        width: 100%;
+      }
+      .site-request-target select,
+      .site-request-target input {
+        box-sizing: border-box;
+        min-width: 0;
+        width: 100%;
+      }
+      .site-request-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        justify-content: stretch;
+        width: 100%;
+      }
+      .site-request-actions .btn-classify {
+        min-width: 0;
+        white-space: normal;
+      }
     }
   </style>
 </head>
@@ -649,7 +687,7 @@
           <span class="nav-icon"><img src="assets/icons/rules.svg" alt=""></span><span>访问管理</span>
         </div>
         <div class="nav-item" data-page="review">
-          <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站归类申请 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
+          <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站归类审核 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
         <div class="nav-item" data-page="account">
           <span class="nav-icon"><img src="assets/icons/user.svg" alt=""></span><span>子用户管理</span>
@@ -710,15 +748,15 @@
           </div>
         </div>
 
-        <!-- 综合网站 -->
+        <!-- 复合网站 -->
         <div class="card" id="r-composite-card">
           <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">综合网站</div><div class="card-subtitle">学习模式下可访问，产生「综合网站时间（待分类）」，不自动计入学习或休息时间</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">复合网站</div><div class="card-subtitle">学习模式下可访问，产生「待归类时间」，不自动计入学习或休息时间</div></div>
           </div>
           <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
             <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
-              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置综合网站（只读）</div>
+              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置复合网站（只读）</div>
               <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
             </div>
             <div style="display:none;margin-top:8px;">
@@ -728,7 +766,7 @@
           </div>
           <!-- 家长自定义 -->
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义综合网站</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义复合网站</div>
             <div class="domain-input-row">
               <input type="text" id="r-composite-input" placeholder="例：youtube.com">
               <button class="btn-add" id="r-composite-add">+ 添加</button>
@@ -741,7 +779,7 @@
         <!-- 受限娱乐网站 -->
         <div class="card" id="r-restricted-card">
           <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">受限娱乐网站</div><div class="card-subtitle">自由时间可访问，学习模式 blocked，不支持临时使用综合网站时间，可借时间</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">受限娱乐网站</div><div class="card-subtitle">自由时间可访问，学习模式 blocked，不支持临时进入待归类时间，可借时间</div></div>
           </div>
           <!-- 系统配置 -->
           <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
@@ -800,10 +838,10 @@
             <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/info.svg" alt="">分类说明</div>
           </div>
           <div style="font-size:13px;line-height:1.8;color:var(--text);">
-            <p style="margin-bottom:10px;"><strong>综合网站时间（待分类）</strong><br>
-            来自搜索、YouTube、百科、问答、音乐等综合用途网站。暂不直接算作学习或休息，后续可进一步分类。</p>
-            <p style="margin-bottom:10px;"><strong>临时使用综合网站时间</strong><br>
-            仅适用于未归类网站。本次访问将临时按综合网站处理，并计入综合网站时间（待分类）。不适用于受限娱乐网站或黑名单网站。</p>
+            <p style="margin-bottom:10px;"><strong>待归类时间</strong><br>
+            来自搜索、YouTube、百科、问答、音乐等复合用途网站。暂不直接算作学习或休息，后续可进一步分类。</p>
+            <p style="margin-bottom:10px;"><strong>临时进入待归类时间</strong><br>
+            仅适用于未归类网站。本次访问将临时按复合网站处理，并计入待归类时间。不适用于受限娱乐网站或黑名单网站。</p>
             <p><strong>受限娱乐网站 vs 黑名单网站</strong><br>
             受限娱乐网站：自由时间可访问，可借时间，学习模式 blocked。<br>
             黑名单网站：任何时间都不允许访问，不可借时间。</p>
@@ -834,7 +872,7 @@
                 <div id="weekly-rest-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
               </div>
               <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
-                <div style="font-size:11px;color:var(--muted);">综合网站</div>
+                <div style="font-size:11px;color:var(--muted);">复合网站</div>
                 <div id="weekly-composite-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
               </div>
               <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
@@ -860,7 +898,7 @@
       <section class="rules-management-panel" data-rules-management-panel="schedule">
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 综合时段 ∪ 休息时段（只读自动合并）</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 复合时段 ∪ 休息时段（只读自动合并）</div></div>
           </div>
           <div id="time-windows-table" style="overflow-x:auto;">
             <!-- per-day table rendered by JS -->
@@ -1325,18 +1363,18 @@
         </div>
       </div>
 
-      <!-- 网站归类申请 -->
+      <!-- 网站归类审核 -->
       <div class="page" id="page-review">
         <div class="page-header">
-          <h2>网站归类申请</h2>
-          <p>处理网站归类申请，以及复合型网站产生的待分类会话</p>
+          <h2>网站归类审核</h2>
+          <p>检查未归类网站访问记录、学习网站归类申请和复合型网站产生的待归类会话</p>
         </div>
 
         <div class="card" id="site-classification-review-card" style="margin-bottom:16px;">
           <div class="card-header">
             <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/request.svg" alt="">网站归类申请</div>
-              <div style="font-size:12px;color:var(--muted);margin-top:3px;">可调整审批生效对象。退回申请表示不归类并结束本次临时综合使用，后续可重新申请。</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/request.svg" alt="">网站归类记录与申请</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">自动记录表示未归类网站被访问；学习申请表示孩子希望归为学习网站。可调整最终生效对象与分类。</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <select id="site-classification-status-filter" style="padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:12px;">
@@ -1347,7 +1385,7 @@
             </div>
           </div>
           <div id="site-classification-requests-container">
-            <div class="empty-state">加载网站归类申请中…</div>
+            <div class="empty-state">加载网站归类记录中…</div>
           </div>
         </div>
 
@@ -1935,7 +1973,7 @@ function getCustomList(effectiveList, defaultList) {
 
 const SITE_ACCESS_CATEGORY_FIELDS = [
   { category: 'study', label: '学习网站', keys: ['defaultStudySites', 'studyList', 'customStudyList'] },
-  { category: 'composite', label: '综合网站', keys: ['defaultCompositeSites', 'compositeList', 'customCompositeList'] },
+  { category: 'composite', label: '复合网站', keys: ['defaultCompositeSites', 'compositeList', 'customCompositeList'] },
   { category: 'restricted', label: '受限娱乐网站', keys: ['defaultRestrictedEntertainmentSites', 'restrictedEntertainmentList', 'customRestrictedEntertainmentList'] },
   { category: 'blocked', label: '黑名单网站', keys: ['defaultBlockedSites', 'unsafeList', 'customBlockedSites'] },
 ];
@@ -1975,7 +2013,7 @@ function getSiteAccessListsForValidation(config = remoteConfig, defaults = siteA
   };
   const groups = [
     { category: 'study', label: '学习网站', key: 'customStudyList', values: [...(defaults.defaultStudySites || []), ...customOrEffective('customStudyList', 'studyList', defaults.defaultStudySites)] },
-    { category: 'composite', label: '综合网站', key: 'customCompositeList', values: [...(defaults.defaultCompositeSites || []), ...customOrEffective('customCompositeList', 'compositeList', defaults.defaultCompositeSites)] },
+    { category: 'composite', label: '复合网站', key: 'customCompositeList', values: [...(defaults.defaultCompositeSites || []), ...customOrEffective('customCompositeList', 'compositeList', defaults.defaultCompositeSites)] },
     { category: 'restricted', label: '受限娱乐网站', key: 'customRestrictedEntertainmentList', values: [...(defaults.defaultRestrictedEntertainmentSites || []), ...customOrEffective('customRestrictedEntertainmentList', 'restrictedEntertainmentList', defaults.defaultRestrictedEntertainmentSites)] },
     { category: 'blocked', label: '黑名单网站', key: 'customBlockedSites', values: [...(defaults.defaultBlockedSites || []), ...customOrEffective('customBlockedSites', 'unsafeList', defaults.defaultBlockedSites)] },
   ];
@@ -2048,7 +2086,7 @@ function renderRulesPage() {
   renderReadOnlyTags('r-studylist-default-tags', defaults.defaultStudySites || []);
   renderTags('r-studylist-tags', studyCustom, 'customStudyList');
 
-  // 综合网站
+  // 复合网站
   const compositeCustom = remoteConfig.customCompositeList || getCustomList(remoteConfig.compositeList, defaults.defaultCompositeSites);
   renderReadOnlyTags('r-composite-default-tags', defaults.defaultCompositeSites || []);
   renderTags('r-composite-tags', compositeCustom, 'customCompositeList');
@@ -2362,20 +2400,20 @@ function normalizeImportedRule(rule) {
 
 const CONFIG_IMPORT_LIST_FIELDS = [
   { key: 'study', label: '学习网站', exportKey: 'studySites', configKey: 'customStudyList' },
-  { key: 'composite', label: '综合网站', exportKey: 'compositeSites', configKey: 'customCompositeList' },
+  { key: 'composite', label: '复合网站', exportKey: 'compositeSites', configKey: 'customCompositeList' },
   { key: 'restricted', label: '受限娱乐网站', exportKey: 'restrictedEntertainmentSites', configKey: 'customRestrictedEntertainmentList' },
   { key: 'blocked', label: '黑名单网站', exportKey: 'blockedSites', configKey: 'customBlockedSites' },
 ];
 
 const CONFIG_IMPORT_QUOTA_FIELDS = [
   { key: 'studyMinutes', label: '学习配额' },
-  { key: 'compositeMinutes', label: '综合配额' },
+  { key: 'compositeMinutes', label: '待归类配额' },
   { key: 'restMinutes', label: '休息配额' },
 ];
 
 const CONFIG_IMPORT_WINDOW_FIELDS = [
   { key: 'studyWindows', label: '学习时段' },
-  { key: 'compositeWindows', label: '综合时段' },
+  { key: 'compositeWindows', label: '复合时段' },
   { key: 'restWindows', label: '休息时段' },
 ];
 
@@ -2810,7 +2848,7 @@ function renderQuotaPage() {
     <div style="font-size:12px;color:var(--muted);font-weight:600;">星期</div>
     <div style="font-size:12px;color:var(--muted);font-weight:600;">学习时长</div>
     <div style="font-size:12px;color:var(--muted);font-weight:600;">休息时长</div>
-    <div style="font-size:12px;color:var(--muted);font-weight:600;">综合网站时间</div>
+    <div style="font-size:12px;color:var(--muted);font-weight:600;">待归类时间</div>
   </div>`;
 
   for (const day of QUOTA_DAYS) {
@@ -2974,7 +3012,7 @@ function renderSchedulePage() {
         <tr style="border-bottom:2px solid var(--border);">
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);width:60px;">星期</th>
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);"><img class="toc-ui-icon small" src="assets/icons/study.svg" alt="">学习时段</th>
-          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">综合时段</th>
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">复合时段</th>
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);"><img class="toc-ui-icon small" src="assets/icons/rest.svg" alt="">休息时段</th>
           <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--muted);">🌐 在线时段（只读）</th>
         </tr>
@@ -3148,7 +3186,7 @@ window.removeStudyWindow = (day, idx) => {
 window.addCompositeWindow = (day) => {
   ensureTimeWindowsDaily();
   const dayCfg = remoteConfig.timeWindows.daily[day];
-  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加综合时段\n开始时间 (HH:MM):`, '18:00');
+  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加复合时段\n开始时间 (HH:MM):`, '18:00');
   if (!start) return;
   const end = prompt(`结束时间 (HH:MM):`, '21:00');
   if (!end) return;
@@ -3338,7 +3376,7 @@ function cloudUsageRange() {
 function usageCategoryLabel(key) {
   return ({
     study: '学习',
-    composite: '综合',
+    composite: '待归类',
     rest: '休息',
     other: '其他',
     foregroundAudio: '前台音频',
@@ -5820,11 +5858,25 @@ function renderReviewPage() {
   loadReviewGroups();
 }
 
-function siteRequestStatusLabel(status) {
-  if (status === 'pending') return '待审批';
-  if (status === 'returned') return '已退回';
-  if (status === 'approved_study') return '已批准为学习';
-  if (status === 'approved_composite') return '已批准为综合';
+function siteRequestRecordKind(request = {}) {
+  if (request.requestedClassification === 'study') return 'learning_request';
+  if (!request.recordSource || request.recordSource === 'legacy') return 'legacy';
+  return 'unclassified_visit';
+}
+
+function siteRequestRecordLabel(request = {}) {
+  const kind = siteRequestRecordKind(request);
+  if (kind === 'learning_request') return '学习网站归类申请';
+  if (kind === 'legacy') return '历史网站归类记录';
+  return '未归类网站访问记录';
+}
+
+function siteRequestStatusLabel(status, request = {}) {
+  const kind = siteRequestRecordKind(request);
+  if (status === 'pending') return '待家长确认';
+  if (status === 'returned') return kind === 'unclassified_visit' ? '已暂不归类' : '已退回';
+  if (status === 'approved_study') return '已确认为学习';
+  if (status === 'approved_composite') return '已确认为复合';
   if (status === 'rejected') return '已归为受限娱乐';
   return status || '未知';
 }
@@ -5837,28 +5889,49 @@ function siteRequestDecisionDefault(request) {
   return request.decisionNormalizedValue || request.requestedNormalizedValue || '';
 }
 
+function formatSiteRequestTimestamp(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? new Date(numeric).toLocaleString('zh-CN') : '-';
+}
+
+function siteRequestObservationText(request = {}) {
+  const count = Math.max(0, Number(request.observationCount || 0));
+  if (!request.firstObservedAt && !request.lastObservedAt && count === 0) return '暂无访问概况';
+  return `首次 ${formatSiteRequestTimestamp(request.firstObservedAt)} · 最近 ${formatSiteRequestTimestamp(request.lastObservedAt)} · 顶层导航 ${count} 次`;
+}
+
 function renderSiteRequestRow(request, idx) {
   const isPending = request.status === 'pending';
+  const kind = siteRequestRecordKind(request);
+  const isLearningRequest = kind === 'learning_request';
   const requestedType = request.requestedTargetType || 'host';
   const requestedValue = request.displayValue || request.requestedNormalizedValue || '';
   const decisionType = request.decisionTargetType || requestedType;
   const decisionValue = siteRequestDecisionDefault(request);
   const device = request.deviceId ? `终端 ${escHtml(request.deviceId)}` : '终端未记录';
-  const requestedAt = request.requestedAt ? new Date(Number(request.requestedAt)).toLocaleString('zh-CN') : '-';
+  const recordTime = formatSiteRequestTimestamp(request.requestedAt);
+  const manualTime = formatSiteRequestTimestamp(request.manualRequestedAt);
+  const recordLabel = siteRequestRecordLabel(request);
+  const primaryAction = isLearningRequest ? '批准归为学习网站' : '确认为学习网站';
+  const compositeAction = isLearningRequest ? '改为复合网站' : '确认为复合网站';
+  const returnAction = kind === 'unclassified_visit' ? '暂不归类' : '退回申请';
   const actionHtml = isPending ? `
     <div class="site-request-actions">
-      <button class="btn-classify study" onclick="decideSiteClassificationRequest(${idx},'study')">批准为学习网站</button>
-      <button class="btn-classify rest" onclick="decideSiteClassificationRequest(${idx},'composite')">批准为综合网站</button>
-      <button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'return')">退回申请</button>
+      <button class="btn-classify study" onclick="decideSiteClassificationRequest(${idx},'study')">${primaryAction}</button>
+      <button class="btn-classify rest" onclick="decideSiteClassificationRequest(${idx},'composite')">${compositeAction}</button>
+      <button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'return')">${returnAction}</button>
       <button class="btn-classify" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">归为受限娱乐</button>
-    </div>` : `<div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status))}</div>`;
+    </div>` : `<div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status, request))}</div>`;
+  const observationText = siteRequestObservationText(request);
+  const requestTimeText = isLearningRequest ? ` · 申请时间 ${manualTime}` : '';
   return `
     <div class="site-request-row" data-id="${escHtml(request.id)}">
       <div>
         <div class="site-request-title">${escHtml(requestedValue)}</div>
-        <div class="site-request-meta">申请对象：${siteRequestTargetTypeLabel(requestedType)} · ${escHtml(requestedAt)}</div>
+        <div class="site-request-meta">${escHtml(recordLabel)} · ${siteRequestTargetTypeLabel(requestedType)} · 记录时间 ${escHtml(recordTime)}${escHtml(requestTimeText)}</div>
+        <div class="site-request-meta">${escHtml(observationText)}</div>
       </div>
-      <div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status))}<br><span style="color:var(--muted);">${device}</span></div>
+      <div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status, request))}<br><span style="color:var(--muted);">${device}</span></div>
       <div class="site-request-target">
         <select id="site-request-type-${idx}" ${isPending ? '' : 'disabled'}>
           <option value="host" ${decisionType === 'host' ? 'selected' : ''}>域名/子域名</option>
@@ -5869,19 +5942,18 @@ function renderSiteRequestRow(request, idx) {
       ${actionHtml}
     </div>`;
 }
-
 async function loadSiteClassificationRequests() {
   if (!currentProfileId) return;
   const container = document.getElementById('site-classification-requests-container');
   if (!container) return;
-  container.innerHTML = '<div class="empty-state">加载网站归类申请中…</div>';
+  container.innerHTML = '<div class="empty-state">加载网站归类记录中…</div>';
   const status = document.getElementById('site-classification-status-filter')?.value || 'pending';
   try {
     const r = await api(`/profiles/${currentProfileId}/site-classification-requests/v1?status=${encodeURIComponent(status)}`);
     const requests = Array.isArray(r.requests) ? r.requests : [];
     window._siteClassificationRequests = requests;
     if (requests.length === 0) {
-      container.innerHTML = '<div class="empty-state" style="padding:36px;">暂无网站归类申请</div>';
+      container.innerHTML = '<div class="empty-state" style="padding:36px;">暂无网站归类记录</div>';
       updateReviewBadge(currentProfileId);
       return;
     }
@@ -5910,9 +5982,9 @@ async function decideSiteClassificationRequest(idx, decision) {
     toast(decision === 'study'
       ? '已批准为学习网站'
       : decision === 'composite'
-      ? '已批准为综合网站'
+      ? '已批准为复合网站'
       : decision === 'return'
-      ? '已退回申请'
+      ? (siteRequestRecordKind(request) === 'unclassified_visit' ? '已暂不归类' : '已退回申请')
       : '已归为受限娱乐');
     await loadSiteClassificationRequests();
   } catch (e) {

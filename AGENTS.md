@@ -21,7 +21,8 @@ TimeOnChrome 当前不是商用团队项目，而是个人/小团队产品实验
 - `TASK_BOARD.md`：下一步、blocker、当前任务状态。
 - `PROJECT_MASTER.md`：稳定事实、阶段、release 状态。
 - `DECISIONS.md`：长期产品/架构/发布策略决策。
-- `docs/releases/*`：只记录 release 证据或 release blocker，不记录普通日常过程。
+- `docs/release/*`：当前 release checklist、gate template、active release runbook。
+- `docs/archive/*`：历史证据、旧验收、旧交接、旧计划；不得作为当前 source of truth。
 
 ### 1.1 文档先行原则
 
@@ -382,6 +383,8 @@ timeonchrome/
 ## 9. 项目文档与权威来源（Source of Truth）
 
 以下文档按主题分类，执行器在接到任务时应优先读取对应文档，避免范围漂移和重复文档化。
+
+docs/archive/ 仅保存历史证据、旧验收、旧交接、旧计划和过期发布材料；除非用户明确要求查历史，不得把 archive 文件作为当前产品、工程、发布或部署 source of truth。
 
 ### 9.1 文档清单
 

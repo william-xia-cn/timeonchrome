@@ -46,6 +46,12 @@ pwsh ./tools/managed-chrome-extension-installer/package/build-package.ps1 `
 
 If `-ConfigPath` is omitted, the package uses `private-config.example.plist` and is safe as a public skeleton package.
 
+## Version Policy
+
+`expectedVersion` is optional. If it is missing, empty, or set to `latest`, the installer follows the configured HTTPS update feed and uses the feed version as the expected install version for this run. Chrome continues to update through the stable `updateUrl` after installation, so normal extension releases only update the self-hosted `update.xml`, CRX, and SHA256 audit material.
+
+Set `expectedVersion` to a concrete version only for pinned audit or troubleshooting installs. In pinned mode, the feed version must match `expectedVersion`; if `expectedCrxCodebaseSuffix` is configured, it must also match the CRX codebase suffix. The suffix may include `{version}` for latest-compatible templates.
+
 ## Install on macOS
 
 After copying and extracting the package on the target Mac:
@@ -65,9 +71,10 @@ sudo ./macos-managed-extension-installer.sh restore-test
 
 ## Porting Checklist
 
-- Replace `extensionId`, `expectedVersion`, and `updateUrl`.
+- Replace `extensionId` and `updateUrl`; leave `expectedVersion` missing or `latest` for the stable latest channel.
 - Set a project-specific `deploymentName`, `policySlug`, and `launchDaemonLabel`.
 - Set `targetProfileEmail` to the Chrome profile account that should activate the extension.
 - Keep `managedDeviceToken` outside Git and provide it only through a private config file.
 - Ensure the extension manifest has a managed storage schema if `validateManagedSchema=true`.
 - Ensure the extension runtime treats non-matching `managedProfileEmail` as inactive.
+
