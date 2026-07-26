@@ -1,4 +1,7 @@
 {
+  "configType": "system-access-config",
+  "schemaVersion": 1,
+  "taxonomyVersion": "qustodio-web-filters-v1",
   "version": 1,
   "defaultStudySites": [
     "drive.google.com",
@@ -188,5 +191,1439 @@
   "defaultBlockedSites": [
     "douyin.com",
     "tiktok.com"
+  ],
+  "siteCatalog": [
+    {
+      "domain": "drive.google.com",
+      "name": "drive.google.com",
+      "contentCategory": "文件共享",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "docs.google.com",
+      "name": "docs.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "sheets.google.com",
+      "name": "sheets.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "slides.google.com",
+      "name": "slides.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "forms.google.com",
+      "name": "forms.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "meet.google.com",
+      "name": "meet.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "calendar.google.com",
+      "name": "calendar.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "classroom.google.com",
+      "name": "classroom.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "instructure.com",
+      "name": "instructure.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "blackboard.com",
+      "name": "blackboard.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "moodle.org",
+      "name": "moodle.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "schoology.com",
+      "name": "schoology.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "clever.com",
+      "name": "clever.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "turnitin.com",
+      "name": "turnitin.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "keep.google.com",
+      "name": "keep.google.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "colab.research.google.com",
+      "name": "colab.research.google.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "office.com",
+      "name": "office.com",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "onedrive.live.com",
+      "name": "onedrive.live.com",
+      "contentCategory": "文件共享",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "onenote.com",
+      "name": "onenote.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "outlook.live.com",
+      "name": "outlook.live.com",
+      "contentCategory": "网页邮件",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "planner.microsoft.com",
+      "name": "planner.microsoft.com",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "to-do.office.com",
+      "name": "to-do.office.com",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "teams.microsoft.com",
+      "name": "teams.microsoft.com",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "chatgpt.com",
+      "name": "ChatGPT",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "openai.com",
+      "name": "OpenAI",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "claude.ai",
+      "name": "Claude",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "copilot.microsoft.com",
+      "name": "Microsoft Copilot",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "phind.com",
+      "name": "phind.com",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "gemini.google.com",
+      "name": "Gemini",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "poe.com",
+      "name": "poe.com",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "perplexity.ai",
+      "name": "perplexity.ai",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "notebooklm.google.com",
+      "name": "notebooklm.google.com",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "elicit.org",
+      "name": "elicit.org",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "consensus.app",
+      "name": "consensus.app",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "scite.ai",
+      "name": "scite.ai",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "wolframalpha.com",
+      "name": "wolframalpha.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "gamma.app",
+      "name": "gamma.app",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "prezi.com",
+      "name": "prezi.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "miro.com",
+      "name": "miro.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "lucidchart.com",
+      "name": "lucidchart.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "draw.io",
+      "name": "draw.io",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "diagrams.net",
+      "name": "diagrams.net",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "quizizz.com",
+      "name": "quizizz.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "kahoot.it",
+      "name": "kahoot.it",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "quizlet.com",
+      "name": "quizlet.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "noredink.com",
+      "name": "noredink.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "membean.com",
+      "name": "membean.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "achieve3000.com",
+      "name": "achieve3000.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "quillbot.com",
+      "name": "quillbot.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "grammarly.com",
+      "name": "grammarly.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "overleaf.com",
+      "name": "overleaf.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "zotero.org",
+      "name": "zotero.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "mendeley.com",
+      "name": "mendeley.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "owl.purdue.edu",
+      "name": "owl.purdue.edu",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "citationmachine.net",
+      "name": "citationmachine.net",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "easybib.com",
+      "name": "easybib.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "bibme.org",
+      "name": "bibme.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "scribbr.com",
+      "name": "scribbr.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "languagetool.org",
+      "name": "languagetool.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "hemingwayapp.com",
+      "name": "hemingwayapp.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "ibo.org",
+      "name": "ibo.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "managebac.com",
+      "name": "managebac.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "kognity.com",
+      "name": "kognity.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "revisionvillage.com",
+      "name": "revisionvillage.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "savemyexams.com",
+      "name": "savemyexams.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "physicsandmathstutor.com",
+      "name": "physicsandmathstutor.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "albert.io",
+      "name": "albert.io",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "fiveable.me",
+      "name": "fiveable.me",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "pastpapers.co",
+      "name": "pastpapers.co",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "crackap.com",
+      "name": "crackap.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "ibdocuments.com",
+      "name": "ibdocuments.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "ibsurvival.com",
+      "name": "ibsurvival.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "lanterna.com",
+      "name": "lanterna.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "thinking.net",
+      "name": "thinking.net",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "bioninja.com.au",
+      "name": "bioninja.com.au",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "theoryofknowledge.net",
+      "name": "theoryofknowledge.net",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "khanacademy.org",
+      "name": "Khan Academy",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "ocw.mit.edu",
+      "name": "ocw.mit.edu",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "coursera.org",
+      "name": "Coursera",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "edx.org",
+      "name": "edX",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "brilliant.org",
+      "name": "brilliant.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "udemy.com",
+      "name": "udemy.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "futurelearn.com",
+      "name": "futurelearn.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "udacity.com",
+      "name": "udacity.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "codecademy.com",
+      "name": "codecademy.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "datacamp.com",
+      "name": "datacamp.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "freecodecamp.org",
+      "name": "freecodecamp.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "openstax.org",
+      "name": "openstax.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "ck12.org",
+      "name": "ck12.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "britannica.com",
+      "name": "britannica.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "desmos.com",
+      "name": "desmos.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "geogebra.org",
+      "name": "geogebra.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "symbolab.com",
+      "name": "symbolab.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "mathway.com",
+      "name": "mathway.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "physicsclassroom.com",
+      "name": "physicsclassroom.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "phet.colorado.edu",
+      "name": "phet.colorado.edu",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "falstad.com",
+      "name": "falstad.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "myphysicslab.com",
+      "name": "myphysicslab.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "logic.ly",
+      "name": "logic.ly",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "mathsisfun.com",
+      "name": "mathsisfun.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "artofproblemsolving.com",
+      "name": "artofproblemsolving.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "aops.com",
+      "name": "aops.com",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "github.com",
+      "name": "GitHub",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "stackoverflow.com",
+      "name": "Stack Overflow",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "leetcode.com",
+      "name": "leetcode.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "hackerrank.com",
+      "name": "hackerrank.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "codingbat.com",
+      "name": "codingbat.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "replit.com",
+      "name": "replit.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "codepen.io",
+      "name": "codepen.io",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "developer.mozilla.org",
+      "name": "developer.mozilla.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "w3schools.com",
+      "name": "w3schools.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "tinkercad.com",
+      "name": "tinkercad.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "arduino.cc",
+      "name": "arduino.cc",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "raspberrypi.com",
+      "name": "raspberrypi.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "instructables.com",
+      "name": "instructables.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "arxiv.org",
+      "name": "arxiv.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "scholar.google.com",
+      "name": "scholar.google.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "jstor.org",
+      "name": "jstor.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "researchgate.net",
+      "name": "researchgate.net",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "semanticscholar.org",
+      "name": "semanticscholar.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "pubmed.ncbi.nlm.nih.gov",
+      "name": "pubmed.ncbi.nlm.nih.gov",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "gutenberg.org",
+      "name": "gutenberg.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "plato.stanford.edu",
+      "name": "plato.stanford.edu",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "ncbi.nlm.nih.gov",
+      "name": "ncbi.nlm.nih.gov",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "nature.com",
+      "name": "nature.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "science.org",
+      "name": "science.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "springer.com",
+      "name": "springer.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "sciencedirect.com",
+      "name": "sciencedirect.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "cambridge.org",
+      "name": "cambridge.org",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "oup.com",
+      "name": "oup.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "archive.org",
+      "name": "archive.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "loc.gov",
+      "name": "loc.gov",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "canva.com",
+      "name": "canva.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "figma.com",
+      "name": "figma.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "photopea.com",
+      "name": "photopea.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "pixlr.com",
+      "name": "pixlr.com",
+      "contentCategory": "技术",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "notion.so",
+      "name": "notion.so",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "obsidian.md",
+      "name": "obsidian.md",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "ankiweb.net",
+      "name": "ankiweb.net",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "trello.com",
+      "name": "trello.com",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "slack.com",
+      "name": "slack.com",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "reclaim.ai",
+      "name": "reclaim.ai",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "collegeboard.org",
+      "name": "collegeboard.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "apclassroom.collegeboard.org",
+      "name": "apclassroom.collegeboard.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "bluebook.app.collegeboard.org",
+      "name": "bluebook.app.collegeboard.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "act.org",
+      "name": "act.org",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "powerschool.com",
+      "name": "powerschool.com",
+      "contentCategory": "企业",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "doubao.com",
+      "name": "doubao.com",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "deepseek.com",
+      "name": "deepseek.com",
+      "contentCategory": "人工智能",
+      "classification": "study",
+      "confidence": "high",
+      "notes": "System default learning site catalog metadata."
+    },
+    {
+      "domain": "google.com",
+      "name": "Google Search",
+      "contentCategory": "搜索门户",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "google.com.hk",
+      "name": "Google Search HK",
+      "contentCategory": "搜索门户",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "bing.com",
+      "name": "Bing",
+      "contentCategory": "搜索门户",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "microsoft.com",
+      "name": "microsoft.com",
+      "contentCategory": "企业",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "apple.com",
+      "name": "apple.com",
+      "contentCategory": "企业",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "adobe.com",
+      "name": "adobe.com",
+      "contentCategory": "企业",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "music.youtube.com",
+      "name": "YouTube Music",
+      "contentCategory": "视频/直播",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "spotify.com",
+      "name": "Spotify",
+      "contentCategory": "娱乐",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "music.163.com",
+      "name": "NetEase Cloud Music",
+      "contentCategory": "娱乐",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "youtube.com",
+      "name": "YouTube",
+      "contentCategory": "视频/直播",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "wikipedia.org",
+      "name": "Wikipedia",
+      "contentCategory": "综合门户",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "wikimedia.org",
+      "name": "Wikimedia",
+      "contentCategory": "综合门户",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "stackexchange.com",
+      "name": "Stack Exchange",
+      "contentCategory": "技术",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "reddit.com",
+      "name": "Reddit",
+      "contentCategory": "论坛",
+      "classification": "composite",
+      "confidence": "high",
+      "notes": "System default composite site catalog metadata."
+    },
+    {
+      "domain": "bilibili.com",
+      "name": "Bilibili",
+      "contentCategory": "视频/直播",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "netflix.com",
+      "name": "Netflix",
+      "contentCategory": "视频/直播",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "disneyplus.com",
+      "name": "Disney+",
+      "contentCategory": "视频/直播",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "hulu.com",
+      "name": "Hulu",
+      "contentCategory": "视频/直播",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "twitch.tv",
+      "name": "Twitch",
+      "contentCategory": "视频/直播",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "roblox.com",
+      "name": "Roblox",
+      "contentCategory": "游戏",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "steampowered.com",
+      "name": "Steam",
+      "contentCategory": "游戏",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "steamcommunity.com",
+      "name": "Steam Community",
+      "contentCategory": "游戏",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "epicgames.com",
+      "name": "Epic Games",
+      "contentCategory": "游戏",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "instagram.com",
+      "name": "Instagram",
+      "contentCategory": "社交网络",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "facebook.com",
+      "name": "Facebook",
+      "contentCategory": "社交网络",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "x.com",
+      "name": "X",
+      "contentCategory": "社交网络",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "snapchat.com",
+      "name": "Snapchat",
+      "contentCategory": "社交网络",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "threads.net",
+      "name": "Threads",
+      "contentCategory": "社交网络",
+      "classification": "restricted",
+      "confidence": "high",
+      "notes": "System default restricted entertainment site catalog metadata."
+    },
+    {
+      "domain": "douyin.com",
+      "name": "Douyin",
+      "contentCategory": "社交网络",
+      "classification": "blocked",
+      "confidence": "high",
+      "notes": "System default blocked site catalog metadata."
+    },
+    {
+      "domain": "tiktok.com",
+      "name": "TikTok",
+      "contentCategory": "社交网络",
+      "classification": "blocked",
+      "confidence": "high",
+      "notes": "System default blocked site catalog metadata."
+    }
   ]
 }

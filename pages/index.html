@@ -456,6 +456,7 @@
     .rules-system-category-meta { color: var(--muted); font-size: 12px; font-weight: 400; }
     .rules-system-category-body.collapsed { display: none; }
     .rules-system-editor { padding: 12px 14px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.015); }
+    .rules-system-unmarked-notice { margin: 10px 14px; padding: 9px 11px; border: 1px solid rgba(245,158,11,.32); border-radius: 8px; background: rgba(245,158,11,.06); color: var(--muted); font-size: 12px; line-height: 1.5; }
     .rules-system-editor-grid { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto auto; gap: 8px; align-items: end; }
     .rules-system-editor label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
     .rules-system-editor select { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 7px 8px; color: var(--text); font-size: 12px; }
@@ -2281,6 +2282,10 @@ function renderSystemCategoryManagementGroup(entries) {
   });
   window._rulesSystemCategoryGroups = sortedGroups.map(([category]) => category);
   const collapsed = new Set(rulesSitePolicyState.collapsedSystemCategories || []);
+  const unmarkedCount = groups.get('未标注分类')?.length || 0;
+  const unmarkedNotice = unmarkedCount > 0
+    ? `<div class="rules-system-unmarked-notice">还有 ${unmarkedCount} 个系统站点缺少目录元数据；这不是网站未归类，只表示需要补齐系统目录元数据。</div>`
+    : '';
   const bodyHtml = sortedGroups.map(([category, list], categoryIndex) => {
     const isCollapsed = collapsed.has(category);
     return `
@@ -2299,10 +2304,11 @@ function renderSystemCategoryManagementGroup(entries) {
       <div class="rules-site-group-header">
         <div>
           <div>分类管理（系统配置）</div>
-          <div class="rules-site-group-subtitle">按 Qustodio 内容分类分组；保存系统项会全局生效，影响所有孩子档案</div>
+          <div class="rules-site-group-subtitle">当前策略下的系统配置网站按 Qustodio 内容分类分组；保存系统项会全局生效，影响所有孩子档案</div>
         </div>
         <span class="rules-site-badge">共 ${entries.length} 条</span>
       </div>
+      ${unmarkedNotice}
       ${bodyHtml}
     </section>`;
 }

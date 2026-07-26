@@ -82,9 +82,68 @@ function normalizeCatalog(value: unknown): SiteCatalogItem[] {
   return out;
 }
 
+const DEFAULT_CONTENT_CATEGORY_BY_CLASSIFICATION: Record<string, string> = {
+  study: '教育性',
+  composite: '综合门户',
+  restricted: '娱乐',
+  blocked: '社交网络',
+};
+
+function catalogByDomain(items: SiteCatalogItem[] = []): Map<string, SiteCatalogItem> {
+  const map = new Map<string, SiteCatalogItem>();
+  for (const item of items) {
+    const domain = normalizeHost(item.domain);
+    if (domain && !map.has(domain)) map.set(domain, { ...item, domain });
+  }
+  return map;
+}
+
+function listHostsWithClassification(config: SystemAccessConfig): Array<{ domain: string; classification: string }> {
+  const out: Array<{ domain: string; classification: string }> = [];
+  const push = (list: string[], classification: string) => {
+    for (const domain of list || []) out.push({ domain, classification });
+  };
+  push(config.defaultStudySites, 'study');
+  push(config.defaultCompositeSites, 'composite');
+  push(config.defaultUserCompositeSites, 'composite');
+  push(config.defaultRestrictedEntertainmentSites, 'restricted');
+  push(config.defaultBlockedSites, 'blocked');
+  return out;
+}
+
+function ensureCatalogCoverage(config: SystemAccessConfig): SystemAccessConfig {
+  const sourceCatalog = catalogByDomain(config.siteCatalog);
+  const fallbackCatalog = catalogByDomain(normalizeCatalog((fallbackDefaults as any).siteCatalog));
+  const covered = new Set<string>();
+  const siteCatalog: SiteCatalogItem[] = [];
+  for (const { domain, classification } of listHostsWithClassification(config)) {
+    const host = normalizeHost(domain);
+    if (!host || covered.has(host)) continue;
+    const source = sourceCatalog.get(host);
+    const fallback = fallbackCatalog.get(host);
+    const item = source || fallback || { domain: host };
+    covered.add(host);
+    siteCatalog.push({
+      domain: host,
+      name: item.name || fallback?.name || host,
+      contentCategory: item.contentCategory || fallback?.contentCategory || DEFAULT_CONTENT_CATEGORY_BY_CLASSIFICATION[classification] || '综合门户',
+      classification,
+      confidence: item.confidence || fallback?.confidence || 'medium',
+      notes: item.notes || fallback?.notes || 'Auto-filled system site catalog metadata.',
+    });
+  }
+  for (const item of config.siteCatalog || []) {
+    const host = normalizeHost(item.domain);
+    if (!host || covered.has(host)) continue;
+    covered.add(host);
+    siteCatalog.push({ ...item, domain: host });
+  }
+  return { ...config, siteCatalog };
+}
+
 export function normalizeSystemAccessConfig(input: any): SystemAccessConfig {
   const source = input && typeof input === 'object' ? input : {};
-  return {
+  return ensureCatalogCoverage({
     configType: 'system-access-config',
     schemaVersion: SYSTEM_ACCESS_SCHEMA_VERSION,
     taxonomyVersion: String(source.taxonomyVersion || SYSTEM_ACCESS_TAXONOMY_VERSION),
@@ -94,7 +153,7 @@ export function normalizeSystemAccessConfig(input: any): SystemAccessConfig {
     defaultRestrictedEntertainmentSites: stringList(source.defaultRestrictedEntertainmentSites),
     defaultBlockedSites: stringList(source.defaultBlockedSites),
     siteCatalog: normalizeCatalog(source.siteCatalog),
-  };
+  });
 }
 
 export function fallbackSystemAccessConfig(): SystemAccessConfig {

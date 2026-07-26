@@ -23,6 +23,10 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-26）
+- [x] 系统网站分类管理可读性修订
+  - 目标：为系统默认网站库补齐 `siteCatalog`，让系统配置真正按 Qustodio 内容分类分组。
+  - 目标：Worker 读取旧 D1 系统配置时补齐缺失目录元数据，避免线上继续全部显示“未标注分类”。
+  - 边界：不改变 `default*Sites` 运行 source of truth，不修改 profile 自定义、审批、计时、拦截、同步逻辑。
 - [x] 网站管理页内补齐系统配置“分类管理”
   - 目标：在现有“访问管理 → 网站管理”右侧目录中，把系统配置网站按 Qustodio 内容分类分组展示。
   - 目标：管理员可点击系统配置网站编辑内容分类和 TimeOnChrome 管理策略分类，保存到系统访问配置并全局生效。

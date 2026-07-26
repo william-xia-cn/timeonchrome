@@ -194,6 +194,7 @@ function run() {
   expectTrue('Pages 网站目录应按来源分组', source.includes('系统配置') && source.includes('当前档案自定义') && source.includes('已批准精确规则') && source.includes('data-source-group'));
   expectTrue('Pages 系统配置应显示页面内分类管理', source.includes('分类管理（系统配置）') && source.includes('data-system-category-management') && source.includes('rules-system-category-group'));
   expectTrue('Pages 系统配置应按 siteCatalog 内容分类分组', source.includes('systemSiteCatalogEntryForValue') && source.includes('siteCatalog') && source.includes('contentCategory') && source.includes('未标注分类'));
+  expectTrue('Pages 未标注分类应解释为目录元数据缺失', source.includes('当前策略下的系统配置网站按 Qustodio 内容分类分组') && source.includes('不是网站未归类') && source.includes('需要补齐系统目录元数据'));
   expectTrue('Pages 系统项编辑应包含内容分类和管理策略控件', source.includes('rules-system-content-category-select') && source.includes('rules-system-policy-select') && source.includes('保存系统分类'));
   expectTrue('Pages 点击自定义/未归类网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
   expectTrue('Pages 系统配置分类保存应要求全局确认', source.includes('saveSystemSiteCategoryEdit') && source.includes('系统分类管理保存后会全局生效，影响所有孩子档案') && source.includes('canWrite'));

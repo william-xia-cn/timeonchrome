@@ -435,7 +435,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - `system-access-config.json` 是系统配置导入导出文件，`site-access-editable.json` 仍只表示当前 profile 的自定义访问配置；
 - 系统配置导入是全局操作，不属于普通 profile restore。
 - Pages 网站管理 UI 使用“管理策略目录”作为主结构，左侧按学习/复合/受限娱乐/黑名单四类显示系统配置、自定义、精确规则和已使用未归类数量，右侧按来源分组展示网站目录；
-- 网站管理页内的系统配置区使用“分类管理”分组：系统配置网站按 `siteCatalog.contentCategory` 展示 Qustodio 风格内容分类；没有 `siteCatalog` 元数据或缺少 `contentCategory` 的系统站点进入“未标注分类”；
+- 网站管理页内的系统配置区使用“分类管理”分组：系统配置网站按 `siteCatalog.contentCategory` 展示 Qustodio 风格内容分类；系统默认网站库必须覆盖所有 `default*Sites` 的 `siteCatalog` 元数据，Worker 读取旧 D1 配置时会用 fallback catalog 补齐缺失项；没有任何目录元数据可推断的系统站点才进入“未标注分类”；
 - 管理员点击系统配置网站可同时编辑内容分类和管理策略分类，保存时通过 `/system/access-management-config/v1` 更新 `siteCatalog` 并同步维护 `defaultStudySites`、`defaultCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites`；该操作全局生效，必须显示确认；
 - 复合网站策略下的“已使用未归类网站”不是审批记录列表，而是最近 30 天 `target_stats_v1` / `usage_segments_v1` 中曾按未归类或待归类使用、且当前 effective 清单仍未归类的网站聚合；
 - 已使用未归类网站归类时写入当前 profile custom list；若存在匹配 pending 网站归类记录，同时按对应 decision 关闭记录；
