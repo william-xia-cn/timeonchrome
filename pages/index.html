@@ -449,14 +449,27 @@
     .rules-site-group { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
     .rules-site-group-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 700; }
     .rules-site-group-subtitle { color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 2px; }
-    .rules-site-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
-    .rules-site-row:last-child { border-bottom: none; }
+    .rules-system-category-group { border-top: 1px solid var(--border); }
+    .rules-system-category-group:first-of-type { border-top: none; }
+    .rules-system-category-header { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border: 0; background: rgba(0,184,148,0.035); color: var(--text); cursor: pointer; text-align: left; }
+    .rules-system-category-title { font-size: 13px; font-weight: 700; }
+    .rules-system-category-meta { color: var(--muted); font-size: 12px; font-weight: 400; }
+    .rules-system-category-body.collapsed { display: none; }
+    .rules-system-editor { padding: 12px 14px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.015); }
+    .rules-system-editor-grid { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto auto; gap: 8px; align-items: end; }
+    .rules-system-editor label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+    .rules-system-editor select { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 7px 8px; color: var(--text); font-size: 12px; }
+    .rules-system-editor-note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .rules-site-row-wrap { border-bottom: 1px solid var(--border); }
+    .rules-site-row-wrap:last-child { border-bottom: none; }
+    .rules-site-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; }
     .rules-site-domain { font-size: 13px; font-weight: 650; word-break: break-word; }
     .rules-site-meta { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
     .rules-site-badge { display: inline-flex; align-items: center; border: 1px solid rgba(0,184,148,.24); color: var(--muted); border-radius: 6px; padding: 2px 6px; font-size: 11px; margin-right: 6px; }
     .rules-site-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .rules-site-action-btn { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 7px; padding: 5px 8px; font-size: 12px; cursor: pointer; }
     .rules-site-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .rules-site-action-btn:disabled { cursor: not-allowed; opacity: .55; color: var(--muted); }
     .rules-site-action-btn.danger { color: var(--danger); }
     .rules-used-unclassified-summary { border: 1px solid rgba(245,158,11,.30); background: rgba(245,158,11,.06); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
     .rules-used-unclassified-summary strong { display: block; font-size: 13px; margin-bottom: 4px; }
@@ -465,6 +478,7 @@
       .rules-policy-shell { grid-template-columns: 1fr; }
       .rules-policy-nav { position: static; }
       .rules-policy-toolbar { grid-template-columns: 1fr; }
+      .rules-system-editor-grid { grid-template-columns: 1fr; }
     }
 
     /* Quota */
@@ -1434,6 +1448,8 @@ let rulesSitePolicyState = {
   usedUnclassified: [],
   usedUnclassifiedLoadedForProfileId: null,
   usedUnclassifiedLoading: false,
+  collapsedSystemCategories: [],
+  editingSystemSiteIndex: null,
 };
 let systemAccessCanWrite = false;
 let systemAccessCanWriteLoaded = false;
@@ -2121,9 +2137,39 @@ window.selectRulesPolicy = (policy) => {
   renderRulesPage();
 };
 
+function systemSiteCatalogMap(config = siteAccessDefaults || {}) {
+  const map = new Map();
+  for (const item of Array.isArray(config.siteCatalog) ? config.siteCatalog : []) {
+    const key = normalizeSiteAccessHostKey(item?.domain || '');
+    if (key && !map.has(key)) map.set(key, item);
+  }
+  return map;
+}
+
+function systemSiteCatalogEntryForValue(value, config = siteAccessDefaults || {}) {
+  const key = normalizeSiteAccessHostKey(value);
+  if (!key) return null;
+  return systemSiteCatalogMap(config).get(key) || null;
+}
+
+function systemSiteContentCategory(entry) {
+  return String(entry?.catalog?.contentCategory || '').trim() || '未标注分类';
+}
+
+function qustodioCategoryOptionsHtml(selected) {
+  return QUSTODIO_CATEGORY_LABELS.map(category => `<option value="${htmlEscape(category)}" ${category === selected ? 'selected' : ''}>${htmlEscape(category)}</option>`).join('');
+}
+
+function policyOptionsHtml(selected) {
+  return RULES_POLICY_DEFS.map(def => `<option value="${htmlEscape(def.key)}" ${def.key === selected ? 'selected' : ''}>${htmlEscape(def.label)}</option>`).join('');
+}
+
 function rulesDirectoryEntriesForPolicy(def) {
   const entries = [];
-  for (const value of def.system || []) entries.push({ source: 'system', classification: def.key, value, title: value });
+  for (const value of def.system || []) {
+    const catalog = systemSiteCatalogEntryForValue(value);
+    entries.push({ source: 'system', classification: def.key, value, title: value, catalog, contentCategory: String(catalog?.contentCategory || '').trim() });
+  }
   for (const value of def.custom || []) entries.push({ source: 'custom', classification: def.key, value, title: value });
   for (const rule of def.rules || []) entries.push({ source: 'rule', classification: def.key, value: siteRuleValue(rule), title: siteRuleValue(rule), rule });
   if (def.key === 'composite') {
@@ -2138,7 +2184,10 @@ function filterRulesDirectoryEntries(entries) {
   return entries.filter(entry => {
     if (source !== 'all' && entry.source !== source) return false;
     if (!q) return true;
-    return String(entry.title || '').toLowerCase().includes(q) || String(RULES_SOURCE_LABELS[entry.source] || '').toLowerCase().includes(q);
+    return String(entry.title || '').toLowerCase().includes(q)
+      || String(RULES_SOURCE_LABELS[entry.source] || '').toLowerCase().includes(q)
+      || String(entry.contentCategory || '').toLowerCase().includes(q)
+      || String(entry.catalog?.name || '').toLowerCase().includes(q);
   });
 }
 
@@ -2148,42 +2197,119 @@ function rulesSiteMeta(entry) {
     return `首次 ${formatRulesTimestamp(site.firstSeenAt)} · 最近 ${formatRulesTimestamp(site.lastSeenAt)} · 累计 ${fmtSec(Number(site.totalSeconds || 0))} · 访问 ${Number(site.visitCount || 0)} 次`;
   }
   if (entry.source === 'rule') return `${siteRuleTypeLabel(entry.rule)} · 已批准精确规则`;
-  if (entry.source === 'system') return '受管来源；管理员移动会影响所有孩子档案';
+  if (entry.source === 'system') {
+    const category = systemSiteContentCategory(entry);
+    const name = entry.catalog?.name ? `${entry.catalog.name} · ` : '';
+    return `${name}${category} · 受管来源；管理员保存会全局生效`;
+  }
   if (entry.source === 'custom') return '当前档案自定义；移动或删除后需保存';
   return '未标注';
 }
-
 function formatRulesTimestamp(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? new Date(numeric).toLocaleString('zh-CN') : '-';
 }
 
+function renderSystemSiteCategoryEditor(entry, idx) {
+  if (entry.source !== 'system' || rulesSitePolicyState.editingSystemSiteIndex !== idx) return '';
+  const selectedCategory = entry.contentCategory || systemSiteContentCategory(entry);
+  const disabled = !systemAccessCanWrite;
+  return `
+    <div class="rules-system-editor" data-system-category-editor="${htmlEscape(entry.title)}">
+      <div class="rules-system-editor-grid">
+        <label>内容分类
+          <select id="rules-system-content-category-select-${idx}" ${disabled ? 'disabled' : ''}>
+            ${qustodioCategoryOptionsHtml(QUSTODIO_CATEGORY_LABELS.includes(selectedCategory) ? selectedCategory : '教育性')}
+          </select>
+        </label>
+        <label>管理策略
+          <select id="rules-system-policy-select-${idx}" ${disabled ? 'disabled' : ''}>
+            ${policyOptionsHtml(entry.classification)}
+          </select>
+        </label>
+        <button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="saveSystemSiteCategoryEdit(${idx})">保存系统分类</button>
+        <button class="rules-site-action-btn" onclick="closeSystemSiteCategoryEditor()">取消</button>
+      </div>
+      <div class="rules-system-editor-note">系统分类管理保存后会全局生效，影响所有孩子档案；当前档案自定义网站不会写入系统分类库。</div>
+    </div>`;
+}
+
 function renderRulesSiteRow(entry, idx) {
   idx = Number.isInteger(entry._directoryIndex) ? entry._directoryIndex : idx;
-  const canMove = entry.source !== 'rule';
-  const disabled = entry.source === 'system' && !systemAccessCanWrite;
-  const options = RULES_POLICY_DEFS
-    .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
-    .map(def => `<button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
-    .join('');
-  const deleteButton = entry.source === 'custom'
-    ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>`
-    : '';
-  const actionHtml = canMove
-    ? `<div class="rules-site-actions">${options}${deleteButton}<button class="rules-site-action-btn" onclick="renderRulesSiteDirectory()">取消</button></div>`
-    : `<div class="rules-site-actions"><span class="rules-site-badge">规则项</span></div>`;
+  let actionHtml = '';
+  if (entry.source === 'rule') {
+    actionHtml = `<div class="rules-site-actions"><span class="rules-site-badge">规则项</span></div>`;
+  } else if (entry.source === 'system') {
+    const disabled = !systemAccessCanWrite;
+    actionHtml = `<div class="rules-site-actions"><button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="openSystemSiteCategoryEditor(${idx})">编辑分类</button>${disabled ? '<span class="rules-site-badge">只读</span>' : ''}</div>`;
+  } else {
+    const options = RULES_POLICY_DEFS
+      .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
+      .map(def => `<button class="rules-site-action-btn" onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
+      .join('');
+    const deleteButton = entry.source === 'custom'
+      ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>`
+      : '';
+    actionHtml = `<div class="rules-site-actions">${options}${deleteButton}<button class="rules-site-action-btn" onclick="renderRulesSiteDirectory()">取消</button></div>`;
+  }
   return `
-    <div class="rules-site-row" data-source="${entry.source}" data-domain="${htmlEscape(entry.title)}">
-      <div>
-        <div class="rules-site-domain">${htmlEscape(entry.title)}</div>
-        <div class="rules-site-meta"><span class="rules-site-badge">${htmlEscape(RULES_SOURCE_LABELS[entry.source] || '未标注')}</span>${htmlEscape(rulesSiteMeta(entry))}</div>
+    <div class="rules-site-row-wrap" data-source="${entry.source}" data-domain="${htmlEscape(entry.title)}">
+      <div class="rules-site-row">
+        <div>
+          <div class="rules-site-domain">${htmlEscape(entry.title)}</div>
+          <div class="rules-site-meta"><span class="rules-site-badge">${htmlEscape(RULES_SOURCE_LABELS[entry.source] || '未标注')}</span>${htmlEscape(rulesSiteMeta(entry))}</div>
+        </div>
+        ${actionHtml}
       </div>
-      ${actionHtml}
+      ${renderSystemSiteCategoryEditor(entry, idx)}
     </div>`;
+}
+
+function renderSystemCategoryManagementGroup(entries) {
+  if (entries.length === 0) return '';
+  const groups = new Map();
+  for (const entry of entries) {
+    const category = systemSiteContentCategory(entry);
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(entry);
+  }
+  const categoryOrder = new Map(QUSTODIO_CATEGORY_LABELS.map((category, idx) => [category, idx]));
+  const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) => {
+    const aOrder = a === '未标注分类' ? 999 : (categoryOrder.has(a) ? categoryOrder.get(a) : 998);
+    const bOrder = b === '未标注分类' ? 999 : (categoryOrder.has(b) ? categoryOrder.get(b) : 998);
+    return aOrder - bOrder || a.localeCompare(b, 'zh-CN');
+  });
+  window._rulesSystemCategoryGroups = sortedGroups.map(([category]) => category);
+  const collapsed = new Set(rulesSitePolicyState.collapsedSystemCategories || []);
+  const bodyHtml = sortedGroups.map(([category, list], categoryIndex) => {
+    const isCollapsed = collapsed.has(category);
+    return `
+      <div class="rules-system-category-group" data-system-category="${htmlEscape(category)}">
+        <button class="rules-system-category-header" onclick="toggleSystemCategoryGroup(${categoryIndex})">
+          <span><span class="rules-system-category-title">${htmlEscape(category)}</span><span class="rules-system-category-meta"> · ${list.length} 条</span></span>
+          <span>${isCollapsed ? '展开' : '收起'}</span>
+        </button>
+        <div class="rules-system-category-body ${isCollapsed ? 'collapsed' : ''}">
+          ${list.map(renderRulesSiteRow).join('')}
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <section class="rules-site-group" data-source-group="system" data-system-category-management="true">
+      <div class="rules-site-group-header">
+        <div>
+          <div>分类管理（系统配置）</div>
+          <div class="rules-site-group-subtitle">按 Qustodio 内容分类分组；保存系统项会全局生效，影响所有孩子档案</div>
+        </div>
+        <span class="rules-site-badge">共 ${entries.length} 条</span>
+      </div>
+      ${bodyHtml}
+    </section>`;
 }
 
 function renderRulesSiteGroup(source, entries) {
   if (entries.length === 0) return '';
+  if (source === 'system') return renderSystemCategoryManagementGroup(entries);
   return `
     <section class="rules-site-group" data-source-group="${source}">
       <div class="rules-site-group-header">
@@ -2195,7 +2321,6 @@ function renderRulesSiteGroup(source, entries) {
       ${entries.map(renderRulesSiteRow).join('')}
     </section>`;
 }
-
 function renderUsedUnclassifiedSummary(def) {
   if (def.key !== 'composite') return '';
   const count = (rulesSitePolicyState.usedUnclassified || []).length;
@@ -2327,8 +2452,89 @@ window.classifyRulesSiteEntry = async (idx, targetPolicy) => {
   }
 };
 
+window.openSystemSiteCategoryEditor = (idx) => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (!entry || entry.source !== 'system') return;
+  if (!systemAccessCanWrite) {
+    toast('需要系统管理员权限才能修改系统配置', false);
+    return;
+  }
+  rulesSitePolicyState.editingSystemSiteIndex = idx;
+  renderRulesSiteDirectory();
+};
+
+window.closeSystemSiteCategoryEditor = () => {
+  rulesSitePolicyState.editingSystemSiteIndex = null;
+  renderRulesSiteDirectory();
+};
+
+function updateSystemConfigSiteClassification(config, value, targetPolicy, contentCategory) {
+  const normalized = normalizeSiteAccessInput(value);
+  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  if (!normalized || !targetDef) throw new Error('无效的网站或管理策略');
+  for (const def of RULES_POLICY_DEFS) {
+    config[def.defaultKey] = (Array.isArray(config[def.defaultKey]) ? config[def.defaultKey] : [])
+      .filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
+  }
+  config[targetDef.defaultKey] = Array.from(new Set([...(config[targetDef.defaultKey] || []), normalized]));
+  const catalog = Array.isArray(config.siteCatalog) ? config.siteCatalog : [];
+  let catalogUpdated = false;
+  config.siteCatalog = catalog.map(item => {
+    if (matchDomain(item.domain, normalized) && matchDomain(normalized, item.domain)) {
+      catalogUpdated = true;
+      return { ...item, domain: item.domain || normalized, contentCategory, classification: targetPolicy };
+    }
+    return item;
+  });
+  if (!catalogUpdated) {
+    config.siteCatalog.push({ domain: normalized, contentCategory, classification: targetPolicy, notes: 'Updated from site category management UI' });
+  }
+  return normalized;
+}
+
+window.saveSystemSiteCategoryEdit = async (idx) => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (!entry || entry.source !== 'system') return;
+  const category = document.getElementById(`rules-system-content-category-select-${idx}`)?.value || entry.contentCategory || '教育性';
+  const targetPolicy = document.getElementById(`rules-system-policy-select-${idx}`)?.value || entry.classification;
+  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  if (!targetDef) return;
+  if (!confirm(`系统分类管理保存后会全局生效，影响所有孩子档案。确认将 ${entry.value} 设置为「${category} / ${targetDef.label}」？`)) return;
+  try {
+    const record = await api('/system/access-management-config/v1');
+    systemAccessCanWrite = Boolean(record.canWrite);
+    if (!systemAccessCanWrite) {
+      toast('需要系统管理员权限才能修改系统配置', false);
+      renderRulesSiteDirectory();
+      return;
+    }
+    const config = { ...(record.config || siteAccessDefaults || {}) };
+    const normalized = updateSystemConfigSiteClassification(config, entry.value, targetPolicy, category);
+    const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Update ${normalized} category/policy from site category management UI` });
+    siteAccessDefaults = saved.config || config;
+    systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
+    rulesSitePolicyState.editingSystemSiteIndex = null;
+    renderRulesPage();
+    toast('系统分类管理已保存，全局生效');
+  } catch (e) {
+    toast('系统分类保存失败：' + (e.message || e), false);
+  }
+};
+
+window.toggleSystemCategoryGroup = (categoryIndex) => {
+  const category = window._rulesSystemCategoryGroups?.[categoryIndex];
+  if (!category) return;
+  const collapsed = new Set(rulesSitePolicyState.collapsedSystemCategories || []);
+  if (collapsed.has(category)) collapsed.delete(category);
+  else collapsed.add(category);
+  rulesSitePolicyState.collapsedSystemCategories = Array.from(collapsed);
+  renderRulesSiteDirectory();
+};
+
 async function moveSystemSiteToPolicy(value, fromPolicy, targetPolicy) {
   if (fromPolicy === targetPolicy) return;
+  const currentCatalog = systemSiteCatalogEntryForValue(value) || {};
+  const contentCategory = String(currentCatalog.contentCategory || '').trim() || '教育性';
   const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
   if (!targetDef) return;
   if (!confirm(`系统配置网站移动会全局生效，影响所有孩子档案。确认将 ${value} 归为${targetDef.label}？`)) return;
@@ -2339,23 +2545,8 @@ async function moveSystemSiteToPolicy(value, fromPolicy, targetPolicy) {
     return;
   }
   const config = { ...(record.config || siteAccessDefaults || {}) };
-  for (const def of RULES_POLICY_DEFS) {
-    config[def.defaultKey] = (config[def.defaultKey] || []).filter(d => !matchDomain(value, d) || !matchDomain(d, value));
-  }
-  config[targetDef.defaultKey] = [...(config[targetDef.defaultKey] || []), value];
-  const catalog = Array.isArray(config.siteCatalog) ? config.siteCatalog : [];
-  let catalogUpdated = false;
-  config.siteCatalog = catalog.map(item => {
-    if (matchDomain(item.domain, value) && matchDomain(value, item.domain)) {
-      catalogUpdated = true;
-      return { ...item, classification: targetPolicy };
-    }
-    return item;
-  });
-  if (!catalogUpdated) {
-    config.siteCatalog.push({ domain: value, classification: targetPolicy, notes: 'Updated from site management UI' });
-  }
-  const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Move ${value} to ${targetPolicy} from site management UI` });
+  const normalized = updateSystemConfigSiteClassification(config, value, targetPolicy, contentCategory);
+  const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Move ${normalized} to ${targetPolicy} from site management UI` });
   siteAccessDefaults = saved.config || config;
   systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
   renderRulesPage();

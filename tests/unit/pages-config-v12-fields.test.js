@@ -192,8 +192,12 @@ function run() {
   expectTrue('Pages 网站管理应按管理策略分类显示', source.includes('RULES_POLICY_DEFS') && source.includes("key: 'study'") && source.includes("key: 'composite'") && source.includes("key: 'restricted'") && source.includes("key: 'blocked'"));
   expectTrue('Pages 复合网站下应包含已使用未归类网站入口', source.includes('已使用未归类网站') && source.includes('/used-unclassified-sites/v1?days=30') && source.includes('rules-used-unclassified-summary'));
   expectTrue('Pages 网站目录应按来源分组', source.includes('系统配置') && source.includes('当前档案自定义') && source.includes('已批准精确规则') && source.includes('data-source-group'));
-  expectTrue('Pages 点击网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
-  expectTrue('Pages 系统配置分类移动应要求全局确认', source.includes('moveSystemSiteToPolicy') && source.includes('全局生效，影响所有孩子档案') && source.includes('canWrite'));
+  expectTrue('Pages 系统配置应显示页面内分类管理', source.includes('分类管理（系统配置）') && source.includes('data-system-category-management') && source.includes('rules-system-category-group'));
+  expectTrue('Pages 系统配置应按 siteCatalog 内容分类分组', source.includes('systemSiteCatalogEntryForValue') && source.includes('siteCatalog') && source.includes('contentCategory') && source.includes('未标注分类'));
+  expectTrue('Pages 系统项编辑应包含内容分类和管理策略控件', source.includes('rules-system-content-category-select') && source.includes('rules-system-policy-select') && source.includes('保存系统分类'));
+  expectTrue('Pages 点击自定义/未归类网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
+  expectTrue('Pages 系统配置分类保存应要求全局确认', source.includes('saveSystemSiteCategoryEdit') && source.includes('系统分类管理保存后会全局生效，影响所有孩子档案') && source.includes('canWrite'));
+  expectTrue('Pages 非 admin 应禁用系统分类编辑', source.includes('需要系统管理员权限') && source.includes('disabled title="需要系统管理员权限"'));
   // 时间段管理：per-day 结构检查
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
   expectTrue('pages 应包含七天配置', source.includes("'monday'") && source.includes("'sunday'"));

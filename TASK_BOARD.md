@@ -23,6 +23,10 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-26）
+- [x] 网站管理页内补齐系统配置“分类管理”
+  - 目标：在现有“访问管理 → 网站管理”右侧目录中，把系统配置网站按 Qustodio 内容分类分组展示。
+  - 目标：管理员可点击系统配置网站编辑内容分类和 TimeOnChrome 管理策略分类，保存到系统访问配置并全局生效。
+  - 边界：不新增独立一级页面或 Tab；当前档案自定义与已使用未归类网站仍只写当前 profile。
 - [x] 网站管理 UI 重设计为管理策略目录
   - 目标：左侧按学习/复合/受限娱乐/黑名单导航，右侧按系统配置、自定义、精确规则、已使用未归类分组管理。
   - 目标：复合网站下新增“已使用未归类网站”，来源为最近 30 天使用历史聚合，不是审批记录列表。
