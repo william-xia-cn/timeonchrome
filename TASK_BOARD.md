@@ -23,6 +23,13 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-26）
+- [x] 访问管理统一配置导入导出
+  - 目标：`访问管理 -> 配置文件` 改为单一导入/导出入口，默认包含用户配置和系统配置，可按两类范围选择。
+  - 边界：新导出统一使用 bundle；旧 `profile-config` / `system-access-config` 只保留导入兼容。
+- [x] 网站添加校验与重复检查修订
+  - 目标：恢复“添加到当前策略”入口的非法输入提示、同策略重复检查和跨策略重复阻断。
+  - 目标：添加入口只新增用户自定义配置，不再静默移动其他策略中的已有网站。
+  - 边界：不改变保存 API、系统配置 API、计时、拦截、同步逻辑。
 - [x] 网站管理命名、来源顺序与系统配置导入体验修订
   - 目标：统一“用户自定义配置 / 系统网站配置”文案，右侧来源顺序调整为已使用未归类、用户自定义、系统网站配置-分类管理、规则、未标注。
   - 目标：系统网站配置导入改成与用户自定义配置一致的差异确认与勾选应用体验。
@@ -41,7 +48,7 @@
   - 边界：不改变扩展计时、拦截、绑定、同步逻辑。
   - 验证：Pages/Worker 契约测试、站点归类回归、typecheck、check:extension-root、git diff --check 与本地 Playwright 布局检查通过。
 - [x] 访问管理配置文件与系统访问配置云端化
-  - 已实现：访问管理新增“用户自定义配置访问管理”和“系统网站配置访问管理”两类导入导出。
+  - 已实现：访问管理配置文件区已改为单一导入/导出入口，默认包含用户配置和系统配置两类范围。
   - 已实现：系统访问配置从代码固定 JSON 升级为 D1 云端可管理配置；代码 JSON 仅作为初始化/fallback。
   - 已实现：系统管理分类按 Qustodio Web Filters 风格维护内容类别，再映射到 TimeOnChrome 运行分类。
   - 边界：本轮修改源码、migration、测试和文档；未执行远端 D1 migration，未部署 Worker/Pages。

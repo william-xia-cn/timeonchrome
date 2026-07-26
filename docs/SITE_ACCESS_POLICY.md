@@ -50,8 +50,8 @@ TimeOnChrome 当前机制的核心不是做“纯学习行为识别”，而是�
 - 受限娱乐网站用于堵住“临时放行”绕过学习模式的漏洞；
 - 黑名单网站保持极小，只用于硬禁止；
 - 普通未归类网站作为 fallback 状态处理，但访问时会自动进入待归类流程，不再直接等同休息目标；
-- 访问管理导入导出分为两类：用户自定义配置访问管理只影响当前 profile；系统网站配置访问管理影响全局系统配置网站。
-- 系统配置网站支持从系统网站配置访问管理文件导入/导出；普通档案备份恢复不得修改系统配置。
+- 访问管理导入导出使用统一“访问管理配置文件”入口，默认包含用户配置和系统配置两类范围。
+- 用户配置只影响当前 profile，包含网站自定义、精确规则、审核记录、配额和时间段；系统配置影响全局系统配置网站。普通档案备份恢复不得修改系统配置。
 
 ---
 
@@ -90,7 +90,7 @@ hardBlockedList
 
 > 术语说明：`default*` 代码字段当前代表系统配置网站列表。产品/UI 文档统一使用"系统配置"，不使用"缺省"。代码中保留 `default*` 名称以避免大范围迁移。`composite*` / `undetermined*` 字段和值在本轮作为 legacy/internal implementation value 保留；用户可见语义统一为“复合网站 / 复合模式 / 待归类时间”。
 
-### 3.0.1 系统网站配置访问管理
+### 3.0.1 访问管理配置文件与系统配置
 
 系统配置网站从 2026-07-26 起按“云端可管理配置”处理：
 
@@ -99,7 +99,9 @@ hardBlockedList
 - 系统配置导入后全局生效，所有 profile 的 effective 清单都会合并它；
 - 普通档案配置、备份恢复、孩子档案导入导出不得修改系统配置。
 
-系统网站配置文件使用 `system-access-config.json`，包含 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites` 和可选 `siteCatalog`。其中四个 default list 是运行 source of truth；`siteCatalog` 是系统管理和人工审核元数据。导入体验应与用户自定义配置访问管理一致：先预检，再展示可勾选的新增/删除/修改差异，最后只应用选中的系统差异。
+访问管理配置文件默认导出为 `access-management-config-bundle`，包含两个可选范围：`userConfig` 和 `systemConfig`。其中 `userConfig` 兼容旧 `profile-config` 结构；`systemConfig` 兼容旧 `system-access-config` 结构。旧格式文件仍可导入，但新导出统一使用 bundle。导入时先按范围生成可勾选的新增/删除/修改差异，最后只应用选中的差异。
+
+系统配置范围包含 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites` 和可选 `siteCatalog`。其中四个 default list 是运行 source of truth；`siteCatalog` 是系统管理和人工审核元数据。系统配置导入仍必须经过系统配置 preflight、管理员权限和全局影响确认。
 
 ### 3.0.2 Qustodio 风格内容分类
 
@@ -122,6 +124,8 @@ hardBlockedList
 系统配置在网站管理页内以“系统网站配置-分类管理”呈现：页面仍停留在当前管理策略下，但系统配置网站会按 `siteCatalog.contentCategory` 分组成 Qustodio 风格内容分类；缺少目录元数据或内容分类的系统网站进入“未标注分类”。系统默认网站库必须为所有 `default*Sites` 提供 `siteCatalog` 元数据；Worker 读取旧 D1 系统配置时也会用 fallback catalog 补齐缺失目录项。管理员可以点击系统配置网站同时编辑内容分类和管理策略分类，保存时更新 `siteCatalog`，并把该域名同步移动到对应 `default*Sites` 运行清单。该操作是全局系统配置变更，必须显示全局影响确认；非管理员只能查看，不能写入。
 
 “已使用未归类网站”只显示在复合网站策略下，表示最近 30 天内曾按未归类/待归类路径产生使用记录、且当前 effective 清单仍未归类的网站。它不是审批记录列表，也不是已确认复合网站；点击归类后写入当前 profile 的目标 custom list，并在存在匹配 pending 记录时同步关闭该记录。
+
+网站管理顶部“添加到当前策略”入口只用于新增用户自定义配置网站，不负责移动分类。添加前必须校验域名格式、当前策略重复和跨策略重复：已存在于系统网站配置-分类管理的站点不得加入用户自定义配置；已存在于用户自定义配置的同策略站点不得重复加入；已存在于其他策略的站点必须通过列表内“归为…”或系统分类编辑完成分类变更。
 
 ### 3.1 概念迁移表
 

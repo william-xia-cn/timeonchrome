@@ -137,11 +137,13 @@ function run() {
   expectTrue('Pages 配置导出应为 profile-config 结构', source.includes("configType: 'profile-config'") && source.includes('siteAccess') && source.includes('quota') && source.includes('timeWindows'));
   expectTrue('Pages 档案配置导出不应混入系统默认清单', !extractFunctionSource(source, 'buildProfileConfigExportData').includes('systemDefaults') && source.includes('customLists') && source.includes('classificationRules') && source.includes('classificationRequests'));
   expectTrue('Pages 配置导入不应写回 systemDefaults', !extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('systemDefaults'));
-  expectTrue('Pages 访问管理应提供档案配置文件导入导出入口', source.includes('rules-profile-export-config-btn') && source.includes('rules-profile-import-config-btn') && source.includes('rules-profile-config-import-diff'));
-  expectTrue('Pages 访问管理应提供系统网站配置导入导出入口', source.includes('rules-system-export-config-btn') && source.includes('rules-system-import-config-btn') && source.includes('rules-system-config-import-result'));
+  expectTrue('Pages 访问管理配置文件应使用单一导入导出入口', source.includes('rules-access-config-export-btn') && source.includes('rules-access-config-import-btn') && source.includes('rules-access-config-import-result') && !source.includes('rules-profile-export-config-btn') && !source.includes('rules-system-export-config-btn'));
+  expectTrue('Pages 访问管理配置文件默认提供用户配置和系统配置两个范围', source.includes('rules-config-scope-user') && source.includes('rules-config-scope-system') && source.includes('用户配置') && source.includes('系统配置'));
+  expectTrue('Pages 访问管理配置新导出应使用 bundle 格式', source.includes('ACCESS_MANAGEMENT_BUNDLE_TYPE') && source.includes('access-management-config-bundle') && source.includes('buildAccessManagementConfigBundle') && source.includes('exportAccessManagementConfigBundle'));
+  expectTrue('Pages 访问管理配置导入应兼容旧 profile/system 格式', extractFunctionSource(source, 'normalizeAccessManagementConfigBundleFile').includes("data.configType === 'profile-config'") && extractFunctionSource(source, 'normalizeAccessManagementConfigBundleFile').includes("data.configType === 'system-access-config'"));
   expectTrue('Pages 系统配置应使用 system-access-config API', source.includes('/system/access-management-config/v1') && source.includes('/system/access-management-config/v1/preflight'));
   expectTrue('Pages 系统配置文件应使用 Qustodio taxonomy', source.includes('system-access-config') && source.includes('qustodio-web-filters-v1') && source.includes('Qustodio 分类'));
-  expectTrue('Pages 系统网站配置导入应使用差异确认和勾选应用', source.includes('SYSTEM_CONFIG_IMPORT_LIST_FIELDS') && source.includes('buildSystemAccessConfigImportDiffs') && source.includes('buildSystemAccessConfigImportPayload') && source.includes('applyHandler: applySystemAccessConfigImport') && source.includes('系统网站配置访问管理：应用后全局生效'));
+  expectTrue('Pages 系统网站配置导入应使用差异确认和勾选应用', source.includes('SYSTEM_CONFIG_IMPORT_LIST_FIELDS') && source.includes('buildSystemAccessConfigImportDiffs') && source.includes('buildSystemAccessConfigImportPayload') && source.includes('applyHandler: applyAccessManagementConfigImport') && source.includes('系统配置应用后全局生效'));
   expectTrue('Pages 配置导入应提交最小可写字段', extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('customStudyList') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('siteClassificationRulesV1') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeQuota') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeWindows'));
   expectTrue('Pages 配置导入应先生成差异确认区', source.includes('acct-config-import-diff') && source.includes('configImportDiffState') && source.includes('buildProfileConfigImportDiffs') && source.includes('renderConfigImportDiffPanel'));
   expectTrue('Pages 配置导入应展示新增删除修改筛选', source.includes('data-config-import-filter="${type}"') && source.includes("['all','add','delete','modify']"));
@@ -172,6 +174,9 @@ function run() {
   expectTrue('Pages URL 规则展示应去重', source.includes('function uniqueSiteRules') && source.includes('return uniqueSiteRules'));
   expectTrue('Pages URL 规则展示应规范化 YouTube playlist 历史值', source.includes('function canonicalDisplayUrlValue') && source.includes('https://www.youtube.com/playlist?list=${playlistId}'));
   expectTrue('Pages 访问规则添加/导入/保存应校验精确跨类重复', source.includes('function findSiteAccessExactConflicts') && source.includes('formatSiteAccessConflict') && source.includes('SITE_ACCESS_CATEGORY_FIELDS'));
+  expectTrue('Pages 添加网站应先校验输入、系统配置和用户自定义重复', source.includes('function validateRulesSiteAdd') && source.includes('siteAccessDefaults?.[def.defaultKey]') && source.includes('getPolicyCustomList(def)') && source.includes('该网站已在系统网站配置-分类管理的当前策略中') && source.includes('该网站已在用户自定义配置中'));
+  expectTrue('Pages 添加入口不应静默移动其他策略已有网站', extractFunctionSource(source, 'addSiteToCurrentPolicy').includes('validateRulesSiteAdd') && extractFunctionSource(source, 'addSiteToCurrentPolicy').includes("toast(validation.message") && source.includes('请点击已有网站的“归为…”操作移动分类'));
+  expectTrue('Pages 自定义网站移动应保持 canonical 去重', source.includes('function uniqueSiteAccessValues') && extractFunctionSource(source, 'moveCustomSiteToPolicy').includes('uniqueSiteAccessValues'));
   expectTrue('Pages 应包含系统日志 Tab 和查询接口', source.includes('data-system-management-panel="client-logs"') && source.includes('/client-logs/v1'));
   expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));
   expectTrue('Pages 系统日志应支持远程诊断策略和 TTL', source.includes('clientLoggingPolicyV1') && source.includes('client-log-policy-ttl') && source.includes('expiresAt'));
@@ -202,6 +207,53 @@ function run() {
   expectTrue('Pages 点击自定义/未归类网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
   expectTrue('Pages 系统配置分类保存应要求全局确认', source.includes('saveSystemSiteCategoryEdit') && source.includes('系统网站配置-分类管理保存后会全局生效，影响所有孩子档案') && source.includes('canWrite'));
   expectTrue('Pages 非 admin 应禁用系统分类编辑', source.includes('需要系统管理员权限') && source.includes('disabled title="需要系统管理员权限"'));
+  const validateRulesSiteAddSource = [
+    `const RULES_POLICY_DEFS = [
+      { key: 'study', label: '学习网站', customKey: 'customStudyList', effectiveKey: 'studyList', defaultKey: 'defaultStudySites' },
+      { key: 'composite', label: '复合网站', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites' },
+      { key: 'restricted', label: '受限娱乐网站', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites' },
+      { key: 'blocked', label: '黑名单网站', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites' },
+    ];`,
+    extractFunctionSource(source, 'normalizeSiteAccessHostname'),
+    extractFunctionSource(source, 'normalizeSiteAccessHostKey'),
+    extractFunctionSource(source, 'normalizeSiteAccessInput'),
+    extractFunctionSource(source, 'getCustomList'),
+    `function getPolicyCustomList(def, config = remoteConfig, defaults = siteAccessDefaults || {}) {
+      if (Array.isArray(config?.[def.customKey])) return config[def.customKey];
+      return getCustomList(config?.[def.effectiveKey] || [], defaults[def.defaultKey] || []);
+    }`,
+    extractFunctionSource(source, 'siteAccessExactListMatch'),
+    extractFunctionSource(source, 'validateRulesSiteAdd'),
+    `this.__run = () => ({
+      invalid: validateRulesSiteAdd('', 'study'),
+      currentSystem: validateRulesSiteAdd('https://www.drive.google.com/docs', 'study'),
+      otherSystem: validateRulesSiteAdd('netflix.com', 'study'),
+      currentCustom: validateRulesSiteAdd('custom-study.example.com', 'study'),
+      otherCustom: validateRulesSiteAdd('custom-game.example.com', 'study'),
+      ok: validateRulesSiteAdd('NEW-SITE.example.com/path', 'study'),
+    });`,
+  ].join('\n');
+  const validateContext = {
+    remoteConfig: {
+      customStudyList: ['custom-study.example.com'],
+      customRestrictedEntertainmentList: ['custom-game.example.com'],
+    },
+    siteAccessDefaults: {
+      defaultStudySites: ['drive.google.com'],
+      defaultCompositeSites: ['youtube.com'],
+      defaultRestrictedEntertainmentSites: ['netflix.com'],
+      defaultBlockedSites: ['tiktok.com'],
+    },
+    URL,
+  };
+  vm.runInNewContext(validateRulesSiteAddSource, validateContext, { filename: 'pages/index.html#validateRulesSiteAdd' });
+  const addValidation = validateContext.__run();
+  expectTrue('添加网站非法输入应明确失败', addValidation.invalid.ok === false && addValidation.invalid.message.includes('请输入有效域名'));
+  expectTrue('添加网站应检查当前策略系统配置重复', addValidation.currentSystem.ok === false && addValidation.currentSystem.message.includes('系统网站配置-分类管理的当前策略'));
+  expectTrue('添加网站应检查其他策略系统配置重复', addValidation.otherSystem.ok === false && addValidation.otherSystem.message.includes('系统网站配置-分类管理的受限娱乐网站'));
+  expectTrue('添加网站应检查当前策略用户自定义重复', addValidation.currentCustom.ok === false && addValidation.currentCustom.message.includes('用户自定义配置'));
+  expectTrue('添加网站应阻止静默移动其他策略自定义网站', addValidation.otherCustom.ok === false && addValidation.otherCustom.message.includes('归为'));
+  expectTrue('添加网站有效新域名应规范化后通过', addValidation.ok.ok === true && addValidation.ok.value === 'new-site.example.com');
   // 时间段管理：per-day 结构检查
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
   expectTrue('pages 应包含七天配置', source.includes("'monday'") && source.includes("'sunday'"));
@@ -220,11 +272,8 @@ function run() {
   const context = {
     addSiteToCurrentPolicy: () => {},
     saveSiteAccessConfig: () => {},
-    exportProfileConfig: () => {},
-    importProfileConfig: () => {},
-    exportSystemAccessConfig: () => {},
-    importSystemAccessConfigForPreflight: () => {},
-    applySystemAccessConfigImport: () => {},
+    exportAccessManagementConfigBundle: () => {},
+    importAccessManagementConfigBundle: () => {},
     renderRulesSiteDirectory: () => {},
     rulesSitePolicyState: { query: '', source: 'all' },
     document: {
