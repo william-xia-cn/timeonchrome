@@ -328,6 +328,193 @@ async function applyDecisionToProfileConfig(env: Env, profileId: string, request
   ).bind(JSON.stringify(config), now, profileId).run();
 }
 
+
+type UsedUnclassifiedSiteRow = {
+  raw_domain: string | null;
+  first_seen_at: number | null;
+  last_seen_at: number | null;
+  total_seconds: number | null;
+  visit_count: number | null;
+};
+
+function normalizeObservedHost(value: unknown): string | null {
+  let raw = String(value || '').trim().toLowerCase();
+  if (!raw) return null;
+  raw = raw.replace(/^(host|domain|fallback|url):/i, '');
+  raw = raw.replace(/^https?:\/\//i, '').replace(/\/.*$/g, '').replace(/\.+$/g, '');
+  if (!raw || raw.includes(' ') || raw.includes('@') || raw.startsWith('chrome')) return null;
+  try {
+    const host = new URL(`http://${raw}`).hostname.toLowerCase().replace(/\.+$/g, '');
+    if (!host || !host.includes('.') || !/^[a-z0-9.-]+$/.test(host)) return null;
+    return host.startsWith('www.') ? host.slice(4) : host;
+  } catch {
+    return null;
+  }
+}
+
+function listForSiteManagementClassification(classification: string): string | null {
+  if (classification === 'study') return 'customStudyList';
+  if (classification === 'composite') return 'customCompositeList';
+  if (classification === 'restricted') return 'customRestrictedEntertainmentList';
+  if (classification === 'blocked') return 'customBlockedSites';
+  return null;
+}
+
+function publicClassificationToDecision(classification: string): string | null {
+  if (classification === 'study') return 'study';
+  if (classification === 'composite') return 'composite';
+  if (classification === 'restricted' || classification === 'blocked') return 'reject';
+  return null;
+}
+
+function removeHostFromAllProfileCustomLists(config: any, host: string) {
+  config.customStudyList = removeHost(config.customStudyList || [], host);
+  config.studyList = removeHost(config.studyList || [], host);
+  config.customCompositeList = removeHost(config.customCompositeList || [], host);
+  config.compositeList = removeHost(config.compositeList || [], host);
+  config.customRestrictedEntertainmentList = removeHost(config.customRestrictedEntertainmentList || [], host);
+  config.restrictedEntertainmentList = removeHost(config.restrictedEntertainmentList || [], host);
+  config.customBlockedSites = removeHost(config.customBlockedSites || [], host);
+  config.unsafeList = removeHost(config.unsafeList || [], host);
+}
+
+function addHostToProfileCustomList(config: any, classification: string, host: string) {
+  const listKey = listForSiteManagementClassification(classification);
+  if (!listKey) return false;
+  removeHostFromAllProfileCustomLists(config, host);
+  config[listKey] = addUniqueHost(config[listKey] || [], host);
+  if (classification === 'study') config.studyList = addUniqueHost(config.studyList || [], host);
+  if (classification === 'composite') config.compositeList = addUniqueHost(config.compositeList || [], host);
+  if (classification === 'restricted') config.restrictedEntertainmentList = addUniqueHost(config.restrictedEntertainmentList || [], host);
+  if (classification === 'blocked') config.unsafeList = addUniqueHost(config.unsafeList || [], host);
+  return true;
+}
+
+async function getRawProfileConfig(env: Env, profileId: string): Promise<any> {
+  const row = await env.DB.prepare(`SELECT config FROM profiles WHERE id = ?`).bind(profileId).first<{ config: string }>();
+  try { return row?.config ? JSON.parse(row.config) : {}; } catch { return {}; }
+}
+
+async function getPendingRequestsByHost(env: Env, profileId: string): Promise<Map<string, any[]>> {
+  const result = await env.DB.prepare(
+    `SELECT * FROM site_classification_requests_v1
+     WHERE profile_id = ? AND status = 'pending'
+     ORDER BY requested_at DESC
+     LIMIT 500`
+  ).bind(profileId).all<any>();
+  const byHost = new Map<string, any[]>();
+  for (const row of result.results || []) {
+    const host = normalizeObservedHost(row.requested_host || row.requested_normalized_value || row.display_value);
+    if (!host) continue;
+    const list = byHost.get(host) || [];
+    list.push(row);
+    byHost.set(host, list);
+  }
+  return byHost;
+}
+
+async function closeMatchingPendingRequests(env: Env, profileId: string, host: string, classification: string, now: number): Promise<string[]> {
+  const decision = publicClassificationToDecision(classification);
+  if (!decision) return [];
+  const status = decisionToStatus(decision);
+  const pending = await getPendingRequestsByHost(env, profileId);
+  const matches = Array.from(pending.entries())
+    .filter(([requestHost]) => sameHostRule(requestHost, host))
+    .flatMap(([, rows]) => rows);
+  const closed: string[] = [];
+  for (const row of matches) {
+    const targetType = row.requested_target_type || 'host';
+    const targetValue = row.requested_normalized_value || host;
+    await env.DB.prepare(
+      `UPDATE site_classification_requests_v1
+       SET status = ?, decision = ?, decision_target_type = ?, decision_normalized_value = ?,
+           decided_at = ?, updated_at = ?
+       WHERE id = ? AND profile_id = ? AND status = 'pending'`
+    ).bind(status, decision, targetType, targetValue, now, now, row.id, profileId).run();
+    closed.push(row.id);
+  }
+  return closed;
+}
+
+async function listUsedUnclassifiedSites(request: Request, env: Env, profileId: string): Promise<Response> {
+  if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
+  const url = new URL(request.url);
+  const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30) || 30));
+  const since = Date.now() - days * 24 * 60 * 60 * 1000;
+  const config = await getProfileConfig(env, profileId);
+  const pendingByHost = await getPendingRequestsByHost(env, profileId);
+  const rows = await env.DB.prepare(
+    `SELECT COALESCE(NULLIF(fallback_domain, ''), NULLIF(managed_target_label_at_time, ''),
+                     NULLIF(managed_target_value, ''), NULLIF(target_key, '')) AS raw_domain,
+            MIN(first_seen_at) AS first_seen_at,
+            MAX(last_seen_at) AS last_seen_at,
+            SUM(duration_seconds) AS total_seconds,
+            SUM(segments_count) AS visit_count
+     FROM target_stats_v1
+     WHERE profile_id = ?
+       AND COALESCE(last_seen_at, updated_at, 0) >= ?
+       AND (
+         target_classification_at_time IN ('pending_composite', 'unclassified')
+         OR quota_bucket = 'composite'
+         OR is_fallback = 1
+       )
+     GROUP BY raw_domain
+     ORDER BY MAX(last_seen_at) DESC
+     LIMIT 500`
+  ).bind(profileId, since).all<UsedUnclassifiedSiteRow>();
+
+  const seen = new Set<string>();
+  const sites: any[] = [];
+  for (const row of rows.results || []) {
+    const domain = normalizeObservedHost(row.raw_domain);
+    if (!domain || seen.has(domain)) continue;
+    seen.add(domain);
+    const pendingRows = Array.from(pendingByHost.entries())
+      .filter(([requestHost]) => sameHostRule(requestHost, domain))
+      .flatMap(([, values]) => values);
+    const resolved = resolveSiteAccessClassification(config || {}, pendingRows.map(rowToResponse), domain);
+    if (resolved.classification && resolved.classification !== 'pending_composite') continue;
+    sites.push({
+      domain,
+      firstSeenAt: Number(row.first_seen_at || 0) || null,
+      lastSeenAt: Number(row.last_seen_at || 0) || null,
+      totalSeconds: Number(row.total_seconds || 0),
+      visitCount: Number(row.visit_count || 0),
+      pendingRequestId: pendingRows[0]?.id || null,
+      currentClassification: resolved.classification || 'unclassified',
+    });
+  }
+  return json({ ok: true, days, sites });
+}
+
+async function classifyUsedUnclassifiedSite(request: Request, env: Env, profileId: string): Promise<Response> {
+  if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
+  const body = await request.json<{ domain?: string; classification?: string }>().catch(() => ({} as { domain?: string; classification?: string }));
+  const domain = normalizeObservedHost(body?.domain);
+  const classification = String(body?.classification || '').trim();
+  const listKey = listForSiteManagementClassification(classification);
+  if (!domain || !listKey) return json({ error: 'invalid domain or classification' }, 400);
+
+  const effective = await getProfileConfig(env, profileId);
+  const pendingByHost = await getPendingRequestsByHost(env, profileId);
+  const matchingPending = Array.from(pendingByHost.entries())
+    .filter(([requestHost]) => sameHostRule(requestHost, domain))
+    .flatMap(([, rows]) => rows);
+  const resolved = resolveSiteAccessClassification(effective || {}, matchingPending.map(rowToResponse), domain);
+  if (resolved.classification && resolved.classification !== 'pending_composite') {
+    return json({ ok: true, alreadyClassified: true, domain, currentClassification: resolved.classification });
+  }
+
+  const now = Date.now();
+  const config = await getRawProfileConfig(env, profileId);
+  addHostToProfileCustomList(config, classification, domain);
+  const closedRequestIds = await closeMatchingPendingRequests(env, profileId, domain, classification, now);
+  await env.DB.prepare(
+    `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
+  ).bind(JSON.stringify(config), now, profileId).run();
+  const refreshed = await getProfileConfig(env, profileId);
+  return json({ ok: true, domain, classification, listKey, closedRequestIds, config: refreshed });
+}
 export const siteClassificationRequestsRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -448,6 +635,13 @@ export const siteClassificationRequestsRouter = {
       return json({ requests: (result.results || []).map(rowToResponse) });
     }
 
+    const usedUnclassifiedMatch = path.match(/^\/profiles\/([^/]+)\/used-unclassified-sites\/v1$/);
+    if (request.method === 'GET' && usedUnclassifiedMatch) {
+      return listUsedUnclassifiedSites(request, env, usedUnclassifiedMatch[1]);
+    }
+    if (request.method === 'POST' && usedUnclassifiedMatch) {
+      return classifyUsedUnclassifiedSite(request, env, usedUnclassifiedMatch[1]);
+    }
     const listMatch = path.match(/^\/profiles\/([^/]+)\/site-classification-requests\/v1$/);
     if (request.method === 'GET' && listMatch) {
       const profileId = listMatch[1];

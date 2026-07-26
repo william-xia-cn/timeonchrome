@@ -132,6 +132,8 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return await restoreRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/client-logs/)) {
     return await clientLogsRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/used-unclassified-sites\/v1/)) {
+    return await siteClassificationRequestsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/site-classification-requests/)) {
     return await siteClassificationRequestsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {

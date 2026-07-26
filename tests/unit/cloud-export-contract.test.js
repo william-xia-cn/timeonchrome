@@ -59,6 +59,14 @@ function run() {
   expectTrue('系统访问配置模块应校验 Qustodio taxonomy 和跨分类冲突', systemConfigModule.includes('qustodio-web-filters-v1') && systemConfigModule.includes('QUSTODIO_CONTENT_CATEGORIES') && systemConfigModule.includes('同时存在于'));
   expectTrue('系统访问配置导出响应应包含 schemaVersion', systemConfigModule.includes('schemaVersion: config.schemaVersion'));
   expectTrue('系统访问配置 migration 应创建 D1 表', migrationSource.includes('CREATE TABLE IF NOT EXISTS system_access_config_v1') && migrationSource.includes('config_json') && migrationSource.includes('updated_by_account_id'));
+  expectTrue('系统配置 GET 应返回 canWrite 管理员能力标记', systemConfigSource.includes('canWrite: isSystemAccessAdmin(env, accountId)'));
+
+  const workerIndexSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
+  const siteRequestsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'), 'utf8');
+  expectTrue('Worker 应路由已使用未归类网站 API', workerIndexSource.includes('/used-unclassified-sites') && siteRequestsSource.includes('listUsedUnclassifiedSites'));
+  expectTrue('已使用未归类网站 API 应读取 target_stats_v1 并过滤当前已归类网站', siteRequestsSource.includes('FROM target_stats_v1') && siteRequestsSource.includes('resolveSiteAccessClassification') && siteRequestsSource.includes("resolved.classification !== 'pending_composite'"));
+  expectTrue('已使用未归类网站归类应写入当前 profile custom list', siteRequestsSource.includes('classifyUsedUnclassifiedSite') && siteRequestsSource.includes('addHostToProfileCustomList') && siteRequestsSource.includes('customBlockedSites'));
+  expectTrue('已使用未归类网站归类应关闭匹配 pending 记录', siteRequestsSource.includes('closeMatchingPendingRequests') && siteRequestsSource.includes("status = ?") && siteRequestsSource.includes("status = 'pending'"));
 
   const total = passed + failed;
   console.log(`\n[Cloud Export Contract] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

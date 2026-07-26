@@ -434,6 +434,38 @@
       font-size: 14px; line-height: 1; padding: 0; opacity: .7;
     }
     .domain-tag .remove:hover { color: var(--danger); opacity: 1; }
+    /* Rules policy directory */
+    #page-rules { max-width: 1180px; }
+    .rules-policy-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .rules-policy-nav { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; position: sticky; top: 18px; }
+    .rules-policy-nav-btn { width: 100%; border: 1px solid transparent; background: transparent; color: var(--text); border-radius: 8px; padding: 10px; text-align: left; cursor: pointer; margin-bottom: 6px; }
+    .rules-policy-nav-btn.active { border-color: rgba(0,184,148,.28); background: rgba(0,184,148,.08); }
+    .rules-policy-nav-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+    .rules-policy-nav-counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; font-size: 11px; color: var(--muted); }
+    .rules-policy-main { min-width: 0; }
+    .rules-policy-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(210px, 1fr) auto; gap: 8px; margin-bottom: 12px; }
+    .rules-policy-toolbar input, .rules-policy-toolbar select { background: rgba(0,184,148,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; color: var(--text); font-size: 13px; outline: none; min-width: 0; }
+    .rules-policy-toolbar input:focus, .rules-policy-toolbar select:focus { border-color: var(--accent); }
+    .rules-site-group { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+    .rules-site-group-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 700; }
+    .rules-site-group-subtitle { color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 2px; }
+    .rules-site-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .rules-site-row:last-child { border-bottom: none; }
+    .rules-site-domain { font-size: 13px; font-weight: 650; word-break: break-word; }
+    .rules-site-meta { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+    .rules-site-badge { display: inline-flex; align-items: center; border: 1px solid rgba(0,184,148,.24); color: var(--muted); border-radius: 6px; padding: 2px 6px; font-size: 11px; margin-right: 6px; }
+    .rules-site-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .rules-site-action-btn { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 7px; padding: 5px 8px; font-size: 12px; cursor: pointer; }
+    .rules-site-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .rules-site-action-btn.danger { color: var(--danger); }
+    .rules-used-unclassified-summary { border: 1px solid rgba(245,158,11,.30); background: rgba(245,158,11,.06); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+    .rules-used-unclassified-summary strong { display: block; font-size: 13px; margin-bottom: 4px; }
+    .rules-site-empty { color: var(--muted); font-size: 13px; padding: 18px 14px; }
+    @media (max-width: 900px) {
+      .rules-policy-shell { grid-template-columns: 1fr; }
+      .rules-policy-nav { position: static; }
+      .rules-policy-toolbar { grid-template-columns: 1fr; }
+    }
 
     /* Quota */
     .quota-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
@@ -720,140 +752,48 @@
         </div>
 
         <section class="rules-management-panel active" data-rules-management-panel="site-management">
-        <!-- 学习网站 -->
-        <div class="card" id="r-studylist-card">
-          <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/study.svg" alt="">学习网站</div><div class="card-subtitle">学习模式下允许访问，计入学习时长</div></div>
-          </div>
-          <!-- 系统配置 -->
-          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
-            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
-              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置学习网站（只读）</div>
-              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
+          <div class="rules-policy-shell" id="rules-policy-shell">
+            <aside class="rules-policy-nav" id="rules-policy-nav" aria-label="网站管理策略目录">
+              <!-- policy navigation rendered by JS -->
+            </aside>
+            <div class="rules-policy-main">
+              <div class="rules-policy-toolbar">
+                <input type="text" id="rules-site-search" placeholder="搜索域名、规则或来源">
+                <select id="rules-site-source-filter" aria-label="来源筛选">
+                  <option value="all">全部来源</option>
+                  <option value="system">系统配置</option>
+                  <option value="custom">当前档案自定义</option>
+                  <option value="rule">已批准精确规则</option>
+                  <option value="used-unclassified">已使用未归类网站</option>
+                  <option value="unmarked">未标注</option>
+                </select>
+                <input type="text" id="rules-site-add-input" placeholder="添加到当前策略，如 example.com">
+                <button class="btn-add" id="rules-site-add-btn">+ 添加</button>
+              </div>
+              <div id="rules-site-directory" class="rules-site-directory">
+                <!-- site directory rendered by JS -->
+              </div>
             </div>
-            <div style="display:none;margin-top:8px;">
-              <div class="domains-container" id="r-studylist-default-tags" style="opacity:0.7;"></div>
-            </div>
-            <div id="r-studylist-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
-          <!-- 家长自定义 -->
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义学习网站</div>
-            <div class="domain-input-row">
-              <input type="text" id="r-studylist-search" placeholder="搜索..." style="max-width:180px;">
-              <input type="text" id="r-studylist-input" placeholder="例：khanacademy.org">
-              <button class="btn-add" id="r-studylist-add">+ 添加</button>
-            </div>
-            <div class="domains-container" id="r-studylist-tags" style="max-height:200px;overflow-y:auto;"></div>
-            <div id="r-studylist-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
-          </div>
-        </div>
 
-        <!-- 复合网站 -->
-        <div class="card" id="r-composite-card">
-          <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">复合网站</div><div class="card-subtitle">学习模式下可访问，产生「待归类时间」，不自动计入学习或休息时间</div></div>
-          </div>
-          <!-- 系统配置 -->
-          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
-            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
-              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置复合网站（只读）</div>
-              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
+          <div class="card" style="background:rgba(0,184,148,0.03);">
+            <div class="card-header">
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/info.svg" alt="">分类说明</div>
             </div>
-            <div style="display:none;margin-top:8px;">
-              <div class="domains-container" id="r-composite-default-tags" style="opacity:0.7;"></div>
+            <div style="font-size:13px;line-height:1.8;color:var(--text);">
+              <p style="margin-bottom:10px;"><strong>管理策略分类</strong><br>
+              这里的分类是 TimeOnChrome 的管理策略：学习、复合、受限娱乐、黑名单。Qustodio 内容分类只作为系统配置管理时的辅助标签。</p>
+              <p style="margin-bottom:10px;"><strong>已使用未归类网站</strong><br>
+              来自最近 30 天访问历史聚合，只显示当前仍未归类的网站。它不是审批记录，也不是已确认复合网站。</p>
+              <p><strong>系统配置与当前档案自定义</strong><br>
+              自定义网站移动分类只影响当前档案；系统配置网站移动分类需要管理员权限和全局影响确认。</p>
             </div>
-            <div id="r-composite-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
           </div>
-          <!-- 家长自定义 -->
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义复合网站</div>
-            <div class="domain-input-row">
-              <input type="text" id="r-composite-input" placeholder="例：youtube.com">
-              <button class="btn-add" id="r-composite-add">+ 添加</button>
-            </div>
-            <div class="domains-container" id="r-composite-tags"></div>
-            <div id="r-composite-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
-          </div>
-        </div>
 
-        <!-- 受限娱乐网站 -->
-        <div class="card" id="r-restricted-card">
-          <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">受限娱乐网站</div><div class="card-subtitle">自由时间可访问，学习模式 blocked，不支持临时进入待归类时间，可借时间</div></div>
+          <div class="save-bar">
+            <button class="btn-save" id="save-rules-btn">保存配置</button>
           </div>
-          <!-- 系统配置 -->
-          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
-            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
-              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置受限娱乐网站（只读）</div>
-              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
-            </div>
-            <div style="display:none;margin-top:8px;">
-              <div class="domains-container" id="r-restricted-default-tags" style="opacity:0.7;"></div>
-            </div>
-            <div id="r-restricted-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
-          </div>
-          <!-- 家长自定义 -->
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义受限娱乐网站</div>
-            <div class="domain-input-row">
-              <input type="text" id="r-restricted-input" placeholder="例：example-game.com">
-              <button class="btn-add" id="r-restricted-add">+ 添加</button>
-            </div>
-            <div class="domains-container" id="r-restricted-tags"></div>
-            <div id="r-restricted-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
-          </div>
-        </div>
-
-        <!-- 黑名单网站 -->
-        <div class="card" id="r-blocked-card">
-          <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/blocked.svg" alt="">黑名单网站</div><div class="card-subtitle">硬禁止，任何时间不可访问，不可借时间</div></div>
-          </div>
-          <!-- 系统配置 -->
-          <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
-            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleSystemConfig(this)">
-              <div style="font-size:13px;font-weight:600;color:var(--muted);">系统配置黑名单网站（只读）</div>
-              <button class="btn-toggle-system" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;">▼ 展开</button>
-            </div>
-            <div style="display:none;margin-top:8px;">
-              <div class="domains-container" id="r-blocked-default-tags" style="opacity:0.7;"></div>
-            </div>
-            <div id="r-blocked-default-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
-          </div>
-          <!-- 家长自定义 -->
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">家长自定义黑名单网站</div>
-            <div class="domain-input-row">
-              <input type="text" id="r-blocked-input" placeholder="例：example-blocked.com">
-              <button class="btn-add" id="r-blocked-add">+ 添加</button>
-            </div>
-            <div class="domains-container" id="r-blocked-tags"></div>
-            <div id="r-blocked-count" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
-          </div>
-        </div>
-
-        <!-- 分类说明区 -->
-        <div class="card" style="background:rgba(0,184,148,0.03);">
-          <div class="card-header">
-            <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/info.svg" alt="">分类说明</div>
-          </div>
-          <div style="font-size:13px;line-height:1.8;color:var(--text);">
-            <p style="margin-bottom:10px;"><strong>待归类时间</strong><br>
-            来自搜索、YouTube、百科、问答、音乐等复合用途网站。暂不直接算作学习或休息，后续可进一步分类。</p>
-            <p style="margin-bottom:10px;"><strong>临时进入待归类时间</strong><br>
-            仅适用于未归类网站。本次访问将临时按复合网站处理，并计入待归类时间。不适用于受限娱乐网站或黑名单网站。</p>
-            <p><strong>受限娱乐网站 vs 黑名单网站</strong><br>
-            受限娱乐网站：自由时间可访问，可借时间，学习模式 blocked。<br>
-            黑名单网站：任何时间都不允许访问，不可借时间。</p>
-          </div>
-        </div>
-
-        <div class="save-bar">
-          <button class="btn-save" id="save-rules-btn">保存配置</button>
-        </div>
         </section>
-
       <!-- 时间配额 -->
       <section class="rules-management-panel" data-rules-management-panel="quota">
         <div class="card">
@@ -1487,6 +1427,16 @@ let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
 let systemAccessConfigImportState = { fileName: '', config: null, preflight: null };
+let rulesSitePolicyState = {
+  policy: 'study',
+  query: '',
+  source: 'all',
+  usedUnclassified: [],
+  usedUnclassifiedLoadedForProfileId: null,
+  usedUnclassifiedLoading: false,
+};
+let systemAccessCanWrite = false;
+let systemAccessCanWriteLoaded = false;
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1684,6 +1634,8 @@ function renderProfileOptions() {
 
 async function selectProfile(id) {
   currentProfileId = id;
+  rulesSitePolicyState.usedUnclassified = [];
+  rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = null;
   saveLocal('currentProfileId', id);
   cloudDevicesCache = { profileId: null, devices: [] };
 
@@ -2085,24 +2037,35 @@ function formatSiteAccessConflict(conflict) {
   return `${value} 已存在于${conflict.existingLabel || '其他归类'}，不能同时加入${conflict.label || '当前归类'}`;
 }
 
+const RULES_POLICY_DEFS = [
+  { key: 'study', label: '学习网站', icon: 'assets/icons/study.svg', customKey: 'customStudyList', effectiveKey: 'studyList', defaultKey: 'defaultStudySites', addPlaceholder: '添加学习网站，如 khanacademy.org' },
+  { key: 'composite', label: '复合网站', icon: 'assets/icons/composite.svg', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites', addPlaceholder: '添加复合网站，如 youtube.com' },
+  { key: 'restricted', label: '受限娱乐网站', icon: 'assets/icons/restricted.svg', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites', addPlaceholder: '添加受限娱乐网站，如 example-game.com' },
+  { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
+];
+const RULES_SOURCE_LABELS = {
+  system: '系统配置',
+  custom: '当前档案自定义',
+  rule: '已批准精确规则',
+  'used-unclassified': '已使用未归类网站',
+  unmarked: '未标注',
+};
+
 function setupRules() {
-  // 家长自定义输入框
-  setupCustomDomainInput('r-studylist-input', 'r-studylist-add', 'r-studylist-tags', 'customStudyList', 'studyList');
-  setupCustomDomainInput('r-composite-input', 'r-composite-add', 'r-composite-tags', 'customCompositeList', 'compositeList');
-  setupCustomDomainInput('r-restricted-input', 'r-restricted-add', 'r-restricted-tags', 'customRestrictedEntertainmentList', 'restrictedEntertainmentList');
-  setupCustomDomainInput('r-blocked-input', 'r-blocked-add', 'r-blocked-tags', 'customBlockedSites', 'unsafeList');
-
-  // 搜索过滤
-  document.getElementById('r-studylist-search').addEventListener('input', e => {
-    const q = e.target.value.trim().toLowerCase();
-    const custom = remoteConfig.customStudyList || [];
-    renderTagsFiltered('r-studylist-tags', q ? custom.filter(d=>d.includes(q)) : custom, custom, 'customStudyList');
+  document.getElementById('rules-site-search')?.addEventListener('input', e => {
+    rulesSitePolicyState.query = e.target.value.trim().toLowerCase();
+    renderRulesSiteDirectory();
   });
+  document.getElementById('rules-site-source-filter')?.addEventListener('change', e => {
+    rulesSitePolicyState.source = e.target.value || 'all';
+    renderRulesSiteDirectory();
+  });
+  document.getElementById('rules-site-add-btn')?.addEventListener('click', addSiteToCurrentPolicy);
+  document.getElementById('rules-site-add-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') addSiteToCurrentPolicy();
+  });
+  document.getElementById('save-rules-btn')?.addEventListener('click', saveSiteAccessConfig);
 
-  // 保存
-  document.getElementById('save-rules-btn').addEventListener('click', saveSiteAccessConfig);
-
-  // 配置文件
   document.getElementById('rules-profile-export-config-btn')?.addEventListener('click', exportProfileConfig);
   document.getElementById('rules-profile-import-config-btn')?.addEventListener('click', () => importProfileConfig({
     targetContainerId: 'rules-profile-config-import-diff',
@@ -2113,94 +2076,291 @@ function setupRules() {
   document.getElementById('rules-system-apply-config-btn')?.addEventListener('click', applySystemAccessConfigImport);
 }
 
-window.toggleSystemConfig = (header) => {
-  const content = header.nextElementSibling;
-  const btn = header.querySelector('.btn-toggle-system');
-  if (content.style.display === 'none') {
-    content.style.display = 'block';
-    btn.textContent = '▲ 收起';
-  } else {
-    content.style.display = 'none';
-    btn.textContent = '▼ 展开';
+function currentRulesPolicyDef() {
+  return getRulesPolicyModel().find(def => def.key === rulesSitePolicyState.policy) || getRulesPolicyModel()[0];
+}
+
+function rulesPolicyDefByCustomKey(customKey) {
+  return RULES_POLICY_DEFS.find(def => def.customKey === customKey) || null;
+}
+
+function getPolicyCustomList(def, config = remoteConfig, defaults = siteAccessDefaults || {}) {
+  if (Array.isArray(config?.[def.customKey])) return config[def.customKey];
+  return getCustomList(config?.[def.effectiveKey] || [], defaults[def.defaultKey] || []);
+}
+
+function getRulesPolicyModel() {
+  return RULES_POLICY_DEFS.map(def => {
+    const system = Array.isArray(siteAccessDefaults?.[def.defaultKey]) ? siteAccessDefaults[def.defaultKey] : [];
+    const custom = getPolicyCustomList(def);
+    const rules = approvedUrlRulesForListKey(def.customKey);
+    const usedUnclassified = def.key === 'composite' ? (rulesSitePolicyState.usedUnclassified || []) : [];
+    return { ...def, system, custom, rules, usedUnclassified };
+  });
+}
+
+function renderRulesPolicyNav() {
+  const nav = document.getElementById('rules-policy-nav');
+  if (!nav) return;
+  nav.innerHTML = getRulesPolicyModel().map(def => `
+    <button class="rules-policy-nav-btn ${def.key === rulesSitePolicyState.policy ? 'active' : ''}" data-policy="${def.key}" onclick="selectRulesPolicy('${def.key}')">
+      <div class="rules-policy-nav-title"><img class="toc-ui-icon small" src="${def.icon}" alt=""> ${htmlEscape(def.label)}</div>
+      <div class="rules-policy-nav-counts">
+        <span>系统 ${def.system.length}</span>
+        <span>自定义 ${def.custom.length}</span>
+        <span>规则 ${def.rules.length}</span>
+        <span>未归类 ${def.usedUnclassified.length}</span>
+      </div>
+    </button>
+  `).join('');
+}
+
+window.selectRulesPolicy = (policy) => {
+  if (!RULES_POLICY_DEFS.some(def => def.key === policy)) return;
+  rulesSitePolicyState.policy = policy;
+  renderRulesPage();
+};
+
+function rulesDirectoryEntriesForPolicy(def) {
+  const entries = [];
+  for (const value of def.system || []) entries.push({ source: 'system', classification: def.key, value, title: value });
+  for (const value of def.custom || []) entries.push({ source: 'custom', classification: def.key, value, title: value });
+  for (const rule of def.rules || []) entries.push({ source: 'rule', classification: def.key, value: siteRuleValue(rule), title: siteRuleValue(rule), rule });
+  if (def.key === 'composite') {
+    for (const site of rulesSitePolicyState.usedUnclassified || []) entries.push({ source: 'used-unclassified', classification: 'unclassified', value: site.domain, title: site.domain, site });
+  }
+  return entries;
+}
+
+function filterRulesDirectoryEntries(entries) {
+  const q = rulesSitePolicyState.query;
+  const source = rulesSitePolicyState.source;
+  return entries.filter(entry => {
+    if (source !== 'all' && entry.source !== source) return false;
+    if (!q) return true;
+    return String(entry.title || '').toLowerCase().includes(q) || String(RULES_SOURCE_LABELS[entry.source] || '').toLowerCase().includes(q);
+  });
+}
+
+function rulesSiteMeta(entry) {
+  if (entry.source === 'used-unclassified') {
+    const site = entry.site || {};
+    return `首次 ${formatRulesTimestamp(site.firstSeenAt)} · 最近 ${formatRulesTimestamp(site.lastSeenAt)} · 累计 ${fmtSec(Number(site.totalSeconds || 0))} · 访问 ${Number(site.visitCount || 0)} 次`;
+  }
+  if (entry.source === 'rule') return `${siteRuleTypeLabel(entry.rule)} · 已批准精确规则`;
+  if (entry.source === 'system') return '受管来源；管理员移动会影响所有孩子档案';
+  if (entry.source === 'custom') return '当前档案自定义；移动或删除后需保存';
+  return '未标注';
+}
+
+function formatRulesTimestamp(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? new Date(numeric).toLocaleString('zh-CN') : '-';
+}
+
+function renderRulesSiteRow(entry, idx) {
+  idx = Number.isInteger(entry._directoryIndex) ? entry._directoryIndex : idx;
+  const canMove = entry.source !== 'rule';
+  const disabled = entry.source === 'system' && !systemAccessCanWrite;
+  const options = RULES_POLICY_DEFS
+    .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
+    .map(def => `<button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
+    .join('');
+  const deleteButton = entry.source === 'custom'
+    ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>`
+    : '';
+  const actionHtml = canMove
+    ? `<div class="rules-site-actions">${options}${deleteButton}<button class="rules-site-action-btn" onclick="renderRulesSiteDirectory()">取消</button></div>`
+    : `<div class="rules-site-actions"><span class="rules-site-badge">规则项</span></div>`;
+  return `
+    <div class="rules-site-row" data-source="${entry.source}" data-domain="${htmlEscape(entry.title)}">
+      <div>
+        <div class="rules-site-domain">${htmlEscape(entry.title)}</div>
+        <div class="rules-site-meta"><span class="rules-site-badge">${htmlEscape(RULES_SOURCE_LABELS[entry.source] || '未标注')}</span>${htmlEscape(rulesSiteMeta(entry))}</div>
+      </div>
+      ${actionHtml}
+    </div>`;
+}
+
+function renderRulesSiteGroup(source, entries) {
+  if (entries.length === 0) return '';
+  return `
+    <section class="rules-site-group" data-source-group="${source}">
+      <div class="rules-site-group-header">
+        <div>
+          <div>${htmlEscape(RULES_SOURCE_LABELS[source] || '未标注')}</div>
+          <div class="rules-site-group-subtitle">共 ${entries.length} 条</div>
+        </div>
+      </div>
+      ${entries.map(renderRulesSiteRow).join('')}
+    </section>`;
+}
+
+function renderUsedUnclassifiedSummary(def) {
+  if (def.key !== 'composite') return '';
+  const count = (rulesSitePolicyState.usedUnclassified || []).length;
+  const loading = rulesSitePolicyState.usedUnclassifiedLoading ? '，正在读取最近 30 天访问历史' : '';
+  return `<div class="rules-used-unclassified-summary"><strong>已使用未归类网站：${count} 个${loading}</strong><span>这些网站来自最近 30 天使用历史，当前仍未被归入学习、复合、受限娱乐或黑名单。归类后会从这里消失。</span></div>`;
+}
+
+function renderRulesSiteDirectory() {
+  const container = document.getElementById('rules-site-directory');
+  if (!container) return;
+  const def = currentRulesPolicyDef();
+  const addInput = document.getElementById('rules-site-add-input');
+  if (addInput) addInput.placeholder = def.addPlaceholder;
+  const all = rulesDirectoryEntriesForPolicy(def);
+  const filtered = filterRulesDirectoryEntries(all);
+  window._rulesSiteDirectoryEntries = filtered;
+  filtered.forEach((entry, idx) => { entry._directoryIndex = idx; });
+  const grouped = ['used-unclassified', 'system', 'custom', 'rule', 'unmarked']
+    .map(source => [source, filtered.filter(entry => entry.source === source)])
+    .filter(([, list]) => list.length > 0);
+  const empty = `<div class="rules-site-group"><div class="rules-site-empty">当前筛选下没有网站。可以用上方输入框添加到${htmlEscape(def.label)}。</div></div>`;
+  container.innerHTML = renderUsedUnclassifiedSummary(def) + (grouped.length ? grouped.map(([source, list]) => renderRulesSiteGroup(source, list)).join('') : empty);
+}
+
+function renderRulesPage() {
+  renderRulesPolicyNav();
+  renderRulesSiteDirectory();
+  loadUsedUnclassifiedSitesForRules();
+  loadSystemAccessCapabilityForRules();
+}
+
+async function loadSystemAccessCapabilityForRules() {
+  if (systemAccessCanWriteLoaded) return;
+  systemAccessCanWriteLoaded = true;
+  try {
+    const record = await api('/system/access-management-config/v1');
+    systemAccessCanWrite = Boolean(record.canWrite);
+    if (record.config) siteAccessDefaults = record.config;
+    renderRulesPolicyNav();
+    renderRulesSiteDirectory();
+  } catch (e) {
+    console.warn('[Rules] system access capability load failed:', e?.message || e);
+  }
+}
+
+async function loadUsedUnclassifiedSitesForRules() {
+  if (!currentProfileId || rulesSitePolicyState.usedUnclassifiedLoadedForProfileId === currentProfileId || rulesSitePolicyState.usedUnclassifiedLoading) return;
+  rulesSitePolicyState.usedUnclassifiedLoading = true;
+  renderRulesPolicyNav();
+  renderRulesSiteDirectory();
+  try {
+    const r = await api(`/profiles/${currentProfileId}/used-unclassified-sites/v1?days=30`);
+    rulesSitePolicyState.usedUnclassified = Array.isArray(r.sites) ? r.sites : [];
+    rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = currentProfileId;
+  } catch (e) {
+    console.warn('[Rules] used unclassified load failed:', e?.message || e);
+    rulesSitePolicyState.usedUnclassified = [];
+    rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = currentProfileId;
+  } finally {
+    rulesSitePolicyState.usedUnclassifiedLoading = false;
+    renderRulesPolicyNav();
+    renderRulesSiteDirectory();
+  }
+}
+
+function addSiteToCurrentPolicy() {
+  const def = currentRulesPolicyDef();
+  const input = document.getElementById('rules-site-add-input');
+  const val = normalizeSiteAccessInput(input?.value || '');
+  if (!val) return;
+  moveCustomSiteToPolicy(val, def.key);
+  if (input) input.value = '';
+}
+
+function moveCustomSiteToPolicy(value, policy) {
+  const normalized = normalizeSiteAccessInput(value);
+  const def = RULES_POLICY_DEFS.find(item => item.key === policy);
+  if (!normalized || !def) return false;
+  const nextConfig = { ...remoteConfig };
+  for (const item of RULES_POLICY_DEFS) {
+    nextConfig[item.customKey] = (nextConfig[item.customKey] || []).filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
+  }
+  nextConfig[def.customKey] = [...(nextConfig[def.customKey] || []), normalized];
+  const conflicts = findSiteAccessExactConflicts(nextConfig);
+  if (conflicts.length > 0) {
+    toast(formatSiteAccessConflict(conflicts[0]), false);
+    return false;
+  }
+  remoteConfig = nextConfig;
+  renderRulesPage();
+  toast(`已加入${def.label}，点击保存后同步`);
+  return true;
+}
+
+window.deleteRulesCustomSite = (idx) => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (!entry || entry.source !== 'custom') return;
+  const def = RULES_POLICY_DEFS.find(item => item.key === entry.classification);
+  if (!def) return;
+  remoteConfig[def.customKey] = (remoteConfig[def.customKey] || []).filter(d => d !== entry.value);
+  renderRulesPage();
+  toast('已删除，点击保存后同步');
+};
+
+window.classifyRulesSiteEntry = async (idx, targetPolicy) => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  const def = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  if (!entry || !def) return;
+  try {
+    if (entry.source === 'custom') {
+      moveCustomSiteToPolicy(entry.value, targetPolicy);
+      return;
+    }
+    if (entry.source === 'used-unclassified') {
+      const r = await api(`/profiles/${currentProfileId}/used-unclassified-sites/v1`, 'POST', { domain: entry.value, classification: targetPolicy });
+      if (r.config) remoteConfig = r.config;
+      rulesSitePolicyState.usedUnclassified = (rulesSitePolicyState.usedUnclassified || []).filter(site => !matchDomain(site.domain, entry.value));
+      renderRulesPage();
+      toast(`已归为${def.label}`);
+      return;
+    }
+    if (entry.source === 'system') {
+      await moveSystemSiteToPolicy(entry.value, entry.classification, targetPolicy);
+      return;
+    }
+    toast('精确规则请在网站归类审核中处理', false);
+  } catch (e) {
+    toast('分类失败：' + (e.message || e), false);
   }
 };
 
-function renderRulesPage() {
-  const defaults = siteAccessDefaults || {};
-
-  // 学习网站
-  const studyCustom = remoteConfig.customStudyList || getCustomList(remoteConfig.studyList, defaults.defaultStudySites);
-  renderReadOnlyTags('r-studylist-default-tags', defaults.defaultStudySites || []);
-  renderTags('r-studylist-tags', studyCustom, 'customStudyList');
-
-  // 复合网站
-  const compositeCustom = remoteConfig.customCompositeList || getCustomList(remoteConfig.compositeList, defaults.defaultCompositeSites);
-  renderReadOnlyTags('r-composite-default-tags', defaults.defaultCompositeSites || []);
-  renderTags('r-composite-tags', compositeCustom, 'customCompositeList');
-
-  // 受限娱乐网站
-  const restrictedCustom = remoteConfig.customRestrictedEntertainmentList || getCustomList(remoteConfig.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites);
-  renderReadOnlyTags('r-restricted-default-tags', defaults.defaultRestrictedEntertainmentSites || []);
-  renderTags('r-restricted-tags', restrictedCustom, 'customRestrictedEntertainmentList');
-
-  // 黑名单网站
-  const blockedCustom = remoteConfig.customBlockedSites || getCustomList(remoteConfig.unsafeList, defaults.defaultBlockedSites);
-  renderReadOnlyTags('r-blocked-default-tags', defaults.defaultBlockedSites || []);
-  renderTags('r-blocked-tags', blockedCustom, 'customBlockedSites');
-
-  updateRuleCounts();
-}
-
-function updateRuleCounts() {
-  const defaults = siteAccessDefaults || {};
-  const set = (id, arr) => { const el=document.getElementById(id); if(el) el.textContent=arr.length?`共 ${arr.length} 条`:''; };
-  const setManaged = (id, arr, listKey) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const total = (Array.isArray(arr) ? arr.length : 0) + approvedUrlRulesForListKey(listKey).length;
-    el.textContent = total ? `共 ${total} 条` : '';
-  };
-
-  set('r-studylist-default-count', defaults.defaultStudySites || []);
-  setManaged('r-studylist-count',  remoteConfig.customStudyList || [], 'customStudyList');
-  set('r-composite-default-count', defaults.defaultCompositeSites || []);
-  setManaged('r-composite-count',  remoteConfig.customCompositeList || [], 'customCompositeList');
-  set('r-restricted-default-count', defaults.defaultRestrictedEntertainmentSites || []);
-  set('r-restricted-count', remoteConfig.customRestrictedEntertainmentList || []);
-  set('r-blocked-default-count', defaults.defaultBlockedSites || []);
-  setManaged('r-blocked-count', remoteConfig.customBlockedSites || [], 'customBlockedSites');
-}
-
-// 家长自定义域名输入框
-function setupCustomDomainInput(inputId, btnId, tagsId, customKey, effectiveKey) {
-  const input = document.getElementById(inputId);
-  const btn   = document.getElementById(btnId);
-  if (!input || !btn) return;
-  const doAdd = () => {
-    let val = normalizeSiteAccessInput(input.value);
-    if (!val) return;
-    if (!remoteConfig) { toast('请先选择一个孩子档案', false); return; }
-    if (!remoteConfig[customKey]) remoteConfig[customKey] = [];
-    if (remoteConfig[customKey].includes(val)) { toast('该域名已在列表中', false); return; }
-    const nextConfig = {
-      ...remoteConfig,
-      [customKey]: [...remoteConfig[customKey], val],
-    };
-    const conflicts = findSiteAccessExactConflicts(nextConfig);
-    if (conflicts.length > 0) {
-      toast(formatSiteAccessConflict(conflicts[0]), false);
-      return;
+async function moveSystemSiteToPolicy(value, fromPolicy, targetPolicy) {
+  if (fromPolicy === targetPolicy) return;
+  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  if (!targetDef) return;
+  if (!confirm(`系统配置网站移动会全局生效，影响所有孩子档案。确认将 ${value} 归为${targetDef.label}？`)) return;
+  const record = await api('/system/access-management-config/v1');
+  systemAccessCanWrite = Boolean(record.canWrite);
+  if (!systemAccessCanWrite) {
+    toast('需要系统管理员权限才能修改系统配置', false);
+    return;
+  }
+  const config = { ...(record.config || siteAccessDefaults || {}) };
+  for (const def of RULES_POLICY_DEFS) {
+    config[def.defaultKey] = (config[def.defaultKey] || []).filter(d => !matchDomain(value, d) || !matchDomain(d, value));
+  }
+  config[targetDef.defaultKey] = [...(config[targetDef.defaultKey] || []), value];
+  const catalog = Array.isArray(config.siteCatalog) ? config.siteCatalog : [];
+  let catalogUpdated = false;
+  config.siteCatalog = catalog.map(item => {
+    if (matchDomain(item.domain, value) && matchDomain(value, item.domain)) {
+      catalogUpdated = true;
+      return { ...item, classification: targetPolicy };
     }
-    remoteConfig[customKey] = nextConfig[customKey];
-    if (customKey==='customStudyList') { const s=document.getElementById('r-studylist-search'); if(s) s.value=''; }
-    renderTags(tagsId, remoteConfig[customKey], customKey);
-    updateRuleCounts();
-    input.value = '';
-  };
-  btn.addEventListener('click', doAdd);
-  input.addEventListener('keydown', e => e.key==='Enter' && doAdd());
+    return item;
+  });
+  if (!catalogUpdated) {
+    config.siteCatalog.push({ domain: value, classification: targetPolicy, notes: 'Updated from site management UI' });
+  }
+  const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Move ${value} to ${targetPolicy} from site management UI` });
+  siteAccessDefaults = saved.config || config;
+  systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
+  renderRulesPage();
+  toast('系统配置已更新，全局生效');
 }
-
 // 只读标签云（系统默认）
 function renderReadOnlyTags(containerId, domains) {
   const c = document.getElementById(containerId);
@@ -2842,6 +3002,7 @@ async function renderRulesConfigFilesPage() {
   renderSystemConfigSummary();
   try {
     const record = await api('/system/access-management-config/v1');
+    systemAccessCanWrite = Boolean(record.canWrite);
     renderSystemConfigSummary(record);
   } catch (e) {
     const el = document.getElementById('rules-system-config-summary');

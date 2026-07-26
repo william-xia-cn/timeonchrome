@@ -434,6 +434,10 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - profile 配置保存、device 配置同步、导出、恢复和网站归类审批都通过统一 loader 获取系统配置；
 - `system-access-config.json` 是系统配置导入导出文件，`site-access-editable.json` 仍只表示当前 profile 的自定义访问配置；
 - 系统配置导入是全局操作，不属于普通 profile restore。
+- Pages 网站管理 UI 使用“管理策略目录”作为主结构，左侧按学习/复合/受限娱乐/黑名单四类显示系统配置、自定义、精确规则和已使用未归类数量，右侧按来源分组展示网站目录；
+- 复合网站策略下的“已使用未归类网站”不是审批记录列表，而是最近 30 天 `target_stats_v1` / `usage_segments_v1` 中曾按未归类或待归类使用、且当前 effective 清单仍未归类的网站聚合；
+- 已使用未归类网站归类时写入当前 profile custom list；若存在匹配 pending 网站归类记录，同时按对应 decision 关闭记录；
+- 当前档案自定义项移动分类只迁移 profile custom list；系统配置项移动分类必须走系统访问配置 API、管理员权限和全局影响确认。
 
 系统配置文件格式：
 

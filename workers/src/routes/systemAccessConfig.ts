@@ -17,7 +17,7 @@ async function verifyAccount(request: Request, env: Env): Promise<string | null>
   return await verifyAccountToken(request, env.JWT_SECRET);
 }
 
-function isSystemAccessAdmin(env: Env, accountId: string): boolean {
+export function isSystemAccessAdmin(env: Env, accountId: string): boolean {
   const admins = adminAccountSet(env);
   return admins.has('*') || admins.has(accountId);
 }
@@ -44,6 +44,7 @@ export const systemAccessConfigRouter = {
         note: record.note,
         config: systemAccessDefaultsResponse(record.config),
         summary: summarizeSystemAccessConfig(record.config),
+        canWrite: isSystemAccessAdmin(env, accountId),
       });
     }
 
@@ -94,6 +95,7 @@ export const systemAccessConfigRouter = {
         version: saved.version,
         updatedAt: saved.updatedAt,
         summary: summarizeSystemAccessConfig(saved.config),
+        canWrite: isSystemAccessAdmin(env, accountId),
         config: systemAccessDefaultsResponse(saved.config),
       });
     }

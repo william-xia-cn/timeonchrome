@@ -187,11 +187,13 @@ function run() {
   expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));
   expectTrue('pages 不应再使用"系统默认"文案', !/系统默认（不可编辑）/.test(source));
 
-  // 复合网站系统配置拆分检查
-  expectTrue('pages 应包含系统配置复合网站区', source.includes('系统配置复合网站（只读）'));
-  expectTrue('pages 应包含家长自定义复合网站区', source.includes('家长自定义复合网站'));
-  expectTrue('pages 应包含复合网站系统配置标签容器', source.includes('id="r-composite-default-tags"'));
-
+  // 网站管理策略目录检查
+  expectTrue('Pages 网站管理应使用左右策略目录', source.includes('rules-policy-shell') && source.includes('rules-policy-nav') && source.includes('rules-site-directory'));
+  expectTrue('Pages 网站管理应按管理策略分类显示', source.includes('RULES_POLICY_DEFS') && source.includes("key: 'study'") && source.includes("key: 'composite'") && source.includes("key: 'restricted'") && source.includes("key: 'blocked'"));
+  expectTrue('Pages 复合网站下应包含已使用未归类网站入口', source.includes('已使用未归类网站') && source.includes('/used-unclassified-sites/v1?days=30') && source.includes('rules-used-unclassified-summary'));
+  expectTrue('Pages 网站目录应按来源分组', source.includes('系统配置') && source.includes('当前档案自定义') && source.includes('已批准精确规则') && source.includes('data-source-group'));
+  expectTrue('Pages 点击网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
+  expectTrue('Pages 系统配置分类移动应要求全局确认', source.includes('moveSystemSiteToPolicy') && source.includes('全局生效，影响所有孩子档案') && source.includes('canWrite'));
   // 时间段管理：per-day 结构检查
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
   expectTrue('pages 应包含七天配置', source.includes("'monday'") && source.includes("'sunday'"));
@@ -204,22 +206,22 @@ function run() {
   expectTrue('saveScheduleConfig 不应提交 onlineWindows', !/saveScheduleConfig[\s\S]{0,500}onlineWindows/.test(source));
   expectTrue('schedule 不应被 saveScheduleConfig 覆盖', !/saveScheduleConfig[\s\S]{0,300}schedule/.test(source));
 
-  // 最小行为级断言：复合网站列表绑定 compositeList
+  // 最小行为级断言：网站管理绑定策略目录入口
   const setupRulesSource = extractFunctionSource(source, 'setupRules');
-  const captured = [];
+  const touched = [];
   const context = {
-    setupCustomDomainInput: (...args) => captured.push(args),
-    document: {
-      getElementById: () => ({ addEventListener: () => {} })
-    },
-    renderTagsFiltered: () => {},
+    addSiteToCurrentPolicy: () => {},
     saveSiteAccessConfig: () => {},
     exportProfileConfig: () => {},
     importProfileConfig: () => {},
     exportSystemAccessConfig: () => {},
     importSystemAccessConfigForPreflight: () => {},
     applySystemAccessConfigImport: () => {},
-    remoteConfig: { studyList: [] },
+    renderRulesSiteDirectory: () => {},
+    rulesSitePolicyState: { query: '', source: 'all' },
+    document: {
+      getElementById: (id) => ({ addEventListener: (event) => touched.push(`${id}:${event}`) })
+    },
     this: null
   };
   context.this = context;
@@ -227,10 +229,8 @@ function run() {
   vm.runInNewContext(`${setupRulesSource}\nthis.__fn = setupRules;`, context, { filename: 'pages/index.html' });
   context.__fn();
 
-  const composite = captured.find((entry) => entry[0] === 'r-composite-input');
-  expectTrue('复合网站列表应完成 setupCustomDomainInput 绑定', !!composite);
-  expectEqual('复合网站列表 customKey 应为 customCompositeList', composite?.[3], 'customCompositeList');
-
+  expectTrue('网站管理应绑定策略目录搜索和来源筛选', touched.includes('rules-site-search:input') && touched.includes('rules-site-source-filter:change'));
+  expectTrue('网站管理应绑定当前策略添加入口', touched.includes('rules-site-add-btn:click') && touched.includes('rules-site-add-input:keydown'));
   const total = passed + failed;
   console.log(`\n[Pages Config v1.2 Fields] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

@@ -23,6 +23,11 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-26）
+- [x] 网站管理 UI 重设计为管理策略目录
+  - 目标：左侧按学习/复合/受限娱乐/黑名单导航，右侧按系统配置、自定义、精确规则、已使用未归类分组管理。
+  - 目标：复合网站下新增“已使用未归类网站”，来源为最近 30 天使用历史聚合，不是审批记录列表。
+  - 边界：不改变扩展计时、拦截、绑定、同步逻辑。
+  - 验证：Pages/Worker 契约测试、站点归类回归、typecheck、check:extension-root、git diff --check 与本地 Playwright 布局检查通过。
 - [x] 访问管理配置文件与系统访问配置云端化
   - 已实现：访问管理新增“档案访问管理配置”和“系统访问管理配置”两类导入导出。
   - 已实现：系统访问配置从代码固定 JSON 升级为 D1 云端可管理配置；代码 JSON 仅作为初始化/fallback。

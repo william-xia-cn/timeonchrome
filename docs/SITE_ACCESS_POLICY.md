@@ -115,6 +115,12 @@ hardBlockedList
 
 固定例外：`youtube.com` / `youtu.be` 保持复合或 YouTube 细化规则入口；`stackoverflow.com` / `stackexchange.com` 保持学习/技术用途；`reddit.com` 暂保持复合；`kahoot.it` / `quizizz.com` 保持课堂工具；`douyin.com` / `tiktok.com` 继续可放黑名单。
 
+### 3.0.3 网站管理策略目录
+
+家长控制台“网站管理”的主分类采用 TimeOnChrome 管理策略分类，而不是 Qustodio 内容分类：学习网站、复合网站、受限娱乐网站、黑名单网站。系统配置、自定义配置、已批准精确规则和已使用未归类历史按来源分组展示。
+
+“已使用未归类网站”只显示在复合网站策略下，表示最近 30 天内曾按未归类/待归类路径产生使用记录、且当前 effective 清单仍未归类的网站。它不是审批记录列表，也不是已确认复合网站；点击归类后写入当前 profile 的目标 custom list，并在存在匹配 pending 记录时同步关闭该记录。
+
 ### 3.1 概念迁移表
 
 | 旧概念 | 新概念 | 新定义 | 实现字段暂定 |
