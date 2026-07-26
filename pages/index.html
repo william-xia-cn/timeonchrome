@@ -776,8 +776,8 @@
                 <input type="text" id="rules-site-search" placeholder="搜索域名、规则或来源">
                 <select id="rules-site-source-filter" aria-label="来源筛选">
                   <option value="all">全部来源</option>
-                  <option value="system">系统配置</option>
-                  <option value="custom">当前档案自定义</option>
+                  <option value="system">系统网站配置-分类管理</option>
+                  <option value="custom">用户自定义配置</option>
                   <option value="rule">已批准精确规则</option>
                   <option value="used-unclassified">已使用未归类网站</option>
                   <option value="unmarked">未标注</option>
@@ -800,8 +800,8 @@
               这里的分类是 TimeOnChrome 的管理策略：学习、复合、受限娱乐、黑名单。Qustodio 内容分类只作为系统配置管理时的辅助标签。</p>
               <p style="margin-bottom:10px;"><strong>已使用未归类网站</strong><br>
               来自最近 30 天访问历史聚合，只显示当前仍未归类的网站。它不是审批记录，也不是已确认复合网站。</p>
-              <p><strong>系统配置与当前档案自定义</strong><br>
-              自定义网站移动分类只影响当前档案；系统配置网站移动分类需要管理员权限和全局影响确认。</p>
+              <p><strong>系统网站配置与用户自定义配置</strong><br>
+              用户自定义配置网站移动分类只影响当前档案；系统配置网站移动分类需要管理员权限和全局影响确认。</p>
             </div>
           </div>
 
@@ -869,13 +869,13 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">档案访问管理配置</div>
-              <div class="card-subtitle">只导入导出当前孩子档案的自定义网站、规则、审核记录、配额和时间段，不包含系统默认网站库。</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">用户自定义配置访问管理</div>
+              <div class="card-subtitle">只导入导出当前孩子档案的用户自定义网站、规则、审核记录、配额和时间段，不包含系统网站配置库。</div>
             </div>
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn-save" id="rules-profile-export-config-btn" style="padding:9px 14px;">导出当前档案访问配置</button>
-            <button class="btn-save" id="rules-profile-import-config-btn" style="padding:9px 14px;background:transparent;color:var(--accent);border:1px solid var(--accent);">导入当前档案访问配置</button>
+            <button class="btn-save" id="rules-profile-export-config-btn" style="padding:9px 14px;">导出用户自定义配置</button>
+            <button class="btn-save" id="rules-profile-import-config-btn" style="padding:9px 14px;background:transparent;color:var(--accent);border:1px solid var(--accent);">导入用户自定义配置</button>
           </div>
           <div id="rules-profile-config-io-msg" style="font-size:13px;margin-top:12px;display:none;"></div>
           <div id="rules-profile-config-import-diff" style="display:none;margin-top:12px;"></div>
@@ -884,15 +884,14 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/settings.svg" alt="">系统访问管理配置</div>
-              <div class="card-subtitle">全局默认网站库，按 Qustodio Web Filters 风格维护内容分类；导入后会影响所有孩子档案的 effective 清单。</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/settings.svg" alt="">系统网站配置访问管理</div>
+              <div class="card-subtitle">全局系统网站库，按 Qustodio Web Filters 风格维护内容分类；导入后会影响所有孩子档案的 effective 清单。</div>
             </div>
           </div>
           <div id="rules-system-config-summary" style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px;">正在读取系统配置...</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn-save" id="rules-system-export-config-btn" style="padding:9px 14px;">导出系统访问配置</button>
-            <button class="btn-save" id="rules-system-import-config-btn" style="padding:9px 14px;background:transparent;color:var(--accent);border:1px solid var(--accent);">选择系统配置并预检</button>
-            <button class="btn-save" id="rules-system-apply-config-btn" style="padding:9px 14px;" disabled>导入系统访问配置</button>
+            <button class="btn-save" id="rules-system-export-config-btn" style="padding:9px 14px;">导出系统网站配置</button>
+            <button class="btn-save" id="rules-system-import-config-btn" style="padding:9px 14px;background:transparent;color:var(--accent);border:1px solid var(--accent);">导入系统网站配置</button>
           </div>
           <div id="rules-system-config-import-result" style="display:none;margin-top:12px;"></div>
         </div>
@@ -1441,7 +1440,7 @@ let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', li
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
-let systemAccessConfigImportState = { fileName: '', config: null, preflight: null };
+let systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
 let rulesSitePolicyState = {
   policy: 'study',
   query: '',
@@ -2061,8 +2060,8 @@ const RULES_POLICY_DEFS = [
   { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
 ];
 const RULES_SOURCE_LABELS = {
-  system: '系统配置',
-  custom: '当前档案自定义',
+  system: '系统网站配置-分类管理',
+  custom: '用户自定义配置',
   rule: '已批准精确规则',
   'used-unclassified': '已使用未归类网站',
   unmarked: '未标注',
@@ -2090,7 +2089,6 @@ function setupRules() {
   }));
   document.getElementById('rules-system-export-config-btn')?.addEventListener('click', exportSystemAccessConfig);
   document.getElementById('rules-system-import-config-btn')?.addEventListener('click', importSystemAccessConfigForPreflight);
-  document.getElementById('rules-system-apply-config-btn')?.addEventListener('click', applySystemAccessConfigImport);
 }
 
 function currentRulesPolicyDef() {
@@ -2203,7 +2201,7 @@ function rulesSiteMeta(entry) {
     const name = entry.catalog?.name ? `${entry.catalog.name} · ` : '';
     return `${name}${category} · 受管来源；管理员保存会全局生效`;
   }
-  if (entry.source === 'custom') return '当前档案自定义；移动或删除后需保存';
+  if (entry.source === 'custom') return '用户自定义配置；移动或删除后需保存';
   return '未标注';
 }
 function formatRulesTimestamp(value) {
@@ -2231,7 +2229,7 @@ function renderSystemSiteCategoryEditor(entry, idx) {
         <button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="saveSystemSiteCategoryEdit(${idx})">保存系统分类</button>
         <button class="rules-site-action-btn" onclick="closeSystemSiteCategoryEditor()">取消</button>
       </div>
-      <div class="rules-system-editor-note">系统分类管理保存后会全局生效，影响所有孩子档案；当前档案自定义网站不会写入系统分类库。</div>
+      <div class="rules-system-editor-note">系统网站配置-分类管理保存后会全局生效，影响所有孩子档案；用户自定义配置网站不会写入系统分类库。</div>
     </div>`;
 }
 
@@ -2303,8 +2301,8 @@ function renderSystemCategoryManagementGroup(entries) {
     <section class="rules-site-group" data-source-group="system" data-system-category-management="true">
       <div class="rules-site-group-header">
         <div>
-          <div>分类管理（系统配置）</div>
-          <div class="rules-site-group-subtitle">当前策略下的系统配置网站按 Qustodio 内容分类分组；保存系统项会全局生效，影响所有孩子档案</div>
+          <div>系统网站配置-分类管理</div>
+          <div class="rules-site-group-subtitle">当前策略下的系统网站配置按 Qustodio 内容分类分组；保存系统项会全局生效，影响所有孩子档案</div>
         </div>
         <span class="rules-site-badge">共 ${entries.length} 条</span>
       </div>
@@ -2344,7 +2342,7 @@ function renderRulesSiteDirectory() {
   const filtered = filterRulesDirectoryEntries(all);
   window._rulesSiteDirectoryEntries = filtered;
   filtered.forEach((entry, idx) => { entry._directoryIndex = idx; });
-  const grouped = ['used-unclassified', 'system', 'custom', 'rule', 'unmarked']
+  const grouped = ['used-unclassified', 'custom', 'system', 'rule', 'unmarked']
     .map(source => [source, filtered.filter(entry => entry.source === source)])
     .filter(([, list]) => list.length > 0);
   const empty = `<div class="rules-site-group"><div class="rules-site-empty">当前筛选下没有网站。可以用上方输入框添加到${htmlEscape(def.label)}。</div></div>`;
@@ -2505,7 +2503,7 @@ window.saveSystemSiteCategoryEdit = async (idx) => {
   const targetPolicy = document.getElementById(`rules-system-policy-select-${idx}`)?.value || entry.classification;
   const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
   if (!targetDef) return;
-  if (!confirm(`系统分类管理保存后会全局生效，影响所有孩子档案。确认将 ${entry.value} 设置为「${category} / ${targetDef.label}」？`)) return;
+  if (!confirm(`系统网站配置-分类管理保存后会全局生效，影响所有孩子档案。确认将 ${entry.value} 设置为「${category} / ${targetDef.label}」？`)) return;
   try {
     const record = await api('/system/access-management-config/v1');
     systemAccessCanWrite = Boolean(record.canWrite);
@@ -2521,7 +2519,7 @@ window.saveSystemSiteCategoryEdit = async (idx) => {
     systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
     rulesSitePolicyState.editingSystemSiteIndex = null;
     renderRulesPage();
-    toast('系统分类管理已保存，全局生效');
+    toast('系统网站配置-分类管理已保存，全局生效');
   } catch (e) {
     toast('系统分类保存失败：' + (e.message || e), false);
   }
@@ -2776,7 +2774,7 @@ async function exportProfileConfig() {
   const requests = await fetchAllSiteClassificationRequestsForExport();
   const exportData = buildProfileConfigExportData(requests);
   downloadJsonFile(exportData, `timeonchrome-profile-config-v1-${new Date().toISOString().slice(0,10)}.json`);
-  toast('档案访问管理配置已导出');
+  toast('用户自定义配置访问管理已导出');
 }
 
 function assertStringArrayField(obj, field, label) {
@@ -3059,12 +3057,15 @@ function renderConfigImportDiffPanel() {
   const visible = actionable.filter(diff => state.filter === 'all' || diff.type === state.filter);
   const allSelected = actionable.length > 0 && actionable.every(diff => state.selectedIds.has(diff.id));
   const applyText = allSelected ? '应用全部差异（覆盖当前配置）' : '应用选中差异';
+  const applyHandler = state.applyHandler || applySelectedConfigImportDiffs;
+  const applyDisabled = state.applyDisabledReason ? `disabled title="${htmlEscape(state.applyDisabledReason)}"` : '';
   el.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
         <div>
           <div style="font-weight:700;">导入差异确认</div>
           <div style="font-size:13px;color:var(--muted);margin-top:4px;">文件：${htmlEscape(state.fileName || '配置文件')}。新增 ${counts.add} 项，删除 ${counts.delete} 项，修改 ${counts.modify} 项，不变 ${counts.same} 项。</div>
+          ${state.scopeNote ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;">${htmlEscape(state.scopeNote)}</div>` : ''}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-save" id="acct-config-import-select-all" style="padding:7px 11px;">全选差异</button>
@@ -3087,8 +3088,8 @@ function renderConfigImportDiffPanel() {
         `).join('') : '<div style="font-size:13px;color:var(--muted);padding:8px 2px;">当前筛选下没有差异。</div>'}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;">
-        <div style="font-size:12px;color:var(--muted);">删除项只有勾选后才会生效；未选中项保持当前配置。</div>
-        <button class="btn-save" id="acct-config-import-apply" style="padding:9px 16px;">${applyText}</button>
+        <div style="font-size:12px;color:var(--muted);">${state.applyDisabledReason ? htmlEscape(state.applyDisabledReason) : '删除项只有勾选后才会生效；未选中项保持当前配置。'}</div>
+        <button class="btn-save" id="acct-config-import-apply" style="padding:9px 16px;" ${applyDisabled}>${applyText}</button>
       </div>
     </div>
   `;
@@ -3109,7 +3110,7 @@ function renderConfigImportDiffPanel() {
     configImportDiffState.selectedIds = new Set();
     renderConfigImportDiffPanel();
   });
-  el.querySelector('#acct-config-import-apply')?.addEventListener('click', applySelectedConfigImportDiffs);
+  el.querySelector('#acct-config-import-apply')?.addEventListener('click', applyHandler);
 }
 
 async function importProfileConfig(options = {}) {
@@ -3212,7 +3213,7 @@ async function exportSystemAccessConfig() {
     const record = await api('/system/access-management-config/v1');
     const config = record.config || {};
     downloadJsonFile(config, `system-access-config-v1-${new Date().toISOString().slice(0,10)}.json`);
-    toast('系统访问管理配置已导出');
+    toast('系统网站配置访问管理已导出');
   } catch (e) {
     toast('系统配置导出失败：' + (e.message || e), false);
   }
@@ -3230,9 +3231,150 @@ function systemImportSummaryHtml(summary = {}) {
   return `学习 ${htmlEscape(summary.defaultStudySites || 0)}；复合 ${htmlEscape(summary.defaultCompositeSites || 0)}；家长自定义复合默认 ${htmlEscape(summary.defaultUserCompositeSites || 0)}；受限娱乐 ${htmlEscape(summary.defaultRestrictedEntertainmentSites || 0)}；黑名单 ${htmlEscape(summary.defaultBlockedSites || 0)}；目录明细 ${htmlEscape(summary.siteCatalog || 0)}`;
 }
 
+
+const SYSTEM_CONFIG_IMPORT_LIST_FIELDS = [
+  { key: 'study', label: '学习网站', configKey: 'defaultStudySites' },
+  { key: 'composite', label: '复合网站', configKey: 'defaultCompositeSites' },
+  { key: 'userComposite', label: '家长自定义复合默认', configKey: 'defaultUserCompositeSites' },
+  { key: 'restricted', label: '受限娱乐网站', configKey: 'defaultRestrictedEntertainmentSites' },
+  { key: 'blocked', label: '黑名单网站', configKey: 'defaultBlockedSites' },
+];
+
+function cloneSystemAccessConfig(config = {}) {
+  const cloned = JSON.parse(JSON.stringify(config || {}));
+  cloned.configType = cloned.configType || 'system-access-config';
+  cloned.schemaVersion = cloned.schemaVersion || 1;
+  cloned.taxonomyVersion = cloned.taxonomyVersion || 'qustodio-web-filters-v1';
+  for (const field of SYSTEM_CONFIG_IMPORT_LIST_FIELDS) {
+    cloned[field.configKey] = Array.isArray(cloned[field.configKey]) ? cloned[field.configKey].map(normalizeSiteAccessInput).filter(Boolean) : [];
+  }
+  cloned.siteCatalog = Array.isArray(cloned.siteCatalog) ? cloned.siteCatalog.map(normalizeSystemCatalogItem).filter(Boolean) : [];
+  return cloned;
+}
+
+function buildSystemCategoryMapsForImport(config) {
+  const maps = { byKey: new Map() };
+  for (const field of SYSTEM_CONFIG_IMPORT_LIST_FIELDS) {
+    for (const value of (Array.isArray(config?.[field.configKey]) ? config[field.configKey] : [])) {
+      const normalized = normalizeSiteAccessInput(value);
+      const key = configImportHostKey(normalized);
+      if (key) maps.byKey.set(key, { category: field.key, configKey: field.configKey, label: field.label, value: normalized });
+    }
+  }
+  return maps;
+}
+
+function normalizeSystemCatalogItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const domain = normalizeSiteAccessInput(item.domain || '');
+  if (!domain) return null;
+  return {
+    domain,
+    name: String(item.name || '').trim(),
+    contentCategory: String(item.contentCategory || '').trim(),
+    classification: String(item.classification || '').trim(),
+    confidence: String(item.confidence || '').trim(),
+    notes: String(item.notes || '').trim(),
+  };
+}
+
+function systemCatalogMapForImport(config) {
+  const map = new Map();
+  for (const item of Array.isArray(config?.siteCatalog) ? config.siteCatalog : []) {
+    const normalized = normalizeSystemCatalogItem(item);
+    const key = configImportHostKey(normalized?.domain || '');
+    if (key) map.set(key, normalized);
+  }
+  return map;
+}
+
+function systemCatalogDiffValue(item) {
+  if (!item) return '—';
+  const parts = [item.contentCategory || '未标注分类', item.classification || '未标注策略'];
+  if (item.name) parts.unshift(item.name);
+  if (item.confidence) parts.push('置信度 ' + item.confidence);
+  return parts.join(' / ');
+}
+
+function buildSystemAccessConfigImportDiffs(currentConfig, importedConfig) {
+  const diffs = [];
+  const current = cloneSystemAccessConfig(currentConfig);
+  const incoming = cloneSystemAccessConfig(importedConfig);
+  const currentListMap = buildSystemCategoryMapsForImport(current).byKey;
+  const importedListMap = buildSystemCategoryMapsForImport(incoming).byKey;
+  const hostKeys = new Set([...currentListMap.keys(), ...importedListMap.keys()]);
+  for (const key of hostKeys) {
+    const currentItem = currentListMap.get(key);
+    const incomingItem = importedListMap.get(key);
+    if (!currentItem && incomingItem) {
+      addConfigImportDiff(diffs, { type: 'add', area: 'system-site-list', key, label: incomingItem.label + '：' + incomingItem.value, importedValue: incomingItem.value, importedHost: incomingItem.value, importedCategory: incomingItem.category, importedConfigKey: incomingItem.configKey });
+    } else if (currentItem && !incomingItem) {
+      addConfigImportDiff(diffs, { type: 'delete', area: 'system-site-list', key, label: currentItem.label + '：' + currentItem.value, currentValue: currentItem.value, currentCategory: currentItem.category, currentConfigKey: currentItem.configKey });
+    } else if (currentItem.category !== incomingItem.category) {
+      addConfigImportDiff(diffs, { type: 'modify', area: 'system-site-list', key, label: incomingItem.value, currentValue: currentItem.label, importedValue: incomingItem.label, importedHost: incomingItem.value, importedCategory: incomingItem.category, importedConfigKey: incomingItem.configKey });
+    } else {
+      addConfigImportDiff(diffs, { type: 'same', area: 'system-site-list', key, label: incomingItem.value, currentValue: currentItem.label, importedValue: incomingItem.label });
+    }
+  }
+
+  const currentCatalog = systemCatalogMapForImport(current);
+  const importedCatalog = systemCatalogMapForImport(incoming);
+  const catalogKeys = new Set([...currentCatalog.keys(), ...importedCatalog.keys()]);
+  for (const key of catalogKeys) {
+    const currentItem = currentCatalog.get(key);
+    const incomingItem = importedCatalog.get(key);
+    if (!currentItem && incomingItem) {
+      addConfigImportDiff(diffs, { type: 'add', area: 'system-site-catalog', key, label: '目录明细：' + incomingItem.domain, importedValue: systemCatalogDiffValue(incomingItem), importedCatalog: incomingItem });
+    } else if (currentItem && !incomingItem) {
+      addConfigImportDiff(diffs, { type: 'delete', area: 'system-site-catalog', key, label: '目录明细：' + currentItem.domain, currentValue: systemCatalogDiffValue(currentItem), currentCatalog: currentItem });
+    } else if (configImportJsonKey(currentItem) !== configImportJsonKey(incomingItem)) {
+      addConfigImportDiff(diffs, { type: 'modify', area: 'system-site-catalog', key, label: '目录明细：' + incomingItem.domain, currentValue: systemCatalogDiffValue(currentItem), importedValue: systemCatalogDiffValue(incomingItem), importedCatalog: incomingItem });
+    } else {
+      addConfigImportDiff(diffs, { type: 'same', area: 'system-site-catalog', key, label: '目录明细：' + incomingItem.domain, currentValue: systemCatalogDiffValue(currentItem), importedValue: systemCatalogDiffValue(incomingItem) });
+    }
+  }
+  return diffs;
+}
+
+function removeHostFromAllSystemImportLists(payload, hostKey) {
+  for (const field of SYSTEM_CONFIG_IMPORT_LIST_FIELDS) {
+    payload[field.configKey] = (payload[field.configKey] || []).filter(value => configImportHostKey(value) !== hostKey);
+  }
+}
+
+function addHostToSystemImportList(payload, configKey, value) {
+  const normalized = normalizeSiteAccessInput(value);
+  const key = configImportHostKey(normalized);
+  if (!key) return;
+  const list = payload[configKey] || [];
+  if (!list.some(item => configImportHostKey(item) === key)) list.push(normalized);
+  payload[configKey] = list;
+}
+
+function upsertSystemCatalogItem(payload, item) {
+  const normalized = normalizeSystemCatalogItem(item);
+  const key = configImportHostKey(normalized?.domain || '');
+  if (!key) return;
+  payload.siteCatalog = (payload.siteCatalog || []).filter(entry => configImportHostKey(entry.domain) !== key);
+  payload.siteCatalog.push(normalized);
+}
+
+function buildSystemAccessConfigImportPayload(currentConfig, selectedDiffs) {
+  const payload = cloneSystemAccessConfig(currentConfig);
+  for (const diff of selectedDiffs) {
+    if (diff.area === 'system-site-list') {
+      removeHostFromAllSystemImportLists(payload, diff.key);
+      if (diff.type !== 'delete') addHostToSystemImportList(payload, diff.importedConfigKey, diff.importedHost || diff.importedValue || diff.label);
+    } else if (diff.area === 'system-site-catalog') {
+      payload.siteCatalog = (payload.siteCatalog || []).filter(item => configImportHostKey(item.domain) !== diff.key);
+      if (diff.type !== 'delete' && diff.importedCatalog) upsertSystemCatalogItem(payload, diff.importedCatalog);
+    }
+  }
+  return payload;
+}
+
 function renderSystemAccessImportPreflight(preflight) {
   const el = document.getElementById('rules-system-config-import-result');
-  const applyBtn = document.getElementById('rules-system-apply-config-btn');
   if (!el) return;
   el.style.display = 'block';
   const diff = preflight?.diff || {};
@@ -3243,10 +3385,10 @@ function renderSystemAccessImportPreflight(preflight) {
   const errorHtml = errors.length ? `<div style="color:var(--danger);margin-top:10px;">${errors.map(htmlEscape).join('<br>')}</div>` : '';
   el.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">
-      <div style="font-weight:700;margin-bottom:6px;">系统配置导入预检</div>
+      <div style="font-weight:700;margin-bottom:6px;">系统网站配置导入预检</div>
       <div style="font-size:13px;color:var(--muted);line-height:1.8;">
         文件：${htmlEscape(systemAccessConfigImportState.fileName || 'system-access-config.json')}<br>
-        影响范围：全局生效，所有孩子档案的 effective 清单都会合并新的系统默认网站库。<br>
+        影响范围：全局生效，所有孩子档案的 effective 清单都会合并新的系统网站配置库。<br>
         当前：${systemImportSummaryHtml(preflight?.currentSummary)}<br>
         导入：${systemImportSummaryHtml(preflight?.importedSummary)}<br>
         变更：学习 +${htmlEscape(diff.defaultStudySites?.added?.length || 0)}/-${htmlEscape(diff.defaultStudySites?.removed?.length || 0)}，复合 +${htmlEscape(diff.defaultCompositeSites?.added?.length || 0)}/-${htmlEscape(diff.defaultCompositeSites?.removed?.length || 0)}，受限娱乐 +${htmlEscape(diff.defaultRestrictedEntertainmentSites?.added?.length || 0)}/-${htmlEscape(diff.defaultRestrictedEntertainmentSites?.removed?.length || 0)}，黑名单 +${htmlEscape(diff.defaultBlockedSites?.added?.length || 0)}/-${htmlEscape(diff.defaultBlockedSites?.removed?.length || 0)}
@@ -3255,7 +3397,6 @@ function renderSystemAccessImportPreflight(preflight) {
       ${errorHtml}
     </div>
   `;
-  if (applyBtn) applyBtn.disabled = errors.length > 0 || !systemAccessConfigImportState.config;
 }
 
 async function importSystemAccessConfigForPreflight() {
@@ -3267,49 +3408,86 @@ async function importSystemAccessConfigForPreflight() {
     if (!file) return;
     try {
       const data = normalizeSystemAccessConfigFile(JSON.parse(await file.text()));
+      const currentRecord = await api('/system/access-management-config/v1');
+      systemAccessCanWrite = Boolean(currentRecord.canWrite);
+      const currentConfig = cloneSystemAccessConfig(currentRecord.config || siteAccessDefaults || {});
       const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data });
-      systemAccessConfigImportState = { fileName: file.name, config: data, preflight };
-      renderSystemAccessImportPreflight(preflight);
-      toast('系统配置预检完成');
+      systemAccessConfigImportState = { fileName: file.name, config: data, currentConfig, preflight };
+      const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
+      if (errors.length > 0) {
+        configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-system-config-import-result', messageId: 'rules-system-config-import-result' };
+        renderSystemAccessImportPreflight(preflight);
+        toast('系统网站配置预检发现问题，请先修正文件', false);
+        return;
+      }
+      const diffs = buildSystemAccessConfigImportDiffs(currentConfig, data);
+      configImportDiffState = {
+        fileName: file.name,
+        importedConfig: data,
+        diffs,
+        selectedIds: new Set(),
+        filter: 'all',
+        targetContainerId: 'rules-system-config-import-result',
+        messageId: 'rules-system-config-import-result',
+        applyHandler: applySystemAccessConfigImport,
+        scopeNote: '系统网站配置访问管理：应用后全局生效，影响所有孩子档案；请勾选要应用的系统差异。',
+        applyDisabledReason: systemAccessCanWrite ? '' : '需要系统管理员权限才能应用系统网站配置差异。',
+      };
+      renderConfigImportDiffPanel();
+      toast('已生成系统网站配置导入差异，请确认后应用');
     } catch (err) {
-      systemAccessConfigImportState = { fileName: '', config: null, preflight: null };
-      const applyBtn = document.getElementById('rules-system-apply-config-btn');
-      if (applyBtn) applyBtn.disabled = true;
+      systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
+      configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-system-config-import-result', messageId: 'rules-system-config-import-result' };
       const el = document.getElementById('rules-system-config-import-result');
       if (el) {
         el.style.display = 'block';
         el.innerHTML = `<div style="color:var(--danger);border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">预检失败：${htmlEscape(err.message || err)}</div>`;
       }
-      toast('系统配置预检失败：' + (err.message || err), false);
+      toast('系统网站配置预检失败：' + (err.message || err), false);
     }
   };
   input.click();
 }
 
 async function applySystemAccessConfigImport() {
-  if (!systemAccessConfigImportState.config) {
-    toast('请先选择系统配置并完成预检', false);
+  const selectedDiffs = configImportDiffState.diffs.filter(diff => configImportDiffState.selectedIds.has(diff.id));
+  if (configImportDiffState.applyDisabledReason) {
+    toast(configImportDiffState.applyDisabledReason, false);
     return;
   }
-  if (!confirm('系统访问配置导入后会全局生效，影响所有孩子档案。确认继续？')) return;
+  if (selectedDiffs.length === 0) {
+    toast('请先选择要应用的系统差异', false);
+    return;
+  }
+  if (!systemAccessConfigImportState.config || !systemAccessConfigImportState.currentConfig) {
+    toast('请先选择系统网站配置并完成预检', false);
+    return;
+  }
+  if (!confirm('系统网站配置导入后会全局生效，影响所有孩子档案。确认应用选中的系统差异？')) return;
   try {
+    const payload = buildSystemAccessConfigImportPayload(systemAccessConfigImportState.currentConfig, selectedDiffs);
+    const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data: payload });
+    const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
+    if (errors.length > 0) throw new Error(errors.join('；'));
     const saved = await api('/system/access-management-config/v1', 'PUT', {
-      data: systemAccessConfigImportState.config,
-      note: `Imported from ${systemAccessConfigImportState.fileName || 'system-access-config.json'}`,
+      data: payload,
+      note: `Imported selected diffs from ${systemAccessConfigImportState.fileName || 'system-access-config.json'}`,
     });
-    siteAccessDefaults = saved.config || siteAccessDefaults;
-    systemAccessConfigImportState = { fileName: '', config: null, preflight: null };
-    const applyBtn = document.getElementById('rules-system-apply-config-btn');
-    if (applyBtn) applyBtn.disabled = true;
+    siteAccessDefaults = saved.config || payload;
+    systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
+    systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
+    configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-system-config-import-result', messageId: 'rules-system-config-import-result' };
+    renderConfigImportDiffPanel();
     renderSystemConfigSummary(saved);
+    renderRulesPage();
     const el = document.getElementById('rules-system-config-import-result');
     if (el) {
       el.style.display = 'block';
-      el.innerHTML = `<div style="color:var(--accent);border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">系统访问配置已导入。学习/复合/受限娱乐/黑名单默认清单会在各档案读取配置时重新合并。</div>`;
+      el.innerHTML = `<div style="color:var(--accent);border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">系统网站配置已导入。学习/复合/受限娱乐/黑名单默认清单会在各档案读取配置时重新合并。</div>`;
     }
-    toast('系统访问配置已导入');
+    toast('系统网站配置已导入');
   } catch (err) {
-    toast('系统配置导入失败：' + (err.message || err), false);
+    toast('系统网站配置导入失败：' + (err.message || err), false);
   }
 }
 

@@ -23,6 +23,10 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-26）
+- [x] 网站管理命名、来源顺序与系统配置导入体验修订
+  - 目标：统一“用户自定义配置 / 系统网站配置”文案，右侧来源顺序调整为已使用未归类、用户自定义、系统网站配置-分类管理、规则、未标注。
+  - 目标：系统网站配置导入改成与用户自定义配置一致的差异确认与勾选应用体验。
+  - 边界：不改变扩展计时、拦截、绑定、同步逻辑，不新增 Worker API。
 - [x] 系统网站分类管理可读性修订
   - 目标：为系统默认网站库补齐 `siteCatalog`，让系统配置真正按 Qustodio 内容分类分组。
   - 目标：Worker 读取旧 D1 系统配置时补齐缺失目录元数据，避免线上继续全部显示“未标注分类”。
@@ -30,14 +34,14 @@
 - [x] 网站管理页内补齐系统配置“分类管理”
   - 目标：在现有“访问管理 → 网站管理”右侧目录中，把系统配置网站按 Qustodio 内容分类分组展示。
   - 目标：管理员可点击系统配置网站编辑内容分类和 TimeOnChrome 管理策略分类，保存到系统访问配置并全局生效。
-  - 边界：不新增独立一级页面或 Tab；当前档案自定义与已使用未归类网站仍只写当前 profile。
+  - 边界：不新增独立一级页面或 Tab；用户自定义配置与已使用未归类网站仍只写当前 profile。
 - [x] 网站管理 UI 重设计为管理策略目录
   - 目标：左侧按学习/复合/受限娱乐/黑名单导航，右侧按系统配置、自定义、精确规则、已使用未归类分组管理。
   - 目标：复合网站下新增“已使用未归类网站”，来源为最近 30 天使用历史聚合，不是审批记录列表。
   - 边界：不改变扩展计时、拦截、绑定、同步逻辑。
   - 验证：Pages/Worker 契约测试、站点归类回归、typecheck、check:extension-root、git diff --check 与本地 Playwright 布局检查通过。
 - [x] 访问管理配置文件与系统访问配置云端化
-  - 已实现：访问管理新增“档案访问管理配置”和“系统访问管理配置”两类导入导出。
+  - 已实现：访问管理新增“用户自定义配置访问管理”和“系统网站配置访问管理”两类导入导出。
   - 已实现：系统访问配置从代码固定 JSON 升级为 D1 云端可管理配置；代码 JSON 仅作为初始化/fallback。
   - 已实现：系统管理分类按 Qustodio Web Filters 风格维护内容类别，再映射到 TimeOnChrome 运行分类。
   - 边界：本轮修改源码、migration、测试和文档；未执行远端 D1 migration，未部署 Worker/Pages。

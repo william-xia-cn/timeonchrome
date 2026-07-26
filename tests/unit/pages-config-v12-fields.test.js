@@ -138,9 +138,10 @@ function run() {
   expectTrue('Pages 档案配置导出不应混入系统默认清单', !extractFunctionSource(source, 'buildProfileConfigExportData').includes('systemDefaults') && source.includes('customLists') && source.includes('classificationRules') && source.includes('classificationRequests'));
   expectTrue('Pages 配置导入不应写回 systemDefaults', !extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('systemDefaults'));
   expectTrue('Pages 访问管理应提供档案配置文件导入导出入口', source.includes('rules-profile-export-config-btn') && source.includes('rules-profile-import-config-btn') && source.includes('rules-profile-config-import-diff'));
-  expectTrue('Pages 访问管理应提供系统配置文件导入导出入口', source.includes('rules-system-export-config-btn') && source.includes('rules-system-import-config-btn') && source.includes('rules-system-apply-config-btn'));
+  expectTrue('Pages 访问管理应提供系统网站配置导入导出入口', source.includes('rules-system-export-config-btn') && source.includes('rules-system-import-config-btn') && source.includes('rules-system-config-import-result'));
   expectTrue('Pages 系统配置应使用 system-access-config API', source.includes('/system/access-management-config/v1') && source.includes('/system/access-management-config/v1/preflight'));
   expectTrue('Pages 系统配置文件应使用 Qustodio taxonomy', source.includes('system-access-config') && source.includes('qustodio-web-filters-v1') && source.includes('Qustodio 分类'));
+  expectTrue('Pages 系统网站配置导入应使用差异确认和勾选应用', source.includes('SYSTEM_CONFIG_IMPORT_LIST_FIELDS') && source.includes('buildSystemAccessConfigImportDiffs') && source.includes('buildSystemAccessConfigImportPayload') && source.includes('applyHandler: applySystemAccessConfigImport') && source.includes('系统网站配置访问管理：应用后全局生效'));
   expectTrue('Pages 配置导入应提交最小可写字段', extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('customStudyList') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('siteClassificationRulesV1') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeQuota') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeWindows'));
   expectTrue('Pages 配置导入应先生成差异确认区', source.includes('acct-config-import-diff') && source.includes('configImportDiffState') && source.includes('buildProfileConfigImportDiffs') && source.includes('renderConfigImportDiffPanel'));
   expectTrue('Pages 配置导入应展示新增删除修改筛选', source.includes('data-config-import-filter="${type}"') && source.includes("['all','add','delete','modify']"));
@@ -184,20 +185,22 @@ function run() {
   expectTrue('Pages API 错误应优先展示 message', source.includes('data.message || data.error || `HTTP ${r.status}`'));
 
   // 系统配置文案检查
-  expectTrue('pages 应使用"系统配置"文案', source.includes('系统配置'));
+  expectTrue('pages 应使用"系统网站配置"文案', source.includes('系统网站配置'));
+  expectTrue('pages 不应再使用旧访问管理配置命名', !source.includes('档案访问管理配置') && !source.includes('系统访问管理配置') && !source.includes('当前档案自定义') && !source.includes('分类管理（系统配置）'));
   expectTrue('pages 不应再使用"系统默认"文案', !/系统默认（不可编辑）/.test(source));
 
   // 网站管理策略目录检查
   expectTrue('Pages 网站管理应使用左右策略目录', source.includes('rules-policy-shell') && source.includes('rules-policy-nav') && source.includes('rules-site-directory'));
   expectTrue('Pages 网站管理应按管理策略分类显示', source.includes('RULES_POLICY_DEFS') && source.includes("key: 'study'") && source.includes("key: 'composite'") && source.includes("key: 'restricted'") && source.includes("key: 'blocked'"));
   expectTrue('Pages 复合网站下应包含已使用未归类网站入口', source.includes('已使用未归类网站') && source.includes('/used-unclassified-sites/v1?days=30') && source.includes('rules-used-unclassified-summary'));
-  expectTrue('Pages 网站目录应按来源分组', source.includes('系统配置') && source.includes('当前档案自定义') && source.includes('已批准精确规则') && source.includes('data-source-group'));
-  expectTrue('Pages 系统配置应显示页面内分类管理', source.includes('分类管理（系统配置）') && source.includes('data-system-category-management') && source.includes('rules-system-category-group'));
+  expectTrue('Pages 网站目录应按来源分组', source.includes('系统网站配置-分类管理') && source.includes('用户自定义配置') && source.includes('已批准精确规则') && source.includes('data-source-group'));
+  expectTrue('Pages 网站目录来源顺序应为未归类、自定义、系统、规则、未标注', source.includes("['used-unclassified', 'custom', 'system', 'rule', 'unmarked']"));
+  expectTrue('Pages 系统配置应显示页面内分类管理', source.includes('系统网站配置-分类管理') && source.includes('data-system-category-management') && source.includes('rules-system-category-group'));
   expectTrue('Pages 系统配置应按 siteCatalog 内容分类分组', source.includes('systemSiteCatalogEntryForValue') && source.includes('siteCatalog') && source.includes('contentCategory') && source.includes('未标注分类'));
-  expectTrue('Pages 未标注分类应解释为目录元数据缺失', source.includes('当前策略下的系统配置网站按 Qustodio 内容分类分组') && source.includes('不是网站未归类') && source.includes('需要补齐系统目录元数据'));
+  expectTrue('Pages 未标注分类应解释为目录元数据缺失', source.includes('当前策略下的系统网站配置按 Qustodio 内容分类分组') && source.includes('不是网站未归类') && source.includes('需要补齐系统目录元数据'));
   expectTrue('Pages 系统项编辑应包含内容分类和管理策略控件', source.includes('rules-system-content-category-select') && source.includes('rules-system-policy-select') && source.includes('保存系统分类'));
   expectTrue('Pages 点击自定义/未归类网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
-  expectTrue('Pages 系统配置分类保存应要求全局确认', source.includes('saveSystemSiteCategoryEdit') && source.includes('系统分类管理保存后会全局生效，影响所有孩子档案') && source.includes('canWrite'));
+  expectTrue('Pages 系统配置分类保存应要求全局确认', source.includes('saveSystemSiteCategoryEdit') && source.includes('系统网站配置-分类管理保存后会全局生效，影响所有孩子档案') && source.includes('canWrite'));
   expectTrue('Pages 非 admin 应禁用系统分类编辑', source.includes('需要系统管理员权限') && source.includes('disabled title="需要系统管理员权限"'));
   // 时间段管理：per-day 结构检查
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));
