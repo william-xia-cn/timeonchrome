@@ -1,5 +1,5 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { siteAccessDefaults } from '../config/site-access-defaults';
+import { getSystemAccessConfig, systemAccessDefaultsResponse } from '../config/system-access-config';
 import { normalizeSiteClassificationTarget } from '../../../extension/core/site-classification.js';
 
 type DatasetDef = {
@@ -336,7 +336,8 @@ async function exportObjectDataset(env: Env, profile: any, dataset: DatasetDef) 
     return json({ dataset: dataset.id, rows: [profile.config ? JSON.parse(profile.config) : {}], hasMore: false, nextCursor: null });
   }
   if (dataset.id === 'defaults') {
-    return json({ dataset: dataset.id, rows: [siteAccessDefaults], hasMore: false, nextCursor: null });
+    const siteAccessDefaults = await getSystemAccessConfig(env);
+    return json({ dataset: dataset.id, rows: [systemAccessDefaultsResponse(siteAccessDefaults)], hasMore: false, nextCursor: null });
   }
   if (dataset.id === 'site-access-editable') {
     const requests = await env.DB.prepare(

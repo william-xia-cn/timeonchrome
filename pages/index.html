@@ -716,6 +716,7 @@
           <button class="tab-btn active" data-rules-management-tab="site-management">网站管理</button>
           <button class="tab-btn" data-rules-management-tab="quota">时间配额</button>
           <button class="tab-btn" data-rules-management-tab="schedule">时间段管理</button>
+          <button class="tab-btn" data-rules-management-tab="config-files">配置文件</button>
         </div>
 
         <section class="rules-management-panel active" data-rules-management-panel="site-management">
@@ -906,6 +907,40 @@
         </div>
 
         <div class="save-bar"><button class="btn-save" id="save-schedule-btn">保存配置</button></div>
+      </section>
+
+      <!-- 配置文件 -->
+      <section class="rules-management-panel" data-rules-management-panel="config-files">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">档案访问管理配置</div>
+              <div class="card-subtitle">只导入导出当前孩子档案的自定义网站、规则、审核记录、配额和时间段，不包含系统默认网站库。</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn-save" id="rules-profile-export-config-btn" style="padding:9px 14px;">导出当前档案访问配置</button>
+            <button class="btn-save" id="rules-profile-import-config-btn" style="padding:9px 14px;background:transparent;color:var(--accent);border:1px solid var(--accent);">导入当前档案访问配置</button>
+          </div>
+          <div id="rules-profile-config-io-msg" style="font-size:13px;margin-top:12px;display:none;"></div>
+          <div id="rules-profile-config-import-diff" style="display:none;margin-top:12px;"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/settings.svg" alt="">系统访问管理配置</div>
+              <div class="card-subtitle">全局默认网站库，按 Qustodio Web Filters 风格维护内容分类；导入后会影响所有孩子档案的 effective 清单。</div>
+            </div>
+          </div>
+          <div id="rules-system-config-summary" style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px;">正在读取系统配置...</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn-save" id="rules-system-export-config-btn" style="padding:9px 14px;">导出系统访问配置</button>
+            <button class="btn-save" id="rules-system-import-config-btn" style="padding:9px 14px;background:transparent;color:var(--accent);border:1px solid var(--accent);">选择系统配置并预检</button>
+            <button class="btn-save" id="rules-system-apply-config-btn" style="padding:9px 14px;" disabled>导入系统访问配置</button>
+          </div>
+          <div id="rules-system-config-import-result" style="display:none;margin-top:12px;"></div>
+        </div>
       </section>
       </div>
 
@@ -1450,7 +1485,8 @@ let cloudDevicesCache = { profileId: null, devices: [] };
 let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
-let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all' };
+let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
+let systemAccessConfigImportState = { fileName: '', config: null, preflight: null };
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1811,6 +1847,7 @@ function renderRulesManagementPage() {
   if (cloudRulesManagementActiveTab === 'site-management') renderRulesPage();
   if (cloudRulesManagementActiveTab === 'quota') renderQuotaPage();
   if (cloudRulesManagementActiveTab === 'schedule') renderSchedulePage();
+  if (cloudRulesManagementActiveTab === 'config-files') renderRulesConfigFilesPage();
 }
 
 function syncSystemManagementTabs() {
@@ -2064,6 +2101,16 @@ function setupRules() {
 
   // 保存
   document.getElementById('save-rules-btn').addEventListener('click', saveSiteAccessConfig);
+
+  // 配置文件
+  document.getElementById('rules-profile-export-config-btn')?.addEventListener('click', exportProfileConfig);
+  document.getElementById('rules-profile-import-config-btn')?.addEventListener('click', () => importProfileConfig({
+    targetContainerId: 'rules-profile-config-import-diff',
+    messageId: 'rules-profile-config-io-msg',
+  }));
+  document.getElementById('rules-system-export-config-btn')?.addEventListener('click', exportSystemAccessConfig);
+  document.getElementById('rules-system-import-config-btn')?.addEventListener('click', importSystemAccessConfigForPreflight);
+  document.getElementById('rules-system-apply-config-btn')?.addEventListener('click', applySystemAccessConfigImport);
 }
 
 window.toggleSystemConfig = (header) => {
@@ -2293,12 +2340,6 @@ function buildProfileConfigExportData(classificationRequests = []) {
       name: profiles.find(p => p.id === currentProfileId)?.name || '',
     },
     siteAccess: {
-      systemDefaults: {
-        studySites: defaults.defaultStudySites || [],
-        compositeSites: defaults.defaultCompositeSites || [],
-        restrictedEntertainmentSites: defaults.defaultRestrictedEntertainmentSites || [],
-        blockedSites: defaults.defaultBlockedSites || [],
-      },
       customLists: {
         studySites: cfg.customStudyList || getCustomList(cfg.studyList, defaults.defaultStudySites) || [],
         compositeSites: cfg.customCompositeList || getCustomList(cfg.compositeList, defaults.defaultCompositeSites) || [],
@@ -2364,17 +2405,21 @@ async function fetchAllSiteClassificationRequestsForExport() {
   }
 }
 
-async function exportProfileConfig() {
-  const requests = await fetchAllSiteClassificationRequestsForExport();
-  const exportData = buildProfileConfigExportData(requests);
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+function downloadJsonFile(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `timeonchrome-profile-config-v1-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-  toast('配置已导出');
+}
+
+async function exportProfileConfig() {
+  const requests = await fetchAllSiteClassificationRequestsForExport();
+  const exportData = buildProfileConfigExportData(requests);
+  downloadJsonFile(exportData, `timeonchrome-profile-config-v1-${new Date().toISOString().slice(0,10)}.json`);
+  toast('档案访问管理配置已导出');
 }
 
 function assertStringArrayField(obj, field, label) {
@@ -2638,7 +2683,7 @@ function buildProfileConfigImportPayload(selectedDiffs) {
 }
 
 function renderConfigImportDiffPanel() {
-  const el = document.getElementById('acct-config-import-diff');
+  const el = document.getElementById(configImportDiffState.targetContainerId || 'acct-config-import-diff');
   if (!el) return;
   const state = configImportDiffState;
   const actionable = state.diffs.filter(diff => diff.type !== 'same');
@@ -2710,7 +2755,7 @@ function renderConfigImportDiffPanel() {
   el.querySelector('#acct-config-import-apply')?.addEventListener('click', applySelectedConfigImportDiffs);
 }
 
-async function importProfileConfig() {
+async function importProfileConfig(options = {}) {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/json';
@@ -2722,14 +2767,22 @@ async function importProfileConfig() {
       const data = JSON.parse(text);
       const importedConfig = normalizeProfileConfigImportData(data);
       const diffs = buildProfileConfigImportDiffs(importedConfig);
-      configImportDiffState = { fileName: file.name, importedConfig, diffs, selectedIds: new Set(), filter: 'all' };
+      configImportDiffState = {
+        fileName: file.name,
+        importedConfig,
+        diffs,
+        selectedIds: new Set(),
+        filter: 'all',
+        targetContainerId: options.targetContainerId || 'acct-config-import-diff',
+        messageId: options.messageId || 'acct-config-io-msg',
+      };
       renderConfigImportDiffPanel();
       toast('已生成导入差异，请确认后应用');
-      const msgEl = document.getElementById('acct-config-io-msg');
+      const msgEl = document.getElementById(configImportDiffState.messageId || 'acct-config-io-msg');
       if (msgEl) showAcctMsg(msgEl, '已生成导入差异，请选择需要应用的项目。', true);
     } catch (err) {
       toast('导入失败: ' + (err.message || err), false);
-      const msgEl = document.getElementById('acct-config-io-msg');
+      const msgEl = document.getElementById(configImportDiffState.messageId || 'acct-config-io-msg');
       if (msgEl) showAcctMsg(msgEl, '导入失败：' + (err.message || err), false);
     }
   };
@@ -2744,16 +2797,161 @@ async function applySelectedConfigImportDiffs() {
   }
   try {
     const payload = buildProfileConfigImportPayload(selectedDiffs);
+    const targetContainerId = configImportDiffState.targetContainerId || 'acct-config-import-diff';
+    const messageId = configImportDiffState.messageId || 'acct-config-io-msg';
     await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
     const refreshed = await api(`/profiles/${currentProfileId}/config`);
     remoteConfig = refreshed.data || {};
-    configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all' };
+    configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId, messageId };
+    renderConfigImportDiffPanel();
     renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'account');
     toast('配置导入已应用');
   } catch (err) {
     toast('应用导入失败: ' + (err.message || err), false);
-    const msgEl = document.getElementById('acct-config-io-msg');
+    const msgEl = document.getElementById(configImportDiffState.messageId || 'acct-config-io-msg');
     if (msgEl) showAcctMsg(msgEl, '应用导入失败：' + (err.message || err), false);
+  }
+}
+
+const QUSTODIO_CATEGORY_LABELS = [
+  '教育性', '政府', '企业', '健康', '人工智能', '技术', '职业',
+  '网页邮件', '文件共享', '搜索门户', '新闻', '宗教', '综合门户',
+  '娱乐', '体育', '游戏', '旅游', '购物', '论坛', '社交网络', '聊天', '视频/直播', '娱乐门户',
+  '博彩', '代理/漏洞', '暴力', '武器', '脏话', '成人内容', '色情内容', '酒精', '毒品', '烟草',
+];
+
+function systemConfigCountLabel(list) {
+  return Array.isArray(list) ? String(list.length) : '0';
+}
+
+function renderSystemConfigSummary(record = null) {
+  const el = document.getElementById('rules-system-config-summary');
+  if (!el) return;
+  const cfg = record?.config || siteAccessDefaults || {};
+  const source = record?.source === 'd1' ? '云端 D1 系统配置' : '代码 fallback 默认清单';
+  const updatedAt = record?.updatedAt ? new Date(record.updatedAt).toLocaleString('zh-CN') : '未记录';
+  const catalogCount = Array.isArray(cfg.siteCatalog) ? cfg.siteCatalog.length : 0;
+  const categories = record?.summary?.byContentCategory || {};
+  const categoryHtml = Object.keys(categories).length
+    ? Object.entries(categories).map(([category, count]) => `<span style="display:inline-block;margin:4px 6px 0 0;padding:3px 7px;border:1px solid var(--border);border-radius:8px;">${htmlEscape(category)}：${htmlEscape(count)}</span>`).join('')
+    : QUSTODIO_CATEGORY_LABELS.map(category => `<span style="display:inline-block;margin:4px 6px 0 0;padding:3px 7px;border:1px solid var(--border);border-radius:8px;color:var(--muted);">${htmlEscape(category)}</span>`).join('');
+  el.innerHTML = `当前来源：<strong style="color:var(--text);">${htmlEscape(source)}</strong>；版本：${htmlEscape(record?.version || cfg.schemaVersion || 1)}；更新时间：${htmlEscape(updatedAt)}<br>学习 ${systemConfigCountLabel(cfg.defaultStudySites)}；复合 ${systemConfigCountLabel(cfg.defaultCompositeSites)}；受限娱乐 ${systemConfigCountLabel(cfg.defaultRestrictedEntertainmentSites)}；黑名单 ${systemConfigCountLabel(cfg.defaultBlockedSites)}；目录明细 ${catalogCount}<br><span style="display:block;margin-top:8px;">Qustodio 分类：${categoryHtml}</span>`;
+}
+
+async function renderRulesConfigFilesPage() {
+  renderSystemConfigSummary();
+  try {
+    const record = await api('/system/access-management-config/v1');
+    renderSystemConfigSummary(record);
+  } catch (e) {
+    const el = document.getElementById('rules-system-config-summary');
+    if (el) el.innerHTML = `系统配置读取失败：${htmlEscape(e.message || e)}`;
+  }
+}
+
+async function exportSystemAccessConfig() {
+  try {
+    const record = await api('/system/access-management-config/v1');
+    const config = record.config || {};
+    downloadJsonFile(config, `system-access-config-v1-${new Date().toISOString().slice(0,10)}.json`);
+    toast('系统访问管理配置已导出');
+  } catch (e) {
+    toast('系统配置导出失败：' + (e.message || e), false);
+  }
+}
+
+function normalizeSystemAccessConfigFile(data) {
+  if (!data || typeof data !== 'object') throw new Error('无效的系统配置文件');
+  if (data.configType !== 'system-access-config') throw new Error('不是 system-access-config 配置文件');
+  if (data.schemaVersion !== 1) throw new Error('不支持的系统配置 schemaVersion');
+  if (data.taxonomyVersion !== 'qustodio-web-filters-v1') throw new Error('不支持的 taxonomyVersion');
+  return data;
+}
+
+function systemImportSummaryHtml(summary = {}) {
+  return `学习 ${htmlEscape(summary.defaultStudySites || 0)}；复合 ${htmlEscape(summary.defaultCompositeSites || 0)}；家长自定义复合默认 ${htmlEscape(summary.defaultUserCompositeSites || 0)}；受限娱乐 ${htmlEscape(summary.defaultRestrictedEntertainmentSites || 0)}；黑名单 ${htmlEscape(summary.defaultBlockedSites || 0)}；目录明细 ${htmlEscape(summary.siteCatalog || 0)}`;
+}
+
+function renderSystemAccessImportPreflight(preflight) {
+  const el = document.getElementById('rules-system-config-import-result');
+  const applyBtn = document.getElementById('rules-system-apply-config-btn');
+  if (!el) return;
+  el.style.display = 'block';
+  const diff = preflight?.diff || {};
+  const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
+  const categoryRows = Object.entries(preflight?.importedSummary?.byContentCategory || {})
+    .map(([category, count]) => `<span style="display:inline-block;margin:2px 6px 2px 0;padding:3px 7px;border:1px solid var(--border);border-radius:8px;">${htmlEscape(category)}：${htmlEscape(count)}</span>`)
+    .join('');
+  const errorHtml = errors.length ? `<div style="color:var(--danger);margin-top:10px;">${errors.map(htmlEscape).join('<br>')}</div>` : '';
+  el.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">
+      <div style="font-weight:700;margin-bottom:6px;">系统配置导入预检</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.8;">
+        文件：${htmlEscape(systemAccessConfigImportState.fileName || 'system-access-config.json')}<br>
+        影响范围：全局生效，所有孩子档案的 effective 清单都会合并新的系统默认网站库。<br>
+        当前：${systemImportSummaryHtml(preflight?.currentSummary)}<br>
+        导入：${systemImportSummaryHtml(preflight?.importedSummary)}<br>
+        变更：学习 +${htmlEscape(diff.defaultStudySites?.added?.length || 0)}/-${htmlEscape(diff.defaultStudySites?.removed?.length || 0)}，复合 +${htmlEscape(diff.defaultCompositeSites?.added?.length || 0)}/-${htmlEscape(diff.defaultCompositeSites?.removed?.length || 0)}，受限娱乐 +${htmlEscape(diff.defaultRestrictedEntertainmentSites?.added?.length || 0)}/-${htmlEscape(diff.defaultRestrictedEntertainmentSites?.removed?.length || 0)}，黑名单 +${htmlEscape(diff.defaultBlockedSites?.added?.length || 0)}/-${htmlEscape(diff.defaultBlockedSites?.removed?.length || 0)}
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:10px;">Qustodio 分类：${categoryRows || '未提供 siteCatalog 明细'}</div>
+      ${errorHtml}
+    </div>
+  `;
+  if (applyBtn) applyBtn.disabled = errors.length > 0 || !systemAccessConfigImportState.config;
+}
+
+async function importSystemAccessConfigForPreflight() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const data = normalizeSystemAccessConfigFile(JSON.parse(await file.text()));
+      const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data });
+      systemAccessConfigImportState = { fileName: file.name, config: data, preflight };
+      renderSystemAccessImportPreflight(preflight);
+      toast('系统配置预检完成');
+    } catch (err) {
+      systemAccessConfigImportState = { fileName: '', config: null, preflight: null };
+      const applyBtn = document.getElementById('rules-system-apply-config-btn');
+      if (applyBtn) applyBtn.disabled = true;
+      const el = document.getElementById('rules-system-config-import-result');
+      if (el) {
+        el.style.display = 'block';
+        el.innerHTML = `<div style="color:var(--danger);border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">预检失败：${htmlEscape(err.message || err)}</div>`;
+      }
+      toast('系统配置预检失败：' + (err.message || err), false);
+    }
+  };
+  input.click();
+}
+
+async function applySystemAccessConfigImport() {
+  if (!systemAccessConfigImportState.config) {
+    toast('请先选择系统配置并完成预检', false);
+    return;
+  }
+  if (!confirm('系统访问配置导入后会全局生效，影响所有孩子档案。确认继续？')) return;
+  try {
+    const saved = await api('/system/access-management-config/v1', 'PUT', {
+      data: systemAccessConfigImportState.config,
+      note: `Imported from ${systemAccessConfigImportState.fileName || 'system-access-config.json'}`,
+    });
+    siteAccessDefaults = saved.config || siteAccessDefaults;
+    systemAccessConfigImportState = { fileName: '', config: null, preflight: null };
+    const applyBtn = document.getElementById('rules-system-apply-config-btn');
+    if (applyBtn) applyBtn.disabled = true;
+    renderSystemConfigSummary(saved);
+    const el = document.getElementById('rules-system-config-import-result');
+    if (el) {
+      el.style.display = 'block';
+      el.innerHTML = `<div style="color:var(--accent);border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;">系统访问配置已导入。学习/复合/受限娱乐/黑名单默认清单会在各档案读取配置时重新合并。</div>`;
+    }
+    toast('系统访问配置已导入');
+  } catch (err) {
+    toast('系统配置导入失败：' + (err.message || err), false);
   }
 }
 
@@ -4995,6 +5193,60 @@ async function readRestoreFilesFromInput(files) {
   return { manifest, files: map };
 }
 
+function restoreFileStatus(present, label) {
+  return '<span style="display:inline-block;margin-right:10px;">' + escHtml(label) + '：' + (present ? '已读取' : '未找到') + '</span>';
+}
+
+function restoreUniformValueLabel(valueMap, suffix = '') {
+  if (!valueMap || typeof valueMap !== 'object') return '—';
+  const values = Object.values(valueMap).map(value => value === null || value === undefined ? '—' : String(value));
+  if (!values.length) return '—';
+  const unique = [...new Set(values)];
+  return unique.length === 1 ? unique[0] + suffix : '按天不同';
+}
+
+function restoreWindowValueLabel(windows) {
+  if (windows === null) return '全天允许';
+  if (!Array.isArray(windows) || windows.length === 0) return '未设置';
+  return windows.map(w => (w?.start || '—') + '-' + (w?.end || '—')).join('、');
+}
+
+function restoreUniformWindowLabel(valueMap) {
+  if (!valueMap || typeof valueMap !== 'object') return '—';
+  const labels = Object.values(valueMap).map(restoreWindowValueLabel);
+  if (!labels.length) return '—';
+  const unique = [...new Set(labels)];
+  return unique.length === 1 ? unique[0] : '按天不同';
+}
+
+function renderRestoreConfigPreflight(config) {
+  const summary = config?.backupSummary || {};
+  return `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px;font-size:12px;line-height:1.7;background:var(--card);">
+      <div style="font-weight:600;margin-bottom:4px;">配置恢复检查</div>
+      <div>${restoreFileStatus(!!config?.present, 'config/config.json')}${restoreFileStatus(!!config?.siteAccessEditablePresent, 'config/site-access-editable.json')}</div>
+      <div style="color:var(--muted);">
+        备份摘要：待归类配额 ${escHtml(restoreUniformValueLabel(summary.compositeMinutes, ' 分钟'))}；
+        休息时段 ${escHtml(restoreUniformWindowLabel(summary.restWindows))}；
+        自定义受限娱乐网站 ${Number(summary.customRestrictedEntertainmentListCount || 0)} 个。
+      </div>
+    </div>`;
+}
+
+function renderRestoreConfigCommitStatus(configResult, readbackOk, readbackError = '') {
+  if (!configResult) return '配置结果：未返回；';
+  const after = configResult.afterSummary || {};
+  const parts = [];
+  parts.push('配置文件：' + (configResult.configPresent ? '已处理' : '未提供'));
+  parts.push('网站规则文件：' + (configResult.siteAccessEditablePresent ? '已处理' : '未提供'));
+  parts.push('写入：' + (configResult.updated ? '已执行' : '未执行'));
+  parts.push('写后校验：' + (configResult.verified ? '通过' : '未通过'));
+  parts.push('回读当前配置：' + (readbackOk ? '通过' : '失败'));
+  const detail = '恢复后摘要：待归类配额 ' + restoreUniformValueLabel(after.compositeMinutes, ' 分钟') +
+    '；休息时段 ' + restoreUniformWindowLabel(after.restWindows) +
+    '；自定义受限娱乐网站 ' + Number(after.customRestrictedEntertainmentListCount || 0) + ' 个。';
+  return escHtml(parts.join('；') + '。' + detail + (readbackError ? ' 回读错误：' + readbackError : ''));
+}
 function renderRestorePreflight(preflight) {
   const el = document.getElementById('cloud-restore-preflight');
   if (!el) return;
@@ -5017,6 +5269,7 @@ function renderRestorePreflight(preflight) {
         设备记录仅作为显示和归属参考，不恢复 device token。
       </div>
       ${warnings}${errors}
+      ${renderRestoreConfigPreflight(preflight?.config || {})}
       <div style="overflow:auto;margin-top:8px;">
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <thead><tr>
@@ -5078,11 +5331,24 @@ async function commitCloudRestore(mode) {
       confirmProfileId: replace ? currentProfileId : undefined,
       confirmText: replace ? confirmText : undefined,
     });
+    let readbackOk = false;
+    let readbackError = '';
+    try {
+      const refreshed = await api(`/profiles/${currentProfileId}/config`);
+      remoteConfig = refreshed.data || {};
+      readbackOk = true;
+      const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'stats';
+      renderPage(activePage);
+    } catch (readbackFailure) {
+      readbackError = readbackFailure?.message || String(readbackFailure || 'unknown');
+    }
     const tableSummary = (result.tables || []).map(t => `${t.id}: +${t.inserted || 0}/跳过${t.skipped || 0}`).join('；');
-    setCloudRestoreStatus(`恢复完成：${escHtml(tableSummary || '配置已处理')}`);
-    toast('云端数据恢复完成');
-    setCloudRestoreButtons(false);
-    cloudRestoreState = { package: null, preflight: null };
+    const configOk = !result.config || (result.config.updated && result.config.verified && readbackOk);
+    const configSummary = renderRestoreConfigCommitStatus(result.config, readbackOk, readbackError);
+    setCloudRestoreStatus(`恢复完成：${configSummary}<br>数据表：${escHtml(tableSummary || '无新增行')}`, configOk);
+    toast(configOk ? '云端数据恢复完成' : '恢复完成但配置校验未通过', configOk);
+    setCloudRestoreButtons(!configOk);
+    if (configOk) cloudRestoreState = { package: null, preflight: null };
   } catch (e) {
     setCloudRestoreStatus('恢复失败：' + escHtml(e.message || e), false);
     setCloudRestoreButtons(true);

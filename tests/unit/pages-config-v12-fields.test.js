@@ -97,7 +97,7 @@ function run() {
   expectTrue('Pages 设备内容应迁入子用户管理并位于档案和配置导入之间', accountPageSlice.indexOf('编辑档案') >= 0 && accountPageSlice.indexOf('devices-list') > accountPageSlice.indexOf('编辑档案') && accountPageSlice.indexOf('配置导入与导出') > accountPageSlice.indexOf('devices-list'));
   expectTrue('Pages 修改密码应迁入系统管理账户管理 Tab', systemPageSlice.includes('data-system-management-panel="account-management"') && systemPageSlice.includes('acct-save-pw-btn') && !accountPageSlice.includes('acct-save-pw-btn') && !accountPageSlice.includes('修改密码'));
   expectTrue('Pages 账户管理 Tab 应保留密码表单 ID', systemPageSlice.includes('acct-old-pw') && systemPageSlice.includes('acct-new-pw') && systemPageSlice.includes('acct-confirm-pw') && systemPageSlice.includes('acct-pw-msg'));
-  expectTrue('Pages 访问管理应包含网站管理/时间配额/时间段管理三个 Tab', source.includes('data-rules-management-tab="site-management"') && source.includes('data-rules-management-tab="quota"') && source.includes('data-rules-management-tab="schedule"'));
+  expectTrue('Pages 访问管理应包含网站管理/时间配额/时间段管理/配置文件四个 Tab', source.includes('data-rules-management-tab="site-management"') && source.includes('data-rules-management-tab="quota"') && source.includes('data-rules-management-tab="schedule"') && source.includes('data-rules-management-tab="config-files"'));
   expectTrue('Pages 时间配额和时间段管理不应再作为一级页面', !source.includes('data-page="quota"') && !source.includes('data-page="schedule"') && !source.includes('id="page-quota"') && !source.includes('id="page-schedule"'));
   const renderDevicesPageSource = extractFunctionSource(source, 'renderDevicesPage');
   expectTrue('Pages 设备管理应显示云端设备 ID', renderDevicesPageSource.includes('设备ID：') && renderDevicesPageSource.includes("escHtml(d.id || '未记录')"));
@@ -128,12 +128,19 @@ function run() {
   expectTrue('Pages 云端数据下载应说明 site-access-editable 可手动修改', source.includes('site-access-editable.json') && source.includes('可手动修改'));
   expectTrue('Pages 云端数据下载应提示不支持目录选择的浏览器', source.includes('当前浏览器不支持直接选择目录下载'));
   expectTrue('Pages 应支持备份目录预检和恢复', source.includes('cloud-restore-select-btn') && source.includes('/restore/v1/preflight') && source.includes('/restore/v1/commit'));
+  expectTrue('Pages 恢复预检应显示配置文件读取和备份摘要', source.includes('renderRestoreConfigPreflight') && source.includes('配置恢复检查') && source.includes('config/config.json') && source.includes('site-access-editable.json') && source.includes('备份摘要'));
+  expectTrue('Pages 恢复完成应显示写后校验和回读结果', source.includes('renderRestoreConfigCommitStatus') && source.includes('写后校验') && source.includes('回读当前配置') && source.includes('恢复后摘要'));
+  expectTrue('Pages 恢复提交后应重新读取当前配置', extractFunctionSource(source, 'commitCloudRestore').includes("api(`/profiles/${currentProfileId}/config`)") && extractFunctionSource(source, 'commitCloudRestore').includes('remoteConfig = refreshed.data || {}'));
   expectTrue('Pages 恢复应区分安全合并和整包覆盖', source.includes('安全合并恢复') && source.includes('整包覆盖恢复') && source.includes("confirmText: replace ? confirmText : undefined"));
   expectTrue('Pages 网站管理不应再包含独立导入导出按钮', !source.includes('import-rules-btn') && !source.includes('export-rules-btn'));
   expectTrue('Pages 用户管理应包含配置导入与导出入口', source.includes('配置导入与导出') && source.includes('acct-export-config-btn') && source.includes('acct-import-config-btn'));
   expectTrue('Pages 配置导出应为 profile-config 结构', source.includes("configType: 'profile-config'") && source.includes('siteAccess') && source.includes('quota') && source.includes('timeWindows'));
-  expectTrue('Pages 配置导出应区分系统配置和家长自定义', source.includes('systemDefaults') && source.includes('customLists') && source.includes('classificationRules') && source.includes('classificationRequests'));
+  expectTrue('Pages 档案配置导出不应混入系统默认清单', !extractFunctionSource(source, 'buildProfileConfigExportData').includes('systemDefaults') && source.includes('customLists') && source.includes('classificationRules') && source.includes('classificationRequests'));
   expectTrue('Pages 配置导入不应写回 systemDefaults', !extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('systemDefaults'));
+  expectTrue('Pages 访问管理应提供档案配置文件导入导出入口', source.includes('rules-profile-export-config-btn') && source.includes('rules-profile-import-config-btn') && source.includes('rules-profile-config-import-diff'));
+  expectTrue('Pages 访问管理应提供系统配置文件导入导出入口', source.includes('rules-system-export-config-btn') && source.includes('rules-system-import-config-btn') && source.includes('rules-system-apply-config-btn'));
+  expectTrue('Pages 系统配置应使用 system-access-config API', source.includes('/system/access-management-config/v1') && source.includes('/system/access-management-config/v1/preflight'));
+  expectTrue('Pages 系统配置文件应使用 Qustodio taxonomy', source.includes('system-access-config') && source.includes('qustodio-web-filters-v1') && source.includes('Qustodio 分类'));
   expectTrue('Pages 配置导入应提交最小可写字段', extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('customStudyList') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('siteClassificationRulesV1') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeQuota') && extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('timeWindows'));
   expectTrue('Pages 配置导入应先生成差异确认区', source.includes('acct-config-import-diff') && source.includes('configImportDiffState') && source.includes('buildProfileConfigImportDiffs') && source.includes('renderConfigImportDiffPanel'));
   expectTrue('Pages 配置导入应展示新增删除修改筛选', source.includes('data-config-import-filter="${type}"') && source.includes("['all','add','delete','modify']"));
@@ -207,6 +214,11 @@ function run() {
     },
     renderTagsFiltered: () => {},
     saveSiteAccessConfig: () => {},
+    exportProfileConfig: () => {},
+    importProfileConfig: () => {},
+    exportSystemAccessConfig: () => {},
+    importSystemAccessConfigForPreflight: () => {},
+    applySystemAccessConfigImport: () => {},
     remoteConfig: { studyList: [] },
     this: null
   };

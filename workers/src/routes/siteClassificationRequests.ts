@@ -9,6 +9,7 @@ import {
   siteTargetScopesOverlap,
 } from '../../../extension/core/site-classification.js';
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
+import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
 
 async function verifyProfileOwner(request: Request, env: Env, profileId: string): Promise<string | null> {
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);
@@ -238,11 +239,11 @@ function patternOverlapsRequestTarget(pattern: string, target: any) {
 
 async function getProfileConfig(env: Env, profileId: string): Promise<any> {
   const row = await env.DB.prepare(`SELECT config FROM profiles WHERE id = ?`).bind(profileId).first<{ config: string }>();
-  if (!row?.config) return {};
+  const siteAccessDefaults = await getSystemAccessConfig(env);
   try {
-    return JSON.parse(row.config) || {};
+    return applySystemAccessDefaultsToProfileConfig(row?.config ? JSON.parse(row.config) : {}, siteAccessDefaults);
   } catch {
-    return {};
+    return applySystemAccessDefaultsToProfileConfig({}, siteAccessDefaults);
   }
 }
 

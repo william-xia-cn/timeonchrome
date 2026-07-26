@@ -1,5 +1,6 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
+import { getSystemAccessConfig, mergeWithDefaults, type SystemAccessConfig } from '../config/system-access-config';
 
 type RestoreMode = 'merge' | 'replace';
 
@@ -224,6 +225,110 @@ function normalizeConfigFromEditable(config: Record<string, any>, editable: any)
   return next;
 }
 
+const RESTORE_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function countList(value: unknown): number {
+  return stringList(value).length;
+}
+
+function summarizeRestoredConfig(config: Record<string, any>) {
+  const dailyQuota = config.timeQuota?.daily || {};
+  const dailyWindows = config.timeWindows?.daily || {};
+  return {
+    customStudyListCount: countList(config.customStudyList),
+    customCompositeListCount: countList(config.customCompositeList),
+    customRestrictedEntertainmentListCount: countList(config.customRestrictedEntertainmentList),
+    customBlockedSitesCount: countList(config.customBlockedSites),
+    siteClassificationRulesV1Count: Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1.length : 0,
+    dailyRestQuota: config.dailyRestQuota ?? null,
+    dailyUndeterminedQuota: config.dailyUndeterminedQuota ?? null,
+    compositeMinutes: Object.fromEntries(RESTORE_DAYS.map((day) => [day, dailyQuota?.[day]?.compositeMinutes ?? null])),
+    restWindows: Object.fromEntries(RESTORE_DAYS.map((day) => [day, dailyWindows?.[day]?.restWindows ?? null])),
+  };
+}
+
+function normalizeEmptyTimeWindowArrays(config: Record<string, any>): void {
+  const daily = config.timeWindows?.daily;
+  if (!daily) return;
+  for (const day of RESTORE_DAYS) {
+    const dayCfg = daily[day];
+    if (!dayCfg) continue;
+    for (const key of ['studyWindows', 'compositeWindows', 'restWindows']) {
+      if (Array.isArray(dayCfg[key]) && dayCfg[key].length === 0) dayCfg[key] = null;
+    }
+    if (dayCfg.onlineWindows !== undefined) delete dayCfg.onlineWindows;
+  }
+}
+
+function validateRestoredTimeWindows(config: Record<string, any>): string | null {
+  const daily = config.timeWindows?.daily;
+  if (!daily) return null;
+  for (const day of RESTORE_DAYS) {
+    const dayCfg = daily[day];
+    if (!dayCfg) continue;
+    for (const type of ['studyWindows', 'compositeWindows', 'restWindows']) {
+      const windows = dayCfg[type];
+      if (!Array.isArray(windows)) continue;
+      for (const window of windows) {
+        if (!window?.start || !window?.end) return day + ' ' + type + ' 缺少 start/end';
+        if (window.start >= window.end) return day + ' ' + type + ' 开始时间必须早于结束时间';
+        if (window.start === '24:00') return day + ' ' + type + ' 24:00 不能作为开始时间';
+      }
+    }
+  }
+  return null;
+}
+
+function allSameFiniteQuota(daily: Record<string, any>, field: string): number | null {
+  let value: number | undefined;
+  for (const day of RESTORE_DAYS) {
+    const next = daily?.[day]?.[field];
+    if (next === null || next === undefined || typeof next !== 'number') return null;
+    if (value === undefined) value = next;
+    else if (value !== next) return null;
+  }
+  return value ?? null;
+}
+
+function syncRestoredLegacyQuota(config: Record<string, any>): void {
+  const daily = config.timeQuota?.daily;
+  if (!daily) return;
+  const studyMinutes = allSameFiniteQuota(daily, 'studyMinutes');
+  if (studyMinutes !== null) config.dailyStudyQuota = studyMinutes;
+  const restMinutes = allSameFiniteQuota(daily, 'restMinutes');
+  if (restMinutes !== null) {
+    config.dailyRestQuota = restMinutes;
+    config.weeklyRestQuota = restMinutes * 7;
+  }
+  const compositeMinutes = allSameFiniteQuota(daily, 'compositeMinutes');
+  if (compositeMinutes !== null) config.dailyUndeterminedQuota = compositeMinutes;
+}
+
+function normalizeRestoredProfileConfig(config: Record<string, any>, siteAccessDefaults: SystemAccessConfig): void {
+  if (Array.isArray(config.customStudyList)) {
+    config.studyList = mergeWithDefaults(config.customStudyList, siteAccessDefaults.defaultStudySites);
+  }
+  if (Array.isArray(config.customCompositeList)) {
+    config.compositeList = mergeWithDefaults(config.customCompositeList, siteAccessDefaults.defaultCompositeSites);
+  }
+  if (Array.isArray(config.customRestrictedEntertainmentList)) {
+    config.restrictedEntertainmentList = mergeWithDefaults(
+      config.customRestrictedEntertainmentList,
+      siteAccessDefaults.defaultRestrictedEntertainmentSites
+    );
+  }
+  if (Array.isArray(config.customBlockedSites)) {
+    config.unsafeList = mergeWithDefaults(config.customBlockedSites, siteAccessDefaults.defaultBlockedSites);
+  }
+  syncRestoredLegacyQuota(config);
+  normalizeEmptyTimeWindowArrays(config);
+}
+
+
 function valueForColumn(row: Record<string, any>, column: string, profileId: string, def: RestoreTableDef): unknown {
   if (column === 'profile_id') return profileId;
   const camel = snakeToCamel(column);
@@ -278,9 +383,14 @@ async function buildPreflight(env: Env, profile: any, body: any) {
 
   const configRows = rowsForPath(files, 'config/config.json');
   const editableRows = rowsForPath(files, 'config/site-access-editable.json');
+  const existingConfig = profile.config ? JSON.parse(profile.config) : {};
   const backupConfig = normalizeConfigFromEditable(configRows[0] || {}, editableRows[0]);
+  const siteAccessDefaults = await getSystemAccessConfig(env);
+  normalizeRestoredProfileConfig(backupConfig, siteAccessDefaults);
   const siteValidation = validateSiteAccessConfig(backupConfig);
   if (!siteValidation.ok) errors.push('网站规则存在跨分类冲突');
+  const timeWindowsValidation = validateRestoredTimeWindows(backupConfig);
+  if (timeWindowsValidation) errors.push('时间段配置无效：' + timeWindowsValidation);
 
   const tables = [];
   for (const def of selectedTableDefs(selectedDatasets, includeLogs)) {
@@ -312,6 +422,8 @@ async function buildPreflight(env: Env, profile: any, body: any) {
       present: !!configRows[0],
       siteAccessEditablePresent: !!editableRows[0],
       siteAccessConflicts: siteValidation.ok ? [] : siteValidation.conflicts,
+      backupSummary: summarizeRestoredConfig(backupConfig),
+      currentSummary: summarizeRestoredConfig(existingConfig),
     },
     devices: {
       backupRows: rowsForPath(files, 'devices/devices.json').length,
@@ -325,9 +437,16 @@ async function buildPreflight(env: Env, profile: any, body: any) {
 async function applyConfigRestore(env: Env, profile: any, files: Record<string, unknown>, mode: RestoreMode) {
   const configRows = rowsForPath(files, 'config/config.json');
   const editableRows = rowsForPath(files, 'config/site-access-editable.json');
-  if (!configRows[0] && !editableRows[0]) return { updated: false };
+  const configPresent = !!configRows[0];
+  const siteAccessEditablePresent = !!editableRows[0];
+  if (!configPresent && !siteAccessEditablePresent) {
+    return { updated: false, changed: false, verified: false, configPresent, siteAccessEditablePresent, reason: 'NO_CONFIG_FILES' };
+  }
   const existingConfig = profile.config ? JSON.parse(profile.config) : {};
+  const beforeSummary = summarizeRestoredConfig(existingConfig);
   const backupConfig = normalizeConfigFromEditable(configRows[0] || {}, editableRows[0]);
+  const siteAccessDefaults = await getSystemAccessConfig(env);
+  normalizeRestoredProfileConfig(backupConfig, siteAccessDefaults);
   const nextConfig = mode === 'replace'
     ? backupConfig
     : {
@@ -339,16 +458,37 @@ async function applyConfigRestore(env: Env, profile: any, files: Record<string, 
       customBlockedSites: backupConfig.customBlockedSites || existingConfig.customBlockedSites || [],
       siteClassificationRulesV1: backupConfig.siteClassificationRulesV1 || existingConfig.siteClassificationRulesV1 || [],
     };
+  normalizeRestoredProfileConfig(nextConfig, siteAccessDefaults);
   const validation = validateSiteAccessConfig(nextConfig);
   if (!validation.ok) {
-    return { updated: false, error: 'SITE_ACCESS_CONFLICT', conflicts: validation.conflicts };
+    return { updated: false, changed: false, verified: false, configPresent, siteAccessEditablePresent, error: 'SITE_ACCESS_CONFLICT', conflicts: validation.conflicts };
   }
+  const timeWindowsValidation = validateRestoredTimeWindows(nextConfig);
+  if (timeWindowsValidation) {
+    return { updated: false, changed: false, verified: false, configPresent, siteAccessEditablePresent, error: 'INVALID_TIME_WINDOWS', message: timeWindowsValidation };
+  }
+  const nextConfigString = JSON.stringify(nextConfig);
+  const existingConfigString = JSON.stringify(existingConfig);
   const now = Date.now();
   await env.DB.prepare(
     `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-  ).bind(JSON.stringify(nextConfig), now, profile.id).run();
-  return { updated: true };
+  ).bind(nextConfigString, now, profile.id).run();
+  const row = await env.DB.prepare(
+    `SELECT config FROM profiles WHERE id = ?`
+  ).bind(profile.id).first<{ config: string }>();
+  const verified = row?.config === nextConfigString;
+  return {
+    updated: true,
+    changed: nextConfigString !== existingConfigString,
+    verified,
+    configPresent,
+    siteAccessEditablePresent,
+    beforeSummary,
+    backupSummary: summarizeRestoredConfig(backupConfig),
+    afterSummary: summarizeRestoredConfig(nextConfig),
+  };
 }
+
 
 async function restoreRows(env: Env, def: RestoreTableDef, profileId: string, files: Record<string, unknown>, mode: RestoreMode) {
   const rows = rowsForPath(files, def.path);

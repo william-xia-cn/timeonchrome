@@ -347,7 +347,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 
   // 网站分类
   // effective*List = mergeWithDefaults(custom*List, default*Sites)
-  // default*Sites 来自 workers/config/site-access-defaults.json（系统配置）
+  // default*Sites 优先来自云端 system_access_config_v1；workers/config/site-access-defaults.json 仅作为初始化/fallback
   studyList: [],                     // 学习网站 effective（系统配置 + 家长自定义合并）
   customStudyList: [                 // 家长自定义学习网站（source-of-truth）
     'keystoneacademy.cn',
@@ -421,6 +421,42 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
   profileId: '',
   cloudSyncEnabled: false,
   monitoring_enabled: true,          // 家长可远程关闭监控
+}
+```
+
+
+### 1.3.7.5 系统访问管理配置
+
+系统配置网站使用全局云端配置模型：
+
+- D1 表 `system_access_config_v1` 保存 `system-access-config` 当前版本；
+- Worker 读取默认清单时优先使用 D1，失败或未初始化时 fallback 到 `workers/config/site-access-defaults.json`；
+- profile 配置保存、device 配置同步、导出、恢复和网站归类审批都通过统一 loader 获取系统配置；
+- `system-access-config.json` 是系统配置导入导出文件，`site-access-editable.json` 仍只表示当前 profile 的自定义访问配置；
+- 系统配置导入是全局操作，不属于普通 profile restore。
+
+系统配置文件格式：
+
+```json
+{
+  "configType": "system-access-config",
+  "schemaVersion": 1,
+  "taxonomyVersion": "qustodio-web-filters-v1",
+  "defaultStudySites": [],
+  "defaultCompositeSites": [],
+  "defaultUserCompositeSites": [],
+  "defaultRestrictedEntertainmentSites": [],
+  "defaultBlockedSites": [],
+  "siteCatalog": [
+    {
+      "domain": "example.com",
+      "name": "Example",
+      "contentCategory": "教育性",
+      "classification": "study",
+      "confidence": "high",
+      "notes": ""
+    }
+  ]
 }
 ```
 

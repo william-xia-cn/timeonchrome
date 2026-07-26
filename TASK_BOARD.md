@@ -22,6 +22,19 @@
   - Not daily scheduler, not routine bugfix guide, not every-session prompt generator
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
+## Current Fix Focus（2026-07-26）
+- [x] 访问管理配置文件与系统访问配置云端化
+  - 已实现：访问管理新增“档案访问管理配置”和“系统访问管理配置”两类导入导出。
+  - 已实现：系统访问配置从代码固定 JSON 升级为 D1 云端可管理配置；代码 JSON 仅作为初始化/fallback。
+  - 已实现：系统管理分类按 Qustodio Web Filters 风格维护内容类别，再映射到 TimeOnChrome 运行分类。
+  - 边界：本轮修改源码、migration、测试和文档；未执行远端 D1 migration，未部署 Worker/Pages。
+  - 验证：计划内本地单元/契约测试、typecheck、git diff --check 通过；tests/run-all.js 仅线上 API 集成因 fetch failed 未通过，沙箱外单跑同样失败。
+- [x] Cloud backup restore feedback/config restore hardening
+  - Symptom: restore UI can report table restore completion while profile config remains unchanged or unverified.
+  - Target: preflight and completion must explicitly show config file presence, site-access editable presence, config write result, and post-restore config readback status.
+  - Restore path should normalize restored site lists, quota legacy fields, and time windows with the same semantics as normal profile config save.
+  - Deployed: guardian-api Worker version 1e56236f-3db1-4e00-a27f-9e4b61309ece; timeonchrome-console Pages production HTML verified with restore config markers.
+
 ## V1-minimal must-have（release readiness）
 - [x] release gate matrix reset（V1-minimal 口径 docs matrix created; releaseMg validation/execution pending）
 - [x] V1-minimal close-out plan（docs-only board created: `docs/release/V1_MINIMAL_CLOSEOUT_PLAN_2026-05-09.md`）
@@ -204,6 +217,12 @@
 - [ ] [V1] macOS smoke checklist 后续如需重启，先基于当前 release gate 重新制定；历史 V0 smoke 证据见 docs/archive/
   - 状态：Product Owner accepted V0 release risk（deferred, not passed）
   - 口径：该项从 V0 active blocker 移至 V1 follow-up
+- [ ] **[P2/V1] macOS managed installer MDM plist deletion recovery verification**
+  - 验证目标：MDM 只删除 active Chrome managed preferences plist 时，LaunchDaemon keeper 是否能通过 `WatchPaths` 或 `StartInterval=60` 自动恢复。
+  - 场景 A：删除 `/Library/Managed Preferences/com.google.Chrome.plist` 与 `/Library/Managed Preferences/com.google.Chrome.extensions.<extensionId>.plist`，等待 keeper 自动恢复，并检查 owner、permission、`plutil` 与 source/active `cmp`。
+  - 场景 B：删除 `/usr/local/timeonchrome-policy/`、restore script 或 LaunchDaemon 后，确认 keeper 不会误报已恢复，需重新运行 `install`。
+  - 验收口径：active plist 单独丢失可自动恢复；keeper/恢复源丢失时需重新安装；重新安装不因旧 fixed `expectedVersion` 阻塞，默认 latest policy 生效。
+  - 边界：需要目标 Mac 或受控 macOS 环境执行；Windows/Codex 环境不得宣称通过；不得记录真实 `private-config.plist`、`managedDeviceToken`、PEM 或 CRX。
 - [ ] [V1] Playwright E2E alternate-environment rerun（duration-accuracy / timing-trace-smoke / timing-trace-verify）
   - 状态：Windows 本地 `spawn EPERM` 环境阻塞；Product Owner accepted V0 release risk（deferred, not passed）
   - 口径：该项从 V0 active blocker 移至 V1 follow-up

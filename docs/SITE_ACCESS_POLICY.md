@@ -23,6 +23,8 @@
 - 用户导入 / 导出配置格式；
 - 后续 Codex / OpenCode 执行任务的产品边界。
 
+配套候选库见 `docs/SITE_ACCESS_CANDIDATE_LIBRARY.md`。候选库仅用于整理常见游戏、视频、论坛社区、新闻门户、娱乐门户和综合门户网站的分类建议，不是当前运行 source of truth，不自动等同系统默认清单，也不直接改变新建 profile 或现有家庭配置。
+
 ---
 
 ## 2. 总体原则
@@ -48,7 +50,8 @@ TimeOnChrome 当前机制的核心不是做“纯学习行为识别”，而是�
 - 受限娱乐网站用于堵住“临时放行”绕过学习模式的漏洞；
 - 黑名单网站保持极小，只用于硬禁止；
 - 普通未归类网站作为 fallback 状态处理，但访问时会自动进入待归类流程，不再直接等同休息目标；
-- 用户导入导出配置保持简单，不暴露系统默认规则和内部字段。
+- 访问管理导入导出分为两类：档案访问管理配置只影响当前 profile；系统访问管理配置影响全局系统配置网站。
+- 系统配置网站支持从系统访问管理配置文件导入/导出；普通档案备份恢复不得修改系统配置。
 
 ---
 
@@ -86,6 +89,31 @@ hardBlockedList
 ```
 
 > 术语说明：`default*` 代码字段当前代表系统配置网站列表。产品/UI 文档统一使用"系统配置"，不使用"缺省"。代码中保留 `default*` 名称以避免大范围迁移。`composite*` / `undetermined*` 字段和值在本轮作为 legacy/internal implementation value 保留；用户可见语义统一为“复合网站 / 复合模式 / 待归类时间”。
+
+### 3.0.1 系统访问管理配置
+
+系统配置网站从 2026-07-26 起按“云端可管理配置”处理：
+
+- 运行时优先读取云端 D1 中的 `system-access-config`；
+- `workers/config/site-access-defaults.json` 仅作为初始化和故障 fallback；
+- 系统配置导入后全局生效，所有 profile 的 effective 清单都会合并它；
+- 普通档案配置、备份恢复、孩子档案导入导出不得修改系统配置。
+
+系统访问配置文件使用 `system-access-config.json`，包含 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites` 和可选 `siteCatalog`。其中四个 default list 是运行 source of truth；`siteCatalog` 是系统管理和人工审核元数据。
+
+### 3.0.2 Qustodio 风格内容分类
+
+系统管理界面按 Qustodio Web Filters 风格维护内容类别，再映射到 TimeOnChrome 运行分类：
+
+| 内容类别 | 默认 TimeOnChrome 分类 |
+|---|---|
+| 教育性、政府、企业、健康、人工智能、技术、职业 | 学习网站 |
+| 网页邮件、文件共享 | 学习网站或复合网站，允许单项覆盖 |
+| 搜索门户、新闻、宗教、综合门户 | 复合网站或待归类观察 |
+| 娱乐、体育、游戏、旅游、购物、论坛、社交网络、聊天、视频/直播、娱乐门户 | 受限娱乐网站 |
+| 博彩、代理/漏洞、暴力、武器、脏话、成人内容、色情内容、酒精、毒品、烟草 | 黑名单网站 |
+
+固定例外：`youtube.com` / `youtu.be` 保持复合或 YouTube 细化规则入口；`stackoverflow.com` / `stackexchange.com` 保持学习/技术用途；`reddit.com` 暂保持复合；`kahoot.it` / `quizizz.com` 保持课堂工具；`douyin.com` / `tiktok.com` 继续可放黑名单。
 
 ### 3.1 概念迁移表
 

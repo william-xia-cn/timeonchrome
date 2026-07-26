@@ -1,6 +1,6 @@
 // Profiles 路由 - 孩子 Profile CRUD
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { siteAccessDefaults, mergeWithDefaults } from '../config/site-access-defaults';
+import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
 
@@ -304,7 +304,7 @@ function syncLegacyQuota(config: Record<string, unknown>): void {
 
 // ── Initial recommended config：仅用于新建 profile 一次性初始化 ──
 // 包含推荐网站名单，不作为 merge/repair 的默认值
-function buildDefaultConfig(): object {
+function buildDefaultConfig(siteAccessDefaults: SystemAccessConfig): object {
   const customStudyList = [
     'keystoneacademy.cn',
     'powerschool.keystoneacademy.cn',
@@ -364,7 +364,9 @@ export const profilesRouter = {
         const profileId   = crypto.randomUUID();
         const now         = Date.now();
         const avatarColor = avatar_color || '#7c6fff';
-        const configStr   = JSON.stringify(buildDefaultConfig());
+        const siteAccessDefaults = await getSystemAccessConfig(env);
+        const defaultConfig = buildDefaultConfig(siteAccessDefaults);
+        const configStr   = JSON.stringify(defaultConfig);
 
         await env.DB.prepare(
           `INSERT INTO profiles (id, account_id, name, avatar_color, config, created_at, updated_at)
@@ -377,7 +379,7 @@ export const profilesRouter = {
             id:           profileId,
             name,
             avatar_color: avatarColor,
-            config:       buildDefaultConfig(),
+            config:       defaultConfig,
             created_at:   Math.floor(now / 1000),
             updated_at:   Math.floor(now / 1000),
           },
@@ -534,7 +536,8 @@ export const profilesRouter = {
         `SELECT config, updated_at FROM profiles WHERE id = ?`
       ).bind(profileId).first<{ config: string; updated_at: number }>();
 
-      const config = row?.config ? JSON.parse(row.config) : {};
+      const siteAccessDefaults = await getSystemAccessConfig(env);
+      const config = applySystemAccessDefaultsToProfileConfig(row?.config ? JSON.parse(row.config) : {}, siteAccessDefaults);
 
       // 懒迁移：旧全局 timeWindows → per-day 结构（内存中，不写入 DB）
       migrateLegacyTimeWindows(config);
@@ -555,14 +558,8 @@ export const profilesRouter = {
 
     // GET /profiles/:id/defaults — 返回系统配置清单（只读）
     if (request.method === 'GET' && defaultsMatch) {
-      return json({
-        version: 1,
-        defaultStudySites: siteAccessDefaults.defaultStudySites,
-        defaultCompositeSites: siteAccessDefaults.defaultCompositeSites,
-        defaultUserCompositeSites: siteAccessDefaults.defaultUserCompositeSites || [],
-        defaultRestrictedEntertainmentSites: siteAccessDefaults.defaultRestrictedEntertainmentSites,
-        defaultBlockedSites: siteAccessDefaults.defaultBlockedSites,
-      });
+      const siteAccessDefaults = await getSystemAccessConfig(env);
+      return json(systemAccessDefaultsResponse(siteAccessDefaults));
     }
 
     // PUT /profiles/:id/config — 受控 merge 写入，防止残缺配置覆盖丢失字段
@@ -585,6 +582,7 @@ export const profilesRouter = {
         // 2. 受控 merge：schema defaults → existing → incoming
         //    使用 buildSchemaDefaults() 而非 buildDefaultConfig()
         //    确保推荐网站名单不会在 merge 中被反复注入
+        const siteAccessDefaults = await getSystemAccessConfig(env);
         const mergedConfig: Record<string, unknown> = { ...buildSchemaDefaults(), ...existingConfig };
 
         // 白名单字段：只允许前端修改以下字段

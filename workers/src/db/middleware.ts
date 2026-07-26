@@ -107,5 +107,6 @@ export interface Env {
   CONFIG_CACHE: KVNamespace;
   JWT_SECRET: string;
   DEVICE_TOKEN_SECRET: string;
+  ADMIN_ACCOUNT_IDS?: string;
   RESEND_API_KEY?: string;  // Resend 邮件通知 API key（可选，不配置则跳过邮件）
 }

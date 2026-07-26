@@ -1,7 +1,7 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
-import { siteAccessDefaults } from '../config/site-access-defaults';
+import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
@@ -354,23 +354,8 @@ export const deviceRouter = {
           ).bind(token).first<{ monitoring_enabled: number }>() : null;
           monitoringEnabled = deviceRow?.monitoring_enabled ?? 1;
         } catch (_) { /* column not yet migrated */ }
-
-        const configData = row?.config ? JSON.parse(row.config) : {};
-        if (!Array.isArray(configData.defaultStudySites)) {
-          configData.defaultStudySites = siteAccessDefaults.defaultStudySites;
-        }
-        if (!Array.isArray(configData.defaultCompositeSites)) {
-          configData.defaultCompositeSites = siteAccessDefaults.defaultCompositeSites;
-        }
-        if (!Array.isArray(configData.defaultUserCompositeSites)) {
-          configData.defaultUserCompositeSites = siteAccessDefaults.defaultUserCompositeSites || [];
-        }
-        if (!Array.isArray(configData.defaultRestrictedEntertainmentSites)) {
-          configData.defaultRestrictedEntertainmentSites = siteAccessDefaults.defaultRestrictedEntertainmentSites;
-        }
-        if (!Array.isArray(configData.defaultBlockedSites)) {
-          configData.defaultBlockedSites = siteAccessDefaults.defaultBlockedSites;
-        }
+        const siteAccessDefaults = await getSystemAccessConfig(env);
+        const configData = applySystemAccessDefaultsToProfileConfig(row?.config ? JSON.parse(row.config) : {}, siteAccessDefaults);
         const effectiveTimeQuota = buildEffectiveTimeQuota(configData);
         configData.timeQuota = {
           ...(configData.timeQuota || {}),

@@ -95,3 +95,13 @@ CREATE INDEX IF NOT EXISTS idx_account_sessions_account ON account_sessions(acco
 CREATE INDEX IF NOT EXISTS idx_account_sessions_hash ON account_sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS idx_cs_profile_date ON composite_sessions(profile_id, date);
 CREATE INDEX IF NOT EXISTS idx_appeals_profile ON session_appeals(profile_id, status);
+
+
+CREATE TABLE IF NOT EXISTS system_access_config_v1 (
+  id TEXT PRIMARY KEY,
+  config_json TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL,
+  updated_by_account_id TEXT,
+  note TEXT
+);

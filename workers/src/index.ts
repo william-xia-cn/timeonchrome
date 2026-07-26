@@ -14,6 +14,7 @@ import { clientLogsRouter } from './routes/clientLogs';
 import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
 import { handleDeviceAccessAuditQuery, recordDeviceAccessAudit } from './routes/deviceAccessAudit';
+import { systemAccessConfigRouter } from './routes/systemAccessConfig';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -70,6 +71,14 @@ async function initDatabase(env: Env): Promise<Response> {
       duration INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE system_access_config_v1 (
+      id TEXT PRIMARY KEY,
+      config_json TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      updated_at INTEGER NOT NULL,
+      updated_by_account_id TEXT,
+      note TEXT
+    );
   `;
 
   try {
@@ -89,6 +98,7 @@ export interface Env {
   CONFIG_CACHE: KVNamespace;
   JWT_SECRET: string;
   DEVICE_TOKEN_SECRET: string;
+  ADMIN_ACCOUNT_IDS?: string;
   RESEND_API_KEY?: string;
 }
 
@@ -128,6 +138,8 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return await compositeSessionsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/changelog/)) {
     return await changelogRouter.handle(request, env);
+  } else if (path.startsWith('/system/access-management-config/v1')) {
+    return await systemAccessConfigRouter.handle(request, env);
   } else if (path.startsWith('/profiles')) {
     return await profilesRouter.handle(request, env);
   } else if (path === '/device/heartbeat') {
