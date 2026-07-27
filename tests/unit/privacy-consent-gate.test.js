@@ -34,7 +34,7 @@ function run() {
   const admin = read('extension/admin/admin.js');
   const popup = read('extension/popup/popup.js');
 
-  expectTrue('manifest is bumped to 1.7.15', manifest.version === '1.7.15');
+  expectTrue('manifest is bumped to 1.7.16', manifest.version === '1.7.16');
   expectTrue('manifest keeps identity permissions for disclosed recovery feature', manifest.permissions.includes('identity') && manifest.permissions.includes('identity.email'));
   expectTrue('manifest still has no OAuth config', !Object.prototype.hasOwnProperty.call(manifest, 'oauth2'));
 
@@ -55,7 +55,7 @@ function run() {
   expectTrue('background gates timing signal dispatch', background.includes('initSignal((rawEvent) => {') && background.includes('if (!isMonitoringEnabled()) return;'));
   expectTrue('background exposes consent status/open/accepted messages', background.includes('GET_PRIVACY_CONSENT_STATUS') && background.includes('OPEN_PRIVACY_CONSENT') && background.includes('PRIVACY_CONSENT_ACCEPTED'));
   expectTrue('background blocks regular runtime messages before activation', background.includes('privacyConsentRequiredResponse') && background.includes('if (!runtimeActivationState?.activated)'));
-  expectTrue('popup snapshot shows paused activation-required state', background.includes("mode: activation.activated ? mode : 'paused'") && background.includes('privacyConsentRequired: activation.privacyConsentRequired === true'));
+  expectTrue('popup snapshot shows paused activation-required state', background.includes("mode: activation.activated ? mode : 'paused'") && background.includes('privacyConsent,') && background.includes('activation,'));
 
   expectTrue('cloud sync imports activation gate', cloudSync.includes("import { resolveActivationState } from '../core/activation-gate.js';"));
   expectTrue('cloud sync blocks Chrome identity before runtime activation', cloudSync.includes('requireIdentityRecoveryActivation') && cloudSync.indexOf('requireIdentityRecoveryActivation') < cloudSync.indexOf('getProfileUserInfo'));

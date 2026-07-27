@@ -267,20 +267,30 @@ async function run() {
       status: 'pending',
     }], 'https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9').classification,
     'pending_composite');
-  expectEqual('defaultUserCompositeSites classifies YouTube as composite',
+  expectEqual('YouTube root domain is restricted entertainment',
     mod.resolveSiteAccessClassification({
-      defaultUserCompositeSites: ['youtube.com'],
+      restrictedEntertainmentList: ['youtube.com'],
+    }, [], 'https://www.youtube.com/').classification,
+    'restricted');
+  expectEqual('unapproved YouTube watch inherits restricted root',
+    mod.resolveSiteAccessClassification({
+      restrictedEntertainmentList: ['youtube.com'],
     }, [], 'https://www.youtube.com/watch?v=abc123').classification,
-    'composite');
-  expectEqual('defaultUserCompositeSites exact host study request is already classified',
+    'restricted');
+  expectTrue('specific YouTube video learning request bypasses restricted root',
     mod.validateSiteClassificationAction({
-      defaultUserCompositeSites: ['youtube.com'],
-    }, 'youtube.com', 'study').code,
-    'ALREADY_CLASSIFIED');
-  expectTrue('defaultUserCompositeSites still allows more specific YouTube URL learning request when no exact URL rule exists',
-    mod.validateSiteClassificationAction({
-      defaultUserCompositeSites: ['youtube.com'],
+      restrictedEntertainmentList: ['youtube.com'],
     }, 'https://www.youtube.com/watch?v=abc123', 'study').ok);
+  expectTrue('specific YouTube channel composite decision bypasses restricted root',
+    mod.validateSiteClassificationAction({
+      restrictedEntertainmentList: ['youtube.com'],
+    }, 'https://www.youtube.com/@khanacademy', 'composite').ok);
+  expectEqual('YouTube channel rule can classify a video when channel context is known',
+    mod.resolveSiteAccessClassification({
+      restrictedEntertainmentList: ['youtube.com'],
+      siteClassificationRulesV1: [{ targetType: 'url', targetValue: 'https://www.youtube.com/@khanacademy', decision: 'study' }],
+    }, [], { url: 'https://www.youtube.com/watch?v=abc123', specialSiteTargets: ['https://www.youtube.com/@khanacademy'] }).classification,
+    'study');
   const exactConflict = mod.validateSiteAccessConfig({
     studyList: ['www.example.com'],
     compositeList: ['example.com'],

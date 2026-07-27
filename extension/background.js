@@ -23,9 +23,11 @@ import { resolveManagedTargetAttribution } from './core/managed-targets.js';
 import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
 import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
 import { resolveActivationState } from './core/activation-gate.js';
+import { getSiteClassificationSpecialTargets } from './core/site-classification.js';
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
+const tabSpecialSiteContexts = new Map();
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
@@ -530,6 +532,7 @@ async function getPopupFastStatus(tabHint = null) {
       currentSessionDurationSeconds: 0,
       tabId: Number.isInteger(tab?.id) ? tab.id : null,
       url: tab?.url || null,
+      specialSiteTargets: getTabSpecialSiteTargets(Number.isInteger(tab?.id) ? tab.id : null, tab?.url || ''),
       privacyConsent,
       activation,
     };
@@ -611,8 +614,15 @@ function pickPopupConfig(rawConfig, siteClassificationRequests = []) {
   };
 }
 
-function buildPopupCloudStatus(storage = {}, activation = null) {
-  const isBound = !!storage.cloud_device_token;
+function buildPopupCloudStatus(storage = {}, activation = null, syncSnapshot = null) {
+  const runtimeSyncState = syncSnapshot || getSyncState();
+  const connectionState = storage.cloud_connection_state_v1 || {};
+  const isBound = !!storage.cloud_device_token || !!runtimeSyncState?.deviceToken;
+  const hasActivation = !!activation && typeof activation === 'object';
+  const runtimeActivated = hasActivation ? activation.activated === true : true;
+  const activationReason = hasActivation && !runtimeActivated
+    ? (activation.reason || 'runtime_activation_required')
+    : null;
   const managedPolicy = activation?.managedPolicy
     ? {
         cloudEndpoint: activation.managedPolicy.cloudEndpoint || null,
@@ -622,20 +632,22 @@ function buildPopupCloudStatus(storage = {}, activation = null) {
         legacyTenantId: activation.managedPolicy.tenantId || null,
         legacyDevicePolicyId: activation.managedPolicy.devicePolicyId || null,
       }
-    : null;  return {
+    : null;
+  return {
     isBound,
     localMode: !isBound,
-    syncEnabled: isBound,
-    reason: isBound ? null : 'no_device_token',
-    deviceId: storage.cloud_device_id || null,
-    profileId: storage.cloud_profile_id || null,
+    syncEnabled: isBound && runtimeActivated,
+    reason: isBound ? activationReason : 'no_device_token',
+    runtimeActivated,
+    privacyConsentRequired: activation?.privacyConsentRequired === true,
+    deviceId: storage.cloud_device_id || runtimeSyncState?.deviceId || connectionState.deviceId || null,
+    profileId: storage.cloud_profile_id || runtimeSyncState?.profileId || connectionState.profileId || null,
     v1SyncEnabled: storage.statsFoundationV1SyncEnabled ?? true,
     activationMode: activation?.activationMode || null,
     activationSource: activation?.source || null,
     managedPolicy,
   };
 }
-
 async function getPopupLocalSnapshot(tabHint = null) {
   const startedAt = Date.now();
   const timings = {};
@@ -664,6 +676,7 @@ async function getPopupLocalSnapshot(tabHint = null) {
     'cloud_device_token',
     'cloud_device_id',
     'cloud_profile_id',
+    'cloud_connection_state_v1',
     'statsFoundationV1SyncEnabled',
   ]).catch(() => ({})).then((value) => {
     mark('storageMs', storageStartedAt);
@@ -688,6 +701,7 @@ async function getPopupLocalSnapshot(tabHint = null) {
     popupConfig.siteClassificationRequestsV1,
     tab?.url || domain || ''
   );
+  const specialSiteTargets = getTabSpecialSiteTargets(Number.isInteger(tab?.id) ? tab.id : null, tab?.url || '');
   const snapshot = {
     ok: true,
     mode: activation.activated ? mode : 'paused',
@@ -695,12 +709,11 @@ async function getPopupLocalSnapshot(tabHint = null) {
     currentSessionDurationSeconds,
     tabId: Number.isInteger(tab?.id) ? tab.id : null,
     url: tab?.url || null,
+    specialSiteTargets,
     currentManagedTarget: currentTarget?.fallback ? null : currentTarget,
     config: popupConfig,
     stats: buildPopupSettledModeStatsFromDay(todayStats),
-    cloudStatus: activation.activated
-      ? buildPopupCloudStatus(storage || {}, activation)
-      : { isBound: false, localMode: true, syncEnabled: false, reason: activation.reason || 'runtime_activation_required', privacyConsentRequired: activation.privacyConsentRequired === true, activationMode: activation.activationMode || 'disabled' },
+    cloudStatus: buildPopupCloudStatus(storage || {}, activation),
     privacyConsent,
     activation,
     childName: storage?.cloud_profile_name || null,
@@ -885,6 +898,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (hasUrlChange) {
     const domain = extractDomain(changeInfo.url || tab?.url || '');
     clearModeNoticeTabNavigationState(tabId, domain);
+    clearTabSpecialSiteContext(tabId);
     await clearTemporaryCompositeDomainByTabDomainMismatch(tabId, domain);
   }
   if (hasUrlFact && tab?.active) {
@@ -1385,6 +1399,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Content script ready: re-send any pending auto-mode notice for this tab.
   // This handles the case where the background sent AUTO_MODE_PENDING_SUCCESS
   // before the content script's listener was registered (e.g., after page reload).
+  if (msg.type === 'SPECIAL_SITE_CONTEXT') {
+    const tabId = sender?.tab?.id;
+    if (Number.isInteger(tabId) && tabId > 0) {
+      const targets = rememberTabSpecialSiteContext(tabId, sender?.tab?.url || msg.url || '', msg.specialSiteTargets || []);
+      if (targets.length) {
+        reevaluateTabById(tabId, { source: 'specialSiteContext' }).catch(() => {});
+      }
+    }
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (msg.type === 'CONTENT_SCRIPT_READY') {
     const tabId = sender?.tab?.id;
     const frameId = Number.isInteger(sender?.frameId) ? sender.frameId : null;
@@ -1455,6 +1481,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         sendResponse(await getPopupLocalSnapshot(msg?.activeTabHint || msg?.activeTab || null));
       } catch (err) {
+        const storage = await chrome.storage.local.get([
+          'cloud_device_token',
+          'cloud_device_id',
+          'cloud_profile_id',
+          'cloud_connection_state_v1',
+          'statsFoundationV1SyncEnabled',
+          'cloud_profile_name',
+        ]).catch(() => ({}));
         sendResponse({
           ok: false,
           mode: 'study',
@@ -1462,8 +1496,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           currentSessionDurationSeconds: 0,
           config: pickPopupConfig(null),
           stats: buildPopupSettledModeStatsFromDay(null),
-          cloudStatus: { isBound: false, localMode: true, syncEnabled: false, reason: 'snapshot_failed' },
-          childName: null,
+          cloudStatus: buildPopupCloudStatus(storage || {}, null),
+          childName: storage?.cloud_profile_name || null,
           error: err?.message || String(err),
         });
       }

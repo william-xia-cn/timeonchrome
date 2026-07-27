@@ -67,11 +67,11 @@ function run() {
   const workerValidation = mod.validateSiteAccessConfig(workerDefaultConfig);
   check('worker default site access config has no exact cross-class duplicates', workerValidation.ok, JSON.stringify(workerValidation.conflicts));
 
-  check('defaultUserCompositeSites resolves youtube.com as composite',
-    mod.resolveSiteAccessClassification({ defaultUserCompositeSites: ['youtube.com'] }, [], 'https://www.youtube.com/watch?v=abc123').classification === 'composite');
+  check('YouTube root default resolves as restricted entertainment',
+    mod.resolveSiteAccessClassification({ restrictedEntertainmentList: ['youtube.com'] }, [], 'https://www.youtube.com/watch?v=abc123').classification === 'restricted');
 
-  check('defaultUserCompositeSites blocks exact host duplicate study request',
-    mod.validateSiteClassificationAction({ defaultUserCompositeSites: ['youtube.com'] }, 'youtube.com', 'study').code === 'ALREADY_CLASSIFIED');
+  check('YouTube special video can request study below restricted root',
+    mod.validateSiteClassificationAction({ restrictedEntertainmentList: ['youtube.com'] }, 'https://www.youtube.com/watch?v=abc123', 'study').ok);
   check('google.com remains composite while docs.google.com is study',
     mod.resolveSiteAccessClassification(localDefault, [], 'https://docs.google.com/document').classification === 'study' &&
     mod.resolveSiteAccessClassification(localDefault, [], 'https://google.com/search').classification === 'composite');

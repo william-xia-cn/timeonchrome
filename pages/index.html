@@ -468,6 +468,15 @@
     .rules-site-meta { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
     .rules-site-badge { display: inline-flex; align-items: center; border: 1px solid rgba(0,184,148,.24); color: var(--muted); border-radius: 6px; padding: 2px 6px; font-size: 11px; margin-right: 6px; }
     .rules-site-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .rules-special-list { padding: 0 14px 8px; }
+    .rules-special-header,
+    .rules-special-row { display: grid; grid-template-columns: minmax(210px, 2fr) minmax(90px, .75fr) minmax(90px, .75fr) minmax(120px, .9fr) minmax(180px, 1.2fr); gap: 12px; align-items: start; }
+    .rules-special-header { color: var(--muted); font-size: 12px; font-weight: 700; padding: 12px 0 8px; border-bottom: 1px solid rgba(0,184,148,.10); }
+    .rules-special-row { padding: 12px 0; border-bottom: 1px solid rgba(0,184,148,.08); font-size: 13px; }
+    .rules-special-row:last-child { border-bottom: 0; }
+    .rules-special-object { font-weight: 650; word-break: break-word; }
+    .rules-special-muted { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .rules-special-policy { color: var(--text); font-weight: 650; }
     .rules-site-action-btn { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 7px; padding: 5px 8px; font-size: 12px; cursor: pointer; }
     .rules-site-action-btn:hover { border-color: var(--accent); color: var(--accent); }
     .rules-site-action-btn:disabled { cursor: not-allowed; opacity: .55; color: var(--muted); }
@@ -480,6 +489,8 @@
       .rules-policy-nav { position: static; }
       .rules-policy-toolbar { grid-template-columns: 1fr; }
       .rules-system-editor-grid { grid-template-columns: 1fr; }
+      .rules-special-header { display: none; }
+      .rules-special-row { grid-template-columns: 1fr; gap: 6px; }
     }
 
     /* Quota */
@@ -781,6 +792,7 @@
                   <option value="rule">已批准精确规则</option>
                   <option value="used-unclassified">已使用未归类网站</option>
                   <option value="unmarked">未标注</option>
+                  <option value="special">特殊网站</option>
                 </select>
                 <input type="text" id="rules-site-add-input" placeholder="添加到当前策略，如 example.com">
                 <button class="btn-add" id="rules-site-add-btn">+ 添加</button>
@@ -2145,7 +2157,7 @@ function uniqueSiteAccessValues(values = []) {
 
 const RULES_POLICY_DEFS = [
   { key: 'study', label: '学习网站', icon: 'assets/icons/study.svg', customKey: 'customStudyList', effectiveKey: 'studyList', defaultKey: 'defaultStudySites', addPlaceholder: '添加学习网站，如 khanacademy.org' },
-  { key: 'composite', label: '复合网站', icon: 'assets/icons/composite.svg', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites', defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites'], addPlaceholder: '添加复合网站，如 youtube.com' },
+  { key: 'composite', label: '复合网站', icon: 'assets/icons/composite.svg', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites', defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites'], addPlaceholder: '添加复合网站，如 wikipedia.org' },
   { key: 'restricted', label: '受限娱乐网站', icon: 'assets/icons/restricted.svg', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites', addPlaceholder: '添加受限娱乐网站，如 example-game.com' },
   { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
 ];
@@ -2266,6 +2278,26 @@ function policyOptionsHtml(selected) {
   return RULES_POLICY_DEFS.map(def => `<option value="${htmlEscape(def.key)}" ${def.key === selected ? 'selected' : ''}>${htmlEscape(def.label)}</option>`).join('');
 }
 
+function isYouTubeRootDomain(value) {
+  const normalized = normalizeSiteAccessHostKey(value || '');
+  return normalized === 'youtube.com' || normalized === 'www.youtube.com';
+}
+
+function isYouTubeSpecialRuleValue(value = '') {
+  const raw = String(value || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return false;
+  try {
+    const parsed = new URL(raw);
+    const hostKey = normalizeSiteAccessHostKey(parsed.hostname);
+    const host = String(hostKey || '').replace(/^host:/, '');
+    if (!(host === 'youtube.com' || host === 'www.youtube.com' || host === 'youtu.be')) return false;
+    const path = parsed.pathname || '/';
+    return path === '/watch' || path === '/playlist' || path.startsWith('/shorts/') || path.startsWith('/@') || path.startsWith('/channel/') || path.startsWith('/c/') || path.startsWith('/user/');
+  } catch (_) {
+    return false;
+  }
+}
+
 function rulesDirectoryEntriesForPolicy(def) {
   const entries = [];
   for (const value of def.system || []) {
@@ -2339,8 +2371,15 @@ function renderSystemSiteCategoryEditor(entry, idx) {
 function renderRulesSiteRow(entry, idx) {
   idx = Number.isInteger(entry._directoryIndex) ? entry._directoryIndex : idx;
   let actionHtml = '';
-  if (entry.source === 'rule') {
-    actionHtml = `<div class="rules-site-actions"><span class="rules-site-badge">规则项</span></div>`;
+    if (entry.source === 'rule') {
+    const specialRule = isYouTubeSpecialRuleValue(entry.value);
+    const options = specialRule
+      ? RULES_POLICY_DEFS
+        .filter(def => ['study', 'composite'].includes(def.key) && def.key !== entry.classification)
+        .map(def => `<button class="rules-site-action-btn" onclick="classifySpecialSiteRule(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
+        .join('')
+      : '';
+    actionHtml = `<div class="rules-site-actions"><span class="rules-site-badge">${specialRule ? '特殊对象规则' : '规则项'}</span>${options}</div>`;
   } else if (entry.source === 'system') {
     const disabled = !systemAccessCanWrite;
     actionHtml = `<div class="rules-site-actions"><button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="openSystemSiteCategoryEditor(${idx})">编辑分类</button>${disabled ? '<span class="rules-site-badge">只读</span>' : ''}</div>`;
@@ -2428,6 +2467,104 @@ function renderRulesSiteGroup(source, entries) {
       ${entries.map(renderRulesSiteRow).join('')}
     </section>`;
 }
+function siteRuleManagementKey(rule = {}) {
+  const decision = siteRuleDecision(rule);
+  if (decision === 'study') return 'study';
+  if (decision === 'composite') return 'composite';
+  if (decision === 'reject') return 'restricted';
+  if (decision === 'blocked') return 'blocked';
+  return 'other';
+}
+
+function siteRuleManagementLabel(key) {
+  if (key === 'study') return '学习';
+  if (key === 'composite') return '复合';
+  if (key === 'restricted') return '受限娱乐';
+  if (key === 'blocked') return '黑名单';
+  return '其他';
+}
+
+function siteRuleManagementRank(key) {
+  return { study: 1, composite: 2, restricted: 3, blocked: 4, other: 5 }[key] || 5;
+}
+
+function youtubeObjectTypeLabel(rule = {}) {
+  const label = siteRuleTypeLabel(rule);
+  if (label === 'YouTube 视频') return '单个视频';
+  if (label === 'YouTube 播放列表') return '播放列表';
+  if (label === 'YouTube 频道') return '频道';
+  return label;
+}
+
+function youtubeSpecialRuleRows() {
+  const rules = Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : [];
+  const rows = [{
+    value: 'youtube.com',
+    objectType: '根域',
+    managementKey: 'restricted',
+    source: '系统配置',
+    status: '根域按受限娱乐；请管理具体视频、播放列表或频道',
+    editable: false,
+  }];
+  for (const rule of rules) {
+    const value = siteRuleValue(rule);
+    if (!isYouTubeSpecialRuleValue(value)) continue;
+    rows.push({
+      value,
+      objectType: youtubeObjectTypeLabel(rule),
+      managementKey: siteRuleManagementKey(rule),
+      source: '已批准精确规则',
+      status: '云端可修改；保存后同步到设备',
+      editable: true,
+    });
+  }
+  return rows.sort((a, b) => {
+    const rankDiff = siteRuleManagementRank(a.managementKey) - siteRuleManagementRank(b.managementKey);
+    if (rankDiff) return rankDiff;
+    return String(a.value).localeCompare(String(b.value));
+  });
+}
+
+function specialRuleActionButtons(row, idx) {
+  if (!row.editable) return '<span class="rules-site-badge">根域固定</span>';
+  return ['study', 'composite', 'restricted']
+    .filter(policy => policy !== row.managementKey)
+    .map(policy => {
+      const label = policy === 'restricted' ? '受限娱乐网站' : RULES_POLICY_DEFS.find(def => def.key === policy)?.label;
+      return `<button class="rules-site-action-btn" onclick="classifySpecialSiteRule(${idx}, '${policy}')">归为${htmlEscape(label || siteRuleManagementLabel(policy))}</button>`;
+    })
+    .join('');
+}
+
+function renderSpecialSitesSummary() {
+  const rows = youtubeSpecialRuleRows();
+  window._rulesSpecialSiteRows = rows;
+  const counts = rows.reduce((acc, row) => {
+    acc[row.managementKey] = (acc[row.managementKey] || 0) + 1;
+    return acc;
+  }, {});
+  const countText = `学习 ${counts.study || 0} · 复合 ${counts.composite || 0} · 受限娱乐 ${counts.restricted || 0}`;
+  return `<section class="rules-site-group" data-source-group="special" data-special-site-management="youtube">
+    <div class="rules-site-group-header">
+      <div>
+        <div>特殊网站：YouTube</div>
+        <div class="rules-site-group-subtitle">每个 YouTube 细节对象一行展示；根域固定受限娱乐，视频、播放列表、频道可单独调整管理属性</div>
+      </div>
+      <span class="rules-site-badge">${countText}</span>
+    </div>
+    <div class="rules-special-list">
+      <div class="rules-special-header"><span>对象</span><span>对象类型</span><span>管理属性</span><span>来源</span><span>操作 / 状态</span></div>
+      ${rows.map((row, idx) => `<div class="rules-special-row" data-source="special" data-domain="${htmlEscape(row.value)}">
+        <div><div class="rules-special-object">${htmlEscape(row.value)}</div></div>
+        <div class="rules-special-muted">${htmlEscape(row.objectType)}</div>
+        <div class="rules-special-policy">${htmlEscape(siteRuleManagementLabel(row.managementKey))}</div>
+        <div class="rules-special-muted">${htmlEscape(row.source)}</div>
+        <div><div class="rules-site-actions">${specialRuleActionButtons(row, idx)}</div><div class="rules-special-muted">${htmlEscape(row.status)}</div></div>
+      </div>`).join('')}
+    </div>
+  </section>`;
+}
+
 function renderUsedUnclassifiedSummary(def) {
   if (def.key !== 'composite') return '';
   const count = (rulesSitePolicyState.usedUnclassified || []).length;
@@ -2449,7 +2586,7 @@ function renderRulesSiteDirectory() {
     .map(source => [source, filtered.filter(entry => entry.source === source)])
     .filter(([, list]) => list.length > 0);
   const empty = `<div class="rules-site-group"><div class="rules-site-empty">当前筛选下没有网站。可以用上方输入框添加到${htmlEscape(def.label)}。</div></div>`;
-  container.innerHTML = renderUsedUnclassifiedSummary(def) + (grouped.length ? grouped.map(([source, list]) => renderRulesSiteGroup(source, list)).join('') : empty);
+  container.innerHTML = renderSpecialSitesSummary() + renderUsedUnclassifiedSummary(def) + (grouped.length ? grouped.map(([source, list]) => renderRulesSiteGroup(source, list)).join('') : empty);
 }
 
 function renderRulesPage() {
@@ -2563,6 +2700,30 @@ window.classifyRulesSiteEntry = async (idx, targetPolicy) => {
   }
 };
 
+function specialRuleDecisionPatch(targetPolicy) {
+  if (targetPolicy === 'study') return { decision: 'study', classification: 'study', status: 'approved_study' };
+  if (targetPolicy === 'composite') return { decision: 'composite', classification: 'composite', status: 'approved_composite' };
+  if (targetPolicy === 'restricted') return { decision: 'reject', classification: 'reject', status: 'rejected' };
+  return null;
+}
+
+window.classifySpecialSiteRule = (idx, targetPolicy) => {
+  const row = window._rulesSpecialSiteRows?.[idx];
+  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  const patch = specialRuleDecisionPatch(targetPolicy);
+  if (!row || !row.editable || !targetDef || !patch) return;
+  if (!isYouTubeSpecialRuleValue(row.value)) {
+    toast('只有特殊网站对象规则可在这里移动分类', false);
+    return;
+  }
+  remoteConfig.siteClassificationRulesV1 = (remoteConfig.siteClassificationRulesV1 || []).map(rule => {
+    if (siteRuleValue(rule) !== row.value) return rule;
+    return { ...rule, ...patch };
+  });
+  renderRulesPage();
+  toast(`已将特殊对象规则归为${targetDef.label}，点击保存后同步`);
+};
+
 window.openSystemSiteCategoryEditor = (idx) => {
   const entry = window._rulesSiteDirectoryEntries?.[idx];
   if (!entry || entry.source !== 'system') return;
@@ -2612,6 +2773,10 @@ window.saveSystemSiteCategoryEdit = async (idx) => {
   const targetPolicy = document.getElementById(`rules-system-policy-select-${idx}`)?.value || entry.classification;
   const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
   if (!targetDef) return;
+  if (isYouTubeRootDomain(entry.value) && ['study', 'composite'].includes(targetPolicy)) {
+    toast('YouTube 根域是特殊平台根域，不能直接改为学习或复合；请管理具体视频、播放列表或频道。', false);
+    return;
+  }
   if (!confirm(`系统网站配置-分类管理保存后会全局生效，影响所有孩子档案。确认将 ${entry.value} 设置为「${category} / ${targetDef.label}」？`)) return;
   try {
     const record = await api('/system/access-management-config/v1');
@@ -2650,6 +2815,10 @@ async function moveSystemSiteToPolicy(value, fromPolicy, targetPolicy) {
   const contentCategory = String(currentCatalog.contentCategory || '').trim() || '教育性';
   const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
   if (!targetDef) return;
+  if (isYouTubeRootDomain(value) && ['study', 'composite'].includes(targetPolicy)) {
+    toast('YouTube 根域是特殊平台根域，不能直接改为学习或复合；请管理具体视频、播放列表或频道。', false);
+    return;
+  }
   if (!confirm(`系统配置网站移动会全局生效，影响所有孩子档案。确认将 ${value} 归为${targetDef.label}？`)) return;
   const record = await api('/system/access-management-config/v1');
   systemAccessCanWrite = Boolean(record.canWrite);
@@ -2683,6 +2852,7 @@ function siteRuleDecision(rule = {}) {
   if (decision === 'study' || decision === 'approved_study') return 'study';
   if (decision === 'composite' || decision === 'approved_composite') return 'composite';
   if (decision === 'reject' || decision === 'rejected') return 'reject';
+  if (decision === 'blocked') return 'blocked';
   return null;
 }
 
@@ -2715,6 +2885,7 @@ function siteRuleTypeLabel(rule = {}) {
   const value = siteRuleValue(rule);
   if (/^https:\/\/www\.youtube\.com\/playlist\?list=/i.test(value)) return 'YouTube 播放列表';
   if (/^https:\/\/www\.youtube\.com\/watch\?v=/i.test(value)) return 'YouTube 视频';
+  if (/^https:\/\/www\.youtube\.com\/(channel\/|@|c\/|user\/)/i.test(value)) return 'YouTube 频道';
   return '精确链接';
 }
 

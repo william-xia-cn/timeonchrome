@@ -44,15 +44,16 @@ export const DEFAULT_CONFIG = {
     'notion.so', 'obsidian.md', 'ankiweb.net', 'trello.com', 'slack.com', 'reclaim.ai',
     'collegeboard.org'
   ],
-  // System-configured composite sites (9, non-removable) + user-default initial sites (5, removable)
-  // Effective compositeList = 14 sites for new profiles
+  // System-configured composite sites (music.youtube.com remains composite) + user-default initial sites
+  // youtube.com root is restricted; concrete YouTube objects use siteClassificationRulesV1
   compositeList: [
     // System-configured (9)
     'google.com', 'google.com.hk', 'bing.com', 'microsoft.com', 'apple.com', 'adobe.com',
     'music.youtube.com', 'spotify.com', 'music.163.com',
-    // User-default initial (7) — seeded into customCompositeList, removable by user
-    'youtube.com', 'wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'
+    // User-default initial — seeded into customCompositeList, removable by user
+    'wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'
   ],
+  restrictedEntertainmentList: ['youtube.com'],
   unsafeList: ['douyin.com', 'tiktok.com'],
   dailyOnlineQuota: 0,
   dailyStudyQuota: 0,

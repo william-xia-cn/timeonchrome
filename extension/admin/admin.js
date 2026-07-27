@@ -103,6 +103,7 @@ let mediaSettlementRange = 'today';
 let mediaSettlementLabel = '今日';
 let systemManagementActiveTab = 'device-status';
 let rulesActiveTab = 'site-management';
+let rulesSiteActivePolicy = 'study';
 let isLocalReadOnlyMode = false;
 let usageAnalysisState = {
   ledger: 'web',
@@ -1548,33 +1549,35 @@ function renderQuotaSection() {
     const rows = QUOTA_DAYS.map((day) => {
       const q = getDailyQuotaByDay(day);
       return `
-        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-          <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
-          <div style="font-size:12px;">学习：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.study)}</span></div>
-          <div style="font-size:12px;">休息：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.rest)}</span></div>
-          <div style="font-size:12px;">待归类：<span style="color:var(--accent);font-weight:600;">${formatQuotaText(q.composite)}</span></div>
+        <div class="rules-grid-row quota">
+          <div style="font-size:13px;font-weight:650;">${QUOTA_DAY_LABELS[day]}</div>
+          <div class="rules-readonly-value">学习：${formatQuotaText(q.study)}</div>
+          <div class="rules-readonly-value">休息：${formatQuotaText(q.rest)}</div>
+          <div class="rules-readonly-value">待归类：${formatQuotaText(q.composite)}</div>
         </div>
       `;
     }).join('');
-    quotaDailyEl.innerHTML = rows || '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+    quotaDailyEl.innerHTML = `<div class="rules-quota-grid">
+      <div class="rules-grid-row quota header"><div>星期</div><div>学习配额</div><div>休息配额</div><div>待归类配额</div></div>
+      ${rows || '<div class="rules-readonly-empty">暂无配置</div>'}
+    </div>`;
   }
 
   const domainQuotaEl = document.getElementById('rules-domain-quotas-display');
   if (domainQuotaEl) {
     const entries = Object.entries(config?.domainQuotas || {});
     if (!entries.length) {
-      domainQuotaEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+      domainQuotaEl.innerHTML = '<div class="rules-readonly-empty">暂无单站点配额</div>';
     } else {
-      domainQuotaEl.innerHTML = entries.map(([domain, mins]) => `
-        <div class="quota-row">
-          <div class="quota-label">${escHtml(domain)}</div>
-          <span style="color:var(--accent);font-weight:600;">${formatQuotaText(mins)} / 天</span>
+      domainQuotaEl.innerHTML = `<section class="rules-site-group"><div class="rules-site-list">${entries.map(([domain, mins]) => `
+        <div class="rules-site-row">
+          <div><div class="rules-site-domain">${escHtml(domain)}</div><div class="rules-site-meta">单站点配额 · 本机只读</div></div>
+          <span class="rules-site-badge">${formatQuotaText(mins)} / 天</span>
         </div>
-      `).join('');
+      `).join('')}</div></section>`;
     }
   }
 }
-
 function formatWindowsLabel(windows) {
   if (windows === null || windows === undefined) return '全天允许';
   if (!Array.isArray(windows) || windows.length === 0) return '全天允许';
@@ -1615,51 +1618,45 @@ function renderScheduleSection() {
       const restLabel = formatWindowsLabel(dayCfg.restWindows);
       const onlineLabel = computeOnlineWindowsLabel(dayCfg.studyWindows, dayCfg.compositeWindows, dayCfg.restWindows);
       return `
-        <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-          <div style="font-size:13px;font-weight:500;">${QUOTA_DAY_LABELS[day]}</div>
-          <div style="font-size:12px;">${studyLabel}</div>
-          <div style="font-size:12px;">${compositeLabel}</div>
-          <div style="font-size:12px;">${restLabel}</div>
-          <div style="font-size:12px;color:var(--muted);">${onlineLabel}</div>
+        <div class="rules-grid-row schedule">
+          <div style="font-size:13px;font-weight:650;">${QUOTA_DAY_LABELS[day]}</div>
+          <div class="rules-readonly-value">${studyLabel}</div>
+          <div class="rules-readonly-value">${compositeLabel}</div>
+          <div class="rules-readonly-value">${restLabel}</div>
+          <div class="rules-readonly-value" style="color:var(--muted);">${onlineLabel}</div>
         </div>
       `;
     }).join('');
-    scheduleEl.innerHTML = `
-      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
-        <div style="font-size:12px;color:var(--muted);font-weight:600;">星期</div>
-        <div style="font-size:12px;color:var(--muted);font-weight:600;">学习时段</div>
-        <div style="font-size:12px;color:var(--muted);font-weight:600;">复合时段</div>
-        <div style="font-size:12px;color:var(--muted);font-weight:600;">休息时段</div>
-        <div style="font-size:12px;color:var(--muted);font-weight:600;">在线时段</div>
-      </div>
-      ${rows || '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>'}
-    `;
+    scheduleEl.innerHTML = `<div class="rules-schedule-grid">
+      <div class="rules-grid-row schedule header"><div>星期</div><div>学习时段</div><div>复合时段</div><div>休息时段</div><div>在线时段（只读）</div></div>
+      ${rows || '<div class="rules-readonly-empty">暂无配置</div>'}
+    </div>`;
     return;
   }
 
   const schedule = config?.schedule || null;
   if (!schedule || !Array.isArray(schedule.days)) {
-    scheduleEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无配置</div>';
+    scheduleEl.innerHTML = '<div class="rules-readonly-empty">暂无配置</div>';
     return;
   }
 
-  scheduleEl.innerHTML = DAY_NAMES.map((name, i) => {
-    const day = schedule.days[i] || {};
-    const online = day.enabled
-      ? `${escHtml(day?.start || '--:--')} - ${escHtml(day?.end || '--:--')}`
-      : '不限制';
-    return `
-      <div style="display:grid;grid-template-columns:72px 1fr 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <div style="font-size:13px;font-weight:500;">${name}</div>
-        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
-        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
-        <div style="font-size:12px;color:var(--muted);">暂无配置</div>
-        <div style="font-size:12px;">${online}</div>
-      </div>
-    `;
-  }).join('');
+  scheduleEl.innerHTML = `<div class="rules-schedule-grid">
+    <div class="rules-grid-row schedule header"><div>星期</div><div>学习时段</div><div>复合时段</div><div>休息时段</div><div>在线时段（只读）</div></div>
+    ${DAY_NAMES.map((name, i) => {
+      const day = schedule.days[i] || {};
+      const online = day.enabled ? `${escHtml(day?.start || '--:--')} - ${escHtml(day?.end || '--:--')}` : '不限制';
+      return `
+        <div class="rules-grid-row schedule">
+          <div style="font-size:13px;font-weight:650;">${name}</div>
+          <div class="rules-readonly-value" style="color:var(--muted);">暂无配置</div>
+          <div class="rules-readonly-value" style="color:var(--muted);">暂无配置</div>
+          <div class="rules-readonly-value" style="color:var(--muted);">暂无配置</div>
+          <div class="rules-readonly-value">${online}</div>
+        </div>
+      `;
+    }).join('')}
+  </div>`;
 }
-
 function formatRulesDateTime(ms) {
   const value = Number(ms);
   if (!Number.isFinite(value) || value <= 0) return '—';
@@ -1716,6 +1713,7 @@ function siteRuleTypeLabel(rule = {}) {
   const value = siteRuleValue(rule);
   if (/^https:\/\/www\.youtube\.com\/playlist\?list=/i.test(value)) return 'YouTube 播放列表';
   if (/^https:\/\/www\.youtube\.com\/watch\?v=/i.test(value)) return 'YouTube 视频';
+  if (/^https:\/\/www\.youtube\.com\/(channel\/|@|c\/|user\/)/i.test(value)) return 'YouTube 频道';
   return '精确链接';
 }
 
@@ -1808,6 +1806,185 @@ async function renderSiteClassificationRequestSection() {
   }
 }
 
+function isYouTubeRuleValue(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  return /^https:\/\/www\.youtube\.com\/(watch\?v=|playlist\?list=|@|channel\/|c\/|user\/|shorts\/)/i.test(raw)
+    || /^https:\/\/youtu\.be\//i.test(raw);
+}
+
+function adminRulesPolicyDefs() {
+  return [
+    {
+      key: 'study', label: '学习网站', description: '学习模式下允许访问，计入学习时长',
+      systemList: pickFirstArrayField(config, ['defaultStudySites', 'defaultStudyList', 'systemConfiguredStudySites', 'systemConfiguredStudyList']),
+      customList: config?.customStudyList,
+      targetRules: approvedUrlRulesForDecision('study').filter((rule) => !isYouTubeRuleValue(siteRuleValue(rule))),
+    },
+    {
+      key: 'composite', label: '复合网站', description: '复合用途网站，计入待归类时间',
+      systemList: mergeArrayFields(config, ['defaultCompositeSites', 'defaultCompositeList', 'defaultUserCompositeSites', 'defaultUserCompositeList', 'recommendedCompositeSites', 'systemConfiguredCompositeSites', 'systemConfiguredCompositeList', 'systemConfiguredUserCompositeSites', 'systemConfiguredUserCompositeList']),
+      customList: config?.customCompositeList,
+      targetRules: approvedUrlRulesForDecision('composite').filter((rule) => !isYouTubeRuleValue(siteRuleValue(rule))),
+    },
+    {
+      key: 'restricted', label: '受限娱乐网站', description: '自由/休息时间可访问，学习模式下受限',
+      systemList: pickFirstArrayField(config, ['defaultRestrictedEntertainmentSites', 'defaultRestrictedEntertainmentList', 'systemConfiguredRestrictedEntertainmentSites', 'systemConfiguredRestrictedEntertainmentList']),
+      customList: config?.customRestrictedEntertainmentList,
+      targetRules: approvedUrlRulesForDecision('reject').filter((rule) => !isYouTubeRuleValue(siteRuleValue(rule))),
+    },
+    {
+      key: 'blocked', label: '黑名单网站', description: '任何时间均不可访问',
+      systemList: pickFirstArrayField(config, ['defaultBlockedSites', 'defaultBlockedList', 'defaultUnsafeSites', 'defaultUnsafeList', 'systemConfiguredBlockedSites', 'systemConfiguredBlockedList', 'systemConfiguredUnsafeSites', 'systemConfiguredUnsafeList']),
+      customList: config?.customBlockedSites,
+      targetRules: [],
+    },
+    { key: 'special', label: '特殊网站', description: '按平台对象单独管理的网站，本机只读展示', systemList: [], customList: [], targetRules: [] },
+  ];
+}
+
+function adminRulesPolicyCount(def) {
+  if (def.key === 'special') return uniqueSiteRules(youtubeSpecialRules()).length + 1;
+  return normalizeDomainList(def.systemList).length + normalizeDomainList(def.customList).length + uniqueSiteRules(def.targetRules).length;
+}
+
+function renderAdminRulesPolicyNav(defs) {
+  const nav = document.getElementById('admin-rules-policy-nav');
+  if (!nav) return;
+  nav.innerHTML = defs.map((def) => `
+    <button type="button" class="rules-policy-btn ${def.key === rulesSiteActivePolicy ? 'active' : ''}" data-admin-rules-policy="${escAttr(def.key)}">
+      <span>${escHtml(def.label)}</span><span class="rules-policy-count">${adminRulesPolicyCount(def)}</span>
+    </button>
+  `).join('');
+  nav.querySelectorAll('[data-admin-rules-policy]').forEach((button) => {
+    button.addEventListener('click', () => {
+      rulesSiteActivePolicy = button.dataset.adminRulesPolicy || 'study';
+      renderAdminRulesSiteManagement();
+    });
+  });
+}
+
+function renderAdminRulesRows(items, sourceLabel) {
+  const list = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!list.length) return '<div class="rules-readonly-empty">暂无配置</div>';
+  return `<div class="rules-site-list">${list.map((item) => {
+    const value = typeof item === 'string' ? item : siteRuleValue(item);
+    const type = typeof item === 'string' ? '域名' : siteRuleTypeLabel(item);
+    return `<div class="rules-site-row"><div><div class="rules-site-domain">${escHtml(value)}</div><div class="rules-site-meta">${escHtml(type)} · ${escHtml(sourceLabel)} · 本机只读</div></div><span class="rules-site-badge">只读</span></div>`;
+  }).join('')}</div>`;
+}
+
+function renderAdminRulesGroup(title, subtitle, entries, sourceLabel) {
+  return `<section class="rules-site-group">
+    <div class="rules-site-group-header"><div><div class="rules-site-group-title">${escHtml(title)}</div><div class="rules-site-group-subtitle">${escHtml(subtitle)}</div></div><span class="rules-site-badge">${Array.isArray(entries) ? entries.length : 0} 条</span></div>
+    ${renderAdminRulesRows(entries, sourceLabel)}
+  </section>`;
+}
+
+function youtubeSpecialRules() {
+  return uniqueSiteRules(Array.isArray(config?.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [])
+    .filter((rule) => isYouTubeRuleValue(siteRuleValue(rule)));
+}
+
+function siteRuleManagementKey(rule = {}) {
+  const decision = siteRuleDecision(rule);
+  if (decision === 'study') return 'study';
+  if (decision === 'composite') return 'composite';
+  if (decision === 'reject') return 'restricted';
+  const raw = String(rule.decision || rule.classification || rule.status || '').trim();
+  if (raw === 'blocked' || raw === 'blacklist') return 'blocked';
+  return 'other';
+}
+
+function siteRuleManagementLabel(key) {
+  if (key === 'study') return '学习';
+  if (key === 'composite') return '复合';
+  if (key === 'restricted') return '受限娱乐';
+  if (key === 'blocked') return '黑名单';
+  return '其他';
+}
+
+function siteRuleManagementRank(key) {
+  return { study: 1, composite: 2, restricted: 3, blocked: 4, other: 5 }[key] || 5;
+}
+
+function youtubeObjectTypeLabel(rule = {}) {
+  const label = siteRuleTypeLabel(rule);
+  if (label === 'YouTube 视频') return '单个视频';
+  if (label === 'YouTube 播放列表') return '播放列表';
+  if (label === 'YouTube 频道') return '频道';
+  return label;
+}
+
+function youtubeSpecialRuleRows() {
+  const rows = [{
+    value: 'youtube.com',
+    objectType: '根域',
+    managementKey: 'restricted',
+    source: '系统配置',
+    status: '首页/推荐按受限娱乐；具体对象可在 Popup 发起学习申请',
+  }];
+  for (const rule of youtubeSpecialRules()) {
+    rows.push({
+      value: siteRuleValue(rule),
+      objectType: youtubeObjectTypeLabel(rule),
+      managementKey: siteRuleManagementKey(rule),
+      source: '云端审批规则',
+      status: '已同步；本页只读',
+    });
+  }
+  return rows.sort((a, b) => {
+    const rankDiff = siteRuleManagementRank(a.managementKey) - siteRuleManagementRank(b.managementKey);
+    if (rankDiff) return rankDiff;
+    return String(a.value).localeCompare(String(b.value));
+  });
+}
+
+function renderAdminYouTubeSpecialManagement() {
+  const title = document.getElementById('admin-rules-policy-title');
+  const desc = document.getElementById('admin-rules-policy-desc');
+  const container = document.getElementById('admin-rules-site-directory');
+  if (title) title.textContent = '特殊网站：YouTube';
+  if (desc) desc.textContent = '本页只读展示当前已同步的 YouTube 规则；孩子可在 Popup 对支持的视频、播放列表、频道发起学习申请，家长在云端审批或调整分类后同步到本机。';
+  if (!container) return;
+  const rows = youtubeSpecialRuleRows();
+  container.innerHTML = `
+    <section class="rules-site-group">
+      <div class="rules-site-group-header"><div><div class="rules-site-group-title">YouTube 特殊对象规则</div><div class="rules-site-group-subtitle">每条具体对象规则一行展示；默认按管理属性排序。</div></div><span class="rules-site-badge">${rows.length} 条</span></div>
+      <div class="rules-special-list">
+        <div class="rules-special-header"><span>对象</span><span>对象类型</span><span>管理属性</span><span>来源</span><span>状态</span></div>
+        ${rows.map((row) => `<div class="rules-special-row">
+          <div><div class="rules-special-object">${escHtml(row.value)}</div></div>
+          <div class="rules-special-muted">${escHtml(row.objectType)}</div>
+          <div class="rules-special-policy">${escHtml(siteRuleManagementLabel(row.managementKey))}</div>
+          <div class="rules-special-muted">${escHtml(row.source)}</div>
+          <div class="rules-special-muted">${escHtml(row.status)}</div>
+        </div>`).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminRulesSiteManagement() {
+  const defs = adminRulesPolicyDefs();
+  if (!defs.some((def) => def.key === rulesSiteActivePolicy)) rulesSiteActivePolicy = 'study';
+  renderAdminRulesPolicyNav(defs);
+  if (rulesSiteActivePolicy === 'special') {
+    renderAdminYouTubeSpecialManagement();
+    return;
+  }
+  const def = defs.find((item) => item.key === rulesSiteActivePolicy) || defs[0];
+  const title = document.getElementById('admin-rules-policy-title');
+  const desc = document.getElementById('admin-rules-policy-desc');
+  const container = document.getElementById('admin-rules-site-directory');
+  if (title) title.textContent = def.label;
+  if (desc) desc.textContent = `${def.description}。当前规则由云端设定，本设备仅展示当前生效规则。`;
+  if (!container) return;
+  container.innerHTML = [
+    renderAdminRulesGroup('系统配置', '来自云端系统网站配置，同步到本机后只读展示', normalizeDomainList(def.systemList), '系统配置'),
+    renderAdminRulesGroup('用户自定义配置', '来自当前孩子档案的自定义网站配置，本机不可修改', normalizeDomainList(def.customList), '用户自定义配置'),
+    renderAdminRulesGroup('已批准精确规则', '来自网站归类审批后的精确 URL 或特殊对象规则，本机不可审批', uniqueSiteRules(def.targetRules), '已批准精确规则'),
+  ].join('');
+}
 function renderRulesPage() {
   syncRulesTabs();
 
@@ -1816,67 +1993,11 @@ function renderRulesPage() {
     modeDescEl.textContent = '当前规则由家长在云端设定，本设备仅展示当前生效规则';
   }
 
-  renderSiteGroup('rules-studylist-display', {
-    effectiveList: config?.studyList,
-    systemList: pickFirstArrayField(config, [
-      'defaultStudySites',
-      'defaultStudyList',
-      'systemConfiguredStudySites',
-      'systemConfiguredStudyList',
-    ]),
-    customList: config?.customStudyList,
-    targetRules: approvedUrlRulesForDecision('study'),
-    targetRuleTitle: '已批准学习精确链接',
-  });
-  renderSiteGroup('rules-composite-display', {
-    effectiveList: config?.compositeList,
-    systemList: mergeArrayFields(config, [
-      'defaultCompositeSites',
-      'defaultCompositeList',
-      'defaultUserCompositeSites',
-      'defaultUserCompositeList',
-      'recommendedCompositeSites',
-      'systemConfiguredCompositeSites',
-      'systemConfiguredCompositeList',
-      'systemConfiguredUserCompositeSites',
-      'systemConfiguredUserCompositeList',
-    ]),
-    customList: config?.customCompositeList,
-    targetRules: approvedUrlRulesForDecision('composite'),
-    targetRuleTitle: '已批准复合精确链接',
-  });
-  renderSiteGroup('rules-restricted-display', {
-    effectiveList: config?.restrictedEntertainmentList,
-    systemList: pickFirstArrayField(config, [
-      'defaultRestrictedEntertainmentSites',
-      'defaultRestrictedEntertainmentList',
-      'systemConfiguredRestrictedEntertainmentSites',
-      'systemConfiguredRestrictedEntertainmentList',
-    ]),
-    customList: config?.customRestrictedEntertainmentList,
-    targetRules: approvedUrlRulesForDecision('reject'),
-    targetRuleTitle: '受限娱乐精确链接',
-  });
-  renderSiteGroup('rules-blocked-display', {
-    effectiveList: config?.unsafeList || config?.blacklist,
-    systemList: pickFirstArrayField(config, [
-      'defaultBlockedSites',
-      'defaultBlockedList',
-      'defaultUnsafeSites',
-      'defaultUnsafeList',
-      'systemConfiguredBlockedSites',
-      'systemConfiguredBlockedList',
-      'systemConfiguredUnsafeSites',
-      'systemConfiguredUnsafeList',
-    ]),
-    customList: config?.customBlockedSites,
-  });
-
+  renderAdminRulesSiteManagement();
   renderQuotaSection();
   renderScheduleSection();
   renderSiteClassificationRequestSection();
 }
-
 // ──────────────────────────────────────────────────────────────────────────
 
 

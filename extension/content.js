@@ -152,6 +152,62 @@
   patchAudioContext(window.AudioContext);
   patchAudioContext(window.webkitAudioContext);
 
+  // YouTube 频道规则需要具体视频页提供频道上下文；优先读取视频作者区域，
+  // 避免误抓推荐区或评论区的频道链接。
+  function normalizeYouTubeChannelPath(pathname) {
+    const path = String(pathname || '').split('?')[0].split('#')[0];
+    const match = path.match(/^\/(@[^/?#]+|channel\/[^/?#]+|c\/[^/?#]+|user\/[^/?#]+)/i);
+    return match ? `/${match[1]}` : null;
+  }
+
+  function readYouTubeChannelTarget() {
+    if (!canRenderTopFrameUi) return null;
+    const host = String(location.hostname || '').replace(/^www\./i, '').toLowerCase();
+    if (host !== 'youtube.com') return null;
+
+    const directPath = normalizeYouTubeChannelPath(location.pathname);
+    if (directPath) return `https://www.youtube.com${directPath}`;
+
+    const videoOwnerSelectors = [
+      'ytd-video-owner-renderer a[href^="/@"]',
+      'ytd-video-owner-renderer a[href^="/channel/"]',
+      'ytd-video-owner-renderer a[href^="/c/"]',
+      'ytd-video-owner-renderer a[href^="/user/"]',
+      '#owner a[href^="/@"]',
+      '#owner a[href^="/channel/"]',
+      '#owner a[href^="/c/"]',
+      '#owner a[href^="/user/"]',
+    ];
+    for (const selector of videoOwnerSelectors) {
+      const href = document.querySelector(selector)?.getAttribute('href');
+      const channelPath = normalizeYouTubeChannelPath(href);
+      if (channelPath) return `https://www.youtube.com${channelPath}`;
+    }
+
+    const canonical = document.querySelector('link[itemprop="url"]')?.getAttribute('href');
+    if (canonical) {
+      try {
+        const parsed = new URL(canonical, location.origin);
+        const channelPath = normalizeYouTubeChannelPath(parsed.pathname);
+        if (channelPath) return `https://www.youtube.com${channelPath}`;
+      } catch {}
+    }
+    return null;
+  }
+
+  function reportSpecialSiteContext(reason = 'content_ready') {
+    const channelTarget = readYouTubeChannelTarget();
+    if (!channelTarget || !chrome.runtime?.id) return;
+    try {
+      chrome.runtime.sendMessage({
+        type: 'SPECIAL_SITE_CONTEXT',
+        platform: 'youtube',
+        reason,
+        specialSiteTargets: [channelTarget],
+        observedAt: Date.now(),
+      });
+    } catch {}
+  }
   // ── 标题变化追踪（复合型网站会话记录，Phase 2）────────────────────────────
 
   let lastTitle = document.title;
@@ -171,6 +227,7 @@
       if (document.title !== lastTitle) {
         lastTitle = document.title;
         reportTitleChange(lastTitle);
+        reportSpecialSiteContext('title_change');
       }
     }, 1000);
   }
@@ -266,6 +323,7 @@
         readyAt: Date.now(),
       });
     } catch {}
+    reportSpecialSiteContext(readyReason);
   }
 
   // Notify background that the top-frame listener is ready, so a pending

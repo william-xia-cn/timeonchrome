@@ -166,13 +166,13 @@
     "music.163.com"
   ],
   "defaultUserCompositeSites": [
-    "youtube.com",
     "wikipedia.org",
     "wikimedia.org",
     "stackexchange.com",
     "reddit.com"
   ],
   "defaultRestrictedEntertainmentSites": [
+    "youtube.com",
     "bilibili.com",
     "netflix.com",
     "disneyplus.com",
@@ -1461,9 +1461,9 @@
       "domain": "youtube.com",
       "name": "YouTube",
       "contentCategory": "视频/直播",
-      "classification": "composite",
+      "classification": "restricted",
       "confidence": "high",
-      "notes": "System default composite site catalog metadata."
+      "notes": "Special site root domain. YouTube videos, playlists, and channels are managed by object-level rules."
     },
     {
       "domain": "wikipedia.org",

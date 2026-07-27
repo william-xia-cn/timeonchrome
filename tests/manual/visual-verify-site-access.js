@@ -50,7 +50,7 @@ async function run() {
     mode: 'study',
     enabled: true,
     studyList: ['drive.google.com', 'docs.google.com', 'keystoneacademy.cn', 'custom-study.example.com'],
-    compositeList: ['google.com', 'www.google.com', 'bing.com', 'youtube.com', 'custom-composite.example.com'],
+    compositeList: ['google.com', 'www.google.com', 'bing.com', 'wikipedia.org', 'custom-composite.example.com'],
     unsafeList: ['douyin.com', 'tiktok.com', 'custom-blocked.example.com'],
     restrictedEntertainmentList: ['bilibili.com', 'netflix.com', 'custom-restricted.example.com'],
     customStudyList: ['keystoneacademy.cn', 'custom-study.example.com'],
@@ -85,8 +85,8 @@ async function run() {
     version: 1,
     defaultStudySites: ['drive.google.com', 'docs.google.com', 'sheets.google.com', 'slides.google.com', 'meet.google.com'],
     defaultCompositeSites: ['google.com', 'google.com.hk', 'bing.com', 'microsoft.com', 'apple.com', 'adobe.com', 'music.youtube.com', 'spotify.com', 'music.163.com'],
-    defaultUserCompositeSites: ['youtube.com', 'wikipedia.org', 'wikimedia.org', 'britannica.com', 'stackoverflow.com', 'stackexchange.com', 'reddit.com'],
-    defaultRestrictedEntertainmentSites: ['bilibili.com', 'netflix.com', 'disneyplus.com', 'hulu.com'],
+    defaultUserCompositeSites: ['wikipedia.org', 'wikimedia.org', 'stackoverflow.com', 'stackexchange.com', 'reddit.com'],
+    defaultRestrictedEntertainmentSites: ['youtube.com', 'bilibili.com', 'netflix.com', 'disneyplus.com', 'hulu.com'],
     defaultBlockedSites: ['douyin.com', 'tiktok.com']
   };
 

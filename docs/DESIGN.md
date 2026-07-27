@@ -437,6 +437,8 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - 旧 `profile-config` 和 `system-access-config` 文件仅保留导入兼容；新导出不再提供多个独立按钮；
 - 系统配置导入是全局操作，不属于普通 profile restore；
 - Pages 配置文件区选择文件后统一生成新增/删除/修改差异，按“用户配置 / 系统配置”分组，允许勾选差异后再应用；系统网站配置仍必须经过系统配置 preflight、管理员权限和全局影响确认。
+
+本地 Admin 访问管理是只读视图：读取本机已同步的 `guardian_config` 与本地 `site_classification_requests_v1`，用云端控制台风格展示网站管理、时间配额、时间段管理和网站归类记录，但不写 profile config、不调用系统配置写接口、不审批归类记录。YouTube 特殊网站在本地以单一规则列表展示根域和已同步的具体对象规则；本地 Admin 不直接编辑规则，孩子仍可在 Popup 对支持的视频、播放列表、频道发起学习申请，家长在云端审批或调整后同步到本机。
 - Pages 网站管理 UI 使用“管理策略目录”作为主结构，左侧按学习/复合/受限娱乐/黑名单四类显示系统配置、自定义、精确规则和已使用未归类数量，右侧按来源分组展示网站目录；
 - 网站管理页内的系统配置区使用“系统网站配置-分类管理”分组：系统配置网站按 `siteCatalog.contentCategory` 展示 Qustodio 风格内容分类；系统默认网站库必须覆盖所有 `default*Sites` 的 `siteCatalog` 元数据，Worker 读取旧 D1 配置时会用 fallback catalog 补齐缺失项；没有任何目录元数据可推断的系统站点才进入“未标注分类”；
 - 管理员点击系统配置网站可同时编辑内容分类和管理策略分类，保存时通过 `/system/access-management-config/v1` 更新 `siteCatalog` 并同步维护 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites`；该操作全局生效，必须显示确认；
@@ -445,6 +447,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - 用户自定义配置项移动分类只迁移 profile custom list；系统配置项移动分类必须走系统访问配置 API、管理员权限和全局影响确认。
 - 网站归类动作使用统一写入前校验：家长添加、孩子申请学习归类、家长审批、Worker 设备上传都必须阻止受限娱乐/黑名单父域下新增学习/复合子域或精确 URL；运行时解析不迁移历史配置。
 - Popup “申请归为学习网站”入口点击时先通过 `VALIDATE_SITE_CLASSIFICATION_REQUEST` 执行只读 dry-run 校验；校验失败不展开申请面板、不创建记录；提交按钮保留同一 dry-run 作为手动输入后的二次保护。
+- 特殊网站对象管理以 YouTube 为第一版：`youtube.com` 根域为受限娱乐，具体 video / playlist / channel 对象通过 `siteClassificationRulesV1` 作为独立规则行管理；云端访问管理页可把具体对象在学习、复合、受限娱乐、黑名单之间变更，根域仍不能直接改为学习或复合；特殊对象校验可在 `youtube.com` 受限父域下例外通过，普通 URL 和普通子域仍受父域保护。频道规则覆盖视频页时依赖 content script 上报频道 canonical target，未识别频道时视频页按具体视频规则或根域受限娱乐处理。
 
 访问管理 bundle 格式：
 

@@ -521,6 +521,7 @@ export async function handleMessage(msg, sender) {
         'cloud_device_token',
         'cloud_device_id',
         'cloud_profile_id',
+        'cloud_connection_state_v1',
         'cloud_last_sync',
         'cloud_config_version',
         'cloud_credentials',
@@ -529,14 +530,16 @@ export async function handleMessage(msg, sender) {
       ]);
 
       const v1Sync = await getStatsFoundationV1SyncStatus().catch(() => null);
-      const isBound = !!storage['cloud_device_token'];
+      const syncStateRef = getSyncState();
+      const connectionState = storage['cloud_connection_state_v1'] || {};
+      const isBound = !!storage['cloud_device_token'] || !!syncStateRef.deviceToken;
       return {
         isBound,
         localMode: !isBound,
         syncEnabled: isBound,
         reason: isBound ? null : 'no_device_token',
-        deviceId: storage['cloud_device_id'] || null,
-        profileId: storage['cloud_profile_id'] || null,
+        deviceId: storage['cloud_device_id'] || syncStateRef.deviceId || connectionState.deviceId || null,
+        profileId: storage['cloud_profile_id'] || syncStateRef.profileId || connectionState.profileId || null,
         hasCredentials: !!storage['account_refresh_token'] || !!storage['cloud_credentials'],
         lastSync: storage['cloud_last_sync'] || 0,
         configVersion: storage['cloud_config_version'] || 0,

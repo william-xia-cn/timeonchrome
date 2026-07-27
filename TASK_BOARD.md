@@ -22,9 +22,32 @@
   - Not daily scheduler, not routine bugfix guide, not every-session prompt generator
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
+## Current Fix Focus（2026-07-28）
+- [x] [Version] 当前源版本提升到 `1.7.16`：`extension/manifest.json`、`docs/CHANGELOG.md` 与版本断言测试同步；本轮用于发布 Popup 绑定状态修复、访问管理 UI 和 YouTube 特殊网站管理更新。
+- [x] Popup 已绑定状态误报本地模式修复
+  - 目标：把云端绑定状态与 activation gate 状态分开；Popup 同时参考 storage 标准绑定键和 cloud-sync 运行态；已绑定但门禁未通过时显示具体待处理原因，不再显示“本地模式”。
+  - 边界：不改绑定、同步、计时、拦截或申请逻辑。`n- [x] 本地访问管理只读 UI 对齐云端展示
+  - 目标：本地 Admin 访问管理改为云端风格只读目录，保留网站管理、时间配额、时间段管理、网站归类记录；网站管理新增特殊网站入口并单独展示 YouTube。
+  - 边界：不改云端 Pages 可编辑逻辑，不改 Worker/API/storage schema，不允许本地新增、审批或保存配置。
+- [x] 云端 Pages YouTube 特殊规则列表化
+  - 目标：将云端访问管理里的 YouTube 特殊网站区同步为单一规则列表，每行展示对象、类型、管理属性、来源和操作。
+  - 边界：保留云端可编辑；特殊对象可在当前真实生效的学习、复合、受限娱乐之间变更，根域 youtube.com 仍固定受限娱乐。`n- [x] 本地 Admin YouTube 特殊规则列表化
+  - 目标：把 YouTube 特殊网站页从多块说明改为单一规则列表，每行展示对象、类型、管理属性、来源和只读状态。
+  - 边界：本地 Admin 不直接编辑；Popup 仍可发起学习申请，云端家长控制台审批或调整后同步到本机。
+- [x] Popup YouTube 特殊申请面板 UI 重设计
+  - 目标：把 YouTube 特殊申请从原生按钮/重提示块改为紧凑卡片、分段对象按钮、轻说明和确认信息条。
+  - 边界：只改 Popup 申请面板 UI 和文案，不改申请提交、后台校验、特殊网站规则或 Pages 网站管理。
+- [x] Popup YouTube 频道选项和颜色可读性补丁
+  - 目标：加深特殊申请面板字体颜色，修复 CSS 可读性问题，并把 content script 上报的 YouTube 频道上下文纳入 Popup 对象选项；无频道上下文时不显示频道。
+- [x] Popup YouTube 默认单个视频和字体补丁
+  - 目标：YouTube watch 同时包含视频和播放列表时默认申请单个视频；特殊申请面板使用正常 UI 字体，降低过重字重和等宽字体带来的违和感。
 ## Current Fix Focus（2026-07-27）
+- [x] 特殊网站管理：YouTube 根域受限、对象级学习/复合规则
+  - 目标：`youtube.com` 根域进入受限娱乐；具体视频、播放列表、频道可作为特殊对象由家长批准为学习或复合。
+  - 目标：Popup 对 YouTube 使用特殊申请面板；Pages 网站管理新增特殊网站入口。
+  - 边界：不改变绑定、计时、同步、DeviceToken 或部署逻辑；`music.youtube.com` 本轮不变。
 - [x] defaultUserCompositeSites 运行时加载一致性修订
-  - 目标：修复现有 Profile 未稳定加载 `defaultUserCompositeSites`，导致 `youtube.com` 等系统复合默认站点掉成未归类的问题。
+  - 目标：修复现有 Profile 未稳定加载 `defaultUserCompositeSites`，导致部分系统复合默认站点掉成未归类的问题。
   - 目标：Worker effective config、扩展端配置归一化、分类解析、Popup/Admin 展示统一把 `defaultUserCompositeSites` 作为复合系统来源。
   - 边界：不改变未归类访问路由，不把 YouTube 改为学习，不迁移历史统计。
 - [x] 网站归类动作统一校验

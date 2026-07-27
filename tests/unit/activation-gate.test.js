@@ -101,7 +101,7 @@ function run() {
     admin.includes('canUseChromeIdentityForAdmin'));
   expectTrue('popup can show managed deployment notice',
     popup.includes('受管理部署') &&
-    popup.includes('扩展已由管理策略启用'));
+    popup.includes('设备已绑定云端，并检测到受管理部署'));
 }
 
 run();

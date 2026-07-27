@@ -24,6 +24,7 @@ const CLASSIFICATION_TIE_PRIORITY = {
 };
 
 const SITE_CLASSIFICATION_YOUTUBE_HOSTS = new Set(['youtube.com', 'youtu.be']);
+const YOUTUBE_SPECIAL_OBJECT_KINDS = new Set(['video', 'playlist', 'channel']);
 
 export function normalizeSiteClassificationTarget(input) {
   const rawInput = String(input || '').trim();
@@ -53,6 +54,7 @@ export function normalizeSiteClassificationTarget(input) {
           normalizedValue: canonicalYouTube.normalizedValue,
           displayValue: canonicalYouTube.normalizedValue,
           host: canonicalYouTube.host,
+          specialSite: canonicalYouTube.specialSite || null,
         };
       }
       parsed.hash = '';
@@ -145,6 +147,26 @@ function normalizeYouTubeId(value) {
   return text.replace(/[^a-zA-Z0-9_-]/g, '') || null;
 }
 
+function youtubeSpecialSite(kind, id = null) {
+  return { platform: 'youtube', kind, id };
+}
+
+function canonicalizeYouTubeChannelPath(path) {
+  const parts = String(path || '').split('/').filter(Boolean);
+  if (!parts.length) return null;
+  const first = parts[0] || '';
+  if (first.startsWith('@')) {
+    const handle = first.slice(1).replace(/[^a-zA-Z0-9_.-]/g, '');
+    return handle ? { id: `@${handle.toLowerCase()}`, path: `/@${handle.toLowerCase()}` } : null;
+  }
+  if (['channel', 'c', 'user'].includes(first)) {
+    const raw = parts[1] || '';
+    const id = raw.replace(/[^a-zA-Z0-9_.-]/g, '');
+    return id ? { id: `${first}/${id.toLowerCase()}`, path: `/${first}/${id.toLowerCase()}` } : null;
+  }
+  return null;
+}
+
 function canonicalizeYouTubeUrl(parsed, host) {
   if (!parsed || !isSiteClassificationYouTubeHost(host)) return null;
   const path = parsed.pathname || '/';
@@ -153,6 +175,15 @@ function canonicalizeYouTubeUrl(parsed, host) {
     return {
       host: 'www.youtube.com',
       normalizedValue: `https://www.youtube.com/playlist?list=${playlistId}`,
+      specialSite: youtubeSpecialSite('playlist', playlistId),
+    };
+  }
+  const channel = canonicalizeYouTubeChannelPath(path);
+  if (channel) {
+    return {
+      host: 'www.youtube.com',
+      normalizedValue: `https://www.youtube.com${channel.path}`,
+      specialSite: youtubeSpecialSite('channel', channel.id),
     };
   }
   let videoId = null;
@@ -167,7 +198,25 @@ function canonicalizeYouTubeUrl(parsed, host) {
   return {
     host: 'www.youtube.com',
     normalizedValue: `https://www.youtube.com/watch?v=${videoId}`,
+    specialSite: youtubeSpecialSite('video', videoId),
   };
+}
+
+export function getSiteClassificationSpecialTargets(input) {
+  const values = Array.isArray(input) ? input : [input];
+  return values
+    .map((value) => value?.ok ? value : normalizeSiteClassificationTarget(value?.normalizedValue || value?.targetValue || value?.value || value || ''))
+    .filter((target) => target?.ok && target.targetType === 'url' && target.specialSite?.platform === 'youtube' && YOUTUBE_SPECIAL_OBJECT_KINDS.has(target.specialSite.kind))
+    .map((target) => ({
+      targetType: 'url',
+      normalizedValue: target.normalizedValue,
+      host: target.host,
+      specialSite: target.specialSite,
+    }));
+}
+
+export function isAllowedSpecialSiteActionTarget(target) {
+  return target?.ok === true && target.targetType === 'url' && target.specialSite?.platform === 'youtube' && YOUTUBE_SPECIAL_OBJECT_KINDS.has(target.specialSite.kind);
 }
 
 function normalizeHostPattern(pattern) {
@@ -186,16 +235,24 @@ function normalizeHostPattern(pattern) {
 }
 
 function normalizeUrlOrDomainInput(urlOrDomain) {
-  const raw = String(urlOrDomain || '').trim();
-  if (!raw) return { host: null, normalizedUrl: null };
+  const rawInput = urlOrDomain && typeof urlOrDomain === 'object'
+    ? (urlOrDomain.url || urlOrDomain.input || urlOrDomain.domain || '')
+    : urlOrDomain;
+  const raw = String(rawInput || '').trim();
+  const extraSpecialTargets = getSiteClassificationSpecialTargets(
+    urlOrDomain && typeof urlOrDomain === 'object' ? (urlOrDomain.specialSiteTargets || urlOrDomain.specialTargets || []) : []
+  );
+  if (!raw) return { host: null, normalizedUrl: null, specialSiteTargets: extraSpecialTargets };
   if (/^https?:\/\//i.test(raw)) {
     const target = normalizeSiteClassificationTarget(raw);
+    const ownSpecialTargets = getSiteClassificationSpecialTargets(target.ok ? target : []);
     return {
       host: target.ok ? target.host : null,
       normalizedUrl: target.ok && target.targetType === 'url' ? target.normalizedValue : null,
+      specialSiteTargets: [...ownSpecialTargets, ...extraSpecialTargets],
     };
   }
-  return { host: normalizeHostname(raw), normalizedUrl: null };
+  return { host: normalizeHostname(raw), normalizedUrl: null, specialSiteTargets: extraSpecialTargets };
 }
 
 function hostSpecificity(pattern, host) {
@@ -222,10 +279,15 @@ function targetSpecificity(target, normalizedInput) {
   const normalizedValue = target.normalizedValue || target.targetValue || target.decisionNormalizedValue || target.requestedNormalizedValue || target.value;
   if (targetType === 'url') {
     const current = normalizedInput.normalizedUrl;
-    if (!current) return null;
     const normalizedTarget = normalizeSiteClassificationTarget(normalizedValue);
     const effectiveValue = normalizedTarget.ok && normalizedTarget.targetType === 'url' ? normalizedTarget.normalizedValue : normalizedValue;
-    return current === effectiveValue ? 100000 + effectiveValue.length : null;
+    if (current === effectiveValue) return 100000 + effectiveValue.length;
+    const specialTargets = Array.isArray(normalizedInput.specialSiteTargets) ? normalizedInput.specialSiteTargets : [];
+    const inherited = specialTargets.some((item) => item?.targetType === 'url' && item.normalizedValue === effectiveValue);
+    if (inherited && normalizedTarget.ok && normalizedTarget.specialSite?.kind === 'channel') {
+      return 95000 + effectiveValue.length;
+    }
+    return null;
   }
   if (targetType === 'host') {
     return hostSpecificity(normalizedValue, normalizedInput.host);
@@ -458,7 +520,7 @@ function protectedAncestorForAction(target, actionClassification, configuredTarg
     const targetHost = target.host;
     if (!itemHost || !targetHost || !matchDomain(targetHost, itemHost)) continue;
     if (item.classification === 'blocked' && !canBypassBlocked) return item;
-    if (item.classification === 'restricted' && !canBypassRestricted) return item;
+    if (item.classification === 'restricted' && !canBypassRestricted && !isAllowedSpecialSiteActionTarget(target)) return item;
   }
   return null;
 }

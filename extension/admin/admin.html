@@ -1131,6 +1131,161 @@
     .rules-panel.active {
       display: block;
     }
+    .rules-readonly-shell {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .rules-policy-nav {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px;
+    }
+    .rules-policy-btn {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .rules-policy-btn.active {
+      background: rgba(37,99,235,0.10);
+      color: #1d4ed8;
+      font-weight: 700;
+    }
+    .rules-policy-count {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .rules-readonly-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .rules-readonly-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .rules-site-group {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .rules-site-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      background: rgba(0,184,148,0.035);
+      border-bottom: 1px solid var(--border);
+    }
+    .rules-site-group-title { font-size: 14px; font-weight: 700; }
+    .rules-site-group-subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.5; }
+    .rules-site-list { padding: 12px 16px; }
+    .rules-site-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(0,184,148,0.08);
+    }
+    .rules-site-row:last-child { border-bottom: 0; }
+    .rules-site-domain { font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+    .rules-site-meta { color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.45; }
+    .rules-site-badge {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      background: #fff;
+    }
+    .rules-special-list {
+      padding: 0 16px 8px;
+    }
+    .rules-special-header,
+    .rules-special-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 2fr) minmax(90px, 0.75fr) minmax(90px, 0.75fr) minmax(120px, 0.9fr) minmax(170px, 1.2fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .rules-special-header {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 12px 0 8px;
+      border-bottom: 1px solid rgba(0,184,148,0.10);
+    }
+    .rules-special-row {
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(0,184,148,0.08);
+      font-size: 13px;
+    }
+    .rules-special-row:last-child { border-bottom: 0; }
+    .rules-special-object { font-weight: 650; overflow-wrap: anywhere; }
+    .rules-special-muted { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .rules-special-policy { color: var(--text); font-weight: 650; }
+    @media (max-width: 900px) {
+      .rules-readonly-shell { grid-template-columns: 1fr; }
+      .rules-special-header { display: none; }
+      .rules-special-row { grid-template-columns: 1fr; gap: 6px; }
+    }
+    .rules-readonly-empty {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .rules-quota-grid,
+    .rules-schedule-grid { overflow-x: auto; }
+    .rules-grid-row {
+      display: grid;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      min-width: 760px;
+    }
+    .rules-grid-row.header { color: var(--muted); font-size: 12px; font-weight: 700; padding-top: 0; }
+    .rules-grid-row.quota { grid-template-columns: 80px repeat(3, minmax(140px, 1fr)); }
+    .rules-grid-row.schedule { grid-template-columns: 80px repeat(4, minmax(140px, 1fr)); }
+    .rules-readonly-value {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 6px 9px;
+      background: rgba(0,184,148,0.04);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
     .system-management-panel {
       display: none;
     }
@@ -1463,53 +1618,30 @@
 
       <div class="usage-segmented rules-tabs" aria-label="访问管理功能">
         <button type="button" class="active" data-rules-tab="site-management">网站管理</button>
-        <button type="button" data-rules-tab="quota-management">配额管理</button>
+        <button type="button" data-rules-tab="quota-management">时间配额</button>
         <button type="button" data-rules-tab="schedule-management">时间段管理</button>
         <button type="button" data-rules-tab="classification-requests">网站归类记录</button>
       </div>
 
       <div class="rules-panel active" data-rules-panel="site-management">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/study.svg" alt="">学习网站</div>
-              <div class="card-subtitle">学习模式下允许访问，计入学习时长</div>
+        <div class="rules-readonly-shell">
+          <aside class="rules-policy-nav" id="admin-rules-policy-nav" aria-label="网站管理策略目录">
+            <!-- rendered by admin.js -->
+          </aside>
+          <div class="rules-readonly-main">
+            <div class="rules-readonly-toolbar">
+              <div>
+                <div class="card-title" id="admin-rules-policy-title">网站管理</div>
+                <div class="rules-readonly-note" id="admin-rules-policy-desc">当前规则由云端设定，本机仅展示同步后的生效结果。</div>
+              </div>
+              <span class="rules-site-badge">只读</span>
+            </div>
+            <div id="admin-rules-site-directory">
+              <div class="rules-readonly-empty">加载网站规则中…</div>
             </div>
           </div>
-          <div id="rules-studylist-display">暂无配置</div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/composite.svg" alt="">复合网站</div>
-              <div class="card-subtitle">学习模式下可访问，计入待归类时间</div>
-            </div>
-          </div>
-          <div id="rules-composite-display">暂无配置</div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/restricted.svg" alt="">受限娱乐网站</div>
-              <div class="card-subtitle">自由时间可访问，学习模式下受限</div>
-            </div>
-          </div>
-          <div id="rules-restricted-display">暂无配置</div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/blocked.svg" alt="">黑名单网站</div>
-              <div class="card-subtitle">任何时间均不可访问</div>
-            </div>
-          </div>
-          <div id="rules-blocked-display">暂无配置</div>
         </div>
       </div>
-
       <div class="rules-panel" data-rules-panel="quota-management">
         <div class="card">
           <div class="card-header">

@@ -38,21 +38,21 @@ function validateFeed({ xml, extensionId = EXTENSION_ID, expectedVersion, expect
   return feedVersion;
 }
 
-function feed({ version = '1.7.15', codebase = `https://timeonchrome-update.pages.dev/timeonchrome/timeonchrome-${version}.crx`, extensionId = EXTENSION_ID } = {}) {
+function feed({ version = '1.7.16', codebase = `https://timeonchrome-update.pages.dev/timeonchrome/timeonchrome-${version}.crx`, extensionId = EXTENSION_ID } = {}) {
   return `<?xml version="1.0"?><gupdate xmlns="http://www.google.com/update2/response"><app appid="${extensionId}"><updatecheck codebase="${codebase}" version="${version}" /></app></gupdate>`;
 }
 
 const latestInputs = [undefined, '', 'latest'];
 for (const expectedVersion of latestInputs) {
-  assert.strictEqual(validateFeed({ xml: feed({ version: '1.7.15' }), expectedVersion }), '1.7.15');
+  assert.strictEqual(validateFeed({ xml: feed({ version: '1.7.16' }), expectedVersion }), '1.7.16');
 }
 
-assert.throws(() => validateFeed({ xml: feed({ codebase: 'http://timeonchrome-update.pages.dev/timeonchrome/timeonchrome-1.7.15.crx' }), expectedVersion: 'latest' }), /https/);
-assert.throws(() => validateFeed({ xml: feed({ version: '1.7.15', codebase: 'https://timeonchrome-update.pages.dev/timeonchrome/timeonchrome-1.7.14.crx' }), expectedVersion: 'latest' }), /filename/);
-assert.strictEqual(validateFeed({ xml: feed({ version: '1.7.15' }), expectedVersion: '1.7.15' }), '1.7.15');
-assert.throws(() => validateFeed({ xml: feed({ version: '1.7.15' }), expectedVersion: '1.7.14' }), /pinned version/);
-assert.strictEqual(validateFeed({ xml: feed({ version: '1.7.15' }), expectedVersion: '1.7.15', expectedCrxCodebaseSuffix: 'timeonchrome-{version}.crx' }), '1.7.15');
-assert.throws(() => validateFeed({ xml: feed({ version: '1.7.15' }), expectedVersion: '1.7.15', expectedCrxCodebaseSuffix: 'timeonchrome-1.7.14.crx' }), /suffix/);
+assert.throws(() => validateFeed({ xml: feed({ codebase: 'http://timeonchrome-update.pages.dev/timeonchrome/timeonchrome-1.7.16.crx' }), expectedVersion: 'latest' }), /https/);
+assert.throws(() => validateFeed({ xml: feed({ version: '1.7.16', codebase: 'https://timeonchrome-update.pages.dev/timeonchrome/timeonchrome-1.7.15.crx' }), expectedVersion: 'latest' }), /filename/);
+assert.strictEqual(validateFeed({ xml: feed({ version: '1.7.16' }), expectedVersion: '1.7.16' }), '1.7.16');
+assert.throws(() => validateFeed({ xml: feed({ version: '1.7.16' }), expectedVersion: '1.7.15' }), /pinned version/);
+assert.strictEqual(validateFeed({ xml: feed({ version: '1.7.16' }), expectedVersion: '1.7.16', expectedCrxCodebaseSuffix: 'timeonchrome-{version}.crx' }), '1.7.16');
+assert.throws(() => validateFeed({ xml: feed({ version: '1.7.16' }), expectedVersion: '1.7.16', expectedCrxCodebaseSuffix: 'timeonchrome-1.7.15.crx' }), /suffix/);
 
 const pierceInstaller = fs.readFileSync(path.join(__dirname, '../../docs/deployment/pierce-macos-target/timeonchrome-managed-installer.sh'), 'utf8');
 assert(!/Configured version must be 1\.7\.15/.test(pierceInstaller));

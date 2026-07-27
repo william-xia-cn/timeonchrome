@@ -43,6 +43,11 @@ async function getContext() {
     contentType: 'text/html',
     body: '<!doctype html><html><head><title>YouTube Test Page</title></head><body><main>YouTube Test Page</main></body></html>',
   }));
+  await browserCtx.route('https://www.wikipedia.org/**', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: '<!doctype html><html><head><title>Wikipedia Test Page</title></head><body><main>Wikipedia Test Page</main></body></html>',
+  }));
 
   // Discover extension ID from service worker URL
   let sw = browserCtx.serviceWorkers()[0];
@@ -365,10 +370,10 @@ test('T-E12: Study → Composite light prompt appears, shows correct copy, and i
   });
   await new Promise(r => setTimeout(r, 500));
 
-  // Navigate to youtube.com which is in DEFAULT_CONFIG.compositeList
+  // Navigate to wikipedia.org which is in DEFAULT_CONFIG.compositeList
   // and NOT in studyList, so it should trigger Study → Composite light prompt
   const page = await ctx.newPage();
-  await page.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await page.goto('https://www.wikipedia.org', { waitUntil: 'domcontentloaded', timeout: 15000 });
 
   // Wait for the banner host element to appear (content script runs at document_start)
   const bannerHost = page.locator('#__toc_mode_notice__');
@@ -408,9 +413,9 @@ test('T-E12b: Study → Composite light prompt appears on page refresh', async (
   });
   await new Promise(r => setTimeout(r, 500));
 
-  // Navigate to youtube.com (default compositeList, not in studyList)
+  // Navigate to wikipedia.org (default compositeList, not in studyList)
   const page = await ctx.newPage();
-  await page.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await page.goto('https://www.wikipedia.org', { waitUntil: 'domcontentloaded', timeout: 15000 });
 
   // Wait for initial banner to appear
   const bannerHost = page.locator('#__toc_mode_notice__');
@@ -497,7 +502,7 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
 
   // Step 1: Open a composite site tab and wait for the initial prompt.
   const compositePage = await ctx.newPage();
-  await compositePage.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await compositePage.goto('https://www.wikipedia.org', { waitUntil: 'domcontentloaded', timeout: 15000 });
   const bannerHost = compositePage.locator('#__toc_mode_notice__');
   await expect(bannerHost).toBeAttached({ timeout: 10000 });
   await expect(bannerHost).not.toBeAttached({ timeout: 8000 });
@@ -519,7 +524,7 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
       mode_effect_trace_v1: [],
     });
   });
-  const compositeActivation = await activateChromeTabByUrlPrefix(sw, 'https://www.youtube.com/');
+  const compositeActivation = await activateChromeTabByUrlPrefix(sw, 'https://www.wikipedia.org/');
   expect(compositeActivation.ok).toBe(true);
 
   // Step 4: Verify banner appears on the activated composite tab. Wait for the

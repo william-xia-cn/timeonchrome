@@ -87,8 +87,9 @@ function loadModeService(stubs = {}) {
         sourceDomain: context.domain || null,
       },
     }),
-    resolveSiteAccessClassification: (cfg, _records, url) => {
-      const host = (() => { try { return new URL(url).hostname; } catch { return ''; } })();
+    resolveSiteAccessClassification: (cfg, _records, input) => {
+      const rawUrl = typeof input === 'string' ? input : input?.url;
+      const host = (() => { try { return new URL(rawUrl).hostname; } catch { return ''; } })();
       const match = (patterns = []) => patterns.some((p) => host === p || host.endsWith(`.${p}`));
       if (match(cfg.unsafeList || cfg.blacklist || [])) return { classification: 'blocked' };
       if (match(cfg.restrictedEntertainmentList || [])) return { classification: 'restricted' };

@@ -2,6 +2,7 @@
 
 let popupStatsContext = { config: {}, stats: {} };
 let lastPopupSnapshot = {};
+let activeSiteRequestSpecialOptions = [];
 const POPUP_CONFIG_KEY = 'guardian_config';
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const QUOTA_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -102,10 +103,10 @@ function getDefaultSiteRequest() {
   if (reminderTarget) return reminderTarget;
   const currentUrl = normalizePopupUrlInput(lastPopupSnapshot?.url);
   if (currentUrl) {
-    return { input: currentUrl, sourceTabId: lastPopupSnapshot?.tabId ?? null };
+    return { input: currentUrl, sourceTabId: lastPopupSnapshot?.tabId ?? null, specialSiteTargets: lastPopupSnapshot?.specialSiteTargets || [] };
   }
   const domain = lastPopupSnapshot?.currentDomain || lastPopupSnapshot?.domain || '';
-  return { input: domain || '', sourceTabId: lastPopupSnapshot?.tabId ?? null };
+  return { input: domain || '', sourceTabId: lastPopupSnapshot?.tabId ?? null, specialSiteTargets: lastPopupSnapshot?.specialSiteTargets || [] };
 }
 
 async function openSiteRequestPanel() {
@@ -123,7 +124,7 @@ async function openSiteRequestPanel() {
       openBtn.textContent = '检查中…';
     }
     try {
-      const validation = await validateSiteClassificationRequestInput(defaults.input, defaults.sourceTabId);
+      const validation = await validateSiteClassificationRequestInput(defaults.input, defaults.sourceTabId, defaults.specialSiteTargets || []);
       if (!validation?.ok) {
         renderSiteRequestEntryStatus(siteRequestErrorMessage(validation || {}));
         return;
@@ -138,9 +139,13 @@ async function openSiteRequestPanel() {
       }
     }
   }
+  setSiteRequestPanelMode(defaults.input || '', defaults.specialSiteTargets || []);
   if (entry) entry.style.display = 'none';
   if (panel) panel.style.display = 'block';
-  if (input && !input.value.trim()) input.value = defaults.input || '';
+  if (input && !input.value.trim()) {
+    const firstEnabledOption = activeSiteRequestSpecialOptions[getDefaultYouTubeSpecialRequestOptionIndex(activeSiteRequestSpecialOptions)] || activeSiteRequestSpecialOptions[0];
+    input.value = firstEnabledOption?.value || defaults.input || '';
+  }
   updateSiteRequestPreview();
   if (status) {
     status.className = 'request-status';
@@ -194,6 +199,75 @@ function closeSiteRequestPanel() {
   const panel = document.getElementById('site-request-panel');
   if (entry) entry.style.display = 'flex';
   if (panel) panel.style.display = 'none';
+  activeSiteRequestSpecialOptions = [];
+}
+
+function setSiteRequestPanelMode(rawInput = '', specialSiteTargets = []) {
+  const panel = document.getElementById('site-request-panel');
+  const title = document.getElementById('site-request-panel-title');
+  const primary = document.getElementById('site-request-help-primary');
+  const secondary = document.getElementById('site-request-help-secondary');
+  const optionsEl = document.getElementById('site-request-special-options');
+  const summaryEl = document.getElementById('site-request-special-summary');
+  const options = getYouTubeSpecialRequestOptions(rawInput, specialSiteTargets);
+  activeSiteRequestSpecialOptions = options;
+  if (options.length > 0) {
+    const defaultIndex = getDefaultYouTubeSpecialRequestOptionIndex(options);
+    panel?.setAttribute('data-special-site-request', 'youtube');
+    if (title) title.textContent = '申请 YouTube 学习对象';
+    if (primary) primary.textContent = 'YouTube 首页/推荐仍按受限娱乐；仅视频、播放列表、频道可单独申请。';
+    if (secondary) secondary.textContent = '家长批准前仍计入待归类时间；家长也可以改判为复合网站对象。';
+    if (optionsEl) {
+      optionsEl.className = 'request-special-options active';
+      optionsEl.innerHTML = options.map((item, idx) => `<button type="button" class="${idx === defaultIndex ? 'active' : ''}" data-special-request-option="${idx}">${item.label}</button>`).join('');
+      optionsEl.querySelectorAll('button').forEach((button) => {
+        button.addEventListener('click', () => selectSpecialSiteRequestOption(Number(button.dataset.specialRequestOption)));
+      });
+    }
+    renderSpecialSiteRequestSummary(defaultIndex);
+    return;
+  }
+  panel?.removeAttribute('data-special-site-request');
+  if (title) title.textContent = '申请归为学习网站';
+  if (primary) primary.textContent = '未归类网站访问时会自动生成访问记录。这里用于主动申请归为学习网站；家长批准前仍按待归类时间计入。';
+  if (secondary) secondary.innerHTML = '你可以修改下方内容来调整申请范围。<br>example.com 表示整个网站；<br>learn.example.com 表示子域名；<br>https://example.com/course/1 表示这个具体链接。';
+  if (optionsEl) {
+    optionsEl.className = 'request-special-options';
+    optionsEl.replaceChildren?.();
+    optionsEl.textContent = '';
+  }
+  if (summaryEl) {
+    summaryEl.className = 'request-special-summary';
+    summaryEl.textContent = '';
+  }
+}
+
+function getDefaultYouTubeSpecialRequestOptionIndex(options = []) {
+  const videoIndex = options.findIndex((item) => item?.kind === 'video');
+  return videoIndex >= 0 ? videoIndex : 0;
+}
+function renderSpecialSiteRequestSummary(index = 0) {
+  const summaryEl = document.getElementById('site-request-special-summary');
+  if (!summaryEl) return;
+  const option = activeSiteRequestSpecialOptions[index] || activeSiteRequestSpecialOptions[0];
+  if (!option) {
+    summaryEl.className = 'request-special-summary';
+    summaryEl.textContent = '';
+    return;
+  }
+  summaryEl.className = 'request-special-summary active';
+  summaryEl.textContent = `已识别：${option.label}`;
+}
+function selectSpecialSiteRequestOption(index) {
+  const option = activeSiteRequestSpecialOptions[index];
+  const input = document.getElementById('site-request-input');
+  if (!option || !input) return;
+  input.value = option.value;
+  document.querySelectorAll('[data-special-request-option]').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.specialRequestOption) === index);
+  });
+  renderSpecialSiteRequestSummary(index);
+  updateSiteRequestPreview();
 }
 
 function siteRequestRuntimeErrorMessage(error = {}) {
@@ -301,7 +375,7 @@ function canonicalizeYouTubePreview(parsed, host) {
       ok: true,
       scopeLabel: 'YouTube 播放列表',
       normalizedValue: `https://www.youtube.com/playlist?list=${playlistId}`,
-      summaryValue: `系统将按「YouTube 播放列表」申请，已识别为 YouTube 播放列表 list=${playlistId}。`,
+      summaryValue: '确认对象：YouTube 播放列表',
       note: '',
     };
   }
@@ -313,13 +387,87 @@ function canonicalizeYouTubePreview(parsed, host) {
   } else if (path.startsWith('/shorts/')) {
     videoId = normalizeYouTubePreviewId(path.split('/').filter(Boolean)[1]);
   }
-  if (!videoId) return null;
+  if (!videoId) {
+    const channelPath = normalizeYouTubePreviewChannelPath(path);
+    if (!channelPath) return null;
+    return {
+      ok: true,
+      scopeLabel: 'YouTube 频道',
+      normalizedValue: 'https://www.youtube.com' + channelPath,
+      summaryValue: '确认对象：YouTube 频道',
+      note: '',
+    };
+  }
   return {
     ok: true,
     scopeLabel: 'YouTube 视频',
     normalizedValue: `https://www.youtube.com/watch?v=${videoId}`,
-    note: '已识别为 YouTube 视频，将按这个视频申请。',
+    summaryValue: '确认对象：YouTube 单个视频',
+    note: '',
   };
+}
+
+function getYouTubeSpecialRequestOptions(rawInput = '', specialSiteTargets = []) {
+  const raw = String(rawInput || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return [];
+  try {
+    const parsed = new URL(raw);
+    const host = normalizeHostname(parsed.hostname);
+    if (!isYouTubePreviewHost(host)) return [];
+    const path = parsed.pathname || '/';
+    const options = [];
+    const playlistId = normalizeYouTubePreviewId(parsed.searchParams.get('list'));
+    if (playlistId) {
+      options.push({ kind: 'playlist', label: '播放列表', value: `https://www.youtube.com/playlist?list=${playlistId}` });
+    }
+    const channelPath = normalizeYouTubePreviewChannelPath(path);
+    if (channelPath) {
+      options.push({ kind: 'channel', label: '频道', value: `https://www.youtube.com${channelPath}` });
+    }
+    let videoId = null;
+    if ((stripWwwAlias(host) || host) === 'youtu.be') {
+      videoId = normalizeYouTubePreviewId(path.split('/').filter(Boolean)[0]);
+    } else if (path === '/watch') {
+      videoId = normalizeYouTubePreviewId(parsed.searchParams.get('v'));
+    } else if (path.startsWith('/shorts/')) {
+      videoId = normalizeYouTubePreviewId(path.split('/').filter(Boolean)[1]);
+    }
+    if (videoId) {
+      options.push({ kind: 'video', label: '单个视频', value: `https://www.youtube.com/watch?v=${videoId}` });
+    }
+    const contextChannel = youtubeChannelOptionFromSpecialTargets(specialSiteTargets);
+    if (contextChannel && !options.some((item) => item.kind === 'channel' && item.value === contextChannel.value)) {
+      options.push(contextChannel);
+    }
+    return options;
+  } catch (_) {
+    return [];
+  }
+}
+
+function youtubeChannelOptionFromSpecialTargets(specialSiteTargets = []) {
+  const targets = Array.isArray(specialSiteTargets) ? specialSiteTargets : [];
+  const channel = targets.find((item) => item?.targetType === 'url'
+    && item?.specialSite?.platform === 'youtube'
+    && item?.specialSite?.kind === 'channel'
+    && typeof item.normalizedValue === 'string'
+    && item.normalizedValue.trim());
+  return channel ? { kind: 'channel', label: '频道', value: channel.normalizedValue.trim() } : null;
+}
+function normalizeYouTubePreviewChannelPath(path) {
+  const parts = String(path || '').split('/').filter(Boolean);
+  if (!parts.length) return null;
+  const first = parts[0] || '';
+  if (first.startsWith('@')) {
+    const handle = first.slice(1).replace(/[^a-zA-Z0-9_.-]/g, '');
+    return handle ? `/@${handle.toLowerCase()}` : null;
+  }
+  if (['channel', 'c', 'user'].includes(first)) {
+    const raw = parts[1] || '';
+    const id = raw.replace(/[^a-zA-Z0-9_.-]/g, '');
+    return id ? `/${first}/${id.toLowerCase()}` : null;
+  }
+  return null;
 }
 
 function isYouTubePreviewHost(host) {
@@ -354,12 +502,13 @@ function renderSiteRequestStatus({ kind = 'ok', title = '', body = '', targetTex
   appendSiteRequestStatusLine(status, 'request-status-extra', extra);
 }
 
-async function validateSiteClassificationRequestInput(value, sourceTabId = null) {
+async function validateSiteClassificationRequestInput(value, sourceTabId = null, specialSiteTargets = []) {
   return await sendMsg({
     type: 'VALIDATE_SITE_CLASSIFICATION_REQUEST',
     input: value,
     sourceTabId,
     requestedClassification: 'study',
+    specialSiteTargets: Array.isArray(specialSiteTargets) ? specialSiteTargets : [],
   }, SITE_REQUEST_MESSAGE_OPTIONS);
 }
 
@@ -380,7 +529,7 @@ async function submitSiteClassificationRequest() {
   }
   if (submitBtn) submitBtn.disabled = true;
   try {
-    const validation = await validateSiteClassificationRequestInput(value, defaults.sourceTabId);
+    const validation = await validateSiteClassificationRequestInput(value, defaults.sourceTabId, defaults.specialSiteTargets || []);
     if (!validation?.ok) {
       renderSiteRequestStatus({
         kind: 'err',
@@ -394,6 +543,7 @@ async function submitSiteClassificationRequest() {
       input: value,
       sourceTabId: defaults.sourceTabId,
       requestedClassification: 'study',
+      specialSiteTargets: defaults.specialSiteTargets || [],
     }, SITE_REQUEST_MESSAGE_OPTIONS);
     if (!result?.ok) {
       renderSiteRequestStatus({
@@ -449,23 +599,36 @@ function renderCloudBindingNotice(cloudStatus = {}) {
   const adminBtn = document.getElementById('goto-admin-btn');
   const titleEl = banner ? banner.querySelector('div:first-child') : null;
   const bodyEl = banner ? banner.querySelector('div:nth-child(2)') : null;
-  const needsConsent = cloudStatus?.reason === 'privacy_consent_required';
+  const isBound = cloudStatus?.isBound === true;
+  const reason = cloudStatus?.reason || null;
+  const needsConsent = reason === 'privacy_consent_required' || cloudStatus?.privacyConsentRequired === true;
   const isManaged = cloudStatus?.activationMode === 'managed_policy' || cloudStatus?.activationSource === 'managed_policy';
-  const isLocalMode = !!cloudStatus && !cloudStatus.isBound;
+  const isActivationBlocked = isBound && cloudStatus?.runtimeActivated === false;
+  const isProfileMismatch = reason === 'managed_profile_email_mismatch';
+  const isManagedPending = reason === 'managed_policy_pending' || reason === 'runtime_activation_required';
+  const showBanner = !isBound || needsConsent || isActivationBlocked;
 
-  if (banner) banner.style.display = isLocalMode ? 'block' : 'none';
+  if (banner) banner.style.display = showBanner ? 'block' : 'none';
   if (content) content.style.display = 'block';
   if (titleEl) {
-    titleEl.textContent = needsConsent
-      ? '隐私与数据使用说明待确认'
-      : (isManaged ? '受管理部署' : '本地模式');
+    titleEl.textContent = !isBound
+      ? '本地模式'
+      : (needsConsent
+        ? '隐私与数据使用说明待确认'
+        : (isProfileMismatch
+          ? 'Chrome Profile 未授权'
+          : (isManaged || isManagedPending ? '受管理部署待生效' : '云端绑定待生效')));
   }
   if (bodyEl) {
-    bodyEl.textContent = needsConsent
-      ? '同意后才会启用计时、云同步、诊断上传和设备恢复。'
-      : (isManaged
-        ? '扩展已由管理策略启用；网站规则、配额和时间段仍来自云端配置。'
-        : '当前未绑定云端，数据仅保存在本机。');
+    bodyEl.textContent = !isBound
+      ? '当前未绑定云端，数据仅保存在本机。'
+      : (needsConsent
+        ? '同意后才会启用计时、云同步、诊断上传和设备恢复。'
+        : (isProfileMismatch
+          ? '当前 Chrome Profile 未被此受管部署授权，请切换到受管账号对应的 Chrome Profile。'
+          : (isManaged || isManagedPending
+            ? '设备已绑定云端，并检测到受管理部署；当前运行门禁尚未通过，配置同步后会自动生效。'
+            : '设备已绑定云端，但当前运行门禁尚未通过。')));
   }
   if (adminBtn) {
     adminBtn.textContent = needsConsent ? '查看并同意' : '打开管理中心';
@@ -478,7 +641,6 @@ function renderCloudBindingNotice(cloudStatus = {}) {
     };
   }
 }
-
 async function getRuntimeModeStatusSafe() {
   try {
     return await sendMsg({ type: 'GET_RUNTIME_MODE_STATUS', includeUsageSummary: false }) || {};

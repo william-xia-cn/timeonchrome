@@ -115,7 +115,7 @@ hardBlockedList
 | 娱乐、体育、游戏、旅游、购物、论坛、社交网络、聊天、视频/直播、娱乐门户 | 受限娱乐网站 |
 | 博彩、代理/漏洞、暴力、武器、脏话、成人内容、色情内容、酒精、毒品、烟草 | 黑名单网站 |
 
-固定例外：`youtube.com` / `youtu.be` 保持复合或 YouTube 细化规则入口；`stackoverflow.com` / `stackexchange.com` 保持学习/技术用途；`reddit.com` 暂保持复合；`kahoot.it` / `quizizz.com` 保持课堂工具；`douyin.com` / `tiktok.com` 继续可放黑名单。
+固定例外：`youtube.com` / `youtu.be` 进入特殊网站对象管理，根域按受限娱乐处理，具体视频、播放列表、频道可由家长批准为学习或复合；`stackoverflow.com` / `stackexchange.com` 保持学习/技术用途；`reddit.com` 暂保持复合；`kahoot.it` / `quizizz.com` 保持课堂工具；`douyin.com` / `tiktok.com` 继续可放黑名单。
 
 ### 3.0.3 网站管理策略目录
 
@@ -129,7 +129,7 @@ hardBlockedList
 
 ### 3.0.4 网站归类动作统一校验
 
-新增、申请和审批网站归类时必须使用同一套动作校验。精确同一 host 不得跨管理策略重复；若父域或上级范围已归为受限娱乐或黑名单，则子域、精确 URL、YouTube playlist/video 等更具体对象不得新增、申请或审批为学习/复合。学习与复合父域之间仍允许更具体子域细分，例如 `google.com` 复合、`docs.google.com` 学习。Popup 点击“申请归为学习网站”入口时先执行只读校验；写入前仍保留强制校验，防止 UI 或 API 绕过。历史已存在配置不自动迁移，本规则只阻止新添加、新申请和新审批制造冲突。
+新增、申请和审批网站归类时必须使用同一套动作校验。精确同一 host 不得跨管理策略重复；若父域或上级范围已归为受限娱乐或黑名单，则普通子域和普通精确 URL 不得新增、申请或审批为学习/复合。特殊网站对象是唯一例外：`youtube.com` 根域可保持受限娱乐，同时具体视频、播放列表、频道对象可被批准为学习或复合。学习与复合父域之间仍允许更具体子域细分，例如 `google.com` 复合、`docs.google.com` 学习。Popup 点击“申请归为学习网站”入口时先执行只读校验；写入前仍保留强制校验，防止 UI 或 API 绕过。历史已存在配置不自动迁移，本规则只阻止新添加、新申请和新审批制造冲突。
 
 ### 3.1 概念迁移表
 
@@ -615,12 +615,13 @@ temporaryCompositeSites
 ]
 ```
 
+特殊网站基线：`youtube.com` 是系统受限娱乐网站；YouTube 视频、播放列表、频道通过 `siteClassificationRulesV1` 保存为特殊对象规则。频道规则可覆盖该频道下视频，但依赖页面上下文识别。`music.youtube.com` 本轮保持复合网站。
+
 用户默认复合网站（defaultUserCompositeSites，运行时复合来源之一）：
 
 ```js
 [
   // Video
-  'youtube.com',
 
   // Wiki / encyclopedia
   'wikipedia.org',

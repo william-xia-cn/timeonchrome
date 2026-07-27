@@ -203,6 +203,8 @@ function run() {
   expectTrue('Pages 复合策略应把 defaultUserCompositeSites 纳入系统默认读取', source.includes("defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites']") && source.includes('function getPolicyDefaultList') && source.includes('rulesPolicyDefaultKeys(def)'));
   expectTrue('Pages 系统配置应显示页面内分类管理', source.includes('系统网站配置-分类管理') && source.includes('data-system-category-management') && source.includes('rules-system-category-group'));
   expectTrue('Pages 系统配置应按 siteCatalog 内容分类分组', source.includes('systemSiteCatalogEntryForValue') && source.includes('siteCatalog') && source.includes('contentCategory') && source.includes('未标注分类'));
+  expectTrue('Pages 网站管理应包含特殊网站 YouTube 规则列表', source.includes('特殊网站：YouTube') && source.includes('data-special-site-management="youtube"') && source.includes('rules-special-list') && source.includes('youtubeSpecialRuleRows') && source.includes('specialRuleActionButtons') && source.includes('根域固定') && source.includes('每个 YouTube 细节对象一行展示') && source.includes('classifySpecialSiteRule'));
+  expectTrue('Pages YouTube 特殊对象分类应支持当前可生效管理属性', source.includes('specialRuleDecisionPatch') && source.includes("targetPolicy === 'restricted'") && source.includes("decision: 'reject'") && source.includes('点击保存后同步'));
   expectTrue('Pages 未标注分类应解释为目录元数据缺失', source.includes('当前策略下的系统网站配置按 Qustodio 内容分类分组') && source.includes('不是网站未归类') && source.includes('需要补齐系统目录元数据'));
   expectTrue('Pages 系统项编辑应包含内容分类和管理策略控件', source.includes('rules-system-content-category-select') && source.includes('rules-system-policy-select') && source.includes('保存系统分类'));
   expectTrue('Pages 点击自定义/未归类网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
@@ -272,7 +274,7 @@ function run() {
       invalid: validateRulesSiteAdd('', 'study'),
       currentSystem: validateRulesSiteAdd('https://www.drive.google.com/docs', 'study'),
       otherSystem: validateRulesSiteAdd('netflix.com', 'study'),
-      userCompositeSystem: validateRulesSiteAdd('youtube.com', 'study'),
+      userCompositeSystem: validateRulesSiteAdd('wikipedia.org', 'study'),
       currentCustom: validateRulesSiteAdd('custom-study.example.com', 'study'),
       otherCustom: validateRulesSiteAdd('custom-game.example.com', 'study'),
       protectedStudy: validateRulesSiteAdd('learn.games.example.com', 'study'),
@@ -289,7 +291,7 @@ function run() {
     siteAccessDefaults: {
       defaultStudySites: ['drive.google.com'],
       defaultCompositeSites: ['google.com'],
-      defaultUserCompositeSites: ['youtube.com'],
+      defaultUserCompositeSites: ['wikipedia.org'],
       defaultRestrictedEntertainmentSites: ['netflix.com', 'games.example.com'],
       defaultBlockedSites: ['tiktok.com'],
     },

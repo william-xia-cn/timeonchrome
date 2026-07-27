@@ -354,17 +354,19 @@ const siteAccessDefaults = require('../../workers/config/site-access-defaults.js
   // compositeList effective = defaultCompositeSites + defaultUserCompositeSites + customCompositeList
   const customCompositeList = siteAccessDefaults.defaultUserCompositeSites || [];
   const effectiveComposite = mergeWithDefaults(customCompositeList, siteAccessDefaults.defaultCompositeSites);
-  check('new profile compositeList count = 9 system + 5 user-default = 14', effectiveComposite.length === 14, `actual=${effectiveComposite.length}`);
+  check('new profile compositeList count excludes YouTube root special site', effectiveComposite.length === 13, `actual=${effectiveComposite.length}`);
 
   // 3 vendor/support domains in system defaults
   const vendors = ['microsoft.com', 'apple.com', 'adobe.com'];
   const allVendorsPresent = vendors.every(v => effectiveComposite.includes(v));
   check('new profile compositeList includes all 3 vendor/support domains', allVendorsPresent);
 
-  // 5 user-default sites should be present
-  const userDefaults = ['youtube.com', 'wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'];
+  // User-default composite sites should be present except YouTube root, which is a special restricted site.
+  const userDefaults = ['wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'];
   const allUserDefaultsPresent = userDefaults.every(u => effectiveComposite.includes(u));
-  check('new profile compositeList includes all 5 user-default sites', allUserDefaultsPresent);
+  check('new profile compositeList includes non-YouTube user-default sites', allUserDefaultsPresent);
+  check('youtube.com is not in composite effective list', !effectiveComposite.includes('youtube.com'));
+  check('youtube.com is a restricted special root default', siteAccessDefaults.defaultRestrictedEntertainmentSites.includes('youtube.com'));
 
   // Removed sites should NOT be present
   const removedSites = ['baidu.com', 'duckduckgo.com', 'search.brave.com', 'baike.baidu.com'];
@@ -377,7 +379,7 @@ const siteAccessDefaults = require('../../workers/config/site-access-defaults.js
   const customCompositeList = ['wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'];
   const compositeSystemDefaults = mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites);
   const effectiveComposite = mergeWithDefaults(customCompositeList, compositeSystemDefaults);
-  check('youtube.com remains in effective list as system defaultUserCompositeSites', effectiveComposite.includes('youtube.com'));
+  check('youtube.com is no longer in effective composite list', !effectiveComposite.includes('youtube.com'));
   check('remaining user-default sites still present', effectiveComposite.includes('wikipedia.org'));
 }
 
@@ -386,7 +388,7 @@ const siteAccessDefaults = require('../../workers/config/site-access-defaults.js
   const compositeSystemDefaults = mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites);
   const effectiveComposite = mergeWithDefaults([], compositeSystemDefaults);
   check('mergeWithDefaults([], composite system defaults) equals system defaults', effectiveComposite.length === compositeSystemDefaults.length);
-  check('empty custom still includes youtube.com from defaultUserCompositeSites', effectiveComposite.includes('youtube.com'));
+  check('empty custom still excludes youtube.com from composite defaults', !effectiveComposite.includes('youtube.com'));
 }
 
 {

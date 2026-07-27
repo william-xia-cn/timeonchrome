@@ -192,11 +192,11 @@ async function run() {
   const withUserCompositeDefaults = cloudSync.normalizeCloudRulesConfig({
     compositeList: ['music.youtube.com'],
     defaultCompositeSites: ['google.com'],
-    defaultUserCompositeSites: ['youtube.com'],
+    defaultUserCompositeSites: ['wikipedia.org'],
     customCompositeList: ['reddit.com'],
   });
   expectTrue('has defaultCompositeSites in compositeList', withUserCompositeDefaults.compositeList.includes('google.com'));
-  expectTrue('has defaultUserCompositeSites in compositeList', withUserCompositeDefaults.compositeList.includes('youtube.com'));
+  expectTrue('has defaultUserCompositeSites in compositeList', withUserCompositeDefaults.compositeList.includes('wikipedia.org'));
   expectTrue('preserves cloud compositeList in compositeList', withUserCompositeDefaults.compositeList.includes('music.youtube.com'));
   expectTrue('has customCompositeList in compositeList', withUserCompositeDefaults.compositeList.includes('reddit.com'));
   // ── H. normalizeCloudRulesConfig: no studyList key at all ──

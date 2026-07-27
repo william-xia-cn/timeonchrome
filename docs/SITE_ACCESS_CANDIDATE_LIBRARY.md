@@ -27,7 +27,7 @@
 | 类型 | 默认建议 | 说明 |
 |---|---|---|
 | 游戏 | 受限娱乐 | 明确娱乐优先，自由时间可访问，学习模式不默认允许 |
-| 视频 | 受限娱乐 | `youtube.com` 是复合网站例外；其他视频站默认受限娱乐候选 |
+| 视频 | 受限娱乐 | `youtube.com` 根域进入特殊网站对象管理；其他视频站默认受限娱乐候选 |
 | 论坛社区 | 受限娱乐 | 大部分泛社区偏信息流/社交/娱乐；技术问答和已批准例外保持现状 |
 | 新闻门户 | 复合候选 / 待归类观察 | 可用于时事和资料查阅，但不自动等同学习 |
 | 娱乐门户 | 受限娱乐 | 明确娱乐内容入口 |
@@ -35,7 +35,7 @@
 
 固定例外：
 
-- `youtube.com`：保持复合网站例外；后续细化依赖 YouTube playlist / video / channel 级规则。
+- `youtube.com`：根域按受限娱乐处理；YouTube playlist / video / channel 作为特殊对象，可由家长批准为学习或复合。
 - `reddit.com`：暂保持复合例外。
 - `stackoverflow.com` / `stackexchange.com`：保持学习 / 技术用途，不降级。
 - `kahoot.it` / `quizizz.com`：课堂工具，不按普通游戏网站处理。
@@ -74,7 +74,7 @@
 
 | 域名 | 名称 | 类型 | 建议分类 | 置信度 | 说明 |
 |---|---|---|---|---|---|
-| `youtube.com` | YouTube | 视频 | 保持现状 | 高 | 复合网站例外，后续按 playlist / video / channel 细化 |
+| `youtube.com` | YouTube | 视频 | 受限娱乐 | 高 | 特殊网站根域；playlist / video / channel 可按对象级规则批准为学习或复合 |
 | `youtu.be` | YouTube Short URL | 视频 | 保持现状 | 高 | YouTube 短链接，应跟随 YouTube 规则 |
 | `music.youtube.com` | YouTube Music | 视频 | 保持现状 | 高 | 当前系统复合 / 音频清单已有特殊处理 |
 | `netflix.com` | Netflix | 视频 | 受限娱乐 | 高 | 影视娱乐 |

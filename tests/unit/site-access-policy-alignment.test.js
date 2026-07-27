@@ -122,7 +122,6 @@ for (const domain of removedCompositeDomains) {
 
 // ── defaultUserCompositeSites ──
 const userCompositeDomains = [
-  'youtube.com',
   'wikipedia.org',
   'wikimedia.org',
   'stackexchange.com',
@@ -138,7 +137,9 @@ for (const domain of userCompositeDomains) {
 
 check('britannica.com stays study-only, not user composite', !userCompositeSet.has('britannica.com'));
 check('stackoverflow.com stays study-only, not user composite', !userCompositeSet.has('stackoverflow.com'));
-check('defaultUserCompositeSites count = 5', (defaults.defaultUserCompositeSites || []).length === 5);
+const restrictedSet = new Set((defaults.defaultRestrictedEntertainmentSites || []).map(d => d.toLowerCase()));
+check('youtube.com is restricted entertainment root, not user composite', restrictedSet.has('youtube.com') && !userCompositeSet.has('youtube.com'));
+check('defaultUserCompositeSites count = 4', (defaults.defaultUserCompositeSites || []).length === 4);
 
 // ── Summary ──
 const total = passed + failed;

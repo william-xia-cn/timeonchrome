@@ -55,8 +55,9 @@ function loadModeService(stubs = {}) {
     isSpecialUrl: (url) => /^(chrome|about|file|data|blob):/.test(String(url || '')),
     hasTemporaryCompositePermission: async () => false,
     getSiteClassificationRequestRecords: async () => [],
-    resolveSiteAccessClassification: (config, records, url) => {
-      const host = (() => { try { return new URL(url).hostname; } catch { return ''; } })();
+    resolveSiteAccessClassification: (config, records, urlOrInput) => {
+      const rawUrl = urlOrInput && typeof urlOrInput === 'object' ? (urlOrInput.url || urlOrInput.input || urlOrInput.domain || '') : urlOrInput;
+      const host = (() => { try { return new URL(rawUrl).hostname; } catch { return String(rawUrl || ''); } })();
       const match = (patterns = []) => patterns.some((p) => host === p || host.endsWith(`.${p}`));
       if (match(config.unsafeList || [])) return { classification: 'blocked' };
       if (match(config.studyList || [])) return { classification: 'study' };
@@ -428,7 +429,7 @@ this.__modeService = {
       enabled: true,
       mode: 'study',
       studyList: ['khanacademy.org'],
-      compositeList: ['youtube.com'],
+      compositeList: ['wikipedia.org'],
       restrictedEntertainmentList: [],
       unsafeList: [],
       quotaState: {},
@@ -449,8 +450,8 @@ this.__modeService = {
     });
     const result = await svc.handleModeEvent({
       type: 'ACCESS_OBSERVED',
-      url: 'https://www.youtube.com/watch?v=x',
-      domain: 'www.youtube.com',
+      url: 'https://www.wikipedia.org/wiki/Test',
+      domain: 'www.wikipedia.org',
       foreground: true,
       nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
     });

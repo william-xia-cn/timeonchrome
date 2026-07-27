@@ -693,7 +693,7 @@ async function handleAccessObserved(event = {}) {
   }
 
   const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
-  let siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, url);
+  let siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, { url, specialSiteTargets: event.specialSiteTargets || [] });
   const tabId = Number(event.tabId);
   const normalizedInitialClassification = siteClassification.classification || 'unclassified';
   if (normalizedInitialClassification === 'unclassified' || normalizedInitialClassification === 'pending_composite') {

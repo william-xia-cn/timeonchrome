@@ -91,7 +91,7 @@ this.__previewSiteClassificationTarget = previewSiteClassificationTarget;
   preview = previewSiteClassificationTarget('https://www.youtube.com/watch?v=4CTQpUJRcSM&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=3&t=2s');
   expectEqual('preview youtube playlist scope', preview.scopeLabel, 'YouTube 播放列表');
   expectEqual('preview youtube playlist canonical', preview.normalizedValue, 'https://www.youtube.com/playlist?list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M');
-  expectEqual('preview youtube playlist summary text', preview.summaryValue, '系统将按「YouTube 播放列表」申请，已识别为 YouTube 播放列表 list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M。');
+  expectEqual('preview youtube playlist summary text', preview.summaryValue, '确认对象：YouTube 播放列表');
   preview = previewSiteClassificationTarget('https://youtu.be/4CTQpUJRcSM?t=2');
   expectEqual('preview youtube video scope', preview.scopeLabel, 'YouTube 视频');
   expectEqual('preview youtube video canonical', preview.normalizedValue, 'https://www.youtube.com/watch?v=4CTQpUJRcSM');

@@ -3,6 +3,7 @@ import {
   normalizeSiteClassificationRequest,
   normalizeSiteClassificationRule,
   normalizeSiteClassificationTarget,
+  getSiteClassificationSpecialTargets,
   SITE_ACCESS_CLASSIFICATION_GROUPS,
 } from './site-classification.js';
 
@@ -13,13 +14,15 @@ export const MANAGED_TARGET_TYPES = new Set([
   'url',
   'video',
   'playlist',
+  'channel',
 ]);
 
 const HOST_TARGET_TYPES = new Set(['domain', 'subdomain']);
-const PLATFORM_TARGET_TYPES = new Set(['platform_entry', 'video', 'playlist']);
+const PLATFORM_TARGET_TYPES = new Set(['platform_entry', 'video', 'playlist', 'channel']);
 
 const MATCH_LEVEL_WEIGHT = {
   playlist: 600000,
+  channel: 550000,
   video: 500000,
   url: 490000,
   platform_entry: 400000,
@@ -337,9 +340,13 @@ function parseYouTubeContext(parsedUrl, host) {
 }
 
 export function parseManagedTargetContext(urlOrDomain = '') {
-  const raw = String(urlOrDomain || '').trim();
+  const specialSiteTargets = Array.isArray(urlOrDomain?.specialSiteTargets) ? urlOrDomain.specialSiteTargets : [];
+  const rawInput = urlOrDomain && typeof urlOrDomain === 'object'
+    ? (urlOrDomain.url || urlOrDomain.input || urlOrDomain.domain || '')
+    : urlOrDomain;
+  const raw = String(rawInput || '').trim();
   if (!raw) {
-    return { raw, domain: null, normalizedUrl: null, platform: null };
+    return { raw, domain: null, normalizedUrl: null, platform: null, specialSiteTargets };
   }
 
   if (/^https?:\/\//i.test(raw)) {
@@ -352,9 +359,10 @@ export function parseManagedTargetContext(urlOrDomain = '') {
         domain,
         normalizedUrl: normalized?.normalizedValue || null,
         platform: parseYouTubeContext(parsed, domain),
+        specialSiteTargets,
       };
     } catch (_) {
-      return { raw, domain: domainForUrl(raw) || null, normalizedUrl: null, platform: null };
+      return { raw, domain: domainForUrl(raw) || null, normalizedUrl: null, platform: null, specialSiteTargets };
     }
   }
 
@@ -363,6 +371,7 @@ export function parseManagedTargetContext(urlOrDomain = '') {
     domain: normalizeHostname(raw),
     normalizedUrl: null,
     platform: null,
+    specialSiteTargets,
   };
 }
 
@@ -378,6 +387,12 @@ function targetSpecificity(target, context) {
   if (target.targetType === 'playlist') {
     const playlistId = context.platform?.namespace === target.namespace ? context.platform.playlistId : null;
     return playlistId && playlistId === target.normalizedValue ? MATCH_LEVEL_WEIGHT.playlist + target.normalizedValue.length : null;
+  }
+  if (target.targetType === 'channel') {
+    const specialTargets = Array.isArray(context.specialSiteTargets) ? context.specialSiteTargets : [];
+    const inherited = specialTargets.some((item) => item?.specialSite?.kind === 'channel' && item.normalizedValue === target.normalizedValue);
+    if (inherited) return MATCH_LEVEL_WEIGHT.channel + target.normalizedValue.length;
+    return null;
   }
   if (target.targetType === 'video') {
     const platform = context.platform?.namespace === target.namespace ? context.platform : null;

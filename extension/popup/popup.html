@@ -21,7 +21,7 @@
       width: 320px;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, 'Segoe UI', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
       padding: 0;
     }
 
@@ -55,7 +55,7 @@
     }
 
     .header-text h1 { font-size: 14px; font-weight: 700; }
-    .header-text p  { font-size: 11px; color: var(--muted); }
+    .header-text p  { font-size: 11px; color: #496d5f; }
 
     .header-right {
       display: flex;
@@ -97,7 +97,7 @@
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 1px;
-      color: var(--muted);
+      color: #496d5f;
       margin-bottom: 10px;
       margin-top: 14px;
     }
@@ -116,7 +116,7 @@
       border-radius: 9px;
       border: 1px solid var(--border);
       background: rgba(0,184,148,0.04);
-      color: var(--muted);
+      color: #496d5f;
       font-size: 11px;
       font-weight: 600;
       cursor: pointer;
@@ -135,7 +135,7 @@
       font-size: 12px;
       color: rgba(15, 46, 36, 0.68);
     }
-    .mode-btn-value { font-size: 11px; color: var(--muted); font-weight: 600; margin-left: 10px; white-space: nowrap; }
+    .mode-btn-value { font-size: 11px; color: #496d5f; font-weight: 600; margin-left: 10px; white-space: nowrap; }
     .mode-btn.active-study {
       background: rgba(0,184,148,0.12);
       border-color: var(--accent);
@@ -168,7 +168,7 @@
     }
     .runtime-compact-title {
       font-size: 11px;
-      color: var(--muted);
+      color: #496d5f;
       margin-bottom: 0;
     }
     .runtime-compact-main {
@@ -191,7 +191,7 @@
     }
     .runtime-tag {
       font-size: 10px;
-      color: var(--muted);
+      color: #496d5f;
       border: 1px solid var(--border);
       border-radius: 999px;
       padding: 2px 6px;
@@ -200,7 +200,7 @@
     }
     .runtime-duration {
       font-size: 11px;
-      color: var(--muted);
+      color: #496d5f;
       white-space: nowrap;
       flex-shrink: 0;
     }
@@ -213,8 +213,8 @@
       gap: 6px;
     }
     .request-open-btn {
-      border: 1px solid rgba(108,92,231,0.22);
-      background: rgba(108,92,231,0.08);
+      border: 1px solid rgba(108,92,231,0.20);
+      background: rgba(108,92,231,0.07);
       color: #5747d1;
       border-radius: 8px;
       padding: 6px 9px;
@@ -242,31 +242,87 @@
     .request-entry-status.err { display: block; }
     .request-panel {
       margin: 8px 16px 0;
-      padding: 10px;
-      border: 1px solid rgba(108,92,231,0.18);
-      border-radius: 9px;
-      background: rgba(255,255,255,0.7);
+      padding: 12px;
+      border: 1px solid rgba(108,92,231,0.14);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.86);
+      box-shadow: 0 8px 22px rgba(15, 46, 36, 0.05);
+    }
+    .request-panel[data-special-site-request="youtube"] {
+      border-color: rgba(108,92,231,0.20);
+      background: #ffffff;
     }
     .request-panel-title {
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
       color: var(--text);
       margin-bottom: 5px;
+      line-height: 1.3;
     }
     .request-help {
-      font-size: 10px;
-      color: var(--muted);
-      line-height: 1.5;
+      font-size: 11px;
+      color: #315648;
+      line-height: 1.55;
       margin-bottom: 8px;
     }
+    .request-panel[data-special-site-request="youtube"] #site-request-help-secondary {
+      display: none;
+    }
+    .request-special-options {
+      display: none;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
+      margin: 8px 0;
+      padding: 3px;
+      border: 1px solid rgba(108,92,231,0.12);
+      border-radius: 9px;
+      background: rgba(108,92,231,0.05);
+    }
+    .request-special-options.active { display: grid; }
+    .request-special-options button {
+      appearance: none;
+      border: 0;
+      min-height: 28px;
+      border-radius: 7px;
+      background: transparent;
+      color: #1f3b31;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 650;
+      cursor: pointer;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .request-special-options button:hover { background: rgba(108,92,231,0.08); }
+    .request-special-options button.active {
+      background: #6c5ce7;
+      color: #fff;
+      box-shadow: 0 4px 10px rgba(108,92,231,0.18);
+    }
+    .request-special-summary {
+      display: none;
+      margin: 0 0 8px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      background: rgba(0,184,148,0.06);
+      color: #1d3a30;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .request-special-summary.active { display: block; }
     .request-input {
       width: 100%;
-      min-height: 58px;
-      border: 1px solid var(--border);
+      min-height: 46px;
+      max-height: 86px;
+      border: 1px solid rgba(0,184,148,0.16);
       border-radius: 8px;
       padding: 7px 8px;
-      background: var(--card);
-      color: var(--text);
+      background: rgba(255,255,255,0.92);
+      color: #10261d;
+      font-family: inherit;
       font-size: 11px;
       line-height: 1.45;
       outline: none;
@@ -275,60 +331,72 @@
       overflow-wrap: anywhere;
       word-break: break-word;
     }
+    .request-input:focus {
+      border-color: rgba(108,92,231,0.34);
+      box-shadow: 0 0 0 3px rgba(108,92,231,0.08);
+    }
     .request-preview {
       display: none;
-      margin-top: 8px;
-      padding: 8px 9px;
-      border: 1px solid rgba(9,132,227,0.18);
+      margin-top: 7px;
+      padding: 7px 8px;
+      border: 1px solid rgba(0,184,148,0.14);
       border-radius: 8px;
-      background: rgba(9,132,227,0.06);
-      font-size: 10px;
-      line-height: 1.5;
-      color: var(--muted);
+      background: rgba(0,184,148,0.045);
+      font-size: 11px;
+      line-height: 1.45;
+      color: #315648;
       overflow-wrap: anywhere;
       word-break: break-word;
     }
+    .request-panel[data-special-site-request="youtube"] .request-preview {
+      border-color: rgba(108,92,231,0.14);
+      background: rgba(108,92,231,0.045);
+    }
     .request-preview-title {
       color: var(--text);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
     .request-preview-target {
       color: var(--text);
       font-weight: 650;
     }
-    .request-preview-note {
-      margin-top: 4px;
-    }
+    .request-preview-note { margin-top: 3px; }
     .request-actions {
       display: flex;
+      justify-content: flex-end;
+      align-items: center;
       gap: 7px;
-      margin-top: 8px;
+      margin-top: 9px;
     }
     .request-actions button {
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 6px 9px;
+      padding: 7px 10px;
       font-size: 11px;
       cursor: pointer;
+      line-height: 1.2;
+      white-space: nowrap;
     }
     .request-submit {
       background: #6c5ce7;
       border-color: #6c5ce7 !important;
       color: #fff;
-      font-weight: 650;
+      font-weight: 700;
+      box-shadow: 0 6px 14px rgba(108,92,231,0.18);
     }
-    .request-back { background: transparent; color: var(--muted); }
+    .request-submit:disabled { opacity: 0.68; cursor: wait; }
+    .request-back { background: transparent; color: #496d5f; }
     .request-status {
       display: none;
       margin-top: 8px;
-      padding: 9px 10px;
+      padding: 8px 9px;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: rgba(255,255,255,0.72);
-      font-size: 11px;
-      line-height: 1.5;
+      font-size: 10px;
+      line-height: 1.45;
       white-space: normal;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -336,8 +404,8 @@
     .request-status.ok {
       display: block;
       color: #047857;
-      border-color: rgba(0,184,148,0.24);
-      background: rgba(0,184,148,0.08);
+      border-color: rgba(0,184,148,0.20);
+      background: rgba(0,184,148,0.06);
     }
     .request-status.err {
       display: block;
@@ -346,8 +414,8 @@
       background: rgba(214,48,49,0.07);
     }
     .request-status-title {
-      font-size: 12px;
-      font-weight: 750;
+      font-size: 11px;
+      font-weight: 700;
       color: inherit;
     }
     .request-status-body,
@@ -355,10 +423,7 @@
     .request-status-extra {
       margin-top: 4px;
     }
-    .request-status-target {
-      color: var(--text);
-    }
-
+    .request-status-target { color: var(--text); }
     .usage-panel {
       display: flex;
       flex-direction: column;
@@ -410,7 +475,7 @@
     .usage-metric-sub {
       margin-top: 3px;
       font-size: 10px;
-      color: var(--muted);
+      color: #496d5f;
       line-height: 1.4;
     }
     .usage-metric.locked .usage-metric-value { color: var(--danger); }
@@ -428,7 +493,7 @@
       transition: width 0.5s;
     }
 
-    .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
+    .empty { color: #496d5f; font-size: 12px; text-align: center; padding: 12px; }
   </style>
 </head>
 <body>
@@ -460,10 +525,12 @@
       <div class="request-entry-status" id="site-request-entry-status"></div>
     </div>
     <div class="request-panel" id="site-request-panel" style="display:none;">
-      <div class="request-panel-title">申请归为学习网站</div>
-      <div class="request-help">未归类网站访问时会自动生成访问记录。这里用于主动申请归为学习网站；家长批准前仍按待归类时间计入。</div>
-      <div class="request-help">你可以修改下方内容来调整申请范围。<br>example.com 表示整个网站；<br>learn.example.com 表示子域名；<br>https://example.com/course/1 表示这个具体链接。</div>
-      <textarea class="request-input" id="site-request-input" rows="3" placeholder="输入域名、子域名或 https:// 链接"></textarea>
+      <div class="request-panel-title" id="site-request-panel-title">申请归为学习网站</div>
+      <div class="request-help" id="site-request-help-primary">未归类网站访问时会自动生成访问记录。这里用于主动申请归为学习网站；家长批准前仍按待归类时间计入。</div>
+      <div class="request-help" id="site-request-help-secondary">你可以修改下方内容来调整申请范围。<br>example.com 表示整个网站；<br>learn.example.com 表示子域名；<br>https://example.com/course/1 表示这个具体链接。</div>
+      <div class="request-special-options" id="site-request-special-options"></div>
+      <div class="request-special-summary" id="site-request-special-summary"></div>
+      <textarea class="request-input" id="site-request-input" rows="2" placeholder="输入域名、子域名或 https:// 链接"></textarea>
       <div class="request-preview" id="site-request-preview"></div>
       <div class="request-status" id="site-request-status"></div>
       <div class="request-actions">
