@@ -703,7 +703,7 @@ function normalizeCloudRulesConfig(cloudConfig) {
   if (defaultRestrictedEntertainmentSites) cfg.defaultRestrictedEntertainmentSites = defaultRestrictedEntertainmentSites;
   if (defaultBlockedSites) cfg.defaultBlockedSites = defaultBlockedSites;
 
-  // Preserve defaultUserCompositeSites from cloud response (initialization/recommendation only)
+  // Preserve defaultUserCompositeSites from cloud response; it is a runtime composite system source.
   const defaultUserCompositeSites = pickFirstArray(cfg, [
     'defaultUserCompositeSites',
     'defaultUserCompositeList',
@@ -721,14 +721,21 @@ function normalizeCloudRulesConfig(cloudConfig) {
     // Ensure system defaults are always present as the base layer.
     cfg.studyList = mergeUniqueDomains(defaultStudyList, cfg.defaultStudySites, cfg.studyList, cfg.customStudyList);
   }
+  const compositeSystemList = mergeUniqueDomains(cfg.defaultCompositeSites, cfg.defaultUserCompositeSites);
   if (!Array.isArray(cfg.compositeList)) {
-    cfg.compositeList = mergeUniqueDomains(cfg.defaultCompositeSites, cfg.customCompositeList);
+    cfg.compositeList = mergeUniqueDomains(compositeSystemList, cfg.customCompositeList);
+  } else {
+    cfg.compositeList = mergeUniqueDomains(compositeSystemList, cfg.compositeList, cfg.customCompositeList);
   }
   if (!Array.isArray(cfg.restrictedEntertainmentList)) {
     cfg.restrictedEntertainmentList = mergeUniqueDomains(cfg.defaultRestrictedEntertainmentSites, cfg.customRestrictedEntertainmentList);
+  } else {
+    cfg.restrictedEntertainmentList = mergeUniqueDomains(cfg.defaultRestrictedEntertainmentSites, cfg.restrictedEntertainmentList, cfg.customRestrictedEntertainmentList);
   }
   if (!Array.isArray(cfg.unsafeList)) {
     cfg.unsafeList = mergeUniqueDomains(cfg.defaultBlockedSites, cfg.customBlockedSites);
+  } else {
+    cfg.unsafeList = mergeUniqueDomains(cfg.defaultBlockedSites, cfg.unsafeList, cfg.customBlockedSites);
   }
 
   return cfg;
@@ -744,8 +751,13 @@ const DEFAULT_SITE_LIST_FIELD_GROUPS = {
   composite: [
     'defaultCompositeSites',
     'defaultCompositeList',
+    'defaultUserCompositeSites',
+    'defaultUserCompositeList',
+    'recommendedCompositeSites',
     'systemConfiguredCompositeSites',
     'systemConfiguredCompositeList',
+    'systemConfiguredUserCompositeSites',
+    'systemConfiguredUserCompositeList',
   ],
   restricted: [
     'defaultRestrictedEntertainmentSites',

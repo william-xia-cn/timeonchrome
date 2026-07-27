@@ -6,10 +6,10 @@ export const SITE_CLASSIFICATION_STATUSES = new Set(['pending', 'returned', 'app
 export const SITE_CLASSIFICATION_RECORD_SOURCES = new Set(['auto_unclassified_access', 'manual_learning_request', 'legacy']);
 export const SITE_CLASSIFICATION_REQUESTED_CLASSIFICATIONS = new Set(['study']);
 export const SITE_ACCESS_CLASSIFICATION_GROUPS = [
-  { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'customBlockedSites', 'defaultUnsafeSites', 'customUnsafeSites'], classification: 'blocked' },
-  { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'customRestrictedEntertainmentList'], classification: 'restricted' },
-  { keys: ['studyList', 'defaultStudySites', 'customStudyList'], classification: 'study' },
-  { keys: ['compositeList', 'defaultCompositeSites', 'customCompositeList'], classification: 'composite' },
+  { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'defaultBlockedList', 'customBlockedSites', 'customBlockedList', 'defaultUnsafeSites', 'defaultUnsafeList', 'customUnsafeSites', 'customUnsafeList', 'systemConfiguredBlockedSites', 'systemConfiguredBlockedList', 'systemConfiguredUnsafeSites', 'systemConfiguredUnsafeList'], classification: 'blocked' },
+  { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'defaultRestrictedEntertainmentList', 'customRestrictedEntertainmentList', 'customRestrictedEntertainmentSites', 'systemConfiguredRestrictedEntertainmentSites', 'systemConfiguredRestrictedEntertainmentList'], classification: 'restricted' },
+  { keys: ['studyList', 'defaultStudySites', 'defaultStudyList', 'customStudyList', 'customStudySites', 'systemConfiguredStudySites', 'systemConfiguredStudyList'], classification: 'study' },
+  { keys: ['compositeList', 'defaultCompositeSites', 'defaultCompositeList', 'defaultUserCompositeSites', 'defaultUserCompositeList', 'recommendedCompositeSites', 'customCompositeList', 'customCompositeSites', 'systemConfiguredCompositeSites', 'systemConfiguredCompositeList', 'systemConfiguredUserCompositeSites', 'systemConfiguredUserCompositeList'], classification: 'composite' },
   { keys: ['restList', 'entertainmentList', 'defaultRestSites', 'customRestList'], classification: 'rest' },
 ];
 
@@ -389,6 +389,115 @@ export function getSiteAccessExactConflicts(config = {}) {
   return conflicts;
 }
 
+
+function normalizeActionClassification(value) {
+  const decisionClass = decisionToClassification(value);
+  if (decisionClass === 'study' || decisionClass === 'composite') return decisionClass;
+  if (decisionClass === 'rejected' || value === 'restricted' || value === 'reject') return 'restricted';
+  if (value === 'blocked') return 'blocked';
+  return null;
+}
+
+function actionClassificationLabel(value) {
+  if (value === 'study') return '学习网站';
+  if (value === 'composite') return '复合网站';
+  if (value === 'restricted' || value === 'rejected') return '受限娱乐网站';
+  if (value === 'blocked') return '黑名单网站';
+  return '目标分类';
+}
+
+function collectConfiguredSiteTargets(config = {}) {
+  const targets = [];
+  const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
+  for (const rawRule of rules) {
+    const rule = normalizeSiteClassificationRule(rawRule);
+    if (!rule) continue;
+    const classification = normalizeActionClassification(rule.decision);
+    if (!classification) continue;
+    targets.push({
+      targetType: rule.targetType,
+      normalizedValue: rule.normalizedValue,
+      host: rule.targetType === 'url' ? normalizeSiteClassificationTarget(rule.normalizedValue).host : rule.normalizedValue,
+      classification,
+      source: 'siteClassificationRulesV1',
+      value: rule.normalizedValue,
+    });
+  }
+  for (const group of SITE_ACCESS_CLASSIFICATION_GROUPS) {
+    const classification = group.classification === 'rejected' ? 'restricted' : group.classification;
+    for (const item of getConfigListValues(config, group.keys)) {
+      const host = normalizeHostPattern(item.value)?.host;
+      if (!host) continue;
+      targets.push({
+        targetType: 'host',
+        normalizedValue: host,
+        host,
+        classification,
+        source: item.key,
+        value: item.value,
+      });
+    }
+  }
+  return targets;
+}
+
+function sameActionTarget(a, b) {
+  if (!a || !b || a.targetType !== b.targetType) return false;
+  if (a.targetType === 'url') return a.normalizedValue === b.normalizedValue;
+  return matchDomain(a.normalizedValue, b.normalizedValue) && matchDomain(b.normalizedValue, a.normalizedValue);
+}
+
+function protectedAncestorForAction(target, actionClassification, configuredTargets) {
+  if (!target?.ok || !actionClassification) return null;
+  const canBypassRestricted = actionClassification !== 'study' && actionClassification !== 'composite';
+  const canBypassBlocked = actionClassification === 'blocked';
+  for (const item of configuredTargets) {
+    if (item.classification !== 'restricted' && item.classification !== 'blocked') continue;
+    if (sameActionTarget(target, item)) continue;
+    const itemHost = item.host || item.normalizedValue;
+    const targetHost = target.host;
+    if (!itemHost || !targetHost || !matchDomain(targetHost, itemHost)) continue;
+    if (item.classification === 'blocked' && !canBypassBlocked) return item;
+    if (item.classification === 'restricted' && !canBypassRestricted) return item;
+  }
+  return null;
+}
+
+export function validateSiteClassificationAction(config = {}, targetOrInput, action) {
+  const target = targetOrInput?.ok ? targetOrInput : normalizeSiteClassificationTarget(targetOrInput);
+  if (!target.ok) return { ok: false, code: target.code || 'INVALID_TARGET', error: target.error || 'invalid target' };
+  const actionClassification = normalizeActionClassification(action);
+  if (!actionClassification) return { ok: false, code: 'INVALID_CLASSIFICATION_ACTION', error: 'invalid classification action' };
+
+  const configuredTargets = collectConfiguredSiteTargets(config);
+  const exact = configuredTargets.find((item) => sameActionTarget(target, item));
+  if (exact) {
+    return {
+      ok: false,
+      code: exact.classification === 'restricted' || exact.classification === 'blocked' ? 'REQUEST_REJECTED' : 'ALREADY_CLASSIFIED',
+      error: 'target already classified',
+      classifiedAs: exact.classification,
+      source: exact.source || null,
+      pattern: exact.value || exact.normalizedValue,
+      protectedBy: exact,
+    };
+  }
+
+  const protectedAncestor = protectedAncestorForAction(target, actionClassification, configuredTargets);
+  if (protectedAncestor) {
+    return {
+      ok: false,
+      code: 'CLASSIFICATION_SCOPE_BLOCKED',
+      error: `${target.displayValue || target.normalizedValue} 位于${actionClassificationLabel(protectedAncestor.classification)}范围内，不能归为${actionClassificationLabel(actionClassification)}。`,
+      classifiedAs: protectedAncestor.classification,
+      source: protectedAncestor.source || null,
+      pattern: protectedAncestor.value || protectedAncestor.normalizedValue,
+      protectedBy: protectedAncestor,
+    };
+  }
+
+  return { ok: true, target, actionClassification };
+}
 export function validateSiteAccessConfig(config = {}) {
   const conflicts = getSiteAccessExactConflicts(config);
   return {

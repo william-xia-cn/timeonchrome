@@ -227,15 +227,20 @@ export function mergeWithDefaults(customList: string[] = [], defaultList: string
 
 export function applySystemAccessDefaultsToProfileConfig(config: any, defaults: SystemAccessConfig): any {
   const next = config && typeof config === 'object' ? config : {};
+  const customOrEffective = (customKey: string, effectiveKey: string): string[] => {
+    if (Array.isArray(next[customKey])) return next[customKey];
+    return Array.isArray(next[effectiveKey]) ? next[effectiveKey] : [];
+  };
+  const compositeSystemDefaults = mergeWithDefaults(defaults.defaultUserCompositeSites || [], defaults.defaultCompositeSites || []);
   next.defaultStudySites = defaults.defaultStudySites;
   next.defaultCompositeSites = defaults.defaultCompositeSites;
   next.defaultUserCompositeSites = defaults.defaultUserCompositeSites || [];
   next.defaultRestrictedEntertainmentSites = defaults.defaultRestrictedEntertainmentSites;
   next.defaultBlockedSites = defaults.defaultBlockedSites;
-  if (Array.isArray(next.customStudyList)) next.studyList = mergeWithDefaults(next.customStudyList, defaults.defaultStudySites);
-  if (Array.isArray(next.customCompositeList)) next.compositeList = mergeWithDefaults(next.customCompositeList, defaults.defaultCompositeSites);
-  if (Array.isArray(next.customRestrictedEntertainmentList)) next.restrictedEntertainmentList = mergeWithDefaults(next.customRestrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites);
-  if (Array.isArray(next.customBlockedSites)) next.unsafeList = mergeWithDefaults(next.customBlockedSites, defaults.defaultBlockedSites);
+  next.studyList = mergeWithDefaults(customOrEffective('customStudyList', 'studyList'), defaults.defaultStudySites);
+  next.compositeList = mergeWithDefaults(customOrEffective('customCompositeList', 'compositeList'), compositeSystemDefaults);
+  next.restrictedEntertainmentList = mergeWithDefaults(customOrEffective('customRestrictedEntertainmentList', 'restrictedEntertainmentList'), defaults.defaultRestrictedEntertainmentSites);
+  next.unsafeList = mergeWithDefaults(customOrEffective('customBlockedSites', 'unsafeList'), defaults.defaultBlockedSites);
   return next;
 }
 

@@ -71,6 +71,7 @@ async function run() {
   const routerSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
   const compositeCalls = [];
   const siteRequestCalls = [];
+  const validateCalls = [];
   const temporaryCompositeRecords = [
     { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
     { tabId: 8, domain: 'new.example.com', createdAt: 2000 },
@@ -110,6 +111,13 @@ async function run() {
       }
       return { ok: true, targetType: 'host', normalizedValue: value, displayValue: value };
     },
+    validateSiteClassificationAction: (config, target, action) => {
+      validateCalls.push({ config, target, action });
+      if (target.normalizedValue === 'learn.blocked-parent.example.com') {
+        return { ok: false, code: 'CLASSIFICATION_SCOPE_BLOCKED', error: 'scope blocked', classifiedAs: 'restricted', source: 'restrictedEntertainmentList', pattern: 'blocked-parent.example.com' };
+      }
+      return { ok: true, target, actionClassification: action };
+    },
     getSyncState: () => ({ deviceToken: null }),
     syncNow: async () => ({}),
     extractDomain: (url) => {
@@ -126,6 +134,7 @@ async function run() {
     expectTrue('storage 暴露临时综合记录只读方法', storageSource.includes('export async function getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持 GET_TEMPORARY_COMPOSITE_DOMAINS', routerSource.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && routerSource.includes('getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持网站归类申请消息', routerSource.includes('SUBMIT_SITE_CLASSIFICATION_REQUEST') && routerSource.includes('GET_SITE_CLASSIFICATION_REQUESTS'));
+    expectTrue('router 支持网站归类申请 dry-run 校验消息', routerSource.includes('VALIDATE_SITE_CLASSIFICATION_REQUEST') && routerSource.includes('validateSiteClassificationRequestMessage') && routerSource.includes('validateSiteClassificationAction'));
     expectTrue('router 网站归类申请失败返回结构化响应', routerSource.includes("code: 'SITE_CLASSIFICATION_REQUEST_FAILED'") && routerSource.includes('catch (error)'));
     expectTrue('router reminder recheck 优先使用 targetUrl', routerSource.includes("searchParams.get('targetUrl')") && routerSource.includes('normalizeHttpTargetUrl'));
     expectTrue('router 支持客户端日志消息', routerSource.includes('GET_CLIENT_LOGS') && routerSource.includes('GET_CLIENT_LOG_STATUS') && routerSource.includes('UPDATE_CLIENT_LOG_CONFIG'));
@@ -195,6 +204,22 @@ async function run() {
     expect('返回网站归类记录 records', r, { ok: true, records: siteClassificationRecords });
   }
 
+  section('C02-1b dry-run 校验学习网站归类申请且不写记录');
+  {
+    const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
+    const beforeSubmitCalls = siteRequestCalls.length;
+    const ok = await handleMessage({ type: 'VALIDATE_SITE_CLASSIFICATION_REQUEST', input: 'example.com', sourceTabId: 42, requestedClassification: 'study' }, sender);
+    expectTrue('dry-run 校验通过并返回 target', ok.ok && ok.target.normalizedValue === 'example.com' && ok.sourceTabId === 42);
+    expect('dry-run 不调用提交写入函数', siteRequestCalls.length, beforeSubmitCalls);
+    const blocked = await handleMessage({ type: 'VALIDATE_SITE_CLASSIFICATION_REQUEST', input: 'learn.blocked-parent.example.com', sourceTabId: 42, requestedClassification: 'study' }, sender);
+    expect('dry-run 返回范围阻断错误', { ok: blocked.ok, code: blocked.code, classifiedAs: blocked.classifiedAs }, {
+      ok: false,
+      code: 'CLASSIFICATION_SCOPE_BLOCKED',
+      classifiedAs: 'restricted',
+    });
+    expect('dry-run 失败仍不写记录', siteRequestCalls.length, beforeSubmitCalls);
+    expectTrue('dry-run 使用统一动作校验', validateCalls.some(call => call.target.normalizedValue === 'learn.blocked-parent.example.com' && call.action === 'study'));
+  }
   section('C02-2 提交学习网站归类申请使用 sourceTabId 上下文');
   {
     const sender = { id: 'ext-id', url: 'chrome-extension://ext-id/popup/popup.html' };
@@ -241,6 +266,7 @@ async function run() {
         const value = String(input || '').trim();
         return value ? { ok: true, targetType: 'host', normalizedValue: value, displayValue: value } : { ok: false };
       },
+      validateSiteClassificationAction: () => ({ ok: true }),
       getSyncState: () => ({ deviceToken: null }),
       syncNow: async () => ({}),
       extractDomain: (url) => {

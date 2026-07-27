@@ -187,20 +187,32 @@ async function run() {
   expectTrue('has studyList from cloud', withDefaultsConfig.studyList.includes('user-site.com'));
   expectTrue('has customStudyList', withDefaultsConfig.studyList.includes('custom-site.com'));
 
-  // ── G. normalizeCloudRulesConfig: no studyList key at all ──
-  section('G. normalizeCloudRulesConfig: no studyList key');
+  // ── G. normalizeCloudRulesConfig: defaultUserCompositeSites merges into compositeList ──
+  section('G. normalizeCloudRulesConfig: defaultUserCompositeSites merges into compositeList');
+  const withUserCompositeDefaults = cloudSync.normalizeCloudRulesConfig({
+    compositeList: ['music.youtube.com'],
+    defaultCompositeSites: ['google.com'],
+    defaultUserCompositeSites: ['youtube.com'],
+    customCompositeList: ['reddit.com'],
+  });
+  expectTrue('has defaultCompositeSites in compositeList', withUserCompositeDefaults.compositeList.includes('google.com'));
+  expectTrue('has defaultUserCompositeSites in compositeList', withUserCompositeDefaults.compositeList.includes('youtube.com'));
+  expectTrue('preserves cloud compositeList in compositeList', withUserCompositeDefaults.compositeList.includes('music.youtube.com'));
+  expectTrue('has customCompositeList in compositeList', withUserCompositeDefaults.compositeList.includes('reddit.com'));
+  // ── H. normalizeCloudRulesConfig: no studyList key at all ──
+  section('H. normalizeCloudRulesConfig: no studyList key');
   const noStudyListConfig = cloudSync.normalizeCloudRulesConfig({
     mode: 'study',
   });
   expectTrue('no studyList key still has khanacademy.org', noStudyListConfig.studyList.includes('khanacademy.org'));
 
-  // ── H. matchDomain: khanacademy.org classification ──
-  section('H. matchDomain: khanacademy.org classification');
+  // ── I. matchDomain: khanacademy.org classification ──
+  section('I. matchDomain: khanacademy.org classification');
   expectTrue('khanacademy.org matches khanacademy.org', storage.matchDomain('khanacademy.org', 'khanacademy.org'));
   expectTrue('www.khanacademy.org matches khanacademy.org', storage.matchDomain('www.khanacademy.org', 'khanacademy.org'));
 
-  // ── I. Effective study list always contains defaults ──
-  section('I. Effective study list always contains defaults');
+  // ── J. Effective study list always contains defaults ──
+  section('J. Effective study list always contains defaults');
   const defaultList = storage.DEFAULT_CONFIG.studyList;
   expectTrue('DEFAULT_CONFIG.studyList has > 10 entries', defaultList.length > 10);
   expectTrue('khanacademy.org in defaults', defaultList.includes('khanacademy.org'));

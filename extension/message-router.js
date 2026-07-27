@@ -1,7 +1,7 @@
 // message-router.js — 命令路由
 
 import { getConfig, saveConfig, getSession, getVisitSessions, getChangelog, getDateKey, formatDate, matchDomain, extractDomain, addTemporaryCompositeDomain, clearTemporaryCompositeDomains, hasTemporaryCompositePermission, getTemporaryCompositePermissionRecords, submitSiteClassificationRequest, getSiteClassificationRequestRecords } from './infra/storage.js';
-import { normalizeSiteClassificationTarget } from './core/site-classification.js';
+import { normalizeSiteClassificationTarget, validateSiteClassificationAction } from './core/site-classification.js';
 import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules } from './product/interceptor.js';
 import { getWeekRestSeconds } from './product/quota.js';
@@ -144,6 +144,46 @@ function siteClassificationTargetUrl(target) {
   if (target.targetType === 'url') return target.normalizedValue;
   if (target.targetType === 'host') return `https://${target.normalizedValue}`;
   return null;
+}
+
+async function validateSiteClassificationRequestMessage(msg = {}, sender = {}) {
+  const requestedClassification = msg.requestedClassification || 'study';
+  if (requestedClassification !== 'study') {
+    return { ok: false, code: 'INVALID_REQUESTED_CLASSIFICATION', error: 'only study classification requests are supported' };
+  }
+  const context = await resolveSiteClassificationSourceContext(msg, sender);
+  const target = normalizeSiteClassificationTarget(msg.input || msg.url || context.url || context.domain || '');
+  if (!target.ok) {
+    return { ok: false, code: target.code || 'INVALID_TARGET', error: target.error || 'invalid target' };
+  }
+  const config = await getConfig();
+  const validation = validateSiteClassificationAction(config, target, requestedClassification);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      code: validation.code || 'SITE_CLASSIFICATION_REQUEST_INVALID',
+      error: validation.error || 'site classification request invalid',
+      classifiedAs: validation.classifiedAs || null,
+      source: validation.source || null,
+      pattern: validation.pattern || null,
+      target: {
+        targetType: target.targetType,
+        normalizedValue: target.normalizedValue,
+        displayValue: target.displayValue,
+      },
+      sourceTabId: Number.isInteger(context.sourceTabId) ? context.sourceTabId : context.tabId,
+    };
+  }
+  return {
+    ok: true,
+    targetUrl: siteClassificationTargetUrl(target),
+    target: {
+      targetType: target.targetType,
+      normalizedValue: target.normalizedValue,
+      displayValue: target.displayValue,
+    },
+    sourceTabId: Number.isInteger(context.sourceTabId) ? context.sourceTabId : context.tabId,
+  };
 }
 
 function normalizeHttpTargetUrl(value) {
@@ -334,6 +374,9 @@ export async function handleMessage(msg, sender) {
       });
       return { ok: true, records };
     }
+
+    case 'VALIDATE_SITE_CLASSIFICATION_REQUEST':
+      return await validateSiteClassificationRequestMessage(msg, sender);
 
     case 'SUBMIT_SITE_CLASSIFICATION_REQUEST': {
       try {

@@ -1974,7 +1974,7 @@ function getCustomList(effectiveList, defaultList) {
 
 const SITE_ACCESS_CATEGORY_FIELDS = [
   { category: 'study', label: '学习网站', keys: ['defaultStudySites', 'studyList', 'customStudyList'] },
-  { category: 'composite', label: '复合网站', keys: ['defaultCompositeSites', 'compositeList', 'customCompositeList'] },
+  { category: 'composite', label: '复合网站', keys: ['defaultCompositeSites', 'defaultUserCompositeSites', 'compositeList', 'customCompositeList'] },
   { category: 'restricted', label: '受限娱乐网站', keys: ['defaultRestrictedEntertainmentSites', 'restrictedEntertainmentList', 'customRestrictedEntertainmentList'] },
   { category: 'blocked', label: '黑名单网站', keys: ['defaultBlockedSites', 'unsafeList', 'customBlockedSites'] },
 ];
@@ -2014,7 +2014,7 @@ function getSiteAccessListsForValidation(config = remoteConfig, defaults = siteA
   };
   const groups = [
     { category: 'study', label: '学习网站', key: 'customStudyList', values: [...(defaults.defaultStudySites || []), ...customOrEffective('customStudyList', 'studyList', defaults.defaultStudySites)] },
-    { category: 'composite', label: '复合网站', key: 'customCompositeList', values: [...(defaults.defaultCompositeSites || []), ...customOrEffective('customCompositeList', 'compositeList', defaults.defaultCompositeSites)] },
+    { category: 'composite', label: '复合网站', key: 'customCompositeList', values: [...(defaults.defaultCompositeSites || []), ...(defaults.defaultUserCompositeSites || []), ...customOrEffective('customCompositeList', 'compositeList', [...(defaults.defaultCompositeSites || []), ...(defaults.defaultUserCompositeSites || [])])] },
     { category: 'restricted', label: '受限娱乐网站', key: 'customRestrictedEntertainmentList', values: [...(defaults.defaultRestrictedEntertainmentSites || []), ...customOrEffective('customRestrictedEntertainmentList', 'restrictedEntertainmentList', defaults.defaultRestrictedEntertainmentSites)] },
     { category: 'blocked', label: '黑名单网站', key: 'customBlockedSites', values: [...(defaults.defaultBlockedSites || []), ...customOrEffective('customBlockedSites', 'unsafeList', defaults.defaultBlockedSites)] },
   ];
@@ -2055,13 +2055,57 @@ function siteAccessExactListMatch(value, list = []) {
   return (Array.isArray(list) ? list : []).find(item => normalizeSiteAccessHostKey(item) === key) || null;
 }
 
+
+function findProtectedSiteAccessScope(value, targetPolicy, config = remoteConfig, defaults = siteAccessDefaults || {}) {
+  const normalized = normalizeSiteAccessInput(value);
+  if (!normalized) return null;
+  const targetKey = normalizeSiteAccessHostKey(normalized);
+  const targetIsBlocked = targetPolicy === 'blocked';
+  const targetIsLearningOrComposite = targetPolicy === 'study' || targetPolicy === 'composite';
+  for (const entry of getSiteAccessListsForValidation(config, defaults)) {
+    if (entry.category !== 'blocked' && entry.category !== 'restricted') continue;
+    const entryValue = normalizeSiteAccessInput(entry.value);
+    if (!entryValue) continue;
+    const entryKey = normalizeSiteAccessHostKey(entryValue);
+    if (!entryKey || entryKey === targetKey) continue;
+    if (!matchDomain(normalized, entryValue)) continue;
+    if (entry.category === 'blocked' && !targetIsBlocked) return entry;
+    if (entry.category === 'restricted' && targetIsLearningOrComposite) return entry;
+  }
+  return null;
+}
+
+
+function normalizeSiteAccessActionHost(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      return normalizeSiteAccessInput(new URL(raw).hostname);
+    } catch (_) {
+      return null;
+    }
+  }
+  return normalizeSiteAccessInput(raw);
+}
+
+function findProtectedSiteClassificationActionScope(value, targetPolicy, config = remoteConfig, defaults = siteAccessDefaults || {}) {
+  const host = normalizeSiteAccessActionHost(value);
+  if (!host) return null;
+  return findProtectedSiteAccessScope(host, targetPolicy, config, defaults);
+}
+function formatProtectedSiteAccessScopeMessage(scope, targetDef) {
+  const protectedLabel = scope?.label || '受限娱乐/黑名单';
+  const targetLabel = targetDef?.label || '当前分类';
+  return `该网站位于${protectedLabel}范围内，不能归为${targetLabel}。请先调整父域策略。`;
+}
 function validateRulesSiteAdd(value, targetPolicy) {
   const normalized = normalizeSiteAccessInput(value);
   const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
   if (!normalized || !targetDef) return { ok: false, message: '请输入有效域名，如 example.com' };
 
   for (const def of RULES_POLICY_DEFS) {
-    const systemMatch = siteAccessExactListMatch(normalized, siteAccessDefaults?.[def.defaultKey] || []);
+    const systemMatch = siteAccessExactListMatch(normalized, getPolicyDefaultList(def));
     if (systemMatch) {
       if (def.key === targetDef.key) {
         return { ok: false, value: normalized, message: '该网站已在系统网站配置-分类管理的当前策略中' };
@@ -2077,6 +2121,11 @@ function validateRulesSiteAdd(value, targetPolicy) {
       return { ok: false, value: normalized, message: `该网站已在用户自定义配置的${def.label}中；请点击已有网站的“归为…”操作移动分类` };
     }
   }
+  const protectedScope = findProtectedSiteAccessScope(normalized, targetDef.key);
+  if (protectedScope) {
+    return { ok: false, value: normalized, message: formatProtectedSiteAccessScopeMessage(protectedScope, targetDef), protectedScope };
+  }
+
 
   return { ok: true, value: normalized };
 }
@@ -2096,7 +2145,7 @@ function uniqueSiteAccessValues(values = []) {
 
 const RULES_POLICY_DEFS = [
   { key: 'study', label: '学习网站', icon: 'assets/icons/study.svg', customKey: 'customStudyList', effectiveKey: 'studyList', defaultKey: 'defaultStudySites', addPlaceholder: '添加学习网站，如 khanacademy.org' },
-  { key: 'composite', label: '复合网站', icon: 'assets/icons/composite.svg', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites', addPlaceholder: '添加复合网站，如 youtube.com' },
+  { key: 'composite', label: '复合网站', icon: 'assets/icons/composite.svg', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites', defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites'], addPlaceholder: '添加复合网站，如 youtube.com' },
   { key: 'restricted', label: '受限娱乐网站', icon: 'assets/icons/restricted.svg', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites', addPlaceholder: '添加受限娱乐网站，如 example-game.com' },
   { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
 ];
@@ -2135,14 +2184,32 @@ function rulesPolicyDefByCustomKey(customKey) {
   return RULES_POLICY_DEFS.find(def => def.customKey === customKey) || null;
 }
 
+function rulesPolicyDefaultKeys(def = {}) {
+  return Array.isArray(def.defaultKeys) && def.defaultKeys.length ? def.defaultKeys : [def.defaultKey].filter(Boolean);
+}
+
+function getPolicyDefaultList(def, defaults = siteAccessDefaults || {}) {
+  const out = [];
+  const seen = new Set();
+  for (const key of rulesPolicyDefaultKeys(def)) {
+    const values = Array.isArray(defaults?.[key]) ? defaults[key] : [];
+    for (const value of values) {
+      const hostKey = normalizeSiteAccessHostKey(value);
+      if (!hostKey || seen.has(hostKey)) continue;
+      seen.add(hostKey);
+      out.push(value);
+    }
+  }
+  return out;
+}
 function getPolicyCustomList(def, config = remoteConfig, defaults = siteAccessDefaults || {}) {
   if (Array.isArray(config?.[def.customKey])) return config[def.customKey];
-  return getCustomList(config?.[def.effectiveKey] || [], defaults[def.defaultKey] || []);
+  return getCustomList(config?.[def.effectiveKey] || [], getPolicyDefaultList(def, defaults));
 }
 
 function getRulesPolicyModel() {
   return RULES_POLICY_DEFS.map(def => {
-    const system = Array.isArray(siteAccessDefaults?.[def.defaultKey]) ? siteAccessDefaults[def.defaultKey] : [];
+    const system = getPolicyDefaultList(def);
     const custom = getPolicyCustomList(def);
     const rules = approvedUrlRulesForListKey(def.customKey);
     const usedUnclassified = def.key === 'composite' ? (rulesSitePolicyState.usedUnclassified || []) : [];
@@ -2517,8 +2584,10 @@ function updateSystemConfigSiteClassification(config, value, targetPolicy, conte
   const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
   if (!normalized || !targetDef) throw new Error('无效的网站或管理策略');
   for (const def of RULES_POLICY_DEFS) {
-    config[def.defaultKey] = (Array.isArray(config[def.defaultKey]) ? config[def.defaultKey] : [])
-      .filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
+    for (const key of rulesPolicyDefaultKeys(def)) {
+      config[key] = (Array.isArray(config[key]) ? config[key] : [])
+        .filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
+    }
   }
   config[targetDef.defaultKey] = Array.from(new Set([...(config[targetDef.defaultKey] || []), normalized]));
   const catalog = Array.isArray(config.siteCatalog) ? config.siteCatalog : [];
@@ -7030,6 +7099,14 @@ async function decideSiteClassificationRequest(idx, decision) {
   const targetValue = document.getElementById(`site-request-target-${idx}`)?.value?.trim();
   if (!targetValue) {
     toast('请输入审批生效对象', false);
+    return;
+  }
+  const targetPolicy = decision === 'study' ? 'study' : decision === 'composite' ? 'composite' : 'restricted';
+  const protectedScope = decision === 'study' || decision === 'composite'
+    ? findProtectedSiteClassificationActionScope(targetValue, targetPolicy)
+    : null;
+  if (protectedScope) {
+    toast(formatProtectedSiteAccessScopeMessage(protectedScope, { label: targetPolicy === 'study' ? '学习网站' : '复合网站' }), false);
     return;
   }
   try {

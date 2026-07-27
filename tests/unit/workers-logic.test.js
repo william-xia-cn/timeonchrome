@@ -351,7 +351,7 @@ function mergeWithDefaults(customList, defaultList) {
 const siteAccessDefaults = require('../../workers/config/site-access-defaults.json');
 
 {
-  // compositeList effective = defaultCompositeSites + customCompositeList (user-default sites seeded)
+  // compositeList effective = defaultCompositeSites + defaultUserCompositeSites + customCompositeList
   const customCompositeList = siteAccessDefaults.defaultUserCompositeSites || [];
   const effectiveComposite = mergeWithDefaults(customCompositeList, siteAccessDefaults.defaultCompositeSites);
   check('new profile compositeList count = 9 system + 5 user-default = 14', effectiveComposite.length === 14, `actual=${effectiveComposite.length}`);
@@ -373,23 +373,25 @@ const siteAccessDefaults = require('../../workers/config/site-access-defaults.js
 }
 
 {
-  // User removal: if user removes youtube.com from customCompositeList, it must not reappear
+  // Runtime system defaults now include defaultUserCompositeSites even for existing profiles.
   const customCompositeList = ['wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'];
-  const effectiveComposite = mergeWithDefaults(customCompositeList, siteAccessDefaults.defaultCompositeSites);
-  check('after removing youtube.com, effective count = 13', effectiveComposite.length === 13, `actual=${effectiveComposite.length}`);
-  check('youtube.com NOT in effective list after removal', !effectiveComposite.includes('youtube.com'));
+  const compositeSystemDefaults = mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites);
+  const effectiveComposite = mergeWithDefaults(customCompositeList, compositeSystemDefaults);
+  check('youtube.com remains in effective list as system defaultUserCompositeSites', effectiveComposite.includes('youtube.com'));
   check('remaining user-default sites still present', effectiveComposite.includes('wikipedia.org'));
 }
 
 {
-  // customCompositeList = [] → effective should equal defaults
-  const effectiveComposite = mergeWithDefaults([], siteAccessDefaults.defaultCompositeSites);
-  check('mergeWithDefaults([], defaults) equals defaults', effectiveComposite.length === siteAccessDefaults.defaultCompositeSites.length);
+  // customCompositeList = [] → effective should equal composite system defaults
+  const compositeSystemDefaults = mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites);
+  const effectiveComposite = mergeWithDefaults([], compositeSystemDefaults);
+  check('mergeWithDefaults([], composite system defaults) equals system defaults', effectiveComposite.length === compositeSystemDefaults.length);
+  check('empty custom still includes youtube.com from defaultUserCompositeSites', effectiveComposite.includes('youtube.com'));
 }
 
 {
   // customCompositeList with duplicates → deduped
-  const effectiveComposite = mergeWithDefaults(['google.com', 'new-site.com'], siteAccessDefaults.defaultCompositeSites);
+  const effectiveComposite = mergeWithDefaults(['google.com', 'new-site.com'], mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites));
   check('duplicate google.com is deduped', !effectiveComposite.some((d, i, arr) => arr.indexOf(d) !== i));
   check('new-site.com is appended', effectiveComposite.includes('new-site.com'));
 }

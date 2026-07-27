@@ -145,6 +145,7 @@ function run() {
   expectTrue('网站归类记录应支持设备提交和读取', siteRequestsSource.includes("path === '/device/site-classification-requests/v1'") && siteRequestsSource.includes("request.method === 'POST'") && siteRequestsSource.includes("request.method === 'GET'"));
   expectTrue('网站归类记录应支持家长读取和审批', siteRequestsSource.includes('/site-classification-requests/v1') && siteRequestsSource.includes('/decision') && siteRequestsSource.includes('verifyProfileOwner'));
   expectTrue('网站归类记录应拒绝已归类对象重新申请', siteRequestsSource.includes('ALREADY_CLASSIFIED') && siteRequestsSource.includes('getConfiguredClassificationForTarget'));
+  expectTrue('网站归类记录写入前应使用统一动作校验阻止受限/黑名单父域穿透', siteRequestsSource.includes('validateSiteClassificationAction') && siteRequestsSource.includes('CLASSIFICATION_SCOPE_BLOCKED'));
   expectTrue('网站归类记录应使用规范化对象做重复判断', siteRequestsSource.includes('requested_normalized_value') && siteRequestsSource.includes('target.normalizedValue'));
   expectTrue('网站归类记录退回后应允许同一对象再次提交', siteRequestsSource.includes("status != 'returned'"));
   expectTrue('网站归类记录应合并同一观察源累计值', siteRequestsSource.includes('mergeObservationSummary') && siteRequestsSource.includes('ON CONFLICT(request_id, observation_source_id)') && siteRequestsSource.includes('MAX(observation_count, excluded.observation_count)'));

@@ -6,6 +6,7 @@ import {
   normalizeSiteClassificationRequest,
   normalizeSiteClassificationTarget,
   siteDecisionMatchesUrl,
+  validateSiteClassificationAction,
 } from '../core/site-classification.js';
 import { getPopupModeStatsView, getQuotaUsageView, getTodayUsageView, getUsageRangeView } from '../stats/managed-statistics.js';
 
@@ -491,19 +492,16 @@ async function upsertPendingSiteClassificationRecord(input, context = {}, option
   if (classification.classification === 'rejected') {
     return { ok: false, code: 'REQUEST_REJECTED', error: 'request rejected', request: classification.request || null, rule: classification.rule || null };
   }
-  const configuredClassification = getConfiguredClassificationForTarget(config, target);
-  if (configuredClassification) {
-    const code = configuredClassification.classification === 'rejected'
-      ? 'REQUEST_REJECTED'
-      : 'ALREADY_CLASSIFIED';
+  const actionValidation = validateSiteClassificationAction(config, target, options.requestedClassification === 'study' ? 'study' : 'composite');
+  if (!actionValidation.ok) {
     return {
       ok: false,
-      code,
-      error: code === 'REQUEST_REJECTED' ? 'request rejected' : 'target already classified',
-      classifiedAs: configuredClassification.classification,
-      source: configuredClassification.source || null,
-      pattern: configuredClassification.pattern || null,
-      rule: configuredClassification.rule || null,
+      code: actionValidation.code || 'ALREADY_CLASSIFIED',
+      error: actionValidation.error || 'target already classified',
+      classifiedAs: actionValidation.classifiedAs || null,
+      source: actionValidation.source || null,
+      pattern: actionValidation.pattern || null,
+      protectedBy: actionValidation.protectedBy || null,
     };
   }
 

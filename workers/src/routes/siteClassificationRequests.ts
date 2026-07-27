@@ -7,6 +7,7 @@ import {
   resolveSiteAccessClassification,
   siteDecisionMatchesUrl,
   siteTargetScopesOverlap,
+  validateSiteClassificationAction,
 } from '../../../extension/core/site-classification.js';
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
@@ -552,15 +553,29 @@ export const siteClassificationRequestsRouter = {
           errors.push({ id: item.id || null, code: target.code || 'INVALID_TARGET' });
           continue;
         }
-        const configured = getConfiguredClassificationForTarget(profileConfig, target);
-        if (configured) {
-          errors.push({
-            id: item.id || null,
-            code: configured.classification === 'rejected' ? 'REQUEST_REJECTED' : 'ALREADY_CLASSIFIED',
-            classifiedAs: configured.classification,
-            source: configured.source,
-          });
-          continue;
+        if (requestedClassification === 'study') {
+          const actionValidation = validateSiteClassificationAction(profileConfig, target, 'study');
+          if (!actionValidation.ok) {
+            errors.push({
+              id: item.id || null,
+              code: actionValidation.code || 'ALREADY_CLASSIFIED',
+              classifiedAs: actionValidation.classifiedAs || null,
+              source: actionValidation.source || null,
+              pattern: actionValidation.pattern || null,
+            });
+            continue;
+          }
+        } else {
+          const configured = getConfiguredClassificationForTarget(profileConfig, target);
+          if (configured) {
+            errors.push({
+              id: item.id || null,
+              code: configured.classification === 'rejected' ? 'REQUEST_REJECTED' : 'ALREADY_CLASSIFIED',
+              classifiedAs: configured.classification,
+              source: configured.source,
+            });
+            continue;
+          }
         }
         const rejected = await findRejectedMatch(env, device.profileId, target);
         if (rejected) {
@@ -683,6 +698,20 @@ export const siteClassificationRequestsRouter = {
       const target = normalizeSiteClassificationTarget(targetValue);
       if (!target.ok) return json({ error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' }, 400);
       if (body?.targetType && body.targetType !== target.targetType) return json({ error: 'target type mismatch' }, 400);
+
+      if (decision === 'study' || decision === 'composite') {
+        const profileConfig = await getProfileConfig(env, profileId);
+        const actionValidation = validateSiteClassificationAction(profileConfig, target, decision);
+        if (!actionValidation.ok) {
+          return json({
+            error: actionValidation.error || 'classification scope blocked',
+            code: actionValidation.code || 'CLASSIFICATION_SCOPE_BLOCKED',
+            classifiedAs: actionValidation.classifiedAs || null,
+            source: actionValidation.source || null,
+            pattern: actionValidation.pattern || null,
+          }, 400);
+        }
+      }
 
       const now = Date.now();
       const status = decisionToStatus(decision);

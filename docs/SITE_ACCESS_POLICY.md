@@ -101,7 +101,7 @@ hardBlockedList
 
 访问管理配置文件默认导出为 `access-management-config-bundle`，包含两个可选范围：`userConfig` 和 `systemConfig`。其中 `userConfig` 兼容旧 `profile-config` 结构；`systemConfig` 兼容旧 `system-access-config` 结构。旧格式文件仍可导入，但新导出统一使用 bundle。导入时先按范围生成可勾选的新增/删除/修改差异，最后只应用选中的差异。
 
-系统配置范围包含 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites` 和可选 `siteCatalog`。其中四个 default list 是运行 source of truth；`siteCatalog` 是系统管理和人工审核元数据。系统配置导入仍必须经过系统配置 preflight、管理员权限和全局影响确认。
+系统配置范围包含 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites` 和可选 `siteCatalog`。其中五个 default list 都是运行 source of truth；`siteCatalog` 是系统管理和人工审核元数据。系统配置导入仍必须经过系统配置 preflight、管理员权限和全局影响确认。
 
 ### 3.0.2 Qustodio 风格内容分类
 
@@ -127,12 +127,16 @@ hardBlockedList
 
 网站管理顶部“添加到当前策略”入口只用于新增用户自定义配置网站，不负责移动分类。添加前必须校验域名格式、当前策略重复和跨策略重复：已存在于系统网站配置-分类管理的站点不得加入用户自定义配置；已存在于用户自定义配置的同策略站点不得重复加入；已存在于其他策略的站点必须通过列表内“归为…”或系统分类编辑完成分类变更。
 
+### 3.0.4 网站归类动作统一校验
+
+新增、申请和审批网站归类时必须使用同一套动作校验。精确同一 host 不得跨管理策略重复；若父域或上级范围已归为受限娱乐或黑名单，则子域、精确 URL、YouTube playlist/video 等更具体对象不得新增、申请或审批为学习/复合。学习与复合父域之间仍允许更具体子域细分，例如 `google.com` 复合、`docs.google.com` 学习。Popup 点击“申请归为学习网站”入口时先执行只读校验；写入前仍保留强制校验，防止 UI 或 API 绕过。历史已存在配置不自动迁移，本规则只阻止新添加、新申请和新审批制造冲突。
+
 ### 3.1 概念迁移表
 
 | 旧概念 | 新概念 | 新定义 | 实现字段暂定 |
 |---|---|---|---|
 | 综合时间 | 待归类时间 | 尚未归入学习或休息的过渡时间池，应尽量实时/半实时归因 | `compositeSeconds` / `undeterminedSeconds` |
-| 综合网站 | 复合网站 | 仅凭域名无法判断使用性质，需要内容、URL、标题、频道、行为或人工回看判断 | `compositeList` / `defaultCompositeSites` |
+| 综合网站 | 复合网站 | 仅凭域名无法判断使用性质，需要内容、URL、标题、频道、行为或人工回看判断 | `compositeList` / `defaultCompositeSites` / `defaultUserCompositeSites` |
 | 综合模式 | 复合模式 | 访问复合网站或待归类对象时进入的过渡运行模式 | `mode: composite` |
 | 临时使用综合网站时间 | 临时进入待归类时间 | 未归类网站被临时允许后，先计入待归类时间，再等待归因 | temporary composite permission |
 | Pending Composite | 未归类网站访问记录 / 学习网站归类申请 | 系统访问事实或孩子学习归类意图尚未被家长最终判定；审批前都进入待归类时间 | `pending_composite` |
@@ -588,7 +592,7 @@ temporaryCompositeSites
 
 ### 10.4 第一版 defaultCompositeList 清单
 
-系统配置复合网站（defaultCompositeSites）：
+系统配置复合网站（defaultCompositeSites，运行时复合来源之一）：
 
 ```js
 [
@@ -611,7 +615,7 @@ temporaryCompositeSites
 ]
 ```
 
-用户默认复合网站（defaultUserCompositeSites）：
+用户默认复合网站（defaultUserCompositeSites，运行时复合来源之一）：
 
 ```js
 [

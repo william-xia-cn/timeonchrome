@@ -22,7 +22,15 @@
   - Not daily scheduler, not routine bugfix guide, not every-session prompt generator
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
-## Current Fix Focus（2026-07-26）
+## Current Fix Focus（2026-07-27）
+- [x] defaultUserCompositeSites 运行时加载一致性修订
+  - 目标：修复现有 Profile 未稳定加载 `defaultUserCompositeSites`，导致 `youtube.com` 等系统复合默认站点掉成未归类的问题。
+  - 目标：Worker effective config、扩展端配置归一化、分类解析、Popup/Admin 展示统一把 `defaultUserCompositeSites` 作为复合系统来源。
+  - 边界：不改变未归类访问路由，不把 YouTube 改为学习，不迁移历史统计。
+- [x] 网站归类动作统一校验
+  - 目标：家长添加、孩子申请、家长审批和 Worker 上传统一阻止受限娱乐/黑名单父域下新增学习/复合子域或精确 URL。
+  - 目标：Popup 点击“申请归为学习网站”入口时先做只读校验，失败不展开申请面板；提交按钮保留二次校验。
+  - 边界：不迁移历史配置，不改变计时、拦截、同步和统计落账模型。
 - [x] 访问管理统一配置导入导出
   - 目标：`访问管理 -> 配置文件` 改为单一导入/导出入口，默认包含用户配置和系统配置，可按两类范围选择。
   - 边界：新导出统一使用 bundle；旧 `profile-config` / `system-access-config` 只保留导入兼容。
@@ -37,7 +45,7 @@
 - [x] 系统网站分类管理可读性修订
   - 目标：为系统默认网站库补齐 `siteCatalog`，让系统配置真正按 Qustodio 内容分类分组。
   - 目标：Worker 读取旧 D1 系统配置时补齐缺失目录元数据，避免线上继续全部显示“未标注分类”。
-  - 边界：不改变 `default*Sites` 运行 source of truth，不修改 profile 自定义、审批、计时、拦截、同步逻辑。
+  - 边界：不修改 profile 自定义、审批、计时、拦截、同步逻辑；`defaultUserCompositeSites` 后续按 D-052 作为运行时系统复合配置加载。
 - [x] 网站管理页内补齐系统配置“分类管理”
   - 目标：在现有“访问管理 → 网站管理”右侧目录中，把系统配置网站按 Qustodio 内容分类分组展示。
   - 目标：管理员可点击系统配置网站编辑内容分类和 TimeOnChrome 管理策略分类，保存到系统访问配置并全局生效。

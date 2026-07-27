@@ -174,7 +174,7 @@ function run() {
   expectTrue('Pages URL 规则展示应去重', source.includes('function uniqueSiteRules') && source.includes('return uniqueSiteRules'));
   expectTrue('Pages URL 规则展示应规范化 YouTube playlist 历史值', source.includes('function canonicalDisplayUrlValue') && source.includes('https://www.youtube.com/playlist?list=${playlistId}'));
   expectTrue('Pages 访问规则添加/导入/保存应校验精确跨类重复', source.includes('function findSiteAccessExactConflicts') && source.includes('formatSiteAccessConflict') && source.includes('SITE_ACCESS_CATEGORY_FIELDS'));
-  expectTrue('Pages 添加网站应先校验输入、系统配置和用户自定义重复', source.includes('function validateRulesSiteAdd') && source.includes('siteAccessDefaults?.[def.defaultKey]') && source.includes('getPolicyCustomList(def)') && source.includes('该网站已在系统网站配置-分类管理的当前策略中') && source.includes('该网站已在用户自定义配置中'));
+  expectTrue('Pages 添加网站应先校验输入、系统配置和用户自定义重复', source.includes('function validateRulesSiteAdd') && source.includes('getPolicyDefaultList(def)') && source.includes('getPolicyCustomList(def)') && source.includes('该网站已在系统网站配置-分类管理的当前策略中') && source.includes('该网站已在用户自定义配置中') && source.includes('function findProtectedSiteAccessScope') && source.includes('不能归为'));
   expectTrue('Pages 添加入口不应静默移动其他策略已有网站', extractFunctionSource(source, 'addSiteToCurrentPolicy').includes('validateRulesSiteAdd') && extractFunctionSource(source, 'addSiteToCurrentPolicy').includes("toast(validation.message") && source.includes('请点击已有网站的“归为…”操作移动分类'));
   expectTrue('Pages 自定义网站移动应保持 canonical 去重', source.includes('function uniqueSiteAccessValues') && extractFunctionSource(source, 'moveCustomSiteToPolicy').includes('uniqueSiteAccessValues'));
   expectTrue('Pages 应包含系统日志 Tab 和查询接口', source.includes('data-system-management-panel="client-logs"') && source.includes('/client-logs/v1'));
@@ -200,6 +200,7 @@ function run() {
   expectTrue('Pages 复合网站下应包含已使用未归类网站入口', source.includes('已使用未归类网站') && source.includes('/used-unclassified-sites/v1?days=30') && source.includes('rules-used-unclassified-summary'));
   expectTrue('Pages 网站目录应按来源分组', source.includes('系统网站配置-分类管理') && source.includes('用户自定义配置') && source.includes('已批准精确规则') && source.includes('data-source-group'));
   expectTrue('Pages 网站目录来源顺序应为未归类、自定义、系统、规则、未标注', source.includes("['used-unclassified', 'custom', 'system', 'rule', 'unmarked']"));
+  expectTrue('Pages 复合策略应把 defaultUserCompositeSites 纳入系统默认读取', source.includes("defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites']") && source.includes('function getPolicyDefaultList') && source.includes('rulesPolicyDefaultKeys(def)'));
   expectTrue('Pages 系统配置应显示页面内分类管理', source.includes('系统网站配置-分类管理') && source.includes('data-system-category-management') && source.includes('rules-system-category-group'));
   expectTrue('Pages 系统配置应按 siteCatalog 内容分类分组', source.includes('systemSiteCatalogEntryForValue') && source.includes('siteCatalog') && source.includes('contentCategory') && source.includes('未标注分类'));
   expectTrue('Pages 未标注分类应解释为目录元数据缺失', source.includes('当前策略下的系统网站配置按 Qustodio 内容分类分组') && source.includes('不是网站未归类') && source.includes('需要补齐系统目录元数据'));
@@ -210,7 +211,7 @@ function run() {
   const validateRulesSiteAddSource = [
     `const RULES_POLICY_DEFS = [
       { key: 'study', label: '学习网站', customKey: 'customStudyList', effectiveKey: 'studyList', defaultKey: 'defaultStudySites' },
-      { key: 'composite', label: '复合网站', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites' },
+      { key: 'composite', label: '复合网站', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites', defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites'] },
       { key: 'restricted', label: '受限娱乐网站', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites' },
       { key: 'blocked', label: '黑名单网站', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites' },
     ];`,
@@ -218,18 +219,65 @@ function run() {
     extractFunctionSource(source, 'normalizeSiteAccessHostKey'),
     extractFunctionSource(source, 'normalizeSiteAccessInput'),
     extractFunctionSource(source, 'getCustomList'),
+    "function rulesPolicyDefaultKeys(def = {}) { return Array.isArray(def.defaultKeys) && def.defaultKeys.length ? def.defaultKeys : [def.defaultKey].filter(Boolean); }",
+    "function getPolicyDefaultList(def, defaults = siteAccessDefaults || {}) { const out = []; const seen = new Set(); for (const key of rulesPolicyDefaultKeys(def)) { const values = Array.isArray(defaults?.[key]) ? defaults[key] : []; for (const value of values) { const hostKey = normalizeSiteAccessHostKey(value); if (!hostKey || seen.has(hostKey)) continue; seen.add(hostKey); out.push(value); } } return out; }",
+    `function getSiteAccessListsForValidation(config = remoteConfig, defaults = siteAccessDefaults || {}) {
+      const customOrEffective = (customKey, effectiveKey, defaultList) => {
+        if (Array.isArray(config?.[customKey])) return config[customKey];
+        return getCustomList(config?.[effectiveKey] || [], defaultList || []);
+      };
+      const groups = [
+        { category: 'study', label: '学习网站', key: 'customStudyList', values: [...(defaults.defaultStudySites || []), ...customOrEffective('customStudyList', 'studyList', defaults.defaultStudySites)] },
+        { category: 'composite', label: '复合网站', key: 'customCompositeList', values: [...(defaults.defaultCompositeSites || []), ...(defaults.defaultUserCompositeSites || []), ...customOrEffective('customCompositeList', 'compositeList', [...(defaults.defaultCompositeSites || []), ...(defaults.defaultUserCompositeSites || [])])] },
+        { category: 'restricted', label: '受限娱乐网站', key: 'customRestrictedEntertainmentList', values: [...(defaults.defaultRestrictedEntertainmentSites || []), ...customOrEffective('customRestrictedEntertainmentList', 'restrictedEntertainmentList', defaults.defaultRestrictedEntertainmentSites)] },
+        { category: 'blocked', label: '黑名单网站', key: 'customBlockedSites', values: [...(defaults.defaultBlockedSites || []), ...customOrEffective('customBlockedSites', 'unsafeList', defaults.defaultBlockedSites)] },
+      ];
+      return groups.flatMap(group => group.values.map(value => ({ ...group, value })));
+    }`,
+    `function matchDomain(domain, pattern) {
+      const d = normalizeSiteAccessHostname(domain);
+      const p = normalizeSiteAccessHostname(pattern);
+      return !!d && !!p && (d === p || d.endsWith('.' + p));
+    }`,
     `function getPolicyCustomList(def, config = remoteConfig, defaults = siteAccessDefaults || {}) {
       if (Array.isArray(config?.[def.customKey])) return config[def.customKey];
-      return getCustomList(config?.[def.effectiveKey] || [], defaults[def.defaultKey] || []);
+      return getCustomList(config?.[def.effectiveKey] || [], getPolicyDefaultList(def, defaults));
     }`,
     extractFunctionSource(source, 'siteAccessExactListMatch'),
+    `function findProtectedSiteAccessScope(value, targetPolicy, config = remoteConfig, defaults = siteAccessDefaults || {}) {
+      const normalized = normalizeSiteAccessInput(value);
+      if (!normalized) return null;
+      const targetKey = normalizeSiteAccessHostKey(normalized);
+      const targetIsBlocked = targetPolicy === 'blocked';
+      const targetIsLearningOrComposite = targetPolicy === 'study' || targetPolicy === 'composite';
+      for (const entry of getSiteAccessListsForValidation(config, defaults)) {
+        if (entry.category !== 'blocked' && entry.category !== 'restricted') continue;
+        const entryValue = normalizeSiteAccessInput(entry.value);
+        if (!entryValue) continue;
+        const entryKey = normalizeSiteAccessHostKey(entryValue);
+        if (!entryKey || entryKey === targetKey) continue;
+        if (!matchDomain(normalized, entryValue)) continue;
+        if (entry.category === 'blocked' && !targetIsBlocked) return entry;
+        if (entry.category === 'restricted' && targetIsLearningOrComposite) return entry;
+      }
+      return null;
+    }`,
+    `function formatProtectedSiteAccessScopeMessage(scope, targetDef) {
+      const protectedLabel = scope?.label || '受限娱乐/黑名单';
+      const targetLabel = targetDef?.label || '当前分类';
+      return '该网站位于' + protectedLabel + '范围内，不能归为' + targetLabel + '。请先调整父域策略。';
+    }`,
     extractFunctionSource(source, 'validateRulesSiteAdd'),
     `this.__run = () => ({
       invalid: validateRulesSiteAdd('', 'study'),
       currentSystem: validateRulesSiteAdd('https://www.drive.google.com/docs', 'study'),
       otherSystem: validateRulesSiteAdd('netflix.com', 'study'),
+      userCompositeSystem: validateRulesSiteAdd('youtube.com', 'study'),
       currentCustom: validateRulesSiteAdd('custom-study.example.com', 'study'),
       otherCustom: validateRulesSiteAdd('custom-game.example.com', 'study'),
+      protectedStudy: validateRulesSiteAdd('learn.games.example.com', 'study'),
+      protectedComposite: validateRulesSiteAdd('watch.games.example.com', 'composite'),
+      allowedStudyChild: validateRulesSiteAdd('docs.google.com', 'study'),
       ok: validateRulesSiteAdd('NEW-SITE.example.com/path', 'study'),
     });`,
   ].join('\n');
@@ -240,8 +288,9 @@ function run() {
     },
     siteAccessDefaults: {
       defaultStudySites: ['drive.google.com'],
-      defaultCompositeSites: ['youtube.com'],
-      defaultRestrictedEntertainmentSites: ['netflix.com'],
+      defaultCompositeSites: ['google.com'],
+      defaultUserCompositeSites: ['youtube.com'],
+      defaultRestrictedEntertainmentSites: ['netflix.com', 'games.example.com'],
       defaultBlockedSites: ['tiktok.com'],
     },
     URL,
@@ -251,8 +300,12 @@ function run() {
   expectTrue('添加网站非法输入应明确失败', addValidation.invalid.ok === false && addValidation.invalid.message.includes('请输入有效域名'));
   expectTrue('添加网站应检查当前策略系统配置重复', addValidation.currentSystem.ok === false && addValidation.currentSystem.message.includes('系统网站配置-分类管理的当前策略'));
   expectTrue('添加网站应检查其他策略系统配置重复', addValidation.otherSystem.ok === false && addValidation.otherSystem.message.includes('系统网站配置-分类管理的受限娱乐网站'));
+  expectTrue('添加网站应检查 defaultUserCompositeSites 系统复合默认', addValidation.userCompositeSystem.ok === false && addValidation.userCompositeSystem.message.includes('复合网站'));
   expectTrue('添加网站应检查当前策略用户自定义重复', addValidation.currentCustom.ok === false && addValidation.currentCustom.message.includes('用户自定义配置'));
   expectTrue('添加网站应阻止静默移动其他策略自定义网站', addValidation.otherCustom.ok === false && addValidation.otherCustom.message.includes('归为'));
+  expectTrue('添加网站应阻止受限父域下新增学习网站', addValidation.protectedStudy.ok === false && addValidation.protectedStudy.message.includes('受限娱乐网站范围内'));
+  expectTrue('添加网站应阻止受限父域下新增复合网站', addValidation.protectedComposite.ok === false && addValidation.protectedComposite.message.includes('受限娱乐网站范围内'));
+  expectTrue('添加网站应允许复合父域下细分学习子域', addValidation.allowedStudyChild.ok === true);
   expectTrue('添加网站有效新域名应规范化后通过', addValidation.ok.ok === true && addValidation.ok.value === 'new-site.example.com');
   // 时间段管理：per-day 结构检查
   expectTrue('pages 应使用 timeWindows.daily 结构', source.includes('timeWindows.daily'));

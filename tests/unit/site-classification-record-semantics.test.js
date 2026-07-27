@@ -236,6 +236,37 @@ async function run() {
     sourceObservationCount: 1,
   });
 
+  harness.setConfig({
+    studyList: [],
+    compositeList: [],
+    restrictedEntertainmentList: ['games.example.com'],
+    unsafeList: [],
+    siteClassificationRulesV1: [],
+  });
+  const blockedLearningRequest = await api.submitSiteClassificationRequest('learn.games.example.com', {
+    observedAt: 10000,
+    sourceTabId: 9,
+    url: 'https://learn.games.example.com/course',
+    domain: 'learn.games.example.com',
+  });
+  expectTrue('restricted parent blocks manual learning request for child domain',
+    blockedLearningRequest.ok === false && blockedLearningRequest.code === 'CLASSIFICATION_SCOPE_BLOCKED');
+
+  harness.setConfig({
+    studyList: [],
+    compositeList: ['google.com'],
+    restrictedEntertainmentList: [],
+    unsafeList: [],
+    siteClassificationRulesV1: [],
+  });
+  const allowedLearningRequest = await api.submitSiteClassificationRequest('docs.google.com', {
+    observedAt: 11000,
+    sourceTabId: 10,
+    url: 'https://docs.google.com/document',
+    domain: 'docs.google.com',
+  });
+  expectTrue('composite parent still allows manual learning request for child domain',
+    allowedLearningRequest.ok === true && allowedLearningRequest.request.requestedClassification === 'study');
   const total = passed + failed;
   console.log(`\n[Site Classification Record Semantics] ${passed}/${total} passed${failed ? ` - ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

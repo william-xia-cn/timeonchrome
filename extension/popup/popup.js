@@ -5,6 +5,7 @@ let lastPopupSnapshot = {};
 const POPUP_CONFIG_KEY = 'guardian_config';
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const QUOTA_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const SITE_REQUEST_MESSAGE_OPTIONS = { attempts: 3, timeoutMs: 2500 };
 
 document.addEventListener('DOMContentLoaded', async () => {
   bindPopupEvents();
@@ -107,12 +108,36 @@ function getDefaultSiteRequest() {
   return { input: domain || '', sourceTabId: lastPopupSnapshot?.tabId ?? null };
 }
 
-function openSiteRequestPanel() {
+async function openSiteRequestPanel() {
   const entry = document.getElementById('site-request-entry');
   const panel = document.getElementById('site-request-panel');
   const input = document.getElementById('site-request-input');
   const status = document.getElementById('site-request-status');
+  const openBtn = document.getElementById('site-request-open-btn');
   const defaults = getDefaultSiteRequest();
+  resetSiteRequestEntryStatus();
+  if (defaults.input) {
+    const originalText = openBtn?.textContent || '申请归为学习网站';
+    if (openBtn) {
+      openBtn.disabled = true;
+      openBtn.textContent = '检查中…';
+    }
+    try {
+      const validation = await validateSiteClassificationRequestInput(defaults.input, defaults.sourceTabId);
+      if (!validation?.ok) {
+        renderSiteRequestEntryStatus(siteRequestErrorMessage(validation || {}));
+        return;
+      }
+    } catch (error) {
+      renderSiteRequestEntryStatus(siteRequestRuntimeErrorMessage(error));
+      return;
+    } finally {
+      if (openBtn) {
+        openBtn.disabled = false;
+        openBtn.textContent = originalText;
+      }
+    }
+  }
   if (entry) entry.style.display = 'none';
   if (panel) panel.style.display = 'block';
   if (input && !input.value.trim()) input.value = defaults.input || '';
@@ -129,6 +154,20 @@ function openSiteRequestPanel() {
     }
   }
   setTimeout(() => input?.focus?.(), 0);
+}
+
+function resetSiteRequestEntryStatus() {
+  const el = document.getElementById('site-request-entry-status');
+  if (!el) return;
+  el.className = 'request-entry-status';
+  el.textContent = '';
+}
+
+function renderSiteRequestEntryStatus(message) {
+  const el = document.getElementById('site-request-entry-status');
+  if (!el) return;
+  el.className = 'request-entry-status err';
+  el.textContent = message || '当前网站不能申请归为学习网站。';
 }
 
 function hydrateSiteRequestInputFromSnapshot(reason = 'snapshot') {
@@ -157,9 +196,17 @@ function closeSiteRequestPanel() {
   if (panel) panel.style.display = 'none';
 }
 
+function siteRequestRuntimeErrorMessage(error = {}) {
+  const message = error?.message || String(error || '');
+  if (message === 'background_timeout') return '后台正在启动，请再试一次。';
+  if (message.includes('Extension context invalidated')) return '扩展刚刚更新，请重新打开弹窗后再试。';
+  return `后台暂不可用：${message || '请稍后再试'}`;
+}
+
 function siteRequestErrorMessage(result = {}) {
   if (result.code === 'REQUEST_REJECTED') return '该范围已归为受限娱乐，不能申请归为学习网站。';
   if (result.code === 'ALREADY_CLASSIFIED') return '该网站已归类，不能申请重新归类。';
+  if (result.code === 'CLASSIFICATION_SCOPE_BLOCKED') return '该网站位于受限娱乐或黑名单范围内，不能申请归为学习网站。请先让家长调整父域策略。';
   if (result.code === 'URL_REQUIRES_PROTOCOL') return '特定链接需要以 http:// 或 https:// 开头。';
   if (result.code === 'INVALID_HOST' || result.code === 'INVALID_URL' || result.code === 'INVALID_TARGET') return '请输入有效域名、子域名或 http/https 链接。';
   if (result.error) return `提交失败：${result.error}`;
@@ -307,6 +354,15 @@ function renderSiteRequestStatus({ kind = 'ok', title = '', body = '', targetTex
   appendSiteRequestStatusLine(status, 'request-status-extra', extra);
 }
 
+async function validateSiteClassificationRequestInput(value, sourceTabId = null) {
+  return await sendMsg({
+    type: 'VALIDATE_SITE_CLASSIFICATION_REQUEST',
+    input: value,
+    sourceTabId,
+    requestedClassification: 'study',
+  }, SITE_REQUEST_MESSAGE_OPTIONS);
+}
+
 async function submitSiteClassificationRequest() {
   const inputEl = document.getElementById('site-request-input');
   const status = document.getElementById('site-request-status');
@@ -324,12 +380,21 @@ async function submitSiteClassificationRequest() {
   }
   if (submitBtn) submitBtn.disabled = true;
   try {
+    const validation = await validateSiteClassificationRequestInput(value, defaults.sourceTabId);
+    if (!validation?.ok) {
+      renderSiteRequestStatus({
+        kind: 'err',
+        title: '无法提交',
+        body: siteRequestErrorMessage(validation || {}),
+      });
+      return;
+    }
     const result = await sendMsg({
       type: 'SUBMIT_SITE_CLASSIFICATION_REQUEST',
       input: value,
       sourceTabId: defaults.sourceTabId,
       requestedClassification: 'study',
-    }, { attempts: 1, timeoutMs: 1200 });
+    }, SITE_REQUEST_MESSAGE_OPTIONS);
     if (!result?.ok) {
       renderSiteRequestStatus({
         kind: 'err',
@@ -365,7 +430,7 @@ async function submitSiteClassificationRequest() {
     renderSiteRequestStatus({
       kind: 'err',
       title: '提交失败',
-      body: `提交失败：${error?.message || '后台暂不可用'}`,
+      body: siteRequestRuntimeErrorMessage(error),
     });
   } finally {
     if (submitBtn) submitBtn.disabled = false;
@@ -434,21 +499,23 @@ async function getPopupFastStatusSafe() {
 
 async function getPopupLocalSnapshotSafe() {
   const activeTabHint = await getPopupActiveTabHint();
-  const cachedConfigPromise = getPopupCachedConfigSafe();
+  const cachedStatePromise = getPopupCachedStateSafe();
   try {
     const snapshot = await sendMsg({ type: 'GET_POPUP_LOCAL_SNAPSHOT', activeTabHint }, { attempts: 1, timeoutMs: 900 }) || {};
-    const cachedConfig = hasClassificationConfig(snapshot?.config) ? null : await cachedConfigPromise;
+    const cachedState = await cachedStatePromise;
+    const cachedConfig = hasClassificationConfig(snapshot?.config) ? null : cachedState?.config;
     return withActiveTabHintFallback(snapshot, activeTabHint, cachedConfig);
   } catch (_) {
-    const cachedConfig = await cachedConfigPromise;
+    const cachedState = await cachedStatePromise;
+    const cachedConfig = cachedState?.config || null;
     return withActiveTabHintFallback({
       mode: 'study',
       currentDomain: null,
       currentSessionDurationSeconds: 0,
       config: cachedConfig || {},
       stats: {},
-      cloudStatus: { isBound: false, localMode: true, syncEnabled: false },
-      childName: null,
+      cloudStatus: cachedState?.cloudStatus || { isBound: false, localMode: true, syncEnabled: false },
+      childName: cachedState?.childName || null,
     }, activeTabHint, cachedConfig);
   }
 }
@@ -510,19 +577,46 @@ function resolveHintLiveSeconds(activeTabHint = null) {
   return Math.max(0, Math.floor((Date.now() - lastAccessed) / 1000));
 }
 
-async function getPopupCachedConfigSafe() {
+async function getPopupCachedStateSafe() {
   try {
-    const result = await readChromeLocal([POPUP_CONFIG_KEY, SITE_CLASSIFICATION_REQUESTS_KEY]);
+    const result = await readChromeLocal([
+      POPUP_CONFIG_KEY,
+      SITE_CLASSIFICATION_REQUESTS_KEY,
+      'cloud_device_token',
+      'cloud_device_id',
+      'cloud_profile_id',
+      'cloud_profile_name',
+      'statsFoundationV1SyncEnabled',
+    ]);
     const config = result?.[POPUP_CONFIG_KEY];
     const requests = Array.isArray(result?.[SITE_CLASSIFICATION_REQUESTS_KEY])
       ? result[SITE_CLASSIFICATION_REQUESTS_KEY]
       : [];
-    return config && typeof config === 'object'
+    const cachedConfig = config && typeof config === 'object'
       ? { ...config, siteClassificationRequestsV1: requests }
       : { siteClassificationRequestsV1: requests };
+    const isBound = !!result?.cloud_device_token;
+    return {
+      config: cachedConfig,
+      cloudStatus: {
+        isBound,
+        localMode: !isBound,
+        syncEnabled: isBound,
+        reason: isBound ? null : 'snapshot_timeout_no_device_token',
+        deviceId: result?.cloud_device_id || null,
+        profileId: result?.cloud_profile_id || null,
+        v1SyncEnabled: result?.statsFoundationV1SyncEnabled ?? true,
+      },
+      childName: result?.cloud_profile_name || null,
+    };
   } catch (_) {
     return null;
   }
+}
+
+async function getPopupCachedConfigSafe() {
+  const cached = await getPopupCachedStateSafe();
+  return cached?.config || null;
 }
 
 function readChromeLocal(keys) {
@@ -546,8 +640,13 @@ function hasClassificationConfig(config = {}) {
     'customStudyList',
     'compositeList',
     'defaultCompositeSites',
+    'defaultCompositeList',
+    'defaultUserCompositeSites',
+    'defaultUserCompositeList',
+    'recommendedCompositeSites',
     'customCompositeList',
     'restrictedEntertainmentList',
+    'defaultRestrictedEntertainmentSites',
     'defaultRestrictedEntertainmentList',
     'customRestrictedEntertainmentList',
     'entertainmentList',
@@ -1007,6 +1106,10 @@ function collectCompositePatterns(config = {}) {
   return collectPatternFields(config, [
     'compositeList',
     'defaultCompositeSites',
+    'defaultCompositeList',
+    'defaultUserCompositeSites',
+    'defaultUserCompositeList',
+    'recommendedCompositeSites',
     'customCompositeList',
   ]);
 }
@@ -1024,6 +1127,7 @@ function collectPatternFields(config = {}, keys = []) {
 function collectRestrictedPatterns(config = {}) {
   const keys = [
     'restrictedEntertainmentList',
+    'defaultRestrictedEntertainmentSites',
     'defaultRestrictedEntertainmentList',
     'customRestrictedEntertainmentList',
     'restrictedEntertainmentSites'

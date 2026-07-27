@@ -36,7 +36,7 @@ function loadModule() {
     .replace(/export\s+const\s+/g, 'const ');
   const context = { URL, console, this: null };
   context.this = context;
-  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { normalizeSiteClassificationTarget, normalizeSiteClassificationRequest, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl, resolveSiteAccessClassification, validateSiteAccessConfig };`, context, { filename: 'site-classification.js' });
+  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { normalizeSiteClassificationTarget, normalizeSiteClassificationRequest, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl, resolveSiteAccessClassification, validateSiteClassificationAction, validateSiteAccessConfig };`, context, { filename: 'site-classification.js' });
   return context.__m;
 }
 
@@ -267,6 +267,20 @@ async function run() {
       status: 'pending',
     }], 'https://www.youtube.com/watch?v=OTHER_VIDEO&list=PLPsx331rqafXopGlbWJw-9SFh3E7ZGe1M&index=9').classification,
     'pending_composite');
+  expectEqual('defaultUserCompositeSites classifies YouTube as composite',
+    mod.resolveSiteAccessClassification({
+      defaultUserCompositeSites: ['youtube.com'],
+    }, [], 'https://www.youtube.com/watch?v=abc123').classification,
+    'composite');
+  expectEqual('defaultUserCompositeSites exact host study request is already classified',
+    mod.validateSiteClassificationAction({
+      defaultUserCompositeSites: ['youtube.com'],
+    }, 'youtube.com', 'study').code,
+    'ALREADY_CLASSIFIED');
+  expectTrue('defaultUserCompositeSites still allows more specific YouTube URL learning request when no exact URL rule exists',
+    mod.validateSiteClassificationAction({
+      defaultUserCompositeSites: ['youtube.com'],
+    }, 'https://www.youtube.com/watch?v=abc123', 'study').ok);
   const exactConflict = mod.validateSiteAccessConfig({
     studyList: ['www.example.com'],
     compositeList: ['example.com'],

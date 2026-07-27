@@ -39,6 +39,7 @@ function run() {
   const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
   const popupHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.html'), 'utf8');
   const popupJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.js'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
   const modeUsageSource = extractFunctionSource(popupJs, 'resolveModeUsageWithLive');
 
   expectTrue('action icon map normalizes study/composite/rest modes', backgroundSource.includes("mode === 'composite' || mode === 'rest' || mode === 'study'"));
@@ -79,6 +80,9 @@ function run() {
   expectTrue('popup shows reading state when request default is not ready', popupJs.includes('正在读取被拦截链接…') && popupJs.includes('appendSiteRequestStatusLine(status'));
   expectTrue('popup site request input wraps long URLs', popupHtml.includes('<textarea class="request-input"') && popupHtml.includes('overflow-wrap: anywhere') && popupHtml.includes('word-break: break-word'));
   expectTrue('popup site request has scope preview', popupHtml.includes('id="site-request-preview"') && popupHtml.includes('.request-preview-title') && popupJs.includes('function previewSiteClassificationTarget') && popupJs.includes('updateSiteRequestPreview'));
+  expectTrue('popup validates current target before opening learning request panel', popupHtml.includes('id="site-request-entry-status"') && popupJs.includes('async function openSiteRequestPanel') && popupJs.includes("type: 'VALIDATE_SITE_CLASSIFICATION_REQUEST'") && popupJs.includes('renderSiteRequestEntryStatus(siteRequestErrorMessage'));
+  expectTrue('popup keeps dry-run validation before final learning request submit', popupJs.includes('async function validateSiteClassificationRequestInput') && /validateSiteClassificationRequestInput\(value, defaults\.sourceTabId\)[\s\S]*SUBMIT_SITE_CLASSIFICATION_REQUEST/.test(popupJs));
+  expectTrue('popup site request validation uses cold-start tolerant retry options', popupJs.includes('const SITE_REQUEST_MESSAGE_OPTIONS = { attempts: 3, timeoutMs: 2500 }') && (popupJs.match(/SITE_REQUEST_MESSAGE_OPTIONS/g) || []).length >= 3);
   expectTrue('popup site request explains editable scope', popupHtml.includes('你可以修改下方内容来调整申请范围') && popupHtml.includes('example.com 表示整个网站') && popupHtml.includes('learn.example.com 表示子域名') && popupHtml.includes('表示这个具体链接'));
   expectTrue('popup site request previews YouTube playlist/video canonical target', popupJs.includes('YouTube 播放列表') && popupJs.includes('https://www.youtube.com/playlist?list=') && popupJs.includes('系统将按「YouTube 播放列表」申请，已识别为 YouTube 播放列表 list=') && popupJs.includes('YouTube 视频') && popupJs.includes('https://www.youtube.com/watch?v='));
   expectTrue('popup site request enter submit prevents textarea newline', popupJs.includes('event.preventDefault();') && popupJs.includes('!event.shiftKey'));
@@ -86,9 +90,11 @@ function run() {
   expectTrue('popup site request reports already-present state', popupJs.includes('result.alreadyPresent') && !popupJs.includes('返回申请页面失败'));
   expectTrue('popup site request does not auto navigate after submit', !popupJs.includes('waitMs') && !popupJs.includes('即将返回申请页面'));
   expectTrue('popup site request does not render return button', !popupJs.includes("btn.textContent = '返回申请页面'") && !popupJs.includes('request-return-btn') && !popupJs.includes('chrome.tabs.update(returnInfo.sourceTabId'));
-  expectTrue('popup current site tag supports custom/default site lists', popupJs.includes('function collectStudyPatterns') && popupJs.includes("'customStudyList'") && popupJs.includes("'defaultCompositeSites'"));
+  expectTrue('popup current site tag supports custom/default site lists', popupJs.includes('function collectStudyPatterns') && popupJs.includes("'customStudyList'") && popupJs.includes("'defaultCompositeSites'") && popupJs.includes("'defaultUserCompositeSites'"));
+  expectTrue('admin rules display supports defaultUserCompositeSites', adminJs.includes('mergeArrayFields') && adminJs.includes("'defaultUserCompositeSites'"));
   expectTrue('popup renders snapshot before suspect summary completes', popupJs.includes('const snapshotPromise = getPopupLocalSnapshotSafe()') && popupJs.includes('snapshotPromise.then'));
   expectTrue('popup local snapshot uses shorter single-attempt timeout', popupJs.includes('attempts: 1') && popupJs.includes('timeoutMs: 900'));
+  expectTrue('popup local snapshot timeout fallback preserves cached cloud binding state', popupJs.includes('function getPopupCachedStateSafe') && popupJs.includes('cloud_device_token') && popupJs.includes('cloud_profile_id') && popupJs.includes('cloudStatus: cachedState?.cloudStatus'));
   expectTrue('popup does not request cloud status on startup', !popupJs.includes("type: 'GET_CLOUD_STATUS'"));
   expectTrue('popup suspect summary does not block init', popupJs.includes('getSuspectSegmentSummarySafe().then(renderSuspectSegmentStatus)') && !popupJs.includes('renderSuspectSegmentStatus(await getSuspectSegmentSummarySafe())'));
   expectTrue('popup local mode notice text is present', popupHtml.includes('本地模式：未绑定云端，统计不会同步'));

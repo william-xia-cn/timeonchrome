@@ -357,7 +357,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
     'schoolsbuddy.cn',
     'afficienta.com',
   ],
-  compositeList: [],                 // 复合网站 effective（系统配置 + 家长自定义合并，运行时兼容）
+  compositeList: [],                 // 复合网站 effective（defaultCompositeSites + defaultUserCompositeSites + 家长自定义合并，运行时兼容）
   customCompositeList: [],           // 家长自定义复合网站（source-of-truth，新增）
   unsafeList: ['douyin.com', 'tiktok.com'],  // 黑名单网站 effective（系统配置 + 家长自定义合并）
   customBlockedSites: [],            // 家长自定义黑名单网站（source-of-truth）
@@ -439,10 +439,12 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - Pages 配置文件区选择文件后统一生成新增/删除/修改差异，按“用户配置 / 系统配置”分组，允许勾选差异后再应用；系统网站配置仍必须经过系统配置 preflight、管理员权限和全局影响确认。
 - Pages 网站管理 UI 使用“管理策略目录”作为主结构，左侧按学习/复合/受限娱乐/黑名单四类显示系统配置、自定义、精确规则和已使用未归类数量，右侧按来源分组展示网站目录；
 - 网站管理页内的系统配置区使用“系统网站配置-分类管理”分组：系统配置网站按 `siteCatalog.contentCategory` 展示 Qustodio 风格内容分类；系统默认网站库必须覆盖所有 `default*Sites` 的 `siteCatalog` 元数据，Worker 读取旧 D1 配置时会用 fallback catalog 补齐缺失项；没有任何目录元数据可推断的系统站点才进入“未标注分类”；
-- 管理员点击系统配置网站可同时编辑内容分类和管理策略分类，保存时通过 `/system/access-management-config/v1` 更新 `siteCatalog` 并同步维护 `defaultStudySites`、`defaultCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites`；该操作全局生效，必须显示确认；
+- 管理员点击系统配置网站可同时编辑内容分类和管理策略分类，保存时通过 `/system/access-management-config/v1` 更新 `siteCatalog` 并同步维护 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites`；该操作全局生效，必须显示确认；
 - 复合网站策略下的“已使用未归类网站”不是审批记录列表，而是最近 30 天 `target_stats_v1` / `usage_segments_v1` 中曾按未归类或待归类使用、且当前 effective 清单仍未归类的网站聚合；
 - 已使用未归类网站归类时写入当前 profile custom list；若存在匹配 pending 网站归类记录，同时按对应 decision 关闭记录；
 - 用户自定义配置项移动分类只迁移 profile custom list；系统配置项移动分类必须走系统访问配置 API、管理员权限和全局影响确认。
+- 网站归类动作使用统一写入前校验：家长添加、孩子申请学习归类、家长审批、Worker 设备上传都必须阻止受限娱乐/黑名单父域下新增学习/复合子域或精确 URL；运行时解析不迁移历史配置。
+- Popup “申请归为学习网站”入口点击时先通过 `VALIDATE_SITE_CLASSIFICATION_REQUEST` 执行只读 dry-run 校验；校验失败不展开申请面板、不创建记录；提交按钮保留同一 dry-run 作为手动输入后的二次保护。
 
 访问管理 bundle 格式：
 

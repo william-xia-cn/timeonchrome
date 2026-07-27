@@ -278,11 +278,11 @@ function showBindScreen() {
   // 隐藏主界面，显示绑定/登录界面
   document.getElementById('main-screen').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
-  
+
   // 隐藏登出按钮（绑定后不能退出）
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.style.display = 'none';
-  
+
   // 显示注册链接（首次使用可注册新账户）
   const registerLink = document.getElementById('register-link');
   if (registerLink) registerLink.style.display = 'block';
@@ -303,7 +303,7 @@ async function autoLogin(encryptedCredentials) {
 
     // 登录成功，进入主界面
     await enterMainScreen();
-    
+
   } catch (e) {
     console.error('[Admin] Auto login error:', e);
     showBindScreen();
@@ -465,18 +465,18 @@ window.rebindToProfile = rebindToProfile;
 async function enterMainScreen() {
   isAuthenticated = true;
   isLocalReadOnlyMode = false;
-  
+
   // 隐藏登录界面，显示主界面
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-screen').style.display = 'block';
-  
+
   // 隐藏登出按钮（绑定后不能退出）
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.style.display = 'none';
-  
+
   // 加载 Profile 列表（需要先加载才能查找到 profile name）
   await loadProfiles();
-  
+
   // 显示用户信息（左下角）
   const userInfo = document.getElementById('user-info');
   if (userInfo) {
@@ -486,7 +486,7 @@ async function enterMainScreen() {
     let profileName = storage[CLOUD_KEYS.PROFILE_NAME];
     const profileId = storage[CLOUD_KEYS.PROFILE_ID];
     const credentials = storage[CLOUD_KEYS.CREDENTIALS];
-    
+
     // 如果没有保存过 profileName，尝试从 cloudProfiles 中查找
     if (!profileName && profileId && cloudProfiles.length > 0) {
       const profile = cloudProfiles.find(p => p.id === profileId);
@@ -496,10 +496,10 @@ async function enterMainScreen() {
         chrome.storage.local.set({ [CLOUD_KEYS.PROFILE_NAME]: profileName });
       }
     }
-    
+
     if (profileName || credentials) {
       document.getElementById('profile-name-display').textContent = profileName || '未知';
-      
+
       // 从凭据中解析邮箱（credentials 是 base64 编码的 "email:password"）
       if (credentials) {
         try {
@@ -510,11 +510,11 @@ async function enterMainScreen() {
           document.getElementById('account-email-display').textContent = currentEmail || '';
         }
       }
-      
+
       userInfo.style.display = 'block';
     }
   }
-  
+
   // 侧边栏显示孩子名字
   const nameStorage = await new Promise(resolve =>
     chrome.storage.local.get([CLOUD_KEYS.PROFILE_NAME], resolve)
@@ -537,7 +537,7 @@ async function loadProfiles() {
     if (!token) return;
 
     const resp = await accountFetch(`${API_BASE}/profiles`);
-    
+
     if (resp.ok) {
       const data = await resp.json();
       cloudProfiles = data.profiles || [];
@@ -555,12 +555,12 @@ async function loadProfiles() {
 function renderProfilesList() {
   const container = document.getElementById('profiles-list');
   if (!container) return;
-  
+
   // 获取当前绑定的 profile_id
   chrome.storage.local.get(CLOUD_KEYS.PROFILE_ID, (storage) => {
     const boundProfileId = storage[CLOUD_KEYS.PROFILE_ID];
     const boundProfile = cloudProfiles.find(p => p.id === boundProfileId);
-    
+
     if (cloudProfiles.length === 0) {
       container.innerHTML = `
         <div style="text-align:center; padding:20px; color:var(--muted);">
@@ -570,7 +570,7 @@ function renderProfilesList() {
       `;
       return;
     }
-    
+
     // 显示已绑定的孩子信息
     if (boundProfile) {
       const avatarColor = normalizeAvatarColor(boundProfile.avatar_color);
@@ -605,19 +605,19 @@ function renderProfilesList() {
 function setupLoginForm() {
   const loginBtn = document.getElementById('login-btn');
   if (!loginBtn) return;
-  
+
   loginBtn.addEventListener('click', async () => {
     const email = normalizeEmailInput(document.getElementById('email-input')?.value);
     const password = document.getElementById('pw-input')?.value;
-    
+
     if (!email || !password) {
       showError('请输入邮箱和密码');
       return;
     }
-    
+
     loginBtn.disabled = true;
     loginBtn.textContent = '登录中...';
-    
+
     try {
       // 1. 登录家长账户
       const resp = await fetch(`${API_BASE}/auth/login`, {
@@ -625,12 +625,12 @@ function setupLoginForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
-      
+
       if (!resp.ok) {
         const err = await resp.json();
         throw new Error(err.error || '登录失败');
       }
-      
+
       const result = await resp.json();
       await saveAccountSession({
         token: result.token,
@@ -638,31 +638,31 @@ function setupLoginForm() {
         email,
       });
       await new Promise(resolve => chrome.storage.local.set({ [CLOUD_KEYS.REMEMBER_ME]: true }, resolve));
-      
+
       // 2. 获取孩子列表
       const profilesResp = await accountFetch(`${API_BASE}/profiles`);
-      
+
       if (!profilesResp.ok) {
         throw new Error('获取孩子列表失败');
       }
-      
+
       const profilesData = await profilesResp.json();
       cloudProfiles = profilesData.profiles || [];
-      
+
       if (cloudProfiles.length === 0) {
         throw new Error('请先在家长后台创建孩子 Profile');
       }
-      
+
       // 3. 显示孩子列表让用户选择
       await showProfileSelector();
-      
+
     } catch (e) {
       showError(e.message);
       loginBtn.disabled = false;
       loginBtn.textContent = '登录';
     }
   });
-  
+
   // 回车键登录
   const pwInput = document.getElementById('pw-input');
   if (pwInput) {
@@ -867,17 +867,17 @@ async function handleRegister() {
 async function showProfileSelector() {
   const loginScreen = document.getElementById('login-screen');
   const errorMsg = document.getElementById('error-msg');
-  
+
   // 隐藏错误信息
   if (errorMsg) errorMsg.style.display = 'none';
-  
+
   // 替换登录表单为孩子选择器
   loginScreen.innerHTML = `
     <div class="login-box">
       <div class="login-logo"><img src="../icons/app-icon.png" alt="TimeOnChrome"></div>
       <h1>TimeOnChrome</h1>
       <p>选择要绑定的孩子</p>
-      
+
       <div id="profile-selector" style="margin: 20px 0;">
         ${cloudProfiles.map(p => {
           const profileId = escAttr(p?.id || '');
@@ -896,11 +896,11 @@ async function showProfileSelector() {
         `;
         }).join('')}
       </div>
-      
+
       <p style="font-size:12px; color:var(--muted);">选择后将自动绑定此设备，绑定后无法更换</p>
     </div>
   `;
-  
+
   // 添加点击事件
   document.querySelectorAll('.profile-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -917,7 +917,7 @@ async function showProfileSelector() {
  */
 async function bindToProfile(profileId, profileName, avatarColor) {
   console.log('[Admin] bindToProfile called, profileId:', profileId, 'accountToken:', accountToken ? 'exists' : 'NULL');
-  
+
   try {
     // 1. 调用设备绑定 API（需要 account_token，不是 device_token）
     console.log('[Admin] Calling /device/bind with accountToken...');
@@ -936,15 +936,15 @@ async function bindToProfile(profileId, profileName, avatarColor) {
         ...identityPayload,
       })
     });
-    
+
     console.log('[Admin] Response status:', resp.status);
-    
+
     if (!resp.ok) {
       const err = await resp.json();
       console.error('[Admin] Bind error:', err);
       throw new Error(err.error || '绑定失败');
     }
-    
+
     const bindResult = await resp.json();
     console.log('[Admin] Bind success, device_token:', bindResult.device_token);
 
@@ -960,7 +960,7 @@ async function bindToProfile(profileId, profileName, avatarColor) {
       }, resolve);
     });
     console.log('[Admin] Saved to local storage');
-    
+
     // 3. 通知 background.js 同步
     console.log('[Admin] Calling sendMsg to background...');
     try {
@@ -973,13 +973,13 @@ async function bindToProfile(profileId, profileName, avatarColor) {
     } catch (e) {
       console.error('[Admin] sendMsg error:', e);
     }
-    
+
     // 4. 进入主界面
     console.log('[Admin] Entering main screen...');
     currentProfileId = profileId;
     await enterMainScreen();
     console.log('[Admin] Done!');
-    
+
   } catch (e) {
     showError('绑定失败: ' + e.message);
   }
@@ -997,7 +997,7 @@ function showError(msg) {
     const loginBox = document.querySelector('.login-box');
     if (loginBox) loginBox.appendChild(errorEl);
   }
-  
+
   errorEl.textContent = msg;
   errorEl.style.display = 'block';
   setTimeout(() => errorEl.style.display = 'none', 4000);
@@ -1338,10 +1338,10 @@ function setupNavigation() {
     item.addEventListener('click', async () => {
       const page = item.dataset.page;
       if (!page) return;
-      
+
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
-      
+
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(`page-${page}`)?.classList.add('active');
 
@@ -1423,6 +1423,21 @@ function pickFirstArrayField(source, fields) {
   return [];
 }
 
+function mergeArrayFields(source, fields) {
+  const out = [];
+  const seen = new Set();
+  for (const field of fields) {
+    const value = source?.[field];
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      const key = String(item || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
+}
 function renderSiteGroup(containerId, options) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -1815,11 +1830,16 @@ function renderRulesPage() {
   });
   renderSiteGroup('rules-composite-display', {
     effectiveList: config?.compositeList,
-    systemList: pickFirstArrayField(config, [
+    systemList: mergeArrayFields(config, [
       'defaultCompositeSites',
       'defaultCompositeList',
+      'defaultUserCompositeSites',
+      'defaultUserCompositeList',
+      'recommendedCompositeSites',
       'systemConfiguredCompositeSites',
       'systemConfiguredCompositeList',
+      'systemConfiguredUserCompositeSites',
+      'systemConfiguredUserCompositeList',
     ]),
     customList: config?.customCompositeList,
     targetRules: approvedUrlRulesForDecision('composite'),

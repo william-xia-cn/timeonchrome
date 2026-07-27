@@ -30,7 +30,7 @@ function loadSiteClassificationModule() {
     .replace(/export\s+const\s+/g, 'const ');
   const context = { URL, console, this: null };
   context.this = context;
-  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { validateSiteAccessConfig, resolveSiteAccessClassification };`, context, { filename: 'site-classification.js' });
+  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { validateSiteAccessConfig, resolveSiteAccessClassification, validateSiteClassificationAction };`, context, { filename: 'site-classification.js' });
   return context.__m;
 }
 
@@ -67,6 +67,11 @@ function run() {
   const workerValidation = mod.validateSiteAccessConfig(workerDefaultConfig);
   check('worker default site access config has no exact cross-class duplicates', workerValidation.ok, JSON.stringify(workerValidation.conflicts));
 
+  check('defaultUserCompositeSites resolves youtube.com as composite',
+    mod.resolveSiteAccessClassification({ defaultUserCompositeSites: ['youtube.com'] }, [], 'https://www.youtube.com/watch?v=abc123').classification === 'composite');
+
+  check('defaultUserCompositeSites blocks exact host duplicate study request',
+    mod.validateSiteClassificationAction({ defaultUserCompositeSites: ['youtube.com'] }, 'youtube.com', 'study').code === 'ALREADY_CLASSIFIED');
   check('google.com remains composite while docs.google.com is study',
     mod.resolveSiteAccessClassification(localDefault, [], 'https://docs.google.com/document').classification === 'study' &&
     mod.resolveSiteAccessClassification(localDefault, [], 'https://google.com/search').classification === 'composite');
@@ -83,6 +88,39 @@ function run() {
       compositeList: ['example.com'],
     }).ok);
 
+  check('restricted parent blocks study child classification action',
+    !mod.validateSiteClassificationAction({
+      restrictedEntertainmentList: ['games.example.com'],
+    }, 'learn.games.example.com', 'study').ok &&
+    mod.validateSiteClassificationAction({
+      restrictedEntertainmentList: ['games.example.com'],
+    }, 'learn.games.example.com', 'study').code === 'CLASSIFICATION_SCOPE_BLOCKED');
+
+  check('restricted parent blocks composite child classification action',
+    !mod.validateSiteClassificationAction({
+      restrictedEntertainmentList: ['games.example.com'],
+    }, 'watch.games.example.com', 'composite').ok &&
+    mod.validateSiteClassificationAction({
+      restrictedEntertainmentList: ['games.example.com'],
+    }, 'watch.games.example.com', 'composite').code === 'CLASSIFICATION_SCOPE_BLOCKED');
+
+  check('blocked parent blocks restricted child classification action',
+    !mod.validateSiteClassificationAction({
+      unsafeList: ['example.com'],
+    }, 'games.example.com', 'restricted').ok &&
+    mod.validateSiteClassificationAction({
+      unsafeList: ['example.com'],
+    }, 'games.example.com', 'restricted').code === 'CLASSIFICATION_SCOPE_BLOCKED');
+
+  check('composite parent still allows study child classification action',
+    mod.validateSiteClassificationAction({
+      compositeList: ['google.com'],
+    }, 'docs.google.com', 'study').ok);
+
+  check('restricted parent still allows blocked child classification action',
+    mod.validateSiteClassificationAction({
+      restrictedEntertainmentList: ['example.com'],
+    }, 'bad.example.com', 'blocked').ok);
   const total = passed + failed;
   console.log(`\n[Site Access Conflicts] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);
