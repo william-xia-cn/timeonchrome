@@ -115,7 +115,7 @@ hardBlockedList
 | 娱乐、体育、游戏、旅游、购物、论坛、社交网络、聊天、视频/直播、娱乐门户 | 受限娱乐网站 |
 | 博彩、代理/漏洞、暴力、武器、脏话、成人内容、色情内容、酒精、毒品、烟草 | 黑名单网站 |
 
-固定例外：`youtube.com` / `youtu.be` 进入特殊网站对象管理，根域按受限娱乐处理，具体视频、播放列表、频道可由家长批准为学习或复合；`stackoverflow.com` / `stackexchange.com` 保持学习/技术用途；`reddit.com` 暂保持复合；`kahoot.it` / `quizizz.com` 保持课堂工具；`douyin.com` / `tiktok.com` 继续可放黑名单。
+固定例外：`youtube.com` / `youtu.be` 进入特殊网站对象管理，根域按受限娱乐处理，具体视频、播放列表、频道可由家长批准为学习或复合；`stackoverflow.com` 保持学习/技术用途；`stackexchange.com` 与 `reddit.com` 暂保持复合；`kahoot.it` / `quizizz.com` / `quizlet.com` 保持课堂工具或学习辅助；`douyin.com` / `tiktok.com` 继续可放黑名单。
 
 ### 3.0.3 网站管理策略目录
 
@@ -123,9 +123,9 @@ hardBlockedList
 
 系统配置在网站管理页内以“系统网站配置-分类管理”呈现：页面仍停留在当前管理策略下，但系统配置网站会按 `siteCatalog.contentCategory` 分组成 Qustodio 风格内容分类；缺少目录元数据或内容分类的系统网站进入“未标注分类”。系统默认网站库必须为所有 `default*Sites` 提供 `siteCatalog` 元数据；Worker 读取旧 D1 系统配置时也会用 fallback catalog 补齐缺失目录项。管理员可以点击系统配置网站同时编辑内容分类和管理策略分类，保存时更新 `siteCatalog`，并把该域名同步移动到对应 `default*Sites` 运行清单。该操作是全局系统配置变更，必须显示全局影响确认；非管理员只能查看，不能写入。
 
-“已使用未归类网站”只显示在复合网站策略下，表示最近 30 天内曾按未归类/待归类路径产生使用记录、且当前 effective 清单仍未归类的网站。它不是审批记录列表，也不是已确认复合网站；点击归类后写入当前 profile 的目标 custom list，并在存在匹配 pending 记录时同步关闭该记录。
+“已使用未归类网站”是网站管理中的独立待处理模块，位于“特殊网站”之后，表示最近 30 天内曾按未归类/待归类路径产生使用记录、且当前 effective 清单仍未归类的网站。它不是复合网站、不是特殊网站、也不是审批记录列表；云端家长控制台点击归类后写入当前 profile 的目标 custom list，并在存在匹配 pending 记录时同步关闭该记录。本地 Admin 只读展示本机可获得的未归类访问/自动记录信息，不提供本地归类、保存或审批。
 
-网站管理顶部“添加到当前策略”入口只用于新增用户自定义配置网站，不负责移动分类。添加前必须校验域名格式、当前策略重复和跨策略重复：已存在于系统网站配置-分类管理的站点不得加入用户自定义配置；已存在于用户自定义配置的同策略站点不得重复加入；已存在于其他策略的站点必须通过列表内“归为…”或系统分类编辑完成分类变更。
+网站管理顶部“添加到当前策略”入口只用于新增用户自定义配置网站，不负责移动分类。添加前必须校验域名格式、当前策略重复和跨策略重复：已存在于系统网站配置-分类管理的站点不得加入用户自定义配置；已存在于用户自定义配置的同策略站点不得重复加入；已存在于其他策略的站点必须通过列表内“归为…”或系统分类编辑完成分类变更。云端管理员可将单个用户自定义配置网站“添加到系统配置”，该操作会全局写入系统网站配置-分类管理，并从当前档案 custom list 移除，避免同一域名同时保留在系统配置和用户配置中。
 
 ### 3.0.4 网站归类动作统一校验
 
@@ -261,7 +261,9 @@ managebac.com -> defaultStudyList
 
 ---
 
-## 8. 第一版 defaultStudyList 清单
+## 8. 当前 defaultStudySites 清单
+
+当前系统配置学习网站来自 `workers/config/site-access-defaults.json` 的 `defaultStudySites`，共 149 个。运行时优先使用云端 D1 `system-access-config`；本节记录当前代码 fallback / 初始化清单，应与实际配置保持一致。
 
 ### 8.1 School / LMS / Classroom Infrastructure
 
@@ -310,8 +312,9 @@ managebac.com -> defaultStudyList
   'chatgpt.com',
   'openai.com',
   'claude.ai',
-  'gemini.google.com',
   'copilot.microsoft.com',
+  'phind.com',
+  'gemini.google.com',
   'poe.com',
   'perplexity.ai',
   'notebooklm.google.com',
@@ -319,7 +322,8 @@ managebac.com -> defaultStudyList
   'consensus.app',
   'scite.ai',
   'wolframalpha.com',
-  'phind.com'
+  'doubao.com',
+  'deepseek.com'
 ]
 ```
 
@@ -368,13 +372,14 @@ managebac.com -> defaultStudyList
   'physicsandmathstutor.com',
   'albert.io',
   'fiveable.me',
-  'bioninja.com.au',
-  'theoryofknowledge.net',
+  'pastpapers.co',
+  'crackap.com',
   'ibdocuments.com',
   'ibsurvival.com',
   'lanterna.com',
-  'pastpapers.co',
-  'crackap.com'
+  'thinking.net',
+  'bioninja.com.au',
+  'theoryofknowledge.net'
 ]
 ```
 
@@ -394,7 +399,8 @@ managebac.com -> defaultStudyList
   'datacamp.com',
   'freecodecamp.org',
   'openstax.org',
-  'ck12.org'
+  'ck12.org',
+  'britannica.com'
 ]
 ```
 
@@ -422,6 +428,7 @@ managebac.com -> defaultStudyList
 ```js
 [
   'github.com',
+  'stackoverflow.com',
   'leetcode.com',
   'hackerrank.com',
   'codingbat.com',
@@ -436,10 +443,7 @@ managebac.com -> defaultStudyList
 ]
 ```
 
-注意：
-
-- `stackoverflow.com` 和 `stackexchange.com` 当前归入复合网站的问答 / 讨论类；
-- 不建议同时放入 `defaultStudyList`，避免语义重复。
+注意：`stackoverflow.com` 当前按技术学习用途进入 `defaultStudySites`；`stackexchange.com` 仍保留在用户默认复合网站中。
 
 ### 8.10 Academic Sources / Libraries
 
@@ -480,7 +484,8 @@ managebac.com -> defaultStudyList
   'draw.io',
   'diagrams.net',
   'quizizz.com',
-  'kahoot.it'
+  'kahoot.it',
+  'quizlet.com'
 ]
 ```
 
@@ -590,7 +595,7 @@ temporaryCompositeSites
 - 其他时间；
 - 继续保持待分类。
 
-### 10.4 第一版 defaultCompositeList 清单
+### 10.4 当前 defaultCompositeSites / defaultUserCompositeSites 清单
 
 系统配置复合网站（defaultCompositeSites，运行时复合来源之一）：
 
@@ -621,15 +626,11 @@ temporaryCompositeSites
 
 ```js
 [
-  // Video
-
   // Wiki / encyclopedia
   'wikipedia.org',
   'wikimedia.org',
-  'britannica.com',
 
   // Q&A / discussion
-  'stackoverflow.com',
   'stackexchange.com',
   'reddit.com',
 ]
@@ -758,10 +759,11 @@ effectiveRestrictedEntertainmentList = normalizeAndDedupe([
 
 受限娱乐网站数量有一定规模，不适合全部交给用户维护；但用户也应该能添加自己的受限娱乐网站。
 
-### 12.4 第一版 defaultRestrictedEntertainmentList 候选
+### 12.4 当前 defaultRestrictedEntertainmentSites 清单
 
 ```js
 [
+  'youtube.com',
   'bilibili.com',
   'netflix.com',
   'disneyplus.com',
@@ -883,7 +885,7 @@ blockedSites
 | 临时进入待归类时间 | 否 |
 | 借时间 | 否 |
 
-### 14.4 第一版 hardBlockedList 建议
+### 14.4 当前 defaultBlockedSites 清单
 
 ```js
 [

@@ -23,6 +23,12 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] 用户自定义网站提升到系统配置
+  - 目标：云端网站管理的用户自定义配置项增加“添加到系统配置”，管理员可将当前档案自定义网站提升到全局系统网站库。
+  - 边界：提升后从当前 profile custom list 移除；不改本地 Admin 只读边界，不新增 Worker API。
+- [x] 已使用未归类网站独立模块
+  - 目标：从复合网站页移出，升级为网站管理左侧策略目录项，顺序位于“特殊网站”之后。
+  - 边界：云端保持可归类；本地 Admin 只读展示；不改运行时处理、Worker API、计时、拦截或同步。
 - [x] [Version] 当前源版本提升到 `1.7.16`：`extension/manifest.json`、`docs/CHANGELOG.md` 与版本断言测试同步；本轮用于发布 Popup 绑定状态修复、访问管理 UI 和 YouTube 特殊网站管理更新。
 - [x] Popup 已绑定状态误报本地模式修复
   - 目标：把云端绑定状态与 activation gate 状态分开；Popup 同时参考 storage 标准绑定键和 cloud-sync 运行态；已绑定但门禁未通过时显示具体待处理原因，不再显示“本地模式”。

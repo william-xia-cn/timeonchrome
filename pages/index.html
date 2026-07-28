@@ -2112,10 +2112,11 @@ function formatProtectedSiteAccessScopeMessage(scope, targetDef) {
 }
 function validateRulesSiteAdd(value, targetPolicy) {
   const normalized = normalizeSiteAccessInput(value);
-  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  const policyDefs = RULES_POLICY_DEFS.filter(item => item.customKey);
+  const targetDef = policyDefs.find(item => item.key === targetPolicy);
   if (!normalized || !targetDef) return { ok: false, message: '请输入有效域名，如 example.com' };
 
-  for (const def of RULES_POLICY_DEFS) {
+  for (const def of policyDefs) {
     const systemMatch = siteAccessExactListMatch(normalized, getPolicyDefaultList(def));
     if (systemMatch) {
       if (def.key === targetDef.key) {
@@ -2160,6 +2161,7 @@ const RULES_POLICY_DEFS = [
   { key: 'restricted', label: '受限娱乐网站', icon: 'assets/icons/restricted.svg', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites', addPlaceholder: '添加受限娱乐网站，如 example-game.com' },
   { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
   { key: 'special', label: '特殊网站', icon: 'assets/icons/rules.svg', isSpecial: true, addPlaceholder: '特殊对象规则通过 Popup 申请或云端审批生成' },
+  { key: 'used-unclassified', label: '已使用未归类网站', icon: 'assets/icons/composite.svg', isUsedUnclassified: true, addPlaceholder: '已使用未归类网站从最近 30 天使用历史自动生成' },
 ];
 const RULES_SOURCE_LABELS = {
   system: '系统网站配置-分类管理',
@@ -2196,6 +2198,10 @@ function rulesPolicyDefByCustomKey(customKey) {
   return RULES_POLICY_DEFS.find(def => def.customKey === customKey) || null;
 }
 
+function classificationPolicyDefs() {
+  return RULES_POLICY_DEFS.filter(def => def.customKey);
+}
+
 function rulesPolicyDefaultKeys(def = {}) {
   return Array.isArray(def.defaultKeys) && def.defaultKeys.length ? def.defaultKeys : [def.defaultKey].filter(Boolean);
 }
@@ -2225,11 +2231,14 @@ function getRulesPolicyModel() {
       const specialRows = youtubeSpecialRuleRows();
       return { ...def, system: [], custom: [], rules: specialRows, usedUnclassified: [], specialRows };
     }
+    if (def.isUsedUnclassified) {
+      const usedUnclassified = rulesSitePolicyState.usedUnclassified || [];
+      return { ...def, system: [], custom: [], rules: [], usedUnclassified };
+    }
     const system = getPolicyDefaultList(def);
     const custom = getPolicyCustomList(def);
     const rules = approvedUrlRulesForListKey(def.customKey);
-    const usedUnclassified = def.key === 'composite' ? (rulesSitePolicyState.usedUnclassified || []) : [];
-    return { ...def, system, custom, rules, usedUnclassified };
+    return { ...def, system, custom, rules, usedUnclassified: [] };
   });
 }
 
@@ -2239,7 +2248,9 @@ function renderRulesPolicyNav() {
   nav.innerHTML = getRulesPolicyModel().map(def => {
     const counts = def.isSpecial
       ? '<span>对象 ' + def.rules.length + '</span><span>YouTube</span>'
-      : '<span>系统 ' + def.system.length + '</span><span>自定义 ' + def.custom.length + '</span><span>规则 ' + def.rules.length + '</span><span>未归类 ' + def.usedUnclassified.length + '</span>';
+      : def.isUsedUnclassified
+        ? '<span>待处理 ' + def.usedUnclassified.length + '</span><span>最近 30 天</span>'
+        : '<span>系统 ' + def.system.length + '</span><span>自定义 ' + def.custom.length + '</span><span>规则 ' + def.rules.length + '</span>';
     return '<button class="rules-policy-nav-btn ' + (def.key === rulesSitePolicyState.policy ? 'active' : '') + '" data-policy="' + def.key + '" onclick="selectRulesPolicy(\'' + def.key + '\')">' +
       '<div class="rules-policy-nav-title"><img class="toc-ui-icon small" src="' + def.icon + '" alt=""> ' + htmlEscape(def.label) + '</div>' +
       '<div class="rules-policy-nav-counts">' + counts + '</div>' +
@@ -2277,7 +2288,24 @@ function qustodioCategoryOptionsHtml(selected) {
 }
 
 function policyOptionsHtml(selected) {
-  return RULES_POLICY_DEFS.filter(def => !def.isSpecial).map(def => '<option value="' + htmlEscape(def.key) + '" ' + (def.key === selected ? 'selected' : '') + '>' + htmlEscape(def.label) + '</option>').join('');
+  return classificationPolicyDefs().map(def => '<option value="' + htmlEscape(def.key) + '" ' + (def.key === selected ? 'selected' : '') + '>' + htmlEscape(def.label) + '</option>').join('');
+}
+
+function defaultSystemContentCategoryForPolicy(policy) {
+  if (policy === 'study') return '教育性';
+  if (policy === 'composite') return '综合门户';
+  if (policy === 'restricted') return '娱乐';
+  if (policy === 'blocked') return '代理/漏洞';
+  return '综合门户';
+}
+
+function buildCustomSiteAccessPayload(config = remoteConfig || {}) {
+  return {
+    customStudyList: config.customStudyList || [],
+    customCompositeList: config.customCompositeList || [],
+    customRestrictedEntertainmentList: config.customRestrictedEntertainmentList || [],
+    customBlockedSites: config.customBlockedSites || [],
+  };
 }
 
 function isYouTubeRootDomain(value) {
@@ -2308,7 +2336,7 @@ function rulesDirectoryEntriesForPolicy(def) {
   }
   for (const value of def.custom || []) entries.push({ source: 'custom', classification: def.key, value, title: value });
   for (const rule of def.rules || []) entries.push({ source: 'rule', classification: def.key, value: siteRuleValue(rule), title: siteRuleValue(rule), rule });
-  if (def.key === 'composite') {
+  if (def.isUsedUnclassified) {
     for (const site of rulesSitePolicyState.usedUnclassified || []) entries.push({ source: 'used-unclassified', classification: 'unclassified', value: site.domain, title: site.domain, site });
   }
   return entries;
@@ -2376,8 +2404,8 @@ function renderRulesSiteRow(entry, idx) {
     if (entry.source === 'rule') {
     const specialRule = isYouTubeSpecialRuleValue(entry.value);
     const options = specialRule
-      ? RULES_POLICY_DEFS
-        .filter(def => !def.isSpecial && ['study', 'composite'].includes(def.key) && def.key !== entry.classification)
+      ? classificationPolicyDefs()
+        .filter(def => ['study', 'composite'].includes(def.key) && def.key !== entry.classification)
         .map(def => `<button class="rules-site-action-btn" onclick="classifySpecialSiteRule(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
         .join('')
       : '';
@@ -2386,14 +2414,17 @@ function renderRulesSiteRow(entry, idx) {
     const disabled = !systemAccessCanWrite;
     actionHtml = `<div class="rules-site-actions"><button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="openSystemSiteCategoryEditor(${idx})">编辑分类</button>${disabled ? '<span class="rules-site-badge">只读</span>' : ''}</div>`;
   } else {
-    const options = RULES_POLICY_DEFS
-      .filter(def => !def.isSpecial && (def.key !== entry.classification || entry.source === 'used-unclassified'))
+    const options = classificationPolicyDefs()
+      .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
       .map(def => `<button class="rules-site-action-btn" onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
       .join('');
     const deleteButton = entry.source === 'custom'
       ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>`
       : '';
-    actionHtml = `<div class="rules-site-actions">${options}${deleteButton}<button class="rules-site-action-btn" onclick="renderRulesSiteDirectory()">取消</button></div>`;
+    const promoteButton = entry.source === 'custom'
+      ? `<button class="rules-site-action-btn" ${systemAccessCanWrite ? '' : 'disabled title="需要系统管理员权限"'} onclick="promoteCustomSiteToSystemConfig(${idx})">添加到系统配置</button>`
+      : '';
+    actionHtml = `<div class="rules-site-actions">${options}${promoteButton}${deleteButton}<button class="rules-site-action-btn" onclick="renderRulesSiteDirectory()">取消</button></div>`;
   }
   return `
     <div class="rules-site-row-wrap" data-source="${entry.source}" data-domain="${htmlEscape(entry.title)}">
@@ -2567,11 +2598,10 @@ function renderSpecialSitesSummary() {
   </section>`;
 }
 
-function renderUsedUnclassifiedSummary(def) {
-  if (def.key !== 'composite') return '';
+function renderUsedUnclassifiedIntro() {
   const count = (rulesSitePolicyState.usedUnclassified || []).length;
   const loading = rulesSitePolicyState.usedUnclassifiedLoading ? '，正在读取最近 30 天访问历史' : '';
-  return `<div class="rules-used-unclassified-summary"><strong>已使用未归类网站：${count} 个${loading}</strong><span>这些网站来自最近 30 天使用历史，当前仍未被归入学习、复合、受限娱乐或黑名单。归类后会从这里消失。</span></div>`;
+  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>已使用未归类网站：${count} 个${loading}</strong><span>这些网站来自最近 30 天使用历史，当前仍未被归入学习、复合、受限娱乐或黑名单。它们不是复合网站；归类后会从这里消失。</span></div>`;
 }
 
 function renderRulesSiteDirectory() {
@@ -2583,10 +2613,10 @@ function renderRulesSiteDirectory() {
   const sourceFilter = document.getElementById('rules-site-source-filter');
   if (addInput) {
     addInput.placeholder = def.addPlaceholder;
-    addInput.disabled = !!def.isSpecial;
+    addInput.disabled = !!(def.isSpecial || def.isUsedUnclassified);
   }
-  if (addButton) addButton.disabled = !!def.isSpecial;
-  if (sourceFilter) sourceFilter.disabled = !!def.isSpecial;
+  if (addButton) addButton.disabled = !!(def.isSpecial || def.isUsedUnclassified);
+  if (sourceFilter) sourceFilter.disabled = !!(def.isSpecial || def.isUsedUnclassified);
   if (def.isSpecial) {
     container.innerHTML = renderSpecialSitesSummary();
     return;
@@ -2598,8 +2628,9 @@ function renderRulesSiteDirectory() {
   const grouped = ['used-unclassified', 'custom', 'system', 'rule', 'unmarked']
     .map(source => [source, filtered.filter(entry => entry.source === source)])
     .filter(([, list]) => list.length > 0);
-  const empty = '<div class="rules-site-group"><div class="rules-site-empty">当前筛选下没有网站。可以用上方输入框添加到' + htmlEscape(def.label) + '。</div></div>';
-  container.innerHTML = renderUsedUnclassifiedSummary(def) + (grouped.length ? grouped.map(([source, list]) => renderRulesSiteGroup(source, list)).join('') : empty);
+  const emptyText = def.isUsedUnclassified ? '当前没有已使用但仍未归类的网站。' : '当前筛选下没有网站。可以用上方输入框添加到' + htmlEscape(def.label) + '。';
+  const empty = '<div class="rules-site-group"><div class="rules-site-empty">' + emptyText + '</div></div>';
+  container.innerHTML = (def.isUsedUnclassified ? renderUsedUnclassifiedIntro() : '') + (grouped.length ? grouped.map(([source, list]) => renderRulesSiteGroup(source, list)).join('') : empty);
 }
 
 function renderRulesPage() {
@@ -2645,7 +2676,7 @@ async function loadUsedUnclassifiedSitesForRules() {
 
 function addSiteToCurrentPolicy() {
   const def = currentRulesPolicyDef();
-  if (def.isSpecial) { toast('特殊对象规则通过孩子端 Popup 申请，或在已有 YouTube 规则行中调整分类。', false); return; }
+  if (def.isSpecial || def.isUsedUnclassified) { toast(def.isUsedUnclassified ? '已使用未归类网站来自最近使用历史，不能手动添加。' : '特殊对象规则通过孩子端 Popup 申请，或在已有 YouTube 规则行中调整分类。', false); return; }
   const input = document.getElementById('rules-site-add-input');
   const validation = validateRulesSiteAdd(input?.value || '', def.key);
   if (!validation.ok) {
@@ -2659,10 +2690,10 @@ function addSiteToCurrentPolicy() {
 
 function moveCustomSiteToPolicy(value, policy) {
   const normalized = normalizeSiteAccessInput(value);
-  const def = RULES_POLICY_DEFS.find(item => item.key === policy);
+  const def = classificationPolicyDefs().find(item => item.key === policy);
   if (!normalized || !def) return false;
   const nextConfig = { ...remoteConfig };
-  for (const item of RULES_POLICY_DEFS) {
+  for (const item of classificationPolicyDefs()) {
     nextConfig[item.customKey] = (nextConfig[item.customKey] || []).filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
   }
   nextConfig[def.customKey] = uniqueSiteAccessValues([...(nextConfig[def.customKey] || []), normalized]);
@@ -2680,16 +2711,53 @@ function moveCustomSiteToPolicy(value, policy) {
 window.deleteRulesCustomSite = (idx) => {
   const entry = window._rulesSiteDirectoryEntries?.[idx];
   if (!entry || entry.source !== 'custom') return;
-  const def = RULES_POLICY_DEFS.find(item => item.key === entry.classification);
+  const def = classificationPolicyDefs().find(item => item.key === entry.classification);
   if (!def) return;
   remoteConfig[def.customKey] = (remoteConfig[def.customKey] || []).filter(d => d !== entry.value);
   renderRulesPage();
   toast('已删除，点击保存后同步');
 };
 
+window.promoteCustomSiteToSystemConfig = async (idx) => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (!entry || entry.source !== 'custom') return;
+  const def = classificationPolicyDefs().find(item => item.key === entry.classification);
+  if (!def || !currentProfileId) return;
+  if (!systemAccessCanWrite) {
+    toast('需要系统管理员权限才能添加到系统配置', false);
+    return;
+  }
+  const contentCategory = defaultSystemContentCategoryForPolicy(def.key);
+  if (!confirm(`确认将 ${entry.value} 添加到系统网站配置-分类管理的「${def.label}」？该操作会全局生效，并从当前档案用户自定义配置中移除。`)) return;
+  try {
+    const record = await api('/system/access-management-config/v1');
+    systemAccessCanWrite = Boolean(record.canWrite);
+    if (!systemAccessCanWrite) {
+      toast('需要系统管理员权限才能添加到系统配置', false);
+      renderRulesSiteDirectory();
+      return;
+    }
+    const config = { ...(record.config || siteAccessDefaults || {}) };
+    const normalized = updateSystemConfigSiteClassification(config, entry.value, def.key, contentCategory);
+    const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Promote ${normalized} from profile custom list to system access config` });
+    siteAccessDefaults = saved.config || config;
+    systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
+
+    remoteConfig[def.customKey] = (remoteConfig[def.customKey] || []).filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
+    const payload = buildCustomSiteAccessPayload(remoteConfig);
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    const refreshed = await api(`/profiles/${currentProfileId}/config`);
+    remoteConfig = refreshed.data || remoteConfig;
+    renderRulesPage();
+    toast('已添加到系统配置，并从用户自定义配置移除');
+  } catch (e) {
+    toast('添加到系统配置失败：' + (e.message || e), false);
+  }
+};
+
 window.classifyRulesSiteEntry = async (idx, targetPolicy) => {
   const entry = window._rulesSiteDirectoryEntries?.[idx];
-  const def = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  const def = classificationPolicyDefs().find(item => item.key === targetPolicy);
   if (!entry || !def) return;
   try {
     if (entry.source === 'custom') {
@@ -2723,7 +2791,7 @@ function specialRuleDecisionPatch(targetPolicy) {
 
 window.classifySpecialSiteRule = (idx, targetPolicy) => {
   const row = window._rulesSpecialSiteRows?.[idx];
-  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  const targetDef = classificationPolicyDefs().find(item => item.key === targetPolicy);
   const patch = specialRuleDecisionPatch(targetPolicy);
   if (!row || !row.editable || !targetDef || !patch) return;
   if (!isYouTubeSpecialRuleValue(row.value)) {
@@ -2756,9 +2824,9 @@ window.closeSystemSiteCategoryEditor = () => {
 
 function updateSystemConfigSiteClassification(config, value, targetPolicy, contentCategory) {
   const normalized = normalizeSiteAccessInput(value);
-  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  const targetDef = classificationPolicyDefs().find(item => item.key === targetPolicy);
   if (!normalized || !targetDef) throw new Error('无效的网站或管理策略');
-  for (const def of RULES_POLICY_DEFS) {
+  for (const def of classificationPolicyDefs()) {
     for (const key of rulesPolicyDefaultKeys(def)) {
       config[key] = (Array.isArray(config[key]) ? config[key] : [])
         .filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
@@ -2785,7 +2853,7 @@ window.saveSystemSiteCategoryEdit = async (idx) => {
   if (!entry || entry.source !== 'system') return;
   const category = document.getElementById(`rules-system-content-category-select-${idx}`)?.value || entry.contentCategory || '教育性';
   const targetPolicy = document.getElementById(`rules-system-policy-select-${idx}`)?.value || entry.classification;
-  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  const targetDef = classificationPolicyDefs().find(item => item.key === targetPolicy);
   if (!targetDef) return;
   if (isYouTubeRootDomain(entry.value) && ['study', 'composite'].includes(targetPolicy)) {
     toast('YouTube 根域是特殊平台根域，不能直接改为学习或复合；请管理具体视频、播放列表或频道。', false);
@@ -2827,7 +2895,7 @@ async function moveSystemSiteToPolicy(value, fromPolicy, targetPolicy) {
   if (fromPolicy === targetPolicy) return;
   const currentCatalog = systemSiteCatalogEntryForValue(value) || {};
   const contentCategory = String(currentCatalog.contentCategory || '').trim() || '教育性';
-  const targetDef = RULES_POLICY_DEFS.find(item => item.key === targetPolicy);
+  const targetDef = classificationPolicyDefs().find(item => item.key === targetPolicy);
   if (!targetDef) return;
   if (isYouTubeRootDomain(value) && ['study', 'composite'].includes(targetPolicy)) {
     toast('YouTube 根域是特殊平台根域，不能直接改为学习或复合；请管理具体视频、播放列表或频道。', false);
@@ -4006,12 +4074,7 @@ async function applySystemAccessConfigImport() {
 async function saveSiteAccessConfig() {
   if (!currentProfileId || !remoteConfig) return;
 
-  const payload = {
-    customStudyList: remoteConfig.customStudyList || [],
-    customCompositeList: remoteConfig.customCompositeList || [],
-    customRestrictedEntertainmentList: remoteConfig.customRestrictedEntertainmentList || [],
-    customBlockedSites: remoteConfig.customBlockedSites || [],
-  };
+  const payload = buildCustomSiteAccessPayload(remoteConfig);
   const conflicts = findSiteAccessExactConflicts({ ...remoteConfig, ...payload });
   if (conflicts.length > 0) {
     toast(formatSiteAccessConflict(conflicts[0]), false);

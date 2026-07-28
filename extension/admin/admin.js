@@ -104,6 +104,7 @@ let mediaSettlementLabel = '今日';
 let systemManagementActiveTab = 'device-status';
 let rulesActiveTab = 'site-management';
 let rulesSiteActivePolicy = 'study';
+let adminSiteClassificationRecords = [];
 let isLocalReadOnlyMode = false;
 let usageAnalysisState = {
   ledger: 'web',
@@ -1756,6 +1757,8 @@ function renderSiteClassificationRequestRecords(records) {
   const el = document.getElementById('rules-temporary-composite-display');
   if (!el) return;
   const list = Array.isArray(records) ? records : [];
+  adminSiteClassificationRecords = list;
+  if (rulesSiteActivePolicy === 'used-unclassified') renderAdminRulesSiteManagement();
   if (list.length === 0) {
     el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无网站归类记录</div>';
     return;
@@ -1839,11 +1842,13 @@ function adminRulesPolicyDefs() {
       targetRules: [],
     },
     { key: 'special', label: '特殊网站', description: '按平台对象单独管理的网站，本机只读展示', systemList: [], customList: [], targetRules: [] },
+    { key: 'used-unclassified', label: '已使用未归类网站', description: '本机可获得的未归类访问记录，只读展示', systemList: [], customList: [], targetRules: [] },
   ];
 }
 
 function adminRulesPolicyCount(def) {
   if (def.key === 'special') return uniqueSiteRules(youtubeSpecialRules()).length + 1;
+  if (def.key === 'used-unclassified') return adminUsedUnclassifiedRows().length;
   return normalizeDomainList(def.systemList).length + normalizeDomainList(def.customList).length + uniqueSiteRules(def.targetRules).length;
 }
 
@@ -1939,6 +1944,40 @@ function youtubeSpecialRuleRows() {
   });
 }
 
+function adminUsedUnclassifiedRows() {
+  const finalStatuses = new Set(['approved', 'approved_study', 'approved_composite', 'rejected', 'returned']);
+  return (Array.isArray(adminSiteClassificationRecords) ? adminSiteClassificationRecords : [])
+    .filter((record) => record && record.requestedClassification !== 'study')
+    .filter((record) => record.recordSource === 'auto_unclassified_access')
+    .filter((record) => !finalStatuses.has(String(record.status || '').trim()))
+    .map((record) => ({
+      value: record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue || '—',
+      targetType: siteRequestTypeLabel(record.requestedTargetType),
+      observation: siteClassificationObservationSummary(record).replace(/<br>/g, ' · '),
+      lastObservedAt: Number(record.lastObservedAt || record.requestedAt || record.createdAt || 0),
+      status: siteRequestStatusLabel(record.status),
+    }))
+    .sort((a, b) => b.lastObservedAt - a.lastObservedAt || String(a.value).localeCompare(String(b.value)));
+}
+
+function renderAdminUsedUnclassifiedManagement() {
+  const title = document.getElementById('admin-rules-policy-title');
+  const desc = document.getElementById('admin-rules-policy-desc');
+  const container = document.getElementById('admin-rules-site-directory');
+  const rows = adminUsedUnclassifiedRows();
+  if (title) title.textContent = '已使用未归类网站';
+  if (desc) desc.textContent = '本页只读展示本机可获得的未归类网站访问记录；归类和审批请在云端家长控制台完成。';
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = '<section class="rules-site-group"><div class="rules-readonly-empty">当前没有本机可展示的已使用未归类网站记录。</div></section>';
+    return;
+  }
+  container.innerHTML =     '<section class="rules-site-group" data-admin-used-unclassified="true">' +
+    '<div class="rules-site-group-header"><div><div class="rules-site-group-title">已使用未归类网站</div><div class="rules-site-group-subtitle">来自本机已同步/本地保存的自动未归类访问记录；本页不提供分类操作。</div></div><span class="rules-site-badge">' + rows.length + ' 条</span></div>' +
+    '<div class="rules-site-list">' + rows.map((row) => '<div class="rules-site-row"><div><div class="rules-site-domain">' + escHtml(row.value) + '</div><div class="rules-site-meta">' + escHtml(row.targetType) + ' · ' + escHtml(row.observation) + ' · ' + escHtml(row.status) + '</div></div><span class="rules-site-badge">云端处理</span></div>').join('') + '</div>' +
+    '</section>';
+}
+
 function renderAdminYouTubeSpecialManagement() {
   const title = document.getElementById('admin-rules-policy-title');
   const desc = document.getElementById('admin-rules-policy-desc');
@@ -1970,6 +2009,10 @@ function renderAdminRulesSiteManagement() {
   renderAdminRulesPolicyNav(defs);
   if (rulesSiteActivePolicy === 'special') {
     renderAdminYouTubeSpecialManagement();
+    return;
+  }
+  if (rulesSiteActivePolicy === 'used-unclassified') {
+    renderAdminUsedUnclassifiedManagement();
     return;
   }
   const def = defs.find((item) => item.key === rulesSiteActivePolicy) || defs[0];
