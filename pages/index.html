@@ -895,6 +895,7 @@
             </label>
           </div>
           <div id="rules-system-config-summary" style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px;">正在读取系统配置...</div>
+          <div id="rules-profile-custom-summary" style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px;">正在读取当前档案用户配置...</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <button class="btn-save" id="rules-access-config-export-btn" style="padding:9px 14px;">导出所选配置</button>
             <button class="btn-save" id="rules-access-config-import-btn" style="padding:9px 14px;background:transparent;color:var(--accent);border:1px solid var(--accent);">导入配置文件</button>
@@ -3047,6 +3048,7 @@ window.removeDomain = (listKey, idx) => {
 function buildProfileConfigExportData(classificationRequests = []) {
   const cfg = remoteConfig || {};
   const defaults = siteAccessDefaults || {};
+  const compositeExportDefaults = [...(defaults.defaultCompositeSites || []), ...(defaults.defaultUserCompositeSites || [])];
   return {
     app: 'TimeOnChrome',
     configType: 'profile-config',
@@ -3059,7 +3061,7 @@ function buildProfileConfigExportData(classificationRequests = []) {
     siteAccess: {
       customLists: {
         studySites: cfg.customStudyList || getCustomList(cfg.studyList, defaults.defaultStudySites) || [],
-        compositeSites: cfg.customCompositeList || getCustomList(cfg.compositeList, defaults.defaultCompositeSites) || [],
+        compositeSites: cfg.customCompositeList || getCustomList(cfg.compositeList, compositeExportDefaults) || [],
         restrictedEntertainmentSites: cfg.customRestrictedEntertainmentList || getCustomList(cfg.restrictedEntertainmentList, defaults.defaultRestrictedEntertainmentSites) || [],
         blockedSites: cfg.customBlockedSites || getCustomList(cfg.unsafeList, defaults.defaultBlockedSites) || [],
       },
@@ -3761,6 +3763,36 @@ function systemConfigCountLabel(list) {
   return Array.isArray(list) ? String(list.length) : '0';
 }
 
+function profileCustomListForPolicy(def, config = remoteConfig, defaults = siteAccessDefaults || {}) {
+  if (!def?.customKey) return [];
+  if (Array.isArray(config?.[def.customKey])) return config[def.customKey].filter(Boolean);
+  return getCustomList(config?.[def.effectiveKey] || [], getPolicyDefaultList(def, defaults)).filter(Boolean);
+}
+
+function renderProfileCustomConfigSummary() {
+  const el = document.getElementById('rules-profile-custom-summary');
+  if (!el) return;
+  const rows = classificationPolicyDefs().map(def => ({ def, list: profileCustomListForPolicy(def) }));
+  const total = rows.reduce((sum, row) => sum + row.list.length, 0);
+  const profileName = profiles.find(p => p.id === currentProfileId)?.name || '当前档案';
+  const countText = rows.map(row => `${row.def.label} ${row.list.length}`).join('；');
+  const groupsHtml = rows.map(row => {
+    const listHtml = row.list.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${row.list.map(value => `<span style="display:inline-block;padding:3px 7px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);overflow-wrap:anywhere;">${htmlEscape(value)}</span>`).join('')}</div>`
+      : '<div style="color:var(--muted);margin-top:6px;">暂无用户自定义网站</div>';
+    return `<details ${row.list.length ? 'open' : ''} style="border:1px solid var(--border);border-radius:10px;padding:9px 10px;background:rgba(0,184,148,0.025);"><summary style="cursor:pointer;color:var(--text);font-weight:600;">${htmlEscape(row.def.label)} · ${row.list.length} 条</summary>${listHtml}</details>`;
+  }).join('');
+  el.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:rgba(0,184,148,0.035);">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--text);font-weight:700;">
+        <span>当前档案用户配置摘要</span><span>${htmlEscape(total)} 条</span>
+      </div>
+      <div style="margin-top:5px;">${htmlEscape(profileName)} 的用户自定义网站只影响当前孩子档案；系统配置才会影响所有孩子档案。</div>
+      <div style="margin-top:5px;">${htmlEscape(countText)}</div>
+      <div style="display:grid;gap:8px;margin-top:10px;">${groupsHtml}</div>
+    </div>`;
+}
+
 function renderSystemConfigSummary(record = null) {
   const el = document.getElementById('rules-system-config-summary');
   if (!el) return;
@@ -3777,10 +3809,12 @@ function renderSystemConfigSummary(record = null) {
 
 async function renderRulesConfigFilesPage() {
   renderSystemConfigSummary();
+  renderProfileCustomConfigSummary();
   try {
     const record = await api('/system/access-management-config/v1');
     systemAccessCanWrite = Boolean(record.canWrite);
     renderSystemConfigSummary(record);
+    renderProfileCustomConfigSummary();
   } catch (e) {
     const el = document.getElementById('rules-system-config-summary');
     if (el) el.innerHTML = `系统配置读取失败：${htmlEscape(e.message || e)}`;

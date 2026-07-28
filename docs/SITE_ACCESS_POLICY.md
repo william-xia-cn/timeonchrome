@@ -23,7 +23,7 @@
 - 用户导入 / 导出配置格式；
 - 后续 Codex / OpenCode 执行任务的产品边界。
 
-配套候选库见 `docs/SITE_ACCESS_CANDIDATE_LIBRARY.md`。候选库仅用于整理常见游戏、视频、论坛社区、新闻门户、娱乐门户和综合门户网站的分类建议，不是当前运行 source of truth，不自动等同系统默认清单，也不直接改变新建 profile 或现有家庭配置。
+本文件是网站访问策略和系统网站配置清单的唯一正式人读维护入口；不再维护独立候选库或草稿文件。
 
 ---
 
@@ -129,7 +129,7 @@ hardBlockedList
 
 ### 3.0.4 网站归类动作统一校验
 
-新增、申请和审批网站归类时必须使用同一套动作校验。精确同一 host 不得跨管理策略重复；若父域或上级范围已归为受限娱乐或黑名单，则普通子域和普通精确 URL 不得新增、申请或审批为学习/复合。特殊网站对象是唯一例外：`youtube.com` 根域可保持受限娱乐，同时具体视频、播放列表、频道对象可被批准为学习或复合。学习与复合父域之间仍允许更具体子域细分，例如 `google.com` 复合、`docs.google.com` 学习。Popup 点击“申请归为学习网站”入口时先执行只读校验；写入前仍保留强制校验，防止 UI 或 API 绕过。历史已存在配置不自动迁移，本规则只阻止新添加、新申请和新审批制造冲突。
+新增、申请和审批网站归类时必须使用同一套动作校验。精确同一 host 不得跨管理策略重复；若父域或上级范围已归为受限娱乐或黑名单，则普通子域和普通精确 URL 不得新增、申请或审批为学习/复合。特殊网站对象是唯一例外：`youtube.com` 根域可保持受限娱乐，同时具体视频、播放列表、频道对象可被批准为学习或复合。学习与复合父域之间仍允许更具体子域细分，例如 `google.com` 学习、`news.google.com` 复合。Popup 点击“申请归为学习网站”入口时先执行只读校验；写入前仍保留强制校验，防止 UI 或 API 绕过。历史已存在配置不自动迁移，本规则只阻止新添加、新申请和新审批制造冲突。
 
 ### 3.1 概念迁移表
 
@@ -261,273 +261,521 @@ managebac.com -> defaultStudyList
 
 ---
 
-## 8. 当前 defaultStudySites 清单
+## 8. 系统网站配置维护清单
 
-当前系统配置学习网站来自 `workers/config/site-access-defaults.json` 的 `defaultStudySites`，共 149 个。运行时优先使用云端 D1 `system-access-config`；本节记录当前代码 fallback / 初始化清单，应与实际配置保持一致。
+本节是系统网站配置的唯一人读维护清单。后续修订系统网站配置时，先在本节确认分类，再同步修正 `workers/config/site-access-defaults.json` 或云端 D1 `system-access-config`。
 
-### 8.1 School / LMS / Classroom Infrastructure
+维护结构保持现有运行模型，不新增 schema：
 
-```js
-[
-  'classroom.google.com',
-  'managebac.com',
-  'kognity.com',
-  'instructure.com',
-  'blackboard.com',
-  'moodle.org',
-  'schoology.com',
-  'powerschool.com',
-  'clever.com',
-  'turnitin.com'
-]
-```
+- `defaultStudySites`：学习网站。
+- `defaultCompositeSites` / `defaultUserCompositeSites`：复合网站。
+- `defaultRestrictedEntertainmentSites`：受限娱乐网站。
+- `defaultBlockedSites`：黑名单网站。
+- `siteCatalog.contentCategory`：Qustodio 风格内容分类，用于系统网站配置-分类管理展示和人工审核。
 
-### 8.2 Workspace / Documents / Assignments
+内容分类和管理策略是两套字段：内容分类说明网站类型，管理策略决定运行行为。云端 Pages 展示方式为“管理策略 -> Qustodio 内容分类 -> 域名表格”，本节采用同一格式。
 
-```js
-[
-  'drive.google.com',
-  'docs.google.com',
-  'sheets.google.com',
-  'slides.google.com',
-  'forms.google.com',
-  'meet.google.com',
-  'calendar.google.com',
-  'keep.google.com',
-  'colab.research.google.com',
-  'office.com',
-  'onedrive.live.com',
-  'onenote.com',
-  'outlook.live.com',
-  'planner.microsoft.com',
-  'to-do.office.com',
-  'teams.microsoft.com'
-]
-```
+当前分类倾向：
 
-### 8.3 AI / Research Assistance
+- `reddit.com` 继续复合。
+- `quora.com` / `zhihu.com` 归复合。
+- `britannica.com` / `stackoverflow.com` / `github.com` 归学习。
+- 短视频一律黑名单：`douyin.com`、`tiktok.com`、`kuaishou.com`、`kwai.com`。
+- 偏游戏从严：`itch.io`、`chess.com`、`lichess.org` 归受限娱乐。
+- 工作/创作参考属性更重的平台归复合：`vimeo.com`、`pinterest.com`。
+- 社区属性重的站点归受限娱乐：`douban.com`、`v2ex.com`。
+- 门户游戏/娱乐/视频子站严格受限：例如 `cg.163.com`、`game.163.com`、`games.qq.com`、`ent.*`、`v.qq.com`。
+- 工具/生产力平台从宽：Google / Microsoft / Cloudflare / Apple / Adobe 默认学习，特殊子站单独降级。
+- 音乐/音频平台默认学习：`spotify.com`、`music.youtube.com`、`music.163.com`、`y.qq.com`、`music.apple.com`、`soundcloud.com`、`bandcamp.com`。
+- 消费娱乐门户默认复合：Tencent / NetEase / Baidu / ByteDance / Alibaba 默认复合，学习子站提升，娱乐/游戏/直播/短视频子站降级。
 
-```js
-[
-  'chatgpt.com',
-  'openai.com',
-  'claude.ai',
-  'copilot.microsoft.com',
-  'phind.com',
-  'gemini.google.com',
-  'poe.com',
-  'perplexity.ai',
-  'notebooklm.google.com',
-  'elicit.org',
-  'consensus.app',
-  'scite.ai',
-  'wolframalpha.com',
-  'doubao.com',
-  'deepseek.com'
-]
-```
+### 复杂网站体系 / 域名家族策略
 
-说明：AI 工具进入学习网站清单，不代表所有 AI 使用都是学习行为，而是学习模式下默认允许使用。
+复杂网站体系采用“家族默认策略 + 例外子站”的人读维护方式，运行配置仍展开到现有 `default*Sites` 清单。文档可用 `*.domain.com` 表达家族规则；后续同步系统 JSON / D1 前，必须确认当前校验和运行时接受该 wildcard，并补充测试。`www.example.com` 不允许作为区别于 `example.com` 的策略边界，因为当前实现将 `www.` 视为裸域别名。
 
-### 8.4 Writing / Citation / Grammar
+#### 工具 / 生产力平台
 
-```js
-[
-  'grammarly.com',
-  'quillbot.com',
-  'overleaf.com',
-  'zotero.org',
-  'mendeley.com',
-  'owl.purdue.edu',
-  'citationmachine.net',
-  'easybib.com',
-  'bibme.org',
-  'scribbr.com',
-  'languagetool.org',
-  'hemingwayapp.com',
-  'noredink.com',
-  'membean.com',
-  'achieve3000.com'
-]
-```
+| 域名家族 | 默认学习范围 | 复合例外 | 受限/黑名单例外 | 理由/倾向来源 |
+|---|---|---|---|---|
+| Google | `google.com`, `*.google.com` | `news.google.com`, `shopping.google.com`, `play.google.com` | `youtube.com` 受限娱乐；YouTube 对象级学习/复合规则另算 | 工具、搜索、文档、课堂、AI、资料管理整体从宽学习；新闻、购物、应用商店、视频单独降级。 |
+| Microsoft | `microsoft.com`, `*.microsoft.com`, `office.com`, `*.office.com`, `sharepoint.com`, `*.sharepoint.com`, `onedrive.live.com` | `bing.com`, `msn.com` | `xbox.com` 受限娱乐 | Office、Learn、Teams、OneDrive、Copilot 等生产力属性强；搜索、门户、游戏拆开。 |
+| Cloudflare | `cloudflare.com`, `*.cloudflare.com`, `community.cloudflare.com` | 无 | 无 | 技术文档、控制台、社区排障均按学习/开发处理。 |
+| Apple | `apple.com`, `*.apple.com`, `icloud.com`, `tv.apple.com`, `music.apple.com` | 无默认例外 | 无默认例外 | Apple 主体系按工具/支持/开发/资料管理从宽；音乐按学习，视频子站若未来发现消费风险再降级。 |
+| Adobe | `adobe.com`, `*.adobe.com` | `stock.adobe.com`, `behance.net` | 无 | 创作工具、帮助、教程按学习；素材消费和作品流复合。 |
+| GitHub / Stack Exchange | `github.com`, `github.io`, `gist.github.com`, `github.blog`, `stackoverflow.com`, `stackexchange.com`, `serverfault.com`, `superuser.com`, `askubuntu.com` | 无 | 无 | 编程、技术问答、项目协作学习属性明确，从宽学习。 |
 
-### 8.5 Curriculum / Exam Systems
+#### 消费娱乐门户平台
 
-```js
-[
-  'ibo.org',
-  'collegeboard.org',
-  'apclassroom.collegeboard.org',
-  'bluebook.app.collegeboard.org',
-  'act.org'
-]
-```
+| 域名家族 | 默认复合范围 | 学习例外 | 受限娱乐例外 | 黑名单例外 | 理由/倾向来源 |
+|---|---|---|---|---|---|
+| Tencent / QQ | `qq.com`, `tencent.com`, `mail.qq.com` | `docs.qq.com`, `y.qq.com` | `v.qq.com`, `games.qq.com`, `comic.qq.com`, `qzone.qq.com` | 无 | 门户、邮箱、社交、视频、游戏混合；默认复合，文档/音乐从宽学习，娱乐子站受限。 |
+| NetEase / 163 | `163.com`, `mail.163.com` | `open.163.com`, `icourse163.org`, `youdao.com`, `music.163.com` | `game.163.com`, `cg.163.com`, `cc.163.com`, `ent.163.com` | 无 | 综合门户和消费娱乐属性重；明确学习/音乐子站提升，游戏/直播/娱乐子站降级。 |
+| Baidu | `baidu.com`, `pan.baidu.com`, `map.baidu.com` | `baike.baidu.com`, `wenku.baidu.com`, `fanyi.baidu.com`, `xueshu.baidu.com` | `tieba.baidu.com`, `haokan.baidu.com`, `youxi.baidu.com` | 无 | 搜索、网盘、地图、社区、视频、游戏混合；资料型子站提升，社区/视频/游戏降级。 |
+| ByteDance | `toutiao.com`, `dongchedi.com` | `feishu.cn`, `larksuite.com`, `volcengine.com` | `ixigua.com` | `douyin.com`, `tiktok.com` | 门户/推荐流/短视频风险高；协作和云平台提升，短视频黑名单。 |
+| Alibaba | `alibaba.com`, `1688.com`, `taobao.com`, `tmall.com`, `aliexpress.com` | `aliyun.com`, `dingtalk.com`, `yuque.com` | `youku.com`, `tudou.com` | 无 | 电商/消费默认复合，云、协作、知识库提升，视频子站受限。 |
 
-### 8.6 Curriculum Resource Sites
+### 学习网站
 
-```js
-[
-  'revisionvillage.com',
-  'savemyexams.com',
-  'physicsandmathstutor.com',
-  'albert.io',
-  'fiveable.me',
-  'pastpapers.co',
-  'crackap.com',
-  'ibdocuments.com',
-  'ibsurvival.com',
-  'lanterna.com',
-  'thinking.net',
-  'bioninja.com.au',
-  'theoryofknowledge.net'
-]
-```
+#### 教育性
 
-### 8.7 Online Learning Platforms
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `docs.google.com` | docs.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `sheets.google.com` | sheets.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `slides.google.com` | slides.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `forms.google.com` | forms.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `meet.google.com` | meet.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `calendar.google.com` | calendar.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `classroom.google.com` | classroom.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `instructure.com` | instructure.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `blackboard.com` | blackboard.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `moodle.org` | moodle.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `schoology.com` | schoology.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `clever.com` | clever.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `turnitin.com` | turnitin.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `keep.google.com` | keep.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `onenote.com` | onenote.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `quizizz.com` | quizizz.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `kahoot.it` | kahoot.it | 当前系统学习清单；学习模式下合理可能需要。 |
+| `quizlet.com` | quizlet.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `noredink.com` | noredink.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `membean.com` | membean.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `achieve3000.com` | achieve3000.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `quillbot.com` | quillbot.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `grammarly.com` | grammarly.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `owl.purdue.edu` | owl.purdue.edu | 当前系统学习清单；学习模式下合理可能需要。 |
+| `ibo.org` | ibo.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `managebac.com` | managebac.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `kognity.com` | kognity.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `revisionvillage.com` | revisionvillage.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `savemyexams.com` | savemyexams.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `physicsandmathstutor.com` | physicsandmathstutor.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `albert.io` | albert.io | 当前系统学习清单；学习模式下合理可能需要。 |
+| `fiveable.me` | fiveable.me | 当前系统学习清单；学习模式下合理可能需要。 |
+| `pastpapers.co` | pastpapers.co | 当前系统学习清单；学习模式下合理可能需要。 |
+| `crackap.com` | crackap.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `ibdocuments.com` | ibdocuments.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `ibsurvival.com` | ibsurvival.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `lanterna.com` | lanterna.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `thinking.net` | thinking.net | 当前系统学习清单；学习模式下合理可能需要。 |
+| `bioninja.com.au` | bioninja.com.au | 当前系统学习清单；学习模式下合理可能需要。 |
+| `theoryofknowledge.net` | theoryofknowledge.net | 当前系统学习清单；学习模式下合理可能需要。 |
+| `khanacademy.org` | Khan Academy | 当前系统学习清单；学习模式下合理可能需要。 |
+| `ocw.mit.edu` | ocw.mit.edu | 当前系统学习清单；学习模式下合理可能需要。 |
+| `coursera.org` | Coursera | 当前系统学习清单；学习模式下合理可能需要。 |
+| `edx.org` | edX | 当前系统学习清单；学习模式下合理可能需要。 |
+| `brilliant.org` | brilliant.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `udemy.com` | udemy.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `futurelearn.com` | futurelearn.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `udacity.com` | udacity.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `codecademy.com` | codecademy.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `datacamp.com` | datacamp.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `freecodecamp.org` | freecodecamp.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `openstax.org` | openstax.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `ck12.org` | ck12.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `britannica.com` | britannica.com | 已确认：百科资料属性强，归学习网站。 |
+| `mathsisfun.com` | mathsisfun.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `artofproblemsolving.com` | artofproblemsolving.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `aops.com` | aops.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `gutenberg.org` | gutenberg.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `archive.org` | archive.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `loc.gov` | loc.gov | 当前系统学习清单；学习模式下合理可能需要。 |
+| `ankiweb.net` | ankiweb.net | 当前系统学习清单；学习模式下合理可能需要。 |
+| `collegeboard.org` | collegeboard.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `apclassroom.collegeboard.org` | apclassroom.collegeboard.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `bluebook.app.collegeboard.org` | bluebook.app.collegeboard.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `act.org` | act.org | 当前系统学习清单；学习模式下合理可能需要。 |
 
-```js
-[
-  'khanacademy.org',
-  'ocw.mit.edu',
-  'coursera.org',
-  'edx.org',
-  'brilliant.org',
-  'udemy.com',
-  'futurelearn.com',
-  'udacity.com',
-  'codecademy.com',
-  'datacamp.com',
-  'freecodecamp.org',
-  'openstax.org',
-  'ck12.org',
-  'britannica.com'
-]
-```
+#### 企业
 
-### 8.8 Math / Science / STEM Tools
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `office.com` | office.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `microsoft.com` | Microsoft | 工具/生产力平台从宽；默认按学习网站管理，搜索/门户/游戏另列例外。 |
+| `*.microsoft.com` | Microsoft 子域家族 | 工具/生产力平台从宽；后续同步运行配置前需补充 wildcard 校验。 |
+| `*.office.com` | Office 子域家族 | Office 生产力套件，默认学习。 |
+| `sharepoint.com` | SharePoint | 学校/组织文档协作，默认学习。 |
+| `*.sharepoint.com` | SharePoint 子域家族 | 学校/组织文档协作，默认学习；后续同步运行配置前需补充 wildcard 校验。 |
+| `planner.microsoft.com` | planner.microsoft.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `to-do.office.com` | to-do.office.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `teams.microsoft.com` | teams.microsoft.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `apple.com` | Apple | 工具/生产力平台从宽；默认按学习网站管理。 |
+| `*.apple.com` | Apple 子域家族 | 工具/支持/开发/资料管理从宽学习；后续同步运行配置前需补充 wildcard 校验。 |
+| `icloud.com` | iCloud | 文档、照片、资料同步和账号工具属性，默认学习。 |
+| `adobe.com` | Adobe | 创作工具平台从宽；默认按学习网站管理，素材消费和作品流另列复合。 |
+| `*.adobe.com` | Adobe 子域家族 | 创作工具、帮助、教程默认学习；后续同步运行配置前需补充 wildcard 校验。 |
+| `notion.so` | notion.so | 当前系统学习清单；学习模式下合理可能需要。 |
+| `obsidian.md` | obsidian.md | 当前系统学习清单；学习模式下合理可能需要。 |
+| `trello.com` | trello.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `slack.com` | slack.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `reclaim.ai` | reclaim.ai | 当前系统学习清单；学习模式下合理可能需要。 |
+| `powerschool.com` | powerschool.com | 当前系统学习清单；学习模式下合理可能需要。 |
 
-```js
-[
-  'desmos.com',
-  'geogebra.org',
-  'symbolab.com',
-  'mathway.com',
-  'physicsclassroom.com',
-  'phet.colorado.edu',
-  'falstad.com',
-  'myphysicslab.com',
-  'logic.ly',
-  'mathsisfun.com',
-  'artofproblemsolving.com',
-  'aops.com'
-]
-```
+#### 人工智能
 
-### 8.9 Coding / Engineering / Maker Tools
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `chatgpt.com` | ChatGPT | 当前系统学习清单；学习模式下合理可能需要。 |
+| `openai.com` | OpenAI | 当前系统学习清单；学习模式下合理可能需要。 |
+| `claude.ai` | Claude | 当前系统学习清单；学习模式下合理可能需要。 |
+| `copilot.microsoft.com` | Microsoft Copilot | 当前系统学习清单；学习模式下合理可能需要。 |
+| `phind.com` | phind.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `gemini.google.com` | Gemini | 当前系统学习清单；学习模式下合理可能需要。 |
+| `poe.com` | poe.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `perplexity.ai` | perplexity.ai | 当前系统学习清单；学习模式下合理可能需要。 |
+| `notebooklm.google.com` | notebooklm.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `elicit.org` | elicit.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `consensus.app` | consensus.app | 当前系统学习清单；学习模式下合理可能需要。 |
+| `scite.ai` | scite.ai | 当前系统学习清单；学习模式下合理可能需要。 |
+| `gamma.app` | gamma.app | 当前系统学习清单；学习模式下合理可能需要。 |
+| `doubao.com` | doubao.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `deepseek.com` | deepseek.com | 当前系统学习清单；学习模式下合理可能需要。 |
 
-```js
-[
-  'github.com',
-  'stackoverflow.com',
-  'leetcode.com',
-  'hackerrank.com',
-  'codingbat.com',
-  'replit.com',
-  'codepen.io',
-  'developer.mozilla.org',
-  'w3schools.com',
-  'tinkercad.com',
-  'arduino.cc',
-  'raspberrypi.com',
-  'instructables.com'
-]
-```
+#### 技术
 
-注意：`stackoverflow.com` 当前按技术学习用途进入 `defaultStudySites`；`stackexchange.com` 仍保留在用户默认复合网站中。
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `colab.research.google.com` | colab.research.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `wolframalpha.com` | wolframalpha.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `prezi.com` | prezi.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `miro.com` | miro.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `lucidchart.com` | lucidchart.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `draw.io` | draw.io | 当前系统学习清单；学习模式下合理可能需要。 |
+| `diagrams.net` | diagrams.net | 当前系统学习清单；学习模式下合理可能需要。 |
+| `overleaf.com` | overleaf.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `zotero.org` | zotero.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `mendeley.com` | mendeley.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `citationmachine.net` | citationmachine.net | 当前系统学习清单；学习模式下合理可能需要。 |
+| `easybib.com` | easybib.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `bibme.org` | bibme.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `scribbr.com` | scribbr.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `languagetool.org` | languagetool.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `hemingwayapp.com` | hemingwayapp.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `desmos.com` | desmos.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `geogebra.org` | geogebra.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `symbolab.com` | symbolab.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `mathway.com` | mathway.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `physicsclassroom.com` | physicsclassroom.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `phet.colorado.edu` | phet.colorado.edu | 当前系统学习清单；学习模式下合理可能需要。 |
+| `falstad.com` | falstad.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `myphysicslab.com` | myphysicslab.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `logic.ly` | logic.ly | 当前系统学习清单；学习模式下合理可能需要。 |
+| `github.com` | GitHub | 已确认：编程/项目学习用途明确，归学习网站。 |
+| `github.io` | GitHub Pages | 编程/项目展示和技术文档用途明确，归学习网站。 |
+| `gist.github.com` | GitHub Gist | 代码片段和技术协作用途明确，归学习网站。 |
+| `github.blog` | GitHub Blog | 开发者生态和技术内容属性强，从宽归学习。 |
+| `stackoverflow.com` | Stack Overflow | 已确认：技术问答学习用途明确，归学习网站。 |
+| `stackexchange.com` | Stack Exchange | 已确认：技术/知识问答网络，从宽归学习网站。 |
+| `serverfault.com` | Server Fault | 技术问答学习用途明确，归学习网站。 |
+| `superuser.com` | Super User | 技术问答学习用途明确，归学习网站。 |
+| `askubuntu.com` | Ask Ubuntu | 技术问答学习用途明确，归学习网站。 |
+| `cloudflare.com` | Cloudflare | 技术/开发平台，归学习网站。 |
+| `*.cloudflare.com` | Cloudflare 子域家族 | 技术文档、控制台、开发者工具默认学习；后续同步运行配置前需补充 wildcard 校验。 |
+| `community.cloudflare.com` | Cloudflare Community | 技术社区/排障资料，从宽归学习。 |
+| `leetcode.com` | leetcode.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `hackerrank.com` | hackerrank.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `codingbat.com` | codingbat.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `replit.com` | replit.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `codepen.io` | codepen.io | 当前系统学习清单；学习模式下合理可能需要。 |
+| `developer.mozilla.org` | developer.mozilla.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `w3schools.com` | w3schools.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `tinkercad.com` | tinkercad.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `arduino.cc` | arduino.cc | 当前系统学习清单；学习模式下合理可能需要。 |
+| `raspberrypi.com` | raspberrypi.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `instructables.com` | instructables.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `arxiv.org` | arxiv.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `scholar.google.com` | scholar.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `jstor.org` | jstor.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `researchgate.net` | researchgate.net | 当前系统学习清单；学习模式下合理可能需要。 |
+| `semanticscholar.org` | semanticscholar.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `pubmed.ncbi.nlm.nih.gov` | pubmed.ncbi.nlm.nih.gov | 当前系统学习清单；学习模式下合理可能需要。 |
+| `plato.stanford.edu` | plato.stanford.edu | 当前系统学习清单；学习模式下合理可能需要。 |
+| `ncbi.nlm.nih.gov` | ncbi.nlm.nih.gov | 当前系统学习清单；学习模式下合理可能需要。 |
+| `nature.com` | nature.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `science.org` | science.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `springer.com` | springer.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `sciencedirect.com` | sciencedirect.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `cambridge.org` | cambridge.org | 当前系统学习清单；学习模式下合理可能需要。 |
+| `oup.com` | oup.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `canva.com` | canva.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `figma.com` | figma.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `photopea.com` | photopea.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `pixlr.com` | pixlr.com | 当前系统学习清单；学习模式下合理可能需要。 |
 
-### 8.10 Academic Sources / Libraries
+#### 网页邮件
 
-```js
-[
-  'arxiv.org',
-  'scholar.google.com',
-  'jstor.org',
-  'researchgate.net',
-  'semanticscholar.org',
-  'pubmed.ncbi.nlm.nih.gov',
-  'ncbi.nlm.nih.gov',
-  'gutenberg.org',
-  'plato.stanford.edu',
-  'nature.com',
-  'science.org',
-  'springer.com',
-  'sciencedirect.com',
-  'cambridge.org',
-  'oup.com',
-  'archive.org',
-  'loc.gov'
-]
-```
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `outlook.live.com` | outlook.live.com | 当前系统学习清单；学习模式下合理可能需要。 |
 
-### 8.11 Creative / Presentation / Project Tools
+#### 文件共享
 
-```js
-[
-  'canva.com',
-  'figma.com',
-  'photopea.com',
-  'pixlr.com',
-  'gamma.app',
-  'prezi.com',
-  'miro.com',
-  'lucidchart.com',
-  'draw.io',
-  'diagrams.net',
-  'quizizz.com',
-  'kahoot.it',
-  'quizlet.com'
-]
-```
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `drive.google.com` | drive.google.com | 当前系统学习清单；学习模式下合理可能需要。 |
+| `onedrive.live.com` | onedrive.live.com | 当前系统学习清单；学习模式下合理可能需要。 |
 
-### 8.12 Notes / Planning / Productivity / Collaboration
+#### 搜索门户
 
-```js
-[
-  'notion.so',
-  'obsidian.md',
-  'ankiweb.net',
-  'trello.com',
-  'slack.com',
-  'reclaim.ai'
-]
-```
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `google.com` | Google | 工具/生产力平台从宽；默认全站学习，`www.google.com` 不作为差异策略。 |
+| `*.google.com` | Google 子域家族 | Google 子域整体按学习/生产力从宽；新闻、购物、应用商店另列复合例外。 |
+| `google.com.hk` | Google HK | Google 搜索/工具入口从宽归学习；若后续需要地区搜索单独降级，再按例外处理。 |
 
-说明：此类网站不是纯学习内容网站，但学习计划、项目协作、笔记整理、任务管理时可能合理使用，且默认娱乐属性较弱。
+#### 音乐 / 音频
 
----
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `spotify.com` | Spotify | 已确认：音乐/音频默认学习，背景使用通常不直接打断学习。 |
+| `music.youtube.com` | YouTube Music | 已确认：音乐子站按学习；与 `youtube.com` 视频主站受限分开。 |
+| `music.163.com` | NetEase Cloud Music | 已确认：音乐/音频默认学习。 |
+| `y.qq.com` | QQ Music | 已确认：音乐/音频默认学习。 |
+| `music.apple.com` | Apple Music | 已确认：音乐/音频默认学习。 |
+| `soundcloud.com` | SoundCloud | 已确认：音乐/音频默认学习。 |
+| `bandcamp.com` | Bandcamp | 已确认：音乐/音频默认学习。 |
 
-## 9. 第一版 customStudyList 清单
+#### 门户学习例外
 
-```js
-[
-  'keystoneacademy.cn',
-  'powerschool.keystoneacademy.cn',
-  'managebac.cn',
-  'reach.cloud',
-  'schoolsbuddy.cn',
-  'afficienta.com',
-]
-```
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `docs.qq.com` | 腾讯文档 | Tencent / QQ 体系学习例外，文档协作用途明确。 |
+| `open.163.com` | 网易公开课 | NetEase / 163 体系学习例外，课程内容属性明确。 |
+| `icourse163.org` | 中国大学 MOOC | NetEase / 163 体系学习例外，课程平台属性明确。 |
+| `youdao.com` | 有道 | NetEase / 163 体系学习例外，词典/翻译/学习工具属性明确。 |
+| `baike.baidu.com` | 百度百科 | Baidu 体系学习例外，百科资料属性明确。 |
+| `wenku.baidu.com` | 百度文库 | Baidu 体系学习例外，资料/文档属性明确。 |
+| `fanyi.baidu.com` | 百度翻译 | Baidu 体系学习例外，语言工具属性明确。 |
+| `xueshu.baidu.com` | 百度学术 | Baidu 体系学习例外，学术检索属性明确。 |
+| `feishu.cn` | 飞书 | ByteDance 体系学习例外，协作/文档/课堂沟通用途明确。 |
+| `larksuite.com` | Lark | ByteDance 体系学习例外，协作/文档用途明确。 |
+| `volcengine.com` | 火山引擎 | ByteDance 体系学习例外，云与技术平台属性明确。 |
+| `aliyun.com` | 阿里云 | Alibaba 体系学习例外，云与技术平台属性明确。 |
+| `dingtalk.com` | 钉钉 | Alibaba 体系学习例外，课堂/组织协作用途明确。 |
+| `yuque.com` | 语雀 | Alibaba 体系学习例外，知识库/文档协作用途明确。 |
 
-说明：
+### 复合网站
 
-- `keystoneacademy.cn` / `powerschool.keystoneacademy.cn`：学校 / 机构专用域名
-- `managebac.cn`：ManageBac 中国区
-- `reach.cloud`：Reach 平台
-- `schoolsbuddy.cn`：SchoolsBuddy
-- `afficienta.com`：Afficient 学习平台
+#### 企业
 
-这些域名对学校场景非常重要，但不适合作为所有用户的系统默认项，因此放在 `customStudyList` 初始值中。家长可随时在控制台编辑或移除。
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `stock.adobe.com` | Adobe Stock | 素材消费/商业入口，按复合观察，不直接计入学习。 |
+
+#### 技术
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `behance.net` | Behance | 作品流和灵感浏览属性较强，按复合观察。 |
+| `dribbble.com` | Dribbble | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+
+#### 搜索门户
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `news.google.com` | Google News | 工具平台例外：新闻信息流，按复合观察。 |
+| `shopping.google.com` | Google Shopping | 工具平台例外：购物/消费入口，按复合观察。 |
+| `play.google.com` | Google Play | 工具平台例外：应用、游戏、影视、消费内容混合，按复合偏严。 |
+| `bing.com` | Bing | Microsoft 体系例外：搜索门户，按复合观察。 |
+| `duckduckgo.com` | DuckDuckGo | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `baidu.com` | 百度搜索 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+
+#### 新闻
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `cnn.com` | CNN | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `bbc.com` | BBC | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `bbc.co.uk` | BBC UK | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `reuters.com` | Reuters | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `apnews.com` | AP News | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `npr.org` | NPR | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `nytimes.com` | New York Times | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `washingtonpost.com` | Washington Post | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `theguardian.com` | The Guardian | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `thepaper.cn` | 澎湃新闻 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `caixin.com` | 财新 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `xinhuanet.com` | 新华网 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `people.com.cn` | 人民网 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+
+#### 综合门户
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `wikipedia.org` | Wikipedia | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `wikimedia.org` | Wikimedia | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `reddit.com` | Reddit | 已确认：继续作为复合例外，进入待归类时间。 |
+| `yahoo.com` | Yahoo 主域 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `msn.com` | MSN 主域 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `sina.com.cn` | 新浪主域 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `sohu.com` | 搜狐主域 | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `qq.com` | 腾讯网主域 | 消费娱乐门户体系默认复合；学习子站单独提升。 |
+| `tencent.com` | Tencent 主域 | 消费娱乐门户体系默认复合；学习子站单独提升。 |
+| `163.com` | 网易主域 | 消费娱乐门户体系默认复合；学习/音乐子站单独提升。 |
+| `mail.qq.com` | QQ Mail | 门户体系内通信入口，按复合管理。 |
+| `mail.163.com` | 163 Mail | 门户体系内通信入口，按复合管理。 |
+| `pan.baidu.com` | 百度网盘 | 文件/资料与消费内容混合，按复合观察。 |
+| `map.baidu.com` | 百度地图 | 工具属性存在但用途混合，按复合观察。 |
+| `toutiao.com` | 今日头条 | 推荐信息流门户，按复合偏严；不默认学习。 |
+| `dongchedi.com` | 懂车帝 | 消费/资讯门户，按复合管理。 |
+| `alibaba.com` | Alibaba | 电商/商业入口，按复合管理。 |
+| `1688.com` | 1688 | 电商/商业入口，按复合管理。 |
+| `taobao.com` | 淘宝 | Alibaba 电商/消费入口，按复合管理，不默认学习。 |
+| `tmall.com` | 天猫 | Alibaba 电商/消费入口，按复合管理，不默认学习。 |
+| `aliexpress.com` | AliExpress | Alibaba 电商/消费入口，按复合管理，不默认学习。 |
+| `medium.com` | Medium | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+| `substack.com` | Substack | 宽松策略下作为复合/待归类入口，不直接计入学习。 |
+
+
+#### 论坛
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `quora.com` | Quora | 已确认：问答资料属性存在，宽松策略下归复合。 |
+| `zhihu.com` | 知乎 | 已确认：问答资料属性存在，宽松策略下归复合。 |
+| `pinterest.com` | Pinterest | 已确认：资料搜集/设计参考属性较强，归复合。 |
+
+#### 视频/直播
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `vimeo.com` | Vimeo | 已确认：工作/创作属性更重，归复合。 |
+
+### 受限娱乐网站
+
+#### 娱乐
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `cg.163.com` | cg.163.com | 已确认：门户下游戏相关子站严格受限。 |
+| `qzone.qq.com` | QQ 空间 | 社交/娱乐信息流属性强，归受限娱乐。 |
+| `comic.qq.com` | 腾讯动漫 | 门户动漫/娱乐子站，归受限娱乐。 |
+| `haokan.baidu.com` | 好看视频 | 百度视频娱乐子站，归受限娱乐。 |
+| `ixigua.com` | 西瓜视频 | 字节系视频娱乐入口，归受限娱乐。 |
+
+#### 游戏
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `roblox.com` | Roblox | 偏游戏从严；学习模式不默认放行。 |
+| `steampowered.com` | Steam | 偏游戏从严；学习模式不默认放行。 |
+| `steamcommunity.com` | Steam Community | 偏游戏从严；学习模式不默认放行。 |
+| `epicgames.com` | Epic Games | 偏游戏从严；学习模式不默认放行。 |
+| `minecraft.net` | Minecraft | 偏游戏从严；学习模式不默认放行。 |
+| `fortnite.com` | Fortnite | 偏游戏从严；学习模式不默认放行。 |
+| `battle.net` | Battle.net | 偏游戏从严；学习模式不默认放行。 |
+| `blizzard.com` | Blizzard | 偏游戏从严；学习模式不默认放行。 |
+| `ea.com` | Electronic Arts | 偏游戏从严；学习模式不默认放行。 |
+| `riotgames.com` | Riot Games | 偏游戏从严；学习模式不默认放行。 |
+| `xbox.com` | Xbox | 偏游戏从严；学习模式不默认放行。 |
+| `playstation.com` | PlayStation | 偏游戏从严；学习模式不默认放行。 |
+| `nintendo.com` | Nintendo | 偏游戏从严；学习模式不默认放行。 |
+| `poki.com` | Poki | 偏游戏从严；学习模式不默认放行。 |
+| `crazygames.com` | CrazyGames | 偏游戏从严；学习模式不默认放行。 |
+| `miniclip.com` | Miniclip | 偏游戏从严；学习模式不默认放行。 |
+| `armorgames.com` | Armor Games | 偏游戏从严；学习模式不默认放行。 |
+| `kongregate.com` | Kongregate | 偏游戏从严；学习模式不默认放行。 |
+| `itch.io` | itch.io | 已确认：偏游戏从严，归受限娱乐。 |
+| `chess.com` | Chess.com | 已确认：益智属性存在，但偏游戏从严，归受限娱乐。 |
+| `lichess.org` | Lichess | 已确认：益智属性存在，但偏游戏从严，归受限娱乐。 |
+| `game.163.com` | 网易游戏 | 门户下游戏相关子站严格受限。 |
+| `games.qq.com` | 腾讯游戏 | 门户下游戏相关子站严格受限。 |
+| `youxi.baidu.com` | 百度游戏 | 门户下游戏相关子站严格受限。 |
+| `games.sina.com.cn` | 新浪游戏 | 门户下游戏相关子站严格受限。 |
+| `game.sohu.com` | 搜狐游戏 | 门户下游戏相关子站严格受限。 |
+
+#### 购物
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `amazon.com` | Amazon | 消费购物入口；学习模式不默认放行。 |
+| `jd.com` | 京东 | 消费购物入口；学习模式不默认放行。 |
+| `pinduoduo.com` | 拼多多 | 消费购物入口；学习模式不默认放行。 |
+| `ebay.com` | eBay | 消费购物入口；学习模式不默认放行。 |
+
+#### 论坛
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `discord.com` | Discord | 社区/论坛属性重；学习用途需家长单独批准。 |
+| `twitter.com` | Twitter | 社区/论坛属性重；学习用途需家长单独批准。 |
+| `tumblr.com` | Tumblr | 社区/论坛属性重；学习用途需家长单独批准。 |
+| `tieba.baidu.com` | Baidu Tieba | 社区/论坛属性重；学习用途需家长单独批准。 |
+| `hupu.com` | Hupu | 社区/论坛属性重；学习用途需家长单独批准。 |
+| `nga.cn` | NGA | 社区/论坛属性重；学习用途需家长单独批准。 |
+| `v2ex.com` | V2EX | 已确认：社区属性太重，归受限娱乐。 |
+| `gcores.com` | Gcores | 社区/论坛属性重；学习用途需家长单独批准。 |
+| `douban.com` | Douban | 已确认：社区属性太重，归受限娱乐。 |
+
+#### 社交网络
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `instagram.com` | Instagram | 社交/信息流属性强；学习模式不默认放行。 |
+| `facebook.com` | Facebook | 社交/信息流属性强；学习模式不默认放行。 |
+| `x.com` | X | 社交/信息流属性强；学习模式不默认放行。 |
+| `snapchat.com` | Snapchat | 社交/信息流属性强；学习模式不默认放行。 |
+| `threads.net` | Threads | 社交/信息流属性强；学习模式不默认放行。 |
+
+#### 视频/直播
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `bilibili.com` | Bilibili | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `netflix.com` | Netflix | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `disneyplus.com` | Disney+ | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `hulu.com` | Hulu | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `twitch.tv` | Twitch | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `huya.com` | 虎牙直播 | 直播/游戏直播平台，娱乐属性强，学习模式不默认放行。 |
+| `douyu.com` | 斗鱼直播 | 直播/游戏直播平台，娱乐属性强，学习模式不默认放行。 |
+| `cc.163.com` | 网易 CC 直播 | 门户下直播/游戏直播子站，严格受限。 |
+| `live.bilibili.com` | Bilibili 直播 | 父域 `bilibili.com` 已受限；子域显式列出便于审核。 |
+| `yy.com` | YY | 直播/语音娱乐社区属性强，归受限娱乐。 |
+| `zhanqi.tv` | 战旗直播 | 游戏/娱乐直播平台，归受限娱乐。 |
+| `nimo.tv` | Nimo TV | 游戏/娱乐直播平台，归受限娱乐。 |
+| `kick.com` | Kick | 泛娱乐直播平台，归受限娱乐。 |
+| `iqiyi.com` | iQIYI | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `primevideo.com` | Prime Video | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `dailymotion.com` | Dailymotion | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `youku.com` | Youku | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `v.qq.com` | Tencent Video | 门户视频子站，明确视频娱乐入口，严格受限。 |
+| `mgtv.com` | Mango TV | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `tudou.com` | Tudou | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `nicovideo.jp` | Niconico | 视频/直播娱乐属性强；学习模式不默认放行。 |
+| `youtube.com` | YouTube | 根域受限；具体视频/播放列表/频道走特殊对象规则。 |
+
+#### 娱乐门户
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `tmz.com` | TMZ | 娱乐内容入口；学习模式不默认放行。 |
+| `eonline.com` | E! Online | 娱乐内容入口；学习模式不默认放行。 |
+| `people.com` | People | 娱乐内容入口；学习模式不默认放行。 |
+| `ew.com` | Entertainment Weekly | 娱乐内容入口；学习模式不默认放行。 |
+| `fandom.com` | Fandom | 娱乐内容入口；学习模式不默认放行。 |
+| `imdb.com` | IMDb | 娱乐内容入口；学习模式不默认放行。 |
+| `rottentomatoes.com` | Rotten Tomatoes | 娱乐内容入口；学习模式不默认放行。 |
+| `movie.douban.com` | Douban Movie | 娱乐内容入口；学习模式不默认放行。 |
+| `ent.sina.com.cn` | Sina Entertainment | 门户娱乐频道，严格受限。 |
+| `ent.qq.com` | Tencent Entertainment | 门户娱乐频道，严格受限。 |
+| `ent.163.com` | NetEase Entertainment | 门户娱乐频道，严格受限。 |
+| `yule.sohu.com` | Sohu Entertainment | 门户娱乐频道，严格受限。 |
+
+### 黑名单网站
+
+#### 社交网络
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `douyin.com` | Douyin | 短视频强沉迷，当前黑名单。 |
+| `tiktok.com` | TikTok | 短视频强沉迷，当前黑名单。 |
+
+#### 视频/直播
+
+| 域名 | 名称/说明 | 理由/倾向来源 |
+|---|---|---|
+| `kuaishou.com` | Kuaishou | 已确认：短视频一律黑名单。 |
+| `kwai.com` | Kwai | 短视频同类平台，按短视频一律黑名单处理。 |
 
 ---
 
@@ -561,13 +809,13 @@ temporaryCompositeSites
 典型包括：
 
 - 搜索引擎；
-- YouTube；
+- 新闻 / 综合门户；
 - Wiki / 百科；
 - 问答 / 讨论；
-- 音乐 / 音频。
+- 购物 / 消费入口；
+- 工具平台中的新闻、购物、应用商店等降级例外。
 
-复合网站不是综合门户网站。
-`163.com`、`sohu.com`、`sina.com.cn`、`msn.com`、`yahoo.com` 等综合门户默认不进入复合网站清单。
+复合网站不是学习网站。音乐/音频平台当前从宽归学习；`youtube.com` 根域归受限娱乐，具体视频、播放列表、频道走特殊对象规则。`163.com`、`sohu.com`、`sina.com.cn`、`msn.com`、`yahoo.com`、`qq.com` 等综合门户默认不进入学习网站清单；在当前宽松口径下可作为复合网站或受限娱乐观察入口，具体按第 8 节维护清单执行。
 
 ### 10.3 待归类时间
 
@@ -595,67 +843,14 @@ temporaryCompositeSites
 - 其他时间；
 - 继续保持待分类。
 
-### 10.4 当前 defaultCompositeSites / defaultUserCompositeSites 清单
+### 10.4 清单维护位置
 
-系统配置复合网站（defaultCompositeSites，运行时复合来源之一）：
+复合网站完整清单统一维护在第 8 节“系统网站配置维护清单”。本节只保留产品定义和行为语义，避免同一清单在多个位置分叉。
 
-```js
-[
-  // Search engines
-  'google.com',
-  'google.com.hk',
-  'bing.com',
-
-  // Software / Vendor Support Sites
-  // 以下域名是 Product Owner 明确决定保留在复合网站中的软件/厂商支持站点。
-  // 这不是一般规则，不以此为由继续添加其他软件/vendor域名。
-  'microsoft.com',
-  'apple.com',
-  'adobe.com',
-
-  // Music / audio
-  'music.youtube.com',
-  'spotify.com',
-  'music.163.com',
-]
-```
-
-特殊网站基线：`youtube.com` 是系统受限娱乐网站；YouTube 视频、播放列表、频道通过 `siteClassificationRulesV1` 保存为特殊对象规则。频道规则可覆盖该频道下视频，但依赖页面上下文识别。`music.youtube.com` 本轮保持复合网站。
-
-用户默认复合网站（defaultUserCompositeSites，运行时复合来源之一）：
-
-```js
-[
-  // Wiki / encyclopedia
-  'wikipedia.org',
-  'wikimedia.org',
-
-  // Q&A / discussion
-  'stackexchange.com',
-  'reddit.com',
-]
-```
-
-> 说明：系统配置复合网站与用户默认复合网站在运行时合并为 effective composite list。用户默认复合网站作为新用户初始配置自动加入，但用户可在家长控制台中移除。系统配置复合网站不可由用户移除。
-
-### 10.5 第一版暂不加入复合网站
-
-```text
-quora.com
-zhihu.com
-soundcloud.com
-```
-
-处理原则：
-
-- 不进入学习网站；
-- 不进入复合网站；
-- 不进入黑名单网站；
-- 在学习模式下按未归类网站或普通非学习网站处理；
-- 自由时间允许访问；
-- 后续根据实际使用情况和产品判断再决定是否加入。
+特殊网站基线：`youtube.com` 是系统受限娱乐网站；YouTube 视频、播放列表、频道通过 `siteClassificationRulesV1` 保存为特殊对象规则。频道规则可覆盖该频道下视频，但依赖页面上下文识别。`music.youtube.com` 按音乐/音频从宽归学习网站。
 
 ---
+
 
 ## 11. 临时进入待归类时间
 
@@ -759,27 +954,10 @@ effectiveRestrictedEntertainmentList = normalizeAndDedupe([
 
 受限娱乐网站数量有一定规模，不适合全部交给用户维护；但用户也应该能添加自己的受限娱乐网站。
 
-### 12.4 当前 defaultRestrictedEntertainmentSites 清单
+### 12.4 清单维护位置
 
-```js
-[
-  'youtube.com',
-  'bilibili.com',
-  'netflix.com',
-  'disneyplus.com',
-  'hulu.com',
-  'twitch.tv',
-  'roblox.com',
-  'steampowered.com',
-  'steamcommunity.com',
-  'epicgames.com',
-  'instagram.com',
-  'facebook.com',
-  'x.com',
-  'snapchat.com',
-  'threads.net'
-]
-```
+受限娱乐网站完整清单统一维护在第 8 节“系统网站配置维护清单”。本节只保留受限娱乐的定义、行为和维护原则，避免同一清单在多个位置分叉。
+
 
 ### 12.5 Bilibili 定位
 
@@ -885,21 +1063,12 @@ blockedSites
 | 临时进入待归类时间 | 否 |
 | 借时间 | 否 |
 
-### 14.4 当前 defaultBlockedSites 清单
+### 14.4 清单维护位置
 
-```js
-[
-  'douyin.com',
-  'tiktok.com'
-]
-```
-
-说明：
-
-`douyin.com` / `tiktok.com` 属于 Product Owner 明确认为极端低价值且高度沉迷的网站。
-后续如需加入成人、赌博、恶意、欺诈等网站，应单独评估，不要把普通娱乐网站混入。
+黑名单网站完整清单统一维护在第 8 节“系统网站配置维护清单”。当前倾向是短视频强沉迷平台一律黑名单；成人、赌博、代理绕过等高风险类别后续可单独扩展。
 
 ---
+
 
 ## 15. 普通门户 / 社交 / 游戏网站排除原则
 
@@ -949,26 +1118,34 @@ epicgames.com
 
 ### 15.4 短视频 / 强娱乐视频
 
-短视频与强娱乐视频站不进入学习网站或复合网站。
+短视频站一律进入黑名单；强娱乐视频、影视、直播平台进入受限娱乐网站，不进入学习网站或复合网站。
 
-示例：
+黑名单示例：
 
 ```text
 douyin.com
 tiktok.com
 kuaishou.com
+kwai.com
+```
+
+受限娱乐示例：
+
+```text
 bilibili.com
 twitch.tv
 netflix.com
+disneyplus.com
+hulu.com
+primevideo.com
 ```
 
 处理差异：
 
-- `douyin.com` / `tiktok.com`：黑名单候选；
+- `douyin.com` / `tiktok.com` / `kuaishou.com` / `kwai.com`：短视频强沉迷，黑名单；
 - `bilibili.com`：受限娱乐网站；
-- `netflix.com` / `twitch.tv`：受限娱乐网站；
-- `kuaishou.com`：待 Product Owner 后续决定，可能归入黑名单或受限娱乐网站。
-
+- `netflix.com` / `twitch.tv` / `primevideo.com`：受限娱乐网站；
+- `youtube.com` 根域：受限娱乐网站；具体视频、播放列表、频道走特殊对象规则。
 ---
 
 ## 16. 借时间

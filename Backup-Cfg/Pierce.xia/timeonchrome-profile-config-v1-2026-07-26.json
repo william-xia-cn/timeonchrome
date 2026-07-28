@@ -1,0 +1,267 @@
+{
+  "app": "TimeOnChrome",
+  "configType": "profile-config",
+  "configVersion": 1,
+  "exportedAt": "2026-07-26T10:32:25.058Z",
+  "profile": {
+    "id": "e12a4ec6-f9b8-4a1a-8586-bdc4bb8ff653",
+    "name": "P.xia"
+  },
+  "siteAccess": {
+    "customLists": {
+      "studySites": [
+        "keystoneacademy.cn",
+        "powerschool.keystoneacademy.cn",
+        "managebac.cn",
+        "reach.cloud",
+        "schoolsbuddy.cn",
+        "afficienta.com",
+        "planner.cloud.microsoft",
+        "teams.cloud.microsoft"
+      ],
+      "compositeSites": [
+        "wikipedia.org",
+        "wikimedia.org",
+        "reddit.com",
+        "127.0.0.1"
+      ],
+      "restrictedEntertainmentSites": [],
+      "blockedSites": []
+    },
+    "classificationRules": [
+      {
+        "decision": "composite",
+        "targetType": "url",
+        "displayType": "YouTube 视频",
+        "normalizedValue": "https://www.youtube.com/watch?v=OKf_IOGxFQo",
+        "rawRule": {
+          "id": "scr_rule_14eab029-4c44-49f0-9f63-547c66d9b9d8",
+          "requestId": "14eab029-4c44-49f0-9f63-547c66d9b9d8",
+          "targetType": "url",
+          "targetValue": "https://www.youtube.com/watch?v=OKf_IOGxFQo",
+          "normalizedValue": "https://www.youtube.com/watch?v=OKf_IOGxFQo",
+          "decision": "composite",
+          "createdAt": 1779696517736,
+          "updatedAt": 1779696517736
+        }
+      },
+      {
+        "decision": "composite",
+        "targetType": "host",
+        "displayType": "精确链接",
+        "normalizedValue": "127.0.0.1",
+        "rawRule": {
+          "id": "scr_rule_b14debd8-3338-4a1e-a53b-925e2624d30d",
+          "requestId": "b14debd8-3338-4a1e-a53b-925e2624d30d",
+          "targetType": "host",
+          "targetValue": "127.0.0.1",
+          "normalizedValue": "127.0.0.1",
+          "decision": "composite",
+          "createdAt": 1785057514864,
+          "updatedAt": 1785057514864
+        }
+      }
+    ],
+    "classificationRequests": [
+      {
+        "id": "b14debd8-3338-4a1e-a53b-925e2624d30d",
+        "profileId": "e12a4ec6-f9b8-4a1a-8586-bdc4bb8ff653",
+        "deviceId": "3f6f05f6-a043-452a-93f6-a3df94a1e3c3",
+        "clientRequestId": "scr_5cd5363e-be72-445a-ae6c-32fbf3120488",
+        "requestedTargetType": "host",
+        "requestedRawInput": "127.0.0.1",
+        "requestedNormalizedValue": "127.0.0.1",
+        "requestedHost": "127.0.0.1",
+        "displayValue": "127.0.0.1",
+        "recordSource": "legacy",
+        "requestedClassification": null,
+        "manualRequestedAt": null,
+        "firstObservedAt": null,
+        "lastObservedAt": null,
+        "observationCount": 0,
+        "status": "approved_composite",
+        "decision": "composite",
+        "decisionTargetType": "host",
+        "decisionNormalizedValue": "127.0.0.1",
+        "requestedAt": 1784993091762,
+        "decidedAt": 1785057514864,
+        "createdAt": 1784993174561,
+        "updatedAt": 1785057514864
+      },
+      {
+        "id": "4b4a03f6-7067-4b08-87d5-002f28c33bcb",
+        "profileId": "e12a4ec6-f9b8-4a1a-8586-bdc4bb8ff653",
+        "deviceId": "97c34dc7-0e3e-4203-a3b6-db01a6e03aa1",
+        "clientRequestId": "scr_5ad6c349-8678-4d06-b3ea-12328289da74",
+        "requestedTargetType": "url",
+        "requestedRawInput": "https://login.microsoftonline.com/",
+        "requestedNormalizedValue": "https://login.microsoftonline.com/",
+        "requestedHost": "login.microsoftonline.com",
+        "displayValue": "https://login.microsoftonline.com/",
+        "recordSource": "legacy",
+        "requestedClassification": null,
+        "manualRequestedAt": null,
+        "firstObservedAt": null,
+        "lastObservedAt": null,
+        "observationCount": 0,
+        "status": "returned",
+        "decision": "return",
+        "decisionTargetType": "url",
+        "decisionNormalizedValue": "https://login.microsoftonline.com/",
+        "requestedAt": 1779991349161,
+        "decidedAt": 1780119168732,
+        "createdAt": 1779991350832,
+        "updatedAt": 1780119168732
+      },
+      {
+        "id": "14eab029-4c44-49f0-9f63-547c66d9b9d8",
+        "profileId": "e12a4ec6-f9b8-4a1a-8586-bdc4bb8ff653",
+        "deviceId": "4ea64254-772e-47e8-af84-91796c2652f3",
+        "clientRequestId": "scr_8a4c834c-b5e6-4b18-8e27-8b53a777e649",
+        "requestedTargetType": "url",
+        "requestedRawInput": "https://www.youtube.com/watch?v=OKf_IOGxFQo",
+        "requestedNormalizedValue": "https://www.youtube.com/watch?v=OKf_IOGxFQo",
+        "requestedHost": "www.youtube.com",
+        "displayValue": "https://www.youtube.com/watch?v=OKf_IOGxFQo",
+        "recordSource": "legacy",
+        "requestedClassification": null,
+        "manualRequestedAt": null,
+        "firstObservedAt": null,
+        "lastObservedAt": null,
+        "observationCount": 0,
+        "status": "approved_composite",
+        "decision": "composite",
+        "decisionTargetType": "url",
+        "decisionNormalizedValue": "https://www.youtube.com/watch?v=OKf_IOGxFQo",
+        "requestedAt": 1779631335483,
+        "decidedAt": 1779696517736,
+        "createdAt": 1779631338191,
+        "updatedAt": 1779696517736
+      }
+    ]
+  },
+  "quota": {
+    "timeQuota": {
+      "daily": {
+        "monday": {
+          "studyMinutes": null,
+          "restMinutes": 120,
+          "compositeMinutes": 90
+        },
+        "tuesday": {
+          "studyMinutes": null,
+          "restMinutes": 120,
+          "compositeMinutes": 90
+        },
+        "wednesday": {
+          "studyMinutes": null,
+          "restMinutes": 120,
+          "compositeMinutes": 90
+        },
+        "thursday": {
+          "studyMinutes": null,
+          "restMinutes": 120,
+          "compositeMinutes": 90
+        },
+        "friday": {
+          "studyMinutes": null,
+          "restMinutes": 120,
+          "compositeMinutes": 90
+        },
+        "saturday": {
+          "studyMinutes": null,
+          "restMinutes": 120,
+          "compositeMinutes": 90
+        },
+        "sunday": {
+          "studyMinutes": null,
+          "restMinutes": 120,
+          "compositeMinutes": 90
+        }
+      }
+    },
+    "domainQuotas": {},
+    "legacyQuotaSnapshot": {
+      "dailyStudyQuota": 0,
+      "dailyRestQuota": 120,
+      "dailyUndeterminedQuota": 90,
+      "weeklyRestQuota": 840,
+      "dailyOnlineQuota": 0
+    }
+  },
+  "timeWindows": {
+    "daily": {
+      "monday": {
+        "studyWindows": null,
+        "compositeWindows": null,
+        "restWindows": [
+          {
+            "start": "16:00",
+            "end": "23:00"
+          }
+        ]
+      },
+      "tuesday": {
+        "studyWindows": null,
+        "compositeWindows": null,
+        "restWindows": [
+          {
+            "start": "16:00",
+            "end": "23:00"
+          }
+        ]
+      },
+      "wednesday": {
+        "studyWindows": null,
+        "compositeWindows": null,
+        "restWindows": [
+          {
+            "start": "16:00",
+            "end": "23:00"
+          }
+        ]
+      },
+      "thursday": {
+        "studyWindows": null,
+        "compositeWindows": null,
+        "restWindows": [
+          {
+            "start": "16:00",
+            "end": "23:00"
+          }
+        ]
+      },
+      "friday": {
+        "studyWindows": null,
+        "compositeWindows": null,
+        "restWindows": [
+          {
+            "start": "16:00",
+            "end": "23:00"
+          }
+        ]
+      },
+      "saturday": {
+        "studyWindows": null,
+        "compositeWindows": null,
+        "restWindows": [
+          {
+            "start": "16:00",
+            "end": "23:00"
+          }
+        ]
+      },
+      "sunday": {
+        "studyWindows": null,
+        "compositeWindows": null,
+        "restWindows": [
+          {
+            "start": "16:00",
+            "end": "23:00"
+          }
+        ]
+      }
+    },
+    "note": "onlineWindows is derived from study/composite/rest windows and is not imported as an editable field."
+  }
+}

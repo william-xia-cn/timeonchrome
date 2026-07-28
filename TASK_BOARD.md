@@ -23,6 +23,9 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] 控件端用户配置网站可见性修复
+  - 目标：访问管理配置文件页显式展示当前档案用户自定义网站摘要和清单，避免用户配置与系统配置混淆。
+  - 边界：只改云端 Pages 展示和 profile 导出口径；不改系统网站默认 JSON、不部署、不执行 D1。
 - [x] 用户自定义网站提升到系统配置
   - 目标：云端网站管理的用户自定义配置项增加“添加到系统配置”，管理员可将当前档案自定义网站提升到全局系统网站库。
   - 边界：提升后从当前 profile custom list 移除；不改本地 Admin 只读边界，不新增 Worker API。
@@ -270,6 +273,14 @@
   - 上线前需单独 PO 批准（见 `docs/STATS_STORAGE_FOUNDATION.md` §C.9）
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
+- [ ] [P1] 系统配置全局影响治理
+  - 背景：系统配置网站库、默认清单和 `siteCatalog` 修改后会全局生效，影响所有孩子档案的 effective 清单；这已记录在 `docs/SITE_ACCESS_POLICY.md` 和 D-050。
+  - 后续处理：重新审查系统配置导入、页面内系统分类编辑、用户自定义提升到系统配置的权限、确认文案、preflight、审计记录和回滚/恢复策略。
+  - 边界：普通 profile 用户配置导入/恢复不得修改系统配置；后续方案需要单独确认后再实施。
+- [ ] [P1] 访问管理配置导入冲突与冗余预检补强
+  - 问题：当前导入配置文件时没有显式检查用户配置与系统配置之间的跨策略冲突，也没有提示同策略冗余项。
+  - 已发现样例：`timeonchrome-access-management-config-v1-2026-07-28 (2).json` 中 `kognity.com`、`physicsclassroom.com`、`logic.ly` 同时存在于系统学习和用户学习；不构成硬冲突，但导入前应提示可清理。
+  - 后续处理：导入预检/差异确认需要覆盖系统内部、用户内部、用户 vs 系统跨策略冲突；同策略重复作为 warning 展示，并建议从用户配置移除。
 - [x] **[P1] Child-facing entry points expose mixed admin page — Stage 1 (Soft Gate) 已完成**：
   - 已实施：孩子端入口（popup 设置按钮、未绑定横幅、reminder 查看详情）现已通过 `?view=stats` 参数以只读模式打开 `admin/admin.html`
   - 已实施：admin.js 入口逻辑添加 `isChildView` 分支，跳过登录/注册/绑定流程，隐藏退出登录、重新绑定等家长控件
