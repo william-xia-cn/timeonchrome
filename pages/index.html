@@ -792,7 +792,6 @@
                   <option value="rule">已批准精确规则</option>
                   <option value="used-unclassified">已使用未归类网站</option>
                   <option value="unmarked">未标注</option>
-                  <option value="special">特殊网站</option>
                 </select>
                 <input type="text" id="rules-site-add-input" placeholder="添加到当前策略，如 example.com">
                 <button class="btn-add" id="rules-site-add-btn">+ 添加</button>
@@ -2160,6 +2159,7 @@ const RULES_POLICY_DEFS = [
   { key: 'composite', label: '复合网站', icon: 'assets/icons/composite.svg', customKey: 'customCompositeList', effectiveKey: 'compositeList', defaultKey: 'defaultCompositeSites', defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites'], addPlaceholder: '添加复合网站，如 wikipedia.org' },
   { key: 'restricted', label: '受限娱乐网站', icon: 'assets/icons/restricted.svg', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites', addPlaceholder: '添加受限娱乐网站，如 example-game.com' },
   { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
+  { key: 'special', label: '特殊网站', icon: 'assets/icons/rules.svg', isSpecial: true, addPlaceholder: '特殊对象规则通过 Popup 申请或云端审批生成' },
 ];
 const RULES_SOURCE_LABELS = {
   system: '系统网站配置-分类管理',
@@ -2221,6 +2221,10 @@ function getPolicyCustomList(def, config = remoteConfig, defaults = siteAccessDe
 
 function getRulesPolicyModel() {
   return RULES_POLICY_DEFS.map(def => {
+    if (def.isSpecial) {
+      const specialRows = youtubeSpecialRuleRows();
+      return { ...def, system: [], custom: [], rules: specialRows, usedUnclassified: [], specialRows };
+    }
     const system = getPolicyDefaultList(def);
     const custom = getPolicyCustomList(def);
     const rules = approvedUrlRulesForListKey(def.customKey);
@@ -2232,17 +2236,15 @@ function getRulesPolicyModel() {
 function renderRulesPolicyNav() {
   const nav = document.getElementById('rules-policy-nav');
   if (!nav) return;
-  nav.innerHTML = getRulesPolicyModel().map(def => `
-    <button class="rules-policy-nav-btn ${def.key === rulesSitePolicyState.policy ? 'active' : ''}" data-policy="${def.key}" onclick="selectRulesPolicy('${def.key}')">
-      <div class="rules-policy-nav-title"><img class="toc-ui-icon small" src="${def.icon}" alt=""> ${htmlEscape(def.label)}</div>
-      <div class="rules-policy-nav-counts">
-        <span>系统 ${def.system.length}</span>
-        <span>自定义 ${def.custom.length}</span>
-        <span>规则 ${def.rules.length}</span>
-        <span>未归类 ${def.usedUnclassified.length}</span>
-      </div>
-    </button>
-  `).join('');
+  nav.innerHTML = getRulesPolicyModel().map(def => {
+    const counts = def.isSpecial
+      ? '<span>对象 ' + def.rules.length + '</span><span>YouTube</span>'
+      : '<span>系统 ' + def.system.length + '</span><span>自定义 ' + def.custom.length + '</span><span>规则 ' + def.rules.length + '</span><span>未归类 ' + def.usedUnclassified.length + '</span>';
+    return '<button class="rules-policy-nav-btn ' + (def.key === rulesSitePolicyState.policy ? 'active' : '') + '" data-policy="' + def.key + '" onclick="selectRulesPolicy(\'' + def.key + '\')">' +
+      '<div class="rules-policy-nav-title"><img class="toc-ui-icon small" src="' + def.icon + '" alt=""> ' + htmlEscape(def.label) + '</div>' +
+      '<div class="rules-policy-nav-counts">' + counts + '</div>' +
+      '</button>';
+  }).join('');
 }
 
 window.selectRulesPolicy = (policy) => {
@@ -2275,7 +2277,7 @@ function qustodioCategoryOptionsHtml(selected) {
 }
 
 function policyOptionsHtml(selected) {
-  return RULES_POLICY_DEFS.map(def => `<option value="${htmlEscape(def.key)}" ${def.key === selected ? 'selected' : ''}>${htmlEscape(def.label)}</option>`).join('');
+  return RULES_POLICY_DEFS.filter(def => !def.isSpecial).map(def => '<option value="' + htmlEscape(def.key) + '" ' + (def.key === selected ? 'selected' : '') + '>' + htmlEscape(def.label) + '</option>').join('');
 }
 
 function isYouTubeRootDomain(value) {
@@ -2375,7 +2377,7 @@ function renderRulesSiteRow(entry, idx) {
     const specialRule = isYouTubeSpecialRuleValue(entry.value);
     const options = specialRule
       ? RULES_POLICY_DEFS
-        .filter(def => ['study', 'composite'].includes(def.key) && def.key !== entry.classification)
+        .filter(def => !def.isSpecial && ['study', 'composite'].includes(def.key) && def.key !== entry.classification)
         .map(def => `<button class="rules-site-action-btn" onclick="classifySpecialSiteRule(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
         .join('')
       : '';
@@ -2385,7 +2387,7 @@ function renderRulesSiteRow(entry, idx) {
     actionHtml = `<div class="rules-site-actions"><button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="openSystemSiteCategoryEditor(${idx})">编辑分类</button>${disabled ? '<span class="rules-site-badge">只读</span>' : ''}</div>`;
   } else {
     const options = RULES_POLICY_DEFS
-      .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
+      .filter(def => !def.isSpecial && (def.key !== entry.classification || entry.source === 'used-unclassified'))
       .map(def => `<button class="rules-site-action-btn" onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
       .join('');
     const deleteButton = entry.source === 'custom'
@@ -2547,7 +2549,7 @@ function renderSpecialSitesSummary() {
   return `<section class="rules-site-group" data-source-group="special" data-special-site-management="youtube">
     <div class="rules-site-group-header">
       <div>
-        <div>特殊网站：YouTube</div>
+        <div>YouTube 特殊对象规则</div>
         <div class="rules-site-group-subtitle">每个 YouTube 细节对象一行展示；根域固定受限娱乐，视频、播放列表、频道可单独调整管理属性</div>
       </div>
       <span class="rules-site-badge">${countText}</span>
@@ -2577,7 +2579,18 @@ function renderRulesSiteDirectory() {
   if (!container) return;
   const def = currentRulesPolicyDef();
   const addInput = document.getElementById('rules-site-add-input');
-  if (addInput) addInput.placeholder = def.addPlaceholder;
+  const addButton = document.getElementById('rules-site-add-btn');
+  const sourceFilter = document.getElementById('rules-site-source-filter');
+  if (addInput) {
+    addInput.placeholder = def.addPlaceholder;
+    addInput.disabled = !!def.isSpecial;
+  }
+  if (addButton) addButton.disabled = !!def.isSpecial;
+  if (sourceFilter) sourceFilter.disabled = !!def.isSpecial;
+  if (def.isSpecial) {
+    container.innerHTML = renderSpecialSitesSummary();
+    return;
+  }
   const all = rulesDirectoryEntriesForPolicy(def);
   const filtered = filterRulesDirectoryEntries(all);
   window._rulesSiteDirectoryEntries = filtered;
@@ -2585,8 +2598,8 @@ function renderRulesSiteDirectory() {
   const grouped = ['used-unclassified', 'custom', 'system', 'rule', 'unmarked']
     .map(source => [source, filtered.filter(entry => entry.source === source)])
     .filter(([, list]) => list.length > 0);
-  const empty = `<div class="rules-site-group"><div class="rules-site-empty">当前筛选下没有网站。可以用上方输入框添加到${htmlEscape(def.label)}。</div></div>`;
-  container.innerHTML = renderSpecialSitesSummary() + renderUsedUnclassifiedSummary(def) + (grouped.length ? grouped.map(([source, list]) => renderRulesSiteGroup(source, list)).join('') : empty);
+  const empty = '<div class="rules-site-group"><div class="rules-site-empty">当前筛选下没有网站。可以用上方输入框添加到' + htmlEscape(def.label) + '。</div></div>';
+  container.innerHTML = renderUsedUnclassifiedSummary(def) + (grouped.length ? grouped.map(([source, list]) => renderRulesSiteGroup(source, list)).join('') : empty);
 }
 
 function renderRulesPage() {
@@ -2632,6 +2645,7 @@ async function loadUsedUnclassifiedSitesForRules() {
 
 function addSiteToCurrentPolicy() {
   const def = currentRulesPolicyDef();
+  if (def.isSpecial) { toast('特殊对象规则通过孩子端 Popup 申请，或在已有 YouTube 规则行中调整分类。', false); return; }
   const input = document.getElementById('rules-site-add-input');
   const validation = validateRulesSiteAdd(input?.value || '', def.key);
   if (!validation.ok) {
