@@ -110,6 +110,7 @@ this.__modeService = {
   evaluateModeRoute,
   handleModeEvent,
   evaluateQuotaModeTransition,
+  evaluateScheduleModeTransition,
 };`, context, { filename: 'mode-service.js' });
   return context.__modeService;
 }
@@ -713,6 +714,75 @@ this.__modeService = {
       access: 'reminder',
       reason: 'rest_schedule_locked',
       modeChange: null,
+    });
+  }
+
+  section('MSVC-6a time-window expiry drives mode transitions');
+  {
+    const restExpiredConfig = {
+      quotaState: {},
+      timeWindows: {
+        daily: {
+          monday: {
+            studyWindows: null,
+            compositeWindows: null,
+            restWindows: [{ start: '08:00', end: '09:00' }],
+          },
+        },
+      },
+    };
+    const restSvc = loadModeService({
+      evaluateQuotaState: async () => ({ ok: true, config: restExpiredConfig, newState: {} }),
+      getSession: async () => ({ currentMode: 'rest' }),
+    });
+    const restResult = await restSvc.handleModeEvent({
+      type: 'EVALUATE_QUOTA_STATE',
+      source: 'quota_alarm',
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('rest window expiry switches to study during quota evaluation', {
+      access: restResult.access,
+      toMode: restResult.modeChange?.toMode,
+      reason: restResult.modeChange?.reason,
+      recheckActiveTab: restResult.recheckActiveTab,
+    }, {
+      access: 'allow',
+      toMode: 'study',
+      reason: 'rest_schedule_expired_to_study',
+      recheckActiveTab: true,
+    });
+
+    const allExpiredConfig = {
+      quotaState: {},
+      timeWindows: {
+        daily: {
+          monday: {
+            studyWindows: [{ start: '08:00', end: '09:00' }],
+            compositeWindows: [{ start: '08:00', end: '09:00' }],
+            restWindows: [{ start: '08:00', end: '09:00' }],
+          },
+        },
+      },
+    };
+    const compositeSvc = loadModeService({
+      evaluateQuotaState: async () => ({ ok: true, config: allExpiredConfig, newState: {} }),
+      getSession: async () => ({ currentMode: 'composite' }),
+    });
+    const compositeResult = await compositeSvc.handleModeEvent({
+      type: 'EVALUATE_QUOTA_STATE',
+      source: 'quota_alarm',
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('current mode outside all windows locks during quota evaluation', {
+      access: compositeResult.access,
+      toMode: compositeResult.modeChange?.toMode,
+      reason: compositeResult.modeChange?.reason,
+      recheckActiveTab: compositeResult.recheckActiveTab,
+    }, {
+      access: 'allow',
+      toMode: 'locked',
+      reason: 'composite_schedule_window_expired',
+      recheckActiveTab: true,
     });
   }
 

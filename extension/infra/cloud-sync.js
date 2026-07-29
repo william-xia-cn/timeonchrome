@@ -1,6 +1,7 @@
 // infra/cloud-sync.js — 云同步 + 心跳
 import { getStatsRange, getDateKey } from './storage.js';
 import { DEFAULT_CONFIG } from './storage.js';
+import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
@@ -648,24 +649,6 @@ function pickFirstArray(source, keys) {
   return null;
 }
 
-function mergeUniqueDomains(...lists) {
-  const out = [];
-  const seen = new Set();
-  for (const list of lists) {
-    if (!Array.isArray(list)) continue;
-    for (const item of list) {
-      if (typeof item !== 'string') continue;
-      const domain = item.trim();
-      if (!domain) continue;
-      const key = domain.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(domain);
-    }
-  }
-  return out;
-}
-
 function normalizeCloudRulesConfig(cloudConfig) {
   const cfg = { ...(cloudConfig || {}) };
 
@@ -697,48 +680,19 @@ function normalizeCloudRulesConfig(cloudConfig) {
     'systemConfiguredUnsafeSites',
     'systemConfiguredUnsafeList',
   ]);
-
-  if (defaultStudySites) cfg.defaultStudySites = defaultStudySites;
-  if (defaultCompositeSites) cfg.defaultCompositeSites = defaultCompositeSites;
-  if (defaultRestrictedEntertainmentSites) cfg.defaultRestrictedEntertainmentSites = defaultRestrictedEntertainmentSites;
-  if (defaultBlockedSites) cfg.defaultBlockedSites = defaultBlockedSites;
-
-  // Preserve defaultUserCompositeSites from cloud response; it is a runtime composite system source.
   const defaultUserCompositeSites = pickFirstArray(cfg, [
     'defaultUserCompositeSites',
     'defaultUserCompositeList',
     'recommendedCompositeSites',
   ]);
+
+  if (defaultStudySites) cfg.defaultStudySites = defaultStudySites;
+  if (defaultCompositeSites) cfg.defaultCompositeSites = defaultCompositeSites;
+  if (defaultRestrictedEntertainmentSites) cfg.defaultRestrictedEntertainmentSites = defaultRestrictedEntertainmentSites;
+  if (defaultBlockedSites) cfg.defaultBlockedSites = defaultBlockedSites;
   if (defaultUserCompositeSites) cfg.defaultUserCompositeSites = defaultUserCompositeSites;
 
-  // 若云端未提供 effective 列表，使用 system + custom 在本地只读缓存中补齐，不回写云端。
-  // V0 不支持用户移除系统默认学习网站，因此 DEFAULT_CONFIG.studyList 始终作为基底合并。
-  const defaultStudyList = DEFAULT_CONFIG.studyList || [];
-  if (!Array.isArray(cfg.studyList)) {
-    cfg.studyList = mergeUniqueDomains(defaultStudyList, cfg.defaultStudySites, cfg.customStudyList);
-  } else {
-    // Cloud may return studyList: [] which would erase default sites.
-    // Ensure system defaults are always present as the base layer.
-    cfg.studyList = mergeUniqueDomains(defaultStudyList, cfg.defaultStudySites, cfg.studyList, cfg.customStudyList);
-  }
-  const compositeSystemList = mergeUniqueDomains(cfg.defaultCompositeSites, cfg.defaultUserCompositeSites);
-  if (!Array.isArray(cfg.compositeList)) {
-    cfg.compositeList = mergeUniqueDomains(compositeSystemList, cfg.customCompositeList);
-  } else {
-    cfg.compositeList = mergeUniqueDomains(compositeSystemList, cfg.compositeList, cfg.customCompositeList);
-  }
-  if (!Array.isArray(cfg.restrictedEntertainmentList)) {
-    cfg.restrictedEntertainmentList = mergeUniqueDomains(cfg.defaultRestrictedEntertainmentSites, cfg.customRestrictedEntertainmentList);
-  } else {
-    cfg.restrictedEntertainmentList = mergeUniqueDomains(cfg.defaultRestrictedEntertainmentSites, cfg.restrictedEntertainmentList, cfg.customRestrictedEntertainmentList);
-  }
-  if (!Array.isArray(cfg.unsafeList)) {
-    cfg.unsafeList = mergeUniqueDomains(cfg.defaultBlockedSites, cfg.customBlockedSites);
-  } else {
-    cfg.unsafeList = mergeUniqueDomains(cfg.defaultBlockedSites, cfg.unsafeList, cfg.customBlockedSites);
-  }
-
-  return cfg;
+  return normalizeRuntimeSiteAccessConfig(cfg, { fallbackConfig: DEFAULT_CONFIG }).config;
 }
 
 const DEFAULT_SITE_LIST_FIELD_GROUPS = {
@@ -1289,6 +1243,11 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
 
     if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion &&
       !shouldSaveDespiteVersionSkip(result.data, localConfig)) {
+      const localRuntime = normalizeRuntimeSiteAccessConfig(localConfig, { fallbackConfig: DEFAULT_CONFIG });
+      if (localRuntime.changed) {
+        await saveConfigFn(localRuntime.config);
+        if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(localRuntime.config);
+      }
       console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
       await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
       return { status: 'skipped', version: cloudVersion, error: null };

@@ -25,6 +25,10 @@ function run() {
   const deviceSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'device.ts'), 'utf8');
   const systemConfigSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'systemAccessConfig.ts'), 'utf8');
   const systemConfigModule = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'config', 'system-access-config.ts'), 'utf8');
+  const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
+  const storageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js'), 'utf8');
+  const classifierSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'site-classification.js'), 'utf8');
+  const managedTargetsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'managed-targets.js'), 'utf8');
   const migrationSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '020_system_access_config_v1.sql'), 'utf8');
 
   expectTrue('Worker 应挂载 exportRouter', indexSource.includes("import { exportRouter } from './routes/export';") && indexSource.includes('export\\/v1'));
@@ -58,10 +62,16 @@ function run() {
   expectTrue('系统访问配置模块应支持 D1 优先和 JSON fallback', systemConfigModule.includes('system_access_config_v1') && systemConfigModule.includes('fallbackSystemAccessConfig') && systemConfigModule.includes('site-access-defaults.json'));
   expectTrue('系统访问配置模块应校验 Qustodio taxonomy 和跨分类冲突', systemConfigModule.includes('qustodio-web-filters-v1') && systemConfigModule.includes('QUSTODIO_CONTENT_CATEGORIES') && systemConfigModule.includes('同时存在于'));
   expectTrue('系统访问配置模块应补齐旧 D1 配置缺失的 siteCatalog 元数据', systemConfigModule.includes('ensureCatalogCoverage') && systemConfigModule.includes('DEFAULT_CONTENT_CATEGORY_BY_CLASSIFICATION') && systemConfigModule.includes('fallbackDefaults') && systemConfigModule.includes('defaultUserCompositeSites'));
-  expectTrue('系统访问配置 effective 复合清单应合并 defaultUserCompositeSites', systemConfigModule.includes('compositeSystemDefaults') && systemConfigModule.includes('mergeWithDefaults(defaults.defaultUserCompositeSites || [], defaults.defaultCompositeSites || [])') && systemConfigModule.includes("next.compositeList = mergeWithDefaults(customOrEffective('customCompositeList', 'compositeList'), compositeSystemDefaults)"));
+  expectTrue('系统访问配置 effective 复合清单应合并 defaultUserCompositeSites 并重算 custom/effective 边界', systemConfigModule.includes('compositeSystemDefaults') && systemConfigModule.includes('runtimeCustomList') && systemConfigModule.includes('next.compositeList = mergeWithDefaults(customCompositeList, compositeSystemDefaults)'));
+  expectTrue('系统访问配置 loader 应修正旧 D1 中的 YouTube 根域漂移', systemConfigModule.includes('SPECIAL_RESTRICTED_ROOT_DOMAINS') && systemConfigModule.includes('applySystemAccessConfigInvariants') && systemConfigModule.includes('defaultRestrictedEntertainmentSites: withEnsuredHosts'));
+  expectTrue('profile config 保存路径应合并 defaultUserCompositeSites', profilesSource.includes('const compositeSystemDefaults = mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites)') && profilesSource.includes('compositeSystemDefaults'));
   expectTrue('系统访问配置导出响应应包含 schemaVersion', systemConfigModule.includes('schemaVersion: config.schemaVersion'));
   expectTrue('系统访问配置 migration 应创建 D1 表', migrationSource.includes('CREATE TABLE IF NOT EXISTS system_access_config_v1') && migrationSource.includes('config_json') && migrationSource.includes('updated_by_account_id'));
   expectTrue('系统配置 GET 应返回 canWrite 管理员能力标记', systemConfigSource.includes('canWrite: isSystemAccessAdmin(env, accountId)'));
+  expectTrue('扩展端 getConfig/saveConfig 应经过 runtime normalization', storageSource.includes('normalizeRuntimeSiteAccessConfig') && storageSource.includes('sanitizeLocalSiteAccessInvariants') && storageSource.includes('saveConfig(config)'));
+  expectTrue('扩展端 cloud version skip 应执行 runtime normalization', cloudSyncSource.includes('const localRuntime = normalizeRuntimeSiteAccessConfig(localConfig') && cloudSyncSource.includes('await saveConfigFn(localRuntime.config)'));
+  expectTrue('运行时分类器不直接消费 legacy default aliases', !classifierSource.includes('defaultUserCompositeSites') && !classifierSource.includes('recommendedCompositeSites'));
+  expectTrue('managed target attribution 不直接注入 YouTube 根域兜底', !managedTargetsSource.includes('specialRestrictedRoot') && !managedTargetsSource.includes('SPECIAL_RESTRICTED_ROOT'));
 
   const workerIndexSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
   const siteRequestsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'), 'utf8');

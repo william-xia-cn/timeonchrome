@@ -6,6 +6,13 @@
 
 ---
 
+## [1.7.17] — 2026-07-29
+
+- **网站访问运行时配置归一化**：扩展端新增版本化 runtime normalization，历史缓存、云端拉取、导入恢复和 cloud version skip 都会先重算 canonical effective 清单，再进入分类、拦截、计时和落账。
+- **YouTube 根域语义修复**：`youtube.com` / `www.youtube.com` 根域统一迁移为受限娱乐；具体视频、播放列表和频道继续通过特殊对象规则申请或审批为学习/复合，`music.youtube.com` 不被误迁移。
+- **云端与时间段生效修复**：Worker profile effective 合并同步执行当前系统配置语义；后台定时评估会检查当前模式时间段，越界时切换到可用模式或进入 locked 并重检当前标签页。
+
+---
 ## [1.7.16] — 2026-07-28
 
 - **Popup 绑定状态修复**：修复 Popup 本地快照失败时硬编码显示“本地模式”的问题；已绑定设备会继续按本地 storage、cloud sync 运行态和连接状态显示真实云端绑定状态。

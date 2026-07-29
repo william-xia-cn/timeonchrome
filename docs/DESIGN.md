@@ -448,6 +448,17 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - 网站归类动作使用统一写入前校验：家长添加、孩子申请学习归类、家长审批、Worker 设备上传都必须阻止受限娱乐/黑名单父域下新增学习/复合子域或精确 URL；运行时解析不迁移历史配置。
 - Popup “申请归为学习网站”入口点击时先通过 `VALIDATE_SITE_CLASSIFICATION_REQUEST` 执行只读 dry-run 校验；校验失败不展开申请面板、不创建记录；提交按钮保留同一 dry-run 作为手动输入后的二次保护。
 - 特殊网站对象管理以 YouTube 为第一版：`youtube.com` 根域为受限娱乐，具体 video / playlist / channel 对象通过 `siteClassificationRulesV1` 作为独立规则行管理；云端访问管理页可把具体对象在学习、复合、受限娱乐、黑名单之间变更，根域仍不能直接改为学习或复合；特殊对象校验可在 `youtube.com` 受限父域下例外通过，普通 URL 和普通子域仍受父域保护。频道规则覆盖视频页时依赖 content script 上报频道 canonical target，未识别频道时视频页按具体视频规则或根域受限娱乐处理。
+- 系统访问配置 loader 会强制执行 YouTube 根域不变量：即使旧 D1 配置仍把 `youtube.com` 放在复合默认或用户默认复合清单，读取时也会移出并纳入 `defaultRestrictedEntertainmentSites`；这不影响 `music.youtube.com` 的既有口径，也不影响 YouTube 特殊对象规则。
+- `EVALUATE_QUOTA_STATE` 也会检查当前模式的时间段边界：当当前 Study / Composite / Rest 已越过允许窗口时，优先切换到当前允许且未被配额锁定的模式；若没有可用模式则进入 `locked`，随后重检 active tab。
+
+### 1.3.7.6 网站访问运行时配置语义迁移
+
+扩展运行时使用统一的 `normalizeRuntimeSiteAccessConfig()` 作为网站访问配置入口。所有本地缓存、云端拉取、导入/恢复和首次绑定配置，都必须先升级到当前 `siteAccessRuntimeSchemaVersion` / `siteAccessSemanticVersion`，再进入分类、拦截、计时和 managed target 落账。
+
+- source lists：`defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites` 与 `custom*List`；
+- effective lists：`studyList`、`compositeList`、`restrictedEntertainmentList`、`unsafeList`，由 source lists 重算，不长期信任历史缓存值；
+- legacy aliases 只在 migration/normalization 层读取，运行时分类和 managed target attribution 只消费 canonical effective lists 与 `siteClassificationRulesV1`；
+- migration registry 当前包含 M001 defaultUserCompositeSites 运行时化、M002 YouTube 特殊平台根域受限、M003 旧复合残留清理；后续语义变化新增 migration，不再在分类器和落账器分散补丁。
 
 访问管理 bundle 格式：
 

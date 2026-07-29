@@ -25,6 +25,9 @@ type SiteCatalogItem = {
   notes?: string;
 };
 
+const SPECIAL_RESTRICTED_ROOT_DOMAINS = ['youtube.com'];
+const STALE_COMPOSITE_DOMAINS_TO_REMOVE = ['bilibili.com', 'www.bilibili.com', '163.com', 'www.163.com'];
+
 export type SystemAccessConfig = {
   configType: 'system-access-config';
   schemaVersion: number;
@@ -59,6 +62,51 @@ function stringList(value: unknown): string[] {
     out.push(host);
   }
   return out;
+}
+
+function specialRootVariants(): Set<string> {
+  const variants = new Set<string>();
+  for (const root of SPECIAL_RESTRICTED_ROOT_DOMAINS) {
+    const host = normalizeHost(root);
+    if (!host) continue;
+    variants.add(host);
+    variants.add(`www.${host}`);
+  }
+  return variants;
+}
+
+function withoutHosts(list: string[], blockedHosts: Set<string>): string[] {
+  return (list || []).filter((item) => {
+    const host = normalizeHost(item);
+    return !!host && !blockedHosts.has(host);
+  });
+}
+
+function withEnsuredHosts(list: string[], hosts: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of [...(list || []), ...hosts]) {
+    const host = normalizeHost(item);
+    if (!host || seen.has(host)) continue;
+    seen.add(host);
+    out.push(host);
+  }
+  return out;
+}
+
+function applySystemAccessConfigInvariants(config: SystemAccessConfig): SystemAccessConfig {
+  const specialRoots = specialRootVariants();
+  return {
+    ...config,
+    defaultStudySites: withoutHosts(config.defaultStudySites, specialRoots),
+    defaultCompositeSites: withoutHosts(config.defaultCompositeSites, specialRoots),
+    defaultUserCompositeSites: withoutHosts(config.defaultUserCompositeSites, specialRoots),
+    defaultBlockedSites: withoutHosts(config.defaultBlockedSites, specialRoots),
+    defaultRestrictedEntertainmentSites: withEnsuredHosts(
+      withoutHosts(config.defaultRestrictedEntertainmentSites, specialRoots),
+      SPECIAL_RESTRICTED_ROOT_DOMAINS,
+    ),
+  };
 }
 
 function normalizeCatalog(value: unknown): SiteCatalogItem[] {
@@ -121,7 +169,9 @@ function ensureCatalogCoverage(config: SystemAccessConfig): SystemAccessConfig {
     if (!host || covered.has(host)) continue;
     const source = sourceCatalog.get(host);
     const fallback = fallbackCatalog.get(host);
-    const item = source || fallback || { domain: host };
+    const item = SPECIAL_RESTRICTED_ROOT_DOMAINS.includes(host)
+      ? (fallback || source || { domain: host })
+      : (source || fallback || { domain: host });
     covered.add(host);
     siteCatalog.push({
       domain: host,
@@ -143,7 +193,7 @@ function ensureCatalogCoverage(config: SystemAccessConfig): SystemAccessConfig {
 
 export function normalizeSystemAccessConfig(input: any): SystemAccessConfig {
   const source = input && typeof input === 'object' ? input : {};
-  return ensureCatalogCoverage({
+  return ensureCatalogCoverage(applySystemAccessConfigInvariants({
     configType: 'system-access-config',
     schemaVersion: SYSTEM_ACCESS_SCHEMA_VERSION,
     taxonomyVersion: String(source.taxonomyVersion || SYSTEM_ACCESS_TAXONOMY_VERSION),
@@ -153,7 +203,7 @@ export function normalizeSystemAccessConfig(input: any): SystemAccessConfig {
     defaultRestrictedEntertainmentSites: stringList(source.defaultRestrictedEntertainmentSites),
     defaultBlockedSites: stringList(source.defaultBlockedSites),
     siteCatalog: normalizeCatalog(source.siteCatalog),
-  });
+  }));
 }
 
 export function fallbackSystemAccessConfig(): SystemAccessConfig {
@@ -225,22 +275,44 @@ export function mergeWithDefaults(customList: string[] = [], defaultList: string
   return [...defaultList, ...custom];
 }
 
+function withoutDefaultHosts(list: string[] = [], defaults: string[] = []): string[] {
+  const defaultSet = new Set((defaults || []).map((item) => normalizeHost(item)).filter(Boolean));
+  return stringList(list).filter((host) => !defaultSet.has(host));
+}
+
+function runtimeCustomList(config: any, customKey: string, effectiveKey: string, defaults: string[] = [], classification: string): string[] {
+  const raw = Array.isArray(config?.[customKey]) ? config[customKey] : withoutDefaultHosts(config?.[effectiveKey], defaults);
+  let list = stringList(raw);
+  const specialRoots = specialRootVariants();
+  if (classification !== 'restricted') list = withoutHosts(list, specialRoots);
+  if (classification === 'composite') list = withoutHosts(list, new Set(STALE_COMPOSITE_DOMAINS_TO_REMOVE));
+  return list;
+}
+
 export function applySystemAccessDefaultsToProfileConfig(config: any, defaults: SystemAccessConfig): any {
-  const next = config && typeof config === 'object' ? config : {};
-  const customOrEffective = (customKey: string, effectiveKey: string): string[] => {
-    if (Array.isArray(next[customKey])) return next[customKey];
-    return Array.isArray(next[effectiveKey]) ? next[effectiveKey] : [];
-  };
-  const compositeSystemDefaults = mergeWithDefaults(defaults.defaultUserCompositeSites || [], defaults.defaultCompositeSites || []);
-  next.defaultStudySites = defaults.defaultStudySites;
-  next.defaultCompositeSites = defaults.defaultCompositeSites;
-  next.defaultUserCompositeSites = defaults.defaultUserCompositeSites || [];
-  next.defaultRestrictedEntertainmentSites = defaults.defaultRestrictedEntertainmentSites;
-  next.defaultBlockedSites = defaults.defaultBlockedSites;
-  next.studyList = mergeWithDefaults(customOrEffective('customStudyList', 'studyList'), defaults.defaultStudySites);
-  next.compositeList = mergeWithDefaults(customOrEffective('customCompositeList', 'compositeList'), compositeSystemDefaults);
-  next.restrictedEntertainmentList = mergeWithDefaults(customOrEffective('customRestrictedEntertainmentList', 'restrictedEntertainmentList'), defaults.defaultRestrictedEntertainmentSites);
-  next.unsafeList = mergeWithDefaults(customOrEffective('customBlockedSites', 'unsafeList'), defaults.defaultBlockedSites);
+  const next = config && typeof config === 'object' ? { ...config } : {};
+  const normalizedDefaults = normalizeSystemAccessConfig(defaults);
+  const compositeSystemDefaults = mergeWithDefaults(normalizedDefaults.defaultUserCompositeSites || [], normalizedDefaults.defaultCompositeSites);
+  const customStudyList = runtimeCustomList(next, 'customStudyList', 'studyList', normalizedDefaults.defaultStudySites, 'study');
+  const customCompositeList = runtimeCustomList(next, 'customCompositeList', 'compositeList', compositeSystemDefaults, 'composite');
+  const customRestrictedEntertainmentList = runtimeCustomList(next, 'customRestrictedEntertainmentList', 'restrictedEntertainmentList', normalizedDefaults.defaultRestrictedEntertainmentSites, 'restricted');
+  const customBlockedSites = runtimeCustomList(next, 'customBlockedSites', 'unsafeList', normalizedDefaults.defaultBlockedSites, 'blocked');
+
+  next.defaultStudySites = normalizedDefaults.defaultStudySites;
+  next.defaultCompositeSites = normalizedDefaults.defaultCompositeSites;
+  next.defaultUserCompositeSites = normalizedDefaults.defaultUserCompositeSites || [];
+  next.defaultRestrictedEntertainmentSites = normalizedDefaults.defaultRestrictedEntertainmentSites;
+  next.defaultBlockedSites = normalizedDefaults.defaultBlockedSites;
+  next.customStudyList = customStudyList;
+  next.customCompositeList = customCompositeList;
+  next.customRestrictedEntertainmentList = customRestrictedEntertainmentList;
+  next.customBlockedSites = customBlockedSites;
+  next.studyList = mergeWithDefaults(customStudyList, normalizedDefaults.defaultStudySites);
+  next.compositeList = mergeWithDefaults(customCompositeList, compositeSystemDefaults);
+  next.restrictedEntertainmentList = mergeWithDefaults(customRestrictedEntertainmentList, normalizedDefaults.defaultRestrictedEntertainmentSites);
+  next.unsafeList = mergeWithDefaults(customBlockedSites, normalizedDefaults.defaultBlockedSites);
+  next.siteAccessRuntimeSchemaVersion = 1;
+  next.siteAccessSemanticVersion = '2026-07-29.site-access-runtime-v1';
   return next;
 }
 

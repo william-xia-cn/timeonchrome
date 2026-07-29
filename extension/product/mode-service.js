@@ -1017,6 +1017,59 @@ async function handleRequestedModeChange(event = {}) {
   });
 }
 
+function isModeQuotaAllowedForSchedule(mode, quotaState = {}) {
+  if (quotaState.onlineLocked === true) return false;
+  if (mode === 'study') return quotaState.studyLocked !== true;
+  if (mode === 'composite') return quotaState.undeterminedLocked !== true;
+  if (mode === 'rest') return quotaState.restLocked !== true;
+  return false;
+}
+
+function scheduleStatusAllowed(status) {
+  return !status || status.allowed !== false;
+}
+
+export function evaluateScheduleModeTransition(facts = {}) {
+  const currentMode = normalizeMode(facts.currentMode);
+  if (!['study', 'composite', 'rest'].includes(currentMode)) {
+    return { kind: 'none', reason: 'schedule_ignored_mode' };
+  }
+  const statusByMode = facts.windowStatusByMode || {};
+  if (scheduleStatusAllowed(statusByMode[currentMode])) {
+    return { kind: 'none', reason: 'schedule_allows_current_mode' };
+  }
+
+  const quotaState = facts.quotaState || {};
+  const candidates = currentMode === 'rest'
+    ? ['study', 'composite']
+    : currentMode === 'composite'
+    ? ['study', 'rest']
+    : ['rest', 'composite'];
+  for (const mode of candidates) {
+    if (scheduleStatusAllowed(statusByMode[mode]) && isModeQuotaAllowedForSchedule(mode, quotaState)) {
+      return {
+        kind: 'mode_change',
+        toMode: mode,
+        reason: currentMode + '_schedule_expired_to_' + mode,
+        source: facts.source || 'schedule_alarm',
+      };
+    }
+  }
+  return {
+    kind: 'mode_change',
+    toMode: 'locked',
+    reason: currentMode + '_schedule_window_expired',
+    source: facts.source || 'schedule_alarm',
+  };
+}
+
+function scheduleModeNoticeText(mode) {
+  if (mode === 'study') return '当前时间段已切换到学习模式';
+  if (mode === 'composite') return '当前时间段已切换到复合模式';
+  if (mode === 'rest') return '当前时间段已切换到休息模式';
+  return '当前时间段未允许继续使用';
+}
+
 async function handleQuotaEvaluation(event = {}) {
   const auditId = modeAuditId(event);
   const source = event.source || 'quota_alarm';
@@ -1060,6 +1113,51 @@ async function handleQuotaEvaluation(event = {}) {
   });
 
   if (quotaRoute.kind !== 'mode_change') {
+    const windowCheckAt = new Date(Number.isFinite(Number(event.nowMs)) ? Number(event.nowMs) : Date.now());
+    const scheduleRoute = evaluateScheduleModeTransition({
+      currentMode,
+      quotaState: quotaResult.newState || config.quotaState || {},
+      source,
+      windowStatusByMode: {
+        study: getModeWindowStatus(config, 'study', windowCheckAt),
+        composite: getModeWindowStatus(config, 'composite', windowCheckAt),
+        rest: getModeWindowStatus(config, 'rest', windowCheckAt),
+      },
+    });
+    if (scheduleRoute.kind === 'mode_change') {
+      logModeTransitionEvent({
+        level: 'warning',
+        eventCode: 'mode_transition_decided',
+        auditId,
+        reason: scheduleRoute.reason,
+        message: 'Schedule mode evaluation requires mode change',
+        details: {
+          phase: 'mode_transition_decided',
+          source,
+          currentMode,
+          routeKind: scheduleRoute.kind,
+          toMode: scheduleRoute.toMode,
+        },
+      });
+      return baseDecision({
+        access: 'allow',
+        modeChange: {
+          toMode: normalizeMode(scheduleRoute.toMode),
+          reason: scheduleRoute.reason,
+          source: scheduleRoute.source || source,
+          effectiveAtMs: Number.isFinite(Number(event.nowMs)) ? Number(event.nowMs) : Date.now(),
+          persistConfigMode: false,
+          auditId,
+        },
+        notice: {
+          kind: scheduleRoute.reason,
+          targetMode: normalizeMode(scheduleRoute.toMode),
+          text: scheduleModeNoticeText(normalizeMode(scheduleRoute.toMode)),
+        },
+        quota: quotaResult,
+        recheckActiveTab: true,
+      });
+    }
     logModeTransitionEvent({
       level: 'info',
       eventCode: 'mode_transition_decided',

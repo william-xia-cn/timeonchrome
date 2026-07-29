@@ -34,6 +34,9 @@ function loadModule() {
   const domainSource = fs.readFileSync(path.join(root, 'extension', 'core', 'domain-semantics.js'), 'utf8')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ');
+  const normalizerSource = stripImports(fs.readFileSync(path.join(root, 'extension', 'core', 'site-access-config-normalizer.js'), 'utf8'))
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+const\s+/g, 'const ');
   const siteSource = stripImports(fs.readFileSync(path.join(root, 'extension', 'core', 'site-classification.js'), 'utf8'))
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ');
@@ -42,7 +45,8 @@ function loadModule() {
     .replace(/export\s+const\s+/g, 'const ');
   const context = { URL, console, this: null };
   context.this = context;
-  vm.runInNewContext(`${domainSource}\n${siteSource}\n${managedSource}\nthis.__m = {
+  vm.runInNewContext(`${domainSource}\n${normalizerSource}\n${siteSource}\n${managedSource}\nthis.__m = {
+    normalizeRuntimeSiteAccessConfig,
     deriveManagedTargetId,
     resolveManagedTargetAttribution,
     validateManagedTargetsConfig,
@@ -81,6 +85,21 @@ async function run() {
   const video = mod.resolveManagedTargetAttribution(config, [], 'https://www.youtube.com/watch?v=VID123');
   expectEqual('standalone video target wins without playlist context', video.managedTargetType, 'video');
   expectEqual('standalone video classification', video.targetClassificationAtTime, 'composite');
+
+  const normalizedStaleConfig = mod.normalizeRuntimeSiteAccessConfig({
+    compositeList: ['youtube.com'],
+    defaultUserCompositeSites: ['youtube.com'],
+  }).config;
+  const staleRoot = mod.resolveManagedTargetAttribution(normalizedStaleConfig, [], 'https://www.youtube.com/');
+  expectEqual('stale YouTube root composite config attributes as restricted', staleRoot.targetClassificationAtTime, 'restricted');
+
+  const staleWatch = mod.resolveManagedTargetAttribution(normalizedStaleConfig, [], 'https://www.youtube.com/watch?v=UNAPPROVED');
+  expectEqual('unapproved YouTube watch with stale composite config attributes as restricted', staleWatch.targetClassificationAtTime, 'restricted');
+
+  const music = mod.resolveManagedTargetAttribution({
+    compositeList: ['music.youtube.com'],
+  }, [], 'https://music.youtube.com/watch?v=SONG');
+  expectEqual('music.youtube.com can still attribute as composite', music.targetClassificationAtTime, 'composite');
 
   const search = mod.resolveManagedTargetAttribution(config, [], 'https://www.youtube.com/results?search_query=algebra');
   expectEqual('platform entry beats domain', search.managedTargetType, 'platform_entry');

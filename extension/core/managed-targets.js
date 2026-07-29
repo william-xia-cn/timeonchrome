@@ -291,8 +291,8 @@ export function collectManagedTargets(config = {}, requests = []) {
 function isYouTubeHost(host) {
   const normalized = normalizeHostname(host);
   if (!normalized) return false;
-  if (normalized === 'youtube.com' || normalized.endsWith('.youtube.com')) return true;
-  return YOUTUBE_HOSTS.has(stripWwwAlias(normalized) || normalized);
+  const alias = stripWwwAlias(normalized) || normalized;
+  return alias === 'youtube.com' || alias === 'youtu.be';
 }
 
 function normalizeYouTubeVideoId(value) {

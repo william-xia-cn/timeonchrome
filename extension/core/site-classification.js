@@ -6,11 +6,11 @@ export const SITE_CLASSIFICATION_STATUSES = new Set(['pending', 'returned', 'app
 export const SITE_CLASSIFICATION_RECORD_SOURCES = new Set(['auto_unclassified_access', 'manual_learning_request', 'legacy']);
 export const SITE_CLASSIFICATION_REQUESTED_CLASSIFICATIONS = new Set(['study']);
 export const SITE_ACCESS_CLASSIFICATION_GROUPS = [
-  { keys: ['unsafeList', 'blacklist', 'defaultBlockedSites', 'defaultBlockedList', 'customBlockedSites', 'customBlockedList', 'defaultUnsafeSites', 'defaultUnsafeList', 'customUnsafeSites', 'customUnsafeList', 'systemConfiguredBlockedSites', 'systemConfiguredBlockedList', 'systemConfiguredUnsafeSites', 'systemConfiguredUnsafeList'], classification: 'blocked' },
-  { keys: ['restrictedEntertainmentList', 'defaultRestrictedEntertainmentSites', 'defaultRestrictedEntertainmentList', 'customRestrictedEntertainmentList', 'customRestrictedEntertainmentSites', 'systemConfiguredRestrictedEntertainmentSites', 'systemConfiguredRestrictedEntertainmentList'], classification: 'restricted' },
-  { keys: ['studyList', 'defaultStudySites', 'defaultStudyList', 'customStudyList', 'customStudySites', 'systemConfiguredStudySites', 'systemConfiguredStudyList'], classification: 'study' },
-  { keys: ['compositeList', 'defaultCompositeSites', 'defaultCompositeList', 'defaultUserCompositeSites', 'defaultUserCompositeList', 'recommendedCompositeSites', 'customCompositeList', 'customCompositeSites', 'systemConfiguredCompositeSites', 'systemConfiguredCompositeList', 'systemConfiguredUserCompositeSites', 'systemConfiguredUserCompositeList'], classification: 'composite' },
-  { keys: ['restList', 'entertainmentList', 'defaultRestSites', 'customRestList'], classification: 'rest' },
+  { keys: ['unsafeList'], classification: 'blocked' },
+  { keys: ['restrictedEntertainmentList'], classification: 'restricted' },
+  { keys: ['studyList'], classification: 'study' },
+  { keys: ['compositeList'], classification: 'composite' },
+  { keys: ['restList', 'entertainmentList'], classification: 'rest' },
 ];
 
 const CLASSIFICATION_TIE_PRIORITY = {
@@ -137,8 +137,8 @@ function stripWwwAlias(host) {
 function isSiteClassificationYouTubeHost(host) {
   const normalized = normalizeHostname(host);
   if (!normalized) return false;
-  if (normalized === 'youtube.com' || normalized.endsWith('.youtube.com')) return true;
-  return SITE_CLASSIFICATION_YOUTUBE_HOSTS.has(stripWwwAlias(normalized) || normalized);
+  const alias = stripWwwAlias(normalized) || normalized;
+  return alias === 'youtube.com' || alias === 'youtu.be';
 }
 
 function normalizeYouTubeId(value) {

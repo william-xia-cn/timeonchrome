@@ -32,6 +32,13 @@ function section(name) {
   console.log(`\n[${name}]`);
 }
 
+function loadNormalizerCode() {
+  return fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'site-access-config-normalizer.js'), 'utf8')
+    .replace(/^\s*import[\s\S]*?;\s*/gm, '')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+const\s+/g, 'const ');
+}
+
 // Load storage.js functions
 function loadStorage() {
   const abs = path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js');
@@ -85,11 +92,12 @@ function loadStorage() {
     },
     emitTrace: () => {},
     DEFAULT_CONFIG: { studyList },
+    normalizeHostname: (h) => String(h || '').replace(/\.+$/g, '').toLowerCase(),
   };
 
   const vm = require('vm');
   vm.createContext(context);
-  vm.runInContext(code, context, { filename: 'storage.js' });
+  vm.runInContext(loadNormalizerCode() + '\n' + code, context, { filename: 'storage.js' });
   return context;
 }
 
@@ -118,14 +126,16 @@ function loadCloudSync() {
 
   const vm = require('vm');
   const context = {
+    URL,
     console,
     DEFAULT_CONFIG,
+    normalizeHostname: (h) => String(h || '').replace(/\.+$/g, '').toLowerCase(),
     getStatsRange: async () => ({}),
     chrome: { storage: { local: { get: async () => ({}), set: async () => {} } } },
     fetch: async () => ({ ok: false, status: 500, json: async () => ({}) }),
   };
   vm.createContext(context);
-  vm.runInContext(code, context, { filename: 'cloud-sync.js' });
+  vm.runInContext(loadNormalizerCode() + '\n' + code, context, { filename: 'cloud-sync.js' });
   return context;
 }
 
@@ -184,14 +194,14 @@ async function run() {
   });
   expectTrue('has DEFAULT_CONFIG defaults', withDefaultsConfig.studyList.includes('khanacademy.org'));
   expectTrue('has defaultStudySites', withDefaultsConfig.studyList.includes('default-site.com'));
-  expectTrue('has studyList from cloud', withDefaultsConfig.studyList.includes('user-site.com'));
+  expectTrue('cloud effective studyList is not trusted when customStudyList exists', !withDefaultsConfig.studyList.includes('user-site.com'));
   expectTrue('has customStudyList', withDefaultsConfig.studyList.includes('custom-site.com'));
 
   // ── G. normalizeCloudRulesConfig: defaultUserCompositeSites merges into compositeList ──
   section('G. normalizeCloudRulesConfig: defaultUserCompositeSites merges into compositeList');
   const withUserCompositeDefaults = cloudSync.normalizeCloudRulesConfig({
     compositeList: ['music.youtube.com'],
-    defaultCompositeSites: ['google.com'],
+    defaultCompositeSites: ['google.com', 'music.youtube.com'],
     defaultUserCompositeSites: ['wikipedia.org'],
     customCompositeList: ['reddit.com'],
   });
@@ -199,6 +209,38 @@ async function run() {
   expectTrue('has defaultUserCompositeSites in compositeList', withUserCompositeDefaults.compositeList.includes('wikipedia.org'));
   expectTrue('preserves cloud compositeList in compositeList', withUserCompositeDefaults.compositeList.includes('music.youtube.com'));
   expectTrue('has customCompositeList in compositeList', withUserCompositeDefaults.compositeList.includes('reddit.com'));
+
+  // ── G2. normalizeCloudRulesConfig: stale YouTube root stays restricted locally ──
+  section('G2. normalizeCloudRulesConfig: stale YouTube root invariant');
+  const staleYoutubeComposite = cloudSync.normalizeCloudRulesConfig({
+    compositeList: ['youtube.com', 'music.youtube.com'],
+    defaultCompositeSites: ['youtube.com', 'google.com', 'music.youtube.com'],
+    defaultUserCompositeSites: ['youtube.com', 'wikipedia.org'],
+    customCompositeList: ['www.youtube.com', 'reddit.com', 'music.youtube.com'],
+    defaultRestrictedEntertainmentSites: [],
+  });
+  expectTrue('youtube.com removed from effective compositeList', !staleYoutubeComposite.compositeList.includes('youtube.com'));
+  expectTrue('www.youtube.com removed from effective compositeList', !staleYoutubeComposite.compositeList.includes('www.youtube.com'));
+  expectTrue('music.youtube.com remains composite', staleYoutubeComposite.compositeList.includes('music.youtube.com'));
+  expectTrue('youtube.com is forced into restrictedEntertainmentList', staleYoutubeComposite.restrictedEntertainmentList.includes('youtube.com'));
+  expectTrue('youtube.com removed from defaultUserCompositeSites', !staleYoutubeComposite.defaultUserCompositeSites.includes('youtube.com'));
+
+  // ── G3. storage sanitizer: stale local cached YouTube root cannot stay composite ──
+  section('G3. sanitizeLocalSiteAccessInvariants: stale local YouTube root invariant');
+  const localSanitized = storage.sanitizeLocalSiteAccessInvariants({
+    studyList: ['youtube.com', 'docs.example.com'],
+    compositeList: ['youtube.com', 'music.youtube.com'],
+    defaultUserCompositeSites: ['youtube.com', 'wikipedia.org'],
+    customCompositeList: ['www.youtube.com', 'reddit.com', 'music.youtube.com'],
+    unsafeList: ['youtube.com', 'tiktok.com'],
+    restrictedEntertainmentList: [],
+  }).config;
+  expectTrue('storage sanitizer removes youtube.com from studyList', !localSanitized.studyList.includes('youtube.com'));
+  expectTrue('storage sanitizer removes youtube.com from compositeList', !localSanitized.compositeList.includes('youtube.com'));
+  expectTrue('storage sanitizer keeps music.youtube.com in compositeList', localSanitized.compositeList.includes('music.youtube.com'));
+  expectTrue('storage sanitizer removes youtube.com from defaultUserCompositeSites', !localSanitized.defaultUserCompositeSites.includes('youtube.com'));
+  expectTrue('storage sanitizer removes www.youtube.com from customCompositeList', !localSanitized.customCompositeList.includes('www.youtube.com'));
+  expectTrue('storage sanitizer forces youtube.com into restrictedEntertainmentList', localSanitized.restrictedEntertainmentList.includes('youtube.com'));
   // ── H. normalizeCloudRulesConfig: no studyList key at all ──
   section('H. normalizeCloudRulesConfig: no studyList key');
   const noStudyListConfig = cloudSync.normalizeCloudRulesConfig({

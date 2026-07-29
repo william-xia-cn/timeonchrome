@@ -30,13 +30,17 @@ function loadModule() {
   const domainSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ');
+  const normalizerSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'site-access-config-normalizer.js'), 'utf8')
+    .replace(/^\s*import .*?;\s*$/gm, '')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+const\s+/g, 'const ');
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'site-classification.js'), 'utf8')
     .replace(/^\s*import .*?;\s*$/gm, '')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ');
   const context = { URL, console, this: null };
   context.this = context;
-  vm.runInNewContext(`${domainSource}\n${source}\nthis.__m = { normalizeSiteClassificationTarget, normalizeSiteClassificationRequest, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl, resolveSiteAccessClassification, validateSiteClassificationAction, validateSiteAccessConfig };`, context, { filename: 'site-classification.js' });
+  vm.runInNewContext(`${domainSource}\n${normalizerSource}\n${source}\nthis.__m = { normalizeRuntimeSiteAccessConfig, normalizeSiteClassificationTarget, normalizeSiteClassificationRequest, siteTargetMatchesUrl, siteTargetScopesOverlap, getSiteClassificationForUrl, resolveSiteAccessClassification, validateSiteClassificationAction, validateSiteAccessConfig };`, context, { filename: 'site-classification.js' });
   return context.__m;
 }
 
@@ -272,6 +276,21 @@ async function run() {
       restrictedEntertainmentList: ['youtube.com'],
     }, [], 'https://www.youtube.com/').classification,
     'restricted');
+  const normalizedStaleYouTubeComposite = mod.normalizeRuntimeSiteAccessConfig({
+    compositeList: ['youtube.com'],
+    defaultUserCompositeSites: ['youtube.com'],
+  }).config;
+  expectEqual('runtime normalization removes stale youtube.com composite before classification',
+    mod.resolveSiteAccessClassification(normalizedStaleYouTubeComposite, [], 'https://www.youtube.com/').classification,
+    'restricted');
+  expectEqual('runtime normalization removes stale defaultUserCompositeSites before watch classification',
+    mod.resolveSiteAccessClassification(normalizedStaleYouTubeComposite, [], 'https://www.youtube.com/watch?v=abc123').classification,
+    'restricted');
+  expectEqual('music.youtube.com remains eligible for explicit composite classification',
+    mod.resolveSiteAccessClassification({
+      compositeList: ['music.youtube.com'],
+    }, [], 'https://music.youtube.com/watch?v=abc123').classification,
+    'composite');
   expectEqual('unapproved YouTube watch inherits restricted root',
     mod.resolveSiteAccessClassification({
       restrictedEntertainmentList: ['youtube.com'],

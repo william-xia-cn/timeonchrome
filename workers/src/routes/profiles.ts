@@ -302,8 +302,8 @@ function syncLegacyQuota(config: Record<string, unknown>): void {
   if (onlineMinutes !== null) config.dailyOnlineQuota = onlineMinutes;
 }
 
-// ── Initial recommended config：仅用于新建 profile 一次性初始化 ──
-// 包含推荐网站名单，不作为 merge/repair 的默认值
+// ── Initial config：新建 profile 仅写用户自定义 source lists ──
+// 系统网站默认清单由 system_access_config_v1 作为运行时 source 加载
 function buildDefaultConfig(siteAccessDefaults: SystemAccessConfig): object {
   const customStudyList = [
     'keystoneacademy.cn',
@@ -313,11 +313,12 @@ function buildDefaultConfig(siteAccessDefaults: SystemAccessConfig): object {
     'schoolsbuddy.cn',
     'afficienta.com',
   ];
-  const customCompositeList = siteAccessDefaults.defaultUserCompositeSites || [];
+  const customCompositeList: string[] = [];
+  const compositeSystemDefaults = mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites);
   return {
     ...buildSchemaDefaults(),
     studyList: mergeWithDefaults(customStudyList, siteAccessDefaults.defaultStudySites),
-    compositeList: mergeWithDefaults(customCompositeList, siteAccessDefaults.defaultCompositeSites),
+    compositeList: mergeWithDefaults(customCompositeList, compositeSystemDefaults),
     restrictedEntertainmentList: siteAccessDefaults.defaultRestrictedEntertainmentSites,
     unsafeList: siteAccessDefaults.defaultBlockedSites,
     customStudyList,
@@ -583,6 +584,7 @@ export const profilesRouter = {
         //    使用 buildSchemaDefaults() 而非 buildDefaultConfig()
         //    确保推荐网站名单不会在 merge 中被反复注入
         const siteAccessDefaults = await getSystemAccessConfig(env);
+        const compositeSystemDefaults = mergeWithDefaults(siteAccessDefaults.defaultUserCompositeSites || [], siteAccessDefaults.defaultCompositeSites);
         const mergedConfig: Record<string, unknown> = { ...buildSchemaDefaults(), ...existingConfig };
 
         // 白名单字段：只允许前端修改以下字段
@@ -628,7 +630,7 @@ export const profilesRouter = {
           );
         }
         if (!mergedConfig.customCompositeList && Array.isArray(mergedConfig.compositeList)) {
-          const defaultSet = new Set(siteAccessDefaults.defaultCompositeSites.map(d => d.toLowerCase()));
+          const defaultSet = new Set(compositeSystemDefaults.map(d => d.toLowerCase()));
           mergedConfig.customCompositeList = (mergedConfig.compositeList as string[]).filter(
             d => !defaultSet.has(d.toLowerCase())
           );
@@ -644,7 +646,7 @@ export const profilesRouter = {
         if (Array.isArray(mergedConfig.customCompositeList)) {
           mergedConfig.compositeList = mergeWithDefaults(
             mergedConfig.customCompositeList as string[],
-            siteAccessDefaults.defaultCompositeSites
+            compositeSystemDefaults
           );
         }
         if (Array.isArray(mergedConfig.customRestrictedEntertainmentList)) {

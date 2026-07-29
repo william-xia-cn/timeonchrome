@@ -9,6 +9,7 @@ import {
   validateSiteClassificationAction,
 } from '../core/site-classification.js';
 import { getPopupModeStatsView, getQuotaUsageView, getTodayUsageView, getUsageRangeView } from '../stats/managed-statistics.js';
+import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 
 const STORAGE_VERSION = '1.3';
 export const CONFIG_KEY = 'guardian_config';
@@ -170,35 +171,12 @@ function sortObjectKeys(obj) {
   return Object.keys(obj).sort().reduce((acc, key) => { acc[key] = obj[key]; return acc; }, {});
 }
 
-const STALE_COMPOSITE_DOMAINS_TO_REMOVE = new Set([
-  'bilibili.com',
-  'www.bilibili.com',
-  '163.com',
-  'www.163.com',
-]);
-
 export function sanitizeStaleCompositeDomains(config) {
-  if (!config || typeof config !== 'object') return { config, changed: false };
+  return normalizeRuntimeSiteAccessConfig(config, { fallbackConfig: DEFAULT_CONFIG });
+}
 
-  let changed = false;
-  const next = { ...config };
-  const listFields = ['compositeList', 'customCompositeList'];
-
-  for (const field of listFields) {
-    const list = next[field];
-    if (!Array.isArray(list)) continue;
-    const filtered = list.filter((item) => {
-      if (typeof item !== 'string') return true;
-      const normalized = normalizeHostname(item);
-      return !normalized || !STALE_COMPOSITE_DOMAINS_TO_REMOVE.has(normalized);
-    });
-    if (filtered.length !== list.length) {
-      next[field] = filtered;
-      changed = true;
-    }
-  }
-
-  return { config: next, changed };
+export function sanitizeLocalSiteAccessInvariants(config) {
+  return normalizeRuntimeSiteAccessConfig(config, { fallbackConfig: DEFAULT_CONFIG });
 }
 
 async function computeHash(data) {
@@ -215,7 +193,7 @@ export async function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.local.get([CONFIG_KEY, HASH_KEY], async (result) => {
       if (!result[CONFIG_KEY]) {
-        resolve({ ...DEFAULT_CONFIG });
+        resolve(sanitizeLocalSiteAccessInvariants({ ...DEFAULT_CONFIG }).config);
         return;
       }
       const config = result[CONFIG_KEY];
@@ -228,7 +206,7 @@ export async function getConfig() {
           adminPasswordHash: config.adminPasswordHash || '',
           isInitialized: config.isInitialized || false
         };
-        const sanitized = sanitizeStaleCompositeDomains(safeConfig);
+        const sanitized = sanitizeLocalSiteAccessInvariants(safeConfig);
         safeConfig = sanitized.config;
         // 立即 resolve，saveConfig 异步执行（避免 callback-based storage API 导致死锁）
         if (sanitized.changed) {
@@ -237,7 +215,7 @@ export async function getConfig() {
         resolve(safeConfig);
         return;
       }
-      const sanitized = sanitizeStaleCompositeDomains(config);
+      const sanitized = sanitizeLocalSiteAccessInvariants(config);
       // saveConfig 异步执行，不阻塞 getConfig
       if (sanitized.changed) {
         saveConfig(sanitized.config).catch(() => {});
@@ -248,10 +226,11 @@ export async function getConfig() {
 }
 
 export async function saveConfig(config) {
-  config.updatedAt = Date.now();
-  const hash = await computeHash(config);
+  const sanitized = sanitizeLocalSiteAccessInvariants(config).config || config;
+  sanitized.updatedAt = Date.now();
+  const hash = await computeHash(sanitized);
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [CONFIG_KEY]: config, [HASH_KEY]: hash }, resolve);
+    chrome.storage.local.set({ [CONFIG_KEY]: sanitized, [HASH_KEY]: hash }, resolve);
   });
 }
 
