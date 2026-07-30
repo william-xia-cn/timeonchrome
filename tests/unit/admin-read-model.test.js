@@ -334,6 +334,26 @@ async function run() {
             pipByQuotaBucket: {},
             backgroundMediaByQuotaBucket: {},
           },
+          pending_borrow_rest_quota: {
+            targetKey: 'pending_borrow_rest_quota',
+            managedTargetId: 'pending_borrow_rest_quota',
+            managedTargetType: 'domain',
+            managedTargetNamespace: 'site',
+            managedTargetValue: 'www.youtube.com',
+            managedTargetLabelAtTime: 'www.youtube.com',
+            targetClassificationAtTime: 'pending_composite',
+            fallbackDomain: 'www.youtube.com',
+            isFallback: false,
+            activeSeconds: 45,
+            pipSeconds: 0,
+            backgroundMediaSeconds: 0,
+            activeByMode: { rest: 45 },
+            pipByMode: {},
+            backgroundMediaByMode: {},
+            activeByQuotaBucket: { rest: 45 },
+            pipByQuotaBucket: {},
+            backgroundMediaByQuotaBucket: {},
+          },
           'fallback:domain:youtube.com': {
             targetKey: 'fallback:domain:youtube.com',
             fallbackDomain: 'youtube.com',
@@ -356,9 +376,10 @@ async function run() {
   eq('target view uses playlist label as usage row', targetUsage.todayData.domainStats['数学播放列表'], 60);
   eq('target view keeps domain fallback row', targetUsage.todayData.domainStats['youtube.com'], 30);
   eq('target view study seconds from quota bucket', targetUsage.todayOverview.study, 60);
-  eq('target view composite seconds from quota bucket', targetUsage.todayOverview.composite, 30);
+  eq('target view composite seconds uses object classification before quota bucket', targetUsage.todayOverview.composite, 75);
   check('usage analysis target rows prefer managed target label', targetUsage.targetRows.some(row => row.label === '数学播放列表' && row.category === 'study'), JSON.stringify(targetUsage.targetRows));
   check('usage analysis fallback target row remains available', targetUsage.targetRows.some(row => row.label === 'youtube.com' && row.isFallback === true), JSON.stringify(targetUsage.targetRows));
+  check('pending target borrowing rest quota still displays as pending category', targetUsage.targetRows.some(row => row.label === 'www.youtube.com' && row.category === 'composite' && row.status === '待归类 · 借用休息配额'), JSON.stringify(targetUsage.targetRows));
 
   const total = passed + failed;
   console.log(`\n[Admin Read Model] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

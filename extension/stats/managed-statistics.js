@@ -510,6 +510,21 @@ function domainEntries(stats = {}) {
     .map(([domain, seconds]) => [domain, Math.max(0, Number(seconds) || 0)]);
 }
 
+function managedTargetClassificationCategory(classification) {
+  if (classification === 'study') return 'study';
+  if (classification === 'composite' || classification === 'pending_composite') return 'composite';
+  if (classification === 'rest' || classification === 'restricted' || classification === 'rejected') return 'rest';
+  return null;
+}
+
+function addTargetDisplayBucketSeconds(target, row = {}, bucketAccumulator = {}, onlineSeconds = 0) {
+  const category = managedTargetClassificationCategory(row.targetClassificationAtTime);
+  if (category) {
+    target[category] = (target[category] || 0) + onlineSeconds;
+    return;
+  }
+  addQuotaBucketSeconds(target, bucketAccumulator);
+}
 function addQuotaBucketSeconds(target, bucketMap = {}, secondsMultiplier = 1) {
   for (const [bucket, seconds] of Object.entries(bucketMap || {})) {
     const key = typeof bucket === 'string' && bucket.trim() ? bucket.trim() : 'unknown';
@@ -534,9 +549,7 @@ function quotaBucketsFromTargetStats(dayStats) {
     if (Object.keys(bucketAccumulator).length === 0) {
       bucketAccumulator.unknown = onlineSeconds;
     }
-    for (const [bucket, seconds] of Object.entries(bucketAccumulator)) {
-      buckets[bucket] = (buckets[bucket] || 0) + Math.max(0, Number(seconds) || 0);
-    }
+    addTargetDisplayBucketSeconds(buckets, row, bucketAccumulator, onlineSeconds);
     targetSeconds[row.targetKey] = onlineSeconds;
     targetClassifications[row.targetKey] = row.targetClassificationAtTime || null;
     targetRows.push({ ...row, onlineSeconds, quotaBuckets: bucketAccumulator });
@@ -674,7 +687,7 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
     targetSeconds,
     targetClassifications,
     targetRows,
-    quotaSource: targetQuota.hasTargetRows ? 'target_quota_bucket' : 'domain_classification_fallback',
+    quotaSource: targetQuota.hasTargetRows ? 'target_classification_snapshot' : 'domain_classification_fallback',
     media: {
       backgroundMediaSeconds: Number(stats?.audioSeconds || 0),
       backgroundMediaByDomain: stats?.backgroundMediaByDomain || {},

@@ -3066,7 +3066,7 @@ function usageCategoryLabel(key) {
 }
 
 function usageStatusClass(status) {
-  return status === '待归类' ? 'pending' : '';
+  return String(status || '').startsWith('待归类') || String(status || '').includes('借用休息配额') ? 'pending' : '';
 }
 
 function usageCategoryKeys(view = usageAnalysisLastView) {

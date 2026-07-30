@@ -23,6 +23,13 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] [Stats UI] 待归类借用休息配额展示口径修正
+  - 目标：使用分析主图和对象列表按 `targetClassificationAtTime` 展示访问对象性质；`quotaBucketAtTime=rest` 只作为配额来源提示，避免待归类对象借用休息配额被显示为普通休息时间。
+  - 边界：只改 Pages/Admin 展示 read model 与测试；不改 segment 落账、上传协议、配额扣除、拦截或时间段路由。
+  - 语义澄清：时间使用性质取决于访问内容/对象，不取决于配额来源；时间段管理主要是内容使用窗口，配额可借用但不改变使用性质。
+- [x] [Stats UI] 待归类借用休息配额命名收敛
+  - 目标：将展示 notice、测试名和统计解释源从“进入休息模式 / target quota bucket”收敛为“借用休息配额 / target classification snapshot”。
+  - 边界：保留 `composite_exhausted_to_rest` 等 legacy internal reason 作为兼容枚举；只修正文案、文档说明和展示层命名，不改变底层路由值或落账结构。
 - [x] YouTube raw guardian_config 漏网消费者修复
   - 修复 Popup snapshot 与 runtime session managed target attribution 直接读取 raw guardian_config，导致旧 composite 残留继续显示/落账为复合时间的问题。
 - [x] YouTube 根域与时间段生效问题修复

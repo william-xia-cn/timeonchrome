@@ -59,6 +59,8 @@ function run() {
   expectTrue('Pages 使用分析默认全部设备并支持日周切换', source.includes('设备：') && source.includes('全部设备') && source.includes('data-cloud-usage-mode="day"') && source.includes('data-cloud-usage-mode="week"'));
   expectTrue('Pages 使用分析应拆分网页使用和媒体使用 Tab', source.includes('data-cloud-usage-ledger="web"') && source.includes('data-cloud-usage-ledger="media"'));
   expectTrue('Pages 使用分析网页和媒体分别读取对应统计源', source.includes('/target-stats/v1?') && source.includes('/hourly-target-stats/v1?') && source.includes('/media-stats/v1?') && source.includes('/hourly-media-stats/v1?'));
+  expectTrue('Pages 使用分析主分类应优先按 targetClassificationAtTime 展示，配额 bucket 仅作 fallback', extractFunctionSource(source, 'cloudRowCategory').includes('cloudClassificationCategory(row?.targetClassificationAtTime)') && extractFunctionSource(source, 'cloudRowCategory').includes('row.quotaBucket || row.mode'));
+  expectTrue('Pages 使用分析应标注待归类借用休息配额', source.includes('cloudRowBorrowedRestSeconds') && source.includes('待归类 · 借用休息配额'));
   expectTrue('Pages 使用分析普通列表不暴露落账诊断字段', source.includes('显示管理对象') && source.includes('显示分类') && !extractFunctionSource(source, 'renderCloudUsageList').includes('settlementReason') && !extractFunctionSource(source, 'renderCloudUsageList').includes('tabId'));
   expectTrue('Pages 配额页应通过 effective quota read model 渲染', source.includes('function buildEffectiveTimeQuotaView') && source.includes('quotaTimeField'));
   expectTrue('Pages 配额页不应原地写入 remoteConfig.timeQuota 做懒迁移', !extractFunctionSource(source, 'renderQuotaPage').includes('remoteConfig.timeQuota ='));

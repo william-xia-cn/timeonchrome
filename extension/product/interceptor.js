@@ -622,9 +622,9 @@ function formatStudyRemainingTime(seconds) {
   return seconds === null ? '不限' : formatSecondsCompact(seconds);
 }
 
-async function sendCompositeExhaustedToRestNotice(tabId, domain, fromMode, remainingRestSeconds) {
+async function sendPendingQuotaBorrowRestNotice(tabId, domain, fromMode, remainingRestSeconds) {
   const remainingRestTime = remainingRestSeconds === null ? '不限' : formatSecondsCompact(remainingRestSeconds);
-  const noticeText = `你正在打开复合网站或待归类记录 · 当前待归类时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
+  const noticeText = `你正在打开复合网站或待归类记录 · 当前待归类时间配额已用完 · 正在借用休息配额 · 今日休息剩余 ${remainingRestTime}`;
   return await sendTabPendingMessage(tabId, {
     type: 'AUTO_MODE_PENDING_SUCCESS',
     noticeKind: 'transient_success',
@@ -668,9 +668,9 @@ async function sendCompositeEntryNotice(tabId, domain, fromMode, config) {
   }, noticeText);
 }
 
-async function continueCompositeExhaustedAsRest(tabId, domain, currentMode, config) {
+async function continuePendingQuotaByBorrowingRest(tabId, domain, currentMode, config) {
   const remainingRestSeconds = await computeRestRemainingSeconds(config);
-  await sendCompositeExhaustedToRestNotice(tabId, domain, currentMode, remainingRestSeconds);
+  await sendPendingQuotaBorrowRestNotice(tabId, domain, currentMode, remainingRestSeconds);
 }
 
 export async function sendNoticeForDecision(decision, { tabId, domain, fromMode, config } = {}) {
@@ -730,7 +730,7 @@ export async function sendNoticeForDecision(decision, { tabId, domain, fromMode,
   if (decision.notice === 'composite_exhausted_to_rest') {
     const remainingRestSeconds = await computeRestRemainingSeconds(config);
     const remainingRestTime = remainingRestSeconds === null ? '不限' : formatSecondsCompact(remainingRestSeconds);
-    const noticeText = `你正在打开复合网站或待归类记录 · 当前待归类时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`;
+    const noticeText = `你正在打开复合网站或待归类记录 · 当前待归类时间配额已用完 · 正在借用休息配额 · 今日休息剩余 ${remainingRestTime}`;
     return await sendTabPendingMessageDetailed(tabId, {
       type: 'AUTO_MODE_PENDING_SUCCESS',
       noticeKind: 'transient_success',

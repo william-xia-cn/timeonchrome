@@ -234,8 +234,14 @@ function convertDailyStatsToLegacyShape(dayStats) {
         restSeconds += Math.max(0, Number(bucketMap.rest) || 0);
         lockedSeconds += Math.max(0, Number(bucketMap.locked) || 0);
       };
-      addQuota(ts.activeByQuotaBucket);
-      addQuota(ts.pipByQuotaBucket);
+      const displayCategory = targetDisplayCategory(ts);
+      if (displayCategory === 'study') studySeconds += online;
+      else if (displayCategory === 'composite') compositeSeconds += online;
+      else if (displayCategory === 'rest') restSeconds += online;
+      else {
+        addQuota(ts.activeByQuotaBucket);
+        addQuota(ts.pipByQuotaBucket);
+      }
       targetRows.push({
         targetKey,
         label,
@@ -412,8 +418,20 @@ function addBucketSecondsToCategories(categories, bucketMap = {}, secondsFallbac
 function classificationToCategory(classification) {
   if (classification === 'study') return 'study';
   if (classification === 'composite' || classification === 'pending_composite') return 'composite';
-  if (classification === 'rest') return 'rest';
+  if (classification === 'rest' || classification === 'restricted' || classification === 'rejected') return 'rest';
   return null;
+}
+
+function targetDisplayCategory(stat) {
+  return classificationToCategory(stat?.targetClassificationAtTime);
+}
+
+function targetBorrowedRestSeconds(stat) {
+  const displayCategory = targetDisplayCategory(stat);
+  if (displayCategory !== 'composite') return 0;
+  const activeRest = Math.max(0, Number(stat?.activeByQuotaBucket?.rest) || 0);
+  const pipRest = Math.max(0, Number(stat?.pipByQuotaBucket?.rest) || 0);
+  return activeRest + pipRest;
 }
 
 function dominantCategory(categories) {
@@ -431,6 +449,9 @@ function dominantCategory(categories) {
 
 function targetStatusFromStat(stat) {
   const classification = stat?.targetClassificationAtTime;
+  const borrowedRestSeconds = Math.max(0, Number(stat?.borrowedRestSeconds ?? targetBorrowedRestSeconds(stat)) || 0);
+  if (classification === 'pending_composite' && borrowedRestSeconds > 0) return '待归类 · 借用休息配额';
+  if (classification === 'composite' && borrowedRestSeconds > 0) return '借用休息配额';
   if (classification === 'pending_composite') return '待归类';
   if (classification === 'blocked' || classification === 'restricted') return '已限制';
   return '正常';
@@ -481,8 +502,12 @@ function mediaDomainTotalSeconds(mediaStats = {}) {
 
 function applyTargetStatToCategories(categories, stat) {
   const activeSeconds = Math.max(0, Number(stat?.activeSeconds) || 0);
-  const fallbackCategory = classificationToCategory(stat?.targetClassificationAtTime) || 'other';
-  addBucketSecondsToCategories(categories, stat?.activeByQuotaBucket || {}, activeSeconds, fallbackCategory);
+  const displayCategory = targetDisplayCategory(stat);
+  if (displayCategory) {
+    categories[displayCategory] += activeSeconds;
+    return;
+  }
+  addBucketSecondsToCategories(categories, stat?.activeByQuotaBucket || {}, activeSeconds, 'other');
 }
 
 function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage) {
@@ -504,6 +529,7 @@ function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage) {
         isFallback: !!stat.isFallback,
         categories: emptyAnalysisCategories(),
         seconds: 0,
+        borrowedRestSeconds: 0,
         firstSeenAt: null,
         lastSeenAt: null,
       };
@@ -512,6 +538,7 @@ function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage) {
       for (const category of ANALYSIS_CATEGORY_KEYS) row.categories[category] += statCategories[category];
       const statTotal = ANALYSIS_CATEGORY_KEYS.reduce((sum, category) => sum + statCategories[category], 0);
       row.seconds += statTotal;
+      row.borrowedRestSeconds += targetBorrowedRestSeconds(stat);
       if (stat.firstSeenAt && (!row.firstSeenAt || stat.firstSeenAt < row.firstSeenAt)) row.firstSeenAt = stat.firstSeenAt;
       if (stat.lastSeenAt && (!row.lastSeenAt || stat.lastSeenAt > row.lastSeenAt)) row.lastSeenAt = stat.lastSeenAt;
       map.set(key, row);
@@ -540,6 +567,7 @@ function targetRowsForAnalysis(dailyStats, selectedDateKey, weekDateKeys, rangeD
       rangeSeconds: range?.seconds || 0,
       limitLabel: '—',
       status: targetStatusFromStat(range),
+      borrowedRestSeconds: range?.borrowedRestSeconds || 0,
       fallbackDomain: range?.fallbackDomain || null,
       managedTargetId: range?.managedTargetId || null,
       managedTargetType: range?.managedTargetType || null,
@@ -623,7 +651,7 @@ function buildUsageAnalysisView(storage, config, options = {}) {
   const totalSeries = buildDailySeries(dailyStats, rangeDateKeys, config, storage);
   const categoryTotals = sumSeriesCategories(totalSeries);
   const targetRows = targetRowsForAnalysis(dailyStats, selectedDateKey, weekDateKeys, rangeDateKeys, config, storage);
-  const pendingRows = targetRows.filter(row => row.status === '待归类');
+  const pendingRows = targetRows.filter(row => row.targetClassificationAtTime === 'pending_composite' || row.status === '待归类');
   const range = mode === 'week'
     ? { mode, from: getAdminDateKey(weekStart), to: getAdminDateKey(weekEnd), label: `${getAdminDateKey(weekStart).slice(5)} — ${getAdminDateKey(weekEnd).slice(5)}` }
     : { mode, from: selectedDateKey, to: selectedDateKey, label: selectedDateKey };

@@ -431,7 +431,7 @@ function noticeForRoute(route, {
       targetMode: 'rest',
       fromMode,
       domain,
-      text: `${pendingRouteTargetText(pendingRecordKind)} · 当前待归类时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 ${remainingRestTime}`,
+      text: `${pendingRouteTargetText(pendingRecordKind)} · 当前待归类时间配额已用完 · 正在借用休息配额 · 今日休息剩余 ${remainingRestTime}`,
       remainingRestSeconds,
       remainingRestTime,
     };

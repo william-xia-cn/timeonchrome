@@ -77,7 +77,7 @@ Use the English term in this document body. Chinese is listed here only as produ
 13. Local quota expiry is a mode-transition event. The local `quota_check` alarm evaluates quota state and requests a mode change through Mode Service.
 14. Cloud quota sync only saves `quotaState` facts. It must not request mode changes, show Reminder, or recheck tabs.
 15. `timeWindows.daily` is the active time-window source of truth. Study, Compound, and Rest each have their own mode window.
-16. Time windows are checked before entering a target mode. Outside the target mode window, access goes to `study_schedule_locked`, `composite_schedule_locked`, or `rest_schedule_locked`.
+16. Time windows are content-use gates, not quota-source gates. They are checked against the usage nature implied by the access target: Study content uses Study windows, Compound/Pending/Unclassified content uses Compound windows, and Restricted Entertainment uses Rest windows. Borrowing Rest quota for Compound/Pending usage does not change that usage nature into Rest.
 17. Quota exhaustion has priority over time-window blocking when both apply. HardBlocked / Unsafe remains highest priority.
 18. Legacy `schedule` is used only when `timeWindows.daily` is absent.
 
@@ -103,11 +103,11 @@ Matrix vocabulary:
 
 ### 6.1 Study mode
 
-| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+| Current Mode | Access target | Precondition | Access decision | Runtime target mode (legacy) | Execution |
 |---|---|---|---|---|---|
 | Study | Study Site | N/A | allow | Study | no-op |
 | Study | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution quota available | allow | Compound | [notice: study_to_composite](#notice-study-to-composite) |
-| Study | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest available | allow | Rest | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
+| Study | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest available | allow | Rest quota borrow (legacy runtime Rest) | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
 | Study | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest exhausted | blocked reminder | none | [blocked reminder: quota_composite_and_rest](#reminder-quota-composite-and-rest) |
 | Study | Restricted Entertainment | Rest available + Rest Exit Grace active | allow | Rest | [notice: mode_grace_to_rest](#notice-mode-grace-to-rest) |
 | Study | Restricted Entertainment | Rest available + Rest Exit Grace expired | reminder | none | [reminder: rest_confirm](#reminder-rest-confirm) |
@@ -116,11 +116,11 @@ Matrix vocabulary:
 
 ### 6.2 Compound mode
 
-| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+| Current Mode | Access target | Precondition | Access decision | Runtime target mode (legacy) | Execution |
 |---|---|---|---|---|---|
 | Compound | Study Site | N/A | allow | Study | [notice: composite_to_study](#notice-composite-to-study) |
 | Compound | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution quota available | allow | Compound | no-op |
-| Compound | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest available | allow | Rest | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
+| Compound | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest available | allow | Rest quota borrow (legacy runtime Rest) | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
 | Compound | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest exhausted | blocked reminder | none | [blocked reminder: quota_composite_and_rest](#reminder-quota-composite-and-rest) |
 | Compound | Restricted Entertainment | Rest available + Rest Exit Grace active | allow | Rest | [notice: mode_grace_to_rest](#notice-mode-grace-to-rest) |
 | Compound | Restricted Entertainment | Rest available + Rest Exit Grace expired | reminder | none | [reminder: rest_confirm](#reminder-rest-confirm) |
@@ -129,11 +129,11 @@ Matrix vocabulary:
 
 ### 6.3 Rest mode
 
-| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+| Current Mode | Access target | Precondition | Access decision | Runtime target mode (legacy) | Execution |
 |---|---|---|---|---|---|
 | Rest | Study Site | foreground access | allow | Study | [notice: rest_to_study_success](#notice-rest-to-study-success) |
 | Rest | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution quota available + foreground access | allow | Compound | [notice: rest_to_composite_success](#notice-rest-to-composite-success) |
-| Rest | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest available | allow | Rest | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
+| Rest | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest available | allow | Rest quota borrow (legacy runtime Rest) | [notice: composite_exhausted_to_rest](#notice-composite-exhausted-to-rest) |
 | Rest | Compound Site /<br>Pending Attribution /<br>Unclassified | pending-attribution exhausted + Rest exhausted | blocked reminder | none | [blocked reminder: quota_composite_and_rest](#reminder-quota-composite-and-rest) |
 | Rest | Restricted Entertainment | Rest available | allow | Rest | no-op |
 | Rest | Restricted Entertainment | Rest exhausted | blocked reminder | none | [blocked reminder: rest_locked](#reminder-rest-locked) |
@@ -141,7 +141,7 @@ Matrix vocabulary:
 
 ### 6.4 Locked mode
 
-| Current Mode | Access target | Precondition | Access decision | Target mode | Execution |
+| Current Mode | Access target | Precondition | Access decision | Runtime target mode (legacy) | Execution |
 |---|---|---|---|---|---|
 | Locked | Any normal target | current mode remains Locked | blocked reminder | Locked | [blocked reminder: quota_locked](#reminder-quota-locked) |
 | Locked | HardBlocked / Unsafe | N/A | block | none | [block: hard_blocked](#block-hard-blocked) |
@@ -175,13 +175,13 @@ Local quota expiry is a mode transition source, but it enters through the same r
 `你正在打开复合/待归类对象 · 即将进入复合模式 · 今日剩余 {remainingCompositeTime}`
 
 <a id="notice-composite-exhausted-to-rest"></a>
-#### notice: composite_exhausted_to_rest
-- Trigger: Compound Site / Pending Attribution / Unclassified + pending-attribution quota exhausted + Rest available.
-- Behavior: enter or remain in Rest immediately.
+#### legacy notice id: composite_exhausted_to_rest
+- Trigger: Compound Site / Pending Attribution / Unclassified + pending-attribution quota exhausted + Rest quota available.
+- Behavior: allow the Compound/Pending usage by borrowing Rest quota. Internal mode/quota fields may continue using legacy Rest values for compatibility, but product/reporting semantics remain Compound/Pending usage.
 - Notice: 4s transient info notice.
 - Copy:
 
-`你正在打开复合/待归类对象 · 当前待归类时间配额已用完 · 已默认进入休息模式 · 今日休息剩余 {remainingRestTime}`
+`你正在打开复合/待归类对象 · 当前待归类时间配额已用完 · 正在借用休息配额 · 今日休息剩余 {remainingRestTime}`
 
 <a id="notice-composite-to-study"></a>
 #### notice: composite_to_study

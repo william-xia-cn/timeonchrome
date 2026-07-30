@@ -560,6 +560,21 @@ function addPopupModeSeconds(target, source = {}) {
   target.compositeSeconds += Math.max(0, Number(source.composite) || 0);
 }
 
+function popupClassificationCategory(classification) {
+  if (classification === 'study') return 'study';
+  if (classification === 'composite' || classification === 'pending_composite') return 'composite';
+  if (classification === 'rest' || classification === 'restricted' || classification === 'rejected') return 'rest';
+  return null;
+}
+
+function addPopupTargetDisplaySeconds(target, ts = {}, onlineSeconds = 0) {
+  const category = popupClassificationCategory(ts.targetClassificationAtTime);
+  if (category === 'study') target.studySeconds += onlineSeconds;
+  else if (category === 'composite') target.compositeSeconds += onlineSeconds;
+  else if (category === 'rest') target.restSeconds += onlineSeconds;
+  else addPopupModeSeconds(target, ts.activeByQuotaBucket || {});
+}
+
 function buildPopupSettledModeStatsFromDay(dayStats) {
   const summary = {
     studySeconds: 0,
@@ -572,11 +587,9 @@ function buildPopupSettledModeStatsFromDay(dayStats) {
   if (dayStats?.targets && typeof dayStats.targets === 'object') {
     for (const ts of Object.values(dayStats.targets)) {
       if (!ts) continue;
-      const quota = ts.activeByQuotaBucket || {};
-      summary.studySeconds += Math.max(0, Number(quota.study) || 0);
-      summary.restSeconds += Math.max(0, Number(quota.rest) || 0);
-      summary.compositeSeconds += Math.max(0, Number(quota.composite) || 0);
-      summary.onlineSeconds += Math.max(0, Number(ts.activeSeconds) || 0) + Math.max(0, Number(ts.pipSeconds) || 0);
+      const online = Math.max(0, Number(ts.activeSeconds) || 0) + Math.max(0, Number(ts.pipSeconds) || 0);
+      addPopupTargetDisplaySeconds(summary, ts, online);
+      summary.onlineSeconds += online;
       summary.backgroundMediaSeconds += Math.max(0, Number(ts.backgroundMediaSeconds) || 0);
       summary.pipSeconds += Math.max(0, Number(ts.pipSeconds) || 0);
     }

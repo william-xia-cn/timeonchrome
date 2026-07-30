@@ -39,7 +39,7 @@ check('changelog records managedTarget implementation', changelog.includes('Mana
 
 check('usage segment builder now supports managed target snapshot fields', usageSegments.includes('managedTargetId:') && usageSegments.includes('quotaBucketAtTime'));
 check('daily aggregate keeps domain compatibility and adds target rows', usageSegments.includes('const domainKey = segment.domain') && usageSegments.includes('day.targets') && usageSegments.includes('fallback:domain:'));
-check('managed statistics exposes target-first quota view', managedStatistics.includes('quotaSource') && managedStatistics.includes('target_quota_bucket'));
+check('managed statistics exposes target-first interpretation source', managedStatistics.includes('quotaSource') && managedStatistics.includes('target_classification_snapshot'));
 
 const total = passed + failed;
 console.log(`\n[ManagedTarget Ledger Decision] ${passed}/${total} passed${failed ? ' FAILED' : ''}`);

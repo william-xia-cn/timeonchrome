@@ -4737,12 +4737,27 @@ function emptyCloudMediaCategories() {
   return { foregroundAudio: 0, backgroundAudio: 0, foregroundVideo: 0, backgroundVideo: 0, pip: 0 };
 }
 
+function cloudClassificationCategory(classification) {
+  if (classification === 'study') return 'study';
+  if (classification === 'composite' || classification === 'pending_composite') return 'composite';
+  if (classification === 'rest' || classification === 'restricted' || classification === 'rejected') return 'rest';
+  return null;
+}
+
 function cloudRowCategory(row) {
+  const classificationCategory = cloudClassificationCategory(row?.targetClassificationAtTime);
+  if (classificationCategory) return classificationCategory;
   const bucket = row.quotaBucket || row.mode;
   if (bucket === 'study') return 'study';
   if (bucket === 'composite' || bucket === 'pending_composite') return 'composite';
   if (bucket === 'rest') return 'rest';
   return 'other';
+}
+
+function cloudRowBorrowedRestSeconds(row) {
+  return cloudRowCategory(row) === 'composite' && (row?.quotaBucket || row?.mode) === 'rest'
+    ? Math.max(0, Number(row?.duration) || 0)
+    : 0;
 }
 
 function isCloudWebUsageRow(row) {
@@ -4873,11 +4888,13 @@ function aggregateCloudRows(rows = []) {
       isFallback: row.isFallback,
       categories: emptyCloudCategories(),
       seconds: 0,
+      borrowedRestSeconds: 0,
       lastSeenAt: row.lastSeenAt || null,
     };
     const category = cloudRowCategory(row);
     entry.categories[category] += row.duration;
     entry.seconds += row.duration;
+    entry.borrowedRestSeconds += cloudRowBorrowedRestSeconds(row);
     if (row.lastSeenAt && (!entry.lastSeenAt || row.lastSeenAt > entry.lastSeenAt)) entry.lastSeenAt = row.lastSeenAt;
     map.set(row.targetKey, entry);
   }
@@ -4894,8 +4911,12 @@ function dominantCloudCategory(categories) {
 }
 
 function cloudTargetStatus(row) {
-  if (row.targetClassificationAtTime === 'pending_composite') return '待归类';
-  if (row.targetClassificationAtTime === 'blocked' || row.targetClassificationAtTime === 'restricted') return '已限制';
+  const classification = row?.targetClassificationAtTime;
+  const borrowedRestSeconds = Math.max(0, Number(row?.borrowedRestSeconds) || 0);
+  if (classification === 'pending_composite' && borrowedRestSeconds > 0) return '待归类 · 借用休息配额';
+  if (classification === 'composite' && borrowedRestSeconds > 0) return '借用休息配额';
+  if (classification === 'pending_composite') return '待归类';
+  if (classification === 'blocked' || classification === 'restricted') return '已限制';
   return '正常';
 }
 
@@ -4917,10 +4938,13 @@ function buildCloudTargetRows(todayRows, weekRows, rangeRows) {
       rangeSeconds: rangeMap.get(key)?.seconds || 0,
       limitLabel: '—',
       status: cloudTargetStatus(range || {}),
+      borrowedRestSeconds: range?.borrowedRestSeconds || 0,
       fallbackDomain: range?.fallbackDomain || null,
       managedTargetType: range?.managedTargetType || null,
       managedTargetNamespace: range?.managedTargetNamespace || null,
       managedTargetValue: range?.managedTargetValue || null,
+      targetClassificationAtTime: range?.targetClassificationAtTime || null,
+      isFallback: !!range?.isFallback,
       categories: range?.categories || emptyCloudCategories(),
     };
   }).filter(row => row.rangeSeconds > 0 || row.todaySeconds > 0 || row.weekSeconds > 0)
@@ -5225,7 +5249,7 @@ function usageTargetIcon(row = {}) {
 }
 
 function cloudUsageStatusClass(status) {
-  return status === '待归类' ? 'pending' : '';
+  return String(status || '').startsWith('待归类') || String(status || '').includes('借用休息配额') ? 'pending' : '';
 }
 
 function filteredCloudUsageRows(view) {

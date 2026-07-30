@@ -227,6 +227,22 @@ async function run() {
             activeByMode: { rest: 150 },
             activeByQuotaBucket: { study: 150 },
           },
+          pending_borrow_rest_quota: {
+            managedTargetId: 'pending_borrow_rest_quota',
+            managedTargetType: 'domain',
+            managedTargetNamespace: 'site',
+            managedTargetValue: 'www.youtube.com',
+            managedTargetLabelAtTime: 'www.youtube.com',
+            targetClassificationAtTime: 'pending_composite',
+            fallbackDomain: 'www.youtube.com',
+            isFallback: false,
+            activeSeconds: 45,
+            backgroundMediaSeconds: 0,
+            pipSeconds: 0,
+            totalSeconds: 45,
+            activeByMode: { rest: 45 },
+            activeByQuotaBucket: { rest: 45 },
+          },
           'fallback:domain:video.example': {
             fallbackDomain: 'video.example',
             isFallback: true,
@@ -252,7 +268,7 @@ async function run() {
   eq('today view uses daily source', todayView.source, 'daily_usage_stats_v1');
   eq('summary computes online seconds from legacy domain totals', todayView.statsWithSummary.onlineSeconds, 300);
   eq('summary computes composite seconds from config', todayView.statsWithSummary.compositeSeconds, 80);
-  eq('today view exposes target rows', todayView.targetStats.rows.length, 2);
+  eq('today view exposes target rows', todayView.targetStats.rows.length, 3);
   eq('target row prefers snapshot label', todayView.targetStats.rows[0].targetLabel, 'Study Playlist');
 
   const popupView = await statsApi.getPopupModeStatsView(today);
@@ -265,10 +281,10 @@ async function run() {
 
   const quotaView = await statsApi.getQuotaUsageView(today, { config: { studyList: ['study.example'], compositeList: ['video.example'] } });
   eq('quota uses target bucket study seconds', quotaView.studySeconds, 150);
-  eq('quota uses target bucket composite seconds', quotaView.compositeSeconds, 100);
+  eq('quota display uses target classification before rest bucket', quotaView.compositeSeconds, 145);
   eq('quota keeps background media outside online/domain quota', quotaView.media.backgroundMediaSeconds, 30);
-  eq('quota source is target bucket', quotaView.quotaSource, 'target_quota_bucket');
-  eq('quota rest excludes target study/composite buckets', quotaView.restSeconds, 0);
+  eq('quota source is target classification snapshot', quotaView.quotaSource, 'target_classification_snapshot');
+  eq('quota rest excludes target study/composite display buckets', quotaView.restSeconds, 0);
 
   resetObject(usageSegments);
   await local.set({ daily_usage_stats_v1: {}, event_log_v1: [{ type: 'START' }] });
