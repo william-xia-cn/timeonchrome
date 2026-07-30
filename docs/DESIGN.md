@@ -828,6 +828,9 @@ NOTIFIABLE_TYPES = ['composite_add', 'unsafe_block', 'quota_locked',
 访问概况字段为 `firstObservedAt`、`lastObservedAt`、`observationCount`。计数只接受 `webNavigationCommitted` 和 `webNavigationHistoryStateUpdated` 顶层导航；首次由恢复/重检发现时允许建立一次基线观察，tab 激活、后台重检和心跳不继续累计。上传 payload 使用兼容 schema v2；Worker `/device/site-classification-requests/v1` 路径不变，旧 payload 缺失新字段时按 legacy 处理。
 
 为保证上传重试和多观察源幂等，终端为本地累计创建稳定 `observationSourceId`，云端按 `(request_id, observation_source_id)` 保存累计值并以 `max` 合并，再汇总到主记录；不保存逐次访问明细。
+
+网站归类记录上传可靠性：设备端批量 POST `/device/site-classification-requests/v1` 时，Worker 必须按单条记录隔离异常；某条记录保存失败只能返回该条 `SERVER_ERROR`，不得让整批 HTTP 500，从而避免其他记录无法入库。扩展端普通同步会按 retry count 限制自动重试，管理页“立即同步”必须使用 `forceRetryExhausted` 重试已耗尽的网站归类记录；后端恢复后，本地 pending/failed/exhausted 记录应可通过立即同步重新上传。
+
 ### 4.0 Cloud Auth Session Contract
 
 Account login and device binding are intentionally separate:

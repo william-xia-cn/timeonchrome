@@ -538,99 +538,114 @@ export const siteClassificationRequestsRouter = {
       const now = Date.now();
       const profileConfig = await getProfileConfig(env, device.profileId);
       for (const item of requests) {
-        let requestedClassification = normalizeRequestedClassification(item.requestedClassification);
-        if (requestedClassification === undefined) {
-          errors.push({ id: item.id || null, code: 'INVALID_REQUESTED_CLASSIFICATION' });
-          continue;
-        }
-        let recordSource = normalizeRecordSource(item.recordSource);
-        if (requestedClassification === 'study' || recordSource === 'manual_learning_request') {
-          requestedClassification = 'study';
-          recordSource = 'manual_learning_request';
-        }
-        const target = normalizeRequestInput(item);
-        if (!target.ok) {
-          errors.push({ id: item.id || null, code: target.code || 'INVALID_TARGET' });
-          continue;
-        }
-        if (requestedClassification === 'study') {
-          const actionValidation = validateSiteClassificationAction(profileConfig, target, 'study');
-          if (!actionValidation.ok) {
-            errors.push({
-              id: item.id || null,
-              code: actionValidation.code || 'ALREADY_CLASSIFIED',
-              classifiedAs: actionValidation.classifiedAs || null,
-              source: actionValidation.source || null,
-              pattern: actionValidation.pattern || null,
-            });
+        try {
+          let requestedClassification = normalizeRequestedClassification(item.requestedClassification);
+          if (requestedClassification === undefined) {
+            errors.push({ id: item.id || null, code: 'INVALID_REQUESTED_CLASSIFICATION' });
             continue;
           }
-        } else {
-          const configured = getConfiguredClassificationForTarget(profileConfig, target);
-          if (configured) {
-            errors.push({
-              id: item.id || null,
-              code: configured.classification === 'rejected' ? 'REQUEST_REJECTED' : 'ALREADY_CLASSIFIED',
-              classifiedAs: configured.classification,
-              source: configured.source,
-            });
+          let recordSource = normalizeRecordSource(item.recordSource);
+          if (requestedClassification === 'study' || recordSource === 'manual_learning_request') {
+            requestedClassification = 'study';
+            recordSource = 'manual_learning_request';
+          }
+          const target = normalizeRequestInput(item);
+          if (!target.ok) {
+            errors.push({ id: item.id || null, code: target.code || 'INVALID_TARGET' });
             continue;
           }
-        }
-        const rejected = await findRejectedMatch(env, device.profileId, target);
-        if (rejected) {
-          errors.push({ id: item.id || null, code: 'REQUEST_REJECTED', rejectedId: rejected.id });
-          continue;
-        }
-        const existing = await env.DB.prepare(
-          `SELECT * FROM site_classification_requests_v1
-           WHERE profile_id = ? AND requested_target_type = ? AND requested_normalized_value = ?
-             AND status != 'returned'
-           ORDER BY requested_at DESC
-           LIMIT 1`
-        ).bind(device.profileId, target.targetType, target.normalizedValue).first<any>();
-        if (existing) {
-          await mergeRequestMetadata(env, existing.id, item, recordSource, requestedClassification, now);
-          await mergeObservationSummary(env, existing.id, device.profileId, device.deviceId, item, now);
-          const updated = await env.DB.prepare(
-            `SELECT * FROM site_classification_requests_v1 WHERE id = ?`
-          ).bind(existing.id).first<any>();
-          if (updated) saved.push(rowToResponse(updated));
-          continue;
-        }
+          if (requestedClassification === 'study') {
+            const actionValidation = validateSiteClassificationAction(profileConfig, target, 'study');
+            if (!actionValidation.ok) {
+              errors.push({
+                id: item.id || null,
+                code: actionValidation.code || 'ALREADY_CLASSIFIED',
+                classifiedAs: actionValidation.classifiedAs || null,
+                source: actionValidation.source || null,
+                pattern: actionValidation.pattern || null,
+              });
+              continue;
+            }
+          } else {
+            const configured = getConfiguredClassificationForTarget(profileConfig, target);
+            if (configured) {
+              errors.push({
+                id: item.id || null,
+                code: configured.classification === 'rejected' ? 'REQUEST_REJECTED' : 'ALREADY_CLASSIFIED',
+                classifiedAs: configured.classification,
+                source: configured.source,
+              });
+              continue;
+            }
+          }
+          const rejected = await findRejectedMatch(env, device.profileId, target);
+          if (rejected) {
+            errors.push({ id: item.id || null, code: 'REQUEST_REJECTED', rejectedId: rejected.id });
+            continue;
+          }
+          const existing = await env.DB.prepare(
+            `SELECT * FROM site_classification_requests_v1
+             WHERE profile_id = ? AND requested_target_type = ? AND requested_normalized_value = ?
+               AND status != 'returned'
+             ORDER BY requested_at DESC
+             LIMIT 1`
+          ).bind(device.profileId, target.targetType, target.normalizedValue).first<any>();
+          if (existing) {
+            await mergeRequestMetadata(env, existing.id, item, recordSource, requestedClassification, now);
+            await mergeObservationSummary(env, existing.id, device.profileId, device.deviceId, item, now);
+            const updated = await env.DB.prepare(
+              `SELECT * FROM site_classification_requests_v1 WHERE id = ?`
+            ).bind(existing.id).first<any>();
+            if (updated) saved.push(rowToResponse(updated));
+            continue;
+          }
 
-        const id = crypto.randomUUID();
-        const manualRequestedAt = requestedClassification === 'study'
-          ? normalizePositiveTimestamp(item.manualRequestedAt) || now
-          : null;
-        await env.DB.prepare(
-          `INSERT INTO site_classification_requests_v1
-           (id, profile_id, device_id, client_request_id, requested_target_type, requested_raw_input,
-            requested_normalized_value, requested_host, display_value, status, record_source,
-            requested_classification, manual_requested_at, requested_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
-        ).bind(
-          id,
-          device.profileId,
-          device.deviceId,
-          item.id || item.clientRequestId || null,
-          target.targetType,
-          item.requestedRawInput || target.rawInput,
-          target.normalizedValue,
-          target.host || null,
-          target.displayValue,
-          recordSource,
-          requestedClassification,
-          manualRequestedAt,
-          Number(item.requestedAt || 0) || now,
-          now,
-          now,
-        ).run();
-        await mergeObservationSummary(env, id, device.profileId, device.deviceId, item, now);
-        const inserted = await env.DB.prepare(
-          `SELECT * FROM site_classification_requests_v1 WHERE id = ?`
-        ).bind(id).first<any>();
-        if (inserted) saved.push(rowToResponse(inserted));
+          const id = crypto.randomUUID();
+          const manualRequestedAt = requestedClassification === 'study'
+            ? normalizePositiveTimestamp(item.manualRequestedAt) || now
+            : null;
+          await env.DB.prepare(
+            `INSERT INTO site_classification_requests_v1
+             (id, profile_id, device_id, client_request_id, requested_target_type, requested_raw_input,
+              requested_normalized_value, requested_host, display_value, status, record_source,
+              requested_classification, manual_requested_at, requested_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            id,
+            device.profileId,
+            device.deviceId,
+            item.id || item.clientRequestId || null,
+            target.targetType,
+            item.requestedRawInput || target.rawInput,
+            target.normalizedValue,
+            target.host || null,
+            target.displayValue,
+            recordSource,
+            requestedClassification,
+            manualRequestedAt,
+            Number(item.requestedAt || 0) || now,
+            now,
+            now,
+          ).run();
+          await mergeObservationSummary(env, id, device.profileId, device.deviceId, item, now);
+          const inserted = await env.DB.prepare(
+            `SELECT * FROM site_classification_requests_v1 WHERE id = ?`
+          ).bind(id).first<any>();
+          if (inserted) saved.push(rowToResponse(inserted));
+        } catch (error: any) {
+          const message = error?.message || String(error || 'unknown');
+          console.error('[SiteClassificationRequests] Upload item failed', {
+            id: item?.id || item?.clientRequestId || null,
+            targetType: item?.requestedTargetType || item?.targetType || null,
+            error: message,
+          });
+          errors.push({
+            id: item?.id || item?.clientRequestId || null,
+            code: 'SERVER_ERROR',
+            error: 'site_classification_request_save_failed',
+            message,
+          });
+        }
       }
 
       return json({ success: errors.length === 0, saved: saved.length, requests: saved, errors });
