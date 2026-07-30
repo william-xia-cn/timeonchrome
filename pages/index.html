@@ -7307,8 +7307,14 @@ function renderReviewPage() {
   loadReviewGroups();
 }
 
+function hasSiteRequestObservationEvidence(request = {}) {
+  return Boolean(request.firstObservedAt || request.lastObservedAt || Number(request.observationCount || 0) > 0);
+}
+
 function siteRequestRecordKind(request = {}) {
   if (request.requestedClassification === 'study') return 'learning_request';
+  if (request.recordSource === 'auto_unclassified_access') return 'unclassified_visit';
+  if ((!request.recordSource || request.recordSource === 'legacy') && hasSiteRequestObservationEvidence(request)) return 'unclassified_visit';
   if (!request.recordSource || request.recordSource === 'legacy') return 'legacy';
   return 'unclassified_visit';
 }

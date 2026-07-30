@@ -23,6 +23,9 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] [Pages] 网站归类审核旧自动记录兼容显示
+  - 目标：云端旧记录缺少 `recordSource` 但已有首次/最近访问和顶层导航次数时，仍按“自动未归类访问记录”分组展示。
+  - 边界：只改 Pages 展示判定与静态测试；不改 Worker API、同步、审批或记录结构。
 - [x] [Cloud Sync] 归类申请上传触发可靠性修订
   - 目标：修复归类申请提交后依赖 cloud-sync 内存 deviceToken 才触发上传的问题；本地 unpacked 扩展 service worker 重启后也应立刻触发 syncNow，并在撞上已有同步时安排补同步。
   - 边界：不改变配置、归类申请、统计、配额上传流程；保留 2 分钟 stale lock 自动释放逻辑。
