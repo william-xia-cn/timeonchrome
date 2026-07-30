@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TimeOnChrome",
-  "version": "1.7.18",
+  "version": "1.7.19",
   "description": "上网时间管理助手 - 学习模式、时长统计、智能提醒",
   "update_url": "https://timeonchrome-update.pages.dev/timeonchrome/update.xml",
   "incognito": "split",
