@@ -23,6 +23,9 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] [Cloud UI/API] 已使用未归类历史待归类落账可见性修复
+  - 目标：`target_stats_v1` 中历史曾按 `pending_composite` / `unclassified` 落账、但当前配置已归类的网站仍在“已使用未归类网站”分区显示为解释项，避免统计有来源但审核入口不可见。
+  - 边界：不伪造 `site_classification_requests_v1` 记录；当前已归类的历史解释项不提供重新归类动作；不修改历史统计、不改运行时落账、不改 D1 schema。
 - [x] [Cloud Sync] 网站归类记录上传 500 与重试耗尽修复
   - 目标：`/device/site-classification-requests/v1` 批量上传中单条异常不得导致整批 HTTP 500；客户端“立即同步”必须强制重试已耗尽的网站归类记录，避免本地待审核记录永久卡住。
   - 证据：生产 `device_access_audit_v1` 显示设备 `d8ebf69d-f25f-4f84-a1c1-8fb90ba9011e` 在 2026-07-30 17:26 UTC 连续 POST 500，payload_count=3；后续同步只 GET 审核记录，不再 POST。

@@ -176,6 +176,7 @@ function run() {
   const classifyReviewUsedUnclassifiedSource = source.slice(classifyReviewUsedUnclassifiedStart, classifyReviewUsedUnclassifiedEnd);
   expectTrue('Pages 网站归类记录分区仍只读取显式审核记录', loadSiteClassificationRequestsSource.includes('/site-classification-requests/v1?status=') && !loadSiteClassificationRequestsSource.includes('/used-unclassified-sites/v1'));
   expectTrue('Pages 已使用未归类网站分区复用专用归类 API，不伪造审核记录', classifyReviewUsedUnclassifiedSource.includes('/used-unclassified-sites/v1') && !classifyReviewUsedUnclassifiedSource.includes('/site-classification-requests/v1'));
+  expectTrue('Pages 已使用未归类网站应显示历史待归类解释项并禁用归类动作', source.includes('历史待归类落账') && source.includes('当前已归类：') && source.includes('site.historicalPending || site.actionable === false'));
   expectTrue('Pages 审核 badge 应统计审核记录和已使用未归类网站', extractFunctionSource(source, 'updateReviewBadge').includes('usedUnclassifiedResult') && extractFunctionSource(source, 'updateReviewBadge').includes('usedUnclassifiedCount'));
   expectTrue('Pages 网站归类记录应支持审批生效对象编辑', source.includes('审批生效对象') && source.includes('site-request-type-') && source.includes('site-request-target-'));
   expectTrue('Pages 应为访问记录提供确认/暂不归类动作', source.includes('确认为学习网站') && source.includes('确认为复合网站') && source.includes('暂不归类') && source.includes('归为受限娱乐'));

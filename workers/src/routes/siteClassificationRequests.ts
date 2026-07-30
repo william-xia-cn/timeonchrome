@@ -474,7 +474,8 @@ async function listUsedUnclassifiedSites(request: Request, env: Env, profileId: 
       .filter(([requestHost]) => sameHostRule(requestHost, domain))
       .flatMap(([, values]) => values);
     const resolved = resolveSiteAccessClassification(config || {}, pendingRows.map(rowToResponse), domain);
-    if (resolved.classification && resolved.classification !== 'pending_composite') continue;
+    const currentClassification = resolved.classification || 'unclassified';
+    const historicalPending = currentClassification !== 'unclassified' && currentClassification !== 'pending_composite';
     sites.push({
       domain,
       firstSeenAt: Number(row.first_seen_at || 0) || null,
@@ -482,7 +483,10 @@ async function listUsedUnclassifiedSites(request: Request, env: Env, profileId: 
       totalSeconds: Number(row.total_seconds || 0),
       visitCount: Number(row.visit_count || 0),
       pendingRequestId: pendingRows[0]?.id || null,
-      currentClassification: resolved.classification || 'unclassified',
+      currentClassification,
+      historicalClassification: 'pending_composite',
+      historicalPending,
+      actionable: !historicalPending,
     });
   }
   return json({ ok: true, days, sites });

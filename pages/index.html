@@ -2231,6 +2231,14 @@ function classificationPolicyDefs() {
   return RULES_POLICY_DEFS.filter(def => def.customKey);
 }
 
+
+function sitePolicyLabel(policy) {
+  if (policy === 'pending_composite') return '待归类';
+  if (policy === 'unclassified') return '未归类';
+  if (policy === 'restricted' || policy === 'rest') return '受限娱乐';
+  if (policy === 'blocked' || policy === 'unsafe') return '黑名单';
+  return classificationPolicyDefs().find(def => def.key === policy)?.label || policy || '未归类';
+}
 function rulesPolicyDefaultKeys(def = {}) {
   return Array.isArray(def.defaultKeys) && def.defaultKeys.length ? def.defaultKeys : [def.defaultKey].filter(Boolean);
 }
@@ -2387,7 +2395,8 @@ function filterRulesDirectoryEntries(entries) {
 function rulesSiteMeta(entry) {
   if (entry.source === 'used-unclassified') {
     const site = entry.site || {};
-    return `首次 ${formatRulesTimestamp(site.firstSeenAt)} · 最近 ${formatRulesTimestamp(site.lastSeenAt)} · 累计 ${fmtSec(Number(site.totalSeconds || 0))} · 访问 ${Number(site.visitCount || 0)} 次`;
+    const prefix = site.historicalPending ? `历史待归类落账 · 当前已归类为${sitePolicyLabel(site.currentClassification)}` : '当前仍未归类';
+    return `${prefix} · 首次 ${formatRulesTimestamp(site.firstSeenAt)} · 最近 ${formatRulesTimestamp(site.lastSeenAt)} · 累计 ${fmtSec(Number(site.totalSeconds || 0))} · 访问 ${Number(site.visitCount || 0)} 次`;
   }
   if (entry.source === 'rule') return `${siteRuleTypeLabel(entry.rule)} · 已批准精确规则`;
   if (entry.source === 'system') {
@@ -2443,17 +2452,21 @@ function renderRulesSiteRow(entry, idx) {
     const disabled = !systemAccessCanWrite;
     actionHtml = `<div class="rules-site-actions"><button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="openSystemSiteCategoryEditor(${idx})">编辑分类</button>${disabled ? '<span class="rules-site-badge">只读</span>' : ''}</div>`;
   } else {
-    const options = classificationPolicyDefs()
-      .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
-      .map(def => `<button class="rules-site-action-btn" onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
-      .join('');
-    const deleteButton = entry.source === 'custom'
-      ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>`
-      : '';
-    const promoteButton = entry.source === 'custom'
-      ? `<button class="rules-site-action-btn" ${systemAccessCanWrite ? '' : 'disabled title="需要系统管理员权限"'} onclick="promoteCustomSiteToSystemConfig(${idx})">添加到系统配置</button>`
-      : '';
-    actionHtml = `<div class="rules-site-actions">${options}${promoteButton}${deleteButton}<button class="rules-site-action-btn" onclick="renderRulesSiteDirectory()">取消</button></div>`;
+    if (entry.source === 'used-unclassified' && (entry.site?.historicalPending || entry.site?.actionable === false)) {
+      actionHtml = `<div class="rules-site-actions"><span class="rules-site-badge">当前已归类：${htmlEscape(sitePolicyLabel(entry.site?.currentClassification))}</span></div>`;
+    } else {
+      const options = classificationPolicyDefs()
+        .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
+        .map(def => `<button class="rules-site-action-btn" onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
+        .join('');
+      const deleteButton = entry.source === 'custom'
+        ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>`
+        : '';
+      const promoteButton = entry.source === 'custom'
+        ? `<button class="rules-site-action-btn" ${systemAccessCanWrite ? '' : 'disabled title="需要系统管理员权限"'} onclick="promoteCustomSiteToSystemConfig(${idx})">添加到系统配置</button>`
+        : '';
+      actionHtml = `<div class="rules-site-actions">${options}${promoteButton}${deleteButton}<button class="rules-site-action-btn" onclick="renderRulesSiteDirectory()">取消</button></div>`;
+    }
   }
   return `
     <div class="rules-site-row-wrap" data-source="${entry.source}" data-domain="${htmlEscape(entry.title)}">
@@ -2630,7 +2643,7 @@ function renderSpecialSitesSummary() {
 function renderUsedUnclassifiedIntro() {
   const count = (rulesSitePolicyState.usedUnclassified || []).length;
   const loading = rulesSitePolicyState.usedUnclassifiedLoading ? '，正在读取最近 30 天访问历史' : '';
-  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>已使用未归类网站：${count} 个${loading}</strong><span>这些网站来自最近 30 天使用历史，当前仍未被归入学习、复合、受限娱乐或黑名单。它们不是复合网站；也可在“网站归类审核”统一入口中处理。</span></div>`;
+  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>已使用未归类网站：${count} 个${loading}</strong><span>这些网站来自最近 30 天使用历史；当前仍未归类的可在这里处理，历史曾按待归类落账但当前已归类的会作为解释项显示。它们不是复合网站；也可在“网站归类审核”统一入口中查看。</span></div>`;
 }
 
 function reviewUsedUnclassifiedEntries() {
@@ -2669,9 +2682,12 @@ function renderReviewUsedUnclassifiedSites() {
 }
 
 function renderReviewUsedUnclassifiedRow(entry, idx) {
-  const actionHtml = classificationPolicyDefs()
-    .map(def => `<button class="rules-site-action-btn" onclick="classifyReviewUsedUnclassifiedSite(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
-    .join('');
+  const site = entry.site || {};
+  const actionHtml = site.historicalPending || site.actionable === false
+    ? `<span class="rules-site-badge">当前已归类：${htmlEscape(sitePolicyLabel(site.currentClassification))}</span>`
+    : classificationPolicyDefs()
+      .map(def => `<button class="rules-site-action-btn" onclick="classifyReviewUsedUnclassifiedSite(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
+      .join('');
   return `
     <div class="rules-site-row-wrap" data-source="used-unclassified" data-domain="${htmlEscape(entry.title)}">
       <div class="rules-site-row">

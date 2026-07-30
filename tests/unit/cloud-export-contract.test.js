@@ -80,7 +80,7 @@ function run() {
   const workerIndexSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
   const siteRequestsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'), 'utf8');
   expectTrue('Worker 应路由已使用未归类网站 API', workerIndexSource.includes('/used-unclassified-sites') && siteRequestsSource.includes('listUsedUnclassifiedSites'));
-  expectTrue('已使用未归类网站 API 应读取 target_stats_v1 并过滤当前已归类网站', siteRequestsSource.includes('FROM target_stats_v1') && siteRequestsSource.includes('resolveSiteAccessClassification') && siteRequestsSource.includes("resolved.classification !== 'pending_composite'"));
+  expectTrue('已使用未归类网站 API 应读取 target_stats_v1 并保留历史待归类解释项', siteRequestsSource.includes('FROM target_stats_v1') && siteRequestsSource.includes('resolveSiteAccessClassification') && siteRequestsSource.includes('historicalPending') && siteRequestsSource.includes('actionable: !historicalPending'));
   expectTrue('已使用未归类网站归类应写入当前 profile custom list', siteRequestsSource.includes('classifyUsedUnclassifiedSite') && siteRequestsSource.includes('addHostToProfileCustomList') && siteRequestsSource.includes('customBlockedSites'));
   expectTrue('已使用未归类网站归类应关闭匹配 pending 记录', siteRequestsSource.includes('closeMatchingPendingRequests') && siteRequestsSource.includes("status = ?") && siteRequestsSource.includes("status = 'pending'"));
 
