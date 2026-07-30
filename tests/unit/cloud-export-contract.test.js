@@ -29,6 +29,8 @@ function run() {
   const storageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js'), 'utf8');
   const classifierSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'site-classification.js'), 'utf8');
   const managedTargetsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'managed-targets.js'), 'utf8');
+  const runtimeSessionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'runtime', 'session.js'), 'utf8');
+  const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
   const migrationSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '020_system_access_config_v1.sql'), 'utf8');
 
   expectTrue('Worker 应挂载 exportRouter', indexSource.includes("import { exportRouter } from './routes/export';") && indexSource.includes('export\\/v1'));
@@ -72,6 +74,8 @@ function run() {
   expectTrue('扩展端 cloud version skip 应执行 runtime normalization', cloudSyncSource.includes('const localRuntime = normalizeRuntimeSiteAccessConfig(localConfig') && cloudSyncSource.includes('await saveConfigFn(localRuntime.config)'));
   expectTrue('运行时分类器不直接消费 legacy default aliases', !classifierSource.includes('defaultUserCompositeSites') && !classifierSource.includes('recommendedCompositeSites'));
   expectTrue('managed target attribution 不直接注入 YouTube 根域兜底', !managedTargetsSource.includes('specialRestrictedRoot') && !managedTargetsSource.includes('SPECIAL_RESTRICTED_ROOT'));
+  expectTrue('Popup local snapshot 应归一化 raw guardian_config', backgroundSource.includes('normalizeRuntimeSiteAccessConfig') && backgroundSource.includes('function pickPopupConfig') && backgroundSource.includes('fallbackConfig: DEFAULT_CONFIG'));
+  expectTrue('runtime session managed target attribution 应归一化 raw guardian_config', runtimeSessionSource.includes('normalizeRuntimeSiteAccessConfig') && runtimeSessionSource.includes('const normalized = normalizeRuntimeSiteAccessConfig') && runtimeSessionSource.includes('config: normalized'));
 
   const workerIndexSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
   const siteRequestsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'), 'utf8');

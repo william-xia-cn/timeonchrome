@@ -23,6 +23,8 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] YouTube raw guardian_config 漏网消费者修复
+  - 修复 Popup snapshot 与 runtime session managed target attribution 直接读取 raw guardian_config，导致旧 composite 残留继续显示/落账为复合时间的问题。
 - [x] YouTube 根域与时间段生效问题修复
   - 发现：旧云端系统配置可能仍把 youtube.com 放在 defaultUserCompositeSites，导致根域被按复合来源加载；系统配置读取必须强制执行 YouTube 根域受限娱乐不变量。
   - 发现：PUT /profiles/:id/config 重新计算复合 effective 清单时漏合并 defaultUserCompositeSites；保存配置后可能造成 GET/PUT 口径不一致。

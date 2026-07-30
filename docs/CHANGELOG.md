@@ -6,6 +6,11 @@
 
 ---
 
+## [1.7.18] — 2026-07-30
+
+- **修复 YouTube 仍被记为复合时间**：Popup 本地快照和 foreground session managed target 落账现在都会先归一化 raw `guardian_config`，避免旧 `compositeList` / `defaultUserCompositeSites` 残留继续把 `youtube.com` 记为复合。
+
+---
 ## [1.7.17] — 2026-07-29
 
 - **网站访问运行时配置归一化**：扩展端新增版本化 runtime normalization，历史缓存、云端拉取、导入恢复和 cloud version skip 都会先重算 canonical effective 清单，再进入分类、拦截、计时和落账。

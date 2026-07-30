@@ -20,6 +20,7 @@ import { createTimingAuditId, emitTrace, getTrace, clearTrace } from './core/tim
 import { computeAllDomains } from './core/aggregate.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from './infra/client-logs.js';
 import { resolveManagedTargetAttribution } from './core/managed-targets.js';
+import { normalizeRuntimeSiteAccessConfig } from './core/site-access-config-normalizer.js';
 import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
 import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
 import { resolveActivationState } from './core/activation-gate.js';
@@ -593,7 +594,7 @@ function buildPopupSettledModeStatsFromDay(dayStats) {
 }
 
 function pickPopupConfig(rawConfig, siteClassificationRequests = []) {
-  const config = { ...DEFAULT_CONFIG, ...(rawConfig || {}) };
+  const config = normalizeRuntimeSiteAccessConfig({ ...DEFAULT_CONFIG, ...(rawConfig || {}) }, { fallbackConfig: DEFAULT_CONFIG }).config;
   return {
     studyList: config.studyList || DEFAULT_CONFIG.studyList,
     compositeList: config.compositeList || DEFAULT_CONFIG.compositeList,

@@ -6,6 +6,7 @@ import { getReliableCloseTime } from './time-boundary.js';
 import { isCountedState, settleUsageDuration } from '../core/usage-segments.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
 import * as managedTargets from '../core/managed-targets.js';
+import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
@@ -264,8 +265,9 @@ function managedTargetFieldsFrom(value = {}, mode = null) {
 async function readManagedTargetInputs() {
   try {
     const data = await chrome.storage.local.get([GUARDIAN_CONFIG_KEY, SITE_CLASSIFICATION_REQUESTS_KEY]);
+    const normalized = normalizeRuntimeSiteAccessConfig(data?.[GUARDIAN_CONFIG_KEY] || {}).config;
     return {
-      config: data?.[GUARDIAN_CONFIG_KEY] || {},
+      config: normalized,
       requests: Array.isArray(data?.[SITE_CLASSIFICATION_REQUESTS_KEY])
         ? data[SITE_CLASSIFICATION_REQUESTS_KEY]
         : [],
