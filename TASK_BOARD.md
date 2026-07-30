@@ -23,6 +23,9 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] [Pages] 网站归类审核统一入口
+  - 目标：云端“网站归类审核”同页分区展示 `site_classification_requests_v1` 审核记录与 `target_stats_v1` 聚合的已使用未归类网站。
+  - 边界：只改 Pages UI、文档和静态测试；不改 Worker API、D1、同步或落账逻辑，不伪造审核记录。
 - [x] [Pages] 网站归类审核旧自动记录兼容显示
   - 目标：云端旧记录缺少 `recordSource` 但已有首次/最近访问和顶层导航次数时，仍按“自动未归类访问记录”分组展示。
   - 边界：只改 Pages 展示判定与静态测试；不改 Worker API、同步、审批或记录结构。

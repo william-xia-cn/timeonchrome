@@ -1370,14 +1370,14 @@
       <div class="page" id="page-review">
         <div class="page-header">
           <h2>网站归类审核</h2>
-          <p>检查未归类网站访问记录、学习网站归类申请和复合型网站产生的待归类会话</p>
+          <p>统一处理网站归类记录、已使用未归类网站和复合型网站产生的待归类会话。</p>
         </div>
 
         <div class="card" id="site-classification-review-card" style="margin-bottom:16px;">
           <div class="card-header">
             <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/request.svg" alt="">网站归类记录与申请</div>
-              <div style="font-size:12px;color:var(--muted);margin-top:3px;">自动记录表示未归类网站被访问；学习申请表示孩子希望归为学习网站。可调整最终生效对象与分类。</div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/request.svg" alt="">网站归类记录</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">来自显式审核记录：自动归类记录、孩子学习申请和历史归类记录。</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <select id="site-classification-status-filter" style="padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:12px;">
@@ -1389,6 +1389,18 @@
           </div>
           <div id="site-classification-requests-container">
             <div class="empty-state">加载网站归类记录中…</div>
+          </div>
+        </div>
+        <div class="card" id="review-used-unclassified-card" style="margin-bottom:16px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/composite.svg" alt="">已使用未归类网站</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">来自最近 30 天实际使用历史，当前仍未归入学习、复合、受限娱乐或黑名单；归类后会从这里消失。</div>
+            </div>
+            <button class="btn-save" id="review-used-unclassified-load-btn" style="padding:6px 12px;font-size:12px;">刷新</button>
+          </div>
+          <div id="review-used-unclassified-container">
+            <div class="empty-state">加载已使用未归类网站中…</div>
           </div>
         </div>
 
@@ -1707,13 +1719,15 @@ async function selectProfile(id) {
 async function updateReviewBadge(profileId) {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const [reviewResult, siteResult] = await Promise.all([
+    const [reviewResult, siteResult, usedUnclassifiedResult] = await Promise.all([
       api(`/profiles/${profileId}/pending-reviews?date=${today}`).catch(() => ({ groups: [] })),
       api(`/profiles/${profileId}/site-classification-requests/v1?status=pending`).catch(() => ({ requests: [] })),
+      api(`/profiles/${profileId}/used-unclassified-sites/v1?days=30`).catch(() => ({ sites: [] })),
     ]);
     const sessionCount = (reviewResult.groups || []).reduce((sum, g) => sum + g.sessions.length, 0);
     const siteCount = (siteResult.requests || []).length;
-    const count = sessionCount + siteCount;
+    const usedUnclassifiedCount = (usedUnclassifiedResult.sites || []).length;
+    const count = sessionCount + siteCount + usedUnclassifiedCount;
     const badge = document.getElementById('review-badge');
     if (badge) {
       badge.textContent = count > 0 ? count : '';
@@ -2616,7 +2630,58 @@ function renderSpecialSitesSummary() {
 function renderUsedUnclassifiedIntro() {
   const count = (rulesSitePolicyState.usedUnclassified || []).length;
   const loading = rulesSitePolicyState.usedUnclassifiedLoading ? '，正在读取最近 30 天访问历史' : '';
-  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>已使用未归类网站：${count} 个${loading}</strong><span>这些网站来自最近 30 天使用历史，当前仍未被归入学习、复合、受限娱乐或黑名单。它们不是复合网站；归类后会从这里消失。</span></div>`;
+  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>已使用未归类网站：${count} 个${loading}</strong><span>这些网站来自最近 30 天使用历史，当前仍未被归入学习、复合、受限娱乐或黑名单。它们不是复合网站；也可在“网站归类审核”统一入口中处理。</span></div>`;
+}
+
+function reviewUsedUnclassifiedEntries() {
+  return (rulesSitePolicyState.usedUnclassified || []).map((site, idx) => ({
+    source: 'used-unclassified',
+    classification: 'unclassified',
+    value: site.domain,
+    title: site.domain,
+    site,
+    _reviewIndex: idx,
+  }));
+}
+
+function renderReviewUsedUnclassifiedSites() {
+  const container = document.getElementById('review-used-unclassified-container');
+  if (!container) return;
+  if (rulesSitePolicyState.usedUnclassifiedLoading) {
+    container.innerHTML = '<div class="empty-state">加载已使用未归类网站中…</div>';
+    return;
+  }
+  const entries = reviewUsedUnclassifiedEntries();
+  window._reviewUsedUnclassifiedEntries = entries;
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding:36px;">当前没有已使用但仍未归类的网站。</div>';
+    return;
+  }
+  container.innerHTML = renderUsedUnclassifiedIntro() + `<section class="rules-site-group" data-source-group="used-unclassified" data-review-used-unclassified="true">
+    <div class="rules-site-group-header">
+      <div>
+        <div>已使用未归类网站</div>
+        <div class="rules-site-group-subtitle">共 ${entries.length} 条 · 来源为最近 30 天使用聚合，不是审核记录表</div>
+      </div>
+    </div>
+    ${entries.map(renderReviewUsedUnclassifiedRow).join('')}
+  </section>`;
+}
+
+function renderReviewUsedUnclassifiedRow(entry, idx) {
+  const actionHtml = classificationPolicyDefs()
+    .map(def => `<button class="rules-site-action-btn" onclick="classifyReviewUsedUnclassifiedSite(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
+    .join('');
+  return `
+    <div class="rules-site-row-wrap" data-source="used-unclassified" data-domain="${htmlEscape(entry.title)}">
+      <div class="rules-site-row">
+        <div>
+          <div class="rules-site-domain">${htmlEscape(entry.title)}</div>
+          <div class="rules-site-meta"><span class="rules-site-badge">已使用未归类网站</span>${htmlEscape(rulesSiteMeta(entry))}</div>
+        </div>
+        <div class="rules-site-actions">${actionHtml}</div>
+      </div>
+    </div>`;
 }
 
 function renderRulesSiteDirectory() {
@@ -2669,8 +2734,8 @@ async function loadSystemAccessCapabilityForRules() {
   }
 }
 
-async function loadUsedUnclassifiedSitesForRules() {
-  if (!currentProfileId || rulesSitePolicyState.usedUnclassifiedLoadedForProfileId === currentProfileId || rulesSitePolicyState.usedUnclassifiedLoading) return;
+async function loadUsedUnclassifiedSitesForRules(forceRefresh = false) {
+  if (!currentProfileId || (!forceRefresh && rulesSitePolicyState.usedUnclassifiedLoadedForProfileId === currentProfileId) || rulesSitePolicyState.usedUnclassifiedLoading) return;
   rulesSitePolicyState.usedUnclassifiedLoading = true;
   renderRulesPolicyNav();
   renderRulesSiteDirectory();
@@ -2686,6 +2751,7 @@ async function loadUsedUnclassifiedSitesForRules() {
     rulesSitePolicyState.usedUnclassifiedLoading = false;
     renderRulesPolicyNav();
     renderRulesSiteDirectory();
+    renderReviewUsedUnclassifiedSites();
   }
 }
 
@@ -2770,6 +2836,22 @@ window.promoteCustomSiteToSystemConfig = async (idx) => {
   }
 };
 
+window.classifyReviewUsedUnclassifiedSite = async (idx, targetPolicy) => {
+  const entry = window._reviewUsedUnclassifiedEntries?.[idx];
+  const def = classificationPolicyDefs().find(item => item.key === targetPolicy);
+  if (!entry || !def || !currentProfileId) return;
+  try {
+    const r = await api(`/profiles/${currentProfileId}/used-unclassified-sites/v1`, 'POST', { domain: entry.value, classification: targetPolicy });
+    if (r.config) remoteConfig = r.config;
+    rulesSitePolicyState.usedUnclassified = (rulesSitePolicyState.usedUnclassified || []).filter(site => !matchDomain(site.domain, entry.value));
+    renderReviewUsedUnclassifiedSites();
+    renderRulesPage();
+    updateReviewBadge(currentProfileId);
+    toast(`已归为${def.label}`);
+  } catch (e) {
+    toast('分类失败：' + (e.message || e), false);
+  }
+};
 window.classifyRulesSiteEntry = async (idx, targetPolicy) => {
   const entry = window._rulesSiteDirectoryEntries?.[idx];
   const def = classificationPolicyDefs().find(item => item.key === targetPolicy);
@@ -7302,8 +7384,11 @@ function renderReviewPage() {
   document.getElementById('review-load-btn').onclick = () => loadReviewGroups();
   document.getElementById('site-classification-load-btn').onclick = () => loadSiteClassificationRequests();
   document.getElementById('site-classification-status-filter').onchange = () => loadSiteClassificationRequests();
+  document.getElementById('review-used-unclassified-load-btn').onclick = () => loadUsedUnclassifiedSitesForRules(true);
   // 首次进入自动加载
   loadSiteClassificationRequests();
+  loadUsedUnclassifiedSitesForRules();
+  renderReviewUsedUnclassifiedSites();
   loadReviewGroups();
 }
 

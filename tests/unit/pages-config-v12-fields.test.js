@@ -167,7 +167,16 @@ function run() {
   expectTrue('Pages 统计对账应读取 stats-reconciliation/v1', source.includes('/stats-reconciliation/v1'));
   expectTrue('Pages 统计对账应展示统计表、落账聚合、差异、状态', source.includes('统计表') && source.includes('落账聚合') && source.includes('差异') && source.includes('状态'));
   expectTrue('Pages 统计对账应支持显示全部开关', source.includes('reconciliation-show-all'));
-  expectTrue('Pages 应包含网站归类审核入口', source.includes('网站归类审核') && source.includes('site-classification-requests/v1'));
+  expectTrue('Pages 应包含网站归类审核统一入口', source.includes('<h2>网站归类审核</h2>') && source.includes('site-classification-requests/v1') && source.includes('/used-unclassified-sites/v1?days=30'));
+  expectTrue('Pages 网站归类审核应同页分区展示网站归类记录和已使用未归类网站', source.includes('id="site-classification-review-card"') && source.includes('id="review-used-unclassified-card"') && source.includes('data-review-used-unclassified="true"'));
+  expectTrue('Pages 网站归类审核不应保留申请审核命名', !source.includes('网站归类申请审核') && !source.includes('暂无网站归类申请记录'));
+  const loadSiteClassificationRequestsSource = extractFunctionSource(source, 'loadSiteClassificationRequests');
+  const classifyReviewUsedUnclassifiedStart = source.indexOf('window.classifyReviewUsedUnclassifiedSite');
+  const classifyReviewUsedUnclassifiedEnd = source.indexOf('window.classifyRulesSiteEntry', classifyReviewUsedUnclassifiedStart);
+  const classifyReviewUsedUnclassifiedSource = source.slice(classifyReviewUsedUnclassifiedStart, classifyReviewUsedUnclassifiedEnd);
+  expectTrue('Pages 网站归类记录分区仍只读取显式审核记录', loadSiteClassificationRequestsSource.includes('/site-classification-requests/v1?status=') && !loadSiteClassificationRequestsSource.includes('/used-unclassified-sites/v1'));
+  expectTrue('Pages 已使用未归类网站分区复用专用归类 API，不伪造审核记录', classifyReviewUsedUnclassifiedSource.includes('/used-unclassified-sites/v1') && !classifyReviewUsedUnclassifiedSource.includes('/site-classification-requests/v1'));
+  expectTrue('Pages 审核 badge 应统计审核记录和已使用未归类网站', extractFunctionSource(source, 'updateReviewBadge').includes('usedUnclassifiedResult') && extractFunctionSource(source, 'updateReviewBadge').includes('usedUnclassifiedCount'));
   expectTrue('Pages 网站归类记录应支持审批生效对象编辑', source.includes('审批生效对象') && source.includes('site-request-type-') && source.includes('site-request-target-'));
   expectTrue('Pages 应为访问记录提供确认/暂不归类动作', source.includes('确认为学习网站') && source.includes('确认为复合网站') && source.includes('暂不归类') && source.includes('归为受限娱乐'));
   expectTrue('Pages 应为学习申请提供批准/改为复合/退回动作', source.includes('批准归为学习网站') && source.includes('改为复合网站') && source.includes('退回申请'));
