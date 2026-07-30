@@ -72,6 +72,7 @@ async function run() {
   const compositeCalls = [];
   const siteRequestCalls = [];
   const validateCalls = [];
+  const syncCalls = [];
   const temporaryCompositeRecords = [
     { tabId: 7, domain: 'old.example.com', createdAt: 1000 },
     { tabId: 8, domain: 'new.example.com', createdAt: 2000 },
@@ -81,6 +82,7 @@ async function run() {
   ];
   const { handleMessage } = loadHandleMessage({
     updateDeclarativeRules: async () => {},
+    saveConfig: async () => {},
     getConfig: async () => ({
       mode: 'study',
       compositeList: [],
@@ -119,7 +121,7 @@ async function run() {
       return { ok: true, target, actionClassification: action };
     },
     getSyncState: () => ({ deviceToken: null }),
-    syncNow: async () => ({}),
+    syncNow: async (...args) => { syncCalls.push(args); return {}; },
     extractDomain: (url) => {
       try { return new URL(url).hostname; } catch (_) { return ''; }
     },
@@ -134,6 +136,10 @@ async function run() {
     expectTrue('storage 暴露临时综合记录只读方法', storageSource.includes('export async function getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持 GET_TEMPORARY_COMPOSITE_DOMAINS', routerSource.includes('GET_TEMPORARY_COMPOSITE_DOMAINS') && routerSource.includes('getTemporaryCompositePermissionRecords'));
     expectTrue('router 支持网站归类申请消息', routerSource.includes('SUBMIT_SITE_CLASSIFICATION_REQUEST') && routerSource.includes('GET_SITE_CLASSIFICATION_REQUESTS'));
+    const submitStart = routerSource.indexOf("case 'SUBMIT_SITE_CLASSIFICATION_REQUEST'");
+    const submitEnd = routerSource.indexOf("case 'SWITCH_TO_STUDY'", submitStart);
+    const submitBlock = routerSource.slice(submitStart, submitEnd);
+    expectTrue('router 申请提交后不依赖内存 deviceToken 才触发同步', submitBlock.includes('syncNow(getConfig, saveConfig, updateDeclarativeRules') && !submitBlock.includes('syncStateRef.deviceToken'));
     expectTrue('router 支持网站归类申请 dry-run 校验消息', routerSource.includes('VALIDATE_SITE_CLASSIFICATION_REQUEST') && routerSource.includes('validateSiteClassificationRequestMessage') && routerSource.includes('validateSiteClassificationAction'));
     expectTrue('router 网站归类申请失败返回结构化响应', routerSource.includes("code: 'SITE_CLASSIFICATION_REQUEST_FAILED'") && routerSource.includes('catch (error)'));
     expectTrue('router reminder recheck 优先使用 targetUrl', routerSource.includes("searchParams.get('targetUrl')") && routerSource.includes('normalizeHttpTargetUrl'));
@@ -229,6 +235,7 @@ async function run() {
     expect('使用 sourceTabId', r.sourceTabId, 42);
     expect('提交上下文保留 sourceTabId', siteRequestCalls.at(-1).context.sourceTabId, 42);
     expect('提交上下文声明学习归类方向', siteRequestCalls.at(-1).context.requestedClassification, 'study');
+    expectTrue('内存同步状态无 token 时仍触发上传同步', syncCalls.length > 0);
   }
 
   section('C02-2b 提交完整 URL 申请时上下文保存原始 URL');
@@ -259,6 +266,7 @@ async function run() {
   {
     const { handleMessage: failingHandleMessage } = loadHandleMessage({
       updateDeclarativeRules: async () => {},
+      saveConfig: async () => {},
       getConfig: async () => ({ mode: 'study' }),
       getSiteClassificationRequestRecords: async () => [],
       submitSiteClassificationRequest: async () => { throw new Error('storage write failed'); },
@@ -268,7 +276,7 @@ async function run() {
       },
       validateSiteClassificationAction: () => ({ ok: true }),
       getSyncState: () => ({ deviceToken: null }),
-      syncNow: async () => ({}),
+      syncNow: async (...args) => { syncCalls.push(args); return {}; },
       extractDomain: (url) => {
         try { return new URL(url).hostname; } catch (_) { return ''; }
       },

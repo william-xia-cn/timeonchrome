@@ -302,6 +302,10 @@ compositeSeconds = readCompositeSeconds(statsLike)
 
 使用分析展示层必须区分“访问对象性质”和“配额扣除来源”：当 managed target row 带有 `targetClassificationAtTime` 时，主图、主分类和对象列表优先按该字段解释为学习 / 待归类 / 休息；`quotaBucketAtTime` 仅表示扣了哪个配额。待归类对象在待归类配额耗尽后借用休息配额时，仍显示为待归类时间，并在状态或详情中标注“借用休息配额”，不得在主图中直接显示为普通休息时间。本规则只影响读取展示，不回写历史 segment，不改变底层落账和上传结构。时间使用性质只跟“用来做什么 / 访问对象是什么”有关，与配额来源无关；配额来源可以被借用，但不改变学习、待归类、休息三类展示口径。
 
+运行时生成 `targetClassificationAtTime` 前必须先应用保护性父域规则：如果受限娱乐 / 黑名单父域已经命中，历史 host/subdomain pending 记录不能把该访问对象改解释为 `pending_composite`。YouTube 等特殊网站的具体视频、播放列表、频道是例外，仍可在家长审批前作为 pending 特殊对象进入待归类时间。
+
+域名重复、冲突、申请、审批和 managed target attribution 必须使用统一主站身份 `canonicalSiteIdentityHost()`：`www.` 与 `m.` 开头的主站入口归并到 bare host，路径 URL 先取 host 再归并。该 identity 只用于判断主站入口是否等价，不把 `docs.example.com` 这类独立服务子域折叠到 `example.com`。
+
 #### 1.3.7.4 分类计算层（Classification Layer）
 
 所有分类、解释和报表必须**在读取时动态计算**，计算输入包括：

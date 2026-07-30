@@ -23,10 +23,19 @@
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
 ## Current Fix Focus（2026-07-28）
+- [x] [Cloud Sync] 归类申请上传触发可靠性修订
+  - 目标：修复归类申请提交后依赖 cloud-sync 内存 deviceToken 才触发上传的问题；本地 unpacked 扩展 service worker 重启后也应立刻触发 syncNow，并在撞上已有同步时安排补同步。
+  - 边界：不改变配置、归类申请、统计、配额上传流程；保留 2 分钟 stale lock 自动释放逻辑。
 - [x] [Stats UI] 待归类借用休息配额展示口径修正
   - 目标：使用分析主图和对象列表按 `targetClassificationAtTime` 展示访问对象性质；`quotaBucketAtTime=rest` 只作为配额来源提示，避免待归类对象借用休息配额被显示为普通休息时间。
   - 边界：只改 Pages/Admin 展示 read model 与测试；不改 segment 落账、上传协议、配额扣除、拦截或时间段路由。
   - 语义澄清：时间使用性质取决于访问内容/对象，不取决于配额来源；时间段管理主要是内容使用窗口，配额可借用但不改变使用性质。
+- [x] [Runtime] 主站等价域名绕过修复
+  - 目标：将 bare / www / m 主站入口统一为同一 site identity，阻止通过 `www.google.com`、`m.google.com` 或同 host URL 绕过已有主站策略申请/添加为学习网站。
+  - 边界：不折叠 `docs.google.com` 等独立服务子域；不迁移历史 segment；YouTube 特殊对象例外保持不变。
+- [x] [Runtime] 受限父域压制历史 host 待归类记录
+  - 目标：修复历史/自动生成的 `www.youtube.com` pending 记录覆盖 `youtube.com` 受限娱乐父域，导致 YouTube 根域继续落账为待归类时间的问题。
+  - 边界：保留具体 YouTube 视频、播放列表、频道申请在审批前作为 pending 特殊对象；不迁移历史 segment，不改变配额扣除结构。
 - [x] [Stats UI] 待归类借用休息配额命名收敛
   - 目标：将展示 notice、测试名和统计解释源从“进入休息模式 / target quota bucket”收敛为“借用休息配额 / target classification snapshot”。
   - 边界：保留 `composite_exhausted_to_rest` 等 legacy internal reason 作为兼容枚举；只修正文案、文档说明和展示层命名，不改变底层路由值或落账结构。

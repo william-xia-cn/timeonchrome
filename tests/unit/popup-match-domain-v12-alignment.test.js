@@ -54,6 +54,8 @@ function run() {
   expectEqual('example.com vs *.example.com = false', matchDomain('example.com', '*.example.com'), false);
   expectEqual('www.example.com vs example.com = true', matchDomain('www.example.com', 'example.com'), true);
   expectEqual('example.com vs www.example.com = true', matchDomain('example.com', 'www.example.com'), true);
+  expectEqual('m.example.com vs example.com = true', matchDomain('m.example.com', 'example.com'), true);
+  expectEqual('example.com vs m.example.com = true', matchDomain('example.com', 'm.example.com'), true);
 
   const total = passed + failed;
   console.log(`\n[Popup MatchDomain v1.2 Alignment] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

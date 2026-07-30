@@ -61,6 +61,7 @@ function run() {
   expectTrue('sendHeartbeat follow-up sync failure does not clear device token or block heartbeat', sendHeartbeat.includes('device_recovery_followup_sync_failed') && sendHeartbeat.indexOf('device_recovery_followup_sync_failed') < sendHeartbeat.indexOf("cloudRequest('POST', '/device/heartbeat'") && !sendHeartbeat.includes('clearCloudBindingState'));
   expectTrue('only explicit DEVICE_UNBOUND clears device binding', cloudSync.includes('isDeviceUnboundPayload') && cloudSync.includes('clearCloudBindingState') && !cloudSync.includes('resp.status === 401') && !cloudSync.includes('Device token expired'));
   expectTrue('status API exposes local connection state', extractFunctionSource(cloudSync, 'async getStatsFoundationV1SyncStatus').includes('connectionState'));
+  expectTrue('sync already in progress is a neutral skipped state', syncNow.includes("reason: 'sync_already_in_progress'") && syncNow.includes('hadFailure: false') && syncNow.includes('skipped: true') && syncNow.includes('followUpScheduled: true') && syncNow.includes('followUpSyncRequested') && syncNow.includes('await syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn'));
 
   console.log(`\n[Cloud Connection Resilience] ${passed}/${passed + failed} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed) process.exit(1);

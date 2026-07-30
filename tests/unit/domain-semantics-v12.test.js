@@ -27,11 +27,11 @@ async function run() {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'core', 'domain-semantics.js'), 'utf8');
   const wrapped = code
     .replace(/export\s+function\s+/g, 'function ')
-    + '\nthis.__domainSemantics = { normalizeHostname, domainForUrl, matchDomain };';
+    + '\nthis.__domainSemantics = { normalizeHostname, domainForUrl, matchDomain, canonicalSiteIdentityHost };';
   const context = { console, URL, this: null };
   context.this = context;
   vm.runInNewContext(wrapped, context, { filename: 'domain-semantics.js' });
-  const { normalizeHostname, domainForUrl, matchDomain } = context.__domainSemantics;
+  const { normalizeHostname, domainForUrl, matchDomain, canonicalSiteIdentityHost } = context.__domainSemantics;
 
   section('N1 normalizeHostname: lowercase / trailing dot / punycode / invalid tolerance');
   expectEqual('lowercase', normalizeHostname('EXAMPLE.COM'), 'example.com');
@@ -47,6 +47,11 @@ async function run() {
   expectEqual('wildcard does not include bare domain', matchDomain('example.com', '*.example.com'), false);
   expectEqual('www symmetric alias (www -> bare)', matchDomain('www.example.com', 'example.com'), true);
   expectEqual('www symmetric alias (bare -> www)', matchDomain('example.com', 'www.example.com'), true);
+  expectEqual('m symmetric alias (m -> bare)', matchDomain('m.example.com', 'example.com'), true);
+  expectEqual('m symmetric alias (bare -> m)', matchDomain('example.com', 'm.example.com'), true);
+  expectEqual('canonical identity strips www', canonicalSiteIdentityHost('www.example.com'), 'example.com');
+  expectEqual('canonical identity strips m', canonicalSiteIdentityHost('m.example.com'), 'example.com');
+  expectEqual('canonical identity keeps service subdomain', canonicalSiteIdentityHost('docs.example.com'), 'docs.example.com');
   expectEqual('non-www prefix subdomain is also covered by parent', matchDomain('xwww.example.com', 'example.com'), true);
   expectEqual('boundary safety (suffix false positive)', matchDomain('notexample.com', 'example.com'), false);
   expectEqual('boundary safety (evil subdomain)', matchDomain('example.com.evil.com', 'example.com'), false);

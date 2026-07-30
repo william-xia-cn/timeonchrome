@@ -172,6 +172,7 @@ function run() {
   expectTrue('Pages 应为访问记录提供确认/暂不归类动作', source.includes('确认为学习网站') && source.includes('确认为复合网站') && source.includes('暂不归类') && source.includes('归为受限娱乐'));
   expectTrue('Pages 应为学习申请提供批准/改为复合/退回动作', source.includes('批准归为学习网站') && source.includes('改为复合网站') && source.includes('退回申请'));
   expectTrue('Pages 应展示两类记录及聚合访问字段', source.includes('未归类网站访问记录') && source.includes('学习网站归类申请') && source.includes('firstObservedAt') && source.includes('lastObservedAt') && source.includes('observationCount'));
+expectTrue('Pages 网站归类审核应按自动访问记录和学习申请分组', source.includes('function renderSiteRequestSections') && source.includes('自动未归类访问记录') && source.includes('data-site-request-section') && source.indexOf("renderSiteRequestSection('unclassified_visit'") < source.indexOf("renderSiteRequestSection('learning_request'"));
   expectTrue('Pages 移动端归类审核应使用单列记录和两列动作', source.includes('grid-template-columns: minmax(0, 1fr)') && source.includes('.site-request-actions .btn-classify') && source.includes('grid-template-columns: 1fr 1fr'));
   expectTrue('Pages 网站归类记录应支持全部历史筛选', source.includes('site-classification-status-filter') && source.includes('value="all"'));
   expectTrue('Pages 访问规则页不应单独展示已批准精确链接规则', !source.includes('已批准精确链接 / 管理对象规则') && !source.includes('r-approved-target-rules-display') && !source.includes('renderApprovedTargetRules'));
@@ -230,6 +231,7 @@ function run() {
       { key: 'blocked', label: '黑名单网站', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites' },
     ];`,
     extractFunctionSource(source, 'normalizeSiteAccessHostname'),
+    extractFunctionSource(source, 'canonicalSiteIdentityHost'),
     extractFunctionSource(source, 'normalizeSiteAccessHostKey'),
     extractFunctionSource(source, 'normalizeSiteAccessInput'),
     extractFunctionSource(source, 'getCustomList'),
@@ -286,6 +288,7 @@ function run() {
       invalid: validateRulesSiteAdd('', 'study'),
       currentSystem: validateRulesSiteAdd('https://www.drive.google.com/docs', 'study'),
       otherSystem: validateRulesSiteAdd('netflix.com', 'study'),
+      mainSiteAlias: validateRulesSiteAdd('m.wikipedia.org', 'study'),
       userCompositeSystem: validateRulesSiteAdd('wikipedia.org', 'study'),
       currentCustom: validateRulesSiteAdd('custom-study.example.com', 'study'),
       otherCustom: validateRulesSiteAdd('custom-game.example.com', 'study'),

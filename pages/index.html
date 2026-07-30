@@ -410,6 +410,12 @@
     .site-request-target input { flex: 1; min-width: 130px; }
     .site-request-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .site-request-status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .site-request-section { border: 1px solid var(--border); border-radius: 10px; margin: 12px 0; overflow: hidden; background: var(--card); }
+    .site-request-section-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .site-request-section-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .site-request-section-desc { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .site-request-section-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .site-request-section-body { padding: 0 12px; }
     .btn-classify {
       padding: 4px 10px; border-radius: 6px; border: 1px solid; font-size: 12px; cursor: pointer;
       background: transparent; transition: background .15s;
@@ -1991,13 +1997,21 @@ const SITE_ACCESS_CATEGORY_FIELDS = [
   { category: 'blocked', label: '黑名单网站', keys: ['defaultBlockedSites', 'unsafeList', 'customBlockedSites'] },
 ];
 
+function canonicalSiteIdentityHost(host) {
+  const normalized = normalizeSiteAccessHostname(host);
+  if (!normalized) return null;
+  if (normalized.startsWith('www.')) return normalized.slice(4);
+  if (normalized.startsWith('m.')) return normalized.slice(2);
+  return normalized;
+}
+
 function normalizeSiteAccessHostKey(value) {
   const raw = String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.+$/g, '');
   if (!raw) return null;
   const wildcard = raw.startsWith('*.');
   const host = normalizeSiteAccessHostname(wildcard ? raw.slice(2) : raw);
   if (!host) return null;
-  const canonicalHost = host.startsWith('www.') ? host.slice(4) : host;
+  const canonicalHost = canonicalSiteIdentityHost(host) || host;
   return `${wildcard ? 'host-wildcard' : 'host'}:${canonicalHost}`;
 }
 
@@ -7266,8 +7280,9 @@ function matchDomain(domain, pattern) {
   const p = normalizeHostnameV12(pattern);
   if (!d || !p) return false;
   if (d === p) return true;
-  if (d.startsWith('www.') && d.slice(4) === p) return true;
-  if (p.startsWith('www.') && p.slice(4) === d) return true;
+  const dIdentity = d.startsWith('www.') ? d.slice(4) : d.startsWith('m.') ? d.slice(2) : d;
+  const pIdentity = p.startsWith('www.') ? p.slice(4) : p.startsWith('m.') ? p.slice(2) : p;
+  if (dIdentity && pIdentity && dIdentity === pIdentity) return true;
   if (p.startsWith('*.')) {
     const base = p.slice(2);
     if (!base || d === base) return false;
@@ -7334,6 +7349,59 @@ function siteRequestObservationText(request = {}) {
   return `首次 ${formatSiteRequestTimestamp(request.firstObservedAt)} · 最近 ${formatSiteRequestTimestamp(request.lastObservedAt)} · 顶层导航 ${count} 次`;
 }
 
+function siteRequestSectionMeta(kind) {
+  if (kind === 'unclassified_visit') {
+    return {
+      title: '自动未归类访问记录',
+      description: '系统自动记录孩子实际访问过、当前仍未归类的网站；家长可确认为学习、复合、暂不归类或受限娱乐。',
+    };
+  }
+  if (kind === 'learning_request') {
+    return {
+      title: '孩子学习归类申请',
+      description: '孩子主动申请把网站归为学习网站；审批前仍按待归类时间处理。',
+    };
+  }
+  return {
+    title: '历史网站归类记录',
+    description: '旧版本或来源不明的归类记录，保留为历史审核证据。',
+  };
+}
+
+function renderSiteRequestSection(kind, requests = []) {
+  if (!requests.length) return '';
+  const meta = siteRequestSectionMeta(kind);
+  return `
+    <section class="site-request-section" data-site-request-section="${escHtml(kind)}">
+      <div class="site-request-section-header">
+        <div>
+          <div class="site-request-section-title">${escHtml(meta.title)}</div>
+          <div class="site-request-section-desc">${escHtml(meta.description)}</div>
+        </div>
+        <div class="site-request-section-count">${requests.length} 条</div>
+      </div>
+      <div class="site-request-section-body">
+        ${requests.map(({ request, idx }) => renderSiteRequestRow(request, idx)).join('')}
+      </div>
+    </section>`;
+}
+
+function renderSiteRequestSections(requests = []) {
+  const grouped = {
+    unclassified_visit: [],
+    learning_request: [],
+    legacy: [],
+  };
+  requests.forEach((request, idx) => {
+    const kind = siteRequestRecordKind(request);
+    (grouped[kind] || grouped.legacy).push({ request, idx });
+  });
+  return [
+    renderSiteRequestSection('unclassified_visit', grouped.unclassified_visit),
+    renderSiteRequestSection('learning_request', grouped.learning_request),
+    renderSiteRequestSection('legacy', grouped.legacy),
+  ].filter(Boolean).join('');
+}
 function renderSiteRequestRow(request, idx) {
   const isPending = request.status === 'pending';
   const kind = siteRequestRecordKind(request);
@@ -7391,7 +7459,7 @@ async function loadSiteClassificationRequests() {
       updateReviewBadge(currentProfileId);
       return;
     }
-    container.innerHTML = requests.map(renderSiteRequestRow).join('');
+    container.innerHTML = renderSiteRequestSections(requests);
     updateReviewBadge(currentProfileId);
   } catch (e) {
     container.innerHTML = `<div class="empty-state" style="color:var(--danger);">加载失败：${escHtml(e.message)}</div>`;

@@ -39,6 +39,7 @@ function loadStorageMatchDomain(deps) {
   const transformed = code
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/aggregate\.js';/, 'const computeAllDomains = __deps.computeAllDomains; const computeAllDomainsWithAudio = __deps.computeAllDomainsWithAudio;')
     .replace(/import\s+\{\s*domainForUrl,\s*matchDomain\s+as\s+matchDomainV12,\s*normalizeHostname\s*\}\s+from\s+'\.\.\/core\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl; const matchDomainV12 = __deps.matchDomainV12; const normalizeHostname = __deps.normalizeHostname;')
+    .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/site-access-config-normalizer\.js';/, 'const normalizeRuntimeSiteAccessConfig = (config) => ({ config });')
     .replace(/import\s+\{[\s\S]*?\}\s+from\s+'\.\.\/core\/site-classification\.js';/, 'const resolveSiteAccessClassification = () => ({ classification: null }); const getSiteClassificationForUrl = () => ({ classification: null }); const normalizeSiteClassificationRequest = (record) => record; const normalizeSiteClassificationTarget = () => ({ ok: false }); const siteDecisionMatchesUrl = () => false;')
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/stats\/managed-statistics\.js';/, 'const getPopupModeStatsView = async () => ({}); const getQuotaUsageView = async () => ({}); const getTodayUsageView = async () => ({}); const getUsageRangeView = async () => ({});')
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/timing-trace\.js';/, 'const emitTrace = async () => {};')
@@ -78,6 +79,8 @@ function run() {
   expectEqual('example.com vs *.example.com = false', storage.matchDomain('example.com', '*.example.com'), false);
   expectEqual('www.example.com vs example.com = true', storage.matchDomain('www.example.com', 'example.com'), true);
   expectEqual('example.com vs www.example.com = true', storage.matchDomain('example.com', 'www.example.com'), true);
+  expectEqual('m.example.com vs example.com = true', storage.matchDomain('m.example.com', 'example.com'), true);
+  expectEqual('example.com vs m.example.com = true', storage.matchDomain('example.com', 'm.example.com'), true);
 
   const total = passed + failed;
   console.log(`\n[Storage MatchDomain v1.2 Integration] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

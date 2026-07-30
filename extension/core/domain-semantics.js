@@ -40,6 +40,14 @@ export function domainForUrl(url) {
   }
 }
 
+export function canonicalSiteIdentityHost(host) {
+  const normalized = normalizeHostname(host);
+  if (!normalized) return null;
+  if (normalized.startsWith('www.')) return normalized.slice(4);
+  if (normalized.startsWith('m.')) return normalized.slice(2);
+  return normalized;
+}
+
 export function matchDomain(domain, pattern) {
   const d = normalizeHostname(domain);
   const p = normalizeHostname(pattern);
@@ -48,9 +56,10 @@ export function matchDomain(domain, pattern) {
   // Exact match.
   if (d === p) return true;
 
-  // www symmetric alias: example.com <-> www.example.com
-  if (d.startsWith('www.') && d.slice(4) === p) return true;
-  if (p.startsWith('www.') && p.slice(4) === d) return true;
+  // Main-site symmetric aliases: example.com <-> www.example.com / m.example.com
+  const dIdentity = canonicalSiteIdentityHost(d);
+  const pIdentity = canonicalSiteIdentityHost(p);
+  if (dIdentity && pIdentity && dIdentity === pIdentity) return true;
 
   // Wildcard: *.example.com matches subdomains but not bare domain.
   if (p.startsWith('*.')) {

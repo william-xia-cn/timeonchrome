@@ -2365,6 +2365,16 @@ async function forceSync() {
 
   try {
     const syncResult = await sendMsg({ type: 'CLOUD_FORCE_SYNC' });
+    if (syncResult?.reason === 'sync_already_in_progress') {
+      syncFeedbackState = { phase: 'success', message: '已有同步正在进行，已安排完成后补同步' };
+      await renderSyncStatus();
+      showToast('已有同步正在进行');
+      syncFeedbackTimer = setTimeout(async () => {
+        syncFeedbackState = { phase: 'idle', message: '' };
+        await renderSyncStatus();
+      }, 2200);
+      return;
+    }
     if (syncResult?.hadFailure) {
       const message = (syncResult.errors || []).join('；') || '同步失败';
       if (/DEVICE_UNBOUND|Device unbound|设备.*解绑/i.test(message)) {
@@ -2436,8 +2446,9 @@ function matchDomain(domain, pattern) {
   const p = normalizeHostnameV12(pattern);
   if (!d || !p) return false;
   if (d === p) return true;
-  if (d.startsWith('www.') && d.slice(4) === p) return true;
-  if (p.startsWith('www.') && p.slice(4) === d) return true;
+  const dIdentity = d.startsWith('www.') ? d.slice(4) : d.startsWith('m.') ? d.slice(2) : d;
+  const pIdentity = p.startsWith('www.') ? p.slice(4) : p.startsWith('m.') ? p.slice(2) : p;
+  if (dIdentity && pIdentity && dIdentity === pIdentity) return true;
   if (p.startsWith('*.')) {
     const base = p.slice(2);
     if (!base || d === base) return false;

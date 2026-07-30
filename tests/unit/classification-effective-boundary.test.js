@@ -35,6 +35,7 @@ check('session allows classification boundary settlement', session.includes("rea
 check('session records classification boundary as config action', session.includes("if (value === 'classification_effective_boundary') return 'config_action';"));
 check('cloud sync supports post-classification callback', cloudSync.includes('afterClassificationSync') && cloudSync.includes('classificationSyncEffects'));
 check('background wires cloud sync to classification effects', background.includes('syncNowWithRuntimeEffects') && background.includes('runPostClassificationSyncEffects'));
+check('background triggers sync after automatic site classification records', background.includes('siteClassificationRequestSyncNeeded') && background.includes('site_request_auto_observed_sync'));
 check('message router re-evaluates after config/cloud classification changes', messageRouter.includes('runRouterClassificationSyncEffects') && messageRouter.includes('cloud_force_sync'));
 
 const total = passed + failed;

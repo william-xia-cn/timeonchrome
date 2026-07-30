@@ -56,6 +56,8 @@ function run() {
   expectEqual('example.com vs *.example.com = false', matchDomain('example.com', '*.example.com'), false);
   expectEqual('www.example.com vs example.com = true', matchDomain('www.example.com', 'example.com'), true);
   expectEqual('example.com vs www.example.com = true', matchDomain('example.com', 'www.example.com'), true);
+  expectEqual('m.example.com vs example.com = true', matchDomain('m.example.com', 'example.com'), true);
+  expectEqual('example.com vs m.example.com = true', matchDomain('example.com', 'm.example.com'), true);
 
   // autoClassify：子域应被父域规则正确分类
   const auto = autoClassify('a.example.com', 'my lecture note', [{ domain: 'example.com', keyword: 'lecture', classification: 'study' }]);

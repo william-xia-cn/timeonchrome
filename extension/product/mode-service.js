@@ -693,6 +693,8 @@ async function handleAccessObserved(event = {}) {
   }
 
   const siteClassificationRecords = await getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []);
+  let siteClassificationRequestSyncNeeded = false;
+  let siteClassificationRequestForSync = null;
   let siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, { url, specialSiteTargets: event.specialSiteTargets || [] });
   const tabId = Number(event.tabId);
   const normalizedInitialClassification = siteClassification.classification || 'unclassified';
@@ -707,6 +709,9 @@ async function handleAccessObserved(event = {}) {
         observedAt: nowMs,
       });
       if (requestResult?.ok) {
+        const countableObservation = event.source === 'webNavigationCommitted' || event.source === 'webNavigationHistoryStateUpdated';
+        siteClassificationRequestSyncNeeded = !!(requestResult.added || requestResult.promoted || (requestResult.observed && countableObservation));
+        siteClassificationRequestForSync = requestResult.request || null;
         siteClassification = {
           classification: 'pending_composite',
           source: 'unclassified_site_access_record',
@@ -832,6 +837,8 @@ async function handleAccessObserved(event = {}) {
     config,
     modeSnapshot,
     classification: siteClassification.classification,
+    siteClassificationRequestSyncNeeded,
+    siteClassificationRequest: siteClassificationRequestForSync,
   };
 }
 

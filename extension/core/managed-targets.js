@@ -1,4 +1,4 @@
-import { domainForUrl, matchDomain, normalizeHostname } from './domain-semantics.js';
+import { canonicalSiteIdentityHost, domainForUrl, matchDomain, normalizeHostname } from './domain-semantics.js';
 import {
   normalizeSiteClassificationRequest,
   normalizeSiteClassificationRule,
@@ -41,6 +41,7 @@ const MANAGED_CLASSIFICATION_TIE_PRIORITY = {
 };
 
 const YOUTUBE_HOSTS = new Set(['youtube.com', 'youtu.be']);
+const MANAGED_YOUTUBE_SPECIAL_OBJECT_KINDS = new Set(['video', 'playlist', 'channel']);
 
 function stableHash(input) {
   let hash = 0x811c9dc5;
@@ -71,6 +72,8 @@ function hostTargetType(host, explicitType = null) {
   if (explicitType === 'domain' || explicitType === 'subdomain') return explicitType;
   const normalized = normalizeHostname(host);
   if (!normalized) return 'domain';
+  const identity = canonicalSiteIdentityHost(normalized);
+  if (identity && identity !== normalized && rootHostCandidate(normalized) === identity) return 'domain';
   return rootHostCandidate(normalized) === normalized ? 'domain' : 'subdomain';
 }
 
@@ -413,13 +416,45 @@ function targetSpecificity(target, context) {
   return null;
 }
 
+function targetMainSiteIdentity(target) {
+  if (!target) return null;
+  if (HOST_TARGET_TYPES.has(target.targetType)) return canonicalSiteIdentityHost(target.normalizedValue);
+  if (target.targetType === 'url') {
+    const normalized = normalizeSiteClassificationTarget(target.normalizedValue || '');
+    return normalized?.ok ? canonicalSiteIdentityHost(normalized.host) : null;
+  }
+  return null;
+}
+
+function pendingTargetMayBypassProtectedAncestor(target) {
+  if (target?.classification !== 'pending_composite') return true;
+  if (target.targetType === 'video' || target.targetType === 'playlist' || target.targetType === 'channel') {
+    return target.namespace === 'youtube';
+  }
+  if (target.targetType !== 'url') return false;
+  const normalized = normalizeSiteClassificationTarget(target.normalizedValue || '');
+  return normalized?.ok === true && normalized.specialSite?.platform === 'youtube' && MANAGED_YOUTUBE_SPECIAL_OBJECT_KINDS.has(normalized.specialSite.kind);
+}
+
 function pickBestTarget(candidates) {
   if (!candidates.length) return null;
   const sorted = [...candidates].sort((a, b) => {
     if (b.specificity !== a.specificity) return b.specificity - a.specificity;
     return (MANAGED_CLASSIFICATION_TIE_PRIORITY[b.target.classification] || 0) - (MANAGED_CLASSIFICATION_TIE_PRIORITY[a.target.classification] || 0);
   });
-  return sorted[0];
+  let best = sorted[0];
+  if (best.target.classification === 'pending_composite' && !pendingTargetMayBypassProtectedAncestor(best.target)) {
+    const bestIdentity = targetMainSiteIdentity(best.target);
+    const sameMainDefined = bestIdentity
+      ? sorted.find((item) => item.target.classification !== 'pending_composite' && targetMainSiteIdentity(item.target) === bestIdentity)
+      : null;
+    if (sameMainDefined) best = sameMainDefined;
+    else {
+      const protective = sorted.find((item) => item.target.classification === 'blocked' || item.target.classification === 'restricted' || item.target.classification === 'rejected');
+      if (protective) best = protective;
+    }
+  }
+  return best;
 }
 
 export function validateManagedTargetsConfig(config = {}) {

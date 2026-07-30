@@ -318,6 +318,7 @@ async function accessCase(name, {
       observedEventSource: autoRequests[0]?.context.observedEventSource,
       notice: res.notice?.kind,
       noticeText: res.notice?.text,
+      syncNeeded: res.siteClassificationRequestSyncNeeded,
     }, {
       access: 'allow',
       toMode: 'composite',
@@ -328,6 +329,7 @@ async function accessCase(name, {
       observedEventSource: 'unit',
       notice: 'study_to_composite',
       noticeText: '已生成未归类网站访问记录 · 当前计入待归类时间 · 即将进入复合模式 · 今日待归类剩余 1小时',
+      syncNeeded: true,
     });
   }
 
@@ -369,11 +371,13 @@ async function accessCase(name, {
       observedEventSource: observations[0]?.context.observedEventSource,
       toMode: res.modeChange?.toMode,
       noticeText: res.notice?.text,
+      syncNeeded: res.siteClassificationRequestSyncNeeded,
     }, {
       observedInput: 'manual-pending.example',
       observedEventSource: 'webNavigationCommitted',
       toMode: 'composite',
       noticeText: '学习网站归类申请待家长确认 · 当前仍计入待归类时间 · 即将进入复合模式 · 今日待归类剩余 1小时',
+      syncNeeded: true,
     });
   }
   {

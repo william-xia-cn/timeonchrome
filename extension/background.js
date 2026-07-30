@@ -227,6 +227,19 @@ async function dispatchModeEvent(event = {}, options = {}) {
       reason,
     }),
   });
+  if (decision.siteClassificationRequestSyncNeeded) {
+    syncNowWithRuntimeEffects({}, 'site_request_auto_observed_sync').catch((err) => {
+      recordFallbackLog({
+        level: 'warning',
+        category: 'cloud',
+        eventCode: 'site_classification_auto_sync_trigger_failed',
+        module: 'background',
+        reason: 'site_request_auto_observed_sync_failed',
+        message: err?.message || 'Failed to trigger site classification request sync',
+        details: { auditId, error: err?.message || String(err) },
+      });
+    });
+  }
   if (decision.recheckActiveTab && options.recheck !== false) {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
     const tab = tabs && tabs[0] ? tabs[0] : null;

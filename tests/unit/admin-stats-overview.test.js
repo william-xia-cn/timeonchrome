@@ -175,6 +175,7 @@ function run() {
   expectTrue('admin 本机状态账户和用户应横向同列展示', extractFunctionSource(code, 'renderSyncStatus').includes('display:flex; gap:24px'));
   expectTrue('admin 本机状态设备名、DeviceID 和 ID 应横向同列展示', extractFunctionSource(code, 'renderSyncStatus').includes('<span style="font-size:15px; font-weight:600;">${deviceName}</span>') && extractFunctionSource(code, 'renderSyncStatus').includes('DeviceID: ${deviceId}') && extractFunctionSource(code, 'renderSyncStatus').includes('ID: ${shortId}'));
   expectTrue('admin 本机状态应读取并展示云端连接状态', extractFunctionSource(code, 'renderSyncStatus').includes('cloud_connection_state_v1') && extractFunctionSource(code, 'renderSyncStatus').includes('云端连接') && extractFunctionSource(code, 'renderSyncStatus').includes('连续失败') && extractFunctionSource(code, 'renderSyncStatus').includes('最近接口'));
+  expectTrue('admin 立即同步并发状态应显示为中性提示', code.includes("sync_already_in_progress") && code.includes('已有同步正在进行，已安排完成后补同步') && code.includes("showToast('已有同步正在进行')"));
   expectTrue('admin 本机状态未绑定分支应保留本地模式用户显示', extractFunctionSource(code, 'renderSyncStatus').includes("'本地模式'"));
   expectTrue('admin has system management nav item', html.includes('data-page="system-management"') && html.includes('系统管理'));
   expectTrue('admin local device status should be under system management only', !html.includes('data-page="devices"') && html.includes('data-system-management-tab="device-status"') && html.includes('data-system-management-panel="device-status"'));

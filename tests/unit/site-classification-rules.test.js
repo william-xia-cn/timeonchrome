@@ -296,10 +296,42 @@ async function run() {
       restrictedEntertainmentList: ['youtube.com'],
     }, [], 'https://www.youtube.com/watch?v=abc123').classification,
     'restricted');
+  expectEqual('restricted parent suppresses stale host pending request',
+    mod.resolveSiteAccessClassification({
+      restrictedEntertainmentList: ['youtube.com'],
+    }, [{
+      requestedTargetType: 'host',
+      requestedNormalizedValue: 'www.youtube.com',
+      status: 'pending',
+      recordSource: 'auto_unclassified_access',
+    }], 'https://www.youtube.com/watch?v=abc123').classification,
+    'restricted');
+  expectEqual('specific YouTube video pending request remains pending under restricted root',
+    mod.resolveSiteAccessClassification({
+      restrictedEntertainmentList: ['youtube.com'],
+    }, [{
+      requestedTargetType: 'url',
+      requestedNormalizedValue: 'https://www.youtube.com/watch?v=abc123',
+      status: 'pending',
+      recordSource: 'manual_learning_request',
+    }], 'https://www.youtube.com/watch?v=abc123').classification,
+    'pending_composite');
   expectTrue('specific YouTube video learning request bypasses restricted root',
     mod.validateSiteClassificationAction({
       restrictedEntertainmentList: ['youtube.com'],
     }, 'https://www.youtube.com/watch?v=abc123', 'study').ok);
+  expectTrue('composite main site blocks www alias learning request',
+    !mod.validateSiteClassificationAction({ compositeList: ['google.com'] }, 'www.google.com', 'study').ok);
+  expectTrue('composite main site blocks m alias learning request',
+    !mod.validateSiteClassificationAction({ compositeList: ['google.com'] }, 'm.google.com', 'study').ok);
+  expectTrue('composite main site blocks www URL path learning request',
+    !mod.validateSiteClassificationAction({ compositeList: ['google.com'] }, 'https://www.google.com/search?q=math', 'study').ok);
+  expectTrue('composite main site still allows independent service subdomain learning request',
+    mod.validateSiteClassificationAction({ compositeList: ['google.com'] }, 'docs.google.com', 'study').ok);
+  expectTrue('www and bare cross-classification conflict is invalid',
+    !mod.validateSiteAccessConfig({ compositeList: ['www.google.com'], studyList: ['google.com'] }).ok);
+  expectTrue('m and bare cross-classification conflict is invalid',
+    !mod.validateSiteAccessConfig({ compositeList: ['m.google.com'], studyList: ['google.com'] }).ok);
   expectTrue('specific YouTube channel composite decision bypasses restricted root',
     mod.validateSiteClassificationAction({
       restrictedEntertainmentList: ['youtube.com'],

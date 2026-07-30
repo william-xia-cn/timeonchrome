@@ -96,6 +96,56 @@ async function run() {
   const staleWatch = mod.resolveManagedTargetAttribution(normalizedStaleConfig, [], 'https://www.youtube.com/watch?v=UNAPPROVED');
   expectEqual('unapproved YouTube watch with stale composite config attributes as restricted', staleWatch.targetClassificationAtTime, 'restricted');
 
+  const staleHostPending = mod.resolveManagedTargetAttribution({
+    restrictedEntertainmentList: ['youtube.com'],
+  }, [{
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'www.youtube.com',
+    status: 'pending',
+    recordSource: 'auto_unclassified_access',
+  }], 'https://www.youtube.com/watch?v=UNAPPROVED');
+  expectEqual('restricted parent suppresses stale host pending attribution', staleHostPending.targetClassificationAtTime, 'restricted');
+
+  const specialVideoPending = mod.resolveManagedTargetAttribution({
+    restrictedEntertainmentList: ['youtube.com'],
+  }, [{
+    requestedTargetType: 'url',
+    requestedNormalizedValue: 'https://www.youtube.com/watch?v=VIDPENDING',
+    status: 'pending',
+    recordSource: 'manual_learning_request',
+  }], 'https://www.youtube.com/watch?v=VIDPENDING');
+  expectEqual('specific YouTube video pending attribution remains pending', specialVideoPending.targetClassificationAtTime, 'pending_composite');
+
+  const staleGoogleHostPending = mod.resolveManagedTargetAttribution({
+    compositeList: ['google.com'],
+  }, [{
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'www.google.com',
+    status: 'pending',
+    recordSource: 'auto_unclassified_access',
+  }], 'https://www.google.com/search?q=math');
+  expectEqual('main-site policy suppresses stale www host pending attribution', staleGoogleHostPending.targetClassificationAtTime, 'composite');
+
+  const staleGoogleMobilePending = mod.resolveManagedTargetAttribution({
+    compositeList: ['google.com'],
+  }, [{
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'm.google.com',
+    status: 'pending',
+    recordSource: 'auto_unclassified_access',
+  }], 'https://m.google.com/search?q=math');
+  expectEqual('main-site policy suppresses stale m host pending attribution', staleGoogleMobilePending.targetClassificationAtTime, 'composite');
+
+  const docsPending = mod.resolveManagedTargetAttribution({
+    compositeList: ['google.com'],
+  }, [{
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'docs.google.com',
+    status: 'pending',
+    recordSource: 'manual_learning_request',
+  }], 'https://docs.google.com/document/d/1');
+  expectEqual('independent service subdomain pending still wins over composite parent', docsPending.targetClassificationAtTime, 'pending_composite');
+
   const music = mod.resolveManagedTargetAttribution({
     compositeList: ['music.youtube.com'],
   }, [], 'https://music.youtube.com/watch?v=SONG');

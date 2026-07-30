@@ -112,6 +112,8 @@ let syncState = {
   monitoringEnabled: 1,
   v1SyncEnabled: false,
   currentRequestId: null,
+  followUpSyncRequested: false,
+  followUpForceRetryExhausted: false,
   apiBase: CLOUD_CONFIG.API_BASE,
 };
 
@@ -1438,8 +1440,20 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       syncState.isSyncing = false;
       syncState.syncStartedAt = 0;
     } else {
-    console.log('[Cloud] Sync already in progress');
-    return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['Sync already in progress'] };
+      console.log('[Cloud] Sync already in progress; scheduling follow-up sync');
+      syncState.followUpSyncRequested = true;
+      syncState.followUpForceRetryExhausted = syncState.followUpForceRetryExhausted || !!options.forceRetryExhausted;
+      return {
+        configPulled: false,
+        siteRequestsSynced: false,
+        statsUploaded: false,
+        quotaSynced: false,
+        hadFailure: false,
+        skipped: true,
+        reason: 'sync_already_in_progress',
+        followUpScheduled: true,
+        errors: [],
+      };
     }
   }
 
@@ -1575,9 +1589,20 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     const code = e?.code ? `${e.code}: ` : '';
     return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [`${code}${e.message}`] };
   } finally {
+    const shouldRunFollowUpSync = syncState.followUpSyncRequested;
+    const followUpForceRetryExhausted = syncState.followUpForceRetryExhausted;
+    syncState.followUpSyncRequested = false;
+    syncState.followUpForceRetryExhausted = false;
     syncState.currentRequestId = previousRequestId;
     syncState.isSyncing = false;
     syncState.syncStartedAt = 0;
+    if (shouldRunFollowUpSync) {
+      await syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, {
+        ...options,
+        forceRetryExhausted: !!options.forceRetryExhausted || !!followUpForceRetryExhausted,
+        queuedAfterInProgress: true,
+      });
+    }
   }
 }
 

@@ -399,13 +399,10 @@ export async function handleMessage(msg, sender) {
         const result = await submitSiteClassificationRequest(msg.input || msg.url || target.normalizedValue, requestContext);
         if (result?.ok) {
           const targetUrl = siteClassificationTargetUrl(target);
-          const syncStateRef = getSyncState();
-          if (syncStateRef.deviceToken) {
-            syncNow(getConfig, saveConfig, updateDeclarativeRules, {
-              afterClassificationSync: () => runRouterClassificationSyncEffects('site_request_submit_sync'),
-            })
-              .catch(() => {});
-          }
+          syncNow(getConfig, saveConfig, updateDeclarativeRules, {
+            afterClassificationSync: () => runRouterClassificationSyncEffects('site_request_submit_sync'),
+          })
+            .catch(() => {});
           return {
             ...result,
             targetUrl,

@@ -1,4 +1,4 @@
-import { matchDomain, normalizeHostname } from './domain-semantics.js';
+import { canonicalSiteIdentityHost, matchDomain, normalizeHostname } from './domain-semantics.js';
 
 export const SITE_CLASSIFICATION_TARGET_TYPES = new Set(['host', 'url']);
 export const SITE_CLASSIFICATION_DECISIONS = new Set(['study', 'composite', 'return', 'reject']);
@@ -230,7 +230,7 @@ function normalizeHostPattern(pattern) {
     wildcard,
     host,
     matchValue: wildcard ? `*.${host}` : host,
-    exactKey: `${wildcard ? 'host-wildcard' : 'host'}:${stripWwwAlias(host) || host}`,
+    exactKey: `${wildcard ? 'host-wildcard' : 'host'}:${canonicalSiteIdentityHost(host) || host}`,
   };
 }
 
@@ -300,13 +300,49 @@ function pushCandidate(candidates, candidate) {
   candidates.push(candidate);
 }
 
+function candidateMainSiteIdentity(candidate) {
+  if (!candidate) return null;
+  if (candidate.request) {
+    const request = candidate.request;
+    const value = request.requestedNormalizedValue || request.decisionNormalizedValue || '';
+    const target = normalizeSiteClassificationTarget(request.requestedTargetType === 'url' ? value : value);
+    return target?.ok ? canonicalSiteIdentityHost(target.host || target.normalizedValue) : null;
+  }
+  if (candidate.rule) {
+    const value = candidate.rule.normalizedValue || candidate.rule.targetValue || '';
+    const target = normalizeSiteClassificationTarget(candidate.rule.targetType === 'url' ? value : value);
+    return target?.ok ? canonicalSiteIdentityHost(target.host || target.normalizedValue) : null;
+  }
+  if (candidate.pattern) return canonicalSiteIdentityHost(candidate.pattern);
+  return null;
+}
+
+function pendingCandidateMayBypassProtectedAncestor(candidate) {
+  if (candidate?.classification !== 'pending_composite') return true;
+  const request = candidate.request || {};
+  if (request.requestedTargetType !== 'url') return false;
+  const target = normalizeSiteClassificationTarget(request.requestedNormalizedValue || '');
+  return isAllowedSpecialSiteActionTarget(target);
+}
+
 function pickBestCandidate(candidates) {
   if (!candidates.length) return { classification: null };
   const sorted = [...candidates].sort((a, b) => {
     if (b.specificity !== a.specificity) return b.specificity - a.specificity;
     return (CLASSIFICATION_TIE_PRIORITY[b.classification] || 0) - (CLASSIFICATION_TIE_PRIORITY[a.classification] || 0);
   });
-  const best = sorted[0];
+  let best = sorted[0];
+  if (best.classification === 'pending_composite' && !pendingCandidateMayBypassProtectedAncestor(best)) {
+    const bestIdentity = candidateMainSiteIdentity(best);
+    const sameMainDefined = bestIdentity
+      ? sorted.find((item) => item.classification !== 'pending_composite' && candidateMainSiteIdentity(item) === bestIdentity)
+      : null;
+    if (sameMainDefined) best = sameMainDefined;
+    else {
+      const protective = sorted.find((item) => item.classification === 'blocked' || item.classification === 'restricted' || item.classification === 'rejected');
+      if (protective) best = protective;
+    }
+  }
   const tied = sorted.filter((item) => item.specificity === best.specificity);
   const classes = [...new Set(tied.map((item) => item.classification))];
   return {
@@ -506,7 +542,18 @@ function collectConfiguredSiteTargets(config = {}) {
 function sameActionTarget(a, b) {
   if (!a || !b || a.targetType !== b.targetType) return false;
   if (a.targetType === 'url') return a.normalizedValue === b.normalizedValue;
-  return matchDomain(a.normalizedValue, b.normalizedValue) && matchDomain(b.normalizedValue, a.normalizedValue);
+  return (canonicalSiteIdentityHost(a.normalizedValue) || normalizeHostname(a.normalizedValue)) === (canonicalSiteIdentityHost(b.normalizedValue) || normalizeHostname(b.normalizedValue));
+}
+
+function mainSiteIdentityConflictForAction(target, configuredTargets) {
+  if (!target?.ok || isAllowedSpecialSiteActionTarget(target)) return null;
+  const targetIdentity = canonicalSiteIdentityHost(target.host || target.normalizedValue);
+  if (!targetIdentity) return null;
+  return configuredTargets.find((item) => {
+    if (!item?.host && !item?.normalizedValue) return false;
+    if (sameActionTarget(target, item)) return false;
+    return (canonicalSiteIdentityHost(item.host || item.normalizedValue) || null) === targetIdentity;
+  }) || null;
 }
 
 function protectedAncestorForAction(target, actionClassification, configuredTargets) {
@@ -542,6 +589,19 @@ export function validateSiteClassificationAction(config = {}, targetOrInput, act
       source: exact.source || null,
       pattern: exact.value || exact.normalizedValue,
       protectedBy: exact,
+    };
+  }
+
+  const mainSiteConflict = mainSiteIdentityConflictForAction(target, configuredTargets);
+  if (mainSiteConflict) {
+    return {
+      ok: false,
+      code: 'ALREADY_CLASSIFIED',
+      error: 'target belongs to an already classified main-site entry',
+      classifiedAs: mainSiteConflict.classification,
+      source: mainSiteConflict.source || null,
+      pattern: mainSiteConflict.value || mainSiteConflict.normalizedValue,
+      protectedBy: mainSiteConflict,
     };
   }
 

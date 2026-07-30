@@ -1238,6 +1238,9 @@ function matchDomainForClassification(domain, pattern) {
   const p = normalizePatternHost(pattern);
   if (!d || !p) return false;
   if (d === p.host) return true;
+  const dIdentity = d.startsWith('www.') ? d.slice(4) : d.startsWith('m.') ? d.slice(2) : d;
+  const pIdentity = p.host.startsWith('www.') ? p.host.slice(4) : p.host.startsWith('m.') ? p.host.slice(2) : p.host;
+  if (!p.wildcard && dIdentity && pIdentity && dIdentity === pIdentity) return true;
   if (p.wildcard) return d !== p.host && d.endsWith(`.${p.host}`);
   return d.endsWith(`.${p.host}`);
 }
@@ -1462,8 +1465,9 @@ function matchDomain(domain, pattern) {
   const p = normalizeHostnameV12(pattern);
   if (!d || !p) return false;
   if (d === p) return true;
-  if (d.startsWith('www.') && d.slice(4) === p) return true;
-  if (p.startsWith('www.') && p.slice(4) === d) return true;
+  const dIdentity = d.startsWith('www.') ? d.slice(4) : d.startsWith('m.') ? d.slice(2) : d;
+  const pIdentity = p.startsWith('www.') ? p.slice(4) : p.startsWith('m.') ? p.slice(2) : p;
+  if (dIdentity && pIdentity && dIdentity === pIdentity) return true;
   if (p.startsWith('*.')) {
     const base = p.slice(2);
     if (!base || d === base) return false;
