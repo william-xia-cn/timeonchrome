@@ -320,8 +320,22 @@ async function applyDecisionToProfileConfig(env: Env, profileId: string, request
     config.customRestList = removeHost(config.customRestList || [], target.normalizedValue);
     config.restList = removeHost(config.restList || [], target.normalizedValue);
     config.entertainmentList = removeHost(config.entertainmentList || [], target.normalizedValue);
+    config.customBlockedSites = removeHost(config.customBlockedSites || [], target.normalizedValue);
+    config.unsafeList = removeHost(config.unsafeList || [], target.normalizedValue);
     config.customRestrictedEntertainmentList = addUniqueHost(config.customRestrictedEntertainmentList || [], target.normalizedValue);
     config.restrictedEntertainmentList = addUniqueHost(config.restrictedEntertainmentList || [], target.normalizedValue);
+  } else if (target.targetType === 'host' && decision === 'blocked') {
+    config.customStudyList = removeHost(config.customStudyList || [], target.normalizedValue);
+    config.studyList = removeHost(config.studyList || [], target.normalizedValue);
+    config.customCompositeList = removeHost(config.customCompositeList || [], target.normalizedValue);
+    config.compositeList = removeHost(config.compositeList || [], target.normalizedValue);
+    config.customRestList = removeHost(config.customRestList || [], target.normalizedValue);
+    config.restList = removeHost(config.restList || [], target.normalizedValue);
+    config.entertainmentList = removeHost(config.entertainmentList || [], target.normalizedValue);
+    config.customRestrictedEntertainmentList = removeHost(config.customRestrictedEntertainmentList || [], target.normalizedValue);
+    config.restrictedEntertainmentList = removeHost(config.restrictedEntertainmentList || [], target.normalizedValue);
+    config.customBlockedSites = addUniqueHost(config.customBlockedSites || [], target.normalizedValue);
+    config.unsafeList = addUniqueHost(config.unsafeList || [], target.normalizedValue);
   }
 
   await env.DB.prepare(
@@ -364,7 +378,8 @@ function listForSiteManagementClassification(classification: string): string | n
 function publicClassificationToDecision(classification: string): string | null {
   if (classification === 'study') return 'study';
   if (classification === 'composite') return 'composite';
-  if (classification === 'restricted' || classification === 'blocked') return 'reject';
+  if (classification === 'restricted') return 'reject';
+  if (classification === 'blocked') return 'blocked';
   return null;
 }
 

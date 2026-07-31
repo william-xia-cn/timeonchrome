@@ -97,6 +97,7 @@ export function normalizeSiteClassificationDecision(decision) {
   if (decision === 'approved_composite' || decision === 'composite') return 'composite';
   if (decision === 'returned' || decision === 'return') return 'return';
   if (decision === 'rejected' || decision === 'reject') return 'reject';
+  if (decision === 'approved_blocked' || decision === 'blocked') return 'blocked';
   return null;
 }
 
@@ -106,6 +107,7 @@ export function decisionToStatus(decision) {
   if (normalized === 'composite') return 'approved_composite';
   if (normalized === 'return') return 'returned';
   if (normalized === 'reject') return 'rejected';
+  if (normalized === 'blocked') return 'blocked';
   return null;
 }
 
