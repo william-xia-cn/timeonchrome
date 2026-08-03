@@ -23,6 +23,14 @@ function expectEqual(desc, actual, expected) {
   }
 }
 
+function expectTrue(desc, condition) {
+  if (condition) passed++;
+  else {
+    failed++;
+    console.error(`  x ${desc}`);
+  }
+}
+
 function loadWorkerMergeHelpers() {
   const source = fs.readFileSync(
     path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'),
@@ -69,6 +77,13 @@ function createD1Adapter(database) {
 }
 
 async function run() {
+  const workerSource = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'),
+    'utf8'
+  );
+  expectTrue('profile ensure endpoint exists for stats-only unclassified rows', workerSource.includes('/site-classification-requests\\/v1\\/ensure') && workerSource.includes('ensureProfileUnclassifiedSiteRequest'));
+  expectTrue('ensure endpoint creates automatic unclassified access records', workerSource.includes("'auto_unclassified_access'") && workerSource.includes('recordSource: auto_unclassified_access') === false);
+
   const helpers = loadWorkerMergeHelpers();
   const database = new DatabaseSync(':memory:');
   database.exec(`

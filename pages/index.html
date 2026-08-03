@@ -1706,9 +1706,22 @@ async function updateReviewBadge(profileId) {
       api(`/profiles/${profileId}/site-classification-requests/v1?status=pending`).catch(() => ({ requests: [] })),
       api(`/profiles/${profileId}/used-unclassified-sites/v1?days=30`).catch(() => ({ sites: [] })),
     ]);
-    const siteCount = (siteResult.requests || []).filter((request) => request?.status === 'pending').length;
-    const usedUnclassifiedCount = (usedUnclassifiedResult.sites || []).filter((site) => !(site?.historicalPending || site?.actionable === false)).length;
-    const count = siteCount + usedUnclassifiedCount;
+    const canonicalBadgeKey = (value) => {
+      const normalized = normalizeSiteAccessInput(value || '');
+      if (!normalized) return '';
+      if (normalized.startsWith('www.')) return normalized.slice(4);
+      if (normalized.startsWith('m.')) return normalized.slice(2);
+      return normalized;
+    };
+    const pendingRequestKeys = new Set((siteResult.requests || [])
+      .filter((request) => request?.status === 'pending')
+      .map((request) => canonicalBadgeKey(request.requestedHost || request.requestedNormalizedValue || request.displayValue || ''))
+      .filter(Boolean));
+    const usedOnlyKeys = (usedUnclassifiedResult.sites || [])
+      .filter((site) => !(site?.historicalPending || site?.actionable === false))
+      .map((site) => canonicalBadgeKey(site.domain))
+      .filter((key) => key && !pendingRequestKeys.has(key));
+    const count = pendingRequestKeys.size + new Set(usedOnlyKeys).size;
     const badge = document.getElementById('review-badge');
     if (badge) {
       badge.textContent = count > 0 ? count : '';
@@ -2654,52 +2667,106 @@ function renderRecordEmpty(text) {
   return `<div class="rules-site-empty">${escHtml(text)}</div>`;
 }
 
+function reviewCanonicalSiteKey(value) {
+  const normalized = normalizeSiteAccessInput(value || '');
+  if (!normalized) return '';
+  if (normalized.startsWith('www.')) return normalized.slice(4);
+  if (normalized.startsWith('m.')) return normalized.slice(2);
+  return normalized;
+}
+
+function requestReviewKey(request = {}) {
+  return reviewCanonicalSiteKey(request.requestedHost || request.requestedNormalizedValue || request.displayValue || '');
+}
+
+function usedReviewKey(entry = {}) {
+  return reviewCanonicalSiteKey(entry.value || entry.title || entry.site?.domain || '');
+}
+
+function buildUnclassifiedReviewRows(requests = [], usedEntries = reviewUsedUnclassifiedEntries()) {
+  const usedByKey = new Map();
+  usedEntries.forEach((entry, idx) => {
+    const key = usedReviewKey(entry);
+    if (!key) return;
+    if (!usedByKey.has(key)) usedByKey.set(key, { entry, usedIndex: idx });
+  });
+  const rows = [];
+  const consumed = new Set();
+  explicitUnclassifiedRequestEntries(requests).forEach(({ request, idx }) => {
+    const key = requestReviewKey(request);
+    const used = key ? usedByKey.get(key) : null;
+    if (key) consumed.add(key);
+    rows.push({ type: 'request', request, requestIndex: idx, usedEntry: used?.entry || null, usedIndex: used?.usedIndex ?? -1, key });
+  });
+  usedEntries.forEach((entry, idx) => {
+    const key = usedReviewKey(entry);
+    if (key && consumed.has(key)) return;
+    rows.push({ type: 'used', entry, usedIndex: idx, key });
+  });
+  return rows;
+}
+
+function isProcessedUnclassifiedReviewRow(row) {
+  if (row.type === 'request') return isProcessedSiteRequest(row.request);
+  return Boolean(row.entry?.site?.historicalPending || row.entry?.site?.actionable === false);
+}
+
+function unclassifiedReviewRowTitle(row) {
+  if (row.type === 'request') return row.request.displayValue || row.request.requestedNormalizedValue || '';
+  return row.entry?.title || row.entry?.value || '';
+}
+
+function unclassifiedReviewStatsText(site = {}) {
+  const parts = [];
+  if (site.firstSeenAt || site.lastSeenAt) parts.push(`首次 ${formatSiteRequestTimestamp(site.firstSeenAt)} · 最近 ${formatSiteRequestTimestamp(site.lastSeenAt)}`);
+  if (Number(site.totalSeconds || 0) > 0) parts.push(`累计 ${fmtSecs(Number(site.totalSeconds || 0))}`);
+  if (Number(site.visitCount || 0) > 0) parts.push(`访问 ${Number(site.visitCount || 0)} 次`);
+  return parts.join(' · ') || '暂无使用统计';
+}
+
 function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedUnclassifiedEntries()) {
-  const requestEntries = explicitUnclassifiedRequestEntries(requests).map((entry) => ({ type: "request", ...entry }));
-  const usedRows = usedEntries.map((entry, idx) => ({ type: "used", entry, idx }));
-  const isProcessed = (row) => row.type === 'request' ? isProcessedSiteRequest(row.request) : Boolean(row.entry?.site?.historicalPending || row.entry?.site?.actionable === false);
-  const rows = [...requestEntries, ...usedRows];
-  const pendingRows = rows.filter((row) => !isProcessed(row));
-  const processedRows = rows.filter((row) => isProcessed(row));
-  const renderRow = (row) => row.type === "request" ? renderUnclassifiedRequestRow(row.request, row.idx) : renderReviewUsedUnclassifiedRow(row.entry, row.idx);
-  const pendingHtml = pendingRows.length ? pendingRows.map(renderRow).join("") : renderRecordEmpty("当前没有未处理的未归类网站使用记录。");
-  const processedHtml = processedRows.length ? processedRows.map(renderRow).join("") : "";
+  const rows = buildUnclassifiedReviewRows(requests, usedEntries);
+  const pendingRows = rows.filter((row) => !isProcessedUnclassifiedReviewRow(row));
+  const processedRows = rows.filter((row) => isProcessedUnclassifiedReviewRow(row));
+  window._reviewUnclassifiedRows = rows;
   window._reviewUsedUnclassifiedEntries = usedEntries;
+  const renderRow = (row) => renderUnclassifiedReviewRow(row, rows.indexOf(row));
+  const pendingHtml = pendingRows.length ? pendingRows.map(renderRow).join('') : renderRecordEmpty('当前没有未处理的未归类网站使用记录。');
+  const processedHtml = processedRows.length ? processedRows.map(renderRow).join('') : '';
   return `<section class="rules-site-group" data-source-group="used-unclassified" data-review-used-unclassified="true">
     <div class="rules-site-group-header">
       <div>
         <div>未归类网站使用记录</div>
-        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 自动记录与最近 30 天使用聚合分源展示</div>
+        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 审核记录为操作事实，使用统计为访问证据</div>
       </div>
     </div>
     ${pendingHtml}
-    ${renderRecordHistoryDetails("已处理记录", processedRows.length, processedHtml)}
+    ${renderRecordHistoryDetails('已处理记录', processedRows.length, processedHtml)}
   </section>`;
 }
 
-function renderUnclassifiedRequestRow(request, idx) {
-  const isPending = request.status === 'pending';
-  const requestedType = request.requestedTargetType || 'host';
-  const requestedValue = request.displayValue || request.requestedNormalizedValue || '';
-  const device = request.deviceId ? `终端 ${escHtml(request.deviceId)}` : '终端未记录';
-  const recordTime = formatSiteRequestTimestamp(request.requestedAt);
-  const recordLabel = siteRequestRecordLabel(request);
-  const observationText = siteRequestObservationText(request);
-  const actionHtml = isPending ? `
-    <button class="rules-site-action-btn" onclick="decideSiteClassificationRequest(${idx},'study')">确认为学习网站</button>
-    <button class="rules-site-action-btn" onclick="decideSiteClassificationRequest(${idx},'composite')">确认为复合网站</button>
-    <button class="rules-site-action-btn" onclick="decideSiteClassificationRequest(${idx},'return')">暂不归类</button>
-    <button class="rules-site-action-btn" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">归为受限娱乐</button>
-    <button class="rules-site-action-btn" style="color:var(--danger);border-color:rgba(17,24,39,.35);" onclick="decideSiteClassificationRequest(${idx},'blocked')">归为黑名单</button>`
-    : `<span class="rules-site-badge">${escHtml(siteRequestStatusLabel(request.status, request))}</span>`;
+function renderUnclassifiedReviewRow(row, rowIdx) {
+  const isRequest = row.type === 'request';
+  const request = row.request || {};
+  const site = isRequest ? (row.usedEntry?.site || {}) : (row.entry?.site || {});
+  const isPending = !isProcessedUnclassifiedReviewRow(row);
+  const title = unclassifiedReviewRowTitle(row);
+  const device = request.deviceId ? `终端 ${escHtml(request.deviceId)}` : (isRequest ? '终端未记录' : '统计聚合');
+  const sourceLabel = isRequest ? siteRequestRecordLabel(request) : '统计发现项';
+  const targetType = isRequest ? siteRequestTargetTypeLabel(request.requestedTargetType || 'host') : '域名/子域名';
+  const observationText = isRequest ? siteRequestObservationText(request) : unclassifiedReviewStatsText(site);
+  const statsText = isRequest && row.usedEntry ? ` · ${unclassifiedReviewStatsText(site)}` : '';
+  const statusText = isRequest ? siteRequestStatusLabel(request.status, request) : (site.historicalPending || site.actionable === false ? `当前已归类：${sitePolicyLabel(site.currentClassification)}` : '待生成记录');
+  const actionHtml = isPending
+    ? classificationPolicyDefs().map(def => `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`).join('') + `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'return')">暂不归类</button>`
+    : `<span class="rules-site-badge">${escHtml(statusText)}</span>`;
   return `
-    <div class="rules-site-row-wrap" data-source="site-request" data-domain="${escHtml(requestedValue)}">
+    <div class="rules-site-row-wrap" data-source="${isRequest ? 'site-request' : 'used-unclassified'}" data-domain="${escHtml(title)}">
       <div class="rules-site-row">
         <div>
-          <div class="rules-site-domain">${escHtml(requestedValue)}</div>
-          <div class="rules-site-meta"><span class="rules-site-badge">${escHtml(recordLabel)}</span>${escHtml(siteRequestTargetTypeLabel(requestedType))} · 记录时间 ${escHtml(recordTime)}</div>
-          <div class="rules-site-meta">${escHtml(observationText)} · ${device}</div>
-          <div class="rules-site-meta">状态：${escHtml(siteRequestStatusLabel(request.status, request))}</div>
+          <div class="rules-site-domain">${escHtml(title)}</div>
+          <div class="rules-site-meta"><span class="rules-site-badge">${escHtml(sourceLabel)}</span>${escHtml(targetType)} · ${escHtml(statusText)}</div>
+          <div class="rules-site-meta">${escHtml(observationText)}${escHtml(statsText)} · ${device}</div>
         </div>
         <div class="rules-site-actions">${actionHtml}</div>
       </div>
@@ -2898,18 +2965,67 @@ window.promoteCustomSiteToSystemConfig = async (idx) => {
   }
 };
 
+function decisionForUnclassifiedPolicy(targetPolicy) {
+  if (targetPolicy === 'study') return 'study';
+  if (targetPolicy === 'composite') return 'composite';
+  if (targetPolicy === 'restricted') return 'reject';
+  if (targetPolicy === 'blocked') return 'blocked';
+  if (targetPolicy === 'return') return 'return';
+  return null;
+}
+
+async function ensureUnclassifiedSiteRequestFromUsedEntry(entry) {
+  const site = entry?.site || {};
+  const r = await api(`/profiles/${currentProfileId}/site-classification-requests/v1/ensure`, 'POST', {
+    domain: entry?.value || site.domain,
+    targetValue: entry?.value || site.domain,
+    firstObservedAt: site.firstSeenAt || null,
+    lastObservedAt: site.lastSeenAt || null,
+    observationCount: site.visitCount || 1,
+    totalSeconds: site.totalSeconds || 0,
+  });
+  if (r.alreadyClassified) {
+    toast(`该网站当前已归类为${sitePolicyLabel(r.currentClassification)}`);
+    return null;
+  }
+  return r.request || null;
+}
+
+async function classifyUnclassifiedEntryViaRequest(entry, targetPolicy) {
+  if (!entry || !currentProfileId) return;
+  const decision = decisionForUnclassifiedPolicy(targetPolicy);
+  if (!decision) return;
+  const request = await ensureUnclassifiedSiteRequestFromUsedEntry(entry);
+  if (!request) return;
+  await decideSiteClassificationRequestRecord(request, decision, {
+    targetType: request.requestedTargetType || 'host',
+    targetValue: request.requestedNormalizedValue || entry.value,
+  });
+}
+
+window.classifyUnclassifiedReviewRow = async (rowIdx, targetPolicy) => {
+  const row = window._reviewUnclassifiedRows?.[rowIdx];
+  if (!row || !currentProfileId) return;
+  try {
+    if (row.type === 'request') {
+      const decision = decisionForUnclassifiedPolicy(targetPolicy);
+      if (!decision) return;
+      await decideSiteClassificationRequestRecord(row.request, decision, {
+        targetType: row.request.requestedTargetType || 'host',
+        targetValue: siteRequestDecisionDefault(row.request),
+      });
+      return;
+    }
+    await classifyUnclassifiedEntryViaRequest(row.entry, targetPolicy);
+  } catch (e) {
+    toast('分类失败：' + (e.message || e), false);
+  }
+};
+
 window.classifyReviewUsedUnclassifiedSite = async (idx, targetPolicy) => {
   const entry = window._reviewUsedUnclassifiedEntries?.[idx];
-  const def = classificationPolicyDefs().find(item => item.key === targetPolicy);
-  if (!entry || !def || !currentProfileId) return;
   try {
-    const r = await api(`/profiles/${currentProfileId}/used-unclassified-sites/v1`, 'POST', { domain: entry.value, classification: targetPolicy });
-    if (r.config) remoteConfig = r.config;
-    rulesSitePolicyState.usedUnclassified = (rulesSitePolicyState.usedUnclassified || []).filter(site => !matchDomain(site.domain, entry.value));
-    renderReviewUsedUnclassifiedSites();
-    renderRulesPage();
-    updateReviewBadge(currentProfileId);
-    toast(`已归为${def.label}`);
+    await classifyUnclassifiedEntryViaRequest(entry, targetPolicy);
   } catch (e) {
     toast('分类失败：' + (e.message || e), false);
   }
@@ -2924,11 +3040,7 @@ window.classifyRulesSiteEntry = async (idx, targetPolicy) => {
       return;
     }
     if (entry.source === 'used-unclassified') {
-      const r = await api(`/profiles/${currentProfileId}/used-unclassified-sites/v1`, 'POST', { domain: entry.value, classification: targetPolicy });
-      if (r.config) remoteConfig = r.config;
-      rulesSitePolicyState.usedUnclassified = (rulesSitePolicyState.usedUnclassified || []).filter(site => !matchDomain(site.domain, entry.value));
-      renderRulesPage();
-      toast(`已归为${def.label}`);
+      await classifyUnclassifiedEntryViaRequest(entry, targetPolicy);
       return;
     }
     if (entry.source === 'system') {
@@ -7585,11 +7697,10 @@ async function loadSiteClassificationRequests() {
     container.innerHTML = `<div class="empty-state" style="color:var(--danger);">加载失败：${escHtml(e.message)}</div>`;
   }
 }
-async function decideSiteClassificationRequest(idx, decision) {
-  const request = window._siteClassificationRequests?.[idx];
-  if (!request) return;
-  const targetType = document.getElementById(`site-request-type-${idx}`)?.value || request.requestedTargetType;
-  const targetValue = document.getElementById(`site-request-target-${idx}`)?.value?.trim() || siteRequestDecisionDefault(request);
+async function decideSiteClassificationRequestRecord(request, decision, options = {}) {
+  if (!request || !currentProfileId) return;
+  const targetType = options.targetType || request.requestedTargetType;
+  const targetValue = String(options.targetValue || siteRequestDecisionDefault(request) || '').trim();
   if (!targetValue) {
     toast('请输入审批生效对象', false);
     return;
@@ -7602,27 +7713,35 @@ async function decideSiteClassificationRequest(idx, decision) {
     toast(formatProtectedSiteAccessScopeMessage(protectedScope, { label: targetPolicy === 'study' ? '学习网站' : '复合网站' }), false);
     return;
   }
+  await api(`/profiles/${currentProfileId}/site-classification-requests/${encodeURIComponent(request.id)}/decision`, 'POST', {
+    decision,
+    targetType,
+    targetValue,
+  });
+  toast(decision === 'study'
+    ? '已批准为学习网站'
+    : decision === 'composite'
+    ? '已批准为复合网站'
+    : decision === 'return'
+    ? (siteRequestRecordKind(request) === 'unclassified_visit' ? '已暂不归类' : '已退回申请')
+    : decision === 'blocked'
+    ? '已归为黑名单'
+    : '已归为受限娱乐');
+  await loadSiteClassificationRequests();
+  await loadUsedUnclassifiedSitesForRules(true);
+}
+
+async function decideSiteClassificationRequest(idx, decision) {
+  const request = window._siteClassificationRequests?.[idx];
+  if (!request) return;
+  const targetType = document.getElementById(`site-request-type-${idx}`)?.value || request.requestedTargetType;
+  const targetValue = document.getElementById(`site-request-target-${idx}`)?.value?.trim() || siteRequestDecisionDefault(request);
   try {
-    await api(`/profiles/${currentProfileId}/site-classification-requests/${encodeURIComponent(request.id)}/decision`, 'POST', {
-      decision,
-      targetType,
-      targetValue,
-    });
-    toast(decision === 'study'
-      ? '已批准为学习网站'
-      : decision === 'composite'
-      ? '已批准为复合网站'
-      : decision === 'return'
-      ? (siteRequestRecordKind(request) === 'unclassified_visit' ? '已暂不归类' : '已退回申请')
-      : decision === 'blocked'
-      ? '已归为黑名单'
-      : '已归为受限娱乐');
-    await loadSiteClassificationRequests();
+    await decideSiteClassificationRequestRecord(request, decision, { targetType, targetValue });
   } catch (e) {
     toast('操作失败：' + e.message, false);
   }
 }
-
 function fmtSecs(s) {
   if (!s) return '0秒';
   if (s < 60) return s + '秒';

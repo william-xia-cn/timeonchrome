@@ -452,6 +452,90 @@ async function closeMatchingPendingRequests(env: Env, profileId: string, host: s
   return closed;
 }
 
+async function ensureProfileUnclassifiedSiteRequest(request: Request, env: Env, profileId: string): Promise<Response> {
+  if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
+  const body = await request.json<{
+    domain?: string;
+    targetValue?: string;
+    firstObservedAt?: number | null;
+    lastObservedAt?: number | null;
+    observationCount?: number | null;
+  }>().catch(() => ({} as {
+    domain?: string;
+    targetValue?: string;
+    firstObservedAt?: number | null;
+    lastObservedAt?: number | null;
+    observationCount?: number | null;
+  }));
+  const raw = body?.targetValue || body?.domain;
+  const target = normalizeSiteClassificationTarget(raw);
+  if (!target.ok) return json({ error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' }, 400);
+  if (target.targetType !== 'host') return json({ error: 'host target required', code: 'INVALID_TARGET' }, 400);
+
+  const effective = await getProfileConfig(env, profileId);
+  const pendingByHost = await getPendingRequestsByHost(env, profileId);
+  const matchingPending = Array.from(pendingByHost.entries())
+    .filter(([requestHost]) => sameHostRule(requestHost, target.normalizedValue))
+    .flatMap(([, rows]) => rows);
+  const resolved = resolveSiteAccessClassification(effective || {}, matchingPending.map(rowToResponse), target.host || target.normalizedValue);
+  if (resolved.classification && resolved.classification !== 'pending_composite' && resolved.classification !== 'unclassified') {
+    return json({ ok: true, alreadyClassified: true, currentClassification: resolved.classification, source: resolved.source || null });
+  }
+
+  const existing = matchingPending[0] || null;
+  const now = Date.now();
+  const firstObservedAt = normalizePositiveTimestamp(body?.firstObservedAt) || now;
+  const lastObservedAt = normalizePositiveTimestamp(body?.lastObservedAt) || firstObservedAt;
+  const observationCount = normalizePositiveInteger(body?.observationCount) || 1;
+  const observationItem: SiteClassificationUploadItem = {
+    observationSourceId: `cloud-used-unclassified:${target.normalizedValue}`,
+    sourceObservationCount: observationCount,
+    sourceFirstObservedAt: firstObservedAt,
+    sourceLastObservedAt: lastObservedAt,
+  };
+
+  if (existing) {
+    await mergeRequestMetadata(env, existing.id, observationItem, 'auto_unclassified_access', null, now);
+    await mergeObservationSummary(env, existing.id, profileId, 'cloud-console', observationItem, now);
+    const updated = await env.DB.prepare(
+      `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
+    ).bind(existing.id, profileId).first<any>();
+    return json({ ok: true, created: false, request: rowToResponse(updated) });
+  }
+
+  const rejected = await findRejectedMatch(env, profileId, target);
+  if (rejected) return json({ error: 'request rejected', code: 'REQUEST_REJECTED', rejectedId: rejected.id }, 400);
+
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO site_classification_requests_v1
+     (id, profile_id, device_id, client_request_id, requested_target_type, requested_raw_input,
+      requested_normalized_value, requested_host, display_value, status, record_source,
+      requested_classification, manual_requested_at, first_observed_at, last_observed_at,
+      observation_count, requested_at, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'pending', 'auto_unclassified_access',
+             NULL, NULL, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id,
+    profileId,
+    `cloud-used-unclassified:${target.normalizedValue}`,
+    target.targetType,
+    target.rawInput,
+    target.normalizedValue,
+    target.host || null,
+    target.displayValue,
+    firstObservedAt,
+    lastObservedAt,
+    observationCount,
+    firstObservedAt,
+    now,
+    now,
+  ).run();
+  const inserted = await env.DB.prepare(
+    `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
+  ).bind(id, profileId).first<any>();
+  return json({ ok: true, created: true, request: rowToResponse(inserted) });
+}
 async function listUsedUnclassifiedSites(request: Request, env: Env, profileId: string): Promise<Response> {
   if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
   const url = new URL(request.url);
@@ -682,6 +766,11 @@ export const siteClassificationRequestsRouter = {
          LIMIT 500`
       ).bind(device.profileId).all<any>();
       return json({ requests: (result.results || []).map(rowToResponse) });
+    }
+
+    const ensureRequestMatch = path.match(/^\/profiles\/([^/]+)\/site-classification-requests\/v1\/ensure$/);
+    if (request.method === 'POST' && ensureRequestMatch) {
+      return ensureProfileUnclassifiedSiteRequest(request, env, ensureRequestMatch[1]);
     }
 
     const usedUnclassifiedMatch = path.match(/^\/profiles\/([^/]+)\/used-unclassified-sites\/v1$/);
