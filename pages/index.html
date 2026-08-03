@@ -2661,7 +2661,7 @@ function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedU
   const rows = [...requestEntries, ...usedRows];
   const pendingRows = rows.filter((row) => !isProcessed(row));
   const processedRows = rows.filter((row) => isProcessed(row));
-  const renderRow = (row) => row.type === "request" ? renderSiteRequestRow(row.request, row.idx) : renderReviewUsedUnclassifiedRow(row.entry, row.idx);
+  const renderRow = (row) => row.type === "request" ? renderUnclassifiedRequestRow(row.request, row.idx) : renderReviewUsedUnclassifiedRow(row.entry, row.idx);
   const pendingHtml = pendingRows.length ? pendingRows.map(renderRow).join("") : renderRecordEmpty("当前没有未处理的未归类网站使用记录。");
   const processedHtml = processedRows.length ? processedRows.map(renderRow).join("") : "";
   window._reviewUsedUnclassifiedEntries = usedEntries;
@@ -2677,6 +2677,34 @@ function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedU
   </section>`;
 }
 
+function renderUnclassifiedRequestRow(request, idx) {
+  const isPending = request.status === 'pending';
+  const requestedType = request.requestedTargetType || 'host';
+  const requestedValue = request.displayValue || request.requestedNormalizedValue || '';
+  const device = request.deviceId ? `终端 ${escHtml(request.deviceId)}` : '终端未记录';
+  const recordTime = formatSiteRequestTimestamp(request.requestedAt);
+  const recordLabel = siteRequestRecordLabel(request);
+  const observationText = siteRequestObservationText(request);
+  const actionHtml = isPending ? `
+    <button class="rules-site-action-btn" onclick="decideSiteClassificationRequest(${idx},'study')">确认为学习网站</button>
+    <button class="rules-site-action-btn" onclick="decideSiteClassificationRequest(${idx},'composite')">确认为复合网站</button>
+    <button class="rules-site-action-btn" onclick="decideSiteClassificationRequest(${idx},'return')">暂不归类</button>
+    <button class="rules-site-action-btn" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">归为受限娱乐</button>
+    <button class="rules-site-action-btn" style="color:var(--danger);border-color:rgba(17,24,39,.35);" onclick="decideSiteClassificationRequest(${idx},'blocked')">归为黑名单</button>`
+    : `<span class="rules-site-badge">${escHtml(siteRequestStatusLabel(request.status, request))}</span>`;
+  return `
+    <div class="rules-site-row-wrap" data-source="site-request" data-domain="${escHtml(requestedValue)}">
+      <div class="rules-site-row">
+        <div>
+          <div class="rules-site-domain">${escHtml(requestedValue)}</div>
+          <div class="rules-site-meta"><span class="rules-site-badge">${escHtml(recordLabel)}</span>${escHtml(siteRequestTargetTypeLabel(requestedType))} · 记录时间 ${escHtml(recordTime)}</div>
+          <div class="rules-site-meta">${escHtml(observationText)} · ${device}</div>
+          <div class="rules-site-meta">状态：${escHtml(siteRequestStatusLabel(request.status, request))}</div>
+        </div>
+        <div class="rules-site-actions">${actionHtml}</div>
+      </div>
+    </div>`;
+}
 function renderReviewUsedUnclassifiedSites() {
   const container = document.getElementById('review-used-unclassified-container');
   if (!container) return;
@@ -7561,7 +7589,7 @@ async function decideSiteClassificationRequest(idx, decision) {
   const request = window._siteClassificationRequests?.[idx];
   if (!request) return;
   const targetType = document.getElementById(`site-request-type-${idx}`)?.value || request.requestedTargetType;
-  const targetValue = document.getElementById(`site-request-target-${idx}`)?.value?.trim();
+  const targetValue = document.getElementById(`site-request-target-${idx}`)?.value?.trim() || siteRequestDecisionDefault(request);
   if (!targetValue) {
     toast('请输入审批生效对象', false);
     return;
