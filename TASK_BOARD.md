@@ -27,10 +27,12 @@
   - 文档：`docs/specs/SPEC-001-CALENDAR-ROUTINE-MANAGEMENT.md`
   - 状态：Draft 已建立，等待 Product Owner 审核；获批前不进入代码、schema、API 或迁移设计。
   - 核心：固定自然时间内的常态内容策略；支持周期与一次性例程；任一时刻最多一个有效日历例程。
-- [ ] [Spec Draft] 任务管理规格
-  - 文档：`docs/specs/SPEC-002-TASK-MANAGEMENT.md`
-  - 状态：Draft 已建立，等待 Product Owner 审核；获批前不进入代码、schema、API 或外部事件接入。
-  - 核心：一次性强制 Chrome 任务；按有效任务使用时长完成；不支持周期任务或固定截止时间。
+- [ ] [Spec + Technical Design Draft] 任务管理 V1
+  - 产品规格：`docs/specs/SPEC-002-TASK-MANAGEMENT.md`
+  - 技术设计：`docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
+  - 状态：产品规则和技术结构 Draft 已建立，等待 Product Owner 最终审核；获批前不进入代码、schema、API、migration 或外部事件接入。
+  - 核心：一次性强制 Chrome 任务；按有效任务使用时长完成；不支持周期任务或固定截止时间；多设备按有效区间并集累计。
+  - 实施闸门：先由 Product Owner 整理当前未提交改动，确认干净工作区并对齐最新 `origin/master`，再创建 `codex/task-management-v1`；任务实现不得与其他功能提交混合。
 
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
