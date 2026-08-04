@@ -295,9 +295,10 @@ export function initSignal(onContextChange) {
         onEvent({
           windowId: sender.tab.windowId ?? null,
           playing: msg.playing === true,
-          isAudible: msg.playing === true,
+          isAudible: msg.audible === true || sender.tab?.audible === true,
           isPiP: msg.isPiP === true,
           mediaKind: msg.mediaKind || null,
+          visibleMediaCount: Number(msg.visibleMediaCount) || 0,
           mediaSourceTabId: sender.tab.id,
           mediaFrameId: Number.isInteger(sender.frameId) ? sender.frameId : 0,
           mediaDocumentId: typeof sender.documentId === 'string' ? sender.documentId : null,

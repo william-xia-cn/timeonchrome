@@ -513,6 +513,8 @@ function normalizedMediaSnapshot(snapshot = {}) {
     playing: snapshot.playing === true,
     isPiP: snapshot.isPiP === true,
     mediaKind: snapshot.mediaKind || snapshot.kind || null,
+    audible: snapshot.audible === true,
+    visibleMediaCount: Number(snapshot.visibleMediaCount) || 0,
   };
 }
 
@@ -668,6 +670,8 @@ async function discoverCheckpointMediaFacts(now = Date.now()) {
         playing: snapshot.playing === true || snapshot.isPiP === true,
         isPiP: snapshot.isPiP === true,
         mediaKind: snapshot.mediaKind || (snapshot.isPiP ? 'video' : null),
+        audible: snapshot.audible === true || hasAudibleEvidence,
+        visibleMediaCount: Number(snapshot.visibleMediaCount) || 0,
       } : {}),
       mediaFactSource: candidate.sources?.join('+') || candidate.source || 'media_checkpoint_discovery',
     });

@@ -95,6 +95,8 @@ function videoFact(tabId, domain, overrides = {}) {
     playing: true,
     audible: overrides.audible ?? true,
     mediaKind: 'video',
+    visibleMediaCount: overrides.visibleMediaCount ?? 1,
+    muted: overrides.muted === true,
     isPiP: false,
     isActiveTab: overrides.isActiveTab ?? true,
     windowState: overrides.windowState || 'normal',
@@ -201,6 +203,44 @@ async function testRepeatedSameMediaFactDoesNotWriteSegment() {
   const sessions = Object.values(await mediaApi.getMediaSessions());
   check('repeated unchanged MEDIA_STATE writes no segment', rows.length === 0, JSON.stringify(rows));
   check('repeated unchanged MEDIA_STATE keeps one open session', sessions.length === 1 && sessions[0].startTime === base, JSON.stringify(sessions));
+}
+
+async function testInvisibleVideoDoesNotOpenForegroundVideoSession() {
+  resetAll();
+  const base = 1778801750000;
+  await mediaApi.applyMediaFacts(videoFact(14, 'hidden-video.example.com', {
+    audible: false,
+    muted: true,
+    visibleMediaCount: 0,
+  }), 'mediaState', base);
+
+  check('invisible muted video has no classification', mediaApi.classifyMediaFact(videoFact(14, 'hidden-video.example.com', {
+    audible: false,
+    muted: true,
+    visibleMediaCount: 0,
+  })) === null);
+  check('invisible muted video does not open media session', Object.keys(await mediaApi.getMediaSessions()).length === 0);
+}
+
+async function testOverlappingCheckpointAndEstimatedCloseIsTrimmed() {
+  resetAll();
+  const base = 1778801760000;
+  await mediaApi.applyMediaFacts(videoFact(15, 'overlap.example.com'), 'mediaState', base);
+  await mediaApi.applyMediaFacts(videoFact(15, 'overlap.example.com'), 'mediaState', base + 180_000);
+  await mediaApi.runMediaPeriodicCheckpoint(base + 180_000);
+
+  const sessions = await mediaApi.getMediaSessions();
+  const [session] = Object.values(sessions);
+  session.startTime = base;
+  session.lastObservedAt = base + 600_000;
+  await localStorage.set({ media_sessions_v2: { '15::foregroundVideo': session } });
+  await mediaApi.runMediaPeriodicCheckpoint(base + 720_000);
+
+  const rows = (await segments()).filter((row) => row.domain === 'overlap.example.com');
+  const total = rows.reduce((sum, row) => sum + row.durationSeconds, 0);
+  check('overlap scenario writes trimmed media segments only', rows.length === 2, JSON.stringify(rows));
+  check('overlap scenario does not double count checkpoint window', total === 540, JSON.stringify(rows));
+  check('estimated close segment starts after existing checkpoint', rows.some((row) => row.settlementReason === 'media_checkpoint_estimated_close' && row.startMs === base + 180_000), JSON.stringify(rows));
 }
 
 async function testPiPTakesPrecedence() {

@@ -22,7 +22,20 @@
   - Not daily scheduler, not routine bugfix guide, not every-session prompt generator
   - Escalate only for product model, architecture, storage/cloud/stats/permissions, release blocker disputes, role conflicts, suspected scope violations, or Product Owner second opinion
 
+## Product Design Drafts（2026-08-03）
+- [ ] [Spec Draft] 日历例程管理规格
+  - 文档：`docs/specs/SPEC-001-CALENDAR-ROUTINE-MANAGEMENT.md`
+  - 状态：Draft 已建立，等待 Product Owner 审核；获批前不进入代码、schema、API 或迁移设计。
+  - 核心：固定自然时间内的常态内容策略；支持周期与一次性例程；任一时刻最多一个有效日历例程。
+- [ ] [Spec Draft] 任务管理规格
+  - 文档：`docs/specs/SPEC-002-TASK-MANAGEMENT.md`
+  - 状态：Draft 已建立，等待 Product Owner 审核；获批前不进入代码、schema、API 或外部事件接入。
+  - 核心：一次性强制 Chrome 任务；按有效任务使用时长完成；不支持周期任务或固定截止时间。
+
 ## Current Fix Focus（2026-07-28）
+- [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
+  - 目标：本地 Admin 使用“复合网站申请学习记录 / 未归类网站使用记录”两单元只读布局，未处理默认展开、已处理默认折叠。
+  - 边界：仅展示本机已同步的 `site_classification_requests_v1`；不调用云端 30 天统计聚合，不增加本地审批或配置修改能力。
 - [x] [Cloud UI/API] 网站归类记录唯一事实修订
   - 目标：`target_stats_v1` 只作为未归类使用证据；所有云端归类操作先创建或复用 `site_classification_requests_v1` 审核记录，再通过 decision 写入 profile 配置。
   - 边界：不改 D1 schema、不改扩展端计时/拦截/绑定/同步；访问管理次入口与网站归类记录入口使用同一操作归属。
@@ -94,6 +107,7 @@
   - 目标：加深特殊申请面板字体颜色，修复 CSS 可读性问题，并把 content script 上报的 YouTube 频道上下文纳入 Popup 对象选项；无频道上下文时不显示频道。
 - [x] Popup YouTube 默认单个视频和字体补丁
   - 目标：YouTube watch 同时包含视频和播放列表时默认申请单个视频；特殊申请面板使用正常 UI 字体，降低过重字重和等宽字体带来的违和感。
+
 ## Current Fix Focus（2026-07-27）
 - [x] 特殊网站管理：YouTube 根域受限、对象级学习/复合规则
   - 目标：`youtube.com` 根域进入受限娱乐；具体视频、播放列表、频道可作为特殊对象由家长批准为学习或复合。

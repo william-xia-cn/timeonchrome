@@ -163,6 +163,7 @@ function run() {
   expectTrue('Pages 落账页应支持今日/昨日/本周/全部', source.includes('data-settlement-range="today"') && source.includes('data-settlement-range="yesterday"') && source.includes('data-settlement-range="week"') && source.includes('data-settlement-range="all"'));
   expectTrue('Pages 落账页应支持 nextCursor 加载更多', source.includes('nextCursor') && source.includes('settlement-load-more-btn'));
   expectTrue('Pages 落账页应标明最新记录在最上方', source.includes('最新记录显示在最上方'));
+  expectTrue('Pages 落账诊断时间应默认显示北京时间并保留 UTC title', source.includes("timeZone: 'Asia/Shanghai'") && source.includes('北京时间') && source.includes('function formatUtcSettlementTime') && source.includes('formatUtcSettlementTime(row.startMs)'));
   expectTrue('Pages 统计对账不应再是一级导航', !source.includes('data-page="reconciliation"') && source.includes('data-system-management-tab="reconciliation"'));
   expectTrue('Pages 统计对账应读取 stats-reconciliation/v1', source.includes('/stats-reconciliation/v1'));
   expectTrue('Pages 统计对账应展示统计表、落账聚合、差异、状态', source.includes('统计表') && source.includes('落账聚合') && source.includes('差异') && source.includes('状态'));
@@ -203,6 +204,7 @@ function run() {
   expectTrue('Pages 应包含系统日志 Tab 和查询接口', source.includes('data-system-management-panel="client-logs"') && source.includes('/client-logs/v1'));
   expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));
   expectTrue('Pages 系统日志应支持远程诊断策略和 TTL', source.includes('clientLoggingPolicyV1') && source.includes('client-log-policy-ttl') && source.includes('expiresAt'));
+  expectTrue('Pages 系统日志时间应默认显示北京时间并保留 UTC title', source.includes('function formatClientLogTimestamp') && source.includes('formatUtcSettlementTime(row.timestamp)'));
   expectTrue('Pages 日志上传 TTL 应为 1/3/7 天', source.includes('value="86400000">1 天') && source.includes('value="259200000">3 天') && source.includes('value="604800000">7 天'));
   expectTrue('Pages 日志上传 TTL 不应保留小时级选项', !source.includes('value="3600000">1 小时') && !source.includes('value="21600000">6 小时') && !source.includes('value="86400000">24 小时'));
   const saveClientLoggingPolicySource = extractFunctionSource(source, 'saveClientLoggingPolicy');

@@ -30,6 +30,8 @@
 
   let mediaPlaying = false;
   let mediaKind = null;
+  let mediaAudible = false;
+  let visibleMediaCount = 0;
   let audioContextActive = false;
   let pipActive = false;
   let suppressPiPLeaveReportUntil = 0;
@@ -37,28 +39,74 @@
   const MEDIA_REAFFIRM_INTERVAL_MS = 30000;
   let lastMediaStateSentAt = 0;
 
-  function sendMediaState(playing, isPiP = pipActive, kind = mediaKind, source = 'dom_media_event') {
+  function sendMediaState(playing, isPiP = pipActive, kind = mediaKind, source = 'dom_media_event', snapshot = null) {
     if (!chrome.runtime?.id) return false;
-    chrome.runtime.sendMessage({ type: 'MEDIA_STATE', playing, isPiP, mediaKind: kind, source });
+    chrome.runtime.sendMessage({
+      type: 'MEDIA_STATE',
+      playing,
+      isPiP,
+      mediaKind: kind,
+      audible: snapshot?.audible === true,
+      visibleMediaCount: Number(snapshot?.visibleMediaCount) || 0,
+      source,
+    });
     lastMediaStateSentAt = Date.now();
     return true;
   }
 
+  function isPlayingMediaElement(el) {
+    return !!el && !el.paused && !el.ended && el.readyState > 2;
+  }
+
+  function isVisibleVideoElement(el) {
+    if (!el || el.tagName?.toLowerCase() !== 'video') return false;
+    if (document.visibilityState !== 'visible') return false;
+    const rect = el.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) <= 0) return false;
+    const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+    return rect.right > 0 && rect.bottom > 0 && rect.left < viewportWidth && rect.top < viewportHeight;
+  }
+
+  function mediaElementHasAudioTrack(el) {
+    if (!el) return false;
+    if (el.tagName?.toLowerCase() === 'audio') return true;
+    if (typeof el.mozHasAudio === 'boolean') return el.mozHasAudio;
+    if (Number(el.webkitAudioDecodedByteCount) > 0) return true;
+    if (el.audioTracks && typeof el.audioTracks.length === 'number') return el.audioTracks.length > 0;
+    return false;
+  }
+
+  function isAudibleMediaElement(el) {
+    return isPlayingMediaElement(el) && mediaElementHasAudioTrack(el) && el.muted !== true && Number(el.volume) > 0;
+  }
+
   function readMediaSnapshot() {
     const elements = Array.from(document.querySelectorAll('video, audio'));
-    const playingElements = elements.filter(el => !el.paused && !el.ended && el.readyState > 2);
-    const htmlMediaPlaying = playingElements.length > 0;
+    const playingElements = elements.filter(isPlayingMediaElement);
+    const visibleVideos = playingElements.filter(isVisibleVideoElement);
+    const audibleElements = playingElements.filter(isAudibleMediaElement);
+    const hasAudioMedia = playingElements.some(el => el.tagName?.toLowerCase() === 'audio') || audioContextActive;
+    const htmlMediaPlaying = visibleVideos.length > 0 || hasAudioMedia;
     const newState = htmlMediaPlaying || audioContextActive;
-    const newKind = playingElements.some(el => el.tagName?.toLowerCase() === 'video')
-      ? 'video'
-      : (newState ? 'audio' : null);
+    const newKind = visibleVideos.length > 0 ? 'video' : (newState ? 'audio' : null);
     const newPiP = !!document.pictureInPictureElement;
-    return { playing: newState, kind: newKind, isPiP: newPiP };
+    return {
+      playing: newState,
+      kind: newKind,
+      isPiP: newPiP,
+      audible: audibleElements.length > 0 || audioContextActive,
+      visibleMediaCount: visibleVideos.length,
+    };
   }
 
   function rememberMediaSnapshot(snapshot) {
     mediaPlaying = snapshot.playing;
     mediaKind = snapshot.kind;
+    mediaAudible = snapshot.audible === true;
+    visibleMediaCount = Number(snapshot.visibleMediaCount) || 0;
     pipActive = snapshot.isPiP;
   }
 
@@ -67,11 +115,11 @@
     const newState = snapshot.playing;
     const newKind = snapshot.kind;
     const newPiP = snapshot.isPiP;
-    if (newState !== mediaPlaying || newPiP !== pipActive || newKind !== mediaKind) {
+    if (newState !== mediaPlaying || newPiP !== pipActive || newKind !== mediaKind || snapshot.audible !== mediaAudible || Number(snapshot.visibleMediaCount || 0) !== visibleMediaCount) {
       rememberMediaSnapshot(snapshot);
-      return sendMediaState(mediaPlaying, pipActive, mediaKind, source);
+      return sendMediaState(mediaPlaying, pipActive, mediaKind, source, snapshot);
     } else if (force && (newState || newPiP)) {
-      return sendMediaState(newState, newPiP, newKind, source);
+      return sendMediaState(newState, newPiP, newKind, source, snapshot);
     }
     return false;
   }
@@ -262,6 +310,8 @@
         playing: snapshot.playing === true,
         isPiP: snapshot.isPiP === true,
         mediaKind: snapshot.kind || null,
+        audible: snapshot.audible === true,
+        visibleMediaCount: Number(snapshot.visibleMediaCount) || 0,
         visible: document.visibilityState === 'visible',
         source: 'content_media_snapshot',
       });

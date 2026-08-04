@@ -298,10 +298,10 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 | 来源 | 原始事件 / 查询 | 当前状态 | 可证明 | 不可证明 |
 |---|---|---:|---|---|
 | DOM media element | `video/audio` 的 `play` / `pause` / `ended` | 已接入 | 页面 media element 播放状态变化 | 不保证有声音；单个元素停止不代表页面无其他媒体 |
-| DOM media element polling | content script 单一 1s 采样循环扫描 `video,audio`：`!paused && !ended && readyState > 2` | 已接入 | 当前页面存在正在播放的 media element；静音媒体也可被观察到 | 不保证 audible；状态变化最多约 1s 延迟，长期播放只每 30s 低频重申事实 |
+| DOM media element polling | content script 单一 1s 采样循环扫描 `video,audio`：`!paused && !ended && readyState > 2`，并对 video 做可见性、尺寸、视口过滤 | 已接入 | 当前页面存在可见播放中的 media element；静音媒体也可被观察到 | 不保证 audible；隐藏、零尺寸、视口外 video 不作为前台视频证据；状态变化最多约 1s 延迟，长期播放只每 30s 低频重申事实 |
 | Picture-in-Picture API | `enterpictureinpicture` / `leavepictureinpicture` / `document.pictureInPictureElement` | 已接入 | 当前 document 标准 PiP 状态 | 不覆盖所有浏览器/站点私有浮窗实现 |
 | Web Audio API | `AudioContext.statechange`、构造后读取 `ctx.state` | 已接入 | WebAudio context 处于 running | 只能覆盖 patch 后可见的 context；不区分具体音源 |
-| Content script message | `MEDIA_STATE { playing, isPiP, mediaKind, source }` + `sender.tab.id/url/windowId/frameId` | 已接入 | 将页面事实绑定到 `tabId + frameId`，并记录 `dom_media_event` / `dom_media_poll` / `web_audio` / `pip_api` 来源 | 它本身不是原始事实 |
+| Content script message | `MEDIA_STATE { playing, isPiP, mediaKind, audible, visibleMediaCount, source }` + `sender.tab.id/url/windowId/frameId` | 已接入 | 将页面事实绑定到 `tabId + frameId`，并记录 `dom_media_event` / `dom_media_poll` / `web_audio` / `pip_api` 来源 | `playing` 不是 audible；content snapshot 不携带 URL/title/text |
 | Chrome tab API | `chrome.tabs.get(tabId).audible` | 已接入 | Chrome 原生判断 tab 近期产生声音 | 不能证明静音视频播放；不区分 audio/video |
 | Chrome tab API | `tabs.onUpdated` 的 `changeInfo.audible` / `tab.audible` | 已接入 | tab audible 状态变化，可覆盖非 active tab 音频事实 | 不是完整媒体生命周期事件 |
 | Chrome tab API | `tab.mutedInfo` | 已接入 | tab 是否被静音，用于区分 audible 事实 | 静音不等于未播放 |
@@ -321,9 +321,9 @@ URL 暂缺短段属于上述临时完整性策略的一部分：当 `tabActivate
 - 媒体计时已经从 foreground `usage_segments_v1` 解耦，使用独立媒体账本：`media_frame_facts_v1`、`media_facts_v1`、`media_sessions_v2`、`media_segments_v1`、`daily_media_stats_v1`、`hourly_media_stats_v1`。
 - `dom_media_poll` 是注入脚本的页面采样事实，不是 Chrome 原生事件；30 秒重申只用于补足静音媒体/漏事件场景，不代表每 30 秒落账。
 - `media_frame_facts_v1` 保存 `tabId + frameId` 的页面媒体事实；`media_facts_v1` 是按 tab 派生出来的聚合事实，不再被最后一个 frame message 覆盖。
-- tab 聚合规则：PiP 优先；任一 frame video 播放则 tab 为 video；否则任一 frame audio/WebAudio/audible 则 tab 为 audio；只有同 tab 所有 frame 都停止时才关闭 tab media session。
+- tab 聚合规则：PiP 优先；任一 frame 可见 video 播放则 tab 为 video；否则任一 frame audio/WebAudio/audible 则 tab 为 audio；只有同 tab 所有 frame 都停止时才关闭 tab media session。
 - 媒体分类优先级：PiP > video > audio；同一 tab 同时 video + audio 只计 video。
-- `foregroundAudio` / `foregroundVideo` 定义为：source tab 是某个未最小化 Chrome window 的 active tab；不要求 Chrome window focused。
+- `foregroundAudio` / `foregroundVideo` 定义为：source tab 是某个未最小化 Chrome window 的 active tab；不要求 Chrome window focused。`foregroundVideo` 还要求 DOM video 可见或 PiP/Chrome audible 等更强证据；不得把隐藏、零尺寸、静音自动播放 video 单独作为前台视频强证据。
 - `backgroundAudio` / `backgroundVideo` 定义为：播放源不是上述 foreground media，或所在窗口已最小化。
 - PiP 计为 `pip`，独立于 foreground/background media，但当前 policy 是全局禁止；`pip` 只表示被检测到且正在清理/清理失败的禁用事实。
 - `tabs.onActivated`、`tabs.onReplaced`、window minimized/restored 只允许对已知媒体 tab 做关闭、迁移或 foreground/background 重分类；没有既有 media fact 或 open media session 时不得凭空开媒体账。
@@ -405,7 +405,7 @@ session_v1 ──(state close)──→ usage_segments_v1 ──→ daily_usage_
 | `daily_media_stats_v1` | date + domain + mediaClass + mode | 从 `media_segments_v1` 增量聚合本地媒体秒数 |
 | `hourly_media_stats_v1` | hourKey + domain + mediaClass + mode | 从 `media_segments_v1` 增量聚合本地媒体小时秒数 |
 
-`mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟只处理当前 open media session。对于 open `pip` session，checkpoint 必须先按全局 PiP policy 重试 cleanup；cleanup 成功则关闭本地 `pip` session，不再进入普通 checkpoint 重开。cleanup 失败时，仍按真实媒体事实继续确认和 checkpoint，避免丢失禁用 PiP 仍在播放的事实。非 PiP session 必须先用该 session 的 `tabId` 精确确认当前媒体事实仍成立；确认成功才写 `periodic_checkpoint` 并重开。`lastObservedAt` 只代表真实媒体事实来源，checkpoint 不能把它刷新为当前时间。
+`mediaClass` 取值为 `foregroundAudio`、`backgroundAudio`、`foregroundVideo`、`backgroundVideo`、`pip`。媒体 checkpoint 每 3 分钟只处理当前 open media session。对于 open `pip` session，checkpoint 必须先按全局 PiP policy 重试 cleanup；cleanup 成功则关闭本地 `pip` session，不再进入普通 checkpoint 重开。cleanup 失败时，仍按真实媒体事实继续确认和 checkpoint，避免丢失禁用 PiP 仍在播放的事实。非 PiP session 必须先用该 session 的 `tabId` 精确确认当前媒体事实仍成立；确认成功才写 `periodic_checkpoint` 并重开。`lastObservedAt` 只代表真实媒体事实来源，checkpoint 不能把它刷新为当前时间。媒体 segment 写入前必须按同一 profile/device/date/domain/tab/window/mediaClass/mode 检查时间区间重叠，防止 estimated close 与 periodic checkpoint 以不同 id 重复累计。
 
 云端媒体 segment mirror 使用独立 `/device/media-segments/v1` 协议。当前 `buildMediaSegmentsUploadPayload()` 会上传 `description`；D1 `media_segments_v1` 以 `description_json` 保存并在 Pages 媒体落账明细中显示 Open/Close 备注。媒体 segment 的 `profile_id/device_id` 仍由 device token 归属决定，payload 中的 identity 不作为写入归属依据。
 

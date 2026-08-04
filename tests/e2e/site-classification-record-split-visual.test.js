@@ -43,6 +43,32 @@ const MOCK_RECORDS = [
     manualRequestedAt: 1784850000000,
     deviceId: 'device-manual',
   },
+  {
+    id: 'auto-processed',
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'processed-unclassified.example.com',
+    displayValue: 'processed-unclassified.example.com',
+    recordSource: 'auto_unclassified_access',
+    requestedClassification: null,
+    status: 'returned',
+    firstObservedAt: 1784757600000,
+    lastObservedAt: 1784761200000,
+    observationCount: 4,
+    requestedAt: 1784757600000,
+    deviceId: 'device-auto',
+  },
+  {
+    id: 'manual-processed',
+    requestedTargetType: 'host',
+    requestedNormalizedValue: 'approved-learning.example.com',
+    displayValue: 'approved-learning.example.com',
+    recordSource: 'manual_learning_request',
+    requestedClassification: 'study',
+    status: 'approved_study',
+    requestedAt: 1784758000000,
+    manualRequestedAt: 1784759000000,
+    deviceId: 'device-manual',
+  },
 ];
 
 test('Popup/Admin/Pages clearly separate access records from study requests', async () => {
@@ -124,9 +150,21 @@ test('Popup/Admin/Pages clearly separate access records from study requests', as
     await expect(admin.locator('#main-screen')).toBeVisible();
     const adminPanel = admin.locator('[data-rules-panel="classification-requests"]');
     await expect(adminPanel).toBeVisible();
+    await expect(adminPanel).toContainText('复合网站申请学习记录');
+    await expect(adminPanel).toContainText('未归类网站使用记录');
     await expect(adminPanel).toContainText('未归类网站访问记录');
     await expect(adminPanel).toContainText('学习网站归类申请');
     await expect(adminPanel).toContainText('顶层导航 12 次');
+    const learningHistory = adminPanel.locator('[data-admin-record-section="learning-request"] .rules-record-history');
+    const unclassifiedHistory = adminPanel.locator('[data-admin-record-section="unclassified-usage"] .rules-record-history');
+    await expect(learningHistory).not.toHaveAttribute('open', '');
+    await expect(unclassifiedHistory).not.toHaveAttribute('open', '');
+    await expect(adminPanel.getByText('approved-learning.example.com')).toBeHidden();
+    await expect(adminPanel.getByText('processed-unclassified.example.com')).toBeHidden();
+    await learningHistory.locator('summary').click();
+    await unclassifiedHistory.locator('summary').click();
+    await expect(adminPanel.getByText('approved-learning.example.com')).toBeVisible();
+    await expect(adminPanel.getByText('processed-unclassified.example.com')).toBeVisible();
     expect(await admin.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await admin.screenshot({
       path: path.join(OUTPUT, 'admin-classification-records.png'),
@@ -148,11 +186,13 @@ test('Popup/Admin/Pages clearly separate access records from study requests', as
       document.querySelectorAll('.nav-item').forEach((node) => node.classList.remove('active'));
       document.querySelector('.nav-item[data-page="review"]').classList.add('active');
       window._siteClassificationRequests = records;
-      document.getElementById('site-classification-requests-container').innerHTML =
-        records.map((record, index) => renderSiteRequestRow(record, index)).join('');
+      document.getElementById('site-classification-requests-container').innerHTML = renderSiteRequestSections(records);
+      document.getElementById('review-used-unclassified-container').innerHTML = renderUnclassifiedUsageRecords(records, []);
     }, MOCK_RECORDS);
     const review = pages.locator('#page-review');
-    await expect(review).toContainText('网站归类审核');
+    await expect(review).toContainText('网站归类记录');
+    await expect(review).toContainText('复合网站申请学习记录');
+    await expect(review).toContainText('未归类网站使用记录');
     await expect(review).toContainText('未归类网站访问记录');
     await expect(review).toContainText('学习网站归类申请');
     await expect(review).toContainText('确认为学习网站');

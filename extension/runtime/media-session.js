@@ -208,8 +208,20 @@ function isForegroundMediaFact(fact) {
   return fact?.isActiveTab === true && fact?.windowState !== 'minimized';
 }
 
+function hasVisibleVideoEvidence(fact) {
+  if (normalizeMediaKind(fact?.mediaKind) !== 'video') return true;
+  if (fact?.isPiP === true) return true;
+  const visibleCount = Number(fact?.visibleMediaCount);
+  if (Number.isFinite(visibleCount)) return visibleCount > 0;
+  return fact?.audible === true && fact?.muted !== true;
+}
+
 function factHasMedia(fact) {
-  return !!(fact?.isPiP || fact?.playing || (fact?.audible && fact?.muted !== true));
+  if (fact?.isPiP) return true;
+  if (normalizeMediaKind(fact?.mediaKind) === 'video') {
+    return fact?.playing === true && hasVisibleVideoEvidence(fact);
+  }
+  return !!(fact?.playing || (fact?.audible && fact?.muted !== true));
 }
 
 export function classifyMediaFact(fact = {}) {
@@ -231,6 +243,7 @@ export function classifyMediaFact(fact = {}) {
 
   const foreground = isForegroundMediaFact(fact);
   if (mediaKind === 'video') {
+    if (!hasVisibleVideoEvidence(fact)) return null;
     return {
       mediaClass: foreground ? 'foregroundVideo' : 'backgroundVideo',
       mediaKind: 'video',
@@ -265,6 +278,7 @@ function normalizeMediaFact(fact = {}, reason = 'media_fact', atMs = Date.now())
     isPiP,
     audible: audible === true,
     muted: fact.muted === true || fact.isMuted === true,
+    visibleMediaCount: Number(fact.visibleMediaCount) || 0,
     isActiveTab: fact.isActiveTab === true,
     windowState: typeof fact.windowState === 'string' ? fact.windowState : null,
     source: typeof fact.source === 'string' && fact.source.trim() ? fact.source.trim() : 'unknown',
@@ -316,6 +330,7 @@ function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
     isPiP: !!pipFact,
     audible: activeFacts.some((fact) => fact.audible === true && fact.muted !== true),
     muted: hasMedia ? activeFacts.every((fact) => fact.muted === true) : latest.muted === true,
+    visibleMediaCount: activeFacts.reduce((sum, fact) => sum + (Number(fact.visibleMediaCount) || 0), 0),
     isActiveTab,
     windowState: chosen?.windowState || latest.windowState || null,
     source: chosen?.source || latest.source || 'unknown',
@@ -573,24 +588,85 @@ async function syncLegacyMediaSession(sessions = {}) {
   });
 }
 
+function mediaSegmentOverlapKey(segment) {
+  return [
+    segment.profileId || '',
+    segment.deviceId || '',
+    segment.date || '',
+    segment.domain || '',
+    String(segment.tabId ?? ''),
+    String(segment.windowId ?? ''),
+    segment.mediaClass || '',
+    segment.mode || '',
+  ].join('::');
+}
+
+function mediaSegmentsOverlap(a, b) {
+  return Number(a?.startMs) < Number(b?.endMs) && Number(a?.endMs) > Number(b?.startMs);
+}
+
+function trimMediaSegmentAgainstExisting(segment, existingSegments = {}) {
+  const start = Number(segment?.startMs);
+  const end = Number(segment?.endMs);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+  const key = mediaSegmentOverlapKey(segment);
+  const overlaps = Object.values(existingSegments)
+    .filter((existing) => existing?.id && existing.id !== segment.id)
+    .filter((existing) => mediaSegmentOverlapKey(existing) === key && mediaSegmentsOverlap(segment, existing))
+    .map((existing) => ({ start: Math.max(start, Number(existing.startMs)), end: Math.min(end, Number(existing.endMs)) }))
+    .filter((range) => Number.isFinite(range.start) && Number.isFinite(range.end) && range.end > range.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  if (overlaps.length === 0) return [segment];
+
+  let ranges = [{ start, end }];
+  for (const overlap of overlaps) {
+    const next = [];
+    for (const range of ranges) {
+      if (overlap.end <= range.start || overlap.start >= range.end) {
+        next.push(range);
+        continue;
+      }
+      if (overlap.start > range.start) next.push({ start: range.start, end: overlap.start });
+      if (overlap.end < range.end) next.push({ start: overlap.end, end: range.end });
+    }
+    ranges = next;
+    if (ranges.length === 0) break;
+  }
+
+  return ranges.map((range, index) => buildMediaSegment({
+    ...segment,
+    id: null,
+    startMs: range.start,
+    endMs: range.end,
+    durationSeconds: Math.floor((range.end - range.start) / 1000),
+    parentSegmentId: segment.parentSegmentId || segment.id || null,
+    partIndex: index + 1,
+    partCount: ranges.length,
+  })).filter((trimmed) => trimmed.durationSeconds > 0);
+}
+
 async function appendMediaSegments(segments) {
   const flat = Array.isArray(segments) ? segments : [segments];
-  if (flat.length === 0) return 0;
+  if (flat.length === 0) return { appended: 0, segments: [] };
   const data = await chrome.storage.local.get(MEDIA_SEGMENTS_KEY);
   const all = data?.[MEDIA_SEGMENTS_KEY] || {};
-  let appended = 0;
+  const appendedSegments = [];
   for (const rawSegment of flat) {
     const segment = sanitizePersistence(rawSegment);
     if (!segment?.id) continue;
     if (all[segment.id]) continue;
-    all[segment.id] = { ...segment, updatedAt: Date.now() };
-    appended++;
+    const candidates = trimMediaSegmentAgainstExisting(segment, all);
+    for (const candidate of candidates) {
+      if (!candidate?.id || all[candidate.id]) continue;
+      all[candidate.id] = { ...candidate, updatedAt: Date.now() };
+      appendedSegments.push(all[candidate.id]);
+    }
   }
-  if (appended > 0) {
+  if (appendedSegments.length > 0) {
     await chrome.storage.local.set({ [MEDIA_SEGMENTS_KEY]: all });
-    await markMediaSegmentsPending(flat.filter((segment) => segment?.id && all[segment.id]).map((segment) => segment.id));
+    await markMediaSegmentsPending(appendedSegments.map((segment) => segment.id));
   }
-  return appended;
+  return { appended: appendedSegments.length, segments: appendedSegments };
 }
 
 async function markMediaSegmentsPending(segmentIds) {
@@ -808,22 +884,17 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary', opt
     description: mediaSettlementDescription(session, options.endReason || reason, endMs),
   };
   const segments = splitMediaSegmentByLocalDate(input);
-  const existingData = await chrome.storage.local.get(MEDIA_SEGMENTS_KEY);
-  const existingSegments = existingData?.[MEDIA_SEGMENTS_KEY] || {};
-  const newSegments = segments.filter((segment) => segment?.id && !existingSegments[segment.id]);
-  const appended = await appendMediaSegments(segments);
-  if (appended > 0) {
-    for (const segment of newSegments) {
+  const appendResult = await appendMediaSegments(segments);
+  if (appendResult.appended > 0) {
+    for (const segment of appendResult.segments) {
       await incrementDailyMediaStats(segment);
       await incrementHourlyMediaStats(segment);
     }
   }
   return {
-    appended,
-    durationSeconds: Math.max(0, Math.floor((endMs - session.startTime) / 1000)),
-    domain: session.domain,
-    mediaClass: session.mediaClass,
-    tabId: session.tabId,
+    appended: appendResult.appended,
+    durationSeconds: appendResult.segments.reduce((sum, segment) => sum + (Number(segment.durationSeconds) || 0), 0),
+    segments: appendResult.segments,
   };
 }
 

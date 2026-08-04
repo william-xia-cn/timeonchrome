@@ -1173,7 +1173,8 @@ function setRulesPageError(message) {
     'rules-quota-daily-display',
     'rules-domain-quotas-display',
     'rules-schedule-display',
-    'rules-temporary-composite-display',
+    'rules-learning-request-display',
+    'rules-unclassified-record-display',
   ].forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
@@ -1664,12 +1665,14 @@ function formatRulesDateTime(ms) {
   return new Date(value).toLocaleString();
 }
 
-function siteRequestStatusLabel(status) {
-  if (status === 'pending') return '待审批';
-  if (status === 'returned') return '已退回';
-  if (status === 'approved_study') return '已批准为学习';
-  if (status === 'approved_composite') return '已批准为复合';
+function siteRequestStatusLabel(status, record = {}) {
+  const kind = siteClassificationRecordKind(record);
+  if (status === 'pending') return '待家长确认';
+  if (status === 'returned') return kind === 'unclassified_visit' ? '已暂不归类' : '已退回';
+  if (status === 'approved_study') return '已确认为学习';
+  if (status === 'approved_composite') return '已确认为复合';
   if (status === 'rejected') return '已归为受限娱乐';
+  if (record?.decision === 'blocked' || status === 'blocked' || status === 'approved_blocked') return '已归为黑名单';
   return status || '未知';
 }
 
@@ -1739,9 +1742,22 @@ function approvedUrlRulesForDecision(decision) {
     .filter((rule) => siteRuleDecision(rule) === decision));
 }
 
+function hasSiteClassificationObservationEvidence(record = {}) {
+  return Boolean(record.firstObservedAt || record.lastObservedAt || Number(record.observationCount || 0) > 0);
+}
+
+function siteClassificationRecordKind(record = {}) {
+  if (record.requestedClassification === 'study') return 'learning_request';
+  if (record.recordSource === 'auto_unclassified_access') return 'unclassified_visit';
+  if ((!record.recordSource || record.recordSource === 'legacy') && hasSiteClassificationObservationEvidence(record)) return 'unclassified_visit';
+  if (!record.recordSource || record.recordSource === 'legacy') return 'legacy';
+  return 'unclassified_visit';
+}
+
 function siteClassificationRecordTypeLabel(record = {}) {
-  if (record.requestedClassification === 'study') return '学习网站归类申请';
-  if (!record.recordSource || record.recordSource === 'legacy') return '历史网站归类记录';
+  const kind = siteClassificationRecordKind(record);
+  if (kind === 'learning_request') return '学习网站归类申请';
+  if (kind === 'legacy') return '历史网站归类记录';
   return '未归类网站访问记录';
 }
 
@@ -1753,59 +1769,88 @@ function siteClassificationObservationSummary(record = {}) {
   return `首次 ${first}<br>最近 ${last}<br>顶层导航 ${count} 次`;
 }
 
+function isProcessedSiteClassificationRecord(record = {}) {
+  return Boolean(record.status && record.status !== 'pending');
+}
+
+function renderSiteClassificationRecordRow(record = {}) {
+  const targetValue = record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue || '—';
+  const recordType = siteClassificationRecordTypeLabel(record);
+  const targetType = siteRequestTypeLabel(record.requestedTargetType);
+  const recordTime = record.requestedAt || record.createdAt;
+  const manualTime = record.manualRequestedAt || record.requestedAt || record.createdAt;
+  const timeText = siteClassificationRecordKind(record) === 'learning_request'
+    ? `记录时间 ${formatRulesDateTime(recordTime)} · 申请时间 ${formatRulesDateTime(manualTime)}`
+    : `记录时间 ${formatRulesDateTime(recordTime)}`;
+  return `
+    <div class="rules-record-row" data-record-kind="${escAttr(siteClassificationRecordKind(record))}">
+      <div>
+        <div class="rules-record-object" title="${escAttr(targetValue)}">${escHtml(targetValue)}</div>
+        <div class="rules-record-meta">${escHtml(recordType)} · ${escHtml(targetType)} · ${escHtml(timeText)}</div>
+        <div class="rules-record-meta">${siteClassificationObservationSummary(record)}</div>
+      </div>
+      <div class="rules-record-status">${escHtml(siteRequestStatusLabel(record.status, record))}</div>
+    </div>`;
+}
+
+function renderSiteClassificationRecordHistory(records = []) {
+  if (!records.length) return '';
+  return `
+    <details class="rules-record-history">
+      <summary><span>已处理记录</span><span>${records.length} 条</span></summary>
+      <div class="rules-record-list">${records.map(renderSiteClassificationRecordRow).join('')}</div>
+    </details>`;
+}
+
+function renderSiteClassificationRecordGroup(records, options) {
+  const list = Array.isArray(records) ? records : [];
+  const pending = list.filter((record) => !isProcessedSiteClassificationRecord(record));
+  const processed = list.filter((record) => isProcessedSiteClassificationRecord(record));
+  const countEl = document.getElementById(options.countId);
+  const displayEl = document.getElementById(options.displayId);
+  if (countEl) countEl.textContent = `未处理 ${pending.length} 条 · 已处理 ${processed.length} 条`;
+  if (!displayEl) return;
+  const pendingHtml = pending.length
+    ? `<div class="rules-record-list">${pending.map(renderSiteClassificationRecordRow).join('')}</div>`
+    : `<div class="rules-record-empty">${escHtml(options.emptyText)}</div>`;
+  displayEl.innerHTML = pendingHtml + renderSiteClassificationRecordHistory(processed);
+}
+
 function renderSiteClassificationRequestRecords(records) {
-  const el = document.getElementById('rules-temporary-composite-display');
-  if (!el) return;
   const list = Array.isArray(records) ? records : [];
   adminSiteClassificationRecords = list;
   if (rulesSiteActivePolicy === 'used-unclassified') renderAdminRulesSiteManagement();
-  if (list.length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">暂无网站归类记录</div>';
-    return;
-  }
-  el.innerHTML = `
-    <div style="overflow-x:auto;">
-      <table class="settlement-table site-request-target-table">
-        <thead>
-          <tr>
-            <th class="site-request-col-object">对象</th>
-            <th class="site-request-col-type">记录类型</th>
-            <th class="site-request-col-status">状态</th>
-            <th class="site-request-col-observation">访问概况</th>
-            <th class="site-request-col-time">申请/记录时间</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${list.map((record) => {
-            const targetValue = record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue || '—';
-            const recordType = siteClassificationRecordTypeLabel(record);
-            const targetType = siteRequestTypeLabel(record.requestedTargetType);
-            const timestamp = record.requestedClassification === 'study'
-              ? record.manualRequestedAt || record.requestedAt || record.createdAt
-              : record.requestedAt || record.createdAt;
-            return `
-            <tr>
-              <td class="site-request-target-cell" title="${escAttr(targetValue)}">${escHtml(targetValue)}</td>
-              <td class="site-request-type-cell">${escHtml(recordType)}<br><span style="color:var(--muted);">${escHtml(targetType)}</span></td>
-              <td class="site-request-status-cell">${escHtml(siteRequestStatusLabel(record.status))}</td>
-              <td class="site-request-observation-cell">${siteClassificationObservationSummary(record)}</td>
-              <td class="site-request-time-cell">${escHtml(formatRulesDateTime(timestamp))}</td>
-            </tr>
-          `;}).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
+  renderSiteClassificationRecordGroup(
+    list.filter((record) => siteClassificationRecordKind(record) === 'learning_request'),
+    {
+      displayId: 'rules-learning-request-display',
+      countId: 'rules-learning-request-count',
+      emptyText: '当前没有未处理的复合网站学习申请。',
+    },
+  );
+  renderSiteClassificationRecordGroup(
+    list.filter((record) => siteClassificationRecordKind(record) !== 'learning_request'),
+    {
+      displayId: 'rules-unclassified-record-display',
+      countId: 'rules-unclassified-record-count',
+      emptyText: '当前没有未处理的未归类网站使用记录。',
+    },
+  );
 }
+
 async function renderSiteClassificationRequestSection() {
-  const el = document.getElementById('rules-temporary-composite-display');
-  if (!el) return;
-  el.textContent = '加载中...';
+  const displays = [
+    document.getElementById('rules-learning-request-display'),
+    document.getElementById('rules-unclassified-record-display'),
+  ].filter(Boolean);
+  if (!displays.length) return;
+  displays.forEach((el) => { el.textContent = '加载中...'; });
   try {
     const payload = await sendMsg({ type: 'GET_SITE_CLASSIFICATION_REQUESTS', status: 'all' });
     renderSiteClassificationRequestRecords(payload?.records || []);
   } catch (error) {
-    el.innerHTML = `<div style="color:var(--danger);font-size:12px;padding:8px 0;">${escHtml(error?.message || '加载失败')}</div>`;
+    const message = `<div class="rules-record-empty" style="color:var(--danger);">${escHtml(error?.message || '加载失败')}</div>`;
+    displays.forEach((el) => { el.innerHTML = message; });
   }
 }
 
@@ -1945,7 +1990,7 @@ function youtubeSpecialRuleRows() {
 }
 
 function adminUsedUnclassifiedRows() {
-  const finalStatuses = new Set(['approved', 'approved_study', 'approved_composite', 'rejected', 'returned']);
+  const finalStatuses = new Set(['approved', 'approved_study', 'approved_composite', 'approved_blocked', 'blocked', 'rejected', 'returned']);
   return (Array.isArray(adminSiteClassificationRecords) ? adminSiteClassificationRecords : [])
     .filter((record) => record && record.requestedClassification !== 'study')
     .filter((record) => record.recordSource === 'auto_unclassified_access')
@@ -1955,7 +2000,7 @@ function adminUsedUnclassifiedRows() {
       targetType: siteRequestTypeLabel(record.requestedTargetType),
       observation: siteClassificationObservationSummary(record).replace(/<br>/g, ' · '),
       lastObservedAt: Number(record.lastObservedAt || record.requestedAt || record.createdAt || 0),
-      status: siteRequestStatusLabel(record.status),
+      status: siteRequestStatusLabel(record.status, record),
     }))
     .sort((a, b) => b.lastObservedAt - a.lastObservedAt || String(a.value).localeCompare(String(b.value)));
 }
@@ -2536,11 +2581,21 @@ function getLocalDateKey(date = new Date()) {
 function formatSettlementTime(ms) {
   const value = Number(ms);
   if (!Number.isFinite(value) || value <= 0) return '—';
-  return new Date(value).toLocaleTimeString([], {
+  return `${new Date(value).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-  });
+    hour12: false,
+  })} 北京时间`;
+}
+
+function formatUtcSettlementTime(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return `${new Date(value).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')} UTC`;
 }
 
 function normalizeSettlementEventReason(reason) {
@@ -2747,8 +2802,8 @@ function renderSettlementRows() {
         ${rows.map(row => `
           <tr>
             <td>${escHtml(row.date || '—')}</td>
-            <td>${escHtml(formatSettlementTime(row.startMs))}</td>
-            <td>${escHtml(formatSettlementTime(row.endMs))}</td>
+            <td title="${escAttr(formatUtcSettlementTime(row.startMs))}">${escHtml(formatSettlementTime(row.startMs))}</td>
+            <td title="${escAttr(formatUtcSettlementTime(row.endMs))}">${escHtml(formatSettlementTime(row.endMs))}</td>
             <td>${escHtml(formatSeconds(row.durationSeconds))}</td>
             <td class="settlement-domain-cell" title="${escAttr(row.domain)}">${escHtml(row.domain)}</td>
             <td title="${escAttr(`${row.channel}${row.framework ? ` / ${row.framework}` : ''}`)}">${escHtml(getSettlementTypeLabel(row))}</td>
@@ -2967,8 +3022,8 @@ function renderMediaSettlementRows() {
         ${rows.map(row => `
           <tr>
             <td>${escHtml(row.date || '—')}</td>
-            <td>${escHtml(formatSettlementTime(row.startMs))}</td>
-            <td>${escHtml(formatSettlementTime(row.endMs))}</td>
+            <td title="${escAttr(formatUtcSettlementTime(row.startMs))}">${escHtml(formatSettlementTime(row.startMs))}</td>
+            <td title="${escAttr(formatUtcSettlementTime(row.endMs))}">${escHtml(formatSettlementTime(row.endMs))}</td>
             <td>${escHtml(formatSeconds(row.durationSeconds))}</td>
             <td class="settlement-domain-cell" title="${escAttr(row.domain)}">${escHtml(row.domain)}</td>
             <td title="${escAttr(row.mediaClass)}">${escHtml(getMediaClassLabel(row.mediaClass))}</td>
@@ -3637,7 +3692,15 @@ function clientLogLevelLabel(level) {
 function formatClientLogTime(timestamp) {
   const value = Number(timestamp || 0);
   if (!Number.isFinite(value) || value <= 0) return '—';
-  return new Date(value).toLocaleString();
+  return `${new Date(value).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })} 北京时间`;
 }
 
 function clientLogFilter() {
@@ -3699,7 +3762,7 @@ function renderClientLogRows(logs = []) {
       <tbody>
         ${logs.map((log) => `
           <tr>
-            <td>${escHtml(formatClientLogTime(log.timestamp))}</td>
+            <td title="${escAttr(formatUtcSettlementTime(log.timestamp))}">${escHtml(formatClientLogTime(log.timestamp))}</td>
             <td>${escHtml(clientLogLevelLabel(log.level))}</td>
             <td>${escHtml(log.category || '—')}</td>
             <td class="settlement-reason-cell">${escHtml(log.eventCode || '—')}</td>

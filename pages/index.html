@@ -5937,7 +5937,21 @@ function settlementTypeLabel(row) {
 function formatSettlementTime(ms) {
   const value = Number(ms);
   if (!Number.isFinite(value) || value <= 0) return '—';
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return `${new Date(value).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })} 北京时间`;
+}
+
+function formatUtcSettlementTime(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return `${new Date(value).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')} UTC`;
 }
 
 async function fetchCloudUsageSegments({ range, cursor = null }) {
@@ -5986,8 +6000,8 @@ function renderCloudSettlementTable(rows) {
         <tbody>
           ${rows.map(row => `
             <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:8px;">${escHtml(formatSettlementTime(row.startMs))}</td>
-              <td style="padding:8px;">${escHtml(formatSettlementTime(row.endMs))}</td>
+              <td style="padding:8px;" title="${escHtml(formatUtcSettlementTime(row.startMs))}">${escHtml(formatSettlementTime(row.startMs))}</td>
+              <td style="padding:8px;" title="${escHtml(formatUtcSettlementTime(row.endMs))}">${escHtml(formatSettlementTime(row.endMs))}</td>
               <td style="padding:8px;">${escHtml(fmtSecs(row.durationSeconds || 0))}</td>
               <td style="padding:8px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(row.domain || '')}">${escHtml(row.domain || '(无域名)')}</td>
               <td style="padding:8px;">${escHtml(cloudDeviceLabel(row.deviceId))}</td>
@@ -6134,8 +6148,8 @@ function renderCloudMediaTable(rows) {
         <tbody>
           ${rows.map(row => `
             <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:8px;">${escHtml(formatSettlementTime(row.startMs))}</td>
-              <td style="padding:8px;">${escHtml(formatSettlementTime(row.endMs))}</td>
+              <td style="padding:8px;" title="${escHtml(formatUtcSettlementTime(row.startMs))}">${escHtml(formatSettlementTime(row.startMs))}</td>
+              <td style="padding:8px;" title="${escHtml(formatUtcSettlementTime(row.endMs))}">${escHtml(formatSettlementTime(row.endMs))}</td>
               <td style="padding:8px;">${escHtml(fmtSecs(row.durationSeconds || 0))}</td>
               <td style="padding:8px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(row.domain || '')}">${escHtml(row.domain || '(无域名)')}</td>
               <td style="padding:8px;">${escHtml(cloudDeviceLabel(row.deviceId))}</td>
@@ -6246,7 +6260,15 @@ function getSelectedClientLogRange() {
 function formatClientLogTimestamp(value) {
   const timestamp = Number(value || 0);
   if (!Number.isFinite(timestamp) || timestamp <= 0) return '—';
-  return new Date(timestamp).toLocaleString('zh-CN');
+  return `${new Date(timestamp).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })} 北京时间`;
 }
 
 function clientLogLevelText(level) {
@@ -6351,7 +6373,7 @@ function renderCloudClientLogTable(rows) {
         <tbody>
           ${rows.map(row => `
             <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:8px;">${escHtml(formatClientLogTimestamp(row.timestamp))}</td>
+              <td style="padding:8px;" title="${escHtml(formatUtcSettlementTime(row.timestamp))}">${escHtml(formatClientLogTimestamp(row.timestamp))}</td>
               <td style="padding:8px;">${escHtml(clientLogLevelText(row.level))}</td>
               <td style="padding:8px;">${escHtml(row.category || '—')}</td>
               <td style="padding:8px;">${escHtml(row.eventCode || '—')}</td>

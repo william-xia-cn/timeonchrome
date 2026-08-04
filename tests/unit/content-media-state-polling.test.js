@@ -43,8 +43,14 @@ expect(
 );
 
 expect(
-  'MEDIA_STATE payload is state-only plus source label',
-  /chrome\.runtime\.sendMessage\(\{\s*type:\s*'MEDIA_STATE',\s*playing,\s*isPiP,\s*mediaKind:\s*kind,\s*source\s*\}\)/.test(mediaBlock)
+  'MEDIA_STATE payload is state-only plus source label and minimal media evidence',
+  /type:\s*'MEDIA_STATE'/.test(mediaBlock)
+    && /playing,/.test(mediaBlock)
+    && /isPiP,/.test(mediaBlock)
+    && /mediaKind:\s*kind/.test(mediaBlock)
+    && /audible:\s*snapshot\?\.audible === true/.test(mediaBlock)
+    && /visibleMediaCount:\s*Number\(snapshot\?\.visibleMediaCount\) \|\| 0/.test(mediaBlock)
+    && /source,/.test(mediaBlock)
 );
 
 expect(
@@ -117,6 +123,21 @@ expect(
 expect(
   'media polling inspects only audio/video elements',
   /querySelectorAll\('video, audio'\)/.test(mediaBlock)
+);
+
+expect(
+  'video evidence is visibility and viewport filtered',
+  /function isVisibleVideoElement/.test(mediaBlock)
+    && /getBoundingClientRect/.test(mediaBlock)
+    && /document\.visibilityState !== 'visible'/.test(mediaBlock)
+    && /rect\.right > 0 && rect\.bottom > 0/.test(mediaBlock)
+);
+
+expect(
+  'audible media evidence is separate from playing',
+  /function isAudibleMediaElement/.test(mediaBlock)
+    && /el\.muted !== true/.test(mediaBlock)
+    && /Number\(el\.volume\) > 0/.test(mediaBlock)
 );
 
 if (process.exitCode) {

@@ -151,7 +151,7 @@ function run() {
   expectTrue('admin 访问管理页应包含四个内容面板', html.includes('data-rules-panel="site-management"') && html.includes('data-rules-panel="quota-management"') && html.includes('data-rules-panel="schedule-management"') && html.includes('data-rules-panel="classification-requests"'));
   expectTrue('admin 访问管理页默认展示网站管理', code.includes("let rulesActiveTab = 'site-management'") && html.includes('<div class="rules-panel active" data-rules-panel="site-management">'));
   expectTrue('admin 访问管理 Tab 切换只同步显示状态', code.includes('function syncRulesTabs()') && code.includes('[data-rules-tab]') && code.includes('[data-rules-panel]') && code.includes('rulesActiveTab = btn.dataset.rulesTab'));
-  expectTrue('admin 访问规则页应展示网站归类记录', html.includes('网站归类记录') && html.includes('rules-temporary-composite-display'));
+  expectTrue('admin 网站归类记录页应与云端使用相同的两单元结构', html.includes('网站归类记录') && html.includes('复合网站申请学习记录') && html.includes('未归类网站使用记录') && html.includes('rules-learning-request-display') && html.includes('rules-unclassified-record-display'));
   expectTrue('admin 本地访问管理不提供配置文件导入导出', !html.includes('data-rules-tab="config-files"') && !html.includes('导入配置文件') && !html.includes('导出配置文件'));
   expectTrue('admin 本地网站管理使用只读策略目录', html.includes('admin-rules-policy-nav') && html.includes('admin-rules-site-directory') && html.includes('rules-readonly-shell') && code.includes('rulesSiteActivePolicy'));
   expectTrue('admin 本地网站管理包含特殊网站入口和 YouTube 规则列表', code.includes("key: 'special'") && code.includes('特殊网站：YouTube') && code.includes('YouTube 特殊对象规则') && code.includes('youtubeSpecialRuleRows') && code.includes('siteRuleManagementRank') && code.includes('孩子可在 Popup 对支持的视频、播放列表、频道发起学习申请') && !code.includes('特殊对象规则只能在云端家长控制台修改'));
@@ -162,12 +162,12 @@ function run() {
   expectTrue('admin 访问规则页应把已批准 URL 规则合并到对应分类', code.includes('function adminRulesPolicyDefs') && code.includes('approvedUrlRulesForDecision') && code.includes("targetRules: approvedUrlRulesForDecision('study')") && code.includes("targetRules: approvedUrlRulesForDecision('composite')") && code.includes("targetRules: approvedUrlRulesForDecision('reject')"));
   expectTrue('admin 归为受限娱乐 URL 规则应作为受限精确规则展示', code.includes("targetRules: approvedUrlRulesForDecision('reject')") && code.includes('已批准精确规则') && code.includes('uniqueSiteRules'));
   expectTrue('admin URL 规则展示应规范化 YouTube playlist 历史值', code.includes('function canonicalDisplayUrlValue') && code.includes('https://www.youtube.com/playlist?list=${playlistId}'));
-  expectTrue('admin 网站归类记录应简化为单一对象列', code.includes('<th class="site-request-col-object">对象</th>') && !code.includes('审批生效对象') && !html.includes('site-request-col-decision') && !code.includes('site-request-decision-cell'));
-  expectTrue('admin 网站归类申请对象列应优先显示审批生效对象', code.includes('record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue'));
-  expectTrue('admin 网站归类申请对象列应加宽并允许长 URL 换行', html.includes('.site-request-col-object { width: 40%; }') && html.includes('site-request-target-cell') && html.includes('site-request-target-table') && html.includes('overflow-wrap: anywhere') && code.includes('site-request-target-cell'));
-  expectTrue('admin 应读取网站归类记录消息', code.includes('GET_SITE_CLASSIFICATION_REQUESTS') && code.includes('renderSiteClassificationRequestRecords'));
-  expectTrue('admin 应区分访问记录和学习归类申请', code.includes('未归类网站访问记录') && code.includes('学习网站归类申请') && code.includes('顶层导航'));
-  expectTrue('admin 五列表格应为访问概况分配独立列宽并允许换行', html.includes('.site-request-col-observation { width: 18%; }') && html.includes('site-request-observation-cell') && html.includes('vertical-align: top'))
+  expectTrue('admin 网站归类记录行应优先显示审批生效对象并允许长链接换行', code.includes('record.decisionNormalizedValue || record.displayValue || record.requestedNormalizedValue') && html.includes('.rules-record-object') && html.includes('overflow-wrap: anywhere'));
+  expectTrue('admin 应读取全部网站归类记录消息', code.includes('GET_SITE_CLASSIFICATION_REQUESTS') && code.includes("status: 'all'") && code.includes('renderSiteClassificationRequestRecords'));
+  expectTrue('admin 应按云端口径区分访问记录、学习申请和历史记录', code.includes('siteClassificationRecordKind') && code.includes('未归类网站访问记录') && code.includes('学习网站归类申请') && code.includes('历史网站归类记录') && code.includes('顶层导航'));
+  expectTrue('admin 两个记录单元应分别筛选学习申请和未归类记录', code.includes("siteClassificationRecordKind(record) === 'learning_request'") && code.includes("siteClassificationRecordKind(record) !== 'learning_request'") && code.includes('rules-learning-request-count') && code.includes('rules-unclassified-record-count'));
+  expectTrue('admin 未处理记录应默认显示且已处理记录默认折叠', code.includes('isProcessedSiteClassificationRecord') && code.includes('<details class="rules-record-history">') && !code.includes('<details class="rules-record-history" open>'));
+  expectTrue('admin 网站归类记录页应保持只读', html.includes('本页只读展示本机已同步的网站归类记录') && !extractFunctionSource(code, 'renderSiteClassificationRecordRow').includes('<button') && !extractFunctionSource(code, 'renderSiteClassificationRecordRow').includes('<input') && !extractFunctionSource(code, 'renderSiteClassificationRecordRow').includes('<select'));
   expectTrue('admin local mode renders device status as sync disabled', code.includes('本机计时、popup 和使用分析可用；统计不会同步到云端。'));
   expectTrue('admin 本机状态应读取账户和用户信息', extractFunctionSource(code, 'renderSyncStatus').includes('CLOUD_KEYS.CREDENTIALS') && extractFunctionSource(code, 'renderSyncStatus').includes('CLOUD_KEYS.PROFILE_NAME'));
   expectTrue('admin 本机状态应显示账户和用户', extractFunctionSource(code, 'renderSyncStatus').includes('账户：') && extractFunctionSource(code, 'renderSyncStatus').includes('用户：'));
@@ -202,6 +202,7 @@ function run() {
   expectTrue('admin settlement open close displays source reason before operation', code.includes("return normalizeSettlementEventReason(endpoint?.reason || endpoint?.operation) || '—';"));
   expectTrue('admin settlement hides invalid media-only operation reasons', code.includes("value === 'tabAudible' || value === 'mediaState'"));
   expectTrue('admin settlement rows sort newest first', code.includes('return bStart - aStart;'));
+  expectTrue('admin 落账诊断时间应默认显示北京时间并保留 UTC title', code.includes("timeZone: 'Asia/Shanghai'") && code.includes('北京时间') && code.includes('function formatUtcSettlementTime') && code.includes('formatUtcSettlementTime(row.startMs)'));
   expectTrue('admin settlement page renders reconciliation delta', code.includes('renderSettlementReconciliationSummary') && code.includes('formatSignedSeconds'));
   expectTrue('admin media settlement is inside system management tabs', html.includes('data-system-management-panel="media-settlements"'));
   expectTrue('admin media settlement page calls local read model', code.includes('getAdminMediaSettlementView'));
@@ -212,6 +213,7 @@ function run() {
   expectTrue('admin client logs are inside system management tabs', html.includes('data-system-management-panel="client-logs"'));
   expectTrue('admin client logs use local log messages', code.includes('GET_CLIENT_LOGS') && code.includes('GET_CLIENT_LOG_STATUS') && code.includes('CLEAR_CLIENT_LOGS'));
   expectTrue('admin client logs support level/category filters', html.includes('client-log-level-filter') && html.includes('client-log-category-filter'));
+  expectTrue('admin 系统日志时间应默认显示北京时间并保留 UTC title', code.includes('function formatClientLogTime') && code.includes('formatUtcSettlementTime(log.timestamp)'));
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
