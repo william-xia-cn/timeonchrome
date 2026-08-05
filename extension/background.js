@@ -13,7 +13,7 @@ import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoti
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
-import { buildTaskHeartbeatPayload, getTaskCache, pullTaskCache, setupTaskAlarms, TASK_PULL_ALARM, TASK_START_ALARM } from './infra/task-sync.js';
+import { buildTaskHeartbeatPayload, getTaskCache, pullTaskCache, setupTaskAlarms, TASK_PULL_ALARM, TASK_START_ALARM, TASK_COMPLETION_ALARM } from './infra/task-sync.js';
 import { handleMessage } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
 import { getEvents, clearEvents } from './core/event-log.js';
@@ -1127,7 +1127,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } else if (alarm.name === TASK_PULL_ALARM) {
     await pullTaskCache({ reason: 'alarm' });
   } else if (alarm.name === TASK_START_ALARM) {
+    const taskBoundaryAt = Number.isFinite(alarm.scheduledTime) ? alarm.scheduledTime : Date.now();
+    await flushOpenSessionToStats('task_effective_boundary', {
+      closeTime: taskBoundaryAt,
+      reopenTime: taskBoundaryAt,
+      allowForeground: true,
+      resolveUnknownDomainForSettlement,
+    }).catch((err) => console.warn('[TaskSync] task start boundary flush failed:', err?.message || err));
     await pullTaskCache({ reason: 'task_start_alarm' });
+    await handleMessage({ type: 'EVALUATE_QUOTA_STATE', source: 'task_start_alarm' }, { id: chrome.runtime.id }).catch(() => null);
+  } else if (alarm.name === TASK_COMPLETION_ALARM) {
+    const taskBoundaryAt = Number.isFinite(alarm.scheduledTime) ? alarm.scheduledTime : Date.now();
+    await flushOpenSessionToStats('task_completion_boundary', {
+      closeTime: taskBoundaryAt,
+      reopenTime: taskBoundaryAt,
+      allowForeground: true,
+      resolveUnknownDomainForSettlement,
+    }).catch((err) => console.warn('[TaskSync] task completion boundary flush failed:', err?.message || err));
+    await pullTaskCache({ reason: 'task_completion_alarm' });
+    await syncNowWithRuntimeEffects({ forceRetryExhaustedSiteRequests: true }, 'task_completion_alarm').catch(() => null);
+    await handleMessage({ type: 'EVALUATE_QUOTA_STATE', source: 'task_completion_alarm' }, { id: chrome.runtime.id }).catch(() => null);
   }
 });
 

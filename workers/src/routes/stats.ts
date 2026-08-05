@@ -763,6 +763,13 @@ export const statsRouter = {
           const targetMatchLevel = normalizeOptionalString(s.targetMatchLevel, 64);
           const targetClassificationAtTime = normalizeOptionalString(s.targetClassificationAtTime, 64);
           const quotaBucketAtTime = VALID_MODES.has(s.quotaBucketAtTime) ? s.quotaBucketAtTime : null;
+          const matchedTaskIdsAtTime = Array.isArray(s.matchedTaskIdsAtTime)
+            ? JSON.stringify(s.matchedTaskIdsAtTime.map((value: any) => String(value || '').trim()).filter(Boolean).sort())
+            : null;
+          const progressTaskIdAtTime = normalizeOptionalString(s.progressTaskIdAtTime, 128);
+          const taskRevisionAtTime = typeof s.taskRevisionAtTime === 'number' && Number.isFinite(s.taskRevisionAtTime)
+            ? s.taskRevisionAtTime
+            : null;
 
           // Idempotent upsert by segment id
           const existing = await env.DB.prepare(
@@ -777,7 +784,8 @@ export const statsRouter = {
                    managed_target_id = ?, managed_target_type = ?, managed_target_namespace = ?,
                    managed_target_value = ?, managed_target_label_at_time = ?, target_source_at_time = ?,
                    target_rule_id = ?, target_match_level = ?, target_classification_at_time = ?,
-                   quota_bucket_at_time = ?, uploaded_at = ?, updated_at = ?
+                   quota_bucket_at_time = ?, matched_task_ids_at_time = ?, progress_task_id_at_time = ?,
+                   task_revision_at_time = ?, uploaded_at = ?, updated_at = ?
                WHERE id = ?`
             ).bind(
               s.tabId == null ? null : String(s.tabId),
@@ -793,6 +801,9 @@ export const statsRouter = {
               targetMatchLevel,
               targetClassificationAtTime,
               quotaBucketAtTime,
+              matchedTaskIdsAtTime,
+              progressTaskIdAtTime,
+              taskRevisionAtTime,
               now,
               now,
               s.id
@@ -808,10 +819,12 @@ export const statsRouter = {
                 created_at, updated_at, uploaded_at, tab_id, window_id, description_json,
                 managed_target_id, managed_target_type, managed_target_namespace,
                 managed_target_value, managed_target_label_at_time, target_source_at_time,
-                target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time)
+                target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time,
+                matched_task_ids_at_time, progress_task_id_at_time, task_revision_at_time)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?)`
             ).bind(
               s.id, device.profileId, deviceId, s.date, timezone, dayStartMs, dayEndMs,
               s.startMs, s.endMs, s.durationSeconds, normalizedDomain, s.channel, s.mode,
@@ -830,7 +843,10 @@ export const statsRouter = {
               targetRuleId,
               targetMatchLevel,
               targetClassificationAtTime,
-              quotaBucketAtTime
+              quotaBucketAtTime,
+              matchedTaskIdsAtTime,
+              progressTaskIdAtTime,
+              taskRevisionAtTime
             ).run();
             inserted++;
           }
@@ -1803,7 +1819,8 @@ export const statsRouter = {
                 created_at, updated_at, uploaded_at, description_json,
                 managed_target_id, managed_target_type, managed_target_namespace,
                 managed_target_value, managed_target_label_at_time, target_source_at_time,
-                target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time
+                target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time,
+                matched_task_ids_at_time, progress_task_id_at_time, task_revision_at_time
          FROM usage_segments_v1
          WHERE ${queryWhere.join(' AND ')}
          ORDER BY start_ms DESC, id DESC
@@ -1817,6 +1834,7 @@ export const statsRouter = {
         managed_target_id: string | null; managed_target_type: string | null; managed_target_namespace: string | null;
         managed_target_value: string | null; managed_target_label_at_time: string | null; target_source_at_time: string | null;
         target_rule_id: string | null; target_match_level: string | null; target_classification_at_time: string | null; quota_bucket_at_time: string | null;
+        matched_task_ids_at_time: string | null; progress_task_id_at_time: string | null; task_revision_at_time: number | null;
       }>();
 
       const rows = result.results || [];
@@ -1851,6 +1869,9 @@ export const statsRouter = {
           targetMatchLevel: row.target_match_level,
           targetClassificationAtTime: row.target_classification_at_time,
           quotaBucketAtTime: row.quota_bucket_at_time,
+          matchedTaskIdsAtTime: parseJsonField(row.matched_task_ids_at_time) || [],
+          progressTaskIdAtTime: row.progress_task_id_at_time,
+          taskRevisionAtTime: row.task_revision_at_time,
           parentSegmentId: row.parent_segment_id,
           partIndex: row.part_index,
           partCount: row.part_count,

@@ -460,7 +460,7 @@ lastCloudConfirmedSeconds + currentDeviceUnuploadedUniqueIntervals
 1. D1 migration、task repository 和状态机纯函数；
 2. Parent/device read APIs、revision/action API 和 capability；
 3. Extension task cache、pull、alarm 和纯策略层（已实现于 `codex/task-management-v1` P3）；
-4. Runtime session/segment 快照、精确边界和重评估；
+4. Runtime session/segment 快照、任务开始/预计完成边界和重评估（已实现于 `codex/task-management-v1` P4；任务阻断 UI 与进度投影仍在后续包）；
 5. Worker segment 投影与多设备区间并集；
 6. Reminder、Popup、Admin read model；
 7. Pages 任务管理和 capability gate；

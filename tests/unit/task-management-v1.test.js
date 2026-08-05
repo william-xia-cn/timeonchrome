@@ -140,8 +140,10 @@ function runMigrationAndRepositoryChecks() {
   check('worker index routes profile and device task APIs', index.includes("./routes/tasks") && index.includes("/device/tasks/v1") && index.includes("/tasks(?:\\/|$)"));
   check('extension task sync pulls device task API and caches results', taskSync.includes("/device/tasks/v1") && taskSync.includes('TASK_CACHE_KEY') && taskSync.includes('normalizeTaskCachePayload'));
   check('extension task sync defines periodic pull and start alarms', taskSync.includes('TASK_PULL_ALARM') && taskSync.includes('TASK_START_ALARM') && taskSync.includes('scheduleNextTaskAlarm'));
+  check('extension task sync defines completion boundary snapshot helpers', taskSync.includes('TASK_COMPLETION_ALARM') && taskSync.includes('resolveTaskSnapshotForPage') && taskSync.includes('scheduleTaskCompletionAlarmForSnapshot'));
   check('extension task sync builds heartbeat capability payload', taskSync.includes('buildTaskHeartbeatPayload') && taskSync.includes('capabilities') && taskSync.includes('taskActiveSummary'));
   check('background wires task pull alarms and startup cache pull', background.includes('TASK_PULL_ALARM') && background.includes('TASK_START_ALARM') && background.includes('bootstrap:') && background.includes('pullTaskCache'));
+  check('background flushes session at task start and completion boundaries', background.includes('task_effective_boundary') && background.includes('task_completion_boundary') && background.includes('TASK_COMPLETION_ALARM'));
   check('cloud heartbeat accepts task payload body', cloudSync.includes('sendHeartbeat(afterRecoveredSync = null, heartbeatPayload = null)') && cloudSync.includes("cloudRequest('POST', '/device/heartbeat', heartbeatPayload || null)"));
   check('cloud bind triggers a non-blocking task cache pull', messageRouter.includes("pullTaskCache({ reason: 'cloud_bind' })") && messageRouter.includes('taskPull'));
 }

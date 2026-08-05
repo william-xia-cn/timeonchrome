@@ -5,12 +5,14 @@ import {
   TASK_MANAGEMENT_V1_CAPABILITY,
   getEnforcingTasks,
   getNextTaskAlarmTime,
+  getTaskPolicyContext,
   normalizeTaskRecord,
 } from '../core/task-management.js';
 
 export const TASK_CACHE_KEY = 'task_management_v1_cache';
 export const TASK_PULL_ALARM = 'taskManagementPull';
 export const TASK_START_ALARM = 'taskManagementStart';
+export const TASK_COMPLETION_ALARM = 'taskManagementCompletion';
 export const TASK_PULL_PERIOD_MINUTES = 1;
 export const TASK_CACHE_SCHEMA_VERSION = 1;
 
@@ -121,4 +123,49 @@ export function buildTaskHeartbeatPayload(cache = null, nowMs = Date.now()) {
       nextTaskAt,
     },
   };
+}
+function maxRevisionForTaskIds(tasks = [], ids = []) {
+  const wanted = new Set((ids || []).map(String));
+  return Math.max(0, ...(tasks || [])
+    .filter((task) => wanted.has(String(task.id)))
+    .map((task) => Number(task.revision || 0) || 0));
+}
+
+export function taskSnapshotFieldsFromContext(context = {}, tasks = []) {
+  const matchedTaskIds = Array.isArray(context.matchedTaskIds)
+    ? context.matchedTaskIds.map(String).filter(Boolean).sort((a, b) => a.localeCompare(b))
+    : [];
+  const progressTaskId = context.progressTaskId ? String(context.progressTaskId) : null;
+  const taskRevision = progressTaskId
+    ? maxRevisionForTaskIds(tasks, [progressTaskId])
+    : maxRevisionForTaskIds(tasks, matchedTaskIds);
+  return {
+    matchedTaskIdsAtTime: matchedTaskIds,
+    progressTaskIdAtTime: progressTaskId,
+    taskRevisionAtTime: taskRevision || null,
+  };
+}
+
+export async function resolveTaskSnapshotForPage(page = {}, nowMs = Date.now()) {
+  const cache = await getTaskCache();
+  const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
+  const context = getTaskPolicyContext(tasks, page, nowMs);
+  return {
+    ...taskSnapshotFieldsFromContext(context, tasks),
+    taskPolicyContext: context,
+  };
+}
+
+export async function scheduleTaskCompletionAlarmForSnapshot(snapshot = {}, sessionStartMs = Date.now(), alarmApi = getAlarmArea()) {
+  if (!alarmApi?.create) return { scheduled: false, reason: 'alarms_unavailable' };
+  await clearAlarm(TASK_COMPLETION_ALARM, alarmApi);
+  const progressTaskId = snapshot?.progressTaskIdAtTime;
+  if (!progressTaskId) return { scheduled: false, reason: 'no_progress_task' };
+  const cache = await getTaskCache();
+  const task = (cache?.tasks || []).find((item) => String(item.id) === String(progressTaskId));
+  const remainingSeconds = Number(task?.remainingSeconds ?? ((Number(task?.requiredSeconds || 0) || 0) - (Number(task?.completedSeconds || 0) || 0)));
+  if (!Number.isFinite(remainingSeconds) || remainingSeconds <= 0) return { scheduled: false, reason: 'no_remaining_seconds' };
+  const when = Number(sessionStartMs || Date.now()) + (remainingSeconds * 1000);
+  alarmApi.create(TASK_COMPLETION_ALARM, { when });
+  return { scheduled: true, when, taskId: String(progressTaskId) };
 }

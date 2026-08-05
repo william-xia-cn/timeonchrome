@@ -654,6 +654,9 @@ await api.settleUsageDuration({
   targetMatchLevel: 'url',
   targetClassificationAtTime: 'study',
   quotaBucketAtTime: 'composite',
+  matchedTaskIdsAtTime: ['task-b', 'task-a'],
+  progressTaskIdAtTime: 'task-a',
+  taskRevisionAtTime: 3,
   description: {
     schemaVersion: 1,
     start: { reason: 'tabActivated', operation: null, source: 'chrome_event', atMs: MOCK_TIME - 60000 },
@@ -677,6 +680,9 @@ chk('payload includes windowId', pSeg.windowId, 991);
 chk('payload includes managedTargetId', pSeg.managedTargetId, 'mt_payload');
 chk('payload includes managedTargetType', pSeg.managedTargetType, 'url');
 chk('payload includes quotaBucketAtTime', pSeg.quotaBucketAtTime, 'composite');
+chk('payload includes sorted matchedTaskIdsAtTime', pSeg.matchedTaskIdsAtTime.join(','), 'task-a,task-b');
+chk('payload includes progressTaskIdAtTime', pSeg.progressTaskIdAtTime, 'task-a');
+chk('payload includes taskRevisionAtTime', pSeg.taskRevisionAtTime, 3);
 chk('payload excludes profileId', Object.prototype.hasOwnProperty.call(pSeg, 'profileId'), false);
 chk('payload durationSeconds', pSeg.durationSeconds, 60);
 chkT('payload has date', !!pSeg.date);
