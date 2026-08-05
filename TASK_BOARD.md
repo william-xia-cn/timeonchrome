@@ -72,6 +72,11 @@
   - 边界：不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本；任务进度仍由 Worker 基于 usage segment 投影，Pages 不计算可信进度。
   - 测试：Pages 静态/契约测试、任务 Worker/API 回归、`npm run typecheck`、`git diff --check` 与 Pages 目视验证。
 
+- [x] [Task-management / P8] 任务管理 V1 runtime `task_required` 阻断
+  - 分支：`codex/task-management-v1`
+  - 范围：扩展运行时访问决策读取本机 task cache；有未完成任务生效且当前页面不属于任务资源并集时进入 `task_required`；命中任务资源时跳过旧时间段限制，但仍保持黑名单、安全和配额检查。
+  - 边界：不改 Worker API、不执行远端 D1 migration、不部署生产环境、不修改扩展发布版本；不改变无任务时现有访问控制、计时、同步和统计行为。
+  - 测试：mode routing 任务阻断回归、任务纯函数回归、`npm run typecheck`、`git diff --check`。
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
   - 目标：本地 Admin 使用“复合网站申请学习记录 / 未归类网站使用记录”两单元只读布局，未处理默认展开、已处理默认折叠。
@@ -147,6 +152,7 @@
   - 目标：加深特殊申请面板字体颜色，修复 CSS 可读性问题，并把 content script 上报的 YouTube 频道上下文纳入 Popup 对象选项；无频道上下文时不显示频道。
 - [x] Popup YouTube 默认单个视频和字体补丁
   - 目标：YouTube watch 同时包含视频和播放列表时默认申请单个视频；特殊申请面板使用正常 UI 字体，降低过重字重和等宽字体带来的违和感。
+
 
 ## Current Fix Focus（2026-07-27）
 - [x] 特殊网站管理：YouTube 根域受限、对象级学习/复合规则

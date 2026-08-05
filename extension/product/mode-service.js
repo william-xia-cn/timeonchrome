@@ -12,6 +12,8 @@ import {
   recordUnclassifiedSiteAccess,
 } from '../infra/storage.js';
 import { resolveSiteAccessClassification } from '../core/site-classification.js';
+import { getTaskPolicyContext } from '../core/task-management.js';
+import { getTaskCache } from '../infra/task-sync.js';
 import { enqueueModeBoundaryIntent } from '../core/mode-boundary-intents.js';
 import { setCachedEffectiveMode } from '../runtime/session.js';
 import { getTodayStatsWithCategories } from './analytics.js';
@@ -71,7 +73,42 @@ function baseDecision(overrides = {}) {
     ...overrides,
   };
 }
+function policyTypeForTaskPage({ isStudyDomain = false, isCompositeDomain = false } = {}) {
+  if (isStudyDomain) return 'study';
+  if (isCompositeDomain) return 'composite';
+  return '';
+}
 
+async function getTaskPolicyContextForAccess({ url, domain, policyType, specialSiteTargets = [], nowMs } = {}) {
+  try {
+    const cache = await getTaskCache();
+    const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
+    return getTaskPolicyContext(tasks, {
+      url,
+      host: domain,
+      policyType,
+      specialTargets: specialSiteTargets,
+    }, nowMs);
+  } catch (error) {
+    recordFallbackLog({
+      level: 'warn',
+      eventCode: 'task_policy_context_failed',
+      module: 'product/mode-service',
+      reason: 'task_context_unavailable',
+      message: 'Failed to resolve task policy context',
+      details: { error: error?.message || String(error || 'unknown') },
+    });
+    return {
+      required: false,
+      allowed: true,
+      reason: 'task_context_unavailable',
+      activeTaskIds: [],
+      matchedTaskIds: [],
+      progressTaskId: null,
+      matchesByTaskId: {},
+    };
+  }
+}
 function finiteNumberOrNull(value) {
   if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
@@ -752,6 +789,33 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
+  const taskPolicyContext = await getTaskPolicyContextForAccess({
+    url,
+    domain,
+    policyType: policyTypeForTaskPage({ isStudyDomain, isCompositeDomain }),
+    specialSiteTargets: event.specialSiteTargets || [],
+    nowMs,
+  });
+  const taskAllowsCurrentPage = taskPolicyContext.required === true && taskPolicyContext.allowed === true;
+  if (taskPolicyContext.required === true && taskPolicyContext.allowed !== true) {
+    return baseDecision({
+      access: 'reminder',
+      reminder: {
+        reason: 'task_required',
+        params: {
+          activeTaskIds: taskPolicyContext.activeTaskIds || [],
+          domain,
+        },
+      },
+      domain,
+      config,
+      classification: siteClassification.classification,
+      taskPolicyContext,
+      siteClassificationRequestSyncNeeded,
+      siteClassificationRequest: siteClassificationRequestForSync,
+    });
+  }
+
   if (quotaState.onlineLocked) {
     return baseDecision({
       access: 'reminder',
@@ -802,10 +866,10 @@ async function handleAccessObserved(event = {}) {
     isRestricted,
     isStudyDomain,
     isCompositeDomain,
-    studyWindowAllowed: studyWindow.allowed,
-    compositeWindowAllowed: compositeWindow.allowed,
-    restWindowAllowed: restWindow.allowed,
-    legacyScheduleAllowed,
+    studyWindowAllowed: taskAllowsCurrentPage ? true : studyWindow.allowed,
+    compositeWindowAllowed: taskAllowsCurrentPage ? true : compositeWindow.allowed,
+    restWindowAllowed: taskAllowsCurrentPage ? true : restWindow.allowed,
+    legacyScheduleAllowed: taskAllowsCurrentPage ? true : legacyScheduleAllowed,
     remainingCompositeSeconds,
     quotaState,
   });
@@ -837,6 +901,7 @@ async function handleAccessObserved(event = {}) {
     config,
     modeSnapshot,
     classification: siteClassification.classification,
+    taskPolicyContext,
     siteClassificationRequestSyncNeeded,
     siteClassificationRequest: siteClassificationRequestForSync,
   };
