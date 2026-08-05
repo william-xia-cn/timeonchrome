@@ -126,6 +126,9 @@ function runMigrationAndRepositoryChecks() {
   check('repository inserts tasks_v1 and task_events_v1', repository.includes('INSERT INTO tasks_v1') && repository.includes('INSERT OR IGNORE INTO task_events_v1'));
   check('repository uses expected revision for lifecycle updates', repository.includes('expectedRevision') && repository.includes('revision = ?'));
   check('repository keeps progress projection bounded by required seconds', repository.includes('MIN(required_seconds, ?)'));
+  check('repository computes progress by interval union, not additive seconds', repository.includes('export function calculateUnionSeconds') && repository.includes('interval.startMs <= currentEnd') && repository.includes('Math.floor(totalMs / 1000)'));
+  check('repository rebuilds task progress from accepted usage segments', repository.includes('rebuildTaskProgressProjectionFromSegments') && repository.includes('FROM usage_segments_v1') && repository.includes('progress_task_id_at_time = ?') && repository.includes('task_revision_at_time = ?'));
+  check('repository writes usage completion event idempotently', repository.includes(':completed:usage:') && repository.includes("sourceType: 'system'") && repository.includes("sourceId: 'usage_segments_v1'"));
   check('repository imports shared task pure functions', repository.includes("../../../extension/core/task-management.js"));
   check('repository supports frozen core field updates', repository.includes('updateTaskCoreFields') && repository.includes('TASK_CORE_FIELDS_FROZEN'));
   check('repository allows resume through open lifecycle status', repository.includes("status === 'open' ? \"'paused'\""));

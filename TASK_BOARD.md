@@ -55,6 +55,11 @@
   - 范围：打开 counted session 时记录任务匹配快照；usage segment 保存并上传 `matchedTaskIdsAtTime` / `progressTaskIdAtTime` / `taskRevisionAtTime`；任务开始和任务完成边界触发当前 session 结算、任务缓存刷新和 active tab 重评估。
   - 边界：不实现 Worker 多设备进度投影，不开放 Pages 创建入口，不改 Popup/Admin/Reminder UI，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
   - 测试：任务 runtime 静态/契约测试、usage segment 快照测试、Worker stats ingest 静态测试、`npm run typecheck`、`git diff --check`。
+- [x] [Task-management / P5] 任务管理 V1 Worker 进度投影与多设备区间并集
+  - 分支：`codex/task-management-v1`
+  - 范围：Worker 仅在 `usage_segments_v1` 新插入 segment 后，从同一 `profile_id + task_id + revision` 的 accepted segments 重算时间区间并集，写入 `tasks_v1.completed_seconds`，首次达到要求时标记 `completed` 并写入 usage completion event。
+  - 边界：不新增第二套任务时间上传协议，不改扩展端阻断/UI，不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
+  - 测试：任务 repository/projection 静态与纯函数测试、Worker stats ingest 触发投影测试、`npm run typecheck`、`git diff --check`。
 
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构

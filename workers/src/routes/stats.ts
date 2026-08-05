@@ -2,6 +2,7 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
+import { createTaskRepository } from '../tasks/taskRepository';
 
 // ── Segment payload schema validation ───────────────────────────────────────────
 
@@ -849,6 +850,14 @@ export const statsRouter = {
               taskRevisionAtTime
             ).run();
             inserted++;
+            if (progressTaskIdAtTime && taskRevisionAtTime) {
+              await createTaskRepository(env).rebuildTaskProgressProjectionFromSegments(
+                device.profileId,
+                progressTaskIdAtTime,
+                taskRevisionAtTime,
+                now,
+              );
+            }
           }
         }
 

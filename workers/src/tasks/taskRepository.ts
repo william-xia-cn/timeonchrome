@@ -57,6 +57,33 @@ export function taskRowToRecord(row: any) {
   };
 }
 
+export type TaskProgressInterval = { startMs: number; endMs: number };
+
+export function calculateUnionSeconds(intervals: TaskProgressInterval[] = []) {
+  const sorted = (intervals || [])
+    .map((interval) => ({
+      startMs: Math.floor(Number(interval.startMs) || 0),
+      endMs: Math.floor(Number(interval.endMs) || 0),
+    }))
+    .filter((interval) => interval.endMs > interval.startMs)
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+  if (sorted.length === 0) return 0;
+  let totalMs = 0;
+  let currentStart = sorted[0].startMs;
+  let currentEnd = sorted[0].endMs;
+  for (const interval of sorted.slice(1)) {
+    if (interval.startMs <= currentEnd) {
+      currentEnd = Math.max(currentEnd, interval.endMs);
+    } else {
+      totalMs += currentEnd - currentStart;
+      currentStart = interval.startMs;
+      currentEnd = interval.endMs;
+    }
+  }
+  totalMs += currentEnd - currentStart;
+  return Math.floor(totalMs / 1000);
+}
+
 export function validateTaskCreateInput(input: TaskCreateInput) {
   const errors: Array<{ field: string; code: string }> = [];
   if (!input.id) errors.push({ field: 'id', code: 'REQUIRED' });
@@ -231,8 +258,46 @@ export function createTaskRepository(env: Env) {
              completion_source = CASE WHEN ? >= required_seconds THEN COALESCE(completion_source, 'usage') ELSE completion_source END,
              completed_at = CASE WHEN ? >= required_seconds THEN COALESCE(completed_at, ?) ELSE completed_at END,
              updated_at = ?
-         WHERE profile_id = ? AND id = ? AND revision = ? AND lifecycle_status = 'open'`
+         WHERE profile_id = ? AND id = ? AND revision = ? AND lifecycle_status IN ('open', 'paused')`
       ).bind(seconds, seconds, seconds, seconds, now, now, profileId, taskId, revision).run();
+    },
+
+    async rebuildTaskProgressProjectionFromSegments(profileId: string, taskId: string, revision: number, now = Date.now()) {
+      const task = await this.getTask(profileId, taskId);
+      if (!task) return { ok: false, code: 'TASK_NOT_FOUND' };
+      if (Number(task.revision || 0) !== Number(revision || 0)) return { ok: false, code: 'TASK_REVISION_MISMATCH' };
+      if (!['open', 'paused'].includes(String(task.lifecycleStatus || ''))) {
+        return { ok: true, skipped: true, code: 'TASK_TERMINAL', task };
+      }
+      const rows = await env.DB.prepare(
+        `SELECT start_ms, end_ms
+         FROM usage_segments_v1
+         WHERE profile_id = ?
+           AND progress_task_id_at_time = ?
+           AND task_revision_at_time = ?
+           AND end_ms > start_ms
+         ORDER BY start_ms ASC, end_ms ASC`
+      ).bind(profileId, taskId, revision).all<{ start_ms: number; end_ms: number }>();
+      const completedSeconds = Math.min(
+        Number(task.requiredSeconds || 0) || 0,
+        calculateUnionSeconds((rows.results || []).map((row) => ({ startMs: row.start_ms, endMs: row.end_ms }))),
+      );
+      await this.updateProgressProjection(profileId, taskId, completedSeconds, revision, now);
+      if (completedSeconds >= Number(task.requiredSeconds || 0) && task.lifecycleStatus !== 'completed') {
+        await this.appendTaskEvent({
+          id: `${taskId}:completed:usage:${revision}`,
+          taskId,
+          profileId,
+          eventType: 'completed',
+          taskRevision: revision,
+          sourceType: 'system',
+          sourceId: 'usage_segments_v1',
+          payload: { completedSeconds, requiredSeconds: task.requiredSeconds },
+          occurredAt: now,
+          now,
+        });
+      }
+      return { ok: true, completedSeconds, task: await this.getTask(profileId, taskId) };
     },
   };
 }
