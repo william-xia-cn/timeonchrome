@@ -26,7 +26,7 @@ function loadTaskManagementModule() {
     .replace(/export\s+function\s+/g, 'function ');
   const context = { URL, URLSearchParams, console, this: null };
   context.this = context;
-  vm.runInNewContext(`${source}\nthis.__m = { TASK_MANAGEMENT_V1_CAPABILITY, validateTaskRequiredSeconds, normalizeTaskName, canonicalTaskHost, canonicalTaskUrl, normalizeTaskResourceSpec, deriveTaskRuntimeStatus, canEditTaskCoreFields, sortTasksForProgress, selectProgressTask, validateTaskDefinition };`, context, { filename: 'task-management.js' });
+  vm.runInNewContext(`${source}\nthis.__m = { TASK_MANAGEMENT_V1_CAPABILITY, validateTaskRequiredSeconds, normalizeTaskName, canonicalTaskHost, canonicalTaskUrl, normalizeTaskResourceSpec, deriveTaskRuntimeStatus, canEditTaskCoreFields, sortTasksForProgress, selectProgressTask, normalizeTaskRecord, getEnforcingTasks, getNextTaskAlarmTime, normalizeTaskPageContext, matchTaskResources, getTaskPolicyContext, validateTaskDefinition };`, context, { filename: 'task-management.js' });
   return context.__m;
 }
 
@@ -69,6 +69,29 @@ function runPureFunctionChecks() {
   check('progress sorting uses planned start then normalized name then id', sorted.map(t => t.id).join(',') === 'c,b,a');
   check('selectProgressTask returns earliest matched unfinished task', mod.selectProgressTask(sorted, ['a', 'b']).id === 'b');
 
+  const activeTasks = mod.getEnforcingTasks([
+    { id: 'future', name: 'Future', plannedStartAt: 2000, requiredSeconds: 600, completedSeconds: 0, lifecycleStatus: 'open', resourceSpec: { policyTypes: ['study'] } },
+    { id: 'done', name: 'Done', plannedStartAt: 500, requiredSeconds: 60, completedSeconds: 60, lifecycleStatus: 'open', resourceSpec: { policyTypes: ['study'] } },
+    { id: 'now', name: 'Now', plannedStartAt: 500, requiredSeconds: 600, completedSeconds: 0, lifecycleStatus: 'open', resourceSpec: { hosts: ['www.collegeboard.org'] } },
+  ], now);
+  check('getEnforcingTasks returns only started unfinished open tasks', activeTasks.length === 1 && activeTasks[0].id === 'now');
+  check('getNextTaskAlarmTime returns the nearest future open task start', mod.getNextTaskAlarmTime([
+    { id: 'later', plannedStartAt: 3000, requiredSeconds: 60, completedSeconds: 0, lifecycleStatus: 'open', resourceSpec: { policyTypes: ['study'] } },
+    { id: 'sooner', plannedStartAt: 2000, requiredSeconds: 60, completedSeconds: 0, lifecycleStatus: 'open', resourceSpec: { policyTypes: ['study'] } },
+  ], now) === 2000);
+  check('task page context folds main aliases and keeps policy type', mod.normalizeTaskPageContext({ url: 'https://www.example.com/path', classification: 'study' }).host === 'example.com');
+  const taskMatch = mod.matchTaskResources({ id: 't1', plannedStartAt: 500, requiredSeconds: 600, resourceSpec: { policyTypes: ['study'], hosts: ['collegeboard.org'] } }, { host: 'www.collegeboard.org', classification: 'study' });
+  check('matchTaskResources matches policy and host resources', taskMatch.matched && taskMatch.matches.length === 2);
+  const taskContext = mod.getTaskPolicyContext([
+    { id: 'b', name: 'Beta', plannedStartAt: 500, requiredSeconds: 600, completedSeconds: 0, lifecycleStatus: 'open', resourceSpec: { hosts: ['khanacademy.org'] } },
+    { id: 'a', name: 'Alpha', plannedStartAt: 500, requiredSeconds: 600, completedSeconds: 0, lifecycleStatus: 'open', resourceSpec: { policyTypes: ['study'] } },
+  ], { host: 'khanacademy.org', classification: 'study' }, now);
+  check('task policy context allows matching resource and selects progress owner', taskContext.allowed && taskContext.progressTaskId === 'a' && taskContext.matchedTaskIds.length === 2);
+  const blockedTaskContext = mod.getTaskPolicyContext([
+    { id: 'task', name: 'Task', plannedStartAt: 500, requiredSeconds: 600, completedSeconds: 0, lifecycleStatus: 'open', resourceSpec: { hosts: ['collegeboard.org'] } },
+  ], { host: 'news.example.com', classification: 'composite' }, now);
+  check('task policy context blocks non-task resources while a task is active', blockedTaskContext.required && !blockedTaskContext.allowed && blockedTaskContext.reason === 'task_required');
+
   const valid = mod.validateTaskDefinition({
     name: 'SAT Practice',
     plannedStartAt: 2000,
@@ -86,6 +109,10 @@ function runMigrationAndRepositoryChecks() {
   const deviceRoutes = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'device.ts'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
   const capabilityMigration = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '022_task_management_device_capability.sql'), 'utf8');
+  const taskSync = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'task-sync.js'), 'utf8');
+  const background = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
+  const cloudSync = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
+  const messageRouter = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
 
   check('migration creates tasks_v1 table', /CREATE TABLE IF NOT EXISTS tasks_v1/.test(migration));
   check('migration creates task_events_v1 table', /CREATE TABLE IF NOT EXISTS task_events_v1/.test(migration));
@@ -111,6 +138,12 @@ function runMigrationAndRepositoryChecks() {
   check('task routes require action idempotency key', taskRoutes.includes('ACTION_ID_REQUIRED') && taskRoutes.includes('findTaskEvent'));
   check('device heartbeat records taskManagementV1 capability', deviceRoutes.includes('updateDeviceTaskCapability') && deviceRoutes.includes('TASK_MANAGEMENT_V1_CAPABILITY'));
   check('worker index routes profile and device task APIs', index.includes("./routes/tasks") && index.includes("/device/tasks/v1") && index.includes("/tasks(?:\\/|$)"));
+  check('extension task sync pulls device task API and caches results', taskSync.includes("/device/tasks/v1") && taskSync.includes('TASK_CACHE_KEY') && taskSync.includes('normalizeTaskCachePayload'));
+  check('extension task sync defines periodic pull and start alarms', taskSync.includes('TASK_PULL_ALARM') && taskSync.includes('TASK_START_ALARM') && taskSync.includes('scheduleNextTaskAlarm'));
+  check('extension task sync builds heartbeat capability payload', taskSync.includes('buildTaskHeartbeatPayload') && taskSync.includes('capabilities') && taskSync.includes('taskActiveSummary'));
+  check('background wires task pull alarms and startup cache pull', background.includes('TASK_PULL_ALARM') && background.includes('TASK_START_ALARM') && background.includes('bootstrap:') && background.includes('pullTaskCache'));
+  check('cloud heartbeat accepts task payload body', cloudSync.includes('sendHeartbeat(afterRecoveredSync = null, heartbeatPayload = null)') && cloudSync.includes("cloudRequest('POST', '/device/heartbeat', heartbeatPayload || null)"));
+  check('cloud bind triggers a non-blocking task cache pull', messageRouter.includes("pullTaskCache({ reason: 'cloud_bind' })") && messageRouter.includes('taskPull'));
 }
 
 runPureFunctionChecks();

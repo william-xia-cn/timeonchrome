@@ -45,6 +45,11 @@
   - 范围：新增 parent/device 任务读取、创建、核心字段 revision 更新、生命周期 action API；设备 heartbeat 记录 `taskManagementV1` capability。
   - 边界：不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
   - 测试：任务 API 静态/契约测试、任务纯函数回归、Worker 相关回归、`npm run typecheck`、`git diff --check`。
+- [x] [Task-management / P3] 任务管理 V1 扩展缓存、拉取、alarm 和纯策略层
+  - 分支：`codex/task-management-v1`
+  - 范围：扩展端新增任务缓存与 device task pull；每分钟任务拉取 alarm、最近未来任务到点 alarm；heartbeat 上报 `taskManagementV1` capability、任务版本和当前生效任务摘要；新增纯策略函数计算生效任务、资源并集和进度归属。
+  - 边界：不接入运行时拦截、不写 usage segment 任务快照、不改 Popup/Admin/Reminder UI，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
+  - 测试：任务纯函数与扩展任务同步静态/契约测试、`npm run typecheck`、`git diff --check`。
 
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构

@@ -754,7 +754,7 @@ function shouldSaveDespiteVersionSkip(remoteConfig, localConfig) {
 
 // ── Cloud request ───────────────────────────────────────────────────────────────
 
-async function cloudRequest(method, path, body = null, retries = 3) {
+export async function cloudRequest(method, path, body = null, retries = 3) {
   if (!syncState.deviceToken) {
     throw new Error('No device token');
   }
@@ -3244,7 +3244,7 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
 
 // ── Heartbeat ───────────────────────────────────────────────────────────────────
 
-export async function sendHeartbeat(afterRecoveredSync = null) {
+export async function sendHeartbeat(afterRecoveredSync = null, heartbeatPayload = null) {
   const activation = await requireRuntimeActivation();
   if (!activation.ok) {
     console.log('[Cloud] Heartbeat skipped: runtime activation required');
@@ -3275,7 +3275,7 @@ export async function sendHeartbeat(afterRecoveredSync = null) {
   const previousRequestId = syncState.currentRequestId;
   syncState.currentRequestId = createCloudRequestId('heartbeat');
   try {
-    await cloudRequest('POST', '/device/heartbeat');
+    await cloudRequest('POST', '/device/heartbeat', heartbeatPayload || null);
     console.log('[Cloud] Heartbeat sent');
   } catch (e) {
     console.warn('[Cloud] Heartbeat failed:', e.message);

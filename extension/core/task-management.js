@@ -165,6 +165,129 @@ export function selectProgressTask(tasks = [], matchedTaskIds = []) {
   return sortTasksForProgress(tasks).find((task) => matched.has(String(task.id))) || null;
 }
 
+export function normalizeTaskRecord(task = {}, nowMs = Date.now()) {
+  const resourceInput = task.resourceSpec || task.resource_spec_json || {};
+  const normalizedResource = normalizeTaskResourceSpec(typeof resourceInput === 'string' ? safeJsonParse(resourceInput, {}) : resourceInput);
+  const requiredSeconds = Number(task.requiredSeconds ?? task.required_seconds ?? 0) || 0;
+  const completedSeconds = Math.max(0, Number(task.completedSeconds ?? task.completed_seconds ?? 0) || 0);
+  const plannedStartAt = Number(task.plannedStartAt ?? task.planned_start_at ?? 0) || 0;
+  const lifecycleStatus = normalizeTaskLifecycleStatus(task.lifecycleStatus || task.lifecycle_status || 'open');
+  return {
+    ...task,
+    id: String(task.id || ''),
+    name: String(task.name || '').trim(),
+    normalizedName: normalizeTaskName(task.normalizedName || task.normalized_name || task.name || ''),
+    plannedStartAt,
+    requiredSeconds,
+    completedSeconds: Math.min(requiredSeconds || completedSeconds, completedSeconds),
+    remainingSeconds: Math.max(0, requiredSeconds - completedSeconds),
+    lifecycleStatus,
+    runtimeStatus: deriveTaskRuntimeStatus({ lifecycleStatus, plannedStartAt }, nowMs),
+    revision: Number(task.revision ?? 0) || 0,
+    resourceSpec: normalizedResource.spec,
+    resourceErrors: normalizedResource.errors,
+  };
+}
+
+function safeJsonParse(value, fallback) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+export function getEnforcingTasks(tasks = [], nowMs = Date.now()) {
+  return sortTasksForProgress((Array.isArray(tasks) ? tasks : [])
+    .map((task) => normalizeTaskRecord(task, nowMs))
+    .filter((task) => task.id && task.lifecycleStatus === 'open' && task.runtimeStatus === 'enforcing' && task.remainingSeconds > 0));
+}
+
+export function getNextTaskAlarmTime(tasks = [], nowMs = Date.now()) {
+  const now = Number(nowMs || 0);
+  const futureStarts = (Array.isArray(tasks) ? tasks : [])
+    .map((task) => normalizeTaskRecord(task, now))
+    .filter((task) => task.id && task.lifecycleStatus === 'open' && task.remainingSeconds > 0 && task.plannedStartAt > now)
+    .map((task) => task.plannedStartAt)
+    .filter((value) => Number.isFinite(value) && value > now)
+    .sort((a, b) => a - b);
+  return futureStarts[0] || null;
+}
+
+export function normalizeTaskPageContext(page = {}) {
+  const url = canonicalTaskUrl(page.url || page.href || '');
+  const host = canonicalTaskHost(page.host || page.domain || page.hostname || page.url || '');
+  const policyType = String(page.policyType || page.classification || page.targetClassification || '').trim().toLowerCase();
+  const specialTargets = [];
+  const candidates = [];
+  if (page.specialTarget) candidates.push(page.specialTarget);
+  if (Array.isArray(page.specialTargets)) candidates.push(...page.specialTargets);
+  for (const candidate of candidates) {
+    const normalized = normalizeTaskSpecialTarget(candidate);
+    if (normalized) specialTargets.push(normalized);
+  }
+  return {
+    url,
+    host,
+    policyType: TASK_POLICY_TYPES.includes(policyType) ? policyType : '',
+    specialTargets,
+  };
+}
+
+export function matchTaskResources(task = {}, page = {}) {
+  const normalizedTask = normalizeTaskRecord(task);
+  const normalizedPage = normalizeTaskPageContext(page);
+  const spec = normalizedTask.resourceSpec || { policyTypes: [], hosts: [], urls: [], specialTargets: [] };
+  const matches = [];
+  if (normalizedPage.policyType && spec.policyTypes.includes(normalizedPage.policyType)) {
+    matches.push({ type: 'policyType', value: normalizedPage.policyType });
+  }
+  if (normalizedPage.host && spec.hosts.includes(normalizedPage.host)) {
+    matches.push({ type: 'host', value: normalizedPage.host });
+  }
+  if (normalizedPage.url && spec.urls.includes(normalizedPage.url)) {
+    matches.push({ type: 'url', value: normalizedPage.url });
+  }
+  const pageSpecialKeys = new Set(normalizedPage.specialTargets.map((target) => `${target.platform}:${target.type}:${target.canonicalTarget}`));
+  for (const target of spec.specialTargets || []) {
+    const key = `${target.platform}:${target.type}:${target.canonicalTarget}`;
+    if (pageSpecialKeys.has(key)) matches.push({ type: 'specialTarget', value: key });
+  }
+  return { matched: matches.length > 0, matches, task: normalizedTask, page: normalizedPage };
+}
+
+export function getTaskPolicyContext(tasks = [], page = {}, nowMs = Date.now()) {
+  const enforcingTasks = getEnforcingTasks(tasks, nowMs);
+  if (enforcingTasks.length === 0) {
+    return {
+      required: false,
+      allowed: true,
+      reason: 'no_active_task',
+      activeTaskIds: [],
+      matchedTaskIds: [],
+      progressTaskId: null,
+      matchesByTaskId: {},
+    };
+  }
+  const matchesByTaskId = {};
+  const matchedTaskIds = [];
+  for (const task of enforcingTasks) {
+    const result = matchTaskResources(task, page);
+    if (!result.matched) continue;
+    matchedTaskIds.push(task.id);
+    matchesByTaskId[task.id] = result.matches;
+  }
+  const progressTask = selectProgressTask(enforcingTasks, matchedTaskIds);
+  return {
+    required: true,
+    allowed: matchedTaskIds.length > 0,
+    reason: matchedTaskIds.length > 0 ? 'task_resource_allowed' : 'task_required',
+    activeTaskIds: enforcingTasks.map((task) => task.id),
+    matchedTaskIds,
+    progressTaskId: progressTask ? progressTask.id : null,
+    matchesByTaskId,
+  };
+}
 export function validateTaskDefinition(input = {}, nowMs = Date.now()) {
   const errors = [];
   const name = String(input.name || '').trim();

@@ -13,6 +13,7 @@ import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoti
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
+import { buildTaskHeartbeatPayload, getTaskCache, pullTaskCache, setupTaskAlarms, TASK_PULL_ALARM, TASK_START_ALARM } from './infra/task-sync.js';
 import { handleMessage } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
 import { getEvents, clearEvents } from './core/event-log.js';
@@ -90,6 +91,7 @@ async function bootstrapServiceWorker(reason) {
     await hydrateCloudSyncStateFromStorage();
     await refreshPrivacyConsentCache();
     setupAlarms();
+    pullTaskCache({ reason: `bootstrap:${reason}` }).catch((err) => console.warn('[TaskSync] bootstrap pull failed:', err?.message || err));
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
   } catch (err) {
     console.error(`[Bootstrap] failed (${reason}):`, err);
@@ -1065,6 +1067,7 @@ function setupAlarms() {
   chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
   chrome.alarms.create('cloudSync', { periodInMinutes: 3 });
   chrome.alarms.create('cloudHeartbeat', { periodInMinutes: 5 });
+  setupTaskAlarms(chrome.alarms);
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -1119,7 +1122,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       } catch (_) { /* 尽力而为 */ }
     }
   } else if (alarm.name === 'cloudHeartbeat') {
-    await sendHeartbeat(() => syncNowWithRuntimeEffects({}, 'cloudHeartbeat_recovery_sync'));
+    const taskCache = await getTaskCache().catch(() => null);
+    await sendHeartbeat(() => syncNowWithRuntimeEffects({}, 'cloudHeartbeat_recovery_sync'), buildTaskHeartbeatPayload(taskCache));
+  } else if (alarm.name === TASK_PULL_ALARM) {
+    await pullTaskCache({ reason: 'alarm' });
+  } else if (alarm.name === TASK_START_ALARM) {
+    await pullTaskCache({ reason: 'task_start_alarm' });
   }
 });
 
