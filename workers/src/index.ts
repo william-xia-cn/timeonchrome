@@ -15,6 +15,7 @@ import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
 import { handleDeviceAccessAuditQuery, recordDeviceAccessAudit } from './routes/deviceAccessAudit';
 import { systemAccessConfigRouter } from './routes/systemAccessConfig';
+import { tasksRouter } from './routes/tasks';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -124,6 +125,8 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return await authRouter.handle(request, env);
   } else if (PROFILE_STATS_ROUTE_RE.test(path)) {
     return await statsRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/tasks(?:\/|$)/)) {
+    return await tasksRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/device-access-audit\/v1$/)) {
     return await handleDeviceAccessAuditQuery(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/export\/v1/)) {
@@ -146,6 +149,8 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return await profilesRouter.handle(request, env);
   } else if (path === '/device/heartbeat') {
     return await deviceRouter.handle(request, env);
+  } else if (path === '/device/tasks/v1') {
+    return await tasksRouter.handle(request, env);
   } else if (path === '/device/site-classification-requests/v1') {
     return await siteClassificationRequestsRouter.handle(request, env);
   } else if (path === '/device/client-logs/v1') {

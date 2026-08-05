@@ -4,6 +4,7 @@ import {
   normalizeTaskResourceSpec,
   normalizeTaskLifecycleStatus,
   validateTaskRequiredSeconds,
+  canEditTaskCoreFields,
 } from '../../../extension/core/task-management.js';
 
 export type TaskLifecycleStatus = 'open' | 'paused' | 'completed' | 'cancelled';
@@ -164,17 +165,58 @@ export function createTaskRepository(env: Env) {
       ).run();
     },
 
+    async updateTaskCoreFields(profileId: string, taskId: string, patch: Partial<TaskCreateInput> & { expectedRevision: number }, now = Date.now()) {
+      const current = await this.getTask(profileId, taskId);
+      if (!current) return { ok: false, code: 'TASK_NOT_FOUND' };
+      if (!canEditTaskCoreFields(current, now)) return { ok: false, code: 'TASK_CORE_FIELDS_FROZEN' };
+      const validation = validateTaskCreateInput({
+        id: taskId,
+        profileId,
+        name: patch.name ?? current.name,
+        plannedStartAt: patch.plannedStartAt ?? current.plannedStartAt,
+        displayTimezone: patch.displayTimezone ?? current.displayTimezone,
+        requiredSeconds: patch.requiredSeconds ?? current.requiredSeconds,
+        resourceSpec: (patch.resourceSpec as Record<string, unknown>) ?? current.resourceSpec ?? {},
+        createdByAccountId: current.createdByAccountId,
+        now,
+      });
+      if (!validation.ok || !validation.normalized) return validation;
+      const task = validation.normalized;
+      const result = await env.DB.prepare(
+        `UPDATE tasks_v1
+         SET name = ?, normalized_name = ?, planned_start_at = ?, display_timezone = ?,
+             required_seconds = ?, resource_spec_json = ?, revision = revision + 1, updated_at = ?
+         WHERE profile_id = ? AND id = ? AND revision = ?
+           AND lifecycle_status = 'open' AND completed_seconds = 0 AND planned_start_at > ?`
+      ).bind(
+        task.name,
+        task.normalizedName,
+        task.plannedStartAt,
+        task.displayTimezone || null,
+        task.requiredSeconds,
+        JSON.stringify(task.resourceSpec),
+        now,
+        profileId,
+        taskId,
+        patch.expectedRevision,
+        now,
+      ).run();
+      const changed = Number(result.meta?.changes || 0) > 0;
+      if (!changed) return { ok: false, code: 'REVISION_CONFLICT_OR_FROZEN' };
+      return { ok: true, task: await this.getTask(profileId, taskId), errors: [] };
+    },
+
     async updateLifecycle(profileId: string, taskId: string, lifecycleStatus: TaskLifecycleStatus, expectedRevision: number, now = Date.now()) {
       const status = normalizeTaskLifecycleStatus(lifecycleStatus) as TaskLifecycleStatus;
-      if (status === 'open') return { ok: false, code: 'INVALID_LIFECYCLE_ACTION' };
       const completionSource = status === 'completed' ? 'parent' : null;
       const completedAt = status === 'completed' ? now : null;
       const cancelledAt = status === 'cancelled' ? now : null;
+      const allowedCurrent = status === 'open' ? "'paused'" : "'open', 'paused'";
       const result = await env.DB.prepare(
         `UPDATE tasks_v1
          SET lifecycle_status = ?, revision = revision + 1, completion_source = COALESCE(?, completion_source),
              completed_at = COALESCE(?, completed_at), cancelled_at = COALESCE(?, cancelled_at), updated_at = ?
-         WHERE profile_id = ? AND id = ? AND revision = ? AND lifecycle_status IN ('open', 'paused')`
+         WHERE profile_id = ? AND id = ? AND revision = ? AND lifecycle_status IN (${allowedCurrent})`
       ).bind(status, completionSource, completedAt, cancelledAt, now, profileId, taskId, expectedRevision).run();
       const changed = Number(result.meta?.changes || 0) > 0;
       return { ok: changed, code: changed ? null : 'REVISION_CONFLICT_OR_TERMINAL' };

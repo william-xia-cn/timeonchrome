@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS devices (
   device_name TEXT,
   last_seen INTEGER,
   monitoring_enabled INTEGER DEFAULT 1,  -- 1=监控开启, 0=停用监控（仅同步配置，不拦截）
+  task_management_v1_capable INTEGER DEFAULT 0,
+  task_capabilities_json TEXT,
+  task_capability_reported_at INTEGER,
+  task_sync_version INTEGER DEFAULT 0,
+  task_active_summary_json TEXT,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (profile_id) REFERENCES profiles(id)
 );

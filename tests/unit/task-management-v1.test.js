@@ -82,6 +82,10 @@ function runMigrationAndRepositoryChecks() {
   const migration = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '021_task_management_v1.sql'), 'utf8');
   const schema = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'schema.sql'), 'utf8');
   const repository = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'tasks', 'taskRepository.ts'), 'utf8');
+  const taskRoutes = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'tasks.ts'), 'utf8');
+  const deviceRoutes = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'device.ts'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'index.ts'), 'utf8');
+  const capabilityMigration = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '022_task_management_device_capability.sql'), 'utf8');
 
   check('migration creates tasks_v1 table', /CREATE TABLE IF NOT EXISTS tasks_v1/.test(migration));
   check('migration creates task_events_v1 table', /CREATE TABLE IF NOT EXISTS task_events_v1/.test(migration));
@@ -96,6 +100,17 @@ function runMigrationAndRepositoryChecks() {
   check('repository uses expected revision for lifecycle updates', repository.includes('expectedRevision') && repository.includes('revision = ?'));
   check('repository keeps progress projection bounded by required seconds', repository.includes('MIN(required_seconds, ?)'));
   check('repository imports shared task pure functions', repository.includes("../../../extension/core/task-management.js"));
+  check('repository supports frozen core field updates', repository.includes('updateTaskCoreFields') && repository.includes('TASK_CORE_FIELDS_FROZEN'));
+  check('repository allows resume through open lifecycle status', repository.includes("status === 'open' ? \"'paused'\""));
+
+  check('task capability migration adds device capability columns', capabilityMigration.includes('task_management_v1_capable') && capabilityMigration.includes('task_capabilities_json'));
+  check('task capability migration indexes profile capability lookup', capabilityMigration.includes('idx_devices_profile_task_capability'));
+  check('task routes expose parent and device task endpoints', taskRoutes.includes('/device/tasks/v1') && taskRoutes.includes('/profiles\\/([^/]+)\\/tasks\\/v1'));
+  check('task routes gate creation on taskManagementV1 capability', taskRoutes.includes('TASK_CAPABILITY_REQUIRED') && taskRoutes.includes('canCreateTasks'));
+  check('task routes require expectedRevision for patch and actions', taskRoutes.includes('EXPECTED_REVISION_REQUIRED') && taskRoutes.includes('updateTaskCoreFields') && taskRoutes.includes('updateLifecycle'));
+  check('task routes require action idempotency key', taskRoutes.includes('ACTION_ID_REQUIRED') && taskRoutes.includes('findTaskEvent'));
+  check('device heartbeat records taskManagementV1 capability', deviceRoutes.includes('updateDeviceTaskCapability') && deviceRoutes.includes('TASK_MANAGEMENT_V1_CAPABILITY'));
+  check('worker index routes profile and device task APIs', index.includes("./routes/tasks") && index.includes("/device/tasks/v1") && index.includes("/tasks(?:\\/|$)"));
 }
 
 runPureFunctionChecks();

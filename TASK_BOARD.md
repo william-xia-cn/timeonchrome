@@ -40,6 +40,11 @@
   - 范围：新增 `tasks_v1`、`task_events_v1` migration 和 Worker repository；实现任务 schema、资源规范化和生命周期纯函数。
   - 边界：暂不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
   - 测试：新增任务单测、Worker 相关回归、`npm run typecheck`、`git diff --check`。
+- [x] [Task-management / P2] 任务管理 V1 Worker API 与 capability
+  - 分支：`codex/task-management-v1`
+  - 范围：新增 parent/device 任务读取、创建、核心字段 revision 更新、生命周期 action API；设备 heartbeat 记录 `taskManagementV1` capability。
+  - 边界：不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
+  - 测试：任务 API 静态/契约测试、任务纯函数回归、Worker 相关回归、`npm run typecheck`、`git diff --check`。
 
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构

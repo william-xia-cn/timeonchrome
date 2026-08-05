@@ -3,6 +3,7 @@ import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
+import { TASK_MANAGEMENT_V1_CAPABILITY } from '../../../extension/core/task-management.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
 type DeviceIdentityLinkBody = {
@@ -24,6 +25,54 @@ type ManagedRecoveryBootstrapBody = {
   extensionVersion?: string;
   deviceNameHint?: string;
 };
+
+type DeviceHeartbeatBody = {
+  capabilities?: Record<string, unknown>;
+  taskSyncVersion?: number;
+  taskActiveSummary?: Record<string, unknown> | null;
+};
+
+function isMissingTaskCapabilityColumn(error: any): boolean {
+  const message = String(error?.message || error || '');
+  return /no such column/i.test(message) && /task_(management_v1_capable|capabilities_json|capability_reported_at|sync_version|active_summary_json)/i.test(message);
+}
+
+function safeTaskCapabilityJson(body: DeviceHeartbeatBody, capable: boolean): string {
+  const payload = {
+    [TASK_MANAGEMENT_V1_CAPABILITY]: capable,
+    reportedAt: Date.now(),
+  };
+  return JSON.stringify(payload).slice(0, 2000);
+}
+
+function safeTaskActiveSummaryJson(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  return JSON.stringify(value).slice(0, 2000);
+}
+
+async function updateDeviceTaskCapability(env: Env, deviceId: string | null, body: DeviceHeartbeatBody, now: number): Promise<void> {
+  if (!deviceId || !body || typeof body !== 'object' || !body.capabilities || typeof body.capabilities !== 'object') return;
+  const capable = body.capabilities[TASK_MANAGEMENT_V1_CAPABILITY] === true;
+  const taskSyncVersion = Number.isFinite(Number(body.taskSyncVersion)) ? Math.max(0, Math.floor(Number(body.taskSyncVersion))) : 0;
+  try {
+    await env.DB.prepare(
+      `UPDATE devices
+       SET task_management_v1_capable = ?, task_capabilities_json = ?, task_capability_reported_at = ?,
+           task_sync_version = ?, task_active_summary_json = ?
+       WHERE id = ? AND COALESCE(status, 'bound') = 'bound'`
+    ).bind(
+      capable ? 1 : 0,
+      safeTaskCapabilityJson(body, capable),
+      now,
+      taskSyncVersion,
+      safeTaskActiveSummaryJson(body.taskActiveSummary),
+      deviceId,
+    ).run();
+  } catch (error: any) {
+    if (!isMissingTaskCapabilityColumn(error)) throw error;
+    console.warn('[Worker] task capability columns missing; heartbeat capability ignored until migration is applied');
+  }
+}
 
 // 生成 64 字符随机 device_token
 function generateDeviceToken(): string {
@@ -318,10 +367,13 @@ export const deviceRouter = {
 
     // POST /device/heartbeat
     if (request.method === 'POST' && path === '/device/heartbeat') {
+      const now = Date.now();
       const deviceIdentity = await verifyDeviceTokenFromRequest(request, env, { updateLastSeen: true });
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
       if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
-      return json({ ok: true, ts: Date.now() });
+      const body = await request.json<DeviceHeartbeatBody>().catch(() => ({} as DeviceHeartbeatBody));
+      await updateDeviceTaskCapability(env, deviceIdentity.deviceId, body, now);
+      return json({ ok: true, ts: now });
     }
 
     // GET /device/config
