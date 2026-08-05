@@ -8,7 +8,7 @@
 - Status: Approved
 - Product spec: `docs/specs/SPEC-002-TASK-MANAGEMENT.md`
 - Target branch: `codex/task-management-v1`
-- Implementation status: Packages 1-7 implemented (P7: Pages task management entry and capability gate); runtime task blocking not implemented
+- Implementation status: Packages 1-9 implemented on `codex/task-management-v1`; P9 completed local integration/rollback verification. Production D1 migration, Worker/Pages deployment, extension version bump and rollout remain explicitly out of scope until Product Owner approval
 
 ## 1. Goal
 
@@ -465,7 +465,7 @@ lastCloudConfirmedSeconds + currentDeviceUnuploadedUniqueIntervals
 6. Reminder、Popup、Admin read model（已实现于 `codex/task-management-v1` P6：只读展示本机已同步任务，不开放创建/编辑）；
 7. Pages 任务管理和 capability gate（已实现于 `codex/task-management-v1` P7：云端列表、创建、capability 阻断和家长生命周期动作）；
 8. Runtime `task_required` 阻断（已实现于 `codex/task-management-v1` P8：任务生效且当前页面不属于任务资源并集时阻断；命中任务资源时跳过旧时间段限制，但仍保持黑名单、安全和配额检查）；
-9. 集成/E2E、回滚验证和分阶段部署证据。
+9. 集成/E2E、回滚验证和分阶段部署证据（已完成于 `codex/task-management-v1` P9：本地完整自动化回归通过；真实 API 测试需非沙箱网络，已单独验证通过；生产 D1 migration、部署和发布仍未执行）。
 
 任何实现包若需要改变本规格的产品规则，必须停止并回到 Product Owner 审批，不得在 Build&Test 阶段自行调整。
 

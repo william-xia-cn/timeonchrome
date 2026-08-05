@@ -77,6 +77,12 @@
   - 范围：扩展运行时访问决策读取本机 task cache；有未完成任务生效且当前页面不属于任务资源并集时进入 `task_required`；命中任务资源时跳过旧时间段限制，但仍保持黑名单、安全和配额检查。
   - 边界：不改 Worker API、不执行远端 D1 migration、不部署生产环境、不修改扩展发布版本；不改变无任务时现有访问控制、计时、同步和统计行为。
   - 测试：mode routing 任务阻断回归、任务纯函数回归、`npm run typecheck`、`git diff --check`。
+
+- [x] [Task-management / P9] 任务管理 V1 集成验证与回滚证据
+  - 分支：`codex/task-management-v1`
+  - 范围：在不部署、不执行远端 D1 migration 的前提下，运行本地完整自动化回归、任务相关专项测试、扩展结构检查和 diff 检查；记录回滚边界和剩余生产验证项。
+  - 边界：不新增产品功能、不修改运行时逻辑、不部署 Worker/Pages/扩展托管平台、不修改发布版本。
+  - 测试：`node tests/run-all.js` 中 unit/background/workers/duration/recovery/event-log/duration-flow/E2E 均通过；API 项在沙箱内因 `fetch failed` 失败，单独获批非沙箱运行 `node tests\\api\\workers.test.js` 后 103/103 通过；任务专项、`npm run typecheck`、`npm run check:extension-root`、`git diff --check` 通过。
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
   - 目标：本地 Admin 使用“复合网站申请学习记录 / 未归类网站使用记录”两单元只读布局，未处理默认展开、已处理默认折叠。
