@@ -66,6 +66,12 @@
   - 边界：不实现任务创建/编辑，不改变访问控制或配额逻辑，不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
   - 测试：任务 read model 静态/契约测试、Popup/Admin/Reminder 静态测试、`npm run typecheck`、`git diff --check`。
 
+- [x] [Task-management / P7] 任务管理 V1 Pages 创建入口与 capability gate
+  - 分支：`codex/task-management-v1`
+  - 范围：云端 Pages 增加一级“任务管理”入口；读取任务列表和 capability 摘要；在所有在线受管设备支持 `taskManagementV1` 时允许创建一次性任务；提供暂停、恢复、留痕完成和取消动作；完成/取消历史默认折叠。
+  - 边界：不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本；任务进度仍由 Worker 基于 usage segment 投影，Pages 不计算可信进度。
+  - 测试：Pages 静态/契约测试、任务 Worker/API 回归、`npm run typecheck`、`git diff --check` 与 Pages 目视验证。
+
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
   - 目标：本地 Admin 使用“复合网站申请学习记录 / 未归类网站使用记录”两单元只读布局，未处理默认展开、已处理默认折叠。

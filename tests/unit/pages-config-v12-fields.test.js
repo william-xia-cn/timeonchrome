@@ -78,8 +78,13 @@ function run() {
   expectTrue('Pages 日期应使用本地日期，不应使用 toISOString 作为显示/查询日期', !/function fmtDate\(d\)\s*\{\s*return d\.toISOString\(\)/.test(source));
   expectTrue('Pages 不应再包含总览一级入口', !source.includes('data-page="overview"') && !source.includes('id="page-overview"'));
   expectTrue('Pages 默认 active 导航应为使用统计', source.includes('<div class="nav-item active" data-page="stats">') && source.includes('<div class="page active" id="page-stats">'));
-  const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="review"', 'data-page="account"', 'data-page="system-management"'].map(item => source.indexOf(item));
-  expectTrue('Pages 左侧导航顺序应为使用统计/访问管理/网站归类记录/子用户管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
+  const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="review"', 'data-page="tasks"', 'data-page="account"', 'data-page="system-management"'].map(item => source.indexOf(item));
+  expectTrue('Pages 左侧导航顺序应为使用统计/访问管理/网站归类记录/任务管理/子用户管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
+  expectTrue('Pages 应包含任务管理一级入口和页面', source.includes('<span>任务管理</span>') && source.includes('id="page-tasks"') && source.includes('<h2>任务管理</h2>'));
+  expectTrue('Pages 任务管理应读取任务列表和 capability 摘要', source.includes('/tasks/v1?includeHistory=1') && source.includes('capabilitySummary') && source.includes('canCreateTasks') && source.includes('TASK_CAPABILITY_REQUIRED'));
+  expectTrue('Pages 任务管理创建应提交一次性任务定义和资源清单', source.includes('function buildTaskCreatePayloadFromForm') && source.includes('task-create-name') && source.includes('task-create-start') && source.includes('task-create-minutes') && source.includes('resourceSpec: { policyTypes, hosts, urls, specialTargets }') && source.includes("api(`/profiles/${currentProfileId}/tasks/v1`, 'POST', payload)"));
+  expectTrue('Pages 任务管理应提供生命周期动作并使用 revision 与 actionId', source.includes('function runTaskLifecycleAction') && source.includes('/actions/v1') && source.includes('expectedRevision') && source.includes('actionId') && source.includes("'pause'") && source.includes("'resume'") && source.includes("'complete'") && source.includes("'cancel'"));
+  expectTrue('Pages 任务管理历史应默认折叠且不删除', source.includes('完成 / 取消历史') && source.includes("renderRecordHistoryDetails('展开历史任务'") && source.includes('只读历史') && !source.includes('deleteTask'));
   expectTrue('Pages 左侧不应再包含一级设备管理入口', !source.includes('data-page="devices"') && !source.includes('<span class="nav-icon">💻</span><span>设备管理</span>'));
   expectTrue('Pages 账户设置可见文案应改为子用户管理', source.includes('子用户管理') && !source.includes('<span>账户设置</span>') && !source.includes('<span>用户管理</span>'));
   expectTrue('Pages 待审核一级导航应改为网站归类记录', source.includes('<span>网站归类记录') && !source.includes('<span>待审核') && !source.includes('<span>网站归类审核'));

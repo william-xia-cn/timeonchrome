@@ -8,7 +8,7 @@
 - Status: Approved
 - Product spec: `docs/specs/SPEC-002-TASK-MANAGEMENT.md`
 - Target branch: `codex/task-management-v1`
-- Implementation status: Package 2 implemented (Worker parent/device APIs, revision/action API, and device capability metadata); runtime enforcement/UI not implemented
+- Implementation status: Packages 1-7 implemented (P7: Pages task management entry and capability gate); runtime task blocking not implemented
 
 ## 1. Goal
 
@@ -463,7 +463,7 @@ lastCloudConfirmedSeconds + currentDeviceUnuploadedUniqueIntervals
 4. Runtime session/segment 快照、任务开始/预计完成边界和重评估（已实现于 `codex/task-management-v1` P4；任务阻断 UI 与进度投影仍在后续包）；
 5. Worker segment 投影与多设备区间并集（已实现于 `codex/task-management-v1` P5：以 accepted usage segment 重算 projection，不做增量加秒）；
 6. Reminder、Popup、Admin read model（已实现于 `codex/task-management-v1` P6：只读展示本机已同步任务，不开放创建/编辑）；
-7. Pages 任务管理和 capability gate；
+7. Pages 任务管理和 capability gate（已实现于 `codex/task-management-v1` P7：云端列表、创建、capability 阻断和家长生命周期动作）；
 8. 集成/E2E、回滚验证和分阶段部署证据。
 
 任何实现包若需要改变本规格的产品规则，必须停止并回到 Product Owner 审批，不得在 Build&Test 阶段自行调整。
