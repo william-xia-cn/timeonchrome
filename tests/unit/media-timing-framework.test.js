@@ -68,6 +68,7 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'getMediaSegments',
   'runMediaPeriodicCheckpoint',
   'splitOpenMediaSessionsAtModeBoundary',
+  'pruneMediaStorage',
   '__resetMediaSessionForTest',
 ], {
   getCachedEffectiveMode: () => 'study',
@@ -566,6 +567,55 @@ async function testForbiddenPiPCleanupReclassifiesRemainingVideo() {
   check('reclassified video uses current cached mode', sessions[0].mode === 'study', JSON.stringify(sessions[0]));
 }
 
+async function testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries() {
+  resetAll();
+  const dayMs = 86400000;
+  const dateKey = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const oldDate = dateKey(Date.now() - 40 * dayMs);
+  const recentDate = dateKey(Date.now());
+  const oldId = `mseg-${oldDate.replace(/-/g, '')}-aaaaaaaaaaaaaaaa`;
+  const recentId = `mseg-${recentDate.replace(/-/g, '')}-bbbbbbbbbbbbbbbb`;
+  await chrome.storage.local.set({
+    media_segments_v1: {
+      [oldId]: { id: oldId, date: oldDate, startMs: Date.now() - 40 * dayMs, endMs: Date.now() - 40 * dayMs + 60000, durationSeconds: 60, domain: 'old-media.example.com' },
+      [recentId]: { id: recentId, date: recentDate, startMs: Date.now() - 60000, endMs: Date.now(), durationSeconds: 60, domain: 'recent-media.example.com' },
+    },
+    daily_media_stats_v1: {
+      [oldDate]: { date: oldDate, domains: { 'old-media.example.com': { totalSeconds: 60 } } },
+      [recentDate]: { date: recentDate, domains: { 'recent-media.example.com': { totalSeconds: 60 } } },
+    },
+    hourly_media_stats_v1: {
+      [`${oldDate}T10`]: { hourKey: `${oldDate}T10`, date: oldDate, domains: { 'old-media.example.com': { totalSeconds: 60 } } },
+      [`${recentDate}T10`]: { hourKey: `${recentDate}T10`, date: recentDate, domains: { 'recent-media.example.com': { totalSeconds: 60 } } },
+    },
+    media_segment_sync_outbox_v1: {
+      pendingIds: [oldId, recentId, recentId, 'missing-media-segment'],
+      retryCounts: { [oldId]: 2, [recentId]: 1, 'missing-media-segment': 9 },
+      lastErrors: { [oldId]: 'old', [recentId]: 'recent', 'missing-media-segment': 'missing' },
+    },
+    media_stats_sync_outbox_v1: {
+      dirtyDates: [oldDate, recentDate, recentDate, '1999-01-01'],
+      retryCounts: { [oldDate]: 2, [recentDate]: 1, '1999-01-01': 9 },
+      lastErrors: { [oldDate]: 'old', [recentDate]: 'recent', '1999-01-01': 'missing' },
+    },
+    hourly_media_stats_sync_outbox_v1: {
+      dirtyHourKeys: [`${oldDate}T10`, `${recentDate}T10`, `${recentDate}T10`, '1999-01-01T01'],
+      retryCounts: { [`${oldDate}T10`]: 2, [`${recentDate}T10`]: 1, '1999-01-01T01': 9 },
+      lastErrors: { [`${oldDate}T10`]: 'old', [`${recentDate}T10`]: 'recent', '1999-01-01T01': 'missing' },
+    },
+  });
+
+  const result = await mediaApi.pruneMediaStorage(30);
+  const storage = await chrome.storage.local.get(null);
+
+  check('media prune removes old segment', !storage.media_segments_v1[oldId], JSON.stringify(result));
+  check('media prune keeps recent segment', !!storage.media_segments_v1[recentId], JSON.stringify(result));
+  check('media prune removes old daily stats', !storage.daily_media_stats_v1[oldDate], JSON.stringify(storage.daily_media_stats_v1));
+  check('media prune keeps recent daily stats', !!storage.daily_media_stats_v1[recentDate], JSON.stringify(storage.daily_media_stats_v1));
+  check('media prune cleans pending ids to recent only', JSON.stringify(storage.media_segment_sync_outbox_v1.pendingIds) === JSON.stringify([recentId]), JSON.stringify(storage.media_segment_sync_outbox_v1));
+  check('media prune cleans media stats dates to recent only', JSON.stringify(storage.media_stats_sync_outbox_v1.dirtyDates) === JSON.stringify([recentDate]), JSON.stringify(storage.media_stats_sync_outbox_v1));
+  check('media prune cleans hourly dates to recent only', JSON.stringify(storage.hourly_media_stats_sync_outbox_v1.dirtyHourKeys) === JSON.stringify([`${recentDate}T10`]), JSON.stringify(storage.hourly_media_stats_sync_outbox_v1));
+}
 async function run() {
   const tests = [
     testClassifierRules,
@@ -591,6 +641,7 @@ async function run() {
     testModeBoundaryBeforeStartOnlyUpdatesMode,
     testForbiddenPiPCleanupClosesOpenPiP,
     testForbiddenPiPCleanupReclassifiesRemainingVideo,
+    testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries,
   ];
   let passed = 0;
   for (const test of tests) {

@@ -1490,39 +1490,58 @@ export async function markHourlyTargetStatsUploadFailed(hourKeys, error = 'unkno
  * 清理超过保留期的段同步出站条目。
  */
 export async function pruneSegmentSyncOutbox(retentionDays = DEFAULT_RETENTION_DAYS) {
-  const data = await chrome.storage.local.get(SEGMENT_OUTBOX_KEY);
+  const data = await chrome.storage.local.get([SEGMENT_OUTBOX_KEY, USAGE_SEGMENTS_KEY]);
   const outbox = data[SEGMENT_OUTBOX_KEY] || { dirtySegmentIds: [], retryCounts: {}, lastErrors: {} };
+  const allSegments = data[USAGE_SEGMENTS_KEY] || {};
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - retentionDays);
   const cutoffMs = cutoff.getTime();
 
-  // 仅移除日期安全的条目 — 保持重试计数仅用于活动条目
-  const originalCount = outbox.dirtySegmentIds.length;
-
-  // 保留所有条目；仅清理重试元数据中超过截止日期的条目
-  const prunedRetry = {};
-  let prunedCount = 0;
-  for (const [id, count] of Object.entries(outbox.retryCounts || {})) {
-    const datePart = id.substring(4, 12); // seg-YYYYMMDD-xxx
-    const dateMs = new Date(
-      parseInt(datePart.substring(0, 4)),
-      parseInt(datePart.substring(4, 6)) - 1,
-      parseInt(datePart.substring(6, 8))
-    ).getTime();
-    if (dateMs >= cutoffMs) {
-      prunedRetry[id] = count;
-    } else {
-      prunedCount++;
-    }
+  function segmentIdDateMs(id) {
+    const match = typeof id === 'string' ? id.match(/^seg-(\d{4})(\d{2})(\d{2})-/) : null;
+    if (!match) return null;
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
   }
 
+  const originalIds = Array.isArray(outbox.dirtySegmentIds) ? outbox.dirtySegmentIds : [];
+  const seen = new Set();
+  const keptIds = [];
+  let prunedCount = 0;
+
+  for (const id of originalIds) {
+    if (!id || seen.has(id)) {
+      prunedCount++;
+      continue;
+    }
+    seen.add(id);
+    const dateMs = segmentIdDateMs(id);
+    const missingLocalSegment = !allSegments[id];
+    const expired = dateMs !== null && dateMs < cutoffMs;
+    if (missingLocalSegment || expired || dateMs === null) {
+      prunedCount++;
+      continue;
+    }
+    keptIds.push(id);
+  }
+
+  const kept = new Set(keptIds);
+  const prunedRetry = {};
+  const prunedErrors = {};
+  for (const [id, count] of Object.entries(outbox.retryCounts || {})) {
+    if (kept.has(id)) prunedRetry[id] = count;
+  }
+  for (const [id, error] of Object.entries(outbox.lastErrors || {})) {
+    if (kept.has(id)) prunedErrors[id] = error;
+  }
+
+  outbox.dirtySegmentIds = keptIds;
   outbox.retryCounts = prunedRetry;
+  outbox.lastErrors = prunedErrors;
   await chrome.storage.local.set({ [SEGMENT_OUTBOX_KEY]: outbox });
 
   return prunedCount;
 }
-
 /**
  * 清理超过保留期的统计同步出站条目。
  */

@@ -326,6 +326,18 @@
   - 当前状态：所有 Phase 1-5 代码和云基础设施已就绪并已验证
   - v1 同步默认禁用；生产环境中未调用 `setStatsFoundationV1SyncEnabled(true)`
   - 上线前需单独 PO 批准（见 `docs/STATS_STORAGE_FOUNDATION.md` §C.9）
+- [ ] **[P0] T.xia 统计异常只读审计与后续止血**
+  - 审计对象：`T.xia` 活跃设备 `Thomas MacBook Chrome`，`device_id=699d81ac-f293-45d8-9698-d7d261647d35`。
+  - 只读结论：2026-08-04 至 2026-08-05 该设备出现大量 `Resource::kQuotaBytes quota exceeded`，并伴随 `timing_dispatch_failed`、`settlement_failed`、`checkpoint_health_write_failed`、`cloud_sync_failed`。
+  - 网页账本口径：真实网页使用优先以 `usage_segments_v1` 为准；`stats_v1` 日统计 2026-08-03/04 与网页账本一致，2026-08-05 少 90 秒；小时/target 物化统计存在缺口。
+  - 媒体账本口径：2026-08-04 至 2026-08-05 的 `cg.163.com` 媒体统计不可信；2026-08-05 存在 `foregroundVideo/study/mode_effective_boundary` 47116 秒异常段，但无对应网页账本使用。
+  - 本轮边界：已登记风险；不修改代码、不修改扩展本地数据、不写 D1、不重建历史统计、不删除或裁剪异常媒体段。
+  - 后续处理：单独规划扩展本地存储配额止血、V1 outbox/client logs/media ledger 清理、媒体 open session 关闭，以及必要时的历史统计只读对账和人工确认修正。
+- [ ] **[P0] 扩展本地 V1 存储配额止血修复**
+  - 目标：防止 `chrome.storage.local` 爆满继续导致 settlement、checkpoint、cloud sync 和媒体 session 关闭失败。
+  - 范围：只改扩展本地代码和单测；不写 D1、不修正历史统计、不部署。
+  - 修复口径：网页原始账本最高保护；媒体账本和诊断日志在配额压力下优先裁剪；V1 outbox 清理孤儿、过期、重复和 retry/error 膨胀。
+  - 文档：`docs/STATS_STORAGE_FOUNDATION.md` §C.15。
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
 - [ ] [P1] 系统配置全局影响治理

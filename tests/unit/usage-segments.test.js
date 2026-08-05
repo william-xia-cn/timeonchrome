@@ -756,6 +756,9 @@ const oldOutbox = {
 await chrome.storage.local.set({ segment_sync_outbox_v1: oldOutbox });
 const spCount = await api.pruneSegmentSyncOutbox(365);
 chk('segment outbox pruned 1', spCount, 1);
+const prunedSegmentOutbox = (await chrome.storage.local.get('segment_sync_outbox_v1'))['segment_sync_outbox_v1'];
+chk('segment outbox dirty ids pruned', prunedSegmentOutbox.dirtySegmentIds.length, 0);
+chk('segment outbox retry metadata pruned', Object.keys(prunedSegmentOutbox.retryCounts).length, 0);
 
 const oldStatsOutbox = {
   dirtyDates: ['2020-01-01'],

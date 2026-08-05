@@ -49,6 +49,7 @@ import {
   logClientEventBestEffort,
 } from './client-logs.js';
 import { resolveActivationState } from '../core/activation-gate.js';
+import { runV1StorageMaintenance } from './storage-maintenance.js';
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -1464,6 +1465,11 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
   const errors = [];
 
   try {
+    try {
+      await runV1StorageMaintenance({ reason: 'cloud_sync_preflight' });
+    } catch (maintenanceError) {
+      console.warn('[Cloud] Storage maintenance preflight failed:', maintenanceError?.message || maintenanceError);
+    }
     await hydrateDeviceIdFromBindIfMissing();
     await linkChromeIdentityIfPossible().catch((error) => {
       console.warn('[Cloud] Chrome identity link failed:', error?.message || error);

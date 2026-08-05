@@ -9,6 +9,7 @@ import { closeCurrentSession, initSession, getSession as getTimingSession } from
 import { recover } from './runtime/recovery.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, CONFIG_KEY, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, SITE_CLASSIFICATION_REQUESTS_KEY, getDateKey, formatDate, extractDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
+import { runV1StorageMaintenance } from './infra/storage-maintenance.js';
 import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
@@ -1101,6 +1102,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } else if (alarm.name === 'daily_cleanup') {
     await cleanOldStats();
     await cleanOldSessions();
+    try {
+      await runV1StorageMaintenance({ reason: 'daily_cleanup' });
+    } catch (maintenanceError) {
+      console.warn('[Storage] V1 maintenance failed:', maintenanceError?.message || maintenanceError);
+    }
     await resetDailyLockedDomains();
     const result = await handleMessage({
       type: 'EVALUATE_QUOTA_STATE',

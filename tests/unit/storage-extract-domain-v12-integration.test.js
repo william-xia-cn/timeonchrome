@@ -38,6 +38,7 @@ function loadStorageExtractDomain(deps) {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'storage.js'), 'utf8');
   const transformed = code
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/aggregate\.js';/, 'const computeAllDomains = __deps.computeAllDomains; const computeAllDomainsWithAudio = __deps.computeAllDomainsWithAudio;')
+    .replace(/import\s+\{[^}]*normalizeRuntimeSiteAccessConfig[^}]*\}\s+from\s+'\.\.\/core\/site-access-config-normalizer\.js';/, 'const normalizeRuntimeSiteAccessConfig = (config) => config;')
     .replace(/import\s+\{\s*domainForUrl,\s*matchDomain\s+as\s+matchDomainV12,\s*normalizeHostname\s*\}\s+from\s+'\.\.\/core\/domain-semantics\.js';/, 'const domainForUrl = __deps.domainForUrl; const matchDomainV12 = __deps.matchDomainV12; const normalizeHostname = __deps.normalizeHostname;')
     .replace(/import\s+\{[\s\S]*?\}\s+from\s+'\.\.\/core\/site-classification\.js';/, 'const resolveSiteAccessClassification = () => ({ classification: null }); const getSiteClassificationForUrl = () => ({ classification: null }); const normalizeSiteClassificationRequest = (record) => record; const normalizeSiteClassificationTarget = () => ({ ok: false }); const siteDecisionMatchesUrl = () => false;')
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/stats\/managed-statistics\.js';/, 'const getPopupModeStatsView = async () => ({}); const getQuotaUsageView = async () => ({}); const getTodayUsageView = async () => ({}); const getUsageRangeView = async () => ({});')

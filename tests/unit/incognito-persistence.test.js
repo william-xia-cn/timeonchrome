@@ -226,6 +226,7 @@ function buildPrivateUsageInput(overrides = {}) {
     mediaSourceDomain: 'secret.example.com',
     playing: true,
     mediaKind: 'video',
+    visibleMediaCount: 1,
     isActiveTab: true,
     windowState: 'normal',
     incognito: true,

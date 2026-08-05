@@ -40,7 +40,9 @@ function run() {
     devicePolicyId: 'string',
   };
 
-  expectTrue('manifest version is 1.7.16', manifest.version === '1.7.16');
+  const changelog = read('docs/CHANGELOG.md');
+  const latestChangelogVersion = (changelog.match(new RegExp('^## \\[(\\d+\\.\\d+\\.\\d+)\\]', 'm')) || [])[1];
+  expectTrue(`manifest version matches changelog ${latestChangelogVersion}`, !!latestChangelogVersion && manifest.version === latestChangelogVersion);
   expectTrue('manifest declares the production self-hosted update URL', manifest.update_url === productionUpdateUrl);
   expectTrue('manifest declares the managed storage schema', schemaName === 'managed-storage-schema.json');
   expectTrue('managed storage schema is packaged at the declared path', fs.existsSync(schemaPath));

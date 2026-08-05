@@ -1491,6 +1491,60 @@ CREATE TABLE stats_upload_log (
 4. 本地新增 v1 同步状态键：`cloud_v1_last_sync_at`、`cloud_v1_last_sync_error`、`cloud_v1_last_segment_upload_at`、`cloud_v1_last_stats_upload_at`。
 5. `cloud_device_id` 通过 bind/config 响应进入本地持久化链路；缺失时云端仍可由 token 侧解析 device_id，保持幂等上传。
 
+### C.14 生产只读审计记录：T.xia 统计异常（2026-08-05）
+
+本节记录一次只读生产审计结论，用于后续修复排序和历史统计口径判断。本次审计不修改代码、不修改扩展本地数据、不写云端 D1、不重建历史统计。
+
+审计对象：`T.xia` 活跃设备 `Thomas MacBook Chrome`，`device_id=699d81ac-f293-45d8-9698-d7d261647d35`。该设备监控已开启，最近在线时间为 2026-08-05 21:42:40 北京时间。
+
+三层可信度口径：
+
+| 层 | 结论 | 说明 |
+|---|---|---|
+| `usage_segments_v1` | 可信 | 作为网页真实使用的核心事实账本；T.xia 真实网页使用优先以此为准 |
+| `stats_v1` / `hourly_stats_v1` / `target_stats_v1` | 部分可信 | 日统计需与 `usage_segments_v1` 对账；小时和 target 物化统计已发现缺口 |
+| `media_segments_v1` / `daily_media_stats_v1` / `hourly_media_stats_v1` | 不可信 | 2026-08-04 至 2026-08-05 的 `cg.163.com` 媒体统计存在残留和不一致，不应用于真实使用判断、配额、处罚或家长结论 |
+
+只读对账摘要：
+
+| 日期 | 网页账本 | 日统计 | 小时/target 缺口 | 媒体结论 |
+|---|---:|---:|---:|---|
+| 2026-08-03 | 11392s | 11392s | 小时统计少 1543s | 媒体偏高，需诊断 |
+| 2026-08-04 | 4240s | 4240s | 小时统计少 833s | `cg.163.com` 媒体统计不可信 |
+| 2026-08-05 | 225s | 135s | 日/小时/target 少 90s | 媒体账本严重异常 |
+
+关键异常：2026-08-05 `cg.163.com` 出现一条 `foregroundVideo / study / mode_effective_boundary` 媒体段，时间为 00:00:00-13:05:16 北京时间，`duration_seconds=47116`。同日没有对应的 `cg.163.com` 网页账本使用，因此该媒体段应视为 stale open media session 被 mode boundary 放大的异常，不代表真实网页使用。
+
+客户端日志证据显示该设备在 2026-08-04 至 2026-08-05 反复出现 `Resource::kQuotaBytes quota exceeded`，并伴随 `timing_dispatch_failed`、`settlement_failed`、`checkpoint_health_write_failed`、`cloud_sync_failed`、`cloud_usage_segment_upload_failed`。这说明本地 `chrome.storage.local` 配额压力会连锁影响 timing dispatch、settlement、checkpoint、cloud sync 和媒体 session 关闭。
+
+后续修复方向单独规划：优先处理扩展本地存储配额止血、V1 outbox/client logs/media ledger 清理、媒体 open session 关闭，以及必要时的历史统计只读对账和人工确认修正。历史异常媒体数据在修正规划前只标记为“不可信 / 待修正”，不得直接删除、裁剪或覆盖。
+### C.15 P0 修复口径：本地 V1 存储配额止血（2026-08-05）
+
+本节定义本轮 P0 修复的工程边界。目标是保护后续网页真实账本写入和云同步稳定性，不在本轮修正历史云端统计。
+
+修复原则：
+
+| 优先级 | 处理对象 | 规则 |
+|---|---|---|
+| 1 | 网页原始账本 `usage_segments_v1` | 最高保护级；常规保留 365 天，不因普通配额压力优先删除 |
+| 2 | 网页统计与 outbox | 保持与原始账本同步；清理过期、孤儿、重复和已无本地 segment 的 outbox 项 |
+| 3 | 媒体账本 | 独立诊断账本；保留期低于网页账本，配额压力下优先清理已上传或过期媒体事实 |
+| 4 | 诊断日志 / trace / checkpoint health | 最低保护级；配额压力下优先裁剪，日志不得拖垮业务落账 |
+
+本轮实现范围：
+
+1. 新增统一本地存储维护入口，按小时 `daily_cleanup` 执行 V1 清理。
+2. 清理 V1 usage outbox 中超过保留期、缺少本地 segment、或重复的 `dirtySegmentIds`；同时裁剪 retry/error metadata。
+3. 为媒体 segments、媒体日/小时统计和媒体 outbox 增加保留期清理，默认短于网页账本。
+4. 在 cloud sync 前执行轻量存储维护，避免已经接近 quota 时继续追加日志/媒体/outbox。
+5. 配额压力下优先裁剪 `client_logs_v1`、`__timingTrace`、`timing_checkpoint_health_v1`、媒体 facts / frame facts 等诊断或瞬时状态。
+
+明确不做：
+
+- 不删除或重写云端 D1 历史数据。
+- 不重建 T.xia / P.xia 历史统计。
+- 不改变网页计时结算模型。
+- 不把媒体秒数用于真实网页使用判断。
 ## 附录 D：参考
 
 - `docs/DESIGN.md` §1.3.7 — 原始用量统计与分类解释分离原则

@@ -1629,6 +1629,117 @@ export async function markHourlyMediaStatsUploadFailed(hourKeys, error) {
   await chrome.storage.local.set({ [HOURLY_MEDIA_STATS_OUTBOX_KEY]: outbox });
 }
 
+function cutoffDateMs(retentionDays) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+  return cutoff.getTime();
+}
+
+function mediaSegmentDateMs(segmentOrId) {
+  const date = typeof segmentOrId === 'object' && segmentOrId?.date
+    ? String(segmentOrId.date)
+    : null;
+  if (date) return new Date(date).getTime();
+  const id = typeof segmentOrId === 'string' ? segmentOrId : String(segmentOrId?.id || '');
+  const match = id.match(/^mseg-(\d{4})(\d{2})(\d{2})-/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
+}
+
+export async function pruneMediaStorage(retentionDays = 30) {
+  const cutoffMs = cutoffDateMs(retentionDays);
+  const data = await chrome.storage.local.get([
+    MEDIA_SEGMENTS_KEY,
+    DAILY_MEDIA_STATS_KEY,
+    HOURLY_MEDIA_STATS_KEY,
+    MEDIA_SEGMENT_OUTBOX_KEY,
+    MEDIA_STATS_OUTBOX_KEY,
+    HOURLY_MEDIA_STATS_OUTBOX_KEY,
+  ]);
+  const segments = data?.[MEDIA_SEGMENTS_KEY] || {};
+  const daily = data?.[DAILY_MEDIA_STATS_KEY] || {};
+  const hourly = data?.[HOURLY_MEDIA_STATS_KEY] || {};
+  const segmentOutbox = data?.[MEDIA_SEGMENT_OUTBOX_KEY] || { pendingIds: [], retryCounts: {}, lastErrors: {} };
+  const statsOutbox = data?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  const hourlyOutbox = data?.[HOURLY_MEDIA_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
+
+  let prunedSegments = 0;
+  for (const [id, segment] of Object.entries(segments)) {
+    const dateMs = mediaSegmentDateMs(segment) ?? mediaSegmentDateMs(id);
+    if (dateMs === null || dateMs < cutoffMs) {
+      delete segments[id];
+      prunedSegments++;
+    }
+  }
+
+  let prunedDailyStats = 0;
+  for (const date of Object.keys(daily)) {
+    if (new Date(date).getTime() < cutoffMs) {
+      delete daily[date];
+      prunedDailyStats++;
+    }
+  }
+
+  let prunedHourlyStats = 0;
+  for (const hourKey of Object.keys(hourly)) {
+    if (new Date(String(hourKey).slice(0, 10)).getTime() < cutoffMs) {
+      delete hourly[hourKey];
+      prunedHourlyStats++;
+    }
+  }
+
+  const existingIds = new Set(Object.keys(segments));
+  const pendingOriginal = Array.isArray(segmentOutbox.pendingIds) ? segmentOutbox.pendingIds : [];
+  const seenPending = new Set();
+  const pendingIds = [];
+  let prunedPending = 0;
+  for (const id of pendingOriginal) {
+    if (!id || seenPending.has(id) || !existingIds.has(id)) {
+      prunedPending++;
+      continue;
+    }
+    seenPending.add(id);
+    pendingIds.push(id);
+  }
+  const pendingSet = new Set(pendingIds);
+  segmentOutbox.pendingIds = pendingIds;
+  segmentOutbox.retryCounts = Object.fromEntries(Object.entries(segmentOutbox.retryCounts || {}).filter(([id]) => pendingSet.has(id)));
+  segmentOutbox.lastErrors = Object.fromEntries(Object.entries(segmentOutbox.lastErrors || {}).filter(([id]) => pendingSet.has(id)));
+
+  const dirtyDates = (Array.isArray(statsOutbox.dirtyDates) ? statsOutbox.dirtyDates : [])
+    .filter((date, index, arr) => arr.indexOf(date) === index && daily[date] && new Date(date).getTime() >= cutoffMs);
+  const dirtyDateSet = new Set(dirtyDates);
+  const originalDirtyDates = Array.isArray(statsOutbox.dirtyDates) ? statsOutbox.dirtyDates.length : 0;
+  statsOutbox.dirtyDates = dirtyDates;
+  statsOutbox.retryCounts = Object.fromEntries(Object.entries(statsOutbox.retryCounts || {}).filter(([date]) => dirtyDateSet.has(date)));
+  statsOutbox.lastErrors = Object.fromEntries(Object.entries(statsOutbox.lastErrors || {}).filter(([date]) => dirtyDateSet.has(date)));
+
+  const dirtyHourKeys = (Array.isArray(hourlyOutbox.dirtyHourKeys) ? hourlyOutbox.dirtyHourKeys : [])
+    .filter((key, index, arr) => arr.indexOf(key) === index && hourly[key] && new Date(String(key).slice(0, 10)).getTime() >= cutoffMs);
+  const dirtyHourSet = new Set(dirtyHourKeys);
+  const originalDirtyHourKeys = Array.isArray(hourlyOutbox.dirtyHourKeys) ? hourlyOutbox.dirtyHourKeys.length : 0;
+  hourlyOutbox.dirtyHourKeys = dirtyHourKeys;
+  hourlyOutbox.retryCounts = Object.fromEntries(Object.entries(hourlyOutbox.retryCounts || {}).filter(([key]) => dirtyHourSet.has(key)));
+  hourlyOutbox.lastErrors = Object.fromEntries(Object.entries(hourlyOutbox.lastErrors || {}).filter(([key]) => dirtyHourSet.has(key)));
+
+  await chrome.storage.local.set({
+    [MEDIA_SEGMENTS_KEY]: segments,
+    [DAILY_MEDIA_STATS_KEY]: daily,
+    [HOURLY_MEDIA_STATS_KEY]: hourly,
+    [MEDIA_SEGMENT_OUTBOX_KEY]: segmentOutbox,
+    [MEDIA_STATS_OUTBOX_KEY]: statsOutbox,
+    [HOURLY_MEDIA_STATS_OUTBOX_KEY]: hourlyOutbox,
+  });
+
+  return {
+    prunedSegments,
+    prunedDailyStats,
+    prunedHourlyStats,
+    prunedPending,
+    prunedDirtyDates: Math.max(0, originalDirtyDates - dirtyDates.length),
+    prunedDirtyHourKeys: Math.max(0, originalDirtyHourKeys - dirtyHourKeys.length),
+  };
+}
 export async function buildMediaSegmentsUploadPayload(segmentIds) {
   const ids = Array.isArray(segmentIds) ? segmentIds : [segmentIds];
   if (ids.length === 0) return { schemaVersion: 1, segments: [] };
