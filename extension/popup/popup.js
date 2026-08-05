@@ -857,10 +857,12 @@ async function setMode(mode) {
     lastPopupSnapshot = nextStatus;
     renderModeButtons(nextStatus);
     renderRuntimeStatus(nextStatus);
+    renderTaskReadModel(nextStatus);
   } catch (error) {
     lastPopupSnapshot = { ...(lastPopupSnapshot || {}), mode: previousMode };
     renderModeButtons(lastPopupSnapshot);
     renderRuntimeStatus(lastPopupSnapshot);
+    renderTaskReadModel(lastPopupSnapshot);
     console.warn('[popup] mode switch failed:', error?.message || error);
   }
 }
@@ -882,6 +884,7 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
   const modeUsage = resolveModeUsageWithLive(stats, config, runtimeStatus);
   renderModeButtons(runtimeStatus || {});
   renderRuntimeStatus(runtimeStatus || {});
+  renderTaskReadModel(runtimeStatus || {});
   const {
     studySeconds,
     restSeconds,
@@ -1035,6 +1038,46 @@ function resolveModeUsageWithLive(stats = {}, config = {}, status = {}) {
     liveSeconds,
   };
 }
+
+function renderTaskReadModel(status = {}) {
+  const card = document.getElementById('task-read-model-card');
+  if (!card) return;
+  const model = status?.taskReadModel || {};
+  const activeCount = Number(model.activeCount || 0);
+  const progressTask = model.progressTask || null;
+  const nextTask = model.nextTask || null;
+  if (!progressTask && !nextTask && activeCount <= 0) {
+    card.className = 'task-card';
+    card.replaceChildren?.();
+    return;
+  }
+  const task = progressTask || nextTask;
+  const completed = Math.max(0, Number(task?.completedSeconds || 0));
+  const required = Math.max(0, Number(task?.requiredSeconds || 0));
+  const remaining = Math.max(0, Number(task?.remainingSeconds || (required - completed)) || 0);
+  const title = progressTask ? '当前任务' : '下一任务';
+  const sub = progressTask
+    ? `任务期间只允许任务资源；当前进度归属此任务 · 剩余 ${formatSeconds(remaining)}`
+    : `计划开始 ${formatTaskClock(task?.plannedStartAt)} · 需要 ${formatSeconds(required)}`;
+  card.className = 'task-card active';
+  card.innerHTML = `
+    <div class="task-card-title">${escapeHtml(title)}${activeCount > 1 ? ` · 同时生效 ${activeCount} 个` : ''}</div>
+    <div class="task-card-main">
+      <div class="task-card-name">${escapeHtml(task?.name || '未命名任务')}</div>
+      <div class="task-card-progress">${required > 0 ? `${formatSeconds(completed)} / ${formatSeconds(required)}` : '待同步'}</div>
+    </div>
+    <div class="task-card-sub">${escapeHtml(sub)}</div>`;
+}
+
+function formatTaskClock(epochMs) {
+  const n = Number(epochMs || 0);
+  if (!Number.isFinite(n) || n <= 0) return '未设置';
+  const d = new Date(n);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 
 function renderRuntimeStatus(status = {}) {
   const runtimeCompact = document.getElementById('runtime-compact');

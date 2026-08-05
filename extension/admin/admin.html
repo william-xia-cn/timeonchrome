@@ -1871,6 +1871,7 @@
         <button type="button" class="active" data-system-management-tab="device-status">本机状态</button>
         <button type="button" data-system-management-tab="web-settlements">网页落账</button>
         <button type="button" data-system-management-tab="media-settlements">媒体落账</button>
+        <button type="button" data-system-management-tab="tasks">任务管理</button>
         <button type="button" data-system-management-tab="client-logs">系统日志</button>
       </div>
 
@@ -1957,6 +1958,18 @@
         <div class="settlement-table-wrap" id="media-settlement-table-wrap">
           <div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>
         </div>
+      </div>
+      </section>
+
+      <section class="system-management-panel" data-system-management-panel="tasks">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/online-time.svg" alt="">任务管理</div>
+            <div class="card-subtitle">只读展示本机已同步任务；创建、暂停、完成和取消由云端家长控制台处理</div>
+          </div>
+        </div>
+        <div id="task-management-readonly">加载中...</div>
       </div>
       </section>
 

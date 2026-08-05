@@ -13,7 +13,7 @@ import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoti
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
-import { buildTaskHeartbeatPayload, getTaskCache, pullTaskCache, setupTaskAlarms, TASK_PULL_ALARM, TASK_START_ALARM, TASK_COMPLETION_ALARM } from './infra/task-sync.js';
+import { buildTaskHeartbeatPayload, getTaskCache, getTaskReadModel, pullTaskCache, setupTaskAlarms, TASK_PULL_ALARM, TASK_START_ALARM, TASK_COMPLETION_ALARM } from './infra/task-sync.js';
 import { handleMessage } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
 import { getEvents, clearEvents } from './core/event-log.js';
@@ -696,6 +696,7 @@ async function getPopupLocalSnapshot(tabHint = null) {
       return value;
     });
   const storageStartedAt = Date.now();
+  const taskReadModelPromise = getTaskReadModel().catch(() => ({ ok: false, error: 'task_read_model_unavailable' }));
   const storagePromise = chrome.storage.local.get([
     CONFIG_KEY,
     SESSION_KEY,
@@ -712,10 +713,11 @@ async function getPopupLocalSnapshot(tabHint = null) {
     return value;
   });
 
-  const [{ tab, domain }, timingSession, storage] = await Promise.all([
+  const [{ tab, domain }, timingSession, storage, taskReadModel] = await Promise.all([
     activePromise,
     timingSessionPromise,
     storagePromise,
+    taskReadModelPromise,
   ]);
   const activation = await resolveActivationState().catch(() => ({ activated: false, reason: 'privacy_consent_required', privacyConsent: { accepted: false } }));
   const privacyConsent = activation.privacyConsent || { accepted: false };
@@ -740,6 +742,7 @@ async function getPopupLocalSnapshot(tabHint = null) {
     url: tab?.url || null,
     specialSiteTargets,
     currentManagedTarget: currentTarget?.fallback ? null : currentTarget,
+    taskReadModel,
     config: popupConfig,
     stats: buildPopupSettledModeStatsFromDay(todayStats),
     cloudStatus: buildPopupCloudStatus(storage || {}, activation),
@@ -1525,6 +1528,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           currentSessionDurationSeconds: 0,
           error: err?.message || String(err),
         });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'GET_TASK_READ_MODEL') {
+    (async () => {
+      try {
+        sendResponse(await getTaskReadModel());
+      } catch (err) {
+        sendResponse({ ok: false, error: err?.message || String(err) });
       }
     })();
     return true;

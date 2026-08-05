@@ -462,7 +462,7 @@ lastCloudConfirmedSeconds + currentDeviceUnuploadedUniqueIntervals
 3. Extension task cache、pull、alarm 和纯策略层（已实现于 `codex/task-management-v1` P3）；
 4. Runtime session/segment 快照、任务开始/预计完成边界和重评估（已实现于 `codex/task-management-v1` P4；任务阻断 UI 与进度投影仍在后续包）；
 5. Worker segment 投影与多设备区间并集（已实现于 `codex/task-management-v1` P5：以 accepted usage segment 重算 projection，不做增量加秒）；
-6. Reminder、Popup、Admin read model；
+6. Reminder、Popup、Admin read model（已实现于 `codex/task-management-v1` P6：只读展示本机已同步任务，不开放创建/编辑）；
 7. Pages 任务管理和 capability gate；
 8. 集成/E2E、回滚验证和分阶段部署证据。
 

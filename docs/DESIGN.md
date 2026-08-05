@@ -1038,7 +1038,7 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - `docs/specs/SPEC-002-TASK-MANAGEMENT.md`
 - `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
 
-当前状态为 Approved，分包实现中：`codex/task-management-v1` 已完成第一实现包（`tasks_v1` / `task_events_v1` migration、Worker repository、任务 schema/资源规范化/生命周期纯函数）和第二实现包（parent/device 任务 API、核心字段 revision 更新、生命周期 action API、设备 `taskManagementV1` capability metadata）。第三实现包已完成：扩展端任务 cache/pull/alarm 和纯策略层已作为 no-op 运行能力接入，heartbeat 上报 capability、任务版本和当前生效任务摘要。第四实现包已完成：runtime 会在 session 打开时写入任务匹配快照，usage segment 会保存/上传 `matchedTaskIdsAtTime`、`progressTaskIdAtTime` 与 `taskRevisionAtTime`，任务开始和预计完成边界会触发当前 session 结算、任务缓存刷新和 active tab 重评估。第五实现包已完成：Worker 会在新 usage segment 被幂等接受后，以 `usage_segments_v1` 为唯一事实重算任务进度投影，并用跨设备时间区间并集避免重复计时；首次达到要求时长会标记任务完成并写入 usage completion event。任务阻断 UI 和 Pages 创建入口尚未实现，不属于 `master` 当前运行基线。
+当前状态为 Approved，分包实现中：`codex/task-management-v1` 已完成第一实现包（`tasks_v1` / `task_events_v1` migration、Worker repository、任务 schema/资源规范化/生命周期纯函数）和第二实现包（parent/device 任务 API、核心字段 revision 更新、生命周期 action API、设备 `taskManagementV1` capability metadata）。第三实现包已完成：扩展端任务 cache/pull/alarm 和纯策略层已作为 no-op 运行能力接入，heartbeat 上报 capability、任务版本和当前生效任务摘要。第四实现包已完成：runtime 会在 session 打开时写入任务匹配快照，usage segment 会保存/上传 `matchedTaskIdsAtTime`、`progressTaskIdAtTime` 与 `taskRevisionAtTime`，任务开始和预计完成边界会触发当前 session 结算、任务缓存刷新和 active tab 重评估。第五实现包已完成：Worker 会在新 usage segment 被幂等接受后，以 `usage_segments_v1` 为唯一事实重算任务进度投影，并用跨设备时间区间并集避免重复计时；首次达到要求时长会标记任务完成并写入 usage completion event。第六实现包已完成：Popup/Admin/Reminder 基于本机 task cache 增加任务只读 read model 展示，不开放创建/编辑入口。任务阻断 UI 和 Pages 创建入口尚未实现，不属于 `master` 当前运行基线。
 
 进入代码前必须确认工作区干净并基于 `f636418 / v1.7.20` 的 `codex/task-management-v1` 分支。任务代码、migration 和测试不得与其他功能提交混合。
 

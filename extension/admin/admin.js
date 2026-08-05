@@ -13,6 +13,7 @@ import {
 import { buildEffectiveTimeQuota } from '../core/quota-config.js';
 import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
 import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
+import { getTaskCache, buildTaskReadModel } from '../infra/task-sync.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -1281,6 +1282,8 @@ async function renderSystemManagementPage() {
     await renderSettlementsPage();
   } else if (systemManagementActiveTab === 'media-settlements') {
     await renderMediaSettlementsPage();
+  } else if (systemManagementActiveTab === 'tasks') {
+    await renderTaskManagementReadonlyPage();
   } else if (systemManagementActiveTab === 'client-logs') {
     await renderClientLogsPage();
   }
@@ -1290,7 +1293,44 @@ function setSystemManagementPageError(message) {
   if (systemManagementActiveTab === 'device-status') setDevicesPageError(message);
   else if (systemManagementActiveTab === 'web-settlements') setSettlementsPageError(message);
   else if (systemManagementActiveTab === 'media-settlements') setMediaSettlementsPageError(message);
+  else if (systemManagementActiveTab === 'tasks') setTaskManagementPageError(message);
   else if (systemManagementActiveTab === 'client-logs') setClientLogsPageError(message);
+}
+
+function setTaskManagementPageError(message) {
+  const el = document.getElementById('task-management-readonly');
+  if (el) el.innerHTML = `<div style="color:var(--danger);padding:16px;text-align:center;">${escHtml(message || '任务读取失败')}</div>`;
+}
+
+function renderTaskRow(task = {}, role = '') {
+  const required = Math.max(0, Number(task.requiredSeconds || 0));
+  const completed = Math.max(0, Number(task.completedSeconds || 0));
+  const remaining = Math.max(0, Number(task.remainingSeconds || (required - completed)));
+  const roleText = role ? `<span class="rules-site-badge">${escHtml(role)}</span>` : '';
+  return `<div class="rules-record-row">
+    <div>
+      <div class="rules-record-target">${escHtml(task.name || '未命名任务')} ${roleText}</div>
+      <div class="rules-record-meta">状态 ${escHtml(task.runtimeStatus || task.lifecycleStatus || 'unknown')} · 版本 ${Number(task.revision || 0)} · 剩余 ${formatSeconds(remaining)}</div>
+    </div>
+    <div class="rules-record-actions">${formatSeconds(completed)} / ${formatSeconds(required)}</div>
+  </div>`;
+}
+
+async function renderTaskManagementReadonlyPage() {
+  const el = document.getElementById('task-management-readonly');
+  if (!el) return;
+  const model = buildTaskReadModel(await getTaskCache());
+  const rows = [];
+  if (model.progressTask) rows.push(renderTaskRow(model.progressTask, '进度归属'));
+  for (const task of model.enforcingTasks || []) {
+    if (model.progressTask && task.id === model.progressTask.id) continue;
+    rows.push(renderTaskRow(task, '当前强制'));
+  }
+  if (model.nextTask) rows.push(renderTaskRow(model.nextTask, '下一任务'));
+  el.innerHTML = `
+    <div class="rules-record-section-desc">本机只读展示当前已同步任务。任务修改、暂停、完成和取消需要在云端家长控制台完成。</div>
+    <div class="settlement-summary">当前强制 ${Number(model.activeCount || 0)} 个 · 任务版本 ${Number(model.taskVersion || 0)}${model.error ? ` · 最近同步错误：${escHtml(model.error)}` : ''}</div>
+    ${rows.length ? rows.join('') : '<div class="rules-readonly-empty">当前没有生效任务，也没有已同步的未来任务。</div>'}`;
 }
 
 function isLatestAdminRefreshRequest(requestSeq) {

@@ -113,6 +113,12 @@ function runMigrationAndRepositoryChecks() {
   const background = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
   const cloudSync = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
   const messageRouter = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'message-router.js'), 'utf8');
+  const popupHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.html'), 'utf8');
+  const popupJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'popup', 'popup.js'), 'utf8');
+  const adminHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.html'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
+  const reminderHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'reminder.html'), 'utf8');
+  const reminderJs = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'reminder.js'), 'utf8');
 
   check('migration creates tasks_v1 table', /CREATE TABLE IF NOT EXISTS tasks_v1/.test(migration));
   check('migration creates task_events_v1 table', /CREATE TABLE IF NOT EXISTS task_events_v1/.test(migration));
@@ -145,10 +151,12 @@ function runMigrationAndRepositoryChecks() {
   check('extension task sync defines periodic pull and start alarms', taskSync.includes('TASK_PULL_ALARM') && taskSync.includes('TASK_START_ALARM') && taskSync.includes('scheduleNextTaskAlarm'));
   check('extension task sync defines completion boundary snapshot helpers', taskSync.includes('TASK_COMPLETION_ALARM') && taskSync.includes('resolveTaskSnapshotForPage') && taskSync.includes('scheduleTaskCompletionAlarmForSnapshot'));
   check('extension task sync builds heartbeat capability payload', taskSync.includes('buildTaskHeartbeatPayload') && taskSync.includes('capabilities') && taskSync.includes('taskActiveSummary'));
+  check('extension task sync builds shared task read model', taskSync.includes('buildTaskReadModel') && taskSync.includes('progressTask') && taskSync.includes('nextTask') && taskSync.includes('activeCount'));
   check('background wires task pull alarms and startup cache pull', background.includes('TASK_PULL_ALARM') && background.includes('TASK_START_ALARM') && background.includes('bootstrap:') && background.includes('pullTaskCache'));
   check('background flushes session at task start and completion boundaries', background.includes('task_effective_boundary') && background.includes('task_completion_boundary') && background.includes('TASK_COMPLETION_ALARM'));
   check('cloud heartbeat accepts task payload body', cloudSync.includes('sendHeartbeat(afterRecoveredSync = null, heartbeatPayload = null)') && cloudSync.includes("cloudRequest('POST', '/device/heartbeat', heartbeatPayload || null)"));
   check('cloud bind triggers a non-blocking task cache pull', messageRouter.includes("pullTaskCache({ reason: 'cloud_bind' })") && messageRouter.includes('taskPull'));
+  check('P6 Popup/Admin/Reminder expose task read model', popupHtml.includes('task-read-model-card') && popupJs.includes('renderTaskReadModel') && adminHtml.includes('task-management-readonly') && adminJs.includes('renderTaskManagementReadonlyPage') && reminderHtml.includes('taskSummary') && reminderJs.includes('task_required') && reminderJs.includes('GET_TASK_READ_MODEL'));
 }
 
 runPureFunctionChecks();

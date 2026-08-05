@@ -124,6 +124,52 @@ export function buildTaskHeartbeatPayload(cache = null, nowMs = Date.now()) {
     },
   };
 }
+function compactTaskForReadModel(task = {}) {
+  const requiredSeconds = Math.max(0, Math.floor(Number(task.requiredSeconds || 0) || 0));
+  const completedSeconds = Math.max(0, Math.floor(Number(task.completedSeconds || 0) || 0));
+  return {
+    id: String(task.id || ''),
+    name: String(task.name || '未命名任务'),
+    lifecycleStatus: task.lifecycleStatus || 'open',
+    runtimeStatus: task.runtimeStatus || null,
+    plannedStartAt: Number(task.plannedStartAt || 0) || null,
+    requiredSeconds,
+    completedSeconds,
+    remainingSeconds: Math.max(0, requiredSeconds - completedSeconds),
+    revision: Number(task.revision || 0) || 0,
+    resourceSpec: task.resourceSpec || {},
+  };
+}
+
+export function buildTaskReadModel(cache = null, nowMs = Date.now()) {
+  const tasks = Array.isArray(cache?.tasks) ? cache.tasks.map((task) => normalizeTaskRecord(task, nowMs)) : [];
+  const enforcingTasks = getEnforcingTasks(tasks, nowMs).map(compactTaskForReadModel);
+  const progressTask = enforcingTasks
+    .slice()
+    .sort((a, b) => (a.plannedStartAt || 0) - (b.plannedStartAt || 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))[0] || null;
+  const nextTaskAt = getNextTaskAlarmTime(tasks, nowMs);
+  const nextTask = nextTaskAt
+    ? tasks
+      .filter((task) => task.lifecycleStatus === 'open' && Number(task.plannedStartAt || 0) === nextTaskAt)
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || String(a.id || '').localeCompare(String(b.id || '')))[0]
+    : null;
+  return {
+    ok: true,
+    capability: TASK_MANAGEMENT_V1_CAPABILITY,
+    taskVersion: Number(cache?.taskVersion || 0) || 0,
+    pulledAt: Number(cache?.pulledAt || 0) || null,
+    error: cache?.error || null,
+    activeCount: enforcingTasks.length,
+    enforcingTasks,
+    progressTask,
+    nextTask: nextTask ? compactTaskForReadModel(nextTask) : null,
+  };
+}
+
+export async function getTaskReadModel(nowMs = Date.now()) {
+  return buildTaskReadModel(await getTaskCache(), nowMs);
+}
+
 function maxRevisionForTaskIds(tasks = [], ids = []) {
   const wanted = new Set((ids || []).map(String));
   return Math.max(0, ...(tasks || [])

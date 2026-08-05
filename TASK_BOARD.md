@@ -60,6 +60,11 @@
   - 范围：Worker 仅在 `usage_segments_v1` 新插入 segment 后，从同一 `profile_id + task_id + revision` 的 accepted segments 重算时间区间并集，写入 `tasks_v1.completed_seconds`，首次达到要求时标记 `completed` 并写入 usage completion event。
   - 边界：不新增第二套任务时间上传协议，不改扩展端阻断/UI，不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
   - 测试：任务 repository/projection 静态与纯函数测试、Worker stats ingest 触发投影测试、`npm run typecheck`、`git diff --check`。
+- [x] [Task-management / P6] 任务管理 V1 Popup/Admin/Reminder 只读展示
+  - 分支：`codex/task-management-v1`
+  - 范围：基于扩展端 task cache 构造只读 read model；Popup 展示当前强制任务、进度归属任务和最近未来任务；本地 Admin 增加任务管理只读页；Reminder 在任务限制场景展示任务资源摘要。
+  - 边界：不实现任务创建/编辑，不改变访问控制或配额逻辑，不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
+  - 测试：任务 read model 静态/契约测试、Popup/Admin/Reminder 静态测试、`npm run typecheck`、`git diff --check`。
 
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
