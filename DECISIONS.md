@@ -62,6 +62,7 @@
 | D-053 | YouTube 进入特殊网站对象管理 | Active | 自 2026-07-27 起，`youtube.com` 根域不再作为复合网站默认入口，而是系统受限娱乐网站。具体 YouTube 视频、播放列表、频道是特殊网站对象，可由家长批准为学习或复合，并可在 `youtube.com` 受限父域下例外生效。孩子端仍只提交学习申请；家长审批时可改判学习或复合。频道规则可覆盖该频道下视频，但只有当页面上下文能识别频道对象时生效；`music.youtube.com` 本轮不变。 |
 | D-054 | YouTube 根域系统配置不变量与时间段边界定时评估 | Active | 自 2026-07-29 起，系统访问配置读取必须修正旧 D1 或导入文件中的 YouTube 根域漂移：`youtube.com` 不得作为学习、复合、用户默认复合或黑名单默认项加载，必须作为系统受限娱乐根域加载；具体 YouTube 视频、播放列表、频道仍按 D-053 的特殊对象规则例外处理。时间段管理不只在访问新网站或手动切换时生效，定时/心跳触发的 `EVALUATE_QUOTA_STATE` 也必须检查当前模式是否仍在允许时间段内，并在越界时切换到当前可用模式或进入 locked 后重检 active tab。 |
 | D-055 | 网站访问运行时配置必须版本化归一化 | Active | 自 2026-07-29 起，扩展运行时不得直接信任历史 `guardian_config` 中的 effective 清单或 legacy aliases。任何来自本地缓存、云端拉取、导入/恢复、绑定首次同步或云端 version skip 的网站访问配置，都必须先经过 `normalizeRuntimeSiteAccessConfig()` 升级到当前语义版本，再进入分类、拦截、计时和 managed target 落账。`studyList`、`compositeList`、`restrictedEntertainmentList`、`unsafeList` 是由 source lists 派生的 canonical effective 清单；legacy aliases 只允许在 migration/normalization 层读取。YouTube 根域受限娱乐只是 M002 迁移规则，不得作为散落在分类器和落账器里的长期硬编码。 |
+| D-056 | 任务管理 V1 进入隔离分支实现 | Active | 自 2026-08-05 起，任务管理 V1 产品规格与技术设计批准进入实现，目标分支为 `codex/task-management-v1`。第一版只支持一次性任务，不支持周期任务或固定截止时间；任务以计划开始时间、要求有效使用时长和允许资源为核心，开始或产生进度后核心字段冻结。任务是高优先级 Chrome 内容策略：`安全与黑名单 > 未完成任务 > 配额 > 日历例程/旧时间段 > 基础场景`；任务命中资源时可覆盖旧时间段限制，但不改变网站性质、统计性质或配额来源，也不绕过黑名单、安全规则或配额耗尽。任务进度以 `usage_segments_v1` 为唯一事实，`tasks_v1.completed_seconds` 只是可重建投影；多设备按有效使用区间并集累计，同一自然秒最多计一次。实现包必须保持隔离，不执行生产 D1 migration、不部署生产环境、不开放 Pages 创建入口，除非 Product Owner 后续单独授权。 |
 
 ## 变更规则
 - 新决策必须追加一条记录（不改历史 ID）。

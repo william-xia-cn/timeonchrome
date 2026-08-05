@@ -5,9 +5,9 @@
 - Spec ID: `SPEC-002`
 - Date: 2026-08-03
 - Owner: Product&Project Mg
-- Status: Draft
-- Related task: `TASK_BOARD.md` - 任务管理规格 Draft
-- Related decisions: D-030、D-045、D-046
+- Status: Approved
+- Related task: `TASK_BOARD.md` - 任务管理 V1 开发
+- Related decisions: D-030、D-045、D-046、D-056
 - Technical design: `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
 - Related handoff: None
 
@@ -245,7 +245,7 @@ Implementation must comply with:
 - Integration: 任务强制范围与网站分类、日历例程、配额检查、idle/focus 边界和当前网页重评估的组合行为。
 - E2E: 延迟打开 Chrome、分段完成、跨日继续、暂停恢复、单任务、多任务重叠、提前人工/外部完成、配额耗尽和旧设备 capability 阻断。
 - Manual: 家长创建、暂停、恢复、留痕完成和取消任务，查看剩余时长、当前强制任务、有效资源摘要和不可删除历史。
-- Release gate: 由后续实现设计确定；本 Draft 不定义发布版本或发布门禁。
+- Release gate: 由后续实现设计确定；本规格不定义发布版本或发布门禁。
 
 ## Release Risk
 
@@ -268,12 +268,12 @@ Rollback concerns:
 
 ## Handoff Requirements
 
-本规格和独立技术设计经 Product Owner 审核并转为 Approved 后，Build&Test 才可进入代码实现。进入代码前必须先完成以下隔离闸门：
+本规格和独立技术设计已由 Product Owner 批准为 Approved。Build&Test 进入代码实现前必须先完成以下隔离闸门：
 
 1. 由 Product Owner 选择并整理当前工作区已有改动；
 2. 确认 `git status` 干净；
 3. 执行 `git fetch origin` 并确认本地 `master` 与最新远端基线一致；
-4. 创建并切换到 `codex/task-management-v1`；
+4. 创建并使用 `codex/task-management-v1`；
 5. 任务代码、migration 和测试不得与其他功能提交混合。
 
 Build&Test must report:
@@ -289,4 +289,4 @@ Product&Project Mg must review conformance before releaseMg acceptance.
 
 ## Technical Design Reference
 
-任务数据模型、状态机、API、同步、运行时策略、用量 segment 扩展、多设备区间并集、UI read model、capability gate 和分阶段发布方案，统一由 `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md` 定义。该文档当前同样为 Draft，不代表相关功能已经实现。
+任务数据模型、状态机、API、同步、运行时策略、用量 segment 扩展、多设备区间并集、UI read model、capability gate 和分阶段发布方案，统一由 `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md` 定义。该文档同样已转为 Approved，但不代表相关功能已经实现。

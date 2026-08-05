@@ -5,7 +5,7 @@
 - Spec ID: `SPEC-002-TD`
 - Date: 2026-08-05
 - Owner: Product&Project Mg
-- Status: Draft
+- Status: Approved
 - Product spec: `docs/specs/SPEC-002-TASK-MANAGEMENT.md`
 - Target branch: `codex/task-management-v1`
 - Implementation status: Not implemented
@@ -25,14 +25,14 @@
 
 ## 2. Implementation Gate
 
-本文件仍为 Draft，不授权修改代码、数据库或生产环境。进入实现前必须：
+本文件已由 Product Owner 批准为 Approved，授权在隔离分支 `codex/task-management-v1` 上按实现包开发。进入实现前必须：
 
 1. Product Owner 批准产品规格和本技术设计；
 2. 在 `DECISIONS.md` 使用下一个可用编号记录稳定产品决策；
 3. 由 Product Owner 选择并整理当前工作区已有改动；
 4. 确认 `git status` 干净；
 5. 执行 `git fetch origin`，确认本地 `master` 与最新远端基线一致；
-6. 创建并切换到 `codex/task-management-v1`；
+6. 创建并使用 `codex/task-management-v1`；
 7. 任务相关代码、migration 和测试只进入该分支，不与其他功能提交混合。
 
 ## 3. Architecture

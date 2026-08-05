@@ -27,12 +27,19 @@
   - 文档：`docs/specs/SPEC-001-CALENDAR-ROUTINE-MANAGEMENT.md`
   - 状态：Draft 已建立，等待 Product Owner 审核；获批前不进入代码、schema、API 或迁移设计。
   - 核心：固定自然时间内的常态内容策略；支持周期与一次性例程；任一时刻最多一个有效日历例程。
-- [ ] [Spec + Technical Design Draft] 任务管理 V1
+- [x] [Spec + Technical Design Approved] 任务管理 V1
   - 产品规格：`docs/specs/SPEC-002-TASK-MANAGEMENT.md`
   - 技术设计：`docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
-  - 状态：产品规则和技术结构 Draft 已建立，等待 Product Owner 最终审核；获批前不进入代码、schema、API、migration 或外部事件接入。
+  - 状态：Product Owner 已批准产品规则和技术结构；目标分支 `codex/task-management-v1` 已建立，进入隔离实现阶段。
   - 核心：一次性强制 Chrome 任务；按有效任务使用时长完成；不支持周期任务或固定截止时间；多设备按有效区间并集累计。
-  - 实施闸门：先由 Product Owner 整理当前未提交改动，确认干净工作区并对齐最新 `origin/master`，再创建 `codex/task-management-v1`；任务实现不得与其他功能提交混合。
+  - 实施边界：任务代码、migration 和测试只进入 `codex/task-management-v1`，不得与其他功能提交混合；不执行远端 D1 migration、不部署生产环境，除非 Product Owner 后续单独授权。
+
+## Current Development Focus（2026-08-05）
+- [ ] [Task-management / P1] 任务管理 V1 第一实现包
+  - 分支：`codex/task-management-v1`
+  - 范围：新增 `tasks_v1`、`task_events_v1` migration 和 Worker repository；实现任务 schema、资源规范化和生命周期纯函数。
+  - 边界：暂不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
+  - 测试：新增任务单测、Worker 相关回归、`npm run typecheck`、`git diff --check`。
 
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
