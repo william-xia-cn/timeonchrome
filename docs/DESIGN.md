@@ -1038,7 +1038,7 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - `docs/specs/SPEC-002-TASK-MANAGEMENT.md`
 - `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
 
-当前状态为 Approved，尚未实现：仓库尚未实现任务表、任务 API、设备任务同步、任务运行时策略、任务进度投影或相关 UI。技术设计采用独立 `tasks_v1` / `task_events_v1`，并让现有 `usage_segments_v1` 承担任务有效使用时间的唯一事实；这些内容进入隔离分支 `codex/task-management-v1` 开发，不属于 `master` 当前运行基线。
+当前状态为 Approved，分包实现中：`codex/task-management-v1` 已完成第一实现包（`tasks_v1` / `task_events_v1` migration、Worker repository、任务 schema/资源规范化/生命周期纯函数）。任务 API、设备任务同步、任务运行时策略、任务进度投影接入和相关 UI 尚未实现，不属于 `master` 当前运行基线。
 
 进入代码前必须确认工作区干净并基于 `f636418 / v1.7.20` 的 `codex/task-management-v1` 分支。任务代码、migration 和测试不得与其他功能提交混合。
 

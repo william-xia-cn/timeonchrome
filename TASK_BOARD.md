@@ -35,7 +35,7 @@
   - 实施边界：任务代码、migration 和测试只进入 `codex/task-management-v1`，不得与其他功能提交混合；不执行远端 D1 migration、不部署生产环境，除非 Product Owner 后续单独授权。
 
 ## Current Development Focus（2026-08-05）
-- [ ] [Task-management / P1] 任务管理 V1 第一实现包
+- [x] [Task-management / P1] 任务管理 V1 第一实现包
   - 分支：`codex/task-management-v1`
   - 范围：新增 `tasks_v1`、`task_events_v1` migration 和 Worker repository；实现任务 schema、资源规范化和生命周期纯函数。
   - 边界：暂不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。

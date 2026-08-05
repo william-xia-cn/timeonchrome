@@ -8,7 +8,7 @@
 - Status: Approved
 - Product spec: `docs/specs/SPEC-002-TASK-MANAGEMENT.md`
 - Target branch: `codex/task-management-v1`
-- Implementation status: Not implemented
+- Implementation status: Package 1 implemented (migration, repository, schema/resource/lifecycle pure functions); runtime/API/UI not implemented
 
 ## 1. Goal
 
