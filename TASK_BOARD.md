@@ -30,7 +30,7 @@
 - [x] [Spec + Technical Design Approved] 任务管理 V1
   - 产品规格：`docs/specs/SPEC-002-TASK-MANAGEMENT.md`
   - 技术设计：`docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
-  - 状态：Product Owner 已批准产品规则和技术结构；目标分支 `codex/task-management-v1` 已建立，进入隔离实现阶段。
+  - 状态：Product Owner 已批准产品规则和技术结构；目标分支 `codex/task-management-v1` 的 P1-P9 实现与本地验证已完成，等待单独 release/migration/deploy 决策。
   - 核心：一次性强制 Chrome 任务；按有效任务使用时长完成；不支持周期任务或固定截止时间；多设备按有效区间并集累计。
   - 实施边界：任务代码、migration 和测试只进入 `codex/task-management-v1`，不得与其他功能提交混合；不执行远端 D1 migration、不部署生产环境，除非 Product Owner 后续单独授权。
 
