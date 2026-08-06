@@ -239,6 +239,33 @@ function run() {
   expectTrue('Pages 点击自定义/未归类网站应支持归类菜单', source.includes('classifyRulesSiteEntry') && source.includes('归为${htmlEscape(def.label)}') && source.includes('RULES_POLICY_DEFS'));
   expectTrue('Pages 系统配置分类保存应要求全局确认', source.includes('saveSystemSiteCategoryEdit') && source.includes('系统网站配置-分类管理保存后会全局生效，影响所有孩子档案') && source.includes('canWrite'));
   expectTrue('Pages 非 admin 应禁用系统分类编辑', source.includes('需要系统管理员权限') && source.includes('disabled title="需要系统管理员权限"'));
+  expectTrue('Pages 系统分类保存响应异常时应只读回查云端最终状态', source.includes('confirmSystemSiteClassificationSaved') && source.includes('if (!confirmed) throw saveError') && source.includes('confirmed = await confirmSystemSiteClassificationSaved'));
+  expectTrue('Pages 系统分类保存与回查都中断时不应误报确定失败', source.includes('system category save result could not be confirmed') && source.includes('保存请求已提交，结果暂时无法确认；请刷新页面核对'));
+  expectTrue('Pages 系统分类保存后的渲染异常不应误报数据修改失败', source.includes('system category saved but render failed') && source.includes('已保存；页面刷新失败，请刷新后查看'));
+  const systemConfigConfirmationContext = {
+    normalizeSiteAccessInput: value => String(value || '').trim().toLowerCase(),
+    classificationPolicyDefs: () => [
+      { key: 'study', defaultKey: 'defaultStudySites' },
+      { key: 'composite', defaultKey: 'defaultCompositeSites', defaultKeys: ['defaultCompositeSites', 'defaultUserCompositeSites'] },
+      { key: 'restricted', defaultKey: 'defaultRestrictedEntertainmentSites' },
+      { key: 'blocked', defaultKey: 'defaultBlockedSites' },
+    ],
+    rulesPolicyDefaultKeys: def => def.defaultKeys || [def.defaultKey],
+    matchDomain: (left, right) => String(left || '').toLowerCase() === String(right || '').toLowerCase(),
+  };
+  vm.createContext(systemConfigConfirmationContext);
+  vm.runInContext(extractFunctionSource(source, 'systemConfigHasSiteClassification'), systemConfigConfirmationContext);
+  const savedSystemConfig = {
+    defaultStudySites: [],
+    defaultCompositeSites: [],
+    defaultUserCompositeSites: [],
+    defaultRestrictedEntertainmentSites: ['msn.com'],
+    defaultBlockedSites: [],
+    siteCatalog: [{ domain: 'msn.com', contentCategory: '综合门户', classification: 'restricted' }],
+  };
+  expectTrue('系统分类云端回查应确认目标策略和内容分类均已保存', systemConfigConfirmationContext.systemConfigHasSiteClassification(savedSystemConfig, 'MSN.COM', 'restricted', '综合门户'));
+  expectTrue('系统分类云端回查不应接受错误内容分类', !systemConfigConfirmationContext.systemConfigHasSiteClassification(savedSystemConfig, 'msn.com', 'restricted', '娱乐'));
+  expectTrue('系统分类云端回查不应接受跨策略重复', !systemConfigConfirmationContext.systemConfigHasSiteClassification({ ...savedSystemConfig, defaultCompositeSites: ['msn.com'] }, 'msn.com', 'restricted', '综合门户'));
   const validateRulesSiteAddSource = [
     `const RULES_POLICY_DEFS = [
       { key: 'study', label: '学习网站', customKey: 'customStudyList', effectiveKey: 'studyList', defaultKey: 'defaultStudySites' },

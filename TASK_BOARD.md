@@ -35,6 +35,9 @@
   - 实施闸门：先由 Product Owner 整理当前未提交改动，确认干净工作区并对齐最新 `origin/master`，再创建 `codex/task-management-v1`；任务实现不得与其他功能提交混合。
 
 ## Current Fix Focus（2026-07-28）
+- [x] [Pages] 系统网站分类保存成功误报失败修复
+  - 目标：系统分类 PUT 响应异常时只读回查云端最终状态；若目标管理策略和内容分类已落库，则按成功处理，不再显示红色失败提示。
+  - 边界：仅修正 Pages 保存结果判定与页面刷新提示；不改系统分类语义、Worker API、D1 schema 或 profile 配置。
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
   - 目标：本地 Admin 使用“复合网站申请学习记录 / 未归类网站使用记录”两单元只读布局，未处理默认展开、已处理默认折叠。
   - 边界：仅展示本机已同步的 `site_classification_requests_v1`；不调用云端 30 天统计聚合，不增加本地审批或配置修改能力。

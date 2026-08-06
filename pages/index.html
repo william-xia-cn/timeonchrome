@@ -3118,6 +3118,29 @@ function updateSystemConfigSiteClassification(config, value, targetPolicy, conte
   }
   return normalized;
 }
+function systemConfigHasSiteClassification(config, value, targetPolicy, contentCategory) {
+  const normalized = normalizeSiteAccessInput(value);
+  const targetDef = classificationPolicyDefs().find(item => item.key === targetPolicy);
+  if (!normalized || !targetDef) return false;
+  const isSameSite = candidate => matchDomain(candidate, normalized) && matchDomain(normalized, candidate);
+  const targetContainsSite = rulesPolicyDefaultKeys(targetDef)
+    .some(key => (Array.isArray(config?.[key]) ? config[key] : []).some(isSameSite));
+  const anotherPolicyContainsSite = classificationPolicyDefs()
+    .filter(def => def.key !== targetPolicy)
+    .some(def => rulesPolicyDefaultKeys(def)
+      .some(key => (Array.isArray(config?.[key]) ? config[key] : []).some(isSameSite)));
+  const catalogEntry = (Array.isArray(config?.siteCatalog) ? config.siteCatalog : [])
+    .find(item => isSameSite(item?.domain));
+  return targetContainsSite &&
+    !anotherPolicyContainsSite &&
+    catalogEntry?.classification === targetPolicy &&
+    catalogEntry?.contentCategory === contentCategory;
+}
+
+async function confirmSystemSiteClassificationSaved(value, targetPolicy, contentCategory) {
+  const record = await api('/system/access-management-config/v1');
+  return systemConfigHasSiteClassification(record.config, value, targetPolicy, contentCategory) ? record : null;
+}
 
 window.saveSystemSiteCategoryEdit = async (idx) => {
   const entry = window._rulesSiteDirectoryEntries?.[idx];
@@ -3141,11 +3164,31 @@ window.saveSystemSiteCategoryEdit = async (idx) => {
     }
     const config = { ...(record.config || siteAccessDefaults || {}) };
     const normalized = updateSystemConfigSiteClassification(config, entry.value, targetPolicy, category);
-    const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Update ${normalized} category/policy from site category management UI` });
+    let saved;
+    try {
+      saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Update ${normalized} category/policy from site category management UI` });
+    } catch (saveError) {
+      let confirmed;
+      try {
+        confirmed = await confirmSystemSiteClassificationSaved(normalized, targetPolicy, category);
+      } catch (verifyError) {
+        console.warn('[Rules] system category save result could not be confirmed:', verifyError);
+        toast('系统分类保存请求已提交，结果暂时无法确认；请刷新页面核对。');
+        return;
+      }
+      if (!confirmed) throw saveError;
+      saved = confirmed;
+    }
     siteAccessDefaults = saved.config || config;
     systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
     rulesSitePolicyState.editingSystemSiteIndex = null;
-    renderRulesPage();
+    try {
+      renderRulesPage();
+    } catch (renderError) {
+      console.error('[Rules] system category saved but render failed:', renderError);
+      toast('系统网站配置-分类管理已保存；页面刷新失败，请刷新后查看');
+      return;
+    }
     toast('系统网站配置-分类管理已保存，全局生效');
   } catch (e) {
     toast('系统分类保存失败：' + (e.message || e), false);
