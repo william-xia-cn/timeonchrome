@@ -65,7 +65,8 @@ const api = loadProdModule('core/usage-segments.js', [
   'buildTargetStatsUploadPayload', 'buildHourlyTargetStatsUploadPayload',
   'pruneSegmentSyncOutbox', 'pruneStatsSyncOutbox', 'pruneHourlyStatsSyncOutbox',
   'pruneTargetStatsSyncOutbox', 'pruneHourlyTargetStatsSyncOutbox',
-  'pruneUsageSegments', 'pruneDailyUsageStats', 'pruneHourlyUsageStats',
+  'pruneUsageSegments', 'pruneUploadedUsageSegments', 'pruneDailyUsageStats', 'pruneHourlyUsageStats',
+  'compactUsageSyncOutboxes', 'normalizeUploadErrorCode',
   'settleUsageDuration',
 ]);
 
@@ -627,7 +628,7 @@ await api.markDailyStatsUploadFailed([todayStr], 'timeout');
 const df3 = await api.getPendingDailyStats();
 chk('stats dirty preserved', df3.pendingCount, 1);
 chk('stats retry count', df3.retryCounts[todayStr], 1);
-chk('stats last error', df3.lastErrors[todayStr], 'timeout');
+chk('stats last error', df3.lastErrors[todayStr], 'request_timeout');
 
 // ── TB29: buildUsageSegmentsUploadPayload ──
 sec('TB29: buildUsageSegmentsUploadPayload');
@@ -714,7 +715,12 @@ chk('target statsp row quota bucket', tsd.rows[0].quotaBucket, 'composite');
 
 const targetPending = await api.getPendingTargetStats();
 chkT('target stats outbox has entries', targetPending.pendingCount > 0);
-await api.markTargetStatsUploaded([todayStr]);
+await api.markDailyStatsUploaded([todayStr], 111111);
+let uploadedStats = (await mockLocal.get('daily_usage_stats_v1')).daily_usage_stats_v1;
+chk('daily aggregate records cloud copy timestamp', uploadedStats[todayStr].uploadedAt, 111111);
+await api.markTargetStatsUploaded([todayStr], 222222);
+uploadedStats = (await mockLocal.get('daily_usage_stats_v1')).daily_usage_stats_v1;
+chk('daily target upload refreshes cloud copy timestamp', uploadedStats[todayStr].uploadedAt, 222222);
 const targetPendingAfter = await api.getPendingTargetStats();
 chk('target stats outbox cleared after upload', targetPendingAfter.pendingCount, 0);
 
@@ -737,8 +743,10 @@ chk('hourly target payload hourKey', htp.hourKey, payloadHourKey);
 chkT('hourly target payload targets array', Array.isArray(htp.targets));
 chk('hourly target payload id', htp.targets[0].managedTargetId, 'mt_payload');
 chk('hourly target row quota bucket', htp.targets[0].rows[0].quotaBucket, 'composite');
-await api.markHourlyStatsUploaded([payloadHourKey]);
-await api.markHourlyTargetStatsUploaded([payloadHourKey]);
+await api.markHourlyStatsUploaded([payloadHourKey], 333333);
+await api.markHourlyTargetStatsUploaded([payloadHourKey], 444444);
+const uploadedHourly = (await mockLocal.get('hourly_usage_stats_v1')).hourly_usage_stats_v1;
+chk('hourly target upload refreshes cloud copy timestamp', uploadedHourly[payloadHourKey].uploadedAt, 444444);
 const hPending2 = await api.getPendingHourlyStats();
 chk('hourly stats outbox cleared', hPending2.pendingCount, 0);
 const hTargetPending2 = await api.getPendingHourlyTargetStats();
@@ -769,6 +777,39 @@ await chrome.storage.local.set({ stats_sync_outbox_v1: oldStatsOutbox });
 const dpCount = await api.pruneStatsSyncOutbox(365);
 chk('stats outbox pruned 1', dpCount, 1);
 
+// ── TB31b: P0 outbox compaction and uploaded-only pruning ──
+sec('TB31b: P0 outbox compaction and uploaded-only pruning');
+mockLocal.reset();
+const oldPendingId = 'seg-20200101-1111111111111111';
+const oldUploadedId = 'seg-20200101-2222222222222222';
+const recentUploadedId = 'seg-20260508-3333333333333333';
+await chrome.storage.local.set({
+  usage_segments_v1: {
+    [oldPendingId]: { id: oldPendingId, startMs: 1, endMs: 2, uploadedAt: null },
+    [oldUploadedId]: { id: oldUploadedId, startMs: 1, endMs: 2, uploadedAt: MOCK_TIME },
+    [recentUploadedId]: { id: recentUploadedId, startMs: Date.now() - 1000, endMs: Date.now(), uploadedAt: Date.now() },
+  },
+  usage_segments_index_v1: {
+    '2020-01-01': [oldPendingId, oldPendingId, oldUploadedId],
+    [todayStr]: [recentUploadedId, 'missing-id'],
+  },
+  segment_sync_outbox_v1: {
+    dirtySegmentIds: [oldPendingId, oldPendingId, 'missing-id'],
+    retryCounts: { [oldPendingId]: 5000, 'missing-id': 2 },
+    lastErrors: { [oldPendingId]: '<html>503 Service Unavailable</html>'.repeat(1000), 'missing-id': 'missing' },
+  },
+});
+const compacted = await api.compactUsageSyncOutboxes();
+const compactStorage = await chrome.storage.local.get(null);
+chk('compaction preserves one pending segment', compactStorage.segment_sync_outbox_v1.dirtySegmentIds.length, 1);
+chk('compaction caps retry metadata', compactStorage.segment_sync_outbox_v1.retryCounts[oldPendingId], 1000);
+chk('compaction stores short 503 code', compactStorage.segment_sync_outbox_v1.lastErrors[oldPendingId], 'http_503');
+chkT('compaction reports removed metadata', compacted.removed > 0);
+const uploadedPruned = await api.pruneUploadedUsageSegments(30);
+const afterUploadedPrune = await chrome.storage.local.get(null);
+chk('uploaded-only prune deletes old uploaded segment', uploadedPruned, 1);
+chkT('uploaded-only prune preserves old pending segment', !!afterUploadedPrune.usage_segments_v1[oldPendingId]);
+chkT('uploaded-only prune preserves recent uploaded segment', !!afterUploadedPrune.usage_segments_v1[recentUploadedId]);
 // ── TB32: Disabled segment v1 upload dry-run ──
 sec('TB32: Disabled segment v1 upload dry-run');
 mockLocal.reset();

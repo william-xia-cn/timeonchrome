@@ -7,9 +7,12 @@ import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabRepla
 import { runForegroundCheckpoint, runTimingCheckpoints } from './core/checkpoint-scheduler.js';
 import { closeCurrentSession, initSession, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
+import { recoverMediaSessionsOnLifecycle } from './runtime/media-session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
+import { drainUsageSettlementJournal, reconcileUsageLedger } from './core/usage-segments.js';
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, CONFIG_KEY, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, SITE_CLASSIFICATION_REQUESTS_KEY, getDateKey, formatDate, extractDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
 import { runV1StorageMaintenance } from './infra/storage-maintenance.js';
+import { registerStoragePressureHandler } from './infra/storage-budget.js';
 import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
@@ -26,6 +29,8 @@ import { runClassificationSyncEffects } from './core/classification-effective-bo
 import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
 import { resolveActivationState } from './core/activation-gate.js';
 import { getSiteClassificationSpecialTargets } from './core/site-classification.js';
+
+registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
@@ -285,6 +290,8 @@ ensureBootstrapped('module-load')
   .then(async () => {
     const activation = await refreshPrivacyConsentCache();
     if (!activation.activated) return { ok: true, skipped: true, reason: activation.reason || 'runtime_activation_required' };
+    await reconcileUsageLedger();
+    await drainUsageSettlementJournal();
     return bootstrapActiveTabTiming('bootstrap_active_tab');
   })
   .catch((err) => {
@@ -308,6 +315,10 @@ chrome.runtime.onStartup.addListener(async () => {
     if (activation.privacyConsentRequired) await openPrivacyConsentPage('onStartup', 'bind.html?welcome=1');
     return;
   }
+  await runV1StorageMaintenance({ reason: 'onStartup_lifecycle' });
+  await reconcileUsageLedger();
+  await drainUsageSettlementJournal();
+  await recoverMediaSessionsOnLifecycle(Date.now(), 'onStartup');
   await recover();
   await resetDailyLockedDomains(true);
   await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onStartup_cloud_sync'));
@@ -340,6 +351,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await ensureBootstrapped('onInstalled');
     const activation = await refreshPrivacyConsentCache();
     if (activation.activated) {
+      if (details.reason === 'update') await runV1StorageMaintenance({ reason: 'onInstalled_update' });
+      await reconcileUsageLedger();
+      await drainUsageSettlementJournal();
+      await recoverMediaSessionsOnLifecycle(Date.now(), 'onInstalled:' + details.reason);
       await recover();
       await updateDeclarativeRules();
     }

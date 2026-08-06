@@ -14,6 +14,12 @@
 //   2. Call exportCalibrationReport() to get comparison data
 //   3. Call resetFocusLedger() to clear for a new test session
 
+import { budgetedLocalSet } from '../infra/storage-budget.js';
+
+const focusStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'focus_ledger' })
+  : chrome.storage.local.set(items);
+
 const FOCUS_LEDGER_KEY = 'debug_focus_ledger_v1';
 const MAX_LEDGER_ENTRIES = 500;
 const LEDGER_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -41,14 +47,14 @@ export async function appendFocusEntry(entry) {
     .filter(e => now - e.time < LEDGER_TTL_MS)
     .slice(-MAX_LEDGER_ENTRIES);
 
-  await chrome.storage.local.set({ [FOCUS_LEDGER_KEY]: pruned });
+  await focusStorageSet({ [FOCUS_LEDGER_KEY]: pruned });
 }
 
 /**
  * Reset focus ledger (for starting a fresh test session).
  */
 export async function resetFocusLedger() {
-  await chrome.storage.local.set({ [FOCUS_LEDGER_KEY]: [] });
+  await focusStorageSet({ [FOCUS_LEDGER_KEY]: [] });
 }
 
 /**

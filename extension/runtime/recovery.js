@@ -4,7 +4,7 @@ import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 import { emitTimingInbound } from '../core/timing-trace.js';
 import { isCountedState } from '../core/usage-segments.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
-import { getSession, getSessionWithPersistenceSource, runSessionCommit, saveSession, settleCurrentSessionSegment } from './session.js';
+import { getSession, getSessionWithPersistenceSource, isSettlementDurable, runSessionCommit, saveSession, settleCurrentSessionSegment } from './session.js';
 
 export const RECOVERY_ESTIMATE_MS = 90 * 1000;
 const GUARDIAN_SESSION_KEY = 'guardian_session';
@@ -12,6 +12,9 @@ const GUARDIAN_CONFIG_KEY = 'guardian_config';
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
+const settlementIsDurable = typeof isSettlementDurable === 'function'
+  ? isSettlementDurable
+  : (settlement) => !!settlement && settlement.durability !== 'rejected';
 const emitInboundTrace = (...args) => (
   typeof emitTimingInbound === 'function'
     ? emitTimingInbound(...args)
@@ -178,6 +181,17 @@ export async function recover() {
       endAtMs: closeAt,
       modeOverride,
     });
+    if (!settlementIsDurable(settlement)) {
+      return {
+        ok: false,
+        recovered: false,
+        settled: false,
+        reason: 'settlement_not_durable',
+        error: settlement?.error || null,
+        source,
+      };
+    }
+
 
     await saveSession(emptySession(now));
     await emitInboundTrace('timing_inbound_routed', {

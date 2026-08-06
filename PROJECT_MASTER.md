@@ -1,8 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.2**
-- **阶段：V1-minimal release candidate planning（V0 baseline frozen）**
+- **版本：1.7.22**
+- **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
+- **当前发布状态（2026-08-06）**：Product Owner 已批准提交、推送并向 T.xia / P.xia 内部自托管通道部署 `1.7.22`；P0 存储与网页落账修复的 24 小时生产观察作为发布后验收，不作为本次内部测试发布的前置阻塞。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

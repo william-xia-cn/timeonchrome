@@ -49,6 +49,9 @@ const logs = loadProdModule('infra/client-logs.js', [
   'updateClientLogConfig',
   'clearClientLogs',
   'getPendingClientLogsForUpload',
+  'markClientLogUploadFailed',
+  'markClientLogsUploaded',
+  'pruneClientLogsForStoragePressure',
   'shouldUploadClientLog',
 ]);
 
@@ -162,6 +165,41 @@ async function testRetentionMaxEntries() {
   check('oldest pruned entry absent', !result.logs.some((log) => log.eventCode === 'retention_1'));
 }
 
+async function testUploadFailureUsesShortErrorCode() {
+  mockLocal.reset();
+  await mockLocal.set({
+    client_logs_v1: [{ id: 'log-1', uploadStatus: 'pending', uploadAttempts: 0 }],
+  });
+  await logs.markClientLogUploadFailed(['log-1'], '<html>503 Service Unavailable</html>'.repeat(1000));
+  const stored = (await mockLocal.get('client_logs_v1')).client_logs_v1[0];
+  check('client log upload failure stores short code', stored.lastUploadError === 'http_503', JSON.stringify(stored));
+}
+async function testThreeDaySeverityRetentionAndUploadedRemoval() {
+  mockLocal.reset();
+  const now = Date.now();
+  const payload = 'x'.repeat(30 * 1024);
+  await mockLocal.set({
+    client_logs_v1: [
+      { id: 'error_recent', level: 'error', timestamp: now - 1000, uploadStatus: 'pending', payload },
+      { id: 'error_old', level: 'error', timestamp: now - 2 * 86400000, uploadStatus: 'pending', payload },
+      { id: 'warning_recent', level: 'warning', timestamp: now - 2000, uploadStatus: 'pending', payload },
+      { id: 'warning_old', level: 'warning', timestamp: now - 2 * 86400000, uploadStatus: 'pending', payload },
+      { id: 'info_recent', level: 'info', timestamp: now - 3000, uploadStatus: 'pending', payload },
+      { id: 'info_old', level: 'info', timestamp: now - 2 * 86400000, uploadStatus: 'pending', payload },
+      { id: 'expired_error', level: 'error', timestamp: now - 4 * 86400000, uploadStatus: 'pending', payload },
+      { id: 'uploaded_error', level: 'error', timestamp: now - 500, uploadStatus: 'uploaded', payload },
+    ],
+  });
+  await logs.pruneClientLogsForStoragePressure({ pressure: true, now });
+  const retained = (await mockLocal.get('client_logs_v1')).client_logs_v1.map((log) => log.id);
+  check('logs older than three days are discarded', !retained.includes('expired_error'));
+  check('uploaded logs are discarded locally', !retained.includes('uploaded_error'));
+  check('severity-first pressure retention keeps errors and warnings before info', retained.includes('error_recent') && retained.includes('error_old') && retained.includes('warning_recent') && retained.includes('warning_old') && !retained.includes('info_old'), JSON.stringify(retained));
+
+  await logs.markClientLogsUploaded(['error_recent']);
+  const afterUpload = (await mockLocal.get('client_logs_v1')).client_logs_v1;
+  check('successful upload removes local log immediately', !afterUpload.some((log) => log.id === 'error_recent'));
+}
 async function testFallbackHelper() {
   mockLocal.reset();
   await logs.logFallbackEventBestEffort({
@@ -230,6 +268,8 @@ function testStaticWiring() {
   await testBoundIdentityAndRedaction();
   await testUploadPolicyAndTtl();
   await testRetentionMaxEntries();
+  await testUploadFailureUsesShortErrorCode();
+  await testThreeDaySeverityRetentionAndUploadedRemoval();
   await testFallbackHelper();
   await testAuditCategoryAndFilter();
   testStaticWiring();

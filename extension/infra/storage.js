@@ -10,6 +10,13 @@ import {
 } from '../core/site-classification.js';
 import { getPopupModeStatsView, getQuotaUsageView, getTodayUsageView, getUsageRangeView } from '../stats/managed-statistics.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
+import { budgetedLocalSet } from './storage-budget.js';
+
+const protectedStorageSet = (items, callback = null) => typeof budgetedLocalSet === 'function'
+  ? (typeof callback === 'function'
+    ? budgetedLocalSet(items, callback, { priority: 'critical', source: 'protected_storage' })
+    : budgetedLocalSet(items, { priority: 'critical', source: 'protected_storage' }))
+  : chrome.storage.local.set(items, callback);
 
 const STORAGE_VERSION = '1.3';
 export const CONFIG_KEY = 'guardian_config';
@@ -230,7 +237,7 @@ export async function saveConfig(config) {
   sanitized.updatedAt = Date.now();
   const hash = await computeHash(sanitized);
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [CONFIG_KEY]: sanitized, [HASH_KEY]: hash }, resolve);
+    protectedStorageSet({ [CONFIG_KEY]: sanitized, [HASH_KEY]: hash }, resolve);
   });
 }
 
@@ -247,7 +254,7 @@ export async function getSession() {
 
 export async function saveSession(session) {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [SESSION_KEY]: session }, resolve);
+    protectedStorageSet({ [SESSION_KEY]: session }, resolve);
   });
 }
 
@@ -389,7 +396,7 @@ async function setSiteClassificationRequestRecords(records) {
     .map(normalizeSiteClassificationRequest)
     .filter(Boolean)
     .sort((a, b) => Number(b.requestedAt || b.createdAt || 0) - Number(a.requestedAt || a.createdAt || 0));
-  await chrome.storage.local.set({ [SITE_CLASSIFICATION_REQUESTS_KEY]: normalized });
+  await protectedStorageSet({ [SITE_CLASSIFICATION_REQUESTS_KEY]: normalized });
   return normalized;
 }
 
@@ -781,7 +788,7 @@ export async function addDomainTime(domain, seconds) {
     chrome.storage.local.get(key, (result) => {
       const stats = result[key] || {};
       stats[domain] = (stats[domain] || 0) + seconds;
-      chrome.storage.local.set({ [key]: stats }, resolve);
+      protectedStorageSet({ [key]: stats }, resolve);
     });
   });
 }
@@ -793,7 +800,7 @@ export async function addUndeterminedTime(domain, seconds) {
     chrome.storage.local.get(key, (result) => {
       const stats = result[key] || {};
       stats[domain] = (stats[domain] || 0) + seconds;
-      chrome.storage.local.set({ [key]: stats }, resolve);
+      protectedStorageSet({ [key]: stats }, resolve);
     });
   });
 }
@@ -816,7 +823,7 @@ export async function addVisitSession(session) {
     chrome.storage.local.get(VISIT_SESSIONS_KEY, (result) => {
       const sessions = result[VISIT_SESSIONS_KEY] || [];
       sessions.push(session);
-      chrome.storage.local.set({ [VISIT_SESSIONS_KEY]: sessions }, resolve);
+      protectedStorageSet({ [VISIT_SESSIONS_KEY]: sessions }, resolve);
     });
   });
 }
@@ -865,7 +872,7 @@ export async function cleanOldSessions() {
           filtered[date] = data;
         }
       }
-      chrome.storage.local.set({ [SESSIONS_KEY]: filtered }, resolve);
+      protectedStorageSet({ [SESSIONS_KEY]: filtered }, resolve);
     });
   });
 }
@@ -883,7 +890,7 @@ export async function resetDailyLockedDomains(force = false) {
   }
 
   await new Promise(resolve =>
-    chrome.storage.local.set({ [LAST_RESET_DATE_KEY]: today }, resolve)
+    protectedStorageSet({ [LAST_RESET_DATE_KEY]: today }, resolve)
   );
 
   const config = await getConfig();

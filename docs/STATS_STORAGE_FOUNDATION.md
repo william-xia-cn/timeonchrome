@@ -106,7 +106,7 @@ D-045 实施后，`targetClassificationAtTime` / `quotaBucketAtTime` 属于 segm
 |------|---|------|------|--------|
 | `session_v1` | `session_v1` | 当前状态（state、domain、startTime、lastHeartbeat）| 仅当前 | 可变；`lastHeartbeat` 仅兼容保留，不作为新增计时事实 |
 | `event_log_v1` | `event_log_v1` | 短期恢复/调试追踪（START/END 事件）| 24 小时 | Append-only，压缩时删除旧数据 |
-| **`usage_segments_v1`** | **`usage_segments_v1`** | **持久化已结算逐段账本（核心事实源）** | **365 天** | **Append-only，永远不删除** |
+| **`usage_segments_v1`** | **`usage_segments_v1`** | **完整已结算逐段账本（首选事实源）** | 正常 30 天本地副本；云端长期保存 | Append-only；仅在硬压力且 compacted fact 已确认后允许降级删除 |
 | `daily_usage_stats_v1` | `daily_usage_stats_v1` | 从 segments 构建的物化每日聚合 | **365 天** | 从 segments 重建，可替换 |
 | `hourly_usage_stats_v1` | `hourly_usage_stats_v1` | 从 segments 构建的物化小时聚合 | **365 天** | 从 segments 重建，可替换 |
 | `segment_sync_outbox_v1` | `segment_sync_outbox_v1` | 逐段上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
@@ -121,6 +121,13 @@ D-045 实施后，`targetClassificationAtTime` / `quotaBucketAtTime` 属于 segm
 | `timing_checkpoint_health_v1` | `timing_checkpoint_health_v1` | 最近一次 checkpoint 健康摘要：foreground/media 运行结果、session/segment 前后计数、mode boundary 队列状态、ledger gap 状态 | 最近一次 | 可替换诊断快照 |
 | `client_logs_v1` | `client_logs_v1` | 长期运行诊断摘要，记录 checkpoint、ledger gap、mode transition、storage 等 warning/error | 默认 7 天 / 1000 条 | 诊断日志；不得影响业务链路 |
 
+### 3.0.1 1.7.22 网页账务持久性优先级
+
+前台 ACTIVE 网页账务采用 journal-first：session 边界必须先形成完整 segment，或先写入 `usage_settlement_journal_v1`，之后才允许推进。journal entry 使用单一 storage key 保存旧 session、待结算输入与下一 session hint；segment、聚合、outbox 全部读回一致后才删除。Service Worker 在任意写入步骤终止时，后续启动/checkpoint/同步必须幂等重放 journal。
+
+`usage_settlement_journal_v1` 上限 48 KB，属于 64 KB 紧急预留的一部分。极端空间下，最旧未上传网页 segment 可降级为 `usage_compacted_facts_v1`，仅保留日期、小时、mode、channel、秒数和时间范围，不保存域名、URL、标题或文本。该事实不是网站 domain，不进入网站分类；本地日/小时/配额总数必须显式合并它。Phase A 不通过现有 domain stats 接口伪装上传，专用云端协议延后到 1.7.23。
+
+存储协调必须覆盖完整 read-modify-write；优先级依次为：网页 journal/segment/session、网页上传确认与修复、保护配置、媒体账本、同步/物化数据、日志/诊断。维护不得使用对其他并发任务可见的全局 bypass。
 ### 3.1 结算路径（Settlement Path）
 
 ```

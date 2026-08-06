@@ -2,10 +2,14 @@
 // Uses chrome.storage.local key __timingTrace for Playwright retrieval.
 // Does NOT affect business logic; all emitTrace calls are fire-and-forget.
 import { sanitizeIncognitoForPersistence } from './incognito-persistence.js';
+import { budgetedLocalSet } from '../infra/storage-budget.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
   : (value) => value;
+const traceStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'timing_trace' })
+  : chrome.storage.local.set(items);
 
 const TRACE_KEY = '__timingTrace';
 const MAX_TRACE_ENTRIES = 1000;
@@ -106,7 +110,7 @@ export async function emitTrace(action, fields = {}) {
     if (trace.length > MAX_TRACE_ENTRIES) {
       trace.splice(0, trace.length - MAX_TRACE_ENTRIES);
     }
-    await chrome.storage.local.set({ [TRACE_KEY]: trace });
+    await traceStorageSet({ [TRACE_KEY]: trace });
   } catch {
     // storage unavailable — silently skip (non-blocking, test-only)
   }
@@ -130,7 +134,7 @@ export async function getTrace() {
  */
 export async function clearTrace() {
   try {
-    await chrome.storage.local.set({ [TRACE_KEY]: [] });
+    await traceStorageSet({ [TRACE_KEY]: [] });
   } catch {
     // ignore
   }

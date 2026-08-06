@@ -43,6 +43,7 @@ function loadStorageMatchDomain(deps) {
     .replace(/import\s+\{[\s\S]*?\}\s+from\s+'\.\.\/core\/site-classification\.js';/, 'const resolveSiteAccessClassification = () => ({ classification: null }); const getSiteClassificationForUrl = () => ({ classification: null }); const normalizeSiteClassificationRequest = (record) => record; const normalizeSiteClassificationTarget = () => ({ ok: false }); const siteDecisionMatchesUrl = () => false;')
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/stats\/managed-statistics\.js';/, 'const getPopupModeStatsView = async () => ({}); const getQuotaUsageView = async () => ({}); const getTodayUsageView = async () => ({}); const getUsageRangeView = async () => ({});')
     .replace(/import\s+\{[^}]*\}\s+from\s+'\.\.\/core\/timing-trace\.js';/, 'const emitTrace = async () => {};')
+    .replace(/import\s+\{[^}]*budgetedLocalSet[^}]*\}\s+from\s+'\.\/storage-budget\.js';/, 'const budgetedLocalSet = async (items) => chrome.storage.local.set(items);')
     .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+const\s+/g, 'const ')
     .replace(/export\s+async\s+function\s+/g, 'async function ')

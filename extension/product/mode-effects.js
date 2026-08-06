@@ -8,6 +8,11 @@ import {
   redirectToReminder,
   sendNoticeForDecision,
 } from './interceptor.js';
+import { budgetedLocalSet } from '../infra/storage-budget.js';
+
+const modeTraceStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'mode_effect_trace' })
+  : chrome.storage.local.set(items);
 
 export const MODE_EFFECT_TRACE_KEY = 'mode_effect_trace_v1';
 const MODE_EFFECT_TRACE_LIMIT = 50;

@@ -3,15 +3,25 @@
 import { appendEvent, EVENT_TYPE } from '../core/event-log.js';
 import { emitTimingInbound, emitTrace } from '../core/timing-trace.js';
 import { getReliableCloseTime } from './time-boundary.js';
-import { isCountedState, settleUsageDuration } from '../core/usage-segments.js';
+import { clearUsageSettlementJournal, isCountedState, persistUsageSettlementJournal, settleUsageDuration } from '../core/usage-segments.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
 import * as managedTargets from '../core/managed-targets.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
+import { budgetedLocalSet } from '../infra/storage-budget.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
   : (value) => value;
+const sessionStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'foreground', source: 'runtime_session' })
+  : chrome.storage.local.set(items);
+const sessionDiagnosticStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'foreground_diagnostics' })
+  : chrome.storage.local.set(items);
+const sessionDerivedStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'derived', source: 'session_derived' })
+  : chrome.storage.local.set(items);
 const emitInboundTrace = (...args) => (
   typeof emitTimingInbound === 'function'
     ? emitTimingInbound(...args)
@@ -32,6 +42,13 @@ const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
+const recordClientLog = typeof logClientEventBestEffort === 'function' ? logClientEventBestEffort : () => {};
+const persistSettlementJournal = typeof persistUsageSettlementJournal === 'function'
+  ? persistUsageSettlementJournal
+  : async () => ({ id: 'journal-test-fallback', persisted: true });
+const clearSettlementJournal = typeof clearUsageSettlementJournal === 'function'
+  ? clearUsageSettlementJournal
+  : async () => true;
 const FOREGROUND_CHECKPOINT_MS = 180 * 1000;
 const FOREGROUND_CHECKPOINT_REPAIR_MS = Math.floor(FOREGROUND_CHECKPOINT_MS / 2);
 const FOREGROUND_UNKNOWN_DOMAIN = '__unknown__';
@@ -65,7 +82,7 @@ async function recordForegroundDiagnostic(updates = {}) {
         next[key] = value;
       }
     }
-    await chrome.storage.local.set({ [FOREGROUND_DIAGNOSTICS_KEY]: next });
+    await sessionDiagnosticStorageSet({ [FOREGROUND_DIAGNOSTICS_KEY]: next });
   } catch (_) {
     // diagnostics must never block timing
   }
@@ -73,6 +90,12 @@ async function recordForegroundDiagnostic(updates = {}) {
 
 function isForegroundPageSession(session) {
   return session?.state === 'ACTIVE';
+}
+
+export function isSettlementDurable(settlement) {
+  if (!settlement || settlement.durability === 'rejected') return false;
+  if (settlement.error && settlement.durability !== 'journal' && settlement.durability !== 'compacted') return false;
+  return true;
 }
 
 function getBoundedForegroundClose(session, observedAt = Date.now()) {
@@ -173,14 +196,19 @@ export async function getSession() {
 }
 
 export async function getSessionWithPersistenceSource() {
-  const data = await chrome.storage.session.get(SESSION_KEY);
-  if (data[SESSION_KEY]) return { session: data[SESSION_KEY], source: 'session' };
-
-  const persistent = await chrome.storage.local.get(PERSISTENT_SESSION_KEY);
-  return {
-    session: persistent[PERSISTENT_SESSION_KEY] || null,
-    source: persistent[PERSISTENT_SESSION_KEY] ? 'persistent' : 'none',
-  };
+  const [sessionData, persistentData] = await Promise.all([
+    chrome.storage.session.get(SESSION_KEY),
+    chrome.storage.local.get(PERSISTENT_SESSION_KEY),
+  ]);
+  const volatileSession = sessionData[SESSION_KEY] || null;
+  const persistentSession = persistentData[PERSISTENT_SESSION_KEY] || null;
+  if (!volatileSession && !persistentSession) return { session: null, source: 'none' };
+  if (!volatileSession) return { session: persistentSession, source: 'persistent' };
+  if (!persistentSession) return { session: volatileSession, source: 'session' };
+  const freshness = (value) => Math.max(Number(value?.lastHeartbeat || 0), Number(value?.startTime || 0));
+  return freshness(persistentSession) > freshness(volatileSession)
+    ? { session: persistentSession, source: 'persistent' }
+    : { session: volatileSession, source: 'session' };
 }
 
 /**
@@ -188,8 +216,10 @@ export async function getSessionWithPersistenceSource() {
  * @param {SessionState} session
  */
 export async function saveSession(session) {
+  // Persistent state is the recovery source of truth. Never expose a newer volatile
+  // session unless the local durable copy has already succeeded.
+  await sessionStorageSet({ [PERSISTENT_SESSION_KEY]: session });
   await chrome.storage.session.set({ [SESSION_KEY]: session });
-  await chrome.storage.local.set({ [PERSISTENT_SESSION_KEY]: session });
 }
 
 /**
@@ -690,12 +720,15 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
           : (reason === 'classification_effective_boundary'
             ? 'classification_effective_boundary'
             : (closeDomainMismatch ? 'event_close_domain_mismatch_close' : (stale ? 'transition_stale_close' : 'transition_complete')));
-        await settleCurrentSessionSegment(session, closeTime, settlementReason, {
+        const settlement = await settleCurrentSessionSegment(session, closeTime, settlementReason, {
           ...settlementResolverOptions(options),
           endReason: reason,
           endAtMs: closeTime,
           allowZeroDurationSegment: true,
         });
+        if (!isSettlementDurable(settlement)) {
+          return { ok: false, reason: 'settlement_not_durable', error: settlement?.error || null };
+        }
         if (closeDomainMismatch) {
           await settleBoundaryDiagnosticSegment({
             domain: closeObservedDomain,
@@ -867,7 +900,10 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
           endOperationSource: 'mode_boundary',
           endAtMs: boundary,
         })
-      : { appended: 0, durationSeconds: 0 };
+      : { appended: 0, durationSeconds: 0, durability: 'full' };
+    if (!isSettlementDurable(settlement)) {
+      return { ok: false, applied: false, reason: 'settlement_not_durable', error: settlement?.error || null };
+    }
 
     if (options.toMode) {
       setCachedEffectiveMode(options.toMode);
@@ -1021,6 +1057,7 @@ export async function resolveSettlementIdentity(timingSession = null, reason = '
  * @param {string} reason - settlement 原因
  */
 export async function settleCurrentSessionSegment(timingSession, closeTimeMs, reason, options = {}) {
+  let journalId = null;
   try {
     const effectiveSession = await resolveUnknownSessionForSettlement(timingSession, reason, options);
     const startMs = timingSession.startTime;
@@ -1056,7 +1093,7 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       ? managedTargetFieldsFrom(effectiveSession, mode)
       : await resolveManagedTargetForOpen(effectiveSession.domain || null, options, mode);
 
-    const appended = await settleUsageDuration({
+    const settlementInput = {
       startMs,
       endMs,
       domain: effectiveSession.domain || null,
@@ -1076,7 +1113,15 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       profileId: identity.profileId,
       deviceId: identity.deviceId,
       allowZeroDurationSegment: !!options.allowZeroDurationSegment,
+    };
+    const journal = await persistSettlementJournal(settlementInput, {
+      oldSession: effectiveSession,
+      nextSessionHint: options.nextSessionHint || null,
     });
+    journalId = journal.id;
+    const appended = await settleUsageDuration(settlementInput);
+    await clearSettlementJournal(journalId);
+    journalId = null;
     if (effectiveSession.state === 'ACTIVE' && capped) {
       await recordForegroundDiagnostic({
         foregroundTailCapped: 1,
@@ -1094,10 +1139,11 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       mode,
       profileIdSource: identity.profileIdSource,
       deviceIdSource: identity.deviceIdSource,
+      durability: 'full',
     };
   } catch (e) {
     console.error('[Settlement] settleCurrentSessionSegment failed:', e?.message || e, { reason, domain: timingSession?.domain, sourceState: timingSession?.state });
-    logClientEventBestEffort({
+    recordClientLog({
       level: 'error',
       category: 'timing',
       eventCode: 'settlement_failed',
@@ -1108,7 +1154,13 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       details: { reason, sourceState: timingSession?.state || null, incognito: timingSession?.incognito === true },
     });
     // 结算失败不破坏现有的管线；后续明确边界或 periodicCheckpoint 可再次推进。
-    return { appended: 0, durationSeconds: 0, error: e?.message || String(e) };
+    return {
+      appended: 0,
+      durationSeconds: 0,
+      error: e?.message || String(e),
+      durability: journalId ? 'journal' : 'rejected',
+      journalId,
+    };
   }
 }
 
@@ -1381,6 +1433,15 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
       endReason: options.endReason || reason,
       endAtMs: closeTime,
     });
+    if (!isSettlementDurable(settlement)) {
+      return {
+        ok: false,
+        flushed: false,
+        reason: 'settlement_not_durable',
+        error: settlement?.error || null,
+        settlement,
+      };
+    }
     const reopenedDomain = settlement?.domain || session.domain;
     const reopenTime = Number.isFinite(options.reopenTime) ? options.reopenTime : now;
     const startEvent = {
@@ -1420,7 +1481,7 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
 
     if (reason === 'ui_flush') {
       try {
-        await chrome.storage.local.set(sanitizePersistence({
+        await sessionDerivedStorageSet(sanitizePersistence({
           [UI_FLUSH_GUARD_KEY]: {
             state: session.state || null,
             domain: reopenedDomain || null,
@@ -1543,6 +1604,9 @@ export async function closeCurrentSession(reason = 'close', options = {}) {
         endAtMs: closeTime,
         allowZeroDurationSegment: true,
       });
+      if (!isSettlementDurable(settlement)) {
+        return { ok: false, closed: false, reason: 'settlement_not_durable', error: settlement?.error || null, settlement };
+      }
       if (closeDomainMismatch) {
         await settleBoundaryDiagnosticSegment({
           domain: closeObservedDomain,
@@ -1812,6 +1876,9 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           endAtMs: closeTime,
           resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
         });
+        if (!isSettlementDurable(settlement)) {
+          return { ok: false, checkpointed: false, repaired: false, reason: 'settlement_not_durable', error: settlement?.error || null };
+        }
         const nextSample = mismatchCheckpointActiveSample(confirmation);
         const openAt = nextSample ? checkpointEstimatedOpenTime(now) : null;
         if (nextSample) {
@@ -1913,7 +1980,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           state: session.state,
           domain: session.domain,
         });
-        logClientEventBestEffort({
+        recordClientLog({
           level: 'warning',
           category: 'timing',
           eventCode: 'foreground_checkpoint_settlement_failed',
@@ -1971,7 +2038,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         state: session.state,
         domain: session.domain,
       });
-      logClientEventBestEffort({
+      recordClientLog({
         level: 'warning',
         category: 'timing',
         eventCode: 'periodic_checkpoint_settlement_failed',

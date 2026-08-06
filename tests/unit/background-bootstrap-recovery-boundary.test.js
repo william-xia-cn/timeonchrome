@@ -33,9 +33,12 @@ const onInstalledBody = onInstalledIndex >= 0 && nextSectionIndex > onInstalledI
 check('module bootstrap initializes session', /await initSession\(\)/.test(bootstrapBody));
 check('module bootstrap hydrates cloud sync state without waiting for alarm', /await hydrateCloudSyncStateFromStorage\(\)/.test(bootstrapBody));
 check('module bootstrap does not call recover', !/recover\(\)/.test(bootstrapBody));
+check('ordinary module bootstrap does not close media sessions', !/recoverMediaSessionsOnLifecycle/.test(bootstrapBody));
+check('onStartup maintains storage before media and page recovery', onStartupBody.indexOf('runV1StorageMaintenance') >= 0 && onStartupBody.indexOf('runV1StorageMaintenance') < onStartupBody.indexOf('recoverMediaSessionsOnLifecycle') && onStartupBody.indexOf('recoverMediaSessionsOnLifecycle') < onStartupBody.indexOf('await recover()'));
+check('onInstalled update maintains storage and recovers media before page recovery', onInstalledBody.includes("details.reason === 'update'") && onInstalledBody.indexOf('runV1StorageMaintenance') < onInstalledBody.indexOf('recoverMediaSessionsOnLifecycle') && onInstalledBody.indexOf('recoverMediaSessionsOnLifecycle') < onInstalledBody.indexOf('await recover()'));
 check('module bootstrap primes foreground timing from current active tab after activation',
   /function bootstrapActiveTabTiming/.test(source) &&
-  /ensureBootstrapped\('module-load'\)[\s\S]{0,320}if \(!activation\.activated\)[\s\S]{0,180}bootstrapActiveTabTiming\('bootstrap_active_tab'\)/.test(source));
+  /ensureBootstrapped\('module-load'\)[\s\S]{0,320}if \(!activation\.activated\)[\s\S]{0,520}reconcileUsageLedger\(\)[\s\S]{0,160}drainUsageSettlementJournal\(\)[\s\S]{0,160}bootstrapActiveTabTiming\('bootstrap_active_tab'\)/.test(source));
 check('active tab timing bootstrap only uses http tabs and dispatcher', /parsed\.protocol !== 'http:'[\s\S]{0,80}parsed\.protocol !== 'https:'/.test(source) && /dispatchTimingSignal\(\{[\s\S]*_reason: reason/.test(source));
 check('runtime messages wait for bootstrap before routing', /ensureBootstrapped\('runtimeMessage'\)[\s\S]{0,120}\.then\(\(\) => handleMessage\(msg, sender\)\)/.test(source));
 check('runtime message failures are logged without blocking response', source.includes('runtime_message_failed') && source.includes('logClientEventBestEffort'));

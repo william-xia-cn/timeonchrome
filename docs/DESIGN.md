@@ -730,6 +730,23 @@ pullCloudConfig():
 // 配置修改仅通过家长控制台 → PUT /profiles/:id/config
 ```
 
+#### 3.5.1 V1 本地存储压力、分批上传与生命周期恢复
+
+`usage_segments_v1` 是本地事实账本，但本地同时承担离线缓冲职责，不能把云端长期保留等同于终端无限保留。终端同步和维护必须满足以下约束：
+
+- 普通 usage segment 上传、今日日期快照和历史补传统一按最多 200 条顺序分批；每批远端幂等接受后立即清除对应 outbox，首批失败后停止本轮后续批次。
+- outbox `lastErrors` 只保存稳定短错误码，不保存 HTTP HTML、响应正文或按 segment 复制的长错误文本；升级维护必须原地压缩历史 retry/error 元数据，不删除 pending segment。
+- `chrome.storage.local` 使用三段安全线：7 MB 进入压力维护并清理到 6.5 MB；8 MB 是应用硬阈值；预算控制必须为紧急状态和损失审计预留至少 64 KB。所有可能增长的持久化写入必须在写入前串行计算替换后的预计用量，禁止先突破硬阈值再补救。
+- 压力维护依次压缩 outbox，清理客户端日志、trace、纯诊断数据、旧兼容数据和已上传云端副本。客户端日志最多保留 3 天；保留优先级按 `error > warning > info`，同级按最近 1 天优先于 1-3 天；上传成功后立即移除本地副本。
+- 普通 usage 默认保留 30 天、压力状态保留 7 天；媒体原始分段压力状态保留 7 天；daily/hourly/target 聚合保留 365 天。长期事实以云端 D1 为准，本地原始分段承担近期诊断和离线缓冲。
+- 前台 ACTIVE 账务采用 journal-first：完整 segment 或 `usage_settlement_journal_v1` 至少一项持久化成功后，session 边界才能推进；storage coordinator 必须串行完整 read-modify-write，禁止 maintenance 全局 bypass。
+- 未上传 segment 在普通压力维护中受保护；若写入预计达到 8 MB，完整紧急维护仍无法降到安全目标，则先删除最旧未上传媒体 segment，最后才删除最旧未上传网页 segment。删除网页原始分段前必须保留并标脏对应日/小时/目标聚合，同步清理 index/outbox，并写入不含域名、URL、标题或正文的 `storage_emergency_loss_v1`。该审计键固定小于 8 KB、最多 20 条，禁止静默丢失。
+- 配置、身份、token、隐私同意、当前模式、当前会话、时间窗口、访问规则、人工网站请求及批准/拒绝结果属于保护数据，任何压力等级都不得删除。若清空所有允许淘汰的数据后仍不能容纳新写入，预算门必须拒绝写入并保持总量不超过 8 MB。
+- 503、fetch failure 和 request abort 使用跨同步退避，最长 30 分钟；成功后清除退避。维护日志需要冷却，避免维护本身成为新的存储压力来源。
+- 存储诊断只允许记录 key 字节数、对象数量、pending 数量和维护结果，不记录域名、标题、URL、页面文本或响应正文。
+
+扩展 lifecycle boundary 必须同时处理网页和媒体 open session。`onInstalled(update)` / `onStartup` 在模式边界和云同步前恢复 `media_sessions_v2`：最近媒体证据仍新鲜时可结算到当前时间；陈旧 session 最多结算到 `lastObservedAt + 90 秒`，缺少该字段时最多结算到 `startTime + 90 秒`，随后清空 open/legacy media session，等待新的 content evidence 重新开启。不得让升级前 session 被后续 `mode_effective_boundary` 结算为数小时媒体账。
+
 ### 3.6 配置修改流程
 
 ```

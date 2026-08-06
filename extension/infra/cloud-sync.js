@@ -30,6 +30,7 @@ import {
   markHourlyStatsUploadFailed,
   markTargetStatsUploadFailed,
   markHourlyTargetStatsUploadFailed,
+  normalizeUploadErrorCode,
 } from '../core/usage-segments.js';
 import {
   getPendingMediaSegments, getPendingDailyMediaStats,
@@ -50,6 +51,12 @@ import {
 } from './client-logs.js';
 import { resolveActivationState } from '../core/activation-gate.js';
 import { runV1StorageMaintenance } from './storage-maintenance.js';
+import { drainUsageSettlementJournal, reconcileUsageLedger } from '../core/usage-segments.js';
+import { budgetedLocalSet } from './storage-budget.js';
+
+const cloudStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'sync', source: 'cloud_sync' })
+  : chrome.storage.local.set(items);
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -96,11 +103,14 @@ const CLOUD_CONFIG = {
     V1_LAST_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_media_stats_upload_at',
     V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_hourly_media_stats_upload_at',
     V1_LAST_SITE_REQUEST_SYNC_AT: 'cloud_v1_last_site_request_sync_at',
-    V1_LAST_CLIENT_LOG_UPLOAD_AT: 'cloud_v1_last_client_log_upload_at'
+    V1_LAST_CLIENT_LOG_UPLOAD_AT: 'cloud_v1_last_client_log_upload_at',
+    USAGE_UPLOAD_BACKOFF: 'cloud_usage_upload_backoff_v1'
   }
 };
 
 const DEVICE_RECOVERY_RETRY_MS = 5 * 60 * 1000;
+const MAX_USAGE_SEGMENTS_PER_BATCH = 200;
+const USAGE_UPLOAD_BACKOFF_STEPS_MS = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
 const DEVICE_IDENTITY_LINK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 let syncState = {
@@ -207,7 +217,7 @@ async function getChromeProfileIdentity() {
 }
 
 async function writeChromeIdentityStatus(status = {}) {
-  await chrome.storage.local.set({
+  await cloudStorageSet({
     [CLOUD_CONFIG.KEYS.CHROME_IDENTITY_STATUS]: {
       ...status,
       platform: getClientPlatform(),
@@ -251,7 +261,7 @@ async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
   });
 
   syncState.deviceToken = managedDeviceToken;
-  await chrome.storage.local.set({
+  await cloudStorageSet({
     [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: managedDeviceToken,
   });
 
@@ -285,7 +295,7 @@ async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
       return { ok: false, terminal: true, reason: 'device_unbound' };
     }
     syncState.deviceToken = null;
-    await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null }).catch(() => {});
+    await cloudStorageSet({ [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null }).catch(() => {});
     await saveRecoveryState({
       status: 'managed_device_token_failed',
       source: 'managed_device_token',
@@ -370,7 +380,7 @@ async function updateCloudConnectionState(patch) {
   try {
     const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.CONNECTION_STATE);
     const previous = storage?.[CLOUD_CONFIG.KEYS.CONNECTION_STATE] || {};
-    await chrome.storage.local.set({
+    await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.CONNECTION_STATE]: {
         ...previous,
         ...patch,
@@ -431,7 +441,7 @@ async function clearCloudBindingState(reason = 'device_unbound') {
   syncState.deviceToken = null;
   syncState.deviceId = null;
   syncState.profileId = null;
-  await chrome.storage.local.set({
+  await cloudStorageSet({
     [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null,
     [CLOUD_CONFIG.KEYS.DEVICE_ID]: null,
     [CLOUD_CONFIG.KEYS.PROFILE_ID]: null,
@@ -485,7 +495,7 @@ async function saveAccountSession({ token, refreshToken, email }) {
   if (refreshToken) updates[CLOUD_CONFIG.KEYS.ACCOUNT_REFRESH_TOKEN] = refreshToken;
   if (email) updates[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL] = String(email).trim().toLowerCase();
   updates[CLOUD_CONFIG.KEYS.CREDENTIALS] = null;
-  await chrome.storage.local.set(updates);
+  await cloudStorageSet(updates);
   return token || null;
 }
 
@@ -597,7 +607,7 @@ async function hydrateDeviceIdFromBindIfMissing() {
     }
 
     syncState.deviceId = maybeDeviceId;
-    await chrome.storage.local.set({
+    await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.DEVICE_ID]: maybeDeviceId,
     });
     console.log('[Cloud] Hydrated cloud_device_id via bind fallback');
@@ -636,7 +646,7 @@ export async function hydrateCloudSyncStateFromStorage() {
   statsFoundationV1SyncEnabled = typeof v1Stored === 'boolean' ? v1Stored : true;
   syncState.v1SyncEnabled = statsFoundationV1SyncEnabled;
   if (typeof v1Stored !== 'boolean') {
-    await chrome.storage.local.set({
+    await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED]: statsFoundationV1SyncEnabled,
     }).catch(() => {});
   }
@@ -917,7 +927,7 @@ async function linkChromeIdentityIfPossible({ force = false } = {}) {
     return { ok: false, skipped: true, reason: identity.reason };
   }
   const result = await cloudRequest('POST', '/device/identity-link', buildDeviceIdentityPayload(identity), 1);
-  await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT]: Date.now() }).catch(() => {});
+  await cloudStorageSet({ [CLOUD_CONFIG.KEYS.IDENTITY_LINK_LAST_AT]: Date.now() }).catch(() => {});
   await writeChromeIdentityStatus({ available: true, linked: result?.identityLinked !== false, reason: null });
   logDeviceRecoveryEvent('info', 'device_recovery_identity_linked', 'Chrome profile identity linked for device recovery', {
     linked: result?.identityLinked !== false,
@@ -928,7 +938,7 @@ async function linkChromeIdentityIfPossible({ force = false } = {}) {
 async function saveRecoveryState(patch = {}) {
   const storage = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.RECOVERY_STATE).catch(() => ({}));
   const previous = storage?.[CLOUD_CONFIG.KEYS.RECOVERY_STATE] || {};
-  await chrome.storage.local.set({
+  await cloudStorageSet({
     [CLOUD_CONFIG.KEYS.RECOVERY_STATE]: {
       ...previous,
       ...patch,
@@ -952,7 +962,7 @@ async function persistRecoveredBinding(payload, source = 'device_recovery') {
   if (payload.account_email || payload.accountEmail) {
     updates[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL] = String(payload.account_email || payload.accountEmail).trim().toLowerCase();
   }
-  await chrome.storage.local.set(updates);
+  await cloudStorageSet(updates);
   syncState.deviceToken = updates[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
   syncState.deviceId = updates[CLOUD_CONFIG.KEYS.DEVICE_ID];
   syncState.profileId = updates[CLOUD_CONFIG.KEYS.PROFILE_ID];
@@ -984,7 +994,7 @@ function isTerminalDeviceRecoveryStatus(status) {
 }
 
 async function clearPendingDeviceRecoveryState(status, message = null) {
-  await chrome.storage.local.set({
+  await cloudStorageSet({
     [CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID]: null,
     [CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN]: null,
   }).catch(() => {});
@@ -1099,7 +1109,7 @@ async function tryRecoverCloudBindingIfMissing(reason = 'sync') {
       return { ok: true, recovered: true };
     }
     if (result?.status === 'PENDING_CLOUD_CONFIRMATION') {
-      await chrome.storage.local.set({
+      await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.RECOVERY_REQUEST_ID]: result.recoveryRequestId || null,
         [CLOUD_CONFIG.KEYS.RECOVERY_POLL_TOKEN]: result.recoveryPollToken || null,
       }).catch(() => {});
@@ -1238,7 +1248,7 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     if (result.account_email || result.accountEmail) {
       syncMetadata[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL] = String(result.account_email || result.accountEmail).trim().toLowerCase();
     }
-    await chrome.storage.local.set(syncMetadata);
+    await cloudStorageSet(syncMetadata);
     syncState.monitoringEnabled = monitoringEnabled;
     if (maybeProfileId) syncState.profileId = maybeProfileId;
     if (maybeDeviceId) syncState.deviceId = maybeDeviceId;
@@ -1252,11 +1262,11 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
         if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(localRuntime.config);
       }
       console.log('[Cloud] Config up to date, skip pull (local:', syncState.lastConfigVersion, 'cloud:', cloudVersion, ')');
-      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now() });
       return { status: 'skipped', version: cloudVersion, error: null };
     }
 
-    await chrome.storage.local.set({
+    await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.LOCAL_CONFIG]: result.data,
       [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: cloudVersion,
       [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now()
@@ -1394,7 +1404,7 @@ export async function uploadStats() {
       }
     }
 
-    await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.PENDING_STATS]: pendingStats });
+    await cloudStorageSet({ [CLOUD_CONFIG.KEYS.PENDING_STATS]: pendingStats });
     return { uploaded, failed, skipped: false };
   } catch (e) {
     console.error('[Cloud] Failed to upload stats:', e.message);
@@ -1467,6 +1477,8 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
   try {
     try {
       await runV1StorageMaintenance({ reason: 'cloud_sync_preflight' });
+      await reconcileUsageLedger();
+      await drainUsageSettlementJournal();
     } catch (maintenanceError) {
       console.warn('[Cloud] Storage maintenance preflight failed:', maintenanceError?.message || maintenanceError);
     }
@@ -1528,7 +1540,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
         });
         statsUploaded = !v1Result.hadFailure;
         if (v1Result.hadFailure) {
-          await chrome.storage.local.set({
+          await cloudStorageSet({
             [CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR]: (v1Result.errors || []).join('; ') || 'v1 sync failed',
           }).catch(() => {});
           errors.push(...(v1Result.errors || ['stats_v1: unknown failure']).map((e) => `stats_v1: ${e}`));
@@ -1625,7 +1637,7 @@ let statsFoundationV1SyncEnabled = true;
 export function setStatsFoundationV1SyncEnabled(enabled) {
   statsFoundationV1SyncEnabled = !!enabled;
   syncState.v1SyncEnabled = statsFoundationV1SyncEnabled;
-  chrome.storage.local.set({
+  cloudStorageSet({
     [CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED]: statsFoundationV1SyncEnabled,
   }).catch(() => {});
 }
@@ -1727,8 +1739,7 @@ export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
     }
 
     // 在启用之前限制每个批次的 segment 数量（硬限制：每批 200 个 segments）
-    const MAX_SEGMENTS_PER_BATCH = 200;
-    const batchIds = pending.segments.slice(0, MAX_SEGMENTS_PER_BATCH).map(s => s.id);
+    const batchIds = pending.segments.slice(0, MAX_USAGE_SEGMENTS_PER_BATCH).map(s => s.id);
 
     if (!effectiveEnabled) {
       // Dry-run：报告待处理状态但不发送任何内容
@@ -1765,7 +1776,7 @@ export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
       await cloudRequest('POST', '/device/usage-segments/v1', { segments: payload.segments });
       await markUsageSegmentsUploaded(batchIds);
       uploaded = batchIds.length;
-      await chrome.storage.local.set({
+      await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT]: Date.now(),
       });
       console.log('[Cloud-V1] Usage segments uploaded:', uploaded);
@@ -1905,7 +1916,7 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
         await cloudRequest('POST', '/device/stats/v1', payload);
         await markDailyStatsUploaded([date]);
         uploaded++;
-        await chrome.storage.local.set({
+        await cloudStorageSet({
           [CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT]: Date.now(),
         });
         console.log('[Cloud-V1] Daily stats uploaded:', date, `(${payload.domains.length} domains)`);
@@ -2034,6 +2045,33 @@ async function getEarliestLocalUsageDate(today) {
   return [...dates].sort()[0] || null;
 }
 
+function isRetryableUsageErrorCode(error) {
+  const code = normalizeUploadErrorCode(error);
+  return code === 'http_503' || code === 'http_429' || code === 'fetch_failed'
+    || code === 'request_aborted' || code === 'request_timeout';
+}
+
+async function getUsageUploadBackoff() {
+  const data = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.USAGE_UPLOAD_BACKOFF).catch(() => ({}));
+  return data?.[CLOUD_CONFIG.KEYS.USAGE_UPLOAD_BACKOFF] || { attempt: 0, nextRetryAt: 0, lastError: null };
+}
+
+async function recordUsageUploadBackoff(error) {
+  const code = normalizeUploadErrorCode(error);
+  if (!isRetryableUsageErrorCode(code)) return null;
+  const previous = await getUsageUploadBackoff();
+  const attempt = Math.min(USAGE_UPLOAD_BACKOFF_STEPS_MS.length, Math.max(0, Number(previous.attempt || 0)) + 1);
+  const delayMs = USAGE_UPLOAD_BACKOFF_STEPS_MS[attempt - 1];
+  const value = { attempt, nextRetryAt: Date.now() + delayMs, lastError: code };
+  await cloudStorageSet({ [CLOUD_CONFIG.KEYS.USAGE_UPLOAD_BACKOFF]: value }).catch(() => {});
+  return value;
+}
+
+async function clearUsageUploadBackoff() {
+  await cloudStorageSet({
+    [CLOUD_CONFIG.KEYS.USAGE_UPLOAD_BACKOFF]: { attempt: 0, nextRetryAt: 0, lastError: null },
+  }).catch(() => {});
+}
 async function buildUsageDateUploadPackage(date) {
   const segments = await getUsageSegmentsByDate(date).catch((error) => {
     logClientEventBestEffort({
@@ -2047,6 +2085,10 @@ async function buildUsageDateUploadPackage(date) {
     return [];
   });
   const segmentIds = (segments || []).map((segment) => segment?.id).filter(Boolean);
+  const pendingSegmentIds = (segments || [])
+    .filter((segment) => !Number(segment?.uploadedAt || 0))
+    .map((segment) => segment?.id)
+    .filter(Boolean);
   const segmentSeconds = sumSegmentSeconds(segments);
   const dailyPayload = await buildDailyStatsUploadPayload(date);
   const targetPayload = await buildTargetStatsUploadPayload(date);
@@ -2074,6 +2116,7 @@ async function buildUsageDateUploadPackage(date) {
     date,
     segments,
     segmentIds,
+    pendingSegmentIds,
     dailyPayload,
     targetPayload,
     hourKeys,
@@ -2247,7 +2290,7 @@ export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted
         await cloudRequest('POST', '/device/hourly-stats/v1', payload);
         await markHourlyStatsUploaded([hourKey]);
         uploaded++;
-        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT]: Date.now() });
+        await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markHourlyStatsUploadFailed([hourKey], e.message);
         failed++;
@@ -2354,7 +2397,7 @@ export async function uploadTargetStatsV1({ enabled = false, forceRetryExhausted
         await cloudRequest('POST', '/device/target-stats/v1', payload);
         await markTargetStatsUploaded([date]);
         uploaded++;
-        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT]: Date.now() });
+        await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markTargetStatsUploadFailed([date], e.message);
         failed++;
@@ -2445,7 +2488,7 @@ export async function uploadHourlyTargetStatsV1({ enabled = false, forceRetryExh
         await cloudRequest('POST', '/device/hourly-target-stats/v1', payload);
         await markHourlyTargetStatsUploaded([hourKey]);
         uploaded++;
-        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT]: Date.now() });
+        await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markHourlyTargetStatsUploadFailed([hourKey], e.message);
         failed++;
@@ -2491,17 +2534,18 @@ async function markUsageDateMaterializationError(pkg, part, message) {
   });
 }
 
-async function uploadUsageDatePackageParts(pkg, { enabled = false } = {}) {
+async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRepair = false } = {}) {
   const result = makeUsageDateSyncResult({ dryRun: !enabled });
   const partErrors = new Map((pkg.errors || []).map((item) => [item.part, item.message]));
+  const segmentIds = fullSegmentRepair ? pkg.segmentIds : (pkg.pendingSegmentIds || pkg.segmentIds);
 
   if (!enabled) {
     result.skipped = true;
-    result.pendingCount = pkg.segmentIds.length + pkg.hourKeys.length;
+    result.pendingCount = segmentIds.length + pkg.hourKeys.length;
     for (const part of ['segments', 'stats', 'hourlyStats', 'targetStats', 'hourlyTargetStats']) {
       result[part].skipped = true;
       result[part].pendingCount = part === 'segments'
-        ? pkg.segmentIds.length
+        ? segmentIds.length
         : (part === 'stats' || part === 'targetStats' ? 1 : pkg.hourKeys.length);
     }
     return result;
@@ -2521,35 +2565,42 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false } = {}) {
     return result;
   }
 
-  if (pkg.segmentIds.length > 0) {
-    try {
-      const payload = await buildUsageSegmentsUploadPayload(pkg.segmentIds);
-      if (payload.segments.length > 0) {
+  if (segmentIds.length > 0) {
+    for (let offset = 0; offset < segmentIds.length; offset += MAX_USAGE_SEGMENTS_PER_BATCH) {
+      const batchIds = segmentIds.slice(offset, offset + MAX_USAGE_SEGMENTS_PER_BATCH);
+      try {
+        const payload = await buildUsageSegmentsUploadPayload(batchIds);
+        if (payload.segments.length === 0) continue;
         await cloudRequest('POST', '/device/usage-segments/v1', { segments: payload.segments });
-        await markUsageSegmentsUploaded(pkg.segmentIds);
-        result.segments.uploaded += pkg.segmentIds.length;
-        result.uploaded += pkg.segmentIds.length;
-        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT]: Date.now() });
+        await markUsageSegmentsUploaded(batchIds);
+        result.segments.uploaded += batchIds.length;
+        result.uploaded += batchIds.length;
+      } catch (error) {
+        const errorCode = normalizeUploadErrorCode(error);
+        await markUsageSegmentUploadFailed(batchIds, errorCode);
+        result.segments.failed += batchIds.length;
+        result.segments.pendingCount += segmentIds.length - offset;
+        result.segments.errors.push('segments ' + pkg.date + ': ' + errorCode);
+        result.failed += batchIds.length;
+        result.errors.push('segments ' + pkg.date + ': ' + errorCode);
+        logClientEventBestEffort({
+          level: 'error',
+          category: 'cloud',
+          eventCode: 'cloud_usage_segment_upload_failed',
+          module: 'infra/cloud-sync',
+          message: 'Usage segment upload failed: ' + errorCode,
+          details: { date: pkg.date, count: batchIds.length, remaining: segmentIds.length - offset },
+        });
+        break;
       }
-    } catch (error) {
-      await markUsageSegmentUploadFailed(pkg.segmentIds, error.message);
-      result.segments.failed += pkg.segmentIds.length;
-      result.segments.errors.push(`segments ${pkg.date}: ${error.message}`);
-      result.failed += pkg.segmentIds.length;
-      result.errors.push(`segments ${pkg.date}: ${error.message}`);
-      logClientEventBestEffort({
-        level: 'error',
-        category: 'cloud',
-        eventCode: 'cloud_usage_segment_upload_failed',
-        module: 'infra/cloud-sync',
-        message: error?.message || 'Usage segment upload failed',
-        details: { date: pkg.date, count: pkg.segmentIds.length },
-      });
+    }
+    if (result.segments.uploaded > 0) {
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT]: Date.now() });
     }
   } else {
     result.segments.skipped = true;
   }
-
+  if (result.segments.failed > 0) return result;
   if (partErrors.has('stats')) {
     const message = partErrors.get('stats');
     await markUsageDateMaterializationError(pkg, 'stats', message);
@@ -2562,7 +2613,7 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false } = {}) {
       await markDailyStatsUploaded([pkg.date]);
       result.stats.uploaded++;
       result.uploaded++;
-      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT]: Date.now() });
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT]: Date.now() });
     } catch (error) {
       await markDailyStatsUploadFailed([pkg.date], error.message);
       addUploadError(result.stats, `stats ${pkg.date}`, error.message);
@@ -2585,7 +2636,7 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false } = {}) {
       await markTargetStatsUploaded([pkg.date]);
       result.targetStats.uploaded++;
       result.uploaded++;
-      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT]: Date.now() });
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT]: Date.now() });
     } catch (error) {
       await markTargetStatsUploadFailed([pkg.date], error.message);
       addUploadError(result.targetStats, `target stats ${pkg.date}`, error.message);
@@ -2621,7 +2672,7 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false } = {}) {
     if (uploadedHours > 0) {
       result.hourlyStats.uploaded += uploadedHours;
       result.uploaded += uploadedHours;
-      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT]: Date.now() });
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT]: Date.now() });
     } else if (result.hourlyStats.failed === 0) {
       result.hourlyStats.skipped = true;
     }
@@ -2652,7 +2703,7 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false } = {}) {
     if (uploadedHours > 0) {
       result.hourlyTargetStats.uploaded += uploadedHours;
       result.uploaded += uploadedHours;
-      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT]: Date.now() });
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT]: Date.now() });
     } else if (result.hourlyTargetStats.failed === 0) {
       result.hourlyTargetStats.skipped = true;
     }
@@ -2677,11 +2728,11 @@ async function uploadTodayUsageStatsSnapshotV1({ enabled = false } = {}) {
 
   if (effectiveEnabled) {
     if (result.failed > 0 || result.errors.length > 0) {
-      await chrome.storage.local.set({
+      await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_ERROR]: result.errors.join('; ') || 'today usage stats upload failed',
       }).catch(() => {});
     } else if (!result.skipped) {
-      await chrome.storage.local.set({
+      await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_UPLOAD_AT]: Date.now(),
         [CLOUD_CONFIG.KEYS.USAGE_STATS_TODAY_LAST_ERROR]: null,
       }).catch(() => {});
@@ -2754,7 +2805,7 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
     if (cloudComplete) {
       await markUsageDatePackageUploaded(pkg);
       waterline = date;
-      await chrome.storage.local.set({
+      await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE]: waterline,
         [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT]: Date.now(),
         [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: null,
@@ -2763,17 +2814,17 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
       continue;
     }
 
-    const dateResult = await uploadUsageDatePackageParts(pkg, { enabled: true });
+    const dateResult = await uploadUsageDatePackageParts(pkg, { enabled: true, fullSegmentRepair: true });
     mergeUsageDatePartResults(result, dateResult);
     if (dateResult.failed > 0 || dateResult.errors.length > 0) {
-      await chrome.storage.local.set({
+      await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: dateResult.errors.join('; ') || `history usage stats upload failed: ${date}`,
       }).catch(() => {});
       break;
     }
 
     waterline = date;
-    await chrome.storage.local.set({
+    await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE]: waterline,
       [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT]: Date.now(),
       [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: null,
@@ -2787,8 +2838,24 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
 }
 
 export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) {
+  if (enabled) {
+    const backoff = await getUsageUploadBackoff();
+    if (Number(backoff.nextRetryAt || 0) > Date.now()) {
+      const result = makeUsageDateSyncResult({ dryRun: false });
+      result.skipped = true;
+      result.reason = 'retry_backoff';
+      result.nextRetryAt = backoff.nextRetryAt;
+      result.errors = [];
+      result.backoffError = backoff.lastError || null;
+      return result;
+    }
+  }
+
   const today = await uploadTodayUsageStatsSnapshotV1({ enabled });
-  const history = await uploadHistoricalUsageStatsByWatermarkV1({ enabled });
+  const todayRetryable = (today.errors || []).find((error) => isRetryableUsageErrorCode(error));
+  const history = todayRetryable
+    ? { ...makeUsageDateSyncResult({ dryRun: !enabled }), skipped: true, reason: 'previous_batch_failed' }
+    : await uploadHistoricalUsageStatsByWatermarkV1({ enabled });
   const result = makeUsageDateSyncResult({ dryRun: today.dryRun && history.dryRun });
   mergeUsageDatePartResults(result, today);
   mergeUsageDatePartResults(result, history);
@@ -2799,9 +2866,14 @@ export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) 
   result.errors = [...today.errors, ...history.errors];
   result.failed = today.failed + history.failed;
   result.uploaded = today.uploaded + history.uploaded;
+
+  if (enabled) {
+    const retryableError = result.errors.find((error) => isRetryableUsageErrorCode(error));
+    if (retryableError) result.backoff = await recordUsageUploadBackoff(retryableError);
+    else if (result.failed === 0) await clearUsageUploadBackoff();
+  }
   return result;
 }
-
 export async function uploadMediaSegmentsV1({ enabled = false } = {}) {
   const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
   if (!syncState.deviceToken) {
@@ -2843,7 +2915,7 @@ export async function uploadMediaSegmentsV1({ enabled = false } = {}) {
     try {
       await cloudRequest('POST', '/device/media-segments/v1', { segments: payload.segments });
       await markMediaSegmentsUploaded(batchIds);
-      await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT]: Date.now() });
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT]: Date.now() });
       return { uploaded: batchIds.length, failed: 0, skipped: false, dryRun: false, pendingCount: pending.pendingCount - batchIds.length, errors: [] };
     } catch (e) {
       await markMediaSegmentUploadFailed(batchIds, e.message);
@@ -2922,7 +2994,7 @@ export async function uploadDailyMediaStatsV1({ enabled = false, forceRetryExhau
         await cloudRequest('POST', '/device/media-stats/v1', payload);
         await markDailyMediaStatsUploaded([date]);
         uploaded++;
-        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT]: Date.now() });
+        await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markDailyMediaStatsUploadFailed([date], e.message);
         failed++;
@@ -3005,7 +3077,7 @@ export async function uploadHourlyMediaStatsV1({ enabled = false, forceRetryExha
         await cloudRequest('POST', '/device/hourly-media-stats/v1', payload);
         await markHourlyMediaStatsUploaded([hourKey]);
         uploaded++;
-        await chrome.storage.local.set({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT]: Date.now() });
+        await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markHourlyMediaStatsUploadFailed([hourKey], e.message);
         failed++;
@@ -3113,7 +3185,7 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
       errors.push(`site requests pull: ${e.message}`);
     }
 
-    await chrome.storage.local.set({
+    await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.V1_LAST_SITE_REQUEST_SYNC_AT]: Date.now(),
     }).catch(() => {});
 
@@ -3151,7 +3223,7 @@ export async function uploadClientLogsV1({ enabled = true } = {}) {
     try {
       await cloudRequest('POST', '/device/client-logs/v1', payload);
       await markClientLogsUploaded(ids);
-      await chrome.storage.local.set({
+      await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.V1_LAST_CLIENT_LOG_UPLOAD_AT]: Date.now(),
       }).catch(() => {});
       return { uploaded: ids.length, failed: 0, skipped: false, pendingCount: Math.max(0, Number(pending.pendingCount || 0) - ids.length), errors: [] };
@@ -3223,7 +3295,7 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
 
   if (!dryRun && !hadFailure) {
     console.log('[Cloud-V1] Stats Foundation sync completed successfully');
-    await chrome.storage.local.set({
+    await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT]: Date.now(),
       [CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR]: null,
     }).catch(() => {});

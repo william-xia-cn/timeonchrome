@@ -1,5 +1,6 @@
 // infra/client-logs.js — local client logging foundation
 import { INCOGNITO_PLACEHOLDER_DOMAIN, sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
+import { budgetedLocalSet } from './storage-budget.js';
 
 const INCOGNITO_DOMAIN = typeof INCOGNITO_PLACEHOLDER_DOMAIN === 'string'
   ? INCOGNITO_PLACEHOLDER_DOMAIN
@@ -7,6 +8,9 @@ const INCOGNITO_DOMAIN = typeof INCOGNITO_PLACEHOLDER_DOMAIN === 'string'
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
   : (value) => value;
+const clientStorageSet = (items, options = {}) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'client_logs', ...options })
+  : chrome.storage.local.set(items);
 
 export const CLIENT_LOGS_KEY = 'client_logs_v1';
 export const CLIENT_LOG_CONFIG_KEY = 'client_log_config_v1';
@@ -33,7 +37,7 @@ const DEFAULT_POLICY = {
   uploadCategories: [],
   targetDeviceIds: [],
   sampleRate: 1,
-  retentionDays: 7,
+  retentionDays: 3,
   maxEntries: 1000,
   maxBytes: 512 * 1024,
   expiresAt: null,
@@ -70,8 +74,8 @@ async function storageGet(keys) {
 
 async function storageSet(value) {
   try {
-    await chrome.storage.local.set(value);
-    return true;
+    const result = await clientStorageSet(value);
+    return result?.ok !== false;
   } catch (_) {
     return false;
   }
@@ -174,7 +178,7 @@ function normalizePolicy(policy = {}) {
   const merged = { ...DEFAULT_POLICY, ...(policy || {}) };
   const localMinLevel = normalizeLevel(merged.localMinLevel);
   const uploadMinLevel = normalizeLevel(merged.uploadMinLevel);
-  const retentionDays = Math.max(1, Math.min(30, Number(merged.retentionDays || DEFAULT_POLICY.retentionDays)));
+  const retentionDays = Math.max(1, Math.min(3, Number(merged.retentionDays || DEFAULT_POLICY.retentionDays)));
   const maxEntries = Math.max(1, Math.min(5000, Number(merged.maxEntries || DEFAULT_POLICY.maxEntries)));
   const maxBytes = Math.max(64 * 1024, Math.min(2 * 1024 * 1024, Number(merged.maxBytes || DEFAULT_POLICY.maxBytes)));
   const expiresAt = Number(merged.expiresAt || 0) > 0 ? Number(merged.expiresAt) : null;
@@ -284,16 +288,43 @@ function approxBytes(value) {
   }
 }
 
+function logRetentionRank(log, now = nowMs()) {
+  const timestamp = Number(log?.timestamp || 0);
+  const recent = timestamp >= now - 86400000 ? 1 : 0;
+  return (LEVEL_WEIGHT[normalizeLevel(log?.level)] || 0) * 10 + recent;
+}
+
 function pruneLogs(logs, policy, now = nowMs()) {
-  const cutoff = now - policy.retentionDays * 86400000;
+  const cutoff = now - Math.min(3, Number(policy.retentionDays || 3)) * 86400000;
   let next = (Array.isArray(logs) ? logs : [])
     .filter((log) => Number(log.timestamp || 0) >= cutoff)
-    .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))
+    .filter((log) => log.uploadStatus !== 'uploaded')
+    .sort((a, b) => {
+      const rankDiff = logRetentionRank(b, now) - logRetentionRank(a, now);
+      return rankDiff || Number(b.timestamp || 0) - Number(a.timestamp || 0);
+    })
     .slice(0, policy.maxEntries);
   while (next.length > 0 && approxBytes(next) > policy.maxBytes) {
     next.pop();
   }
-  return next;
+  return next.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+}
+
+export async function pruneClientLogsForStoragePressure({ pressure = false, emergency = false, now = nowMs(), storageOptions = {} } = {}) {
+  const storage = await storageGet(CLIENT_LOGS_KEY);
+  const current = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
+  const maxBytes = emergency ? 0 : (pressure ? 128 * 1024 : DEFAULT_POLICY.maxBytes);
+  const maxEntries = emergency ? 0 : (pressure ? 500 : DEFAULT_POLICY.maxEntries);
+  const next = emergency ? [] : pruneLogs(current, {
+    ...DEFAULT_POLICY,
+    retentionDays: 3,
+    maxEntries,
+    maxBytes,
+  }, now);
+  if (next.length !== current.length || approxBytes(next) !== approxBytes(current)) {
+    await clientStorageSet({ [CLIENT_LOGS_KEY]: next }, storageOptions);
+  }
+  return { removed: Math.max(0, current.length - next.length), remaining: next.length, bytes: approxBytes(next) };
 }
 
 function makeLogId(timestamp) {
@@ -487,18 +518,21 @@ export async function markClientLogsUploaded(ids = []) {
   if (idSet.size === 0) return { ok: true, updated: 0 };
   const storage = await storageGet(CLIENT_LOGS_KEY);
   const logs = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
-  const uploadedAt = nowMs();
-  let updated = 0;
-  for (const log of logs) {
-    if (idSet.has(log.id)) {
-      log.uploadStatus = 'uploaded';
-      log.uploadedAt = uploadedAt;
-      log.lastUploadError = null;
-      updated++;
-    }
-  }
-  await storageSet({ [CLIENT_LOGS_KEY]: logs });
-  return { ok: true, updated };
+  const next = logs.filter((log) => !idSet.has(log.id));
+  await storageSet({ [CLIENT_LOGS_KEY]: next });
+  return { ok: true, updated: logs.length - next.length };
+}
+
+function normalizeClientLogUploadError(error) {
+  const raw = String(error?.message || error || 'upload_failed').trim();
+  const lower = raw.toLowerCase();
+  const status = lower.match(/(?:http|status)[^0-9]*([0-9]{3})/);
+  if (status) return 'http_' + status[1];
+  if (/service unavailable/.test(lower)) return 'http_503';
+  if (/abort/.test(lower)) return 'request_aborted';
+  if (/time(?:d)?[ _-]*out|timeout/.test(lower)) return 'request_timeout';
+  if (/failed to fetch|fetch failed|network/.test(lower)) return 'fetch_failed';
+  return /^[a-z0-9_:-]{1,64}$/.test(lower) ? lower.replace(/[:-]+/g, '_') : 'upload_failed';
 }
 
 export async function markClientLogUploadFailed(ids = [], error = 'upload_failed') {
@@ -506,7 +540,7 @@ export async function markClientLogUploadFailed(ids = [], error = 'upload_failed
   if (idSet.size === 0) return { ok: true, updated: 0 };
   const storage = await storageGet(CLIENT_LOGS_KEY);
   const logs = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
-  const safeError = redactString(error || 'upload_failed');
+  const safeError = normalizeClientLogUploadError(error);
   let updated = 0;
   for (const log of logs) {
     if (idSet.has(log.id)) {

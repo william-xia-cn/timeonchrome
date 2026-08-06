@@ -4,6 +4,11 @@ import { runPeriodicCheckpoint } from '../runtime/session.js';
 import { runMediaCheckpoint } from './media-timing.js';
 import { createTimingAuditId } from './timing-trace.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
+import { budgetedLocalSet } from '../infra/storage-budget.js';
+
+const checkpointStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'checkpoint_health' })
+  : chrome.storage.local.set(items);
 
 export const TIMING_CHECKPOINT_HEALTH_KEY = 'timing_checkpoint_health_v1';
 
@@ -336,7 +341,7 @@ async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foregrou
       : 0,
   };
   try {
-    await chrome.storage.local.set({ [TIMING_CHECKPOINT_HEALTH_KEY]: health });
+    await checkpointStorageSet({ [TIMING_CHECKPOINT_HEALTH_KEY]: health });
   } catch (err) {
     recordFallbackLog({
       level: 'error',

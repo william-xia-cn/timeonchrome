@@ -63,6 +63,9 @@
 | D-054 | YouTube 根域系统配置不变量与时间段边界定时评估 | Active | 自 2026-07-29 起，系统访问配置读取必须修正旧 D1 或导入文件中的 YouTube 根域漂移：`youtube.com` 不得作为学习、复合、用户默认复合或黑名单默认项加载，必须作为系统受限娱乐根域加载；具体 YouTube 视频、播放列表、频道仍按 D-053 的特殊对象规则例外处理。时间段管理不只在访问新网站或手动切换时生效，定时/心跳触发的 `EVALUATE_QUOTA_STATE` 也必须检查当前模式是否仍在允许时间段内，并在越界时切换到当前可用模式或进入 locked 后重检 active tab。 |
 | D-055 | 网站访问运行时配置必须版本化归一化 | Active | 自 2026-07-29 起，扩展运行时不得直接信任历史 `guardian_config` 中的 effective 清单或 legacy aliases。任何来自本地缓存、云端拉取、导入/恢复、绑定首次同步或云端 version skip 的网站访问配置，都必须先经过 `normalizeRuntimeSiteAccessConfig()` 升级到当前语义版本，再进入分类、拦截、计时和 managed target 落账。`studyList`、`compositeList`、`restrictedEntertainmentList`、`unsafeList` 是由 source lists 派生的 canonical effective 清单；legacy aliases 只允许在 migration/normalization 层读取。YouTube 根域受限娱乐只是 M002 迁移规则，不得作为散落在分类器和落账器里的长期硬编码。 |
 
+| D-056 | 网页工作落账采用 journal-first 与总时长最终兜底 | Active | 自 2026-08-06 起，前台 ACTIVE 网页事实、对应 session 边界和恢复信息具有本地存储最高优先级。任何 transition/checkpoint/mode boundary/tab close/monitoring off/recovery 只有在完整 usage segment 已提交，或 `usage_settlement_journal_v1` 已持久化后才能推进 session；失败不得静默关闭或重开。存储极限状态允许将最旧未上传网页 segment 降级为不含域名、URL、标题或文本的 `usage_compacted_facts_v1`，按日期/小时/mode/channel 保留总秒数；总时长优先于对象级明细。媒体、同步、日志和诊断不得抢占网页 journal 预留。本阶段不改变 Worker/D1、历史云端数据、180 秒 checkpoint 或前台证据模型。 |
+| D-057 | 本地存储采用 8 MB 硬门与分级淘汰 | Active | 自 2026-08-06 起，`chrome.storage.local` 在 7 MB 进入压力维护并清理到 6.5 MB，8 MB 为应用写入硬阈值，另保留 64 KB 紧急预算。客户端日志最多保留 3 天，此条覆盖 D-044 的 7 天本地保留期限；上传成功日志立即移除，压力下按 error、warning、info 及新鲜度降级。淘汰顺序固定为 retry/error 元数据、日志与诊断、旧兼容数据、已上传副本、未上传媒体，最后才是已先压缩为 `usage_compacted_facts_v1` 的未上传网页原始段。身份、配置、规则、隐私同意、当前模式和当前 session 永不作为淘汰对象。 |
+
 ## 变更规则
 - 新决策必须追加一条记录（不改历史 ID）。
 - 决策状态：`Active / Superseded / Dropped / Pending PO`。

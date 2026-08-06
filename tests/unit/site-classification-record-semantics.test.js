@@ -101,6 +101,7 @@ function createHarness() {
 ${domainSource}
 ${classificationSource}
 const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
+const protectedStorageSet = (items) => chrome.storage.local.set(items);
 ${classificationStorageSource}
 this.__records = {
   recordUnclassifiedSiteAccess,

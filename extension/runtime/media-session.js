@@ -3,10 +3,15 @@
 import { getCachedEffectiveMode, resolveSettlementIdentity } from './session.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
+import { normalizeUploadErrorCode } from '../core/usage-segments.js';
+import { budgetedLocalSet } from '../infra/storage-budget.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
   : (value) => value;
+const localStorageSet = (items, options = {}) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'media', source: 'media_ledger', ...options })
+  : chrome.storage.local.set(items);
 
 const LEGACY_MEDIA_SESSION_KEY = 'media_session_v1';
 const MEDIA_FACTS_KEY = 'media_facts_v1';
@@ -19,6 +24,8 @@ const MEDIA_SEGMENT_OUTBOX_KEY = 'media_segment_sync_outbox_v1';
 const MEDIA_STATS_OUTBOX_KEY = 'media_stats_sync_outbox_v1';
 const HOURLY_MEDIA_STATS_OUTBOX_KEY = 'hourly_media_stats_sync_outbox_v1';
 const MEDIA_CHECKPOINT_MS = 180 * 1000;
+const MEDIA_LIFECYCLE_STALE_MS = 90 * 1000;
+const MAX_STORED_RETRY_COUNT = 1000;
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
 const MEDIA_CHECKPOINT_ESTIMATED_CLOSE_REASON = 'media_checkpoint_estimated_close';
 const MEDIA_CHECKPOINT_ESTIMATED_END_REASON = 'media_checkpoint_estimated_half_interval_close';
@@ -528,7 +535,7 @@ async function readFacts() {
 }
 
 async function writeFacts(facts) {
-  await chrome.storage.local.set({ [MEDIA_FACTS_KEY]: facts || {} });
+  await localStorageSet({ [MEDIA_FACTS_KEY]: facts || {} });
 }
 
 async function readFrameFacts() {
@@ -537,7 +544,7 @@ async function readFrameFacts() {
 }
 
 async function writeFrameFacts(frameFacts) {
-  await chrome.storage.local.set({ [MEDIA_FRAME_FACTS_KEY]: frameFacts || {} });
+  await localStorageSet({ [MEDIA_FRAME_FACTS_KEY]: frameFacts || {} });
 }
 
 async function readSessions() {
@@ -546,7 +553,7 @@ async function readSessions() {
 }
 
 async function writeSessions(sessions) {
-  await chrome.storage.local.set({ [MEDIA_SESSIONS_KEY]: sessions || {} });
+  await localStorageSet({ [MEDIA_SESSIONS_KEY]: sessions || {} });
   await syncLegacyMediaSession(sessions || {});
 }
 
@@ -564,7 +571,7 @@ async function syncLegacyMediaSession(sessions = {}) {
     .filter((session) => session?.startTime != null)
     .sort((a, b) => (a.startTime || 0) - (b.startTime || 0))[0];
   if (!open) {
-    await chrome.storage.local.set({
+    await localStorageSet({
       [LEGACY_MEDIA_SESSION_KEY]: {
         framework: 'none',
         domain: null,
@@ -574,7 +581,7 @@ async function syncLegacyMediaSession(sessions = {}) {
     });
     return;
   }
-  await chrome.storage.local.set({
+  await localStorageSet({
     [LEGACY_MEDIA_SESSION_KEY]: {
       framework: frameworkForMediaClass(open.mediaClass),
       domain: open.domain || null,
@@ -663,7 +670,7 @@ async function appendMediaSegments(segments) {
     }
   }
   if (appendedSegments.length > 0) {
-    await chrome.storage.local.set({ [MEDIA_SEGMENTS_KEY]: all });
+    await localStorageSet({ [MEDIA_SEGMENTS_KEY]: all });
     await markMediaSegmentsPending(appendedSegments.map((segment) => segment.id));
   }
   return { appended: appendedSegments.length, segments: appendedSegments };
@@ -676,7 +683,7 @@ async function markMediaSegmentsPending(segmentIds) {
   const outbox = data?.[MEDIA_SEGMENT_OUTBOX_KEY] || { pendingIds: [], retryCounts: {}, lastErrors: {} };
   const pending = new Set(outbox.pendingIds || []);
   ids.forEach((id) => pending.add(id));
-  await chrome.storage.local.set({
+  await localStorageSet({
     [MEDIA_SEGMENT_OUTBOX_KEY]: {
       pendingIds: [...pending],
       retryCounts: outbox.retryCounts || {},
@@ -691,7 +698,7 @@ async function markMediaStatsDirty(date) {
   const outbox = data?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
   const dirty = new Set(outbox.dirtyDates || []);
   dirty.add(date);
-  await chrome.storage.local.set({
+  await localStorageSet({
     [MEDIA_STATS_OUTBOX_KEY]: {
       dirtyDates: [...dirty],
       retryCounts: outbox.retryCounts || {},
@@ -707,7 +714,7 @@ async function markHourlyMediaStatsDirty(hourKeys) {
   const outbox = data?.[HOURLY_MEDIA_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
   const dirty = new Set(outbox.dirtyHourKeys || []);
   keys.forEach((key) => dirty.add(key));
-  await chrome.storage.local.set({
+  await localStorageSet({
     [HOURLY_MEDIA_STATS_OUTBOX_KEY]: {
       dirtyHourKeys: [...dirty],
       retryCounts: outbox.retryCounts || {},
@@ -783,7 +790,7 @@ async function incrementDailyMediaStats(segment) {
   ds.lastUpdatedAt = Date.now();
   day.segmentsCount = Number(day.segmentsCount || 0) + 1;
   day.lastSegmentId = segment.id;
-  await chrome.storage.local.set({ [DAILY_MEDIA_STATS_KEY]: stats });
+  await localStorageSet({ [DAILY_MEDIA_STATS_KEY]: stats });
   await markMediaStatsDirty(segment.date);
 }
 
@@ -814,7 +821,7 @@ async function incrementHourlyMediaStats(segment) {
     dirtyHourKeys.add(slice.hourKey);
   }
 
-  await chrome.storage.local.set({ [HOURLY_MEDIA_STATS_KEY]: stats });
+  await localStorageSet({ [HOURLY_MEDIA_STATS_KEY]: stats });
   await markHourlyMediaStatsDirty([...dirtyHourKeys]);
 }
 
@@ -898,6 +905,48 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary', opt
   };
 }
 
+export async function recoverMediaSessionsOnLifecycle(now = Date.now(), reason = 'media_lifecycle_recovery') {
+  return runMediaSerialized(async () => {
+    const sessions = await readSessions();
+    const entries = Object.values(sessions).filter((session) => Number(session?.startTime || 0) > 0);
+    let appended = 0;
+    let recovered = 0;
+    let stale = 0;
+
+    for (const session of entries) {
+      const startTime = Number(session.startTime);
+      const observedAt = Number(session.lastObservedAt || 0);
+      const evidenceAt = observedAt > 0 ? observedAt : startTime;
+      const isFresh = now >= evidenceAt && (now - evidenceAt) <= MEDIA_LIFECYCLE_STALE_MS;
+      const cappedEnd = Math.min(now, evidenceAt + MEDIA_LIFECYCLE_STALE_MS);
+      const endMs = Math.max(startTime, isFresh ? now : cappedEnd);
+      const result = await settleMediaSession(session, endMs, reason, {
+        endReason: isFresh ? 'media_lifecycle_fresh_close' : 'media_lifecycle_stale_close',
+      });
+      appended += Number(result?.appended || 0);
+      recovered++;
+      if (!isFresh) stale++;
+    }
+
+    await Promise.all([
+      writeSessions({}),
+      writeFacts({}),
+      writeFrameFacts({}),
+    ]);
+    if (recovered > 0) {
+      recordFallbackLog({
+        level: stale > 0 ? 'warning' : 'info',
+        category: 'media',
+        eventCode: 'media_lifecycle_recovered',
+        module: 'runtime/media-session',
+        reason,
+        message: 'Open media sessions recovered at extension lifecycle boundary',
+        details: { recovered, stale, appended },
+      });
+    }
+    return { ok: true, recovered, stale, appended };
+  });
+}
 async function getTabCheckpointSnapshot(tabId) {
   const normalizedTabId = Number(tabId);
   if (!Number.isInteger(normalizedTabId) || !chrome.tabs?.get) {
@@ -1276,6 +1325,7 @@ export async function splitOpenMediaSessionsAtModeBoundary(intent = {}) {
     let split = 0;
     let appended = 0;
     let updated = 0;
+    let staleClosed = 0;
 
     for (const [key, session] of Object.entries(sessions)) {
       if (!session?.startTime) continue;
@@ -1291,6 +1341,19 @@ export async function splitOpenMediaSessionsAtModeBoundary(intent = {}) {
         continue;
       }
 
+      const evidenceAt = Number(session.lastObservedAt || session.startTime || 0);
+      if (evidenceAt > 0 && (boundary - evidenceAt) > MEDIA_LIFECYCLE_STALE_MS) {
+        const closeAt = Math.max(Number(session.startTime), Math.min(boundary, evidenceAt + MEDIA_LIFECYCLE_STALE_MS));
+        const settlement = await settleMediaSession(session, closeAt, 'mode_effective_boundary', {
+          modeOverride: intent.fromMode || null,
+          endReason: 'mode_boundary_stale_media_close',
+        });
+        appended += settlement.appended || 0;
+        delete sessions[key];
+        split++;
+        staleClosed++;
+        continue;
+      }
       const settlement = await settleMediaSession(session, boundary, 'mode_effective_boundary', {
         modeOverride: intent.fromMode || null,
       });
@@ -1317,6 +1380,7 @@ export async function splitOpenMediaSessionsAtModeBoundary(intent = {}) {
       appended,
       closedPiP: 0,
       reclassified: 0,
+      staleClosed,
       mode: toMode,
     };
   });
@@ -1445,7 +1509,7 @@ export async function rebuildHourlyMediaStats(dateOrHourKey, options = {}) {
     stats[key] = value;
   }
   if (Object.keys(nextByHour).length > 0 || forceWriteEmpty) {
-    await chrome.storage.local.set({ [HOURLY_MEDIA_STATS_KEY]: stats });
+    await localStorageSet({ [HOURLY_MEDIA_STATS_KEY]: stats });
   }
   const rebuiltHours = Object.keys(nextByHour).sort();
   await markHourlyMediaStatsDirty(rebuiltHours);
@@ -1488,7 +1552,7 @@ export async function markMediaSegmentsUploaded(segmentIds, uploadedAt = Date.no
     delete outbox.lastErrors?.[id];
   }
   outbox.pendingIds = (outbox.pendingIds || []).filter((id) => !ids.has(id));
-  await chrome.storage.local.set({
+  await localStorageSet({
     [MEDIA_SEGMENTS_KEY]: allSegments,
     [MEDIA_SEGMENT_OUTBOX_KEY]: outbox,
   });
@@ -1504,11 +1568,11 @@ export async function markMediaSegmentUploadFailed(segmentIds, error) {
   outbox.lastErrors = outbox.lastErrors || {};
   for (const id of ids) {
     pending.add(id);
-    outbox.retryCounts[id] = Number(outbox.retryCounts[id] || 0) + 1;
-    outbox.lastErrors[id] = String(error || 'upload_failed');
+    outbox.retryCounts[id] = Math.min(MAX_STORED_RETRY_COUNT, Number(outbox.retryCounts[id] || 0) + 1);
+    outbox.lastErrors[id] = normalizeUploadErrorCode(error);
   }
   outbox.pendingIds = [...pending];
-  await chrome.storage.local.set({ [MEDIA_SEGMENT_OUTBOX_KEY]: outbox });
+  await localStorageSet({ [MEDIA_SEGMENT_OUTBOX_KEY]: outbox });
 }
 
 export async function getPendingDailyMediaStats() {
@@ -1566,7 +1630,7 @@ export async function markDailyMediaStatsUploaded(dates, uploadedAt = Date.now()
     delete outbox.lastErrors?.[date];
   }
   outbox.dirtyDates = (outbox.dirtyDates || []).filter((date) => !dateSet.has(date));
-  await chrome.storage.local.set({
+  await localStorageSet({
     [DAILY_MEDIA_STATS_KEY]: allStats,
     [MEDIA_STATS_OUTBOX_KEY]: outbox,
   });
@@ -1589,7 +1653,7 @@ export async function markHourlyMediaStatsUploaded(hourKeys, uploadedAt = Date.n
     delete outbox.lastErrors?.[hourKey];
   }
   outbox.dirtyHourKeys = (outbox.dirtyHourKeys || []).filter((hourKey) => !hourKeySet.has(hourKey));
-  await chrome.storage.local.set({
+  await localStorageSet({
     [HOURLY_MEDIA_STATS_KEY]: allStats,
     [HOURLY_MEDIA_STATS_OUTBOX_KEY]: outbox,
   });
@@ -1605,11 +1669,11 @@ export async function markDailyMediaStatsUploadFailed(dates, error) {
   outbox.lastErrors = outbox.lastErrors || {};
   for (const date of dateList) {
     dirty.add(date);
-    outbox.retryCounts[date] = Number(outbox.retryCounts[date] || 0) + 1;
-    outbox.lastErrors[date] = String(error || 'upload_failed');
+    outbox.retryCounts[date] = Math.min(MAX_STORED_RETRY_COUNT, Number(outbox.retryCounts[date] || 0) + 1);
+    outbox.lastErrors[date] = normalizeUploadErrorCode(error);
   }
   outbox.dirtyDates = [...dirty];
-  await chrome.storage.local.set({ [MEDIA_STATS_OUTBOX_KEY]: outbox });
+  await localStorageSet({ [MEDIA_STATS_OUTBOX_KEY]: outbox });
 }
 
 export async function markHourlyMediaStatsUploadFailed(hourKeys, error) {
@@ -1622,11 +1686,11 @@ export async function markHourlyMediaStatsUploadFailed(hourKeys, error) {
   outbox.lastErrors = outbox.lastErrors || {};
   for (const hourKey of hourKeyList) {
     dirty.add(hourKey);
-    outbox.retryCounts[hourKey] = Number(outbox.retryCounts[hourKey] || 0) + 1;
-    outbox.lastErrors[hourKey] = String(error || 'upload_failed');
+    outbox.retryCounts[hourKey] = Math.min(MAX_STORED_RETRY_COUNT, Number(outbox.retryCounts[hourKey] || 0) + 1);
+    outbox.lastErrors[hourKey] = normalizeUploadErrorCode(error);
   }
   outbox.dirtyHourKeys = [...dirty];
-  await chrome.storage.local.set({ [HOURLY_MEDIA_STATS_OUTBOX_KEY]: outbox });
+  await localStorageSet({ [HOURLY_MEDIA_STATS_OUTBOX_KEY]: outbox });
 }
 
 function cutoffDateMs(retentionDays) {
@@ -1646,15 +1710,64 @@ function mediaSegmentDateMs(segmentOrId) {
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
 }
 
-export async function pruneMediaStorage(retentionDays = 30) {
-  const cutoffMs = cutoffDateMs(retentionDays);
+export async function dropOldestPendingMediaSegments(limit = 50, storageOptions = {}) {
+  const storageSet = (items) => localStorageSet(items, storageOptions);
   const data = await chrome.storage.local.get([
-    MEDIA_SEGMENTS_KEY,
-    DAILY_MEDIA_STATS_KEY,
-    HOURLY_MEDIA_STATS_KEY,
-    MEDIA_SEGMENT_OUTBOX_KEY,
-    MEDIA_STATS_OUTBOX_KEY,
-    HOURLY_MEDIA_STATS_OUTBOX_KEY,
+    MEDIA_SEGMENTS_KEY, DAILY_MEDIA_STATS_KEY, HOURLY_MEDIA_STATS_KEY,
+    MEDIA_SEGMENT_OUTBOX_KEY, MEDIA_STATS_OUTBOX_KEY, HOURLY_MEDIA_STATS_OUTBOX_KEY,
+  ]);
+  const segments = data[MEDIA_SEGMENTS_KEY] || {};
+  const daily = data[DAILY_MEDIA_STATS_KEY] || {};
+  const hourly = data[HOURLY_MEDIA_STATS_KEY] || {};
+  const outbox = data[MEDIA_SEGMENT_OUTBOX_KEY] || { pendingIds: [], retryCounts: {}, lastErrors: {} };
+  const candidates = [...new Set(outbox.pendingIds || [])]
+    .map((id) => segments[id])
+    .filter(Boolean)
+    .sort((a, b) => Number(a.endMs || a.startMs || 0) - Number(b.endMs || b.startMs || 0));
+  const droppedIds = [];
+  const dirtyDates = new Set();
+  const dirtyHours = new Set();
+  let oldestAt = null;
+  let newestAt = null;
+  for (const segment of candidates) {
+    if (droppedIds.length >= Math.max(1, Number(limit || 1))) break;
+    const date = segment.date;
+    const hourKeys = splitMediaSegmentByLocalHour(segment).map((slice) => slice.hourKey).filter(Boolean);
+    if (!date || !daily[date] || hourKeys.some((key) => !hourly[key])) continue;
+    droppedIds.push(segment.id);
+    dirtyDates.add(date);
+    hourKeys.forEach((key) => dirtyHours.add(key));
+    const at = Number(segment.endMs || segment.startMs || 0);
+    oldestAt = oldestAt === null ? at : Math.min(oldestAt, at);
+    newestAt = newestAt === null ? at : Math.max(newestAt, at);
+    delete segments[segment.id];
+  }
+  if (droppedIds.length === 0) return { dropped: 0, oldestAt: null, newestAt: null };
+  const droppedSet = new Set(droppedIds);
+  outbox.pendingIds = (outbox.pendingIds || []).filter((id) => !droppedSet.has(id) && segments[id]);
+  for (const id of droppedIds) {
+    delete outbox.retryCounts?.[id];
+    delete outbox.lastErrors?.[id];
+  }
+  const statsOutbox = data[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+  const hourlyOutbox = data[HOURLY_MEDIA_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
+  statsOutbox.dirtyDates = [...new Set([...(statsOutbox.dirtyDates || []), ...dirtyDates])];
+  hourlyOutbox.dirtyHourKeys = [...new Set([...(hourlyOutbox.dirtyHourKeys || []), ...dirtyHours])];
+  await storageSet({
+    [MEDIA_SEGMENTS_KEY]: segments,
+    [MEDIA_SEGMENT_OUTBOX_KEY]: outbox,
+    [MEDIA_STATS_OUTBOX_KEY]: statsOutbox,
+    [HOURLY_MEDIA_STATS_OUTBOX_KEY]: hourlyOutbox,
+  });
+  return { dropped: droppedIds.length, oldestAt, newestAt };
+}
+export async function pruneMediaStorage(retentionDays = 30, { aggregateRetentionDays = 365, storageOptions = {} } = {}) {
+  const storageSet = (items) => localStorageSet(items, storageOptions);
+  const segmentCutoffMs = cutoffDateMs(retentionDays);
+  const aggregateCutoffMs = cutoffDateMs(aggregateRetentionDays);
+  const data = await chrome.storage.local.get([
+    MEDIA_SEGMENTS_KEY, DAILY_MEDIA_STATS_KEY, HOURLY_MEDIA_STATS_KEY,
+    MEDIA_SEGMENT_OUTBOX_KEY, MEDIA_STATS_OUTBOX_KEY, HOURLY_MEDIA_STATS_OUTBOX_KEY,
   ]);
   const segments = data?.[MEDIA_SEGMENTS_KEY] || {};
   const daily = data?.[DAILY_MEDIA_STATS_KEY] || {};
@@ -1663,66 +1776,68 @@ export async function pruneMediaStorage(retentionDays = 30) {
   const statsOutbox = data?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
   const hourlyOutbox = data?.[HOURLY_MEDIA_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
 
+  const originalPending = Array.isArray(segmentOutbox.pendingIds) ? segmentOutbox.pendingIds : [];
+  const pendingIds = [...new Set(originalPending.filter((id) => typeof id === 'string' && segments[id]))];
+  const pendingSet = new Set(pendingIds);
   let prunedSegments = 0;
   for (const [id, segment] of Object.entries(segments)) {
     const dateMs = mediaSegmentDateMs(segment) ?? mediaSegmentDateMs(id);
-    if (dateMs === null || dateMs < cutoffMs) {
+    if (!pendingSet.has(id) && Number(segment?.uploadedAt || 0) > 0 && dateMs !== null && dateMs < segmentCutoffMs) {
       delete segments[id];
       prunedSegments++;
     }
   }
 
+  const dirtyDates = [...new Set((Array.isArray(statsOutbox.dirtyDates) ? statsOutbox.dirtyDates : [])
+    .filter((date) => typeof date === 'string' && daily[date]))];
+  const dirtyDateSet = new Set(dirtyDates);
+  const dirtyHourKeys = [...new Set((Array.isArray(hourlyOutbox.dirtyHourKeys) ? hourlyOutbox.dirtyHourKeys : [])
+    .filter((key) => typeof key === 'string' && hourly[key]))];
+  const dirtyHourSet = new Set(dirtyHourKeys);
+
   let prunedDailyStats = 0;
-  for (const date of Object.keys(daily)) {
-    if (new Date(date).getTime() < cutoffMs) {
+  for (const [date, stat] of Object.entries(daily)) {
+    if (!dirtyDateSet.has(date) && Number(stat?.uploadedAt || stat?.lastUploadedAt || 0) > 0
+      && new Date(date).getTime() < aggregateCutoffMs) {
       delete daily[date];
       prunedDailyStats++;
     }
   }
 
   let prunedHourlyStats = 0;
-  for (const hourKey of Object.keys(hourly)) {
-    if (new Date(String(hourKey).slice(0, 10)).getTime() < cutoffMs) {
+  for (const [hourKey, stat] of Object.entries(hourly)) {
+    if (!dirtyHourSet.has(hourKey) && Number(stat?.uploadedAt || stat?.lastUploadedAt || 0) > 0
+      && new Date(String(hourKey).slice(0, 10)).getTime() < aggregateCutoffMs) {
       delete hourly[hourKey];
       prunedHourlyStats++;
     }
   }
 
-  const existingIds = new Set(Object.keys(segments));
-  const pendingOriginal = Array.isArray(segmentOutbox.pendingIds) ? segmentOutbox.pendingIds : [];
-  const seenPending = new Set();
-  const pendingIds = [];
-  let prunedPending = 0;
-  for (const id of pendingOriginal) {
-    if (!id || seenPending.has(id) || !existingIds.has(id)) {
-      prunedPending++;
-      continue;
-    }
-    seenPending.add(id);
-    pendingIds.push(id);
-  }
-  const pendingSet = new Set(pendingIds);
   segmentOutbox.pendingIds = pendingIds;
-  segmentOutbox.retryCounts = Object.fromEntries(Object.entries(segmentOutbox.retryCounts || {}).filter(([id]) => pendingSet.has(id)));
-  segmentOutbox.lastErrors = Object.fromEntries(Object.entries(segmentOutbox.lastErrors || {}).filter(([id]) => pendingSet.has(id)));
+  segmentOutbox.retryCounts = Object.fromEntries(pendingIds.map((id) => [
+    id, Math.min(MAX_STORED_RETRY_COUNT, Number(segmentOutbox.retryCounts?.[id] || 0)),
+  ]).filter(([, count]) => count > 0));
+  segmentOutbox.lastErrors = Object.fromEntries(pendingIds.map((id) => [
+    id, normalizeUploadErrorCode(segmentOutbox.lastErrors?.[id]),
+  ]).filter(([id]) => Boolean(segmentOutbox.lastErrors?.[id])));
 
-  const dirtyDates = (Array.isArray(statsOutbox.dirtyDates) ? statsOutbox.dirtyDates : [])
-    .filter((date, index, arr) => arr.indexOf(date) === index && daily[date] && new Date(date).getTime() >= cutoffMs);
-  const dirtyDateSet = new Set(dirtyDates);
-  const originalDirtyDates = Array.isArray(statsOutbox.dirtyDates) ? statsOutbox.dirtyDates.length : 0;
   statsOutbox.dirtyDates = dirtyDates;
-  statsOutbox.retryCounts = Object.fromEntries(Object.entries(statsOutbox.retryCounts || {}).filter(([date]) => dirtyDateSet.has(date)));
-  statsOutbox.lastErrors = Object.fromEntries(Object.entries(statsOutbox.lastErrors || {}).filter(([date]) => dirtyDateSet.has(date)));
+  statsOutbox.retryCounts = Object.fromEntries(dirtyDates.map((date) => [
+    date, Math.min(MAX_STORED_RETRY_COUNT, Number(statsOutbox.retryCounts?.[date] || 0)),
+  ]).filter(([, count]) => count > 0));
+  statsOutbox.lastErrors = Object.fromEntries(dirtyDates.map((date) => [
+    date, normalizeUploadErrorCode(statsOutbox.lastErrors?.[date]),
+  ]).filter(([date]) => Boolean(statsOutbox.lastErrors?.[date])));
 
-  const dirtyHourKeys = (Array.isArray(hourlyOutbox.dirtyHourKeys) ? hourlyOutbox.dirtyHourKeys : [])
-    .filter((key, index, arr) => arr.indexOf(key) === index && hourly[key] && new Date(String(key).slice(0, 10)).getTime() >= cutoffMs);
-  const dirtyHourSet = new Set(dirtyHourKeys);
-  const originalDirtyHourKeys = Array.isArray(hourlyOutbox.dirtyHourKeys) ? hourlyOutbox.dirtyHourKeys.length : 0;
   hourlyOutbox.dirtyHourKeys = dirtyHourKeys;
-  hourlyOutbox.retryCounts = Object.fromEntries(Object.entries(hourlyOutbox.retryCounts || {}).filter(([key]) => dirtyHourSet.has(key)));
-  hourlyOutbox.lastErrors = Object.fromEntries(Object.entries(hourlyOutbox.lastErrors || {}).filter(([key]) => dirtyHourSet.has(key)));
+  hourlyOutbox.retryCounts = Object.fromEntries(dirtyHourKeys.map((key) => [
+    key, Math.min(MAX_STORED_RETRY_COUNT, Number(hourlyOutbox.retryCounts?.[key] || 0)),
+  ]).filter(([, count]) => count > 0));
+  hourlyOutbox.lastErrors = Object.fromEntries(dirtyHourKeys.map((key) => [
+    key, normalizeUploadErrorCode(hourlyOutbox.lastErrors?.[key]),
+  ]).filter(([key]) => Boolean(hourlyOutbox.lastErrors?.[key])));
 
-  await chrome.storage.local.set({
+  await storageSet({
     [MEDIA_SEGMENTS_KEY]: segments,
     [DAILY_MEDIA_STATS_KEY]: daily,
     [HOURLY_MEDIA_STATS_KEY]: hourly,
@@ -1735,9 +1850,9 @@ export async function pruneMediaStorage(retentionDays = 30) {
     prunedSegments,
     prunedDailyStats,
     prunedHourlyStats,
-    prunedPending,
-    prunedDirtyDates: Math.max(0, originalDirtyDates - dirtyDates.length),
-    prunedDirtyHourKeys: Math.max(0, originalDirtyHourKeys - dirtyHourKeys.length),
+    prunedPending: Math.max(0, originalPending.length - pendingIds.length),
+    pendingSegments: pendingIds.length,
+    pendingStats: dirtyDates.length + dirtyHourKeys.length,
   };
 }
 export async function buildMediaSegmentsUploadPayload(segmentIds) {

@@ -22,6 +22,7 @@ export const STATS_META_KEYS = new Set([
   'onlineSeconds',
   'compositeSeconds',
   'undeterminedSeconds',
+  'unattributedSeconds',
 ]);
 
 export function isStatsMetaKey(key) {
@@ -42,6 +43,7 @@ export function formatDate(date) {
 function isDailyUsageStatsAuthoritative(dayStats) {
   if (!dayStats || !dayStats.domains) return false;
   if (Object.keys(dayStats.domains).length > 0) return true;
+  if (Number(dayStats.compactedSeconds || 0) > 0) return true;
   return !!dayStats.suspectCleanup?.excludeSuspect;
 }
 
@@ -80,12 +82,16 @@ export function convertDailyStatsToLegacyShape(dayStats) {
     }
   }
 
+  const compactedChannels = dayStats.compactedByChannel || {};
+  const unattributedSeconds = Math.max(0, Number(compactedChannels.active || 0))
+    + Math.max(0, Number(compactedChannels.pip || 0));
   return {
     ...result,
     audioSeconds,
     backgroundMediaByDomain,
     pipSeconds,
     pipByDomain,
+    unattributedSeconds,
   };
 }
 
@@ -291,6 +297,11 @@ function buildPopupSettledModeStats(dayStats) {
     summary.backgroundMediaSeconds += Math.max(0, Number(ds.backgroundMediaSeconds) || 0);
     summary.pipSeconds += Math.max(0, Number(ds.pipSeconds) || 0);
   }
+  addModeSeconds(summary, dayStats.compactedOnlineByMode || {});
+  summary.onlineSeconds += Math.max(0, Number(dayStats.compactedByChannel?.active || 0))
+    + Math.max(0, Number(dayStats.compactedByChannel?.pip || 0));
+  summary.backgroundMediaSeconds += Math.max(0, Number(dayStats.compactedByChannel?.backgroundMedia || 0));
+  summary.pipSeconds += Math.max(0, Number(dayStats.compactedByChannel?.pip || 0));
   return summary;
 }
 
@@ -618,10 +629,13 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
   let targetClassifications = {};
   let targetRows = [];
 
+  const compactedOnlineByMode = dayStats?.compactedOnlineByMode || {};
+  const compactedOnlineSeconds = Object.values(compactedOnlineByMode)
+    .reduce((sum, seconds) => sum + Math.max(0, Number(seconds || 0)), 0);
   if (targetQuota.hasTargetRows) {
-    totalSeconds = targetQuota.totalSeconds;
-    studySeconds = Math.max(0, Number(targetQuota.buckets.study || 0));
-    compositeSeconds = Math.max(0, Number(targetQuota.buckets.composite || 0));
+    totalSeconds = targetQuota.totalSeconds + compactedOnlineSeconds;
+    studySeconds = Math.max(0, Number(targetQuota.buckets.study || 0)) + Math.max(0, Number(compactedOnlineByMode.study || 0));
+    compositeSeconds = Math.max(0, Number(targetQuota.buckets.composite || 0)) + Math.max(0, Number(compactedOnlineByMode.composite || 0));
     targetSeconds = targetQuota.targetSeconds;
     targetClassifications = targetQuota.targetClassifications;
     targetRows = targetQuota.targetRows;
@@ -629,6 +643,9 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
       domainSeconds[domain] = seconds;
     }
   } else {
+    totalSeconds += compactedOnlineSeconds;
+    studySeconds += Math.max(0, Number(compactedOnlineByMode.study || 0));
+    compositeSeconds += Math.max(0, Number(compactedOnlineByMode.composite || 0));
     for (const [domain, seconds] of domainEntries(stats)) {
       totalSeconds += seconds;
       domainSeconds[domain] = seconds;

@@ -69,10 +69,12 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'runMediaPeriodicCheckpoint',
   'splitOpenMediaSessionsAtModeBoundary',
   'pruneMediaStorage',
+  'recoverMediaSessionsOnLifecycle',
   '__resetMediaSessionForTest',
 ], {
   getCachedEffectiveMode: () => 'study',
   resolveSettlementIdentity: async () => ({ profileId: 'media-profile-1', deviceId: 'media-device-1' }),
+  normalizeUploadErrorCode: (error) => /503|service unavailable/i.test(String(error || '')) ? 'http_503' : String(error || 'unknown_error'),
 });
 
 function check(name, condition, details = '') {
@@ -575,9 +577,11 @@ async function testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries() {
   const recentDate = dateKey(Date.now());
   const oldId = `mseg-${oldDate.replace(/-/g, '')}-aaaaaaaaaaaaaaaa`;
   const recentId = `mseg-${recentDate.replace(/-/g, '')}-bbbbbbbbbbbbbbbb`;
+  const uploadedOldId = `mseg-${oldDate.replace(/-/g, '')}-cccccccccccccccc`;
   await chrome.storage.local.set({
     media_segments_v1: {
       [oldId]: { id: oldId, date: oldDate, startMs: Date.now() - 40 * dayMs, endMs: Date.now() - 40 * dayMs + 60000, durationSeconds: 60, domain: 'old-media.example.com' },
+      [uploadedOldId]: { id: uploadedOldId, date: oldDate, startMs: Date.now() - 40 * dayMs, endMs: Date.now() - 40 * dayMs + 60000, durationSeconds: 60, domain: 'uploaded-old.example.com', uploadedAt: Date.now() },
       [recentId]: { id: recentId, date: recentDate, startMs: Date.now() - 60000, endMs: Date.now(), durationSeconds: 60, domain: 'recent-media.example.com' },
     },
     daily_media_stats_v1: {
@@ -608,13 +612,75 @@ async function testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries() {
   const result = await mediaApi.pruneMediaStorage(30);
   const storage = await chrome.storage.local.get(null);
 
-  check('media prune removes old segment', !storage.media_segments_v1[oldId], JSON.stringify(result));
+  check('media prune preserves old pending segment', !!storage.media_segments_v1[oldId], JSON.stringify(result));
+  check('media prune removes old uploaded segment', !storage.media_segments_v1[uploadedOldId], JSON.stringify(result));
   check('media prune keeps recent segment', !!storage.media_segments_v1[recentId], JSON.stringify(result));
-  check('media prune removes old daily stats', !storage.daily_media_stats_v1[oldDate], JSON.stringify(storage.daily_media_stats_v1));
+  check('media prune keeps 40-day aggregate under 365-day retention', !!storage.daily_media_stats_v1[oldDate], JSON.stringify(storage.daily_media_stats_v1));
   check('media prune keeps recent daily stats', !!storage.daily_media_stats_v1[recentDate], JSON.stringify(storage.daily_media_stats_v1));
-  check('media prune cleans pending ids to recent only', JSON.stringify(storage.media_segment_sync_outbox_v1.pendingIds) === JSON.stringify([recentId]), JSON.stringify(storage.media_segment_sync_outbox_v1));
-  check('media prune cleans media stats dates to recent only', JSON.stringify(storage.media_stats_sync_outbox_v1.dirtyDates) === JSON.stringify([recentDate]), JSON.stringify(storage.media_stats_sync_outbox_v1));
-  check('media prune cleans hourly dates to recent only', JSON.stringify(storage.hourly_media_stats_sync_outbox_v1.dirtyHourKeys) === JSON.stringify([`${recentDate}T10`]), JSON.stringify(storage.hourly_media_stats_sync_outbox_v1));
+  check('media prune preserves old and recent pending ids', JSON.stringify(storage.media_segment_sync_outbox_v1.pendingIds) === JSON.stringify([oldId, recentId]), JSON.stringify(storage.media_segment_sync_outbox_v1));
+  check('media prune preserves backed dirty dates', JSON.stringify(storage.media_stats_sync_outbox_v1.dirtyDates) === JSON.stringify([oldDate, recentDate]), JSON.stringify(storage.media_stats_sync_outbox_v1));
+  check('media prune preserves backed dirty hours', JSON.stringify(storage.hourly_media_stats_sync_outbox_v1.dirtyHourKeys) === JSON.stringify([`${oldDate}T10`, `${recentDate}T10`]), JSON.stringify(storage.hourly_media_stats_sync_outbox_v1));
+}
+async function testModeBoundaryClosesStaleSessionWithoutReopen() {
+  resetAll();
+  const boundary = new Date('2026-08-06T10:00:00+08:00').getTime();
+  const startTime = boundary - 9 * 60 * 60 * 1000;
+  const lastObservedAt = boundary - 8 * 60 * 60 * 1000;
+  await chrome.storage.local.set({
+    media_sessions_v2: {
+      '6::backgroundVideo': {
+        tabId: 6, windowId: 1, domain: 'stale-boundary.example.com', mediaClass: 'backgroundVideo',
+        mediaKind: 'video', visibility: 'background', startTime, lastObservedAt, mode: 'study',
+      },
+    },
+  });
+  const result = await mediaApi.splitOpenMediaSessionsAtModeBoundary({
+    boundaryAtMs: boundary, fromMode: 'study', toMode: 'rest',
+  });
+  const storage = await chrome.storage.local.get(null);
+  const settled = Object.values(storage.media_segments_v1 || {});
+  check('mode boundary reports stale close', result.staleClosed === 1, JSON.stringify(result));
+  check('mode boundary caps stale settlement at evidence plus 90 seconds', settled[0].endMs === lastObservedAt + 90000, JSON.stringify(settled[0]));
+  check('mode boundary does not reopen stale media session', Object.keys(storage.media_sessions_v2 || {}).length === 0, JSON.stringify(storage.media_sessions_v2));
+}
+async function testLifecycleRecoveryCapsStaleEvidenceAndClearsSessions() {
+  resetAll();
+  const now = new Date('2026-08-06T10:00:00+08:00').getTime();
+  const startTime = now - 9 * 60 * 60 * 1000;
+  const lastObservedAt = now - 8 * 60 * 60 * 1000;
+  await chrome.storage.local.set({
+    media_sessions_v2: {
+      '7::backgroundVideo': {
+        tabId: 7, windowId: 1, domain: 'stale.example.com', mediaClass: 'backgroundVideo',
+        mediaKind: 'video', visibility: 'background', startTime, lastObservedAt, mode: 'study',
+      },
+    },
+    media_facts_v1: { 7: { tabId: 7 } },
+    media_frame_facts_v1: { '7::tab': { tabId: 7 } },
+    media_session_v1: { framework: 'background_video', startTime },
+  });
+
+  const result = await mediaApi.recoverMediaSessionsOnLifecycle(now, 'unit_lifecycle_update');
+  const storage = await chrome.storage.local.get(null);
+  const recovered = Object.values(storage.media_segments_v1 || {});
+  check('lifecycle recovery settled one stale session', result.stale === 1 && recovered.length === 1, JSON.stringify(result));
+  check('stale lifecycle end is capped at last evidence plus 90 seconds', recovered[0].endMs === lastObservedAt + 90000, JSON.stringify(recovered[0]));
+  check('lifecycle recovery clears v2 sessions', Object.keys(storage.media_sessions_v2 || {}).length === 0, JSON.stringify(storage.media_sessions_v2));
+  check('lifecycle recovery clears media facts', Object.keys(storage.media_facts_v1 || {}).length === 0 && Object.keys(storage.media_frame_facts_v1 || {}).length === 0);
+  check('lifecycle recovery clears legacy session', storage.media_session_v1?.framework === 'none', JSON.stringify(storage.media_session_v1));
+
+  resetAll();
+  await chrome.storage.local.set({
+    media_sessions_v2: {
+      '8::foregroundVideo': {
+        tabId: 8, windowId: 1, domain: 'fresh.example.com', mediaClass: 'foregroundVideo',
+        mediaKind: 'video', visibility: 'foreground', startTime: now - 60000, lastObservedAt: now - 10000, mode: 'study',
+      },
+    },
+  });
+  const freshResult = await mediaApi.recoverMediaSessionsOnLifecycle(now, 'unit_lifecycle_startup');
+  const freshSegments = Object.values((await chrome.storage.local.get('media_segments_v1')).media_segments_v1 || {});
+  check('fresh lifecycle session settles to current time', freshResult.stale === 0 && freshSegments[0].endMs === now, JSON.stringify(freshSegments[0]));
 }
 async function run() {
   const tests = [
@@ -642,6 +708,8 @@ async function run() {
     testForbiddenPiPCleanupClosesOpenPiP,
     testForbiddenPiPCleanupReclassifiesRemainingVideo,
     testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries,
+    testModeBoundaryClosesStaleSessionWithoutReopen,
+    testLifecycleRecoveryCapsStaleEvidenceAndClearsSessions,
   ];
   let passed = 0;
   for (const test of tests) {

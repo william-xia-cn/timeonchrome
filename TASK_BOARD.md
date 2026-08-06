@@ -331,13 +331,22 @@
   - 只读结论：2026-08-04 至 2026-08-05 该设备出现大量 `Resource::kQuotaBytes quota exceeded`，并伴随 `timing_dispatch_failed`、`settlement_failed`、`checkpoint_health_write_failed`、`cloud_sync_failed`。
   - 网页账本口径：真实网页使用优先以 `usage_segments_v1` 为准；`stats_v1` 日统计 2026-08-03/04 与网页账本一致，2026-08-05 少 90 秒；小时/target 物化统计存在缺口。
   - 媒体账本口径：2026-08-04 至 2026-08-05 的 `cg.163.com` 媒体统计不可信；2026-08-05 存在 `foregroundVideo/study/mode_effective_boundary` 47116 秒异常段，但无对应网页账本使用。
+  - 1.7.21 发布后复核：T.xia 网页原始账本与日/小时/target 统计在 2026-08-06 已重新一致，`QuotaBytes` / `settlement_failed` / `timing_dispatch_failed` 未再出现；但本地仍约 9.7 MB，并有 1029 条同日分段被日期同步整批重试。
+  - 新根因：日期同步绕过 200 条批次上限；失败路径把同一长 503 HTML 错误复制到每个 `lastErrors[id]`，形成 segment 数量乘错误正文长度的存储放大。升级还保留 `media_sessions_v2`，导致旧 Bilibili session 被模式边界结算为 31701 秒。
   - 本轮边界：已登记风险；不修改代码、不修改扩展本地数据、不写 D1、不重建历史统计、不删除或裁剪异常媒体段。
   - 后续处理：单独规划扩展本地存储配额止血、V1 outbox/client logs/media ledger 清理、媒体 open session 关闭，以及必要时的历史统计只读对账和人工确认修正。
 - [ ] **[P0] 扩展本地 V1 存储配额止血修复**
   - 目标：防止 `chrome.storage.local` 爆满继续导致 settlement、checkpoint、cloud sync 和媒体 session 关闭失败。
-  - 范围：只改扩展本地代码和单测；不写 D1、不修正历史统计、不部署。
-  - 修复口径：网页原始账本最高保护；媒体账本和诊断日志在配额压力下优先裁剪；V1 outbox 清理孤儿、过期、重复和 retry/error 膨胀。
-  - 文档：`docs/STATS_STORAGE_FOUNDATION.md` §C.15。
+  - 当前实施版本：`1.7.22`。
+  - 范围：只改扩展本地代码、技术文档和单测；不写 D1、不修正历史统计、不部署。
+  - 修复口径：日期同步统一最多 200 条顺序分批；错误元数据改为短错误码；升级时无损压缩旧 outbox；7 MB 进入压力维护并以 6.5 MB 为目标，8 MB 为写入前硬门，预留至少 64 KB。
+
+  - 紧急淘汰：日志最多保留 3 天并按 `error > warning > info`、最近 1 天优先排序；先清诊断和已上传副本，仍无法满足硬门时先淘汰未上传媒体，最后才淘汰最旧未上传网页原始分段，并保留聚合、修正 index/outbox、写入紧凑损失审计。
+  - 媒体 lifecycle：更新/启动时恢复并清空陈旧 `media_sessions_v2`；陈旧 session 最多补记最后证据后 90 秒，禁止被后续模式边界拉成长段。
+  - journal-first 加固：网页结算失败不得推进 session；新增 48 KB journal、完整 RMW 协调、启动重放与 compacted total facts，媒体/同步/日志不得抢占网页落账。
+  - 本地实现与自动化发布门禁已完成；Product Owner 于 2026-08-06 批准提交、推送并向 T.xia / P.xia 内部自托管通道发布 `1.7.22`。生产设备 24 小时观察改为发布后验收，因此 P0 任务保持未关闭。
+  - 验收：任意受控写入后不超过 8 MB；压力维护降到 6.5 MB；连续 24 小时无 quota/settlement/timing dispatch 错误；1029 条积压分批清零；单批不超过 200；网页四层统计一致；无陈旧媒体长段。
+  - 文档：`docs/DESIGN.md` §3.5.1；历史审计背景见 `docs/STATS_STORAGE_FOUNDATION.md` §C.15。
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
 - [ ] [P1] 系统配置全局影响治理

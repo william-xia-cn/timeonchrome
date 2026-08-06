@@ -1,9 +1,13 @@
 // core/event-log.js — append-only 事件日志（唯一写入点）
 import { sanitizeIncognitoForPersistence } from './incognito-persistence.js';
+import { budgetedLocalSet } from '../infra/storage-budget.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
   : (value) => value;
+const eventStorageSet = (items) => typeof budgetedLocalSet === 'function'
+  ? budgetedLocalSet(items, { priority: 'derived', source: 'event_log' })
+  : chrome.storage.local.set(items);
 
 export const EVENT_TYPE = {
   START: 'START',
@@ -48,10 +52,10 @@ export async function appendEvent(event) {
 
   if (now - lastCompact > COMPACT_INTERVAL) {
     const filtered = events.filter(e => now - e.time < MAX_RAW_WINDOW);
-    await chrome.storage.local.set({ [STORAGE_KEY]: filtered, [LAST_COMPACT_KEY]: now });
+    await eventStorageSet({ [STORAGE_KEY]: filtered, [LAST_COMPACT_KEY]: now });
   } else {
     // 常规写入，不压缩
-    await chrome.storage.local.set({ [STORAGE_KEY]: events });
+    await eventStorageSet({ [STORAGE_KEY]: events });
   }
 }
 
@@ -59,5 +63,5 @@ export async function appendEvent(event) {
  * 清空事件日志（仅用于 debug）
  */
 export async function clearEvents() {
-  await chrome.storage.local.set({ [STORAGE_KEY]: [] });
+  await eventStorageSet({ [STORAGE_KEY]: [] });
 }
