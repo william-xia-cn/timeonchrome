@@ -47,6 +47,16 @@ function run() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'pages', 'index.html'), 'utf8');
   const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'auth.js'), 'utf8');
   const bindSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'bind.js'), 'utf8');
+  const favicon16Path = path.join(__dirname, '..', '..', 'pages', 'assets', 'favicon-16.png');
+  const favicon32Path = path.join(__dirname, '..', '..', 'pages', 'assets', 'favicon-32.png');
+  expectTrue('Pages 应提供 16px favicon 文件', fs.existsSync(favicon16Path));
+  expectTrue('Pages 应提供 32px favicon 文件', fs.existsSync(favicon32Path));
+  const favicon16 = fs.readFileSync(favicon16Path);
+  const favicon32 = fs.readFileSync(favicon32Path);
+  expectTrue('Pages favicon 应显式声明 16px 和 32px PNG 并带缓存版本', source.includes('rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png?v=20260807"') && source.includes('rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=20260807"'));
+  expectEqual('Pages 16px favicon 宽度', favicon16.readUInt32BE(16), 16);
+  expectEqual('Pages 16px favicon 高度', favicon16.readUInt32BE(20), 16);
+  expectTrue('Pages 32px favicon 尺寸', favicon32.readUInt32BE(16) === 32 && favicon32.readUInt32BE(20) === 32);
 
   // 源码残留检查
   expectTrue('pages 不应再出现 allowList 字段', !/\ballowList\b/.test(source));

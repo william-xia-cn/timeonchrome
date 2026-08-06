@@ -35,6 +35,9 @@
   - 实施闸门：先由 Product Owner 整理当前未提交改动，确认干净工作区并对齐最新 `origin/master`，再创建 `codex/task-management-v1`；任务实现不得与其他功能提交混合。
 
 ## Current Fix Focus（2026-07-28）
+- [x] [Pages] 家长控制台标签页 favicon 修复
+  - 目标：使用现有 TimeOnChrome 16/32px 产品图标显式声明控制台 favicon，避免 Chrome 沿用错误的历史缓存图标。
+  - 边界：只修改 Pages 静态资源、head 声明和测试；不改页面布局、Worker、D1 或扩展版本。
 - [x] [Pages] 系统网站分类保存成功误报失败修复
   - 目标：系统分类 PUT 响应异常时只读回查云端最终状态；若目标管理策略和内容分类已落库，则按成功处理，不再显示红色失败提示。
   - 边界：仅修正 Pages 保存结果判定与页面刷新提示；不改系统分类语义、Worker API、D1 schema 或 profile 配置。
