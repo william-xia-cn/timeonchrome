@@ -344,7 +344,7 @@
   - 紧急淘汰：日志最多保留 3 天并按 `error > warning > info`、最近 1 天优先排序；先清诊断和已上传副本，仍无法满足硬门时先淘汰未上传媒体，最后才淘汰最旧未上传网页原始分段，并保留聚合、修正 index/outbox、写入紧凑损失审计。
   - 媒体 lifecycle：更新/启动时恢复并清空陈旧 `media_sessions_v2`；陈旧 session 最多补记最后证据后 90 秒，禁止被后续模式边界拉成长段。
   - journal-first 加固：网页结算失败不得推进 session；新增 48 KB journal、完整 RMW 协调、启动重放与 compacted total facts，媒体/同步/日志不得抢占网页落账。
-  - 本地实现与自动化发布门禁已完成；Product Owner 于 2026-08-06 批准提交、推送并向 T.xia / P.xia 内部自托管通道发布 `1.7.22`。生产设备 24 小时观察改为发布后验收，因此 P0 任务保持未关闭。
+  - `1.7.22` 已提交并推送到 `origin/master`，已部署到 T.xia / P.xia 内部自托管更新通道；生产 feed/CRX 回读一致，SHA256 为 `5a7ba40fc7681c92dec4245465d93c8fe414f4a0fd00b8c947d36a78160172da`。生产设备 24 小时观察作为发布后验收，因此 P0 任务保持未关闭。
   - 验收：任意受控写入后不超过 8 MB；压力维护降到 6.5 MB；连续 24 小时无 quota/settlement/timing dispatch 错误；1029 条积压分批清零；单批不超过 200；网页四层统计一致；无陈旧媒体长段。
   - 文档：`docs/DESIGN.md` §3.5.1；历史审计背景见 `docs/STATS_STORAGE_FOUNDATION.md` §C.15。
 - [ ] [V1] composite routing 设计与拆包
