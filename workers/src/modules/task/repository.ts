@@ -1,13 +1,12 @@
-import type { Env } from '../db/middleware';
+import type { Env } from '../../db/middleware';
 import {
   normalizeTaskName,
   normalizeTaskResourceSpec,
   normalizeTaskLifecycleStatus,
   validateTaskRequiredSeconds,
   canEditTaskCoreFields,
-} from '../../../extension/core/task-management.js';
-
-export type TaskLifecycleStatus = 'open' | 'paused' | 'completed' | 'cancelled';
+  type TaskLifecycleStatus,
+} from './domain';
 
 export type TaskCreateInput = {
   id: string;
@@ -57,35 +56,8 @@ export function taskRowToRecord(row: any) {
   };
 }
 
-export type TaskProgressInterval = { startMs: number; endMs: number };
-
-export function calculateUnionSeconds(intervals: TaskProgressInterval[] = []) {
-  const sorted = (intervals || [])
-    .map((interval) => ({
-      startMs: Math.floor(Number(interval.startMs) || 0),
-      endMs: Math.floor(Number(interval.endMs) || 0),
-    }))
-    .filter((interval) => interval.endMs > interval.startMs)
-    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
-  if (sorted.length === 0) return 0;
-  let totalMs = 0;
-  let currentStart = sorted[0].startMs;
-  let currentEnd = sorted[0].endMs;
-  for (const interval of sorted.slice(1)) {
-    if (interval.startMs <= currentEnd) {
-      currentEnd = Math.max(currentEnd, interval.endMs);
-    } else {
-      totalMs += currentEnd - currentStart;
-      currentStart = interval.startMs;
-      currentEnd = interval.endMs;
-    }
-  }
-  totalMs += currentEnd - currentStart;
-  return Math.floor(totalMs / 1000);
-}
-
 export function validateTaskCreateInput(input: TaskCreateInput) {
-  const errors: Array<{ field: string; code: string }> = [];
+  const errors: Array<{ field: string; code: string; index?: number; value?: unknown }> = [];
   if (!input.id) errors.push({ field: 'id', code: 'REQUIRED' });
   if (!input.profileId) errors.push({ field: 'profileId', code: 'REQUIRED' });
   if (!String(input.name || '').trim()) errors.push({ field: 'name', code: 'REQUIRED' });
@@ -94,7 +66,7 @@ export function validateTaskCreateInput(input: TaskCreateInput) {
   const required = validateTaskRequiredSeconds(input.requiredSeconds);
   if (!required.ok) errors.push({ field: 'requiredSeconds', code: required.code || 'INVALID_REQUIRED_SECONDS' });
   const resource = normalizeTaskResourceSpec(input.resourceSpec || {});
-  for (const error of resource.errors || []) errors.push({ field: error.field || 'resourceSpec', code: error.code || 'INVALID_RESOURCE' });
+  for (const error of resource.errors || []) errors.push({ ...error, field: error.field || 'resourceSpec', code: error.code || 'INVALID_RESOURCE' });
   return {
     ok: errors.length === 0,
     errors,
@@ -110,6 +82,31 @@ export function validateTaskCreateInput(input: TaskCreateInput) {
   };
 }
 
+export function mergeTaskProgressIntervals(rows: Array<{ started_at?: number; ended_at?: number }>): number {
+  const intervals = rows
+    .map((row) => [Math.floor(Number(row.started_at || 0)), Math.floor(Number(row.ended_at || 0))])
+    .filter(([start, end]) => start > 0 && end > start)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let totalMs = 0;
+  let currentStart = 0;
+  let currentEnd = 0;
+  for (const [start, end] of intervals) {
+    if (!currentStart) {
+      currentStart = start;
+      currentEnd = end;
+      continue;
+    }
+    if (start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, end);
+      continue;
+    }
+    totalMs += currentEnd - currentStart;
+    currentStart = start;
+    currentEnd = end;
+  }
+  if (currentStart) totalMs += currentEnd - currentStart;
+  return Math.max(0, Math.floor(totalMs / 1000));
+}
 export function createTaskRepository(env: Env) {
   return {
     async createTask(input: TaskCreateInput) {
@@ -249,55 +246,77 @@ export function createTaskRepository(env: Env) {
       return { ok: changed, code: changed ? null : 'REVISION_CONFLICT_OR_TERMINAL' };
     },
 
-    async updateProgressProjection(profileId: string, taskId: string, completedSeconds: number, revision: number, now = Date.now()) {
-      const seconds = Math.max(0, Math.floor(Number(completedSeconds) || 0));
+    async recordDeviceState(input: { profileId: string; deviceId: string; taskVersion?: number; activeSummary?: unknown; now?: number }) {
+      const now = Number(input.now || Date.now());
       await env.DB.prepare(
-        `UPDATE tasks_v1
-         SET completed_seconds = MIN(required_seconds, ?),
-             lifecycle_status = CASE WHEN ? >= required_seconds THEN 'completed' ELSE lifecycle_status END,
-             completion_source = CASE WHEN ? >= required_seconds THEN COALESCE(completion_source, 'usage') ELSE completion_source END,
-             completed_at = CASE WHEN ? >= required_seconds THEN COALESCE(completed_at, ?) ELSE completed_at END,
-             updated_at = ?
-         WHERE profile_id = ? AND id = ? AND revision = ? AND lifecycle_status IN ('open', 'paused')`
-      ).bind(seconds, seconds, seconds, seconds, now, now, profileId, taskId, revision).run();
+        `INSERT INTO task_device_state_v1
+         (device_id, profile_id, capable, task_version, active_summary_json, reported_at, updated_at)
+         VALUES (?, ?, 1, ?, ?, ?, ?)
+         ON CONFLICT(device_id) DO UPDATE SET profile_id = excluded.profile_id, capable = 1,
+           task_version = excluded.task_version, active_summary_json = excluded.active_summary_json,
+           reported_at = excluded.reported_at, updated_at = excluded.updated_at`
+      ).bind(input.deviceId, input.profileId, Math.max(0, Number(input.taskVersion || 0)), input.activeSummary ? JSON.stringify(input.activeSummary).slice(0, 2000) : null, now, now).run();
     },
 
-    async rebuildTaskProgressProjectionFromSegments(profileId: string, taskId: string, revision: number, now = Date.now()) {
-      const task = await this.getTask(profileId, taskId);
-      if (!task) return { ok: false, code: 'TASK_NOT_FOUND' };
-      if (Number(task.revision || 0) !== Number(revision || 0)) return { ok: false, code: 'TASK_REVISION_MISMATCH' };
-      if (!['open', 'paused'].includes(String(task.lifecycleStatus || ''))) {
-        return { ok: true, skipped: true, code: 'TASK_TERMINAL', task };
+    async ingestProgressSegments(profileId: string, deviceId: string, values: any[], now = Date.now()) {
+      const acceptedIds: string[] = [];
+      const affectedTaskIds = new Set<string>();
+      for (const value of Array.isArray(values) ? values.slice(0, 1000) : []) {
+        const id = String(value?.id || '').slice(0, 180);
+        const taskId = String(value?.taskId || '').slice(0, 80);
+        const revision = Math.max(1, Math.floor(Number(value?.taskRevision || 0)));
+        const startedAt = Math.floor(Number(value?.startedAt || 0));
+        const endedAt = Math.floor(Number(value?.endedAt || 0));
+        const intervalSeconds = Math.floor((endedAt - startedAt) / 1000);
+        const reportedSeconds = Math.floor(Number(value?.seconds || 0));
+        const seconds = Math.min(90, intervalSeconds, reportedSeconds);
+        if (!id || !taskId || !startedAt || endedAt <= startedAt || seconds <= 0) continue;
+        const result = await env.DB.prepare(
+          `INSERT OR IGNORE INTO task_progress_segments_v1
+           (id, task_id, profile_id, device_id, task_revision, started_at, ended_at, seconds, created_at)
+           SELECT ?, t.id, ?, ?, ?, ?, ?, ?, ? FROM tasks_v1 t
+           WHERE t.id = ? AND t.profile_id = ? AND t.lifecycle_status = 'open' AND t.revision = ?`
+        ).bind(id, profileId, deviceId, revision, startedAt, endedAt, seconds, now, taskId, profileId, revision).run();
+        if (Number(result.meta?.changes || 0) > 0) {
+          acceptedIds.push(id);
+          affectedTaskIds.add(taskId);
+        }
       }
-      const rows = await env.DB.prepare(
-        `SELECT start_ms, end_ms
-         FROM usage_segments_v1
-         WHERE profile_id = ?
-           AND progress_task_id_at_time = ?
-           AND task_revision_at_time = ?
-           AND end_ms > start_ms
-         ORDER BY start_ms ASC, end_ms ASC`
-      ).bind(profileId, taskId, revision).all<{ start_ms: number; end_ms: number }>();
-      const completedSeconds = Math.min(
-        Number(task.requiredSeconds || 0) || 0,
-        calculateUnionSeconds((rows.results || []).map((row) => ({ startMs: row.start_ms, endMs: row.end_ms }))),
-      );
-      await this.updateProgressProjection(profileId, taskId, completedSeconds, revision, now);
-      if (completedSeconds >= Number(task.requiredSeconds || 0) && task.lifecycleStatus !== 'completed') {
-        await this.appendTaskEvent({
-          id: `${taskId}:completed:usage:${revision}`,
-          taskId,
-          profileId,
-          eventType: 'completed',
-          taskRevision: revision,
-          sourceType: 'system',
-          sourceId: 'usage_segments_v1',
-          payload: { completedSeconds, requiredSeconds: task.requiredSeconds },
-          occurredAt: now,
-          now,
-        });
+
+      for (const taskId of affectedTaskIds) {
+        const intervals = await env.DB.prepare(
+          `SELECT started_at, ended_at FROM task_progress_segments_v1
+           WHERE profile_id = ? AND task_id = ? ORDER BY started_at ASC, ended_at ASC`
+        ).bind(profileId, taskId).all<{ started_at: number; ended_at: number }>();
+        const completedSeconds = mergeTaskProgressIntervals(intervals.results || []);
+        const current = await this.getTask(profileId, taskId);
+        if (!current || current.lifecycleStatus !== 'open') continue;
+        const boundedSeconds = Math.min(current.requiredSeconds, completedSeconds);
+        const completed = boundedSeconds >= current.requiredSeconds;
+        const update = await env.DB.prepare(
+          `UPDATE tasks_v1
+           SET completed_seconds = ?, lifecycle_status = CASE WHEN ? THEN 'completed' ELSE lifecycle_status END,
+               completion_source = CASE WHEN ? THEN 'task_progress' ELSE completion_source END,
+               completed_at = CASE WHEN ? THEN COALESCE(completed_at, ?) ELSE completed_at END,
+               revision = revision + CASE WHEN ? THEN 1 ELSE 0 END, updated_at = ?
+           WHERE profile_id = ? AND id = ? AND lifecycle_status = 'open'`
+        ).bind(boundedSeconds, completed ? 1 : 0, completed ? 1 : 0, completed ? 1 : 0, now, completed ? 1 : 0, now, profileId, taskId).run();
+        if (completed && Number(update.meta?.changes || 0) > 0) {
+          await this.appendTaskEvent({
+            id: `${taskId}:auto-completed:${current.revision + 1}`,
+            taskId,
+            profileId,
+            eventType: 'auto_completed',
+            taskRevision: current.revision + 1,
+            sourceType: 'system',
+            sourceId: deviceId,
+            payload: { completedSeconds: boundedSeconds },
+            occurredAt: now,
+            now,
+          });
+        }
       }
-      return { ok: true, completedSeconds, task: await this.getTask(profileId, taskId) };
+      return { acceptedIds };
     },
   };
 }

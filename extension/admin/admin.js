@@ -13,7 +13,6 @@ import {
 import { buildEffectiveTimeQuota } from '../core/quota-config.js';
 import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
 import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
-import { getTaskCache, buildTaskReadModel } from '../infra/task-sync.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -121,7 +120,6 @@ let usageAnalysisLastView = null;
 // 当 URL 包含 ?view=stats 时，以只读模式直接进入使用分析，跳过登录/注册/绑定流程
 const urlParams = new URLSearchParams(location.search);
 const isChildView = urlParams.get('view') === 'stats';
-
 // ── 初始化 ─────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1282,8 +1280,7 @@ async function renderSystemManagementPage() {
     await renderSettlementsPage();
   } else if (systemManagementActiveTab === 'media-settlements') {
     await renderMediaSettlementsPage();
-  } else if (systemManagementActiveTab === 'tasks') {
-    await renderTaskManagementReadonlyPage();
+
   } else if (systemManagementActiveTab === 'client-logs') {
     await renderClientLogsPage();
   }
@@ -1293,50 +1290,91 @@ function setSystemManagementPageError(message) {
   if (systemManagementActiveTab === 'device-status') setDevicesPageError(message);
   else if (systemManagementActiveTab === 'web-settlements') setSettlementsPageError(message);
   else if (systemManagementActiveTab === 'media-settlements') setMediaSettlementsPageError(message);
-  else if (systemManagementActiveTab === 'tasks') setTaskManagementPageError(message);
   else if (systemManagementActiveTab === 'client-logs') setClientLogsPageError(message);
-}
-
-function setTaskManagementPageError(message) {
-  const el = document.getElementById('task-management-readonly');
-  if (el) el.innerHTML = `<div style="color:var(--danger);padding:16px;text-align:center;">${escHtml(message || '任务读取失败')}</div>`;
-}
-
-function renderTaskRow(task = {}, role = '') {
-  const required = Math.max(0, Number(task.requiredSeconds || 0));
-  const completed = Math.max(0, Number(task.completedSeconds || 0));
-  const remaining = Math.max(0, Number(task.remainingSeconds || (required - completed)));
-  const roleText = role ? `<span class="rules-site-badge">${escHtml(role)}</span>` : '';
-  return `<div class="rules-record-row">
-    <div>
-      <div class="rules-record-target">${escHtml(task.name || '未命名任务')} ${roleText}</div>
-      <div class="rules-record-meta">状态 ${escHtml(task.runtimeStatus || task.lifecycleStatus || 'unknown')} · 版本 ${Number(task.revision || 0)} · 剩余 ${formatSeconds(remaining)}</div>
-    </div>
-    <div class="rules-record-actions">${formatSeconds(completed)} / ${formatSeconds(required)}</div>
-  </div>`;
-}
-
-async function renderTaskManagementReadonlyPage() {
-  const el = document.getElementById('task-management-readonly');
-  if (!el) return;
-  const model = buildTaskReadModel(await getTaskCache());
-  const rows = [];
-  if (model.progressTask) rows.push(renderTaskRow(model.progressTask, '进度归属'));
-  for (const task of model.enforcingTasks || []) {
-    if (model.progressTask && task.id === model.progressTask.id) continue;
-    rows.push(renderTaskRow(task, '当前强制'));
-  }
-  if (model.nextTask) rows.push(renderTaskRow(model.nextTask, '下一任务'));
-  el.innerHTML = `
-    <div class="rules-record-section-desc">本机只读展示当前已同步任务。任务修改、暂停、完成和取消需要在云端家长控制台完成。</div>
-    <div class="settlement-summary">当前强制 ${Number(model.activeCount || 0)} 个 · 任务版本 ${Number(model.taskVersion || 0)}${model.error ? ` · 最近同步错误：${escHtml(model.error)}` : ''}</div>
-    ${rows.length ? rows.join('') : '<div class="rules-readonly-empty">当前没有生效任务，也没有已同步的未来任务。</div>'}`;
 }
 
 function isLatestAdminRefreshRequest(requestSeq) {
   return requestSeq === adminPageRefreshSeq;
 }
 
+function renderOptionalModulesError(message) {
+  const root = document.getElementById('optional-module-list');
+  if (!root) return;
+  root.innerHTML = `
+    <div class="rules-readonly-empty">
+      <div>模块列表读取失败：${escHtml(message || '后台暂不可用')}</div>
+      <button type="button" class="settlement-refresh-btn" data-module-retry>重试</button>
+    </div>`;
+  root.querySelector('[data-module-retry]')?.addEventListener('click', () => {
+    renderOptionalModulesPage().catch((error) => renderOptionalModulesError(error?.message));
+  });
+}
+
+function optionalModuleCard(entry) {
+  const isInline = entry.uiKind === 'inline' && entry.inlineScript;
+  const action = isInline
+    ? `<button type="button" class="settlement-refresh-btn" data-module-toggle="${escHtml(entry.id)}">展开</button>`
+    : `<button type="button" class="settlement-refresh-btn" data-module-href="${escHtml(entry.href || '')}">打开</button>`;
+  return `
+    <section class="optional-module-card" data-module-card="${escHtml(entry.id)}">
+      <div class="optional-module-card-header">
+        <div>
+          <div class="optional-module-title-row"><strong>${escHtml(entry.label || entry.id)}</strong>${/beta/i.test(entry.label || '') ? '<span class="optional-module-beta">Beta</span>' : ''}</div>
+          <div class="rules-readonly-note">${escHtml(entry.description || entry.id)}</div>
+        </div>
+        ${action}
+      </div>
+      ${isInline ? `<div class="optional-module-body" data-module-body="${escHtml(entry.id)}" hidden><div class="rules-readonly-empty">点击展开后加载模块。</div></div>` : ''}
+    </section>`;
+}
+
+async function mountInlineOptionalModule(entry, body, button) {
+  if (!entry?.inlineScript || !body) return;
+  const mounted = body.dataset.moduleMounted === 'true';
+  const isHidden = body.hidden;
+  body.hidden = !isHidden;
+  if (button) button.textContent = body.hidden ? '展开' : '收起';
+  if (body.hidden || mounted) return;
+  body.innerHTML = '<div class="rules-readonly-empty">正在加载模块...</div>';
+  try {
+    const moduleUrl = chrome.runtime.getURL(entry.inlineScript);
+    const module = await import(moduleUrl);
+    if (typeof module.mountOptionalModulePanel !== 'function') throw new Error('模块未提供可嵌入面板');
+    await module.mountOptionalModulePanel(body);
+    body.dataset.moduleMounted = 'true';
+  } catch (error) {
+    body.innerHTML = `<div class="rules-readonly-empty">模块加载失败：${escHtml(error?.message || '未知错误')}</div>`;
+  }
+}
+
+async function renderOptionalModulesPage() {
+  const root = document.getElementById('optional-module-list');
+  if (!root) return;
+  root.innerHTML = '<div class="rules-readonly-empty">正在读取...</div>';
+  let response;
+  try {
+    response = await sendMsg({ type: 'GET_OPTIONAL_MODULE_ENTRIES' });
+  } catch (error) {
+    renderOptionalModulesError(error?.message);
+    return;
+  }
+  const entries = Array.isArray(response?.entries) ? response.entries : [];
+  if (!entries.length) {
+    root.innerHTML = '<div class="rules-readonly-empty">当前没有已安装的扩展模块</div>';
+    return;
+  }
+  root.innerHTML = entries.map(optionalModuleCard).join('');
+  root.querySelectorAll('[data-module-href]').forEach((button) => {
+    button.addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL(button.dataset.moduleHref) }));
+  });
+  root.querySelectorAll('[data-module-toggle]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const entry = entries.find((item) => item.id === button.dataset.moduleToggle);
+      const body = root.querySelector(`[data-module-body="${CSS.escape(button.dataset.moduleToggle)}"]`);
+      await mountInlineOptionalModule(entry, body, button);
+    });
+  });
+}
 async function refreshPageByNav(page, requestSeq) {
   try {
     if (isLocalReadOnlyMode && page === 'rules') {
@@ -1352,6 +1390,10 @@ async function refreshPageByNav(page, requestSeq) {
       config = await sendMsg({ type: 'GET_CONFIG' });
       if (!isLatestAdminRefreshRequest(requestSeq)) return;
       await renderStatsPage();
+      return;
+    }
+    if (page === 'modules') {
+      await renderOptionalModulesPage();
       return;
     }
     if (page === 'system-management') {

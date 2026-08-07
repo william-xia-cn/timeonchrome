@@ -166,21 +166,6 @@ export function getLocalDateInfo(epochMs, timezoneOffsetMinutes) {
   return { date, dayStartMs, dayEndMs };
 }
 
-function normalizeTaskSnapshot(input = {}) {
-  const matched = Array.isArray(input?.matchedTaskIdsAtTime)
-    ? input.matchedTaskIdsAtTime.map(String).filter(Boolean).sort((a, b) => a.localeCompare(b))
-    : [];
-  const progressTaskId = typeof input?.progressTaskIdAtTime === 'string' && input.progressTaskIdAtTime.trim()
-    ? input.progressTaskIdAtTime.trim()
-    : null;
-  const revision = Number(input?.taskRevisionAtTime);
-  return {
-    matchedTaskIdsAtTime: matched,
-    progressTaskIdAtTime: progressTaskId,
-    taskRevisionAtTime: Number.isFinite(revision) && revision > 0 ? revision : null,
-  };
-}
-
 function normalizeTargetSnapshot(input = {}) {
   const out = {};
   for (const key of TARGET_SNAPSHOT_FIELDS) {
@@ -453,7 +438,6 @@ export function buildUsageSegment(input) {
   }
   if (!date) date = '1970-01-01';
   const targetSnapshot = normalizeTargetSnapshot({ ...input, mode: input.mode || 'unknown' });
-  const taskSnapshot = normalizeTaskSnapshot(input);
 
   const seg = {
     id: input.incognito === true ? generateSegmentId({ ...input, date }) : (input.id || generateSegmentId({ ...input, date })),
@@ -472,7 +456,6 @@ export function buildUsageSegment(input) {
     windowId: Number.isInteger(input.windowId) ? input.windowId : null,
     incognito: input.incognito === true,
     ...targetSnapshot,
-    ...taskSnapshot,
     channel: input.channel,
     mode: input.mode || 'unknown',
     sourceState: input.sourceState || 'UNKNOWN',
@@ -1674,9 +1657,6 @@ export async function buildUsageSegmentsUploadPayload(segmentIds) {
       targetMatchLevel: seg.targetMatchLevel || null,
       targetClassificationAtTime: seg.targetClassificationAtTime || null,
       quotaBucketAtTime: seg.quotaBucketAtTime || null,
-      matchedTaskIdsAtTime: Array.isArray(seg.matchedTaskIdsAtTime) ? seg.matchedTaskIdsAtTime : [],
-      progressTaskIdAtTime: seg.progressTaskIdAtTime || null,
-      taskRevisionAtTime: seg.taskRevisionAtTime || null,
       channel: seg.channel,
       mode: seg.mode,
       sourceState: seg.sourceState,

@@ -104,7 +104,7 @@ function run() {
   expectTrue('popup suspect summary does not block init', popupJs.includes('getSuspectSegmentSummarySafe().then(renderSuspectSegmentStatus)') && !popupJs.includes('renderSuspectSegmentStatus(await getSuspectSegmentSummarySafe())'));
   expectTrue('popup local mode notice text is present', popupHtml.includes('本地模式：未绑定云端，统计不会同步'));
   expectTrue('popup bound activation notice does not report local mode', popupJs.includes('const isActivationBlocked = isBound && cloudStatus?.runtimeActivated === false') && popupJs.includes('Chrome Profile 未授权') && popupJs.includes('云端绑定待生效'));
-  expectTrue('popup local mode keeps admin button', popupHtml.includes('打开管理中心') && popupJs.includes("admin/admin.html?view=stats"));
+  expectTrue('popup local mode keeps the base Admin entry', popupHtml.includes('打开管理中心') && popupJs.includes("admin/admin.html?view=stats"));
   expectTrue('popup local mode does not show cloud login button', !popupHtml.includes('id="login-cloud-btn"') && !popupHtml.includes('登录/绑定云端'));
   expectTrue('popup main init does not request config and mode stats separately', !popupJs.includes("type: 'GET_CONFIG'") && !popupJs.includes("type: 'GET_POPUP_SETTLED_MODE_STATS'"));
   expectTrue('popup no longer requests popup-sourced GET_STATS', !popupJs.includes("type: 'GET_STATS', source: 'popup'"));
@@ -123,7 +123,7 @@ function run() {
   expectTrue('popup no undetermined bar in usage area', !popupJs.includes("待归类时长"));
 
   expectTrue('popup cloud status preserves binding during activation gate failure', backgroundSource.includes('const runtimeActivated = hasActivation ? activation.activated === true : true') && backgroundSource.includes("reason: isBound ? activationReason : 'no_device_token'") && backgroundSource.includes('syncEnabled: isBound && runtimeActivated') && backgroundSource.includes('cloudStatus: buildPopupCloudStatus(storage || {}, activation)'));
-  expectTrue('popup displays task read model card from local snapshot', popupHtml.includes('task-read-model-card') && popupJs.includes('function renderTaskReadModel') && popupJs.includes('当前任务') && popupJs.includes('下一任务') && backgroundSource.includes('taskReadModel'));
+  expectTrue('base popup remains Task-unaware', !popupHtml.includes('task-read-model-card') && !popupJs.includes('GET_TASK_READ_MODEL') && !backgroundSource.includes('taskReadModel'));
   expectTrue('popup cloud status reads cloud-sync runtime state as binding source', backgroundSource.includes('syncSnapshot || getSyncState()') && backgroundSource.includes('!!storage.cloud_device_token || !!runtimeSyncState?.deviceToken') && backgroundSource.includes("'cloud_connection_state_v1'"));
   expectTrue('popup snapshot failure fallback preserves cloud binding status', backgroundSource.includes('cloudStatus: buildPopupCloudStatus(storage || {}, null)') && !backgroundSource.includes("cloudStatus: { isBound: false, localMode: true, syncEnabled: false, reason: 'snapshot_failed'"));
   expectTrue('GET_CLOUD_STATUS exposes unbound localMode', messageRouterSource.includes('localMode: !isBound') && messageRouterSource.includes("reason: isBound ? null : 'no_device_token'"));

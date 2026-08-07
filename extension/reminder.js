@@ -55,7 +55,6 @@
   const slideThumb = document.getElementById('slideThumb');
   const slideHint = document.getElementById('slideHint');
   const restQuotaLine = document.getElementById('restQuotaLine');
-  const taskSummaryEl = document.getElementById('taskSummary');
 
   // Dual-path borrow elements (Case #6 restLocked variant)
   const dualPathBorrowSection = document.getElementById('dualPathBorrowSection');
@@ -277,11 +276,7 @@
       subtitle: '这个网站的使用需要进入休息模式，但是当前时间未允许使用休息模式',
       actions: ['back']
     },
-    task_required: {
-      icon: 'notice', title: '当前需要先完成任务',
-      subtitle: '任务期间只能访问当前任务允许的网站或对象。完成、暂停或取消后会恢复普通访问规则。',
-      actions: ['viewDetails', 'backGeneric']
-    }
+
   };
 
   // 操作按钮定义
@@ -363,8 +358,7 @@
     'to_rest_slide_confirm', 'restricted_study_mode',
     'quota_composite_and_rest', 'rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
-    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked',
-    'task_required'
+    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked'
   ]);
 
   var config;
@@ -539,31 +533,6 @@
       boundFlag: 'slideBoundRest',
     });
   }
-  function formatTaskSummaryDuration(totalSeconds) {
-    return formatDurationCN(totalSeconds);
-  }
-
-  function renderTaskRequiredSummary() {
-    if (!taskSummaryEl || effectiveReason !== 'task_required') return;
-    chrome.runtime.sendMessage({ type: 'GET_TASK_READ_MODEL' }, function(model) {
-      const runtimeError = chrome.runtime.lastError;
-      if (runtimeError || !model?.ok) {
-        taskSummaryEl.style.display = 'block';
-        taskSummaryEl.textContent = '当前有任务正在生效，请返回任务允许的网站继续。';
-        return;
-      }
-      const progressTask = model.progressTask || (model.enforcingTasks || [])[0] || null;
-      if (!progressTask) {
-        taskSummaryEl.style.display = 'block';
-        taskSummaryEl.textContent = '当前任务状态正在同步，请稍后重试或返回。';
-        return;
-      }
-      const remaining = Math.max(0, Number(progressTask.remainingSeconds || 0));
-      taskSummaryEl.style.display = 'block';
-      taskSummaryEl.innerHTML = `<strong>${escapeHtml(progressTask.name || '当前任务')}</strong><br>剩余 ${formatTaskSummaryDuration(remaining)}。请回到任务允许的网站继续。`;
-    });
-  }
-
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"]/g, function(ch) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch];
@@ -574,7 +543,6 @@
   // Never render msg — it can override the intended page semantics visually.
   var customMsgEl = document.getElementById('customMsg');
   if (customMsgEl) customMsgEl.style.display = 'none';
-  renderTaskRequiredSummary();
 
   if (domainEl) {
     if (CONFIRM_STANDARD_REASONS.has(effectiveReason) || effectiveReason === 'to_rest_slide_confirm' || effectiveReason === 'study_mode') {

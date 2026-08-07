@@ -31,10 +31,35 @@
   - 产品规格：`docs/specs/SPEC-002-TASK-MANAGEMENT.md`
   - 技术设计：`docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
   - 状态：Product Owner 已批准产品规则和技术结构；目标分支 `codex/task-management-v1` 的 P1-P9 实现与本地验证已完成，等待单独 release/migration/deploy 决策。
-  - 核心：一次性强制 Chrome 任务；按有效任务使用时长完成；不支持周期任务或固定截止时间；多设备按有效区间并集累计。
+  - 核心：一次性强制 Chrome 任务；Task 是独立模块，只在访问决策前置层改变可访问内容范围，不写入核心用量账本。
   - 实施边界：任务代码、migration 和测试只进入 `codex/task-management-v1`，不得与其他功能提交混合；不执行远端 D1 migration、不部署生产环境，除非 Product Owner 后续单独授权。
 
 ## Current Development Focus（2026-08-05）
+- [ ] [Task-management / P10] 完全独立模块重构
+  - 分支：`codex/task-management-v1`
+  - 范围：按 D-058 将 Task 的领域、运行时、同步、独立进度账本、消息和 UI 收敛到可整体删除模块；宿主只保留通用 optional-module host，以及 `background.js` 中唯一一行静态 side-effect import 安装开关。
+  - 边界：Task 命中不再绕过时间段；不修改核心 usage/session/stats，不部署、不执行远端 migration、不发布。
+  - 验证：测试副本同时移除唯一安装行与 Task 目录后执行基础扩展 smoke；Task 专项、访问/计时回归、Worker 测试、typecheck、diff check 和独立 UI 目视验证。
+- [x] [Task-management / P11] 独立进度账本容量与模块入口可靠性
+  - 范围：Task 本地进度只保留未上传 segment；成功上传后删除，启动时清理历史已上传项，pending 上限 4096 条并按 500 条分批上传；超限记录 Task 自有诊断并保守丢弃最旧 pending，不触碰核心统计。
+  - UI：扩展模块列表读取失败时显示明确错误与重试按钮，不再永久停留在“正在读取...”。
+  - 验证：Task ledger 容量/清理静态与行为测试、Admin 错误状态测试、本地 Task smoke、typecheck、diff check。
+- [x] [Task-management / P12] 资源协议与配置界面统一
+  - 范围：统一扩展/Worker 的 `hosts + urlRules + specialTargets` canonical 资源协议；域名覆盖子域，URL 支持精确页面与路径范围，旧 `urls` 只作兼容输入。
+  - UI：本地 Beta 与云端 Task 页面使用结构化资源编辑器，保存后回填并逐条展示所有域名、URL 和 YouTube 对象；非法项和重复项逐条提示。
+  - 边界：只修改独立 Task 模块，不改访问管理、核心计时、核心落账、原同步，不部署、不迁移、不发布。
+  - 验证：扩展/Worker canonical fixture、Task 专项、两项 smoke、核心回归、桌面/窄屏目视验证、typecheck、extension root 和 diff check。
+  - 结果：Task 专项、扩展/Worker fixture、本地与云端 UI smoke、模块移除 smoke、桌面/窄屏目视检查均通过；仓库全量 unit 仍有 4 个与本任务无关的既存失败，提交闸门保持关闭。
+- [x] [Task-management / P13] 正式发布关闭本地调试与 Task 页面正式化
+  - 范围：production deployment profile 默认设置 `taskLocalDebugEnabled: false`；正式包隐藏本地调试区、拒绝三类调试消息并清理遗留调试任务。
+  - UI：重设计本地 Task 状态页、Task required 阻断页和云端 Task 管理页；阻断页的允许资源必须是可点击入口。
+  - 边界：正式任务状态页和 Task required 页面保持可用；Unpacked 开发加载继续默认开放调试；不部署、不迁移、不发布。
+  - 验证：production staging 门禁、开发/生产 build profile、消息硬阻断、遗留 cache 清理、正式任务保留、三页面桌面/窄屏目视检查、smoke、typecheck、extension root 与 diff check。
+  - 结果：production/development staging、Task 专项 74/74、开发/正式 profile smoke、云端 Task UI smoke、模块移除 smoke、桌面/窄屏截图目视检查、typecheck、extension root 与 diff check 均通过。
+- [x] [Task-management / P14] 本地扩展模块页内展开任务管理
+  - 范围：将本地 Admin 的 扩展模块 -> 任务管理 从打开独立页面改为 inline 展开卡；Task UI 仍位于 Task 模块内，由 optional-module entry 动态挂载。
+  - 边界：不改变 Task runtime、Worker、cloud API、进度账本、阻断页或 production 调试关闭规则；云端 /task/ 页面保持独立。
+  - 验证：Task/Admin 单元测试、本地 smoke、模块移除 smoke、桌面/窄屏目视检查、typecheck 与 diff check。
 - [x] [Task-management / P1] 任务管理 V1 第一实现包
   - 分支：`codex/task-management-v1`
   - 范围：新增 `tasks_v1`、`task_events_v1` migration 和 Worker repository；实现任务 schema、资源规范化和生命周期纯函数。
@@ -52,29 +77,29 @@
   - 测试：任务纯函数与扩展任务同步静态/契约测试、`npm run typecheck`、`git diff --check`。
 - [x] [Task-management / P4] 任务管理 V1 runtime session/segment 快照与边界重评估
   - 分支：`codex/task-management-v1`
-  - 范围：打开 counted session 时记录任务匹配快照；usage segment 保存并上传 `matchedTaskIdsAtTime` / `progressTaskIdAtTime` / `taskRevisionAtTime`；任务开始和任务完成边界触发当前 session 结算、任务缓存刷新和 active tab 重评估。
-  - 边界：不实现 Worker 多设备进度投影，不开放 Pages 创建入口，不改 Popup/Admin/Reminder UI，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
-  - 测试：任务 runtime 静态/契约测试、usage segment 快照测试、Worker stats ingest 静态测试、`npm run typecheck`、`git diff --check`。
+  - 范围：已撤销原 P4 的 session/segment 任务快照、任务完成 alarm 和任务边界切片；Task 开始只触发任务缓存刷新和 active tab 重评估。
+  - 边界：不实现 Worker 多设备进度投影，不让 Task 参与核心计时落账；不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
+  - 测试：任务 runtime 静态/契约测试、usage segment 无任务字段测试、Worker stats ingest 无任务投影测试、`npm run typecheck`、`git diff --check`。
 - [x] [Task-management / P5] 任务管理 V1 Worker 进度投影与多设备区间并集
   - 分支：`codex/task-management-v1`
-  - 范围：Worker 仅在 `usage_segments_v1` 新插入 segment 后，从同一 `profile_id + task_id + revision` 的 accepted segments 重算时间区间并集，写入 `tasks_v1.completed_seconds`，首次达到要求时标记 `completed` 并写入 usage completion event。
-  - 边界：不新增第二套任务时间上传协议，不改扩展端阻断/UI，不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
-  - 测试：任务 repository/projection 静态与纯函数测试、Worker stats ingest 触发投影测试、`npm run typecheck`、`git diff --check`。
-- [x] [Task-management / P6] 任务管理 V1 Popup/Admin/Reminder 只读展示
+  - 范围：已撤销原 P5 的核心 usage segment 任务进度投影；当前进度由独立 `task_progress_segments_v1` 与 Task device API 记录、上传和按时间区间并集合并。
+  - 边界：Task progress ledger 不读写核心 session、usage segment 或 stats；任务完成投影只来自 Task 自有进度事实。
+  - 测试：任务 repository/API 静态与纯函数测试、Worker stats ingest 无任务投影测试、`npm run typecheck`、`git diff --check`。
+- [x] [Task-management / P6] 任务管理 V1 UI（旧嵌入实现，已由 D-058 重构取代）
   - 分支：`codex/task-management-v1`
-  - 范围：基于扩展端 task cache 构造只读 read model；Popup 展示当前强制任务、进度归属任务和最近未来任务；本地 Admin 增加任务管理只读页；Reminder 在任务限制场景展示任务资源摘要。
+  - 当前范围：主 Popup、原 Admin 和 Reminder 已移除 Task 业务展示；Task 状态、Beta 调试和阻断分别位于独立 Task Admin 与 Task required 页面。
   - 边界：不实现任务创建/编辑，不改变访问控制或配额逻辑，不开放 Pages 创建入口，不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本。
   - 测试：任务 read model 静态/契约测试、Popup/Admin/Reminder 静态测试、`npm run typecheck`、`git diff --check`。
 
-- [x] [Task-management / P7] 任务管理 V1 Pages 创建入口与 capability gate
+- [x] [Task-management / P7] 任务管理 V1 独立 Cloud 页面与 capability gate
   - 分支：`codex/task-management-v1`
-  - 范围：云端 Pages 增加一级“任务管理”入口；读取任务列表和 capability 摘要；在所有在线受管设备支持 `taskManagementV1` 时允许创建一次性任务；提供暂停、恢复、留痕完成和取消动作；完成/取消历史默认折叠。
-  - 边界：不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本；任务进度仍由 Worker 基于 usage segment 投影，Pages 不计算可信进度。
+  - 范围：云端 `/task/` 独立页面读取任务列表和 capability 摘要；在所有在线受管设备支持 `taskManagementV1` 时允许创建一次性任务；提供暂停、恢复、留痕完成和取消动作；完成/取消历史默认折叠。主 Pages 只保留通用扩展模块入口。
+  - 边界：不执行远端 D1 migration，不部署生产环境，不修改扩展发布版本；Pages 只展示任务 read model，不计算可信进度。
   - 测试：Pages 静态/契约测试、任务 Worker/API 回归、`npm run typecheck`、`git diff --check` 与 Pages 目视验证。
 
-- [x] [Task-management / P8] 任务管理 V1 runtime `task_required` 阻断
+- [x] [Task-management / P8] 任务管理 V1 runtime `task_required` 阻断（旧集成实现，已由 D-058 重构取代）
   - 分支：`codex/task-management-v1`
-  - 范围：扩展运行时访问决策读取本机 task cache；有未完成任务生效且当前页面不属于任务资源并集时进入 `task_required`；命中任务资源时跳过旧时间段限制，但仍保持黑名单、安全和配额检查。
+  - 历史范围：旧实现曾通过 Task Bridge 接入 mode-service 并跳过旧时间段；该结构已被 D-058 取代。当前 Task 使用独立模块和独立阻断页，命中资源后继续完整原访问流程。
   - 边界：不改 Worker API、不执行远端 D1 migration、不部署生产环境、不修改扩展发布版本；不改变无任务时现有访问控制、计时、同步和统计行为。
   - 测试：mode routing 任务阻断回归、任务纯函数回归、`npm run typecheck`、`git diff --check`。
 
@@ -83,6 +108,20 @@
   - 范围：在不部署、不执行远端 D1 migration 的前提下，运行本地完整自动化回归、任务相关专项测试、扩展结构检查和 diff 检查；记录回滚边界和剩余生产验证项。
   - 边界：不新增产品功能、不修改运行时逻辑、不部署 Worker/Pages/扩展托管平台、不修改发布版本。
   - 测试：`node tests/run-all.js` 中 unit/background/workers/duration/recovery/event-log/duration-flow/E2E 均通过；API 项在沙箱内因 `fetch failed` 失败，单独获批非沙箱运行 `node tests\\api\\workers.test.js` 后 103/103 通过；任务专项、`npm run typecheck`、`npm run check:extension-root`、`git diff --check` 通过。
+- [x] [Task-management / Local Smoke] unpacked 扩展任务 cache seed 验证入口
+  - 分支：`codex/task-management-v1`
+  - 范围：新增本地 runbook 与 manual smoke 脚本，通过写入 `task_management_v1_cache` 验证独立 Task Admin、独立 `task_required` 页面、任务资源进入原访问流程、Task 自有进度账本，并确认 Popup/Admin/Reminder 与核心 usage segment 不含 Task 语义。
+  - 边界：不部署 Worker/Pages、不执行 D1 migration、不发布自托管控件、不调用生产任务 API、不写真实 token。
+  - 验证：`node tests/manual/task-v1-local-cache-smoke.mjs` 用临时 Chrome profile 和 mock 页面执行；对 `debugOnly` 本地任务使用受限活跃 checkpoint，避免自动化主机 idle 造成假失败；清理 cache 后恢复无任务状态。
+- [x] [Task-management / Resource Model Decoupling] 任务资源模型与访问管理分类解耦
+  - 分支：`codex/task-management-v1`
+  - 范围：移除 Task V1 中 `policyTypes` / 学习/复合类型级资源，任务只保存显式域名、URL 和任务资源对象；Task 模块从通用 optional-module host 获取页面事实，不进入 `mode-service`。
+  - 边界：不改变访问管理分类、配额、落账、同步、Worker 部署或发布流程；Task 命中后继续完整基础访问流程。
+- [x] [Task-management / Beta Local Debug UI] 独立 Task 本地调试配置页
+  - 分支：`codex/task-management-v1`
+  - 范围：在 `extension/modules/task/ui/admin.html` 独立页面中提供登录后可用的本地调试配置区；原 Admin 只通过通用模块入口打开该页，写入/清除 `task_management_v1_cache` 用于快速验证 Task V1。
+  - Beta 边界：该入口是 Beta-only 调试特性，正式发布前必须重新确定发布策略；不作为生产任务创建入口。
+  - 安全边界：不创建云端任务、不调用生产任务 API、不修改 guardian_config、不读取或展示 token/密码/cookie；未登录或只读视图不显示可写控件。
 ## Current Fix Focus（2026-07-28）
 - [x] [Extension Admin UI] 终端网站归类记录对齐云端结构
   - 目标：本地 Admin 使用“复合网站申请学习记录 / 未归类网站使用记录”两单元只读布局，未处理默认展开、已处理默认折叠。

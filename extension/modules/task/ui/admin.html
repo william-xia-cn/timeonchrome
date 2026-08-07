@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>任务管理 · TimeOnChrome</title>
+  <link rel="stylesheet" href="task.css">
+</head>
+<body class="task-admin-page">
+  <header class="task-topbar">
+    <div class="task-brand"><img src="../../../icons/app-icon.png" alt=""><div><strong>TimeOnChrome</strong><span>任务管理</span></div></div>
+  </header>
+  <main class="task-main" id="task-admin-root"></main>
+  <script type="module">
+    import { mountOptionalModulePanel } from './admin.js';
+    await mountOptionalModulePanel(document.getElementById('task-admin-root'));
+  </script>
+</body>
+</html>

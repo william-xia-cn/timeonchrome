@@ -1380,7 +1380,52 @@
       line-height: 1.35;
       overflow-wrap: anywhere;
     }
-    .system-management-panel {
+    .optional-module-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .optional-module-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+    }
+    .optional-module-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .optional-module-beta {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 2px 7px;
+      border-radius: 7px;
+      background: rgba(108,99,255,0.10);
+      color: #4f46e5;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .optional-module-body {
+      border-top: 1px solid var(--border);
+      padding: 16px;
+      background: rgba(0,184,148,0.025);
+    }
+    .optional-module-body[hidden] { display: none !important; }
+    .optional-module-body .task-main { max-width: none; padding: 0; }
+    .optional-module-body .task-topbar { display: none; }
+    .optional-module-body .page-intro { margin-bottom: 16px; }
+    .optional-module-body .workspace-panel { margin-bottom: 14px; }
+    @media (max-width: 900px) {
+      .optional-module-card-header { align-items: flex-start; flex-direction: column; }
+      .optional-module-card-header .settlement-refresh-btn { width: 100%; }
+      .optional-module-body { padding: 12px; }
+    }    .system-management-panel {
       display: none;
     }
     .system-management-panel.active {
@@ -1689,6 +1734,9 @@
     <div class="nav-item" data-page="rules">
       <span class="nav-icon"><img src="../icons/ui/rules.svg" alt=""></span> 访问管理
     </div>
+    <div class="nav-item" data-page="modules">
+      <span class="nav-icon"><img src="../icons/ui/settings.svg" alt=""></span> 扩展模块
+    </div>
     <div class="nav-item" data-page="system-management">
       <span class="nav-icon"><img src="../icons/ui/settings.svg" alt=""></span> 系统管理
     </div>
@@ -1861,6 +1909,10 @@
     </div>
 
     <!-- 系统管理 -->
+    <div class="page" id="page-modules">
+      <div class="page-header"><h2>扩展模块</h2><p>独立模块拥有自己的配置、状态和运行边界；未安装的模块不会出现在这里。</p></div>
+      <div class="card"><div class="card-header"><div><div class="card-title">已安装模块</div><div class="card-subtitle">点击模块展开状态与配置；未安装的模块不会显示。</div></div></div><div id="optional-module-list" class="rules-readonly-list"><div class="rules-readonly-empty">正在读取...</div></div></div>
+    </div>
     <div class="page" id="page-system-management">
       <div class="page-header">
         <h2>系统管理</h2>
@@ -1871,7 +1923,6 @@
         <button type="button" class="active" data-system-management-tab="device-status">本机状态</button>
         <button type="button" data-system-management-tab="web-settlements">网页落账</button>
         <button type="button" data-system-management-tab="media-settlements">媒体落账</button>
-        <button type="button" data-system-management-tab="tasks">任务管理</button>
         <button type="button" data-system-management-tab="client-logs">系统日志</button>
       </div>
 
@@ -1958,18 +2009,6 @@
         <div class="settlement-table-wrap" id="media-settlement-table-wrap">
           <div style="color:var(--muted);text-align:center;padding:16px;">加载中...</div>
         </div>
-      </div>
-      </section>
-
-      <section class="system-management-panel" data-system-management-panel="tasks">
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/online-time.svg" alt="">任务管理</div>
-            <div class="card-subtitle">只读展示本机已同步任务；创建、暂停、完成和取消由云端家长控制台处理</div>
-          </div>
-        </div>
-        <div id="task-management-readonly">加载中...</div>
       </div>
       </section>
 

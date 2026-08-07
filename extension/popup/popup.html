@@ -205,49 +205,6 @@
       flex-shrink: 0;
     }
 
-    .task-card {
-      display: none;
-      margin: 8px 16px 0;
-      padding: 10px 11px;
-      border: 1px solid rgba(108,92,231,0.16);
-      border-radius: 9px;
-      background: rgba(108,92,231,0.055);
-    }
-    .task-card.active { display: block; }
-    .task-card-title {
-      font-size: 11px;
-      color: #496d5f;
-      margin-bottom: 4px;
-    }
-    .task-card-main {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-    .task-card-name {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      min-width: 0;
-    }
-    .task-card-progress {
-      font-size: 10px;
-      color: #5747d1;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-    .task-card-sub {
-      margin-top: 4px;
-      font-size: 10px;
-      color: #496d5f;
-      line-height: 1.4;
-    }
-
     .request-entry {
       margin: 8px 16px 0;
       display: flex;
@@ -563,7 +520,6 @@
 
   <div id="popup-content">
     <div class="runtime-compact" id="runtime-compact"></div>
-    <div class="task-card" id="task-read-model-card" aria-live="polite"></div>
     <div class="request-entry" id="site-request-entry">
       <button class="request-open-btn" id="site-request-open-btn">申请归为学习网站</button>
       <div class="request-entry-status" id="site-request-entry-status"></div>

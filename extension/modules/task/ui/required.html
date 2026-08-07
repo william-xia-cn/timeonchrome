@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>当前需要先完成任务</title>
+  <link rel="stylesheet" href="task.css">
+</head>
+<body class="task-required-page">
+  <header class="task-topbar">
+    <div class="task-brand"><img src="../../../icons/app-icon.png" alt=""><div><strong>TimeOnChrome</strong><span>任务管理</span></div></div>
+    <span class="enforcing-badge">任务进行中</span>
+  </header>
+  <main class="required-main">
+    <section class="required-heading">
+      <div class="required-icon"><img src="../../../icons/ui/request.svg" alt=""></div>
+      <div><p class="eyebrow">FOCUS REQUIRED</p><h1>当前需要先完成任务</h1><p>当前网页不在任务允许资源中。请选择下面的任务资源继续。</p></div>
+    </section>
+    <section id="task-list" class="task-list required-task-list"></section>
+    <div class="required-actions"><button id="back-btn" class="secondary-button">返回上一页</button><button id="details-btn" class="primary-button">查看任务详情</button></div>
+  </main>
+  <script type="module" src="required.js"></script>
+</body>
+</html>

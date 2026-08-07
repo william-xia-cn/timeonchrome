@@ -1,0 +1,5 @@
+{
+  "mode": "development",
+  "production": false,
+  "taskLocalDebugEnabled": true
+}

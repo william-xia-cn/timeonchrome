@@ -502,48 +502,6 @@
       .rules-special-row { grid-template-columns: 1fr; gap: 6px; }
     }
 
-    /* Task Management */
-    #page-tasks { max-width: 1180px; }
-    .task-capability-card {
-      border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
-      background: rgba(0,184,148,0.04); margin-bottom: 14px; font-size: 13px;
-    }
-    .task-capability-card.blocked { border-color: rgba(245,158,11,.32); background: rgba(245,158,11,.06); }
-    .task-create-grid { display: grid; grid-template-columns: minmax(160px, 1fr) 180px 130px; gap: 10px; align-items: end; }
-    .task-create-grid label, .task-resource-grid label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
-    .task-create-grid input, .task-resource-grid textarea {
-      background: rgba(0,184,148,0.04); border: 1px solid var(--border); border-radius: 8px;
-      padding: 9px 11px; color: var(--text); font-size: 13px; outline: none; min-width: 0;
-    }
-    .task-resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
-    .task-resource-grid textarea { min-height: 70px; resize: vertical; font-family: inherit; line-height: 1.45; }
-    .task-policy-options { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--text); }
-    .task-policy-options label { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
-    .task-section { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); margin-bottom: 14px; overflow: hidden; }
-    .task-section-header { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
-    .task-section-title { font-size: 14px; font-weight: 700; }
-    .task-section-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
-    .task-list { padding: 0 14px; }
-    .task-row { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(150px, .9fr) minmax(150px, .9fr) auto; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--border); }
-    .task-row:last-child { border-bottom: none; }
-    .task-title { font-weight: 700; font-size: 14px; word-break: break-word; }
-    .task-meta, .task-resources { color: var(--muted); font-size: 12px; line-height: 1.55; }
-    .task-status { font-size: 12px; font-weight: 700; }
-    .task-status.enforcing { color: var(--danger); }
-    .task-status.scheduled { color: var(--accent); }
-    .task-status.paused { color: var(--warn); }
-    .task-status.completed { color: var(--green); }
-    .task-status.cancelled { color: var(--muted); }
-    .task-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .task-action-btn { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 7px; padding: 5px 8px; font-size: 12px; cursor: pointer; }
-    .task-action-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .task-action-btn.danger { color: var(--danger); border-color: rgba(239,68,68,.32); }
-    .task-action-btn:disabled { cursor: not-allowed; opacity: .55; color: var(--muted); }
-    @media (max-width: 900px) {
-      .task-create-grid, .task-resource-grid, .task-row { grid-template-columns: 1fr; }
-      .task-actions { justify-content: flex-start; }
-    }
-
     /* Quota */
     .quota-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .quota-row:last-child { border-bottom: none; }
@@ -798,12 +756,13 @@
         <div class="nav-item" data-page="review">
           <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站归类记录 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
-        <div class="nav-item" data-page="tasks">
-          <span class="nav-icon"><img src="assets/icons/pending.svg" alt=""></span><span>任务管理</span>
-        </div>
+
         <div class="nav-item" data-page="account">
           <span class="nav-icon"><img src="assets/icons/user.svg" alt=""></span><span>子用户管理</span>
         </div>
+        <a class="nav-item" href="/modules/" style="text-decoration:none">
+          <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>扩展模块</span>
+        </a>
         <div class="nav-item" data-page="system-management">
           <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>系统管理</span>
         </div>
@@ -1451,60 +1410,6 @@
 
       </div>
 
-      <!-- 任务管理 -->
-      <div class="page" id="page-tasks">
-        <div class="page-header">
-          <h2>任务管理</h2>
-          <p>创建一次性 Chrome 任务；任务到达计划开始时间后优先限制可访问资源，进度由孩子设备上传的使用片段在云端投影。</p>
-        </div>
-
-        <div id="task-capability-panel" class="task-capability-card">
-          正在读取任务 capability…
-        </div>
-
-        <div class="card" id="task-create-card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/pending.svg" alt="">创建一次性任务</div>
-              <div class="card-subtitle">任务开始或产生进度后，核心字段会冻结；修改时请取消并新建任务。</div>
-            </div>
-          </div>
-          <div class="task-create-grid">
-            <label>任务名称
-              <input id="task-create-name" type="text" placeholder="例如 SAT 在线练习">
-            </label>
-            <label>计划开始时间
-              <input id="task-create-start" type="datetime-local">
-            </label>
-            <label>要求时长（分钟）
-              <input id="task-create-minutes" type="number" min="1" max="1440" value="60">
-            </label>
-          </div>
-          <div class="task-policy-options">
-            <label><input id="task-policy-study" type="checkbox" checked> 学习网站</label>
-            <label><input id="task-policy-composite" type="checkbox"> 复合网站</label>
-          </div>
-          <div class="task-resource-grid">
-            <label>允许域名（每行一个）
-              <textarea id="task-hosts-input" placeholder="collegeboard.org&#10;khanacademy.org"></textarea>
-            </label>
-            <label>允许精确链接（每行一个）
-              <textarea id="task-urls-input" placeholder="https://example.com/practice"></textarea>
-            </label>
-            <label>YouTube 特殊对象（每行：类型 链接）
-              <textarea id="task-special-input" placeholder="video https://www.youtube.com/watch?v=...&#10;playlist https://www.youtube.com/playlist?list=...&#10;channel https://www.youtube.com/@handle"></textarea>
-            </label>
-          </div>
-          <div class="save-bar">
-            <button class="btn-save" id="task-create-btn">创建任务</button>
-          </div>
-        </div>
-
-        <div id="task-list-container">
-          <div class="empty-state">加载任务中…</div>
-        </div>
-      </div>
-
     </div><!-- /main-content -->
   </div><!-- /layout -->
 </div><!-- /main-screen -->
@@ -1547,7 +1452,6 @@ let cloudRulesManagementActiveTab = 'site-management';
 let cloudDevicesCache = { profileId: null, devices: [] };
 let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
-let taskManagementState = { tasks: [], capabilitySummary: null, includeHistory: true, loadedForProfileId: null };
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
 let systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
@@ -1921,7 +1825,6 @@ function renderPage(name) {
   if (name === 'system-management') renderSystemManagementPage();
   if (name === 'account')   renderAccountPage();
   if (name === 'review')    renderReviewPage();
-  if (name === 'tasks')     renderTasksPage();
 }
 
 function syncRulesManagementTabs() {
@@ -7670,239 +7573,6 @@ function matchDomain(domain, pattern) {
   return false;
 }
 
-
-// ── 任务管理页面 ────────────────────────────────────────────────────────────────
-function taskRuntimeStatus(task = {}, now = Date.now()) {
-  const status = String(task.lifecycleStatus || task.lifecycle_status || 'open');
-  if (status === 'completed' || status === 'cancelled' || status === 'paused') return status;
-  const start = Number(task.plannedStartAt || task.planned_start_at || 0);
-  return start > now ? 'scheduled' : 'enforcing';
-}
-
-function taskStatusLabel(status) {
-  return status === 'scheduled' ? '计划中'
-    : status === 'enforcing' ? '强制执行中'
-    : status === 'paused' ? '已暂停'
-    : status === 'completed' ? '已完成'
-    : status === 'cancelled' ? '已取消'
-    : '未知';
-}
-
-function taskPolicyLabel(value) {
-  return value === 'study' ? '学习网站' : value === 'composite' ? '复合网站' : value;
-}
-
-function formatTaskTime(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? new Date(numeric).toLocaleString('zh-CN') : '-';
-}
-
-function taskResourceSummary(spec = {}) {
-  const parts = [];
-  const policyTypes = Array.isArray(spec.policyTypes) ? spec.policyTypes : [];
-  if (policyTypes.length) parts.push(`类型：${policyTypes.map(taskPolicyLabel).join('、')}`);
-  const hosts = Array.isArray(spec.hosts) ? spec.hosts : [];
-  if (hosts.length) parts.push(`域名：${hosts.slice(0, 4).join('、')}${hosts.length > 4 ? ` 等 ${hosts.length} 个` : ''}`);
-  const urls = Array.isArray(spec.urls) ? spec.urls : [];
-  if (urls.length) parts.push(`链接：${urls.length} 条`);
-  const specialTargets = Array.isArray(spec.specialTargets) ? spec.specialTargets : [];
-  if (specialTargets.length) parts.push(`特殊对象：${specialTargets.length} 条`);
-  return parts.length ? parts.join('；') : '未记录资源';
-}
-
-function renderTaskCapabilityPanel(summary = {}) {
-  const panel = document.getElementById('task-capability-panel');
-  if (!panel) return;
-  const unsupported = Array.isArray(summary.unsupportedOnlineDevices) ? summary.unsupportedOnlineDevices : [];
-  const ready = Boolean(summary.canCreateTasks);
-  panel.classList.toggle('blocked', !ready);
-  if (ready) {
-    panel.innerHTML = `任务创建已启用：${Number(summary.onlineDeviceCount || 0)} 台在线受管设备均支持 <code>taskManagementV1</code>。`;
-    return;
-  }
-  const devicesHtml = unsupported.length
-    ? `<div style="margin-top:8px;">需要更新的在线设备：${unsupported.map(d => escHtml(d.name || d.id || '未命名设备')).join('、')}</div>`
-    : '<div style="margin-top:8px;">当前没有已确认支持任务管理的在线设备；请先让受管 Chrome 更新并完成 heartbeat。</div>';
-  panel.innerHTML = `任务创建暂不可用：只有所有在线受管设备都报告 <code>taskManagementV1</code> 后才能创建任务。${devicesHtml}`;
-}
-
-function syncTaskCreateDisabled(summary = {}) {
-  const disabled = !summary.canCreateTasks;
-  ['task-create-name','task-create-start','task-create-minutes','task-policy-study','task-policy-composite','task-hosts-input','task-urls-input','task-special-input','task-create-btn']
-    .forEach((id) => { const el = document.getElementById(id); if (el) el.disabled = disabled; });
-}
-
-async function renderTasksPage() {
-  if (!currentProfileId) return;
-  const container = document.getElementById('task-list-container');
-  if (container) container.innerHTML = '<div class="empty-state">加载任务中…</div>';
-  const createBtn = document.getElementById('task-create-btn');
-  if (createBtn) createBtn.onclick = createTaskFromForm;
-  try {
-    const result = await api(`/profiles/${currentProfileId}/tasks/v1?includeHistory=1`);
-    taskManagementState = {
-      tasks: Array.isArray(result.tasks) ? result.tasks : [],
-      capabilitySummary: result.capabilitySummary || {},
-      includeHistory: true,
-      loadedForProfileId: currentProfileId,
-    };
-    renderTaskCapabilityPanel(taskManagementState.capabilitySummary);
-    syncTaskCreateDisabled(taskManagementState.capabilitySummary);
-    renderTaskList();
-  } catch (e) {
-    if (container) container.innerHTML = `<div class="empty-state" style="color:var(--danger);">加载任务失败：${escHtml(e.message)}</div>`;
-  }
-}
-
-function renderTaskList() {
-  const container = document.getElementById('task-list-container');
-  if (!container) return;
-  const now = Date.now();
-  const rows = (taskManagementState.tasks || []).map(task => ({ task, runtimeStatus: taskRuntimeStatus(task, now) }));
-  const active = rows.filter(row => !['completed','cancelled'].includes(row.runtimeStatus));
-  const history = rows.filter(row => ['completed','cancelled'].includes(row.runtimeStatus));
-  const activeHtml = active.length ? active.map(renderTaskRow).join('') : '<div class="rules-site-empty">当前没有计划中、执行中或暂停的任务。</div>';
-  const historyHtml = history.length ? history.map(renderTaskRow).join('') : '';
-  container.innerHTML = `
-    <section class="task-section" data-task-section="active">
-      <div class="task-section-header">
-        <div><div class="task-section-title">当前任务</div><div class="task-section-meta">计划中、强制执行中和暂停任务会在这里显示。</div></div>
-        <div class="task-section-meta">${active.length} 条</div>
-      </div>
-      <div class="task-list">${activeHtml}</div>
-    </section>
-    <section class="task-section" data-task-section="history">
-      <div class="task-section-header">
-        <div><div class="task-section-title">完成 / 取消历史</div><div class="task-section-meta">历史记录默认折叠，不提供删除。</div></div>
-        <div class="task-section-meta">${history.length} 条</div>
-      </div>
-      <div class="task-list">${renderRecordHistoryDetails('展开历史任务', history.length, historyHtml)}</div>
-    </section>`;
-}
-
-function renderTaskRow({ task, runtimeStatus }) {
-  const progress = `${fmtSecs(Number(task.completedSeconds || 0))} / ${fmtSecs(Number(task.requiredSeconds || 0))}`;
-  const revision = Number(task.revision || 0);
-  const actions = renderTaskActions(task, runtimeStatus);
-  return `
-    <div class="task-row" data-task-id="${escHtml(task.id)}">
-      <div>
-        <div class="task-title">${escHtml(task.name || '未命名任务')}</div>
-        <div class="task-meta">开始 ${escHtml(formatTaskTime(task.plannedStartAt))} · revision ${revision}</div>
-      </div>
-      <div>
-        <div class="task-status ${escHtml(runtimeStatus)}">${escHtml(taskStatusLabel(runtimeStatus))}</div>
-        <div class="task-meta">进度 ${escHtml(progress)}</div>
-      </div>
-      <div class="task-resources">${escHtml(taskResourceSummary(task.resourceSpec || {}))}</div>
-      <div class="task-actions">${actions}</div>
-    </div>`;
-}
-
-function renderTaskActions(task, runtimeStatus) {
-  if (runtimeStatus === 'completed' || runtimeStatus === 'cancelled') {
-    return `<span class="task-meta">只读历史</span>`;
-  }
-  const id = escHtml(task.id);
-  const buttons = [];
-  if (runtimeStatus === 'paused') {
-    buttons.push(`<button class="task-action-btn" onclick="runTaskLifecycleAction('${id}','resume')">恢复</button>`);
-  } else {
-    buttons.push(`<button class="task-action-btn" onclick="runTaskLifecycleAction('${id}','pause')">暂停</button>`);
-  }
-  buttons.push(`<button class="task-action-btn" onclick="runTaskLifecycleAction('${id}','complete')">留痕完成</button>`);
-  buttons.push(`<button class="task-action-btn danger" onclick="runTaskLifecycleAction('${id}','cancel')">取消</button>`);
-  return buttons.join('');
-}
-
-function parseTaskLines(value) {
-  return String(value || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
-}
-
-function parseSpecialTaskLines(value) {
-  return parseTaskLines(value).map((line) => {
-    const match = line.match(/^(youtube\s+)?(video|playlist|channel)\s+(.+)$/i);
-    if (!match) return null;
-    return { platform: 'youtube', type: match[2].toLowerCase(), canonicalTarget: match[3].trim() };
-  }).filter(Boolean);
-}
-
-function buildTaskCreatePayloadFromForm() {
-  const name = document.getElementById('task-create-name')?.value?.trim() || '';
-  const startValue = document.getElementById('task-create-start')?.value || '';
-  const minutes = Number(document.getElementById('task-create-minutes')?.value || 0);
-  const plannedStartAt = startValue ? new Date(startValue).getTime() : 0;
-  const policyTypes = [];
-  if (document.getElementById('task-policy-study')?.checked) policyTypes.push('study');
-  if (document.getElementById('task-policy-composite')?.checked) policyTypes.push('composite');
-  const hosts = parseTaskLines(document.getElementById('task-hosts-input')?.value).map(normalizeSiteAccessInput).filter(Boolean);
-  const urls = parseTaskLines(document.getElementById('task-urls-input')?.value).map(canonicalDisplayUrlValue).filter(Boolean);
-  const specialTargets = parseSpecialTaskLines(document.getElementById('task-special-input')?.value);
-  return {
-    name,
-    plannedStartAt,
-    displayTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
-    requiredSeconds: Math.floor(minutes * 60),
-    resourceSpec: { policyTypes, hosts, urls, specialTargets },
-  };
-}
-
-function validateTaskCreatePayload(payload) {
-  if (!payload.name) return '请输入任务名称';
-  if (!Number.isFinite(payload.plannedStartAt) || payload.plannedStartAt <= 0) return '请选择计划开始时间';
-  if (!Number.isInteger(payload.requiredSeconds) || payload.requiredSeconds < 60 || payload.requiredSeconds > 86400) return '要求时长必须为 1 到 1440 分钟';
-  const spec = payload.resourceSpec || {};
-  const resourceCount = (spec.policyTypes || []).length + (spec.hosts || []).length + (spec.urls || []).length + (spec.specialTargets || []).length;
-  if (resourceCount <= 0) return '请至少选择一种允许资源';
-  return '';
-}
-
-async function createTaskFromForm() {
-  const button = document.getElementById('task-create-btn');
-  if (!taskManagementState.capabilitySummary?.canCreateTasks) {
-    toast('任务创建暂不可用：请先确认所有在线受管设备都支持任务管理', false);
-    return;
-  }
-  const payload = buildTaskCreatePayloadFromForm();
-  const error = validateTaskCreatePayload(payload);
-  if (error) {
-    toast(error, false);
-    return;
-  }
-  if (button) { button.disabled = true; button.textContent = '创建中…'; }
-  try {
-    await api(`/profiles/${currentProfileId}/tasks/v1`, 'POST', payload);
-    toast('任务已创建');
-    ['task-create-name','task-hosts-input','task-urls-input','task-special-input'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
-    await renderTasksPage();
-  } catch (e) {
-    if (String(e.message || '').includes('TASK_CAPABILITY_REQUIRED')) toast('任务创建暂不可用：在线设备 capability 尚未全部就绪', false);
-    else toast('创建任务失败：' + e.message, false);
-  } finally {
-    if (button) { button.disabled = !taskManagementState.capabilitySummary?.canCreateTasks; button.textContent = '创建任务'; }
-  }
-}
-
-function taskActionLabel(action) {
-  return action === 'pause' ? '暂停' : action === 'resume' ? '恢复' : action === 'complete' ? '留痕完成' : '取消';
-}
-
-async function runTaskLifecycleAction(taskId, action) {
-  const task = (taskManagementState.tasks || []).find(item => String(item.id) === String(taskId));
-  if (!task) return;
-  if ((action === 'cancel' || action === 'complete') && !confirm(`确认${taskActionLabel(action)}任务“${task.name || '未命名任务'}”？`)) return;
-  try {
-    await api(`/profiles/${currentProfileId}/tasks/${encodeURIComponent(taskId)}/actions/v1`, 'POST', {
-      action,
-      expectedRevision: Number(task.revision || 0),
-      actionId: `${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    });
-    toast(`任务已${taskActionLabel(action)}`);
-    await renderTasksPage();
-  } catch (e) {
-    toast(`任务${taskActionLabel(action)}失败：${e.message}`, false);
-  }
-}
 
 // ── 网站归类记录页面 ────────────────────────────────────────────────────────────────
 

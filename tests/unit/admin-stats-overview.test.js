@@ -48,6 +48,8 @@ function extractFunctionSource(code, functionName) {
 function loadComputeOverview() {
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
   const html = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.html'), 'utf8');
+  const taskHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'modules', 'task', 'ui', 'admin.html'), 'utf8');
+  const taskCode = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'modules', 'task', 'ui', 'admin.js'), 'utf8');
   const fns = [
     extractFunctionSource(code, 'matchDomain'),
     extractFunctionSource(code, 'classifyDomain'),
@@ -79,11 +81,11 @@ function loadComputeOverview() {
     context,
     { filename: 'admin.js' }
   );
-  return { fn: context.__fn, render: context.__render, ctx: context, elements, code, html };
+  return { fn: context.__fn, render: context.__render, ctx: context, elements, code, html, taskHtml, taskCode };
 }
 
 function run() {
-  const { fn: computeOverview, render, ctx, elements, code, html } = loadComputeOverview();
+  const { fn: computeOverview, render, ctx, elements, code, html, taskHtml, taskCode } = loadComputeOverview();
 
   // Helper to call with vm context as `this`
   function call(data) {
@@ -156,7 +158,7 @@ function run() {
   expectTrue('admin 本地网站管理使用只读策略目录', html.includes('admin-rules-policy-nav') && html.includes('admin-rules-site-directory') && html.includes('rules-readonly-shell') && code.includes('rulesSiteActivePolicy'));
   expectTrue('admin 本地网站管理包含特殊网站入口和 YouTube 规则列表', code.includes("key: 'special'") && code.includes('特殊网站：YouTube') && code.includes('YouTube 特殊对象规则') && code.includes('youtubeSpecialRuleRows') && code.includes('siteRuleManagementRank') && code.includes('孩子可在 Popup 对支持的视频、播放列表、频道发起学习申请') && !code.includes('特殊对象规则只能在云端家长控制台修改'));
   expectTrue('admin 本地网站管理包含独立已使用未归类网站只读模块', code.includes("key: 'used-unclassified'") && code.indexOf("key: 'used-unclassified'") > code.indexOf("key: 'special'") && code.includes('adminUsedUnclassifiedRows') && code.includes('renderAdminUsedUnclassifiedManagement') && code.includes('data-admin-used-unclassified="true"') && code.includes('本页不提供分类操作') && code.includes('云端处理'));
-  expectTrue('admin 系统管理包含任务管理只读页', html.includes('data-system-management-tab="tasks"') && html.includes('task-management-readonly') && code.includes('renderTaskManagementReadonlyPage') && code.includes('buildTaskReadModel') && code.includes('本机只读展示当前已同步任务'));
+  expectTrue('admin 扩展模块页通过通用 inline entry 挂载 Task 面板', html.includes('data-page="modules"') && html.includes('optional-module-list') && html.includes('点击模块展开状态与配置') && code.includes('GET_OPTIONAL_MODULE_ENTRIES') && code.includes('uiKind') && code.includes('inlineScript') && code.includes('mountOptionalModulePanel') && !/GET_TASK|SET_LOCAL_DEBUG_TASK|task-runtime|modules\/task/.test(html + code) && taskHtml.includes('mountOptionalModulePanel') && taskCode.includes('optionalModuleId: MODULE_ID') && taskCode.includes('本地调试任务配置'));
   expectTrue('admin 本地网站管理不提供本地添加保存或编辑分类入口', !html.includes('id="save-rules-btn"') && !html.includes('rules-site-add') && !html.includes('编辑分类') && code.includes('本机只读'));
   expectTrue('admin 本地配额和时间段使用只读表格展示', html.includes('时间配额') && code.includes('rules-quota-grid') && code.includes('rules-schedule-grid') && code.includes('rules-readonly-value'));
   expectTrue('admin 访问规则页不应单独展示已批准精确链接规则', !html.includes('已批准精确链接 / 管理对象规则') && !html.includes('rules-approved-target-rules-display') && !code.includes('renderApprovedTargetRules'));
@@ -215,6 +217,8 @@ function run() {
   expectTrue('admin client logs use local log messages', code.includes('GET_CLIENT_LOGS') && code.includes('GET_CLIENT_LOG_STATUS') && code.includes('CLEAR_CLIENT_LOGS'));
   expectTrue('admin client logs support level/category filters', html.includes('client-log-level-filter') && html.includes('client-log-category-filter'));
   expectTrue('admin 系统日志时间应默认显示北京时间并保留 UTC title', code.includes('function formatClientLogTime') && code.includes('formatUtcSettlementTime(log.timestamp)'));
+
+  expectTrue('admin optional module page renders failure and retry state', code.includes('renderOptionalModulesError') && code.includes('模块列表读取失败') && code.includes('data-module-retry'));
 
   const total = passed + failed;
   console.log(`\n[Admin Stats Overview] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

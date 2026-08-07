@@ -1,18 +1,16 @@
-// task-sync.js - Task Management V1 extension cache, pull, alarm and heartbeat helpers.
+// Task-owned cache, pull and alarm helpers.
 
-import { cloudRequest } from './cloud-sync.js';
+import { taskDeviceRequest } from './transport.js';
 import {
   TASK_MANAGEMENT_V1_CAPABILITY,
   getEnforcingTasks,
   getNextTaskAlarmTime,
-  getTaskPolicyContext,
   normalizeTaskRecord,
-} from '../core/task-management.js';
+} from './domain.js';
 
 export const TASK_CACHE_KEY = 'task_management_v1_cache';
 export const TASK_PULL_ALARM = 'taskManagementPull';
 export const TASK_START_ALARM = 'taskManagementStart';
-export const TASK_COMPLETION_ALARM = 'taskManagementCompletion';
 export const TASK_PULL_PERIOD_MINUTES = 1;
 export const TASK_CACHE_SCHEMA_VERSION = 1;
 
@@ -83,7 +81,7 @@ export async function saveTaskCacheError(error, nowMs = Date.now()) {
 
 export async function pullTaskCache({ reason = 'manual', nowMs = Date.now() } = {}) {
   try {
-    const payload = await cloudRequest('GET', '/device/tasks/v1', null, 2);
+    const payload = await taskDeviceRequest('GET', '/device/task-runtime/v1/tasks');
     const cache = normalizeTaskCachePayload(payload || {}, nowMs);
     cache.reason = reason;
     await saveTaskCache(cache);
@@ -138,6 +136,7 @@ function compactTaskForReadModel(task = {}) {
     remainingSeconds: Math.max(0, requiredSeconds - completedSeconds),
     revision: Number(task.revision || 0) || 0,
     resourceSpec: task.resourceSpec || {},
+    debugOnly: task.debugOnly === true,
   };
 }
 
@@ -157,6 +156,7 @@ export function buildTaskReadModel(cache = null, nowMs = Date.now()) {
     ok: true,
     capability: TASK_MANAGEMENT_V1_CAPABILITY,
     taskVersion: Number(cache?.taskVersion || 0) || 0,
+    cacheReason: cache?.reason || null,
     pulledAt: Number(cache?.pulledAt || 0) || null,
     error: cache?.error || null,
     activeCount: enforcingTasks.length,
@@ -168,50 +168,4 @@ export function buildTaskReadModel(cache = null, nowMs = Date.now()) {
 
 export async function getTaskReadModel(nowMs = Date.now()) {
   return buildTaskReadModel(await getTaskCache(), nowMs);
-}
-
-function maxRevisionForTaskIds(tasks = [], ids = []) {
-  const wanted = new Set((ids || []).map(String));
-  return Math.max(0, ...(tasks || [])
-    .filter((task) => wanted.has(String(task.id)))
-    .map((task) => Number(task.revision || 0) || 0));
-}
-
-export function taskSnapshotFieldsFromContext(context = {}, tasks = []) {
-  const matchedTaskIds = Array.isArray(context.matchedTaskIds)
-    ? context.matchedTaskIds.map(String).filter(Boolean).sort((a, b) => a.localeCompare(b))
-    : [];
-  const progressTaskId = context.progressTaskId ? String(context.progressTaskId) : null;
-  const taskRevision = progressTaskId
-    ? maxRevisionForTaskIds(tasks, [progressTaskId])
-    : maxRevisionForTaskIds(tasks, matchedTaskIds);
-  return {
-    matchedTaskIdsAtTime: matchedTaskIds,
-    progressTaskIdAtTime: progressTaskId,
-    taskRevisionAtTime: taskRevision || null,
-  };
-}
-
-export async function resolveTaskSnapshotForPage(page = {}, nowMs = Date.now()) {
-  const cache = await getTaskCache();
-  const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
-  const context = getTaskPolicyContext(tasks, page, nowMs);
-  return {
-    ...taskSnapshotFieldsFromContext(context, tasks),
-    taskPolicyContext: context,
-  };
-}
-
-export async function scheduleTaskCompletionAlarmForSnapshot(snapshot = {}, sessionStartMs = Date.now(), alarmApi = getAlarmArea()) {
-  if (!alarmApi?.create) return { scheduled: false, reason: 'alarms_unavailable' };
-  await clearAlarm(TASK_COMPLETION_ALARM, alarmApi);
-  const progressTaskId = snapshot?.progressTaskIdAtTime;
-  if (!progressTaskId) return { scheduled: false, reason: 'no_progress_task' };
-  const cache = await getTaskCache();
-  const task = (cache?.tasks || []).find((item) => String(item.id) === String(progressTaskId));
-  const remainingSeconds = Number(task?.remainingSeconds ?? ((Number(task?.requiredSeconds || 0) || 0) - (Number(task?.completedSeconds || 0) || 0)));
-  if (!Number.isFinite(remainingSeconds) || remainingSeconds <= 0) return { scheduled: false, reason: 'no_remaining_seconds' };
-  const when = Number(sessionStartMs || Date.now()) + (remainingSeconds * 1000);
-  alarmApi.create(TASK_COMPLETION_ALARM, { when });
-  return { scheduled: true, when, taskId: String(progressTaskId) };
 }

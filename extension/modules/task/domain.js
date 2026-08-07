@@ -6,9 +6,13 @@ export const TASK_REQUIRED_SECONDS_MAX = 24 * 60 * 60;
 
 export const TASK_LIFECYCLE_STATUSES = Object.freeze(['open', 'paused', 'completed', 'cancelled']);
 export const TASK_TERMINAL_STATUSES = Object.freeze(['completed', 'cancelled']);
-export const TASK_POLICY_TYPES = Object.freeze(['study', 'composite']);
 export const TASK_SPECIAL_PLATFORMS = Object.freeze(['youtube']);
 export const TASK_SPECIAL_TYPES = Object.freeze(['video', 'playlist', 'channel']);
+export const TASK_URL_MATCH_TYPES = Object.freeze(['exact', 'path_prefix']);
+
+const TASK_TRACKING_QUERY_KEYS = new Set([
+  'dclid', 'fbclid', 'gclid', 'mc_cid', 'mc_eid', 'msclkid', 'ref', 'ref_src',
+]);
 
 export function normalizeTaskName(value = '') {
   return String(value || '')
@@ -49,87 +53,113 @@ export function canonicalTaskHost(value = '') {
   }
 }
 
-export function canonicalTaskUrl(value = '') {
+export function canonicalTaskUrl(value = '', { ignoreQuery = false } = {}) {
   const raw = String(value || '').trim();
   if (!raw) return '';
   try {
-    const parsed = new URL(raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`);
-    parsed.protocol = 'https:';
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const host = canonicalTaskHost(parsed.hostname);
+    if (!host) return '';
     parsed.hash = '';
-    parsed.hostname = parsed.hostname.toLowerCase().replace(/\.+$/g, '');
-    if (!parsed.hostname || !parsed.hostname.includes('.')) return '';
-    const query = new URLSearchParams(parsed.search);
-    const kept = new URLSearchParams();
-    for (const key of ['v', 'list']) {
-      const current = query.get(key);
-      if (current) kept.set(key, current);
+    let pathname = parsed.pathname.replace(/\/{2,}/g, '/');
+    if (pathname.length > 1) pathname = pathname.replace(/\/+$/g, '');
+    const query = new URLSearchParams();
+    if (!ignoreQuery) {
+      const entries = [...parsed.searchParams.entries()]
+        .filter(([key]) => {
+          const normalizedKey = key.toLowerCase();
+          return !normalizedKey.startsWith('utm_') && !TASK_TRACKING_QUERY_KEYS.has(normalizedKey);
+        })
+        .sort(([aKey, aValue], [bKey, bValue]) => aKey.localeCompare(bKey) || aValue.localeCompare(bValue));
+      for (const [key, itemValue] of entries) query.append(key, itemValue);
     }
-    parsed.search = kept.toString();
-    return parsed.toString();
+    const search = query.toString();
+    return `https://${host}${pathname === '/' ? '' : pathname}${search ? `?${search}` : ''}`;
   } catch {
     return '';
   }
 }
 
 export function normalizeTaskSpecialTarget(target = {}) {
-  const platform = String(target.platform || '').trim().toLowerCase();
-  const type = String(target.type || '').trim().toLowerCase();
-  const canonicalTarget = canonicalTaskUrl(target.canonicalTarget || target.targetValue || target.url || '');
-  if (!TASK_SPECIAL_PLATFORMS.includes(platform)) return null;
-  if (!TASK_SPECIAL_TYPES.includes(type)) return null;
-  if (!canonicalTarget) return null;
-  return { platform, type, canonicalTarget };
+  const value = typeof target === 'string'
+    ? target
+    : target.canonicalTarget || target.targetValue || target.url || '';
+  const detected = taskSpecialTargetsFromUrl(value)[0] || null;
+  if (!detected) return null;
+  const platform = typeof target === 'string' ? 'youtube' : String(target.platform || 'youtube').trim().toLowerCase();
+  const type = typeof target === 'string' ? detected.type : String(target.type || detected.type).trim().toLowerCase();
+  if (platform !== 'youtube' || type !== detected.type) return null;
+  return detected;
 }
 
 function uniqueSorted(values) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
-export function normalizeTaskResourceSpec(input = {}) {
-  const errors = [];
-  const policyTypes = uniqueSorted((Array.isArray(input.policyTypes) ? input.policyTypes : [])
-    .map((value) => String(value || '').trim().toLowerCase())
-    .filter((value) => {
-      const ok = TASK_POLICY_TYPES.includes(value);
-      if (!ok && value) errors.push({ field: 'policyTypes', value, code: 'INVALID_POLICY_TYPE' });
-      return ok;
-    }));
-
-  const hosts = uniqueSorted((Array.isArray(input.hosts) ? input.hosts : [])
-    .map(canonicalTaskHost)
-    .filter((value, index) => {
-      const raw = Array.isArray(input.hosts) ? input.hosts[index] : '';
-      if (!value && raw) errors.push({ field: 'hosts', value: raw, code: 'INVALID_HOST' });
-      return Boolean(value);
-    }));
-
-  const urls = uniqueSorted((Array.isArray(input.urls) ? input.urls : [])
-    .map(canonicalTaskUrl)
-    .filter((value, index) => {
-      const raw = Array.isArray(input.urls) ? input.urls[index] : '';
-      if (!value && raw) errors.push({ field: 'urls', value: raw, code: 'INVALID_URL' });
-      return Boolean(value);
-    }));
-
-  const specialTargets = (Array.isArray(input.specialTargets) ? input.specialTargets : [])
-    .map(normalizeTaskSpecialTarget)
-    .filter(Boolean)
-    .sort((a, b) => `${a.platform}:${a.type}:${a.canonicalTarget}`.localeCompare(`${b.platform}:${b.type}:${b.canonicalTarget}`));
-  const dedupedSpecialTargets = [];
-  const specialSeen = new Set();
-  for (const target of specialTargets) {
-    const key = `${target.platform}:${target.type}:${target.canonicalTarget}`;
-    if (specialSeen.has(key)) continue;
-    specialSeen.add(key);
-    dedupedSpecialTargets.push(target);
+export function normalizeTaskUrlRule(rule = {}) {
+  const raw = typeof rule === 'string' ? rule : rule.url;
+  const match = typeof rule === 'string' ? 'exact' : String(rule.match || 'exact').trim().toLowerCase();
+  if (!TASK_URL_MATCH_TYPES.includes(match)) {
+    return { ok: false, code: 'INVALID_URL_MATCH', value: raw, match };
   }
-
-  const spec = { policyTypes, hosts, urls, specialTargets: dedupedSpecialTargets };
-  const empty = policyTypes.length === 0 && hosts.length === 0 && urls.length === 0 && dedupedSpecialTargets.length === 0;
-  if (empty) errors.push({ field: 'resourceSpec', code: 'EMPTY_RESOURCE_SPEC' });
-  return { ok: errors.length === 0, spec, errors };
+  const url = canonicalTaskUrl(raw, { ignoreQuery: match === 'path_prefix' });
+  if (!url) return { ok: false, code: 'INVALID_URL', value: raw, match };
+  return { ok: true, rule: { url, match } };
 }
 
+export function normalizeTaskResourceSpec(input = {}) {
+  const errors = [];
+  const hostInputs = Array.isArray(input.hosts) ? input.hosts : [];
+  const hosts = uniqueSorted(hostInputs.map((raw, index) => {
+    const value = canonicalTaskHost(raw);
+    if (!value && String(raw || '').trim()) errors.push({ field: 'hosts', index, value: raw, code: 'INVALID_HOST' });
+    return value;
+  }));
+
+  const ruleInputs = [
+    ...(Array.isArray(input.urlRules) ? input.urlRules : []),
+    ...(Array.isArray(input.urls) ? input.urls.map((url) => ({ url, match: 'exact', legacy: true })) : []),
+  ];
+  const urlRules = [];
+  const ruleKeys = new Set();
+  ruleInputs.forEach((rawRule, index) => {
+    const normalized = normalizeTaskUrlRule(rawRule);
+    if (!normalized.ok) {
+      errors.push({ field: 'urlRules', index, value: normalized.value, code: normalized.code });
+      return;
+    }
+    const key = `${normalized.rule.match}:${normalized.rule.url}`;
+    if (ruleKeys.has(key)) return;
+    ruleKeys.add(key);
+    urlRules.push(normalized.rule);
+  });
+  urlRules.sort((a, b) => `${a.match}:${a.url}`.localeCompare(`${b.match}:${b.url}`));
+
+  const specialInputs = Array.isArray(input.specialTargets) ? input.specialTargets : [];
+  const specialTargets = [];
+  const specialKeys = new Set();
+  specialInputs.forEach((rawTarget, index) => {
+    const normalized = normalizeTaskSpecialTarget(rawTarget);
+    if (!normalized) {
+      const value = typeof rawTarget === 'string'
+        ? rawTarget
+        : rawTarget?.canonicalTarget || rawTarget?.targetValue || rawTarget?.url || '';
+      errors.push({ field: 'specialTargets', index, value, code: 'INVALID_SPECIAL_TARGET' });
+      return;
+    }
+    const key = `${normalized.platform}:${normalized.type}:${normalized.canonicalTarget}`;
+    if (specialKeys.has(key)) return;
+    specialKeys.add(key);
+    specialTargets.push(normalized);
+  });
+  specialTargets.sort((a, b) => `${a.type}:${a.canonicalTarget}`.localeCompare(`${b.type}:${b.canonicalTarget}`));
+
+  const spec = { hosts, urlRules, specialTargets };
+  if (!hosts.length && !urlRules.length && !specialTargets.length) {
+    errors.push({ field: 'resourceSpec', code: 'EMPTY_RESOURCE_SPEC' });
+  }
+  return { ok: errors.length === 0, spec, errors };
+}
 export function deriveTaskRuntimeStatus(task = {}, nowMs = Date.now()) {
   const lifecycleStatus = normalizeTaskLifecycleStatus(task.lifecycleStatus || task.lifecycle_status);
   if (lifecycleStatus === 'completed') return 'completed';
@@ -214,11 +244,32 @@ export function getNextTaskAlarmTime(tasks = [], nowMs = Date.now()) {
   return futureStarts[0] || null;
 }
 
+export function taskSpecialTargetsFromUrl(value = '') {
+  const canonical = canonicalTaskUrl(value);
+  if (!canonical) return [];
+  const parsed = new URL(canonical);
+  const host = canonicalTaskHost(parsed.hostname);
+  if (host !== 'youtube.com' && host !== 'youtu.be') return [];
+  const listId = parsed.searchParams.get('list');
+  if (listId) return [{ platform: 'youtube', type: 'playlist', canonicalTarget: canonicalTaskUrl('https://www.youtube.com/playlist?list=' + listId) }];
+  const videoId = host === 'youtu.be'
+    ? parsed.pathname.split('/').filter(Boolean)[0]
+    : parsed.pathname === '/watch'
+      ? parsed.searchParams.get('v')
+      : parsed.pathname.startsWith('/shorts/')
+        ? parsed.pathname.split('/').filter(Boolean)[1]
+        : null;
+  if (videoId) return [{ platform: 'youtube', type: 'video', canonicalTarget: canonicalTaskUrl('https://www.youtube.com/watch?v=' + videoId) }];
+  if (/^\/(?:channel\/[^/]+|@[^/]+|c\/[^/]+|user\/[^/]+)/i.test(parsed.pathname)) {
+    return [{ platform: 'youtube', type: 'channel', canonicalTarget: canonicalTaskUrl('https://www.youtube.com' + parsed.pathname) }];
+  }
+  return [];
+}
+
 export function normalizeTaskPageContext(page = {}) {
   const url = canonicalTaskUrl(page.url || page.href || '');
   const host = canonicalTaskHost(page.host || page.domain || page.hostname || page.url || '');
-  const policyType = String(page.policyType || page.classification || page.targetClassification || '').trim().toLowerCase();
-  const specialTargets = [];
+  const specialTargets = taskSpecialTargetsFromUrl(url);
   const candidates = [];
   if (page.specialTarget) candidates.push(page.specialTarget);
   if (Array.isArray(page.specialTargets)) candidates.push(...page.specialTargets);
@@ -226,27 +277,42 @@ export function normalizeTaskPageContext(page = {}) {
     const normalized = normalizeTaskSpecialTarget(candidate);
     if (normalized) specialTargets.push(normalized);
   }
-  return {
-    url,
-    host,
-    policyType: TASK_POLICY_TYPES.includes(policyType) ? policyType : '',
-    specialTargets,
-  };
+  return { url, host, specialTargets };
+}
+
+export function taskHostMatches(resourceHost = '', pageHost = '') {
+  const resource = canonicalTaskHost(resourceHost);
+  const current = canonicalTaskHost(pageHost);
+  return Boolean(resource && current && (current === resource || current.endsWith(`.${resource}`)));
+}
+
+export function taskUrlRuleMatches(rule = {}, pageUrl = '') {
+  const normalized = normalizeTaskUrlRule(rule);
+  if (!normalized.ok) return false;
+  if (normalized.rule.match === 'exact') {
+    return canonicalTaskUrl(pageUrl) === normalized.rule.url;
+  }
+  const current = canonicalTaskUrl(pageUrl, { ignoreQuery: true });
+  if (!current) return false;
+  const currentUrl = new URL(current);
+  const ruleUrl = new URL(normalized.rule.url);
+  if (currentUrl.hostname !== ruleUrl.hostname) return false;
+  if (ruleUrl.pathname === '/') return true;
+  return currentUrl.pathname === ruleUrl.pathname || currentUrl.pathname.startsWith(`${ruleUrl.pathname}/`);
 }
 
 export function matchTaskResources(task = {}, page = {}) {
   const normalizedTask = normalizeTaskRecord(task);
   const normalizedPage = normalizeTaskPageContext(page);
-  const spec = normalizedTask.resourceSpec || { policyTypes: [], hosts: [], urls: [], specialTargets: [] };
+  const spec = normalizedTask.resourceSpec || { hosts: [], urlRules: [], specialTargets: [] };
   const matches = [];
-  if (normalizedPage.policyType && spec.policyTypes.includes(normalizedPage.policyType)) {
-    matches.push({ type: 'policyType', value: normalizedPage.policyType });
+  for (const host of spec.hosts || []) {
+    if (taskHostMatches(host, normalizedPage.host)) matches.push({ type: 'host', value: host });
   }
-  if (normalizedPage.host && spec.hosts.includes(normalizedPage.host)) {
-    matches.push({ type: 'host', value: normalizedPage.host });
-  }
-  if (normalizedPage.url && spec.urls.includes(normalizedPage.url)) {
-    matches.push({ type: 'url', value: normalizedPage.url });
+  for (const rule of spec.urlRules || []) {
+    if (taskUrlRuleMatches(rule, normalizedPage.url)) {
+      matches.push({ type: rule.match === 'path_prefix' ? 'path_prefix' : 'url', value: rule.url });
+    }
   }
   const pageSpecialKeys = new Set(normalizedPage.specialTargets.map((target) => `${target.platform}:${target.type}:${target.canonicalTarget}`));
   for (const target of spec.specialTargets || []) {
@@ -255,7 +321,6 @@ export function matchTaskResources(task = {}, page = {}) {
   }
   return { matched: matches.length > 0, matches, task: normalizedTask, page: normalizedPage };
 }
-
 export function getTaskPolicyContext(tasks = [], page = {}, nowMs = Date.now()) {
   const enforcingTasks = getEnforcingTasks(tasks, nowMs);
   if (enforcingTasks.length === 0) {

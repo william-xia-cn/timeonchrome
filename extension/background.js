@@ -13,7 +13,8 @@ import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoti
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
-import { buildTaskHeartbeatPayload, getTaskCache, getTaskReadModel, pullTaskCache, setupTaskAlarms, TASK_PULL_ALARM, TASK_START_ALARM, TASK_COMPLETION_ALARM } from './infra/task-sync.js';
+import { beforeAccess, dispatchOptionalModuleMessage, getOptionalModuleEntries } from './runtime/optional-module-host.js';
+import './modules/task/install.js'; // Optional Task module switch: remove this line to build without Task.
 import { handleMessage } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
 import { getEvents, clearEvents } from './core/event-log.js';
@@ -30,6 +31,25 @@ import { getSiteClassificationSpecialTargets } from './core/site-classification.
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
 const tabSpecialSiteContexts = new Map();
+
+function rememberTabSpecialSiteContext(tabId, url = '', targets = []) {
+  if (!Number.isInteger(tabId) || tabId < 0) return [];
+  const normalized = getSiteClassificationSpecialTargets([url, ...(Array.isArray(targets) ? targets : [])]);
+  tabSpecialSiteContexts.set(tabId, { url: String(url || ''), targets: normalized });
+  return normalized;
+}
+
+function getTabSpecialSiteTargets(tabId, url = '') {
+  const direct = getSiteClassificationSpecialTargets(url);
+  if (!Number.isInteger(tabId) || tabId < 0) return direct;
+  const remembered = tabSpecialSiteContexts.get(tabId);
+  if (!remembered || (remembered.url && url && remembered.url !== url)) return direct;
+  return getSiteClassificationSpecialTargets([...direct, ...(remembered.targets || [])]);
+}
+
+function clearTabSpecialSiteContext(tabId) {
+  if (Number.isInteger(tabId)) tabSpecialSiteContexts.delete(tabId);
+}
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
@@ -91,7 +111,6 @@ async function bootstrapServiceWorker(reason) {
     await hydrateCloudSyncStateFromStorage();
     await refreshPrivacyConsentCache();
     setupAlarms();
-    pullTaskCache({ reason: `bootstrap:${reason}` }).catch((err) => console.warn('[TaskSync] bootstrap pull failed:', err?.message || err));
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
   } catch (err) {
     console.error(`[Bootstrap] failed (${reason}):`, err);
@@ -213,6 +232,15 @@ setModeBoundaryDrainHook((reason = 'modeTransition') => drainPendingModeBoundari
 
 async function dispatchModeEvent(event = {}, options = {}) {
   const auditId = event.auditId || createTimingAuditId('mode');
+  if (event.type === 'ACCESS_OBSERVED' && /^https?:/i.test(String(event.url || ''))) {
+    const optionalDecision = await beforeAccess({ ...event, auditId });
+    if (optionalDecision?.handled === true) {
+      if (optionalDecision.action === 'redirect' && optionalDecision.redirectUrl && Number.isInteger(event.tabId)) {
+        await chrome.tabs.update(event.tabId, { url: optionalDecision.redirectUrl }).catch(() => {});
+      }
+      return { ok: true, blocked: true, optionalModuleHandled: true };
+    }
+  }
   const decision = await handleModeEvent({
     ...event,
     auditId,
@@ -696,7 +724,6 @@ async function getPopupLocalSnapshot(tabHint = null) {
       return value;
     });
   const storageStartedAt = Date.now();
-  const taskReadModelPromise = getTaskReadModel().catch(() => ({ ok: false, error: 'task_read_model_unavailable' }));
   const storagePromise = chrome.storage.local.get([
     CONFIG_KEY,
     SESSION_KEY,
@@ -713,11 +740,10 @@ async function getPopupLocalSnapshot(tabHint = null) {
     return value;
   });
 
-  const [{ tab, domain }, timingSession, storage, taskReadModel] = await Promise.all([
+  const [{ tab, domain }, timingSession, storage] = await Promise.all([
     activePromise,
     timingSessionPromise,
     storagePromise,
-    taskReadModelPromise,
   ]);
   const activation = await resolveActivationState().catch(() => ({ activated: false, reason: 'privacy_consent_required', privacyConsent: { accepted: false } }));
   const privacyConsent = activation.privacyConsent || { accepted: false };
@@ -742,7 +768,6 @@ async function getPopupLocalSnapshot(tabHint = null) {
     url: tab?.url || null,
     specialSiteTargets,
     currentManagedTarget: currentTarget?.fallback ? null : currentTarget,
-    taskReadModel,
     config: popupConfig,
     stats: buildPopupSettledModeStatsFromDay(todayStats),
     cloudStatus: buildPopupCloudStatus(storage || {}, activation),
@@ -1070,7 +1095,6 @@ function setupAlarms() {
   chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
   chrome.alarms.create('cloudSync', { periodInMinutes: 3 });
   chrome.alarms.create('cloudHeartbeat', { periodInMinutes: 5 });
-  setupTaskAlarms(chrome.alarms);
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -1125,31 +1149,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       } catch (_) { /* 尽力而为 */ }
     }
   } else if (alarm.name === 'cloudHeartbeat') {
-    const taskCache = await getTaskCache().catch(() => null);
-    await sendHeartbeat(() => syncNowWithRuntimeEffects({}, 'cloudHeartbeat_recovery_sync'), buildTaskHeartbeatPayload(taskCache));
-  } else if (alarm.name === TASK_PULL_ALARM) {
-    await pullTaskCache({ reason: 'alarm' });
-  } else if (alarm.name === TASK_START_ALARM) {
-    const taskBoundaryAt = Number.isFinite(alarm.scheduledTime) ? alarm.scheduledTime : Date.now();
-    await flushOpenSessionToStats('task_effective_boundary', {
-      closeTime: taskBoundaryAt,
-      reopenTime: taskBoundaryAt,
-      allowForeground: true,
-      resolveUnknownDomainForSettlement,
-    }).catch((err) => console.warn('[TaskSync] task start boundary flush failed:', err?.message || err));
-    await pullTaskCache({ reason: 'task_start_alarm' });
-    await handleMessage({ type: 'EVALUATE_QUOTA_STATE', source: 'task_start_alarm' }, { id: chrome.runtime.id }).catch(() => null);
-  } else if (alarm.name === TASK_COMPLETION_ALARM) {
-    const taskBoundaryAt = Number.isFinite(alarm.scheduledTime) ? alarm.scheduledTime : Date.now();
-    await flushOpenSessionToStats('task_completion_boundary', {
-      closeTime: taskBoundaryAt,
-      reopenTime: taskBoundaryAt,
-      allowForeground: true,
-      resolveUnknownDomainForSettlement,
-    }).catch((err) => console.warn('[TaskSync] task completion boundary flush failed:', err?.message || err));
-    await pullTaskCache({ reason: 'task_completion_alarm' });
-    await syncNowWithRuntimeEffects({ forceRetryExhaustedSiteRequests: true }, 'task_completion_alarm').catch(() => null);
-    await handleMessage({ type: 'EVALUATE_QUOTA_STATE', source: 'task_completion_alarm' }, { id: chrome.runtime.id }).catch(() => null);
+    await sendHeartbeat(() => syncNowWithRuntimeEffects({}, 'cloudHeartbeat_recovery_sync'));
   }
 });
 
@@ -1517,6 +1517,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === 'GET_OPTIONAL_MODULE_ENTRIES') {
+    sendResponse({ ok: true, entries: getOptionalModuleEntries() });
+    return true;
+  }
+
+  if (msg?.optionalModuleId) {
+    (async () => {
+      try {
+        const result = await dispatchOptionalModuleMessage(msg, sender);
+        sendResponse(result?.handled ? result.response : { ok: false, code: 'OPTIONAL_MODULE_MESSAGE_UNHANDLED' });
+      } catch (error) {
+        sendResponse({ ok: false, code: 'OPTIONAL_MODULE_MESSAGE_FAILED', error: error?.message || String(error) });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'GET_POPUP_FAST_STATUS') {
     (async () => {
       try {
@@ -1533,16 +1550,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.type === 'GET_TASK_READ_MODEL') {
-    (async () => {
-      try {
-        sendResponse(await getTaskReadModel());
-      } catch (err) {
-        sendResponse({ ok: false, error: err?.message || String(err) });
-      }
-    })();
-    return true;
-  }
 
   if (msg.type === 'GET_POPUP_LOCAL_SNAPSHOT') {
     (async () => {

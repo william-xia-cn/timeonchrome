@@ -2,11 +2,11 @@
 -- Records whether a bound device has reported support for taskManagementV1.
 -- Not applied to production until Product Owner authorizes the task rollout migration.
 
-ALTER TABLE devices ADD COLUMN task_management_v1_capable INTEGER DEFAULT 0;
-ALTER TABLE devices ADD COLUMN task_capabilities_json TEXT;
-ALTER TABLE devices ADD COLUMN task_capability_reported_at INTEGER;
-ALTER TABLE devices ADD COLUMN task_sync_version INTEGER DEFAULT 0;
-ALTER TABLE devices ADD COLUMN task_active_summary_json TEXT;
+-- Superseded: capability is stored in task_device_state_v1.
+-- Superseded: active summary is stored in task_device_state_v1.
+-- Superseded: reported_at is stored in task_device_state_v1.
+-- Superseded: task_version is stored in task_device_state_v1.
+-- Superseded: active_summary_json is stored in task_device_state_v1.
 
-CREATE INDEX IF NOT EXISTS idx_devices_profile_task_capability
-  ON devices(profile_id, status, last_seen, task_management_v1_capable);
+-- Superseded index:
+-- capability lookup uses task_device_state_v1.

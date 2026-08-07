@@ -8,7 +8,6 @@ import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/c
 import * as managedTargets from '../core/managed-targets.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
-import { resolveTaskSnapshotForPage, scheduleTaskCompletionAlarmForSnapshot } from '../infra/task-sync.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
@@ -111,8 +110,6 @@ function isForegroundSettlementReasonAllowed(reason) {
     reason === 'classification_effective_boundary' ||
     reason === 'idle_inactive_close' ||
     reason === 'mode_effective_boundary' ||
-    reason === 'task_effective_boundary' ||
-    reason === 'task_completion_boundary' ||
     reason === 'tab_close' ||
     reason === 'popup_open' ||
     reason === 'monitoring_off' ||
@@ -232,12 +229,6 @@ function sessionMetadataFromOptions(options = {}) {
   };
 }
 
-const TASK_SESSION_FIELDS = [
-  'matchedTaskIdsAtTime',
-  'progressTaskIdAtTime',
-  'taskRevisionAtTime',
-];
-
 const MANAGED_TARGET_SESSION_FIELDS = [
   'managedTargetId',
   'managedTargetType',
@@ -254,44 +245,6 @@ const MANAGED_TARGET_SESSION_FIELDS = [
 function hasManagedTargetSnapshot(value = {}) {
   return MANAGED_TARGET_SESSION_FIELDS.some((key) => typeof value?.[key] === 'string' && value[key].trim());
 }
-
-function taskSnapshotFieldsFrom(value = {}) {
-  const matched = Array.isArray(value?.matchedTaskIdsAtTime)
-    ? value.matchedTaskIdsAtTime.map(String).filter(Boolean).sort((a, b) => a.localeCompare(b))
-    : [];
-  const progressTaskId = typeof value?.progressTaskIdAtTime === 'string' && value.progressTaskIdAtTime.trim()
-    ? value.progressTaskIdAtTime.trim()
-    : null;
-  const revision = Number(value?.taskRevisionAtTime);
-  return {
-    matchedTaskIdsAtTime: matched,
-    progressTaskIdAtTime: progressTaskId,
-    taskRevisionAtTime: Number.isFinite(revision) && revision > 0 ? revision : null,
-  };
-}
-
-function hasTaskSnapshot(value = {}) {
-  return TASK_SESSION_FIELDS.some((key) => {
-    const field = value?.[key];
-    return Array.isArray(field) ? field.length > 0 : !!field;
-  });
-}
-
-async function resolveTaskSnapshotForOpen(domain, options = {}, managedTargetFields = {}, nowMs = Date.now()) {
-  if (hasTaskSnapshot(options)) return taskSnapshotFieldsFrom(options);
-  try {
-    return taskSnapshotFieldsFrom(await resolveTaskSnapshotForPage({
-      url: options.url || options.observedUrl || options.eventUrl || domain || '',
-      host: domain || null,
-      classification: managedTargetFields?.targetClassificationAtTime || null,
-      specialTarget: options.specialTarget || null,
-      specialTargets: options.specialTargets || null,
-    }, nowMs));
-  } catch (_) {
-    return taskSnapshotFieldsFrom({});
-  }
-}
-
 function managedTargetFieldsFrom(value = {}, mode = null) {
   const out = {};
   for (const key of MANAGED_TARGET_SESSION_FIELDS) {
@@ -456,7 +409,6 @@ function operationSourceForReason(reason) {
     value === 'recovery_estimated_close' ||
     value === 'recovery_estimated_half_checkpoint') return 'recovery';
   if (value === 'mode_effective_boundary' || value === 'mode_effective_boundary_reopen' || value.includes('mode_effective')) return 'mode_boundary';
-  if (value === 'task_effective_boundary' || value === 'task_completion_boundary' || value.includes('task_')) return 'timer';
   if (value === 'classification_effective_boundary') return 'config_action';
   if (value === 'controlledTimingSignal' || value.startsWith('debug_')) return 'debug';
   if (value === 'tab_close' || value === 'monitoring_off') return 'chrome_event';
@@ -789,12 +741,6 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
     const managedTargetFields = newState
       ? await resolveManagedTargetForOpen(newDomain, options, cachedEffectiveMode)
       : {};
-    const taskSnapshotFields = newState
-      ? await resolveTaskSnapshotForOpen(newDomain, options, managedTargetFields, now)
-      : {};
-    if (newState) {
-      scheduleTaskCompletionAlarmForSnapshot(taskSnapshotFields, now).catch(() => {});
-    }
     const sessionAfter = {
       state: newState,
       domain: newDomain,
@@ -805,7 +751,6 @@ export async function transitionStateAt(newState, newDomain, timestamp = Date.no
       startAtMs: newState ? now : null,
       ...sessionMetadataFromOptions(options),
       ...managedTargetFields,
-      ...taskSnapshotFields,
     };
     await saveSession(sessionAfter);
   });
@@ -947,8 +892,6 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
     });
 
     const modeBoundaryManagedTargetFields = await managedTargetFieldsForReopen(session, session.domain, options, cachedEffectiveMode);
-    const modeBoundaryTaskSnapshotFields = await resolveTaskSnapshotForOpen(session.domain, options, modeBoundaryManagedTargetFields, boundary);
-    scheduleTaskCompletionAlarmForSnapshot(modeBoundaryTaskSnapshotFields, boundary).catch(() => {});
     await saveSession({
       state: session.state,
       domain: session.domain,
@@ -963,7 +906,6 @@ export async function applyModeEffectiveBoundary(effectiveAtMs, reason = 'auto_m
       domainResolutionReason: session.domainResolutionReason || null,
       domainResolutionError: session.domainResolutionError || null,
       ...modeBoundaryManagedTargetFields,
-      ...modeBoundaryTaskSnapshotFields,
     });
 
     await emitTrace('auto_mode_effective_boundary', {
@@ -1122,7 +1064,6 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
       windowId: Number.isInteger(effectiveSession.windowId) ? effectiveSession.windowId : null,
       incognito: effectiveSession.incognito === true || options.incognito === true,
       ...managedTargetFields,
-      ...taskSnapshotFieldsFrom(effectiveSession),
       sourceState: effectiveSession.state,
       settlementReason: reason,
       description: makeSettlementDescription(
@@ -1210,7 +1151,6 @@ async function settleBoundaryDiagnosticSegment({
     windowId: Number.isInteger(windowId) ? windowId : null,
     incognito: incognito === true,
     ...managedTargetFields,
-    ...taskSnapshotFieldsFrom(timingSession),
     sourceState: diagnosticState,
     settlementReason,
     description: makeSettlementDescription(
@@ -1461,9 +1401,6 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
     });
 
     const reopenedManagedTargetFields = await managedTargetFieldsForReopen(session, reopenedDomain, options, cachedEffectiveMode);
-    const reopenedTaskSnapshotFields = await resolveTaskSnapshotForOpen(reopenedDomain, options, reopenedManagedTargetFields, reopenTime);
-    scheduleTaskCompletionAlarmForSnapshot(reopenedTaskSnapshotFields, reopenTime).catch(() => {});
-
     await saveSession({
       state: session.state,
       domain: reopenedDomain,
@@ -1480,7 +1417,6 @@ export async function flushOpenSessionToStats(reason = 'ui_flush', options = {})
         : session.domainResolutionReason || null,
       domainResolutionError: null,
       ...reopenedManagedTargetFields,
-      ...reopenedTaskSnapshotFields,
     });
 
     if (reason === 'ui_flush') {
@@ -1897,8 +1833,6 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           });
           await refreshCachedMode();
           const checkpointSwitchManagedTargetFields = await resolveManagedTargetForOpen(nextSample.domain, { observedUrl: nextSample.url || null }, cachedEffectiveMode);
-          const checkpointSwitchTaskSnapshotFields = await resolveTaskSnapshotForOpen(nextSample.domain, { observedUrl: nextSample.url || null }, checkpointSwitchManagedTargetFields, openAt);
-          scheduleTaskCompletionAlarmForSnapshot(checkpointSwitchTaskSnapshotFields, openAt).catch(() => {});
           await saveSession({
             state: nextSample.state,
             domain: nextSample.domain,
@@ -1911,7 +1845,6 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
             windowId: nextSample.windowId,
             incognito: nextSample.incognito === true || session.incognito === true,
             ...checkpointSwitchManagedTargetFields,
-            ...checkpointSwitchTaskSnapshotFields,
           });
         } else {
           await saveSession(emptySession(now));
@@ -2007,10 +1940,6 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
       const checkpointManagedTargetFields = await managedTargetFieldsForReopen(session, session.domain || FOREGROUND_UNKNOWN_DOMAIN, {
         observedUrl: confirmation?.observedUrl || null,
       }, cachedEffectiveMode);
-      const checkpointTaskSnapshotFields = await resolveTaskSnapshotForOpen(session.domain || FOREGROUND_UNKNOWN_DOMAIN, {
-        observedUrl: confirmation?.observedUrl || null,
-      }, checkpointManagedTargetFields, checkpointEnd);
-      scheduleTaskCompletionAlarmForSnapshot(checkpointTaskSnapshotFields, checkpointEnd).catch(() => {});
       await saveSession({
         state: session.state,
         domain: session.domain || FOREGROUND_UNKNOWN_DOMAIN,
@@ -2023,7 +1952,6 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         windowId: session.windowId ?? sampleWindowIdFromConfirmation(confirmation),
         incognito: session.incognito === true || confirmation?.incognito === true,
         ...checkpointManagedTargetFields,
-        ...checkpointTaskSnapshotFields,
       });
       return {
         ok: true,

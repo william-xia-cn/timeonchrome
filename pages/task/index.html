@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>任务管理 · TimeOnChrome</title>
+  <link rel="stylesheet" href="task.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/"><img src="/assets/app-icon.png" alt=""><span><strong>TimeOnChrome</strong><small>家长控制台</small></span></a>
+      <div class="module-title"><strong>任务管理</strong><span class="beta">Beta</span></div>
+      <label class="profile-field"><span>当前档案</span><select id="profile-select" aria-label="选择档案"></select></label>
+    </div>
+  </header>
+  <main>
+    <section id="auth-gate" class="auth-gate hidden"><div><p class="eyebrow">ACCOUNT REQUIRED</p><h1>需要登录</h1><p>请先返回家长控制台完成登录。</p></div><a class="primary-link" href="/">返回家长控制台</a></section>
+
+    <div id="task-app" class="hidden">
+      <section class="page-intro"><div><a class="back-link" href="/">‹ 返回家长控制台</a><p class="eyebrow">TASK MANAGEMENT</p><h1>一次性强制任务</h1><p>为指定时间创建明确的网站资源集合，并查看终端执行进度。</p></div><button id="refresh-btn" class="icon-button" title="刷新" aria-label="刷新">↻</button></section>
+      <section id="capability-notice" class="capability-notice"></section>
+
+      <section class="layout">
+        <form id="task-form" class="workspace-panel form-panel">
+          <div class="panel-heading"><div><h2>创建任务</h2><p>配置一次性任务及允许访问的资源。</p></div><span class="scope-badge">新任务</span></div>
+          <div class="panel-content">
+            <label class="field">任务名称<input id="task-name" required maxlength="80" value="SAT 在线练习"></label>
+            <div class="two-col"><label class="field">计划开始时间<input id="task-start" type="datetime-local" required></label><label class="field">要求时长（分钟）<input id="task-duration" type="number" min="1" max="1440" value="60" required></label></div>
+
+            <section class="resource-editor" aria-labelledby="resource-title">
+              <div class="resource-heading"><div><h3 id="resource-title">允许资源</h3><p>按类型添加，每行一个资源。</p></div><strong id="resource-count">0 项</strong></div>
+              <div class="resource-controls">
+                <label>资源类型<select id="resource-kind"><option value="host">域名</option><option value="url">URL</option><option value="youtube">YouTube 对象</option></select></label>
+                <label id="url-match-field" hidden>URL 范围<select id="url-match"><option value="exact">精确页面</option><option value="path_prefix">路径范围</option></select></label>
+                <label class="resource-input">资源内容<textarea id="resource-input" rows="3" placeholder="collegeboard.org"></textarea></label>
+                <button id="add-resource-btn" class="secondary-button" type="button">添加到列表</button>
+              </div>
+              <p id="resource-message" class="message" aria-live="polite"></p>
+              <div id="resource-draft-list" class="resource-list"></div>
+            </section>
+
+            <button id="create-btn" class="primary-button create-button" type="submit">创建任务</button>
+            <p id="form-message" class="message" aria-live="polite"></p>
+          </div>
+        </form>
+
+        <section class="workspace-panel list-panel">
+          <div class="panel-heading"><div><h2>当前任务</h2><p id="active-summary">正在读取</p></div><span class="scope-badge">实时状态</span></div>
+          <div class="panel-content"><div id="active-list" class="task-list"></div><details id="history-block"><summary>已完成与已取消记录 <span id="history-count"></span></summary><div id="history-list" class="task-list history-list"></div></details></div>
+        </section>
+      </section>
+    </div>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+  <script type="module" src="task.js"></script>
+</body>
+</html>

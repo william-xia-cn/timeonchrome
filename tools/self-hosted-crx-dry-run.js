@@ -83,7 +83,7 @@ function validateExternalKey(repoRoot, keyPath) {
   return resolved;
 }
 
-function validateExtensionPackageRoot(extensionDir) {
+function validateExtensionPackageRoot(extensionDir, { requireProductionProfile = false } = {}) {
   const entries = fs.readdirSync(extensionDir, { withFileTypes: true }).map((entry) => entry.name);
   const banned = entries.filter((entry) => BANNED_PACKAGE_ENTRIES.has(entry));
   if (banned.length > 0) {
@@ -117,9 +117,16 @@ function validateExtensionPackageRoot(extensionDir) {
       throw new Error(`managed storage schema field ${key} must have type ${type}`);
     }
   }
+  if (requireProductionProfile) {
+    const profilePath = path.join(extensionDir, 'deployment-profile.json');
+    if (!fs.existsSync(profilePath)) throw new Error('production deployment profile is missing from staged extension');
+    const profile = readJson(profilePath);
+    if (profile.production !== true) throw new Error('production deployment profile must set production=true');
+    if (profile.taskLocalDebugEnabled !== false) throw new Error('production deployment profile must disable Task local debug');
+  }
 }
 
-function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = false) {
+function stageExtensionPackage(extensionDir, stagingDir, { managedDeployment = false, developmentPackage = false, enableTaskLocalDebug = false } = {}) {
   fs.rmSync(stagingDir, { recursive: true, force: true });
   ensureDir(stagingDir);
   for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
@@ -128,12 +135,12 @@ function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = fal
     const target = path.join(stagingDir, entry.name);
     fs.cpSync(source, target, { recursive: true, force: true });
   }
-  if (managedDeployment) {
-    fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: 'managed' }, null, 2) + '\n', 'utf8');
-  }
-  validateExtensionPackageRoot(stagingDir);
+  const deploymentProfile = developmentPackage
+    ? { mode: 'development', production: false, taskLocalDebugEnabled: enableTaskLocalDebug === true }
+    : { mode: managedDeployment ? 'managed' : 'self_hosted', production: true, taskLocalDebugEnabled: false };
+  fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify(deploymentProfile, null, 2) + '\n', 'utf8');
+  validateExtensionPackageRoot(stagingDir, { requireProductionProfile: !developmentPackage });
 }
-
 function findChromeExecutable(explicit) {
   if (explicit) return path.resolve(explicit);
   const candidates = [
@@ -149,8 +156,8 @@ function findChromeExecutable(explicit) {
   throw new Error('Chrome executable not found; pass --chrome or set CHROME_EXE');
 }
 
-function packCrx({ repoRoot, packageDir, outputDir, crxPath, keyPath, chromePath }) {
-  validateExtensionPackageRoot(packageDir);
+function packCrx({ repoRoot, packageDir, outputDir, crxPath, keyPath, chromePath, developmentPackage = false }) {
+  validateExtensionPackageRoot(packageDir, { requireProductionProfile: !developmentPackage });
   const generatedCrx = `${packageDir}.crx`;
   if (fs.existsSync(generatedCrx)) fs.rmSync(generatedCrx, { force: true });
   const result = spawnSync(chromePath, [
@@ -223,6 +230,10 @@ function main() {
   const keyPathRaw = args.key || process.env.TIMEONCHROME_CRX_KEY_PATH || '';
   const pack = args.pack === true;
   const managedDeployment = args['managed-deployment'] === true || args['managed-deployment'] === 'true';
+  const developmentPackage = args['development-package'] === true || args['development-package'] === 'true';
+  const enableTaskLocalDebug = args['enable-task-local-debug'] === true || args['enable-task-local-debug'] === 'true';
+  if (enableTaskLocalDebug && !developmentPackage) throw new Error('--enable-task-local-debug requires --development-package');
+  if (developmentPackage && args['prepare-host']) throw new Error('development package cannot prepare the production update host');
   const keyPath = pack ? validateExternalKey(repoRoot, keyPathRaw) : (keyPathRaw ? validateExternalKey(repoRoot, keyPathRaw) : null);
   const derivedExtensionId = keyPath ? chromeIdFromPem(keyPath) : null;
   const extensionId = args['extension-id'] || process.env.TIMEONCHROME_MANAGED_EXTENSION_ID || derivedExtensionId || 'REPLACE_WITH_STABLE_EXTENSION_ID';
@@ -240,11 +251,11 @@ function main() {
   }
   if (!/^https:\/\//i.test(baseUrl)) throw new Error('base-url must be HTTPS for production policy use');
 
-  stageExtensionPackage(extensionDir, packageDir, managedDeployment);
+  stageExtensionPackage(extensionDir, packageDir, { managedDeployment, developmentPackage, enableTaskLocalDebug });
 
   if (pack) {
     const chromePath = findChromeExecutable(args.chrome || process.env.CHROME_EXE || '');
-    packCrx({ repoRoot, packageDir, outputDir, crxPath, keyPath, chromePath });
+    packCrx({ repoRoot, packageDir, outputDir, crxPath, keyPath, chromePath, developmentPackage });
   }
 
   const artifact = writeUpdateArtifacts({ outputDir, hostOutputDir, version, extensionId, baseUrl, crxPath, crxFileName, requireCrx });

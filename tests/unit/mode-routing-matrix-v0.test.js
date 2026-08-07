@@ -87,16 +87,6 @@ function loadModeService(stubs = {}) {
         sourceDomain: context.domain || null,
       },
     }),
-    getTaskCache: async () => ({ tasks: [] }),
-    getTaskPolicyContext: () => ({
-      required: false,
-      allowed: true,
-      reason: 'no_active_task',
-      activeTaskIds: [],
-      matchedTaskIds: [],
-      progressTaskId: null,
-      matchesByTaskId: {},
-    }),
     resolveSiteAccessClassification: (cfg, _records, input) => {
       const rawUrl = typeof input === 'string' ? input : input?.url;
       const host = (() => { try { return new URL(rawUrl).hostname; } catch { return ''; } })();
@@ -502,93 +492,6 @@ async function accessCase(name, {
     });
   }
 
-  {
-    const res = await accessCase('Task active + non-task resource: task required reminder', {
-      mode: 'study',
-      url: 'https://khanacademy.org/math',
-      stubs: {
-        getTaskPolicyContext: () => ({
-          required: true,
-          allowed: false,
-          reason: 'task_required',
-          activeTaskIds: ['task-sat'],
-          matchedTaskIds: [],
-          progressTaskId: null,
-          matchesByTaskId: {},
-        }),
-      },
-    });
-    expect('task required blocks non-task resource', {
-      access: res.access,
-      reminder: res.reminder,
-      activeTaskIds: res.taskPolicyContext?.activeTaskIds,
-    }, {
-      access: 'reminder',
-      reminder: { reason: 'task_required', params: { activeTaskIds: ['task-sat'], domain: 'khanacademy.org' } },
-      activeTaskIds: ['task-sat'],
-    });
-  }
-
-  {
-    const res = await accessCase('Task resource bypasses old time window', {
-      mode: 'rest',
-      url: 'https://khanacademy.org/math',
-      configOverrides: { timeWindows: { daily: { study: [], composite: [], rest: [] } } },
-      stubs: {
-        hasTimeWindowsDaily: () => true,
-        getModeWindowStatus: () => ({ configured: true, allowed: false }),
-        getTaskPolicyContext: () => ({
-          required: true,
-          allowed: true,
-          reason: 'task_resource_allowed',
-          activeTaskIds: ['task-sat'],
-          matchedTaskIds: ['task-sat'],
-          progressTaskId: 'task-sat',
-          matchesByTaskId: { 'task-sat': [{ type: 'policyType', value: 'study' }] },
-        }),
-      },
-    });
-    expect('task resource can enter study despite closed study window', {
-      access: res.access,
-      toMode: res.modeChange?.toMode,
-      reason: res.modeChange?.reason,
-      reminder: res.reminder,
-      progressTaskId: res.taskPolicyContext?.progressTaskId,
-    }, {
-      access: 'allow',
-      toMode: 'study',
-      reason: 'rest_to_study',
-      reminder: null,
-      progressTaskId: 'task-sat',
-    });
-  }
-
-  {
-    const res = await accessCase('Unsafe still wins before task policy', {
-      mode: 'study',
-      url: 'https://tiktok.com',
-      stubs: {
-        getTaskPolicyContext: () => ({
-          required: true,
-          allowed: true,
-          reason: 'task_resource_allowed',
-          activeTaskIds: ['task-any'],
-          matchedTaskIds: ['task-any'],
-          progressTaskId: 'task-any',
-          matchesByTaskId: {},
-        }),
-      },
-    });
-    expect('unsafe page is not allowed by task match', {
-      access: res.access,
-      reminder: res.reminder,
-      taskPolicyContext: res.taskPolicyContext || null,
-    }, {
-      access: 'reminder',
-      reminder: { reason: 'unsafe', params: {} },
-      taskPolicyContext: null,
-    });
-  }
   {
     section('Quota alarm transitions through Mode Service');
     const cfg = makeConfig({ quotaState: { restLocked: true, studyLocked: false } });

@@ -6,7 +6,6 @@ import { getEvents } from './core/event-log.js';
 import { updateDeclarativeRules } from './product/interceptor.js';
 import { getWeekRestSeconds } from './product/quota.js';
 import { getSyncState, getCloudConfig, syncNow, sendHeartbeat, cloudBind, initCloudSync, getStatsFoundationV1SyncStatus } from './infra/cloud-sync.js';
-import { pullTaskCache } from './infra/task-sync.js';
 import { getTodayStatsWithCategories } from './product/analytics.js';
 import { flushOpenSessionToStats, getSession as getTimingSession } from './runtime/session.js';
 import { getCappedElapsedMs } from './runtime/time-boundary.js';
@@ -461,10 +460,7 @@ export async function handleMessage(msg, sender) {
       const bindResult = await cloudBind(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, {
         afterClassificationSync: () => runRouterClassificationSyncEffects('cloud_bind_sync'),
       }));
-      if (bindResult?.ok) {
-        const taskPull = await pullTaskCache({ reason: 'cloud_bind' }).catch((err) => ({ ok: false, error: err?.message || String(err) }));
-        return { ...bindResult, taskPull };
-      }
+
       return bindResult;
     }
 

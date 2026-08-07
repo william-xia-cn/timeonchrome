@@ -1,23 +1,9 @@
-import { json, Env, verifyAccountToken } from '../db/middleware';
-import { deviceUnboundResponse, verifyDeviceTokenFromRequest } from './deviceIdentity';
-import { createTaskRepository, TaskLifecycleStatus } from '../tasks/taskRepository';
-import { TASK_MANAGEMENT_V1_CAPABILITY } from '../../../extension/core/task-management.js';
+import { json, Env, verifyAccountToken } from '../../db/middleware';
+import { deviceUnboundResponse, verifyDeviceTokenFromRequest } from '../../routes/deviceIdentity';
+import { createTaskRepository } from './repository';
+import { TASK_CAPABILITY, type TaskLifecycleStatus } from './domain';
 
 const TASK_CAPABILITY_ONLINE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-
-type CapabilityRow = {
-  id: string;
-  device_name?: string | null;
-  last_seen?: number | null;
-  task_management_v1_capable?: number | null;
-  task_capability_reported_at?: number | null;
-  task_sync_version?: number | null;
-};
-
-function isMissingCapabilityColumn(error: any): boolean {
-  const message = String(error?.message || error || '');
-  return /no such column/i.test(message) && /task_(management_v1_capable|capabilities_json|capability_reported_at|sync_version|active_summary_json)/i.test(message);
-}
 
 async function verifyProfileOwner(request: Request, env: Env, profileId: string): Promise<string | Response> {
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);
@@ -30,54 +16,22 @@ async function verifyProfileOwner(request: Request, env: Env, profileId: string)
 }
 
 async function readCapabilitySummary(env: Env, profileId: string, now = Date.now()) {
-  let rows: CapabilityRow[] = [];
-  try {
-    const result = await env.DB.prepare(
-      `SELECT id, device_name, last_seen, task_management_v1_capable, task_capability_reported_at, task_sync_version
-       FROM devices
-       WHERE profile_id = ? AND COALESCE(status, 'bound') = 'bound'
-       ORDER BY COALESCE(last_seen, 0) DESC`
-    ).bind(profileId).all<CapabilityRow>();
-    rows = result.results || [];
-  } catch (error: any) {
-    if (!isMissingCapabilityColumn(error)) throw error;
-    const result = await env.DB.prepare(
-      `SELECT id, device_name, last_seen
-       FROM devices
-       WHERE profile_id = ? AND COALESCE(status, 'bound') = 'bound'
-       ORDER BY COALESCE(last_seen, 0) DESC`
-    ).bind(profileId).all<CapabilityRow>();
-    rows = (result.results || []).map((row) => ({ ...row, task_management_v1_capable: 0 }));
-  }
-
+  const result = await env.DB.prepare(
+    `SELECT d.id, d.device_name, d.last_seen, s.capable, s.reported_at, s.task_version
+     FROM devices d LEFT JOIN task_device_state_v1 s ON s.device_id = d.id
+     WHERE d.profile_id = ? AND COALESCE(d.status, 'bound') = 'bound'
+     ORDER BY COALESCE(d.last_seen, 0) DESC`
+  ).bind(profileId).all<any>();
   const onlineCutoff = now - TASK_CAPABILITY_ONLINE_WINDOW_MS;
-  const devices = rows.map((row) => {
-    const lastSeen = Number(row.last_seen || 0);
-    const online = lastSeen > 0 && lastSeen >= onlineCutoff;
-    const capable = Number(row.task_management_v1_capable || 0) === 1;
-    return {
-      id: row.id,
-      name: row.device_name || 'Chrome Extension',
-      lastSeen,
-      online,
-      taskManagementV1: capable,
-      reportedAt: row.task_capability_reported_at || null,
-      taskSyncVersion: Number(row.task_sync_version || 0),
-    };
-  });
+  const devices = (result.results || []).map((row) => ({
+    id: row.id, name: row.device_name || 'Chrome Extension', lastSeen: Number(row.last_seen || 0),
+    online: Number(row.last_seen || 0) >= onlineCutoff, taskManagementV1: Number(row.capable || 0) === 1,
+    reportedAt: row.reported_at || null, taskSyncVersion: Number(row.task_version || 0),
+  }));
   const onlineDevices = devices.filter((device) => device.online);
   const unsupportedOnlineDevices = onlineDevices.filter((device) => !device.taskManagementV1);
-  return {
-    capability: TASK_MANAGEMENT_V1_CAPABILITY,
-    onlineWindowMs: TASK_CAPABILITY_ONLINE_WINDOW_MS,
-    totalBoundDevices: devices.length,
-    onlineDeviceCount: onlineDevices.length,
-    canCreateTasks: onlineDevices.length > 0 && unsupportedOnlineDevices.length === 0,
-    unsupportedOnlineDevices,
-    devices,
-  };
+  return { capability: TASK_CAPABILITY, onlineWindowMs: TASK_CAPABILITY_ONLINE_WINDOW_MS, totalBoundDevices: devices.length, onlineDeviceCount: onlineDevices.length, canCreateTasks: onlineDevices.length > 0 && unsupportedOnlineDevices.length === 0, unsupportedOnlineDevices, devices };
 }
-
 function actionToLifecycleStatus(action: unknown): TaskLifecycleStatus | null {
   switch (String(action || '').trim().toLowerCase()) {
     case 'pause':
@@ -93,6 +47,9 @@ function actionToLifecycleStatus(action: unknown): TaskLifecycleStatus | null {
   }
 }
 
+function eventTypeForAction(action: string): string {
+  return ({ pause: 'paused', resume: 'resumed', complete: 'completed', cancel: 'cancelled' } as Record<string, string>)[action] || action;
+}
 function statusForError(code: string | null | undefined): number {
   if (code === 'TASK_NOT_FOUND') return 404;
   if (code === 'TASK_CORE_FIELDS_FROZEN') return 409;
@@ -106,31 +63,50 @@ async function findTaskEvent(env: Env, eventId: string) {
   ).bind(eventId).first<{ id: string }>();
 }
 
-export const tasksRouter = {
+export const taskModuleRouter = {
+  matches(path: string): boolean {
+    return path.startsWith('/device/task-runtime/v1/') || /^\/profiles\/[^/]+\/task-runtime\/v1\/tasks(?:\/|$)/.test(path);
+  },
   async handle(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     const repo = createTaskRepository(env);
 
-    const deviceTasksMatch = path === '/device/tasks/v1';
+    const deviceTasksMatch = path === '/device/task-runtime/v1/tasks';
+    const deviceProgressMatch = path === '/device/task-runtime/v1/progress';
+    const deviceHeartbeatMatch = path === '/device/task-runtime/v1/heartbeat';
     if (request.method === 'GET' && deviceTasksMatch) {
       const deviceIdentity = await verifyDeviceTokenFromRequest(request, env, { updateLastSeen: true });
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
       if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
+      await repo.recordDeviceState({ profileId: deviceIdentity.profileId, deviceId: deviceIdentity.deviceId });
       const tasks = await repo.listTasks(deviceIdentity.profileId, false);
       return json({
         success: true,
         profile_id: deviceIdentity.profileId,
         device_id: deviceIdentity.deviceId,
         serverTime: Date.now(),
-        capability: TASK_MANAGEMENT_V1_CAPABILITY,
+        capability: TASK_CAPABILITY,
         tasks,
       });
     }
 
-    const listMatch = path.match(/^\/profiles\/([^/]+)\/tasks\/v1$/);
-    const taskMatch = path.match(/^\/profiles\/([^/]+)\/tasks\/([^/]+)\/v1$/);
-    const actionMatch = path.match(/^\/profiles\/([^/]+)\/tasks\/([^/]+)\/actions\/v1$/);
+    if (request.method === 'POST' && (deviceProgressMatch || deviceHeartbeatMatch)) {
+      const deviceIdentity = await verifyDeviceTokenFromRequest(request, env, { updateLastSeen: false });
+      if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
+      if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
+      const body = await request.json<any>().catch(() => ({}));
+      if (deviceHeartbeatMatch) {
+        await repo.recordDeviceState({ profileId: deviceIdentity.profileId, deviceId: deviceIdentity.deviceId, taskVersion: body.taskVersion, activeSummary: body.activeSummary });
+        return json({ success: true, capability: TASK_CAPABILITY, serverTime: Date.now() });
+      }
+      const result = await repo.ingestProgressSegments(deviceIdentity.profileId, deviceIdentity.deviceId, body.segments || []);
+      return json({ success: true, ...result });
+    }
+
+    const listMatch = path.match(/^\/profiles\/([^/]+)\/task-runtime\/v1\/tasks$/);
+    const taskMatch = path.match(/^\/profiles\/([^/]+)\/task-runtime\/v1\/tasks\/([^/]+)$/);
+    const actionMatch = path.match(/^\/profiles\/([^/]+)\/task-runtime\/v1\/tasks\/([^/]+)\/actions$/);
     const profileId = listMatch?.[1] || taskMatch?.[1] || actionMatch?.[1] || null;
     if (!profileId) return json({ error: 'Not found' }, 404);
 
@@ -223,7 +199,7 @@ export const tasksRouter = {
         id: eventId,
         taskId,
         profileId,
-        eventType: action,
+        eventType: eventTypeForAction(action),
         taskRevision: expectedRevision + 1,
         sourceType: 'parent',
         sourceId: accountId,
