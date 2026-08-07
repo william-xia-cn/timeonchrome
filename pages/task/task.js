@@ -99,9 +99,10 @@ function emptyNode(text){const node=document.createElement('div');node.className
 function renderCapability(summary={}){
   capabilityReady=summary.canCreateTasks===true;$('create-btn').disabled=!capabilityReady;
   const online=Number(summary.onlineDeviceCount||0);const unsupportedDevices=summary.unsupportedOnlineDevices||[];const unsupported=unsupportedDevices.length;
+  const windowMinutes=Math.max(1,Math.round(Number(summary.onlineWindowMs||0)/60000)||30);
   const notice=$('capability-notice');
-  if(capabilityReady){notice.textContent=`设备能力已就绪：${online} 台在线设备支持 Task V1。`;return}
-  const headline=online?`暂不能创建正式任务：${unsupported} 台在线设备尚未报告 Task V1 能力。`:'没有已报告 Task V1 能力的在线设备。';
+  if(capabilityReady){notice.textContent=`设备能力已就绪：最近 ${windowMinutes} 分钟内 ${online} 台在线设备支持 Task V1。`;return}
+  const headline=online?`暂不能创建正式任务：最近 ${windowMinutes} 分钟内 ${unsupported} 台在线设备尚未报告 Task V1 能力。`:`最近 ${windowMinutes} 分钟内没有已报告 Task V1 能力的在线设备。`;
   const body=!online
     ? '<p>请先打开已绑定并支持 Task V1 的终端，进入本地“扩展模块 -> 任务管理”触发能力上报。</p>'
     : '<ul class="capability-device-list">'+unsupportedDevices.map((device)=>{

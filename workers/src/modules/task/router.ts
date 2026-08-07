@@ -3,7 +3,7 @@ import { deviceUnboundResponse, verifyDeviceTokenFromRequest } from '../../route
 import { createTaskRepository } from './repository';
 import { TASK_CAPABILITY, type TaskLifecycleStatus } from './domain';
 
-const TASK_CAPABILITY_ONLINE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const TASK_CAPABILITY_ONLINE_WINDOW_MS = 30 * 60 * 1000;
 
 async function verifyProfileOwner(request: Request, env: Env, profileId: string): Promise<string | Response> {
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);

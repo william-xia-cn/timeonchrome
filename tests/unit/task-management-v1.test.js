@@ -230,6 +230,7 @@ function runWorkerChecks() {
   check('legacy device capability migration has no executable ALTER or index', !/^\s*(ALTER TABLE|CREATE INDEX)/m.test(legacyCapability));
   check('Task repository unions progress intervals without core stats', workerTask.includes('mergeTaskProgressIntervals') && workerTask.includes('started_at, ended_at') && !workerTask.includes('FROM usage_segments_v1'));
   check('Task device API is namespaced independently', workerTask.includes('/device/task-runtime/v1/tasks') && workerTask.includes('/device/task-runtime/v1/progress') && workerTask.includes('/device/task-runtime/v1/heartbeat'));
+  check('Task capability gate uses a current online window', read('workers/src/modules/task/router.ts').includes('30 * 60 * 1000') && workerTask.includes('onlineWindowMs'));
 }
 
 function runUiChecks() {
