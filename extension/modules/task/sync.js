@@ -72,6 +72,7 @@ export async function saveTaskCacheError(error, nowMs = Date.now()) {
       taskVersion: 0,
       tasks: [],
     }),
+    lastPullAttemptAt: nowMs,
     lastAttemptAt: nowMs,
     error: error?.message || String(error || 'task_pull_failed'),
   };
@@ -80,16 +81,63 @@ export async function saveTaskCacheError(error, nowMs = Date.now()) {
 }
 
 export async function pullTaskCache({ reason = 'manual', nowMs = Date.now() } = {}) {
+  const existing = await getTaskCache();
   try {
     const payload = await taskDeviceRequest('GET', '/device/task-runtime/v1/tasks');
     const cache = normalizeTaskCachePayload(payload || {}, nowMs);
+    cache.lastHeartbeatAt = existing?.lastHeartbeatAt || null;
+    cache.lastHeartbeatAttemptAt = existing?.lastHeartbeatAttemptAt || null;
+    cache.heartbeatReason = existing?.heartbeatReason || null;
+    cache.heartbeatError = existing?.heartbeatError || null;
     cache.reason = reason;
+    cache.lastPullAt = nowMs;
+    cache.lastPullAttemptAt = nowMs;
+    cache.pullError = null;
     await saveTaskCache(cache);
     await scheduleNextTaskAlarm(cache.tasks, nowMs);
     return { ok: true, cache };
   } catch (error) {
     const cache = await saveTaskCacheError(error, nowMs);
     return { ok: false, error: cache.error, cache };
+  }
+}
+
+export async function sendTaskHeartbeat({ reason = 'manual', nowMs = Date.now() } = {}) {
+  const existing = await getTaskCache();
+  const base = existing || {
+    schemaVersion: TASK_CACHE_SCHEMA_VERSION,
+    capability: TASK_MANAGEMENT_V1_CAPABILITY,
+    taskVersion: 0,
+    tasks: [],
+  };
+  const heartbeat = buildTaskHeartbeatPayload(base, nowMs);
+  try {
+    await taskDeviceRequest('POST', '/device/task-runtime/v1/heartbeat', {
+      taskVersion: heartbeat.taskVersion,
+      activeSummary: heartbeat.taskActiveSummary,
+      capabilities: heartbeat.capabilities,
+      reason,
+    });
+    const cache = {
+      ...base,
+      capability: TASK_MANAGEMENT_V1_CAPABILITY,
+      lastHeartbeatAttemptAt: nowMs,
+      lastHeartbeatAt: nowMs,
+      heartbeatReason: reason,
+      heartbeatError: null,
+    };
+    await saveTaskCache(cache);
+    return { ok: true, cache };
+  } catch (error) {
+    const cache = {
+      ...base,
+      capability: TASK_MANAGEMENT_V1_CAPABILITY,
+      lastHeartbeatAttemptAt: nowMs,
+      heartbeatReason: reason,
+      heartbeatError: error?.message || String(error || 'task_heartbeat_failed'),
+    };
+    await saveTaskCache(cache);
+    return { ok: false, error: cache.heartbeatError, cache };
   }
 }
 
@@ -158,7 +206,14 @@ export function buildTaskReadModel(cache = null, nowMs = Date.now()) {
     taskVersion: Number(cache?.taskVersion || 0) || 0,
     cacheReason: cache?.reason || null,
     pulledAt: Number(cache?.pulledAt || 0) || null,
-    error: cache?.error || null,
+    lastPullAt: Number(cache?.lastPullAt || cache?.pulledAt || 0) || null,
+    lastPullAttemptAt: Number(cache?.lastPullAttemptAt || 0) || null,
+    lastHeartbeatAt: Number(cache?.lastHeartbeatAt || 0) || null,
+    lastHeartbeatAttemptAt: Number(cache?.lastHeartbeatAttemptAt || 0) || null,
+    heartbeatReason: cache?.heartbeatReason || null,
+    heartbeatError: cache?.heartbeatError || null,
+    capabilityReported: Number(cache?.lastHeartbeatAt || 0) > 0,
+    error: cache?.error || cache?.pullError || null,
     activeCount: enforcingTasks.length,
     enforcingTasks,
     progressTask,

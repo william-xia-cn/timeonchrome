@@ -349,6 +349,8 @@ Task 插件通过独立 `/device/task-runtime/v1/heartbeat` 维护 `taskManageme
 - 任一在线设备不支持或 capability 未知：阻止创建，并列出需要更新的设备；
 - 已长期离线设备的判定窗口必须作为 Task 模块常量确定；
 - 已存在任务不会因为设备短暂掉线自动取消。
+- Task 插件启动、绑定 token 写入、每分钟 Task pull alarm、本地 Task 面板读取时均必须尝试独立 capability heartbeat；pull 失败不得阻止 heartbeat 尝试，heartbeat 失败只进入 Task 自有诊断 read model，不影响主扩展。
+- 本地 Task 面板和云端 Task 页面必须显示最近 Task capability 上报时间、Task pull/heartbeat 错误与不支持设备清单，避免把“未上报/上报失败”误读为“代码未更新”。
 
 部署不依赖全局 feature flag。关闭唯一静态安装行时扩展完全没有 Task 运行时；安装 Task 但没有任务时，插件只保留自己的同步和 no-op 访问结果。
 ## 12. Rollout And Migration

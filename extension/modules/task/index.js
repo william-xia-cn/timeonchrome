@@ -10,6 +10,7 @@ import {
   pullTaskCache,
   saveTaskCache,
   scheduleNextTaskAlarm,
+  sendTaskHeartbeat,
   setupTaskAlarms,
 } from './sync.js';
 import {
@@ -158,11 +159,16 @@ export function createOptionalModule() {
       globalThis.chrome?.alarms?.onAlarm?.addListener?.((alarm) => runtime.handleAlarm(alarm));
       globalThis.chrome?.storage?.onChanged?.addListener?.((changes, area) => {
         if (area === 'local' && changes.cloud_device_token?.newValue) {
-          pullTaskCache({ reason: 'cloud_bound' }).catch(() => {});
+          sendTaskHeartbeat({ reason: 'cloud_bound' })
+            .then(() => pullTaskCache({ reason: 'cloud_bound' }))
+            .catch(() => {});
         }
       });
       await scheduleNextTaskAlarm((await getTaskCache().catch(() => null))?.tasks || [], Date.now());
-      pullTaskCache({ reason: 'module_start' }).then(() => checkpointCurrentPage()).catch(() => {});
+      sendTaskHeartbeat({ reason: 'module_start' })
+        .then(() => pullTaskCache({ reason: 'module_start' }))
+        .then(() => checkpointCurrentPage())
+        .catch(() => {});
       globalThis.chrome?.tabs?.onActivated?.addListener?.(() => checkpointCurrentPage().catch(() => {}));
       globalThis.chrome?.tabs?.onUpdated?.addListener?.((_tabId, changeInfo) => {
         if (changeInfo.url || changeInfo.status === 'complete') checkpointCurrentPage().catch(() => {});
@@ -197,11 +203,13 @@ export function createOptionalModule() {
       if (alarm.name === TASK_PULL_ALARM) {
         await flushTaskProgress();
         await uploadPendingTaskProgress().catch(() => {});
-        await pullTaskCache({ reason: 'alarm' });
+        await pullTaskCache({ reason: 'alarm' }).catch(() => null);
+        await sendTaskHeartbeat({ reason: 'alarm' }).catch(() => null);
         await checkpointCurrentPage();
         return { handled: true };
       }
       if (alarm.name === TASK_START_ALARM) {
+        await sendTaskHeartbeat({ reason: 'task_start_alarm' }).catch(() => null);
         await pullTaskCache({ reason: 'task_start_alarm' });
         await recheckActiveTab();
         return { handled: true };
@@ -211,6 +219,7 @@ export function createOptionalModule() {
 
     async handleMessage(message = {}, sender = {}) {
       if (message.type === 'GET_TASK_READ_MODEL') {
+        await sendTaskHeartbeat({ reason: 'read_model' }).catch(() => null);
         return { handled: true, response: await getTaskReadModel() };
       }
       if (['SET_LOCAL_DEBUG_TASK_CACHE', 'CLEAR_LOCAL_DEBUG_TASK_CACHE', 'CHECKPOINT_LOCAL_DEBUG_TASK'].includes(message.type)) {

@@ -35,6 +35,10 @@
   - 实施边界：任务代码、migration 和测试只进入 `codex/task-management-v1`，不得与其他功能提交混合；不执行远端 D1 migration、不部署生产环境，除非 Product Owner 后续单独授权。
 
 ## Current Development Focus（2026-08-05）
+- [x] [Task-management / P15] Task V1 capability 上报可靠性修复
+  - 范围：Task 模块启动、绑定 token 写入、每分钟 alarm、本地 Task 面板读取时均尝试独立 `/device/task-runtime/v1/heartbeat`；pull 失败不阻断 capability heartbeat。
+  - UI：本地 Task 面板显示 Task capability、最近 pull/heartbeat 时间与错误；云端 Task 页列出未上报或过期设备的诊断信息。
+  - 边界：不合并到普通 `/device/heartbeat`，不修改访问管理、核心计时、核心落账或普通云同步。
 - [ ] [Task-management / P10] 完全独立模块重构
   - 分支：`codex/task-management-v1`
   - 范围：按 D-058 将 Task 的领域、运行时、同步、独立进度账本、消息和 UI 收敛到可整体删除模块；宿主只保留通用 optional-module host，以及 `background.js` 中唯一一行静态 side-effect import 安装开关。

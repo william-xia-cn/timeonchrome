@@ -42,7 +42,13 @@
 .optional-module-body .resource-heading h2 { font-size: 17px; margin: 0 0 4px; }
 .optional-module-body .panel-heading p,
 .optional-module-body .resource-heading p { margin: 0; color: var(--task-muted); font-size: 13px; }
-.optional-module-body .task-list { display: grid; gap: 12px; padding: 16px 18px; }
+.optional-module-body .task-diagnostics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 14px 18px 0; }
+.optional-module-body .task-diagnostics div { min-width: 0; padding: 9px 10px; background: #f7faf9; border: 1px solid #e5eeeb; }
+.optional-module-body .task-diagnostics span,
+.optional-module-body .task-diagnostics strong { display: block; }
+.optional-module-body .task-diagnostics span { color: var(--task-muted); font-size: 11px; font-weight: 700; }
+.optional-module-body .task-diagnostics strong { margin-top: 4px; color: var(--task-ink); font-size: 12px; overflow-wrap: anywhere; }
+.optional-module-body .task-diagnostics.has-error div { border-color: #efd2ca; background: #fff9f7; }.optional-module-body .task-list { display: grid; gap: 12px; padding: 16px 18px; }
 .optional-module-body .task-card { padding: 16px; box-shadow: none; }
 .optional-module-body .task-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
 .optional-module-body .task-card-head strong,

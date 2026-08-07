@@ -109,6 +109,37 @@ async function runLedgerChecks() {
     globalThis.fetch = originalFetch;
   }
 }
+async function runHeartbeatChecks() {
+  const originalChrome = globalThis.chrome;
+  const originalFetch = globalThis.fetch;
+  const store = { task_management_v1_cache: { schemaVersion: 1, capability: 'taskManagementV1', taskVersion: 7, tasks: [] } };
+  const calls = [];
+  globalThis.chrome = { storage: { local: {
+    async get(keys) { const list = Array.isArray(keys) ? keys : [keys]; return Object.fromEntries(list.filter((key) => key in store).map((key) => [key, store[key]])); },
+    async set(values) { Object.assign(store, values); },
+    async remove(keys) { for (const key of (Array.isArray(keys) ? keys : [keys])) delete store[key]; },
+  } } };
+  try {
+    const sync = await import(pathToFileURL(path.join(root, 'extension/modules/task/sync.js')).href + `?heartbeat=${Date.now()}`);
+    delete store.cloud_device_token;
+    const missing = await sync.sendTaskHeartbeat({ reason: 'unit_missing_token', nowMs: 1000 });
+    check('Task heartbeat reports missing device token without throwing', missing.ok === false && missing.error === 'TASK_DEVICE_NOT_BOUND' && store.task_management_v1_cache.heartbeatError === 'TASK_DEVICE_NOT_BOUND');
+    store.cloud_device_token = 'unit-token';
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url: String(url), options, body: JSON.parse(options.body || '{}') });
+      return { ok: true, async json() { return { success: true }; } };
+    };
+    const ok = await sync.sendTaskHeartbeat({ reason: 'unit_success', nowMs: 2000 });
+    check('Task heartbeat posts to independent device runtime endpoint', ok.ok === true && calls[0]?.url.endsWith('/device/task-runtime/v1/heartbeat'));
+    check('Task heartbeat stores capability diagnostics in read model', store.task_management_v1_cache.lastHeartbeatAt === 2000 && store.task_management_v1_cache.heartbeatError === null && (await sync.getTaskReadModel(2000)).capabilityReported === true);
+    check('Task heartbeat payload includes taskVersion and activeSummary', calls[0]?.body?.taskVersion === 7 && calls[0]?.body?.activeSummary && calls[0]?.body?.capabilities?.taskManagementV1 === true);
+    await sync.pullTaskCache({ reason: 'after_heartbeat', nowMs: 3000 });
+    check('Task pull preserves last capability heartbeat diagnostics', store.task_management_v1_cache.lastHeartbeatAt === 2000 && store.task_management_v1_cache.lastPullAt === 3000);
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.fetch = originalFetch;
+  }
+}
 async function runProductionDebugGateChecks() {
   const originalChrome = globalThis.chrome;
   const originalFetch = globalThis.fetch;
@@ -198,7 +229,7 @@ function runWorkerChecks() {
   check('Task completion source is its own progress ledger', migration.includes("'task_progress'") && !migration.includes("'usage'"));
   check('legacy device capability migration has no executable ALTER or index', !/^\s*(ALTER TABLE|CREATE INDEX)/m.test(legacyCapability));
   check('Task repository unions progress intervals without core stats', workerTask.includes('mergeTaskProgressIntervals') && workerTask.includes('started_at, ended_at') && !workerTask.includes('FROM usage_segments_v1'));
-  check('Task device API is namespaced independently', workerTask.includes('/device/task-runtime/v1/tasks') && workerTask.includes('/device/task-runtime/v1/progress'));
+  check('Task device API is namespaced independently', workerTask.includes('/device/task-runtime/v1/tasks') && workerTask.includes('/device/task-runtime/v1/progress') && workerTask.includes('/device/task-runtime/v1/heartbeat'));
 }
 
 function runUiChecks() {
@@ -213,6 +244,8 @@ function runUiChecks() {
   check('local debug form hydrates every canonical resource type', read('extension/modules/task/ui/admin.js').includes('hydrateDebugForm') && read('extension/modules/task/ui/admin.js').includes('urlRules') && read('extension/modules/task/ui/admin.js').includes('specialTargets'));
   check('Task cards display resources one row at a time', read('extension/modules/task/ui/admin.js').includes('resource-row') && read('pages/task/task.js').includes('resource-row'));
   check('local Task cards display planned start time', read('extension/modules/task/ui/admin.js').includes('displayDateTime(task.plannedStartAt)') && read('extension/modules/task/ui/admin.js').includes('计划开始') && read('extension/modules/task/ui/task.css').includes('task-meta-strip'));
+  check('local Task panel exposes capability heartbeat diagnostics', read('extension/modules/task/ui/admin.js').includes('task-diagnostics') && read('extension/modules/task/ui/admin.js').includes('Task capability') && read('extension/modules/task/sync.js').includes('sendTaskHeartbeat'));
+  check('cloud Task page lists unsupported capability devices', read('pages/task/task.js').includes('capability-device-list') && read('pages/task/task.js').includes('Task 上报') && read('pages/task/task.js').includes('taskSyncVersion'));
   check('Task required resources are rendered as clickable destinations', read('extension/modules/task/ui/required.js').includes('resource-link') && read('extension/modules/task/ui/required.js').includes('href='));
   check('cloud Task resource editor auto detects YouTube URLs', read('pages/task/resource-editor.js').includes('taskSpecialTargetsFromUrl') && !read('pages/task/index.html').includes('video |'));
   check('generic extension module entry uses inline local UI with fallback href', read('extension/modules/task/index.js').includes("uiKind: 'inline'") && read('extension/modules/task/index.js').includes('inlineScript') && read('extension/modules/task/index.js').includes('modules/task/ui/admin.html') && JSON.parse(read('pages/optional-modules.json'))[0]?.href === '/task/');
@@ -222,6 +255,7 @@ function runUiChecks() {
   await runDomainChecks();
   await runResourceProtocolChecks();
   await runLedgerChecks();
+  await runHeartbeatChecks();
   await runProductionDebugGateChecks();
   await runOptionalHostChecks();
   runBoundaryChecks();

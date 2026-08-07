@@ -98,8 +98,18 @@ function renderTasks(tasks=[]){
 function emptyNode(text){const node=document.createElement('div');node.className='empty';node.textContent=text;return node}
 function renderCapability(summary={}){
   capabilityReady=summary.canCreateTasks===true;$('create-btn').disabled=!capabilityReady;
-  const online=Number(summary.onlineDeviceCount||0);const unsupported=(summary.unsupportedOnlineDevices||[]).length;
-  $('capability-notice').textContent=capabilityReady?`设备能力已就绪：${online} 台在线设备支持 Task V1。`:`暂不能创建正式任务：${online?`${unsupported} 台在线设备尚未报告 Task V1 能力。`:'没有已报告 Task V1 能力的在线设备。'}`;
+  const online=Number(summary.onlineDeviceCount||0);const unsupportedDevices=summary.unsupportedOnlineDevices||[];const unsupported=unsupportedDevices.length;
+  const notice=$('capability-notice');
+  if(capabilityReady){notice.textContent=`设备能力已就绪：${online} 台在线设备支持 Task V1。`;return}
+  const headline=online?`暂不能创建正式任务：${unsupported} 台在线设备尚未报告 Task V1 能力。`:'没有已报告 Task V1 能力的在线设备。';
+  const body=!online
+    ? '<p>请先打开已绑定并支持 Task V1 的终端，进入本地“扩展模块 -> 任务管理”触发能力上报。</p>'
+    : '<ul class="capability-device-list">'+unsupportedDevices.map((device)=>{
+        const taskReported=device.reportedAt?formatDate(device.reportedAt):'尚未上报';
+        const lastSeen=device.lastSeen?formatDate(device.lastSeen):'未知';
+        return `<li><strong>${escapeHtml(device.name||'Chrome Extension')}</strong><span>设备 ${escapeHtml(device.id||'--')} · 普通在线 ${escapeHtml(lastSeen)} · Task 上报 ${escapeHtml(taskReported)} · taskVersion ${Number(device.taskSyncVersion||0)}</span></li>`;
+      }).join('')+'</ul>';
+  notice.innerHTML=`<strong>${escapeHtml(headline)}</strong>${body}`;
 }
 async function loadTasks(){if(!profileId)return;const result=await api(`/profiles/${encodeURIComponent(profileId)}/task-runtime/v1/tasks?includeHistory=1`);renderCapability(result.capabilitySummary||{});renderTasks(result.tasks||[])}
 async function runAction(task,action){try{await api(`/profiles/${encodeURIComponent(profileId)}/task-runtime/v1/tasks/${encodeURIComponent(task.id)}/actions`,'POST',{action,expectedRevision:task.revision,actionId:crypto.randomUUID()});toast('任务状态已更新');await loadTasks()}catch(error){toast(`操作失败：${error.message}`)}}

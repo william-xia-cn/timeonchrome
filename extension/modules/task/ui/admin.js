@@ -97,6 +97,30 @@ function taskCard(task) {
     '<dl class="task-meta-strip"><div><dt>计划开始</dt><dd>' + escapeHtml(displayDateTime(task.plannedStartAt)) + '</dd></div><div><dt>已完成</dt><dd>' + fmt(completed) + '</dd></div><div><dt>要求时长</dt><dd>' + fmt(required) + '</dd></div></dl>' +
     '<div class="progress-track"><span style="width:' + ratio + '%"></span></div><div class="task-resource-list"></div></article>';
 }
+function renderDiagnostics(model = {}) {
+  const heartbeatAt = Number(model.lastHeartbeatAt || 0);
+  const heartbeatAttemptAt = Number(model.lastHeartbeatAttemptAt || 0);
+  const pullAt = Number(model.lastPullAt || model.pulledAt || 0);
+  const pullAttemptAt = Number(model.lastPullAttemptAt || 0);
+  const heartbeatError = model.heartbeatError || null;
+  const pullError = model.error || null;
+  const capabilityLabel = heartbeatAt > 0
+    ? '已上报'
+    : heartbeatError
+      ? '上报失败'
+      : '未上报';
+  const rows = [
+    ['Task capability', capabilityLabel],
+    ['最近 capability heartbeat', heartbeatAt ? displayDateTime(heartbeatAt) : (heartbeatAttemptAt ? '失败于 ' + displayDateTime(heartbeatAttemptAt) : '尚未尝试')],
+    ['最近任务拉取', pullAt ? displayDateTime(pullAt) : (pullAttemptAt ? '失败于 ' + displayDateTime(pullAttemptAt) : '尚未尝试')],
+  ];
+  if (heartbeatError) rows.push(['Heartbeat 错误', heartbeatError]);
+  if (pullError) rows.push(['Pull 错误', pullError]);
+  const target = byId('task-diagnostics');
+  if (!target) return;
+  target.innerHTML = rows.map(([label, value]) => '<div><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>').join('');
+  target.classList.toggle('has-error', Boolean(heartbeatError || pullError));
+}
 function renderTasks(tasks) {
   const list = byId('task-list');
   if (!tasks.length) {
@@ -174,6 +198,7 @@ async function render({ hydrate = true } = {}) {
   const model = await send('GET_TASK_READ_MODEL');
   const tasks = [...(model.enforcingTasks || []), ...(model.nextTask ? [model.nextTask] : [])];
   byId('task-status').textContent = '当前强制 ' + Number(model.activeCount || 0) + ' 个任务' + (model.nextTask ? ' · 另有 1 个待开始' : '');
+  renderDiagnostics(model);
   renderTasks(tasks);
   if (hydrate && model.cacheReason === 'local_admin_debug') hydrateDebugForm(model);
   return model;
@@ -221,7 +246,7 @@ const TASK_ADMIN_INLINE_HTML = `
   </section>
   <section class="workspace-panel status-panel">
     <div class="panel-heading"><div><h2>当前与即将开始</h2><p>正式任务状态为只读，任务安排由家长端管理。</p></div><span class="scope-badge">本设备</span></div>
-    <div id="task-list" class="task-list"></div>
+    <div id="task-diagnostics" class="task-diagnostics"></div><div id="task-list" class="task-list"></div>
   </section>
   <details class="workspace-panel debug-panel" id="debug-panel" open>
     <summary><span><strong>本地调试任务配置</strong><small>开发工具 · 仅本机</small></span><span class="summary-action">展开 / 收起</span></summary>
