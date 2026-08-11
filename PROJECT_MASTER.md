@@ -3,7 +3,7 @@
 ## 项目状态
 - **版本：1.7.23**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-12）**：Product Owner 已批准将当前已验证的 P0 计时/存储修复、同步与统计修正及默认关闭的邮件归类基础设施作为 `1.7.23` 提交、推送并部署到 T.xia / P.xia 内部自托管更新通道；生产回读和设备升级观察在部署后记录。
+- **当前发布状态（2026-08-12）**：`1.7.23` 代码提交 `87da444` 已推送到 `origin/master`；`guardian-api` Worker 与 T.xia / P.xia 内部自托管更新源均已部署并完成生产回读。CRX SHA256 为 `70a79b4dc966d3ae3dae6f7fc4c3f3241f5ea7cd40e4aa7014c87273f98a0800`；当前进入 24 小时设备升级与运行观察。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

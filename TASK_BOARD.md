@@ -61,7 +61,7 @@
   - 边界：不修改历史账本、D1 schema、profile 配置、版本或发布状态；代码和测试完成后再由 Product Owner 决定提交与发布。
   - 完成：checkpoint repair 强制先路由；内部消息不再误报 unknown type；exhausted 归类记录按 6 小时冷却恢复；陈旧小时媒体 outbox 先重建、无事实时清理；聚合计数改为行级。
   - 验证：全量 unit 105 个测试文件通过；`npm run typecheck` 通过；`node tests/run-all.js` 全部通过，其中 Worker API `103/103`、duration-flow `53/53`、浏览器 E2E `14/14`。
-  - 发布后验收待办：连续 24 小时核对异常分段、存储压力、20 条归类记录与四层统计；本轮不提交、不发布。
+  - 发布状态（2026-08-12）：已随 `1.7.23` 提交、推送并部署到内部自托管通道；发布后连续 24 小时核对异常分段、存储压力、20 条归类记录与四层统计。
 - [x] [P0 Runtime] 待归类网站借用休息配额时 Rest/Study 模式震荡修复
   - 证据：T.xia 于 2026-08-11 19:24-20:13 访问 `www.gululu.world` 时产生 49 轮 `mode_effective_boundary` Rest/Study 往返；该站当时为 `pending_composite`，当天人工归类与历史异常无关。
   - 根因：周期时间窗评估按 legacy runtime `rest` 检查 `restWindows`，而 active-tab recheck 又按待归类额度耗尽回到 Rest quota borrow，两个正确但上下文不一致的规则形成一分钟循环。
@@ -377,14 +377,14 @@
   - 后续处理：单独规划扩展本地存储配额止血、V1 outbox/client logs/media ledger 清理、媒体 open session 关闭，以及必要时的历史统计只读对账和人工确认修正。
 - [ ] **[P0] 扩展本地 V1 存储配额止血修复**
   - 目标：防止 `chrome.storage.local` 爆满继续导致 settlement、checkpoint、cloud sync 和媒体 session 关闭失败。
-  - 当前实施版本：`1.7.22`。
-  - 范围：只改扩展本地代码、技术文档和单测；不写 D1、不修正历史统计、不部署。
+  - 当前实施版本：`1.7.23`（在 `1.7.22` 基础上补充自然日保留、session 日志分流及压力诊断冷却）。
+  - 范围：只改扩展本地代码、技术文档和测试；不写 D1、不修正历史统计；已获 Product Owner 授权部署内部版本。
   - 修复口径：日期同步统一最多 200 条顺序分批；错误元数据改为短错误码；升级时无损压缩旧 outbox；7 MB 进入压力维护并以 6.5 MB 为目标，8 MB 为写入前硬门，预留至少 64 KB。
 
   - 紧急淘汰：日志最多保留 3 天并按 `error > warning > info`、最近 1 天优先排序；先清诊断和已上传副本，仍无法满足硬门时先淘汰未上传媒体，最后才淘汰最旧未上传网页原始分段，并保留聚合、修正 index/outbox、写入紧凑损失审计。
   - 媒体 lifecycle：更新/启动时恢复并清空陈旧 `media_sessions_v2`；陈旧 session 最多补记最后证据后 90 秒，禁止被后续模式边界拉成长段。
   - journal-first 加固：网页结算失败不得推进 session；新增 48 KB journal、完整 RMW 协调、启动重放与 compacted total facts，媒体/同步/日志不得抢占网页落账。
-  - `1.7.22` 已提交并推送到 `origin/master`，已部署到 T.xia / P.xia 内部自托管更新通道；生产 feed/CRX 回读一致，SHA256 为 `5a7ba40fc7681c92dec4245465d93c8fe414f4a0fd00b8c947d36a78160172da`。生产设备 24 小时观察作为发布后验收，因此 P0 任务保持未关闭。
+  - `1.7.23` 已提交并推送到 `origin/master`，已部署到 T.xia / P.xia 内部自托管更新通道；生产 feed/CRX 回读一致，SHA256 为 `70a79b4dc966d3ae3dae6f7fc4c3f3241f5ea7cd40e4aa7014c87273f98a0800`。生产设备 24 小时观察作为发布后验收，因此 P0 任务保持未关闭。
   - 验收：任意受控写入后不超过 8 MB；压力维护降到 6.5 MB；连续 24 小时无 quota/settlement/timing dispatch 错误；1029 条积压分批清零；单批不超过 200；网页四层统计一致；无陈旧媒体长段。
   - 文档：`docs/DESIGN.md` §3.5.1；历史审计背景见 `docs/STATS_STORAGE_FOUNDATION.md` §C.15。
 - [ ] [V1] composite routing 设计与拆包
