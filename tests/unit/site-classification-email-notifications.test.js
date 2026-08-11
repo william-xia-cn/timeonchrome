@@ -57,6 +57,7 @@ function loadHelpers(source) {
     'hmacKey',
     'createSignedToken',
     'verifySignedToken',
+    'replyTokenFromRecipient',
     'firstReplyCommand',
     'loadDailyUsageAggregates',
   ];
@@ -132,6 +133,10 @@ async function run() {
   expectTrue('signed reply local part remains under SMTP 64-char limit', `reply+${token}`.length <= 64);
   expectEqual('valid token verifies to notification id', await helpers.verifySignedToken(token, 'test-secret'), 'AbCdEf12345');
   expectEqual('wrong secret rejects token', await helpers.verifySignedToken(token, 'wrong-secret'), null);
+  const mixedCaseRecipient = `reply+${token}@Hornburg-Xia.UK`;
+  const extractedToken = helpers.replyTokenFromRecipient(mixedCaseRecipient);
+  expectEqual('recipient parsing preserves case-sensitive signed token', extractedToken, token);
+  expectEqual('token extracted from recipient still verifies', await helpers.verifySignedToken(extractedToken, 'test-secret'), 'AbCdEf12345');
 
   const database = new DatabaseSync(':memory:');
   database.exec(`
@@ -173,6 +178,7 @@ async function run() {
   expectTrue('profile allowlist gates threshold evaluation and outbox delivery', source.includes('isEmailClassificationProfileEnabled(env, profileId)') && source.includes('isEmailClassificationProfileEnabled(env, row.profile_id)'));
   expectTrue('five-minute cron coexists with daily reminder cron', wranglerSource.includes('*/5 * * * *') && wranglerSource.includes('0 12 * * *'));
   expectTrue('new sender and signed reply-to use hornburg-xia.uk', source.includes('notify@hornburg-xia.uk') && source.includes('@hornburg-xia.uk'));
+  expectTrue('initial notification uses signed address for From and Reply-To', source.includes('from: `TimeOnChrome <${replyTo}>`') && source.includes('replyTo,'));
   expectTrue('fixed command map contains all five commands', ['学习', '复合', '受限娱乐', '黑名单', '暂不处理'].every((command) => source.includes(`'${command}'`)));
 
   const total = passed + failed;

@@ -51,7 +51,9 @@
   - DNS 状态（2026-08-12）：根域 `_dmarc.hornburg-xia.uk` 已添加 `v=DMARC1; p=none; pct=100`，Cloudflare `1.1.1.1` 公网回查通过；既有 Email Routing 与 Resend SPF/MX/DKIM 保持不变。
   - 灰度配置：发布开关和 profile allowlist 通过 Cloudflare secrets 管理，禁止把真实 profile ID 写入 Git；首个灰度档案采用 T.xia。
   - 灰度状态（2026-08-12）：T.xia 单档案 allowlist 与发布开关已启用；启用后通知/回复事件仍为 0，今日未归类基线为 180 秒，未发生历史补发或其他档案误发。
-  - 剩余闸门：T.xia 实际累计达到 900 秒并上传后，完成邮件送达、回复命令和配置写回验收。
+  - 实邮灰度发现：Email Routing 子寻址未启用时签名地址返回 550；启用后邮件到达 Worker，但 handler 对完整收件地址 lower-case 导致大小写敏感 HMAC token 校验失败。修复要求保留 token 原始大小写，并让初始通知 From/Reply-To 同为签名地址，兼容忽略 Reply-To 的邮件客户端。
+  - 实邮修复验证：Cloudflare 子寻址已启用；`.invalid` 测试通知一次发送成功；Gmail 直接发送 `暂不处理` 后，回复审计为 `DECISION_APPLIED`、通知为 `consumed/return`、审核记录为 `returned`，并收到“已处理”确认邮件。修复后的新通知 From/Reply-To 均为签名地址且发送成功。
+  - 剩余闸门：T.xia 由真实 `target_stats_v1` 累计达到 900 秒并上传后，复核自动触发与每日去重；合成 `.invalid` 实邮发送、回复命令和回执链路已通过。
   - 边界：统计是触发证据，审核记录是处理事实，profile 配置是最终分类事实；不修改扩展与 Pages。
 - [x] [P0 Runtime/Stats] T.xia / P.xia 2026-08-11 账本审计后续修复（实现与自动化验证完成）
   - 账本事实：两台设备网页和媒体的原始、日、小时、目标秒数均一致；不修改历史 D1 数据。

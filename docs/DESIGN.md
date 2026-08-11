@@ -1097,7 +1097,7 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - `site_classification_email_notifications_v1`：每日去重、outbox、签名 token 目标、尝试次数、有效期和消费结果。
 - `site_classification_email_reply_events_v1`：只保存 Message-ID 摘要、命令、sender match 与结果码，不保存原始正文、HTML 或附件。
 
-邮件使用 `TimeOnChrome <notify@hornburg-xia.uk>`，Reply-To 为 `reply+<signed-token>@hornburg-xia.uk`。Email Routing 把该地址交给 `guardian-api.email()`；handler 只读取纯文本第一条非空、非引用命令。执行前必须验证 HMAC token、7 天有效期、精确家长邮箱、pending request、未消费 token 和未处理 Message-ID。
+初始通知的 From 与 Reply-To 均使用 `TimeOnChrome <reply+<signed-token>@hornburg-xia.uk>`，避免邮件客户端忽略 Reply-To 后误投到不可处理的固定发件地址。Email Routing 开启子寻址并把 `reply@hornburg-xia.uk` 交给 `guardian-api.email()`；handler 必须保留收件地址中签名 token 的原始大小写，只对域名匹配使用不区分大小写规则，并且只读取纯文本第一条非空、非引用命令。执行前必须验证 HMAC token、7 天有效期、精确家长邮箱、pending request、未消费 token 和未处理 Message-ID。
 
 Pages decision API 和邮件 handler 共用 `decideSiteClassificationRequest()`。该服务负责目标规范化、父域/特殊对象/冲突校验、request 状态变更和 profile 配置写入；任何入口都不得另建绕过校验的写路径。
 

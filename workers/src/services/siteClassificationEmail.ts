@@ -129,6 +129,11 @@ async function verifySignedToken(token: string, secret: string): Promise<string 
   return await crypto.subtle.verify('HMAC', key, signatureBuffer, payload) ? notificationId : null;
 }
 
+function replyTokenFromRecipient(value: unknown): string | null {
+  const match = /^reply\+([^@]+)@hornburg-xia\.uk$/i.exec(String(value || '').trim());
+  return match?.[1] || null;
+}
+
 async function sha256Hex(value: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -151,7 +156,7 @@ function formatDuration(seconds: number): string {
 
 async function sendResendEmail(
   env: Env,
-  input: { to: string; subject: string; text: string; html: string; replyTo?: string; headers?: Record<string, string> },
+  input: { from?: string; to: string; subject: string; text: string; html: string; replyTo?: string; headers?: Record<string, string> },
 ): Promise<string | null> {
   if (!env.RESEND_API_KEY) throw new Error('RESEND_API_KEY_MISSING');
   const response = await fetch('https://api.resend.com/emails', {
@@ -161,7 +166,7 @@ async function sendResendEmail(
       'Authorization': `Bearer ${env.RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: 'TimeOnChrome <notify@hornburg-xia.uk>',
+      from: input.from || 'TimeOnChrome <notify@hornburg-xia.uk>',
       to: [input.to],
       subject: input.subject,
       text: input.text,
@@ -303,6 +308,7 @@ async function deliverNotification(env: Env, notification: NotificationRow, now:
   const text = `${childName} 在 ${notification.usage_date} 使用未归类网站 ${notification.canonical_host}，累计 ${duration}。\n\n${commands}\n\n回复命令 7 天内有效，且仅在记录仍待处理时生效。`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;line-height:1.7;color:#18342d"><h2>未归类网站需要确认</h2><p><strong>${escapeHtml(childName)}</strong> 在 ${escapeHtml(notification.usage_date)} 使用 <strong>${escapeHtml(notification.canonical_host)}</strong>，累计 ${escapeHtml(duration)}。</p><p>${escapeHtml(commands)}</p><p style="color:#637c75;font-size:13px">回复命令 7 天内有效，且仅在记录仍待处理时生效。</p></div>`;
   const outboundId = await sendResendEmail(env, {
+    from: `TimeOnChrome <${replyTo}>`,
     to: notification.email,
     subject,
     text,
@@ -446,9 +452,9 @@ export async function handleSiteClassificationReplyEmail(
   env: Env,
 ): Promise<void> {
   const now = Date.now();
-  const recipient = String(message.to || '').trim().toLowerCase();
-  const routeMatch = /^reply\+([^@]+)@hornburg-xia\.uk$/.exec(recipient);
-  if (!isEmailClassificationEnabled(env) || !env.EMAIL_ACTION_SECRET || !routeMatch) {
+  const recipient = String(message.to || '').trim();
+  const replyToken = replyTokenFromRecipient(recipient);
+  if (!isEmailClassificationEnabled(env) || !env.EMAIL_ACTION_SECRET || !replyToken) {
     message.setReject('Unknown or disabled TimeOnChrome reply address');
     return;
   }
@@ -457,7 +463,7 @@ export async function handleSiteClassificationReplyEmail(
     return;
   }
 
-  const notificationId = await verifySignedToken(routeMatch[1], env.EMAIL_ACTION_SECRET);
+  const notificationId = await verifySignedToken(replyToken, env.EMAIL_ACTION_SECRET);
   if (!notificationId) {
     message.setReject('Invalid TimeOnChrome reply token');
     return;
