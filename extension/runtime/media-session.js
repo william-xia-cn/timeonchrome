@@ -731,6 +731,7 @@ function makeEmptyMediaDomainStats() {
     backgroundVideoSeconds: 0,
     pipSeconds: 0,
     totalSeconds: 0,
+    segmentsCount: 0,
     byMode: {},
     firstSeenAt: null,
     lastSeenAt: null,
@@ -776,9 +777,15 @@ async function incrementDailyMediaStats(segment) {
       backgroundVideoSeconds: 0,
       pipSeconds: 0,
       totalSeconds: 0,
+      segmentCounts: {},
     };
   }
+  if (!ds.byMode[mode].segmentCounts || typeof ds.byMode[mode].segmentCounts !== 'object') {
+    ds.byMode[mode].segmentCounts = {};
+  }
   ds.byMode[mode][classKey] = Number(ds.byMode[mode][classKey] || 0) + seconds;
+  ds.byMode[mode].segmentCounts[segment.mediaClass] = Number(ds.byMode[mode].segmentCounts[segment.mediaClass] || 0) + 1;
+  ds.segmentsCount = Number(ds.segmentsCount || 0) + 1;
   ds.byMode[mode].totalSeconds =
     Number(ds.byMode[mode].foregroundAudioSeconds || 0) +
     Number(ds.byMode[mode].backgroundAudioSeconds || 0) +
@@ -849,9 +856,15 @@ function applyMediaSliceToHourlyStats(hourStats, slice) {
       backgroundVideoSeconds: 0,
       pipSeconds: 0,
       totalSeconds: 0,
+      segmentCounts: {},
     };
   }
+  if (!ds.byMode[mode].segmentCounts || typeof ds.byMode[mode].segmentCounts !== 'object') {
+    ds.byMode[mode].segmentCounts = {};
+  }
   ds.byMode[mode][classKey] = Number(ds.byMode[mode][classKey] || 0) + seconds;
+  ds.byMode[mode].segmentCounts[slice.mediaClass] = Number(ds.byMode[mode].segmentCounts[slice.mediaClass] || 0) + 1;
+  ds.segmentsCount = Number(ds.segmentsCount || 0) + 1;
   ds.byMode[mode].totalSeconds =
     Number(ds.byMode[mode].foregroundAudioSeconds || 0) +
     Number(ds.byMode[mode].backgroundAudioSeconds || 0) +
@@ -1610,7 +1623,44 @@ export async function getPendingHourlyMediaStats() {
     stats,
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
+    lastAttemptAt: outbox.lastAttemptAt || {},
   };
+}
+
+function hourlyMediaStatsHasPositiveRows(hourStats) {
+  return Object.values(hourStats?.domains || {}).some((domainStats) =>
+    Number(domainStats?.totalSeconds || 0) > 0 ||
+    Number(domainStats?.foregroundAudioSeconds || 0) > 0 ||
+    Number(domainStats?.backgroundAudioSeconds || 0) > 0 ||
+    Number(domainStats?.foregroundVideoSeconds || 0) > 0 ||
+    Number(domainStats?.backgroundVideoSeconds || 0) > 0 ||
+    Number(domainStats?.pipSeconds || 0) > 0
+  );
+}
+
+export async function reconcileHourlyMediaStatsOutbox() {
+  const initial = await chrome.storage.local.get([HOURLY_MEDIA_STATS_KEY, HOURLY_MEDIA_STATS_OUTBOX_KEY]);
+  const initialStats = initial?.[HOURLY_MEDIA_STATS_KEY] || {};
+  const outbox = initial?.[HOURLY_MEDIA_STATS_OUTBOX_KEY] || { dirtyHourKeys: [] };
+  const suspectHourKeys = (outbox.dirtyHourKeys || []).filter((hourKey) =>
+    !hourlyMediaStatsHasPositiveRows(initialStats[hourKey])
+  );
+  if (suspectHourKeys.length === 0) return { rebuilt: 0, removed: 0 };
+
+  let rebuilt = 0;
+  let removed = 0;
+  for (const hourKey of suspectHourKeys) {
+    const result = await rebuildHourlyMediaStats(hourKey);
+    const refreshed = await chrome.storage.local.get(HOURLY_MEDIA_STATS_KEY);
+    const hourStats = refreshed?.[HOURLY_MEDIA_STATS_KEY]?.[hourKey];
+    if (result?.rebuilt && hourlyMediaStatsHasPositiveRows(hourStats)) {
+      rebuilt++;
+      continue;
+    }
+    await markHourlyMediaStatsUploaded([hourKey]);
+    removed++;
+  }
+  return { rebuilt, removed };
 }
 
 export async function markDailyMediaStatsUploaded(dates, uploadedAt = Date.now()) {
@@ -1651,6 +1701,7 @@ export async function markHourlyMediaStatsUploaded(hourKeys, uploadedAt = Date.n
     }
     delete outbox.retryCounts?.[hourKey];
     delete outbox.lastErrors?.[hourKey];
+    delete outbox.lastAttemptAt?.[hourKey];
   }
   outbox.dirtyHourKeys = (outbox.dirtyHourKeys || []).filter((hourKey) => !hourKeySet.has(hourKey));
   await localStorageSet({
@@ -1684,19 +1735,28 @@ export async function markHourlyMediaStatsUploadFailed(hourKeys, error) {
   const dirty = new Set(outbox.dirtyHourKeys || []);
   outbox.retryCounts = outbox.retryCounts || {};
   outbox.lastErrors = outbox.lastErrors || {};
+  outbox.lastAttemptAt = outbox.lastAttemptAt || {};
   for (const hourKey of hourKeyList) {
     dirty.add(hourKey);
     outbox.retryCounts[hourKey] = Math.min(MAX_STORED_RETRY_COUNT, Number(outbox.retryCounts[hourKey] || 0) + 1);
     outbox.lastErrors[hourKey] = normalizeUploadErrorCode(error);
+    outbox.lastAttemptAt[hourKey] = Date.now();
   }
   outbox.dirtyHourKeys = [...dirty];
   await localStorageSet({ [HOURLY_MEDIA_STATS_OUTBOX_KEY]: outbox });
 }
 
-function cutoffDateMs(retentionDays) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - retentionDays);
-  return cutoff.getTime();
+function cutoffDateMs(retentionDays, now = Date.now()) {
+  const days = Math.max(0, Math.trunc(Number(retentionDays) || 0));
+  if (days === 0) return now;
+  const beijingOffsetMs = 480 * 60000;
+  const beijingNow = new Date(now + beijingOffsetMs);
+  const currentDayStartMs = Date.UTC(
+    beijingNow.getUTCFullYear(),
+    beijingNow.getUTCMonth(),
+    beijingNow.getUTCDate(),
+  ) - beijingOffsetMs;
+  return currentDayStartMs - (days - 1) * 86400000;
 }
 
 function mediaSegmentDateMs(segmentOrId) {
@@ -1761,10 +1821,15 @@ export async function dropOldestPendingMediaSegments(limit = 50, storageOptions 
   });
   return { dropped: droppedIds.length, oldestAt, newestAt };
 }
-export async function pruneMediaStorage(retentionDays = 30, { aggregateRetentionDays = 365, storageOptions = {} } = {}) {
+export async function pruneMediaStorage(retentionDays = 30, {
+  aggregateRetentionDays = 365,
+  hourlyAggregateRetentionDays = aggregateRetentionDays,
+  storageOptions = {},
+} = {}) {
   const storageSet = (items) => localStorageSet(items, storageOptions);
   const segmentCutoffMs = cutoffDateMs(retentionDays);
-  const aggregateCutoffMs = cutoffDateMs(aggregateRetentionDays);
+  const dailyAggregateCutoffMs = cutoffDateMs(aggregateRetentionDays);
+  const hourlyAggregateCutoffMs = cutoffDateMs(hourlyAggregateRetentionDays);
   const data = await chrome.storage.local.get([
     MEDIA_SEGMENTS_KEY, DAILY_MEDIA_STATS_KEY, HOURLY_MEDIA_STATS_KEY,
     MEDIA_SEGMENT_OUTBOX_KEY, MEDIA_STATS_OUTBOX_KEY, HOURLY_MEDIA_STATS_OUTBOX_KEY,
@@ -1798,7 +1863,7 @@ export async function pruneMediaStorage(retentionDays = 30, { aggregateRetention
   let prunedDailyStats = 0;
   for (const [date, stat] of Object.entries(daily)) {
     if (!dirtyDateSet.has(date) && Number(stat?.uploadedAt || stat?.lastUploadedAt || 0) > 0
-      && new Date(date).getTime() < aggregateCutoffMs) {
+      && new Date(`${date}T00:00:00+08:00`).getTime() < dailyAggregateCutoffMs) {
       delete daily[date];
       prunedDailyStats++;
     }
@@ -1807,7 +1872,7 @@ export async function pruneMediaStorage(retentionDays = 30, { aggregateRetention
   let prunedHourlyStats = 0;
   for (const [hourKey, stat] of Object.entries(hourly)) {
     if (!dirtyHourSet.has(hourKey) && Number(stat?.uploadedAt || stat?.lastUploadedAt || 0) > 0
-      && new Date(String(hourKey).slice(0, 10)).getTime() < aggregateCutoffMs) {
+      && new Date(`${String(hourKey).slice(0, 10)}T00:00:00+08:00`).getTime() < hourlyAggregateCutoffMs) {
       delete hourly[hourKey];
       prunedHourlyStats++;
     }
@@ -1907,6 +1972,7 @@ export async function buildDailyMediaStatsUploadPayload(date) {
     backgroundVideoSeconds: Number(ds?.backgroundVideoSeconds || 0),
     pipSeconds: Number(ds?.pipSeconds || 0),
     totalSeconds: Number(ds?.totalSeconds || 0),
+    segmentsCount: Number(ds?.segmentsCount || 0),
     byMode: ds?.byMode || {},
     firstSeenAt: ds?.firstSeenAt || null,
     lastSeenAt: ds?.lastSeenAt || null,
@@ -1941,6 +2007,7 @@ export async function buildHourlyMediaStatsUploadPayload(hourKey) {
     backgroundVideoSeconds: Number(ds?.backgroundVideoSeconds || 0),
     pipSeconds: Number(ds?.pipSeconds || 0),
     totalSeconds: Number(ds?.totalSeconds || 0),
+    segmentsCount: Number(ds?.segmentsCount || 0),
     byMode: ds?.byMode || {},
     firstSeenAt: ds?.firstSeenAt || null,
     lastSeenAt: ds?.lastSeenAt || null,

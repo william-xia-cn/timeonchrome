@@ -495,8 +495,8 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   await sw.evaluate(async () => {
     await chrome.storage.local.set({
       guardian_session: { currentMode: 'study', currentModeStartedAtMs: Date.now() },
-      mode_effect_trace_v1: [],
     });
+    await chrome.storage.session.set({ mode_effect_trace_v1: [] });
   });
   await new Promise(r => setTimeout(r, 500));
 
@@ -521,8 +521,8 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   await sw.evaluate(async () => {
     await chrome.storage.local.set({
       guardian_session: { currentMode: 'study', currentModeStartedAtMs: Date.now() },
-      mode_effect_trace_v1: [],
     });
+    await chrome.storage.session.set({ mode_effect_trace_v1: [] });
   });
   const compositeActivation = await activateChromeTabByUrlPrefix(sw, 'https://www.wikipedia.org/');
   expect(compositeActivation.ok).toBe(true);

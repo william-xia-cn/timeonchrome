@@ -144,7 +144,7 @@ async function checkInterception(page) {
 async function readFocusLedger(sw) {
   return sw.evaluate(async () => {
     return new Promise(resolve => {
-      chrome.storage.local.get('debug_focus_ledger_v1', result => resolve(result['debug_focus_ledger_v1'] || []));
+      chrome.storage.session.get('debug_focus_ledger_v1', result => resolve(result['debug_focus_ledger_v1'] || []));
     });
   });
 }

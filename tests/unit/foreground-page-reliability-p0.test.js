@@ -208,6 +208,7 @@ async function testCheckpointRepairsMissingForegroundSessionFromActiveTab() {
         windowId: 7,
         idleState: 'active',
       }),
+      routeForegroundAccess: async () => ({ ok: true, blocked: false }),
     })
   );
   const session = await sessionApi.getSession();
@@ -216,6 +217,28 @@ async function testCheckpointRepairsMissingForegroundSessionFromActiveTab() {
   check('repair session domain persisted', session.domain === 'repair.example.com');
   check('repair session tab metadata persisted', session.tabId === 70 && session.windowId === 7);
   check('repair session uses estimated open anchor', session.startTime === now - 90_000);
+}
+
+async function testCheckpointDoesNotRepairBlockedForegroundAccess() {
+  resetAll();
+  const now = 1778802550000;
+  const result = await withNow(now, () =>
+    sessionApi.runPeriodicCheckpoint(now, {
+      confirmForegroundPage: async () => ({
+        ok: true,
+        observedDomain: 'restricted.example.com',
+        observedUrl: 'https://restricted.example.com/play',
+        observedState: 'ACTIVE',
+        tabId: 71,
+        windowId: 7,
+        idleState: 'active',
+      }),
+      routeForegroundAccess: async () => ({ ok: true, blocked: true, decision: { access: 'reminder' } }),
+    })
+  );
+  const session = await sessionApi.getSession();
+  check('blocked checkpoint repair stays closed', result.opened === false && result.failureReason === 'checkpoint_access_blocked', JSON.stringify(result));
+  check('blocked checkpoint repair creates no timing session', !session?.state && !session?.startTime, JSON.stringify(session));
 }
 
 async function testCheckpointMissingForegroundSessionReportsExplicitFailure() {
@@ -725,6 +748,7 @@ async function run() {
     testIdleBeforeCheckpointDropsWindow,
     testMissedIdleEventCountsAtMost180,
     testCheckpointRepairsMissingForegroundSessionFromActiveTab,
+    testCheckpointDoesNotRepairBlockedForegroundAccess,
     testCheckpointMissingForegroundSessionReportsExplicitFailure,
     testMissedTabCloseDropsUnconfirmedLiveFallback,
     testRecoveryDoesNotBackfillLongGap,

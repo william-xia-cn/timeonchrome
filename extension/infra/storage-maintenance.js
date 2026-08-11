@@ -16,20 +16,21 @@ import {
   withStorageBudgetBypass,
 } from './storage-budget.js';
 
-const USAGE_RETENTION_DAYS = 30;
-const PRESSURE_RAW_RETENTION_DAYS = 7;
-const AGGREGATE_RETENTION_DAYS = 365;
-const MEDIA_RETENTION_DAYS = 30;
-const MAINTENANCE_LOG_COOLDOWN_MS = 15 * 60 * 1000;
+const UPLOADED_RAW_RETENTION_DAYS = 1;
+const DAILY_AGGREGATE_RETENTION_DAYS = 7;
+const HOURLY_AGGREGATE_RETENTION_DAYS = 1;
+const MAINTENANCE_LOG_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const MAINTENANCE_STATE_KEY = 'storage_maintenance_state_v1';
 const STORAGE_DIAGNOSTICS_KEY = 'storage_diagnostics_v1';
 const STORAGE_LOSS_AUDIT_KEY = 'storage_emergency_loss_v1';
 const MAX_LOSS_AUDIT_BYTES = 8 * 1024;
 const MAX_LOSS_AUDIT_ENTRIES = 20;
-const PURE_DIAGNOSTIC_KEYS = [
+const SESSION_DIAGNOSTIC_LEGACY_KEYS = [
   '__timingTrace',
   'debug_focus_ledger_v1',
   'mode_effect_trace_v1',
+];
+const PRESSURE_DIAGNOSTIC_KEYS = [
   'timing_checkpoint_health_v1',
   'foreground_page_diagnostics_v1',
 ];
@@ -105,11 +106,23 @@ function eventTime(event) {
 }
 
 async function pruneRuntimeDiagnostics({ pressure = false, emergency = false } = {}) {
-  const keys = [...PURE_DIAGNOSTIC_KEYS, 'event_log_v1', 'media_facts_v1', 'media_frame_facts_v1', 'media_sessions_v2'];
+  const keys = [
+    ...SESSION_DIAGNOSTIC_LEGACY_KEYS,
+    ...PRESSURE_DIAGNOSTIC_KEYS,
+    'event_log_v1',
+    'media_facts_v1',
+    'media_frame_facts_v1',
+    'media_sessions_v2',
+  ];
   const data = await chrome.storage.local.get(keys);
   const next = {};
   const summary = {};
-  for (const key of PURE_DIAGNOSTIC_KEYS) {
+  const legacyKeys = SESSION_DIAGNOSTIC_LEGACY_KEYS.filter((key) => data[key] != null);
+  if (legacyKeys.length > 0) {
+    await chrome.storage.local.remove(legacyKeys);
+    summary.sessionDiagnosticLegacyKeys = legacyKeys.length;
+  }
+  for (const key of PRESSURE_DIAGNOSTIC_KEYS) {
     const value = data[key];
     if (!pressure) continue;
     if (Array.isArray(value) && value.length > 0) {
@@ -232,7 +245,12 @@ async function maybeLogMaintenance(result) {
       : (result.pressure ? 'storage_pressure_maintenance' : 'storage_maintenance_completed'),
     module: 'infra/storage-maintenance',
     message: result.unresolved ? 'Local storage remains above pressure target' : 'Local V1 storage maintenance completed',
-    details: { reason: result.reason, beforeBytes: result.beforeBytes, afterBytes: result.afterBytes },
+    details: {
+      reason: result.reason,
+      beforeBytes: result.beforeBytes,
+      afterBytes: result.afterBytes,
+      topKeys: (result.storageDiagnostics?.keys || []).slice(0, 10),
+    },
   });
 }
 
@@ -249,10 +267,17 @@ async function performStorageMaintenance(options = {}) {
 
   const usage = {
     outboxes: await cleanupObjectStep(() => compactUsageSyncOutboxes(storageOptions)),
-    uploadedSegments: await cleanupNumberStep(() => pruneUploadedUsageSegments(USAGE_RETENTION_DAYS, storageOptions)),
-    uploadedAggregates: await cleanupObjectStep(() => pruneUploadedUsageAggregates(AGGREGATE_RETENTION_DAYS, storageOptions)),
+    uploadedSegments: await cleanupNumberStep(() => pruneUploadedUsageSegments(UPLOADED_RAW_RETENTION_DAYS, storageOptions)),
+    uploadedAggregates: await cleanupObjectStep(() => pruneUploadedUsageAggregates(DAILY_AGGREGATE_RETENTION_DAYS, {
+      ...storageOptions,
+      hourlyRetentionDays: HOURLY_AGGREGATE_RETENTION_DAYS,
+    })),
   };
-  const media = await cleanupObjectStep(() => pruneMediaStorage(MEDIA_RETENTION_DAYS, { aggregateRetentionDays: AGGREGATE_RETENTION_DAYS, storageOptions }));
+  const media = await cleanupObjectStep(() => pruneMediaStorage(UPLOADED_RAW_RETENTION_DAYS, {
+    aggregateRetentionDays: DAILY_AGGREGATE_RETENTION_DAYS,
+    hourlyAggregateRetentionDays: HOURLY_AGGREGATE_RETENTION_DAYS,
+    storageOptions,
+  }));
   const logs = await cleanupObjectStep(() => pruneClientLogsForStoragePressure({ pressure, emergency: false, storageOptions }));
   const diagnostics = await cleanupObjectStep(() => pruneRuntimeDiagnostics({ pressure, emergency: false }));
   const compatibility = await cleanupObjectStep(() => pruneLegacyAndAutomaticRequests({ pressure, emergency: false }));
@@ -261,9 +286,16 @@ async function performStorageMaintenance(options = {}) {
   let pressureUsageAggregates = {};
   let pressureMedia = {};
   if (pressure && await bytesInUse() > effectiveTarget) {
-    pressureMedia = await cleanupObjectStep(() => pruneMediaStorage(PRESSURE_RAW_RETENTION_DAYS, { aggregateRetentionDays: AGGREGATE_RETENTION_DAYS, storageOptions }));
-    pressureUsageSegments = await cleanupNumberStep(() => pruneUploadedUsageSegments(PRESSURE_RAW_RETENTION_DAYS, storageOptions));
-    pressureUsageAggregates = await cleanupObjectStep(() => pruneUploadedUsageAggregates(AGGREGATE_RETENTION_DAYS, storageOptions));
+    pressureMedia = await cleanupObjectStep(() => pruneMediaStorage(UPLOADED_RAW_RETENTION_DAYS, {
+      aggregateRetentionDays: DAILY_AGGREGATE_RETENTION_DAYS,
+      hourlyAggregateRetentionDays: HOURLY_AGGREGATE_RETENTION_DAYS,
+      storageOptions,
+    }));
+    pressureUsageSegments = await cleanupNumberStep(() => pruneUploadedUsageSegments(UPLOADED_RAW_RETENTION_DAYS, storageOptions));
+    pressureUsageAggregates = await cleanupObjectStep(() => pruneUploadedUsageAggregates(DAILY_AGGREGATE_RETENTION_DAYS, {
+      ...storageOptions,
+      hourlyRetentionDays: HOURLY_AGGREGATE_RETENTION_DAYS,
+    }));
   }
 
   let droppedMedia = { dropped: 0 };
@@ -272,7 +304,7 @@ async function performStorageMaintenance(options = {}) {
     await pruneClientLogsForStoragePressure({ pressure: true, emergency: true, storageOptions });
     await pruneRuntimeDiagnostics({ pressure: true, emergency: true });
     await pruneLegacyAndAutomaticRequests({ pressure: true, emergency: true });
-    await pruneMediaStorage(0, { aggregateRetentionDays: 0, storageOptions });
+    await pruneMediaStorage(0, { aggregateRetentionDays: 0, hourlyAggregateRetentionDays: 0, storageOptions });
     await pruneUploadedUsageSegments(0, storageOptions);
     await pruneUploadedUsageAggregates(0, storageOptions);
 
@@ -324,6 +356,7 @@ async function performStorageMaintenance(options = {}) {
       totalBytes: storageDiagnostics.totalBytes,
       keyCount: storageDiagnostics.keyCount,
       pendingCount: storageDiagnostics.pendingCount,
+      keys: storageDiagnostics.keys.slice(0, 10),
     },
   };
   await maybeLogMaintenance(result);

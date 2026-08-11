@@ -455,7 +455,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - Popup “申请归为学习网站”入口点击时先通过 `VALIDATE_SITE_CLASSIFICATION_REQUEST` 执行只读 dry-run 校验；校验失败不展开申请面板、不创建记录；提交按钮保留同一 dry-run 作为手动输入后的二次保护。
 - 特殊网站对象管理以 YouTube 为第一版：`youtube.com` 根域为受限娱乐，具体 video / playlist / channel 对象通过 `siteClassificationRulesV1` 作为独立规则行管理；云端访问管理页可把具体对象在学习、复合、受限娱乐、黑名单之间变更，根域仍不能直接改为学习或复合；特殊对象校验可在 `youtube.com` 受限父域下例外通过，普通 URL 和普通子域仍受父域保护。频道规则覆盖视频页时依赖 content script 上报频道 canonical target，未识别频道时视频页按具体视频规则或根域受限娱乐处理。
 - 系统访问配置 loader 会强制执行 YouTube 根域不变量：即使旧 D1 配置仍把 `youtube.com` 放在复合默认或用户默认复合清单，读取时也会移出并纳入 `defaultRestrictedEntertainmentSites`；这不影响 `music.youtube.com` 的既有口径，也不影响 YouTube 特殊对象规则。
-- `EVALUATE_QUOTA_STATE` 也会检查当前模式的时间段边界：当当前 Study / Composite / Rest 已越过允许窗口时，优先切换到当前允许且未被配额锁定的模式；若没有可用模式则进入 `locked`，随后重检 active tab。
+- `EVALUATE_QUOTA_STATE` 也会检查时间段边界。存在可靠的 `ACTIVE` timing session 时，先按 `targetClassificationAtTime` 映射活动内容性质：`study -> studyWindows`、`composite/pending_composite -> compositeWindows`、`restricted/rejected -> restWindows`；无活动内容快照时才回退到当前 runtime mode。待归类内容借用休息配额时，legacy runtime mode 和 `quotaBucketAtTime` 可以是 `rest`，但时间窗仍按 `compositeWindows` 判断，不能因此每分钟在 Rest/Study 间反复切换。
 
 ### 1.3.7.6 网站访问运行时配置语义迁移
 
@@ -507,6 +507,11 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 ```
 
 **`timeWindows` 语义说明：**
+
+- 时间窗管内容性质，配额管扣费来源。待归类/复合内容在待归类额度耗尽后可以按既定规则借用休息配额，但内容性质仍是 `pending_composite` / `composite`，必须统一检查 `compositeWindows`。
+- 同一次 `ACCESS_OBSERVED` 决策只读取一次 managed quota usage snapshot，并由该快照计算 Study、Compound、Rest 剩余量，避免存储维护或并发结算期间多次读取产生互相矛盾的路由事实。
+- 周期额度检查通过内部字段 `activeUsageWindowMode` 接收活动 timing session 的内容窗口类型；该字段不进入 Worker API、D1、profile config 或上传协议，也不携带 URL、标题和页面文本。
+- 活动内容为复合/待归类、待归类额度刚耗尽且复合窗口仍开放时，`quota_check` 直接切入 Rest quota borrow，不先经过短暂 Study mode；后续周期检查继续按 Compound 内容窗口保持稳定。
 
 - `studyWindows`: `null` = 该日学习模式全天允许（默认）；`array` = 显式配置的学习模式允许窗口
 - `compositeWindows`: `null` = 该日复合模式全天允许（默认）；`array` = 显式配置的复合模式允许窗口
@@ -609,6 +614,8 @@ Chrome listener / content signal
 periodicCheckpoint alarm
   → checkpoint-scheduler.js
       ├─ foreground checkpoint
+      │    → mismatch/missing session 先执行 ACCESS_OBSERVED 路由
+      │    → 仅在路由允许且目标事实稳定后 repair/open
       └─ media checkpoint
 
 lifecycle boundary
@@ -617,6 +624,19 @@ lifecycle boundary
 ```
 
 计时落账、checkpoint、recovery、segment schema 的正式口径见 `docs/STATS_STORAGE_FOUNDATION.md`。
+
+**Checkpoint repair 安全约束：**
+
+- checkpoint 是结算与采样修复机制，不是访问控制入口。发现 open session 缺失、tab/domain 不一致时，必须先对当前观测 URL 执行与前台导航相同的 `ACCESS_OBSERVED` 分类、时间窗和配额路由；路由阻止时不得创建 ACTIVE session。
+- repair 开账只能使用路由后的当前 mode 和 managed-target 快照。`restricted/rejected` 不得继承缓存 `study`，`composite/pending_composite` 借用 Rest 配额时仍保留原分类与 Compound 内容窗口。
+- 路由失败、上下文不完整或模式提交未完成时，本轮 checkpoint 只记录受限诊断并跳过开账，不以旧 session、旧域名或旧 mode 猜测补账。
+
+**同步与聚合可靠性约束：**
+
+- content 内部信号由专用监听器消费后不得再次落入通用 message router；预期内部消息不记 `message_unknown_type`。
+- 网站归类 exhausted 记录必须保留原记录并支持受控自动恢复；普通同步对同一 exhausted 集合使用冷却摘要，不得每轮为每条记录重复生成错误。上传成功后必须清除 retry metadata。
+- 小时媒体 outbox 只能引用存在且含有效正时长行的本地小时聚合；不存在/空聚合应移除 dirty/retry/error 元数据，原始媒体段存在时应先重建聚合再上传。
+- `segments_count` 是聚合行自身所覆盖的原始 segment/slice 数量。顶层整日/整小时计数仅作 envelope 元数据，Worker 不得复制到每个 domain、managed-target 或 media row。
 
 ### 3.3 Workers stats ingestion 域名归一（v1.7.x）
 
@@ -738,12 +758,14 @@ pullCloudConfig():
 - outbox `lastErrors` 只保存稳定短错误码，不保存 HTTP HTML、响应正文或按 segment 复制的长错误文本；升级维护必须原地压缩历史 retry/error 元数据，不删除 pending segment。
 - `chrome.storage.local` 使用三段安全线：7 MB 进入压力维护并清理到 6.5 MB；8 MB 是应用硬阈值；预算控制必须为紧急状态和损失审计预留至少 64 KB。所有可能增长的持久化写入必须在写入前串行计算替换后的预计用量，禁止先突破硬阈值再补救。
 - 压力维护依次压缩 outbox，清理客户端日志、trace、纯诊断数据、旧兼容数据和已上传云端副本。客户端日志最多保留 3 天；保留优先级按 `error > warning > info`，同级按最近 1 天优先于 1-3 天；上传成功后立即移除本地副本。
-- 普通 usage 默认保留 30 天、压力状态保留 7 天；媒体原始分段压力状态保留 7 天；daily/hourly/target 聚合保留 365 天。长期事实以云端 D1 为准，本地原始分段承担近期诊断和离线缓冲。
+- 已上传 usage/media 原始分段仅保留当前 `Asia/Shanghai` 自然日；进入下一自然日后，在确认 `uploadedAt` 且已移出对应 outbox 时删除本地原始副本并同步索引/retry metadata。当日保留完整 daily/hourly/target/media 聚合；历史删除已上传小时聚合，只保留最近 7 个北京时间自然日的已上传日聚合。dirty 原始段与 dirty 聚合不受此期限影响。长期事实以云端 D1 为准，本地原始分段承担当日诊断和离线缓冲。
 - 前台 ACTIVE 账务采用 journal-first：完整 segment 或 `usage_settlement_journal_v1` 至少一项持久化成功后，session 边界才能推进；storage coordinator 必须串行完整 read-modify-write，禁止 maintenance 全局 bypass。
 - 未上传 segment 在普通压力维护中受保护；若写入预计达到 8 MB，完整紧急维护仍无法降到安全目标，则先删除最旧未上传媒体 segment，最后才删除最旧未上传网页 segment。删除网页原始分段前必须保留并标脏对应日/小时/目标聚合，同步清理 index/outbox，并写入不含域名、URL、标题或正文的 `storage_emergency_loss_v1`。该审计键固定小于 8 KB、最多 20 条，禁止静默丢失。
 - 配置、身份、token、隐私同意、当前模式、当前会话、时间窗口、访问规则、人工网站请求及批准/拒绝结果属于保护数据，任何压力等级都不得删除。若清空所有允许淘汰的数据后仍不能容纳新写入，预算门必须拒绝写入并保持总量不超过 8 MB。
 - 503、fetch failure 和 request abort 使用跨同步退避，最长 30 分钟；成功后清除退避。维护日志需要冷却，避免维护本身成为新的存储压力来源。
 - 存储诊断只允许记录 key 字节数、对象数量、pending 数量和维护结果，不记录域名、标题、URL、页面文本或响应正文。
+- 当前会话的 `info` 客户端日志、`__timingTrace`、`debug_focus_ledger_v1` 和 `mode_effect_trace_v1` 写入 `chrome.storage.session`，浏览器重启、扩展更新/重载时自动清空。warning/error 仍写入有界 `client_logs_v1` 持久缓冲，最多 3 天，成功上传立即移除。`timing_checkpoint_health_v1`、`foreground_page_diagnostics_v1` 和 `storage_diagnostics_v1` 作为单份覆盖写摘要继续保留在 local。
+- `storage_pressure_unresolved` 只上报最多 10 个最大 key 的名称、字节数、对象数和 pending 数，同一 unresolved 状态冷却 6 小时；状态变化、逼近硬门或发生数据降级时立即记录。
 
 扩展 lifecycle boundary 必须同时处理网页和媒体 open session。`onInstalled(update)` / `onStartup` 在模式边界和云同步前恢复 `media_sessions_v2`：最近媒体证据仍新鲜时可结算到当前时间；陈旧 session 最多结算到 `lastObservedAt + 90 秒`，缺少该字段时最多结算到 `startTime + 90 秒`，随后清空 open/legacy media session，等待新的 content evidence 重新开启。不得让升级前 session 被后续 `mode_effective_boundary` 结算为数小时媒体账。
 
@@ -1014,11 +1036,11 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 ### 本地日志
 
-- 存储键：`client_logs_v1`
+- 持久缓冲键：`client_logs_v1`；当前会话 info 键：`client_logs_session_v1`
 - 默认策略：本地记录 `warning` / `error`，`info` 仅在远程诊断策略带 TTL 时启用
 - 归属字段：`profileId`、`deviceId`、`bindingState`
 - 未绑定阶段：`profileId = null`、`deviceId = null`、`bindingState = unbound`
-- 保留策略：默认 7 天、最多 1000 条、限制总体积
+- 保留策略：warning/error 持久缓冲最多 3 天并限制条数和总体积；上传成功立即删除。带 TTL 开启的 info 只写 `chrome.storage.session`，浏览器重启、扩展更新或重载后自动清空
 - 本地 admin 的“系统日志”页只展示脱敏后的日志摘要，可按 `timing` / `media` / `checkpoint` / `ledger_gap` / `mode_transition` / `storage` 等 category 和 `auditId` 搜索
 
 ### 云端日志
@@ -1034,11 +1056,11 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 ### 与现有诊断关系
 
-- `__timingTrace`：细粒度本地调试 trace，覆盖 timing signal、checkpoint、mode boundary 等高频过程
+- `__timingTrace`：位于 `chrome.storage.session` 的细粒度当前会话 trace，覆盖 timing signal、checkpoint、mode boundary 等高频过程
 - `foreground_page_diagnostics_v1`：前台计时健康统计
 - `timing_checkpoint_health_v1`：最近一次 checkpoint 健康摘要，包含 foreground/media 前后计数、mode boundary 队列状态和 ledger gap 状态
 - `cloud_v1_last_sync_error` / outbox retry：当前同步状态摘要
-- `client_logs_v1`：长期可查询的统一运行日志摘要，只记录异常、fallback、gap、重要健康结论；不重复记录所有正常过程
+- `client_logs_v1`：有界 warning/error 上传缓冲，只记录异常、fallback、gap、重要健康结论；不重复记录所有正常过程
 
 ### Timing / mode 审计口径
 
@@ -1058,6 +1080,28 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 当前状态仅为 Draft：仓库尚未实现任务表、任务 API、设备任务同步、任务运行时策略、任务进度投影或相关 UI。技术设计拟采用独立 `tasks_v1` / `task_events_v1`，并让现有 `usage_segments_v1` 承担任务有效使用时间的唯一事实；这些内容在 Product Owner 批准前不属于当前运行基线。
 
 进入代码前必须先整理并提交当前工作区已有改动，确认工作区干净，fetch 并对齐最新 `origin/master`，再创建 `codex/task-management-v1`。任务代码、migration 和测试不得与其他功能提交混合。
+
+### 6.4 未归类网站邮件归类 V1
+
+`POST /device/target-stats/v1` 成功写入后，会在请求响应之外评估本次 profile/date 的未归类用量。评估只读取 `target_classification_at_time IN ('unclassified', 'pending_composite')` 的每日 target rows，按 `canonicalSiteIdentityHost()` 合并 `www.` / `m.` 主站 alias，并跨设备、统计维度累加 `duration_seconds`。
+
+达到 900 秒后执行：
+
+1. 重新加载当前 effective 网站配置和 pending records，已经分类则停止。
+2. 创建或复用 `recordSource=auto_unclassified_access` 的 `site_classification_requests_v1` 记录。
+3. 以 `profile_id + usage_date + canonical_host + notification_type` 创建每日唯一 outbox。
+4. 立即尝试 Resend；失败按 5 分钟、30 分钟、2 小时退避，最多四次总尝试。统计上传成功与邮件投递成功互不绑定。
+
+新增数据表：
+
+- `site_classification_email_notifications_v1`：每日去重、outbox、签名 token 目标、尝试次数、有效期和消费结果。
+- `site_classification_email_reply_events_v1`：只保存 Message-ID 摘要、命令、sender match 与结果码，不保存原始正文、HTML 或附件。
+
+邮件使用 `TimeOnChrome <notify@hornburg-xia.uk>`，Reply-To 为 `reply+<signed-token>@hornburg-xia.uk`。Email Routing 把该地址交给 `guardian-api.email()`；handler 只读取纯文本第一条非空、非引用命令。执行前必须验证 HMAC token、7 天有效期、精确家长邮箱、pending request、未消费 token 和未处理 Message-ID。
+
+Pages decision API 和邮件 handler 共用 `decideSiteClassificationRequest()`。该服务负责目标规范化、父域/特殊对象/冲突校验、request 状态变更和 profile 配置写入；任何入口都不得另建绕过校验的写路径。
+
+运行开关 `EMAIL_CLASSIFICATION_ENABLED` 默认关闭；`EMAIL_CLASSIFICATION_PROFILE_IDS` 默认空，只允许显式列出的测试 profile，`*` 仅用于完成灰度后的全量开放。两个发布控制值与签名密钥 `EMAIL_ACTION_SECRET` 均通过 Cloudflare secrets 提供，profile ID 不进入 Git 或公开部署配置。Cron 保留每日提醒，并增加 5 分钟 outbox 处理。统计日期超过 `day_end_ms + 24h`、restore 或 import 不触发通知。
 
 ---
 

@@ -109,4 +109,7 @@ export interface Env {
   DEVICE_TOKEN_SECRET: string;
   ADMIN_ACCOUNT_IDS?: string;
   RESEND_API_KEY?: string;  // Resend 邮件通知 API key（可选，不配置则跳过邮件）
+  EMAIL_ACTION_SECRET?: string;
+  EMAIL_CLASSIFICATION_ENABLED?: string;
+  EMAIL_CLASSIFICATION_PROFILE_IDS?: string;
 }

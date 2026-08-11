@@ -1,5 +1,5 @@
 // core/timing-trace.js — structured timing trace collector (test/diagnostic only)
-// Uses chrome.storage.local key __timingTrace for Playwright retrieval.
+// Uses chrome.storage.session key __timingTrace for Playwright retrieval.
 // Does NOT affect business logic; all emitTrace calls are fire-and-forget.
 import { sanitizeIncognitoForPersistence } from './incognito-persistence.js';
 import { budgetedLocalSet } from '../infra/storage-budget.js';
@@ -7,9 +7,15 @@ import { budgetedLocalSet } from '../infra/storage-budget.js';
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
   : (value) => value;
-const traceStorageSet = (items) => typeof budgetedLocalSet === 'function'
-  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'timing_trace' })
-  : chrome.storage.local.set(items);
+function traceStorageArea() {
+  return chrome.storage.session || chrome.storage.local;
+}
+
+const traceStorageSet = (items) => chrome.storage.session?.set
+  ? chrome.storage.session.set(items)
+  : (typeof budgetedLocalSet === 'function'
+    ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'timing_trace' })
+    : chrome.storage.local.set(items));
 
 const TRACE_KEY = '__timingTrace';
 const MAX_TRACE_ENTRIES = 1000;
@@ -86,7 +92,7 @@ export async function emitTimingInbound(action, raw = {}, fields = {}) {
  */
 export async function emitTrace(action, fields = {}) {
   try {
-    const result = await chrome.storage.local.get(TRACE_KEY);
+    const result = await traceStorageArea().get(TRACE_KEY);
     const trace = result[TRACE_KEY] || [];
     const entry = {
       ts: Date.now(),
@@ -122,7 +128,7 @@ export async function emitTrace(action, fields = {}) {
  */
 export async function getTrace() {
   try {
-    const result = await chrome.storage.local.get(TRACE_KEY);
+    const result = await traceStorageArea().get(TRACE_KEY);
     return result[TRACE_KEY] || [];
   } catch {
     return [];

@@ -10,6 +10,10 @@ import { changelogRouter } from './routes/changelog';
 import { eventsRouter } from './routes/events';
 import { compositeSessionsRouter } from './routes/compositeSessions';
 import { siteClassificationRequestsRouter } from './routes/siteClassificationRequests';
+import {
+  handleSiteClassificationReplyEmail,
+  processEmailClassificationOutbox,
+} from './services/siteClassificationEmail';
 import { clientLogsRouter } from './routes/clientLogs';
 import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
@@ -100,6 +104,9 @@ export interface Env {
   DEVICE_TOKEN_SECRET: string;
   ADMIN_ACCOUNT_IDS?: string;
   RESEND_API_KEY?: string;
+  EMAIL_ACTION_SECRET?: string;
+  EMAIL_CLASSIFICATION_ENABLED?: string;
+  EMAIL_CLASSIFICATION_PROFILE_IDS?: string;
 }
 
 const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|stats-reconciliation|stats-integrity|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
@@ -115,7 +122,7 @@ const DEVICE_STATS_ROUTES = new Set([
   '/device/hourly-media-stats/v1',
 ]);
 
-async function routeRequest(request: Request, env: Env): Promise<Response> {
+async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
 
@@ -123,7 +130,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   if (path.startsWith('/auth/')) {
     return await authRouter.handle(request, env);
   } else if (PROFILE_STATS_ROUTE_RE.test(path)) {
-    return await statsRouter.handle(request, env);
+    return await statsRouter.handle(request, env, ctx);
   } else if (path.match(/^\/profiles\/[^/]+\/device-access-audit\/v1$/)) {
     return await handleDeviceAccessAuditQuery(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/export\/v1/)) {
@@ -152,11 +159,11 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return await clientLogsRouter.handle(request, env);
   } else if (DEVICE_STATS_ROUTES.has(path)) {
     // Stats Foundation v1 endpoints (device_token auth)
-    return await statsRouter.handle(request, env);
+    return await statsRouter.handle(request, env, ctx);
   } else if (path.startsWith('/device/stats') || path.startsWith('/device/sessions') || path.startsWith('/device/changelog') || path === '/device/events' || path === '/device/composite-sessions' || path === '/device/weekly-sessions' || path === '/device/appeal') {
     // 设备端 API（device_token 鉴权）
     if (path.startsWith('/device/stats')) {
-      return await statsRouter.handle(request, env);
+      return await statsRouter.handle(request, env, ctx);
     } else if (path.startsWith('/device/sessions')) {
       return await sessionsRouter.handle(request, env);
     } else if (path.startsWith('/device/changelog')) {
@@ -169,7 +176,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   } else if (path.startsWith('/device/')) {
     return await deviceRouter.handle(request, env);
   } else if (path.startsWith('/stats')) {
-    return await statsRouter.handle(request, env);
+    return await statsRouter.handle(request, env, ctx);
   } else if (path.startsWith('/sessions')) {
     return await sessionsRouter.handle(request, env);
   } else if (path.startsWith('/changelog')) {
@@ -291,7 +298,7 @@ export default {
     let response: Response;
 
     try {
-      response = await routeRequest(request, env);
+      response = await routeRequest(request, env, ctx);
     } catch (e: any) {
       response = new Response('Internal Error: ' + e.message, {
         status: 500,
@@ -320,7 +327,13 @@ export default {
     return response;
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(sendPendingReviewNotifications(env));
+  async email(message: ForwardableEmailMessage, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await handleSiteClassificationReplyEmail(message, env);
+  },
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    const work: Promise<unknown>[] = [processEmailClassificationOutbox(env)];
+    if (event.cron === '0 12 * * *') work.push(sendPendingReviewNotifications(env));
+    ctx.waitUntil(Promise.all(work));
   },
 };

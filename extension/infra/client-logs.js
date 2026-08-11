@@ -13,6 +13,7 @@ const clientStorageSet = (items, options = {}) => typeof budgetedLocalSet === 'f
   : chrome.storage.local.set(items);
 
 export const CLIENT_LOGS_KEY = 'client_logs_v1';
+export const CLIENT_SESSION_LOGS_KEY = 'client_logs_session_v1';
 export const CLIENT_LOG_CONFIG_KEY = 'client_log_config_v1';
 
 const CONFIG_KEY = 'guardian_config';
@@ -76,6 +77,30 @@ async function storageSet(value) {
   try {
     const result = await clientStorageSet(value);
     return result?.ok !== false;
+  } catch (_) {
+    return false;
+  }
+}
+
+function sessionStorageArea() {
+  return chrome.storage.session || chrome.storage.local;
+}
+
+async function sessionStorageGet(keys) {
+  try {
+    return await sessionStorageArea().get(keys);
+  } catch (_) {
+    return {};
+  }
+}
+
+async function sessionStorageSet(value) {
+  try {
+    if (chrome.storage.session?.set) {
+      await chrome.storage.session.set(value);
+      return true;
+    }
+    return await storageSet(value);
   } catch (_) {
     return false;
   }
@@ -179,8 +204,8 @@ function normalizePolicy(policy = {}) {
   const localMinLevel = normalizeLevel(merged.localMinLevel);
   const uploadMinLevel = normalizeLevel(merged.uploadMinLevel);
   const retentionDays = Math.max(1, Math.min(3, Number(merged.retentionDays || DEFAULT_POLICY.retentionDays)));
-  const maxEntries = Math.max(1, Math.min(5000, Number(merged.maxEntries || DEFAULT_POLICY.maxEntries)));
-  const maxBytes = Math.max(64 * 1024, Math.min(2 * 1024 * 1024, Number(merged.maxBytes || DEFAULT_POLICY.maxBytes)));
+  const maxEntries = Math.max(1, Math.min(1000, Number(merged.maxEntries || DEFAULT_POLICY.maxEntries)));
+  const maxBytes = Math.max(64 * 1024, Math.min(512 * 1024, Number(merged.maxBytes || DEFAULT_POLICY.maxBytes)));
   const expiresAt = Number(merged.expiresAt || 0) > 0 ? Number(merged.expiresAt) : null;
   const categories = Array.isArray(merged.categories) ? merged.categories.filter((c) => VALID_CATEGORIES.has(c)) : [];
   const uploadCategories = Array.isArray(merged.uploadCategories) ? merged.uploadCategories.filter((c) => VALID_CATEGORIES.has(c)) : [];
@@ -310,12 +335,36 @@ function pruneLogs(logs, policy, now = nowMs()) {
   return next.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
 }
 
+function persistentLogs(logs, policy, now = nowMs()) {
+  return pruneLogs(logs, policy, now).filter((log) => normalizeLevel(log?.level) !== 'info');
+}
+
+function sessionLogs(logs, policy, now = nowMs()) {
+  return pruneLogs(logs, {
+    ...policy,
+    retentionDays: 1,
+    maxEntries: Math.min(500, Number(policy?.maxEntries || 500)),
+    maxBytes: Math.min(256 * 1024, Number(policy?.maxBytes || 256 * 1024)),
+  }, now).filter((log) => normalizeLevel(log?.level) === 'info');
+}
+
+async function readClientLogStores() {
+  const [local, session] = await Promise.all([
+    storageGet(CLIENT_LOGS_KEY),
+    sessionStorageGet(CLIENT_SESSION_LOGS_KEY),
+  ]);
+  return {
+    local: Array.isArray(local[CLIENT_LOGS_KEY]) ? local[CLIENT_LOGS_KEY] : [],
+    session: Array.isArray(session[CLIENT_SESSION_LOGS_KEY]) ? session[CLIENT_SESSION_LOGS_KEY] : [],
+  };
+}
+
 export async function pruneClientLogsForStoragePressure({ pressure = false, emergency = false, now = nowMs(), storageOptions = {} } = {}) {
   const storage = await storageGet(CLIENT_LOGS_KEY);
   const current = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
   const maxBytes = emergency ? 0 : (pressure ? 128 * 1024 : DEFAULT_POLICY.maxBytes);
   const maxEntries = emergency ? 0 : (pressure ? 500 : DEFAULT_POLICY.maxEntries);
-  const next = emergency ? [] : pruneLogs(current, {
+  const next = emergency ? [] : persistentLogs(current, {
     ...DEFAULT_POLICY,
     retentionDays: 3,
     maxEntries,
@@ -333,10 +382,14 @@ function makeLogId(timestamp) {
 }
 
 async function appendClientLog(log, policy) {
+  if (normalizeLevel(log?.level) === 'info') {
+    const storage = await sessionStorageGet(CLIENT_SESSION_LOGS_KEY);
+    const current = Array.isArray(storage[CLIENT_SESSION_LOGS_KEY]) ? storage[CLIENT_SESSION_LOGS_KEY] : [];
+    return await sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: sessionLogs([log, ...current], policy) });
+  }
   const storage = await storageGet(CLIENT_LOGS_KEY);
   const current = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
-  const next = pruneLogs([log, ...current], policy);
-  return await storageSet({ [CLIENT_LOGS_KEY]: next });
+  return await storageSet({ [CLIENT_LOGS_KEY]: persistentLogs([log, ...current], policy) });
 }
 
 export async function logClientEvent(event = {}) {
@@ -431,28 +484,40 @@ function filterLogs(logs, filter = {}) {
 }
 
 export async function getClientLogs(filter = {}) {
-  const [{ policy }, storage] = await Promise.all([
+  const [{ policy }, stores] = await Promise.all([
     getIdentityAndPolicies(),
-    storageGet(CLIENT_LOGS_KEY),
+    readClientLogStores(),
   ]);
-  const pruned = pruneLogs(storage[CLIENT_LOGS_KEY] || [], policy);
-  if (pruned.length !== (storage[CLIENT_LOGS_KEY] || []).length) {
-    await storageSet({ [CLIENT_LOGS_KEY]: pruned });
-  }
-  return { ok: true, logs: filterLogs(pruned, filter), total: pruned.length };
+  const local = persistentLogs(stores.local, policy);
+  const session = sessionLogs(stores.session, policy);
+  await Promise.all([
+    local.length !== stores.local.length ? storageSet({ [CLIENT_LOGS_KEY]: local }) : Promise.resolve(true),
+    session.length !== stores.session.length
+      ? sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: session })
+      : Promise.resolve(true),
+  ]);
+  const combined = [...local, ...session];
+  return { ok: true, logs: filterLogs(combined, filter), total: combined.length };
 }
 
 export async function clearClientLogs(filter = null) {
   if (!filter || Object.keys(filter || {}).length === 0) {
-    await storageSet({ [CLIENT_LOGS_KEY]: [] });
+    await Promise.all([
+      storageSet({ [CLIENT_LOGS_KEY]: [] }),
+      sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: [] }),
+    ]);
     return { ok: true, cleared: 'all' };
   }
-  const storage = await storageGet(CLIENT_LOGS_KEY);
-  const current = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
+  const stores = await readClientLogStores();
+  const current = [...stores.local, ...stores.session];
   const removeIds = new Set(filterLogs(current, { ...filter, limit: current.length }).map((log) => log.id));
-  const next = current.filter((log) => !removeIds.has(log.id));
-  await storageSet({ [CLIENT_LOGS_KEY]: next });
-  return { ok: true, cleared: current.length - next.length };
+  const nextLocal = stores.local.filter((log) => !removeIds.has(log.id));
+  const nextSession = stores.session.filter((log) => !removeIds.has(log.id));
+  await Promise.all([
+    storageSet({ [CLIENT_LOGS_KEY]: nextLocal }),
+    sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: nextSession }),
+  ]);
+  return { ok: true, cleared: current.length - nextLocal.length - nextSession.length };
 }
 
 export async function getClientLogConfig() {
@@ -468,11 +533,11 @@ export async function updateClientLogConfig(patch = {}) {
 }
 
 export async function getClientLogStatus() {
-  const [{ profileId, deviceId, bindingState, policy }, storage] = await Promise.all([
+  const [{ profileId, deviceId, bindingState, policy }, stores] = await Promise.all([
     getIdentityAndPolicies(),
-    storageGet(CLIENT_LOGS_KEY),
+    readClientLogStores(),
   ]);
-  const logs = pruneLogs(storage[CLIENT_LOGS_KEY] || [], policy);
+  const logs = [...persistentLogs(stores.local, policy), ...sessionLogs(stores.session, policy)];
   const countsByLevel = {};
   const countsByCategory = {};
   let oldestAt = null;
@@ -499,11 +564,11 @@ export async function getClientLogStatus() {
 }
 
 export async function getPendingClientLogsForUpload({ limit = 200 } = {}) {
-  const [{ policy }, storage] = await Promise.all([
+  const [{ policy }, stores] = await Promise.all([
     getIdentityAndPolicies(),
-    storageGet(CLIENT_LOGS_KEY),
+    readClientLogStores(),
   ]);
-  const logs = pruneLogs(storage[CLIENT_LOGS_KEY] || [], policy);
+  const logs = [...persistentLogs(stores.local, policy), ...sessionLogs(stores.session, policy)];
   const pending = logs
     .filter((log) => shouldUploadClientLog(log, policy))
     .filter((log) => log.uploadStatus !== 'uploaded')
@@ -516,11 +581,17 @@ export async function getPendingClientLogsForUpload({ limit = 200 } = {}) {
 export async function markClientLogsUploaded(ids = []) {
   const idSet = new Set(ids);
   if (idSet.size === 0) return { ok: true, updated: 0 };
-  const storage = await storageGet(CLIENT_LOGS_KEY);
-  const logs = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
-  const next = logs.filter((log) => !idSet.has(log.id));
-  await storageSet({ [CLIENT_LOGS_KEY]: next });
-  return { ok: true, updated: logs.length - next.length };
+  const stores = await readClientLogStores();
+  const nextLocal = stores.local.filter((log) => !idSet.has(log.id));
+  const nextSession = stores.session.filter((log) => !idSet.has(log.id));
+  await Promise.all([
+    storageSet({ [CLIENT_LOGS_KEY]: nextLocal }),
+    sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: nextSession }),
+  ]);
+  return {
+    ok: true,
+    updated: stores.local.length + stores.session.length - nextLocal.length - nextSession.length,
+  };
 }
 
 function normalizeClientLogUploadError(error) {
@@ -538,19 +609,23 @@ function normalizeClientLogUploadError(error) {
 export async function markClientLogUploadFailed(ids = [], error = 'upload_failed') {
   const idSet = new Set(ids);
   if (idSet.size === 0) return { ok: true, updated: 0 };
-  const storage = await storageGet(CLIENT_LOGS_KEY);
-  const logs = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
+  const stores = await readClientLogStores();
   const safeError = normalizeClientLogUploadError(error);
   let updated = 0;
-  for (const log of logs) {
-    if (idSet.has(log.id)) {
-      log.uploadStatus = 'failed';
-      log.uploadAttempts = Number(log.uploadAttempts || 0) + 1;
-      log.lastUploadError = safeError;
-      updated++;
+  for (const logs of [stores.local, stores.session]) {
+    for (const log of logs) {
+      if (idSet.has(log.id)) {
+        log.uploadStatus = 'failed';
+        log.uploadAttempts = Number(log.uploadAttempts || 0) + 1;
+        log.lastUploadError = safeError;
+        updated++;
+      }
     }
   }
-  await storageSet({ [CLIENT_LOGS_KEY]: logs });
+  await Promise.all([
+    storageSet({ [CLIENT_LOGS_KEY]: stores.local }),
+    sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: stores.session }),
+  ]);
   return { ok: true, updated };
 }
 

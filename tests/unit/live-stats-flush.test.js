@@ -317,6 +317,7 @@ mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
 mockNow = NOW;
 const estimatedOpen = await sessionApi.runPeriodicCheckpoint(mockNow, {
   confirmForegroundPage: async () => ({ ok: true, observedState: 'ACTIVE', observedDomain: 'estimated-open.example.com', idleState: 'active' }),
+  routeForegroundAccess: async () => ({ ok: true, blocked: false }),
 });
 chk('estimated open ok', estimatedOpen.ok, true);
 chk('estimated open repaired', estimatedOpen.repaired, true);
@@ -345,6 +346,7 @@ await sessionApi.saveSession({
 });
 const estimatedSwitch = await sessionApi.runPeriodicCheckpoint(mockNow, {
   confirmForegroundPage: async () => ({ ok: false, reason: 'observed_mismatch', observedState: 'ACTIVE', observedDomain: 'new-sampled.example.com', idleState: 'active' }),
+  routeForegroundAccess: async () => ({ ok: true, blocked: false }),
 });
 chk('estimated switch repaired', estimatedSwitch.repaired, true);
 chk('estimated switch opened', estimatedSwitch.opened, true);
@@ -357,6 +359,27 @@ const estimatedSwitchSession = await sessionApi.getSession();
 chk('estimated switch new session domain', estimatedSwitchSession.domain, 'new-sampled.example.com');
 chk('estimated switch new session start', estimatedSwitchSession.startTime, NOW - 90000);
 chk('estimated switch new session reason', estimatedSwitchSession.startReason, 'checkpoint_estimated_open');
+
+sec('LF3k: checkpoint repair uses post-route mode instead of cached Study mode');
+mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;
+mockNow = NOW;
+await chrome.storage.local.set({ guardian_session: { currentMode: 'study' } });
+const restrictedRepair = await sessionApi.runPeriodicCheckpoint(mockNow, {
+  confirmForegroundPage: async () => ({
+    ok: true,
+    observedState: 'ACTIVE',
+    observedDomain: 'restricted.example.com',
+    observedUrl: 'https://restricted.example.com/play',
+    idleState: 'active',
+  }),
+  routeForegroundAccess: async () => {
+    await chrome.storage.local.set({ guardian_session: { currentMode: 'rest' } });
+    return { ok: true, blocked: false, modeChange: { changed: true, toMode: 'rest' } };
+  },
+});
+chk('restricted repair opened after route', restrictedRepair.opened, true);
+const restrictedRepairSession = await sessionApi.getSession();
+chk('restricted repair quota uses post-route Rest mode', restrictedRepairSession.quotaBucketAtTime, 'rest');
 
 sec('LF4: token-only bound profile does not leak raw token into deviceId');
 mockLocal.reset(); mockSession.reset(); events.length = 0; traces.length = 0;

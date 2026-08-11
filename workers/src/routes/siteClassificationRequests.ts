@@ -238,7 +238,7 @@ function patternOverlapsRequestTarget(pattern: string, target: any) {
   return matchDomainV12(target.host, pattern) || matchDomainV12(base, target.normalizedValue);
 }
 
-async function getProfileConfig(env: Env, profileId: string): Promise<any> {
+export async function getProfileSiteAccessConfig(env: Env, profileId: string): Promise<any> {
   const row = await env.DB.prepare(`SELECT config FROM profiles WHERE id = ?`).bind(profileId).first<{ config: string }>();
   const siteAccessDefaults = await getSystemAccessConfig(env);
   try {
@@ -452,43 +452,44 @@ async function closeMatchingPendingRequests(env: Env, profileId: string, host: s
   return closed;
 }
 
-async function ensureProfileUnclassifiedSiteRequest(request: Request, env: Env, profileId: string): Promise<Response> {
-  if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
-  const body = await request.json<{
-    domain?: string;
-    targetValue?: string;
-    firstObservedAt?: number | null;
-    lastObservedAt?: number | null;
-    observationCount?: number | null;
-  }>().catch(() => ({} as {
-    domain?: string;
-    targetValue?: string;
-    firstObservedAt?: number | null;
-    lastObservedAt?: number | null;
-    observationCount?: number | null;
-  }));
-  const raw = body?.targetValue || body?.domain;
-  const target = normalizeSiteClassificationTarget(raw);
-  if (!target.ok) return json({ error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' }, 400);
-  if (target.targetType !== 'host') return json({ error: 'host target required', code: 'INVALID_TARGET' }, 400);
+export type EnsureUnclassifiedSiteRequestInput = {
+  domain?: string;
+  targetValue?: string;
+  firstObservedAt?: number | null;
+  lastObservedAt?: number | null;
+  observationCount?: number | null;
+  observationSourceId?: string | null;
+  observationDeviceId?: string | null;
+};
 
-  const effective = await getProfileConfig(env, profileId);
+export async function ensureUnclassifiedSiteRequest(
+  env: Env,
+  profileId: string,
+  input: EnsureUnclassifiedSiteRequestInput,
+): Promise<Record<string, any>> {
+  const raw = input?.targetValue || input?.domain;
+  const target = normalizeSiteClassificationTarget(raw);
+  if (!target.ok) return { ok: false, status: 400, error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' };
+  if (target.targetType !== 'host') return { ok: false, status: 400, error: 'host target required', code: 'INVALID_TARGET' };
+
+  const effective = await getProfileSiteAccessConfig(env, profileId);
   const pendingByHost = await getPendingRequestsByHost(env, profileId);
   const matchingPending = Array.from(pendingByHost.entries())
     .filter(([requestHost]) => sameHostRule(requestHost, target.normalizedValue))
     .flatMap(([, rows]) => rows);
   const resolved = resolveSiteAccessClassification(effective || {}, matchingPending.map(rowToResponse), target.host || target.normalizedValue);
   if (resolved.classification && resolved.classification !== 'pending_composite' && resolved.classification !== 'unclassified') {
-    return json({ ok: true, alreadyClassified: true, currentClassification: resolved.classification, source: resolved.source || null });
+    return { ok: true, alreadyClassified: true, currentClassification: resolved.classification, source: resolved.source || null };
   }
 
   const existing = matchingPending[0] || null;
   const now = Date.now();
-  const firstObservedAt = normalizePositiveTimestamp(body?.firstObservedAt) || now;
-  const lastObservedAt = normalizePositiveTimestamp(body?.lastObservedAt) || firstObservedAt;
-  const observationCount = normalizePositiveInteger(body?.observationCount) || 1;
+  const firstObservedAt = normalizePositiveTimestamp(input?.firstObservedAt) || now;
+  const lastObservedAt = normalizePositiveTimestamp(input?.lastObservedAt) || firstObservedAt;
+  const observationCount = normalizePositiveInteger(input?.observationCount) || 1;
+  const observationSourceId = input?.observationSourceId || `cloud-used-unclassified:${target.normalizedValue}`;
   const observationItem: SiteClassificationUploadItem = {
-    observationSourceId: `cloud-used-unclassified:${target.normalizedValue}`,
+    observationSourceId,
     sourceObservationCount: observationCount,
     sourceFirstObservedAt: firstObservedAt,
     sourceLastObservedAt: lastObservedAt,
@@ -496,15 +497,15 @@ async function ensureProfileUnclassifiedSiteRequest(request: Request, env: Env, 
 
   if (existing) {
     await mergeRequestMetadata(env, existing.id, observationItem, 'auto_unclassified_access', null, now);
-    await mergeObservationSummary(env, existing.id, profileId, 'cloud-console', observationItem, now);
+    await mergeObservationSummary(env, existing.id, profileId, input?.observationDeviceId || 'cloud-console', observationItem, now);
     const updated = await env.DB.prepare(
       `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
     ).bind(existing.id, profileId).first<any>();
-    return json({ ok: true, created: false, request: rowToResponse(updated) });
+    return { ok: true, created: false, request: rowToResponse(updated) };
   }
 
   const rejected = await findRejectedMatch(env, profileId, target);
-  if (rejected) return json({ error: 'request rejected', code: 'REQUEST_REJECTED', rejectedId: rejected.id }, 400);
+  if (rejected) return { ok: false, status: 400, error: 'request rejected', code: 'REQUEST_REJECTED', rejectedId: rejected.id };
 
   const id = crypto.randomUUID();
   await env.DB.prepare(
@@ -518,7 +519,7 @@ async function ensureProfileUnclassifiedSiteRequest(request: Request, env: Env, 
   ).bind(
     id,
     profileId,
-    `cloud-used-unclassified:${target.normalizedValue}`,
+    observationSourceId,
     target.targetType,
     target.rawInput,
     target.normalizedValue,
@@ -534,14 +535,88 @@ async function ensureProfileUnclassifiedSiteRequest(request: Request, env: Env, 
   const inserted = await env.DB.prepare(
     `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
   ).bind(id, profileId).first<any>();
-  return json({ ok: true, created: true, request: rowToResponse(inserted) });
+  await mergeObservationSummary(env, id, profileId, input?.observationDeviceId || 'cloud-console', observationItem, now);
+  return { ok: true, created: true, request: rowToResponse(inserted) };
+}
+
+async function ensureProfileUnclassifiedSiteRequest(request: Request, env: Env, profileId: string): Promise<Response> {
+  if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
+  const body = await request.json<EnsureUnclassifiedSiteRequestInput>().catch(() => ({} as EnsureUnclassifiedSiteRequestInput));
+  const result = await ensureUnclassifiedSiteRequest(env, profileId, body);
+  if (!result.ok) return json(result, Number(result.status || 400));
+  return json(result);
+}
+
+export type DecideSiteClassificationRequestInput = {
+  profileId: string;
+  requestId: string;
+  decision: string;
+  targetType?: string | null;
+  targetValue?: string | null;
+};
+
+export async function decideSiteClassificationRequest(
+  env: Env,
+  input: DecideSiteClassificationRequestInput,
+): Promise<Record<string, any>> {
+  const decision = normalizeSiteClassificationDecision(input.decision);
+  if (!decision) return { ok: false, status: 400, error: 'invalid decision', code: 'INVALID_DECISION' };
+
+  const existing = await env.DB.prepare(
+    `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
+  ).bind(input.requestId, input.profileId).first<any>();
+  if (!existing) return { ok: false, status: 404, error: 'Request not found', code: 'REQUEST_NOT_FOUND' };
+  if (existing.status !== 'pending') {
+    return { ok: false, status: 409, error: 'Request is no longer pending', code: 'REQUEST_NOT_PENDING', request: rowToResponse(existing) };
+  }
+
+  const targetValue = input.targetValue || existing.decision_normalized_value || existing.requested_normalized_value || '';
+  const target = normalizeSiteClassificationTarget(targetValue);
+  if (!target.ok) return { ok: false, status: 400, error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' };
+  if (input.targetType && input.targetType !== target.targetType) {
+    return { ok: false, status: 400, error: 'target type mismatch', code: 'TARGET_TYPE_MISMATCH' };
+  }
+
+  if (decision === 'study' || decision === 'composite') {
+    const profileConfig = await getProfileSiteAccessConfig(env, input.profileId);
+    const actionValidation = validateSiteClassificationAction(profileConfig, target, decision);
+    if (!actionValidation.ok) {
+      return {
+        ok: false,
+        status: 400,
+        error: actionValidation.error || 'classification scope blocked',
+        code: actionValidation.code || 'CLASSIFICATION_SCOPE_BLOCKED',
+        classifiedAs: actionValidation.classifiedAs || null,
+        source: actionValidation.source || null,
+        pattern: actionValidation.pattern || null,
+      };
+    }
+  }
+
+  const now = Date.now();
+  const status = decisionToStatus(decision);
+  const update = await env.DB.prepare(
+    `UPDATE site_classification_requests_v1
+     SET status = ?, decision = ?, decision_target_type = ?, decision_normalized_value = ?,
+         decided_at = ?, updated_at = ?
+     WHERE id = ? AND profile_id = ? AND status = 'pending'`
+  ).bind(status, decision, target.targetType, target.normalizedValue, now, now, input.requestId, input.profileId).run();
+  if (Number(update.meta?.changes || 0) !== 1) {
+    return { ok: false, status: 409, error: 'Request is no longer pending', code: 'REQUEST_NOT_PENDING' };
+  }
+
+  await applyDecisionToProfileConfig(env, input.profileId, input.requestId, decision, target, now);
+  const updated = await env.DB.prepare(
+    `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
+  ).bind(input.requestId, input.profileId).first<any>();
+  return { ok: true, success: true, request: rowToResponse(updated) };
 }
 async function listUsedUnclassifiedSites(request: Request, env: Env, profileId: string): Promise<Response> {
   if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
   const url = new URL(request.url);
   const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days') || 30) || 30));
   const since = Date.now() - days * 24 * 60 * 60 * 1000;
-  const config = await getProfileConfig(env, profileId);
+  const config = await getProfileSiteAccessConfig(env, profileId);
   const pendingByHost = await getPendingRequestsByHost(env, profileId);
   const rows = await env.DB.prepare(
     `SELECT COALESCE(NULLIF(fallback_domain, ''), NULLIF(managed_target_label_at_time, ''),
@@ -599,7 +674,7 @@ async function classifyUsedUnclassifiedSite(request: Request, env: Env, profileI
   const listKey = listForSiteManagementClassification(classification);
   if (!domain || !listKey) return json({ error: 'invalid domain or classification' }, 400);
 
-  const effective = await getProfileConfig(env, profileId);
+  const effective = await getProfileSiteAccessConfig(env, profileId);
   const pendingByHost = await getPendingRequestsByHost(env, profileId);
   const matchingPending = Array.from(pendingByHost.entries())
     .filter(([requestHost]) => sameHostRule(requestHost, domain))
@@ -616,7 +691,7 @@ async function classifyUsedUnclassifiedSite(request: Request, env: Env, profileI
   await env.DB.prepare(
     `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
   ).bind(JSON.stringify(config), now, profileId).run();
-  const refreshed = await getProfileConfig(env, profileId);
+  const refreshed = await getProfileSiteAccessConfig(env, profileId);
   return json({ ok: true, domain, classification, listKey, closedRequestIds, config: refreshed });
 }
 export const siteClassificationRequestsRouter = {
@@ -639,7 +714,7 @@ export const siteClassificationRequestsRouter = {
       const saved: ReturnType<typeof rowToResponse>[] = [];
       const errors: Array<Record<string, unknown>> = [];
       const now = Date.now();
-      const profileConfig = await getProfileConfig(env, device.profileId);
+      const profileConfig = await getProfileSiteAccessConfig(env, device.profileId);
       for (const item of requests) {
         try {
           let requestedClassification = normalizeRequestedClassification(item.requestedClassification);
@@ -807,46 +882,15 @@ export const siteClassificationRequestsRouter = {
       if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
       const body = await request.json<{ decision?: string; targetType?: string; targetValue?: string }>()
         .catch(() => ({} as { decision?: string; targetType?: string; targetValue?: string }));
-      const decision = normalizeSiteClassificationDecision(body?.decision);
-      if (!decision) return json({ error: 'invalid decision' }, 400);
-      const existing = await env.DB.prepare(
-        `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
-      ).bind(requestId, profileId).first<any>();
-      if (!existing) return json({ error: 'Request not found' }, 404);
-
-      const targetValue = body?.targetValue ||
-        existing.decision_normalized_value ||
-        existing.requested_normalized_value ||
-        '';
-      const target = normalizeSiteClassificationTarget(targetValue);
-      if (!target.ok) return json({ error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' }, 400);
-      if (body?.targetType && body.targetType !== target.targetType) return json({ error: 'target type mismatch' }, 400);
-
-      if (decision === 'study' || decision === 'composite') {
-        const profileConfig = await getProfileConfig(env, profileId);
-        const actionValidation = validateSiteClassificationAction(profileConfig, target, decision);
-        if (!actionValidation.ok) {
-          return json({
-            error: actionValidation.error || 'classification scope blocked',
-            code: actionValidation.code || 'CLASSIFICATION_SCOPE_BLOCKED',
-            classifiedAs: actionValidation.classifiedAs || null,
-            source: actionValidation.source || null,
-            pattern: actionValidation.pattern || null,
-          }, 400);
-        }
-      }
-
-      const now = Date.now();
-      const status = decisionToStatus(decision);
-      await env.DB.prepare(
-        `UPDATE site_classification_requests_v1
-         SET status = ?, decision = ?, decision_target_type = ?, decision_normalized_value = ?,
-             decided_at = ?, updated_at = ?
-         WHERE id = ? AND profile_id = ?`
-      ).bind(status, decision, target.targetType, target.normalizedValue, now, now, requestId, profileId).run();
-      await applyDecisionToProfileConfig(env, profileId, requestId, decision, target, now);
-      const updated = await env.DB.prepare(`SELECT * FROM site_classification_requests_v1 WHERE id = ?`).bind(requestId).first<any>();
-      return json({ success: true, request: rowToResponse(updated) });
+      const result = await decideSiteClassificationRequest(env, {
+        profileId,
+        requestId,
+        decision: body?.decision || '',
+        targetType: body?.targetType || null,
+        targetValue: body?.targetValue || null,
+      });
+      if (!result.ok) return json(result, Number(result.status || 400));
+      return json(result);
     }
 
     return json({ error: 'Not found' }, 404);

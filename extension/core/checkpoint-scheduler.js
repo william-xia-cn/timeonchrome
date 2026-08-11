@@ -466,6 +466,7 @@ export async function runTimingCheckpoints(options = {}) {
     result.foreground = await runForegroundCheckpoint(now, {
       confirmForegroundPage: options.confirmForegroundPage,
       resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
+      routeForegroundAccess: options.routeForegroundAccess,
     });
     const foregroundSummary = summarizeForeground(result.foreground);
     logCheckpointOutcome('foreground', foregroundSummary, auditId);

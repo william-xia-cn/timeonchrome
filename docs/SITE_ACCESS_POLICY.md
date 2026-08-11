@@ -1391,3 +1391,15 @@ TimeOnChrome 网站访问分类采用：
 - 受限娱乐网站自由时间允许，学习模式不允许，不支持临时进入待归类时间，但支持借时间；
 - 黑名单网站是硬禁止，不允许访问、不允许借时间；
 - 用户导入导出配置只暴露四个简单字符串数组：`studySites`、`compositeSites`、`restrictedEntertainmentSites`、`blockedSites`。
+
+---
+
+## 22. 未归类网站 15 分钟邮件归类
+
+- `target_stats_v1` 是每日使用证据，不是审批状态或最终分类事实。
+- 同一 profile、自然日和 canonical 主站 identity 下，所有设备的 `unclassified` / `pending_composite` 秒数达到 900 秒时，云端确保一条 `auto_unclassified_access` 网站归类记录，并创建每日唯一的邮件通知。
+- `example.com`、`www.example.com`、`m.example.com` 在此规则中视为同一主站；真正独立服务子域保持独立。
+- 发送前必须按当前 effective 配置复核。已经归为学习、复合、受限娱乐或黑名单的网站不再触发。
+- 邮件回复只能处理对应的 pending 审核记录，不能直接改统计表，也不能绕过父域保护、特殊网站或跨分类冲突校验。
+- 同一网站同一天最多发送一次；仍未处理时，下一自然日再次达到阈值可以再次通知。统计日在结束后 24 小时内允许补发，restore/import 历史数据不触发。
+- 固定回复命令为：`学习`、`复合`、`受限娱乐`、`黑名单`、`暂不处理`。命令成功后，最终分类仍由 profile 配置表达。

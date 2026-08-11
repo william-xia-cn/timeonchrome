@@ -35,6 +35,15 @@ function createMessageAuditId(prefix = 'mode') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function activeUsageWindowModeFromTimingSession(session = null) {
+  if (session?.state !== 'ACTIVE') return null;
+  const classification = String(session?.targetClassificationAtTime || '').trim().toLowerCase();
+  if (classification === 'study') return 'study';
+  if (classification === 'composite' || classification === 'pending_composite') return 'composite';
+  if (classification === 'restricted' || classification === 'rejected') return 'rest';
+  return null;
+}
+
 function isAuthorizedBorrowSender(sender) {
   if (!sender?.id || sender.id !== chrome.runtime.id) return false;
   if (!sender?.url) return false;
@@ -837,11 +846,24 @@ async function handleModeChangeRequest(msg = {}) {
 async function handleEvaluateQuotaState(msg = {}) {
   const auditId = msg.auditId || createMessageAuditId('mode');
   const source = msg.source || 'quota_alarm';
+  const timingSession = await getTimingSession().catch((err) => {
+    recordFallbackLog({
+      level: 'warning',
+      category: 'runtime',
+      eventCode: 'quota_active_usage_context_failed',
+      module: 'message-router',
+      reason: 'timing_session_lookup_failed',
+      message: err?.message || 'Quota evaluation could not read active usage context',
+      details: { auditId, source },
+    });
+    return null;
+  });
   const modeEvent = {
     type: 'EVALUATE_QUOTA_STATE',
     source,
     nowMs: Date.now(),
     auditId,
+    activeUsageWindowMode: activeUsageWindowModeFromTimingSession(timingSession),
   };
   const decision = await handleModeEvent(modeEvent);
   const activeTab = decision.notice ? await getActiveTabForModeNotice(null) : null;

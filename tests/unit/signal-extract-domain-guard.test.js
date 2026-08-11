@@ -339,6 +339,13 @@ async function run() {
   await new Promise((r) => setTimeout(r, 100));
   expectTrue('merged media fact should keep video precedence', emitted[0]?.mediaKind === 'video');
 
+  section('SG10: internal content messages bypass the general message router');
+  const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
+  const internalBranch = backgroundSource.indexOf("msg.type === 'MEDIA_STATE' || msg.type === 'TITLE_CHANGE'");
+  const generalRouter = backgroundSource.indexOf("ensureBootstrapped('runtimeMessage')");
+  expectTrue('background should explicitly acknowledge internal content messages', internalBranch >= 0 && backgroundSource.includes("handledBy: msg.type === 'MEDIA_STATE' ? 'signal' : 'content_metadata'"));
+  expectTrue('internal content message branch should run before general router', internalBranch >= 0 && generalRouter > internalBranch);
+
   const total = passed + failed;
   console.log(`\n[Signal ExtractDomain Guard] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

@@ -247,6 +247,8 @@ chk('stats payload activeByMode.study', spDom.activeByMode.study, 100);
 chk('stats payload activeByMode.rest', spDom.activeByMode.rest, 100);
 chk('stats payload has backgroundMediaByMode', typeof spDom.backgroundMediaByMode, 'object');
 chk('stats payload backgroundMediaByMode.rest', spDom.backgroundMediaByMode.rest, 400);
+chk('stats payload domain segment count', spDom.segmentsCount, 3);
+chk('stats payload carries per-row segment counts', spDom.rows.reduce((sum, row) => sum + row.segmentsCount, 0), 3);
 
 const targetStatsPayload = await usageApi.buildTargetStatsUploadPayload(todayStr);
 chkT('target stats payload has targets', Array.isArray(targetStatsPayload.targets));
@@ -255,6 +257,7 @@ chk('target stats fallback key', targetStatsPayload.targets[0].targetKey, 'fallb
 chk('target stats fallback domain', targetStatsPayload.targets[0].fallbackDomain, 'daily.com');
 chk('target stats activeByMode.study', targetStatsPayload.targets[0].activeByMode.study, 100);
 chk('target stats activeByQuotaBucket.study', targetStatsPayload.targets[0].activeByQuotaBucket.study, 100);
+chk('target stats rows carry exact segment counts', targetStatsPayload.targets[0].rows.reduce((sum, row) => sum + row.segmentsCount, 0), 3);
 
 // Simulate successful upload
 await usageApi.markDailyStatsUploaded([todayStr]);
@@ -284,9 +287,11 @@ chkT('hourly payload has hourKey', !!hourlyPayload.hourKey);
 chkT('hourly payload has domains', Array.isArray(hourlyPayload.domains));
 chk('hourly payload domain name', hourlyPayload.domains[0].domain, 'daily.com');
 chkT('hourly payload has activeByMode', !!hourlyPayload.domains[0].activeByMode);
+chk('hourly payload carries per-row segment counts', hourlyPayload.domains[0].rows.reduce((sum, row) => sum + row.segmentsCount, 0), 3);
 const hourlyTargetPayload = await usageApi.buildHourlyTargetStatsUploadPayload(hourlyKeys[0]);
 chkT('hourly target payload has targets', Array.isArray(hourlyTargetPayload.targets));
 chk('hourly target payload key', hourlyTargetPayload.targets[0].targetKey, 'fallback:domain:daily.com');
+chk('hourly target rows carry exact segment counts', hourlyTargetPayload.targets[0].rows.reduce((sum, row) => sum + row.segmentsCount, 0), 3);
 await usageApi.markHourlyStatsUploaded(hourlyKeys);
 await usageApi.markHourlyTargetStatsUploaded(hourlyKeys);
 const hourlyPendingAfter = await usageApi.getPendingHourlyStats();

@@ -80,6 +80,8 @@ Use the English term in this document body. Chinese is listed here only as produ
 16. Time windows are content-use gates, not quota-source gates. They are checked against the usage nature implied by the access target: Study content uses Study windows, Compound/Pending/Unclassified content uses Compound windows, and Restricted Entertainment uses Rest windows. Borrowing Rest quota for Compound/Pending usage does not change that usage nature into Rest.
 17. Quota exhaustion has priority over time-window blocking when both apply. HardBlocked / Unsafe remains highest priority.
 18. Legacy `schedule` is used only when `timeWindows.daily` is absent.
+19. `EVALUATE_QUOTA_STATE` must evaluate the active content-use window when an `ACTIVE` timing session has a managed-target classification snapshot. A Compound/Pending/Unclassified target borrowing Rest quota therefore remains governed by `compositeWindows`; the legacy runtime `rest` value and `quotaBucketAtTime: rest` must not make the alarm evaluate `restWindows` or create a Rest/Study mode loop.
+20. Foreground checkpoint repair is not an alternate access path. When the observed tab/domain does not match the open timing session, the checkpoint must run the same `ACCESS_OBSERVED` decision before opening a replacement session. A blocked result opens no session; an allowed result uses the post-route mode and quota attribution.
 
 ### 5.1 Mode Time Windows
 
@@ -90,6 +92,8 @@ Use the English term in this document body. Chinese is listed here only as produ
 | Rest | `restWindows` | `rest_schedule_locked` |
 
 `null`, missing fields, and empty arrays mean the target mode is allowed all day. `onlineWindows` is derived as `study ∪ composite ∪ rest` for display only, not edited directly.
+
+For Compound/Pending/Unclassified targets, the Compound window is checked regardless of whether the pending-attribution quota is still available or the access is borrowing Rest quota. When the Compound and Rest quotas are both exhausted, the quota-blocked result remains higher priority than the window reminder. When no reliable active timing context exists, periodic evaluation falls back to the current runtime mode.
 
 ## 6) Access Control + Mode Transition Matrix (Canonical)
 

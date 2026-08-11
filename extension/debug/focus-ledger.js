@@ -16,9 +16,15 @@
 
 import { budgetedLocalSet } from '../infra/storage-budget.js';
 
-const focusStorageSet = (items) => typeof budgetedLocalSet === 'function'
-  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'focus_ledger' })
-  : chrome.storage.local.set(items);
+function focusStorageArea() {
+  return chrome.storage.session || chrome.storage.local;
+}
+
+const focusStorageSet = (items) => chrome.storage.session?.set
+  ? chrome.storage.session.set(items)
+  : (typeof budgetedLocalSet === 'function'
+    ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'focus_ledger' })
+    : chrome.storage.local.set(items));
 
 const FOCUS_LEDGER_KEY = 'debug_focus_ledger_v1';
 const MAX_LEDGER_ENTRIES = 500;
@@ -29,7 +35,7 @@ const LEDGER_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
  * @returns {Promise<Array>}
  */
 export async function getFocusLedger() {
-  const data = await chrome.storage.local.get(FOCUS_LEDGER_KEY);
+  const data = await focusStorageArea().get(FOCUS_LEDGER_KEY);
   return data[FOCUS_LEDGER_KEY] || [];
 }
 

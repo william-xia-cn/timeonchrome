@@ -64,7 +64,7 @@ async function createFreshContext() {
 async function readTimingTrace(sw) {
   return sw.evaluate(async () => {
     return new Promise(resolve => {
-      chrome.storage.local.get('__timingTrace', result => resolve(result['__timingTrace'] || []));
+      chrome.storage.session.get('__timingTrace', result => resolve(result['__timingTrace'] || []));
     });
   });
 }
@@ -110,7 +110,7 @@ async function initializeRestMode(sw) {
 async function clearTimingTrace(sw) {
   return sw.evaluate(async () => {
     return new Promise(resolve => {
-      chrome.storage.local.set({ '__timingTrace': [] }, () => resolve());
+      chrome.storage.session.set({ '__timingTrace': [] }, () => resolve());
     });
   });
 }

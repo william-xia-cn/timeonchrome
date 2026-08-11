@@ -41,6 +41,7 @@ import {
   markHourlyMediaStatsUploaded,
   markMediaSegmentUploadFailed, markDailyMediaStatsUploadFailed,
   markHourlyMediaStatsUploadFailed,
+  reconcileHourlyMediaStatsOutbox,
 } from '../runtime/media-session.js';
 import {
   getPendingClientLogsForUpload,
@@ -53,6 +54,7 @@ import { resolveActivationState } from '../core/activation-gate.js';
 import { runV1StorageMaintenance } from './storage-maintenance.js';
 import { drainUsageSettlementJournal, reconcileUsageLedger } from '../core/usage-segments.js';
 import { budgetedLocalSet } from './storage-budget.js';
+import { isSyncRetryCandidate } from './sync-retry-policy.js';
 
 const cloudStorageSet = (items) => typeof budgetedLocalSet === 'function'
   ? budgetedLocalSet(items, { priority: 'sync', source: 'cloud_sync' })
@@ -3024,17 +3026,24 @@ export async function uploadHourlyMediaStatsV1({ enabled = false, forceRetryExha
     return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: [] };
   }
   try {
+    await reconcileHourlyMediaStatsOutbox();
     const pending = await getPendingHourlyMediaStats();
     const dirtyHourKeys = Object.keys(pending.stats || {});
     if (dirtyHourKeys.length === 0) {
       return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
     }
+    const now = Date.now();
     const exhaustedHourKeys = dirtyHourKeys.filter((hourKey) =>
       Number(pending.retryCounts?.[hourKey] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
     );
-    const candidateHourKeys = forceRetryExhausted
-      ? dirtyHourKeys
-      : dirtyHourKeys.filter((hourKey) => !exhaustedHourKeys.includes(hourKey));
+    const candidateHourKeys = dirtyHourKeys.filter((hourKey) => isSyncRetryCandidate({
+      retryCount: pending.retryCounts?.[hourKey],
+      lastAttemptAt: pending.lastAttemptAt?.[hourKey],
+      force: forceRetryExhausted,
+      now,
+      maxAttempts: CLOUD_CONFIG.MAX_RETRY_ATTEMPTS,
+    }));
+    const deferredExhaustedCount = exhaustedHourKeys.filter((hourKey) => !candidateHourKeys.includes(hourKey)).length;
     const batchHourKeys = candidateHourKeys.slice(0, 24);
     if (!effectiveEnabled) {
       const samplePayload = batchHourKeys.length > 0 ? await buildHourlyMediaStatsUploadPayload(batchHourKeys[0]) : null;
@@ -3057,11 +3066,12 @@ export async function uploadHourlyMediaStatsV1({ enabled = false, forceRetryExha
     if (batchHourKeys.length === 0 && exhaustedHourKeys.length > 0) {
       return {
         uploaded: 0,
-        failed: exhaustedHourKeys.length,
-        skipped: false,
+        failed: 0,
+        skipped: true,
         dryRun: false,
         pendingCount: dirtyHourKeys.length,
-        errors: exhaustedHourKeys.map((hourKey) => `hourly media stats ${hourKey}: retry exhausted (${pending.retryCounts?.[hourKey] || 0})`),
+        deferredExhaustedCount,
+        errors: [],
       };
     }
     let uploaded = 0;
@@ -3092,7 +3102,7 @@ export async function uploadHourlyMediaStatsV1({ enabled = false, forceRetryExha
         });
       }
     }
-    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyHourKeys.length - uploaded, errors };
+    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyHourKeys.length - uploaded, deferredExhaustedCount, errors };
   } catch (e) {
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
   }
@@ -3106,12 +3116,18 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
   try {
     const pending = await getPendingSiteClassificationRequestUploads();
     const requests = Array.isArray(pending.requests) ? pending.requests : [];
+    const now = Date.now();
     const exhaustedIds = requests
       .filter((record) => Number(record.retryCount || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS)
       .map((record) => record.id);
-    const candidates = forceRetryExhausted
-      ? requests
-      : requests.filter((record) => !exhaustedIds.includes(record.id));
+    const candidates = requests.filter((record) => isSyncRetryCandidate({
+      retryCount: record.retryCount,
+      lastAttemptAt: record.lastSyncAttemptAt,
+      force: forceRetryExhausted,
+      now,
+      maxAttempts: CLOUD_CONFIG.MAX_RETRY_ATTEMPTS,
+    }));
+    const deferredExhaustedCount = exhaustedIds.filter((id) => !candidates.some((record) => record.id === id)).length;
     const batchIds = candidates.slice(0, 50).map((record) => record.id);
 
     if (!enabled) {
@@ -3139,11 +3155,6 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
     let failed = 0;
     const errors = [];
 
-    if (exhaustedIds.length > 0 && !forceRetryExhausted) {
-      failed += exhaustedIds.length;
-      errors.push(...exhaustedIds.map((id) => `site request ${id}: retry exhausted`));
-    }
-
     if (batchIds.length > 0) {
       const payload = await buildSiteClassificationRequestsUploadPayload(batchIds);
       try {
@@ -3168,10 +3179,25 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
           failed += failedIds.length;
           errors.push(...failedIds.map((id) => `site request ${id}: ${message}`));
         }
+        const acknowledgedIds = new Set([...savedLocalIds, ...failedIds]);
+        const unacknowledgedIds = batchIds.filter((id) => !acknowledgedIds.has(id));
+        if (unacknowledgedIds.length > 0) {
+          await markSiteClassificationRequestUploadFailed(unacknowledgedIds, 'upload_missing_ack');
+          failed += unacknowledgedIds.length;
+          errors.push(`site requests: ${unacknowledgedIds.length} missing acknowledgements`);
+        }
       } catch (e) {
         await markSiteClassificationRequestUploadFailed(batchIds, e.message);
         failed += batchIds.length;
         errors.push(`site requests: ${e.message}`);
+        logClientEventBestEffort({
+          level: 'warning',
+          category: 'cloud',
+          eventCode: 'site_classification_retry_failed',
+          module: 'infra/cloud-sync',
+          message: e?.message || 'Site classification upload retry failed',
+          details: { count: batchIds.length, exhaustedRetry: batchIds.some((id) => exhaustedIds.includes(id)) },
+        });
       }
     }
 
@@ -3196,6 +3222,7 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
       skipped: batchIds.length === 0 && pulled === 0,
       dryRun: false,
       pendingCount: Math.max(0, Number(pending.pendingCount || 0) - uploaded),
+      deferredExhaustedCount,
       errors,
     };
   } catch (e) {

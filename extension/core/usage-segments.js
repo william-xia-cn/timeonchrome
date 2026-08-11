@@ -198,6 +198,13 @@ export function getLocalDateInfo(epochMs, timezoneOffsetMinutes) {
   return { date, dayStartMs, dayEndMs };
 }
 
+function retentionCutoffMs(retentionDays, now = Date.now()) {
+  const days = Math.max(0, Math.trunc(Number(retentionDays) || 0));
+  if (days === 0) return now;
+  const currentBeijingDayStart = getLocalDateInfo(now, 480).dayStartMs;
+  return currentBeijingDayStart - (days - 1) * 86400000;
+}
+
 function normalizeTargetSnapshot(input = {}) {
   const out = {};
   for (const key of TARGET_SNAPSHOT_FIELDS) {
@@ -659,6 +666,7 @@ function applySegmentToDailyStats(day, segment) {
     ds.pipSeconds += seconds;
     ds.pipByMode[modeKey] = (ds.pipByMode[modeKey] || 0) + seconds;
   }
+  applySegmentToDomainRowStats(ds, segment);
 
   // totalSeconds 是派生字段
   ds.totalSeconds = ds.activeSeconds + ds.backgroundMediaSeconds + ds.pipSeconds;
@@ -703,6 +711,7 @@ function applySegmentToHourlyStats(hourStats, slice) {
     ds.pipSeconds += seconds;
     ds.pipByMode[modeKey] = (ds.pipByMode[modeKey] || 0) + seconds;
   }
+  applySegmentToDomainRowStats(ds, slice);
 
   ds.totalSeconds = ds.activeSeconds + ds.backgroundMediaSeconds + ds.pipSeconds;
 
@@ -730,10 +739,27 @@ function makeEmptyDomainStats() {
     activeByMode: {},
     backgroundMediaByMode: {},
     pipByMode: {},
+    segmentsCount: 0,
+    rows: {},
     firstSeenAt: null,
     lastSeenAt: null,
     lastUpdatedAt: null,
   };
+}
+
+function applySegmentToDomainRowStats(domainStats, segment) {
+  if (!domainStats || !segment) return;
+  const channel = segment.channel || 'active';
+  const mode = segment.mode || 'unknown';
+  const rowKey = `${channel}::${mode}`;
+  if (!domainStats.rows || typeof domainStats.rows !== 'object') domainStats.rows = {};
+  if (!domainStats.rows[rowKey]) {
+    domainStats.rows[rowKey] = { channel, mode, durationSeconds: 0, segmentsCount: 0 };
+  }
+  domainStats.rows[rowKey].durationSeconds =
+    Number(domainStats.rows[rowKey].durationSeconds || 0) + Number(segment.durationSeconds || 0);
+  domainStats.rows[rowKey].segmentsCount = Number(domainStats.rows[rowKey].segmentsCount || 0) + 1;
+  domainStats.segmentsCount = Number(domainStats.segmentsCount || 0) + 1;
 }
 
 /**
@@ -1221,9 +1247,11 @@ function applySegmentToTargetStats(targets, segment, nowMs = Date.now()) {
       mode: modeKey,
       quotaBucket: quotaKey,
       durationSeconds: 0,
+      segmentsCount: 0,
     };
   }
-  ts.rows[rowKey].durationSeconds += seconds;
+  ts.rows[rowKey].durationSeconds = Number(ts.rows[rowKey].durationSeconds || 0) + seconds;
+  ts.rows[rowKey].segmentsCount = Number(ts.rows[rowKey].segmentsCount || 0) + 1;
 
   if (segment.channel === 'active') {
     ts.activeSeconds += seconds;
@@ -1722,6 +1750,10 @@ export async function buildDailyStatsUploadPayload(date) {
       activeByMode,
       backgroundMediaByMode,
       pipByMode,
+      segmentsCount: typeof ds === 'object' ? Number(ds.segmentsCount || 0) : 0,
+      rows: typeof ds === 'object'
+        ? Object.values(ds.rows || {}).filter((row) => row && Number(row.durationSeconds || 0) > 0)
+        : [],
       firstSeenAt: typeof ds === 'object' ? ds.firstSeenAt : null,
       lastSeenAt: typeof ds === 'object' ? ds.lastSeenAt : null,
       lastUpdatedAt: typeof ds === 'object' ? ds.lastUpdatedAt : null,
@@ -1837,6 +1869,8 @@ export async function buildHourlyStatsUploadPayload(hourKey) {
       activeByMode: ds.activeByMode || {},
       backgroundMediaByMode: ds.backgroundMediaByMode || {},
       pipByMode: ds.pipByMode || {},
+      segmentsCount: Number(ds.segmentsCount || 0),
+      rows: Object.values(ds.rows || {}).filter((row) => row && Number(row.durationSeconds || 0) > 0),
       firstSeenAt: ds.firstSeenAt || null,
       lastSeenAt: ds.lastSeenAt || null,
       lastUpdatedAt: ds.lastUpdatedAt || null,
@@ -1931,7 +1965,11 @@ export async function pruneUsageSegments(retentionDays = DEFAULT_RETENTION_DAYS)
 }
 
 export async function pruneUploadedUsageAggregates(retentionDays = 365, storageOptions = {}) {
-  const storageSet = (items) => localStorageSet(items, storageOptions);
+  const hourlyRetentionDays = Number.isFinite(Number(storageOptions?.hourlyRetentionDays))
+    ? Math.max(0, Number(storageOptions.hourlyRetentionDays))
+    : retentionDays;
+  const { hourlyRetentionDays: _ignoredHourlyRetentionDays, ...writeOptions } = storageOptions || {};
+  const storageSet = (items) => localStorageSet(items, writeOptions);
   const data = await chrome.storage.local.get([
     DAILY_STATS_KEY, HOURLY_STATS_KEY, STATS_OUTBOX_KEY, TARGET_STATS_OUTBOX_KEY,
     HOURLY_STATS_OUTBOX_KEY, HOURLY_TARGET_STATS_OUTBOX_KEY,
@@ -1946,19 +1984,21 @@ export async function pruneUploadedUsageAggregates(retentionDays = 365, storageO
     ...(data[HOURLY_STATS_OUTBOX_KEY]?.dirtyHourKeys || []),
     ...(data[HOURLY_TARGET_STATS_OUTBOX_KEY]?.dirtyHourKeys || []),
   ]);
-  const cutoffMs = Date.now() - Math.max(0, Number(retentionDays || 0)) * 86400000;
+  const now = Date.now();
+  const dailyCutoffMs = retentionCutoffMs(retentionDays, now);
+  const hourlyCutoffMs = retentionCutoffMs(hourlyRetentionDays, now);
   let dailyPruned = 0;
   let hourlyPruned = 0;
   for (const [date, stat] of Object.entries(daily)) {
     if (!dirtyDates.has(date) && Number(stat?.uploadedAt || stat?.lastUploadedAt || 0) > 0
-      && new Date(date).getTime() < cutoffMs) {
+      && new Date(`${date}T00:00:00+08:00`).getTime() < dailyCutoffMs) {
       delete daily[date];
       dailyPruned++;
     }
   }
   for (const [hourKey, stat] of Object.entries(hourly)) {
     if (!dirtyHours.has(hourKey) && Number(stat?.uploadedAt || stat?.lastUploadedAt || 0) > 0
-      && new Date(String(hourKey).slice(0, 10)).getTime() < cutoffMs) {
+      && new Date(`${String(hourKey).slice(0, 10)}T00:00:00+08:00`).getTime() < hourlyCutoffMs) {
       delete hourly[hourKey];
       hourlyPruned++;
     }
@@ -2160,7 +2200,7 @@ export async function pruneUploadedUsageSegments(retentionDays = 30, storageOpti
   const allSegments = data[USAGE_SEGMENTS_KEY] || {};
   const index = data[SEGMENT_INDEX_KEY] || {};
   const pending = new Set(data[SEGMENT_OUTBOX_KEY]?.dirtySegmentIds || []);
-  const cutoffMs = Date.now() - Math.max(0, Number(retentionDays || 0)) * 86400000;
+  const cutoffMs = retentionCutoffMs(retentionDays);
   let pruned = 0;
 
   for (const [date, ids] of Object.entries(index)) {

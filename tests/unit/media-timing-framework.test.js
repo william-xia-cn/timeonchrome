@@ -60,6 +60,8 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'markMediaSegmentsUploaded',
   'markDailyMediaStatsUploaded',
   'markHourlyMediaStatsUploaded',
+  'markHourlyMediaStatsUploadFailed',
+  'reconcileHourlyMediaStatsOutbox',
   'rebuildHourlyMediaStats',
   'getMediaSession',
   'closeForbiddenPiPSessionsForTab',
@@ -303,6 +305,7 @@ async function testMediaOutboxAndPayloadBuilders() {
   check('hourly media stats enters dirty outbox', pendingHourlyStats.pendingCount === 1, JSON.stringify(pendingHourlyStats));
   const hourlyPayload = await mediaApi.buildHourlyMediaStatsUploadPayload(hourKeys[0]);
   check('hourly media stats payload preserves byMode', hourlyPayload.domains[0]?.byMode?.study?.backgroundAudioSeconds === 15, JSON.stringify(hourlyPayload));
+  check('hourly media stats payload carries row segment count', hourlyPayload.domains[0]?.byMode?.study?.segmentCounts?.backgroundAudio === 1, JSON.stringify(hourlyPayload));
 
   await mediaApi.markMediaSegmentsUploaded([rows[0].id], base + 20_000);
   await mediaApi.markDailyMediaStatsUploaded([rows[0].date], base + 20_000);
@@ -310,6 +313,25 @@ async function testMediaOutboxAndPayloadBuilders() {
   check('uploaded media segment leaves pending outbox', (await mediaApi.getPendingMediaSegments()).pendingCount === 0);
   check('uploaded daily media stats leaves dirty outbox', (await mediaApi.getPendingDailyMediaStats()).pendingCount === 0);
   check('uploaded hourly media stats leaves dirty outbox', (await mediaApi.getPendingHourlyMediaStats()).pendingCount === 0);
+}
+
+async function testHourlyMediaOutboxRecovery() {
+  resetAll();
+  const hourKey = '2026-08-09T11';
+  localStorage.data.hourly_media_stats_v1 = {
+    [hourKey]: { hourKey, date: '2026-08-09', hour: 11, domains: {} },
+  };
+  localStorage.data.hourly_media_stats_sync_outbox_v1 = {
+    dirtyHourKeys: [hourKey],
+    retryCounts: { [hourKey]: 3 },
+    lastErrors: { [hourKey]: 'http_503' },
+  };
+  await mediaApi.markHourlyMediaStatsUploadFailed([hourKey], 'http_503');
+  let pending = await mediaApi.getPendingHourlyMediaStats();
+  check('hourly media failure records cooldown timestamp', Number(pending.lastAttemptAt[hourKey]) > 0, JSON.stringify(pending));
+  const repair = await mediaApi.reconcileHourlyMediaStatsOutbox();
+  check('empty stale hourly media outbox is removed', repair.removed === 1, JSON.stringify(repair));
+  check('removed hourly media outbox clears retry metadata', !localStorage.data.hourly_media_stats_sync_outbox_v1.dirtyHourKeys.includes(hourKey), JSON.stringify(localStorage.data.hourly_media_stats_sync_outbox_v1));
 }
 
 async function testMediaSegmentIdIncludesDeviceIdentity() {
@@ -692,6 +714,7 @@ async function run() {
     testCloseWritesLocalMediaSegment,
     testMediaOutboxAndPayloadBuilders,
     testMediaSegmentIdIncludesDeviceIdentity,
+    testHourlyMediaOutboxRecovery,
     testCloseAllSessions,
     testCheckpointIgnoresFactsWithoutOpenSessions,
     testCheckpointEstimatedCloseWithoutFreshConfirmation,

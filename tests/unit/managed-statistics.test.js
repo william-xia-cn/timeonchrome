@@ -270,6 +270,16 @@ async function run() {
   eq('summary computes composite seconds from config', todayView.statsWithSummary.compositeSeconds, 80);
   eq('today view exposes target rows', todayView.targetStats.rows.length, 3);
   eq('target row prefers snapshot label', todayView.targetStats.rows[0].targetLabel, 'Study Playlist');
+  const pendingBorrowRow = todayView.targetStats.rows.find((row) => row.managedTargetId === 'pending_borrow_rest_quota');
+  eq('pending Rest borrow keeps content classification and quota source separate', {
+    classification: pendingBorrowRow?.targetClassificationAtTime,
+    activeByMode: pendingBorrowRow?.activeByMode,
+    activeByQuotaBucket: pendingBorrowRow?.activeByQuotaBucket,
+  }, {
+    classification: 'pending_composite',
+    activeByMode: { rest: 45 },
+    activeByQuotaBucket: { rest: 45 },
+  });
 
   const popupView = await statsApi.getPopupModeStatsView(today);
   eq('popup mode stats uses active mode seconds only for mode buckets', {

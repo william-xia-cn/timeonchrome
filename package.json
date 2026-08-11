@@ -13,7 +13,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@playwright/test": "^1.59.1"
+    "@playwright/test": "^1.59.1",
+    "postal-mime": "^3.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260529.1",

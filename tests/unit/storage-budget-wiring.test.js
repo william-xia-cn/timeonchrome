@@ -37,6 +37,18 @@ if (!maintenance.includes('withStorageBudgetBypass') || !maintenance.includes('s
   throw new Error('maintenance bypass or loss audit is missing');
 }
 passed++;
+for (const relative of ['core/timing-trace.js', 'debug/focus-ledger.js', 'product/mode-effects.js']) {
+  const source = fs.readFileSync(path.join(root, relative), 'utf8');
+  if (!source.includes('storage.session')) {
+    throw new Error(`${relative} does not prefer session storage for transient diagnostics`);
+  }
+  passed++;
+}
+const clientLogs = fs.readFileSync(path.join(root, 'infra', 'client-logs.js'), 'utf8');
+if (!clientLogs.includes("CLIENT_SESSION_LOGS_KEY = 'client_logs_session_v1'") || !clientLogs.includes('sessionStorageSet')) {
+  throw new Error('client info logs are not routed to session storage');
+}
+passed++;
 const usage = fs.readFileSync(path.join(root, 'core', 'usage-segments.js'), 'utf8');
 if (!usage.includes('usage_settlement_journal_v1') || !usage.includes('runUsageStorageMutation') || !usage.includes('reconcileUsageLedger')) {
   throw new Error('usage settlement journal or complete RMW coordinator is missing');

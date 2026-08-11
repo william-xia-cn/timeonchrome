@@ -239,6 +239,17 @@ this.__modeService = {
       reason: 'quota_rest_exhausted_study_locked',
       source: 'quota_alarm',
     });
+    expect('borrowed Rest locks directly when pending and Rest quotas are both exhausted', svc.evaluateQuotaModeTransition({
+      currentMode: 'rest',
+      activeUsageWindowMode: 'composite',
+      quotaState: { undeterminedLocked: true, restLocked: true, studyLocked: false },
+      source: 'quota_alarm',
+    }), {
+      kind: 'mode_change',
+      toMode: 'locked',
+      reason: 'quota_composite_and_rest',
+      source: 'quota_alarm',
+    });
     expect('composite quota returns to study when study is available', svc.evaluateQuotaModeTransition({
       currentMode: 'composite',
       quotaState: { undeterminedLocked: true, studyLocked: false },
@@ -247,6 +258,18 @@ this.__modeService = {
       kind: 'mode_change',
       toMode: 'study',
       reason: 'quota_composite_exhausted',
+      source: 'quota_alarm',
+    });
+    expect('active pending content enters Rest quota borrow directly when composite quota expires', svc.evaluateQuotaModeTransition({
+      currentMode: 'composite',
+      activeUsageWindowMode: 'composite',
+      quotaState: { undeterminedLocked: true, restLocked: false, studyLocked: false },
+      windowStatusByMode: { composite: { allowed: true } },
+      source: 'quota_alarm',
+    }), {
+      kind: 'mode_change',
+      toMode: 'rest',
+      reason: 'composite_exhausted_to_rest',
       source: 'quota_alarm',
     });
     expect('daily reset unlocks locked mode', svc.evaluateQuotaModeTransition({
@@ -422,6 +445,68 @@ this.__modeService = {
       kind: 'reminder',
       reminderReason: 'rest_schedule_locked',
     });
+    expect('exhausted pending target borrows rest quota while composite window is open', svc.evaluateModeRoute({
+      currentMode: 'study',
+      isCompositeDomain: true,
+      remainingCompositeSeconds: 0,
+      compositeWindowAllowed: true,
+      restWindowAllowed: false,
+      quotaState: { restLocked: false },
+      nowMs: 10,
+    }), {
+      kind: 'mode_change',
+      toMode: 'rest',
+      reason: 'composite_exhausted_to_rest',
+      source: 'auto_mode_route',
+      notice: 'composite_exhausted_to_rest',
+    });
+    expect('exhausted pending target cannot borrow through a closed composite window', svc.evaluateModeRoute({
+      currentMode: 'study',
+      isCompositeDomain: true,
+      remainingCompositeSeconds: 0,
+      compositeWindowAllowed: false,
+      restWindowAllowed: true,
+      quotaState: { restLocked: false },
+      nowMs: 10,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'composite_schedule_locked',
+    });
+    expect('borrowed pending target already in rest still honors the composite window', svc.evaluateModeRoute({
+      currentMode: 'rest',
+      isCompositeDomain: true,
+      remainingCompositeSeconds: 0,
+      compositeWindowAllowed: false,
+      restWindowAllowed: true,
+      quotaState: { restLocked: false },
+      nowMs: 10,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'composite_schedule_locked',
+    });
+    expect('borrowed pending target from composite mode still honors the composite window', svc.evaluateModeRoute({
+      currentMode: 'composite',
+      isCompositeDomain: true,
+      remainingCompositeSeconds: 0,
+      compositeWindowAllowed: false,
+      restWindowAllowed: true,
+      quotaState: { restLocked: false },
+      nowMs: 10,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'composite_schedule_locked',
+    });
+    expect('dual quota exhaustion remains higher priority than composite window', svc.evaluateModeRoute({
+      currentMode: 'study',
+      isCompositeDomain: true,
+      remainingCompositeSeconds: 0,
+      compositeWindowAllowed: false,
+      quotaState: { restLocked: true },
+      nowMs: 10,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'quota_composite_and_rest',
+    });
   }
 
   section('MSVC-3a2 access observed applies configured time windows');
@@ -509,6 +594,47 @@ this.__modeService = {
       reason: 'internal_pseudo_domain',
       domain: 'unknown-page.chrome-local',
       classificationCalled: false,
+    });
+  }
+
+  section('MSVC-3a2c access observed uses one managed quota snapshot');
+  {
+    let statsReads = 0;
+    const cfg = {
+      enabled: true,
+      mode: 'study',
+      compositeList: ['portal.example'],
+      restrictedEntertainmentList: [],
+      unsafeList: [],
+      quotaState: {},
+      dailyStudyQuota: 120,
+      dailyUndeterminedQuota: 10,
+      dailyRestQuota: 60,
+    };
+    const svc = loadModeService({
+      getConfig: async () => cfg,
+      getSession: async () => ({ currentMode: 'study' }),
+      getTodayStatsWithCategories: async () => {
+        statsReads += 1;
+        return { studySeconds: 60, undeterminedSeconds: 120, restSeconds: 180 };
+      },
+    });
+    const result = await svc.handleModeEvent({
+      type: 'ACCESS_OBSERVED',
+      url: 'https://portal.example/path',
+      domain: 'portal.example',
+      foreground: true,
+      nowMs: 1000,
+    });
+    expect('one access decision reads quota usage once', statsReads, 1);
+    expect('single snapshot keeps composite transition result', {
+      access: result.access,
+      toMode: result.modeChange?.toMode,
+      remainingCompositeSeconds: result.notice?.remainingCompositeSeconds,
+    }, {
+      access: 'allow',
+      toMode: 'composite',
+      remainingCompositeSeconds: 480,
     });
   }
 
@@ -783,6 +909,80 @@ this.__modeService = {
       toMode: 'locked',
       reason: 'composite_schedule_window_expired',
       recheckActiveTab: true,
+    });
+
+    const borrowedRestConfig = {
+      quotaState: { undeterminedLocked: true, restLocked: false, studyLocked: false },
+      timeWindows: {
+        daily: {
+          monday: {
+            studyWindows: null,
+            compositeWindows: null,
+            restWindows: [{ start: '08:00', end: '09:00' }],
+          },
+        },
+      },
+    };
+    let borrowedRuntimeMode = 'composite';
+    const borrowedRestSvc = loadModeService({
+      evaluateQuotaState: async () => ({
+        ok: true,
+        config: borrowedRestConfig,
+        newState: borrowedRestConfig.quotaState,
+      }),
+      getSession: async () => ({ currentMode: borrowedRuntimeMode }),
+    });
+    const borrowedChecks = [];
+    let borrowedNoticeText = null;
+    for (let i = 0; i < 60; i++) {
+      const result = await borrowedRestSvc.handleModeEvent({
+        type: 'EVALUATE_QUOTA_STATE',
+        source: 'quota_alarm',
+        activeUsageWindowMode: 'composite',
+        nowMs: new Date(2026, 4, 18, 10, i, 0).getTime(),
+      });
+      if (i === 0) borrowedNoticeText = result.notice?.text || null;
+      borrowedChecks.push(result.modeChange?.toMode || null);
+      if (result.modeChange?.toMode) borrowedRuntimeMode = result.modeChange.toMode;
+    }
+    expect('60 quota checks enter borrowed rest once without transient study or repeated boundaries', {
+      changes: borrowedChecks.filter(Boolean).length,
+      uniqueTargets: [...new Set(borrowedChecks.filter(Boolean))],
+      firstNoticeText: borrowedNoticeText,
+    }, {
+      changes: 1,
+      uniqueTargets: ['rest'],
+      firstNoticeText: '待归类时间配额已用完 · 正在借用休息配额',
+    });
+
+    const closedCompositeConfig = {
+      quotaState: {},
+      timeWindows: {
+        daily: {
+          monday: {
+            studyWindows: null,
+            compositeWindows: [{ start: '08:00', end: '09:00' }],
+            restWindows: null,
+          },
+        },
+      },
+    };
+    const closedCompositeSvc = loadModeService({
+      evaluateQuotaState: async () => ({ ok: true, config: closedCompositeConfig, newState: {} }),
+      getSession: async () => ({ currentMode: 'rest' }),
+    });
+    const closedCompositeResult = await closedCompositeSvc.handleModeEvent({
+      type: 'EVALUATE_QUOTA_STATE',
+      source: 'quota_alarm',
+      activeUsageWindowMode: 'composite',
+      nowMs: new Date(2026, 4, 18, 10, 0, 0).getTime(),
+    });
+    expect('closed active composite window leaves borrowed rest for study before tab recheck', {
+      toMode: closedCompositeResult.modeChange?.toMode,
+      reason: closedCompositeResult.modeChange?.reason,
+    }, {
+      toMode: 'study',
+      reason: 'composite_schedule_expired_to_study',
     });
   }
 

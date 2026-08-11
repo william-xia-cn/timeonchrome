@@ -23,8 +23,14 @@ class MockStorage {
 }
 
 const mockLocal = new MockStorage();
+const mockSession = new MockStorage();
+const resetLocal = mockLocal.reset.bind(mockLocal);
+mockLocal.reset = () => {
+  resetLocal();
+  mockSession.reset();
+};
 global.chrome = {
-  storage: { local: mockLocal },
+  storage: { local: mockLocal, session: mockSession },
   runtime: { getManifest: () => ({ version: '1.7.2-test' }) },
 };
 
@@ -42,6 +48,7 @@ function loadProdModule(relPath, exportNames) {
 
 const logs = loadProdModule('infra/client-logs.js', [
   'CLIENT_LOGS_KEY',
+  'CLIENT_SESSION_LOGS_KEY',
   'logClientEvent',
   'logFallbackEventBestEffort',
   'getClientLogs',
@@ -74,6 +81,7 @@ async function testDefaultLocalPolicy() {
   const result = await logs.getClientLogs({ limit: 20 });
   check('default policy skips info', !result.logs.some((log) => log.eventCode === 'info_skip'));
   check('default policy records warning', result.logs.some((log) => log.eventCode === 'warn_keep'));
+  check('warning is kept in persistent local buffer', (await mockLocal.get('client_logs_v1')).client_logs_v1?.some((log) => log.eventCode === 'warn_keep'));
   check('unbound log keeps null profile/device', result.logs[0].profileId === null && result.logs[0].deviceId === null && result.logs[0].bindingState === 'unbound');
 }
 
@@ -132,6 +140,13 @@ async function testUploadPolicyAndTtl() {
   const pending = await logs.getPendingClientLogsForUpload();
   check('remote policy uploads matching info with ttl', pending.logs.some((log) => log.eventCode === 'info_upload'));
   check('upload category filter excludes other categories', !pending.logs.some((log) => log.eventCode === 'info_skip_category'));
+  check('info logs use session storage instead of persistent local',
+    !(await mockLocal.get('client_logs_v1')).client_logs_v1?.some((log) => log.level === 'info')
+      && (await mockSession.get('client_logs_session_v1')).client_logs_session_v1?.some((log) => log.eventCode === 'info_upload'));
+  const uploadedInfo = pending.logs.find((log) => log.eventCode === 'info_upload');
+  await logs.markClientLogsUploaded([uploadedInfo.id]);
+  check('uploaded info log is removed from session storage immediately',
+    !(await mockSession.get('client_logs_session_v1')).client_logs_session_v1?.some((log) => log.id === uploadedInfo.id));
 
   mockLocal.reset();
   await mockLocal.set({
@@ -163,6 +178,14 @@ async function testRetentionMaxEntries() {
   check('maxEntries retention prunes oldest logs', status.total === 2, `total=${status.total}`);
   const result = await logs.getClientLogs({ limit: 10 });
   check('oldest pruned entry absent', !result.logs.some((log) => log.eventCode === 'retention_1'));
+}
+
+async function testPersistentBufferPolicyCaps() {
+  mockLocal.reset();
+  await logs.updateClientLogConfig({ maxEntries: 5000, maxBytes: 2 * 1024 * 1024 });
+  const status = await logs.getClientLogStatus();
+  check('persistent warning/error buffer is capped at 1000 entries', status.config.maxEntries === 1000, String(status.config.maxEntries));
+  check('persistent warning/error buffer is capped at 512 KB', status.config.maxBytes === 512 * 1024, String(status.config.maxBytes));
 }
 
 async function testUploadFailureUsesShortErrorCode() {
@@ -268,6 +291,7 @@ function testStaticWiring() {
   await testBoundIdentityAndRedaction();
   await testUploadPolicyAndTtl();
   await testRetentionMaxEntries();
+  await testPersistentBufferPolicyCaps();
   await testUploadFailureUsesShortErrorCode();
   await testThreeDaySeverityRetentionAndUploadedRemoval();
   await testFallbackHelper();

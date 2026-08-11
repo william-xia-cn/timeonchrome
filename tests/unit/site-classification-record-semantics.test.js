@@ -108,6 +108,9 @@ this.__records = {
   submitSiteClassificationRequest,
   getSiteClassificationRequestRecords,
   buildSiteClassificationRequestsUploadPayload,
+  getPendingSiteClassificationRequestUploads,
+  markSiteClassificationRequestUploadFailed,
+  markSiteClassificationRequestsUploaded,
 };
 `, context, { filename: 'site-classification-record-semantics.vm.js' });
 
@@ -268,6 +271,15 @@ async function run() {
   });
   expectTrue('composite parent still allows manual learning request for child domain',
     allowedLearningRequest.ok === true && allowedLearningRequest.request.requestedClassification === 'study');
+
+  await api.markSiteClassificationRequestUploadFailed([originalId], 'http_503');
+  const failedRecord = (await api.getSiteClassificationRequestRecords({ includeAll: true })).find((record) => record.id === originalId);
+  expectEqual('failed upload increments retry count', failedRecord.retryCount, 1);
+  expectTrue('failed upload records retry timestamp', Number(failedRecord.lastSyncAttemptAt) > 0);
+  await api.markSiteClassificationRequestsUploaded([originalId], [{ clientRequestId: originalId, id: 'cloud-record-1' }]);
+  const uploadedRecord = (await api.getSiteClassificationRequestRecords({ includeAll: true })).find((record) => record.id === originalId);
+  expectEqual('successful upload clears retry count', uploadedRecord.retryCount, 0);
+  expectEqual('successful upload clears retry timestamp', uploadedRecord.lastSyncAttemptAt, null);
   const total = passed + failed;
   console.log(`\n[Site Classification Record Semantics] ${passed}/${total} passed${failed ? ` - ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

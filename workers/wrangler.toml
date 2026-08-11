@@ -18,7 +18,11 @@ id = "c9aac68bf121480f898564eb1b166295"
 
 # Resend 邮件 API key（在 Cloudflare 控制台设置 secret，不要明文写在这里）
 # wrangler secret put RESEND_API_KEY
+# 邮件归类签名密钥、发布开关和 profile allowlist 均使用 secret，缺失时默认关闭
+# wrangler secret put EMAIL_ACTION_SECRET
+# wrangler secret put EMAIL_CLASSIFICATION_PROFILE_IDS
+# wrangler secret put EMAIL_CLASSIFICATION_ENABLED
 
-# 每天 20:00 UTC+8 (12:00 UTC) 发送待审核提醒邮件
+# 每 5 分钟处理邮件 outbox；每天 20:00 UTC+8 (12:00 UTC) 发送待审核提醒邮件
 [triggers]
-crons = ["0 12 * * *"]
+crons = ["*/5 * * * *", "0 12 * * *"]

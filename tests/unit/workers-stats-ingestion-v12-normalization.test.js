@@ -126,6 +126,8 @@ function run() {
   expectTrue('011 migration 应创建 hourly_stats_v1', migration011.includes('CREATE TABLE IF NOT EXISTS hourly_stats_v1'));
   expectTrue('011 migration 应创建 hourly_media_stats_v1', migration011.includes('CREATE TABLE IF NOT EXISTS hourly_media_stats_v1'));
   expectTrue('011 migration 应保留小时 segments 元数据', migration011.includes('segments_count') && migration011.includes('last_segment_id'));
+  expectTrue('Worker 小时统计应使用行级 segmentsCount', source.includes('row.durationSeconds, row.segmentsCount, lastSegmentId'));
+  expectTrue('Worker target 统计应使用行级 segmentsCount', source.includes('row.fallbackDomain, row.isFallback, row.durationSeconds, row.segmentsCount'));
   expectTrue('011 migration usage 小时唯一键应包含 device_id', migration011.includes('UNIQUE (profile_id, device_id, hour_key, domain, channel, mode)'));
   expectTrue('011 migration media 小时唯一键应包含 device_id', migration011.includes('UNIQUE (profile_id, device_id, hour_key, domain, media_class, mode)'));
   expectTrue('012 migration 应为 usage segments 增加 tab/window/description 字段', migration012.includes('ALTER TABLE usage_segments_v1 ADD COLUMN tab_id') && migration012.includes('ALTER TABLE usage_segments_v1 ADD COLUMN window_id') && migration012.includes('ALTER TABLE usage_segments_v1 ADD COLUMN description_json'));

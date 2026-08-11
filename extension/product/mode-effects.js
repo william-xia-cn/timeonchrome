@@ -10,9 +10,15 @@ import {
 } from './interceptor.js';
 import { budgetedLocalSet } from '../infra/storage-budget.js';
 
-const modeTraceStorageSet = (items) => typeof budgetedLocalSet === 'function'
-  ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'mode_effect_trace' })
-  : chrome.storage.local.set(items);
+function modeTraceStorageArea(chromeApi = globalThis.chrome) {
+  return chromeApi?.storage?.session || chromeApi?.storage?.local || null;
+}
+
+const modeTraceStorageSet = (items) => globalThis.chrome?.storage?.session?.set
+  ? globalThis.chrome.storage.session.set(items)
+  : (typeof budgetedLocalSet === 'function'
+    ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'mode_effect_trace' })
+    : globalThis.chrome.storage.local.set(items));
 
 export const MODE_EFFECT_TRACE_KEY = 'mode_effect_trace_v1';
 const MODE_EFFECT_TRACE_LIMIT = 50;
@@ -86,7 +92,8 @@ function reminderTargetUrlFromEvent(event = {}) {
 export async function recordModeEffectTrace(entry = {}) {
   try {
     const chromeApi = globalThis.chrome;
-    if (!chromeApi?.storage?.local?.get || !chromeApi?.storage?.local?.set) return null;
+    const storageArea = modeTraceStorageArea(chromeApi);
+    if (!storageArea?.get || !storageArea?.set) return null;
     const event = entry.event || {};
     const traceEntry = {
       atMs: Date.now(),
@@ -106,10 +113,10 @@ export async function recordModeEffectTrace(entry = {}) {
       decision: compactDecision(entry.decision || {}),
       result: compactModeEffectResult(entry.result || {}),
     };
-    const stored = await chromeApi.storage.local.get(MODE_EFFECT_TRACE_KEY).catch(() => ({}));
+    const stored = await storageArea.get(MODE_EFFECT_TRACE_KEY).catch(() => ({}));
     const existing = Array.isArray(stored?.[MODE_EFFECT_TRACE_KEY]) ? stored[MODE_EFFECT_TRACE_KEY] : [];
     const next = [traceEntry, ...existing].slice(0, MODE_EFFECT_TRACE_LIMIT);
-    await chromeApi.storage.local.set({ [MODE_EFFECT_TRACE_KEY]: next });
+    await modeTraceStorageSet({ [MODE_EFFECT_TRACE_KEY]: next });
     return traceEntry;
   } catch {
     return null;
@@ -119,8 +126,9 @@ export async function recordModeEffectTrace(entry = {}) {
 export async function getModeEffectTrace(limit = MODE_EFFECT_TRACE_LIMIT) {
   try {
     const chromeApi = globalThis.chrome;
-    if (!chromeApi?.storage?.local?.get) return [];
-    const stored = await chromeApi.storage.local.get(MODE_EFFECT_TRACE_KEY);
+    const storageArea = modeTraceStorageArea(chromeApi);
+    if (!storageArea?.get) return [];
+    const stored = await storageArea.get(MODE_EFFECT_TRACE_KEY);
     const rows = Array.isArray(stored?.[MODE_EFFECT_TRACE_KEY]) ? stored[MODE_EFFECT_TRACE_KEY] : [];
     return rows.slice(0, Math.max(1, Math.min(MODE_EFFECT_TRACE_LIMIT, Number(limit) || MODE_EFFECT_TRACE_LIMIT)));
   } catch {

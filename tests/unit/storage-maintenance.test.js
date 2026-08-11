@@ -53,11 +53,12 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
 const clientApi = loadProdModule('infra/client-logs.js', ['pruneClientLogsForStoragePressure'], {
   sanitizeIncognitoForPersistence: (value) => value,
 });
+const maintenanceLogs = [];
 const maintenance = loadProdModule('infra/storage-maintenance.js', ['runV1StorageMaintenance', 'runStoragePressureGuard'], {
   ...usageApi,
   ...mediaApi,
   ...clientApi,
-  logClientEventBestEffort: async () => {},
+  logClientEventBestEffort: async (event) => { maintenanceLogs.push(event); },
   STORAGE_PRESSURE_BYTES: 7 * 1024 * 1024,
   STORAGE_TARGET_BYTES: Math.floor(6.5 * 1024 * 1024),
   STORAGE_HARD_LIMIT_BYTES: 8 * 1024 * 1024,
@@ -73,6 +74,14 @@ function localDateAndHour(epochMs) {
   const local = new Date(epochMs + 8 * 60 * 60 * 1000);
   const date = local.toISOString().slice(0, 10);
   return { date, hourKey: `${date}T${String(local.getUTCHours()).padStart(2, '0')}` };
+}
+
+function beijingDate(offsetDays = 0) {
+  return new Date(Date.now() + 8 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+
+function beijingNoonMs(date) {
+  return Date.parse(`${date}T12:00:00+08:00`);
 }
 
 async function testPressureCleanupAndOutboxCompaction() {
@@ -118,7 +127,7 @@ async function testPressureCleanupAndOutboxCompaction() {
   const storage = await chrome.storage.local.get(null);
   check('pressure guard reports pressure', result.pressure === true);
   check('expired and uploaded client logs are removed', storage.client_logs_v1.length === 20, String(storage.client_logs_v1.length));
-  check('pure traces are cleared', storage.__timingTrace.length === 0 && storage.debug_focus_ledger_v1.length === 0 && storage.mode_effect_trace_v1.length === 0);
+  check('legacy local session traces are removed', !('__timingTrace' in storage) && !('debug_focus_ledger_v1' in storage) && !('mode_effect_trace_v1' in storage));
   check('checkpoint diagnostics are cleared', Object.keys(storage.timing_checkpoint_health_v1 || {}).length === 0);
   check('pressure removes only old dated legacy stats', !storage['stats_2020-01-01'] && Boolean(storage[currentLegacyStatsKey]));
   check('pressure removes old uploaded daily and hourly aggregates', !storage.daily_usage_stats_v1['2020-01-01'] && !storage.hourly_usage_stats_v1['2020-01-01T08']);
@@ -129,6 +138,81 @@ async function testPressureCleanupAndOutboxCompaction() {
   check('old uploaded segment is pruned', !storage.usage_segments_v1[uploadedId]);
   check('old pending segment remains', Boolean(storage.usage_segments_v1[oldId]));
   check('privacy-safe storage diagnostics are bounded', storage.storage_diagnostics_v1.keys.length <= 30 && storage.storage_diagnostics_v1.keys.every((item) => Object.keys(item).every((key) => ['key', 'bytes', 'count', 'pending'].includes(key))));
+  check('maintenance result exposes only top ten privacy-safe keys', result.storageDiagnostics.keys.length <= 10);
+}
+
+async function testBeijingNaturalDayRetentionAndDirtyProtection() {
+  mockLocal.reset();
+  const now = Date.now();
+  const today = beijingDate(0);
+  const yesterday = beijingDate(-1);
+  const sixDaysAgo = beijingDate(-6);
+  const sevenDaysAgo = beijingDate(-7);
+  const eightDaysAgo = beijingDate(-8);
+  const usageToday = `seg-${today.replace(/-/g, '')}-1111111111111111`;
+  const usageYesterday = `seg-${yesterday.replace(/-/g, '')}-2222222222222222`;
+  const usagePending = `seg-${yesterday.replace(/-/g, '')}-3333333333333333`;
+  const mediaToday = `mseg-${today.replace(/-/g, '')}-4444444444444444`;
+  const mediaYesterday = `mseg-${yesterday.replace(/-/g, '')}-5555555555555555`;
+  const mediaPending = `mseg-${yesterday.replace(/-/g, '')}-6666666666666666`;
+
+  await chrome.storage.local.set({
+    usage_segments_v1: {
+      [usageToday]: { id: usageToday, startMs: beijingNoonMs(today), endMs: beijingNoonMs(today) + 1000, uploadedAt: now },
+      [usageYesterday]: { id: usageYesterday, startMs: beijingNoonMs(yesterday), endMs: beijingNoonMs(yesterday) + 1000, uploadedAt: now },
+      [usagePending]: { id: usagePending, startMs: beijingNoonMs(yesterday), endMs: beijingNoonMs(yesterday) + 1000, uploadedAt: null },
+    },
+    usage_segments_index_v1: {
+      [today]: [usageToday],
+      [yesterday]: [usageYesterday, usagePending],
+    },
+    segment_sync_outbox_v1: { dirtySegmentIds: [usagePending], retryCounts: {}, lastErrors: {} },
+    daily_usage_stats_v1: {
+      [today]: { date: today, uploadedAt: now },
+      [sixDaysAgo]: { date: sixDaysAgo, uploadedAt: now },
+      [sevenDaysAgo]: { date: sevenDaysAgo, uploadedAt: now },
+      [eightDaysAgo]: { date: eightDaysAgo, uploadedAt: now },
+    },
+    hourly_usage_stats_v1: {
+      [`${today}T12`]: { hourKey: `${today}T12`, uploadedAt: now },
+      [`${yesterday}T12`]: { hourKey: `${yesterday}T12`, uploadedAt: now },
+      [`${sevenDaysAgo}T12`]: { hourKey: `${sevenDaysAgo}T12`, uploadedAt: now },
+    },
+    stats_sync_outbox_v1: { dirtyDates: [sevenDaysAgo], retryCounts: {}, lastErrors: {} },
+    target_stats_sync_outbox_v1: { dirtyDates: [], retryCounts: {}, lastErrors: {} },
+    hourly_stats_sync_outbox_v1: { dirtyHourKeys: [`${sevenDaysAgo}T12`], retryCounts: {}, lastErrors: {} },
+    hourly_target_stats_sync_outbox_v1: { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} },
+    media_segments_v1: {
+      [mediaToday]: { id: mediaToday, date: today, startMs: beijingNoonMs(today), endMs: beijingNoonMs(today) + 1000, uploadedAt: now },
+      [mediaYesterday]: { id: mediaYesterday, date: yesterday, startMs: beijingNoonMs(yesterday), endMs: beijingNoonMs(yesterday) + 1000, uploadedAt: now },
+      [mediaPending]: { id: mediaPending, date: yesterday, startMs: beijingNoonMs(yesterday), endMs: beijingNoonMs(yesterday) + 1000, uploadedAt: null },
+    },
+    daily_media_stats_v1: {
+      [today]: { date: today, uploadedAt: now },
+      [sixDaysAgo]: { date: sixDaysAgo, uploadedAt: now },
+      [sevenDaysAgo]: { date: sevenDaysAgo, uploadedAt: now },
+      [eightDaysAgo]: { date: eightDaysAgo, uploadedAt: now },
+    },
+    hourly_media_stats_v1: {
+      [`${today}T12`]: { hourKey: `${today}T12`, uploadedAt: now },
+      [`${yesterday}T12`]: { hourKey: `${yesterday}T12`, uploadedAt: now },
+      [`${sevenDaysAgo}T12`]: { hourKey: `${sevenDaysAgo}T12`, uploadedAt: now },
+    },
+    media_segment_sync_outbox_v1: { pendingIds: [mediaPending], retryCounts: {}, lastErrors: {} },
+    media_stats_sync_outbox_v1: { dirtyDates: [sevenDaysAgo], retryCounts: {}, lastErrors: {} },
+    hourly_media_stats_sync_outbox_v1: { dirtyHourKeys: [`${sevenDaysAgo}T12`], retryCounts: {}, lastErrors: {} },
+  });
+
+  await maintenance.runV1StorageMaintenance({ reason: 'unit_natural_day' });
+  const storage = await chrome.storage.local.get(null);
+  check('uploaded usage raw keeps today and removes yesterday', Boolean(storage.usage_segments_v1[usageToday]) && !storage.usage_segments_v1[usageYesterday]);
+  check('pending usage raw survives natural-day retention', Boolean(storage.usage_segments_v1[usagePending]));
+  check('usage daily keeps seven Beijing days, prunes older uploaded rows, and protects dirty rows', Boolean(storage.daily_usage_stats_v1[sixDaysAgo]) && Boolean(storage.daily_usage_stats_v1[sevenDaysAgo]) && !storage.daily_usage_stats_v1[eightDaysAgo]);
+  check('usage hourly removes yesterday but protects dirty old hour', !storage.hourly_usage_stats_v1[`${yesterday}T12`] && Boolean(storage.hourly_usage_stats_v1[`${sevenDaysAgo}T12`]));
+  check('uploaded media raw keeps today and removes yesterday', Boolean(storage.media_segments_v1[mediaToday]) && !storage.media_segments_v1[mediaYesterday]);
+  check('pending media raw survives natural-day retention', Boolean(storage.media_segments_v1[mediaPending]));
+  check('media daily keeps seven Beijing days, prunes older uploaded rows, and protects dirty rows', Boolean(storage.daily_media_stats_v1[sixDaysAgo]) && Boolean(storage.daily_media_stats_v1[sevenDaysAgo]) && !storage.daily_media_stats_v1[eightDaysAgo]);
+  check('media hourly removes yesterday but protects dirty old hour', !storage.hourly_media_stats_v1[`${yesterday}T12`] && Boolean(storage.hourly_media_stats_v1[`${sevenDaysAgo}T12`]));
 }
 
 async function testSevenMegabytePressureTarget() {
@@ -152,6 +236,23 @@ async function testSevenMegabytePressureTarget() {
   check('pressure maintenance reaches 6.5MB target', result.afterBytes < 6.5 * 1024 * 1024, JSON.stringify(result));
   check('uploaded segments older than seven days are pruned', ids.every((id) => !storage.usage_segments_v1[id]));
   check('ordinary pressure never deletes pending usage', Boolean(storage.usage_segments_v1[pendingId]));
+}
+
+async function testUnresolvedDiagnosticsAndSixHourCooldown() {
+  mockLocal.reset();
+  maintenanceLogs.length = 0;
+  await chrome.storage.local.set({
+    guardian_config: { protectedPayload: 'p'.repeat(Math.ceil(7.1 * 1024 * 1024)) },
+  });
+  const first = await maintenance.runStoragePressureGuard('unit_unresolved');
+  const firstLogs = maintenanceLogs.filter((entry) => entry.eventCode === 'storage_pressure_unresolved');
+  check('unresolved pressure emits one error summary', first.unresolved === true && firstLogs.length === 1);
+  check('unresolved summary includes privacy-safe top key diagnostics',
+    firstLogs[0].details.topKeys.some((item) => item.key === 'guardian_config')
+      && firstLogs[0].details.topKeys.every((item) => Object.keys(item).every((key) => ['key', 'bytes', 'count', 'pending'].includes(key))));
+  await maintenance.runStoragePressureGuard('unit_unresolved_repeat');
+  const repeatedLogs = maintenanceLogs.filter((entry) => entry.eventCode === 'storage_pressure_unresolved');
+  check('same unresolved status is cooled down for six hours', repeatedLogs.length === 1, String(repeatedLogs.length));
 }
 
 async function testEmergencyLossOrderAndProtectedData() {
@@ -210,9 +311,11 @@ async function testEmergencyLossOrderAndProtectedData() {
 
 async function run() {
   await testPressureCleanupAndOutboxCompaction();
+  await testBeijingNaturalDayRetentionAndDirtyProtection();
   await testSevenMegabytePressureTarget();
+  await testUnresolvedDiagnosticsAndSixHourCooldown();
   await testEmergencyLossOrderAndProtectedData();
-  console.log('[Storage Maintenance] 30/30 passed');
+  console.log('[Storage Maintenance] all checks passed');
 }
 
 run().catch((error) => {

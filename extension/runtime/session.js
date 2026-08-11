@@ -392,7 +392,44 @@ function mismatchCheckpointActiveSample(confirmation) {
     tabId: sampleTabIdFromConfirmation(confirmation),
     windowId: sampleWindowIdFromConfirmation(confirmation),
     url: confirmation?.observedUrl || confirmation?.candidateUrl || confirmation?.url || null,
+    incognito: confirmation?.incognito === true,
   };
+}
+
+async function routeCheckpointRepairAccess(sample, now, options = {}) {
+  if (!sample?.domain || typeof options.routeForegroundAccess !== 'function') {
+    return { ok: false, blocked: false, reason: 'checkpoint_access_route_unavailable' };
+  }
+  try {
+    const result = await options.routeForegroundAccess({
+      type: 'ACCESS_OBSERVED',
+      source: 'periodic_checkpoint_repair',
+      tabId: sample.tabId ?? null,
+      windowId: sample.windowId ?? null,
+      url: sample.url || `https://${sample.domain}/`,
+      domain: sample.domain,
+      incognito: sample.incognito === true,
+      foreground: true,
+      nowMs: now,
+    });
+    const blocked = result?.blocked === true || result?.access === 'reminder' || result?.decision?.access === 'reminder';
+    if (!result || result.ok === false || blocked) {
+      return {
+        ok: false,
+        blocked,
+        reason: blocked ? 'checkpoint_access_blocked' : 'checkpoint_access_route_failed',
+        result: result || null,
+      };
+    }
+    return { ok: true, blocked: false, reason: 'checkpoint_access_allowed', result };
+  } catch (err) {
+    return {
+      ok: false,
+      blocked: false,
+      reason: 'checkpoint_access_route_failed',
+      error: err?.message || String(err),
+    };
+  }
 }
 
 function emptySession(now = Date.now()) {
@@ -1711,6 +1748,43 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
       const openAt = checkpointEstimatedOpenTime(now);
       const state = sampleStateFromConfirmation(confirmation);
       const domain = sampleDomainFromConfirmation(confirmation);
+      const sample = {
+        state,
+        domain,
+        tabId: sampleTabIdFromConfirmation(confirmation),
+        windowId: sampleWindowIdFromConfirmation(confirmation),
+        url: confirmation?.observedUrl || confirmation?.candidateUrl || confirmation?.url || null,
+        incognito: confirmation?.incognito === true,
+      };
+      const accessRoute = await routeCheckpointRepairAccess(sample, now, options);
+      if (!accessRoute.ok) {
+        recordFallbackLog({
+          level: accessRoute.blocked ? 'info' : 'warning',
+          category: 'timing',
+          eventCode: 'foreground_checkpoint_access_route_skipped',
+          module: 'runtime/session',
+          reason: accessRoute.reason,
+          message: 'Foreground checkpoint skipped repair before access routing completed',
+          domain,
+          incognito: sample.incognito,
+          details: {
+            tabId: sample.tabId,
+            windowId: sample.windowId,
+            blocked: accessRoute.blocked,
+            error: accessRoute.error || null,
+            incognito: sample.incognito,
+          },
+        });
+        return {
+          ok: accessRoute.blocked,
+          checkpointed: false,
+          opened: false,
+          repaired: false,
+          reason: 'no_open_session',
+          failureReason: accessRoute.reason,
+          domain,
+        };
+      }
       const startEvent = {
         type: EVENT_TYPE.START,
         state,
@@ -1735,10 +1809,10 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         startReason: 'checkpoint_estimated_open',
         startOperationSource: 'timer',
         startAtMs: openAt,
-        tabId: sampleTabIdFromConfirmation(confirmation),
-        windowId: sampleWindowIdFromConfirmation(confirmation),
-        incognito: confirmation?.incognito === true,
-        ...(await resolveManagedTargetForOpen(domain, { observedUrl: confirmation?.observedUrl || null }, cachedEffectiveMode)),
+        tabId: sample.tabId,
+        windowId: sample.windowId,
+        incognito: sample.incognito,
+        ...(await resolveManagedTargetForOpen(domain, { observedUrl: sample.url || null }, cachedEffectiveMode)),
       };
       try {
         await saveSession(repairedSession);
@@ -1881,7 +1955,10 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
         }
         const nextSample = mismatchCheckpointActiveSample(confirmation);
         const openAt = nextSample ? checkpointEstimatedOpenTime(now) : null;
-        if (nextSample) {
+        const accessRoute = nextSample
+          ? await routeCheckpointRepairAccess(nextSample, now, options)
+          : null;
+        if (nextSample && accessRoute?.ok) {
           const startEvent = {
             type: EVENT_TYPE.START,
             state: nextSample.state,
@@ -1924,7 +2001,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           lastCheckpointObservedDomain: observedDomainFromConfirmation(confirmation),
           lastCheckpointIdleState: confirmation?.idleState || null,
           incognito: session.incognito === true || confirmation?.incognito === true,
-          ...(nextSample ? {
+          ...(nextSample && accessRoute?.ok ? {
             checkpointEstimatedOpens: 1,
             estimatedOpenSeconds: Math.floor(Math.max(0, now - openAt) / 1000),
           } : {}),
@@ -1946,7 +2023,8 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
             tabId: session.tabId ?? null,
             windowId: session.windowId ?? null,
             closeAt: closeTime,
-            opened: !!nextSample,
+            opened: !!(nextSample && accessRoute?.ok),
+            accessRouteReason: accessRoute?.reason || null,
             observedDomain: observedDomainFromConfirmation(confirmation),
             incognito: session.incognito === true || confirmation?.incognito === true,
           },
@@ -1960,7 +2038,7 @@ export async function runPeriodicCheckpoint(now = Date.now(), options = {}) {
           flushedSeconds: settlement?.durationSeconds || 0,
           flushedSegments: settlement?.appended || 0,
           closeAt: closeTime,
-          opened: !!nextSample,
+          opened: !!(nextSample && accessRoute?.ok),
           openAt,
           domain: nextSample?.domain || session.domain || null,
         };

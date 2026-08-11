@@ -227,11 +227,13 @@ async function dispatchModeEvent(event = {}, options = {}) {
     domain: decision.domain || event.domain || extractDomain(event.url || ''),
     updateDeclarativeRules,
     event: { ...event, auditId },
-    drainModeBoundary: (reason = 'modeEvent') => drainPendingModeBoundaries({
-      emitTrace,
-      warn: (...args) => console.warn(...args),
-      reason,
-    }),
+    drainModeBoundary: options.drainModeBoundary === false
+      ? null
+      : (reason = 'modeEvent') => drainPendingModeBoundaries({
+          emitTrace,
+          warn: (...args) => console.warn(...args),
+          reason,
+        }),
   });
   if (decision.siteClassificationRequestSyncNeeded) {
     syncNowWithRuntimeEffects({}, 'site_request_auto_observed_sync').catch((err) => {
@@ -1102,8 +1104,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       isMonitoringEnabled,
       confirmForegroundPage: confirmForegroundPageCheckpoint,
       resolveUnknownDomainForSettlement,
+      routeForegroundAccess: (event) => dispatchModeEvent(event, { recheck: false, drainModeBoundary: false }),
       emitTrace,
       warn: (...args) => console.warn(...args),
+    });
+    await drainPendingModeBoundaries({
+      emitTrace,
+      warn: (...args) => console.warn(...args),
+      reason: 'periodicCheckpointPostRoute',
     });
   } else if (alarm.name === 'quota_check') {
     if (!isMonitoringEnabled()) return;
@@ -1330,7 +1338,17 @@ globalThis.debugClearTimingTrace = async () => {
 
 globalThis.debugRunPeriodicCheckpoint = async (now = Date.now()) => {
   try {
-    return await runForegroundCheckpoint(now, { confirmForegroundPage: confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement });
+    const result = await runForegroundCheckpoint(now, {
+      confirmForegroundPage: confirmForegroundPageCheckpoint,
+      resolveUnknownDomainForSettlement,
+      routeForegroundAccess: (event) => dispatchModeEvent(event, { recheck: false, drainModeBoundary: false }),
+    });
+    await drainPendingModeBoundaries({
+      emitTrace,
+      warn: (...args) => console.warn(...args),
+      reason: 'debugPeriodicCheckpointPostRoute',
+    });
+    return result;
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
   }
@@ -1506,6 +1524,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     sendResponse({ ok: true });
     return true;
+  }
+
+  if (msg.type === 'MEDIA_STATE' || msg.type === 'TITLE_CHANGE') {
+    sendResponse({ ok: true, handledBy: msg.type === 'MEDIA_STATE' ? 'signal' : 'content_metadata' });
+    return false;
   }
 
   if (msg.type === 'GET_POPUP_FAST_STATUS') {

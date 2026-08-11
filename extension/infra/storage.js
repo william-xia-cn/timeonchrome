@@ -645,6 +645,7 @@ export async function markSiteClassificationRequestsUploaded(ids = [], cloudRequ
       uploadedAt: Date.now(),
       lastSyncError: null,
       retryCount: 0,
+      lastSyncAttemptAt: null,
     };
   });
   await setSiteClassificationRequestRecords(next);
@@ -654,7 +655,13 @@ export async function markSiteClassificationRequestUploadFailed(ids = [], error 
   const idSet = new Set(ids);
   const records = await getSiteClassificationRequestRecords({ includeAll: true });
   const next = records.map((record) => idSet.has(record.id)
-    ? { ...record, syncStatus: 'failed', lastSyncError: String(error || 'upload_failed'), retryCount: Number(record.retryCount || 0) + 1 }
+    ? {
+        ...record,
+        syncStatus: 'failed',
+        lastSyncError: String(error || 'upload_failed'),
+        retryCount: Number(record.retryCount || 0) + 1,
+        lastSyncAttemptAt: Date.now(),
+      }
     : record
   );
   await setSiteClassificationRequestRecords(next);

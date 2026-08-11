@@ -254,7 +254,7 @@ async function bannerExists(page) {
 
 async function recentModeEffectTraces(sw) {
   return await sw.evaluate(async () => {
-    const data = await chrome.storage.local.get('mode_effect_trace_v1');
+    const data = await chrome.storage.session.get('mode_effect_trace_v1');
     return Array.isArray(data.mode_effect_trace_v1) ? data.mode_effect_trace_v1 : [];
   });
 }

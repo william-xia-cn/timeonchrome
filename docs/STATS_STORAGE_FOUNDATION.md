@@ -106,20 +106,20 @@ D-045 实施后，`targetClassificationAtTime` / `quotaBucketAtTime` 属于 segm
 |------|---|------|------|--------|
 | `session_v1` | `session_v1` | 当前状态（state、domain、startTime、lastHeartbeat）| 仅当前 | 可变；`lastHeartbeat` 仅兼容保留，不作为新增计时事实 |
 | `event_log_v1` | `event_log_v1` | 短期恢复/调试追踪（START/END 事件）| 24 小时 | Append-only，压缩时删除旧数据 |
-| **`usage_segments_v1`** | **`usage_segments_v1`** | **完整已结算逐段账本（首选事实源）** | 正常 30 天本地副本；云端长期保存 | Append-only；仅在硬压力且 compacted fact 已确认后允许降级删除 |
-| `daily_usage_stats_v1` | `daily_usage_stats_v1` | 从 segments 构建的物化每日聚合 | **365 天** | 从 segments 重建，可替换 |
-| `hourly_usage_stats_v1` | `hourly_usage_stats_v1` | 从 segments 构建的物化小时聚合 | **365 天** | 从 segments 重建，可替换 |
+| **`usage_segments_v1`** | **`usage_segments_v1`** | **完整已结算逐段账本（首选事实源）** | 已上传仅保留当前北京时间自然日；dirty 保留至上传成功或硬门最终降级 | Append-only 写入；上传后按本地副本期限清理 |
+| `daily_usage_stats_v1` | `daily_usage_stats_v1` | 从 segments 构建的物化每日聚合 | 已上传最近 7 个北京时间自然日；dirty 不限此期限 | 从 segments 重建，可替换 |
+| `hourly_usage_stats_v1` | `hourly_usage_stats_v1` | 从 segments 构建的物化小时聚合 | 已上传仅保留当前北京时间自然日；dirty 不限此期限 | 从 segments 重建，可替换 |
 | `segment_sync_outbox_v1` | `segment_sync_outbox_v1` | 逐段上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `stats_sync_outbox_v1` | `stats_sync_outbox_v1` | 聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `hourly_stats_sync_outbox_v1` | `hourly_stats_sync_outbox_v1` | 小时 usage 聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
-| `media_segments_v1` | `media_segments_v1` | 本地媒体逐段账本 | **365 天** | Append-only，永远不删除 |
-| `daily_media_stats_v1` | `daily_media_stats_v1` | 从 media segments 构建的物化每日聚合 | **365 天** | 从 media segments 重建，可替换 |
-| `hourly_media_stats_v1` | `hourly_media_stats_v1` | 从 media segments 构建的物化小时聚合 | **365 天** | 从 media segments 重建，可替换 |
+| `media_segments_v1` | `media_segments_v1` | 本地媒体逐段账本 | 已上传仅保留当前北京时间自然日；dirty 保留至上传成功或硬门紧急淘汰 | Append-only 写入；上传后按本地副本期限清理 |
+| `daily_media_stats_v1` | `daily_media_stats_v1` | 从 media segments 构建的物化每日聚合 | 已上传最近 7 个北京时间自然日；dirty 不限此期限 | 从 media segments 重建，可替换 |
+| `hourly_media_stats_v1` | `hourly_media_stats_v1` | 从 media segments 构建的物化小时聚合 | 已上传仅保留当前北京时间自然日；dirty 不限此期限 | 从 media segments 重建，可替换 |
 | `media_segment_sync_outbox_v1` | `media_segment_sync_outbox_v1` | 媒体逐段上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `media_stats_sync_outbox_v1` | `media_stats_sync_outbox_v1` | 媒体每日聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `hourly_media_stats_sync_outbox_v1` | `hourly_media_stats_sync_outbox_v1` | 媒体小时聚合上传/重试状态 | 直到上传成功 | 可变，上传成功时清除 |
 | `timing_checkpoint_health_v1` | `timing_checkpoint_health_v1` | 最近一次 checkpoint 健康摘要：foreground/media 运行结果、session/segment 前后计数、mode boundary 队列状态、ledger gap 状态 | 最近一次 | 可替换诊断快照 |
-| `client_logs_v1` | `client_logs_v1` | 长期运行诊断摘要，记录 checkpoint、ledger gap、mode transition、storage 等 warning/error | 默认 7 天 / 1000 条 | 诊断日志；不得影响业务链路 |
+| `client_logs_v1` | `client_logs_v1` | 有界 warning/error 上传缓冲，记录 checkpoint、ledger gap、mode transition、storage 等异常 | 最多 3 天 / 1000 条 / 512 KB | 诊断日志；不得影响业务链路 |
 
 ### 3.0.1 1.7.22 网页账务持久性优先级
 
@@ -525,7 +525,7 @@ usage_segments_v1 (chrome.storage.local)
 2. **按自然日拆分**：跨越午夜的 segments 按本地自然日边界分割。每个 split 部分有自己的 segment ID，将原 ID 作为 `parentSegmentId` 引用
 3. **按模式拆分**：如果使用过程中模式切换，旧模式 segment 在切换时关闭；新模式的新 segment 开始
 4. **恢复容错**：extension lifecycle recovery 期间通过 `settlementReason = "recovery_estimated_close"` 估算关闭残存 open session；该路径是异常/生命周期残留清理，不是正常计时落账机制，不处理普通 SW 唤醒
-5. **永不删除**：Segments 是 append-only 的。旧的 `usage_segments_v1` 条目在 365 天后清理，而不是在 24 小时后删除
+5. **先上传再清理**：Segments 采用 append-only 写入；已上传且移出 outbox 的本地副本只保留当前北京时间自然日，dirty/未上传 segment 不按自然日保留期删除
 6. **幂等结算**：同一个 event-log 关闭不能产生重复的 segments
 
 ---
@@ -574,7 +574,7 @@ daily_usage_stats_v1 (chrome.storage.local)
 2. **全量重建**：如果需要，可以通过对 `usage_segments_v1` 中某个日期的所有 segments 求和来全量重建聚合
 3. **domain key 保持精确 hostname**：聚合 key 必须直接使用 segment.domain；`www.example.com` 与 `m.example.com` 不合并。规则匹配的父域覆盖语义不得用于 daily stats 聚合。
 4. **`segmentsCount` 跟踪**：确保重建与增量更新匹配
-5. **保留 365 天**，与 `usage_segments_v1` 保留期匹配
+5. **本地副本分层保留**：已上传日聚合保留最近 7 个北京时间自然日，已上传小时聚合只保留当日；dirty 聚合在上传成功前不受此期限影响
 
 ### 5.3 小时聚合规则
 
@@ -1008,7 +1008,7 @@ GET /profiles/:id/reconcile?date=2026-05-06
 |---|--------|------|------|
 | 1 | `usage_segments_v1` 是核心持久事实账本 | **是**，始终是必需的。之前缺失于文档中，现已添加 | ✅ APPROVED |
 | 2 | `daily_usage_stats_v1` / `hourly_usage_stats_v1` 是从 segments 构建的物化聚合 | **是**，不应独立写入 | ✅ APPROVED |
-| 3 | 本地保留 365 天 | **是**，适用于 segments 和 aggregates | ✅ APPROVED |
+| 3 | 本地保留 365 天 | **已由 D-060 取代**：已上传原始段保留当日、日聚合 7 天、小时聚合当日，dirty 数据受保护 | SUPERSEDED |
 | 4 | 日期键使用本地日历日期 | **是**，包含 timezone/dayStartMs/dayEndMs | ✅ APPROVED |
 | 5 | 三个 duration channels 从一开始就支持 | **是**，active/backgroundMedia/PiP | ✅ APPROVED |
 | 6 | UI 可以在后续阶段跟进 | **是**，存储和同步先行 | ✅ APPROVED |
@@ -1039,8 +1039,8 @@ GET /profiles/:id/reconcile?date=2026-05-06
 
 | 方面 | 当前（V0） | 目标（V1） |
 |------|-----------|-----------|
-| 持久 segment 账本 | 不存在 | `usage_segments_v1`（365 天保留） |
-| 本地统计存储 | `event_log_v1`（24 小时保留） | `daily_usage_stats_v1` + `hourly_usage_stats_v1`（365 天保留，来自 segments） |
+| 持久 segment 账本 | 不存在 | `usage_segments_v1`（已上传本地副本保留当日，dirty 受保护） |
+| 本地统计存储 | `event_log_v1`（24 小时保留） | `daily_usage_stats_v1`（已上传 7 天）+ `hourly_usage_stats_v1`（已上传当日），dirty 聚合受保护 |
 | Segment 同步 | 不存在 | `segment_sync_outbox_v1` → `POST /device/usage-segments/v1` |
 | Stats 同步源 | `getStatsRange(7)` ← `event_log_v1` 聚合 | `daily_usage_stats_v1` / `hourly_usage_stats_v1` 直接读取（来自 segments） |
 | Stats 同步状态 | `cloud_pending_stats`（覆盖） | `stats_sync_outbox_v1` / `hourly_stats_sync_outbox_v1`（追踪但不修改统计数据） |
@@ -1533,7 +1533,7 @@ CREATE TABLE stats_upload_log (
 
 | 优先级 | 处理对象 | 规则 |
 |---|---|---|
-| 1 | 网页原始账本 `usage_segments_v1` | 最高保护级；常规保留 365 天，不因普通配额压力优先删除 |
+| 1 | 网页原始账本 `usage_segments_v1` | 最高保护级；dirty/未上传数据不因普通配额压力删除；已上传本地副本在跨北京时间自然日后清理，长期事实由云端 D1 保存 |
 | 2 | 网页统计与 outbox | 保持与原始账本同步；清理过期、孤儿、重复和已无本地 segment 的 outbox 项 |
 | 3 | 媒体账本 | 独立诊断账本；保留期低于网页账本，配额压力下优先清理已上传或过期媒体事实 |
 | 4 | 诊断日志 / trace / checkpoint health | 最低保护级；配额压力下优先裁剪，日志不得拖垮业务落账 |

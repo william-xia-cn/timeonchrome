@@ -368,6 +368,45 @@ async function run() {
     expectTrue('quota response reports mode change', res.modeChange?.changed === true);
   }
 
+  section('MSR-1c quota evaluation carries only active usage window context');
+  {
+    const events = [];
+    const { handleMessage } = loadHandleMessage({
+      getTimingSession: async () => ({
+        state: 'ACTIVE',
+        targetClassificationAtTime: 'pending_composite',
+        domain: 'private.example',
+      }),
+      handleModeEvent: async (event) => {
+        events.push(event);
+        return { ok: true, access: 'allow', recheckActiveTab: false };
+      },
+    });
+    await handleMessage({ type: 'EVALUATE_QUOTA_STATE', source: 'quota_alarm' }, {});
+    expect('active pending timing session maps to composite window without page data', {
+      type: events[0]?.type,
+      activeUsageWindowMode: events[0]?.activeUsageWindowMode,
+      hasDomain: Object.prototype.hasOwnProperty.call(events[0] || {}, 'domain'),
+      hasUrl: Object.prototype.hasOwnProperty.call(events[0] || {}, 'url'),
+    }, {
+      type: 'EVALUATE_QUOTA_STATE',
+      activeUsageWindowMode: 'composite',
+      hasDomain: false,
+      hasUrl: false,
+    });
+
+    const idleEvents = [];
+    const idleRouter = loadHandleMessage({
+      getTimingSession: async () => ({ state: 'IDLE', targetClassificationAtTime: 'pending_composite' }),
+      handleModeEvent: async (event) => {
+        idleEvents.push(event);
+        return { ok: true, access: 'allow', recheckActiveTab: false };
+      },
+    });
+    await idleRouter.handleMessage({ type: 'EVALUATE_QUOTA_STATE', source: 'quota_alarm' }, {});
+    expect('non-active timing session falls back to runtime mode evaluation', idleEvents[0]?.activeUsageWindowMode, null);
+  }
+
   section('MSR-2 reminder 活动页在允许时应立即 unblocked 到域名页');
   {
     let updated = null;

@@ -35,6 +35,40 @@
   - 实施闸门：先由 Product Owner 整理当前未提交改动，确认干净工作区并对齐最新 `origin/master`，再创建 `codex/task-management-v1`；任务实现不得与其他功能提交混合。
 
 ## Current Fix Focus（2026-07-28）
+- [x] [P0 Storage] T.xia 已上传副本与诊断日志分层收敛
+  - 保留：已上传网页/媒体原始分段仅保留当前北京时间自然日；当日保留完整聚合，历史保留最近 7 日已上传日聚合。
+  - 日志：info/timing/focus/mode trace 进入 `chrome.storage.session`；local 只保留 warning/error 小型上传缓冲。
+  - 不变：7 MB 压力门、6.5 MB 清理目标、8 MB 硬门和接近硬门才匿名压缩未上传网页明细的最终兜底。
+  - 边界：不修改 Worker API、D1 schema、历史云端账本、profile 配置、版本或发布状态。
+  - 完成：usage/media 已上传原始段按北京时间自然日保留当日；日聚合保留 7 日、小时聚合保留当日；dirty/outbox 项保持保护。
+  - 完成：info 与 timing/focus/mode trace 迁入 `chrome.storage.session`；warning/error 持久缓冲锁定 3 日、1000 条、512 KB，压力状态 128 KB。
+  - 验证：完整 unit 通过；`npm run typecheck` 通过；integration 53/53、E2E 14/14、联网 API 103/103 通过。
+- [ ] [Cloud/Email] 未归类网站日累计 15 分钟邮件归类 V1
+  - 规则：profile 全设备按自然日和 canonical 主站 identity 汇总；900 秒创建/复用自动未归类记录并生成每日唯一通知。
+  - 安全：7 天签名 token、家长邮箱精确匹配、pending 状态、Message-ID/token 幂等；Pages 与邮件共用 decision service。
+  - 交付：D1 outbox/reply audit、Resend Reply-To、Email Routing handler、5 分钟重试 cron；默认关闭，完成测试档案灰度后再启用。
+  - 当前状态（2026-08-12）：源码、migration、生产 D1 表、Worker、5 分钟 cron 和 `reply@hornburg-xia.uk` Email Routing 已部署；`EMAIL_CLASSIFICATION_ENABLED=false`，通知表与回复事件表均为 0 行。
+  - DNS 状态（2026-08-12）：根域 `_dmarc.hornburg-xia.uk` 已添加 `v=DMARC1; p=none; pct=100`，Cloudflare `1.1.1.1` 公网回查通过；既有 Email Routing 与 Resend SPF/MX/DKIM 保持不变。
+  - 灰度配置：发布开关和 profile allowlist 通过 Cloudflare secrets 管理，禁止把真实 profile ID 写入 Git；首个灰度档案采用 T.xia。
+  - 灰度状态（2026-08-12）：T.xia 单档案 allowlist 与发布开关已启用；启用后通知/回复事件仍为 0，今日未归类基线为 180 秒，未发生历史补发或其他档案误发。
+  - 剩余闸门：T.xia 实际累计达到 900 秒并上传后，完成邮件送达、回复命令和配置写回验收。
+  - 边界：统计是触发证据，审核记录是处理事实，profile 配置是最终分类事实；不修改扩展与 Pages。
+- [x] [P0 Runtime/Stats] T.xia / P.xia 2026-08-11 账本审计后续修复（实现与自动化验证完成）
+  - 账本事实：两台设备网页和媒体的原始、日、小时、目标秒数均一致；不修改历史 D1 数据。
+  - P0：checkpoint 发现新前台域名时不得直接用缓存 mode 开账，必须先走访问路由；已确认 `cg.163.com` 曾产生 `restricted + study` 的 360 秒错误账。
+  - P1：完成待归类内容窗口修复；清除内部消息伪告警；恢复 20 条 exhausted 网站归类记录并限制重复告警；处理陈旧小时媒体 outbox；缓解 T.xia 存储压力。
+  - P2：所有聚合行的 `segments_count` 使用行级真实分段数，历史聚合不在本轮自动回写。
+  - 边界：不修改历史账本、D1 schema、profile 配置、版本或发布状态；代码和测试完成后再由 Product Owner 决定提交与发布。
+  - 完成：checkpoint repair 强制先路由；内部消息不再误报 unknown type；exhausted 归类记录按 6 小时冷却恢复；陈旧小时媒体 outbox 先重建、无事实时清理；聚合计数改为行级。
+  - 验证：全量 unit 105 个测试文件通过；`npm run typecheck` 通过；`node tests/run-all.js` 全部通过，其中 Worker API `103/103`、duration-flow `53/53`、浏览器 E2E `14/14`。
+  - 发布后验收待办：连续 24 小时核对异常分段、存储压力、20 条归类记录与四层统计；本轮不提交、不发布。
+- [x] [P0 Runtime] 待归类网站借用休息配额时 Rest/Study 模式震荡修复
+  - 证据：T.xia 于 2026-08-11 19:24-20:13 访问 `www.gululu.world` 时产生 49 轮 `mode_effective_boundary` Rest/Study 往返；该站当时为 `pending_composite`，当天人工归类与历史异常无关。
+  - 根因：周期时间窗评估按 legacy runtime `rest` 检查 `restWindows`，而 active-tab recheck 又按待归类额度耗尽回到 Rest quota borrow，两个正确但上下文不一致的规则形成一分钟循环。
+  - 目标：时间窗按活动内容性质判断；待归类借用休息配额仍受 `compositeWindows` 管理，并让单次访问决策共享同一 managed quota usage snapshot。
+  - 边界：不修改历史账本、Worker API、D1 schema、profile 配置、版本或发布状态。
+  - 完成：周期评估现读取 ACTIVE timing session 的分类快照；待归类/复合内容统一受 Compound 窗口约束，额度耗尽时可直接借用 Rest 配额，不再经过短暂 Study 边界；一次访问决策只读取一次 managed quota usage snapshot。
+  - 验证：重点测试全部通过；全量 unit 共 103 个测试文件通过；`node tests/run-all.js` 全部通过，其中 Worker API `103/103`、duration-flow `53/53`、浏览器 E2E `14/14`。
 - [x] [Pages] 家长控制台标签页 favicon 修复
   - 目标：使用现有 TimeOnChrome 16/32px 产品图标显式声明控制台 favicon，避免 Chrome 沿用错误的历史缓存图标。
   - 边界：只修改 Pages 静态资源、head 声明和测试；不改页面布局、Worker、D1 或扩展版本。

@@ -2,6 +2,10 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
+import {
+  evaluateDailyUnclassifiedEmailNotifications,
+  processEmailClassificationOutbox,
+} from '../services/siteClassificationEmail';
 
 // ── Segment payload schema validation ───────────────────────────────────────────
 
@@ -71,6 +75,7 @@ function expandTargetStatsRows(targets: any[] | undefined): Array<{
   mode: string;
   quotaBucket: string;
   durationSeconds: number;
+  segmentsCount: number;
   firstSeenAt: number | null;
   lastSeenAt: number | null;
 }> {
@@ -107,7 +112,10 @@ function expandTargetStatsRows(targets: any[] | undefined): Array<{
         const durationSeconds = Number(row?.durationSeconds || 0);
         if (!VALID_CHANNELS.has(channel) || !VALID_MODES.has(mode) || !VALID_MODES.has(quotaBucket)) continue;
         if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
-        expandedRows.push({ ...base, channel, mode, quotaBucket, durationSeconds });
+        const segmentsCount = Number.isFinite(Number(row?.segmentsCount))
+          ? Math.max(0, Math.trunc(Number(row.segmentsCount)))
+          : 0;
+        expandedRows.push({ ...base, channel, mode, quotaBucket, durationSeconds, segmentsCount });
       }
       continue;
     }
@@ -122,13 +130,13 @@ function expandTargetStatsRows(targets: any[] | undefined): Array<{
         const durationSeconds = Number(seconds || 0);
         if (!VALID_MODES.has(mode) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
         const quotaBucket = VALID_MODES.has(mode) ? mode : 'unknown';
-        expandedRows.push({ ...base, channel, mode, quotaBucket, durationSeconds });
+        expandedRows.push({ ...base, channel, mode, quotaBucket, durationSeconds, segmentsCount: 0 });
       }
       if (Object.keys(byMode || {}).length === 0) {
         for (const [quotaBucket, seconds] of Object.entries(byQuota || {})) {
           const durationSeconds = Number(seconds || 0);
           if (!VALID_MODES.has(quotaBucket) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
-          expandedRows.push({ ...base, channel, mode: quotaBucket, quotaBucket, durationSeconds });
+          expandedRows.push({ ...base, channel, mode: quotaBucket, quotaBucket, durationSeconds, segmentsCount: 0 });
         }
       }
     }
@@ -302,7 +310,7 @@ async function readUsageStatsIntegrity(env: Env, profileId: string, deviceId: st
 }
 
 export const statsRouter = {
-  async handle(request: Request, env: Env): Promise<Response> {
+  async handle(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url  = new URL(request.url);
     const path = url.pathname;
 
@@ -509,6 +517,18 @@ export const statsRouter = {
           upserted++;
         }
 
+        const notificationWork = evaluateDailyUnclassifiedEmailNotifications(env, device.profileId, date)
+          .then((result) => result.queued > 0 ? processEmailClassificationOutbox(env) : null)
+          .catch((error) => {
+            console.warn('[site-classification-email] target stats evaluation failed', {
+              profileId: device.profileId,
+              date,
+              error: String(error?.message || error || 'unknown').slice(0, 160),
+            });
+          });
+        if (ctx) ctx.waitUntil(notificationWork);
+        else void notificationWork;
+
         return json({ success: true, count: upserted, date, expandedRows: expandedRows.length });
       } catch (e: any) {
         return json({ error: 'Failed to upload media stats v1: ' + e.message }, 500);
@@ -530,7 +550,7 @@ export const statsRouter = {
         const body = await request.json<{
           hourKey?: string; date?: string; hour?: number; timezone?: string; hourStartMs?: number; hourEndMs?: number;
           segmentsCount?: number; lastSegmentId?: string | null;
-          domains?: Array<{ domain: string; activeByMode?: Record<string, number>; backgroundMediaByMode?: Record<string, number>; pipByMode?: Record<string, number>; [key: string]: any }>;
+          domains?: Array<{ domain: string; rows?: Array<{ channel?: string; mode?: string; durationSeconds?: number; segmentsCount?: number }>; activeByMode?: Record<string, number>; backgroundMediaByMode?: Record<string, number>; pipByMode?: Record<string, number>; [key: string]: any }>;
         }>();
         const hourKey = body?.hourKey;
         const date = body?.date || (hourKey ? hourKey.slice(0, 10) : null);
@@ -539,14 +559,29 @@ export const statsRouter = {
         if (!isHourKey(hourKey || null) || !date || !isDateKey(date) || !Number.isInteger(hour) || hour < 0 || hour > 23 || !Array.isArray(domains)) {
           return json({ error: 'hourKey/date/hour and domains[] required' }, 400);
         }
-        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
         const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
 
-        const expandedRows: Array<{ domain: string; channel: string; mode: string; durationSeconds: number; firstSeenAt?: number; lastSeenAt?: number }> = [];
+        const expandedRows: Array<{ domain: string; channel: string; mode: string; durationSeconds: number; segmentsCount: number; firstSeenAt?: number; lastSeenAt?: number }> = [];
         for (const d of domains) {
           if (!d?.domain || typeof d.domain !== 'string') continue;
           const normalizedDomain = normalizeHostname(d.domain);
           if (!normalizedDomain) continue;
+          if (Array.isArray(d.rows) && d.rows.length > 0) {
+            for (const row of d.rows) {
+              const durationSeconds = Number(row?.durationSeconds || 0);
+              if (!VALID_CHANNELS.has(row?.channel || '') || !VALID_MODES.has(row?.mode || '') || durationSeconds <= 0) continue;
+              expandedRows.push({
+                domain: normalizedDomain,
+                channel: row.channel!,
+                mode: row.mode!,
+                durationSeconds,
+                segmentsCount: Number.isFinite(Number(row?.segmentsCount)) ? Math.max(0, Math.trunc(Number(row.segmentsCount))) : 0,
+                firstSeenAt: d.firstSeenAt,
+                lastSeenAt: d.lastSeenAt,
+              });
+            }
+            continue;
+          }
           const modeMaps = [
             { channel: 'active', byMode: d.activeByMode },
             { channel: 'backgroundMedia', byMode: d.backgroundMediaByMode },
@@ -558,7 +593,7 @@ export const statsRouter = {
             for (const [mode, secs] of Object.entries(byMode)) {
               const durationSeconds = Number(secs || 0);
               if (durationSeconds > 0 && VALID_CHANNELS.has(item.channel) && VALID_MODES.has(mode)) {
-                expandedRows.push({ domain: normalizedDomain, channel: item.channel, mode, durationSeconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+                expandedRows.push({ domain: normalizedDomain, channel: item.channel, mode, durationSeconds, segmentsCount: 0, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
                 hasRows = true;
               }
             }
@@ -566,7 +601,7 @@ export const statsRouter = {
           if (!hasRows) {
             const total = Number(d.activeSeconds || 0) + Number(d.backgroundMediaSeconds || 0) + Number(d.pipSeconds || 0);
             if (total > 0) {
-              expandedRows.push({ domain: normalizedDomain, channel: 'active', mode: 'unknown', durationSeconds: total, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+              expandedRows.push({ domain: normalizedDomain, channel: 'active', mode: 'unknown', durationSeconds: total, segmentsCount: 0, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
             }
           }
         }
@@ -585,7 +620,7 @@ export const statsRouter = {
               `UPDATE hourly_stats_v1
                SET duration_seconds = ?, segments_count = ?, last_segment_id = ?, first_seen_at = ?, last_seen_at = ?, updated_at = ?
                WHERE id = ?`
-            ).bind(row.durationSeconds, segmentsCount, lastSegmentId, row.firstSeenAt || null, row.lastSeenAt || null, now, existing.id).run();
+            ).bind(row.durationSeconds, row.segmentsCount, lastSegmentId, row.firstSeenAt || null, row.lastSeenAt || null, now, existing.id).run();
           } else {
             await env.DB.prepare(
               `INSERT INTO hourly_stats_v1
@@ -596,7 +631,7 @@ export const statsRouter = {
               crypto.randomUUID(), device.profileId, device.deviceId, hourKey, date, hour, body.timezone || 'Asia/Shanghai',
               typeof body.hourStartMs === 'number' ? body.hourStartMs : 0,
               typeof body.hourEndMs === 'number' ? body.hourEndMs : 0,
-              row.domain, row.channel, row.mode, row.durationSeconds, segmentsCount, lastSegmentId,
+              row.domain, row.channel, row.mode, row.durationSeconds, row.segmentsCount, lastSegmentId,
               row.firstSeenAt || null, row.lastSeenAt || null, now, now
             ).run();
           }
@@ -633,10 +668,9 @@ export const statsRouter = {
         if (!isHourKey(hourKey || null) || !date || !isDateKey(date) || !Number.isInteger(hour) || hour < 0 || hour > 23 || !Array.isArray(domains)) {
           return json({ error: 'hourKey/date/hour and domains[] required' }, 400);
         }
-        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
         const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
 
-        const expandedRows: Array<{ domain: string; mediaClass: string; mode: string; durationSeconds: number; firstSeenAt?: number; lastSeenAt?: number }> = [];
+        const expandedRows: Array<{ domain: string; mediaClass: string; mode: string; durationSeconds: number; segmentsCount: number; firstSeenAt?: number; lastSeenAt?: number }> = [];
         for (const d of domains) {
           if (!d?.domain || typeof d.domain !== 'string') continue;
           const normalizedDomain = normalizeHostname(d.domain);
@@ -648,7 +682,17 @@ export const statsRouter = {
             for (const [mediaClass, field] of MEDIA_CLASS_FIELDS) {
               const seconds = Number((modeStats as any)[field] || 0);
               if (seconds > 0) {
-                expandedRows.push({ domain: normalizedDomain, mediaClass, mode, durationSeconds: seconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+                expandedRows.push({
+                  domain: normalizedDomain,
+                  mediaClass,
+                  mode,
+                  durationSeconds: seconds,
+                  segmentsCount: Number.isFinite(Number((modeStats as any)?.segmentCounts?.[mediaClass]))
+                    ? Math.max(0, Math.trunc(Number((modeStats as any).segmentCounts[mediaClass])))
+                    : 0,
+                  firstSeenAt: d.firstSeenAt,
+                  lastSeenAt: d.lastSeenAt,
+                });
                 hasRows = true;
               }
             }
@@ -657,7 +701,7 @@ export const statsRouter = {
             for (const [mediaClass, field] of MEDIA_CLASS_FIELDS) {
               const seconds = Number(d[field] || 0);
               if (seconds > 0) {
-                expandedRows.push({ domain: normalizedDomain, mediaClass, mode: 'unknown', durationSeconds: seconds, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
+                expandedRows.push({ domain: normalizedDomain, mediaClass, mode: 'unknown', durationSeconds: seconds, segmentsCount: 0, firstSeenAt: d.firstSeenAt, lastSeenAt: d.lastSeenAt });
               }
             }
           }
@@ -677,7 +721,7 @@ export const statsRouter = {
               `UPDATE hourly_media_stats_v1
                SET duration_seconds = ?, segments_count = ?, last_segment_id = ?, first_seen_at = ?, last_seen_at = ?, updated_at = ?
                WHERE id = ?`
-            ).bind(row.durationSeconds, segmentsCount, lastSegmentId, row.firstSeenAt || null, row.lastSeenAt || null, now, existing.id).run();
+            ).bind(row.durationSeconds, row.segmentsCount, lastSegmentId, row.firstSeenAt || null, row.lastSeenAt || null, now, existing.id).run();
           } else {
             await env.DB.prepare(
               `INSERT INTO hourly_media_stats_v1
@@ -688,7 +732,7 @@ export const statsRouter = {
               crypto.randomUUID(), device.profileId, device.deviceId, hourKey, date, hour, body.timezone || 'Asia/Shanghai',
               typeof body.hourStartMs === 'number' ? body.hourStartMs : 0,
               typeof body.hourEndMs === 'number' ? body.hourEndMs : 0,
-              row.domain, row.mediaClass, row.mode, row.durationSeconds, segmentsCount, lastSegmentId,
+              row.domain, row.mediaClass, row.mode, row.durationSeconds, row.segmentsCount, lastSegmentId,
               row.firstSeenAt || null, row.lastSeenAt || null, now, now
             ).run();
           }
@@ -1051,7 +1095,6 @@ export const statsRouter = {
         }
 
         const now = Date.now();
-        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
         const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
         let upserted = 0;
 
@@ -1074,7 +1117,7 @@ export const statsRouter = {
               row.managedTargetId, row.managedTargetType, row.managedTargetNamespace,
               row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
               row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
-              row.fallbackDomain, row.isFallback, row.durationSeconds, segmentsCount,
+              row.fallbackDomain, row.isFallback, row.durationSeconds, row.segmentsCount,
               lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, existing.id
             ).run();
           } else {
@@ -1096,7 +1139,7 @@ export const statsRouter = {
               row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
               row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
               row.fallbackDomain, row.isFallback, row.channel, row.mode, row.quotaBucket, row.durationSeconds,
-              segmentsCount, lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, now
+              row.segmentsCount, lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, now
             ).run();
           }
           upserted++;
@@ -1135,7 +1178,6 @@ export const statsRouter = {
         if (expandedRows.length === 0) return json({ error: 'no valid hourly target stats rows after expansion' }, 400);
 
         const now = Date.now();
-        const segmentsCount = Number.isFinite(Number(body?.segmentsCount)) ? Math.max(0, Math.trunc(Number(body.segmentsCount))) : 0;
         const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;
         let upserted = 0;
 
@@ -1158,7 +1200,7 @@ export const statsRouter = {
               row.managedTargetId, row.managedTargetType, row.managedTargetNamespace,
               row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
               row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
-              row.fallbackDomain, row.isFallback, row.durationSeconds, segmentsCount,
+              row.fallbackDomain, row.isFallback, row.durationSeconds, row.segmentsCount,
               lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, existing.id
             ).run();
           } else {
@@ -1180,7 +1222,7 @@ export const statsRouter = {
               row.managedTargetValue, row.managedTargetLabelAtTime, row.targetSourceAtTime,
               row.targetRuleId, row.targetMatchLevel, row.targetClassificationAtTime,
               row.fallbackDomain, row.isFallback, row.channel, row.mode, row.quotaBucket, row.durationSeconds,
-              segmentsCount, lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, now
+              row.segmentsCount, lastSegmentId, row.firstSeenAt, row.lastSeenAt, now, now
             ).run();
           }
           upserted++;
