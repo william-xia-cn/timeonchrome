@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.23**
+- **版本：1.7.24**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-12）**：`1.7.23` 代码提交 `87da444` 已推送到 `origin/master`；`guardian-api` Worker 与 T.xia / P.xia 内部自托管更新源均已部署并完成生产回读。CRX SHA256 为 `70a79b4dc966d3ae3dae6f7fc4c3f3241f5ea7cd40e4aa7014c87273f98a0800`；当前进入 24 小时设备升级与运行观察。
+- **当前发布状态（2026-08-18）**：`1.7.24` 代码提交 `584b839` 已推送到 `origin/master`；家长控制台 Pages 与 T.xia / P.xia 内部自托管更新源均已部署并完成生产回读。CRX SHA256 为 `da88f02dceb3e6234ea21a9c3a8d39ffa4fff0f105abe3617912e8904e5f5fe4`；`guardian-api`、D1、profile 与 Chrome Web Store 本轮未变更，当前进入设备升级与 24 小时运行观察。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

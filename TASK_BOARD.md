@@ -399,17 +399,19 @@
   - 本地验证：alarm 保留/补建行为、bootstrap、checkpoint、monitoring、client logs、Pages/time-window 和前台 P0 相关单测均通过；`node --check extension/background.js` 通过。Pages 状态文案的浏览器目视验证因本地合成页 URL 被浏览器安全策略阻止，未绕过、未提交。
   - 2026-08-18 日志复核：前台 checkpoint 已正常运行；11:32-12:14 的 `foreground_checkpoint_no_session_repair_skipped` 均为 `window_unfocused`。持续故障收敛为 `2026-08-14` 日媒体统计达到 3 次重试后仍被每轮同步重复计为失败，共制造 336 次 `cloud_sync_completed_with_errors`。
   - 日媒体同步修复口径：补齐 `lastAttemptAt`、6 小时 exhausted 自动恢复冷却和孤立/空聚合 outbox 对账；冷却期间保留 dirty 数据但不计失败、不重复写告警，冷却到期或手动立即同步可重试，成功后清除 retry metadata。只修复后续同步，不修改云端历史媒体统计。
-  - 本地实现与验证：日媒体 outbox 已接入统一重试策略和存储维护元数据清理；新增动态回归覆盖近期 exhausted 静默延后、旧版 exhausted 自动恢复、冷却到期单次失败。媒体、同步、存储维护和连接韧性相关测试均通过；尚未提交、推送、部署。
+  - 发布状态（2026-08-18）：日媒体 outbox 统一重试策略、存储维护元数据清理与动态回归已随 `1.7.24` 提交、推送并发布到内部自托管更新通道；后续以生产设备日志确认 exhausted 告警冷却和存储压力收敛。
   - 验收：任意受控写入后不超过 8 MB；压力维护降到 6.5 MB；连续 24 小时无 quota/settlement/timing dispatch 错误；1029 条积压分批清零；单批不超过 200；网页四层统计一致；无陈旧媒体长段。
   - 文档：`docs/DESIGN.md` §3.5.1；历史审计背景见 `docs/STATS_STORAGE_FOUNDATION.md` §C.15。
-- [ ] **[P1 Release] 1.7.24 内部受管发布**
+- [x] **[P1 Release] 1.7.24 内部受管发布**
   - 问题：`1.7.23` 自托管打包脚本复制整个 `extension/`，导致 managed CRX 仍物理包含 `privacy-consent.html`、`privacy-consent.js` 和 `privacy.html`。
   - 当前影响：`deployment-profile.json` 的 managed activation 路径会绕过用户隐私同意流程，正常安装、更新不会主动展示这些页面；但包内容与内部受管发行的最小化预期不一致，手工扩展 URL 仍可能访问页面。
   - `1.7.24` 范围：发布 alarm 保留、日媒体 exhausted 恢复、Pages 分钟级时段校验和日志 TTL 展示修复；managed 自托管 staging 排除上述页面，保留公开/CWS 源码及 `core/privacy-consent.js` activation 依赖。
   - 发布授权：Product Owner 已于 2026-08-18 明确批准升级版本、提交、推送、部署 Pages 并发布 T.xia / P.xia 内部自托管更新源；不包含 Chrome Web Store 上传/提交，不写 D1、不修改 profile。
   - 边界：不原地覆盖 `1.7.23` CRX；使用稳定签名 ID 生成新的 `1.7.24` CRX、update feed 和 SHA256 审计材料。
   - 发布前验证（2026-08-18）：逐文件 unit 共 107 个测试文件通过；`node tests/run-all.js` 全部通过，其中 Worker API `103/103`、duration-flow `53/53`、浏览器 E2E `14/14`；`npm run typecheck`、扩展根目录检查、managed staging dry-run 和 Pages 桌面/移动端目视验证均通过。
-  - 当前状态：代码、文档和测试已达到提交门禁；等待稳定签名生成 `1.7.24` CRX，并完成控制台 Pages 与内部更新源部署及线上回读。
+  - 发布结果（2026-08-18）：提交 `584b839` 已推送到 `origin/master`；控制台 Pages deployment `d29dc5f0`、内部更新源 deployment `d736ba71` 已部署并完成生产回读。稳定扩展 ID 为 `jdcancbiocacabbjdkngadmjpjmkdnih`，CRX 350,504 bytes，SHA256 为 `da88f02dceb3e6234ea21a9c3a8d39ffa4fff0f105abe3617912e8904e5f5fe4`。
+  - 包边界：线上 CRX manifest 为 `1.7.24`；不含 `privacy-consent.html`、`privacy-consent.js`、`privacy.html`，保留 `core/privacy-consent.js`；未发现仓库、测试或凭据类文件。
+  - 发布边界：本轮未部署 `guardian-api`，未写 D1/profile，未上传或提交 Chrome Web Store；设备实际升级和连续 24 小时稳定性属于发布后观察。
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
 - [ ] [P1] 系统配置全局影响治理
