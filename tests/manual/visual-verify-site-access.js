@@ -8,6 +8,7 @@ const fs = require('fs');
 
 const PAGES_DIR = path.resolve(__dirname, '../../pages');
 const PORT = 3456;
+const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 
 // Minimal HTTP server for pages directory
 function startServer() {
@@ -21,7 +22,12 @@ function startServer() {
           return;
         }
         const ext = path.extname(filePath);
-        const ct = ext === '.html' ? 'text/html' : ext === '.js' ? 'application/javascript' : ext === '.css' ? 'text/css' : 'text/plain';
+        const ct = ext === '.html' ? 'text/html'
+          : ext === '.js' ? 'application/javascript'
+          : ext === '.css' ? 'text/css'
+          : ext === '.svg' ? 'image/svg+xml'
+          : ext === '.png' ? 'image/png'
+          : 'text/plain';
         res.writeHead(200, { 'Content-Type': ct, 'Access-Control-Allow-Origin': '*' });
         res.end(data);
       });
@@ -35,7 +41,7 @@ function startServer() {
 
 async function run() {
   const server = await startServer();
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
   // Mock data
@@ -91,7 +97,7 @@ async function run() {
   };
 
   // Route API calls
-  await page.route(`http://localhost:${PORT}/**/*`, async (route, request) => {
+  await page.route(`${API_BASE}/**/*`, async (route, request) => {
     const url = new URL(request.url());
     if (url.pathname === '/profiles') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ profiles: [mockProfile] }) });
@@ -103,8 +109,10 @@ async function run() {
       }
     } else if (url.pathname === `/profiles/${mockProfile.id}/defaults`) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockDefaults) });
+    } else if (url.pathname.includes('/site-classification-requests/') || url.pathname.includes('/used-unclassified-sites/')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ requests: [], sites: [] }) });
     } else {
-      await route.continue();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
     }
   });
 
@@ -140,6 +148,22 @@ async function run() {
     await compositeCard.screenshot({ path: compositePath });
     console.log(`Composite card screenshot: ${compositePath}`);
   }
+
+  await page.click('[data-rules-management-tab="schedule"]');
+  await page.waitForSelector('#time-windows-table', { state: 'visible' });
+  const dialogValues = ['19:00', '19:01'];
+  page.on('dialog', async (dialog) => dialog.accept(dialogValues.shift() || ''));
+  await page.evaluate(() => window.addRestWindow('monday'));
+  await page.getByText('19:00 — 19:01', { exact: true }).waitFor();
+
+  const scheduleDesktopPath = path.join(screenshotDir, 'schedule-minute-window-desktop.png');
+  await page.screenshot({ path: scheduleDesktopPath, fullPage: true });
+  console.log(`Schedule desktop screenshot: ${scheduleDesktopPath}`);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const scheduleMobilePath = path.join(screenshotDir, 'schedule-minute-window-mobile.png');
+  await page.screenshot({ path: scheduleMobilePath, fullPage: true });
+  console.log(`Schedule mobile screenshot: ${scheduleMobilePath}`);
 
   await browser.close();
   server.close();

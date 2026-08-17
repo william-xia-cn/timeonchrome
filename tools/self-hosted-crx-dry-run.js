@@ -18,6 +18,11 @@ const BANNED_PACKAGE_ENTRIES = new Set([
   'node_modules',
   '.git',
 ]);
+const MANAGED_PACKAGE_EXCLUDED_ENTRIES = new Set([
+  'privacy-consent.html',
+  'privacy-consent.js',
+  'privacy.html',
+]);
 
 function parseArgs(argv) {
   const args = {};
@@ -124,12 +129,21 @@ function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = fal
   ensureDir(stagingDir);
   for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
     if (BANNED_PACKAGE_ENTRIES.has(entry.name)) continue;
+    if (managedDeployment && MANAGED_PACKAGE_EXCLUDED_ENTRIES.has(entry.name)) continue;
     const source = path.join(extensionDir, entry.name);
     const target = path.join(stagingDir, entry.name);
     fs.cpSync(source, target, { recursive: true, force: true });
   }
   if (managedDeployment) {
     fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: 'managed' }, null, 2) + '\n', 'utf8');
+    const leakedPrivacyPages = [...MANAGED_PACKAGE_EXCLUDED_ENTRIES]
+      .filter((entry) => fs.existsSync(path.join(stagingDir, entry)));
+    if (leakedPrivacyPages.length > 0) {
+      throw new Error(`managed extension package contains excluded privacy pages: ${leakedPrivacyPages.join(', ')}`);
+    }
+    if (!fs.existsSync(path.join(stagingDir, 'core', 'privacy-consent.js'))) {
+      throw new Error('managed extension package is missing core/privacy-consent.js activation dependency');
+    }
   }
   validateExtensionPackageRoot(stagingDir);
 }

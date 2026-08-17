@@ -71,6 +71,12 @@
   - 边界：不修改历史账本、Worker API、D1 schema、profile 配置、版本或发布状态。
   - 完成：周期评估现读取 ACTIVE timing session 的分类快照；待归类/复合内容统一受 Compound 窗口约束，额度耗尽时可直接借用 Rest 配额，不再经过短暂 Study 边界；一次访问决策只读取一次 managed quota usage snapshot。
   - 验证：重点测试全部通过；全量 unit 共 103 个测试文件通过；`node tests/run-all.js` 全部通过，其中 Worker API `103/103`、duration-flow `53/53`、浏览器 E2E `14/14`。
+- [x] [Pages] 时间段结束时间误限为整点修复
+  - 问题：学习、复合、休息时段的开始时间允许分钟精度，但结束时间前端正则只接受整点或 `24:00`，导致 `19:00-19:01` 等合法短时段无法添加。
+  - 修复口径：开始时间允许 `00:00-23:59`；结束时间允许 `00:00-23:59` 及特殊边界 `24:00`；仍要求结束时间严格晚于开始时间，`24:00` 不得作为开始时间。
+  - 边界：只修正 Pages 交互校验并补回归测试；不修改 Worker API、profile 配置、运行时计时逻辑或既有云端数据。
+  - 完成：学习、复合、休息入口统一按分钟数解析和比较；`19:00-19:01`、`23:59-24:00` 及非补零小时输入均可正确校验。
+  - 验证：`node tests/unit/pages-config-v12-fields.test.js` 通过（213/213）；`node tests/unit/time-windows.test.js` 通过。
 - [x] [Pages] 家长控制台标签页 favicon 修复
   - 目标：使用现有 TimeOnChrome 16/32px 产品图标显式声明控制台 favicon，避免 Chrome 沿用错误的历史缓存图标。
   - 边界：只修改 Pages 静态资源、head 声明和测试；不改页面布局、Worker、D1 或扩展版本。
@@ -387,8 +393,23 @@
   - 媒体 lifecycle：更新/启动时恢复并清空陈旧 `media_sessions_v2`；陈旧 session 最多补记最后证据后 90 秒，禁止被后续模式边界拉成长段。
   - journal-first 加固：网页结算失败不得推进 session；新增 48 KB journal、完整 RMW 协调、启动重放与 compacted total facts，媒体/同步/日志不得抢占网页落账。
   - `1.7.23` 已提交并推送到 `origin/master`，已部署到 T.xia / P.xia 内部自托管更新通道；生产 feed/CRX 回读一致，SHA256 为 `70a79b4dc966d3ae3dae6f7fc4c3f3241f5ea7cd40e4aa7014c87273f98a0800`。生产设备 24 小时观察作为发布后验收，因此 P0 任务保持未关闭。
+  - 2026-08-17 新增根因：Service Worker bootstrap 无条件重建五个同名 `chrome.alarms`，会取消并替换既有 alarm、推迟下一次触发，可能造成 `periodicCheckpoint` 与 `cloudSync` 间歇性饥饿。修复口径为只补建缺失或周期错误的 alarm，并保留周期正确 alarm 的 `scheduledTime`。
+  - 诊断状态：T.xia 的日志策略已于北京时间 2026-08-17 02:40 刷新，但终端在此后尚未上线拉取策略；alarm 修复可由代码确定，剩余前台状态问题必须在终端上线后依据新日志复核。
+  - 本地修复：bootstrap 现等待 alarm 存在性检查，只补建缺失项或修正周期错误项；失败后允许下一次 Service Worker 唤醒重试。Pages 日志摘要同步识别 TTL 已过期状态，不再把过期策略显示为“已开启”。
+  - 本地验证：alarm 保留/补建行为、bootstrap、checkpoint、monitoring、client logs、Pages/time-window 和前台 P0 相关单测均通过；`node --check extension/background.js` 通过。Pages 状态文案的浏览器目视验证因本地合成页 URL 被浏览器安全策略阻止，未绕过、未提交。
+  - 2026-08-18 日志复核：前台 checkpoint 已正常运行；11:32-12:14 的 `foreground_checkpoint_no_session_repair_skipped` 均为 `window_unfocused`。持续故障收敛为 `2026-08-14` 日媒体统计达到 3 次重试后仍被每轮同步重复计为失败，共制造 336 次 `cloud_sync_completed_with_errors`。
+  - 日媒体同步修复口径：补齐 `lastAttemptAt`、6 小时 exhausted 自动恢复冷却和孤立/空聚合 outbox 对账；冷却期间保留 dirty 数据但不计失败、不重复写告警，冷却到期或手动立即同步可重试，成功后清除 retry metadata。只修复后续同步，不修改云端历史媒体统计。
+  - 本地实现与验证：日媒体 outbox 已接入统一重试策略和存储维护元数据清理；新增动态回归覆盖近期 exhausted 静默延后、旧版 exhausted 自动恢复、冷却到期单次失败。媒体、同步、存储维护和连接韧性相关测试均通过；尚未提交、推送、部署。
   - 验收：任意受控写入后不超过 8 MB；压力维护降到 6.5 MB；连续 24 小时无 quota/settlement/timing dispatch 错误；1029 条积压分批清零；单批不超过 200；网页四层统计一致；无陈旧媒体长段。
   - 文档：`docs/DESIGN.md` §3.5.1；历史审计背景见 `docs/STATS_STORAGE_FOUNDATION.md` §C.15。
+- [ ] **[P1 Release] 1.7.24 内部受管发布**
+  - 问题：`1.7.23` 自托管打包脚本复制整个 `extension/`，导致 managed CRX 仍物理包含 `privacy-consent.html`、`privacy-consent.js` 和 `privacy.html`。
+  - 当前影响：`deployment-profile.json` 的 managed activation 路径会绕过用户隐私同意流程，正常安装、更新不会主动展示这些页面；但包内容与内部受管发行的最小化预期不一致，手工扩展 URL 仍可能访问页面。
+  - `1.7.24` 范围：发布 alarm 保留、日媒体 exhausted 恢复、Pages 分钟级时段校验和日志 TTL 展示修复；managed 自托管 staging 排除上述页面，保留公开/CWS 源码及 `core/privacy-consent.js` activation 依赖。
+  - 发布授权：Product Owner 已于 2026-08-18 明确批准升级版本、提交、推送、部署 Pages 并发布 T.xia / P.xia 内部自托管更新源；不包含 Chrome Web Store 上传/提交，不写 D1、不修改 profile。
+  - 边界：不原地覆盖 `1.7.23` CRX；使用稳定签名 ID 生成新的 `1.7.24` CRX、update feed 和 SHA256 审计材料。
+  - 发布前验证（2026-08-18）：逐文件 unit 共 107 个测试文件通过；`node tests/run-all.js` 全部通过，其中 Worker API `103/103`、duration-flow `53/53`、浏览器 E2E `14/14`；`npm run typecheck`、扩展根目录检查、managed staging dry-run 和 Pages 桌面/移动端目视验证均通过。
+  - 当前状态：代码、文档和测试已达到提交门禁；等待稳定签名生成 `1.7.24` CRX，并完成控制台 Pages 与内部更新源部署及线上回读。
 - [ ] [V1] composite routing 设计与拆包
 - [ ] [V1] 更精细分类能力设计（V0 之外）
 - [ ] [P1] 系统配置全局影响治理

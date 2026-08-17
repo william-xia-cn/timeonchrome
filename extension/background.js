@@ -42,7 +42,7 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
 // ── SW 模块引导（幂等）：只保证基础状态与 alarms/listeners 可用，recovery 由 lifecycle 事件触发 ──
 
 let bootstrapPromise = null;
-let alarmsSetup = false;
+let alarmsSetupPromise = null;
 let privacyConsentAccepted = false;
 let runtimeActivationState = { activated: false, activationMode: 'disabled', reason: 'privacy_consent_required' };
 
@@ -95,7 +95,7 @@ async function bootstrapServiceWorker(reason) {
     await initSession();
     await hydrateCloudSyncStateFromStorage();
     await refreshPrivacyConsentCache();
-    setupAlarms();
+    await setupAlarms();
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
   } catch (err) {
     console.error(`[Bootstrap] failed (${reason}):`, err);
@@ -1075,14 +1075,33 @@ async function deliverPendingModeNoticeForTab(tabId, source) {
 
 // ── Alarms ──────────────────────────────────────────────────────────────────────
 
+const REQUIRED_ALARMS = Object.freeze([
+  ['periodicCheckpoint', 3],
+  ['quota_check', 1],
+  ['daily_cleanup', 60],
+  ['cloudSync', 3],
+  ['cloudHeartbeat', 5],
+]);
+
+async function ensureAlarm(name, periodInMinutes) {
+  const existing = await chrome.alarms.get(name);
+  if (existing && Number(existing.periodInMinutes) === periodInMinutes) {
+    return { name, created: false, scheduledTime: existing.scheduledTime ?? null };
+  }
+  await chrome.alarms.create(name, { periodInMinutes });
+  return { name, created: true, scheduledTime: null };
+}
+
 function setupAlarms() {
-  if (alarmsSetup) return;
-  alarmsSetup = true;
-  chrome.alarms.create('periodicCheckpoint', { periodInMinutes: 3 });
-  chrome.alarms.create('quota_check', { periodInMinutes: 1 });
-  chrome.alarms.create('daily_cleanup', { periodInMinutes: 60 });
-  chrome.alarms.create('cloudSync', { periodInMinutes: 3 });
-  chrome.alarms.create('cloudHeartbeat', { periodInMinutes: 5 });
+  if (!alarmsSetupPromise) {
+    alarmsSetupPromise = Promise.all(
+      REQUIRED_ALARMS.map(([name, periodInMinutes]) => ensureAlarm(name, periodInMinutes))
+    ).catch((err) => {
+      alarmsSetupPromise = null;
+      throw err;
+    });
+  }
+  return alarmsSetupPromise;
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {

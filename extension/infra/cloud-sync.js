@@ -41,6 +41,7 @@ import {
   markHourlyMediaStatsUploaded,
   markMediaSegmentUploadFailed, markDailyMediaStatsUploadFailed,
   markHourlyMediaStatsUploadFailed,
+  reconcileDailyMediaStatsOutbox,
   reconcileHourlyMediaStatsOutbox,
 } from '../runtime/media-session.js';
 import {
@@ -2945,15 +2946,24 @@ export async function uploadDailyMediaStatsV1({ enabled = false, forceRetryExhau
     return { uploaded: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: [] };
   }
   try {
+    await reconcileDailyMediaStatsOutbox();
     const pending = await getPendingDailyMediaStats();
     const dirtyDates = Object.keys(pending.stats || {});
     if (dirtyDates.length === 0) {
       return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
     }
+    const now = Date.now();
     const exhaustedDates = dirtyDates.filter((date) =>
       Number(pending.retryCounts?.[date] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
     );
-    const candidateDates = forceRetryExhausted ? dirtyDates : dirtyDates.filter((date) => !exhaustedDates.includes(date));
+    const candidateDates = dirtyDates.filter((date) => isSyncRetryCandidate({
+      retryCount: pending.retryCounts?.[date],
+      lastAttemptAt: pending.lastAttemptAt?.[date],
+      force: forceRetryExhausted,
+      now,
+      maxAttempts: CLOUD_CONFIG.MAX_RETRY_ATTEMPTS,
+    }));
+    const deferredExhaustedCount = exhaustedDates.filter((date) => !candidateDates.includes(date)).length;
     const batchDates = candidateDates.slice(0, 7);
     if (!effectiveEnabled) {
       const samplePayload = batchDates.length > 0 ? await buildDailyMediaStatsUploadPayload(batchDates[0]) : null;
@@ -2976,11 +2986,12 @@ export async function uploadDailyMediaStatsV1({ enabled = false, forceRetryExhau
     if (batchDates.length === 0 && exhaustedDates.length > 0) {
       return {
         uploaded: 0,
-        failed: exhaustedDates.length,
-        skipped: false,
+        failed: 0,
+        skipped: true,
         dryRun: false,
         pendingCount: dirtyDates.length,
-        errors: exhaustedDates.map((date) => `media stats ${date}: retry exhausted (${pending.retryCounts?.[date] || 0})`),
+        deferredExhaustedCount,
+        errors: [],
       };
     }
     let uploaded = 0;
@@ -3011,7 +3022,7 @@ export async function uploadDailyMediaStatsV1({ enabled = false, forceRetryExhau
         });
       }
     }
-    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyDates.length - uploaded, errors };
+    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyDates.length - uploaded, deferredExhaustedCount, errors };
   } catch (e) {
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
   }

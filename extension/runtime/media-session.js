@@ -703,6 +703,7 @@ async function markMediaStatsDirty(date) {
       dirtyDates: [...dirty],
       retryCounts: outbox.retryCounts || {},
       lastErrors: outbox.lastErrors || {},
+      lastAttemptAt: outbox.lastAttemptAt || {},
     },
   });
 }
@@ -1604,6 +1605,7 @@ export async function getPendingDailyMediaStats() {
     stats,
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
+    lastAttemptAt: outbox.lastAttemptAt || {},
   };
 }
 
@@ -1627,8 +1629,8 @@ export async function getPendingHourlyMediaStats() {
   };
 }
 
-function hourlyMediaStatsHasPositiveRows(hourStats) {
-  return Object.values(hourStats?.domains || {}).some((domainStats) =>
+function mediaStatsHasPositiveRows(stats) {
+  return Object.values(stats?.domains || {}).some((domainStats) =>
     Number(domainStats?.totalSeconds || 0) > 0 ||
     Number(domainStats?.foregroundAudioSeconds || 0) > 0 ||
     Number(domainStats?.backgroundAudioSeconds || 0) > 0 ||
@@ -1638,12 +1640,24 @@ function hourlyMediaStatsHasPositiveRows(hourStats) {
   );
 }
 
+export async function reconcileDailyMediaStatsOutbox() {
+  const initial = await chrome.storage.local.get([DAILY_MEDIA_STATS_KEY, MEDIA_STATS_OUTBOX_KEY]);
+  const initialStats = initial?.[DAILY_MEDIA_STATS_KEY] || {};
+  const outbox = initial?.[MEDIA_STATS_OUTBOX_KEY] || { dirtyDates: [] };
+  const staleDates = (outbox.dirtyDates || []).filter((date) =>
+    !mediaStatsHasPositiveRows(initialStats[date])
+  );
+  if (staleDates.length === 0) return { removed: 0 };
+  await markDailyMediaStatsUploaded(staleDates);
+  return { removed: staleDates.length };
+}
+
 export async function reconcileHourlyMediaStatsOutbox() {
   const initial = await chrome.storage.local.get([HOURLY_MEDIA_STATS_KEY, HOURLY_MEDIA_STATS_OUTBOX_KEY]);
   const initialStats = initial?.[HOURLY_MEDIA_STATS_KEY] || {};
   const outbox = initial?.[HOURLY_MEDIA_STATS_OUTBOX_KEY] || { dirtyHourKeys: [] };
   const suspectHourKeys = (outbox.dirtyHourKeys || []).filter((hourKey) =>
-    !hourlyMediaStatsHasPositiveRows(initialStats[hourKey])
+    !mediaStatsHasPositiveRows(initialStats[hourKey])
   );
   if (suspectHourKeys.length === 0) return { rebuilt: 0, removed: 0 };
 
@@ -1653,7 +1667,7 @@ export async function reconcileHourlyMediaStatsOutbox() {
     const result = await rebuildHourlyMediaStats(hourKey);
     const refreshed = await chrome.storage.local.get(HOURLY_MEDIA_STATS_KEY);
     const hourStats = refreshed?.[HOURLY_MEDIA_STATS_KEY]?.[hourKey];
-    if (result?.rebuilt && hourlyMediaStatsHasPositiveRows(hourStats)) {
+    if (result?.rebuilt && mediaStatsHasPositiveRows(hourStats)) {
       rebuilt++;
       continue;
     }
@@ -1678,6 +1692,7 @@ export async function markDailyMediaStatsUploaded(dates, uploadedAt = Date.now()
     }
     delete outbox.retryCounts?.[date];
     delete outbox.lastErrors?.[date];
+    delete outbox.lastAttemptAt?.[date];
   }
   outbox.dirtyDates = (outbox.dirtyDates || []).filter((date) => !dateSet.has(date));
   await localStorageSet({
@@ -1718,10 +1733,12 @@ export async function markDailyMediaStatsUploadFailed(dates, error) {
   const dirty = new Set(outbox.dirtyDates || []);
   outbox.retryCounts = outbox.retryCounts || {};
   outbox.lastErrors = outbox.lastErrors || {};
+  outbox.lastAttemptAt = outbox.lastAttemptAt || {};
   for (const date of dateList) {
     dirty.add(date);
     outbox.retryCounts[date] = Math.min(MAX_STORED_RETRY_COUNT, Number(outbox.retryCounts[date] || 0) + 1);
     outbox.lastErrors[date] = normalizeUploadErrorCode(error);
+    outbox.lastAttemptAt[date] = Date.now();
   }
   outbox.dirtyDates = [...dirty];
   await localStorageSet({ [MEDIA_STATS_OUTBOX_KEY]: outbox });
@@ -1893,6 +1910,9 @@ export async function pruneMediaStorage(retentionDays = 30, {
   statsOutbox.lastErrors = Object.fromEntries(dirtyDates.map((date) => [
     date, normalizeUploadErrorCode(statsOutbox.lastErrors?.[date]),
   ]).filter(([date]) => Boolean(statsOutbox.lastErrors?.[date])));
+  statsOutbox.lastAttemptAt = Object.fromEntries(dirtyDates.map((date) => [
+    date, Math.max(0, Number(statsOutbox.lastAttemptAt?.[date] || 0)),
+  ]).filter(([, at]) => at > 0));
 
   hourlyOutbox.dirtyHourKeys = dirtyHourKeys;
   hourlyOutbox.retryCounts = Object.fromEntries(dirtyHourKeys.map((key) => [

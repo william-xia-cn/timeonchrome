@@ -88,6 +88,12 @@ function run() {
   expectTrue('CRX helper does not include key path in JSON output', tool.includes('keyProvided: !!keyPath') && !tool.includes('keyPath: keyPath'));
   expectTrue('CRX helper prepares independent update host layout', tool.includes('hostOutputDir') && tool.includes("'timeonchrome', 'crx'"));
   expectTrue('CRX helper validates banned package entries', tool.includes('BANNED_PACKAGE_ENTRIES') && tool.includes("'workers'") && tool.includes("'pages'"));
+  expectTrue('managed CRX staging excludes obsolete privacy pages only for managed deployment',
+    tool.includes('MANAGED_PACKAGE_EXCLUDED_ENTRIES') &&
+    tool.includes('managedDeployment && MANAGED_PACKAGE_EXCLUDED_ENTRIES.has(entry.name)'));
+  expectTrue('managed CRX staging preserves privacy activation core dependency',
+    tool.includes("path.join(stagingDir, 'core', 'privacy-consent.js')") &&
+    tool.includes('activation dependency'));
 
   console.log(`\n[Managed Internal Channel] ${passed}/${passed + failed} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed) process.exit(1);

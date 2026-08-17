@@ -60,7 +60,9 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'markMediaSegmentsUploaded',
   'markDailyMediaStatsUploaded',
   'markHourlyMediaStatsUploaded',
+  'markDailyMediaStatsUploadFailed',
   'markHourlyMediaStatsUploadFailed',
+  'reconcileDailyMediaStatsOutbox',
   'reconcileHourlyMediaStatsOutbox',
   'rebuildHourlyMediaStats',
   'getMediaSession',
@@ -332,6 +334,37 @@ async function testHourlyMediaOutboxRecovery() {
   const repair = await mediaApi.reconcileHourlyMediaStatsOutbox();
   check('empty stale hourly media outbox is removed', repair.removed === 1, JSON.stringify(repair));
   check('removed hourly media outbox clears retry metadata', !localStorage.data.hourly_media_stats_sync_outbox_v1.dirtyHourKeys.includes(hourKey), JSON.stringify(localStorage.data.hourly_media_stats_sync_outbox_v1));
+}
+
+async function testDailyMediaOutboxRecoveryMetadata() {
+  resetAll();
+  const date = '2026-08-14';
+  localStorage.data.daily_media_stats_v1 = {
+    [date]: { date, domains: { 'empty.example.com': { totalSeconds: 0 } } },
+  };
+  localStorage.data.media_stats_sync_outbox_v1 = {
+    dirtyDates: [date, '2026-08-13'],
+    retryCounts: { [date]: 3, '2026-08-13': 3 },
+    lastErrors: { [date]: 'http_503', '2026-08-13': 'http_503' },
+  };
+
+  await mediaApi.markDailyMediaStatsUploadFailed([date], 'http_503');
+  let pending = await mediaApi.getPendingDailyMediaStats();
+  check('daily media failure records cooldown timestamp', Number(pending.lastAttemptAt[date]) > 0, JSON.stringify(pending));
+
+  const repair = await mediaApi.reconcileDailyMediaStatsOutbox();
+  const outbox = localStorage.data.media_stats_sync_outbox_v1;
+  check('empty and missing daily media outbox entries are removed', repair.removed === 2, JSON.stringify(repair));
+  check('daily media repair clears dirty dates', outbox.dirtyDates.length === 0, JSON.stringify(outbox));
+  check('daily media repair clears retry metadata', Object.keys(outbox.retryCounts || {}).length === 0 && Object.keys(outbox.lastErrors || {}).length === 0 && Object.keys(outbox.lastAttemptAt || {}).length === 0, JSON.stringify(outbox));
+
+  localStorage.data.daily_media_stats_v1 = {
+    [date]: { date, domains: { 'valid.example.com': { totalSeconds: 60 } } },
+  };
+  localStorage.data.media_stats_sync_outbox_v1 = { dirtyDates: [date], retryCounts: {}, lastErrors: {} };
+  const validRepair = await mediaApi.reconcileDailyMediaStatsOutbox();
+  pending = await mediaApi.getPendingDailyMediaStats();
+  check('positive daily media aggregate remains pending', validRepair.removed === 0 && pending.pendingCount === 1, JSON.stringify({ validRepair, pending }));
 }
 
 async function testMediaSegmentIdIncludesDeviceIdentity() {
@@ -623,6 +656,7 @@ async function testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries() {
       dirtyDates: [oldDate, recentDate, recentDate, '1999-01-01'],
       retryCounts: { [oldDate]: 2, [recentDate]: 1, '1999-01-01': 9 },
       lastErrors: { [oldDate]: 'old', [recentDate]: 'recent', '1999-01-01': 'missing' },
+      lastAttemptAt: { [oldDate]: 100, [recentDate]: 200, '1999-01-01': 300 },
     },
     hourly_media_stats_sync_outbox_v1: {
       dirtyHourKeys: [`${oldDate}T10`, `${recentDate}T10`, `${recentDate}T10`, '1999-01-01T01'],
@@ -641,6 +675,7 @@ async function testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries() {
   check('media prune keeps recent daily stats', !!storage.daily_media_stats_v1[recentDate], JSON.stringify(storage.daily_media_stats_v1));
   check('media prune preserves old and recent pending ids', JSON.stringify(storage.media_segment_sync_outbox_v1.pendingIds) === JSON.stringify([oldId, recentId]), JSON.stringify(storage.media_segment_sync_outbox_v1));
   check('media prune preserves backed dirty dates', JSON.stringify(storage.media_stats_sync_outbox_v1.dirtyDates) === JSON.stringify([oldDate, recentDate]), JSON.stringify(storage.media_stats_sync_outbox_v1));
+  check('media prune preserves backed daily cooldown metadata and removes orphan timestamp', JSON.stringify(storage.media_stats_sync_outbox_v1.lastAttemptAt) === JSON.stringify({ [oldDate]: 100, [recentDate]: 200 }), JSON.stringify(storage.media_stats_sync_outbox_v1));
   check('media prune preserves backed dirty hours', JSON.stringify(storage.hourly_media_stats_sync_outbox_v1.dirtyHourKeys) === JSON.stringify([`${oldDate}T10`, `${recentDate}T10`]), JSON.stringify(storage.hourly_media_stats_sync_outbox_v1));
 }
 async function testModeBoundaryClosesStaleSessionWithoutReopen() {
@@ -714,6 +749,7 @@ async function run() {
     testCloseWritesLocalMediaSegment,
     testMediaOutboxAndPayloadBuilders,
     testMediaSegmentIdIncludesDeviceIdentity,
+    testDailyMediaOutboxRecoveryMetadata,
     testHourlyMediaOutboxRecovery,
     testCloseAllSessions,
     testCheckpointIgnoresFactsWithoutOpenSessions,

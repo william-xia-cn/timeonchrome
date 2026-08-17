@@ -46,7 +46,7 @@ check('managed statistics does not import ledger mutators or product actions', !
 check('message router delegates stats views to managed statistics', /from '\.\/stats\/managed-statistics\.js'/.test(messageRouter) && /getTodayUsageView|getUsageRangeView|getSettlementAnalysisView/.test(messageRouter));
 check('message router no longer owns usage summary helpers', !/function\s+withUsageSummary|function\s+readCompositeSeconds|function\s+getSettlementAnalysisRange/.test(messageRouter));
 check('quota consumes managed quota usage view', /getQuotaUsageView/.test(quota) && !/getTodayStats|getStatsRange|getTodayUndeterminedStats/.test(quota));
-check('background registers local quota_check alarm as message entry', /chrome\.alarms\.create\('quota_check'/.test(background) && /EVALUATE_QUOTA_STATE/.test(background));
+check('background registers local quota_check alarm as message entry', /\['quota_check', 1\]/.test(background) && /REQUIRED_ALARMS[\s\S]*ensureAlarm/.test(background) && /EVALUATE_QUOTA_STATE/.test(background));
 check('background quota_check does not call legacy all-tab quota redirect', !/checkAllTabsQuota|redirectAllTabs|redirectQuotaViolatingTabs/.test(background));
 check('background has no legacy auto-study scanner', !/checkAutoStudy|autoStudyConfig|auto_study_legacy/.test(background));
 check('background has no ordinary one-second access-control reeval scanner', !/restCompositeGateTickTimer|periodicReevaluateActiveTab|active_tab_reeval/.test(background));

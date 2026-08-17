@@ -35,6 +35,7 @@
 - T.xia 仍需观察本地存储是否降到 6.5 MB 以下，以及 pending outbox 是否持续下降。
 - 需确认不再出现 `restricted + study`、待归类 Rest/Study 震荡、陈旧媒体长段或 `QuotaBytes`。
 - 邮件归类基础设施随 Worker 部署；本轮未改变既有生产开关或 profile allowlist，灰度状态继续以 `TASK_BOARD.md` 当前记录为准。
+- 已知包内容问题：managed CRX 仍包含公开/CWS 使用的隐私同意与隐私政策页面。managed activation 不会在正常安装或更新时展示这些页面，但物理文件将在 `1.7.24` 从内部受管 staging 中排除；不原地覆盖 `1.7.23`。
 
 ## 发布结论
 

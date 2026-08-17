@@ -217,6 +217,8 @@ function run() {
   expectTrue('Pages 系统日志时间应默认显示北京时间并保留 UTC title', source.includes('function formatClientLogTimestamp') && source.includes('formatUtcSettlementTime(row.timestamp)'));
   expectTrue('Pages 日志上传 TTL 应为 1/3/7 天', source.includes('value="86400000">1 天') && source.includes('value="259200000">3 天') && source.includes('value="604800000">7 天'));
   expectTrue('Pages 日志上传 TTL 不应保留小时级选项', !source.includes('value="3600000">1 小时') && !source.includes('value="21600000">6 小时') && !source.includes('value="86400000">24 小时'));
+  const renderClientLogPolicySummarySource = extractFunctionSource(source, 'renderClientLogPolicySummary');
+  expectTrue('Pages 日志策略摘要应识别 TTL 已过期并显示默认不上传', renderClientLogPolicySummarySource.includes('expiresAt <= Date.now()') && renderClientLogPolicySummarySource.includes('当前：已过期') && renderClientLogPolicySummarySource.includes('默认不上传策略'));
   const saveClientLoggingPolicySource = extractFunctionSource(source, 'saveClientLoggingPolicy');
   expectTrue('Pages 日志策略保存应只提交 clientLoggingPolicyV1', saveClientLoggingPolicySource.includes("{ data: { clientLoggingPolicyV1: nextPolicy } }"));
   expectTrue('Pages 日志策略保存不应提交完整 remoteConfig', !saveClientLoggingPolicySource.includes('{ data: remoteConfig }') && !saveClientLoggingPolicySource.includes('remoteConfig.clientLoggingPolicyV1 = nextPolicy'));
@@ -388,6 +390,20 @@ function run() {
   expectTrue('saveScheduleConfig 应提交 compositeWindows', extractFunctionSource(source, 'saveScheduleConfig').includes('compositeWindows'));
   expectTrue('saveScheduleConfig 不应提交 onlineWindows', !/saveScheduleConfig[\s\S]{0,500}onlineWindows/.test(source));
   expectTrue('schedule 不应被 saveScheduleConfig 覆盖', !/saveScheduleConfig[\s\S]{0,300}schedule/.test(source));
+  const scheduleValidationContext = {};
+  vm.runInNewContext(`
+    ${extractFunctionSource(source, 'scheduleTimeToMinutes')}
+    ${extractFunctionSource(source, 'validateScheduleWindowInput')}
+    this.__validateScheduleWindowInput = validateScheduleWindowInput;
+  `, scheduleValidationContext, { filename: 'pages/index.html#schedule-validation' });
+  expectEqual('时间段应允许 1 分钟窗口', scheduleValidationContext.__validateScheduleWindowInput('19:00', '19:01'), null);
+  expectEqual('时间段应允许 23:59 到 24:00', scheduleValidationContext.__validateScheduleWindowInput('23:59', '24:00'), null);
+  expectEqual('时间段应按分钟数比较非补零小时', scheduleValidationContext.__validateScheduleWindowInput('8:00', '12:00'), null);
+  expectEqual('时间段应拒绝相同起止分钟', scheduleValidationContext.__validateScheduleWindowInput('19:00', '19:00'), 'order');
+  expectEqual('时间段应拒绝非法分钟', scheduleValidationContext.__validateScheduleWindowInput('19:00', '19:60'), 'format');
+  expectEqual('时间段应拒绝 24:00 作为开始时间', scheduleValidationContext.__validateScheduleWindowInput('24:00', '24:00'), 'start_end_of_day');
+  expectEqual('学习复合休息入口应统一使用共享校验', (source.match(/if \(!reportScheduleWindowValidationError\(validateScheduleWindowInput\(start, end\)\)\) return;/g) || []).length, 3);
+  expectTrue('页面不应保留结束时间仅限整点的旧正则', !source.includes("|24):00$/.test(end)"));
 
   // 最小行为级断言：网站管理绑定策略目录入口
   const setupRulesSource = extractFunctionSource(source, 'setupRules');

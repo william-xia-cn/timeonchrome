@@ -623,6 +623,8 @@ lifecycle boundary
       → 只做残存 open session 容错清理
 ```
 
+MV3 Service Worker 每次冷启动都必须检查关键 alarm 是否存在，但不得无条件重建同名 alarm。`chrome.alarms.create()` 会取消并替换同名 alarm，反复重建会持续推迟其下一次触发时间。初始化必须先读取现有 alarm，只补建缺失项或修正周期不一致项，保留周期正确 alarm 的既有 `scheduledTime`；bootstrap 必须等待该检查完成，初始化失败可在后续唤醒重试并只记录有界错误日志。此规则同时适用于 `periodicCheckpoint`、`quota_check`、`daily_cleanup`、`cloudSync` 和 `cloudHeartbeat`。
+
 计时落账、checkpoint、recovery、segment schema 的正式口径见 `docs/STATS_STORAGE_FOUNDATION.md`。
 
 **Checkpoint repair 安全约束：**
@@ -635,6 +637,7 @@ lifecycle boundary
 
 - content 内部信号由专用监听器消费后不得再次落入通用 message router；预期内部消息不记 `message_unknown_type`。
 - 网站归类 exhausted 记录必须保留原记录并支持受控自动恢复；普通同步对同一 exhausted 集合使用冷却摘要，不得每轮为每条记录重复生成错误。上传成功后必须清除 retry metadata。
+- 日媒体统计 outbox 与小时媒体统计使用相同的 exhausted 恢复语义：每次失败记录短错误码和 `lastAttemptAt`；达到最大重试次数后进入 6 小时冷却，冷却期内保留 dirty 数据但不计为同步失败、不生成重复告警；冷却到期或家长手动立即同步时允许再次尝试，成功后清除全部 retry metadata。同步前必须移除聚合已不存在或不含有效正时长行的孤立 dirty 元数据，禁止无有效 payload 的条目永久占用 outbox。
 - 小时媒体 outbox 只能引用存在且含有效正时长行的本地小时聚合；不存在/空聚合应移除 dirty/retry/error 元数据，原始媒体段存在时应先重建聚合再上传。
 - `segments_count` 是聚合行自身所覆盖的原始 segment/slice 数量。顶层整日/整小时计数仅作 envelope 元数据，Worker 不得复制到每个 domain、managed-target 或 media row。
 
@@ -1049,6 +1052,7 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - 设备上传：`POST /device/client-logs/v1`，使用 device token 鉴权，Worker 按 token 归属写入真实 `profile_id/device_id`
 - 家长查询：`GET /profiles/:profileId/client-logs/v1`，支持按 device、level、category、时间范围和 cursor 查询
 - 云端默认不上传；只有 profile config 中的 `clientLoggingPolicyV1.uploadEnabled = true` 才上传
+- `expiresAt` 到期后扩展必须立即回退到默认不上传策略；Pages 摘要也必须按当前时间显示“已过期”，不得只依据 `uploadEnabled` 显示“已开启”
 
 ### 隐私边界
 

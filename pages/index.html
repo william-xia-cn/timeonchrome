@@ -4809,6 +4809,31 @@ function normalizeScheduleWindowList(windows) {
   return windows;
 }
 
+function scheduleTimeToMinutes(value, allowEndOfDay = false) {
+  const normalized = String(value ?? '').trim();
+  if (allowEndOfDay && normalized === '24:00') return 24 * 60;
+  const match = normalized.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function validateScheduleWindowInput(start, end) {
+  if (String(start ?? '').trim() === '24:00') return 'start_end_of_day';
+  const startMinutes = scheduleTimeToMinutes(start);
+  const endMinutes = scheduleTimeToMinutes(end, true);
+  if (startMinutes === null || endMinutes === null) return 'format';
+  if (endMinutes <= startMinutes) return 'order';
+  return null;
+}
+
+function reportScheduleWindowValidationError(error) {
+  if (!error) return true;
+  if (error === 'start_end_of_day') toast('24:00 不能作为开始时间', false);
+  else if (error === 'order') toast('结束时间必须晚于开始时间', false);
+  else toast('时间格式错误，请使用 HH:MM', false);
+  return false;
+}
+
 window.addStudyWindow = (day) => {
   ensureTimeWindowsDaily();
   const dayCfg = remoteConfig.timeWindows.daily[day];
@@ -4816,11 +4841,7 @@ window.addStudyWindow = (day) => {
   if (!start) return;
   const end = prompt(`结束时间 (HH:MM):`, '12:00');
   if (!end) return;
-  if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(start) || !/^([01]?\d|2[0-3]|24):00$/.test(end)) {
-    toast('时间格式错误，请使用 HH:MM', false); return;
-  }
-  if (start >= end && end !== '24:00') { toast('结束时间必须晚于开始时间', false); return; }
-  if (start === '24:00') { toast('24:00 不能作为开始时间', false); return; }
+  if (!reportScheduleWindowValidationError(validateScheduleWindowInput(start, end))) return;
 
   if (dayCfg.studyWindows === null || dayCfg.studyWindows === undefined) dayCfg.studyWindows = [];
   const exists = dayCfg.studyWindows.some(w => w.start === start && w.end === end);
@@ -4847,11 +4868,7 @@ window.addCompositeWindow = (day) => {
   if (!start) return;
   const end = prompt(`结束时间 (HH:MM):`, '21:00');
   if (!end) return;
-  if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(start) || !/^([01]?\d|2[0-3]|24):00$/.test(end)) {
-    toast('时间格式错误，请使用 HH:MM', false); return;
-  }
-  if (start >= end && end !== '24:00') { toast('结束时间必须晚于开始时间', false); return; }
-  if (start === '24:00') { toast('24:00 不能作为开始时间', false); return; }
+  if (!reportScheduleWindowValidationError(validateScheduleWindowInput(start, end))) return;
 
   if (dayCfg.compositeWindows === null || dayCfg.compositeWindows === undefined) dayCfg.compositeWindows = [];
   const exists = dayCfg.compositeWindows.some(w => w.start === start && w.end === end);
@@ -4883,11 +4900,7 @@ window.addRestWindow = (day) => {
   if (!start) return;
   const end = prompt(`结束时间 (HH:MM):`, '22:00');
   if (!end) return;
-  if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(start) || !/^([01]?\d|2[0-3]|24):00$/.test(end)) {
-    toast('时间格式错误，请使用 HH:MM', false); return;
-  }
-  if (start >= end && end !== '24:00') { toast('结束时间必须晚于开始时间', false); return; }
-  if (start === '24:00') { toast('24:00 不能作为开始时间', false); return; }
+  if (!reportScheduleWindowValidationError(validateScheduleWindowInput(start, end))) return;
 
   if (dayCfg.restWindows === null || dayCfg.restWindows === undefined) dayCfg.restWindows = [];
   const exists = dayCfg.restWindows.some(w => w.start === start && w.end === end);
@@ -6335,7 +6348,10 @@ function renderClientLogPolicySummary() {
     ? policy.uploadCategories.join('、')
     : '全部类别';
   const expiresAt = Number(policy.expiresAt || 0);
-  el.innerHTML = uploadEnabled
+  const expired = uploadEnabled && expiresAt > 0 && expiresAt <= Date.now();
+  el.innerHTML = expired
+    ? `当前：已过期 · 到期 ${escHtml(new Date(expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }))} 北京时间。孩子端已回退为默认不上传策略。`
+    : uploadEnabled
     ? `当前：已开启 · 等级 ${escHtml(policy.uploadMinLevel || 'error')} · ${escHtml(target)} · ${escHtml(categories)} · 过期 ${escHtml(expiresAt ? new Date(expiresAt).toLocaleString('zh-CN') : '未设置')}`
     : '当前：云端日志上传关闭。孩子端仍会按默认策略在本地保留 warning/error。';
 }

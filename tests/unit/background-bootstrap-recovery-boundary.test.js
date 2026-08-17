@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
 const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
@@ -32,6 +33,10 @@ const onInstalledBody = onInstalledIndex >= 0 && nextSectionIndex > onInstalledI
 
 check('module bootstrap initializes session', /await initSession\(\)/.test(bootstrapBody));
 check('module bootstrap hydrates cloud sync state without waiting for alarm', /await hydrateCloudSyncStateFromStorage\(\)/.test(bootstrapBody));
+check('module bootstrap waits for alarm preservation check', /await setupAlarms\(\)/.test(bootstrapBody));
+check('alarm setup reads existing alarms before creating replacements', /async function ensureAlarm[\s\S]{0,260}await chrome\.alarms\.get\(name\)[\s\S]{0,320}await chrome\.alarms\.create\(name, \{ periodInMinutes \}\)/.test(source));
+check('matching alarm periods preserve their scheduled time', /existing && Number\(existing\.periodInMinutes\) === periodInMinutes[\s\S]{0,180}created: false[\s\S]{0,100}existing\.scheduledTime/.test(source));
+check('alarm setup failure can retry on a later service worker wake', /alarmsSetupPromise = null;[\s\S]{0,80}throw err;/.test(source));
 check('module bootstrap does not call recover', !/recover\(\)/.test(bootstrapBody));
 check('ordinary module bootstrap does not close media sessions', !/recoverMediaSessionsOnLifecycle/.test(bootstrapBody));
 check('onStartup maintains storage before media and page recovery', onStartupBody.indexOf('runV1StorageMaintenance') >= 0 && onStartupBody.indexOf('runV1StorageMaintenance') < onStartupBody.indexOf('recoverMediaSessionsOnLifecycle') && onStartupBody.indexOf('recoverMediaSessionsOnLifecycle') < onStartupBody.indexOf('await recover()'));
@@ -70,9 +75,37 @@ check('heartbeat alarm is not created', !/chrome\.alarms\.create\('heartbeat'/.t
 check('heartbeat alarm handler is removed', !/alarm\.name === 'heartbeat'/.test(source));
 check('foreground stabilization window is removed', !/FOREGROUND_STABILIZATION_MS|pendingForegroundBoundary|pendingForegroundTimer|foreground_boundary_pending/.test(source));
 
-if (failed) {
-  console.error(`\n${failed} failed, ${passed} passed`);
-  process.exit(1);
+async function runAlarmBehaviorChecks() {
+  const ensureAlarmSource = source.match(/async function ensureAlarm\(name, periodInMinutes\) \{[\s\S]*?\n\}/)?.[0] || '';
+  const createCalls = [];
+  const context = {
+    chrome: {
+      alarms: {
+        get: async () => ({ name: 'periodicCheckpoint', periodInMinutes: 3, scheduledTime: 123456 }),
+        create: async (...args) => createCalls.push(args),
+      },
+    },
+  };
+  vm.runInNewContext(`${ensureAlarmSource}\nthis.ensureAlarm = ensureAlarm;`, context, {
+    filename: 'extension/background.js#ensureAlarm',
+  });
+
+  const preserved = await context.ensureAlarm('periodicCheckpoint', 3);
+  check('existing matching alarm is not recreated', createCalls.length === 0 && preserved.created === false);
+  check('existing matching alarm keeps scheduled time', preserved.scheduledTime === 123456);
+
+  context.chrome.alarms.get = async () => undefined;
+  const created = await context.ensureAlarm('cloudSync', 3);
+  check('missing alarm is created with required period', createCalls.length === 1 && createCalls[0][0] === 'cloudSync' && createCalls[0][1]?.periodInMinutes === 3 && created.created === true);
 }
 
-console.log(`\n${passed} passed`);
+runAlarmBehaviorChecks().then(() => {
+  if (failed) {
+    console.error(`\n${failed} failed, ${passed} passed`);
+    process.exit(1);
+  }
+  console.log(`\n${passed} passed`);
+}).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
