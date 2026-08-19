@@ -13,6 +13,8 @@ import { drainUsageSettlementJournal, reconcileUsageLedger } from './core/usage-
 import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOldSessions, DEFAULT_CONFIG, CONFIG_KEY, VISIT_SESSIONS_KEY, MIN_SESSION_DURATION, SESSION_KEY, LAST_RESET_DATE_KEY, SITE_CLASSIFICATION_REQUESTS_KEY, getDateKey, formatDate, extractDomain, getStatsRange, clearTemporaryCompositeDomainByTab, clearTemporaryCompositeDomainByTabDomainMismatch } from './infra/storage.js';
 import { runV1StorageMaintenance } from './infra/storage-maintenance.js';
 import { registerStoragePressureHandler } from './infra/storage-budget.js';
+import { budgetedSessionSet, runSessionStorageMaintenance } from './infra/session-storage-budget.js';
+import { configureLocalGuardianStateProvider, notifyLocalGuardianBootstrapResult } from './infra/local-guardian.js';
 import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
@@ -45,6 +47,13 @@ let bootstrapPromise = null;
 let alarmsSetupPromise = null;
 let privacyConsentAccepted = false;
 let runtimeActivationState = { activated: false, activationMode: 'disabled', reason: 'privacy_consent_required' };
+let localGuardianBootstrapState = 'booting';
+
+configureLocalGuardianStateProvider(() => ({
+  bootstrapState: localGuardianBootstrapState,
+  activationState: runtimeActivationState,
+  monitoringEnabled: getSyncState().monitoringEnabled,
+}));
 
 async function refreshPrivacyConsentCache() {
   const state = await resolveActivationState();
@@ -92,12 +101,17 @@ function privacyConsentRequiredResponse() {
 
 async function bootstrapServiceWorker(reason) {
   try {
+    await runSessionStorageMaintenance({ reason: `bootstrap:${reason}` }).catch(() => null);
     await initSession();
     await hydrateCloudSyncStateFromStorage();
     await refreshPrivacyConsentCache();
     await setupAlarms();
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
+    localGuardianBootstrapState = 'ready';
+    notifyLocalGuardianBootstrapResult('ready', `bootstrap_complete:${reason}`).catch(() => {});
   } catch (err) {
+    localGuardianBootstrapState = 'failed';
+    notifyLocalGuardianBootstrapResult('failed', `bootstrap_failed:${reason}`).catch(() => {});
     console.error(`[Bootstrap] failed (${reason}):`, err);
     logClientEventBestEffort({
       level: 'error',
@@ -1261,14 +1275,14 @@ async function debugResetTimingCalibrationData() {
   await clearTrace();
   await resetFocusLedger();
   await clearEvents();
-  await chrome.storage.session.set({
+  await budgetedSessionSet({
     session_v1: {
       state: null,
       domain: null,
       startTime: null,
       lastHeartbeat: Date.now(),
     },
-  });
+  }, { priority: 'business', source: 'debug_reset_session' });
   await chrome.storage.local.set({
     session_v1_persistent: {
       state: null,
@@ -1433,6 +1447,8 @@ globalThis.debugTriggerAutoTransition = async (options = {}) => {
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_PROBE') return false;
+
   const isInternalTestSender = () => {
     if (sender?.id !== chrome.runtime.id) return false;
     if (!sender?.url) return true;

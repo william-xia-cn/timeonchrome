@@ -23,6 +23,8 @@ const MANAGED_PACKAGE_EXCLUDED_ENTRIES = new Set([
   'privacy-consent.js',
   'privacy.html',
 ]);
+const LOCAL_GUARDIAN_PERMISSION = 'nativeMessaging';
+const LOCAL_GUARDIAN_PROBE_RESOURCE = 'health-probe.html';
 
 function parseArgs(argv) {
   const args = {};
@@ -95,6 +97,19 @@ function validateExtensionPackageRoot(extensionDir) {
     throw new Error(`staged extension package contains banned entries: ${banned.join(', ')}`);
   }
   const manifest = readJson(path.join(extensionDir, 'manifest.json'));
+  const managedDeployment = fs.existsSync(path.join(extensionDir, 'deployment-profile.json'));
+  const hasNativeMessaging = Array.isArray(manifest.permissions)
+    && manifest.permissions.includes(LOCAL_GUARDIAN_PERMISSION);
+  const hasProbeResource = Array.isArray(manifest.web_accessible_resources)
+    && manifest.web_accessible_resources.some((entry) => (
+      Array.isArray(entry?.resources) && entry.resources.includes(LOCAL_GUARDIAN_PROBE_RESOURCE)
+    ));
+  if (managedDeployment && (!hasNativeMessaging || !hasProbeResource)) {
+    throw new Error('managed extension package must retain local guardian permission and probe resource');
+  }
+  if (!managedDeployment && (hasNativeMessaging || hasProbeResource)) {
+    throw new Error('non-managed extension package must remove local guardian permission and probe resource');
+  }
   if (manifest.update_url !== 'https://timeonchrome-update.pages.dev/timeonchrome/update.xml') {
     throw new Error('manifest update_url must reference the production self-hosted update manifest');
   }
@@ -124,6 +139,37 @@ function validateExtensionPackageRoot(extensionDir) {
   }
 }
 
+function applyLocalGuardianChannelBoundary(stagingDir, managedDeployment) {
+  const manifestPath = path.join(stagingDir, 'manifest.json');
+  const manifest = readJson(manifestPath);
+  const permissions = new Set(Array.isArray(manifest.permissions) ? manifest.permissions : []);
+  const resources = Array.isArray(manifest.web_accessible_resources)
+    ? manifest.web_accessible_resources.map((entry) => ({
+        ...entry,
+        resources: Array.isArray(entry?.resources) ? [...entry.resources] : [],
+      }))
+    : [];
+
+  if (managedDeployment) {
+    permissions.add(LOCAL_GUARDIAN_PERMISSION);
+    const target = resources.find((entry) => Array.isArray(entry.resources));
+    if (target && !target.resources.includes(LOCAL_GUARDIAN_PROBE_RESOURCE)) {
+      target.resources.push(LOCAL_GUARDIAN_PROBE_RESOURCE);
+    } else if (!target) {
+      resources.push({ resources: [LOCAL_GUARDIAN_PROBE_RESOURCE], matches: ['<all_urls>'] });
+    }
+  } else {
+    permissions.delete(LOCAL_GUARDIAN_PERMISSION);
+    for (const entry of resources) {
+      entry.resources = entry.resources.filter((resource) => resource !== LOCAL_GUARDIAN_PROBE_RESOURCE);
+    }
+  }
+
+  manifest.permissions = [...permissions];
+  manifest.web_accessible_resources = resources.filter((entry) => entry.resources.length > 0);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+}
+
 function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = false) {
   fs.rmSync(stagingDir, { recursive: true, force: true });
   ensureDir(stagingDir);
@@ -134,6 +180,7 @@ function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = fal
     const target = path.join(stagingDir, entry.name);
     fs.cpSync(source, target, { recursive: true, force: true });
   }
+  applyLocalGuardianChannelBoundary(stagingDir, managedDeployment);
   if (managedDeployment) {
     fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: 'managed' }, null, 2) + '\n', 'utf8');
     const leakedPrivacyPages = [...MANAGED_PACKAGE_EXCLUDED_ENTRIES]

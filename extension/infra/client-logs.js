@@ -1,6 +1,7 @@
 // infra/client-logs.js — local client logging foundation
 import { INCOGNITO_PLACEHOLDER_DOMAIN, sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
 import { budgetedLocalSet } from './storage-budget.js';
+import { budgetedSessionSet } from './session-storage-budget.js';
 
 const INCOGNITO_DOMAIN = typeof INCOGNITO_PLACEHOLDER_DOMAIN === 'string'
   ? INCOGNITO_PLACEHOLDER_DOMAIN
@@ -11,6 +12,9 @@ const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function
 const clientStorageSet = (items, options = {}) => typeof budgetedLocalSet === 'function'
   ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'client_logs', ...options })
   : chrome.storage.local.set(items);
+const clientSessionStorageSet = (items) => typeof budgetedSessionSet === 'function'
+  ? budgetedSessionSet(items, { priority: 'diagnostic', source: 'client_info_logs' })
+  : chrome.storage.session.set(items).then(() => ({ ok: true }));
 
 export const CLIENT_LOGS_KEY = 'client_logs_v1';
 export const CLIENT_SESSION_LOGS_KEY = 'client_logs_session_v1';
@@ -97,8 +101,8 @@ async function sessionStorageGet(keys) {
 async function sessionStorageSet(value) {
   try {
     if (chrome.storage.session?.set) {
-      await chrome.storage.session.set(value);
-      return true;
+      const result = await clientSessionStorageSet(value);
+      return result?.ok === true;
     }
     return await storageSet(value);
   } catch (_) {

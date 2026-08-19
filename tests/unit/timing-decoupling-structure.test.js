@@ -36,11 +36,13 @@ check('background does not directly import media ledger mutators', !/applyMediaF
 check('background does not contain foreground context state machine internals', !/buildContext|resolveState|appliedForegroundBoundary|pendingForegroundGapDiagnostic/.test(background));
 check('dispatcher imports both independent consumers', dispatcher.includes('processForegroundSignal') && dispatcher.includes('observeMediaFromSignal'));
 check('dispatcher classifies media-only signals', dispatcher.includes('classifyTimingSignal') && dispatcher.includes('mediaOnly'));
+check('dispatcher isolates media consumer failure from foreground timing', dispatcher.includes('media_timing_consumer_failed') && dispatcher.lastIndexOf('observeMediaFromSignal') < dispatcher.lastIndexOf('processForegroundSignal'));
 check('foreground module does not import media ledger mutators', !/applyMediaFacts|closeMediaForTab|media_segments_v1/.test(foreground));
 check('foreground module owns foreground session transitions', /transitionStateAt/.test(foreground) && /resolveState/.test(foreground));
 check('media module does not touch foreground usage ledger', !/transitionStateAt|usage_segments_v1/.test(media));
 check('media module owns media ledger mutators', /applyMediaFacts/.test(media) && /closeMediaForTab/.test(media));
 check('checkpoint scheduler has independent foreground and media try blocks', /foreground checkpoint failed/.test(scheduler) && /media checkpoint failed/.test(scheduler));
+check('checkpoint scheduler names confirmed media evidence ledger gaps', scheduler.includes('media_evidence_without_ledger'));
 check('managed statistics module owns read model semantics', /getTodayUsageView/.test(managedStats) && /getQuotaUsageView/.test(managedStats) && /getSettlementAnalysisView/.test(managedStats));
 check('managed statistics does not import ledger mutators or product actions', !/transitionStateAt|flushOpenSessionToStats|applyMediaFacts|closeMediaForTab|redirect|notify|checkAllTabsQuota/.test(managedStats));
 check('message router delegates stats views to managed statistics', /from '\.\/stats\/managed-statistics\.js'/.test(messageRouter) && /getTodayUsageView|getUsageRangeView|getSettlementAnalysisView/.test(messageRouter));

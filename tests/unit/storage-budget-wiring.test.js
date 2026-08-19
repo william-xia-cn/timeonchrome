@@ -39,13 +39,13 @@ if (!maintenance.includes('withStorageBudgetBypass') || !maintenance.includes('s
 passed++;
 for (const relative of ['core/timing-trace.js', 'debug/focus-ledger.js', 'product/mode-effects.js']) {
   const source = fs.readFileSync(path.join(root, relative), 'utf8');
-  if (!source.includes('storage.session')) {
-    throw new Error(`${relative} does not prefer session storage for transient diagnostics`);
+  if (!source.includes('session-storage-budget.js') || !source.includes('budgetedSessionSet')) {
+    throw new Error(`${relative} does not use the session storage budget for transient diagnostics`);
   }
   passed++;
 }
 const clientLogs = fs.readFileSync(path.join(root, 'infra', 'client-logs.js'), 'utf8');
-if (!clientLogs.includes("CLIENT_SESSION_LOGS_KEY = 'client_logs_session_v1'") || !clientLogs.includes('sessionStorageSet')) {
+if (!clientLogs.includes("CLIENT_SESSION_LOGS_KEY = 'client_logs_session_v1'") || !clientLogs.includes('sessionStorageSet') || !clientLogs.includes('budgetedSessionSet')) {
   throw new Error('client info logs are not routed to session storage');
 }
 passed++;
@@ -59,8 +59,18 @@ if (!session.includes("reason: 'settlement_not_durable'") || !session.includes("
   throw new Error('session durability gate is missing');
 }
 passed++;
+if (!session.includes('budgetedSessionSet') || !session.includes('session_mirror_degraded') || session.includes('await chrome.storage.session.set({ [SESSION_KEY]: session })')) {
+  throw new Error('durable session is not isolated from the volatile mirror');
+}
+passed++;
 const budget = fs.readFileSync(path.join(root, 'infra', 'storage-budget.js'), 'utf8');
 if (!budget.includes('storageBypassToken') || !budget.includes('PRIORITY_RANK') || !budget.includes('runStorageMutation')) {
   throw new Error('storage priority queue or scoped maintenance token is missing');
 }
-passed++;console.log(`[Storage Budget Wiring] ${passed}/${passed} passed`);
+passed++;
+const sessionBudget = fs.readFileSync(path.join(root, 'infra', 'session-storage-budget.js'), 'utf8');
+if (!sessionBudget.includes('SESSION_STORAGE_HARD_LIMIT_BYTES') || !sessionBudget.includes('SESSION_STORAGE_DISPOSABLE_KEYS') || !sessionBudget.includes("SESSION_STORAGE_PROTECTED_KEYS = ['session_v1']")) {
+  throw new Error('session storage hard limit or protected current session is missing');
+}
+passed++;
+console.log(`[Storage Budget Wiring] ${passed}/${passed} passed`);

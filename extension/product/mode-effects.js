@@ -9,13 +9,16 @@ import {
   sendNoticeForDecision,
 } from './interceptor.js';
 import { budgetedLocalSet } from '../infra/storage-budget.js';
+import { budgetedSessionSet } from '../infra/session-storage-budget.js';
 
 function modeTraceStorageArea(chromeApi = globalThis.chrome) {
   return chromeApi?.storage?.session || chromeApi?.storage?.local || null;
 }
 
 const modeTraceStorageSet = (items) => globalThis.chrome?.storage?.session?.set
-  ? globalThis.chrome.storage.session.set(items)
+  ? (typeof budgetedSessionSet === 'function'
+    ? budgetedSessionSet(items, { priority: 'diagnostic', source: 'mode_effect_trace' })
+    : globalThis.chrome.storage.session.set(items))
   : (typeof budgetedLocalSet === 'function'
     ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'mode_effect_trace' })
     : globalThis.chrome.storage.local.set(items));

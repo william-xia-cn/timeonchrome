@@ -9,6 +9,7 @@ import * as managedTargets from '../core/managed-targets.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
 import { budgetedLocalSet } from '../infra/storage-budget.js';
+import { budgetedSessionSet } from '../infra/session-storage-budget.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
   ? sanitizeIncognitoForPersistence
@@ -22,6 +23,9 @@ const sessionDiagnosticStorageSet = (items) => typeof budgetedLocalSet === 'func
 const sessionDerivedStorageSet = (items) => typeof budgetedLocalSet === 'function'
   ? budgetedLocalSet(items, { priority: 'derived', source: 'session_derived' })
   : chrome.storage.local.set(items);
+const volatileSessionStorageSet = (items) => typeof budgetedSessionSet === 'function'
+  ? budgetedSessionSet(items, { priority: 'business', source: 'runtime_session_mirror' })
+  : chrome.storage.session.set(items).then(() => ({ ok: true }));
 const emitInboundTrace = (...args) => (
   typeof emitTimingInbound === 'function'
     ? emitTimingInbound(...args)
@@ -39,6 +43,8 @@ const SITE_CLASSIFICATION_REQUESTS_KEY = 'site_classification_requests_v1';
 const UI_FLUSH_GUARD_KEY = 'ui_flush_guard_v1';
 const UI_FLUSH_MIN_INTERVAL_MS = 30 * 1000;
 const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 3 * 60 * 1000;
+const SESSION_MIRROR_WARNING_COOLDOWN_MS = 30 * 60 * 1000;
+let lastSessionMirrorWarningAt = 0;
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
@@ -197,7 +203,7 @@ export async function getSession() {
 
 export async function getSessionWithPersistenceSource() {
   const [sessionData, persistentData] = await Promise.all([
-    chrome.storage.session.get(SESSION_KEY),
+    chrome.storage.session.get(SESSION_KEY).catch(() => ({})),
     chrome.storage.local.get(PERSISTENT_SESSION_KEY),
   ]);
   const volatileSession = sessionData[SESSION_KEY] || null;
@@ -219,7 +225,26 @@ export async function saveSession(session) {
   // Persistent state is the recovery source of truth. Never expose a newer volatile
   // session unless the local durable copy has already succeeded.
   await sessionStorageSet({ [PERSISTENT_SESSION_KEY]: session });
-  await chrome.storage.session.set({ [SESSION_KEY]: session });
+  let mirror;
+  try {
+    mirror = await volatileSessionStorageSet({ [SESSION_KEY]: session });
+  } catch (error) {
+    mirror = { ok: false, skipped: 'session_storage_write_failed', error: error?.message || String(error) };
+  }
+  const now = Date.now();
+  if (mirror?.ok === false && now - lastSessionMirrorWarningAt >= SESSION_MIRROR_WARNING_COOLDOWN_MS) {
+    lastSessionMirrorWarningAt = now;
+    recordFallbackLog({
+      level: 'warning',
+      category: 'storage',
+      eventCode: 'session_mirror_degraded',
+      module: 'runtime/session',
+      reason: mirror.skipped || 'session_storage_write_failed',
+      message: 'Volatile session mirror unavailable; durable session remains authoritative',
+      details: { skipped: mirror.skipped || null, error: mirror.error || null },
+    });
+  }
+  return { ok: true, durable: true, mirror: mirror?.ok === true };
 }
 
 /**

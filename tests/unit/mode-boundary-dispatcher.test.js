@@ -157,6 +157,25 @@ async function run() {
     check('media-only signal produces inbound skipped audit', traces.some((trace) => trace.event === 'timing_inbound_skipped' && trace.payload.reason === 'media_signal_foreground_unchanged'), JSON.stringify(traces));
   }
 
+  {
+    let foregroundCalls = 0;
+    const fallbackLogs = [];
+    const api = loadDispatcher({
+      ...auditStubs,
+      isMediaOnlyTimingSignal: () => false,
+      observeMediaFromSignal: async () => { throw new Error('media ledger unavailable'); },
+      processForegroundSignal: async () => { foregroundCalls += 1; return { ok: true, foregroundWritten: true }; },
+      processForegroundModeBoundary: async () => ({ ok: true }),
+      processMediaModeBoundary: async () => ({ ok: true }),
+      drainModeBoundaryIntents: async () => ({ ok: true, processed: 0 }),
+      logFallbackEventBestEffort: (event) => fallbackLogs.push(event),
+    });
+    const result = await api.dispatchTimingSignal({ _reason: 'tabUpdated', domain: 'example.com' });
+    check('media consumer failure does not block foreground timing', foregroundCalls === 1 && result.foregroundWritten === true, JSON.stringify(result));
+    check('media consumer failure remains visible in result', result.media?.ok === false, JSON.stringify(result));
+    check('media consumer failure emits a bounded fallback event', fallbackLogs.some((event) => event.eventCode === 'media_timing_consumer_failed'), JSON.stringify(fallbackLogs));
+  }
+
   console.log('[Mode Boundary Dispatcher] passed');
 }
 

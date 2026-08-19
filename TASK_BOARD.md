@@ -35,6 +35,20 @@
   - 实施闸门：先由 Product Owner 整理当前未提交改动，确认干净工作区并对齐最新 `origin/master`，再创建 `codex/task-management-v1`；任务实现不得与其他功能提交混合。
 
 ## Current Fix Focus（2026-07-28）
+- [x] **[P0 Local Health] 1.7.25 managed 本地健康心跳（扩展端完成）**
+  - 扩展端通过 `com.timeonchrome.guardian` 发送不依赖网络的本地 heartbeat/probe，覆盖 Service Worker 启动、bootstrap 结果、startup/install、60 秒周期与健康探测页唤醒。
+  - 仅 managed self-hosted artifact 保留 `nativeMessaging` 与 `health-probe.html` 暴露；普通/CWS artifact 必须在 staging 时移除。
+  - Host 故障只写有界脱敏状态，不得影响计时、拦截、配置与云同步；外部 Host 未完成前发布门禁为 `BLOCKED_BY_NATIVE_HOST`。
+  - 自动化证据：111 个 unit 文件通过；`node tests/run-all.js` 全部通过（API 103/103、integration 53/53、extension E2E 14/14）；typecheck、扩展根检查和 managed/non-managed staging 边界检查通过。
+  - 本地协议验收：unpacked managed extension + 临时 Native Host 已验证真实 stdio 帧协议、启动心跳、60 秒周期心跳、probe 唤醒、Host 断开静默降级与恢复；共收到 3 条 heartbeat、2 条 probe，payload 脱敏检查通过。
+  - 未关闭门禁：生产 Guardian Host 与双 Chrome Profile 人工验收仍由外部守护项目负责；生产机器安装 Host 前，本地健康能力保持 `BLOCKED_BY_NATIVE_HOST`，但失败不得阻塞既有监控、计时、拦截或云同步。
+- [x] **[P0 Storage/Timing] 1.7.25 session storage 硬门与计时隔离**
+  - 生产证据：T.xia 在 2026-08-18 12:17 至 2026-08-19 00:51 出现 119 次 `Session storage quota bytes exceeded` / `timing_dispatch_failed`；P.xia 同版本未出现，说明高增长 session 诊断在长会话设备上可突破 Chrome 10 MB 配额。
+  - 根因：`1.7.23` 将 info/timing/focus/mode 诊断迁入 `chrome.storage.session`，但只限制条数，没有统一字节预算；`session_v1` 镜像写入失败仍会让整个 timing dispatch reject。
+  - 修复口径：4 MB 压力线、2 MB 清理目标、6 MB 应用硬门；diagnostic key 按固定顺序淘汰，`session_v1` 永远保护；local persistent session 成功后，session 镜像失败不得阻断网页或媒体落账。
+  - 媒体口径：媒体与前台消费者独立容错；连续两次 checkpoint 存在媒体证据但没有 media session/segment 时记录明确缺口，不把“无媒体证据”误报为故障。
+  - 边界：只改扩展本地代码、测试和技术文档；不修改 Worker、D1 schema、profile或历史账本。Product Owner 已于 2026-08-20 批准提交、推送并发布到内部自托管更新通道。
+  - 验证：新增 session 预算、durable session 降级、timing trace 限幅、媒体消费者隔离和媒体账本缺口测试；2026-08-20 全量 unit 共 109 个测试文件通过。
 - [x] [P0 Storage] T.xia 已上传副本与诊断日志分层收敛
   - 保留：已上传网页/媒体原始分段仅保留当前北京时间自然日；当日保留完整聚合，历史保留最近 7 日已上传日聚合。
   - 日志：info/timing/focus/mode trace 进入 `chrome.storage.session`；local 只保留 warning/error 小型上传缓冲。

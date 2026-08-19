@@ -6,6 +6,17 @@
 
 ---
 
+## [1.7.25] — 2026-08-20
+
+- **Managed 本地健康心跳**：内部自托管渠道增加 Native Messaging 心跳和健康探测页，用本机 Host 独立确认扩展版本、Profile 实例、脱敏策略摘要与核心监控状态，不依赖网络或云端心跳。
+- **权限渠道隔离**：managed artifact 保留 `nativeMessaging` 和探测页暴露，普通/CWS artifact 在 staging 时强制移除；Host 缺失或异常只做有界脱敏降级，不影响计时、拦截和同步。
+- **Session 存储 P0 止血**：为 `chrome.storage.session` 增加独立预算、串行写入和诊断数据淘汰；4 MB 进入压力维护并清理到 2 MB，6 MB 为应用硬门，始终为当前业务 session 预留空间。
+- **计时业务写入隔离**：`session_v1_persistent` 成功后，内存 session 镜像失败只触发诊断清理与降级，不再中断 timing dispatch、网页结算或媒体处理。
+- **诊断限幅**：timing/focus/mode trace 与 info 日志统一进入 session 预算；timing trace 改为紧凑记录并同时受条数和字节上限约束。
+- **媒体容错与健康诊断**：媒体和前台 timing 消费者独立捕获错误；连续发现媒体证据却没有 media session/segment 时输出明确的媒体账本缺口事件。
+
+---
+
 ## [1.7.24] — 2026-08-18
 
 - **关键 alarm 稳定性修复**：Service Worker 冷启动只补建缺失或周期错误的 alarm，不再取消并重建周期正确的 checkpoint、配额和云同步 alarm。

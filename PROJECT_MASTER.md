@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.24**
-- **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-18）**：`1.7.24` 代码提交 `584b839` 已推送到 `origin/master`；家长控制台 Pages 与 T.xia / P.xia 内部自托管更新源均已部署并完成生产回读。CRX SHA256 为 `da88f02dceb3e6234ea21a9c3a8d39ffa4fff0f105abe3617912e8904e5f5fe4`；`guardian-api`、D1、profile 与 Chrome Web Store 本轮未变更，当前进入设备升级与 24 小时运行观察。
+- **版本：1.7.25**
+- **阶段：V1-minimal internal release candidate（V0 baseline frozen）**
+- **当前发布状态（2026-08-20）**：`1.7.25` 候选包含 session storage P0 止血与 managed 本地健康心跳扩展端；自动化回归、unpacked extension + 临时 Native Host 端到端协议验证已通过，等待提交、推送、稳定 ID 签名打包和内部自托管更新源部署。外部生产 Guardian Host 不在本仓库，本地心跳在其安装前保持静默降级；`guardian-api`、D1、profile 与 Chrome Web Store 本轮不变更。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

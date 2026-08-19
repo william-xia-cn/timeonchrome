@@ -15,13 +15,16 @@
 //   3. Call resetFocusLedger() to clear for a new test session
 
 import { budgetedLocalSet } from '../infra/storage-budget.js';
+import { budgetedSessionSet } from '../infra/session-storage-budget.js';
 
 function focusStorageArea() {
   return chrome.storage.session || chrome.storage.local;
 }
 
 const focusStorageSet = (items) => chrome.storage.session?.set
-  ? chrome.storage.session.set(items)
+  ? (typeof budgetedSessionSet === 'function'
+    ? budgetedSessionSet(items, { priority: 'diagnostic', source: 'focus_ledger' })
+    : chrome.storage.session.set(items))
   : (typeof budgetedLocalSet === 'function'
     ? budgetedLocalSet(items, { priority: 'diagnostic', source: 'focus_ledger' })
     : chrome.storage.local.set(items));

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TimeOnChrome",
-  "version": "1.7.24",
+  "version": "1.7.25",
   "description": "上网时间管理助手 - 学习模式、时长统计、智能提醒",
   "update_url": "https://timeonchrome-update.pages.dev/timeonchrome/update.xml",
   "incognito": "split",
@@ -15,7 +15,8 @@
     "idle",
     "notifications",
     "identity",
-    "identity.email"
+    "identity.email",
+    "nativeMessaging"
   ],
 
   "storage": {
@@ -69,7 +70,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["reminder.html", "reminder.js", "bind.html", "config.js", "auth.js", "sync.js", "icons/ui/*.svg"],
+      "resources": ["reminder.html", "reminder.js", "bind.html", "config.js", "auth.js", "sync.js", "health-probe.html", "icons/ui/*.svg"],
       "matches": ["<all_urls>"]
     }
   ]

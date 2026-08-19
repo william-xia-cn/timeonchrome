@@ -162,6 +162,26 @@ async function run() {
     const storage = installHealthStorage();
     const fallbackLogs = [];
     const { runTimingCheckpoints } = loadScheduler({
+      createTimingAuditId: () => 'checkpoint-audit-media-gap',
+      logFallbackEventBestEffort: (entry) => fallbackLogs.push(entry),
+      runPeriodicCheckpoint: async () => ({ ok: true, reason: 'no_active_tab' }),
+      runMediaCheckpoint: async () => ({
+        ok: true,
+        reason: 'media_evidence_observed',
+        discovery: { factsObserved: 1, sessionsOpened: 0 },
+        flushedSegments: 0,
+      }),
+    });
+    await runTimingCheckpoints({ isMonitoringEnabled: () => true, emitTrace: async () => {}, warn: () => {} });
+    await runTimingCheckpoints({ isMonitoringEnabled: () => true, emitTrace: async () => {}, warn: () => {} });
+    check('consecutive media evidence without ledger is confirmed', storage.timing_checkpoint_health_v1?.ledgerGap?.mediaConsecutive === 2, JSON.stringify(storage.timing_checkpoint_health_v1));
+    check('confirmed media gap uses explicit event code', fallbackLogs.some((log) => log.eventCode === 'media_evidence_without_ledger' && log.level === 'error'), JSON.stringify(fallbackLogs));
+  }
+
+  {
+    const storage = installHealthStorage();
+    const fallbackLogs = [];
+    const { runTimingCheckpoints } = loadScheduler({
       createTimingAuditId: () => 'checkpoint-audit-benign',
       logFallbackEventBestEffort: (entry) => fallbackLogs.push(entry),
       runPeriodicCheckpoint: async () => ({

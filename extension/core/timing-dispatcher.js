@@ -179,7 +179,22 @@ export async function dispatchTimingSignal(rawEvent, options = {}) {
     payload: { signalClass },
   });
   await drainPendingModeBoundaries(options);
-  const mediaObservation = await observeMediaFromSignal(auditedEvent);
+  let mediaObservation = null;
+  try {
+    mediaObservation = await observeMediaFromSignal(auditedEvent);
+  } catch (err) {
+    mediaObservation = { ok: false, error: err?.message || String(err) };
+    recordFallbackLog({
+      level: 'error',
+      category: 'media',
+      eventCode: 'media_timing_consumer_failed',
+      module: 'core/timing-dispatcher',
+      reason: 'media_consumer_failed',
+      message: 'Media timing consumer failed; foreground timing continues independently',
+      domain: auditedEvent.domain || null,
+      details: { auditId, error: mediaObservation.error },
+    });
+  }
   if (signalClass.mediaOnly) {
     await emitInboundAudit('timing_inbound_skipped', rawEvent, options, {
       auditId,
@@ -191,7 +206,7 @@ export async function dispatchTimingSignal(rawEvent, options = {}) {
       },
     });
     return {
-      ok: true,
+      ok: mediaObservation?.ok !== false,
       skipped: true,
       reason: 'media_signal_foreground_unchanged',
       auditId,
@@ -202,5 +217,5 @@ export async function dispatchTimingSignal(rawEvent, options = {}) {
   const foreground = await processForegroundSignal(auditedEvent, {
     scheduleBadgeUpdate: options.scheduleBadgeUpdate,
   });
-  return { ...foreground, auditId };
+  return { ...foreground, auditId, media: mediaObservation };
 }

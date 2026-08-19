@@ -36,6 +36,7 @@ function sleep(ms) {
 
 const mockSessionStorage = new MockStorage(2);
 const mockLocalStorage = new MockStorage(2);
+let failVolatileSessionMirror = false;
 
 global.chrome = {
   storage: {
@@ -79,6 +80,11 @@ const sessionApi = loadProdModule('runtime/session.js', ['initSession', 'getSess
   settleUsageDuration: async (input) => {
     settledInputs.push(input);
     return 1;
+  },
+  budgetedSessionSet: async (items) => {
+    if (failVolatileSessionMirror) throw new Error('session storage unavailable');
+    await mockSessionStorage.set(items);
+    return { ok: true };
   },
 });
 
@@ -452,6 +458,26 @@ async function runTests() {
       ));
     } finally {
       Date.now = originalNow;
+    }
+  }
+
+  section('SQ-11 volatile session mirror failure does not reject durable save');
+  {
+    mockSessionStorage.reset();
+    mockLocalStorage.reset();
+    failVolatileSessionMirror = true;
+    try {
+      const result = await sessionApi.saveSession({
+        state: 'ACTIVE',
+        domain: 'durable-session.test',
+        startTime: 1777200000000,
+        lastHeartbeat: 1777200005000,
+      });
+      check('durable save succeeds when volatile mirror fails', result?.ok === true && result?.durable === true && result?.mirror === false);
+      check('persistent session remains authoritative', mockLocalStorage.data.session_v1_persistent?.domain === 'durable-session.test');
+      check('failed volatile mirror is absent', mockSessionStorage.data.session_v1 == null);
+    } finally {
+      failVolatileSessionMirror = false;
     }
   }
 

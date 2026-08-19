@@ -29,13 +29,19 @@ try {
   }
   assert.strictEqual(fs.existsSync(path.join(managed, 'core', 'privacy-consent.js')), true);
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(managed, 'deployment-profile.json'), 'utf8')), { mode: 'managed' });
+  const managedManifest = JSON.parse(fs.readFileSync(path.join(managed, 'manifest.json'), 'utf8'));
+  assert.strictEqual(managedManifest.permissions.includes('nativeMessaging'), true);
+  assert.strictEqual(managedManifest.web_accessible_resources.some((entry) => entry.resources.includes('health-probe.html')), true);
 
   const regular = stage('regular', false);
   for (const entry of ['privacy-consent.html', 'privacy-consent.js', 'privacy.html']) {
     assert.strictEqual(fs.existsSync(path.join(regular, entry)), true, `${entry} missing from regular package`);
   }
   assert.strictEqual(fs.existsSync(path.join(regular, 'deployment-profile.json')), false);
-  console.log('[Managed Package Privacy Boundary] 8/8 passed');
+  const regularManifest = JSON.parse(fs.readFileSync(path.join(regular, 'manifest.json'), 'utf8'));
+  assert.strictEqual(regularManifest.permissions.includes('nativeMessaging'), false);
+  assert.strictEqual(regularManifest.web_accessible_resources.some((entry) => entry.resources.includes('health-probe.html')), false);
+  console.log('[Managed Package Privacy Boundary] 12/12 passed');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }

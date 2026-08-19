@@ -359,11 +359,12 @@ async function writeCheckpointHealth({ now, auditId, monitoringEnabled, foregrou
 function logLedgerGapIfNeeded(ledgerGap, auditId, before, after) {
   if (!ledgerGap || ledgerGap.status === 'none') return;
   const confirmed = ledgerGap.status === 'confirmed';
+  const mediaGap = String(ledgerGap.reason || '').includes('media_observed_without_ledger');
   recordFallbackLog({
     level: confirmed ? 'error' : 'warning',
     category: 'ledger_gap',
     module: 'core/checkpoint-scheduler',
-    eventCode: confirmed ? 'ledger_gap_confirmed' : 'ledger_gap_suspected',
+    eventCode: confirmed && mediaGap ? 'media_evidence_without_ledger' : (confirmed ? 'ledger_gap_confirmed' : 'ledger_gap_suspected'),
     reason: ledgerGap.reason || 'ledger_gap',
     message: confirmed
       ? 'Checkpoint observed browser activity without durable ledger for consecutive runs'

@@ -767,10 +767,24 @@ pullCloudConfig():
 - 配置、身份、token、隐私同意、当前模式、当前会话、时间窗口、访问规则、人工网站请求及批准/拒绝结果属于保护数据，任何压力等级都不得删除。若清空所有允许淘汰的数据后仍不能容纳新写入，预算门必须拒绝写入并保持总量不超过 8 MB。
 - 503、fetch failure 和 request abort 使用跨同步退避，最长 30 分钟；成功后清除退避。维护日志需要冷却，避免维护本身成为新的存储压力来源。
 - 存储诊断只允许记录 key 字节数、对象数量、pending 数量和维护结果，不记录域名、标题、URL、页面文本或响应正文。
-- 当前会话的 `info` 客户端日志、`__timingTrace`、`debug_focus_ledger_v1` 和 `mode_effect_trace_v1` 写入 `chrome.storage.session`，浏览器重启、扩展更新/重载时自动清空。warning/error 仍写入有界 `client_logs_v1` 持久缓冲，最多 3 天，成功上传立即移除。`timing_checkpoint_health_v1`、`foreground_page_diagnostics_v1` 和 `storage_diagnostics_v1` 作为单份覆盖写摘要继续保留在 local。
+- 当前会话的 `info` 客户端日志、`__timingTrace`、`debug_focus_ledger_v1` 和 `mode_effect_trace_v1` 写入 `chrome.storage.session`，浏览器重启、扩展更新/重载时自动清空。session storage 使用独立安全线：4 MB 进入压力维护并清理到 2 MB，6 MB 为应用硬门；淘汰顺序为 timing trace、focus ledger、mode trace、info 日志，`session_v1` 属于受保护业务状态。所有 session 写入进入同一串行队列，诊断写入无法容纳时直接丢弃，不得挤占或阻断业务状态。warning/error 仍写入有界 `client_logs_v1` 持久缓冲，最多 3 天，成功上传立即移除。`timing_checkpoint_health_v1`、`foreground_page_diagnostics_v1` 和 `storage_diagnostics_v1` 作为单份覆盖写摘要继续保留在 local。
+- `session_v1_persistent` 是网页当前会话的 durable source of truth。其 local 写入成功后，`session_v1` 内存镜像的配额失败只允许触发 session 诊断清理和一次重试；重试失败必须回退到 persistent source，不能抛出并中断 timing dispatch。媒体与前台消费者分别捕获错误，任一消费者或诊断写入失败不得取消另一条账本链路。
 - `storage_pressure_unresolved` 只上报最多 10 个最大 key 的名称、字节数、对象数和 pending 数，同一 unresolved 状态冷却 6 小时；状态变化、逼近硬门或发生数据降级时立即记录。
 
 扩展 lifecycle boundary 必须同时处理网页和媒体 open session。`onInstalled(update)` / `onStartup` 在模式边界和云同步前恢复 `media_sessions_v2`：最近媒体证据仍新鲜时可结算到当前时间；陈旧 session 最多结算到 `lastObservedAt + 90 秒`，缺少该字段时最多结算到 `startTime + 90 秒`，随后清空 open/legacy media session，等待新的 content evidence 重新开启。不得让升级前 session 被后续 `mode_effective_boundary` 结算为数小时媒体账。
+
+#### 3.5.2 Managed 本地健康心跳
+
+内部 managed self-hosted 扩展通过 Native Messaging Host `com.timeonchrome.guardian` 提供独立于网络和云端 API 的本地健康信号。源 manifest 声明 `nativeMessaging`，但打包 staging 必须按渠道裁剪：managed artifact 保留权限、`deployment-profile.json` 与 `health-probe.html` 的 web accessible resource；普通/CWS artifact 强制移除该权限和探测页暴露。运行时还必须验证 deployment marker 为 managed，非 managed 上下文不得连接 Host。
+
+- 模块加载时同步注册 `timeonchromeLocalGuardianHeartbeat` alarm、`onStartup`、`onInstalled` 和内部 probe 消息监听器。Service Worker 加载后立即发送 `booting`；bootstrap 完成或失败后发送确定状态；Native Port 存活时每 60 秒发送，独立一分钟 alarm 作为 Service Worker 唤醒兜底。
+- 使用持久 `connectNative()` Port，但任一时刻只允许一个等待应答的 heartbeat/probe。Host 应答超时为 3 秒；probe 优先且使用 5 秒冷却；生命周期、alarm 和内存定时器触发必须合并，队列不得无界增长。Port 断开后不立即循环重连，只在下一次 alarm、生命周期事件或 probe 时重试。
+- payload 固定为 `type`、`extensionId`、`version`、`profile`、`incognito`、`policyHash`、`monitoringStatus`、`timestamp`。Profile UUID 在 `chrome.storage.local` 生成、持久化并回读确认；普通和 split-incognito 上下文共享 UUID，用 `chrome.extension.inIncognitoContext` 区分上下文。
+- 策略哈希使用认可 managed key 的递归排序确定性 JSON 和 SHA-256；`managedDeviceToken` 只以“是否存在”布尔值参与哈希。payload、状态、控制台和客户端日志禁止出现 token、邮箱、URL、域名、标题、Cookie、浏览历史或原始错误正文。
+- `monitoringStatus` 只允许 `booting`、`active`、`degraded`、`disabled_by_policy`、`privacy_consent_required`。只有 bootstrap 成功、activation 有效且 monitoring 未关闭时才能报告 `active`；关键读取或 bootstrap 失败报告 `degraded`。
+- Host 仅以 `{ ok: true, receivedAt }` 确认。缺失、断开、超时或无效响应只更新有界 `local_guardian_status_v1`，保存最近尝试/成功时间、短错误码、连续失败数、Port 状态和触发来源；不得保存 payload 或原始错误文本，也不得让失败传播到 bootstrap、计时、拦截或同步。
+- `health-probe.html` 是不展示数据、不发起网络请求的空白扩展页。它向 Service Worker 发送 `TIMEONCHROME_LOCAL_HEALTH_PROBE`，由独立监听器校验 sender 后立即发送 `type: probe`；收到结果后关闭，最迟 5 秒强制关闭。
+- 现有每五分钟云端 heartbeat 保持不变。本地 heartbeat 只证明扩展进程和核心初始化状态，不替代云端配置、网页/媒体账本或远程监控。
 
 ### 3.6 配置修改流程
 
@@ -1060,7 +1074,7 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 ### 与现有诊断关系
 
-- `__timingTrace`：位于 `chrome.storage.session` 的细粒度当前会话 trace，覆盖 timing signal、checkpoint、mode boundary 等高频过程
+- `__timingTrace`：位于 `chrome.storage.session` 的细粒度当前会话 trace，覆盖 timing signal、checkpoint、mode boundary 等高频过程；生产记录必须紧凑化，最多 200 条且不超过 512 KB，不保存完整 URL、大型 stats/session 快照或无界 payload
 - `foreground_page_diagnostics_v1`：前台计时健康统计
 - `timing_checkpoint_health_v1`：最近一次 checkpoint 健康摘要，包含 foreground/media 前后计数、mode boundary 队列状态和 ledger gap 状态
 - `cloud_v1_last_sync_error` / outbox retry：当前同步状态摘要
