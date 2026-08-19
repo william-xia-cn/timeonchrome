@@ -7,8 +7,13 @@
 - 发布目标：T.xia / P.xia 内部自托管扩展通道
 - 候选版本：`1.7.25`
 - 候选分支：`master`
+- 候选代码提交：`72a259cc0255aafe9f584bdb8e9e149e2554aed9`
+- CRX：`dist/self-hosted/timeonchrome-1.7.25.crx`
+- CRX 大小：358,448 bytes
+- SHA256：`83087f98cb845d0c280a49a8ef393abd4d27e594c9fbc49d6675c163da3d81c1`
 - 稳定扩展 ID：`jdcancbiocacabbjdkngadmjpjmkdnih`
-- 状态：Release Candidate / Pending Deployment
+- 更新站点 deployment：`a718053a`
+- 状态：Deployed / Production Observation
 
 ## 执行范围
 
@@ -27,8 +32,8 @@
 | Type/root checks | PASS | `npm run typecheck`、`npm run check:extension-root`、`git diff --check` 通过 |
 | Native protocol smoke | PASS | unpacked managed extension + 临时 Host 收到 3 条 heartbeat、2 条 probe；60 秒周期、断开降级、恢复和脱敏通过 |
 | Production Guardian Host | BLOCKED_BY_NATIVE_HOST | 外部守护项目尚未在生产设备安装和注册 Host；扩展端会静默降级 |
-| Artifact verification | PENDING | 待稳定 ID 签名打包后记录 CRX 大小和 SHA256 |
-| Production update host | PENDING | 待部署后回读 update.xml、SHA256SUMS 与 CRX |
+| Artifact verification | PASS | CRX 358,448 bytes；manifest `1.7.25`；稳定扩展 ID、managed marker、`nativeMessaging`、probe 与 SHA256 一致；废弃隐私页面未入包 |
+| Production update host | PASS | deployment `a718053a`；稳定域名与唯一域名 feed 均 HTTP 200，线上 CRX SHA256 与本地一致 |
 | Evidence privacy | PASS | 未记录密钥、token、Cookie、账号、profile/device 标识或浏览历史 |
 
 ## 已知风险
@@ -41,3 +46,7 @@
 - 确认 T.xia / P.xia 升级到 `1.7.25`。
 - 连续观察网页落账、checkpoint、媒体账本和云同步，确认 session storage 不再引发 timing dispatch 失败。
 - 安装生产 Guardian Host 后验证稳定扩展 ID、Profile UUID、60 秒心跳与 probe 自愈。
+
+## 发布结论
+
+`PASS_WITH_PRODUCTION_OBSERVATION_AND_HOST_BLOCKER`。`1.7.25` 已提交并推送到 `master`，内部自托管更新源部署完成且生产回读一致。设备实际升级和连续运行仍需后续核对；生产 Guardian Host 未安装的风险继续标记为 `BLOCKED_BY_NATIVE_HOST`，不改写为通过。

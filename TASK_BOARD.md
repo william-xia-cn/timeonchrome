@@ -42,6 +42,7 @@
   - 自动化证据：111 个 unit 文件通过；`node tests/run-all.js` 全部通过（API 103/103、integration 53/53、extension E2E 14/14）；typecheck、扩展根检查和 managed/non-managed staging 边界检查通过。
   - 本地协议验收：unpacked managed extension + 临时 Native Host 已验证真实 stdio 帧协议、启动心跳、60 秒周期心跳、probe 唤醒、Host 断开静默降级与恢复；共收到 3 条 heartbeat、2 条 probe，payload 脱敏检查通过。
   - 未关闭门禁：生产 Guardian Host 与双 Chrome Profile 人工验收仍由外部守护项目负责；生产机器安装 Host 前，本地健康能力保持 `BLOCKED_BY_NATIVE_HOST`，但失败不得阻塞既有监控、计时、拦截或云同步。
+  - 发布状态：扩展代码随提交 `72a259c` 推送，稳定 ID `1.7.25` managed CRX 已部署到内部自托管更新源；生产回读 SHA256 为 `83087f98cb845d0c280a49a8ef393abd4d27e594c9fbc49d6675c163da3d81c1`。
 - [x] **[P0 Storage/Timing] 1.7.25 session storage 硬门与计时隔离**
   - 生产证据：T.xia 在 2026-08-18 12:17 至 2026-08-19 00:51 出现 119 次 `Session storage quota bytes exceeded` / `timing_dispatch_failed`；P.xia 同版本未出现，说明高增长 session 诊断在长会话设备上可突破 Chrome 10 MB 配额。
   - 根因：`1.7.23` 将 info/timing/focus/mode 诊断迁入 `chrome.storage.session`，但只限制条数，没有统一字节预算；`session_v1` 镜像写入失败仍会让整个 timing dispatch reject。
@@ -49,6 +50,7 @@
   - 媒体口径：媒体与前台消费者独立容错；连续两次 checkpoint 存在媒体证据但没有 media session/segment 时记录明确缺口，不把“无媒体证据”误报为故障。
   - 边界：只改扩展本地代码、测试和技术文档；不修改 Worker、D1 schema、profile或历史账本。Product Owner 已于 2026-08-20 批准提交、推送并发布到内部自托管更新通道。
   - 验证：新增 session 预算、durable session 降级、timing trace 限幅、媒体消费者隔离和媒体账本缺口测试；2026-08-20 全量 unit 共 109 个测试文件通过。
+  - 发布状态：已随 `1.7.25` 内部自托管包部署，进入 T.xia / P.xia 升级和运行观察。
 - [x] [P0 Storage] T.xia 已上传副本与诊断日志分层收敛
   - 保留：已上传网页/媒体原始分段仅保留当前北京时间自然日；当日保留完整聚合，历史保留最近 7 日已上传日聚合。
   - 日志：info/timing/focus/mode trace 进入 `chrome.storage.session`；local 只保留 warning/error 小型上传缓冲。
