@@ -42,6 +42,7 @@
   - 验证：静态结构测试；390px 与桌面视口 Playwright 截图；页面级横向溢出、底部导航、移动卡片和桌面回归检查。
   - 完成：手机端使用固定顶部档案栏、五项底部导航和“更多”底部抽屉；普通使用列表、七天配额和时间段转为移动卡片；24 小时图在独立区域横向查看；系统诊断表保留容器内横向滚动。
   - 证据：`pages-mobile-layout` 12/12、`pages-config-v12-fields` 214/214、全部 unit 测试通过；390×844 的统计/更多/配额/时间段及 1440×1000 桌面截图通过，页面无横向溢出。
+  - 发布结果（2026-08-25）：源码提交 `5e4557a` 已推送到 `origin/codex/native-app-control-v1`；Pages production deployment `5662e61e-b19d-4d4e-aef7-1e2356ba1c0a` 已发布，部署 URL 与稳定域名均回读 HTTP 200，并包含移动导航、配额卡片和时间段卡片标记。
 - [x] **[P0 Local Health] 1.7.25 managed 本地健康心跳（扩展端完成）**
   - 扩展端通过 `com.timeonchrome.guardian` 发送不依赖网络的本地 heartbeat/probe，覆盖 Service Worker 启动、bootstrap 结果、startup/install、60 秒周期与健康探测页唤醒。
   - 仅 managed self-hosted artifact 保留 `nativeMessaging` 与 `health-probe.html` 暴露；普通/CWS artifact 必须在 staging 时移除。
