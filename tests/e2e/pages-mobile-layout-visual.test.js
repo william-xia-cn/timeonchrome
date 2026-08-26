@@ -124,4 +124,3 @@ test('Pages has native mobile navigation and touch layouts without page overflow
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(OUTPUT, 'pages-desktop-stats.png'), fullPage: true });
 });
-

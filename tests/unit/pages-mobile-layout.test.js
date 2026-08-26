@@ -81,4 +81,3 @@ expectTrue('mobile modal and toast avoid the bottom navigation safe area',
 const total = passed + failed;
 console.log(`\n[Pages Mobile Layout] ${passed}/${total} passed${failed ? ` - ${failed} FAILED` : ''}`);
 if (failed) process.exit(1);
-
