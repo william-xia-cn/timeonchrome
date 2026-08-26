@@ -203,6 +203,15 @@ function normalizeMediaKind(kind) {
   return kind === 'video' ? 'video' : (kind === 'audio' ? 'audio' : null);
 }
 
+function normalizeEvidenceTier(fact = {}) {
+  fact = fact || {};
+  if (fact.evidenceTier === 'content' || fact.evidenceTier === 'audible_fallback') {
+    return fact.evidenceTier;
+  }
+  const frameId = normalizeFrameId(fact.frameId ?? fact.mediaFrameId);
+  return frameId === 'tab' ? 'audible_fallback' : 'content';
+}
+
 function sessionKey(tabId, mediaClass) {
   return `${normalizeTabId(tabId)}::${mediaClass}`;
 }
@@ -212,7 +221,9 @@ function frameFactKey(tabId, frameId) {
 }
 
 function isForegroundMediaFact(fact) {
-  return fact?.isActiveTab === true && fact?.windowState !== 'minimized';
+  return fact?.isActiveTab === true &&
+    fact?.isWindowFocused === true &&
+    fact?.windowState !== 'minimized';
 }
 
 function hasVisibleVideoEvidence(fact) {
@@ -287,7 +298,9 @@ function normalizeMediaFact(fact = {}, reason = 'media_fact', atMs = Date.now())
     muted: fact.muted === true || fact.isMuted === true,
     visibleMediaCount: Number(fact.visibleMediaCount) || 0,
     isActiveTab: fact.isActiveTab === true,
+    isWindowFocused: fact.isWindowFocused === true,
     windowState: typeof fact.windowState === 'string' ? fact.windowState : null,
+    evidenceTier: normalizeEvidenceTier(fact),
     source: typeof fact.source === 'string' && fact.source.trim() ? fact.source.trim() : 'unknown',
     reason: typeof reason === 'string' && reason.trim() ? reason.trim() : 'media_fact',
     incognito: fact.incognito === true,
@@ -312,12 +325,20 @@ function chooseActiveFact(activeFacts = [], kind = null) {
   return latestFact(filtered);
 }
 
-function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
+function isFreshContentFact(fact, nowMs = Date.now()) {
+  if (normalizeEvidenceTier(fact) !== 'content') return true;
+  const observedAt = Number(fact?.lastObservedAt) || 0;
+  return observedAt > 0 && nowMs >= observedAt && (nowMs - observedAt) <= MEDIA_LIFECYCLE_STALE_MS;
+}
+
+function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null, nowMs = Date.now()) {
   const tabFacts = factsForTab(frameFacts, tabId);
-  const latest = latestFact(tabFacts, fallbackFact);
+  const eligibleFacts = tabFacts.filter((fact) => isFreshContentFact(fact, nowMs));
+  const eligibleFallback = isFreshContentFact(fallbackFact, nowMs) ? fallbackFact : null;
+  const latest = latestFact(eligibleFacts, eligibleFallback);
   if (!latest) return null;
 
-  const activeFacts = tabFacts.filter((fact) => factHasMedia(fact));
+  const activeFacts = eligibleFacts.filter((fact) => factHasMedia(fact));
   const pipFact = latestFact(activeFacts.filter((fact) => fact.isPiP === true));
   const videoFact = chooseActiveFact(activeFacts, 'video');
   const audioFact = chooseActiveFact(activeFacts, 'audio');
@@ -325,12 +346,11 @@ function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
   const hasVideo = !!(pipFact || videoFact);
   const hasAudio = !hasVideo && !!audioFact;
   const hasMedia = activeFacts.length > 0;
-  const lastObservedAt = Math.max(...tabFacts.map((fact) => Number(fact.lastObservedAt) || 0), Number(latest.lastObservedAt) || 0);
-  const isActiveTab = hasMedia ? chosen?.isActiveTab === true : latest.isActiveTab === true;
+  const lastObservedAt = Math.max(...eligibleFacts.map((fact) => Number(fact.lastObservedAt) || 0), Number(latest.lastObservedAt) || 0);
 
   return {
     tabId: normalizeTabId(tabId),
-    windowId: Number.isInteger(chosen?.windowId) ? chosen.windowId : (Number.isInteger(latest.windowId) ? latest.windowId : null),
+    windowId: Number.isInteger(latest.windowId) ? latest.windowId : (Number.isInteger(chosen?.windowId) ? chosen.windowId : null),
     domain: normalizeDomain(chosen?.domain || latest.domain),
     playing: hasMedia,
     mediaKind: pipFact ? 'video' : (hasVideo ? 'video' : (hasAudio ? 'audio' : null)),
@@ -338,21 +358,23 @@ function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null) {
     audible: activeFacts.some((fact) => fact.audible === true && fact.muted !== true),
     muted: hasMedia ? activeFacts.every((fact) => fact.muted === true) : latest.muted === true,
     visibleMediaCount: activeFacts.reduce((sum, fact) => sum + (Number(fact.visibleMediaCount) || 0), 0),
-    isActiveTab,
-    windowState: chosen?.windowState || latest.windowState || null,
+    isActiveTab: latest.isActiveTab === true,
+    isWindowFocused: latest.isWindowFocused === true,
+    windowState: latest.windowState || chosen?.windowState || null,
+    evidenceTier: normalizeEvidenceTier(chosen || latest),
     source: chosen?.source || latest.source || 'unknown',
     reason: chosen?.reason || latest.reason || 'media_fact',
-    incognito: tabFacts.some((fact) => fact.incognito === true) || latest.incognito === true,
+    incognito: eligibleFacts.some((fact) => fact.incognito === true) || latest.incognito === true,
     lastObservedAt,
-    frameCount: tabFacts.length,
+    frameCount: eligibleFacts.length,
     activeFrameCount: activeFacts.length,
   };
 }
 
-function aggregateCheckpointMediaFact(tabId, frameFacts = {}, facts = {}) {
+function aggregateCheckpointMediaFact(tabId, frameFacts = {}, facts = {}, nowMs = Date.now()) {
   const tabFacts = factsForTab(frameFacts, tabId);
   const fallback = facts?.[normalizeTabId(tabId)] || null;
-  return tabFacts.length > 0 ? aggregateTabMediaFact(tabId, frameFacts, fallback) : fallback;
+  return tabFacts.length > 0 ? aggregateTabMediaFact(tabId, frameFacts, fallback, nowMs) : (isFreshContentFact(fallback, nowMs) ? fallback : null);
 }
 
 function removeFrameFactsForTab(frameFacts = {}, tabId) {
@@ -987,17 +1009,21 @@ function overlayCheckpointSnapshot(fact, snapshot) {
   if (!fact || !snapshot?.tab) return fact;
   const tab = snapshot.tab;
   const win = snapshot.window;
+  const weakAudibleFact = fact.evidenceTier === 'audible_fallback';
   return {
     ...fact,
     windowId: Number.isInteger(tab.windowId) ? tab.windowId : fact.windowId,
-    audible: tab.audible === true || fact.audible === true,
+    playing: weakAudibleFact ? tab.audible === true : fact.playing === true,
+    mediaKind: weakAudibleFact ? (tab.audible === true ? 'audio' : null) : fact.mediaKind,
+    audible: weakAudibleFact ? tab.audible === true : fact.audible === true,
     muted: tab.mutedInfo?.muted === true || fact.muted === true,
     isActiveTab: tab.active === true,
+    isWindowFocused: win?.focused === true,
     windowState: win?.state || fact.windowState || null,
   };
 }
 
-async function confirmMediaSessionForCheckpoint(session, facts, frameFacts) {
+async function confirmMediaSessionForCheckpoint(session, facts, frameFacts, nowMs = Date.now()) {
   const tabId = normalizeTabId(session?.tabId);
   if (!tabId || !session?.mediaClass) return { ok: false, reason: 'invalid_media_session' };
 
@@ -1006,7 +1032,7 @@ async function confirmMediaSessionForCheckpoint(session, facts, frameFacts) {
     return { ok: false, reason: snapshot.reason || 'tab_unavailable' };
   }
 
-  const rawFact = aggregateCheckpointMediaFact(tabId, frameFacts, facts);
+  const rawFact = aggregateCheckpointMediaFact(tabId, frameFacts, facts, nowMs);
   if (!rawFact) return { ok: false, reason: 'media_fact_missing' };
 
   const fact = overlayCheckpointSnapshot(rawFact, snapshot);
@@ -1052,6 +1078,7 @@ function openSessionFromFact(fact, classification, reason, atMs) {
     visibility: classification.visibility,
     startTime: atMs,
     lastObservedAt: atMs,
+    evidenceTier: fact.evidenceTier || 'audible_fallback',
     startReason: reason || fact.reason || 'media_boundary',
     startOperationSource: 'media',
     startAtMs: atMs,
@@ -1105,7 +1132,7 @@ export async function closeForbiddenPiPSessionsForTab(tabId, reason = PIP_FORBID
     }
 
     const removedPiPFrameFacts = removePiPFrameFactsForTab(frameFacts, normalizedTabId);
-    const tabFact = aggregateCheckpointMediaFact(normalizedTabId, frameFacts, facts);
+    const tabFact = aggregateCheckpointMediaFact(normalizedTabId, frameFacts, facts, atMs);
     const classification = classifyMediaFact(tabFact);
     if (!classification || classification.mediaClass === 'pip') {
       delete facts[normalizedTabId];
@@ -1164,7 +1191,7 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
     }
 
     for (const fact of changedTabs.values()) {
-      const tabFact = aggregateTabMediaFact(fact.tabId, frameFacts, fact);
+      const tabFact = aggregateTabMediaFact(fact.tabId, frameFacts, fact, atMs);
       const classification = classifyMediaFact(tabFact);
       facts[fact.tabId] = tabFact;
 
@@ -1183,6 +1210,7 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
           ...existing,
           windowId: tabFact.windowId,
           lastObservedAt: atMs,
+          evidenceTier: tabFact.evidenceTier || existing.evidenceTier || 'audible_fallback',
           incognito: existing.incognito === true || tabFact.incognito === true,
         };
         results.push({ ok: true, tabId: tabFact.tabId, mediaClass: classification.mediaClass, changed: false, frameId: fact.frameId });
@@ -1228,7 +1256,7 @@ export async function runMediaPeriodicCheckpoint(now = Date.now()) {
 
     for (const [key, session] of Object.entries(sessions)) {
       if (!session?.startTime) continue;
-      const confirmation = await confirmMediaSessionForCheckpoint(session, facts, frameFacts);
+      const confirmation = await confirmMediaSessionForCheckpoint(session, facts, frameFacts, now);
       const lastConfirmedAt = confirmation.ok
         ? confirmation.lastConfirmedAt
         : (Number(session.lastObservedAt) || Number(session.startTime) || now);
@@ -1458,6 +1486,20 @@ export async function getMediaFacts() {
 
 export async function getMediaFrameFacts() {
   return readFrameFacts();
+}
+
+export async function getFreshContentMediaFact(tabId, nowMs = Date.now()) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (!normalizedTabId) return null;
+  const frameFacts = await readFrameFacts();
+  const freshContentFacts = {};
+  for (const [key, fact] of Object.entries(frameFacts || {})) {
+    if (normalizeTabId(fact?.tabId) !== normalizedTabId) continue;
+    if (normalizeEvidenceTier(fact) !== 'content') continue;
+    if (!isFreshContentFact(fact, nowMs)) continue;
+    freshContentFacts[key] = fact;
+  }
+  return aggregateTabMediaFact(normalizedTabId, freshContentFacts, null, nowMs);
 }
 
 export async function getMediaSessions() {

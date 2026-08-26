@@ -212,6 +212,19 @@ function isForegroundMediaClassification(classification) {
   return classification?.mediaClass === 'foregroundAudio' || classification?.mediaClass === 'foregroundVideo';
 }
 
+function isFreshStrongForegroundMedia(mediaObservation, nowMs = Date.now()) {
+  if (!mediaObservation || !isForegroundMediaClassification(mediaObservation.classification)) return false;
+  const fact = mediaObservation.fact || {};
+  const observedAt = Number(fact.lastObservedAt) || 0;
+  return fact.evidenceTier === 'content' &&
+    fact.isActiveTab === true &&
+    fact.isWindowFocused === true &&
+    fact.windowState !== 'minimized' &&
+    observedAt > 0 &&
+    nowMs >= observedAt &&
+    (nowMs - observedAt) <= 90_000;
+}
+
 async function enrichContextWithForegroundMedia(context, previousContext, rawEvent, mediaObservation) {
   if (!context || context.idleState === 'locked') {
     return { ...(context || {}), foregroundMediaActive: false };
@@ -219,7 +232,7 @@ async function enrichContextWithForegroundMedia(context, previousContext, rawEve
 
   let foreground = null;
   let openSession = null;
-  if (mediaObservation && isForegroundMediaClassification(mediaObservation.classification)) {
+  if (isFreshStrongForegroundMedia(mediaObservation)) {
     foreground = mediaObservation;
   }
 
@@ -236,20 +249,21 @@ async function enrichContextWithForegroundMedia(context, previousContext, rawEve
       openSession,
       rawEvent?._reason || 'foreground_media_context_query'
     );
-    if (mediaResult?.ok) {
+    if (mediaResult?.ok && isFreshStrongForegroundMedia(mediaResult)) {
       recordFallbackLog({
-        level: 'warning',
+        level: 'info',
         category: 'foreground',
         eventCode: 'foreground_media_compensation_applied',
         module: 'core/foreground-timing',
         reason: rawEvent?._reason || 'foreground_media_context_query',
-        message: 'Foreground timing used legacy media compensation for an open session',
+        message: 'Foreground timing used fresh content media evidence for an open session',
         domain: openSession?.domain || mediaResult.fact?.domain || null,
         details: {
           tabId: openSession?.tabId ?? mediaResult.fact?.tabId ?? null,
           windowId: openSession?.windowId ?? mediaResult.fact?.windowId ?? null,
           source: mediaResult.source || null,
           mediaClass: mediaResult.classification?.mediaClass || null,
+          evidenceTier: mediaResult.fact?.evidenceTier || null,
         },
       });
       foreground = mediaResult;

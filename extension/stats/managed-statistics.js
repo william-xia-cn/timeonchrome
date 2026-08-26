@@ -546,6 +546,7 @@ function addQuotaBucketSeconds(target, bucketMap = {}, secondsMultiplier = 1) {
 function quotaBucketsFromTargetStats(dayStats) {
   const rows = convertDailyStatsToTargetShape(dayStats).rows || [];
   const buckets = {};
+  const activeQuotaBuckets = {};
   const targetSeconds = {};
   const targetClassifications = {};
   const targetRows = [];
@@ -554,6 +555,7 @@ function quotaBucketsFromTargetStats(dayStats) {
   for (const row of rows) {
     const onlineSeconds = Math.max(0, Number(row.activeSeconds || 0)) + Math.max(0, Number(row.pipSeconds || 0));
     if (onlineSeconds <= 0) continue;
+    addQuotaBucketSeconds(activeQuotaBuckets, row.activeByQuotaBucket || {});
     const bucketAccumulator = {};
     addQuotaBucketSeconds(bucketAccumulator, row.activeByQuotaBucket || {});
     addQuotaBucketSeconds(bucketAccumulator, row.pipByQuotaBucket || {});
@@ -574,6 +576,7 @@ function quotaBucketsFromTargetStats(dayStats) {
     targetClassifications,
     targetRows,
     totalSeconds,
+    activeQuotaBuckets,
   };
 }
 
@@ -665,10 +668,7 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
     const dayTargetStats = range.targetStatsByDate?.[dateKey];
     if (dayTargetStats?.rows?.length) {
       const dayQuota = quotaBucketsFromTargetStats({ targets: dayTargetStats.targets || {} });
-      const dayTotal = dayQuota.totalSeconds;
-      const dayStudy = Math.max(0, Number(dayQuota.buckets.study || 0));
-      const dayComposite = Math.max(0, Number(dayQuota.buckets.composite || 0));
-      weekRestSeconds += Math.max(0, dayTotal - dayStudy - dayComposite);
+      weekRestSeconds += Math.max(0, Number(dayQuota.activeQuotaBuckets.rest || 0));
       continue;
     }
     const tempComposite = dateKey === today ? temporaryCompositeDomains : [];

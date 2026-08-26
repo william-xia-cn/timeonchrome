@@ -68,6 +68,7 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'getMediaSession',
   'closeForbiddenPiPSessionsForTab',
   'getMediaFrameFacts',
+  'getFreshContentMediaFact',
   'getMediaSessions',
   'getMediaSegments',
   'runMediaPeriodicCheckpoint',
@@ -97,6 +98,7 @@ async function segments() {
 function videoFact(tabId, domain, overrides = {}) {
   return {
     tabId,
+    frameId: overrides.frameId ?? 0,
     windowId: overrides.windowId ?? 10,
     domain,
     playing: true,
@@ -106,7 +108,9 @@ function videoFact(tabId, domain, overrides = {}) {
     muted: overrides.muted === true,
     isPiP: false,
     isActiveTab: overrides.isActiveTab ?? true,
+    isWindowFocused: overrides.isWindowFocused ?? true,
     windowState: overrides.windowState || 'normal',
+    evidenceTier: 'content',
     source: overrides.source || 'dom_media_event',
   };
 }
@@ -114,6 +118,7 @@ function videoFact(tabId, domain, overrides = {}) {
 function audioFact(tabId, domain, overrides = {}) {
   return {
     tabId,
+    frameId: overrides.frameId ?? 'tab',
     windowId: overrides.windowId ?? 10,
     domain,
     playing: true,
@@ -121,7 +126,9 @@ function audioFact(tabId, domain, overrides = {}) {
     mediaKind: 'audio',
     isPiP: false,
     isActiveTab: overrides.isActiveTab ?? false,
+    isWindowFocused: overrides.isWindowFocused ?? true,
     windowState: overrides.windowState || 'normal',
+    evidenceTier: overrides.evidenceTier || 'audible_fallback',
     source: overrides.source || 'tabs_api_audible',
   };
 }
@@ -137,7 +144,9 @@ function stoppedFact(tabId, domain, overrides = {}) {
     mediaKind: null,
     isPiP: false,
     isActiveTab: overrides.isActiveTab ?? true,
+    isWindowFocused: overrides.isWindowFocused ?? true,
     windowState: overrides.windowState || 'normal',
+    evidenceTier: overrides.evidenceTier || (Number.isInteger(overrides.frameId) ? 'content' : 'audible_fallback'),
     source: overrides.source || 'dom_media_event',
   };
 }
@@ -152,6 +161,8 @@ async function testClassifierRules() {
     mediaApi.classifyMediaFact(audioFact(2, 'audio.example.com')).mediaClass === 'backgroundAudio');
   check('active audio is foregroundAudio',
     mediaApi.classifyMediaFact(audioFact(2, 'audio.example.com', { isActiveTab: true })).mediaClass === 'foregroundAudio');
+  check('unfocused active audio is backgroundAudio',
+    mediaApi.classifyMediaFact(audioFact(2, 'audio.example.com', { isActiveTab: true, isWindowFocused: false })).mediaClass === 'backgroundAudio');
   check('pip wins over video/audio',
     mediaApi.classifyMediaFact({ ...videoFact(3, 'pip.example.com'), isPiP: true }).mediaClass === 'pip');
 }
@@ -678,6 +689,64 @@ async function testPruneMediaStorageRemovesOldAndOrphanedOutboxEntries() {
   check('media prune preserves backed daily cooldown metadata and removes orphan timestamp', JSON.stringify(storage.media_stats_sync_outbox_v1.lastAttemptAt) === JSON.stringify({ [oldDate]: 100, [recentDate]: 200 }), JSON.stringify(storage.media_stats_sync_outbox_v1));
   check('media prune preserves backed dirty hours', JSON.stringify(storage.hourly_media_stats_sync_outbox_v1.dirtyHourKeys) === JSON.stringify([`${oldDate}T10`, `${recentDate}T10`]), JSON.stringify(storage.hourly_media_stats_sync_outbox_v1));
 }
+
+async function testAudibleFallbackCannotOverrideFreshVideo() {
+  resetAll();
+  const base = 1778805650000;
+  await mediaApi.applyMediaFacts(videoFact(25, 'video-priority.example.com'), 'mediaState', base);
+  await mediaApi.applyMediaFacts(stoppedFact(25, 'video-priority.example.com', {
+    frameId: 'tab',
+    evidenceTier: 'audible_fallback',
+  }), 'tabAudible', base + 1000);
+
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  check('audible false does not close fresh content video', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
+  check('audible false over fresh video writes no segment', (await segments()).length === 0);
+}
+
+async function testStaleContentFallsBackToCurrentAudible() {
+  resetAll();
+  const base = 1778805670000;
+  await mediaApi.applyMediaFacts(videoFact(26, 'stale-video.example.com'), 'mediaState', base);
+  await mediaApi.applyMediaFacts(audioFact(26, 'stale-video.example.com', {
+    isActiveTab: true,
+    frameId: 'tab',
+  }), 'tabAudible', base + 90_001);
+
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  const rows = await segments();
+  check('stale content video yields to current audible fallback', sessions.length === 1 && sessions[0].mediaClass === 'foregroundAudio', JSON.stringify(sessions));
+  check('stale video session closes once at fallback boundary', rows.length === 1 && rows[0].mediaClass === 'foregroundVideo', JSON.stringify(rows));
+}
+
+async function testLegacyContentFactUsesFrameIdForFreshness() {
+  resetAll();
+  const base = 1778805675000;
+  await chrome.storage.local.set({
+    media_frame_facts_v1: {
+      '28::0': {
+        tabId: '28', frameId: '0', windowId: 10, domain: 'legacy-video.example.com',
+        playing: true, mediaKind: 'video', visibleMediaCount: 1, isActiveTab: true,
+        isWindowFocused: true, windowState: 'normal', lastObservedAt: base,
+      },
+    },
+  });
+  const fresh = await mediaApi.getFreshContentMediaFact(28, base + 30_000);
+  const stale = await mediaApi.getFreshContentMediaFact(28, base + 90_001);
+  check('legacy numeric frame fact is inferred as fresh content evidence', fresh?.mediaKind === 'video', JSON.stringify(fresh));
+  check('legacy numeric frame fact expires after 90 seconds', stale === null, JSON.stringify(stale));
+}
+
+async function testRepeatedFreshContentDoesNotOscillate() {
+  resetAll();
+  const base = 1778805680000;
+  for (let i = 0; i < 60; i++) {
+    await mediaApi.applyMediaFacts(videoFact(27, 'stable-video.example.com'), 'mediaState', base + (i * 1000));
+  }
+  const sessions = Object.values(await mediaApi.getMediaSessions());
+  check('60 fresh content samples keep one foreground video session', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
+  check('60 unchanged samples produce no boundary segment', (await segments()).length === 0);
+}
 async function testModeBoundaryClosesStaleSessionWithoutReopen() {
   resetAll();
   const boundary = new Date('2026-08-06T10:00:00+08:00').getTime();
@@ -745,6 +814,7 @@ async function run() {
     testTwoTabsCountConcurrently,
     testVideoTakesPrecedenceWithinTab,
     testRepeatedSameMediaFactDoesNotWriteSegment,
+    testInvisibleVideoDoesNotOpenForegroundVideoSession,
     testPiPTakesPrecedence,
     testCloseWritesLocalMediaSegment,
     testMediaOutboxAndPayloadBuilders,
@@ -757,6 +827,10 @@ async function run() {
     testCheckpointDoesNotRefreshLastObservedAt,
     testStoppedFrameDoesNotClosePlayingFrameInSameTab,
     testFrameAggregationVideoPrecedenceAndFallback,
+    testAudibleFallbackCannotOverrideFreshVideo,
+    testStaleContentFallsBackToCurrentAudible,
+    testLegacyContentFactUsesFrameIdForFreshness,
+    testRepeatedFreshContentDoesNotOscillate,
     testPiPFramePriorityAndFallback,
     testNavigationClearsFrameFactsForTab,
     testEmbeddedMediaFrameDomainReplacesStaleTopLevelFact,

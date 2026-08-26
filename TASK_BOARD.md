@@ -4,6 +4,22 @@
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
 
+## Active P0 Runtime Fix（2026-08-27）
+- [x] [P0 Timing/Media] T.xia 媒体分类与网页计时隔离（实现与自动化验证完成）
+  - 证据：`1.7.25` 的 Bilibili / `cg.163.com` 原始媒体账与物化统计秒数一致，但 `tab.audible` 被过度解释为前台音频，并可在窗口失焦或系统 idle 时补偿网页计时；这是终端证据语义错误，不是上传或聚合丢失。
+  - 口径：网页账本是配额金标准；DOM 媒体为强证据，`tab.audible` 仅为弱音频证据；前台媒体必须 active tab + focused window + 非最小化。
+  - 实施：切断 audible 对网页 ACTIVE 的补偿，焦点变化立即重分类开放媒体 session，Content 媒体发现覆盖 open shadow root，并补齐陈旧证据、静音视频和前后台切换测试。
+  - 历史：不改写 D1；`1.7.25` 相关媒体分类标记为不可信并保留审计。
+  - 边界：媒体修复不改 Worker API、D1 schema、profile 或历史数据；Product Owner 已在 2026-08-27 授权与显式周配额功能一起进入 `1.7.26` 内部 managed 发布。
+  - 完成：Content 与 audible fact 分级；前台媒体要求 active tab + focused window + 非最小化；焦点变化重分类全部开放媒体 session；网页补偿仅接受 90 秒内 Content 强证据；open shadow root 纳入有界发现。
+  - 验证：重点媒体/foreground/signal 测试通过；全部 115 个 unit 测试文件通过；`npm run typecheck` 通过；联网 `node tests/run-all.js` 全部通过（Worker API 103/103、duration-flow 53/53、浏览器 E2E 14/14）。
+  - 待观察：使用 unpacked/下一候选版本在真实 Bilibili 与 `cg.163.com` 场景核对前台视频、后台音频、窗口失焦和网页账本；该人工观察不在本轮伪装为已通过。
+  - 已知风险：`cg.163.com` 等 Canvas/WebRTC 流游戏通常没有可见 DOM `video` 强证据。用户持续键盘/鼠标操作时网页账正常；若使用手柄、停留在长过场或超过 90 秒没有系统活动，`tab.audible` 只能形成媒体账，网页账可能少记。当前修复优先阻止失焦后的长时间多记，不宣称已解决流游戏低估。
+- [ ] [P1 Timing/Media] 流游戏强证据模型
+  - 目标：仅对明确配置的流游戏平台，组合 active tab、focused window、Canvas/WebRTC 活跃、Pointer Lock、Gamepad 和页面交互心跳，形成可审计的网页 ACTIVE 强证据。
+  - 安全边界：普通 Canvas 动画、后台声音或单独 `tab.audible` 不得续账；不得采集画面、按键内容、URL 正文或游戏内容；上线前需真实 `cg.163.com` 对照验证多记与少记。
+  - 当前状态：风险已登记，尚未设计或实现，不阻塞本轮媒体过度计时修复的代码完成状态，但属于下一候选版本发布前必须复核的计时风险。
+
 ## Active Collaboration Model
 - [x] 三角色 Codex 协作基线已建立并简化为 lightweight solo-product workflow（docs-only）
   - `Product&Project Mg`：spec / plan / acceptance criteria / implementation review
@@ -295,6 +311,7 @@
   - `storage-aggregation-convergence 36/36`
 
 ## NOW（P0）
+- [x] [P0] 时间配额显式周上限：新增 `timeQuota.weekly.restMinutes`，停止每日配额乘七写入隐藏周限制；Pages 已显示每周休息上限、本周用量/剩余/来源/保存影响，并补齐每日在线总额、导入导出兼容。相关单测、TypeScript 检查、Pages 脚本语法及桌面/390px 手机目视验证通过。
 - [x] [Version] 当前源版本提升到 `1.7.15`：`extension/manifest.json`、`docs/CHANGELOG.md` 与当前 managed installer expectedVersion 示例已同步；历史 1.7.13 验证材料保持历史事实。
 - [x] [Regression] 修复 tests/e2e/extension.test.js 中 T-E12c：根因是 Playwright `page.bringToFront()` 与异步 `privacy-consent.html` 抢前台导致 tab activation 场景不稳定；已改为显式接受隐私门、关闭引导页、通过 Chrome tabs API 激活目标 tab，并验证 `extension.test.js` 14/14 通过。
 - [x] [P0/V1] 拆分“未归类网站访问记录”与“学习网站归类申请”：同站手动升级、导航次数聚合、Worker v2 兼容字段和 Popup/Admin/Pages/Reminder 展示；96 个 unit 文件、migration SQLite 校验及三端桌面/移动端视觉验证通过，待后续执行远端 D1 migration 与部署。

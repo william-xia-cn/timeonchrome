@@ -122,6 +122,15 @@
 
 Foreground 计时与 media 计时是两条账本链路。Chrome 原始事件可以被 dispatcher fan-out 到两条链路，但 foreground 模块不得写媒体账本，media 模块不得写 `usage_segments_v1`。`periodicCheckpoint` 由同一个 alarm 触发，但 foreground checkpoint 与 media checkpoint 独立 try/catch、独立 trace。
 
+**媒体证据与网页补偿边界（D-063）：**
+
+- 前台媒体必须满足 active tab、窗口聚焦且未最小化、tab/domain 与开放 session 一致；失焦时立即重分类为后台媒体，不能继续维持网页 ACTIVE。
+- Content frame 报告的可见 DOM `video`、播放中 `audio` 或 PiP 是强证据，每 30 秒重申，超过 90 秒不得用于网页补偿。系统 idle 时，仅聚焦窗口中的新鲜强证据可以保持网页 session。
+- `chrome.tabs.Tab.audible` 是弱音频证据，只在没有新鲜 Content 证据时形成媒体账。它不得覆盖视频类型、关闭仍有效的静音视频、补偿网页 session 或参与网页配额。
+- Content 媒体发现覆盖所有注入 frame 及可访问的 open shadow root；只采集播放、媒体类型、PiP、audible、可见数量和必要的 tab/window 元数据，不采集 URL 正文、标题或页面文本。
+- 已知限制：Canvas/WebRTC 流游戏可能没有 DOM 媒体强证据。以 `cg.163.com` 为例，持续键盘/鼠标操作仍按普通前台网页事实计时；使用手柄、长过场或超过 90 秒无系统活动时，弱 audible 只进入媒体账，网页账可能低估。当前实现以避免失焦多记为优先，流游戏专用强证据模型尚未实现。
+- 后续流游戏模型必须限定到显式配置站点，并同时要求 active tab 与 focused window；候选信号可包含 Canvas/WebRTC 活跃、Pointer Lock、Gamepad 和页面交互心跳，但普通 Canvas 动画、后台声音或单独 audible 不得成为网页续账依据。
+
 ### 1.3 数据流方向
 
 ```
@@ -380,8 +389,19 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
   domainQuotas: {},                  // { 'domain': minutes }
   lockedDomains: [],                 // 今日已达配额的域名
 
-  // 周配额
-  weeklyRestQuota: 0,                // 每周休息时长上限（0=不限）
+  // 旧周配额（仅兼容读取，不再由每日配额自动生成）
+  weeklyRestQuota: 0,
+
+  // 当前时间配额 source-of-truth
+  timeQuota: {
+    daily: {
+      monday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+      // tuesday-sunday 同结构
+    },
+    weekly: {
+      restMinutes: null,             // 显式周休息上限；null=不限，0=禁止，正整数=分钟
+    },
+  },
 
   // 配额状态（本地维护，不上传到云端）
   quotaState: {
@@ -429,6 +449,17 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
   monitoring_enabled: true,          // 家长可远程关闭监控
 }
 ```
+
+#### 时间配额规则（D-063）
+
+- `timeQuota.daily` 是每日配额 source of truth；`studyMinutes`、`restMinutes`、`compositeMinutes`、`onlineMinutes` 均使用 `null=无限制`、`0=零分钟`、正整数为分钟上限。
+- `timeQuota.weekly.restMinutes` 是唯一可配置的周累计上限。七天每日配额合计只用于 UI 展示，不得自动写入或覆盖周上限。
+- 旧 `weeklyRestQuota` 仅在新字段缺失时作为兼容来源：正数映射为旧配置周上限，`0` / `null` 映射为无限制。新字段存在后，运行时不得再读取旧字段决定周限制；Worker 可从显式新字段写入 legacy 兼容镜像，但不得再由每日配额乘七生成。
+- 周期固定为 profile 时区 `Asia/Shanghai` 的周一 `00:00` 至周日 `24:00`。周中修改立即包含本周已有用量，历史账本和统计不回写。
+- 周用量以网页账本 `quotaBucketAtTime=rest` 为事实；复合/待归类借用 Rest 计入，媒体账本不计入。
+- 每日 Rest 与每周 Rest 是并列上限，任一耗尽都会使 `restLocked=true`；`weeklyRestLocked` 只说明锁定来源。
+- 每日在线总额进入 `timeQuota.daily.*.onlineMinutes` 显式显示。旧 `dailyOnlineQuota` 仅作为新字段缺失时的兼容来源。
+- `PUT /profiles/:id/config` 对 `timeQuota.daily` 与 `timeQuota.weekly` 分层合并；只修改周上限时不得覆盖现有每日配置。服务端校验每日 0-1440 分钟、每周 0-10080 分钟。
 
 
 ### 1.3.7.5 访问管理配置文件与系统网站配置
@@ -632,6 +663,7 @@ MV3 Service Worker 每次冷启动都必须检查关键 alarm 是否存在，但
 - checkpoint 是结算与采样修复机制，不是访问控制入口。发现 open session 缺失、tab/domain 不一致时，必须先对当前观测 URL 执行与前台导航相同的 `ACCESS_OBSERVED` 分类、时间窗和配额路由；路由阻止时不得创建 ACTIVE session。
 - repair 开账只能使用路由后的当前 mode 和 managed-target 快照。`restricted/rejected` 不得继承缓存 `study`，`composite/pending_composite` 借用 Rest 配额时仍保留原分类与 Compound 内容窗口。
 - 路由失败、上下文不完整或模式提交未完成时，本轮 checkpoint 只记录受限诊断并跳过开账，不以旧 session、旧域名或旧 mode 猜测补账。
+- foreground checkpoint 的媒体补偿只能读取当前 tab 的新鲜 Content 强证据。`tab.audible`、陈旧聚合 fact、后台媒体和失焦媒体只能进入媒体账，不能修复或延长网页 session。
 
 **同步与聚合可靠性约束：**
 

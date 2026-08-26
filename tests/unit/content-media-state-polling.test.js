@@ -126,6 +126,15 @@ expect(
 );
 
 expect(
+  'media discovery registers and prunes open shadow roots',
+  /mediaRoots\s*=\s*new Set\(\[document\]\)/.test(mediaBlock)
+    && /el\.shadowRoot/.test(mediaBlock)
+    && /registerMediaRoot\(el\.shadowRoot\)/.test(mediaBlock)
+    && /root\?\.host\?\.isConnected/.test(mediaBlock)
+    && /SHADOW_ROOT_DISCOVERY_INTERVAL_MS\s*=\s*30000/.test(mediaBlock)
+);
+
+expect(
   'video evidence is visibility and viewport filtered',
   /function isVisibleVideoElement/.test(mediaBlock)
     && /getBoundingClientRect/.test(mediaBlock)

@@ -70,14 +70,15 @@ export const DEFAULT_CONFIG = {
   weeklyRestQuota: null,
   timeQuota: {
     daily: {
-      monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-      tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-      wednesday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-      thursday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-      friday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-      saturday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-      sunday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+      monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+      tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+      wednesday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+      thursday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+      friday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+      saturday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+      sunday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
     },
+    weekly: { restMinutes: null },
   },
   timeWindows: {
     daily: {

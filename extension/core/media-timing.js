@@ -5,6 +5,7 @@ import {
   classifyMediaFact,
   closeForbiddenPiPSessionsForTab,
   closeMediaForTab,
+  getFreshContentMediaFact,
   getMediaFact,
   getMediaSessions,
   runMediaPeriodicCheckpoint,
@@ -97,23 +98,28 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     (tab?.url ? extractDomain(tab.url) : null) ||
     stored?.domain ||
     'unknown-page.chrome-local';
+  const frameId = overrides.mediaFrameId ?? overrides.frameId ?? 'tab';
+  const evidenceTier = overrides.evidenceTier === 'content' || overrides.evidenceTier === 'audible_fallback'
+    ? overrides.evidenceTier
+    : (frameId === 'tab' ? 'audible_fallback' : 'content');
+  const contentEvidence = evidenceTier === 'content';
   const explicitAudible = hasOwn(overrides, 'isAudible') ? overrides.isAudible : (hasOwn(overrides, 'audible') ? overrides.audible : undefined);
   const explicitPlaying = hasOwn(overrides, 'playing') ? overrides.playing : undefined;
   const explicitPiP = hasOwn(overrides, 'isPiP') ? overrides.isPiP : undefined;
-  const audible = explicitAudible !== undefined
+  const audible = contentEvidence
     ? explicitAudible === true
-    : (tab?.audible === true || stored?.audible === true);
-  const isPiP = explicitPiP !== undefined ? explicitPiP === true : stored?.isPiP === true;
-  const playing = explicitPlaying !== undefined
-    ? explicitPlaying === true
-    : (isPiP || audible || stored?.playing === true);
-  const mediaKind = overrides.mediaKind ||
-    stored?.mediaKind ||
-    (isPiP ? 'video' : (audible ? 'audio' : null));
+    : (explicitAudible !== undefined ? explicitAudible === true : tab?.audible === true);
+  const isPiP = contentEvidence && explicitPiP === true;
+  const playing = contentEvidence
+    ? (explicitPlaying === true || isPiP)
+    : audible;
+  const mediaKind = contentEvidence
+    ? (overrides.mediaKind || (isPiP ? 'video' : null))
+    : (audible ? 'audio' : null);
 
   return {
     tabId: normalizedTabId ?? tabId,
-    frameId: overrides.mediaFrameId ?? overrides.frameId ?? undefined,
+    frameId,
     documentId: overrides.mediaDocumentId ?? overrides.documentId ?? undefined,
     windowId,
     domain,
@@ -123,10 +129,13 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     audible,
     muted: overrides.isMuted === true || overrides.muted === true || tab?.mutedInfo?.muted === true || stored?.muted === true,
     isActiveTab: hasOwn(overrides, 'isActiveTab') ? overrides.isActiveTab === true : tab?.active === true,
+    isWindowFocused: hasOwn(overrides, 'isWindowFocused') ? overrides.isWindowFocused === true : win.focused === true,
     windowState: overrides.windowState || win.state || stored?.windowState || null,
+    evidenceTier,
     source: overrides.mediaFactSource || overrides.source || stored?.source || 'chrome_tab_query',
     incognito: overrides.incognito === true || tab?.incognito === true || stored?.incognito === true,
     clearMediaFrames: overrides.clearMediaFrames === true,
+    lastObservedAt: Date.now(),
   };
 }
 
@@ -218,23 +227,6 @@ function domainMismatchReason(domain) {
   return domain === 'unknown-page.chrome-local' || !domain ? 'unknown_domain' : 'observed_mismatch';
 }
 
-function buildAudibleFact(tab, win, reason) {
-  const domain = tab?.url ? (extractDomain(tab.url) || 'unknown-page.chrome-local') : 'unknown-page.chrome-local';
-  return {
-    tabId: numericTabId(tab?.id),
-    windowId: numericTabId(tab?.windowId),
-    domain,
-    playing: true,
-    mediaKind: 'audio',
-    isPiP: false,
-    audible: true,
-    muted: tab?.mutedInfo?.muted === true,
-    isActiveTab: tab?.active === true,
-    windowState: win?.state || null,
-    source: reason || 'tab_audible',
-  };
-}
-
 function buildTabSnapshotFact(tab, win, reason) {
   const domain = tab?.url ? (extractDomain(tab.url) || 'unknown-page.chrome-local') : 'unknown-page.chrome-local';
   return {
@@ -247,7 +239,9 @@ function buildTabSnapshotFact(tab, win, reason) {
     audible: tab?.audible === true,
     muted: tab?.mutedInfo?.muted === true,
     isActiveTab: tab?.active === true,
+    isWindowFocused: win?.focused === true,
     windowState: win?.state || null,
+    evidenceTier: 'audible_fallback',
     source: reason || 'tab_query',
   };
 }
@@ -269,66 +263,60 @@ export async function queryForegroundMediaForOpenSession(sessionLike = {}, reaso
     }
   }
 
-  if (tab) {
-    const tabWindowId = numericTabId(tab.windowId);
-    if (sessionWindowId != null && tabWindowId != null && tabWindowId !== sessionWindowId) {
-      return {
-        ok: false,
-        reason: 'window_mismatch',
-        source: tab.audible === true ? 'tab_audible' : 'tab_query',
-        fact: buildTabSnapshotFact(tab, { state: null }, reason),
-      };
-    }
-
-    if (tab.audible === true) {
-      const win = await getWindowSnapshot(tabWindowId);
-      const fact = buildAudibleFact(tab, win, reason);
-      const classification = { mediaClass: 'foregroundAudio', visibility: 'foreground' };
-      if (tab.active !== true) {
-        return { ok: false, reason: 'not_active_tab', source: 'tab_audible', fact, classification };
-      }
-      if (win.state === 'minimized') {
-        return { ok: false, reason: 'window_minimized', source: 'tab_audible', fact, classification };
-      }
-      if (sessionDomain && fact.domain !== sessionDomain) {
-        return {
-          ok: false,
-          reason: domainMismatchReason(fact.domain),
-          source: 'tab_audible',
-          fact,
-          classification,
-        };
-      }
-      return { ok: true, source: 'tab_audible', fact, classification };
-    }
+  if (!tab) return { ok: false, reason: 'tab_unavailable', source: 'tab_query' };
+  const tabWindowId = numericTabId(tab.windowId);
+  const win = await getWindowSnapshot(tabWindowId);
+  const tabFact = buildTabSnapshotFact(tab, win, reason);
+  if (sessionWindowId != null && tabWindowId != null && tabWindowId !== sessionWindowId) {
+    return { ok: false, reason: 'window_mismatch', source: 'tab_query', fact: tabFact };
+  }
+  if (tab.active !== true) {
+    return { ok: false, reason: 'not_active_tab', source: 'tab_query', fact: tabFact };
+  }
+  if (win.focused !== true) {
+    return { ok: false, reason: 'window_unfocused', source: 'tab_query', fact: tabFact };
+  }
+  if (win.state === 'minimized') {
+    return { ok: false, reason: 'window_minimized', source: 'tab_query', fact: tabFact };
+  }
+  if (sessionDomain && tabFact.domain !== sessionDomain) {
+    return { ok: false, reason: domainMismatchReason(tabFact.domain), source: 'tab_query', fact: tabFact };
   }
 
-  const fact = await queryTabMediaFact(sessionTabId, {
-    mediaFactSource: reason || 'foreground_media_open_session_query',
-    tabSnapshot: tab,
-  });
+  const storedContentFact = await getFreshContentMediaFact(sessionTabId, Date.now());
+  if (!storedContentFact) {
+    return { ok: false, reason: 'no_fresh_content_media', source: 'content_media_fact', fact: tabFact };
+  }
+  const fact = {
+    ...storedContentFact,
+    windowId: tabWindowId,
+    isActiveTab: true,
+    isWindowFocused: true,
+    windowState: win.state || storedContentFact.windowState || null,
+    evidenceTier: 'content',
+  };
   const factTabId = numericTabId(fact?.tabId);
   if (factTabId !== sessionTabId) {
-    return { ok: false, reason: 'tab_mismatch', source: 'media_fact', fact };
+    return { ok: false, reason: 'tab_mismatch', source: 'content_media_fact', fact };
   }
   const factWindowId = numericTabId(fact?.windowId);
   if (sessionWindowId != null && factWindowId != null && factWindowId !== sessionWindowId) {
-    return { ok: false, reason: 'window_mismatch', source: 'media_fact', fact };
+    return { ok: false, reason: 'window_mismatch', source: 'content_media_fact', fact };
   }
   const classification = classifyMediaFact(fact);
   if (sessionDomain && fact?.domain !== sessionDomain) {
     return {
       ok: false,
       reason: domainMismatchReason(fact?.domain),
-      source: 'media_fact',
+      source: 'content_media_fact',
       fact,
       classification,
     };
   }
   if (!isForegroundMediaClassification(classification)) {
-    return { ok: false, reason: 'no_foreground_media', source: 'media_fact', fact, classification };
+    return { ok: false, reason: 'no_foreground_media', source: 'content_media_fact', fact, classification };
   }
-  return { ok: true, source: 'media_fact', fact, classification };
+  return { ok: true, source: 'content_media_fact', fact, classification };
 }
 
 export async function queryKnownForegroundMediaFacts(requests = []) {
@@ -466,6 +454,14 @@ export async function handleMediaWindowStateChanged(windowId, windowState = null
     isAudible: tab.audible === true,
     domain: tab.url ? extractDomain(tab.url) : undefined,
   });
+}
+
+export async function handleMediaWindowFocusChanged() {
+  const sessions = await getMediaSessions();
+  const tabIds = Object.values(sessions || {})
+    .map((session) => numericTabId(session?.tabId))
+    .filter((tabId) => tabId != null);
+  return reclassifyKnownMediaTabs(tabIds, 'window_focus_reclassify');
 }
 
 export async function closeMediaForTabLifecycle(tabId, reason) {

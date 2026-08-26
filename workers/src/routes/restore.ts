@@ -300,12 +300,17 @@ function syncRestoredLegacyQuota(config: Record<string, any>): void {
   const studyMinutes = allSameFiniteQuota(daily, 'studyMinutes');
   if (studyMinutes !== null) config.dailyStudyQuota = studyMinutes;
   const restMinutes = allSameFiniteQuota(daily, 'restMinutes');
-  if (restMinutes !== null) {
-    config.dailyRestQuota = restMinutes;
-    config.weeklyRestQuota = restMinutes * 7;
-  }
+  if (restMinutes !== null) config.dailyRestQuota = restMinutes;
   const compositeMinutes = allSameFiniteQuota(daily, 'compositeMinutes');
   if (compositeMinutes !== null) config.dailyUndeterminedQuota = compositeMinutes;
+  const onlineMinutes = allSameFiniteQuota(daily, 'onlineMinutes');
+  if (onlineMinutes !== null) config.dailyOnlineQuota = onlineMinutes;
+  const weekly = config.timeQuota?.weekly;
+  if (weekly && Object.prototype.hasOwnProperty.call(weekly, 'restMinutes')) {
+    config.weeklyRestQuota = typeof weekly.restMinutes === 'number' && weekly.restMinutes > 0
+      ? weekly.restMinutes
+      : 0;
+  }
 }
 
 function normalizeRestoredProfileConfig(config: Record<string, any>, siteAccessDefaults: SystemAccessConfig): void {

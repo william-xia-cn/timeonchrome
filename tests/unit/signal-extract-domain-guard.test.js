@@ -256,6 +256,8 @@ async function run() {
   expectTrue('MEDIA_STATE should carry visible media count', emitted[0]?.visibleMediaCount === 1);
   expectTrue('MEDIA_STATE should carry source label', emitted[0]?.mediaFactSource === 'dom_media_event');
   expectTrue('MEDIA_STATE should carry active tab fact', emitted[0]?.isActiveTab === true);
+  expectTrue('MEDIA_STATE should be marked as strong content evidence', emitted[0]?.evidenceTier === 'content');
+  expectTrue('MEDIA_STATE should carry live window focus', emitted[0]?.isWindowFocused === true);
   expectTrue('MEDIA_STATE should carry frame id', emitted[0]?.mediaFrameId === 12);
   expectTrue('MEDIA_STATE should carry document id', emitted[0]?.mediaDocumentId === 'doc-501');
   expectTrue('MEDIA_STATE should use sender tab URL when frame URL is absent', emitted[0]?.mediaSourceDomain === 'video.example');
@@ -291,6 +293,7 @@ async function run() {
   expectTrue('tabAudible should use tab-level media frame id', emitted[0]?.mediaFrameId === 'tab');
   expectTrue('tabAudible should normalize source domain', emitted[0]?.mediaSourceDomain === 'audio.example');
   expectTrue('tabAudible should mark source', emitted[0]?.mediaFactSource === 'tabs_api_audible');
+  expectTrue('tabAudible should be marked as weak evidence', emitted[0]?.evidenceTier === 'audible_fallback');
 
   section('SG8b: active tab audible does not emit foreground tabUpdated');
   emitted.length = 0;
@@ -341,6 +344,10 @@ async function run() {
 
   section('SG10: internal content messages bypass the general message router');
   const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
+  const focusHandlerStart = backgroundSource.indexOf('chrome.windows.onFocusChanged.addListener');
+  const focusHandlerEnd = backgroundSource.indexOf('chrome.windows.onBoundsChanged', focusHandlerStart);
+  const focusHandler = backgroundSource.slice(focusHandlerStart, focusHandlerEnd);
+  expectTrue('background reclassifies open media sessions before WINDOW_ID_NONE return', focusHandlerStart >= 0 && /handleMediaWindowFocusChanged\(windowId\)/.test(focusHandler) && focusHandler.indexOf('handleMediaWindowFocusChanged') < focusHandler.indexOf('WINDOW_ID_NONE'));
   const internalBranch = backgroundSource.indexOf("msg.type === 'MEDIA_STATE' || msg.type === 'TITLE_CHANGE'");
   const generalRouter = backgroundSource.indexOf("ensureBootstrapped('runtimeMessage')");
   expectTrue('background should explicitly acknowledge internal content messages', internalBranch >= 0 && backgroundSource.includes("handledBy: msg.type === 'MEDIA_STATE' ? 'signal' : 'content_metadata'"));

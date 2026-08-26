@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.25**
+- **版本：1.7.26**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-20）**：`1.7.25` 代码提交 `72a259c` 已推送到 `origin/master`；稳定 ID managed CRX 与内部自托管更新源已部署并完成生产回读，deployment `a718053a`，CRX 358,448 bytes，SHA256 为 `83087f98cb845d0c280a49a8ef393abd4d27e594c9fbc49d6675c163da3d81c1`。外部生产 Guardian Host 不在本仓库，本地心跳在其安装前保持静默降级；`guardian-api`、控制台 Pages、D1、profile 与 Chrome Web Store 本轮未变更，当前进入设备升级与运行观察。
+- **当前发布状态（2026-08-27）**：Product Owner 已授权发布 `1.7.26` 内部 managed 候选版，范围为显式周休息配额、Pages 对应管理界面及媒体证据/网页计时隔离修复；发布门禁、稳定 ID CRX、Worker/Pages 和自托管更新源部署正在执行。Native App Control 基础设施与 Chrome Web Store 不在本次范围，`cg.163.com` 流游戏无 DOM 强证据时的网页低估风险继续保留。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

@@ -1417,13 +1417,11 @@ function getTodayEffectiveQuota(config = {}) {
   const dayQuota = config.timeQuota?.daily?.[dayKey] || null;
   const baseRest = timeQuotaField(dayQuota, 'restMinutes', config.dailyRestQuota, 120);
   const restMinutes = applyRestBorrowForToday(baseRest, config);
-  const onlineRaw = config.dailyOnlineQuota ?? config.dailyQuota;
-  const onlineNumber = Number(onlineRaw);
   return {
     studyMinutes: timeQuotaField(dayQuota, 'studyMinutes', config.dailyStudyQuota, null),
     restMinutes,
     compositeMinutes: timeQuotaField(dayQuota, 'compositeMinutes', config.dailyUndeterminedQuota, 120),
-    onlineMinutes: Number.isFinite(onlineNumber) && onlineNumber > 0 ? onlineNumber : null,
+    onlineMinutes: timeQuotaField(dayQuota, 'onlineMinutes', config.dailyOnlineQuota ?? config.dailyQuota, null),
   };
 }
 

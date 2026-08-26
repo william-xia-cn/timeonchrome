@@ -37,7 +37,11 @@
   let suppressPiPLeaveReportUntil = 0;
   const MEDIA_POLL_INTERVAL_MS = 1000;
   const MEDIA_REAFFIRM_INTERVAL_MS = 30000;
+  const SHADOW_ROOT_DISCOVERY_INTERVAL_MS = 30000;
   let lastMediaStateSentAt = 0;
+  let lastShadowRootDiscoveryAt = 0;
+  const mediaRoots = new Set([document]);
+  const attachedMediaElements = new WeakSet();
 
   function sendMediaState(playing, isPiP = pipActive, kind = mediaKind, source = 'dom_media_event', snapshot = null) {
     if (!chrome.runtime?.id) return false;
@@ -83,8 +87,20 @@
     return isPlayingMediaElement(el) && mediaElementHasAudioTrack(el) && el.muted !== true && Number(el.volume) > 0;
   }
 
+  function collectMediaElements() {
+    const elements = new Set();
+    for (const root of [...mediaRoots]) {
+      if (root !== document && root?.host?.isConnected !== true) {
+        mediaRoots.delete(root);
+        continue;
+      }
+      root.querySelectorAll?.('video, audio').forEach((el) => elements.add(el));
+    }
+    return [...elements];
+  }
+
   function readMediaSnapshot() {
-    const elements = Array.from(document.querySelectorAll('video, audio'));
+    const elements = collectMediaElements();
     const playingElements = elements.filter(isPlayingMediaElement);
     const visibleVideos = playingElements.filter(isVisibleVideoElement);
     const audibleElements = playingElements.filter(isAudibleMediaElement);
@@ -125,6 +141,10 @@
   }
 
   function pollMediaState() {
+    if (Date.now() - lastShadowRootDiscoveryAt >= SHADOW_ROOT_DISCOVERY_INTERVAL_MS) {
+      discoverOpenShadowRoots(document.documentElement);
+      lastShadowRootDiscoveryAt = Date.now();
+    }
     const sent = updateMediaState(false, 'dom_media_poll');
     if (sent || !(mediaPlaying || pipActive)) return;
     if (Date.now() - lastMediaStateSentAt >= MEDIA_REAFFIRM_INTERVAL_MS) {
@@ -142,25 +162,51 @@
   }
 
   function attachMediaListeners(el) {
+    if (!el || attachedMediaElements.has(el)) return;
+    attachedMediaElements.add(el);
     el.addEventListener('play',  () => updateMediaState(false, 'dom_media_event'));
     el.addEventListener('pause', () => updateMediaState(false, 'dom_media_event'));
     el.addEventListener('ended', () => updateMediaState(false, 'dom_media_event'));
     el.addEventListener('enterpictureinpicture', () => updateMediaState(false, 'pip_api'));
     el.addEventListener('leavepictureinpicture', handlePictureInPictureLeave);
   }
-  document.querySelectorAll('video, audio').forEach(attachMediaListeners);
 
-  // 对动态插入的媒体元素挂钩
-  const mediaObserver = new MutationObserver(mutations => {
+  function discoverOpenShadowRoots(node) {
+    if (!node) return;
+    const candidates = [];
+    if (node.nodeType === 1) candidates.push(node);
+    node.querySelectorAll?.('*').forEach((el) => candidates.push(el));
+    candidates.forEach((el) => {
+      if (el.shadowRoot) registerMediaRoot(el.shadowRoot);
+    });
+  }
+
+  function handleMediaMutations(mutations) {
     mutations.forEach(m => {
       m.addedNodes.forEach(node => {
         if (node.nodeType !== 1) return;
         if (node.matches('video, audio')) attachMediaListeners(node);
         node.querySelectorAll && node.querySelectorAll('video, audio').forEach(attachMediaListeners);
+        discoverOpenShadowRoots(node);
       });
     });
     updateMediaState(false, 'dom_media_event');
-  });
+  }
+
+  const mediaObserver = new MutationObserver(handleMediaMutations);
+
+  function registerMediaRoot(root) {
+    if (!root || mediaRoots.has(root)) return;
+    mediaRoots.add(root);
+    root.querySelectorAll?.('video, audio').forEach(attachMediaListeners);
+    discoverOpenShadowRoots(root);
+    mediaObserver.observe(root, { childList: true, subtree: true });
+  }
+
+  // 对现有和动态插入的 light DOM / open shadow DOM 媒体元素挂钩。
+  document.querySelectorAll('video, audio').forEach(attachMediaListeners);
+  discoverOpenShadowRoots(document.documentElement);
+  lastShadowRootDiscoveryAt = Date.now();
   mediaObserver.observe(document.documentElement, { childList: true, subtree: true });
 
   function wait(ms) {

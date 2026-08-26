@@ -517,7 +517,7 @@
     .quota-unit { font-size: 12px; color: var(--muted); }
     .quota-daily-header,
     .quota-daily-row {
-      display: grid; grid-template-columns: 80px repeat(3, minmax(0, 1fr));
+      display: grid; grid-template-columns: 80px repeat(4, minmax(0, 1fr));
       gap: 8px; align-items: center;
     }
     .quota-daily-header { margin-bottom: 8px; }
@@ -536,6 +536,24 @@
       font-size: 11px; white-space: nowrap; cursor: pointer;
     }
     .weekly-quota-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .weekly-rest-quota-layout {
+      display: grid; grid-template-columns: minmax(250px, 1.15fr) minmax(0, 1fr);
+      gap: 18px; align-items: start;
+    }
+    .weekly-rest-editor { display: grid; gap: 12px; }
+    .weekly-rest-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .weekly-rest-time-inputs { display: flex; align-items: center; gap: 8px; }
+    .weekly-rest-time-inputs input { width: 86px; }
+    .weekly-rest-meta { font-size: 12px; line-height: 1.6; color: var(--muted); }
+    .weekly-rest-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .weekly-rest-stat {
+      min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: rgba(0,184,148,0.035);
+    }
+    .weekly-rest-stat-label { font-size: 11px; color: var(--muted); }
+    .weekly-rest-stat-value { margin-top: 4px; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+    .weekly-rest-impact { margin-top: 10px; padding: 10px; border-radius: 8px; background: rgba(59,130,246,.07); color: var(--text); font-size: 12px; line-height: 1.55; }
+    .weekly-rest-impact.danger { background: rgba(239,68,68,.08); color: var(--danger); }
 
     /* Schedule */
     .schedule-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
@@ -842,6 +860,9 @@
       .quota-control-label { display: block; color: var(--muted); font-size: 12px; font-weight: 650; }
       .quota-unlimited { min-height: 44px; }
       .weekly-quota-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .weekly-rest-quota-layout { grid-template-columns: 1fr; }
+      .weekly-rest-time-inputs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; }
+      .weekly-rest-time-inputs input { width: 100%; }
       #q-minutes-input { width: 100% !important; }
       .schedule-table,
       .schedule-table tbody,
@@ -1110,29 +1131,49 @@
       <section class="rules-management-panel" data-rules-management-panel="quota">
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日配额</div><div class="card-subtitle">按天配置，勾选「无限制」表示不限制（单位：分钟）</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rest.svg" alt="">每周休息上限</div><div class="card-subtitle">独立限制本周休息配额；周一 00:00 至周日 24:00，按北京时间统计</div></div>
+          </div>
+          <div class="weekly-rest-quota-layout">
+            <div class="weekly-rest-editor">
+              <div class="weekly-rest-toggle-row">
+                <div><strong style="font-size:13px;">无限制</strong><div class="weekly-rest-meta">关闭后可设置 0 至 168 小时</div></div>
+                <label class="toggle" title="切换每周休息上限">
+                  <input type="checkbox" id="q-weekly-rest-unlimited">
+                  <span class="toggle-track"></span><span class="toggle-thumb"></span>
+                </label>
+              </div>
+              <div class="weekly-rest-time-inputs" id="q-weekly-rest-inputs">
+                <input class="quota-input" type="number" id="q-weekly-rest-hours" min="0" max="168" step="1" inputmode="numeric" aria-label="每周休息上限小时">
+                <span class="quota-unit">小时</span>
+                <input class="quota-input" type="number" id="q-weekly-rest-minutes" min="0" max="59" step="1" inputmode="numeric" aria-label="每周休息上限分钟">
+                <span class="quota-unit">分钟</span>
+              </div>
+              <div class="weekly-rest-meta">来源：<strong id="weekly-rest-source">--</strong><br>复合或待归类网站借用的休息配额会计入；媒体时长不计入。</div>
+            </div>
+            <div>
+              <div class="weekly-rest-status-grid">
+                <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">本周已用</div><div class="weekly-rest-stat-value" id="weekly-rest-used">读取中</div></div>
+                <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">本周剩余</div><div class="weekly-rest-stat-value" id="weekly-rest-remaining">--</div></div>
+                <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">状态</div><div class="weekly-rest-stat-value" id="weekly-rest-status">读取中</div></div>
+              </div>
+              <div class="weekly-rest-impact" id="weekly-rest-impact">本周已发生的使用会计入新上限；修改后立即生效。</div>
+              <div class="weekly-rest-meta" style="margin-top:8px;">每周一 00:00（北京时间）重置</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日配额</div><div class="card-subtitle">分别限制当天学习、休息、待归类和在线总额；0 表示当天不可用</div></div>
           </div>
           <div id="quota-daily-table"></div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;">每周总额（自动计算）</div>
-            <div class="weekly-quota-grid">
-              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
-                <div style="font-size:11px;color:var(--muted);">学习</div>
-                <div id="weekly-study-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
-              </div>
-              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
-                <div style="font-size:11px;color:var(--muted);">休息</div>
-                <div id="weekly-rest-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
-              </div>
-              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
-                <div style="font-size:11px;color:var(--muted);">复合网站</div>
-                <div id="weekly-composite-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
-              </div>
-              <div style="text-align:center;padding:10px;background:rgba(0,184,148,0.04);border-radius:8px;">
-                <div style="font-size:11px;color:var(--muted);">在线总额</div>
-                <div id="weekly-online-total" style="font-size:15px;font-weight:600;color:var(--text);margin-top:4px;">--</div>
-              </div>
-            </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">七天每日计划合计</div><div class="card-subtitle">仅用于核对每日计划，不是周限制；任一天无限制时不计算有限总数</div></div></div>
+          <div class="weekly-quota-grid">
+            <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">学习</div><div class="weekly-rest-stat-value" id="weekly-study-total">--</div></div>
+            <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">休息</div><div class="weekly-rest-stat-value" id="weekly-rest-total">--</div></div>
+            <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">待归类</div><div class="weekly-rest-stat-value" id="weekly-composite-total">--</div></div>
+            <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">在线总额</div><div class="weekly-rest-stat-value" id="weekly-online-total">--</div></div>
           </div>
         </div>
         <div class="card">
@@ -1715,6 +1756,8 @@ let accountToken = null;
 let currentProfileId = null;
 let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
+let quotaWeeklyRestUsageSeconds = 0;
+let quotaWeeklyRestUsageLoaded = false;
 let siteAccessDefaults = null; // 系统缺省清单 { defaultStudySites, defaultRestrictedEntertainmentSites, defaultBlockedSites }
 let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
@@ -2199,27 +2242,11 @@ async function renderOverview() {
       if (studyList.some(p => matchDomain(domain,p))) studySec += sec;
       else if (compositeList.some(p => matchDomain(domain,p))) undeterminedSec += sec;
     }
-    const restSec = Math.max(0, onlineSec - studySec - undeterminedSec);
+    const restSec = restUsageSecondsFromStatsResult(dayR, cfg);
 
-    // 本周休息
-    let weekRestSec = 0;
-    const weekByDomain = {};
-    for (const s of (weekR.stats || [])) weekByDomain[s.domain] = (weekByDomain[s.domain] || 0) + s.duration;
-    let wStudy = 0, wUndetermined = 0, wOnline = 0;
-    for (const [domain, sec] of Object.entries(weekByDomain)) {
-      wOnline += sec;
-      if (studyList.some(p => matchDomain(domain,p))) wStudy += sec;
-      else if (compositeList.some(p => matchDomain(domain,p))) wUndetermined += sec;
-    }
-    weekRestSec = Math.max(0, wOnline - wStudy - wUndetermined);
+    const weekRestSec = restUsageSecondsFromStatsResult(weekR, cfg);
 
-    const effectiveQuota = buildEffectiveTimeQuotaView(cfg || {});
-    const weeklyLimit = cfg.weeklyRestQuota !== undefined && cfg.weeklyRestQuota !== null && Number(cfg.weeklyRestQuota) > 0
-      ? Number(cfg.weeklyRestQuota)
-      : QUOTA_DAYS.reduce((total, day) => {
-          const rest = effectiveQuota.daily[day]?.restMinutes;
-          return rest === null || total === null ? null : total + (Number(rest) || 0);
-        }, 0);
+    const weeklyLimit = weeklyRestQuotaView(cfg || {}).value;
 
     document.getElementById('stat-study').textContent  = fmtSec(studySec);
     document.getElementById('stat-rest').textContent   = fmtSec(restSec);
@@ -2227,7 +2254,7 @@ async function renderOverview() {
     const wrEl = document.getElementById('stat-weekly-rest');
     const wrLimitEl = document.getElementById('stat-weekly-rest-limit');
     if (wrEl) wrEl.textContent = fmtSec(weekRestSec);
-    if (wrLimitEl) wrLimitEl.textContent = weeklyLimit !== null && weeklyLimit > 0 ? `上限 ${fmtSec(weeklyLimit * 60)}` : '无上限';
+    if (wrLimitEl) wrLimitEl.textContent = weeklyLimit !== null ? `上限 ${fmtSec(weeklyLimit * 60)}` : '无上限';
 
     // Top 10
     const sorted = Object.entries(byDomain).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -3695,7 +3722,10 @@ function buildProfileConfigExportData(classificationRequests = []) {
       classificationRequests,
     },
     quota: {
-      timeQuota: cfg.timeQuota ? { daily: cfg.timeQuota.daily || {} } : { daily: {} },
+      timeQuota: {
+        daily: cfg.timeQuota?.daily || {},
+        weekly: { restMinutes: weeklyRestQuotaView(cfg).value },
+      },
       domainQuotas: cfg.domainQuotas || {},
       legacyQuotaSnapshot: {
         dailyStudyQuota: cfg.dailyStudyQuota,
@@ -3998,6 +4028,7 @@ const CONFIG_IMPORT_QUOTA_FIELDS = [
   { key: 'studyMinutes', label: '学习配额' },
   { key: 'compositeMinutes', label: '待归类配额' },
   { key: 'restMinutes', label: '休息配额' },
+  { key: 'onlineMinutes', label: '在线总额' },
 ];
 
 const CONFIG_IMPORT_WINDOW_FIELDS = [
@@ -4020,13 +4051,21 @@ function normalizeProfileConfigImportData(data) {
   const importedRules = Array.isArray(data.siteAccess?.classificationRules)
     ? data.siteAccess.classificationRules.map(normalizeImportedRule).filter(Boolean)
     : [];
+  const importedWeekly = data.quota?.timeQuota?.weekly;
+  const legacyWeekly = quotaFiniteNumber(data.quota?.legacyQuotaSnapshot?.weeklyRestQuota);
+  const weeklyRestMinutes = importedWeekly && Object.prototype.hasOwnProperty.call(importedWeekly, 'restMinutes')
+    ? quotaFiniteNumber(importedWeekly.restMinutes)
+    : legacyWeekly !== undefined && legacyWeekly !== null && legacyWeekly > 0 ? legacyWeekly : null;
   return {
     customStudyList: lists.customStudyList || [],
     customCompositeList: lists.customCompositeList || [],
     customRestrictedEntertainmentList: lists.customRestrictedEntertainmentList || [],
     customBlockedSites: lists.customBlockedSites || [],
     siteClassificationRulesV1: uniqueSiteRules(importedRules),
-    timeQuota: { daily: data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object' ? data.quota.timeQuota.daily : {} },
+    timeQuota: {
+      daily: data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object' ? data.quota.timeQuota.daily : {},
+      weekly: { restMinutes: weeklyRestMinutes === undefined ? null : weeklyRestMinutes },
+    },
     domainQuotas: data.quota?.domainQuotas && typeof data.quota.domainQuotas === 'object' ? data.quota.domainQuotas : {},
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(data.timeWindows?.daily || {}) },
   };
@@ -4140,6 +4179,15 @@ function buildProfileConfigImportDiffs(importedConfig) {
     }
   }
 
+  const currentWeekly = weeklyRestQuotaView(remoteConfig || {}).value;
+  const importedWeeklyValue = quotaFiniteNumber(importedConfig.timeQuota?.weekly?.restMinutes);
+  const importedWeekly = importedWeeklyValue === undefined ? null : importedWeeklyValue;
+  if (configImportJsonKey(currentWeekly) === configImportJsonKey(importedWeekly)) {
+    addConfigImportDiff(diffs, { type: 'same', area: 'weekly-quota', key: 'restMinutes', label: '每周休息上限', currentValue: configImportValueLabel(currentWeekly), importedValue: configImportValueLabel(importedWeekly) });
+  } else {
+    addConfigImportDiff(diffs, { type: 'modify', area: 'weekly-quota', key: 'restMinutes', label: '每周休息上限', currentValue: configImportValueLabel(currentWeekly), importedValue: configImportValueLabel(importedWeekly), importedRawValue: importedWeekly });
+  }
+
   const currentDomainQuotas = remoteConfig?.domainQuotas || {};
   const importedDomainQuotas = importedConfig.domainQuotas || {};
   const quotaDomains = new Set([...Object.keys(currentDomainQuotas), ...Object.keys(importedDomainQuotas)]);
@@ -4187,13 +4235,17 @@ function addHostToImportList(payload, configKey, value) {
 }
 
 function buildProfileConfigImportPayload(selectedDiffs) {
+  const currentWeeklyRest = weeklyRestQuotaView(remoteConfig || {}).value;
   const payload = {
     customStudyList: [...(Array.isArray(remoteConfig?.customStudyList) ? remoteConfig.customStudyList : [])],
     customCompositeList: [...(Array.isArray(remoteConfig?.customCompositeList) ? remoteConfig.customCompositeList : [])],
     customRestrictedEntertainmentList: [...(Array.isArray(remoteConfig?.customRestrictedEntertainmentList) ? remoteConfig.customRestrictedEntertainmentList : [])],
     customBlockedSites: [...(Array.isArray(remoteConfig?.customBlockedSites) ? remoteConfig.customBlockedSites : [])],
     siteClassificationRulesV1: uniqueSiteRules(Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : []),
-    timeQuota: { daily: JSON.parse(JSON.stringify(remoteConfig?.timeQuota?.daily || {})) },
+    timeQuota: {
+      daily: JSON.parse(JSON.stringify(remoteConfig?.timeQuota?.daily || {})),
+      weekly: { restMinutes: currentWeeklyRest },
+    },
     domainQuotas: { ...(remoteConfig?.domainQuotas || {}) },
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}) },
   };
@@ -4210,6 +4262,8 @@ function buildProfileConfigImportPayload(selectedDiffs) {
       payload.timeQuota.daily[diff.day] = payload.timeQuota.daily[diff.day] || {};
       if (diff.type === 'delete') delete payload.timeQuota.daily[diff.day][diff.field];
       else payload.timeQuota.daily[diff.day][diff.field] = diff.importedRawValue;
+    } else if (diff.area === 'weekly-quota') {
+      payload.timeQuota.weekly.restMinutes = diff.importedRawValue;
     } else if (diff.area === 'domain-quota') {
       if (diff.type === 'delete') delete payload.domainQuotas[diff.key];
       else payload.domainQuotas[diff.key] = diff.importedRawValue;
@@ -4782,9 +4836,127 @@ function buildEffectiveTimeQuotaView(cfg = {}) {
       studyMinutes: quotaTimeField(d, 'studyMinutes', cfg.dailyStudyQuota, null),
       restMinutes: quotaTimeField(d, 'restMinutes', cfg.dailyRestQuota, 120),
       compositeMinutes: quotaTimeField(d, 'compositeMinutes', cfg.dailyUndeterminedQuota, 120),
+      onlineMinutes: quotaTimeField(d, 'onlineMinutes', cfg.dailyOnlineQuota, null),
     };
   }
-  return { daily };
+  return { daily, weekly: { restMinutes: weeklyRestQuotaView(cfg).value } };
+}
+
+function weeklyRestQuotaView(cfg = {}) {
+  const weekly = cfg.timeQuota?.weekly;
+  if (weekly && Object.prototype.hasOwnProperty.call(weekly, 'restMinutes')) {
+    const value = quotaFiniteNumber(weekly.restMinutes);
+    if (value !== undefined) return { value, source: 'timeQuota' };
+  }
+  const legacy = quotaFiniteNumber(cfg.weeklyRestQuota);
+  if (legacy !== undefined && legacy !== null && legacy > 0) return { value: legacy, source: 'legacy' };
+  return { value: null, source: 'default' };
+}
+
+function weeklyRestSourceLabel(view) {
+  if (view.source === 'legacy') return '旧配置迁移（保存后转为显式周上限）';
+  if (view.source === 'timeQuota') return view.value === null ? '已明确设为无限制' : '显式周上限';
+  return '默认无限制';
+}
+
+function weeklyRestInputMinutes() {
+  if (document.getElementById('q-weekly-rest-unlimited')?.checked) return null;
+  const hours = Math.max(0, Number.parseInt(document.getElementById('q-weekly-rest-hours')?.value, 10) || 0);
+  const minutes = Math.max(0, Number.parseInt(document.getElementById('q-weekly-rest-minutes')?.value, 10) || 0);
+  return hours * 60 + minutes;
+}
+
+function formatQuotaMinutes(minutes) {
+  const total = Math.max(0, Math.floor(Number(minutes) || 0));
+  const hours = Math.floor(total / 60);
+  const remainder = total % 60;
+  if (!hours) return `${remainder} 分钟`;
+  return remainder ? `${hours} 小时 ${remainder} 分钟` : `${hours} 小时`;
+}
+
+function updateWeeklyRestQuotaStatus() {
+  const unlimited = document.getElementById('q-weekly-rest-unlimited')?.checked !== false;
+  const inputs = document.getElementById('q-weekly-rest-inputs');
+  if (inputs) inputs.querySelectorAll('input').forEach(input => { input.disabled = unlimited; });
+
+  const usedEl = document.getElementById('weekly-rest-used');
+  const remainingEl = document.getElementById('weekly-rest-remaining');
+  const statusEl = document.getElementById('weekly-rest-status');
+  const impactEl = document.getElementById('weekly-rest-impact');
+  if (!usedEl || !remainingEl || !statusEl || !impactEl) return;
+
+  usedEl.textContent = quotaWeeklyRestUsageLoaded ? fmtSec(quotaWeeklyRestUsageSeconds) : '读取中';
+  impactEl.classList.remove('danger');
+  if (unlimited) {
+    remainingEl.textContent = '无限制';
+    statusEl.textContent = quotaWeeklyRestUsageLoaded ? '正常' : '读取中';
+    impactEl.textContent = '保存后取消周累计限制；每日休息配额仍独立生效。';
+    return;
+  }
+
+  const limitMinutes = weeklyRestInputMinutes();
+  const limitSeconds = limitMinutes * 60;
+  const remaining = Math.max(0, limitSeconds - quotaWeeklyRestUsageSeconds);
+  remainingEl.textContent = quotaWeeklyRestUsageLoaded ? fmtSec(remaining) : '--';
+  const reached = quotaWeeklyRestUsageLoaded && quotaWeeklyRestUsageSeconds >= limitSeconds;
+  statusEl.textContent = quotaWeeklyRestUsageLoaded ? (reached ? '已达上限' : '正常') : '读取中';
+  impactEl.textContent = `保存后本周上限为 ${formatQuotaMinutes(limitMinutes)}；本周已发生的使用会计入新上限，修改立即生效。`;
+  if (reached) impactEl.classList.add('danger');
+}
+
+function restUsageSecondsFromStatsResult(result, cfg) {
+  cfg = cfg || {};
+  const rows = (Array.isArray(result?.stats) ? result.stats : [])
+    .filter(row => row.channel !== 'backgroundMedia' && row.channel !== 'pip' && row.channel !== 'media');
+  if (result?.source === 'target-v1' && rows.some(row => row.quotaBucket)) {
+    return rows.reduce((total, row) => total + (row.quotaBucket === 'rest' ? row.duration : 0), 0);
+  }
+  const studyList = cfg.studyList || [];
+  const compositeList = cfg.compositeList || [];
+  return rows.reduce((total, row) => {
+    if (studyList.some(pattern => matchDomain(row.domain, pattern))) return total;
+    if (compositeList.some(pattern => matchDomain(row.domain, pattern))) return total;
+    return total + row.duration;
+  }, 0);
+}
+
+function shanghaiWeekDateRange(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  const todayUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day));
+  const dayFromMonday = new Date(todayUtc).getUTCDay() === 0 ? 6 : new Date(todayUtc).getUTCDay() - 1;
+  return {
+    from: new Date(todayUtc - dayFromMonday * 86400000).toISOString().slice(0, 10),
+    to: new Date(todayUtc).toISOString().slice(0, 10),
+  };
+}
+
+async function refreshWeeklyRestQuotaUsage() {
+  if (!currentProfileId) return;
+  const requestedProfileId = currentProfileId;
+  quotaWeeklyRestUsageLoaded = false;
+  updateWeeklyRestQuotaStatus();
+  const range = shanghaiWeekDateRange();
+  try {
+    const result = await fetchProfileStats(range.from, range.to);
+    if (requestedProfileId !== currentProfileId) return;
+    quotaWeeklyRestUsageSeconds = restUsageSecondsFromStatsResult(result, remoteConfig || {});
+    quotaWeeklyRestUsageLoaded = true;
+  } catch (error) {
+    console.warn('[Quota] weekly rest usage read failed:', error?.message || error);
+    quotaWeeklyRestUsageSeconds = 0;
+    quotaWeeklyRestUsageLoaded = false;
+    const usedEl = document.getElementById('weekly-rest-used');
+    const statusEl = document.getElementById('weekly-rest-status');
+    if (usedEl) usedEl.textContent = '读取失败';
+    if (statusEl) statusEl.textContent = '无法核对';
+  }
+  updateWeeklyRestQuotaStatus();
 }
 
 function setupQuota() {
@@ -4798,12 +4970,23 @@ function setupQuota() {
     document.getElementById('q-minutes-input').value = '';
     renderQuotaList();
   });
+  document.getElementById('q-weekly-rest-unlimited').addEventListener('change', updateWeeklyRestQuotaStatus);
+  document.getElementById('q-weekly-rest-hours').addEventListener('input', updateWeeklyRestQuotaStatus);
+  document.getElementById('q-weekly-rest-minutes').addEventListener('input', updateWeeklyRestQuotaStatus);
   document.getElementById('save-quota-btn').addEventListener('click', saveTimeQuotaConfig);
 }
 
 function renderQuotaPage() {
-  const daily = buildEffectiveTimeQuotaView(remoteConfig || {}).daily;
+  const effective = buildEffectiveTimeQuotaView(remoteConfig || {});
+  const daily = effective.daily;
   const container = document.getElementById('quota-daily-table');
+
+  const weeklyView = weeklyRestQuotaView(remoteConfig || {});
+  const weeklyUnlimited = weeklyView.value === null;
+  document.getElementById('q-weekly-rest-unlimited').checked = weeklyUnlimited;
+  document.getElementById('q-weekly-rest-hours').value = weeklyUnlimited ? '' : Math.floor(weeklyView.value / 60);
+  document.getElementById('q-weekly-rest-minutes').value = weeklyUnlimited ? '' : weeklyView.value % 60;
+  document.getElementById('weekly-rest-source').textContent = weeklyRestSourceLabel(weeklyView);
 
   // Table header
   let html = `<div class="quota-daily-header">
@@ -4811,6 +4994,7 @@ function renderQuotaPage() {
     <div class="quota-daily-heading">学习时长</div>
     <div class="quota-daily-heading">休息时长</div>
     <div class="quota-daily-heading">待归类时间</div>
+    <div class="quota-daily-heading">在线总额</div>
   </div>`;
 
   for (const day of QUOTA_DAYS) {
@@ -4818,31 +5002,40 @@ function renderQuotaPage() {
     const studyVal = d.studyMinutes ?? '';
     const restVal = d.restMinutes ?? '';
     const compositeVal = d.compositeMinutes ?? '';
+    const onlineVal = d.onlineMinutes ?? '';
     const studyUnlimited = d.studyMinutes === null;
     const restUnlimited = d.restMinutes === null;
     const compositeUnlimited = d.compositeMinutes === null;
+    const onlineUnlimited = d.onlineMinutes === null;
 
     html += `<div class="quota-daily-row">
       <div class="quota-day-name">${QUOTA_DAY_LABELS[day]}</div>
       <div class="quota-control">
         <span class="quota-control-label">学习</span>
-        <input type="number" id="q-${day}-study" value="${studyUnlimited ? '' : studyVal}" ${studyUnlimited ? 'disabled' : ''} min="0" step="10" placeholder="分钟">
+        <input type="number" id="q-${day}-study" value="${studyUnlimited ? '' : studyVal}" ${studyUnlimited ? 'disabled' : ''} min="0" max="1440" step="10" placeholder="分钟">
         <label class="quota-unlimited">
           <input type="checkbox" id="q-${day}-study-unlimited" ${studyUnlimited ? 'checked' : ''} onchange="toggleQuotaUnlimited('${day}', 'study')">无限制
         </label>
       </div>
       <div class="quota-control">
         <span class="quota-control-label">休息</span>
-        <input type="number" id="q-${day}-rest" value="${restUnlimited ? '' : restVal}" ${restUnlimited ? 'disabled' : ''} min="0" step="10" placeholder="分钟">
+        <input type="number" id="q-${day}-rest" value="${restUnlimited ? '' : restVal}" ${restUnlimited ? 'disabled' : ''} min="0" max="1440" step="10" placeholder="分钟">
         <label class="quota-unlimited">
           <input type="checkbox" id="q-${day}-rest-unlimited" ${restUnlimited ? 'checked' : ''} onchange="toggleQuotaUnlimited('${day}', 'rest')">无限制
         </label>
       </div>
       <div class="quota-control">
         <span class="quota-control-label">待归类</span>
-        <input type="number" id="q-${day}-composite" value="${compositeUnlimited ? '' : compositeVal}" ${compositeUnlimited ? 'disabled' : ''} min="0" step="10" placeholder="分钟">
+        <input type="number" id="q-${day}-composite" value="${compositeUnlimited ? '' : compositeVal}" ${compositeUnlimited ? 'disabled' : ''} min="0" max="1440" step="10" placeholder="分钟">
         <label class="quota-unlimited">
           <input type="checkbox" id="q-${day}-composite-unlimited" ${compositeUnlimited ? 'checked' : ''} onchange="toggleQuotaUnlimited('${day}', 'composite')">无限制
+        </label>
+      </div>
+      <div class="quota-control">
+        <span class="quota-control-label">在线总额</span>
+        <input type="number" id="q-${day}-online" value="${onlineUnlimited ? '' : onlineVal}" ${onlineUnlimited ? 'disabled' : ''} min="0" max="1440" step="10" placeholder="分钟">
+        <label class="quota-unlimited">
+          <input type="checkbox" id="q-${day}-online-unlimited" ${onlineUnlimited ? 'checked' : ''} onchange="toggleQuotaUnlimited('${day}', 'online')">无限制
         </label>
       </div>
     </div>`;
@@ -4851,6 +5044,8 @@ function renderQuotaPage() {
   container.innerHTML = html;
   renderQuotaList();
   updateWeeklyQuotaTotals();
+  updateWeeklyRestQuotaStatus();
+  void refreshWeeklyRestQuotaUsage();
 }
 
 window.toggleQuotaUnlimited = (day, type) => {
@@ -4863,33 +5058,22 @@ window.toggleQuotaUnlimited = (day, type) => {
 };
 
 function updateWeeklyQuotaTotals() {
-  let studyTotal = 0, restTotal = 0, compositeTotal = 0;
-  let studyUnlimited = false, restUnlimited = false, compositeUnlimited = false;
+  const totals = { study: 0, rest: 0, composite: 0, online: 0 };
+  const hasUnlimited = { study: false, rest: false, composite: false, online: false };
 
   for (const day of QUOTA_DAYS) {
-    const studyUnl = document.getElementById(`q-${day}-study-unlimited`)?.checked;
-    const restUnl = document.getElementById(`q-${day}-rest-unlimited`)?.checked;
-    const compositeUnl = document.getElementById(`q-${day}-composite-unlimited`)?.checked;
-
-    if (studyUnl) studyUnlimited = true;
-    if (restUnl) restUnlimited = true;
-    if (compositeUnl) compositeUnlimited = true;
-
-    const studyMin = studyUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-study`)?.value) || 0);
-    const restMin = restUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-rest`)?.value) || 0);
-    const compositeMin = compositeUnl ? 0 : Math.max(0, parseInt(document.getElementById(`q-${day}-composite`)?.value) || 0);
-
-    studyTotal += studyMin;
-    restTotal += restMin;
-    compositeTotal += compositeMin;
+    for (const type of Object.keys(totals)) {
+      const unlimited = document.getElementById(`q-${day}-${type}-unlimited`)?.checked;
+      if (unlimited) hasUnlimited[type] = true;
+      else totals[type] += Math.max(0, Number.parseInt(document.getElementById(`q-${day}-${type}`)?.value, 10) || 0);
+    }
   }
 
-  const fmt = (val, unlimited) => unlimited ? '无限制' : `${(val / 60).toFixed(1).replace('.0', '')} 小时`;
-  document.getElementById('weekly-study-total').textContent = fmt(studyTotal, studyUnlimited);
-  document.getElementById('weekly-rest-total').textContent = fmt(restTotal, restUnlimited);
-  document.getElementById('weekly-composite-total').textContent = fmt(compositeTotal, compositeUnlimited);
-  const onlineLimit = quotaLegacyMinutes(remoteConfig?.dailyOnlineQuota, null);
-  document.getElementById('weekly-online-total').textContent = onlineLimit === null ? '未设置' : `${onlineLimit} 分钟/天`;
+  const fmt = (type) => hasUnlimited[type] ? '包含无限制日' : formatQuotaMinutes(totals[type]);
+  document.getElementById('weekly-study-total').textContent = fmt('study');
+  document.getElementById('weekly-rest-total').textContent = fmt('rest');
+  document.getElementById('weekly-composite-total').textContent = fmt('composite');
+  document.getElementById('weekly-online-total').textContent = fmt('online');
 }
 
 async function saveTimeQuotaConfig() {
@@ -4900,15 +5084,34 @@ async function saveTimeQuotaConfig() {
     const studyUnlimited = document.getElementById(`q-${day}-study-unlimited`).checked;
     const restUnlimited = document.getElementById(`q-${day}-rest-unlimited`).checked;
     const compositeUnlimited = document.getElementById(`q-${day}-composite-unlimited`).checked;
+    const onlineUnlimited = document.getElementById(`q-${day}-online-unlimited`).checked;
     daily[day] = {
       studyMinutes: studyUnlimited ? null : Math.max(0, parseInt(document.getElementById(`q-${day}-study`).value) || 0),
       restMinutes: restUnlimited ? null : Math.max(0, parseInt(document.getElementById(`q-${day}-rest`).value) || 0),
       compositeMinutes: compositeUnlimited ? null : Math.max(0, parseInt(document.getElementById(`q-${day}-composite`).value) || 0),
+      onlineMinutes: onlineUnlimited ? null : Math.max(0, parseInt(document.getElementById(`q-${day}-online`).value) || 0),
     };
   }
 
+  const weeklyRestMinutes = weeklyRestInputMinutes();
+  const weeklyHoursInput = Number.parseInt(document.getElementById('q-weekly-rest-hours').value, 10) || 0;
+  const weeklyMinutesInput = Number.parseInt(document.getElementById('q-weekly-rest-minutes').value, 10) || 0;
+  if (weeklyRestMinutes !== null && (weeklyHoursInput < 0 || weeklyHoursInput > 168 || weeklyMinutesInput < 0 || weeklyMinutesInput > 59)) {
+    toast('每周休息上限请输入 0-168 小时和 0-59 分钟', false);
+    return;
+  }
+  if (weeklyRestMinutes !== null && weeklyRestMinutes > 7 * 24 * 60) {
+    toast('每周休息上限不能超过 168 小时', false);
+    return;
+  }
+  const previousWeeklyRest = weeklyRestQuotaView(remoteConfig).value;
+  if (weeklyRestMinutes !== null && weeklyRestMinutes * 60 <= quotaWeeklyRestUsageSeconds && weeklyRestMinutes !== previousWeeklyRest) {
+    const confirmed = window.confirm(`本周已使用 ${fmtSec(quotaWeeklyRestUsageSeconds)}，新上限 ${formatQuotaMinutes(weeklyRestMinutes)} 将立即达到限制。确认保存吗？`);
+    if (!confirmed) return;
+  }
+
   const payload = {
-    timeQuota: { daily },
+    timeQuota: { daily, weekly: { restMinutes: weeklyRestMinutes } },
     domainQuotas: remoteConfig.domainQuotas || {},
   };
 
@@ -7855,6 +8058,7 @@ function normalizeStatsRows(rows = []) {
     date: s.date,
     domain: s.domain,
     duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
+    channel: s.channel || null,
   })).filter((s) => s.date && s.domain && s.duration > 0);
 }
 
@@ -7869,6 +8073,9 @@ function normalizeTargetStatsRows(rows = []) {
       date: s.date,
       domain: label,
       duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
+      channel: s.channel || null,
+      quotaBucket: s.quota_bucket_at_time || s.quotaBucketAtTime || s.quota_bucket || s.quotaBucket || null,
+      targetClassificationAtTime: s.target_classification_at_time || s.targetClassificationAtTime || null,
     };
   }).filter((s) => s.date && s.domain && s.duration > 0);
 }

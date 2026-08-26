@@ -84,6 +84,8 @@ async function testMediaStatePiPTriggersPolicyCleanup() {
   const result = await api.observeMediaFromSignal({
     _reason: 'mediaState',
     mediaSourceTabId: 42,
+    mediaFrameId: 0,
+    evidenceTier: 'content',
     domain: 'pip.example.com',
     playing: true,
     mediaKind: 'video',
@@ -108,6 +110,8 @@ async function testCleanupFailureKeepsLedgerFact() {
   const result = await api.observeMediaFromSignal({
     _reason: 'mediaState',
     mediaSourceTabId: 43,
+    mediaFrameId: 0,
+    evidenceTier: 'content',
     domain: 'pip.example.com',
     playing: true,
     mediaKind: 'video',
@@ -131,6 +135,8 @@ async function testConfirmedExitAfterCleanupAttemptUsesPolicyReason() {
   await api.observeMediaFromSignal({
     _reason: 'mediaState',
     mediaSourceTabId: 47,
+    mediaFrameId: 0,
+    evidenceTier: 'content',
     domain: 'pip.example.com',
     playing: true,
     mediaKind: 'video',
@@ -139,6 +145,8 @@ async function testConfirmedExitAfterCleanupAttemptUsesPolicyReason() {
   const result = await api.observeMediaFromSignal({
     _reason: 'mediaState',
     mediaSourceTabId: 47,
+    mediaFrameId: 0,
+    evidenceTier: 'content',
     domain: 'pip.example.com',
     playing: true,
     mediaKind: 'video',

@@ -83,10 +83,13 @@ function computeQuotaState(config, stats, undeterminedStats, weekRestMinutes, to
   const dailyOnlineQuota       = config.dailyOnlineQuota       ?? 0;
   const dailyUndeterminedQuota = config.dailyUndeterminedQuota ?? 60;
   const effectiveDailyRest     = getTodayEffectiveRestLimit(config, todayOverride);
-  const weeklyRestLimit        = config.weeklyRestQuota ?? (effectiveDailyRest * 7);
+  const weeklyConfig = config.timeQuota?.weekly;
+  const weeklyRestLimit = weeklyConfig && Object.prototype.hasOwnProperty.call(weeklyConfig, 'restMinutes')
+    ? weeklyConfig.restMinutes
+    : Number(config.weeklyRestQuota) > 0 ? Number(config.weeklyRestQuota) : null;
 
   const restLockedByDay  = effectiveDailyRest > 0 && restMinutes   >= effectiveDailyRest;
-  const restLockedByWeek = weeklyRestLimit    > 0 && weekRestMinutes >= weeklyRestLimit;
+  const restLockedByWeek = weeklyRestLimit !== null && weekRestMinutes >= weeklyRestLimit;
 
   const newState = {
     onlineLocked:       dailyOnlineQuota                > 0 && totalMinutes        >= dailyOnlineQuota,
@@ -671,12 +674,16 @@ section('Quota: zero = unlimited (GAP-2)');
 }
 
 {
-  // weeklyRestQuota = null → 默认为 effectiveDailyRest * 7
-  // effectiveDailyRest = 30, weeklyRestLimit = 210
-  // weekRestMinutes = 200 < 210 → 不锁
+  // 未设置显式周上限时，不从每日休息额度推导周限制
   const config = makeConfig({ dailyRestQuota: 30, weeklyRestQuota: null });
   const { newState } = computeQuotaState(config, {}, {}, 200, '2026-04-14');
-  check('[GAP-2] weeklyRestQuota=null → defaults to dailyRest*7, 200 < 210 → NOT weeklyRestLocked', !newState.weeklyRestLocked, JSON.stringify(newState));
+  check('[GAP-2] weeklyRestQuota=null → no derived weekly lock', !newState.weeklyRestLocked, JSON.stringify(newState));
+}
+
+{
+  const config = makeConfig({ timeQuota: { weekly: { restMinutes: 0 } }, weeklyRestQuota: 200 });
+  const { newState } = computeQuotaState(config, {}, {}, 0, '2026-04-14');
+  check('[D-063] explicit weekly rest 0 locks immediately', newState.weeklyRestLocked, JSON.stringify(newState));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

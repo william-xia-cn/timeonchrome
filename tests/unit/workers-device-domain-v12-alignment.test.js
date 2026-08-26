@@ -53,12 +53,19 @@ function classifyWithLists(statsRows, studyList, compositeList, matchDomain) {
 
 function run() {
   const deviceSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'device.ts'), 'utf8');
+  const profilesSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'profiles.ts'), 'utf8');
+  const restoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'restore.ts'), 'utf8');
   const matchDomain = loadDomainSemantics();
 
   expectTrue('device.ts 应复用 v1.2 matchDomain 实现', deviceSource.includes("import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';"));
   expectTrue('device.ts 中 matchDomain 应委托到 matchDomainV12', /const\s+matchDomain\s*=\s*matchDomainV12\s*;/.test(deviceSource));
   expectTrue('device.ts quota-state 应读取 effective timeQuota', /getEffectiveQuotaForDate\(config,\s*dateParam(?:\s+as\s+any)?\)/.test(deviceSource) && !deviceSource.includes('config.dailyUndeterminedQuota ?? 60)  * 60'));
   expectTrue('device config GET 应返回补齐后的 timeQuota.daily', deviceSource.includes('buildEffectiveTimeQuota(configData)') && deviceSource.includes('configData.timeQuota ='));
+  expectTrue('profile config 应校验每日与每周显式配额范围', profilesSource.includes('function validateTimeQuota') && profilesSource.includes('weekly.restMinutes 必须是 null 或 0-10080'));
+  expectTrue('profile config 局部更新 weekly 时应保留现有 daily 配额', profilesSource.includes("key === 'timeQuota'") && profilesSource.includes('currentQuota.daily') && profilesSource.includes('currentQuota.weekly'));
+  expectTrue('profile config 不应再由每日休息配额乘七生成周上限', !profilesSource.includes('restMinutes * 7') && !profilesSource.includes('restMinutes*7'));
+  expectTrue('profile config 应从显式周上限维护 legacy 兼容镜像', profilesSource.includes('config.weeklyRestQuota = typeof weeklyRest'));
+  expectTrue('备份恢复不应再由每日休息配额乘七生成周上限', !restoreSource.includes('restMinutes * 7') && !restoreSource.includes('restMinutes*7'));
 
   // 5 条 V0 断言（父域匹配子域）
   expectEqual('a.example.com vs example.com = true', matchDomain('a.example.com', 'example.com'), true);

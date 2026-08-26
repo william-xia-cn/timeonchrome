@@ -3,7 +3,7 @@
 import { initSignal } from './core/signal.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
-import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabReplaced, handleMediaWindowStateChanged, runMediaCheckpoint } from './core/media-timing.js';
+import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabReplaced, handleMediaWindowFocusChanged, handleMediaWindowStateChanged, runMediaCheckpoint } from './core/media-timing.js';
 import { runForegroundCheckpoint, runTimingCheckpoints } from './core/checkpoint-scheduler.js';
 import { closeCurrentSession, initSession, getSession as getTimingSession } from './runtime/session.js';
 import { recover } from './runtime/recovery.js';
@@ -968,6 +968,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  await handleMediaWindowFocusChanged(windowId).catch(() => {});
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     return;
   }

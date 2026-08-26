@@ -26,6 +26,7 @@ function loadMediaTiming(stubs = {}) {
   const names = [
     'handleMediaTabActivated',
     'handleMediaTabReplaced',
+    'handleMediaWindowFocusChanged',
     'handleMediaWindowStateChanged',
     'refreshKnownMediaTab',
   ];
@@ -46,8 +47,9 @@ function makeHarness({ knownTabs = [], sessions = {}, tabs = {}, windows = {} } 
     },
     classifyMediaFact: (fact) => {
       if (fact?.isPiP) return { mediaClass: 'pip' };
-      if (fact?.mediaKind === 'video') return { mediaClass: fact.isActiveTab && fact.windowState !== 'minimized' ? 'foregroundVideo' : 'backgroundVideo' };
-      if (fact?.playing || fact?.audible) return { mediaClass: fact.isActiveTab && fact.windowState !== 'minimized' ? 'foregroundAudio' : 'backgroundAudio' };
+      const foreground = fact?.isActiveTab && fact?.isWindowFocused === true && fact?.windowState !== 'minimized';
+      if (fact?.mediaKind === 'video') return { mediaClass: foreground ? 'foregroundVideo' : 'backgroundVideo' };
+      if (fact?.playing || fact?.audible) return { mediaClass: foreground ? 'foregroundAudio' : 'backgroundAudio' };
       return null;
     },
     closeMediaForTab: async (tabId, reason) => {
@@ -134,6 +136,28 @@ async function run() {
     await api.handleMediaWindowStateChanged(4, 'minimized');
     check('window minimized reclassifies known active media tab', applyCalls.length === 1);
     check('window minimized passes minimized state', applyCalls[0].fact.windowState === 'minimized');
+  }
+
+  {
+    const { api, applyCalls } = makeHarness({
+      knownTabs: [9, 10],
+      sessions: {
+        '9::foregroundAudio': { tabId: 9, startTime: 1, mediaClass: 'foregroundAudio' },
+        '10::backgroundAudio': { tabId: 10, startTime: 1, mediaClass: 'backgroundAudio' },
+      },
+      tabs: {
+        9: { id: 9, windowId: 4, url: 'https://old-window.example', active: true, audible: true },
+        10: { id: 10, windowId: 5, url: 'https://new-window.example', active: true, audible: true },
+      },
+      windows: {
+        4: { id: 4, focused: false, state: 'normal' },
+        5: { id: 5, focused: true, state: 'normal' },
+      },
+    });
+    await api.handleMediaWindowFocusChanged(5);
+    check('focus change reclassifies every open media tab', applyCalls.length === 2, JSON.stringify(applyCalls));
+    check('previous window media receives unfocused fact', applyCalls.some((call) => call.fact.tabId === 9 && call.fact.isWindowFocused === false), JSON.stringify(applyCalls));
+    check('new focused window media receives focused fact', applyCalls.some((call) => call.fact.tabId === 10 && call.fact.isWindowFocused === true), JSON.stringify(applyCalls));
   }
 
   const total = passed + failed;

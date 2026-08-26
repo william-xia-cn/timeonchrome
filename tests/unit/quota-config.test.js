@@ -96,7 +96,38 @@ const quota = loadProdModule('core/quota-config.js', [
     saturday: { restMinutes: 60 },
     sunday: { restMinutes: null },
   });
-  expectEqual('any unlimited daily rest makes derived weekly unlimited', weekly.value, null);
+  expectEqual('daily rest plan never derives a weekly limit', weekly, { value: null, source: 'default' });
+}
+
+{
+  expectEqual(
+    'explicit weekly zero means zero-minute limit',
+    quota.weeklyRestLimitFromConfig({ timeQuota: { weekly: { restMinutes: 0 } }, weeklyRestQuota: 300 }),
+    { value: 0, source: 'timeQuota' },
+  );
+  expectEqual(
+    'explicit weekly null overrides a legacy limit',
+    quota.weeklyRestLimitFromConfig({ timeQuota: { weekly: { restMinutes: null } }, weeklyRestQuota: 300 }),
+    { value: null, source: 'timeQuota' },
+  );
+  expectEqual(
+    'positive legacy weekly limit remains compatible',
+    quota.weeklyRestLimitFromConfig({ weeklyRestQuota: 300 }),
+    { value: 300, source: 'legacy' },
+  );
+  expectEqual(
+    'legacy weekly zero remains unlimited',
+    quota.weeklyRestLimitFromConfig({ weeklyRestQuota: 0 }),
+    { value: null, source: 'legacy' },
+  );
+}
+
+{
+  const effective = quota.getEffectiveQuotaForDate({
+    dailyOnlineQuota: 0,
+    timeQuota: { daily: { monday: { studyMinutes: null, restMinutes: 30, compositeMinutes: 45, onlineMinutes: 0 } } },
+  }, '2026-05-18');
+  expectEqual('explicit daily online zero means zero-minute limit', effective.todayEffectiveQuota.onlineMinutes, 0);
 }
 
 {

@@ -8,6 +8,7 @@ const TIME_QUOTA_DEFAULTS = {
   studyMinutes: null,
   restMinutes: 120,
   compositeMinutes: 120,
+  onlineMinutes: null,
 };
 
 function finiteNumber(value) {
@@ -76,15 +77,23 @@ export function buildEffectiveTimeQuota(config = {}) {
       config.dailyUndeterminedQuota,
       TIME_QUOTA_DEFAULTS.compositeMinutes,
     );
+    const online = timeQuotaMinutes(
+      dayConfig,
+      'onlineMinutes',
+      config.dailyOnlineQuota ?? config.dailyQuota,
+      TIME_QUOTA_DEFAULTS.onlineMinutes,
+    );
     daily[day] = {
       studyMinutes: study.value,
       restMinutes: rest.value,
       compositeMinutes: composite.value,
+      onlineMinutes: online.value,
     };
     sources[day] = {
       study: study.source,
       rest: rest.source,
       composite: composite.source,
+      online: online.source,
     };
   }
 
@@ -100,6 +109,15 @@ export function explicitDailyOnlineLimit(config = {}) {
 }
 
 export function weeklyRestLimitFromConfig(config = {}, effectiveDaily = null) {
+  const weekly = config?.timeQuota?.weekly;
+  if (weekly && Object.prototype.hasOwnProperty.call(weekly, 'restMinutes')) {
+    const configured = finiteNumber(weekly.restMinutes);
+    return {
+      value: configured === undefined ? null : configured,
+      source: 'timeQuota',
+    };
+  }
+
   if (config.weeklyRestQuota !== undefined && config.weeklyRestQuota !== null && config.weeklyRestQuota !== '') {
     const explicit = finiteNumber(config.weeklyRestQuota);
     if (explicit !== undefined) {
@@ -107,17 +125,7 @@ export function weeklyRestLimitFromConfig(config = {}, effectiveDaily = null) {
       return { value: explicit, source: 'legacy' };
     }
   }
-
-  const daily = effectiveDaily || buildEffectiveTimeQuota(config).daily;
-  let total = 0;
-  for (const day of QUOTA_DAYS) {
-    const minutes = daily[day]?.restMinutes;
-    if (minutes === null) return { value: null, source: 'derived' };
-    const number = finiteNumber(minutes);
-    if (number === undefined) return { value: null, source: 'missing' };
-    total += number;
-  }
-  return { value: total, source: 'derived' };
+  return { value: null, source: 'default' };
 }
 
 export function applyRestQuotaBorrow(baseRestMinutes, config = {}, dateInput = new Date()) {
@@ -159,8 +167,8 @@ export function getEffectiveQuotaForDate(config = {}, dateInput = new Date()) {
     studyMinutes: TIME_QUOTA_DEFAULTS.studyMinutes,
     restMinutes: TIME_QUOTA_DEFAULTS.restMinutes,
     compositeMinutes: TIME_QUOTA_DEFAULTS.compositeMinutes,
+    onlineMinutes: TIME_QUOTA_DEFAULTS.onlineMinutes,
   };
-  const online = explicitDailyOnlineLimit(config);
   const weeklyRest = weeklyRestLimitFromConfig(config, timeQuota.daily);
   const effectiveRestMinutes = applyRestQuotaBorrow(dayQuota.restMinutes, config, dateInput);
 
@@ -173,14 +181,14 @@ export function getEffectiveQuotaForDate(config = {}, dateInput = new Date()) {
       restMinutes: effectiveRestMinutes,
       baseRestMinutes: dayQuota.restMinutes,
       compositeMinutes: dayQuota.compositeMinutes,
-      onlineMinutes: online.value,
+      onlineMinutes: dayQuota.onlineMinutes,
       weeklyRestMinutes: weeklyRest.value,
     },
     weeklyRestLimitMinutes: weeklyRest.value,
-    dailyOnlineLimitMinutes: online.value,
+    dailyOnlineLimitMinutes: dayQuota.onlineMinutes,
     source: {
       day: timeQuota.sources[dayKey] || {},
-      online: online.source,
+      online: timeQuota.sources[dayKey]?.online || 'default',
       weeklyRest: weeklyRest.source,
     },
   };

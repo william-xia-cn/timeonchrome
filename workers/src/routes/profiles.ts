@@ -88,14 +88,15 @@ function buildSchemaDefaults(): object {
     },
     timeQuota: {
       daily: {
-        monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-        tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-        wednesday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-        thursday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-        friday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-        saturday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
-        sunday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120 },
+        monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+        tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+        wednesday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+        thursday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+        friday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+        saturday:  { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
+        sunday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
       },
+      weekly: { restMinutes: null },
     },
     timeWindows: {
       daily: {
@@ -255,8 +256,41 @@ function validateTimeWindows(config: Record<string, unknown>): string | null {
   return null;
 }
 
-// 当 timeQuota 中所有天的某个字段值完全一致且为有限值时，同步对应的 legacy 字段
-// 如果七天值不一致，不修改 legacy 字段，避免 lossy conversion
+function validateTimeQuota(config: Record<string, unknown>): string | null {
+  const timeQuota = config.timeQuota as any;
+  if (timeQuota === undefined) return null;
+  if (!timeQuota || typeof timeQuota !== 'object' || Array.isArray(timeQuota)) return 'timeQuota 必须是对象';
+
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const dailyFields = ['studyMinutes', 'restMinutes', 'compositeMinutes', 'onlineMinutes'];
+  const validMinutes = (value: unknown, max: number) =>
+    value === null || (typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0 && value <= max);
+
+  if (timeQuota.daily !== undefined) {
+    if (!timeQuota.daily || typeof timeQuota.daily !== 'object' || Array.isArray(timeQuota.daily)) return 'timeQuota.daily 必须是对象';
+    for (const day of days) {
+      const dayConfig = timeQuota.daily[day];
+      if (dayConfig === undefined) continue;
+      if (!dayConfig || typeof dayConfig !== 'object' || Array.isArray(dayConfig)) return `${day} 配额必须是对象`;
+      for (const field of dailyFields) {
+        if (Object.prototype.hasOwnProperty.call(dayConfig, field) && !validMinutes(dayConfig[field], 24 * 60)) {
+          return `${day}.${field} 必须是 null 或 0-1440 的整数分钟`;
+        }
+      }
+    }
+  }
+
+  if (timeQuota.weekly !== undefined) {
+    if (!timeQuota.weekly || typeof timeQuota.weekly !== 'object' || Array.isArray(timeQuota.weekly)) return 'timeQuota.weekly 必须是对象';
+    if (Object.prototype.hasOwnProperty.call(timeQuota.weekly, 'restMinutes') && !validMinutes(timeQuota.weekly.restMinutes, 7 * 24 * 60)) {
+      return 'weekly.restMinutes 必须是 null 或 0-10080 的整数分钟';
+    }
+  }
+  return null;
+}
+
+// 当 timeQuota 中所有天的某个字段值完全一致且为有限值时，同步对应的 daily legacy 字段。
+// weeklyRestQuota 不再由每日配额派生。
 function syncLegacyQuota(config: Record<string, unknown>): void {
   const daily = (config.timeQuota as any)?.daily;
   if (!daily) return;
@@ -277,29 +311,19 @@ function syncLegacyQuota(config: Record<string, unknown>): void {
   if (studyMinutes !== null) config.dailyStudyQuota = studyMinutes;
 
   const restMinutes = allSameFinite('restMinutes');
-  if (restMinutes !== null) {
-    config.dailyRestQuota = restMinutes;
-    config.weeklyRestQuota = restMinutes * 7;
-  }
+  if (restMinutes !== null) config.dailyRestQuota = restMinutes;
 
   const compositeMinutes = allSameFinite('compositeMinutes');
   if (compositeMinutes !== null) config.dailyUndeterminedQuota = compositeMinutes;
 
-  // 在线总额 = study + rest + composite，仅当三天都有限时才可计算
-  const allOnlineSame = (): number | null => {
-    let val: number | undefined = undefined;
-    for (const day of days) {
-      const d = daily[day];
-      if (!d) return null;
-      if (d.studyMinutes === null || d.restMinutes === null || d.compositeMinutes === null) return null;
-      const dayOnline = (d.studyMinutes || 0) + (d.restMinutes || 0) + (d.compositeMinutes || 0);
-      if (val === undefined) val = dayOnline;
-      else if (val !== dayOnline) return null;
-    }
-    return val ?? null;
-  };
-  const onlineMinutes = allOnlineSame();
+  const onlineMinutes = allSameFinite('onlineMinutes');
   if (onlineMinutes !== null) config.dailyOnlineQuota = onlineMinutes;
+
+  const weekly = (config.timeQuota as any)?.weekly;
+  if (weekly && Object.prototype.hasOwnProperty.call(weekly, 'restMinutes')) {
+    const weeklyRest = weekly.restMinutes;
+    config.weeklyRestQuota = typeof weeklyRest === 'number' && weeklyRest > 0 ? weeklyRest : 0;
+  }
 }
 
 // ── Initial config：新建 profile 仅写用户自定义 source lists ──
@@ -603,10 +627,29 @@ export const profilesRouter = {
 
         const incomingConfig = data as Record<string, unknown>;
         const shouldValidateSiteAccess = Object.keys(incomingConfig).some((key) => SITE_ACCESS_CONFIG_KEYS.has(key));
+        const incomingQuotaValidationError = validateTimeQuota(incomingConfig);
+        if (incomingQuotaValidationError) {
+          return json({ error: 'Invalid timeQuota: ' + incomingQuotaValidationError }, 400);
+        }
 
         for (const [key, value] of Object.entries(incomingConfig)) {
           if (ALLOWED_KEYS.has(key)) {
-            mergedConfig[key] = value;
+            if (key === 'timeQuota' && value && typeof value === 'object' && !Array.isArray(value)) {
+              const currentQuota = (mergedConfig.timeQuota as any) || {};
+              const incomingQuota = value as any;
+              mergedConfig.timeQuota = {
+                ...currentQuota,
+                ...incomingQuota,
+                daily: incomingQuota.daily === undefined
+                  ? currentQuota.daily
+                  : { ...(currentQuota.daily || {}), ...(incomingQuota.daily || {}) },
+                weekly: incomingQuota.weekly === undefined
+                  ? currentQuota.weekly
+                  : { ...(currentQuota.weekly || {}), ...(incomingQuota.weekly || {}) },
+              };
+            } else {
+              mergedConfig[key] = value;
+            }
           }
         }
 
@@ -668,7 +711,11 @@ export const profilesRouter = {
         // 6. 归一化空数组为 null（UI 清除后恢复 unrestricted）
         normalizeEmptyArraysToNull(mergedConfig);
 
-        // 7. 校验时间窗口合法性
+        // 7. 校验时间配额和时间窗口合法性
+        const quotaValidationError = validateTimeQuota(mergedConfig);
+        if (quotaValidationError) {
+          return json({ error: 'Invalid timeQuota: ' + quotaValidationError }, 400);
+        }
         const validationError = validateTimeWindows(mergedConfig);
         if (validationError) {
           return json({ error: 'Invalid timeWindows: ' + validationError }, 400);

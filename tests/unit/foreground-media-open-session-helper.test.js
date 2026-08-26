@@ -29,7 +29,7 @@ function extractDomain(url) {
 
 function classifyMediaFact(fact = {}) {
   if (fact.isPiP === true) return { mediaClass: 'pip' };
-  const foreground = fact.isActiveTab === true && fact.windowState !== 'minimized';
+  const foreground = fact.isActiveTab === true && fact.isWindowFocused === true && fact.windowState !== 'minimized';
   if (fact.playing !== true && fact.audible !== true) return { mediaClass: null };
   if (fact.mediaKind === 'video') return { mediaClass: foreground ? 'foregroundVideo' : 'backgroundVideo' };
   if (fact.mediaKind === 'audio' || fact.audible === true) return { mediaClass: foreground ? 'foregroundAudio' : 'backgroundAudio' };
@@ -42,7 +42,7 @@ function check(name, condition, details = '') {
 
 let tabsById = {};
 let windowsById = {};
-let mediaFactsById = {};
+let contentFactsById = {};
 let tabGetCalls = 0;
 let mediaFactCalls = 0;
 
@@ -63,10 +63,11 @@ const api = loadProdModule('core/media-timing.js', ['queryForegroundMediaForOpen
   applyMediaFacts: async () => ({}),
   classifyMediaFact,
   closeMediaForTab: async () => ({}),
-  getMediaFact: async (tabId) => {
+  getFreshContentMediaFact: async (tabId) => {
     mediaFactCalls++;
-    return mediaFactsById[tabId] || null;
+    return contentFactsById[tabId] || null;
   },
+  getMediaFact: async () => null,
   getMediaSessions: async () => ({}),
   runMediaPeriodicCheckpoint: async () => ({}),
   splitOpenMediaSessionsAtModeBoundary: async () => ({}),
@@ -76,12 +77,12 @@ const api = loadProdModule('core/media-timing.js', ['queryForegroundMediaForOpen
 function reset() {
   tabsById = {};
   windowsById = {};
-  mediaFactsById = {};
+  contentFactsById = {};
   tabGetCalls = 0;
   mediaFactCalls = 0;
 }
 
-async function testAudibleFastPathSkipsFallback() {
+async function testAudibleCannotCompensateUnfocusedWindow() {
   reset();
   tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://video.example.com/watch' };
   windowsById[10] = { focused: false, state: 'normal' };
@@ -93,23 +94,27 @@ async function testAudibleFastPathSkipsFallback() {
     domain: 'video.example.com',
   }, 'test_audible');
 
-  check('audible fast path succeeds', result.ok === true && result.source === 'tab_audible', JSON.stringify(result));
-  check('audible fast path classifies foreground audio', result.classification.mediaClass === 'foregroundAudio', JSON.stringify(result));
-  check('audible fast path does not read media fact fallback', tabGetCalls === 1 && mediaFactCalls === 0, `${tabGetCalls}/${mediaFactCalls}`);
+  check('unfocused audible cannot compensate webpage timing', result.ok === false && result.reason === 'window_unfocused', JSON.stringify(result));
+  check('unfocused window is rejected before content lookup', tabGetCalls === 1 && mediaFactCalls === 0, `${tabGetCalls}/${mediaFactCalls}`);
 }
 
-async function testAudibleFalseFallsBackToMediaFact() {
+async function testFreshContentVideoWinsAudibleFallback() {
   reset();
-  tabsById[1] = { id: 1, windowId: 10, active: true, audible: false, url: 'https://video.example.com/watch' };
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://video.example.com/watch' };
   windowsById[10] = { focused: true, state: 'normal' };
-  mediaFactsById[1] = {
+  contentFactsById[1] = {
     tabId: 1,
+    frameId: 0,
     windowId: 10,
     domain: 'video.example.com',
     playing: true,
     mediaKind: 'video',
+    audible: false,
     isActiveTab: true,
+    isWindowFocused: true,
     windowState: 'normal',
+    evidenceTier: 'content',
+    lastObservedAt: Date.now(),
   };
 
   const result = await api.queryForegroundMediaForOpenSession({
@@ -119,16 +124,29 @@ async function testAudibleFalseFallsBackToMediaFact() {
     domain: 'video.example.com',
   }, 'test_fallback');
 
-  check('audible false falls back to media fact', result.ok === true && result.source === 'media_fact', JSON.stringify(result));
-  check('fallback classifies foreground video', result.classification.mediaClass === 'foregroundVideo', JSON.stringify(result));
-  check('fallback reuses tab snapshot and reads media fact once', tabGetCalls === 1 && mediaFactCalls === 1, `${tabGetCalls}/${mediaFactCalls}`);
+  check('fresh content fact is the only compensation source', result.ok === true && result.source === 'content_media_fact', JSON.stringify(result));
+  check('content video wins over tab audible fallback', result.classification.mediaClass === 'foregroundVideo', JSON.stringify(result));
+  check('content lookup runs once', tabGetCalls === 1 && mediaFactCalls === 1, `${tabGetCalls}/${mediaFactCalls}`);
+}
+
+async function testAudibleWithoutContentCannotCompensate() {
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://video.example.com/watch' };
+  windowsById[10] = { focused: true, state: 'normal' };
+
+  const result = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE', tabId: 1, windowId: 10, domain: 'video.example.com',
+  }, 'test_weak_only');
+
+  check('audible-only evidence cannot compensate webpage timing', result.ok === false && result.reason === 'no_fresh_content_media', JSON.stringify(result));
+  check('audible-only path still checks content evidence once', mediaFactCalls === 1, String(mediaFactCalls));
 }
 
 async function testAudibleHardFailuresDoNotFallback() {
   reset();
   tabsById[1] = { id: 1, windowId: 10, active: false, audible: true, url: 'https://video.example.com/watch' };
   windowsById[10] = { focused: true, state: 'normal' };
-  mediaFactsById[1] = {
+  contentFactsById[1] = {
     tabId: 1,
     windowId: 10,
     domain: 'video.example.com',
@@ -146,7 +164,7 @@ async function testAudibleHardFailuresDoNotFallback() {
   }, 'test_inactive');
 
   check('audible inactive tab does not compensate', inactive.ok === false && inactive.reason === 'not_active_tab', JSON.stringify(inactive));
-  check('audible inactive tab does not fallback to stale media fact', mediaFactCalls === 0, String(mediaFactCalls));
+  check('inactive tab does not read content fact', mediaFactCalls === 0, String(mediaFactCalls));
 
   reset();
   tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://other.example.com/watch' };
@@ -184,8 +202,9 @@ async function testInvalidSessionDoesNotQuery() {
 
 async function run() {
   const tests = [
-    testAudibleFastPathSkipsFallback,
-    testAudibleFalseFallsBackToMediaFact,
+    testAudibleCannotCompensateUnfocusedWindow,
+    testFreshContentVideoWinsAudibleFallback,
+    testAudibleWithoutContentCannotCompensate,
     testAudibleHardFailuresDoNotFallback,
     testInvalidSessionDoesNotQuery,
   ];

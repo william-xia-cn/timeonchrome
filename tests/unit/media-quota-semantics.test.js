@@ -153,7 +153,9 @@ const quotaApi = loadProdModule('product/quota.js', ['evaluateQuotaState'], {
       restMinutes: cfg.dailyRestQuota === 0 ? null : (cfg.dailyRestQuota ?? 120),
       compositeMinutes: cfg.dailyUndeterminedQuota === 0 ? null : (cfg.dailyUndeterminedQuota ?? 60),
       onlineMinutes: cfg.dailyOnlineQuota === 0 ? null : (cfg.dailyOnlineQuota ?? null),
-      weeklyRestMinutes: cfg.weeklyRestQuota === 0 ? null : (cfg.weeklyRestQuota ?? ((cfg.dailyRestQuota ?? 120) * 7)),
+      weeklyRestMinutes: cfg.timeQuota?.weekly && Object.prototype.hasOwnProperty.call(cfg.timeQuota.weekly, 'restMinutes')
+        ? cfg.timeQuota.weekly.restMinutes
+        : (Number(cfg.weeklyRestQuota) > 0 ? Number(cfg.weeklyRestQuota) : null),
     },
   }),
 });

@@ -295,6 +295,7 @@ async function run() {
   eq('quota keeps background media outside online/domain quota', quotaView.media.backgroundMediaSeconds, 30);
   eq('quota source is target classification snapshot', quotaView.quotaSource, 'target_classification_snapshot');
   eq('quota rest excludes target study/composite display buckets', quotaView.restSeconds, 0);
+  eq('weekly rest uses active Rest quota bucket including pending borrow', quotaView.weekRestSeconds, 45);
 
   resetObject(usageSegments);
   await local.set({ daily_usage_stats_v1: {}, event_log_v1: [{ type: 'START' }] });
