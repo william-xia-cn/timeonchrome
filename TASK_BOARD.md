@@ -3,6 +3,7 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
+- `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道：生产代码 `de5b1d3`，Worker `c988c31f-ba0c-495d-8b01-a2f235a4535c`，控制台 Pages `b8c011a6`，更新站点 `8a795c47`，CRX SHA256 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
 ## Active P0 Runtime Fix（2026-08-27）
 - [x] [P0 Timing/Media] T.xia 媒体分类与网页计时隔离（实现与自动化验证完成）
