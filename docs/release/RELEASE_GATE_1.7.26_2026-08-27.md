@@ -13,7 +13,7 @@
 - Worker version：`c988c31f-ba0c-495d-8b01-a2f235a4535c`
 - 控制台 Pages deployment：`b8c011a6`
 - 更新站点 deployment：`8a795c47`
-- 状态：Deployed / Production Observation
+- 状态：Deployed with P0 Native App Regression / Remediation In Progress
 
 ## 发布范围
 
@@ -21,19 +21,19 @@
 - Content DOM 强媒体证据与 `tab.audible` 弱证据分级、前后台媒体焦点约束及网页账隔离。
 - open shadow root 媒体发现、90 秒证据新鲜度和相关测试。
 - 移动端控制台布局基线。
-- 不包含 Native App Control 基础设施、D1 migration、profile 数据修改、历史账重写或 Chrome Web Store 提交。
+- 不包含新的 Native App 基础设施、D1 migration、profile 数据修改、历史账重写或 Chrome Web Store 提交；既有 Native App 页面与 Guardian bridge 本应保持不变，但首次部署错误将其排除。
 
 ## 门禁结果
 
 | 门禁 | 结果 | 证据 |
 |---|---|---|
-| 生产范围隔离 | PASS | `origin/master...de5b1d3` 不含 `native-app-control/`、`pages/native-apps/`、Native bridge 或 migration 022 |
+| 生产范围隔离 | FAIL / REMEDIATING | `de5b1d3` 错误排除了已在生产使用的 Native App 页面和 Guardian bridge；独立 Worker、D1 与 secrets 未丢失，采用前向恢复 |
 | Unit / type / root | PASS | 生产 master 113 个 unit 文件通过；`npm run typecheck`、`npm run check:extension-root` 通过 |
 | 完整回归 | PASS | Worker API `103/103`、duration-flow `53/53`、扩展 E2E `14/14` |
 | Pages 视觉门 | PASS | 390px 手机与桌面布局 Playwright `1/1`，无页面横向溢出 |
 | Artifact | PASS | 原密钥派生稳定 ID；managed marker、`nativeMessaging`、health probe 存在；废弃隐私页面未入包 |
 | Worker | PASS | dry-run 绑定校验通过；部署后生产 API smoke `103/103` |
-| Pages | PASS | 控制台稳定域名与 deployment 域名均 HTTP 200 |
+| Pages | FAIL / REMEDIATING | 主控制台与 `/native-apps/` 都返回 HTTP 200，但后者实际回退为主控制台；首次回读只检查状态码，未检查 Native 页面专有内容 |
 | Update host | PASS | 稳定与 deployment feed 均 HTTP 200；版本、扩展 ID、SHA 文件正确；远端 CRX 哈希与本地一致 |
 | Evidence privacy | PASS | 发布记录未包含密钥、token、Cookie、账号、profile/device ID 或浏览历史 |
 
@@ -46,4 +46,4 @@
 
 ## 发布结论
 
-`PASS_WITH_PRODUCTION_OBSERVATION`。代码、Worker、控制台 Pages 和内部自托管 managed CRX 已部署并完成线上回读；设备升级、真实媒体对照和流游戏低估风险继续观察。
+`REMEDIATION_IN_PROGRESS`。扩展、CRX、update host、周配额和媒体修复保持有效；Native App 页面与 Guardian bridge 回归必须前向恢复并重新完成内容级生产验证后，才能关闭本报告。

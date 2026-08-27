@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Native Apps · TimeOnChrome</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png?v=1">
+  <link rel="stylesheet" href="native-apps.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="../">
+        <img src="../assets/icons/devices.svg" alt="">
+        <span><strong>TimeOnChrome</strong><small>Native App Control</small></span>
+      </a>
+      <div class="child-block">
+        <span class="eyebrow">当前孩子</span>
+        <strong id="child-name">正在读取</strong>
+      </div>
+      <nav aria-label="Native Apps 导航">
+        <button class="nav-button active" data-view="REVIEW"><span class="dot review"></span>待审核 <span class="nav-count" id="review-count" hidden></span></button>
+        <button class="nav-button" data-view="BLOCK"><span class="dot blocked"></span>已阻止</button>
+        <button class="nav-button" data-view="IGNORE"><span class="dot ignored"></span>已忽略</button>
+        <button class="nav-button" data-view="MACS"><span class="dot macs"></span>Native Macs</button>
+      </nav>
+      <a class="back-link" href="../">返回家长控制台</a>
+    </aside>
+
+    <main>
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">macOS 应用策略</p>
+          <h1 id="view-title">待审核应用</h1>
+          <p id="view-subtitle">Santa 发现的新应用默认允许运行，家长可在此忽略或阻止。</p>
+        </div>
+        <button class="icon-button" id="refresh-button" title="刷新" aria-label="刷新">↻</button>
+      </header>
+      <section class="status-strip" id="status-strip" hidden></section>
+      <section class="content" id="content" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <dialog id="enrollment-dialog">
+    <form method="dialog" class="dialog-body">
+      <div><p class="eyebrow">一次性 enrollment</p><h2>添加 Native Mac</h2></div>
+      <label>设备名称<input id="mac-name-input" maxlength="120" placeholder="例如 Pierce MacBook"></label>
+      <div class="dialog-actions">
+        <button class="secondary" value="cancel">取消</button>
+        <button class="primary" id="create-mac-button" value="default">创建</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="secret-dialog">
+    <form method="dialog" class="dialog-body">
+      <div><p class="eyebrow">设备专属配置</p><h2>Santa 配置已生成</h2></div>
+      <div class="profile-ready" aria-live="polite">
+        <strong id="profile-file-name">TimeOnChrome-Santa.mobileconfig</strong>
+        <span>配置只适用于刚创建或轮换的 Native Mac。</span>
+      </div>
+      <p class="muted">文件包含 enrollment 凭据。当前页面会话可重复下载；刷新后只能轮换 enrollment 重新生成。</p>
+      <div class="dialog-actions">
+        <button class="secondary" id="download-profile-button" type="button">重新下载</button>
+        <button class="primary">完成</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="merge-dialog">
+    <form method="dialog" class="dialog-body">
+      <div><p class="eyebrow">Application Family</p><h2>合并应用身份</h2></div>
+      <input type="hidden" id="merge-source-id">
+      <label>合并到<select id="merge-target-select"></select></label>
+      <p class="muted">合并只影响当前家长账号的 Application 展示；Child 策略仍然独立。</p>
+      <div class="dialog-actions">
+        <button class="secondary" value="cancel">取消</button>
+        <button class="primary" id="confirm-merge-button" value="default">确认合并</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="application-detail-dialog" class="application-detail-dialog">
+    <div class="dialog-body">
+      <div class="detail-heading">
+        <div class="application-mark large" id="detail-application-mark" aria-hidden="true"></div>
+        <div>
+          <p class="eyebrow" id="detail-application-kind">应用详情</p>
+          <h2 id="detail-application-name">Application</h2>
+          <p class="muted" id="detail-application-publisher"></p>
+        </div>
+      </div>
+      <dl class="detail-grid" id="detail-application-fields"></dl>
+      <section class="detail-components" id="detail-application-components" hidden></section>
+      <div class="detail-advanced" id="detail-application-advanced" hidden>
+        <strong>高级管理</strong>
+        <p class="muted">发布者规则会影响同一开发者的其他应用；合并身份只改变控制台中的应用归组。</p>
+        <div class="detail-advanced-actions" id="detail-advanced-actions"></div>
+      </div>
+      <div class="dialog-actions">
+        <button class="secondary" id="close-application-detail" type="button">关闭</button>
+      </div>
+    </div>
+  </dialog>
+  <script src="native-apps.js"></script>
+</body>
+</html>

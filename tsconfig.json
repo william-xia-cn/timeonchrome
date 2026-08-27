@@ -15,6 +15,8 @@
   },
   "include": [
     "workers/src/**/*.ts",
+    "native-app-control/contracts/**/*.ts",
+    "native-app-control/worker/src/**/*.ts",
     "extension/core/**/*.js"
   ]
 }

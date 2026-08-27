@@ -5,6 +5,7 @@
   "main": "extension/background.js",
   "scripts": {
     "check:extension-root": "node tools/check-extension-root.js",
+    "stage:native-app-console": "node tools/stage-native-app-console.js",
     "typecheck": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

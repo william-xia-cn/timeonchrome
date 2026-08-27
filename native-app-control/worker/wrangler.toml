@@ -1,0 +1,22 @@
+name = "timeonchrome-native-app-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-20"
+workers_dev = true
+
+[observability]
+enabled = true
+
+[vars]
+GUARDIAN_BRIDGE_ISSUER = "guardian-api"
+SANTA_PUBLIC_BASE_URL = "https://timeonchrome-native-app-api.william-xia-cn.workers.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "timeonchrome-native-app-db"
+database_id = "233eaab9-66a7-4bb0-aeee-955223bc16e8"
+
+# Secrets are provisioned outside Git:
+# GUARDIAN_NATIVE_APP_PUBLIC_JWK
+# ENROLLMENT_HASH_SECRET
+# MACHINE_ID_HASH_SECRET
+# SANTA_BASELINE_RULE_JSON

@@ -3,6 +3,7 @@ import { json, Env, verifyAccountToken } from '../db/middleware';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
+import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
 
 type DeviceRecoveryActionBody = {
   action?: string;
@@ -981,9 +982,10 @@ export const profilesRouter = {
         }
 
         // 4. 删除 Profile 本身
-        await env.DB.prepare(
-          `DELETE FROM profiles WHERE id = ? AND account_id = ?`
-        ).bind(profileId, accountId).run();
+        await env.DB.batch([
+          env.DB.prepare(`DELETE FROM profiles WHERE id = ? AND account_id = ?`).bind(profileId, accountId),
+          nativeChildDeletedOutboxStatement(env, accountId, profileId),
+        ]);
 
         return json({ success: true });
       } catch (e: any) {

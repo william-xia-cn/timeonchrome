@@ -2,6 +2,10 @@ name = "guardian-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-01"
 
+[vars]
+NATIVE_APP_API_BASE_URL = "https://timeonchrome-native-app-api.william-xia-cn.workers.dev"
+NATIVE_APP_BRIDGE_ISSUER = "guardian-api"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "guardian-db"
@@ -22,6 +26,11 @@ id = "c9aac68bf121480f898564eb1b166295"
 # wrangler secret put EMAIL_ACTION_SECRET
 # wrangler secret put EMAIL_CLASSIFICATION_PROFILE_IDS
 # wrangler secret put EMAIL_CLASSIFICATION_ENABLED
+
+# Native App Control identity bridge (no Santa policy or enrollment data lives here)
+# NATIVE_APP_API_BASE_URL = https://timeonchrome-native-app-api.william-xia-cn.workers.dev
+# NATIVE_APP_BRIDGE_ISSUER = guardian-api
+# wrangler secret put NATIVE_APP_TOKEN_PRIVATE_JWK
 
 # 每 5 分钟处理邮件 outbox；每天 20:00 UTC+8 (12:00 UTC) 发送待审核提醒邮件
 [triggers]

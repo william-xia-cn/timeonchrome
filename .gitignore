@@ -33,6 +33,7 @@ workers/.env
 
 # Workers build/cache
 workers/.wrangler/
+native-app-control/worker/.wrangler/
 
 # Pages env (contains secrets)
 pages/.env

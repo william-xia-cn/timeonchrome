@@ -3,7 +3,7 @@
 ## 项目状态
 - **版本：1.7.26**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-27）**：`1.7.26` 生产代码提交 `de5b1d3` 已推送到 `origin/master`；`guardian-api` version `c988c31f-ba0c-495d-8b01-a2f235a4535c`、控制台 Pages deployment `b8c011a6`、内部更新站点 deployment `8a795c47` 均已部署并完成生产回读。稳定 ID managed CRX 为 359,678 bytes，SHA256 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`。本版包含显式周休息配额、Pages 管理界面及媒体证据/网页计时隔离；Native App Control 基础设施和 Chrome Web Store 未进入本次生产发布。T.xia / P.xia 实际升级、真实 Bilibili / `cg.163.com` 对照及外部 Guardian Host 状态仍需生产观察，流游戏无 DOM 强证据时的网页低估风险继续保留。
+- **当前发布状态（2026-08-27）**：`1.7.26` 的周配额、媒体修复、managed CRX 与更新源保持有效；但生产代码提交 `de5b1d3` 和控制台 deployment `b8c011a6` 错误排除了既有 Native App 页面与 Guardian token bridge，形成 P0 发布回归。独立 Native Worker、Native D1、secrets 和 Santa 数据仍正常，当前执行前向恢复，只重新部署 `guardian-api` 与控制台 Pages；不回滚 `1.7.26`，不重建 Native 基础设施，不部署 CRX/update host。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

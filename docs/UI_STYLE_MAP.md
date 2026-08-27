@@ -10,6 +10,15 @@
 
 ## 1. UI 页面清单
 
+### Native Apps 独立模块
+
+- 云端路径：`/native-apps/`；主控制台桌面侧栏与手机“更多”都必须提供入口。
+- 复用同源登录会话和当前 Child 选择结果，但使用独立 HTML/CSS/JS、Native Worker API、状态机和审计数据。
+- 主控制台只提供导航入口，不嵌入 Native App Review 列表、动作或 API 调用。
+- 独立页固定包含 `待审核 / 已阻止 / 已忽略 / Native Macs`；Application 行展示名称、发布者、状态和最近发现时间，技术身份与高级动作进入详情。
+- 创建或轮换 Native Mac 后由页面生成设备专属 `.mobileconfig`；不得显示裸 enrollment URL。
+- 页面缺失时不得由 Pages fallback 静默返回主控制台并视为 HTTP 200 验收通过；生产验证必须检查 Native 页面专有标题和资源。
+
 | 页面 | 文件路径 | 用途 | 当前尺寸/环境 |
 |------|---------|------|--------------|
 | **Popup（孩子侧弹窗）** | `popup/popup.html` + `popup.js` | 孩子查看今日时长、切换模式、借用时间 | 固定宽度 320px，Chrome 扩展弹窗 |

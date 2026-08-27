@@ -19,6 +19,10 @@ import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
 import { handleDeviceAccessAuditQuery, recordDeviceAccessAudit } from './routes/deviceAccessAudit';
 import { systemAccessConfigRouter } from './routes/systemAccessConfig';
+import {
+  handleNativeAppModuleToken,
+  processNativeAppLifecycleOutbox,
+} from './services/nativeAppIdentityBridge';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -107,6 +111,9 @@ export interface Env {
   EMAIL_ACTION_SECRET?: string;
   EMAIL_CLASSIFICATION_ENABLED?: string;
   EMAIL_CLASSIFICATION_PROFILE_IDS?: string;
+  NATIVE_APP_TOKEN_PRIVATE_JWK?: string;
+  NATIVE_APP_API_BASE_URL?: string;
+  NATIVE_APP_BRIDGE_ISSUER?: string;
 }
 
 const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|stats-reconciliation|stats-integrity|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
@@ -149,6 +156,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
     return await changelogRouter.handle(request, env);
   } else if (path.startsWith('/system/access-management-config/v1')) {
     return await systemAccessConfigRouter.handle(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/native-app-control\/token$/)) {
+    return await handleNativeAppModuleToken(request, env);
   } else if (path.startsWith('/profiles')) {
     return await profilesRouter.handle(request, env);
   } else if (path === '/device/heartbeat') {
@@ -332,7 +341,10 @@ export default {
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    const work: Promise<unknown>[] = [processEmailClassificationOutbox(env)];
+    const work: Promise<unknown>[] = [
+      processEmailClassificationOutbox(env),
+      processNativeAppLifecycleOutbox(env),
+    ];
     if (event.cron === '0 12 * * *') work.push(sendPendingReviewNotifications(env));
     ctx.waitUntil(Promise.all(work));
   },

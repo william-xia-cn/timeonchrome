@@ -162,7 +162,7 @@
       display: flex; align-items: center; gap: 10px;
       padding: 9px 12px; border-radius: 9px;
       cursor: pointer; font-size: 13px; color: var(--muted);
-      transition: all .15s; margin-bottom: 2px;
+      transition: all .15s; margin-bottom: 2px; text-decoration: none;
     }
     .nav-item:hover  { background: rgba(0,184,148,0.07); color: var(--text); }
     .nav-item.active { background: rgba(0,184,148,0.12); color: #00b894; font-weight: 500; }
@@ -1035,6 +1035,9 @@
         <div class="nav-item" data-page="review">
           <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站归类记录 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
+        <a class="nav-item mobile-secondary-nav" href="native-apps/">
+          <span class="nav-icon"><img src="assets/icons/devices.svg" alt=""></span><span>Native Apps</span>
+        </a>
         <div class="nav-item" data-page="account">
           <span class="nav-icon"><img src="assets/icons/user.svg" alt=""></span><span>子用户管理</span>
         </div>
