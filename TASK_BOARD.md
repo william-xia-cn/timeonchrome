@@ -3,15 +3,17 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
-- `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道：生产代码 `de5b1d3`，Worker `c988c31f-ba0c-495d-8b01-a2f235a4535c`，控制台 Pages `b8c011a6`，更新站点 `8a795c47`，CRX SHA256 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
+- `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
 ## Active P0 Release Regression（2026-08-27）
-- [ ] [P0 Native App] 前向恢复管理页面与 Guardian token bridge
+- [x] [P0 Native App] 前向恢复管理页面与 Guardian token bridge
   - 根因：`1.7.26` 生产主线构造时把“本轮不部署新的 Native 基础设施”错误实现为排除既有 Native App 源码、Pages 资产和 Guardian bridge。
   - 影响：桌面入口消失；手机入口落入主控制台 fallback；`/native-apps/` 返回 HTTP 200 但不是 Native 页面；Guardian token bridge 源码被生产 Worker 覆盖。
   - 保留事实：独立 Native Worker、Native D1、四个 Native secrets、Guardian 私钥 secret 和 lifecycle outbox 表均仍存在，不重建、不迁移、不改 Santa 数据。
   - 修复：保留 `1.7.26` 周配额、媒体修复与移动布局，选择性恢复 Native 源码、页面、token bridge 和主线文档；只部署 `guardian-api` 与控制台 Pages。
   - 禁止：不提升扩展版本，不重新打 CRX，不部署 update host、Native Worker 或 D1 migration。
+  - 完成：`master` 已恢复完整 Native 源码、规格、Pages 资产和 Guardian bridge；稳定域名与 deployment 域名均返回 Native 专有页面和资源，桌面/手机入口与周配额界面共存。
+  - 生产验证：登录态 Native 页面成功读取当前 Child 的 Native Macs 和应用列表，证明 Guardian module token 与独立 Native Worker 链路有效；未创建 Mac、未修改策略或数据。
 
 ## Active P0 Runtime Fix（2026-08-27）
 - [x] [P0 Timing/Media] T.xia 媒体分类与网页计时隔离（实现与自动化验证完成）

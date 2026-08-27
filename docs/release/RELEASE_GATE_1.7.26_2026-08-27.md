@@ -13,7 +13,10 @@
 - Worker version：`c988c31f-ba0c-495d-8b01-a2f235a4535c`
 - 控制台 Pages deployment：`b8c011a6`
 - 更新站点 deployment：`8a795c47`
-- 状态：Deployed with P0 Native App Regression / Remediation In Progress
+- Native App 修复提交：`b133abd`
+- Native App 修复 Worker version：`fd408a49-fc2e-4e43-a6bf-64e4618d186f`
+- Native App 修复 Pages deployment：`dd73092e`
+- 状态：Deployed / Native App Regression Remediated / Production Observation
 
 ## 发布范围
 
@@ -27,13 +30,13 @@
 
 | 门禁 | 结果 | 证据 |
 |---|---|---|
-| 生产范围隔离 | FAIL / REMEDIATING | `de5b1d3` 错误排除了已在生产使用的 Native App 页面和 Guardian bridge；独立 Worker、D1 与 secrets 未丢失，采用前向恢复 |
+| 生产范围隔离 | PASS AFTER REMEDIATION | `de5b1d3` 曾错误排除 Native 页面与 bridge；`b133abd` 已将既有 Native 子系统完整恢复到 `master`，未引入新的 Native 基础设施变更 |
 | Unit / type / root | PASS | 生产 master 113 个 unit 文件通过；`npm run typecheck`、`npm run check:extension-root` 通过 |
 | 完整回归 | PASS | Worker API `103/103`、duration-flow `53/53`、扩展 E2E `14/14` |
 | Pages 视觉门 | PASS | 390px 手机与桌面布局 Playwright `1/1`，无页面横向溢出 |
 | Artifact | PASS | 原密钥派生稳定 ID；managed marker、`nativeMessaging`、health probe 存在；废弃隐私页面未入包 |
 | Worker | PASS | dry-run 绑定校验通过；部署后生产 API smoke `103/103` |
-| Pages | FAIL / REMEDIATING | 主控制台与 `/native-apps/` 都返回 HTTP 200，但后者实际回退为主控制台；首次回读只检查状态码，未检查 Native 页面专有内容 |
+| Pages | PASS AFTER REMEDIATION | 稳定域名与 `dd73092e` 的 `/native-apps/` 均返回 Native 专有标题，CSS/JS 200 且不是主控制台 fallback；桌面/手机入口和周配额标记共存 |
 | Update host | PASS | 稳定与 deployment feed 均 HTTP 200；版本、扩展 ID、SHA 文件正确；远端 CRX 哈希与本地一致 |
 | Evidence privacy | PASS | 发布记录未包含密钥、token、Cookie、账号、profile/device ID 或浏览历史 |
 
@@ -46,4 +49,4 @@
 
 ## 发布结论
 
-`REMEDIATION_IN_PROGRESS`。扩展、CRX、update host、周配额和媒体修复保持有效；Native App 页面与 Guardian bridge 回归必须前向恢复并重新完成内容级生产验证后，才能关闭本报告。
+`PASS_WITH_PRODUCTION_OBSERVATION`。扩展、CRX、update host、周配额和媒体修复保持有效；Native App 页面与 Guardian bridge 已前向恢复。登录态只读验证成功加载 Native Macs 与应用列表，未创建 Mac、修改策略或写入 Native 数据。设备升级、真实媒体对照和流游戏低估风险继续观察。

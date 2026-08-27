@@ -8,6 +8,7 @@
 
 ## [1.7.26] — 2026-08-27
 
+- **生产回归修正**：前向恢复既有 Native App 管理页面、桌面/手机入口和 Guardian Child module-token bridge；独立 Native Worker、D1、Santa 数据、扩展 CRX 与更新源保持不变。
 - **每周休息配额显式化**：新增独立的 `timeQuota.weekly.restMinutes`，每日配额合计只作计划展示；周中调整立即作用于本周既有网页账本用量，Pages 同步显示周上限、来源、已用、剩余与锁定状态。
 - **媒体证据分级**：Content Script 的新鲜 DOM 媒体事实作为强证据，`tab.audible` 降为弱音频证据；Bilibili 等可见视频优先记为视频，不再被 audible fallback 覆盖。
 - **网页计时隔离**：前台媒体必须同时满足 active tab、窗口聚焦且未最小化；窗口失焦立即结束前台网页账并重分类媒体，弱音频事实不得补偿网页 ACTIVE session 或影响配额。
