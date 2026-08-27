@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved；V1 源码已在 `codex/native-app-control-v1` 实现。独立 D1、Native Worker、Guardian identity bridge 与 Pages 控制台已于 2026-08-20 部署；真实 Santa 的 MachineID 固定、四阶段同步和离线阻断验收仍待执行。
+Approved；V1 源码已通过前向恢复提交 `b133abd` 纳入 `master`，原独立功能分支已退役。独立 D1、Native Worker、Guardian identity bridge 与 Pages 控制台已于 2026-08-20 部署；真实 Santa 的 MachineID 固定、四阶段同步和离线阻断验收仍待执行。
 
 ## Deployment Boundary
 
