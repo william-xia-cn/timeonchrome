@@ -3,7 +3,7 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
-- `1.7.27` 源码候选已获 Product Owner 授权提交、推送，并部署 `guardian-api` 与控制台 Pages；扩展托管延后，不生成/签名 CRX，不更新 `update.xml`，不部署 update host，设备暂不升级。
+- `1.7.27` 源码已通过提交 `1aca19d` 推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff` 与控制台 Pages `436199ba` 已部署并通过稳定域名/deployment 域名只读回读。扩展托管延后：未生成/签名 CRX，未更新 `update.xml`，未部署 update host，设备暂不升级。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
 ## Active P0 Release Regression（2026-08-27）

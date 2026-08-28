@@ -3,7 +3,7 @@
 ## 项目状态
 - **版本：1.7.27**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-29）**：`1.7.27` 源码候选包含 Bilibili 多 frame 媒体证据修复、Rest 软限额提醒配置与可见投递门禁；Product Owner 已授权提交、推送并部署 `guardian-api` 与控制台 Pages。扩展托管明确延后：本轮不生成或签名 CRX、不更新 `update.xml`、不部署 update host，现有设备不会因此升级到 `1.7.27`。独立 Native Worker、Native D1、secrets 和 Santa 数据不在本轮变更范围。
+- **当前发布状态（2026-08-29）**：`1.7.27` 源码已通过提交 `1aca19d` 推送到 `origin/master`；Guardian Worker version `f8ed2ede-ada1-47cc-acb9-687b7f8216ff` 与控制台 Pages deployment `436199ba` 已部署并完成只读回读。稳定域名可见 Rest 软限额配置，稳定域名与 deployment 域名的 `/native-apps/` 均保持真实 Native Apps 页面。扩展托管明确延后：本轮未生成或签名 CRX、未更新 `update.xml`、未部署 update host，现有设备不会因此升级到 `1.7.27`。独立 Native Worker、Native D1、secrets 和 Santa 数据均未修改。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
