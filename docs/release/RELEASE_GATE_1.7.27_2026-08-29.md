@@ -7,8 +7,12 @@
 - 发布目标：T.xia / P.xia 内部 managed 自托管扩展通道
 - 生产源码提交：`3ca6093`
 - 稳定扩展 ID：`jdcancbiocacabbjdkngadmjpjmkdnih`
-- CRX / SHA256 / 更新站点 deployment：待生成和回读后填写
-- 状态：`APPROVED_WITH_KNOWN_P0_RISK / RELEASE IN PROGRESS`
+- CRX：`dist/self-hosted/timeonchrome-1.7.27.crx`
+- CRX 大小：373,209 bytes
+- SHA256：`10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`
+- 更新站点 deployment：`39cdad15`
+- Deployment URL：`https://39cdad15.timeonchrome-update.pages.dev`
+- 状态：`APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`
 
 ## 发布范围
 
@@ -25,7 +29,8 @@
 | Plan Conformance | PASS | 文档、实现与测试逐项核对，无未批准的 Deviated / Extra |
 | Unit / type / root | PASS | 全量 unit 通过；`npm run typecheck`、`npm run check:extension-root` 通过 |
 | 完整回归 | PASS | Worker API `103/103`、duration-flow `53/53`、扩展 E2E `15/15` |
-| Artifact / Update host | PENDING | 原签名密钥打包、稳定 ID、SHA256、feed 和生产回读待执行 |
+| Artifact | PASS | 原密钥派生 ID 为 `jdcancbiocacabbjdkngadmjpjmkdnih`；实际 CRX manifest 为 `1.7.27`，managed marker、`nativeMessaging` 和 health probe 存在；指定隐私页面已排除，`core/privacy-consent.js` 保留，包内无仓库、测试或凭据文件 |
+| Update host | PASS | 稳定域名与 deployment 域名的 `update.xml`、CRX、`SHA256SUMS.txt` 均 HTTP 200；两处线上 CRX 哈希与本地一致 |
 | Evidence privacy | PASS | 发布记录不包含密钥、token、Cookie、账号、profile/device ID 或浏览历史 |
 
 ## 已知 P0 风险与批准边界
@@ -37,4 +42,4 @@
 
 ## 发布结论
 
-当前结论：`APPROVED_WITH_KNOWN_P0_RISK / RELEASE IN PROGRESS`。完成签名产物、update host 部署及稳定域名回读后更新最终结果。
+最终结论：`APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`。`1.7.27` 已进入 T.xia / P.xia 内部 managed 自托管更新通道；设备实际升级和持续运行仍需生产观察。`cg.163.com` 的 `idleStateChanged` P0 保持 Deferred / 未解决，本次发布不构成问题关闭或公开发布批准。

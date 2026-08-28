@@ -15,7 +15,7 @@
 - **提醒统计口径**：面板继续显示本周/今日 Rest 已用和真实配额剩余；媒体账本不参与，触发只使用已结算网页账本，允许最多一个 3 分钟 checkpoint 的延迟。
 - **Bilibili 媒体证据修复**：贯通 `visibleMediaCount`，按 frame 聚合 Content 强证据并保持视频优先，避免真实可见视频被 `tab.audible` 降为前台音频。
 - **网页计时边界修复**：窗口最小化、恢复和系统 idle 时只允许新鲜 DOM 强媒体证据维持网页账；弱音频事实不参与网页配额，零秒媒体分段不再落账。
-- **内部托管发布**：Guardian Worker 与控制台 Pages 已先行部署；Product Owner 于 2026-08-29 明确接受 `cg.163.com` 的 `idleStateChanged` P0 已知风险，并批准生成、签名及托管 `1.7.27` managed CRX。该风险保持 P0 / Deferred，不视为已解决，也不适用于 Chrome Web Store 发布。
+- **内部托管发布**：Guardian Worker 与控制台 Pages 已先行部署；Product Owner 于 2026-08-29 明确接受 `cg.163.com` 的 `idleStateChanged` P0 已知风险，并批准托管 `1.7.27` managed CRX。稳定扩展 ID、签名、包内容、feed 和线上哈希回读均通过，更新站点 deployment 为 `39cdad15`；该风险保持 P0 / Deferred，不视为已解决，也不适用于 Chrome Web Store 发布。
 
 ---
 

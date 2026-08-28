@@ -3,7 +3,7 @@
 ## 项目状态
 - **版本：1.7.27**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-29）**：`1.7.27` 当前源码已通过提交 `3ca6093` 推送到 `origin/master`；Guardian Worker version `f8ed2ede-ada1-47cc-acb9-687b7f8216ff` 与控制台 Pages deployment `436199ba` 已部署并完成只读回读。稳定域名可见 Rest 软限额配置，稳定域名与 deployment 域名的 `/native-apps/` 均保持真实 Native Apps 页面。Product Owner 已明确接受 `cg.163.com` 的 `idleStateChanged` P0 已知风险并批准继续内部 managed 自托管；该风险保持 P0 / Deferred，不视为解决，也不适用于 CWS。CRX、update feed 与生产回读正在执行；独立 Native Worker、Native D1、secrets 和 Santa 数据均不修改。
+- **当前发布状态（2026-08-29）**：`1.7.27` 运行代码提交 `3ca6093` 与风险接受记录 `bb7c75a` 已推送到 `origin/master`；Guardian Worker version `f8ed2ede-ada1-47cc-acb9-687b7f8216ff`、控制台 Pages deployment `436199ba` 及内部更新站点 deployment `39cdad15` 已部署并完成只读回读。稳定 ID CRX 为 `dist/self-hosted/timeonchrome-1.7.27.crx`，大小 373,209 bytes，SHA256 `10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`；稳定域名和 deployment 域名的 feed、CRX、SHA 文件均 HTTP 200 且线上哈希一致。发布结论为 `APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`：`cg.163.com` 的 `idleStateChanged` P0 风险继续保持 Deferred / 未解决，本次风险接受仅适用于 T.xia / P.xia 内部 managed 托管，不适用于 CWS。独立 Native Worker、Native D1、secrets 和 Santa 数据均未修改。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
