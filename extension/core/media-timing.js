@@ -98,14 +98,18 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     (tab?.url ? extractDomain(tab.url) : null) ||
     stored?.domain ||
     'unknown-page.chrome-local';
-  const frameId = overrides.mediaFrameId ?? overrides.frameId ?? 'tab';
+  const frameId = overrides.mediaFrameId ?? overrides.frameId ?? stored?.frameId ?? 'tab';
   const evidenceTier = overrides.evidenceTier === 'content' || overrides.evidenceTier === 'audible_fallback'
     ? overrides.evidenceTier
-    : (frameId === 'tab' ? 'audible_fallback' : 'content');
+    : (stored?.evidenceTier === 'content' || stored?.evidenceTier === 'audible_fallback'
+      ? stored.evidenceTier
+      : (frameId === 'tab' ? 'audible_fallback' : 'content'));
   const contentEvidence = evidenceTier === 'content';
-  const explicitAudible = hasOwn(overrides, 'isAudible') ? overrides.isAudible : (hasOwn(overrides, 'audible') ? overrides.audible : undefined);
-  const explicitPlaying = hasOwn(overrides, 'playing') ? overrides.playing : undefined;
-  const explicitPiP = hasOwn(overrides, 'isPiP') ? overrides.isPiP : undefined;
+  const explicitAudible = hasOwn(overrides, 'isAudible')
+    ? overrides.isAudible
+    : (hasOwn(overrides, 'audible') ? overrides.audible : stored?.audible);
+  const explicitPlaying = hasOwn(overrides, 'playing') ? overrides.playing : stored?.playing;
+  const explicitPiP = hasOwn(overrides, 'isPiP') ? overrides.isPiP : stored?.isPiP;
   const audible = contentEvidence
     ? explicitAudible === true
     : (explicitAudible !== undefined ? explicitAudible === true : tab?.audible === true);
@@ -114,8 +118,13 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     ? (explicitPlaying === true || isPiP)
     : audible;
   const mediaKind = contentEvidence
-    ? (overrides.mediaKind || (isPiP ? 'video' : null))
+    ? (overrides.mediaKind || stored?.mediaKind || (isPiP ? 'video' : null))
     : (audible ? 'audio' : null);
+  const visibleMediaCount = contentEvidence
+    ? (hasOwn(overrides, 'visibleMediaCount')
+      ? (Number(overrides.visibleMediaCount) || 0)
+      : (Number(stored?.visibleMediaCount) || 0))
+    : 0;
 
   return {
     tabId: normalizedTabId ?? tabId,
@@ -128,6 +137,7 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     isPiP,
     audible,
     muted: overrides.isMuted === true || overrides.muted === true || tab?.mutedInfo?.muted === true || stored?.muted === true,
+    visibleMediaCount,
     isActiveTab: hasOwn(overrides, 'isActiveTab') ? overrides.isActiveTab === true : tab?.active === true,
     isWindowFocused: hasOwn(overrides, 'isWindowFocused') ? overrides.isWindowFocused === true : win.focused === true,
     windowState: overrides.windowState || win.state || stored?.windowState || null,
@@ -135,7 +145,10 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     source: overrides.mediaFactSource || overrides.source || stored?.source || 'chrome_tab_query',
     incognito: overrides.incognito === true || tab?.incognito === true || stored?.incognito === true,
     clearMediaFrames: overrides.clearMediaFrames === true,
-    lastObservedAt: Date.now(),
+    contextOnly: overrides.contextOnly === true,
+    lastObservedAt: overrides.contextOnly === true
+      ? (Number(stored?.lastObservedAt) || Date.now())
+      : Date.now(),
   };
 }
 
@@ -404,6 +417,7 @@ export async function refreshKnownMediaTab(tabId, reason = 'media_reclassify', o
   }
   const fact = await queryTabMediaFact(normalized, {
     ...overrides,
+    contextOnly: true,
     mediaFactSource: overrides.mediaFactSource || reason,
   });
   const result = await applyMediaFacts(fact, reason, Date.now());
@@ -514,22 +528,73 @@ function normalizedMediaSnapshot(snapshot = {}) {
   };
 }
 
+async function listContentFrameIds(tabId) {
+  const frameIds = new Set([0]);
+  if (!chrome.webNavigation?.getAllFrames) return [...frameIds];
+  try {
+    const frames = await chrome.webNavigation.getAllFrames({ tabId });
+    for (const frame of frames || []) {
+      if (Number.isInteger(frame?.frameId)) frameIds.add(frame.frameId);
+    }
+  } catch {}
+  return [...frameIds].sort((a, b) => a - b);
+}
+
+function aggregateContentMediaSnapshots(snapshots = []) {
+  const normalized = snapshots.map((entry) => normalizedMediaSnapshot(entry));
+  const active = normalized.filter((snapshot) => isPositiveMediaSnapshot(snapshot));
+  const hasPiP = active.some((snapshot) => snapshot.isPiP === true);
+  const hasVideo = active.some((snapshot) =>
+    snapshot.mediaKind === 'video' && (snapshot.playing === true || snapshot.isPiP === true)
+  );
+  const hasAudio = active.some((snapshot) => snapshot.mediaKind === 'audio' && snapshot.playing === true);
+  return {
+    playing: active.some((snapshot) => snapshot.playing === true) || hasPiP,
+    isPiP: hasPiP,
+    mediaKind: hasVideo || hasPiP ? 'video' : (hasAudio ? 'audio' : null),
+    audible: active.some((snapshot) => snapshot.audible === true),
+    visibleMediaCount: active.reduce((sum, snapshot) => sum + (Number(snapshot.visibleMediaCount) || 0), 0),
+  };
+}
+
 async function requestContentMediaSnapshot(tabId, reason) {
   const normalized = numericTabId(tabId);
   if (normalized == null) return { ok: false, reason: 'invalid_tab_id' };
   if (!chrome.tabs?.sendMessage) return { ok: false, reason: 'content_snapshot_unavailable' };
-  try {
-    const response = await chrome.tabs.sendMessage(normalized, {
-      type: 'GET_MEDIA_SNAPSHOT',
-      source: reason,
-    });
-    if (response?.ok !== true) {
-      return { ok: false, reason: response?.reason || 'content_snapshot_failed', response };
+  const frameIds = await listContentFrameIds(normalized);
+  const responses = [];
+  const failures = [];
+  for (const frameId of frameIds) {
+    try {
+      const response = await chrome.tabs.sendMessage(normalized, {
+        type: 'GET_MEDIA_SNAPSHOT',
+        source: reason,
+      }, { frameId });
+      if (response?.ok === true) {
+        responses.push(response);
+      } else {
+        failures.push({ frameId, reason: response?.reason || 'content_snapshot_failed' });
+      }
+    } catch (err) {
+      failures.push({ frameId, reason: 'content_snapshot_missing_listener', error: err?.message || String(err) });
     }
-    return { ok: true, snapshot: normalizedMediaSnapshot(response), response };
-  } catch (err) {
-    return { ok: false, reason: 'content_snapshot_missing_listener', error: err?.message || String(err) };
   }
+  if (responses.length === 0) {
+    return {
+      ok: false,
+      reason: failures[0]?.reason || 'content_snapshot_missing_listener',
+      error: failures[0]?.error || null,
+      frameCount: frameIds.length,
+      failures: failures.length,
+    };
+  }
+  return {
+    ok: true,
+    snapshot: aggregateContentMediaSnapshots(responses),
+    frameCount: frameIds.length,
+    responses: responses.length,
+    failures: failures.length,
+  };
 }
 
 function addMediaCandidate(candidates, candidate) {
@@ -663,6 +728,8 @@ async function discoverCheckpointMediaFacts(now = Date.now()) {
       tabSnapshot: tab,
       isAudible: hasAudibleEvidence,
       ...(hasSnapshotEvidence ? {
+        mediaFrameId: 'checkpoint',
+        evidenceTier: 'content',
         playing: snapshot.playing === true || snapshot.isPiP === true,
         isPiP: snapshot.isPiP === true,
         mediaKind: snapshot.mediaKind || (snapshot.isPiP ? 'video' : null),

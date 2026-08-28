@@ -560,3 +560,53 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   await neutralPage.close();
   await compositePage.close();
 });
+
+// ── T-E13: Rest soft-limit prompt uses visible activation gate ────────────────
+
+test('T-E13: Rest soft-limit prompt starts countdown only after visible activation', async () => {
+  const ctx = await getContext();
+  const sw = ctx.serviceWorkers()[0];
+  const page = await ctx.newPage();
+  await page.goto('https://www.example.com/rest-reminder-e2e', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  const activation = await activateChromeTabByUrlPrefix(sw, 'https://www.example.com/rest-reminder-e2e');
+  expect(activation.ok).toBe(true);
+  await page.waitForTimeout(500);
+
+  const token = 'rest-reminder-e2e-token';
+  const shown = await sw.evaluate(async ({ tabId, token }) => chrome.tabs.sendMessage(tabId, {
+    type: 'SHOW_REST_USAGE_REMINDER',
+    token,
+    reminderKind: 'first',
+    softLimitMinutes: 5,
+    overageSeconds: 0,
+    todayUsedSeconds: 300,
+    todayRemainingSeconds: 3300,
+    weekUsedSeconds: 300,
+    weekRemainingSeconds: null,
+  }, { frameId: 0 }), { tabId: activation.tabId, token });
+  expect(shown?.visible).toBe(true);
+
+  const host = page.locator('#__toc_rest_usage_reminder__');
+  await expect(host).toBeAttached();
+  await expect(page.locator('#toc-rest-reminder-title')).toHaveText('已达到今日休息软限额');
+  await expect(page.locator('#toc-rest-reminder-countdown')).toHaveText('');
+  await expect(page.locator('#toc-rest-reminder-end')).toBeDisabled();
+
+  const deadlineAt = Date.now() + 60_000;
+  const activated = await sw.evaluate(async ({ tabId, token, deadlineAt }) => chrome.tabs.sendMessage(tabId, {
+    type: 'ACTIVATE_REST_USAGE_REMINDER',
+    token,
+    deadlineAt,
+  }, { frameId: 0 }), { tabId: activation.tabId, token, deadlineAt });
+  expect(activated?.visible).toBe(true);
+  await expect(page.locator('#toc-rest-reminder-countdown')).toContainText('后将自动结束休息');
+  await expect(page.locator('#toc-rest-reminder-end')).toBeEnabled();
+
+  const dismissed = await sw.evaluate(async ({ tabId, token }) => chrome.tabs.sendMessage(tabId, {
+    type: 'DISMISS_REST_USAGE_REMINDER',
+    token,
+  }, { frameId: 0 }), { tabId: activation.tabId, token });
+  expect(dismissed?.ok).toBe(true);
+  await expect(host).not.toBeAttached();
+  await page.close();
+});

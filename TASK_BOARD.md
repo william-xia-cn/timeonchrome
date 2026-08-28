@@ -3,6 +3,7 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
+- `1.7.27` 源码候选已获 Product Owner 授权提交、推送，并部署 `guardian-api` 与控制台 Pages；扩展托管延后，不生成/签名 CRX，不更新 `update.xml`，不部署 update host，设备暂不升级。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
 ## Active P0 Release Regression（2026-08-27）
@@ -16,6 +17,34 @@
   - 生产验证：登录态 Native 页面成功读取当前 Child 的 Native Macs 和应用列表，证明 Guardian module token 与独立 Native Worker 链路有效；未创建 Mac、未修改策略或数据。
 
 ## Active P0 Runtime Fix（2026-08-27）
+- [x] [P0 Rest UX] Rest 软限额配置与可见投递修复（2026-08-29）
+  - 口径：`firstReminderMinutes` 是今日休息软限额，默认 120 分钟；`repeatReminderMinutes` 是超额后提醒间隔，默认 60 分钟。两项支持 1–1440 分钟，软限额可关闭，均不改变真实 Rest 日/周配额。
+  - 文案：首次明确“已达到”及设定值，后续明确“已超过”及累计超额；四项已用/剩余继续只反映真实网页账本和硬配额。
+  - 投递：Content 确认可见后才暂停媒体并启动 60 秒 deadline；首次失败保留到期状态并重试一次，仍失败进入完整 Reminder，禁止静默倒计时。
+  - 验收：移除按 unpacked ID 硬编码的 5/3 覆盖，由 hornburgXW profile 临时配置 5/3；完成后恢复 120/60。本轮不修改 D1 schema、历史账本、媒体统计或网站分类。
+  - 完成：Worker/Profile schema、Pages 导入导出与数字配置、扩展首次/重复 payload、两阶段可见投递、10 秒恢复重试和完整 Reminder 降级均已实现；当前活动弹层不受中途配置变化影响。
+  - 验证：提醒专项 59/59、全部 117 个 unit 文件、typecheck、Pages 手机/桌面视觉 E2E 1/1、扩展 E2E 15/15、远端 API 103/103 通过；hornburgXW 真实 5/3 等待验收及恢复 120/60 尚未执行。
+- [x] [P0 Runtime] unpacked 验收发现特殊站点上下文辅助函数缺失（2026-08-29）
+  - 现象：标签导航触发 `background.js` 未处理的 `ReferenceError: clearTabSpecialSiteContext is not defined`；`SPECIAL_SITE_CONTEXT` 消息路径同样缺失 `rememberTabSpecialSiteContext`。
+  - 根因：Native/主线选择性前向恢复后保留了调用点与 `tabSpecialSiteContexts`，但遗漏历史提交 `79cd507` 中三个无状态辅助函数。
+  - 修复：原样恢复 remember/get/clear 三个 helper，并增加静态回归断言；不改变特殊站点识别、模式路由、账本或云端接口。
+  - 验证：Badge/Popup 87/87、站点分类 66/66、Rest 提醒 31/31、全部 117 个 unit 文件及 `background.js` 语法检查通过；待重新加载 unpacked 后继续真实验收。
+- [x] [P0 Rest UX] Rest 使用页面内检查点提醒初版（2026-08-28，配置与投递口径已由 D-066 扩展）
+  - 初版口径：首次阈值默认 120 分钟、重复间隔固定 60 分钟；当前口径以 D-066 的可配置软限额与可见投递门禁为准。
+  - 数据：本周/今日已用和剩余均来自正式 Rest quota-bucket 网页账本；媒体不计入，账本在弹窗期间不中断。
+  - UI：当前页面 `<dialog>` 软阻断，展示四项时长、滑动继续和结束按钮；初版失败投递语义已由 D-066 替代。
+  - 边界：不改变 Study/Compound 打开 Restricted 的现有 Reminder，不改 D1 schema、历史账本、媒体统计或发布状态。
+  - 完成：Worker/Profile schema、Pages 配置、扩展提醒状态机、页面内 modal、媒体暂停/恢复、60 秒 deadline 与 Content ready 恢复均已实现。
+  - 验证：提醒专项 31/31、全部 117 个 unit 文件、typecheck 与扩展脚本语法检查通过；桌面/窄屏布局及“继续/结束”真实交互目视验证通过。未提交、未发布。
+- [x] [P0 Timing/Media] Bilibili 多 frame 强媒体证据与网页 idle 补偿修复（2026-08-28）
+  - 真实证据：Bilibili 顶层 frame 持续返回 `playing video + visibleMediaCount=1`，但媒体 fact 丢失可见数量后被降为 `foregroundAudio`；无 frame 定位的 checkpoint 又可能读取子 frame 的“无媒体”响应，导致静音视频没有强证据、系统 idle 后网页账少记。
+  - 根因：`visibleMediaCount` 未贯通 `Content -> signal -> queryTabMediaFact -> frame aggregate`；checkpoint 未确定性枚举/聚合 frame，且快照没有显式标记为 Content 强证据。
+  - 修复：保留可见媒体数量；checkpoint 按 frame ID 查询并聚合，视频证据优先于音频；标签切回后按当前 active/focus 状态重分类；窗口从最小化恢复且已聚焦时重新评估当前网页；不足 1 秒的媒体 session 不写零秒分段。
+  - 验收：Bilibili 可见视频（含静音）稳定为 `foregroundVideo`；系统 idle 时仍由新鲜 DOM 强证据维持网页账；失焦/后台仍立即停止网页账；无零秒媒体分段、无前后台震荡和重叠。
+  - 边界：不修改 D-063 产品口径，不修改 Worker、D1、profile、历史账本、站点分类或发布状态。
+  - 完成：`visibleMediaCount` 已贯通事实转换；checkpoint 按明确 frame ID 聚合且视频优先；上下文重分类不再复制 Content frame；窗口最小化/恢复通过独立网页 timing 事实关闭/重开网页账；零秒媒体分段已过滤。
+  - 验证：新增 Bilibili 管线测试 3/3，media timing 35/35、reclassification 13/13、signal guard 78/78；全部 116 个 unit 文件通过，typecheck 与扩展根目录检查通过，扩展 E2E 14/14。真实 unpacked Bilibili 验证覆盖正常/静音/idle/标签切换/其他 Chrome 窗口/最小化恢复，最终最小化为 `网页 IDLE + backgroundVideo`、恢复为 `网页 ACTIVE + foregroundVideo`，无零秒或重叠媒体分段。
+  - 测试限制：`tests/run-all.js` 的远端 Worker API 测试因沙箱不允许向生产样式端点创建测试账号/Profile/设备而未执行；本次未修改 Worker/API，其他本地与浏览器测试均已通过。
 - [x] [P0 Timing/Media] T.xia 媒体分类与网页计时隔离（实现与自动化验证完成）
   - 证据：`1.7.25` 的 Bilibili / `cg.163.com` 原始媒体账与物化统计秒数一致，但 `tab.audible` 被过度解释为前台音频，并可在窗口失焦或系统 idle 时补偿网页计时；这是终端证据语义错误，不是上传或聚合丢失。
   - 口径：网页账本是配额金标准；DOM 媒体为强证据，`tab.audible` 仅为弱音频证据；前台媒体必须 active tab + focused window + 非最小化。

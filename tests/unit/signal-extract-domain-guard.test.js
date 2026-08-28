@@ -348,6 +348,14 @@ async function run() {
   const focusHandlerEnd = backgroundSource.indexOf('chrome.windows.onBoundsChanged', focusHandlerStart);
   const focusHandler = backgroundSource.slice(focusHandlerStart, focusHandlerEnd);
   expectTrue('background reclassifies open media sessions before WINDOW_ID_NONE return', focusHandlerStart >= 0 && /handleMediaWindowFocusChanged\(windowId\)/.test(focusHandler) && focusHandler.indexOf('handleMediaWindowFocusChanged') < focusHandler.indexOf('WINDOW_ID_NONE'));
+  const boundsHandlerStart = backgroundSource.indexOf('chrome.windows.onBoundsChanged');
+  const boundsHandlerEnd = backgroundSource.indexOf('function isMonitoringEnabled', boundsHandlerStart);
+  const boundsHandler = backgroundSource.slice(boundsHandlerStart, boundsHandlerEnd);
+  const windowTimingStart = backgroundSource.indexOf('async function dispatchWindowStateTiming');
+  const windowTimingEnd = backgroundSource.indexOf('async function reevaluateTabById', windowTimingStart);
+  const windowTimingHelper = backgroundSource.slice(windowTimingStart, windowTimingEnd);
+  expectTrue('focused window state transition sends minimized-aware foreground fact to timing dispatcher', boundsHandlerStart >= 0 && /currentWindow\?\.focused === true/.test(boundsHandler) && /dispatchWindowStateTiming\(win\.id/.test(boundsHandler) && windowTimingStart >= 0 && /currentWindow\?\.state !== 'minimized'/.test(windowTimingHelper) && /dispatchTimingSignal\(/.test(windowTimingHelper));
+  expectTrue('restored focused window also re-evaluates access policy', /currentWindow\?\.focused === true/.test(boundsHandler) && /currentWindow\?\.state !== 'minimized'/.test(boundsHandler) && /previousState !== win\.state/.test(boundsHandler) && /reevaluateFocusedWindowActiveTab\(win\.id\)/.test(boundsHandler));
   const internalBranch = backgroundSource.indexOf("msg.type === 'MEDIA_STATE' || msg.type === 'TITLE_CHANGE'");
   const generalRouter = backgroundSource.indexOf("ensureBootstrapped('runtimeMessage')");
   expectTrue('background should explicitly acknowledge internal content messages', internalBranch >= 0 && backgroundSource.includes("handledBy: msg.type === 'MEDIA_STATE' ? 'signal' : 'content_metadata'"));

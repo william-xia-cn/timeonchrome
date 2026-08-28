@@ -68,6 +68,7 @@ const mediaApi = loadProdModule('runtime/media-session.js', [
   'getMediaSession',
   'closeForbiddenPiPSessionsForTab',
   'getMediaFrameFacts',
+  'getMediaFact',
   'getFreshContentMediaFact',
   'getMediaSessions',
   'getMediaSegments',
@@ -221,6 +222,15 @@ async function testRepeatedSameMediaFactDoesNotWriteSegment() {
   const sessions = Object.values(await mediaApi.getMediaSessions());
   check('repeated unchanged MEDIA_STATE writes no segment', rows.length === 0, JSON.stringify(rows));
   check('repeated unchanged MEDIA_STATE keeps one open session', sessions.length === 1 && sessions[0].startTime === base, JSON.stringify(sessions));
+}
+
+async function testSubsecondMediaSessionDoesNotWriteZeroSecondSegment() {
+  resetAll();
+  const base = 1778800200000;
+  await mediaApi.applyMediaFacts(videoFact(31, 'www.bilibili.com'), 'mediaState', base);
+  await mediaApi.closeMediaForTab(31, 'tab_hidden', { now: base + 500 });
+  const rows = await segments();
+  check('subsecond media session does not write zero-second segment', rows.length === 0, JSON.stringify(rows));
 }
 
 async function testInvisibleVideoDoesNotOpenForegroundVideoSession() {
@@ -747,6 +757,24 @@ async function testRepeatedFreshContentDoesNotOscillate() {
   check('60 fresh content samples keep one foreground video session', sessions.length === 1 && sessions[0].mediaClass === 'foregroundVideo', JSON.stringify(sessions));
   check('60 unchanged samples produce no boundary segment', (await segments()).length === 0);
 }
+
+async function testContextReclassificationDoesNotDuplicateContentFrame() {
+  resetAll();
+  const base = 1778805700000;
+  await mediaApi.applyMediaFacts(videoFact(32, 'www.bilibili.com'), 'mediaState', base);
+  await mediaApi.applyMediaFacts({
+    ...videoFact(32, 'www.bilibili.com', { frameId: 'tab', isActiveTab: false }),
+    contextOnly: true,
+    lastObservedAt: base,
+  }, 'tabActivated_reclassify', base + 10_000);
+
+  const frameFacts = await mediaApi.getMediaFrameFacts();
+  const fact = await mediaApi.getMediaFact(32);
+  const openSessions = Object.values(await mediaApi.getMediaSessions());
+  check('context-only reclassification keeps one original content frame', Object.keys(frameFacts).length === 1, JSON.stringify(frameFacts));
+  check('context-only reclassification does not double visible count', fact?.visibleMediaCount === 1, JSON.stringify(fact));
+  check('context-only reclassification changes foreground video to background video', openSessions.length === 1 && openSessions[0].mediaClass === 'backgroundVideo', JSON.stringify(openSessions));
+}
 async function testModeBoundaryClosesStaleSessionWithoutReopen() {
   resetAll();
   const boundary = new Date('2026-08-06T10:00:00+08:00').getTime();
@@ -814,6 +842,7 @@ async function run() {
     testTwoTabsCountConcurrently,
     testVideoTakesPrecedenceWithinTab,
     testRepeatedSameMediaFactDoesNotWriteSegment,
+    testSubsecondMediaSessionDoesNotWriteZeroSecondSegment,
     testInvisibleVideoDoesNotOpenForegroundVideoSession,
     testPiPTakesPrecedence,
     testCloseWritesLocalMediaSegment,
@@ -831,6 +860,7 @@ async function run() {
     testStaleContentFallsBackToCurrentAudible,
     testLegacyContentFactUsesFrameIdForFreshness,
     testRepeatedFreshContentDoesNotOscillate,
+    testContextReclassificationDoesNotDuplicateContentFrame,
     testPiPFramePriorityAndFallback,
     testNavigationClearsFrameFactsForTab,
     testEmbeddedMediaFrameDomainReplacesStaleTopLevelFact,

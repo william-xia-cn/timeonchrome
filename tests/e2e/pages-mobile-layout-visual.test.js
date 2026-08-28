@@ -24,6 +24,7 @@ async function openMockConsole(page) {
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     remoteConfig = {
       domainQuotas: {},
+      restConfig: { firstReminderMinutes: 120, repeatReminderMinutes: 60 },
       timeQuota: { daily: Object.fromEntries(days.map(day => [day, {
         studyMinutes: null,
         restMinutes: null,
@@ -107,8 +108,15 @@ test('Pages has native mobile navigation and touch layouts without page overflow
 
   await showRulesPanel(page, 'quota');
   await expect(page.locator('.quota-daily-row')).toHaveCount(7);
+  await expect(page.locator('#q-rest-reminder-enabled')).toBeChecked();
+  await expect(page.locator('#q-rest-first-reminder')).toHaveValue('120');
+  await expect(page.locator('#q-rest-repeat-reminder')).toHaveValue('60');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(OUTPUT, 'pages-mobile-quota.png'), fullPage: true });
+  await page.locator('label[title="切换今日休息软限额提醒"]').click();
+  await expect(page.locator('#q-rest-first-reminder')).toBeDisabled();
+  await expect(page.locator('#q-rest-repeat-reminder')).toBeDisabled();
+  await page.screenshot({ path: path.join(OUTPUT, 'pages-mobile-rest-reminder-disabled.png'), fullPage: true });
 
   await showRulesPanel(page, 'schedule');
   await expect(page.locator('.schedule-table tr').nth(1)).toBeVisible();
@@ -123,4 +131,8 @@ test('Pages has native mobile navigation and touch layouts without page overflow
   await expect(page.locator('#cloud-usage-table .usage-analysis-table thead')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(OUTPUT, 'pages-desktop-stats.png'), fullPage: true });
+  await showRulesPanel(page, 'quota');
+  await expect(page.locator('.rest-reminder-fields')).toHaveCSS('grid-template-columns', /.+ .+/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: path.join(OUTPUT, 'pages-desktop-quota.png'), fullPage: true });
 });

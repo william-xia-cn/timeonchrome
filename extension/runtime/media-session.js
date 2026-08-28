@@ -305,7 +305,10 @@ function normalizeMediaFact(fact = {}, reason = 'media_fact', atMs = Date.now())
     reason: typeof reason === 'string' && reason.trim() ? reason.trim() : 'media_fact',
     incognito: fact.incognito === true,
     clearMediaFrames: fact.clearMediaFrames === true,
-    lastObservedAt: observedAt,
+    contextOnly: fact.contextOnly === true,
+    lastObservedAt: fact.contextOnly === true
+      ? (Number(fact.lastObservedAt) || observedAt)
+      : observedAt,
   };
 }
 
@@ -905,6 +908,9 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary', opt
   if (!session?.startTime || endMs < session.startTime) {
     return { appended: 0, durationSeconds: 0, skipped: 'invalid_media_session' };
   }
+  if (Math.floor((endMs - session.startTime) / 1000) <= 0) {
+    return { appended: 0, durationSeconds: 0, segments: [], skipped: 'zero_duration_media_session' };
+  }
   const identity = await resolveSettlementIdentity(
     { domain: session.domain, state: 'MEDIA_ACTIVE', incognito: session.incognito === true },
     reason
@@ -1186,20 +1192,50 @@ export async function applyMediaFacts(factsInput, reason = 'media_fact', atMs = 
       if (fact.clearMediaFrames) {
         removeFrameFactsForTab(frameFacts, fact.tabId);
       }
+      if (fact.contextOnly) {
+        for (const [key, existing] of Object.entries(frameFacts)) {
+          if (normalizeTabId(existing?.tabId) !== fact.tabId) continue;
+          frameFacts[key] = {
+            ...existing,
+            windowId: fact.windowId,
+            isActiveTab: fact.isActiveTab,
+            isWindowFocused: fact.isWindowFocused,
+            windowState: fact.windowState,
+            incognito: existing.incognito === true || fact.incognito === true,
+          };
+        }
+        const storedFallback = facts[fact.tabId]
+          ? {
+            ...facts[fact.tabId],
+            windowId: fact.windowId,
+            isActiveTab: fact.isActiveTab,
+            isWindowFocused: fact.isWindowFocused,
+            windowState: fact.windowState,
+            incognito: facts[fact.tabId].incognito === true || fact.incognito === true,
+          }
+          : fact;
+        changedTabs.set(fact.tabId, {
+          fact,
+          fallbackFact: storedFallback,
+        });
+        continue;
+      }
       frameFacts[frameFactKey(fact.tabId, fact.frameId)] = fact;
-      changedTabs.set(fact.tabId, fact);
+      changedTabs.set(fact.tabId, { fact, fallbackFact: fact });
     }
 
-    for (const fact of changedTabs.values()) {
-      const tabFact = aggregateTabMediaFact(fact.tabId, frameFacts, fact, atMs);
+    for (const change of changedTabs.values()) {
+      const fact = change.fact;
+      const tabFact = aggregateTabMediaFact(fact.tabId, frameFacts, change.fallbackFact, atMs);
       const classification = classifyMediaFact(tabFact);
-      facts[fact.tabId] = tabFact;
+      if (tabFact) facts[fact.tabId] = tabFact;
+      else delete facts[fact.tabId];
 
       if (!classification) {
-        const closeResult = await closeSessionsForTabInMap(sessions, tabFact.tabId, reason, atMs);
+        const closeResult = await closeSessionsForTabInMap(sessions, fact.tabId, reason, atMs);
         closed += closeResult.closed;
         appended += closeResult.appended;
-        results.push({ ok: true, tabId: tabFact.tabId, mediaClass: null, closed: closeResult.closed, frameId: fact.frameId });
+        results.push({ ok: true, tabId: fact.tabId, mediaClass: null, closed: closeResult.closed, frameId: fact.frameId });
         continue;
       }
 

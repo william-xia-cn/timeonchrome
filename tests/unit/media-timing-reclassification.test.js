@@ -36,7 +36,7 @@ function loadMediaTiming(stubs = {}) {
   return factory(stubs);
 }
 
-function makeHarness({ knownTabs = [], sessions = {}, tabs = {}, windows = {} } = {}) {
+function makeHarness({ knownTabs = [], sessions = {}, tabs = {}, windows = {}, facts = {} } = {}) {
   const known = new Set(knownTabs.map(Number));
   const applyCalls = [];
   const closeCalls = [];
@@ -57,7 +57,7 @@ function makeHarness({ knownTabs = [], sessions = {}, tabs = {}, windows = {} } 
       return { ok: true, closed: true };
     },
     getMediaFact: async (tabId) => known.has(Number(tabId))
-      ? { tabId: Number(tabId), domain: `tab${tabId}.example`, playing: true, audible: true, mediaKind: 'audio', windowId: tabs[tabId]?.windowId ?? 1 }
+      ? (facts[tabId] || { tabId: Number(tabId), domain: `tab${tabId}.example`, playing: true, audible: true, mediaKind: 'audio', windowId: tabs[tabId]?.windowId ?? 1 })
       : null,
     getMediaSessions: async () => sessions,
     runMediaPeriodicCheckpoint: async () => ({ ok: true }),
@@ -98,6 +98,31 @@ async function run() {
     await api.handleMediaTabActivated(1, 2);
     check('tabActivated refreshes known old and new media tabs', applyCalls.length === 2, JSON.stringify(applyCalls));
     check('new active tab is classified with active fact', applyCalls.some((call) => call.fact.tabId === 2 && call.fact.isActiveTab === true));
+  }
+
+  {
+    const { api, applyCalls } = makeHarness({
+      knownTabs: [12],
+      tabs: {
+        12: { id: 12, windowId: 6, url: 'https://www.bilibili.com/video/BV-test', active: true, audible: false },
+      },
+      facts: {
+        12: {
+          tabId: 12,
+          windowId: 6,
+          domain: 'www.bilibili.com',
+          playing: true,
+          audible: false,
+          mediaKind: 'video',
+          visibleMediaCount: 1,
+          evidenceTier: 'content',
+          source: 'dom_media_event',
+        },
+      },
+    });
+    await api.handleMediaTabActivated(null, 12);
+    check('tab activation preserves stored strong video kind', applyCalls[0]?.fact.mediaKind === 'video', JSON.stringify(applyCalls));
+    check('tab activation preserves visible video evidence', applyCalls[0]?.fact.visibleMediaCount === 1 && applyCalls[0]?.fact.evidenceTier === 'content', JSON.stringify(applyCalls));
   }
 
   {

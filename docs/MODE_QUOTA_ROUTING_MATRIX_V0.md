@@ -386,6 +386,7 @@ Mode boundary accounting rules:
 - Quota calculation is owned by managed statistics + quota state code; quota expiry orchestration enters through `EVALUATE_QUOTA_STATE`, and any resulting mode change must be committed through Mode Service.
 - `quota_check` must not scan all tabs or redirect directly. After a quota-driven mode change, only the current focused active tab is rechecked through `ACCESS_OBSERVED`.
 - Cloud quota pull only saves `quotaState`; it is not a mode-transition trigger.
+- Rest usage checkpoint is a post-access UI responsibility, not a fourth mode or an access-route Reminder. It reads only the settled Rest quota-bucket web ledger. `restConfig.firstReminderMinutes` is the configurable daily Rest soft limit (default 120 minutes, `null` disables), and `restConfig.repeatReminderMinutes` is the configurable overage reminder interval (default 60 minutes). The in-page prompt keeps the web ledger running, excludes media stats, and starts its 60-second response deadline only after Content confirms the prompt is visible. Failed delivery retries once, then enters the full Reminder with `rest_usage_reminder_delivery_failed`.
 
 ## 10) Implementation Anchors
 - `product/mode-service.js`

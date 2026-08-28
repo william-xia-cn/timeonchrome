@@ -514,6 +514,15 @@
     .quota-label small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
     .quota-input { width: 80px; background: rgba(0,184,148,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: var(--text); font-size: 14px; outline: none; text-align: center; }
     .quota-input:focus { border-color: var(--accent); }
+    .rest-reminder-editor { display: grid; gap: 14px; max-width: 520px; }
+    .rest-reminder-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .rest-reminder-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .rest-reminder-field { display: grid; gap: 6px; min-width: 0; }
+    .rest-reminder-field .quota-control-label { display: block; color: var(--text); font-size: 13px; font-weight: 650; }
+    .rest-reminder-input { display: flex; align-items: center; gap: 8px; }
+    .rest-reminder-input input { width: auto; min-width: 0; flex: 1 1 auto; }
+    .rest-reminder-input input:disabled { cursor: not-allowed; opacity: .55; }
+    .rest-reminder-input .quota-unit { flex: 0 0 auto; white-space: nowrap; }
     .quota-unit { font-size: 12px; color: var(--muted); }
     .quota-daily-header,
     .quota-daily-row {
@@ -863,6 +872,8 @@
       .weekly-rest-quota-layout { grid-template-columns: 1fr; }
       .weekly-rest-time-inputs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; }
       .weekly-rest-time-inputs input { width: 100%; }
+      .rest-reminder-editor { max-width: none; }
+      .rest-reminder-fields { grid-template-columns: 1fr; }
       #q-minutes-input { width: 100% !important; }
       .schedule-table,
       .schedule-table tbody,
@@ -1162,6 +1173,31 @@
               <div class="weekly-rest-impact" id="weekly-rest-impact">本周已发生的使用会计入新上限；修改后立即生效。</div>
               <div class="weekly-rest-meta" style="margin-top:8px;">每周一 00:00（北京时间）重置</div>
             </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rest.svg" alt="">休息时间提醒</div><div class="card-subtitle">软限额只做提醒，不会锁定访问；真实剩余时间仍由每日和每周配额决定</div></div>
+          </div>
+          <div class="rest-reminder-editor">
+            <div class="rest-reminder-toggle-row">
+              <div><strong style="font-size:13px;">启用今日休息软限额提醒</strong><div class="weekly-rest-meta">关闭后不显示使用时长检查点</div></div>
+              <label class="toggle" title="切换今日休息软限额提醒">
+                <input type="checkbox" id="q-rest-reminder-enabled">
+                <span class="toggle-track"></span><span class="toggle-thumb"></span>
+              </label>
+            </div>
+            <div class="rest-reminder-fields" id="q-rest-reminder-fields">
+              <label class="rest-reminder-field" for="q-rest-first-reminder">
+                <span class="quota-control-label">今日休息软限额（分钟）</span>
+                <span class="rest-reminder-input"><input class="quota-input" type="number" id="q-rest-first-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="今日休息软限额分钟"><span class="quota-unit">分钟</span></span>
+              </label>
+              <label class="rest-reminder-field" for="q-rest-repeat-reminder">
+                <span class="quota-control-label">超额后提醒间隔（分钟）</span>
+                <span class="rest-reminder-input"><input class="quota-input" type="number" id="q-rest-repeat-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="超额后提醒间隔分钟"><span class="quota-unit">分钟</span></span>
+              </label>
+            </div>
+            <div class="weekly-rest-meta">默认 120 / 60 分钟；提醒最多可能比设定值晚一个 3 分钟网页结算周期，显示后 60 秒未处理会结束休息。</div>
           </div>
         </div>
         <div class="card">
@@ -3729,6 +3765,12 @@ function buildProfileConfigExportData(classificationRequests = []) {
         daily: cfg.timeQuota?.daily || {},
         weekly: { restMinutes: weeklyRestQuotaView(cfg).value },
       },
+      restConfig: {
+        firstReminderMinutes: cfg.restConfig?.firstReminderMinutes === null
+          ? null
+          : quotaFiniteNumber(cfg.restConfig?.firstReminderMinutes) ?? 120,
+        repeatReminderMinutes: quotaFiniteNumber(cfg.restConfig?.repeatReminderMinutes) ?? 60,
+      },
       domainQuotas: cfg.domainQuotas || {},
       legacyQuotaSnapshot: {
         dailyStudyQuota: cfg.dailyStudyQuota,
@@ -4059,6 +4101,14 @@ function normalizeProfileConfigImportData(data) {
   const weeklyRestMinutes = importedWeekly && Object.prototype.hasOwnProperty.call(importedWeekly, 'restMinutes')
     ? quotaFiniteNumber(importedWeekly.restMinutes)
     : legacyWeekly !== undefined && legacyWeekly !== null && legacyWeekly > 0 ? legacyWeekly : null;
+  const importedFirstReminder = data.quota?.restConfig && Object.prototype.hasOwnProperty.call(data.quota.restConfig, 'firstReminderMinutes')
+    ? data.quota.restConfig.firstReminderMinutes === null
+      ? null
+      : quotaFiniteNumber(data.quota.restConfig.firstReminderMinutes)
+    : 120;
+  const importedRepeatReminder = data.quota?.restConfig && Object.prototype.hasOwnProperty.call(data.quota.restConfig, 'repeatReminderMinutes')
+    ? quotaFiniteNumber(data.quota.restConfig.repeatReminderMinutes)
+    : 60;
   return {
     customStudyList: lists.customStudyList || [],
     customCompositeList: lists.customCompositeList || [],
@@ -4068,6 +4118,10 @@ function normalizeProfileConfigImportData(data) {
     timeQuota: {
       daily: data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object' ? data.quota.timeQuota.daily : {},
       weekly: { restMinutes: weeklyRestMinutes === undefined ? null : weeklyRestMinutes },
+    },
+    restConfig: {
+      firstReminderMinutes: importedFirstReminder === undefined ? 120 : importedFirstReminder,
+      repeatReminderMinutes: importedRepeatReminder === undefined ? 60 : importedRepeatReminder,
     },
     domainQuotas: data.quota?.domainQuotas && typeof data.quota.domainQuotas === 'object' ? data.quota.domainQuotas : {},
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(data.timeWindows?.daily || {}) },
@@ -4191,6 +4245,25 @@ function buildProfileConfigImportDiffs(importedConfig) {
     addConfigImportDiff(diffs, { type: 'modify', area: 'weekly-quota', key: 'restMinutes', label: '每周休息上限', currentValue: configImportValueLabel(currentWeekly), importedValue: configImportValueLabel(importedWeekly), importedRawValue: importedWeekly });
   }
 
+  const currentFirstReminder = remoteConfig?.restConfig?.firstReminderMinutes === null
+    ? null
+    : quotaFiniteNumber(remoteConfig?.restConfig?.firstReminderMinutes) ?? 120;
+  const importedFirstReminder = importedConfig?.restConfig?.firstReminderMinutes === null
+    ? null
+    : quotaFiniteNumber(importedConfig?.restConfig?.firstReminderMinutes) ?? 120;
+  if (configImportJsonKey(currentFirstReminder) === configImportJsonKey(importedFirstReminder)) {
+    addConfigImportDiff(diffs, { type: 'same', area: 'rest-reminder', key: 'firstReminderMinutes', label: '今日休息软限额', currentValue: configImportValueLabel(currentFirstReminder), importedValue: configImportValueLabel(importedFirstReminder) });
+  } else {
+    addConfigImportDiff(diffs, { type: 'modify', area: 'rest-reminder', key: 'firstReminderMinutes', label: '今日休息软限额', currentValue: configImportValueLabel(currentFirstReminder), importedValue: configImportValueLabel(importedFirstReminder), importedRawValue: importedFirstReminder });
+  }
+  const currentRepeatReminder = quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60;
+  const importedRepeatReminder = quotaFiniteNumber(importedConfig?.restConfig?.repeatReminderMinutes) ?? 60;
+  if (configImportJsonKey(currentRepeatReminder) === configImportJsonKey(importedRepeatReminder)) {
+    addConfigImportDiff(diffs, { type: 'same', area: 'rest-reminder', key: 'repeatReminderMinutes', label: '超额后提醒间隔', currentValue: configImportValueLabel(currentRepeatReminder), importedValue: configImportValueLabel(importedRepeatReminder) });
+  } else {
+    addConfigImportDiff(diffs, { type: 'modify', area: 'rest-reminder', key: 'repeatReminderMinutes', label: '超额后提醒间隔', currentValue: configImportValueLabel(currentRepeatReminder), importedValue: configImportValueLabel(importedRepeatReminder), importedRawValue: importedRepeatReminder });
+  }
+
   const currentDomainQuotas = remoteConfig?.domainQuotas || {};
   const importedDomainQuotas = importedConfig.domainQuotas || {};
   const quotaDomains = new Set([...Object.keys(currentDomainQuotas), ...Object.keys(importedDomainQuotas)]);
@@ -4249,6 +4322,13 @@ function buildProfileConfigImportPayload(selectedDiffs) {
       daily: JSON.parse(JSON.stringify(remoteConfig?.timeQuota?.daily || {})),
       weekly: { restMinutes: currentWeeklyRest },
     },
+    restConfig: {
+      ...(remoteConfig?.restConfig || {}),
+      firstReminderMinutes: remoteConfig?.restConfig?.firstReminderMinutes === null
+        ? null
+        : quotaFiniteNumber(remoteConfig?.restConfig?.firstReminderMinutes) ?? 120,
+      repeatReminderMinutes: quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60,
+    },
     domainQuotas: { ...(remoteConfig?.domainQuotas || {}) },
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}) },
   };
@@ -4267,6 +4347,8 @@ function buildProfileConfigImportPayload(selectedDiffs) {
       else payload.timeQuota.daily[diff.day][diff.field] = diff.importedRawValue;
     } else if (diff.area === 'weekly-quota') {
       payload.timeQuota.weekly.restMinutes = diff.importedRawValue;
+    } else if (diff.area === 'rest-reminder') {
+      payload.restConfig[diff.key] = diff.importedRawValue;
     } else if (diff.area === 'domain-quota') {
       if (diff.type === 'delete') delete payload.domainQuotas[diff.key];
       else payload.domainQuotas[diff.key] = diff.importedRawValue;
@@ -4815,6 +4897,18 @@ function quotaFiniteNumber(value) {
   return Number.isFinite(number) && number >= 0 ? number : undefined;
 }
 
+function validRestReminderMinutes(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 1 && number <= 1440;
+}
+
+function updateRestReminderInputs() {
+  const enabled = document.getElementById('q-rest-reminder-enabled')?.checked === true;
+  document.querySelectorAll('#q-rest-reminder-fields input').forEach(input => {
+    input.disabled = !enabled;
+  });
+}
+
 function quotaLegacyMinutes(value, fallback) {
   const number = quotaFiniteNumber(value);
   if (number === undefined) return fallback;
@@ -4976,6 +5070,7 @@ function setupQuota() {
   document.getElementById('q-weekly-rest-unlimited').addEventListener('change', updateWeeklyRestQuotaStatus);
   document.getElementById('q-weekly-rest-hours').addEventListener('input', updateWeeklyRestQuotaStatus);
   document.getElementById('q-weekly-rest-minutes').addEventListener('input', updateWeeklyRestQuotaStatus);
+  document.getElementById('q-rest-reminder-enabled').addEventListener('change', updateRestReminderInputs);
   document.getElementById('save-quota-btn').addEventListener('click', saveTimeQuotaConfig);
 }
 
@@ -4990,6 +5085,13 @@ function renderQuotaPage() {
   document.getElementById('q-weekly-rest-hours').value = weeklyUnlimited ? '' : Math.floor(weeklyView.value / 60);
   document.getElementById('q-weekly-rest-minutes').value = weeklyUnlimited ? '' : weeklyView.value % 60;
   document.getElementById('weekly-rest-source').textContent = weeklyRestSourceLabel(weeklyView);
+  const reminderEnabled = remoteConfig?.restConfig?.firstReminderMinutes !== null;
+  const firstReminder = quotaFiniteNumber(remoteConfig?.restConfig?.firstReminderMinutes) ?? 120;
+  const repeatReminder = quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60;
+  document.getElementById('q-rest-reminder-enabled').checked = reminderEnabled;
+  document.getElementById('q-rest-first-reminder').value = String(firstReminder);
+  document.getElementById('q-rest-repeat-reminder').value = String(repeatReminder);
+  updateRestReminderInputs();
 
   // Table header
   let html = `<div class="quota-daily-header">
@@ -5113,8 +5215,25 @@ async function saveTimeQuotaConfig() {
     if (!confirmed) return;
   }
 
+  const reminderEnabled = document.getElementById('q-rest-reminder-enabled')?.checked === true;
+  const firstReminderMinutes = Number(document.getElementById('q-rest-first-reminder')?.value);
+  const repeatReminderMinutes = Number(document.getElementById('q-rest-repeat-reminder')?.value);
+  if (reminderEnabled && !validRestReminderMinutes(firstReminderMinutes)) {
+    toast('今日休息软限额请输入 1-1440 的整数分钟', false);
+    return;
+  }
+  if (!validRestReminderMinutes(repeatReminderMinutes)) {
+    toast('超额后提醒间隔请输入 1-1440 的整数分钟', false);
+    return;
+  }
+
   const payload = {
     timeQuota: { daily, weekly: { restMinutes: weeklyRestMinutes } },
+    restConfig: {
+      ...(remoteConfig.restConfig || {}),
+      firstReminderMinutes: reminderEnabled ? firstReminderMinutes : null,
+      repeatReminderMinutes,
+    },
     domainQuotas: remoteConfig.domainQuotas || {},
   };
 

@@ -31,15 +31,52 @@ import { runClassificationSyncEffects } from './core/classification-effective-bo
 import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
 import { resolveActivationState } from './core/activation-gate.js';
 import { getSiteClassificationSpecialTargets } from './core/site-classification.js';
+import { getQuotaUsageView } from './stats/managed-statistics.js';
+import { configureRestUsageReminder, evaluateRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
 
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;
+const lastWindowStateById = new Map();
 const tabSpecialSiteContexts = new Map();
+
+function rememberTabSpecialSiteContext(tabId, url = '', targets = []) {
+  if (!Number.isInteger(tabId) || tabId < 0) return [];
+  const normalized = getSiteClassificationSpecialTargets([url, ...(Array.isArray(targets) ? targets : [])]);
+  tabSpecialSiteContexts.set(tabId, { url: String(url || ''), targets: normalized });
+  return normalized;
+}
+
+function getTabSpecialSiteTargets(tabId, url = '') {
+  const direct = getSiteClassificationSpecialTargets(url);
+  if (!Number.isInteger(tabId) || tabId < 0) return direct;
+  const remembered = tabSpecialSiteContexts.get(tabId);
+  if (!remembered || (remembered.url && url && remembered.url !== url)) return direct;
+  return getSiteClassificationSpecialTargets([...direct, ...(remembered.targets || [])]);
+}
+
+function clearTabSpecialSiteContext(tabId) {
+  if (Number.isInteger(tabId)) tabSpecialSiteContexts.delete(tabId);
+}
+
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
+
+configureRestUsageReminder({
+  getConfig,
+  getDateKey,
+  getQuotaUsageView,
+  getTimingSession,
+  endRestUsage: async ({ prompt, reason }) => dispatchModeEvent({
+    type: 'REQUEST_MODE_CHANGE',
+    requestedMode: 'study',
+    source: 'rest_usage_reminder',
+    reason: `rest_usage_reminder_${reason}`,
+    tabId: prompt?.sourceTabId,
+  }),
+});
 
 // ── SW 模块引导（幂等）：只保证基础状态与 alarms/listeners 可用，recovery 由 lifecycle 事件触发 ──
 
@@ -976,7 +1013,22 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 });
 
 chrome.windows.onBoundsChanged?.addListener?.(async (win) => {
+  const previousState = Number.isInteger(win?.id) ? lastWindowStateById.get(win.id) : null;
+  if (Number.isInteger(win?.id) && win?.state) lastWindowStateById.set(win.id, win.state);
   await handleMediaWindowStateChanged(win?.id, win?.state || null).catch(() => {});
+  const currentWindow = Number.isInteger(win?.id)
+    ? await chrome.windows.get(win.id).catch(() => null)
+    : null;
+  if (currentWindow?.focused === true && previousState !== win.state) {
+    await dispatchWindowStateTiming(win.id, currentWindow, 'windowStateChanged').catch(() => {});
+  }
+  if (currentWindow?.focused === true && currentWindow?.state !== 'minimized' && previousState !== win.state) {
+    await reevaluateFocusedWindowActiveTab(win.id);
+  }
+});
+
+chrome.windows.onRemoved?.addListener?.((windowId) => {
+  lastWindowStateById.delete(windowId);
 });
 
 function isMonitoringEnabled() {
@@ -992,6 +1044,28 @@ async function isForegroundTab(tab) {
   } catch {
     return tab.active === true;
   }
+}
+
+async function dispatchWindowStateTiming(windowId, currentWindow, source = 'windowStateChanged') {
+  if (!isMonitoringEnabled() || !Number.isInteger(windowId)) return;
+  const tabs = await chrome.tabs.query({ active: true, windowId });
+  const tab = tabs && tabs[0];
+  if (!tab?.id || !tab?.url) return;
+  const domain = extractDomain(tab.url);
+  if (!domain) return;
+  await dispatchTimingSignal({
+    tabId: tab.id,
+    windowId,
+    url: tab.url,
+    domain,
+    incognito: tab.incognito === true,
+    isFocused: currentWindow?.focused === true && currentWindow?.state !== 'minimized',
+    _reason: source,
+  }, {
+    ensureBootstrapped,
+    scheduleBadgeUpdate: scheduleCurrentTabBadgeUpdate,
+    emitTrace,
+  });
 }
 
 async function reevaluateTabById(tabId, options = {}) {
@@ -1156,6 +1230,20 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (result?.modeChange?.changed) {
       scheduleModeBoundaryDrain('quotaCheckModeSwitch');
     }
+    await evaluateRestUsageReminder({ reason: 'quota_check' }).catch((err) => {
+      recordFallbackLog({
+        level: 'warning',
+        category: 'access',
+        eventCode: 'rest_usage_reminder_evaluation_failed',
+        module: 'background',
+        reason: 'quota_check',
+        message: err?.message || 'Rest usage reminder evaluation failed',
+      });
+    });
+  } else if (alarm.name === REST_USAGE_REMINDER_DEADLINE_ALARM) {
+    await evaluateRestUsageReminder({ reason: 'deadline_alarm' }).catch(() => {});
+  } else if (alarm.name === REST_USAGE_REMINDER_RETRY_ALARM) {
+    await evaluateRestUsageReminder({ reason: 'delivery_retry' }).catch(() => {});
   } else if (alarm.name === 'daily_cleanup') {
     await cleanOldStats();
     await cleanOldSessions();
@@ -1525,6 +1613,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const currentDomain = extractDomain(sender?.tab?.url || '');
         markContentScriptReady(tabId, currentDomain);
         const delivery = await reSendPendingNoticeDetailed(tabId, currentDomain);
+        await restoreRestUsageReminderForTab(tabId).catch(() => null);
         if (delivery?.attempted === true || delivery?.sent === true || delivery?.ack || delivery?.deferred === true) {
           await recordModeEffectTrace({
             event: {
@@ -1559,6 +1648,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
     }
     sendResponse({ ok: true });
+    return true;
+  }
+
+  if (msg.type === 'REST_USAGE_REMINDER_ACTION') {
+    (async () => {
+      const result = await handleRestUsageReminderAction(msg, sender);
+      sendResponse(result);
+    })().catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
     return true;
   }
 

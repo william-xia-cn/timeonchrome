@@ -1,7 +1,7 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.7.12
-更新：2026-07-19
+版本：1.7.27
+更新：2026-08-29
 
 ---
 
@@ -132,6 +132,8 @@ Foreground 计时与 media 计时是两条账本链路。Chrome 原始事件可�
 - Content frame 报告的可见 DOM `video`、播放中 `audio` 或 PiP 是强证据，每 30 秒重申，超过 90 秒不得用于网页补偿。系统 idle 时，仅聚焦窗口中的新鲜强证据可以保持网页 session。
 - `chrome.tabs.Tab.audible` 是弱音频证据，只在没有新鲜 Content 证据时形成媒体账。它不得覆盖视频类型、关闭仍有效的静音视频、补偿网页 session 或参与网页配额。
 - Content 媒体发现覆盖所有注入 frame 及可访问的 open shadow root；只采集播放、媒体类型、PiP、audible、可见数量和必要的 tab/window 元数据，不采集 URL 正文、标题或页面文本。
+- 复杂多 frame 页面必须保留并聚合 Content 强证据：`visibleMediaCount` 必须贯通 Content 消息、signal 转换、媒体 fact 和 checkpoint；checkpoint 按明确 frame ID 查询所有已注入 frame，视频证据优先于音频，不得依赖无 frame 定位消息返回的任意 frame 响应。聚合结果作为 Content 强证据写入当前 tab，不读取或保存 frame URL、标题和页面正文。
+- 标签激活和窗口焦点变化后，开放媒体 session 必须按当前 active/focus 状态重新分类；已聚焦窗口在最小化/恢复状态变化时，即使 Chrome 没有再次发出 focus 事件，也必须向网页 timing dispatcher 发送真实窗口状态：最小化按非前台关闭网页账，恢复后按真实前台重新开启，并另走普通 `ACCESS_OBSERVED` 做访问策略复核；不允许媒体事实直接开启网页账。小于 1 秒、最终 `durationSeconds=0` 的瞬时媒体 session 不写入原始媒体账本，避免虚增分段数和本地存储。
 - 已知限制：Canvas/WebRTC 流游戏可能没有 DOM 媒体强证据。以 `cg.163.com` 为例，持续键盘/鼠标操作仍按普通前台网页事实计时；使用手柄、长过场或超过 90 秒无系统活动时，弱 audible 只进入媒体账，网页账可能低估。当前实现以避免失焦多记为优先，流游戏专用强证据模型尚未实现。
 - 后续流游戏模型必须限定到显式配置站点，并同时要求 active tab 与 focused window；候选信号可包含 Canvas/WebRTC 活跃、Pointer Lock、Gamepad 和页面交互心跳，但普通 Canvas 动画、后台声音或单独 audible 不得成为网页续账依据。
 
@@ -464,6 +466,20 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - 每日 Rest 与每周 Rest 是并列上限，任一耗尽都会使 `restLocked=true`；`weeklyRestLocked` 只说明锁定来源。
 - 每日在线总额进入 `timeQuota.daily.*.onlineMinutes` 显式显示。旧 `dailyOnlineQuota` 仅作为新字段缺失时的兼容来源。
 - `PUT /profiles/:id/config` 对 `timeQuota.daily` 与 `timeQuota.weekly` 分层合并；只修改周上限时不得覆盖现有每日配置。服务端校验每日 0-1440 分钟、每周 0-10080 分钟。
+
+#### Rest 使用检查点提醒（D-065 / D-066）
+
+- `restConfig.firstReminderMinutes` 表示“今日休息软限额”：`null` 表示关闭，非空值必须是 `1–1440` 的整数，默认 `120`。`restConfig.repeatReminderMinutes` 表示超额后的重复提醒间隔，必须是 `1–1440` 的整数，缺失时默认 `60`。两者均为提醒参数，不是会锁定访问的每日或每周 Rest 配额。
+- 旧 `restConfig.reminderInterval` / `maxRestDuration` 仅保留配置兼容，不参与运行，不得迁移为 `firstReminderMinutes`。
+- 提醒触发和展示读取 `getQuotaUsageView()` 的 `restSeconds` / `weekRestSeconds`；复合或待归类借用 Rest 计入，媒体账本不计入。只有当前聚焦 active tab 存在 `quotaBucketAtTime=rest` 的 ACTIVE 网页 session 时才显示；达到阈值但没有有效前台 Rest 页面时延后到下一次有效观察。
+- 首次提醒 payload 使用 `reminderKind=first`、`softLimitMinutes` 和 `overageSeconds`，明确显示“已达到今日休息软限额”及设定值；滑动继续后，以确认时的今日 Rest 用量为基线，按 `repeatReminderMinutes` 再次提醒，后续 payload 使用 `reminderKind=repeat` 并显示从软限额起算的累计超额。弹窗等待时间继续进入正式网页账本，但不进入下一轮提醒间隔。每个北京时间自然日重置提醒进度。
+- 修改软限额时，当日首次提醒状态重新计算；若已用量达到或超过新阈值，则在下一次有效评估触发首次提醒。修改重复间隔时，以当前已用量为新基线计算下一阈值。已经可见的活动弹层保持创建时文案和 deadline，不受中途配置变化影响。
+- Content Script 使用 `<dialog>.showModal()` 形成页面内软阻断，保留网页文档、滚动和应用状态；提醒期间阻断输入并暂停可识别媒体。滑动继续移除 dialog 并尽力恢复此前播放媒体；Canvas/WebGL 游戏只保证输入阻断，不承诺冻结页面内部 JS。
+- 已经显示的提醒在 60 秒响应期内不因家长调整或关闭提醒配置而被后台静默撤销，必须先由继续、结束或超时完成当前状态机；新配置从下一轮评估生效，避免页面残留无法处理的 modal。
+- prompt 状态包含随机 token、dateKey、nextThresholdSeconds、shownAt、deadlineAt 和 sourceTabId，通过受预算保护的固定小对象持久化。继续、点击结束和超时结束必须按 token 幂等。Service Worker 重启、页面刷新或标签切换不得使过期 prompt 继续访问。
+- 60 秒无操作与点击“结束休息”共用 Mode Service 结束路径：请求 Study 并重新检查 source tab；若 Study 不可进入或页面无法继续安全显示，终止当前 Rest 页面访问。软阻断暂时无法注入时保留 prompt 与 deadline，并在 `CONTENT_SCRIPT_READY` 后重试；60 秒 deadline 到达后仍执行默认结束，不能静默跳过。
+- deadline 只能在 Content Script 返回 `visible=true` 后创建并调度；随后才允许暂停媒体。首次投递失败时只保存 `delivery_due` 状态，不启动响应倒计时，并在 `CONTENT_SCRIPT_READY` 或约 10 秒后重试一次；第二次仍失败时进入完整 Reminder，reason 固定为 `rest_usage_reminder_delivery_failed`。不得把不可见投递当作用户超时。
+- 该检查点不替换访问 Reminder：Study/Compound 打开 Restricted 且 Rest Exit Grace 已过期时仍先进入现有 Reminder 确认。
 
 
 ### 1.3.7.5 访问管理配置文件与系统网站配置

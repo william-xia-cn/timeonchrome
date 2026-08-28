@@ -110,7 +110,7 @@ function buildSchemaDefaults(): object {
         sunday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
       },
     },
-    restConfig:         { reminderInterval: 15, maxRestDuration: 60 },
+    restConfig:         { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60 },
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
     clientLoggingPolicyV1: {
       localEnabled: true,
@@ -285,6 +285,25 @@ function validateTimeQuota(config: Record<string, unknown>): string | null {
     if (!timeQuota.weekly || typeof timeQuota.weekly !== 'object' || Array.isArray(timeQuota.weekly)) return 'timeQuota.weekly 必须是对象';
     if (Object.prototype.hasOwnProperty.call(timeQuota.weekly, 'restMinutes') && !validMinutes(timeQuota.weekly.restMinutes, 7 * 24 * 60)) {
       return 'weekly.restMinutes 必须是 null 或 0-10080 的整数分钟';
+    }
+  }
+  return null;
+}
+
+function validateRestConfig(config: Record<string, unknown>): string | null {
+  const restConfig = config.restConfig as any;
+  if (restConfig === undefined) return null;
+  if (!restConfig || typeof restConfig !== 'object' || Array.isArray(restConfig)) return 'restConfig 必须是对象';
+  if (Object.prototype.hasOwnProperty.call(restConfig, 'firstReminderMinutes')) {
+    const value = restConfig.firstReminderMinutes;
+    if (value !== null && (!Number.isInteger(value) || value < 1 || value > 1440)) {
+      return 'restConfig.firstReminderMinutes 必须是 null 或 1-1440 的整数分钟';
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(restConfig, 'repeatReminderMinutes')) {
+    const value = restConfig.repeatReminderMinutes;
+    if (!Number.isInteger(value) || value < 1 || value > 1440) {
+      return 'restConfig.repeatReminderMinutes 必须是 1-1440 的整数分钟';
     }
   }
   return null;
@@ -632,6 +651,10 @@ export const profilesRouter = {
         if (incomingQuotaValidationError) {
           return json({ error: 'Invalid timeQuota: ' + incomingQuotaValidationError }, 400);
         }
+        const incomingRestConfigValidationError = validateRestConfig(incomingConfig);
+        if (incomingRestConfigValidationError) {
+          return json({ error: 'Invalid restConfig: ' + incomingRestConfigValidationError }, 400);
+        }
 
         for (const [key, value] of Object.entries(incomingConfig)) {
           if (ALLOWED_KEYS.has(key)) {
@@ -647,6 +670,11 @@ export const profilesRouter = {
                 weekly: incomingQuota.weekly === undefined
                   ? currentQuota.weekly
                   : { ...(currentQuota.weekly || {}), ...(incomingQuota.weekly || {}) },
+              };
+            } else if (key === 'restConfig' && value && typeof value === 'object' && !Array.isArray(value)) {
+              mergedConfig.restConfig = {
+                ...((mergedConfig.restConfig as Record<string, unknown>) || {}),
+                ...(value as Record<string, unknown>),
               };
             } else {
               mergedConfig[key] = value;

@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.26**
+- **版本：1.7.27**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-27）**：`1.7.26` 周配额、媒体修复、managed CRX 与更新源保持有效；Native App 页面与 Guardian token bridge 发布回归已通过前向修复提交 `b133abd` 关闭。`guardian-api` version `fd408a49-fc2e-4e43-a6bf-64e4618d186f`、控制台 Pages deployment `dd73092e` 已部署并完成内容级与登录态只读回读；独立 Native Worker、Native D1、secrets、Santa 数据、CRX 和 update host 均未修改。T.xia / P.xia 扩展升级、真实媒体对照和流游戏低估风险继续生产观察。
+- **当前发布状态（2026-08-29）**：`1.7.27` 源码候选包含 Bilibili 多 frame 媒体证据修复、Rest 软限额提醒配置与可见投递门禁；Product Owner 已授权提交、推送并部署 `guardian-api` 与控制台 Pages。扩展托管明确延后：本轮不生成或签名 CRX、不更新 `update.xml`、不部署 update host，现有设备不会因此升级到 `1.7.27`。独立 Native Worker、Native D1、secrets 和 Santa 数据不在本轮变更范围。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
