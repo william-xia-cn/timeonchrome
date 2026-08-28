@@ -3,7 +3,7 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
-- `1.7.27` 源码已通过提交 `1aca19d` 推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff` 与控制台 Pages `436199ba` 已部署并通过稳定域名/deployment 域名只读回读。扩展托管延后：未生成/签名 CRX，未更新 `update.xml`，未部署 update host，设备暂不升级。
+- `1.7.27` 当前源码已通过提交 `3ca6093` 推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff` 与控制台 Pages `436199ba` 已部署并通过稳定域名/deployment 域名只读回读。Product Owner 已于 2026-08-29 明确批准在保留 `cg.163.com` 的 `idleStateChanged` P0 已知风险前提下继续内部 managed 自托管；CRX、update feed 与生产回读正在执行。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
 ## Active P0 Release Regression（2026-08-27）
@@ -76,11 +76,13 @@
   - [x] 诊断子任务：已增加仅限 `cg.163.com/run.html` 的有界 `stream_game_probe_v1`，采样 video/canvas/MediaStream/frame-progress/Pointer Lock/Fullscreen/近期输入等计数或布尔值。只写 session storage，最多 60 条，不进入网页或媒体状态机，不上传云端，不改变任何落账语义。
   - 复验证据：失焦段网页账 05:29:57–05:31:38（101 秒），媒体账 `foregroundVideo` 05:29:57–05:31:51（114 秒）；最小化时切为 `backgroundVideo` 且网页停止。网页原始/日/小时/目标统计均为 2188 秒，媒体原始/日/小时统计均为 1961 秒。
   - 当前状态：cg 当前会话能提供普通 DOM 强视频证据，暂不增加流游戏专用落账模型。P1 保留用于观察其他会话或渲染阶段是否缺少 DOM 视频证据。
-- [ ] **[P0 Timing] 失焦强媒体在 `idleStateChanged` 边界提前关闭网页账（根因待定位）**
+- [ ] **[P0 Timing / Deferred by PO] 失焦强媒体在 `idleStateChanged` 边界提前关闭网页账（根因待定位）**
   - 现场证据：网页 session 在 05:31:38 以 `endReason=idleStateChanged` 关闭；探针在 05:31:38、05:31:48 仍为页面可见 + video playing/visible/frame advancing + live MediaStream，媒体账持续至 05:31:51。
   - 未证实：当前探针没有记录 idle 信号方向、Chrome tab active、window focused/minimized 或媒体查询失败原因，因此不能断言由 Word/Codex 输入或 `idle -> active` 路径造成。
   - 风险：如果该边界确实错误关闭已有失焦强媒体网页 session，后续因失焦状态禁止新开网页账而可能持续少记，影响网页金标准和配额。
   - P0 定级：D-070 规定任何可能影响落账准确性的问题自动为 P0；本例即使当前差值较小、仅在 `cg.163.com` 复现，且网页各物化层与原始账本秒数一致，也不能降级，因为它们可能一致地继承了终端少记。
+  - 处置状态（2026-08-29）：Product Owner 判断当前已观察影响较小且根因可能无法快速收敛，决定暂缓继续定位和修复。该决定只暂停工作，不关闭问题、不改写现场证据，也不降低 P0 级别；是否作为已知风险解除相关发布阻断，必须由 Product Owner 另行明确批准。
+  - 发布风险接受（2026-08-29）：Product Owner 已明确批准 `1.7.27` 在该问题保持 P0 / Deferred、根因未解决且历史数据不修正的前提下进入内部 managed 自托管。该批准只解除本次内部托管阻断，不把问题改写为通过，也不适用于 Chrome Web Store 或后续版本自动豁免。
   - 定位要求：下一轮诊断必须同时记录 idle 前后值、开放 session 身份、tab active、window state、Content snapshot 聚合结果和最终 state，不得先按任一候选原因修改代码。
   - 闸门：属于 D-068 网页落账语义变更，必须单独给出前后矩阵、少记/多记风险与专项测试，经 Product Owner 确认后实施；本轮探针任务不修改计时代码。
 
