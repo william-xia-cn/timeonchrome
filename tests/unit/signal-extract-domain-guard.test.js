@@ -246,7 +246,7 @@ async function run() {
   section('SG7: content MEDIA_STATE carries media fact source and window snapshot');
   emitted.length = 0;
   await hooks.onMessage(
-    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', audible: false, visibleMediaCount: 1, source: 'dom_media_event' },
+    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', audible: false, visibleMediaCount: 1, documentVisible: true, source: 'dom_media_event' },
     { frameId: 12, documentId: 'doc-501', tab: { id: 501, windowId: 50, active: true, url: 'https://Video.Example/watch', mutedInfo: { muted: false } } }
   );
   await new Promise((r) => setTimeout(r, 100));
@@ -254,6 +254,7 @@ async function run() {
   expectTrue('MEDIA_STATE should preserve media kind', emitted[0]?.mediaKind === 'video');
   expectTrue('MEDIA_STATE playing should not imply audible', emitted[0]?.isAudible === false);
   expectTrue('MEDIA_STATE should carry visible media count', emitted[0]?.visibleMediaCount === 1);
+  expectTrue('MEDIA_STATE should carry document visibility', emitted[0]?.documentVisible === true);
   expectTrue('MEDIA_STATE should carry source label', emitted[0]?.mediaFactSource === 'dom_media_event');
   expectTrue('MEDIA_STATE should carry active tab fact', emitted[0]?.isActiveTab === true);
   expectTrue('MEDIA_STATE should be marked as strong content evidence', emitted[0]?.evidenceTier === 'content');
@@ -265,7 +266,7 @@ async function run() {
   section('SG7b: content MEDIA_STATE uses frame URL for embedded media attribution');
   emitted.length = 0;
   await hooks.onMessage(
-    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', audible: false, visibleMediaCount: 1, source: 'dom_media_event' },
+    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', audible: false, visibleMediaCount: 1, documentVisible: true, source: 'dom_media_event' },
     {
       frameId: 7,
       documentId: 'youtube-frame',
@@ -328,7 +329,7 @@ async function run() {
   section('SG9: merged content video and tab audible keeps video precedence');
   emitted.length = 0;
   await hooks.onMessage(
-    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', audible: false, visibleMediaCount: 1, source: 'dom_media_event' },
+    { type: 'MEDIA_STATE', playing: true, isPiP: false, mediaKind: 'video', audible: false, visibleMediaCount: 1, documentVisible: true, source: 'dom_media_event' },
     { frameId: 0, tab: { id: 707, windowId: 70, active: true, url: 'https://Mixed.Example/watch', mutedInfo: { muted: false } } }
   );
   await hooks.onUpdated(707, { audible: true }, {

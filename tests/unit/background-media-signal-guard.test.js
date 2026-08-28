@@ -34,6 +34,8 @@ check('guard explicitly treats mediaState as media-only', /reason === 'mediaStat
 check('guard treats mediaFactSource as media-only', /rawEvent\?\.mediaFactSource/.test(mediaSource));
 check('media-only skip happens in dispatcher before foreground processing', dispatcherMediaSkipIndex >= 0 && dispatcherMediaSkipIndex < dispatcherForegroundIndex);
 check('media-only skip uses diagnostic result', /media_signal_foreground_unchanged/.test(dispatcherSource));
+check('only content mediaState may enter bounded webpage continuation', /rawEvent\?\._reason === 'mediaState'[\s\S]{0,180}processForegroundMediaContinuationSignal/.test(dispatcherSource));
+check('bounded media continuation requires an existing active webpage session', /session\?\.state !== 'ACTIVE'[\s\S]{0,180}no_matching_active_web_session/.test(foregroundSource));
 check('foreground module keeps only unified legacy media query helper, not media ledger mutators', /queryForegroundMediaForOpenSession/.test(foregroundSource) && !/applyMediaFacts|closeMediaForTab|media_segments_v1/.test(foregroundSource));
 check('dispatcher observes media before optional foreground processing', dispatcherSource.lastIndexOf('observeMediaFromSignal') < dispatcherSource.lastIndexOf('processForegroundSignal'));
 check('background delegates normalized signals to dispatcher',

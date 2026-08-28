@@ -29,6 +29,7 @@ function loadMediaTiming(stubs = {}) {
     'handleMediaWindowFocusChanged',
     'handleMediaWindowStateChanged',
     'refreshKnownMediaTab',
+    'queryTabMediaFact',
   ];
   const injectedKeys = Object.keys(stubs);
   const prelude = injectedKeys.length ? `const { ${injectedKeys.join(', ')} } = __injected;\n` : '';
@@ -47,7 +48,13 @@ function makeHarness({ knownTabs = [], sessions = {}, tabs = {}, windows = {}, f
     },
     classifyMediaFact: (fact) => {
       if (fact?.isPiP) return { mediaClass: 'pip' };
-      const foreground = fact?.isActiveTab && fact?.isWindowFocused === true && fact?.windowState !== 'minimized';
+      const strongContent = fact?.evidenceTier === 'content';
+      const foreground = fact?.isActiveTab && fact?.windowState !== 'minimized' && (strongContent
+        ? fact?.documentVisible === true && (
+            (fact?.mediaKind === 'video' && fact?.playing === true && Number(fact?.visibleMediaCount) > 0) ||
+            (fact?.mediaKind === 'audio' && fact?.playing === true && fact?.audible === true && fact?.muted !== true)
+          )
+        : fact?.isWindowFocused === true);
       if (fact?.mediaKind === 'video') return { mediaClass: foreground ? 'foregroundVideo' : 'backgroundVideo' };
       if (fact?.playing || fact?.audible) return { mediaClass: foreground ? 'foregroundAudio' : 'backgroundAudio' };
       return null;
@@ -101,6 +108,39 @@ async function run() {
   }
 
   {
+    const { api } = makeHarness({
+      knownTabs: [11],
+      tabs: {
+        11: { id: 11, windowId: 6, url: 'https://video.example', active: true, audible: false },
+      },
+      windows: {
+        6: { id: 6, focused: false, state: 'normal' },
+      },
+      facts: {
+        11: {
+          tabId: 11,
+          windowId: 6,
+          domain: 'video.example',
+          playing: true,
+          mediaKind: 'video',
+          visibleMediaCount: 1,
+          documentVisible: true,
+          evidenceTier: 'content',
+          lastObservedAt: Date.now(),
+        },
+      },
+    });
+    const fact = await api.queryTabMediaFact(11, {
+      isActiveTab: false,
+      isWindowFocused: true,
+      windowState: 'minimized',
+      contextOnly: true,
+    });
+    check('live tab active state overrides stale event snapshot', fact.isActiveTab === true, JSON.stringify(fact));
+    check('live window focus and state override stale event snapshot', fact.isWindowFocused === false && fact.windowState === 'normal', JSON.stringify(fact));
+  }
+
+  {
     const { api, applyCalls } = makeHarness({
       knownTabs: [12],
       tabs: {
@@ -115,6 +155,7 @@ async function run() {
           audible: false,
           mediaKind: 'video',
           visibleMediaCount: 1,
+          documentVisible: true,
           evidenceTier: 'content',
           source: 'dom_media_event',
         },
@@ -178,10 +219,26 @@ async function run() {
         4: { id: 4, focused: false, state: 'normal' },
         5: { id: 5, focused: true, state: 'normal' },
       },
+      facts: {
+        9: {
+          tabId: 9,
+          windowId: 4,
+          domain: 'old-window.example',
+          playing: true,
+          audible: false,
+          mediaKind: 'video',
+          visibleMediaCount: 1,
+          documentVisible: true,
+          evidenceTier: 'content',
+          source: 'dom_media_poll',
+          lastObservedAt: Date.now(),
+        },
+      },
     });
-    await api.handleMediaWindowFocusChanged(5);
+    const result = await api.handleMediaWindowFocusChanged(5);
     check('focus change reclassifies every open media tab', applyCalls.length === 2, JSON.stringify(applyCalls));
     check('previous window media receives unfocused fact', applyCalls.some((call) => call.fact.tabId === 9 && call.fact.isWindowFocused === false), JSON.stringify(applyCalls));
+    check('unfocused non-minimized strong content video remains foregroundVideo', result.results.some((entry) => entry.tabId === 9 && entry.classification?.mediaClass === 'foregroundVideo'), JSON.stringify(result));
     check('new focused window media receives focused fact', applyCalls.some((call) => call.fact.tabId === 10 && call.fact.isWindowFocused === true), JSON.stringify(applyCalls));
   }
 

@@ -45,6 +45,10 @@ function mediaObservation(overrides = {}) {
       domain: 'video.example.com',
       mediaKind: 'video',
       playing: true,
+      audible: false,
+      muted: false,
+      visibleMediaCount: 1,
+      documentVisible: true,
       isActiveTab: true,
       isWindowFocused: true,
       windowState: 'normal',
@@ -81,6 +85,25 @@ async function run() {
   );
   check('fresh focused content evidence can compensate idle webpage timing', result.foregroundMediaActive === true, JSON.stringify(result));
 
+  openSession = { state: 'ACTIVE', tabId: 1, windowId: 10, domain: 'video.example.com' };
+  result = await api.enrichContextWithForegroundMedia(
+    { ...baseContext, isFocused: false },
+    null,
+    { _reason: 'mediaState' },
+    mediaObservation({ isWindowFocused: false })
+  );
+  check('fresh unfocused content evidence continues matching active webpage session', result.foregroundMediaActive === true, JSON.stringify(result));
+
+  openSession = null;
+  queryResult = { ok: false, reason: 'invalid_open_session' };
+  result = await api.enrichContextWithForegroundMedia(
+    { ...baseContext, isFocused: false },
+    null,
+    { _reason: 'mediaState' },
+    mediaObservation({ isWindowFocused: false })
+  );
+  check('unfocused content evidence cannot open webpage timing without an active session', result.foregroundMediaActive === false, JSON.stringify(result));
+
   result = await api.enrichContextWithForegroundMedia(
     baseContext,
     null,
@@ -100,7 +123,7 @@ async function run() {
   );
   check('defensive validation rejects weak helper result', queryCalls === 1 && result.foregroundMediaActive === false, JSON.stringify(result));
 
-  console.log('[Foreground Media Evidence Isolation] 4/4 passed');
+  console.log('[Foreground Media Evidence Isolation] 6/6 passed');
 }
 
 run().catch((err) => {

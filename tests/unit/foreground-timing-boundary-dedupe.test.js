@@ -27,8 +27,9 @@ function makeStubs(sessionRef, transitions, traces = []) {
       isIdle: rawEvent.isIdle === true,
       idleState: rawEvent.idleState || 'active',
       foregroundMediaActive: false,
+      resolvedState: rawEvent.resolvedState || null,
     }),
-    resolveState: (context) => context.isFocused && !context.isIdle && context.domain ? 'ACTIVE' : 'IDLE',
+    resolveState: (context) => context.resolvedState || (context.isFocused && !context.isIdle && context.domain ? 'ACTIVE' : 'IDLE'),
     emitTrace: async (event, payload) => traces.push({ event, payload }),
     queryForegroundMediaForOpenSession: async () => ({ ok: false, reason: 'no_foreground_media' }),
     extractDomain: (url) => {
@@ -97,7 +98,22 @@ async function run() {
     check('different tab transition target keeps same domain', transitions[0].domain === 'example.com', JSON.stringify(transitions));
   }
 
-  console.log('[Foreground Timing Boundary Dedupe] 6/6 passed');
+  {
+    const sessionRef = { current: { state: 'ACTIVE', domain: 'video.example.com', startTime: 1000, tabId: 1, windowId: 10 } };
+    const transitions = [];
+    const { processForegroundSignal } = loadForegroundTiming(makeStubs(sessionRef, transitions));
+    const result = await processForegroundSignal({
+      tabId: 1,
+      windowId: 10,
+      isFocused: false,
+      resolvedState: 'BACKGROUND_ACTIVE',
+      _reason: 'windowFocusLost',
+    });
+    check('unfocused weak media closes the existing webpage session', transitions.length === 1 && transitions[0].state === 'IDLE', JSON.stringify(transitions));
+    check('weak media remains a diagnostic media state while webpage result is IDLE', result.state === 'IDLE' && result.mediaState === 'BACKGROUND_ACTIVE', JSON.stringify(result));
+  }
+
+  console.log('[Foreground Timing Boundary Dedupe] 8/8 passed');
 }
 
 run().catch((err) => {

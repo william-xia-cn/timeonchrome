@@ -137,6 +137,7 @@ async function run() {
 
   {
     let foregroundCalls = 0;
+    let mediaContinuationCalls = 0;
     let mediaCalls = 0;
     const traces = [];
     const api = loadDispatcher({
@@ -144,6 +145,7 @@ async function run() {
       isMediaOnlyTimingSignal: () => true,
       observeMediaFromSignal: async () => { mediaCalls += 1; return { ok: true }; },
       processForegroundSignal: async () => { foregroundCalls += 1; return { ok: true }; },
+      processForegroundMediaContinuationSignal: async () => { mediaContinuationCalls += 1; return { ok: true }; },
       processForegroundModeBoundary: async () => ({ ok: true }),
       processMediaModeBoundary: async () => ({ ok: true }),
       drainModeBoundaryIntents: async () => ({ ok: true, processed: 0 }),
@@ -153,8 +155,33 @@ async function run() {
     });
     check('media-only signal is observed by media side', mediaCalls === 1, String(mediaCalls));
     check('media-only signal skips foreground consumer', foregroundCalls === 0, String(foregroundCalls));
+    check('weak tabAudible does not enter media continuation consumer', mediaContinuationCalls === 0, String(mediaContinuationCalls));
     check('media-only signal returns foreground unchanged reason', result.reason === 'media_signal_foreground_unchanged', JSON.stringify(result));
     check('media-only signal produces inbound skipped audit', traces.some((trace) => trace.event === 'timing_inbound_skipped' && trace.payload.reason === 'media_signal_foreground_unchanged'), JSON.stringify(traces));
+  }
+
+
+  {
+    let foregroundCalls = 0;
+    let mediaContinuationCalls = 0;
+    const mediaObservation = { fact: { evidenceTier: 'content' }, classification: { mediaClass: 'foregroundVideo' } };
+    const api = loadDispatcher({
+      ...auditStubs,
+      isMediaOnlyTimingSignal: () => true,
+      observeMediaFromSignal: async () => mediaObservation,
+      processForegroundSignal: async () => { foregroundCalls += 1; return { ok: true }; },
+      processForegroundMediaContinuationSignal: async (_event, options) => {
+        mediaContinuationCalls += 1;
+        return { ok: options.mediaObservation === mediaObservation };
+      },
+      processForegroundModeBoundary: async () => ({ ok: true }),
+      processMediaModeBoundary: async () => ({ ok: true }),
+      drainModeBoundaryIntents: async () => ({ ok: true, processed: 0 }),
+    });
+    const result = await api.dispatchTimingSignal({ _reason: 'mediaState', mediaSourceTabId: 1 });
+    check('content mediaState enters bounded continuation consumer once', mediaContinuationCalls === 1, String(mediaContinuationCalls));
+    check('content mediaState still bypasses ordinary foreground consumer', foregroundCalls === 0, String(foregroundCalls));
+    check('content mediaState forwards the observed media fact', result.foreground?.ok === true, JSON.stringify(result));
   }
 
   {

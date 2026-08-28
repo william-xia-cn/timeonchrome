@@ -221,9 +221,18 @@ function frameFactKey(tabId, frameId) {
 }
 
 function isForegroundMediaFact(fact) {
-  return fact?.isActiveTab === true &&
-    fact?.isWindowFocused === true &&
-    fact?.windowState !== 'minimized';
+  if (fact?.isActiveTab !== true || fact?.windowState === 'minimized') return false;
+  if (normalizeEvidenceTier(fact) !== 'content') {
+    return fact?.isWindowFocused === true;
+  }
+  if (fact?.documentVisible !== true) return false;
+  if (normalizeMediaKind(fact?.mediaKind) === 'video') {
+    return fact?.playing === true && hasVisibleVideoEvidence(fact);
+  }
+  if (normalizeMediaKind(fact?.mediaKind) === 'audio') {
+    return fact?.playing === true && fact?.audible === true && fact?.muted !== true;
+  }
+  return false;
 }
 
 function hasVisibleVideoEvidence(fact) {
@@ -297,6 +306,7 @@ function normalizeMediaFact(fact = {}, reason = 'media_fact', atMs = Date.now())
     audible: audible === true,
     muted: fact.muted === true || fact.isMuted === true,
     visibleMediaCount: Number(fact.visibleMediaCount) || 0,
+    documentVisible: normalizeEvidenceTier(fact) === 'content' && fact.documentVisible === true,
     isActiveTab: fact.isActiveTab === true,
     isWindowFocused: fact.isWindowFocused === true,
     windowState: typeof fact.windowState === 'string' ? fact.windowState : null,
@@ -361,6 +371,7 @@ function aggregateTabMediaFact(tabId, frameFacts = {}, fallbackFact = null, nowM
     audible: activeFacts.some((fact) => fact.audible === true && fact.muted !== true),
     muted: hasMedia ? activeFacts.every((fact) => fact.muted === true) : latest.muted === true,
     visibleMediaCount: activeFacts.reduce((sum, fact) => sum + (Number(fact.visibleMediaCount) || 0), 0),
+    documentVisible: activeFacts.some((fact) => fact.documentVisible === true),
     isActiveTab: latest.isActiveTab === true,
     isWindowFocused: latest.isWindowFocused === true,
     windowState: latest.windowState || chosen?.windowState || null,

@@ -1,6 +1,6 @@
 // core/timing-dispatcher.js — fan-out normalized timing signals to independent consumers
 
-import { processForegroundModeBoundary, processForegroundSignal } from './foreground-timing.js';
+import { processForegroundMediaContinuationSignal, processForegroundModeBoundary, processForegroundSignal } from './foreground-timing.js';
 import { isMediaOnlyTimingSignal, observeMediaFromSignal, processMediaModeBoundary } from './media-timing.js';
 import { drainModeBoundaryIntents } from './mode-boundary-intents.js';
 import { createTimingAuditId, inboundAuditFields } from './timing-trace.js';
@@ -196,13 +196,20 @@ export async function dispatchTimingSignal(rawEvent, options = {}) {
     });
   }
   if (signalClass.mediaOnly) {
+    const foreground = rawEvent?._reason === 'mediaState'
+      ? await processForegroundMediaContinuationSignal(auditedEvent, {
+          scheduleBadgeUpdate: options.scheduleBadgeUpdate,
+          mediaObservation,
+        })
+      : { skipped: true, reason: 'media_signal_foreground_unchanged' };
     await emitInboundAudit('timing_inbound_skipped', rawEvent, options, {
       auditId,
       source: 'timing-dispatcher',
       reason: 'media_signal_foreground_unchanged',
       payload: {
-        skippedReason: 'media_signal_foreground_unchanged',
+        skippedReason: foreground?.reason || 'media_signal_foreground_unchanged',
         media: mediaObservation,
+        foreground,
       },
     });
     return {
@@ -211,11 +218,12 @@ export async function dispatchTimingSignal(rawEvent, options = {}) {
       reason: 'media_signal_foreground_unchanged',
       auditId,
       media: mediaObservation,
-      foreground: { skipped: true, reason: 'media_signal_foreground_unchanged' },
+      foreground,
     };
   }
   const foreground = await processForegroundSignal(auditedEvent, {
     scheduleBadgeUpdate: options.scheduleBadgeUpdate,
+    mediaObservation,
   });
   return { ...foreground, auditId, media: mediaObservation };
 }

@@ -111,6 +111,7 @@ function videoFact(tabId, domain, overrides = {}) {
     isActiveTab: overrides.isActiveTab ?? true,
     isWindowFocused: overrides.isWindowFocused ?? true,
     windowState: overrides.windowState || 'normal',
+    documentVisible: overrides.documentVisible ?? true,
     evidenceTier: 'content',
     source: overrides.source || 'dom_media_event',
   };
@@ -129,6 +130,7 @@ function audioFact(tabId, domain, overrides = {}) {
     isActiveTab: overrides.isActiveTab ?? false,
     isWindowFocused: overrides.isWindowFocused ?? true,
     windowState: overrides.windowState || 'normal',
+    documentVisible: overrides.documentVisible ?? (overrides.evidenceTier === 'content'),
     evidenceTier: overrides.evidenceTier || 'audible_fallback',
     source: overrides.source || 'tabs_api_audible',
   };
@@ -164,6 +166,25 @@ async function testClassifierRules() {
     mediaApi.classifyMediaFact(audioFact(2, 'audio.example.com', { isActiveTab: true })).mediaClass === 'foregroundAudio');
   check('unfocused active audio is backgroundAudio',
     mediaApi.classifyMediaFact(audioFact(2, 'audio.example.com', { isActiveTab: true, isWindowFocused: false })).mediaClass === 'backgroundAudio');
+  check('unfocused strong content video remains foregroundVideo',
+    mediaApi.classifyMediaFact(videoFact(4, 'video.example.com', { isWindowFocused: false })).mediaClass === 'foregroundVideo');
+  check('unfocused strong content audio remains foregroundAudio',
+    mediaApi.classifyMediaFact(audioFact(5, 'audio.example.com', {
+      frameId: 0,
+      evidenceTier: 'content',
+      isActiveTab: true,
+      isWindowFocused: false,
+    })).mediaClass === 'foregroundAudio');
+  check('hidden strong content video is backgroundVideo',
+    mediaApi.classifyMediaFact(videoFact(6, 'video.example.com', { isWindowFocused: false, documentVisible: false })).mediaClass === 'backgroundVideo');
+  check('silent strong content audio is not foreground media',
+    mediaApi.classifyMediaFact(audioFact(7, 'audio.example.com', {
+      frameId: 0,
+      evidenceTier: 'content',
+      isActiveTab: true,
+      isWindowFocused: false,
+      audible: false,
+    })).mediaClass === 'backgroundAudio');
   check('pip wins over video/audio',
     mediaApi.classifyMediaFact({ ...videoFact(3, 'pip.example.com'), isPiP: true }).mediaClass === 'pip');
 }

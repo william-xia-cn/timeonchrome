@@ -62,6 +62,7 @@
       mediaKind: kind,
       audible: snapshot?.audible === true,
       visibleMediaCount: Number(snapshot?.visibleMediaCount) || 0,
+      documentVisible: document.visibilityState === 'visible',
       source,
     });
     lastMediaStateSentAt = Date.now();
@@ -256,6 +257,135 @@
   patchAudioContext(window.AudioContext);
   patchAudioContext(window.webkitAudioContext);
 
+  // ── 流游戏诊断探针（仅本地 session，不参与媒体或网页计时）──────────────────
+
+  const STREAM_GAME_PROBE_INTERVAL_MS = 10000;
+  const STREAM_GAME_RECENT_INPUT_MS = 15000;
+  const streamGameVideoFrames = new WeakMap();
+  let streamGameLastInputAt = 0;
+
+  function isCgStreamGameFrame() {
+    try {
+      if (location.hostname.toLowerCase() === 'cg.163.com' && location.pathname === '/run.html') return true;
+      return [...(location.ancestorOrigins || [])].some((origin) => {
+        try { return new URL(origin).hostname.toLowerCase() === 'cg.163.com'; } catch (_) { return false; }
+      });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isVisibleProbeElement(el) {
+    if (!el || document.visibilityState !== 'visible') return false;
+    const rect = el.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) <= 0) return false;
+    const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+    return rect.right > 0 && rect.bottom > 0 && rect.left < viewportWidth && rect.top < viewportHeight;
+  }
+
+  function collectProbeElements(selector) {
+    const elements = new Set();
+    for (const root of [...mediaRoots]) {
+      if (root !== document && root?.host?.isConnected !== true) continue;
+      root.querySelectorAll?.(selector).forEach((el) => elements.add(el));
+    }
+    return [...elements];
+  }
+
+  function readDecodedVideoFrames(video) {
+    try {
+      const qualityFrames = Number(video.getVideoPlaybackQuality?.()?.totalVideoFrames);
+      if (Number.isFinite(qualityFrames)) return qualityFrames;
+      const webkitFrames = Number(video.webkitDecodedFrameCount);
+      return Number.isFinite(webkitFrames) ? webkitFrames : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function readStreamGameProbeSample() {
+    const videos = collectProbeElements('video');
+    const audioElements = collectProbeElements('audio');
+    const canvases = collectProbeElements('canvas');
+    let advancingVideoCount = 0;
+    let hiddenAdvancingVideoCount = 0;
+    let mediaStreamVideoCount = 0;
+    let liveVideoTrackCount = 0;
+
+    for (const video of videos) {
+      const frames = readDecodedVideoFrames(video);
+      const previousFrames = streamGameVideoFrames.get(video);
+      if (frames !== null) {
+        streamGameVideoFrames.set(video, frames);
+        if (Number.isFinite(previousFrames) && frames > previousFrames) {
+          advancingVideoCount += 1;
+          if (!isVisibleProbeElement(video)) hiddenAdvancingVideoCount += 1;
+        }
+      }
+      const videoTracks = video.srcObject?.getVideoTracks?.() || [];
+      if (videoTracks.length > 0) mediaStreamVideoCount += 1;
+      liveVideoTrackCount += videoTracks.filter((track) => track?.readyState === 'live').length;
+    }
+
+    let connectedGamepadCount = 0;
+    try {
+      connectedGamepadCount = [...(navigator.getGamepads?.() || [])].filter(Boolean).length;
+    } catch (_) {}
+
+    const visibleCanvases = canvases.filter(isVisibleProbeElement);
+    const viewportArea = Math.max(1, (window.innerWidth || 0) * (window.innerHeight || 0));
+    const largeCanvasCount = visibleCanvases.filter((canvas) => {
+      const rect = canvas.getBoundingClientRect?.();
+      return !!rect && (rect.width * rect.height >= viewportArea * 0.25 || (rect.width >= 640 && rect.height >= 360));
+    }).length;
+    const playingVideos = videos.filter(isPlayingMediaElement);
+
+    return {
+      documentVisible: document.visibilityState === 'visible',
+      fullscreen: !!document.fullscreenElement,
+      pointerLocked: !!document.pointerLockElement,
+      recentInput: Date.now() - streamGameLastInputAt <= STREAM_GAME_RECENT_INPUT_MS,
+      audioContextActive,
+      videoElementCount: videos.length,
+      playingVideoCount: playingVideos.length,
+      visibleVideoCount: playingVideos.filter(isVisibleProbeElement).length,
+      hiddenPlayingVideoCount: playingVideos.filter((video) => !isVisibleProbeElement(video)).length,
+      mediaStreamVideoCount,
+      liveVideoTrackCount,
+      advancingVideoCount,
+      hiddenAdvancingVideoCount,
+      audioElementCount: audioElements.length,
+      playingAudioCount: audioElements.filter(isPlayingMediaElement).length,
+      audibleAudioCount: audioElements.filter(isAudibleMediaElement).length,
+      canvasCount: canvases.length,
+      visibleCanvasCount: visibleCanvases.length,
+      largeCanvasCount,
+      connectedGamepadCount,
+    };
+  }
+
+  function sendStreamGameProbe() {
+    if (!isCgStreamGameFrame() || !chrome.runtime?.id) return;
+    const sample = readStreamGameProbeSample();
+    const hasRenderableEvidence = sample.videoElementCount > 0
+      || sample.audioElementCount > 0
+      || sample.canvasCount > 0
+      || window.top === window;
+    if (!hasRenderableEvidence) return;
+    chrome.runtime.sendMessage({ type: 'STREAM_GAME_PROBE', sample }, () => void chrome.runtime.lastError);
+  }
+
+  if (isCgStreamGameFrame()) {
+    for (const eventName of ['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel']) {
+      addEventListener(eventName, () => { streamGameLastInputAt = Date.now(); }, { capture: true, passive: true });
+    }
+    setTimeout(sendStreamGameProbe, 2000);
+    setInterval(sendStreamGameProbe, STREAM_GAME_PROBE_INTERVAL_MS);
+  }
+
   // YouTube 频道规则需要具体视频页提供频道上下文；优先读取视频作者区域，
   // 避免误抓推荐区或评论区的频道链接。
   function normalizeYouTubeChannelPath(pathname) {
@@ -369,6 +499,7 @@
         audible: snapshot.audible === true,
         visibleMediaCount: Number(snapshot.visibleMediaCount) || 0,
         visible: document.visibilityState === 'visible',
+        documentVisible: document.visibilityState === 'visible',
         source: 'content_media_snapshot',
       });
     } else if (msg.type === 'EXIT_PIP') {

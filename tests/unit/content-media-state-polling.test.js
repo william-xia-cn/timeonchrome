@@ -27,7 +27,7 @@ function sectionBetween(source, startMarker, endMarker) {
 const mediaBlock = sectionBetween(
   contentJs,
   '媒体状态检测',
-  '标题变化追踪'
+  '流游戏诊断探针'
 );
 
 expect('media block found', mediaBlock.length > 0);
@@ -50,6 +50,7 @@ expect(
     && /mediaKind:\s*kind/.test(mediaBlock)
     && /audible:\s*snapshot\?\.audible === true/.test(mediaBlock)
     && /visibleMediaCount:\s*Number\(snapshot\?\.visibleMediaCount\) \|\| 0/.test(mediaBlock)
+    && /documentVisible:\s*document\.visibilityState === 'visible'/.test(mediaBlock)
     && /source,/.test(mediaBlock)
 );
 
@@ -63,6 +64,11 @@ const mediaSnapshotBranch = sectionBetween(
   contentJs,
   "msg.type === 'GET_MEDIA_SNAPSHOT'",
   "msg.type === 'EXIT_PIP'"
+);
+
+expect(
+  'media checkpoint snapshot carries document visibility',
+  /documentVisible:\s*document\.visibilityState === 'visible'/.test(mediaSnapshotBranch)
 );
 
 expect(
@@ -147,6 +153,54 @@ expect(
   /function isAudibleMediaElement/.test(mediaBlock)
     && /el\.muted !== true/.test(mediaBlock)
     && /Number\(el\.volume\) > 0/.test(mediaBlock)
+);
+
+const streamGameProbeBlock = sectionBetween(
+  contentJs,
+  '流游戏诊断探针',
+  'YouTube 频道规则'
+);
+
+expect('stream-game probe block found', streamGameProbeBlock.length > 0);
+
+expect(
+  'stream-game probe is restricted to cg run page and samples every 10 seconds',
+  /location\.hostname\.toLowerCase\(\) === 'cg\.163\.com'/.test(streamGameProbeBlock)
+    && /location\.pathname === '\/run\.html'/.test(streamGameProbeBlock)
+    && /STREAM_GAME_PROBE_INTERVAL_MS\s*=\s*10000/.test(streamGameProbeBlock)
+);
+
+expect(
+  'stream-game probe records bounded evidence categories',
+  /type:\s*'STREAM_GAME_PROBE'/.test(streamGameProbeBlock)
+    && /advancingVideoCount/.test(streamGameProbeBlock)
+    && /liveVideoTrackCount/.test(streamGameProbeBlock)
+    && /largeCanvasCount/.test(streamGameProbeBlock)
+    && /recentInput/.test(streamGameProbeBlock)
+    && /pointerLocked/.test(streamGameProbeBlock)
+);
+
+for (const forbidden of [
+  'location.href',
+  'document.URL',
+  'document.title',
+  'textContent',
+  'innerText',
+  'innerHTML',
+  'getContext(',
+  'toDataURL(',
+  'readPixels(',
+  'clientX',
+  'clientY',
+  'keyCode',
+  '.key',
+]) {
+  expect(`stream-game probe does not collect ${forbidden}`, !streamGameProbeBlock.includes(forbidden));
+}
+
+expect(
+  'stream-game probe does not emit media state or foreground signals',
+  !/type:\s*'MEDIA_STATE'|ACCESS_OBSERVED|dispatchTimingSignal/.test(streamGameProbeBlock)
 );
 
 if (process.exitCode) {

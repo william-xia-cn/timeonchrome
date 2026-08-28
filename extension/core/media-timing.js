@@ -125,6 +125,11 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
       ? (Number(overrides.visibleMediaCount) || 0)
       : (Number(stored?.visibleMediaCount) || 0))
     : 0;
+  const documentVisible = contentEvidence
+    ? (hasOwn(overrides, 'documentVisible')
+      ? overrides.documentVisible === true
+      : stored?.documentVisible === true)
+    : false;
 
   return {
     tabId: normalizedTabId ?? tabId,
@@ -138,9 +143,14 @@ export async function queryTabMediaFact(tabId, overrides = {}) {
     audible,
     muted: overrides.isMuted === true || overrides.muted === true || tab?.mutedInfo?.muted === true || stored?.muted === true,
     visibleMediaCount,
-    isActiveTab: hasOwn(overrides, 'isActiveTab') ? overrides.isActiveTab === true : tab?.active === true,
-    isWindowFocused: hasOwn(overrides, 'isWindowFocused') ? overrides.isWindowFocused === true : win.focused === true,
-    windowState: overrides.windowState || win.state || stored?.windowState || null,
+    documentVisible,
+    isActiveTab: typeof tab?.active === 'boolean'
+      ? tab.active === true
+      : (hasOwn(overrides, 'isActiveTab') && overrides.isActiveTab === true),
+    isWindowFocused: typeof win?.focused === 'boolean'
+      ? win.focused === true
+      : (hasOwn(overrides, 'isWindowFocused') && overrides.isWindowFocused === true),
+    windowState: win?.state || overrides.windowState || stored?.windowState || null,
     evidenceTier,
     source: overrides.mediaFactSource || overrides.source || stored?.source || 'chrome_tab_query',
     incognito: overrides.incognito === true || tab?.incognito === true || stored?.incognito === true,
@@ -286,9 +296,6 @@ export async function queryForegroundMediaForOpenSession(sessionLike = {}, reaso
   if (tab.active !== true) {
     return { ok: false, reason: 'not_active_tab', source: 'tab_query', fact: tabFact };
   }
-  if (win.focused !== true) {
-    return { ok: false, reason: 'window_unfocused', source: 'tab_query', fact: tabFact };
-  }
   if (win.state === 'minimized') {
     return { ok: false, reason: 'window_minimized', source: 'tab_query', fact: tabFact };
   }
@@ -296,40 +303,66 @@ export async function queryForegroundMediaForOpenSession(sessionLike = {}, reaso
     return { ok: false, reason: domainMismatchReason(tabFact.domain), source: 'tab_query', fact: tabFact };
   }
 
-  const storedContentFact = await getFreshContentMediaFact(sessionTabId, Date.now());
+  let storedContentFact = await getFreshContentMediaFact(sessionTabId, Date.now());
+  let contentSource = 'content_media_fact';
+  if (!storedContentFact || !isForegroundMediaClassification(classifyMediaFact({
+    ...storedContentFact,
+    isActiveTab: true,
+    isWindowFocused: win.focused === true,
+    windowState: win.state || storedContentFact.windowState || null,
+  }))) {
+    const snapshotResult = await requestContentMediaSnapshot(sessionTabId, reason);
+    const snapshot = snapshotResult?.ok === true ? snapshotResult.snapshot : null;
+    if (snapshot && isPositiveMediaSnapshot(snapshot)) {
+      storedContentFact = await queryTabMediaFact(sessionTabId, {
+        tabSnapshot: tab,
+        windowSnapshot: win,
+        mediaFrameId: 'foreground_probe',
+        evidenceTier: 'content',
+        playing: snapshot.playing === true || snapshot.isPiP === true,
+        isPiP: snapshot.isPiP === true,
+        mediaKind: snapshot.mediaKind || (snapshot.isPiP ? 'video' : null),
+        audible: snapshot.audible === true,
+        visibleMediaCount: Number(snapshot.visibleMediaCount) || 0,
+        documentVisible: snapshot.documentVisible === true,
+        mediaFactSource: reason || 'foreground_media_content_snapshot',
+      });
+      contentSource = 'content_media_snapshot';
+    }
+  }
   if (!storedContentFact) {
-    return { ok: false, reason: 'no_fresh_content_media', source: 'content_media_fact', fact: tabFact };
+    return { ok: false, reason: 'no_fresh_content_media', source: contentSource, fact: tabFact };
   }
   const fact = {
     ...storedContentFact,
     windowId: tabWindowId,
     isActiveTab: true,
-    isWindowFocused: true,
+    isWindowFocused: win.focused === true,
     windowState: win.state || storedContentFact.windowState || null,
     evidenceTier: 'content',
   };
   const factTabId = numericTabId(fact?.tabId);
   if (factTabId !== sessionTabId) {
-    return { ok: false, reason: 'tab_mismatch', source: 'content_media_fact', fact };
+    return { ok: false, reason: 'tab_mismatch', source: contentSource, fact };
   }
   const factWindowId = numericTabId(fact?.windowId);
   if (sessionWindowId != null && factWindowId != null && factWindowId !== sessionWindowId) {
-    return { ok: false, reason: 'window_mismatch', source: 'content_media_fact', fact };
+    return { ok: false, reason: 'window_mismatch', source: contentSource, fact };
   }
   const classification = classifyMediaFact(fact);
   if (sessionDomain && fact?.domain !== sessionDomain) {
     return {
       ok: false,
       reason: domainMismatchReason(fact?.domain),
-      source: 'content_media_fact',
+      source: contentSource,
       fact,
       classification,
     };
   }
   if (!isForegroundMediaClassification(classification)) {
-    return { ok: false, reason: 'no_foreground_media', source: 'content_media_fact', fact, classification };
+    return { ok: false, reason: 'no_foreground_media', source: contentSource, fact, classification };
   }
-  return { ok: true, source: 'content_media_fact', fact, classification };
+  return { ok: true, source: contentSource, fact, classification };
 }
 
 export async function queryKnownForegroundMediaFacts(requests = []) {
@@ -525,6 +558,7 @@ function normalizedMediaSnapshot(snapshot = {}) {
     mediaKind: snapshot.mediaKind || snapshot.kind || null,
     audible: snapshot.audible === true,
     visibleMediaCount: Number(snapshot.visibleMediaCount) || 0,
+    documentVisible: snapshot.documentVisible === true || snapshot.visible === true,
   };
 }
 
@@ -554,6 +588,7 @@ function aggregateContentMediaSnapshots(snapshots = []) {
     mediaKind: hasVideo || hasPiP ? 'video' : (hasAudio ? 'audio' : null),
     audible: active.some((snapshot) => snapshot.audible === true),
     visibleMediaCount: active.reduce((sum, snapshot) => sum + (Number(snapshot.visibleMediaCount) || 0), 0),
+    documentVisible: active.some((snapshot) => snapshot.documentVisible === true),
   };
 }
 
@@ -733,8 +768,9 @@ async function discoverCheckpointMediaFacts(now = Date.now()) {
         playing: snapshot.playing === true || snapshot.isPiP === true,
         isPiP: snapshot.isPiP === true,
         mediaKind: snapshot.mediaKind || (snapshot.isPiP ? 'video' : null),
-        audible: snapshot.audible === true || hasAudibleEvidence,
+        audible: snapshot.audible === true,
         visibleMediaCount: Number(snapshot.visibleMediaCount) || 0,
+        documentVisible: snapshot.documentVisible === true,
       } : {}),
       mediaFactSource: candidate.sources?.join('+') || candidate.source || 'media_checkpoint_discovery',
     });

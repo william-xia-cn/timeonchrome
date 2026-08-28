@@ -29,7 +29,15 @@ function extractDomain(url) {
 
 function classifyMediaFact(fact = {}) {
   if (fact.isPiP === true) return { mediaClass: 'pip' };
-  const foreground = fact.isActiveTab === true && fact.isWindowFocused === true && fact.windowState !== 'minimized';
+  const strongContent = fact.evidenceTier === 'content';
+  const foreground = fact.isActiveTab === true &&
+    fact.windowState !== 'minimized' &&
+    (strongContent
+      ? fact.documentVisible === true && (
+          (fact.mediaKind === 'video' && fact.playing === true && Number(fact.visibleMediaCount) > 0) ||
+          (fact.mediaKind === 'audio' && fact.playing === true && fact.audible === true && fact.muted !== true)
+        )
+      : fact.isWindowFocused === true);
   if (fact.playing !== true && fact.audible !== true) return { mediaClass: null };
   if (fact.mediaKind === 'video') return { mediaClass: foreground ? 'foregroundVideo' : 'backgroundVideo' };
   if (fact.mediaKind === 'audio' || fact.audible === true) return { mediaClass: foreground ? 'foregroundAudio' : 'backgroundAudio' };
@@ -94,14 +102,14 @@ async function testAudibleCannotCompensateUnfocusedWindow() {
     domain: 'video.example.com',
   }, 'test_audible');
 
-  check('unfocused audible cannot compensate webpage timing', result.ok === false && result.reason === 'window_unfocused', JSON.stringify(result));
-  check('unfocused window is rejected before content lookup', tabGetCalls === 1 && mediaFactCalls === 0, `${tabGetCalls}/${mediaFactCalls}`);
+  check('unfocused audible cannot compensate webpage timing', result.ok === false && result.reason === 'no_fresh_content_media', JSON.stringify(result));
+  check('unfocused weak audible still checks for strong content once', tabGetCalls === 1 && mediaFactCalls === 1, `${tabGetCalls}/${mediaFactCalls}`);
 }
 
-async function testFreshContentVideoWinsAudibleFallback() {
+async function testFreshUnfocusedContentVideoWinsAudibleFallback() {
   reset();
   tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://video.example.com/watch' };
-  windowsById[10] = { focused: true, state: 'normal' };
+  windowsById[10] = { focused: false, state: 'normal' };
   contentFactsById[1] = {
     tabId: 1,
     frameId: 0,
@@ -110,8 +118,10 @@ async function testFreshContentVideoWinsAudibleFallback() {
     playing: true,
     mediaKind: 'video',
     audible: false,
+    visibleMediaCount: 1,
+    documentVisible: true,
     isActiveTab: true,
-    isWindowFocused: true,
+    isWindowFocused: false,
     windowState: 'normal',
     evidenceTier: 'content',
     lastObservedAt: Date.now(),
@@ -124,9 +134,104 @@ async function testFreshContentVideoWinsAudibleFallback() {
     domain: 'video.example.com',
   }, 'test_fallback');
 
-  check('fresh content fact is the only compensation source', result.ok === true && result.source === 'content_media_fact', JSON.stringify(result));
-  check('content video wins over tab audible fallback', result.classification.mediaClass === 'foregroundVideo', JSON.stringify(result));
+  check('fresh unfocused content fact is the only compensation source', result.ok === true && result.source === 'content_media_fact', JSON.stringify(result));
+  check('unfocused content video wins over tab audible fallback', result.classification.mediaClass === 'foregroundVideo', JSON.stringify(result));
   check('content lookup runs once', tabGetCalls === 1 && mediaFactCalls === 1, `${tabGetCalls}/${mediaFactCalls}`);
+}
+
+async function testFreshUnfocusedContentAudioCanCompensate() {
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://audio.example.com/listen' };
+  windowsById[10] = { focused: false, state: 'normal' };
+  contentFactsById[1] = {
+    tabId: 1,
+    frameId: 0,
+    windowId: 10,
+    domain: 'audio.example.com',
+    playing: true,
+    mediaKind: 'audio',
+    audible: true,
+    muted: false,
+    documentVisible: true,
+    isActiveTab: true,
+    isWindowFocused: false,
+    windowState: 'normal',
+    evidenceTier: 'content',
+    lastObservedAt: Date.now(),
+  };
+
+  const result = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE', tabId: 1, windowId: 10, domain: 'audio.example.com',
+  }, 'test_content_audio');
+
+  check('fresh unfocused content audio can compensate webpage timing', result.ok === true && result.classification.mediaClass === 'foregroundAudio', JSON.stringify(result));
+}
+
+async function testSilentOrHiddenContentCannotCompensate() {
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: false, url: 'https://audio.example.com/listen' };
+  windowsById[10] = { focused: false, state: 'normal' };
+  contentFactsById[1] = {
+    tabId: 1,
+    frameId: 0,
+    windowId: 10,
+    domain: 'audio.example.com',
+    playing: true,
+    mediaKind: 'audio',
+    audible: false,
+    muted: true,
+    documentVisible: true,
+    isActiveTab: true,
+    isWindowFocused: false,
+    windowState: 'normal',
+    evidenceTier: 'content',
+    lastObservedAt: Date.now(),
+  };
+
+  const silent = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE', tabId: 1, windowId: 10, domain: 'audio.example.com',
+  }, 'test_silent_audio');
+  check('silent content audio cannot compensate webpage timing', silent.ok === false && silent.reason === 'no_foreground_media', JSON.stringify(silent));
+
+  contentFactsById[1] = {
+    ...contentFactsById[1],
+    mediaKind: 'video',
+    audible: true,
+    muted: false,
+    visibleMediaCount: 1,
+    documentVisible: false,
+  };
+  const hidden = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE', tabId: 1, windowId: 10, domain: 'audio.example.com',
+  }, 'test_hidden_video');
+  check('hidden content video cannot compensate webpage timing', hidden.ok === false && hidden.reason === 'no_foreground_media', JSON.stringify(hidden));
+}
+
+async function testMinimizedStrongContentCannotCompensate() {
+  reset();
+  tabsById[1] = { id: 1, windowId: 10, active: true, audible: true, url: 'https://video.example.com/watch' };
+  windowsById[10] = { focused: false, state: 'minimized' };
+  contentFactsById[1] = {
+    tabId: 1,
+    frameId: 0,
+    windowId: 10,
+    domain: 'video.example.com',
+    playing: true,
+    mediaKind: 'video',
+    visibleMediaCount: 1,
+    documentVisible: true,
+    isActiveTab: true,
+    isWindowFocused: false,
+    windowState: 'minimized',
+    evidenceTier: 'content',
+    lastObservedAt: Date.now(),
+  };
+
+  const result = await api.queryForegroundMediaForOpenSession({
+    state: 'ACTIVE', tabId: 1, windowId: 10, domain: 'video.example.com',
+  }, 'test_minimized');
+  check('minimized window rejects strong content before lookup', result.ok === false && result.reason === 'window_minimized', JSON.stringify(result));
+  check('minimized window does not read content fact', mediaFactCalls === 0, String(mediaFactCalls));
 }
 
 async function testAudibleWithoutContentCannotCompensate() {
@@ -203,7 +308,10 @@ async function testInvalidSessionDoesNotQuery() {
 async function run() {
   const tests = [
     testAudibleCannotCompensateUnfocusedWindow,
-    testFreshContentVideoWinsAudibleFallback,
+    testFreshUnfocusedContentVideoWinsAudibleFallback,
+    testFreshUnfocusedContentAudioCanCompensate,
+    testSilentOrHiddenContentCannotCompensate,
+    testMinimizedStrongContentCannotCompensate,
     testAudibleWithoutContentCannotCompensate,
     testAudibleHardFailuresDoNotFallback,
     testInvalidSessionDoesNotQuery,

@@ -17,6 +17,20 @@
   - 生产验证：登录态 Native 页面成功读取当前 Child 的 Native Macs 和应用列表，证明 Guardian module token 与独立 Native Worker 链路有效；未创建 Mac、未修改策略或数据。
 
 ## Active P0 Runtime Fix（2026-08-27）
+- [x] [P0 Timing/Media] 恢复失焦但未最小化的 Content 强媒体容错（2026-08-29）
+  - 根因：`1.7.26` 为阻止弱 `tab.audible` 在失焦后长期续网页账，在公共媒体前台判定和网页补偿入口同时增加 `isWindowFocused=true`，连带删除了旧版 active tab + non-minimized 强媒体容错。
+  - 已确认口径：同一已有 ACTIVE session 的新鲜 Content 强视频或明确 audible 的 Content 强音频，在 Chrome 失焦但未最小化、页面 visible、身份一致时继续网页账和前台媒体账；失焦不得凭媒体新开网页 session。
+  - 安全边界：弱 `tab.audible`、陈旧事实、后台标签、最小化、隐藏、暂停、结束、锁屏和身份不匹配均不得续网页账；流游戏强证据仍为下方独立 P1。
+  - 验收矩阵：Bilibili/本地视频、DOM/AudioContext 音频、弱 audible、Word 小窗、并排窗口、多显示器、完全遮挡、最小化、标签切换、暂停、idle、锁屏与连续 checkpoint，并核对原始网页/媒体账本无重叠。
+  - 硬闸门：D-068 已将网页落账开始/停止/续账/idle/焦点/checkpoint 语义列为最高风险独立变更，禁止在普通 bugfix 或重构中隐式修改。
+  - 边界：不修改 Worker、D1、profile、历史账本、版本号或发布状态；现有 Admin/UI 未提交工作保持原样。
+  - 完成：Content 强视频/强音频在 active tab、非最小化、页面可见、90 秒内新鲜且身份匹配时可延续同一已有 ACTIVE；失焦状态不能新开网页账。实时 tab/window 查询优先于可能陈旧的事件快照，避免焦点事件竞争导致媒体误降级。弱 audible、后台标签、最小化、隐藏、暂停、结束、锁屏和陈旧证据会关闭网页账，媒体账继续独立。
+  - 验证：相关 foreground/media/signal 专项全部通过；全部 unit 文件、typecheck、扩展根目录检查及联网 `node tests/run-all.js` 全部通过，API 103/103、duration-flow 53/53、E2E 15/15。隔离 Chrome 的强视频与强音频失焦场景均取得 `ACTIVE + foregroundVideo/foregroundAudio` 证据；后续两次 Windows Alt+Tab 复跑未使 Chrome API 报告失焦，属于人工焦点驱动限制，不作为产品失败。
+- [x] [P0 Rest UX] 本地 Admin 显示休息软限额提醒配置（2026-08-29）
+  - 目标：在扩展内置 Admin 的“访问管理 → 时间配额”只读显示提醒启用状态、今日休息软限额和超额后提醒间隔。
+  - 说明：明确软限额只提醒、不锁定访问；只按 Rest quota-bucket 网页账本触发，借用 Rest 计入、媒体不计入；提醒最多延迟一个 3 分钟结算周期，显示后 60 秒未处理会结束休息。
+  - 边界：本地页面不提供编辑或保存；不修改配置 schema、Worker、D1、历史账本或扩展托管状态。
+  - 完成：本地 Admin 已新增只读提醒卡片；启用时显示当前软限额和重复间隔，关闭时显示“不提醒”及“启用后生效”。Admin 专项 104/104、Badge/Popup 87/87、脚本语法和桌面/窄屏目视验证通过。
 - [x] [P0 Rest UX] Rest 软限额配置与可见投递修复（2026-08-29）
   - 口径：`firstReminderMinutes` 是今日休息软限额，默认 120 分钟；`repeatReminderMinutes` 是超额后提醒间隔，默认 60 分钟。两项支持 1–1440 分钟，软限额可关闭，均不改变真实 Rest 日/周配额。
   - 文案：首次明确“已达到”及设定值，后续明确“已超过”及累计超额；四项已用/剩余继续只反映真实网页账本和硬配额。
@@ -40,25 +54,35 @@
   - 真实证据：Bilibili 顶层 frame 持续返回 `playing video + visibleMediaCount=1`，但媒体 fact 丢失可见数量后被降为 `foregroundAudio`；无 frame 定位的 checkpoint 又可能读取子 frame 的“无媒体”响应，导致静音视频没有强证据、系统 idle 后网页账少记。
   - 根因：`visibleMediaCount` 未贯通 `Content -> signal -> queryTabMediaFact -> frame aggregate`；checkpoint 未确定性枚举/聚合 frame，且快照没有显式标记为 Content 强证据。
   - 修复：保留可见媒体数量；checkpoint 按 frame ID 查询并聚合，视频证据优先于音频；标签切回后按当前 active/focus 状态重分类；窗口从最小化恢复且已聚焦时重新评估当前网页；不足 1 秒的媒体 session 不写零秒分段。
-  - 验收：Bilibili 可见视频（含静音）稳定为 `foregroundVideo`；系统 idle 时仍由新鲜 DOM 强证据维持网页账；失焦/后台仍立即停止网页账；无零秒媒体分段、无前后台震荡和重叠。
-  - 边界：不修改 D-063 产品口径，不修改 Worker、D1、profile、历史账本、站点分类或发布状态。
+  - 当时验收：Bilibili 可见视频（含静音）稳定为 `foregroundVideo`；系统 idle 时仍由新鲜 DOM 强证据维持网页账；当时采用的“失焦立即停止网页账”已由 D-069 纠正，后台标签仍停止；无零秒媒体分段、无前后台震荡和重叠。
+  - 当时边界：该任务未修改当时有效的 D-063；D-063 的失焦部分现已由 D-069 取代。Worker、D1、profile、历史账本、站点分类或发布状态仍不在本轮范围。
   - 完成：`visibleMediaCount` 已贯通事实转换；checkpoint 按明确 frame ID 聚合且视频优先；上下文重分类不再复制 Content frame；窗口最小化/恢复通过独立网页 timing 事实关闭/重开网页账；零秒媒体分段已过滤。
   - 验证：新增 Bilibili 管线测试 3/3，media timing 35/35、reclassification 13/13、signal guard 78/78；全部 116 个 unit 文件通过，typecheck 与扩展根目录检查通过，扩展 E2E 14/14。真实 unpacked Bilibili 验证覆盖正常/静音/idle/标签切换/其他 Chrome 窗口/最小化恢复，最终最小化为 `网页 IDLE + backgroundVideo`、恢复为 `网页 ACTIVE + foregroundVideo`，无零秒或重叠媒体分段。
   - 测试限制：`tests/run-all.js` 的远端 Worker API 测试因沙箱不允许向生产样式端点创建测试账号/Profile/设备而未执行；本次未修改 Worker/API，其他本地与浏览器测试均已通过。
 - [x] [P0 Timing/Media] T.xia 媒体分类与网页计时隔离（实现与自动化验证完成）
   - 证据：`1.7.25` 的 Bilibili / `cg.163.com` 原始媒体账与物化统计秒数一致，但 `tab.audible` 被过度解释为前台音频，并可在窗口失焦或系统 idle 时补偿网页计时；这是终端证据语义错误，不是上传或聚合丢失。
-  - 口径：网页账本是配额金标准；DOM 媒体为强证据，`tab.audible` 仅为弱音频证据；前台媒体必须 active tab + focused window + 非最小化。
+  - 当时口径：网页账本是配额金标准；DOM 媒体为强证据，`tab.audible` 仅为弱音频证据；其中“前台媒体必须 focused window”已由 D-069 纠正为 Content 强证据的有限失焦容错。
   - 实施：切断 audible 对网页 ACTIVE 的补偿，焦点变化立即重分类开放媒体 session，Content 媒体发现覆盖 open shadow root，并补齐陈旧证据、静音视频和前后台切换测试。
   - 历史：不改写 D1；`1.7.25` 相关媒体分类标记为不可信并保留审计。
   - 边界：媒体修复不改 Worker API、D1 schema、profile 或历史数据；Product Owner 已在 2026-08-27 授权与显式周配额功能一起进入 `1.7.26` 内部 managed 发布。
-  - 完成：Content 与 audible fact 分级；前台媒体要求 active tab + focused window + 非最小化；焦点变化重分类全部开放媒体 session；网页补偿仅接受 90 秒内 Content 强证据；open shadow root 纳入有界发现。
+  - 完成（历史）：Content 与 audible fact 分级；当时把所有前台媒体统一要求 focused window，后由 D-069 修复其强证据少记回归；焦点变化重分类全部开放媒体 session；网页补偿仅接受 90 秒内 Content 强证据；open shadow root 纳入有界发现。
   - 验证：重点媒体/foreground/signal 测试通过；全部 115 个 unit 测试文件通过；`npm run typecheck` 通过；联网 `node tests/run-all.js` 全部通过（Worker API 103/103、duration-flow 53/53、浏览器 E2E 14/14）。
   - 待观察：使用 unpacked/下一候选版本在真实 Bilibili 与 `cg.163.com` 场景核对前台视频、后台音频、窗口失焦和网页账本；该人工观察不在本轮伪装为已通过。
   - 已知风险：`cg.163.com` 等 Canvas/WebRTC 流游戏通常没有可见 DOM `video` 强证据。用户持续键盘/鼠标操作时网页账正常；若使用手柄、停留在长过场或超过 90 秒没有系统活动，`tab.audible` 只能形成媒体账，网页账可能少记。当前修复优先阻止失焦后的长时间多记，不宣称已解决流游戏低估。
 - [ ] [P1 Timing/Media] 流游戏强证据模型
   - 目标：仅对明确配置的流游戏平台，组合 active tab、focused window、Canvas/WebRTC 活跃、Pointer Lock、Gamepad 和页面交互心跳，形成可审计的网页 ACTIVE 强证据。
   - 安全边界：普通 Canvas 动画、后台声音或单独 `tab.audible` 不得续账；不得采集画面、按键内容、URL 正文或游戏内容；上线前需真实 `cg.163.com` 对照验证多记与少记。
-  - 当前状态：风险已登记，尚未设计或实现，不阻塞本轮媒体过度计时修复的代码完成状态，但属于下一候选版本发布前必须复核的计时风险。
+  - 2026-08-29 复验纠正：此前“失焦阶段视频事实中断”的判断缺少页面内部证据。新增探针后确认当前会话存在 DOM video + live MediaStream；失焦未最小化且停止输入时，页面可见、视频播放/可见和解码帧推进连续成立。
+  - [x] 诊断子任务：已增加仅限 `cg.163.com/run.html` 的有界 `stream_game_probe_v1`，采样 video/canvas/MediaStream/frame-progress/Pointer Lock/Fullscreen/近期输入等计数或布尔值。只写 session storage，最多 60 条，不进入网页或媒体状态机，不上传云端，不改变任何落账语义。
+  - 复验证据：失焦段网页账 05:29:57–05:31:38（101 秒），媒体账 `foregroundVideo` 05:29:57–05:31:51（114 秒）；最小化时切为 `backgroundVideo` 且网页停止。网页原始/日/小时/目标统计均为 2188 秒，媒体原始/日/小时统计均为 1961 秒。
+  - 当前状态：cg 当前会话能提供普通 DOM 强视频证据，暂不增加流游戏专用落账模型。P1 保留用于观察其他会话或渲染阶段是否缺少 DOM 视频证据。
+- [ ] **[P0 Timing] 失焦强媒体在 `idleStateChanged` 边界提前关闭网页账（根因待定位）**
+  - 现场证据：网页 session 在 05:31:38 以 `endReason=idleStateChanged` 关闭；探针在 05:31:38、05:31:48 仍为页面可见 + video playing/visible/frame advancing + live MediaStream，媒体账持续至 05:31:51。
+  - 未证实：当前探针没有记录 idle 信号方向、Chrome tab active、window focused/minimized 或媒体查询失败原因，因此不能断言由 Word/Codex 输入或 `idle -> active` 路径造成。
+  - 风险：如果该边界确实错误关闭已有失焦强媒体网页 session，后续因失焦状态禁止新开网页账而可能持续少记，影响网页金标准和配额。
+  - P0 定级：D-070 规定任何可能影响落账准确性的问题自动为 P0；本例即使当前差值较小、仅在 `cg.163.com` 复现，且网页各物化层与原始账本秒数一致，也不能降级，因为它们可能一致地继承了终端少记。
+  - 定位要求：下一轮诊断必须同时记录 idle 前后值、开放 session 身份、tab active、window state、Content snapshot 聚合结果和最终 state，不得先按任一候选原因修改代码。
+  - 闸门：属于 D-068 网页落账语义变更，必须单独给出前后矩阵、少记/多记风险与专项测试，经 Product Owner 确认后实施；本轮探针任务不修改计时代码。
 
 ## Active Collaboration Model
 - [x] 三角色 Codex 协作基线已建立并简化为 lightweight solo-product workflow（docs-only）

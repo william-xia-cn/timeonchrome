@@ -111,6 +111,28 @@ async function testObservedActiveTabMediaDoesNotCompensateOldSession() {
   check('observed active tab was not queried for media compensation', mediaRequests.length === 1 && mediaRequests[0].session.tabId === 1, JSON.stringify(mediaRequests));
 }
 
+async function testUnfocusedStrongSessionMediaContinuesCheckpoint() {
+  reset();
+  activeWindow = { focused: false, state: 'normal' };
+  mediaResponder = async (session) => ({
+    ok: true,
+    source: 'content_media_fact',
+    fact: { tabId: session.tabId, domain: session.domain, windowId: session.windowId },
+    classification: { mediaClass: 'foregroundVideo' },
+  });
+
+  const result = await foregroundApi.confirmForegroundPageCheckpoint({
+    state: 'ACTIVE',
+    domain: 'session.example.com',
+    tabId: 1,
+    windowId: 10,
+    startTime: 1779000000000,
+  });
+
+  check('unfocused strong session media continues checkpoint', result.ok === true && result.reason === 'foreground_media_compensated:window_unfocused', JSON.stringify(result));
+  check('checkpoint only queries the existing session identity', mediaRequests.length === 1 && mediaRequests[0].session.tabId === 1, JSON.stringify(mediaRequests));
+}
+
 async function testNoSessionDoesNotQueryMediaForEstimatedOpen() {
   reset();
   activeWindow = { focused: false, state: 'normal' };
@@ -148,6 +170,7 @@ async function run() {
   const tests = [
     testSessionTabMediaCanCompensateOldSessionClose,
     testObservedActiveTabMediaDoesNotCompensateOldSession,
+    testUnfocusedStrongSessionMediaContinuesCheckpoint,
     testNoSessionDoesNotQueryMediaForEstimatedOpen,
     testSessionMediaDomainMismatchDoesNotCompensate,
   ];

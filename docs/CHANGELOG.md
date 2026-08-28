@@ -24,7 +24,7 @@
 - **生产回归修正**：前向恢复既有 Native App 管理页面、桌面/手机入口和 Guardian Child module-token bridge；独立 Native Worker、D1、Santa 数据、扩展 CRX 与更新源保持不变。
 - **每周休息配额显式化**：新增独立的 `timeQuota.weekly.restMinutes`，每日配额合计只作计划展示；周中调整立即作用于本周既有网页账本用量，Pages 同步显示周上限、来源、已用、剩余与锁定状态。
 - **媒体证据分级**：Content Script 的新鲜 DOM 媒体事实作为强证据，`tab.audible` 降为弱音频证据；Bilibili 等可见视频优先记为视频，不再被 audible fallback 覆盖。
-- **网页计时隔离**：前台媒体必须同时满足 active tab、窗口聚焦且未最小化；窗口失焦立即结束前台网页账并重分类媒体，弱音频事实不得补偿网页 ACTIVE session 或影响配额。
+- **网页计时隔离（1.7.26 历史口径）**：当时要求前台媒体同时满足 active tab、窗口聚焦且未最小化，并在窗口失焦时结束前台网页账；其中“所有失焦强媒体均停账”已被 D-069 判定为少记回归并在后续未发布源码中纠正。弱音频事实不得补偿网页 ACTIVE session 或影响配额的规则继续有效。
 - **媒体发现完善**：媒体快照覆盖 iframe 与有界 open shadow root，30 秒重申强证据，超过 90 秒的 Content 事实不再维持 idle 网页计时。
 - **已知限制**：`cg.163.com` 等 Canvas/WebRTC 流游戏在手柄操作、长过场或超过 90 秒无系统活动时仍可能少记网页时间；本版优先消除失焦多记，后续以白名单式流游戏强证据模型单独处理。
 

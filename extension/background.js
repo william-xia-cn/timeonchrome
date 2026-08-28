@@ -14,6 +14,7 @@ import { getConfig, saveConfig, resetDailyLockedDomains, cleanOldStats, cleanOld
 import { runV1StorageMaintenance } from './infra/storage-maintenance.js';
 import { registerStoragePressureHandler } from './infra/storage-budget.js';
 import { budgetedSessionSet, runSessionStorageMaintenance } from './infra/session-storage-budget.js';
+import { recordStreamGameProbe } from './infra/stream-game-probe.js';
 import { configureLocalGuardianStateProvider, notifyLocalGuardianBootstrapResult } from './infra/local-guardian.js';
 import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
@@ -1656,6 +1657,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const result = await handleRestUsageReminderAction(msg, sender);
       sendResponse(result);
     })().catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
+    return true;
+  }
+
+  if (msg.type === 'STREAM_GAME_PROBE') {
+    recordStreamGameProbe(msg.sample, sender)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, skipped: 'stream_game_probe_failed' }));
     return true;
   }
 

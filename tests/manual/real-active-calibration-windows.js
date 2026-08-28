@@ -572,12 +572,55 @@ async function getBadgeSnapshot(sw) {
 }
 
 async function tryBlurAwayFromChrome(seconds, sw) {
+  const startedAt = Date.now();
   const before = await getForegroundWindowTitle();
   const chromeBefore = sw ? await getChromeFocusSnapshot(sw) : null;
+  const runtimeBeforeBlur = sw ? await sw.evaluate(async () => {
+    const sessionData = await chrome.storage.session.get('session_v1');
+    return { session: sessionData.session_v1 || null };
+  }) : null;
   await sendNativeAltTab();
   await sleep(700);
   let during = await getForegroundWindowTitle();
   let chromeDuring = sw ? await getChromeFocusSnapshot(sw) : null;
+  let controlledFocusLoss = null;
+  let runtimeBeforeControlledFocusLoss = null;
+  let runtimeDuring = null;
+  if (sw && chromeDuring?.all?.some((win) => win.focused === false && win.state !== 'minimized')) {
+    runtimeBeforeControlledFocusLoss = await sw.evaluate(async () => {
+      const [sessionData, localData] = await Promise.all([
+        chrome.storage.session.get('session_v1'),
+        chrome.storage.local.get(['media_sessions_v2', 'media_facts_v1', 'media_frame_facts_v1']),
+      ]);
+      return {
+        session: sessionData.session_v1 || null,
+        mediaSessions: Object.values(localData.media_sessions_v2 || {}),
+        mediaFacts: Object.values(localData.media_facts_v1 || {}),
+        mediaFrameFacts: Object.values(localData.media_frame_facts_v1 || {}),
+      };
+    });
+    controlledFocusLoss = await sw.evaluate(async () => {
+      if (typeof globalThis.debugApplyControlledTimingSignal !== 'function') {
+        return { success: false, error: 'debugApplyControlledTimingSignal unavailable' };
+      }
+      return globalThis.debugApplyControlledTimingSignal({
+        isFocused: false,
+        _reason: 'windowFocusLost',
+      });
+    });
+    await sleep(500);
+    runtimeDuring = await sw.evaluate(async () => {
+      const [sessionData, localData] = await Promise.all([
+        chrome.storage.session.get('session_v1'),
+        chrome.storage.local.get(['media_sessions_v2', 'media_facts_v1']),
+      ]);
+      return {
+        session: sessionData.session_v1 || null,
+        mediaSessions: Object.values(localData.media_sessions_v2 || {}),
+        mediaFacts: Object.values(localData.media_facts_v1 || {}),
+      };
+    });
+  }
   await sleep(Math.max(0, seconds * 1000 - 700));
   if (/Chrom/i.test(during || '') && seconds > 0) {
     const calibrationWindow = await tryBlurWithCalibrationWindow(seconds);
@@ -591,7 +634,19 @@ async function tryBlurAwayFromChrome(seconds, sw) {
   }
   const after = await getForegroundWindowTitle();
   const chromeAfter = sw ? await getChromeFocusSnapshot(sw) : null;
-  return { before, during, after, chromeBefore, chromeDuring, chromeAfter };
+  return {
+    before,
+    during,
+    after,
+    chromeBefore,
+    runtimeBeforeBlur,
+    chromeDuring,
+    chromeAfter,
+    runtimeBeforeControlledFocusLoss,
+    controlledFocusLoss,
+    runtimeDuring,
+    elapsedSeconds: Math.max(0, (Date.now() - startedAt) / 1000),
+  };
 }
 
 async function keepForegroundActive(page, seconds, label) {
@@ -655,7 +710,8 @@ async function prepareForegroundMedia(page, kind) {
     if (!media) {
       return { success: false, reason: `no ${selector} element` };
     }
-    media.muted = true;
+    media.muted = mediaKind !== 'audio';
+    if (mediaKind === 'audio') media.volume = 1;
     media.loop = true;
     media.currentTime = Math.min(media.currentTime || 0, 1);
     try {
@@ -782,6 +838,45 @@ async function markCalibrationStartOnCurrentPage(page, sw) {
     }
   }
   if (lastError) throw lastError;
+  const currentUrl = page.url();
+  const reopen = await sw.evaluate(async (url) => {
+    if (typeof globalThis.debugApplyControlledTimingSignal !== 'function') {
+      return { success: false, error: 'debugApplyControlledTimingSignal unavailable' };
+    }
+    const tabs = await chrome.tabs.query({});
+    const expected = new URL(url);
+    const tab = tabs.find((candidate) => {
+      try {
+        const actual = new URL(candidate.url || '');
+        return actual.origin === expected.origin && actual.pathname === expected.pathname;
+      } catch (_) {
+        return false;
+      }
+    });
+    if (!tab?.id) return { success: false, error: 'calibration tab unavailable' };
+    const win = await chrome.windows.get(tab.windowId);
+    await globalThis.debugApplyControlledTimingSignal({
+      tabId: tab.id,
+      windowId: tab.windowId,
+      isFocused: false,
+      idleState: 'active',
+      isIdle: false,
+      _reason: 'calibrationBoundaryReset',
+    });
+    return globalThis.debugApplyControlledTimingSignal({
+      tabId: tab.id,
+      windowId: tab.windowId,
+      url: tab.url,
+      domain: expected.hostname,
+      isFocused: win?.focused === true && win?.state !== 'minimized',
+      idleState: 'active',
+      isIdle: false,
+      _reason: 'calibrationSessionReopen',
+    });
+  }, currentUrl);
+  if (reopen?.success !== true || reopen?.state !== 'ACTIVE') {
+    throw new Error(`Calibration session failed to reopen: ${JSON.stringify(reopen)}`);
+  }
   await sleep(500);
 }
 
@@ -789,6 +884,34 @@ async function waitForServiceWorker(context) {
   let sw = context.serviceWorkers()[0];
   if (!sw) sw = await context.waitForEvent('serviceworker', { timeout: 15000 });
   return sw;
+}
+
+async function activateCalibrationProfile(context, sw) {
+  const extensionId = new URL(sw.url()).hostname;
+  const consentPage = await context.newPage();
+  await consentPage.goto(`chrome-extension://${extensionId}/privacy-consent.html`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 15000,
+  });
+  const result = await consentPage.evaluate(async () => {
+    return chrome.runtime.sendMessage({
+      type: 'PRIVACY_CONSENT_ACCEPTED',
+      source: 'real_active_calibration',
+    });
+  });
+  await consentPage.close();
+  if (result?.ok !== true) {
+    throw new Error(`calibration activation failed: ${result?.error || 'unknown error'}`);
+  }
+  await sw.evaluate(async () => {
+    const tabs = await chrome.tabs.query({});
+    const consentTabIds = tabs
+      .filter((tab) => tab.url?.includes('/privacy-consent.html'))
+      .map((tab) => tab.id)
+      .filter(Number.isInteger);
+    if (consentTabIds.length > 0) await chrome.tabs.remove(consentTabIds);
+  });
+  return result;
 }
 
 async function callDebug(sw, fnName) {
@@ -1016,11 +1139,12 @@ function classify(report, expected, domains) {
   const backgroundMediaByDomain = report.stats?.backgroundMediaByDomain || {};
   const backgroundEventLogSeconds = Object.values(backgroundActiveByDomain).reduce((sum, seconds) => sum + seconds, 0);
   const backgroundMediaDomainSeconds = Object.values(backgroundMediaByDomain).reduce((sum, seconds) => sum + Number(seconds || 0), 0);
-  const expectedBackgroundSeconds = expected.expectBackgroundMedia ? expected.blur : 0;
-  const expectedASeconds = expected.accumulateA
+  const expectedBackgroundSeconds = expected.expectUnfocusedStrongMedia ? 0 : (expected.expectBackgroundMedia ? expected.blur : 0);
+  const baseExpectedASeconds = expected.accumulateA
     ? expected.a + expected.c + (expected.reloadSeconds || 0)
     : expected.a;
-  const toleranceA = expected.expectBackgroundMedia
+  const expectedASeconds = baseExpectedASeconds + (expected.expectUnfocusedStrongMedia ? expected.blur : 0);
+  const toleranceA = expected.expectBackgroundMedia || expected.expectUnfocusedStrongMedia
     ? Math.max(6, Math.ceil(expectedASeconds * 0.75))
     : Math.max(4, Math.ceil(expectedASeconds * 0.12));
   const toleranceB = Math.max(5, Math.ceil(expected.b * 0.40));
@@ -1045,32 +1169,34 @@ function classify(report, expected, domains) {
 
   const pageACloseEnough = Math.abs(pageASeconds - expectedASeconds) <= toleranceA;
   const pageBCloseEnough = Math.abs(pageBSeconds - expected.b) <= toleranceB;
-  const blurExcluded = expected.expectBackgroundMedia
-    ? pageASeconds <= expectedASeconds + toleranceA
-    : pageBSeconds <= expected.b + toleranceB;
+  const blurBehaviorMatches = expected.expectUnfocusedStrongMedia
+    ? pageASeconds >= Math.max(1, expectedASeconds - toleranceA) && pageBSeconds <= toleranceB
+    : (expected.expectBackgroundMedia
+        ? pageASeconds <= expectedASeconds + toleranceA
+        : pageBSeconds <= expected.b + toleranceB);
   const statsMatchesEventLog =
     statsPageASeconds === pageASeconds &&
     statsPageBSeconds === pageBSeconds &&
     JSON.stringify(domainStats) === JSON.stringify(activeByDomain) &&
-    (!expected.expectBackgroundMedia || (
+    (!expected.expectBackgroundMedia || expected.expectUnfocusedStrongMedia || (
       backgroundAudioSeconds === backgroundEventLogSeconds &&
       backgroundAudioSeconds === backgroundMediaDomainSeconds &&
       JSON.stringify(backgroundMediaByDomain) === JSON.stringify(backgroundActiveByDomain)
     ));
-  const backgroundCloseEnough = expected.expectBackgroundMedia
+  const backgroundCloseEnough = expected.expectBackgroundMedia && !expected.expectUnfocusedStrongMedia
     ? Math.abs(backgroundAudioSeconds - expectedBackgroundSeconds) <= Math.max(4, Math.ceil(expectedBackgroundSeconds * 0.35))
-    : true;
+    : backgroundAudioSeconds <= 4;
   let result = 'FAIL';
-  if (!firstBrokenLayer && !blurExcluded) {
+  if (!firstBrokenLayer && !blurBehaviorMatches) {
     firstBrokenLayer = unfocusedResolved.length === 0 ? 'focus' : 'session';
   }
   if (
     !firstBrokenLayer &&
     pageASeconds > 0 &&
-    (expected.expectBackgroundMedia || pageBSeconds > 0) &&
+    (expected.expectBackgroundMedia || expected.expectUnfocusedStrongMedia || pageBSeconds > 0) &&
     pageACloseEnough &&
-    (expected.expectBackgroundMedia || pageBCloseEnough) &&
-    blurExcluded &&
+    (expected.expectBackgroundMedia || expected.expectUnfocusedStrongMedia || pageBCloseEnough) &&
+    blurBehaviorMatches &&
     statsMatchesEventLog &&
     backgroundCloseEnough
   ) {
@@ -1115,7 +1241,7 @@ function classify(report, expected, domains) {
     expectedTotalWithoutBlur,
     pageACloseEnough,
     pageBCloseEnough,
-    blurExcluded,
+    blurBehaviorMatches,
     statsMatchesEventLog,
   };
 }
@@ -1302,6 +1428,7 @@ async function main() {
     context = await launchCalibrationContext();
 
     const sw = await waitForServiceWorker(context);
+    await activateCalibrationProfile(context, sw);
     const restModeResult = await prepareRestMode(sw);
     console.log(`  rest mode setup: ${restModeResult.method}`);
     if (restModeResult.debugSetRestModeError) {
@@ -1571,12 +1698,24 @@ async function main() {
       a: args.a,
       b: args.b,
       c: args.c,
-      blur: args.blur,
+      blur: blurProbe?.elapsedSeconds || args.blur,
       accumulateA: args.scenario === 'same-domain-real' || args.scenario === 'reload-real',
       reloadSeconds,
       useStatsRange: args.scenario === 'cross-day-real',
       expectBackgroundMedia: args.scenario === 'background-video-real' || args.scenario === 'background-audio-real' || args.scenario === 'background-video-local' || args.scenario === 'background-audio-local',
+      expectUnfocusedStrongMedia: args.scenario === 'background-video-real' || args.scenario === 'background-audio-real' || args.scenario === 'background-video-local' || args.scenario === 'background-audio-local',
     }, domains);
+    const strongMediaContinuationPassed = !!(
+      analysis &&
+      (args.scenario === 'background-video-real' || args.scenario === 'background-audio-real' || args.scenario === 'background-video-local' || args.scenario === 'background-audio-local') &&
+      blurProbe?.controlledFocusLoss?.success === true &&
+      blurProbe?.runtimeDuring?.session?.state === 'ACTIVE' &&
+      blurProbe.runtimeDuring.session.domain === domains.pageA &&
+      blurProbe.runtimeDuring.mediaSessions.some((session) =>
+        session?.domain === domains.pageA &&
+        (session.mediaClass === 'foregroundVideo' || session.mediaClass === 'foregroundAudio')
+      )
+    );
 
     console.log('\n[Calibration result]');
     console.log(`  result: ${analysis.result}`);
@@ -1615,7 +1754,22 @@ async function main() {
     console.log(`  backgroundCloseEnough: ${analysis.backgroundCloseEnough}`);
     console.log(`  pageACloseEnough: ${analysis.pageACloseEnough}`);
     console.log(`  pageBCloseEnough: ${analysis.pageBCloseEnough}`);
-    console.log(`  blurExcludedFromB: ${analysis.blurExcluded}`);
+    console.log(`  blurBehaviorMatches: ${analysis.blurBehaviorMatches}`);
+    console.log(`  strongMediaContinuationPassed: ${strongMediaContinuationPassed}`);
+    if (blurProbe?.runtimeDuring) {
+      console.log(`  runtimeDuringBlur: ${JSON.stringify({
+        controlledFocusLoss: blurProbe.controlledFocusLoss,
+        session: blurProbe.runtimeDuring.session,
+        mediaSessions: blurProbe.runtimeDuring.mediaSessions.map((session) => ({
+          domain: session.domain,
+          mediaClass: session.mediaClass,
+          mediaKind: session.mediaKind,
+          tabId: session.tabId,
+          windowId: session.windowId,
+        })),
+        elapsedSeconds: blurProbe.elapsedSeconds,
+      })}`);
+    }
     console.log(`  statsMatchesEventLog: ${analysis.statsMatchesEventLog}`);
     console.log(`  badge: ${JSON.stringify(badge)}`);
     if (args.verbose) {
@@ -1626,7 +1780,15 @@ async function main() {
       console.log(`  activeSegments: ${JSON.stringify(analysis.segments.filter(s => s.state === 'ACTIVE'))}`);
     }
 
-    if (analysis.result === 'FAIL') process.exitCode = 1;
+    const strongMediaScenario = [
+      'background-video-real',
+      'background-audio-real',
+      'background-video-local',
+      'background-audio-local',
+    ].includes(args.scenario);
+    if ((strongMediaScenario && !strongMediaContinuationPassed) || (!strongMediaScenario && analysis.result === 'FAIL')) {
+      process.exitCode = 1;
+    }
   } finally {
     if (suspendedPids.length) {
       await resumeProcesses(suspendedPids).catch(() => {});

@@ -126,16 +126,22 @@ macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-
 
 Foreground 计时与 media 计时是两条账本链路。Chrome 原始事件可以被 dispatcher fan-out 到两条链路，但 foreground 模块不得写媒体账本，media 模块不得写 `usage_segments_v1`。`periodicCheckpoint` 由同一个 alarm 触发，但 foreground checkpoint 与 media checkpoint 独立 try/catch、独立 trace。
 
-**媒体证据与网页补偿边界（D-063）：**
+**网页落账硬闸门与媒体证据边界（D-068 / D-069）：**
 
-- 前台媒体必须满足 active tab、窗口聚焦且未最小化、tab/domain 与开放 session 一致；失焦时立即重分类为后台媒体，不能继续维持网页 ACTIVE。
-- Content frame 报告的可见 DOM `video`、播放中 `audio` 或 PiP 是强证据，每 30 秒重申，超过 90 秒不得用于网页补偿。系统 idle 时，仅聚焦窗口中的新鲜强证据可以保持网页 session。
-- `chrome.tabs.Tab.audible` 是弱音频证据，只在没有新鲜 Content 证据时形成媒体账。它不得覆盖视频类型、关闭仍有效的静音视频、补偿网页 session 或参与网页配额。
+- 网页账本是配额、Rest 提醒和使用判断的金标准；修改网页 `ACTIVE` 开始、停止、续账、idle、焦点、checkpoint 或结算边界前，必须执行 D-068 的历史行为审计、前后矩阵、风险分析和 Product Owner 单项确认。该语义不得作为普通 bugfix、重构或媒体分类修复的附带改动。
+- D-070 规定任何落账准确性风险自动定级为 P0：范围包括网页/媒体原始分段的时长和归属、上传结算，以及日/小时/目标物化。根因未明、影响秒数较小、仅影响特殊站点或单台设备时均不得降级；原始账本与物化统计一致，只能证明物化链路一致，不能证明终端产生的原始事实正确。
+- Content 强媒体的前台资格为 active tab、窗口未最小化、页面 visible、tab/window/domain 与开放 session 一致，不要求 Chrome 窗口获得输入焦点。视频必须播放中且有视口内可见 DOM `video`；音频必须来自 Content 的真实 `audio`/AudioContext 且明确 audible。事实每 30 秒重申，超过 90 秒失效。
+- Chrome 失焦时，Content 强媒体只能延续同一已有网页 ACTIVE session，不得在失焦状态新开网页账。系统 idle 时同一新鲜强证据仍可续账；锁屏、最小化、隐藏、暂停、结束、后台标签、身份不匹配或证据过期立即关闭。
+- `chrome.tabs.Tab.audible` 是弱音频证据，只在没有新鲜 Content 证据时形成媒体账。失焦弱 audible 只能为 `backgroundAudio`，不得覆盖视频类型、关闭仍有效的视频、补偿网页 session 或参与网页配额。
 - Content 媒体发现覆盖所有注入 frame 及可访问的 open shadow root；只采集播放、媒体类型、PiP、audible、可见数量和必要的 tab/window 元数据，不采集 URL 正文、标题或页面文本。
 - 复杂多 frame 页面必须保留并聚合 Content 强证据：`visibleMediaCount` 必须贯通 Content 消息、signal 转换、媒体 fact 和 checkpoint；checkpoint 按明确 frame ID 查询所有已注入 frame，视频证据优先于音频，不得依赖无 frame 定位消息返回的任意 frame 响应。聚合结果作为 Content 强证据写入当前 tab，不读取或保存 frame URL、标题和页面正文。
-- 标签激活和窗口焦点变化后，开放媒体 session 必须按当前 active/focus 状态重新分类；已聚焦窗口在最小化/恢复状态变化时，即使 Chrome 没有再次发出 focus 事件，也必须向网页 timing dispatcher 发送真实窗口状态：最小化按非前台关闭网页账，恢复后按真实前台重新开启，并另走普通 `ACCESS_OBSERVED` 做访问策略复核；不允许媒体事实直接开启网页账。小于 1 秒、最终 `durationSeconds=0` 的瞬时媒体 session 不写入原始媒体账本，避免虚增分段数和本地存储。
-- 已知限制：Canvas/WebRTC 流游戏可能没有 DOM 媒体强证据。以 `cg.163.com` 为例，持续键盘/鼠标操作仍按普通前台网页事实计时；使用手柄、长过场或超过 90 秒无系统活动时，弱 audible 只进入媒体账，网页账可能低估。当前实现以避免失焦多记为优先，流游戏专用强证据模型尚未实现。
+- 标签激活和窗口焦点变化后，开放媒体 session 必须按证据等级、active 和 minimized 状态重新分类；Content 强媒体在失焦但未最小化时保持前台媒体，弱 audible 转为后台媒体。窗口最小化/恢复即使没有再次发出 focus 事件，也必须向网页 timing dispatcher 发送真实窗口状态；恢复后另走普通 `ACCESS_OBSERVED` 做访问策略复核。小于 1 秒、最终 `durationSeconds=0` 的瞬时媒体 session 不写入原始媒体账本。
+- 已知限制：Canvas/WebRTC 流游戏的 DOM 媒体结构可能随会话或渲染阶段变化，不能仅凭站点类型推断证据是否存在。2026-08-29 对 `cg.163.com/run.html` 的 1.7.27 探针复验显示：当前会话顶层 frame 持续存在一个 DOM `video` 和一条 live MediaStream 视频轨道；失焦但未最小化且停止输入后，`documentVisible=1`、视频播放/可见/解码帧推进均持续成立。对应网页账为 05:29:57–05:31:38（101 秒），媒体账为 `foregroundVideo` 05:29:57–05:31:51（114 秒）；最小化时媒体切为 `backgroundVideo` 且网页未继续新开账。该结果证明 cg 当前会话能提供普通 DOM 强视频证据，不需要凭站点类型直接引入 Canvas 专用强证据。
+- **P0 待定位异常：**上述失焦网页分段在 05:31:38 以 `endReason=idleStateChanged` 结束，但探针在 05:31:38 和 05:31:48 仍连续显示页面可见、DOM 视频播放/可见、解码帧推进和 live MediaStream，前台视频媒体账也延续到 05:31:51。现有证据只能确认“网页结束边界与强媒体证据不一致”，不能确认该事件是 `idle -> active` 还是 `active -> idle`，也不能确认由其他应用输入触发。候选原因包括 idle 信号方向、活动 tab/window 身份变化、Content snapshot 聚合失败或并发边界覆盖；必须增加方向、tab/window 和媒体查询结果诊断后才能确定根因。该问题直接影响网页金标准，按 D-070 在根因未明期间持续保持 P0；修复前还必须按 D-068 单独审计和确认，不得混入探针实现。
 - 后续流游戏模型必须限定到显式配置站点，并同时要求 active tab 与 focused window；候选信号可包含 Canvas/WebRTC 活跃、Pointer Lock、Gamepad 和页面交互心跳，但普通 Canvas 动画、后台声音或单独 audible 不得成为网页续账依据。
+- 在决定流游戏强证据模型前，允许使用诊断专用 `stream_game_probe_v1` 采样显式测试站点。探针只记录 DOM video/audio/canvas 数量、播放/可见/隐藏状态、MediaStream live track 数、解码帧是否推进、Fullscreen、Pointer Lock、近期输入布尔值及页面可见性；不得读取或保存像素、URL、查询参数、标题、按键、文本或游戏内容。探针只写有界 `chrome.storage.session`，最多 60 条，不进入 timing dispatcher、媒体 fact、账本、配额或云端同步。
+- 同次复验的云端只读对账显示，`cg.163.com` 当日网页原始/日/小时/目标统计均为 2188 秒，媒体原始/日/小时统计均为 1961 秒；上传和统计物化一致，但一致地反映了上述终端少记边界。
+- **已知限制：**Chrome API 的 `focused=false` 不能判断窗口被其他应用部分或完全遮挡。D-069 采用原产品的 active-tab + non-minimized + visible + fresh Content evidence 容错，因此完全遮挡但仍播放的强媒体可能多记；这项风险必须通过真实账本持续观察，不得以流游戏强证据模型宣称解决。
 
 ### 1.3 数据流方向
 
@@ -456,7 +462,7 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 }
 ```
 
-#### 时间配额规则（D-063）
+#### 时间配额规则（D-062）
 
 - `timeQuota.daily` 是每日配额 source of truth；`studyMinutes`、`restMinutes`、`compositeMinutes`、`onlineMinutes` 均使用 `null=无限制`、`0=零分钟`、正整数为分钟上限。
 - `timeQuota.weekly.restMinutes` 是唯一可配置的周累计上限。七天每日配额合计只用于 UI 展示，不得自动写入或覆盖周上限。
@@ -683,7 +689,7 @@ MV3 Service Worker 每次冷启动都必须检查关键 alarm 是否存在，但
 - checkpoint 是结算与采样修复机制，不是访问控制入口。发现 open session 缺失、tab/domain 不一致时，必须先对当前观测 URL 执行与前台导航相同的 `ACCESS_OBSERVED` 分类、时间窗和配额路由；路由阻止时不得创建 ACTIVE session。
 - repair 开账只能使用路由后的当前 mode 和 managed-target 快照。`restricted/rejected` 不得继承缓存 `study`，`composite/pending_composite` 借用 Rest 配额时仍保留原分类与 Compound 内容窗口。
 - 路由失败、上下文不完整或模式提交未完成时，本轮 checkpoint 只记录受限诊断并跳过开账，不以旧 session、旧域名或旧 mode 猜测补账。
-- foreground checkpoint 的媒体补偿只能读取当前 tab 的新鲜 Content 强证据。`tab.audible`、陈旧聚合 fact、后台媒体和失焦媒体只能进入媒体账，不能修复或延长网页 session。
+- foreground checkpoint 的媒体补偿只能读取当前 tab 的新鲜 Content 强证据。符合 D-069 的失焦、未最小化、页面可见且身份一致的强媒体可以延续同一已有 ACTIVE session；不得在失焦状态修复或新开 session。`tab.audible`、陈旧聚合 fact、后台标签、最小化或隐藏媒体只能进入媒体账，不能修复或延长网页 session。
 
 **同步与聚合可靠性约束：**
 

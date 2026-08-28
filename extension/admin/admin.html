@@ -1380,6 +1380,40 @@
       line-height: 1.35;
       overflow-wrap: anywhere;
     }
+    .rules-reminder-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .rules-reminder-stat {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,184,148,0.04);
+    }
+    .rules-reminder-stat-label {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .rules-reminder-stat-value {
+      margin-top: 5px;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+    .rules-reminder-note {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    @media (max-width: 720px) {
+      .rules-reminder-summary { grid-template-columns: 1fr; }
+    }
     .system-management-panel {
       display: none;
     }
@@ -1737,6 +1771,16 @@
         </div>
       </div>
       <div class="rules-panel" data-rules-panel="quota-management">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">休息时间提醒</div>
+              <div class="card-subtitle">当前孩子档案的软限额提醒配置（只读）</div>
+            </div>
+          </div>
+          <div id="rules-rest-reminder-display">暂无配置</div>
+        </div>
+
         <div class="card">
           <div class="card-header">
             <div>
