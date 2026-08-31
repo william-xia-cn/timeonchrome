@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>电脑应用使用 · TimeOnChrome</title>
+  <link rel="stylesheet" href="app-runtime.css">
+</head>
+<body>
+  <header><a href="../">← 家长控制台</a><div><strong>电脑应用使用</strong><span id="child-name">当前孩子</span></div><button id="refresh">刷新</button></header>
+  <main>
+    <div id="status-strip" hidden></div>
+    <section class="toolbar card">
+      <div class="segmented"><button data-period="day" class="active">日</button><button data-period="week">周</button></div>
+      <button id="previous">上一周期</button><button id="today">今天</button>
+      <select id="device-filter" aria-label="设备筛选"><option value="">全部设备</option></select>
+      <span id="range-label"></span>
+    </section>
+    <section class="summary-grid">
+      <article class="card metric"><span>总使用时间</span><strong id="total-time">0 分钟</strong></article>
+      <article class="card metric"><span>最近同步</span><strong id="last-sync">尚未同步</strong></article>
+    </section>
+    <section class="card"><div class="section-title"><div><h2>使用时间</h2><p id="chart-caption">北京时间，按小时</p></div></div><div id="usage-chart" class="chart"></div></section>
+    <section class="card"><div class="section-title"><div><h2>应用排行</h2><p>只显示应用名称和累计时间</p></div></div><div id="app-ranking" class="list empty">暂无使用记录</div></section>
+    <section class="card">
+      <div class="section-title"><div><h2>Runtime 设备</h2><p>每个 Windows 用户单独配对；不显示 token、用户名或路径</p></div><button id="add-device" class="primary">添加 Windows 设备</button></div>
+      <div id="devices" class="device-grid"></div>
+    </section>
+  </main>
+  <dialog id="pair-dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button><h2 id="pair-title">添加 Windows 设备</h2><p>下载安装器后，在首次启动窗口输入此配对码。</p><div id="pair-code" class="pair-code">----</div><p id="pair-countdown">10:00 后过期</p><div class="dialog-actions"><button type="button" id="copy-code">复制配对码</button><a id="download-installer" class="button primary" href="#">下载 Windows 安装器</a></div><small>配对码只能使用一次。安装器不要求管理员权限。</small></form></dialog>
+  <script src="app-runtime.js"></script>
+</body>
+</html>
