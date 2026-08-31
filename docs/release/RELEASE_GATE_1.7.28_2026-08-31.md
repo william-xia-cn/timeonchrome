@@ -51,6 +51,12 @@
 - 确定性 `ALREADY_CLASSIFIED` 网站归类记录仍可能按冷却周期长期重试。
 - Product Owner 于 2026-08-31 明确批准以上述风险继续存在为前提，进行仅限 T.xia / P.xia 的内部前向止血发布。风险接受不构成问题关闭、测试通过或 Chrome Web Store 发布批准。
 
+## 生产观察
+
+- 北京时间 2026-08-31 17:26:47，T.xia 设备仍有云端心跳；最新客户端版本日志为 `1.7.27`，尚无 `1.7.28` 升级证据。
+- P.xia 最近一次设备在线时间为北京时间 2026-08-20 14:45:33，当前离线，因此无法判断本轮自动升级状态。
+- 上述结果只表示终端观察尚未完成，不否定 feed、CRX、Worker 和更新站点发布成功，也不得写成设备已经升级。
+
 ## 发布结论
 
 最终结论：`APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE`。`1.7.28` 已进入 T.xia / P.xia 内部 managed 自托管更新通道；控制台 Pages、Native Worker、D1 schema、profile 和历史账本未修改。四项已知 P0 风险继续保持 `RISK ACCEPTED / DEFERRED`，本次发布不构成问题关闭、Chrome Web Store 批准或设备已完成升级的证据。设备升级与后续账本收敛仅作生产观察；若出现回归，使用高于 `1.7.28` 的前向回滚版本，不把 feed 指向较低版本。
