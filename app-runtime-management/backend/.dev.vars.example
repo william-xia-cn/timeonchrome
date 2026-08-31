@@ -1,0 +1,2 @@
+# Local type-generation/example only. Replace in an ignored .dev.vars file.
+ADMIN_API_KEY=replace-with-a-local-development-secret

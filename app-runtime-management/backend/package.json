@@ -1,12 +1,20 @@
 {
-  "name": "@timeonchrome/app-runtime-contracts",
+  "name": "@timeonchrome/app-runtime-backend",
   "private": true,
-  "version": "0.0.0-phase1",
+  "version": "0.0.0-phase2",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "wrangler:types": "wrangler types --env-file .dev.vars.example --strict-vars false",
+    "wrangler:types:check": "wrangler types --env-file .dev.vars.example --strict-vars false --check",
+    "dry-run": "wrangler deploy --dry-run"
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "@cloudflare/vitest-plugin": "^1.1.2",
+    "@types/node": "^26.4.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1"
   }
 }

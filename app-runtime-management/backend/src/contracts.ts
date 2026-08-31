@@ -50,3 +50,46 @@ export interface UploadAcceptance {
   acceptedIds: string[];
   rejected: UploadRejection[];
 }
+
+export interface CreateEnrollmentCodeRequest {
+  subjectId: string;
+  ttlSeconds?: number;
+}
+
+export interface CreateEnrollmentCodeResponse {
+  code: string;
+  expiresAtMs: number;
+}
+
+export interface EnrollDeviceRequest {
+  code: string;
+  platform: RuntimePlatform;
+  displayName?: string | null;
+}
+
+export interface EnrollDeviceResponse {
+  deviceId: string;
+  deviceToken: string;
+  platform: RuntimePlatform;
+}
+
+export interface DeviceSelfResponse {
+  deviceId: string;
+  subjectId: string;
+  platform: RuntimePlatform;
+  displayName: string | null;
+  createdAtMs: number;
+  lastSeenAtMs: number;
+}
+
+export interface UploadRequest {
+  schemaVersion: 1;
+  segments: UsageSegment[];
+}
+
+export interface ApiErrorResponse {
+  error: {
+    code: string;
+    message: string;
+  };
+}

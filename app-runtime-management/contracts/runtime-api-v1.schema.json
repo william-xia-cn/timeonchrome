@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.local/contracts/app-runtime/runtime-api-v1.schema.json",
+  "title": "TimeOnChrome App Runtime API v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "definitions"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "definitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enrollment", "upload"],
+      "properties": {
+        "enrollment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request", "response"],
+          "properties": {
+            "request": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "platform"],
+              "properties": {
+                "code": { "type": "string", "minLength": 20, "maxLength": 128 },
+                "platform": { "enum": ["macos", "windows"] },
+                "displayName": { "type": ["string", "null"], "maxLength": 128 }
+              }
+            },
+            "response": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["deviceId", "deviceToken", "platform"],
+              "properties": {
+                "deviceId": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "deviceToken": { "type": "string", "minLength": 32, "maxLength": 256 },
+                "platform": { "enum": ["macos", "windows"] }
+              }
+            }
+          }
+        },
+        "upload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request", "response"],
+          "properties": {
+            "request": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["schemaVersion", "segments"],
+              "properties": {
+                "schemaVersion": { "const": 1 },
+                "segments": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 100,
+                  "items": { "$ref": "runtime-contract-v1.schema.json#/$defs/usageSegment" }
+                }
+              }
+            },
+            "response": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["acceptedIds", "rejected"],
+              "properties": {
+                "acceptedIds": { "type": "array", "items": { "type": "string" } },
+                "rejected": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "code"],
+                    "properties": {
+                      "id": { "type": "string" },
+                      "code": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
