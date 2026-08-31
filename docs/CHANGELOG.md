@@ -9,6 +9,7 @@
 - **网站归类日志收敛**：`ALREADY_CLASSIFIED` / `REQUEST_REJECTED` 作为确定性终结保存本地审计并退出 retry，不再制造永久 `cloud_sync_completed_with_errors`。
 - **日志上传确认**：客户端日志改为较小批次、Worker D1 batch 写入和逐项 ACK；本地只删除远端明确接受的日志。
 - **本地访问管理只读显示**：本地 Admin 完整显示已同步的云端网站配置、日/周配额、软提醒、时间段、单站点配额和同步新鲜度，不增加本地写配置入口。
+- **内部托管发布**：源码提交 `5482340`、Guardian Worker `46d82099-1cb9-4240-8223-0ed8938bf21e` 与更新站点 deployment `29a9fea2` 已发布；managed CRX SHA256 为 `ffd83c717ace5bf56edb5858926436f58b091b8324c6a8f0efc2cd8dcf21d15b`，稳定扩展 ID 不变。
 - **风险保留**：`cg.163.com idleStateChanged` 少记、Thomas 终端停止请求、设备实际升级和历史积压收敛继续保持未解决或生产观察；本版本不修改历史 D1、profile 或网页 ACTIVE 语义。
 
 ---

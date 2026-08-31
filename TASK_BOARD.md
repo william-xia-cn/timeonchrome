@@ -3,7 +3,7 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
-- `1.7.29` 内部 managed 前向发布已获 Product Owner 批准：范围为 D-073、D-074、本地 Admin 访问管理只读显示及相应测试；发布 Guardian Worker 与自托管 CRX/update feed，不进入 CWS、不执行 D1 migration、不修改 profile 或历史账本。`cg.163.com idleStateChanged`、Thomas 终端停止请求、设备升级和历史积压收敛继续保留为未解决/生产观察，不得改写为 PASS。
+- `1.7.29` 内部 managed 前向发布已完成：源码提交 `5482340`、Guardian Worker `46d82099-1cb9-4240-8223-0ed8938bf21e`、更新站点 deployment `29a9fea2` 已部署并回读；CRX 为 384,156 bytes，SHA256 `ffd83c717ace5bf56edb5858926436f58b091b8324c6a8f0efc2cd8dcf21d15b`，稳定 ID 不变。范围为 D-073、D-074、本地 Admin 访问管理只读显示及相应测试；未进入 CWS、未执行 D1 migration、未修改 profile、历史账本或控制台 Pages。`cg.163.com idleStateChanged`、Thomas 终端停止请求、Pierce Mac 离线、设备升级和历史积压收敛继续保留为未解决/生产观察，不得改写为 PASS。
   - 发布门禁中发现 `admin-visual-render` 两条历史用例仍向 `event_log_v1` 造数并查询已删除的旧统计 DOM；测试将改为向当前金标准 `usage_segments_v1` / `daily_usage_stats_v1` 造数，并断言 `usage-analysis-*` read model，不修改产品计时实现。
   - `popup-stats-message-route.test.js` 的未绑定文案、激活门禁和旧统计结构断言已过期，作为独立测试债保留；本轮不修改 Popup 产品逻辑，也不把该旧套件计入 Admin 只读显示的可视化通过结论。
 - `1.7.28` 内部前向止血已发布：D-071 配额锁修复和 D-072 统计/日志自愈随提交 `db9bd0b` 推送；Guardian Worker `aaa42a97-cf48-4dae-96e0-723addf1d911`、更新站点 deployment `d96be070` 已部署并回读。稳定 ID CRX 为 378,384 bytes，SHA256 `f08d69d0ea18ccc861d784d5f5b1148b3e952a2419851d2d700af09d0b988e14`。结论为 `APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE`；媒体/usage 大批量上传超时、T.xia 当日统计未收敛、`cg.163.com idleStateChanged` 与 `ALREADY_CLASSIFIED` 重试风险保持 `RISK ACCEPTED / DEFERRED`。未部署控制台 Pages，未执行 D1 migration。发布后首次观察中 T.xia 仍在线但最新版本日志为 `1.7.27`，P.xia 当前离线；两台设备均尚无 `1.7.28` 升级证据。

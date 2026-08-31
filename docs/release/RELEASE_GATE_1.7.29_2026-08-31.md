@@ -33,4 +33,12 @@
 - Admin 真实扩展可视化：桌面/手机只读访问管理 `2/2` 通过；手机无横向溢出，截图证据保存在本地 `.artifacts/`，不提交私有运行证据。
 - Guardian Worker `wrangler 4.127.1` dry-run：通过；上传体 `555.89 KiB`，gzip `105.28 KiB`，既有 D1/KV/R2/Native bridge binding 均解析成功。
 - Plan Conformance Audit：`Matched`。实际范围仅含 D-073、D-074、客户端日志逐项 ACK、本地 Admin 只读显示、对应测试、版本与发布文档；没有修改网页 ACTIVE、媒体分类、profile、D1 schema、历史数据或控制台 Pages。
-- 提交 hash、Worker version、CRX 大小、SHA256、更新站点 deployment 和生产回读结果在发布执行后补齐。签名 ID 或线上回读不一致将阻断托管。
+- 源码提交：`5482340 fix: 发布 1.7.29 同步可靠性修复`，已推送 `origin/master`。
+- Guardian Worker：`46d82099-1cb9-4240-8223-0ed8938bf21e`；部署后生产 API `103/103` 通过。
+- CRX：`dist/self-hosted/timeonchrome-1.7.29.crx`，384,156 bytes，SHA256 `ffd83c717ace5bf56edb5858926436f58b091b8324c6a8f0efc2cd8dcf21d15b`。
+- 签名与包内容：派生 ID 严格等于 `jdcancbiocacabbjdkngadmjpjmkdnih`；manifest `1.7.29`、managed marker、`nativeMessaging`、health probe 存在；指定隐私页面已排除，`core/privacy-consent.js` 保留；未发现仓库、测试或凭据文件。
+- 更新站点：deployment `29a9fea2`，`https://29a9fea2.timeonchrome-update.pages.dev`。稳定域名和 deployment 域名的 `update.xml`、CRX、`SHA256SUMS.txt` 均为 HTTP 200，线上 CRX 哈希与本地一致。
+
+## 最终结论
+
+`APPROVED_WITH_KNOWN_P0_RISK / FORWARD RELIABILITY RELEASE`。该结论仅适用于 T.xia / P.xia 内部 managed 自托管渠道；已知风险保持未解决或生产观察，不适用于 Chrome Web Store 发布。
