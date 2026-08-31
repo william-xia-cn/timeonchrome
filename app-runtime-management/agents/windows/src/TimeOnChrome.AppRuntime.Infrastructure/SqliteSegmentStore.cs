@@ -6,8 +6,9 @@ namespace TimeOnChrome.AppRuntime.Infrastructure;
 public sealed class SqliteSegmentStore : ISegmentStore, IUploadOutbox
 {
     private readonly string connectionString;
+    private readonly string? boundDeviceId;
 
-    public SqliteSegmentStore(string databasePath)
+    public SqliteSegmentStore(string databasePath, string? boundDeviceId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         var directory = Path.GetDirectoryName(Path.GetFullPath(databasePath));
@@ -22,6 +23,7 @@ public sealed class SqliteSegmentStore : ISegmentStore, IUploadOutbox
             Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Shared,
         }.ToString();
+        this.boundDeviceId = boundDeviceId;
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -65,6 +67,20 @@ public sealed class SqliteSegmentStore : ISegmentStore, IUploadOutbox
             );
             """;
         _ = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (boundDeviceId is not null)
+        {
+            await using var bind = connection.CreateCommand();
+            bind.CommandText = "INSERT INTO runtime_metadata(key,value) VALUES('bound_device_id',?1) ON CONFLICT(key) DO NOTHING;";
+            _ = bind.Parameters.AddWithValue("?1", boundDeviceId);
+            _ = await bind.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await using var verify = connection.CreateCommand();
+            verify.CommandText = "SELECT value FROM runtime_metadata WHERE key='bound_device_id';";
+            var actual = (string?)await verify.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(actual, boundDeviceId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Runtime database belongs to another device.");
+            }
+        }
     }
 
     public async Task PersistAndEnqueueAsync(

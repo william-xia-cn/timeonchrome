@@ -13,7 +13,7 @@
 ## Active App Runtime Work（2026-09-01）
 
 - [ ] **[SPEC-004 / D-079] Windows App Runtime 可用闭环**
-  - 当前阶段：实现中；旧管理员密钥/opaque `subjectId`/CLI enrollment 仅是技术底座，不再视为产品完成。
+  - 当前阶段：控制面与 Windows 安装/配对实现已完成，家长页面与内部发布准备进行中；旧管理员密钥/opaque `subjectId`/CLI enrollment 仅是技术底座，不再视为产品完成。
   - Guardian 控制面：5 分钟 Child-scoped ES256 module token、独立 Runtime lifecycle outbox/service binding；不复用 Santa 密钥。
   - Runtime 控制面：10 分钟配对码、设备列表/heartbeat/吊销/重新配对、Child lifecycle、北京时间小时聚合与日/周查询。
   - Windows：WPF Setup、无控制台 per-user Agent、single-instance、DPAPI、按 device 隔离 SQLite、稳定应用身份与 WiX 7 per-user MSI。

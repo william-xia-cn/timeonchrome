@@ -15,6 +15,8 @@ public interface IRuntimeCredentialStore
     Task SaveAsync(RuntimeCredential credential, CancellationToken cancellationToken = default);
 
     Task<RuntimeCredential?> LoadAsync(CancellationToken cancellationToken = default);
+
+    Task DeleteAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class DpapiRuntimeCredentialStore : IRuntimeCredentialStore
@@ -51,5 +53,12 @@ public sealed class DpapiRuntimeCredentialStore : IRuntimeCredentialStore
         var plaintext = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser);
         return JsonSerializer.Deserialize<RuntimeCredential>(plaintext, RuntimeJson.Options)
             ?? throw new InvalidDataException("Runtime credential is empty.");
+    }
+
+    public Task DeleteAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (File.Exists(path)) File.Delete(path);
+        return Task.CompletedTask;
     }
 }

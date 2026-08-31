@@ -1,0 +1,10 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <PropertyGroup>
+    <OutputName>TimeOnChrome-AppRuntime-win-x64</OutputName>
+    <OutputType>Package</OutputType>
+    <PublishDir>$(MSBuildThisFileDirectory)..\..\artifacts\win-x64</PublishDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <BindPath Include="$(PublishDir)" />
+  </ItemGroup>
+</Project>

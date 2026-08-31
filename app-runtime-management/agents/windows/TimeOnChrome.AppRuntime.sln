@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Win
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Infrastructure", "src\TimeOnChrome.AppRuntime.Infrastructure\TimeOnChrome.AppRuntime.Infrastructure.csproj", "{D95A95F7-6017-4DC0-913A-7BA512678560}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Setup", "src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj", "{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,5 +41,9 @@ Global
 		{D95A95F7-6017-4DC0-913A-7BA512678560}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D95A95F7-6017-4DC0-913A-7BA512678560}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D95A95F7-6017-4DC0-913A-7BA512678560}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

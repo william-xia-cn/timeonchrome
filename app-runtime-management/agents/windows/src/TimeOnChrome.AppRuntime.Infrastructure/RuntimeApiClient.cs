@@ -18,6 +18,10 @@ public sealed record UploadRequest(
     int SchemaVersion,
     IReadOnlyList<UsageSegment> Segments);
 
+public sealed record HeartbeatRequest(string AgentVersion, string WindowsVersion, string Architecture);
+
+public sealed record HeartbeatResponse(bool Success, string Status, int NextHeartbeatSeconds);
+
 public sealed class RuntimeApiException : Exception
 {
     public RuntimeApiException(string message, int? statusCode = null)
@@ -77,6 +81,23 @@ public sealed class RuntimeApiClient
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.DeviceToken);
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         return await ReadSuccessAsync<UploadAcceptance>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<HeartbeatResponse> HeartbeatAsync(
+        RuntimeCredential credential,
+        string agentVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(credential.ServerUrl, "/v1/devices/heartbeat"))
+        {
+            Content = JsonContent.Create(new HeartbeatRequest(
+                agentVersion,
+                Environment.OSVersion.VersionString,
+                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()), options: RuntimeJson.Options),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.DeviceToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return await ReadSuccessAsync<HeartbeatResponse>(response, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<T> ReadSuccessAsync<T>(

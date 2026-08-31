@@ -15,9 +15,12 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 dotnet restore agents/windows/TimeOnChrome.AppRuntime.sln
 dotnet test agents/windows/TimeOnChrome.AppRuntime.sln --configuration Release
 dotnet publish agents/windows/src/TimeOnChrome.AppRuntime.Agent/TimeOnChrome.AppRuntime.Agent.csproj --configuration Release
+pwsh installer/windows/build.ps1
 ```
 
 面向家长和普通 Windows 用户的正式流程不使用 CLI：家长在 `/app-runtime/` 为当前孩子生成一次性配对码，安装后在 Setup 窗口输入配对码。服务器地址由安装包固定为产品 Runtime endpoint；credential 保存到当前用户 LocalAppData，并使用当前用户 DPAPI 保护。
+
+MSI 采用 WiX 7 per-user 安装，目标目录为当前用户 LocalAppData，不要求管理员权限；提供开始菜单入口、HKCU 登录启动、MajorUpgrade 和卸载。当前内部 MSI 未做 Authenticode 签名，发布状态必须保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
 ## Backend 本地验证
 

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Text;
 using TimeOnChrome.AppRuntime.Core;
 
@@ -33,14 +32,7 @@ public sealed class WindowsRuntimeProbe : IWindowsRuntimeProbe
             using var process = Process.GetProcessById(checked((int)processId));
             var displayName = process.ProcessName;
             var executablePath = TryGetExecutablePath(processId);
-            var identitySource = executablePath is null
-                ? $"process:{displayName.ToUpperInvariant()}"
-                : $"path:{Path.GetFullPath(executablePath).ToUpperInvariant()}";
-            var digest = SHA256.HashData(Encoding.UTF8.GetBytes(identitySource));
-            return new ApplicationIdentity(
-                RuntimePlatform.Windows,
-                $"win32:{Convert.ToHexString(digest).ToLowerInvariant()}",
-                displayName);
+            return WindowsApplicationIdentityDeriver.Derive(executablePath, displayName);
         }
         catch (ArgumentException)
         {

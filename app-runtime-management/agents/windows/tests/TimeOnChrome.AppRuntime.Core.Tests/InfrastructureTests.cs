@@ -187,7 +187,7 @@ public sealed class InfrastructureTests
         if (application is not null)
         {
             Assert.Equal(RuntimePlatform.Windows, application.Platform);
-            Assert.Matches("^win32:[0-9a-f]{64}$", application.RuntimeIdentity);
+            Assert.Matches("^windows:[0-9a-f]{64}$", application.RuntimeIdentity);
             Assert.DoesNotContain("\\", application.RuntimeIdentity, StringComparison.Ordinal);
         }
 
@@ -195,6 +195,27 @@ public sealed class InfrastructureTests
         {
             using var watcher = new ForegroundWinEventWatcher(() => { });
         }
+    }
+
+    [Fact]
+    public async Task SqliteStoreRejectsAnotherBoundDevice()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = Path.Combine(temporary.Path, "runtime.db");
+        await new SqliteSegmentStore(path, "device-a").InitializeAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new SqliteSegmentStore(path, "device-b").InitializeAsync());
+    }
+
+    [Fact]
+    public void ApplicationIdentityUsesStableOrderedSourcesWithoutLeakingPath()
+    {
+        var packaged = WindowsApplicationIdentityDeriver.Derive(null, "App", "Family_123", "Family_123!App");
+        var fallback = WindowsApplicationIdentityDeriver.Derive(null, "notepad");
+        Assert.Matches("^windows:[0-9a-f]{64}$", packaged.RuntimeIdentity);
+        Assert.Matches("^windows:[0-9a-f]{64}$", fallback.RuntimeIdentity);
+        Assert.NotEqual(packaged.RuntimeIdentity, fallback.RuntimeIdentity);
+        Assert.DoesNotContain("Family", packaged.RuntimeIdentity, StringComparison.OrdinalIgnoreCase);
     }
 
     private static UsageSegment Segment(string id) => new(
