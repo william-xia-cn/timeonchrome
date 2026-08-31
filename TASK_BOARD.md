@@ -12,11 +12,12 @@
 
 ## Active App Runtime Work（2026-09-01）
 
-- [ ] **[SPEC-004 / Cross-Platform Phase 1] App Runtime Management 统一架构与双平台技术骨架**
+- [x] **[SPEC-004 / Cross-Platform Phase 1] App Runtime Management 统一架构与双平台技术骨架**
   - 分支：`codex/macos-app-management-v1`；独立 worktree；起点 `5c2e04104017259c72de573ab000353cf82b68fb`。
   - 产品边界：一个 App Runtime Management 产品，macOS Swift 与 Windows .NET 8 为两个原生实现，共享契约、黄金向量和未来 Runtime 后台。
   - 实现范围：迁移现有 macOS 骨架；新增 Windows Core/Agent/xUnit；新增 JSON Schema、黄金向量与 contract-only backend types。
-  - 状态：D-076 与跨平台 SPEC-004 文档先行修正中；代码重构与 Windows 骨架尚未提交。
+  - 状态：D-076、跨平台 SPEC-004、统一目录、共享契约/黄金向量、macOS 骨架迁移、Windows Core/Agent/xUnit 与 contract-only backend types 已完成。
+  - 验证：Windows .NET 8 build/test、共享 8 组黄金向量结构检查、backend TypeScript typecheck 与受保护目录检查通过；macOS `swift test` 留待 macOS 13+ 环境执行，当前 Windows 不宣称通过。
   - 禁止范围：不修改 `native-app-control/`、`extension/`、`workers/`、`pages/`；不部署、不写 SQLite、不上传、不采集真实家庭数据。
 
 ## Active UI Work（2026-08-31）
