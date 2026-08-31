@@ -3,7 +3,7 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
-- `1.7.28` 内部前向止血发布候选：范围仅为 D-071 配额锁修复和 D-072 统计/日志自愈；Product Owner 已批准携带媒体/usage 大批量上传超时、T.xia 当日统计未收敛、`cg.163.com idleStateChanged` 与 `ALREADY_CLASSIFIED` 重试风险进入 T.xia / P.xia managed 自托管。风险保持 `RISK ACCEPTED / DEFERRED`；测试、提交、Worker deployment、CRX 和更新站点证据待回填，不部署控制台 Pages 或 D1 migration。
+- `1.7.28` 内部前向止血已发布：D-071 配额锁修复和 D-072 统计/日志自愈随提交 `db9bd0b` 推送；Guardian Worker `aaa42a97-cf48-4dae-96e0-723addf1d911`、更新站点 deployment `d96be070` 已部署并回读。稳定 ID CRX 为 378,384 bytes，SHA256 `f08d69d0ea18ccc861d784d5f5b1148b3e952a2419851d2d700af09d0b988e14`。结论为 `APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE`；媒体/usage 大批量上传超时、T.xia 当日统计未收敛、`cg.163.com idleStateChanged` 与 `ALREADY_CLASSIFIED` 重试风险保持 `RISK ACCEPTED / DEFERRED`。未部署控制台 Pages，未执行 D1 migration；设备升级进入生产观察。
 - `1.7.27` 运行代码提交 `3ca6093` 与风险接受记录 `bb7c75a` 已推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff`、控制台 Pages `436199ba` 与内部更新站点 `39cdad15` 已部署并通过生产回读。稳定 ID CRX 为 373,209 bytes，SHA256 `10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`；发布结论为 `APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`，`cg.163.com` 的 `idleStateChanged` P0 继续 Deferred / 未解决。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
