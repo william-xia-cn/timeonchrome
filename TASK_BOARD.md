@@ -12,11 +12,11 @@
 
 ## Active macOS Runtime Work（2026-09-01）
 
-- [ ] **[SPEC-004 / Phase 1] macOS App Runtime Agent 独立架构与 Swift 技术骨架**
+- [x] **[SPEC-004 / Phase 1] macOS App Runtime Agent 独立架构与 Swift 技术骨架**
   - 分支：`codex/macos-app-management-v1`；独立 worktree；起点 `5c2e04104017259c72de573ab000353cf82b68fb`。
   - 文档：新增 SPEC-004 产品规格与技术设计，D-075 固化 Runtime Agent 与 Santa 的独立边界。
   - 实现范围：`macos-app-management/` 的 Core 模型、纯状态机、确定性 segment 边界、未来 store/outbox 接口、Agent 空壳和单元测试。
-  - 状态：文档先行进行中；Swift 骨架尚未提交。
+  - 状态：Phase 1 文档与 Swift 技术骨架已完成；Windows 仅完成结构/静态检查，macOS `swift test` 待在 macOS 13+ 环境执行。
   - 禁止范围：不修改 `native-app-control/`、`extension/`、`workers/`、`pages/`；不部署、不写 SQLite、不上传、不采集真实家庭数据。
 
 ## Active UI Work（2026-08-31）
