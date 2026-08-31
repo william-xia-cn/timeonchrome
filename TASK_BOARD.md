@@ -3,9 +3,38 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
+- `1.7.29` 内部 managed 前向发布已获 Product Owner 批准：范围为 D-073、D-074、本地 Admin 访问管理只读显示及相应测试；发布 Guardian Worker 与自托管 CRX/update feed，不进入 CWS、不执行 D1 migration、不修改 profile 或历史账本。`cg.163.com idleStateChanged`、Thomas 终端停止请求、设备升级和历史积压收敛继续保留为未解决/生产观察，不得改写为 PASS。
+  - 发布门禁中发现 `admin-visual-render` 两条历史用例仍向 `event_log_v1` 造数并查询已删除的旧统计 DOM；测试将改为向当前金标准 `usage_segments_v1` / `daily_usage_stats_v1` 造数，并断言 `usage-analysis-*` read model，不修改产品计时实现。
+  - `popup-stats-message-route.test.js` 的未绑定文案、激活门禁和旧统计结构断言已过期，作为独立测试债保留；本轮不修改 Popup 产品逻辑，也不把该旧套件计入 Admin 只读显示的可视化通过结论。
 - `1.7.28` 内部前向止血已发布：D-071 配额锁修复和 D-072 统计/日志自愈随提交 `db9bd0b` 推送；Guardian Worker `aaa42a97-cf48-4dae-96e0-723addf1d911`、更新站点 deployment `d96be070` 已部署并回读。稳定 ID CRX 为 378,384 bytes，SHA256 `f08d69d0ea18ccc861d784d5f5b1148b3e952a2419851d2d700af09d0b988e14`。结论为 `APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE`；媒体/usage 大批量上传超时、T.xia 当日统计未收敛、`cg.163.com idleStateChanged` 与 `ALREADY_CLASSIFIED` 重试风险保持 `RISK ACCEPTED / DEFERRED`。未部署控制台 Pages，未执行 D1 migration。发布后首次观察中 T.xia 仍在线但最新版本日志为 `1.7.27`，P.xia 当前离线；两台设备均尚无 `1.7.28` 升级证据。
 - `1.7.27` 运行代码提交 `3ca6093` 与风险接受记录 `bb7c75a` 已推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff`、控制台 Pages `436199ba` 与内部更新站点 `39cdad15` 已部署并通过生产回读。稳定 ID CRX 为 373,209 bytes，SHA256 `10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`；发布结论为 `APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`，`cg.163.com` 的 `idleStateChanged` P0 继续 Deferred / 未解决。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
+
+## Active UI Work（2026-08-31）
+- [x] [P1 Admin UI] 本地控件完整只读镜像云端访问管理信息
+  - 范围：访问管理同步摘要、每周休息上限及云端周用量状态、四类每日配额、七天计划合计、单站点配额和允许/锁定时间段。
+  - 交互：只展示，不出现 disabled 编辑控件、保存、导入导出、分类审批或系统配置写入口；手机端使用纵向布局，不强制缩小桌面表格。
+  - 数据：只读取本机已同步配置、当前周期云端 quota fact 和同步元数据；不修改 Worker、D1、profile、计时、配额或网站分类语义。
+  - 验证：Admin 静态测试、quota config/state facts 测试及真实扩展桌面/手机 Playwright 目视验收通过；手机页面无横向溢出。
+  - 后续：本项完成后再继续处理日志相关错误，不在同一补丁混入日志修复。
+
+## Active Log Work（2026-08-31）
+- [x] [P0 Sync/Accounting] 原始 segment 原子上传、逐项 ACK 与统计自动收敛
+  - 根因：客户端单批最多 200 条，但 Worker 对每条先 `SELECT` 再 `INSERT/UPDATE`，usage 批次还写审计；一次请求可产生 401 次以上串行 D1 操作。15 秒超时后客户端无法判断远端写入进度，只能整批重传。
+  - 修复口径：Worker 完整校验后使用 D1 batch 事务和 `ON CONFLICT(id) DO UPDATE`；返回 `acceptedIds` / `rejected`；客户端只 ACK 明确接受项，segment 请求单次尝试，失败交给跨同步退避。旧版 200 条批次兼容，新版使用较小批次。
+  - 提交前审计补丁：媒体上传失败路径的 `retryError` 必须在函数局部显式声明，避免 ESM 严格模式下抛出 `ReferenceError` 并绕过媒体退避；静态回归锁定该声明。
+  - 统计边界：当日任一 segment 批次失败或缺失 ACK 时，不上传日/小时/目标物化；历史水位只在远端完整性核对通过后推进。
+  - 排除：不修改 segment 生成、网页 ACTIVE、媒体分类、配额或历史 D1 数据；`cg.163.com idleStateChanged` 按 PO 决定继续 Deferred。
+  - 验证：全量 `125` 个 unit 文件、TypeScript、扩展根目录、Worker dry-run、API `103/103`、浏览器 E2E `15/15` 通过；生产历史积压是否收敛必须在后续部署和设备在线后只读观察，不计为本轮代码通过证据。
+- [x] [P1 Sync/Logs] 终结网站归类 `ALREADY_CLASSIFIED` / `REQUEST_REJECTED` 永久重试
+  - 根因：Worker 已返回确定分类结果，扩展仍把逐项响应计为失败并递增 retry，形成 exhausted 记录和重复 `cloud_sync_completed_with_errors`。
+  - 口径：保留本地原记录与终结审计字段，退出 pending/outbox；不伪造云端申请或审批，不改变其他错误的重试规则。
+  - 边界：不修改网站分类、profile、网页/媒体账本、配额或历史 D1 数据；媒体/usage 大批量上传风险继续单独处理。
+  - 验证：网站归类存储语义、上传分组、cloud incident、连接韧性、retry policy 与 Admin 展示专项测试通过；旧 exhausted 确定性错误会在升级后的下一轮立即复核。
+- [ ] [P0 Production Evidence] T.xia `2026-08-31 15:26` 后无任何云端请求
+  - 当前判断：最后请求前 heartbeat、配置、网页账本和统计上传均成功，未发现 bootstrap、认证、解绑、`QuotaBytes` 或 settlement 错误；扩展停止产生请求后，云端日志本身无法区分 Mac/Chrome 关闭、扩展未运行、Service Worker 未被唤醒或本机守护链路异常。
+  - 处置边界：本轮仓库内没有可由既有证据支持的代码修复；不得以增加云端重试或改动网页落账掩盖终端进程缺席。需要终端在线时读取本地 Guardian 心跳、Chrome policy/extension 状态和扩展本地诊断后再定根因。
+  - 状态：`BLOCKED_BY_ENDPOINT_EVIDENCE`，不是“已修复”；与已明确暂缓的 `cg.163.com idleStateChanged` 分开管理。
 
 ## Active P0 Release Regression（2026-08-27）
 - [x] [P0 Native App] 前向恢复管理页面与 Guardian token bridge

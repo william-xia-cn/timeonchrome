@@ -142,19 +142,23 @@ export const clientLogsRouter = {
         const body = await request.json<{ logs?: any[] }>();
         const logs = body?.logs;
         if (!Array.isArray(logs) || logs.length === 0) return json({ error: 'logs array required' }, 400);
+        if (logs.length > 200) return json({ error: 'log batch exceeds 200 items', code: 'LOG_BATCH_TOO_LARGE' }, 413);
         const now = Date.now();
-        let accepted = 0;
-        let failed = 0;
-        const errors: string[] = [];
-        for (const raw of logs.slice(0, 500)) {
+        const acceptedIds: string[] = [];
+        const rejected: Array<{ id: string | null; code: string; message: string }> = [];
+        const statements = [];
+        for (const raw of logs) {
           const normalized = normalizeLog(raw, device, now);
           if (!normalized.row) {
-            failed++;
-            errors.push(normalized.error || 'invalid log');
+            rejected.push({
+              id: typeof raw?.id === 'string' ? raw.id : null,
+              code: 'INVALID_LOG',
+              message: normalized.error || 'invalid log',
+            });
             continue;
           }
           const row = normalized.row;
-          await env.DB.prepare(
+          statements.push(env.DB.prepare(
             `INSERT OR IGNORE INTO client_logs_v1
              (id, profile_id, device_id, timestamp, level, category, event_code, message,
               binding_state, extension_version, domain, module, details_json, uploaded_at, created_at)
@@ -162,9 +166,10 @@ export const clientLogsRouter = {
           ).bind(
             row.id, row.profileId, row.deviceId, row.timestamp, row.level, row.category, row.eventCode, row.message,
             row.bindingState, row.extensionVersion, row.domain, row.module, row.detailsJson, row.uploadedAt, row.createdAt
-          ).run();
-          accepted++;
+          ));
+          acceptedIds.push(row.id);
         }
+        if (statements.length > 0) await env.DB.batch(statements);
         try {
           await env.DB.prepare(
             `DELETE FROM client_logs_v1 WHERE profile_id = ? AND timestamp < ?`
@@ -172,7 +177,13 @@ export const clientLogsRouter = {
         } catch {
           // Cloud log retention cleanup must not fail log upload.
         }
-        return json({ success: true, accepted, failed, errors: errors.length ? errors.slice(0, 20) : undefined });
+        return json({
+          success: true,
+          accepted: acceptedIds.length,
+          acceptedIds,
+          failed: rejected.length,
+          rejected: rejected.slice(0, 20),
+        });
       } catch (e: any) {
         return json({ error: 'Failed to upload client logs: ' + e.message }, 500);
       }

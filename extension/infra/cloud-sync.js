@@ -6,6 +6,7 @@ import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
   markSiteClassificationRequestUploadFailed,
+  markSiteClassificationRequestsResolved,
   markSiteClassificationRequestsUploaded,
   mergeCloudSiteClassificationRequests,
 } from './storage.js';
@@ -119,12 +120,15 @@ const CLOUD_CONFIG = {
     V1_LAST_SITE_REQUEST_SYNC_AT: 'cloud_v1_last_site_request_sync_at',
     V1_LAST_CLIENT_LOG_UPLOAD_AT: 'cloud_v1_last_client_log_upload_at',
     USAGE_UPLOAD_BACKOFF: 'cloud_usage_upload_backoff_v1',
+    MEDIA_UPLOAD_BACKOFF: 'cloud_media_upload_backoff_v1',
     FAILURE_INCIDENT: 'cloud_failure_incident_v1'
   }
 };
 
 const DEVICE_RECOVERY_RETRY_MS = 5 * 60 * 1000;
-const MAX_USAGE_SEGMENTS_PER_BATCH = 200;
+const MAX_USAGE_SEGMENTS_PER_BATCH = 100;
+const MAX_MEDIA_SEGMENTS_PER_BATCH = 100;
+const MAX_MEDIA_SEGMENT_BATCHES_PER_SYNC = 4;
 const USAGE_UPLOAD_BACKOFF_STEPS_MS = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
 const DEVICE_IDENTITY_LINK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let cloudIncidentWriteQueue = Promise.resolve();
@@ -143,6 +147,63 @@ let syncState = {
   followUpForceRetryExhausted: false,
   apiBase: CLOUD_CONFIG.API_BASE,
 };
+
+function createSegmentBatchId(kind, ids) {
+  const values = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  return `${kind}:${values.length}:${values[0] || 'empty'}:${values[values.length - 1] || 'empty'}`.slice(0, 512);
+}
+
+function parseSegmentUploadAck(response, requestedIds) {
+  const requested = [...new Set((Array.isArray(requestedIds) ? requestedIds : []).filter(Boolean))];
+  const requestedSet = new Set(requested);
+  let acceptedIds = [...new Set((Array.isArray(response?.acceptedIds) ? response.acceptedIds : [])
+    .filter((id) => requestedSet.has(id)))];
+
+  const rejected = (Array.isArray(response?.rejected) ? response.rejected : [])
+    .filter((item) => item?.id && requestedSet.has(item.id) && !acceptedIds.includes(item.id))
+    .map((item) => ({
+      id: item.id,
+      code: normalizeUploadErrorCode(item.code || item.message || 'segment_rejected'),
+    }));
+
+  const hasStructuredAck = Array.isArray(response?.acceptedIds) || Array.isArray(response?.rejected);
+  if (
+    !hasStructuredAck &&
+    response?.success === true &&
+    Number(response?.count ?? response?.accepted) === requested.length &&
+    Number(response?.failed || 0) === 0
+  ) {
+    acceptedIds = requested;
+  }
+
+  const accounted = new Set([...acceptedIds, ...rejected.map((item) => item.id)]);
+  const missingIds = requested.filter((id) => !accounted.has(id));
+  return { acceptedIds, rejected, missingIds };
+}
+
+async function applySegmentUploadAck(response, requestedIds, markUploaded, markFailed) {
+  const ack = parseSegmentUploadAck(response, requestedIds);
+  if (ack.acceptedIds.length > 0) await markUploaded(ack.acceptedIds);
+
+  const failuresByCode = new Map();
+  for (const item of ack.rejected) {
+    const ids = failuresByCode.get(item.code) || [];
+    ids.push(item.id);
+    failuresByCode.set(item.code, ids);
+  }
+  if (ack.missingIds.length > 0) failuresByCode.set('upload_missing_ack', ack.missingIds);
+  for (const [code, ids] of failuresByCode) await markFailed(ids, code);
+
+  return {
+    ...ack,
+    uploaded: ack.acceptedIds.length,
+    failed: ack.rejected.length + ack.missingIds.length,
+    errors: [
+      ...ack.rejected.map((item) => `${item.id}: ${item.code}`),
+      ...ack.missingIds.map((id) => `${id}: upload_missing_ack`),
+    ],
+  };
+}
 
 function createCloudRequestId(scope = 'cloud') {
   const random = Math.random().toString(36).slice(2, 8);
@@ -1827,6 +1888,7 @@ export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
     // Enabled 路径：构建载荷并发送到云端
     let uploaded = 0;
     let failed = 0;
+    let retryError = null;
     const errors = [];
     const payload = await buildUsageSegmentsUploadPayload(batchIds);
 
@@ -1835,9 +1897,19 @@ export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
     }
 
     try {
-      await cloudRequest('POST', '/device/usage-segments/v1', { segments: payload.segments });
-      await markUsageSegmentsUploaded(batchIds);
-      uploaded = batchIds.length;
+      const response = await cloudRequest('POST', '/device/usage-segments/v1', {
+        batchId: createSegmentBatchId('usage', batchIds),
+        segments: payload.segments,
+      }, 1);
+      const ack = await applySegmentUploadAck(
+        response,
+        batchIds,
+        markUsageSegmentsUploaded,
+        markUsageSegmentUploadFailed
+      );
+      uploaded = ack.uploaded;
+      failed = ack.failed;
+      errors.push(...ack.errors);
       await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT]: Date.now(),
       });
@@ -2154,7 +2226,7 @@ async function getEarliestLocalUsageDate(today) {
 function isRetryableUsageErrorCode(error) {
   const code = normalizeUploadErrorCode(error);
   return code === 'http_503' || code === 'http_429' || code === 'fetch_failed'
-    || code === 'request_aborted' || code === 'request_timeout';
+    || code === 'request_aborted' || code === 'request_timeout' || code === 'upload_missing_ack';
 }
 
 async function getUsageUploadBackoff() {
@@ -2176,6 +2248,28 @@ async function recordUsageUploadBackoff(error) {
 async function clearUsageUploadBackoff() {
   await cloudStorageSet({
     [CLOUD_CONFIG.KEYS.USAGE_UPLOAD_BACKOFF]: { attempt: 0, nextRetryAt: 0, lastError: null },
+  }).catch(() => {});
+}
+
+async function getMediaUploadBackoff() {
+  const data = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.MEDIA_UPLOAD_BACKOFF).catch(() => ({}));
+  return data?.[CLOUD_CONFIG.KEYS.MEDIA_UPLOAD_BACKOFF] || { attempt: 0, nextRetryAt: 0, lastError: null };
+}
+
+async function recordMediaUploadBackoff(error) {
+  const code = normalizeUploadErrorCode(error);
+  if (!isRetryableUsageErrorCode(code)) return null;
+  const previous = await getMediaUploadBackoff();
+  const attempt = Math.min(USAGE_UPLOAD_BACKOFF_STEPS_MS.length, Math.max(0, Number(previous.attempt || 0)) + 1);
+  const delayMs = USAGE_UPLOAD_BACKOFF_STEPS_MS[attempt - 1];
+  const value = { attempt, nextRetryAt: Date.now() + delayMs, lastError: code };
+  await cloudStorageSet({ [CLOUD_CONFIG.KEYS.MEDIA_UPLOAD_BACKOFF]: value }).catch(() => {});
+  return value;
+}
+
+async function clearMediaUploadBackoff() {
+  await cloudStorageSet({
+    [CLOUD_CONFIG.KEYS.MEDIA_UPLOAD_BACKOFF]: { attempt: 0, nextRetryAt: 0, lastError: null },
   }).catch(() => {});
 }
 async function buildUsageDateUploadPackage(date) {
@@ -2713,10 +2807,26 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
       try {
         const payload = await buildUsageSegmentsUploadPayload(batchIds);
         if (payload.segments.length === 0) continue;
-        await cloudRequest('POST', '/device/usage-segments/v1', { segments: payload.segments });
-        await markUsageSegmentsUploaded(batchIds);
-        result.segments.uploaded += batchIds.length;
-        result.uploaded += batchIds.length;
+        const response = await cloudRequest('POST', '/device/usage-segments/v1', {
+          batchId: createSegmentBatchId('usage', batchIds),
+          segments: payload.segments,
+        }, 1);
+        const ack = await applySegmentUploadAck(
+          response,
+          batchIds,
+          markUsageSegmentsUploaded,
+          markUsageSegmentUploadFailed
+        );
+        result.segments.uploaded += ack.uploaded;
+        result.uploaded += ack.uploaded;
+        if (ack.failed > 0) {
+          result.segments.failed += ack.failed;
+          result.segments.pendingCount += segmentIds.length - offset - ack.uploaded;
+          result.segments.errors.push(...ack.errors.map((error) => `segments ${pkg.date}: ${error}`));
+          result.failed += ack.failed;
+          result.errors.push(...ack.errors.map((error) => `segments ${pkg.date}: ${error}`));
+          break;
+        }
       } catch (error) {
         const errorCode = normalizeUploadErrorCode(error);
         await markUsageSegmentUploadFailed(batchIds, errorCode);
@@ -2969,6 +3079,29 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
       break;
     }
 
+    let postUploadComplete = false;
+    try {
+      const integrity = await getRemoteUsageDateIntegrity(date);
+      postUploadComplete = isCloudIntegrityCompleteForPackage(integrity, pkg);
+    } catch (error) {
+      logCloudFailureIncidentBestEffort({
+        level: 'warning',
+        eventCode: 'cloud_usage_history_post_upload_integrity_failed',
+        scope: 'usage_history_integrity',
+        error,
+        safeMessage: 'Usage history post-upload integrity check failed',
+      });
+    }
+    if (!postUploadComplete) {
+      const message = `history usage stats not converged after upload: ${date}`;
+      result.failed++;
+      result.errors.push(message);
+      await cloudStorageSet({
+        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: message,
+      }).catch(() => {});
+      break;
+    }
+
     waterline = date;
     await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE]: waterline,
@@ -3031,19 +3164,36 @@ export async function uploadMediaSegmentsV1({ enabled = false } = {}) {
   try {
     const pending = await getPendingMediaSegments();
     if (pending.pendingCount === 0) {
+      if (effectiveEnabled) await clearMediaUploadBackoff();
       return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
     }
-    const MAX_SEGMENTS_PER_BATCH = 200;
-    const batchIds = pending.segments.slice(0, MAX_SEGMENTS_PER_BATCH).map((s) => s.id);
+    if (effectiveEnabled) {
+      const backoff = await getMediaUploadBackoff();
+      if (Number(backoff.nextRetryAt || 0) > Date.now()) {
+        return {
+          uploaded: 0,
+          failed: 0,
+          skipped: true,
+          dryRun: false,
+          pendingCount: pending.pendingCount,
+          reason: 'retry_backoff',
+          nextRetryAt: backoff.nextRetryAt,
+          errors: [],
+        };
+      }
+    }
+    const candidateIds = pending.segments
+      .slice(0, MAX_MEDIA_SEGMENTS_PER_BATCH * MAX_MEDIA_SEGMENT_BATCHES_PER_SYNC)
+      .map((s) => s.id);
     if (!effectiveEnabled) {
-      const payload = await buildMediaSegmentsUploadPayload(batchIds.slice(0, 5));
+      const payload = await buildMediaSegmentsUploadPayload(candidateIds.slice(0, 5));
       return {
         uploaded: 0,
         failed: 0,
         skipped: true,
         dryRun: true,
         pendingCount: pending.pendingCount,
-        batchSize: batchIds.length,
+        batchSize: Math.min(candidateIds.length, MAX_MEDIA_SEGMENTS_PER_BATCH),
         payloadSample: {
           schemaVersion: payload.schemaVersion,
           segmentCount: payload.segments.length,
@@ -3054,26 +3204,63 @@ export async function uploadMediaSegmentsV1({ enabled = false } = {}) {
         errors: [],
       };
     }
-    const payload = await buildMediaSegmentsUploadPayload(batchIds);
-    if (payload.segments.length === 0) {
-      return { uploaded: 0, failed: 0, skipped: true, dryRun: false, pendingCount: pending.pendingCount, errors: [] };
+
+    let uploaded = 0;
+    let failed = 0;
+    let retryError = null;
+    const errors = [];
+    for (let offset = 0; offset < candidateIds.length; offset += MAX_MEDIA_SEGMENTS_PER_BATCH) {
+      const batchIds = candidateIds.slice(offset, offset + MAX_MEDIA_SEGMENTS_PER_BATCH);
+      try {
+        const payload = await buildMediaSegmentsUploadPayload(batchIds);
+        if (payload.segments.length === 0) continue;
+        const response = await cloudRequest('POST', '/device/media-segments/v1', {
+          batchId: createSegmentBatchId('media', batchIds),
+          segments: payload.segments,
+        }, 1);
+        const ack = await applySegmentUploadAck(
+          response,
+          batchIds,
+          markMediaSegmentsUploaded,
+          markMediaSegmentUploadFailed
+        );
+        uploaded += ack.uploaded;
+        failed += ack.failed;
+        errors.push(...ack.errors.map((error) => `media segments: ${error}`));
+        if (ack.failed > 0) {
+          if (ack.missingIds.length > 0) retryError = 'upload_missing_ack';
+          break;
+        }
+      } catch (e) {
+        const errorCode = normalizeUploadErrorCode(e);
+        await markMediaSegmentUploadFailed(batchIds, errorCode);
+        failed += batchIds.length;
+        errors.push(`media segments: ${errorCode}`);
+        retryError = errorCode;
+        logCloudFailureIncidentBestEffort({
+          level: 'error',
+          eventCode: 'cloud_media_segment_upload_failed',
+          scope: 'media_segments_upload',
+          error: errorCode,
+          safeMessage: 'Media segment upload failed',
+        });
+        break;
+      }
     }
-    try {
-      await cloudRequest('POST', '/device/media-segments/v1', { segments: payload.segments });
-      await markMediaSegmentsUploaded(batchIds);
+
+    if (uploaded > 0) {
       await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_MEDIA_SEGMENT_UPLOAD_AT]: Date.now() });
-      return { uploaded: batchIds.length, failed: 0, skipped: false, dryRun: false, pendingCount: pending.pendingCount - batchIds.length, errors: [] };
-    } catch (e) {
-      await markMediaSegmentUploadFailed(batchIds, e.message);
-      logCloudFailureIncidentBestEffort({
-        level: 'error',
-        eventCode: 'cloud_media_segment_upload_failed',
-        scope: 'media_segments_upload',
-        error: e,
-        safeMessage: 'Media segment upload failed',
-      });
-      return { uploaded: 0, failed: batchIds.length, skipped: false, dryRun: false, pendingCount: pending.pendingCount, errors: [`media segments: ${e.message}`] };
     }
+    if (failed === 0) await clearMediaUploadBackoff();
+    else if (retryError) await recordMediaUploadBackoff(retryError);
+    return {
+      uploaded,
+      failed,
+      skipped: false,
+      dryRun: false,
+      pendingCount: Math.max(0, pending.pendingCount - uploaded),
+      errors,
+    };
   } catch (e) {
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
   }
@@ -3261,7 +3448,7 @@ export async function uploadHourlyMediaStatsV1({ enabled = false, forceRetryExha
 
 export async function syncSiteClassificationRequestsV1({ enabled = true, forceRetryExhausted = false } = {}) {
   if (!syncState.deviceToken) {
-    return { uploaded: 0, pulled: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: ['No device token'] };
+    return { uploaded: 0, resolved: 0, pulled: 0, failed: 0, skipped: true, dryRun: true, pendingCount: 0, errors: ['No device token'] };
   }
 
   try {
@@ -3271,10 +3458,11 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
     const exhaustedIds = requests
       .filter((record) => Number(record.retryCount || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS)
       .map((record) => record.id);
+    const isLegacyTerminalRetry = (record) => /(?:ALREADY_CLASSIFIED|REQUEST_REJECTED)/.test(String(record.lastSyncError || ''));
     const candidates = requests.filter((record) => isSyncRetryCandidate({
       retryCount: record.retryCount,
       lastAttemptAt: record.lastSyncAttemptAt,
-      force: forceRetryExhausted,
+      force: forceRetryExhausted || isLegacyTerminalRetry(record),
       now,
       maxAttempts: CLOUD_CONFIG.MAX_RETRY_ATTEMPTS,
     }));
@@ -3287,6 +3475,7 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
         : null;
       return {
         uploaded: 0,
+        resolved: 0,
         pulled: 0,
         failed: 0,
         skipped: true,
@@ -3303,6 +3492,7 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
     }
 
     let uploaded = 0;
+    let resolved = 0;
     let failed = 0;
     const errors = [];
 
@@ -3321,16 +3511,28 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
           uploaded += savedLocalIds.length;
         }
         const failedErrors = Array.isArray(result?.errors) ? result.errors : [];
+        const terminalErrors = failedErrors.filter((item) =>
+          (item?.code === 'ALREADY_CLASSIFIED' || item?.code === 'REQUEST_REJECTED') &&
+          batchIds.includes(item?.id) &&
+          !savedLocalIds.includes(item?.id)
+        );
+        const resolvedIds = terminalErrors.map((item) => item.id);
+        if (terminalErrors.length > 0) {
+          resolved += await markSiteClassificationRequestsResolved(terminalErrors);
+        }
         const failedIds = failedErrors
           .map((item) => item?.id)
-          .filter((id) => batchIds.includes(id) && !savedLocalIds.includes(id));
+          .filter((id) => batchIds.includes(id) && !savedLocalIds.includes(id) && !resolvedIds.includes(id));
         if (failedIds.length > 0) {
-          const message = failedErrors.map((item) => item?.code || 'upload_failed').join('; ') || 'upload_failed';
+          const message = failedErrors
+            .filter((item) => failedIds.includes(item?.id))
+            .map((item) => item?.code || 'upload_failed')
+            .join('; ') || 'upload_failed';
           await markSiteClassificationRequestUploadFailed(failedIds, message);
           failed += failedIds.length;
           errors.push(...failedIds.map((id) => `site request ${id}: ${message}`));
         }
-        const acknowledgedIds = new Set([...savedLocalIds, ...failedIds]);
+        const acknowledgedIds = new Set([...savedLocalIds, ...resolvedIds, ...failedIds]);
         const unacknowledgedIds = batchIds.filter((id) => !acknowledgedIds.has(id));
         if (unacknowledgedIds.length > 0) {
           await markSiteClassificationRequestUploadFailed(unacknowledgedIds, 'upload_missing_ack');
@@ -3368,16 +3570,17 @@ export async function syncSiteClassificationRequestsV1({ enabled = true, forceRe
 
     return {
       uploaded,
+      resolved,
       pulled,
       failed,
       skipped: batchIds.length === 0 && pulled === 0,
       dryRun: false,
-      pendingCount: Math.max(0, Number(pending.pendingCount || 0) - uploaded),
+      pendingCount: Math.max(0, Number(pending.pendingCount || 0) - uploaded - resolved),
       deferredExhaustedCount,
       errors,
     };
   } catch (e) {
-    return { uploaded: 0, pulled: 0, failed: 0, skipped: false, dryRun: false, pendingCount: 0, errors: [e.message] };
+    return { uploaded: 0, resolved: 0, pulled: 0, failed: 0, skipped: false, dryRun: false, pendingCount: 0, errors: [e.message] };
   }
 }
 
@@ -3389,7 +3592,7 @@ export async function uploadClientLogsV1({ enabled = true } = {}) {
     return { uploaded: 0, failed: 0, skipped: true, pendingCount: 0, errors: [] };
   }
   try {
-    const pending = await getPendingClientLogsForUpload({ limit: 200 });
+    const pending = await getPendingClientLogsForUpload({ limit: 100 });
     const logs = Array.isArray(pending.logs) ? pending.logs : [];
     if (logs.length === 0) {
       return { uploaded: 0, failed: 0, skipped: true, pendingCount: 0, errors: [] };
@@ -3399,12 +3602,23 @@ export async function uploadClientLogsV1({ enabled = true } = {}) {
       logs: logs.map((log) => sanitizeClientLogForUpload(log)),
     };
     try {
-      await cloudRequest('POST', '/device/client-logs/v1', payload);
-      await markClientLogsUploaded(ids);
+      const response = await cloudRequest('POST', '/device/client-logs/v1', payload, 1);
+      const ack = await applySegmentUploadAck(
+        response,
+        ids,
+        markClientLogsUploaded,
+        markClientLogUploadFailed
+      );
       await cloudStorageSet({
         [CLOUD_CONFIG.KEYS.V1_LAST_CLIENT_LOG_UPLOAD_AT]: Date.now(),
       }).catch(() => {});
-      return { uploaded: ids.length, failed: 0, skipped: false, pendingCount: Math.max(0, Number(pending.pendingCount || 0) - ids.length), errors: [] };
+      return {
+        uploaded: ack.uploaded,
+        failed: ack.failed,
+        skipped: false,
+        pendingCount: Math.max(0, Number(pending.pendingCount || 0) - ack.uploaded),
+        errors: ack.errors.map((error) => `client logs: ${error}`),
+      };
     } catch (e) {
       await markClientLogUploadFailed(ids, e.message);
       logCloudFailureIncidentBestEffort({
@@ -3452,15 +3666,25 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
     errors.push(...mediaSegmentResult.errors);
   }
 
-  // 7. Daily media stats 独立物化视图
-  const mediaStatsResult = await uploadDailyMediaStatsV1({ enabled, forceRetryExhausted });
+  const mediaSegmentsConfirmed = !enabled || (
+    mediaSegmentResult.failed === 0 &&
+    mediaSegmentResult.errors.length === 0 &&
+    Number(mediaSegmentResult.pendingCount || 0) === 0
+  );
+
+  // 7. Daily media stats 独立物化视图。原始 segment 尚未确认时不得先行物化。
+  const mediaStatsResult = mediaSegmentsConfirmed
+    ? await uploadDailyMediaStatsV1({ enabled, forceRetryExhausted })
+    : { uploaded: 0, failed: 0, skipped: true, dryRun: !enabled, pendingCount: 0, reason: 'media_segments_pending', errors: [] };
   if (mediaStatsResult.failed > 0 || mediaStatsResult.errors.length > 0) {
     hadFailure = true;
     errors.push(...mediaStatsResult.errors);
   }
 
   // 8. Hourly media stats 独立物化视图
-  const hourlyMediaStatsResult = await uploadHourlyMediaStatsV1({ enabled, forceRetryExhausted });
+  const hourlyMediaStatsResult = mediaSegmentsConfirmed
+    ? await uploadHourlyMediaStatsV1({ enabled, forceRetryExhausted })
+    : { uploaded: 0, failed: 0, skipped: true, dryRun: !enabled, pendingCount: 0, reason: 'media_segments_pending', errors: [] };
   if (hourlyMediaStatsResult.failed > 0 || hourlyMediaStatsResult.errors.length > 0) {
     hadFailure = true;
     errors.push(...hourlyMediaStatsResult.errors);

@@ -515,6 +515,11 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - Pages 配置文件区选择文件后统一生成新增/删除/修改差异，按“用户配置 / 系统配置”分组，允许勾选差异后再应用；系统网站配置仍必须经过系统配置 preflight、管理员权限和全局影响确认。
 
 本地 Admin 访问管理是只读视图：读取本机已同步的 `guardian_config` 与本地 `site_classification_requests_v1`，用云端控制台风格展示网站管理、时间配额、时间段管理和网站归类记录，但不写 profile config、不调用系统配置写接口、不审批归类记录。YouTube 特殊网站在本地以单一规则列表展示根域和已同步的具体对象规则；本地 Admin 不直接编辑规则，孩子仍可在 Popup 对支持的视频、播放列表、频道发起学习申请，家长在云端审批或调整后同步到本机。
+
+- 本地访问管理只读 read model 由 Service Worker 已同步数据组成：`guardian_config` 提供配置，`cloud_quota_state_fact_v1` 提供当前北京时间日/周使用和锁定事实，`cloud_config_version` / `cloud_last_sync` 提供来源与新鲜度。Service Worker 暂时不可用时，本地只读模式可直接读取同一份 `guardian_config` 作为显示回退，但必须保留同步新鲜度提示；Admin 页面不得读取或展示 device token，也不得为了显示而调用 profile/system 配置写接口。
+- 时间配额只读视图必须与云端配置语义同构：显式周 Rest 上限、软限额提醒、七天四类每日配额、七天计划合计和单站点配额均可见；周使用 fact 不是配置字段，缺失或周期不匹配时显示“等待云端用量同步”，不得回退成 0 秒。
+- `cloud_last_sync` 超过三个五分钟同步周期时，本地继续显示最后一次同步配置并标记为陈旧；这只影响新鲜度提示，不改变运行时已经采用的最后有效配置。
+- 时间段只读视图继续以 `timeWindows.daily` 为 source of truth，并把允许窗口的日内补集作为“锁定时段”解释展示；补集仅为 UI 派生，不写回配置、不改变 `null` / 空数组当前表示全天允许的运行语义。
 - Pages 网站管理 UI 使用“管理策略目录”作为主结构，左侧按学习/复合/受限娱乐/黑名单四类显示系统配置、自定义、精确规则和已使用未归类数量，右侧按来源分组展示网站目录；
 - 网站管理页内的系统配置区使用“系统网站配置-分类管理”分组：系统配置网站按 `siteCatalog.contentCategory` 展示 Qustodio 风格内容分类；系统默认网站库必须覆盖所有 `default*Sites` 的 `siteCatalog` 元数据，Worker 读取旧 D1 配置时会用 fallback catalog 补齐缺失项；没有任何目录元数据可推断的系统站点才进入“未标注分类”；
 - 管理员点击系统配置网站可同时编辑内容分类和管理策略分类，保存时通过 `/system/access-management-config/v1` 更新 `siteCatalog` 并同步维护 `defaultStudySites`、`defaultCompositeSites`、`defaultUserCompositeSites`、`defaultRestrictedEntertainmentSites`、`defaultBlockedSites`；该操作全局生效，必须显示确认；
@@ -1157,6 +1162,21 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - 同一错误类型、端点/子系统和严重性在 30 分钟内重复发生时，只更新 incident 计数和末次时间，不重复写入 `client_logs_v1`。错误类型、端点/子系统或严重性变化时立即记录新 incident。
 - 完整云同步恢复后关闭全部活跃 incident，只写一条恢复摘要。该机制只压缩诊断日志，不改变请求重试、指数退避、outbox ACK、错误等级或上传顺序。
 - `AUTO_MODE_PENDING_CANCEL` 是 best-effort 清理：目标页面没有 Content Script 时等同于没有待清理弹层，静默成功，不产生 warning 或系统通知。START/SUCCESS、Rest 软限额提醒及其可见投递门禁仍按严格 ACK、重试和完整 Reminder 降级处理。
+- 客户端日志上传单批最多 100 条，Worker 使用 D1 `batch()` 幂等写入并返回 `acceptedIds` / `rejected`；扩展只删除明确接受的日志。日志 POST 只做一次请求尝试，失败由下一轮同步处理，避免日志上传故障反过来制造长时间 Worker 请求和本地日志放大。
+
+### 网站归类同步确定性终结（D-073）
+
+- `/device/site-classification-requests/v1` 的逐项错误必须区分“可重试失败”和“当前配置已给出确定结果”。`ALREADY_CLASSIFIED`、`REQUEST_REJECTED` 属于确定性终结：本地保留原始记录并写入 `syncStatus=resolved`、终结代码、当前分类、来源和终结时间，清除 retry metadata，不再进入 pending upload。
+- 确定性终结不是云端成功保存申请：不得生成 `cloudId`、不得标记为 `uploaded`、不得伪造家长审批。网络失败、`SERVER_ERROR`、`upload_missing_ack` 和未列入终结集合的代码继续重试。
+- 同一批响应中的 saved、resolved、failed 和 missing-ack 必须互斥；同步摘要中的 `failed` 与 `errors` 不得包含 resolved 项，避免 `cloud_sync_completed_with_errors` 持续放大。
+
+### 原始 segment 原子上传与逐项确认（D-074）
+
+- `usage_segments_v1` 与 `media_segments_v1` 的本地 segment ID 是上传幂等键。Worker 在写入前必须完整校验批次；合法项通过一个 D1 `batch()` 事务执行 `INSERT ... ON CONFLICT(id) DO UPDATE`，禁止逐条 `SELECT` 后再写入。事务失败时不得返回部分成功。
+- Worker 成功响应必须包含 `acceptedIds` 与结构化 `rejected`。客户端只清除 `acceptedIds`；被明确拒绝的 ID 记录短错误码，缺失 ACK 的 ID 保留 pending。兼容旧 Worker 时，只有响应明确 `success=true`、无失败且 `count` 等于请求数量，才允许整批 ACK。
+- 新客户端原始 segment 批次小于既有 200 条上限，并对该类 POST 只做一次请求尝试。超时、503 或网络失败由既有跨同步退避接管，禁止同一轮连续重发可能已经提交的批次。
+- 当日原始 segment 未全部确认时，本轮停止日、小时、目标和小时目标物化上传。历史补传在推进日期水位前必须读取 `/device/stats-integrity/v1`，并确认远端原始账与四层物化均与本地账本一致。
+- 该机制不修改 segment 内容、网页 ACTIVE、媒体证据、模式、配额或历史数据；它只保证传输幂等、确认准确和物化顺序。
 
 ### Timing / mode 审计口径
 

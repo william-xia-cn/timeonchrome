@@ -366,85 +366,72 @@ export const statsRouter = {
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
-        const body = await request.json<{ segments?: any[] }>();
+        const body = await request.json<{ batchId?: string; segments?: any[] }>();
         const segments = body?.segments;
         if (!Array.isArray(segments) || segments.length === 0) {
           return json({ error: 'segments array required' }, 400);
         }
 
-        const now = Date.now();
-        let inserted = 0;
-        let updated = 0;
-        let failed = 0;
-        const errors: string[] = [];
+        if (segments.length > 200) {
+          return json({ error: 'segment batch exceeds 200 items', code: 'SEGMENT_BATCH_TOO_LARGE' }, 413);
+        }
 
+        const rejected: Array<{ id: string | null; code: string; message: string }> = [];
+        const normalizedSegments: Array<{ segment: any; domain: string; descriptionJson: string | null }> = [];
         for (const s of segments) {
           const validationError = validateMediaSegment(s);
           if (validationError) {
-            failed++;
-            errors.push(`${s?.id || 'unknown'}: ${validationError}`);
+            rejected.push({ id: typeof s?.id === 'string' ? s.id : null, code: 'INVALID_SEGMENT', message: validationError });
             continue;
           }
           const normalizedDomain = normalizeHostname(s.domain);
           if (!normalizedDomain) {
-            failed++;
-            errors.push(`${s.id}: invalid domain`);
+            rejected.push({ id: s.id, code: 'INVALID_DOMAIN', message: 'invalid domain' });
             continue;
           }
-
-          const existing = await env.DB.prepare(
-            `SELECT id FROM media_segments_v1 WHERE id = ?`
-          ).bind(s.id).first<{ id: string }>();
-          const descriptionJson = stringifyJsonField(s.description || null);
-
-          if (existing) {
-            await env.DB.prepare(
-              `UPDATE media_segments_v1
-               SET tab_id = ?, window_id = ?, description_json = ?, uploaded_at = ?, updated_at = ?
-               WHERE id = ?`
-            ).bind(
-              s.tabId == null ? null : String(s.tabId),
-              typeof s.windowId === 'number' ? s.windowId : null,
-              descriptionJson,
-              now,
-              now,
-              s.id
-            ).run();
-            updated++;
-          } else {
-            await env.DB.prepare(
-              `INSERT INTO media_segments_v1
-               (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
-                start_ms, end_ms, duration_seconds, domain, tab_id, window_id,
-                media_class, media_kind, visibility, mode, settlement_reason,
-                parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at,
-                description_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).bind(
-              s.id, device.profileId, device.deviceId, s.date, s.timezone || 'Asia/Shanghai',
-              typeof s.dayStartMs === 'number' ? s.dayStartMs : 0,
-              typeof s.dayEndMs === 'number' ? s.dayEndMs : 0,
-              s.startMs, s.endMs, s.durationSeconds, normalizedDomain,
-              s.tabId == null ? null : String(s.tabId),
-              typeof s.windowId === 'number' ? s.windowId : null,
-              s.mediaClass, s.mediaKind || null, s.visibility || null, s.mode,
-              s.settlementReason || '', s.parentSegmentId || null,
-              typeof s.partIndex === 'number' ? s.partIndex : 1,
-              typeof s.partCount === 'number' ? s.partCount : 1,
-              s.createdAt || now, s.updatedAt || now, now,
-              descriptionJson
-            ).run();
-            inserted++;
-          }
+          normalizedSegments.push({ segment: s, domain: normalizedDomain, descriptionJson: stringifyJsonField(s.description || null) });
         }
 
+        if (rejected.length > 0) {
+          return json({ error: 'media segment batch validation failed', code: 'SEGMENT_BATCH_REJECTED', rejected }, 400);
+        }
+
+        const now = Date.now();
+        const statements = normalizedSegments.map(({ segment: s, domain, descriptionJson }) => env.DB.prepare(
+          `INSERT INTO media_segments_v1
+           (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
+            start_ms, end_ms, duration_seconds, domain, tab_id, window_id,
+            media_class, media_kind, visibility, mode, settlement_reason,
+            parent_segment_id, part_index, part_count, created_at, updated_at, uploaded_at,
+            description_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             tab_id = excluded.tab_id,
+             window_id = excluded.window_id,
+             description_json = excluded.description_json,
+             uploaded_at = excluded.uploaded_at,
+             updated_at = excluded.updated_at`
+        ).bind(
+          s.id, device.profileId, device.deviceId, s.date, s.timezone || 'Asia/Shanghai',
+          typeof s.dayStartMs === 'number' ? s.dayStartMs : 0,
+          typeof s.dayEndMs === 'number' ? s.dayEndMs : 0,
+          s.startMs, s.endMs, s.durationSeconds, domain,
+          s.tabId == null ? null : String(s.tabId),
+          typeof s.windowId === 'number' ? s.windowId : null,
+          s.mediaClass, s.mediaKind || null, s.visibility || null, s.mode,
+          s.settlementReason || '', s.parentSegmentId || null,
+          typeof s.partIndex === 'number' ? s.partIndex : 1,
+          typeof s.partCount === 'number' ? s.partCount : 1,
+          s.createdAt || now, s.updatedAt || now, now,
+          descriptionJson
+        ));
+        await env.DB.batch(statements);
+        const acceptedIds = normalizedSegments.map(({ segment }) => segment.id);
         return json({
           success: true,
-          count: inserted + updated,
-          inserted,
-          updated,
-          failed: failed > 0 ? failed : undefined,
-          errors: errors.length > 0 ? errors : undefined,
+          count: acceptedIds.length,
+          acceptedIds,
+          rejected: [],
         });
       } catch (e: any) {
         return json({ error: 'Failed to upload media segments: ' + e.message }, 500);
@@ -779,45 +766,46 @@ export const statsRouter = {
       if (device.unbound) return deviceUnboundResponse(device.deviceId);
 
       try {
-        const body = await request.json<{ segments?: any[] }>();
+        const body = await request.json<{ batchId?: string; segments?: any[] }>();
         const segments = body?.segments;
 
         if (!Array.isArray(segments) || segments.length === 0) {
           return json({ error: 'segments array required' }, 400);
         }
 
-        const now = Date.now();
-        let inserted = 0;
-        let updated = 0;
-        let failed = 0;
-        const errors: string[] = [];
+        if (segments.length > 200) {
+          return json({ error: 'segment batch exceeds 200 items', code: 'SEGMENT_BATCH_TOO_LARGE' }, 413);
+        }
 
+        const rejected: Array<{ id: string | null; code: string; message: string }> = [];
+        const normalizedSegments: Array<{
+          segment: any;
+          domain: string;
+          descriptionJson: string | null;
+          managedTargetId: string | null;
+          managedTargetType: string | null;
+          managedTargetNamespace: string | null;
+          managedTargetValue: string | null;
+          managedTargetLabelAtTime: string | null;
+          targetSourceAtTime: string | null;
+          targetRuleId: string | null;
+          targetMatchLevel: string | null;
+          targetClassificationAtTime: string | null;
+          quotaBucketAtTime: string | null;
+        }> = [];
         for (const s of segments) {
           const validationError = validateSegment(s);
           if (validationError) {
-            failed++;
-            errors.push(`${s.id || 'unknown'}: ${validationError}`);
+            rejected.push({ id: typeof s?.id === 'string' ? s.id : null, code: 'INVALID_SEGMENT', message: validationError });
             continue;
           }
 
           const normalizedDomain = normalizeHostname(s.domain);
           if (!normalizedDomain) {
-            failed++;
-            errors.push(`${s.id}: invalid domain`);
+            rejected.push({ id: s.id, code: 'INVALID_DOMAIN', message: 'invalid domain' });
             continue;
           }
 
-          const parentSegmentId = s.parentSegmentId || null;
-          const partIndex = typeof s.partIndex === 'number' ? s.partIndex : 1;
-          const partCount = typeof s.partCount === 'number' ? s.partCount : 1;
-          const createdAt = s.createdAt || now;
-          const updatedAt = s.updatedAt || now;
-          const timezone = s.timezone || 'Asia/Shanghai';
-          const dayStartMs = typeof s.dayStartMs === 'number' ? s.dayStartMs : 0;
-          const dayEndMs = typeof s.dayEndMs === 'number' ? s.dayEndMs : 0;
-          const sourceState = s.sourceState || '';
-          const settlementReason = s.settlementReason || '';
-          const deviceId = device.deviceId;
           const descriptionJson = stringifyJsonField(s.description || null);
           const managedTargetId = normalizeOptionalString(s.managedTargetId, 128);
           const managedTargetType = normalizeOptionalString(s.managedTargetType, 64);
@@ -829,80 +817,86 @@ export const statsRouter = {
           const targetMatchLevel = normalizeOptionalString(s.targetMatchLevel, 64);
           const targetClassificationAtTime = normalizeOptionalString(s.targetClassificationAtTime, 64);
           const quotaBucketAtTime = VALID_MODES.has(s.quotaBucketAtTime) ? s.quotaBucketAtTime : null;
-
-          // Idempotent upsert by segment id
-          const existing = await env.DB.prepare(
-            `SELECT id FROM usage_segments_v1 WHERE id = ?`
-          ).bind(s.id).first<{ id: string }>();
-
-          if (existing) {
-            // 已存在：更新上传时间与终端诊断字段
-            await env.DB.prepare(
-              `UPDATE usage_segments_v1
-               SET tab_id = ?, window_id = ?, description_json = ?,
-                   managed_target_id = ?, managed_target_type = ?, managed_target_namespace = ?,
-                   managed_target_value = ?, managed_target_label_at_time = ?, target_source_at_time = ?,
-                   target_rule_id = ?, target_match_level = ?, target_classification_at_time = ?,
-                   quota_bucket_at_time = ?, uploaded_at = ?, updated_at = ?
-               WHERE id = ?`
-            ).bind(
-              s.tabId == null ? null : String(s.tabId),
-              typeof s.windowId === 'number' ? s.windowId : null,
-              descriptionJson,
-              managedTargetId,
-              managedTargetType,
-              managedTargetNamespace,
-              managedTargetValue,
-              managedTargetLabelAtTime,
-              targetSourceAtTime,
-              targetRuleId,
-              targetMatchLevel,
-              targetClassificationAtTime,
-              quotaBucketAtTime,
-              now,
-              now,
-              s.id
-            ).run();
-            updated++;
-          } else {
-            await env.DB.prepare(
-              `INSERT INTO usage_segments_v1
-               (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
-                start_ms, end_ms, duration_seconds, domain, channel, mode,
-                source_state, settlement_reason,
-                parent_segment_id, part_index, part_count,
-                created_at, updated_at, uploaded_at, tab_id, window_id, description_json,
-                managed_target_id, managed_target_type, managed_target_namespace,
-                managed_target_value, managed_target_label_at_time, target_source_at_time,
-                target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).bind(
-              s.id, device.profileId, deviceId, s.date, timezone, dayStartMs, dayEndMs,
-              s.startMs, s.endMs, s.durationSeconds, normalizedDomain, s.channel, s.mode,
-              sourceState, settlementReason,
-              parentSegmentId, partIndex, partCount,
-              createdAt, updatedAt, now,
-              s.tabId == null ? null : String(s.tabId),
-              typeof s.windowId === 'number' ? s.windowId : null,
-              descriptionJson,
-              managedTargetId,
-              managedTargetType,
-              managedTargetNamespace,
-              managedTargetValue,
-              managedTargetLabelAtTime,
-              targetSourceAtTime,
-              targetRuleId,
-              targetMatchLevel,
-              targetClassificationAtTime,
-              quotaBucketAtTime
-            ).run();
-            inserted++;
-          }
+          normalizedSegments.push({
+            segment: s,
+            domain: normalizedDomain,
+            descriptionJson,
+            managedTargetId,
+            managedTargetType,
+            managedTargetNamespace,
+            managedTargetValue,
+            managedTargetLabelAtTime,
+            targetSourceAtTime,
+            targetRuleId,
+            targetMatchLevel,
+            targetClassificationAtTime,
+            quotaBucketAtTime,
+          });
         }
 
-        // 写入审计日志
+        if (rejected.length > 0) {
+          return json({ error: 'usage segment batch validation failed', code: 'SEGMENT_BATCH_REJECTED', rejected }, 400);
+        }
+
+        const now = Date.now();
+        const batchId = normalizeOptionalString(body?.batchId || request.headers.get('X-TimeOnChrome-Request-Id'), 512);
+        const statements = normalizedSegments.map((item) => {
+          const s = item.segment;
+          return env.DB.prepare(
+            `INSERT INTO usage_segments_v1
+             (id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
+              start_ms, end_ms, duration_seconds, domain, channel, mode,
+              source_state, settlement_reason,
+              parent_segment_id, part_index, part_count,
+              created_at, updated_at, uploaded_at, tab_id, window_id, description_json,
+              managed_target_id, managed_target_type, managed_target_namespace,
+              managed_target_value, managed_target_label_at_time, target_source_at_time,
+              target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               tab_id = excluded.tab_id,
+               window_id = excluded.window_id,
+               description_json = excluded.description_json,
+               managed_target_id = excluded.managed_target_id,
+               managed_target_type = excluded.managed_target_type,
+               managed_target_namespace = excluded.managed_target_namespace,
+               managed_target_value = excluded.managed_target_value,
+               managed_target_label_at_time = excluded.managed_target_label_at_time,
+               target_source_at_time = excluded.target_source_at_time,
+               target_rule_id = excluded.target_rule_id,
+               target_match_level = excluded.target_match_level,
+               target_classification_at_time = excluded.target_classification_at_time,
+               quota_bucket_at_time = excluded.quota_bucket_at_time,
+               uploaded_at = excluded.uploaded_at,
+               updated_at = excluded.updated_at`
+          ).bind(
+            s.id, device.profileId, device.deviceId, s.date, s.timezone || 'Asia/Shanghai',
+            typeof s.dayStartMs === 'number' ? s.dayStartMs : 0,
+            typeof s.dayEndMs === 'number' ? s.dayEndMs : 0,
+            s.startMs, s.endMs, s.durationSeconds, item.domain, s.channel, s.mode,
+            s.sourceState || '', s.settlementReason || '',
+            s.parentSegmentId || null,
+            typeof s.partIndex === 'number' ? s.partIndex : 1,
+            typeof s.partCount === 'number' ? s.partCount : 1,
+            s.createdAt || now, s.updatedAt || now, now,
+            s.tabId == null ? null : String(s.tabId),
+            typeof s.windowId === 'number' ? s.windowId : null,
+            item.descriptionJson,
+            item.managedTargetId,
+            item.managedTargetType,
+            item.managedTargetNamespace,
+            item.managedTargetValue,
+            item.managedTargetLabelAtTime,
+            item.targetSourceAtTime,
+            item.targetRuleId,
+            item.targetMatchLevel,
+            item.targetClassificationAtTime,
+            item.quotaBucketAtTime
+          );
+        });
+
         let payloadHash = '';
         try {
           const hashBuffer = await crypto.subtle.digest(
@@ -911,24 +905,25 @@ export const statsRouter = {
           payloadHash = Array.from(new Uint8Array(hashBuffer), b => b.toString(16).padStart(2, '0')).join('');
         } catch (_) {}
 
-        await env.DB.prepare(
+        statements.push(env.DB.prepare(
           `INSERT INTO segment_upload_log
            (id, profile_id, device_id, batch_id, received_count, accepted_count,
             inserted_count, updated_count, duplicate_count, failed_count, payload_hash, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
-          crypto.randomUUID(), device.profileId, device.deviceId, null,
-          segments.length, segments.length - failed,
-          inserted, updated, 0, failed, payloadHash, now
-        ).run();
+          crypto.randomUUID(), device.profileId, device.deviceId, batchId,
+          segments.length, segments.length,
+          0, 0, 0, 0, payloadHash, now
+        ));
+        await env.DB.batch(statements);
 
+        const acceptedIds = normalizedSegments.map(({ segment }) => segment.id);
         return json({
           success: true,
-          count: inserted + updated,
-          inserted,
-          updated,
-          failed: failed > 0 ? failed : undefined,
-          errors: errors.length > 0 ? errors : undefined,
+          count: acceptedIds.length,
+          acceptedIds,
+          rejected: [],
+          batchId,
         });
       } catch (e: any) {
         return json({ error: 'Failed to upload segments: ' + e.message }, 500);

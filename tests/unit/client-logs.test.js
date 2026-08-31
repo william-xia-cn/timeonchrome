@@ -280,6 +280,7 @@ function testStaticWiring() {
   check('local admin reads checkpoint health', adminJs.includes('GET_TIMING_CHECKPOINT_HEALTH') && adminJs.includes('checkpoint-health-summary'));
   check('pages exposes cloud system logs page', pages.includes('/client-logs/v1') && pages.includes('clientLoggingPolicyV1'));
   check('worker supports client log upload and query', worker.includes("path === '/device/client-logs/v1'") && worker.includes('/client-logs/v1'));
+  check('worker batches client log writes and returns item acknowledgements', worker.includes('await env.DB.batch(statements)') && worker.includes('acceptedIds') && worker.includes('LOG_BATCH_TOO_LARGE'));
   check('runtime fallback helper is exported', fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'client-logs.js'), 'utf8').includes('logFallbackEventBestEffort'));
   check('page notice fallback uses fallback logger', interceptor.includes('logFallbackEventBestEffort') && interceptor.includes('pending_notice_fallback_dropped'));
   check('checkpoint fallback uses fallback logger', session.includes('foreground_checkpoint_estimated_close') && session.includes('logFallbackEventBestEffort'));

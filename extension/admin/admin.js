@@ -10,7 +10,13 @@ import {
   getAdminSettlementView,
   getAdminUsageAnalysisView,
 } from '../stats/admin-read-model.js';
-import { buildEffectiveTimeQuota } from '../core/quota-config.js';
+import { buildEffectiveTimeQuota, weeklyRestLimitFromConfig } from '../core/quota-config.js';
+import {
+  CLOUD_QUOTA_STATE_FACT_KEY,
+  getQuotaCalendarContext,
+  isCloudQuotaStateFactCurrent,
+} from '../core/quota-state-facts.js';
+import { computeOnlineWindowsForDay } from '../core/time-windows.js';
 import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
 import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
 
@@ -69,7 +75,9 @@ const CLOUD_KEYS = {
   CHROME_IDENTITY_STATUS: 'cloud_chrome_identity_status_v1',
   RECOVERY_STATE: 'cloud_device_recovery_state_v1',
   RECOVERY_REQUEST_ID: 'cloud_device_recovery_request_id',
-  PRIVACY_CONSENT: 'privacy_consent_v1'
+  PRIVACY_CONSENT: 'privacy_consent_v1',
+  CONFIG_VERSION: 'cloud_config_version',
+  LAST_SYNC: 'cloud_last_sync',
 };
 
 function openPrivacyConsentFromAdmin() {
@@ -94,6 +102,13 @@ let syncFeedbackState = {
   message: ''
 };
 let adminPageRefreshSeq = 0;
+let adminRulesCloudMeta = {
+  loaded: false,
+  profileName: null,
+  configVersion: null,
+  lastSync: null,
+  quotaFact: null,
+};
 let settlementAnalysisRows = [];
 let settlementReconciliation = null;
 let settlementAnalysisRange = 'today';
@@ -121,6 +136,13 @@ let usageAnalysisLastView = null;
 const urlParams = new URLSearchParams(location.search);
 const isChildView = urlParams.get('view') === 'stats';
 
+async function readLocalGuardianConfig() {
+  const storage = await new Promise((resolve) => chrome.storage.local.get(['guardian_config'], resolve));
+  return storage.guardian_config && typeof storage.guardian_config === 'object'
+    ? storage.guardian_config
+    : {};
+}
+
 // ── 初始化 ─────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -139,7 +161,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   try {
     // 加载本地配置
-    config = await sendMsg({ type: 'GET_CONFIG' });
+    config = isChildView
+      ? await readLocalGuardianConfig()
+      : await sendMsg({ type: 'GET_CONFIG' });
   } catch (e) {
     console.warn('[Admin] initial GET_CONFIG failed, keeping login available:', e?.message || e);
     config = {};
@@ -197,7 +221,7 @@ async function enterChildView() {
   if (sidebarNameEl && profileName) sidebarNameEl.textContent = profileName + ' 的面板';
 
   // 加载配置并渲染使用分析
-  config = await sendMsg({ type: 'GET_CONFIG' });
+  config = await readLocalGuardianConfig();
   renderStatsPage();
 }
 
@@ -216,13 +240,12 @@ async function enterLocalReadOnlyMode() {
 
   document.querySelectorAll('.nav-item').forEach((item) => {
     const page = item.dataset.page;
-    if (page === 'rules') item.style.display = 'none';
     if (page === 'stats') item.classList.add('active');
   });
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-stats')?.classList.add('active');
 
-  config = await sendMsg({ type: 'GET_CONFIG' });
+  config = await readLocalGuardianConfig();
   await renderStatsPage();
 }
 
@@ -1170,7 +1193,9 @@ function setRulesPageError(message) {
     'rules-composite-display',
     'rules-restricted-display',
     'rules-blocked-display',
+    'rules-weekly-rest-display',
     'rules-quota-daily-display',
+    'rules-weekly-plan-display',
     'rules-domain-quotas-display',
     'rules-schedule-display',
     'rules-learning-request-display',
@@ -1299,11 +1324,11 @@ function isLatestAdminRefreshRequest(requestSeq) {
 
 async function refreshPageByNav(page, requestSeq) {
   try {
-    if (isLocalReadOnlyMode && page === 'rules') {
-      return;
-    }
     if (page === 'rules') {
-      config = await sendMsg({ type: 'GET_CONFIG' });
+      const useLocalReadModel = typeof isChildView !== 'undefined' && isChildView;
+      config = useLocalReadModel
+        ? await readLocalGuardianConfig()
+        : await sendMsg({ type: 'GET_CONFIG' });
       if (!isLatestAdminRefreshRequest(requestSeq)) return;
       renderRulesPage();
       return;
@@ -1526,13 +1551,137 @@ function formatQuotaText(minutes) {
   if (minutes === undefined) return '暂无配置';
   const mins = Number(minutes);
   if (!Number.isFinite(mins) || mins < 0) return '暂无配置';
-  if (mins === 0) return '0 分钟';
+  if (mins === 0) return '禁止使用（0 分钟）';
   if (mins >= 60) {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     return m > 0 ? `${h}小时${m}分钟` : `${h}小时`;
   }
   return `${mins}分钟`;
+}
+
+function formatBeijingDateTime(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '从未同步';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function renderRulesCloudSummary() {
+  const el = document.getElementById('rules-cloud-summary');
+  if (!el) return;
+
+  if (!adminRulesCloudMeta.loaded) {
+    el.innerHTML = `
+      <div class="rules-cloud-summary-main">
+        <div class="rules-cloud-summary-title">云端配置 · 只读</div>
+        <div class="rules-cloud-summary-meta">正在读取当前档案和最近同步状态…</div>
+      </div>
+      <span class="rules-cloud-state missing">读取中</span>
+    `;
+    return;
+  }
+
+  const lastSync = Number(adminRulesCloudMeta.lastSync || 0);
+  const syncAgeMs = lastSync > 0 ? Date.now() - lastSync : Number.POSITIVE_INFINITY;
+  const isFresh = syncAgeMs >= 0 && syncAgeMs <= 15 * 60 * 1000;
+  const stateClass = lastSync <= 0 ? 'missing' : (isFresh ? '' : 'stale');
+  const stateText = lastSync <= 0 ? '尚未同步' : (isFresh ? '已同步' : '显示上次同步结果');
+  const profileName = escHtml(adminRulesCloudMeta.profileName || '未绑定档案');
+  const version = adminRulesCloudMeta.configVersion === null || adminRulesCloudMeta.configVersion === undefined
+    ? '—'
+    : escHtml(String(adminRulesCloudMeta.configVersion));
+  const syncText = escHtml(formatBeijingDateTime(lastSync));
+
+  el.innerHTML = `
+    <div class="rules-cloud-summary-main">
+      <div class="rules-cloud-summary-title">云端配置 · 只读</div>
+      <div class="rules-cloud-summary-meta">${profileName} · 配置 v${version} · 最近同步：${syncText}（北京时间）</div>
+    </div>
+    <span class="rules-cloud-state ${stateClass}">${stateText}</span>
+  `;
+}
+
+function weeklyQuotaSourceLabel(source) {
+  if (source === 'timeQuota') return '显式周上限';
+  if (source === 'legacy') return '旧配置兼容';
+  return '未设置';
+}
+
+function renderWeeklyRestSection() {
+  const el = document.getElementById('rules-weekly-rest-display');
+  if (!el) return;
+
+  const weekly = weeklyRestLimitFromConfig(config || {});
+  const context = getQuotaCalendarContext();
+  const fact = isCloudQuotaStateFactCurrent(adminRulesCloudMeta.quotaFact, context)
+    ? adminRulesCloudMeta.quotaFact
+    : null;
+  const limitSeconds = weekly.value === null ? null : Math.max(0, Number(weekly.value) || 0) * 60;
+  const usedSeconds = fact ? Math.max(0, Number(fact.usage?.weekRestSeconds) || 0) : null;
+  const remainingSeconds = fact && limitSeconds !== null
+    ? Math.max(0, limitSeconds - usedSeconds)
+    : null;
+  const statusText = !fact
+    ? '等待云端用量同步'
+    : (fact.state?.weeklyRestLocked === true ? '已达上限' : '正常');
+  const usedText = fact ? formatSeconds(usedSeconds) : '等待同步';
+  const remainingText = !fact ? '等待同步' : (limitSeconds === null ? '—' : formatSeconds(remainingSeconds));
+  const computedText = fact ? `${formatBeijingDateTime(fact.computedAt)}（北京时间）` : '当前周事实不可用';
+
+  el.innerHTML = `
+    <div class="rules-weekly-layout">
+      <div class="rules-weekly-limit">
+        <div class="rules-weekly-limit-label">当前上限</div>
+        <div class="rules-weekly-limit-value">${formatQuotaText(weekly.value)}</div>
+        <div class="rules-weekly-meta">来源：${weeklyQuotaSourceLabel(weekly.source)}<br>每周一 00:00（北京时间）重置</div>
+      </div>
+      <div>
+        <div class="rules-weekly-status-grid">
+          <div class="rules-weekly-stat"><div class="rules-weekly-stat-label">本周已用</div><div class="rules-weekly-stat-value">${usedText}</div></div>
+          <div class="rules-weekly-stat"><div class="rules-weekly-stat-label">本周剩余</div><div class="rules-weekly-stat-value">${remainingText}</div></div>
+          <div class="rules-weekly-stat"><div class="rules-weekly-stat-label">状态</div><div class="rules-weekly-stat-value">${statusText}</div></div>
+        </div>
+        <div class="rules-weekly-note">复合或待归类网站借用的休息配额会计入；媒体时长不计入。云端事实时间：${escHtml(computedText)}</div>
+      </div>
+    </div>
+  `;
+}
+
+async function refreshAdminRulesCloudReadModel() {
+  try {
+    const storage = await new Promise((resolve) => chrome.storage.local.get([
+      CLOUD_KEYS.PROFILE_NAME,
+      CLOUD_KEYS.CONFIG_VERSION,
+      CLOUD_KEYS.LAST_SYNC,
+      CLOUD_QUOTA_STATE_FACT_KEY,
+    ], resolve));
+    adminRulesCloudMeta = {
+      loaded: true,
+      profileName: storage[CLOUD_KEYS.PROFILE_NAME] || null,
+      configVersion: storage[CLOUD_KEYS.CONFIG_VERSION] ?? null,
+      lastSync: Number(storage[CLOUD_KEYS.LAST_SYNC] || 0),
+      quotaFact: storage[CLOUD_QUOTA_STATE_FACT_KEY] || null,
+    };
+  } catch (_) {
+    adminRulesCloudMeta = {
+      loaded: true,
+      profileName: null,
+      configVersion: null,
+      lastSync: null,
+      quotaFact: null,
+    };
+  }
+  renderRulesCloudSummary();
+  renderWeeklyRestSection();
 }
 
 function getDailyQuotaByDay(dayKey) {
@@ -1542,7 +1691,29 @@ function getDailyQuotaByDay(dayKey) {
     study: fromTimeQuota?.studyMinutes,
     rest: fromTimeQuota?.restMinutes,
     composite: fromTimeQuota?.compositeMinutes,
+    online: fromTimeQuota?.onlineMinutes,
   };
+}
+
+function renderWeeklyPlanSection(dailyByDay) {
+  const el = document.getElementById('rules-weekly-plan-display');
+  if (!el) return;
+  const fields = [
+    ['study', '学习计划'],
+    ['rest', '休息计划'],
+    ['composite', '待归类计划'],
+    ['online', '在线总额计划'],
+  ];
+  const items = fields.map(([field, label]) => {
+    const values = QUOTA_DAYS.map((day) => dailyByDay[day]?.[field]);
+    const hasUnlimitedDay = values.some((value) => value === null);
+    const hasMissingValue = values.some((value) => value === undefined || !Number.isFinite(Number(value)));
+    const text = hasUnlimitedDay
+      ? '包含无限制日'
+      : (hasMissingValue ? '暂无完整配置' : formatQuotaText(values.reduce((sum, value) => sum + Number(value), 0)));
+    return `<div class="rules-weekly-stat"><div class="rules-weekly-stat-label">${label}</div><div class="rules-weekly-stat-value">${text}</div></div>`;
+  }).join('');
+  el.innerHTML = `<div class="rules-plan-grid">${items}</div><div class="rules-weekly-note">这里是七天每日计划的算术合计，只用于核对配置；每周休息上限以“每周休息上限”卡片为准。</div>`;
 }
 
 function getAdminRestReminderView() {
@@ -1566,6 +1737,8 @@ function getAdminRestReminderView() {
 }
 
 function renderQuotaSection() {
+  renderWeeklyRestSection();
+
   const reminderEl = document.getElementById('rules-rest-reminder-display');
   if (reminderEl) {
     const reminder = getAdminRestReminderView();
@@ -1590,21 +1763,26 @@ function renderQuotaSection() {
 
   const quotaDailyEl = document.getElementById('rules-quota-daily-display');
   if (quotaDailyEl) {
+    const todayKey = QUOTA_DAYS[(new Date().getDay() + 6) % 7];
+    const dailyByDay = {};
     const rows = QUOTA_DAYS.map((day) => {
       const q = getDailyQuotaByDay(day);
+      dailyByDay[day] = q;
       return `
         <div class="rules-grid-row quota">
-          <div style="font-size:13px;font-weight:650;">${QUOTA_DAY_LABELS[day]}</div>
-          <div class="rules-readonly-value">学习：${formatQuotaText(q.study)}</div>
-          <div class="rules-readonly-value">休息：${formatQuotaText(q.rest)}</div>
-          <div class="rules-readonly-value">待归类：${formatQuotaText(q.composite)}</div>
+          <div class="rules-grid-day ${day === todayKey ? 'today' : ''}">${QUOTA_DAY_LABELS[day]}${day === todayKey ? ' · 今天' : ''}</div>
+          <div class="rules-readonly-value"><span class="rules-value-label">学习配额</span>${formatQuotaText(q.study)}</div>
+          <div class="rules-readonly-value"><span class="rules-value-label">休息配额</span>${formatQuotaText(q.rest)}</div>
+          <div class="rules-readonly-value"><span class="rules-value-label">待归类配额</span>${formatQuotaText(q.composite)}</div>
+          <div class="rules-readonly-value"><span class="rules-value-label">在线总额</span>${formatQuotaText(q.online)}</div>
         </div>
       `;
     }).join('');
     quotaDailyEl.innerHTML = `<div class="rules-quota-grid">
-      <div class="rules-grid-row quota header"><div>星期</div><div>学习配额</div><div>休息配额</div><div>待归类配额</div></div>
+      <div class="rules-grid-row quota header"><div>星期</div><div>学习配额</div><div>休息配额</div><div>待归类配额</div><div>在线总额</div></div>
       ${rows || '<div class="rules-readonly-empty">暂无配置</div>'}
     </div>`;
+    renderWeeklyPlanSection(dailyByDay);
   }
 
   const domainQuotaEl = document.getElementById('rules-domain-quotas-display');
@@ -1632,21 +1810,61 @@ function formatWindowsLabel(windows) {
   }).join('，');
 }
 
-function computeOnlineWindowsLabel(studyWindows, compositeWindows, restWindows) {
-  if (
-    studyWindows === null || studyWindows === undefined || !Array.isArray(studyWindows) || studyWindows.length === 0 ||
-    compositeWindows === null || compositeWindows === undefined || !Array.isArray(compositeWindows) || compositeWindows.length === 0 ||
-    restWindows === null || restWindows === undefined || !Array.isArray(restWindows) || restWindows.length === 0
-  ) return '全天允许';
+function windowMinute(value) {
+  const match = String(value || '').match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour === 24 && minute === 0) return 1440;
+  if (hour < 0 || hour > 23) return null;
+  return hour * 60 + minute;
+}
+
+function minuteWindowLabel(value) {
+  if (value === 1440) return '24:00';
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function normalizedWindowMinutes(windows) {
+  if (windows === null || windows === undefined || !Array.isArray(windows) || windows.length === 0) return null;
+  const ranges = windows.map((window) => ({
+    start: windowMinute(window?.start),
+    end: windowMinute(window?.end),
+  })).filter((window) => window.start !== null && window.end !== null && window.start < window.end)
+    .sort((a, b) => a.start - b.start);
+  if (!ranges.length) return [];
   const merged = [];
-  for (const w of (Array.isArray(studyWindows) ? studyWindows : [])) merged.push(w);
-  for (const w of (Array.isArray(compositeWindows) ? compositeWindows : [])) merged.push(w);
-  for (const w of (Array.isArray(restWindows) ? restWindows : [])) merged.push(w);
-  return merged.map((w) => {
-    const start = escHtml(w?.start || '--:--');
-    const end = escHtml(w?.end || '--:--');
-    return `${start} - ${end}`;
-  }).join('，');
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (!last || range.start > last.end) merged.push({ ...range });
+    else last.end = Math.max(last.end, range.end);
+  }
+  return merged;
+}
+
+function formatLockedWindowsLabel(windows) {
+  const allowed = normalizedWindowMinutes(windows);
+  if (allowed === null) return '无锁定时段';
+  if (allowed.length === 0) return '暂无法计算';
+  const locked = [];
+  let cursor = 0;
+  for (const range of allowed) {
+    if (range.start > cursor) locked.push({ start: cursor, end: range.start });
+    cursor = Math.max(cursor, range.end);
+  }
+  if (cursor < 1440) locked.push({ start: cursor, end: 1440 });
+  if (!locked.length) return '无锁定时段';
+  return locked.map((range) => `${minuteWindowLabel(range.start)} - ${minuteWindowLabel(range.end)}`).join('，');
+}
+
+function renderWindowValue(label, windows, muted = false) {
+  return `<div class="rules-readonly-value"${muted ? ' style="color:var(--muted);"' : ''}>
+    <span class="rules-value-label">${label}</span>
+    <span>允许：${formatWindowsLabel(windows)}</span>
+    <span class="rules-window-locked">锁定：${formatLockedWindowsLabel(windows)}</span>
+  </div>`;
 }
 
 function renderScheduleSection() {
@@ -1657,17 +1875,14 @@ function renderScheduleSection() {
   if (hasTimeWindows) {
     const rows = QUOTA_DAYS.map((day) => {
       const dayCfg = config.timeWindows.daily?.[day] || {};
-      const studyLabel = formatWindowsLabel(dayCfg.studyWindows);
-      const compositeLabel = formatWindowsLabel(dayCfg.compositeWindows);
-      const restLabel = formatWindowsLabel(dayCfg.restWindows);
-      const onlineLabel = computeOnlineWindowsLabel(dayCfg.studyWindows, dayCfg.compositeWindows, dayCfg.restWindows);
+      const onlineWindows = computeOnlineWindowsForDay(dayCfg);
       return `
         <div class="rules-grid-row schedule">
-          <div style="font-size:13px;font-weight:650;">${QUOTA_DAY_LABELS[day]}</div>
-          <div class="rules-readonly-value">${studyLabel}</div>
-          <div class="rules-readonly-value">${compositeLabel}</div>
-          <div class="rules-readonly-value">${restLabel}</div>
-          <div class="rules-readonly-value" style="color:var(--muted);">${onlineLabel}</div>
+          <div class="rules-grid-day">${QUOTA_DAY_LABELS[day]}</div>
+          ${renderWindowValue('学习时段', dayCfg.studyWindows)}
+          ${renderWindowValue('复合时段', dayCfg.compositeWindows)}
+          ${renderWindowValue('休息时段', dayCfg.restWindows)}
+          ${renderWindowValue('在线时段', onlineWindows, true)}
         </div>
       `;
     }).join('');
@@ -1691,11 +1906,11 @@ function renderScheduleSection() {
       const online = day.enabled ? `${escHtml(day?.start || '--:--')} - ${escHtml(day?.end || '--:--')}` : '不限制';
       return `
         <div class="rules-grid-row schedule">
-          <div style="font-size:13px;font-weight:650;">${name}</div>
-          <div class="rules-readonly-value" style="color:var(--muted);">暂无配置</div>
-          <div class="rules-readonly-value" style="color:var(--muted);">暂无配置</div>
-          <div class="rules-readonly-value" style="color:var(--muted);">暂无配置</div>
-          <div class="rules-readonly-value">${online}</div>
+          <div class="rules-grid-day">${name}</div>
+          <div class="rules-readonly-value" style="color:var(--muted);"><span class="rules-value-label">学习时段</span>暂无配置</div>
+          <div class="rules-readonly-value" style="color:var(--muted);"><span class="rules-value-label">复合时段</span>暂无配置</div>
+          <div class="rules-readonly-value" style="color:var(--muted);"><span class="rules-value-label">休息时段</span>暂无配置</div>
+          <div class="rules-readonly-value"><span class="rules-value-label">在线时段</span>允许：${online}</div>
         </div>
       `;
     }).join('')}
@@ -1709,6 +1924,14 @@ function formatRulesDateTime(ms) {
 
 function siteRequestStatusLabel(status, record = {}) {
   const kind = siteClassificationRecordKind(record);
+  if (record?.syncStatus === 'resolved') {
+    const classification = String(record.syncResolutionClassifiedAs || '');
+    if (record.syncResolutionCode === 'REQUEST_REJECTED' || classification === 'rejected' || classification === 'restricted') return '当前配置已限制';
+    if (classification === 'blocked') return '当前配置已禁止';
+    if (classification === 'study') return '当前配置已归为学习';
+    if (classification === 'composite' || classification === 'pending_composite') return '当前配置已归为复合';
+    return '当前配置已归类';
+  }
   if (status === 'pending') return '待家长确认';
   if (status === 'returned') return kind === 'unclassified_visit' ? '已暂不归类' : '已退回';
   if (status === 'approved_study') return '已确认为学习';
@@ -2117,6 +2340,7 @@ function renderAdminRulesSiteManagement() {
 }
 function renderRulesPage() {
   syncRulesTabs();
+  renderRulesCloudSummary();
 
   const modeDescEl = document.getElementById('rules-mode-desc');
   if (modeDescEl) {
@@ -2127,6 +2351,7 @@ function renderRulesPage() {
   renderQuotaSection();
   renderScheduleSection();
   renderSiteClassificationRequestSection();
+  void refreshAdminRulesCloudReadModel();
 }
 // ──────────────────────────────────────────────────────────────────────────
 

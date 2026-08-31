@@ -1276,6 +1276,34 @@
       font-size: 12px;
       line-height: 1.6;
     }
+    .rules-cloud-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 16px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(37,99,235,0.035);
+    }
+    .rules-cloud-summary-main { min-width: 0; }
+    .rules-cloud-summary-title { font-size: 13px; font-weight: 700; }
+    .rules-cloud-summary-meta { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+    .rules-cloud-state {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(0,184,148,0.10);
+      color: #047857;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .rules-cloud-state.stale { background: rgba(245,158,11,0.12); color: #b45309; }
+    .rules-cloud-state.missing { background: rgba(107,114,128,0.10); color: var(--muted); }
     .rules-site-group {
       background: var(--card);
       border: 1px solid var(--border);
@@ -1355,21 +1383,23 @@
       text-align: center;
     }
     .rules-quota-grid,
-    .rules-schedule-grid { overflow-x: auto; }
+    .rules-schedule-grid { width: 100%; }
     .rules-grid-row {
       display: grid;
       gap: 8px;
       align-items: center;
       padding: 9px 0;
       border-bottom: 1px solid var(--border);
-      min-width: 760px;
     }
     .rules-grid-row.header { color: var(--muted); font-size: 12px; font-weight: 700; padding-top: 0; }
-    .rules-grid-row.quota { grid-template-columns: 80px repeat(3, minmax(140px, 1fr)); }
-    .rules-grid-row.schedule { grid-template-columns: 80px repeat(4, minmax(140px, 1fr)); }
+    .rules-grid-row.quota { grid-template-columns: 72px repeat(4, minmax(105px, 1fr)); }
+    .rules-grid-row.schedule { grid-template-columns: 72px repeat(4, minmax(130px, 1fr)); }
+    .rules-grid-day { font-size: 13px; font-weight: 650; }
+    .rules-grid-day.today { color: #1d4ed8; }
     .rules-readonly-value {
-      display: inline-flex;
-      align-items: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
       min-height: 32px;
       border: 1px solid var(--border);
       border-radius: 9px;
@@ -1380,6 +1410,40 @@
       line-height: 1.35;
       overflow-wrap: anywhere;
     }
+    .rules-value-label { display: none; color: var(--muted); font-size: 11px; font-weight: 600; margin-bottom: 3px; }
+    .rules-window-locked { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .rules-weekly-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, .8fr) minmax(360px, 1.2fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .rules-weekly-limit {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(0,184,148,0.035);
+    }
+    .rules-weekly-limit-label { color: var(--muted); font-size: 12px; }
+    .rules-weekly-limit-value { margin-top: 5px; font-size: 22px; font-weight: 750; }
+    .rules-weekly-meta { margin-top: 9px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .rules-weekly-status-grid,
+    .rules-plan-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .rules-plan-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .rules-weekly-stat {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(37,99,235,0.035);
+    }
+    .rules-weekly-stat-label { color: var(--muted); font-size: 11px; }
+    .rules-weekly-stat-value { margin-top: 4px; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+    .rules-weekly-note { margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.6; }
     .rules-reminder-summary {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1412,7 +1476,52 @@
       line-height: 1.7;
     }
     @media (max-width: 720px) {
+      body { min-width: 0; }
+      #main-screen { width: 100%; }
+      .sidebar {
+        position: static;
+        width: 100%;
+        height: auto;
+        padding: 12px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .sidebar-logo {
+        grid-column: 1 / -1;
+        margin: 0 0 4px;
+        padding: 0 4px 12px;
+      }
+      .nav-item {
+        min-width: 0;
+        padding: 10px 12px;
+        border-left: 0;
+        border-radius: 8px;
+      }
+      .nav-item.active { border-left-color: transparent; }
+      .sidebar-footer { display: none; }
+      .content { margin-left: 0; padding: 16px; max-width: none; }
+      .page-header { margin-bottom: 18px; }
+      .page-header h2 { font-size: 20px; }
+      .card { padding: 16px; }
+      .rules-tabs { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .rules-tabs button { min-width: 0; padding: 9px 8px; }
+      .rules-cloud-summary { align-items: flex-start; flex-direction: column; }
+      .rules-weekly-layout { grid-template-columns: 1fr; }
+      .rules-weekly-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .rules-plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .rules-reminder-summary { grid-template-columns: 1fr; }
+      .rules-grid-row.header { display: none; }
+      .rules-grid-row.quota,
+      .rules-grid-row.schedule {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 12px 0;
+      }
+      .rules-grid-day { grid-column: 1 / -1; }
+      .rules-value-label { display: block; }
     }
     .system-management-panel {
       display: none;
@@ -1744,6 +1853,14 @@
         <p id="rules-mode-desc">当前规则由家长在云端设定，本设备仅展示当前生效规则</p>
       </div>
 
+      <div class="rules-cloud-summary" id="rules-cloud-summary">
+        <div class="rules-cloud-summary-main">
+          <div class="rules-cloud-summary-title">云端配置 · 只读</div>
+          <div class="rules-cloud-summary-meta">正在读取当前档案和最近同步状态…</div>
+        </div>
+        <span class="rules-cloud-state missing">读取中</span>
+      </div>
+
       <div class="usage-segmented rules-tabs" aria-label="访问管理功能">
         <button type="button" class="active" data-rules-tab="site-management">网站管理</button>
         <button type="button" data-rules-tab="quota-management">时间配额</button>
@@ -1774,6 +1891,16 @@
         <div class="card">
           <div class="card-header">
             <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">每周休息上限</div>
+              <div class="card-subtitle">周一 00:00 至周日 24:00，按北京时间统计（只读）</div>
+            </div>
+          </div>
+          <div id="rules-weekly-rest-display">正在读取云端周配额状态…</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
               <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">休息时间提醒</div>
               <div class="card-subtitle">当前孩子档案的软限额提醒配置（只读）</div>
             </div>
@@ -1785,10 +1912,20 @@
           <div class="card-header">
             <div>
               <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/online-time.svg" alt="">配额规则</div>
-              <div class="card-subtitle">只读展示当前生效配额配置</div>
+              <div class="card-subtitle">每日学习、休息、待归类和在线总额（只读）</div>
             </div>
           </div>
           <div id="rules-quota-daily-display">暂无配置</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">七天每日计划合计</div>
+              <div class="card-subtitle">用于核对每日计划，不是周上限；任一天无限制时显示“包含无限制日”</div>
+            </div>
+          </div>
+          <div id="rules-weekly-plan-display">暂无配置</div>
         </div>
 
         <div class="card">
@@ -1804,7 +1941,7 @@
           <div class="card-header">
             <div>
               <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/online-time.svg" alt="">时间段规则</div>
-              <div class="card-subtitle">学习时段 / 休息时段 / 在线时段（只读）</div>
+              <div class="card-subtitle">同时显示允许窗口与锁定时段；在线时段由三种模式自动合并（只读）</div>
             </div>
           </div>
           <div id="rules-schedule-display">暂无配置</div>

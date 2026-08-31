@@ -1,9 +1,10 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.28（内部前向止血已发布）**
+- **版本：1.7.29（内部 managed 前向发布候选）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
 - **当前发布状态（2026-08-31）**：`1.7.28` 已以 `APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE` 发布至 T.xia / P.xia 内部 managed 自托管渠道。源码提交 `db9bd0b`、Guardian Worker `aaa42a97-cf48-4dae-96e0-723addf1d911`、更新站点 deployment `d96be070` 已部署并回读通过；CRX 为 378,384 bytes，SHA256 `f08d69d0ea18ccc861d784d5f5b1148b3e952a2419851d2d700af09d0b988e14`。媒体/usage 大批量上传超时与未 ACK、T.xia 当日物化统计未收敛、`cg.163.com` 的 `idleStateChanged` 少记及 `ALREADY_CLASSIFIED` 长期重试风险继续保持 Deferred / 未解决，不适用于 CWS。控制台 Pages、Native Worker、D1 schema、profile 和历史账本未变更；设备实际升级仍属生产观察。
+- **当前发布候选状态（2026-08-31）**：D-073 网站归类确定性终结、D-074 原始 segment 原子上传/逐项 ACK/统计收敛门禁及本地 Admin 访问管理只读显示组成 `1.7.29` 候选。Product Owner 已批准提交、推送、部署和内部托管；不进入 CWS，不修改历史 D1、profile 或网页 ACTIVE。`cg.163.com idleStateChanged` 继续暂缓；Thomas 终端 17:33 后无请求缺少端点证据，T.xia/P.xia 实际升级与历史积压收敛继续作为未解决/生产观察。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

@@ -110,6 +110,7 @@ this.__records = {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
   markSiteClassificationRequestUploadFailed,
+  markSiteClassificationRequestsResolved,
   markSiteClassificationRequestsUploaded,
 };
 `, context, { filename: 'site-classification-record-semantics.vm.js' });
@@ -280,6 +281,44 @@ async function run() {
   const uploadedRecord = (await api.getSiteClassificationRequestRecords({ includeAll: true })).find((record) => record.id === originalId);
   expectEqual('successful upload clears retry count', uploadedRecord.retryCount, 0);
   expectEqual('successful upload clears retry timestamp', uploadedRecord.lastSyncAttemptAt, null);
+
+  const terminalCandidate = await api.recordUnclassifiedSiteAccess('resolved.example', {
+    observedEventSource: 'tabActivated',
+    observedAt: 12000,
+    sourceTabId: 11,
+    url: 'https://resolved.example/',
+    domain: 'resolved.example',
+  });
+  const terminalId = terminalCandidate.request.id;
+  await api.markSiteClassificationRequestUploadFailed([terminalId], 'ALREADY_CLASSIFIED');
+  const resolvedCount = await api.markSiteClassificationRequestsResolved([{
+    id: terminalId,
+    code: 'ALREADY_CLASSIFIED',
+    classifiedAs: 'study',
+    source: 'system_config',
+  }]);
+  const resolvedRecord = (await api.getSiteClassificationRequestRecords({ includeAll: true })).find((record) => record.id === terminalId);
+  expectEqual('deterministic classification conflict resolves one local record', resolvedCount, 1);
+  expectEqual('resolved record exits retry state', resolvedRecord.syncStatus, 'resolved');
+  expectEqual('resolved record preserves terminal audit fields', {
+    code: resolvedRecord.syncResolutionCode,
+    classifiedAs: resolvedRecord.syncResolutionClassifiedAs,
+    source: resolvedRecord.syncResolutionSource,
+  }, { code: 'ALREADY_CLASSIFIED', classifiedAs: 'study', source: 'system_config' });
+  expectEqual('resolved record clears retry metadata', {
+    retryCount: resolvedRecord.retryCount,
+    lastSyncAttemptAt: resolvedRecord.lastSyncAttemptAt,
+    lastSyncError: resolvedRecord.lastSyncError,
+  }, { retryCount: 0, lastSyncAttemptAt: null, lastSyncError: null });
+  expectEqual('resolved record does not fake cloud identity', resolvedRecord.cloudId || null, null);
+  const pendingAfterResolve = await api.getPendingSiteClassificationRequestUploads();
+  expectTrue('resolved record no longer enters pending uploads', !pendingAfterResolve.requests.some((record) => record.id === terminalId));
+
+  const ignoredCount = await api.markSiteClassificationRequestsResolved([{
+    id: terminalId,
+    code: 'SERVER_ERROR',
+  }]);
+  expectEqual('transient server errors cannot be terminalized', ignoredCount, 0);
   const total = passed + failed;
   console.log(`\n[Site Classification Record Semantics] ${passed}/${total} passed${failed ? ` - ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

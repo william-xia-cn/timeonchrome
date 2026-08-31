@@ -675,6 +675,40 @@ export async function markSiteClassificationRequestUploadFailed(ids = [], error 
   await setSiteClassificationRequestRecords(next);
 }
 
+const SITE_CLASSIFICATION_TERMINAL_SYNC_CODES = new Set([
+  'ALREADY_CLASSIFIED',
+  'REQUEST_REJECTED',
+]);
+
+export async function markSiteClassificationRequestsResolved(resolutions = []) {
+  const resolutionById = new Map((Array.isArray(resolutions) ? resolutions : [])
+    .filter((item) => item?.id && SITE_CLASSIFICATION_TERMINAL_SYNC_CODES.has(String(item.code || '')))
+    .map((item) => [item.id, item]));
+  if (resolutionById.size === 0) return 0;
+
+  const records = await getSiteClassificationRequestRecords({ includeAll: true });
+  const resolvedAt = Date.now();
+  let resolved = 0;
+  const next = records.map((record) => {
+    const resolution = resolutionById.get(record.id);
+    if (!resolution) return record;
+    resolved += 1;
+    return {
+      ...record,
+      syncStatus: 'resolved',
+      syncResolutionCode: String(resolution.code),
+      syncResolutionClassifiedAs: resolution.classifiedAs || null,
+      syncResolutionSource: resolution.source || null,
+      syncResolvedAt: resolvedAt,
+      lastSyncError: null,
+      retryCount: 0,
+      lastSyncAttemptAt: null,
+    };
+  });
+  await setSiteClassificationRequestRecords(next);
+  return resolved;
+}
+
 export async function mergeCloudSiteClassificationRequests(cloudRecords = []) {
   const local = await getSiteClassificationRequestRecords({ includeAll: true });
   const byKey = new Map();

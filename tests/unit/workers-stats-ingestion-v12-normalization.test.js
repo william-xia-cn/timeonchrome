@@ -76,12 +76,16 @@ function run() {
   expectTrue('cloud sync 请求必须有 Abort 超时', cloudSyncSource.includes('REQUEST_TIMEOUT_MS') && cloudSyncSource.includes('new AbortController()') && cloudSyncSource.includes('controller.abort()'));
   expectTrue('cloud sync 应能释放过期 isSyncing 锁', cloudSyncSource.includes('SYNC_STALE_LOCK_MS') && cloudSyncSource.includes('Stale sync lock detected') && cloudSyncSource.includes('syncStartedAt'));
   expectTrue('cloud sync 应同步网站归类申请', cloudSyncSource.includes('syncSiteClassificationRequestsV1') && cloudSyncSource.includes('/device/site-classification-requests/v1'));
+  expectTrue('cloud sync 应将确定性网站归类冲突终结而不是继续 retry exhausted', cloudSyncSource.includes("item?.code === 'ALREADY_CLASSIFIED'") && cloudSyncSource.includes("item?.code === 'REQUEST_REJECTED'") && cloudSyncSource.includes('markSiteClassificationRequestsResolved(terminalErrors)'));
+  expectTrue('cloud sync resolved 网站归类记录不得计入 failed 或 missing ack', cloudSyncSource.includes('!resolvedIds.includes(id)') && cloudSyncSource.includes('[...savedLocalIds, ...resolvedIds, ...failedIds]') && cloudSyncSource.includes('- uploaded - resolved'));
+  expectTrue('cloud sync 应立即复核旧版已 exhausted 的确定性归类错误', cloudSyncSource.includes('isLegacyTerminalRetry(record)') && cloudSyncSource.includes('forceRetryExhausted || isLegacyTerminalRetry(record)'));
   expectTrue('cloud sync daily 空 payload 且存在落账时不得清 dirty', cloudSyncSource.includes('cloud_daily_stats_payload_inconsistent') && cloudSyncSource.includes('markDailyStatsUploadFailed([date], message)'));
   expectTrue('cloud sync target 空 payload 且存在落账时不得清 dirty', cloudSyncSource.includes('cloud_target_stats_payload_inconsistent') && cloudSyncSource.includes('markTargetStatsUploadFailed([date], message)'));
   expectTrue('cloud sync 普通 usage 主路径应使用今日快照和历史水位', cloudSyncSource.includes('syncUsageStatsByDateWatermarkV1') && cloudSyncSource.includes('uploadTodayUsageStatsSnapshotV1') && cloudSyncSource.includes('uploadHistoricalUsageStatsByWatermarkV1'));
   expectTrue('cloud sync 应持久化普通 usage 历史连续同步水位', cloudSyncSource.includes('usage_stats_history_synced_through_date_v1') && cloudSyncSource.includes('USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE'));
   expectTrue('cloud sync 历史上传前应查询云端完整性', cloudSyncSource.includes('/device/stats-integrity/v1?date=') && cloudSyncSource.includes('isCloudIntegrityCompleteForPackage'));
   expectTrue('cloud sync 历史跳过上传前应要求云端自判完整', cloudSyncSource.includes('localHasData') && cloudSyncSource.includes('integrity.complete === false'));
+  expectTrue('cloud sync 历史补传后应再次核对完整性再推进水位', cloudSyncSource.includes('cloud_usage_history_post_upload_integrity_failed') && cloudSyncSource.includes('history usage stats not converged after upload'));
   expectTrue('cloud sync 普通 usage 主流程不再调用 dirty 上传函数', !cloudSyncSource.includes('const segmentResult = await uploadUsageSegmentsV1({ enabled })'));
   expectTrue('stats.ts 应在入库前执行 normalizeHostname', source.includes('const normalizedDomain = normalizeHostname(stat.domain);'));
   expectTrue('stats.ts 应跳过归一后非法域名', source.includes('if (!normalizedDomain) continue;'));
@@ -173,8 +177,8 @@ function run() {
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
   expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));
   expectTrue('usage-segments/v1 应支持按终端过滤并返回 deviceId', source.includes('device_id = ?') && source.includes('SELECT id, device_id, date') && source.includes('deviceId: row.device_id'));
-  expectTrue('usage-segments/v1 应保存并返回 tab/window/description', source.includes('tab_id = ?') && source.includes('window_id = ?') && source.includes('description_json = ?') && source.includes('tabId: row.tab_id') && source.includes('windowId: row.window_id') && source.includes('description: parseJsonField(row.description_json)'));
-  expectTrue('usage-segments/v1 应保存并返回 managedTarget 快照', source.includes('managed_target_id = ?') && source.includes('quota_bucket_at_time = ?') && source.includes('managedTargetId: row.managed_target_id') && source.includes('quotaBucketAtTime: row.quota_bucket_at_time'));
+  expectTrue('usage-segments/v1 应保存并返回 tab/window/description', source.includes('tab_id = excluded.tab_id') && source.includes('window_id = excluded.window_id') && source.includes('description_json = excluded.description_json') && source.includes('tabId: row.tab_id') && source.includes('windowId: row.window_id') && source.includes('description: parseJsonField(row.description_json)'));
+  expectTrue('usage-segments/v1 应保存并返回 managedTarget 快照', source.includes('managed_target_id = excluded.managed_target_id') && source.includes('quota_bucket_at_time = excluded.quota_bucket_at_time') && source.includes('managedTargetId: row.managed_target_id') && source.includes('quotaBucketAtTime: row.quota_bucket_at_time'));
   expectTrue('usage-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('ORDER BY start_ms DESC, id DESC'));
   expectTrue('usage-segments/v1 应支持 keyset cursor', source.includes('decodeSegmentCursor') && source.includes('nextCursor'));
   expectTrue('usage-segments/v1 应返回 summary 聚合', source.includes('totalSeconds') && source.includes('activeSeconds') && source.includes('mediaSeconds'));
@@ -182,6 +186,10 @@ function run() {
   expectTrue('stats-reconciliation/v1 应返回四类状态', source.includes('stats_missing') && source.includes('segments_missing') && source.includes('mismatch') && source.includes('match'));
   expectTrue('stats-reconciliation/v1 应返回 deltaSeconds', source.includes('deltaSeconds: segmentSeconds - statsSeconds'));
   expectTrue('stats.ts 应在 usage_segments_v1 表中使用 ON CONFLICT/upsert 语义', source.includes('usage_segments_v1'));
+  expectTrue('usage/media segment 应使用 D1 batch 原子写入', (source.match(/await env\.DB\.batch\(statements\)/g) || []).length >= 2);
+  expectTrue('usage/media segment 应以 ID 幂等 upsert', (source.match(/ON CONFLICT\(id\) DO UPDATE SET/g) || []).length >= 2);
+  expectTrue('segment 成功响应应返回逐项 acceptedIds', source.includes('acceptedIds') && source.includes('rejected: []'));
+  expectTrue('segment 批次应先完整校验再写入', source.includes('SEGMENT_BATCH_REJECTED') && source.includes('segment batch exceeds 200 items'));
   expectTrue('stats.ts 应在 stats_v1 表中使用 UNIQUE 约束 upsert', source.includes('stats_v1'));
   expectTrue('stats.ts 应写入 segment_upload_log', source.includes('segment_upload_log'));
   expectTrue('stats.ts 应写入 stats_upload_log', source.includes('stats_upload_log'));
