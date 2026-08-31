@@ -1,7 +1,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="TimeOnChrome App Runtime"
            Manufacturer="TimeOnChrome"
-           Version="1.0.0"
+           Version="$(var.ProductVersion)"
            UpgradeCode="B646BA2C-3D5F-45B3-8BAA-3277B42C33AD"
            Scope="perUser">
     <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 TimeOnChrome App Runtime。" />
@@ -10,10 +10,11 @@
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="CompanyFolder" Name="TimeOnChrome">
         <Directory Id="INSTALLFOLDER" Name="AppRuntime">
-          <Files Include="!(bindpath.TimeOnChrome.AppRuntime.Setup.exe)" />
-          <Files Include="!(bindpath.TimeOnChrome.AppRuntime.Agent.exe)" />
-          <Files Include="!(bindpath.*.dll)" />
-          <Files Include="!(bindpath.*.json)" />
+          <Component Id="SetupExecutable" Guid="A7D2D1A3-7EA5-468B-B663-4B953FB21F85">
+            <File Id="SetupExecutableFile"
+                  Source="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Setup.exe"
+                  KeyPath="yes" />
+          </Component>
         </Directory>
       </Directory>
     </StandardDirectory>
@@ -31,9 +32,23 @@
       </Directory>
     </StandardDirectory>
 
+    <CustomAction Id="CleanupStartupRegistration"
+                  FileRef="SetupExecutableFile"
+                  ExeCommand="--uninstall-cleanup"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="CleanupStartupRegistration" Before="RemoveFiles"
+              Condition="REMOVE = &quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
     <Feature Id="ProductFeature" Title="TimeOnChrome App Runtime" Level="1">
       <ComponentRef Id="StartMenuShortcut" />
-      <ComponentGroupRef Id="Files" />
+      <ComponentRef Id="SetupExecutable" />
+      <Files Include="!(bindpath.Publish)\**" Directory="INSTALLFOLDER">
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Setup.exe" />
+      </Files>
     </Feature>
   </Package>
 </Wix>

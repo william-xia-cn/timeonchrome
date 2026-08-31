@@ -13,14 +13,17 @@
 ## Active App Runtime Work（2026-09-01）
 
 - [ ] **[SPEC-004 / D-079] Windows App Runtime 可用闭环**
-  - 当前阶段：控制面、Windows 安装/配对、独立家长页面和 R2 版本化下载接口已实现；self-contained Agent/Setup 已生成验证。WiX 7 MSI 编译因官方 OSMF EULA/maintenance-fee 确认要求阻塞，Product Owner 确认前不接受 EULA、不生成或上传 MSI，也不执行生产部署。
+  - 当前阶段：控制面、Windows 安装/配对、独立家长页面和 R2 版本化下载接口已实现并完成内部生产基础部署。Product Owner 已于 2026-09-01 确认满足 WiX 7 OSMF 条件并授权项目使用 `AcceptEula=wix7`；WiX 7 MSI 构建为 0 warning / 0 error。
   - UI 验证：mock 数据桌面 1440px、移动 390px、配对 dialog 已完成真实 Chrome 截图；日/周、周期、设备筛选、总时长、图表、排行、最近同步、设备状态/吊销/重配均在页面结构中匹配。
   - Guardian 控制面：5 分钟 Child-scoped ES256 module token、独立 Runtime lifecycle outbox/service binding；不复用 Santa 密钥。
   - Runtime 控制面：10 分钟配对码、设备列表/heartbeat/吊销/重新配对、Child lifecycle、北京时间小时聚合与日/周查询。
   - Windows：WPF Setup、无控制台 per-user Agent、single-instance、DPAPI、按 device 隔离 SQLite、稳定应用身份与 WiX 7 per-user MSI。
   - 家长端：canonical `app-runtime-management/console/`，构建到 `/app-runtime/`；只显示可理解的设备与统计，不显示 token、Child ID、管理员密钥或服务器配置。
   - 发布闸门：内部 MSI 在 Authenticode 签名前保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`；迁移前远端业务表必须为空；真实测试账号首次配对需 Product Owner 再次明确批准。
-  - 当前 blocker：`BLOCKED_BY_WIX7_OSMF_EULA`；官方要求先确认 maintenance-fee 状态，再用 `AcceptEula=wix7` 或等效命令接受 EULA。
+  - 部署证据：Runtime D1 三张旧业务表均为 0 后应用 `0002`；R2 `windows/x64/1.0.0` MSI 为 60,139,945 bytes、SHA-256 `847544be830979615f865667a09c690160b42381142a96cdf7174d09ff216c60`；Runtime Worker `8126d3b8-27c3-4c3a-937a-cb11ac4e0ab7`、Guardian Worker `5dcd6678-71f9-4463-b0e4-9bff9a16eccd`、Pages deployment `81fa34db` 已部署。
+  - 验证：Windows .NET 11/11、Runtime Worker 7/7、Guardian Worker logic 56/56、两端 typecheck、两端 Wrangler dry-run、WiX 7 build、R2/Worker 下载 hash、严格 CORS 与未认证 fail-closed 通过；MSI `msiexec /a` 只解包验证包含唯一 Setup/Agent 和 481 个文件。部署后 Runtime 五张业务表与 Guardian lifecycle outbox 均保持 0。
+  - 已解除 blocker：`BLOCKED_BY_WIX7_OSMF_EULA` 与 Wrangler OAuth 授权问题已解除。
+  - 剩余 blocker：`BLOCKED_BY_AUTHENTICODE_SIGNING`；干净 Windows 测试账号的安装/升级/卸载和首次真实配对仍未执行。旧 `ADMIN_API_KEY` 已无 API/代码消费者，但因跨 Worker module-token 生产成功链路尚未验证，Cloudflare 安全审查拒绝删除 secret，必须在该链路验证后单独移除。
 
 - [x] **[SPEC-004 / Production Bootstrap] 共享 Runtime Worker/D1 首次部署**
   - 授权：Product Owner 于 2026-09-01 明确要求部署；D-078 仅解除 Runtime 后台的部署边界。

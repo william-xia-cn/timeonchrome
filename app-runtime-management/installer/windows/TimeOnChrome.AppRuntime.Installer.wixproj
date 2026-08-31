@@ -1,10 +1,13 @@
 <Project Sdk="WixToolset.Sdk/7.0.0">
   <PropertyGroup>
+    <AcceptEula>wix7</AcceptEula>
     <OutputName>TimeOnChrome-AppRuntime-win-x64</OutputName>
     <OutputType>Package</OutputType>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
     <PublishDir>$(MSBuildThisFileDirectory)..\..\artifacts\win-x64</PublishDir>
   </PropertyGroup>
   <ItemGroup>
-    <BindPath Include="$(PublishDir)" />
+    <BindPath Include="$(PublishDir)" BindName="Publish" />
   </ItemGroup>
 </Project>
