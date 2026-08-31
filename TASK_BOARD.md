@@ -12,6 +12,14 @@
 
 ## Active App Runtime Work（2026-09-01）
 
+- [ ] **[SPEC-004 / D-079] Windows App Runtime 可用闭环**
+  - 当前阶段：实现中；旧管理员密钥/opaque `subjectId`/CLI enrollment 仅是技术底座，不再视为产品完成。
+  - Guardian 控制面：5 分钟 Child-scoped ES256 module token、独立 Runtime lifecycle outbox/service binding；不复用 Santa 密钥。
+  - Runtime 控制面：10 分钟配对码、设备列表/heartbeat/吊销/重新配对、Child lifecycle、北京时间小时聚合与日/周查询。
+  - Windows：WPF Setup、无控制台 per-user Agent、single-instance、DPAPI、按 device 隔离 SQLite、稳定应用身份与 WiX 7 per-user MSI。
+  - 家长端：canonical `app-runtime-management/console/`，构建到 `/app-runtime/`；只显示可理解的设备与统计，不显示 token、Child ID、管理员密钥或服务器配置。
+  - 发布闸门：内部 MSI 在 Authenticode 签名前保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`；迁移前远端业务表必须为空；真实测试账号首次配对需 Product Owner 再次明确批准。
+
 - [x] **[SPEC-004 / Production Bootstrap] 共享 Runtime Worker/D1 首次部署**
   - 授权：Product Owner 于 2026-09-01 明确要求部署；D-078 仅解除 Runtime 后台的部署边界。
   - 目标：创建独立 `timeonchrome-app-runtime` D1、应用 `0001_runtime_backend.sql`、配置 `ADMIN_API_KEY` secret、部署 `timeonchrome-app-runtime-api`。
@@ -20,7 +28,7 @@
   - 状态：独立 Runtime D1 已创建于 APAC，`0001_runtime_backend.sql` 已应用且无待办；Runtime-only secret 已配置；Worker 最终版本 `3f057d03-0b2c-4482-9925-0979258e3945` 已部署到 Workers endpoint。
   - 验证：health 200；无管理员凭据和无设备凭据均 401；enrollment/device/segment 表计数均为 0；未创建真实业务数据。
 
-- [x] **[SPEC-004 / Windows-first Phase 2] Windows Runtime Agent + 共享 Runtime 后台**
+- [x] **[SPEC-004 / Windows-first Phase 2 技术底座] Windows Runtime Agent + 共享 Runtime 后台**
   - 产品范围：完成 Windows 真实事件采集、SQLite 不可变 ledger/outbox、DPAPI credential、HTTP upload、每用户启动管理，以及 macOS/Windows 共用 Runtime Worker/D1。
   - 身份边界：独立一次性 enrollment code、Runtime device/token 和不透明 `subjectId`；不复用 Santa/Chrome Device/Guardian 凭据或表。
   - 后台范围：完成 enrollment、device self、幂等 segment upload 与逐项 ACK；D-078 后独立 Runtime Worker/D1 已完成首次生产 bootstrap。

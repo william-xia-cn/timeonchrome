@@ -80,6 +80,21 @@ export interface DeviceSelfResponse {
   displayName: string | null;
   createdAtMs: number;
   lastSeenAtMs: number;
+  accountId?: string;
+  childId?: string;
+  revoked?: boolean;
+}
+
+export interface ModuleClaims {
+  iss: string;
+  aud: 'app-runtime-management';
+  sub: string;
+  account_id: string;
+  child_id: string;
+  child_name: string;
+  iat: number;
+  exp: number;
+  jti: string;
 }
 
 export interface UploadRequest {

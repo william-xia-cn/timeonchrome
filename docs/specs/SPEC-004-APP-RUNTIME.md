@@ -5,9 +5,9 @@
 - Spec ID: SPEC-004
 - Date: 2026-09-01
 - Owner: Product Owner
-- Status: Approved for Windows-first Phase 2 implementation
-- Related task: App Runtime Management Windows + Shared Backend Phase 2
-- Related decisions: D-064, D-075, D-076, D-077
+- Status: Approved for Windows productization closure
+- Related task: Windows App Runtime 可用闭环
+- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -16,7 +16,19 @@
 
 Phase 1 只交付跨平台规格、共享契约、黄金测试向量、macOS/Windows Core 纯状态机、平台 Agent 空壳和后台契约类型；不运行生产采集、不写 SQLite、不调用生产 API。
 
-Phase 2 按 Product Owner 指令先完成 Windows 端到端实现与 macOS/Windows 共用 Runtime 后台。macOS 真实采集仍留在后续阶段；本轮只保证后台 wire contract 可被两个平台共用。
+Phase 2 已交付 Windows 与共用 Runtime 后台技术底座。D-079 阶段把它修正为家长可以直接安装、配对、管理和查看统计的 Windows 产品闭环；macOS 真实采集仍留在后续阶段。
+
+## D-079 Windows Productization Goal
+
+- 家长端保留独立 `/app-runtime/` 页面，并自动使用现有 Guardian session 与当前 Child。
+- Guardian 签发 5 分钟、`aud=app-runtime-management` 的 ES256 module token；Runtime 使用独立密钥对，不复用 Santa。
+- 页面为当前 Child 生成 10 分钟一次性配对码；Windows Setup 首次启动只输入配对码。
+- 每个 Windows 用户单独绑定一个 Runtime device；未绑定时不采集，吊销后停止采集和上传。
+- 家长可查看待安装/在线/最近在线/离线/已吊销设备，执行吊销和重新配对。
+- 家长可按北京时间日/周与设备筛选查看总时长、小时/每日图表、应用排行和最近同步。
+- 安装器从独立 Runtime R2 以不可变版本路径分发；未签名内部 MSI 标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
+家长流程不得暴露 `ADMIN_API_KEY`、opaque `subjectId`、Child ID、device token、Runtime URL 或 CLI。D-077 的管理员密钥发码模型仅保留为历史实现，产品接口完成验证后删除。
 
 ## Windows-First Phase 2 Goal
 
@@ -143,6 +155,8 @@ Phase 1 统一定义：
 
 ## Phase 2 Enrollment And Authentication
 
+> 历史说明：本节描述 D-077 技术底座，已由 D-079 的 Guardian Child-scoped 配对模型取代。
+
 1. Runtime 后台使用独立管理员 secret 保护 enrollment-code 创建接口；secret 只通过 Worker secret binding 注入，不进入源码或配置。
 2. 管理员创建一次性、短时有效的 enrollment code，并绑定不透明 `subjectId`；本轮不实现 Guardian/Pages 的发码 UI。
 3. Windows Agent 使用 code 注册后获得随机 `deviceId` 与高熵 `deviceToken`；后台只保存 token SHA-256。
@@ -199,6 +213,41 @@ Phase 1 统一定义：
 - protected-directory diff check
 - Plan Conformance Audit
 - macOS `swift test` 明确标记为当前 Windows 环境未执行
+
+## D-079 Public Interfaces
+
+Guardian：
+
+- `POST /profiles/:childId/app-runtime/token`
+
+Runtime module token：
+
+- `POST /v1/module/pairing-codes`
+- `GET /v1/module/devices`
+- `POST /v1/module/devices/:id/revoke`
+- `POST /v1/module/devices/:id/replace-pairing`
+- `GET /v1/module/usage?fromMs=&toMs=&deviceId=`
+- `POST /v1/identity/child-lifecycle`
+
+Runtime Agent：
+
+- `POST /v1/devices/enroll`
+- `GET /v1/devices/self`
+- `POST /v1/devices/heartbeat`
+- `POST /v1/segments:upload`
+
+Runtime release：
+
+- `GET /v1/releases/windows/x64/latest`
+- `GET /v1/releases/windows/x64/:version/installer`
+
+## D-079 Privacy And Safety
+
+- 云端只接收 opaque application hash 与展示名称；不接收 executable path、证书明文、用户名、SID、窗口标题、URL、键鼠或屏幕内容。
+- Guardian 只保存 Runtime ES256 私钥；Runtime Worker 只保存公钥。Santa 密钥、协议、MachineID 和数据表完全隔离。
+- Child 删除必须经 Guardian lifecycle outbox 顺序删除 Runtime 配对码、设备、小时统计和 raw segment。
+- 新 segment 只有首次插入时更新小时聚合；重复 segment 不重复累计，raw immutable segment 是事实源。
+- 当前实现和部署不得创建真实家庭数据；首次真实配对必须由 Product Owner 单独批准。
 
 ## Rollback Risk
 

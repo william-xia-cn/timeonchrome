@@ -4,8 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-31",
   "compatibility_flags": ["nodejs_compat"],
-  "secrets": {
-    "required": ["ADMIN_API_KEY"]
+  "vars": {
+    "GUARDIAN_RUNTIME_ISSUER": "guardian-api",
+    "PAGES_ORIGIN": "https://timeonchrome-console.pages.dev"
   },
   "d1_databases": [
     {
@@ -13,6 +14,12 @@
       "database_name": "timeonchrome-app-runtime",
       "migrations_dir": "migrations",
       "database_id": "39a0291f-e572-49f5-80c6-9454339b65d2"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RELEASES",
+      "bucket_name": "timeonchrome-app-runtime-releases"
     }
   ],
   "observability": {

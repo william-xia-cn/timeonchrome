@@ -1,8 +1,10 @@
-import { requireAdmin, requireDevice } from './auth';
+import { requireDevice, requireLifecycle, requireModule } from './auth';
 import { errorResponse, HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
-import { createEnrollmentCode, enrollDevice, persistSegments } from './repository';
 import {
-  parseCreateEnrollmentCode,
+  createModulePairingCode, deleteRuntimeChild, enrollDevice, listModuleDevices,
+  persistSegments, queryModuleUsage, recordHeartbeat, revokeModuleDevice,
+} from './repository';
+import {
   parseEnrollDevice,
   parseUploadRequest,
   validateSegment,
@@ -18,19 +20,49 @@ async function route(request: Request, env: Env): Promise<Response> {
       : methodNotAllowed('GET');
   }
 
-  if (url.pathname === '/v1/admin/enrollment-codes') {
-    if (request.method !== 'POST') {
-      return methodNotAllowed('POST');
+  if (url.pathname.startsWith('/v1/module/')) {
+    const module = await requireModule(request, env, nowMs);
+    const owner = { account_id: module.account_id, child_id: module.child_id, child_name: module.child_name, jti: module.jti };
+    if (url.pathname === '/v1/module/pairing-codes') {
+      if (request.method !== 'POST') return methodNotAllowed('POST');
+      return jsonResponse(await createModulePairingCode(env.RUNTIME_DB, owner, nowMs), { status: 201 });
     }
-    await requireAdmin(request, env.ADMIN_API_KEY);
-    const input = parseCreateEnrollmentCode(await readJsonBody(request));
-    const result = await createEnrollmentCode(
-      env.RUNTIME_DB,
-      input.subjectId,
-      input.ttlSeconds ?? 600,
-      nowMs,
-    );
-    return jsonResponse(result, { status: 201 });
+    if (url.pathname === '/v1/module/devices') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      return jsonResponse(await listModuleDevices(env.RUNTIME_DB, module.account_id, module.child_id, nowMs));
+    }
+    const deviceAction = url.pathname.match(/^\/v1\/module\/devices\/([^/]+)\/(revoke|replace-pairing)$/);
+    if (deviceAction) {
+      if (request.method !== 'POST') return methodNotAllowed('POST');
+      const deviceId = decodeURIComponent(deviceAction[1]!);
+      if (deviceAction[2] === 'revoke') {
+        return await revokeModuleDevice(env.RUNTIME_DB, module.account_id, module.child_id, deviceId, nowMs)
+          ? jsonResponse({ success: true }) : errorResponse(404, 'DEVICE_NOT_FOUND', 'Device was not found.');
+      }
+      try {
+        return jsonResponse(await createModulePairingCode(env.RUNTIME_DB, owner, nowMs, deviceId), { status: 201 });
+      } catch {
+        return errorResponse(404, 'DEVICE_NOT_FOUND', 'Device was not found.');
+      }
+    }
+    if (url.pathname === '/v1/module/usage') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const fromMs = Number(url.searchParams.get('fromMs'));
+      const toMs = Number(url.searchParams.get('toMs'));
+      const deviceId = url.searchParams.get('deviceId') || undefined;
+      if (!Number.isSafeInteger(fromMs) || !Number.isSafeInteger(toMs) || fromMs < 0 || toMs <= fromMs || toMs - fromMs > 31 * 86_400_000) {
+        throw new HttpError(400, 'INVALID_RANGE', 'Usage range is invalid.');
+      }
+      return jsonResponse(await queryModuleUsage(env.RUNTIME_DB, module.account_id, module.child_id, fromMs, toMs, deviceId));
+    }
+    return errorResponse(404, 'NOT_FOUND', 'Route was not found.');
+  }
+
+  if (url.pathname === '/v1/identity/child-lifecycle') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    const claims = await requireLifecycle(request, env, nowMs);
+    await deleteRuntimeChild(env.RUNTIME_DB, String(claims.account_id), String(claims.child_id));
+    return jsonResponse({ success: true });
   }
 
   if (url.pathname === '/v1/devices/enroll') {
@@ -51,6 +83,22 @@ async function route(request: Request, env: Env): Promise<Response> {
     return jsonResponse(await requireDevice(request, env.RUNTIME_DB, nowMs));
   }
 
+  if (url.pathname === '/v1/devices/heartbeat') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    const device = await requireDevice(request, env.RUNTIME_DB, nowMs);
+    const body = await readJsonBody(request, 8_192);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat is invalid.');
+    const value = body as Record<string, unknown>;
+    const fields = ['agentVersion', 'windowsVersion', 'architecture'] as const;
+    for (const field of fields) {
+      if (typeof value[field] !== 'string' || value[field].length < 1 || value[field].length > 128) {
+        throw new HttpError(400, 'INVALID_REQUEST', `${field} is invalid.`);
+      }
+    }
+    await recordHeartbeat(env.RUNTIME_DB, device.deviceId, value as { agentVersion: string; windowsVersion: string; architecture: string }, nowMs);
+    return jsonResponse({ success: true, status: 'active', nextHeartbeatSeconds: 300 });
+  }
+
   if (url.pathname === '/v1/segments:upload') {
     if (request.method !== 'POST') {
       return methodNotAllowed('POST');
@@ -68,7 +116,25 @@ async function route(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      return await route(request, env);
+      const origin = request.headers.get('origin');
+      const allowedOrigin = env.PAGES_ORIGIN || 'https://timeonchrome-console.pages.dev';
+      if (request.method === 'OPTIONS') {
+        if (origin !== allowedOrigin) return errorResponse(403, 'ORIGIN_DENIED', 'Origin is not allowed.');
+        return new Response(null, { status: 204, headers: {
+          'access-control-allow-origin': allowedOrigin,
+          'access-control-allow-methods': 'GET, POST, OPTIONS',
+          'access-control-allow-headers': 'authorization, content-type',
+          'access-control-max-age': '86400',
+        } });
+      }
+      const response = await route(request, env);
+      if (origin === allowedOrigin) {
+        const withCors = new Response(response.body, response);
+        withCors.headers.set('access-control-allow-origin', allowedOrigin);
+        withCors.headers.set('vary', 'Origin');
+        return withCors;
+      }
+      return response;
     } catch (error) {
       if (error instanceof HttpError) {
         return errorResponse(error.status, error.code, error.message);

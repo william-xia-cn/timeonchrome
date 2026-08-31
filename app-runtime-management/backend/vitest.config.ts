@@ -12,7 +12,8 @@ export default defineConfig({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
         bindings: {
-          ADMIN_API_KEY: 'test-admin-key-at-least-32-characters',
+          GUARDIAN_RUNTIME_PUBLIC_JWK: '{"kty":"EC","x":"BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE","y":"5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA","crv":"P-256"}',
+          GUARDIAN_RUNTIME_ISSUER: 'guardian-api',
           TEST_MIGRATIONS: migrations,
         },
       },

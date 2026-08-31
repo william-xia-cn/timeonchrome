@@ -58,7 +58,10 @@ export function parseEnrollDevice(value: unknown): EnrollDeviceRequest {
   if (!isRecord(value)) {
     throw new HttpError(400, 'INVALID_REQUEST', 'Request must be an object.');
   }
-  const code = stringValue(value.code, 'code', 20, 128);
+  const code = stringValue(value.code, 'code', 14, 14);
+  if (!/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/u.test(code)) {
+    throw new HttpError(400, 'INVALID_REQUEST', 'code is invalid.');
+  }
   if (typeof value.platform !== 'string' || !platforms.has(value.platform as RuntimePlatform)) {
     throw new HttpError(400, 'INVALID_REQUEST', 'platform is invalid.');
   }

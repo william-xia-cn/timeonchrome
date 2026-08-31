@@ -4,6 +4,7 @@ import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeW
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
+import { appRuntimeChildDeletedOutboxStatement } from '../services/appRuntimeIdentityBridge';
 
 type DeviceRecoveryActionBody = {
   action?: string;
@@ -1020,6 +1021,7 @@ export const profilesRouter = {
         await env.DB.batch([
           env.DB.prepare(`DELETE FROM profiles WHERE id = ? AND account_id = ?`).bind(profileId, accountId),
           nativeChildDeletedOutboxStatement(env, accountId, profileId),
+          appRuntimeChildDeletedOutboxStatement(env, accountId, profileId),
         ]);
 
         return json({ success: true });

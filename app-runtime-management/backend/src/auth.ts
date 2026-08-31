@@ -2,6 +2,7 @@ import type { DeviceSelfResponse } from './contracts';
 import { timingSafeSecretEquals } from './crypto';
 import { HttpError } from './http';
 import { authenticateDevice } from './repository';
+import type { ModuleClaims } from './contracts';
 
 export async function requireAdmin(
   request: Request,
@@ -31,4 +32,65 @@ export async function requireDevice(
     throw new HttpError(401, 'UNAUTHORIZED', 'Runtime device authentication failed.');
   }
   return device;
+}
+
+function decodeBase64Url(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const decoded = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+}
+
+async function verifyEs256(token: string, publicJwk: string): Promise<Record<string, unknown> | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const header = JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[0]!))) as Record<string, unknown>;
+    if (header.alg !== 'ES256' || header.typ !== 'JWT') return null;
+    const key = await crypto.subtle.importKey(
+      'jwk', JSON.parse(publicJwk), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'],
+    );
+    const valid = await crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' }, key, decodeBase64Url(parts[2]!).buffer as ArrayBuffer,
+      new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+    );
+    if (!valid) return null;
+    return JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[1]!))) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function bearer(request: Request): string {
+  const match = /^Bearer (\S+)$/u.exec(request.headers.get('authorization') ?? '');
+  if (!match) throw new HttpError(401, 'UNAUTHORIZED', 'Module authentication failed.');
+  return match[1]!;
+}
+
+export async function requireModule(request: Request, env: Env, nowMs: number): Promise<ModuleClaims> {
+  if (!env.GUARDIAN_RUNTIME_PUBLIC_JWK) {
+    throw new HttpError(503, 'SERVER_MISCONFIGURED', 'Module authentication is unavailable.');
+  }
+  const claims = await verifyEs256(bearer(request), env.GUARDIAN_RUNTIME_PUBLIC_JWK);
+  const now = Math.floor(nowMs / 1000);
+  if (!claims || claims.aud !== 'app-runtime-management' || claims.iss !== (env.GUARDIAN_RUNTIME_ISSUER || 'guardian-api')
+    || typeof claims.account_id !== 'string' || typeof claims.child_id !== 'string'
+    || typeof claims.child_name !== 'string' || typeof claims.jti !== 'string'
+    || typeof claims.iat !== 'number' || typeof claims.exp !== 'number'
+    || claims.exp <= now || claims.iat > now + 60 || claims.exp - claims.iat > 360) {
+    throw new HttpError(401, 'UNAUTHORIZED', 'Module authentication failed.');
+  }
+  return claims as unknown as ModuleClaims;
+}
+
+export async function requireLifecycle(request: Request, env: Env, nowMs: number): Promise<Record<string, unknown>> {
+  if (!env.GUARDIAN_RUNTIME_PUBLIC_JWK) throw new HttpError(503, 'SERVER_MISCONFIGURED', 'Lifecycle authentication is unavailable.');
+  const claims = await verifyEs256(bearer(request), env.GUARDIAN_RUNTIME_PUBLIC_JWK);
+  const now = Math.floor(nowMs / 1000);
+  if (!claims || claims.aud !== 'app-runtime-management:lifecycle'
+    || claims.iss !== (env.GUARDIAN_RUNTIME_ISSUER || 'guardian-api') || claims.event !== 'child.deleted'
+    || typeof claims.account_id !== 'string' || typeof claims.child_id !== 'string'
+    || typeof claims.exp !== 'number' || claims.exp <= now) {
+    throw new HttpError(401, 'UNAUTHORIZED', 'Lifecycle authentication failed.');
+  }
+  return claims;
 }

@@ -23,6 +23,10 @@ import {
   handleNativeAppModuleToken,
   processNativeAppLifecycleOutbox,
 } from './services/nativeAppIdentityBridge';
+import {
+  handleAppRuntimeModuleToken,
+  processAppRuntimeLifecycleOutbox,
+} from './services/appRuntimeIdentityBridge';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -114,6 +118,9 @@ export interface Env {
   NATIVE_APP_TOKEN_PRIVATE_JWK?: string;
   NATIVE_APP_API_BASE_URL?: string;
   NATIVE_APP_BRIDGE_ISSUER?: string;
+  APP_RUNTIME_TOKEN_PRIVATE_JWK?: string;
+  APP_RUNTIME_BRIDGE_ISSUER?: string;
+  APP_RUNTIME_SERVICE?: Fetcher;
 }
 
 const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|stats-reconciliation|stats-integrity|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
@@ -158,6 +165,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
     return await systemAccessConfigRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/native-app-control\/token$/)) {
     return await handleNativeAppModuleToken(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/app-runtime\/token$/)) {
+    return await handleAppRuntimeModuleToken(request, env);
   } else if (path.startsWith('/profiles')) {
     return await profilesRouter.handle(request, env);
   } else if (path === '/device/heartbeat') {
@@ -344,6 +353,7 @@ export default {
     const work: Promise<unknown>[] = [
       processEmailClassificationOutbox(env),
       processNativeAppLifecycleOutbox(env),
+      processAppRuntimeLifecycleOutbox(env),
     ];
     if (event.cron === '0 12 * * *') work.push(sendPendingReviewNotifications(env));
     ctx.waitUntil(Promise.all(work));

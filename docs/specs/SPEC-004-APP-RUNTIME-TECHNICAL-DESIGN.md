@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for Windows-first Phase 2 implementation。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；Phase 2 先完成 Windows Agent 与后台端到端实现，macOS 真实采集留待后续。
+Approved for Windows productization closure。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；当前阶段完成 Windows 安装、Guardian Child 身份桥、家长控制台、设备健康和统计闭环，macOS 真实采集留待后续。
 
 ## Repository Layout
 
@@ -19,6 +19,8 @@ app-runtime-management/
     ├── src/                    contracts, validation, auth, repository, routes
     ├── test/                   Workers runtime + local D1 tests
     └── wrangler.jsonc          local/staging/production binding declaration
+├── console/                    Runtime 家长页面 canonical source
+└── installer/                  release manifest/build metadata
 ```
 
 `native-app-control/` 与上述目录并列保留，但它是 Santa discovery/enforcement 实现和独立后台，不是 Runtime Agent 或 Runtime 后台。
@@ -169,6 +171,18 @@ runtime_metadata(key PK, value)
 `persistAndEnqueue` 使用 `BEGIN IMMEDIATE` transaction；segment `INSERT OR IGNORE` 后必须核对相同 ID 的 canonical content hash。只有相同内容才能视为幂等成功。outbox 引用在同一 transaction 插入。SQLite 中闭合 segment 不提供 update/delete 业务接口。
 
 ## Shared Backend Identity And D1
+
+### D-079 identity bridge
+
+Guardian `POST /profiles/:childId/app-runtime/token` 在 account token 验证和 Child ownership 验证后，签发 5 分钟 ES256 JWT：`iss=guardian-api`、`aud=app-runtime-management`、`sub/account_id`、`child_id`、`child_name`、`iat/exp/jti`。Runtime Worker 只导入独立 P-256 公钥验证签名、issuer、audience、时间和必需 claims；它不读取 Guardian D1。
+
+Runtime D1 的授权键为 `(account_id, child_id)`。旧 `subject_id` 仅满足 `0001` schema 兼容，写入时可镜像 `child_id`，不得返回 UI、进入新 API 或单独作为授权依据。`runtime_children_v1` 保存 Child projection；Guardian `runtime_child_lifecycle_outbox_v1` 通过 `APP_RUNTIME_SERVICE` service binding 投递签名删除事件。
+
+配对码使用用户可读 `XXXX-XXXX-XXXX` 格式，数据库只存 SHA-256，10 分钟后失效且只消费一次。重新配对记录 `replace_device_id`；消费后轮换原设备 token，不把它创建为另一个 Child 的新设备。
+
+设备在线口径：`last_seen_at_ms` 距当前不超过 10 分钟为 online，超过 10 分钟且不超过 24 小时为 recentlyOnline，其余 offline；`revoked_at_ms` 优先显示 revoked。heartbeat 只保存 agent version、Windows version、architecture 和 last seen。
+
+`runtime_app_hourly_stats_v1` 使用 UTC 小时边界保存物化事实，查询层按 `Asia/Shanghai` 请求范围返回 hourly/daily buckets。每个新 segment 的 insert 与跨小时切片 aggregate upsert 位于同一 D1 batch；已存在相同 content hash 的 segment 只 ACK，不再次聚合。
 
 Runtime 身份域完全独立于 Santa：
 
