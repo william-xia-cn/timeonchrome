@@ -7,7 +7,7 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 - Windows：Phase 2 端到端实现，包括 WinEvent、idle、session/power、周期快照、SQLite ledger/outbox、DPAPI credential、HTTP upload 与 HKCU 登录启动管理。
 - Backend：共享 Runtime Worker、独立 enrollment/device token、D1 immutable segments、幂等 upload 与逐项 ACK。
 - macOS：Phase 1 Core/Agent 骨架；真实事件、SQLite 与上传尚未实现。
-- 部署：未部署；仓库配置只用于本地测试和 `wrangler deploy --dry-run`。
+- 部署：共享 Runtime Worker 与独立 Runtime D1 已完成生产 bootstrap；服务端点为 `https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev`。当前未创建真实 enrollment/device/segment，也未安装 Agent。
 
 ## Windows 开发命令
 
@@ -46,4 +46,4 @@ npm --prefix backend run dry-run
 - 不记录或上传 executable path、窗口标题、URL、键鼠内容或屏幕数据。
 - 不在日志中输出 enrollment code、device token 或本机 executable path。
 - Runtime 不读取 Santa enrollment、MachineID、策略数据库、事件队列、同步协议、表或凭据。
-- 本目录的 migration 只有在明确的后续部署授权下才可用于远端 D1。
+- 本目录的 `0001_runtime_backend.sql` 已按 D-078 授权应用到独立 Runtime D1；后续 migration 仍必须获得单独部署授权。

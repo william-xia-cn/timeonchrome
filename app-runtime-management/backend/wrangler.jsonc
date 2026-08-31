@@ -4,12 +4,15 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-31",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": ["ADMIN_API_KEY"]
+  },
   "d1_databases": [
     {
       "binding": "RUNTIME_DB",
       "database_name": "timeonchrome-app-runtime",
       "migrations_dir": "migrations",
-      "remote": false
+      "database_id": "39a0291f-e572-49f5-80c6-9454339b65d2"
     }
   ],
   "observability": {

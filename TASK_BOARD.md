@@ -12,14 +12,22 @@
 
 ## Active App Runtime Work（2026-09-01）
 
+- [x] **[SPEC-004 / Production Bootstrap] 共享 Runtime Worker/D1 首次部署**
+  - 授权：Product Owner 于 2026-09-01 明确要求部署；D-078 仅解除 Runtime 后台的部署边界。
+  - 目标：创建独立 `timeonchrome-app-runtime` D1、应用 `0001_runtime_backend.sql`、配置 `ADMIN_API_KEY` secret、部署 `timeonchrome-app-runtime-api`。
+  - 门禁：复跑 typecheck、Workers+D1 集成测试、Wrangler types/dry-run/startup check；部署后只执行 health、migration 和空表计数验证。
+  - 禁止范围：不创建真实 enrollment/device/segment，不安装 Windows Agent，不修改或部署 Guardian、Santa、Pages、Chrome Extension。
+  - 状态：独立 Runtime D1 已创建于 APAC，`0001_runtime_backend.sql` 已应用且无待办；Runtime-only secret 已配置；Worker 最终版本 `3f057d03-0b2c-4482-9925-0979258e3945` 已部署到 Workers endpoint。
+  - 验证：health 200；无管理员凭据和无设备凭据均 401；enrollment/device/segment 表计数均为 0；未创建真实业务数据。
+
 - [x] **[SPEC-004 / Windows-first Phase 2] Windows Runtime Agent + 共享 Runtime 后台**
   - 产品范围：完成 Windows 真实事件采集、SQLite 不可变 ledger/outbox、DPAPI credential、HTTP upload、每用户启动管理，以及 macOS/Windows 共用 Runtime Worker/D1。
   - 身份边界：独立一次性 enrollment code、Runtime device/token 和不透明 `subjectId`；不复用 Santa/Chrome Device/Guardian 凭据或表。
-  - 后台范围：本地实现并测试 enrollment、device self、幂等 segment upload 与逐项 ACK；创建 migration 文件但不运行远端 migration，不部署。
+  - 后台范围：完成 enrollment、device self、幂等 segment upload 与逐项 ACK；D-078 后独立 Runtime Worker/D1 已完成首次生产 bootstrap。
   - macOS：保持 Phase 1 Core/Agent 骨架，真实事件、SQLite 和上传留待后续。
   - 状态：Windows WinEvent/idle/session/power/snapshot、SQLite ledger/outbox、DPAPI credential、HTTP uploader、HKCU startup，以及共享 Worker/D1 enrollment/auth/idempotent upload 已实现。
-  - 验证：Windows Release build/test、framework-dependent publish、共享状态机/hash 向量、SQLite/DPAPI/ACK 测试、Worker runtime+D1 测试、binding type freshness、TypeScript 和 Wrangler dry-run 通过；未运行真实家庭采集、远端 migration 或 deploy。
-  - 禁止范围：不修改 `native-app-control/`、`extension/`、`workers/`、`pages/`；不触碰生产数据、远端 D1、secret 或真实家庭设备。
+  - 验证：Windows Release build/test、framework-dependent publish、共享状态机/hash 向量、SQLite/DPAPI/ACK 测试、Worker runtime+D1 测试、binding type freshness、TypeScript、Wrangler dry-run/startup check、远端 migration 与生产 smoke 通过；未运行真实家庭采集。
+  - 禁止范围：不修改 `native-app-control/`、`extension/`、`workers/`、`pages/`；除 D-078 明确授权的独立 Runtime bootstrap 外，不触碰既有生产数据、secret 或真实家庭设备。
 
 - [x] **[SPEC-004 / Cross-Platform Phase 1] App Runtime Management 统一架构与双平台技术骨架**
   - 分支：`codex/macos-app-management-v1`；独立 worktree；起点 `5c2e04104017259c72de573ab000353cf82b68fb`。
