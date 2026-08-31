@@ -9,6 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Age
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Core.Tests", "tests\TimeOnChrome.AppRuntime.Core.Tests\TimeOnChrome.AppRuntime.Core.Tests.csproj", "{97537F4F-583A-4DBA-A564-3C5BCC30FCD0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Windows", "src\TimeOnChrome.AppRuntime.Windows\TimeOnChrome.AppRuntime.Windows.csproj", "{9654679F-72FC-4A0F-91BC-9E0F94B4F0CF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Infrastructure", "src\TimeOnChrome.AppRuntime.Infrastructure\TimeOnChrome.AppRuntime.Infrastructure.csproj", "{D95A95F7-6017-4DC0-913A-7BA512678560}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,5 +31,13 @@ Global
 		{97537F4F-583A-4DBA-A564-3C5BCC30FCD0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{97537F4F-583A-4DBA-A564-3C5BCC30FCD0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{97537F4F-583A-4DBA-A564-3C5BCC30FCD0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9654679F-72FC-4A0F-91BC-9E0F94B4F0CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9654679F-72FC-4A0F-91BC-9E0F94B4F0CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9654679F-72FC-4A0F-91BC-9E0F94B4F0CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9654679F-72FC-4A0F-91BC-9E0F94B4F0CF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D95A95F7-6017-4DC0-913A-7BA512678560}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D95A95F7-6017-4DC0-913A-7BA512678560}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D95A95F7-6017-4DC0-913A-7BA512678560}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D95A95F7-6017-4DC0-913A-7BA512678560}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

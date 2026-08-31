@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for Cross-Platform Phase 1 skeleton。本文定义一个 Runtime 产品、两个原生 Agent 和一个未来共享 Runtime 后台；Phase 1 不实现生产事件源、SQLite 或网络。
+Approved for Windows-first Phase 2 implementation。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；Phase 2 先完成 Windows Agent 与后台端到端实现，macOS 真实采集留待后续。
 
 ## Repository Layout
 
@@ -13,11 +13,12 @@ app-runtime-management/
 │   └── runtime-state-machine-v1.vectors.json
 ├── agents/
 │   ├── macos/                  Swift Package
-│   └── windows/                .NET 8 solution
+│   └── windows/                .NET 8 Core / Windows / Infrastructure / Agent / tests
 └── backend/
-    ├── package.json
-    ├── tsconfig.json
-    └── src/contracts.ts        contract types only
+    ├── migrations/             Runtime D1 schema
+    ├── src/                    contracts, validation, auth, repository, routes
+    ├── test/                   Workers runtime + local D1 tests
+    └── wrangler.jsonc          local/staging/production binding declaration
 ```
 
 `native-app-control/` 与上述目录并列保留，但它是 Santa discovery/enforcement 实现和独立后台，不是 Runtime Agent 或 Runtime 后台。
@@ -137,7 +138,83 @@ Transition rules：
 - periodic full snapshot
 - per-interactive-user process; Session 0 service 不直接计时
 
-Phase 1 两个平台 executable 都只链接 Core 后退出，不注册上述 API、timer 或 startup mechanism。
+Phase 1 两个平台 executable 都只链接 Core 后退出。Phase 2 的 Windows executable 组合 WinEvent、idle/session/power adapter、SQLite ledger/outbox、HTTP uploader 与诊断日志；macOS executable 仍保持 Phase 1 空壳。
+
+## Windows Phase 2 Modules
+
+- `TimeOnChrome.AppRuntime.Core`：共享模型、纯状态机与接口。
+- `TimeOnChrome.AppRuntime.Windows`：Win32/SystemEvents adapter、opaque application identity、HKCU startup abstraction。
+- `TimeOnChrome.AppRuntime.Infrastructure`：SQLite schema/store/outbox、DPAPI credential store、HTTP enrollment/upload client、JSON wire mapping。
+- `TimeOnChrome.AppRuntime.Agent`：配置、生命周期、fact loop、upload loop 与结构化本地日志组合根。
+- Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK 与 Agent orchestration。
+
+所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。
+
+## Local SQLite Design
+
+数据库位于当前用户 LocalAppData，使用 WAL、foreign keys 与 busy timeout。首版表：
+
+```text
+runtime_segments(
+  id PK, runtime_session_id, platform, runtime_identity, display_name,
+  start_at_ms, end_at_ms, duration_ms, end_reason, content_hash, created_at_ms
+)
+runtime_outbox(
+  segment_id PK/FK, attempt_count, next_attempt_at_ms,
+  last_error_code, created_at_ms
+)
+runtime_metadata(key PK, value)
+```
+
+`persistAndEnqueue` 使用 `BEGIN IMMEDIATE` transaction；segment `INSERT OR IGNORE` 后必须核对相同 ID 的 canonical content hash。只有相同内容才能视为幂等成功。outbox 引用在同一 transaction 插入。SQLite 中闭合 segment 不提供 update/delete 业务接口。
+
+## Shared Backend Identity And D1
+
+Runtime 身份域完全独立于 Santa：
+
+```text
+runtime_enrollment_codes(code_hash PK, subject_id, expires_at_ms, consumed_at_ms, created_at_ms)
+runtime_devices(id PK, subject_id, platform, token_hash UNIQUE, display_name,
+                created_at_ms, last_seen_at_ms, revoked_at_ms)
+runtime_usage_segments(id, device_id, runtime_session_id, platform,
+                       runtime_identity, display_name, start_at_ms, end_at_ms,
+                       duration_ms, end_reason, content_hash, uploaded_at_ms,
+                       PRIMARY KEY(device_id, id))
+```
+
+- enrollment code 与 device token 使用 Web Crypto 产生；D1 只存 SHA-256。
+- 管理员 secret 先 SHA-256，再使用 constant-time comparison。
+- enrollment code 在 D1 batch 中以条件 update 消费并创建 device；重复消费必须失败。
+- device bearer token hash 定位 device，revoked device 不通过认证。
+- `subjectId` 是 Runtime 后台自身的不透明归属键；本轮不读取 Guardian/Santa 表。
+
+## Upload Validation And ACK
+
+每个 request 最大 100 segments，并设置明确 JSON body 大小上限。校验：
+
+- schema/version/platform/device 一致；
+- ID、session ID、runtime identity 和 display name 长度；
+- 非负时间、`end > start`、duration 精确相等；
+- end reason 枚举；
+- canonical content hash。
+
+非法 item 返回稳定 rejection code；合法 item 与已存在记录比较。相同 ID/相同 hash 为 accepted，相同 ID/不同 hash 为 `ID_CONFLICT`。所有新纪录使用 prepared statements 组成一次 D1 batch；数据库失败时不返回 accepted。
+
+## Agent Upload And Recovery
+
+- uploader 每次读取到期 outbox，单批最多 50；每轮请求只尝试一次。
+- `acceptedIds` 才从 outbox 删除；明确永久 rejection 记录错误并停止紧密重试，未知/临时错误指数退避。
+- HTTP timeout、非 2xx、无效响应或 ACK 缺失保留 outbox。
+- Agent restart 后直接读取 SQLite pending；开放段只通过 60 秒 checkpoint 限制最大未闭合损失，不伪造崩溃后的使用区间。
+- credential 缺失时采集与本地 ledger 可继续，上传暂停；enrollment 是显式 CLI 操作。
+
+## Worker Configuration And Testing
+
+- 新 Worker 使用 `wrangler.jsonc`、当前 compatibility date、`nodejs_compat`、D1 binding 与 observability。
+- `ADMIN_API_KEY` 只通过 secret 注入；仓库只提供 `.dev.vars.example` 占位说明。
+- 使用 `wrangler types` 生成 binding/runtime types，不手写 Env。
+- Workers runtime 测试使用官方 Vitest integration 与隔离本地 D1；不访问远端资源。
+- 只允许 `wrangler deploy --dry-run`，禁止 deploy、远端 migration、secret 写入或 D1 create。
 
 ## Language Modules
 

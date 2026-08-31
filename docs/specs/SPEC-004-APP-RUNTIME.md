@@ -5,9 +5,9 @@
 - Spec ID: SPEC-004
 - Date: 2026-09-01
 - Owner: Product Owner
-- Status: Approved for Cross-Platform Phase 1
-- Related task: App Runtime Management Phase 1
-- Related decisions: D-064, D-075, D-076
+- Status: Approved for Windows-first Phase 2 implementation
+- Related task: App Runtime Management Windows + Shared Backend Phase 2
+- Related decisions: D-064, D-075, D-076, D-077
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -15,6 +15,18 @@
 建立一个统一的 App Runtime Management 产品能力，由 macOS 与 Windows 两个原生 Runtime Agent 实现，并在未来共同连接同一个 Runtime 后台。两个 Agent 采用相同事实模型、状态机语义、不可变 Usage Segment 和逐项 ACK 上传契约。
 
 Phase 1 只交付跨平台规格、共享契约、黄金测试向量、macOS/Windows Core 纯状态机、平台 Agent 空壳和后台契约类型；不运行生产采集、不写 SQLite、不调用生产 API。
+
+Phase 2 按 Product Owner 指令先完成 Windows 端到端实现与 macOS/Windows 共用 Runtime 后台。macOS 真实采集仍留在后续阶段；本轮只保证后台 wire contract 可被两个平台共用。
+
+## Windows-First Phase 2 Goal
+
+交付一个可在 Windows 10/11 交互式用户会话中运行的 Runtime Agent，以及一个独立的共享 Runtime Worker/D1 实现：
+
+- Windows Agent 采集前台应用、用户 idle/active、session lock/unlock、sleep/wake 与周期快照；
+- Core 生成不可变 Usage Segment，SQLite 在同一 transaction 写入 segment 与 outbox；
+- Agent 崩溃或网络失败后保留未确认 outbox，并只按后台逐项 `acceptedIds` 清理；
+- Runtime Worker 负责独立 enrollment、device token 认证、segment 校验、幂等写入与逐项 ACK；
+- 本轮只做本地开发和测试，不部署、不创建远端资源、不接触真实家庭数据。
 
 ## Product Model
 
@@ -119,6 +131,53 @@ Phase 1 统一定义：
 - 应用阻止、审核、配额、家长 UI 或 Santa 联动；
 - 修改 `native-app-control/`、`extension/`、`workers/`、`pages/` 或生产配置；
 - 部署、生产数据、凭据或真实家庭数据。
+
+以上列表是 Phase 1 的历史边界。Phase 2 明确解除其中 Windows 真实事件监听、Windows 本地 SQLite、Runtime Worker/D1 schema、独立设备注册与网络上传的限制，但仍保留下列非目标：
+
+- macOS 真实事件适配器、LaunchAgent、SQLite 与上传客户端；
+- Guardian Account/Child token bridge、Pages 家长 UI 或现有 Chrome Extension 集成；
+- Santa enrollment、MachineID、策略数据库、事件队列、同步协议、表或凭据复用；
+- 应用阻止、审核、配额或跨设备统计物化；
+- 生产部署、远端 D1 创建/迁移、生产 secret、真实设备 enrollment 或真实家庭数据；
+- Windows Session 0 service 直接计时、窗口标题、文档名、URL、键鼠内容或屏幕采集。
+
+## Phase 2 Enrollment And Authentication
+
+1. Runtime 后台使用独立管理员 secret 保护 enrollment-code 创建接口；secret 只通过 Worker secret binding 注入，不进入源码或配置。
+2. 管理员创建一次性、短时有效的 enrollment code，并绑定不透明 `subjectId`；本轮不实现 Guardian/Pages 的发码 UI。
+3. Windows Agent 使用 code 注册后获得随机 `deviceId` 与高熵 `deviceToken`；后台只保存 token SHA-256。
+4. 本机 credential 使用 Windows 当前用户 DPAPI 保护，配置与 Santa/Chrome Device 完全隔离。
+5. 后续请求使用独立 Runtime bearer token；撤销、过期或平台不匹配时拒绝。
+
+## Phase 2 API Surface
+
+- `GET /v1/health`：无认证本地/运维健康检查。
+- `POST /v1/admin/enrollment-codes`：管理员创建一次性 code。
+- `POST /v1/devices/enroll`：消费 code，创建 Runtime device 并返回一次性明文 token。
+- `GET /v1/devices/self`：验证 credential 并返回当前 device metadata。
+- `POST /v1/segments:upload`：最多 100 个已闭合 segment，返回 `acceptedIds` 与结构化 `rejected`。
+
+批次先完成结构校验和同 ID 冲突检查，再以 D1 batch 写入全部可接受项。已存在且内容完全一致的 ID 视为 accepted；同 ID 内容不同返回 `ID_CONFLICT`。客户端对超时、5xx、缺失 ACK 或未知 rejection 保留 outbox。
+
+## Phase 2 Windows Runtime Behavior
+
+- foreground WinEvent 只触发重新读取当前前台 process；上传身份为本地派生的稳定 opaque key，不上传 executable path。
+- `GetLastInputInfo` 按配置阈值生成 active/idle 边界。
+- WTS-backed session notification 与 power notification 生成 lock/unlock、sleep/wake 事实。
+- 周期快照默认 60 秒，修正漏失事件并限制进程异常终止造成的开放段损失窗口。
+- Agent 是当前用户进程，可按显式 CLI 命令注册/移除 HKCU 登录启动项；不安装 Windows Service。
+- 乱序或非法事实写诊断日志并被拒绝，不修改账本状态。
+
+## Phase 2 Acceptance Criteria
+
+1. Windows Agent 在真实 Windows 会话中可生成 foreground、idle、session、power 和 snapshot facts，并通过同一纯状态机形成 segment。
+2. SQLite schema、segment+outbox 原子 transaction、幂等插入、失败保留、逐项 ACK 清理与重启恢复均有自动化测试。
+3. credential 配置使用当前用户 DPAPI；日志不得输出 enrollment code、device token 或 executable path。
+4. Worker 使用生成的 binding types、D1 prepared statements/batch、Web Crypto、安全长度限制和结构化错误；无硬编码 secret。
+5. Worker 本地测试覆盖 enrollment code 单次消费、token 认证、撤销/过期、合法上传、重复上传、ID 冲突、逐项 rejection 与 100 条上限。
+6. Windows 端到端测试通过本地 HTTP fake 或 Worker test harness 验证 enrollment、upload、ACK 和 outbox 清理。
+7. 提供 HKCU 登录启动注册/移除命令，但测试不得修改真实用户注册表。
+8. 不修改 `native-app-control/`、`extension/`、`workers/`、`pages/`，不运行远端 migration 或 deploy。
 
 ## Acceptance Criteria
 

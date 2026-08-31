@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -17,10 +17,15 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Core\TimeOnChrome.AppRuntime.Core.csproj" />
+    <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Infrastructure\TimeOnChrome.AppRuntime.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Windows\TimeOnChrome.AppRuntime.Windows.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\..\contracts\runtime-state-machine-v1.vectors.json"
           Link="runtime-state-machine-v1.vectors.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\runtime-segment-hash-v1.vectors.json"
+          Link="runtime-segment-hash-v1.vectors.json"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

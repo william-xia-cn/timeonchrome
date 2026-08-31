@@ -13,7 +13,7 @@ macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-
 
 ### 1.0.1 跨平台 App Runtime Management
 
-App Runtime Management 的产品规格与技术设计分别位于 `docs/specs/SPEC-004-APP-RUNTIME.md` 和 `docs/specs/SPEC-004-APP-RUNTIME-TECHNICAL-DESIGN.md`。它是一个产品能力，由 `app-runtime-management/agents/macos/` 的 Swift Agent 与 `app-runtime-management/agents/windows/` 的 .NET 8 Agent 原生实现，共享事实模型、确定性状态机、JSON Schema、黄金测试向量和未来 Runtime 后台。每个活动交互式用户会话独立运行 Agent；Phase 1 只提供 Core、接口、共享契约、backend contract types 和无副作用 Agent 空壳。现有 `native-app-control/` 及 Santa Worker/D1 继续独立负责发现、审核和阻止；Runtime 不共享 Santa enrollment、MachineID、协议、表或凭据。
+App Runtime Management 的产品规格与技术设计分别位于 `docs/specs/SPEC-004-APP-RUNTIME.md` 和 `docs/specs/SPEC-004-APP-RUNTIME-TECHNICAL-DESIGN.md`。它是一个产品能力，由 `app-runtime-management/agents/macos/` 的 Swift Agent 与 `app-runtime-management/agents/windows/` 的 .NET 8 Agent 原生实现，共享事实模型、确定性状态机、JSON Schema、黄金测试向量和 Runtime Worker/D1。每个活动交互式用户会话独立运行 Agent；Phase 2 先完成 Windows 的真实事件适配、SQLite ledger/outbox、DPAPI credential、HTTP uploader 与独立 Runtime enrollment/segment API，macOS 仍保持 Phase 1 骨架。现有 `native-app-control/` 及 Santa Worker/D1 继续独立负责发现、审核和阻止；Runtime 不共享 Santa enrollment、MachineID、协议、表或凭据，也不修改 Guardian/Pages。
 
 ### 1.1 系统架构
 

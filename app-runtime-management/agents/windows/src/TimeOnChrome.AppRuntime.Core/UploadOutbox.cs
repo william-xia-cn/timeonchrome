@@ -28,4 +28,9 @@ public interface IUploadOutbox
         string errorCode,
         long retryAtMs,
         CancellationToken cancellationToken = default);
+
+    Task RecordPermanentRejectionAsync(
+        IReadOnlySet<string> segmentIDs,
+        string errorCode,
+        CancellationToken cancellationToken = default);
 }
