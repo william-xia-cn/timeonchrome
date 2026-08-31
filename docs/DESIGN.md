@@ -11,6 +11,10 @@
 
 macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-NATIVE-APP-CONTROL-TECHNICAL-DESIGN.md`。该模块部署为独立 Worker 与独立 D1，不属于 Chrome Extension、`guardian-api` 设备同步或 `guardian-db` 业务数据。主系统仅提供 Account/Child 的短期 ES256 身份桥和 Child 删除 lifecycle outbox；Pages 通过 `/native-apps/` 提供独立控制台。现有 Native Worker、D1、secrets 和 Santa 协议属于已部署生产能力，常规 Chrome/Pages 发布不得因“本轮不改 Native 基础设施”而移除既有页面或 Guardian bridge。
 
+### 1.0.1 独立 macOS App Runtime Agent
+
+macOS App Runtime Agent 的产品规格与技术设计分别位于 `docs/specs/SPEC-004-MACOS-APP-RUNTIME.md` 和 `docs/specs/SPEC-004-MACOS-APP-RUNTIME-TECHNICAL-DESIGN.md`。源码位于与 `native-app-control/` 并列的 `macos-app-management/`，只负责未来的前台应用事件、用户 active/idle、session、sleep/wake、周期快照和不可变应用使用 segment。它不是 Santa 的重命名、子模块或总平台，不共享 Santa enrollment、MachineID、应用身份主键、策略数据库或同步协议。未来每个活动 GUI 用户会话运行一个独立 LaunchAgent；Phase 1 只提供 Swift Core 纯状态机、未来 SQLite/outbox 接口和无副作用 Agent 空壳，不接入生产 API、持久化、采集或上传。
+
 ### 1.1 系统架构
 
 ```
@@ -1010,6 +1014,8 @@ Extension-side storage follows the same split:
 
 ```
 timeonchrome/
+├── macos-app-management/      macOS Runtime Agent（独立 Swift Package；前台事实与应用使用账本）
+├── native-app-control/        Santa 独立子系统（应用发现、审核与阻止）
 ├── extension/                 Chrome 扩展源码根；开发时在 chrome://extensions 直接加载此目录
 │   ├── manifest.json          MV3 扩展清单，版本 1.7.12, "type": "module" (Chrome 95+), "incognito": "split"
 │   ├── managed-storage-schema.json  Chrome managed storage 策略字段 schema

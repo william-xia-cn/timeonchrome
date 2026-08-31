@@ -10,6 +10,15 @@
 - `1.7.27` 运行代码提交 `3ca6093` 与风险接受记录 `bb7c75a` 已推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff`、控制台 Pages `436199ba` 与内部更新站点 `39cdad15` 已部署并通过生产回读。稳定 ID CRX 为 373,209 bytes，SHA256 `10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`；发布结论为 `APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`，`cg.163.com` 的 `idleStateChanged` P0 继续 Deferred / 未解决。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
+## Active macOS Runtime Work（2026-09-01）
+
+- [ ] **[SPEC-004 / Phase 1] macOS App Runtime Agent 独立架构与 Swift 技术骨架**
+  - 分支：`codex/macos-app-management-v1`；独立 worktree；起点 `5c2e04104017259c72de573ab000353cf82b68fb`。
+  - 文档：新增 SPEC-004 产品规格与技术设计，D-075 固化 Runtime Agent 与 Santa 的独立边界。
+  - 实现范围：`macos-app-management/` 的 Core 模型、纯状态机、确定性 segment 边界、未来 store/outbox 接口、Agent 空壳和单元测试。
+  - 状态：文档先行进行中；Swift 骨架尚未提交。
+  - 禁止范围：不修改 `native-app-control/`、`extension/`、`workers/`、`pages/`；不部署、不写 SQLite、不上传、不采集真实家庭数据。
+
 ## Active UI Work（2026-08-31）
 - [x] [P1 Admin UI] 本地控件完整只读镜像云端访问管理信息
   - 范围：访问管理同步摘要、每周休息上限及云端周用量状态、四类每日配额、七天计划合计、单站点配额和允许/锁定时间段。
