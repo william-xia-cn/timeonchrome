@@ -10,13 +10,13 @@
 - `1.7.27` 运行代码提交 `3ca6093` 与风险接受记录 `bb7c75a` 已推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff`、控制台 Pages `436199ba` 与内部更新站点 `39cdad15` 已部署并通过生产回读。稳定 ID CRX 为 373,209 bytes，SHA256 `10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`；发布结论为 `APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`，`cg.163.com` 的 `idleStateChanged` P0 继续 Deferred / 未解决。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
-## Active macOS Runtime Work（2026-09-01）
+## Active App Runtime Work（2026-09-01）
 
-- [x] **[SPEC-004 / Phase 1] macOS App Runtime Agent 独立架构与 Swift 技术骨架**
+- [ ] **[SPEC-004 / Cross-Platform Phase 1] App Runtime Management 统一架构与双平台技术骨架**
   - 分支：`codex/macos-app-management-v1`；独立 worktree；起点 `5c2e04104017259c72de573ab000353cf82b68fb`。
-  - 文档：新增 SPEC-004 产品规格与技术设计，D-075 固化 Runtime Agent 与 Santa 的独立边界。
-  - 实现范围：`macos-app-management/` 的 Core 模型、纯状态机、确定性 segment 边界、未来 store/outbox 接口、Agent 空壳和单元测试。
-  - 状态：Phase 1 文档与 Swift 技术骨架已完成；Windows 仅完成结构/静态检查，macOS `swift test` 待在 macOS 13+ 环境执行。
+  - 产品边界：一个 App Runtime Management 产品，macOS Swift 与 Windows .NET 8 为两个原生实现，共享契约、黄金向量和未来 Runtime 后台。
+  - 实现范围：迁移现有 macOS 骨架；新增 Windows Core/Agent/xUnit；新增 JSON Schema、黄金向量与 contract-only backend types。
+  - 状态：D-076 与跨平台 SPEC-004 文档先行修正中；代码重构与 Windows 骨架尚未提交。
   - 禁止范围：不修改 `native-app-control/`、`extension/`、`workers/`、`pages/`；不部署、不写 SQLite、不上传、不采集真实家庭数据。
 
 ## Active UI Work（2026-08-31）
