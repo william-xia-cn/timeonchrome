@@ -1292,6 +1292,7 @@ export async function getPendingHourlyStats(hourKeys = null) {
   return {
     stats,
     pendingCount: (outbox.dirtyHourKeys || []).length,
+    dirtyHourKeys: [...new Set(outbox.dirtyHourKeys || [])],
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
   };
@@ -1316,6 +1317,7 @@ export async function getPendingHourlyTargetStats(hourKeys = null) {
   return {
     stats,
     pendingCount: (outbox.dirtyHourKeys || []).length,
+    dirtyHourKeys: [...new Set(outbox.dirtyHourKeys || [])],
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
   };
@@ -1738,6 +1740,14 @@ export async function buildDailyStatsUploadPayload(date) {
     const pipByMode = (typeof ds === 'object' && ds.pipByMode && typeof ds.pipByMode === 'object')
       ? ds.pipByMode
       : (pipSeconds > 0 ? { unknown: pipSeconds } : {});
+    const positiveRows = typeof ds === 'object'
+      ? Object.values(ds.rows || {}).filter((row) =>
+          row && typeof row === 'object' && Number.isFinite(Number(row.durationSeconds)) && Number(row.durationSeconds) > 0
+        )
+      : [];
+    const positiveTotal = [activeSeconds, backgroundMediaSeconds, pipSeconds]
+      .reduce((sum, seconds) => sum + (Number.isFinite(Number(seconds)) && Number(seconds) > 0 ? Number(seconds) : 0), 0);
+    if (positiveRows.length === 0 && positiveTotal <= 0) continue;
 
     domains.push({
       domain,
@@ -1751,9 +1761,7 @@ export async function buildDailyStatsUploadPayload(date) {
       backgroundMediaByMode,
       pipByMode,
       segmentsCount: typeof ds === 'object' ? Number(ds.segmentsCount || 0) : 0,
-      rows: typeof ds === 'object'
-        ? Object.values(ds.rows || {}).filter((row) => row && Number(row.durationSeconds || 0) > 0)
-        : [],
+      rows: positiveRows,
       firstSeenAt: typeof ds === 'object' ? ds.firstSeenAt : null,
       lastSeenAt: typeof ds === 'object' ? ds.lastSeenAt : null,
       lastUpdatedAt: typeof ds === 'object' ? ds.lastUpdatedAt : null,
@@ -1857,9 +1865,15 @@ export async function buildHourlyStatsUploadPayload(hourKey) {
   const domains = [];
   for (const [domain, ds] of Object.entries(hourStats.domains)) {
     if (ds === null || ds === undefined) continue;
-    const activeSeconds = ds.activeSeconds || 0;
-    const backgroundMediaSeconds = ds.backgroundMediaSeconds || 0;
-    const pipSeconds = ds.pipSeconds || 0;
+    const activeSeconds = Number(ds.activeSeconds || 0);
+    const backgroundMediaSeconds = Number(ds.backgroundMediaSeconds || 0);
+    const pipSeconds = Number(ds.pipSeconds || 0);
+    const positiveRows = Object.values(ds.rows || {}).filter((row) =>
+      row && typeof row === 'object' && Number.isFinite(Number(row.durationSeconds)) && Number(row.durationSeconds) > 0
+    );
+    const positiveTotal = [activeSeconds, backgroundMediaSeconds, pipSeconds]
+      .reduce((sum, seconds) => sum + (Number.isFinite(seconds) && seconds > 0 ? seconds : 0), 0);
+    if (positiveRows.length === 0 && positiveTotal <= 0) continue;
     domains.push({
       domain,
       activeSeconds,
@@ -1870,7 +1884,7 @@ export async function buildHourlyStatsUploadPayload(hourKey) {
       backgroundMediaByMode: ds.backgroundMediaByMode || {},
       pipByMode: ds.pipByMode || {},
       segmentsCount: Number(ds.segmentsCount || 0),
-      rows: Object.values(ds.rows || {}).filter((row) => row && Number(row.durationSeconds || 0) > 0),
+      rows: positiveRows,
       firstSeenAt: ds.firstSeenAt || null,
       lastSeenAt: ds.lastSeenAt || null,
       lastUpdatedAt: ds.lastUpdatedAt || null,

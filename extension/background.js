@@ -443,7 +443,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         timeQuota: existingConfig.timeQuota ?? DEFAULT_CONFIG.timeQuota,
         quotaBorrow: existingConfig.quotaBorrow ?? DEFAULT_CONFIG.quotaBorrow,
         classificationRules: existingConfig.classificationRules ?? [],
-        quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false }
+        quotaState: {
+          onlineLocked: false,
+          studyLocked: false,
+          restLocked: false,
+          undeterminedLocked: false,
+          dailyRestLocked: false,
+          weeklyRestLocked: false,
+        }
       };
       delete migratedConfig.tempWhitelist;
       delete migratedConfig.tempWhitelistConfig;

@@ -95,7 +95,14 @@ export const DEFAULT_CONFIG = {
   domainQuotas: {},
   classificationRules: [],
   siteClassificationRulesV1: [],
-  quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
+  quotaState: {
+    onlineLocked: false,
+    studyLocked: false,
+    restLocked: false,
+    undeterminedLocked: false,
+    dailyRestLocked: false,
+    weeklyRestLocked: false,
+  },
   schedule: {
     enabled: false,
     days: {
@@ -908,10 +915,19 @@ export async function resetDailyLockedDomains(force = false) {
     changed = true;
   }
   const qs = config.quotaState || {};
-  if (qs.onlineLocked || qs.studyLocked || qs.restLocked || qs.undeterminedLocked) {
-    config.quotaState = { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false };
+  if (qs.onlineLocked || qs.studyLocked || qs.restLocked || qs.undeterminedLocked || qs.dailyRestLocked || qs.weeklyRestLocked) {
+    config.quotaState = {
+      onlineLocked: false,
+      studyLocked: false,
+      restLocked: false,
+      undeterminedLocked: false,
+      dailyRestLocked: false,
+      weeklyRestLocked: false,
+    };
     changed = true;
   }
+
+  await chrome.storage.local.remove('cloud_quota_state_fact_v1');
 
   const borrow = config.quotaBorrow;
   if (borrow && !borrow.repaid) {

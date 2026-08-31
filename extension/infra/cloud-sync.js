@@ -22,6 +22,7 @@ import {
   getDailyUsageStats,
   getHourlyUsageStats,
   getUsageSegmentsByDate,
+  rebuildHourlyUsageStats,
   markUsageSegmentsUploaded, markDailyStatsUploaded,
   markHourlyStatsUploaded,
   markTargetStatsUploaded,
@@ -56,6 +57,16 @@ import { runV1StorageMaintenance } from './storage-maintenance.js';
 import { drainUsageSettlementJournal, reconcileUsageLedger } from '../core/usage-segments.js';
 import { budgetedLocalSet } from './storage-budget.js';
 import { isSyncRetryCandidate } from './sync-retry-policy.js';
+import {
+  advanceCloudFailureIncident,
+  normalizeCloudFailureCode,
+  resolveCloudFailureIncidents,
+} from './cloud-failure-incident.js';
+import {
+  CLOUD_QUOTA_STATE_FACT_KEY,
+  getQuotaCalendarContext,
+  makeCloudQuotaStateFact,
+} from '../core/quota-state-facts.js';
 
 const cloudStorageSet = (items) => typeof budgetedLocalSet === 'function'
   ? budgetedLocalSet(items, { priority: 'sync', source: 'cloud_sync' })
@@ -107,7 +118,8 @@ const CLOUD_CONFIG = {
     V1_LAST_HOURLY_MEDIA_STATS_UPLOAD_AT: 'cloud_v1_last_hourly_media_stats_upload_at',
     V1_LAST_SITE_REQUEST_SYNC_AT: 'cloud_v1_last_site_request_sync_at',
     V1_LAST_CLIENT_LOG_UPLOAD_AT: 'cloud_v1_last_client_log_upload_at',
-    USAGE_UPLOAD_BACKOFF: 'cloud_usage_upload_backoff_v1'
+    USAGE_UPLOAD_BACKOFF: 'cloud_usage_upload_backoff_v1',
+    FAILURE_INCIDENT: 'cloud_failure_incident_v1'
   }
 };
 
@@ -115,6 +127,7 @@ const DEVICE_RECOVERY_RETRY_MS = 5 * 60 * 1000;
 const MAX_USAGE_SEGMENTS_PER_BATCH = 200;
 const USAGE_UPLOAD_BACKOFF_STEPS_MS = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
 const DEVICE_IDENTITY_LINK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let cloudIncidentWriteQueue = Promise.resolve();
 
 let syncState = {
   isSyncing: false,
@@ -134,6 +147,65 @@ let syncState = {
 function createCloudRequestId(scope = 'cloud') {
   const random = Math.random().toString(36).slice(2, 8);
   return `${scope}-${Date.now().toString(36)}-${random}`;
+}
+
+function logCloudFailureIncidentBestEffort(event = {}) {
+  cloudIncidentWriteQueue = cloudIncidentWriteQueue.then(async () => {
+    const data = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.FAILURE_INCIDENT).catch(() => ({}));
+    const transition = advanceCloudFailureIncident(data?.[CLOUD_CONFIG.KEYS.FAILURE_INCIDENT], {
+      scope: event.scope || event.eventCode || 'cloud',
+      level: event.level || 'warning',
+      error: event.error || event.message,
+      eventCode: event.eventCode || 'cloud_failure',
+    });
+    await cloudStorageSet({ [CLOUD_CONFIG.KEYS.FAILURE_INCIDENT]: transition.state }).catch(() => {});
+    if (!transition.shouldLog) return;
+    logClientEventBestEffort({
+      level: event.level || 'warning',
+      category: 'cloud',
+      eventCode: event.eventCode || 'cloud_failure',
+      module: 'infra/cloud-sync',
+      message: event.safeMessage || 'Cloud operation failed',
+      details: {
+        fingerprint: transition.record.fingerprint,
+        errorCode: transition.record.code,
+        count: transition.record.count,
+        firstAt: transition.record.firstAt,
+        lastAt: transition.record.lastAt,
+      },
+    });
+  }).catch(() => {});
+  return cloudIncidentWriteQueue;
+}
+
+function resolveCloudFailureIncidentsBestEffort() {
+  cloudIncidentWriteQueue = cloudIncidentWriteQueue.then(async () => {
+    const data = await chrome.storage.local.get(CLOUD_CONFIG.KEYS.FAILURE_INCIDENT).catch(() => ({}));
+    const transition = resolveCloudFailureIncidents(data?.[CLOUD_CONFIG.KEYS.FAILURE_INCIDENT]);
+    if (!transition.resolved) return;
+    await cloudStorageSet({ [CLOUD_CONFIG.KEYS.FAILURE_INCIDENT]: transition.state }).catch(() => {});
+    logClientEventBestEffort({
+      level: 'info',
+      category: 'cloud',
+      eventCode: 'cloud_failure_incident_resolved',
+      module: 'infra/cloud-sync',
+      message: 'Cloud failure incident recovered',
+      details: transition.summary,
+    });
+  }).catch(() => {});
+  return cloudIncidentWriteQueue;
+}
+
+function summarizeCloudErrors(errors) {
+  const values = Array.isArray(errors) ? errors : [];
+  const scopes = [...new Set(values.map((value) => String(value || '').split(':', 1)[0]).filter(Boolean))]
+    .sort()
+    .slice(0, 4);
+  const codes = [...new Set(values.map((value) => normalizeCloudFailureCode(value)))].sort().slice(0, 4);
+  return {
+    scope: `sync_${scopes.join('_') || 'unknown'}`,
+    error: codes.join('_') || 'unknown_error',
+  };
 }
 
 function getCloudClientVersion() {
@@ -1298,13 +1370,12 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
   } catch (e) {
     console.error('[Cloud] Failed to pull config:', e.message);
     logCloudSchemaIncompatibility('/device/config', e);
-    logClientEventBestEffort({
+    logCloudFailureIncidentBestEffort({
       level: 'error',
-      category: 'cloud',
       eventCode: 'cloud_config_pull_failed',
-      module: 'infra/cloud-sync',
-      message: e?.message || 'Cloud config pull failed',
-      details: { endpoint: '/device/config', status: e?.status || null, code: e?.code || null, response: e?.response || null },
+      scope: 'config_pull',
+      error: e,
+      safeMessage: 'Cloud config pull failed',
     });
     return { status: 'failed', version: null, error: e.message };
   }
@@ -1319,32 +1390,17 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
  */
 export async function pullCloudQuotaState(getConfigFn, saveConfigFn) {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const result = await cloudRequest('GET', `/device/quota-state?date=${today}`);
-
-    const config = await getConfigFn();
-    const localQs = config.quotaState || {};
-
-    const newState = {
-      onlineLocked: localQs.onlineLocked || result.onlineLocked,
-      studyLocked: localQs.studyLocked || result.studyLocked,
-      restLocked: localQs.restLocked || result.restLocked,
-      undeterminedLocked: localQs.undeterminedLocked || result.undeterminedLocked,
-      weeklyRestLocked: localQs.weeklyRestLocked || result.weeklyRestLocked,
-    };
-
-    const stateChanged = newState.onlineLocked !== localQs.onlineLocked ||
-      newState.studyLocked !== localQs.studyLocked ||
-      newState.restLocked !== localQs.restLocked ||
-      newState.undeterminedLocked !== localQs.undeterminedLocked ||
-      newState.weeklyRestLocked !== localQs.weeklyRestLocked;
-
-    if (stateChanged) {
-      config.quotaState = newState;
-      await saveConfigFn(config);
-      console.log('[Cloud] Quota state fact synced from cloud:', newState);
+    const calendar = getQuotaCalendarContext();
+    const result = await cloudRequest('GET', `/device/quota-state?date=${calendar.date}`);
+    const fact = makeCloudQuotaStateFact(result, calendar);
+    if (!fact) {
+      throw new Error('cloud_quota_period_mismatch');
     }
-    return { synced: true, changed: stateChanged, oldState: localQs, newState, error: null };
+    const previous = await chrome.storage.local.get([CLOUD_QUOTA_STATE_FACT_KEY]);
+    const oldFact = previous?.[CLOUD_QUOTA_STATE_FACT_KEY] || null;
+    const changed = JSON.stringify(oldFact) !== JSON.stringify(fact);
+    await cloudStorageSet({ [CLOUD_QUOTA_STATE_FACT_KEY]: fact });
+    return { synced: true, changed, oldState: oldFact?.state || null, newState: fact.state, fact, error: null };
   } catch (e) {
     console.error('[Cloud] Failed to pull quota state:', e.message);
     return { synced: false, changed: false, oldState: null, newState: null, error: e.message };
@@ -1576,16 +1632,19 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     const hadFailure = errors.length > 0;
     if (hadFailure) {
       console.warn('[Cloud] Sync completed with errors:', errors.join('; '), errors);
-      logClientEventBestEffort({
+      const incident = summarizeCloudErrors(errors);
+      await logCloudFailureIncidentBestEffort({
         level: 'warning',
-        category: 'cloud',
         eventCode: 'cloud_sync_completed_with_errors',
-        module: 'infra/cloud-sync',
-        message: 'Cloud sync completed with errors',
-        details: { errors },
+        scope: incident.scope,
+        error: incident.error,
+        safeMessage: 'Cloud sync completed with errors',
       });
     } else {
       console.log('[Cloud] Sync completed successfully');
+      if (Number(clientLogResult.failed || 0) === 0) {
+        await resolveCloudFailureIncidentsBestEffort();
+      }
     }
 
     return {
@@ -1600,12 +1659,12 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     };
   } catch (e) {
     console.error('[Cloud] Sync failed:', e.message);
-    logClientEventBestEffort({
+    await logCloudFailureIncidentBestEffort({
       level: 'error',
-      category: 'cloud',
       eventCode: 'cloud_sync_failed',
-      module: 'infra/cloud-sync',
-      message: e?.message || 'Cloud sync failed',
+      scope: 'sync_fatal',
+      error: e,
+      safeMessage: 'Cloud sync failed',
     });
     const code = e?.code ? `${e.code}: ` : '';
     return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: [`${code}${e.message}`] };
@@ -1789,13 +1848,12 @@ export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
       errors.push(`segments: ${e.message}`);
       console.error('[Cloud-V1] Failed to upload segments:', e.message);
       logCloudSchemaIncompatibility('/device/usage-segments/v1', e);
-      logClientEventBestEffort({
+      logCloudFailureIncidentBestEffort({
         level: 'error',
-        category: 'cloud',
         eventCode: 'cloud_usage_segment_upload_failed',
-        module: 'infra/cloud-sync',
-        message: e?.message || 'Usage segment upload failed',
-        details: { endpoint: '/device/usage-segments/v1', count: batchIds.length, status: e?.status || null, code: e?.code || null, response: e?.response || null },
+        scope: 'usage_segments_upload',
+        error: e,
+        safeMessage: 'Usage segment upload failed',
       });
     }
 
@@ -1928,13 +1986,12 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
         failed++;
         errors.push(`stats ${date}: ${e.message}`);
         console.error('[Cloud-V1] Failed to upload daily stats for', date, e.message, summarizeDailyStatsPayload(date, payload));
-        logClientEventBestEffort({
+        logCloudFailureIncidentBestEffort({
           level: 'error',
-          category: 'cloud',
           eventCode: 'cloud_daily_stats_upload_failed',
-          module: 'infra/cloud-sync',
-          message: e?.message || 'Daily stats upload failed',
-          details: { date },
+          scope: 'daily_stats_upload',
+          error: e,
+          safeMessage: 'Daily stats upload failed',
         });
       }
     }
@@ -2017,11 +2074,57 @@ function sumSegmentSeconds(segments) {
 }
 
 async function getHourKeysForDate(date) {
-  const allHourlyStats = await getHourlyUsageStats();
-  return Object.entries(allHourlyStats || {})
-    .filter(([hourKey, stats]) => stats?.date === date || String(hourKey).startsWith(`${date}T`))
-    .map(([hourKey]) => hourKey)
-    .sort();
+  const [allHourlyStats, hourlyPending, hourlyTargetPending] = await Promise.all([
+    getHourlyUsageStats(),
+    getPendingHourlyStats(),
+    getPendingHourlyTargetStats(),
+  ]);
+  const keys = new Set(
+    Object.entries(allHourlyStats || {})
+      .filter(([hourKey, stats]) => stats?.date === date || String(hourKey).startsWith(`${date}T`))
+      .map(([hourKey]) => hourKey)
+  );
+  for (const hourKey of [
+    ...(hourlyPending?.dirtyHourKeys || []),
+    ...(hourlyTargetPending?.dirtyHourKeys || []),
+  ]) {
+    if (String(hourKey).startsWith(`${date}T`)) keys.add(hourKey);
+  }
+  return [...keys].sort();
+}
+
+async function prepareHourlyUsagePayloads(hourKey) {
+  let statsPayload = await buildHourlyStatsUploadPayload(hourKey);
+  let targetPayload = await buildHourlyTargetStatsUploadPayload(hourKey);
+  const statsSeconds = sumStatsDomainsSeconds(statsPayload?.domains);
+  const targetSeconds = sumTargetPayloadSeconds(targetPayload?.targets);
+
+  if (statsSeconds <= 0 || targetSeconds <= 0) {
+    await rebuildHourlyUsageStats(hourKey, { forceWriteEmpty: true });
+    statsPayload = await buildHourlyStatsUploadPayload(hourKey);
+    targetPayload = await buildHourlyTargetStatsUploadPayload(hourKey);
+  }
+
+  return {
+    statsPayload,
+    targetPayload,
+    noOp: sumStatsDomainsSeconds(statsPayload?.domains) <= 0 &&
+      sumTargetPayloadSeconds(targetPayload?.targets) <= 0,
+  };
+}
+
+async function clearNoOpHourlyStats(hourKeys, limit = 24) {
+  const cleared = [];
+  for (const hourKey of (Array.isArray(hourKeys) ? hourKeys : []).slice(0, limit)) {
+    const prepared = await prepareHourlyUsagePayloads(hourKey);
+    if (!prepared.noOp) continue;
+    await Promise.all([
+      markHourlyStatsUploaded([hourKey]),
+      markHourlyTargetStatsUploaded([hourKey]),
+    ]);
+    cleared.push(hourKey);
+  }
+  return cleared;
 }
 
 async function getEarliestLocalUsageDate(today) {
@@ -2100,8 +2203,9 @@ async function buildUsageDateUploadPackage(date) {
   const hourlyTargetPayloads = [];
 
   for (const hourKey of hourKeys) {
-    hourlyPayloads.push(await buildHourlyStatsUploadPayload(hourKey));
-    hourlyTargetPayloads.push(await buildHourlyTargetStatsUploadPayload(hourKey));
+    const prepared = await prepareHourlyUsagePayloads(hourKey);
+    hourlyPayloads.push(prepared.statsPayload);
+    hourlyTargetPayloads.push(prepared.targetPayload);
   }
 
   const dailySeconds = sumStatsDomainsSeconds(dailyPayload?.domains);
@@ -2237,20 +2341,19 @@ export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted
 
   try {
     const pending = await getPendingHourlyStats();
-    const dirtyHourKeys = Object.keys(pending.stats || {});
+    const dirtyHourKeys = pending.dirtyHourKeys || Object.keys(pending.stats || {});
     if (dirtyHourKeys.length === 0) {
       return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
     }
 
-    const exhaustedHourKeys = dirtyHourKeys.filter((hourKey) =>
-      Number(pending.retryCounts?.[hourKey] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
-    );
-    const candidateHourKeys = forceRetryExhausted
-      ? dirtyHourKeys
-      : dirtyHourKeys.filter((hourKey) => !exhaustedHourKeys.includes(hourKey));
-    const batchHourKeys = candidateHourKeys.slice(0, 24);
-
     if (!effectiveEnabled) {
+      const exhaustedHourKeys = dirtyHourKeys.filter((hourKey) =>
+        Number(pending.retryCounts?.[hourKey] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
+      );
+      const candidateHourKeys = forceRetryExhausted
+        ? dirtyHourKeys
+        : dirtyHourKeys.filter((hourKey) => !exhaustedHourKeys.includes(hourKey));
+      const batchHourKeys = candidateHourKeys.slice(0, 24);
       const samplePayload = batchHourKeys.length > 0 ? await buildHourlyStatsUploadPayload(batchHourKeys[0]) : null;
       return {
         uploaded: 0,
@@ -2269,13 +2372,29 @@ export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted
       };
     }
 
+    const healingOrder = [...dirtyHourKeys].sort((a, b) =>
+      Number(pending.retryCounts?.[b] || 0) - Number(pending.retryCounts?.[a] || 0)
+    );
+    const clearedNoOpHourKeys = new Set(await clearNoOpHourlyStats(healingOrder));
+    const remainingDirtyHourKeys = dirtyHourKeys.filter((hourKey) => !clearedNoOpHourKeys.has(hourKey));
+    if (remainingDirtyHourKeys.length === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: false, pendingCount: 0, errors: [] };
+    }
+    const exhaustedHourKeys = remainingDirtyHourKeys.filter((hourKey) =>
+      Number(pending.retryCounts?.[hourKey] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
+    );
+    const candidateHourKeys = forceRetryExhausted
+      ? remainingDirtyHourKeys
+      : remainingDirtyHourKeys.filter((hourKey) => !exhaustedHourKeys.includes(hourKey));
+    const batchHourKeys = candidateHourKeys.slice(0, 24);
+
     if (batchHourKeys.length === 0 && exhaustedHourKeys.length > 0) {
       return {
         uploaded: 0,
         failed: exhaustedHourKeys.length,
         skipped: false,
         dryRun: false,
-        pendingCount: dirtyHourKeys.length,
+        pendingCount: remainingDirtyHourKeys.length,
         errors: exhaustedHourKeys.map((hourKey) => `hourly stats ${hourKey}: retry exhausted (${pending.retryCounts?.[hourKey] || 0})`),
       };
     }
@@ -2284,9 +2403,13 @@ export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted
     let failed = 0;
     const errors = [];
     for (const hourKey of batchHourKeys) {
-      const payload = await buildHourlyStatsUploadPayload(hourKey);
+      const prepared = await prepareHourlyUsagePayloads(hourKey);
+      const payload = prepared.statsPayload;
       if (!payload || payload.domains.length === 0) {
-        await markHourlyStatsUploaded([hourKey]);
+        await Promise.all([
+          markHourlyStatsUploaded([hourKey]),
+          prepared.noOp ? markHourlyTargetStatsUploaded([hourKey]) : Promise.resolve(),
+        ]);
         continue;
       }
       try {
@@ -2298,17 +2421,16 @@ export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted
         await markHourlyStatsUploadFailed([hourKey], e.message);
         failed++;
         errors.push(`hourly stats ${hourKey}: ${e.message}`);
-        logClientEventBestEffort({
+        logCloudFailureIncidentBestEffort({
           level: 'error',
-          category: 'cloud',
           eventCode: 'cloud_hourly_stats_upload_failed',
-          module: 'infra/cloud-sync',
-          message: e?.message || 'Hourly stats upload failed',
-          details: { hourKey },
+          scope: 'hourly_stats_upload',
+          error: e,
+          safeMessage: 'Hourly stats upload failed',
         });
       }
     }
-    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyHourKeys.length - uploaded, errors };
+    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: remainingDirtyHourKeys.length - uploaded, errors };
   } catch (e) {
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
   }
@@ -2405,13 +2527,12 @@ export async function uploadTargetStatsV1({ enabled = false, forceRetryExhausted
         await markTargetStatsUploadFailed([date], e.message);
         failed++;
         errors.push(`target stats ${date}: ${e.message}`);
-        logClientEventBestEffort({
+        logCloudFailureIncidentBestEffort({
           level: 'error',
-          category: 'cloud',
           eventCode: 'cloud_target_stats_upload_failed',
-          module: 'infra/cloud-sync',
-          message: e?.message || 'Target stats upload failed',
-          details: { date },
+          scope: 'target_stats_upload',
+          error: e,
+          safeMessage: 'Target stats upload failed',
         });
       }
     }
@@ -2435,20 +2556,19 @@ export async function uploadHourlyTargetStatsV1({ enabled = false, forceRetryExh
 
   try {
     const pending = await getPendingHourlyTargetStats();
-    const dirtyHourKeys = Object.keys(pending.stats || {});
+    const dirtyHourKeys = pending.dirtyHourKeys || Object.keys(pending.stats || {});
     if (dirtyHourKeys.length === 0) {
       return { uploaded: 0, failed: 0, skipped: true, dryRun: !effectiveEnabled, pendingCount: 0, errors: [] };
     }
 
-    const exhaustedHourKeys = dirtyHourKeys.filter((hourKey) =>
-      Number(pending.retryCounts?.[hourKey] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
-    );
-    const candidateHourKeys = forceRetryExhausted
-      ? dirtyHourKeys
-      : dirtyHourKeys.filter((hourKey) => !exhaustedHourKeys.includes(hourKey));
-    const batchHourKeys = candidateHourKeys.slice(0, 24);
-
     if (!effectiveEnabled) {
+      const exhaustedHourKeys = dirtyHourKeys.filter((hourKey) =>
+        Number(pending.retryCounts?.[hourKey] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
+      );
+      const candidateHourKeys = forceRetryExhausted
+        ? dirtyHourKeys
+        : dirtyHourKeys.filter((hourKey) => !exhaustedHourKeys.includes(hourKey));
+      const batchHourKeys = candidateHourKeys.slice(0, 24);
       const samplePayload = batchHourKeys.length > 0 ? await buildHourlyTargetStatsUploadPayload(batchHourKeys[0]) : null;
       return {
         uploaded: 0,
@@ -2467,13 +2587,29 @@ export async function uploadHourlyTargetStatsV1({ enabled = false, forceRetryExh
       };
     }
 
+    const healingOrder = [...dirtyHourKeys].sort((a, b) =>
+      Number(pending.retryCounts?.[b] || 0) - Number(pending.retryCounts?.[a] || 0)
+    );
+    const clearedNoOpHourKeys = new Set(await clearNoOpHourlyStats(healingOrder));
+    const remainingDirtyHourKeys = dirtyHourKeys.filter((hourKey) => !clearedNoOpHourKeys.has(hourKey));
+    if (remainingDirtyHourKeys.length === 0) {
+      return { uploaded: 0, failed: 0, skipped: true, dryRun: false, pendingCount: 0, errors: [] };
+    }
+    const exhaustedHourKeys = remainingDirtyHourKeys.filter((hourKey) =>
+      Number(pending.retryCounts?.[hourKey] || 0) >= CLOUD_CONFIG.MAX_RETRY_ATTEMPTS
+    );
+    const candidateHourKeys = forceRetryExhausted
+      ? remainingDirtyHourKeys
+      : remainingDirtyHourKeys.filter((hourKey) => !exhaustedHourKeys.includes(hourKey));
+    const batchHourKeys = candidateHourKeys.slice(0, 24);
+
     if (batchHourKeys.length === 0 && exhaustedHourKeys.length > 0) {
       return {
         uploaded: 0,
         failed: exhaustedHourKeys.length,
         skipped: false,
         dryRun: false,
-        pendingCount: dirtyHourKeys.length,
+        pendingCount: remainingDirtyHourKeys.length,
         errors: exhaustedHourKeys.map((hourKey) => `hourly target stats ${hourKey}: retry exhausted (${pending.retryCounts?.[hourKey] || 0})`),
       };
     }
@@ -2482,9 +2618,13 @@ export async function uploadHourlyTargetStatsV1({ enabled = false, forceRetryExh
     let failed = 0;
     const errors = [];
     for (const hourKey of batchHourKeys) {
-      const payload = await buildHourlyTargetStatsUploadPayload(hourKey);
+      const prepared = await prepareHourlyUsagePayloads(hourKey);
+      const payload = prepared.targetPayload;
       if (!payload || payload.targets.length === 0) {
-        await markHourlyTargetStatsUploaded([hourKey]);
+        await Promise.all([
+          markHourlyTargetStatsUploaded([hourKey]),
+          prepared.noOp ? markHourlyStatsUploaded([hourKey]) : Promise.resolve(),
+        ]);
         continue;
       }
       try {
@@ -2496,17 +2636,16 @@ export async function uploadHourlyTargetStatsV1({ enabled = false, forceRetryExh
         await markHourlyTargetStatsUploadFailed([hourKey], e.message);
         failed++;
         errors.push(`hourly target stats ${hourKey}: ${e.message}`);
-        logClientEventBestEffort({
+        logCloudFailureIncidentBestEffort({
           level: 'error',
-          category: 'cloud',
           eventCode: 'cloud_hourly_target_stats_upload_failed',
-          module: 'infra/cloud-sync',
-          message: e?.message || 'Hourly target stats upload failed',
-          details: { hourKey },
+          scope: 'hourly_target_stats_upload',
+          error: e,
+          safeMessage: 'Hourly target stats upload failed',
         });
       }
     }
-    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: dirtyHourKeys.length - uploaded, errors };
+    return { uploaded, failed, skipped: false, dryRun: false, pendingCount: remainingDirtyHourKeys.length - uploaded, errors };
   } catch (e) {
     return { uploaded: 0, failed: 0, skipped: false, dryRun: !effectiveEnabled, pendingCount: 0, errors: [e.message] };
   }
@@ -2586,13 +2725,12 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
         result.segments.errors.push('segments ' + pkg.date + ': ' + errorCode);
         result.failed += batchIds.length;
         result.errors.push('segments ' + pkg.date + ': ' + errorCode);
-        logClientEventBestEffort({
+        logCloudFailureIncidentBestEffort({
           level: 'error',
-          category: 'cloud',
           eventCode: 'cloud_usage_segment_upload_failed',
-          module: 'infra/cloud-sync',
-          message: 'Usage segment upload failed: ' + errorCode,
-          details: { date: pkg.date, count: batchIds.length, remaining: segmentIds.length - offset },
+          scope: 'usage_segments_upload',
+          error: errorCode,
+          safeMessage: 'Usage segment upload failed',
         });
         break;
       }
@@ -2659,7 +2797,10 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
   } else {
     let uploadedHours = 0;
     for (const payload of pkg.hourlyPayloads) {
-      if (!payload || !Array.isArray(payload.domains) || payload.domains.length === 0) continue;
+      if (!payload || !Array.isArray(payload.domains) || payload.domains.length === 0) {
+        if (payload?.hourKey) await markHourlyStatsUploaded([payload.hourKey]);
+        continue;
+      }
       try {
         await cloudRequest('POST', '/device/hourly-stats/v1', payload);
         await markHourlyStatsUploaded([payload.hourKey]);
@@ -2690,7 +2831,10 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
   } else {
     let uploadedHours = 0;
     for (const payload of pkg.hourlyTargetPayloads) {
-      if (!payload || !Array.isArray(payload.targets) || payload.targets.length === 0) continue;
+      if (!payload || !Array.isArray(payload.targets) || payload.targets.length === 0) {
+        if (payload?.hourKey) await markHourlyTargetStatsUploaded([payload.hourKey]);
+        continue;
+      }
       try {
         await cloudRequest('POST', '/device/hourly-target-stats/v1', payload);
         await markHourlyTargetStatsUploaded([payload.hourKey]);
@@ -2795,13 +2939,12 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
       const integrity = await getRemoteUsageDateIntegrity(date);
       cloudComplete = isCloudIntegrityCompleteForPackage(integrity, pkg);
     } catch (error) {
-      logClientEventBestEffort({
+      logCloudFailureIncidentBestEffort({
         level: 'warning',
-        category: 'cloud',
         eventCode: 'cloud_usage_history_integrity_check_failed',
-        module: 'infra/cloud-sync',
-        message: error?.message || 'Usage history integrity check failed',
-        details: { date },
+        scope: 'usage_history_integrity',
+        error,
+        safeMessage: 'Usage history integrity check failed',
       });
     }
 
@@ -2922,13 +3065,12 @@ export async function uploadMediaSegmentsV1({ enabled = false } = {}) {
       return { uploaded: batchIds.length, failed: 0, skipped: false, dryRun: false, pendingCount: pending.pendingCount - batchIds.length, errors: [] };
     } catch (e) {
       await markMediaSegmentUploadFailed(batchIds, e.message);
-      logClientEventBestEffort({
+      logCloudFailureIncidentBestEffort({
         level: 'error',
-        category: 'cloud',
         eventCode: 'cloud_media_segment_upload_failed',
-        module: 'infra/cloud-sync',
-        message: e?.message || 'Media segment upload failed',
-        details: { count: batchIds.length },
+        scope: 'media_segments_upload',
+        error: e,
+        safeMessage: 'Media segment upload failed',
       });
       return { uploaded: 0, failed: batchIds.length, skipped: false, dryRun: false, pendingCount: pending.pendingCount, errors: [`media segments: ${e.message}`] };
     }
@@ -3012,13 +3154,12 @@ export async function uploadDailyMediaStatsV1({ enabled = false, forceRetryExhau
         await markDailyMediaStatsUploadFailed([date], e.message);
         failed++;
         errors.push(`media stats ${date}: ${e.message}`);
-        logClientEventBestEffort({
+        logCloudFailureIncidentBestEffort({
           level: 'error',
-          category: 'cloud',
           eventCode: 'cloud_daily_media_stats_upload_failed',
-          module: 'infra/cloud-sync',
-          message: e?.message || 'Daily media stats upload failed',
-          details: { date },
+          scope: 'daily_media_stats_upload',
+          error: e,
+          safeMessage: 'Daily media stats upload failed',
         });
       }
     }
@@ -3103,13 +3244,12 @@ export async function uploadHourlyMediaStatsV1({ enabled = false, forceRetryExha
         await markHourlyMediaStatsUploadFailed([hourKey], e.message);
         failed++;
         errors.push(`hourly media stats ${hourKey}: ${e.message}`);
-        logClientEventBestEffort({
+        logCloudFailureIncidentBestEffort({
           level: 'error',
-          category: 'cloud',
           eventCode: 'cloud_hourly_media_stats_upload_failed',
-          module: 'infra/cloud-sync',
-          message: e?.message || 'Hourly media stats upload failed',
-          details: { hourKey },
+          scope: 'hourly_media_stats_upload',
+          error: e,
+          safeMessage: 'Hourly media stats upload failed',
         });
       }
     }
@@ -3267,13 +3407,12 @@ export async function uploadClientLogsV1({ enabled = true } = {}) {
       return { uploaded: ids.length, failed: 0, skipped: false, pendingCount: Math.max(0, Number(pending.pendingCount || 0) - ids.length), errors: [] };
     } catch (e) {
       await markClientLogUploadFailed(ids, e.message);
-      logClientEventBestEffort({
+      logCloudFailureIncidentBestEffort({
         level: 'warning',
-        category: 'cloud',
         eventCode: 'client_log_upload_failed',
-        module: 'infra/cloud-sync',
-        message: e?.message || 'Client log upload failed',
-        details: { count: ids.length },
+        scope: 'client_logs_upload',
+        error: e,
+        safeMessage: 'Client log upload failed',
       });
       return { uploaded: 0, failed: ids.length, skipped: false, pendingCount: Number(pending.pendingCount || ids.length), errors: [`client logs: ${e.message}`] };
     }

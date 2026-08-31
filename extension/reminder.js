@@ -135,6 +135,7 @@
     if (code.includes('schedule') && targetMode === 'study') return '当前时间段未允许学习模式的使用，不能切换到学习模式。';
     if (code.includes('schedule') && targetMode === 'composite') return '当前时间段未允许复合模式的使用，不能进入复合模式。';
     if (code.includes('schedule') && targetMode === 'rest') return '当前时间段未允许休息模式的使用，不能进入休息模式。';
+    if (code.includes('weekly_rest')) return '本周的休息时间已用完，当前不能继续访问。';
     if (code.includes('rest')) return '今天的休息时间已用完，当前不能继续访问。';
     if (code.includes('study')) return '今天的学习时间已用完，当前不能切换到学习模式。';
     if (code.includes('composite') || code.includes('undetermined')) return '今天的待归类时间已用完，当前不能进入待归类时间。';
@@ -224,6 +225,16 @@
     rest_locked: {
       icon: 'notice', title: '今天的休息时间已用完',
       subtitle: '当前不能继续访问。请返回。',
+      actions: ['backGeneric']
+    },
+    daily_rest_locked: {
+      icon: 'notice', title: '今天的休息时间已用完',
+      subtitle: '已达到每日休息时间上限。请返回。',
+      actions: ['backGeneric']
+    },
+    weekly_rest_locked: {
+      icon: 'notice', title: '本周的休息时间已用完',
+      subtitle: '已达到每周休息时间上限。请返回。',
       actions: ['backGeneric']
     },
     quota_locked: {
@@ -355,7 +366,7 @@
   var V0_KNOWN_REASONS = new Set([
     'unsafe', 'study_mode', 'to_composite_confirm', 'to_rest_confirm',
     'to_rest_slide_confirm', 'restricted_study_mode',
-    'quota_composite_and_rest', 'rest_locked', 'quota_locked', 'quota_rest',
+    'quota_composite_and_rest', 'rest_locked', 'daily_rest_locked', 'weekly_rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
     'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked'
   ]);
@@ -380,7 +391,9 @@
     };
   }
   if (params.get('restLocked') === '1') {
-    disableRestEntry('今天的休息时间已用完，当前不能继续访问。');
+    disableRestEntry(effectiveReason === 'weekly_rest_locked'
+      ? '本周的休息时间已用完，当前不能继续访问。'
+      : '今天的休息时间已用完，当前不能继续访问。');
   }
 
   if (mainIcon) mainIcon.innerHTML = `<img src="icons/ui/${config.icon}.svg" alt="">`;

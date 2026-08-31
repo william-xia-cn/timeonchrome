@@ -74,7 +74,14 @@ function buildSchemaDefaults(): object {
     domainQuotas: {},
     classificationRules: [],
     siteClassificationRulesV1: [],
-    quotaState: { onlineLocked: false, studyLocked: false, restLocked: false, undeterminedLocked: false },
+    quotaState: {
+      onlineLocked: false,
+      studyLocked: false,
+      restLocked: false,
+      undeterminedLocked: false,
+      dailyRestLocked: false,
+      weeklyRestLocked: false,
+    },
     schedule: {
       enabled: false,
       days: {

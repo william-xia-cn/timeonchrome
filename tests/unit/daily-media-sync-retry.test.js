@@ -71,6 +71,7 @@ function makeHarness({ retryCount = 3, lastAttemptAt = Date.now(), requestError 
     markDailyMediaStatsUploadFailed: async (dates, error) => failed.push({ dates, error }),
     cloudStorageSet: async () => {},
     logClientEventBestEffort: (entry) => logs.push(entry),
+    logCloudFailureIncidentBestEffort: (entry) => logs.push(entry),
   });
   return { date, upload, requests, uploaded, failed, logs };
 }

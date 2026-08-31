@@ -8,6 +8,16 @@
 
 ---
 
+## [1.7.28] — 2026-08-31
+
+- **配额周期与解锁修复**：日/周配额统一按 `Asia/Shanghai` 计算；本地与云端配额事实分开保存并按当前周期重新合成，跨日、跨周或云端已解除的陈旧锁不再永久粘住。
+- **跨设备 Rest 统计修复**：Guardian Worker 从 `target_stats_v1.quota_bucket` 汇总同一 profile 的全部设备，避免按当前网站分类重新解释历史网页账；Reminder 区分日限额、周限额和时间段锁定。
+- **0 秒小时统计自愈**：原始 0 秒诊断分段继续保留，但不再生成统计上传行；空小时重建后仍无正时长时清理对应 outbox。Worker 对旧客户端全零 payload 返回成功 no-op，非法正时长 payload 继续拒绝。
+- **日志与页面清理降噪**：`AUTO_MODE_PENDING_CANCEL` 在页面没有 Content Script 时静默完成；重复云同步错误按有界 incident 收敛，恢复时只记录一次摘要，不改变 outbox、重试或账本语义。
+- **内部前向止血发布**：仅进入 T.xia / P.xia managed 自托管渠道。媒体/usage 大批量上传可能超过 15 秒并形成部分写入但未 ACK、T.xia `2026-08-31` 原始账与物化统计尚未收敛、`cg.163.com` 的 `idleStateChanged` 少记风险及确定性 `ALREADY_CLASSIFIED` 重试继续保持 `RISK ACCEPTED / DEFERRED`；不适用于 Chrome Web Store。
+
+---
+
 ## [1.7.27] — 2026-08-29
 
 - **Rest 软限额提醒**：首次提醒正式定义为可开关的“今日休息软限额”，默认 120 分钟；超额后提醒间隔可独立配置，默认 60 分钟，两项均支持 1–1440 分钟。

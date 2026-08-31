@@ -124,6 +124,7 @@ function loadEffects(stubs = {}) {
   vm.runInContext(`${effectsCode}
 this.__exports = {
   executeModeDecision,
+  clearTabModeNotice,
   sendModeSwitchSuccessNotice,
   reSendPendingNotice,
   deliverPendingNoticeForFocusedTab,
@@ -416,6 +417,38 @@ this.__exports = {
     expectTrue('content ready sends visible lifecycle reasons', contentSource.includes("notifyContentScriptReady('visibilitychange')") && contentSource.includes("notifyContentScriptReady('pageshow')") && contentSource.includes("notifyContentScriptReady('window_focus')"));
     expectTrue('background ignores non-top-frame content ready', backgroundSource.includes("reason: 'non_top_frame'") && backgroundSource.includes('frameId !== 0'));
     expectTrue('background schedules delayed pending retry', backgroundSource.includes('deliverPendingModeNoticeForTabWithDelayedRetry') && backgroundSource.includes('250'));
+  }
+
+  section('IMT-7 missing listener makes cancel a silent no-op');
+  {
+    const warnings = [];
+    const notifications = [];
+    const effects = loadEffects({
+      logClientEventBestEffort: (event) => warnings.push(event),
+      chrome: {
+        runtime: { getURL: (p = '') => `chrome-extension://ext-id/${p.replace(/^\//, '')}` },
+        tabs: {
+          get: async (tabId) => ({ id: tabId, url: 'https://example.com' }),
+          sendMessage: async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); },
+          update: async () => {},
+        },
+        notifications: { create: (payload) => notifications.push(payload) },
+        declarativeNetRequest: {
+          getDynamicRules: async () => [],
+          updateDynamicRules: async () => {},
+        },
+        storage: {
+          local: {
+            get: async () => ({}),
+            set: async () => {},
+          },
+        },
+      },
+    });
+    const result = await effects.clearTabModeNotice(77, 'test_cleanup');
+    expectTrue('cancel missing listener is treated as success', result === true);
+    expect('cancel missing listener writes no warning', warnings.length, 0);
+    expect('cancel missing listener shows no notification', notifications.length, 0);
   }
 
   if (failed > 0) {

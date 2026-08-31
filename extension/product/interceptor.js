@@ -391,6 +391,19 @@ async function sendTabPendingMessageDetailed(tabId, payload, fallbackMessage = n
       attempted: true,
     };
   } catch (err) {
+    if (payload?.type === 'AUTO_MODE_PENDING_CANCEL' && isMissingContentListenerError(err)) {
+      return {
+        ...resultBase,
+        ok: true,
+        sent: false,
+        ack: null,
+        rendered: false,
+        visible: false,
+        error: null,
+        attempted: true,
+        skipped: 'content_not_present',
+      };
+    }
     if (isSuccessNotice && options.allowDeferredRetry !== false && isMissingContentListenerError(err)) {
       contentReadyByTab.delete(tabId);
       return {

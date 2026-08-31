@@ -95,6 +95,9 @@ function loadModeService(stubs = {}) {
       return { configured: true, allowed, mode, field, dayKey, windows };
     },
     reminderReasonForModeWindow: (mode) => `${mode}_schedule_locked`,
+    restQuotaReminderReason: (quotaState = {}) => quotaState.weeklyRestLocked
+      ? 'weekly_rest_locked'
+      : quotaState.dailyRestLocked ? 'daily_rest_locked' : 'rest_locked',
     evaluateQuotaState: async () => ({ ok: true, config: { quotaState: {} }, newState: {} }),
     enqueueModeBoundaryIntent: async (intent) => ({ ok: true, intent }),
     setCachedEffectiveMode: () => {},
@@ -1115,6 +1118,33 @@ this.__modeService = {
       kind: 'reminder',
       reminderReason: 'to_rest_confirm',
       extraParams: { siteType: 'restricted' },
+    });
+  }
+
+  section('MSVC-7 Rest lock reason preserves daily/weekly source');
+  {
+    const svc = loadModeService();
+    expect('weekly Rest lock uses weekly reminder', svc.evaluateModeRoute({
+      currentMode: 'study',
+      nowMs: 30_000,
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      isRestricted: true,
+      quotaState: { restLocked: true, weeklyRestLocked: true },
+    }), {
+      kind: 'reminder',
+      reminderReason: 'weekly_rest_locked',
+    });
+    expect('daily Rest lock uses daily reminder', svc.evaluateModeRoute({
+      currentMode: 'study',
+      nowMs: 30_000,
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      isRestricted: true,
+      quotaState: { restLocked: true, dailyRestLocked: true },
+    }), {
+      kind: 'reminder',
+      reminderReason: 'daily_rest_locked',
     });
   }
 

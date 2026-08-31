@@ -3,6 +3,7 @@
 ## Active Release Target
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
+- `1.7.28` 内部前向止血发布候选：范围仅为 D-071 配额锁修复和 D-072 统计/日志自愈；Product Owner 已批准携带媒体/usage 大批量上传超时、T.xia 当日统计未收敛、`cg.163.com idleStateChanged` 与 `ALREADY_CLASSIFIED` 重试风险进入 T.xia / P.xia managed 自托管。风险保持 `RISK ACCEPTED / DEFERRED`；测试、提交、Worker deployment、CRX 和更新站点证据待回填，不部署控制台 Pages 或 D1 migration。
 - `1.7.27` 运行代码提交 `3ca6093` 与风险接受记录 `bb7c75a` 已推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff`、控制台 Pages `436199ba` 与内部更新站点 `39cdad15` 已部署并通过生产回读。稳定 ID CRX 为 373,209 bytes，SHA256 `10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`；发布结论为 `APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`，`cg.163.com` 的 `idleStateChanged` P0 继续 Deferred / 未解决。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
@@ -377,6 +378,8 @@
   - `storage-aggregation-convergence 36/36`
 
 ## NOW（P0）
+- [x] [P0 Stats/Diagnostics] T.xia 空小时 400、页面 Cancel 伪告警与网络错误重复日志收敛：0 秒原始 segment 保留且不生成上传行；空小时在 retry exhausted 判定前从原始账本重建，仍为空则同时清理 hourly/hourly-target outbox 与 retry metadata；Worker 对旧客户端全零小时 payload 返回 `200/noOp`，非法正时长仍拒绝；`AUTO_MODE_PENDING_CANCEL` 无接收端时静默；相同云错误 30 分钟内合并为最多 8 个活跃指纹的固定 incident，恢复只记一次。专项 usage/stats/cloud/client-log/interceptor/Worker 回归、TypeScript、扩展根目录和 diff 检查通过。边界：未解决 2026-08-31 15:26 后终端无请求，未修改 profile、历史 D1、网页 ACTIVE、配额、版本或部署。
+- [x] [P0 Access/Quota] Thomas 周一错误显示“今天的休息时间已用完”：根因是终端用 UTC 日期拉取配额、上一次 effective lock 被粘性 `OR` 回下一轮、Worker 仍用 legacy `stats` 重解释历史分类。已按 D-071 修复为北京时间周期、独立 local/cloud fact、当前事实重算、`target_stats_v1.quota_bucket` 跨设备汇总，并区分日/周 Rest 锁提示；旧 effective 的全部锁位均可在当前事实未超额时解除。119 个 unit 文件、TypeScript、扩展根目录和 diff 检查通过；未修改历史账本或 profile 配置。
 - [x] [P0] 时间配额显式周上限：新增 `timeQuota.weekly.restMinutes`，停止每日配额乘七写入隐藏周限制；Pages 已显示每周休息上限、本周用量/剩余/来源/保存影响，并补齐每日在线总额、导入导出兼容。相关单测、TypeScript 检查、Pages 脚本语法及桌面/390px 手机目视验证通过。
 - [x] [Version] 当前源版本提升到 `1.7.15`：`extension/manifest.json`、`docs/CHANGELOG.md` 与当前 managed installer expectedVersion 示例已同步；历史 1.7.13 验证材料保持历史事实。
 - [x] [Regression] 修复 tests/e2e/extension.test.js 中 T-E12c：根因是 Playwright `page.bringToFront()` 与异步 `privacy-consent.html` 抢前台导致 tab activation 场景不稳定；已改为显式接受隐私门、关闭引导页、通过 Chrome tabs API 激活目标 tab，并验证 `extension.test.js` 14/14 通过。

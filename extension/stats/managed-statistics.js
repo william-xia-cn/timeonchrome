@@ -414,9 +414,9 @@ export async function getUsageRangeView(days = 7, options = {}) {
   try {
     allStatsForTargetView = await readFreshAllStats();
     for (let i = 0; i < days; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = formatDate(d);
+      const d = new Date(`${options.endDate || getDateKey()}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
       let dayStats = allStatsForTargetView[dateStr];
       if (!isDailyUsageStatsAuthoritative(dayStats)) {
         const ensured = await ensureDailyStatsForRead(dateStr, 'usage_range_view');
@@ -451,9 +451,9 @@ export async function getUsageRangeView(days = 7, options = {}) {
   }
 
   for (let i = 0; i < days; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = formatDate(d);
+    const d = new Date(`${options.endDate || getDateKey()}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
     if (!result[dateStr]) {
       result[dateStr] = emptyLegacyStats();
       sources[dateStr] = sources[dateStr] || 'empty';
@@ -660,9 +660,11 @@ export async function getQuotaUsageView(date = getDateKey(), options = {}) {
   }
 
   const restSeconds = Math.max(0, totalSeconds - studySeconds - compositeSeconds);
-  const today = getDateKey();
-  const dayOfWeek = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
-  const range = await getUsageRangeView(dayOfWeek + 1, { config });
+  const today = date;
+  const dateAtUtcMidnight = new Date(`${date}T00:00:00Z`);
+  const utcDay = dateAtUtcMidnight.getUTCDay();
+  const dayOfWeek = utcDay === 0 ? 6 : utcDay - 1;
+  const range = await getUsageRangeView(dayOfWeek + 1, { config, endDate: date });
   let weekRestSeconds = 0;
   for (const [dateKey, dayStats] of Object.entries(range.statsByDate || {})) {
     const dayTargetStats = range.targetStatsByDate?.[dateKey];

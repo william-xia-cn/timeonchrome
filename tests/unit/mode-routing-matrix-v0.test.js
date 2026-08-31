@@ -113,6 +113,9 @@ function loadModeService(stubs = {}) {
     hasTimeWindowsDaily: (cfg = {}) => !!cfg?.timeWindows?.daily,
     getModeWindowStatus: () => ({ configured: false, allowed: true }),
     reminderReasonForModeWindow: (mode) => `${mode}_schedule_locked`,
+    restQuotaReminderReason: (quotaState = {}) => quotaState.weeklyRestLocked
+      ? 'weekly_rest_locked'
+      : quotaState.dailyRestLocked ? 'daily_rest_locked' : 'rest_locked',
     evaluateQuotaState: async () => ({ ok: true, config: makeConfig(), newState: {} }),
     enqueueModeBoundaryIntent: async () => ({ ok: true }),
     setCachedEffectiveMode: () => {},

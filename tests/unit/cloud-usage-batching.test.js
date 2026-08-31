@@ -90,6 +90,7 @@ async function runScenario(failRequestNumber = 0) {
     markUsageDateMaterializationError: async () => {},
     addUploadError: () => {},
     logClientEventBestEffort: () => {},
+    logCloudFailureIncidentBestEffort: () => {},
     CLOUD_CONFIG: { KEYS: { V1_LAST_SEGMENT_UPLOAD_AT: 'last_segment_upload' } },
     cloudStorageSet: async () => {},
     chrome: { storage: { local: { set: async () => {} } } },

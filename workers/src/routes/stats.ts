@@ -58,6 +58,23 @@ function normalizeOptionalString(value: any, max = 512): string | null {
   return trimmed ? trimmed.slice(0, max) : null;
 }
 
+function hasDeclaredPositiveDuration(entries: any[] | undefined): boolean {
+  const positive = (value: unknown) => Number.isFinite(Number(value)) && Number(value) > 0;
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (positive(entry.totalSeconds) || positive(entry.activeSeconds) ||
+        positive(entry.backgroundMediaSeconds) || positive(entry.pipSeconds)) return true;
+    if (Array.isArray(entry.rows) && entry.rows.some((row: any) => positive(row?.durationSeconds))) return true;
+    for (const field of [
+      'activeByMode', 'backgroundMediaByMode', 'pipByMode',
+      'activeByQuotaBucket', 'backgroundMediaByQuotaBucket', 'pipByQuotaBucket',
+    ]) {
+      if (Object.values(entry[field] || {}).some(positive)) return true;
+    }
+  }
+  return false;
+}
+
 function expandTargetStatsRows(targets: any[] | undefined): Array<{
   targetKey: string;
   managedTargetId: string | null;
@@ -606,7 +623,12 @@ export const statsRouter = {
           }
         }
 
-        if (expandedRows.length === 0) return json({ error: 'no valid hourly stats rows after expansion' }, 400);
+        if (expandedRows.length === 0) {
+          if (!hasDeclaredPositiveDuration(domains)) {
+            return json({ success: true, count: 0, hourKey, expandedRows: 0, noOp: true });
+          }
+          return json({ error: 'no valid hourly stats rows after expansion' }, 400);
+        }
 
         const now = Date.now();
         let upserted = 0;
@@ -1175,7 +1197,12 @@ export const statsRouter = {
         }
 
         const expandedRows = expandTargetStatsRows(body.targets);
-        if (expandedRows.length === 0) return json({ error: 'no valid hourly target stats rows after expansion' }, 400);
+        if (expandedRows.length === 0) {
+          if (!hasDeclaredPositiveDuration(body.targets)) {
+            return json({ success: true, count: 0, hourKey, expandedRows: 0, noOp: true });
+          }
+          return json({ error: 'no valid hourly target stats rows after expansion' }, 400);
+        }
 
         const now = Date.now();
         const lastSegmentId = typeof body?.lastSegmentId === 'string' ? body.lastSegmentId : null;

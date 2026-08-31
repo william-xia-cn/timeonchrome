@@ -83,6 +83,7 @@ const usageApi = loadModule('core/usage-segments.js', [
   'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
   'markTargetStatsSyncDirty', 'markHourlyTargetStatsSyncDirty',
   'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
+  'rebuildHourlyUsageStats',
   'clearSegmentSyncOutbox', 'clearStatsSyncOutbox', 'clearHourlyStatsSyncOutbox',
   'clearTargetStatsSyncOutbox', 'clearHourlyTargetStatsSyncOutbox',
 ]);
@@ -298,6 +299,83 @@ const hourlyPendingAfter = await usageApi.getPendingHourlyStats();
 chk('hourly stats outbox cleared after upload', hourlyPendingAfter.pendingCount, 0);
 const hourlyTargetPendingAfter = await usageApi.getPendingHourlyTargetStats();
 chk('hourly target stats outbox cleared after upload', hourlyTargetPendingAfter.pendingCount, 0);
+
+// ── TB4c: Zero-second diagnostic hour is a legal no-op ──
+sec('TB4c: Zero-second diagnostic hour no-op');
+mockLocal.reset();
+const zeroHourKey = `${todayStr}T12`;
+const zeroSegmentId = 'seg-zero-recovery';
+mockLocal.data.usage_segments_v1 = {
+  [zeroSegmentId]: {
+    id: zeroSegmentId,
+    date: todayStr,
+    timezone: 'Asia/Shanghai',
+    startMs: MOCK_TIME,
+    endMs: MOCK_TIME,
+    durationSeconds: 0,
+    domain: 'chrome-page.chrome-local',
+    channel: 'active',
+    mode: 'study',
+    sourceState: 'ACTIVE',
+    settlementReason: 'recovery_estimated_close',
+  },
+};
+mockLocal.data.usage_segments_index_v1 = { [todayStr]: [zeroSegmentId] };
+mockLocal.data.hourly_usage_stats_v1 = {
+  [zeroHourKey]: {
+    hourKey: zeroHourKey,
+    date: todayStr,
+    hour: 12,
+    timezone: 'Asia/Shanghai',
+    domains: {
+      'chrome-page.chrome-local': {
+        activeSeconds: 0,
+        backgroundMediaSeconds: 0,
+        pipSeconds: 0,
+        totalSeconds: 0,
+        activeByMode: {},
+        backgroundMediaByMode: {},
+        pipByMode: {},
+        rows: {},
+      },
+    },
+    targets: {},
+  },
+};
+mockLocal.data.hourly_stats_sync_outbox_v1 = {
+  dirtyHourKeys: [zeroHourKey],
+  retryCounts: { [zeroHourKey]: 35 },
+  lastErrors: { [zeroHourKey]: 'http_400' },
+};
+mockLocal.data.hourly_target_stats_sync_outbox_v1 = {
+  dirtyHourKeys: [zeroHourKey],
+  retryCounts: { [zeroHourKey]: 35 },
+  lastErrors: { [zeroHourKey]: 'http_400' },
+};
+const zeroHourlyPayload = await usageApi.buildHourlyStatsUploadPayload(zeroHourKey);
+const zeroTargetPayload = await usageApi.buildHourlyTargetStatsUploadPayload(zeroHourKey);
+chk('zero-second hour has no uploadable domains', zeroHourlyPayload.domains.length, 0);
+chk('zero-second hour has no uploadable targets', zeroTargetPayload.targets.length, 0);
+mockLocal.data.daily_usage_stats_v1 = {
+  [todayStr]: {
+    date: todayStr,
+    domains: mockLocal.data.hourly_usage_stats_v1[zeroHourKey].domains,
+    targets: {},
+  },
+};
+const zeroDailyPayload = await usageApi.buildDailyStatsUploadPayload(todayStr);
+chk('zero-second day has no uploadable domains', zeroDailyPayload.domains.length, 0);
+delete mockLocal.data.hourly_usage_stats_v1[zeroHourKey];
+const missingZeroPending = await usageApi.getPendingHourlyStats();
+chkT('dirty zero hour remains visible when materialization is missing', missingZeroPending.dirtyHourKeys.includes(zeroHourKey));
+await usageApi.rebuildHourlyUsageStats(zeroHourKey, { forceWriteEmpty: true });
+await usageApi.markHourlyStatsUploaded([zeroHourKey]);
+await usageApi.markHourlyTargetStatsUploaded([zeroHourKey]);
+const zeroRawAfter = mockLocal.data.usage_segments_v1[zeroSegmentId];
+chkT('zero-second raw segment is preserved', !!zeroRawAfter && zeroRawAfter.durationSeconds === 0);
+chk('zero-hour stats outbox cleared', mockLocal.data.hourly_stats_sync_outbox_v1.dirtyHourKeys.length, 0);
+chk('zero-hour target outbox cleared', mockLocal.data.hourly_target_stats_sync_outbox_v1.dirtyHourKeys.length, 0);
+chk('zero-hour retry metadata cleared', mockLocal.data.hourly_stats_sync_outbox_v1.retryCounts[zeroHourKey], undefined);
 
 // ── TB5: Daily stats upload failure preserves outbox ──
 sec('TB5: Daily stats upload failure preserves outbox');

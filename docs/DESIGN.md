@@ -263,6 +263,8 @@ core/timing-dispatcher.js
 
 `usage_segments_v1` 是 Stats Foundation 的本地事实账本。daily/hourly 都是从 segments 构建的物化索引；跨小时切分只发生在 `hourly_usage_stats_v1` 聚合层，不拆原始 segment。字段、身份解析、上传白名单、Open/Close 诊断字段与云端 ingestion schema，统一以 `docs/STATS_STORAGE_FOUNDATION.md` 为准。
 
+**0 秒事实与小时统计自愈（D-072）：** `durationSeconds = 0` 的原始 segment 可作为恢复、边界和诊断证据保留在 `usage_segments_v1`，但它不贡献使用时长，也不得形成需要上传的 daily/hourly/target 统计行。小时上传前若发现没有正时长合法 row，必须先从原始 segment 重建该小时；重建后有正时长则正常上传，仍为 0 秒则把该小时视为合法 no-op，并清除 hourly 与 hourly-target 的 dirty/outbox/retry metadata。原始 0 秒 segment 保持不变。Worker 为旧客户端兼容：全部声明时长为 0 的小时 payload 返回 `200 + noOp`；payload 声明存在正时长却无法展开为合法 row 时继续返回校验错误，禁止把真实统计缺口静默 ACK。
+
 **必须存储的字段（原始用量事实）：**
 - `date` — 日期（YYYY-MM-DD，用户本地时区）
 - `hourKey` / `hour` — 仅小时聚合使用，例如 `2026-05-21T14`
@@ -472,6 +474,17 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - 每日 Rest 与每周 Rest 是并列上限，任一耗尽都会使 `restLocked=true`；`weeklyRestLocked` 只说明锁定来源。
 - 每日在线总额进入 `timeQuota.daily.*.onlineMinutes` 显式显示。旧 `dailyOnlineQuota` 仅作为新字段缺失时的兼容来源。
 - `PUT /profiles/:id/config` 对 `timeQuota.daily` 与 `timeQuota.weekly` 分层合并；只修改周上限时不得覆盖现有每日配置。服务端校验每日 0-1440 分钟、每周 0-10080 分钟。
+
+#### 配额事实合成与周期边界（D-071）
+
+- 配额日历固定使用 `Asia/Shanghai`；日键为本地自然日，周键为该日期所在周的周一。扩展不得使用 UTC `toISOString()` 生成 `/device/quota-state` 的查询日期。
+- 本地 V1 网页账本负责当前设备的即时事实；云端 `target_stats_v1` 按 `profile_id + date + channel=active + quota_bucket` 汇总全部设备，负责跨设备事实。媒体账本不参与。
+- 云端返回必须包含 `date`、`weekStart`、`computedAt` 及日/周用量和锁来源。扩展只接受与当前 `date`、`weekStart` 匹配的事实；跨日、跨周或缺失周期元数据的旧事实不得参与 effective lock。
+- 本地事实、云端事实和 effective state 分开保存。每次评估都从当前本地账本重新计算 local state，再与日期和周起点均匹配的 cloud state 合成；禁止将上一次 effective `quotaState` 作为 local state 再次执行 `OR`，避免锁状态只能增加不能解除。
+- 日/周边界处理必须清除陈旧 cloud fact，并原子重算 effective state。断网时继续使用本地事实；恢复网络后补入跨设备事实。云端落后不能解除真实本地锁，旧云端锁也不能污染新周期。
+- `quotaState` 继续作为运行时 effective 兼容视图；新增内部 fact 不改变 profile API 配置 schema，也不回写历史账本。
+- 诊断只记录日期、周起点、各配额桶秒数、限额、事实来源、锁来源和同步错误码，不记录域名、URL、标题或账号凭证。
+- Reminder/路由必须保留原因优先级：日 Rest 耗尽、周 Rest 耗尽和 `rest_schedule_locked` 是不同事实。时间窗关闭不得显示“今天的休息时间已用完”。
 
 #### Rest 使用检查点提醒（D-065 / D-066）
 
@@ -1137,6 +1150,13 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - `timing_checkpoint_health_v1`：最近一次 checkpoint 健康摘要，包含 foreground/media 前后计数、mode boundary 队列状态和 ledger gap 状态
 - `cloud_v1_last_sync_error` / outbox retry：当前同步状态摘要
 - `client_logs_v1`：有界 warning/error 上传缓冲，只记录异常、fallback、gap、重要健康结论；不重复记录所有正常过程
+
+### 云同步故障 incident 收敛（D-072）
+
+- 扩展使用固定大小的 `cloud_failure_incident_v1` 保存活跃云同步故障的脱敏指纹、首次/末次时间、累计次数、最近一次实际日志时间和恢复状态；不得保存响应正文、URL、token、账号或原始请求内容。
+- 同一错误类型、端点/子系统和严重性在 30 分钟内重复发生时，只更新 incident 计数和末次时间，不重复写入 `client_logs_v1`。错误类型、端点/子系统或严重性变化时立即记录新 incident。
+- 完整云同步恢复后关闭全部活跃 incident，只写一条恢复摘要。该机制只压缩诊断日志，不改变请求重试、指数退避、outbox ACK、错误等级或上传顺序。
+- `AUTO_MODE_PENDING_CANCEL` 是 best-effort 清理：目标页面没有 Content Script 时等同于没有待清理弹层，静默成功，不产生 warning 或系统通知。START/SUCCESS、Rest 软限额提醒及其可见投递门禁仍按严格 ACK、重试和完整 Reminder 降级处理。
 
 ### Timing / mode 审计口径
 

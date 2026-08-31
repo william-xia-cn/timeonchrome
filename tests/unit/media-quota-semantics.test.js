@@ -59,6 +59,12 @@ let redirectLockedCalls = 0;
 const notifications = [];
 
 global.chrome = {
+  storage: {
+    local: {
+      get: async () => ({}),
+      remove: async () => {},
+    },
+  },
   notifications: {
     create: (...args) => notifications.push(args),
   },
@@ -123,6 +129,10 @@ async function getQuotaUsageView(_date, options = {}) {
 }
 
 const quotaApi = loadProdModule('product/quota.js', ['evaluateQuotaState'], {
+  CLOUD_QUOTA_STATE_FACT_KEY: 'cloud_quota_state_fact_v1',
+  getQuotaCalendarContext: () => ({ date: '2026-05-15', weekStart: '2026-05-11', timeZone: 'Asia/Shanghai' }),
+  isCloudQuotaStateFactCurrent: () => false,
+  combineQuotaStates: (localState) => localState,
   getConfig: async () => config,
   saveConfig: async (next) => {
     savedConfig = JSON.parse(JSON.stringify(next));
@@ -269,6 +279,33 @@ async function testBackgroundVideoDoesNotLockQuota() {
   check('background video does not trigger composite quota', state.undeterminedLocked === false, JSON.stringify(state));
 }
 
+async function testPreviousEffectiveQuotaLocksCanClear() {
+  reset({
+    cfg: {
+      dailyOnlineQuota: 240,
+      dailyStudyQuota: 240,
+      dailyRestQuota: 240,
+      dailyUndeterminedQuota: 60,
+      timeQuota: { weekly: { restMinutes: 840 } },
+      quotaState: {
+        onlineLocked: true,
+        studyLocked: true,
+        restLocked: true,
+        undeterminedLocked: true,
+        dailyRestLocked: true,
+        weeklyRestLocked: true,
+      },
+    },
+    stats: {},
+  });
+  const state = await runQuotaCheck();
+  check('previous effective quota locks are cleared by current unlocked facts',
+    state.onlineLocked === false && state.studyLocked === false &&
+      state.restLocked === false && state.undeterminedLocked === false &&
+      state.dailyRestLocked === false && state.weeklyRestLocked === false,
+    JSON.stringify(state));
+}
+
 (async () => {
   const tests = [
     testRestDomainPipLocksRestQuota,
@@ -276,6 +313,7 @@ async function testBackgroundVideoDoesNotLockQuota() {
     testCompositeDomainPipLocksUndeterminedQuota,
     testBackgroundAudioDoesNotLockQuota,
     testBackgroundVideoDoesNotLockQuota,
+    testPreviousEffectiveQuotaLocksCanClear,
   ];
   for (const test of tests) await test();
   console.log(`\n[Media Quota Semantics] ${passed}/${passed + failed} passed${failed ? ` — ${failed} FAILED` : ''}`);

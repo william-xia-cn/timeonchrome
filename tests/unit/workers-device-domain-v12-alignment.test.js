@@ -35,31 +35,16 @@ function loadDomainSemantics() {
   return context.__d.matchDomain;
 }
 
-function classifyWithLists(statsRows, studyList, compositeList, matchDomain) {
-  let studySeconds = 0;
-  let undeterminedSeconds = 0;
-  let onlineSeconds = 0;
-
-  for (const row of statsRows) {
-    onlineSeconds += row.total;
-    const isStudy = studyList.some((p) => matchDomain(row.domain, p));
-    const isComposite = compositeList.some((p) => matchDomain(row.domain, p));
-    if (isStudy) studySeconds += row.total;
-    else if (isComposite) undeterminedSeconds += row.total;
-  }
-
-  return { onlineSeconds, studySeconds, undeterminedSeconds };
-}
-
 function run() {
   const deviceSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'device.ts'), 'utf8');
   const profilesSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'profiles.ts'), 'utf8');
   const restoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'restore.ts'), 'utf8');
   const matchDomain = loadDomainSemantics();
 
-  expectTrue('device.ts 应复用 v1.2 matchDomain 实现', deviceSource.includes("import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';"));
-  expectTrue('device.ts 中 matchDomain 应委托到 matchDomainV12', /const\s+matchDomain\s*=\s*matchDomainV12\s*;/.test(deviceSource));
   expectTrue('device.ts quota-state 应读取 effective timeQuota', /getEffectiveQuotaForDate\(config,\s*dateParam(?:\s+as\s+any)?\)/.test(deviceSource) && !deviceSource.includes('config.dailyUndeterminedQuota ?? 60)  * 60'));
+  expectTrue('device.ts quota-state 应读取 V1 quota bucket', deviceSource.includes('FROM target_stats_v1') && deviceSource.includes("quota_bucket = 'rest'"));
+  expectTrue('device.ts quota-state 不应读取 legacy stats', !/FROM\s+stats\s+WHERE profile_id/.test(deviceSource));
+  expectTrue('device.ts quota-state 应返回周期身份和锁来源', ['date: dateParam', 'weekStart: weekStartStr', 'dailyRestLocked:', 'weeklyRestLocked:'].every((token) => deviceSource.includes(token)));
   expectTrue('device config GET 应返回补齐后的 timeQuota.daily', deviceSource.includes('buildEffectiveTimeQuota(configData)') && deviceSource.includes('configData.timeQuota ='));
   expectTrue('profile config 应校验每日与每周显式配额范围', profilesSource.includes('function validateTimeQuota') && profilesSource.includes('weekly.restMinutes 必须是 null 或 0-10080'));
   expectTrue('profile config 局部更新 weekly 时应保留现有 daily 配额', profilesSource.includes("key === 'timeQuota'") && profilesSource.includes('currentQuota.daily') && profilesSource.includes('currentQuota.weekly'));
@@ -75,16 +60,6 @@ function run() {
   expectEqual('example.com vs www.example.com = true', matchDomain('example.com', 'www.example.com'), true);
   expectEqual('m.example.com vs example.com = true', matchDomain('m.example.com', 'example.com'), true);
   expectEqual('example.com vs m.example.com = true', matchDomain('example.com', 'm.example.com'), true);
-
-  // quota-state 分类：studyList=['example.com']，stats 仅 a.example.com，应正确归为 study（父域覆盖子域）
-  const guard = classifyWithLists(
-    [{ domain: 'a.example.com', total: 120 }],
-    ['example.com'],
-    [],
-    matchDomain
-  );
-  expectEqual('quota-state: a.example.com 应被 example.com 正确归为 study', guard.studySeconds, 120);
-  expectEqual('quota-state: onlineSeconds 仍应累计', guard.onlineSeconds, 120);
 
   const total = passed + failed;
   console.log(`\n[Workers Device Domain v1.2 Alignment] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);

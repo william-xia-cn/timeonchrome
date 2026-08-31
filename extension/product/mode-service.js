@@ -20,6 +20,7 @@ import { getEffectiveQuotaForDate } from '../core/quota-config.js';
 import { getModeWindowStatus, hasTimeWindowsDaily, reminderReasonForModeWindow } from '../core/time-windows.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { createTimingAuditId } from '../core/timing-trace.js';
+import { restQuotaReminderReason } from '../core/quota-state-facts.js';
 
 export const REST_EXIT_GRACE_MS = 30_000;
 
@@ -549,7 +550,7 @@ export function evaluateModeRoute(facts = {}) {
     }
 
     if (isRestTarget && restLocked) {
-      return { kind: 'reminder', reminderReason: 'rest_locked' };
+      return { kind: 'reminder', reminderReason: restQuotaReminderReason(facts.quotaState) };
     }
     if (isRestTarget) {
       const scheduleBlock = scheduleBlockForMode(facts, 'rest');
@@ -590,7 +591,7 @@ export function evaluateModeRoute(facts = {}) {
     }
 
     if (isRestTarget) {
-      if (restLocked) return { kind: 'reminder', reminderReason: 'rest_locked' };
+      if (restLocked) return { kind: 'reminder', reminderReason: restQuotaReminderReason(facts.quotaState) };
       const scheduleBlock = scheduleBlockForMode(facts, 'rest');
       if (scheduleBlock) return scheduleBlock;
       if (isRestExitGraceActive({ restExitGraceUntilMs: facts.restExitGraceUntilMs, nowMs })) {
@@ -644,7 +645,7 @@ export function evaluateModeRoute(facts = {}) {
     }
 
     if (isRestTarget) {
-      if (restLocked) return { kind: 'reminder', reminderReason: 'rest_locked' };
+      if (restLocked) return { kind: 'reminder', reminderReason: restQuotaReminderReason(facts.quotaState) };
       const scheduleBlock = scheduleBlockForMode(facts, 'rest');
       if (scheduleBlock) return scheduleBlock;
       if (isRestExitGraceActive({ restExitGraceUntilMs: facts.restExitGraceUntilMs, nowMs })) {
@@ -848,7 +849,11 @@ function quotaBlockedReminderForRequestedMode(requestedMode, quotaState = {}) {
     return { reason: 'quota_undetermined', code: 'COMPOSITE_QUOTA_LOCKED' };
   }
   if (requestedMode === 'rest' && quotaState.restLocked === true) {
-    return { reason: 'rest_locked', code: 'REST_QUOTA_LOCKED' };
+    const reason = restQuotaReminderReason(quotaState);
+    return {
+      reason,
+      code: reason === 'weekly_rest_locked' ? 'WEEKLY_REST_QUOTA_LOCKED' : 'DAILY_REST_QUOTA_LOCKED',
+    };
   }
   return null;
 }

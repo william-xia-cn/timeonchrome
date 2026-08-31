@@ -1,6 +1,5 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
@@ -683,14 +682,12 @@ export const deviceRouter = {
         return json({ error: 'date param required (YYYY-MM-DD)' }, 400);
       }
 
-      // Get config for quota limits and studyList
+      // Get config for quota limits. Usage attribution comes from the V1 target ledger.
       const profileRow = await env.DB.prepare(
         `SELECT config FROM profiles WHERE id = ?`
       ).bind(profileId).first<{ config: string }>();
 
       const config = profileRow?.config ? JSON.parse(profileRow.config) : {};
-      const studyList: string[]     = config.studyList     || [];
-      const compositeList: string[] = config.compositeList || [];
       const borrow                  = config.quotaBorrow   ?? null;
       const effectiveQuota = getEffectiveQuotaForDate(config, dateParam as any).todayEffectiveQuota;
       const limitSeconds = (minutes: number | null | undefined) => {
@@ -704,49 +701,49 @@ export const deviceRouter = {
       const effectiveDailyRestSec = limitSeconds(effectiveQuota.restMinutes);
       const weeklyRestLimitSec = limitSeconds(effectiveQuota.weeklyRestMinutes);
 
-      const matchDomain = matchDomainV12;
+      // Sum current-day quota buckets for every device under this profile.
+      const dayQuotaResult = await env.DB.prepare(
+        `SELECT quota_bucket, SUM(duration_seconds) AS total
+           FROM target_stats_v1
+          WHERE profile_id = ? AND date = ? AND channel = 'active'
+          GROUP BY quota_bucket`
+      ).bind(profileId, dateParam).all<{ quota_bucket: string; total: number }>();
+      const dayBuckets = Object.fromEntries(
+        (dayQuotaResult.results || []).map((row) => [row.quota_bucket, Math.max(0, Number(row.total) || 0)])
+      );
+      const studySeconds = dayBuckets.study || 0;
+      const undeterminedSeconds = dayBuckets.composite || 0;
+      const restSeconds = dayBuckets.rest || 0;
+      const onlineSeconds = Object.values(dayBuckets).reduce((sum, seconds) => sum + Number(seconds || 0), 0);
 
-      // Sum today's stats for ALL devices under this profile
-      const statsResult = await env.DB.prepare(
-        `SELECT domain, SUM(duration) as total FROM stats WHERE profile_id = ? AND date = ? GROUP BY domain`
-      ).bind(profileId, dateParam).all<{ domain: string; total: number }>();
-
-      let onlineSeconds = 0, studySeconds = 0, undeterminedSeconds = 0;
-      for (const row of (statsResult.results || [])) {
-        onlineSeconds += row.total;
-        const isStudy     = studyList.some(p    => matchDomain(row.domain, p));
-        const isComposite = compositeList.some(p => matchDomain(row.domain, p));
-        if (isStudy) studySeconds += row.total;
-        else if (isComposite) undeterminedSeconds += row.total;
-      }
-      const restSeconds = Math.max(0, onlineSeconds - studySeconds - undeterminedSeconds);
-
-      // Sum this week's rest (Mon → dateParam)
-      const dow = new Date(dateParam).getDay();
+      // Sum this week's Rest quota bucket (Monday through requested date).
+      const dateAtUtcMidnight = new Date(`${dateParam}T00:00:00Z`);
+      const dow = dateAtUtcMidnight.getUTCDay();
       const daysBack = dow === 0 ? 6 : dow - 1;
-      const weekStartDate = new Date(dateParam);
-      weekStartDate.setDate(weekStartDate.getDate() - daysBack);
+      const weekStartDate = new Date(dateAtUtcMidnight);
+      weekStartDate.setUTCDate(weekStartDate.getUTCDate() - daysBack);
       const weekStartStr = weekStartDate.toISOString().slice(0, 10);
 
-      const weekStatsResult = await env.DB.prepare(
-        `SELECT domain, SUM(duration) as total FROM stats WHERE profile_id = ? AND date >= ? AND date <= ? GROUP BY domain`
-      ).bind(profileId, weekStartStr, dateParam).all<{ domain: string; total: number }>();
-
-      let wOnline = 0, wStudy = 0, wUndetermined = 0;
-      for (const row of (weekStatsResult.results || [])) {
-        wOnline += row.total;
-        if (studyList.some(p => matchDomain(row.domain, p))) wStudy += row.total;
-        else if (compositeList.some(p => matchDomain(row.domain, p))) wUndetermined += row.total;
-      }
-      const weekRestSeconds    = Math.max(0, wOnline - wStudy - wUndetermined);
+      const weekRestRow = await env.DB.prepare(
+        `SELECT COALESCE(SUM(duration_seconds), 0) AS total
+           FROM target_stats_v1
+          WHERE profile_id = ? AND date >= ? AND date <= ?
+            AND channel = 'active' AND quota_bucket = 'rest'`
+      ).bind(profileId, weekStartStr, dateParam).first<{ total: number }>();
+      const weekRestSeconds = Math.max(0, Number(weekRestRow?.total) || 0);
       const isLimited = (seconds: number | null) => seconds !== null && Number.isFinite(Number(seconds));
       const restLockedByDay    = isLimited(effectiveDailyRestSec) && restSeconds    >= Number(effectiveDailyRestSec);
       const restLockedByWeek   = isLimited(weeklyRestLimitSec)    && weekRestSeconds >= Number(weeklyRestLimitSec);
 
       return json({
+        date: dateParam,
+        weekStart: weekStartStr,
+        computedAt: Date.now(),
+        source: 'target_stats_v1',
         onlineLocked:       isLimited(dailyOnlineQuota)      && onlineSeconds      >= Number(dailyOnlineQuota),
         studyLocked:        isLimited(dailyStudyQuota)       && studySeconds       >= Number(dailyStudyQuota),
         restLocked:         restLockedByDay || restLockedByWeek,
+        dailyRestLocked:    restLockedByDay,
         weeklyRestLocked:   restLockedByWeek,
         undeterminedLocked: isLimited(dailyUndeterminedQuota) && undeterminedSeconds >= Number(dailyUndeterminedQuota),
         onlineSeconds, studySeconds, undeterminedSeconds, restSeconds,

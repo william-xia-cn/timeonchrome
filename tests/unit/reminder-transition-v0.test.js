@@ -85,7 +85,7 @@ function simulateReminderRendering(reason, msg = '') {
   const V0_KNOWN_REASONS = new Set([
     'unsafe', 'study_mode', 'to_composite_confirm', 'to_rest_confirm',
     'to_rest_slide_confirm', 'restricted_study_mode',
-    'quota_composite_and_rest', 'rest_locked', 'quota_locked', 'quota_rest',
+    'quota_composite_and_rest', 'rest_locked', 'daily_rest_locked', 'weekly_rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
     'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked'
   ]);
@@ -186,6 +186,13 @@ async function run() {
   expectTrue('rest_locked has no switchToRest', !restLocked.config.actions.includes('switchToRest'));
   expectTrue('rest_locked has no addComposite', !restLocked.config.actions.includes('addComposite'));
   expectTrue('rest_locked has no borrowTime', !restLocked.config.actions.includes('borrowTime'));
+
+  const dailyRestLocked = simulateReminderRendering('daily_rest_locked');
+  expectTrue('daily_rest_locked is known reason', !dailyRestLocked.isUnknownReason);
+  expect('daily_rest_locked title', dailyRestLocked.config.title, '今天的休息时间已用完');
+  const weeklyRestLocked = simulateReminderRendering('weekly_rest_locked');
+  expectTrue('weekly_rest_locked is known reason', !weeklyRestLocked.isUnknownReason);
+  expect('weekly_rest_locked title', weeklyRestLocked.config.title, '本周的休息时间已用完');
 
   section('5b. quota_locked rendering');
   const quotaLocked = simulateReminderRendering('quota_locked');
