@@ -28,6 +28,20 @@ describe('Runtime product API', () => {
     expect((await call('/v1/health')).status).toBe(200);
   });
 
+  it('streams versioned installer releases with immutable cache metadata', async () => {
+    const version = '1.0.0';
+    const key = `windows/x64/${version}/TimeOnChrome-AppRuntime-win-x64-${version}.msi`;
+    await env.RELEASES.put(key, new Uint8Array([1, 2, 3, 4]));
+    await env.RELEASES.put('windows/x64/latest.json', JSON.stringify({ version, sha256: 'test' }));
+    const latest = await call('/v1/releases/windows/x64/latest');
+    expect(latest.status).toBe(200);
+    await expect(latest.json()).resolves.toMatchObject({ version });
+    const installer = await call(`/v1/releases/windows/x64/${version}/installer`);
+    expect(installer.status).toBe(200);
+    expect(installer.headers.get('cache-control')).toContain('immutable');
+    expect(new Uint8Array(await installer.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
   it('rejects missing, wrong-audience, and expired module tokens', async () => {
     expect((await call('/v1/module/devices')).status).toBe(401);
     expect((await call('/v1/module/devices', { headers: bearer(await token({ aud: 'wrong' })) })).status).toBe(401);

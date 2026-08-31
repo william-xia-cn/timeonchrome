@@ -22,6 +22,14 @@ pwsh installer/windows/build.ps1
 
 MSI 采用 WiX 7 per-user 安装，目标目录为当前用户 LocalAppData，不要求管理员权限；提供开始菜单入口、HKCU 登录启动、MajorUpgrade 和卸载。当前内部 MSI 未做 Authenticode 签名，发布状态必须保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
+## 内部发布路径
+
+- manifest：`windows/x64/latest.json`
+- MSI：`windows/x64/<version>/TimeOnChrome-AppRuntime-win-x64-<version>.msi`
+- API：`GET /v1/releases/windows/x64/latest` 与 `GET /v1/releases/windows/x64/:version/installer`
+
+MSI 与 SHA-256 必须上传独立 `timeonchrome-app-runtime-releases` R2 后再回读校验；Pages 不保存大二进制。版本 MSI 使用 immutable cache，latest manifest 使用短缓存。
+
 ## Backend 本地验证
 
 ```powershell

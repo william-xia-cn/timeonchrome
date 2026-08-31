@@ -20,6 +20,34 @@ async function route(request: Request, env: Env): Promise<Response> {
       : methodNotAllowed('GET');
   }
 
+  if (url.pathname === '/v1/releases/windows/x64/latest') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const object = await env.RELEASES.get('windows/x64/latest.json');
+    if (!object) return errorResponse(404, 'RELEASE_NOT_FOUND', 'Windows installer is not available.');
+    const response = new Response(object.body, { headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'public, max-age=300',
+      etag: object.httpEtag,
+    } });
+    return response;
+  }
+
+  const installerMatch = url.pathname.match(/^\/v1\/releases\/windows\/x64\/([0-9]+\.[0-9]+\.[0-9]+)\/installer$/);
+  if (installerMatch) {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const version = installerMatch[1]!;
+    const object = await env.RELEASES.get(`windows/x64/${version}/TimeOnChrome-AppRuntime-win-x64-${version}.msi`);
+    if (!object) return errorResponse(404, 'RELEASE_NOT_FOUND', 'Windows installer is not available.');
+    return new Response(object.body, { headers: {
+      'content-type': 'application/x-msi',
+      'content-length': String(object.size),
+      'content-disposition': `attachment; filename="TimeOnChrome-AppRuntime-win-x64-${version}.msi"`,
+      'cache-control': 'public, max-age=31536000, immutable',
+      etag: object.httpEtag,
+      'x-content-type-options': 'nosniff',
+    } });
+  }
+
   if (url.pathname.startsWith('/v1/module/')) {
     const module = await requireModule(request, env, nowMs);
     const owner = { account_id: module.account_id, child_id: module.child_id, child_name: module.child_name, jti: module.jti };

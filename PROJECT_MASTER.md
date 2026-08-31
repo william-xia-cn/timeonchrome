@@ -4,7 +4,7 @@
 - **版本：1.7.29（内部 managed 已发布）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
 - **当前发布状态（2026-08-31）**：`1.7.29` 已以 `APPROVED_WITH_KNOWN_P0_RISK / FORWARD RELIABILITY RELEASE` 发布至 T.xia / P.xia 内部 managed 自托管渠道。源码提交 `5482340`、Guardian Worker `46d82099-1cb9-4240-8223-0ed8938bf21e`、更新站点 deployment `29a9fea2` 已部署并回读通过；CRX 为 384,156 bytes，SHA256 `ffd83c717ace5bf56edb5858926436f58b091b8324c6a8f0efc2cd8dcf21d15b`，稳定扩展 ID 不变。D-073、D-074、客户端日志逐项 ACK 与本地 Admin 访问管理只读显示已进入托管包；不进入 CWS，不修改历史 D1、profile、网页 ACTIVE 或控制台 Pages。`cg.163.com idleStateChanged`、Thomas 终端 17:33 后停止请求、Pierce Mac 离线、正式设备实际升级与历史积压收敛继续保持未解决/生产观察。
-- **App Runtime 产品化状态（2026-09-01）**：D-079 已批准把 Windows Runtime 从管理员密钥/CLI 技术底座修正为 Guardian Account/Child 驱动的可安装产品闭环。目标包括独立 `/app-runtime/` 家长页、一次性配对码、per-user WPF Setup/Agent、设备健康与吊销/重新配对、北京时间日/周应用统计及 Runtime R2 安装器分发。现有 Runtime Worker/D1 生产 bootstrap 仅有 `0001` 且业务表为空；在 `0002`、Guardian `023`、独立 ES256 bridge、Pages 和 MSI 全部验证并过部署闸门前，不得标记“云端和本地产品已完成”。Santa 与 Chrome Extension 业务保持不变。
+- **App Runtime 产品化状态（2026-09-01）**：D-079 的 Guardian Child-scoped 控制面、Runtime 配对/设备/统计 API、Windows WPF Setup/Agent 与独立 `/app-runtime/` 页面已实现并完成本地自动化/目视验证。self-contained `win-x64` Agent/Setup 可生成；WiX 7 MSI 因 OSMF EULA/maintenance-fee 确认处于 `BLOCKED_BY_WIX7_OSMF_EULA`，且未做 Authenticode，因此未创建/上传 R2 artifact、未执行 Runtime `0002`、Guardian `023`、独立 ES256 secret、Worker/Pages 部署或真实配对。不得标记“云端和本地产品已完成”。Santa 与 Chrome Extension 业务保持不变。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
