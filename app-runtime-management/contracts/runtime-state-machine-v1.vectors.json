@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "application switch",
+      "runtimeSessionID": "session-switch",
+      "facts": [
+        { "observedAtMs": 0, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 0, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 0, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 100, "kind": "applicationActivated", "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" } },
+        { "observedAtMs": 600, "kind": "applicationActivated", "application": { "platform": "macos", "runtimeIdentity": "app:browser", "displayName": "Browser" } }
+      ],
+      "expectedSegments": [
+        { "id": "session-switch:0", "runtimeSessionID": "session-switch", "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 100, "endAtMs": 600, "durationMilliseconds": 500, "endReason": "applicationSwitch" }
+      ],
+      "expectedError": null,
+      "expectedFinalState": {
+        "application": { "platform": "macos", "runtimeIdentity": "app:browser", "displayName": "Browser" },
+        "userActivity": "active",
+        "sessionState": "active",
+        "powerState": "awake",
+        "openSegment": { "application": { "platform": "macos", "runtimeIdentity": "app:browser", "displayName": "Browser" }, "startAtMs": 600 },
+        "lastObservedAtMs": 600,
+        "nextSegmentOrdinal": 1
+      }
+    },
+    {
+      "name": "idle resume and snapshot",
+      "runtimeSessionID": "session-idle",
+      "facts": [
+        { "observedAtMs": 0, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 0, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 0, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 100, "kind": "applicationActivated", "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" } },
+        { "observedAtMs": 1000, "kind": "userActivityChanged", "userActivity": "idle" },
+        { "observedAtMs": 2000, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 2500, "kind": "snapshot", "snapshot": { "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "userActivity": "active", "sessionState": "active", "powerState": "awake" } }
+      ],
+      "expectedSegments": [
+        { "id": "session-idle:0", "runtimeSessionID": "session-idle", "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 100, "endAtMs": 1000, "durationMilliseconds": 900, "endReason": "userIdle" },
+        { "id": "session-idle:1", "runtimeSessionID": "session-idle", "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 2000, "endAtMs": 2500, "durationMilliseconds": 500, "endReason": "periodicSnapshot" }
+      ],
+      "expectedError": null,
+      "expectedFinalState": {
+        "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" },
+        "userActivity": "active",
+        "sessionState": "active",
+        "powerState": "awake",
+        "openSegment": { "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 2500 },
+        "lastObservedAtMs": 2500,
+        "nextSegmentOrdinal": 2
+      }
+    },
+    {
+      "name": "session lock and unlock",
+      "runtimeSessionID": "session-lock",
+      "facts": [
+        { "observedAtMs": 0, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 0, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 0, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 10, "kind": "applicationActivated", "application": { "platform": "windows", "runtimeIdentity": "app:terminal", "displayName": "Terminal" } },
+        { "observedAtMs": 110, "kind": "sessionChanged", "sessionState": "locked" },
+        { "observedAtMs": 200, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 250, "kind": "snapshot", "snapshot": { "application": { "platform": "windows", "runtimeIdentity": "app:terminal", "displayName": "Terminal" }, "userActivity": "active", "sessionState": "active", "powerState": "awake" } }
+      ],
+      "expectedSegments": [
+        { "id": "session-lock:0", "runtimeSessionID": "session-lock", "application": { "platform": "windows", "runtimeIdentity": "app:terminal", "displayName": "Terminal" }, "startAtMs": 10, "endAtMs": 110, "durationMilliseconds": 100, "endReason": "sessionUnavailable" },
+        { "id": "session-lock:1", "runtimeSessionID": "session-lock", "application": { "platform": "windows", "runtimeIdentity": "app:terminal", "displayName": "Terminal" }, "startAtMs": 200, "endAtMs": 250, "durationMilliseconds": 50, "endReason": "periodicSnapshot" }
+      ],
+      "expectedError": null,
+      "expectedFinalState": {
+        "application": { "platform": "windows", "runtimeIdentity": "app:terminal", "displayName": "Terminal" },
+        "userActivity": "active",
+        "sessionState": "active",
+        "powerState": "awake",
+        "openSegment": { "application": { "platform": "windows", "runtimeIdentity": "app:terminal", "displayName": "Terminal" }, "startAtMs": 250 },
+        "lastObservedAtMs": 250,
+        "nextSegmentOrdinal": 2
+      }
+    },
+    {
+      "name": "sleep and wake",
+      "runtimeSessionID": "session-sleep",
+      "facts": [
+        { "observedAtMs": 0, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 0, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 0, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 10, "kind": "applicationActivated", "application": { "platform": "macos", "runtimeIdentity": "app:notes", "displayName": "Notes" } },
+        { "observedAtMs": 350, "kind": "powerChanged", "powerState": "asleep" },
+        { "observedAtMs": 900, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 1000, "kind": "snapshot", "snapshot": { "application": { "platform": "macos", "runtimeIdentity": "app:notes", "displayName": "Notes" }, "userActivity": "active", "sessionState": "active", "powerState": "awake" } }
+      ],
+      "expectedSegments": [
+        { "id": "session-sleep:0", "runtimeSessionID": "session-sleep", "application": { "platform": "macos", "runtimeIdentity": "app:notes", "displayName": "Notes" }, "startAtMs": 10, "endAtMs": 350, "durationMilliseconds": 340, "endReason": "systemSleep" },
+        { "id": "session-sleep:1", "runtimeSessionID": "session-sleep", "application": { "platform": "macos", "runtimeIdentity": "app:notes", "displayName": "Notes" }, "startAtMs": 900, "endAtMs": 1000, "durationMilliseconds": 100, "endReason": "periodicSnapshot" }
+      ],
+      "expectedError": null,
+      "expectedFinalState": {
+        "application": { "platform": "macos", "runtimeIdentity": "app:notes", "displayName": "Notes" },
+        "userActivity": "active",
+        "sessionState": "active",
+        "powerState": "awake",
+        "openSegment": { "application": { "platform": "macos", "runtimeIdentity": "app:notes", "displayName": "Notes" }, "startAtMs": 1000 },
+        "lastObservedAtMs": 1000,
+        "nextSegmentOrdinal": 2
+      }
+    },
+    {
+      "name": "repeated periodic snapshots",
+      "runtimeSessionID": "session-snapshot",
+      "facts": [
+        { "observedAtMs": 0, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 0, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 0, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 1000, "kind": "applicationActivated", "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" } },
+        { "observedAtMs": 1250, "kind": "snapshot", "snapshot": { "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "userActivity": "active", "sessionState": "active", "powerState": "awake" } },
+        { "observedAtMs": 1500, "kind": "snapshot", "snapshot": { "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "userActivity": "active", "sessionState": "active", "powerState": "awake" } }
+      ],
+      "expectedSegments": [
+        { "id": "session-snapshot:0", "runtimeSessionID": "session-snapshot", "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 1000, "endAtMs": 1250, "durationMilliseconds": 250, "endReason": "periodicSnapshot" },
+        { "id": "session-snapshot:1", "runtimeSessionID": "session-snapshot", "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 1250, "endAtMs": 1500, "durationMilliseconds": 250, "endReason": "periodicSnapshot" }
+      ],
+      "expectedError": null,
+      "expectedFinalState": {
+        "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" },
+        "userActivity": "active",
+        "sessionState": "active",
+        "powerState": "awake",
+        "openSegment": { "application": { "platform": "macos", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 1500 },
+        "lastObservedAtMs": 1500,
+        "nextSegmentOrdinal": 2
+      }
+    },
+    {
+      "name": "zero duration switch",
+      "runtimeSessionID": "session-zero",
+      "facts": [
+        { "observedAtMs": 100, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 100, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 100, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 100, "kind": "applicationActivated", "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" } },
+        { "observedAtMs": 100, "kind": "applicationActivated", "application": { "platform": "windows", "runtimeIdentity": "app:browser", "displayName": "Browser" } },
+        { "observedAtMs": 101, "kind": "userActivityChanged", "userActivity": "idle" }
+      ],
+      "expectedSegments": [
+        { "id": "session-zero:0", "runtimeSessionID": "session-zero", "application": { "platform": "windows", "runtimeIdentity": "app:browser", "displayName": "Browser" }, "startAtMs": 100, "endAtMs": 101, "durationMilliseconds": 1, "endReason": "userIdle" }
+      ],
+      "expectedError": null,
+      "expectedFinalState": {
+        "application": { "platform": "windows", "runtimeIdentity": "app:browser", "displayName": "Browser" },
+        "userActivity": "idle",
+        "sessionState": "active",
+        "powerState": "awake",
+        "openSegment": null,
+        "lastObservedAtMs": 101,
+        "nextSegmentOrdinal": 1
+      }
+    },
+    {
+      "name": "out of order fact",
+      "runtimeSessionID": "session-order",
+      "facts": [
+        { "observedAtMs": 100, "kind": "powerChanged", "powerState": "awake" },
+        { "observedAtMs": 100, "kind": "sessionChanged", "sessionState": "active" },
+        { "observedAtMs": 100, "kind": "userActivityChanged", "userActivity": "active" },
+        { "observedAtMs": 100, "kind": "applicationActivated", "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" } },
+        { "observedAtMs": 99, "kind": "userActivityChanged", "userActivity": "idle" }
+      ],
+      "expectedSegments": [],
+      "expectedError": { "code": "nonMonotonicTimestamp", "previous": 100, "received": 99 },
+      "expectedFinalState": {
+        "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" },
+        "userActivity": "active",
+        "sessionState": "active",
+        "powerState": "awake",
+        "openSegment": { "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "startAtMs": 100 },
+        "lastObservedAtMs": 100,
+        "nextSegmentOrdinal": 0
+      }
+    },
+    {
+      "name": "negative timestamp",
+      "runtimeSessionID": "session-negative",
+      "facts": [
+        { "observedAtMs": -1, "kind": "powerChanged", "powerState": "awake" }
+      ],
+      "expectedSegments": [],
+      "expectedError": { "code": "negativeTimestamp", "value": -1 },
+      "expectedFinalState": {
+        "application": null,
+        "userActivity": "unknown",
+        "sessionState": "unknown",
+        "powerState": "unknown",
+        "openSegment": null,
+        "lastObservedAtMs": null,
+        "nextSegmentOrdinal": 0
+      }
+    }
+  ]
+}

@@ -107,7 +107,8 @@ public struct RuntimeStateMachine: Sendable {
         from previous: ApplicationIdentity?,
         to current: ApplicationIdentity?
     ) -> Bool {
-        previous?.runtimeIdentity != current?.runtimeIdentity
+        previous?.platform != current?.platform
+            || previous?.runtimeIdentity != current?.runtimeIdentity
     }
 
     private func segmentID(runtimeSessionID: String, ordinal: UInt64) -> String {
