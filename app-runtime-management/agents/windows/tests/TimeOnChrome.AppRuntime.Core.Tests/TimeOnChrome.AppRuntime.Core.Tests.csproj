@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Core\TimeOnChrome.AppRuntime.Core.csproj" />
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Infrastructure\TimeOnChrome.AppRuntime.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj" />
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Windows\TimeOnChrome.AppRuntime.Windows.csproj" />
   </ItemGroup>
   <ItemGroup>

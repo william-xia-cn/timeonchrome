@@ -8,12 +8,13 @@ namespace TimeOnChrome.AppRuntime.Agent;
 
 internal static class Program
 {
-    private const string MutexName = "Local\\TimeOnChrome.AppRuntime.Agent.CurrentUser";
-
     public static async Task<int> Main()
     {
         if (!OperatingSystem.IsWindows()) return 2;
-        using var mutex = new Mutex(initiallyOwned: true, MutexName, out var acquired);
+        using var mutex = new Mutex(
+            initiallyOwned: true,
+            WindowsRuntimeInstanceNames.AgentMutexName,
+            out var acquired);
         if (!acquired) return 0;
         try { return await RunAsync().ConfigureAwait(false); }
         catch { return 1; }
@@ -28,15 +29,30 @@ internal static class Program
 
         var paths = RuntimePaths.ForCurrentUser(credential.DeviceId);
         var log = new RuntimeDiagnosticLog(paths.LogPath);
+        var healthStore = new RuntimeAgentHealthStore(paths.HealthPath);
         var store = new SqliteSegmentStore(paths.DatabasePath, credential.DeviceId);
         await store.InitializeAsync().ConfigureAwait(false);
         var settings = await new RuntimeAgentSettingsStore(paths.SettingsPath).LoadOrCreateAsync().ConfigureAwait(false);
         using var cancellation = new CancellationTokenSource();
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         var api = new RuntimeApiClient(httpClient);
+        var agentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
+        await TryWriteHealthAsync(
+            healthStore,
+            credential,
+            RuntimeAgentHealthState.Starting,
+            agentVersion).ConfigureAwait(false);
         var uploader = new RuntimeUploader(store, store, api);
         var uploadLoop = UploadLoopAsync(uploader, credential, log, TimeSpan.FromSeconds(settings.UploadIntervalSeconds), cancellation.Token);
-        var heartbeatLoop = HeartbeatLoopAsync(api, credential, credentialStore, log, cancellation, cancellation.Token);
+        var heartbeatLoop = HeartbeatLoopAsync(
+            api,
+            credential,
+            credentialStore,
+            healthStore,
+            agentVersion,
+            log,
+            cancellation,
+            cancellation.Token);
         var eventSource = new WindowsRuntimeEventSource(
             new WindowsRuntimeProbe(), TimeSpan.FromSeconds(settings.IdleThresholdSeconds),
             TimeSpan.FromMilliseconds(settings.PollIntervalMilliseconds), TimeSpan.FromSeconds(settings.SnapshotIntervalSeconds));
@@ -72,26 +88,91 @@ internal static class Program
 
     private static async Task HeartbeatLoopAsync(
         RuntimeApiClient api, RuntimeCredential credential, DpapiRuntimeCredentialStore credentialStore,
-        RuntimeDiagnosticLog log, CancellationTokenSource cancellation, CancellationToken cancellationToken)
+        RuntimeAgentHealthStore healthStore, string agentVersion, RuntimeDiagnosticLog log,
+        CancellationTokenSource cancellation, CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
         do
         {
             try
             {
-                var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
-                _ = await api.HeartbeatAsync(credential, version, cancellationToken).ConfigureAwait(false);
+                _ = await api.HeartbeatAsync(credential, agentVersion, cancellationToken).ConfigureAwait(false);
+                await TryWriteHealthAsync(
+                    healthStore,
+                    credential,
+                    RuntimeAgentHealthState.Online,
+                    agentVersion,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (RuntimeApiException exception) when (exception.StatusCode is 401 or 403)
             {
+                await TryWriteHealthAsync(
+                    healthStore,
+                    credential,
+                    RuntimeAgentHealthState.RequiresPairing,
+                    agentVersion,
+                    cancellationToken).ConfigureAwait(false);
                 await credentialStore.DeleteAsync(cancellationToken).ConfigureAwait(false);
                 await log.WriteAsync("credential_revoked", new { requiresPairing = true }).ConfigureAwait(false);
                 cancellation.Cancel();
                 return;
             }
-            catch (RuntimeApiException) { }
+            catch (RuntimeApiException)
+            {
+                await TryWriteHealthAsync(
+                    healthStore,
+                    credential,
+                    RuntimeAgentHealthState.Offline,
+                    agentVersion,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (HttpRequestException)
+            {
+                await TryWriteHealthAsync(
+                    healthStore,
+                    credential,
+                    RuntimeAgentHealthState.Offline,
+                    agentVersion,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                await TryWriteHealthAsync(
+                    healthStore,
+                    credential,
+                    RuntimeAgentHealthState.Offline,
+                    agentVersion,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
         }
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task TryWriteHealthAsync(
+        RuntimeAgentHealthStore healthStore,
+        RuntimeCredential credential,
+        RuntimeAgentHealthState state,
+        string agentVersion,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await healthStore.SaveAsync(
+                new RuntimeAgentHealth(
+                    RuntimePaths.DeviceKey(credential.DeviceId),
+                    state,
+                    agentVersion,
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (IOException)
+        {
+            // UI health is best effort and must not interrupt collection or upload.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // UI health is best effort and must not interrupt collection or upload.
+        }
     }
 
     private static async Task UploadLoopAsync(

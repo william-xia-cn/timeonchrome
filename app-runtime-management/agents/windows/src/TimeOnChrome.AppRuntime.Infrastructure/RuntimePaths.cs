@@ -5,7 +5,8 @@ public sealed record RuntimePaths(
     string DatabasePath,
     string CredentialPath,
     string SettingsPath,
-    string LogPath)
+    string LogPath,
+    string HealthPath)
 {
     public static RuntimePaths ForCurrentUser(string? deviceId = null)
     {
@@ -16,8 +17,11 @@ public sealed record RuntimePaths(
             Path.Combine(root, deviceId is null ? "runtime-unbound.db" : $"runtime-{SafeDeviceId(deviceId)}.db"),
             Path.Combine(root, "credential.dat"),
             Path.Combine(root, "runtime-settings.json"),
-            Path.Combine(root, "runtime-agent.jsonl"));
+            Path.Combine(root, "runtime-agent.jsonl"),
+            Path.Combine(root, "runtime-agent-health.json"));
     }
+
+    public static string DeviceKey(string deviceId) => SafeDeviceId(deviceId);
 
     private static string SafeDeviceId(string deviceId)
     {

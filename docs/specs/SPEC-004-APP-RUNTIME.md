@@ -24,11 +24,27 @@ Phase 2 已交付 Windows 与共用 Runtime 后台技术底座。D-079 阶段把
 - Guardian 签发 5 分钟、`aud=app-runtime-management` 的 ES256 module token；Runtime 使用独立密钥对，不复用 Santa。
 - 页面为当前 Child 生成 10 分钟一次性配对码；Windows Setup 首次启动只输入配对码。
 - 每个 Windows 用户单独绑定一个 Runtime device；未绑定时不采集，吊销后停止采集和上传。
+- Windows Setup 必须以明确状态机展示 `未配对`、`正在连接`、`等待首次同步`、`在线` 与 `连接异常/需要重新配对`；仅保存 credential 或启动进程不得单独显示为“在线”。
+- 配对成功后 Setup 保留可确认的完成状态，锁定配对码输入与重复连接操作，并提供明确的“完成并关闭”；重新打开时必须核对当前 credential 对应的 Agent 本地健康状态，不得仅因 credential 文件存在就显示“已连接”。
+- Setup 每个当前用户只允许一个实例；成功状态至少显示本机设备名称、Agent 版本和最近一次已确认 heartbeat 时间，不显示 device token、Child ID、用户名、SID、路径或窗口标题。
 - 家长可查看待安装/在线/最近在线/离线/已吊销设备，执行吊销和重新配对。
 - 家长可按北京时间日/周与设备筛选查看总时长、小时/每日图表、应用排行和最近同步。
 - 安装器从独立 Runtime R2 以不可变版本路径分发；未签名内部 MSI 标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- 家长页面手动刷新必须丢弃内存中的旧 module token 并重新签发；只读 GET 遇到 401 或首次网络失败最多自动重试一次，任何写操作不得因网络错误自动重放。用户不得看到浏览器原始 `Failed to fetch` 文案。
+- Windows 1.0.1 采用保留 `UpgradeCode` 的 per-user MajorUpgrade。升级必须保留 DPAPI credential、按 device 隔离的 SQLite/outbox 和云端设备身份；旧 1.0.0 卸载阶段移除的 HKCU 登录启动项由 1.0.1 安装后 repair 恢复，不得触发重新配对。
 
 家长流程不得暴露 `ADMIN_API_KEY`、opaque `subjectId`、Child ID、device token、Runtime URL 或 CLI。D-077 的管理员密钥发码模型仅保留为历史实现，产品接口完成验证后删除。
+
+### Windows Setup Acceptance
+
+1. 未配对时只允许输入配对码并连接；连接中禁用输入和重复提交。
+2. enrollment、DPAPI 保存、HKCU Run 注册和 Agent 启动完成后进入“等待首次同步”，而不是直接宣称在线。
+3. Agent 首次 heartbeat 成功后写入不含凭据的本地健康快照，Setup 据此进入“在线”并显示最近确认时间。
+4. 网络暂不可用时显示可恢复的连接异常；401/403 或 credential 被删除时显示“需要重新配对”。
+5. 已配对状态不得继续显示可编辑配对输入；用户通过“完成并关闭”退出 Setup，Agent 独立继续运行。
+6. 同一 Windows 用户重复启动 Setup 时只保留一个实例，不得出现多个可操作配对窗口。
+7. 只有 `Online` 状态使用“完成并关闭”；等待首次同步和连接异常只能关闭或重新检查，不得以完成文案暗示已验证成功。
+8. 从 1.0.0 原地升级到 1.0.1 后，原 credential、SQLite/outbox、设备身份与登录启动保持可用，Agent 报告版本为 1.0.1。
 
 ## Windows-First Phase 2 Goal
 

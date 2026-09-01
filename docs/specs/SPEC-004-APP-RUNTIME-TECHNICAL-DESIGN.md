@@ -144,13 +144,38 @@ Phase 1 两个平台 executable 都只链接 Core 后退出。Phase 2 的 Window
 
 D-079 后 Windows 安装组合为同一 per-user MSI 中的 WPF Setup 与无控制台 Agent。Setup 固定生产 Runtime endpoint，只接受 `XXXX-XXXX-XXXX` 配对码；成功后用 CurrentUser DPAPI 保存 credential、注册 HKCU Run 并启动 Agent。Agent 以 current-user named mutex 保证单实例，未绑定时立即退出且不打开 ledger；绑定后数据库文件名与 `bound_device_id` metadata 同时绑定 device，防止重新配对后旧 outbox 跨设备上传。401/403 heartbeat 会删除失效 credential、关闭当前 segment 并停止采集。
 
+Setup 使用显式展示状态，不把字符串文案当作连接状态：
+
+```text
+Unpaired -> Connecting -> AwaitingFirstSync -> Online
+                |                 |              |
+                +-------------> ConnectionIssue <-+
+                                  |
+                                  +-> RequiresPairing
+```
+
+- `Connecting` 只覆盖 enrollment、DPAPI credential 保存、HKCU Run 注册与 Agent 启动；完成后进入 `AwaitingFirstSync`。
+- Agent 将最近一次 heartbeat 结果原子写入当前用户 LocalAppData 的 `runtime-agent-health.json`。健康快照只含 device key 的本地哈希、状态、Agent 版本和更新时间，不含 device token、Child、用户名、SID、路径或应用信息。
+- 健康快照是展示用 best-effort read model；写入失败不得中断 Agent 采集、SQLite ledger、outbox 或上传。
+- Setup 只在健康快照与当前 credential 的 device key 一致且状态为 `online` 时显示在线；陈旧或不匹配的快照不得提升状态。
+- heartbeat 网络失败写入 `offline`，401/403 在删除 credential 前写入 `requiresPairing`；Setup 以友好文案展示，不回显底层异常。
+- Setup 使用 current-user named mutex 保证单实例。已配对、等待同步或在线时隐藏配对输入和连接按钮，显示设备名称、Agent 版本、最近确认时间与“完成并关闭”。
+- Setup 关闭不停止 Agent；它不是托盘控制器，也不提供采集开关、吊销或 Child 切换。吊销与重新配对仍由家长控制台发起。
+- 只有 `Online` presentation 使用“完成并关闭”。`AwaitingFirstSync` 和 `ConnectionIssue` 保持“关闭”与“重新检查”，避免把本地 credential 或进程存在误报为成功。
+
+Windows 1.0.1 延续固定 `UpgradeCode` 与严格 `perUser` scope，构建脚本同时写入 MSI ProductVersion 与 Agent/Setup 的 Assembly、File、Informational Version。WiX 官方注明 `Files` 自动收集与 per-user package 会固定触发 ICE38/ICE64；Microsoft 也明确 ICE91 对“永远仅作 per-user 安装”的 package 是无害警告。因此项目仅定向抑制 ICE38、ICE64、ICE91，其他 MSI ICE 仍完整执行，不允许关闭整体验证。新 MSI 的卸载清理同时排除 `UPGRADINGPRODUCTCODE` 与 `REINSTALL`，防止 major upgrade 或原地 repair 误执行卸载清理；由于 1.0.0 已发布的卸载 custom action 仍会在首次 major upgrade 中移除 HKCU Run，1.0.1 安装/repair 阶段调用无界面的 `--install-repair`，仅在 DPAPI credential 可读取时重新注册新版 Agent 并启动它。repair 不修改 credential、SQLite、outbox 或 deviceId。
+
+家长页面的 module token 仅保存在页面内存。手动刷新先清空它并重新签发；Runtime GET 遇到 401 或首次 fetch 网络失败时最多重试一次。POST 写操作仅在明确 401 时换 token 后重试，网络结果不确定时不得自动重放。页面把 fetch 异常映射为可操作的中文网络提示，不暴露浏览器原始错误。
+
 ## Windows Phase 2 Modules
 
 - `TimeOnChrome.AppRuntime.Core`：共享模型、纯状态机与接口。
 - `TimeOnChrome.AppRuntime.Windows`：Win32/SystemEvents adapter、opaque application identity、HKCU startup abstraction。
 - `TimeOnChrome.AppRuntime.Infrastructure`：SQLite schema/store/outbox、DPAPI credential store、HTTP enrollment/upload client、JSON wire mapping。
+- `TimeOnChrome.AppRuntime.Infrastructure` 同时提供不含凭据的原子本地 Agent health snapshot store，供 Agent 写入、Setup 只读展示。
 - `TimeOnChrome.AppRuntime.Agent`：配置、生命周期、fact loop、upload loop 与结构化本地日志组合根。
-- Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK 与 Agent orchestration。
+- `TimeOnChrome.AppRuntime.Setup`：WPF 五态配对 UI、current-user 单实例和基于本地 health snapshot 的状态展示。
+- Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store 与 Setup presentation。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。
 

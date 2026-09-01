@@ -107,6 +107,27 @@ public sealed class InfrastructureTests
     }
 
     [Fact]
+    public async Task AgentHealthSnapshotIsAtomicScopedAndContainsNoCredential()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = Path.Combine(temporary.Path, "runtime-agent-health.json");
+        var store = new RuntimeAgentHealthStore(path);
+        var health = new RuntimeAgentHealth(
+            RuntimePaths.DeviceKey("device-secret-id"),
+            RuntimeAgentHealthState.Online,
+            "1.0.1.0",
+            1234567890);
+
+        await store.SaveAsync(health);
+
+        Assert.Equal(health, await store.LoadAsync());
+        var serialized = await File.ReadAllTextAsync(path);
+        Assert.DoesNotContain("device-secret-id", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("token", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(string.Concat(path, ".tmp")));
+    }
+
+    [Fact]
     public async Task UploaderOnlyClearsExplicitAcceptedIds()
     {
         using var temporary = new TemporaryDirectory();
