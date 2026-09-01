@@ -6,10 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\TimeOnChrome.AppRuntime.Core\TimeOnChrome.AppRuntime.Core.csproj" />
     <ProjectReference Include="..\TimeOnChrome.AppRuntime.Infrastructure\TimeOnChrome.AppRuntime.Infrastructure.csproj" />
     <ProjectReference Include="..\TimeOnChrome.AppRuntime.Windows\TimeOnChrome.AppRuntime.Windows.csproj" />
   </ItemGroup>

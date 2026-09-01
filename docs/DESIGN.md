@@ -13,7 +13,7 @@ macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-
 
 ### 1.0.1 跨平台 App Runtime Management
 
-App Runtime Management 的产品规格与技术设计分别位于 `docs/specs/SPEC-004-APP-RUNTIME.md` 和 `docs/specs/SPEC-004-APP-RUNTIME-TECHNICAL-DESIGN.md`。它是一个产品能力，由 `app-runtime-management/agents/macos/` 的 Swift Agent 与 `app-runtime-management/agents/windows/` 的 .NET 8 Agent 原生实现，共享事实模型、确定性状态机、JSON Schema、黄金测试向量和 Runtime Worker/D1。Windows 产品闭环由 Guardian 为当前 Account/Child 签发 5 分钟 ES256 module token，canonical `app-runtime-management/console/` 构建到独立 `/app-runtime/` 页面后创建 10 分钟一次性配对码；Setup 只要求输入配对码，并以首次 heartbeat 作为“连接成功”的唯一门槛。每个活动交互式用户会话独立运行 Agent，SQLite/outbox 按 `deviceId` 隔离；Runtime Worker 保存不可变 segment 并原子更新北京时间小时应用聚合，页面提供设备健康、吊销/重新配对和日/周统计。页面手动刷新会丢弃旧 module token，GET 请求只允许一次安全恢复，写操作不得自动重放。安装器通过独立 R2 版本路径分发。现有 `native-app-control/` 及 Santa Worker/D1 继续独立负责发现、审核和阻止；Runtime 不共享 Santa enrollment、MachineID、协议、表、密钥或凭据。
+App Runtime Management 的产品规格与技术设计分别位于 `docs/specs/SPEC-004-APP-RUNTIME.md` 和 `docs/specs/SPEC-004-APP-RUNTIME-TECHNICAL-DESIGN.md`。它是一个产品能力，由 macOS Swift 与 Windows .NET 8 原生实现，共享事实模型、确定性状态机、黄金向量和 Runtime Worker/D1。D-080 将 Windows 改为管理员一次性 per-machine 安装：LocalSystem RuntimeService 管理 LocalMachine credential、机器策略、ProgramData SQLite/outbox、上传和 watchdog，每个活动交互式会话运行无凭据 Session Agent 采集平台事实。Guardian 签发 Account-scoped Runtime token，独立 `/app-runtime/` 控制机器默认 Child、逐用户 Child/`unprotected` assignment 和 desired/applied policy state；Runtime v2 Segment 通过 opaque local user ID 与 assignment version 确定性归属。现有 v1 历史保留查询，Runtime `0003` 与 Guardian `024` 仅作 additive migration。现有 `native-app-control/` 及 Santa Worker/D1 继续独立负责发现、审核和阻止；Runtime 不共享 Santa enrollment、MachineID、协议、表、密钥或凭据。
 
 ### 1.1 系统架构
 

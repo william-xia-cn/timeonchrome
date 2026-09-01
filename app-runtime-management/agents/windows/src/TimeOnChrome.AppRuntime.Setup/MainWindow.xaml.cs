@@ -1,215 +1,176 @@
-using System.Diagnostics;
 using System.IO;
-using System.Net.Http;
-using System.Security.Cryptography;
+using System.IO.Pipes;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using TimeOnChrome.AppRuntime.Infrastructure;
-using TimeOnChrome.AppRuntime.Windows;
 
 namespace TimeOnChrome.AppRuntime.Setup;
 
 public partial class MainWindow : Window
 {
-    private static readonly TimeSpan OnlineFreshness = TimeSpan.FromMinutes(10);
-    private readonly RuntimePaths paths = RuntimePaths.ForCurrentUser();
     private readonly DispatcherTimer statusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
-    private readonly WindowsStartupRegistration startupRegistration = new();
-    private RuntimeCredential? credential;
-    private bool connectionInProgress;
-    private bool refreshInProgress;
+    private bool requestInProgress;
 
     public MainWindow()
     {
         InitializeComponent();
         Loaded += MainWindow_Loaded;
         Closed += (_, _) => statusTimer.Stop();
-        statusTimer.Tick += async (_, _) => await RefreshConnectionStateAsync(startAgent: false);
+        statusTimer.Tick += async (_, _) => await RefreshConnectionStateAsync().ConfigureAwait(true);
         ApplyState(SetupConnectionState.Unpaired);
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        await RefreshConnectionStateAsync(startAgent: true);
+        await RefreshConnectionStateAsync().ConfigureAwait(true);
         statusTimer.Start();
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
-        if (connectionInProgress) return;
+        if (requestInProgress) return;
         var code = PairingCode.Text.Trim().ToUpperInvariant();
         if (!System.Text.RegularExpressions.Regex.IsMatch(code, "^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$"))
         {
-            ApplyState(
-                SetupConnectionState.RequiresPairing,
+            ApplyState(SetupConnectionState.RequiresPairing,
                 heading: "配对码格式不正确",
-                description: "请输入家长控制台显示的 XXXX-XXXX-XXXX 配对码。");
+                description: "请输入家长控制台显示的 XXXX-XXXX-XXXX 机器配对码。");
             PairingCode.Focus();
             return;
         }
-
-        connectionInProgress = true;
+        requestInProgress = true;
         ApplyState(SetupConnectionState.Connecting);
-        credential = null;
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-            var enrolledCredential = await new RuntimeApiClient(http).EnrollAsync(
-                RuntimeProductConfiguration.ServerUrl,
-                code,
-                Environment.MachineName);
-            await new DpapiRuntimeCredentialStore(paths.CredentialPath).SaveAsync(enrolledCredential);
-            credential = enrolledCredential;
-            EnsureAgentStarted();
+            var response = await SendAsync(new MachineControlCommand("enroll", code, Environment.MachineName)).ConfigureAwait(true);
+            if (!response.Success)
+            {
+                ApplyState(SetupConnectionState.RequiresPairing,
+                    heading: response.ErrorCode == "PAIRING_CODE_INVALID" ? "配对码无效或已过期" : "未能完成机器配对",
+                    description: "请在家长控制台重新生成机器配对码后再试。");
+                return;
+            }
             PairingCode.Clear();
-            ApplyState(SetupConnectionState.AwaitingFirstSync);
+            ApplyResponse(response.State == "alreadyEnrolled"
+                ? await SendAsync(new MachineControlCommand("status")).ConfigureAwait(true)
+                : response);
         }
-        catch (RuntimeApiException exception) when (exception.StatusCode is 400 or 401)
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
         {
-            credential = null;
-            ApplyState(SetupConnectionState.RequiresPairing);
-        }
-        catch (HttpRequestException)
-        {
-            credential = null;
-            ApplyState(
-                SetupConnectionState.RequiresPairing,
-                heading: "暂时无法连接服务",
-                description: "请检查网络后重试。配对码在有效期内仍可继续使用。");
-        }
-        catch (TaskCanceledException)
-        {
-            credential = null;
-            ApplyState(
-                SetupConnectionState.RequiresPairing,
-                heading: "连接超时",
-                description: "服务暂时没有响应，请检查网络后重试。");
-        }
-        catch (Exception) when (credential is null)
-        {
-            ApplyState(
-                SetupConnectionState.RequiresPairing,
-                heading: "未能完成连接",
-                description: "配对信息没有保存。请重新生成配对码后再试。");
-        }
-        catch (Exception)
-        {
-            ApplyState(
-                SetupConnectionState.ConnectionIssue,
-                heading: "本地设置未完成",
-                description: "配对信息已保存，但 Agent 尚未完成启动。请点击“重新检查”。");
+            ApplyState(SetupConnectionState.ConnectionIssue,
+                heading: "Runtime Service 暂时不可用",
+                description: "请确认 2.0 Service 已安装并正在运行，然后点击“重新检查”。");
         }
         finally
         {
-            connectionInProgress = false;
+            requestInProgress = false;
         }
     }
 
-    private async void RefreshButton_Click(object sender, RoutedEventArgs e)
-    {
-        ApplyState(SetupConnectionState.AwaitingFirstSync);
-        await RefreshConnectionStateAsync(startAgent: true);
-    }
+    private async void RefreshButton_Click(object sender, RoutedEventArgs e) =>
+        await RefreshConnectionStateAsync().ConfigureAwait(true);
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
-    private async Task RefreshConnectionStateAsync(bool startAgent)
+    private void UninstallButton_Click(object sender, RoutedEventArgs e)
     {
-        if (connectionInProgress || refreshInProgress) return;
-        refreshInProgress = true;
+        UninstallPanel.Visibility = Visibility.Visible;
+        UninstallButton.Visibility = Visibility.Collapsed;
+        UninstallCode.Focus();
+    }
+
+    private async void ConfirmUninstallButton_Click(object sender, RoutedEventArgs e)
+    {
+        var code = UninstallCode.Text.Trim().ToUpperInvariant();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(code, "^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$"))
+        {
+            ApplyState(SetupConnectionState.ConnectionIssue,
+                heading: "卸载码格式不正确",
+                description: "请在家长控制台生成 10 分钟单次卸载码后输入。");
+            return;
+        }
         try
         {
-            credential = await new DpapiRuntimeCredentialStore(paths.CredentialPath).LoadAsync();
-            if (credential is null)
-            {
-                var unboundHealth = await new RuntimeAgentHealthStore(paths.HealthPath).LoadAsync();
-                ApplyState(unboundHealth?.State == RuntimeAgentHealthState.RequiresPairing
-                    ? SetupConnectionState.RequiresPairing
-                    : SetupConnectionState.Unpaired);
-                return;
-            }
-
-            if (startAgent) EnsureAgentStarted();
-
-            var health = await new RuntimeAgentHealthStore(paths.HealthPath).LoadAsync();
-            if (health is null ||
-                !string.Equals(
-                    health.DeviceKey,
-                    RuntimePaths.DeviceKey(credential.DeviceId),
-                    StringComparison.Ordinal))
-            {
-                ApplyState(SetupConnectionState.AwaitingFirstSync);
-                return;
-            }
-
-            var agentRunning = WindowsRuntimeInstanceNames.IsAgentRunning();
-            var updatedAt = DateTimeOffset.FromUnixTimeMilliseconds(health.UpdatedAtMs);
-            var isFresh = DateTimeOffset.UtcNow - updatedAt <= OnlineFreshness;
-            switch (health.State)
-            {
-                case RuntimeAgentHealthState.Online when agentRunning && isFresh:
-                    ApplyState(SetupConnectionState.Online, health: health);
-                    break;
-                case RuntimeAgentHealthState.RequiresPairing:
-                    ApplyState(SetupConnectionState.RequiresPairing);
-                    break;
-                case RuntimeAgentHealthState.Starting when agentRunning:
-                    ApplyState(SetupConnectionState.AwaitingFirstSync, health: health);
-                    break;
-                default:
-                    ApplyState(SetupConnectionState.ConnectionIssue, health: health);
-                    break;
-            }
+            var response = await SendAsync(new MachineControlCommand("uninstall", code)).ConfigureAwait(true);
+            if (!response.Success) throw new InvalidOperationException("Uninstall was not authorized.");
+            var productCode = FindInstalledProduct();
+            if (productCode is null) throw new InvalidOperationException("Installed product was not found.");
+            _ = Process.Start(new ProcessStartInfo("msiexec.exe", $"/x {productCode} /passive") { UseShellExecute = true });
+            Close();
         }
-        catch (CryptographicException)
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException or InvalidOperationException)
         {
-            credential = null;
-            ApplyState(
-                SetupConnectionState.RequiresPairing,
-                heading: "本地配对信息无法读取",
-                description: "请在家长控制台重新生成配对码。原凭据不会显示或上传。");
-        }
-        catch (InvalidDataException)
-        {
-            credential = null;
-            ApplyState(
-                SetupConnectionState.RequiresPairing,
-                heading: "本地配对信息已损坏",
-                description: "请在家长控制台重新生成配对码。原凭据不会显示或上传。");
-        }
-        catch (JsonException)
-        {
-            credential = null;
-            ApplyState(
-                SetupConnectionState.RequiresPairing,
-                heading: "本地配对信息已损坏",
-                description: "请在家长控制台重新生成配对码。原凭据不会显示或上传。");
-        }
-        catch (Exception)
-        {
-            ApplyState(
-                credential is null ? SetupConnectionState.Unpaired : SetupConnectionState.ConnectionIssue);
-        }
-        finally
-        {
-            refreshInProgress = false;
+            ApplyState(SetupConnectionState.ConnectionIssue,
+                heading: "卸载未获授权",
+                description: "卸载码无效、已过期或已使用。请由家长重新生成后再试。");
         }
     }
 
-    private void EnsureAgentStarted()
+    private async Task RefreshConnectionStateAsync()
     {
-        var agentPath = Path.Combine(AppContext.BaseDirectory, "TimeOnChrome.AppRuntime.Agent.exe");
-        if (!File.Exists(agentPath)) throw new FileNotFoundException("Agent executable is missing.", agentPath);
-        if (!startupRegistration.IsRegistered()) startupRegistration.Register(agentPath);
-        if (WindowsRuntimeInstanceNames.IsAgentRunning()) return;
-        _ = Process.Start(new ProcessStartInfo(agentPath) { UseShellExecute = true });
+        if (requestInProgress) return;
+        requestInProgress = true;
+        try
+        {
+            ApplyResponse(await SendAsync(new MachineControlCommand("status")).ConfigureAwait(true));
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
+        {
+            ApplyState(SetupConnectionState.ConnectionIssue,
+                heading: "Runtime Service 未响应",
+                description: "机器级 Service 未运行或尚未安装。请修复安装后重新检查。");
+        }
+        finally
+        {
+            requestInProgress = false;
+        }
+    }
+
+    private void ApplyResponse(MachineControlResponse response)
+    {
+        switch (response.State)
+        {
+            case "unpaired":
+                ApplyState(SetupConnectionState.Unpaired);
+                break;
+            case "enrolled":
+            case "pendingPolicy":
+                ApplyState(SetupConnectionState.AwaitingFirstSync, response,
+                    heading: "机器已配对，正在等待策略",
+                    description: "Service 已安全保存机器凭据。首次收到有效策略前不会采集。家长控制台下发后会自动开始。");
+                break;
+            case "online":
+                ApplyState(SetupConnectionState.Online, response,
+                    heading: "这台电脑已受管理",
+                    description: "Runtime Service 在线，机器策略已缓存并应用。关闭此窗口不会停止后台 Service。");
+                break;
+            default:
+                ApplyState(SetupConnectionState.ConnectionIssue);
+                break;
+        }
+    }
+
+    private static async Task<MachineControlResponse> SendAsync(MachineControlCommand command)
+    {
+        await using var pipe = new NamedPipeClientStream(".", SessionPipeNames.Control,
+            PipeDirection.InOut, PipeOptions.Asynchronous);
+        await pipe.ConnectAsync(5_000).ConfigureAwait(false);
+        using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
+        using var reader = new StreamReader(pipe, leaveOpen: true);
+        await writer.WriteLineAsync(JsonSerializer.Serialize(command, RuntimeJson.Options)).ConfigureAwait(false);
+        var response = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+        return JsonSerializer.Deserialize<MachineControlResponse>(response ?? string.Empty, RuntimeJson.Options)
+            ?? throw new InvalidDataException("Runtime Service returned an empty response.");
     }
 
     private void ApplyState(
         SetupConnectionState state,
-        RuntimeAgentHealth? health = null,
+        MachineControlResponse? service = null,
         string? heading = null,
         string? description = null)
     {
@@ -225,24 +186,34 @@ public partial class MainWindow : Window
         PairingPanel.Visibility = presentation.ShowPairing ? Visibility.Visible : Visibility.Collapsed;
         PairingCode.IsEnabled = presentation.PairingEnabled;
         ConnectButton.IsEnabled = presentation.PairingEnabled;
-        Progress.Visibility = state == SetupConnectionState.Connecting
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        Progress.Visibility = state == SetupConnectionState.Connecting ? Visibility.Visible : Visibility.Collapsed;
         DeviceDetails.Visibility = presentation.ShowDetails ? Visibility.Visible : Visibility.Collapsed;
         RefreshButton.Visibility = presentation.ShowRefresh ? Visibility.Visible : Visibility.Collapsed;
+        UninstallButton.Visibility = state == SetupConnectionState.Online && UninstallPanel.Visibility != Visibility.Visible
+            ? Visibility.Visible : Visibility.Collapsed;
+        if (state != SetupConnectionState.Online) UninstallPanel.Visibility = Visibility.Collapsed;
         CloseButton.Content = presentation.CloseLabel;
         CloseButton.IsEnabled = presentation.CloseEnabled;
         DeviceNameValue.Text = Environment.MachineName;
-        AgentVersionValue.Text = health is null
-            ? "等待 Agent 报告"
-            : SetupConnectionPresentations.DisplayAgentVersion(health.AgentVersion);
-        LastHeartbeatValue.Text = health is null
+        AgentVersionValue.Text = service?.ServiceVersion ?? "等待 Service 报告";
+        LastHeartbeatValue.Text = service is null || service.UpdatedAtMs <= 0
             ? "等待首次确认"
-            : DateTimeOffset.FromUnixTimeMilliseconds(health.UpdatedAtMs)
-                .ToLocalTime()
-                .ToString("yyyy/M/d HH:mm:ss");
+            : DateTimeOffset.FromUnixTimeMilliseconds(service.UpdatedAtMs).ToLocalTime().ToString("yyyy/M/d HH:mm:ss");
     }
 
-    private static Brush Brush(string value) =>
-        (Brush)new BrushConverter().ConvertFromString(value)!;
+    private static Brush Brush(string value) => (Brush)new BrushConverter().ConvertFromString(value)!;
+
+    private static string? FindInstalledProduct()
+    {
+        var value = new StringBuilder(39);
+        var result = MsiEnumRelatedProducts("{7DEBE72B-8D64-438F-8C51-8B9969C039D9}", 0, 0, value);
+        return result == 0 ? value.ToString() : null;
+    }
+
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    private static extern uint MsiEnumRelatedProducts(
+        string upgradeCode,
+        uint reserved,
+        uint productIndex,
+        StringBuilder productCode);
 }

@@ -211,6 +211,11 @@ export async function revokeModuleDevice(
   return (result.meta.changes ?? 0) === 1;
 }
 
+export async function retireLegacyDevice(database: D1Database, deviceId: string, nowMs: number): Promise<void> {
+  await database.prepare('UPDATE runtime_devices SET revoked_at_ms=?1 WHERE id=?2 AND revoked_at_ms IS NULL')
+    .bind(nowMs, deviceId).run();
+}
+
 export async function recordHeartbeat(
   database: D1Database, deviceId: string, input: { agentVersion: string; windowsVersion: string; architecture: string }, nowMs: number,
 ): Promise<void> {

@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Infrastructure\TimeOnChrome.AppRuntime.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj" />
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Windows\TimeOnChrome.AppRuntime.Windows.csproj" />
+    <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Migration\TimeOnChrome.AppRuntime.Migration.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\..\contracts\runtime-state-machine-v1.vectors.json"

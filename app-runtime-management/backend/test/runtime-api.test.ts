@@ -9,6 +9,14 @@ const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE'
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_uninstall_codes_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_app_hourly_stats_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_usage_segments_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_user_assignments_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_machine_policy_versions_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_machine_users_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_machine_pairing_codes_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_machines_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_app_hourly_stats_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_usage_segments'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_devices'),
@@ -88,11 +96,107 @@ describe('Runtime product API', () => {
     const moduleToken = await token();
     const enrolled = await enroll(await createPairing(moduleToken));
     await upload(enrolled.body.deviceToken, [validSegment('delete:0')]);
+    const account = await accountToken();
+    const machinePairing = await (await call('/v2/module/pairing-codes', {
+      method: 'POST', headers: bearer(account), body: JSON.stringify({ defaultChildId: 'child-a' }),
+    })).json<{ code: string }>();
+    const machine = await (await call('/v2/machines/enroll', {
+      method: 'POST', body: JSON.stringify({ code: machinePairing.code, platform: 'windows' }),
+    })).json<{ machineId: string; machineToken: string }>();
+    const localUserId = `user_${'c'.repeat(32)}`;
+    await call('/v2/machines/users', { method: 'PUT', headers: bearer(machine.machineToken),
+      body: JSON.stringify({ users: [{ localUserId, displayName: 'Child user', sessionActive: true }] }) });
+    await call('/v2/segments:upload', { method: 'POST', headers: bearer(machine.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...validSegment('delete-v2:0'), localUserId, assignmentVersion: 1 }] }) });
     const lifecycle = await token({ aud: 'app-runtime-management:lifecycle', event: 'child.deleted' });
     expect((await call('/v1/identity/child-lifecycle', { method: 'POST', headers: bearer(lifecycle), body: '{}' })).status).toBe(200);
     for (const table of ['runtime_children_v1', 'runtime_enrollment_codes', 'runtime_devices', 'runtime_usage_segments', 'runtime_app_hourly_stats_v1']) {
       expect((await env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first<{ count: number }>())?.count, table).toBe(0);
     }
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_machines_v2').first<{ count: number }>())?.count).toBe(1);
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_usage_segments_v2').first<{ count: number }>())?.count).toBe(0);
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_app_hourly_stats_v2').first<{ count: number }>())?.count).toBe(0);
+    await expect(env.RUNTIME_DB.prepare(`
+      SELECT default_child_id, desired_policy_version FROM runtime_machines_v2 WHERE id=?1
+    `).bind(machine.machineId).first()).resolves.toMatchObject({ default_child_id: null, desired_policy_version: 2 });
+    await expect(env.RUNTIME_DB.prepare(`
+      SELECT child_id, protected FROM runtime_user_assignments_v2
+      WHERE machine_id=?1 AND local_user_id=?2 ORDER BY assignment_version DESC LIMIT 1
+    `).bind(machine.machineId, localUserId).first()).resolves.toMatchObject({ child_id: null, protected: 0 });
+  });
+
+  it('enrolls one machine and applies default and per-user policy without exposing SID', async () => {
+    const account = await accountToken();
+    const pairingResponse = await call('/v2/module/pairing-codes', {
+      method: 'POST', headers: bearer(account),
+      body: JSON.stringify({ defaultChildId: 'child-a', displayName: 'Family PC' }),
+    });
+    expect(pairingResponse.status).toBe(201);
+    const pairing = await pairingResponse.json<{ code: string }>();
+    const enrolledResponse = await call('/v2/machines/enroll', {
+      method: 'POST', body: JSON.stringify({ code: pairing.code, platform: 'windows', displayName: 'Family PC' }),
+    });
+    expect(enrolledResponse.status).toBe(201);
+    const enrolled = await enrolledResponse.json<{ machineId: string; machineToken: string }>();
+    const machineHeaders = bearer(enrolled.machineToken);
+    const localUserId = `user_${'a'.repeat(32)}`;
+    expect((await call('/v2/machines/users', {
+      method: 'PUT', headers: machineHeaders,
+      body: JSON.stringify({ users: [{ localUserId, displayName: 'William', sessionActive: true }] }),
+    })).status).toBe(200);
+    const users = await call(`/v2/module/machines/${enrolled.machineId}/users`, { headers: bearer(account) });
+    const usersBody = await users.json<{ users: Array<Record<string, unknown>> }>();
+    expect(usersBody.users[0]).toMatchObject({ localUserId, displayName: 'William', childId: 'child-a', protected: true, assignmentSource: 'default' });
+    expect(JSON.stringify(usersBody)).not.toContain('S-1-');
+    const unprotected = await call(`/v2/module/machines/${enrolled.machineId}/users/${localUserId}`, {
+      method: 'PATCH', headers: bearer(account), body: JSON.stringify({ protected: false, childId: null }),
+    });
+    expect(unprotected.status).toBe(200);
+    const policy = await call('/v2/machines/policy', { headers: machineHeaders });
+    expect(policy.headers.get('etag')).toContain('policy-');
+    await expect(policy.json()).resolves.toMatchObject({ users: [{ localUserId, protected: false, childId: null }] });
+  });
+
+  it('attributes v2 segments from assignment history and keeps upload idempotent', async () => {
+    const account = await accountToken();
+    const pairing = await (await call('/v2/module/pairing-codes', {
+      method: 'POST', headers: bearer(account), body: JSON.stringify({ defaultChildId: 'child-a' }),
+    })).json<{ code: string }>();
+    const enrolled = await (await call('/v2/machines/enroll', {
+      method: 'POST', body: JSON.stringify({ code: pairing.code, platform: 'windows' }),
+    })).json<{ machineId: string; machineToken: string }>();
+    const localUserId = `user_${'b'.repeat(32)}`;
+    await call('/v2/machines/users', {
+      method: 'PUT', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ users: [{ localUserId, displayName: 'Child user', sessionActive: true }] }),
+    });
+    const segment = { ...validSegment('v2:0'), localUserId, assignmentVersion: 1 };
+    for (let index = 0; index < 2; index += 1) {
+      const uploadResponse = await call('/v2/segments:upload', {
+        method: 'POST', headers: bearer(enrolled.machineToken),
+        body: JSON.stringify({ schemaVersion: 2, segments: [segment] }),
+      });
+      await expect(uploadResponse.json()).resolves.toEqual({ acceptedIds: ['v2:0'], rejected: [] });
+    }
+    const usage = await call('/v2/module/usage?childId=child-a&fromMs=0&toMs=86400000', { headers: bearer(account) });
+    await expect(usage.json()).resolves.toMatchObject({ totalDurationMs: 500, applications: [{ durationMs: 500 }] });
+  });
+
+  it('requires a single-use uninstall code and retires the machine token', async () => {
+    const account = await accountToken();
+    const pairing = await (await call('/v2/module/pairing-codes', {
+      method: 'POST', headers: bearer(account), body: JSON.stringify({ defaultChildId: 'child-a' }),
+    })).json<{ code: string }>();
+    const enrolled = await (await call('/v2/machines/enroll', {
+      method: 'POST', body: JSON.stringify({ code: pairing.code, platform: 'windows' }),
+    })).json<{ machineId: string; machineToken: string }>();
+    const uninstall = await (await call(`/v2/module/machines/${enrolled.machineId}/uninstall-codes`, {
+      method: 'POST', headers: bearer(account), body: '{}',
+    })).json<{ code: string }>();
+    expect((await call('/v2/machines/uninstall', {
+      method: 'POST', headers: bearer(enrolled.machineToken), body: JSON.stringify({ code: uninstall.code }),
+    })).status).toBe(200);
+    expect((await call('/v2/machines/self', { headers: bearer(enrolled.machineToken) })).status).toBe(401);
   });
 });
 
@@ -111,6 +215,13 @@ async function token(overrides: Record<string, unknown> = {}): Promise<string> {
   const signature = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(`${header}.${payload}`)));
   const encodedSignature = btoa(String.fromCharCode(...signature)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
   return `${header}.${payload}.${encodedSignature}`;
+}
+async function accountToken(overrides: Record<string, unknown> = {}): Promise<string> {
+  return token({
+    aud: 'app-runtime-management:account',
+    children: [{ id: 'child-a', name: 'Child' }, { id: 'child-b', name: 'Other' }],
+    ...overrides,
+  });
 }
 async function createPairing(moduleToken: string): Promise<string> {
   const response = await call('/v1/module/pairing-codes', { method: 'POST', headers: bearer(moduleToken), body: '{}' });

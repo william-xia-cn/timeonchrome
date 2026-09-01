@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for Windows productization closure。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；当前阶段完成 Windows 安装、Guardian Child 身份桥、家长控制台、设备健康和统计闭环，macOS 真实采集留待后续。
+Approved for Windows 2.0 system-managed multi-user implementation。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；当前阶段将 Windows 从 per-user 1.x 升级为机器级 Service + per-session Agent 结构，macOS 系统级实现留待后续。
 
 ## Repository Layout
 
@@ -26,6 +26,24 @@ app-runtime-management/
 `native-app-control/` 与上述目录并列保留，但它是 Santa discovery/enforcement 实现和独立后台，不是 Runtime Agent 或 Runtime 后台。
 
 ## Product And Process Model
+
+### D-080 Windows 2.0 process model
+
+```text
+Account-scoped Guardian token -> Runtime module API -> machine/default Child/user assignments
+                                                        |
+LocalSystem RuntimeService <--- versioned policy -------+
+  | machine credential / HMAC key / SQLite ledger / outbox / upload / watchdog
+  +-- Windows session A -> credential-free Session Agent -> facts -> protected named pipe
+  +-- Windows session B -> credential-free Session Agent -> facts -> protected named pipe
+```
+
+- Service 从连接进程 token 解析 session ID 与 SID，使用 machine HMAC key 派生 `localUserId`；不信任 Agent 上报的用户身份。
+- Named Pipe 只允许 SYSTEM 与目标交互式用户连接；Service 验证 client PID/session 后才接收事实。
+- Service 为每个 session 保持独立状态机；Agent 断开、注销、锁屏或 policy assignment 实际变更时立即切段。
+- 机器策略每 60 秒通过 ETag 检查，失败从 1 分钟退避到 15 分钟；heartbeat 每 5 分钟上报 desired/applied version、Service 健康和 tamper 摘要。
+- 首次未获得有效 policy 时不启动采集；已有 last-known-good 时可离线继续。`unprotected` 应用时关闭开放段并停止该用户采集。
+- Service 持久化路径为 `%ProgramData%\TimeOnChrome\AppRuntime`，仅 SYSTEM/Administrators 可写；Session Agent 不直接访问 SQLite 或 machine credential。
 
 ```text
 macOS platform facts ─► macOS Agent ─┐

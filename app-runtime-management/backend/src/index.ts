@@ -9,10 +9,15 @@ import {
   parseUploadRequest,
   validateSegment,
 } from './validation';
+import { routeV2 } from './v2Routes';
+import { deleteRuntimeChildV2 } from './v2Repository';
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const nowMs = Date.now();
+
+  const v2 = await routeV2(request, env, nowMs);
+  if (v2) return v2;
 
   if (url.pathname === '/v1/health') {
     return request.method === 'GET'
@@ -90,6 +95,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (request.method !== 'POST') return methodNotAllowed('POST');
     const claims = await requireLifecycle(request, env, nowMs);
     await deleteRuntimeChild(env.RUNTIME_DB, String(claims.account_id), String(claims.child_id));
+    await deleteRuntimeChildV2(env.RUNTIME_DB, String(claims.account_id), String(claims.child_id));
     return jsonResponse({ success: true });
   }
 
@@ -150,7 +156,7 @@ export default {
         if (origin !== allowedOrigin) return errorResponse(403, 'ORIGIN_DENIED', 'Origin is not allowed.');
         return new Response(null, { status: 204, headers: {
           'access-control-allow-origin': allowedOrigin,
-          'access-control-allow-methods': 'GET, POST, OPTIONS',
+          'access-control-allow-methods': 'GET, POST, PUT, PATCH, OPTIONS',
           'access-control-allow-headers': 'authorization, content-type',
           'access-control-max-age': '86400',
         } });

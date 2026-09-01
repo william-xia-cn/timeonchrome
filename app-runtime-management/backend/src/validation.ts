@@ -6,6 +6,7 @@ import type {
   SegmentEndReason,
   UploadRequest,
   UsageSegment,
+  MachineSegmentEnvelope,
 } from './contracts';
 import { HttpError } from './http';
 
@@ -80,6 +81,59 @@ export function parseUploadRequest(value: unknown): { schemaVersion: 1; rawSegme
     throw new HttpError(400, 'INVALID_BATCH_SIZE', 'segments must contain between 1 and 100 items.');
   }
   return { schemaVersion: 1, rawSegments: value.segments };
+}
+
+export function parseMachinePairing(value: unknown): { defaultChildId: string; displayName: string | null } {
+  if (!isRecord(value)) throw new HttpError(400, 'INVALID_REQUEST', 'Request must be an object.');
+  return {
+    defaultChildId: stringValue(value.defaultChildId, 'defaultChildId', 1, 128),
+    displayName: optionalString(value.displayName, 'displayName', 128),
+  };
+}
+
+export function parseMachineUsers(value: unknown): Array<{ localUserId: string; displayName: string; sessionActive: boolean }> {
+  if (!isRecord(value) || !Array.isArray(value.users) || value.users.length > 100) {
+    throw new HttpError(400, 'INVALID_REQUEST', 'Machine users are invalid.');
+  }
+  return value.users.map((entry) => {
+    if (!isRecord(entry) || typeof entry.sessionActive !== 'boolean') {
+      throw new HttpError(400, 'INVALID_REQUEST', 'Machine user is invalid.');
+    }
+    const localUserId = stringValue(entry.localUserId, 'localUserId', 32, 128);
+    if (!/^[A-Za-z0-9_-]+$/u.test(localUserId)) throw new HttpError(400, 'INVALID_REQUEST', 'localUserId is invalid.');
+    return { localUserId, displayName: stringValue(entry.displayName, 'displayName', 1, 128), sessionActive: entry.sessionActive };
+  });
+}
+
+export function parseMachineUpload(
+  value: unknown,
+  expectedPlatform: RuntimePlatform,
+): { envelopes: MachineSegmentEnvelope[]; rejected: Array<{ id: string; code: string }> } {
+  if (!isRecord(value) || value.schemaVersion !== 2 || !Array.isArray(value.segments)
+    || value.segments.length < 1 || value.segments.length > 100) {
+    throw new HttpError(400, 'INVALID_UPLOAD', 'Machine upload is invalid.');
+  }
+  const envelopes: MachineSegmentEnvelope[] = [];
+  const rejected: Array<{ id: string; code: string }> = [];
+  value.segments.forEach((entry, index) => {
+    if (!isRecord(entry) || typeof entry.localUserId !== 'string'
+      || !/^[A-Za-z0-9_-]{32,128}$/u.test(entry.localUserId)
+      || !Number.isSafeInteger(entry.assignmentVersion) || Number(entry.assignmentVersion) < 1) {
+      rejected.push({ id: isRecord(entry) && typeof entry.id === 'string' ? entry.id : `item:${index}`, code: 'INVALID_ENVELOPE' });
+      return;
+    }
+    const validation = validateSegment(entry, expectedPlatform, index);
+    if (!validation.ok) {
+      rejected.push({ id: validation.id, code: validation.code });
+      return;
+    }
+    envelopes.push({
+      localUserId: entry.localUserId,
+      assignmentVersion: Number(entry.assignmentVersion),
+      segment: validation.segment,
+    });
+  });
+  return { envelopes, rejected };
 }
 
 export type SegmentValidation =

@@ -15,6 +15,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Inf
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Setup", "src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj", "{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Service", "src\TimeOnChrome.AppRuntime.Service\TimeOnChrome.AppRuntime.Service.csproj", "{50E6C8A3-63B7-4A9C-BD74-45D7E7E513A1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.SessionAgent", "src\TimeOnChrome.AppRuntime.SessionAgent\TimeOnChrome.AppRuntime.SessionAgent.csproj", "{80A58813-61F0-4FD4-AED7-2B6E35A8E9A4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Migration", "src\TimeOnChrome.AppRuntime.Migration\TimeOnChrome.AppRuntime.Migration.csproj", "{5B36F061-AE1F-4C90-A0F8-D71C9F7355F0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,5 +51,17 @@ Global
 		{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}.Release|Any CPU.Build.0 = Release|Any CPU
+		{50E6C8A3-63B7-4A9C-BD74-45D7E7E513A1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{50E6C8A3-63B7-4A9C-BD74-45D7E7E513A1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{50E6C8A3-63B7-4A9C-BD74-45D7E7E513A1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{50E6C8A3-63B7-4A9C-BD74-45D7E7E513A1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{80A58813-61F0-4FD4-AED7-2B6E35A8E9A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{80A58813-61F0-4FD4-AED7-2B6E35A8E9A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{80A58813-61F0-4FD4-AED7-2B6E35A8E9A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{80A58813-61F0-4FD4-AED7-2B6E35A8E9A4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B36F061-AE1F-4C90-A0F8-D71C9F7355F0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B36F061-AE1F-4C90-A0F8-D71C9F7355F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B36F061-AE1F-4C90-A0F8-D71C9F7355F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B36F061-AE1F-4C90-A0F8-D71C9F7355F0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

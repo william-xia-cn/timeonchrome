@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.local/contracts/app-runtime/runtime-machine-api-v2.schema.json",
+  "title": "TimeOnChrome App Runtime machine protocol v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policy", "segmentUpload"],
+  "properties": {
+    "policy": { "$ref": "#/$defs/policy" },
+    "segmentUpload": { "$ref": "#/$defs/segmentUpload" }
+  },
+  "$defs": {
+    "localUserId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{32,128}$"
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localUserId", "assignmentVersion", "childId", "protected"],
+      "properties": {
+        "localUserId": { "$ref": "#/$defs/localUserId" },
+        "assignmentVersion": { "type": "integer", "minimum": 1 },
+        "childId": { "type": ["string", "null"] },
+        "protected": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "protected": { "const": false } } },
+          "then": { "properties": { "childId": { "type": "null" } } }
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "defaultChildId", "users"],
+      "properties": {
+        "version": { "type": "integer", "minimum": 1 },
+        "defaultChildId": { "type": ["string", "null"] },
+        "users": { "type": "array", "items": { "$ref": "#/$defs/assignment" } }
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "runtimeIdentity"],
+      "properties": {
+        "platform": { "enum": ["windows", "macos"] },
+        "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "displayName": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    "segmentEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localUserId", "assignmentVersion", "id", "runtimeSessionID", "application", "startAtMs", "endAtMs", "durationMilliseconds", "endReason"],
+      "properties": {
+        "localUserId": { "$ref": "#/$defs/localUserId" },
+        "assignmentVersion": { "type": "integer", "minimum": 1 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "runtimeSessionID": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "application": { "$ref": "#/$defs/application" },
+        "startAtMs": { "type": "integer", "minimum": 0 },
+        "endAtMs": { "type": "integer", "minimum": 1 },
+        "durationMilliseconds": { "type": "integer", "minimum": 1 },
+        "endReason": { "enum": ["applicationSwitch", "userIdle", "sessionUnavailable", "systemSleep", "periodicSnapshot", "stateCorrection"] }
+      }
+    },
+    "segmentUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "segments"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "segments": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/segmentEnvelope" } }
+      }
+    }
+  }
+}

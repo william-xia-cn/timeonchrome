@@ -22,6 +22,7 @@ public sealed class SqliteSegmentStore : ISegmentStore, IUploadOutbox
             DataSource = databasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Shared,
+            Pooling = false,
         }.ToString();
         this.boundDeviceId = boundDeviceId;
     }

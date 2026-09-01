@@ -1,19 +1,60 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="TimeOnChrome App Runtime"
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="TimeOnChrome App Runtime 2"
            Manufacturer="TimeOnChrome"
            Version="$(var.ProductVersion)"
-           UpgradeCode="B646BA2C-3D5F-45B3-8BAA-3277B42C33AD"
-           Scope="perUser">
+           Codepage="65001"
+           UpgradeCode="7DEBE72B-8D64-438F-8C51-8B9969C039D9"
+           Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 TimeOnChrome App Runtime。" />
     <MediaTemplate EmbedCab="yes" />
 
-    <StandardDirectory Id="LocalAppDataFolder">
+    <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="CompanyFolder" Name="TimeOnChrome">
         <Directory Id="INSTALLFOLDER" Name="AppRuntime">
-          <Component Id="SetupExecutable" Guid="A7D2D1A3-7EA5-468B-B663-4B953FB21F85">
+          <Component Id="RuntimeServiceComponent" Guid="1BFA01D4-59F0-431C-9D56-5EB88D510322">
+            <File Id="RuntimeServiceFile"
+                  Source="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Service.exe"
+                  KeyPath="yes" />
+            <ServiceInstall Id="RuntimeServiceInstall"
+                            Name="TimeOnChromeAppRuntime"
+                            DisplayName="TimeOnChrome App Runtime"
+                            Description="管理本机交互式用户的应用运行时事实、策略和不可变使用账本。"
+                            Type="ownProcess"
+                            Start="auto"
+                            ErrorControl="normal"
+                            Account="LocalSystem"
+                            Vital="yes" />
+            <ServiceControl Id="RuntimeServiceControl"
+                            Name="TimeOnChromeAppRuntime"
+                            Start="install"
+                            Stop="both"
+                            Remove="uninstall"
+                            Wait="yes" />
+          </Component>
+          <Component Id="SetupExecutable" Guid="BE778625-1D7B-473D-97DB-E8E467402374">
             <File Id="SetupExecutableFile"
                   Source="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Setup.exe"
-                  KeyPath="yes" />
+                  KeyPath="yes">
+              <Shortcut Id="SetupShortcut" Name="电脑应用使用设置"
+                        Directory="ApplicationProgramsFolder" Advertise="yes" />
+            </File>
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ProgramDataCompanyFolder" Name="TimeOnChrome">
+        <Directory Id="ProgramDataRuntimeFolder" Name="AppRuntime">
+          <Component Id="ProgramDataPermissions" Guid="193E694B-1366-4CF5-A5E7-D922646C8347">
+            <CreateFolder>
+              <util:PermissionEx User="SYSTEM" GenericAll="yes" />
+              <util:PermissionEx User="Administrators" GenericAll="yes" />
+              <util:PermissionEx User="Users" Read="yes" GenericRead="yes" />
+            </CreateFolder>
+            <RegistryValue Root="HKLM" Key="Software\TimeOnChrome\AppRuntime2"
+                           Name="DataDirectoryReady" Type="integer" Value="1" KeyPath="yes" />
           </Component>
         </Directory>
       </Directory>
@@ -21,41 +62,17 @@
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ApplicationProgramsFolder" Name="TimeOnChrome">
-        <Component Id="StartMenuShortcut" Guid="5C93627C-7624-4F08-B892-A154DBCE06F3">
-          <Shortcut Id="SetupShortcut" Name="电脑应用使用设置"
-                    Target="[INSTALLFOLDER]TimeOnChrome.AppRuntime.Setup.exe"
-                    WorkingDirectory="INSTALLFOLDER" />
-          <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
-          <RegistryValue Root="HKCU" Key="Software\TimeOnChrome\AppRuntime" Name="Installed"
-                         Type="integer" Value="1" KeyPath="yes" />
-        </Component>
       </Directory>
     </StandardDirectory>
 
-    <CustomAction Id="CleanupStartupRegistration"
-                  FileRef="SetupExecutableFile"
-                  ExeCommand="--uninstall-cleanup"
-                  Execute="deferred"
-                  Impersonate="yes"
-                  Return="ignore" />
-    <CustomAction Id="RepairStartupRegistration"
-                  FileRef="SetupExecutableFile"
-                  ExeCommand="--install-repair"
-                  Execute="deferred"
-                  Impersonate="yes"
-                  Return="ignore" />
-    <InstallExecuteSequence>
-      <Custom Action="CleanupStartupRegistration" Before="RemoveFiles"
-              Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND NOT REINSTALL" />
-      <Custom Action="RepairStartupRegistration" After="InstallFiles"
-              Condition="NOT REMOVE OR REINSTALL" />
-    </InstallExecuteSequence>
-
-    <Feature Id="ProductFeature" Title="TimeOnChrome App Runtime" Level="1">
-      <ComponentRef Id="StartMenuShortcut" />
+    <Feature Id="ProductFeature" Title="TimeOnChrome App Runtime 2" Level="1">
+      <ComponentRef Id="RuntimeServiceComponent" />
       <ComponentRef Id="SetupExecutable" />
+      <ComponentRef Id="ProgramDataPermissions" />
       <Files Include="!(bindpath.Publish)\**" Directory="INSTALLFOLDER">
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Service.exe" />
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Setup.exe" />
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Migration.*" />
       </Files>
     </Feature>
   </Package>

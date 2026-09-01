@@ -5,9 +5,9 @@
 - Spec ID: SPEC-004
 - Date: 2026-09-01
 - Owner: Product Owner
-- Status: Approved for Windows productization closure
+- Status: Approved for Windows 2.0 system-managed multi-user implementation
 - Related task: Windows App Runtime 可用闭环
-- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079
+- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -17,6 +17,29 @@
 Phase 1 只交付跨平台规格、共享契约、黄金测试向量、macOS/Windows Core 纯状态机、平台 Agent 空壳和后台契约类型；不运行生产采集、不写 SQLite、不调用生产 API。
 
 Phase 2 已交付 Windows 与共用 Runtime 后台技术底座。D-079 阶段把它修正为家长可以直接安装、配对、管理和查看统计的 Windows 产品闭环；macOS 真实采集仍留在后续阶段。
+
+## D-080 Windows 2.0 Goal
+
+D-080 取代 D-079 的 per-user 安装与 Child-scoped device 身份，将 Windows Runtime 改为机器级管理底座：
+
+- 管理员只安装和配对一次；per-machine MSI 安装 LocalSystem RuntimeService 和全用户 Session Agent 二进制。
+- Service 保存 DPAPI LocalMachine credential、机器密钥、策略、SQLite ledger/outbox 和 tamper 状态；Session Agent 不持有凭据或可写账本。
+- 每个交互式 Windows 会话运行独立 Agent 产生前台、idle、session、power 和 snapshot 事实；Service 只组合事实与持久化，不在 Session 0 推断前台应用。
+- 机器配对时设置默认 Child，所有已有和新增交互式用户默认继承；家长可改绑 Child 或设为 `unprotected`。
+- 用户云端身份由机器密钥对 SID 执行 HMAC 的 opaque ID 与获批准的账户显示名组成；不上传 SID、路径、邮箱或凭据。
+- 策略使用 desired/applied version；首次无策略时 fail closed 不采集，之后离线使用 last-known-good。assignment 变更在本地实际应用时切段。
+- 普通用户不能修改 Program Files、ProgramData、Service 和 machine credential；Agent 被结束时 Service 关闭开放段、重启 Agent 并上报 tamper，不回填未观察间隙。
+- 正常卸载需要管理员提升和 10 分钟单次卸载码；不承诺抵抗本机管理员。
+- 本阶段不实现应用阻止、时间限额、网页过滤或媒体识别；macOS 系统级安装留待后续。
+
+### D-080 Acceptance
+
+1. 标准用户无法删除或修改安装目录、Service、machine credential 和账本；结束本会话 Agent 后可自动恢复并产生 tamper 健康事实。
+2. 两个交互式用户分别登录时各只有一个 Session Agent，Segment 按 opaque local user ID 隔离，设备总时长不因并行维度重复累加。
+3. 家长端可设置默认 Child、逐用户覆盖和 `unprotected`，并看到 `pending/cached/applied/failed/offline` 状态。
+4. Segment 上传包含 local user ID 和 assignment version；Worker 根据已认证机器和 assignment history 决定 Child，不信任终端 Child ID。
+5. 1.x 历史可继续查询；2.0 升级前要求 outbox 为空、retire 旧 token，保留旧 SQLite 为 legacy 证据并重配机器一次。
+6. Runtime `0003` 和 Guardian `024` 是 additive migration，不要求空库且不重写已有 HornburgXW 数据。
 
 ## D-079 Windows Productization Goal
 

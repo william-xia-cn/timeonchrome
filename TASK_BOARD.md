@@ -12,6 +12,14 @@
 
 ## Active App Runtime Work（2026-09-01）
 
+- [x] **[SPEC-004 / D-080] Windows App Runtime 2.0 系统级多用户管理（本地实现与验证完成，生产闸门未开）**
+  - 目标：管理员一次性 per-machine 安装；LocalSystem Service 管理机器凭据、策略、SQLite/outbox、上传和 watchdog；每个交互式用户会话运行无凭据 Session Agent。
+  - 产品模型：机器设置默认 Child，已有和新用户均继承；家长可在 `/app-runtime/` 逐用户改绑 Child 或设为 `unprotected`，并查看 desired/applied 策略状态。
+  - 安全：Program Files/ProgramData/Service/LocalMachine DPAPI 受 ACL 保护；普通用户结束 Agent 后自动恢复并记录 tamper；管理员卸载需要 10 分钟单次家长卸载码。不承诺抵抗本机管理员。
+  - 兼容：Runtime `0003` 与 Guardian `024` 仅新增 v2 表/接口，v1 历史与查询保留；William 1.x 升级时先清空 outbox、retire 旧 token、保留历史后重配机器一次。
+  - 本轮边界：Windows 先行；不实现应用阻止、时间限额、网页过滤、媒体识别或 macOS 系统级安装；不生产 migration/部署/真机升级。
+  - 本地证据：Runtime `0003`、Guardian `024`、v2 API、LocalSystem Service、Session Agent、Named Pipe identity check、LocalMachine DPAPI、SID-HMAC、machine ledger/outbox、策略 LKG/ACK、tamper 恢复、机器 Setup、一次性卸载码、1.x preflight、per-machine MSI、Burn bootstrapper 和账户级页面均已实现；MSI/Burn 为 WiX 7 `0 warning / 0 error`。生产 D1/Worker/Guardian/Pages/R2、William 真机升级、多账户系统集成与 Authenticode 仍保持未执行/阻塞。
+
 - [ ] **[SPEC-004 / D-079] Windows App Runtime 可用闭环**
   - 当前阶段：控制面、Windows 安装/配对、独立家长页面和 R2 版本化下载接口已实现并完成内部生产基础部署。Product Owner 已于 2026-09-01 确认满足 WiX 7 OSMF 条件并授权项目使用 `AcceptEula=wix7`；WiX 7 MSI 构建为 0 warning / 0 error。
   - UI 验证：mock 数据桌面 1440px、移动 390px、配对 dialog 已完成真实 Chrome 截图；日/周、周期、设备筛选、总时长、图表、排行、最近同步、设备状态/吊销/重配均在页面结构中匹配。

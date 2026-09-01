@@ -97,6 +97,35 @@ export interface ModuleClaims {
   jti: string;
 }
 
+export interface AccountModuleClaims {
+  iss: string;
+  aud: 'app-runtime-management:account';
+  sub: string;
+  account_id: string;
+  children: Array<{ id: string; name: string }>;
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+export interface MachineSelfResponse {
+  machineId: string;
+  accountId: string;
+  platform: RuntimePlatform;
+  displayName: string | null;
+  defaultChildId: string | null;
+  desiredPolicyVersion: number;
+  appliedPolicyVersion: number;
+  policyState: 'pending' | 'cached' | 'applied' | 'failed' | 'offline';
+  revoked: boolean;
+}
+
+export interface MachineSegmentEnvelope {
+  localUserId: string;
+  assignmentVersion: number;
+  segment: UsageSegment;
+}
+
 export interface UploadRequest {
   schemaVersion: 1;
   segments: UsageSegment[];

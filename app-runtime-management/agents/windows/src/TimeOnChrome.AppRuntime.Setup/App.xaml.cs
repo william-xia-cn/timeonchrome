@@ -1,7 +1,4 @@
-using System.Diagnostics;
-using System.IO;
 using System.Windows;
-using TimeOnChrome.AppRuntime.Infrastructure;
 using TimeOnChrome.AppRuntime.Windows;
 
 namespace TimeOnChrome.AppRuntime.Setup;
@@ -13,22 +10,6 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        if (e.Args.Any(static argument =>
-                string.Equals(argument, "--uninstall-cleanup", StringComparison.OrdinalIgnoreCase)))
-        {
-            new WindowsStartupRegistration().Remove();
-            Shutdown();
-            return;
-        }
-
-        if (e.Args.Any(static argument =>
-                string.Equals(argument, "--install-repair", StringComparison.OrdinalIgnoreCase)))
-        {
-            RepairInstallation();
-            Shutdown();
-            return;
-        }
-
         instanceMutex = new Mutex(false, WindowsRuntimeInstanceNames.SetupMutexName);
         try
         {
@@ -58,37 +39,5 @@ public partial class App : Application
         if (ownsInstanceMutex) instanceMutex?.ReleaseMutex();
         instanceMutex?.Dispose();
         base.OnExit(e);
-    }
-
-    private static void RepairInstallation()
-    {
-        try
-        {
-            var paths = RuntimePaths.ForCurrentUser();
-            var credential = new DpapiRuntimeCredentialStore(paths.CredentialPath)
-                .LoadAsync()
-                .GetAwaiter()
-                .GetResult();
-            if (credential is null) return;
-
-            var agentPath = Path.Combine(
-                AppContext.BaseDirectory,
-                "TimeOnChrome.AppRuntime.Agent.exe");
-            if (!File.Exists(agentPath)) return;
-
-            new WindowsStartupRegistration().Register(agentPath);
-            if (!WindowsRuntimeInstanceNames.IsAgentRunning())
-            {
-                _ = Process.Start(new ProcessStartInfo(agentPath)
-                {
-                    UseShellExecute = true,
-                });
-            }
-        }
-        catch
-        {
-            // Installer repair is best effort. Setup will expose a recoverable state
-            // the next time the user opens it instead of failing the MSI transaction.
-        }
     }
 }

@@ -25,6 +25,7 @@ import {
 } from './services/nativeAppIdentityBridge';
 import {
   handleAppRuntimeModuleToken,
+  handleAppRuntimeAccountToken,
   processAppRuntimeLifecycleOutbox,
 } from './services/appRuntimeIdentityBridge';
 
@@ -167,6 +168,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
     return await handleNativeAppModuleToken(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/app-runtime\/token$/)) {
     return await handleAppRuntimeModuleToken(request, env);
+  } else if (path === '/app-runtime/account-token') {
+    return await handleAppRuntimeAccountToken(request, env);
   } else if (path.startsWith('/profiles')) {
     return await profilesRouter.handle(request, env);
   } else if (path === '/device/heartbeat') {

@@ -1,8 +1,10 @@
 import {
   APP_RUNTIME_AUDIENCE,
+  APP_RUNTIME_ACCOUNT_AUDIENCE,
   APP_RUNTIME_LIFECYCLE_AUDIENCE,
   type AppRuntimeChildLifecycleClaims,
   type AppRuntimeModuleClaims,
+  type AppRuntimeAccountModuleClaims,
 } from '../../../app-runtime-management/contracts/app-runtime-control';
 import { json, verifyAccountToken, type Env } from '../db/middleware';
 
@@ -14,6 +16,32 @@ type RuntimeBridgeEnv = Env & {
 
 function base64Url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+export async function handleAppRuntimeAccountToken(request: Request, env: RuntimeBridgeEnv): Promise<Response> {
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+  if (!accountId) return json({ error: 'Unauthorized' }, 401);
+  const result = await env.DB.prepare(`
+    SELECT child_id, child_name FROM runtime_account_children_v2
+    WHERE account_id=? ORDER BY child_name ASC, child_id ASC
+  `).bind(accountId).all<{ child_id: string; child_name: string }>();
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const claims: AppRuntimeAccountModuleClaims = {
+    iss: env.APP_RUNTIME_BRIDGE_ISSUER || 'guardian-api',
+    aud: APP_RUNTIME_ACCOUNT_AUDIENCE,
+    sub: accountId,
+    account_id: accountId,
+    children: (result.results || []).map((child) => ({ id: child.child_id, name: child.child_name })),
+    iat: issuedAt,
+    exp: issuedAt + 300,
+    jti: crypto.randomUUID(),
+  };
+  try {
+    return json({ token: await signJwt(env, claims as unknown as Record<string, unknown>), expiresAt: claims.exp, audience: claims.aud });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'token_issue_failed' }, 503);
+  }
 }
 
 async function signJwt(env: RuntimeBridgeEnv, claims: Record<string, unknown>): Promise<string> {

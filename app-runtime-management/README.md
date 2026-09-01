@@ -4,8 +4,8 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 
 ## 当前实现状态
 
-- Windows：底层 WinEvent、idle、session/power、周期快照、SQLite ledger/outbox、DPAPI credential、HTTP upload、WPF Setup 与 WiX 7 per-user MSI 已实现；内部 MSI 尚未签名，不能称为公开发布产品。
-- Backend：D-079 Child-scoped module token、一次性配对、设备健康/吊销/重新配对、immutable segments、小时聚合和 lifecycle 删除已实现；旧管理员密钥/opaque `subjectId` 流程已从产品接口和代码移除。
+- Windows：1.x 的 WinEvent、idle、session/power、SQLite/outbox、CurrentUser DPAPI、WPF Setup 与 per-user MSI 已实现并作为兼容基线。D-080 的 2.0 本地实现已升级为 LocalSystem RuntimeService + 每交互式会话 Session Agent + ProgramData/LocalMachine DPAPI + WiX 7 per-machine 安装；内部 MSI 尚未签名，不能称为公开发布产品。
+- Backend：v1 Child-scoped 设备闭环保留兼容；D-080 v2 新增 Account-scoped machine、默认 Child、逐本地用户 assignment、版本化策略/ACK、tamper 健康和单次卸载码。Runtime/Santa 身份、表、密钥和协议继续隔离。
 - macOS：Phase 1 Core/Agent 骨架；真实事件、SQLite 与上传尚未实现。
 - 部署：Runtime `0002`、Guardian `023`、独立 ES256 secrets、Runtime/Guardian Worker、R2 installer 与 `/app-runtime/` Pages 已完成内部生产基础部署；服务端点为 `https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev`。William 当前用户已把 `INTELMINIPC-XW` 配对到 HornburgXW，用于 Product Owner 明确批准的受控内部验证。
 
@@ -22,7 +22,9 @@ pwsh installer/windows/build.ps1
 
 Setup 采用未配对、连接中、等待首次同步、在线和连接异常/需要重新配对的明确状态。enrollment 完成只表示本地绑定已保存；Agent 首次 heartbeat 写入不含凭据的本地健康快照后，Setup 才显示在线。已绑定状态锁定配对输入并提供“完成并关闭”，关闭 Setup 不停止 Agent；同一当前用户只允许一个 Setup 实例。
 
-MSI 采用 WiX 7 per-user 安装，目标目录为当前用户 LocalAppData，不要求管理员权限；提供开始菜单入口、HKCU 登录启动、MajorUpgrade 和卸载。1.0.1 原地升级保留 DPAPI credential、device 隔离 SQLite/outbox 与云端设备身份，并在升级后按已有 credential 修复 HKCU 登录启动。当前内部 MSI 未做 Authenticode 签名，发布状态必须保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+1.x MSI 保留为 per-user 历史兼容。2.0.0 使用新的 machine-scope UpgradeCode 和 per-machine MSI，安装到 Program Files，Service 数据位于 ACL 保护的 ProgramData。Burn bootstrapper 内嵌 migration preflight：发现其他用户仍有 1.x credential/启动项时列出本机账户并停止；当前用户 outbox 未清空时给出可操作提示并停止；通过后 retire 旧 token、移除精确 HKCU 启动项、卸载旧 per-user MSI并保留旧 SQLite 为 legacy 证据，然后要求重配机器一次。当前内部包未做 Authenticode 签名，发布状态必须保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
+Windows 2.0 本地构建产物位于 `installer/windows/bin/Release/`：`TimeOnChrome-AppRuntime-win-x64.msi` 是 per-machine MSI，`TimeOnChrome-AppRuntime-Setup-win-x64.exe` 是用户应运行的 Burn bootstrapper。构建不会自动安装、配对、迁移生产数据或发布 R2。
 
 家长页面手动刷新会重新获取 Child-scoped module token；只读加载最多进行一次安全重试，写操作不对未知网络结果自动重放。页面不直接显示浏览器原始 `Failed to fetch`。
 
