@@ -8,6 +8,13 @@ public enum SegmentEndReason
     SystemSleep,
     PeriodicSnapshot,
     StateCorrection,
+    PipEnded,
+    MediaStopped,
+    CheckpointUnconfirmed,
+    ServiceRecovery,
+    ClockAdjustment,
+    LateFact,
+    Diagnostic,
 }
 
 public sealed record UsageSegment(

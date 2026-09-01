@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 2,
+  "reorderWindowMilliseconds": 500,
+  "cases": [
+    {
+      "name": "application switch",
+      "runtimeSessionID": "v2-switch",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 100, "monotonicTimeMs": 100, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "windowState": "visible" },
+        { "wallTimeMs": 1100, "monotonicTimeMs": 1100, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:browser", "displayName": "Browser" }, "windowState": "visible" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:editor", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 100, "endWallTimeMs": 1100, "startMonotonicTimeMs": 100, "endMonotonicTimeMs": 1100, "monotonicDurationMilliseconds": 1000, "endReason": "applicationSwitch", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": "app:browser",
+      "expectedFirstUsageId": "bf7f5123431aea44a4fba50679dddda6efad93719d02fadfd9938dcc070c5fe3"
+    },
+    {
+      "name": "idle threshold weak and strong foreground media",
+      "runtimeSessionID": "v2-idle-media",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 100, "monotonicTimeMs": 100, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "macos", "runtimeIdentity": "app:player", "displayName": "Player" }, "windowState": "visible", "mediaEvidence": "weak", "playbackState": "playing" },
+        { "wallTimeMs": 180100, "monotonicTimeMs": 180100, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "idle" },
+        { "wallTimeMs": 200000, "monotonicTimeMs": 200000, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 200001, "monotonicTimeMs": 200001, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "macos", "runtimeIdentity": "app:player", "displayName": "Localized Player" }, "windowState": "visible", "mediaEvidence": "strong", "playbackState": "playing" },
+        { "wallTimeMs": 210000, "monotonicTimeMs": 210000, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "idle" },
+        { "wallTimeMs": 270000, "monotonicTimeMs": 270000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "confirmed" },
+        { "wallTimeMs": 280000, "monotonicTimeMs": 280000, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "macos", "runtimeIdentity": "app:player", "displayName": "Player" }, "windowState": "minimized", "mediaEvidence": "strong", "playbackState": "playing" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:player", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 100, "endWallTimeMs": 180100, "startMonotonicTimeMs": 100, "endMonotonicTimeMs": 180100, "monotonicDurationMilliseconds": 180000, "endReason": "userIdle", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:player", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 200000, "endWallTimeMs": 210000, "startMonotonicTimeMs": 200000, "endMonotonicTimeMs": 210000, "monotonicDurationMilliseconds": 10000, "endReason": "userIdle", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:player", "channel": "active", "activityBasis": "foregroundStrongMedia", "clockEpochId": "epoch-a", "startWallTimeMs": 210000, "endWallTimeMs": 270000, "startMonotonicTimeMs": 210000, "endMonotonicTimeMs": 270000, "monotonicDurationMilliseconds": 60000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:player", "channel": "active", "activityBasis": "foregroundStrongMedia", "clockEpochId": "epoch-a", "startWallTimeMs": 270000, "endWallTimeMs": 280000, "startMonotonicTimeMs": 270000, "endMonotonicTimeMs": 280000, "monotonicDurationMilliseconds": 10000, "endReason": "stateCorrection", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": null
+    },
+    {
+      "name": "lock sleep wake and disconnect",
+      "runtimeSessionID": "v2-system-boundaries",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:notes", "displayName": "Notes" }, "windowState": "visible" },
+        { "wallTimeMs": 10000, "monotonicTimeMs": 10000, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "locked" },
+        { "wallTimeMs": 20000, "monotonicTimeMs": 20000, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 30000, "monotonicTimeMs": 30000, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "asleep" },
+        { "wallTimeMs": 40000, "monotonicTimeMs": 40000, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 50000, "monotonicTimeMs": 50000, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "inactive" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:notes", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 10000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 10000, "monotonicDurationMilliseconds": 10000, "endReason": "sessionUnavailable", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:notes", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 20000, "endWallTimeMs": 30000, "startMonotonicTimeMs": 20000, "endMonotonicTimeMs": 30000, "monotonicDurationMilliseconds": 10000, "endReason": "systemSleep", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:notes", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 40000, "endWallTimeMs": 50000, "startMonotonicTimeMs": 40000, "endMonotonicTimeMs": 50000, "monotonicDurationMilliseconds": 10000, "endReason": "sessionUnavailable", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": null
+    },
+    {
+      "name": "foreground and multiple pip overlap",
+      "runtimeSessionID": "v2-pip-overlap",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:editor", "displayName": "Editor" }, "windowState": "visible" },
+        { "wallTimeMs": 10000, "monotonicTimeMs": 10000, "clockEpochId": "epoch-a", "kind": "pipChanged", "application": { "platform": "windows", "runtimeIdentity": "app:video-a", "displayName": "Video A" }, "pipState": "active", "windowState": "visible", "mediaEvidence": "strong", "playbackState": "playing" },
+        { "wallTimeMs": 20000, "monotonicTimeMs": 20000, "clockEpochId": "epoch-a", "kind": "pipChanged", "application": { "platform": "windows", "runtimeIdentity": "app:video-b", "displayName": "Video B" }, "pipState": "active", "windowState": "visible", "mediaEvidence": "strong", "playbackState": "playing" },
+        { "wallTimeMs": 60000, "monotonicTimeMs": 60000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "confirmed" },
+        { "wallTimeMs": 70000, "monotonicTimeMs": 70000, "clockEpochId": "epoch-a", "kind": "pipChanged", "application": { "platform": "windows", "runtimeIdentity": "app:video-a", "displayName": "Video A" }, "pipState": "inactive" },
+        { "wallTimeMs": 80000, "monotonicTimeMs": 80000, "clockEpochId": "epoch-a", "kind": "pipChanged", "application": { "platform": "windows", "runtimeIdentity": "app:video-b", "displayName": "Video B" }, "pipState": "inactive" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:editor", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 60000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 60000, "monotonicDurationMilliseconds": 60000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:video-a", "channel": "pipActive", "activityBasis": "pipStrongMedia", "clockEpochId": "epoch-a", "startWallTimeMs": 10000, "endWallTimeMs": 60000, "startMonotonicTimeMs": 10000, "endMonotonicTimeMs": 60000, "monotonicDurationMilliseconds": 50000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:video-b", "channel": "pipActive", "activityBasis": "pipStrongMedia", "clockEpochId": "epoch-a", "startWallTimeMs": 20000, "endWallTimeMs": 60000, "startMonotonicTimeMs": 20000, "endMonotonicTimeMs": 60000, "monotonicDurationMilliseconds": 40000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:video-a", "channel": "pipActive", "activityBasis": "pipStrongMedia", "clockEpochId": "epoch-a", "startWallTimeMs": 60000, "endWallTimeMs": 70000, "startMonotonicTimeMs": 60000, "endMonotonicTimeMs": 70000, "monotonicDurationMilliseconds": 10000, "endReason": "pipEnded", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:video-b", "channel": "pipActive", "activityBasis": "pipStrongMedia", "clockEpochId": "epoch-a", "startWallTimeMs": 60000, "endWallTimeMs": 80000, "startMonotonicTimeMs": 60000, "endMonotonicTimeMs": 80000, "monotonicDurationMilliseconds": 20000, "endReason": "pipEnded", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": "app:editor",
+      "expectedMainUnionMilliseconds": 80000
+    },
+    {
+      "name": "overlapping auxiliary media direct sum",
+      "runtimeSessionID": "v2-media-overlap",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "mediaChanged", "application": { "platform": "windows", "runtimeIdentity": "app:music", "displayName": "Music" }, "mediaKind": "audio", "mediaPresentation": "background", "mediaEvidence": "weak", "playbackState": "playing" },
+        { "wallTimeMs": 10000, "monotonicTimeMs": 10000, "clockEpochId": "epoch-a", "kind": "mediaChanged", "application": { "platform": "windows", "runtimeIdentity": "app:movie", "displayName": "Movie" }, "mediaKind": "video", "mediaPresentation": "foreground", "mediaEvidence": "strong", "playbackState": "playing" },
+        { "wallTimeMs": 60000, "monotonicTimeMs": 60000, "clockEpochId": "epoch-a", "kind": "mediaChanged", "application": { "platform": "windows", "runtimeIdentity": "app:music", "displayName": "Music" }, "mediaKind": "audio", "mediaPresentation": "background", "mediaEvidence": "weak", "playbackState": "stopped" },
+        { "wallTimeMs": 70000, "monotonicTimeMs": 70000, "clockEpochId": "epoch-a", "kind": "mediaChanged", "application": { "platform": "windows", "runtimeIdentity": "app:movie", "displayName": "Movie" }, "mediaKind": "video", "mediaPresentation": "foreground", "mediaEvidence": "strong", "playbackState": "stopped" }
+      ],
+      "expectedUsage": [],
+      "expectedMedia": [
+        { "applicationRuntimeIdentity": "app:music", "mediaKind": "audio", "presentation": "background", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 60000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 60000, "monotonicDurationMilliseconds": 60000, "endReason": "mediaStopped", "estimated": false },
+        { "applicationRuntimeIdentity": "app:movie", "mediaKind": "video", "presentation": "foreground", "clockEpochId": "epoch-a", "startWallTimeMs": 10000, "endWallTimeMs": 70000, "startMonotonicTimeMs": 10000, "endMonotonicTimeMs": 70000, "monotonicDurationMilliseconds": 60000, "endReason": "mediaStopped", "estimated": false }
+      ],
+      "expectedOpenForeground": null,
+      "expectedMediaPlaybackTotalMilliseconds": 120000,
+      "expectedFirstMediaId": "c0a773cc1451f730fa75f50a00a11090e880f1601c9d751459f597cc453c50bd"
+    },
+    {
+      "name": "checkpoint caps and media midpoint",
+      "runtimeSessionID": "v2-checkpoint-failure",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "macos", "runtimeIdentity": "app:browser", "displayName": "Browser" }, "windowState": "visible" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "mediaChanged", "application": { "platform": "macos", "runtimeIdentity": "app:audio", "displayName": "Audio" }, "mediaKind": "audio", "mediaPresentation": "background", "mediaEvidence": "weak", "playbackState": "playing" },
+        { "wallTimeMs": 20000, "monotonicTimeMs": 20000, "clockEpochId": "epoch-a", "kind": "mediaChanged", "application": { "platform": "macos", "runtimeIdentity": "app:audio", "displayName": "Audio" }, "mediaKind": "audio", "mediaPresentation": "background", "mediaEvidence": "weak", "playbackState": "playing" },
+        { "wallTimeMs": 80000, "monotonicTimeMs": 80000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "failed" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:browser", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 30000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 30000, "monotonicDurationMilliseconds": 30000, "endReason": "checkpointUnconfirmed", "estimated": true, "diagnostic": false }
+      ],
+      "expectedMedia": [
+        { "applicationRuntimeIdentity": "app:audio", "mediaKind": "audio", "presentation": "background", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 50000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 50000, "monotonicDurationMilliseconds": 50000, "endReason": "checkpointUnconfirmed", "estimated": true }
+      ],
+      "expectedOpenForeground": null
+    },
+    {
+      "name": "confirmed checkpoint settles at most one complete interval",
+      "runtimeSessionID": "v2-confirmed-checkpoint",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:checkpoint", "displayName": "Checkpoint" }, "windowState": "visible" },
+        { "wallTimeMs": 90000, "monotonicTimeMs": 90000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "confirmed" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:checkpoint", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 60000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 60000, "monotonicDurationMilliseconds": 60000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": "app:checkpoint"
+    },
+    {
+      "name": "confirmed checkpoint backfills missing lane",
+      "runtimeSessionID": "v2-backfill",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 60000, "monotonicTimeMs": 60000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "confirmed", "snapshot": { "foregroundApplication": { "platform": "windows", "runtimeIdentity": "app:reader", "displayName": "Reader" }, "foregroundWindowState": "visible", "foregroundMediaEvidence": "none", "foregroundPlaybackState": "unknown", "userActivity": "active", "sessionState": "active", "powerState": "awake" } }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:reader", "channel": "active", "activityBasis": "estimatedBackfill", "clockEpochId": "epoch-a", "startWallTimeMs": 30000, "endWallTimeMs": 60000, "startMonotonicTimeMs": 30000, "endMonotonicTimeMs": 60000, "monotonicDurationMilliseconds": 30000, "endReason": "stateCorrection", "estimated": true, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": "app:reader"
+    },
+    {
+      "name": "service recovery caps residual lane",
+      "runtimeSessionID": "v2-recovery",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 1000, "monotonicTimeMs": 1000, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:terminal", "displayName": "Terminal" }, "windowState": "visible" },
+        { "wallTimeMs": 121000, "monotonicTimeMs": 121000, "clockEpochId": "epoch-a", "kind": "recovery" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:terminal", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 1000, "endWallTimeMs": 31000, "startMonotonicTimeMs": 1000, "endMonotonicTimeMs": 31000, "monotonicDurationMilliseconds": 30000, "endReason": "serviceRecovery", "estimated": true, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": null
+    },
+    {
+      "name": "close without an open lane is diagnostic only",
+      "runtimeSessionID": "v2-no-open-close",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 1000, "monotonicTimeMs": 1000, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "locked" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": null, "channel": "diagnostic", "activityBasis": "diagnostic", "clockEpochId": "epoch-a", "startWallTimeMs": 1000, "endWallTimeMs": 1000, "startMonotonicTimeMs": 1000, "endMonotonicTimeMs": 1000, "monotonicDurationMilliseconds": 0, "endReason": "diagnostic", "estimated": false, "diagnostic": true }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": null
+    },
+    {
+      "name": "mismatched pip close is diagnostic and preserves target lane",
+      "runtimeSessionID": "v2-target-conflict",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 1000, "monotonicTimeMs": 1000, "clockEpochId": "epoch-a", "kind": "pipChanged", "application": { "platform": "windows", "runtimeIdentity": "app:pip-a", "displayName": "PiP A" }, "windowState": "visible", "mediaEvidence": "strong", "playbackState": "playing", "pipState": "active" },
+        { "wallTimeMs": 1200, "monotonicTimeMs": 1200, "clockEpochId": "epoch-a", "kind": "pipChanged", "application": { "platform": "windows", "runtimeIdentity": "app:pip-b", "displayName": "PiP B" }, "windowState": "visible", "mediaEvidence": "strong", "playbackState": "stopped", "pipState": "inactive" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:pip-b", "channel": "diagnostic", "activityBasis": "diagnostic", "clockEpochId": "epoch-a", "startWallTimeMs": 1200, "endWallTimeMs": 1200, "startMonotonicTimeMs": 1200, "endMonotonicTimeMs": 1200, "monotonicDurationMilliseconds": 0, "endReason": "diagnostic", "estimated": false, "diagnostic": true }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": null
+    },
+    {
+      "name": "reorder late fact and same millisecond diagnostic",
+      "runtimeSessionID": "v2-reorder",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:old", "displayName": "Old" }, "windowState": "visible" },
+        { "wallTimeMs": 1000, "monotonicTimeMs": 1000, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:first", "displayName": "First" }, "windowState": "visible" },
+        { "wallTimeMs": 1000, "monotonicTimeMs": 1000, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:second", "displayName": "Second" }, "windowState": "visible" },
+        { "wallTimeMs": 2000, "monotonicTimeMs": 2000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "confirmed" },
+        { "wallTimeMs": 3000, "monotonicTimeMs": 3000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "confirmed" },
+        { "wallTimeMs": 500, "monotonicTimeMs": 500, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "idle", "diagnosticHint": "late" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:old", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 1000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 1000, "monotonicDurationMilliseconds": 1000, "endReason": "applicationSwitch", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:first", "channel": "diagnostic", "activityBasis": "diagnostic", "clockEpochId": "epoch-a", "startWallTimeMs": 1000, "endWallTimeMs": 1000, "startMonotonicTimeMs": 1000, "endMonotonicTimeMs": 1000, "monotonicDurationMilliseconds": 0, "endReason": "diagnostic", "estimated": false, "diagnostic": true },
+        { "applicationRuntimeIdentity": "app:second", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 1000, "endWallTimeMs": 2000, "startMonotonicTimeMs": 1000, "endMonotonicTimeMs": 2000, "monotonicDurationMilliseconds": 1000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:second", "channel": "diagnostic", "activityBasis": "diagnostic", "clockEpochId": "epoch-a", "startWallTimeMs": 500, "endWallTimeMs": 500, "startMonotonicTimeMs": 500, "endMonotonicTimeMs": 500, "monotonicDurationMilliseconds": 0, "endReason": "diagnostic", "estimated": false, "diagnostic": true },
+        { "applicationRuntimeIdentity": "app:second", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 2000, "endWallTimeMs": 3000, "startMonotonicTimeMs": 2000, "endMonotonicTimeMs": 3000, "monotonicDurationMilliseconds": 1000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": "app:second"
+    },
+    {
+      "name": "beijing day and hour boundary keeps monotonic duration",
+      "runtimeSessionID": "v2-beijing-midnight",
+      "facts": [
+        { "wallTimeMs": 57590000, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 57590000, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 57590000, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 57590000, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "windows", "runtimeIdentity": "app:midnight", "displayName": "Midnight" }, "windowState": "visible" },
+        { "wallTimeMs": 57610000, "monotonicTimeMs": 20000, "clockEpochId": "epoch-a", "kind": "checkpoint", "confirmation": "confirmed" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:midnight", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 57590000, "endWallTimeMs": 57610000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 20000, "monotonicDurationMilliseconds": 20000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": "app:midnight"
+    },
+    {
+      "name": "clock jump splits epoch using monotonic duration",
+      "runtimeSessionID": "v2-clock-jump",
+      "facts": [
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "sessionChanged", "sessionState": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "powerChanged", "powerState": "awake" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "userActivityChanged", "userActivity": "active" },
+        { "wallTimeMs": 0, "monotonicTimeMs": 0, "clockEpochId": "epoch-a", "kind": "foregroundChanged", "application": { "platform": "macos", "runtimeIdentity": "app:clock", "displayName": "Clock" }, "windowState": "visible" },
+        { "wallTimeMs": 1000000, "monotonicTimeMs": 10000, "clockEpochId": "epoch-a", "kind": "clockAdjusted", "newClockEpochId": "epoch-b" },
+        { "wallTimeMs": 1060000, "monotonicTimeMs": 70000, "clockEpochId": "epoch-b", "kind": "checkpoint", "confirmation": "confirmed" }
+      ],
+      "expectedUsage": [
+        { "applicationRuntimeIdentity": "app:clock", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-a", "startWallTimeMs": 0, "endWallTimeMs": 10000, "startMonotonicTimeMs": 0, "endMonotonicTimeMs": 10000, "monotonicDurationMilliseconds": 10000, "endReason": "clockAdjustment", "estimated": false, "diagnostic": false },
+        { "applicationRuntimeIdentity": "app:clock", "channel": "active", "activityBasis": "foregroundInteraction", "clockEpochId": "epoch-b", "startWallTimeMs": 1000000, "endWallTimeMs": 1060000, "startMonotonicTimeMs": 10000, "endMonotonicTimeMs": 70000, "monotonicDurationMilliseconds": 60000, "endReason": "periodicSnapshot", "estimated": false, "diagnostic": false }
+      ],
+      "expectedMedia": [],
+      "expectedOpenForeground": "app:clock"
+    }
+  ]
+}

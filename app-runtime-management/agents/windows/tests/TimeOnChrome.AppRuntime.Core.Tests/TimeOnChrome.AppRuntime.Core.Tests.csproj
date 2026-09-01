@@ -29,5 +29,8 @@
     <None Include="..\..\..\..\contracts\runtime-segment-hash-v1.vectors.json"
           Link="runtime-segment-hash-v1.vectors.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\runtime-accounting-v2.vectors.json"
+          Link="runtime-accounting-v2.vectors.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -5,9 +5,9 @@
 - Spec ID: SPEC-004
 - Date: 2026-09-01
 - Owner: Product Owner
-- Status: Approved for Windows 2.0 system-managed multi-user implementation
+- Status: Approved for Windows 2.0 system-managed multi-user implementation and Accounting Phase A
 - Related task: Windows App Runtime 可用闭环
-- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080
+- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -17,6 +17,22 @@
 Phase 1 只交付跨平台规格、共享契约、黄金测试向量、macOS/Windows Core 纯状态机、平台 Agent 空壳和后台契约类型；不运行生产采集、不写 SQLite、不调用生产 API。
 
 Phase 2 已交付 Windows 与共用 Runtime 后台技术底座。D-079 阶段把它修正为家长可以直接安装、配对、管理和查看统计的 Windows 产品闭环；macOS 真实采集仍留在后续阶段。
+
+## D-081 Accounting Phase A
+
+Phase A 以 TimeOnChrome 当前网页主账本原则为基线，但不修改 Chrome Extension 的代码或已有网页落账语义。跨平台 Runtime 新规则为：
+
+- `UsageSegment` 是唯一权威主账本；每个用户会话最多一个 foreground `ACTIVE` lane，可有多个强证据 `PIP_ACTIVE` lane。
+- foreground 与 PiP 应用明细允许重叠，单应用和设备主使用总时长按主 Segment 区间并集结算。
+- `MediaSegment` 是独立辅助记录，固定 `authoritativeForUsage=false`，支持前/后台音频、视频与 PiP，允许多应用重叠并直接累加，不进入主使用时长、设备总时长或 quota。
+- idle 阈值为 180 秒。只有明确 `Playing`、进程与当前 foreground 一致、窗口可见且未最小化的系统媒体会话可跨 idle 维持 `ACTIVE`；音频输出、应用类别和窗口尺寸只是弱证据。
+- 应用切换、idle/resume、锁屏/解锁、会话断开、睡眠/唤醒、PiP 开关和强证据失效均在事件时间切段。
+- checkpoint 每 60 秒执行：确认成功结算完整区间并重开；open lane 无法确认、缺失 lane 但现状确认有效、或 Service 恢复残留 lane 时最多结算/补写 30 秒，并标记 `estimated`。
+- 媒体检查失败在 `lastConfirmedAt + min(gap/2, 30s)` 估算关闭，失败后不自动重开。
+- 事实先进入 500ms 重排窗口，内部按 monotonic 时间与固定安全优先级处理；窗口外迟到事实只产生 0ms 诊断 Segment，不改写历史。
+- duration 以 monotonic clock 为准，wall clock 仅用于日历/小时/展示。clock adjustment 立即切段并创建新 `clockEpochId`。
+
+Phase A 仅统一落账和统计定义；policy/quota 快照只允许可空预留，不启用扣减、限制、阻止或正式家长 UI。
 
 ## D-080 Windows 2.0 Goal
 

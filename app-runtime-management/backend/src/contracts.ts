@@ -41,6 +41,171 @@ export interface UsageSegment {
   endReason: SegmentEndReason;
 }
 
+export type AccountingFactKind =
+  | 'foregroundChanged'
+  | 'userActivityChanged'
+  | 'sessionChanged'
+  | 'powerChanged'
+  | 'pipChanged'
+  | 'mediaChanged'
+  | 'checkpoint'
+  | 'clockAdjusted'
+  | 'recovery';
+
+export type UsageChannel = 'active' | 'pipActive' | 'diagnostic';
+export type ActivityBasis =
+  | 'foregroundInteraction'
+  | 'foregroundStrongMedia'
+  | 'pipStrongMedia'
+  | 'estimatedCheckpoint'
+  | 'estimatedBackfill'
+  | 'estimatedRecovery'
+  | 'diagnostic';
+export type WindowPresentationState = 'unknown' | 'visible' | 'hidden' | 'minimized';
+export type MediaEvidenceLevel = 'none' | 'weak' | 'strong';
+export type MediaPlaybackState = 'unknown' | 'playing' | 'paused' | 'stopped';
+export type MediaKind = 'audio' | 'video';
+export type MediaPresentation = 'foreground' | 'background' | 'pip';
+
+export interface AccountingRuntimeSnapshot {
+  foregroundApplication: ApplicationIdentity | null;
+  foregroundWindowState: WindowPresentationState;
+  foregroundMediaEvidence: MediaEvidenceLevel;
+  foregroundPlaybackState: MediaPlaybackState;
+  userActivity: UserActivityState;
+  sessionState: UserSessionState;
+  powerState: SystemPowerState;
+}
+
+export interface AccountingRuntimeFact {
+  schemaVersion: 2;
+  wallTimeMs: number;
+  monotonicTimeMs: number;
+  clockEpochId: string;
+  kind: AccountingFactKind;
+  application?: ApplicationIdentity | null;
+  userActivity?: UserActivityState;
+  sessionState?: UserSessionState;
+  powerState?: SystemPowerState;
+  windowState?: WindowPresentationState;
+  mediaEvidence?: MediaEvidenceLevel;
+  playbackState?: MediaPlaybackState;
+  pipState?: 'inactive' | 'active';
+  mediaKind?: MediaKind;
+  mediaPresentation?: MediaPresentation;
+  confirmation?: 'confirmed' | 'failed';
+  snapshot?: AccountingRuntimeSnapshot;
+  newClockEpochId?: string;
+  diagnosticHint?: string | null;
+}
+
+export interface EstimatedMetadata {
+  isEstimated: boolean;
+  reason: string | null;
+  cappedAtMilliseconds: number | null;
+}
+
+export interface AccountingPolicySnapshot {
+  assignmentVersion: number | null;
+  quotaBucket: string | null;
+}
+
+export type AccountingSegmentEndReason =
+  | SegmentEndReason
+  | 'pipEnded'
+  | 'mediaStopped'
+  | 'checkpointUnconfirmed'
+  | 'serviceRecovery'
+  | 'clockAdjustment'
+  | 'lateFact'
+  | 'diagnostic';
+
+export interface AccountingUsageSegment {
+  id: string;
+  schemaVersion: 2;
+  runtimeSessionID: string;
+  application: ApplicationIdentity | null;
+  channel: UsageChannel;
+  activityBasis: ActivityBasis;
+  clockEpochId: string;
+  startWallTimeMs: number;
+  endWallTimeMs: number;
+  startMonotonicTimeMs: number;
+  endMonotonicTimeMs: number;
+  monotonicDurationMilliseconds: number;
+  endReason: AccountingSegmentEndReason;
+  estimated: EstimatedMetadata;
+  lastEvidenceWallTimeMs: number | null;
+  lastEvidenceMonotonicTimeMs: number | null;
+  diagnostic: boolean;
+  diagnosticCode: string | null;
+  diagnosticMessage?: string | null;
+  policySnapshot: AccountingPolicySnapshot | null;
+}
+
+export interface AccountingMediaSegment {
+  id: string;
+  schemaVersion: 2;
+  runtimeSessionID: string;
+  application: ApplicationIdentity;
+  mediaKind: MediaKind;
+  presentation: MediaPresentation;
+  clockEpochId: string;
+  startWallTimeMs: number;
+  endWallTimeMs: number;
+  startMonotonicTimeMs: number;
+  endMonotonicTimeMs: number;
+  monotonicDurationMilliseconds: number;
+  endReason: AccountingSegmentEndReason;
+  estimated: EstimatedMetadata;
+  lastEvidenceWallTimeMs: number;
+  lastEvidenceMonotonicTimeMs: number;
+  authoritativeForUsage: false;
+}
+
+export interface AccountingUsageUploadRequest {
+  schemaVersion: 2;
+  segments: AccountingUsageSegment[];
+}
+
+export interface AccountingMediaUploadRequest {
+  schemaVersion: 2;
+  segments: AccountingMediaSegment[];
+}
+
+export interface AccountingUsageEnvelope {
+  localUserId: string;
+  assignmentVersion: number;
+  segment: AccountingUsageSegment;
+}
+
+export interface AccountingMediaEnvelope {
+  localUserId: string;
+  assignmentVersion: number;
+  segment: AccountingMediaSegment;
+}
+
+export interface AccountingReadModelResponse {
+  mainUsageTotalMs: number;
+  applications: Array<{
+    runtimeIdentity: string;
+    displayName: string | null;
+    activeMs: number;
+    pipActiveMs: number;
+    unionMs: number;
+  }>;
+  estimated: { segmentCount: number; durationMs: number };
+  diagnostic: { segmentCount: number };
+  mediaPlaybackTotalMs: number;
+  media: Array<{
+    runtimeIdentity: string;
+    displayName: string | null;
+    audioMs: number;
+    videoMs: number;
+  }>;
+  lastSyncAtMs: number | null;
+}
+
 export interface UploadRejection {
   id: string;
   code: string;

@@ -11,6 +11,8 @@ public sealed record MachinePolicyAck(long Version, string State, string? Error,
 public sealed record MachineUserPolicyAck(string LocalUserId, string State);
 public sealed record MachineHeartbeat(string ServiceVersion, string WindowsVersion, string Architecture, int TamperCount, string PolicyState);
 public sealed record MachineSegmentUpload(string LocalUserId, long AssignmentVersion, UsageSegment Segment);
+public sealed record MachineAccountingUsageUpload(string LocalUserId, long AssignmentVersion, UsageSegmentV2 Segment);
+public sealed record MachineAccountingMediaUpload(string LocalUserId, long AssignmentVersion, MediaSegmentV2 Segment);
 
 public sealed class MachineRuntimeApiClient
 {
@@ -78,6 +80,85 @@ public sealed class MachineRuntimeApiClient
         return await ReadAsync<UploadAcceptance>(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<UploadAcceptance> UploadAccountingUsageAsync(
+        MachineRuntimeCredential credential,
+        IReadOnlyList<MachineAccountingUsageUpload> segments,
+        CancellationToken cancellationToken = default)
+    {
+        var payload = new
+        {
+            schemaVersion = 2,
+            segments = segments.Select(item => new
+            {
+                item.LocalUserId,
+                item.AssignmentVersion,
+                item.Segment.Id,
+                item.Segment.SchemaVersion,
+                item.Segment.RuntimeSessionID,
+                item.Segment.Application,
+                item.Segment.Channel,
+                item.Segment.ActivityBasis,
+                item.Segment.ClockEpochId,
+                item.Segment.StartWallTimeMs,
+                item.Segment.EndWallTimeMs,
+                item.Segment.StartMonotonicTimeMs,
+                item.Segment.EndMonotonicTimeMs,
+                item.Segment.MonotonicDurationMilliseconds,
+                item.Segment.EndReason,
+                item.Segment.Estimated,
+                item.Segment.LastEvidenceWallTimeMs,
+                item.Segment.LastEvidenceMonotonicTimeMs,
+                item.Segment.Diagnostic,
+                item.Segment.DiagnosticCode,
+                item.Segment.DiagnosticMessage,
+                item.Segment.PolicySnapshot,
+            }),
+        };
+        return await UploadAccountingAsync(
+            credential,
+            "/v2/segments:upload",
+            payload,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<UploadAcceptance> UploadAccountingMediaAsync(
+        MachineRuntimeCredential credential,
+        IReadOnlyList<MachineAccountingMediaUpload> segments,
+        CancellationToken cancellationToken = default)
+    {
+        var payload = new
+        {
+            schemaVersion = 2,
+            segments = segments.Select(item => new
+            {
+                item.LocalUserId,
+                item.AssignmentVersion,
+                item.Segment.Id,
+                item.Segment.SchemaVersion,
+                item.Segment.RuntimeSessionID,
+                item.Segment.Application,
+                item.Segment.MediaKind,
+                item.Segment.Presentation,
+                item.Segment.ClockEpochId,
+                item.Segment.StartWallTimeMs,
+                item.Segment.EndWallTimeMs,
+                item.Segment.StartMonotonicTimeMs,
+                item.Segment.EndMonotonicTimeMs,
+                item.Segment.MonotonicDurationMilliseconds,
+                item.Segment.EndReason,
+                item.Segment.Estimated,
+                item.Segment.LastEvidenceWallTimeMs,
+                item.Segment.LastEvidenceMonotonicTimeMs,
+                item.Segment.AuthoritativeForUsage,
+            }),
+        };
+        return await UploadAccountingAsync(
+            credential,
+            "/v2/media-segments:upload",
+            payload,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public Task RetireLegacyAsync(RuntimeCredential credential, CancellationToken cancellationToken = default) =>
         SendWithoutResultAsync(HttpMethod.Post,
             new MachineRuntimeCredential(credential.ServerUrl, credential.DeviceId, credential.DeviceToken, credential.Platform),
@@ -89,6 +170,18 @@ public sealed class MachineRuntimeApiClient
         request.Content = JsonContent.Create(body, options: RuntimeJson.Options);
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         _ = await ReadAsync<Dictionary<string, object>>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<UploadAcceptance> UploadAccountingAsync(
+        MachineRuntimeCredential credential,
+        string path,
+        object payload,
+        CancellationToken cancellationToken)
+    {
+        using var request = Authorized(HttpMethod.Post, credential, path);
+        request.Content = JsonContent.Create(payload, options: RuntimeJson.Options);
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return await ReadAsync<UploadAcceptance>(response, cancellationToken).ConfigureAwait(false);
     }
 
     private static HttpRequestMessage Authorized(HttpMethod method, MachineRuntimeCredential credential, string path)

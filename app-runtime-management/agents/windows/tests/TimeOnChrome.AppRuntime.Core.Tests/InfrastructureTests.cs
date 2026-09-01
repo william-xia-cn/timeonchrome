@@ -98,7 +98,7 @@ public sealed class InfrastructureTests
         var store = new RuntimeAgentSettingsStore(path);
 
         var defaults = await store.LoadOrCreateAsync();
-        Assert.Equal(300, defaults.IdleThresholdSeconds);
+        Assert.Equal(180, defaults.IdleThresholdSeconds);
         Assert.Equal(60, defaults.SnapshotIntervalSeconds);
         Assert.True(File.Exists(path));
 

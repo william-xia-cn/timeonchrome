@@ -11,6 +11,9 @@ import {
   listAccountMachines,
   listMachineUsers,
   persistMachineSegments,
+  persistAccountingUsageSegments,
+  persistAccountingMediaSegments,
+  queryAccounting,
   queryAccountUsage,
   recordMachineHeartbeat,
   revokeMachine,
@@ -23,6 +26,7 @@ import {
   parseEnrollDevice,
   parseMachinePairing,
   parseMachineUpload,
+  parseMachineMediaUpload,
   parseMachineUsers,
 } from './validation';
 
@@ -73,6 +77,28 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       return jsonResponse(await queryAccountUsage(env.RUNTIME_DB, claims.account_id, childId,
         fromMs, toMs, url.searchParams.get('machineId') || undefined,
         url.searchParams.get('userId') || undefined));
+    }
+    if (url.pathname === '/v2/module/accounting') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = url.searchParams.get('childId') || '';
+      if (!claims.children.some((child) => child.id === childId)) {
+        throw new HttpError(404, 'CHILD_NOT_FOUND', 'Child was not found.');
+      }
+      const fromMs = Number(url.searchParams.get('fromMs'));
+      const toMs = Number(url.searchParams.get('toMs'));
+      if (!Number.isSafeInteger(fromMs) || !Number.isSafeInteger(toMs) || fromMs < 0
+        || toMs <= fromMs || toMs - fromMs > 31 * 86_400_000) {
+        throw new HttpError(400, 'INVALID_RANGE', 'Accounting range is invalid.');
+      }
+      return jsonResponse(await queryAccounting(
+        env.RUNTIME_DB,
+        claims.account_id,
+        childId,
+        fromMs,
+        toMs,
+        url.searchParams.get('machineId') || undefined,
+        url.searchParams.get('userId') || undefined,
+      ));
     }
     const usersMatch = url.pathname.match(/^\/v2\/module\/machines\/([^/]+)\/users$/u);
     if (usersMatch) {
@@ -178,7 +204,19 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   if (url.pathname === '/v2/segments:upload') {
     if (request.method !== 'POST') return methodNotAllowed('POST');
     const parsed = parseMachineUpload(await readJsonBody(request), machine.platform);
-    const result = await persistMachineSegments(env.RUNTIME_DB, machine, parsed.envelopes, nowMs);
+    const legacy = await persistMachineSegments(env.RUNTIME_DB, machine, parsed.envelopes, nowMs);
+    const accounting = await persistAccountingUsageSegments(
+      env.RUNTIME_DB, machine, parsed.accountingEnvelopes, nowMs,
+    );
+    return jsonResponse({
+      acceptedIds: [...legacy.acceptedIds, ...accounting.acceptedIds],
+      rejected: [...parsed.rejected, ...legacy.rejected, ...accounting.rejected],
+    });
+  }
+  if (url.pathname === '/v2/media-segments:upload') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    const parsed = parseMachineMediaUpload(await readJsonBody(request), machine.platform);
+    const result = await persistAccountingMediaSegments(env.RUNTIME_DB, machine, parsed.envelopes, nowMs);
     return jsonResponse({ acceptedIds: result.acceptedIds, rejected: [...parsed.rejected, ...result.rejected] });
   }
   if (url.pathname === '/v2/machines/uninstall') {

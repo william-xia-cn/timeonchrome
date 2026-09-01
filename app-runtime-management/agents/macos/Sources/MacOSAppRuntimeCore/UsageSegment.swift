@@ -5,6 +5,13 @@ public enum SegmentEndReason: String, Codable, Equatable, Sendable {
     case systemSleep
     case periodicSnapshot
     case stateCorrection
+    case pipEnded
+    case mediaStopped
+    case checkpointUnconfirmed
+    case serviceRecovery
+    case clockAdjustment
+    case lateFact
+    case diagnostic
 }
 
 public struct UsageSegment: Codable, Equatable, Sendable {

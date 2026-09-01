@@ -15,6 +15,8 @@ public static class SessionPipeNames
 
 public sealed record SessionFactMessage(int SchemaVersion, RuntimeFact Fact);
 
+public sealed record SessionAccountingFactMessage(int SchemaVersion, AccountingRuntimeFact Fact);
+
 public sealed record MachineControlCommand(string Action, string? Code = null, string? DisplayName = null);
 
 public sealed record MachineControlResponse(

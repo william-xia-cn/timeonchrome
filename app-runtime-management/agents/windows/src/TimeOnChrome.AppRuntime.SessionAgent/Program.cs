@@ -3,6 +3,7 @@ using System.IO.Pipes;
 using System.Text.Json;
 using TimeOnChrome.AppRuntime.Infrastructure;
 using TimeOnChrome.AppRuntime.Windows;
+using TimeOnChrome.AppRuntime.Core;
 
 namespace TimeOnChrome.AppRuntime.SessionAgent;
 
@@ -43,12 +44,20 @@ internal static class Program
                 await pipe.ConnectAsync(10_000, cancellationToken).ConfigureAwait(false);
                 await using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
                 var source = new WindowsRuntimeEventSource(
-                    new WindowsRuntimeProbe(), TimeSpan.FromMinutes(5),
-                    TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10));
+                    new WindowsRuntimeProbe(), TimeSpan.FromSeconds(180),
+                    TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(60));
+                var projector = new AccountingFactProjectorV2("epoch-0");
                 await foreach (var fact in source.FactsAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    var message = JsonSerializer.Serialize(new SessionFactMessage(2, fact), RuntimeJson.Options);
-                    await writer.WriteLineAsync(message.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    var wallTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    var monotonicTimeMs = Environment.TickCount64;
+                    foreach (var accountingFact in projector.Project(fact, wallTimeMs, monotonicTimeMs))
+                    {
+                        var message = JsonSerializer.Serialize(
+                            new SessionAccountingFactMessage(2, accountingFact),
+                            RuntimeJson.Options);
+                        await writer.WriteLineAsync(message.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
             catch (IOException) when (!cancellationToken.IsCancellationRequested)

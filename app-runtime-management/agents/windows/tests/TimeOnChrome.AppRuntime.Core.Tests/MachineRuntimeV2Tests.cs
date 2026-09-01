@@ -79,6 +79,116 @@ public sealed class MachineRuntimeV2Tests : IDisposable
     }
 
     [Fact]
+    public async Task AccountingLedgerCommitsOpenStateUsageMediaAndSeparateOutboxesAtomically()
+    {
+        var ledger = new MachineSegmentLedger(Path.Combine(root, "accounting-ledger.db"));
+        await ledger.InitializeAsync("machine-a");
+        var app = new ApplicationIdentity(RuntimePlatform.Windows, "app:player", "Player");
+        var state = AccountingState("session-a", app, 1000);
+        var usage = AccountingUsage("session-a", app, "epoch-a", 0, 1000);
+        var media = MediaSegmentV2.Create(
+            "session-a", app, MediaKind.Video, MediaPresentation.Background, "epoch-a",
+            0, 1000, 0, 1000, SegmentEndReason.MediaStopped,
+            EstimatedMetadata.Exact, 1000, 1000);
+
+        await ledger.PersistAccountingTransitionAsync(
+            "user-a",
+            7,
+            new AccountingTransition(state, [usage], [media]));
+
+        var restored = Assert.Single(await ledger.RestoreAccountingSessionsAsync());
+        Assert.Equal("user-a", restored.LocalUserId);
+        Assert.Equal(7, restored.AssignmentVersion);
+        Assert.Equal(state.ForegroundLane, restored.State.ForegroundLane);
+        Assert.Equal(usage.Id, Assert.Single(await ledger.PendingAccountingUsageAsync(10, long.MaxValue)).Segment.Id);
+        Assert.Equal(media.Id, Assert.Single(await ledger.PendingAccountingMediaAsync(10, long.MaxValue)).Segment.Id);
+
+        await ledger.MarkAccountingUsageAcceptedAsync(new HashSet<(string, string)> { ("user-a", usage.Id) });
+        Assert.Empty(await ledger.PendingAccountingUsageAsync(10, long.MaxValue));
+        Assert.Single(await ledger.PendingAccountingMediaAsync(10, long.MaxValue));
+    }
+
+    [Fact]
+    public async Task AccountingTransactionRollbackDoesNotLeavePartialSegmentOrAdvanceOpenState()
+    {
+        var ledger = new MachineSegmentLedger(Path.Combine(root, "accounting-rollback.db"));
+        await ledger.InitializeAsync("machine-a");
+        var app = new ApplicationIdentity(RuntimePlatform.Windows, "app:editor", "Editor");
+        var existing = AccountingUsage("session-a", app, "epoch-a", 0, 1000);
+        await ledger.PersistAccountingTransitionAsync(
+            "user-a",
+            1,
+            new AccountingTransition(AccountingState("session-a", app, 1000), [existing], []));
+
+        var newSegment = AccountingUsage("session-a", app, "epoch-a", 1000, 2000);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ledger.PersistAccountingTransitionAsync(
+            "user-a",
+            2,
+            new AccountingTransition(AccountingState("session-a", app, 2000), [newSegment, existing], [])));
+
+        var pending = await ledger.PendingAccountingUsageAsync(10, long.MaxValue);
+        Assert.Single(pending);
+        Assert.Equal(existing.Id, pending[0].Segment.Id);
+        var restored = Assert.Single(await ledger.RestoreAccountingSessionsAsync());
+        Assert.Equal(1, restored.AssignmentVersion);
+        Assert.Equal(1000, restored.State.LastProcessedMonotonicTimeMs);
+    }
+
+    [Fact]
+    public async Task AccountingSessionAdvancesOnlyAfterDurableTransactionAndRetriesPendingFact()
+    {
+        var path = Path.Combine(root, "accounting-session.db");
+        var ledger = new MachineSegmentLedger(path);
+        var session = new MachineAccountingSession(
+            ledger,
+            "user-a",
+            1,
+            "session-a",
+            "epoch-a");
+        var fact = new AccountingRuntimeFact(
+            0,
+            0,
+            "epoch-a",
+            AccountingFactKind.SessionChanged,
+            SessionState: UserSessionState.Active);
+
+        _ = await session.PushAndPersistAsync(fact);
+        await Assert.ThrowsAnyAsync<Exception>(() => session.FlushAndPersistAsync());
+        Assert.Null(session.DurableState.LastProcessedMonotonicTimeMs);
+
+        await ledger.InitializeAsync("machine-a");
+        _ = await session.FlushAndPersistAsync();
+        Assert.Equal(0, session.DurableState.LastProcessedMonotonicTimeMs);
+        Assert.Single(await ledger.RestoreAccountingSessionsAsync());
+    }
+
+    [Fact]
+    public async Task RestoredLaneRecoveryIsCappedAtThirtySeconds()
+    {
+        var ledger = new MachineSegmentLedger(Path.Combine(root, "accounting-recovery.db"));
+        await ledger.InitializeAsync("machine-a");
+        var app = new ApplicationIdentity(RuntimePlatform.Windows, "app:terminal", "Terminal");
+        var state = AccountingState("session-a", app, 1000);
+        await ledger.PersistAccountingTransitionAsync(
+            "user-a",
+            1,
+            new AccountingTransition(state, [], []));
+        var restored = Assert.Single(await ledger.RestoreAccountingSessionsAsync());
+        var session = new MachineAccountingSession(ledger, restored.LocalUserId, restored.AssignmentVersion, restored.State);
+        _ = await session.PushAndPersistAsync(new AccountingRuntimeFact(
+            121000,
+            121000,
+            "epoch-a",
+            AccountingFactKind.Recovery));
+        var transition = await session.FlushAndPersistAsync();
+
+        var segment = Assert.Single(transition.UsageSegments);
+        Assert.Equal(30000, segment.MonotonicDurationMilliseconds);
+        Assert.True(segment.Estimated.IsEstimated);
+        Assert.Null(session.DurableState.ForegroundLane);
+    }
+
+    [Fact]
     public void PipeNamesAreSessionScoped()
     {
         Assert.Equal("TimeOnChrome.AppRuntime.v2.session.12", SessionPipeNames.Facts(12));
@@ -106,6 +216,57 @@ public sealed class MachineRuntimeV2Tests : IDisposable
         600,
         500,
         SegmentEndReason.PeriodicSnapshot);
+
+    private static AccountingRuntimeState AccountingState(
+        string sessionId,
+        ApplicationIdentity app,
+        long lastMonotonic)
+    {
+        return new AccountingRuntimeState
+        {
+            RuntimeSessionID = sessionId,
+            ClockEpochId = "epoch-a",
+            ForegroundApplication = app,
+            ForegroundWindowState = WindowPresentationState.Visible,
+            UserActivity = UserActivityState.Active,
+            SessionState = UserSessionState.Active,
+            PowerState = SystemPowerState.Awake,
+            ForegroundLane = new OpenAccountingLane(
+                app,
+                UsageChannel.Active,
+                ActivityBasis.ForegroundInteraction,
+                "epoch-a",
+                0,
+                0,
+                0,
+                0),
+            LastProcessedWallTimeMs = lastMonotonic,
+            LastProcessedMonotonicTimeMs = lastMonotonic,
+        };
+    }
+
+    private static UsageSegmentV2 AccountingUsage(
+        string sessionId,
+        ApplicationIdentity app,
+        string epoch,
+        long start,
+        long end)
+    {
+        return UsageSegmentV2.Create(
+            sessionId,
+            app,
+            UsageChannel.Active,
+            ActivityBasis.ForegroundInteraction,
+            epoch,
+            start,
+            end,
+            start,
+            end,
+            SegmentEndReason.PeriodicSnapshot,
+            EstimatedMetadata.Exact,
+            end,
+            end);
+    }
 
     public void Dispose()
     {

@@ -1,5 +1,8 @@
-import { segmentContentHash } from './canonical';
+import { accountingMediaId, accountingUsageId, segmentContentHash } from './canonical';
 import type {
+  AccountingMediaEnvelope,
+  AccountingReadModelResponse,
+  AccountingUsageEnvelope,
   AccountModuleClaims,
   MachineSegmentEnvelope,
   MachineSelfResponse,
@@ -463,6 +466,299 @@ export async function persistMachineSegments(
   return { acceptedIds, rejected };
 }
 
+export async function persistAccountingUsageSegments(
+  database: D1Database,
+  machine: MachineSelfResponse,
+  envelopes: AccountingUsageEnvelope[],
+  nowMs: number,
+): Promise<UploadAcceptance> {
+  const acceptedIds: string[] = [];
+  const rejected: Array<{ id: string; code: string }> = [];
+  for (const envelope of envelopes) {
+    const assignment = await assignmentFor(database, machine.machineId, envelope.localUserId, envelope.assignmentVersion);
+    if (!assignment?.protected || !assignment.child_id) {
+      rejected.push({ id: envelope.segment.id, code: 'ASSIGNMENT_NOT_PROTECTED' });
+      continue;
+    }
+    const segment = envelope.segment;
+    if (await accountingUsageId(segment) !== segment.id) {
+      rejected.push({ id: segment.id, code: 'ID_MISMATCH' });
+      continue;
+    }
+    const table = segment.diagnostic ? 'runtime_usage_diagnostic_segments_v2' : 'runtime_usage_segments_v2';
+    const existing = await database.prepare(`
+      SELECT content_hash FROM ${table}
+      WHERE machine_id=?1 AND local_user_id=?2 AND id=?3
+    `).bind(machine.machineId, envelope.localUserId, segment.id).first<{ content_hash: string }>();
+    if (existing) {
+      if (existing.content_hash === segment.id) acceptedIds.push(segment.id);
+      else rejected.push({ id: segment.id, code: 'ID_CONFLICT' });
+      continue;
+    }
+    const statements: D1PreparedStatement[] = [];
+    if (segment.diagnostic) {
+      statements.push(database.prepare(`
+        INSERT INTO runtime_usage_diagnostic_segments_v2(
+          id,machine_id,local_user_id,assignment_version,child_id,runtime_session_id,
+          platform,runtime_identity,clock_epoch_id,wall_time_ms,monotonic_time_ms,
+          diagnostic_code,content_hash,uploaded_at_ms
+        ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+      `).bind(
+        segment.id, machine.machineId, envelope.localUserId, envelope.assignmentVersion,
+        assignment.child_id, segment.runtimeSessionID, machine.platform,
+        segment.application?.runtimeIdentity ?? null, segment.clockEpochId,
+        segment.startWallTimeMs, segment.startMonotonicTimeMs,
+        segment.diagnosticCode, segment.id, nowMs,
+      ));
+    } else {
+      const application = segment.application!;
+      statements.push(database.prepare(`
+        INSERT INTO runtime_usage_segments_v2(
+          id,machine_id,local_user_id,assignment_version,child_id,runtime_session_id,
+          platform,runtime_identity,display_name,start_at_ms,end_at_ms,duration_ms,
+          end_reason,content_hash,uploaded_at_ms,accounting_schema_version,channel,
+          activity_basis,clock_epoch_id,start_wall_time_ms,end_wall_time_ms,
+          start_monotonic_time_ms,end_monotonic_time_ms,monotonic_duration_ms,
+          estimated,estimate_reason,estimate_cap_ms,last_evidence_wall_time_ms,
+          last_evidence_monotonic_time_ms,diagnostic,diagnostic_code,policy_snapshot_json
+        ) VALUES(
+          ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,2,?16,
+          ?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,0,NULL,?29
+        )
+      `).bind(
+        segment.id, machine.machineId, envelope.localUserId, envelope.assignmentVersion,
+        assignment.child_id, segment.runtimeSessionID, application.platform,
+        application.runtimeIdentity, application.displayName ?? null,
+        segment.startMonotonicTimeMs, segment.endMonotonicTimeMs,
+        segment.monotonicDurationMilliseconds, segment.endReason, segment.id, nowMs,
+        segment.channel, segment.activityBasis, segment.clockEpochId,
+        segment.startWallTimeMs, segment.endWallTimeMs,
+        segment.startMonotonicTimeMs, segment.endMonotonicTimeMs,
+        segment.monotonicDurationMilliseconds, segment.estimated.isEstimated ? 1 : 0,
+        segment.estimated.reason, segment.estimated.cappedAtMilliseconds,
+        segment.lastEvidenceWallTimeMs, segment.lastEvidenceMonotonicTimeMs,
+        segment.policySnapshot == null ? null : JSON.stringify(segment.policySnapshot),
+      ));
+    }
+    statements.push(database.prepare(
+      'UPDATE runtime_machines_v2 SET last_upload_at_ms=?1,updated_at_ms=?1 WHERE id=?2',
+    ).bind(nowMs, machine.machineId));
+    try {
+      await database.batch(statements);
+      acceptedIds.push(segment.id);
+    } catch {
+      rejected.push({ id: segment.id, code: 'ID_CONFLICT' });
+    }
+  }
+  return { acceptedIds, rejected };
+}
+
+export async function persistAccountingMediaSegments(
+  database: D1Database,
+  machine: MachineSelfResponse,
+  envelopes: AccountingMediaEnvelope[],
+  nowMs: number,
+): Promise<UploadAcceptance> {
+  const acceptedIds: string[] = [];
+  const rejected: Array<{ id: string; code: string }> = [];
+  for (const envelope of envelopes) {
+    const assignment = await assignmentFor(database, machine.machineId, envelope.localUserId, envelope.assignmentVersion);
+    if (!assignment?.protected || !assignment.child_id) {
+      rejected.push({ id: envelope.segment.id, code: 'ASSIGNMENT_NOT_PROTECTED' });
+      continue;
+    }
+    const segment = envelope.segment;
+    if (await accountingMediaId(segment) !== segment.id) {
+      rejected.push({ id: segment.id, code: 'ID_MISMATCH' });
+      continue;
+    }
+    const existing = await database.prepare(`
+      SELECT content_hash FROM runtime_media_segments_v2
+      WHERE machine_id=?1 AND local_user_id=?2 AND id=?3
+    `).bind(machine.machineId, envelope.localUserId, segment.id).first<{ content_hash: string }>();
+    if (existing) {
+      if (existing.content_hash === segment.id) acceptedIds.push(segment.id);
+      else rejected.push({ id: segment.id, code: 'ID_CONFLICT' });
+      continue;
+    }
+    try {
+      await database.batch([
+        database.prepare(`
+          INSERT INTO runtime_media_segments_v2(
+            id,machine_id,local_user_id,assignment_version,child_id,runtime_session_id,
+            platform,runtime_identity,display_name,media_kind,presentation,clock_epoch_id,
+            start_wall_time_ms,end_wall_time_ms,start_monotonic_time_ms,end_monotonic_time_ms,
+            monotonic_duration_ms,end_reason,estimated,estimate_reason,estimate_cap_ms,
+            last_evidence_wall_time_ms,last_evidence_monotonic_time_ms,
+            authoritative_for_usage,content_hash,uploaded_at_ms
+          ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,
+            ?17,?18,?19,?20,?21,?22,?23,0,?24,?25)
+        `).bind(
+          segment.id, machine.machineId, envelope.localUserId, envelope.assignmentVersion,
+          assignment.child_id, segment.runtimeSessionID, segment.application.platform,
+          segment.application.runtimeIdentity, segment.application.displayName ?? null,
+          segment.mediaKind, segment.presentation, segment.clockEpochId,
+          segment.startWallTimeMs, segment.endWallTimeMs,
+          segment.startMonotonicTimeMs, segment.endMonotonicTimeMs,
+          segment.monotonicDurationMilliseconds, segment.endReason,
+          segment.estimated.isEstimated ? 1 : 0, segment.estimated.reason,
+          segment.estimated.cappedAtMilliseconds, segment.lastEvidenceWallTimeMs,
+          segment.lastEvidenceMonotonicTimeMs, segment.id, nowMs,
+        ),
+        database.prepare(
+          'UPDATE runtime_machines_v2 SET last_upload_at_ms=?1,updated_at_ms=?1 WHERE id=?2',
+        ).bind(nowMs, machine.machineId),
+      ]);
+      acceptedIds.push(segment.id);
+    } catch {
+      rejected.push({ id: segment.id, code: 'ID_CONFLICT' });
+    }
+  }
+  return { acceptedIds, rejected };
+}
+
+export async function queryAccounting(
+  database: D1Database,
+  accountId: string,
+  childId: string,
+  fromMs: number,
+  toMs: number,
+  machineId?: string,
+  localUserId?: string,
+): Promise<AccountingReadModelResponse> {
+  const values: unknown[] = [accountId, childId, fromMs, toMs];
+  let filter = '';
+  if (machineId) { values.push(machineId); filter += ` AND s.machine_id=?${values.length}`; }
+  if (localUserId) { values.push(localUserId); filter += ` AND s.local_user_id=?${values.length}`; }
+  const usage = await database.prepare(`
+    SELECT s.machine_id,s.local_user_id,s.runtime_session_id,s.clock_epoch_id,
+      s.runtime_identity,s.display_name,s.channel,s.start_wall_time_ms,s.end_wall_time_ms,
+      s.estimated,s.monotonic_duration_ms
+    FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+    WHERE m.account_id=?1 AND s.child_id=?2 AND s.accounting_schema_version=2
+      AND s.start_wall_time_ms<?4 AND s.end_wall_time_ms>?3${filter}
+    ORDER BY s.start_wall_time_ms,s.end_wall_time_ms,s.id
+  `).bind(...values).all<{
+    machine_id: string; local_user_id: string; runtime_session_id: string; clock_epoch_id: string;
+    runtime_identity: string; display_name: string | null; channel: 'active' | 'pipActive';
+    start_wall_time_ms: number; end_wall_time_ms: number; estimated: number; monotonic_duration_ms: number;
+  }>();
+  const diagnostics = await database.prepare(`
+    SELECT COUNT(*) AS count FROM runtime_usage_diagnostic_segments_v2 s
+    JOIN runtime_machines_v2 m ON m.id=s.machine_id
+    WHERE m.account_id=?1 AND s.child_id=?2 AND s.wall_time_ms>=?3 AND s.wall_time_ms<?4${filter}
+  `).bind(...values).first<{ count: number }>();
+  const media = await database.prepare(`
+    SELECT s.runtime_identity,s.display_name,s.media_kind,s.start_wall_time_ms,s.end_wall_time_ms
+    FROM runtime_media_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+    WHERE m.account_id=?1 AND s.child_id=?2
+      AND s.start_wall_time_ms<?4 AND s.end_wall_time_ms>?3${filter}
+    ORDER BY s.start_wall_time_ms,s.end_wall_time_ms,s.id
+  `).bind(...values).all<{
+    runtime_identity: string; display_name: string | null; media_kind: 'audio' | 'video';
+    start_wall_time_ms: number; end_wall_time_ms: number;
+  }>();
+
+  const mainIntervalGroups = new Map<string, Array<[number, number]>>();
+  const byApp = new Map<string, {
+    runtimeIdentity: string; displayName: string | null; activeMs: number; pipActiveMs: number;
+    intervalGroups: Map<string, Array<[number, number]>>;
+  }>();
+  let estimatedDuration = 0;
+  let estimatedCount = 0;
+  for (const row of usage.results || []) {
+    const start = Math.max(fromMs, Number(row.start_wall_time_ms));
+    const end = Math.min(toMs, Number(row.end_wall_time_ms));
+    if (end <= start) continue;
+    const duration = end - start;
+    const group = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
+    const mainIntervals = mainIntervalGroups.get(group) || [];
+    mainIntervals.push([start, end]);
+    mainIntervalGroups.set(group, mainIntervals);
+    const app = byApp.get(row.runtime_identity) || {
+      runtimeIdentity: row.runtime_identity, displayName: row.display_name,
+      activeMs: 0, pipActiveMs: 0, intervalGroups: new Map<string, Array<[number, number]>>(),
+    };
+    if (row.channel === 'active') app.activeMs += duration;
+    else app.pipActiveMs += duration;
+    const appIntervals = app.intervalGroups.get(group) || [];
+    appIntervals.push([start, end]);
+    app.intervalGroups.set(group, appIntervals);
+    byApp.set(row.runtime_identity, app);
+    if (row.estimated) { estimatedCount += 1; estimatedDuration += duration; }
+  }
+
+  const mediaByApp = new Map<string, {
+    runtimeIdentity: string; displayName: string | null; audioMs: number; videoMs: number;
+  }>();
+  let mediaTotal = 0;
+  for (const row of media.results || []) {
+    const duration = Math.max(0, Math.min(toMs, Number(row.end_wall_time_ms))
+      - Math.max(fromMs, Number(row.start_wall_time_ms)));
+    mediaTotal += duration;
+    const app = mediaByApp.get(row.runtime_identity) || {
+      runtimeIdentity: row.runtime_identity, displayName: row.display_name, audioMs: 0, videoMs: 0,
+    };
+    if (row.media_kind === 'audio') app.audioMs += duration;
+    else app.videoMs += duration;
+    mediaByApp.set(row.runtime_identity, app);
+  }
+  const syncValues: unknown[] = [accountId];
+  let syncFilter = '';
+  if (machineId) { syncValues.push(machineId); syncFilter = ' AND id=?2'; }
+  const sync = await database.prepare(`
+    SELECT MAX(last_upload_at_ms) AS last_sync FROM runtime_machines_v2
+    WHERE account_id=?1${syncFilter}
+  `).bind(...syncValues).first<{ last_sync: number | null }>();
+  return {
+    mainUsageTotalMs: groupedIntervalUnion(mainIntervalGroups),
+    applications: [...byApp.values()].map((app) => ({
+      runtimeIdentity: app.runtimeIdentity,
+      displayName: app.displayName,
+      activeMs: app.activeMs,
+      pipActiveMs: app.pipActiveMs,
+      unionMs: groupedIntervalUnion(app.intervalGroups),
+    })).sort((left, right) => right.unionMs - left.unionMs),
+    estimated: { segmentCount: estimatedCount, durationMs: estimatedDuration },
+    diagnostic: { segmentCount: Number(diagnostics?.count || 0) },
+    mediaPlaybackTotalMs: mediaTotal,
+    media: [...mediaByApp.values()].sort((left, right) =>
+      (right.audioMs + right.videoMs) - (left.audioMs + left.videoMs)),
+    lastSyncAtMs: sync?.last_sync ?? null,
+  };
+}
+
+async function assignmentFor(
+  database: D1Database,
+  machineId: string,
+  localUserId: string,
+  assignmentVersion: number,
+): Promise<AssignmentRow | null> {
+  return database.prepare(`
+    SELECT child_id,protected,assignment_source FROM runtime_user_assignments_v2
+    WHERE machine_id=?1 AND local_user_id=?2 AND assignment_version=?3
+  `).bind(machineId, localUserId, assignmentVersion).first<AssignmentRow>();
+}
+
+function intervalUnion(intervals: Array<[number, number]>): number {
+  if (intervals.length === 0) return 0;
+  const sorted = [...intervals].sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+  let total = 0;
+  let start = sorted[0]![0];
+  let end = sorted[0]![1];
+  for (const interval of sorted.slice(1)) {
+    if (interval[0] <= end) end = Math.max(end, interval[1]);
+    else { total += end - start; [start, end] = interval; }
+  }
+  return total + end - start;
+}
+
+function groupedIntervalUnion(groups: Map<string, Array<[number, number]>>): number {
+  let total = 0;
+  for (const intervals of groups.values()) total += intervalUnion(intervals);
+  return total;
+}
+
 export async function authorizeUninstall(
   database: D1Database,
   machine: MachineSelfResponse,
@@ -532,6 +828,8 @@ export async function deleteRuntimeChildV2(database: D1Database, accountId: stri
     SELECT id, desired_policy_version, default_child_id FROM runtime_machines_v2 WHERE account_id=?1
   `).bind(accountId).all<{ id: string; desired_policy_version: number; default_child_id: string | null }>();
   const statements: D1PreparedStatement[] = [
+    database.prepare('DELETE FROM runtime_media_segments_v2 WHERE child_id=?1').bind(childId),
+    database.prepare('DELETE FROM runtime_usage_diagnostic_segments_v2 WHERE child_id=?1').bind(childId),
     database.prepare('DELETE FROM runtime_app_hourly_stats_v2 WHERE child_id=?1').bind(childId),
     database.prepare('DELETE FROM runtime_usage_segments_v2 WHERE child_id=?1').bind(childId),
   ];

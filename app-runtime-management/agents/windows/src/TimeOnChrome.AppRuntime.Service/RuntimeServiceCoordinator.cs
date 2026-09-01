@@ -95,6 +95,27 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     {
         ledger = new MachineSegmentLedger(paths.DatabasePath);
         await ledger.InitializeAsync(machineCredential.MachineId, cancellation.Token).ConfigureAwait(false);
+        var restored = await ledger.RestoreAccountingSessionsAsync(cancellation.Token).ConfigureAwait(false);
+        foreach (var item in restored)
+        {
+            var session = new MachineAccountingSession(
+                ledger,
+                item.LocalUserId,
+                item.AssignmentVersion,
+                item.State);
+            var wallTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var monotonicTimeMs = Math.Max(Environment.TickCount64, item.State.LastProcessedMonotonicTimeMs ?? 0);
+            _ = await session.PushAndPersistAsync(new AccountingRuntimeFact(
+                wallTimeMs,
+                monotonicTimeMs,
+                item.State.ClockEpochId,
+                AccountingFactKind.Recovery), cancellation.Token).ConfigureAwait(false);
+            _ = await session.FlushAndPersistAsync(cancellation.Token).ConfigureAwait(false);
+            await ledger.RemoveAccountingOpenStateAsync(
+                item.LocalUserId,
+                item.State.RuntimeSessionID,
+                cancellation.Token).ConfigureAwait(false);
+        }
     }
 
     private async Task ControlLoopAsync(CancellationToken cancellationToken)
@@ -271,9 +292,16 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             {
                 var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
                 if (line is null) break;
-                var message = JsonSerializer.Deserialize<SessionFactMessage>(line, RuntimeJson.Options);
+                var message = JsonSerializer.Deserialize<SessionAccountingFactMessage>(line, RuntimeJson.Options);
                 if (message?.SchemaVersion != 2) continue;
-                await ApplyFactAsync(session.SessionId, localUserId, message.Fact, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await ApplyFactAsync(session.SessionId, localUserId, message.Fact, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // The session retains the uncommitted fact and retries it on the next drain.
+                }
             }
             await HandleSessionUnavailableAsync(session.SessionId).ConfigureAwait(false);
         }
@@ -297,7 +325,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         return string.Equals(actualSid, expected.Sid, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task ApplyFactAsync(int sessionId, string localUserId, RuntimeFact fact, CancellationToken cancellationToken)
+    private async Task ApplyFactAsync(int sessionId, string localUserId, AccountingRuntimeFact fact, CancellationToken cancellationToken)
     {
         if (ledger is null || appliedPolicy is null) return;
         var assignment = MachinePolicyStore.AssignmentFor(appliedPolicy.Policy, localUserId);
@@ -308,29 +336,35 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             if (!sessions.TryGetValue(sessionId, out var runtime)
                 || runtime.Assignment.AssignmentVersion != assignment.AssignmentVersion)
             {
-                await CloseSessionUnsafeAsync(sessionId, fact.ObservedAtMs).ConfigureAwait(false);
+                await CloseSessionUnsafeAsync(sessionId, fact.WallTimeMs).ConfigureAwait(false);
                 runtime = new SessionRuntime(localUserId, assignment,
-                    new RuntimeStateMachine($"windows:{credential!.MachineId}:{localUserId}:{Guid.NewGuid():N}"));
+                    new MachineAccountingSession(
+                        ledger,
+                        localUserId,
+                        assignment.AssignmentVersion,
+                        $"windows:{credential!.MachineId}:{localUserId}:{Guid.NewGuid():N}",
+                        fact.ClockEpochId));
                 sessions[sessionId] = runtime;
             }
-            var segments = runtime.StateMachine.Apply(fact);
-            await ledger.PersistAsync(localUserId, assignment.AssignmentVersion, segments, cancellationToken).ConfigureAwait(false);
+            _ = await runtime.AccountingSession.PushAndPersistAsync(fact, cancellationToken).ConfigureAwait(false);
         }
-        catch (RuntimeTransitionException) { }
         finally { _ = stateGate.Release(); }
     }
 
     private async Task CloseSessionUnsafeAsync(int sessionId, long observedAtMs)
     {
         if (ledger is null || !sessions.Remove(sessionId, out var runtime)) return;
-        var closeAt = Math.Max(observedAtMs, runtime.StateMachine.State.LastObservedAtMs ?? 0);
-        var segments = runtime.StateMachine.Apply(new RuntimeFact
-        {
-            ObservedAtMs = closeAt,
-            Kind = RuntimeFactKind.SessionChanged,
-            SessionState = UserSessionState.Inactive,
-        });
-        await ledger.PersistAsync(runtime.LocalUserId, runtime.Assignment.AssignmentVersion, segments).ConfigureAwait(false);
+        var state = runtime.AccountingSession.DurableState;
+        var closeWall = Math.Max(observedAtMs, state.LastProcessedWallTimeMs ?? 0);
+        var closeMonotonic = Math.Max(Environment.TickCount64, state.LastProcessedMonotonicTimeMs ?? 0);
+        _ = await runtime.AccountingSession.PushAndPersistAsync(new AccountingRuntimeFact(
+            closeWall,
+            closeMonotonic,
+            state.ClockEpochId,
+            AccountingFactKind.SessionChanged,
+            SessionState: UserSessionState.Inactive)).ConfigureAwait(false);
+        _ = await runtime.AccountingSession.FlushAndPersistAsync().ConfigureAwait(false);
+        await ledger.RemoveAccountingOpenStateAsync(runtime.LocalUserId, state.RuntimeSessionID).ConfigureAwait(false);
     }
 
     private async Task PolicyLoopAsync(CancellationToken cancellationToken)
@@ -378,28 +412,106 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         do
         {
             if (credential is null || ledger is null) continue;
-            var pending = await ledger.PendingAsync(50, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
-            if (pending.Count == 0) continue;
-            try
-            {
-                var acceptance = await api.UploadAsync(credential,
-                    pending.Select(item => new MachineSegmentUpload(item.LocalUserId, item.AssignmentVersion, item.Segment)).ToArray(),
-                    cancellationToken).ConfigureAwait(false);
-                var accepted = pending.Where(item => acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal))
-                    .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
-                await ledger.MarkAcceptedAsync(accepted, cancellationToken).ConfigureAwait(false);
-                var rejectedIds = acceptance.Rejected.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
-                var retry = pending.Where(item => !acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal) && !rejectedIds.Contains(item.Segment.Id))
-                    .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
-                await ledger.RecordFailureAsync(retry, "ACK_MISSING", DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
-            {
-                await ledger.RecordFailureAsync(pending.Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet(),
-                    "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
-            }
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            await UploadLegacyAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
+            await UploadAccountingUsageAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
+            await UploadAccountingMediaAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
         }
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task UploadLegacyAsync(
+        MachineRuntimeCredential currentCredential,
+        MachineSegmentLedger currentLedger,
+        long nowMs,
+        CancellationToken cancellationToken)
+    {
+        var pending = await currentLedger.PendingAsync(50, nowMs, cancellationToken).ConfigureAwait(false);
+        if (pending.Count == 0) return;
+        try
+        {
+            var acceptance = await api.UploadAsync(currentCredential,
+                pending.Select(item => new MachineSegmentUpload(item.LocalUserId, item.AssignmentVersion, item.Segment)).ToArray(),
+                cancellationToken).ConfigureAwait(false);
+            var accepted = pending.Where(item => acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal))
+                .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
+            await currentLedger.MarkAcceptedAsync(accepted, cancellationToken).ConfigureAwait(false);
+            var rejectedIds = acceptance.Rejected.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+            var retry = pending.Where(item => !acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal)
+                    && !rejectedIds.Contains(item.Segment.Id))
+                .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
+            await currentLedger.RecordFailureAsync(retry, "ACK_MISSING",
+                DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
+        {
+            await currentLedger.RecordFailureAsync(pending.Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet(),
+                "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task UploadAccountingUsageAsync(
+        MachineRuntimeCredential currentCredential,
+        MachineSegmentLedger currentLedger,
+        long nowMs,
+        CancellationToken cancellationToken)
+    {
+        var pending = await currentLedger.PendingAccountingUsageAsync(50, nowMs, cancellationToken).ConfigureAwait(false);
+        if (pending.Count == 0) return;
+        try
+        {
+            var acceptance = await api.UploadAccountingUsageAsync(currentCredential,
+                pending.Select(item => new MachineAccountingUsageUpload(
+                    item.LocalUserId, item.AssignmentVersion, item.Segment)).ToArray(),
+                cancellationToken).ConfigureAwait(false);
+            var accepted = pending.Where(item => acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal))
+                .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
+            await currentLedger.MarkAccountingUsageAcceptedAsync(accepted, cancellationToken).ConfigureAwait(false);
+            var rejected = acceptance.Rejected.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+            var retry = pending.Where(item => !acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal)
+                    && !rejected.Contains(item.Segment.Id))
+                .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
+            await currentLedger.RecordAccountingUsageFailureAsync(retry, "ACK_MISSING",
+                DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
+        {
+            await currentLedger.RecordAccountingUsageFailureAsync(
+                pending.Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet(),
+                "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task UploadAccountingMediaAsync(
+        MachineRuntimeCredential currentCredential,
+        MachineSegmentLedger currentLedger,
+        long nowMs,
+        CancellationToken cancellationToken)
+    {
+        var pending = await currentLedger.PendingAccountingMediaAsync(50, nowMs, cancellationToken).ConfigureAwait(false);
+        if (pending.Count == 0) return;
+        try
+        {
+            var acceptance = await api.UploadAccountingMediaAsync(currentCredential,
+                pending.Select(item => new MachineAccountingMediaUpload(
+                    item.LocalUserId, item.AssignmentVersion, item.Segment)).ToArray(),
+                cancellationToken).ConfigureAwait(false);
+            var accepted = pending.Where(item => acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal))
+                .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
+            await currentLedger.MarkAccountingMediaAcceptedAsync(accepted, cancellationToken).ConfigureAwait(false);
+            var rejected = acceptance.Rejected.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+            var retry = pending.Where(item => !acceptance.AcceptedIds.Contains(item.Segment.Id, StringComparer.Ordinal)
+                    && !rejected.Contains(item.Segment.Id))
+                .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
+            await currentLedger.RecordAccountingMediaFailureAsync(retry, "ACK_MISSING",
+                DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
+        {
+            await currentLedger.RecordAccountingMediaFailureAsync(
+                pending.Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet(),
+                "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task HeartbeatLoopAsync(CancellationToken cancellationToken)
@@ -433,7 +545,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     private sealed record SessionRuntime(
         string LocalUserId,
         MachineUserAssignment Assignment,
-        RuntimeStateMachine StateMachine);
+        MachineAccountingSession AccountingSession);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

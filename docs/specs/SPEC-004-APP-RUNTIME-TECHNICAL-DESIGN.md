@@ -2,7 +2,19 @@
 
 ## Status
 
-Approved for Windows 2.0 system-managed multi-user implementation。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；当前阶段将 Windows 从 per-user 1.x 升级为机器级 Service + per-session Agent 结构，macOS 系统级实现留待后续。
+Approved for Windows 2.0 system-managed multi-user implementation and Accounting Phase A。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；Windows 使用机器级 Service + per-session Agent，Accounting Phase A 使用共享 schema v2 统一 Windows/macOS 落账语义。
+
+## Accounting Schema V2
+
+`RuntimeFact` v2 携带 `wallTimeMs`、`monotonicTimeMs`、`clockEpochId`、窗口可见/最小化状态、媒体证据强度、播放状态、PiP 状态与 clock adjustment。平台 adapter 只产生事实，不决定结算。
+
+`UsageSegment` v2 增加 `channel=ACTIVE|PIP_ACTIVE`、`activityBasis`、`clockEpochId`、monotonic 起止/时长、`estimated`元数据、证据时间、`diagnostic`和可空 policy snapshot。Segment ID 是稳定字段的确定性 SHA-256，不包含 display name、诊断文案、媒体辅助字段或可变 policy label。`MediaSegment` 使用独立表/outbox/ACK，并固定 `authoritativeForUsage=false`。
+
+Runtime state 由一个 foreground lane、按应用键索引的多个 PiP lanes 和多个辅助 media lanes 组成。安全优先级为 clock/session/power/idle 关闭事件优先于应用/PiP/media 开启，最后才是 checkpoint/snapshot。重排窗口为 500ms；窗口外事实只产生 0ms immutable diagnostic。
+
+Windows Service 必须把 open lanes、已完成 Segment 和各自 outbox 在同一 SQLite transaction 内持久化；transaction 失败时不得推进内存状态。启动时依赖 SQLite WAL/transaction recovery 幂等恢复已提交状态，再将残留 open lane 按 30 秒上限恢复为 estimated Segment。
+
+Runtime Worker 的 `/v2/segments:upload` 同时接受旧 schema 和 accounting v2；`/v2/media-segments:upload` 独立逐项 ACK。`GET /v2/module/accounting` 是只读 read model，foreground/PiP 在相同 machine、local user、runtime session 与 `clockEpochId` 内取并集，再跨分组求和，避免时钟回拨或并发用户被错误折叠；同时返回按应用 ACTIVE/PiP、estimated/diagnostic 摘要和辅助媒体直接求和。D1 `0004` 是 additive migration，不改写旧 Segment。
 
 ## Repository Layout
 

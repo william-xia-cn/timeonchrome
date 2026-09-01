@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace TimeOnChrome.AppRuntime.Infrastructure;
 
 public sealed record RuntimeAgentSettings(
-    int IdleThresholdSeconds = 300,
+    int IdleThresholdSeconds = 180,
     int PollIntervalMilliseconds = 1_000,
     int SnapshotIntervalSeconds = 60,
     int UploadIntervalSeconds = 10)

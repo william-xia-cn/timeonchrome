@@ -10,7 +10,15 @@
 - `1.7.27` 运行代码提交 `3ca6093` 与风险接受记录 `bb7c75a` 已推送到 `origin/master`；Guardian Worker `f8ed2ede-ada1-47cc-acb9-687b7f8216ff`、控制台 Pages `436199ba` 与内部更新站点 `39cdad15` 已部署并通过生产回读。稳定 ID CRX 为 373,209 bytes，SHA256 `10c51a0b6001d5a7eb4eb25eed71466547d63129b6b039b709940c836417d5dd`；发布结论为 `APPROVED_WITH_KNOWN_P0_RISK / PASS_WITH_PRODUCTION_OBSERVATION`，`cg.163.com` 的 `idleStateChanged` P0 继续 Deferred / 未解决。
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
-## Active App Runtime Work（2026-09-01）
+## Active App Runtime Work（2026-09-02）
+
+- [x] **[SPEC-004 / D-081] App Runtime 与 TimeOnChrome 统一落账规则 Phase A（本地实现完成，未部署）**
+  - 范围：accounting schema v2、Windows/macOS 双 lane 纯状态机、共享黄金向量、Windows 原子 ledger/outbox/open-lane 恢复、Runtime `0004` dry-run 与向后兼容 API/read model。
+  - 核心口径：主账本按 `ACTIVE ∪ PIP_ACTIVE` 区间并集；媒体辅助记录直接求和、可重叠、不进配额；idle 180s；checkpoint 60s/estimated cap 30s；reorder 500ms；wall + monotonic dual-clock。
+  - 兼容：旧 v1/v2 Segment 与历史统计不改写；`POST /v2/segments:upload` 兼容旧 schema，辅助媒体使用独立上传/ACK。
+  - 边界：不修改 Chrome Extension、Guardian、Santa/`native-app-control/`、`workers/`、`pages/` 或生产配置；不部署、不执行生产 D1 migration、不启用 quota/阻止。
+  - 验证：.NET 完整测试、Worker tests/typecheck/dry-run、schema/vector 结构校验、`git diff --check`、受保护目录审计；macOS `swift test` 留待 macOS 13+ 环境。
+  - 本地证据：Windows .NET 37/37、Runtime Worker+D1 13/13、TypeScript typecheck、generated binding type check、Wrangler dry-run 和 14 组共享黄金向量结构/确定性重放通过；SQLite transaction rollback/open-lane recovery/主辅助 outbox 隔离已覆盖。当前 Windows 无 Swift toolchain，macOS 13+ `swift test` 明确保留为未验证项。`0004` 仅由隔离测试 D1 执行，未应用远端 D1，未部署 Worker/Pages/R2。
 
 - [x] **[SPEC-004 / D-080] Windows App Runtime 2.0 系统级多用户管理（本地实现与验证完成，生产闸门未开）**
   - 目标：管理员一次性 per-machine 安装；LocalSystem Service 管理机器凭据、策略、SQLite/outbox、上传和 watchdog；每个交互式用户会话运行无凭据 Session Agent。

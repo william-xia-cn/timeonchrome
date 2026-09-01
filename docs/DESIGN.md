@@ -15,6 +15,8 @@ macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-
 
 App Runtime Management 的产品规格与技术设计分别位于 `docs/specs/SPEC-004-APP-RUNTIME.md` 和 `docs/specs/SPEC-004-APP-RUNTIME-TECHNICAL-DESIGN.md`。它是一个产品能力，由 macOS Swift 与 Windows .NET 8 原生实现，共享事实模型、确定性状态机、黄金向量和 Runtime Worker/D1。D-080 将 Windows 改为管理员一次性 per-machine 安装：LocalSystem RuntimeService 管理 LocalMachine credential、机器策略、ProgramData SQLite/outbox、上传和 watchdog，每个活动交互式会话运行无凭据 Session Agent 采集平台事实。Guardian 签发 Account-scoped Runtime token，独立 `/app-runtime/` 控制机器默认 Child、逐用户 Child/`unprotected` assignment 和 desired/applied policy state；Runtime v2 Segment 通过 opaque local user ID 与 assignment version 确定性归属。现有 v1 历史保留查询，Runtime `0003` 与 Guardian `024` 仅作 additive migration。现有 `native-app-control/` 及 Santa Worker/D1 继续独立负责发现、审核和阻止；Runtime 不共享 Santa enrollment、MachineID、协议、表、密钥或凭据。
 
+D-081 在不改写旧 v1/v2 历史的前提下增加 accounting schema v2：`UsageSegment` 是唯一权威主账本，每用户会话最多一个 foreground `ACTIVE` lane 和零到多个强证据 `PIP_ACTIVE` lane。单应用/设备主时长按主 Segment 区间并集结算，而独立 `MediaSegment` 固定非权威、可重叠并直接求和。统一参数为 idle 180 秒、checkpoint 60 秒、未确认补偿/恢复上限 30 秒、事实重排窗口 500ms。duration 使用 monotonic clock，wall clock 负责日历与展示；clock jump 必须立即切段并更换 `clockEpochId`。该阶段仅预留可空 policy/quota snapshot，不执行配额或阻止。
+
 ### 1.1 系统架构
 
 ```

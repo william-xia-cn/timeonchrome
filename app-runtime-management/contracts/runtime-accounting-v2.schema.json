@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.example/contracts/runtime-accounting-v2.schema.json",
+  "title": "TimeOnChrome App Runtime Accounting Contract V2",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/runtimeFact" },
+    { "$ref": "#/$defs/usageSegment" },
+    { "$ref": "#/$defs/mediaSegment" },
+    { "$ref": "#/$defs/usageUpload" },
+    { "$ref": "#/$defs/mediaUpload" }
+  ],
+  "$defs": {
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "applicationIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "runtimeIdentity"],
+      "properties": {
+        "platform": { "enum": ["macos", "windows"] },
+        "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "displayName": { "type": ["string", "null"], "maxLength": 256 }
+      }
+    },
+    "policySnapshot": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "assignmentVersion": { "type": ["integer", "null"], "minimum": 0 },
+        "quotaBucket": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "estimated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["isEstimated", "reason", "cappedAtMilliseconds"],
+      "properties": {
+        "isEstimated": { "type": "boolean" },
+        "reason": { "type": ["string", "null"], "maxLength": 64 },
+        "cappedAtMilliseconds": { "type": ["integer", "null"], "minimum": 0, "maximum": 30000 }
+      }
+    },
+    "runtimeSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "foregroundApplication",
+        "foregroundWindowState",
+        "foregroundMediaEvidence",
+        "foregroundPlaybackState",
+        "userActivity",
+        "sessionState",
+        "powerState"
+      ],
+      "properties": {
+        "foregroundApplication": {
+          "oneOf": [
+            { "$ref": "#/$defs/applicationIdentity" },
+            { "type": "null" }
+          ]
+        },
+        "foregroundWindowState": { "enum": ["unknown", "visible", "hidden", "minimized"] },
+        "foregroundMediaEvidence": { "enum": ["none", "weak", "strong"] },
+        "foregroundPlaybackState": { "enum": ["unknown", "playing", "paused", "stopped"] },
+        "userActivity": { "enum": ["unknown", "active", "idle"] },
+        "sessionState": { "enum": ["unknown", "active", "inactive", "locked"] },
+        "powerState": { "enum": ["unknown", "awake", "asleep"] }
+      }
+    },
+    "runtimeFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "wallTimeMs", "monotonicTimeMs", "clockEpochId", "kind"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "wallTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "monotonicTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "clockEpochId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "kind": {
+          "enum": [
+            "foregroundChanged",
+            "userActivityChanged",
+            "sessionChanged",
+            "powerChanged",
+            "pipChanged",
+            "mediaChanged",
+            "checkpoint",
+            "clockAdjusted",
+            "recovery"
+          ]
+        },
+        "application": {
+          "oneOf": [
+            { "$ref": "#/$defs/applicationIdentity" },
+            { "type": "null" }
+          ]
+        },
+        "userActivity": { "enum": ["unknown", "active", "idle"] },
+        "sessionState": { "enum": ["unknown", "active", "inactive", "locked"] },
+        "powerState": { "enum": ["unknown", "awake", "asleep"] },
+        "windowState": { "enum": ["unknown", "visible", "hidden", "minimized"] },
+        "mediaEvidence": { "enum": ["none", "weak", "strong"] },
+        "playbackState": { "enum": ["unknown", "playing", "paused", "stopped"] },
+        "pipState": { "enum": ["inactive", "active"] },
+        "mediaKind": { "enum": ["audio", "video"] },
+        "mediaPresentation": { "enum": ["foreground", "background", "pip"] },
+        "confirmation": { "enum": ["confirmed", "failed"] },
+        "snapshot": { "$ref": "#/$defs/runtimeSnapshot" },
+        "newClockEpochId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "diagnosticHint": { "type": ["string", "null"], "maxLength": 256 }
+      }
+    },
+    "usageSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "schemaVersion",
+        "runtimeSessionID",
+        "application",
+        "channel",
+        "activityBasis",
+        "clockEpochId",
+        "startWallTimeMs",
+        "endWallTimeMs",
+        "startMonotonicTimeMs",
+        "endMonotonicTimeMs",
+        "monotonicDurationMilliseconds",
+        "endReason",
+        "estimated",
+        "lastEvidenceWallTimeMs",
+        "lastEvidenceMonotonicTimeMs",
+        "diagnostic",
+        "diagnosticCode",
+        "policySnapshot"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "schemaVersion": { "const": 2 },
+        "runtimeSessionID": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "application": {
+          "oneOf": [
+            { "$ref": "#/$defs/applicationIdentity" },
+            { "type": "null" }
+          ]
+        },
+        "channel": { "enum": ["active", "pipActive", "diagnostic"] },
+        "activityBasis": {
+          "enum": [
+            "foregroundInteraction",
+            "foregroundStrongMedia",
+            "pipStrongMedia",
+            "estimatedCheckpoint",
+            "estimatedBackfill",
+            "estimatedRecovery",
+            "diagnostic"
+          ]
+        },
+        "clockEpochId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "startWallTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "endWallTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "startMonotonicTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "endMonotonicTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "monotonicDurationMilliseconds": { "$ref": "#/$defs/nonNegativeInteger" },
+        "endReason": {
+          "enum": [
+            "applicationSwitch",
+            "userIdle",
+            "sessionUnavailable",
+            "systemSleep",
+            "periodicSnapshot",
+            "stateCorrection",
+            "pipEnded",
+            "checkpointUnconfirmed",
+            "serviceRecovery",
+            "clockAdjustment",
+            "lateFact",
+            "diagnostic"
+          ]
+        },
+        "estimated": { "$ref": "#/$defs/estimated" },
+        "lastEvidenceWallTimeMs": { "type": ["integer", "null"], "minimum": 0 },
+        "lastEvidenceMonotonicTimeMs": { "type": ["integer", "null"], "minimum": 0 },
+        "diagnostic": { "type": "boolean" },
+        "diagnosticCode": { "type": ["string", "null"], "maxLength": 64 },
+        "diagnosticMessage": { "type": ["string", "null"], "maxLength": 512 },
+        "policySnapshot": { "$ref": "#/$defs/policySnapshot" }
+      }
+    },
+    "mediaSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "schemaVersion",
+        "runtimeSessionID",
+        "application",
+        "mediaKind",
+        "presentation",
+        "clockEpochId",
+        "startWallTimeMs",
+        "endWallTimeMs",
+        "startMonotonicTimeMs",
+        "endMonotonicTimeMs",
+        "monotonicDurationMilliseconds",
+        "endReason",
+        "estimated",
+        "lastEvidenceWallTimeMs",
+        "lastEvidenceMonotonicTimeMs",
+        "authoritativeForUsage"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "schemaVersion": { "const": 2 },
+        "runtimeSessionID": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "application": { "$ref": "#/$defs/applicationIdentity" },
+        "mediaKind": { "enum": ["audio", "video"] },
+        "presentation": { "enum": ["foreground", "background", "pip"] },
+        "clockEpochId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "startWallTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "endWallTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "startMonotonicTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "endMonotonicTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "monotonicDurationMilliseconds": { "$ref": "#/$defs/nonNegativeInteger" },
+        "endReason": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "estimated": { "$ref": "#/$defs/estimated" },
+        "lastEvidenceWallTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "lastEvidenceMonotonicTimeMs": { "$ref": "#/$defs/nonNegativeInteger" },
+        "authoritativeForUsage": { "const": false }
+      }
+    },
+    "usageUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "segments"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/usageSegment" }
+        }
+      }
+    },
+    "mediaUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "segments"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/mediaSegment" }
+        }
+      }
+    }
+  }
+}

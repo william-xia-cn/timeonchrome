@@ -1,7 +1,9 @@
 import { env, exports } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
+import accountingVectors from '../../contracts/runtime-accounting-v2.vectors.json';
 import hashVectors from '../../contracts/runtime-segment-hash-v1.vectors.json';
-import { segmentContentHash } from '../src/canonical';
+import { accountingMediaId, accountingUsageId, segmentContentHash } from '../src/canonical';
+import type { AccountingMediaSegment, AccountingUsageSegment } from '../src/contracts';
 import { validateSegment } from '../src/validation';
 
 const origin = 'http://runtime.test';
@@ -9,6 +11,8 @@ const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE'
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_media_segments_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_usage_diagnostic_segments_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_uninstall_codes_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_app_hourly_stats_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_usage_segments_v2'),
@@ -33,6 +37,21 @@ describe('Runtime product API', () => {
       expect(validation.ok, vector.name).toBe(true);
       if (validation.ok) await expect(segmentContentHash(validation.segment)).resolves.toBe(vector.expectedHash);
     }
+    const usageGolden = accountingVectors.cases.find((item) => item.expectedFirstUsageId);
+    const usage = await accountingUsage({
+      runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 100, end: 1100,
+    });
+    usage.runtimeSessionID = 'v2-switch';
+    usage.endReason = 'applicationSwitch';
+    usage.id = await accountingUsageId(usage);
+    expect(usage.id).toBe(usageGolden?.expectedFirstUsageId);
+    const mediaGolden = accountingVectors.cases.find((item) => item.expectedFirstMediaId);
+    const media = await accountingMedia({
+      runtimeIdentity: 'app:music', kind: 'audio', presentation: 'background', start: 0, end: 60_000,
+    });
+    media.runtimeSessionID = 'v2-media-overlap';
+    media.id = await accountingMediaId(media);
+    expect(media.id).toBe(mediaGolden?.expectedFirstMediaId);
     expect((await call('/v1/health')).status).toBe(200);
   });
 
@@ -182,6 +201,127 @@ describe('Runtime product API', () => {
     await expect(usage.json()).resolves.toMatchObject({ totalDurationMs: 500, applications: [{ durationMs: 500 }] });
   });
 
+  it('accepts accounting v2 beside legacy, unions main lanes, and directly sums auxiliary media', async () => {
+    const { account, enrolled, localUserId } = await createMachineWithUser();
+    const active = await accountingUsage({
+      runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction',
+      start: 0, end: 60_000, estimated: true,
+    });
+    active.policySnapshot = { assignmentVersion: 1, quotaBucket: null };
+    const pip = await accountingUsage({
+      runtimeIdentity: 'app:video', channel: 'pipActive', basis: 'pipStrongMedia',
+      start: 10_000, end: 70_000,
+    });
+    const diagnostic = await accountingUsage({
+      runtimeIdentity: null, channel: 'diagnostic', basis: 'diagnostic',
+      start: 70_000, end: 70_000, diagnostic: true,
+    });
+    const usagePayload = [active, pip, diagnostic].map((segment) => ({
+      ...segment, localUserId, assignmentVersion: 1,
+    }));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await call('/v2/segments:upload', {
+        method: 'POST', headers: bearer(enrolled.machineToken),
+        body: JSON.stringify({ schemaVersion: 2, segments: usagePayload }),
+      });
+      await expect(response.json()).resolves.toEqual({
+        acceptedIds: [active.id, pip.id, diagnostic.id], rejected: [],
+      });
+    }
+
+    const audio = await accountingMedia({
+      runtimeIdentity: 'app:music', kind: 'audio', presentation: 'background', start: 0, end: 60_000,
+    });
+    const video = await accountingMedia({
+      runtimeIdentity: 'app:movie', kind: 'video', presentation: 'foreground', start: 10_000, end: 70_000,
+    });
+    const mediaResponse = await call('/v2/media-segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [audio, video].map((segment) => ({
+        ...segment, localUserId, assignmentVersion: 1,
+      })) }),
+    });
+    await expect(mediaResponse.json()).resolves.toEqual({
+      acceptedIds: [audio.id, video.id], rejected: [],
+    });
+
+    const read = await call('/v2/module/accounting?childId=child-a&fromMs=0&toMs=80000', {
+      headers: bearer(account),
+    });
+    await expect(read.json()).resolves.toMatchObject({
+      mainUsageTotalMs: 70_000,
+      estimated: { segmentCount: 1, durationMs: 60_000 },
+      diagnostic: { segmentCount: 1 },
+      mediaPlaybackTotalMs: 120_000,
+      applications: [
+        { runtimeIdentity: 'app:editor', activeMs: 60_000, pipActiveMs: 0, unionMs: 60_000 },
+        { runtimeIdentity: 'app:video', activeMs: 0, pipActiveMs: 60_000, unionMs: 60_000 },
+      ],
+    });
+    await expect(env.RUNTIME_DB.prepare(`
+      SELECT policy_snapshot_json FROM runtime_usage_segments_v2 WHERE id=?1
+    `).bind(active.id).first()).resolves.toMatchObject({
+      policy_snapshot_json: JSON.stringify(active.policySnapshot),
+    });
+    expect((await call('/v2/module/usage?childId=child-a&fromMs=0&toMs=80000', {
+      headers: bearer(account),
+    }).then((response) => response.json<{ totalDurationMs: number }>())).totalDurationMs).toBe(0);
+  });
+
+  it('rejects mismatched accounting ids and keeps media ACK independent', async () => {
+    const { enrolled, localUserId } = await createMachineWithUser();
+    const segment = await accountingUsage({
+      runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 1000,
+    });
+    const invalid = { ...segment, endWallTimeMs: 2000, localUserId, assignmentVersion: 1 };
+    const response = await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [invalid] }),
+    });
+    await expect(response.json()).resolves.toEqual({
+      acceptedIds: [], rejected: [{ id: segment.id, code: 'ID_MISMATCH' }],
+    });
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_media_segments_v2')
+      .first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it('unions foreground and PiP per user session and clock epoch without collapsing concurrent users', async () => {
+    const { account, enrolled, localUserId } = await createMachineWithUser();
+    const secondUserId = `user_${'y'.repeat(32)}`;
+    await call('/v2/machines/users', {
+      method: 'PUT', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ users: [
+        { localUserId, displayName: 'First user', sessionActive: true },
+        { localUserId: secondUserId, displayName: 'Second user', sessionActive: true },
+      ] }),
+    });
+    const first = await accountingUsage({
+      runtimeIdentity: 'app:shared', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 60_000,
+    });
+    const firstPip = await accountingUsage({
+      runtimeIdentity: 'app:shared', channel: 'pipActive', basis: 'pipStrongMedia', start: 10_000, end: 70_000,
+    });
+    const second = await accountingUsage({
+      runtimeIdentity: 'app:shared', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 60_000,
+    });
+    second.runtimeSessionID = 'second-session';
+    second.id = await accountingUsageId(second);
+    const response = await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [
+        { ...first, localUserId, assignmentVersion: 1 },
+        { ...firstPip, localUserId, assignmentVersion: 1 },
+        { ...second, localUserId: secondUserId, assignmentVersion: 1 },
+      ] }),
+    });
+    expect(response.status).toBe(200);
+    const read = await (await call('/v2/module/accounting?childId=child-a&fromMs=0&toMs=80000', {
+      headers: bearer(account),
+    })).json<{ mainUsageTotalMs: number; applications: Array<{ unionMs: number }> }>();
+    expect(read.mainUsageTotalMs).toBe(130_000);
+    expect(read.applications[0]?.unionMs).toBe(130_000);
+  });
+
   it('requires a single-use uninstall code and retires the machine token', async () => {
     const account = await accountToken();
     const pairing = await (await call('/v2/module/pairing-codes', {
@@ -236,4 +376,81 @@ async function upload(deviceToken: string, segments: unknown[]): Promise<unknown
 }
 function validSegment(id: string): Record<string, unknown> {
   return { id, runtimeSessionID: 'session-a', application: { platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor' }, startAtMs: 100, endAtMs: 600, durationMilliseconds: 500, endReason: 'periodicSnapshot' };
+}
+
+async function createMachineWithUser(): Promise<{
+  account: string;
+  enrolled: { machineId: string; machineToken: string };
+  localUserId: string;
+}> {
+  const account = await accountToken();
+  const pairing = await (await call('/v2/module/pairing-codes', {
+    method: 'POST', headers: bearer(account), body: JSON.stringify({ defaultChildId: 'child-a' }),
+  })).json<{ code: string }>();
+  const enrolled = await (await call('/v2/machines/enroll', {
+    method: 'POST', body: JSON.stringify({ code: pairing.code, platform: 'windows' }),
+  })).json<{ machineId: string; machineToken: string }>();
+  const localUserId = `user_${'z'.repeat(32)}`;
+  await call('/v2/machines/users', {
+    method: 'PUT', headers: bearer(enrolled.machineToken),
+    body: JSON.stringify({ users: [{ localUserId, displayName: 'Test user', sessionActive: true }] }),
+  });
+  return { account, enrolled, localUserId };
+}
+
+async function accountingUsage(input: {
+  runtimeIdentity: string | null;
+  channel: 'active' | 'pipActive' | 'diagnostic';
+  basis: 'foregroundInteraction' | 'pipStrongMedia' | 'diagnostic';
+  start: number;
+  end: number;
+  estimated?: boolean;
+  diagnostic?: boolean;
+}): Promise<AccountingUsageSegment> {
+  const diagnostic = input.diagnostic === true;
+  const segment: AccountingUsageSegment = {
+    id: '0'.repeat(64), schemaVersion: 2, runtimeSessionID: 'accounting-session',
+    application: input.runtimeIdentity == null ? null : {
+      platform: 'windows', runtimeIdentity: input.runtimeIdentity, displayName: input.runtimeIdentity,
+    },
+    channel: input.channel, activityBasis: input.basis, clockEpochId: 'epoch-a',
+    startWallTimeMs: input.start, endWallTimeMs: input.end,
+    startMonotonicTimeMs: input.start, endMonotonicTimeMs: input.end,
+    monotonicDurationMilliseconds: input.end - input.start,
+    endReason: diagnostic ? 'diagnostic' : 'periodicSnapshot',
+    estimated: {
+      isEstimated: input.estimated === true,
+      reason: input.estimated ? 'checkpointUnconfirmed' : null,
+      cappedAtMilliseconds: input.estimated ? 30_000 : null,
+    },
+    lastEvidenceWallTimeMs: diagnostic ? null : input.end,
+    lastEvidenceMonotonicTimeMs: diagnostic ? null : input.end,
+    diagnostic, diagnosticCode: diagnostic ? 'lateFact' : null,
+    diagnosticMessage: diagnostic ? 'wording excluded from id' : null,
+    policySnapshot: null,
+  };
+  segment.id = await accountingUsageId(segment);
+  return segment;
+}
+
+async function accountingMedia(input: {
+  runtimeIdentity: string;
+  kind: 'audio' | 'video';
+  presentation: 'foreground' | 'background' | 'pip';
+  start: number;
+  end: number;
+}): Promise<AccountingMediaSegment> {
+  const segment: AccountingMediaSegment = {
+    id: '0'.repeat(64), schemaVersion: 2, runtimeSessionID: 'accounting-session',
+    application: { platform: 'windows', runtimeIdentity: input.runtimeIdentity, displayName: input.runtimeIdentity },
+    mediaKind: input.kind, presentation: input.presentation, clockEpochId: 'epoch-a',
+    startWallTimeMs: input.start, endWallTimeMs: input.end,
+    startMonotonicTimeMs: input.start, endMonotonicTimeMs: input.end,
+    monotonicDurationMilliseconds: input.end - input.start,
+    endReason: 'mediaStopped', estimated: { isEstimated: false, reason: null, cappedAtMilliseconds: null },
+    lastEvidenceWallTimeMs: input.end, lastEvidenceMonotonicTimeMs: input.end,
+    authoritativeForUsage: false,
+  };
+  segment.id = await accountingMediaId(segment);
+  return segment;
 }
