@@ -2,6 +2,15 @@
 
 ---
 
+## [App Runtime 1.0.1] — 2026-09-01
+
+- **Windows Setup 状态收口**：以首次 heartbeat 为成功门槛，明确区分未连接、连接中、等待确认、在线、异常和需重新配对；已绑定后隐藏配对输入，在线态显示设备、Agent 1.0.1、最近在线与“完成并关闭”。
+- **保留数据升级**：WiX 7 per-user major upgrade 保留 DPAPI credential、设备隔离 SQLite/outbox 和设备身份，修复 HKCU 登录启动；MSI 仍为内部未签名包，状态保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- **家长页面恢复**：手动刷新重新签发 Child-scoped module token；GET 的 401/首次网络失败至多安全重试一次，写操作不自动重放，页面不再显示浏览器原始 `Failed to fetch`。
+- **内部发布**：William 账户完成 1.0.0→1.0.1 升级与在线验收；Pages deployment `7d89c962` 已发布。R2/生产下载回读 MSI 为 60,144,152 bytes，SHA-256 `13b8bb04607f019acf7a9a5e68fa87f63f8075e8a3d4d4da47ddc885b635fee7`。
+
+---
+
 ## [1.7.29] — 2026-08-31
 
 - **原始账本同步可靠性**：usage/media segment 改为 Worker D1 batch 原子幂等写入和逐项 ACK；客户端只清除明确接受的 ID，并使用更小单批与单次请求，避免 15 秒超时后同轮重复发送不确定结果。

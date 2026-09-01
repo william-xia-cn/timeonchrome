@@ -38,9 +38,17 @@
                   Execute="deferred"
                   Impersonate="yes"
                   Return="ignore" />
+    <CustomAction Id="RepairStartupRegistration"
+                  FileRef="SetupExecutableFile"
+                  ExeCommand="--install-repair"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
     <InstallExecuteSequence>
       <Custom Action="CleanupStartupRegistration" Before="RemoveFiles"
-              Condition="REMOVE = &quot;ALL&quot;" />
+              Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND NOT REINSTALL" />
+      <Custom Action="RepairStartupRegistration" After="InstallFiles"
+              Condition="NOT REMOVE OR REINSTALL" />
     </InstallExecuteSequence>
 
     <Feature Id="ProductFeature" Title="TimeOnChrome App Runtime" Level="1">

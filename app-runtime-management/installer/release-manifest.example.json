@@ -1,10 +1,10 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "platform": "windows",
   "architecture": "x64",
-  "installerPath": "windows/x64/1.0.0/TimeOnChrome-AppRuntime-win-x64-1.0.0.msi",
-  "sha256": "generated-at-release-time",
-  "sizeBytes": 0,
+  "installerPath": "windows/x64/1.0.1/TimeOnChrome-AppRuntime-win-x64-1.0.1.msi",
+  "sha256": "13b8bb04607f019acf7a9a5e68fa87f63f8075e8a3d4d4da47ddc885b635fee7",
+  "sizeBytes": 60144152,
   "signed": false,
   "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING"
 }

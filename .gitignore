@@ -41,9 +41,16 @@ pages/.env
 # Playwright test output
 test-results/
 tests/test-results/
+.playwright-cli/
+output/
 .artifacts/*
 !.artifacts/
 !.artifacts/.gitkeep
+
+# App Runtime local build outputs
+app-runtime-management/artifacts/
+app-runtime-management/installer/windows/bin/
+app-runtime-management/installer/windows/obj/
 
 # E2E test browser profiles (generated)
 test-e2e-profile-*/

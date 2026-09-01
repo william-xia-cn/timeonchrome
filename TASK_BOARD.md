@@ -18,12 +18,15 @@
   - Guardian 控制面：5 分钟 Child-scoped ES256 module token、独立 Runtime lifecycle outbox/service binding；不复用 Santa 密钥。
   - Runtime 控制面：10 分钟配对码、设备列表/heartbeat/吊销/重新配对、Child lifecycle、北京时间小时聚合与日/周查询。
   - Windows：WPF Setup、无控制台 per-user Agent、single-instance、DPAPI、按 device 隔离 SQLite、稳定应用身份与 WiX 7 per-user MSI。
+  - 1.0.1 产品化修正（2026-09-01，内部发布完成）：把原单表单+灰色状态文本改为未配对/连接中/等待首次同步/在线/异常五态；只有在线态显示“完成并关闭”，成功后锁定配对输入，显示设备、Agent 与最近 heartbeat，并为 Setup 增加 current-user 单实例。1.0.1 同时修复 major upgrade 的 HKCU 启动恢复与家长页面刷新 token/网络恢复。
+  - 1.0.1 发布证据：Windows .NET 22/22、家长页面网络恢复 4/4；桌面 1440px/移动 390px mock 目视无横向溢出、无 console error、无 `Failed to fetch` 原文；MSI 60,144,152 bytes、SHA-256 `13b8bb04607f019acf7a9a5e68fa87f63f8075e8a3d4d4da47ddc885b635fee7`，除 WiX 官方已知 per-user ICE38/64/91 定向抑制外，其余 ICE 为 0 warning / 0 error。William 账户已完成 1.0.0→1.0.1 原地升级，credential/设备隔离 SQLite/device identity/HKCU 启动项均保留；最终 Setup 可访问性验收匹配“在线 / 连接成功 / Agent 1.0.1 / 最近在线 / 完成并关闭”，配对输入隐藏。Pages `7d89c962`、R2 immutable version、latest manifest 与生产 Worker 下载均已回读；真实 Chrome 手动刷新无裸 `Failed to fetch`、设备仍在线。
   - 家长端：canonical `app-runtime-management/console/`，构建到 `/app-runtime/`；只显示可理解的设备与统计，不显示 token、Child ID、管理员密钥或服务器配置。
   - 发布闸门：内部 MSI 在 Authenticode 签名前保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`；迁移前远端业务表必须为空；真实测试账号首次配对需 Product Owner 再次明确批准。
   - 部署证据：Runtime D1 三张旧业务表均为 0 后应用 `0002`；R2 `windows/x64/1.0.0` MSI 为 60,139,945 bytes、SHA-256 `847544be830979615f865667a09c690160b42381142a96cdf7174d09ff216c60`；Runtime Worker `8126d3b8-27c3-4c3a-937a-cb11ac4e0ab7`、Guardian Worker `5dcd6678-71f9-4463-b0e4-9bff9a16eccd`、Pages deployment `81fa34db` 已部署。
   - 验证：Windows .NET 11/11、Runtime Worker 7/7、Guardian Worker logic 56/56、两端 typecheck、两端 Wrangler dry-run、WiX 7 build、R2/Worker 下载 hash、严格 CORS 与未认证 fail-closed 通过；MSI `msiexec /a` 只解包验证包含唯一 Setup/Agent 和 481 个文件。部署后 Runtime 五张业务表与 Guardian lifecycle outbox 均保持 0。
   - 已解除 blocker：`BLOCKED_BY_WIX7_OSMF_EULA` 与 Wrangler OAuth 授权问题已解除。
-  - 剩余 blocker：`BLOCKED_BY_AUTHENTICODE_SIGNING`；干净 Windows 测试账号的安装/升级/卸载和首次真实配对仍未执行。旧 `ADMIN_API_KEY` 已无 API/代码消费者，但因跨 Worker module-token 生产成功链路尚未验证，Cloudflare 安全审查拒绝删除 secret，必须在该链路验证后单独移除。
+  - 剩余 blocker：`BLOCKED_BY_AUTHENTICODE_SIGNING`；干净 Windows 测试账号的安装/升级/卸载仍未执行，William 当前账户的登录重启仍待验证。旧 `ADMIN_API_KEY` 已无 API/代码消费者，但删除 secret 不在 1.0.1 本轮范围，需单独授权处理。
+  - 真实配对更新（2026-09-01）：Product Owner 已批准并在 William 当前账户把 `INTELMINIPC-XW` 配对到 HornburgXW；云端设备在线、本地 DPAPI/设备隔离 SQLite/segment ACK 已观察到。首次配对、1.0.0→1.0.1 升级、保留数据的卸载重装和 Setup UX 已验证；登录重启仍待验证。
 
 - [x] **[SPEC-004 / Production Bootstrap] 共享 Runtime Worker/D1 首次部署**
   - 授权：Product Owner 于 2026-09-01 明确要求部署；D-078 仅解除 Runtime 后台的部署边界。
