@@ -8,7 +8,7 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 - Backend：v1 Child-scoped 设备闭环保留兼容；D-080 v2 新增 Account-scoped machine、默认 Child、逐本地用户 assignment、版本化策略/ACK、tamper 健康和单次卸载码。Runtime/Santa 身份、表、密钥和协议继续隔离。
 - macOS：Phase 1 Core/Agent 骨架；真实事件、SQLite 与上传尚未实现。
 - Accounting Phase A：共享 schema v2、Windows/macOS 纯状态机、确定性 SHA-256、黄金向量、Windows 原子 SQLite ledger/outbox 和 Runtime Worker 向后兼容 API 已完成；主 `UsageSegment` 在同一用户会话与 clock epoch 内按 foreground/PiP 区间并集计算权威使用时长，独立 `MediaSegment` 可重叠直接求和但不进主时长或 quota。统一参数是 idle 180s、checkpoint 60s、estimated cap 30s 和 reorder window 500ms。Runtime `0003`/`0004` 与 Worker 已发布；macOS `swift test` 待 macOS 13+ 验证。
-- 部署：Guardian `024`、Runtime/Guardian Worker 与账户级 `/app-runtime/` Pages 已于 2026-09-02 发布；2.0.0 Burn/MSI/manifest 已上传生产 R2 immutable path 并回读校验。生产 `latest.json` 仍为 1.0.1，因为现有下载 API 直出 MSI，尚不能保证 2.0 Burn 的 1.x migration preflight；修复前不得切换 latest。2.0.0 与 1.0.1 均为内部未签名包，保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- 部署：Guardian `024`、Runtime/Guardian Worker 与账户级 `/app-runtime/` Pages 已于 2026-09-02 发布；历史 2.0.0 Burn/MSI/manifest 已上传生产 R2 immutable path 并回读校验。由于 2.0.0 manifest 永久记录了旧下载 blocker，不原地改写该版本；修复后的内部候选为 2.0.1。2.x 下载路由必须从版本 manifest 选择 Burn bootstrapper，manifest 缺失或非法时 fail closed，绝不能回退 MSI；完成代码、测试、生产下载回读后才可把 `latest.json` 从 1.0.1 切至 2.0.1。2.0.1 与 1.0.1 均为内部未签名包，保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
 ## Windows 开发命令
 
@@ -16,16 +16,16 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 dotnet restore agents/windows/TimeOnChrome.AppRuntime.sln
 dotnet test agents/windows/TimeOnChrome.AppRuntime.sln --configuration Release
 dotnet publish agents/windows/src/TimeOnChrome.AppRuntime.Agent/TimeOnChrome.AppRuntime.Agent.csproj --configuration Release
-pwsh installer/windows/build.ps1
+pwsh installer/windows/build.ps1 -Version 2.0.1
 ```
 
 面向家长和普通 Windows 用户的正式流程不使用 CLI：家长在 `/app-runtime/` 为当前孩子生成一次性配对码，安装后在 Setup 窗口输入配对码。服务器地址由安装包固定为产品 Runtime endpoint；credential 保存到当前用户 LocalAppData，并使用当前用户 DPAPI 保护。
 
 Setup 采用未配对、连接中、等待首次同步、在线和连接异常/需要重新配对的明确状态。enrollment 完成只表示本地绑定已保存；Agent 首次 heartbeat 写入不含凭据的本地健康快照后，Setup 才显示在线。已绑定状态锁定配对输入并提供“完成并关闭”，关闭 Setup 不停止 Agent；同一当前用户只允许一个 Setup 实例。
 
-1.x MSI 保留为 per-user 历史兼容。2.0.0 使用新的 machine-scope UpgradeCode 和 per-machine MSI，安装到 Program Files，Service 数据位于 ACL 保护的 ProgramData。Burn bootstrapper 内嵌 migration preflight：发现其他用户仍有 1.x credential/启动项时列出本机账户并停止；当前用户 outbox 未清空时给出可操作提示并停止；通过后 retire 旧 token、移除精确 HKCU 启动项、卸载旧 per-user MSI并保留旧 SQLite 为 legacy 证据，然后要求重配机器一次。当前内部包未做 Authenticode 签名，发布状态必须保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+1.x MSI 保留为 per-user 历史兼容。2.x 使用新的 machine-scope UpgradeCode 和 per-machine MSI，安装到 Program Files，Service 数据位于只允许 SYSTEM/Administrators 访问的 ACL 保护 ProgramData。Burn bootstrapper 内嵌 migration preflight，并显式在启动安装器的原交互式用户上下文运行：发现其他用户仍有 1.x credential/启动项时列出本机账户并停止；当前用户 outbox 未清空时给出可操作提示并停止；通过后 retire 旧 token、移除精确 HKCU 启动项、卸载旧 per-user MSI 并保留旧 SQLite 为 legacy 证据，随后才为 per-machine MSI 请求提升并要求重配机器一次。链内 MSI 由自己的 MajorUpgrade 管理并对 Burn 标记为 permanent；Bundle/MSI 的“程序和功能”删除入口均隐藏，正常卸载只能从 Setup 输入云端一次性卸载码后提升执行。当前内部包未做 Authenticode 签名，发布状态必须保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
-Windows 2.0 本地构建产物位于 `installer/windows/bin/Release/`：`TimeOnChrome-AppRuntime-win-x64.msi` 是 per-machine MSI，`TimeOnChrome-AppRuntime-Setup-win-x64.exe` 是用户应运行的 Burn bootstrapper。构建不会自动安装、配对、迁移生产数据或发布 R2。
+Windows 2.0.1 本地构建产物位于 `installer/windows/bin/Release/`：`TimeOnChrome-AppRuntime-win-x64.msi` 是 per-machine MSI，`TimeOnChrome-AppRuntime-Setup-win-x64.exe` 是用户应运行的 Burn bootstrapper。构建脚本还在 `artifacts/release/windows/x64/2.0.1/` 生成版本化副本和 manifest，并在 `artifacts/release/windows/x64/latest.json` 生成待发布指针；它不会自动安装、配对、迁移生产数据或发布 R2。
 
 家长页面手动刷新会重新获取 Child-scoped module token；只读加载最多进行一次安全重试，写操作不对未知网络结果自动重放。页面不直接显示浏览器原始 `Failed to fetch`。
 

@@ -55,7 +55,7 @@ describe('Runtime product API', () => {
     expect((await call('/v1/health')).status).toBe(200);
   });
 
-  it('streams versioned installer releases with immutable cache metadata', async () => {
+  it('keeps streaming legacy 1.x MSI releases with immutable cache metadata', async () => {
     const version = '1.0.0';
     const key = `windows/x64/${version}/TimeOnChrome-AppRuntime-win-x64-${version}.msi`;
     await env.RELEASES.put(key, new Uint8Array([1, 2, 3, 4]));
@@ -66,7 +66,49 @@ describe('Runtime product API', () => {
     const installer = await call(`/v1/releases/windows/x64/${version}/installer`);
     expect(installer.status).toBe(200);
     expect(installer.headers.get('cache-control')).toContain('immutable');
+    expect(installer.headers.get('content-disposition')).toContain('.msi');
     expect(new Uint8Array(await installer.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
+  it('serves 2.x only through the manifest-declared Burn bootstrapper', async () => {
+    const version = '2.0.0';
+    const bootstrapperPath = `windows/x64/${version}/TimeOnChrome-AppRuntime-Setup-win-x64-${version}.exe`;
+    const bytes = new Uint8Array([5, 6, 7, 8]);
+    const sha256 = 'a'.repeat(64);
+    await env.RELEASES.put(bootstrapperPath, bytes);
+    await env.RELEASES.put(`windows/x64/${version}/manifest.json`, JSON.stringify({
+      version,
+      platform: 'windows',
+      architecture: 'x64',
+      bootstrapperPath,
+      bootstrapperSha256: sha256,
+      bootstrapperSizeBytes: bytes.length,
+    }));
+
+    const installer = await call(`/v1/releases/windows/x64/${version}/installer`);
+    expect(installer.status).toBe(200);
+    expect(installer.headers.get('content-disposition')).toContain(`Setup-win-x64-${version}.exe`);
+    expect(installer.headers.get('content-type')).toBe('application/octet-stream');
+    expect(installer.headers.get('x-release-sha256')).toBe(sha256);
+    expect(installer.headers.get('cache-control')).toContain('immutable');
+    expect(new Uint8Array(await installer.arrayBuffer())).toEqual(bytes);
+  });
+
+  it('fails closed for a 2.x manifest that does not name the exact Burn path', async () => {
+    const version = '2.0.0';
+    await env.RELEASES.put(`windows/x64/${version}/TimeOnChrome-AppRuntime-win-x64-${version}.msi`, new Uint8Array([1]));
+    await env.RELEASES.put(`windows/x64/${version}/manifest.json`, JSON.stringify({
+      version,
+      platform: 'windows',
+      architecture: 'x64',
+      bootstrapperPath: `windows/x64/${version}/TimeOnChrome-AppRuntime-win-x64-${version}.msi`,
+      bootstrapperSha256: 'b'.repeat(64),
+      bootstrapperSizeBytes: 1,
+    }));
+
+    const installer = await call(`/v1/releases/windows/x64/${version}/installer`);
+    expect(installer.status).toBe(404);
+    await expect(installer.json()).resolves.toMatchObject({ error: { code: 'RELEASE_NOT_FOUND' } });
   });
 
   it('rejects missing, wrong-audience, and expired module tokens', async () => {

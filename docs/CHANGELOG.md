@@ -2,6 +2,16 @@
 
 ---
 
+## [App Runtime 2.0.1] — 2026-09-02
+
+- **机器级 Windows Runtime**：2.x 使用 LocalSystem Service、每交互式会话 Session Agent、LocalMachine DPAPI、机器级 SQLite/outbox 与 Account-scoped 默认 Child/逐用户 assignment；1.x 历史保持兼容。
+- **安装与权限边界**：WiX 7 Burn 在原交互式用户上下文执行 1.x migration gate，再提升安装 per-machine MSI；ProgramData DACL 仅允许 SYSTEM/Administrators，普通用户不持有云端 credential 或账本写权限。
+- **分发修正**：Runtime Worker 2.x 安装器路由改为读取不可变版本 manifest 并只返回对应 Burn，1.x MSI 下载保持兼容；Worker `e150e0e3-0919-4c60-be86-1ec26e4bcaf6` 与 R2 `latest.json` 已发布 2.0.1。
+- **内部包证据**：Burn 60,956,054 bytes、SHA-256 `b86e8c2356fbb0730e6e1e168c48b90b38af2cd129e87f8897ec9d97f603657d`；MSI 60,186,702 bytes、SHA-256 `e8da3c11d923d5c936581233e5827926ac70a0f5ddb12479a791c56dba31307e`；R2 与 Worker 下载回读一致。包仍未签名并保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- **真机升级闸门**：William 1.x outbox 尚有 9 条待上传，当前账号级 D1 免费日读额度已耗尽并导致 Runtime 认证/上传 500；未 retire、未卸载、未清除旧账本，须在 UTC 00:00 额度重置后先清空 outbox。
+
+---
+
 ## [App Runtime 1.0.1] — 2026-09-01
 
 - **Windows Setup 状态收口**：以首次 heartbeat 为成功门槛，明确区分未连接、连接中、等待确认、在线、异常和需重新配对；已绑定后隐藏配对输入，在线态显示设备、Agent 1.0.1、最近在线与“完成并关闭”。

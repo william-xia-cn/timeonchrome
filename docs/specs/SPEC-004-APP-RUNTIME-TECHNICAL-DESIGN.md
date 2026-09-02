@@ -55,7 +55,7 @@ LocalSystem RuntimeService <--- versioned policy -------+
 - Service 为每个 session 保持独立状态机；Agent 断开、注销、锁屏或 policy assignment 实际变更时立即切段。
 - 机器策略每 60 秒通过 ETag 检查，失败从 1 分钟退避到 15 分钟；heartbeat 每 5 分钟上报 desired/applied version、Service 健康和 tamper 摘要。
 - 首次未获得有效 policy 时不启动采集；已有 last-known-good 时可离线继续。`unprotected` 应用时关闭开放段并停止该用户采集。
-- Service 持久化路径为 `%ProgramData%\TimeOnChrome\AppRuntime`，仅 SYSTEM/Administrators 可写；Session Agent 不直接访问 SQLite 或 machine credential。
+- Service 持久化路径为 `%ProgramData%\TimeOnChrome\AppRuntime`，安装器使用 protected DACL 阻断父目录继承，仅 SYSTEM/Administrators 可读写；Session Agent 和普通用户不直接读取 SQLite、machine credential 或 HMAC key，只能通过按会话验证的 Named Pipe 提交事实。
 
 ```text
 macOS platform facts ─► macOS Agent ─┐
@@ -172,6 +172,12 @@ Transition rules：
 
 Phase 1 两个平台 executable 都只链接 Core 后退出。Phase 2 的 Windows executable 组合 WinEvent、idle/session/power adapter、SQLite ledger/outbox、HTTP uploader 与诊断日志；macOS executable 仍保持 Phase 1 空壳。
 
+### Windows Release Distribution
+
+R2 的版本目录是不可变发布源：`windows/x64/<version>/manifest.json` 同时声明 Burn 与 MSI 的路径、SHA-256、大小、签名状态和 release status。Runtime Worker 的版本化 `/installer` 路由按 major version 分流：1.x 继续兼容历史 MSI 键；2.x 读取版本 manifest，只接受精确位于该版本目录且命名为 `TimeOnChrome-AppRuntime-Setup-win-x64-<version>.exe` 的 Burn 路径，并以不可变缓存流式返回。任何 2.x manifest 缺失、JSON 无效、版本/平台/架构不一致或路径不匹配都返回结构化 `RELEASE_NOT_FOUND`，不得回退到 MSI。
+
+生产发布顺序固定为：构建并验证 Burn/MSI → 上传不可变产物 → 上传并回读版本 manifest → 部署并 smoke 验证 Worker 的 Burn 下载 → 最后原子更新短缓存 `windows/x64/latest.json`。`latest.json` 的 `installerPath`、`sha256` 与 `sizeBytes` 必须指向 Burn；内部未签名版本继续返回 `BLOCKED_BY_AUTHENTICODE_SIGNING`，不得因切换 latest 被表述为公开正式发布。
+
 D-079 后 Windows 安装组合为同一 per-user MSI 中的 WPF Setup 与无控制台 Agent。Setup 固定生产 Runtime endpoint，只接受 `XXXX-XXXX-XXXX` 配对码；成功后用 CurrentUser DPAPI 保存 credential、注册 HKCU Run 并启动 Agent。Agent 以 current-user named mutex 保证单实例，未绑定时立即退出且不打开 ledger；绑定后数据库文件名与 `bound_device_id` metadata 同时绑定 device，防止重新配对后旧 outbox 跨设备上传。401/403 heartbeat 会删除失效 credential、关闭当前 segment 并停止采集。
 
 Setup 使用显式展示状态，不把字符串文案当作连接状态：
@@ -278,6 +284,12 @@ runtime_usage_segments(id, device_id, runtime_session_id, platform,
 - HTTP timeout、非 2xx、无效响应或 ACK 缺失保留 outbox。
 - Agent restart 后直接读取 SQLite pending；开放段只通过 60 秒 checkpoint 限制最大未闭合损失，不伪造崩溃后的使用区间。
 - credential 缺失时采集与本地 ledger 可继续，上传暂停；enrollment 是显式 CLI 操作。
+
+## Windows 1.x → 2.x Upgrade Context
+
+Burn 必须先以启动安装器的原交互式用户上下文运行 1.x migration，再为 per-machine MSI 请求提升。Migration package 显式设置 `PerMachine="no"`，以便读取该用户的 HKCU Runtime 启动项和 CurrentUser DPAPI credential；不得在替代管理员账户上下文中读取或迁移这些数据。Migration 通过 outbox 门禁、retire 旧设备并移除精确 HKCU 启动项后，才允许 MSI 提升并安装 LocalSystem Service。因为该前置包使 Burn 注册为 per-user，链内 per-machine MSI 必须标记为 Burn `Permanent`，由自身固定 UpgradeCode/MajorUpgrade 管理生命周期；Bundle 和 MSI 均不向“程序和功能”暴露绕过云端卸载码的删除入口，授权后的 Setup 直接提升调用 MSI 卸载。
+
+2.x 数据目录使用受保护 DACL，仅向 SYSTEM 与本机 Administrators 授予完全控制，不向普通 Users 授予读取或写入权限。Session Agent 只能通过经服务端校验进程 session token/SID 的 Named Pipe 提交事实，不能直接读取机器 credential、SQLite ledger 或策略缓存。
 
 ## Worker Configuration And Testing
 

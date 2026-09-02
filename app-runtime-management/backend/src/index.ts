@@ -12,6 +12,58 @@ import {
 import { routeV2 } from './v2Routes';
 import { deleteRuntimeChildV2 } from './v2Repository';
 
+interface WindowsV2ReleaseManifest {
+  version: string;
+  platform: string;
+  architecture: string;
+  bootstrapperPath: string;
+  bootstrapperSha256: string;
+  bootstrapperSizeBytes: number;
+}
+
+interface WindowsInstallerRelease {
+  object: R2ObjectBody;
+  fileName: string;
+  contentType: string;
+  sha256?: string;
+}
+
+async function getWindowsInstallerRelease(env: Env, version: string): Promise<WindowsInstallerRelease | null> {
+  const majorVersion = Number.parseInt(version.split('.')[0] ?? '', 10);
+  if (majorVersion < 2) {
+    const fileName = `TimeOnChrome-AppRuntime-win-x64-${version}.msi`;
+    const object = await env.RELEASES.get(`windows/x64/${version}/${fileName}`);
+    return object ? { object, fileName, contentType: 'application/x-msi' } : null;
+  }
+
+  const versionPrefix = `windows/x64/${version}/`;
+  const expectedFileName = `TimeOnChrome-AppRuntime-Setup-win-x64-${version}.exe`;
+  const expectedPath = `${versionPrefix}${expectedFileName}`;
+  const manifestObject = await env.RELEASES.get(`${versionPrefix}manifest.json`);
+  if (!manifestObject) return null;
+
+  const manifest = await manifestObject.json<WindowsV2ReleaseManifest>().catch(() => null);
+  if (!manifest
+      || manifest.version !== version
+      || manifest.platform !== 'windows'
+      || manifest.architecture !== 'x64'
+      || manifest.bootstrapperPath !== expectedPath
+      || !/^[a-f0-9]{64}$/u.test(manifest.bootstrapperSha256)
+      || !Number.isSafeInteger(manifest.bootstrapperSizeBytes)
+      || manifest.bootstrapperSizeBytes <= 0) {
+    return null;
+  }
+
+  const object = await env.RELEASES.get(expectedPath);
+  if (!object || object.size !== manifest.bootstrapperSizeBytes) return null;
+  return {
+    object,
+    fileName: expectedFileName,
+    contentType: 'application/octet-stream',
+    sha256: manifest.bootstrapperSha256,
+  };
+}
+
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const nowMs = Date.now();
@@ -41,16 +93,18 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (installerMatch) {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     const version = installerMatch[1]!;
-    const object = await env.RELEASES.get(`windows/x64/${version}/TimeOnChrome-AppRuntime-win-x64-${version}.msi`);
-    if (!object) return errorResponse(404, 'RELEASE_NOT_FOUND', 'Windows installer is not available.');
-    return new Response(object.body, { headers: {
-      'content-type': 'application/x-msi',
-      'content-length': String(object.size),
-      'content-disposition': `attachment; filename="TimeOnChrome-AppRuntime-win-x64-${version}.msi"`,
+    const release = await getWindowsInstallerRelease(env, version);
+    if (!release) return errorResponse(404, 'RELEASE_NOT_FOUND', 'Windows installer is not available.');
+    const headers = new Headers({
+      'content-type': release.contentType,
+      'content-length': String(release.object.size),
+      'content-disposition': `attachment; filename="${release.fileName}"`,
       'cache-control': 'public, max-age=31536000, immutable',
-      etag: object.httpEtag,
+      etag: release.object.httpEtag,
       'x-content-type-options': 'nosniff',
-    } });
+    });
+    if (release.sha256) headers.set('x-release-sha256', release.sha256);
+    return new Response(release.object.body, { headers });
   }
 
   if (url.pathname.startsWith('/v1/module/')) {

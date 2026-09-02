@@ -1,10 +1,14 @@
 {
-  "version": "1.0.1",
+  "version": "2.0.1",
   "platform": "windows",
   "architecture": "x64",
-  "installerPath": "windows/x64/1.0.1/TimeOnChrome-AppRuntime-win-x64-1.0.1.msi",
-  "sha256": "13b8bb04607f019acf7a9a5e68fa87f63f8075e8a3d4d4da47ddc885b635fee7",
-  "sizeBytes": 60144152,
+  "bootstrapperPath": "windows/x64/2.0.1/TimeOnChrome-AppRuntime-Setup-win-x64-2.0.1.exe",
+  "bootstrapperSha256": "<sha256>",
+  "bootstrapperSizeBytes": 0,
+  "msiPath": "windows/x64/2.0.1/TimeOnChrome-AppRuntime-win-x64-2.0.1.msi",
+  "msiSha256": "<sha256>",
+  "msiSizeBytes": 0,
   "signed": false,
-  "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING"
+  "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING",
+  "latestEligible": true
 }

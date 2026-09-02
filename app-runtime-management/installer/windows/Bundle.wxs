@@ -3,6 +3,8 @@
   <Bundle Name="TimeOnChrome App Runtime 2"
           Manufacturer="TimeOnChrome"
           Version="$(var.ProductVersion)"
+          DisableModify="yes"
+          DisableRemove="yes"
           UpgradeCode="D8244E0F-9C10-44DC-8D4D-A25FB8EB0D03">
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication
@@ -13,10 +15,12 @@
       <ExePackage SourceFile="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Migration.exe"
                   InstallArguments="--preflight"
                   DetectCondition="0"
+                  PerMachine="no"
                   Permanent="yes"
                   Vital="yes" />
       <MsiPackage SourceFile="!(bindpath.Package)\TimeOnChrome-AppRuntime-win-x64.msi"
                   Visible="no"
+                  Permanent="yes"
                   Vital="yes" />
     </Chain>
   </Bundle>

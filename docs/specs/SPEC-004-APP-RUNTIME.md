@@ -296,6 +296,8 @@ Runtime release：
 - `GET /v1/releases/windows/x64/latest`
 - `GET /v1/releases/windows/x64/:version/installer`
 
+`latest.json` 只在对应版本的不可变产物和版本 manifest 均已上传、回读和校验后更新。1.x 的 `/installer` 保持 MSI 兼容；2.x 必须读取 `windows/x64/<version>/manifest.json` 并只分发其中经过固定前缀和文件名校验的 Burn bootstrapper。2.x manifest 缺失、版本不匹配、路径越界或没有 Burn 信息时接口必须 fail closed，不得回退直出 MSI。
+
 ## D-079 Privacy And Safety
 
 - 云端只接收 opaque application hash 与展示名称；不接收 executable path、证书明文、用户名、SID、窗口标题、URL、键鼠或屏幕内容。

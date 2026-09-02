@@ -12,13 +12,16 @@
 
 ## Active App Runtime Work（2026-09-02）
 
-- [~] **[SPEC-004 / D-082] App Runtime Cloudflare 生产发布（后台与 Pages 已完成，2.0 latest 阻塞）**
+- [~] **[SPEC-004 / D-082 / D-083] App Runtime 2.0.1 内部发布完成，William 升级受 D1 当日额度阻塞**
   - Product Owner 已于 2026-09-02 授权完成待发布的 Cloudflare 部分：Runtime `0003`/`0004`、Guardian `024`、Runtime/Guardian Worker、账户级 Pages 与经发布门禁确认的 R2 内部包。
   - 发布顺序：远端只读预检与 Time Travel 书签 → Runtime additive migrations → Runtime Worker → Guardian additive migration → Guardian Worker → Pages → R2 immutable package/hash/latest gate → 生产 smoke。
   - 保留边界：不修改 Santa、Chrome Extension、Native App Control；不执行 William 1.x→2.0 真机升级、不创建真实配对/采集数据、不改写历史账本；内部未签名 2.0.0 继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
   - 额度诊断：Runtime D1 24h 仅 1,583 rows read / 974 rows written；Guardian D1 为 28,134,760 / 53,864。D1 Insights 显示逐请求执行的 `device_access_audit_v1` 两条清理 SQL 分别读取 15,004,205 与 13,010,483 行，是主要来源。限额根因修复作为独立 Worker P0，不混入本次 releaseMg 部署。
   - 已完成：Runtime `0003`/`0004`；Runtime Worker `af74e867-5fe1-48aa-b264-11e0892bebd3`；Guardian `024`；Guardian Worker `70b27ad3-7ae7-4cab-b9e0-b04def8e495b`；Pages `1edd8561-c990-4e6e-aa4d-b13b457cd37d`。health、未认证 401、Pages 六资产哈希和 Runtime 旧数据保留均通过。
-  - R2：当前提交重建的 2.0.0 Burn/MSI/manifest 已上传生产 immutable path 并回读一致；Burn SHA-256 `32a7eda83a4940948faeb034868bb0545f5984692becdb3a5187de0ba749d202`，MSI SHA-256 `0cce622d420c6513982832005f9d02e5193a8be84171474b2cf9bb5875685e6b`。`latest.json` 保持 1.0.1，因为现有 `/installer` 路由硬编码 MSI，会绕过 2.0 Burn 的 1.x migration preflight；不得把该 blocker 改写为完成。
+  - R2：历史 2.0.0 Burn/MSI/manifest 已上传生产 immutable path 并回读一致；Burn SHA-256 `32a7eda83a4940948faeb034868bb0545f5984692becdb3a5187de0ba749d202`，MSI SHA-256 `0cce622d420c6513982832005f9d02e5193a8be84171474b2cf9bb5875685e6b`。2.0.0 manifest 已永久记录旧 blocker，故不原地改写；当前闭环发布 2.0.1，把 `/installer` 修为 2.x manifest 驱动且只分发 Burn，生产回读通过后再切换 `latest.json`；1.x MSI 路由保持兼容。
+  - 2.0.1 安装安全闸门：Burn migration 显式保持 per-user，在 William 原交互式用户上下文读取 HKCU/CurrentUser DPAPI 并完成 retire 后才提升安装 per-machine MSI；ProgramData 使用受保护 DACL，仅 SYSTEM/Administrators 可访问。不得用替代管理员上下文迁移旧用户 credential。
+  - 2.0.1 生产证据：Runtime Worker `e150e0e3-0919-4c60-be86-1ec26e4bcaf6`；Burn 60,956,054 bytes / SHA-256 `b86e8c2356fbb0730e6e1e168c48b90b38af2cd129e87f8897ec9d97f603657d`；MSI 60,186,702 bytes / SHA-256 `e8da3c11d923d5c936581233e5827926ac70a0f5ddb12479a791c56dba31307e`。R2 三对象回读一致，Worker 版本下载回读为同一 MZ/Burn 字节，`latest.json` 已切换 2.0.1；health 通过、未认证 v2 仍为 401。
+  - William 升级闸门：1.x credential、SQLite、Agent 保留且未 retire；只读检查发现 9 条 outbox pending。生产 tail 返回账号级 D1 免费日读额度已耗尽，因此 v1 self/heartbeat/upload 当前 500。逐请求扫描根因已由 Guardian migration `025`/Worker 修复，但已经消耗的当日额度不可回退；须等待 UTC 00:00 重置或单独批准付费升级后先清空 outbox，再进入安装、配对、双账户、重启和 ACL 验收。
 
 - [x] **[P0 Cloud/D1] Guardian 逐请求审计清理导致 D1 rows-read 激增（已前向修复）**
   - 证据：24h 28,134,760 rows read；两条 `device_access_audit_v1` 清理 SQL 共 28,014,688 rows read、分别执行 4,190/4,331 次。

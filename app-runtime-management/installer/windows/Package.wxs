@@ -1,5 +1,4 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="TimeOnChrome App Runtime 2"
            Manufacturer="TimeOnChrome"
            Version="$(var.ProductVersion)"
@@ -8,6 +7,7 @@
            Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 TimeOnChrome App Runtime。" />
     <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="CompanyFolder" Name="TimeOnChrome">
@@ -49,9 +49,7 @@
         <Directory Id="ProgramDataRuntimeFolder" Name="AppRuntime">
           <Component Id="ProgramDataPermissions" Guid="193E694B-1366-4CF5-A5E7-D922646C8347">
             <CreateFolder>
-              <util:PermissionEx User="SYSTEM" GenericAll="yes" />
-              <util:PermissionEx User="Administrators" GenericAll="yes" />
-              <util:PermissionEx User="Users" Read="yes" GenericRead="yes" />
+              <PermissionEx Sddl="D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
             </CreateFolder>
             <RegistryValue Root="HKLM" Key="Software\TimeOnChrome\AppRuntime2"
                            Name="DataDirectoryReady" Type="integer" Value="1" KeyPath="yes" />

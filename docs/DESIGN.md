@@ -17,6 +17,8 @@ App Runtime Management 的产品规格与技术设计分别位于 `docs/specs/SP
 
 D-081 在不改写旧 v1/v2 历史的前提下增加 accounting schema v2：`UsageSegment` 是唯一权威主账本，每用户会话最多一个 foreground `ACTIVE` lane 和零到多个强证据 `PIP_ACTIVE` lane。单应用/设备主时长按主 Segment 区间并集结算，而独立 `MediaSegment` 固定非权威、可重叠并直接求和。统一参数为 idle 180 秒、checkpoint 60 秒、未确认补偿/恢复上限 30 秒、事实重排窗口 500ms。duration 使用 monotonic clock，wall clock 负责日历与展示；clock jump 必须立即切段并更换 `clockEpochId`。该阶段仅预留可空 policy/quota snapshot，不执行配额或阻止。
 
+Windows 2.0.1 的公开下载入口使用 R2 不可变版本 manifest：1.x 路由继续返回历史 MSI，2.x 路由必须校验 version/platform/architecture、Burn 精确对象路径、字节数与 SHA-256 元数据后流式返回 bootstrapper，不得降级返回 MSI。`latest.json` 只在版本对象回读与 Worker 下载回读一致后更新。内部包未完成 Authenticode 签名，因此只能用于受控内部验收，不能标记为公开正式发布。
+
 ### 1.1 系统架构
 
 ```
