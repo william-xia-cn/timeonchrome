@@ -27,6 +27,7 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        ApplyWindowBounds(SystemParameters.WorkArea.Width, SystemParameters.WorkArea.Height);
         await RefreshConnectionStateAsync().ConfigureAwait(true);
         statusTimer.Start();
     }
@@ -82,6 +83,20 @@ public partial class MainWindow : Window
         UninstallPanel.Visibility = Visibility.Visible;
         UninstallButton.Visibility = Visibility.Collapsed;
         UninstallCode.Focus();
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            new Action(() => UninstallPanel.BringIntoView()));
+    }
+
+    private void ApplyWindowBounds(double workAreaWidth, double workAreaHeight)
+    {
+        var bounds = SetupWindowLayout.Resolve(workAreaWidth, workAreaHeight);
+        MaxWidth = bounds.MaxWidth;
+        MaxHeight = bounds.MaxHeight;
+        MinWidth = bounds.MinWidth;
+        MinHeight = bounds.MinHeight;
+        Width = bounds.Width;
+        Height = bounds.Height;
     }
 
     private async void ConfirmUninstallButton_Click(object sender, RoutedEventArgs e)

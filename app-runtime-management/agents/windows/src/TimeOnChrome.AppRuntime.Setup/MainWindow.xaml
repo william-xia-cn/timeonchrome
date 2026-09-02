@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="TimeOnChrome 电脑应用使用" Height="590" Width="620"
-        MinHeight="590" MinWidth="620" Background="#F5F7FB"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+        Title="TimeOnChrome 电脑应用使用" Height="680" Width="620"
+        MinHeight="240" MinWidth="320" Background="#F5F7FB"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResize">
   <Window.Resources>
     <Style TargetType="Button">
       <Setter Property="FontSize" Value="14" />
@@ -13,90 +13,103 @@
       <Setter Property="Cursor" Value="Hand" />
     </Style>
   </Window.Resources>
-  <Grid Margin="38,32">
+  <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto" />
-      <RowDefinition Height="Auto" />
-      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0">
-      <TextBlock Text="TimeOnChrome" Foreground="#2563EB" FontWeight="SemiBold" FontSize="14" />
-      <TextBlock Margin="0,5,0,0" Text="电脑应用使用" FontSize="26" FontWeight="SemiBold" Foreground="#111827" />
-      <TextBlock Margin="0,9,0,0" TextWrapping="Wrap" Foreground="#64748B" FontSize="14"
-                 Text="管理员只需为这台电脑配对一次。Runtime Service 会管理所有交互式 Windows 用户。" />
-    </StackPanel>
+    <ScrollViewer x:Name="ContentScroll" Grid.Row="0"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  CanContentScroll="False">
+      <Grid Margin="38,32,38,20">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-    <Border x:Name="StatusCard" Grid.Row="1" Margin="0,24,0,0" Padding="20" CornerRadius="14"
-            BorderBrush="#E2E8F0" BorderThickness="1" Background="#F8FAFC">
-      <StackPanel>
-        <DockPanel LastChildFill="True">
-          <Ellipse x:Name="StatusDot" Width="12" Height="12" Margin="0,4,12,0"
-                   Fill="#64748B" VerticalAlignment="Top" />
+        <StackPanel Grid.Row="0">
+          <TextBlock Text="TimeOnChrome" Foreground="#2563EB" FontWeight="SemiBold" FontSize="14" />
+          <TextBlock Margin="0,5,0,0" Text="电脑应用使用" FontSize="26" FontWeight="SemiBold" Foreground="#111827" />
+          <TextBlock Margin="0,9,0,0" TextWrapping="Wrap" Foreground="#64748B" FontSize="14"
+                     Text="管理员只需为这台电脑配对一次。Runtime Service 会管理所有交互式 Windows 用户。" />
+        </StackPanel>
+
+        <Border x:Name="StatusCard" Grid.Row="1" Margin="0,24,0,0" Padding="20" CornerRadius="14"
+                BorderBrush="#E2E8F0" BorderThickness="1" Background="#F8FAFC">
           <StackPanel>
-            <TextBlock x:Name="StatusBadge" Text="未连接" FontSize="12" FontWeight="SemiBold" Foreground="#64748B" />
-            <TextBlock x:Name="StatusHeading" Margin="0,3,0,0" Text="尚未连接这台电脑"
-                       FontSize="19" FontWeight="SemiBold" Foreground="#111827" />
+            <DockPanel LastChildFill="True">
+              <Ellipse x:Name="StatusDot" Width="12" Height="12" Margin="0,4,12,0"
+                       Fill="#64748B" VerticalAlignment="Top" />
+              <StackPanel>
+                <TextBlock x:Name="StatusBadge" Text="未连接" FontSize="12" FontWeight="SemiBold" Foreground="#64748B" />
+                <TextBlock x:Name="StatusHeading" Margin="0,3,0,0" Text="尚未连接这台电脑"
+                           FontSize="19" FontWeight="SemiBold" Foreground="#111827" />
+              </StackPanel>
+            </DockPanel>
+            <TextBlock x:Name="Status" Margin="24,10,0,0" TextWrapping="Wrap" Foreground="#475569"
+                       automation:AutomationProperties.LiveSetting="Polite"
+                       Text="输入家长控制台生成的一次性配对码。" />
+            <Grid x:Name="DeviceDetails" Margin="24,18,0,0" Visibility="Collapsed">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="140" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Grid.Column="0" Foreground="#64748B" Text="这台电脑" />
+              <TextBlock x:Name="DeviceNameValue" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" Text="—" />
+              <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="Service 版本" />
+              <TextBlock x:Name="AgentVersionValue" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="—" />
+              <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="最近在线确认" />
+              <TextBlock x:Name="LastHeartbeatValue" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="等待首次确认" />
+            </Grid>
           </StackPanel>
-        </DockPanel>
-        <TextBlock x:Name="Status" Margin="24,10,0,0" TextWrapping="Wrap" Foreground="#475569"
-                   automation:AutomationProperties.LiveSetting="Polite"
-                   Text="输入家长控制台生成的一次性配对码。" />
-        <Grid x:Name="DeviceDetails" Margin="24,18,0,0" Visibility="Collapsed">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="140" />
-            <ColumnDefinition Width="*" />
-          </Grid.ColumnDefinitions>
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-          </Grid.RowDefinitions>
-          <TextBlock Grid.Row="0" Grid.Column="0" Foreground="#64748B" Text="这台电脑" />
-          <TextBlock x:Name="DeviceNameValue" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" Text="—" />
-          <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="Service 版本" />
-          <TextBlock x:Name="AgentVersionValue" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="—" />
-          <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="最近在线确认" />
-          <TextBlock x:Name="LastHeartbeatValue" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="等待首次确认" />
-        </Grid>
-      </StackPanel>
+        </Border>
+
+        <StackPanel x:Name="PairingPanel" Grid.Row="2" Margin="0,22,0,0">
+          <TextBlock Text="配对码" FontWeight="SemiBold" Foreground="#1F2937" />
+          <TextBox x:Name="PairingCode" Margin="0,8,0,12" Height="44" Padding="12,0" FontSize="19"
+                   CharacterCasing="Upper" MaxLength="14" VerticalContentAlignment="Center"
+                   automation:AutomationProperties.Name="12 位配对码" />
+          <Button x:Name="ConnectButton" Content="连接这台电脑" Height="44" Click="ConnectButton_Click"
+                  IsDefault="True" Background="#2563EB" Foreground="White" BorderBrush="#2563EB" />
+          <ProgressBar x:Name="Progress" Margin="0,12,0,0" Height="5" IsIndeterminate="True" Visibility="Collapsed" />
+        </StackPanel>
+
+        <StackPanel x:Name="UninstallPanel" Grid.Row="2" Margin="0,22,0,0" Visibility="Collapsed">
+          <TextBlock Text="家长一次性卸载码" FontWeight="SemiBold" Foreground="#1F2937" />
+          <TextBox x:Name="UninstallCode" Margin="0,8,0,12" Height="44" Padding="12,0" FontSize="19"
+                   CharacterCasing="Upper" MaxLength="14" VerticalContentAlignment="Center" />
+          <Button Content="授权并卸载" Height="44" Click="ConfirmUninstallButton_Click"
+                  Background="#B42318" Foreground="White" BorderBrush="#B42318" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="3" Margin="0,18,0,0" TextWrapping="Wrap"
+                   Foreground="#64748B" FontSize="12"
+                   Text="云端仅接收 Windows 账户显示名称和机器密钥派生的不透明 ID；不会上传 SID、用户目录、窗口标题或配对凭据。" />
+      </Grid>
+    </ScrollViewer>
+
+    <Border Grid.Row="1" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Background="#F5F7FB">
+      <Grid Margin="38,16,38,24">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Button x:Name="RefreshButton" Grid.Column="0" HorizontalAlignment="Left" Content="重新检查"
+                Visibility="Collapsed" Click="RefreshButton_Click" Background="White" BorderBrush="#CBD5E1" />
+        <Button x:Name="UninstallButton" Grid.Column="0" HorizontalAlignment="Left" Content="卸载这台电脑…"
+                Visibility="Collapsed" Click="UninstallButton_Click" Background="White" Foreground="#B42318" BorderBrush="#F0B4AF" />
+        <Button x:Name="CloseButton" Grid.Column="1" Content="关闭" Click="CloseButton_Click"
+                IsCancel="True" Background="White" BorderBrush="#CBD5E1" />
+      </Grid>
     </Border>
-
-    <StackPanel x:Name="PairingPanel" Grid.Row="2" Margin="0,22,0,0">
-      <TextBlock Text="配对码" FontWeight="SemiBold" Foreground="#1F2937" />
-      <TextBox x:Name="PairingCode" Margin="0,8,0,12" Height="44" Padding="12,0" FontSize="19"
-               CharacterCasing="Upper" MaxLength="14" VerticalContentAlignment="Center"
-               automation:AutomationProperties.Name="12 位配对码" />
-      <Button x:Name="ConnectButton" Content="连接这台电脑" Height="44" Click="ConnectButton_Click"
-              IsDefault="True" Background="#2563EB" Foreground="White" BorderBrush="#2563EB" />
-      <ProgressBar x:Name="Progress" Margin="0,12,0,0" Height="5" IsIndeterminate="True" Visibility="Collapsed" />
-    </StackPanel>
-
-    <StackPanel x:Name="UninstallPanel" Grid.Row="2" Margin="0,22,0,0" Visibility="Collapsed">
-      <TextBlock Text="家长一次性卸载码" FontWeight="SemiBold" Foreground="#1F2937" />
-      <TextBox x:Name="UninstallCode" Margin="0,8,0,12" Height="44" Padding="12,0" FontSize="19"
-               CharacterCasing="Upper" MaxLength="14" VerticalContentAlignment="Center" />
-      <Button Content="授权并卸载" Height="44" Click="ConfirmUninstallButton_Click"
-              Background="#B42318" Foreground="White" BorderBrush="#B42318" />
-    </StackPanel>
-
-    <TextBlock Grid.Row="3" Margin="0,18,0,0" VerticalAlignment="Top" TextWrapping="Wrap"
-               Foreground="#64748B" FontSize="12"
-               Text="云端仅接收 Windows 账户显示名称和机器密钥派生的不透明 ID；不会上传 SID、用户目录、窗口标题或配对凭据。" />
-
-    <Grid Grid.Row="4" Margin="0,20,0,0">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="Auto" />
-      </Grid.ColumnDefinitions>
-      <Button x:Name="RefreshButton" Grid.Column="0" HorizontalAlignment="Left" Content="重新检查"
-              Visibility="Collapsed" Click="RefreshButton_Click" Background="White" BorderBrush="#CBD5E1" />
-      <Button x:Name="UninstallButton" Grid.Column="0" HorizontalAlignment="Left" Content="卸载这台电脑…"
-              Visibility="Collapsed" Click="UninstallButton_Click" Background="White" Foreground="#B42318" BorderBrush="#F0B4AF" />
-      <Button x:Name="CloseButton" Grid.Column="1" Content="关闭" Click="CloseButton_Click"
-              IsCancel="True" Background="White" BorderBrush="#CBD5E1" />
-    </Grid>
   </Grid>
 </Window>

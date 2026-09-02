@@ -184,6 +184,8 @@ Burn 链内的 per-user migration 必须是真正可独立执行的单文件 sel
 
 机器控制 Named Pipe 继续只允许 SYSTEM/Administrators 连接并由 Service 对连接 token 二次校验。Setup 客户端必须显式使用 `TokenImpersonationLevel.Impersonation`，使 `RunAsClient` 能读取真实调用者 token；不得把匿名/缺失 impersonation token 当作管理员。Control、supervisor、policy、upload、heartbeat 等常驻 loop 的非取消异常必须写入 Windows Application Event Log，并经有限退避自动重启；SCM 进程存活但 control loop 已退出不能视为健康。2.0.3 暴露该问题，由 2.0.4 前向修正。
 
+Windows Setup 2.0.6 使用响应式 WPF 窗口：启动时根据当前显示器工作区限制初始与最大宽高，允许用户调整窗口大小；标题、状态、配对/卸载内容与隐私说明位于只启用垂直滚动的主内容区，底部“卸载这台电脑…”/“重新检查”和“关闭”操作栏始终固定可见。展开卸载面板后，Dispatcher 必须把“家长一次性卸载码”、输入框和“授权并卸载”按钮滚入可见区域。窗口布局计算必须是可独立测试的纯逻辑，并覆盖常规工作区及 150%/200% 缩放下的受限逻辑工作区；任何情况下都不得产生 `MinWidth/MinHeight` 大于工作区上限的不可调整窗口。该修正只改变布局与可达性，不生成卸载码、不自动授权、不绕过管理员提升，也不改变 Named Pipe 鉴权或卸载协议。
+
 首次上报本机用户也是策略变更：如果任一 `localUserId` 尚无 assignment，Runtime Worker 必须只提升一次机器 `desiredPolicyVersion`，在同一新版本为这些用户创建默认 assignment，并使旧 ETag 失效；重复上报同一批用户不得继续提升版本。对于已受旧缺陷影响、assignment 已写入当前版本但机器 ACK 的空策略从未包含该用户的记录，Worker 也必须识别“用户 applied version 低于 assignment version 且机器已 applied 该版本”，再推进一次版本完成前向收敛。否则 Service 可能在用户发现前缓存空用户策略并永久收到 `304`，导致受保护会话不启动 Session Agent。Windows WTS 用户名和域名必须显式调用 `WTSQuerySessionInformationW` 并按 UTF-16 解析，禁止把 ANSI 字节当 UTF-16 上传。该首次策略收敛与显示名编码缺陷由 2.0.5 前向修正。
 
 正式家长页的统计必须覆盖新旧账本且保持口径隔离：`/v2/module/usage` 继续提供 v1 与 accounting schema 1 的小时聚合历史，`/v2/module/accounting` 提供 accounting schema 2 的主账本区间并集、按小时 buckets、应用 ACTIVE/PiP 并集和辅助媒体摘要。两类来源不存在同一 Segment 的重复物化，页面可按小时、应用和总时长相加合并；辅助媒体摘要不得进入主总时长。若 accounting v2 已有数据而旧 hourly stats 为空，页面不得显示为零。
@@ -220,8 +222,8 @@ Windows 1.0.1 延续固定 `UpgradeCode` 与严格 `perUser` scope，构建脚�
 - `TimeOnChrome.AppRuntime.Infrastructure`：SQLite schema/store/outbox、DPAPI credential store、HTTP enrollment/upload client、JSON wire mapping。
 - `TimeOnChrome.AppRuntime.Infrastructure` 同时提供不含凭据的原子本地 Agent health snapshot store，供 Agent 写入、Setup 只读展示。
 - `TimeOnChrome.AppRuntime.Agent`：配置、生命周期、fact loop、upload loop 与结构化本地日志组合根。
-- `TimeOnChrome.AppRuntime.Setup`：WPF 五态配对 UI、current-user 单实例和基于本地 health snapshot 的状态展示。
-- Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store 与 Setup presentation。
+- `TimeOnChrome.AppRuntime.Setup`：WPF 五态配对 UI、current-user 单实例、基于本地 health snapshot 的状态展示，以及受工作区约束的响应式窗口/固定操作栏。
+- Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store、Setup presentation 与窗口布局纯逻辑。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。
 

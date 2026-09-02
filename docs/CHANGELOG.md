@@ -1,5 +1,14 @@
 # Changelog
 
+## [App Runtime 2.0.6] — 2026-09-03
+
+- **响应式 Setup**：移除固定 `620×590` 与禁止缩放限制；窗口按当前 Windows 工作区约束初始/最大尺寸，主内容仅垂直滚动，底部操作栏固定可见。
+- **卸载表单可达性**：展开“卸载这台电脑…”后自动定位到一次性卸载码、输入框和“授权并卸载”按钮；不改变代码生成、授权、管理员提升或 Named Pipe 鉴权流程。
+- **升级边界**：2.0.5→2.0.6 原地升级保留 HornburgXW 配对、机器身份、策略、SQLite、outbox 与历史记录；内部包仍未签名并保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- **内部发布**：William 已原地升级，Service 与单一 Session Agent 恢复运行；R2 latest 已切换 2.0.6。Burn 为 118,513,641 bytes / SHA-256 `2e78fe219dbf51c1df1d699b6776f3f9047069dcee2927ae10c575cbae7808f7`，MSI 为 60,194,894 bytes / SHA-256 `d0b6a18f354d965358e4cfd38880e0f6e8b64243143510aaa3f8a7b94468d7c4`，R2 与 Worker 下载回读一致。
+
+---
+
 ## [App Runtime 2.0.5] — 2026-09-02
 
 - **首次策略收敛**：机器首次上报本机用户并创建默认 assignment 时推进一次 desired policy version，使用户发现前缓存的空策略 ETag 失效；重复上报不重复推进。

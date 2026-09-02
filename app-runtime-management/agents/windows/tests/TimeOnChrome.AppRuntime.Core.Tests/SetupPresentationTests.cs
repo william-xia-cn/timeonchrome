@@ -6,6 +6,34 @@ namespace TimeOnChrome.AppRuntime.Core.Tests;
 public sealed class SetupPresentationTests
 {
     [Theory]
+    [InlineData(1920, 1040, 620, 680)]
+    [InlineData(1280, 640, 620, 616)]
+    [InlineData(960, 500, 620, 476)]
+    public void WindowBoundsFitNormalAndHighDpiLogicalWorkAreas(
+        double workAreaWidth,
+        double workAreaHeight,
+        double expectedWidth,
+        double expectedHeight)
+    {
+        var bounds = SetupWindowLayout.Resolve(workAreaWidth, workAreaHeight);
+
+        Assert.Equal(expectedWidth, bounds.Width);
+        Assert.Equal(expectedHeight, bounds.Height);
+        Assert.True(bounds.Width <= workAreaWidth - SetupWindowLayout.WorkAreaMargin);
+        Assert.True(bounds.Height <= workAreaHeight - SetupWindowLayout.WorkAreaMargin);
+        Assert.True(bounds.MinWidth <= bounds.Width && bounds.Width <= bounds.MaxWidth);
+        Assert.True(bounds.MinHeight <= bounds.Height && bounds.Height <= bounds.MaxHeight);
+    }
+
+    [Fact]
+    public void WindowBoundsRejectInvalidOrUnsupportedWorkAreas()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(double.NaN, 800));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(319, 800));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(800, 239));
+    }
+
+    [Theory]
     [InlineData("1.0.1.0", "1.0.1")]
     [InlineData("1.0.1", "1.0.1")]
     [InlineData("dev", "dev")]
