@@ -13,6 +13,7 @@
 - **App Runtime 2.0.3 安装链修正（2026-09-02）**：2.0.1 的非单文件 migration 和 2.0.2 普通用户扫描受保护 `HKEY_USERS` 的问题已分别通过单文件构建闸门、elevated machine probe + 原用户 migration 修复。Windows 42/42 tests、隔离 package probe、WiX 0 warning/0 error 通过；William 真机 1.x→2.0.3 已安装成功，旧 credential retired、SQLite 保留，LocalSystem auto Service 正常运行，普通用户无法读取 ProgramData 或停止/删除 Service。机器尚未配对，因此 Session Agent/策略 ACK/云端机器态仍待验证；2.0.1 production latest 在 2.0.3 完整验收与 R2 回读通过前仍是有缺陷的内部候选。
 - **App Runtime 2.0.4 控制管道修正（2026-09-02）**：2.0.3 安装后的 LocalSystem Service 进程和 SCM 状态正常，但 Setup 无法取得控制状态。当前根因是控制客户端没有显式提供 Service `RunAsClient` 管理员校验所需的 impersonation token，同时 Service 后台 loop 异常既不记录也不恢复。2.0.4 前向修正客户端 impersonation，并给常驻 loops 增加可观察的异常记录与退避重启；机器配对仍未执行，生产 R2/latest 未切换。
 - **Guardian D1 审计限额修复（2026-09-02）**：逐请求执行的 14 日删除和逐设备裁剪已从 `/device/*` 热路径移除，改为每日 scheduled maintenance；additive migration `025` 已增加时间与 profile/device/time 索引，Guardian Worker `95cd3de1-54f2-4814-8fef-50136eb01a18` 已部署。生产 smoke 新增 6 条匿名 401 heartbeat 审计后，旧两条清理 SQL 的一小时 Insights 执行计数保持 `176 / 110`，证明请求放大链路已停止；过期删除的生产查询计划使用新 timestamp index。修复前当日已累计 reads 不能撤销，额度显示需等待 Cloudflare 日窗口重置。
+- **App Runtime D-087 页面发布（2026-09-03）**：孩子级应用管理已收口为学习、复合、受限娱乐、黑名单和最近 30 天已使用未归类五个平面目录；普通目录分列应用、Windows、macOS 计数，预配置未使用应用继续保留。初次未登录或加载失败改为完整错误态，不再暴露空目录骨架。本次仅发布 Pages deployment `3164aad7`，稳定域名 `/app-runtime/` HTML/JS 回读 HTTP 200；Runtime/Guardian Worker、D1、R2、安装包、Santa 与 Chrome Extension 均未变更。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
