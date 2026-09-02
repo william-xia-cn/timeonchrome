@@ -36,7 +36,9 @@ import {
   parseCursor,
   putAppPolicy,
   queryAppUsage,
+  queryAppCatalog,
   queryClassificationRecords,
+  queryRuntimeLogs,
   querySegmentDetails,
 } from './appPolicy';
 
@@ -97,6 +99,17 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
         env.RUNTIME_DB, claims.account_id, childId, nowMs, platform || undefined,
       ));
     }
+    if (url.pathname === '/v2/module/app-catalog') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      const platform = url.searchParams.get('platform');
+      if (platform != null && platform !== 'windows' && platform !== 'macos') {
+        throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
+      }
+      return jsonResponse(await queryAppCatalog(
+        env.RUNTIME_DB, claims.account_id, childId, nowMs, platform || undefined,
+      ));
+    }
     if (url.pathname === '/v2/module/app-usage') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
       const childId = requireChild();
@@ -124,6 +137,31 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
         env.RUNTIME_DB, claims.account_id, childId,
         url.pathname.endsWith('/media-segments') ? 'media' : 'usage',
         range.fromMs, range.toMs, requestedLimit, parseCursor(url.searchParams.get('cursor')),
+      ));
+    }
+    if (url.pathname === '/v2/module/runtime-logs') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      const range = requireRange(36_500);
+      const requestedLimit = Number(url.searchParams.get('limit') || 50);
+      const level = url.searchParams.get('level');
+      const category = url.searchParams.get('category');
+      if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100) {
+        throw new HttpError(400, 'INVALID_LIMIT', 'Limit must be between 1 and 100.');
+      }
+      if (level != null && !['error', 'warning', 'info'].includes(level)) {
+        throw new HttpError(400, 'INVALID_LOG_LEVEL', 'Log level is invalid.');
+      }
+      if (category != null && category !== 'accounting') {
+        throw new HttpError(400, 'INVALID_LOG_CATEGORY', 'Log category is invalid.');
+      }
+      return jsonResponse(await queryRuntimeLogs(
+        env.RUNTIME_DB, claims.account_id, childId, range.fromMs, range.toMs,
+        requestedLimit, parseCursor(url.searchParams.get('cursor')), {
+          machineId: url.searchParams.get('machineId') || undefined,
+          level: (level || undefined) as 'error' | 'warning' | 'info' | undefined,
+          category: (category || undefined) as 'accounting' | undefined,
+        },
       ));
     }
     if (url.pathname === '/v2/module/pairing-codes') {

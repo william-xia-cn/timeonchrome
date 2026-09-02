@@ -650,6 +650,162 @@ export async function queryClassificationRecords(
   };
 }
 
+export async function queryAppCatalog(
+  database: D1Database,
+  accountId: string,
+  childId: string,
+  nowMs: number,
+  platform?: RuntimePlatform,
+): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[] }> {
+  const windowEndMs = nowMs;
+  const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
+  const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
+  let platformFilter = '';
+  if (platform) { values.push(platform); platformFilter = ` AND s.platform=?${values.length}`; }
+  const rows = await database.prepare(`
+    SELECT s.platform,s.runtime_identity,s.display_name,s.machine_id,s.local_user_id,
+      s.runtime_session_id,s.clock_epoch_id,
+      COALESCE(s.start_wall_time_ms,s.start_at_ms) AS start_at_ms,
+      COALESCE(s.end_wall_time_ms,s.end_at_ms) AS end_at_ms
+    FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+    WHERE m.account_id=?1 AND s.child_id=?2 AND s.runtime_identity IS NOT NULL
+      AND s.diagnostic=0${platformFilter}
+      AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4
+      AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3
+    ORDER BY start_at_ms,end_at_ms,s.id
+  `).bind(...values).all<Record<string, unknown>>();
+  const legacyValues: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
+  let legacyPlatformFilter = '';
+  if (platform) { legacyValues.push(platform); legacyPlatformFilter = ` AND s.platform=?${legacyValues.length}`; }
+  const legacyRows = await database.prepare(`
+    SELECT s.platform,s.runtime_identity,s.display_name,s.device_id AS machine_id,
+      'legacy-v1' AS local_user_id,s.runtime_session_id,'legacy-v1' AS clock_epoch_id,
+      s.start_at_ms,s.end_at_ms
+    FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
+    WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3${legacyPlatformFilter}
+    ORDER BY s.start_at_ms,s.end_at_ms,s.id
+  `).bind(...legacyValues).all<Record<string, unknown>>();
+  const policy = await getAppPolicy(database, accountId, childId);
+  const grouped = new Map<string, {
+    platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null;
+    firstSeenAtMs: number; lastSeenAtMs: number; machines: Set<string>; users: Set<string>;
+    intervals: Map<string, Array<[number, number]>>;
+  }>();
+  for (const row of [...(rows.results || []), ...(legacyRows.results || [])]) {
+    const key = `${row.platform}\n${row.runtime_identity}`;
+    const startAtMs = Math.max(windowStartMs, Number(row.start_at_ms));
+    const endAtMs = Math.min(windowEndMs, Number(row.end_at_ms));
+    if (endAtMs <= startAtMs) continue;
+    const record = grouped.get(key) || {
+      platform: row.platform as RuntimePlatform,
+      runtimeIdentity: String(row.runtime_identity),
+      displayName: row.display_name == null ? null : String(row.display_name),
+      firstSeenAtMs: startAtMs,
+      lastSeenAtMs: endAtMs,
+      machines: new Set<string>(), users: new Set<string>(),
+      intervals: new Map<string, Array<[number, number]>>(),
+    };
+    record.firstSeenAtMs = Math.min(record.firstSeenAtMs, startAtMs);
+    record.lastSeenAtMs = Math.max(record.lastSeenAtMs, endAtMs);
+    if (row.display_name != null) record.displayName = String(row.display_name);
+    record.machines.add(String(row.machine_id));
+    record.users.add(String(row.local_user_id));
+    const lane = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
+    const intervals = record.intervals.get(lane) || [];
+    intervals.push([startAtMs, endAtMs]); record.intervals.set(lane, intervals);
+    grouped.set(key, record);
+  }
+  const policyByKey = new Map(policy.classifications.map((item) => [`${item.platform}\n${item.runtimeIdentity}`, item]));
+  const keys = new Set([...grouped.keys(), ...policyByKey.keys()]);
+  const items = [...keys].map((key) => {
+    const observed = grouped.get(key);
+    const configured = policyByKey.get(key);
+    const [itemPlatform, runtimeIdentity] = key.split('\n');
+    return {
+      platform: itemPlatform,
+      runtimeIdentity,
+      displayName: observed?.displayName || configured?.displayName || null,
+      classification: configured?.classification || 'unclassified',
+      firstSeenAtMs: observed?.firstSeenAtMs ?? null,
+      lastSeenAtMs: observed?.lastSeenAtMs ?? null,
+      mainDurationMs: observed ? groupedUnion(observed.intervals) : 0,
+      machineCount: observed?.machines.size || 0,
+      userCount: observed?.users.size || 0,
+      observedInWindow: Boolean(observed),
+    };
+  }).filter((item) => !platform || item.platform === platform)
+    .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
+      || String(left.displayName || '').localeCompare(String(right.displayName || '')));
+  return { windowStartMs, windowEndMs, items };
+}
+
+function runtimeLogLevel(code: string): 'error' | 'warning' | 'info' {
+  const normalized = code.toLowerCase();
+  if (/(fail|error|corrupt|conflict)/.test(normalized)) return 'error';
+  if (/(late|missing|mismatch|reject|unknown|unconfirmed|recovery)/.test(normalized)) return 'warning';
+  return 'info';
+}
+
+export async function queryRuntimeLogs(
+  database: D1Database,
+  accountId: string,
+  childId: string,
+  fromMs: number,
+  toMs: number,
+  limit: number,
+  cursor: { beforeMs: number; beforeId: string } | null,
+  options: { machineId?: string; level?: 'error' | 'warning' | 'info'; category?: 'accounting' },
+): Promise<{ items: unknown[]; nextCursor: string | null; summary: { total: number; error: number; warning: number; info: number } }> {
+  const values: unknown[] = [accountId, childId, fromMs, toMs, cursor?.beforeMs ?? null, cursor?.beforeId ?? ''];
+  let filter = '';
+  if (options.machineId) { values.push(options.machineId); filter += ` AND s.machine_id=?${values.length}`; }
+  if (options.level) {
+    values.push(options.level);
+    filter += ` AND (CASE
+      WHEN LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*fail*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*error*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*corrupt*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*conflict*' THEN 'error'
+      WHEN LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*late*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*missing*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*mismatch*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*reject*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*unknown*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*unconfirmed*'
+        OR LOWER(COALESCE(s.diagnostic_code,'')) GLOB '*recovery*' THEN 'warning'
+      ELSE 'info' END)=?${values.length}`;
+  }
+  values.push(limit + 1);
+  const rows = await database.prepare(`
+    SELECT s.id,s.machine_id,m.display_name AS machine_name,m.platform,s.wall_time_ms,s.diagnostic_code
+    FROM runtime_usage_diagnostic_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+    WHERE m.account_id=?1 AND s.child_id=?2 AND s.wall_time_ms>=?3 AND s.wall_time_ms<?4
+      AND (?5 IS NULL OR s.wall_time_ms<?5 OR (s.wall_time_ms=?5 AND s.id<?6))${filter}
+    ORDER BY s.wall_time_ms DESC,s.id DESC LIMIT ?${values.length}
+  `).bind(...values).all<Record<string, unknown>>();
+  const filtered = (rows.results || []).map((row) => {
+    const eventCode = String(row.diagnostic_code || 'accountingDiagnostic');
+    return {
+      id: String(row.id), timestampMs: Number(row.wall_time_ms), level: runtimeLogLevel(eventCode),
+      category: 'accounting', eventCode, machineId: String(row.machine_id),
+      machineName: row.machine_name == null ? '电脑' : String(row.machine_name),
+      platform: row.platform, module: 'accounting-state-machine',
+      message: '状态机记录了一个不计时的诊断边界。',
+    };
+  }).filter((item) => !options.category || item.category === options.category);
+  const page = filtered.slice(0, limit);
+  const last = page[page.length - 1];
+  const nextCursor = filtered.length > limit && last
+    ? btoa(JSON.stringify({ beforeMs: last.timestampMs, beforeId: last.id })) : null;
+  return {
+    items: page,
+    nextCursor,
+    summary: page.reduce((summary, item) => {
+      summary.total += 1; summary[item.level] += 1; return summary;
+    }, { total: 0, error: 0, warning: 0, info: 0 }),
+  };
+}
+
 export async function querySegmentDetails(
   database: D1Database,
   accountId: string,

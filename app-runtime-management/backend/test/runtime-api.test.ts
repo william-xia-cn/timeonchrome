@@ -552,7 +552,10 @@ describe('Runtime product API', () => {
       }),
     })).status).toBe(400);
     const firstPolicy = {
-      classifications: [{ platform: 'windows', runtimeIdentity: 'app:observed', displayName: 'Observed', classification: 'study' }],
+      classifications: [
+        { platform: 'windows', runtimeIdentity: 'app:observed', displayName: 'Observed', classification: 'study' },
+        { platform: 'macos', runtimeIdentity: 'app:unused', displayName: 'Unused', classification: 'composite' },
+      ],
       quotas: {
         dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
         weeklyRestrictedEntertainmentMinutes: null,
@@ -570,6 +573,13 @@ describe('Runtime product API', () => {
     expect(processed.windowEndMs - processed.windowStartMs).toBe(30 * 86_400_000);
     expect(processed.pending).toEqual([]);
     expect(processed.processed).toEqual(expect.arrayContaining([expect.objectContaining({ runtimeIdentity: 'app:observed' })]));
+    const catalog = await (await call('/v2/module/app-catalog?childId=child-a', {
+      headers: bearer(account),
+    })).json<{ items: Array<{ runtimeIdentity: string; classification: string; mainDurationMs: number; observedInWindow: boolean }> }>();
+    expect(catalog.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeIdentity: 'app:observed', classification: 'study', mainDurationMs: 60_000, observedInWindow: true }),
+      expect.objectContaining({ runtimeIdentity: 'app:unused', classification: 'composite', mainDurationMs: 0, observedInWindow: false }),
+    ]));
 
     const classified = await accountingUsage({
       runtimeIdentity: 'app:observed', channel: 'active', basis: 'foregroundInteraction',
@@ -593,6 +603,35 @@ describe('Runtime product API', () => {
     const saved = await (await call('/v2/module/app-policy?childId=child-a', { headers: bearer(account) }))
       .json<{ timeWindows: ReturnType<typeof closedTimeWindows> }>();
     expect(saved.timeWindows).toEqual(closed);
+  });
+
+  it('provides privacy-safe accounting diagnostics through runtime log filters', async () => {
+    const { account, enrolled, localUserId } = await createMachineWithUser();
+    const now = Date.now();
+    const diagnostic = await accountingUsage({
+      runtimeIdentity: null, channel: 'diagnostic', basis: 'diagnostic',
+      start: now - 1_000, end: now - 1_000, diagnostic: true,
+    });
+    const uploaded = await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...diagnostic, localUserId, assignmentVersion: 2 }] }),
+    });
+    expect(uploaded.status).toBe(200);
+
+    const response = await call(`/v2/module/runtime-logs?childId=child-a&fromMs=${now - 60_000}&toMs=${now + 1}&level=warning&category=accounting&limit=10`, {
+      headers: bearer(account),
+    });
+    expect(response.status).toBe(200);
+    const payload = await response.json<{ items: Array<Record<string, unknown>>; summary: Record<string, number> }>();
+    expect(payload.summary).toMatchObject({ total: 1, warning: 1 });
+    expect(payload.items).toEqual([expect.objectContaining({
+      level: 'warning', category: 'accounting', eventCode: 'lateFact', module: 'accounting-state-machine',
+    })]);
+    expect(payload.items[0]).not.toHaveProperty('localUserId');
+    expect(payload.items[0]).not.toHaveProperty('runtimeIdentity');
+    expect((await call(`/v2/module/runtime-logs?childId=child-a&fromMs=0&toMs=${now + 1}&level=debug`, {
+      headers: bearer(account),
+    })).status).toBe(400);
   });
 
   it('rejects an unknown app policy version and never trusts a client classification', async () => {

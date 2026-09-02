@@ -63,8 +63,24 @@
       </section>
       <section class="view" data-view-panel="devices"><section class="card"><div class="section-title"><div><h2>所有电脑</h2><p>管理员一次安装；每个本机账户可分配给孩子或设为成人不保护</p></div><button id="add-machine" class="primary">添加 Windows 电脑</button></div><div id="machines" class="machine-list"></div></section></section>
       <section class="view" data-view-panel="system">
-        <div class="tabbar system-tabs"><button class="active" data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button></div>
-        <section class="card" data-system-panel="ledger"><div class="section-title"><div><h2>Runtime 主账本</h2><p>estimated 正常计入；0ms diagnostic 不计时</p></div><button data-load-ledger="usage">加载明细</button></div><div id="ledger-list" class="table-list empty">点击“加载明细”查看</div></section>
+        <div class="tabbar system-tabs"><button class="active" data-system-tab="logs">系统日志</button><button data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button></div>
+        <section data-system-panel="logs">
+          <aside class="notice runtime-log-scope"><strong>当前日志来源</strong><span>只显示已随 accounting v2 上传的脱敏 0ms diagnostic；本机 Service 文件日志尚未上传，也没有远程日志开关。</span></aside>
+          <section class="card runtime-log-card">
+            <div class="section-title"><div><h2>日志查询</h2><p>按北京时间倒序显示；不包含用户名、SID、路径、窗口标题或应用原始身份</p></div></div>
+            <div class="log-filters">
+              <div class="segmented"><button class="active" data-log-range="today">今日</button><button data-log-range="week">本周</button><button data-log-range="all">全部</button></div>
+              <select id="log-machine-filter" aria-label="日志电脑筛选"><option value="">全部电脑</option></select>
+              <select id="log-level-filter" aria-label="日志等级筛选"><option value="">全部等级</option><option value="error">error</option><option value="warning">warning</option><option value="info">info</option></select>
+              <select id="log-category-filter" aria-label="日志类别筛选"><option value="">全部类别</option><option value="accounting">accounting</option></select>
+              <button id="load-runtime-logs" class="primary">查询</button>
+            </div>
+            <div id="runtime-log-summary" class="log-summary"><span>尚未查询</span></div>
+            <div id="runtime-log-list" class="runtime-log-table empty">点击“查询”查看系统日志</div>
+            <div class="load-more"><button id="runtime-log-more" hidden>加载更多</button></div>
+          </section>
+        </section>
+        <section class="card" data-system-panel="ledger" hidden><div class="section-title"><div><h2>Runtime 主账本</h2><p>estimated 正常计入；0ms diagnostic 不计时</p></div><button data-load-ledger="usage">加载明细</button></div><div id="ledger-list" class="table-list empty">点击“加载明细”查看</div></section>
         <section class="card" data-system-panel="media" hidden><div class="section-title"><div><h2>辅助媒体明细</h2><p>可重叠，不进入主使用总时长或配额</p></div><button data-load-ledger="media">加载明细</button></div><div id="media-list" class="table-list empty">点击“加载明细”查看</div></section>
         <section class="card" data-system-panel="health" hidden><div class="section-title"><div><h2>策略与 Agent 健康</h2><p>区分待下发、已缓存、当前会话已生效、失败和离线</p></div></div><div id="health-list" class="health-grid"></div></section>
       </section>

@@ -5,9 +5,9 @@
 - Spec ID: SPEC-004
 - Date: 2026-09-01
 - Owner: Product Owner
-- Status: Approved for Windows 2.0 system-managed multi-user implementation, Accounting Phase A and App Management Console Phase B/D-085 split
+- Status: Approved for Windows 2.0 system-managed multi-user implementation, Accounting Phase A and App Management Console Phase B/D-086 completion
 - Related task: Windows App Runtime 可用闭环
-- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081, D-084, D-085
+- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081, D-084, D-085, D-086
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -39,7 +39,14 @@ Runtime 页面保留独立部署边界，左侧固定为 `使用统计 / 访问�
 - 右侧只提供名称搜索和平台筛选。应用行显示名称、平台、最近使用和主账本时长，不显示 `runtimeIdentity`、路径、SID 或本机用户标识；可以归入四个最终分类或暂不归类，已处理历史默认折叠并允许以后重新归类。
 - 未归类证据固定为服务端当前时间向前 30 天，且只读取 Segment 当时为 `unclassified` 或没有 App Policy 的事实。当前策略只决定记录是待处理还是已处理，不得把所有已分类应用混入历史，也不得改写历史 Segment。
 - “访问管理”标题为“应用访问管理”，固定包含时间配额、时间段管理和配置文件三个页签。七天时间段分别管理学习、复合、受限娱乐和未归类应用，默认每天 `00:00–24:00` 全部开放；黑名单、超额和时段外使用只提示和记录，不实施进程终止或阻止。
-- 配置文件 schema v2 包含当前孩子的应用分类、独立配额和时间段。导入 v1 时补为全部开放；导入必须先展示差异并由家长勾选确认。系统管理不再承载配置文件，只保留主账本、辅助媒体和运行健康。
+- 配置文件 schema v2 包含当前孩子的应用分类、独立配额和时间段。导入 v1 时补为全部开放；导入必须先展示差异并由家长勾选确认。系统管理不再承载配置文件；D-085 的初始三项列表由 D-086 增加系统日志。
+
+### D-086 产品完成态补充
+
+- 四个正式分类不能只依赖当前统计周期临时拼接。服务端提供最近 30 天真实应用目录，并与当前策略合并：本窗口已使用应用显示最近使用、主账本区间并集、机器数和本机用户数；已归类但窗口内未使用的应用仍保留，明确显示“最近 30 天无使用”。
+- 每行使用明确的“归为学习 / 归为复合 / 归为受限娱乐 / 归为黑名单 / 暂不归类”操作；当前分类不可重复提交，成功或失败必须有可理解反馈。未归类待处理与已处理历史继续分层，历史默认折叠。
+- 系统管理增加“系统日志”页签，参考 TimeOnChrome 的今日/本周/全部范围、机器、等级、类别筛选、摘要、表格和加载更多。Runtime 当前日志事实仅来自已上传的 accounting v2 0ms diagnostic Segment；日志表展示时间、等级、类别、事件、电脑和模块，不返回 raw identity、local user ID 或任何敏感凭据。
+- 当前包不增加远程日志采集开关，因为 Windows Service 文件日志和 tamper 明细尚未进入独立、可配置的日志上传协议。页面必须明确此事实，禁止把 accounting diagnostic 误称为完整终端日志。
 
 ### 独立观察型配额
 

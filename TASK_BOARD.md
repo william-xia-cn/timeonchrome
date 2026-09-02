@@ -12,11 +12,17 @@
 
 ## Active App Runtime Work（2026-09-02）
 
-- [x] **[SPEC-004 / D-085] App Runtime 应用管理与访问管理分离重构（本地完成，未部署）**
+- [x] **[SPEC-004 / D-086] App Runtime 应用目录与系统日志管理补完（本地完成，未部署）**
+  - 原因：D-085 只完成导航、策略与基础列表，应用目录缺少完整 read model、显式分类动作和操作反馈；系统管理也没有 TimeOnChrome 式日志查询。
+  - 目标：增加真实应用目录接口与完整分类行；系统日志基于已上传的 0ms accounting diagnostic，提供范围、机器、等级、类别、摘要、列表和分页。
+  - 边界：不把 diagnostic 当作完整 Service 文件日志，不增加日志上传开关或新采集协议，不新增 migration、不部署、不修改生产数据。
+  - 证据：Runtime Worker typecheck 与 21/21 tests 通过；App Policy helper 与 D-086 桌面/移动 Playwright 视觉检查通过；canonical console 已同步 staged Pages，应用显式动作和系统日志表无横向页面溢出。
+
+- [x] **[SPEC-004 / D-085] App Runtime 应用管理与访问管理分离重构（基础结构完成，产品完成态由 D-086 补齐）**
   - 目标：顶层导航调整为使用统计、访问管理、应用管理、设备管理和系统管理；应用管理负责真实应用目录与最近 30 天未归类处理，访问管理负责独立配额、七天时间段和配置文件。
   - 规则：时间段默认全部开放；旧客户端不得重置已有时间段；超额、黑名单和时段外使用只提示记录，不结束或阻止进程。
   - 范围：只做本地合同、Runtime Worker、Windows 策略缓存、canonical console、staged Pages、测试和视觉证据；不部署、不应用 production migration、不修改生产数据。
-  - 证据：Runtime Worker 20/20、Windows 50/50、console helper 与 D-085 Playwright 视觉检查通过；桌面/移动应用目录和七天时间段截图通过，Wrangler binding type check 与 deploy dry-run 通过，未新增 D1 migration。
+  - 证据：Runtime Worker 20/20、Windows 50/50、console helper 与 D-085 Playwright 视觉检查通过；这些证据仅证明基础结构，不再作为“应用管理产品已完成”的结论。
 
 - [x] **[SPEC-004 / D-084] App Runtime 家长管理界面与应用策略闭环（本地完成，待单独发布授权）**
   - 目标：独立 `/app-runtime/` 复用主控制台外壳，提供使用统计、访问管理、应用归类记录、设备管理和 Runtime 系统管理。

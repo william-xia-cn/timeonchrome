@@ -21,15 +21,17 @@ const { chromium } = require('playwright');
   assert.deepEqual(await page.locator('.app-category-item strong').allTextContents(),
     ['学习应用', '复合应用', '受限娱乐应用', '黑名单应用', '已使用未归类应用']);
   assert.equal(await page.locator('.app-category-item').count(), 5);
-  assert.match(await page.locator('#managed-app-list').textContent(), /Visual Studio Code/);
-  assert.doesNotMatch(await page.locator('body').innerText(), /runtimeIdentity|app:vscode|opaque-a/);
-  await page.evaluate(() => {
-    document.querySelector('[data-app-category="unclassified"]').click();
-    window.scrollTo(0, 0);
-  });
   assert.match(await page.locator('#managed-app-list').textContent(), /计算器/);
+  assert.equal(await page.locator('#managed-app-list .record-actions button').count(), 5);
+  assert.match(await page.locator('#managed-app-list').textContent(), /1 台电脑.*1 个本机账户/);
+  assert.doesNotMatch(await page.locator('body').innerText(), /runtimeIdentity|app:vscode|opaque-a/);
   assert.equal(await page.locator('#processed-history').isHidden(), false);
   await page.screenshot({ path: path.join(output, 'desktop-app-management.png'), fullPage: true });
+  await page.locator('#managed-app-list [data-classification="study"]').click();
+  assert.match(await page.locator('#status-message').textContent(), /计算器 已归入学习/);
+  await page.locator('[data-app-category="study"]').click();
+  assert.match(await page.locator('#managed-app-list').textContent(), /Visual Studio Code/);
+  assert.match(await page.locator('#managed-app-list').textContent(), /计算器/);
   await page.locator('[data-app-category="blocked"]').click();
   await page.locator('#management-platform').selectOption('macos');
   assert.match(await page.locator('#managed-app-list').textContent(), /WeChat/);
@@ -52,8 +54,12 @@ const { chromium } = require('playwright');
   await page.screenshot({ path: path.join(output, 'desktop-access-schedule.png'), fullPage: true });
 
   await page.locator('[data-view="system"]').click();
-  assert.deepEqual(await page.locator('[data-system-tab]').allTextContents(), ['主账本明细', '辅助媒体明细', '运行健康']);
+  assert.deepEqual(await page.locator('[data-system-tab]').allTextContents(), ['系统日志', '主账本明细', '辅助媒体明细', '运行健康']);
   assert.equal(await page.locator('[data-system-panel="config"]').count(), 0);
+  assert.equal(await page.locator('.runtime-log-row').count(), 3);
+  assert.match(await page.locator('#runtime-log-summary').textContent(), /error 1.*warning 1.*info 1/);
+  assert.doesNotMatch(await page.locator('[data-system-panel="logs"]').innerText(), /app:|opaque-/);
+  await page.screenshot({ path: path.join(output, 'desktop-system-logs.png'), fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('#mobile-menu').click();
@@ -61,7 +67,7 @@ const { chromium } = require('playwright');
   await page.waitForTimeout(300);
   assert.equal(await page.locator('.app-category-nav').evaluate((element) => getComputedStyle(element).display), 'flex');
   await page.evaluate(() => {
-    document.querySelector('[data-app-category="unclassified"]').click();
+    document.querySelector('[data-app-category="study"]').click();
     window.scrollTo(0, 0);
   });
   const overflow = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth,
@@ -72,13 +78,16 @@ const { chromium } = require('playwright');
   })));
   assert.ok(Object.values(layout).every((rect) => rect.right <= 390.5), JSON.stringify(layout));
   await page.screenshot({ path: path.join(output, 'mobile-app-management.png') });
+  await page.evaluate(() => document.querySelector('[data-view="system"]').click());
+  assert.equal(await page.locator('.runtime-log-row').first().evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 2);
+  await page.screenshot({ path: path.join(output, 'mobile-system-logs.png'), fullPage: true });
   await page.evaluate(() => document.querySelector('[data-view="access"]').click());
   await page.locator('[data-access-tab="schedule"]').click();
   assert.equal(await page.locator('.schedule-categories').first().evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 1);
   await page.screenshot({ path: path.join(output, 'mobile-access-schedule.png'), fullPage: true });
   assert.deepEqual(errors, []);
   await browser.close();
-  console.log(`App Runtime D-085 visual checks passed. Screenshots: ${output}`);
+  console.log(`App Runtime D-086 visual checks passed. Screenshots: ${output}`);
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

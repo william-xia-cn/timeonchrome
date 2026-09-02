@@ -263,7 +263,9 @@ Display name 是非权威展示元数据，不进入策略身份键。`timeWindo
 - `GET/PUT /v2/module/app-policy?childId=`：读取或原子替换当前孩子完整 App Policy。
 - `GET /v2/module/app-classification-records`：服务端以当前时间固定最近 30 天窗口，只聚合历史为未归类或缺少 App Policy 的 Segment，返回 `windowStartMs/windowEndMs`、平台去重的待处理记录与已处理历史。
 - `GET /v2/module/app-usage`：返回设备主时长并集、分类/应用并集、配额使用/剩余/超额状态、按 Segment 所携带策略版本解析的时段外使用摘要和辅助媒体摘要。
+- `GET /v2/module/app-catalog`：返回当前 App Policy 与最近 30 天真实主 Segment 的合并目录；按 `platform + runtimeIdentity` 去重，正式分类中的未使用策略项仍保留。
 - `GET /v2/module/usage-segments` 与 `GET /v2/module/media-segments`：提供 Runtime 系统管理的游标分页明细；不返回 Child ID、token、SID、路径或窗口标题。
+- `GET /v2/module/runtime-logs`：从 `runtime_usage_diagnostic_segments_v2` 读取不可变诊断事件，支持时间范围、机器、等级、类别和游标；响应只包含脱敏的事件代码、模块、机器展示名与时间。等级由服务端固定映射，当前类别固定为 `accounting`。
 
 `GET /v2/machines/policy` 在现有 assignment 之外增量返回本机受保护用户所需的 App Policy 版本。孩子策略变更只提升关联机器的 desired version；Service 原子缓存后，在实际应用时间关闭受影响用户的 foreground/PiP lane，并以新 `AccountingPolicySnapshot` 同刻重开。上传携带 `appPolicyVersion`，Worker 根据服务端策略历史解析分类和 quota bucket，不信任客户端自报分类。
 
@@ -271,7 +273,7 @@ Display name 是非权威展示元数据，不进入策略身份键。`timeWindo
 
 `app-runtime-management/console/` 是 canonical source，静态复制到 `pages/app-runtime/`。页面在独立文档内切换 `usage/access/apps/devices/system` 五个视图，复用主控制台的绿色视觉语言、Logo、孩子选择器、桌面侧栏、移动导航和账户区，但不抽取或修改主控制台业务代码。
 
-应用管理使用固定左侧分类目录、名称搜索、平台筛选和无二级页签列表；访问管理固定使用时间配额、时间段管理、配置文件三页签；设备管理使用列表加右侧详情抽屉；系统管理只提供主账本、辅助媒体和健康。配置文件 schema v2 由访问管理导出/导入，v1 导入补成全开放时间段，必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
+应用管理使用固定左侧分类目录、名称搜索、平台筛选和无二级页签列表；应用目录由 `/v2/module/app-catalog` 驱动，行内使用显式目标分类动作并显示操作结果。访问管理固定使用时间配额、时间段管理、配置文件三页签；设备管理使用列表加右侧详情抽屉；系统管理提供系统日志、主账本、辅助媒体和健康。系统日志沿用 TimeOnChrome 的筛选/摘要/分页层级，但当前只读取 accounting diagnostic，不提供虚假的 Service 日志开关。配置文件 schema v2 由访问管理导出/导入，v1 导入补成全开放时间段，必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
 - Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store、Setup presentation 与窗口布局纯逻辑。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。
