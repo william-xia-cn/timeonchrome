@@ -6,8 +6,19 @@ const { chromium } = require('playwright');
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
-  const output = path.resolve('test-results', 'app-runtime-d085');
+  const output = path.resolve('test-results', 'app-runtime-d087');
   await fs.mkdir(output, { recursive: true });
+  const unauthenticated = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+  await unauthenticated.goto(pathToFileURL(path.resolve(__dirname, 'index.html')).href);
+  await unauthenticated.locator('[data-view="apps"]').click();
+  assert.equal(await unauthenticated.locator('#load-empty-state').isVisible(), true);
+  assert.match(await unauthenticated.locator('#load-empty-state').innerText(), /无法加载电脑应用管理.*请先登录家长控制台.*\?mock=1/s);
+  assert.equal(await unauthenticated.locator('#child-select').inputValue(), '未登录');
+  assert.equal(await unauthenticated.locator('#child-select').isDisabled(), true);
+  assert.equal(await unauthenticated.locator('.view:visible').count(), 0);
+  assert.equal(await unauthenticated.locator('#app-category-nav').isVisible(), false);
+  await unauthenticated.screenshot({ path: path.join(output, 'desktop-unauthenticated.png'), fullPage: true });
+  await unauthenticated.close();
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -21,20 +32,30 @@ const { chromium } = require('playwright');
   assert.deepEqual(await page.locator('.app-category-item strong').allTextContents(),
     ['学习应用', '复合应用', '受限娱乐应用', '黑名单应用', '已使用未归类应用']);
   assert.equal(await page.locator('.app-category-item').count(), 5);
+  assert.deepEqual(await page.locator('[data-app-category="study"] .app-category-stat').allTextContents(),
+    ['应用1', 'Windows1', 'macOS0']);
+  assert.deepEqual(await page.locator('[data-app-category="unclassified"] .app-category-stat').allTextContents(),
+    ['待处理1', '窗口最近 30 天']);
+  assert.equal(await page.locator('[data-app-category="study"] .app-category-stat').count(), 3);
+  assert.equal(await page.locator('[data-app-category="unclassified"] .app-category-stat').count(), 2);
   assert.match(await page.locator('#managed-app-list').textContent(), /计算器/);
   assert.equal(await page.locator('#managed-app-list .record-actions button').count(), 5);
   assert.match(await page.locator('#managed-app-list').textContent(), /1 台电脑.*1 个本机账户/);
   assert.doesNotMatch(await page.locator('body').innerText(), /runtimeIdentity|app:vscode|opaque-a/);
   assert.equal(await page.locator('#processed-history').isHidden(), false);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: path.join(output, 'desktop-app-management.png'), fullPage: true });
   await page.locator('#managed-app-list [data-classification="study"]').click();
   assert.match(await page.locator('#status-message').textContent(), /计算器 已归入学习/);
   await page.locator('[data-app-category="study"]').click();
   assert.match(await page.locator('#managed-app-list').textContent(), /Visual Studio Code/);
   assert.match(await page.locator('#managed-app-list').textContent(), /计算器/);
+  assert.deepEqual(await page.locator('[data-app-category="study"] .app-category-stat').allTextContents(),
+    ['应用2', 'Windows2', 'macOS0']);
   await page.locator('[data-app-category="blocked"]').click();
   await page.locator('#management-platform').selectOption('macos');
   assert.match(await page.locator('#managed-app-list').textContent(), /WeChat/);
+  assert.match(await page.locator('#managed-app-list').textContent(), /最近 30 天无使用/);
   await page.locator('#app-search').fill('不存在的应用');
   assert.match(await page.locator('#managed-app-list').textContent(), /没有符合条件/);
   await page.locator('#management-platform').selectOption('');
@@ -87,7 +108,7 @@ const { chromium } = require('playwright');
   await page.screenshot({ path: path.join(output, 'mobile-access-schedule.png'), fullPage: true });
   assert.deepEqual(errors, []);
   await browser.close();
-  console.log(`App Runtime D-086 visual checks passed. Screenshots: ${output}`);
+  console.log(`App Runtime D-087 visual checks passed. Screenshots: ${output}`);
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

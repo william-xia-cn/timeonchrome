@@ -273,7 +273,7 @@ Display name 是非权威展示元数据，不进入策略身份键。`timeWindo
 
 `app-runtime-management/console/` 是 canonical source，静态复制到 `pages/app-runtime/`。页面在独立文档内切换 `usage/access/apps/devices/system` 五个视图，复用主控制台的绿色视觉语言、Logo、孩子选择器、桌面侧栏、移动导航和账户区，但不抽取或修改主控制台业务代码。
 
-应用管理使用固定左侧分类目录、名称搜索、平台筛选和无二级页签列表；应用目录由 `/v2/module/app-catalog` 驱动，行内使用显式目标分类动作并显示操作结果。访问管理固定使用时间配额、时间段管理、配置文件三页签；设备管理使用列表加右侧详情抽屉；系统管理提供系统日志、主账本、辅助媒体和健康。系统日志沿用 TimeOnChrome 的筛选/摘要/分页层级，但当前只读取 accounting diagnostic，不提供虚假的 Service 日志开关。配置文件 schema v2 由访问管理导出/导入，v1 导入补成全开放时间段，必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
+应用管理使用固定左侧分类目录、名称搜索、平台筛选和无二级页签列表；应用目录由 `/v2/module/app-catalog` 驱动，按当前孩子隔离，并将现行策略项与最近 30 天真实应用合并。左侧普通目录将总数、Windows 数和 macOS 数分列展示，未归类目录展示待处理数与固定 30 天窗口；策略中预配置但窗口内未使用的真实身份仍返回并保留。右侧行内使用显式目标分类动作并显示操作结果，不引入网站特有的来源子表或特殊对象。访问管理固定使用时间配额、时间段管理、配置文件三页签；设备管理使用列表加右侧详情抽屉；系统管理提供系统日志、主账本、辅助媒体和健康。系统日志沿用 TimeOnChrome 的筛选/摘要/分页层级，但当前只读取 accounting diagnostic，不提供虚假的 Service 日志开关。配置文件 schema v2 由访问管理导出/导入，v1 导入补成全开放时间段，必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
 - Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store、Setup presentation 与窗口布局纯逻辑。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。

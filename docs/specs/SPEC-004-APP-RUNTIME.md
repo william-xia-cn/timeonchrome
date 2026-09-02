@@ -7,7 +7,7 @@
 - Owner: Product Owner
 - Status: Approved for Windows 2.0 system-managed multi-user implementation, Accounting Phase A and App Management Console Phase B/D-086 completion
 - Related task: Windows App Runtime 可用闭环
-- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081, D-084, D-085, D-086
+- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081, D-084, D-085, D-086, D-087
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -47,6 +47,13 @@ Runtime 页面保留独立部署边界，左侧固定为 `使用统计 / 访问�
 - 每行使用明确的“归为学习 / 归为复合 / 归为受限娱乐 / 归为黑名单 / 暂不归类”操作；当前分类不可重复提交，成功或失败必须有可理解反馈。未归类待处理与已处理历史继续分层，历史默认折叠。
 - 系统管理增加“系统日志”页签，参考 TimeOnChrome 的今日/本周/全部范围、机器、等级、类别筛选、摘要、表格和加载更多。Runtime 当前日志事实仅来自已上传的 accounting v2 0ms diagnostic Segment；日志表展示时间、等级、类别、事件、电脑和模块，不返回 raw identity、local user ID 或任何敏感凭据。
 - 当前包不增加远程日志采集开关，因为 Windows Service 文件日志和 tamper 明细尚未进入独立、可配置的日志上传协议。页面必须明确此事实，禁止把 accounting diagnostic 误称为完整终端日志。
+
+### D-087 孩子级五目录完成态
+
+- 应用管理只参考 TimeOnChrome 网站管理的左右大结构，不复制网站特有的系统、自定义、规则或特殊对象。左侧固定显示学习、复合、受限娱乐、黑名单和已使用未归类应用；普通目录将应用总数、Windows 数和 macOS 数作为三个独立统计项，未归类显示待处理数和最近 30 天窗口。
+- 右侧是单层应用列表，不设置来源页签或二级表格。目录按孩子独立，已知真实 `platform + runtimeIdentity` 可以随孩子级 App Policy 预配置；应用也可从最近 30 天真实未归类证据逐步归入。只知道显示名称时不得创建目录项。
+- 策略中已分类但最近 30 天没有主账本使用的应用仍保留并显示“最近 30 天无使用”；未归类待处理默认展开，已处理历史默认折叠并允许重新归类。系统管理和 Runtime 日志在本阶段保持不变。
+- 首次认证或数据加载失败时隐藏全部 Runtime 业务视图，显示完整错误卡、返回家长控制台和重新加载入口；在本地来源打开时额外提示使用 `?mock=1` 查看演示数据。页面成功加载过至少一次后发生的短暂网络错误可以保留旧数据并显示错误条。
 
 ### 独立观察型配额
 

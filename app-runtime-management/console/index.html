@@ -11,7 +11,7 @@
 <body>
   <aside class="sidebar" id="sidebar">
     <a class="brand" href="../" aria-label="返回 TimeOnChrome 家长控制台"><span class="brand-mark">T</span><span><strong>TimeOnChrome</strong><small>电脑应用管理</small></span></a>
-    <label class="child-picker"><span>当前孩子</span><select id="child-select" aria-label="选择孩子"></select></label>
+    <label class="child-picker"><span>当前孩子</span><select id="child-select" aria-label="选择孩子" disabled><option>未登录</option></select></label>
     <nav aria-label="Runtime 导航">
       <button class="nav-item active" data-view="usage"><span>▥</span>使用统计</button>
       <button class="nav-item" data-view="access"><span>◈</span>访问管理</button>
@@ -23,8 +23,15 @@
   </aside>
   <div class="app-shell">
     <header class="topbar"><button id="mobile-menu" class="icon-button" aria-label="打开导航">☰</button><div><h1 id="page-title">使用统计</h1><p id="page-subtitle">查看电脑应用主使用账本</p></div><button id="refresh">刷新</button></header>
-    <main>
+    <main class="initial-load-pending">
       <div id="status-strip" hidden><span id="status-message"></span><button id="retry">重试</button></div>
+      <section id="load-empty-state" class="load-empty-state card" hidden>
+        <span class="load-empty-icon" aria-hidden="true">!</span>
+        <h2>无法加载电脑应用管理</h2>
+        <p id="load-empty-message">尚未取得家长会话或 Runtime 数据。</p>
+        <p id="load-preview-hint" class="load-preview-hint" hidden>本地预览请在当前地址后添加 <code>?mock=1</code>，演示数据不会连接生产环境。</p>
+        <div class="load-empty-actions"><a class="button primary" href="../">返回家长控制台登录</a><button id="initial-load-retry">重新加载</button></div>
+      </section>
       <section class="view active" data-view-panel="usage">
         <div class="toolbar card">
           <div class="segmented"><button data-period="day" class="active">日</button><button data-period="week">周</button></div>
