@@ -12,11 +12,18 @@
 
 ## Active App Runtime Work（2026-09-02）
 
-- [~] **[SPEC-004 / D-082] App Runtime Cloudflare 生产发布（执行中）**
+- [~] **[SPEC-004 / D-082] App Runtime Cloudflare 生产发布（后台与 Pages 已完成，2.0 latest 阻塞）**
   - Product Owner 已于 2026-09-02 授权完成待发布的 Cloudflare 部分：Runtime `0003`/`0004`、Guardian `024`、Runtime/Guardian Worker、账户级 Pages 与经发布门禁确认的 R2 内部包。
   - 发布顺序：远端只读预检与 Time Travel 书签 → Runtime additive migrations → Runtime Worker → Guardian additive migration → Guardian Worker → Pages → R2 immutable package/hash/latest gate → 生产 smoke。
   - 保留边界：不修改 Santa、Chrome Extension、Native App Control；不执行 William 1.x→2.0 真机升级、不创建真实配对/采集数据、不改写历史账本；内部未签名 2.0.0 继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
   - 额度诊断：Runtime D1 24h 仅 1,583 rows read / 974 rows written；Guardian D1 为 28,134,760 / 53,864。D1 Insights 显示逐请求执行的 `device_access_audit_v1` 两条清理 SQL 分别读取 15,004,205 与 13,010,483 行，是主要来源。限额根因修复作为独立 Worker P0，不混入本次 releaseMg 部署。
+  - 已完成：Runtime `0003`/`0004`；Runtime Worker `af74e867-5fe1-48aa-b264-11e0892bebd3`；Guardian `024`；Guardian Worker `70b27ad3-7ae7-4cab-b9e0-b04def8e495b`；Pages `1edd8561-c990-4e6e-aa4d-b13b457cd37d`。health、未认证 401、Pages 六资产哈希和 Runtime 旧数据保留均通过。
+  - R2：当前提交重建的 2.0.0 Burn/MSI/manifest 已上传生产 immutable path 并回读一致；Burn SHA-256 `32a7eda83a4940948faeb034868bb0545f5984692becdb3a5187de0ba749d202`，MSI SHA-256 `0cce622d420c6513982832005f9d02e5193a8be84171474b2cf9bb5875685e6b`。`latest.json` 保持 1.0.1，因为现有 `/installer` 路由硬编码 MSI，会绕过 2.0 Burn 的 1.x migration preflight；不得把该 blocker 改写为完成。
+
+- [ ] **[P0 Cloud/D1] Guardian 逐请求审计清理导致 D1 rows-read 激增**
+  - 证据：24h 28,134,760 rows read；两条 `device_access_audit_v1` 清理 SQL 共 28,014,688 rows read、分别执行 4,190/4,331 次。
+  - 根因：`recordDeviceAccessAudit()` 在每个受审计请求后调用 `cleanupDeviceAccessAudit()`；全局 14 日删除缺少 timestamp-only index，逐设备裁剪也在请求热路径重复扫描。
+  - 后续独立 Build&Test 任务：将 retention cleanup 从请求热路径移到低频 cron/受持久门控的批处理，并补适配索引与固定回归；本次只诊断和登记，不在 releaseMg 部署中修改产品代码。
 
 - [x] **[SPEC-004 / D-081] App Runtime 与 TimeOnChrome 统一落账规则 Phase A（本地实现完成，未部署）**
   - 范围：accounting schema v2、Windows/macOS 双 lane 纯状态机、共享黄金向量、Windows 原子 ledger/outbox/open-lane 恢复、Runtime `0004` dry-run 与向后兼容 API/read model。

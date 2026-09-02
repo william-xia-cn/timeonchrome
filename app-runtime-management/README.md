@@ -7,8 +7,8 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 - Windows：1.x 的 WinEvent、idle、session/power、SQLite/outbox、CurrentUser DPAPI、WPF Setup 与 per-user MSI 已实现并作为兼容基线。D-080 的 2.0 本地实现已升级为 LocalSystem RuntimeService + 每交互式会话 Session Agent + ProgramData/LocalMachine DPAPI + WiX 7 per-machine 安装；内部 MSI 尚未签名，不能称为公开发布产品。
 - Backend：v1 Child-scoped 设备闭环保留兼容；D-080 v2 新增 Account-scoped machine、默认 Child、逐本地用户 assignment、版本化策略/ACK、tamper 健康和单次卸载码。Runtime/Santa 身份、表、密钥和协议继续隔离。
 - macOS：Phase 1 Core/Agent 骨架；真实事件、SQLite 与上传尚未实现。
-- Accounting Phase A：共享 schema v2、Windows/macOS 纯状态机、确定性 SHA-256、黄金向量、Windows 原子 SQLite ledger/outbox 和 Runtime Worker 向后兼容 API 已完成本地实现。主 `UsageSegment` 在同一用户会话与 clock epoch 内按 foreground/PiP 区间并集计算权威使用时长；独立 `MediaSegment` 可重叠直接求和，但不进主时长或 quota。统一参数是 idle 180s、checkpoint 60s、estimated cap 30s 和 reorder window 500ms。`0004` 未应用生产 D1，macOS `swift test` 待 macOS 13+ 验证。
-- 部署：Runtime `0002`、Guardian `023`、独立 ES256 secrets、Runtime/Guardian Worker、R2 installer 与 `/app-runtime/` Pages 已完成内部生产基础部署；服务端点为 `https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev`。William 当前用户已把 `INTELMINIPC-XW` 配对到 HornburgXW，用于 Product Owner 明确批准的受控内部验证。
+- Accounting Phase A：共享 schema v2、Windows/macOS 纯状态机、确定性 SHA-256、黄金向量、Windows 原子 SQLite ledger/outbox 和 Runtime Worker 向后兼容 API 已完成；主 `UsageSegment` 在同一用户会话与 clock epoch 内按 foreground/PiP 区间并集计算权威使用时长，独立 `MediaSegment` 可重叠直接求和但不进主时长或 quota。统一参数是 idle 180s、checkpoint 60s、estimated cap 30s 和 reorder window 500ms。Runtime `0003`/`0004` 与 Worker 已发布；macOS `swift test` 待 macOS 13+ 验证。
+- 部署：Guardian `024`、Runtime/Guardian Worker 与账户级 `/app-runtime/` Pages 已于 2026-09-02 发布；2.0.0 Burn/MSI/manifest 已上传生产 R2 immutable path 并回读校验。生产 `latest.json` 仍为 1.0.1，因为现有下载 API 直出 MSI，尚不能保证 2.0 Burn 的 1.x migration preflight；修复前不得切换 latest。2.0.0 与 1.0.1 均为内部未签名包，保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
 ## Windows 开发命令
 
@@ -32,10 +32,11 @@ Windows 2.0 本地构建产物位于 `installer/windows/bin/Release/`：`TimeOnC
 ## 内部发布路径
 
 - manifest：`windows/x64/latest.json`
+- Burn：`windows/x64/<version>/TimeOnChrome-AppRuntime-Setup-win-x64-<version>.exe`
 - MSI：`windows/x64/<version>/TimeOnChrome-AppRuntime-win-x64-<version>.msi`
 - API：`GET /v1/releases/windows/x64/latest` 与 `GET /v1/releases/windows/x64/:version/installer`
 
-MSI 与 SHA-256 必须上传独立 `timeonchrome-app-runtime-releases` R2 后再回读校验；Pages 不保存大二进制。版本 MSI 使用 immutable cache，latest manifest 使用短缓存。
+Burn、MSI 与 SHA-256 必须上传独立 `timeonchrome-app-runtime-releases` R2 后再回读校验；Pages 不保存大二进制。2.0 起用户入口必须分发 Burn bootstrapper，不得以直链 MSI 绕过 migration preflight。版本文件使用 immutable cache，latest manifest 使用短缓存。
 
 已发布的内部 `1.0.0` MSI 为 60,139,945 bytes，SHA-256 `847544be830979615f865667a09c690160b42381142a96cdf7174d09ff216c60`。内部 `1.0.1` 为 60,144,152 bytes，SHA-256 `13b8bb04607f019acf7a9a5e68fa87f63f8075e8a3d4d4da47ddc885b635fee7`；William 账户已完成从 1.0.0 到 1.0.1 的原地升级，并验证 credential、设备隔离 SQLite、设备身份与登录启动项保留。版本化 R2 与生产 Worker 下载回读均一致，Pages deployment 为 `e25c319e`，日/周范围与小时标签按北京时间确定性计算；两版 manifest 状态均为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
