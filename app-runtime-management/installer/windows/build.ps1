@@ -1,6 +1,6 @@
 param(
   [string]$Configuration = 'Release',
-  [string]$Version = '2.0.2'
+  [string]$Version = '2.0.3'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,6 +47,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Setup publish failed.' }
 
 $migrationExe = Join-Path $artifactRoot 'TimeOnChrome.AppRuntime.Migration.exe'
 if (-not (Test-Path -LiteralPath $migrationExe)) { throw 'Migration single-file executable is missing.' }
+$machineProbeExe = Join-Path $artifactRoot 'TimeOnChrome.AppRuntime.MachineProbe.exe'
+Copy-Item -LiteralPath $migrationExe -Destination $machineProbeExe
 $probeRoot = Join-Path ([IO.Path]::GetTempPath()) "timeonchrome-runtime-migration-probe-$([Guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $probeRoot | Out-Null
 try {

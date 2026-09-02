@@ -2,6 +2,15 @@
 
 ---
 
+## [App Runtime 2.0.3] — 2026-09-02
+
+- **双阶段迁移预检**：Burn 先以 elevated machine probe 检查其他真实 Windows 用户的 1.x 冲突，再以原交互式用户运行 CurrentUser DPAPI/outbox/retire；不以跳过权限错误换取安装成功。
+- **失败可解释性**：注册表与 profile 权限异常转换为明确非零退出和用户提示，不再以 .NET `0xe0434352` 未处理异常结束。
+- **数据安全**：2.0.2 真机失败仍发生在 retire、卸载和机器 MSI 之前，William 旧 credential、SQLite 和云端身份保持不变。
+- **本地安装证据**：Windows 42/42 tests、隔离探针与 WiX 0 warning/0 error 通过；Burn 118,518,417 bytes / SHA-256 `34a44f503b6513505b4a0096481c8e685eb9859480a5c044c9d695bb5e414c7d`。William 完成 1.x→2.0.3 安装，旧 SQLite 保留、credential retired、LocalSystem Service auto/running、普通用户 ProgramData/Service 控制权限受限；机器配对和生产 R2 切换仍待完成。
+
+---
+
 ## [App Runtime 2.0.2] — 2026-09-02
 
 - **安装链修复**：Burn 内的 1.x migration 改为真正的单文件 self-contained EXE，避免只缓存入口 EXE 时因缺少相邻 .NET runtime/DLL 而以 `0x8000809a` 启动失败。

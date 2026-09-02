@@ -12,7 +12,17 @@
           LicenseUrl="https://timeonchrome-console.pages.dev/app-runtime/" />
     </BootstrapperApplication>
     <Chain>
-      <ExePackage SourceFile="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Migration.exe"
+      <ExePackage Id="MachineConflictProbe"
+                  CacheId="machine-conflict-probe-$(var.ProductVersion)"
+                  SourceFile="!(bindpath.Publish)\TimeOnChrome.AppRuntime.MachineProbe.exe"
+                  InstallArguments="--machine-conflict-probe"
+                  DetectCondition="0"
+                  PerMachine="yes"
+                  Permanent="yes"
+                  Vital="yes" />
+      <ExePackage Id="LegacyUserMigration"
+                  CacheId="legacy-user-migration-$(var.ProductVersion)"
+                  SourceFile="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Migration.exe"
                   InstallArguments="--preflight"
                   DetectCondition="0"
                   PerMachine="no"

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
@@ -23,18 +24,12 @@ public static class Program
     {
         if (args.Contains("--package-probe", StringComparer.OrdinalIgnoreCase))
             return await RunPackageProbeAsync().ConfigureAwait(false);
+        if (args.Contains("--machine-conflict-probe", StringComparer.OrdinalIgnoreCase))
+            return RunMachineConflictProbe();
         if (args.Contains("--noop", StringComparer.OrdinalIgnoreCase)) return 0;
         if (!OperatingSystem.IsWindows()) return 2;
         try
         {
-            var conflicts = FindOtherUserConflicts();
-            if (conflicts.Count > 0)
-            {
-                Notify("检测到其他 Windows 用户仍在使用 1.x Runtime：\n\n"
-                    + string.Join("\n", conflicts.Select(item => $"• {item}"))
-                    + "\n\n请先登录这些账户完成同步或移除旧版，再重新运行 2.0 安装程序。");
-                return 20;
-            }
             var paths = RuntimePaths.ForCurrentUser();
             if (await HasPendingOutboxAsync(paths.RootDirectory).ConfigureAwait(false))
             {
@@ -53,11 +48,34 @@ public static class Program
             new WindowsStartupRegistration().Remove();
             return await UninstallLegacyMsiAsync().ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is CryptographicException or SqliteException or RuntimeApiException
+        catch (Exception exception) when (exception is CryptographicException or SecurityException or SqliteException or RuntimeApiException
             or HttpRequestException or IOException or UnauthorizedAccessException)
         {
             Notify($"无法安全迁移 1.x Runtime（{exception.GetType().Name}）。旧配对和本地账本没有被自动清除，请稍后重试。");
             return 22;
+        }
+    }
+
+    public static int RunMachineConflictProbe()
+    {
+        if (!OperatingSystem.IsWindows()) return 2;
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) return 27;
+            var interactiveSid = GetInteractiveSessionSid();
+            if (string.IsNullOrWhiteSpace(interactiveSid)) return 28;
+            var conflicts = FindOtherUserConflicts(interactiveSid);
+            if (conflicts.Count == 0) return 0;
+            Notify("检测到其他 Windows 用户仍在使用 1.x Runtime：\n\n"
+                + string.Join("\n", conflicts.Select(item => $"• {item}"))
+                + "\n\n请先登录这些账户完成同步或移除旧版，再重新运行 2.0 安装程序。");
+            return 20;
+        }
+        catch (Exception exception) when (exception is SecurityException or IOException or UnauthorizedAccessException)
+        {
+            Notify($"无法安全检查其他 Windows 用户的 1.x Runtime（{exception.GetType().Name}）。安装尚未修改旧配对或账本。");
+            return 28;
         }
     }
 
@@ -78,7 +96,7 @@ public static class Program
             var roundTrip = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
             return CryptographicOperations.FixedTimeEquals(plaintext, roundTrip) ? 0 : 25;
         }
-        catch (Exception exception) when (exception is CryptographicException or SqliteException
+        catch (Exception exception) when (exception is CryptographicException or SecurityException or SqliteException
             or IOException or UnauthorizedAccessException)
         {
             return 26;
@@ -103,31 +121,45 @@ public static class Program
         return false;
     }
 
-    private static IReadOnlyList<string> FindOtherUserConflicts()
+    public static bool IsInteractiveProfileSid(string sid) =>
+        sid.StartsWith("S-1-5-21-", StringComparison.OrdinalIgnoreCase)
+        && !sid.EndsWith("_Classes", StringComparison.OrdinalIgnoreCase);
+
+    private static IReadOnlyList<string> FindOtherUserConflicts(string interactiveSid)
     {
-        var currentSid = WindowsIdentity.GetCurrent().User?.Value;
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var users = Registry.Users;
-        foreach (var sid in users.GetSubKeyNames())
-        {
-            if (string.Equals(sid, currentSid, StringComparison.OrdinalIgnoreCase) || sid.EndsWith("_Classes", StringComparison.OrdinalIgnoreCase)) continue;
-            using var run = users.OpenSubKey($@"{sid}\{StartupPath}");
-            if (run?.GetValue(StartupValue) is string) result.Add(DisplayAccount(sid));
-        }
         using var profileList = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList");
-        if (profileList is null) return result.ToArray();
-        var currentProfile = Path.GetFullPath(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        if (profileList is null) throw new SecurityException("Windows profile list is unavailable.");
         foreach (var sid in profileList.GetSubKeyNames())
         {
+            if (!IsInteractiveProfileSid(sid) || string.Equals(sid, interactiveSid, StringComparison.OrdinalIgnoreCase)) continue;
+            using var run = Registry.Users.OpenSubKey($@"{sid}\{StartupPath}");
+            if (run?.GetValue(StartupValue) is string) result.Add(DisplayAccount(sid));
             using var profile = profileList.OpenSubKey(sid);
             var raw = profile?.GetValue("ProfileImagePath") as string;
             if (string.IsNullOrWhiteSpace(raw)) continue;
             var path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(raw));
-            if (string.Equals(path.TrimEnd('\\'), currentProfile.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) continue;
             if (File.Exists(Path.Combine(path, "AppData", "Local", "TimeOnChrome", "AppRuntime", "credential.dat")))
                 result.Add(DisplayAccount(sid));
         }
         return result.ToArray();
+    }
+
+    private static string? GetInteractiveSessionSid()
+    {
+        var sessionId = Process.GetCurrentProcess().SessionId;
+        var user = QuerySessionValue(sessionId, WtsInfoClass.UserName);
+        if (string.IsNullOrWhiteSpace(user)) return null;
+        var domain = QuerySessionValue(sessionId, WtsInfoClass.DomainName);
+        var account = string.IsNullOrWhiteSpace(domain) ? user : $"{domain}\\{user}";
+        return ((SecurityIdentifier)new NTAccount(account).Translate(typeof(SecurityIdentifier))).Value;
+    }
+
+    private static string? QuerySessionValue(int sessionId, WtsInfoClass infoClass)
+    {
+        if (!WTSQuerySessionInformation(IntPtr.Zero, sessionId, infoClass, out var buffer, out _)) return null;
+        try { return Marshal.PtrToStringUni(buffer); }
+        finally { WTSFreeMemory(buffer); }
     }
 
     private static string DisplayAccount(string sid)
@@ -170,4 +202,14 @@ public static class Program
 
     [DllImport("msi.dll", CharSet = CharSet.Unicode)]
     private static extern uint MsiEnumRelatedProducts(string upgradeCode, uint reserved, uint productIndex, StringBuilder productCode);
+
+    private enum WtsInfoClass { UserName = 5, DomainName = 7 }
+
+    [DllImport("Wtsapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSQuerySessionInformation(
+        IntPtr server, int sessionId, WtsInfoClass infoClass, out IntPtr buffer, out int bytesReturned);
+
+    [DllImport("Wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
 }

@@ -180,6 +180,8 @@ R2 的版本目录是不可变发布源：`windows/x64/<version>/manifest.json` 
 
 Burn 链内的 per-user migration 必须是真正可独立执行的单文件 self-contained EXE，不能依赖发布目录中的相邻 framework、managed DLL 或 native runtime 文件。构建门禁必须把最终 migration EXE 单独复制到隔离临时目录，运行不读取 credential、不访问网络、不修改 registry/MSI 的 package probe，并至少实际加载 SQLite 与 CurrentUser DPAPI 依赖；探针非零退出时不得生成、上传或切换该版本 Burn。2.0.1 因违反该门禁在首次真机执行时以 `0x8000809a` fail closed，由 2.0.2 前向修正，不覆盖已发布的不可变对象。
 
+全机器其他用户冲突扫描不能在普通用户 migration 中直接枚举受保护的 `HKEY_USERS`。Burn 必须先用 elevated machine probe 检查真实交互式用户 profile 的 1.x credential 与已加载启动项；探针无法完整读取时 fail closed。通过后再由独立 per-user migration 在启动安装器的原用户上下文读取 CurrentUser DPAPI、确认 outbox、retire 和卸载 1.x。两个阶段不得交换身份或合并为管理员进程；所有权限异常必须映射为明确非零退出，不能成为未处理 .NET 异常。2.0.2 首次执行暴露该边界并以 `0xe0434352` 安全回滚，由 2.0.3 前向修正。
+
 D-079 后 Windows 安装组合为同一 per-user MSI 中的 WPF Setup 与无控制台 Agent。Setup 固定生产 Runtime endpoint，只接受 `XXXX-XXXX-XXXX` 配对码；成功后用 CurrentUser DPAPI 保存 credential、注册 HKCU Run 并启动 Agent。Agent 以 current-user named mutex 保证单实例，未绑定时立即退出且不打开 ledger；绑定后数据库文件名与 `bound_device_id` metadata 同时绑定 device，防止重新配对后旧 outbox 跨设备上传。401/403 heartbeat 会删除失效 credential、关闭当前 segment 并停止采集。
 
 Setup 使用显式展示状态，不把字符串文案当作连接状态：

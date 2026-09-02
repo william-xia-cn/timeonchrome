@@ -71,6 +71,7 @@
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Service.exe" />
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Setup.exe" />
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Migration.*" />
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.MachineProbe.*" />
       </Files>
     </Feature>
   </Package>

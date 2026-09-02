@@ -214,6 +214,16 @@ public sealed class MachineRuntimeV2Tests : IDisposable
         Assert.Equal(0, await Program.RunPackageProbeAsync());
     }
 
+    [Theory]
+    [InlineData("S-1-5-21-1000-2000-3000-1001", true)]
+    [InlineData("S-1-5-21-1000-2000-3000-1001_Classes", false)]
+    [InlineData("S-1-5-18", false)]
+    [InlineData(".DEFAULT", false)]
+    public void MachineConflictProbeOnlyScansInteractiveProfileSids(string sid, bool expected)
+    {
+        Assert.Equal(expected, Program.IsInteractiveProfileSid(sid));
+    }
+
     private static UsageSegment Segment(string id) => new(
         id,
         "session-a",
