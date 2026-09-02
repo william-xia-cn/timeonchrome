@@ -30,7 +30,10 @@ public sealed record AppPolicyDocument(
     long Version,
     long? EffectiveAtMs,
     IReadOnlyList<AppPolicyClassification> Classifications,
-    AppPolicyQuotaConfig Quotas);
+    AppPolicyQuotaConfig Quotas,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<AppPolicyTimeWindow>>>? TimeWindows = null);
+
+public sealed record AppPolicyTimeWindow(string Start, string End);
 
 public sealed record AppPolicyClassification(
     RuntimePlatform Platform,
@@ -49,6 +52,54 @@ public sealed record AppliedMachinePolicy(
     MachinePolicy Policy,
     long CachedAtMs,
     long AppliedAtMs);
+
+public static class AppPolicySchedule
+{
+    public static readonly string[] Weekdays =
+        ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    public static readonly string[] Categories =
+        ["study", "composite", "restrictedEntertainment", "unclassified"];
+
+    public static IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<AppPolicyTimeWindow>>> AllOpen() =>
+        Weekdays.ToDictionary(
+            day => day,
+            _ => (IReadOnlyDictionary<string, IReadOnlyList<AppPolicyTimeWindow>>)Categories.ToDictionary(
+                category => category,
+                _ => (IReadOnlyList<AppPolicyTimeWindow>)[new("00:00", "24:00")],
+                StringComparer.Ordinal),
+            StringComparer.Ordinal);
+
+    public static IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<AppPolicyTimeWindow>>> Effective(
+        AppPolicyDocument policy) => policy.TimeWindows ?? AllOpen();
+
+    public static bool IsAllowed(AppPolicyDocument policy, ApplicationClassification classification, DateTimeOffset beijingTime)
+    {
+        var category = AccountingSegmentId.Wire(classification);
+        if (!Categories.Contains(category, StringComparer.Ordinal)) return true;
+        var weekday = beijingTime.DayOfWeek switch
+        {
+            DayOfWeek.Monday => "monday",
+            DayOfWeek.Tuesday => "tuesday",
+            DayOfWeek.Wednesday => "wednesday",
+            DayOfWeek.Thursday => "thursday",
+            DayOfWeek.Friday => "friday",
+            DayOfWeek.Saturday => "saturday",
+            _ => "sunday",
+        };
+        if (!Effective(policy).TryGetValue(weekday, out var day)
+            || !day.TryGetValue(category, out var windows)) return true;
+        var minute = beijingTime.Hour * 60 + beijingTime.Minute;
+        return windows.Any(window => Minute(window.Start) <= minute && minute < Minute(window.End));
+    }
+
+    private static int Minute(string value)
+    {
+        if (string.Equals(value, "24:00", StringComparison.Ordinal)) return 1_440;
+        var parts = value.Split(':');
+        return int.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture) * 60
+            + int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+    }
+}
 
 public sealed class MachinePolicyStore
 {

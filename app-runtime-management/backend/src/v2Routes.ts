@@ -94,7 +94,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
         throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
       }
       return jsonResponse(await queryClassificationRecords(
-        env.RUNTIME_DB, claims.account_id, childId, platform || undefined,
+        env.RUNTIME_DB, claims.account_id, childId, nowMs, platform || undefined,
       ));
     }
     if (url.pathname === '/v2/module/app-usage') {

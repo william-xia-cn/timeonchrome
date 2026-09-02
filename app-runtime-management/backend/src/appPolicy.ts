@@ -2,6 +2,10 @@ import type {
   AppPolicyClassification,
   AppPolicyDocument,
   AppPolicyQuotaConfig,
+  AppPolicyScheduleCategory,
+  AppPolicyTimeWindow,
+  AppPolicyTimeWindows,
+  AppPolicyWeekday,
   ApplicationClassification,
   RuntimePlatform,
 } from './contracts';
@@ -14,6 +18,8 @@ const classifications = new Set<ApplicationClassification>([
 ]);
 const platforms = new Set<RuntimePlatform>(['windows', 'macos']);
 const quotaCategories = ['study', 'composite', 'restrictedEntertainment', 'unclassified'] as const;
+const weekdays: AppPolicyWeekday[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const weekdayByUtcDay: AppPolicyWeekday[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 const emptyQuotas = (): AppPolicyQuotaConfig => ({
   dailyCategoryMinutes: {
@@ -25,6 +31,14 @@ const emptyQuotas = (): AppPolicyQuotaConfig => ({
   weeklyRestrictedEntertainmentMinutes: null,
   perApplicationDailyMinutes: [],
 });
+
+export const allOpenTimeWindows = (): AppPolicyTimeWindows => Object.fromEntries(weekdays.map((day) => [day,
+  Object.fromEntries(quotaCategories.map((category) => [category, [{ start: '00:00', end: '24:00' }]])),
+])) as AppPolicyTimeWindows;
+
+type AppPolicyUpdate = Omit<AppPolicyDocument, 'version' | 'effectiveAtMs' | 'timeWindows'> & {
+  timeWindows?: AppPolicyTimeWindows;
+};
 
 export function appPolicyEtag(version: number): string {
   return `"app-policy-v${version}"`;
@@ -38,7 +52,55 @@ function quota(value: unknown, field: string): number | null {
   return Number(value);
 }
 
-export function parseAppPolicyUpdate(value: unknown): Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> {
+function timeOfDay(value: unknown, allowEndOfDay: boolean, field: string): number {
+  if (allowEndOfDay && value === '24:00') return 1_440;
+  if (typeof value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(value)) {
+    throw new HttpError(400, 'INVALID_APP_POLICY', `${field} must use HH:mm.`);
+  }
+  const [hour, minute] = value.split(':').map(Number);
+  return hour! * 60 + minute!;
+}
+
+function parseTimeWindows(value: unknown): AppPolicyTimeWindows {
+  if (!isRecord(value)) throw new HttpError(400, 'INVALID_APP_POLICY', 'Time windows are invalid.');
+  const result = {} as AppPolicyTimeWindows;
+  for (const day of weekdays) {
+    const incomingDay = value[day];
+    if (!isRecord(incomingDay)) throw new HttpError(400, 'INVALID_APP_POLICY', `timeWindows.${day} is invalid.`);
+    const normalizedDay = {} as Record<AppPolicyScheduleCategory, AppPolicyTimeWindow[]>;
+    for (const category of quotaCategories) {
+      const incoming = incomingDay[category];
+      if (!Array.isArray(incoming) || incoming.length > 24) {
+        throw new HttpError(400, 'INVALID_APP_POLICY', `timeWindows.${day}.${category} is invalid.`);
+      }
+      const windows = incoming.map((entry, index) => {
+        if (!isRecord(entry)) throw new HttpError(400, 'INVALID_APP_POLICY', 'A time window is invalid.');
+        const startMinutes = timeOfDay(entry.start, false, `timeWindows.${day}.${category}[${index}].start`);
+        const endMinutes = timeOfDay(entry.end, true, `timeWindows.${day}.${category}[${index}].end`);
+        if (endMinutes <= startMinutes) {
+          throw new HttpError(400, 'INVALID_APP_POLICY', 'A time window end must be after its start.');
+        }
+        return { start: String(entry.start), end: String(entry.end), startMinutes, endMinutes };
+      }).sort((left, right) => left.startMinutes - right.startMinutes || left.endMinutes - right.endMinutes);
+      for (let index = 1; index < windows.length; index += 1) {
+        if (windows[index]!.startMinutes < windows[index - 1]!.endMinutes) {
+          throw new HttpError(400, 'INVALID_APP_POLICY', 'Time windows in the same category must not overlap.');
+        }
+      }
+      normalizedDay[category] = windows.map(({ start, end }) => ({ start, end }));
+    }
+    result[day] = normalizedDay;
+  }
+  return result;
+}
+
+function normalizeStoredPolicy(
+  payload: Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> | AppPolicyUpdate,
+): Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> {
+  return { classifications: payload.classifications, quotas: payload.quotas, timeWindows: payload.timeWindows ?? allOpenTimeWindows() };
+}
+
+export function parseAppPolicyUpdate(value: unknown): AppPolicyUpdate {
   if (!isRecord(value) || !Array.isArray(value.classifications) || !isRecord(value.quotas)) {
     throw new HttpError(400, 'INVALID_APP_POLICY', 'App policy is invalid.');
   }
@@ -88,6 +150,7 @@ export function parseAppPolicyUpdate(value: unknown): Omit<AppPolicyDocument, 'v
       weeklyRestrictedEntertainmentMinutes: quota(value.quotas.weeklyRestrictedEntertainmentMinutes, 'quotas.weeklyRestrictedEntertainmentMinutes'),
       perApplicationDailyMinutes,
     },
+    ...(value.timeWindows === undefined ? {} : { timeWindows: parseTimeWindows(value.timeWindows) }),
   };
 }
 
@@ -101,8 +164,8 @@ export async function getAppPolicy(
     FROM runtime_child_app_policy_versions_v1
     WHERE account_id=?1 AND child_id=?2 ORDER BY version DESC LIMIT 1
   `).bind(accountId, childId).first<{ version: number; payload_json: string; effective_at_ms: number }>();
-  if (!row) return { version: 0, effectiveAtMs: null, classifications: [], quotas: emptyQuotas() };
-  const payload = JSON.parse(row.payload_json) as Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'>;
+  if (!row) return { version: 0, effectiveAtMs: null, classifications: [], quotas: emptyQuotas(), timeWindows: allOpenTimeWindows() };
+  const payload = normalizeStoredPolicy(JSON.parse(row.payload_json) as AppPolicyUpdate);
   return { version: Number(row.version), effectiveAtMs: Number(row.effective_at_ms), ...payload };
 }
 
@@ -111,21 +174,22 @@ export async function putAppPolicy(
   accountId: string,
   childId: string,
   expectedEtag: string | null,
-  update: Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'>,
+  update: AppPolicyUpdate,
   nowMs: number,
 ): Promise<AppPolicyDocument> {
   const current = await getAppPolicy(database, accountId, childId);
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
+  const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows });
   const version = current.version + 1;
-  const payloadJson = JSON.stringify(update);
+  const payloadJson = JSON.stringify(completeUpdate);
   const statements: D1PreparedStatement[] = [database.prepare(`
     INSERT INTO runtime_child_app_policy_versions_v1(
       account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms
     ) VALUES(?1,?2,?3,?4,?5,?6,?6)
   `).bind(accountId, childId, version, payloadJson, await sha256Hex(payloadJson), nowMs)];
-  for (const entry of update.classifications) statements.push(database.prepare(`
+  for (const entry of completeUpdate.classifications) statements.push(database.prepare(`
     INSERT INTO runtime_app_classification_history_v1(
       account_id,child_id,platform,runtime_identity,policy_version,classification,
       display_name,effective_at_ms,created_at_ms
@@ -164,7 +228,7 @@ export async function putAppPolicy(
     }
     throw error;
   }
-  return { version, effectiveAtMs: nowMs, ...update };
+  return { version, effectiveAtMs: nowMs, ...completeUpdate };
 }
 
 export async function resolveClassification(
@@ -219,6 +283,56 @@ function beijingDayStart(value: number): number {
   const day = 86_400_000;
   const offset = 8 * 3_600_000;
   return Math.floor((value + offset) / day) * day - offset;
+}
+
+function minuteOfDay(value: string): number {
+  if (value === '24:00') return 1_440;
+  const [hour, minute] = value.split(':').map(Number);
+  return hour! * 60 + minute!;
+}
+
+function outsideWindowIntervals(
+  start: number,
+  end: number,
+  category: ApplicationClassification,
+  timeWindows: AppPolicyTimeWindows,
+): Array<[number, number]> {
+  if (category === 'blocked') return [];
+  if (!quotaCategories.includes(category as AppPolicyScheduleCategory)) return [];
+  const result: Array<[number, number]> = [];
+  let cursor = start;
+  while (cursor < end) {
+    const dayStart = beijingDayStart(cursor);
+    const dayEnd = dayStart + 86_400_000;
+    const sliceEnd = Math.min(end, dayEnd);
+    const weekday = weekdayByUtcDay[new Date(dayStart + 8 * 3_600_000).getUTCDay()]!;
+    const allowed = timeWindows[weekday][category as AppPolicyScheduleCategory]
+      .map((window) => [dayStart + minuteOfDay(window.start) * 60_000,
+        dayStart + minuteOfDay(window.end) * 60_000] as [number, number]);
+    let outsideCursor = cursor;
+    for (const [allowedStart, allowedEnd] of allowed) {
+      if (allowedEnd <= outsideCursor || allowedStart >= sliceEnd) continue;
+      if (allowedStart > outsideCursor) result.push([outsideCursor, Math.min(allowedStart, sliceEnd)]);
+      outsideCursor = Math.max(outsideCursor, Math.min(allowedEnd, sliceEnd));
+      if (outsideCursor >= sliceEnd) break;
+    }
+    if (outsideCursor < sliceEnd) result.push([outsideCursor, sliceEnd]);
+    cursor = sliceEnd;
+  }
+  return result.filter(([intervalStart, intervalEnd]) => intervalEnd > intervalStart);
+}
+
+async function getAppPolicyHistory(
+  database: D1Database,
+  accountId: string,
+  childId: string,
+): Promise<Map<number, Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'>>> {
+  const rows = await database.prepare(`
+    SELECT version,payload_json FROM runtime_child_app_policy_versions_v1
+    WHERE account_id=?1 AND child_id=?2
+  `).bind(accountId, childId).all<{ version: number; payload_json: string }>();
+  return new Map((rows.results || []).map((row) => [Number(row.version),
+    normalizeStoredPolicy(JSON.parse(row.payload_json) as AppPolicyUpdate)]));
 }
 
 function dailyQuotaState(
@@ -286,8 +400,15 @@ export async function queryAppUsage(
   }>();
   const buckets = new Map<number, Map<string, Array<[number, number]>>>();
   const categoryBuckets = new Map<number, Map<ApplicationClassification, Map<string, Array<[number, number]>>>>();
+  const outsideGroups = new Map<string, Array<[number, number]>>();
+  const outsideApplications = new Map<string, {
+    platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null;
+    groups: Map<string, Array<[number, number]>>;
+  }>();
+  const policyHistory = await getAppPolicyHistory(database, accountId, childId);
   const bucketByDay = toMs - fromMs > 2 * 86_400_000;
   let estimatedSegmentCount = 0;
+  let outsideWindowSegmentCount = 0;
   for (const row of [...(result.results || []), ...(legacy.results || [])]) {
     const start = Math.max(fromMs, Number(row.start_wall_time_ms));
     const end = Math.min(toMs, Number(row.end_wall_time_ms));
@@ -306,6 +427,23 @@ export async function queryAppUsage(
       groups: new Map<string, Array<[number, number]>>(), days: new Map<number, Map<string, Array<[number, number]>>>(),
     };
     const appIntervals = app.groups.get(group) || []; appIntervals.push([start, end]); app.groups.set(group, appIntervals); applications.set(key, app);
+    const segmentPolicyVersion = row.app_policy_version == null ? null : Number(row.app_policy_version);
+    const segmentPolicy = segmentPolicyVersion == null ? null : policyHistory.get(segmentPolicyVersion);
+    const outside = segmentPolicy ? outsideWindowIntervals(start, end, category, segmentPolicy.timeWindows) : [];
+    if (outside.length > 0) {
+      outsideWindowSegmentCount += 1;
+      const outsideForGroup = outsideGroups.get(group) || [];
+      outsideForGroup.push(...outside); outsideGroups.set(group, outsideForGroup);
+      const outsideApp = outsideApplications.get(key) || {
+        platform: row.platform as RuntimePlatform,
+        runtimeIdentity: String(row.runtime_identity),
+        displayName: row.display_name == null ? null : String(row.display_name),
+        groups: new Map<string, Array<[number, number]>>(),
+      };
+      const outsideAppGroup = outsideApp.groups.get(group) || [];
+      outsideAppGroup.push(...outside); outsideApp.groups.set(group, outsideAppGroup);
+      outsideApplications.set(key, outsideApp);
+    }
     let dayCursor = start;
     while (dayCursor < end) {
       const dayStart = beijingDayStart(dayCursor);
@@ -409,6 +547,16 @@ export async function queryAppUsage(
     },
     estimatedSegmentCount,
     appPolicyVersion: policy.version,
+    outsideTimeWindows: {
+      durationMs: groupedUnion(outsideGroups),
+      segmentCount: outsideWindowSegmentCount,
+      applications: [...outsideApplications.values()].map((application) => ({
+        platform: application.platform,
+        runtimeIdentity: application.runtimeIdentity,
+        displayName: application.displayName,
+        durationMs: groupedUnion(application.groups),
+      })).sort((left, right) => right.durationMs - left.durationMs),
+    },
     mediaPlaybackTotalMs,
   };
 }
@@ -417,9 +565,12 @@ export async function queryClassificationRecords(
   database: D1Database,
   accountId: string,
   childId: string,
+  nowMs: number,
   platform?: RuntimePlatform,
-): Promise<{ pending: unknown[]; processed: unknown[] }> {
-  const values: unknown[] = [accountId, childId];
+): Promise<{ windowStartMs: number; windowEndMs: number; pending: unknown[]; processed: unknown[] }> {
+  const windowEndMs = nowMs;
+  const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
+  const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
   let filter = '';
   if (platform) { values.push(platform); filter = ` AND s.platform=?${values.length}`; }
   const rows = await database.prepare(`
@@ -430,9 +581,12 @@ export async function queryClassificationRecords(
     FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
     WHERE m.account_id=?1 AND s.child_id=?2 AND s.runtime_identity IS NOT NULL${filter}
       AND s.diagnostic=0
+      AND (s.application_classification IS NULL OR s.application_classification='unclassified')
+      AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4
+      AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3
     ORDER BY start_at_ms,end_at_ms,s.id
   `).bind(...values).all<Record<string, unknown>>();
-  const legacyValues: unknown[] = [accountId, childId];
+  const legacyValues: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
   let legacyFilter = '';
   if (platform) { legacyValues.push(platform); legacyFilter = ` AND s.platform=?${legacyValues.length}`; }
   const legacyRows = await database.prepare(`
@@ -440,7 +594,7 @@ export async function queryClassificationRecords(
       'legacy-v1' AS local_user_id,s.runtime_session_id,'legacy-v1' AS clock_epoch_id,
       s.start_at_ms,s.end_at_ms
     FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
-    WHERE d.account_id=?1 AND d.child_id=?2${legacyFilter}
+    WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3${legacyFilter}
     ORDER BY s.start_at_ms,s.end_at_ms,s.id
   `).bind(...legacyValues).all<Record<string, unknown>>();
   const policy = await getAppPolicy(database, accountId, childId);
@@ -452,20 +606,25 @@ export async function queryClassificationRecords(
   }>();
   for (const row of [...(rows.results || []), ...(legacyRows.results || [])]) {
     const key = `${row.platform}\n${row.runtime_identity}`;
+    const clampedStartAtMs = Math.max(windowStartMs, Number(row.start_at_ms));
+    const clampedEndAtMs = Math.min(windowEndMs, Number(row.end_at_ms));
     const record = grouped.get(key) || {
       platform: row.platform as RuntimePlatform,
       runtimeIdentity: String(row.runtime_identity),
       displayName: row.display_name == null ? null : String(row.display_name),
-      firstSeenAtMs: Number(row.start_at_ms), lastSeenAtMs: Number(row.end_at_ms),
+      firstSeenAtMs: clampedStartAtMs, lastSeenAtMs: clampedEndAtMs,
       machines: new Set<string>(), users: new Set<string>(), intervals: new Map<string, Array<[number, number]>>(),
     };
-    record.firstSeenAtMs = Math.min(record.firstSeenAtMs, Number(row.start_at_ms));
-    record.lastSeenAtMs = Math.max(record.lastSeenAtMs, Number(row.end_at_ms));
+    const startAtMs = clampedStartAtMs;
+    const endAtMs = clampedEndAtMs;
+    if (endAtMs <= startAtMs) continue;
+    record.firstSeenAtMs = Math.min(record.firstSeenAtMs, startAtMs);
+    record.lastSeenAtMs = Math.max(record.lastSeenAtMs, endAtMs);
     if (row.display_name != null) record.displayName = String(row.display_name);
     record.machines.add(String(row.machine_id)); record.users.add(String(row.local_user_id));
     const lane = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
     const intervals = record.intervals.get(lane) || [];
-    intervals.push([Number(row.start_at_ms), Number(row.end_at_ms)]); record.intervals.set(lane, intervals);
+    intervals.push([startAtMs, endAtMs]); record.intervals.set(lane, intervals);
     grouped.set(key, record);
   }
   const records = [...grouped.entries()].map(([key, row]) => {
@@ -483,7 +642,12 @@ export async function queryClassificationRecords(
       status: entry ? 'processed' : 'pending',
     };
   }).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
-  return { pending: records.filter((record) => record.status === 'pending'), processed: records.filter((record) => record.status === 'processed') };
+  return {
+    windowStartMs,
+    windowEndMs,
+    pending: records.filter((record) => record.status === 'pending'),
+    processed: records.filter((record) => record.status === 'processed'),
+  };
 }
 
 export async function querySegmentDetails(

@@ -416,7 +416,10 @@ describe('Runtime product API', () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const empty = await call('/v2/module/app-policy?childId=child-a', { headers: bearer(account) });
     expect(empty.headers.get('etag')).toBe('"app-policy-v0"');
-    await expect(empty.json()).resolves.toMatchObject({ version: 0, classifications: [] });
+    await expect(empty.json()).resolves.toMatchObject({
+      version: 0, classifications: [],
+      timeWindows: { monday: { study: [{ start: '00:00', end: '24:00' }] } },
+    });
     const policyBody = {
       classifications: [{
         platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study',
@@ -468,13 +471,15 @@ describe('Runtime product API', () => {
       applications: [{ runtimeIdentity: 'app:editor', classification: 'study', quota: { limitMs: 600_000, remainingMs: 0, exceeded: false } }],
     });
     const records = await call('/v2/module/app-classification-records?childId=child-a', { headers: bearer(account) });
-    await expect(records.json()).resolves.toMatchObject({ processed: [{ runtimeIdentity: 'app:editor', mainDurationMs: 600_000 }] });
+    await expect(records.json()).resolves.toMatchObject({ pending: [], processed: [] });
     const ledger = await call('/v2/module/usage-segments?childId=child-a&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
     await expect(ledger.json()).resolves.toMatchObject({ items: [{ runtimeIdentity: 'app:editor', authoritativeForUsage: true }] });
   });
 
   it('keeps legacy observed usage visible as unclassified without rewriting history', async () => {
     const account = await accountToken();
+    const recentEnd = Date.now() - 1_000;
+    const recentStart = recentEnd - 60_000;
     await env.RUNTIME_DB.batch([
       env.RUNTIME_DB.prepare(`
         INSERT INTO runtime_children_v1(child_id,account_id,child_name,created_at_ms,updated_at_ms)
@@ -494,6 +499,13 @@ describe('Runtime product API', () => {
         ) VALUES('legacy-segment','legacy-device','legacy-session','windows','app:legacy',
           'Legacy App',1000,61000,60000,'applicationSwitch','legacy-hash',61000)
       `),
+      env.RUNTIME_DB.prepare(`
+        INSERT INTO runtime_usage_segments(
+          id,device_id,runtime_session_id,platform,runtime_identity,display_name,
+          start_at_ms,end_at_ms,duration_ms,end_reason,content_hash,uploaded_at_ms
+        ) VALUES('legacy-segment-recent','legacy-device','legacy-session-recent','windows','app:legacy',
+          'Legacy App',?1,?2,60000,'applicationSwitch','legacy-recent-hash',?2)
+      `).bind(recentStart, recentEnd),
     ]);
     const usage = await (await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=86400000', {
       headers: bearer(account),
@@ -508,6 +520,79 @@ describe('Runtime product API', () => {
     expect(records.pending).toEqual(expect.arrayContaining([
       expect.objectContaining({ runtimeIdentity: 'app:legacy', mainDurationMs: 60_000 }),
     ]));
+  });
+
+  it('preserves time windows for legacy policy updates and reports only recent unclassified evidence', async () => {
+    const { account, enrolled, localUserId } = await createMachineWithUser();
+    const now = Date.now();
+    const unclassified = await accountingUsage({
+      runtimeIdentity: 'app:observed', channel: 'active', basis: 'foregroundInteraction',
+      start: now - 120_000, end: now - 60_000,
+    });
+    unclassified.policySnapshot = { assignmentVersion: 2, appPolicyVersion: null, quotaBucket: 'unclassified' };
+    unclassified.id = await accountingUsageId(unclassified);
+    expect((await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...unclassified, localUserId, assignmentVersion: 2 }] }),
+    })).status).toBe(200);
+
+    const closed = closedTimeWindows();
+    const overlapping = closedTimeWindows();
+    overlapping.monday!.study = [{ start: '08:00', end: '10:00' }, { start: '09:30', end: '11:00' }];
+    expect((await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' },
+      body: JSON.stringify({
+        classifications: [],
+        quotas: {
+          dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
+          weeklyRestrictedEntertainmentMinutes: null,
+          perApplicationDailyMinutes: [],
+        },
+        timeWindows: overlapping,
+      }),
+    })).status).toBe(400);
+    const firstPolicy = {
+      classifications: [{ platform: 'windows', runtimeIdentity: 'app:observed', displayName: 'Observed', classification: 'study' }],
+      quotas: {
+        dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
+        weeklyRestrictedEntertainmentMinutes: null,
+        perApplicationDailyMinutes: [],
+      },
+      timeWindows: closed,
+    };
+    expect((await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(firstPolicy),
+    })).status).toBe(200);
+
+    const processed = await (await call('/v2/module/app-classification-records?childId=child-a', {
+      headers: bearer(account),
+    })).json<{ windowStartMs: number; windowEndMs: number; pending: unknown[]; processed: Array<{ runtimeIdentity: string }> }>();
+    expect(processed.windowEndMs - processed.windowStartMs).toBe(30 * 86_400_000);
+    expect(processed.pending).toEqual([]);
+    expect(processed.processed).toEqual(expect.arrayContaining([expect.objectContaining({ runtimeIdentity: 'app:observed' })]));
+
+    const classified = await accountingUsage({
+      runtimeIdentity: 'app:observed', channel: 'active', basis: 'foregroundInteraction',
+      start: now - 50_000, end: now - 10_000,
+    });
+    classified.policySnapshot = { assignmentVersion: 2, appPolicyVersion: 1, quotaBucket: 'study' };
+    classified.id = await accountingUsageId(classified);
+    await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...classified, localUserId, assignmentVersion: 2 }] }),
+    });
+    const usage = await (await call(`/v2/module/app-usage?childId=child-a&fromMs=${now - 180_000}&toMs=${now}`, {
+      headers: bearer(account),
+    })).json<{ outsideTimeWindows: { durationMs: number; segmentCount: number } }>();
+    expect(usage.outsideTimeWindows).toMatchObject({ durationMs: 40_000, segmentCount: 1 });
+
+    const legacyUpdate = { classifications: firstPolicy.classifications, quotas: firstPolicy.quotas };
+    expect((await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v1"' }, body: JSON.stringify(legacyUpdate),
+    })).status).toBe(200);
+    const saved = await (await call('/v2/module/app-policy?childId=child-a', { headers: bearer(account) }))
+      .json<{ timeWindows: ReturnType<typeof closedTimeWindows> }>();
+    expect(saved.timeWindows).toEqual(closed);
   });
 
   it('rejects an unknown app policy version and never trusts a client classification', async () => {
@@ -584,6 +669,11 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
 }
 function bearer(value: string): HeadersInit { return { authorization: `Bearer ${value}` }; }
+function closedTimeWindows(): Record<string, Record<string, Array<{ start: string; end: string }>>> {
+  return Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => [day, {
+    study: [], composite: [], restrictedEntertainment: [], unclassified: [],
+  }]));
+}
 async function token(overrides: Record<string, unknown> = {}): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const claims = { iss: 'guardian-api', aud: 'app-runtime-management', sub: 'account-a', account_id: 'account-a', child_id: 'child-a', child_name: 'Child', iat: now, exp: now + 300, jti: crypto.randomUUID(), ...overrides };

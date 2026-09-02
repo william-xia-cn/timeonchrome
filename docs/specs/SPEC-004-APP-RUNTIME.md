@@ -5,9 +5,9 @@
 - Spec ID: SPEC-004
 - Date: 2026-09-01
 - Owner: Product Owner
-- Status: Approved for Windows 2.0 system-managed multi-user implementation, Accounting Phase A and App Management Console Phase B
+- Status: Approved for Windows 2.0 system-managed multi-user implementation, Accounting Phase A and App Management Console Phase B/D-085 split
 - Related task: Windows App Runtime 可用闭环
-- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081, D-084
+- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081, D-084, D-085
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -24,7 +24,7 @@ App Management Console Phase B 将独立 `/app-runtime/` 重构为与 TimeOnChro
 
 ### 信息架构
 
-Runtime 页面保留独立部署边界，左侧固定为 `使用统计 / 访问管理 / 应用归类记录 / 设备管理 / 系统管理`。Logo 返回主控制台；孩子选择器、账户区、桌面侧栏和移动端“更多”交互与主控制台一致。Runtime 页面不得嵌入 Santa 审核或网站配置业务。
+Runtime 页面保留独立部署边界，左侧固定为 `使用统计 / 访问管理 / 应用管理 / 设备管理 / 系统管理`。Logo 返回主控制台；孩子选择器、账户区、桌面侧栏和移动端“更多”交互与主控制台一致。Runtime 页面不得嵌入 Santa 审核或网站配置业务。
 
 ### 应用分类与记录
 
@@ -32,6 +32,14 @@ Runtime 页面保留独立部署边界，左侧固定为 `使用统计 / 访问�
 - 配置键为 `Child + platform + runtimeIdentity`；同一孩子的 Windows 机器共享 Windows 分类，macOS 分类独立。Display name 只用于展示，不参与授权或身份匹配。
 - 首版只允许管理真实账本中已经出现的应用。首次出现且没有有效策略的应用进入“未归类应用使用记录”，按身份去重并展示首次/最近使用、主账本并集时长、机器数和本机用户数。
 - 归类决定只对设备实际应用策略后的新 Segment 生效。旧 Segment 保留其原分类；当前已归类但历史为未归类的记录显示为已处理历史，不重新计算。
+
+### D-085 应用管理与访问管理分离
+
+- “应用管理”无二级页签，使用与网站管理一致的左右目录结构。左侧仅有学习、复合、受限娱乐、黑名单和已使用未归类应用；普通分类显示应用总数、Windows 数和 macOS 数，未归类显示待处理数和“最近 30 天”。不存在特殊应用、系统/自定义/规则来源或按名称手工添加。
+- 右侧只提供名称搜索和平台筛选。应用行显示名称、平台、最近使用和主账本时长，不显示 `runtimeIdentity`、路径、SID 或本机用户标识；可以归入四个最终分类或暂不归类，已处理历史默认折叠并允许以后重新归类。
+- 未归类证据固定为服务端当前时间向前 30 天，且只读取 Segment 当时为 `unclassified` 或没有 App Policy 的事实。当前策略只决定记录是待处理还是已处理，不得把所有已分类应用混入历史，也不得改写历史 Segment。
+- “访问管理”标题为“应用访问管理”，固定包含时间配额、时间段管理和配置文件三个页签。七天时间段分别管理学习、复合、受限娱乐和未归类应用，默认每天 `00:00–24:00` 全部开放；黑名单、超额和时段外使用只提示和记录，不实施进程终止或阻止。
+- 配置文件 schema v2 包含当前孩子的应用分类、独立配额和时间段。导入 v1 时补为全部开放；导入必须先展示差异并由家长勾选确认。系统管理不再承载配置文件，只保留主账本、辅助媒体和运行健康。
 
 ### 独立观察型配额
 

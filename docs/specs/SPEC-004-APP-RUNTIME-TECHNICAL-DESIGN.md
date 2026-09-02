@@ -230,7 +230,7 @@ Windows 1.0.1 延续固定 `UpgradeCode` 与严格 `perUser` scope，构建脚�
 
 Runtime D1 additive migration `0005` 增加孩子级不可变 App Policy 版本与应用分类历史，并为 accounting v2 Segment 增加可空 `app_policy_version`、`application_classification` 与 `quota_bucket`。旧 Segment 和旧客户端继续有效：缺少 App Policy 的上传按 `unclassified`、无限额读取，不写回或重算历史。
 
-App Policy wire shape 为：
+App Policy wire shape 在 D-085 后增量加入 `timeWindows`，不需要新增 D1 migration：
 
 ```json
 {
@@ -244,26 +244,34 @@ App Policy wire shape 为：
     "perApplicationDailyMinutes": [
       { "platform": "windows", "runtimeIdentity": "windows:…", "minutes": 90 }
     ]
+  },
+  "timeWindows": {
+    "monday": {
+      "study": [{ "start": "00:00", "end": "24:00" }],
+      "composite": [{ "start": "00:00", "end": "24:00" }],
+      "restrictedEntertainment": [{ "start": "00:00", "end": "24:00" }],
+      "unclassified": [{ "start": "00:00", "end": "24:00" }]
+    }
   }
 }
 ```
 
-Display name 是非权威展示元数据，不进入策略身份键。`GET /v2/module/app-policy?childId=` 返回 ETag；`PUT` 必须携带 `If-Match`，服务端校验账户/孩子归属、枚举、范围和重复身份，并在 D1 事务中生成下一不可变版本，版本冲突返回 412。页面对不确定网络失败不得自动重放 PUT。
+Display name 是非权威展示元数据，不进入策略身份键。`timeWindows` 固定覆盖周一至周日和四个非黑名单类别；窗口使用 `HH:mm`，`24:00` 只允许作为 end，同日同类不可重叠。缺失字段按每天全部开放解释；旧客户端 PUT 缺失该字段时，服务端保留当前策略的时间段而不是重置。`GET /v2/module/app-policy?childId=` 返回 ETag；`PUT` 必须携带 `If-Match`，服务端校验账户/孩子归属、枚举、范围和重复身份，并在 D1 事务中生成下一不可变版本，版本冲突返回 412。页面对不确定网络失败不得自动重放 PUT。
 
 ### API 与 read model
 
 - `GET/PUT /v2/module/app-policy?childId=`：读取或原子替换当前孩子完整 App Policy。
-- `GET /v2/module/app-classification-records`：按孩子、平台和应用身份输出未归类证据及已处理历史。
-- `GET /v2/module/app-usage`：返回设备主时长并集、分类/应用并集、配额使用/剩余/超额状态和辅助媒体摘要。
+- `GET /v2/module/app-classification-records`：服务端以当前时间固定最近 30 天窗口，只聚合历史为未归类或缺少 App Policy 的 Segment，返回 `windowStartMs/windowEndMs`、平台去重的待处理记录与已处理历史。
+- `GET /v2/module/app-usage`：返回设备主时长并集、分类/应用并集、配额使用/剩余/超额状态、按 Segment 所携带策略版本解析的时段外使用摘要和辅助媒体摘要。
 - `GET /v2/module/usage-segments` 与 `GET /v2/module/media-segments`：提供 Runtime 系统管理的游标分页明细；不返回 Child ID、token、SID、路径或窗口标题。
 
 `GET /v2/machines/policy` 在现有 assignment 之外增量返回本机受保护用户所需的 App Policy 版本。孩子策略变更只提升关联机器的 desired version；Service 原子缓存后，在实际应用时间关闭受影响用户的 foreground/PiP lane，并以新 `AccountingPolicySnapshot` 同刻重开。上传携带 `appPolicyVersion`，Worker 根据服务端策略历史解析分类和 quota bucket，不信任客户端自报分类。
 
 ### Runtime Console
 
-`app-runtime-management/console/` 是 canonical source，静态复制到 `pages/app-runtime/`。页面在独立文档内切换 `usage/access/records/devices/system` 五个视图，复用主控制台的绿色视觉语言、Logo、孩子选择器、桌面侧栏、移动导航和账户区，但不抽取或修改主控制台业务代码。
+`app-runtime-management/console/` 是 canonical source，静态复制到 `pages/app-runtime/`。页面在独立文档内切换 `usage/access/apps/devices/system` 五个视图，复用主控制台的绿色视觉语言、Logo、孩子选择器、桌面侧栏、移动导航和账户区，但不抽取或修改主控制台业务代码。
 
-使用统计读取 App Usage read model；访问管理只允许移动真实观察到的应用并编辑独立配额；应用归类记录只处理未归类使用；设备管理使用列表加右侧详情抽屉；系统管理提供主账本、辅助媒体、健康和配置导入导出。导入文件必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
+应用管理使用固定左侧分类目录、名称搜索、平台筛选和无二级页签列表；访问管理固定使用时间配额、时间段管理、配置文件三页签；设备管理使用列表加右侧详情抽屉；系统管理只提供主账本、辅助媒体和健康。配置文件 schema v2 由访问管理导出/导入，v1 导入补成全开放时间段，必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
 - Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store、Setup presentation 与窗口布局纯逻辑。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。

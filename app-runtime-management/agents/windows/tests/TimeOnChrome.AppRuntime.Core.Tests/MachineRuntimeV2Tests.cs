@@ -65,6 +65,15 @@ public sealed class MachineRuntimeV2Tests : IDisposable
     {
         var store = new MachinePolicyStore(Path.Combine(root, "app-policy.json"));
         var assignment = new MachineUserAssignment("user-a", 8, "child-a", true);
+        var timeWindows = AppPolicySchedule.AllOpen().ToDictionary(
+            item => item.Key,
+            item => (IReadOnlyDictionary<string, IReadOnlyList<AppPolicyTimeWindow>>)item.Value.ToDictionary(
+                category => category.Key,
+                category => category.Key == "study"
+                    ? (IReadOnlyList<AppPolicyTimeWindow>)[new("08:00", "09:00")]
+                    : category.Value,
+                StringComparer.Ordinal),
+            StringComparer.Ordinal);
         var policy = new MachinePolicy(8, "child-a", [assignment], [
             new MachineChildAppPolicy("child-a", new AppPolicyDocument(
                 3,
@@ -73,7 +82,8 @@ public sealed class MachineRuntimeV2Tests : IDisposable
                 new AppPolicyQuotaConfig(
                     new Dictionary<string, int?> { ["study"] = 30 },
                     120,
-                    [new AppPolicyApplicationQuota(RuntimePlatform.Windows, "app:editor", 10)])))
+                    [new AppPolicyApplicationQuota(RuntimePlatform.Windows, "app:editor", 10)]),
+                timeWindows))
         ]);
 
         await store.SaveAsync(new AppliedMachinePolicy(policy, 1_000, 1_000));
@@ -88,6 +98,30 @@ public sealed class MachineRuntimeV2Tests : IDisposable
         Assert.Equal("study", known.QuotaBucket);
         Assert.Equal(ApplicationClassification.Unclassified, unknown.ApplicationClassification);
         Assert.Equal("unclassified", unknown.QuotaBucket);
+        Assert.False(AppPolicySchedule.IsAllowed(
+            loaded.AppPolicies![0].Policy,
+            ApplicationClassification.Study,
+            new DateTimeOffset(2026, 9, 7, 10, 0, 0, TimeSpan.FromHours(8))));
+        Assert.Equal(ApplicationClassification.Study, known.ApplicationClassification);
+    }
+
+    [Fact]
+    public void LegacyAppPolicyWithoutTimeWindowsDefaultsToAllOpen()
+    {
+        var policy = new AppPolicyDocument(
+            1,
+            null,
+            [],
+            new AppPolicyQuotaConfig(new Dictionary<string, int?>(), null, []));
+
+        Assert.True(AppPolicySchedule.IsAllowed(
+            policy,
+            ApplicationClassification.Study,
+            new DateTimeOffset(2026, 9, 7, 23, 59, 0, TimeSpan.FromHours(8))));
+        Assert.All(AppPolicySchedule.Weekdays, day =>
+            Assert.All(AppPolicySchedule.Categories, category =>
+                Assert.Equal(new AppPolicyTimeWindow("00:00", "24:00"),
+                    Assert.Single(AppPolicySchedule.Effective(policy)[day][category]))));
     }
 
     [Fact]

@@ -15,7 +15,7 @@
     <nav aria-label="Runtime 导航">
       <button class="nav-item active" data-view="usage"><span>▥</span>使用统计</button>
       <button class="nav-item" data-view="access"><span>◈</span>访问管理</button>
-      <button class="nav-item" data-view="records"><span>◎</span>应用归类记录</button>
+      <button class="nav-item" data-view="apps"><span>◎</span>应用管理</button>
       <button class="nav-item" data-view="devices"><span>▣</span>设备管理</button>
       <button class="nav-item" data-view="system"><span>⚙</span>系统管理</button>
     </nav>
@@ -46,18 +46,27 @@
         </div>
       </section>
       <section class="view" data-view-panel="access">
-        <div class="tabbar"><button class="active" data-access-tab="apps">应用管理</button><button data-access-tab="quotas">时间配额</button></div>
-        <div data-access-panel="apps"><section class="card"><div class="section-title"><div><h2>应用管理</h2><p>只能管理设备实际观察到的应用；策略按孩子和平台共享</p></div><div class="inline-filters"><input id="app-search" type="search" placeholder="搜索应用"><select id="management-platform"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select></div></div><div id="classification-groups" class="classification-grid"></div></section><aside class="notice warning"><strong>黑名单当前只记录违规</strong><span>允许额度视为 0，但本版本不会自动结束或阻止应用。</span></aside></div>
-        <div data-access-panel="quotas" hidden><section class="card"><div class="section-title"><div><h2>独立应用配额</h2><p>北京时间结算；每周一开始新周期；留空表示无限制，0 表示额度为零</p></div><button id="save-quotas" class="primary">保存配额</button></div><div id="quota-form" class="quota-grid"></div></section><section class="card"><h2>每日单应用配额</h2><div id="app-quota-list" class="list"></div></section></div>
+        <div class="tabbar"><button class="active" data-access-tab="quotas">时间配额</button><button data-access-tab="schedule">时间段管理</button><button data-access-tab="config">配置文件</button></div>
+        <div data-access-panel="quotas"><section class="card"><div class="section-title"><div><h2>独立应用配额</h2><p>北京时间结算；每周一开始新周期；留空表示无限制，0 表示额度为零</p></div><button id="save-quotas" class="primary">保存配额</button></div><div id="quota-form" class="quota-grid"></div></section><section class="card"><h2>每日单应用配额</h2><div id="app-quota-list" class="list"></div></section><aside class="notice warning"><strong>当前只提示和记录</strong><span>配额超额或黑名单应用使用不会触发进程结束、拦截或处罚。</span></aside></div>
+        <div data-access-panel="schedule" hidden><section class="card"><div class="section-title"><div><h2>七天应用时间段</h2><p>分别配置学习、复合、受限娱乐和未归类应用；默认每天全部开放</p></div><button id="save-schedule" class="primary">保存时间段</button></div><div id="schedule-editor" class="schedule-editor"></div></section><aside class="notice warning"><strong id="outside-window-summary">本周期时段外使用 0 分钟</strong><span>当前版本只记录时段外状态，不关闭或阻止应用。</span></aside></div>
+        <div data-access-panel="config" hidden><section class="card"><div class="section-title"><div><h2>应用访问配置文件</h2><p>包含当前孩子的应用分类、独立配额和七天时间段</p></div></div><div class="config-actions"><button id="export-config">导出配置</button><label class="button">选择导入文件<input id="import-config" type="file" accept="application/json" hidden></label></div><div id="import-diff" hidden></div></section></div>
       </section>
-      <section class="view" data-view-panel="records"><section class="card"><div class="section-title"><div><h2>未归类应用使用记录</h2><p>按孩子、平台和 runtimeIdentity 去重；归类只从设备实际生效时起向前生效</p></div><select id="record-platform"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select></div><div id="pending-records" class="record-list"></div><details class="processed"><summary>已处理历史 <span id="processed-count">0</span></summary><div id="processed-records" class="record-list"></div></details></section></section>
+      <section class="view" data-view-panel="apps">
+        <div class="app-management-shell">
+          <aside id="app-category-nav" class="app-category-nav card" aria-label="应用分类目录"></aside>
+          <div class="app-directory-main">
+            <div class="app-directory-toolbar card"><input id="app-search" type="search" placeholder="搜索应用名称" aria-label="搜索应用名称"><select id="management-platform" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select><span>应用只能来自真实设备使用记录，不支持手工添加</span></div>
+            <section class="card app-directory-card"><div class="section-title"><div><h2 id="app-directory-title">学习应用</h2><p id="app-directory-subtitle">按孩子和平台共享分类，历史账本不追溯修改</p></div></div><div id="managed-app-list" class="record-list"></div><details id="processed-history" class="processed" hidden><summary>已处理历史 <span id="processed-count">0</span></summary><div id="processed-records" class="record-list"></div></details></section>
+            <aside class="notice warning"><strong>黑名单当前只记录违规</strong><span>允许额度视为 0，但本版本不会自动结束或阻止应用。</span></aside>
+          </div>
+        </div>
+      </section>
       <section class="view" data-view-panel="devices"><section class="card"><div class="section-title"><div><h2>所有电脑</h2><p>管理员一次安装；每个本机账户可分配给孩子或设为成人不保护</p></div><button id="add-machine" class="primary">添加 Windows 电脑</button></div><div id="machines" class="machine-list"></div></section></section>
       <section class="view" data-view-panel="system">
-        <div class="tabbar system-tabs"><button class="active" data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button><button data-system-tab="config">配置导入导出</button></div>
+        <div class="tabbar system-tabs"><button class="active" data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button></div>
         <section class="card" data-system-panel="ledger"><div class="section-title"><div><h2>Runtime 主账本</h2><p>estimated 正常计入；0ms diagnostic 不计时</p></div><button data-load-ledger="usage">加载明细</button></div><div id="ledger-list" class="table-list empty">点击“加载明细”查看</div></section>
         <section class="card" data-system-panel="media" hidden><div class="section-title"><div><h2>辅助媒体明细</h2><p>可重叠，不进入主使用总时长或配额</p></div><button data-load-ledger="media">加载明细</button></div><div id="media-list" class="table-list empty">点击“加载明细”查看</div></section>
         <section class="card" data-system-panel="health" hidden><div class="section-title"><div><h2>策略与 Agent 健康</h2><p>区分待下发、已缓存、当前会话已生效、失败和离线</p></div></div><div id="health-list" class="health-grid"></div></section>
-        <section class="card" data-system-panel="config" hidden><div class="section-title"><div><h2>应用配置导入导出</h2><p>只包含当前孩子的应用分类和独立配额</p></div></div><div class="config-actions"><button id="export-config">导出配置</button><label class="button">选择导入文件<input id="import-config" type="file" accept="application/json" hidden></label></div><div id="import-diff" hidden></div></section>
       </section>
     </main>
   </div>

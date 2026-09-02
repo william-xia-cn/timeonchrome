@@ -54,6 +54,9 @@
           }
         }
       }
+    },
+    "timeWindows": {
+      "$ref": "#/$defs/timeWindows"
     }
   },
   "$defs": {
@@ -61,6 +64,40 @@
       "type": ["integer", "null"],
       "minimum": 0,
       "maximum": 10080
+    },
+    "timeWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$" },
+        "end": { "type": "string", "pattern": "^(?:(?:[01]\\d|2[0-3]):[0-5]\\d|24:00)$" }
+      }
+    },
+    "dailyWindows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study", "composite", "restrictedEntertainment", "unclassified"],
+      "properties": {
+        "study": { "type": "array", "items": { "$ref": "#/$defs/timeWindow" } },
+        "composite": { "type": "array", "items": { "$ref": "#/$defs/timeWindow" } },
+        "restrictedEntertainment": { "type": "array", "items": { "$ref": "#/$defs/timeWindow" } },
+        "unclassified": { "type": "array", "items": { "$ref": "#/$defs/timeWindow" } }
+      }
+    },
+    "timeWindows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+      "properties": {
+        "monday": { "$ref": "#/$defs/dailyWindows" },
+        "tuesday": { "$ref": "#/$defs/dailyWindows" },
+        "wednesday": { "$ref": "#/$defs/dailyWindows" },
+        "thursday": { "$ref": "#/$defs/dailyWindows" },
+        "friday": { "$ref": "#/$defs/dailyWindows" },
+        "saturday": { "$ref": "#/$defs/dailyWindows" },
+        "sunday": { "$ref": "#/$defs/dailyWindows" }
+      }
     }
   }
 }

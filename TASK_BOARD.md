@@ -12,6 +12,12 @@
 
 ## Active App Runtime Work（2026-09-02）
 
+- [x] **[SPEC-004 / D-085] App Runtime 应用管理与访问管理分离重构（本地完成，未部署）**
+  - 目标：顶层导航调整为使用统计、访问管理、应用管理、设备管理和系统管理；应用管理负责真实应用目录与最近 30 天未归类处理，访问管理负责独立配额、七天时间段和配置文件。
+  - 规则：时间段默认全部开放；旧客户端不得重置已有时间段；超额、黑名单和时段外使用只提示记录，不结束或阻止进程。
+  - 范围：只做本地合同、Runtime Worker、Windows 策略缓存、canonical console、staged Pages、测试和视觉证据；不部署、不应用 production migration、不修改生产数据。
+  - 证据：Runtime Worker 20/20、Windows 50/50、console helper 与 D-085 Playwright 视觉检查通过；桌面/移动应用目录和七天时间段截图通过，Wrangler binding type check 与 deploy dry-run 通过，未新增 D1 migration。
+
 - [x] **[SPEC-004 / D-084] App Runtime 家长管理界面与应用策略闭环（本地完成，待单独发布授权）**
   - 目标：独立 `/app-runtime/` 复用主控制台外壳，提供使用统计、访问管理、应用归类记录、设备管理和 Runtime 系统管理。
   - 产品规则：五类应用分类按孩子和平台共享；只管理真实观察到的应用；独立配额只计算状态，不阻止进程；分类只对策略实际应用后的新 Segment 生效。

@@ -129,6 +129,27 @@ export interface AppPolicyQuotaConfig {
   }>;
 }
 
+export type AppPolicyWeekday =
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday';
+
+export type AppPolicyScheduleCategory = 'study' | 'composite' | 'restrictedEntertainment' | 'unclassified';
+
+export interface AppPolicyTimeWindow {
+  start: string;
+  end: string;
+}
+
+export type AppPolicyTimeWindows = Record<
+  AppPolicyWeekday,
+  Record<AppPolicyScheduleCategory, AppPolicyTimeWindow[]>
+>;
+
 export interface AppPolicyClassification {
   platform: RuntimePlatform;
   runtimeIdentity: string;
@@ -141,6 +162,7 @@ export interface AppPolicyDocument {
   effectiveAtMs: number | null;
   classifications: AppPolicyClassification[];
   quotas: AppPolicyQuotaConfig;
+  timeWindows: AppPolicyTimeWindows;
 }
 
 export type AccountingSegmentEndReason =
