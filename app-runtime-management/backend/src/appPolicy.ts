@@ -11,6 +11,8 @@ import type {
 } from './contracts';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
+import type { RuntimeLogCategory } from './contracts';
+import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
 
 const classifications = new Set<ApplicationClassification>([
@@ -754,8 +756,9 @@ export async function queryRuntimeLogs(
   toMs: number,
   limit: number,
   cursor: { beforeMs: number; beforeId: string } | null,
-  options: { machineId?: string; level?: 'error' | 'warning' | 'info'; category?: 'accounting' },
+  options: { machineId?: string; level?: 'error' | 'warning' | 'info'; category?: RuntimeLogCategory },
 ): Promise<{ items: unknown[]; nextCursor: string | null; summary: { total: number; error: number; warning: number; info: number } }> {
+  type RuntimeLogItem = { id: string; timestampMs: number; level: 'error' | 'warning' | 'info'; [key: string]: unknown };
   const values: unknown[] = [accountId, childId, fromMs, toMs, cursor?.beforeMs ?? null, cursor?.beforeId ?? ''];
   let filter = '';
   if (options.machineId) { values.push(options.machineId); filter += ` AND s.machine_id=?${values.length}`; }
@@ -776,31 +779,34 @@ export async function queryRuntimeLogs(
       ELSE 'info' END)=?${values.length}`;
   }
   values.push(limit + 1);
-  const rows = await database.prepare(`
+  const rows = options.category && options.category !== 'accounting' ? { results: [] } : await database.prepare(`
     SELECT s.id,s.machine_id,m.display_name AS machine_name,m.platform,s.wall_time_ms,s.diagnostic_code
     FROM runtime_usage_diagnostic_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
     WHERE m.account_id=?1 AND s.child_id=?2 AND s.wall_time_ms>=?3 AND s.wall_time_ms<?4
       AND (?5 IS NULL OR s.wall_time_ms<?5 OR (s.wall_time_ms=?5 AND s.id<?6))${filter}
     ORDER BY s.wall_time_ms DESC,s.id DESC LIMIT ?${values.length}
   `).bind(...values).all<Record<string, unknown>>();
-  const filtered = (rows.results || []).map((row) => {
+  const accounting: RuntimeLogItem[] = (rows.results || []).map((row) => {
     const eventCode = String(row.diagnostic_code || 'accountingDiagnostic');
     return {
       id: String(row.id), timestampMs: Number(row.wall_time_ms), level: runtimeLogLevel(eventCode),
       category: 'accounting', eventCode, machineId: String(row.machine_id),
       machineName: row.machine_name == null ? '电脑' : String(row.machine_name),
       platform: row.platform, module: 'accounting-state-machine',
-      message: '状态机记录了一个不计时的诊断边界。',
+      message: 'accounting_diagnostic_boundary', source: 'accounting', details: {},
     };
   }).filter((item) => !options.category || item.category === options.category);
-  const page = filtered.slice(0, limit);
+  const terminal = await queryTerminalLogs(database, accountId, fromMs, toMs, limit + 1, cursor, options) as RuntimeLogItem[];
+  const merged = [...accounting, ...terminal].sort((left, right) => Number(right.timestampMs) - Number(left.timestampMs)
+    || String(right.id).localeCompare(String(left.id)));
+  const page = merged.slice(0, limit);
   const last = page[page.length - 1];
-  const nextCursor = filtered.length > limit && last
-    ? btoa(JSON.stringify({ beforeMs: last.timestampMs, beforeId: last.id })) : null;
+  const nextCursor = merged.length > limit && last
+    ? btoa(JSON.stringify({ beforeMs: Number(last.timestampMs), beforeId: String(last.id) })) : null;
   return {
     items: page,
     nextCursor,
-    summary: page.reduce((summary, item) => {
+    summary: page.reduce<{ total: number; error: number; warning: number; info: number }>((summary, item) => {
       summary.total += 1; summary[item.level] += 1; return summary;
     }, { total: 0, error: 0, warning: 0, info: 0 }),
   };

@@ -11,6 +11,7 @@ import type {
 } from './contracts';
 import { randomToken, sha256Hex } from './crypto';
 import { getAppPolicy, resolveClassification } from './appPolicy';
+import { getLoggingPolicy } from './terminalLogging';
 
 type PolicyState = MachineSelfResponse['policyState'];
 
@@ -402,11 +403,13 @@ export async function getMachinePolicy(
     childId,
     policy: await getAppPolicy(database, machine.accountId, childId),
   })));
+  const loggingPolicy = await getLoggingPolicy(database, machine.accountId, machine.machineId);
   const policy = {
     version: machine.desiredPolicyVersion,
     defaultChildId: machine.defaultChildId,
     users: policyUsers,
     appPolicies,
+    loggingPolicy,
   };
   return { etag: `"policy-${machine.machineId}-${machine.desiredPolicyVersion}"`, policy };
 }

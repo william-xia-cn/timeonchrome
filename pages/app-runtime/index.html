@@ -72,14 +72,24 @@
       <section class="view" data-view-panel="system">
         <div class="tabbar system-tabs"><button class="active" data-system-tab="logs">系统日志</button><button data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button></div>
         <section data-system-panel="logs">
-          <aside class="notice runtime-log-scope"><strong>当前日志来源</strong><span>只显示已随 accounting v2 上传的脱敏 0ms diagnostic；本机 Service 文件日志尚未上传，也没有远程日志开关。</span></aside>
+          <aside class="notice runtime-log-scope"><strong>日志隐私边界</strong><span>终端只上传结构化诊断代码，不包含用户名、SID、孩子标识、应用身份、路径、窗口标题、token、配对码、异常正文或 stack。账本诊断始终可查。</span></aside>
+          <section class="card remote-logging-card">
+            <div class="section-title"><div><h2>远程终端日志</h2><p>默认关闭；按电脑临时打开，关闭期间的本地日志以后不会补传</p></div><span id="remote-log-status" class="badge offline">请选择电脑</span></div>
+            <div class="remote-log-grid">
+              <label>电脑<select id="logging-machine"><option value="">选择 Windows 电脑</option></select></label>
+              <label>最低等级<select id="logging-min-level"><option value="error">error</option><option value="warning">warning</option><option value="info">info</option></select></label>
+              <label>有效期<select id="logging-ttl"><option value="1">1 天</option><option value="3">3 天</option><option value="7">7 天</option></select></label>
+            </div>
+            <fieldset class="logging-categories"><legend>上传类别</legend><label><input type="checkbox" value="service" checked> Service</label><label><input type="checkbox" value="session" checked> Session Agent</label><label><input type="checkbox" value="policy" checked> 策略</label><label><input type="checkbox" value="upload" checked> 上传</label><label><input type="checkbox" value="storage" checked> 存储</label><label><input type="checkbox" value="security" checked> 安全 / tamper</label><label><input type="checkbox" value="accounting" checked> 落账</label></fieldset>
+            <div class="remote-log-actions"><button id="enable-remote-logging" class="primary">打开远程日志</button><button id="disable-remote-logging" class="danger">关闭远程日志</button><small id="remote-log-detail">选择电脑后读取当前策略</small></div>
+          </section>
           <section class="card runtime-log-card">
             <div class="section-title"><div><h2>日志查询</h2><p>按北京时间倒序显示；不包含用户名、SID、路径、窗口标题或应用原始身份</p></div></div>
             <div class="log-filters">
               <div class="segmented"><button class="active" data-log-range="today">今日</button><button data-log-range="week">本周</button><button data-log-range="all">全部</button></div>
               <select id="log-machine-filter" aria-label="日志电脑筛选"><option value="">全部电脑</option></select>
               <select id="log-level-filter" aria-label="日志等级筛选"><option value="">全部等级</option><option value="error">error</option><option value="warning">warning</option><option value="info">info</option></select>
-              <select id="log-category-filter" aria-label="日志类别筛选"><option value="">全部类别</option><option value="accounting">accounting</option></select>
+              <select id="log-category-filter" aria-label="日志类别筛选"><option value="">全部类别</option><option value="service">service</option><option value="session">session</option><option value="policy">policy</option><option value="upload">upload</option><option value="storage">storage</option><option value="security">security</option><option value="accounting">accounting</option></select>
               <button id="load-runtime-logs" class="primary">查询</button>
             </div>
             <div id="runtime-log-summary" class="log-summary"><span>尚未查询</span></div>

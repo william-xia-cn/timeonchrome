@@ -51,6 +51,31 @@ export interface RuntimeMachinePolicyV2 {
   defaultChildId: string | null;
   users: RuntimeMachineUserAssignmentV2[];
   appPolicies: RuntimeMachineChildAppPolicyV1[];
+  loggingPolicy: RuntimeMachineLoggingPolicyV1;
+}
+
+export type RuntimeTerminalLogLevel = 'info' | 'warning' | 'error';
+export type RuntimeTerminalLogCategory = 'service' | 'session' | 'policy' | 'upload' | 'storage' | 'security' | 'accounting';
+
+export interface RuntimeMachineLoggingPolicyV1 {
+  version: number;
+  enabled: boolean;
+  minLevel: RuntimeTerminalLogLevel;
+  categories: RuntimeTerminalLogCategory[];
+  expiresAtMs: number | null;
+}
+
+export interface RuntimeTerminalLogV1 {
+  id: string;
+  observedAtMs: number;
+  level: RuntimeTerminalLogLevel;
+  category: RuntimeTerminalLogCategory;
+  eventCode: string;
+  module: string;
+  messageCode: string;
+  details: Record<string, boolean | number | string>;
+  serviceVersion: string;
+  policyVersion: number;
 }
 
 export type RuntimeApplicationClassification =

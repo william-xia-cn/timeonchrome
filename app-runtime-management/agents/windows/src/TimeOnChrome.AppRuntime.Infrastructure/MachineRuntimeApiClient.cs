@@ -13,6 +13,17 @@ public sealed record MachineHeartbeat(string ServiceVersion, string WindowsVersi
 public sealed record MachineSegmentUpload(string LocalUserId, long AssignmentVersion, UsageSegment Segment);
 public sealed record MachineAccountingUsageUpload(string LocalUserId, long AssignmentVersion, UsageSegmentV2 Segment);
 public sealed record MachineAccountingMediaUpload(string LocalUserId, long AssignmentVersion, MediaSegmentV2 Segment);
+public sealed record MachineTerminalLogUpload(
+    string Id,
+    long ObservedAtMs,
+    string Level,
+    string Category,
+    string EventCode,
+    string Module,
+    string MessageCode,
+    IReadOnlyDictionary<string, object> Details,
+    string ServiceVersion,
+    long PolicyVersion);
 
 public sealed class MachineRuntimeApiClient
 {
@@ -158,6 +169,12 @@ public sealed class MachineRuntimeApiClient
             payload,
             cancellationToken).ConfigureAwait(false);
     }
+
+    public Task<UploadAcceptance> UploadTerminalLogsAsync(
+        MachineRuntimeCredential credential,
+        IReadOnlyList<MachineTerminalLogUpload> logs,
+        CancellationToken cancellationToken = default) =>
+        UploadAccountingAsync(credential, "/v2/terminal-logs:upload", new { logs }, cancellationToken);
 
     public Task RetireLegacyAsync(RuntimeCredential credential, CancellationToken cancellationToken = default) =>
         SendWithoutResultAsync(HttpMethod.Post,

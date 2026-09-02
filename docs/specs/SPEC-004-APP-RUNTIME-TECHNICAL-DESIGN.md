@@ -265,7 +265,9 @@ Display name 是非权威展示元数据，不进入策略身份键。`timeWindo
 - `GET /v2/module/app-usage`：返回设备主时长并集、分类/应用并集、配额使用/剩余/超额状态、按 Segment 所携带策略版本解析的时段外使用摘要和辅助媒体摘要。
 - `GET /v2/module/app-catalog`：返回当前 App Policy 与最近 30 天真实主 Segment 的合并目录；按 `platform + runtimeIdentity` 去重，正式分类中的未使用策略项仍保留。
 - `GET /v2/module/usage-segments` 与 `GET /v2/module/media-segments`：提供 Runtime 系统管理的游标分页明细；不返回 Child ID、token、SID、路径或窗口标题。
-- `GET /v2/module/runtime-logs`：从 `runtime_usage_diagnostic_segments_v2` 读取不可变诊断事件，支持时间范围、机器、等级、类别和游标；响应只包含脱敏的事件代码、模块、机器展示名与时间。等级由服务端固定映射，当前类别固定为 `accounting`。
+- `GET /v2/module/runtime-logs`：合并读取 `runtime_usage_diagnostic_segments_v2` 与 `runtime_terminal_logs_v1`，支持时间范围、机器、等级、类别和稳定游标；响应只包含脱敏事件代码、模块、机器展示名、软件版本、受控详情与时间。
+- `GET/PUT /v2/module/logging-policy?machineId=`：读取或更新 Account 所属机器的日志策略。GET 返回 ETag；PUT 必须携带 `If-Match`，只接受 `enabled`、`minLevel`、固定类别集合和最长 7 天 `expiresAtMs`，版本冲突返回 412。
+- `POST /v2/terminal-logs:upload`：机器凭据认证，单批最多 100 条，D1 `batch()` 幂等写入并逐项返回 `acceptedIds/rejected`。策略未开启、已过期、等级/类别不匹配或 policy version 过期的项目必须拒绝，客户端只删除明确 ACK 的 outbox 项。
 
 `GET /v2/machines/policy` 在现有 assignment 之外增量返回本机受保护用户所需的 App Policy 版本。孩子策略变更只提升关联机器的 desired version；Service 原子缓存后，在实际应用时间关闭受影响用户的 foreground/PiP lane，并以新 `AccountingPolicySnapshot` 同刻重开。上传携带 `appPolicyVersion`，Worker 根据服务端策略历史解析分类和 quota bucket，不信任客户端自报分类。
 
@@ -273,7 +275,15 @@ Display name 是非权威展示元数据，不进入策略身份键。`timeWindo
 
 `app-runtime-management/console/` 是 canonical source，静态复制到 `pages/app-runtime/`。页面在独立文档内切换 `usage/access/apps/devices/system` 五个视图，复用主控制台的绿色视觉语言、Logo、孩子选择器、桌面侧栏、移动导航和账户区，但不抽取或修改主控制台业务代码。
 
-应用管理使用固定左侧分类目录、名称搜索、平台筛选和无二级页签列表；应用目录由 `/v2/module/app-catalog` 驱动，按当前孩子隔离，并将现行策略项与最近 30 天真实应用合并。左侧普通目录将总数、Windows 数和 macOS 数分列展示，未归类目录展示待处理数与固定 30 天窗口；策略中预配置但窗口内未使用的真实身份仍返回并保留。右侧行内使用显式目标分类动作并显示操作结果，不引入网站特有的来源子表或特殊对象。访问管理固定使用时间配额、时间段管理、配置文件三页签；设备管理使用列表加右侧详情抽屉；系统管理提供系统日志、主账本、辅助媒体和健康。系统日志沿用 TimeOnChrome 的筛选/摘要/分页层级，但当前只读取 accounting diagnostic，不提供虚假的 Service 日志开关。配置文件 schema v2 由访问管理导出/导入，v1 导入补成全开放时间段，必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
+应用管理使用固定左侧分类目录、名称搜索、平台筛选和无二级页签列表；应用目录由 `/v2/module/app-catalog` 驱动，按当前孩子隔离，并将现行策略项与最近 30 天真实应用合并。左侧普通目录将总数、Windows 数和 macOS 数分列展示，未归类目录展示待处理数与固定 30 天窗口；策略中预配置但窗口内未使用的真实身份仍返回并保留。右侧行内使用显式目标分类动作并显示操作结果，不引入网站特有的来源子表或特殊对象。访问管理固定使用时间配额、时间段管理、配置文件三页签；设备管理使用列表加右侧详情抽屉；系统管理提供系统日志、主账本、辅助媒体和健康。系统日志沿用 TimeOnChrome 的筛选/摘要/分页层级，并在机器选择后显示远程日志开关、最低等级、类别、到期时间和 desired/applied 状态；开关关闭时仍可查询既有云端历史与 accounting diagnostic。配置文件 schema v2 由访问管理导出/导入，v1 导入补成全开放时间段，必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
+
+### D-090 Terminal Logging
+
+`0006_runtime_terminal_logs.sql` 只新增 `runtime_machine_logging_policy_versions_v1` 与 `runtime_terminal_logs_v1` 及查询索引，不改写既有 Segment。日志策略属于机器策略的一部分，由 `/v2/machines/policy` 下发；字段为 `version/enabled/minLevel/categories/expiresAtMs`。缺失策略、关闭或过期统一解释为不上云。Windows Service 始终维护受 ACL 保护的本地有界诊断，但只有事件发生时匹配当时有效上传策略的日志才与独立 outbox 原子写入；以后打开开关不能追溯创建历史 outbox。
+
+日志策略更新可以提升机器 desired policy version以获得明确 ACK，但 Service 必须比较排除 `loggingPolicy` 后的 assignment/App Policy payload；只有日志字段变化时原子替换本地策略而不关闭、重开或改变任何 accounting lane。
+
+本地日志类别固定为 `service/session/policy/upload/storage/security/accounting`，等级固定为 `info/warning/error`。详情值只允许布尔、受界整数和固定枚举；异常只转换为稳定错误码。SQLite 日志与 outbox 事务不和 Usage/Media outbox 共用提交成败，上传 loop 独立退避，单批最多 100 条，ACK 后逐项删除。日志读取/写入/上传异常只允许写入有冷却的 Windows Event Log code-only fallback，不得递归生成日志风暴。
 - Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store、Setup presentation 与窗口布局纯逻辑。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。

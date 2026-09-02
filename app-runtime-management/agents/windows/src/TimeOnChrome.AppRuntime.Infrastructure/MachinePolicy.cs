@@ -22,7 +22,28 @@ public sealed record MachinePolicy(
     long Version,
     string? DefaultChildId,
     IReadOnlyList<MachineUserAssignment> Users,
-    IReadOnlyList<MachineChildAppPolicy>? AppPolicies = null);
+    IReadOnlyList<MachineChildAppPolicy>? AppPolicies = null,
+    MachineLoggingPolicy? LoggingPolicy = null);
+
+public sealed record MachineLoggingPolicy(
+    long Version,
+    bool Enabled,
+    string MinLevel,
+    IReadOnlyList<string> Categories,
+    long? ExpiresAtMs)
+{
+    public bool Allows(string level, string category, long nowMs) =>
+        Enabled && ExpiresAtMs is > 0 && nowMs < ExpiresAtMs
+        && Categories.Contains(category, StringComparer.Ordinal)
+        && Rank(level) >= Rank(MinLevel);
+
+    private static int Rank(string level) => level switch
+    {
+        "error" => 2,
+        "warning" => 1,
+        _ => 0,
+    };
+}
 
 public sealed record MachineChildAppPolicy(string ChildId, AppPolicyDocument Policy);
 
@@ -125,6 +146,17 @@ public sealed class MachinePolicyStore
 
     public static MachineUserAssignment? AssignmentFor(MachinePolicy policy, string localUserId) =>
         policy.Users.FirstOrDefault(user => string.Equals(user.LocalUserId, localUserId, StringComparison.Ordinal));
+
+    public static bool RequiresAccountingBoundary(MachinePolicy current, MachinePolicy next)
+    {
+        static string AccountingPayload(MachinePolicy policy) => JsonSerializer.Serialize(new
+        {
+            policy.DefaultChildId,
+            policy.Users,
+            policy.AppPolicies,
+        }, RuntimeJson.Options);
+        return !string.Equals(AccountingPayload(current), AccountingPayload(next), StringComparison.Ordinal);
+    }
 
     public static AccountingPolicySnapshot SnapshotFor(
         MachinePolicy policy,

@@ -12,6 +12,13 @@
 
 ## Active App Runtime Work（2026-09-02）
 
+- [x] **[SPEC-004 / D-090] App Runtime 机器级终端日志与远程开关（本地完成，未部署）**
+  - 目标：在 Runtime 系统管理提供机器级远程日志打开/关闭、等级/类别/TTL 配置和统一日志查询；Windows Service 建立结构化本地日志、独立 SQLite outbox 与逐项 ACK 上传。
+  - 安全：默认关闭；关闭期间不形成云端补传积压；不上传用户名、SID、Child ID、runtime identity、路径、窗口标题、token、配对码、原始异常或 stack。
+  - 隔离：日志失败不得阻断主/媒体账本、策略、heartbeat 或 Session Agent 守护；macOS 当前只共享协议。
+  - 边界：只生成并本地验证 additive `0006`，不应用生产 migration，不部署 Worker/Pages，不升级 William 当前机器。
+  - 证据：Windows 54/54、Runtime Worker 22/22、console helper 与桌面/390px 目视检查通过；TypeScript、JSON contract、canonical/staged Pages 一致性与 Wrangler dry-run 通过。打开/关闭、ETag、TTL、等级/类别、策略下发、幂等逐项 ACK、关闭后拒绝、无追溯 outbox、日志-only 策略不切主账本 lane 均有固定回归。
+
 - [x] **[SPEC-004 / D-087 / D-088 / D-089] App Runtime 孩子级五目录生产依赖补齐（已完成）**
   - 目标：将应用管理左侧收口为 TimeOnChrome 式五个目录卡片，普通目录明确分列应用、Windows、macOS 三项计数；右侧保持无二级表格的平面应用列表。
   - 验收：固定验证孩子级预配置应用即使最近 30 天未使用仍保留、搜索/平台筛选/移动分类有效、未归类待处理展开/已处理历史折叠；初次未登录或加载失败必须显示完整错误状态，不得暴露空业务骨架。

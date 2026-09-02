@@ -4,10 +4,11 @@
   "title": "TimeOnChrome App Runtime machine protocol v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["policy", "segmentUpload"],
+  "required": ["policy", "segmentUpload", "terminalLogUpload"],
   "properties": {
     "policy": { "$ref": "#/$defs/policy" },
-    "segmentUpload": { "$ref": "#/$defs/segmentUpload" }
+    "segmentUpload": { "$ref": "#/$defs/segmentUpload" },
+    "terminalLogUpload": { "$ref": "#/$defs/terminalLogUpload" }
   },
   "$defs": {
     "localUserId": {
@@ -50,7 +51,8 @@
               "policy": { "$ref": "runtime-app-policy-v1.schema.json" }
             }
           }
-        }
+        },
+        "loggingPolicy": { "$ref": "#/$defs/loggingPolicy" }
       }
     },
     "application": {
@@ -87,6 +89,41 @@
         "schemaVersion": { "const": 2 },
         "segments": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/segmentEnvelope" } }
       }
+    },
+    "loggingPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "enabled", "minLevel", "categories", "expiresAtMs"],
+      "properties": {
+        "version": { "type": "integer", "minimum": 0 },
+        "enabled": { "type": "boolean" },
+        "minLevel": { "enum": ["info", "warning", "error"] },
+        "categories": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["service", "session", "policy", "upload", "storage", "security", "accounting"] } },
+        "expiresAtMs": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "terminalLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "observedAtMs", "level", "category", "eventCode", "module", "messageCode", "details", "serviceVersion", "policyVersion"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$" },
+        "observedAtMs": { "type": "integer", "minimum": 0 },
+        "level": { "enum": ["info", "warning", "error"] },
+        "category": { "enum": ["service", "session", "policy", "upload", "storage", "security", "accounting"] },
+        "eventCode": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,96}$" },
+        "module": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+        "messageCode": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,96}$" },
+        "details": { "type": "object", "maxProperties": 12, "additionalProperties": { "type": ["boolean", "integer", "string"] } },
+        "serviceVersion": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,32}$" },
+        "policyVersion": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "terminalLogUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logs"],
+      "properties": { "logs": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/terminalLog" } } }
     }
   }
 }

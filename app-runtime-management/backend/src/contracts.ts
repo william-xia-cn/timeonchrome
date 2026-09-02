@@ -341,6 +341,30 @@ export interface MachineSelfResponse {
   revoked: boolean;
 }
 
+export type RuntimeLogLevel = 'info' | 'warning' | 'error';
+export type RuntimeLogCategory = 'service' | 'session' | 'policy' | 'upload' | 'storage' | 'security' | 'accounting';
+
+export interface MachineLoggingPolicy {
+  version: number;
+  enabled: boolean;
+  minLevel: RuntimeLogLevel;
+  categories: RuntimeLogCategory[];
+  expiresAtMs: number | null;
+}
+
+export interface RuntimeTerminalLog {
+  id: string;
+  observedAtMs: number;
+  level: RuntimeLogLevel;
+  category: RuntimeLogCategory;
+  eventCode: string;
+  module: string;
+  messageCode: string;
+  details: Record<string, boolean | number | string>;
+  serviceVersion: string;
+  policyVersion: number;
+}
+
 export interface MachineSegmentEnvelope {
   localUserId: string;
   assignmentVersion: number;

@@ -11,6 +11,8 @@ const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE'
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_terminal_logs_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_machine_logging_policy_versions_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_app_classification_history_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_child_app_policy_versions_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_media_segments_v2'),
@@ -682,6 +684,51 @@ describe('Runtime product API', () => {
     })).json<{ categories: Array<{ quota: { exceeded: boolean; exceededDays: number } }>; applications: Array<{ quota: { exceeded: boolean; exceededDays: number } }> }>();
     expect(usage.categories[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
     expect(usage.applications[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
+  });
+
+  it('controls machine terminal logging with ETag, policy delivery, item ACK, and no upload while disabled', async () => {
+    const { account, enrolled } = await createMachineWithUser();
+    const policyPath = `/v2/module/logging-policy?machineId=${encodeURIComponent(enrolled.machineId)}`;
+    const initial = await call(policyPath, { headers: bearer(account) });
+    expect(initial.headers.get('etag')).toBe(`"logging-${enrolled.machineId}-0"`);
+    await expect(initial.json()).resolves.toMatchObject({ version: 0, enabled: false, minLevel: 'error' });
+    const now = Date.now();
+    expect((await call(policyPath, {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"wrong"' },
+      body: JSON.stringify({ enabled: true, minLevel: 'warning', categories: ['service', 'security'], expiresAtMs: now + 86_400_000 }),
+    })).status).toBe(412);
+    const enabled = await call(policyPath, {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': `"logging-${enrolled.machineId}-0"` },
+      body: JSON.stringify({ enabled: true, minLevel: 'warning', categories: ['service', 'security'], expiresAtMs: now + 86_400_000 }),
+    });
+    expect(enabled.status).toBe(200);
+    expect(enabled.headers.get('etag')).toBe(`"logging-${enrolled.machineId}-1"`);
+    const machinePolicy = await (await call('/v2/machines/policy', { headers: bearer(enrolled.machineToken) })).json<Record<string, unknown>>();
+    expect(machinePolicy.loggingPolicy).toMatchObject({ version: 1, enabled: true, minLevel: 'warning' });
+
+    const log = {
+      id: 'log-test-1', observedAtMs: now, level: 'warning', category: 'security',
+      eventCode: 'session_agent_terminated', module: 'session-supervisor', messageCode: 'session_agent_terminated',
+      details: { tamperCount: 1, recovered: true }, serviceVersion: '2.0.6', policyVersion: 1,
+    };
+    const upload = () => call('/v2/terminal-logs:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken), body: JSON.stringify({ logs: [log] }),
+    });
+    await expect((await upload()).json()).resolves.toEqual({ acceptedIds: ['log-test-1'], rejected: [] });
+    await expect((await upload()).json()).resolves.toEqual({ acceptedIds: ['log-test-1'], rejected: [] });
+    const query = await call(`/v2/module/runtime-logs?childId=child-a&fromMs=${now - 1}&toMs=${now + 1}&machineId=${encodeURIComponent(enrolled.machineId)}&category=security`, { headers: bearer(account) });
+    await expect(query.json()).resolves.toMatchObject({ items: [{ id: 'log-test-1', source: 'terminal', eventCode: 'session_agent_terminated' }] });
+
+    const disabled = await call(policyPath, {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': `"logging-${enrolled.machineId}-1"` },
+      body: JSON.stringify({ enabled: false, minLevel: 'warning', categories: ['service', 'security'], expiresAtMs: null }),
+    });
+    expect(disabled.status).toBe(200);
+    const blocked = await call('/v2/terminal-logs:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ logs: [{ ...log, id: 'log-test-2', policyVersion: 2 }] }),
+    });
+    await expect(blocked.json()).resolves.toEqual({ acceptedIds: [], rejected: [{ id: 'log-test-2', code: 'LOGGING_DISABLED' }] });
   });
 
   it('requires a single-use uninstall code and retires the machine token', async () => {

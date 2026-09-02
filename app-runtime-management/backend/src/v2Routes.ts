@@ -41,6 +41,15 @@ import {
   queryRuntimeLogs,
   querySegmentDetails,
 } from './appPolicy';
+import {
+  getLoggingPolicy,
+  loggingPolicyEtag,
+  parseLoggingPolicyUpdate,
+  parseTerminalLogs,
+  persistTerminalLogs,
+  putLoggingPolicy,
+  runtimeLogCategories,
+} from './terminalLogging';
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
 
@@ -85,6 +94,23 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
         const policy = await putAppPolicy(env.RUNTIME_DB, claims.account_id, childId,
           request.headers.get('if-match'), update, nowMs);
         return jsonResponse(policy, { headers: { etag: appPolicyEtag(policy.version) } });
+      }
+      return methodNotAllowed('GET, PUT');
+    }
+    if (url.pathname === '/v2/module/logging-policy') {
+      const machineId = url.searchParams.get('machineId') || '';
+      if (!machineId) throw new HttpError(400, 'INVALID_REQUEST', 'machineId is required.');
+      if (request.method === 'GET') {
+        const policy = await getLoggingPolicy(env.RUNTIME_DB, claims.account_id, machineId);
+        return policy ? jsonResponse(policy, { headers: { etag: loggingPolicyEtag(machineId, policy.version) } })
+          : errorResponse(404, 'MACHINE_NOT_FOUND', 'Machine was not found.');
+      }
+      if (request.method === 'PUT') {
+        const update = parseLoggingPolicyUpdate(await readJsonBody(request), nowMs);
+        const policy = await putLoggingPolicy(env.RUNTIME_DB, claims.account_id, machineId,
+          request.headers.get('if-match'), update, nowMs);
+        return policy ? jsonResponse(policy, { headers: { etag: loggingPolicyEtag(machineId, policy.version) } })
+          : errorResponse(404, 'MACHINE_NOT_FOUND', 'Machine was not found.');
       }
       return methodNotAllowed('GET, PUT');
     }
@@ -152,7 +178,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       if (level != null && !['error', 'warning', 'info'].includes(level)) {
         throw new HttpError(400, 'INVALID_LOG_LEVEL', 'Log level is invalid.');
       }
-      if (category != null && category !== 'accounting') {
+      if (category != null && !runtimeLogCategories.includes(category as typeof runtimeLogCategories[number])) {
         throw new HttpError(400, 'INVALID_LOG_CATEGORY', 'Log category is invalid.');
       }
       return jsonResponse(await queryRuntimeLogs(
@@ -160,7 +186,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
         requestedLimit, parseCursor(url.searchParams.get('cursor')), {
           machineId: url.searchParams.get('machineId') || undefined,
           level: (level || undefined) as 'error' | 'warning' | 'info' | undefined,
-          category: (category || undefined) as 'accounting' | undefined,
+          category: (category || undefined) as typeof runtimeLogCategories[number] | undefined,
         },
       ));
     }
@@ -337,6 +363,12 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
     if (request.method !== 'POST') return methodNotAllowed('POST');
     const parsed = parseMachineMediaUpload(await readJsonBody(request), machine.platform);
     const result = await persistAccountingMediaSegments(env.RUNTIME_DB, machine, parsed.envelopes, nowMs);
+    return jsonResponse({ acceptedIds: result.acceptedIds, rejected: [...parsed.rejected, ...result.rejected] });
+  }
+  if (url.pathname === '/v2/terminal-logs:upload') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    const parsed = parseTerminalLogs(await readJsonBody(request, 131_072));
+    const result = await persistTerminalLogs(env.RUNTIME_DB, machine, parsed.logs, nowMs);
     return jsonResponse({ acceptedIds: result.acceptedIds, rejected: [...parsed.rejected, ...result.rejected] });
   }
   if (url.pathname === '/v2/machines/uninstall') {

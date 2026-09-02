@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using TimeOnChrome.AppRuntime.Core;
 using TimeOnChrome.AppRuntime.Infrastructure;
 
@@ -26,6 +27,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     private MachineRuntimeApiClient api;
     private MachineRuntimeCredential? credential;
     private MachineSegmentLedger? ledger;
+    private MachineTerminalLogStore? terminalLogs;
     private MachineUserIdentityDeriver? identityDeriver;
     private AppliedMachinePolicy? appliedPolicy;
     private string? policyEtag;
@@ -43,11 +45,14 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     public async Task StartAsync()
     {
         Directory.CreateDirectory(paths.RootDirectory);
+        terminalLogs = new MachineTerminalLogStore(paths.DatabasePath);
+        await terminalLogs.InitializeAsync(cancellation.Token).ConfigureAwait(false);
         identityDeriver = new MachineUserIdentityDeriver(
             await MachineUserIdentityDeriver.LoadOrCreateKeyAsync(paths.MachineKeyPath, cancellation.Token).ConfigureAwait(false));
         credential = await credentialStore.LoadAsync(cancellation.Token).ConfigureAwait(false);
         appliedPolicy = await policyStore.LoadAsync(cancellation.Token).ConfigureAwait(false);
         if (credential is not null) await InitializeLedgerAsync(credential).ConfigureAwait(false);
+        await WriteLogAsync("info", "service", "service_started", "service", "service_started").ConfigureAwait(false);
         loops =
         [
             RunResilientLoopAsync("control", ControlLoopAsync, cancellation.Token),
@@ -58,7 +63,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         ];
     }
 
-    private static async Task RunResilientLoopAsync(
+    private async Task RunResilientLoopAsync(
         string name,
         Func<CancellationToken, Task> loop,
         CancellationToken cancellationToken)
@@ -77,19 +82,21 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             }
             catch (Exception exception)
             {
-                TryLogLoopFailure(name, exception);
+                await WriteLogAsync("error", "service", "loop_failed", "service-loop", "loop_failed",
+                    new Dictionary<string, object> { ["loop"] = name, ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+                TryLogLoopFailure(name);
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
             }
         }
     }
 
-    private static void TryLogLoopFailure(string name, Exception exception)
+    private static void TryLogLoopFailure(string name)
     {
         try
         {
             EventLog.WriteEntry(
                 "TimeOnChromeAppRuntime",
-                $"Runtime Service loop '{name}' failed and will restart: {exception}",
+                $"Runtime Service loop '{name}' failed and will restart.",
                 EventLogEntryType.Error);
         }
         catch (Exception loggingException) when (loggingException is InvalidOperationException
@@ -110,6 +117,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     {
         if (stopping) return;
         stopping = true;
+        await WriteLogAsync("info", "service", "service_stopping", "service", "service_stopping").ConfigureAwait(false);
         cancellation.Cancel();
         await stateGate.WaitAsync().ConfigureAwait(false);
         try
@@ -137,6 +145,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         ledger = new MachineSegmentLedger(paths.DatabasePath);
         await ledger.InitializeAsync(machineCredential.MachineId, cancellation.Token).ConfigureAwait(false);
         var restored = await ledger.RestoreAccountingSessionsAsync(cancellation.Token).ConfigureAwait(false);
+        await WriteLogAsync("info", "storage", "ledger_initialized", "ledger", "ledger_initialized",
+            new Dictionary<string, object> { ["recoveryCount"] = restored.Count }).ConfigureAwait(false);
         foreach (var item in restored)
         {
             var session = new MachineAccountingSession(
@@ -185,6 +195,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
             if (!isAdministrator)
             {
+                await WriteLogAsync("warning", "security", "control_admin_required", "control-pipe",
+                    "control_admin_required").ConfigureAwait(false);
                 await writer.WriteLineAsync(JsonSerializer.Serialize(
                     new MachineControlResponse(false, "denied", "ADMIN_REQUIRED"), RuntimeJson.Options)).ConfigureAwait(false);
                 continue;
@@ -213,6 +225,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 {
                     if (credential is null) throw new InvalidDataException("Machine is not enrolled.");
                     await api.AuthorizeUninstallAsync(credential, command.Code, cancellationToken).ConfigureAwait(false);
+                    await WriteLogAsync("info", "security", "uninstall_authorized", "control-pipe",
+                        "uninstall_authorized").ConfigureAwait(false);
                     await writer.WriteLineAsync(JsonSerializer.Serialize(
                         new MachineControlResponse(true, "uninstallAuthorized"), RuntimeJson.Options)).ConfigureAwait(false);
                     continue;
@@ -228,11 +242,14 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 await credentialStore.SaveAsync(enrolled, cancellationToken).ConfigureAwait(false);
                 credential = enrolled;
                 await InitializeLedgerAsync(enrolled).ConfigureAwait(false);
+                await WriteLogAsync("info", "service", "machine_enrolled", "control-pipe", "machine_enrolled").ConfigureAwait(false);
                 await writer.WriteLineAsync(JsonSerializer.Serialize(
                     new MachineControlResponse(true, "enrolled"), RuntimeJson.Options)).ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or InvalidDataException or JsonException)
             {
+                await WriteLogAsync("warning", "security", "control_command_failed", "control-pipe",
+                    "control_command_failed", new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
                 await writer.WriteLineAsync(JsonSerializer.Serialize(
                     new MachineControlResponse(false, "failed", exception is RuntimeApiException apiError && apiError.StatusCode == 401
                         ? "PAIRING_CODE_INVALID" : "ENROLLMENT_FAILED"), RuntimeJson.Options)).ConfigureAwait(false);
@@ -285,11 +302,15 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 tamperCount += 1;
                 await ledger.RecordTamperAsync(localUserId, "session_agent_binary_missing",
                     $"session:{session.SessionId}", cancellationToken).ConfigureAwait(false);
+                await WriteLogAsync("error", "security", "session_agent_binary_missing", "session-supervisor",
+                    "session_agent_binary_missing", new Dictionary<string, object> { ["tamperCount"] = tamperCount }).ConfigureAwait(false);
             }
             return;
         }
         _ = missingBinaryReported.Remove(session.SessionId);
         var process = sessionLauncher.Start(session.SessionId, executable);
+        await WriteLogAsync("info", "session", "session_agent_started", "session-supervisor",
+            "session_agent_started").ConfigureAwait(false);
         process.EnableRaisingEvents = true;
         process.Exited += async (_, _) => await AgentExitedAsync(session.SessionId).ConfigureAwait(false);
         lock (agents) agents[session.SessionId] = process;
@@ -301,6 +322,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         tamperCount += 1;
         sessions.TryGetValue(sessionId, out var runtime);
         await ledger.RecordTamperAsync(runtime?.LocalUserId, "session_agent_terminated", $"session:{sessionId}").ConfigureAwait(false);
+        await WriteLogAsync("warning", "security", "session_agent_terminated", "session-supervisor",
+            "session_agent_terminated", new Dictionary<string, object> { ["tamperCount"] = tamperCount }).ConfigureAwait(false);
         await HandleSessionUnavailableAsync(sessionId).ConfigureAwait(false);
         var interactive = sessionLauncher.Enumerate().FirstOrDefault(item => item.SessionId == sessionId && item.Active);
         if (interactive is not null && identityDeriver is not null)
@@ -325,9 +348,13 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
             if (!ValidatePipeClient(pipe, session))
             {
+                await WriteLogAsync("warning", "security", "session_pipe_client_rejected", "fact-pipe",
+                    "session_pipe_client_rejected").ConfigureAwait(false);
                 pipe.Disconnect();
                 continue;
             }
+            await WriteLogAsync("info", "session", "session_pipe_connected", "fact-pipe",
+                "session_pipe_connected").ConfigureAwait(false);
             using var reader = new StreamReader(pipe, leaveOpen: true);
             while (pipe.IsConnected && !cancellationToken.IsCancellationRequested)
             {
@@ -345,6 +372,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 }
             }
             await HandleSessionUnavailableAsync(session.SessionId).ConfigureAwait(false);
+            await WriteLogAsync("info", "session", "session_pipe_disconnected", "fact-pipe",
+                "session_pipe_disconnected").ConfigureAwait(false);
         }
     }
 
@@ -430,14 +459,21 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                         {
                             var boundaryWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                             var boundaryMonotonic = Environment.TickCount64;
-                            var previous = sessions.ToDictionary(
+                            var accountingChanged = appliedPolicy is null
+                                || MachinePolicyStore.RequiresAccountingBoundary(appliedPolicy.Policy, result.Policy);
+                            var previous = accountingChanged ? sessions.ToDictionary(
                                 item => item.Key,
-                                item => (item.Value.LocalUserId, item.Value.AccountingSession.DurableState));
-                            foreach (var sessionId in sessions.Keys.ToArray())
-                                await CloseSessionUnsafeAsync(sessionId, boundaryWall, boundaryMonotonic).ConfigureAwait(false);
+                                item => (item.Value.LocalUserId, item.Value.AccountingSession.DurableState)) : [];
+                            if (accountingChanged)
+                            {
+                                foreach (var sessionId in sessions.Keys.ToArray())
+                                    await CloseSessionUnsafeAsync(sessionId, boundaryWall, boundaryMonotonic).ConfigureAwait(false);
+                            }
                             appliedPolicy = new AppliedMachinePolicy(result.Policy,
                                 boundaryWall, boundaryWall);
                             await policyStore.SaveAsync(appliedPolicy, cancellationToken).ConfigureAwait(false);
+                            await WriteLogAsync("info", "policy", "policy_applied", "policy-loop", "policy_applied",
+                                new Dictionary<string, object> { ["version"] = result.Policy.Version }).ConfigureAwait(false);
                             policyEtag = result.ETag;
                             foreach (var (sessionId, prior) in previous)
                             {
@@ -479,6 +515,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 }
                 catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
                 {
+                    await WriteLogAsync("warning", "policy", "policy_sync_failed", "policy-loop", "policy_sync_failed",
+                        new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
                     delay = TimeSpan.FromMinutes(Math.Min(15, Math.Max(1, delay.TotalMinutes * 2)));
                 }
             }
@@ -496,6 +534,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             await UploadLegacyAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
             await UploadAccountingUsageAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
             await UploadAccountingMediaAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
+            await UploadTerminalLogsAsync(credential, nowMs, cancellationToken).ConfigureAwait(false);
         }
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
     }
@@ -522,11 +561,15 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
             await currentLedger.RecordFailureAsync(retry, "ACK_MISSING",
                 DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("info", "upload", "segment_upload_completed", "usage-upload", "segment_upload_completed",
+                new Dictionary<string, object> { ["stream"] = "legacy", ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejectedIds.Count }).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
         {
             await currentLedger.RecordFailureAsync(pending.Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet(),
                 "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("warning", "upload", "segment_upload_failed", "usage-upload", "segment_upload_failed",
+                new Dictionary<string, object> { ["stream"] = "legacy", ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
         }
     }
 
@@ -553,12 +596,16 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
             await currentLedger.RecordAccountingUsageFailureAsync(retry, "ACK_MISSING",
                 DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("info", "upload", "segment_upload_completed", "usage-upload", "segment_upload_completed",
+                new Dictionary<string, object> { ["stream"] = "usage", ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejected.Count }).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
         {
             await currentLedger.RecordAccountingUsageFailureAsync(
                 pending.Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet(),
                 "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("warning", "upload", "segment_upload_failed", "usage-upload", "segment_upload_failed",
+                new Dictionary<string, object> { ["stream"] = "usage", ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
         }
     }
 
@@ -585,12 +632,16 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 .Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet();
             await currentLedger.RecordAccountingMediaFailureAsync(retry, "ACK_MISSING",
                 DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("info", "upload", "segment_upload_completed", "media-upload", "segment_upload_completed",
+                new Dictionary<string, object> { ["stream"] = "media", ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejected.Count }).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
         {
             await currentLedger.RecordAccountingMediaFailureAsync(
                 pending.Select(item => (item.LocalUserId, item.Segment.Id)).ToHashSet(),
                 "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("warning", "upload", "segment_upload_failed", "media-upload", "segment_upload_failed",
+                new Dictionary<string, object> { ["stream"] = "media", ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
         }
     }
 
@@ -608,10 +659,73 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                     RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                     tamperCount,
                     appliedPolicy is null ? "pending" : "applied"), cancellationToken).ConfigureAwait(false);
+                await WriteLogAsync("info", "service", "heartbeat_succeeded", "heartbeat-loop", "heartbeat_succeeded").ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException) { }
+            catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
+            {
+                await WriteLogAsync("warning", "service", "heartbeat_failed", "heartbeat-loop", "heartbeat_failed",
+                    new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+            }
         }
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task UploadTerminalLogsAsync(
+        MachineRuntimeCredential currentCredential,
+        long nowMs,
+        CancellationToken cancellationToken)
+    {
+        if (terminalLogs is null) return;
+        var pending = await terminalLogs.PendingAsync(100, nowMs, cancellationToken).ConfigureAwait(false);
+        if (pending.Count == 0) return;
+        try
+        {
+            var acceptance = await api.UploadTerminalLogsAsync(currentCredential,
+                pending.Select(item => item.Log).ToArray(), cancellationToken).ConfigureAwait(false);
+            var accepted = acceptance.AcceptedIds.ToHashSet(StringComparer.Ordinal);
+            var rejected = acceptance.Rejected.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+            await terminalLogs.MarkAcceptedAsync(accepted.Concat(rejected).ToHashSet(StringComparer.Ordinal), cancellationToken).ConfigureAwait(false);
+            var retry = pending.Select(item => item.Log.Id)
+                .Where(id => !accepted.Contains(id) && !rejected.Contains(id)).ToHashSet(StringComparer.Ordinal);
+            await terminalLogs.RecordFailureAsync(retry, "ACK_MISSING",
+                DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("info", "upload", "terminal_log_upload_completed", "terminal-log-loop",
+                "terminal_log_upload_completed", new Dictionary<string, object>
+                {
+                    ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejected.Count,
+                }, remoteEligible: false).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
+        {
+            await terminalLogs.RecordFailureAsync(pending.Select(item => item.Log.Id).ToHashSet(StringComparer.Ordinal),
+                "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+            await WriteLogAsync("warning", "upload", "terminal_log_upload_failed", "terminal-log-loop",
+                "terminal_log_upload_failed", new Dictionary<string, object> { ["errorType"] = exception.GetType().Name },
+                remoteEligible: false).ConfigureAwait(false);
+        }
+    }
+
+    private async Task WriteLogAsync(
+        string level,
+        string category,
+        string eventCode,
+        string module,
+        string messageCode,
+        IReadOnlyDictionary<string, object>? details = null,
+        bool remoteEligible = true)
+    {
+        if (terminalLogs is null) return;
+        try
+        {
+            await terminalLogs.WriteAsync(level, category, eventCode, module, messageCode, details,
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.6",
+                remoteEligible ? appliedPolicy?.Policy.LoggingPolicy : null,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellation.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is SqliteException or IOException or ArgumentException or OperationCanceledException)
+        {
+            // Diagnostics are strictly best-effort and cannot block Runtime behavior.
+        }
     }
 
     public async ValueTask DisposeAsync()

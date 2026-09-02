@@ -9,7 +9,7 @@
     apps: ['应用管理', '管理真实使用过的应用目录与分类'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
     system: ['系统管理', '查看系统日志、主账本、辅助媒体和运行健康'],
   };
-  const state = { period: 'day', offset: 0, token: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', records: { pending: [], processed: [] }, catalog: { items: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, view: 'usage', appCategory: 'unclassified', actionApps: [], quotaApps: [], loaded: false };
+  const state = { period: 'day', offset: 0, token: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [] }, catalog: { items: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, view: 'usage', appCategory: 'unclassified', actionApps: [], quotaApps: [], loaded: false };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -70,11 +70,14 @@
       { ...state.policy.classifications.find((item) => item.runtimeIdentity === 'app:chat'), firstSeenAtMs: null, lastSeenAtMs: null, mainDurationMs: 0, machineCount: 0, userCount: 0, observedInWindow: false },
       ...state.records.pending,
     ] };
-    state.runtimeLogs = { range: 'today', nextCursor: null, summary: { total: 3, error: 1, warning: 1, info: 1 }, items: [
-      { id: 'log-3', timestampMs: Date.now() - 120000, level: 'warning', category: 'accounting', eventCode: 'lateFact', machineName: 'INTELMINIPC-XW', platform: 'windows', module: 'accounting-state-machine', message: '状态机记录了一个不计时的诊断边界。' },
+    state.runtimeLogs = { range: 'today', nextCursor: null, summary: { total: 4, error: 1, warning: 1, info: 2 }, items: [
+      { id: 'log-4', timestampMs: Date.now() - 60000, level: 'info', category: 'service', eventCode: 'heartbeat_succeeded', machineName: 'INTELMINIPC-XW', platform: 'windows', module: 'heartbeat-loop', message: 'heartbeat_succeeded', source: 'terminal' },
+      { id: 'log-3', timestampMs: Date.now() - 120000, level: 'warning', category: 'security', eventCode: 'session_agent_terminated', machineName: 'INTELMINIPC-XW', platform: 'windows', module: 'session-supervisor', message: 'session_agent_terminated', source: 'terminal' },
       { id: 'log-2', timestampMs: Date.now() - 900000, level: 'error', category: 'accounting', eventCode: 'identityConflict', machineName: 'INTELMINIPC-XW', platform: 'windows', module: 'accounting-state-machine', message: '状态机记录了一个不计时的诊断边界。' },
       { id: 'log-1', timestampMs: Date.now() - 3600000, level: 'info', category: 'accounting', eventCode: 'sameMillisecondBoundary', machineName: '书房 Mac', platform: 'macos', module: 'accounting-state-machine', message: '状态机记录了一个不计时的诊断边界。' },
     ] };
+    state.loggingPolicy = { version: 3, enabled: true, minLevel: 'warning', categories: ['service','session','policy','upload','storage','security','accounting'], expiresAtMs: Date.now() + 3 * 86400000 };
+    state.loggingPolicyEtag = '"logging-machine-a-3"';
     state.usage = { totalDurationMs: 9720000, appPolicyVersion: 4, estimatedSegmentCount: 2, buckets: Array.from({ length: 24 }, (_, index) => ({ startAtMs: dayStart + index * 3600000, durationMs: [0,0,0,0,0,0,0,0,900000,1800000,1200000,600000,300000,1500000,2100000,720000,0,600000,0,0,0,0,0,0][index] })), categories: [{ classification: 'study', durationMs: 4320000, quota: { limitMs: null, exceeded: false } }, { classification: 'composite', durationMs: 2880000, quota: { limitMs: 7200000, remainingMs: 4320000, exceeded: false } }, { classification: 'restrictedEntertainment', durationMs: 2100000, quota: { limitMs: 3600000, remainingMs: 1500000, exceeded: false } }, { classification: 'unclassified', durationMs: 420000, quota: { limitMs: 1800000, remainingMs: 1380000, exceeded: false } }], applications: [{ platform: 'windows', runtimeIdentity: 'app:vscode', displayName: 'Visual Studio Code', classification: 'study', durationMs: 4320000, quota: { limitMs: null, exceeded: false } }, { platform: 'windows', runtimeIdentity: 'app:edge', displayName: 'Microsoft Edge', classification: 'composite', durationMs: 2880000, quota: { limitMs: null, exceeded: false } }, { platform: 'windows', runtimeIdentity: 'app:game', displayName: 'Minecraft', classification: 'restrictedEntertainment', durationMs: 2100000, quota: { limitMs: 2700000, remainingMs: 600000, exceeded: false } }], outsideTimeWindows: { durationMs: 780000, segmentCount: 2 }, mediaPlaybackTotalMs: 3600000 };
   }
 
@@ -187,7 +190,7 @@
 
   async function load({ freshToken = false } = {}) { setLoading(true); try { if (freshToken) state.token = null; if (mock) { mockData(); renderAll(); markLoaded(); return; } await moduleToken(freshToken); const machines = await runtime('/v2/module/machines'); state.machines = machines.machines || []; state.users.clear(); await Promise.all(state.machines.map(async (machine) => { const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`); state.users.set(machine.id, result.users || []); })); const childId = encodeURIComponent(state.childId); const [policy, records, catalog] = await Promise.all([runtime(`/v2/module/app-policy?childId=${childId}`), runtime(`/v2/module/app-classification-records?childId=${childId}`), runtime(`/v2/module/app-catalog?childId=${childId}`)]); state.policy = AppRuntimePolicy.normalize(policy); state.policyEtag = `"app-policy-v${state.policy.version}"`; state.records = records; state.catalog = catalog; await loadUsage(); renderAll(); markLoaded(); } catch (error) { showError(error); } finally { setLoading(false); } }
   async function loadUsage() { if (mock) return; const period = range(); const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to) }); if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value); if ($('#user-filter').value) query.set('userId', $('#user-filter').value); if ($('#platform-filter').value) query.set('platform', $('#platform-filter').value); state.usage = await runtime(`/v2/module/app-usage?${query}`); }
-  function renderAll() { renderChildPicker(); const period = range(); $('#range-label').textContent = period.label; $('#chart-caption').textContent = `北京时间，${state.period === 'day' ? '按小时' : '按每日'}`; renderMachines(); renderUsage(); renderAppDirectory(); renderQuotaForm(); renderSchedule(); }
+  function renderAll() { renderChildPicker(); const period = range(); $('#range-label').textContent = period.label; $('#chart-caption').textContent = `北京时间，${state.period === 'day' ? '按小时' : '按每日'}`; renderMachines(); renderUsage(); renderAppDirectory(); renderQuotaForm(); renderSchedule(); renderLoggingPolicy(); }
   async function savePolicy(next) { if (mock) { const history = [...(state.records.pending || []), ...(state.records.processed || [])]; state.policy = AppRuntimePolicy.normalize({ ...next, version: state.policy.version + 1, effectiveAtMs: Date.now() }); state.policyEtag = `"app-policy-v${state.policy.version}"`; const current = new Map(state.policy.classifications.map((entry) => [AppRuntimePolicy.keyOf(entry), entry])); state.records.pending = history.filter((record) => !current.has(AppRuntimePolicy.keyOf(record))); state.records.processed = history.filter((record) => current.has(AppRuntimePolicy.keyOf(record))).map((record) => ({ ...record, status: 'processed', classification: current.get(AppRuntimePolicy.keyOf(record)).classification })); state.catalog.items = observedApps().map((item) => ({ ...item, classification: current.get(AppRuntimePolicy.keyOf(item))?.classification || 'unclassified' })); renderAll(); return; } const body = { classifications: next.classifications, quotas: next.quotas, timeWindows: next.timeWindows }; const saved = await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`, { method: 'PUT', headers: { 'If-Match': state.policyEtag }, body: JSON.stringify(body) }); state.policy = AppRuntimePolicy.normalize(saved); state.policyEtag = `"app-policy-v${state.policy.version}"`; await load(); }
   function quotaValue(input) { return input.value === '' ? null : Math.max(0, Number.parseInt(input.value, 10)); }
   async function saveQuotas() { const daily = {}; $$('[data-quota-category]').forEach((input) => { daily[input.dataset.quotaCategory] = quotaValue(input); }); const perApplicationDailyMinutes = $$('[data-app-quota-index]').filter((input) => input.value !== '').map((input) => { const app = state.quotaApps[Number(input.dataset.appQuotaIndex)]; return { platform: app.platform, runtimeIdentity: app.runtimeIdentity, minutes: quotaValue(input) }; }); await savePolicy(AppRuntimePolicy.withQuotas(state.policy, { dailyCategoryMinutes: daily, weeklyRestrictedEntertainmentMinutes: quotaValue($('#weekly-restricted')), perApplicationDailyMinutes })); }
@@ -220,7 +223,33 @@
   function openPair() { $('#pair-default-child').innerHTML = state.children.map((item, index) => `<option value="${index}"${item.id === state.childId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); $('#pair-result').hidden = true; $('#pair-dialog').showModal(); }
   function showCode(kind, code, expiresAtMs) { const prefix = kind === 'pair' ? 'pair' : 'uninstall'; $(`#${prefix}-code`).textContent = code; clearInterval(state.timer); const tick = () => { const seconds = Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000)); $(`#${prefix}-countdown`).textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} 后过期`; }; tick(); state.timer = setInterval(tick, 1000); }
   async function copyCode(kind) { const prefix = kind === 'pair' ? 'pair' : 'uninstall'; const status = $(`#${prefix}-copy-status`); try { await AppRuntimeClipboard.copyText($(`#${prefix}-code`).textContent); status.textContent = '已复制到剪贴板'; } catch (error) { status.textContent = error.message || '复制失败，请手动选择代码'; } status.hidden = false; }
-  function renderLogMachineOptions() { const select = $('#log-machine-filter'); const selected = select.value; select.innerHTML = '<option value="">全部电脑</option>' + state.machines.filter((item) => item.status !== 'revoked').map((item) => `<option value="${escape(item.id)}">${escape(item.displayName || '电脑')}</option>`).join(''); select.value = selected; }
+  function renderLogMachineOptions() { const select = $('#log-machine-filter'); const selected = select.value; select.innerHTML = '<option value="">全部电脑</option>' + state.machines.filter((item) => item.status !== 'revoked').map((item) => `<option value="${escape(item.id)}">${escape(item.displayName || '电脑')}</option>`).join(''); select.value = selected; const policySelect = $('#logging-machine'); const policySelected = policySelect.value || state.machines.find((item) => item.platform === 'windows' && item.status !== 'revoked')?.id || ''; policySelect.innerHTML = '<option value="">选择 Windows 电脑</option>' + state.machines.filter((item) => item.platform === 'windows' && item.status !== 'revoked').map((item) => `<option value="${escape(item.id)}">${escape(item.displayName || 'Windows 电脑')}</option>`).join(''); policySelect.value = policySelected; }
+  function renderLoggingPolicy() {
+    renderLogMachineOptions();
+    const machineId = $('#logging-machine').value; const policy = state.loggingPolicy;
+    const enabled = Boolean(policy?.enabled && policy.expiresAtMs > Date.now());
+    $('#remote-log-status').className = `badge ${enabled ? '' : 'offline'}`; $('#remote-log-status').textContent = !machineId ? '请选择电脑' : enabled ? '远程日志已开启' : policy?.enabled ? '已过期' : '远程日志已关闭';
+    $('#logging-min-level').value = policy?.minLevel || 'error';
+    $$('.logging-categories input').forEach((input) => { input.checked = (policy?.categories || ['service','session','policy','upload','storage','security','accounting']).includes(input.value); input.disabled = !machineId; });
+    $('#logging-min-level').disabled = !machineId; $('#logging-ttl').disabled = !machineId;
+    $('#enable-remote-logging').disabled = !machineId; $('#disable-remote-logging').disabled = !machineId || !policy?.enabled;
+    $('#remote-log-detail').textContent = !machineId ? '选择电脑后读取当前策略' : enabled ? `有效至 ${time(policy.expiresAtMs)} · 等待机器策略 ${state.machines.find((item) => item.id === machineId)?.policyState === 'applied' ? '已生效' : '下发中'}` : '本地有界诊断仍运行；新日志不会上传';
+  }
+  async function loadLoggingPolicy() {
+    renderLogMachineOptions(); const machineId = $('#logging-machine').value;
+    if (!machineId) { state.loggingPolicy = null; state.loggingPolicyEtag = null; renderLoggingPolicy(); return; }
+    if (mock) { renderLoggingPolicy(); return; }
+    state.loggingPolicy = await runtime(`/v2/module/logging-policy?machineId=${encodeURIComponent(machineId)}`);
+    state.loggingPolicyEtag = `"logging-${machineId}-${state.loggingPolicy.version}"`; renderLoggingPolicy();
+  }
+  async function saveLoggingPolicy(enabled) {
+    const machineId = $('#logging-machine').value; if (!machineId) throw new Error('请先选择 Windows 电脑');
+    const categories = $$('.logging-categories input:checked').map((input) => input.value); if (!categories.length) throw new Error('至少选择一个日志类别');
+    const body = { enabled, minLevel: $('#logging-min-level').value, categories, expiresAtMs: enabled ? Date.now() + Number($('#logging-ttl').value) * 86400000 : null };
+    if (mock) { state.loggingPolicy = { version: (state.loggingPolicy?.version || 0) + 1, ...body }; state.loggingPolicyEtag = `"logging-${machineId}-${state.loggingPolicy.version}"`; renderLoggingPolicy(); showSuccess(enabled ? '远程日志已打开' : '远程日志已关闭'); return; }
+    state.loggingPolicy = await runtime(`/v2/module/logging-policy?machineId=${encodeURIComponent(machineId)}`, { method: 'PUT', headers: { 'If-Match': state.loggingPolicyEtag }, body: JSON.stringify(body) });
+    state.loggingPolicyEtag = `"logging-${machineId}-${state.loggingPolicy.version}"`; const machines = await runtime('/v2/module/machines'); state.machines = machines.machines || state.machines; renderMachines(); renderLoggingPolicy(); showSuccess(enabled ? '远程日志策略已下发' : '远程日志已关闭');
+  }
   function logRange() { if (state.runtimeLogs.range === 'today') return AppRuntimeTime.beijingRange('day', 0); if (state.runtimeLogs.range === 'week') return AppRuntimeTime.beijingRange('week', 0); return { from: 0, to: Date.now() + 1, label: '全部' }; }
   function renderRuntimeLogs() {
     renderLogMachineOptions();
@@ -228,7 +257,7 @@
     const counts = items.reduce((result, item) => { result[item.level] = (result[item.level] || 0) + 1; return result; }, {});
     $('#runtime-log-summary').innerHTML = `<span>范围：${escape(logRange().label)}</span><span>当前显示：${items.length} 条</span><span class="log-error">error ${counts.error || 0}</span><span class="log-warning">warning ${counts.warning || 0}</span><span class="log-info">info ${counts.info || 0}</span>`;
     $('#runtime-log-list').className = 'runtime-log-table';
-    $('#runtime-log-list').innerHTML = items.length ? `<div class="runtime-log-head"><span>时间</span><span>等级</span><span>类别 / 事件</span><span>电脑 / 模块</span><span>说明</span></div>${items.map((item) => `<article class="runtime-log-row"><time>${time(item.timestampMs)}</time><span class="log-level ${escape(item.level)}">${escape(item.level)}</span><div><strong>${escape(item.category)}</strong><small>${escape(item.eventCode)}</small></div><div><strong>${escape(item.machineName || '电脑')}</strong><small>${escape(item.module || 'runtime')}</small></div><p>${escape(item.message || '')}</p></article>`).join('')}` : '<p class="empty">该范围暂无系统日志</p>';
+    $('#runtime-log-list').innerHTML = items.length ? `<div class="runtime-log-head"><span>时间</span><span>等级</span><span>类别 / 事件</span><span>电脑 / 模块</span><span>说明</span></div>${items.map((item) => `<article class="runtime-log-row"><time>${time(item.timestampMs)}</time><span class="log-level ${escape(item.level)}">${escape(item.level)}</span><div><strong>${escape(item.category)}</strong><small>${escape(item.eventCode)} · ${item.source === 'terminal' ? '终端日志' : '账本诊断'}</small></div><div><strong>${escape(item.machineName || '电脑')}</strong><small>${escape(item.module || 'runtime')}</small></div><p>${escape(item.message || '')}</p></article>`).join('')}` : '<p class="empty">该范围暂无系统日志</p>';
     $('#runtime-log-more').hidden = !state.runtimeLogs.nextCursor;
   }
   async function loadRuntimeLogs({ append = false } = {}) {
@@ -250,9 +279,9 @@
   async function reviewImport(file) { const incoming = JSON.parse(await file.text()); const diff = AppRuntimePolicy.importDiff(state.policy, incoming); const box = $('#import-diff'); box.hidden = false; box.dataset.payload = JSON.stringify(diff.policy); box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 独立配额：${diff.quotasChanged ? '有变化' : '无变化'}</label><br><label><input type="checkbox" id="import-time-windows" checked> 七天时间段：${diff.timeWindowsChanged ? '有变化' : '无变化'}</label><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`; }
 
   document.addEventListener('click', async (event) => { const button = event.target.closest('button'); if (!button) return; try {
-    if (button.dataset.view) { switchView(button.dataset.view); if (button.dataset.view === 'system') await loadRuntimeLogs(); }
+    if (button.dataset.view) { switchView(button.dataset.view); if (button.dataset.view === 'system') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
     if (button.dataset.accessTab) switchTab('access', button.dataset.accessTab);
-    if (button.dataset.systemTab) { switchTab('system', button.dataset.systemTab); if (button.dataset.systemTab === 'logs') await loadRuntimeLogs(); }
+    if (button.dataset.systemTab) { switchTab('system', button.dataset.systemTab); if (button.dataset.systemTab === 'logs') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
     if (button.id === 'mobile-menu') { $('#sidebar').classList.add('open'); $('#mobile-backdrop').hidden = false; }
     if (button.id === 'refresh' || button.id === 'retry' || button.id === 'initial-load-retry') await load({ freshToken: true });
     if (button.dataset.period) { state.period = button.dataset.period; state.offset = 0; $$('[data-period]').forEach((item) => item.classList.toggle('active', item === button)); if (!mock) await loadUsage(); renderUsage(); }
@@ -274,6 +303,8 @@
     if (button.dataset.logRange) { state.runtimeLogs.range = button.dataset.logRange; $$('[data-log-range]').forEach((item) => item.classList.toggle('active', item === button)); state.runtimeLogs.items = []; state.runtimeLogs.nextCursor = null; await loadRuntimeLogs(); }
     if (button.id === 'load-runtime-logs') { state.runtimeLogs.items = []; state.runtimeLogs.nextCursor = null; await loadRuntimeLogs(); }
     if (button.id === 'runtime-log-more') await loadRuntimeLogs({ append: true });
+    if (button.id === 'enable-remote-logging') await saveLoggingPolicy(true);
+    if (button.id === 'disable-remote-logging' && confirm('关闭后新终端日志将停止上传，既有云端日志会保留。确定关闭？')) await saveLoggingPolicy(false);
     if (button.id === 'save-schedule') await saveSchedule();
     if (button.dataset.scheduleAll) updateSchedule('all', button.dataset.scheduleAll);
     if (button.dataset.scheduleAdd) updateSchedule('add', button.dataset.scheduleAdd);
@@ -286,6 +317,7 @@
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
     else if (control.id === 'media-toggle') renderUsage();
+    else if (control.id === 'logging-machine') { state.loggingPolicy = null; state.loggingPolicyEtag = null; await loadLoggingPolicy(); }
     else if (control.dataset.default) { const selected = childFromIndex(control.value); if (!mock && selected) { await runtime(`/v2/module/machines/${encodeURIComponent(control.dataset.default)}/default-assignment`, { method: 'PATCH', body: JSON.stringify({ childId: selected.id }) }); await load(); } }
     else if (control.dataset.user) { const selected = control.value === 'u' ? null : childFromIndex(control.value); if (!mock) { await runtime(`/v2/module/machines/${encodeURIComponent(control.dataset.machine)}/users/${encodeURIComponent(control.dataset.user)}`, { method: 'PATCH', body: JSON.stringify({ protected: Boolean(selected), childId: selected?.id || null }) }); await load(); } }
     else if (control.id === 'import-config' && control.files[0]) await reviewImport(control.files[0]);
