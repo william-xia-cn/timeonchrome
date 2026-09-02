@@ -1,5 +1,13 @@
 # Changelog
 
+## [App Runtime 2.0.5] — 2026-09-02
+
+- **首次策略收敛**：机器首次上报本机用户并创建默认 assignment 时推进一次 desired policy version，使用户发现前缓存的空策略 ETag 失效；重复上报不重复推进。
+- **Windows 用户名编码**：WTS 用户名和域名查询固定使用 Unicode API，避免把 ANSI 字节按 UTF-16 解码后上传乱码显示名。
+- **升级边界**：沿用既有 machine credential、机器 ID、SQLite、outbox 和 HornburgXW assignment；不重新配对或改写历史统计。
+- **统计可见性**：accounting v2 查询补充按小时主账本并集；家长页合并旧统计与新主账本，修复 D1 已收到 Segment 但页面仍显示零的问题。
+- **内部发布**：William 真机原地升级并保留 HornburgXW 机器身份；Runtime Worker `9f24691d-5993-4c48-a8ae-557f77bbbdc9`、Pages `a281c6e5` 与 R2 2.0.5 已发布并回读验证。包仍未签名，继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
 ---
 
 ## [App Runtime 2.0.4] — 2026-09-02

@@ -184,6 +184,10 @@ Burn 链内的 per-user migration 必须是真正可独立执行的单文件 sel
 
 机器控制 Named Pipe 继续只允许 SYSTEM/Administrators 连接并由 Service 对连接 token 二次校验。Setup 客户端必须显式使用 `TokenImpersonationLevel.Impersonation`，使 `RunAsClient` 能读取真实调用者 token；不得把匿名/缺失 impersonation token 当作管理员。Control、supervisor、policy、upload、heartbeat 等常驻 loop 的非取消异常必须写入 Windows Application Event Log，并经有限退避自动重启；SCM 进程存活但 control loop 已退出不能视为健康。2.0.3 暴露该问题，由 2.0.4 前向修正。
 
+首次上报本机用户也是策略变更：如果任一 `localUserId` 尚无 assignment，Runtime Worker 必须只提升一次机器 `desiredPolicyVersion`，在同一新版本为这些用户创建默认 assignment，并使旧 ETag 失效；重复上报同一批用户不得继续提升版本。对于已受旧缺陷影响、assignment 已写入当前版本但机器 ACK 的空策略从未包含该用户的记录，Worker 也必须识别“用户 applied version 低于 assignment version 且机器已 applied 该版本”，再推进一次版本完成前向收敛。否则 Service 可能在用户发现前缓存空用户策略并永久收到 `304`，导致受保护会话不启动 Session Agent。Windows WTS 用户名和域名必须显式调用 `WTSQuerySessionInformationW` 并按 UTF-16 解析，禁止把 ANSI 字节当 UTF-16 上传。该首次策略收敛与显示名编码缺陷由 2.0.5 前向修正。
+
+正式家长页的统计必须覆盖新旧账本且保持口径隔离：`/v2/module/usage` 继续提供 v1 与 accounting schema 1 的小时聚合历史，`/v2/module/accounting` 提供 accounting schema 2 的主账本区间并集、按小时 buckets、应用 ACTIVE/PiP 并集和辅助媒体摘要。两类来源不存在同一 Segment 的重复物化，页面可按小时、应用和总时长相加合并；辅助媒体摘要不得进入主总时长。若 accounting v2 已有数据而旧 hourly stats 为空，页面不得显示为零。
+
 D-079 后 Windows 安装组合为同一 per-user MSI 中的 WPF Setup 与无控制台 Agent。Setup 固定生产 Runtime endpoint，只接受 `XXXX-XXXX-XXXX` 配对码；成功后用 CurrentUser DPAPI 保存 credential、注册 HKCU Run 并启动 Agent。Agent 以 current-user named mutex 保证单实例，未绑定时立即退出且不打开 ledger；绑定后数据库文件名与 `bound_device_id` metadata 同时绑定 device，防止重新配对后旧 outbox 跨设备上传。401/403 heartbeat 会删除失效 credential、关闭当前 segment 并停止采集。
 
 Setup 使用显式展示状态，不把字符串文案当作连接状态：

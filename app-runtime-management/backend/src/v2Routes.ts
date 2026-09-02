@@ -154,8 +154,10 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   }
   if (url.pathname === '/v2/machines/users') {
     if (request.method !== 'PUT') return methodNotAllowed('PUT');
-    await syncMachineUsers(env.RUNTIME_DB, machine, parseMachineUsers(await readJsonBody(request)), nowMs);
-    return jsonResponse({ success: true, desiredPolicyVersion: machine.desiredPolicyVersion });
+    const desiredPolicyVersion = await syncMachineUsers(
+      env.RUNTIME_DB, machine, parseMachineUsers(await readJsonBody(request)), nowMs,
+    );
+    return jsonResponse({ success: true, desiredPolicyVersion });
   }
   if (url.pathname === '/v2/machines/policy') {
     if (request.method !== 'GET') return methodNotAllowed('GET');

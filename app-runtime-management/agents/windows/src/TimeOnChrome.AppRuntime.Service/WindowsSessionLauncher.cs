@@ -120,7 +120,7 @@ internal sealed class WindowsSessionLauncher
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool WTSEnumerateSessions(nint server, int reserved, int version, out nint sessionInfo, out int count);
 
-    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [DllImport("wtsapi32.dll", EntryPoint = "WTSQuerySessionInformationW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool WTSQuerySessionInformation(nint server, int sessionId, WtsInfoClass infoClass, out nint buffer, out int bytesReturned);
 

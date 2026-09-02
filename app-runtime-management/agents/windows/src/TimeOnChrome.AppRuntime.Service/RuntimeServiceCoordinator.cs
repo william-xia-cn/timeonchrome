@@ -564,7 +564,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             try
             {
                 await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                    Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.4",
+                    Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.5",
                     Environment.OSVersion.VersionString,
                     RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                     tamperCount,

@@ -168,7 +168,7 @@ describe('Runtime product API', () => {
     await call('/v2/machines/users', { method: 'PUT', headers: bearer(machine.machineToken),
       body: JSON.stringify({ users: [{ localUserId, displayName: 'Child user', sessionActive: true }] }) });
     await call('/v2/segments:upload', { method: 'POST', headers: bearer(machine.machineToken),
-      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...validSegment('delete-v2:0'), localUserId, assignmentVersion: 1 }] }) });
+      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...validSegment('delete-v2:0'), localUserId, assignmentVersion: 2 }] }) });
     const lifecycle = await token({ aud: 'app-runtime-management:lifecycle', event: 'child.deleted' });
     expect((await call('/v1/identity/child-lifecycle', { method: 'POST', headers: bearer(lifecycle), body: '{}' })).status).toBe(200);
     for (const table of ['runtime_children_v1', 'runtime_enrollment_codes', 'runtime_devices', 'runtime_usage_segments', 'runtime_app_hourly_stats_v1']) {
@@ -179,7 +179,7 @@ describe('Runtime product API', () => {
     expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_app_hourly_stats_v2').first<{ count: number }>())?.count).toBe(0);
     await expect(env.RUNTIME_DB.prepare(`
       SELECT default_child_id, desired_policy_version FROM runtime_machines_v2 WHERE id=?1
-    `).bind(machine.machineId).first()).resolves.toMatchObject({ default_child_id: null, desired_policy_version: 2 });
+    `).bind(machine.machineId).first()).resolves.toMatchObject({ default_child_id: null, desired_policy_version: 3 });
     await expect(env.RUNTIME_DB.prepare(`
       SELECT child_id, protected FROM runtime_user_assignments_v2
       WHERE machine_id=?1 AND local_user_id=?2 ORDER BY assignment_version DESC LIMIT 1
@@ -201,10 +201,45 @@ describe('Runtime product API', () => {
     const enrolled = await enrolledResponse.json<{ machineId: string; machineToken: string }>();
     const machineHeaders = bearer(enrolled.machineToken);
     const localUserId = `user_${'a'.repeat(32)}`;
-    expect((await call('/v2/machines/users', {
+    const emptyPolicy = await call('/v2/machines/policy', { headers: machineHeaders });
+    expect((await emptyPolicy.clone().json<{ version: number; users: unknown[] }>())).toMatchObject({ version: 1, users: [] });
+    const emptyPolicyEtag = emptyPolicy.headers.get('etag');
+    expect((await call('/v2/machines/policy-ack', {
+      method: 'POST', headers: machineHeaders,
+      body: JSON.stringify({ version: 1, state: 'applied', users: [] }),
+    })).status).toBe(200);
+    await env.RUNTIME_DB.batch([
+      env.RUNTIME_DB.prepare(`
+        INSERT INTO runtime_machine_users_v2(
+          machine_id, local_user_id, display_name, first_seen_at_ms, last_seen_at_ms, session_active
+        ) VALUES (?1, ?2, 'legacy-garbled-name', 1, 1, 1)
+      `).bind(enrolled.machineId, localUserId),
+      env.RUNTIME_DB.prepare(`
+        INSERT INTO runtime_user_assignments_v2(
+          machine_id, local_user_id, assignment_version, child_id, protected,
+          assignment_source, effective_at_ms, created_at_ms
+        ) VALUES (?1, ?2, 1, 'child-a', 1, 'default', 1, 1)
+      `).bind(enrolled.machineId, localUserId),
+    ]);
+    const firstUserSync = await call('/v2/machines/users', {
       method: 'PUT', headers: machineHeaders,
       body: JSON.stringify({ users: [{ localUserId, displayName: 'William', sessionActive: true }] }),
-    })).status).toBe(200);
+    });
+    expect(firstUserSync.status).toBe(200);
+    await expect(firstUserSync.json()).resolves.toMatchObject({ desiredPolicyVersion: 2 });
+    const convergedPolicy = await call('/v2/machines/policy', {
+      headers: { ...machineHeaders, 'If-None-Match': emptyPolicyEtag || '' },
+    });
+    expect(convergedPolicy.status).toBe(200);
+    await expect(convergedPolicy.json()).resolves.toMatchObject({
+      version: 2,
+      users: [{ localUserId, assignmentVersion: 1, childId: 'child-a', protected: true }],
+    });
+    const repeatedUserSync = await call('/v2/machines/users', {
+      method: 'PUT', headers: machineHeaders,
+      body: JSON.stringify({ users: [{ localUserId, displayName: 'William', sessionActive: true }] }),
+    });
+    await expect(repeatedUserSync.json()).resolves.toMatchObject({ desiredPolicyVersion: 2 });
     const users = await call(`/v2/module/machines/${enrolled.machineId}/users`, { headers: bearer(account) });
     const usersBody = await users.json<{ users: Array<Record<string, unknown>> }>();
     expect(usersBody.users[0]).toMatchObject({ localUserId, displayName: 'William', childId: 'child-a', protected: true, assignmentSource: 'default' });
@@ -231,7 +266,7 @@ describe('Runtime product API', () => {
       method: 'PUT', headers: bearer(enrolled.machineToken),
       body: JSON.stringify({ users: [{ localUserId, displayName: 'Child user', sessionActive: true }] }),
     });
-    const segment = { ...validSegment('v2:0'), localUserId, assignmentVersion: 1 };
+    const segment = { ...validSegment('v2:0'), localUserId, assignmentVersion: 2 };
     for (let index = 0; index < 2; index += 1) {
       const uploadResponse = await call('/v2/segments:upload', {
         method: 'POST', headers: bearer(enrolled.machineToken),
@@ -249,7 +284,7 @@ describe('Runtime product API', () => {
       runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction',
       start: 0, end: 60_000, estimated: true,
     });
-    active.policySnapshot = { assignmentVersion: 1, quotaBucket: null };
+    active.policySnapshot = { assignmentVersion: 2, quotaBucket: null };
     const pip = await accountingUsage({
       runtimeIdentity: 'app:video', channel: 'pipActive', basis: 'pipStrongMedia',
       start: 10_000, end: 70_000,
@@ -259,7 +294,7 @@ describe('Runtime product API', () => {
       start: 70_000, end: 70_000, diagnostic: true,
     });
     const usagePayload = [active, pip, diagnostic].map((segment) => ({
-      ...segment, localUserId, assignmentVersion: 1,
+      ...segment, localUserId, assignmentVersion: 2,
     }));
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await call('/v2/segments:upload', {
@@ -280,7 +315,7 @@ describe('Runtime product API', () => {
     const mediaResponse = await call('/v2/media-segments:upload', {
       method: 'POST', headers: bearer(enrolled.machineToken),
       body: JSON.stringify({ schemaVersion: 2, segments: [audio, video].map((segment) => ({
-        ...segment, localUserId, assignmentVersion: 1,
+        ...segment, localUserId, assignmentVersion: 2,
       })) }),
     });
     await expect(mediaResponse.json()).resolves.toEqual({
@@ -292,6 +327,7 @@ describe('Runtime product API', () => {
     });
     await expect(read.json()).resolves.toMatchObject({
       mainUsageTotalMs: 70_000,
+      buckets: [{ startAtMs: 0, durationMs: 70_000 }],
       estimated: { segmentCount: 1, durationMs: 60_000 },
       diagnostic: { segmentCount: 1 },
       mediaPlaybackTotalMs: 120_000,
@@ -315,7 +351,7 @@ describe('Runtime product API', () => {
     const segment = await accountingUsage({
       runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 1000,
     });
-    const invalid = { ...segment, endWallTimeMs: 2000, localUserId, assignmentVersion: 1 };
+    const invalid = { ...segment, endWallTimeMs: 2000, localUserId, assignmentVersion: 2 };
     const response = await call('/v2/segments:upload', {
       method: 'POST', headers: bearer(enrolled.machineToken),
       body: JSON.stringify({ schemaVersion: 2, segments: [invalid] }),
@@ -351,9 +387,9 @@ describe('Runtime product API', () => {
     const response = await call('/v2/segments:upload', {
       method: 'POST', headers: bearer(enrolled.machineToken),
       body: JSON.stringify({ schemaVersion: 2, segments: [
-        { ...first, localUserId, assignmentVersion: 1 },
-        { ...firstPip, localUserId, assignmentVersion: 1 },
-        { ...second, localUserId: secondUserId, assignmentVersion: 1 },
+        { ...first, localUserId, assignmentVersion: 2 },
+        { ...firstPip, localUserId, assignmentVersion: 2 },
+        { ...second, localUserId: secondUserId, assignmentVersion: 3 },
       ] }),
     });
     expect(response.status).toBe(200);

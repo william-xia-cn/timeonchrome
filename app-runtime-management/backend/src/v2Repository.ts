@@ -315,8 +315,44 @@ export async function syncMachineUsers(
   machine: MachineSelfResponse,
   users: Array<{ localUserId: string; displayName: string; sessionActive: boolean }>,
   nowMs: number,
-): Promise<void> {
+): Promise<number> {
+  const assignmentState = await database.prepare(`
+    SELECT u.local_user_id, u.applied_policy_version, a.assignment_version
+    FROM runtime_machine_users_v2 u
+    LEFT JOIN runtime_user_assignments_v2 a
+      ON a.machine_id=u.machine_id AND a.local_user_id=u.local_user_id
+      AND a.assignment_version=(SELECT MAX(x.assignment_version) FROM runtime_user_assignments_v2 x
+        WHERE x.machine_id=u.machine_id AND x.local_user_id=u.local_user_id)
+    WHERE u.machine_id=?1
+  `).bind(machine.machineId).all<{
+    local_user_id: string;
+    applied_policy_version: number;
+    assignment_version: number | null;
+  }>();
+  const assignmentByUser = new Map((assignmentState.results || []).map((row) => [row.local_user_id, row]));
+  const usersWithoutAssignment = users.filter((user) => assignmentByUser.get(user.localUserId)?.assignment_version == null);
+  const hasUnseenAssignment = machine.desiredPolicyVersion === machine.appliedPolicyVersion && users.some((user) => {
+    const current = assignmentByUser.get(user.localUserId);
+    return current?.assignment_version != null
+      && Number(current.assignment_version) <= machine.appliedPolicyVersion
+      && Number(current.applied_policy_version) < Number(current.assignment_version);
+  });
+  const policyVersion = usersWithoutAssignment.length || hasUnseenAssignment
+    ? machine.desiredPolicyVersion + 1
+    : machine.desiredPolicyVersion;
   const statements: D1PreparedStatement[] = [];
+  if (policyVersion !== machine.desiredPolicyVersion) {
+    statements.push(database.prepare(`
+      UPDATE runtime_machines_v2 SET desired_policy_version=?1, policy_state='pending',
+        policy_error=NULL, updated_at_ms=?2
+      WHERE id=?3 AND desired_policy_version=?4
+    `).bind(policyVersion, nowMs, machine.machineId, machine.desiredPolicyVersion));
+    statements.push(database.prepare(`
+      INSERT INTO runtime_machine_policy_versions_v2(machine_id, version, payload_hash, created_at_ms)
+      VALUES (?1, ?2, ?3, ?4)
+    `).bind(machine.machineId, policyVersion,
+      await policyHash(machine.machineId, policyVersion, machine.defaultChildId), nowMs));
+  }
   for (const user of users) {
     statements.push(database.prepare(`
       INSERT INTO runtime_machine_users_v2(
@@ -330,15 +366,16 @@ export async function syncMachineUsers(
       INSERT INTO runtime_user_assignments_v2(
         machine_id, local_user_id, assignment_version, child_id, protected,
         assignment_source, effective_at_ms, created_at_ms
-      ) SELECT ?1, ?2, desired_policy_version, default_child_id,
+      ) SELECT ?1, ?2, ?3, default_child_id,
         CASE WHEN default_child_id IS NULL THEN 0 ELSE 1 END,
-        CASE WHEN default_child_id IS NULL THEN 'unprotected' ELSE 'default' END, ?3, ?3
+        CASE WHEN default_child_id IS NULL THEN 'unprotected' ELSE 'default' END, ?4, ?4
       FROM runtime_machines_v2 m WHERE m.id=?1
         AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 a
           WHERE a.machine_id=?1 AND a.local_user_id=?2)
-    `).bind(machine.machineId, user.localUserId, nowMs));
+    `).bind(machine.machineId, user.localUserId, policyVersion, nowMs));
   }
   if (statements.length) await database.batch(statements);
+  return policyVersion;
 }
 
 export async function getMachinePolicy(
@@ -660,6 +697,7 @@ export async function queryAccounting(
   }>();
 
   const mainIntervalGroups = new Map<string, Array<[number, number]>>();
+  const bucketIntervalGroups = new Map<number, Map<string, Array<[number, number]>>>();
   const byApp = new Map<string, {
     runtimeIdentity: string; displayName: string | null; activeMs: number; pipActiveMs: number;
     intervalGroups: Map<string, Array<[number, number]>>;
@@ -675,6 +713,17 @@ export async function queryAccounting(
     const mainIntervals = mainIntervalGroups.get(group) || [];
     mainIntervals.push([start, end]);
     mainIntervalGroups.set(group, mainIntervals);
+    let cursor = start;
+    while (cursor < end) {
+      const hourStart = Math.floor(cursor / 3_600_000) * 3_600_000;
+      const sliceEnd = Math.min(end, hourStart + 3_600_000);
+      const bucketGroups = bucketIntervalGroups.get(hourStart) || new Map<string, Array<[number, number]>>();
+      const bucketIntervals = bucketGroups.get(group) || [];
+      bucketIntervals.push([cursor, sliceEnd]);
+      bucketGroups.set(group, bucketIntervals);
+      bucketIntervalGroups.set(hourStart, bucketGroups);
+      cursor = sliceEnd;
+    }
     const app = byApp.get(row.runtime_identity) || {
       runtimeIdentity: row.runtime_identity, displayName: row.display_name,
       activeMs: 0, pipActiveMs: 0, intervalGroups: new Map<string, Array<[number, number]>>(),
@@ -712,6 +761,9 @@ export async function queryAccounting(
   `).bind(...syncValues).first<{ last_sync: number | null }>();
   return {
     mainUsageTotalMs: groupedIntervalUnion(mainIntervalGroups),
+    buckets: [...bucketIntervalGroups.entries()]
+      .sort((left, right) => left[0] - right[0])
+      .map(([startAtMs, groups]) => ({ startAtMs, durationMs: groupedIntervalUnion(groups) })),
     applications: [...byApp.values()].map((app) => ({
       runtimeIdentity: app.runtimeIdentity,
       displayName: app.displayName,

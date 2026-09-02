@@ -187,6 +187,7 @@ export interface AccountingMediaEnvelope {
 
 export interface AccountingReadModelResponse {
   mainUsageTotalMs: number;
+  buckets: Array<{ startAtMs: number; durationMs: number }>;
   applications: Array<{
     runtimeIdentity: string;
     displayName: string | null;
