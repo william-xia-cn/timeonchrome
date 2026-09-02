@@ -196,6 +196,25 @@ public sealed class MachineRuntimeV2Tests : IDisposable
     }
 
     [Fact]
+    public async Task MachineControlPipeClientProvidesServiceImpersonationToken()
+    {
+        var name = $"TimeOnChrome.AppRuntime.test.{Guid.NewGuid():N}";
+        await using var server = new System.IO.Pipes.NamedPipeServerStream(
+            name,
+            System.IO.Pipes.PipeDirection.InOut,
+            1,
+            System.IO.Pipes.PipeTransmissionMode.Byte,
+            System.IO.Pipes.PipeOptions.Asynchronous);
+        var connected = server.WaitForConnectionAsync();
+        await using var client = MachineControlPipeClient.Create(name);
+        await client.ConnectAsync(5_000);
+        await connected;
+        string? clientSid = null;
+        server.RunAsClient(() => clientSid = System.Security.Principal.WindowsIdentity.GetCurrent(true)?.User?.Value);
+        Assert.Equal(System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value, clientSid);
+    }
+
+    [Fact]
     public async Task LegacyPreflightBlocksOnlyPendingOutbox()
     {
         var legacyRoot = Path.Combine(root, "legacy");

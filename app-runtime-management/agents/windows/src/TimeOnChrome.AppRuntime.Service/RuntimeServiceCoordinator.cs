@@ -50,12 +50,53 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         if (credential is not null) await InitializeLedgerAsync(credential).ConfigureAwait(false);
         loops =
         [
-            ControlLoopAsync(cancellation.Token),
-            SupervisorLoopAsync(cancellation.Token),
-            PolicyLoopAsync(cancellation.Token),
-            UploadLoopAsync(cancellation.Token),
-            HeartbeatLoopAsync(cancellation.Token),
+            RunResilientLoopAsync("control", ControlLoopAsync, cancellation.Token),
+            RunResilientLoopAsync("supervisor", SupervisorLoopAsync, cancellation.Token),
+            RunResilientLoopAsync("policy", PolicyLoopAsync, cancellation.Token),
+            RunResilientLoopAsync("upload", UploadLoopAsync, cancellation.Token),
+            RunResilientLoopAsync("heartbeat", HeartbeatLoopAsync, cancellation.Token),
         ];
+    }
+
+    private static async Task RunResilientLoopAsync(
+        string name,
+        Func<CancellationToken, Task> loop,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await loop(cancellationToken).ConfigureAwait(false);
+                if (!cancellationToken.IsCancellationRequested)
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                TryLogLoopFailure(name, exception);
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static void TryLogLoopFailure(string name, Exception exception)
+    {
+        try
+        {
+            EventLog.WriteEntry(
+                "TimeOnChromeAppRuntime",
+                $"Runtime Service loop '{name}' failed and will restart: {exception}",
+                EventLogEntryType.Error);
+        }
+        catch (Exception loggingException) when (loggingException is InvalidOperationException
+            or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            // Logging failure must not prevent the loop from recovering.
+        }
     }
 
     public async Task HandleSessionUnavailableAsync(int sessionId)
@@ -523,7 +564,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             try
             {
                 await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                    Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.3",
+                    Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.4",
                     Environment.OSVersion.VersionString,
                     RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                     tamperCount,

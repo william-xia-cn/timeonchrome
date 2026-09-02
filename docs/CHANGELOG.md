@@ -2,6 +2,14 @@
 
 ---
 
+## [App Runtime 2.0.4] — 2026-09-02
+
+- **控制管道修正**：Setup 明确使用 impersonation token 连接管理员控制管道，使 Service `RunAsClient` 能验证真实调用者。
+- **Service 自恢复**：常驻控制、会话、策略、上传和 heartbeat loop 的意外异常写入 Windows Application Event Log，并经退避重启，避免 SCM 显示运行但控制面已静默退出。
+- **状态口径**：只有控制管道实际响应才视为 Service 可用；本版本在机器配对与 R2 切换前保持内部候选。
+
+---
+
 ## [App Runtime 2.0.3] — 2026-09-02
 
 - **双阶段迁移预检**：Burn 先以 elevated machine probe 检查其他真实 Windows 用户的 1.x 冲突，再以原交互式用户运行 CurrentUser DPAPI/outbox/retire；不以跳过权限错误换取安装成功。

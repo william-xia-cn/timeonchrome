@@ -1,3 +1,5 @@
+using System.IO.Pipes;
+using System.Security.Principal;
 using TimeOnChrome.AppRuntime.Core;
 
 namespace TimeOnChrome.AppRuntime.Infrastructure;
@@ -11,6 +13,16 @@ public static class SessionPipeNames
         if (sessionId < 0) throw new ArgumentOutOfRangeException(nameof(sessionId));
         return $"TimeOnChrome.AppRuntime.v2.session.{sessionId}";
     }
+}
+
+public static class MachineControlPipeClient
+{
+    public static NamedPipeClientStream Create(string? pipeName = null) => new(
+        ".",
+        pipeName ?? SessionPipeNames.Control,
+        PipeDirection.InOut,
+        PipeOptions.Asynchronous,
+        TokenImpersonationLevel.Impersonation);
 }
 
 public sealed record SessionFactMessage(int SchemaVersion, RuntimeFact Fact);

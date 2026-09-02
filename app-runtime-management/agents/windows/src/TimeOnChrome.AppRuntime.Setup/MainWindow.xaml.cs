@@ -60,7 +60,7 @@ public partial class MainWindow : Window
                 ? await SendAsync(new MachineControlCommand("status")).ConfigureAwait(true)
                 : response);
         }
-        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or TimeoutException or UnauthorizedAccessException)
         {
             ApplyState(SetupConnectionState.ConnectionIssue,
                 heading: "Runtime Service 暂时不可用",
@@ -119,7 +119,7 @@ public partial class MainWindow : Window
         {
             ApplyResponse(await SendAsync(new MachineControlCommand("status")).ConfigureAwait(true));
         }
-        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or TimeoutException or UnauthorizedAccessException)
         {
             ApplyState(SetupConnectionState.ConnectionIssue,
                 heading: "Runtime Service 未响应",
@@ -157,8 +157,7 @@ public partial class MainWindow : Window
 
     private static async Task<MachineControlResponse> SendAsync(MachineControlCommand command)
     {
-        await using var pipe = new NamedPipeClientStream(".", SessionPipeNames.Control,
-            PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var pipe = MachineControlPipeClient.Create();
         await pipe.ConnectAsync(5_000).ConfigureAwait(false);
         using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
         using var reader = new StreamReader(pipe, leaveOpen: true);

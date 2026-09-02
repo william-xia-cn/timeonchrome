@@ -182,6 +182,8 @@ Burn 链内的 per-user migration 必须是真正可独立执行的单文件 sel
 
 全机器其他用户冲突扫描不能在普通用户 migration 中直接枚举受保护的 `HKEY_USERS`。Burn 必须先用 elevated machine probe 检查真实交互式用户 profile 的 1.x credential 与已加载启动项；探针无法完整读取时 fail closed。通过后再由独立 per-user migration 在启动安装器的原用户上下文读取 CurrentUser DPAPI、确认 outbox、retire 和卸载 1.x。两个阶段不得交换身份或合并为管理员进程；所有权限异常必须映射为明确非零退出，不能成为未处理 .NET 异常。2.0.2 首次执行暴露该边界并以 `0xe0434352` 安全回滚，由 2.0.3 前向修正。
 
+机器控制 Named Pipe 继续只允许 SYSTEM/Administrators 连接并由 Service 对连接 token 二次校验。Setup 客户端必须显式使用 `TokenImpersonationLevel.Impersonation`，使 `RunAsClient` 能读取真实调用者 token；不得把匿名/缺失 impersonation token 当作管理员。Control、supervisor、policy、upload、heartbeat 等常驻 loop 的非取消异常必须写入 Windows Application Event Log，并经有限退避自动重启；SCM 进程存活但 control loop 已退出不能视为健康。2.0.3 暴露该问题，由 2.0.4 前向修正。
+
 D-079 后 Windows 安装组合为同一 per-user MSI 中的 WPF Setup 与无控制台 Agent。Setup 固定生产 Runtime endpoint，只接受 `XXXX-XXXX-XXXX` 配对码；成功后用 CurrentUser DPAPI 保存 credential、注册 HKCU Run 并启动 Agent。Agent 以 current-user named mutex 保证单实例，未绑定时立即退出且不打开 ledger；绑定后数据库文件名与 `bound_device_id` metadata 同时绑定 device，防止重新配对后旧 outbox 跨设备上传。401/403 heartbeat 会删除失效 credential、关闭当前 segment 并停止采集。
 
 Setup 使用显式展示状态，不把字符串文案当作连接状态：
