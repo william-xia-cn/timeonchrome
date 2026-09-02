@@ -31,12 +31,13 @@
     </section>
   </main>
 
-  <dialog id="pair-dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button><h2>添加 Windows 电脑</h2><p>先选择这台电脑的默认孩子。已有和新增 Windows 用户会先继承该设置，之后可逐个调整。</p><label class="field">默认孩子<select id="pair-default-child"></select></label><button type="button" id="create-pairing" class="primary full">生成机器配对码</button><div id="pair-result" hidden><div id="pair-code" class="pair-code">----</div><p id="pair-countdown">10:00 后过期</p><div class="dialog-actions"><button type="button" id="copy-code">复制配对码</button><a id="download-installer" class="button primary" href="#">下载 2.0 安装器</a></div><small>安装需要管理员提升。配对码只能使用一次；安装后普通用户不能停止 Service 或修改账本。</small></div></form></dialog>
+  <dialog id="pair-dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button><h2>添加 Windows 电脑</h2><p>先选择这台电脑的默认孩子。已有和新增 Windows 用户会先继承该设置，之后可逐个调整。</p><label class="field">默认孩子<select id="pair-default-child"></select></label><button type="button" id="create-pairing" class="primary full">生成机器配对码</button><div id="pair-result" hidden><div id="pair-code" class="pair-code">----</div><p id="pair-countdown">10:00 后过期</p><div class="dialog-actions"><button type="button" id="copy-code">复制配对码</button><a id="download-installer" class="button primary" href="#">下载 2.0 安装器</a></div><p id="pair-copy-status" class="copy-status" role="status" aria-live="polite" hidden></p><small>安装需要管理员提升。配对码只能使用一次；安装后普通用户不能停止 Service 或修改账本。</small></div></form></dialog>
 
-  <dialog id="uninstall-dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button><h2>授权卸载</h2><p>请在目标电脑以管理员身份卸载，并输入此 10 分钟单次卸载码。</p><div id="uninstall-code" class="pair-code">----</div><p id="uninstall-countdown"></p><button type="button" id="copy-uninstall" class="full">复制卸载码</button></form></dialog>
+  <dialog id="uninstall-dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button><h2>授权卸载</h2><p>请在目标电脑以管理员身份卸载，并输入此 10 分钟单次卸载码。</p><div id="uninstall-code" class="pair-code">----</div><p id="uninstall-countdown"></p><button type="button" id="copy-uninstall" class="full">复制卸载码</button><p id="uninstall-copy-status" class="copy-status" role="status" aria-live="polite" hidden></p></form></dialog>
 
   <script src="app-runtime-time.js"></script>
   <script src="app-runtime-network.js"></script>
+  <script src="app-runtime-clipboard.js"></script>
   <script src="app-runtime.js"></script>
 </body>
 </html>
