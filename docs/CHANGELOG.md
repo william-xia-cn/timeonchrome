@@ -5,6 +5,7 @@
 - **应用管理目录**：使用学习、复合、受限娱乐、黑名单和最近 30 天已使用未归类五个孩子级目录；普通目录独立显示应用、Windows 和 macOS 数量，右侧保持无来源二级表格的平面列表。
 - **加载失败状态**：初次未登录或 Runtime 数据加载失败时隐藏业务骨架，显示返回家长控制台、重新加载和本地 `?mock=1` 预览说明。
 - **生产 Pages**：提交 `72a58b0` 对应 deployment `3164aad7` 已发布；部署域名和稳定域名 `/app-runtime/` HTML/JS 回读 HTTP 200。未部署 Worker、未执行 migration，也未修改生产数据。
+- **生产依赖修复**：D-088 首轮仅发布 Pages，真实登录页面因生产缺少 `0005` 与新 Runtime 路由而返回 `Route was not found`；现已应用 additive `0005_runtime_app_management.sql` 并部署 Worker `135c57b8-ed3a-4fd6-8f61-d862d8a92ecd`。真实 HornburgXW 页面已恢复统计、五目录和应用明细。
 
 ---
 

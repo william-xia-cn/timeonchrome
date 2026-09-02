@@ -12,11 +12,12 @@
 
 ## Active App Runtime Work（2026-09-02）
 
-- [x] **[SPEC-004 / D-087 / D-088] App Runtime 孩子级五目录完成态（生产 Pages 已部署）**
+- [x] **[SPEC-004 / D-087 / D-088 / D-089] App Runtime 孩子级五目录生产依赖补齐（已完成）**
   - 目标：将应用管理左侧收口为 TimeOnChrome 式五个目录卡片，普通目录明确分列应用、Windows、macOS 三项计数；右侧保持无二级表格的平面应用列表。
   - 验收：固定验证孩子级预配置应用即使最近 30 天未使用仍保留、搜索/平台筛选/移动分类有效、未归类待处理展开/已处理历史折叠；初次未登录或加载失败必须显示完整错误状态，不得暴露空业务骨架。
-  - 边界：复用现有 App Policy、`/v2/module/app-catalog` 与分类记录接口；不新增 migration，不修改系统管理；生产发布仅更新 Pages 静态资源。
-  - 证据：Console policy tests、Runtime Worker typecheck 与 21/21 tests 通过；D-087 Playwright 覆盖未登录完整错误态、五目录独立计数、预配置未使用应用、移动分类和 390px 移动布局，canonical console 已同步 staged Pages。Pages deployment `3164aad7` 已发布，部署域名和稳定域名 HTML/JS 回读 HTTP 200 且包含新版标记。
+  - 根因：Pages deployment `3164aad7` 已包含新页面，但生产 Runtime D1 仍待 `0005_runtime_app_management.sql`，生产 Worker 仍为不含 App Policy/App Catalog 路由的旧版本，因此已认证页面返回 `Route was not found`。
+  - 发布证据：Runtime `0005_runtime_app_management.sql` 已应用；Worker `135c57b8-ed3a-4fd6-8f61-d862d8a92ecd` 已部署。生产登录会话重新加载后可读取 HornburgXW 使用统计，应用管理显示五个目录、16 个待处理应用及真实账本明细，原 `Route was not found` 消失。
+  - 边界：未修改 Guardian、R2、安装包、Santa、Chrome Extension 或历史 Segment。
 
 - [x] **[SPEC-004 / D-086] App Runtime 应用目录与系统日志管理补完（本地完成，未部署）**
   - 原因：D-085 只完成导航、策略与基础列表，应用目录缺少完整 read model、显式分类动作和操作反馈；系统管理也没有 TimeOnChrome 式日志查询。

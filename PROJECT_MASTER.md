@@ -14,6 +14,7 @@
 - **App Runtime 2.0.4 控制管道修正（2026-09-02）**：2.0.3 安装后的 LocalSystem Service 进程和 SCM 状态正常，但 Setup 无法取得控制状态。当前根因是控制客户端没有显式提供 Service `RunAsClient` 管理员校验所需的 impersonation token，同时 Service 后台 loop 异常既不记录也不恢复。2.0.4 前向修正客户端 impersonation，并给常驻 loops 增加可观察的异常记录与退避重启；机器配对仍未执行，生产 R2/latest 未切换。
 - **Guardian D1 审计限额修复（2026-09-02）**：逐请求执行的 14 日删除和逐设备裁剪已从 `/device/*` 热路径移除，改为每日 scheduled maintenance；additive migration `025` 已增加时间与 profile/device/time 索引，Guardian Worker `95cd3de1-54f2-4814-8fef-50136eb01a18` 已部署。生产 smoke 新增 6 条匿名 401 heartbeat 审计后，旧两条清理 SQL 的一小时 Insights 执行计数保持 `176 / 110`，证明请求放大链路已停止；过期删除的生产查询计划使用新 timestamp index。修复前当日已累计 reads 不能撤销，额度显示需等待 Cloudflare 日窗口重置。
 - **App Runtime D-087 页面发布（2026-09-03）**：孩子级应用管理已收口为学习、复合、受限娱乐、黑名单和最近 30 天已使用未归类五个平面目录；普通目录分列应用、Windows、macOS 计数，预配置未使用应用继续保留。初次未登录或加载失败改为完整错误态，不再暴露空目录骨架。本次仅发布 Pages deployment `3164aad7`，稳定域名 `/app-runtime/` HTML/JS 回读 HTTP 200；Runtime/Guardian Worker、D1、R2、安装包、Santa 与 Chrome Extension 均未变更。
+- **App Runtime D-089 生产依赖修复（2026-09-03）**：真实已认证页面证明 D-088 仅发布静态页面并不完整，新页面依赖的 additive Runtime `0005` 与 App Policy/App Catalog Worker 路由尚未上线，因而返回 `Route was not found`。Runtime `0005` 已应用，Worker `135c57b8-ed3a-4fd6-8f61-d862d8a92ecd` 已部署；真实登录页面已恢复 HornburgXW 使用统计和五目录应用管理。其余生产系统和历史 Segment 保持不变。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
