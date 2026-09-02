@@ -124,20 +124,33 @@ async function payloadCount(request: Request): Promise<number | null> {
   );
 }
 
-async function cleanupDeviceAccessAudit(env: Env, profileId: string | null, deviceId: string | null, now: number): Promise<void> {
-  const cutoff = now - 14 * 24 * 60 * 60 * 1000;
-  await env.DB.prepare(`DELETE FROM device_access_audit_v1 WHERE timestamp < ?`).bind(cutoff).run().catch(() => {});
-  if (profileId && deviceId) {
-    await env.DB.prepare(
-      `DELETE FROM device_access_audit_v1
-       WHERE profile_id = ? AND device_id = ? AND id NOT IN (
-         SELECT id FROM device_access_audit_v1
-         WHERE profile_id = ? AND device_id = ?
-         ORDER BY timestamp DESC
-         LIMIT 1000
-       )`
-    ).bind(profileId, deviceId, profileId, deviceId).run().catch(() => {});
-  }
+export const DEVICE_ACCESS_AUDIT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+export const DEVICE_ACCESS_AUDIT_MAX_ROWS_PER_DEVICE = 1000;
+
+export const DELETE_EXPIRED_DEVICE_ACCESS_AUDIT_SQL =
+  'DELETE FROM device_access_audit_v1 WHERE timestamp < ?';
+
+export const TRIM_DEVICE_ACCESS_AUDIT_SQL = `DELETE FROM device_access_audit_v1
+  WHERE id IN (
+    SELECT id
+    FROM (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY profile_id, device_id
+               ORDER BY timestamp DESC, id DESC
+             ) AS retention_rank
+      FROM device_access_audit_v1
+      WHERE profile_id IS NOT NULL AND device_id IS NOT NULL
+    ) ranked
+    WHERE retention_rank > ?
+  )`;
+
+export async function cleanupDeviceAccessAuditRetention(env: Env, now: number): Promise<void> {
+  const cutoff = now - DEVICE_ACCESS_AUDIT_RETENTION_MS;
+  await env.DB.batch([
+    env.DB.prepare(DELETE_EXPIRED_DEVICE_ACCESS_AUDIT_SQL).bind(cutoff),
+    env.DB.prepare(TRIM_DEVICE_ACCESS_AUDIT_SQL).bind(DEVICE_ACCESS_AUDIT_MAX_ROWS_PER_DEVICE),
+  ]);
 }
 
 export async function recordDeviceAccessAudit(request: Request, env: Env, response: Response, startedAt: number): Promise<void> {
@@ -177,8 +190,6 @@ export async function recordDeviceAccessAudit(request: Request, env: Env, respon
     count,
     now
   ).run();
-
-  await cleanupDeviceAccessAudit(env, auth.profileId, auth.deviceId, now);
 }
 
 export async function handleDeviceAccessAuditQuery(request: Request, env: Env): Promise<Response> {

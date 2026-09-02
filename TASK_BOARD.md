@@ -20,10 +20,11 @@
   - 已完成：Runtime `0003`/`0004`；Runtime Worker `af74e867-5fe1-48aa-b264-11e0892bebd3`；Guardian `024`；Guardian Worker `70b27ad3-7ae7-4cab-b9e0-b04def8e495b`；Pages `1edd8561-c990-4e6e-aa4d-b13b457cd37d`。health、未认证 401、Pages 六资产哈希和 Runtime 旧数据保留均通过。
   - R2：当前提交重建的 2.0.0 Burn/MSI/manifest 已上传生产 immutable path 并回读一致；Burn SHA-256 `32a7eda83a4940948faeb034868bb0545f5984692becdb3a5187de0ba749d202`，MSI SHA-256 `0cce622d420c6513982832005f9d02e5193a8be84171474b2cf9bb5875685e6b`。`latest.json` 保持 1.0.1，因为现有 `/installer` 路由硬编码 MSI，会绕过 2.0 Burn 的 1.x migration preflight；不得把该 blocker 改写为完成。
 
-- [ ] **[P0 Cloud/D1] Guardian 逐请求审计清理导致 D1 rows-read 激增**
+- [x] **[P0 Cloud/D1] Guardian 逐请求审计清理导致 D1 rows-read 激增（已前向修复）**
   - 证据：24h 28,134,760 rows read；两条 `device_access_audit_v1` 清理 SQL 共 28,014,688 rows read、分别执行 4,190/4,331 次。
   - 根因：`recordDeviceAccessAudit()` 在每个受审计请求后调用 `cleanupDeviceAccessAudit()`；全局 14 日删除缺少 timestamp-only index，逐设备裁剪也在请求热路径重复扫描。
-  - 后续独立 Build&Test 任务：将 retention cleanup 从请求热路径移到低频 cron/受持久门控的批处理，并补适配索引与固定回归；本次只诊断和登记，不在 releaseMg 部署中修改产品代码。
+  - 修复：请求热路径只写一条审计记录；14 日过期删除与每设备最多 1000 条裁剪统一移至每日 `0 12 * * *` scheduled maintenance，并通过 additive migration `025` 增加 timestamp-only 与 profile/device/timestamp 复合索引。
+  - 生产证据（2026-09-02）：migration `025` 已应用，Guardian Worker `95cd3de1-54f2-4814-8fef-50136eb01a18` 已部署；根接口 200、无凭据 heartbeat 401。6 次新 401 heartbeat 已写入审计，而一小时 Insights 中两条旧清理 SQL 的执行次数保持 `176 / 110` 不变；生产 `EXPLAIN QUERY PLAN` 显示过期删除使用 `idx_device_access_audit_timestamp`。修复前已经产生的当日 reads 不会回退，需等待 Cloudflare 日额度窗口自然重置；后续观察只保留为运营监控，不再作为代码 blocker。
 
 - [x] **[SPEC-004 / D-081] App Runtime 与 TimeOnChrome 统一落账规则 Phase A（本地实现完成，未部署）**
   - 范围：accounting schema v2、Windows/macOS 双 lane 纯状态机、共享黄金向量、Windows 原子 ledger/outbox/open-lane 恢复、Runtime `0004` dry-run 与向后兼容 API/read model。

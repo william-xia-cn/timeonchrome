@@ -17,7 +17,11 @@ import {
 import { clientLogsRouter } from './routes/clientLogs';
 import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
-import { handleDeviceAccessAuditQuery, recordDeviceAccessAudit } from './routes/deviceAccessAudit';
+import {
+  cleanupDeviceAccessAuditRetention,
+  handleDeviceAccessAuditQuery,
+  recordDeviceAccessAudit,
+} from './routes/deviceAccessAudit';
 import { systemAccessConfigRouter } from './routes/systemAccessConfig';
 import {
   handleNativeAppModuleToken,
@@ -358,7 +362,12 @@ export default {
       processNativeAppLifecycleOutbox(env),
       processAppRuntimeLifecycleOutbox(env),
     ];
-    if (event.cron === '0 12 * * *') work.push(sendPendingReviewNotifications(env));
+    if (event.cron === '0 12 * * *') {
+      work.push(
+        sendPendingReviewNotifications(env),
+        cleanupDeviceAccessAuditRetention(env, event.scheduledTime)
+      );
+    }
     ctx.waitUntil(Promise.all(work));
   },
 };

@@ -1239,6 +1239,12 @@ wrangler deploy
 绑定资源：D1(`guardian-db`)、KV(`CONFIG_CACHE`)、R2(`guardian-sessions`)
 Secret：`RESEND_API_KEY`（通过 `wrangler secret put` 设置，不写入 wrangler.toml）
 
+#### 设备访问审计保留与 D1 预算
+
+`recordDeviceAccessAudit()` 位于 `/device/*` 请求热路径的响应后任务中，只允许写入当前请求的一条元数据审计记录，不得同步执行过期删除或逐设备裁剪。审计保留维护由已有每日 `0 12 * * *` scheduled handler 统一执行：删除 14 天前记录，并将每个 `(profile_id, device_id)` 的记录裁剪至最新 1000 条。匿名或无法解析设备身份的近期诊断记录仍按 14 天期限保留，不参与逐设备上限裁剪。
+
+`device_access_audit_v1(timestamp)` 支撑全局过期删除，`device_access_audit_v1(profile_id, device_id, timestamp DESC, id DESC)` 支撑按设备的确定性保留顺序。批量维护失败必须由 scheduled handler 记录为失败，不得静默吞掉；单次设备请求的可用性则不依赖维护任务成功。该结构把保留扫描从每个设备请求两次降为每日一次，避免 D1 rows-read 随请求频率成倍增长。
+
 ### Pages（timeonchrome-console）
 ```bash
 cd pages
