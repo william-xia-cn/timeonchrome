@@ -107,7 +107,40 @@ export interface EstimatedMetadata {
 
 export interface AccountingPolicySnapshot {
   assignmentVersion: number | null;
+  appPolicyVersion?: number | null;
+  applicationClassification?: ApplicationClassification | null;
   quotaBucket: string | null;
+}
+
+export type ApplicationClassification =
+  | 'study'
+  | 'composite'
+  | 'restrictedEntertainment'
+  | 'unclassified'
+  | 'blocked';
+
+export interface AppPolicyQuotaConfig {
+  dailyCategoryMinutes: Record<'study' | 'composite' | 'restrictedEntertainment' | 'unclassified', number | null>;
+  weeklyRestrictedEntertainmentMinutes: number | null;
+  perApplicationDailyMinutes: Array<{
+    platform: RuntimePlatform;
+    runtimeIdentity: string;
+    minutes: number | null;
+  }>;
+}
+
+export interface AppPolicyClassification {
+  platform: RuntimePlatform;
+  runtimeIdentity: string;
+  displayName: string | null;
+  classification: ApplicationClassification;
+}
+
+export interface AppPolicyDocument {
+  version: number;
+  effectiveAtMs: number | null;
+  classifications: AppPolicyClassification[];
+  quotas: AppPolicyQuotaConfig;
 }
 
 export type AccountingSegmentEndReason =

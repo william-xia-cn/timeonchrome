@@ -91,7 +91,20 @@ public enum CheckpointConfirmation
     Failed,
 }
 
-public sealed record AccountingPolicySnapshot(long? AssignmentVersion, string? QuotaBucket);
+public enum ApplicationClassification
+{
+    Study,
+    Composite,
+    RestrictedEntertainment,
+    Unclassified,
+    Blocked,
+}
+
+public sealed record AccountingPolicySnapshot(
+    long? AssignmentVersion,
+    string? QuotaBucket,
+    long? AppPolicyVersion = null,
+    ApplicationClassification? ApplicationClassification = null);
 
 public sealed record AccountingRuntimeSnapshot(
     ApplicationIdentity? ForegroundApplication,
@@ -120,7 +133,8 @@ public sealed record AccountingRuntimeFact(
     CheckpointConfirmation? Confirmation = null,
     AccountingRuntimeSnapshot? Snapshot = null,
     string? NewClockEpochId = null,
-    string? DiagnosticHint = null)
+    string? DiagnosticHint = null,
+    AccountingPolicySnapshot? PolicySnapshot = null)
 {
     public int SafetyPriority => Kind switch
     {
@@ -405,7 +419,8 @@ public sealed record OpenAccountingLane(
     long StartWallTimeMs,
     long StartMonotonicTimeMs,
     long LastEvidenceWallTimeMs,
-    long LastEvidenceMonotonicTimeMs);
+    long LastEvidenceMonotonicTimeMs,
+    AccountingPolicySnapshot? PolicySnapshot = null);
 
 public sealed record OpenMediaLane(
     ApplicationIdentity Application,

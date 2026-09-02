@@ -29,6 +29,16 @@ import {
   parseMachineMediaUpload,
   parseMachineUsers,
 } from './validation';
+import {
+  appPolicyEtag,
+  getAppPolicy,
+  parseAppPolicyUpdate,
+  parseCursor,
+  putAppPolicy,
+  queryAppUsage,
+  queryClassificationRecords,
+  querySegmentDetails,
+} from './appPolicy';
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
 
@@ -46,6 +56,76 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
 
   if (url.pathname.startsWith('/v2/module/')) {
     const claims = await requireAccountModule(request, env, nowMs);
+    const requireChild = (): string => {
+      const childId = url.searchParams.get('childId') || '';
+      if (!claims.children.some((child) => child.id === childId)) {
+        throw new HttpError(404, 'CHILD_NOT_FOUND', 'Child was not found.');
+      }
+      return childId;
+    };
+    const requireRange = (maximumDays = 31): { fromMs: number; toMs: number } => {
+      const fromMs = Number(url.searchParams.get('fromMs'));
+      const toMs = Number(url.searchParams.get('toMs'));
+      if (!Number.isSafeInteger(fromMs) || !Number.isSafeInteger(toMs) || fromMs < 0
+        || toMs <= fromMs || toMs - fromMs > maximumDays * 86_400_000) {
+        throw new HttpError(400, 'INVALID_RANGE', 'Usage range is invalid.');
+      }
+      return { fromMs, toMs };
+    };
+    if (url.pathname === '/v2/module/app-policy') {
+      const childId = requireChild();
+      if (request.method === 'GET') {
+        const policy = await getAppPolicy(env.RUNTIME_DB, claims.account_id, childId);
+        return jsonResponse(policy, { headers: { etag: appPolicyEtag(policy.version) } });
+      }
+      if (request.method === 'PUT') {
+        const update = parseAppPolicyUpdate(await readJsonBody(request));
+        const policy = await putAppPolicy(env.RUNTIME_DB, claims.account_id, childId,
+          request.headers.get('if-match'), update, nowMs);
+        return jsonResponse(policy, { headers: { etag: appPolicyEtag(policy.version) } });
+      }
+      return methodNotAllowed('GET, PUT');
+    }
+    if (url.pathname === '/v2/module/app-classification-records') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      const platform = url.searchParams.get('platform');
+      if (platform != null && platform !== 'windows' && platform !== 'macos') {
+        throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
+      }
+      return jsonResponse(await queryClassificationRecords(
+        env.RUNTIME_DB, claims.account_id, childId, platform || undefined,
+      ));
+    }
+    if (url.pathname === '/v2/module/app-usage') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      const range = requireRange();
+      const platform = url.searchParams.get('platform');
+      if (platform != null && platform !== 'windows' && platform !== 'macos') {
+        throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
+      }
+      return jsonResponse(await queryAppUsage(env.RUNTIME_DB, claims.account_id, childId,
+        range.fromMs, range.toMs, {
+          machineId: url.searchParams.get('machineId') || undefined,
+          localUserId: url.searchParams.get('userId') || undefined,
+          platform: platform || undefined,
+        }));
+    }
+    if (url.pathname === '/v2/module/usage-segments' || url.pathname === '/v2/module/media-segments') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      const range = requireRange();
+      const requestedLimit = Number(url.searchParams.get('limit') || 50);
+      if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100) {
+        throw new HttpError(400, 'INVALID_LIMIT', 'Limit must be between 1 and 100.');
+      }
+      return jsonResponse(await querySegmentDetails(
+        env.RUNTIME_DB, claims.account_id, childId,
+        url.pathname.endsWith('/media-segments') ? 'media' : 'usage',
+        range.fromMs, range.toMs, requestedLimit, parseCursor(url.searchParams.get('cursor')),
+      ));
+    }
     if (url.pathname === '/v2/module/pairing-codes') {
       if (request.method !== 'POST') return methodNotAllowed('POST');
       const input = parseMachinePairing(await readJsonBody(request));

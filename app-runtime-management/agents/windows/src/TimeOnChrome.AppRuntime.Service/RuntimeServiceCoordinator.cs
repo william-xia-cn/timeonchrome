@@ -387,17 +387,22 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                         fact.ClockEpochId));
                 sessions[sessionId] = runtime;
             }
-            _ = await runtime.AccountingSession.PushAndPersistAsync(fact, cancellationToken).ConfigureAwait(false);
+            var application = fact.Application
+                ?? fact.Snapshot?.ForegroundApplication
+                ?? runtime.AccountingSession.DurableState.ForegroundApplication;
+            var policySnapshot = MachinePolicyStore.SnapshotFor(appliedPolicy.Policy, assignment, application);
+            _ = await runtime.AccountingSession.PushAndPersistAsync(
+                fact with { PolicySnapshot = policySnapshot }, cancellationToken).ConfigureAwait(false);
         }
         finally { _ = stateGate.Release(); }
     }
 
-    private async Task CloseSessionUnsafeAsync(int sessionId, long observedAtMs)
+    private async Task CloseSessionUnsafeAsync(int sessionId, long observedAtMs, long? observedMonotonicMs = null)
     {
         if (ledger is null || !sessions.Remove(sessionId, out var runtime)) return;
         var state = runtime.AccountingSession.DurableState;
         var closeWall = Math.Max(observedAtMs, state.LastProcessedWallTimeMs ?? 0);
-        var closeMonotonic = Math.Max(Environment.TickCount64, state.LastProcessedMonotonicTimeMs ?? 0);
+        var closeMonotonic = Math.Max(observedMonotonicMs ?? Environment.TickCount64, state.LastProcessedMonotonicTimeMs ?? 0);
         _ = await runtime.AccountingSession.PushAndPersistAsync(new AccountingRuntimeFact(
             closeWall,
             closeMonotonic,
@@ -423,12 +428,46 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                         await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
                         try
                         {
+                            var boundaryWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                            var boundaryMonotonic = Environment.TickCount64;
+                            var previous = sessions.ToDictionary(
+                                item => item.Key,
+                                item => (item.Value.LocalUserId, item.Value.AccountingSession.DurableState));
                             foreach (var sessionId in sessions.Keys.ToArray())
-                                await CloseSessionUnsafeAsync(sessionId, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ConfigureAwait(false);
+                                await CloseSessionUnsafeAsync(sessionId, boundaryWall, boundaryMonotonic).ConfigureAwait(false);
                             appliedPolicy = new AppliedMachinePolicy(result.Policy,
-                                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                                boundaryWall, boundaryWall);
                             await policyStore.SaveAsync(appliedPolicy, cancellationToken).ConfigureAwait(false);
                             policyEtag = result.ETag;
+                            foreach (var (sessionId, prior) in previous)
+                            {
+                                var assignment = MachinePolicyStore.AssignmentFor(result.Policy, prior.LocalUserId);
+                                if (assignment?.Protected != true) continue;
+                                var state = prior.DurableState with
+                                {
+                                    RuntimeSessionID = $"windows:{credential!.MachineId}:{prior.LocalUserId}:{Guid.NewGuid():N}",
+                                    ForegroundLane = null,
+                                    PipLanes = new Dictionary<string, OpenAccountingLane>(),
+                                    MediaLanes = new Dictionary<string, OpenMediaLane>(),
+                                    LastProcessedWallTimeMs = null,
+                                    LastProcessedMonotonicTimeMs = null,
+                                };
+                                var accounting = new MachineAccountingSession(
+                                    ledger!, prior.LocalUserId, assignment.AssignmentVersion, state);
+                                var snapshot = new AccountingRuntimeSnapshot(
+                                    state.ForegroundApplication, state.ForegroundWindowState,
+                                    state.ForegroundMediaEvidence, state.ForegroundPlaybackState,
+                                    state.UserActivity, state.SessionState, state.PowerState);
+                                var policySnapshot = MachinePolicyStore.SnapshotFor(
+                                    result.Policy, assignment, state.ForegroundApplication);
+                                _ = await accounting.PushAndPersistAsync(new AccountingRuntimeFact(
+                                    boundaryWall, boundaryMonotonic, state.ClockEpochId,
+                                    AccountingFactKind.Checkpoint, Confirmation: CheckpointConfirmation.Confirmed,
+                                    Snapshot: snapshot,
+                                    PolicySnapshot: policySnapshot), cancellationToken).ConfigureAwait(false);
+                                _ = await accounting.FlushAndPersistAsync(cancellationToken).ConfigureAwait(false);
+                                sessions[sessionId] = new SessionRuntime(prior.LocalUserId, assignment, accounting);
+                            }
                         }
                         finally { _ = stateGate.Release(); }
                         await api.AcknowledgePolicyAsync(credential,

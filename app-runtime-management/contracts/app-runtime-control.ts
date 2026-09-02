@@ -50,4 +50,37 @@ export interface RuntimeMachinePolicyV2 {
   version: number;
   defaultChildId: string | null;
   users: RuntimeMachineUserAssignmentV2[];
+  appPolicies: RuntimeMachineChildAppPolicyV1[];
+}
+
+export type RuntimeApplicationClassification =
+  | 'study'
+  | 'composite'
+  | 'restrictedEntertainment'
+  | 'unclassified'
+  | 'blocked';
+
+export interface RuntimeAppPolicyV1 {
+  version: number;
+  effectiveAtMs: number | null;
+  classifications: Array<{
+    platform: 'windows' | 'macos';
+    runtimeIdentity: string;
+    displayName: string | null;
+    classification: RuntimeApplicationClassification;
+  }>;
+  quotas: {
+    dailyCategoryMinutes: Record<'study' | 'composite' | 'restrictedEntertainment' | 'unclassified', number | null>;
+    weeklyRestrictedEntertainmentMinutes: number | null;
+    perApplicationDailyMinutes: Array<{
+      platform: 'windows' | 'macos';
+      runtimeIdentity: string;
+      minutes: number | null;
+    }>;
+  };
+}
+
+export interface RuntimeMachineChildAppPolicyV1 {
+  childId: string;
+  policy: RuntimeAppPolicyV1;
 }

@@ -10,6 +10,7 @@ import type {
   UploadAcceptance,
 } from './contracts';
 import { randomToken, sha256Hex } from './crypto';
+import { getAppPolicy, resolveClassification } from './appPolicy';
 
 type PolicyState = MachineSelfResponse['policyState'];
 
@@ -383,18 +384,29 @@ export async function getMachinePolicy(
   machine: MachineSelfResponse,
 ): Promise<{ etag: string; policy: unknown }> {
   const users = await listMachineUsers(database, machine.accountId, machine.machineId);
+  const policyUsers = (users?.users || []).map((value) => {
+    const user = value as Record<string, unknown>;
+    return {
+      localUserId: user.localUserId,
+      assignmentVersion: user.assignmentVersion,
+      childId: user.childId,
+      protected: user.protected,
+    };
+  });
+  const childIds = new Set<string>();
+  if (machine.defaultChildId) childIds.add(machine.defaultChildId);
+  for (const user of policyUsers) {
+    if (user.protected && typeof user.childId === 'string') childIds.add(user.childId);
+  }
+  const appPolicies = await Promise.all([...childIds].map(async (childId) => ({
+    childId,
+    policy: await getAppPolicy(database, machine.accountId, childId),
+  })));
   const policy = {
     version: machine.desiredPolicyVersion,
     defaultChildId: machine.defaultChildId,
-    users: (users?.users || []).map((value) => {
-      const user = value as Record<string, unknown>;
-      return {
-        localUserId: user.localUserId,
-        assignmentVersion: user.assignmentVersion,
-        childId: user.childId,
-        protected: user.protected,
-      };
-    }),
+    users: policyUsers,
+    appPolicies,
   };
   return { etag: `"policy-${machine.machineId}-${machine.desiredPolicyVersion}"`, policy };
 }
@@ -549,6 +561,23 @@ export async function persistAccountingUsageSegments(
       ));
     } else {
       const application = segment.application!;
+      let resolved;
+      try {
+        resolved = await resolveClassification(
+          database,
+          machine.accountId,
+          assignment.child_id,
+          application.platform,
+          application.runtimeIdentity,
+          segment.policySnapshot?.appPolicyVersion ?? null,
+        );
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && typeof error.code === 'string') {
+          rejected.push({ id: segment.id, code: error.code });
+          continue;
+        }
+        throw error;
+      }
       statements.push(database.prepare(`
         INSERT INTO runtime_usage_segments_v2(
           id,machine_id,local_user_id,assignment_version,child_id,runtime_session_id,
@@ -557,10 +586,11 @@ export async function persistAccountingUsageSegments(
           activity_basis,clock_epoch_id,start_wall_time_ms,end_wall_time_ms,
           start_monotonic_time_ms,end_monotonic_time_ms,monotonic_duration_ms,
           estimated,estimate_reason,estimate_cap_ms,last_evidence_wall_time_ms,
-          last_evidence_monotonic_time_ms,diagnostic,diagnostic_code,policy_snapshot_json
+          last_evidence_monotonic_time_ms,diagnostic,diagnostic_code,policy_snapshot_json,
+          app_policy_version,application_classification,quota_bucket
         ) VALUES(
           ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,2,?16,
-          ?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,0,NULL,?29
+          ?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,0,NULL,?29,?30,?31,?32
         )
       `).bind(
         segment.id, machine.machineId, envelope.localUserId, envelope.assignmentVersion,
@@ -574,7 +604,13 @@ export async function persistAccountingUsageSegments(
         segment.monotonicDurationMilliseconds, segment.estimated.isEstimated ? 1 : 0,
         segment.estimated.reason, segment.estimated.cappedAtMilliseconds,
         segment.lastEvidenceWallTimeMs, segment.lastEvidenceMonotonicTimeMs,
-        segment.policySnapshot == null ? null : JSON.stringify(segment.policySnapshot),
+        JSON.stringify({
+          assignmentVersion: envelope.assignmentVersion,
+          appPolicyVersion: resolved.version,
+          applicationClassification: resolved.classification,
+          quotaBucket: resolved.quotaBucket,
+        }),
+        resolved.version, resolved.classification, resolved.quotaBucket,
       ));
     }
     statements.push(database.prepare(
@@ -880,6 +916,8 @@ export async function deleteRuntimeChildV2(database: D1Database, accountId: stri
     SELECT id, desired_policy_version, default_child_id FROM runtime_machines_v2 WHERE account_id=?1
   `).bind(accountId).all<{ id: string; desired_policy_version: number; default_child_id: string | null }>();
   const statements: D1PreparedStatement[] = [
+    database.prepare('DELETE FROM runtime_app_classification_history_v1 WHERE account_id=?1 AND child_id=?2').bind(accountId, childId),
+    database.prepare('DELETE FROM runtime_child_app_policy_versions_v1 WHERE account_id=?1 AND child_id=?2').bind(accountId, childId),
     database.prepare('DELETE FROM runtime_media_segments_v2 WHERE child_id=?1').bind(childId),
     database.prepare('DELETE FROM runtime_usage_diagnostic_segments_v2 WHERE child_id=?1').bind(childId),
     database.prepare('DELETE FROM runtime_app_hourly_stats_v2 WHERE child_id=?1').bind(childId),

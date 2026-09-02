@@ -11,6 +11,8 @@ const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE'
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_app_classification_history_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_child_app_policy_versions_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_media_segments_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_usage_diagnostic_segments_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_uninstall_codes_v2'),
@@ -336,10 +338,20 @@ describe('Runtime product API', () => {
         { runtimeIdentity: 'app:video', activeMs: 0, pipActiveMs: 60_000, unionMs: 60_000 },
       ],
     });
+    const appUsage = await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=80000', {
+      headers: bearer(account),
+    });
+    await expect(appUsage.json()).resolves.toMatchObject({
+      totalDurationMs: 70_000,
+      mediaPlaybackTotalMs: 120_000,
+    });
     await expect(env.RUNTIME_DB.prepare(`
-      SELECT policy_snapshot_json FROM runtime_usage_segments_v2 WHERE id=?1
+      SELECT policy_snapshot_json,application_classification,app_policy_version,quota_bucket
+      FROM runtime_usage_segments_v2 WHERE id=?1
     `).bind(active.id).first()).resolves.toMatchObject({
-      policy_snapshot_json: JSON.stringify(active.policySnapshot),
+      application_classification: 'unclassified',
+      app_policy_version: null,
+      quota_bucket: 'unclassified',
     });
     expect((await call('/v2/module/usage?childId=child-a&fromMs=0&toMs=80000', {
       headers: bearer(account),
@@ -398,6 +410,154 @@ describe('Runtime product API', () => {
     })).json<{ mainUsageTotalMs: number; applications: Array<{ unionMs: number }> }>();
     expect(read.mainUsageTotalMs).toBe(130_000);
     expect(read.applications[0]?.unionMs).toBe(130_000);
+  });
+
+  it('versions Child app policy with ETag and resolves uploaded classifications server-side', async () => {
+    const { account, enrolled, localUserId } = await createMachineWithUser();
+    const empty = await call('/v2/module/app-policy?childId=child-a', { headers: bearer(account) });
+    expect(empty.headers.get('etag')).toBe('"app-policy-v0"');
+    await expect(empty.json()).resolves.toMatchObject({ version: 0, classifications: [] });
+    const policyBody = {
+      classifications: [{
+        platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study',
+      }],
+      quotas: {
+        dailyCategoryMinutes: { study: 30, composite: null, restrictedEntertainment: 0, unclassified: null },
+        weeklyRestrictedEntertainmentMinutes: 60,
+        perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 10 }],
+      },
+    };
+    expect((await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v9"' }, body: JSON.stringify(policyBody),
+    })).status).toBe(412);
+    const saved = await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(policyBody),
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.headers.get('etag')).toBe('"app-policy-v1"');
+    const machinePolicy = await call('/v2/machines/policy', { headers: bearer(enrolled.machineToken) });
+    await expect(machinePolicy.json()).resolves.toMatchObject({
+      appPolicies: [{ childId: 'child-a', policy: { version: 1, classifications: [{ classification: 'study' }] } }],
+    });
+
+    const segment = await accountingUsage({
+      runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 600_000,
+    });
+    segment.policySnapshot = {
+      assignmentVersion: 2, appPolicyVersion: 1,
+      applicationClassification: 'blocked', quotaBucket: 'blocked',
+    };
+    segment.id = await accountingUsageId(segment);
+    const uploadResponse = await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...segment, localUserId, assignmentVersion: 2 }] }),
+    });
+    await expect(uploadResponse.json()).resolves.toEqual({ acceptedIds: [segment.id], rejected: [] });
+    await expect(env.RUNTIME_DB.prepare(`
+      SELECT application_classification,quota_bucket,app_policy_version
+      FROM runtime_usage_segments_v2 WHERE id=?1
+    `).bind(segment.id).first()).resolves.toMatchObject({
+      application_classification: 'study', quota_bucket: 'study', app_policy_version: 1,
+    });
+
+    const usage = await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=86400000', { headers: bearer(account) });
+    await expect(usage.json()).resolves.toMatchObject({
+      totalDurationMs: 600_000,
+      buckets: [{ categories: [{ classification: 'study', durationMs: 600_000 }] }],
+      categories: [{ classification: 'study', durationMs: 600_000, quota: { exceeded: false } }],
+      applications: [{ runtimeIdentity: 'app:editor', classification: 'study', quota: { limitMs: 600_000, remainingMs: 0, exceeded: false } }],
+    });
+    const records = await call('/v2/module/app-classification-records?childId=child-a', { headers: bearer(account) });
+    await expect(records.json()).resolves.toMatchObject({ processed: [{ runtimeIdentity: 'app:editor', mainDurationMs: 600_000 }] });
+    const ledger = await call('/v2/module/usage-segments?childId=child-a&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
+    await expect(ledger.json()).resolves.toMatchObject({ items: [{ runtimeIdentity: 'app:editor', authoritativeForUsage: true }] });
+  });
+
+  it('keeps legacy observed usage visible as unclassified without rewriting history', async () => {
+    const account = await accountToken();
+    await env.RUNTIME_DB.batch([
+      env.RUNTIME_DB.prepare(`
+        INSERT INTO runtime_children_v1(child_id,account_id,child_name,created_at_ms,updated_at_ms)
+        VALUES('child-a','account-a','Child',0,0)
+      `),
+      env.RUNTIME_DB.prepare(`
+        INSERT INTO runtime_devices(
+          id,subject_id,platform,token_hash,display_name,created_at_ms,last_seen_at_ms,
+          account_id,child_id,agent_version,os_version,architecture,last_upload_at_ms
+        ) VALUES('legacy-device','child-a','windows','legacy-token','Legacy PC',0,61000,
+          'account-a','child-a','1.0.1','Windows 11','x64',61000)
+      `),
+      env.RUNTIME_DB.prepare(`
+        INSERT INTO runtime_usage_segments(
+          id,device_id,runtime_session_id,platform,runtime_identity,display_name,
+          start_at_ms,end_at_ms,duration_ms,end_reason,content_hash,uploaded_at_ms
+        ) VALUES('legacy-segment','legacy-device','legacy-session','windows','app:legacy',
+          'Legacy App',1000,61000,60000,'applicationSwitch','legacy-hash',61000)
+      `),
+    ]);
+    const usage = await (await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=86400000', {
+      headers: bearer(account),
+    })).json<{ totalDurationMs: number; categories: Array<{ classification: string; durationMs: number }> }>();
+    expect(usage).toMatchObject({
+      totalDurationMs: 60_000,
+      categories: [{ classification: 'unclassified', durationMs: 60_000 }],
+    });
+    const records = await (await call('/v2/module/app-classification-records?childId=child-a', {
+      headers: bearer(account),
+    })).json<{ pending: Array<{ runtimeIdentity: string; mainDurationMs: number }> }>();
+    expect(records.pending).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeIdentity: 'app:legacy', mainDurationMs: 60_000 }),
+    ]));
+  });
+
+  it('rejects an unknown app policy version and never trusts a client classification', async () => {
+    const { enrolled, localUserId } = await createMachineWithUser();
+    const segment = await accountingUsage({
+      runtimeIdentity: 'app:unknown', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 1000,
+    });
+    segment.policySnapshot = {
+      assignmentVersion: 2, appPolicyVersion: 999,
+      applicationClassification: 'study', quotaBucket: 'study',
+    };
+    segment.id = await accountingUsageId(segment);
+    const response = await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [{ ...segment, localUserId, assignmentVersion: 2 }] }),
+    });
+    await expect(response.json()).resolves.toEqual({
+      acceptedIds: [], rejected: [{ id: segment.id, code: 'APP_POLICY_VERSION_INVALID' }],
+    });
+  });
+
+  it('evaluates daily quotas per Beijing day instead of summing a weekly range', async () => {
+    const { account, enrolled, localUserId } = await createMachineWithUser();
+    const policyBody = {
+      classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study' }],
+      quotas: {
+        dailyCategoryMinutes: { study: 10, composite: null, restrictedEntertainment: null, unclassified: null },
+        weeklyRestrictedEntertainmentMinutes: null,
+        perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 10 }],
+      },
+    };
+    expect((await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(policyBody),
+    })).status).toBe(200);
+    const first = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 600_000 });
+    first.policySnapshot = { assignmentVersion: 2, appPolicyVersion: 1, quotaBucket: 'study' };
+    first.id = await accountingUsageId(first);
+    const second = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 86_400_000, end: 87_000_000 });
+    second.policySnapshot = { assignmentVersion: 2, appPolicyVersion: 1, quotaBucket: 'study' };
+    second.id = await accountingUsageId(second);
+    const response = await call('/v2/segments:upload', {
+      method: 'POST', headers: bearer(enrolled.machineToken),
+      body: JSON.stringify({ schemaVersion: 2, segments: [first, second].map((segment) => ({ ...segment, localUserId, assignmentVersion: 2 })) }),
+    });
+    expect((await response.json<{ acceptedIds: string[] }>()).acceptedIds).toHaveLength(2);
+    const usage = await (await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=172800000', {
+      headers: bearer(account),
+    })).json<{ categories: Array<{ quota: { exceeded: boolean; exceededDays: number } }>; applications: Array<{ quota: { exceeded: boolean; exceededDays: number } }> }>();
+    expect(usage.categories[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
+    expect(usage.applications[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
   });
 
   it('requires a single-use uninstall code and retires the machine token', async () => {

@@ -5,9 +5,9 @@
 - Spec ID: SPEC-004
 - Date: 2026-09-01
 - Owner: Product Owner
-- Status: Approved for Windows 2.0 system-managed multi-user implementation and Accounting Phase A
+- Status: Approved for Windows 2.0 system-managed multi-user implementation, Accounting Phase A and App Management Console Phase B
 - Related task: Windows App Runtime 可用闭环
-- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081
+- Related decisions: D-064, D-075, D-076, D-077, D-078, D-079, D-080, D-081, D-084
 - Related specs: `SPEC-003-MACOS-NATIVE-APP-CONTROL.md`
 
 ## Goal
@@ -17,6 +17,33 @@
 Phase 1 只交付跨平台规格、共享契约、黄金测试向量、macOS/Windows Core 纯状态机、平台 Agent 空壳和后台契约类型；不运行生产采集、不写 SQLite、不调用生产 API。
 
 Phase 2 已交付 Windows 与共用 Runtime 后台技术底座。D-079 阶段把它修正为家长可以直接安装、配对、管理和查看统计的 Windows 产品闭环；macOS 真实采集仍留在后续阶段。
+
+App Management Console Phase B 将独立 `/app-runtime/` 重构为与 TimeOnChrome 主控制台同构的家长界面，并增加孩子级应用分类、独立观察型配额、未归类应用记录和 Runtime 专属系统管理。该阶段不修改网页分类/配额，不执行应用阻止，也不追溯改写历史 Segment。
+
+## App Management Console Phase B
+
+### 信息架构
+
+Runtime 页面保留独立部署边界，左侧固定为 `使用统计 / 访问管理 / 应用归类记录 / 设备管理 / 系统管理`。Logo 返回主控制台；孩子选择器、账户区、桌面侧栏和移动端“更多”交互与主控制台一致。Runtime 页面不得嵌入 Santa 审核或网站配置业务。
+
+### 应用分类与记录
+
+- 分类固定为 `study / composite / restrictedEntertainment / unclassified / blocked`，用户可见名称分别为学习、复合、受限娱乐、未归类和黑名单。
+- 配置键为 `Child + platform + runtimeIdentity`；同一孩子的 Windows 机器共享 Windows 分类，macOS 分类独立。Display name 只用于展示，不参与授权或身份匹配。
+- 首版只允许管理真实账本中已经出现的应用。首次出现且没有有效策略的应用进入“未归类应用使用记录”，按身份去重并展示首次/最近使用、主账本并集时长、机器数和本机用户数。
+- 归类决定只对设备实际应用策略后的新 Segment 生效。旧 Segment 保留其原分类；当前已归类但历史为未归类的记录显示为已处理历史，不重新计算。
+
+### 独立观察型配额
+
+- 每日分类配额覆盖学习、复合、受限娱乐和未归类；每周配额只覆盖受限娱乐；单应用配额按日设置。
+- `null` 表示无限制；每日值为 0–1440 分钟，每周值为 0–10080 分钟。统计日历使用 `Asia/Shanghai`，周一 00:00 开始新周期。
+- 黑名单隐含允许额度为 0。本阶段只显示违规状态，并明确提示不会自动关闭应用。
+- 配额只读取权威 `UsageSegment`；按应用、分类和设备分别做区间并集。estimated 主 Segment 计入，0ms diagnostic 和所有 `MediaSegment` 不计入。
+- 超额不得停止 Session Agent、结束进程、修改账本或触发 Santa；应用阻止属于后续独立阶段。
+
+### 验收
+
+页面五个导航均必须具有 loading、empty、error 和真实数据状态；写操作保持不确定网络结果不自动重放。桌面与移动端必须使用 mock 数据完成目视审查。生产 migration、Worker/Pages/R2 部署不属于本阶段。
 
 ## D-081 Accounting Phase A
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for Windows 2.0 system-managed multi-user implementation and Accounting Phase A。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；Windows 使用机器级 Service + per-session Agent，Accounting Phase A 使用共享 schema v2 统一 Windows/macOS 落账语义。
+Approved for Windows 2.0 system-managed multi-user implementation、Accounting Phase A 与 App Management Console Phase B。本文定义一个 Runtime 产品、两个原生 Agent 和一个共享 Runtime 后台；Windows 使用机器级 Service + per-session Agent，Accounting Phase A 使用共享 schema v2 统一 Windows/macOS 落账语义。
 
 ## Accounting Schema V2
 
@@ -223,6 +223,47 @@ Windows 1.0.1 延续固定 `UpgradeCode` 与严格 `perUser` scope，构建脚�
 - `TimeOnChrome.AppRuntime.Infrastructure` 同时提供不含凭据的原子本地 Agent health snapshot store，供 Agent 写入、Setup 只读展示。
 - `TimeOnChrome.AppRuntime.Agent`：配置、生命周期、fact loop、upload loop 与结构化本地日志组合根。
 - `TimeOnChrome.AppRuntime.Setup`：WPF 五态配对 UI、current-user 单实例、基于本地 health snapshot 的状态展示，以及受工作区约束的响应式窗口/固定操作栏。
+
+## App Management Console Phase B 技术设计
+
+### App Policy 与兼容
+
+Runtime D1 additive migration `0005` 增加孩子级不可变 App Policy 版本与应用分类历史，并为 accounting v2 Segment 增加可空 `app_policy_version`、`application_classification` 与 `quota_bucket`。旧 Segment 和旧客户端继续有效：缺少 App Policy 的上传按 `unclassified`、无限额读取，不写回或重算历史。
+
+App Policy wire shape 为：
+
+```json
+{
+  "version": 3,
+  "classifications": [
+    { "platform": "windows", "runtimeIdentity": "windows:…", "classification": "study", "displayName": "Code" }
+  ],
+  "quotas": {
+    "dailyCategoryMinutes": { "study": null, "composite": null, "restrictedEntertainment": 120, "unclassified": 60 },
+    "weeklyRestrictedEntertainmentMinutes": 600,
+    "perApplicationDailyMinutes": [
+      { "platform": "windows", "runtimeIdentity": "windows:…", "minutes": 90 }
+    ]
+  }
+}
+```
+
+Display name 是非权威展示元数据，不进入策略身份键。`GET /v2/module/app-policy?childId=` 返回 ETag；`PUT` 必须携带 `If-Match`，服务端校验账户/孩子归属、枚举、范围和重复身份，并在 D1 事务中生成下一不可变版本，版本冲突返回 412。页面对不确定网络失败不得自动重放 PUT。
+
+### API 与 read model
+
+- `GET/PUT /v2/module/app-policy?childId=`：读取或原子替换当前孩子完整 App Policy。
+- `GET /v2/module/app-classification-records`：按孩子、平台和应用身份输出未归类证据及已处理历史。
+- `GET /v2/module/app-usage`：返回设备主时长并集、分类/应用并集、配额使用/剩余/超额状态和辅助媒体摘要。
+- `GET /v2/module/usage-segments` 与 `GET /v2/module/media-segments`：提供 Runtime 系统管理的游标分页明细；不返回 Child ID、token、SID、路径或窗口标题。
+
+`GET /v2/machines/policy` 在现有 assignment 之外增量返回本机受保护用户所需的 App Policy 版本。孩子策略变更只提升关联机器的 desired version；Service 原子缓存后，在实际应用时间关闭受影响用户的 foreground/PiP lane，并以新 `AccountingPolicySnapshot` 同刻重开。上传携带 `appPolicyVersion`，Worker 根据服务端策略历史解析分类和 quota bucket，不信任客户端自报分类。
+
+### Runtime Console
+
+`app-runtime-management/console/` 是 canonical source，静态复制到 `pages/app-runtime/`。页面在独立文档内切换 `usage/access/records/devices/system` 五个视图，复用主控制台的绿色视觉语言、Logo、孩子选择器、桌面侧栏、移动导航和账户区，但不抽取或修改主控制台业务代码。
+
+使用统计读取 App Usage read model；访问管理只允许移动真实观察到的应用并编辑独立配额；应用归类记录只处理未归类使用；设备管理使用列表加右侧详情抽屉；系统管理提供主账本、辅助媒体、健康和配置导入导出。导入文件必须先本地校验和展示差异，再以带 ETag 的完整策略 PUT 应用。
 - Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store、Setup presentation 与窗口布局纯逻辑。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。

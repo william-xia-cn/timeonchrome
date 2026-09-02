@@ -211,7 +211,8 @@ export default {
         return new Response(null, { status: 204, headers: {
           'access-control-allow-origin': allowedOrigin,
           'access-control-allow-methods': 'GET, POST, PUT, PATCH, OPTIONS',
-          'access-control-allow-headers': 'authorization, content-type',
+          'access-control-allow-headers': 'authorization, content-type, if-match',
+          'access-control-expose-headers': 'etag',
           'access-control-max-age': '86400',
         } });
       }
@@ -220,6 +221,7 @@ export default {
         const withCors = new Response(response.body, response);
         withCors.headers.set('access-control-allow-origin', allowedOrigin);
         withCors.headers.set('vary', 'Origin');
+        withCors.headers.set('access-control-expose-headers', 'etag');
         return withCors;
       }
       return response;

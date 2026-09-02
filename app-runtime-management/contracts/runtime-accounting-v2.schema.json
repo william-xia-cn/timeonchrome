@@ -30,6 +30,11 @@
       "additionalProperties": false,
       "properties": {
         "assignmentVersion": { "type": ["integer", "null"], "minimum": 0 },
+        "appPolicyVersion": { "type": ["integer", "null"], "minimum": 0 },
+        "applicationClassification": {
+          "type": ["string", "null"],
+          "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked", null]
+        },
         "quotaBucket": { "type": ["string", "null"], "maxLength": 64 }
       }
     },

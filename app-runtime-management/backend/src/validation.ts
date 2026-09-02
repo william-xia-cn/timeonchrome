@@ -342,12 +342,20 @@ function parseEstimated(value: Record<string, unknown>): AccountingUsageSegment[
 }
 
 function parsePolicySnapshot(value: unknown): AccountingUsageSegment['policySnapshot'] {
+  const classifications = new Set(['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked']);
   if (!isRecord(value)
     || (value.assignmentVersion != null && !safeNonNegativeInteger(value.assignmentVersion))
+    || (value.appPolicyVersion != null && !safeNonNegativeInteger(value.appPolicyVersion))
+    || (value.applicationClassification != null
+      && (typeof value.applicationClassification !== 'string'
+        || !classifications.has(value.applicationClassification)))
     || (value.quotaBucket != null
       && (typeof value.quotaBucket !== 'string' || value.quotaBucket.length > 64))) return null;
   return {
     assignmentVersion: value.assignmentVersion == null ? null : Number(value.assignmentVersion),
+    appPolicyVersion: value.appPolicyVersion == null ? null : Number(value.appPolicyVersion),
+    applicationClassification: value.applicationClassification == null
+      ? null : value.applicationClassification as NonNullable<AccountingUsageSegment['policySnapshot']>['applicationClassification'],
     quotaBucket: value.quotaBucket == null ? null : value.quotaBucket,
   };
 }

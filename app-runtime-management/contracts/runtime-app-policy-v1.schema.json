@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.local/contracts/app-runtime/runtime-app-policy-v1.schema.json",
+  "title": "TimeOnChrome App Runtime Child App Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "effectiveAtMs", "classifications", "quotas"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 0 },
+    "effectiveAtMs": { "type": ["integer", "null"], "minimum": 0 },
+    "classifications": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["platform", "runtimeIdentity", "displayName", "classification"],
+        "properties": {
+          "platform": { "enum": ["windows", "macos"] },
+          "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "displayName": { "type": ["string", "null"], "maxLength": 256 },
+          "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] }
+        }
+      }
+    },
+    "quotas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dailyCategoryMinutes", "weeklyRestrictedEntertainmentMinutes", "perApplicationDailyMinutes"],
+      "properties": {
+        "dailyCategoryMinutes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["study", "composite", "restrictedEntertainment", "unclassified"],
+          "properties": {
+            "study": { "$ref": "#/$defs/quotaMinutes" },
+            "composite": { "$ref": "#/$defs/quotaMinutes" },
+            "restrictedEntertainment": { "$ref": "#/$defs/quotaMinutes" },
+            "unclassified": { "$ref": "#/$defs/quotaMinutes" }
+          }
+        },
+        "weeklyRestrictedEntertainmentMinutes": { "$ref": "#/$defs/quotaMinutes" },
+        "perApplicationDailyMinutes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["platform", "runtimeIdentity", "minutes"],
+            "properties": {
+              "platform": { "enum": ["windows", "macos"] },
+              "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "minutes": { "$ref": "#/$defs/quotaMinutes" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "quotaMinutes": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 10080
+    }
+  }
+}

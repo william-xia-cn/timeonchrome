@@ -378,7 +378,8 @@ public sealed class AccountingStateMachineV2
                     SegmentEndReason.StateCorrection,
                     new EstimatedMetadata(true, "missingOpenLane", AccountingV2Constants.EstimatedGapCapMilliseconds),
                     fact.WallTimeMs,
-                    fact.MonotonicTimeMs));
+                    fact.MonotonicTimeMs,
+                    policySnapshot: fact.PolicySnapshot));
             }
         }
 
@@ -684,7 +685,8 @@ public sealed class AccountingStateMachineV2
             fact.WallTimeMs,
             fact.MonotonicTimeMs,
             fact.WallTimeMs,
-            fact.MonotonicTimeMs);
+            fact.MonotonicTimeMs,
+            fact.PolicySnapshot);
     }
 
     private static UsageSegmentV2 CloseUsage(
@@ -712,7 +714,8 @@ public sealed class AccountingStateMachineV2
             reason,
             estimated,
             lane.LastEvidenceWallTimeMs,
-            lane.LastEvidenceMonotonicTimeMs);
+            lane.LastEvidenceMonotonicTimeMs,
+            policySnapshot: lane.PolicySnapshot);
     }
 
     private static UsageSegmentV2 CloseUsageAtDuration(
@@ -735,7 +738,8 @@ public sealed class AccountingStateMachineV2
             reason,
             estimated,
             lane.LastEvidenceWallTimeMs,
-            lane.LastEvidenceMonotonicTimeMs);
+            lane.LastEvidenceMonotonicTimeMs,
+            policySnapshot: lane.PolicySnapshot);
     }
 
     private static MediaSegmentV2 CloseMedia(

@@ -78,8 +78,18 @@ public enum CheckpointConfirmation: String, Codable, Sendable {
     case failed
 }
 
+public enum ApplicationClassification: String, Codable, Sendable {
+    case study
+    case composite
+    case restrictedEntertainment
+    case unclassified
+    case blocked
+}
+
 public struct AccountingPolicySnapshot: Codable, Equatable, Sendable {
     public let assignmentVersion: Int64?
+    public let appPolicyVersion: Int64?
+    public let applicationClassification: ApplicationClassification?
     public let quotaBucket: String?
 }
 

@@ -61,6 +61,63 @@ public sealed class MachineRuntimeV2Tests : IDisposable
     }
 
     [Fact]
+    public async Task PolicyStoreCachesAppPolicyAndResolvesClassificationWithoutBlocking()
+    {
+        var store = new MachinePolicyStore(Path.Combine(root, "app-policy.json"));
+        var assignment = new MachineUserAssignment("user-a", 8, "child-a", true);
+        var policy = new MachinePolicy(8, "child-a", [assignment], [
+            new MachineChildAppPolicy("child-a", new AppPolicyDocument(
+                3,
+                1_000,
+                [new AppPolicyClassification(RuntimePlatform.Windows, "app:editor", "Editor", ApplicationClassification.Study)],
+                new AppPolicyQuotaConfig(
+                    new Dictionary<string, int?> { ["study"] = 30 },
+                    120,
+                    [new AppPolicyApplicationQuota(RuntimePlatform.Windows, "app:editor", 10)])))
+        ]);
+
+        await store.SaveAsync(new AppliedMachinePolicy(policy, 1_000, 1_000));
+        var loaded = (await store.LoadAsync())!.Policy;
+        var known = MachinePolicyStore.SnapshotFor(
+            loaded, assignment, new ApplicationIdentity(RuntimePlatform.Windows, "app:editor", "Renamed"));
+        var unknown = MachinePolicyStore.SnapshotFor(
+            loaded, assignment, new ApplicationIdentity(RuntimePlatform.Windows, "app:unknown", "Unknown"));
+
+        Assert.Equal(3, known.AppPolicyVersion);
+        Assert.Equal(ApplicationClassification.Study, known.ApplicationClassification);
+        Assert.Equal("study", known.QuotaBucket);
+        Assert.Equal(ApplicationClassification.Unclassified, unknown.ApplicationClassification);
+        Assert.Equal("unclassified", unknown.QuotaBucket);
+    }
+
+    [Fact]
+    public async Task AccountingLaneKeepsPolicySnapshotAcrossDeterministicBoundary()
+    {
+        var ledger = new MachineSegmentLedger(Path.Combine(root, "policy-boundary.db"));
+        await ledger.InitializeAsync("machine-a");
+        var session = new MachineAccountingSession(ledger, "user-a", 2, "session-a", "epoch-a");
+        var snapshot = new AccountingPolicySnapshot(2, "study", 4, ApplicationClassification.Study);
+        var app = new ApplicationIdentity(RuntimePlatform.Windows, "app:editor", "Editor");
+        _ = await session.PushAndPersistAsync(new AccountingRuntimeFact(
+            0, 0, "epoch-a", AccountingFactKind.Checkpoint,
+            Confirmation: CheckpointConfirmation.Confirmed,
+            Snapshot: new AccountingRuntimeSnapshot(app, WindowPresentationState.Visible,
+                MediaEvidenceLevel.None, MediaPlaybackState.Unknown, UserActivityState.Active,
+                UserSessionState.Active, SystemPowerState.Awake),
+            PolicySnapshot: snapshot));
+        _ = await session.PushAndPersistAsync(new AccountingRuntimeFact(
+            1_000, 1_000, "epoch-a", AccountingFactKind.ForegroundChanged,
+            Application: new ApplicationIdentity(RuntimePlatform.Windows, "app:other", "Other"),
+            WindowState: WindowPresentationState.Visible,
+            PolicySnapshot: new AccountingPolicySnapshot(2, "unclassified", 4, ApplicationClassification.Unclassified)));
+        var transition = await session.FlushAndPersistAsync();
+
+        var segment = Assert.Single(transition.UsageSegments);
+        Assert.Equal(snapshot, segment.PolicySnapshot);
+        Assert.Equal("study", segment.PolicySnapshot!.QuotaBucket);
+    }
+
+    [Fact]
     public async Task MachineLedgerSeparatesUsersAndAssignmentVersions()
     {
         var ledger = new MachineSegmentLedger(Path.Combine(root, "ledger.db"));

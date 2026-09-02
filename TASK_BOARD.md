@@ -12,6 +12,13 @@
 
 ## Active App Runtime Work（2026-09-02）
 
+- [x] **[SPEC-004 / D-084] App Runtime 家长管理界面与应用策略闭环（本地完成，待单独发布授权）**
+  - 目标：独立 `/app-runtime/` 复用主控制台外壳，提供使用统计、访问管理、应用归类记录、设备管理和 Runtime 系统管理。
+  - 产品规则：五类应用分类按孩子和平台共享；只管理真实观察到的应用；独立配额只计算状态，不阻止进程；分类只对策略实际应用后的新 Segment 生效。
+  - 实现范围：Runtime additive `0005`、版本化 App Policy/ETag、未归类记录与 App Usage read model、Windows 策略缓存/切段、canonical Console 与 staged Pages、自动化和桌面/移动目视验证。
+  - 发布边界：只完成本地实现和 dry-run；不应用生产 migration，不部署 Worker/Pages/R2，不修改 Guardian、Santa、Chrome Extension 或网站账本/配额。
+  - 证据：Windows 49/49、Runtime Worker 17/17、console helper tests 通过；`0001`–`0005` 本地 D1 migrations 通过，Wrangler type generation/check、TypeScript typecheck 与 deploy dry-run 通过；桌面统计/访问管理/设备抽屉/系统管理和 390px 移动视口截图通过。
+
 - [~] **[SPEC-004 / D-082 / D-083] App Runtime 2.0.2 安装链修正与 William 升级进行中**
   - Product Owner 已于 2026-09-02 授权完成待发布的 Cloudflare 部分：Runtime `0003`/`0004`、Guardian `024`、Runtime/Guardian Worker、账户级 Pages 与经发布门禁确认的 R2 内部包。
   - 发布顺序：远端只读预检与 Time Travel 书签 → Runtime additive migrations → Runtime Worker → Guardian additive migration → Guardian Worker → Pages → R2 immutable package/hash/latest gate → 生产 smoke。

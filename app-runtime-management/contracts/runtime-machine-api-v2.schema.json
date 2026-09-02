@@ -38,7 +38,19 @@
       "properties": {
         "version": { "type": "integer", "minimum": 1 },
         "defaultChildId": { "type": ["string", "null"] },
-        "users": { "type": "array", "items": { "$ref": "#/$defs/assignment" } }
+        "users": { "type": "array", "items": { "$ref": "#/$defs/assignment" } },
+        "appPolicies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["childId", "policy"],
+            "properties": {
+              "childId": { "type": "string", "minLength": 1 },
+              "policy": { "$ref": "runtime-app-policy-v1.schema.json" }
+            }
+          }
+        }
       }
     },
     "application": {
