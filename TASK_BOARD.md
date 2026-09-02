@@ -12,6 +12,12 @@
 
 ## Active App Runtime Work（2026-09-02）
 
+- [~] **[SPEC-004 / D-082] App Runtime Cloudflare 生产发布（执行中）**
+  - Product Owner 已于 2026-09-02 授权完成待发布的 Cloudflare 部分：Runtime `0003`/`0004`、Guardian `024`、Runtime/Guardian Worker、账户级 Pages 与经发布门禁确认的 R2 内部包。
+  - 发布顺序：远端只读预检与 Time Travel 书签 → Runtime additive migrations → Runtime Worker → Guardian additive migration → Guardian Worker → Pages → R2 immutable package/hash/latest gate → 生产 smoke。
+  - 保留边界：不修改 Santa、Chrome Extension、Native App Control；不执行 William 1.x→2.0 真机升级、不创建真实配对/采集数据、不改写历史账本；内部未签名 2.0.0 继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+  - 额度诊断：Runtime D1 24h 仅 1,583 rows read / 974 rows written；Guardian D1 为 28,134,760 / 53,864。D1 Insights 显示逐请求执行的 `device_access_audit_v1` 两条清理 SQL 分别读取 15,004,205 与 13,010,483 行，是主要来源。限额根因修复作为独立 Worker P0，不混入本次 releaseMg 部署。
+
 - [x] **[SPEC-004 / D-081] App Runtime 与 TimeOnChrome 统一落账规则 Phase A（本地实现完成，未部署）**
   - 范围：accounting schema v2、Windows/macOS 双 lane 纯状态机、共享黄金向量、Windows 原子 ledger/outbox/open-lane 恢复、Runtime `0004` dry-run 与向后兼容 API/read model。
   - 核心口径：主账本按 `ACTIVE ∪ PIP_ACTIVE` 区间并集；媒体辅助记录直接求和、可重叠、不进配额；idle 180s；checkpoint 60s/estimated cap 30s；reorder 500ms；wall + monotonic dual-clock。
