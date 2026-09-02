@@ -1,6 +1,6 @@
 param(
   [string]$Configuration = 'Release',
-  [string]$Version = '2.0.1'
+  [string]$Version = '2.0.2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,12 +36,43 @@ dotnet publish $sessionAgentProject -c $Configuration -r win-x64 --self-containe
 if ($LASTEXITCODE -ne 0) { throw 'Session Agent publish failed.' }
 dotnet publish $migrationProject -c $Configuration -r win-x64 --self-contained true -o $artifactRoot `
   -p:Version=$Version -p:AssemblyVersion=$fileVersion -p:FileVersion=$fileVersion `
-  -p:InformationalVersion=$Version -p:IncludeSourceRevisionInInformationalVersion=false
+  -p:InformationalVersion=$Version -p:IncludeSourceRevisionInInformationalVersion=false `
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:DebugType=None -p:DebugSymbols=false
 if ($LASTEXITCODE -ne 0) { throw 'Legacy migration preflight publish failed.' }
 dotnet publish $setupProject -c $Configuration -r win-x64 --self-contained true -o $artifactRoot `
   -p:Version=$Version -p:AssemblyVersion=$fileVersion -p:FileVersion=$fileVersion `
   -p:InformationalVersion=$Version -p:IncludeSourceRevisionInInformationalVersion=false
 if ($LASTEXITCODE -ne 0) { throw 'Setup publish failed.' }
+
+$migrationExe = Join-Path $artifactRoot 'TimeOnChrome.AppRuntime.Migration.exe'
+if (-not (Test-Path -LiteralPath $migrationExe)) { throw 'Migration single-file executable is missing.' }
+$probeRoot = Join-Path ([IO.Path]::GetTempPath()) "timeonchrome-runtime-migration-probe-$([Guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $probeRoot | Out-Null
+try {
+  $probeExe = Join-Path $probeRoot 'TimeOnChrome.AppRuntime.Migration.exe'
+  Copy-Item -LiteralPath $migrationExe -Destination $probeExe
+  & $probeExe --package-probe
+  if ($LASTEXITCODE -ne 0) { throw "Isolated migration package probe failed with exit code $LASTEXITCODE." }
+}
+finally {
+  $resolvedTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+  $resolvedProbeRoot = [IO.Path]::GetFullPath($probeRoot)
+  if (-not $resolvedProbeRoot.StartsWith($resolvedTempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to clean migration probe directory outside temp: $resolvedProbeRoot"
+  }
+  for ($attempt = 1; $attempt -le 10; $attempt++) {
+    try {
+      Remove-Item -LiteralPath $resolvedProbeRoot -Recurse -Force
+      break
+    }
+    catch {
+      if ($attempt -eq 10) { throw }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+}
+
 dotnet build (Join-Path $PSScriptRoot 'TimeOnChrome.AppRuntime.Installer.wixproj') -c $Configuration -p:ProductVersion=$Version
 if ($LASTEXITCODE -ne 0) { throw 'MSI build failed.' }
 dotnet build (Join-Path $PSScriptRoot 'TimeOnChrome.AppRuntime.Bundle.wixproj') -c $Configuration -p:ProductVersion=$Version

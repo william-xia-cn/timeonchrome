@@ -2,6 +2,15 @@
 
 ---
 
+## [App Runtime 2.0.2] — 2026-09-02
+
+- **安装链修复**：Burn 内的 1.x migration 改为真正的单文件 self-contained EXE，避免只缓存入口 EXE 时因缺少相邻 .NET runtime/DLL 而以 `0x8000809a` 启动失败。
+- **构建硬闸门**：构建时仅复制 migration EXE 到隔离临时目录，运行无持久副作用的 `--package-probe`，实际加载 SQLite 与 CurrentUser DPAPI；非零退出阻止 MSI/Burn 生成。
+- **数据安全**：2.0.1 首次真机失败发生在 retire、卸载和机器安装之前，旧 1.x credential、SQLite、Agent 与云端历史均保持不变。2.0.2 继续使用新的不可变版本路径，内部未签名状态仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- **本地证据**：Windows 38/38 tests、隔离 migration package probe 与 WiX 0 warning/0 error 构建通过；Burn 118,521,952 bytes / SHA-256 `ab30d11fcc296b9faf274b5c8bf46c614e509ee0629aa4ca38132202d12c9527`，MSI 60,190,798 bytes / SHA-256 `485cc4e3aa835ed8ddc24c62e24c6b464e2218d1307e9966491f86de6dc03c6f`。生产 R2 暂不切换，等待 William 真机安装通过。
+
+---
+
 ## [App Runtime 2.0.1] — 2026-09-02
 
 - **机器级 Windows Runtime**：2.x 使用 LocalSystem Service、每交互式会话 Session Agent、LocalMachine DPAPI、机器级 SQLite/outbox 与 Account-scoped 默认 Child/逐用户 assignment；1.x 历史保持兼容。

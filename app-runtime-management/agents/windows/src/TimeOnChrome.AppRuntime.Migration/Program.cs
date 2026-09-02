@@ -21,6 +21,8 @@ public static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        if (args.Contains("--package-probe", StringComparer.OrdinalIgnoreCase))
+            return await RunPackageProbeAsync().ConfigureAwait(false);
         if (args.Contains("--noop", StringComparer.OrdinalIgnoreCase)) return 0;
         if (!OperatingSystem.IsWindows()) return 2;
         try
@@ -56,6 +58,30 @@ public static class Program
         {
             Notify($"无法安全迁移 1.x Runtime（{exception.GetType().Name}）。旧配对和本地账本没有被自动清除，请稍后重试。");
             return 22;
+        }
+    }
+
+    public static async Task<int> RunPackageProbeAsync()
+    {
+        if (!OperatingSystem.IsWindows()) return 2;
+        try
+        {
+            await using var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync().ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT 1;";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync().ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != 1)
+                return 24;
+
+            var plaintext = RandomNumberGenerator.GetBytes(32);
+            var protectedBytes = ProtectedData.Protect(plaintext, null, DataProtectionScope.CurrentUser);
+            var roundTrip = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
+            return CryptographicOperations.FixedTimeEquals(plaintext, roundTrip) ? 0 : 25;
+        }
+        catch (Exception exception) when (exception is CryptographicException or SqliteException
+            or IOException or UnauthorizedAccessException)
+        {
+            return 26;
         }
     }
 

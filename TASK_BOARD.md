@@ -12,7 +12,7 @@
 
 ## Active App Runtime Work（2026-09-02）
 
-- [~] **[SPEC-004 / D-082 / D-083] App Runtime 2.0.1 内部发布完成，William 升级受 D1 当日额度阻塞**
+- [~] **[SPEC-004 / D-082 / D-083] App Runtime 2.0.2 安装链修正与 William 升级进行中**
   - Product Owner 已于 2026-09-02 授权完成待发布的 Cloudflare 部分：Runtime `0003`/`0004`、Guardian `024`、Runtime/Guardian Worker、账户级 Pages 与经发布门禁确认的 R2 内部包。
   - 发布顺序：远端只读预检与 Time Travel 书签 → Runtime additive migrations → Runtime Worker → Guardian additive migration → Guardian Worker → Pages → R2 immutable package/hash/latest gate → 生产 smoke。
   - 保留边界：不修改 Santa、Chrome Extension、Native App Control；不执行 William 1.x→2.0 真机升级、不创建真实配对/采集数据、不改写历史账本；内部未签名 2.0.0 继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
@@ -22,6 +22,8 @@
   - 2.0.1 安装安全闸门：Burn migration 显式保持 per-user，在 William 原交互式用户上下文读取 HKCU/CurrentUser DPAPI 并完成 retire 后才提升安装 per-machine MSI；ProgramData 使用受保护 DACL，仅 SYSTEM/Administrators 可访问。不得用替代管理员上下文迁移旧用户 credential。
   - 2.0.1 生产证据：Runtime Worker `e150e0e3-0919-4c60-be86-1ec26e4bcaf6`；Burn 60,956,054 bytes / SHA-256 `b86e8c2356fbb0730e6e1e168c48b90b38af2cd129e87f8897ec9d97f603657d`；MSI 60,186,702 bytes / SHA-256 `e8da3c11d923d5c936581233e5827926ac70a0f5ddb12479a791c56dba31307e`。R2 三对象回读一致，Worker 版本下载回读为同一 MZ/Burn 字节，`latest.json` 已切换 2.0.1；health 通过、未认证 v2 仍为 401。
   - William 升级闸门：1.x credential、SQLite、Agent 保留且未 retire；只读检查发现 9 条 outbox pending。生产 tail 返回账号级 D1 免费日读额度已耗尽，因此 v1 self/heartbeat/upload 当前 500。逐请求扫描根因已由 Guardian migration `025`/Worker 修复，但已经消耗的当日额度不可回退；须等待 UTC 00:00 重置或单独批准付费升级后先清空 outbox，再进入安装、配对、双账户、重启和 ACL 验收。
+  - 付费恢复与首次真机安装证据（2026-09-02）：Workers Paid 已显示 Active，Runtime/Guardian D1 `SELECT 1` 均成功；旧 Agent 随后把 9 条 pending outbox 全部 ACK 至 0。2.0.1 Burn 首次真机运行在执行 per-user migration package 时返回 `0x8000809a`；Burn 日志证明链内只缓存了 `TimeOnChrome.AppRuntime.Migration.exe`，而当前 migration 是依赖相邻 .NET runtime/DLL 的多文件 self-contained 发布，导致进程在进入 preflight 前启动失败。Burn 已完整回滚，旧 Agent、CurrentUser DPAPI credential、SQLite 与云端设备均保持原状。2.0.1 不再作为 William 可安装候选；2.0.2 必须改为单文件 self-contained migration，并在构建时将 migration EXE 单独复制到隔离目录运行无副作用依赖探针后，才允许重试升级和更新 R2 latest。
+  - 2.0.2 本地构建证据：Windows solution 38/38 tests 通过；migration 单元依赖探针和“仅单个 EXE”的构建隔离探针均通过；WiX MSI/Burn 均为 0 warning / 0 error。Burn 为 118,521,952 bytes / SHA-256 `ab30d11fcc296b9faf274b5c8bf46c614e509ee0629aa4ca38132202d12c9527`，MSI 为 60,190,798 bytes / SHA-256 `485cc4e3aa835ed8ddc24c62e24c6b464e2218d1307e9966491f86de6dc03c6f`。当前正在 William 真机重试，生产 R2 仍保持 2.0.1，未在本地安装通过前切换。
 
 - [x] **[P0 Cloud/D1] Guardian 逐请求审计清理导致 D1 rows-read 激增（已前向修复）**
   - 证据：24h 28,134,760 rows read；两条 `device_access_audit_v1` 清理 SQL 共 28,014,688 rows read、分别执行 4,190/4,331 次。

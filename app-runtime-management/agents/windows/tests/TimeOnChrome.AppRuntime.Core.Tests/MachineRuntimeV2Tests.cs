@@ -208,6 +208,12 @@ public sealed class MachineRuntimeV2Tests : IDisposable
         Assert.False(await Program.HasPendingOutboxAsync(legacyRoot));
     }
 
+    [Fact]
+    public async Task MigrationPackageProbeLoadsSqliteAndCurrentUserDpapi()
+    {
+        Assert.Equal(0, await Program.RunPackageProbeAsync());
+    }
+
     private static UsageSegment Segment(string id) => new(
         id,
         "session-a",
