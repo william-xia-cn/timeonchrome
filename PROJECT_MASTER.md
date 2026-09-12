@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.30（内部 managed 发布候选）**
+- **版本：1.7.30（内部 managed 已发布）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-09-12）**：`1.7.30` 候选已完成 D-075 诊断修订及记账 V2 包 A-G 的实现与自动化门禁，等待提交、D1 023-026 隔离 migration、Guardian Worker/Pages 部署及内部 managed 托管。V2 仅影子运行，不接管现有页面、配额、拦截或 V1 统计；19009 秒历史差额、`cg.163.com idleStateChanged` 少记和正式设备影子收敛继续保持未解决/生产观察。
+- **当前发布状态（2026-09-12）**：`1.7.30` 已发布到 T.xia / P.xia 内部 managed 自托管渠道。源码提交为 `cf9f2c8`；D1 仅应用隔离 migration 023-026；Guardian Worker version 为 `e9e53258-f4d0-4c0a-bbe3-2b7a2b25bd27`；控制台 Pages deployment 为 `02e3bc0d`；更新站点最终 deployment 为 `2bd564f4`。managed CRX 为 410,948 bytes，SHA256 `46662d97661a63f9f15d9641c78ef4c215b68b5f5499f870fa67e00c3eb99c2a`，稳定扩展 ID 不变。V2 仅影子运行，不接管现有页面、配额、拦截或 V1 统计；19009 秒历史差额、`cg.163.com idleStateChanged` 少记、设备实际升级和连续 7 日影子守恒继续保持未解决/生产观察。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

@@ -1,10 +1,10 @@
 # TASK_BOARD
 
 ## Active Release Target
-- [ ] [1.7.30 / Internal managed / Release in progress] D-075 诊断修订与记账 V2 A-G 影子链路发布。
+- [x] [1.7.30 / Internal managed / Released] D-075 诊断修订与记账 V2 A-G 影子链路发布。
   - [x] Build&Test：专项测试、140 个全量 unit 文件、TypeScript、扩展根目录、diff 检查和完整自动化入口通过。
   - [x] Plan Conformance Audit：A-G 与 D-075 均保持确认边界；V2 未接入现有产品读取，无未批准 `Extra` / `Deviated`。
-  - [ ] Release：提交推送；应用 023-026 隔离 migration；部署 Guardian Worker 与控制台 Pages；打包签名 CRX 并部署内部更新站点；回读版本、ID 和 SHA256。
+  - [x] Release：提交 `cf9f2c8` 已推送；隔离 migration 023-026 已应用；Guardian Worker `e9e53258-f4d0-4c0a-bbe3-2b7a2b25bd27`、控制台 Pages `02e3bc0d` 和更新站点 `2bd564f4` 已部署。managed CRX 为 410,948 bytes，SHA256 `46662d97661a63f9f15d9641c78ef4c215b68b5f5499f870fa67e00c3eb99c2a`；稳定 ID、feed 版本及稳定/deployment 域名线上哈希回读一致。
   - [ ] Production observation：T.xia/P.xia 实际升级及连续 7 日影子守恒；此项是后续正式切换门禁，不得因发布成功自动标记通过。
 - [ ] [P0 / D-076 / Read-only audit completed; repairs require itemized approval] 记账全链路一致性核查（2026-09-12）
   - 审计方式由 D-077 固定为逐段推进：S1 待上传事实形成、S2 批次构造、S3 Worker 校验与接收、S4 逐项 ACK、S5 历史补传与水位、S6 云端聚合发布；每段完成后登记结果，六段完成后统一汇总，不在中途修改代码。
