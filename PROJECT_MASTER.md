@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.29（内部 managed 已发布）**
+- **版本：1.7.30（内部 managed 发布候选）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-08-31）**：`1.7.29` 已以 `APPROVED_WITH_KNOWN_P0_RISK / FORWARD RELIABILITY RELEASE` 发布至 T.xia / P.xia 内部 managed 自托管渠道。源码提交 `5482340`、Guardian Worker `46d82099-1cb9-4240-8223-0ed8938bf21e`、更新站点 deployment `29a9fea2` 已部署并回读通过；CRX 为 384,156 bytes，SHA256 `ffd83c717ace5bf56edb5858926436f58b091b8324c6a8f0efc2cd8dcf21d15b`，稳定扩展 ID 不变。D-073、D-074、客户端日志逐项 ACK 与本地 Admin 访问管理只读显示已进入托管包；不进入 CWS，不修改历史 D1、profile、网页 ACTIVE 或控制台 Pages。`cg.163.com idleStateChanged`、Thomas 终端 17:33 后停止请求、Pierce Mac 离线、正式设备实际升级与历史积压收敛继续保持未解决/生产观察。
+- **当前发布状态（2026-09-12）**：`1.7.30` 候选已完成 D-075 诊断修订及记账 V2 包 A-G 的实现与自动化门禁，等待提交、D1 023-026 隔离 migration、Guardian Worker/Pages 部署及内部 managed 托管。V2 仅影子运行，不接管现有页面、配额、拦截或 V1 统计；19009 秒历史差额、`cg.163.com idleStateChanged` 少记和正式设备影子收敛继续保持未解决/生产观察。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

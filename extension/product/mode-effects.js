@@ -1,6 +1,7 @@
 // product/mode-effects.js — execute Mode Service decisions against Chrome UI.
 
 import { clearTemporaryCompositeDomains, getConfig, getSession } from '../infra/storage.js';
+import { recordQuotaDenial } from '../infra/diagnostic-evidence.js';
 import { commitModeChange, normalizeMode } from './mode-service.js';
 import {
   applyModeTransitionSideEffects,
@@ -140,6 +141,7 @@ export async function getModeEffectTrace(limit = MODE_EFFECT_TRACE_LIMIT) {
 }
 
 export async function executeModeDecision(decision = {}, context = {}) {
+  const decisionAuditId = context.event?.auditId || decision.modeChange?.auditId || `access-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tabId = Number.isInteger(context.tabId) ? context.tabId : null;
   const domain = context.domain || decision.domain || null;
   const config = context.config || decision.config || await getConfig().catch(() => null);
@@ -164,7 +166,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
   const finalize = async () => {
     await recordModeEffectTrace({
       event: context.event || {},
-      auditId: context.event?.auditId || decision.modeChange?.auditId || null,
+      auditId: decisionAuditId,
       domain,
       decision,
       result,
@@ -173,6 +175,10 @@ export async function executeModeDecision(decision = {}, context = {}) {
   };
 
   if (decision.access === 'reminder' && decision.reminder) {
+    if (typeof recordQuotaDenial === 'function') void recordQuotaDenial({
+      auditId: decisionAuditId,
+      reason: decision.reminder.reason, config, decisionUsage: decision.diagnosticUsage,
+    });
     await redirectToReminder(tabId, domain, decision.reminder.reason, config?.blockMessage, {
       ...(decision.reminder.params || {}),
       targetUrl: reminderTargetUrlFromEvent(context.event),

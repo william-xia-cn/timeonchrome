@@ -29,6 +29,8 @@ function loadUploadFunction(injected) {
     extractFunctionSource(code, 'createSegmentBatchId'),
     extractFunctionSource(code, 'parseSegmentUploadAck'),
     extractFunctionSource(code, 'applySegmentUploadAck'),
+    extractFunctionSource(code, 'parseUsageSegmentUploadAck'),
+    extractFunctionSource(code, 'applyUsageSegmentUploadAck'),
     extractFunctionSource(code, 'makeUploadPartResult'),
     extractFunctionSource(code, 'makeUsageDateSyncResult'),
     extractFunctionSource(code, 'uploadUsageDatePackageParts'),
@@ -36,6 +38,18 @@ function loadUploadFunction(injected) {
   const names = Object.keys(injected);
   const factory = new Function('__injected',
     `const { ${names.join(', ')} } = __injected;\n${source}\nreturn uploadUsageDatePackageParts;`);
+  return factory(injected);
+}
+
+function loadUsageAckFunction(injected) {
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
+  const source = [
+    extractFunctionSource(code, 'parseUsageSegmentUploadAck'),
+    extractFunctionSource(code, 'applyUsageSegmentUploadAck'),
+  ].join('\n');
+  const names = Object.keys(injected);
+  const factory = new Function('__injected',
+    `const { ${names.join(', ')} } = __injected;\n${source}\nreturn applyUsageSegmentUploadAck;`);
   return factory(injected);
 }
 
@@ -57,6 +71,7 @@ function makePackage(count) {
     date: '2026-08-06',
     segmentIds,
     pendingSegmentIds: segmentIds,
+    segmentPayloads: segmentIds.map((id) => ({ id, contentHash: 'a'.repeat(64) })),
     hourKeys: [],
     hourlyPayloads: [],
     hourlyTargetPayloads: [],
@@ -79,17 +94,27 @@ async function runScenario(failRequestNumber = 0) {
   const requests = [];
   const uploaded = [];
   const failed = [];
+  let payloadBuilderCalls = 0;
   const upload = loadUploadFunction({
     MAX_USAGE_SEGMENTS_PER_BATCH: 100,
-    buildUsageSegmentsUploadPayload: async (ids) => ({ segments: ids.map((id) => ({ id })) }),
+    buildUsageSegmentsUploadPayload: async (ids) => {
+      payloadBuilderCalls++;
+      return { segments: ids.map((id) => ({ id, contentHash: 'a'.repeat(64) })) };
+    },
     cloudRequest: async (_method, _path, body) => {
       requests.push(body.segments.map((segment) => segment.id));
       if (failRequestNumber && requests.length === failRequestNumber) {
         throw new Error('<html><body>503 Service Unavailable</body></html>'.repeat(500));
       }
-      return { success: true, count: body.segments.length, acceptedIds: body.segments.map((segment) => segment.id), rejected: [] };
+      return {
+        success: true,
+        count: body.segments.length,
+        acceptedIds: body.segments.map((segment) => segment.id),
+        accepted: body.segments.map((segment) => ({ id: segment.id, contentHash: segment.contentHash })),
+        rejected: [],
+      };
     },
-    markUsageSegmentsUploaded: async (ids) => uploaded.push([...ids]),
+    markUsageSegmentsUploadedByContentHash: async (items) => uploaded.push([...items]),
     markUsageSegmentUploadFailed: async (ids, error) => failed.push({ ids: [...ids], error }),
     normalizeUploadErrorCode: (error) => /503|service unavailable/i.test(String(error?.message || error)) ? 'http_503' : 'unknown_error',
     markDailyStatsUploaded: async () => {},
@@ -107,12 +132,13 @@ async function runScenario(failRequestNumber = 0) {
     addUploadError: () => {},
     logClientEventBestEffort: () => {},
     logCloudFailureIncidentBestEffort: () => {},
+    uploadDeviceAccountV2Shadow: async () => ({ uploaded: 1, failed: 0, skipped: false }),
     CLOUD_CONFIG: { KEYS: { V1_LAST_SEGMENT_UPLOAD_AT: 'last_segment_upload' } },
     cloudStorageSet: async () => {},
     chrome: { storage: { local: { set: async () => {} } } },
   });
   const result = await upload(makePackage(1029), { enabled: true });
-  return { requests, uploaded, failed, result };
+  return { requests, uploaded, failed, result, payloadBuilderCalls };
 }
 
 (async () => {
@@ -121,6 +147,7 @@ async function runScenario(failRequestNumber = 0) {
   check('every request is at most 100', success.requests.every((batch) => batch.length <= 100));
   check('batch sizes are stable', JSON.stringify(success.requests.map((batch) => batch.length)) === JSON.stringify([100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 29]));
   check('each successful batch is marked immediately', success.uploaded.length === 11 && success.uploaded.flat().length === 1029);
+  check('date package reuses frozen segment payloads', success.payloadBuilderCalls === 0, String(success.payloadBuilderCalls));
   check('success reports all uploaded', success.result.uploaded === 1029 && success.result.failed === 0, JSON.stringify(success.result));
 
   const partial = await runScenario(2);
@@ -143,10 +170,35 @@ async function runScenario(failRequestNumber = 0) {
   check('only explicit accepted ids are cleared', JSON.stringify(ackUploaded) === JSON.stringify(['seg-a']), JSON.stringify(ackUploaded));
   check('rejected and missing ids remain failed', ack.failed === 2 && ack.missingIds[0] === 'seg-c' && ackFailed.length === 2, JSON.stringify({ ack, ackFailed }));
 
+  const usageUploaded = [];
+  const usageFailed = [];
+  const applyUsageAck = loadUsageAckFunction({
+    normalizeUploadErrorCode: (value) => String(value || 'unknown_error').toLowerCase(),
+  });
+  const requestedUsage = [
+    { id: 'usage-a', contentHash: 'a'.repeat(64) },
+    { id: 'usage-b', contentHash: 'b'.repeat(64) },
+  ];
+  const strictAck = await applyUsageAck({
+    success: true,
+    count: 2,
+    acceptedIds: ['usage-a', 'usage-b'],
+    accepted: [
+      { id: 'usage-a', contentHash: 'a'.repeat(64) },
+      { id: 'usage-b', contentHash: 'c'.repeat(64) },
+    ],
+  }, requestedUsage, async (items) => usageUploaded.push(...items), async (ids, code) => usageFailed.push({ ids, code }));
+  check('usage ACK clears only matching id+contentHash', strictAck.uploaded === 1 && usageUploaded[0]?.id === 'usage-a', JSON.stringify(strictAck));
+  check('wrong contentHash remains pending', strictAck.missingIds.includes('usage-b') && usageFailed[0]?.code === 'upload_missing_content_ack', JSON.stringify({ strictAck, usageFailed }));
+
+  const legacyOnly = await applyUsageAck({ success: true, count: 2, acceptedIds: ['usage-a', 'usage-b'] }, requestedUsage, async () => {}, async () => {});
+  check('success+count and acceptedIds cannot acknowledge webpage facts', legacyOnly.uploaded === 0 && legacyOnly.missingIds.length === 2, JSON.stringify(legacyOnly));
+
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'infra', 'cloud-sync.js'), 'utf8');
   check('usage sync persists cross-run backoff', source.includes("USAGE_UPLOAD_BACKOFF: 'cloud_usage_upload_backoff_v1'") && source.includes('USAGE_UPLOAD_BACKOFF_STEPS_MS'));
   check('history repair uses shared batched path', source.includes('fullSegmentRepair: true') && source.includes('MAX_USAGE_SEGMENTS_PER_BATCH'));
-  console.log('[Cloud Usage Batching] 14/14 passed');
+  check('pending usage scan runs independently before date scheduling', source.includes('const pendingSegments = await uploadUsageSegmentsV1({ enabled })'));
+  console.log('[Cloud Usage Batching] 19/19 passed');
 })().catch((error) => {
   console.error(error);
   process.exit(1);

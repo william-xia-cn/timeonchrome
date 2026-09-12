@@ -1,5 +1,7 @@
 // infra/cloud-sync.js — 云同步 + 心跳
 import { getStatsRange, getDateKey } from './storage.js';
+import { pumpQuotaAudit } from './quota-audit-upload.js';
+import { recordSyncHealth } from './diagnostic-evidence.js';
 import { DEFAULT_CONFIG } from './storage.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import {
@@ -19,12 +21,13 @@ import {
   buildHourlyStatsUploadPayload,
   buildTargetStatsUploadPayload,
   buildHourlyTargetStatsUploadPayload,
+  buildUsageDateSyncSnapshot,
   getAllUsageSegments,
   getDailyUsageStats,
   getHourlyUsageStats,
   getUsageSegmentsByDate,
   rebuildHourlyUsageStats,
-  markUsageSegmentsUploaded, markDailyStatsUploaded,
+  markUsageSegmentsUploadedByContentHash, markDailyStatsUploaded,
   markHourlyStatsUploaded,
   markTargetStatsUploaded,
   markHourlyTargetStatsUploaded,
@@ -52,6 +55,7 @@ import {
   markClientLogsUploaded,
   sanitizeClientLogForUpload,
   logClientEventBestEffort,
+  logClientEvent,
 } from './client-logs.js';
 import { resolveActivationState } from '../core/activation-gate.js';
 import { runV1StorageMaintenance } from './storage-maintenance.js';
@@ -62,12 +66,28 @@ import {
   advanceCloudFailureIncident,
   normalizeCloudFailureCode,
   resolveCloudFailureIncidents,
+  safeUploadFailureEvidence,
 } from './cloud-failure-incident.js';
 import {
   CLOUD_QUOTA_STATE_FACT_KEY,
   getQuotaCalendarContext,
   makeCloudQuotaStateFact,
 } from '../core/quota-state-facts.js';
+import {
+  getPendingDeviceAccountV2Dates,
+  getPendingDeviceAccountV2Reconciliations,
+  markDeviceAccountV2Committed,
+  markDeviceAccountV2Failed,
+  markDeviceAccountV2Manifest,
+  markDeviceAccountV2Published,
+  markDeviceAccountV2Reconciliation,
+  prepareDeviceAccountV2Upload,
+} from '../core/device-account-v2.js';
+import { getBeijingWeekPeriod } from '../core/profile-account-v2.js';
+import {
+  storeProfileAccountShadowSnapshot,
+  validateProfileAccountSnapshotPages,
+} from '../core/profile-account-shadow-v2.js';
 
 const cloudStorageSet = (items) => typeof budgetedLocalSet === 'function'
   ? budgetedLocalSet(items, { priority: 'sync', source: 'cloud_sync' })
@@ -205,6 +225,54 @@ async function applySegmentUploadAck(response, requestedIds, markUploaded, markF
   };
 }
 
+function parseUsageSegmentUploadAck(response, requestedSegments) {
+  const requested = (Array.isArray(requestedSegments) ? requestedSegments : [])
+    .filter((item) => item && typeof item.id === 'string' && /^[0-9a-f]{64}$/.test(item.contentHash));
+  const requestedById = new Map(requested.map((item) => [item.id, item.contentHash]));
+  const accepted = [];
+  const acceptedIds = new Set();
+  for (const item of Array.isArray(response?.accepted) ? response.accepted : []) {
+    if (!item || typeof item.id !== 'string' || acceptedIds.has(item.id)) continue;
+    if (requestedById.get(item.id) !== item.contentHash) continue;
+    accepted.push({ id: item.id, contentHash: item.contentHash });
+    acceptedIds.add(item.id);
+  }
+
+  const rejected = (Array.isArray(response?.rejected) ? response.rejected : [])
+    .filter((item) => item?.id && requestedById.has(item.id) && !acceptedIds.has(item.id))
+    .map((item) => ({
+      id: item.id,
+      code: normalizeUploadErrorCode(item.code || item.message || 'segment_rejected'),
+    }));
+  const accounted = new Set([...acceptedIds, ...rejected.map((item) => item.id)]);
+  const missingIds = [...requestedById.keys()].filter((id) => !accounted.has(id));
+  return { accepted, rejected, missingIds };
+}
+
+async function applyUsageSegmentUploadAck(response, requestedSegments, markUploaded, markFailed) {
+  const ack = parseUsageSegmentUploadAck(response, requestedSegments);
+  if (ack.accepted.length > 0) await markUploaded(ack.accepted);
+
+  const failuresByCode = new Map();
+  for (const item of ack.rejected) {
+    const ids = failuresByCode.get(item.code) || [];
+    ids.push(item.id);
+    failuresByCode.set(item.code, ids);
+  }
+  if (ack.missingIds.length > 0) failuresByCode.set('upload_missing_content_ack', ack.missingIds);
+  for (const [code, ids] of failuresByCode) await markFailed(ids, code);
+
+  return {
+    ...ack,
+    uploaded: ack.accepted.length,
+    failed: ack.rejected.length + ack.missingIds.length,
+    errors: [
+      ...ack.rejected.map((item) => `${item.id}: ${item.code}`),
+      ...ack.missingIds.map((id) => `${id}: upload_missing_content_ack`),
+    ],
+  };
+}
+
 function createCloudRequestId(scope = 'cloud') {
   const random = Math.random().toString(36).slice(2, 8);
   return `${scope}-${Date.now().toString(36)}-${random}`;
@@ -218,10 +286,12 @@ function logCloudFailureIncidentBestEffort(event = {}) {
       level: event.level || 'warning',
       error: event.error || event.message,
       eventCode: event.eventCode || 'cloud_failure',
+      evidence: event.evidence || null,
     });
     await cloudStorageSet({ [CLOUD_CONFIG.KEYS.FAILURE_INCIDENT]: transition.state }).catch(() => {});
     if (!transition.shouldLog) return;
-    logClientEventBestEffort({
+    const writeEvidence = typeof logClientEvent === 'function' ? logClientEvent : logClientEventBestEffort;
+    const written = await writeEvidence({
       level: event.level || 'warning',
       category: 'cloud',
       eventCode: event.eventCode || 'cloud_failure',
@@ -233,8 +303,13 @@ function logCloudFailureIncidentBestEffort(event = {}) {
         count: transition.record.count,
         firstAt: transition.record.firstAt,
         lastAt: transition.record.lastAt,
+        ...(transition.record.firstEvidence || {}),
       },
     });
+    if (written?.ok === false) {
+      transition.record.lastLoggedAt = 0;
+      await cloudStorageSet({ [CLOUD_CONFIG.KEYS.FAILURE_INCIDENT]: transition.state }).catch(() => {});
+    }
   }).catch(() => {});
   return cloudIncidentWriteQueue;
 }
@@ -907,17 +982,18 @@ async function cloudRequest(method, path, body = null, retries = 3) {
   }
 
   let lastError = null;
+  const batchId = createCloudRequestId('batch');
   await markCloudConnectionAttempt(path);
   for (let attempt = 0; attempt < retries; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
+    const requestId = syncState.currentRequestId || createCloudRequestId('request');
     try {
       const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${syncState.deviceToken}`,
       };
       const clientVersion = getCloudClientVersion();
-      const requestId = syncState.currentRequestId || createCloudRequestId('request');
       if (clientVersion) headers['X-TimeOnChrome-Version'] = clientVersion;
       if (syncState.deviceId) headers['X-TimeOnChrome-Device-Id'] = syncState.deviceId;
       if (requestId) headers['X-TimeOnChrome-Request-Id'] = requestId;
@@ -943,6 +1019,16 @@ async function cloudRequest(method, path, body = null, retries = 3) {
             throw makeDeviceUnboundError(payload?.error || 'Device unbound');
           }
           await markCloudConnectionSuccess(path, resp.status);
+          try {
+            if (Array.isArray(body?.segments) && typeof safeUploadFailureEvidence === 'function') {
+              const ack = parseSegmentUploadAck(payload, body.segments.map(s => s.id));
+              if (ack.rejected.length || ack.missingIds.length) {
+                const evidence = safeUploadFailureEvidence({ requestId, batchId, endpoint: path, body, status: resp.status, response: payload });
+                evidence.missingAckIds = ack.missingIds.slice(0, 5);
+                void logCloudFailureIncidentBestEffort({ scope: evidence.endpoint, error: ack.missingIds.length ? 'upload_missing_ack' : 'segment_rejected', eventCode: 'cloud_upload_ack_incomplete', evidence });
+              }
+            }
+          } catch (_) { /* Evidence must not turn a successful upload into a failure. */ }
           return payload;
         }
         await markCloudConnectionSuccess(path, resp.status);
@@ -977,6 +1063,14 @@ async function cloudRequest(method, path, body = null, retries = 3) {
     } catch (e) {
       clearTimeout(timeoutId);
       lastError = e;
+      e.requestId = requestId;
+      e.batchId = batchId;
+      try {
+        if (typeof safeUploadFailureEvidence === 'function' && path !== '/device/client-logs/v1') {
+          const evidence = safeUploadFailureEvidence({ requestId, batchId, endpoint: path, body, status: e.status, response: e.response });
+          void logCloudFailureIncidentBestEffort({ scope: evidence.endpoint, error: e, eventCode: 'cloud_request_failed', evidence });
+        }
+      } catch (_) { /* Preserve the original upload error and retry behavior. */ }
       const errorMessage = e?.name === 'AbortError'
         ? `request timeout after ${CLOUD_CONFIG.REQUEST_TIMEOUT_MS}ms`
         : e.message;
@@ -1000,6 +1094,8 @@ async function cloudRequest(method, path, body = null, retries = 3) {
   if (lastError?.status) error.status = lastError.status;
   if (lastError?.code) error.code = lastError.code;
   if (lastError?.response) error.response = lastError.response;
+  error.requestId = lastError?.requestId;
+  error.batchId = batchId;
   await markCloudConnectionFailure(path, error);
   throw error;
 }
@@ -1691,6 +1787,8 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     }
 
     const hadFailure = errors.length > 0;
+    const syncHealth = typeof recordSyncHealth === 'function' ? await recordSyncHealth({ failed: hadFailure }) : null;
+    if (typeof pumpQuotaAudit === 'function') await pumpQuotaAudit((path, options) => cloudRequest('POST', path, JSON.parse(options.body), 1));
     if (hadFailure) {
       console.warn('[Cloud] Sync completed with errors:', errors.join('; '), errors);
       const incident = summarizeCloudErrors(errors);
@@ -1703,7 +1801,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       });
     } else {
       console.log('[Cloud] Sync completed successfully');
-      if (Number(clientLogResult.failed || 0) === 0) {
+      if (Number(clientLogResult.failed || 0) === 0 && (!syncHealth || syncHealth.state === 'confirmed')) {
         await resolveCloudFailureIncidentsBestEffort();
       }
     }
@@ -1720,6 +1818,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     };
   } catch (e) {
     console.error('[Cloud] Sync failed:', e.message);
+    if (typeof recordSyncHealth === 'function') void recordSyncHealth({ failed: true });
     await logCloudFailureIncidentBestEffort({
       level: 'error',
       eventCode: 'cloud_sync_failed',
@@ -1770,17 +1869,18 @@ export function isStatsFoundationV1SyncEnabled() {
 }
 
 export async function getStatsFoundationV1SyncStatus() {
+  const count = value => value?.pendingCount == null ? null : Number(value.pendingCount);
   const [segPending, statsPending, hourlyStatsPending, targetStatsPending, hourlyTargetStatsPending, mediaSegPending, mediaStatsPending, hourlyMediaStatsPending, siteRequestPending, clientLogPending, storage] = await Promise.all([
-    getPendingUsageSegments().catch(() => ({ pendingCount: 0 })),
-    getPendingDailyStats().catch(() => ({ pendingCount: 0 })),
-    getPendingHourlyStats().catch(() => ({ pendingCount: 0 })),
-    getPendingTargetStats().catch(() => ({ pendingCount: 0 })),
-    getPendingHourlyTargetStats().catch(() => ({ pendingCount: 0 })),
-    getPendingMediaSegments().catch(() => ({ pendingCount: 0 })),
-    getPendingDailyMediaStats().catch(() => ({ pendingCount: 0 })),
-    getPendingHourlyMediaStats().catch(() => ({ pendingCount: 0 })),
-    getPendingSiteClassificationRequestUploads().catch(() => ({ pendingCount: 0 })),
-    getPendingClientLogsForUpload().catch(() => ({ pendingCount: 0 })),
+    getPendingUsageSegments().catch(() => ({ pendingCount: null })),
+    getPendingDailyStats().catch(() => ({ pendingCount: null })),
+    getPendingHourlyStats().catch(() => ({ pendingCount: null })),
+    getPendingTargetStats().catch(() => ({ pendingCount: null })),
+    getPendingHourlyTargetStats().catch(() => ({ pendingCount: null })),
+    getPendingMediaSegments().catch(() => ({ pendingCount: null })),
+    getPendingDailyMediaStats().catch(() => ({ pendingCount: null })),
+    getPendingHourlyMediaStats().catch(() => ({ pendingCount: null })),
+    getPendingSiteClassificationRequestUploads().catch(() => ({ pendingCount: null })),
+    getPendingClientLogsForUpload().catch(() => ({ pendingCount: null })),
     chrome.storage.local.get([
       CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
       CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT,
@@ -1805,16 +1905,16 @@ export async function getStatsFoundationV1SyncStatus() {
   ]);
   return {
     enabled: !!(storage?.[CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED] ?? statsFoundationV1SyncEnabled),
-    pendingSegments: Number(segPending?.pendingCount || 0),
-    pendingStatsDates: Number(statsPending?.pendingCount || 0),
-    pendingHourlyStats: Number(hourlyStatsPending?.pendingCount || 0),
-    pendingTargetStatsDates: Number(targetStatsPending?.pendingCount || 0),
-    pendingHourlyTargetStats: Number(hourlyTargetStatsPending?.pendingCount || 0),
-    pendingMediaSegments: Number(mediaSegPending?.pendingCount || 0),
-    pendingMediaStatsDates: Number(mediaStatsPending?.pendingCount || 0),
-    pendingHourlyMediaStats: Number(hourlyMediaStatsPending?.pendingCount || 0),
-    pendingSiteClassificationRequests: Number(siteRequestPending?.pendingCount || 0),
-    pendingClientLogs: Number(clientLogPending?.pendingCount || 0),
+    pendingSegments: count(segPending),
+    pendingStatsDates: count(statsPending),
+    pendingHourlyStats: count(hourlyStatsPending),
+    pendingTargetStatsDates: count(targetStatsPending),
+    pendingHourlyTargetStats: count(hourlyTargetStatsPending),
+    pendingMediaSegments: count(mediaSegPending),
+    pendingMediaStatsDates: count(mediaStatsPending),
+    pendingHourlyMediaStats: count(hourlyMediaStatsPending),
+    pendingSiteClassificationRequests: count(siteRequestPending),
+    pendingClientLogs: count(clientLogPending),
     lastSyncAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_AT] || 0),
     lastError: storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SYNC_ERROR] || null,
     lastSegmentUploadAt: Number(storage?.[CLOUD_CONFIG.KEYS.V1_LAST_SEGMENT_UPLOAD_AT] || 0),
@@ -1901,10 +2001,10 @@ export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
         batchId: createSegmentBatchId('usage', batchIds),
         segments: payload.segments,
       }, 1);
-      const ack = await applySegmentUploadAck(
+      const ack = await applyUsageSegmentUploadAck(
         response,
-        batchIds,
-        markUsageSegmentsUploaded,
+        payload.segments,
+        markUsageSegmentsUploadedByContentHash,
         markUsageSegmentUploadFailed
       );
       uploaded = ack.uploaded;
@@ -2023,7 +2123,7 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
       if (!payload || payload.domains.length === 0) {
         const segmentCount = await usageSegmentCountForDate(date);
         if (segmentCount === 0) {
-          await markDailyStatsUploaded([date]);
+          await markDailyStatsUploaded([date], Date.now(), pending.revisions);
         } else {
           const message = segmentCount === null
             ? 'Daily stats payload empty and usage segment check failed'
@@ -2047,8 +2147,8 @@ export async function uploadDailyStatsV1({ enabled = false, forceRetryExhausted 
         // 发送嵌套聚合形状（buildDailyStatsUploadPayload 的输出）。
         // Worker 将 byMode 对象展开为 stats_v1 的逐 channel+mode 行。
         await cloudRequest('POST', '/device/stats/v1', payload);
-        await markDailyStatsUploaded([date]);
-        uploaded++;
+        const cleared = await markDailyStatsUploaded([date], Date.now(), pending.revisions);
+        if (cleared > 0) uploaded++;
         await cloudStorageSet({
           [CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT]: Date.now(),
         });
@@ -2145,26 +2245,6 @@ function sumSegmentSeconds(segments) {
   }, 0);
 }
 
-async function getHourKeysForDate(date) {
-  const [allHourlyStats, hourlyPending, hourlyTargetPending] = await Promise.all([
-    getHourlyUsageStats(),
-    getPendingHourlyStats(),
-    getPendingHourlyTargetStats(),
-  ]);
-  const keys = new Set(
-    Object.entries(allHourlyStats || {})
-      .filter(([hourKey, stats]) => stats?.date === date || String(hourKey).startsWith(`${date}T`))
-      .map(([hourKey]) => hourKey)
-  );
-  for (const hourKey of [
-    ...(hourlyPending?.dirtyHourKeys || []),
-    ...(hourlyTargetPending?.dirtyHourKeys || []),
-  ]) {
-    if (String(hourKey).startsWith(`${date}T`)) keys.add(hourKey);
-  }
-  return [...keys].sort();
-}
-
 async function prepareHourlyUsagePayloads(hourKey) {
   let statsPayload = await buildHourlyStatsUploadPayload(hourKey);
   let targetPayload = await buildHourlyTargetStatsUploadPayload(hourKey);
@@ -2187,12 +2267,16 @@ async function prepareHourlyUsagePayloads(hourKey) {
 
 async function clearNoOpHourlyStats(hourKeys, limit = 24) {
   const cleared = [];
+  const [hourlyPending, hourlyTargetPending] = await Promise.all([
+    getPendingHourlyStats(),
+    getPendingHourlyTargetStats(),
+  ]);
   for (const hourKey of (Array.isArray(hourKeys) ? hourKeys : []).slice(0, limit)) {
     const prepared = await prepareHourlyUsagePayloads(hourKey);
     if (!prepared.noOp) continue;
     await Promise.all([
-      markHourlyStatsUploaded([hourKey]),
-      markHourlyTargetStatsUploaded([hourKey]),
+      markHourlyStatsUploaded([hourKey], Date.now(), hourlyPending.revisions),
+      markHourlyTargetStatsUploaded([hourKey], Date.now(), hourlyTargetPending.revisions),
     ]);
     cleared.push(hourKey);
   }
@@ -2221,6 +2305,28 @@ async function getEarliestLocalUsageDate(today) {
   }
 
   return [...dates].sort()[0] || null;
+}
+
+async function getHistoricalUsageRepairDates(today) {
+  const dates = new Set();
+  const [segments, daily, target, hourly, hourlyTarget] = await Promise.all([
+    getPendingUsageSegments().catch(() => ({ segments: [] })),
+    getPendingDailyStats().catch(() => ({ dirtyDates: [] })),
+    getPendingTargetStats().catch(() => ({ dirtyDates: [] })),
+    getPendingHourlyStats().catch(() => ({ dirtyHourKeys: [] })),
+    getPendingHourlyTargetStats().catch(() => ({ dirtyHourKeys: [] })),
+  ]);
+  for (const segment of segments.segments || []) {
+    if (isDateKeyString(segment?.date) && compareDateKeys(segment.date, today) < 0) dates.add(segment.date);
+  }
+  for (const date of [...(daily.dirtyDates || []), ...(target.dirtyDates || [])]) {
+    if (isDateKeyString(date) && compareDateKeys(date, today) < 0) dates.add(date);
+  }
+  for (const hourKey of [...(hourly.dirtyHourKeys || []), ...(hourlyTarget.dirtyHourKeys || [])]) {
+    const date = String(hourKey || '').slice(0, 10);
+    if (isDateKeyString(date) && compareDateKeys(date, today) < 0) dates.add(date);
+  }
+  return [...dates].sort();
 }
 
 function isRetryableUsageErrorCode(error) {
@@ -2272,35 +2378,123 @@ async function clearMediaUploadBackoff() {
     [CLOUD_CONFIG.KEYS.MEDIA_UPLOAD_BACKOFF]: { attempt: 0, nextRetryAt: 0, lastError: null },
   }).catch(() => {});
 }
+
+async function uploadDeviceAccountV2Shadow(pkg, { enabled = false } = {}) {
+  const result = { date: pkg?.date || null, uploaded: 0, skipped: !enabled, failed: 0, error: null };
+  if (!enabled || !pkg?.date) return result;
+  let prepared = null;
+  try {
+    prepared = await prepareDeviceAccountV2Upload(pkg);
+    result.revision = prepared.manifest.revision;
+    result.complete = prepared.manifest.complete;
+    if (prepared.skipped) {
+      result.skipped = true;
+      return result;
+    }
+    result.skipped = false;
+    const manifestResponse = await cloudRequest('POST', '/device/accounts/v2/manifests', prepared.manifest, 1);
+    const manifestId = manifestResponse?.manifestId;
+    if (!manifestId || manifestResponse?.revision !== prepared.manifest.revision) {
+      throw new Error('device_account_manifest_ack_invalid');
+    }
+    await markDeviceAccountV2Manifest(pkg.date, prepared.manifest.revision, prepared.manifest.manifestHash, manifestId);
+    if (manifestResponse?.status !== 'committed') {
+      for (const chunk of prepared.chunks) {
+        await cloudRequest(
+          'PUT',
+          `/device/accounts/v2/manifests/${encodeURIComponent(manifestId)}/chunks/${chunk.chunkIndex}`,
+          { rowCount: chunk.rowCount, chunkHash: chunk.chunkHash, rows: chunk.rows },
+          1
+        );
+      }
+    }
+    const commitResponse = await cloudRequest(
+      'POST', `/device/accounts/v2/manifests/${encodeURIComponent(manifestId)}/commit`, {}, 1
+    );
+    if (commitResponse?.status !== 'committed' || commitResponse?.revision !== prepared.manifest.revision) {
+      throw new Error('device_account_commit_ack_invalid');
+    }
+    const published = Number(commitResponse.publishedRevision || 0) >= prepared.manifest.revision;
+    if (published) {
+      await markDeviceAccountV2Published(
+        pkg.date,
+        prepared.manifest.revision,
+        prepared.manifest.manifestHash,
+        Number(commitResponse.publishedAt || Date.now())
+      );
+    } else {
+      await markDeviceAccountV2Committed(
+        pkg.date,
+        prepared.manifest.revision,
+        prepared.manifest.manifestHash,
+        Number(commitResponse.committedAt || Date.now())
+      );
+    }
+    result.uploaded = 1;
+    result.committedAt = commitResponse.committedAt || null;
+    result.published = published;
+    result.publishStatus = published ? 'published' : 'received_not_published';
+    result.publishError = commitResponse.publishError || null;
+    if (commitResponse.reconciliationStatus) {
+      await markDeviceAccountV2Reconciliation(
+        pkg.date,
+        prepared.manifest.revision,
+        prepared.manifest.manifestHash,
+        commitResponse.reconciliationStatus,
+        Number(commitResponse.reconciliationCheckedAt || Date.now())
+      );
+      result.reconciliationStatus = commitResponse.reconciliationStatus;
+    }
+    return result;
+  } catch (error) {
+    const errorCode = normalizeUploadErrorCode(error);
+    if (prepared?.manifest) {
+      await markDeviceAccountV2Failed(
+        pkg.date, prepared.manifest.revision, prepared.manifest.manifestHash, errorCode
+      ).catch(() => {});
+    }
+    result.failed = 1;
+    result.error = errorCode;
+    logCloudFailureIncidentBestEffort({
+      level: 'warning',
+      eventCode: 'cloud_device_account_v2_shadow_failed',
+      scope: 'device_account_v2_shadow',
+      error: errorCode,
+      safeMessage: 'Device account V2 shadow upload failed',
+    });
+    return result;
+  }
+}
+
 async function buildUsageDateUploadPackage(date) {
-  const segments = await getUsageSegmentsByDate(date).catch((error) => {
+  let snapshot = await buildUsageDateSyncSnapshot(date).catch((error) => {
     logClientEventBestEffort({
       level: 'error',
       category: 'storage',
-      eventCode: 'cloud_usage_date_segments_read_failed',
+      eventCode: 'cloud_usage_date_snapshot_read_failed',
       module: 'infra/cloud-sync',
-      message: error?.message || 'Failed to read usage segments for date upload',
+      message: error?.message || 'Failed to read usage date snapshot',
       details: { date },
     });
-    return [];
+    throw error;
   });
-  const segmentIds = (segments || []).map((segment) => segment?.id).filter(Boolean);
-  const pendingSegmentIds = (segments || [])
-    .filter((segment) => !Number(segment?.uploadedAt || 0))
-    .map((segment) => segment?.id)
-    .filter(Boolean);
-  const segmentSeconds = sumSegmentSeconds(segments);
-  const dailyPayload = await buildDailyStatsUploadPayload(date);
-  const targetPayload = await buildTargetStatsUploadPayload(date);
-  const hourKeys = await getHourKeysForDate(date);
-  const hourlyPayloads = [];
-  const hourlyTargetPayloads = [];
-
-  for (const hourKey of hourKeys) {
-    const prepared = await prepareHourlyUsagePayloads(hourKey);
-    hourlyPayloads.push(prepared.statsPayload);
-    hourlyTargetPayloads.push(prepared.targetPayload);
+  const hoursNeedingRepair = snapshot.hourKeys.filter((hourKey, index) =>
+    sumStatsDomainsSeconds(snapshot.hourlyPayloads[index]?.domains) <= 0 ||
+    sumTargetPayloadSeconds(snapshot.hourlyTargetPayloads[index]?.targets) <= 0
+  );
+  if (hoursNeedingRepair.length > 0) {
+    for (const hourKey of hoursNeedingRepair) {
+      await rebuildHourlyUsageStats(hourKey, { forceWriteEmpty: true });
+    }
+    snapshot = await buildUsageDateSyncSnapshot(date);
   }
+
+  const {
+    segments, segmentIds, pendingSegmentIds, segmentPayloads,
+    dailyPayload, targetPayload, hourKeys, hourlyPayloads,
+    hourlyTargetPayloads, revisions, capturedAt, compactedFactCount,
+  } = snapshot;
+  const segmentSeconds = sumSegmentSeconds(segments);
 
   const dailySeconds = sumStatsDomainsSeconds(dailyPayload?.domains);
   const targetSeconds = sumTargetPayloadSeconds(targetPayload?.targets);
@@ -2318,11 +2512,15 @@ async function buildUsageDateUploadPackage(date) {
     segments,
     segmentIds,
     pendingSegmentIds,
+    segmentPayloads,
     dailyPayload,
     targetPayload,
     hourKeys,
     hourlyPayloads,
     hourlyTargetPayloads,
+    revisions,
+    capturedAt,
+    compactedFactCount,
     errors,
     summary: {
       usageSegments: { count: segmentIds.length, seconds: segmentSeconds },
@@ -2412,16 +2610,6 @@ async function getRemoteUsageDateIntegrity(date) {
   return cloudRequest('GET', `/device/stats-integrity/v1?date=${encodeURIComponent(date)}`, null, 2);
 }
 
-async function markUsageDatePackageUploaded(pkg, uploadedAt = Date.now()) {
-  await Promise.all([
-    pkg.segmentIds.length ? markUsageSegmentsUploaded(pkg.segmentIds, uploadedAt) : Promise.resolve(),
-    markDailyStatsUploaded([pkg.date], uploadedAt),
-    pkg.hourKeys.length ? markHourlyStatsUploaded(pkg.hourKeys, uploadedAt) : Promise.resolve(),
-    markTargetStatsUploaded([pkg.date], uploadedAt),
-    pkg.hourKeys.length ? markHourlyTargetStatsUploaded(pkg.hourKeys, uploadedAt) : Promise.resolve(),
-  ]);
-}
-
 export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted = false } = {}) {
   const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
 
@@ -2501,15 +2689,15 @@ export async function uploadHourlyStatsV1({ enabled = false, forceRetryExhausted
       const payload = prepared.statsPayload;
       if (!payload || payload.domains.length === 0) {
         await Promise.all([
-          markHourlyStatsUploaded([hourKey]),
+          markHourlyStatsUploaded([hourKey], Date.now(), pending.revisions),
           prepared.noOp ? markHourlyTargetStatsUploaded([hourKey]) : Promise.resolve(),
         ]);
         continue;
       }
       try {
         await cloudRequest('POST', '/device/hourly-stats/v1', payload);
-        await markHourlyStatsUploaded([hourKey]);
-        uploaded++;
+        const cleared = await markHourlyStatsUploaded([hourKey], Date.now(), pending.revisions);
+        if (cleared > 0) uploaded++;
         await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markHourlyStatsUploadFailed([hourKey], e.message);
@@ -2593,7 +2781,7 @@ export async function uploadTargetStatsV1({ enabled = false, forceRetryExhausted
       if (!payload || payload.targets.length === 0) {
         const segmentCount = await usageSegmentCountForDate(date);
         if (segmentCount === 0) {
-          await markTargetStatsUploaded([date]);
+          await markTargetStatsUploaded([date], Date.now(), pending.revisions);
         } else {
           const message = segmentCount === null
             ? 'Target stats payload empty and usage segment check failed'
@@ -2614,8 +2802,8 @@ export async function uploadTargetStatsV1({ enabled = false, forceRetryExhausted
       }
       try {
         await cloudRequest('POST', '/device/target-stats/v1', payload);
-        await markTargetStatsUploaded([date]);
-        uploaded++;
+        const cleared = await markTargetStatsUploaded([date], Date.now(), pending.revisions);
+        if (cleared > 0) uploaded++;
         await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markTargetStatsUploadFailed([date], e.message);
@@ -2716,15 +2904,15 @@ export async function uploadHourlyTargetStatsV1({ enabled = false, forceRetryExh
       const payload = prepared.targetPayload;
       if (!payload || payload.targets.length === 0) {
         await Promise.all([
-          markHourlyTargetStatsUploaded([hourKey]),
+          markHourlyTargetStatsUploaded([hourKey], Date.now(), pending.revisions),
           prepared.noOp ? markHourlyStatsUploaded([hourKey]) : Promise.resolve(),
         ]);
         continue;
       }
       try {
         await cloudRequest('POST', '/device/hourly-target-stats/v1', payload);
-        await markHourlyTargetStatsUploaded([hourKey]);
-        uploaded++;
+        const cleared = await markHourlyTargetStatsUploaded([hourKey], Date.now(), pending.revisions);
+        if (cleared > 0) uploaded++;
         await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_HOURLY_TARGET_STATS_UPLOAD_AT]: Date.now() });
       } catch (e) {
         await markHourlyTargetStatsUploadFailed([hourKey], e.message);
@@ -2788,6 +2976,7 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
   }
 
   if (
+    segmentIds.length === 0 &&
     pkg.summary.usageSegments.seconds <= 0 &&
     pkg.summary.dailyStats.seconds <= 0 &&
     pkg.summary.targetStats.seconds <= 0 &&
@@ -2802,19 +2991,26 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
   }
 
   if (segmentIds.length > 0) {
+    const hasFrozenSegmentPayloads = Array.isArray(pkg.segmentPayloads);
+    const segmentPayloadById = new Map((pkg.segmentPayloads || []).map((segment) => [segment.id, segment]));
     for (let offset = 0; offset < segmentIds.length; offset += MAX_USAGE_SEGMENTS_PER_BATCH) {
       const batchIds = segmentIds.slice(offset, offset + MAX_USAGE_SEGMENTS_PER_BATCH);
       try {
-        const payload = await buildUsageSegmentsUploadPayload(batchIds);
+        const payload = hasFrozenSegmentPayloads
+          ? {
+              schemaVersion: 1,
+              segments: batchIds.map((id) => segmentPayloadById.get(id)).filter(Boolean),
+            }
+          : await buildUsageSegmentsUploadPayload(batchIds);
         if (payload.segments.length === 0) continue;
         const response = await cloudRequest('POST', '/device/usage-segments/v1', {
           batchId: createSegmentBatchId('usage', batchIds),
           segments: payload.segments,
         }, 1);
-        const ack = await applySegmentUploadAck(
+        const ack = await applyUsageSegmentUploadAck(
           response,
-          batchIds,
-          markUsageSegmentsUploaded,
+          payload.segments,
+          markUsageSegmentsUploadedByContentHash,
           markUsageSegmentUploadFailed
         );
         result.segments.uploaded += ack.uploaded;
@@ -2861,9 +3057,9 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
   } else if (pkg.summary.dailyStats.count > 0) {
     try {
       await cloudRequest('POST', '/device/stats/v1', pkg.dailyPayload);
-      await markDailyStatsUploaded([pkg.date]);
-      result.stats.uploaded++;
-      result.uploaded++;
+      const cleared = await markDailyStatsUploaded([pkg.date], Date.now(), pkg.revisions?.daily);
+      result.stats.uploaded += cleared > 0 ? 1 : 0;
+      result.uploaded += cleared > 0 ? 1 : 0;
       await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_STATS_UPLOAD_AT]: Date.now() });
     } catch (error) {
       await markDailyStatsUploadFailed([pkg.date], error.message);
@@ -2872,6 +3068,7 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
       result.errors.push(`stats ${pkg.date}: ${error.message}`);
     }
   } else {
+    await markDailyStatsUploaded([pkg.date], Date.now(), pkg.revisions?.daily);
     result.stats.skipped = true;
   }
 
@@ -2884,9 +3081,9 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
   } else if (pkg.summary.targetStats.count > 0) {
     try {
       await cloudRequest('POST', '/device/target-stats/v1', pkg.targetPayload);
-      await markTargetStatsUploaded([pkg.date]);
-      result.targetStats.uploaded++;
-      result.uploaded++;
+      const cleared = await markTargetStatsUploaded([pkg.date], Date.now(), pkg.revisions?.target);
+      result.targetStats.uploaded += cleared > 0 ? 1 : 0;
+      result.uploaded += cleared > 0 ? 1 : 0;
       await cloudStorageSet({ [CLOUD_CONFIG.KEYS.V1_LAST_TARGET_STATS_UPLOAD_AT]: Date.now() });
     } catch (error) {
       await markTargetStatsUploadFailed([pkg.date], error.message);
@@ -2895,6 +3092,7 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
       result.errors.push(`target stats ${pkg.date}: ${error.message}`);
     }
   } else {
+    await markTargetStatsUploaded([pkg.date], Date.now(), pkg.revisions?.target);
     result.targetStats.skipped = true;
   }
 
@@ -2908,13 +3106,15 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
     let uploadedHours = 0;
     for (const payload of pkg.hourlyPayloads) {
       if (!payload || !Array.isArray(payload.domains) || payload.domains.length === 0) {
-        if (payload?.hourKey) await markHourlyStatsUploaded([payload.hourKey]);
+        if (payload?.hourKey) {
+          await markHourlyStatsUploaded([payload.hourKey], Date.now(), pkg.revisions?.hourly);
+        }
         continue;
       }
       try {
         await cloudRequest('POST', '/device/hourly-stats/v1', payload);
-        await markHourlyStatsUploaded([payload.hourKey]);
-        uploadedHours++;
+        const cleared = await markHourlyStatsUploaded([payload.hourKey], Date.now(), pkg.revisions?.hourly);
+        if (cleared > 0) uploadedHours++;
       } catch (error) {
         await markHourlyStatsUploadFailed([payload.hourKey], error.message);
         result.hourlyStats.failed++;
@@ -2942,13 +3142,15 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
     let uploadedHours = 0;
     for (const payload of pkg.hourlyTargetPayloads) {
       if (!payload || !Array.isArray(payload.targets) || payload.targets.length === 0) {
-        if (payload?.hourKey) await markHourlyTargetStatsUploaded([payload.hourKey]);
+        if (payload?.hourKey) {
+          await markHourlyTargetStatsUploaded([payload.hourKey], Date.now(), pkg.revisions?.hourlyTarget);
+        }
         continue;
       }
       try {
         await cloudRequest('POST', '/device/hourly-target-stats/v1', payload);
-        await markHourlyTargetStatsUploaded([payload.hourKey]);
-        uploadedHours++;
+        const cleared = await markHourlyTargetStatsUploaded([payload.hourKey], Date.now(), pkg.revisions?.hourlyTarget);
+        if (cleared > 0) uploadedHours++;
       } catch (error) {
         await markHourlyTargetStatsUploadFailed([payload.hourKey], error.message);
         result.hourlyTargetStats.failed++;
@@ -2966,7 +3168,99 @@ async function uploadUsageDatePackageParts(pkg, { enabled = false, fullSegmentRe
     }
   }
 
+  result.deviceAccountV2 = await uploadDeviceAccountV2Shadow(pkg, { enabled });
   return result;
+}
+
+async function retryPendingDeviceAccountsV2Shadow({ enabled = false } = {}) {
+  if (!enabled || !syncState.deviceToken || syncState.monitoringEnabled === 0) {
+    return { attempted: 0, uploaded: 0, failed: 0, skipped: true, results: [] };
+  }
+  const dates = (await getPendingDeviceAccountV2Dates()).slice(0, 2);
+  const result = { attempted: dates.length, uploaded: 0, failed: 0, skipped: dates.length === 0, results: [] };
+  for (const date of dates) {
+    try {
+      const pkg = await buildUsageDateUploadPackage(date);
+      const attempt = await uploadDeviceAccountV2Shadow(pkg, { enabled: true });
+      result.results.push(attempt);
+      result.uploaded += attempt.uploaded;
+      result.failed += attempt.failed;
+    } catch (error) {
+      result.failed++;
+      result.results.push({ date, uploaded: 0, failed: 1, error: normalizeUploadErrorCode(error) });
+    }
+  }
+  return result;
+}
+
+async function retryPendingDeviceAccountReconciliationsV2Shadow({ enabled = false } = {}) {
+  if (!enabled || !syncState.deviceToken || syncState.monitoringEnabled === 0) {
+    return { attempted: 0, matched: 0, pending: 0, skipped: true };
+  }
+  const targets = (await getPendingDeviceAccountV2Reconciliations()).slice(0, 2);
+  const result = { attempted: targets.length, matched: 0, pending: 0, skipped: targets.length === 0 };
+  for (const target of targets) {
+    try {
+      const response = await cloudRequest('POST', '/device/accounts/v2/reconcile', {
+        date: target.date,
+        revision: target.revision,
+      }, 1);
+      await markDeviceAccountV2Reconciliation(
+        target.date, target.revision, target.manifestHash,
+        response?.status || 'manual_review_required', Number(response?.checkedAt || Date.now())
+      );
+      if (response?.status === 'matched') result.matched++;
+      else result.pending++;
+    } catch (_) {
+      result.pending++;
+    }
+  }
+  return result;
+}
+
+async function syncProfileAccountV2ShadowSnapshot({ enabled = false } = {}) {
+  const result = { fetched: false, stored: false, skipped: !enabled, error: null };
+  if (!enabled || !syncState.deviceToken || syncState.monitoringEnabled === 0) return result;
+  try {
+    const date = getDateKey();
+    const { weekStart } = getBeijingWeekPeriod(date);
+    const first = await cloudRequest(
+      'GET', `/device/accounts/v2/snapshot?weekStart=${encodeURIComponent(weekStart)}&page=0`, null, 1
+    );
+    if (!first?.found) {
+      result.skipped = true;
+      return result;
+    }
+    result.fetched = true;
+    const pages = [first];
+    const pageCount = Math.max(1, Number(first.pageCount || 1));
+    for (let page = 1; page < pageCount; page++) {
+      pages.push(await cloudRequest(
+        'GET',
+        `/device/accounts/v2/snapshot?weekStart=${encodeURIComponent(weekStart)}&snapshotId=${encodeURIComponent(first.snapshotId)}&page=${page}`,
+        null,
+        1
+      ));
+    }
+    const snapshot = await validateProfileAccountSnapshotPages(pages);
+    await storeProfileAccountShadowSnapshot(snapshot);
+    result.stored = true;
+    result.skipped = false;
+    result.snapshotId = snapshot.snapshotId;
+    result.asOf = snapshot.asOf;
+    result.complete = snapshot.completeness?.complete === true;
+    return result;
+  } catch (error) {
+    result.error = normalizeUploadErrorCode(error);
+    logCloudFailureIncidentBestEffort({
+      level: 'warning',
+      eventCode: 'cloud_profile_account_v2_shadow_failed',
+      scope: 'profile_account_v2_shadow',
+      error: result.error,
+      safeMessage: 'Profile account V2 shadow snapshot failed',
+    });
+    return result;
+  }
 }
 
 async function uploadTodayUsageStatsSnapshotV1({ enabled = false } = {}) {
@@ -3022,54 +3316,35 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
   const yesterday = addDaysToDateKey(today, -1);
   let waterline = await getUsageHistoryWatermark(today);
   const start = addDaysToDateKey(waterline, 1);
+  const repairDates = await getHistoricalUsageRepairDates(today);
+  const sequentialDates = [];
+  let sequentialDate = start;
+  while (
+    sequentialDate && compareDateKeys(sequentialDate, yesterday) <= 0 &&
+    sequentialDates.length < CLOUD_CONFIG.MAX_HISTORY_USAGE_DATES_PER_SYNC
+  ) {
+    sequentialDates.push(sequentialDate);
+    sequentialDate = addDaysToDateKey(sequentialDate, 1);
+  }
+  const datesToProcess = [...new Set([...sequentialDates, ...repairDates])]
+    .slice(0, CLOUD_CONFIG.MAX_HISTORY_USAGE_DATES_PER_SYNC);
   const result = makeUsageDateSyncResult({ dryRun: !effectiveEnabled });
   result.waterlineBefore = waterline;
   result.dates = [];
 
-  if (!start || compareDateKeys(start, yesterday) > 0) {
+  if (datesToProcess.length === 0) {
     result.skipped = true;
     result.waterlineAfter = waterline;
     return result;
   }
 
-  let date = start;
-  while (
-    compareDateKeys(date, yesterday) <= 0 &&
-    result.dates.length < CLOUD_CONFIG.MAX_HISTORY_USAGE_DATES_PER_SYNC
-  ) {
+  for (const date of datesToProcess) {
     result.dates.push(date);
     if (!effectiveEnabled) {
-      date = addDaysToDateKey(date, 1);
       continue;
     }
 
     const pkg = await buildUsageDateUploadPackage(date);
-    let cloudComplete = false;
-    try {
-      const integrity = await getRemoteUsageDateIntegrity(date);
-      cloudComplete = isCloudIntegrityCompleteForPackage(integrity, pkg);
-    } catch (error) {
-      logCloudFailureIncidentBestEffort({
-        level: 'warning',
-        eventCode: 'cloud_usage_history_integrity_check_failed',
-        scope: 'usage_history_integrity',
-        error,
-        safeMessage: 'Usage history integrity check failed',
-      });
-    }
-
-    if (cloudComplete) {
-      await markUsageDatePackageUploaded(pkg);
-      waterline = date;
-      await cloudStorageSet({
-        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE]: waterline,
-        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT]: Date.now(),
-        [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: null,
-      }).catch(() => {});
-      date = addDaysToDateKey(date, 1);
-      continue;
-    }
-
     const dateResult = await uploadUsageDatePackageParts(pkg, { enabled: true, fullSegmentRepair: true });
     mergeUsageDatePartResults(result, dateResult);
     if (dateResult.failed > 0 || dateResult.errors.length > 0) {
@@ -3102,13 +3377,12 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
       break;
     }
 
-    waterline = date;
+    if (date === addDaysToDateKey(waterline, 1)) waterline = date;
     await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_SYNCED_THROUGH_DATE]: waterline,
       [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_UPLOAD_AT]: Date.now(),
       [CLOUD_CONFIG.KEYS.USAGE_STATS_HISTORY_LAST_ERROR]: null,
     }).catch(() => {});
-    date = addDaysToDateKey(date, 1);
   }
 
   result.waterlineAfter = waterline;
@@ -3130,6 +3404,21 @@ export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) 
     }
   }
 
+  const pendingSegments = await uploadUsageSegmentsV1({ enabled });
+  if (pendingSegments.failed > 0 || pendingSegments.errors.length > 0) {
+    const result = makeUsageDateSyncResult({ dryRun: pendingSegments.dryRun });
+    result.segments = { ...result.segments, ...pendingSegments };
+    result.uploaded = pendingSegments.uploaded;
+    result.failed = pendingSegments.failed;
+    result.pendingCount = pendingSegments.pendingCount;
+    result.errors = [...pendingSegments.errors];
+    if (enabled) {
+      const retryableError = result.errors.find((error) => isRetryableUsageErrorCode(error));
+      if (retryableError) result.backoff = await recordUsageUploadBackoff(retryableError);
+    }
+    return result;
+  }
+
   const today = await uploadTodayUsageStatsSnapshotV1({ enabled });
   const todayRetryable = (today.errors || []).find((error) => isRetryableUsageErrorCode(error));
   const history = todayRetryable
@@ -3145,6 +3434,12 @@ export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) 
   result.errors = [...today.errors, ...history.errors];
   result.failed = today.failed + history.failed;
   result.uploaded = today.uploaded + history.uploaded;
+  result.segments.uploaded += pendingSegments.uploaded;
+  result.segments.pendingCount = Math.max(result.segments.pendingCount, pendingSegments.pendingCount);
+  result.uploaded += pendingSegments.uploaded;
+  result.deviceAccountV2Pending = await retryPendingDeviceAccountsV2Shadow({ enabled });
+  result.deviceAccountV2Reconciliation = await retryPendingDeviceAccountReconciliationsV2Shadow({ enabled });
+  result.profileAccountV2Shadow = await syncProfileAccountV2ShadowSnapshot({ enabled });
 
   if (enabled) {
     const retryableError = result.errors.find((error) => isRetryableUsageErrorCode(error));
@@ -3626,6 +3921,9 @@ export async function uploadClientLogsV1({ enabled = true } = {}) {
         eventCode: 'client_log_upload_failed',
         scope: 'client_logs_upload',
         error: e,
+        evidence: typeof safeUploadFailureEvidence === 'function' ? safeUploadFailureEvidence({
+          requestId: e.requestId, batchId: e.batchId, endpoint: '/device/client-logs/v1', body: payload, status: e.status, response: e.response,
+        }) : null,
         safeMessage: 'Client log upload failed',
       });
       return { uploaded: 0, failed: ids.length, skipped: false, pendingCount: Number(pending.pendingCount || ids.length), errors: [`client logs: ${e.message}`] };

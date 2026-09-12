@@ -80,6 +80,8 @@ function check(label, condition, detail = '') {
   const targetAck = [];
   const clearNoOp = loadNoOpClear({
     prepareHourlyUsagePayloads: async () => ({ noOp: true }),
+    getPendingHourlyStats: async () => ({ revisions: { '2026-08-30T04': 1 } }),
+    getPendingHourlyTargetStats: async () => ({ revisions: { '2026-08-30T04': 1 } }),
     markHourlyStatsUploaded: async (keys) => hourlyAck.push(...keys),
     markHourlyTargetStatsUploaded: async (keys) => targetAck.push(...keys),
   });

@@ -200,6 +200,8 @@
     .system-management-tabs { margin-bottom: 16px; }
     .system-management-panel { display: none; }
     .system-management-panel.active { display: block; }
+    #quota-audit-panel label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; }
+    #quota-audit-panel select, #quota-audit-panel input { max-width: 100%; min-height: 38px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); font: inherit; }
     .rules-management-panel { display: none; }
     .rules-management-panel.active { display: block; }
 
@@ -1441,7 +1443,7 @@
           <div class="card-header">
             <div>
               <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/notice.svg" alt="">远程诊断开关</div>
-              <div class="card-subtitle">开启后由孩子端按策略上传日志；info 必须设置过期时间</div>
+              <div class="card-subtitle">基础诊断持续至家长关闭；详细诊断单独到期</div>
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
@@ -1451,7 +1453,6 @@
             <select id="client-log-policy-level" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
               <option value="error">仅 error</option>
               <option value="warning">warning + error</option>
-              <option value="info">info + warning + error</option>
             </select>
             <select id="client-log-policy-category" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
               <option value="">全部类别</option>
@@ -1464,15 +1465,31 @@
               <option value="admin">admin</option>
               <option value="content">content</option>
             </select>
-            <select id="client-log-policy-ttl" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
+            <label><input type="checkbox" id="client-log-policy-detail"> 临时详细诊断（info）</label>
+            <select id="client-log-policy-ttl" aria-label="详细诊断上传期限" disabled style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;">
               <option value="86400000">1 天</option>
               <option value="259200000">3 天</option>
               <option value="604800000">7 天</option>
+              <option value="2592000000">30 天</option>
             </select>
             <button class="btn-save" id="client-log-policy-enable-btn" style="padding:7px 14px;font-size:13px;">开启上传</button>
             <button class="btn-save" id="client-log-policy-disable-btn" style="padding:7px 14px;font-size:13px;background:rgba(248,113,113,0.12);color:var(--danger);">关闭上传</button>
           </div>
           <div id="client-log-policy-summary" style="font-size:12px;color:var(--muted);line-height:1.6;">加载中...</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:8px;">本地缓存：最多 3 天，受存储硬阈值约束；普通 info 仅会话缓存，最多 1 天。云端客户端日志保留 30 天，失败请求审计独立保留 14 天。</div>
+        </div>
+
+        <div class="card" id="quota-audit-panel">
+          <div class="card-header"><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">一次性配额取证</div></div>
+          <div class="card-subtitle">只读取所选终端保留的网页分段、配额桶和上传确认信息；最多 7 个自然日，请求 24 小时有效。不包含域名、URL、标题或账号信息。</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:16px 0;">
+            <label>终端 <select id="quota-audit-device" style="max-width:100%;"><option value="">请选择终端</option></select></label>
+            <label>开始日期 <input id="quota-audit-from" type="date"></label>
+            <label>结束日期 <input id="quota-audit-to" type="date"></label>
+            <button class="btn-save" id="quota-audit-start">请求一次取证</button>
+            <button class="btn-save" id="quota-audit-refresh">刷新证据</button>
+          </div>
+          <div id="quota-audit-result" role="status" style="overflow-wrap:anywhere;min-width:0;">尚未请求。终端需安装支持取证的版本并开启日志上传。</div>
         </div>
 
         <div class="card">
@@ -6927,6 +6944,11 @@ function setupCloudClientLogs() {
   document.getElementById('client-log-load-more-btn')?.addEventListener('click', () => renderCloudClientLogsPage({ reset: false }));
   document.getElementById('client-log-policy-enable-btn')?.addEventListener('click', () => saveClientLoggingPolicy(true));
   document.getElementById('client-log-policy-disable-btn')?.addEventListener('click', () => saveClientLoggingPolicy(false));
+  document.getElementById('client-log-policy-detail')?.addEventListener('change', (event) => {
+    document.getElementById('client-log-policy-ttl').disabled = !event.target.checked;
+  });
+  document.getElementById('quota-audit-start')?.addEventListener('click', requestQuotaAudit);
+  document.getElementById('quota-audit-refresh')?.addEventListener('click', refreshQuotaAudit);
 }
 
 function getClientLogRange(range) {
@@ -6982,11 +7004,27 @@ function renderClientLogPolicySummary() {
     : '全部类别';
   const expiresAt = Number(policy.expiresAt || 0);
   const expired = uploadEnabled && expiresAt > 0 && expiresAt <= Date.now();
-  el.innerHTML = expired
-    ? `当前：已过期 · 到期 ${escHtml(new Date(expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }))} 北京时间。孩子端已回退为默认不上传策略。`
+  el.innerHTML = policy.policyVersion === 2
+    ? `基础诊断：${uploadEnabled && !expired ? '持续上传，直到关闭' : '已关闭或到期'} · ${escHtml(policy.uploadMinLevel || 'warning')} + 关键健康摘要 · ${escHtml(target)} · ${escHtml(categories)}<br>详细诊断：${uploadEnabled && policy.infoExpiresAt > Date.now() ? '上传至 ' + escHtml(formatClientLogTimestamp(policy.infoExpiresAt)) : '未开启或已到期（不影响基础诊断）'}`
+    : expired
+    ? `当前：已过期 · 到期 ${escHtml(new Date(expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }))} 北京时间。原授权已停止上传，保存新策略前不会自动延期。`
     : uploadEnabled
-    ? `当前：已开启 · 等级 ${escHtml(policy.uploadMinLevel || 'error')} · ${escHtml(target)} · ${escHtml(categories)} · 过期 ${escHtml(expiresAt ? new Date(expiresAt).toLocaleString('zh-CN') : '未设置')}`
+    ? `旧版授权：已开启 · 等级 ${escHtml(policy.uploadMinLevel || 'error')} · ${escHtml(target)} · ${escHtml(categories)} · ${escHtml(expiresAt ? '上传至 ' + formatClientLogTimestamp(expiresAt) : '未设置到期')}。保存新策略后才切换为长期基础诊断。`
     : '当前：云端日志上传关闭。孩子端仍会按默认策略在本地保留 warning/error。';
+  const detail = document.getElementById('client-log-policy-detail');
+  if (detail) detail.checked = uploadEnabled && !expired && policy.policyVersion === 2 && policy.infoExpiresAt > Date.now();
+  const ttl = document.getElementById('client-log-policy-ttl');
+  if (ttl) {
+    ttl.disabled = !detail?.checked;
+    const remainingDays = Math.max(0, (Number(policy.infoExpiresAt) - Date.now()) / 86400000);
+    ttl.value = String((detail?.checked ? [1, 3, 7, 30].find(days => days >= remainingDays) || 30 : 1) * 86400000);
+  }
+  const level = document.getElementById('client-log-policy-level');
+  if (level) level.value = policy.uploadMinLevel === 'error' ? 'error' : 'warning';
+  const device = document.getElementById('client-log-policy-device');
+  if (device) device.value = policy.targetDeviceIds?.length === 1 ? policy.targetDeviceIds[0] : '';
+  const category = document.getElementById('client-log-policy-category');
+  if (category) category.value = policy.uploadCategories?.length === 1 ? policy.uploadCategories[0] : '';
 }
 
 async function saveClientLoggingPolicy(enabled) {
@@ -6995,18 +7033,22 @@ async function saveClientLoggingPolicy(enabled) {
   const deviceId = document.getElementById('client-log-policy-device')?.value || '';
   const level = document.getElementById('client-log-policy-level')?.value || 'error';
   const category = document.getElementById('client-log-policy-category')?.value || '';
-  const ttlMs = Number(document.getElementById('client-log-policy-ttl')?.value || 3600000);
+  const ttlMs = Number(document.getElementById('client-log-policy-ttl')?.value || 86400000);
+  const detailed = document.getElementById('client-log-policy-detail')?.checked === true;
   const nextPolicy = enabled ? {
+    policyVersion: 2,
     localEnabled: true,
-    localMinLevel: level === 'info' ? 'info' : 'warning',
+    localMinLevel: 'warning',
     uploadEnabled: true,
     uploadMinLevel: level,
     categories: category ? [category] : [],
     uploadCategories: category ? [category] : [],
     targetDeviceIds: deviceId ? [deviceId] : [],
     sampleRate: 1,
-    retentionDays: 7,
-    expiresAt: Date.now() + Math.max(60000, ttlMs),
+    retentionDays: 3,
+    expiresAt: null,
+    infoExpiresAt: detailed ? Date.now() + Math.min(30 * 86400000, Math.max(86400000, ttlMs)) : null,
+    quotaAuditRequest: remoteConfig.clientLoggingPolicyV1?.quotaAuditRequest || null,
   } : {
     ...(remoteConfig.clientLoggingPolicyV1 || {}),
     uploadEnabled: false,
@@ -7014,6 +7056,8 @@ async function saveClientLoggingPolicy(enabled) {
     uploadCategories: [],
     targetDeviceIds: [],
     expiresAt: null,
+    infoExpiresAt: null,
+    quotaAuditRequest: null,
   };
   try {
     await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: { clientLoggingPolicyV1: nextPolicy } });
@@ -7024,6 +7068,43 @@ async function saveClientLoggingPolicy(enabled) {
   } catch (e) {
     toast('保存日志策略失败：' + e.message, false);
   }
+}
+
+async function requestQuotaAudit() {
+  const deviceId = document.getElementById('quota-audit-device').value;
+  const fromDate = document.getElementById('quota-audit-from').value;
+  const toDate = document.getElementById('quota-audit-to').value;
+  const span = Date.parse(toDate) - Date.parse(fromDate);
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  if (!deviceId || !Number.isFinite(span) || span < 0 || span > 6 * 86400000 || toDate > today) return toast('请选择终端和不超过 7 个自然日的日期范围', false);
+  const policy = remoteConfig?.clientLoggingPolicyV1 || {};
+  if (!policy.uploadEnabled || (policy.expiresAt && policy.expiresAt <= Date.now()) || (policy.targetDeviceIds?.length && !policy.targetDeviceIds.includes(deviceId))) return toast('请先为所选终端开启日志上传授权', false);
+  const button = document.getElementById('quota-audit-start');
+  button.disabled = true;
+  const quotaAuditRequest = { requestId: crypto.randomUUID(), deviceId, fromDate, toDate, expiresAt: Date.now() + 86400000 };
+  try {
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: { clientLoggingPolicyV1: { ...policy, quotaAuditRequest } } });
+    remoteConfig = (await api(`/profiles/${currentProfileId}/config`)).data;
+    document.getElementById('quota-audit-result').textContent = `请求已保存，等待终端返回完整证据。有效至 ${formatClientLogTimestamp(quotaAuditRequest.expiresAt)}`;
+  } catch (error) { toast('取证请求失败：' + error.message, false); }
+  finally { button.disabled = false; }
+}
+
+async function refreshQuotaAudit() {
+  const request = remoteConfig?.clientLoggingPolicyV1?.quotaAuditRequest;
+  const el = document.getElementById('quota-audit-result');
+  if (!request) { el.textContent = '尚未请求取证。'; return; }
+  el.textContent = '正在校验批次和原始分段...';
+  try {
+    const params = new URLSearchParams({ requestId: request.requestId, deviceId: request.deviceId });
+    const result = await api(`/profiles/${currentProfileId}/quota-audit/v1?${params}`);
+    if (!result.complete) {
+      el.textContent = `证据不完整：${result.reason || '等待终端返回'}；已收到 ${result.receivedPackets ?? '未知'} 批。不能用于关闭差额问题。`;
+      return;
+    }
+    const table = `<div style="overflow-x:auto;max-width:100%;"><table style="width:100%;font-size:13px;white-space:nowrap;"><thead><tr>${['日期', '本地原始 Rest', '云端原始 Rest', '按 ID 合并 Rest', '本地桶汇总', '汇总减合并账'].map(t => `<th style="padding:8px;">${t}</th>`).join('')}</tr></thead><tbody>${result.days.map(d => `<tr>${[d.date, d.localRawRest, d.cloudRawRest, d.unionRawRest, d.present ? d.rest ?? '未知' : '未知', d.aggregateDelta ?? '未知'].map(v => `<td style="padding:8px;text-align:center;">${escHtml(String(v))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    el.innerHTML = `<p>快照传输完整、校验通过；截止 ${escHtml(formatClientLogTimestamp(result.snapshot.cutoff))}。下表单位：秒。</p>${table}<p>本地独有 ${result.localOnly.length} 段；云端独有 ${result.cloudOnly.length} 段；同 ID 冲突 ${result.conflicts.length} 段；待确认 ${result.pendingIds.length} 个 ID。</p><p>传输完整不代表差额已解释。云端独有可能是本地已清理的上传副本；有冲突时合并秒数仅作定位，不作真实配额依据。</p><details><summary>分段及上传确认明细</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;">${escHtml(JSON.stringify(result, null, 2))}</pre></details>`;
+  } catch (error) { el.textContent = '取证读取失败：' + error.message; }
 }
 
 async function fetchCloudClientLogs({ range, cursor = null }) {
@@ -7092,6 +7173,7 @@ async function renderCloudClientLogsPage({ reset = true } = {}) {
   await ensureCloudDevices();
   renderCloudDeviceOptions('client-log-device-input');
   renderCloudDeviceOptions('client-log-policy-device');
+  renderCloudDeviceOptions('quota-audit-device');
   renderCloudDeviceOptions('cloud-export-device');
   renderClientLogPolicySummary();
   if (reset) {

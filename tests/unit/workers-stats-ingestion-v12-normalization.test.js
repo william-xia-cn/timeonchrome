@@ -50,6 +50,18 @@ function ingestRows(rows, normalizeHostname) {
   return inserted;
 }
 
+function loadValidateSegment(source) {
+  const channels = source.match(/const VALID_CHANNELS = new Set\([^;]+;/)?.[0];
+  const modes = source.match(/const VALID_MODES = new Set\([^;]+;/)?.[0];
+  const validator = source.match(/function validateSegment\(s: any\): string \| null \{[\s\S]*?\n\}/)?.[0]
+    ?.replace('function validateSegment(s: any): string | null', 'function validateSegment(s)');
+  if (!channels || !modes || !validator) throw new Error('Unable to load validateSegment from stats.ts');
+  const context = { Set, Number, this: null };
+  context.this = context;
+  vm.runInNewContext(`${channels}\n${modes}\n${validator}\nthis.__validateSegment = validateSegment;`, context, { filename: 'stats.ts#validateSegment' });
+  return context.__validateSegment;
+}
+
 function run() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'stats.ts'), 'utf8');
   const migration008 = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'migrations', '008_media_segments_v1.sql'), 'utf8');
@@ -66,6 +78,7 @@ function run() {
   const clientLogsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'clientLogs.ts'), 'utf8');
   const exportSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'export.ts'), 'utf8');
   const normalizeHostname = loadNormalizeHostname();
+  const validateSegment = loadValidateSegment(source);
 
   expectTrue('stats.ts 应复用 v1.2 normalizeHostname', source.includes("import { normalizeHostname } from '../../../extension/core/domain-semantics.js';"));
   const authSource = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'auth.ts'), 'utf8');
@@ -177,18 +190,19 @@ function run() {
   expectTrue('usage-segments/v1 应校验 profile ownership', source.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?'));
   expectTrue('usage-segments/v1 应校验 device ownership', source.includes('function verifyProfileDevice') && source.includes('SELECT id FROM devices WHERE id = ? AND profile_id = ?'));
   expectTrue('usage-segments/v1 应支持按终端过滤并返回 deviceId', source.includes('device_id = ?') && source.includes('SELECT id, device_id, date') && source.includes('deviceId: row.device_id'));
-  expectTrue('usage-segments/v1 应保存并返回 tab/window/description', source.includes('tab_id = excluded.tab_id') && source.includes('window_id = excluded.window_id') && source.includes('description_json = excluded.description_json') && source.includes('tabId: row.tab_id') && source.includes('windowId: row.window_id') && source.includes('description: parseJsonField(row.description_json)'));
-  expectTrue('usage-segments/v1 应保存并返回 managedTarget 快照', source.includes('managed_target_id = excluded.managed_target_id') && source.includes('quota_bucket_at_time = excluded.quota_bucket_at_time') && source.includes('managedTargetId: row.managed_target_id') && source.includes('quotaBucketAtTime: row.quota_bucket_at_time'));
+  expectTrue('usage-segments/v1 应保存并返回 tab/window/description', source.includes('tab_id, window_id, description_json') && source.includes('tabId: row.tab_id') && source.includes('windowId: row.window_id') && source.includes('description: parseJsonField(row.description_json)'));
+  expectTrue('usage-segments/v1 应保存并返回 managedTarget 快照', source.includes('managed_target_id, managed_target_type, managed_target_namespace') && source.includes('target_classification_at_time, quota_bucket_at_time') && source.includes('managedTargetId: row.managed_target_id') && source.includes('quotaBucketAtTime: row.quota_bucket_at_time'));
   expectTrue('usage-segments/v1 应按 start_ms DESC, id DESC 倒序', source.includes('ORDER BY start_ms DESC, id DESC'));
   expectTrue('usage-segments/v1 应支持 keyset cursor', source.includes('decodeSegmentCursor') && source.includes('nextCursor'));
   expectTrue('usage-segments/v1 应返回 summary 聚合', source.includes('totalSeconds') && source.includes('activeSeconds') && source.includes('mediaSeconds'));
   expectTrue('stats-reconciliation/v1 应同时查询 stats_v1 与 usage_segments_v1', source.includes('FROM stats_v1') && source.includes('FROM usage_segments_v1'));
   expectTrue('stats-reconciliation/v1 应返回四类状态', source.includes('stats_missing') && source.includes('segments_missing') && source.includes('mismatch') && source.includes('match'));
   expectTrue('stats-reconciliation/v1 应返回 deltaSeconds', source.includes('deltaSeconds: segmentSeconds - statsSeconds'));
-  expectTrue('stats.ts 应在 usage_segments_v1 表中使用 ON CONFLICT/upsert 语义', source.includes('usage_segments_v1'));
+  expectTrue('stats.ts 应将 usage_segments_v1 作为不可变事实写入', source.includes('FROM usage_segments_v1 WHERE id IN') && source.includes('ON CONFLICT(id) DO NOTHING'));
   expectTrue('usage/media segment 应使用 D1 batch 原子写入', (source.match(/await env\.DB\.batch\(statements\)/g) || []).length >= 2);
-  expectTrue('usage/media segment 应以 ID 幂等 upsert', (source.match(/ON CONFLICT\(id\) DO UPDATE SET/g) || []).length >= 2);
-  expectTrue('segment 成功响应应返回逐项 acceptedIds', source.includes('acceptedIds') && source.includes('rejected: []'));
+  expectTrue('media segment 保持原 ID upsert，usage segment 使用不可变冲突保护', source.includes('ON CONFLICT(id) DO UPDATE SET') && source.includes('ON CONFLICT(id) DO NOTHING'));
+  expectTrue('usage segment 成功响应应返回逐项 id+contentHash 并兼容 acceptedIds', source.includes('acceptedIds') && source.includes('accepted,') && source.includes('contentHash: item.contentHash'));
+  expectTrue('usage segment 应独立复算请求与持久行摘要', source.includes('hashUsageSegmentContent(normalizedContent)') && source.includes('hashUsageSegmentContent({') && source.includes("code: 'SEGMENT_CONTENT_CONFLICT'"));
   expectTrue('segment 批次应先完整校验再写入', source.includes('SEGMENT_BATCH_REJECTED') && source.includes('segment batch exceeds 200 items'));
   expectTrue('stats.ts 应在 stats_v1 表中使用 UNIQUE 约束 upsert', source.includes('stats_v1'));
   expectTrue('stats.ts 应写入 segment_upload_log', source.includes('segment_upload_log'));
@@ -209,6 +223,37 @@ function run() {
     'usage-segments/v1 仍应拒绝非有限 durationSeconds',
     source.includes("!Number.isFinite(s.durationSeconds)")
   );
+  const validUsageSegment = {
+    id: 'segment-zero',
+    date: '2026-09-12',
+    startMs: 1000,
+    endMs: 1000,
+    durationSeconds: 0,
+    domain: 'example.com',
+    channel: 'active',
+    mode: 'study',
+  };
+  expectEqual('usage-segments/v1 应接受同起止零秒诊断事实', validateSegment(validUsageSegment), null);
+  expectEqual(
+    'usage-segments/v1 应拒绝同起止却声明正时长',
+    validateSegment({ ...validUsageSegment, durationSeconds: 1 }),
+    'segment.durationSeconds must be 0 when endMs equals startMs'
+  );
+  expectEqual(
+    'usage-segments/v1 应拒绝反向时段',
+    validateSegment({ ...validUsageSegment, startMs: 1001, endMs: 1000 }),
+    'segment.endMs must be >= startMs'
+  );
+  expectEqual(
+    'usage-segments/v1 应继续接受正时段亚秒零整秒事实',
+    validateSegment({ ...validUsageSegment, endMs: 1500 }),
+    null
+  );
+  const mixedBatch = [
+    validUsageSegment,
+    { ...validUsageSegment, id: 'segment-positive', endMs: 2000, durationSeconds: 1 },
+  ];
+  expectEqual('合法零秒事实不得使混合批次产生校验拒绝', mixedBatch.filter(validateSegment).length, 0);
 
   // Phase 3C-R: Contract — Worker accepts terminal buildDailyStatsUploadPayload shape
   expectTrue('stats.ts stats/v1 应接受嵌套的 activeByMode', source.includes("activeByMode"));

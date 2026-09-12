@@ -130,9 +130,9 @@ async function cleanupDeviceAccessAudit(env: Env, profileId: string | null, devi
   if (profileId && deviceId) {
     await env.DB.prepare(
       `DELETE FROM device_access_audit_v1
-       WHERE profile_id = ? AND device_id = ? AND id NOT IN (
+       WHERE profile_id = ? AND device_id = ? AND status < 400 AND id NOT IN (
          SELECT id FROM device_access_audit_v1
-         WHERE profile_id = ? AND device_id = ?
+         WHERE profile_id = ? AND device_id = ? AND status < 400
          ORDER BY timestamp DESC
          LIMIT 1000
        )`

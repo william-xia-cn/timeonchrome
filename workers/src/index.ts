@@ -5,6 +5,8 @@ import { authRouter } from './routes/auth';
 import { profilesRouter } from './routes/profiles';
 import { deviceRouter } from './routes/device';
 import { statsRouter } from './routes/stats';
+import { deviceAccountsV2Router } from './routes/deviceAccountsV2';
+import { profileAccountsV2Router } from './routes/profileAccountsV2';
 import { sessionsRouter } from './routes/sessions';
 import { changelogRouter } from './routes/changelog';
 import { eventsRouter } from './routes/events';
@@ -140,11 +142,13 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
     return await statsRouter.handle(request, env, ctx);
   } else if (path.match(/^\/profiles\/[^/]+\/device-access-audit\/v1$/)) {
     return await handleDeviceAccessAuditQuery(request, env);
+  } else if (path.match(/^\/profiles\/[^/]+\/accounts\/v2\/(snapshot|reconciliations)$/)) {
+    return await profileAccountsV2Router.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/export\/v1/)) {
     return await exportRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/restore\/v1/)) {
     return await restoreRouter.handle(request, env);
-  } else if (path.match(/^\/profiles\/[^/]+\/client-logs/)) {
+  } else if (path.match(/^\/profiles\/[^/]+\/(client-logs|quota-audit)/)) {
     return await clientLogsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/used-unclassified-sites\/v1/)) {
     return await siteClassificationRequestsRouter.handle(request, env);
@@ -166,6 +170,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
     return await siteClassificationRequestsRouter.handle(request, env);
   } else if (path === '/device/client-logs/v1') {
     return await clientLogsRouter.handle(request, env);
+  } else if (path.startsWith('/device/accounts/v2/')) {
+    return await deviceAccountsV2Router.handle(request, env);
   } else if (DEVICE_STATS_ROUTES.has(path)) {
     // Stats Foundation v1 endpoints (device_token auth)
     return await statsRouter.handle(request, env, ctx);

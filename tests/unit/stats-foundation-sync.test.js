@@ -86,7 +86,10 @@ const usageApi = loadModule('core/usage-segments.js', [
   'rebuildHourlyUsageStats',
   'clearSegmentSyncOutbox', 'clearStatsSyncOutbox', 'clearHourlyStatsSyncOutbox',
   'clearTargetStatsSyncOutbox', 'clearHourlyTargetStatsSyncOutbox',
-]);
+], {
+  hashUsageSegmentContent: async () => 'a'.repeat(64),
+  isUsageSegmentContentHash: (value) => /^[a-f0-9]{64}$/.test(String(value || '')),
+});
 
 // ── TB1: Full segment upload pipeline (settle → outbox → payload → mock upload → outbox cleared) ──
 sec('TB1: Segment upload pipeline');

@@ -220,10 +220,10 @@ function run() {
   expectTrue('Pages 系统日志应支持终端/等级/类别筛选', source.includes('client-log-device-input') && source.includes('client-log-level-input') && source.includes('client-log-category-input'));
   expectTrue('Pages 系统日志应支持远程诊断策略和 TTL', source.includes('clientLoggingPolicyV1') && source.includes('client-log-policy-ttl') && source.includes('expiresAt'));
   expectTrue('Pages 系统日志时间应默认显示北京时间并保留 UTC title', source.includes('function formatClientLogTimestamp') && source.includes('formatUtcSettlementTime(row.timestamp)'));
-  expectTrue('Pages 日志上传 TTL 应为 1/3/7 天', source.includes('value="86400000">1 天') && source.includes('value="259200000">3 天') && source.includes('value="604800000">7 天'));
+  expectTrue('Pages 详细日志上传 TTL 应为 1/3/7/30 天', source.includes('value="86400000">1 天') && source.includes('value="259200000">3 天') && source.includes('value="604800000">7 天') && source.includes('value="2592000000">30 天'));
   expectTrue('Pages 日志上传 TTL 不应保留小时级选项', !source.includes('value="3600000">1 小时') && !source.includes('value="21600000">6 小时') && !source.includes('value="86400000">24 小时'));
   const renderClientLogPolicySummarySource = extractFunctionSource(source, 'renderClientLogPolicySummary');
-  expectTrue('Pages 日志策略摘要应识别 TTL 已过期并显示默认不上传', renderClientLogPolicySummarySource.includes('expiresAt <= Date.now()') && renderClientLogPolicySummarySource.includes('当前：已过期') && renderClientLogPolicySummarySource.includes('默认不上传策略'));
+  expectTrue('Pages 旧日志授权到期后停止上传且不自动延期', renderClientLogPolicySummarySource.includes('expiresAt <= Date.now()') && renderClientLogPolicySummarySource.includes('当前：已过期') && renderClientLogPolicySummarySource.includes('保存新策略前不会自动延期'));
   const saveClientLoggingPolicySource = extractFunctionSource(source, 'saveClientLoggingPolicy');
   expectTrue('Pages 日志策略保存应只提交 clientLoggingPolicyV1', saveClientLoggingPolicySource.includes("{ data: { clientLoggingPolicyV1: nextPolicy } }"));
   expectTrue('Pages 日志策略保存不应提交完整 remoteConfig', !saveClientLoggingPolicySource.includes('{ data: remoteConfig }') && !saveClientLoggingPolicySource.includes('remoteConfig.clientLoggingPolicyV1 = nextPolicy'));

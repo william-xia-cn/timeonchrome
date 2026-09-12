@@ -1,5 +1,6 @@
 // Profiles 路由 - 孩子 Profile CRUD
 import { json, Env, verifyAccountToken } from '../db/middleware';
+import { validateQuotaAuditRequest } from '../../../extension/core/quota-audit.js';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
@@ -653,6 +654,27 @@ export const profilesRouter = {
         ]);
 
         const incomingConfig = data as Record<string, unknown>;
+        const loggingPolicy = incomingConfig.clientLoggingPolicyV1 as any;
+        if (loggingPolicy?.policyVersion === 2 &&
+            (!['warning', 'error'].includes(loggingPolicy.uploadMinLevel) ||
+             (loggingPolicy.infoExpiresAt != null && (!Number.isFinite(loggingPolicy.infoExpiresAt) || loggingPolicy.infoExpiresAt > Date.now() + 30 * 86400000)))) {
+          return json({ error: 'Invalid layered logging policy', code: 'INVALID_LOGGING_POLICY' }, 400);
+        }
+        const auditRequest = loggingPolicy?.quotaAuditRequest;
+        const previousRequest = (mergedConfig.clientLoggingPolicyV1 as any)?.quotaAuditRequest;
+        if (auditRequest && JSON.stringify(auditRequest) !== JSON.stringify(previousRequest)) {
+          if (auditRequest.requestId === previousRequest?.requestId) {
+            return json({ error: 'An audit request ID is immutable; create a new request', code: 'IMMUTABLE_AUDIT_REQUEST' }, 400);
+          }
+          if (!validateQuotaAuditRequest(auditRequest) || !loggingPolicy.uploadEnabled ||
+              (loggingPolicy.expiresAt && loggingPolicy.expiresAt <= Date.now()) ||
+              (loggingPolicy.targetDeviceIds?.length && !loggingPolicy.targetDeviceIds.includes(auditRequest.deviceId))) {
+            return json({ error: 'Invalid or unauthorized quota audit request', code: 'INVALID_QUOTA_AUDIT_REQUEST' }, 400);
+          }
+          const auditDevice = await env.DB.prepare('SELECT id FROM devices WHERE id = ? AND profile_id = ?')
+            .bind(auditRequest.deviceId, profileId).first();
+          if (!auditDevice) return json({ error: 'Audit device not found' }, 404);
+        }
         const shouldValidateSiteAccess = Object.keys(incomingConfig).some((key) => SITE_ACCESS_CONFIG_KEYS.has(key));
         const incomingQuotaValidationError = validateTimeQuota(incomingConfig);
         if (incomingQuotaValidationError) {

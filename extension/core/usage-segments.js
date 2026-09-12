@@ -14,6 +14,7 @@
 
 import { evaluateSuspectSegment } from './suspect-segments.js';
 import { sanitizeIncognitoForPersistence } from './incognito-persistence.js';
+import { hashUsageSegmentContent, isUsageSegmentContentHash } from './usage-segment-integrity.js';
 import { budgetedLocalSet, runStorageMutation } from '../infra/storage-budget.js';
 
 const sanitizePersistence = typeof sanitizeIncognitoForPersistence === 'function'
@@ -993,6 +994,18 @@ export async function markSuspectUsageSegments({ dryRun = true } = {}) {
 
 // ── 出站标记 ────────────────────────────────────────────────────────────────────
 
+function getOutboxRevision(outbox, key) {
+  const value = Number(outbox?.revisions?.[key] || 0);
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function bumpOutboxRevisions(outbox, values) {
+  if (!outbox.revisions || typeof outbox.revisions !== 'object') outbox.revisions = {};
+  for (const value of [...new Set(Array.isArray(values) ? values : [values])].filter(Boolean)) {
+    outbox.revisions[value] = getOutboxRevision(outbox, value) + 1;
+  }
+}
+
 /**
  * 将 segment IDs 标记为在同步出站中脏。
  */
@@ -1021,15 +1034,13 @@ export async function markStatsSyncDirty(dates) {
   const dateList = Array.isArray(dates) ? dates : [dates];
   const validDates = dateList.filter(d => d && typeof d === 'string');
   if (validDates.length === 0) return;
-
-  const data = await chrome.storage.local.get(STATS_OUTBOX_KEY);
-  const outbox = data[STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
-  const dirtySet = new Set(outbox.dirtyDates);
-
-  for (const d of validDates) dirtySet.add(d);
-
-  outbox.dirtyDates = [...dirtySet];
-  await localStorageSet({ [STATS_OUTBOX_KEY]: outbox });
+  return runUsageStorageMutation(async (storage) => {
+    const data = await storage.get(STATS_OUTBOX_KEY);
+    const outbox = data[STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+    outbox.dirtyDates = addUniqueValues(outbox.dirtyDates, validDates);
+    bumpOutboxRevisions(outbox, validDates);
+    await storage.set({ [STATS_OUTBOX_KEY]: outbox }, { priority: 'sync', source: 'daily_stats_dirty' });
+  }, { priority: 'sync', source: 'daily_stats_dirty' });
 }
 
 export async function markTargetStatsSyncDirty(dates) {
@@ -1037,14 +1048,13 @@ export async function markTargetStatsSyncDirty(dates) {
   const validDates = dateList.filter(d => d && typeof d === 'string');
   if (validDates.length === 0) return;
 
-  const data = await chrome.storage.local.get(TARGET_STATS_OUTBOX_KEY);
-  const outbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
-  const dirtySet = new Set(outbox.dirtyDates || []);
-
-  for (const d of validDates) dirtySet.add(d);
-
-  outbox.dirtyDates = [...dirtySet];
-  await localStorageSet({ [TARGET_STATS_OUTBOX_KEY]: outbox });
+  return runUsageStorageMutation(async (storage) => {
+    const data = await storage.get(TARGET_STATS_OUTBOX_KEY);
+    const outbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
+    outbox.dirtyDates = addUniqueValues(outbox.dirtyDates, validDates);
+    bumpOutboxRevisions(outbox, validDates);
+    await storage.set({ [TARGET_STATS_OUTBOX_KEY]: outbox }, { priority: 'sync', source: 'target_stats_dirty' });
+  }, { priority: 'sync', source: 'target_stats_dirty' });
 }
 
 export async function markHourlyStatsSyncDirty(hourKeys) {
@@ -1052,14 +1062,13 @@ export async function markHourlyStatsSyncDirty(hourKeys) {
   const validHourKeys = hourKeyList.filter((key) => key && typeof key === 'string');
   if (validHourKeys.length === 0) return;
 
-  const data = await chrome.storage.local.get(HOURLY_STATS_OUTBOX_KEY);
-  const outbox = data[HOURLY_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
-  const dirtySet = new Set(outbox.dirtyHourKeys || []);
-
-  for (const key of validHourKeys) dirtySet.add(key);
-
-  outbox.dirtyHourKeys = [...dirtySet];
-  await localStorageSet({ [HOURLY_STATS_OUTBOX_KEY]: outbox });
+  return runUsageStorageMutation(async (storage) => {
+    const data = await storage.get(HOURLY_STATS_OUTBOX_KEY);
+    const outbox = data[HOURLY_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
+    outbox.dirtyHourKeys = addUniqueValues(outbox.dirtyHourKeys, validHourKeys);
+    bumpOutboxRevisions(outbox, validHourKeys);
+    await storage.set({ [HOURLY_STATS_OUTBOX_KEY]: outbox }, { priority: 'sync', source: 'hourly_stats_dirty' });
+  }, { priority: 'sync', source: 'hourly_stats_dirty' });
 }
 
 export async function markHourlyTargetStatsSyncDirty(hourKeys) {
@@ -1067,14 +1076,13 @@ export async function markHourlyTargetStatsSyncDirty(hourKeys) {
   const validHourKeys = hourKeyList.filter((key) => key && typeof key === 'string');
   if (validHourKeys.length === 0) return;
 
-  const data = await chrome.storage.local.get(HOURLY_TARGET_STATS_OUTBOX_KEY);
-  const outbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
-  const dirtySet = new Set(outbox.dirtyHourKeys || []);
-
-  for (const key of validHourKeys) dirtySet.add(key);
-
-  outbox.dirtyHourKeys = [...dirtySet];
-  await localStorageSet({ [HOURLY_TARGET_STATS_OUTBOX_KEY]: outbox });
+  return runUsageStorageMutation(async (storage) => {
+    const data = await storage.get(HOURLY_TARGET_STATS_OUTBOX_KEY);
+    const outbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
+    outbox.dirtyHourKeys = addUniqueValues(outbox.dirtyHourKeys, validHourKeys);
+    bumpOutboxRevisions(outbox, validHourKeys);
+    await storage.set({ [HOURLY_TARGET_STATS_OUTBOX_KEY]: outbox }, { priority: 'sync', source: 'hourly_target_stats_dirty' });
+  }, { priority: 'sync', source: 'hourly_target_stats_dirty' });
 }
 
 /**
@@ -1088,25 +1096,25 @@ export async function clearSegmentSyncOutbox() {
 
 export async function clearStatsSyncOutbox() {
   await localStorageSet({
-    [STATS_OUTBOX_KEY]: { dirtyDates: [], retryCounts: {}, lastErrors: {} },
+    [STATS_OUTBOX_KEY]: { dirtyDates: [], retryCounts: {}, lastErrors: {}, revisions: {} },
   });
 }
 
 export async function clearHourlyStatsSyncOutbox() {
   await localStorageSet({
-    [HOURLY_STATS_OUTBOX_KEY]: { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} },
+    [HOURLY_STATS_OUTBOX_KEY]: { dirtyHourKeys: [], retryCounts: {}, lastErrors: {}, revisions: {} },
   });
 }
 
 export async function clearTargetStatsSyncOutbox() {
   await localStorageSet({
-    [TARGET_STATS_OUTBOX_KEY]: { dirtyDates: [], retryCounts: {}, lastErrors: {} },
+    [TARGET_STATS_OUTBOX_KEY]: { dirtyDates: [], retryCounts: {}, lastErrors: {}, revisions: {} },
   });
 }
 
 export async function clearHourlyTargetStatsSyncOutbox() {
   await localStorageSet({
-    [HOURLY_TARGET_STATS_OUTBOX_KEY]: { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} },
+    [HOURLY_TARGET_STATS_OUTBOX_KEY]: { dirtyHourKeys: [], retryCounts: {}, lastErrors: {}, revisions: {} },
   });
 }
 
@@ -1158,6 +1166,7 @@ export async function getPendingDailyStats(dates = null) {
     pendingCount: (outbox.dirtyDates || []).length,
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
+    revisions: outbox.revisions || {},
   };
 }
 
@@ -1183,6 +1192,7 @@ export async function getPendingTargetStats(dates = null) {
     pendingCount: (outbox.dirtyDates || []).length,
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
+    revisions: outbox.revisions || {},
   };
 }
 
@@ -1295,6 +1305,7 @@ export async function getPendingHourlyStats(hourKeys = null) {
     dirtyHourKeys: [...new Set(outbox.dirtyHourKeys || [])],
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
+    revisions: outbox.revisions || {},
   };
 }
 
@@ -1320,6 +1331,7 @@ export async function getPendingHourlyTargetStats(hourKeys = null) {
     dirtyHourKeys: [...new Set(outbox.dirtyHourKeys || [])],
     retryCounts: outbox.retryCounts || {},
     lastErrors: outbox.lastErrors || {},
+    revisions: outbox.revisions || {},
   };
 }
 
@@ -1358,6 +1370,39 @@ export async function markUsageSegmentsUploaded(segmentIds, uploadedAt = Date.no
   }, { priority: 'ledger_ack', source: 'usage_segment_upload_ack' });
 }
 
+export async function markUsageSegmentsUploadedByContentHash(acceptedSegments, uploadedAt = Date.now()) {
+  const accepted = (Array.isArray(acceptedSegments) ? acceptedSegments : [])
+    .filter((item) => item && typeof item.id === 'string' && isUsageSegmentContentHash(item.contentHash));
+  if (accepted.length === 0) return 0;
+  return runUsageStorageMutation(async (storage) => {
+    const data = await storage.get([USAGE_SEGMENTS_KEY, SEGMENT_OUTBOX_KEY]);
+    const allSegments = data[USAGE_SEGMENTS_KEY] || {};
+    const outbox = data[SEGMENT_OUTBOX_KEY] || { dirtySegmentIds: [], retryCounts: {}, lastErrors: {} };
+    const acceptedIds = new Set();
+    for (const item of accepted) {
+      const current = sanitizePersistence(allSegments[item.id]);
+      if (!current) continue;
+      const currentHash = await hashUsageSegmentContent(current);
+      if (currentHash !== item.contentHash) continue;
+      allSegments[item.id] = { ...allSegments[item.id], uploadedAt, updatedAt: Date.now() };
+      acceptedIds.add(item.id);
+    }
+    if (acceptedIds.size === 0) return 0;
+    outbox.dirtySegmentIds = (outbox.dirtySegmentIds || []).filter((id) => !acceptedIds.has(id));
+    if (!outbox.retryCounts || typeof outbox.retryCounts !== 'object') outbox.retryCounts = {};
+    if (!outbox.lastErrors || typeof outbox.lastErrors !== 'object') outbox.lastErrors = {};
+    for (const id of acceptedIds) {
+      delete outbox.retryCounts[id];
+      delete outbox.lastErrors[id];
+    }
+    await storage.set({
+      [USAGE_SEGMENTS_KEY]: allSegments,
+      [SEGMENT_OUTBOX_KEY]: outbox,
+    }, { priority: 'ledger_ack', source: 'usage_segment_content_ack' });
+    return acceptedIds.size;
+  }, { priority: 'ledger_ack', source: 'usage_segment_content_ack' });
+}
+
 async function mutateUploadFailure(outboxKey, listKey, values, error) {
   const entries = [...new Set(Array.isArray(values) ? values : [values])].filter(Boolean);
   if (entries.length === 0) return;
@@ -1378,14 +1423,17 @@ async function mutateUploadFailure(outboxKey, listKey, values, error) {
   }, { priority: 'sync', source: 'usage_upload_failure' });
 }
 
-async function markAggregateUploaded(statsKey, outboxKey, listKey, values, uploadedAt) {
+async function markAggregateUploaded(statsKey, outboxKey, listKey, values, uploadedAt, expectedRevisions = null) {
   const entries = [...new Set(Array.isArray(values) ? values : [values])].filter(Boolean);
   if (entries.length === 0) return;
   return runUsageStorageMutation(async (storage) => {
     const data = await storage.get([statsKey, outboxKey]);
     const stats = data[statsKey] || {};
     const outbox = data[outboxKey] || { [listKey]: [], retryCounts: {}, lastErrors: {} };
-    const uploadedSet = new Set(entries);
+    const uploadedSet = new Set(entries.filter((value) =>
+      !expectedRevisions || getOutboxRevision(outbox, value) === Number(expectedRevisions[value] || 0)
+    ));
+    if (uploadedSet.size === 0) return 0;
     for (const value of uploadedSet) {
       if (stats[value]) stats[value] = { ...stats[value], uploadedAt, lastUploadedAt: uploadedAt };
     }
@@ -1395,11 +1443,13 @@ async function markAggregateUploaded(statsKey, outboxKey, listKey, values, uploa
     for (const value of uploadedSet) {
       delete outbox.retryCounts[value];
       delete outbox.lastErrors[value];
+      delete outbox.revisions?.[value];
     }
     await storage.set({ [statsKey]: stats, [outboxKey]: outbox }, {
       priority: 'ledger_ack',
       source: 'usage_aggregate_upload_ack',
     });
+    return uploadedSet.size;
   }, { priority: 'ledger_ack', source: 'usage_aggregate_upload_ack' });
 }
 
@@ -1407,20 +1457,20 @@ export async function markUsageSegmentUploadFailed(segmentIds, error = 'unknown_
   return mutateUploadFailure(SEGMENT_OUTBOX_KEY, 'dirtySegmentIds', segmentIds, error);
 }
 
-export async function markDailyStatsUploaded(dates, uploadedAt = Date.now()) {
-  return markAggregateUploaded(DAILY_STATS_KEY, STATS_OUTBOX_KEY, 'dirtyDates', dates, uploadedAt);
+export async function markDailyStatsUploaded(dates, uploadedAt = Date.now(), expectedRevisions = null) {
+  return markAggregateUploaded(DAILY_STATS_KEY, STATS_OUTBOX_KEY, 'dirtyDates', dates, uploadedAt, expectedRevisions);
 }
 
-export async function markHourlyStatsUploaded(hourKeys, uploadedAt = Date.now()) {
-  return markAggregateUploaded(HOURLY_STATS_KEY, HOURLY_STATS_OUTBOX_KEY, 'dirtyHourKeys', hourKeys, uploadedAt);
+export async function markHourlyStatsUploaded(hourKeys, uploadedAt = Date.now(), expectedRevisions = null) {
+  return markAggregateUploaded(HOURLY_STATS_KEY, HOURLY_STATS_OUTBOX_KEY, 'dirtyHourKeys', hourKeys, uploadedAt, expectedRevisions);
 }
 
-export async function markTargetStatsUploaded(dates, uploadedAt = Date.now()) {
-  return markAggregateUploaded(DAILY_STATS_KEY, TARGET_STATS_OUTBOX_KEY, 'dirtyDates', dates, uploadedAt);
+export async function markTargetStatsUploaded(dates, uploadedAt = Date.now(), expectedRevisions = null) {
+  return markAggregateUploaded(DAILY_STATS_KEY, TARGET_STATS_OUTBOX_KEY, 'dirtyDates', dates, uploadedAt, expectedRevisions);
 }
 
-export async function markHourlyTargetStatsUploaded(hourKeys, uploadedAt = Date.now()) {
-  return markAggregateUploaded(HOURLY_STATS_KEY, HOURLY_TARGET_STATS_OUTBOX_KEY, 'dirtyHourKeys', hourKeys, uploadedAt);
+export async function markHourlyTargetStatsUploaded(hourKeys, uploadedAt = Date.now(), expectedRevisions = null) {
+  return markAggregateUploaded(HOURLY_STATS_KEY, HOURLY_TARGET_STATS_OUTBOX_KEY, 'dirtyHourKeys', hourKeys, uploadedAt, expectedRevisions);
 }
 
 export async function markDailyStatsUploadFailed(dates, error = 'unknown_error') {
@@ -1444,13 +1494,16 @@ function compactOutbox(outbox, listKey, exists) {
   const keptSet = new Set(kept);
   const retryCounts = {};
   const lastErrors = {};
+  const revisions = {};
   for (const id of kept) {
     const count = Number(outbox?.retryCounts?.[id] || 0);
     if (count > 0) retryCounts[id] = Math.min(MAX_STORED_RETRY_COUNT, Math.floor(count));
     if (outbox?.lastErrors?.[id]) lastErrors[id] = normalizeUploadErrorCode(outbox.lastErrors[id]);
+    const revision = getOutboxRevision(outbox, id);
+    if (revision > 0) revisions[id] = revision;
   }
   return {
-    value: { ...outbox, [listKey]: kept, retryCounts, lastErrors },
+    value: { ...outbox, [listKey]: kept, retryCounts, lastErrors, revisions },
     removed: original.length - kept.length
       + Object.keys(outbox?.retryCounts || {}).filter((id) => !keptSet.has(id)).length
       + Object.keys(outbox?.lastErrors || {}).filter((id) => !keptSet.has(id)).length,
@@ -1461,7 +1514,7 @@ function compactOutbox(outbox, listKey, exists) {
 export async function compactUsageSyncOutboxes(storageOptions = {}) {
   const storageSet = (items) => localStorageSet(items, storageOptions);
   const keys = [
-    USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY, DAILY_STATS_KEY, HOURLY_STATS_KEY,
+    USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY, DAILY_STATS_KEY, HOURLY_STATS_KEY, USAGE_COMPACTED_FACTS_KEY,
     SEGMENT_OUTBOX_KEY, STATS_OUTBOX_KEY, HOURLY_STATS_OUTBOX_KEY,
     TARGET_STATS_OUTBOX_KEY, HOURLY_TARGET_STATS_OUTBOX_KEY,
   ];
@@ -1572,12 +1625,18 @@ export async function pruneStatsSyncOutbox(retentionDays = DEFAULT_RETENTION_DAY
 
   // 并行清理重试元数据
   const prunedRetry = {};
+  const prunedRevisions = {};
   for (const [date, count] of Object.entries(outbox.retryCounts || {})) {
     if (new Date(date) >= cutoff) {
       prunedRetry[date] = count;
     }
   }
   outbox.retryCounts = prunedRetry;
+  for (const date of outbox.dirtyDates) {
+    const revision = getOutboxRevision(outbox, date);
+    if (revision > 0) prunedRevisions[date] = revision;
+  }
+  outbox.revisions = prunedRevisions;
 
   await localStorageSet({ [STATS_OUTBOX_KEY]: outbox });
 
@@ -1595,12 +1654,18 @@ export async function pruneTargetStatsSyncOutbox(retentionDays = DEFAULT_RETENTI
   outbox.dirtyDates = originalDates.filter(d => new Date(d) >= cutoff);
 
   const prunedRetry = {};
+  const prunedRevisions = {};
   for (const [date, count] of Object.entries(outbox.retryCounts || {})) {
     if (new Date(date) >= cutoff) {
       prunedRetry[date] = count;
     }
   }
   outbox.retryCounts = prunedRetry;
+  for (const date of outbox.dirtyDates) {
+    const revision = getOutboxRevision(outbox, date);
+    if (revision > 0) prunedRevisions[date] = revision;
+  }
+  outbox.revisions = prunedRevisions;
 
   await localStorageSet({ [TARGET_STATS_OUTBOX_KEY]: outbox });
 
@@ -1618,12 +1683,18 @@ export async function pruneHourlyStatsSyncOutbox(retentionDays = DEFAULT_RETENTI
   outbox.dirtyHourKeys = originalHourKeys.filter((key) => new Date(String(key).slice(0, 10)) >= cutoff);
 
   const prunedRetry = {};
+  const prunedRevisions = {};
   for (const [hourKey, count] of Object.entries(outbox.retryCounts || {})) {
     if (new Date(String(hourKey).slice(0, 10)) >= cutoff) {
       prunedRetry[hourKey] = count;
     }
   }
   outbox.retryCounts = prunedRetry;
+  for (const hourKey of outbox.dirtyHourKeys) {
+    const revision = getOutboxRevision(outbox, hourKey);
+    if (revision > 0) prunedRevisions[hourKey] = revision;
+  }
+  outbox.revisions = prunedRevisions;
 
   await localStorageSet({ [HOURLY_STATS_OUTBOX_KEY]: outbox });
   return originalHourKeys.length - outbox.dirtyHourKeys.length;
@@ -1640,12 +1711,18 @@ export async function pruneHourlyTargetStatsSyncOutbox(retentionDays = DEFAULT_R
   outbox.dirtyHourKeys = originalHourKeys.filter((key) => new Date(String(key).slice(0, 10)) >= cutoff);
 
   const prunedRetry = {};
+  const prunedRevisions = {};
   for (const [hourKey, count] of Object.entries(outbox.retryCounts || {})) {
     if (new Date(String(hourKey).slice(0, 10)) >= cutoff) {
       prunedRetry[hourKey] = count;
     }
   }
   outbox.retryCounts = prunedRetry;
+  for (const hourKey of outbox.dirtyHourKeys) {
+    const revision = getOutboxRevision(outbox, hourKey);
+    if (revision > 0) prunedRevisions[hourKey] = revision;
+  }
+  outbox.revisions = prunedRevisions;
 
   await localStorageSet({ [HOURLY_TARGET_STATS_OUTBOX_KEY]: outbox });
   return originalHourKeys.length - outbox.dirtyHourKeys.length;
@@ -1657,18 +1734,22 @@ export async function pruneHourlyTargetStatsSyncOutbox(retentionDays = DEFAULT_R
  * 构建 usage segments 的上传载荷。
  * 目标端点：POST /device/usage-segments/v1（未来）
  */
-export async function buildUsageSegmentsUploadPayload(segmentIds) {
+export async function buildUsageSegmentsUploadPayload(segmentIds, allSegmentsSnapshot = null) {
   const ids = Array.isArray(segmentIds) ? segmentIds : [segmentIds];
   if (ids.length === 0) return { schemaVersion: 1, segments: [] };
 
-  const data = await chrome.storage.local.get(USAGE_SEGMENTS_KEY);
-  const allSegments = data[USAGE_SEGMENTS_KEY] || {};
+  const data = allSegmentsSnapshot === null
+    ? await chrome.storage.local.get(USAGE_SEGMENTS_KEY)
+    : null;
+  const allSegments = allSegmentsSnapshot === null
+    ? (data[USAGE_SEGMENTS_KEY] || {})
+    : allSegmentsSnapshot;
 
   const segments = [];
   for (const id of ids) {
     const seg = sanitizePersistence(allSegments[id]);
     if (!seg) continue;
-    segments.push({
+    const uploadSegment = {
       id: seg.id,
       date: seg.date,
       timezone: seg.timezone,
@@ -1700,7 +1781,9 @@ export async function buildUsageSegmentsUploadPayload(segmentIds) {
       partCount: seg.partCount || 1,
       createdAt: seg.createdAt,
       updatedAt: seg.updatedAt,
-    });
+    };
+    uploadSegment.contentHash = await hashUsageSegmentContent(uploadSegment);
+    segments.push(uploadSegment);
   }
 
   return {
@@ -1713,9 +1796,11 @@ export async function buildUsageSegmentsUploadPayload(segmentIds) {
  * 构建每日统计的上传载荷。
  * 目标端点：POST /device/stats/v1（未来）
  */
-export async function buildDailyStatsUploadPayload(date) {
-  const data = await chrome.storage.local.get(DAILY_STATS_KEY);
-  const allStats = data[DAILY_STATS_KEY] || {};
+export async function buildDailyStatsUploadPayload(date, allStatsSnapshot = null) {
+  const data = allStatsSnapshot === null
+    ? await chrome.storage.local.get(DAILY_STATS_KEY)
+    : null;
+  const allStats = allStatsSnapshot === null ? (data[DAILY_STATS_KEY] || {}) : allStatsSnapshot;
   const dayStats = allStats[date];
 
   if (!dayStats || !dayStats.domains) {
@@ -1830,9 +1915,11 @@ function buildTargetRows(targets) {
  * 构建每日 managed target 统计上传载荷。
  * 目标端点：POST /device/target-stats/v1
  */
-export async function buildTargetStatsUploadPayload(date) {
-  const data = await chrome.storage.local.get(DAILY_STATS_KEY);
-  const allStats = data[DAILY_STATS_KEY] || {};
+export async function buildTargetStatsUploadPayload(date, allStatsSnapshot = null) {
+  const data = allStatsSnapshot === null
+    ? await chrome.storage.local.get(DAILY_STATS_KEY)
+    : null;
+  const allStats = allStatsSnapshot === null ? (data[DAILY_STATS_KEY] || {}) : allStatsSnapshot;
   const dayStats = allStats[date];
 
   if (!dayStats || !dayStats.targets) {
@@ -1851,9 +1938,11 @@ export async function buildTargetStatsUploadPayload(date) {
   };
 }
 
-export async function buildHourlyStatsUploadPayload(hourKey) {
-  const data = await chrome.storage.local.get(HOURLY_STATS_KEY);
-  const allStats = data[HOURLY_STATS_KEY] || {};
+export async function buildHourlyStatsUploadPayload(hourKey, allStatsSnapshot = null) {
+  const data = allStatsSnapshot === null
+    ? await chrome.storage.local.get(HOURLY_STATS_KEY)
+    : null;
+  const allStats = allStatsSnapshot === null ? (data[HOURLY_STATS_KEY] || {}) : allStatsSnapshot;
   const hourStats = allStats[hourKey];
 
   if (!hourStats || !hourStats.domains) {
@@ -1909,9 +1998,11 @@ export async function buildHourlyStatsUploadPayload(hourKey) {
  * 构建每小时 managed target 统计上传载荷。
  * 目标端点：POST /device/hourly-target-stats/v1
  */
-export async function buildHourlyTargetStatsUploadPayload(hourKey) {
-  const data = await chrome.storage.local.get(HOURLY_STATS_KEY);
-  const allStats = data[HOURLY_STATS_KEY] || {};
+export async function buildHourlyTargetStatsUploadPayload(hourKey, allStatsSnapshot = null) {
+  const data = allStatsSnapshot === null
+    ? await chrome.storage.local.get(HOURLY_STATS_KEY)
+    : null;
+  const allStats = allStatsSnapshot === null ? (data[HOURLY_STATS_KEY] || {}) : allStatsSnapshot;
   const hourStats = allStats[hourKey];
 
   if (!hourStats || !hourStats.targets) {
@@ -1931,6 +2022,79 @@ export async function buildHourlyTargetStatsUploadPayload(hourKey) {
     segmentsCount: hourStats.segmentsCount || 0,
     lastSegmentId: hourStats.lastSegmentId || null,
     targets: buildTargetRows(hourStats.targets),
+  };
+}
+
+function captureOutboxRevisions(outbox, values) {
+  const revisions = {};
+  for (const value of values) revisions[value] = getOutboxRevision(outbox, value);
+  return revisions;
+}
+
+/**
+ * 从一次 storage 读取构建某日原始事实与全部聚合上传快照。
+ * 该快照只冻结同步输入，不改变任何账本或聚合值。
+ */
+export async function buildUsageDateSyncSnapshot(date) {
+  const keys = [
+    USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY, DAILY_STATS_KEY, HOURLY_STATS_KEY,
+    SEGMENT_OUTBOX_KEY, STATS_OUTBOX_KEY, TARGET_STATS_OUTBOX_KEY,
+    HOURLY_STATS_OUTBOX_KEY, HOURLY_TARGET_STATS_OUTBOX_KEY, USAGE_COMPACTED_FACTS_KEY,
+  ];
+  const data = await chrome.storage.local.get(keys);
+  const allSegments = data[USAGE_SEGMENTS_KEY] || {};
+  const index = data[SEGMENT_INDEX_KEY] || {};
+  const dailyStats = data[DAILY_STATS_KEY] || {};
+  const hourlyStats = data[HOURLY_STATS_KEY] || {};
+  const segmentOutbox = data[SEGMENT_OUTBOX_KEY] || { dirtySegmentIds: [] };
+  const dailyOutbox = data[STATS_OUTBOX_KEY] || { dirtyDates: [] };
+  const targetOutbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [] };
+  const hourlyOutbox = data[HOURLY_STATS_OUTBOX_KEY] || { dirtyHourKeys: [] };
+  const hourlyTargetOutbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [] };
+  const compactedFacts = compactedFactsForDate(data[USAGE_COMPACTED_FACTS_KEY], date);
+  const segmentIds = [...new Set(Array.isArray(index[date]) ? index[date] : [])]
+    .filter((id) => Boolean(allSegments[id]));
+  const segments = segmentIds.map((id) => sanitizePersistence(allSegments[id])).filter(Boolean);
+  const dirtySegmentIds = new Set(segmentOutbox.dirtySegmentIds || []);
+  const pendingSegmentIds = segmentIds.filter((id) => dirtySegmentIds.has(id));
+  const segmentPayload = await buildUsageSegmentsUploadPayload(segmentIds, allSegments);
+
+  const hourKeys = new Set(
+    Object.entries(hourlyStats)
+      .filter(([hourKey, stats]) => stats?.date === date || String(hourKey).startsWith(`${date}T`))
+      .map(([hourKey]) => hourKey)
+  );
+  for (const hourKey of [
+    ...(hourlyOutbox.dirtyHourKeys || []),
+    ...(hourlyTargetOutbox.dirtyHourKeys || []),
+  ]) {
+    if (String(hourKey).startsWith(`${date}T`)) hourKeys.add(hourKey);
+  }
+  const sortedHourKeys = [...hourKeys].sort();
+
+  return {
+    date,
+    capturedAt: Date.now(),
+    segments,
+    segmentIds,
+    pendingSegmentIds,
+    segmentPayloads: segmentPayload.segments,
+    compactedFactCount: compactedFacts.reduce((sum, fact) => sum + Math.max(1, Number(fact?.segmentCount || 1)), 0),
+    dailyPayload: await buildDailyStatsUploadPayload(date, dailyStats),
+    targetPayload: await buildTargetStatsUploadPayload(date, dailyStats),
+    hourKeys: sortedHourKeys,
+    hourlyPayloads: await Promise.all(sortedHourKeys.map((hourKey) =>
+      buildHourlyStatsUploadPayload(hourKey, hourlyStats)
+    )),
+    hourlyTargetPayloads: await Promise.all(sortedHourKeys.map((hourKey) =>
+      buildHourlyTargetStatsUploadPayload(hourKey, hourlyStats)
+    )),
+    revisions: {
+      daily: captureOutboxRevisions(dailyOutbox, [date]),
+      target: captureOutboxRevisions(targetOutbox, [date]),
+      hourly: captureOutboxRevisions(hourlyOutbox, sortedHourKeys),
+      hourlyTarget: captureOutboxRevisions(hourlyTargetOutbox, sortedHourKeys),
+    },
   };
 }
 
@@ -2194,6 +2358,10 @@ export async function dropOldestPendingUsageSegments(limit = 50, storageOptions 
     targetOutbox.dirtyDates = addUniqueValues(targetOutbox.dirtyDates, [...dirtyDates]);
     hourlyOutbox.dirtyHourKeys = addUniqueValues(hourlyOutbox.dirtyHourKeys, [...dirtyHours]);
     hourlyTargetOutbox.dirtyHourKeys = addUniqueValues(hourlyTargetOutbox.dirtyHourKeys, [...dirtyHours]);
+    bumpOutboxRevisions(statsOutbox, [...dirtyDates]);
+    bumpOutboxRevisions(targetOutbox, [...dirtyDates]);
+    bumpOutboxRevisions(hourlyOutbox, [...dirtyHours]);
+    bumpOutboxRevisions(hourlyTargetOutbox, [...dirtyHours]);
 
     await storage.set({
       [USAGE_SEGMENTS_KEY]: segments,
@@ -2493,6 +2661,10 @@ export async function reconcileUsageLedger({ force = false } = {}) {
     targetOutbox.dirtyDates = addUniqueValues(targetOutbox.dirtyDates, [...affectedDates]);
     hourlyOutbox.dirtyHourKeys = addUniqueValues(hourlyOutbox.dirtyHourKeys, [...affectedHours]);
     hourlyTargetOutbox.dirtyHourKeys = addUniqueValues(hourlyTargetOutbox.dirtyHourKeys, [...affectedHours]);
+    bumpOutboxRevisions(statsOutbox, [...affectedDates]);
+    bumpOutboxRevisions(targetOutbox, [...affectedDates]);
+    bumpOutboxRevisions(hourlyOutbox, [...affectedHours]);
+    bumpOutboxRevisions(hourlyTargetOutbox, [...affectedHours]);
     const reconciliation = {
       version: USAGE_LEDGER_RECONCILIATION_VERSION,
       reconciledAt: Date.now(),
@@ -2592,6 +2764,10 @@ export async function settleUsageDuration(input) {
     targetOutbox.dirtyDates = addUniqueValues(targetOutbox.dirtyDates, [...dirtyDates]);
     hourlyOutbox.dirtyHourKeys = addUniqueValues(hourlyOutbox.dirtyHourKeys, [...dirtyHours]);
     hourlyTargetOutbox.dirtyHourKeys = addUniqueValues(hourlyTargetOutbox.dirtyHourKeys, [...dirtyHours]);
+    bumpOutboxRevisions(statsOutbox, [...dirtyDates]);
+    bumpOutboxRevisions(targetOutbox, [...dirtyDates]);
+    bumpOutboxRevisions(hourlyOutbox, [...dirtyHours]);
+    bumpOutboxRevisions(hourlyTargetOutbox, [...dirtyHours]);
 
     await storage.set({
       [USAGE_SEGMENTS_KEY]: allSegments,

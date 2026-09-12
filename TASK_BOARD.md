@@ -1,6 +1,47 @@
 # TASK_BOARD
 
 ## Active Release Target
+- [ ] [1.7.30 / Internal managed / Release in progress] D-075 诊断修订与记账 V2 A-G 影子链路发布。
+  - [x] Build&Test：专项测试、140 个全量 unit 文件、TypeScript、扩展根目录、diff 检查和完整自动化入口通过。
+  - [x] Plan Conformance Audit：A-G 与 D-075 均保持确认边界；V2 未接入现有产品读取，无未批准 `Extra` / `Deviated`。
+  - [ ] Release：提交推送；应用 023-026 隔离 migration；部署 Guardian Worker 与控制台 Pages；打包签名 CRX 并部署内部更新站点；回读版本、ID 和 SHA256。
+  - [ ] Production observation：T.xia/P.xia 实际升级及连续 7 日影子守恒；此项是后续正式切换门禁，不得因发布成功自动标记通过。
+- [ ] [P0 / D-076 / Read-only audit completed; repairs require itemized approval] 记账全链路一致性核查（2026-09-12）
+  - 审计方式由 D-077 固定为逐段推进：S1 待上传事实形成、S2 批次构造、S3 Worker 校验与接收、S4 逐项 ACK、S5 历史补传与水位、S6 云端聚合发布；每段完成后登记结果，六段完成后统一汇总，不在中途修改代码。
+  - 当前基线：本地原始账及其本地聚合暂定正确并冻结；本轮不讨论配额，不用上传缺陷反推本地记账错误。
+  - S1 待上传事实形成：正常结算在同一 storage mutation 写原始分段、日/小时/target 聚合和五类 outbox；写失败前有 journal，启动及同步会重放，失败时 session 不前移。结论 `PASS`。边界风险：segment ID 不含 target/classification/quota bucket，而重复 ID 直接跳过，异语义同 ID 不会报冲突；硬阈值最终兜底会有审计地压缩并丢弃最旧未上传原始事实，这是明确降级而非正常完整账。
+  - S2 批次构造：普通原始批次一次读取 outbox 与分段、每批最多 100 条，分段本身在本地不可变。结论 `PARTIAL`。按日期包会分多次读取原始、日、target 和小时数据，读取期间新增结算可形成混合版本；纯零秒日期直接跳过，零秒 pending 不会得到 ACK。
+  - S3 Worker 接收：先完整校验，再以 D1 batch 写入，成功返回 `acceptedIds`。结论 `PARTIAL`。本地认可的 start=end 零秒事实被 Worker 拒绝，混合批次因此整体 400；同 ID 重传不比对事实内容，并允许覆盖 target/classification/quota bucket 等语义字段。
+  - S4 ACK：结构化 ACK 只接受本批 ID，明确 rejected 和 missing ACK 均保留待上传。结论 `PARTIAL`。兼容分支仍可用 `success + count` 确认整批；原始 ACK 不含内容摘要；聚合 ACK 不绑定提交版本，旧响应可把后来新增后的当前聚合标 uploaded 并清除 dirty（已内存复现）。
+  - S5 历史补传：水位后的连续日期会依次上传，失败停止推进。结论 `FAIL`。水位越过某日后，该日后来重新产生的 pending/dirty 不在主编排扫描范围；且历史完整性只比较总秒数，云端 1 个 ID与本地 2 个 ID同为100秒可通过并批量确认本地 ID（已内存复现）。
+  - S6 云端聚合发布：当前并无从原始分段生成统计的统一发布器；客户端分别上传日、小时、target 和小时target，Worker逐行立即写入。结论 `FAIL`。原始账按 `profile_id + device_id + segment id` 保存；migration 012 后普通日统计以及小时/target 统计按设备唯一键保存。跨设备合账不在统一发布层完成：统计 API 返回各设备行，Pages按 target/category直接相加；`/device/quota-state` 对同 profile 全设备 `target_stats_v1` 按 quota bucket直接 `SUM`，不做跨设备同时使用去重，媒体表独立不参与网页合账。
+  - S6 校验边界：`stats-integrity/v1` 仅在单设备、单日期比较原始/日/小时/target/小时target五张表的总秒数，返回行数但不校验 ID、行数、小时、domain、target、mode或quota bucket；`stats-reconciliation/v1` 又先跨设备按日期/domain/channel/mode求和，设备间相反差额可能互相抵消。两者都不形成发布门禁；target表部分存在时，页面和云端用量仍会直接使用，不能证明“云端已完整合账”。
+  - S6 故障行为：客户端快照逐行立即覆盖，没有版本、构建代次、整日原子发布、缺失行删除或旧响应保护。可能出现旧快照覆盖新值、某些设备/小时/target缺失、旧行残留；这些部分或混合版本仍会被查询和相加。migration 012 之前普通日统计唯一键不含device，后续迁移只修正结构，无法凭结构恢复此前可能被覆盖的历史行；生产是否已应用012须用远端schema另行只读确认。
+  - S6 待批准修订方向：云端以已接收原始分段为唯一输入，先按设备/日期构建带 raw ID摘要和版本的候选代次，同时校验小时、日、target和quota bucket，再原子发布；读取和跨设备求和只能使用完整已发布代次。异常时保留上一代有效结果并返回 `incomplete/stale`，不得把部分值包装为实时完整值；同 ID异内容隔离冲突，不改写原始账。旧客户端聚合表保留兼容但不得写入新发布读模型。
+  - 汇总结论：本地记账核心暂定正确；上传链路在 S2-S6 存在相互关联的版本、确认和发布缺口。此结论证明机制不完备，不等于所有生产数据已经错误，也不能单独解释19009秒。修订前先按 D-076 将候选改动逐项提交 PO 批准，不做共享聚合或新协议的先行实现。
+  - 验证：纯内存重放确认“同秒不同 ID被判完整”“无版本聚合 ACK清除新 dirty”“零秒事实被 Worker 拒绝”；`usage-segments.test.js` 256/256、`managed-statistics.test.js` 30/30、`cloud-usage-batching.test.js` 14/14通过。真实双终端同截止点对账尚未取得，不标生产 PASS。
+- [ ] [P0 / D-076 / Awaiting itemized PO approval] 使用记账与本地配额全链路统一：记账线无已证实错误不改动。
+  - [x] 目标设计已按 D-078 固化：原始事实、设备单账、档案总账、独立对账四层分离；正常合账使用设备单账，对账只报警且不得自动改账。
+  - [x] 固定公式：档案日总账为各设备最新已发布日单账之和；周总账只汇总七个日总账；终端合并账为本机完整账（含未上传）加云端其他设备已发布账。
+  - [x] 固定迁移边界：V1/V2 并行、V2 影子至少 7 个自然日、全部活跃设备兼容后，在下一个北京时间周一 00:00 按档案切换；切换前数据标记 `legacy_unverified`。
+  - [x] 包 A：零秒原始事实协议统一。2026-09-12 已获 PO 单项批准并完成实现；Worker 接受 `startMs === endMs && durationSeconds === 0` 的网页诊断事实并逐项 ACK，零秒事实不生成统计。媒体校验、本地计时、本地聚合、D1 schema 与历史数据均未修改；同起止正时长、反向时段及其他非法字段继续拒绝。专项验证：`usage-segments` 256/256、`cloud-usage-batching` 14/14、Worker ingestion 146/146、TypeScript 通过。
+  - [x] 包 B：网页原始事实 `id + contentHash` 逐项 ACK及冲突拒绝。2026-09-12 已获 PO 单项批准并完成实现；共享摘要排除传输元数据，Worker 独立复算请求和最终持久行，网页事实使用 `ON CONFLICT DO NOTHING`，客户端仅按匹配摘要 ACK。媒体 ACK、网页原始事实生成、本地聚合和 D1 schema 均未修改；新 Worker 保留 `acceptedIds` 供旧客户端兼容，新客户端不再以 `success + count` 确认网页事实。专项验证：摘要 5/5、Worker 路由 6/6、本地账本 260/260、上传 ACK 17/17、媒体回归 10/10、Worker 契约 147/147、小时兼容 10/10、TypeScript 与扩展根目录检查通过。
+  - [x] 包 C：pending 独立扫描、revision 绑定及历史水位降级为调度索引。2026-09-12 已获 PO 单项批准并完成实现。原始 pending 始终独立于历史水位扫描；远端完整性只在上传后控制连续水位推进，不再 ACK 原始 ID 或清除聚合 dirty；日期、小时、target 与小时 target outbox 使用兼容式单调 revision，旧响应只能清除请求时捕获且仍未变化的 revision；日期包由一次冻结本地快照构建并复用同一批原始 payload。未修改网页计时、原始事实内容、使用秒数、本地聚合算法、Worker API、D1 schema 或历史数据。专项验证：本地账本 280/280、日期批次 19/19、历史补传 9/9、统计基础 104/104、Worker 完整性 6/6、媒体批次 10/10、诊断证据通过；TypeScript、扩展根目录及 diff 检查通过。
+  - [x] 包 D：版本化设备日账 staging、分块接收与原子提交。2026-09-12 已获 PO 单项批准并完成实现。设备端从包 C 的冻结日期快照生成确定性设备日账；manifest 与每块最多 200 行的 chunk 经独立摘要、数量和内部守恒校验后，原子提交为不可变 shadow version。同一 revision 同摘要幂等、异摘要冲突，旧 revision 不覆盖新版本。D 只写 V2 影子设备单账及有界本地 pending 状态，不建立档案总账、不提供产品读取、不参与页面或配额；V1 上传及表保持不变。专项验证：设备端 24/24、Worker 24/24、同步隔离 8/8；全量 unit 134 个文件全部通过，TypeScript、扩展根目录及 diff 检查通过。
+  - [x] 包 E：档案日/周总账及版本向量。2026-09-12 已获 PO 单项批准并完成实现。设备 revision 只在完整提交后参与候选；设备 head、档案日 head 与档案周 head 同一 D1 batch 原子切换，失败保留上一代。档案日明细每块最多 200 行；总账严格逐桶等于设备单账之和，不从原始事实重算，不做跨设备并发去重。
+  - [x] 包 F：独立对账与 mismatch incident。2026-09-12 已获 PO 单项批准并完成实现。固定 `deviceId + date + revision + rawCutoff`，先验证证据完整，再独立重算并逐维比较；结果只写独立对账表和有界 incident，不修改账、ACK、outbox 或水位。
+  - [x] 包 G：V2 只读下发、快照分页及影子缓存。2026-09-12 已获 PO 单项批准并完成实现。接口返回设备版本向量、档案总账和完整性；分页绑定同一不可变 snapshot，终端收齐并验证页摘要、快照摘要和逐桶守恒后才替换有界影子缓存。现有页面、配额和 V1 读取均未接入。
+  - E/F/G 验证：专项测试全部通过；全量 unit 140 个文件全部通过；`npm run typecheck`、`npm run check:extension-root`、`git diff --check` 通过；`node tests/run-all.js` 在联网环境中全部通过（API 103/103、数据流 53/53、扩展 E2E 15/15）。Plan Conformance Audit：E/F/G 全部 `Matched`，无 `Deviated`、`Missing` 或未批准 `Extra`。
+  - 当前 E/F/G 仍是隔离影子链路，不修改本地网页计时、原始分段生成、本地聚合、历史数据或现有产品读取；保留已有 D-075 改动，19009 秒调查继续未解决。正式产品切换仍须满足 7 日影子验证和发布门禁。
+- [ ] [P0 Diagnostics / Implemented; Awaiting terminal evidence / D-075] 配额差额只读取证与日志可诊断性（2026-09-12）
+  - [x] 一次性指定终端/日期请求、脱敏固定快照、分批确认、云端完整性及 ID/逐日差额报告；本地日志上传到 Worker 读取报告的脱敏校验往返通过。
+  - [x] 基础诊断长期授权与详细 info 独立 TTL；旧授权兼容、期限说明、桌面/手机展示；独立 mock Chrome 已验证 30 天、保存请求和缺包提示。
+  - [x] 上传首错证据、同步健康、配额拒绝关联、日志损失计数、失败接口审计独立保留；连续失败保留首错字段，诊断异常不改变请求结果，损坏聚合/读取失败显示未知。
+  - [x] 22 个相关 unit 文件逐文件通过、`npm run typecheck`、`npm run check:extension-root` 通过。未运行全量 unit 或 `tests/run-all.js`，不作为发布门禁通过证据。
+  - [x] 独立无登录 Chrome 的本地 mock 页面完成 1440x1000 桌面、390x844 手机目视验证：30 天选择回显、启停、保存载荷、一次性请求、缺包提示与完整报告；页面无横向溢出，宽表格仅在自身容器滚动。`PASS_WITH_MANUAL_EVIDENCE`，不是生产或 Thomas 终端验收。
+  - [x] Plan Conformance Audit：取证协议、双层期限、首错/健康/拒绝证据、失败审计保留、隐私预算与独立配额算法边界均 Matched；无未批准的 Extra / Deviated。真实 19009 秒逐日逐项闭环仍为未完成的生产证据门禁，不标 PASS。
+  - 现场证据补充：9/11 21:29 本地网页 outbox 尚有 694 个待确认 ID；14:15 至 19:32 本地/云端周 Rest 同增 6083 秒，19009 秒旧差额不变。尚无原始待确认分段，不能宣布真实周额度耗尽或差额查清。
+  - 边界：不修每日配额算法、不改网页 ACTIVE、不重建历史、不清空终端、不写生产 profile/D1、不提交部署；真实差额验收须等终端安装后返回快照。
 - `V1-minimal release candidate`（当前首次正式发布目标）
 - `V0` 已冻结为 internal stabilization baseline（保留证据，不作为正式发布版本）
 - `1.7.29` 内部 managed 前向发布已完成：源码提交 `5482340`、Guardian Worker `46d82099-1cb9-4240-8223-0ed8938bf21e`、更新站点 deployment `29a9fea2` 已部署并回读；CRX 为 384,156 bytes，SHA256 `ffd83c717ace5bf56edb5858926436f58b091b8324c6a8f0efc2cd8dcf21d15b`，稳定 ID 不变。范围为 D-073、D-074、本地 Admin 访问管理只读显示及相应测试；未进入 CWS、未执行 D1 migration、未修改 profile、历史账本或控制台 Pages。`cg.163.com idleStateChanged`、Thomas 终端停止请求、Pierce Mac 离线、设备升级和历史积压收敛继续保留为未解决/生产观察，不得改写为 PASS。
@@ -19,6 +60,21 @@
   - 后续：本项完成后再继续处理日志相关错误，不在同一补丁混入日志修复。
 
 ## Active Log Work（2026-08-31）
+- [ ] [P0 Sync/Quota / Investigating] 复合网站配额拦截与本地、云端用量不一致（2026-09-11）
+  - 生产反馈：百度访问出现双配额耗尽提示；系统配置仍将 `baidu.com` 归为复合。
+  - 只读证据：北京时间 19:11 左右云端快照中，今日待归类 7305 秒 / 上限 7200 秒，今日 Rest 6095 秒 / 上限 14400 秒，本周 Rest 31690 秒 / 上限 50400 秒；本周网页原始账与 target 配额桶总量逐日一致，当前复合与休息窗口均开放。
+  - 日志复查（北京时间 20:51）：日志上传已恢复，今日收到 73 条，最新事件 20:49:03、上传 20:49:04，日志扩展版本为 `1.7.29`。此前授权到期造成的证据缺口已部分补齐。
+  - 已确认的拦截链：19:01:10 本地本周 Rest 达到 50416 秒，超过 50400 秒上限，`weeklyRestLocked=true`、`dailyRestLocked=false`；19:01:22 和 19:02:00 请求 Rest 均被 `WEEKLY_REST_QUOTA_LOCKED` 拒绝。19:32:12 本地本周 50699 秒、云端本周 31690 秒，相差 19009 秒；本地今日 5006 秒、云端今日 6095 秒，日配额未耗尽。
+  - 原始账本复查：本周云端已接收网页分段按 Rest quota bucket 重算为 31690 秒，与 target 统计逐日一致；已接收正时长分段未发现重叠、无效起止或错误起始日期。这里只证明已接收子集一致，不证明终端已经全量上传，也不能证明终端计时边界准确。
+  - 上传断点：2026-09-10 云端网页原始分段最后结束于北京时间 10:55:46，当日 Rest 仅 155 秒；12:17:14 开始记录网页上传 `http_400`，到 23:47:17 同一 incident 累计 232 次。同期本地用量继续增长，下午媒体与运行日志仍上传；媒体只用于佐证终端活动，不转换成网页时长。
+  - 差异时间线：9/8 23:42:18 本地/云端周 Rest 同为 13491 秒；9/10 13:18:20 为 26548 / 25595 秒；9/10 18:52:11 为 37546 / 25595 秒；9/11 19:32:12 为 50699 / 31690 秒。现有证据主要指向网页上传不完整，不能将 19009 秒差值定性为本地多记，也不能据云端余额强制解除周锁。
+  - 内存重放：取截至 9/11 19:32:12 的 1534 条云端原始分段，按聚合必需字段分为 175 组后调用现有 `applySegmentToDailyStats` / `getQuotaUsageView`，逐日周 Rest 为 13491、13491、25440、25595、31690 秒；同一已接收输入不会被当前周计算函数变成 50699 秒。重放仅使用内存存储，不写设备或云端。
+  - 已复现的协议缺陷：本地 `allowZeroDurationSegment` 可以生成 `startMs === endMs` 的零时长诊断分段，并将其放进普通上传载荷；Worker `validateSegment` 要求 `endMs > startMs`，任一非法项使整批返回 `SEGMENT_BATCH_REJECTED`。客户端失败后停止该日期后续批次和物化上传，保留原失败项继续重试。该缺陷可造成持续积压，但现场日志已压缩成 `http_400`，具体 rejected ID/字段未保留，尚不能把现场 400 全部归因于此。
+  - 已确认的日配额口径缺陷：`getQuotaUsageView` 的日用量优先按 `targetClassificationAtTime` 分配，周用量按 `activeByQuotaBucket.rest`；同一批今日原始分段重放精确得到日 Rest 5006 秒，而真实 Rest quota bucket 为 6095 秒。复合/待归类借用 Rest 的 1087 秒及学习分类扣 Rest 的 12 秒被排出，受限分类扣 Study 的 10 秒反被纳入，净少算 1089 秒。此问题会影响日硬配额，不解释周差值，必须单独按 P0 修正并回归。
+  - 提示问题：`quota_composite_and_rest` 固定显示“今日待归类时间和休息时间均已用完”，没有区分本次实际触发的周 Rest 锁，容易误导为日休息额度耗尽。
+  - 本地页面口径冲突（9/11 23:05 复查）：用户反馈本地控件同样显示周配额未用完。`admin/admin.js:renderWeeklyRestSection` 的已用、剩余和状态均取 `cloud_quota_state_fact_v1`，不是本地原始账或 effective 锁状态；拦截器则由本地用量与云端事实合并执行。本地界面显示余额不构成第二份独立账本证据，但确认展示与执行使用不同来源。最新云端原始 Rest 仍为 31690 / 50400 秒；现有已核验原始账不支持“周配额已耗尽”，终端 50699 秒聚合值必须补原始分段对账，不能当作真实全量已耗尽的证明。
+  - 验证：原始数据内存重放和本地零长度分段对 Worker 校验的兼容性复现已完成；现有 `managed-statistics.test.js` 30/30、`cloud-usage-batching.test.js` 14/14 通过，但不覆盖上述完整缺陷链，不作为风险消除证据。
+  - 下一步：读取终端 9/9–9/10 原始分段、待上传 ID 和对应日配额桶，确定 19009 秒差值的逐项来源，并保留结构化校验拒绝原因；不重建历史、不清空账本、不强制解除本地锁、不擅自放宽配额。本轮仅审计和登记，没有修改代码、配置或 D1。
 - [x] [P0 Sync/Accounting] 原始 segment 原子上传、逐项 ACK 与统计自动收敛
   - 根因：客户端单批最多 200 条，但 Worker 对每条先 `SELECT` 再 `INSERT/UPDATE`，usage 批次还写审计；一次请求可产生 401 次以上串行 D1 操作。15 秒超时后客户端无法判断远端写入进度，只能整批重传。
   - 修复口径：Worker 完整校验后使用 D1 batch 事务和 `ON CONFLICT(id) DO UPDATE`；返回 `acceptedIds` / `rejected`；客户端只 ACK 明确接受项，segment 请求单次尝试，失败交给跨同步退避。旧版 200 条批次兼容，新版使用较小批次。

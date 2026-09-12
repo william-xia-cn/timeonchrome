@@ -44,6 +44,11 @@ function loadProdModule(relPath, exportNames, injected = {}) {
   return factory(injected);
 }
 
+const domainApi = loadProdModule('core/domain-semantics.js', ['normalizeHostname']);
+const integrityApi = loadProdModule('core/usage-segment-integrity.js', [
+  'normalizeUsageSegmentContent', 'serializeUsageSegmentContent',
+  'hashUsageSegmentContent', 'isUsageSegmentContentHash',
+], { normalizeHostname: domainApi.normalizeHostname });
 const api = loadProdModule('core/usage-segments.js', [
   'generateSegmentId', 'stateToChannel', 'isCountedState', 'getLocalDateInfo', 'getLocalHourInfo',
   'splitSegmentByLocalDate', 'splitSegmentByLocalHour', 'buildUsageSegment',
@@ -56,19 +61,22 @@ const api = loadProdModule('core/usage-segments.js', [
   'clearTargetStatsSyncOutbox', 'clearHourlyTargetStatsSyncOutbox',
   'getPendingUsageSegments', 'getPendingDailyStats', 'getPendingHourlyStats',
   'getPendingTargetStats', 'getPendingHourlyTargetStats',
-  'markUsageSegmentsUploaded', 'markUsageSegmentUploadFailed',
+  'markUsageSegmentsUploaded', 'markUsageSegmentsUploadedByContentHash', 'markUsageSegmentUploadFailed',
   'markDailyStatsUploaded', 'markDailyStatsUploadFailed',
   'markHourlyStatsUploaded', 'markHourlyStatsUploadFailed',
   'markTargetStatsUploaded', 'markTargetStatsUploadFailed',
   'markHourlyTargetStatsUploaded', 'markHourlyTargetStatsUploadFailed',
   'buildUsageSegmentsUploadPayload', 'buildDailyStatsUploadPayload', 'buildHourlyStatsUploadPayload',
-  'buildTargetStatsUploadPayload', 'buildHourlyTargetStatsUploadPayload',
+  'buildTargetStatsUploadPayload', 'buildHourlyTargetStatsUploadPayload', 'buildUsageDateSyncSnapshot',
   'pruneSegmentSyncOutbox', 'pruneStatsSyncOutbox', 'pruneHourlyStatsSyncOutbox',
   'pruneTargetStatsSyncOutbox', 'pruneHourlyTargetStatsSyncOutbox',
   'pruneUsageSegments', 'pruneUploadedUsageSegments', 'pruneDailyUsageStats', 'pruneHourlyUsageStats',
   'compactUsageSyncOutboxes', 'normalizeUploadErrorCode',
   'settleUsageDuration',
-]);
+], {
+  hashUsageSegmentContent: integrityApi.hashUsageSegmentContent,
+  isUsageSegmentContentHash: integrityApi.isUsageSegmentContentHash,
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -683,6 +691,14 @@ chk('payload durationSeconds', pSeg.durationSeconds, 60);
 chkT('payload has date', !!pSeg.date);
 chkT('payload has timezone', !!pSeg.timezone);
 chkT('payload has dayStartMs', typeof pSeg.dayStartMs === 'number');
+chkT('payload contentHash is lowercase SHA-256', integrityApi.isUsageSegmentContentHash(pSeg.contentHash));
+chk('payload contentHash matches stable content', pSeg.contentHash, await integrityApi.hashUsageSegmentContent(pSeg));
+await api.markUsageSegmentsUploadedByContentHash([{ id: pSeg.id, contentHash: '0'.repeat(64) }], nowUpload);
+let strictAckPending = await api.getPendingUsageSegments();
+chk('mismatched contentHash keeps segment pending', strictAckPending.segments.some((segment) => segment.id === pSeg.id), true);
+await api.markUsageSegmentsUploadedByContentHash([{ id: pSeg.id, contentHash: pSeg.contentHash }], nowUpload);
+strictAckPending = await api.getPendingUsageSegments();
+chk('matching contentHash clears segment pending', strictAckPending.segments.some((segment) => segment.id === pSeg.id), false);
 
 // ── TB30: buildDailyStatsUploadPayload ──
 sec('TB30: buildDailyStatsUploadPayload');
@@ -966,6 +982,92 @@ chk('zero-ms diagnostic duration 0', zeroSeg.durationSeconds, 0);
 chk('zero-ms diagnostic start=end', zeroSeg.startMs === zeroSeg.endMs, true);
 st = await api.getDailyUsageStats(todayStr);
 chk('zero-ms diagnostic aggregate remains 0', st.domains['zero-boundary.com'].activeSeconds, 0);
+
+// ── TB40: Package C frozen snapshot and revision-bound ACK ──
+sec('TB40: frozen date snapshot and revision-bound aggregate ACK');
+mockLocal.reset();
+await api.settleUsageDuration({
+  startMs: MOCK_TIME - 120000,
+  endMs: MOCK_TIME - 60000,
+  domain: 'revision.example',
+  channel: 'active',
+  mode: 'rest',
+  sourceState: 'ACTIVE',
+  settlementReason: 'checkpoint',
+  profileId: 'p1',
+  deviceId: 'd1',
+});
+let snapshotReadCount = 0;
+const originalStorageGet = mockLocal.get.bind(mockLocal);
+mockLocal.get = async (...args) => {
+  snapshotReadCount++;
+  return originalStorageGet(...args);
+};
+const frozenSnapshot = await api.buildUsageDateSyncSnapshot(todayStr);
+mockLocal.get = originalStorageGet;
+chk('date snapshot uses one storage read', snapshotReadCount, 1);
+chk('date snapshot carries one frozen segment payload', frozenSnapshot.segmentPayloads.length, 1);
+chkT('date snapshot captures daily revision', frozenSnapshot.revisions.daily[todayStr] > 0);
+const frozenHourKey = frozenSnapshot.hourKeys[0];
+chkT('date snapshot captures target revision', frozenSnapshot.revisions.target[todayStr] > 0);
+chkT('date snapshot captures hourly revision', frozenSnapshot.revisions.hourly[frozenHourKey] > 0);
+chkT('date snapshot captures hourly target revision', frozenSnapshot.revisions.hourlyTarget[frozenHourKey] > 0);
+
+await api.settleUsageDuration({
+  startMs: MOCK_TIME - 60000,
+  endMs: MOCK_TIME,
+  domain: 'revision.example',
+  channel: 'active',
+  mode: 'rest',
+  sourceState: 'ACTIVE',
+  settlementReason: 'checkpoint',
+  profileId: 'p1',
+  deviceId: 'd1',
+});
+const staleDailyAck = await api.markDailyStatsUploaded(
+  [todayStr], 777777, frozenSnapshot.revisions.daily
+);
+const staleTargetAck = await api.markTargetStatsUploaded(
+  [todayStr], 777777, frozenSnapshot.revisions.target
+);
+const staleHourlyAck = await api.markHourlyStatsUploaded(
+  [frozenHourKey], 777777, frozenSnapshot.revisions.hourly
+);
+const staleHourlyTargetAck = await api.markHourlyTargetStatsUploaded(
+  [frozenHourKey], 777777, frozenSnapshot.revisions.hourlyTarget
+);
+chk('stale daily ACK clears nothing', staleDailyAck, 0);
+chk('stale target ACK clears nothing', staleTargetAck, 0);
+chk('stale hourly ACK clears nothing', staleHourlyAck, 0);
+chk('stale hourly target ACK clears nothing', staleHourlyTargetAck, 0);
+let revisionPending = await api.getPendingDailyStats();
+chkT('stale daily ACK preserves dirty date', revisionPending.dirtyDates.includes(todayStr));
+chkT('new settlement advances daily revision', revisionPending.revisions[todayStr] > frozenSnapshot.revisions.daily[todayStr]);
+let targetRevisionPending = await api.getPendingTargetStats();
+let hourlyRevisionPending = await api.getPendingHourlyStats();
+let hourlyTargetRevisionPending = await api.getPendingHourlyTargetStats();
+chkT('stale target ACK preserves dirty date', targetRevisionPending.dirtyDates.includes(todayStr));
+chkT('stale hourly ACK preserves dirty hour', hourlyRevisionPending.dirtyHourKeys.includes(frozenHourKey));
+chkT('stale hourly target ACK preserves dirty hour', hourlyTargetRevisionPending.dirtyHourKeys.includes(frozenHourKey));
+
+const currentDailyAck = await api.markDailyStatsUploaded(
+  [todayStr], 888888, revisionPending.revisions
+);
+const currentTargetAck = await api.markTargetStatsUploaded(
+  [todayStr], 888888, targetRevisionPending.revisions
+);
+const currentHourlyAck = await api.markHourlyStatsUploaded(
+  [frozenHourKey], 888888, hourlyRevisionPending.revisions
+);
+const currentHourlyTargetAck = await api.markHourlyTargetStatsUploaded(
+  [frozenHourKey], 888888, hourlyTargetRevisionPending.revisions
+);
+chk('current daily ACK clears one date', currentDailyAck, 1);
+chk('current target ACK clears one date', currentTargetAck, 1);
+chk('current hourly ACK clears one hour', currentHourlyAck, 1);
+chk('current hourly target ACK clears one hour', currentHourlyTargetAck, 1);
+revisionPending = await api.getPendingDailyStats();
+chk('current daily ACK clears dirty date', revisionPending.pendingCount, 0);
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
 process.exit(failed > 0 ? 1 : 0);

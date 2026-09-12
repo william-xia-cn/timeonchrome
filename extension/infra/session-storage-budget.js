@@ -10,6 +10,7 @@ export const SESSION_STORAGE_DISPOSABLE_KEYS = [
   'mode_effect_trace_v1',
   'client_logs_session_v1',
   'stream_game_probe_v1',
+  'quota_audit_buffer_v1',
 ];
 
 export const SESSION_STORAGE_PROTECTED_KEYS = ['session_v1'];

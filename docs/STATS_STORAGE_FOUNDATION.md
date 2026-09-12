@@ -720,6 +720,117 @@ export async function uploadHourlyStats() {
 7. 有效载荷中缺失的数据不暗示删除
 8. 云端使用 upsert 进行 idempotent ingest
 
+### 7.5 记账 V2 目标契约（D-078，尚未实现）
+
+本节定义下一代同步、合账和对账边界，不改变本章 7.1–7.4 所述的当前 V1 运行行为。任何实现必须先通过 D-076 单项批准。
+
+#### 7.5.1 四层账目与守恒关系
+
+| 层次 | 主键/版本 | 内容 | 约束 |
+|---|---|---|---|
+| 原始落账 | `profileId + deviceId + segmentId` | 已结算不可变事实 | 同 ID 同摘要幂等；异摘要冲突；不被对账改写 |
+| 设备单账 | `profileId + deviceId + date + revision` | 完整日统计快照及小时、target、channel、mode、quota bucket 维度 | 日等于小时之和；所有维度总量守恒；发布后不可覆盖同 revision |
+| 档案总账 | `profileId + period + generation` | 各设备最新已发布单账之和 | 携带设备版本向量；只读完整代次；周只汇总日 |
+| 对账结果 | `deviceId + date + revision + rawCutoff` | 原始事实重算账与设备单账差异 | 只输出状态和差异；不修改任何账或同步状态 |
+
+正常合账固定使用设备单账，不在请求读取时临时扫描原始事实。原始事实只为审计、诊断和未来经批准的人工调整提供依据。媒体原始账、媒体设备单账和媒体总账保持独立，不能进入网页账或网页配额。
+
+#### 7.5.2 原始事实传输
+
+- 包 A 已于 2026-09-12 获 PO 单项批准：协议允许 `startMs === endMs && durationSeconds === 0` 的网页零秒诊断事实被接收和 ACK，但不生成任何统计；同起止却声明正时长、反向时段、负时长或其他非法字段仍拒绝。包 A 不改变媒体校验、本地计时、本地聚合、D1 schema 或历史数据。
+- 包 B 已于 2026-09-12 获 PO 单项批准：终端对网页事实稳定上传字段进行确定性 canonicalization 并生成 `contentHash`；`createdAt/updatedAt/uploadedAt` 等传输元数据不参与摘要。Worker 独立复算请求和最终持久行摘要，ACK 返回 `id + contentHash`；同 ID 同摘要为幂等成功，同 ID 异摘要返回 `SEGMENT_CONTENT_CONFLICT`，不得更新云端原事实。新 Worker 保留 `acceptedIds` 供旧客户端兼容；新客户端不接受无摘要的网页 ACK。媒体协议和 D1 schema 不在包 B 范围内。
+- 包 C 已于 2026-09-12 获 PO 单项批准并完成实现：原始 pending ID具有独立于历史水位的扫描和上传路径；历史水位仅优化日期扫描顺序。远端完整性总秒数不得确认原始 ID或清除本地聚合 dirty。日、小时、target 与小时 target outbox 对每个 key维护兼容式单调 revision；上传成功只在当前 revision 等于请求捕获值时清除 dirty，旧响应最多造成幂等重传。一个日期上传包从一次冻结本地存储快照构建，避免混合结算前后的不同版本。本包不改变原始事实、本地聚合值、Worker API、D1 schema 或历史数据。专项验证：本地账本 280/280、日期批次 19/19、历史补传 9/9、统计基础 104/104、Worker 完整性 6/6、媒体批次 10/10、诊断证据、TypeScript、扩展根目录及 diff 检查全部通过。
+- 客户端只清除逐项匹配本次请求 ID、摘要和本地 revision 的 pending；缺失 ACK、响应丢失、旧响应或 rejected 项继续待确认。禁止使用 `success + count` 推断整批成功。
+- 历史水位只优化扫描顺序。pending ID必须有独立于水位的完整扫描路径，旧日期重新变脏后仍能被调度。
+- 发生硬存储降级并丢失原始事实时，保留有界损失记录并将对应设备日期标记 `incomplete`；该日期不得报告原始集合完整或对账通过。
+
+#### 7.5.3 设备单账接收与发布
+
+设备单账 manifest 至少包含：
+
+```json
+{
+  "date": "YYYY-MM-DD",
+  "revision": 1,
+  "generatedAt": 0,
+  "rowCount": 0,
+  "chunkCount": 0,
+  "rawFactCount": 0,
+  "rawFactsHash": "",
+  "accountHash": "",
+  "complete": true,
+  "loss": null
+}
+```
+
+`profileId` 与 `deviceId` 只能由设备凭据决定，不信任 payload 身份字段。快照按最多 200 行分块写入 staging；块顺序可以乱序到达，但 manifest、全部块、行数和摘要必须齐全且一致。同一 `deviceId + date + revision` 同摘要重传为幂等，异摘要为版本冲突，低于已接收或已发布 revision 的请求为 stale。
+
+云端分别维护：
+
+- `receivedRevision`：完整快照已接收并通过块级校验。
+- `publishedRevision`：设备单账已通过内部守恒校验，并与档案日/周总账一起完成原子发布。
+
+接收成功不等于发布成功。客户端可在收到完整接收确认后清除大载荷，但必须保留有界的 publish-pending 标记，直到观察到相同或更高 revision 已发布。发布失败不得回滚接收状态，也不得公开候选的部分行。
+
+##### 包 D 已批准并完成（2026-09-12）
+
+包 D 将上述目标拆出第一阶段：只接收并原子提交不可变的 shadow 设备日账版本，不建立档案总账，也不创建产品可读 head。设备端从包 C 的单次冻结日期快照生成 `daily_domain`、`hourly_domain`、`daily_target`、`hourly_target` 四类规范化行；所有秒数和归因字段逐项复制现有本地聚合，不重新聚合。manifest 固定包含 `date`、单调 `revision`、`generatedAt`、`rowCount`、`chunkCount`、`rawFactCount`、`rawFactHash`、`statsHash`、`complete` 与事实损失计数；每块最多 200 行并有独立 SHA-256。
+
+协议固定为 `POST /device/accounts/v2/manifests`、`PUT /device/accounts/v2/manifests/{manifestId}/chunks/{chunkIndex}`、`POST /device/accounts/v2/manifests/{manifestId}/commit` 和 `GET /device/accounts/v2/status`。Worker 只信任 device token 对应的 profile/device；同 revision 同摘要幂等，异摘要冲突，旧 revision 不得覆盖新版本。commit 必须同时满足块数、行数、块摘要、总统计摘要以及四类维度总秒数守恒，才在一个 D1 batch 中将 manifest 标记为 `committed` 并写一条有界同步事件。
+
+实现已保持在 shadow 边界内：`committed` 不创建产品可读 head，不生成档案总账，也不参与现有页面、配额或 V1 统计读取。专项测试为设备端 24/24、Worker 24/24、同步隔离 8/8；全量 unit 共 134 个文件通过，TypeScript、扩展根目录与 diff 检查通过。
+
+本地只保留按日期有界的 revision、摘要、状态、最近尝试/确认时间和短错误码，不保留第二份完整 payload。V2 失败不阻塞 V1，且包 E 之前 V2 版本不进入页面、配额、云端现有统计查询或任何锁定判断。
+
+#### 7.5.4 档案总账原子发布与下发
+
+发布器先校验设备日账的日/小时总量、各分析维度总量、行数及摘要，再读取该档案当日所有设备最新已发布单账，生成档案日总账、设备版本向量和 `totalHash`，最后由日总账派生周累计。设备 head、档案日 head 和档案周 head 必须在同一事务中切换；失败时继续读取上一代完整账，并将新 revision 保持为 `received_not_published`。
+
+下发接口目标结构：
+
+```json
+{
+  "snapshotId": "profile-period-generation",
+  "asOf": 0,
+  "period": {},
+  "deviceAccounts": [],
+  "profileTotal": {},
+  "deviceVersionVector": {},
+  "completeness": {
+    "complete": true,
+    "staleDevices": [],
+    "incompleteDevices": []
+  },
+  "totalHash": ""
+}
+```
+
+`profileTotal` 必须逐桶等于 `deviceAccounts` 之和。分页结果必须绑定同一 `snapshotId`；客户端收齐所有页、验证版本向量和 `totalHash` 后才整体替换缓存。失败或缺页继续使用上一份有效快照并显示陈旧状态。设备离线时只保留其最后已发布单账和数据时间，不估算其未上传用量。接口不得返回或合并云端配额锁。
+
+##### 包 E/F/G 已逐项批准连续实施（2026-09-12）
+
+- 包 E 只在 V2 隔离表中建立设备 head、档案日/周 generation 与 head；发布严格使用完整设备单账并在同一事务切换三类 head。
+- 包 F 只建立独立审计账、对账结果与有界 mismatch incident；任何对账状态均无权修改正式账或传输状态。
+- 包 G 只建立绑定 snapshot 的分页读取及终端影子缓存；未满足 D-078 切换门禁前，页面、配额和 V1 继续使用现有路径。
+- 三个包不得修改本地网页 ACTIVE、原始事实生成、本地统计秒数和历史数据；媒体账继续隔离。
+- 2026-09-12 实施完成：E 的档案日明细按最多 200 行分块并与日/周 head 同批原子发布；F 的对账只写独立结果与有界 incident；G 的不可变分页快照须由终端完成页摘要、快照摘要和逐桶守恒校验后才替换影子缓存。
+- 验证结果：专项、140 个全量 unit 文件、TypeScript、扩展根目录、diff 检查及完整自动化入口全部通过；当前仍未接入 V1、页面或配额，不能将“实现完成”解释为“产品切换完成”。
+
+#### 7.5.5 独立对账
+
+对账任务固定 `deviceId + date + deviceRevision + rawCutoff`。先验证原始集合的 ID 数量、内容摘要和损失状态；原始事实尚未收齐时返回 `pending_raw`，已知丢失或证据不足时返回 `insufficient_evidence`。只有完整集合才能独立重建审计账，并逐项比较总秒数、分段数量/摘要、小时、channel、mode、target 和 quota bucket。
+
+结果只允许：`matched`、`mismatch`、`pending_raw`、`insufficient_evidence`、`manual_review_required`。相同 mismatch 使用有界 incident 累计次数，记录首次/最近发现时间和维度差额。对账代码禁止修改原始事实、设备单账、档案总账、客户端 outbox、ACK 或历史水位。未来如需纠错，只能另行设计可追溯 adjustment ledger，不得直接编辑原账。
+
+#### 7.5.6 迁移与门禁
+
+- V1 与 V2 并行；旧客户端继续走 V1，V1 聚合上传不得写 V2 正式读模型。
+- V2 先影子运行至少连续 7 个北京时间自然日，同时比较本地设备单账、云端设备单账、档案总账和原始事实审计账。
+- 一个档案全部活跃受控设备兼容 V2 后，才可在验收通过后的下一个北京时间周一 00:00 切换。
+- 切换前历史标记 `legacy_unverified`，不自动重建、改写或把不明余额带入新周。
+- 任一 mismatch、总账不守恒、发布代次不完整、分页快照不一致或本机上传前后合并用量跳增，均阻断切换。
+- migration 012 的生产应用状态必须在实施前只读核对；本设计不执行 migration，也不改变 19009 秒历史差额的 P0 状态。
+
 ---
 
 ## 8. Cloud Ingest Contract

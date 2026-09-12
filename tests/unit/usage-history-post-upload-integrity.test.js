@@ -33,9 +33,10 @@ function addDays(dateKey, delta) {
   return date.toISOString().slice(0, 10);
 }
 
-async function runScenario(convergesAfterUpload) {
+async function runScenario({ convergesAfterUpload, waterline = '2026-08-29', repairDates = [] }) {
   const writes = [];
   const integrityReads = [];
+  const uploadCalls = [];
   const pkg = {
     date: '2026-08-30', segmentIds: ['seg-1'], hourKeys: ['2026-08-30T10'],
     summary: {
@@ -50,7 +51,8 @@ async function runScenario(convergesAfterUpload) {
     getDateKey: () => '2026-08-31',
     addDaysToDateKey: addDays,
     compareDateKeys: (a, b) => a === b ? 0 : (a < b ? -1 : 1),
-    getUsageHistoryWatermark: async () => '2026-08-29',
+    getUsageHistoryWatermark: async () => waterline,
+    getHistoricalUsageRepairDates: async () => repairDates,
     makeUsageDateSyncResult: () => ({ uploaded: 0, failed: 0, skipped: false, dryRun: false, pendingCount: 0, errors: [], dates: [] }),
     CLOUD_CONFIG: {
       MAX_HISTORY_USAGE_DATES_PER_SYNC: 7,
@@ -60,14 +62,16 @@ async function runScenario(convergesAfterUpload) {
         USAGE_STATS_HISTORY_LAST_ERROR: 'last_error',
       },
     },
-    buildUsageDateUploadPackage: async () => pkg,
+    buildUsageDateUploadPackage: async (date) => ({ ...pkg, date }),
     getRemoteUsageDateIntegrity: async () => {
       integrityReads.push(Date.now());
-      return { complete: integrityReads.length > 1 && convergesAfterUpload };
+      return { complete: convergesAfterUpload };
     },
     isCloudIntegrityCompleteForPackage: (integrity) => integrity.complete === true,
-    markUsageDatePackageUploaded: async () => {},
-    uploadUsageDatePackageParts: async () => ({ uploaded: 5, failed: 0, errors: [] }),
+    uploadUsageDatePackageParts: async (value) => {
+      uploadCalls.push(value.date);
+      return { uploaded: 5, failed: 0, errors: [] };
+    },
     mergeUsageDatePartResults: (target, child) => {
       target.uploaded += child.uploaded;
       target.failed += child.failed;
@@ -80,20 +84,50 @@ async function runScenario(convergesAfterUpload) {
   const fn = new Function('__injected',
     `const { ${names.join(', ')} } = __injected;\n${extractFunctionSource(source, 'uploadHistoricalUsageStatsByWatermarkV1')}\nreturn uploadHistoricalUsageStatsByWatermarkV1;`)(injected);
   const result = await fn({ enabled: true });
-  return { result, writes, integrityReads };
+  return { result, writes, integrityReads, uploadCalls };
+}
+
+async function runRepairDateScan() {
+  const injected = {
+    getPendingUsageSegments: async () => ({ segments: [{ date: '2026-08-27' }, { date: '2026-08-31' }] }),
+    getPendingDailyStats: async () => ({ dirtyDates: ['2026-08-28'] }),
+    getPendingTargetStats: async () => ({ dirtyDates: ['2026-08-28'] }),
+    getPendingHourlyStats: async () => ({ dirtyHourKeys: ['2026-08-29T03'] }),
+    getPendingHourlyTargetStats: async () => ({ dirtyHourKeys: ['2026-08-30T22'] }),
+    isDateKeyString: (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')),
+    compareDateKeys: (a, b) => a === b ? 0 : (a < b ? -1 : 1),
+  };
+  const names = Object.keys(injected);
+  const fn = new Function('__injected',
+    `const { ${names.join(', ')} } = __injected;\n${extractFunctionSource(source, 'getHistoricalUsageRepairDates')}\nreturn getHistoricalUsageRepairDates;`)(injected);
+  return fn('2026-08-31');
 }
 
 (async () => {
-  const incomplete = await runScenario(false);
-  check('history performs pre and post upload integrity reads', incomplete.integrityReads.length === 2, String(incomplete.integrityReads.length));
+  check('history integrity cannot bulk-ACK a date package', !source.includes('markUsageDatePackageUploaded'), 'bulk ACK helper still exists');
+  const repairDates = await runRepairDateScan();
+  check('pending and dirty dates are scanned independently of watermark',
+    JSON.stringify(repairDates) === JSON.stringify(['2026-08-27', '2026-08-28', '2026-08-29', '2026-08-30']),
+    JSON.stringify(repairDates));
+
+  const incomplete = await runScenario({ convergesAfterUpload: false });
+  check('history uploads before the only diagnostic integrity read', incomplete.uploadCalls.length === 1 && incomplete.integrityReads.length === 1, JSON.stringify(incomplete));
   check('incomplete post-upload state blocks waterline', !incomplete.writes.some((item) => item.waterline === '2026-08-30'), JSON.stringify(incomplete.writes));
   check('incomplete post-upload state remains failed', incomplete.result.failed === 1 && incomplete.result.errors.some((item) => item.includes('not converged')), JSON.stringify(incomplete.result));
 
-  const complete = await runScenario(true);
+  const complete = await runScenario({ convergesAfterUpload: true });
   check('converged history advances waterline', complete.writes.some((item) => item.waterline === '2026-08-30'), JSON.stringify(complete.writes));
   check('converged history has no failure', complete.result.failed === 0, JSON.stringify(complete.result));
 
-  console.log('[Usage History Post-upload Integrity] 5/5 passed');
+  const oldRepair = await runScenario({
+    convergesAfterUpload: true,
+    waterline: '2026-08-30',
+    repairDates: ['2026-08-28'],
+  });
+  check('dirty date before watermark is still uploaded', oldRepair.uploadCalls.includes('2026-08-28'), JSON.stringify(oldRepair.uploadCalls));
+  check('repair before watermark does not move watermark backward', !oldRepair.writes.some((item) => item.waterline === '2026-08-28'), JSON.stringify(oldRepair.writes));
+
+  console.log('[Usage History Post-upload Integrity] 9/9 passed');
 })().catch((error) => {
   console.error(error);
   process.exit(1);

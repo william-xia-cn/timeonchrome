@@ -1,6 +1,7 @@
 // Stats 路由 - 统计上传/查询 (legacy + v1)
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
+import { hashUsageSegmentContent, isUsageSegmentContentHash } from '../../../extension/core/usage-segment-integrity.js';
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 import {
   evaluateDailyUnclassifiedEmailNotifications,
@@ -25,8 +26,9 @@ function validateSegment(s: any): string | null {
   if (!s.id || typeof s.id !== 'string') return 'segment.id is required';
   if (!s.date || typeof s.date !== 'string') return 'segment.date is required';
   if (typeof s.startMs !== 'number' || typeof s.endMs !== 'number') return 'segment.startMs/endMs must be numbers';
-  if (s.endMs <= s.startMs) return 'segment.endMs must be > startMs';
+  if (s.endMs < s.startMs) return 'segment.endMs must be >= startMs';
   if (typeof s.durationSeconds !== 'number' || !Number.isFinite(s.durationSeconds) || s.durationSeconds < 0) return 'segment.durationSeconds must be >= 0';
+  if (s.endMs === s.startMs && s.durationSeconds !== 0) return 'segment.durationSeconds must be 0 when endMs equals startMs';
   if (!s.domain || typeof s.domain !== 'string') return 'segment.domain is required';
   if (!s.channel || !VALID_CHANNELS.has(s.channel)) return `segment.channel must be one of: ${[...VALID_CHANNELS].join(', ')}`;
   if (!s.mode || !VALID_MODES.has(s.mode)) return `segment.mode must be one of: ${[...VALID_MODES].join(', ')}`;
@@ -781,6 +783,7 @@ export const statsRouter = {
         const normalizedSegments: Array<{
           segment: any;
           domain: string;
+          contentHash: string;
           descriptionJson: string | null;
           managedTargetId: string | null;
           managedTargetType: string | null;
@@ -817,9 +820,32 @@ export const statsRouter = {
           const targetMatchLevel = normalizeOptionalString(s.targetMatchLevel, 64);
           const targetClassificationAtTime = normalizeOptionalString(s.targetClassificationAtTime, 64);
           const quotaBucketAtTime = VALID_MODES.has(s.quotaBucketAtTime) ? s.quotaBucketAtTime : null;
+          const normalizedContent = {
+            ...s,
+            domain: normalizedDomain,
+            tabId: s.tabId == null ? null : String(s.tabId),
+            windowId: typeof s.windowId === 'number' ? s.windowId : null,
+            description: s.description || null,
+            managedTargetId,
+            managedTargetType,
+            managedTargetNamespace,
+            managedTargetValue,
+            managedTargetLabelAtTime,
+            targetSourceAtTime,
+            targetRuleId,
+            targetMatchLevel,
+            targetClassificationAtTime,
+            quotaBucketAtTime,
+          };
+          const contentHash = await hashUsageSegmentContent(normalizedContent);
+          if (s.contentHash !== undefined && (!isUsageSegmentContentHash(s.contentHash) || s.contentHash !== contentHash)) {
+            rejected.push({ id: s.id, code: 'CONTENT_HASH_MISMATCH', message: 'segment.contentHash does not match normalized content' });
+            continue;
+          }
           normalizedSegments.push({
             segment: s,
             domain: normalizedDomain,
+            contentHash,
             descriptionJson,
             managedTargetId,
             managedTargetType,
@@ -838,9 +864,23 @@ export const statsRouter = {
           return json({ error: 'usage segment batch validation failed', code: 'SEGMENT_BATCH_REJECTED', rejected }, 400);
         }
 
+        const uniqueById = new Map<string, typeof normalizedSegments[number]>();
+        for (const item of normalizedSegments) {
+          const existing = uniqueById.get(item.segment.id);
+          if (existing && existing.contentHash !== item.contentHash) {
+            return json({
+              error: 'usage segment batch contains conflicting duplicate ids',
+              code: 'SEGMENT_BATCH_REJECTED',
+              rejected: [{ id: item.segment.id, code: 'SEGMENT_CONTENT_CONFLICT', message: 'duplicate segment id has different content' }],
+            }, 400);
+          }
+          if (!existing) uniqueById.set(item.segment.id, item);
+        }
+        const uniqueSegments = [...uniqueById.values()];
+
         const now = Date.now();
         const batchId = normalizeOptionalString(body?.batchId || request.headers.get('X-TimeOnChrome-Request-Id'), 512);
-        const statements = normalizedSegments.map((item) => {
+        const statements = uniqueSegments.map((item) => {
           const s = item.segment;
           return env.DB.prepare(
             `INSERT INTO usage_segments_v1
@@ -855,22 +895,7 @@ export const statsRouter = {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-               tab_id = excluded.tab_id,
-               window_id = excluded.window_id,
-               description_json = excluded.description_json,
-               managed_target_id = excluded.managed_target_id,
-               managed_target_type = excluded.managed_target_type,
-               managed_target_namespace = excluded.managed_target_namespace,
-               managed_target_value = excluded.managed_target_value,
-               managed_target_label_at_time = excluded.managed_target_label_at_time,
-               target_source_at_time = excluded.target_source_at_time,
-               target_rule_id = excluded.target_rule_id,
-               target_match_level = excluded.target_match_level,
-               target_classification_at_time = excluded.target_classification_at_time,
-               quota_bucket_at_time = excluded.quota_bucket_at_time,
-               uploaded_at = excluded.uploaded_at,
-               updated_at = excluded.updated_at`
+             ON CONFLICT(id) DO NOTHING`
           ).bind(
             s.id, device.profileId, device.deviceId, s.date, s.timezone || 'Asia/Shanghai',
             typeof s.dayStartMs === 'number' ? s.dayStartMs : 0,
@@ -897,6 +922,70 @@ export const statsRouter = {
           );
         });
 
+        await env.DB.batch(statements);
+
+        const placeholders = uniqueSegments.map(() => '?').join(', ');
+        const persisted = await env.DB.prepare(
+          `SELECT id, profile_id, device_id, date, timezone, day_start_ms, day_end_ms,
+                  start_ms, end_ms, duration_seconds, domain, channel, mode,
+                  source_state, settlement_reason, parent_segment_id, part_index, part_count,
+                  tab_id, window_id, description_json,
+                  managed_target_id, managed_target_type, managed_target_namespace,
+                  managed_target_value, managed_target_label_at_time, target_source_at_time,
+                  target_rule_id, target_match_level, target_classification_at_time, quota_bucket_at_time
+           FROM usage_segments_v1 WHERE id IN (${placeholders})`
+        ).bind(...uniqueSegments.map((item) => item.segment.id)).all<any>();
+        const persistedById = new Map((persisted.results || []).map((row: any) => [row.id, row]));
+        const accepted: Array<{ id: string; contentHash: string }> = [];
+        const contentRejected: Array<{ id: string; code: string; message: string }> = [];
+        for (const item of uniqueSegments) {
+          const row: any = persistedById.get(item.segment.id);
+          if (!row) {
+            contentRejected.push({ id: item.segment.id, code: 'SEGMENT_PERSISTENCE_MISSING', message: 'segment was not found after persistence' });
+            continue;
+          }
+          if (row.profile_id !== device.profileId || row.device_id !== device.deviceId) {
+            contentRejected.push({ id: item.segment.id, code: 'SEGMENT_CONTENT_CONFLICT', message: 'segment id belongs to a different device identity' });
+            continue;
+          }
+          const persistedHash = await hashUsageSegmentContent({
+            id: row.id,
+            date: row.date,
+            timezone: row.timezone,
+            dayStartMs: row.day_start_ms,
+            dayEndMs: row.day_end_ms,
+            startMs: row.start_ms,
+            endMs: row.end_ms,
+            durationSeconds: row.duration_seconds,
+            domain: row.domain,
+            channel: row.channel,
+            mode: row.mode,
+            sourceState: row.source_state,
+            settlementReason: row.settlement_reason,
+            parentSegmentId: row.parent_segment_id,
+            partIndex: row.part_index,
+            partCount: row.part_count,
+            tabId: row.tab_id,
+            windowId: row.window_id,
+            description: parseJsonField(row.description_json),
+            managedTargetId: row.managed_target_id,
+            managedTargetType: row.managed_target_type,
+            managedTargetNamespace: row.managed_target_namespace,
+            managedTargetValue: row.managed_target_value,
+            managedTargetLabelAtTime: row.managed_target_label_at_time,
+            targetSourceAtTime: row.target_source_at_time,
+            targetRuleId: row.target_rule_id,
+            targetMatchLevel: row.target_match_level,
+            targetClassificationAtTime: row.target_classification_at_time,
+            quotaBucketAtTime: row.quota_bucket_at_time,
+          });
+          if (persistedHash !== item.contentHash) {
+            contentRejected.push({ id: item.segment.id, code: 'SEGMENT_CONTENT_CONFLICT', message: 'persisted segment content differs from upload' });
+            continue;
+          }
+          accepted.push({ id: item.segment.id, contentHash: item.contentHash });
+        }
+
         let payloadHash = '';
         try {
           const hashBuffer = await crypto.subtle.digest(
@@ -905,24 +994,24 @@ export const statsRouter = {
           payloadHash = Array.from(new Uint8Array(hashBuffer), b => b.toString(16).padStart(2, '0')).join('');
         } catch (_) {}
 
-        statements.push(env.DB.prepare(
+        await env.DB.prepare(
           `INSERT INTO segment_upload_log
            (id, profile_id, device_id, batch_id, received_count, accepted_count,
             inserted_count, updated_count, duplicate_count, failed_count, payload_hash, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           crypto.randomUUID(), device.profileId, device.deviceId, batchId,
-          segments.length, segments.length,
-          0, 0, 0, 0, payloadHash, now
-        ));
-        await env.DB.batch(statements);
+          segments.length, accepted.length,
+          0, 0, 0, contentRejected.length, payloadHash, now
+        ).run();
 
-        const acceptedIds = normalizedSegments.map(({ segment }) => segment.id);
+        const acceptedIds = accepted.map((item) => item.id);
         return json({
           success: true,
           count: acceptedIds.length,
           acceptedIds,
-          rejected: [],
+          accepted,
+          rejected: contentRejected,
           batchId,
         });
       } catch (e: any) {

@@ -62,6 +62,12 @@ const routeRequire = (id) => {
   if (id === '../../../extension/core/domain-semantics.js') {
     return { normalizeHostname: (value) => String(value || '').trim().toLowerCase() };
   }
+  if (id === '../../../extension/core/usage-segment-integrity.js') {
+    return {
+      hashUsageSegmentContent: async () => '0'.repeat(64),
+      isUsageSegmentContentHash: (value) => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value),
+    };
+  }
   if (id === './deviceIdentity') {
     return {
       verifyDeviceToken: async () => ({ profileId: 'profile-1', deviceId: 'device-1', unbound: false }),

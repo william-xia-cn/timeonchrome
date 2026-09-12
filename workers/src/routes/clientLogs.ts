@@ -1,6 +1,7 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
+import { compareQuotaAudit, projectAuditSegment, verifyQuotaAuditPackets } from '../../../extension/core/quota-audit.js';
 
 const VALID_LEVELS = new Set(['info', 'warning', 'error']);
 const VALID_CATEGORIES = new Set([
@@ -187,6 +188,38 @@ export const clientLogsRouter = {
       } catch (e: any) {
         return json({ error: 'Failed to upload client logs: ' + e.message }, 500);
       }
+    }
+
+    const auditMatch = path.match(/^\/profiles\/([^/]+)\/quota-audit\/v1$/);
+    if (request.method === 'GET' && auditMatch) {
+      const profileId = auditMatch[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+      const owner = await env.DB.prepare('SELECT id FROM profiles WHERE id = ? AND account_id = ?').bind(profileId, accountId).first();
+      if (!owner) return json({ error: 'Profile not found' }, 404);
+      const deviceId = url.searchParams.get('deviceId');
+      const requestId = url.searchParams.get('requestId') || '';
+      if (!deviceId || !/^[a-zA-Z0-9_:-]{1,128}$/.test(requestId)) return json({ error: 'deviceId and valid requestId required' }, 400);
+      if (!await verifyProfileDevice(env, profileId, deviceId)) return json({ error: 'Device not found' }, 404);
+      const result = await env.DB.prepare(`SELECT details_json FROM client_logs_v1
+        WHERE profile_id = ? AND device_id = ? AND event_code = 'quota_audit_packet'
+        AND json_valid(details_json) AND json_extract(details_json, '$.requestId') = ?
+        ORDER BY timestamp, id LIMIT 1003`).bind(profileId, deviceId, requestId).all<{ details_json: string }>();
+      const packets = (result.results || []).map(row => JSON.parse(row.details_json));
+      if (packets.length >= 1003) return json({ complete: false, reason: 'packet_query_truncated' });
+      const failed = packets.find(p => p.kind === 'failure');
+      if (failed) return json({ complete: false, reason: failed.reason, requestId });
+      const verified = await verifyQuotaAuditPackets(packets);
+      if (!verified.complete) return json({ ...verified, receivedPackets: packets.length });
+      const manifest = verified.manifest!;
+      const raw = await env.DB.prepare(`SELECT id, date, start_ms AS startMs, end_ms AS endMs,
+        duration_seconds AS durationSeconds, channel, mode,
+        target_classification_at_time AS targetClassificationAtTime, quota_bucket_at_time AS quotaBucketAtTime,
+        uploaded_at AS uploadedAt FROM usage_segments_v1
+        WHERE profile_id = ? AND device_id = ? AND date >= ? AND date <= ? AND end_ms <= ? LIMIT 20001`)
+        .bind(profileId, deviceId, manifest.fromDate, manifest.toDate, manifest.cutoff).all<any>();
+      if ((raw.results || []).length > 20000) return json({ complete: false, reason: 'cloud_query_truncated' });
+      return json({ ...compareQuotaAudit(verified, (raw.results || []).map(projectAuditSegment)), comparedAt: Date.now() });
     }
 
     const listMatch = path.match(/^\/profiles\/([^/]+)\/client-logs\/v1$/);

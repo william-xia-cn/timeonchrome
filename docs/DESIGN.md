@@ -1,6 +1,6 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.7.27
+版本：1.7.30
 更新：2026-08-29
 
 ---
@@ -862,6 +862,81 @@ pullCloudConfig():
 - `health-probe.html` 是不展示数据、不发起网络请求的空白扩展页。它向 Service Worker 发送 `TIMEONCHROME_LOCAL_HEALTH_PROBE`，由独立监听器校验 sender 后立即发送 `type: probe`；收到结果后关闭，最迟 5 秒强制关闭。
 - 现有每五分钟云端 heartbeat 保持不变。本地 heartbeat 只证明扩展进程和核心初始化状态，不替代云端配置、网页/媒体账本或远程监控。
 
+#### 3.5.3 记账 V2 四层模型（目标设计，尚未实现）
+
+D-078 将未来记账链路拆成四个不能互相替代的层次：
+
+| 层次 | 权威含义 | 写入者 | 是否可由对账修改 |
+|---|---|---|---|
+| 原始落账 | 终端已经结算的不可变审计事实 | 终端；云端只做幂等接收 | 否 |
+| 设备单账 | 一个设备在一个日期、一个 revision 的完整统计快照 | 终端生成，云端校验后发布 | 否 |
+| 档案总账 | 同一档案各设备最新已发布单账的确定性总和 | 云端发布器 | 否 |
+| 对账结果 | 固定原始事实集合重算后与对应设备单账的差异 | 云端审计器 | 只报警，不改账 |
+
+固定公式：
+
+```text
+设备单账 = deviceId + date + revision 对应的完整统计快照
+
+档案日总账 = Σ 当日各设备最新已发布设备单账
+
+档案周总账 = Σ 本周七个档案日总账
+
+终端可见合并账 = 本机当前完整单账（包含尚未上传部分）
+                + 云端其他设备最新已发布单账
+
+对账差额 = 固定截止点原始事实重算结果 - 对应 revision 的设备单账
+```
+
+设备单账必须同时包含小时、日、target、channel、mode 和 `quotaBucket` 维度，以及原始事实数量、事实摘要、统计摘要、`complete` 和事实损失状态。云端只接受由设备凭据确定的 `profileId/deviceId`；同一 `deviceId + date + revision` 同摘要重传为幂等成功，异摘要为版本冲突，旧 revision 不得覆盖新 revision。
+
+设备日账采用 manifest 加不超过 200 行的 staging 分块。只有所有分块、行数和摘要均匹配后，才记录 `receivedRevision`；只有设备单账内部守恒、档案日总账和周总账在同一发布事务中构建成功后，才推进 `publishedRevision`。发布失败保留上一代完整账继续可读，新版本保持 `received_not_published`，禁止公开部分代次。
+
+下发结果必须提供 `snapshotId`、`asOf`、周期、逐设备单账、档案总账、设备版本向量、完整性和 `totalHash`。分页必须绑定同一快照；终端收齐并校验后整体替换缓存，失败时保留上一份有效快照。离线设备只使用最后已发布单账并标记陈旧，不估算尚未上传用量。记账接口不下发配额锁。
+
+对账选择固定的设备、日期、设备单账 revision 和原始事实截止点。原始集合不完整时只能返回 `pending_raw` 或 `insufficient_evidence`；完整时独立重算总秒数、分段数量和摘要、小时、channel、mode、target 与 `quotaBucket`，输出 `matched`、`mismatch` 或 `manual_review_required`。对账不得确认上传、清理 outbox、推进历史水位或修改任何正式账。相同 mismatch 只累计有界事件，规则化改账必须留给未来独立的 adjustment ledger。
+
+V2 不直接改写现有 V1 表或读路径。V1/V2 并行期间，V1 继续服务旧客户端且不得写入 V2 正式读模型。V2 至少连续影子运行 7 个北京时间自然日，并通过真实多设备同截止点对照；档案全部活跃受控设备兼容后，才可在验收通过后的下一个周一 00:00 切换。切换前数据标记为 `legacy_unverified`，不把不明历史余额带入新周。任何 mismatch、总账不守恒、发布代次不完整或上传前后合并账跳增都阻断切换。
+
+本节只定义已批准目标架构，不表示功能已经整体实现。包 A“网页零秒诊断事实协议统一”、包 B“网页事实 `id + contentHash` 逐项 ACK与冲突拒绝”、包 C“pending 独立扫描、revision 绑定及历史水位降级”和包 D“版本化设备日账影子提交”已于 2026-09-12 获 PO 单项批准并完成实现。包 B 使用共享规范化摘要，Worker 独立复算并禁止同 ID 异内容覆盖，客户端只按匹配摘要清除 pending；包 C 使原始 pending 不再受历史水位限制，远端总秒数完整性只在上传后控制连续水位推进，聚合响应只清除请求快照捕获且仍未变化的 outbox revision，日期包由一次冻结本地快照构建；包 D 从该冻结快照生成四类规范化设备日账行，经分块、摘要和守恒校验后提交为不可变 V2 shadow version。媒体协议、原始事实生成、本地聚合值及现有 V1 API、表和读取均未改变。档案总账发布、独立对账和 V2 下发仍必须分别按 D-076 取得 PO 单项批准后实施。
+
+#### 3.5.4 包 D：版本化设备日账影子提交（已批准，已完成）
+
+包 D 只建立设备日账的 V2 影子接收与不可变版本，不改变 V1 统计表、查询、页面或配额。设备端从同一次 `buildUsageDateSyncSnapshot(date)` 冻结输入生成规范化行，内容包括每日 domain、每小时 domain、每日 target 和每小时 target 四类维度；不重新计算使用秒数，也不改变任何本地聚合字段。设备端仅在统计摘要变化时为该日期分配下一个单调 revision，并在本地保留有界的 manifest 状态，不持久化第二份完整账本。
+
+Worker 新增以下设备凭据接口：
+
+- `POST /device/accounts/v2/manifests`：登记或幂等取得 `deviceId + date + revision` manifest。
+- `PUT /device/accounts/v2/manifests/{manifestId}/chunks/{chunkIndex}`：接收最多 200 行的规范化 chunk；同索引同摘要幂等，异摘要冲突。
+- `POST /device/accounts/v2/manifests/{manifestId}/commit`：核对 manifest、全部 chunk、行数、摘要及四类统计总量守恒后，原子将 manifest 标记为 `committed`。
+- `GET /device/accounts/v2/status?date=...&revision=...`：只返回当前设备该日期版本的接收状态和摘要，不返回档案总账或配额状态。
+
+新 D1 表只存 V2 影子数据：`device_account_manifests_v2`、`device_account_chunks_v2` 和 `device_account_sync_events_v2`。设备身份始终由 bearer device token 确定，payload 中不接受 profile/device 覆盖。同一 revision 同 manifest 摘要为幂等成功，异摘要返回 `DEVICE_ACCOUNT_REVISION_CONFLICT`；低于当前最高 revision 的新 manifest 返回 `DEVICE_ACCOUNT_STALE_REVISION`。任何缺块、越界块、块摘要错误、统计摘要错误或内部不守恒都保持 `staging` 并拒绝 commit，不能形成部分可见版本。
+
+包 D 的 `committed` 仅表示完整影子设备单账版本已经不可变保存，不表示已经进入档案总账。包 E 实施前不存在产品可读的 V2 head，V1 继续承担全部现有运行；D 的失败只形成有界 shadow pending/诊断，不阻塞 V1 上传、网页记账、拦截或配额。
+
+实现验证覆盖设备端规范化、四维守恒、事实损失标记、每块 200 行上限、revision 单调性与陈旧响应保护；Worker 覆盖乱序/缺块、幂等、摘要冲突、旧 revision、事务失败和零秒空账；同步覆盖请求顺序、失败隔离、pending 重试及已提交跳过。全量 unit 共 134 个测试文件通过，TypeScript、扩展根目录与 diff 检查通过。
+
+#### 3.5.5 包 E：档案日/周总账原子发布（已批准，已实现）
+
+包 E 在 V2 隔离表中建立设备日期 head、档案日期 generation/head 和档案周 generation/head。发布输入只能是已 `committed` 且重新通过行摘要和四维守恒校验的设备单账；档案日总账严格按规范化 bucket 对各设备最新候选 revision 求和，周总账只汇总同一档案该北京时间周的七个最新日总账。设备版本向量必须记录每个贡献设备的 manifest、revision、摘要、完整性和数据时间。
+
+候选 generation、总账 payload、版本向量和摘要在事务前完整构建；档案日明细按最多 200 行分块保存并逐块校验，避免大日账依赖单个 JSON 字段。设备 head、档案日 head、档案周 head 只允许在同一 D1 batch 中切换；事务失败时上一代 head 保持不变，新 manifest 保持 `committed / received_not_published`。包 E 不提供产品读取，不接入 V1、页面或配额。
+
+#### 3.5.6 包 F：独立设备对账（已批准，已实现）
+
+对账固定 `deviceId + date + revision + rawCutoff`，读取对应不可变设备单账和截止点内的云端网页原始事实。原始事实未收齐时返回 `pending_raw`，存在已知事实损失或无法证明集合完整时返回 `insufficient_evidence`；只有完整证据才能使用与本地相同的确定性切片和聚合规则生成审计账，并比较总秒数、事实数量/摘要、小时、domain、target、channel、mode 和 `quotaBucket`。
+
+对账结果及相同 mismatch 的有界 incident 单独存储。任何结果均不得修改原始事实、设备单账、档案总账、客户端 outbox、上传 ACK、历史水位或配额；规则化改账不属于本包。
+
+#### 3.5.7 包 G：V2 只读快照与终端影子缓存（已批准，已实现）
+
+Worker 提供版本化周快照，只读取已发布 head，返回 `snapshotId`、`asOf`、北京时间周期、逐设备日账、档案日/周总账、设备版本向量、完整性和 `totalHash`。分页全部绑定创建时的不可变 snapshot；客户端必须收齐全部页面并复算摘要后才能整体替换有界影子缓存，缺页、过期或摘要错误继续保留上一份有效缓存。
+
+包 G 仅用于影子比较和诊断。现有 Pages、Admin、Popup、配额、拦截与 V1 统计仍不读取该缓存；正式切换必须另行通过连续 7 日影子验证、全设备兼容和下一个北京时间周一 00:00 门禁。
+
+E/F/G 的专项测试、140 个全量 unit 文件、TypeScript、扩展根目录、diff 检查及完整自动化入口均已通过；完整入口包含 API 103/103、数据流 53/53 和扩展 E2E 15/15。实现审计结论为 `Matched`，未发现偏离确认方案或进入现有产品读取的额外路径。
+
 ### 3.6 配置修改流程
 
 ```
@@ -1138,11 +1213,21 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 ### 云端日志
 
+#### D-075 配额取证与分层诊断（2026-09-12）
+
+- `clientLoggingPolicyV1.policyVersion=2` 显式启用新策略：基础 `uploadEnabled/uploadMinLevel` 为 warning/error，`expiresAt=null` 可长期授权；`infoExpiresAt` 单独控制详细 info。旧策略缺少版本号时继续使用原 `expiresAt`，不自动延长授权。白名单同步健康、配额决策、故障恢复和日志损失摘要保持真实 info 等级，基础授权开启时仍可上传。
+- `clientLoggingPolicyV1.quotaAuditRequest` 包含 `requestId/deviceId/fromDate/toDate/expiresAt`，由 Pages 通过既有 profile 配置接口写入；范围最多 7 个真实自然日、有效期不超过 24 小时。旧扩展忽略。终端仅允许固定字段只读采集，不执行任何远程命令。
+- 快照从一次 storage 读取固定截止点，排除截止点后的分段；仅投影 ID、日期、起止、秒数、channel、mode、分类和 quota bucket，另采集逐日聚合、outbox、确认状态和历史水位。通过既有客户端日志通道发送 manifest/chunk/complete，每包最多 20 行、每轮同步最多 10 包，只推进连续已 ACK 前缀；编码总量上限 480 KB，session 缓冲仍受统一预算限制。超限、重启丢失、缺块或摘要不符均报告不完整，不能视为通过；持久状态仅保留最近 24 小时最多 20 个请求标记，不重新生成丢失快照冒充同一次取证。日期范围外的现存 pending 分段只计数量，不传输其 ID/内容；日期无法确定的孤立 ID 单独标注。
+- 家长通过只读 `GET /profiles/:id/quota-audit/v1?requestId=...&deviceId=...` 验证快照后，按 ID 对比云端已接收原始账，返回本地独有、云端独有、同 ID 字段差异，以及逐日并集与本地聚合差异；已上传且被本地清理的云端独有行不是丢失证据。不修改原始账或任何物化。
+- 完整性只证明传输与校验一致，不证明账本真实完整或配额差额已经解释。报告保留零长度等无效分段的诊断投影并列出校验候选；没有逐目标 quota bucket、读取失败或结果被截断时显示未知/不完整，不补为 0。云端原始账查询超过 20000 行或日志包查询达到上限均停止判定完整。
+- 上传失败保留有界 `requestId/date/batchId/status/serverCode/rejected` 首错上下文；outbox 仍只存短错误码。同步摘要显示未知/待上传/退避/部分完成，不能把读取失败视为 0 或把本轮无错误视为全量完成。配额拒绝诊断关联同一 auditId，记录当前锁位、限额、本地/云端快照与逐日桶，不改判定算法。
+- 本地日志最长 3 天、512 KB，session info 最长 1 天、256 KB；写入/ACK/清理串行化，待执行队列最多 32 项。日志写入失败、读取失败、丢弃与截断以固定计数记入 session 的 `client_log_loss_v1`，通过健康摘要上传；会话存储不可用时仅保留内存计数并标注未持久化。服务端失败接口审计按 14 天独立保留，每设备成功请求最多 1000 条，不得挤掉失败。客户端云端日志仍保留 30 天。所有诊断有界、best-effort、低于网页落账优先级，不阻塞结算；新增诊断自身异常不得将上传成功改判失败或改变原错误和重试行为。
+
 - D1 表：`client_logs_v1`
 - 设备上传：`POST /device/client-logs/v1`，使用 device token 鉴权，Worker 按 token 归属写入真实 `profile_id/device_id`
 - 家长查询：`GET /profiles/:profileId/client-logs/v1`，支持按 device、level、category、时间范围和 cursor 查询
 - 云端默认不上传；只有 profile config 中的 `clientLoggingPolicyV1.uploadEnabled = true` 才上传
-- `expiresAt` 到期后扩展必须立即回退到默认不上传策略；Pages 摘要也必须按当前时间显示“已过期”，不得只依据 `uploadEnabled` 显示“已开启”
+- 旧策略 `expiresAt` 到期后停止上传，继续保留该过期授权作为拒绝条件，不回退到可能更宽松的本地策略；D-075 新策略详细 info 到期仅关闭详细日志。Pages 必须显示真实授权状态与期限，不能只依据 `uploadEnabled` 显示“已开启”。
 
 ### 隐私边界
 

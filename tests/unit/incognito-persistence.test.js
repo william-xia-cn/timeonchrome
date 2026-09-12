@@ -53,6 +53,8 @@ const usage = loadProdModule('core/usage-segments.js', [
 ], {
   evaluateSuspectSegment: () => ({ suspect: false }),
   sanitizeIncognitoForPersistence: privacy.sanitizeIncognitoForPersistence,
+  hashUsageSegmentContent: async () => 'a'.repeat(64),
+  isUsageSegmentContentHash: (value) => /^[a-f0-9]{64}$/.test(String(value || '')),
 });
 
 const media = loadProdModule('runtime/media-session.js', [

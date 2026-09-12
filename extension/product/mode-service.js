@@ -344,6 +344,8 @@ async function computeQuotaRemainingSnapshot(config) {
   };
   return {
     studySeconds: remaining(quota.studyMinutes, stats?.studySeconds),
+    diagnosticUsage: { totalSeconds: stats?.totalSeconds, studySeconds: stats?.studySeconds,
+      restSeconds: stats?.restSeconds, undeterminedSeconds: stats?.undeterminedSeconds },
     compositeSeconds: remaining(
       quota.compositeMinutes,
       stats?.undeterminedSeconds ?? stats?.compositeSeconds
@@ -829,6 +831,7 @@ async function handleAccessObserved(event = {}) {
   });
   return {
     ...decision,
+    diagnosticUsage: quotaRemaining.diagnosticUsage,
     domain,
     config,
     modeSnapshot,

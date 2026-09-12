@@ -4,6 +4,7 @@ import { getConfig, saveConfig } from '../infra/storage.js';
 import { getQuotaUsageView } from '../stats/managed-statistics.js';
 import { getEffectiveQuotaForDate } from '../core/quota-config.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
+import { rememberQuotaEvaluation } from '../infra/diagnostic-evidence.js';
 import {
   CLOUD_QUOTA_STATE_FACT_KEY,
   combineQuotaStates,
@@ -137,6 +138,7 @@ export async function evaluateQuotaState() {
     });
   }
   const newState = combineQuotaStates(localState, cloudFactCurrent ? cloudFact : null, calendar);
+  if (typeof rememberQuotaEvaluation === 'function') rememberQuotaEvaluation({ usage, localState, newState, calendar, cloudFact, cloudApplied: cloudFactCurrent });
   const stateChanged = quotaStateChanged(newState, oldState);
 
   if (stateChanged) {

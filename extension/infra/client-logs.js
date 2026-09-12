@@ -56,6 +56,33 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_PER_WINDOW = 20;
 const rateBuckets = new Map();
 let selfLogGuard = false;
+let logMutationQueue = Promise.resolve();
+let queuedMutations = 0;
+function serializeLogMutation(task) {
+  if (queuedMutations >= 32) { countLoss('dropped'); return Promise.resolve({ ok: false, skipped: 'log_queue_full' }); }
+  queuedMutations++;
+  const result = logMutationQueue.then(task, task).finally(() => { queuedMutations--; });
+  logMutationQueue = result.catch(() => {});
+  return result;
+}
+const HEALTH_EVENTS = new Set(['sync_health_summary', 'quota_denial_evidence', 'cloud_failure_incident_resolved', 'client_log_loss_summary']);
+const lossCounters = { writeFailed: 0, readFailed: 0, dropped: 0, truncated: 0 };
+const countLoss = key => { lossCounters[key] = Math.min(Number.MAX_SAFE_INTEGER, lossCounters[key] + 1); };
+export function noteClientLogLoss(key = 'dropped') { if (key in lossCounters) countLoss(key); }
+let flushedLoss = { ...lossCounters };
+export async function getClientLogLossCounters() {
+  const key = 'client_log_loss_v1';
+  try {
+    const previous = (await chrome.storage.session.get(key))[key] || {};
+    const captured = { ...lossCounters };
+    const totals = Object.fromEntries(Object.keys(captured).map(k => [k, Math.min(Number.MAX_SAFE_INTEGER,
+      (Number(previous[k]) || 0) + captured[k] - flushedLoss[k])]));
+    const result = await clientSessionStorageSet({ [key]: totals });
+    if (result?.ok) flushedLoss = captured;
+    return { ...totals, persisted: result?.ok === true };
+  } catch (_) { return { ...lossCounters, persisted: false }; }
+}
+const baseHealth = (event, policy) => policy.policyVersion === 2 && HEALTH_EVENTS.has(event.eventCode);
 
 function nowMs() {
   return Date.now();
@@ -73,6 +100,7 @@ async function storageGet(keys) {
   try {
     return await chrome.storage.local.get(keys);
   } catch (_) {
+    countLoss('readFailed');
     return {};
   }
 }
@@ -80,8 +108,10 @@ async function storageGet(keys) {
 async function storageSet(value) {
   try {
     const result = await clientStorageSet(value);
+    if (result?.ok === false) countLoss('writeFailed');
     return result?.ok !== false;
   } catch (_) {
+    countLoss('writeFailed');
     return false;
   }
 }
@@ -94,6 +124,7 @@ async function sessionStorageGet(keys) {
   try {
     return await sessionStorageArea().get(keys);
   } catch (_) {
+    countLoss('readFailed');
     return {};
   }
 }
@@ -102,10 +133,12 @@ async function sessionStorageSet(value) {
   try {
     if (chrome.storage.session?.set) {
       const result = await clientSessionStorageSet(value);
+      if (result?.ok !== true) countLoss('writeFailed');
       return result?.ok === true;
     }
     return await storageSet(value);
   } catch (_) {
+    countLoss('writeFailed');
     return false;
   }
 }
@@ -147,7 +180,7 @@ function maskEmail(value) {
 
 function redactString(value, key = '') {
   let text = String(value || '');
-  if (text.length > MAX_STRING_LENGTH) text = `${text.slice(0, MAX_STRING_LENGTH)}…`;
+  if (text.length > MAX_STRING_LENGTH) { countLoss('truncated'); text = `${text.slice(0, MAX_STRING_LENGTH)}…`; }
   if (/^https?:\/\//i.test(text)) {
     const domain = normalizeDomain(text);
     return domain ? `domain:${domain}` : '[redacted-url]';
@@ -183,8 +216,9 @@ function sanitizeDetails(value, depth = 0, key = '') {
       message: redactString(value.message || ''),
     };
   }
-  if (depth >= MAX_DETAILS_DEPTH) return '[truncated]';
+  if (depth >= MAX_DETAILS_DEPTH) { countLoss('truncated'); return '[truncated]'; }
   if (Array.isArray(value)) {
+    if (value.length > MAX_ARRAY_LENGTH) countLoss('truncated');
     return value.slice(0, MAX_ARRAY_LENGTH).map((item) => sanitizeDetails(item, depth + 1, key));
   }
   if (typeof value === 'object') {
@@ -192,6 +226,7 @@ function sanitizeDetails(value, depth = 0, key = '') {
     let count = 0;
     for (const [childKey, childValue] of Object.entries(value)) {
       if (count >= MAX_DETAILS_KEYS) {
+        countLoss('truncated');
         out.__truncated__ = true;
         break;
       }
@@ -218,6 +253,8 @@ function normalizePolicy(policy = {}) {
     : [];
   const sampleRate = Math.max(0, Math.min(1, Number(merged.sampleRate ?? 1)));
   return {
+    policyVersion: merged.policyVersion === 2 ? 2 : 1,
+    infoExpiresAt: Number(merged.infoExpiresAt) > 0 ? Number(merged.infoExpiresAt) : null,
     localEnabled: merged.localEnabled !== false,
     localMinLevel,
     uploadEnabled: merged.uploadEnabled === true,
@@ -252,7 +289,8 @@ async function getIdentityAndPolicies() {
     ? 'bound'
     : (profileId || deviceId || token ? 'partial' : 'unbound');
   const remoteRaw = storage[CONFIG_KEY]?.clientLoggingPolicyV1 || null;
-  const remotePolicy = remoteRaw && !isExpired(remoteRaw) ? remoteRaw : {};
+  // An expired remote authorization must not reveal a more permissive local upload policy.
+  const remotePolicy = remoteRaw || {};
   const localPolicy = storage[CLIENT_LOG_CONFIG_KEY] || {};
   const policy = normalizePolicy({ ...localPolicy, ...remotePolicy });
   return { profileId, deviceId, bindingState, policy };
@@ -270,11 +308,15 @@ function targetDeviceEnabled(deviceId, targetDeviceIds = []) {
   return !Array.isArray(targetDeviceIds) || targetDeviceIds.length === 0 || (deviceId && targetDeviceIds.includes(deviceId));
 }
 
-function shouldRecordLocal({ level, category, policy }) {
+function shouldRecordLocal({ level, category, eventCode, policy }) {
   if (!policy.localEnabled) return false;
+  if (policy.policyVersion === 2 && level === 'info') {
+    return policy.uploadEnabled && !isExpired(policy) &&
+      (baseHealth({ eventCode }, policy) || policy.infoExpiresAt > nowMs());
+  }
   if (!levelEnabled(level, policy.localMinLevel)) return false;
   if (!categoryEnabled(category, policy.categories)) return false;
-  if (level === 'info' && policy.localMinLevel === 'info' && !policy.expiresAt) return false;
+  if (level === 'info' && policy.localMinLevel === 'info' && (!policy.expiresAt || isExpired(policy))) return false;
   return true;
 }
 
@@ -282,10 +324,13 @@ export function shouldUploadClientLog(log, policy = DEFAULT_POLICY, now = nowMs(
   const effective = normalizePolicy(policy);
   if (!effective.uploadEnabled) return false;
   if (isExpired(effective, now)) return false;
-  if (!levelEnabled(log.level, effective.uploadMinLevel)) return false;
-  if (!categoryEnabled(log.category, effective.uploadCategories)) return false;
+  const health = baseHealth(log, effective);
+  const detail = effective.policyVersion === 2 && log.level === 'info' && effective.infoExpiresAt > now;
+  if (!health && !detail && !levelEnabled(log.level, effective.uploadMinLevel)) return false;
+  if (!health && !categoryEnabled(log.category, effective.uploadCategories)) return false;
   if (!targetDeviceEnabled(log.deviceId, effective.targetDeviceIds)) return false;
-  if (log.level === 'info' && !effective.expiresAt) return false;
+  if (log.level === 'info' && !health && !detail && (effective.policyVersion === 2 || !effective.expiresAt)) return false;
+  if (health) return true;
   if (effective.sampleRate <= 0) return false;
   if (effective.sampleRate < 1) {
     const seed = String(log.id || log.eventCode || '');
@@ -302,6 +347,7 @@ function rateLimited(level, category, eventCode) {
   const now = nowMs();
   const bucket = rateBuckets.get(key);
   if (!bucket || now - bucket.startAt > RATE_LIMIT_WINDOW_MS) {
+    if (rateBuckets.size >= 128) rateBuckets.delete(rateBuckets.keys().next().value);
     rateBuckets.set(key, { startAt: now, count: 1 });
     return false;
   }
@@ -340,7 +386,7 @@ function pruneLogs(logs, policy, now = nowMs()) {
 }
 
 function persistentLogs(logs, policy, now = nowMs()) {
-  return pruneLogs(logs, policy, now).filter((log) => normalizeLevel(log?.level) !== 'info');
+  return pruneLogs(logs, policy, now).filter((log) => normalizeLevel(log?.level) !== 'info' || HEALTH_EVENTS.has(log.eventCode));
 }
 
 function sessionLogs(logs, policy, now = nowMs()) {
@@ -349,7 +395,7 @@ function sessionLogs(logs, policy, now = nowMs()) {
     retentionDays: 1,
     maxEntries: Math.min(500, Number(policy?.maxEntries || 500)),
     maxBytes: Math.min(256 * 1024, Number(policy?.maxBytes || 256 * 1024)),
-  }, now).filter((log) => normalizeLevel(log?.level) === 'info');
+  }, now).filter((log) => normalizeLevel(log?.level) === 'info' && !HEALTH_EVENTS.has(log.eventCode));
 }
 
 async function readClientLogStores() {
@@ -375,6 +421,7 @@ export async function pruneClientLogsForStoragePressure({ pressure = false, emer
     maxBytes,
   }, now);
   if (next.length !== current.length || approxBytes(next) !== approxBytes(current)) {
+    lossCounters.dropped = Math.min(Number.MAX_SAFE_INTEGER, lossCounters.dropped + Math.max(0, current.length - next.length));
     await clientStorageSet({ [CLIENT_LOGS_KEY]: next }, storageOptions);
   }
   return { removed: Math.max(0, current.length - next.length), remaining: next.length, bytes: approxBytes(next) };
@@ -386,25 +433,30 @@ function makeLogId(timestamp) {
 }
 
 async function appendClientLog(log, policy) {
-  if (normalizeLevel(log?.level) === 'info') {
+  if (normalizeLevel(log?.level) === 'info' && !HEALTH_EVENTS.has(log.eventCode)) {
     const storage = await sessionStorageGet(CLIENT_SESSION_LOGS_KEY);
     const current = Array.isArray(storage[CLIENT_SESSION_LOGS_KEY]) ? storage[CLIENT_SESSION_LOGS_KEY] : [];
-    return await sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: sessionLogs([log, ...current], policy) });
+    const next = sessionLogs([log, ...current], policy);
+    lossCounters.dropped = Math.min(Number.MAX_SAFE_INTEGER, lossCounters.dropped + Math.max(0, current.length + 1 - next.length));
+    return await sessionStorageSet({ [CLIENT_SESSION_LOGS_KEY]: next });
   }
   const storage = await storageGet(CLIENT_LOGS_KEY);
   const current = Array.isArray(storage[CLIENT_LOGS_KEY]) ? storage[CLIENT_LOGS_KEY] : [];
-  return await storageSet({ [CLIENT_LOGS_KEY]: persistentLogs([log, ...current], policy) });
+  const next = persistentLogs([log, ...current], policy);
+  lossCounters.dropped = Math.min(Number.MAX_SAFE_INTEGER, lossCounters.dropped + Math.max(0, current.length + 1 - next.length));
+  return await storageSet({ [CLIENT_LOGS_KEY]: next });
 }
 
-export async function logClientEvent(event = {}) {
+export function logClientEvent(event = {}) { return serializeLogMutation(() => writeClientEvent(event)); }
+async function writeClientEvent(event = {}) {
   try {
     const level = normalizeLevel(event.level);
     const category = normalizeCategory(event.category);
     const eventCode = redactString(event.eventCode || 'client_event').replace(/[^a-z0-9_.:-]/gi, '_').slice(0, 96);
-    if (rateLimited(level, category, eventCode)) return { ok: true, skipped: 'rate_limited' };
+    if (rateLimited(level, category, eventCode)) { countLoss('dropped'); return { ok: true, skipped: 'rate_limited' }; }
 
     const { profileId, deviceId, bindingState, policy } = await getIdentityAndPolicies();
-    if (!shouldRecordLocal({ level, category, policy })) return { ok: true, skipped: 'policy' };
+    if (!shouldRecordLocal({ level, category, eventCode, policy })) return { ok: true, skipped: 'policy' };
 
     const timestamp = nowMs();
     const incognito = event.incognito === true || event.details?.incognito === true;
@@ -439,7 +491,7 @@ export async function logClientEvent(event = {}) {
 }
 
 export async function logClientEventBestEffort(event = {}) {
-  if (selfLogGuard) return;
+  if (selfLogGuard) { countLoss('dropped'); return; }
   selfLogGuard = true;
   try {
     await logClientEvent(event);
@@ -487,13 +539,15 @@ function filterLogs(logs, filter = {}) {
     .slice(0, limit);
 }
 
-export async function getClientLogs(filter = {}) {
+export function getClientLogs(filter = {}) { return serializeLogMutation(() => readAndPruneClientLogs(filter)); }
+async function readAndPruneClientLogs(filter = {}) {
   const [{ policy }, stores] = await Promise.all([
     getIdentityAndPolicies(),
     readClientLogStores(),
   ]);
   const local = persistentLogs(stores.local, policy);
   const session = sessionLogs(stores.session, policy);
+  lossCounters.dropped = Math.min(Number.MAX_SAFE_INTEGER, lossCounters.dropped + Math.max(0, stores.local.length + stores.session.length - local.length - session.length));
   await Promise.all([
     local.length !== stores.local.length ? storageSet({ [CLIENT_LOGS_KEY]: local }) : Promise.resolve(true),
     session.length !== stores.session.length
@@ -504,7 +558,8 @@ export async function getClientLogs(filter = {}) {
   return { ok: true, logs: filterLogs(combined, filter), total: combined.length };
 }
 
-export async function clearClientLogs(filter = null) {
+export function clearClientLogs(filter = null) { return serializeLogMutation(() => clearClientLogStores(filter)); }
+async function clearClientLogStores(filter = null) {
   if (!filter || Object.keys(filter || {}).length === 0) {
     await Promise.all([
       storageSet({ [CLIENT_LOGS_KEY]: [] }),
@@ -582,7 +637,8 @@ export async function getPendingClientLogsForUpload({ limit = 200 } = {}) {
   return { logs: pending, pendingCount: pending.length, policy };
 }
 
-export async function markClientLogsUploaded(ids = []) {
+export function markClientLogsUploaded(ids = []) { return serializeLogMutation(() => acknowledgeClientLogs(ids)); }
+async function acknowledgeClientLogs(ids = []) {
   const idSet = new Set(ids);
   if (idSet.size === 0) return { ok: true, updated: 0 };
   const stores = await readClientLogStores();
@@ -610,7 +666,8 @@ function normalizeClientLogUploadError(error) {
   return /^[a-z0-9_:-]{1,64}$/.test(lower) ? lower.replace(/[:-]+/g, '_') : 'upload_failed';
 }
 
-export async function markClientLogUploadFailed(ids = [], error = 'upload_failed') {
+export function markClientLogUploadFailed(ids = [], error = 'upload_failed') { return serializeLogMutation(() => failClientLogs(ids, error)); }
+async function failClientLogs(ids = [], error = 'upload_failed') {
   const idSet = new Set(ids);
   if (idSet.size === 0) return { ok: true, updated: 0 };
   const stores = await readClientLogStores();
