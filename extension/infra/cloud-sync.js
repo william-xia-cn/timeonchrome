@@ -1564,6 +1564,10 @@ export async function pullCloudQuotaState(getConfigFn, saveConfigFn) {
   }
 }
 
+function usesQuotaAccountingV2(config = {}) {
+  return Number(config?.timeQuota?.accountingVersion) === 2;
+}
+
 // ── Upload stats ────────────────────────────────────────────────────────────────
 
 /**
@@ -1777,10 +1781,16 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
 
     let quotaSynced = false;
     if (syncState.monitoringEnabled !== 0) {
-      const quotaResult = await pullCloudQuotaState(getConfigFn, saveConfigFn);
-      quotaSynced = quotaResult.synced;
-      if (quotaResult.error) {
-        errors.push('quota: ' + quotaResult.error);
+      const currentConfig = await getConfigFn();
+      if (usesQuotaAccountingV2(currentConfig)) {
+        await chrome.storage.local.remove(CLOUD_QUOTA_STATE_FACT_KEY).catch(() => {});
+        quotaSynced = true;
+      } else {
+        const quotaResult = await pullCloudQuotaState(getConfigFn, saveConfigFn);
+        quotaSynced = quotaResult.synced;
+        if (quotaResult.error) {
+          errors.push('quota: ' + quotaResult.error);
+        }
       }
     } else {
       quotaSynced = true; // monitoring disabled, intentionally skipped
@@ -3193,6 +3203,32 @@ async function retryPendingDeviceAccountsV2Shadow({ enabled = false } = {}) {
   return result;
 }
 
+async function uploadCurrentWeekDeviceAccountsV2({ enabled = false } = {}) {
+  if (!enabled || !syncState.deviceToken || syncState.monitoringEnabled === 0) {
+    return { attempted: 0, uploaded: 0, failed: 0, skipped: true, results: [] };
+  }
+  const today = getDateKey();
+  const { weekStart, weekEnd } = getBeijingWeekPeriod(today);
+  const daily = await getDailyUsageStats().catch(() => ({}));
+  const dates = Object.keys(daily || {})
+    .filter((date) => date >= weekStart && date <= weekEnd)
+    .sort();
+  const result = { attempted: dates.length, uploaded: 0, failed: 0, skipped: dates.length === 0, results: [] };
+  for (const date of dates) {
+    try {
+      const pkg = await buildUsageDateUploadPackage(date);
+      const attempt = await uploadDeviceAccountV2Shadow(pkg, { enabled: true });
+      result.results.push(attempt);
+      result.uploaded += attempt.uploaded;
+      result.failed += attempt.failed;
+    } catch (error) {
+      result.failed++;
+      result.results.push({ date, uploaded: 0, failed: 1, error: normalizeUploadErrorCode(error) });
+    }
+  }
+  return result;
+}
+
 async function retryPendingDeviceAccountReconciliationsV2Shadow({ enabled = false } = {}) {
   if (!enabled || !syncState.deviceToken || syncState.monitoringEnabled === 0) {
     return { attempted: 0, matched: 0, pending: 0, skipped: true };
@@ -3438,6 +3474,7 @@ export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) 
   result.segments.pendingCount = Math.max(result.segments.pendingCount, pendingSegments.pendingCount);
   result.uploaded += pendingSegments.uploaded;
   result.deviceAccountV2Pending = await retryPendingDeviceAccountsV2Shadow({ enabled });
+  result.deviceAccountV2CurrentWeek = await uploadCurrentWeekDeviceAccountsV2({ enabled });
   result.deviceAccountV2Reconciliation = await retryPendingDeviceAccountReconciliationsV2Shadow({ enabled });
   result.profileAccountV2Shadow = await syncProfileAccountV2ShadowSnapshot({ enabled });
 

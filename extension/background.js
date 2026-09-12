@@ -32,7 +32,7 @@ import { runClassificationSyncEffects } from './core/classification-effective-bo
 import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
 import { resolveActivationState } from './core/activation-gate.js';
 import { getSiteClassificationSpecialTargets } from './core/site-classification.js';
-import { getQuotaUsageView } from './stats/managed-statistics.js';
+import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromUsage } from './product/quota.js';
 import { configureRestUsageReminder, evaluateRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
 
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
@@ -68,7 +68,7 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
 configureRestUsageReminder({
   getConfig,
   getDateKey,
-  getQuotaUsageView,
+  getQuotaUsageView: (date, { config } = {}) => getQuotaUsageForConfig(config || {}, date),
   getTimingSession,
   endRestUsage: async ({ prompt, reason }) => dispatchModeEvent({
     type: 'REQUEST_MODE_CHANGE',
@@ -639,6 +639,7 @@ async function getPopupFastStatus(tabHint = null) {
     mode,
     currentDomain: domain || null,
     currentSessionDurationSeconds,
+    currentQuotaBucket: timingSession?.quotaBucketAtTime || null,
     tabId: Number.isInteger(tab?.id) ? tab.id : null,
     url: tab?.url || null,
   };
@@ -811,6 +812,7 @@ async function getPopupLocalSnapshot(tabHint = null) {
     mode: activation.activated ? mode : 'paused',
     currentDomain: domain || null,
     currentSessionDurationSeconds,
+    currentQuotaBucket: timingSession?.quotaBucketAtTime || null,
     tabId: Number.isInteger(tab?.id) ? tab.id : null,
     url: tab?.url || null,
     specialSiteTargets,
@@ -823,6 +825,22 @@ async function getPopupLocalSnapshot(tabHint = null) {
     childName: storage?.cloud_profile_name || null,
     timings,
   };
+  if (getQuotaAccountingVersion(popupConfig) === 2) {
+    const usage = await getQuotaUsageForConfig(popupConfig, getDateKey());
+    snapshot.quotaReadModel = usage?.quotaReadModel || null;
+    if (usage?.ok !== false) {
+      snapshot.stats = {
+        ...snapshot.stats,
+        studySeconds: usage.studySeconds,
+        restSeconds: usage.restSeconds,
+        compositeSeconds: usage.compositeSeconds,
+        onlineSeconds: usage.totalSeconds,
+      };
+      snapshot.config.quotaState = buildQuotaStateFromUsage(popupConfig, usage, getDateKey());
+    } else {
+      snapshot.config.quotaState = { accountingUnavailable: true };
+    }
+  }
   const totalMs = Date.now() - startedAt;
   snapshot.timings.totalMs = totalMs;
   if (totalMs > 300) {

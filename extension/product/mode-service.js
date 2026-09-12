@@ -335,8 +335,8 @@ export async function commitModeChange({
   };
 }
 
-async function computeQuotaRemainingSnapshot(config) {
-  const stats = await getTodayStatsWithCategories(config);
+async function computeQuotaRemainingSnapshot(config, quotaUsage = null) {
+  const stats = quotaUsage || await getTodayStatsWithCategories(config);
   const quota = getEffectiveQuotaForDate(config).todayEffectiveQuota;
   const remaining = (minutes, seconds) => {
     if (minutes === null || minutes === undefined) return null;
@@ -740,12 +740,36 @@ async function handleAccessObserved(event = {}) {
     siteClassification.classification === 'composite' ||
     isTemporaryCompositeDomain
   );
-  const quotaState = config.quotaState || {};
+  const quotaResult = Number(config?.timeQuota?.accountingVersion) === 2
+    ? await evaluateQuotaState().catch((error) => ({
+        ok: true,
+        accountingVersion: 2,
+        accountingUnavailable: true,
+        error: error?.message || String(error),
+        config,
+        newState: { accountingUnavailable: true },
+        lockedDomains: [],
+        usage: { ok: false },
+      }))
+    : null;
+  const quotaState = quotaResult?.newState || config.quotaState || {};
+  const lockedDomains = quotaResult?.accountingVersion === 2
+    ? (quotaResult.lockedDomains || [])
+    : (config.lockedDomains || []);
 
   if (isUnsafe) {
     return baseDecision({
       access: 'reminder',
       reminder: { reason: 'unsafe', params: {} },
+      domain,
+      config,
+    });
+  }
+
+  if (quotaResult?.accountingUnavailable === true && isRestricted) {
+    return baseDecision({
+      access: 'reminder',
+      reminder: { reason: 'accounting_unavailable', params: {} },
       domain,
       config,
     });
@@ -760,7 +784,7 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
-  if (Array.isArray(config.lockedDomains) && config.lockedDomains.includes(domain)) {
+  if (lockedDomains.includes(domain)) {
     return baseDecision({
       access: 'reminder',
       reminder: { reason: 'quota', params: {} },
@@ -788,7 +812,7 @@ async function handleAccessObserved(event = {}) {
   const legacyScheduleAllowed = hasModeWindows || !config.schedule?.enabled
     ? true
     : isWithinSchedule(config.schedule, windowCheckAt);
-  const quotaRemaining = await computeQuotaRemainingSnapshot(config);
+  const quotaRemaining = await computeQuotaRemainingSnapshot(config, quotaResult?.usage || null);
   const remainingCompositeSeconds = isCompositeDomain ? quotaRemaining.compositeSeconds : null;
   const remainingRestSeconds = quotaRemaining.restSeconds;
   const route = evaluateModeRoute({
@@ -922,9 +946,11 @@ async function handleRequestedModeChange(event = {}) {
     }));
     if (quotaResult?.skipped !== 'config_disabled') {
       const latestConfig = quotaResult?.config || await getConfig().catch(() => null);
-      const latestQuotaState = quotaResult?.newState || latestConfig?.quotaState || {};
+      const isV2 = Number(latestConfig?.timeQuota?.accountingVersion) === 2;
+      const latestQuotaState = quotaResult?.newState || (isV2 ? {} : latestConfig?.quotaState) || {};
       const blocked = quotaBlockedReminderForRequestedMode(requested, latestQuotaState);
-      if (blocked || quotaResult?.ok === false) {
+      const evaluationFailedBlocks = quotaResult?.ok === false && !isV2;
+      if (blocked || evaluationFailedBlocks) {
         recordFallbackLog({
           level: quotaResult?.ok === false ? 'error' : 'warning',
           category: 'access',

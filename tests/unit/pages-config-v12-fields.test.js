@@ -74,6 +74,10 @@ function run() {
   expectTrue('Pages 使用分析普通列表不暴露落账诊断字段', source.includes('显示管理对象') && source.includes('显示分类') && !extractFunctionSource(source, 'renderCloudUsageList').includes('settlementReason') && !extractFunctionSource(source, 'renderCloudUsageList').includes('tabId'));
   expectTrue('Pages 配额页应通过 effective quota read model 渲染', source.includes('function buildEffectiveTimeQuotaView') && source.includes('quotaTimeField'));
   expectTrue('Pages 配额页不应原地写入 remoteConfig.timeQuota 做懒迁移', !extractFunctionSource(source, 'renderQuotaPage').includes('remoteConfig.timeQuota ='));
+  expectTrue('Pages 配额页应提供 V2 统一账本切换', source.includes('id="q-accounting-version"') && extractFunctionSource(source, 'saveTimeQuotaConfig').includes('accountingVersion'));
+  expectTrue('Pages V2 云端账截止时间应使用现有北京时间格式函数', extractFunctionSource(source, 'renderQuotaCloudAccount').includes('formatSettlementTime(snapshot.asOf)'));
+  expectTrue('Pages 配额页应明确云端已确认账边界', source.includes('云端已确认账') && source.includes('不包含任一终端尚未上传的数据'));
+  expectTrue('Pages 配额页应按设备展示 V2 账目贡献', source.includes('function fetchProfileAccountSnapshotV2') && source.includes('/accounts/v2/snapshot') && source.includes('function renderQuotaCloudAccount') && source.includes('quotaProjection'));
   expectTrue('Pages 配额页应独立显示显式每周休息上限及本周状态', source.includes('id="q-weekly-rest-unlimited"') && source.includes('id="weekly-rest-used"') && source.includes('id="weekly-rest-remaining"') && source.includes('id="weekly-rest-source"'));
   expectTrue('Pages 每周休息用量应优先读取账本 quota bucket 且排除媒体通道', extractFunctionSource(source, 'restUsageSecondsFromStatsResult').includes("row.quotaBucket === 'rest'") && extractFunctionSource(source, 'restUsageSecondsFromStatsResult').includes("row.channel !== 'pip'") && extractFunctionSource(source, 'restUsageSecondsFromStatsResult').includes("row.channel !== 'media'"));
   expectTrue('Pages 每周休息上限保存应包含本周既有用量影响确认', extractFunctionSource(source, 'saveTimeQuotaConfig').includes('weekly: { restMinutes: weeklyRestMinutes }') && extractFunctionSource(source, 'saveTimeQuotaConfig').includes('将立即达到限制'));

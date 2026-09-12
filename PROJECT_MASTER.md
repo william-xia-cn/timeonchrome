@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.30（内部 managed 已发布）**
+- **版本：1.7.31（内部 managed 候选，实施中）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-09-12）**：`1.7.30` 已发布到 T.xia / P.xia 内部 managed 自托管渠道。源码提交为 `cf9f2c8`；D1 仅应用隔离 migration 023-026；Guardian Worker version 为 `e9e53258-f4d0-4c0a-bbe3-2b7a2b25bd27`；控制台 Pages deployment 为 `02e3bc0d`；更新站点最终 deployment 为 `2bd564f4`。managed CRX 为 410,948 bytes，SHA256 `46662d97661a63f9f15d9641c78ef4c215b68b5f5499f870fa67e00c3eb99c2a`，稳定扩展 ID 不变。V2 仅影子运行，不接管现有页面、配额、拦截或 V1 统计；19009 秒历史差额、`cg.163.com idleStateChanged` 少记、设备实际升级和连续 7 日影子守恒继续保持未解决/生产观察。
+- **当前发布状态（2026-09-12）**：`1.7.30` 仍是线上内部 managed 版本；`1.7.31` 已按 D-080 获准为 T.xia/P.xia 实施 V2 配额直接接管。实施范围只包括 capability、V2 账本下发投影、统一配额读模型、消费端显示与 profile 级切换，不修改网页 ACTIVE、原始分段、本地结算或设备单账生成。完成自动化、UI 目视和一致性审计后，按 migration 027、Worker、Pages、managed CRX/update feed、profile 切换顺序发布；19009 秒历史差额和 `cg.163.com idleStateChanged` 风险继续保留。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

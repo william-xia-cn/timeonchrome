@@ -25,7 +25,7 @@ async function openMockConsole(page) {
     remoteConfig = {
       domainQuotas: {},
       restConfig: { firstReminderMinutes: 120, repeatReminderMinutes: 60 },
-      timeQuota: { daily: Object.fromEntries(days.map(day => [day, {
+      timeQuota: { accountingVersion: 2, daily: Object.fromEntries(days.map(day => [day, {
         studyMinutes: null,
         restMinutes: null,
         compositeMinutes: 10,
@@ -77,7 +77,22 @@ async function showRulesPanel(page, panel) {
     document.querySelector('.nav-item[data-page="rules"]').classList.add('active');
     cloudRulesManagementActiveTab = targetPanel;
     syncRulesManagementTabs();
-    if (targetPanel === 'quota') renderQuotaPage();
+    if (targetPanel === 'quota') {
+      refreshWeeklyRestQuotaUsage = async () => {};
+      renderQuotaPage();
+      quotaWeeklyRestUsageSeconds = 5040;
+      quotaWeeklyRestUsageLoaded = true;
+      updateWeeklyRestQuotaStatus();
+      renderQuotaCloudAccount({
+        period: { weekStart: '2026-08-24', weekEnd: '2026-08-30' },
+        asOf: Date.now(),
+        completeness: { complete: false, missingDevices: [], incompatibleDevices: [], staleDevices: ['device-b'], incompleteDevices: [] },
+        deviceAccounts: [
+          { deviceId: 'device-a', quotaProjection: { activeSeconds: 4200, byQuotaBucket: [{ quotaBucket: 'study', durationSeconds: 1800 }, { quotaBucket: 'rest', durationSeconds: 2400 }], byDomain: [{ domain: 'example.com', durationSeconds: 4200 }] } },
+          { deviceId: 'device-b', quotaProjection: { activeSeconds: 3600, byQuotaBucket: [{ quotaBucket: 'composite', durationSeconds: 960 }, { quotaBucket: 'rest', durationSeconds: 2640 }], byDomain: [{ domain: 'video.example', durationSeconds: 3600 }] } },
+        ],
+      });
+    }
     if (targetPanel === 'schedule') renderSchedulePage();
   }, panel);
 }
@@ -111,6 +126,8 @@ test('Pages has native mobile navigation and touch layouts without page overflow
   await expect(page.locator('#q-rest-reminder-enabled')).toBeChecked();
   await expect(page.locator('#q-rest-first-reminder')).toHaveValue('120');
   await expect(page.locator('#q-rest-repeat-reminder')).toHaveValue('60');
+  await expect(page.locator('#q-accounting-version')).toHaveValue('2');
+  await expect(page.locator('#quota-cloud-device-list .quota-device-row:not(.header)')).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(OUTPUT, 'pages-mobile-quota.png'), fullPage: true });
   await page.locator('label[title="切换今日休息软限额提醒"]').click();

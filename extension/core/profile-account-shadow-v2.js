@@ -20,6 +20,15 @@ function mapsEqual(left, right) {
   return true;
 }
 
+function sumProjectionRows(rows, key) {
+  return (Array.isArray(rows) ? rows : []).reduce((total, row) => {
+    if (!row || typeof row[key] !== 'string' || !row[key]) throw new Error('PROFILE_ACCOUNT_SNAPSHOT_QUOTA_PROJECTION_INVALID');
+    const value = Number(row.durationSeconds);
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error('PROFILE_ACCOUNT_SNAPSHOT_QUOTA_PROJECTION_INVALID');
+    return total + value;
+  }, 0);
+}
+
 export async function validateProfileAccountSnapshotPages(pages) {
   if (!Array.isArray(pages) || pages.length === 0) throw new Error('PROFILE_ACCOUNT_SNAPSHOT_EMPTY');
   const first = pages[0];
@@ -70,6 +79,14 @@ export async function validateProfileAccountSnapshotPages(pages) {
     for (const [key, value] of sumBuckets(account?.total?.byQuotaBucket, 'quotaBucket')) {
       deviceQuota.set(key, (deviceQuota.get(key) || 0) + value);
     }
+    if (account?.quotaProjection) {
+      const activeSeconds = Number(account.quotaProjection.activeSeconds);
+      if (!Number.isSafeInteger(activeSeconds) || activeSeconds < 0 ||
+          sumProjectionRows(account.quotaProjection.byDomain, 'domain') !== activeSeconds ||
+          sumProjectionRows(account.quotaProjection.byQuotaBucket, 'quotaBucket') !== activeSeconds) {
+        throw new Error('PROFILE_ACCOUNT_SNAPSHOT_QUOTA_PROJECTION_INVALID');
+      }
+    }
   }
   if (!mapsEqual(deviceChannelMode, sumBuckets(first.profileTotal?.byChannelMode, 'channelMode')) ||
       !mapsEqual(deviceQuota, sumBuckets(first.profileTotal?.byQuotaBucket, 'quotaBucket'))) {
@@ -118,4 +135,3 @@ export async function storeProfileAccountShadowSnapshot(snapshot) {
     return cache;
   }, { priority: 'sync', source: 'profile_account_v2_shadow_cache' });
 }
-

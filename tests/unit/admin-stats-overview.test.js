@@ -160,7 +160,7 @@ function run() {
   expectTrue('admin 本地网站管理不提供本地添加保存或编辑分类入口', !html.includes('id="save-rules-btn"') && !html.includes('rules-site-add') && !html.includes('编辑分类') && code.includes('本机只读'));
   expectTrue('admin 本地配额和时间段使用只读表格展示', html.includes('时间配额') && code.includes('rules-quota-grid') && code.includes('rules-schedule-grid') && code.includes('rules-readonly-value'));
   expectTrue('admin 本地访问管理显示云端档案版本和同步新鲜度', html.includes('id="rules-cloud-summary"') && code.includes('CLOUD_KEYS.CONFIG_VERSION') && code.includes('CLOUD_KEYS.LAST_SYNC') && code.includes('显示上次同步结果') && code.includes('15 * 60 * 1000'));
-  expectTrue('admin 本地配额页显示显式周上限与当前周云端事实', html.includes('id="rules-weekly-rest-display"') && code.includes('weeklyRestLimitFromConfig') && code.includes('CLOUD_QUOTA_STATE_FACT_KEY') && code.includes('isCloudQuotaStateFactCurrent') && code.includes('weekRestSeconds') && code.includes('等待云端用量同步'));
+  expectTrue('admin 本地配额页按版本显示实际执行总账', html.includes('id="rules-weekly-rest-display"') && code.includes('weeklyRestLimitFromConfig') && code.includes('CLOUD_QUOTA_STATE_FACT_KEY') && code.includes('readQuotaReadModelV2') && code.includes('model.usage?.weekRestSeconds') && code.includes('其他设备数据未知或不完整'));
   expectTrue('admin 本地周上限说明区分周上限、借用配额和媒体时长', code.includes('来源：${weeklyQuotaSourceLabel(weekly.source)}') && code.includes('复合或待归类网站借用的休息配额会计入') && code.includes('媒体时长不计入'));
   expectTrue('admin 本地每日配额包含在线总额并显示七天计划合计', html.includes('id="rules-weekly-plan-display"') && code.includes('online: fromTimeQuota?.onlineMinutes') && code.includes('在线总额计划') && code.includes('七天每日计划的算术合计'));
   expectTrue('admin 本地配额明确将零值显示为禁止使用', extractFunctionSource(code, 'formatQuotaText').includes('禁止使用（0 分钟）'));

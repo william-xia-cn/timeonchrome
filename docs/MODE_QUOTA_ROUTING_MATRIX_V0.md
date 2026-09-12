@@ -305,6 +305,15 @@ Reminder layout and interaction requirements are maintained in this document. Do
 - Title: `当前配额已用完`
 - Body: `当前不能继续访问。请返回。`
 
+<a id="reminder-accounting-unavailable"></a>
+#### reminder: accounting_unavailable
+- Trigger: `timeQuota.accountingVersion=2`，本机账读取失败且当前周期没有可信本机缓存，目标属于 Restricted / Rejected。
+- Page type: blocked accounting-health Reminder.
+- Allowed actions: return only; retry after local accounting recovers.
+- Forbidden: describe the condition as quota exhaustion; borrow Rest; bypass into Restricted content.
+- Title: `记账数据暂不可用`
+- Body: `暂时无法确认休息时间用量。学习和复合网站仍可使用，受限娱乐网站将在记账恢复后开放。`
+
 ### 7.4 Block Definitions
 
 <a id="block-hard-blocked"></a>

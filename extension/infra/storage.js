@@ -68,8 +68,9 @@ export const DEFAULT_CONFIG = {
   dailyRestQuota: 120,
   dailyUndeterminedQuota: 60,
   weeklyRestQuota: null,
-  timeQuota: {
-    daily: {
+    timeQuota: {
+      accountingVersion: 1,
+      daily: {
       monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
       tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
       wednesday: { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },

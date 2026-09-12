@@ -11,6 +11,7 @@ import {
   getAdminUsageAnalysisView,
 } from '../stats/admin-read-model.js';
 import { buildEffectiveTimeQuota, weeklyRestLimitFromConfig } from '../core/quota-config.js';
+import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
 import {
   CLOUD_QUOTA_STATE_FACT_KEY,
   getQuotaCalendarContext,
@@ -108,6 +109,7 @@ let adminRulesCloudMeta = {
   configVersion: null,
   lastSync: null,
   quotaFact: null,
+  quotaReadModel: null,
 };
 let settlementAnalysisRows = [];
 let settlementReconciliation = null;
@@ -1622,20 +1624,31 @@ function renderWeeklyRestSection() {
 
   const weekly = weeklyRestLimitFromConfig(config || {});
   const context = getQuotaCalendarContext();
-  const fact = isCloudQuotaStateFactCurrent(adminRulesCloudMeta.quotaFact, context)
+  const isV2 = Number(config?.timeQuota?.accountingVersion) === 2;
+  const model = isV2 && adminRulesCloudMeta.quotaReadModel?.ok
+    ? adminRulesCloudMeta.quotaReadModel
+    : null;
+  const fact = !isV2 && isCloudQuotaStateFactCurrent(adminRulesCloudMeta.quotaFact, context)
     ? adminRulesCloudMeta.quotaFact
     : null;
   const limitSeconds = weekly.value === null ? null : Math.max(0, Number(weekly.value) || 0) * 60;
-  const usedSeconds = fact ? Math.max(0, Number(fact.usage?.weekRestSeconds) || 0) : null;
-  const remainingSeconds = fact && limitSeconds !== null
+  const usedSeconds = model
+    ? Math.max(0, Number(model.usage?.weekRestSeconds) || 0)
+    : (fact ? Math.max(0, Number(fact.usage?.weekRestSeconds) || 0) : null);
+  const hasUsage = model !== null || fact !== null;
+  const remainingSeconds = hasUsage && limitSeconds !== null
     ? Math.max(0, limitSeconds - usedSeconds)
     : null;
-  const statusText = !fact
-    ? '等待云端用量同步'
-    : (fact.state?.weeklyRestLocked === true ? '已达上限' : '正常');
-  const usedText = fact ? formatSeconds(usedSeconds) : '等待同步';
-  const remainingText = !fact ? '等待同步' : (limitSeconds === null ? '—' : formatSeconds(remainingSeconds));
-  const computedText = fact ? `${formatBeijingDateTime(fact.computedAt)}（北京时间）` : '当前周事实不可用';
+  const reached = limitSeconds !== null && usedSeconds !== null && usedSeconds >= limitSeconds;
+  const statusText = !hasUsage ? '记账数据暂不可用' : (reached ? '已达上限' : '正常');
+  const usedText = hasUsage ? formatSeconds(usedSeconds) : '暂不可用';
+  const remainingText = !hasUsage ? '暂不可用' : (limitSeconds === null ? '—' : formatSeconds(remainingSeconds));
+  const computedText = model
+    ? `${formatBeijingDateTime(model.computedAt)}（北京时间）`
+    : (fact ? `${formatBeijingDateTime(fact.computedAt)}（北京时间）` : '当前周事实不可用');
+  const detailText = model
+    ? `本机 ${formatSeconds(model.local?.weekRestSeconds || 0)} · 其他设备 ${formatSeconds(model.otherDevices?.weekRestSeconds || 0)} · 待确认 ${Number(model.pending?.segmentCount || 0)} 条 · ${model.completeness?.otherDevicesUnknown ? '其他设备数据未知或不完整' : '账目完整'}`
+    : '旧版只读云端配额事实';
 
   el.innerHTML = `
     <div class="rules-weekly-layout">
@@ -1650,7 +1663,7 @@ function renderWeeklyRestSection() {
           <div class="rules-weekly-stat"><div class="rules-weekly-stat-label">本周剩余</div><div class="rules-weekly-stat-value">${remainingText}</div></div>
           <div class="rules-weekly-stat"><div class="rules-weekly-stat-label">状态</div><div class="rules-weekly-stat-value">${statusText}</div></div>
         </div>
-        <div class="rules-weekly-note">复合或待归类网站借用的休息配额会计入；媒体时长不计入。云端事实时间：${escHtml(computedText)}</div>
+        <div class="rules-weekly-note">复合或待归类网站借用的休息配额会计入；媒体时长不计入。${escHtml(detailText)}。账目时间：${escHtml(computedText)}</div>
       </div>
     </div>
   `;
@@ -1664,12 +1677,16 @@ async function refreshAdminRulesCloudReadModel() {
       CLOUD_KEYS.LAST_SYNC,
       CLOUD_QUOTA_STATE_FACT_KEY,
     ], resolve));
+    const quotaReadModel = Number(config?.timeQuota?.accountingVersion) === 2
+      ? await readQuotaReadModelV2().catch(() => null)
+      : null;
     adminRulesCloudMeta = {
       loaded: true,
       profileName: storage[CLOUD_KEYS.PROFILE_NAME] || null,
       configVersion: storage[CLOUD_KEYS.CONFIG_VERSION] ?? null,
       lastSync: Number(storage[CLOUD_KEYS.LAST_SYNC] || 0),
       quotaFact: storage[CLOUD_QUOTA_STATE_FACT_KEY] || null,
+      quotaReadModel,
     };
   } catch (_) {
     adminRulesCloudMeta = {
@@ -1678,6 +1695,7 @@ async function refreshAdminRulesCloudReadModel() {
       configVersion: null,
       lastSync: null,
       quotaFact: null,
+      quotaReadModel: null,
     };
   }
   renderRulesCloudSummary();

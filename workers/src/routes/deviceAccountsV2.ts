@@ -86,6 +86,28 @@ async function authenticate(request: Request, env: Env) {
   return { response: null, device };
 }
 
+function capabilityVersionForExtension(version: string | null): number {
+  const match = String(version || '').match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return 1;
+  const numeric = Number(match[1]) * 1_000_000 + Number(match[2]) * 1_000 + Number(match[3]);
+  return numeric >= 1_007_031 ? 2 : 1;
+}
+
+async function recordDeviceAccountCapability(request: Request, env: Env, device: any): Promise<void> {
+  const extensionVersion = String(request.headers.get('X-TimeOnChrome-Version') || '').trim().slice(0, 32) || null;
+  const capabilityVersion = capabilityVersionForExtension(extensionVersion);
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO device_account_capabilities_v2
+      (profile_id, device_id, capability_version, extension_version, first_seen_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(profile_id, device_id) DO UPDATE SET
+       capability_version = MAX(device_account_capabilities_v2.capability_version, excluded.capability_version),
+       extension_version = excluded.extension_version,
+       last_seen_at = excluded.last_seen_at`
+  ).bind(device.profileId, device.deviceId, capabilityVersion, extensionVersion, now, now).run();
+}
+
 async function readManifest(env: Env, id: string, profileId: string, deviceId: string): Promise<ManifestRow | null> {
   return env.DB.prepare(
     `SELECT id, profile_id, device_id, date, revision, generated_at, row_count, chunk_count,
@@ -367,6 +389,7 @@ export const deviceAccountsV2Router = {
     const auth = await authenticate(request, env);
     if (auth.response || !auth.device) return auth.response!;
     try {
+      await recordDeviceAccountCapability(request, env, auth.device);
       if (request.method === 'POST' && path === MANIFEST_ROUTE) return await handleManifest(request, env, auth.device);
       if (request.method === 'GET' && path === STATUS_ROUTE) return await handleStatus(request, env, auth.device);
       if (request.method === 'POST' && path === RECONCILE_ROUTE) return await handleReconcile(request, env, auth.device);

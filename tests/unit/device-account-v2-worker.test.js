@@ -22,6 +22,7 @@ function makeDb() {
   const manifests = new Map();
   const chunks = new Map();
   const events = [];
+  const capabilities = [];
   let failBatch = false;
   function statement(kind, args = []) {
     return {
@@ -61,7 +62,9 @@ function makeDb() {
         };
       },
       async run() {
-        if (kind === 'manifest_insert') {
+        if (kind === 'capability_upsert') {
+          capabilities.push({ capabilityVersion: args[2], extensionVersion: args[3] });
+        } else if (kind === 'manifest_insert') {
           manifests.set(args[0], {
             id: args[0], profile_id: args[1], device_id: args[2], date: args[3], revision: args[4],
             generated_at: args[5], row_count: args[6], chunk_count: args[7], raw_fact_count: args[8],
@@ -90,8 +93,10 @@ function makeDb() {
     manifests,
     chunks,
     events,
+    capabilities,
     setFailBatch(value) { failBatch = value; },
     prepare(sql) {
+      if (sql.includes('INSERT INTO device_account_capabilities_v2')) return statement('capability_upsert');
       if (sql.includes('WHERE profile_id = ? AND device_id = ? AND date = ? AND revision = ?') && sql.includes('manifest_hash, status')) return statement('manifest_exact');
       if (sql.includes('MAX(revision)')) return statement('manifest_latest_revision');
       if (sql.includes('INSERT INTO device_account_manifests_v2')) return statement('manifest_insert');
@@ -179,7 +184,7 @@ async function makeManifest(shared, rows, revision = 1, date = '2026-09-12') {
 async function call(router, db, method, route, body = undefined) {
   const response = await router.handle(new Request(`https://worker.test${route}`, {
     method,
-    headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+    headers: { authorization: 'Bearer test', 'content-type': 'application/json', 'X-TimeOnChrome-Version': '1.7.31' },
     body: body === undefined ? undefined : JSON.stringify(body),
   }), { DB: db });
   return { response, body: await response.json() };
@@ -199,6 +204,7 @@ function check(label, condition, detail = '') {
   const manifest = await makeManifest(shared, rows);
   const created = await call(router, db, 'POST', '/device/accounts/v2/manifests', manifest);
   check('manifest is staged', created.response.status === 200 && created.body.status === 'staging', JSON.stringify(created.body));
+  check('1.7.31 request records V2 device capability', db.capabilities.some((item) => item.capabilityVersion === 2 && item.extensionVersion === '1.7.31'));
   const manifestId = created.body.manifestId;
   const duplicate = await call(router, db, 'POST', '/device/accounts/v2/manifests', manifest);
   check('same revision and hash is idempotent', duplicate.body.idempotent === true && duplicate.body.manifestId === manifestId);

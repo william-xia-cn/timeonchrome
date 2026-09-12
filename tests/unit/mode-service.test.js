@@ -643,6 +643,66 @@ this.__modeService = {
     });
   }
 
+  section('MSVC-3a2d V2 access uses one unified account result');
+  {
+    let quotaReads = 0;
+    let legacyReads = 0;
+    const cfg = {
+      enabled: true,
+      mode: 'study',
+      compositeList: ['portal.example'],
+      restrictedEntertainmentList: ['video.example'],
+      unsafeList: [],
+      quotaState: { onlineLocked: true },
+      timeQuota: { accountingVersion: 2 },
+      dailyStudyQuota: 120,
+      dailyUndeterminedQuota: 10,
+      dailyRestQuota: 60,
+    };
+    const svc = loadModeService({
+      getConfig: async () => cfg,
+      getSession: async () => ({ currentMode: 'study' }),
+      getTodayStatsWithCategories: async () => { legacyReads += 1; return {}; },
+      evaluateQuotaState: async () => {
+        quotaReads += 1;
+        return {
+          ok: true,
+          accountingVersion: 2,
+          config: cfg,
+          newState: {},
+          lockedDomains: [],
+          usage: { studySeconds: 60, compositeSeconds: 120, undeterminedSeconds: 120, restSeconds: 180, totalSeconds: 360 },
+        };
+      },
+    });
+    const result = await svc.handleModeEvent({
+      type: 'ACCESS_OBSERVED', url: 'https://portal.example/path', domain: 'portal.example', foreground: true, nowMs: 1000,
+    });
+    expect('V2 access reads unified model once and ignores persisted lock', {
+      quotaReads,
+      legacyReads,
+      access: result.access,
+      toMode: result.modeChange?.toMode,
+      remainingCompositeSeconds: result.notice?.remainingCompositeSeconds,
+    }, { quotaReads: 1, legacyReads: 0, access: 'allow', toMode: 'composite', remainingCompositeSeconds: 480 });
+
+    const unavailableSvc = loadModeService({
+      getConfig: async () => cfg,
+      resolveSiteAccessClassification: () => ({ classification: 'restricted' }),
+      evaluateQuotaState: async () => ({
+        ok: true, accountingVersion: 2, accountingUnavailable: true, config: cfg,
+        newState: { accountingUnavailable: true }, lockedDomains: [], usage: { ok: false },
+      }),
+    });
+    const unavailable = await unavailableSvc.handleModeEvent({
+      type: 'ACCESS_OBSERVED', url: 'https://video.example/watch', domain: 'video.example', foreground: true, nowMs: 1000,
+    });
+    expect('V2 unreadable local account blocks restricted with explicit reason', {
+      access: unavailable.access,
+      reason: unavailable.reminder?.reason,
+    }, { access: 'reminder', reason: 'accounting_unavailable' });
+  }
+
   section('MSVC-3a3 rejected exact URL follows restricted rest path');
   {
     const cfg = {

@@ -3,6 +3,7 @@
 import { getConfig, saveConfig } from '../infra/storage.js';
 import { getQuotaUsageView } from '../stats/managed-statistics.js';
 import { getEffectiveQuotaForDate } from '../core/quota-config.js';
+import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { rememberQuotaEvaluation } from '../infra/diagnostic-evidence.js';
 import {
@@ -14,6 +15,7 @@ import {
 
 let borrowInProgress = false;
 let lastLegacyQuotaFallbackLogAt = 0;
+let lastV2QuotaState = null;
 const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
@@ -22,7 +24,7 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
 
 export async function getWeekRestSeconds() {
   const config = await getConfig();
-  const view = await getQuotaUsageView(getQuotaCalendarContext().date, { config });
+  const view = await getQuotaUsageForConfig(config, getQuotaCalendarContext().date);
   return view.weekRestSeconds;
 }
 
@@ -64,6 +66,111 @@ function quotaStateChanged(a = {}, b = {}) {
     a.weeklyRestLocked !== b.weeklyRestLocked;
 }
 
+export function getQuotaAccountingVersion(config = {}) {
+  return Number(config?.timeQuota?.accountingVersion) === 2 ? 2 : 1;
+}
+
+export async function getQuotaUsageForConfig(config = {}, date = getQuotaCalendarContext().date) {
+  if (getQuotaAccountingVersion(config) !== 2) return getQuotaUsageView(date, { config });
+  const model = await readQuotaReadModelV2({ date });
+  if (!model?.ok) return { ...model, quotaReadModel: model };
+  return {
+    ...model.usage,
+    ok: true,
+    date: model.date,
+    source: model.source,
+    quotaSource: 'quota_read_model_v2',
+    quotaReadModel: model,
+  };
+}
+
+function emptyQuotaState(extra = {}) {
+  return {
+    onlineLocked: false,
+    studyLocked: false,
+    restLocked: false,
+    undeterminedLocked: false,
+    dailyRestLocked: false,
+    weeklyRestLocked: false,
+    ...extra,
+  };
+}
+
+async function evaluateQuotaStateV2(config, calendar, effectiveQuota) {
+  const usage = await getQuotaUsageForConfig(config, calendar.date);
+  await chrome.storage.local.remove(CLOUD_QUOTA_STATE_FACT_KEY).catch(() => {});
+  if (usage?.ok === false) {
+    const newState = emptyQuotaState({ accountingUnavailable: true });
+    const oldState = lastV2QuotaState || emptyQuotaState();
+    lastV2QuotaState = newState;
+    return {
+      ok: true,
+      accountingVersion: 2,
+      accountingUnavailable: true,
+      usage,
+      calendar,
+      localState: newState,
+      cloudState: null,
+      oldState,
+      newState,
+      stateChanged: quotaStateChanged(newState, oldState),
+      lockedDomains: [],
+      newlyLockedDomains: [],
+      config,
+    };
+  }
+
+  const newState = buildQuotaStateFromUsage(config, usage, calendar.date);
+  const oldState = lastV2QuotaState || emptyQuotaState();
+  const stateChanged = quotaStateChanged(newState, oldState);
+  lastV2QuotaState = newState;
+  const lockedDomains = Object.entries(usage.domainSeconds || {})
+    .filter(([domain, value]) => {
+      const limit = Number(config.domainQuotas?.[domain]);
+      return Number.isFinite(limit) && limit > 0 && Math.floor(Number(value || 0) / 60) >= limit;
+    })
+    .map(([domain]) => domain)
+    .sort();
+
+  if (typeof rememberQuotaEvaluation === 'function') {
+    rememberQuotaEvaluation({ usage, localState: newState, newState, calendar, cloudFact: null, cloudApplied: false });
+  }
+  if (stateChanged) {
+    recordFallbackLog({
+      level: 'info',
+      category: 'access',
+      eventCode: 'quota_state_v2_evaluated',
+      module: 'product/quota',
+      reason: 'quota_state_changed',
+      message: 'Quota state changed from unified V2 accounting model',
+      details: {
+        date: calendar.date,
+        weekStart: calendar.weekStart,
+        restSeconds: usage.restSeconds,
+        weekRestSeconds: usage.weekRestSeconds,
+        dailyRestLimitMinutes: effectiveQuota.todayEffectiveQuota.restMinutes,
+        weeklyRestLimitMinutes: effectiveQuota.todayEffectiveQuota.weeklyRestMinutes,
+        source: usage.source,
+        otherDevicesUnknown: usage.quotaReadModel?.completeness?.otherDevicesUnknown === true,
+      },
+    });
+  }
+  return {
+    ok: true,
+    accountingVersion: 2,
+    usage,
+    calendar,
+    localState: newState,
+    cloudState: null,
+    oldState,
+    newState,
+    stateChanged,
+    lockedDomains,
+    newlyLockedDomains: lockedDomains.filter((domain) => !(config.lockedDomains || []).includes(domain)),
+    config,
+  };
+}
+
 export async function evaluateQuotaState() {
   const config = await getConfig();
   if (!config.enabled) {
@@ -72,6 +179,9 @@ export async function evaluateQuotaState() {
 
   const calendar = getQuotaCalendarContext();
   const effectiveQuota = getEffectiveQuotaForDate(config, calendar.date);
+  if (getQuotaAccountingVersion(config) === 2) {
+    return evaluateQuotaStateV2(config, calendar, effectiveQuota);
+  }
   const daySources = effectiveQuota?.source?.day || {};
   const usesLegacyQuota = Object.values(daySources).includes('legacy') ||
     effectiveQuota?.source?.online === 'legacy' ||

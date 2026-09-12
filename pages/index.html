@@ -565,6 +565,11 @@
     .weekly-rest-stat-value { margin-top: 4px; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
     .weekly-rest-impact { margin-top: 10px; padding: 10px; border-radius: 8px; background: rgba(59,130,246,.07); color: var(--text); font-size: 12px; line-height: 1.55; }
     .weekly-rest-impact.danger { background: rgba(239,68,68,.08); color: var(--danger); }
+    .quota-accounting-layout { display:grid; grid-template-columns:minmax(220px,.7fr) minmax(0,1.3fr); gap:16px; align-items:start; }
+    .quota-accounting-select { width:100%; margin-top:10px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); font:inherit; }
+    .quota-device-list { display:grid; gap:8px; }
+    .quota-device-row { display:grid; grid-template-columns:minmax(140px,1fr) repeat(4,minmax(72px,.55fr)); gap:8px; padding:10px; border:1px solid var(--border); border-radius:8px; font-size:12px; align-items:center; }
+    .quota-device-row.header { color:var(--muted); font-weight:700; background:rgba(0,184,148,.04); }
 
     /* Schedule */
     .schedule-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
@@ -872,6 +877,9 @@
       .quota-unlimited { min-height: 44px; }
       .weekly-quota-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .weekly-rest-quota-layout { grid-template-columns: 1fr; }
+      .quota-accounting-layout { grid-template-columns:1fr; }
+      .quota-device-row { grid-template-columns:1fr 1fr; }
+      .quota-device-row.header { display:none; }
       .weekly-rest-time-inputs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; }
       .weekly-rest-time-inputs input { width: 100%; }
       .rest-reminder-editor { max-width: none; }
@@ -1145,6 +1153,26 @@
         </section>
       <!-- 时间配额 -->
       <section class="rules-management-panel" data-rules-management-panel="quota">
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">配额记账来源</div><div class="card-subtitle">V2 由孩子设备使用本机完整账与云端其他设备已确认账实时计算；云端不下发锁状态</div></div>
+          </div>
+          <div class="quota-accounting-layout">
+            <div>
+              <label class="quota-control-label" for="q-accounting-version">当前配额计算版本</label>
+              <select id="q-accounting-version" class="quota-accounting-select">
+                <option value="1">V1 兼容模式</option>
+                <option value="2">V2 统一账本</option>
+              </select>
+              <div class="weekly-rest-meta" style="margin-top:8px;">这里修改的是配额消费方式，不会重写历史落账或统计。</div>
+            </div>
+            <div>
+              <div class="weekly-rest-meta"><strong>云端已确认账</strong><br>仅包含已发布到云端的设备账，不包含任一终端尚未上传的数据。</div>
+              <div id="quota-cloud-account-status" class="weekly-rest-impact">读取中</div>
+              <div id="quota-cloud-device-list" class="quota-device-list"></div>
+            </div>
+          </div>
+        </div>
         <div class="card">
           <div class="card-header">
             <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rest.svg" alt="">每周休息上限</div><div class="card-subtitle">独立限制本周休息配额；周一 00:00 至周日 24:00，按北京时间统计</div></div>
@@ -1814,6 +1842,7 @@ let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
 let quotaWeeklyRestUsageSeconds = 0;
 let quotaWeeklyRestUsageLoaded = false;
+let quotaCloudAccountSnapshotV2 = null;
 let siteAccessDefaults = null; // 系统缺省清单 { defaultStudySites, defaultRestrictedEntertainmentSites, defaultBlockedSites }
 let cloudSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
@@ -3779,6 +3808,7 @@ function buildProfileConfigExportData(classificationRequests = []) {
     },
     quota: {
       timeQuota: {
+        accountingVersion: Number(cfg.timeQuota?.accountingVersion) === 2 ? 2 : 1,
         daily: cfg.timeQuota?.daily || {},
         weekly: { restMinutes: weeklyRestQuotaView(cfg).value },
       },
@@ -4133,6 +4163,7 @@ function normalizeProfileConfigImportData(data) {
     customBlockedSites: lists.customBlockedSites || [],
     siteClassificationRulesV1: uniqueSiteRules(importedRules),
     timeQuota: {
+      accountingVersion: Number(data.quota?.timeQuota?.accountingVersion) === 2 ? 2 : 1,
       daily: data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object' ? data.quota.timeQuota.daily : {},
       weekly: { restMinutes: weeklyRestMinutes === undefined ? null : weeklyRestMinutes },
     },
@@ -4336,6 +4367,7 @@ function buildProfileConfigImportPayload(selectedDiffs) {
     customBlockedSites: [...(Array.isArray(remoteConfig?.customBlockedSites) ? remoteConfig.customBlockedSites : [])],
     siteClassificationRulesV1: uniqueSiteRules(Array.isArray(remoteConfig?.siteClassificationRulesV1) ? remoteConfig.siteClassificationRulesV1 : []),
     timeQuota: {
+      accountingVersion: Number(remoteConfig?.timeQuota?.accountingVersion) === 2 ? 2 : 1,
       daily: JSON.parse(JSON.stringify(remoteConfig?.timeQuota?.daily || {})),
       weekly: { restMinutes: currentWeeklyRest },
     },
@@ -5050,6 +5082,62 @@ function shanghaiWeekDateRange(date = new Date()) {
   };
 }
 
+async function fetchProfileAccountSnapshotV2() {
+  const weekStart = shanghaiWeekDateRange().from;
+  const first = await api(`/profiles/${currentProfileId}/accounts/v2/snapshot?weekStart=${weekStart}&page=0`);
+  if (!first?.found) return null;
+  const pages = [first];
+  const pageCount = Math.max(1, Number(first.pageCount || 1));
+  for (let page = 1; page < pageCount; page++) {
+    const next = await api(`/profiles/${currentProfileId}/accounts/v2/snapshot?weekStart=${weekStart}&snapshotId=${encodeURIComponent(first.snapshotId)}&page=${page}`);
+    if (next.snapshotId !== first.snapshotId || Number(next.page) !== page) throw new Error('云端账本分页不一致');
+    pages.push(next);
+  }
+  return { ...first, deviceAccounts: pages.flatMap(item => item.deviceAccounts || []) };
+}
+
+function quotaProjectionBucket(projection, bucket) {
+  return (projection?.byQuotaBucket || []).reduce((total, row) =>
+    total + (row.quotaBucket === bucket ? Number(row.durationSeconds || 0) : 0), 0);
+}
+
+function renderQuotaCloudAccount(snapshot) {
+  const statusEl = document.getElementById('quota-cloud-account-status');
+  const listEl = document.getElementById('quota-cloud-device-list');
+  if (!statusEl || !listEl) return;
+  if (!snapshot) {
+    statusEl.textContent = '本周尚无已发布的 V2 设备账。终端仍按本机账执行。';
+    listEl.innerHTML = '';
+    return;
+  }
+  const completeness = snapshot.completeness || {};
+  const warnings = [
+    ...(completeness.missingDevices || []).map(id => `${cloudDeviceLabel(id)} 缺账`),
+    ...(completeness.incompatibleDevices || []).map(id => `${cloudDeviceLabel(id)} 版本不兼容`),
+    ...(completeness.staleDevices || []).map(id => `${cloudDeviceLabel(id)} 同步滞后`),
+    ...(completeness.incompleteDevices || []).map(id => `${cloudDeviceLabel(id)} 账目不完整`),
+  ];
+  statusEl.textContent = `${snapshot.period?.weekStart || ''} 至 ${snapshot.period?.weekEnd || ''} · ${completeness.complete ? '云端账完整' : (warnings.join('；') || '云端账不完整')} · 截止 ${formatSettlementTime(snapshot.asOf)}`;
+  const grouped = new Map();
+  for (const account of snapshot.deviceAccounts || []) {
+    if (!grouped.has(account.deviceId)) grouped.set(account.deviceId, { online: 0, study: 0, composite: 0, rest: 0 });
+    const row = grouped.get(account.deviceId);
+    row.online += Number(account.quotaProjection?.activeSeconds || 0);
+    row.study += quotaProjectionBucket(account.quotaProjection, 'study');
+    row.composite += quotaProjectionBucket(account.quotaProjection, 'composite');
+    row.rest += quotaProjectionBucket(account.quotaProjection, 'rest');
+  }
+  const rows = [...grouped.entries()].map(([deviceId, value]) => `
+    <div class="quota-device-row">
+      <strong>${escHtml(cloudDeviceLabel(deviceId))}</strong>
+      <span>在线 ${escHtml(fmtSec(value.online))}</span>
+      <span>学习 ${escHtml(fmtSec(value.study))}</span>
+      <span>待归类 ${escHtml(fmtSec(value.composite))}</span>
+      <span>休息 ${escHtml(fmtSec(value.rest))}</span>
+    </div>`).join('');
+  listEl.innerHTML = `<div class="quota-device-row header"><span>设备</span><span>在线</span><span>学习</span><span>待归类</span><span>休息</span></div>${rows || '<div class="empty-state">暂无设备账</div>'}`;
+}
+
 async function refreshWeeklyRestQuotaUsage() {
   if (!currentProfileId) return;
   const requestedProfileId = currentProfileId;
@@ -5057,14 +5145,26 @@ async function refreshWeeklyRestQuotaUsage() {
   updateWeeklyRestQuotaStatus();
   const range = shanghaiWeekDateRange();
   try {
-    const result = await fetchProfileStats(range.from, range.to);
+    await ensureCloudDevices();
+    quotaCloudAccountSnapshotV2 = Number(remoteConfig?.timeQuota?.accountingVersion) === 2
+      ? await fetchProfileAccountSnapshotV2()
+      : null;
     if (requestedProfileId !== currentProfileId) return;
-    quotaWeeklyRestUsageSeconds = restUsageSecondsFromStatsResult(result, remoteConfig || {});
+    if (Number(remoteConfig?.timeQuota?.accountingVersion) === 2) {
+      quotaWeeklyRestUsageSeconds = (quotaCloudAccountSnapshotV2?.deviceAccounts || [])
+        .reduce((total, account) => total + quotaProjectionBucket(account.quotaProjection, 'rest'), 0);
+      renderQuotaCloudAccount(quotaCloudAccountSnapshotV2);
+    } else {
+      const result = await fetchProfileStats(range.from, range.to);
+      quotaWeeklyRestUsageSeconds = restUsageSecondsFromStatsResult(result, remoteConfig || {});
+      renderQuotaCloudAccount(null);
+    }
     quotaWeeklyRestUsageLoaded = true;
   } catch (error) {
     console.warn('[Quota] weekly rest usage read failed:', error?.message || error);
     quotaWeeklyRestUsageSeconds = 0;
     quotaWeeklyRestUsageLoaded = false;
+    renderQuotaCloudAccount(null);
     const usedEl = document.getElementById('weekly-rest-used');
     const statusEl = document.getElementById('weekly-rest-status');
     if (usedEl) usedEl.textContent = '读取失败';
@@ -5097,6 +5197,7 @@ function renderQuotaPage() {
   const container = document.getElementById('quota-daily-table');
 
   const weeklyView = weeklyRestQuotaView(remoteConfig || {});
+  document.getElementById('q-accounting-version').value = String(Number(remoteConfig?.timeQuota?.accountingVersion) === 2 ? 2 : 1);
   const weeklyUnlimited = weeklyView.value === null;
   document.getElementById('q-weekly-rest-unlimited').checked = weeklyUnlimited;
   document.getElementById('q-weekly-rest-hours').value = weeklyUnlimited ? '' : Math.floor(weeklyView.value / 60);
@@ -5245,7 +5346,11 @@ async function saveTimeQuotaConfig() {
   }
 
   const payload = {
-    timeQuota: { daily, weekly: { restMinutes: weeklyRestMinutes } },
+    timeQuota: {
+      accountingVersion: Number(document.getElementById('q-accounting-version')?.value) === 2 ? 2 : 1,
+      daily,
+      weekly: { restMinutes: weeklyRestMinutes },
+    },
     restConfig: {
       ...(remoteConfig.restConfig || {}),
       firstReminderMinutes: reminderEnabled ? firstReminderMinutes : null,

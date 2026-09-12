@@ -28,8 +28,8 @@ const shadow = load(path.join(root, 'extension', 'core', 'profile-account-shadow
 
 async function pages() {
   const accounts = [
-    { deviceId: 'a', date: '2026-09-14', total: { totalSeconds: 60, byChannelMode: [{ channel: 'active', mode: 'rest', durationSeconds: 60 }], byQuotaBucket: [{ quotaBucket: 'rest', durationSeconds: 60 }] } },
-    { deviceId: 'b', date: '2026-09-14', total: { totalSeconds: 40, byChannelMode: [{ channel: 'active', mode: 'study', durationSeconds: 40 }], byQuotaBucket: [{ quotaBucket: 'study', durationSeconds: 40 }] } },
+    { deviceId: 'a', date: '2026-09-14', total: { totalSeconds: 60, byChannelMode: [{ channel: 'active', mode: 'rest', durationSeconds: 60 }], byQuotaBucket: [{ quotaBucket: 'rest', durationSeconds: 60 }] }, quotaProjection: { activeSeconds: 60, byQuotaBucket: [{ quotaBucket: 'rest', durationSeconds: 60 }], byDomain: [{ domain: 'a.example', durationSeconds: 60 }] } },
+    { deviceId: 'b', date: '2026-09-14', total: { totalSeconds: 40, byChannelMode: [{ channel: 'active', mode: 'study', durationSeconds: 40 }], byQuotaBucket: [{ quotaBucket: 'study', durationSeconds: 40 }] }, quotaProjection: { activeSeconds: 40, byQuotaBucket: [{ quotaBucket: 'study', durationSeconds: 40 }], byDomain: [{ domain: 'b.example', durationSeconds: 40 }] } },
   ];
   const payloads = [{ page: 0, deviceAccounts: [accounts[0]] }, { page: 1, deviceAccounts: [accounts[1]] }];
   const pageHashes = await Promise.all(payloads.map((payload) => device.hashDeviceAccountValue(payload)));
@@ -80,6 +80,17 @@ async function rejects(label, task, code) {
   await rejects('damaged page hash is rejected', () => shadow.validateProfileAccountSnapshotPages(damaged), 'PROFILE_ACCOUNT_SNAPSHOT_PAGE_HASH_MISMATCH');
   const wrongTotal = structuredClone(validPages); wrongTotal[0].profileTotal.totalSeconds = 99; wrongTotal[1].profileTotal.totalSeconds = 99;
   await rejects('metadata mutation is rejected', () => shadow.validateProfileAccountSnapshotPages(wrongTotal), 'PROFILE_ACCOUNT_SNAPSHOT_HASH_MISMATCH');
+  const badProjection = structuredClone(validPages);
+  badProjection[0].deviceAccounts[0].quotaProjection.byDomain[0].durationSeconds = 59;
+  badProjection[0].pageHash = await device.hashDeviceAccountValue({ page: 0, deviceAccounts: badProjection[0].deviceAccounts });
+  badProjection[0].pageHashes[0] = badProjection[0].pageHash;
+  badProjection[1].pageHashes[0] = badProjection[0].pageHash;
+  const metadata = { ...badProjection[0] };
+  delete metadata.snapshotId; delete metadata.snapshotHash; delete metadata.createdAt; delete metadata.expiresAt;
+  delete metadata.page; delete metadata.deviceAccounts; delete metadata.pageHash;
+  const newHash = await device.hashDeviceAccountValue(metadata);
+  badProjection.forEach(page => { page.snapshotHash = newHash; });
+  await rejects('inconsistent quota projection is rejected', () => shadow.validateProfileAccountSnapshotPages(badProjection), 'PROFILE_ACCOUNT_SNAPSHOT_QUOTA_PROJECTION_INVALID');
 
   await shadow.storeProfileAccountShadowSnapshot(snapshot);
   check('verified snapshot is stored under isolated key', state[shadow.PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY].current.snapshotId === 'snapshot-1');
@@ -89,4 +100,3 @@ async function rejects(label, task, code) {
 
   console.log(`[Profile Account Shadow V2] ${passed}/${passed} passed`);
 })().catch((error) => { console.error(error); process.exit(1); });
-

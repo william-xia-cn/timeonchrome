@@ -946,7 +946,9 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
         limit: onlineLimit,
         color: 'var(--accent)',
         locked: qs.onlineLocked,
-        sub: '前台网页和 PiP'
+        sub: config?.timeQuota?.accountingVersion === 2
+          ? (snapshot?.quotaReadModel?.completeness?.otherDevicesUnknown ? '前台网页 · 其他设备数据未知' : '前台网页 · 全部设备')
+          : '前台网页和 PiP'
       })
     ];
     if (backendMediaSeconds > 0) {
@@ -1019,7 +1021,7 @@ function resolveModeUsageWithLive(stats = {}, config = {}, status = {}) {
   let onlineSeconds = Math.max(0, Number(stats?.onlineSeconds) || 0);
   const currentDomain = normalizeHostname(status?.currentDomain || status?.domain || extractDomain(status?.url));
   const liveSeconds = resolveLiveSessionSeconds(currentDomain, status);
-  const mode = status?.mode;
+  const mode = status?.currentQuotaBucket || status?.mode;
   if (liveSeconds > 0) {
     if (mode === 'study') studySeconds += liveSeconds;
     if (mode === 'rest') restSeconds += liveSeconds;

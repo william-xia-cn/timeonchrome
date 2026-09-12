@@ -96,6 +96,7 @@ function buildSchemaDefaults(): object {
       },
     },
     timeQuota: {
+      accountingVersion: 1,
       daily: {
         monday:    { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
         tuesday:   { studyMinutes: null, restMinutes: 120, compositeMinutes: 120, onlineMinutes: null },
@@ -269,6 +270,9 @@ function validateTimeQuota(config: Record<string, unknown>): string | null {
   const timeQuota = config.timeQuota as any;
   if (timeQuota === undefined) return null;
   if (!timeQuota || typeof timeQuota !== 'object' || Array.isArray(timeQuota)) return 'timeQuota 必须是对象';
+  if (Object.prototype.hasOwnProperty.call(timeQuota, 'accountingVersion') && ![1, 2].includes(timeQuota.accountingVersion)) {
+    return 'timeQuota.accountingVersion 必须是 1 或 2';
+  }
 
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   const dailyFields = ['studyMinutes', 'restMinutes', 'compositeMinutes', 'onlineMinutes'];

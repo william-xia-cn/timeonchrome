@@ -16,13 +16,21 @@ function add(map: Map<string, number>, key: string, seconds: number) {
 function compactDeviceAccount(account: any): any {
   const byChannelMode = new Map<string, number>();
   const byQuotaBucket = new Map<string, number>();
+  const activeByQuotaBucket = new Map<string, number>();
+  const activeByDomain = new Map<string, number>();
   let totalSeconds = 0;
+  let activeSeconds = 0;
   for (const row of account.rows || []) {
     if (row.kind === 'daily_domain') {
       totalSeconds += Number(row.durationSeconds || 0);
       add(byChannelMode, `${row.channel}\u0000${row.mode}`, row.durationSeconds);
+      if (row.channel === 'active') {
+        activeSeconds += Number(row.durationSeconds || 0);
+        add(activeByDomain, row.domain, row.durationSeconds);
+      }
     } else if (row.kind === 'daily_target') {
       add(byQuotaBucket, row.quotaBucket, row.durationSeconds);
+      if (row.channel === 'active') add(activeByQuotaBucket, row.quotaBucket, row.durationSeconds);
     }
   }
   return {
@@ -46,21 +54,55 @@ function compactDeviceAccount(account: any): any {
       byQuotaBucket: [...byQuotaBucket.entries()].map(([quotaBucket, durationSeconds]) => ({ quotaBucket, durationSeconds }))
         .sort((a, b) => a.quotaBucket.localeCompare(b.quotaBucket)),
     },
+    quotaProjection: {
+      activeSeconds,
+      byQuotaBucket: [...activeByQuotaBucket.entries()]
+        .map(([quotaBucket, durationSeconds]) => ({ quotaBucket, durationSeconds }))
+        .sort((a, b) => a.quotaBucket.localeCompare(b.quotaBucket)),
+      byDomain: [...activeByDomain.entries()]
+        .map(([domain, durationSeconds]) => ({ domain, durationSeconds }))
+        .sort((a, b) => a.domain.localeCompare(b.domain)),
+    },
   };
 }
 
-async function readStaleDevices(env: Env, profileId: string): Promise<string[]> {
+function startOfBeijingDateMs(date: string): number {
+  return Date.parse(`${date}T00:00:00+08:00`);
+}
+
+async function readDeviceCompleteness(env: Env, profileId: string, weekStart: string, accounts: any[]): Promise<any> {
   try {
     const result = await env.DB.prepare(
-      `SELECT id, last_seen FROM devices
-        WHERE profile_id = ? AND COALESCE(status, 'bound') = 'bound' ORDER BY id ASC`
-    ).bind(profileId).all<any>();
+      `SELECT d.id, d.last_seen, c.capability_version
+         FROM devices d
+         LEFT JOIN device_account_capabilities_v2 c
+           ON c.profile_id = d.profile_id AND c.device_id = d.id
+        WHERE d.profile_id = ?
+          AND COALESCE(d.status, 'bound') = 'bound'
+          AND COALESCE(d.monitoring_enabled, 1) != 0
+          AND COALESCE(d.last_seen, 0) >= ?
+        ORDER BY d.id ASC`
+    ).bind(profileId, startOfBeijingDateMs(weekStart)).all<any>();
     const staleBefore = Date.now() - 24 * 60 * 60 * 1000;
-    return (result.results || [])
-      .filter((device) => Number(device.last_seen || 0) < staleBefore)
+    const expectedDevices = (result.results || []).map((device) => device.id);
+    const publishedDevices = new Set((accounts || []).map((account) => account.deviceId));
+    const incompatibleDevices = (result.results || [])
+      .filter((device) => Number(device.capability_version || 0) < 2)
       .map((device) => device.id);
+    const capableDevices = new Set((result.results || [])
+      .filter((device) => Number(device.capability_version || 0) >= 2)
+      .map((device) => device.id));
+    return {
+      inventoryAvailable: true,
+      expectedDevices,
+      incompatibleDevices,
+      missingDevices: expectedDevices.filter((id) => capableDevices.has(id) && !publishedDevices.has(id)),
+      staleDevices: (result.results || [])
+        .filter((device) => Number(device.last_seen || 0) < staleBefore)
+        .map((device) => device.id),
+    };
   } catch (_) {
-    return [];
+    return { inventoryAvailable: false, expectedDevices: [], missingDevices: [], incompatibleDevices: [], staleDevices: [] };
   }
 }
 
@@ -101,7 +143,8 @@ export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId:
     const payload = { page: 0, deviceAccounts: [] };
     pages.push({ payload, pageHash: await hashDeviceAccountValue(payload) });
   }
-  const staleDevices = await readStaleDevices(env, profileId);
+  const deviceCompleteness = await readDeviceCompleteness(env, profileId, period.weekStart, accounts);
+  const incompleteDevices = [...new Set([...(week.incompleteDevices || []), ...deviceCompleteness.missingDevices])].sort();
   const metadata = {
     schemaVersion: 2,
     period,
@@ -111,9 +154,9 @@ export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId:
     deviceVersionVector: week.deviceVersionVector,
     profileTotal: week.profileTotal,
     completeness: {
-      complete: week.complete,
-      staleDevices,
-      incompleteDevices: week.incompleteDevices,
+      complete: week.complete && deviceCompleteness.inventoryAvailable === true && deviceCompleteness.missingDevices.length === 0 && deviceCompleteness.incompatibleDevices.length === 0,
+      ...deviceCompleteness,
+      incompleteDevices,
     },
     totalHash: week.totalHash,
     pageCount: pages.length,

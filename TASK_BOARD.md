@@ -1,11 +1,20 @@
 # TASK_BOARD
 
 ## Active Release Target
+- [ ] [1.7.31 / Internal managed / Approved for direct activation] 时间配额 V2 直接接管。
+  - [x] 产品口径：D-080 已确认云端只下发账；配额由本机账加云端其他设备账即时计算，不存在云端锁。
+  - [x] Worker：migration 027 记录设备 V2 capability；快照增加 active `byDomain` 与 expected/missing/incompatible/stale/incomplete 完整性。
+  - [x] Extension：新增统一 `quota_read_model_v2`，排除云端本机副本，统一日/周/单站点实际扣费桶和异常回退。
+  - [x] Consumers：配额路由、定时检查、Rest 软提醒、Popup 与本地 Admin 使用同一读模型；V2 停止读取 `/device/quota-state` 和持久锁。
+  - [x] Pages：显示“云端已确认账”、逐设备贡献和同步完整性，不宣称包含终端未上传账。
+  - [x] Verification：141 个全量 unit 文件、typecheck、扩展根目录、API 103/103、Extension E2E 15/15、Pages UI 目视验证及 Plan Conformance Audit 全部通过。
+  - [ ] Release：migration 027 → Worker → Pages → managed 1.7.31/update feed；随后经 Pages API 将 T.xia/P.xia `timeQuota.accountingVersion` 设为 2。
+  - [ ] Production observation：确认主设备上报 1.7.31、V2 单账/总账/对账开始产生，并观察 24 小时；异常时仅将对应 profile 切回版本 1。
 - [x] [1.7.30 / Internal managed / Released] D-075 诊断修订与记账 V2 A-G 影子链路发布。
   - [x] Build&Test：专项测试、140 个全量 unit 文件、TypeScript、扩展根目录、diff 检查和完整自动化入口通过。
   - [x] Plan Conformance Audit：A-G 与 D-075 均保持确认边界；V2 未接入现有产品读取，无未批准 `Extra` / `Deviated`。
   - [x] Release：提交 `cf9f2c8` 已推送；隔离 migration 023-026 已应用；Guardian Worker `e9e53258-f4d0-4c0a-bbe3-2b7a2b25bd27`、控制台 Pages `02e3bc0d` 和更新站点 `2bd564f4` 已部署。managed CRX 为 410,948 bytes，SHA256 `46662d97661a63f9f15d9641c78ef4c215b68b5f5499f870fa67e00c3eb99c2a`；稳定 ID、feed 版本及稳定/deployment 域名线上哈希回读一致。
-  - [ ] Production observation：T.xia/P.xia 实际升级及连续 7 日影子守恒；此项是后续正式切换门禁，不得因发布成功自动标记通过。
+  - [ ] Production observation：T.xia/P.xia 实际升级；连续 7 日影子守恒已由 D-080 改为 `1.7.31` 发布后观察，不再作为内部档案启用前门禁。
 - [ ] [P0 / D-076 / Read-only audit completed; repairs require itemized approval] 记账全链路一致性核查（2026-09-12）
   - 审计方式由 D-077 固定为逐段推进：S1 待上传事实形成、S2 批次构造、S3 Worker 校验与接收、S4 逐项 ACK、S5 历史补传与水位、S6 云端聚合发布；每段完成后登记结果，六段完成后统一汇总，不在中途修改代码。
   - 当前基线：本地原始账及其本地聚合暂定正确并冻结；本轮不讨论配额，不用上传缺陷反推本地记账错误。

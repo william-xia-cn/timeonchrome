@@ -237,6 +237,11 @@
       subtitle: '已达到每周休息时间上限。请返回。',
       actions: ['backGeneric']
     },
+    accounting_unavailable: {
+      icon: 'notice', title: '记账数据暂不可用',
+      subtitle: '为避免休息时间漏记，受限娱乐网站暂时不可用。学习和复合网站不受影响。',
+      actions: ['backGeneric']
+    },
     quota_locked: {
       icon: 'notice', title: '当前配额已用完',
       subtitle: '当前不能继续访问。请返回。',
@@ -368,7 +373,7 @@
     'to_rest_slide_confirm', 'restricted_study_mode',
     'quota_composite_and_rest', 'rest_locked', 'daily_rest_locked', 'weekly_rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
-    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked'
+    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked', 'accounting_unavailable'
   ]);
 
   var config;
