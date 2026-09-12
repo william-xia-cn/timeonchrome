@@ -8,7 +8,7 @@
   - [x] Consumers：配额路由、定时检查、Rest 软提醒、Popup 与本地 Admin 使用同一读模型；V2 停止读取 `/device/quota-state` 和持久锁。
   - [x] Pages：显示“云端已确认账”、逐设备贡献和同步完整性，不宣称包含终端未上传账。
   - [x] Verification：141 个全量 unit 文件、typecheck、扩展根目录、API 103/103、Extension E2E 15/15、Pages UI 目视验证及 Plan Conformance Audit 全部通过。
-  - [ ] Release：migration 027 → Worker → Pages → managed 1.7.31/update feed；随后经 Pages API 将 T.xia/P.xia `timeQuota.accountingVersion` 设为 2。
+  - [ ] Release：migration 027、Guardian Worker `0af8c265-d3c7-45c3-b10d-1870a0d648f9` 和控制台 Pages `7d32c790` 已完成；PO 指令“托管先不做”，线上 feed 保持 `1.7.30`，不得切换 T.xia/P.xia `timeQuota.accountingVersion=2`。
   - [ ] Production observation：确认主设备上报 1.7.31、V2 单账/总账/对账开始产生，并观察 24 小时；异常时仅将对应 profile 切回版本 1。
 - [x] [1.7.30 / Internal managed / Released] D-075 诊断修订与记账 V2 A-G 影子链路发布。
   - [x] Build&Test：专项测试、140 个全量 unit 文件、TypeScript、扩展根目录、diff 检查和完整自动化入口通过。

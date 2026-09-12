@@ -3,7 +3,7 @@
 ## 项目状态
 - **版本：1.7.31（内部 managed 候选，实施中）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-09-12）**：`1.7.30` 仍是线上内部 managed 版本；`1.7.31` 已按 D-080 获准为 T.xia/P.xia 实施 V2 配额直接接管。实施范围只包括 capability、V2 账本下发投影、统一配额读模型、消费端显示与 profile 级切换，不修改网页 ACTIVE、原始分段、本地结算或设备单账生成。完成自动化、UI 目视和一致性审计后，按 migration 027、Worker、Pages、managed CRX/update feed、profile 切换顺序发布；19009 秒历史差额和 `cg.163.com idleStateChanged` 风险继续保留。
+- **当前发布状态（2026-09-12）**：`1.7.31` 源码提交 `934a2f1` 已推送；migration 027 已应用，Guardian Worker `0af8c265-d3c7-45c3-b10d-1870a0d648f9` 与控制台 Pages `7d32c790` 已部署并回读成功。按 PO 最新指令，managed `1.7.31` 仅完成本地签名包准备，尚未部署更新站点；线上 feed 仍为 `1.7.30`，T.xia/P.xia 尚未切换 `timeQuota.accountingVersion=2`，现有 V1 执行不受影响。实施范围只包括 capability、V2 账本下发投影、统一配额读模型、消费端显示与 profile 级切换，不修改网页 ACTIVE、原始分段、本地结算或设备单账生成；19009 秒历史差额和 `cg.163.com idleStateChanged` 风险继续保留。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
