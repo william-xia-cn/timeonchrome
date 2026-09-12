@@ -1,9 +1,9 @@
 # PROJECT_MASTER
 
 ## 项目状态
-- **版本：1.7.31（内部 managed 候选，实施中）**
+- **版本：1.7.31（内部 managed 已发布，生产观察中）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-09-12）**：`1.7.31` 源码提交 `934a2f1` 已推送；migration 027 已应用，Guardian Worker `0af8c265-d3c7-45c3-b10d-1870a0d648f9` 与控制台 Pages `7d32c790` 已部署并回读成功。按 PO 最新指令，managed `1.7.31` 仅完成本地签名包准备，尚未部署更新站点；线上 feed 仍为 `1.7.30`，T.xia/P.xia 尚未切换 `timeQuota.accountingVersion=2`，现有 V1 执行不受影响。实施范围只包括 capability、V2 账本下发投影、统一配额读模型、消费端显示与 profile 级切换，不修改网页 ACTIVE、原始分段、本地结算或设备单账生成；19009 秒历史差额和 `cg.163.com idleStateChanged` 风险继续保留。
+- **当前发布状态（2026-09-13）**：`1.7.31` 源码提交 `934a2f1` 已推送；migration 027 已应用，Guardian Worker `0af8c265-d3c7-45c3-b10d-1870a0d648f9`、控制台 Pages `7d32c790` 与更新站点 `e9e4b8b4` 已部署并回读成功。线上 feed 已指向 `1.7.31`；managed CRX 为 415,970 bytes，SHA256 `71cb832ba691660c3a1d833bdeb5f9f64115e9887e32b09889e9500367d41864`，稳定扩展 ID 不变。T.xia/P.xia 已通过家长控制台切换为 `timeQuota.accountingVersion=2`；旧客户端继续按 V1 执行，安装 `1.7.31` 后立即启用 V2。当前两档案尚未上报 V2 capability、manifest 或 account head，设备升级与 V2 单账形成保持生产观察。实施范围只包括 capability、V2 账本下发投影、统一配额读模型、消费端显示与 profile 级切换，不修改网页 ACTIVE、原始分段、本地结算或设备单账生成；19009 秒历史差额和 `cg.163.com idleStateChanged` 风险继续保留。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制
