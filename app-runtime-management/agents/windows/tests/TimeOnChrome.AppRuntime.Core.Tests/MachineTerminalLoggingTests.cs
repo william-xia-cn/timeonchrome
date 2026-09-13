@@ -27,6 +27,11 @@ public sealed class MachineTerminalLoggingTests : IDisposable
         var item = Assert.Single(pending);
         Assert.Equal("agent_recovered", item.Log.EventCode);
         Assert.Equal(4, item.Log.PolicyVersion);
+        var summary = await store.SummaryAsync(now + 2);
+        Assert.Equal(1, summary.Pending);
+        Assert.Equal(1, summary.Warnings24h);
+        Assert.Equal(1, summary.Errors24h);
+        Assert.Equal("agent_recovered", summary.LastStableErrorCode);
         await store.MarkAcceptedAsync(new HashSet<string>([item.Log.Id]));
         Assert.Empty(await store.PendingAsync(10, now + 3));
     }

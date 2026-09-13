@@ -11,6 +11,7 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 - 家长页统计读取：`/v2/module/usage` 保留 v1 与旧 v2 小时聚合历史；`/v2/module/accounting` 提供 accounting v2 的权威区间并集、小时 buckets 与应用排行。页面合并两个互不重叠的来源，不把辅助媒体 Segment 计入总使用时间，也不得在 accounting v2 已上传时误报“暂无使用记录”。
 - App Management Console Phase B/D-086/D-087/D-088/D-089（生产闭环已发布）：`/app-runtime/` 使用与主控制台一致的外壳，顶层固定为使用统计、访问管理、应用管理、设备管理和系统管理。应用管理由当前孩子策略与最近 30 天真实主账本合并目录驱动，左侧固定为学习、复合、受限娱乐、黑名单和已使用未归类五个目录；普通目录分列应用总数、Windows 数和 macOS 数，右侧直接显示无来源二级表格的平面列表及显式分类动作。预配置项必须带真实平台身份，窗口内未使用时仍保留。首次未登录或加载失败时显示完整错误卡并隐藏业务骨架；本地预览使用 `?mock=1`，不得静默伪造真实数据。访问管理承载独立配额、默认全部开放的七天时间段和配置文件。系统管理当前生产版本提供 accounting v2 diagnostic 查询。App Policy 存入 `0005` 的不可变 JSON 版本表；超额和时段外只提示记录，不执行应用阻止。Pages deployment `3164aad7`、Runtime migration `0005` 与 Worker `135c57b8-ed3a-4fd6-8f61-d862d8a92ecd` 已发布，真实登录页面回归通过。
 - D-090 Terminal Logging（本地完成，未部署）：系统管理已增加机器级远程日志打开/关闭、最低等级、类别和最长 7 天 TTL；Windows Service 已建立结构化本地日志、独立 SQLite outbox 和逐项 ACK 上传，覆盖 Service、Session Agent、策略、账本上传、存储、heartbeat、控制管道与 tamper。远程默认关闭，关闭期间不生成未来补传积压；本地日志继续有界保留，日志-only 策略更新不切主账本 lane。协议禁止用户名、SID、Child ID、runtime identity、路径、窗口标题、token、配对码、原始异常和 stack。additive `0006`、Worker 与 staged Pages 只完成本地验证；macOS 当前只共享 contract，不宣称有终端采集。
+- D-091 TimeWhereMg（2.1.0 本地完成，未安装/未部署）：安装后的 WPF Setup 升级为托盘常驻的 `TimeWhereMg` 服务管理应用；标准账户只读裁剪状态，管理员经 UAC 完成配对、同步、Service 启停/重启、repair 和一次性卸载。TimeWhereMg 只是本机 UI 品牌，RuntimeService、安装身份、ProgramData 与云端协议不改名；Session Agent 保持内部采集子进程。Computer Use 已通过原生 Windows `@oai/sky` surface 完成标准与管理员视图目视，紧凑窗口、未知状态、权限裁剪、管理员控制/健康/危险区、滚动区和固定操作栏匹配设计；目视发现的管理员“×”关闭后进程未退出与显示后焦点滚动偏移均已修复并复验。
 - 部署：Guardian `024`、Runtime/Guardian Worker 与账户级 `/app-runtime/` Pages 已于 2026-09-02 发布；历史 2.0.0/2.0.1/2.0.2/2.0.3 对象保持不可变。2.0.3 已完成机器级安装，2.0.4 修正控制管道身份传递并增加常驻 loop 日志与退避恢复。2.0.5 修正首次用户上报未推进策略版本导致 Session Agent 不启动、WTS 用户名 ANSI/Unicode 解码错误及 accounting v2 已上传但页面误显示为零；2.0.6 将 Setup 改为受工作区约束的响应式窗口、可垂直滚动主内容和固定操作栏，避免高 DPI 下裁切卸载表单，William 已原地升级且 R2 latest 已切换 2.0.6。生产 Runtime Worker 当前版本为 `135c57b8-ed3a-4fd6-8f61-d862d8a92ecd`，当前 Pages deployment 为 `3164aad7`。2.x 下载路由必须从版本 manifest 选择 Burn bootstrapper，manifest 缺失或非法时 fail closed，绝不能回退 MSI。所有内部包均未签名，保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
 ## Windows 开发命令
@@ -19,7 +20,7 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 dotnet restore agents/windows/TimeOnChrome.AppRuntime.sln
 dotnet test agents/windows/TimeOnChrome.AppRuntime.sln --configuration Release
 dotnet publish agents/windows/src/TimeOnChrome.AppRuntime.Agent/TimeOnChrome.AppRuntime.Agent.csproj --configuration Release
-pwsh installer/windows/build.ps1 -Version 2.0.6
+pwsh installer/windows/build.ps1 -Version 2.1.0
 ```
 
 面向家长和普通 Windows 用户的正式流程不使用 CLI：家长在 `/app-runtime/` 为当前孩子生成一次性配对码，安装后在 Setup 窗口输入配对码。服务器地址由安装包固定为产品 Runtime endpoint；credential 保存到当前用户 LocalAppData，并使用当前用户 DPAPI 保护。
@@ -28,9 +29,9 @@ Setup 采用未配对、连接中、等待首次同步、在线和连接异常/�
 
 1.x MSI 保留为 per-user 历史兼容。2.x 使用新的 machine-scope UpgradeCode 和 per-machine MSI，安装到 Program Files，Service 数据位于只允许 SYSTEM/Administrators 访问的 ACL 保护 ProgramData。Burn bootstrapper 先以 elevated machine probe 扫描除当前交互式用户外的真实 profile，发现其他用户仍有 1.x credential/已加载启动项时列出本机账户并停止；随后才在启动安装器的原交互式用户上下文确认当前用户 outbox、读取 CurrentUser DPAPI、retire 旧 token、移除精确 HKCU 启动项、卸载旧 per-user MSI 并保留旧 SQLite 为 legacy 证据；最后安装 per-machine MSI 并要求重配机器一次。任一阶段权限不足均 fail closed。链内 MSI 由自己的 MajorUpgrade 管理并对 Burn 标记为 permanent；Bundle/MSI 的“程序和功能”删除入口均隐藏，正常卸载只能从 Setup 输入云端一次性卸载码后提升执行。当前内部包未做 Authenticode 签名，发布状态必须保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
-Windows 2.0.6 本地构建产物位于 `installer/windows/bin/Release/`：`TimeOnChrome-AppRuntime-win-x64.msi` 是 per-machine MSI，`TimeOnChrome-AppRuntime-Setup-win-x64.exe` 是用户应运行的 Burn bootstrapper。migration 使用单文件 self-contained 发布；构建脚本会把最终 EXE 单独复制到临时目录执行 `--package-probe`，实际加载 SQLite 与 CurrentUser DPAPI，失败时阻止 MSI/Burn 生成。通过后脚本在 `artifacts/release/windows/x64/2.0.6/` 生成版本化副本和 manifest，并在 `artifacts/release/windows/x64/latest.json` 生成待发布指针；它不会自动安装、配对、迁移生产数据或发布 R2。
+Windows 2.1.0 本地构建产物位于 `installer/windows/bin/Release/`：`TimeOnChrome-AppRuntime-win-x64.msi` 是 per-machine MSI，`TimeOnChrome-AppRuntime-Setup-win-x64.exe` 是用户应运行的 Burn bootstrapper。MSI 安装 `TimeOnChrome.AppRuntime.Manager.exe`，开始菜单与托盘显示 `TimeWhereMg`；Burn 仍保留 Setup 命名。migration 使用单文件 self-contained 发布；构建脚本会把最终 EXE 单独复制到临时目录执行 `--package-probe`，实际加载 SQLite 与 CurrentUser DPAPI，失败时阻止 MSI/Burn 生成。通过后脚本在 `artifacts/release/windows/x64/2.1.0/` 生成版本化副本和 manifest，并在 `artifacts/release/windows/x64/latest.json` 生成待发布指针；它不会自动安装、配对、迁移生产数据或发布 R2。
 
-Setup 的主内容区在小工作区或高 DPI 下自动出现垂直滚动条，底部操作栏固定可见；窗口允许缩放并由当前 Windows 工作区限制初始和最大尺寸。展开卸载面板会自动滚动到一次性卸载码输入与授权按钮，但不会生成代码、自动提交或绕过管理员提升。
+TimeWhereMg 的主内容区在小工作区或高 DPI 下自动出现垂直滚动条，底部操作栏固定可见；窗口允许缩放并由当前 Windows 工作区限制初始和最大尺寸。标准用户只看到经过裁剪的管理状态；管理员经 UAC 打开 Service 控制、立即同步、安装修复、配对和一次性卸载入口。关闭普通窗口只隐藏到托盘，不停止 Runtime Service；管理员窗口不驻留托盘，标题栏“×”和底部“关闭”都会结束提升后的管理员进程并释放单实例锁。
 
 家长页面手动刷新会重新获取 Child-scoped module token；只读加载最多进行一次安全重试，写操作不对未知网络结果自动重放。页面不直接显示浏览器原始 `Failed to fetch`。
 
@@ -43,7 +44,7 @@ Setup 的主内容区在小工作区或高 DPI 下自动出现垂直滚动条，
 
 Burn、MSI 与 SHA-256 必须上传独立 `timeonchrome-app-runtime-releases` R2 后再回读校验；Pages 不保存大二进制。2.0 起用户入口必须分发 Burn bootstrapper，不得以直链 MSI 绕过 migration preflight。版本文件使用 immutable cache，latest manifest 使用短缓存。
 
-内部 `2.0.6` Burn 为 118,513,641 bytes、SHA-256 `2e78fe219dbf51c1df1d699b6776f3f9047069dcee2927ae10c575cbae7808f7`；MSI 为 60,194,894 bytes、SHA-256 `d0b6a18f354d965358e4cfd38880e0f6e8b64243143510aaa3f8a7b94468d7c4`。生产 R2、Worker 版本下载与 latest read model 已回读一致。
+本地 `2.1.0` Burn 为 118,658,121 bytes、SHA-256 `010221a2ff55acf306a4bcaa3ef9f2bc0bc919cc4ce1589e9d05b757c0b0a1c0`；MSI 为 60,301,602 bytes、SHA-256 `f6cf4428712e5a097501c935e21324c9fca1db46dcdfe6d02b033cf43c189876`。该版本尚未安装到 William 当前机器，也未上传 R2 或切换 latest；内部包未签名，状态为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。已发布的 `2.0.6` 生产对象保持不变。
 
 已发布的内部 `1.0.0` MSI 为 60,139,945 bytes，SHA-256 `847544be830979615f865667a09c690160b42381142a96cdf7174d09ff216c60`。内部 `1.0.1` 为 60,144,152 bytes，SHA-256 `13b8bb04607f019acf7a9a5e68fa87f63f8075e8a3d4d4da47ddc885b635fee7`；William 账户已完成从 1.0.0 到 1.0.1 的原地升级，并验证 credential、设备隔离 SQLite、设备身份与登录启动项保留。版本化 R2 与生产 Worker 下载回读均一致，Pages deployment 为 `e25c319e`，日/周范围与小时标签按北京时间确定性计算；两版 manifest 状态均为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 

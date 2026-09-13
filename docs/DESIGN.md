@@ -19,6 +19,8 @@ D-081 在不改写旧 v1/v2 历史的前提下增加 accounting schema v2：`Usa
 
 D-084 增加孩子级 App Policy 与同构家长界面；D-085 进一步把“应用目录管理”和“应用访问配置”分开，D-086 补齐独立应用目录 read model、显式分类动作和 Runtime 系统日志查询，D-090 增加机器级终端日志与可控远程上传。`/app-runtime/` 保持独立代码和 Runtime Worker/D1，但视觉、孩子选择和导航结构与主控制台一致；五个入口为使用统计、访问管理、应用管理、设备管理和 Runtime 系统管理。应用管理只呈现真实观察到的应用、五类目录和最近 30 天未归类处理，不设二级页签或手工添加。系统日志合并 accounting v2 0ms diagnostic 与脱敏终端日志，并按机器提供默认关闭、有 TTL 的上传策略；本地有界日志持续运行，远程关闭期间不形成可补传积压。访问管理承载独立配额、七天时间段和配置文件；时间段缺失时默认全部开放，超额或时段外仅形成提示。应用分类按 `Child + platform + runtimeIdentity` 前向生效，历史 Segment 不追溯；媒体辅助记录不进入配额。权威接口与存储详见 SPEC-004 技术设计的 App Management Console Phase B 与 D-090 Terminal Logging。
 
+D-091 将 Windows 安装后的本机入口升级为 `TimeWhereMg` 托盘管理应用。产品对用户呈现为 TimeWhereMg 与 RuntimeService 两个单元，Session Agent 仍是 Service 内部的每会话采集子进程；标准用户只读裁剪状态，管理员控制逐次 UAC 提升。只读状态 pipe 与管理员控制 pipe 分离，Service 在停止/重启前先切段并持久化，重启 Windows 后按 Automatic 恢复。该变更不修改 Runtime 云端协议或生产服务。
+
 Windows 2.0.1 的公开下载入口使用 R2 不可变版本 manifest：1.x 路由继续返回历史 MSI，2.x 路由必须校验 version/platform/architecture、Burn 精确对象路径、字节数与 SHA-256 元数据后流式返回 bootstrapper，不得降级返回 MSI。`latest.json` 只在版本对象回读与 Worker 下载回读一致后更新。内部包未完成 Authenticode 签名，因此只能用于受控内部验收，不能标记为公开正式发布。
 
 ### 1.1 系统架构

@@ -12,6 +12,15 @@
 
 ## Active App Runtime Work（2026-09-02）
 
+- [x] **[SPEC-004 / D-091] TimeWhereMg Windows 服务管理应用（2.1.0 本地完成，未安装/未部署）**
+  - 目标：将一次性 Setup 收口为托盘常驻的 `TimeWhereMg`，产品呈现为管理应用与 RuntimeService；Session Agent 继续作为内部采集子进程。
+  - 权限：标准账户只读裁剪状态；配对、同步、Service 启停/重启、MSI repair 和卸载必须使用管理员控制面及 UAC。停止前切段并持久化，Service 仍保持 Automatic。
+  - 窗口生命周期：普通窗口关闭只隐藏到托盘；提升后的管理员窗口不驻留托盘，点击窗口“×”或“关闭”都必须结束该管理员进程并释放单实例锁。
+  - 初始位置：标准和管理员窗口每次显示并激活后都必须把主滚动区复位到顶部，不能因首个可操作按钮自动获得焦点而从页面中部开始。
+  - 诊断：展示真实 policy/heartbeat/upload 时间、outbox 数量、Agent/会话/tamper 和远程日志状态；只提供摘要，不开放原始日志。
+  - 边界：版本 2.1.0，本地代码、包和验证；不部署 Worker/Pages/R2，不执行 migration，不升级 William 当前机器，不修改生产数据。
+  - 证据：Windows .NET 72/72；WiX MSI/Burn 0 warning / 0 error；Manager、Service、Session Agent 的 Product/File Version 均为 2.1.0；Burn 118,658,121 bytes / SHA-256 `010221a2ff55acf306a4bcaa3ef9f2bc0bc919cc4ce1589e9d05b757c0b0a1c0`，MSI 60,301,602 bytes / SHA-256 `f6cf4428712e5a097501c935e21324c9fca1db46dcdfe6d02b033cf43c189876`。Computer Use 已改用原生 Windows `@oai/sky` surface，标准视图 520px 紧凑布局、未知状态不误报未配对、标准账户裁剪、管理员顶部/控制/健康/危险区、滚动区和固定底栏均已目视通过；目视发现的管理员“×”关闭后进程未退出与显示后焦点滚动偏移均已修复并复验。小工作区/高 DPI 边界由布局单测覆盖，真标准账户 ACL、重启恢复和 2.0.6→2.1.0 安装升级仍属于后续系统集成验证。包仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
 - [x] **[SPEC-004 / D-090] App Runtime 机器级终端日志与远程开关（本地完成，未部署）**
   - 目标：在 Runtime 系统管理提供机器级远程日志打开/关闭、等级/类别/TTL 配置和统一日志查询；Windows Service 建立结构化本地日志、独立 SQLite outbox 与逐项 ACK 上传。
   - 安全：默认关闭；关闭期间不形成云端补传积压；不上传用户名、SID、Child ID、runtime identity、路径、窗口标题、token、配对码、原始异常或 stack。

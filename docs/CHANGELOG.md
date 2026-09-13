@@ -1,5 +1,13 @@
 # Changelog
 
+## [App Runtime 2.1.0] — 2026-09-13（本地开发）
+
+- 将安装后的 WPF Setup 升级为托盘常驻的 `TimeWhereMg` 本机服务管理应用；RuntimeService、安装身份和云端协议保持兼容。
+- 标准账户只读受管理、Service 与最近同步摘要；管理员操作逐次 UAC 提升，支持配对、立即同步、Service 启停/重启、MSI repair 和一次性卸载码。
+- 增加独立只读状态 pipe 和真实子系统健康时间；停止/重启前切段、持久化账本/outbox 并记录审计，Service 保持 Automatic，重启 Windows 后恢复。
+- 本地诊断只显示健康摘要和稳定错误码，不暴露逐条日志或敏感标识。内部包仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`，本轮不部署生产环境。
+- Computer Use 目视验收修复管理员窗口标题栏关闭后隐藏进程残留，以及首次显示时按钮自动焦点造成的顶部滚动偏移；标准窗口保持托盘常驻，管理员窗口关闭后释放单实例锁。
+
 ## [App Runtime Console D-087] — 2026-09-03
 
 - **应用管理目录**：使用学习、复合、受限娱乐、黑名单和最近 30 天已使用未归类五个孩子级目录；普通目录独立显示应用、Windows 和 macOS 数量，右侧保持无来源二级表格的平面列表。

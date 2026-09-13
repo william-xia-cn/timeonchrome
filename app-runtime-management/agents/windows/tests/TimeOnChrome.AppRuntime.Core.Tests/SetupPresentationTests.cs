@@ -1,4 +1,6 @@
 using TimeOnChrome.AppRuntime.Setup;
+using TimeOnChrome.AppRuntime.Infrastructure;
+using System.Text.Json;
 using Xunit;
 
 namespace TimeOnChrome.AppRuntime.Core.Tests;
@@ -6,16 +8,27 @@ namespace TimeOnChrome.AppRuntime.Core.Tests;
 public sealed class SetupPresentationTests
 {
     [Theory]
-    [InlineData(1920, 1040, 620, 680)]
-    [InlineData(1280, 640, 620, 616)]
-    [InlineData(960, 500, 620, 476)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void WindowCloseOnlyShutsDownNonTrayManager(bool keepInTray, bool shouldShutdown)
+    {
+        Assert.Equal(shouldShutdown, MainWindow.ShouldShutdownOnWindowClosed(keepInTray));
+    }
+
+    [Theory]
+    [InlineData(1920, 1040, true, 760, 760)]
+    [InlineData(1280, 640, true, 760, 616)]
+    [InlineData(960, 500, true, 760, 476)]
+    [InlineData(1920, 1040, false, 760, 520)]
+    [InlineData(960, 500, false, 760, 476)]
     public void WindowBoundsFitNormalAndHighDpiLogicalWorkAreas(
         double workAreaWidth,
         double workAreaHeight,
+        bool administrator,
         double expectedWidth,
         double expectedHeight)
     {
-        var bounds = SetupWindowLayout.Resolve(workAreaWidth, workAreaHeight);
+        var bounds = SetupWindowLayout.Resolve(workAreaWidth, workAreaHeight, administrator);
 
         Assert.Equal(expectedWidth, bounds.Width);
         Assert.Equal(expectedHeight, bounds.Height);
@@ -28,15 +41,27 @@ public sealed class SetupPresentationTests
     [Fact]
     public void WindowBoundsRejectInvalidOrUnsupportedWorkAreas()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(double.NaN, 800));
-        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(319, 800));
-        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(800, 239));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(double.NaN, 800, false));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(319, 800, false));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SetupWindowLayout.Resolve(800, 239, false));
+    }
+
+    [Fact]
+    public void StandardWindowIsShorterThanAdministratorWindow()
+    {
+        var standard = SetupWindowLayout.Resolve(1920, 1040, false);
+        var administrator = SetupWindowLayout.Resolve(1920, 1040, true);
+
+        Assert.True(standard.Height < administrator.Height);
+        Assert.Equal(SetupWindowLayout.PreferredStandardHeight, standard.Height);
+        Assert.Equal(SetupWindowLayout.PreferredAdminHeight, administrator.Height);
     }
 
     [Theory]
     [InlineData("1.0.1.0", "1.0.1")]
     [InlineData("1.0.1", "1.0.1")]
     [InlineData("dev", "dev")]
+    [InlineData("2.1.0.0", "2.1.0")]
     public void AgentVersionUsesProductFacingThreePartFormat(string value, string expected)
     {
         Assert.Equal(expected, SetupConnectionPresentations.DisplayAgentVersion(value));
@@ -81,5 +106,68 @@ public sealed class SetupPresentationTests
         Assert.NotEqual(online.Badge, awaiting.Badge);
         Assert.Equal("完成并关闭", online.CloseLabel);
         Assert.NotEqual(online.CloseLabel, awaiting.CloseLabel);
+    }
+
+    [Theory]
+    [InlineData("unpaired", SetupConnectionState.Unpaired)]
+    [InlineData("enrolled", SetupConnectionState.AwaitingFirstSync)]
+    [InlineData("pendingPolicy", SetupConnectionState.AwaitingFirstSync)]
+    [InlineData("online", SetupConnectionState.Online)]
+    [InlineData("failed", SetupConnectionState.ConnectionIssue)]
+    internal void ServiceResponseMapsToUnambiguousManagerState(
+        string serviceState,
+        SetupConnectionState expected)
+    {
+        Assert.Equal(expected, MainWindow.ConnectionStateForResponse(serviceState));
+    }
+
+    [Fact]
+    public void PublicStatusWireShapeDoesNotExposeAdministrativeDiagnostics()
+    {
+        var json = JsonSerializer.Serialize(new MachinePublicStatusResponse(
+            true, "online", ServiceVersion: "2.1.0", ServiceStartedAtMs: 100,
+            LastHeartbeatSucceededAtMs: 200, HasPendingUploads: true), RuntimeJson.Options);
+
+        Assert.Contains("lastHeartbeatSucceededAtMs", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("policyVersion", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("outbox", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tamper", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("hasPendingUploads", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("errorCode\":null", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("ABCD-EFGH-JKLM", true)]
+    [InlineData("abcd-efgh-jklm", false)]
+    [InlineData("ABCD-EFGH-1JKL", false)]
+    [InlineData("ABCD", false)]
+    internal void PairingAndUninstallCodesUseTheFixedSafeFormat(string value, bool expected)
+    {
+        Assert.Equal(expected, MainWindow.IsCode(value));
+    }
+
+    [Fact]
+    public void PublicStatusMappingLeavesAdministrativeFieldsEmpty()
+    {
+        var mapped = MainWindow.FromPublic(new MachinePublicStatusResponse(
+            true, "online", ServiceVersion: "2.1.0", ServiceStartedAtMs: 10,
+            LastHeartbeatSucceededAtMs: 20, HasPendingUploads: false));
+
+        Assert.Equal(20, mapped.LastHeartbeatSucceededAtMs);
+        Assert.Equal(0, mapped.AppliedPolicyVersion);
+        Assert.Equal(0, mapped.UsageOutboxCount);
+        Assert.Equal(0, mapped.TamperCount);
+        Assert.Null(mapped.LastStableErrorCode);
+    }
+
+    [Fact]
+    public void PublicPendingUploadFlagMapsWithoutExposingCounts()
+    {
+        var mapped = MainWindow.FromPublic(new MachinePublicStatusResponse(
+            true, "online", HasPendingUploads: true));
+
+        Assert.True(mapped.UsageOutboxCount > 0);
+        Assert.Equal(0, mapped.MediaOutboxCount);
+        Assert.Equal(0, mapped.LogOutboxCount);
     }
 }

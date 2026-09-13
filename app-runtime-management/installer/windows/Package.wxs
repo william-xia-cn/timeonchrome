@@ -32,13 +32,19 @@
                             Remove="uninstall"
                             Wait="yes" />
           </Component>
-          <Component Id="SetupExecutable" Guid="BE778625-1D7B-473D-97DB-E8E467402374">
-            <File Id="SetupExecutableFile"
-                  Source="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Setup.exe"
+          <Component Id="ManagerExecutable" Guid="73FD29A3-2B19-4FB2-B02A-E7BE6906908E">
+            <File Id="ManagerExecutableFile"
+                  Source="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Manager.exe"
                   KeyPath="yes">
-              <Shortcut Id="SetupShortcut" Name="电脑应用使用设置"
+              <Shortcut Id="ManagerShortcut" Name="TimeWhereMg"
                         Directory="ApplicationProgramsFolder" Advertise="yes" />
             </File>
+          </Component>
+          <Component Id="ManagerAutoStart" Guid="8E0192B1-1059-493D-8154-8E5F80B56B37">
+            <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                           Name="TimeWhereMg" Type="string"
+                           Value="&quot;[INSTALLFOLDER]TimeOnChrome.AppRuntime.Manager.exe&quot; --tray"
+                           KeyPath="yes" />
           </Component>
         </Directory>
       </Directory>
@@ -65,11 +71,12 @@
 
     <Feature Id="ProductFeature" Title="TimeOnChrome App Runtime 2" Level="1">
       <ComponentRef Id="RuntimeServiceComponent" />
-      <ComponentRef Id="SetupExecutable" />
+      <ComponentRef Id="ManagerExecutable" />
+      <ComponentRef Id="ManagerAutoStart" />
       <ComponentRef Id="ProgramDataPermissions" />
       <Files Include="!(bindpath.Publish)\**" Directory="INSTALLFOLDER">
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Service.exe" />
-        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Setup.exe" />
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Manager.exe" />
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Migration.*" />
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.MachineProbe.*" />
       </Files>

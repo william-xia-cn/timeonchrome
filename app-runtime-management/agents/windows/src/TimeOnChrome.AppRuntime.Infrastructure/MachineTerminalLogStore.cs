@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 namespace TimeOnChrome.AppRuntime.Infrastructure;
 
 public sealed record PendingMachineTerminalLog(MachineTerminalLogUpload Log, int AttemptCount);
+public sealed record MachineTerminalLogSummary(int Pending, int Warnings24h, int Errors24h, string? LastStableErrorCode);
 
 public sealed partial class MachineTerminalLogStore
 {
@@ -130,6 +131,25 @@ public sealed partial class MachineTerminalLogStore
 
     public Task RecordFailureAsync(IReadOnlySet<string> ids, string code, long retryAtMs, CancellationToken cancellationToken = default) =>
         UpdateAsync(ids, code, retryAtMs, cancellationToken);
+
+    public async Task<MachineTerminalLogSummary> SummaryAsync(long nowMs, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+              (SELECT COUNT(*) FROM machine_terminal_log_outbox_v1),
+              (SELECT COUNT(*) FROM machine_terminal_logs_v1 WHERE level='warning' AND observed_at_ms>=?1),
+              (SELECT COUNT(*) FROM machine_terminal_logs_v1 WHERE level='error' AND observed_at_ms>=?1),
+              (SELECT event_code FROM machine_terminal_logs_v1
+                WHERE level IN ('warning','error') ORDER BY observed_at_ms DESC LIMIT 1);
+            """;
+        _ = command.Parameters.AddWithValue("?1", nowMs - 86_400_000L);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return new(0, 0, 0, null);
+        return new(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3));
+    }
 
     private async Task UpdateAsync(IReadOnlySet<string> ids, string? code, long? retryAtMs, CancellationToken cancellationToken)
     {

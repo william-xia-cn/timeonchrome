@@ -50,6 +50,14 @@ Runtime 页面保留独立部署边界，左侧固定为 `使用统计 / 访问�
 - 终端日志必须覆盖 Service 启停、会话 Agent 启动/退出/恢复、策略获取/缓存/ACK、主账本/媒体账本上传结果、日志上传结果、SQLite 维护、heartbeat、tamper 与控制管道安全结果。所有事件使用固定 event code 和受控详情，不保存或上传用户名、SID、Child ID、runtime identity、路径、窗口标题、token、配对码、异常正文或 stack。
 - 日志使用独立 SQLite outbox 与逐项 ACK；采集、持久化、上传和查询失败不能阻断计时、策略、heartbeat、媒体账本或进程守护。macOS 本阶段只遵守共享 contract，不宣称实现真实日志采集。
 
+### D-091 TimeWhereMg 本机服务管理
+
+- Windows 2.1.0 将安装后的一次性 Setup 替换为托盘常驻的 `TimeWhereMg` 管理应用；TimeWhereMg 仅是本机 UI 品牌，RuntimeService、安装产品身份、ProgramData、API 和云端协议保持兼容。
+- 标准账户只显示是否受管理、Service 是否运行和最近同步结果。管理员经 UAC 进入管理视图，可执行机器配对、立即同步、Service 启动/停止/重启、安装修复及一次性卸载码卸载；不得向标准账户暴露控制命令、账户、策略正文、日志明细或敏感标识。
+- TimeWhereMg 使用独立只读状态管道；管理员控制管道继续只接受 SYSTEM/Administrators。所有状态时间必须来自真实的 policy/heartbeat/upload 事件，查询发生时间不得伪装为最近 heartbeat。
+- 主动停止或重启前必须先关闭开放 Segment、持久化 ledger/open state/outbox 并写入管理员操作审计。停止仅作用于当前开机周期，Service 保持 Automatic，重启 Windows 后自动恢复；未知停止区间不补写。
+- 本地诊断只展示错误/警告计数、稳定错误码、outbox 数量、Service/Session Agent/策略/上传健康和远程日志策略摘要，不提供逐条日志或原始日志导出。
+
 ### D-087 孩子级五目录完成态
 
 - 应用管理只参考 TimeOnChrome 网站管理的左右大结构，不复制网站特有的系统、自定义、规则或特殊对象。左侧固定显示学习、复合、受限娱乐、黑名单和已使用未归类应用；普通目录将应用总数、Windows 数和 macOS 数作为三个独立统计项，未归类显示待处理数和最近 30 天窗口。

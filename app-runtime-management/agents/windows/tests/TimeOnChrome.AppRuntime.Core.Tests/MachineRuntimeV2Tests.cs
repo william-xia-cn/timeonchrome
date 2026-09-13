@@ -193,10 +193,12 @@ public sealed class MachineRuntimeV2Tests : IDisposable
         Assert.Equal(state.ForegroundLane, restored.State.ForegroundLane);
         Assert.Equal(usage.Id, Assert.Single(await ledger.PendingAccountingUsageAsync(10, long.MaxValue)).Segment.Id);
         Assert.Equal(media.Id, Assert.Single(await ledger.PendingAccountingMediaAsync(10, long.MaxValue)).Segment.Id);
+        Assert.Equal(new MachineOutboxSummary(0, 1, 1), await ledger.OutboxSummaryAsync());
 
         await ledger.MarkAccountingUsageAcceptedAsync(new HashSet<(string, string)> { ("user-a", usage.Id) });
         Assert.Empty(await ledger.PendingAccountingUsageAsync(10, long.MaxValue));
         Assert.Single(await ledger.PendingAccountingMediaAsync(10, long.MaxValue));
+        Assert.Equal(new MachineOutboxSummary(0, 0, 1), await ledger.OutboxSummaryAsync());
     }
 
     [Fact]

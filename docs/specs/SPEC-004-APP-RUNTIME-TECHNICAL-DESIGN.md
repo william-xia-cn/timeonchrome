@@ -284,6 +284,16 @@ Display name 是非权威展示元数据，不进入策略身份键。`timeWindo
 日志策略更新可以提升机器 desired policy version以获得明确 ACK，但 Service 必须比较排除 `loggingPolicy` 后的 assignment/App Policy payload；只有日志字段变化时原子替换本地策略而不关闭、重开或改变任何 accounting lane。
 
 本地日志类别固定为 `service/session/policy/upload/storage/security/accounting`，等级固定为 `info/warning/error`。详情值只允许布尔、受界整数和固定枚举；异常只转换为稳定错误码。SQLite 日志与 outbox 事务不和 Usage/Media outbox 共用提交成败，上传 loop 独立退避，单批最多 100 条，ACK 后逐项删除。日志读取/写入/上传异常只允许写入有冷却的 Windows Event Log code-only fallback，不得递归生成日志风暴。
+
+### D-091 TimeWhereMg 与本机控制面
+
+Windows 2.1.0 将已安装 WPF executable 改为 `TimeOnChrome.AppRuntime.Manager.exe`，用户可见名称为 `TimeWhereMg`；Burn bootstrapper 继续使用 Setup 文件名。MSI 保持既有 machine-scope UpgradeCode，升级时删除旧 Setup component/快捷方式，安装 Manager、开始菜单快捷方式和受 HKLM 保护的全用户登录启动项，ProgramData 与机器身份不清理。
+
+Manager 默认以 `--tray` 在每个交互式登录会话运行；窗口关闭只隐藏到托盘。每会话 mutex 只约束普通 UI 实例；固定白名单的 `--admin-action` helper 不进入托盘且必须请求 UAC。Service 停止时 Manager 仍可通过 SCM 查询/启动服务。Session Agent 保持独立无 UI 采集进程，只在受保护 assignment 下运行。
+
+控制面拆为两条 pipe：只读 status pipe 允许 Authenticated Users 连接，只返回 `managed/serviceState/lastSyncState` 等裁剪字段；admin pipe 保持 SYSTEM/Administrators DACL 和连接 token 二次校验，支持 `adminStatus/enroll/syncNow/prepareStop/prepareRestart/uninstall`。详细状态只包含版本、启动时间、desired/applied version、各 loop 最后成功/失败时间与稳定错误码、各 outbox 数量、交互式/受保护会话数、Agent 数、tamper 摘要和日志策略摘要，禁止返回 SID、Child ID、token、路径、窗口标题、runtime identity 或日志正文。
+
+`prepareStop/prepareRestart` 在响应成功前必须取得状态锁、关闭所有开放 accounting lanes、flush durable state、写入 `admin_service_stop_requested` 或 `admin_service_restart_requested`。提升后的 helper 随后使用 `ServiceController` 执行 SCM 操作；停止不得把启动类型改为 Disabled。`syncNow` 使用有界信号触发 policy、heartbeat 和各 outbox 上传，不并发重放写请求。repair 使用已安装 MSI ProductCode 执行 `/fa`，不得删除 credential、SQLite、policy 或 outbox。
 - Tests：Core 黄金向量、Windows adapter 映射、SQLite transaction/recovery、HTTP ACK、Agent health store、Setup presentation 与窗口布局纯逻辑。
 
 所有平台调用必须在 Windows module 内；Core 不读 wall clock、不执行 I/O。测试通过 probe/clock/startup abstractions，不修改真实 registry、session 或电源状态。

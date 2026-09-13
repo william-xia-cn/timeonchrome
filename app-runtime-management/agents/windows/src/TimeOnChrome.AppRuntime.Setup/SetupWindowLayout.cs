@@ -10,15 +10,16 @@ public readonly record struct SetupWindowBounds(
 
 public static class SetupWindowLayout
 {
-    public const double PreferredWidth = 620;
-    public const double PreferredHeight = 680;
-    public const double PreferredMinWidth = 480;
-    public const double PreferredMinHeight = 420;
+    public const double PreferredWidth = 760;
+    public const double PreferredAdminHeight = 760;
+    public const double PreferredStandardHeight = 520;
+    public const double PreferredMinWidth = 420;
+    public const double PreferredMinHeight = 360;
     public const double AbsoluteMinWidth = 320;
     public const double AbsoluteMinHeight = 240;
     public const double WorkAreaMargin = 24;
 
-    public static SetupWindowBounds Resolve(double workAreaWidth, double workAreaHeight)
+    public static SetupWindowBounds Resolve(double workAreaWidth, double workAreaHeight, bool administrator)
     {
         if (!double.IsFinite(workAreaWidth) || !double.IsFinite(workAreaHeight)
             || workAreaWidth < AbsoluteMinWidth || workAreaHeight < AbsoluteMinHeight)
@@ -33,7 +34,7 @@ public static class SetupWindowLayout
 
         return new SetupWindowBounds(
             Math.Clamp(PreferredWidth, minWidth, maxWidth),
-            Math.Clamp(PreferredHeight, minHeight, maxHeight),
+            Math.Clamp(administrator ? PreferredAdminHeight : PreferredStandardHeight, minHeight, maxHeight),
             minWidth,
             minHeight,
             maxWidth,

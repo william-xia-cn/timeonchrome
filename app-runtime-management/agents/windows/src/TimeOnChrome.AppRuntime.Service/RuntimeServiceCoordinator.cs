@@ -23,7 +23,11 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     private readonly Dictionary<int, SessionRuntime> sessions = [];
     private readonly HashSet<int> missingBinaryReported = [];
     private readonly SemaphoreSlim stateGate = new(1, 1);
+    private readonly SemaphoreSlim policyCycleGate = new(1, 1);
+    private readonly SemaphoreSlim uploadCycleGate = new(1, 1);
+    private readonly SemaphoreSlim heartbeatCycleGate = new(1, 1);
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private readonly long serviceStartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     private MachineRuntimeApiClient api;
     private MachineRuntimeCredential? credential;
     private MachineSegmentLedger? ledger;
@@ -32,6 +36,17 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     private AppliedMachinePolicy? appliedPolicy;
     private string? policyEtag;
     private int tamperCount;
+    private long lastPolicySucceededAtMs;
+    private long lastPolicyFailedAtMs;
+    private long lastHeartbeatSucceededAtMs;
+    private long lastHeartbeatFailedAtMs;
+    private long lastUsageUploadSucceededAtMs;
+    private long lastUsageUploadFailedAtMs;
+    private long lastMediaUploadSucceededAtMs;
+    private long lastMediaUploadFailedAtMs;
+    private long lastLogUploadSucceededAtMs;
+    private long lastLogUploadFailedAtMs;
+    private string? lastStableErrorCode;
     private bool stopping;
     private Task[] loops = [];
 
@@ -55,6 +70,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         await WriteLogAsync("info", "service", "service_started", "service", "service_started").ConfigureAwait(false);
         loops =
         [
+            RunResilientLoopAsync("status", StatusLoopAsync, cancellation.Token),
             RunResilientLoopAsync("control", ControlLoopAsync, cancellation.Token),
             RunResilientLoopAsync("supervisor", SupervisorLoopAsync, cancellation.Token),
             RunResilientLoopAsync("policy", PolicyLoopAsync, cancellation.Token),
@@ -140,6 +156,19 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         }
     }
 
+    private async Task PrepareAdministrativeBoundaryAsync(string eventCode, CancellationToken cancellationToken)
+    {
+        await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            foreach (var sessionId in sessions.Keys.ToArray())
+                await CloseSessionUnsafeAsync(sessionId, nowMs).ConfigureAwait(false);
+            await WriteLogAsync("warning", "security", eventCode, "control-pipe", eventCode).ConfigureAwait(false);
+        }
+        finally { _ = stateGate.Release(); }
+    }
+
     private async Task InitializeLedgerAsync(MachineRuntimeCredential machineCredential)
     {
         ledger = new MachineSegmentLedger(paths.DatabasePath);
@@ -167,6 +196,104 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 item.State.RuntimeSessionID,
                 cancellation.Token).ConfigureAwait(false);
         }
+    }
+
+    private async Task StatusLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var security = new PipeSecurity();
+            security.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                PipeAccessRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+                PipeAccessRights.ReadWrite, AccessControlType.Allow));
+            await using var pipe = NamedPipeServerStreamAcl.Create(
+                SessionPipeNames.Status, PipeDirection.InOut, 4, PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous, 4096, 4096, security);
+            await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = new StreamReader(pipe, leaveOpen: true);
+            using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
+            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            var command = JsonSerializer.Deserialize<MachineControlCommand>(line ?? string.Empty, RuntimeJson.Options);
+            var response = command?.Action == "status"
+                ? await BuildPublicStatusAsync(cancellationToken).ConfigureAwait(false)
+                : new MachinePublicStatusResponse(false, "failed", "STATUS_COMMAND_INVALID");
+            await writer.WriteLineAsync(JsonSerializer.Serialize(response, RuntimeJson.Options)).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<MachinePublicStatusResponse> BuildPublicStatusAsync(CancellationToken cancellationToken)
+    {
+        var state = credential is null ? "unpaired" : appliedPolicy is null ? "pendingPolicy" : "online";
+        var outbox = ledger is null
+            ? new MachineOutboxSummary(0, 0, 0)
+            : await ledger.OutboxSummaryAsync(cancellationToken).ConfigureAwait(false);
+        var logs = terminalLogs is null
+            ? new MachineTerminalLogSummary(0, 0, 0, null)
+            : await terminalLogs.SummaryAsync(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        return new MachinePublicStatusResponse(
+            true,
+            state,
+            ServiceVersion: Assembly.GetExecutingAssembly().GetName().Version?.ToString(),
+            ServiceStartedAtMs: serviceStartedAtMs,
+            LastHeartbeatSucceededAtMs: Interlocked.Read(ref lastHeartbeatSucceededAtMs),
+            HasPendingUploads: outbox.Legacy + outbox.Usage + outbox.Media + logs.Pending > 0);
+    }
+
+    private async Task<MachineControlResponse> BuildAdminStatusAsync(CancellationToken cancellationToken)
+    {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var outbox = ledger is null
+            ? new MachineOutboxSummary(0, 0, 0)
+            : await ledger.OutboxSummaryAsync(cancellationToken).ConfigureAwait(false);
+        var logSummary = terminalLogs is null
+            ? new MachineTerminalLogSummary(0, 0, 0, null)
+            : await terminalLogs.SummaryAsync(nowMs, cancellationToken).ConfigureAwait(false);
+        var interactive = sessionLauncher.Enumerate().Where(item => item.Active).ToArray();
+        var protectedCount = appliedPolicy is null || identityDeriver is null
+            ? 0
+            : interactive.Count(item => MachinePolicyStore.AssignmentFor(
+                appliedPolicy.Policy, identityDeriver.Derive(item.Sid))?.Protected == true);
+        int agentCount;
+        lock (agents) agentCount = agents.Values.Count(process => !process.HasExited);
+        var logging = appliedPolicy?.Policy.LoggingPolicy;
+        var loggingState = logging is null || !logging.Enabled
+            ? "disabled"
+            : logging.ExpiresAtMs is not > 0 || logging.ExpiresAtMs <= nowMs ? "expired" : "enabled";
+        var policyVersion = appliedPolicy?.Policy.Version ?? 0;
+        return new MachineControlResponse(
+            true,
+            credential is null ? "unpaired" : appliedPolicy is null ? "pendingPolicy" : "online",
+            ServiceVersion: Assembly.GetExecutingAssembly().GetName().Version?.ToString(),
+            ServiceStartedAtMs: serviceStartedAtMs,
+            LastPolicySucceededAtMs: Interlocked.Read(ref lastPolicySucceededAtMs),
+            LastPolicyFailedAtMs: Interlocked.Read(ref lastPolicyFailedAtMs),
+            LastHeartbeatSucceededAtMs: Interlocked.Read(ref lastHeartbeatSucceededAtMs),
+            LastHeartbeatFailedAtMs: Interlocked.Read(ref lastHeartbeatFailedAtMs),
+            LastUsageUploadSucceededAtMs: Interlocked.Read(ref lastUsageUploadSucceededAtMs),
+            LastUsageUploadFailedAtMs: Interlocked.Read(ref lastUsageUploadFailedAtMs),
+            LastMediaUploadSucceededAtMs: Interlocked.Read(ref lastMediaUploadSucceededAtMs),
+            LastMediaUploadFailedAtMs: Interlocked.Read(ref lastMediaUploadFailedAtMs),
+            LastLogUploadSucceededAtMs: Interlocked.Read(ref lastLogUploadSucceededAtMs),
+            LastLogUploadFailedAtMs: Interlocked.Read(ref lastLogUploadFailedAtMs),
+            DesiredPolicyVersion: policyVersion,
+            AppliedPolicyVersion: policyVersion,
+            LegacyOutboxCount: outbox.Legacy,
+            UsageOutboxCount: outbox.Usage,
+            MediaOutboxCount: outbox.Media,
+            LogOutboxCount: logSummary.Pending,
+            ActiveSessionCount: interactive.Length,
+            ProtectedSessionCount: protectedCount,
+            AgentCount: agentCount,
+            TamperCount: tamperCount,
+            WarningCount24h: logSummary.Warnings24h,
+            ErrorCount24h: logSummary.Errors24h,
+            LastStableErrorCode: lastStableErrorCode ?? logSummary.LastStableErrorCode,
+            RemoteLoggingState: loggingState,
+            RemoteLoggingMinLevel: logging?.MinLevel,
+            RemoteLoggingExpiresAtMs: logging?.ExpiresAtMs ?? 0);
     }
 
     private async Task ControlLoopAsync(CancellationToken cancellationToken)
@@ -206,13 +333,28 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             {
                 var command = JsonSerializer.Deserialize<MachineControlCommand>(line ?? string.Empty, RuntimeJson.Options)
                     ?? throw new InvalidDataException("Enrollment command is empty.");
-                if (string.Equals(command.Action, "status", StringComparison.Ordinal))
+                if (string.Equals(command.Action, "status", StringComparison.Ordinal)
+                    || string.Equals(command.Action, "adminStatus", StringComparison.Ordinal))
                 {
                     await writer.WriteLineAsync(JsonSerializer.Serialize(
-                        new MachineControlResponse(true,
-                            credential is null ? "unpaired" : appliedPolicy is null ? "pendingPolicy" : "online",
-                            ServiceVersion: Assembly.GetExecutingAssembly().GetName().Version?.ToString(),
-                            UpdatedAtMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), RuntimeJson.Options)).ConfigureAwait(false);
+                        await BuildAdminStatusAsync(cancellationToken).ConfigureAwait(false), RuntimeJson.Options)).ConfigureAwait(false);
+                    continue;
+                }
+                if (string.Equals(command.Action, "syncNow", StringComparison.Ordinal))
+                {
+                    await SyncNowAsync(cancellationToken).ConfigureAwait(false);
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(
+                        await BuildAdminStatusAsync(cancellationToken).ConfigureAwait(false), RuntimeJson.Options)).ConfigureAwait(false);
+                    continue;
+                }
+                if (string.Equals(command.Action, "prepareStop", StringComparison.Ordinal)
+                    || string.Equals(command.Action, "prepareRestart", StringComparison.Ordinal))
+                {
+                    await PrepareAdministrativeBoundaryAsync(
+                        command.Action == "prepareStop" ? "admin_service_stop_requested" : "admin_service_restart_requested",
+                        cancellationToken).ConfigureAwait(false);
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(
+                        new MachineControlResponse(true, "prepared"), RuntimeJson.Options)).ConfigureAwait(false);
                     continue;
                 }
                 if (!string.Equals(command.Action, "enroll", StringComparison.Ordinal)
@@ -447,81 +589,89 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         var delay = TimeSpan.FromMinutes(1);
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (credential is not null)
-            {
-                try
-                {
-                    var result = await api.GetPolicyAsync(credential, policyEtag, cancellationToken).ConfigureAwait(false);
-                    if (result.Policy is not null)
-                    {
-                        await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                        try
-                        {
-                            var boundaryWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                            var boundaryMonotonic = Environment.TickCount64;
-                            var accountingChanged = appliedPolicy is null
-                                || MachinePolicyStore.RequiresAccountingBoundary(appliedPolicy.Policy, result.Policy);
-                            var previous = accountingChanged ? sessions.ToDictionary(
-                                item => item.Key,
-                                item => (item.Value.LocalUserId, item.Value.AccountingSession.DurableState)) : [];
-                            if (accountingChanged)
-                            {
-                                foreach (var sessionId in sessions.Keys.ToArray())
-                                    await CloseSessionUnsafeAsync(sessionId, boundaryWall, boundaryMonotonic).ConfigureAwait(false);
-                            }
-                            appliedPolicy = new AppliedMachinePolicy(result.Policy,
-                                boundaryWall, boundaryWall);
-                            await policyStore.SaveAsync(appliedPolicy, cancellationToken).ConfigureAwait(false);
-                            await WriteLogAsync("info", "policy", "policy_applied", "policy-loop", "policy_applied",
-                                new Dictionary<string, object> { ["version"] = result.Policy.Version }).ConfigureAwait(false);
-                            policyEtag = result.ETag;
-                            foreach (var (sessionId, prior) in previous)
-                            {
-                                var assignment = MachinePolicyStore.AssignmentFor(result.Policy, prior.LocalUserId);
-                                if (assignment?.Protected != true) continue;
-                                var state = prior.DurableState with
-                                {
-                                    RuntimeSessionID = $"windows:{credential!.MachineId}:{prior.LocalUserId}:{Guid.NewGuid():N}",
-                                    ForegroundLane = null,
-                                    PipLanes = new Dictionary<string, OpenAccountingLane>(),
-                                    MediaLanes = new Dictionary<string, OpenMediaLane>(),
-                                    LastProcessedWallTimeMs = null,
-                                    LastProcessedMonotonicTimeMs = null,
-                                };
-                                var accounting = new MachineAccountingSession(
-                                    ledger!, prior.LocalUserId, assignment.AssignmentVersion, state);
-                                var snapshot = new AccountingRuntimeSnapshot(
-                                    state.ForegroundApplication, state.ForegroundWindowState,
-                                    state.ForegroundMediaEvidence, state.ForegroundPlaybackState,
-                                    state.UserActivity, state.SessionState, state.PowerState);
-                                var policySnapshot = MachinePolicyStore.SnapshotFor(
-                                    result.Policy, assignment, state.ForegroundApplication);
-                                _ = await accounting.PushAndPersistAsync(new AccountingRuntimeFact(
-                                    boundaryWall, boundaryMonotonic, state.ClockEpochId,
-                                    AccountingFactKind.Checkpoint, Confirmation: CheckpointConfirmation.Confirmed,
-                                    Snapshot: snapshot,
-                                    PolicySnapshot: policySnapshot), cancellationToken).ConfigureAwait(false);
-                                _ = await accounting.FlushAndPersistAsync(cancellationToken).ConfigureAwait(false);
-                                sessions[sessionId] = new SessionRuntime(prior.LocalUserId, assignment, accounting);
-                            }
-                        }
-                        finally { _ = stateGate.Release(); }
-                        await api.AcknowledgePolicyAsync(credential,
-                            new MachinePolicyAck(result.Policy.Version, "applied", null,
-                                result.Policy.Users.Select(user => new MachineUserPolicyAck(user.LocalUserId, "applied")).ToArray()),
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                    delay = TimeSpan.FromMinutes(1);
-                }
-                catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
-                {
-                    await WriteLogAsync("warning", "policy", "policy_sync_failed", "policy-loop", "policy_sync_failed",
-                        new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
-                    delay = TimeSpan.FromMinutes(Math.Min(15, Math.Max(1, delay.TotalMinutes * 2)));
-                }
-            }
+            var succeeded = await SyncPolicyOnceAsync(cancellationToken).ConfigureAwait(false);
+            delay = succeeded ? TimeSpan.FromMinutes(1)
+                : TimeSpan.FromMinutes(Math.Min(15, Math.Max(1, delay.TotalMinutes * 2)));
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private async Task<bool> SyncPolicyOnceAsync(CancellationToken cancellationToken)
+    {
+        if (credential is null) return true;
+        await policyCycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var result = await api.GetPolicyAsync(credential, policyEtag, cancellationToken).ConfigureAwait(false);
+            if (result.Policy is not null)
+            {
+                await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var boundaryWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    var boundaryMonotonic = Environment.TickCount64;
+                    var accountingChanged = appliedPolicy is null
+                        || MachinePolicyStore.RequiresAccountingBoundary(appliedPolicy.Policy, result.Policy);
+                    var previous = accountingChanged ? sessions.ToDictionary(
+                        item => item.Key,
+                        item => (item.Value.LocalUserId, item.Value.AccountingSession.DurableState)) : [];
+                    if (accountingChanged)
+                    {
+                        foreach (var sessionId in sessions.Keys.ToArray())
+                            await CloseSessionUnsafeAsync(sessionId, boundaryWall, boundaryMonotonic).ConfigureAwait(false);
+                    }
+                    appliedPolicy = new AppliedMachinePolicy(result.Policy, boundaryWall, boundaryWall);
+                    await policyStore.SaveAsync(appliedPolicy, cancellationToken).ConfigureAwait(false);
+                    await WriteLogAsync("info", "policy", "policy_applied", "policy-loop", "policy_applied",
+                        new Dictionary<string, object> { ["version"] = result.Policy.Version }).ConfigureAwait(false);
+                    policyEtag = result.ETag;
+                    foreach (var (sessionId, prior) in previous)
+                    {
+                        var assignment = MachinePolicyStore.AssignmentFor(result.Policy, prior.LocalUserId);
+                        if (assignment?.Protected != true) continue;
+                        var state = prior.DurableState with
+                        {
+                            RuntimeSessionID = $"windows:{credential!.MachineId}:{prior.LocalUserId}:{Guid.NewGuid():N}",
+                            ForegroundLane = null,
+                            PipLanes = new Dictionary<string, OpenAccountingLane>(),
+                            MediaLanes = new Dictionary<string, OpenMediaLane>(),
+                            LastProcessedWallTimeMs = null,
+                            LastProcessedMonotonicTimeMs = null,
+                        };
+                        var accounting = new MachineAccountingSession(
+                            ledger!, prior.LocalUserId, assignment.AssignmentVersion, state);
+                        var snapshot = new AccountingRuntimeSnapshot(
+                            state.ForegroundApplication, state.ForegroundWindowState,
+                            state.ForegroundMediaEvidence, state.ForegroundPlaybackState,
+                            state.UserActivity, state.SessionState, state.PowerState);
+                        var policySnapshot = MachinePolicyStore.SnapshotFor(
+                            result.Policy, assignment, state.ForegroundApplication);
+                        _ = await accounting.PushAndPersistAsync(new AccountingRuntimeFact(
+                            boundaryWall, boundaryMonotonic, state.ClockEpochId,
+                            AccountingFactKind.Checkpoint, Confirmation: CheckpointConfirmation.Confirmed,
+                            Snapshot: snapshot, PolicySnapshot: policySnapshot), cancellationToken).ConfigureAwait(false);
+                        _ = await accounting.FlushAndPersistAsync(cancellationToken).ConfigureAwait(false);
+                        sessions[sessionId] = new SessionRuntime(prior.LocalUserId, assignment, accounting);
+                    }
+                }
+                finally { _ = stateGate.Release(); }
+                await api.AcknowledgePolicyAsync(credential,
+                    new MachinePolicyAck(result.Policy.Version, "applied", null,
+                        result.Policy.Users.Select(user => new MachineUserPolicyAck(user.LocalUserId, "applied")).ToArray()),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            Interlocked.Exchange(ref lastPolicySucceededAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            return true;
+        }
+        catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
+        {
+            Interlocked.Exchange(ref lastPolicyFailedAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            lastStableErrorCode = "POLICY_SYNC_FAILED";
+            await WriteLogAsync("warning", "policy", "policy_sync_failed", "policy-loop", "policy_sync_failed",
+                new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+            return false;
+        }
+        finally { _ = policyCycleGate.Release(); }
     }
 
     private async Task UploadLoopAsync(CancellationToken cancellationToken)
@@ -529,14 +679,24 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
         do
         {
-            if (credential is null || ledger is null) continue;
+            await UploadOnceAsync(cancellationToken).ConfigureAwait(false);
+        }
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task UploadOnceAsync(CancellationToken cancellationToken)
+    {
+        if (credential is null || ledger is null) return;
+        await uploadCycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
             var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             await UploadLegacyAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
             await UploadAccountingUsageAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
             await UploadAccountingMediaAsync(credential, ledger, nowMs, cancellationToken).ConfigureAwait(false);
             await UploadTerminalLogsAsync(credential, nowMs, cancellationToken).ConfigureAwait(false);
         }
-        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+        finally { _ = uploadCycleGate.Release(); }
     }
 
     private async Task UploadLegacyAsync(
@@ -563,6 +723,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
             await WriteLogAsync("info", "upload", "segment_upload_completed", "usage-upload", "segment_upload_completed",
                 new Dictionary<string, object> { ["stream"] = "legacy", ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejectedIds.Count }).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastUsageUploadSucceededAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         }
         catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
         {
@@ -570,6 +731,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
             await WriteLogAsync("warning", "upload", "segment_upload_failed", "usage-upload", "segment_upload_failed",
                 new Dictionary<string, object> { ["stream"] = "legacy", ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastUsageUploadFailedAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            lastStableErrorCode = "USAGE_UPLOAD_FAILED";
         }
     }
 
@@ -598,6 +761,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
             await WriteLogAsync("info", "upload", "segment_upload_completed", "usage-upload", "segment_upload_completed",
                 new Dictionary<string, object> { ["stream"] = "usage", ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejected.Count }).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastUsageUploadSucceededAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         }
         catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
         {
@@ -606,6 +770,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
             await WriteLogAsync("warning", "upload", "segment_upload_failed", "usage-upload", "segment_upload_failed",
                 new Dictionary<string, object> { ["stream"] = "usage", ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastUsageUploadFailedAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            lastStableErrorCode = "USAGE_UPLOAD_FAILED";
         }
     }
 
@@ -634,6 +800,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
             await WriteLogAsync("info", "upload", "segment_upload_completed", "media-upload", "segment_upload_completed",
                 new Dictionary<string, object> { ["stream"] = "media", ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejected.Count }).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastMediaUploadSucceededAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         }
         catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
         {
@@ -642,6 +809,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 "UPLOAD_FAILED", DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
             await WriteLogAsync("warning", "upload", "segment_upload_failed", "media-upload", "segment_upload_failed",
                 new Dictionary<string, object> { ["stream"] = "media", ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastMediaUploadFailedAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            lastStableErrorCode = "MEDIA_UPLOAD_FAILED";
         }
     }
 
@@ -650,24 +819,42 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
         do
         {
-            if (credential is null) continue;
-            try
-            {
-                await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                    Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.6",
-                    Environment.OSVersion.VersionString,
-                    RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
-                    tamperCount,
-                    appliedPolicy is null ? "pending" : "applied"), cancellationToken).ConfigureAwait(false);
-                await WriteLogAsync("info", "service", "heartbeat_succeeded", "heartbeat-loop", "heartbeat_succeeded").ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
-            {
-                await WriteLogAsync("warning", "service", "heartbeat_failed", "heartbeat-loop", "heartbeat_failed",
-                    new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
-            }
+            await HeartbeatOnceAsync(cancellationToken).ConfigureAwait(false);
         }
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task HeartbeatOnceAsync(CancellationToken cancellationToken)
+    {
+        if (credential is null) return;
+        await heartbeatCycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await api.HeartbeatAsync(credential, new MachineHeartbeat(
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.1.0",
+                Environment.OSVersion.VersionString,
+                RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+                tamperCount,
+                appliedPolicy is null ? "pending" : "applied"), cancellationToken).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastHeartbeatSucceededAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            await WriteLogAsync("info", "service", "heartbeat_succeeded", "heartbeat-loop", "heartbeat_succeeded").ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
+        {
+            Interlocked.Exchange(ref lastHeartbeatFailedAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            lastStableErrorCode = "HEARTBEAT_FAILED";
+            await WriteLogAsync("warning", "service", "heartbeat_failed", "heartbeat-loop", "heartbeat_failed",
+                new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+        }
+        finally { _ = heartbeatCycleGate.Release(); }
+    }
+
+    private async Task SyncNowAsync(CancellationToken cancellationToken)
+    {
+        _ = await SyncPolicyOnceAsync(cancellationToken).ConfigureAwait(false);
+        await UploadOnceAsync(cancellationToken).ConfigureAwait(false);
+        await HeartbeatOnceAsync(cancellationToken).ConfigureAwait(false);
+        await WriteLogAsync("info", "service", "admin_sync_completed", "control-pipe", "admin_sync_completed").ConfigureAwait(false);
     }
 
     private async Task UploadTerminalLogsAsync(
@@ -694,6 +881,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 {
                     ["acceptedCount"] = accepted.Count, ["rejectedCount"] = rejected.Count,
                 }, remoteEligible: false).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastLogUploadSucceededAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         }
         catch (Exception exception) when (exception is RuntimeApiException or HttpRequestException or TaskCanceledException)
         {
@@ -702,6 +890,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             await WriteLogAsync("warning", "upload", "terminal_log_upload_failed", "terminal-log-loop",
                 "terminal_log_upload_failed", new Dictionary<string, object> { ["errorType"] = exception.GetType().Name },
                 remoteEligible: false).ConfigureAwait(false);
+            Interlocked.Exchange(ref lastLogUploadFailedAtMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            lastStableErrorCode = "LOG_UPLOAD_FAILED";
         }
     }
 
@@ -718,7 +908,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await terminalLogs.WriteAsync(level, category, eventCode, module, messageCode, details,
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.6",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.1.0",
                 remoteEligible ? appliedPolicy?.Policy.LoggingPolicy : null,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellation.Token).ConfigureAwait(false);
         }
@@ -733,6 +923,9 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         await StopAsync().ConfigureAwait(false);
         cancellation.Dispose();
         stateGate.Dispose();
+        policyCycleGate.Dispose();
+        uploadCycleGate.Dispose();
+        heartbeatCycleGate.Dispose();
         http.Dispose();
     }
 

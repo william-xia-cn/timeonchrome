@@ -13,7 +13,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Win
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Infrastructure", "src\TimeOnChrome.AppRuntime.Infrastructure\TimeOnChrome.AppRuntime.Infrastructure.csproj", "{D95A95F7-6017-4DC0-913A-7BA512678560}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Setup", "src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj", "{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Manager", "src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj", "{CBAA166C-C0D9-4A1D-9080-44A2D70F6393}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TimeOnChrome.AppRuntime.Service", "src\TimeOnChrome.AppRuntime.Service\TimeOnChrome.AppRuntime.Service.csproj", "{50E6C8A3-63B7-4A9C-BD74-45D7E7E513A1}"
 EndProject

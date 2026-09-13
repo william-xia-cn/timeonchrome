@@ -26,6 +26,8 @@ public sealed record RestoredAccountingSession(
     long AssignmentVersion,
     AccountingRuntimeState State);
 
+public sealed record MachineOutboxSummary(int Legacy, int Usage, int Media);
+
 public sealed class MachineSegmentLedger
 {
     private readonly string connectionString;
@@ -425,6 +427,21 @@ public sealed class MachineSegmentLedger
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM machine_outbox WHERE terminal=0;";
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public async Task<MachineOutboxSummary> OutboxSummaryAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+              (SELECT COUNT(*) FROM machine_outbox WHERE terminal=0),
+              (SELECT COUNT(*) FROM machine_usage_outbox_v2 WHERE terminal=0),
+              (SELECT COUNT(*) FROM machine_media_outbox_v2 WHERE terminal=0);
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return new(0, 0, 0);
+        return new(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2));
     }
 
     private async Task UpdateOutboxAsync(IReadOnlySet<(string UserId, string SegmentId)> items, string sql, long? retryAtMs, string? code, CancellationToken cancellationToken)
