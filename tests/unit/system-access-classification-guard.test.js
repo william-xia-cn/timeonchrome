@@ -14,6 +14,7 @@ const normalizerSource = fs.readFileSync(path.join(root, 'extension', 'core', 's
 const storageSource = fs.readFileSync(path.join(root, 'extension', 'infra', 'storage.js'), 'utf8');
 const pagesSource = fs.readFileSync(path.join(root, 'pages', 'index.html'), 'utf8');
 const systemRouteSource = fs.readFileSync(path.join(root, 'workers', 'src', 'routes', 'systemAccessConfig.ts'), 'utf8');
+const statsRouteSource = fs.readFileSync(path.join(root, 'workers', 'src', 'routes', 'stats.ts'), 'utf8');
 const snapshotSource = fs.readFileSync(path.join(root, 'workers', 'src', 'services', 'profileAccountSnapshotsV2.ts'), 'utf8');
 const correctionMigration = fs.readFileSync(path.join(root, 'workers', 'migrations', '029_usage_accounting_corrections_v1.sql'), 'utf8');
 
@@ -53,5 +54,7 @@ assert(systemRouteSource.includes('WHERE system_access_config_v1.version = ?'));
 assert(systemRouteSource.includes('INSERT INTO system_access_config_history_v1'));
 assert(correctionMigration.includes('correction_version INTEGER NOT NULL DEFAULT 0'));
 assert(snapshotSource.includes('AND correction_version = ? AND expires_at > ?'));
+assert(statsRouteSource.includes('ACCOUNTING_CORRECTION_MAX_SEGMENTS = 99'));
+assert(statsRouteSource.includes('segmentIds.length > ACCOUNTING_CORRECTION_MAX_SEGMENTS'));
 
 console.log('[System Access Classification Guard] passed');

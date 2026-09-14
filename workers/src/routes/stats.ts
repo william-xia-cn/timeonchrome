@@ -14,6 +14,8 @@ import { applyCorrectionsToV1StatsRows, compactUsageAccountingCorrectionDeltas, 
 
 const VALID_CHANNELS = new Set(['active', 'backgroundMedia', 'pip']);
 const VALID_MODES = new Set(['study', 'rest', 'locked', 'paused', 'unknown', 'composite']);
+// One D1 batch statement is reserved for the correction batch header.
+const ACCOUNTING_CORRECTION_MAX_SEGMENTS = 99;
 const VALID_MEDIA_CLASSES = new Set(['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip']);
 const MEDIA_CLASS_FIELDS = [
   ['foregroundAudio', 'foregroundAudioSeconds'],
@@ -358,7 +360,9 @@ export const statsRouter = {
         const body = await request.json().catch(() => null) as any;
         const segmentIds = [...new Set((Array.isArray(body?.segmentIds) ? body.segmentIds : [])
           .filter((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 200))];
-        if (segmentIds.length < 1 || segmentIds.length > 100) return json({ error: 'segmentIds must contain 1-100 IDs' }, 400);
+        if (segmentIds.length < 1 || segmentIds.length > ACCOUNTING_CORRECTION_MAX_SEGMENTS) {
+          return json({ error: `segmentIds must contain 1-${ACCOUNTING_CORRECTION_MAX_SEGMENTS} IDs` }, 400);
+        }
         const expected = body?.expected || {};
         const effective = body?.effective || {};
         if (!expected.deviceId || !expected.date || !expected.domain || !expected.mode || !expected.targetClassification || !expected.quotaBucket) {
