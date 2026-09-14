@@ -1754,30 +1754,17 @@ function getAdminRestReminderView() {
   };
 }
 
+function getAdminAutonomyView() {
+  const autonomyConfig = config?.autonomyConfig || {};
+  return {
+    restrictedEntryConfirmationRequired: autonomyConfig.restrictedEntryConfirmationRequired !== false,
+    softReminderTimeoutAction: autonomyConfig.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+    reminder: getAdminRestReminderView(),
+  };
+}
+
 function renderQuotaSection() {
   renderWeeklyRestSection();
-
-  const reminderEl = document.getElementById('rules-rest-reminder-display');
-  if (reminderEl) {
-    const reminder = getAdminRestReminderView();
-    reminderEl.innerHTML = `
-      <div class="rules-reminder-summary">
-        <div class="rules-reminder-stat">
-          <div class="rules-reminder-stat-label">提醒状态</div>
-          <div class="rules-reminder-stat-value">${reminder.enabled ? '已启用' : '已关闭'}</div>
-        </div>
-        <div class="rules-reminder-stat">
-          <div class="rules-reminder-stat-label">今日休息软限额</div>
-          <div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '不提醒'}</div>
-        </div>
-        <div class="rules-reminder-stat">
-          <div class="rules-reminder-stat-label">超额后提醒间隔</div>
-          <div class="rules-reminder-stat-value">${formatQuotaText(reminder.repeatMinutes)}${reminder.enabled ? '' : '（启用后生效）'}</div>
-        </div>
-      </div>
-      <div class="rules-reminder-note"><strong>说明：</strong>软限额只做提醒，不会锁定网站访问。提醒只按已结算的 Rest 配额网页账本触发；复合或待归类网站借用的休息配额会计入，媒体时长不计入。提醒最多可能晚一个 3 分钟结算周期，显示后 60 秒未处理会结束休息。</div>
-    `;
-  }
 
   const quotaDailyEl = document.getElementById('rules-quota-daily-display');
   if (quotaDailyEl) {
@@ -1816,6 +1803,51 @@ function renderQuotaSection() {
         </div>
       `).join('')}</div></section>`;
     }
+  }
+}
+
+function renderAutonomySection() {
+  const autonomy = getAdminAutonomyView();
+  const reminder = autonomy.reminder;
+  const entryText = autonomy.restrictedEntryConfirmationRequired ? '完整确认' : '短提示后直接进入';
+  const timeoutText = autonomy.softReminderTimeoutAction === 'continue' ? '默认继续' : '结束休息';
+
+  const summaryEl = document.getElementById('rules-autonomy-summary-display');
+  if (summaryEl) {
+    summaryEl.innerHTML = `<div class="rules-reminder-summary">
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">进入受限内容</div><div class="rules-reminder-stat-value">${entryText}</div></div>
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">休息软限额</div><div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '已关闭'}</div></div>
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">无人响应</div><div class="rules-reminder-stat-value">${reminder.enabled ? timeoutText : '启用提醒后生效'}</div></div>
+    </div>`;
+  }
+
+  const entryEl = document.getElementById('rules-autonomy-entry-display');
+  if (entryEl) {
+    entryEl.innerHTML = `<div class="rules-autonomy-entry">
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">进入休息内容前需要确认</div><div class="rules-reminder-stat-value">${autonomy.restrictedEntryConfirmationRequired ? '已开启' : '已关闭'}</div></div>
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">当前效果</div><div class="rules-reminder-stat-value">${autonomy.restrictedEntryConfirmationRequired ? '显示完整确认页' : '直接进入并显示短提示'}</div></div>
+    </div>`;
+  }
+
+  const reminderEl = document.getElementById('rules-rest-reminder-display');
+  if (reminderEl) {
+    reminderEl.innerHTML = `
+      <div class="rules-reminder-summary">
+        <div class="rules-reminder-stat">
+          <div class="rules-reminder-stat-label">提醒状态</div>
+          <div class="rules-reminder-stat-value">${reminder.enabled ? '已启用' : '已关闭'}</div>
+        </div>
+        <div class="rules-reminder-stat">
+          <div class="rules-reminder-stat-label">今日休息软限额</div>
+          <div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '不提醒'}</div>
+        </div>
+        <div class="rules-reminder-stat">
+          <div class="rules-reminder-stat-label">超额后提醒间隔</div>
+          <div class="rules-reminder-stat-value">${formatQuotaText(reminder.repeatMinutes)}${reminder.enabled ? '' : '（启用后生效）'}</div>
+        </div>
+      </div>
+      <div class="rules-reminder-note"><strong>说明：</strong>软限额只做提醒，不会锁定网站访问。提醒只按已结算的 Rest 配额网页账本触发；复合或待归类网站借用的休息配额会计入，媒体时长不计入。提醒最多可能晚一个 3 分钟结算周期，显示后 60 秒未处理会${autonomy.softReminderTimeoutAction === 'continue' ? '默认继续休息' : '结束休息'}。</div>
+    `;
   }
 }
 function formatWindowsLabel(windows) {
@@ -2367,6 +2399,7 @@ function renderRulesPage() {
 
   renderAdminRulesSiteManagement();
   renderQuotaSection();
+  renderAutonomySection();
   renderScheduleSection();
   renderSiteClassificationRequestSection();
   void refreshAdminRulesCloudReadModel();

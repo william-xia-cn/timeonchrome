@@ -486,9 +486,11 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - 诊断只记录日期、周起点、各配额桶秒数、限额、事实来源、锁来源和同步错误码，不记录域名、URL、标题或账号凭证。
 - Reminder/路由必须保留原因优先级：日 Rest 耗尽、周 Rest 耗尽和 `rest_schedule_locked` 是不同事实。时间窗关闭不得显示“今天的休息时间已用完”。
 
-#### Rest 使用检查点提醒（D-065 / D-066）
+#### 自主度配置与 Rest 使用检查点提醒（D-065 / D-066 / D-082）
 
 - `restConfig.firstReminderMinutes` 表示“今日休息软限额”：`null` 表示关闭，非空值必须是 `1–1440` 的整数，默认 `120`。`restConfig.repeatReminderMinutes` 表示超额后的重复提醒间隔，必须是 `1–1440` 的整数，缺失时默认 `60`。两者均为提醒参数，不是会锁定访问的每日或每周 Rest 配额。
+- `autonomyConfig.restrictedEntryConfirmationRequired` 控制现有受限内容路由在硬规则允许时是否要求完整 Reminder 确认，缺失时默认 `true`。它不新增触发场景：仅替换原本将产生 `to_rest_slide_confirm` 或受限类型 `to_rest_confirm` 的结果。关闭时直接提交到 Rest，并显示约 4 秒非阻断状态提示；已在 Rest、Rest grace、复合和未归类路由保持原样。
+- `autonomyConfig.softReminderTimeoutAction` 只允许 `end_rest` / `continue`，缺失时默认 `end_rest`。`continue` 表示可见提醒 60 秒无人处理后关闭弹层、尽力恢复此前媒体，并以当前已结算 Rest 用量加重复间隔生成下一阈值；不等同于解除每日、每周或站点硬配额。
 - 旧 `restConfig.reminderInterval` / `maxRestDuration` 仅保留配置兼容，不参与运行，不得迁移为 `firstReminderMinutes`。
 - 提醒触发和展示读取 `getQuotaUsageView()` 的 `restSeconds` / `weekRestSeconds`；复合或待归类借用 Rest 计入，媒体账本不计入。只有当前聚焦 active tab 存在 `quotaBucketAtTime=rest` 的 ACTIVE 网页 session 时才显示；达到阈值但没有有效前台 Rest 页面时延后到下一次有效观察。
 - 首次提醒 payload 使用 `reminderKind=first`、`softLimitMinutes` 和 `overageSeconds`，明确显示“已达到今日休息软限额”及设定值；滑动继续后，以确认时的今日 Rest 用量为基线，按 `repeatReminderMinutes` 再次提醒，后续 payload 使用 `reminderKind=repeat` 并显示从软限额起算的累计超额。弹窗等待时间继续进入正式网页账本，但不进入下一轮提醒间隔。每个北京时间自然日重置提醒进度。
@@ -496,8 +498,9 @@ D-045 后，普通统计的主身份从 domain 分类视图升级为 managedTarg
 - Content Script 使用 `<dialog>.showModal()` 形成页面内软阻断，保留网页文档、滚动和应用状态；提醒期间阻断输入并暂停可识别媒体。滑动继续移除 dialog 并尽力恢复此前播放媒体；Canvas/WebGL 游戏只保证输入阻断，不承诺冻结页面内部 JS。
 - 已经显示的提醒在 60 秒响应期内不因家长调整或关闭提醒配置而被后台静默撤销，必须先由继续、结束或超时完成当前状态机；新配置从下一轮评估生效，避免页面残留无法处理的 modal。
 - prompt 状态包含随机 token、dateKey、nextThresholdSeconds、shownAt、deadlineAt 和 sourceTabId，通过受预算保护的固定小对象持久化。继续、点击结束和超时结束必须按 token 幂等。Service Worker 重启、页面刷新或标签切换不得使过期 prompt 继续访问。
-- 60 秒无操作与点击“结束休息”共用 Mode Service 结束路径：请求 Study 并重新检查 source tab；若 Study 不可进入或页面无法继续安全显示，终止当前 Rest 页面访问。软阻断暂时无法注入时保留 prompt 与 deadline，并在 `CONTENT_SCRIPT_READY` 后重试；60 秒 deadline 到达后仍执行默认结束，不能静默跳过。
-- deadline 只能在 Content Script 返回 `visible=true` 后创建并调度；随后才允许暂停媒体。首次投递失败时只保存 `delivery_due` 状态，不启动响应倒计时，并在 `CONTENT_SCRIPT_READY` 或约 10 秒后重试一次；第二次仍失败时进入完整 Reminder，reason 固定为 `rest_usage_reminder_delivery_failed`。不得把不可见投递当作用户超时。
+- `softReminderTimeoutAction=end_rest` 时，60 秒无操作与点击“结束休息”共用 Mode Service 结束路径：请求 Study 并重新检查 source tab；若 Study 不可进入或页面无法继续安全显示，终止当前 Rest 页面访问。`continue` 时，无操作按继续处理并使用 `timeout_continue` 记录，不能进入完整 Reminder。
+- deadline 只能在 Content Script 返回 `visible=true` 后创建并调度；随后才允许暂停媒体。首次投递失败时只保存 `delivery_due` 状态，不启动响应倒计时，并在 `CONTENT_SCRIPT_READY` 或约 10 秒后重试一次。第二次仍失败时，`end_rest` 进入完整 Reminder，reason 固定为 `rest_usage_reminder_delivery_failed`；`continue` 记录 `delivery_failed_continue`、推进下一提醒阈值且不阻断页面。不得把不可见投递当作用户超时。
+- Pages 在“自主度配置”集中编辑 `autonomyConfig` 与上述 `restConfig` 字段；“时间配额”只管理硬额度。本地 Admin 使用同名只读页展示当前效果。首版不生成提醒次数、主动结束次数或自主度评分。
 - 该检查点不替换访问 Reminder：Study/Compound 打开 Restricted 且 Rest Exit Grace 已过期时仍先进入现有 Reminder 确认。
 
 

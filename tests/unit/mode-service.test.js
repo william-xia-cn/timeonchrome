@@ -1181,6 +1181,69 @@ this.__modeService = {
     });
   }
 
+  section('MSVC-5a autonomy can skip entry confirmation without bypassing hard rules');
+  {
+    const svc = loadModeService();
+    const base = {
+      currentMode: 'study',
+      nowMs: 30_000,
+      isStudyDomain: false,
+      isCompositeDomain: false,
+      isRestricted: true,
+      quotaState: { restLocked: false },
+    };
+    expect('missing autonomy config preserves full confirmation', svc.evaluateModeRoute(base), {
+      kind: 'reminder',
+      reminderReason: 'to_rest_slide_confirm',
+      extraParams: { originMode: 'study' },
+    });
+    expect('disabled entry confirmation moves Study directly to Rest', svc.evaluateModeRoute({
+      ...base,
+      restrictedEntryConfirmationRequired: false,
+    }), {
+      kind: 'mode_change',
+      toMode: 'rest',
+      reason: 'restricted_entry_direct',
+      source: 'auto_mode_route',
+      notice: 'restricted_entry_direct',
+    });
+    expect('disabled entry confirmation moves Composite directly to Rest', svc.evaluateModeRoute({
+      ...base,
+      currentMode: 'composite',
+      restrictedEntryConfirmationRequired: false,
+    }), {
+      kind: 'mode_change',
+      toMode: 'rest',
+      reason: 'restricted_entry_direct',
+      source: 'auto_mode_route',
+      notice: 'restricted_entry_direct',
+    });
+    expect('disabled entry confirmation cannot bypass Rest schedule', svc.evaluateModeRoute({
+      ...base,
+      restWindowAllowed: false,
+      restrictedEntryConfirmationRequired: false,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'rest_schedule_locked',
+    });
+    expect('disabled entry confirmation cannot bypass Rest quota', svc.evaluateModeRoute({
+      ...base,
+      restrictedEntryConfirmationRequired: false,
+      quotaState: { restLocked: true, weeklyRestLocked: true },
+    }), {
+      kind: 'reminder',
+      reminderReason: 'weekly_rest_locked',
+    });
+    expect('disabled entry confirmation cannot bypass blacklist', svc.evaluateModeRoute({
+      ...base,
+      isUnsafe: true,
+      restrictedEntryConfirmationRequired: false,
+    }), {
+      kind: 'reminder',
+      reminderReason: 'unsafe',
+    });
+  }
+
   section('MSVC-7 Rest lock reason preserves daily/weekly source');
   {
     const svc = loadModeService();

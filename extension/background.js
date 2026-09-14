@@ -431,6 +431,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         adminPasswordHash: existingConfig.adminPasswordHash || '',
         isInitialized: existingConfig.isInitialized || false,
         restConfig: existingConfig.restConfig || DEFAULT_CONFIG.restConfig,
+        autonomyConfig: {
+          ...DEFAULT_CONFIG.autonomyConfig,
+          ...(existingConfig.autonomyConfig || {}),
+        },
         studyList: existingConfig.studyList || DEFAULT_CONFIG.studyList,
         compositeList: existingConfig.compositeList || DEFAULT_CONFIG.compositeList,
         unsafeList: existingConfig.unsafeList || DEFAULT_CONFIG.unsafeList,

@@ -1086,14 +1086,15 @@
     if (status) status.textContent = '';
 
     if (restReminderCountdownTimer) clearInterval(restReminderCountdownTimer);
+    const timeoutAction = payload.timeoutAction === 'continue' ? 'continue' : 'end';
     const updateCountdown = () => {
       const remaining = Math.max(0, Math.ceil((Number(payload.deadlineAt) - Date.now()) / 1000));
       const countdown = restReminderShadow?.getElementById('toc-rest-reminder-countdown');
-      if (countdown) countdown.textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')} 后将自动结束休息`;
+      if (countdown) countdown.textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')} 后将${timeoutAction === 'continue' ? '默认继续' : '自动结束休息'}`;
       if (remaining <= 0) {
         if (restReminderCountdownTimer) clearInterval(restReminderCountdownTimer);
         restReminderCountdownTimer = null;
-        restReminderResolveAction?.('end');
+        restReminderResolveAction?.(timeoutAction);
       }
     };
     updateCountdown();

@@ -522,6 +522,24 @@
     .rest-reminder-field { display: grid; gap: 6px; min-width: 0; }
     .rest-reminder-field .quota-control-label { display: block; color: var(--text); font-size: 13px; font-weight: 650; }
     .rest-reminder-input { display: flex; align-items: center; gap: 8px; }
+    .autonomy-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .autonomy-summary-item { min-width: 0; padding: 12px 0; border-top: 1px solid var(--border); }
+    .autonomy-summary-label { color: var(--muted); font-size: 11px; }
+    .autonomy-summary-value { margin-top: 5px; color: var(--text); font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+    .autonomy-control-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+    .autonomy-control-copy { min-width: 0; max-width: 680px; }
+    .autonomy-control-title { font-size: 14px; font-weight: 650; color: var(--text); }
+    .autonomy-control-note { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .autonomy-segmented { display: inline-grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 0; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+    .autonomy-segmented label { position: relative; min-width: 0; cursor: pointer; }
+    .autonomy-segmented input { position: absolute; opacity: 0; pointer-events: none; }
+    .autonomy-segmented span { display: flex; min-height: 38px; align-items: center; justify-content: center; padding: 8px 12px; border-radius: 6px; color: var(--muted); font-size: 13px; text-align: center; }
+    .autonomy-segmented input:checked + span { background: rgba(0,184,148,.12); color: var(--accent); font-weight: 650; }
+    .autonomy-segmented input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .autonomy-segmented.disabled { opacity: .5; }
+    .autonomy-guardrails { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+    .autonomy-guardrail { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.5; }
+    .autonomy-guardrail::before { content: ''; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--accent); flex: none; }
     .rest-reminder-input input { width: auto; min-width: 0; flex: 1 1 auto; }
     .rest-reminder-input input:disabled { cursor: not-allowed; opacity: .55; }
     .rest-reminder-input .quota-unit { flex: 0 0 auto; white-space: nowrap; }
@@ -884,6 +902,9 @@
       .weekly-rest-time-inputs input { width: 100%; }
       .rest-reminder-editor { max-width: none; }
       .rest-reminder-fields { grid-template-columns: 1fr; }
+      .autonomy-summary-grid, .autonomy-guardrails { grid-template-columns: 1fr; }
+      .autonomy-control-row { flex-direction: column; }
+      .autonomy-segmented { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       #q-minutes-input { width: 100% !important; }
       .schedule-table,
       .schedule-table tbody,
@@ -1104,6 +1125,7 @@
         <div class="tabs" aria-label="访问管理功能" style="margin-bottom:16px;">
           <button class="tab-btn active" data-rules-management-tab="site-management">网站管理</button>
           <button class="tab-btn" data-rules-management-tab="quota">时间配额</button>
+          <button class="tab-btn" data-rules-management-tab="autonomy">自主度配置</button>
           <button class="tab-btn" data-rules-management-tab="schedule">时间段管理</button>
           <button class="tab-btn" data-rules-management-tab="config-files">配置文件</button>
         </div>
@@ -1207,31 +1229,6 @@
         </div>
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rest.svg" alt="">休息时间提醒</div><div class="card-subtitle">软限额只做提醒，不会锁定访问；真实剩余时间仍由每日和每周配额决定</div></div>
-          </div>
-          <div class="rest-reminder-editor">
-            <div class="rest-reminder-toggle-row">
-              <div><strong style="font-size:13px;">启用今日休息软限额提醒</strong><div class="weekly-rest-meta">关闭后不显示使用时长检查点</div></div>
-              <label class="toggle" title="切换今日休息软限额提醒">
-                <input type="checkbox" id="q-rest-reminder-enabled">
-                <span class="toggle-track"></span><span class="toggle-thumb"></span>
-              </label>
-            </div>
-            <div class="rest-reminder-fields" id="q-rest-reminder-fields">
-              <label class="rest-reminder-field" for="q-rest-first-reminder">
-                <span class="quota-control-label">今日休息软限额（分钟）</span>
-                <span class="rest-reminder-input"><input class="quota-input" type="number" id="q-rest-first-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="今日休息软限额分钟"><span class="quota-unit">分钟</span></span>
-              </label>
-              <label class="rest-reminder-field" for="q-rest-repeat-reminder">
-                <span class="quota-control-label">超额后提醒间隔（分钟）</span>
-                <span class="rest-reminder-input"><input class="quota-input" type="number" id="q-rest-repeat-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="超额后提醒间隔分钟"><span class="quota-unit">分钟</span></span>
-              </label>
-            </div>
-            <div class="weekly-rest-meta">默认 120 / 60 分钟；提醒最多可能比设定值晚一个 3 分钟网页结算周期，显示后 60 秒未处理会结束休息。</div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header">
             <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日配额</div><div class="card-subtitle">分别限制当天学习、休息、待归类和在线总额；0 表示当天不可用</div></div>
           </div>
           <div id="quota-daily-table"></div>
@@ -1255,6 +1252,82 @@
           <div id="q-quotas-list"></div>
         </div>
         <div class="save-bar"><button class="btn-save" id="save-quota-btn">保存配置</button></div>
+      </section>
+
+      <!-- 自主度配置 -->
+      <section class="rules-management-panel" data-rules-management-panel="autonomy">
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">当前管控方式</div><div class="card-subtitle">自主度只调整允许访问时的提示和确认，不放松硬限制</div></div>
+          </div>
+          <div class="autonomy-summary-grid" id="autonomy-summary">
+            <div class="autonomy-summary-item"><div class="autonomy-summary-label">进入受限内容</div><div class="autonomy-summary-value" id="autonomy-summary-entry">需要确认</div></div>
+            <div class="autonomy-summary-item"><div class="autonomy-summary-label">休息软限额</div><div class="autonomy-summary-value" id="autonomy-summary-reminder">120 分钟</div></div>
+            <div class="autonomy-summary-item"><div class="autonomy-summary-label">无人响应</div><div class="autonomy-summary-value" id="autonomy-summary-timeout">结束休息</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">进入受限娱乐网站</div><div class="card-subtitle">仅在时间窗和硬配额允许进入时生效</div></div>
+          </div>
+          <div class="autonomy-control-row">
+            <div class="autonomy-control-copy">
+              <div class="autonomy-control-title">进入休息内容前需要确认</div>
+              <div class="autonomy-control-note">开启后使用完整确认页；关闭后直接进入休息时间，并显示短暂状态提示。</div>
+            </div>
+            <label class="toggle" title="切换进入受限内容确认">
+              <input type="checkbox" id="a-restricted-entry-confirmation">
+              <span class="toggle-track"></span><span class="toggle-thumb"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rest.svg" alt="">休息时间自我提醒</div><div class="card-subtitle">软限额只做提醒，真实剩余时间仍由每日和每周硬配额决定</div></div>
+          </div>
+          <div class="rest-reminder-editor">
+            <div class="rest-reminder-toggle-row">
+              <div><strong style="font-size:13px;">启用今日休息软限额提醒</strong><div class="weekly-rest-meta">关闭后不显示使用时长检查点</div></div>
+              <label class="toggle" title="切换今日休息软限额提醒">
+                <input type="checkbox" id="a-rest-reminder-enabled">
+                <span class="toggle-track"></span><span class="toggle-thumb"></span>
+              </label>
+            </div>
+            <div class="rest-reminder-fields" id="a-rest-reminder-fields">
+              <label class="rest-reminder-field" for="a-rest-first-reminder">
+                <span class="quota-control-label">今日休息软限额（分钟）</span>
+                <span class="rest-reminder-input"><input class="quota-input" type="number" id="a-rest-first-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="今日休息软限额分钟"><span class="quota-unit">分钟</span></span>
+              </label>
+              <label class="rest-reminder-field" for="a-rest-repeat-reminder">
+                <span class="quota-control-label">超额后提醒间隔（分钟）</span>
+                <span class="rest-reminder-input"><input class="quota-input" type="number" id="a-rest-repeat-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="超额后提醒间隔分钟"><span class="quota-unit">分钟</span></span>
+              </label>
+            </div>
+            <div>
+              <div class="quota-control-label" style="margin-bottom:7px;">提醒显示 60 秒后仍未处理</div>
+              <div class="autonomy-segmented" id="a-rest-timeout-actions" role="radiogroup" aria-label="软限额提醒无人响应动作">
+                <label><input type="radio" name="a-rest-timeout-action" value="end_rest"><span>结束休息</span></label>
+                <label><input type="radio" name="a-rest-timeout-action" value="continue"><span>默认继续</span></label>
+              </div>
+            </div>
+            <div class="weekly-rest-meta">默认 120 / 60 分钟；提醒最多可能比设定值晚一个 3 分钟网页结算周期。</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/blocked.svg" alt="">始终强制执行</div><div class="card-subtitle">以下规则不受自主度配置影响</div></div>
+          </div>
+          <div class="autonomy-guardrails">
+            <div class="autonomy-guardrail">黑名单网站始终阻止访问</div>
+            <div class="autonomy-guardrail">学习、复合和休息时间窗始终生效</div>
+            <div class="autonomy-guardrail">每日和每周硬配额始终生效</div>
+            <div class="autonomy-guardrail">单站点配额始终生效</div>
+          </div>
+        </div>
+        <div class="save-bar"><button class="btn-save" id="save-autonomy-btn">保存自主度配置</button></div>
       </section>
 
       <!-- 时间段管理 -->
@@ -1891,6 +1964,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupNav();
   setupRules();
   setupQuota();
+  setupAutonomy();
   setupSchedule();
   setupStats();
   setupCloudSettlements();
@@ -2271,6 +2345,7 @@ function renderRulesManagementPage() {
   syncRulesManagementTabs();
   if (cloudRulesManagementActiveTab === 'site-management') renderRulesPage();
   if (cloudRulesManagementActiveTab === 'quota') renderQuotaPage();
+  if (cloudRulesManagementActiveTab === 'autonomy') renderAutonomyPage();
   if (cloudRulesManagementActiveTab === 'schedule') renderSchedulePage();
   if (cloudRulesManagementActiveTab === 'config-files') renderRulesConfigFilesPage();
 }
@@ -3845,6 +3920,10 @@ function buildProfileConfigExportData(classificationRequests = []) {
           : quotaFiniteNumber(cfg.restConfig?.firstReminderMinutes) ?? 120,
         repeatReminderMinutes: quotaFiniteNumber(cfg.restConfig?.repeatReminderMinutes) ?? 60,
       },
+      autonomyConfig: {
+        restrictedEntryConfirmationRequired: cfg.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
+        softReminderTimeoutAction: cfg.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+      },
       domainQuotas: cfg.domainQuotas || {},
       legacyQuotaSnapshot: {
         dailyStudyQuota: cfg.dailyStudyQuota,
@@ -4184,6 +4263,9 @@ function normalizeProfileConfigImportData(data) {
   const importedRepeatReminder = data.quota?.restConfig && Object.prototype.hasOwnProperty.call(data.quota.restConfig, 'repeatReminderMinutes')
     ? quotaFiniteNumber(data.quota.restConfig.repeatReminderMinutes)
     : 60;
+  const importedAutonomy = data.quota?.autonomyConfig && typeof data.quota.autonomyConfig === 'object'
+    ? data.quota.autonomyConfig
+    : {};
   return {
     customStudyList: lists.customStudyList || [],
     customCompositeList: lists.customCompositeList || [],
@@ -4198,6 +4280,10 @@ function normalizeProfileConfigImportData(data) {
     restConfig: {
       firstReminderMinutes: importedFirstReminder === undefined ? 120 : importedFirstReminder,
       repeatReminderMinutes: importedRepeatReminder === undefined ? 60 : importedRepeatReminder,
+    },
+    autonomyConfig: {
+      restrictedEntryConfirmationRequired: importedAutonomy.restrictedEntryConfirmationRequired !== false,
+      softReminderTimeoutAction: importedAutonomy.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
     },
     domainQuotas: data.quota?.domainQuotas && typeof data.quota.domainQuotas === 'object' ? data.quota.domainQuotas : {},
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(data.timeWindows?.daily || {}) },
@@ -4340,6 +4426,21 @@ function buildProfileConfigImportDiffs(importedConfig) {
     addConfigImportDiff(diffs, { type: 'modify', area: 'rest-reminder', key: 'repeatReminderMinutes', label: '超额后提醒间隔', currentValue: configImportValueLabel(currentRepeatReminder), importedValue: configImportValueLabel(importedRepeatReminder), importedRawValue: importedRepeatReminder });
   }
 
+  const currentEntryConfirmation = remoteConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false;
+  const importedEntryConfirmation = importedConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false;
+  if (currentEntryConfirmation === importedEntryConfirmation) {
+    addConfigImportDiff(diffs, { type: 'same', area: 'autonomy', key: 'restrictedEntryConfirmationRequired', label: '进入休息内容前需要确认', currentValue: currentEntryConfirmation ? '开启' : '关闭', importedValue: importedEntryConfirmation ? '开启' : '关闭' });
+  } else {
+    addConfigImportDiff(diffs, { type: 'modify', area: 'autonomy', key: 'restrictedEntryConfirmationRequired', label: '进入休息内容前需要确认', currentValue: currentEntryConfirmation ? '开启' : '关闭', importedValue: importedEntryConfirmation ? '开启' : '关闭', importedRawValue: importedEntryConfirmation });
+  }
+  const currentTimeoutAction = remoteConfig?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest';
+  const importedTimeoutAction = importedConfig?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest';
+  if (currentTimeoutAction === importedTimeoutAction) {
+    addConfigImportDiff(diffs, { type: 'same', area: 'autonomy', key: 'softReminderTimeoutAction', label: '软限额提醒无人响应', currentValue: currentTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedValue: importedTimeoutAction === 'continue' ? '默认继续' : '结束休息' });
+  } else {
+    addConfigImportDiff(diffs, { type: 'modify', area: 'autonomy', key: 'softReminderTimeoutAction', label: '软限额提醒无人响应', currentValue: currentTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedValue: importedTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedRawValue: importedTimeoutAction });
+  }
+
   const currentDomainQuotas = remoteConfig?.domainQuotas || {};
   const importedDomainQuotas = importedConfig.domainQuotas || {};
   const quotaDomains = new Set([...Object.keys(currentDomainQuotas), ...Object.keys(importedDomainQuotas)]);
@@ -4406,6 +4507,10 @@ function buildProfileConfigImportPayload(selectedDiffs) {
         : quotaFiniteNumber(remoteConfig?.restConfig?.firstReminderMinutes) ?? 120,
       repeatReminderMinutes: quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60,
     },
+    autonomyConfig: {
+      restrictedEntryConfirmationRequired: remoteConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
+      softReminderTimeoutAction: remoteConfig?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+    },
     domainQuotas: { ...(remoteConfig?.domainQuotas || {}) },
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}) },
   };
@@ -4426,6 +4531,8 @@ function buildProfileConfigImportPayload(selectedDiffs) {
       payload.timeQuota.weekly.restMinutes = diff.importedRawValue;
     } else if (diff.area === 'rest-reminder') {
       payload.restConfig[diff.key] = diff.importedRawValue;
+    } else if (diff.area === 'autonomy') {
+      payload.autonomyConfig[diff.key] = diff.importedRawValue;
     } else if (diff.area === 'domain-quota') {
       if (diff.type === 'delete') delete payload.domainQuotas[diff.key];
       else payload.domainQuotas[diff.key] = diff.importedRawValue;
@@ -4980,11 +5087,31 @@ function validRestReminderMinutes(value) {
   return Number.isInteger(number) && number >= 1 && number <= 1440;
 }
 
-function updateRestReminderInputs() {
-  const enabled = document.getElementById('q-rest-reminder-enabled')?.checked === true;
-  document.querySelectorAll('#q-rest-reminder-fields input').forEach(input => {
+function autonomyConfigView(config = {}) {
+  return {
+    restrictedEntryConfirmationRequired: config?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
+    softReminderTimeoutAction: config?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+    reminderEnabled: config?.restConfig?.firstReminderMinutes !== null,
+    firstReminderMinutes: quotaFiniteNumber(config?.restConfig?.firstReminderMinutes) ?? 120,
+    repeatReminderMinutes: quotaFiniteNumber(config?.restConfig?.repeatReminderMinutes) ?? 60,
+  };
+}
+
+function updateAutonomyInputs() {
+  const enabled = document.getElementById('a-rest-reminder-enabled')?.checked === true;
+  document.querySelectorAll('#a-rest-reminder-fields input, #a-rest-timeout-actions input').forEach(input => {
     input.disabled = !enabled;
   });
+  document.getElementById('a-rest-reminder-fields')?.classList.toggle('disabled', !enabled);
+  document.getElementById('a-rest-timeout-actions')?.classList.toggle('disabled', !enabled);
+
+  const confirmationRequired = document.getElementById('a-restricted-entry-confirmation')?.checked !== false;
+  const first = Number(document.getElementById('a-rest-first-reminder')?.value) || 120;
+  const repeat = Number(document.getElementById('a-rest-repeat-reminder')?.value) || 60;
+  const timeoutAction = document.querySelector('input[name="a-rest-timeout-action"]:checked')?.value === 'continue' ? 'continue' : 'end_rest';
+  document.getElementById('autonomy-summary-entry').textContent = confirmationRequired ? '完整确认' : '短提示后直接进入';
+  document.getElementById('autonomy-summary-reminder').textContent = enabled ? `${first} 分钟；每 ${repeat} 分钟再次提醒` : '已关闭';
+  document.getElementById('autonomy-summary-timeout').textContent = enabled ? (timeoutAction === 'continue' ? '默认继续' : '结束休息') : '启用提醒后生效';
 }
 
 function quotaLegacyMinutes(value, fallback) {
@@ -5216,8 +5343,69 @@ function setupQuota() {
   document.getElementById('q-weekly-rest-unlimited').addEventListener('change', updateWeeklyRestQuotaStatus);
   document.getElementById('q-weekly-rest-hours').addEventListener('input', updateWeeklyRestQuotaStatus);
   document.getElementById('q-weekly-rest-minutes').addEventListener('input', updateWeeklyRestQuotaStatus);
-  document.getElementById('q-rest-reminder-enabled').addEventListener('change', updateRestReminderInputs);
   document.getElementById('save-quota-btn').addEventListener('click', saveTimeQuotaConfig);
+}
+
+function setupAutonomy() {
+  document.getElementById('a-restricted-entry-confirmation').addEventListener('change', updateAutonomyInputs);
+  document.getElementById('a-rest-reminder-enabled').addEventListener('change', updateAutonomyInputs);
+  document.getElementById('a-rest-first-reminder').addEventListener('input', updateAutonomyInputs);
+  document.getElementById('a-rest-repeat-reminder').addEventListener('input', updateAutonomyInputs);
+  document.querySelectorAll('input[name="a-rest-timeout-action"]').forEach(input => {
+    input.addEventListener('change', updateAutonomyInputs);
+  });
+  document.getElementById('save-autonomy-btn').addEventListener('click', saveAutonomyConfig);
+}
+
+function renderAutonomyPage() {
+  const view = autonomyConfigView(remoteConfig || {});
+  document.getElementById('a-restricted-entry-confirmation').checked = view.restrictedEntryConfirmationRequired;
+  document.getElementById('a-rest-reminder-enabled').checked = view.reminderEnabled;
+  document.getElementById('a-rest-first-reminder').value = String(view.firstReminderMinutes);
+  document.getElementById('a-rest-repeat-reminder').value = String(view.repeatReminderMinutes);
+  const timeoutInput = document.querySelector(`input[name="a-rest-timeout-action"][value="${view.softReminderTimeoutAction}"]`);
+  if (timeoutInput) timeoutInput.checked = true;
+  updateAutonomyInputs();
+}
+
+async function saveAutonomyConfig() {
+  if (!currentProfileId || !remoteConfig) return;
+  const reminderEnabled = document.getElementById('a-rest-reminder-enabled').checked;
+  const firstReminderMinutes = Number(document.getElementById('a-rest-first-reminder').value);
+  const repeatReminderMinutes = Number(document.getElementById('a-rest-repeat-reminder').value);
+  if (reminderEnabled && !validRestReminderMinutes(firstReminderMinutes)) {
+    toast('今日休息软限额请输入 1-1440 的整数分钟', false);
+    return;
+  }
+  if (!validRestReminderMinutes(repeatReminderMinutes)) {
+    toast('超额后提醒间隔请输入 1-1440 的整数分钟', false);
+    return;
+  }
+
+  const timeoutAction = document.querySelector('input[name="a-rest-timeout-action"]:checked')?.value === 'continue'
+    ? 'continue'
+    : 'end_rest';
+  const payload = {
+    autonomyConfig: {
+      restrictedEntryConfirmationRequired: document.getElementById('a-restricted-entry-confirmation').checked,
+      softReminderTimeoutAction: timeoutAction,
+    },
+    restConfig: {
+      ...(remoteConfig.restConfig || {}),
+      firstReminderMinutes: reminderEnabled ? firstReminderMinutes : null,
+      repeatReminderMinutes,
+    },
+  };
+
+  try {
+    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    toast('自主度配置已保存');
+    const result = await api(`/profiles/${currentProfileId}/config`);
+    remoteConfig = result.data || {};
+    renderAutonomyPage();
+  } catch (error) {
+    toast('保存失败: ' + (error.message || ''), false);
+  }
 }
 
 function renderQuotaPage() {
@@ -5232,13 +5420,6 @@ function renderQuotaPage() {
   document.getElementById('q-weekly-rest-hours').value = weeklyUnlimited ? '' : Math.floor(weeklyView.value / 60);
   document.getElementById('q-weekly-rest-minutes').value = weeklyUnlimited ? '' : weeklyView.value % 60;
   document.getElementById('weekly-rest-source').textContent = weeklyRestSourceLabel(weeklyView);
-  const reminderEnabled = remoteConfig?.restConfig?.firstReminderMinutes !== null;
-  const firstReminder = quotaFiniteNumber(remoteConfig?.restConfig?.firstReminderMinutes) ?? 120;
-  const repeatReminder = quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60;
-  document.getElementById('q-rest-reminder-enabled').checked = reminderEnabled;
-  document.getElementById('q-rest-first-reminder').value = String(firstReminder);
-  document.getElementById('q-rest-repeat-reminder').value = String(repeatReminder);
-  updateRestReminderInputs();
 
   // Table header
   let html = `<div class="quota-daily-header">
@@ -5362,28 +5543,11 @@ async function saveTimeQuotaConfig() {
     if (!confirmed) return;
   }
 
-  const reminderEnabled = document.getElementById('q-rest-reminder-enabled')?.checked === true;
-  const firstReminderMinutes = Number(document.getElementById('q-rest-first-reminder')?.value);
-  const repeatReminderMinutes = Number(document.getElementById('q-rest-repeat-reminder')?.value);
-  if (reminderEnabled && !validRestReminderMinutes(firstReminderMinutes)) {
-    toast('今日休息软限额请输入 1-1440 的整数分钟', false);
-    return;
-  }
-  if (!validRestReminderMinutes(repeatReminderMinutes)) {
-    toast('超额后提醒间隔请输入 1-1440 的整数分钟', false);
-    return;
-  }
-
   const payload = {
     timeQuota: {
       accountingVersion: Number(document.getElementById('q-accounting-version')?.value) === 2 ? 2 : 1,
       daily,
       weekly: { restMinutes: weeklyRestMinutes },
-    },
-    restConfig: {
-      ...(remoteConfig.restConfig || {}),
-      firstReminderMinutes: reminderEnabled ? firstReminderMinutes : null,
-      repeatReminderMinutes,
     },
     domainQuotas: remoteConfig.domainQuotas || {},
   };
