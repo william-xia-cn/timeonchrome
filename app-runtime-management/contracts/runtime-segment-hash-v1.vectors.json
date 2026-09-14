@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "windows display name",
+      "segment": {
+        "id": "session-a:0",
+        "runtimeSessionID": "session-a",
+        "application": {
+          "platform": "windows",
+          "runtimeIdentity": "app:editor",
+          "displayName": "Editor"
+        },
+        "startAtMs": 100,
+        "endAtMs": 600,
+        "durationMilliseconds": 500,
+        "endReason": "periodicSnapshot"
+      },
+      "expectedHash": "4d49fe3fc8011a4be6b6649231a00a83ccd38a7188b6e71ba6093788180906a0"
+    },
+    {
+      "name": "macos null display name",
+      "segment": {
+        "id": "session-null:0",
+        "runtimeSessionID": "session-null",
+        "application": {
+          "platform": "macos",
+          "runtimeIdentity": "bundle:notes",
+          "displayName": null
+        },
+        "startAtMs": 0,
+        "endAtMs": 1,
+        "durationMilliseconds": 1,
+        "endReason": "applicationSwitch"
+      },
+      "expectedHash": "92a714f563712b2ee8a1a67098ea15fee479b9f3f5ba50b19b1493fc25dcbf47"
+    }
+  ]
+}

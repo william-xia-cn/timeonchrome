@@ -1,0 +1,14 @@
+/*
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  X-Content-Type-Options: nosniff
+
+/index.html
+  Cache-Control: no-store
+
+/*.js
+  Cache-Control: public, max-age=300, must-revalidate
+
+/*.css
+  Cache-Control: public, max-age=300, must-revalidate

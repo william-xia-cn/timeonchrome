@@ -1,0 +1,138 @@
+<Window x:Class="TimeOnChrome.AppRuntime.Setup.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="TimeWhereMg" Height="760" Width="760"
+        MinHeight="360" MinWidth="420" Background="#F5F7FB"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResize">
+  <Window.Resources>
+    <Style TargetType="Button">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="Padding" Value="18,10" />
+      <Setter Property="MinHeight" Value="42" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style TargetType="TextBlock">
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </Window.Resources>
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <ScrollViewer x:Name="ContentScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled" CanContentScroll="False">
+      <StackPanel Margin="38,30,38,24">
+        <DockPanel LastChildFill="True">
+          <Border Width="44" Height="44" CornerRadius="12" Background="#DBEAFE" Margin="0,0,14,0">
+            <TextBlock Text="TW" FontSize="16" FontWeight="Bold" Foreground="#2563EB"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel>
+            <TextBlock Text="TimeWhereMg" FontSize="27" FontWeight="SemiBold" Foreground="#111827" />
+            <TextBlock Margin="0,4,0,0" Text="电脑应用使用服务管理" Foreground="#64748B" FontSize="14" />
+          </StackPanel>
+        </DockPanel>
+
+        <Border x:Name="StatusCard" Margin="0,24,0,0" Padding="20" CornerRadius="14"
+                BorderBrush="#E2E8F0" BorderThickness="1" Background="#F8FAFC">
+          <StackPanel>
+            <DockPanel LastChildFill="True">
+              <Ellipse x:Name="StatusDot" Width="12" Height="12" Margin="0,4,12,0" Fill="#64748B" VerticalAlignment="Top" />
+              <StackPanel>
+                <TextBlock x:Name="StatusBadge" Text="检查中" FontSize="12" FontWeight="SemiBold" Foreground="#64748B" />
+                <TextBlock x:Name="StatusHeading" Margin="0,3,0,0" Text="正在检查本机服务"
+                           FontSize="19" FontWeight="SemiBold" Foreground="#111827" />
+              </StackPanel>
+            </DockPanel>
+            <TextBlock x:Name="Status" Margin="24,10,0,0" Foreground="#475569"
+                       automation:AutomationProperties.LiveSetting="Polite"
+                       Text="TimeWhereMg 正在读取 Runtime Service 状态。" />
+            <Grid x:Name="PublicDetails" Margin="24,18,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Grid.Column="0" Foreground="#64748B" Text="受管理状态" />
+              <TextBlock x:Name="ManagedValue" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" Text="检查中" />
+              <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="Runtime Service" />
+              <TextBlock x:Name="ServiceStateValue" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="检查中" />
+              <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="最近云端确认" />
+              <TextBlock x:Name="LastHeartbeatValue" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="等待确认" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <StackPanel x:Name="AdminPanel" Visibility="Collapsed">
+          <Border Margin="0,18,0,0" Padding="20" CornerRadius="14" Background="White" BorderBrush="#E2E8F0" BorderThickness="1">
+            <StackPanel>
+              <TextBlock Text="管理员控制" FontSize="17" FontWeight="SemiBold" Foreground="#111827" />
+              <TextBlock Margin="0,4,0,14" Text="操作只影响本机 Runtime，不修改家长控制台配置。" Foreground="#64748B" />
+              <WrapPanel>
+                <Button x:Name="StartServiceButton" Margin="0,0,8,8" Content="启动服务" Click="StartServiceButton_Click" />
+                <Button x:Name="RestartServiceButton" Margin="0,0,8,8" Content="重启服务" Click="RestartServiceButton_Click" />
+                <Button x:Name="SyncNowButton" Margin="0,0,8,8" Content="立即同步" Click="SyncNowButton_Click" />
+                <Button x:Name="RepairButton" Margin="0,0,8,8" Content="修复安装" Click="RepairButton_Click" />
+              </WrapPanel>
+            </StackPanel>
+          </Border>
+
+          <Border Margin="0,18,0,0" Padding="20" CornerRadius="14" Background="White" BorderBrush="#E2E8F0" BorderThickness="1">
+            <StackPanel>
+              <TextBlock Text="运行健康" FontSize="17" FontWeight="SemiBold" Foreground="#111827" />
+              <TextBlock x:Name="HealthSummary" Margin="0,10,0,0" Foreground="#334155" Text="等待 Service 报告" />
+              <TextBlock x:Name="OutboxSummary" Margin="0,8,0,0" Foreground="#334155" Text="待上传：—" />
+              <TextBlock x:Name="LogSummary" Margin="0,8,0,0" Foreground="#334155" Text="诊断：—" />
+            </StackPanel>
+          </Border>
+
+          <StackPanel x:Name="PairingPanel" Margin="0,18,0,0">
+            <TextBlock Text="连接这台电脑" FontSize="17" FontWeight="SemiBold" Foreground="#111827" />
+            <TextBlock Margin="0,4,0,10" Text="输入家长控制台生成的 12 位机器配对码。" Foreground="#64748B" />
+            <TextBox x:Name="PairingCode" Height="44" Padding="12,0" FontSize="19" CharacterCasing="Upper"
+                     MaxLength="14" VerticalContentAlignment="Center" automation:AutomationProperties.Name="12 位配对码" />
+            <Button x:Name="ConnectButton" Margin="0,10,0,0" Content="连接这台电脑" Click="ConnectButton_Click"
+                    Background="#2563EB" Foreground="White" BorderBrush="#2563EB" />
+            <ProgressBar x:Name="Progress" Margin="0,12,0,0" Height="5" IsIndeterminate="True" Visibility="Collapsed" />
+          </StackPanel>
+
+          <Border Margin="0,18,0,0" Padding="20" CornerRadius="14" Background="#FFF7ED" BorderBrush="#FED7AA" BorderThickness="1">
+            <StackPanel>
+              <TextBlock Text="危险操作" FontSize="17" FontWeight="SemiBold" Foreground="#9A3412" />
+              <TextBlock Margin="0,5,0,12" Foreground="#7C2D12"
+                         Text="停止服务后，本次开机期间不再记录应用使用；重启 Windows 后会自动恢复。" />
+              <WrapPanel>
+                <Button x:Name="StopServiceButton" Margin="0,0,8,8" Content="停止服务…" Click="StopServiceButton_Click"
+                        Foreground="#B42318" BorderBrush="#F0B4AF" Background="White" />
+                <Button x:Name="UninstallButton" Margin="0,0,8,8" Content="卸载这台电脑…" Click="UninstallButton_Click"
+                        Foreground="#B42318" BorderBrush="#F0B4AF" Background="White" />
+              </WrapPanel>
+              <StackPanel x:Name="UninstallPanel" Margin="0,12,0,0" Visibility="Collapsed">
+                <TextBlock Text="家长一次性卸载码" FontWeight="SemiBold" Foreground="#7C2D12" />
+                <TextBox x:Name="UninstallCode" Margin="0,8,0,10" Height="44" Padding="12,0" FontSize="19"
+                         CharacterCasing="Upper" MaxLength="14" VerticalContentAlignment="Center" />
+                <Button Content="授权并卸载" Click="ConfirmUninstallButton_Click"
+                        Background="#B42318" Foreground="White" BorderBrush="#B42318" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <TextBlock Margin="0,18,0,0" Foreground="#64748B" FontSize="12"
+                   Text="本机界面不显示 Child ID、SID、令牌、路径、窗口标题或逐条日志。应用分类和账户分配请在家长控制台管理。" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border Grid.Row="1" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Background="#F5F7FB">
+      <Grid Margin="38,14,38,20">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal">
+          <Button x:Name="AdminButton" Content="管理员管理…" Click="AdminButton_Click" Background="White" BorderBrush="#CBD5E1" />
+          <Button x:Name="RefreshButton" Margin="8,0,0,0" Content="重新检查" Click="RefreshButton_Click" Background="White" BorderBrush="#CBD5E1" />
+        </StackPanel>
+        <Button x:Name="CloseButton" Grid.Column="1" Content="隐藏到托盘" Click="CloseButton_Click"
+                IsCancel="True" Background="White" BorderBrush="#CBD5E1" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

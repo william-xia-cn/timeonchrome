@@ -1,0 +1,143 @@
+export const APP_RUNTIME_AUDIENCE = 'app-runtime-management';
+export const APP_RUNTIME_ACCOUNT_AUDIENCE = 'app-runtime-management:account';
+export const APP_RUNTIME_LIFECYCLE_AUDIENCE = 'app-runtime-management:lifecycle';
+export const APP_RUNTIME_SSO_AUDIENCE = 'app-runtime-management:sso';
+export const APP_RUNTIME_CONTRACT_VERSION = '1.0.0';
+export const APP_RUNTIME_SSO_ERROR_CODES = [
+  'SSO_TICKET_INVALID',
+  'SSO_TICKET_REPLAYED',
+  'UNAUTHORIZED',
+  'SERVER_MISCONFIGURED',
+] as const;
+
+export interface AppRuntimeModuleClaims {
+  iss: string;
+  aud: typeof APP_RUNTIME_AUDIENCE;
+  sub: string;
+  account_id: string;
+  child_id: string;
+  child_name: string;
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+export interface AppRuntimeAccountModuleClaims {
+  iss: string;
+  aud: typeof APP_RUNTIME_ACCOUNT_AUDIENCE;
+  sub: string;
+  account_id: string;
+  children: Array<{ id: string; name: string }>;
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+export interface AppRuntimeChildLifecycleClaims {
+  iss: string;
+  aud: typeof APP_RUNTIME_LIFECYCLE_AUDIENCE;
+  sub: string;
+  account_id: string;
+  child_id: string;
+  event: 'child.deleted';
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+export interface AppRuntimeSsoTicketClaims {
+  iss: string;
+  aud: typeof APP_RUNTIME_SSO_AUDIENCE;
+  sub: string;
+  account_id: string;
+  children: Array<{ id: string; name: string }>;
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+export interface AppRuntimeSsoLaunchResponse {
+  launchUrl: string;
+  expiresAt: number;
+  audience: typeof APP_RUNTIME_SSO_AUDIENCE;
+}
+
+export interface AppRuntimeBrowserSessionResponse {
+  token: string;
+  tokenType: 'RuntimeSession';
+  expiresAt: number;
+  children: Array<{ id: string; name: string }>;
+}
+
+export type RuntimeMachinePolicyState = 'pending' | 'cached' | 'applied' | 'failed' | 'offline';
+
+export interface RuntimeMachineUserAssignmentV2 {
+  localUserId: string;
+  assignmentVersion: number;
+  childId: string | null;
+  protected: boolean;
+}
+
+export interface RuntimeMachinePolicyV2 {
+  version: number;
+  defaultChildId: string | null;
+  users: RuntimeMachineUserAssignmentV2[];
+  appPolicies: RuntimeMachineChildAppPolicyV1[];
+  loggingPolicy: RuntimeMachineLoggingPolicyV1;
+}
+
+export type RuntimeTerminalLogLevel = 'info' | 'warning' | 'error';
+export type RuntimeTerminalLogCategory = 'service' | 'session' | 'policy' | 'upload' | 'storage' | 'security' | 'accounting';
+
+export interface RuntimeMachineLoggingPolicyV1 {
+  version: number;
+  enabled: boolean;
+  minLevel: RuntimeTerminalLogLevel;
+  categories: RuntimeTerminalLogCategory[];
+  expiresAtMs: number | null;
+}
+
+export interface RuntimeTerminalLogV1 {
+  id: string;
+  observedAtMs: number;
+  level: RuntimeTerminalLogLevel;
+  category: RuntimeTerminalLogCategory;
+  eventCode: string;
+  module: string;
+  messageCode: string;
+  details: Record<string, boolean | number | string>;
+  serviceVersion: string;
+  policyVersion: number;
+}
+
+export type RuntimeApplicationClassification =
+  | 'study'
+  | 'composite'
+  | 'restrictedEntertainment'
+  | 'unclassified'
+  | 'blocked';
+
+export interface RuntimeAppPolicyV1 {
+  version: number;
+  effectiveAtMs: number | null;
+  classifications: Array<{
+    platform: 'windows' | 'macos';
+    runtimeIdentity: string;
+    displayName: string | null;
+    classification: RuntimeApplicationClassification;
+  }>;
+  quotas: {
+    dailyCategoryMinutes: Record<'study' | 'composite' | 'restrictedEntertainment' | 'unclassified', number | null>;
+    weeklyRestrictedEntertainmentMinutes: number | null;
+    perApplicationDailyMinutes: Array<{
+      platform: 'windows' | 'macos';
+      runtimeIdentity: string;
+      minutes: number | null;
+    }>;
+  };
+}
+
+export interface RuntimeMachineChildAppPolicyV1 {
+  childId: string;
+  policy: RuntimeAppPolicyV1;
+}

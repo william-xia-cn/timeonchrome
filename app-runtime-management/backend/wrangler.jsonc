@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "timeonchrome-app-runtime-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "GUARDIAN_RUNTIME_ISSUER": "guardian-api",
+    "RUNTIME_PAGES_ORIGIN": "https://timeonchrome-app-runtime-console.pages.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "RUNTIME_DB",
+      "database_name": "timeonchrome-app-runtime",
+      "migrations_dir": "migrations",
+      "database_id": "39a0291f-e572-49f5-80c6-9454339b65d2"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RELEASES",
+      "bucket_name": "timeonchrome-app-runtime-releases"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    }
+  }
+}

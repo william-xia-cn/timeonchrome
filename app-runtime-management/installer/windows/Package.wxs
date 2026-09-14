@@ -1,0 +1,89 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="TimeOnChrome App Runtime 2"
+           Manufacturer="TimeOnChrome"
+           Version="$(var.ProductVersion)"
+           Codepage="65001"
+           UpgradeCode="7DEBE72B-8D64-438F-8C51-8B9969C039D9"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 TimeOnChrome App Runtime。" />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="CompanyFolder" Name="TimeOnChrome">
+        <Directory Id="INSTALLFOLDER" Name="AppRuntime">
+          <Component Id="RuntimeServiceComponent" Guid="1BFA01D4-59F0-431C-9D56-5EB88D510322">
+            <File Id="RuntimeServiceFile"
+                  Source="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Service.exe"
+                  KeyPath="yes" />
+            <ServiceInstall Id="RuntimeServiceInstall"
+                            Name="TimeOnChromeAppRuntime"
+                            DisplayName="TimeOnChrome App Runtime"
+                            Description="管理本机交互式用户的应用运行时事实、策略和不可变使用账本。"
+                            Type="ownProcess"
+                            Start="auto"
+                            ErrorControl="normal"
+                            Account="LocalSystem"
+                            Vital="yes" />
+            <ServiceControl Id="RuntimeServiceControl"
+                            Name="TimeOnChromeAppRuntime"
+                            Start="install"
+                            Stop="both"
+                            Remove="uninstall"
+                            Wait="yes" />
+          </Component>
+          <Component Id="ManagerExecutable" Guid="73FD29A3-2B19-4FB2-B02A-E7BE6906908E">
+            <File Id="ManagerExecutableFile"
+                  Source="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Manager.exe"
+                  KeyPath="yes">
+              <Shortcut Id="ManagerShortcut" Name="TimeWhereMg"
+                        Directory="ApplicationProgramsFolder" Advertise="yes" />
+              <Shortcut Id="ManagerDesktopShortcut" Name="TimeWhereMg"
+                        Directory="DesktopFolder" Advertise="yes" />
+            </File>
+          </Component>
+          <Component Id="ManagerAutoStart" Guid="8E0192B1-1059-493D-8154-8E5F80B56B37">
+            <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                           Name="TimeWhereMg" Type="string"
+                           Value="&quot;[INSTALLFOLDER]TimeOnChrome.AppRuntime.Manager.exe&quot; --tray"
+                           KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ProgramDataCompanyFolder" Name="TimeOnChrome">
+        <Directory Id="ProgramDataRuntimeFolder" Name="AppRuntime">
+          <Component Id="ProgramDataPermissions" Guid="193E694B-1366-4CF5-A5E7-D922646C8347">
+            <CreateFolder>
+              <PermissionEx Sddl="D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+            </CreateFolder>
+            <RegistryValue Root="HKLM" Key="Software\TimeOnChrome\AppRuntime2"
+                           Name="DataDirectoryReady" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="TimeOnChrome">
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="ProductFeature" Title="TimeOnChrome App Runtime 2" Level="1">
+      <ComponentRef Id="RuntimeServiceComponent" />
+      <ComponentRef Id="ManagerExecutable" />
+      <ComponentRef Id="ManagerAutoStart" />
+      <ComponentRef Id="ProgramDataPermissions" />
+      <Files Include="!(bindpath.Publish)\**" Directory="INSTALLFOLDER">
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Service.exe" />
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Manager.exe" />
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Migration.*" />
+        <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.MachineProbe.*" />
+      </Files>
+    </Feature>
+  </Package>
+</Wix>

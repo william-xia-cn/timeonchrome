@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>电脑应用管理 · TimeOnChrome</title>
+  <script src="app-runtime-session.js"></script>
+  <script src="app-runtime-bootstrap.js"></script>
+  <link rel="stylesheet" href="app-runtime.css">
+  <link rel="stylesheet" href="app-runtime-v2.css">
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="https://timeonchrome-console.pages.dev/" aria-label="返回 TimeOnChrome 家长控制台"><span class="brand-mark">T</span><span><strong>TimeOnChrome</strong><small>电脑应用管理</small></span></a>
+    <label class="child-picker"><span>当前孩子</span><select id="child-select" aria-label="选择孩子" disabled><option>未登录</option></select></label>
+    <nav aria-label="Runtime 导航">
+      <button class="nav-item active" data-view="usage"><span>▥</span>使用统计</button>
+      <button class="nav-item" data-view="access"><span>◈</span>访问管理</button>
+      <button class="nav-item" data-view="apps"><span>◎</span>应用管理</button>
+      <button class="nav-item" data-view="devices"><span>▣</span>设备管理</button>
+      <button class="nav-item" data-view="system"><span>⚙</span>系统管理</button>
+    </nav>
+    <div class="sidebar-footer"><span class="avatar">家</span><div><strong>家长账户</strong><small>Runtime 独立会话</small></div><button id="runtime-logout" type="button">退出</button></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><button id="mobile-menu" class="icon-button" aria-label="打开导航">☰</button><div><h1 id="page-title">使用统计</h1><p id="page-subtitle">查看电脑应用主使用账本</p></div><button id="refresh">刷新</button></header>
+    <main class="initial-load-pending">
+      <div id="status-strip" hidden><span id="status-message"></span><button id="retry">重试</button></div>
+      <section id="load-empty-state" class="load-empty-state card" hidden>
+        <span class="load-empty-icon" aria-hidden="true">!</span>
+        <h2>无法加载电脑应用管理</h2>
+        <p id="load-empty-message">尚未取得家长会话或 Runtime 数据。</p>
+        <p id="load-preview-hint" class="load-preview-hint" hidden>本地预览请在当前地址后添加 <code>?mock=1</code>，演示数据不会连接生产环境。</p>
+        <div class="load-empty-actions"><a class="button primary" href="https://timeonchrome-console.pages.dev/?launch=app-runtime">从家长控制台进入</a><button id="initial-load-retry">重新加载</button></div>
+      </section>
+      <section class="view active" data-view-panel="usage">
+        <div class="toolbar card">
+          <div class="segmented"><button data-period="day" class="active">日</button><button data-period="week">周</button></div>
+          <button id="previous">上一周期</button><button id="today">今天</button>
+          <select id="machine-filter" aria-label="电脑筛选"><option value="">全部电脑</option></select>
+          <select id="user-filter" aria-label="本机用户筛选"><option value="">全部本机用户</option></select>
+          <select id="platform-filter" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select>
+          <span id="range-label"></span>
+        </div>
+        <div class="summary-grid">
+          <article class="card metric"><span>主使用时长</span><strong id="total-time">0 分钟</strong><small>按主 Segment 区间并集</small></article>
+          <article class="card metric"><span>配额状态</span><strong id="quota-state">额度充足</strong><small>本阶段只提示，不关闭应用</small></article>
+          <article class="card metric"><span>最近同步</span><strong id="last-sync">尚未同步</strong><small id="policy-version">应用策略 v0</small></article>
+        </div>
+        <section class="card"><div class="section-title"><div><h2>使用分析</h2><p id="chart-caption">北京时间，按小时</p></div><label class="switch-label"><input id="media-toggle" type="checkbox"> 显示辅助媒体</label></div><div id="usage-chart" class="chart"></div><div id="category-legend" class="legend"></div></section>
+        <div class="two-column">
+          <section class="card"><div class="section-title"><div><h2>应用使用</h2><p>同一应用 ACTIVE/PiP 重叠按并集</p></div></div><div id="app-ranking" class="list empty">暂无使用记录</div></section>
+          <section class="card"><div class="section-title"><div><h2>分类使用</h2><p>分类时长不可直接相加为设备总时长</p></div></div><div id="category-ranking" class="list empty">暂无分类记录</div></section>
+        </div>
+      </section>
+      <section class="view" data-view-panel="access">
+        <div class="tabbar"><button class="active" data-access-tab="quotas">时间配额</button><button data-access-tab="schedule">时间段管理</button><button data-access-tab="config">配置文件</button></div>
+        <div data-access-panel="quotas"><section class="card"><div class="section-title"><div><h2>独立应用配额</h2><p>北京时间结算；每周一开始新周期；留空表示无限制，0 表示额度为零</p></div><button id="save-quotas" class="primary">保存配额</button></div><div id="quota-form" class="quota-grid"></div></section><section class="card"><h2>每日单应用配额</h2><div id="app-quota-list" class="list"></div></section><aside class="notice warning"><strong>当前只提示和记录</strong><span>配额超额或黑名单应用使用不会触发进程结束、拦截或处罚。</span></aside></div>
+        <div data-access-panel="schedule" hidden><section class="card"><div class="section-title"><div><h2>七天应用时间段</h2><p>分别配置学习、复合、受限娱乐和未归类应用；默认每天全部开放</p></div><button id="save-schedule" class="primary">保存时间段</button></div><div id="schedule-editor" class="schedule-editor"></div></section><aside class="notice warning"><strong id="outside-window-summary">本周期时段外使用 0 分钟</strong><span>当前版本只记录时段外状态，不关闭或阻止应用。</span></aside></div>
+        <div data-access-panel="config" hidden><section class="card"><div class="section-title"><div><h2>应用访问配置文件</h2><p>包含当前孩子的应用分类、独立配额和七天时间段</p></div></div><div class="config-actions"><button id="export-config">导出配置</button><label class="button">选择导入文件<input id="import-config" type="file" accept="application/json" hidden></label></div><div id="import-diff" hidden></div></section></div>
+      </section>
+      <section class="view" data-view-panel="apps">
+        <div class="app-management-shell">
+          <aside id="app-category-nav" class="app-category-nav card" aria-label="应用分类目录"></aside>
+          <div class="app-directory-main">
+            <div class="app-directory-toolbar card"><input id="app-search" type="search" placeholder="搜索应用名称" aria-label="搜索应用名称"><select id="management-platform" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select><span>应用只能来自真实设备使用记录，不支持手工添加</span></div>
+            <section class="card app-directory-card"><div class="section-title"><div><h2 id="app-directory-title">学习应用</h2><p id="app-directory-subtitle">按孩子和平台共享分类，历史账本不追溯修改</p></div></div><div id="managed-app-list" class="record-list"></div><details id="processed-history" class="processed" hidden><summary>已处理历史 <span id="processed-count">0</span></summary><div id="processed-records" class="record-list"></div></details></section>
+            <aside class="notice warning"><strong>黑名单当前只记录违规</strong><span>允许额度视为 0，但本版本不会自动结束或阻止应用。</span></aside>
+          </div>
+        </div>
+      </section>
+      <section class="view" data-view-panel="devices"><section class="card"><div class="section-title"><div><h2>所有电脑</h2><p>管理员一次安装；每个本机账户可分配给孩子或设为成人不保护</p></div><button id="add-machine" class="primary">添加 Windows 电脑</button></div><div id="machines" class="machine-list"></div></section></section>
+      <section class="view" data-view-panel="system">
+        <div class="tabbar system-tabs"><button class="active" data-system-tab="logs">系统日志</button><button data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button></div>
+        <section data-system-panel="logs">
+          <aside class="notice runtime-log-scope"><strong>日志隐私边界</strong><span>终端只上传结构化诊断代码，不包含用户名、SID、孩子标识、应用身份、路径、窗口标题、token、配对码、异常正文或 stack。账本诊断始终可查。</span></aside>
+          <section class="card remote-logging-card">
+            <div class="section-title"><div><h2>远程终端日志</h2><p>默认关闭；按电脑临时打开，关闭期间的本地日志以后不会补传</p></div><span id="remote-log-status" class="badge offline">请选择电脑</span></div>
+            <div class="remote-log-grid">
+              <label>电脑<select id="logging-machine"><option value="">选择 Windows 电脑</option></select></label>
+              <label>最低等级<select id="logging-min-level"><option value="error">error</option><option value="warning">warning</option><option value="info">info</option></select></label>
+              <label>有效期<select id="logging-ttl"><option value="1">1 天</option><option value="3">3 天</option><option value="7">7 天</option></select></label>
+            </div>
+            <fieldset class="logging-categories"><legend>上传类别</legend><label><input type="checkbox" value="service" checked> Service</label><label><input type="checkbox" value="session" checked> Session Agent</label><label><input type="checkbox" value="policy" checked> 策略</label><label><input type="checkbox" value="upload" checked> 上传</label><label><input type="checkbox" value="storage" checked> 存储</label><label><input type="checkbox" value="security" checked> 安全 / tamper</label><label><input type="checkbox" value="accounting" checked> 落账</label></fieldset>
+            <div class="remote-log-actions"><button id="enable-remote-logging" class="primary">打开远程日志</button><button id="disable-remote-logging" class="danger">关闭远程日志</button><small id="remote-log-detail">选择电脑后读取当前策略</small></div>
+          </section>
+          <section class="card runtime-log-card">
+            <div class="section-title"><div><h2>日志查询</h2><p>按北京时间倒序显示；不包含用户名、SID、路径、窗口标题或应用原始身份</p></div></div>
+            <div class="log-filters">
+              <div class="segmented"><button class="active" data-log-range="today">今日</button><button data-log-range="week">本周</button><button data-log-range="all">全部</button></div>
+              <select id="log-machine-filter" aria-label="日志电脑筛选"><option value="">全部电脑</option></select>
+              <select id="log-level-filter" aria-label="日志等级筛选"><option value="">全部等级</option><option value="error">error</option><option value="warning">warning</option><option value="info">info</option></select>
+              <select id="log-category-filter" aria-label="日志类别筛选"><option value="">全部类别</option><option value="service">service</option><option value="session">session</option><option value="policy">policy</option><option value="upload">upload</option><option value="storage">storage</option><option value="security">security</option><option value="accounting">accounting</option></select>
+              <button id="load-runtime-logs" class="primary">查询</button>
+            </div>
+            <div id="runtime-log-summary" class="log-summary"><span>尚未查询</span></div>
+            <div id="runtime-log-list" class="runtime-log-table empty">点击“查询”查看系统日志</div>
+            <div class="load-more"><button id="runtime-log-more" hidden>加载更多</button></div>
+          </section>
+        </section>
+        <section class="card" data-system-panel="ledger" hidden><div class="section-title"><div><h2>Runtime 主账本</h2><p>estimated 正常计入；0ms diagnostic 不计时</p></div><button data-load-ledger="usage">加载明细</button></div><div id="ledger-list" class="table-list empty">点击“加载明细”查看</div></section>
+        <section class="card" data-system-panel="media" hidden><div class="section-title"><div><h2>辅助媒体明细</h2><p>可重叠，不进入主使用总时长或配额</p></div><button data-load-ledger="media">加载明细</button></div><div id="media-list" class="table-list empty">点击“加载明细”查看</div></section>
+        <section class="card" data-system-panel="health" hidden><div class="section-title"><div><h2>策略与 Agent 健康</h2><p>区分待下发、已缓存、当前会话已生效、失败和离线</p></div></div><div id="health-list" class="health-grid"></div></section>
+      </section>
+    </main>
+  </div>
+  <div id="mobile-backdrop" class="mobile-backdrop" hidden></div>
+  <aside id="device-drawer" class="drawer" aria-hidden="true"><button class="drawer-close" aria-label="关闭详情">×</button><div id="drawer-content"></div></aside>
+  <dialog id="pair-dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button><h2>添加 Windows 电脑</h2><p>选择默认孩子后生成 10 分钟一次性机器配对码。</p><label class="field">默认孩子<select id="pair-default-child"></select></label><button type="button" id="create-pairing" class="primary full">生成机器配对码</button><div id="pair-result" hidden><div id="pair-code" class="pair-code">----</div><p id="pair-countdown"></p><div class="dialog-actions"><button type="button" id="copy-code">复制配对码</button><a id="download-installer" class="button primary" href="#">下载安装器</a></div><p id="pair-copy-status" class="copy-status" hidden></p></div></form></dialog>
+  <dialog id="uninstall-dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button><h2>授权卸载</h2><p>目标电脑仍需管理员提升并输入此单次卸载码。</p><div id="uninstall-code" class="pair-code">----</div><p id="uninstall-countdown"></p><button type="button" id="copy-uninstall" class="full">复制卸载码</button><p id="uninstall-copy-status" class="copy-status" hidden></p></form></dialog>
+  <script src="app-runtime-time.js"></script><script src="app-runtime-network.js"></script><script src="app-runtime-clipboard.js"></script><script src="app-runtime-policy.js"></script><script src="app-runtime.js"></script>
+</body>
+</html>

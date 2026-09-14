@@ -1,0 +1,15 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <PropertyGroup>
+    <AcceptEula>wix7</AcceptEula>
+    <OutputName>TimeOnChrome-AppRuntime-win-x64</OutputName>
+    <OutputType>Package</OutputType>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">2.1.1</ProductVersion>
+    <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
+    <SuppressIces>ICE38;ICE64;ICE91</SuppressIces>
+    <PublishDir>$(MSBuildThisFileDirectory)..\..\artifacts\win-x64</PublishDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <BindPath Include="$(PublishDir)" BindName="Publish" />
+    <Compile Remove="Bundle.wxs" />
+  </ItemGroup>
+</Project>
