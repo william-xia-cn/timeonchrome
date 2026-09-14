@@ -32,5 +32,17 @@
     <None Include="..\..\..\..\contracts\runtime-accounting-v2.vectors.json"
           Link="runtime-accounting-v2.vectors.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\installer\windows\Package.wxs"
+          Link="installer\Package.wxs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\installer\windows\TimeOnChrome.AppRuntime.Installer.wixproj"
+          Link="installer\TimeOnChrome.AppRuntime.Installer.wixproj"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\installer\windows\TimeOnChrome.AppRuntime.Bundle.wixproj"
+          Link="installer\TimeOnChrome.AppRuntime.Bundle.wixproj"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\installer\windows\build.ps1"
+          Link="installer\build.ps1"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

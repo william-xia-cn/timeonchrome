@@ -12,6 +12,12 @@
 
 ## Active App Runtime Work（2026-09-02）
 
+- [x] **[SPEC-004 / D-091] TimeWhereMg 2.1.1 全用户桌面入口（本机完成，未部署）**
+  - 目标：在公共桌面安装由 MSI 管理的 `TimeWhereMg` 快捷方式，指向正式安装目录中的 Manager；保留开始菜单与 HKLM 托盘自启动。
+  - 升级：从 William 当前 2.0.6 原地升级，保留 HornburgXW 机器身份、credential、策略、SQLite、outbox 和历史账本；不重新配对。
+  - 边界：保持 machine-scope UpgradeCode 和现有 `Program Files (x86)` 路径；仅本机安装验证，不发布 R2、Worker、Pages，不执行 migration。
+  - 证据：Windows 测试 75/75 通过；MSI/Burn 构建 0 warning/0 error；Computer Use 从公共桌面快捷方式启动后显示在线、已配对、策略已缓存并应用，隐藏到托盘后后台 Manager、Service 与单一 Session Agent 继续运行。
+
 - [x] **[SPEC-004 / D-091] TimeWhereMg Windows 服务管理应用（2.1.0 本地完成，未安装/未部署）**
   - 目标：将一次性 Setup 收口为托盘常驻的 `TimeWhereMg`，产品呈现为管理应用与 RuntimeService；Session Agent 继续作为内部采集子进程。
   - 权限：标准账户只读裁剪状态；配对、同步、Service 启停/重启、MSI repair 和卸载必须使用管理员控制面及 UAC。停止前切段并持久化，Service 仍保持 Automatic。

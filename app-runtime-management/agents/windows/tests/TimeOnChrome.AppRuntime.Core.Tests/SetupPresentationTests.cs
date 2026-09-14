@@ -61,7 +61,7 @@ public sealed class SetupPresentationTests
     [InlineData("1.0.1.0", "1.0.1")]
     [InlineData("1.0.1", "1.0.1")]
     [InlineData("dev", "dev")]
-    [InlineData("2.1.0.0", "2.1.0")]
+    [InlineData("2.1.1.0", "2.1.1")]
     public void AgentVersionUsesProductFacingThreePartFormat(string value, string expected)
     {
         Assert.Equal(expected, SetupConnectionPresentations.DisplayAgentVersion(value));
@@ -125,7 +125,7 @@ public sealed class SetupPresentationTests
     public void PublicStatusWireShapeDoesNotExposeAdministrativeDiagnostics()
     {
         var json = JsonSerializer.Serialize(new MachinePublicStatusResponse(
-            true, "online", ServiceVersion: "2.1.0", ServiceStartedAtMs: 100,
+            true, "online", ServiceVersion: "2.1.1", ServiceStartedAtMs: 100,
             LastHeartbeatSucceededAtMs: 200, HasPendingUploads: true), RuntimeJson.Options);
 
         Assert.Contains("lastHeartbeatSucceededAtMs", json, StringComparison.Ordinal);
@@ -150,7 +150,7 @@ public sealed class SetupPresentationTests
     public void PublicStatusMappingLeavesAdministrativeFieldsEmpty()
     {
         var mapped = MainWindow.FromPublic(new MachinePublicStatusResponse(
-            true, "online", ServiceVersion: "2.1.0", ServiceStartedAtMs: 10,
+            true, "online", ServiceVersion: "2.1.1", ServiceStartedAtMs: 10,
             LastHeartbeatSucceededAtMs: 20, HasPendingUploads: false));
 
         Assert.Equal(20, mapped.LastHeartbeatSucceededAtMs);

@@ -38,6 +38,8 @@
                   KeyPath="yes">
               <Shortcut Id="ManagerShortcut" Name="TimeWhereMg"
                         Directory="ApplicationProgramsFolder" Advertise="yes" />
+              <Shortcut Id="ManagerDesktopShortcut" Name="TimeWhereMg"
+                        Directory="DesktopFolder" Advertise="yes" />
             </File>
           </Component>
           <Component Id="ManagerAutoStart" Guid="8E0192B1-1059-493D-8154-8E5F80B56B37">
@@ -68,6 +70,8 @@
       <Directory Id="ApplicationProgramsFolder" Name="TimeOnChrome">
       </Directory>
     </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
 
     <Feature Id="ProductFeature" Title="TimeOnChrome App Runtime 2" Level="1">
       <ComponentRef Id="RuntimeServiceComponent" />

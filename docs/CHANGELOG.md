@@ -1,5 +1,12 @@
 # Changelog
 
+## [App Runtime 2.1.1] — 2026-09-15（本机已安装，未部署）
+
+- WiX MSI 在公共桌面增加全用户 `TimeWhereMg` 快捷方式，目标为正式安装目录中的 `TimeOnChrome.AppRuntime.Manager.exe`；开始菜单与 HKLM 托盘自启动保持不变。
+- 保持既有 machine-scope UpgradeCode 和安装位置；William 本机已从 2.0.6 原地升级，未重新配对，在线机器身份、策略、SQLite/outbox 行为和历史云端关联保持正常。
+- Windows 测试 75/75 通过，MSI/Burn 构建 0 warning/0 error；Computer Use 已验证公共桌面快捷方式打开正式安装目录中的 Manager、在线/已配对状态、策略应用及隐藏到托盘，Service 为 Automatic/Running 且当前会话只有一个 Session Agent。
+- 仅完成本地构建、安装和验收，未发布 R2、Worker、Pages，未执行 migration；内部包继续为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
 ## [App Runtime 2.1.0] — 2026-09-13（本地开发）
 
 - 将安装后的 WPF Setup 升级为托盘常驻的 `TimeWhereMg` 本机服务管理应用；RuntimeService、安装身份和云端协议保持兼容。

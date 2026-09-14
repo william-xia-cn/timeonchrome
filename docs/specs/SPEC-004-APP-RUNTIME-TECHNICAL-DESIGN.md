@@ -289,6 +289,8 @@ Display name 是非权威展示元数据，不进入策略身份键。`timeWindo
 
 Windows 2.1.0 将已安装 WPF executable 改为 `TimeOnChrome.AppRuntime.Manager.exe`，用户可见名称为 `TimeWhereMg`；Burn bootstrapper 继续使用 Setup 文件名。MSI 保持既有 machine-scope UpgradeCode，升级时删除旧 Setup component/快捷方式，安装 Manager、开始菜单快捷方式和受 HKLM 保护的全用户登录启动项，ProgramData 与机器身份不清理。
 
+Windows 2.1.1 在同一 Manager component 上增加全用户 `TimeWhereMg` 桌面快捷方式。WiX 使用标准 `DesktopFolder` 目录；在当前 `Scope="perMachine"` / `ALLUSERS=1` 安装上下文中，Windows Installer 将其解析到 Public Desktop。快捷方式必须指向正式安装目录中的 Manager executable，由 MSI 统一负责安装、repair、major upgrade 和卸载；不得指向源码 worktree 或构建产物。2.1.1 保持既有 machine-scope UpgradeCode、`ProgramFiles6432Folder` 安装位置、开始菜单入口和 HKLM 托盘自启动不变，原地升级不得清理 ProgramData、机器 credential、策略、SQLite、outbox 或历史账本。
+
 Manager 默认以 `--tray` 在每个交互式登录会话运行；窗口关闭只隐藏到托盘。每会话 mutex 只约束普通 UI 实例；固定白名单的 `--admin-action` helper 不进入托盘且必须请求 UAC。Service 停止时 Manager 仍可通过 SCM 查询/启动服务。Session Agent 保持独立无 UI 采集进程，只在受保护 assignment 下运行。
 
 控制面拆为两条 pipe：只读 status pipe 允许 Authenticated Users 连接，只返回 `managed/serviceState/lastSyncState` 等裁剪字段；admin pipe 保持 SYSTEM/Administrators DACL 和连接 token 二次校验，支持 `adminStatus/enroll/syncNow/prepareStop/prepareRestart/uninstall`。详细状态只包含版本、启动时间、desired/applied version、各 loop 最后成功/失败时间与稳定错误码、各 outbox 数量、交互式/受保护会话数、Agent 数、tamper 摘要和日志策略摘要，禁止返回 SID、Child ID、token、路径、窗口标题、runtime identity 或日志正文。
