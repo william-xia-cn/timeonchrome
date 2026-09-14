@@ -790,21 +790,26 @@ public struct AccountingReorderBufferV2: Sendable {
 
 public enum AccountingReadModel {
     public static func unionDuration(_ segments: [UsageSegmentV2]) -> Int64 {
-        let intervals = segments
-            .filter { $0.authoritativeForUsage && $0.monotonicDurationMilliseconds > 0 }
-            .map { ($0.startMonotonicTimeMs, $0.endMonotonicTimeMs) }
-            .sorted { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }
+        let authoritativeSegments: [UsageSegmentV2] = segments.filter {
+            $0.authoritativeForUsage && $0.monotonicDurationMilliseconds > 0
+        }
+        let unsortedIntervals: [(start: Int64, end: Int64)] = authoritativeSegments.map {
+            (start: $0.startMonotonicTimeMs, end: $0.endMonotonicTimeMs)
+        }
+        let intervals: [(start: Int64, end: Int64)] = unsortedIntervals.sorted {
+            $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start
+        }
         guard let first = intervals.first else { return 0 }
         var total: Int64 = 0
-        var currentStart = first.0
-        var currentEnd = first.1
+        var currentStart = first.start
+        var currentEnd = first.end
         for interval in intervals.dropFirst() {
-            if interval.0 <= currentEnd {
-                currentEnd = max(currentEnd, interval.1)
+            if interval.start <= currentEnd {
+                currentEnd = max(currentEnd, interval.end)
             } else {
                 total += currentEnd - currentStart
-                currentStart = interval.0
-                currentEnd = interval.1
+                currentStart = interval.start
+                currentEnd = interval.end
             }
         }
         return total + currentEnd - currentStart

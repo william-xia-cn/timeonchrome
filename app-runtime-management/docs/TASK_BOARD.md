@@ -5,6 +5,7 @@
 - [ ] **[D-092] 同仓解耦与独立发布边界**
   - integration 分支已完成本地 contracts、Worker、Console、Windows、隔离构建与视觉闸门。
   - GitHub macOS 验证使用当前可用的 `macos-15` 标准 runner；它满足产品最低 macOS 13+ 的编译测试要求。
+  - 首轮 macOS CI 已进入真实 Swift 编译，并发现 `AccountingReadModel.unionDuration` 的链式表达式触发编译器类型推导超时；仅拆分为显式中间类型，不改变区间并集语义。
   - CI 全部通过后才允许合并 master 和执行生产恢复。
 
 ## 从根任务板迁入的历史状态
