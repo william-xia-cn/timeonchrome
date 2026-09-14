@@ -43,7 +43,7 @@ jobs:
         run: app-runtime-management/installer/windows/build.ps1
 
   macos:
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: swift test --package-path app-runtime-management/agents/macos

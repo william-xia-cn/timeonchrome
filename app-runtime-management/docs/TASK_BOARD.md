@@ -1,7 +1,15 @@
 # App Runtime 任务板
 
+## 当前集成工作（2026-09-15）
+
+- [ ] **[D-092] 同仓解耦与独立发布边界**
+  - integration 分支已完成本地 contracts、Worker、Console、Windows、隔离构建与视觉闸门。
+  - GitHub macOS 验证使用当前可用的 `macos-15` 标准 runner；它满足产品最低 macOS 13+ 的编译测试要求。
+  - CI 全部通过后才允许合并 master 和执行生产恢复。
+
 ## 从根任务板迁入的历史状态
-+## Active App Runtime Work（2026-09-02）
+
+## Active App Runtime Work（2026-09-02）
 
 - [x] **[SPEC-004 / D-091] TimeWhereMg 2.1.1 全用户桌面入口（本机完成，未部署）**
   - 目标：在公共桌面安装由 MSI 管理的 `TimeWhereMg` 快捷方式，指向正式安装目录中的 Manager；保留开始菜单与 HKLM 托盘自启动。
