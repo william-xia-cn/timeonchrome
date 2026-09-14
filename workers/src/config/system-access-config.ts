@@ -25,6 +25,24 @@ type SiteCatalogItem = {
   notes?: string;
 };
 
+export const PROTECTED_SYSTEM_SITE_CLASSIFICATIONS: Readonly<Record<string, 'restricted' | 'blocked'>> = Object.freeze({
+  'youtube.com': 'restricted',
+  'cg.163.com': 'restricted',
+  'cc.163.com': 'restricted',
+  'game.163.com': 'restricted',
+  'games.qq.com': 'restricted',
+  'v.qq.com': 'restricted',
+  'comic.qq.com': 'restricted',
+  'qzone.qq.com': 'restricted',
+  'ent.163.com': 'restricted',
+  'haokan.baidu.com': 'restricted',
+  'youxi.baidu.com': 'restricted',
+  'ixigua.com': 'restricted',
+  'douyin.com': 'blocked',
+  'tiktok.com': 'blocked',
+  'kuaishou.com': 'blocked',
+  'kwai.com': 'blocked',
+});
 const SPECIAL_RESTRICTED_ROOT_DOMAINS = ['youtube.com'];
 const STALE_COMPOSITE_DOMAINS_TO_REMOVE = ['bilibili.com', 'www.bilibili.com', '163.com', 'www.163.com'];
 
@@ -95,18 +113,28 @@ function withEnsuredHosts(list: string[], hosts: string[]): string[] {
 }
 
 function applySystemAccessConfigInvariants(config: SystemAccessConfig): SystemAccessConfig {
-  const specialRoots = specialRootVariants();
-  return {
+  const protectedHosts = new Set(Object.keys(PROTECTED_SYSTEM_SITE_CLASSIFICATIONS).flatMap((host) => [host, `www.${host}`]));
+  const next = {
     ...config,
-    defaultStudySites: withoutHosts(config.defaultStudySites, specialRoots),
-    defaultCompositeSites: withoutHosts(config.defaultCompositeSites, specialRoots),
-    defaultUserCompositeSites: withoutHosts(config.defaultUserCompositeSites, specialRoots),
-    defaultBlockedSites: withoutHosts(config.defaultBlockedSites, specialRoots),
-    defaultRestrictedEntertainmentSites: withEnsuredHosts(
-      withoutHosts(config.defaultRestrictedEntertainmentSites, specialRoots),
-      SPECIAL_RESTRICTED_ROOT_DOMAINS,
-    ),
+    defaultStudySites: withoutHosts(config.defaultStudySites, protectedHosts),
+    defaultCompositeSites: withoutHosts(config.defaultCompositeSites, protectedHosts),
+    defaultUserCompositeSites: withoutHosts(config.defaultUserCompositeSites, protectedHosts),
+    defaultRestrictedEntertainmentSites: withoutHosts(config.defaultRestrictedEntertainmentSites, protectedHosts),
+    defaultBlockedSites: withoutHosts(config.defaultBlockedSites, protectedHosts),
   };
+  next.defaultRestrictedEntertainmentSites = withEnsuredHosts(
+    next.defaultRestrictedEntertainmentSites,
+    Object.entries(PROTECTED_SYSTEM_SITE_CLASSIFICATIONS)
+      .filter(([, classification]) => classification === 'restricted')
+      .map(([domain]) => domain),
+  );
+  next.defaultBlockedSites = withEnsuredHosts(
+    next.defaultBlockedSites,
+    Object.entries(PROTECTED_SYSTEM_SITE_CLASSIFICATIONS)
+      .filter(([, classification]) => classification === 'blocked')
+      .map(([domain]) => domain),
+  );
+  return next;
 }
 
 function normalizeCatalog(value: unknown): SiteCatalogItem[] {
@@ -316,6 +344,25 @@ export function applySystemAccessDefaultsToProfileConfig(config: any, defaults: 
   return next;
 }
 
+const DERIVED_SITE_ACCESS_KEYS = [
+  'defaultStudySites', 'defaultCompositeSites', 'defaultUserCompositeSites',
+  'defaultRestrictedEntertainmentSites', 'defaultBlockedSites',
+  'studyList', 'compositeList', 'restrictedEntertainmentList', 'unsafeList',
+  'siteAccessRuntimeSchemaVersion', 'siteAccessSemanticVersion',
+];
+
+export function stripDerivedSiteAccessFields(config: any): any {
+  const next = config && typeof config === 'object' ? { ...config } : {};
+  for (const key of DERIVED_SITE_ACCESS_KEYS) delete next[key];
+  return next;
+}
+
+export function composeDeviceConfigVersion(profileVersion: unknown, systemAccessVersion: unknown): number {
+  const profile = Math.max(0, Math.min(9_000_000, Math.trunc(Number(profileVersion) || 0)));
+  const system = Math.max(0, Math.min(999_999, Math.trunc(Number(systemAccessVersion) || 0)));
+  return profile * 1_000_000 + system;
+}
+
 export function validateSystemAccessConfig(input: any): { ok: boolean; config: SystemAccessConfig; errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -330,6 +377,28 @@ export function validateSystemAccessConfig(input: any): { ok: boolean; config: S
     for (const item of Array.isArray(input?.[key]) ? input[key] : []) {
       if (!normalizeHost(item)) errors.push(`${key} 包含非法域名: ${String(item)}`);
     }
+  }
+  const rawClassificationByList: Record<string, string> = {
+    defaultStudySites: 'study',
+    defaultCompositeSites: 'composite',
+    defaultUserCompositeSites: 'composite',
+    defaultRestrictedEntertainmentSites: 'restricted',
+    defaultBlockedSites: 'blocked',
+  };
+  for (const [listKey, classification] of Object.entries(rawClassificationByList)) {
+    for (const value of Array.isArray(input?.[listKey]) ? input[listKey] : []) {
+      const host = normalizeHost(value);
+      const protectedHost = host?.startsWith('www.') && PROTECTED_SYSTEM_SITE_CLASSIFICATIONS[host.slice(4)] ? host.slice(4) : host;
+      const required = protectedHost ? PROTECTED_SYSTEM_SITE_CLASSIFICATIONS[protectedHost] : null;
+      if (required && required !== classification) {
+        errors.push(`${host} 是受保护系统站点，必须归类为 ${required}`);
+      }
+    }
+  }
+  for (const [host, required] of Object.entries(PROTECTED_SYSTEM_SITE_CLASSIFICATIONS)) {
+    const requiredList = required === 'blocked' ? 'defaultBlockedSites' : 'defaultRestrictedEntertainmentSites';
+    const rawHosts = new Set(stringList(input?.[requiredList]));
+    if (!rawHosts.has(host)) errors.push(`${host} 是受保护系统站点，${requiredList} 不得缺失`);
   }
   const config = normalizeSystemAccessConfig(input || {});
   const categoryByHost = new Map<string, string>();

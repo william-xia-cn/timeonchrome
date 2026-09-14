@@ -88,6 +88,12 @@ function makeDb() {
       evaluateDailyUnclassifiedEmailNotifications: async () => {},
       processEmailClassificationOutbox: async () => {},
     };
+    if (id === './systemAccessConfig') return { isSystemAccessAdmin: () => false };
+    if (id === '../services/usageAccountingCorrections') return {
+      applyCorrectionsToV1StatsRows: (rows) => rows,
+      compactUsageAccountingCorrectionDeltas: () => [],
+      listUsageAccountingCorrections: async () => [],
+    };
     throw new Error(`unexpected require: ${id}`);
   };
   new Function('require', 'module', 'exports', compiled)(routeRequire, routeModule, routeModule.exports);

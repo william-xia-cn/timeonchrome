@@ -51,20 +51,39 @@ function projectionFromDayStats(dayStats) {
   return projection;
 }
 
-export function buildLocalQuotaProjectionV2(statsByDate = {}, { date, weekStart, weekEnd } = {}) {
-  const today = emptyProjection();
+export function buildLocalQuotaProjectionV2(statsByDate = {}, { date, weekStart, weekEnd, deviceId = null, corrections = [] } = {}) {
   const days = [];
-  let weekRestSeconds = 0;
   let complete = true;
   for (const dateKey of Object.keys(statsByDate || {}).sort()) {
     if (dateKey < weekStart || dateKey > weekEnd) continue;
     const projection = projectionFromDayStats(statsByDate[dateKey]);
     days.push({ date: dateKey, ...projection });
-    weekRestSeconds += seconds(projection.byQuotaBucket.rest);
     complete = complete && projection.complete;
-    if (dateKey === date) Object.assign(today, projection);
   }
-  return { today, weekRestSeconds, days, complete };
+  const correctionIssues = [];
+  for (const correction of Array.isArray(corrections) ? corrections : []) {
+    if (!correction || correction.channel !== 'active' || correction.date < weekStart || correction.date > weekEnd) continue;
+    if (deviceId && correction.deviceId && correction.deviceId !== deviceId) continue;
+    const day = days.find((entry) => entry.date === correction.date);
+    if (!day) {
+      correctionIssues.push({ id: correction.id || null, reason: 'local_day_missing' });
+      complete = false;
+      continue;
+    }
+    const amount = seconds(correction.durationSeconds);
+    const originalBucket = correction.originalQuotaBucket || correction.originalMode || 'unknown';
+    const effectiveBucket = correction.effectiveQuotaBucket || correction.effectiveMode || 'unknown';
+    if (seconds(day.byQuotaBucket[originalBucket]) < amount) {
+      correctionIssues.push({ id: correction.id || null, reason: 'original_bucket_too_small' });
+      complete = false;
+      continue;
+    }
+    day.byQuotaBucket[originalBucket] = seconds(day.byQuotaBucket[originalBucket]) - amount;
+    add(day.byQuotaBucket, effectiveBucket, amount);
+  }
+  const today = days.find((entry) => entry.date === date) || emptyProjection();
+  const weekRestSeconds = days.reduce((sum, day) => sum + seconds(day.byQuotaBucket.rest), 0);
+  return { today, weekRestSeconds, days, complete, correctionIssues };
 }
 
 function projectionFromCloudAccount(account) {
@@ -213,10 +232,13 @@ export async function readQuotaReadModelV2({ date = null, now = Date.now() } = {
       PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY,
       QUOTA_READ_MODEL_V2_KEY,
       'cloud_device_id',
+      'guardian_config',
     ]);
     const localProjection = buildLocalQuotaProjectionV2(data[DAILY_STATS_KEY] || {}, {
       date: dateKey,
       ...period,
+      deviceId: data.cloud_device_id || null,
+      corrections: data.guardian_config?.usageAccountingCorrectionsV1 || [],
     });
     const model = buildQuotaReadModelV2({
       date: dateKey,

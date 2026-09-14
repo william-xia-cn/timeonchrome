@@ -48,6 +48,19 @@ check('local daily buckets use actual quota bucket', local.today.byQuotaBucket.c
 check('weekly Rest sums active quota buckets', local.weekRestSeconds === 360);
 check('PiP and background media do not enter quota', local.today.onlineSeconds !== 1000 && local.weekRestSeconds !== 1860);
 
+const correctedLocal = quota.buildLocalQuotaProjectionV2({
+  '2026-09-12': {
+    domains: { 'cg.163.com': { activeSeconds: 180 } },
+    targets: { cg: { activeByQuotaBucket: { study: 180 } } },
+  },
+}, {
+  date: '2026-09-12', weekStart: '2026-09-07', weekEnd: '2026-09-13', deviceId: 'self',
+  corrections: [{ id: 'c1', deviceId: 'self', date: '2026-09-12', domain: 'cg.163.com', channel: 'active',
+    originalMode: 'study', originalQuotaBucket: 'study', effectiveMode: 'rest', effectiveQuotaBucket: 'rest', durationSeconds: 180 }],
+});
+check('historical correction moves quota attribution without changing webpage total', correctedLocal.today.onlineSeconds === 180 &&
+  correctedLocal.today.byQuotaBucket.study === 0 && correctedLocal.today.byQuotaBucket.rest === 180 && correctedLocal.weekRestSeconds === 180);
+
 const cloudSnapshot = {
   period: { weekStart: '2026-09-07', weekEnd: '2026-09-13' },
   snapshotId: 'snap-1',

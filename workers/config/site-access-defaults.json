@@ -187,10 +187,23 @@
     "x.com",
     "snapchat.com",
     "threads.net"
+    ,"cg.163.com"
+    ,"cc.163.com"
+    ,"game.163.com"
+    ,"games.qq.com"
+    ,"v.qq.com"
+    ,"comic.qq.com"
+    ,"qzone.qq.com"
+    ,"ent.163.com"
+    ,"haokan.baidu.com"
+    ,"youxi.baidu.com"
+    ,"ixigua.com"
   ],
   "defaultBlockedSites": [
     "douyin.com",
-    "tiktok.com"
+    "tiktok.com",
+    "kuaishou.com",
+    "kwai.com"
   ],
   "siteCatalog": [
     {
@@ -1624,6 +1637,45 @@
       "classification": "blocked",
       "confidence": "high",
       "notes": "System default blocked site catalog metadata."
+    },
+    {
+      "domain": "cg.163.com", "name": "NetEase Cloud Gaming", "contentCategory": "游戏", "classification": "restricted", "confidence": "high", "notes": "Protected restricted cloud-gaming host."
+    },
+    {
+      "domain": "cc.163.com", "name": "NetEase CC Live", "contentCategory": "视频/直播", "classification": "restricted", "confidence": "high", "notes": "Protected restricted live-streaming host."
+    },
+    {
+      "domain": "game.163.com", "name": "NetEase Games", "contentCategory": "游戏", "classification": "restricted", "confidence": "high", "notes": "Protected restricted portal game host."
+    },
+    {
+      "domain": "games.qq.com", "name": "Tencent Games", "contentCategory": "游戏", "classification": "restricted", "confidence": "high", "notes": "Protected restricted portal game host."
+    },
+    {
+      "domain": "v.qq.com", "name": "Tencent Video", "contentCategory": "视频/直播", "classification": "restricted", "confidence": "high", "notes": "Protected restricted video host."
+    },
+    {
+      "domain": "comic.qq.com", "name": "Tencent Comics", "contentCategory": "娱乐", "classification": "restricted", "confidence": "high", "notes": "Protected restricted entertainment host."
+    },
+    {
+      "domain": "qzone.qq.com", "name": "Qzone", "contentCategory": "社交网络", "classification": "restricted", "confidence": "high", "notes": "Protected restricted social host."
+    },
+    {
+      "domain": "ent.163.com", "name": "NetEase Entertainment", "contentCategory": "娱乐门户", "classification": "restricted", "confidence": "high", "notes": "Protected restricted entertainment portal."
+    },
+    {
+      "domain": "haokan.baidu.com", "name": "Haokan Video", "contentCategory": "视频/直播", "classification": "restricted", "confidence": "high", "notes": "Protected restricted video host."
+    },
+    {
+      "domain": "youxi.baidu.com", "name": "Baidu Games", "contentCategory": "游戏", "classification": "restricted", "confidence": "high", "notes": "Protected restricted portal game host."
+    },
+    {
+      "domain": "ixigua.com", "name": "Xigua Video", "contentCategory": "视频/直播", "classification": "restricted", "confidence": "high", "notes": "Protected restricted video host."
+    },
+    {
+      "domain": "kuaishou.com", "name": "Kuaishou", "contentCategory": "视频/直播", "classification": "blocked", "confidence": "high", "notes": "Protected blocked short-video host."
+    },
+    {
+      "domain": "kwai.com", "name": "Kwai", "contentCategory": "视频/直播", "classification": "blocked", "confidence": "high", "notes": "Protected blocked short-video host."
     }
   ]
 }

@@ -61,8 +61,11 @@ export const DEFAULT_CONFIG = {
     // User-default initial — seeded into customCompositeList, removable by user
     'wikipedia.org', 'wikimedia.org', 'stackexchange.com', 'reddit.com'
   ],
-  restrictedEntertainmentList: ['youtube.com'],
-  unsafeList: ['douyin.com', 'tiktok.com'],
+  restrictedEntertainmentList: [
+    'youtube.com', 'cg.163.com', 'cc.163.com', 'game.163.com', 'games.qq.com', 'v.qq.com',
+    'comic.qq.com', 'qzone.qq.com', 'ent.163.com', 'haokan.baidu.com', 'youxi.baidu.com', 'ixigua.com'
+  ],
+  unsafeList: ['douyin.com', 'tiktok.com', 'kuaishou.com', 'kwai.com'],
   dailyOnlineQuota: 0,
   dailyStudyQuota: 0,
   dailyRestQuota: 120,

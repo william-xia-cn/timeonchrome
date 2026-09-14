@@ -7,6 +7,8 @@ import {
   evaluateDailyUnclassifiedEmailNotifications,
   processEmailClassificationOutbox,
 } from '../services/siteClassificationEmail';
+import { isSystemAccessAdmin } from './systemAccessConfig';
+import { applyCorrectionsToV1StatsRows, compactUsageAccountingCorrectionDeltas, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 
 // ── Segment payload schema validation ───────────────────────────────────────────
 
@@ -332,6 +334,82 @@ export const statsRouter = {
   async handle(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url  = new URL(request.url);
     const path = url.pathname;
+
+    const correctionMatch = path.match(/^\/profiles\/([^/]+)\/usage-accounting-corrections\/v1$/);
+    if (correctionMatch) {
+      const profileId = correctionMatch[1];
+      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+      const profile = await env.DB.prepare('SELECT id FROM profiles WHERE id = ? AND account_id = ?')
+        .bind(profileId, accountId).first<{ id: string }>();
+      if (!profile) return json({ error: 'Profile not found' }, 404);
+
+      if (request.method === 'GET') {
+        const rows = await listUsageAccountingCorrections(env, profileId, {
+          from: url.searchParams.get('from') || undefined,
+          to: url.searchParams.get('to') || undefined,
+          deviceId: url.searchParams.get('deviceId') || undefined,
+        });
+        return json({ ok: true, corrections: rows, deltas: compactUsageAccountingCorrectionDeltas(rows) });
+      }
+
+      if (request.method === 'POST') {
+        if (!isSystemAccessAdmin(env, accountId)) return json({ error: 'Forbidden', code: 'ACCOUNTING_CORRECTION_ADMIN_REQUIRED' }, 403);
+        const body = await request.json().catch(() => null) as any;
+        const segmentIds = [...new Set((Array.isArray(body?.segmentIds) ? body.segmentIds : [])
+          .filter((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 200))];
+        if (segmentIds.length < 1 || segmentIds.length > 100) return json({ error: 'segmentIds must contain 1-100 IDs' }, 400);
+        const expected = body?.expected || {};
+        const effective = body?.effective || {};
+        if (!expected.deviceId || !expected.date || !expected.domain || !expected.mode || !expected.targetClassification || !expected.quotaBucket) {
+          return json({ error: 'Complete expected attribution is required', code: 'ACCOUNTING_CORRECTION_EXPECTED_REQUIRED' }, 400);
+        }
+        if (!VALID_MODES.has(effective.mode) || !VALID_MODES.has(effective.quotaBucket) || !['study', 'composite', 'pending_composite', 'restricted', 'rejected'].includes(effective.targetClassification)) {
+          return json({ error: 'Invalid effective attribution', code: 'ACCOUNTING_CORRECTION_EFFECTIVE_INVALID' }, 400);
+        }
+        const placeholders = segmentIds.map(() => '?').join(',');
+        const result = await env.DB.prepare(
+          `SELECT id, device_id, date, domain, start_ms, end_ms, duration_seconds, channel, mode,
+                  target_classification_at_time, quota_bucket_at_time
+             FROM usage_segments_v1 WHERE profile_id = ? AND id IN (${placeholders}) ORDER BY id ASC`
+        ).bind(profileId, ...segmentIds).all<any>();
+        const segments = result.results || [];
+        if (segments.length !== segmentIds.length) return json({ error: 'One or more segments were not found', code: 'ACCOUNTING_CORRECTION_SEGMENT_MISSING' }, 409);
+        const mismatch = segments.find((row) => row.device_id !== expected.deviceId || row.date !== expected.date || row.domain !== expected.domain ||
+          row.mode !== expected.mode || (row.target_classification_at_time || '') !== expected.targetClassification ||
+          (row.quota_bucket_at_time || row.mode) !== expected.quotaBucket);
+        if (mismatch) return json({ error: 'Segment attribution no longer matches expected values', code: 'ACCOUNTING_CORRECTION_EXPECTED_MISMATCH', segmentId: mismatch.id }, 409);
+        const duplicate = await env.DB.prepare(
+          `SELECT segment_id FROM usage_segment_corrections_v1 WHERE segment_id IN (${placeholders}) LIMIT 1`
+        ).bind(...segmentIds).first<any>();
+        if (duplicate) return json({ error: 'A segment already has a correction', code: 'ACCOUNTING_CORRECTION_ALREADY_EXISTS', segmentId: duplicate.segment_id }, 409);
+        const reasonCode = String(body?.reasonCode || '').trim().slice(0, 80);
+        if (!reasonCode) return json({ error: 'reasonCode is required' }, 400);
+        const note = String(body?.note || '').trim().slice(0, 400) || null;
+        const batchId = crypto.randomUUID();
+        const now = Date.now();
+        const totalSeconds = segments.reduce((sum, row) => sum + Number(row.duration_seconds || 0), 0);
+        await env.DB.batch([
+          env.DB.prepare(
+            `INSERT INTO usage_accounting_correction_batches_v1
+              (id, profile_id, device_id, date, domain, segment_count, duration_seconds, reason_code, note, approved_by_account_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(batchId, profileId, expected.deviceId, expected.date, expected.domain, segments.length, totalSeconds, reasonCode, note, accountId, now),
+          ...segments.map((row) => env.DB.prepare(
+            `INSERT INTO usage_segment_corrections_v1
+              (id, batch_id, segment_id, profile_id, device_id, date, domain, start_ms, end_ms, duration_seconds,
+               channel, original_mode, original_target_classification, original_quota_bucket,
+               effective_mode, effective_target_classification, effective_quota_bucket,
+               reason_code, approved_by_account_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(crypto.randomUUID(), batchId, row.id, profileId, row.device_id, row.date, row.domain,
+            row.start_ms, row.end_ms, row.duration_seconds, row.channel, row.mode,
+            row.target_classification_at_time || null, row.quota_bucket_at_time || row.mode,
+            effective.mode, effective.targetClassification, effective.quotaBucket, reasonCode, accountId, now)),
+        ]);
+        return json({ ok: true, batchId, segmentCount: segments.length, durationSeconds: totalSeconds });
+      }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // V1: GET /device/stats-integrity/v1 — 终端按日期校验云端普通 usage 数据完整性
@@ -1384,7 +1462,8 @@ export const statsRouter = {
         first_seen_at: number; last_seen_at: number; updated_at: number;
       }>();
 
-      return json({ stats: result.results || [] });
+      const corrections = await listUsageAccountingCorrections(env, profileId, { from, to, deviceId: deviceId || undefined });
+      return json({ stats: applyCorrectionsToV1StatsRows(result.results || [], corrections, 'daily_domain'), correctionsApplied: corrections.length });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1422,8 +1501,6 @@ export const statsRouter = {
       const binds: any[] = [profileId, from, to];
       if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
       if (domain) { where.push('domain = ?'); binds.push(domain); }
-      if (channel) { where.push('channel = ?'); binds.push(channel); }
-      if (mode) { where.push('mode = ?'); binds.push(mode); }
 
       const result = await env.DB.prepare(
         `SELECT device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
@@ -1434,7 +1511,10 @@ export const statsRouter = {
          ORDER BY hour_key DESC, domain ASC, channel ASC, mode ASC`
       ).bind(...binds).all<any>();
 
-      return json({ stats: result.results || [] });
+      const corrections = await listUsageAccountingCorrections(env, profileId, { from, to, deviceId: deviceId || undefined });
+      const corrected = applyCorrectionsToV1StatsRows(result.results || [], corrections, 'hourly_domain')
+        .filter((row) => (!channel || row.channel === channel) && (!mode || row.mode === mode));
+      return json({ stats: corrected, correctionsApplied: corrections.length });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1471,10 +1551,6 @@ export const statsRouter = {
       const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
       const binds: any[] = [profileId, from, to];
       if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
-      if (targetKey) { where.push('target_key = ?'); binds.push(targetKey); }
-      if (channel) { where.push('channel = ?'); binds.push(channel); }
-      if (mode) { where.push('mode = ?'); binds.push(mode); }
-      if (quotaBucket) { where.push('quota_bucket = ?'); binds.push(quotaBucket); }
 
       const result = await env.DB.prepare(
         `SELECT device_id, date, timezone, day_start_ms, day_end_ms,
@@ -1488,7 +1564,11 @@ export const statsRouter = {
          ORDER BY date DESC, target_key ASC, channel ASC, mode ASC, quota_bucket ASC`
       ).bind(...binds).all<any>();
 
-      return json({ stats: result.results || [] });
+      const corrections = await listUsageAccountingCorrections(env, profileId, { from, to, deviceId: deviceId || undefined });
+      const corrected = applyCorrectionsToV1StatsRows(result.results || [], corrections, 'daily_target')
+        .filter((row) => (!targetKey || row.target_key === targetKey) && (!channel || row.channel === channel) &&
+          (!mode || row.mode === mode) && (!quotaBucket || row.quota_bucket === quotaBucket));
+      return json({ stats: corrected, correctionsApplied: corrections.length });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1525,10 +1605,6 @@ export const statsRouter = {
       const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
       const binds: any[] = [profileId, from, to];
       if (deviceId) { where.push('device_id = ?'); binds.push(deviceId); }
-      if (targetKey) { where.push('target_key = ?'); binds.push(targetKey); }
-      if (channel) { where.push('channel = ?'); binds.push(channel); }
-      if (mode) { where.push('mode = ?'); binds.push(mode); }
-      if (quotaBucket) { where.push('quota_bucket = ?'); binds.push(quotaBucket); }
 
       const result = await env.DB.prepare(
         `SELECT device_id, hour_key, date, hour, timezone, hour_start_ms, hour_end_ms,
@@ -1542,7 +1618,11 @@ export const statsRouter = {
          ORDER BY hour_key DESC, target_key ASC, channel ASC, mode ASC, quota_bucket ASC`
       ).bind(...binds).all<any>();
 
-      return json({ stats: result.results || [] });
+      const corrections = await listUsageAccountingCorrections(env, profileId, { from, to, deviceId: deviceId || undefined });
+      const corrected = applyCorrectionsToV1StatsRows(result.results || [], corrections, 'hourly_target')
+        .filter((row) => (!targetKey || row.target_key === targetKey) && (!channel || row.channel === channel) &&
+          (!mode || row.mode === mode) && (!quotaBucket || row.quota_bucket === quotaBucket));
+      return json({ stats: corrected, correctionsApplied: corrections.length });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1792,24 +1872,31 @@ export const statsRouter = {
         if (domainError) return json({ error: domainError }, 400);
       }
       const whereSql = where.join(' AND ');
+      const segmentWhere: string[] = ['u.profile_id = ?', 'u.date >= ?', 'u.date <= ?'];
+      const segmentBinds: any[] = [profileId, from, to];
+      if (rawDomain) {
+        const domainError = addDomainLikeFilter(segmentWhere, segmentBinds, 'u.domain', rawDomain);
+        if (domainError) return json({ error: domainError }, 400);
+      }
 
       const statsResult = await env.DB.prepare(
-        `SELECT date, domain, channel, mode,
-                COALESCE(SUM(duration_seconds), 0) as seconds
+        `SELECT device_id, date, domain, channel, mode,
+                COALESCE(SUM(duration_seconds), 0) as duration_seconds
          FROM stats_v1
          WHERE ${whereSql}
-         GROUP BY date, domain, channel, mode`
+         GROUP BY device_id, date, domain, channel, mode`
       ).bind(...binds).all<{
-        date: string; domain: string; channel: string; mode: string; seconds: number;
+        device_id: string; date: string; domain: string; channel: string; mode: string; duration_seconds: number;
       }>();
 
       const segmentResult = await env.DB.prepare(
-        `SELECT date, domain, channel, mode,
-                COALESCE(SUM(duration_seconds), 0) as seconds
-         FROM usage_segments_v1
-         WHERE ${whereSql}
-         GROUP BY date, domain, channel, mode`
-      ).bind(...binds).all<{
+        `SELECT u.date, u.domain, u.channel, COALESCE(c.effective_mode, u.mode) AS mode,
+                COALESCE(SUM(u.duration_seconds), 0) as seconds
+         FROM usage_segments_v1 u
+         LEFT JOIN usage_segment_corrections_v1 c ON c.segment_id = u.id
+         WHERE ${segmentWhere.join(' AND ')}
+         GROUP BY u.date, u.domain, u.channel, COALESCE(c.effective_mode, u.mode)`
+      ).bind(...segmentBinds).all<{
         date: string; domain: string; channel: string; mode: string; seconds: number;
       }>();
 
@@ -1826,10 +1913,12 @@ export const statsRouter = {
           statsSeconds: 0,
           segmentSeconds: 0,
         };
-        existing[side] = Number(row.seconds || 0);
+        existing[side] += Number(row.seconds || 0);
         rowsByKey.set(key, existing);
       };
-      for (const row of statsResult.results || []) put(row, 'statsSeconds');
+      const corrections = await listUsageAccountingCorrections(env, profileId, { from, to });
+      const correctedStatsRows = applyCorrectionsToV1StatsRows(statsResult.results || [], corrections, 'daily_domain');
+      for (const row of correctedStatsRows) put({ ...row, seconds: row.duration_seconds }, 'statsSeconds');
       for (const row of segmentResult.results || []) put(row, 'segmentSeconds');
 
       const rows = [...rowsByKey.values()]
@@ -1975,8 +2064,16 @@ export const statsRouter = {
       const rows = result.results || [];
       const pageRows = rows.slice(0, limit);
       const last = pageRows[pageRows.length - 1];
+      const correctionRows = await listUsageAccountingCorrections(env, profileId, {
+        from: from || undefined,
+        to: to || undefined,
+        deviceId: deviceId || undefined,
+      });
+      const correctionBySegment = new Map(correctionRows.map((row) => [row.segmentId, row]));
       return json({
-        segments: pageRows.map((row) => ({
+        segments: pageRows.map((row) => {
+          const correction = correctionBySegment.get(row.id);
+          return ({
           id: row.id,
           deviceId: row.device_id,
           date: row.date,
@@ -1988,7 +2085,8 @@ export const statsRouter = {
           durationSeconds: row.duration_seconds,
           domain: row.domain,
           channel: row.channel,
-          mode: row.mode,
+          mode: correction?.effectiveMode || row.mode,
+          originalMode: correction ? row.mode : null,
           tabId: row.tab_id,
           windowId: row.window_id,
           sourceState: row.source_state,
@@ -2002,8 +2100,11 @@ export const statsRouter = {
           targetSourceAtTime: row.target_source_at_time,
           targetRuleId: row.target_rule_id,
           targetMatchLevel: row.target_match_level,
-          targetClassificationAtTime: row.target_classification_at_time,
-          quotaBucketAtTime: row.quota_bucket_at_time,
+          targetClassificationAtTime: correction?.effectiveTargetClassification || row.target_classification_at_time,
+          originalTargetClassificationAtTime: correction ? row.target_classification_at_time : null,
+          quotaBucketAtTime: correction?.effectiveQuotaBucket || row.quota_bucket_at_time,
+          originalQuotaBucketAtTime: correction ? row.quota_bucket_at_time : null,
+          accountingCorrectionId: correction?.id || null,
           parentSegmentId: row.parent_segment_id,
           partIndex: row.part_index,
           partCount: row.part_count,
@@ -2011,7 +2112,7 @@ export const statsRouter = {
           updatedAt: row.updated_at,
           uploadedAt: row.uploaded_at,
           uploaded: row.uploaded_at != null,
-        })),
+        }); }),
         summary: {
           count: Number(summary?.count || 0),
           totalSeconds: Number(summary?.total_seconds || 0),

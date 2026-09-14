@@ -1,6 +1,7 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
-import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
+import { applySystemAccessDefaultsToProfileConfig, composeDeviceConfigVersion, getSystemAccessConfigRecord } from '../config/system-access-config';
+import { compactUsageAccountingCorrectionDeltas, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
@@ -353,8 +354,19 @@ export const deviceRouter = {
           ).bind(token).first<{ monitoring_enabled: number }>() : null;
           monitoringEnabled = deviceRow?.monitoring_enabled ?? 1;
         } catch (_) { /* column not yet migrated */ }
-        const siteAccessDefaults = await getSystemAccessConfig(env);
-        const configData = applySystemAccessDefaultsToProfileConfig(row?.config ? JSON.parse(row.config) : {}, siteAccessDefaults);
+        const systemAccessRecord = await getSystemAccessConfigRecord(env);
+        const profileVersion = Number(row?.version || 0);
+        const systemAccessVersion = Number(systemAccessRecord.version || 0);
+        const configData = applySystemAccessDefaultsToProfileConfig(row?.config ? JSON.parse(row.config) : {}, systemAccessRecord.config);
+        const correctionTo = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const correctionFrom = new Date(Date.parse(`${correctionTo}T00:00:00Z`) - 13 * 86400000).toISOString().slice(0, 10);
+        const corrections = await listUsageAccountingCorrections(env, profileId, {
+          from: correctionFrom,
+          to: correctionTo,
+          deviceId: deviceIdentity.deviceId,
+        });
+        const correctionsRevision = `${correctionFrom}:${correctionTo}:${corrections.length}:${corrections.reduce((latest, row) => Math.max(latest, row.createdAt), 0)}`;
+        configData.usageAccountingCorrectionsV1 = compactUsageAccountingCorrectionDeltas(corrections);
         const effectiveTimeQuota = buildEffectiveTimeQuota(configData);
         configData.timeQuota = {
           ...(configData.timeQuota || {}),
@@ -363,7 +375,11 @@ export const deviceRouter = {
 
         return json({
           data:               configData,
-          version:            row?.version || 0,
+          version:            composeDeviceConfigVersion(profileVersion, systemAccessVersion),
+          profile_version:    profileVersion,
+          system_access_version: systemAccessVersion,
+          usage_accounting_corrections_revision: correctionsRevision,
+          config_revision:    `${profileVersion}:${systemAccessVersion}:${correctionsRevision}`,
           profile_id:         profileId,
           device_id:          deviceIdentity.deviceId,
           profile_name:       row?.profile_name || null,

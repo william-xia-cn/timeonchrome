@@ -1855,7 +1855,7 @@ let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', li
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
-let systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
+let systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
 let rulesSitePolicyState = {
   policy: 'study',
   query: '',
@@ -2763,6 +2763,18 @@ function isYouTubeRootDomain(value) {
   return normalized === 'youtube.com' || normalized === 'www.youtube.com';
 }
 
+const protectedSystemSiteClassifications = Object.freeze({
+  'youtube.com': 'restricted', 'cg.163.com': 'restricted', 'cc.163.com': 'restricted', 'game.163.com': 'restricted',
+  'games.qq.com': 'restricted', 'v.qq.com': 'restricted', 'comic.qq.com': 'restricted', 'qzone.qq.com': 'restricted',
+  'ent.163.com': 'restricted', 'haokan.baidu.com': 'restricted', 'youxi.baidu.com': 'restricted', 'ixigua.com': 'restricted',
+  'douyin.com': 'blocked', 'tiktok.com': 'blocked', 'kuaishou.com': 'blocked', 'kwai.com': 'blocked',
+});
+
+function protectedSystemSiteClassification(value) {
+  const key = String(normalizeSiteAccessHostKey(value || '') || '').replace(/^host:/, '').replace(/^www\./, '');
+  return protectedSystemSiteClassifications[key] || null;
+}
+
 function isYouTubeSpecialRuleValue(value = '') {
   const raw = String(value || '').trim();
   if (!/^https?:\/\//i.test(raw)) return false;
@@ -3357,6 +3369,11 @@ window.promoteCustomSiteToSystemConfig = async (idx) => {
     return;
   }
   const contentCategory = defaultSystemContentCategoryForPolicy(def.key);
+  const protectedPolicy = protectedSystemSiteClassification(entry.value);
+  if (protectedPolicy && protectedPolicy !== def.key) {
+    toast(`${entry.value} 是受保护系统站点，不能归入当前策略`, false);
+    return;
+  }
   if (!confirm(`确认将 ${entry.value} 添加到系统网站配置-分类管理的「${def.label}」？该操作会全局生效，并从当前档案用户自定义配置中移除。`)) return;
   try {
     const record = await api('/system/access-management-config/v1');
@@ -3368,7 +3385,7 @@ window.promoteCustomSiteToSystemConfig = async (idx) => {
     }
     const config = { ...(record.config || siteAccessDefaults || {}) };
     const normalized = updateSystemConfigSiteClassification(config, entry.value, def.key, contentCategory);
-    const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Promote ${normalized} from profile custom list to system access config` });
+    const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, expectedVersion: record.version, note: `Promote ${normalized} from profile custom list to system access config` });
     siteAccessDefaults = saved.config || config;
     systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
 
@@ -3568,6 +3585,11 @@ window.saveSystemSiteCategoryEdit = async (idx) => {
   const targetPolicy = document.getElementById(`rules-system-policy-select-${idx}`)?.value || entry.classification;
   const targetDef = classificationPolicyDefs().find(item => item.key === targetPolicy);
   if (!targetDef) return;
+  const protectedPolicy = protectedSystemSiteClassification(entry.value);
+  if (protectedPolicy && protectedPolicy !== targetPolicy) {
+    toast(`${entry.value} 是受保护系统站点，只能保持在${classificationPolicyDefs().find(item => item.key === protectedPolicy)?.label || protectedPolicy}`, false);
+    return;
+  }
   if (isYouTubeRootDomain(entry.value) && ['study', 'composite'].includes(targetPolicy)) {
     toast('YouTube 根域是特殊平台根域，不能直接改为学习或复合；请管理具体视频、播放列表或频道。', false);
     return;
@@ -3585,7 +3607,7 @@ window.saveSystemSiteCategoryEdit = async (idx) => {
     const normalized = updateSystemConfigSiteClassification(config, entry.value, targetPolicy, category);
     let saved;
     try {
-      saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Update ${normalized} category/policy from site category management UI` });
+      saved = await api('/system/access-management-config/v1', 'PUT', { data: config, expectedVersion: record.version, note: `Update ${normalized} category/policy from site category management UI` });
     } catch (saveError) {
       let confirmed;
       try {
@@ -3630,6 +3652,11 @@ async function moveSystemSiteToPolicy(value, fromPolicy, targetPolicy) {
   const contentCategory = String(currentCatalog.contentCategory || '').trim() || '教育性';
   const targetDef = classificationPolicyDefs().find(item => item.key === targetPolicy);
   if (!targetDef) return;
+  const protectedPolicy = protectedSystemSiteClassification(value);
+  if (protectedPolicy && protectedPolicy !== targetPolicy) {
+    toast(`${value} 是受保护系统站点，只能保持在${classificationPolicyDefs().find(item => item.key === protectedPolicy)?.label || protectedPolicy}`, false);
+    return;
+  }
   if (isYouTubeRootDomain(value) && ['study', 'composite'].includes(targetPolicy)) {
     toast('YouTube 根域是特殊平台根域，不能直接改为学习或复合；请管理具体视频、播放列表或频道。', false);
     return;
@@ -3643,7 +3670,7 @@ async function moveSystemSiteToPolicy(value, fromPolicy, targetPolicy) {
   }
   const config = { ...(record.config || siteAccessDefaults || {}) };
   const normalized = updateSystemConfigSiteClassification(config, value, targetPolicy, contentCategory);
-  const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, note: `Move ${normalized} to ${targetPolicy} from site management UI` });
+  const saved = await api('/system/access-management-config/v1', 'PUT', { data: config, expectedVersion: record.version, note: `Move ${normalized} to ${targetPolicy} from site management UI` });
   siteAccessDefaults = saved.config || config;
   systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
   renderRulesPage();
@@ -3990,10 +4017,10 @@ async function prepareAccessManagementConfigImport(fileName, data) {
     const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data: parsed.systemConfig });
     const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
     if (errors.length > 0) throw new Error('系统配置预检失败：' + errors.join('；'));
-    systemAccessConfigImportState = { fileName, config: parsed.systemConfig, currentConfig, preflight };
+    systemAccessConfigImportState = { fileName, config: parsed.systemConfig, currentConfig, currentVersion: currentRecord.version, preflight };
     diffs.push(...buildSystemAccessConfigImportDiffs(currentConfig, parsed.systemConfig).map(diff => ({ ...diff, scope: 'systemConfig', groupLabel: '系统配置' })));
   } else {
-    systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
+    systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
   }
   if (!diffs.length) throw new Error('当前选择范围内没有可导入的配置');
   return { parsed, diffs };
@@ -4067,6 +4094,7 @@ async function applyAccessManagementConfigImport() {
         if (errors.length > 0) throw new Error(errors.join('；'));
         const saved = await api('/system/access-management-config/v1', 'PUT', {
           data: payload,
+          expectedVersion: systemAccessConfigImportState.currentVersion,
           note: `Imported selected diffs from ${systemAccessConfigImportState.fileName || 'access-management-config-bundle.json'}`,
         });
         siteAccessDefaults = saved.config || payload;
@@ -4078,7 +4106,7 @@ async function applyAccessManagementConfigImport() {
     const targetContainerId = configImportDiffState.targetContainerId || 'rules-access-config-import-result';
     const messageId = configImportDiffState.messageId || 'rules-access-config-io-msg';
     configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId, messageId };
-    systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
+    systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
     renderConfigImportDiffPanel();
     renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'rules');
     toast(results.join('；'));
@@ -4833,7 +4861,7 @@ async function importSystemAccessConfigForPreflight() {
       systemAccessCanWrite = Boolean(currentRecord.canWrite);
       const currentConfig = cloneSystemAccessConfig(currentRecord.config || siteAccessDefaults || {});
       const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data });
-      systemAccessConfigImportState = { fileName: file.name, config: data, currentConfig, preflight };
+      systemAccessConfigImportState = { fileName: file.name, config: data, currentConfig, currentVersion: currentRecord.version, preflight };
       const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
       if (errors.length > 0) {
         configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-system-config-import-result', messageId: 'rules-system-config-import-result' };
@@ -4857,7 +4885,7 @@ async function importSystemAccessConfigForPreflight() {
       renderConfigImportDiffPanel();
       toast('已生成系统网站配置导入差异，请确认后应用');
     } catch (err) {
-      systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
+      systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
       configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-system-config-import-result', messageId: 'rules-system-config-import-result' };
       const el = document.getElementById('rules-system-config-import-result');
       if (el) {
@@ -4892,11 +4920,12 @@ async function applySystemAccessConfigImport() {
     if (errors.length > 0) throw new Error(errors.join('；'));
     const saved = await api('/system/access-management-config/v1', 'PUT', {
       data: payload,
+      expectedVersion: systemAccessConfigImportState.currentVersion,
       note: `Imported selected diffs from ${systemAccessConfigImportState.fileName || 'system-access-config.json'}`,
     });
     siteAccessDefaults = saved.config || payload;
     systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
-    systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, preflight: null };
+    systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
     configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-system-config-import-result', messageId: 'rules-system-config-import-result' };
     renderConfigImportDiffPanel();
     renderSystemConfigSummary(saved);

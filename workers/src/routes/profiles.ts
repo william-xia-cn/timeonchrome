@@ -1,7 +1,7 @@
 // Profiles 路由 - 孩子 Profile CRUD
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { validateQuotaAuditRequest } from '../../../extension/core/quota-audit.js';
-import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
+import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, stripDerivedSiteAccessFields, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
@@ -402,11 +402,12 @@ export const profilesRouter = {
         config: string; created_at: number; updated_at: number;
       }>();
 
+      const siteAccessDefaults = await getSystemAccessConfig(env);
       const profiles = (result.results || []).map(row => ({
         id:           row.id,
         name:         row.name,
         avatar_color: row.avatar_color,
-        config:       row.config ? JSON.parse(row.config) : null,
+        config:       applySystemAccessDefaultsToProfileConfig(row.config ? JSON.parse(row.config) : {}, siteAccessDefaults),
         created_at:   row.created_at,
         updated_at:   row.updated_at,
       }));
@@ -423,7 +424,7 @@ export const profilesRouter = {
         const avatarColor = avatar_color || '#7c6fff';
         const siteAccessDefaults = await getSystemAccessConfig(env);
         const defaultConfig = buildDefaultConfig(siteAccessDefaults);
-        const configStr   = JSON.stringify(defaultConfig);
+        const configStr   = JSON.stringify(stripDerivedSiteAccessFields(defaultConfig));
 
         await env.DB.prepare(
           `INSERT INTO profiles (id, account_id, name, avatar_color, config, created_at, updated_at)
@@ -814,7 +815,7 @@ export const profilesRouter = {
           }
         }
 
-        const configStr = JSON.stringify(mergedConfig);
+        const configStr = JSON.stringify(stripDerivedSiteAccessFields(mergedConfig));
 
         await env.DB.prepare(
           `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`

@@ -5,6 +5,11 @@ import {
   listPublishedDeviceAccountsForWeek,
   readProfileWeekAccountV2,
 } from './profileAccountsV2';
+import {
+  applyCorrectionsToCompactDeviceAccounts,
+  listUsageAccountingCorrections,
+  summarizeCompactDeviceAccounts,
+} from './usageAccountingCorrections';
 
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
 const SNAPSHOT_PAGE_SIZE = 50;
@@ -123,16 +128,27 @@ export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId:
   ).bind(profileId, weekStart).first<any>();
   if (!head) return null;
   const now = Date.now();
+  const corrections = await listUsageAccountingCorrections(env, profileId, {
+    from: period.weekStart,
+    to: period.weekEnd,
+  });
+  const correctionVersion = corrections.reduce((latest, row) => Math.max(latest, row.createdAt), 0);
   const reusable = await env.DB.prepare(
     `SELECT id FROM profile_account_read_snapshots_v2
-      WHERE profile_id = ? AND week_start = ? AND source_generation_id = ? AND expires_at > ?
+      WHERE profile_id = ? AND week_start = ? AND source_generation_id = ?
+        AND correction_version = ? AND expires_at > ?
       ORDER BY created_at DESC LIMIT 1`
-  ).bind(profileId, weekStart, head.generation_id, now).first<any>();
+  ).bind(profileId, weekStart, head.generation_id, correctionVersion, now).first<any>();
   if (reusable) return readSnapshotRow(env, reusable.id, profileId);
 
   const week = await readProfileWeekAccountV2(env, head.generation_id);
   if (!week) throw new Error('PROFILE_ACCOUNT_WEEK_HEAD_MISSING');
-  const accounts = (await listPublishedDeviceAccountsForWeek(env, profileId, weekStart)).map(compactDeviceAccount);
+  const baseAccounts = (await listPublishedDeviceAccountsForWeek(env, profileId, weekStart)).map(compactDeviceAccount);
+  const accounts = applyCorrectionsToCompactDeviceAccounts(baseAccounts, corrections);
+  const profileTotal = summarizeCompactDeviceAccounts(accounts);
+  const totalHash = corrections.length > 0
+    ? await hashDeviceAccountValue({ sourceTotalHash: week.totalHash, correctionIds: corrections.map((row) => row.id).sort(), profileTotal })
+    : week.totalHash;
   const pages = [];
   for (let index = 0; index * SNAPSHOT_PAGE_SIZE < accounts.length; index++) {
     const deviceAccounts = accounts.slice(index * SNAPSHOT_PAGE_SIZE, (index + 1) * SNAPSHOT_PAGE_SIZE);
@@ -152,13 +168,13 @@ export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId:
     asOf: week.asOf,
     dayVersionVector: week.dayVersionVector,
     deviceVersionVector: week.deviceVersionVector,
-    profileTotal: week.profileTotal,
+    profileTotal,
     completeness: {
       complete: week.complete && deviceCompleteness.inventoryAvailable === true && deviceCompleteness.missingDevices.length === 0 && deviceCompleteness.incompatibleDevices.length === 0,
       ...deviceCompleteness,
       incompleteDevices,
     },
-    totalHash: week.totalHash,
+    totalHash,
     pageCount: pages.length,
     pageHashes: pages.map((page) => page.pageHash),
   };
@@ -169,11 +185,11 @@ export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId:
     env.DB.prepare(
       `INSERT INTO profile_account_read_snapshots_v2
         (id, profile_id, week_start, week_end, source_generation_id, source_generation,
-         as_of, page_count, total_hash, snapshot_hash, metadata_json, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         correction_version, as_of, page_count, total_hash, snapshot_hash, metadata_json, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       snapshotId, profileId, period.weekStart, period.weekEnd, head.generation_id,
-      week.generation, week.asOf, pages.length, week.totalHash, snapshotHash,
+      week.generation, correctionVersion, week.asOf, pages.length, totalHash, snapshotHash,
       canonicalDeviceAccountJson(metadata), now, expiresAt
     ),
     ...pages.map((page, index) => env.DB.prepare(

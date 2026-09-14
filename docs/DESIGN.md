@@ -1,6 +1,6 @@
 # TimeOnChrome — 技术设计文档
 
-版本：1.7.31
+版本：1.7.32
 更新：2026-09-12
 
 ---
@@ -1285,6 +1285,17 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - 计时落账链路使用 `__timingTrace` 记录过程，使用 `client_logs_v1` 的 `checkpoint` / `ledger_gap` category 记录可长期排查的缺口：例如系统观测到 eligible active tab 或 media fact，但 checkpoint 后没有 open session 或 durable segment。
 - 模式切换链路使用共享 `auditId` 串联 `REQUEST_MODE_CHANGE` / `EVALUATE_QUOTA_STATE`、Mode Service decision/commit、mode boundary intent、dispatcher consume 和 active tab recheck。`mode_transition` category 只保存重要结果、warning 和 error。
 - 这些日志不读 Chrome History，不反推补写历史，不改变访问控制、配额或统计读取行为。
+
+### 系统网站分类一致性与历史更正（D-081）
+
+- `/device/config` 的有效 revision 由 `profile.version` 与 `system_access_config_v1.version` 共同组成。终端必须分别保存并比较两者；任一分量变化都重新保存配置并更新声明式规则。为兼容旧终端，响应中的 legacy `version` 使用单调组合值，不能继续只返回 profile version。
+- Profile 持久 JSON 只保存 `customStudyList`、`customCompositeList`、`customRestrictedEntertainmentList`、`customBlockedSites` 及其他用户配置。`default*Sites`、`studyList`、`compositeList`、`restrictedEntertainmentList`、`unsafeList` 是读时派生值；旧 Profile 中的冗余值仅可用于一次性迁移自定义项，不能覆盖当前系统库。
+- 系统网站配置 PUT 必须携带读取时的 `expectedVersion`。Worker 以 compare-and-swap 更新当前 head，并为每个成功版本保存不可变快照、配置摘要、操作者和原因；并发旧页面返回 409，禁止最后写入者静默覆盖新版本。
+- Worker 在读取和写入两端应用高风险分类不变量。受保护站点若出现在错误主策略中，读取端以正式策略自愈，写入端明确拒绝并返回域名及目标策略。Pages 只负责展示错误，不是唯一防线。
+- 历史归属修正使用 `usage_segment_corrections_v1`。每条更正绑定原始 segment ID、原始归属、有效归属、批次、原因、批准人和时间；同一 segment 只允许一个当前有效更正。原始 segment 的 ID、起止、duration 和内容不得改变。
+- `/device/config` 同时下发 profile、system access 与近期 correction revision。revision 包含更正日期窗口、条数和最新写入时间；任一组成变化都必须重新拉取，确保新增更正生效且移出近期窗口的更正不会永久残留。
+- 统计与配额读取使用 effective projection：未更正行读取原始归属，更正行读取 correction 中的 classification/mode/quota bucket。云端物化、V2 设备/档案账及终端下发必须共享该 projection，禁止各层单独打补丁。
+- 本次 `cg.163.com` 修正仅重归属已经存在的本周分段，不补时、不删时、不合并分段。更正前后网页总秒数必须完全相等；Study/Rest 桶变化必须逐 segment 可解释。
 
 ---
 

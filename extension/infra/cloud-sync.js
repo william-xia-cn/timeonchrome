@@ -120,6 +120,9 @@ const CLOUD_CONFIG = {
     PENDING_SESSIONS: 'cloud_pending_sessions',
     LOCAL_CONFIG: 'cloud_local_config',
     CONFIG_VERSION: 'cloud_config_version',
+    PROFILE_CONFIG_VERSION: 'cloud_profile_config_version',
+    SYSTEM_ACCESS_VERSION: 'cloud_system_access_version',
+    ACCOUNTING_CORRECTIONS_REVISION: 'cloud_accounting_corrections_revision',
     MONITORING_ENABLED: 'cloud_monitoring_enabled',
     V1_SYNC_ENABLED: 'statsFoundationV1SyncEnabled',
     V1_LAST_SYNC_AT: 'cloud_v1_last_sync_at',
@@ -157,6 +160,9 @@ let syncState = {
   isSyncing: false,
   syncStartedAt: 0,
   lastConfigVersion: 0,
+  lastProfileConfigVersion: 0,
+  lastSystemAccessVersion: 0,
+  lastAccountingCorrectionsRevision: '',
   deviceToken: null,
   deviceId: null,
   profileId: null,
@@ -843,6 +849,9 @@ export async function hydrateCloudSyncStateFromStorage() {
     CLOUD_CONFIG.KEYS.DEVICE_ID,
     CLOUD_CONFIG.KEYS.PROFILE_ID,
     CLOUD_CONFIG.KEYS.CONFIG_VERSION,
+    CLOUD_CONFIG.KEYS.PROFILE_CONFIG_VERSION,
+    CLOUD_CONFIG.KEYS.SYSTEM_ACCESS_VERSION,
+    CLOUD_CONFIG.KEYS.ACCOUNTING_CORRECTIONS_REVISION,
     CLOUD_CONFIG.KEYS.MONITORING_ENABLED,
     CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED,
   ]);
@@ -851,6 +860,9 @@ export async function hydrateCloudSyncStateFromStorage() {
   syncState.deviceId = storage[CLOUD_CONFIG.KEYS.DEVICE_ID] || null;
   syncState.profileId = storage[CLOUD_CONFIG.KEYS.PROFILE_ID] || null;
   syncState.lastConfigVersion = storage[CLOUD_CONFIG.KEYS.CONFIG_VERSION] || 0;
+  syncState.lastProfileConfigVersion = storage[CLOUD_CONFIG.KEYS.PROFILE_CONFIG_VERSION] || 0;
+  syncState.lastSystemAccessVersion = storage[CLOUD_CONFIG.KEYS.SYSTEM_ACCESS_VERSION] || 0;
+  syncState.lastAccountingCorrectionsRevision = storage[CLOUD_CONFIG.KEYS.ACCOUNTING_CORRECTIONS_REVISION] || '';
   syncState.monitoringEnabled = storage[CLOUD_CONFIG.KEYS.MONITORING_ENABLED] ?? 1;
 
   const v1Stored = storage[CLOUD_CONFIG.KEYS.V1_SYNC_ENABLED];
@@ -1465,6 +1477,14 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     }
 
     const cloudVersion = result.version || 0;
+    const profileConfigVersion = Number(result.profile_version || 0);
+    const systemAccessVersion = Number(result.system_access_version || 0);
+    const accountingCorrectionsRevision = typeof result.usage_accounting_corrections_revision === 'string'
+      ? result.usage_accounting_corrections_revision
+      : '';
+    const hasSplitRevision = Number.isSafeInteger(profileConfigVersion) && profileConfigVersion >= 0 &&
+      Number.isSafeInteger(systemAccessVersion) && systemAccessVersion > 0 &&
+      accountingCorrectionsRevision.length > 0;
     if (typeof cloudVersion !== 'number' || cloudVersion < 0) {
       console.warn('[Cloud] Pull config: invalid version number', cloudVersion);
       return { status: 'failed', version: cloudVersion, error: 'Invalid config version' };
@@ -1486,7 +1506,12 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     if (maybeDeviceId) syncState.deviceId = maybeDeviceId;
     const localConfig = await getConfigFn();
 
-    if (cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion &&
+    const revisionAlreadyApplied = hasSplitRevision
+      ? profileConfigVersion <= syncState.lastProfileConfigVersion &&
+        systemAccessVersion <= syncState.lastSystemAccessVersion &&
+        accountingCorrectionsRevision === syncState.lastAccountingCorrectionsRevision
+      : cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion;
+    if (revisionAlreadyApplied &&
       !shouldSaveDespiteVersionSkip(result.data, localConfig)) {
       const localRuntime = normalizeRuntimeSiteAccessConfig(localConfig, { fallbackConfig: DEFAULT_CONFIG });
       if (localRuntime.changed) {
@@ -1501,6 +1526,11 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     await cloudStorageSet({
       [CLOUD_CONFIG.KEYS.LOCAL_CONFIG]: result.data,
       [CLOUD_CONFIG.KEYS.CONFIG_VERSION]: cloudVersion,
+      ...(hasSplitRevision ? {
+        [CLOUD_CONFIG.KEYS.PROFILE_CONFIG_VERSION]: profileConfigVersion,
+        [CLOUD_CONFIG.KEYS.SYSTEM_ACCESS_VERSION]: systemAccessVersion,
+        [CLOUD_CONFIG.KEYS.ACCOUNTING_CORRECTIONS_REVISION]: accountingCorrectionsRevision,
+      } : {}),
       [CLOUD_CONFIG.KEYS.LAST_SYNC]: Date.now()
     });
 
@@ -1522,6 +1552,11 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
     if (updateDeclarativeRulesFn) await updateDeclarativeRulesFn(mergedConfig);
 
     syncState.lastConfigVersion = cloudVersion;
+    if (hasSplitRevision) {
+      syncState.lastProfileConfigVersion = profileConfigVersion;
+      syncState.lastSystemAccessVersion = systemAccessVersion;
+      syncState.lastAccountingCorrectionsRevision = accountingCorrectionsRevision;
+    }
     console.log('[Cloud] Config updated, version:', cloudVersion);
     return { status: 'updated', version: cloudVersion, error: null };
   } catch (e) {

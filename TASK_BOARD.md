@@ -1,6 +1,12 @@
 # TASK_BOARD
 
 ## Active Release Target
+- [ ] [P0 / D-081 / Implementing] `cg.163.com` 系统分类漂移与本周错误账归属修复。
+  - 已确认根因：`/device/config` 只返回 profile version，终端 version skip 不感知 system access version；profile 又持久化旧 effective 清单。9 月 13 日 profile 变更触发拉取时，错误系统分类重新进入终端。
+  - 已确认生产影响：T.xia 2026-09-14 的 `cg.163.com` 出现 Study 分类和 Study 扣费桶正时长分段；当前系统配置虽已改回 restricted，但旧终端可能因 profile version 未变继续缓存旧清单。
+  - 修复范围：组合配置 revision、Profile 自定义项单一持久权威、系统分类硬约束、expected-version 并发保护、系统配置不可变历史、repo fallback 对齐。
+  - 历史修正：保留原始 segment，仅用逐段 correction ledger 修正本周有效归属；所有读模型消费同一修正层，不直接 UPDATE/DELETE 原始账。
+  - 明确不变：网页 ACTIVE、起止时间、duration、checkpoint、媒体证据和本地结算语义。
 - [ ] [1.7.31 / Internal managed / Released and activated] 时间配额 V2 直接接管。
   - [x] 产品口径：D-080 已确认云端只下发账；配额由本机账加云端其他设备账即时计算，不存在云端锁。
   - [x] Worker：migration 027 记录设备 V2 capability；快照增加 active `byDomain` 与 expected/missing/incompatible/stale/incomplete 完整性。

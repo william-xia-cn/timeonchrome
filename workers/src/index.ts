@@ -118,7 +118,7 @@ export interface Env {
   NATIVE_APP_BRIDGE_ISSUER?: string;
 }
 
-const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|stats-reconciliation|stats-integrity|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
+const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|usage-accounting-corrections|stats-reconciliation|stats-integrity|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
 const DEVICE_STATS_ROUTES = new Set([
   '/device/usage-segments/v1',
   '/device/stats/v1',

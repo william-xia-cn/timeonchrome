@@ -2,8 +2,8 @@
 import { normalizeHostname } from './domain-semantics.js';
 
 export const SITE_ACCESS_RUNTIME_SCHEMA_VERSION = 1;
-export const SITE_ACCESS_SEMANTIC_VERSION = '2026-07-29.site-access-runtime-v1';
-export const SITE_ACCESS_MIGRATIONS = ['M001_default_user_composite_runtime', 'M002_youtube_special_root_restricted', 'M003_stale_composite_cleanup'];
+export const SITE_ACCESS_SEMANTIC_VERSION = '2026-09-15.site-access-runtime-v2';
+export const SITE_ACCESS_MIGRATIONS = ['M001_default_user_composite_runtime', 'M002_youtube_special_root_restricted', 'M003_stale_composite_cleanup', 'M004_protected_system_classifications'];
 
 const STALE_COMPOSITE_DOMAINS_TO_REMOVE = new Set([
   'bilibili.com',
@@ -12,8 +12,11 @@ const STALE_COMPOSITE_DOMAINS_TO_REMOVE = new Set([
   'www.163.com',
 ]);
 
-const SPECIAL_RESTRICTED_ROOT_DOMAINS = new Set(['youtube.com', 'www.youtube.com']);
-const SPECIAL_RESTRICTED_ROOT_CANONICAL_DOMAINS = ['youtube.com'];
+const PROTECTED_RESTRICTED_DOMAINS = ['youtube.com', 'cg.163.com', 'cc.163.com', 'game.163.com', 'games.qq.com', 'v.qq.com',
+  'comic.qq.com', 'qzone.qq.com', 'ent.163.com', 'haokan.baidu.com', 'youxi.baidu.com', 'ixigua.com'];
+const PROTECTED_BLOCKED_DOMAINS = ['douyin.com', 'tiktok.com', 'kuaishou.com', 'kwai.com'];
+const ALL_PROTECTED_DOMAINS = new Set([...PROTECTED_RESTRICTED_DOMAINS, ...PROTECTED_BLOCKED_DOMAINS]
+  .flatMap((domain) => [domain, `www.${domain}`]));
 
 const SITE_ACCESS_SOURCE_KEYS = {
   studyDefaults: ['defaultStudySites', 'defaultStudyList', 'systemConfiguredStudySites', 'systemConfiguredStudyList'],
@@ -153,14 +156,15 @@ export function normalizeRuntimeSiteAccessConfig(config = {}, options = {}) {
   defaultUserCompositeSites = removeStaleCompositeHosts(defaultUserCompositeSites);
   customCompositeList = removeStaleCompositeHosts(customCompositeList);
 
-  defaultStudySites = removeHosts(defaultStudySites, SPECIAL_RESTRICTED_ROOT_DOMAINS);
-  customStudyList = removeHosts(customStudyList, SPECIAL_RESTRICTED_ROOT_DOMAINS);
-  defaultCompositeSites = removeHosts(defaultCompositeSites, SPECIAL_RESTRICTED_ROOT_DOMAINS);
-  defaultUserCompositeSites = removeHosts(defaultUserCompositeSites, SPECIAL_RESTRICTED_ROOT_DOMAINS);
-  customCompositeList = removeHosts(customCompositeList, SPECIAL_RESTRICTED_ROOT_DOMAINS);
-  defaultBlockedSites = removeHosts(defaultBlockedSites, SPECIAL_RESTRICTED_ROOT_DOMAINS);
-  customBlockedSites = removeHosts(customBlockedSites, SPECIAL_RESTRICTED_ROOT_DOMAINS);
-  defaultRestrictedEntertainmentSites = mergeHosts(removeHosts(defaultRestrictedEntertainmentSites, SPECIAL_RESTRICTED_ROOT_DOMAINS), SPECIAL_RESTRICTED_ROOT_CANONICAL_DOMAINS);
+  defaultStudySites = removeHosts(defaultStudySites, ALL_PROTECTED_DOMAINS);
+  customStudyList = removeHosts(customStudyList, ALL_PROTECTED_DOMAINS);
+  defaultCompositeSites = removeHosts(defaultCompositeSites, ALL_PROTECTED_DOMAINS);
+  defaultUserCompositeSites = removeHosts(defaultUserCompositeSites, ALL_PROTECTED_DOMAINS);
+  customCompositeList = removeHosts(customCompositeList, ALL_PROTECTED_DOMAINS);
+  customRestrictedEntertainmentList = removeHosts(customRestrictedEntertainmentList, ALL_PROTECTED_DOMAINS);
+  defaultRestrictedEntertainmentSites = mergeHosts(removeHosts(defaultRestrictedEntertainmentSites, ALL_PROTECTED_DOMAINS), PROTECTED_RESTRICTED_DOMAINS);
+  defaultBlockedSites = mergeHosts(removeHosts(defaultBlockedSites, ALL_PROTECTED_DOMAINS), PROTECTED_BLOCKED_DOMAINS);
+  customBlockedSites = removeHosts(customBlockedSites, ALL_PROTECTED_DOMAINS);
 
   const studyList = mergeHosts(defaultStudySites, customStudyList);
   const compositeList = mergeHosts(defaultCompositeSites, defaultUserCompositeSites, customCompositeList);

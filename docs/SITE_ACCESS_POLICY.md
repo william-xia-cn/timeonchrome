@@ -265,6 +265,15 @@ managebac.com -> defaultStudyList
 
 ## 8. 系统网站配置维护清单
 
+### 服务端分类硬约束
+
+以下高风险站点不仅是文档约定，也是 Worker 必须执行的写入和读取不变量。配置页面、导入文件、旧 D1 数据或 Profile 缓存均不得把它们移动到更宽松策略：
+
+- 受限娱乐：`youtube.com`、`cg.163.com`、`cc.163.com`、`game.163.com`、`games.qq.com`、`v.qq.com`、`comic.qq.com`、`qzone.qq.com`、`ent.163.com`、`haokan.baidu.com`、`youxi.baidu.com`、`ixigua.com`。
+- 黑名单：`douyin.com`、`tiktok.com`、`kuaishou.com`、`kwai.com`。
+
+系统配置修改必须使用 expected version 防止并发覆盖，并保存版本快照、操作者、原因和摘要。任何系统网站库版本变化都必须触发终端重新拉取；不得等待孩子档案发生其他修改。Profile 中的系统默认/effective 清单只是历史兼容数据，不是分类权威。
+
 本节是系统网站配置的唯一人读维护清单。后续修订系统网站配置时，先在本节确认分类，再同步修正 `workers/config/site-access-defaults.json` 或云端 D1 `system-access-config`。
 
 维护结构保持现有运行模型，不新增 schema：
