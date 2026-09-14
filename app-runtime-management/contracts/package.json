@@ -1,0 +1,26 @@
+{
+  "name": "@timeonchrome/app-runtime-contracts",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/app-runtime-control.d.ts",
+      "default": "./dist/app-runtime-control.js"
+    }
+  },
+  "files": [
+    "app-runtime-control.ts",
+    "*.schema.json",
+    "*.vectors.json",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node contract-compatibility.test.cjs"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

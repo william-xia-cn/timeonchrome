@@ -1,5 +1,7 @@
 # TASK_BOARD
 
+> App Runtime 跨边界集成在 `codex/app-runtime-integration-v1` 进行；Runtime 内部任务由 `app-runtime-management/docs/TASK_BOARD.md` 管理，本任务板只追踪 Guardian contract/SSO 与主控制台入口兼容。
+
 ## Active Release Target
 - [ ] [P0 / D-081 / Production remediation completed; managed client release pending] `cg.163.com` 系统分类漂移与本周错误账归属修复。
   - 已确认根因：`/device/config` 只返回 profile version，终端 version skip 不感知 system access version；profile 又持久化旧 effective 清单。9 月 13 日 profile 变更触发拉取时，错误系统分类重新进入终端。

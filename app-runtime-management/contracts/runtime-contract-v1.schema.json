@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.local/contracts/app-runtime/runtime-contract-v1.schema.json",
+  "title": "TimeOnChrome App Runtime golden vector contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/goldenCase" }
+    }
+  },
+  "$defs": {
+    "platform": {
+      "type": "string",
+      "enum": ["macos", "windows"]
+    },
+    "applicationIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "runtimeIdentity"],
+      "properties": {
+        "platform": { "$ref": "#/$defs/platform" },
+        "runtimeIdentity": { "type": "string", "minLength": 1 },
+        "displayName": { "type": ["string", "null"] }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "userActivity", "sessionState", "powerState"],
+      "properties": {
+        "application": {
+          "oneOf": [
+            { "$ref": "#/$defs/applicationIdentity" },
+            { "type": "null" }
+          ]
+        },
+        "userActivity": { "enum": ["unknown", "active", "idle"] },
+        "sessionState": { "enum": ["unknown", "active", "inactive", "locked"] },
+        "powerState": { "enum": ["unknown", "awake", "asleep"] }
+      }
+    },
+    "runtimeFact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observedAtMs", "kind", "application"],
+          "properties": {
+            "observedAtMs": { "type": "integer" },
+            "kind": { "const": "applicationActivated" },
+            "application": {
+              "oneOf": [
+                { "$ref": "#/$defs/applicationIdentity" },
+                { "type": "null" }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observedAtMs", "kind", "userActivity"],
+          "properties": {
+            "observedAtMs": { "type": "integer" },
+            "kind": { "const": "userActivityChanged" },
+            "userActivity": { "enum": ["unknown", "active", "idle"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observedAtMs", "kind", "sessionState"],
+          "properties": {
+            "observedAtMs": { "type": "integer" },
+            "kind": { "const": "sessionChanged" },
+            "sessionState": { "enum": ["unknown", "active", "inactive", "locked"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observedAtMs", "kind", "powerState"],
+          "properties": {
+            "observedAtMs": { "type": "integer" },
+            "kind": { "const": "powerChanged" },
+            "powerState": { "enum": ["unknown", "awake", "asleep"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observedAtMs", "kind", "snapshot"],
+          "properties": {
+            "observedAtMs": { "type": "integer" },
+            "kind": { "const": "snapshot" },
+            "snapshot": { "$ref": "#/$defs/snapshot" }
+          }
+        }
+      ]
+    },
+    "usageSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "runtimeSessionID",
+        "application",
+        "startAtMs",
+        "endAtMs",
+        "durationMilliseconds",
+        "endReason"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "runtimeSessionID": { "type": "string", "minLength": 1 },
+        "application": { "$ref": "#/$defs/applicationIdentity" },
+        "startAtMs": { "type": "integer", "minimum": 0 },
+        "endAtMs": { "type": "integer", "minimum": 0 },
+        "durationMilliseconds": { "type": "integer", "minimum": 1 },
+        "endReason": {
+          "enum": [
+            "applicationSwitch",
+            "userIdle",
+            "sessionUnavailable",
+            "systemSleep",
+            "periodicSnapshot",
+            "stateCorrection"
+          ]
+        }
+      }
+    },
+    "openSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "startAtMs"],
+      "properties": {
+        "application": { "$ref": "#/$defs/applicationIdentity" },
+        "startAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "finalState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application",
+        "userActivity",
+        "sessionState",
+        "powerState",
+        "openSegment",
+        "lastObservedAtMs",
+        "nextSegmentOrdinal"
+      ],
+      "properties": {
+        "application": {
+          "oneOf": [
+            { "$ref": "#/$defs/applicationIdentity" },
+            { "type": "null" }
+          ]
+        },
+        "userActivity": { "enum": ["unknown", "active", "idle"] },
+        "sessionState": { "enum": ["unknown", "active", "inactive", "locked"] },
+        "powerState": { "enum": ["unknown", "awake", "asleep"] },
+        "openSegment": {
+          "oneOf": [
+            { "$ref": "#/$defs/openSegment" },
+            { "type": "null" }
+          ]
+        },
+        "lastObservedAtMs": { "type": ["integer", "null"] },
+        "nextSegmentOrdinal": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "expectedError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "enum": ["negativeTimestamp", "nonMonotonicTimestamp"] },
+        "value": { "type": "integer" },
+        "previous": { "type": "integer" },
+        "received": { "type": "integer" }
+      }
+    },
+    "goldenCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "runtimeSessionID",
+        "facts",
+        "expectedSegments",
+        "expectedError",
+        "expectedFinalState"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "runtimeSessionID": { "type": "string", "minLength": 1 },
+        "facts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/runtimeFact" }
+        },
+        "expectedSegments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/usageSegment" }
+        },
+        "expectedError": {
+          "oneOf": [
+            { "$ref": "#/$defs/expectedError" },
+            { "type": "null" }
+          ]
+        },
+        "expectedFinalState": { "$ref": "#/$defs/finalState" }
+      }
+    }
+  }
+}

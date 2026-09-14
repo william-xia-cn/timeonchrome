@@ -1059,6 +1059,9 @@
         <a class="nav-item mobile-secondary-nav" href="native-apps/">
           <span class="nav-icon"><img src="assets/icons/devices.svg" alt=""></span><span>Native Apps</span>
         </a>
+        <a class="nav-item mobile-secondary-nav runtime-launch" href="?launch=app-runtime">
+          <span class="nav-icon"><img src="assets/icons/online-time.svg" alt=""></span><span>电脑应用使用</span>
+        </a>
         <div class="nav-item" data-page="account">
           <span class="nav-icon"><img src="assets/icons/user.svg" alt=""></span><span>子用户管理</span>
         </div>
@@ -1084,6 +1087,9 @@
         </div>
         <a class="mobile-more-action" href="native-apps/">
           <img class="toc-ui-icon" src="assets/icons/devices.svg" alt="">Native Apps
+        </a>
+        <a class="mobile-more-action runtime-launch" href="?launch=app-runtime">
+          <img class="toc-ui-icon" src="assets/icons/online-time.svg" alt="">电脑应用使用
         </a>
         <button class="mobile-more-action" id="mobile-system-management-btn" type="button">
           <img class="toc-ui-icon" src="assets/icons/settings.svg" alt="">系统管理
@@ -1868,6 +1874,7 @@ let rulesSitePolicyState = {
 };
 let systemAccessCanWrite = false;
 let systemAccessCanWriteLoaded = false;
+let runtimeLaunchInFlight = false;
 
 function normalizeEmailInput(value) {
   return String(value || '').trim().toLowerCase();
@@ -1902,6 +1909,10 @@ window.addEventListener('DOMContentLoaded', () => {
   setupAccount();
   setupProfileDropdown();
   setupProfileModal();
+  document.querySelectorAll('.runtime-launch').forEach((link) => link.addEventListener('click', (event) => {
+    event.preventDefault();
+    launchAppRuntime();
+  }));
   document.getElementById('logout-btn').addEventListener('click', logout);
 });
 
@@ -2032,6 +2043,30 @@ async function enterMain(email) {
     else renderNoProfile();
   } catch(e) {
     toast('加载档案失败: ' + e.message, false);
+  }
+  if (new URLSearchParams(location.search).get('launch') === 'app-runtime') {
+    await launchAppRuntime();
+  }
+}
+
+async function launchAppRuntime() {
+  if (runtimeLaunchInFlight) return;
+  if (!accountToken) {
+    showScreen('login');
+    return;
+  }
+  runtimeLaunchInFlight = true;
+  try {
+    const result = await api('/app-runtime/sso/tickets', 'POST', {});
+    const launchUrl = String(result?.launchUrl || '');
+    if (!launchUrl.startsWith('https://timeonchrome-app-runtime-console.pages.dev/#ticket=')) {
+      throw new Error('Runtime launch 地址无效');
+    }
+    window.location.assign(launchUrl);
+  } catch (error) {
+    toast('无法打开电脑应用管理: ' + (error.message || ''), false);
+  } finally {
+    runtimeLaunchInFlight = false;
   }
 }
 

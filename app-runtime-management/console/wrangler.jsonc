@@ -1,0 +1,5 @@
+{
+  "$schema": "../../app-runtime-management/backend/node_modules/wrangler/config-schema.json",
+  "name": "timeonchrome-app-runtime-console",
+  "pages_build_output_dir": "."
+}

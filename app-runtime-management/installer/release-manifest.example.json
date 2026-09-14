@@ -1,0 +1,14 @@
+{
+  "version": "2.0.6",
+  "platform": "windows",
+  "architecture": "x64",
+  "bootstrapperPath": "windows/x64/2.0.6/TimeOnChrome-AppRuntime-Setup-win-x64-2.0.6.exe",
+  "bootstrapperSha256": "<sha256>",
+  "bootstrapperSizeBytes": 0,
+  "msiPath": "windows/x64/2.0.6/TimeOnChrome-AppRuntime-win-x64-2.0.6.msi",
+  "msiSha256": "<sha256>",
+  "msiSizeBytes": 0,
+  "signed": false,
+  "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING",
+  "latestEligible": true
+}

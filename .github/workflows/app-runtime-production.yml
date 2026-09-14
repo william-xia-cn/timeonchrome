@@ -1,0 +1,71 @@
+name: App Runtime Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_runtime_migrations:
+        description: Comma-separated Runtime migration filenames expected to be pending
+        required: true
+        default: 0006_runtime_terminal_logs.sql,0007_runtime_browser_sessions.sql
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: master }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: test -z "$(git status --porcelain)"
+      - run: test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
+      - run: npm ci
+      - run: npm ci --prefix app-runtime-management/backend
+      - run: npm run build:app-runtime-contracts
+      - run: npm run check:app-runtime-boundaries
+      - run: npm test --prefix app-runtime-management/backend
+      - run: npm run typecheck --prefix app-runtime-management/backend
+      - name: Runtime migrations
+        working-directory: app-runtime-management/backend
+        env:
+          EXPECTED_RUNTIME_MIGRATIONS: ${{ inputs.expected_runtime_migrations }}
+        run: |
+          npx wrangler d1 migrations list timeonchrome-app-runtime --remote | tee pending-migrations.txt
+          actual="$(grep -oE '[0-9]{4}_[A-Za-z0-9_-]+\.sql' pending-migrations.txt | awk '!seen[$0]++' | paste -sd, -)"
+          if [ "$actual" != "$EXPECTED_RUNTIME_MIGRATIONS" ]; then
+            echo "Runtime migration gate mismatch: expected=$EXPECTED_RUNTIME_MIGRATIONS actual=$actual" >&2
+            exit 1
+          fi
+          npx wrangler d1 migrations apply timeonchrome-app-runtime --remote
+      - name: Runtime Worker
+        working-directory: app-runtime-management/backend
+        run: npx wrangler deploy
+      - name: Guardian Worker
+        working-directory: app-runtime-management/backend
+        run: npx wrangler deploy --config ../../workers/wrangler.toml
+      - name: Runtime Pages
+        working-directory: app-runtime-management/backend
+        run: npx wrangler pages deploy ../console --project-name timeonchrome-app-runtime-console --branch master --commit-hash "${GITHUB_SHA}"
+      - name: Main Pages
+        working-directory: app-runtime-management/backend
+        run: npx wrangler pages deploy ../../pages --project-name timeonchrome-console --branch master --commit-hash "${GITHUB_SHA}"
+      - name: Release manifest
+        env:
+          EXPECTED_RUNTIME_MIGRATIONS: ${{ inputs.expected_runtime_migrations }}
+        run: |
+          (cd app-runtime-management/backend && npx wrangler deployments list --json) > runtime-worker-deployments.json
+          (cd app-runtime-management/backend && npx wrangler deployments list --config ../../workers/wrangler.toml --json) > guardian-worker-deployments.json
+          (cd app-runtime-management/backend && npx wrangler pages deployment list --project-name timeonchrome-app-runtime-console --environment production --json) > runtime-pages-deployments.json
+          (cd app-runtime-management/backend && npx wrangler pages deployment list --project-name timeonchrome-console --environment production --json) > main-pages-deployments.json
+          curl --fail --silent --show-error https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev/v1/releases/windows/x64/latest > runtime-r2-latest.json
+          node tools/write-app-runtime-release-manifest.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-runtime-production-manifest-${{ github.sha }}
+          path: app-runtime-production-manifest.json

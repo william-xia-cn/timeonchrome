@@ -1,0 +1,28 @@
+name: App Runtime Guardian Integration
+
+on:
+  pull_request:
+    paths:
+      - 'workers/src/services/appRuntimeIdentityBridge.ts'
+      - 'workers/src/index.ts'
+      - 'workers/wrangler.toml'
+      - 'app-runtime-management/contracts/**'
+      - 'tests/unit/app-runtime-integration.test.js'
+  push:
+    branches: [master]
+    paths:
+      - 'workers/src/services/appRuntimeIdentityBridge.ts'
+      - 'workers/src/index.ts'
+      - 'app-runtime-management/contracts/**'
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build:app-runtime-contracts
+      - run: npx tsc --noEmit
+      - run: node tests/unit/app-runtime-integration.test.js

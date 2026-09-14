@@ -1,0 +1,49 @@
+name: App Runtime
+
+on:
+  pull_request:
+    paths:
+      - 'app-runtime-management/**'
+      - 'tools/check-app-runtime-boundaries.js'
+      - '.github/workflows/app-runtime.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'app-runtime-management/**'
+      - 'tools/check-app-runtime-boundaries.js'
+  workflow_dispatch:
+
+jobs:
+  contracts-worker-console:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build:app-runtime-contracts
+      - run: npm --workspace @timeonchrome/app-runtime-contracts test
+      - run: npm run check:app-runtime-boundaries
+      - run: npm ci --prefix app-runtime-management/backend
+      - run: npm test --prefix app-runtime-management/backend
+      - run: npm run typecheck --prefix app-runtime-management/backend
+      - run: npm run dry-run --prefix app-runtime-management/backend
+      - run: node app-runtime-management/console/app-runtime-session.test.js
+      - run: node app-runtime-management/console/app-runtime-network.test.js
+      - run: node app-runtime-management/console/app-runtime-policy.test.js
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '8.0.x' }
+      - run: dotnet test app-runtime-management/agents/windows/TimeOnChrome.AppRuntime.sln
+      - shell: pwsh
+        run: app-runtime-management/installer/windows/build.ps1
+
+  macos:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --package-path app-runtime-management/agents/macos

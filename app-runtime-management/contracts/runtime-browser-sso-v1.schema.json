@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.example/contracts/runtime-browser-sso-v1.schema.json",
+  "title": "App Runtime Browser SSO v1",
+  "type": "object",
+  "$defs": {
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "ticketClaims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["iss", "aud", "sub", "account_id", "children", "iat", "exp", "jti"],
+      "properties": {
+        "iss": { "type": "string" },
+        "aud": { "const": "app-runtime-management:sso" },
+        "sub": { "type": "string" },
+        "account_id": { "type": "string" },
+        "children": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/child" } },
+        "iat": { "type": "integer" },
+        "exp": { "type": "integer" },
+        "jti": { "type": "string", "minLength": 8, "maxLength": 128 }
+      }
+    },
+    "launchResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["launchUrl", "expiresAt", "audience"],
+      "properties": {
+        "launchUrl": { "type": "string", "pattern": "^https://timeonchrome-app-runtime-console\\.pages\\.dev/#ticket=" },
+        "expiresAt": { "type": "integer" },
+        "audience": { "const": "app-runtime-management:sso" }
+      }
+    },
+    "sessionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token", "tokenType", "expiresAt", "children"],
+      "properties": {
+        "token": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+        "tokenType": { "const": "RuntimeSession" },
+        "expiresAt": { "type": "integer" },
+        "children": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/child" } }
+      }
+    }
+  }
+}

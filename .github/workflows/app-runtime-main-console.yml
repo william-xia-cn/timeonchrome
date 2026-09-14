@@ -1,0 +1,22 @@
+name: App Runtime Main Console Entry
+
+on:
+  pull_request:
+    paths:
+      - 'pages/index.html'
+      - 'pages/_redirects'
+      - 'tests/unit/app-runtime-integration.test.js'
+  push:
+    branches: [master]
+    paths:
+      - 'pages/index.html'
+      - 'pages/_redirects'
+
+jobs:
+  launch-route:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node tests/unit/app-runtime-integration.test.js
