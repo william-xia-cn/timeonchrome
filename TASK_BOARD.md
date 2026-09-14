@@ -3,7 +3,7 @@
 > App Runtime 跨边界集成在 `codex/app-runtime-integration-v1` 进行；Runtime 内部任务由 `app-runtime-management/docs/TASK_BOARD.md` 管理，本任务板只追踪 Guardian contract/SSO 与主控制台入口兼容。
 
 ## Active Release Target
-- [ ] [P0 / D-081 / Production remediation completed; managed client release pending] `cg.163.com` 系统分类漂移与本周错误账归属修复。
+- [ ] [P0 / D-081 / Production remediation and managed release completed; terminal observation pending] `cg.163.com` 系统分类漂移与本周错误账归属修复。
   - 已确认根因：`/device/config` 只返回 profile version，终端 version skip 不感知 system access version；profile 又持久化旧 effective 清单。9 月 13 日 profile 变更触发拉取时，错误系统分类重新进入终端。
   - 已确认生产影响：T.xia 2026-09-14 的 `cg.163.com` 出现 Study 分类和 Study 扣费桶正时长分段；当前系统配置虽已改回 restricted，但旧终端可能因 profile version 未变继续缓存旧清单。
   - 修复范围：组合配置 revision、Profile 自定义项单一持久权威、系统分类硬约束、expected-version 并发保护、系统配置不可变历史、repo fallback 对齐。
@@ -11,6 +11,7 @@
   - 生产处置：migration 028/029、Guardian Worker 与控制台 Pages 已部署；系统配置已由 version 28 归一化保存为 version 29，`cg.163.com`、`cc.163.com` 均持久化为 restricted。T.xia 2026-09-14 的 240 条、11,853 秒 `cg.163.com` 原始分段保持不变，有效归属已全部更正为 `rest + restricted + rest quota bucket`。
   - 生产边界复验：更正 API 名义允许 100 个 segment，但批次头加 100 条明细会形成 101 条 D1 batch 语句并返回 500；D1 原子失败且未部分写入。单批上限统一为 99，生产历史更正已按 99/51/90 三批成功执行并回读。
   - 明确不变：网页 ACTIVE、起止时间、duration、checkpoint、媒体证据和本地结算语义。
+  - Managed 发布：`1.7.32` 已托管到内部更新源，deployment `0a3707ac`；CRX 418,237 bytes，SHA256 `12d8e5417a34a6ec16bcf499dd55298827436adc17ba7e2e8cbf9d7cc994aa9f`，稳定扩展 ID 不变。终端升级与配置 revision 刷新继续观察，本项在终端证据完成前不关闭。
 - [ ] [1.7.31 / Internal managed / Released and activated] 时间配额 V2 直接接管。
   - [x] 产品口径：D-080 已确认云端只下发账；配额由本机账加云端其他设备账即时计算，不存在云端锁。
   - [x] Worker：migration 027 记录设备 V2 capability；快照增加 active `byDomain` 与 expected/missing/incompatible/stale/incomplete 完整性。
@@ -72,6 +73,12 @@
 - `1.7.26` 已于 2026-08-27 发布到内部 managed 自托管渠道；Native App 回归通过提交 `b133abd`、Worker `fd408a49-fc2e-4e43-a6bf-64e4618d186f` 和控制台 Pages `dd73092e` 前向修复。更新站点仍为 `8a795c47`，CRX SHA256 仍为 `cc094a21dfcedb54ba609741738a4457263563b9b6c98575bb5329e001566594`；设备升级与真实媒体/流游戏对照进入观察。
 
 ## Active UI Work（2026-08-31）
+- [x] [P1 Access UX / D-082] 访问管理“自主度配置”
+  - 范围：Pages 新增可编辑 Tab，本地 Admin 新增同名只读 Tab；集中管理受限内容进入确认、Rest 软限额和无人响应动作。
+  - 硬边界：黑名单、时间窗、每日/每周硬配额和单站点配额不可绕过；不修改网站分类、网页记账、统计、上传、V2 合账或配额计算。
+  - 兼容：旧档案默认保持完整 Reminder 和 60 秒超时结束；关闭进入确认只在既有受限路由允许时直接切换 Rest 并显示短提示。
+  - 验证：配置/API、Mode Service、软提醒状态机、Pages/Admin 桌面手机 UI、导入导出及全量回归；本轮不升版本、不提交、不部署、不托管。
+  - 结果：Pages 可编辑与本地 Admin 只读页面均已完成；旧配置默认行为、硬限制边界、直接进入 Rest、超时继续/结束及投递失败降级均有固定回归。全量 143 个 unit 文件、项目集成/E2E、生产 Worker API 103 项及桌面/手机截图验收通过。功能提交 `c2841a3` 已推送；Guardian Worker Version ID `09c2b1c4-b4d4-4de8-8e05-d51f36cdd606`、Pages deployment `7455c3ad` 与内部更新站点 `0a3707ac` 已部署并完成稳定域名回读。`1.7.32` managed CRX 已托管，终端升级进入生产观察。
 - [x] [P1 Admin UI] 本地控件完整只读镜像云端访问管理信息
   - 范围：访问管理同步摘要、每周休息上限及云端周用量状态、四类每日配额、七天计划合计、单站点配额和允许/锁定时间段。
   - 交互：只展示，不出现 disabled 编辑控件、保存、导入导出、分类审批或系统配置写入口；手机端使用纵向布局，不强制缩小桌面表格。

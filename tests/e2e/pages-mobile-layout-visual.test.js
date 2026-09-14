@@ -25,6 +25,7 @@ async function openMockConsole(page) {
     remoteConfig = {
       domainQuotas: {},
       restConfig: { firstReminderMinutes: 120, repeatReminderMinutes: 60 },
+      autonomyConfig: { restrictedEntryConfirmationRequired: false, softReminderTimeoutAction: 'continue' },
       timeQuota: { accountingVersion: 2, daily: Object.fromEntries(days.map(day => [day, {
         studyMinutes: null,
         restMinutes: null,
@@ -93,6 +94,7 @@ async function showRulesPanel(page, panel) {
         ],
       });
     }
+    if (targetPanel === 'autonomy') renderAutonomyPage();
     if (targetPanel === 'schedule') renderSchedulePage();
   }, panel);
 }
@@ -123,16 +125,26 @@ test('Pages has native mobile navigation and touch layouts without page overflow
 
   await showRulesPanel(page, 'quota');
   await expect(page.locator('.quota-daily-row')).toHaveCount(7);
-  await expect(page.locator('#q-rest-reminder-enabled')).toBeChecked();
-  await expect(page.locator('#q-rest-first-reminder')).toHaveValue('120');
-  await expect(page.locator('#q-rest-repeat-reminder')).toHaveValue('60');
   await expect(page.locator('#q-accounting-version')).toHaveValue('2');
   await expect(page.locator('#quota-cloud-device-list .quota-device-row:not(.header)')).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(OUTPUT, 'pages-mobile-quota.png'), fullPage: true });
+
+  await showRulesPanel(page, 'autonomy');
+  await expect(page.locator('#a-restricted-entry-confirmation')).not.toBeChecked();
+  await expect(page.locator('#a-rest-reminder-enabled')).toBeChecked();
+  await expect(page.locator('#a-rest-first-reminder')).toHaveValue('120');
+  await expect(page.locator('#a-rest-repeat-reminder')).toHaveValue('60');
+  await expect(page.locator('input[name="a-rest-timeout-action"][value="continue"]')).toBeChecked();
+  await expect(page.locator('#autonomy-summary-entry')).toHaveText('短提示后直接进入');
+  await expect(page.locator('#autonomy-summary-timeout')).toHaveText('默认继续');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: path.join(OUTPUT, 'pages-mobile-autonomy.png'), fullPage: true });
   await page.locator('label[title="切换今日休息软限额提醒"]').click();
-  await expect(page.locator('#q-rest-first-reminder')).toBeDisabled();
-  await expect(page.locator('#q-rest-repeat-reminder')).toBeDisabled();
+  await expect(page.locator('#a-rest-first-reminder')).toBeDisabled();
+  await expect(page.locator('#a-rest-repeat-reminder')).toBeDisabled();
+  await expect(page.locator('input[name="a-rest-timeout-action"]')).toHaveCount(2);
+  await expect(page.locator('input[name="a-rest-timeout-action"]').first()).toBeDisabled();
   await page.screenshot({ path: path.join(OUTPUT, 'pages-mobile-rest-reminder-disabled.png'), fullPage: true });
 
   await showRulesPanel(page, 'schedule');
@@ -148,8 +160,8 @@ test('Pages has native mobile navigation and touch layouts without page overflow
   await expect(page.locator('#cloud-usage-table .usage-analysis-table thead')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(OUTPUT, 'pages-desktop-stats.png'), fullPage: true });
-  await showRulesPanel(page, 'quota');
+  await showRulesPanel(page, 'autonomy');
   await expect(page.locator('.rest-reminder-fields')).toHaveCSS('grid-template-columns', /.+ .+/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({ path: path.join(OUTPUT, 'pages-desktop-quota.png'), fullPage: true });
+  await page.screenshot({ path: path.join(OUTPUT, 'pages-desktop-autonomy.png'), fullPage: true });
 });

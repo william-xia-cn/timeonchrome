@@ -441,6 +441,15 @@ function noticeForRoute(route, {
       text: `刚进入${label}时间 · 已临时回到休息时间`,
     };
   }
+  if (route.notice === 'restricted_entry_direct') {
+    return {
+      kind: route.notice,
+      targetMode: 'rest',
+      fromMode,
+      domain,
+      text: '已进入休息时间',
+    };
+  }
   return null;
 }
 
@@ -502,6 +511,7 @@ export function evaluateModeRoute(facts = {}) {
   const compositeExhausted = facts.remainingCompositeSeconds !== null &&
     facts.remainingCompositeSeconds !== undefined &&
     Number(facts.remainingCompositeSeconds) <= 0;
+  const restrictedEntryConfirmationRequired = facts.restrictedEntryConfirmationRequired !== false;
 
   if (facts.isUnsafe) {
     return { kind: 'reminder', reminderReason: 'unsafe' };
@@ -605,6 +615,15 @@ export function evaluateModeRoute(facts = {}) {
           notice: 'mode_grace_to_rest',
         };
       }
+      if (!restrictedEntryConfirmationRequired) {
+        return {
+          kind: 'mode_change',
+          toMode: 'rest',
+          reason: 'restricted_entry_direct',
+          source: 'auto_mode_route',
+          notice: 'restricted_entry_direct',
+        };
+      }
       return {
         kind: 'reminder',
         reminderReason: facts.isRestricted ? 'to_rest_slide_confirm' : 'study_mode',
@@ -657,6 +676,15 @@ export function evaluateModeRoute(facts = {}) {
           reason: 'mode_grace_to_rest',
           source: 'auto_mode_route',
           notice: 'mode_grace_to_rest',
+        };
+      }
+      if (!restrictedEntryConfirmationRequired) {
+        return {
+          kind: 'mode_change',
+          toMode: 'rest',
+          reason: 'restricted_entry_direct',
+          source: 'auto_mode_route',
+          notice: 'restricted_entry_direct',
         };
       }
       return {
@@ -830,6 +858,7 @@ async function handleAccessObserved(event = {}) {
     legacyScheduleAllowed,
     remainingCompositeSeconds,
     quotaState,
+    restrictedEntryConfirmationRequired: config?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
   });
   const remainingStudySeconds = (
     route?.notice === 'composite_to_study' ||

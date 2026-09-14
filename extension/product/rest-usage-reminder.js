@@ -44,6 +44,10 @@ function repeatReminderMinutes(config = {}) {
   return validReminderMinutes(value) ? Number(value) : REST_USAGE_REMINDER_DEFAULT_REPEAT_MINUTES;
 }
 
+function softReminderTimeoutAction(config = {}) {
+  return config?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest';
+}
+
 function remainingSeconds(limitMinutes, usedSeconds) {
   if (limitMinutes === null || limitMinutes === undefined) return null;
   return Math.max(0, Math.floor(Number(limitMinutes) * 60 - Math.max(0, Number(usedSeconds) || 0)));
@@ -149,6 +153,7 @@ async function activatePrompt(prompt) {
     type: 'ACTIVATE_REST_USAGE_REMINDER',
     token: prompt.token,
     deadlineAt: prompt.deadlineAt,
+    timeoutAction: prompt.timeoutAction,
   }, { frameId: 0 }).catch(() => null);
   if (activation?.ok !== true || activation?.visible !== true) {
     await chrome.tabs.sendMessage(prompt.sourceTabId, {
@@ -183,6 +188,43 @@ async function endPrompt(deps, state, reason, promptOverride = null) {
   return { ok: completed, action: 'end', state: next, result };
 }
 
+async function continuePrompt(deps, state, reason, promptOverride = null, options = {}) {
+  const prompt = promptOverride || state?.prompt || state?.deliveryDue;
+  if (!prompt?.token) return { ok: true, skipped: 'no_prompt' };
+  const config = await deps.getConfig();
+  let usage = null;
+  try {
+    usage = await deps.getQuotaUsageView(state.dateKey, { config });
+  } catch (_error) {
+    usage = null;
+  }
+  const todayUsedSeconds = Math.max(
+    0,
+    usage?.ok === false
+      ? Number(prompt.todayUsedSeconds) || 0
+      : Number(usage?.restSeconds) || Number(prompt.todayUsedSeconds) || 0,
+  );
+  const next = await writeState({
+    ...state,
+    deliveryDue: null,
+    prompt: null,
+    lastAcknowledgedUsageSeconds: todayUsedSeconds,
+    nextThresholdSeconds: todayUsedSeconds + Number(state.repeatReminderMinutes || REST_USAGE_REMINDER_DEFAULT_REPEAT_MINUTES) * 60,
+    lastResolution: { token: prompt.token, action: 'continue', reason, at: Date.now() },
+  });
+  await Promise.all([
+    clearAlarm(REST_USAGE_REMINDER_DEADLINE_ALARM),
+    clearAlarm(REST_USAGE_REMINDER_RETRY_ALARM),
+  ]);
+  if (options.resumeMedia !== false) {
+    await chrome.tabs.sendMessage(prompt.sourceTabId, {
+      type: 'RESUME_REST_USAGE_MEDIA',
+      token: prompt.token,
+    }).catch(() => null);
+  }
+  return { ok: true, action: 'continue', nextThresholdSeconds: next.nextThresholdSeconds, state: next };
+}
+
 async function attemptDelivery(deps, state, now) {
   const due = state?.deliveryDue;
   if (!due?.token) return { ok: true, skipped: 'no_delivery_due', state };
@@ -215,6 +257,9 @@ async function attemptDelivery(deps, state, now) {
 async function registerDeliveryFailure(deps, state, candidate, now) {
   const deliveryAttempts = Number(candidate.deliveryAttempts || 0) + 1;
   if (deliveryAttempts >= MAX_DELIVERY_ATTEMPTS) {
+    if (candidate.timeoutAction === 'continue') {
+      return continuePrompt(deps, state, 'delivery_failed_continue', { ...candidate, deliveryAttempts }, { resumeMedia: false });
+    }
     return endPrompt(deps, state, 'delivery_failed', { ...candidate, deliveryAttempts });
   }
 
@@ -225,7 +270,7 @@ async function registerDeliveryFailure(deps, state, candidate, now) {
   return { ok: true, prompted: true, visible: false, deliveryPending: true, state: next };
 }
 
-function buildDeliveryDue({ state, context, firstMinutes, todayUsedSeconds, weekUsedSeconds, effectiveQuota, now }) {
+function buildDeliveryDue({ state, context, firstMinutes, todayUsedSeconds, weekUsedSeconds, effectiveQuota, timeoutAction, now }) {
   const reminderKind = state.lastAcknowledgedUsageSeconds !== null
     && Number.isFinite(Number(state.lastAcknowledgedUsageSeconds))
     ? 'repeat'
@@ -243,6 +288,7 @@ function buildDeliveryDue({ state, context, firstMinutes, todayUsedSeconds, week
     todayRemainingSeconds: remainingSeconds(effectiveQuota.restMinutes, todayUsedSeconds),
     weekUsedSeconds,
     weekRemainingSeconds: remainingSeconds(effectiveQuota.weeklyRestMinutes, weekUsedSeconds),
+    timeoutAction,
   };
 }
 
@@ -258,6 +304,10 @@ export function restUsageReminderRepeatConfigValue(config = {}) {
   return repeatReminderMinutes(config);
 }
 
+export function restUsageReminderTimeoutAction(config = {}) {
+  return softReminderTimeoutAction(config);
+}
+
 export async function evaluateRestUsageReminder(options = {}) {
   return runSerialized(async () => {
     const deps = options.deps || runtimeDeps;
@@ -267,14 +317,27 @@ export async function evaluateRestUsageReminder(options = {}) {
     const config = await deps.getConfig();
     const firstMinutes = firstReminderMinutes(config);
     const repeatMinutes = repeatReminderMinutes(config);
+    const currentState = await readState();
+    if (currentState?.dateKey === dateKey && currentState.prompt?.token) {
+      if (now >= Number(currentState.prompt.deadlineAt || 0)) {
+        if (currentState.prompt.timeoutAction === 'continue') {
+          return continuePrompt(deps, currentState, 'timeout_continue');
+        }
+        return endPrompt(deps, currentState, options.reason || 'timeout');
+      }
+      return { ok: true, pending: true, state: currentState };
+    }
     const usage = await deps.getQuotaUsageView(dateKey, { config });
     if (usage?.ok === false) return { ok: false, error: usage.error || 'rest_usage_unavailable' };
     const todayUsedSeconds = Math.max(0, Number(usage?.restSeconds) || 0);
     const weekUsedSeconds = Math.max(0, Number(usage?.weekRestSeconds) || 0);
-    let state = normalizeState(await readState(), dateKey, firstMinutes, repeatMinutes, todayUsedSeconds);
+    let state = normalizeState(currentState, dateKey, firstMinutes, repeatMinutes, todayUsedSeconds);
 
     if (state.prompt?.token) {
       if (now >= Number(state.prompt.deadlineAt || 0)) {
+        if (state.prompt.timeoutAction === 'continue') {
+          return continuePrompt(deps, state, 'timeout_continue');
+        }
         return endPrompt(deps, state, options.reason || 'timeout');
       }
       return { ok: true, pending: true, state };
@@ -312,6 +375,7 @@ export async function evaluateRestUsageReminder(options = {}) {
       todayUsedSeconds,
       weekUsedSeconds,
       effectiveQuota,
+      timeoutAction: softReminderTimeoutAction(config),
       now,
     });
     state = await writeState({ ...state, deliveryDue });
@@ -330,26 +394,15 @@ export async function handleRestUsageReminderAction(message = {}, sender = {}, o
     if (!Number.isInteger(sender?.tab?.id) || sender.tab.id !== prompt.sourceTabId) {
       return { ok: false, error: 'invalid_prompt_sender' };
     }
-    if (now >= Number(prompt.deadlineAt || 0)) return endPrompt(deps, state, 'timeout');
+    if (now >= Number(prompt.deadlineAt || 0)) {
+      return prompt.timeoutAction === 'continue'
+        ? continuePrompt(deps, state, 'timeout_continue')
+        : endPrompt(deps, state, 'timeout');
+    }
     if (message.action === 'end') return endPrompt(deps, state, 'user_end');
     if (message.action !== 'continue') return { ok: false, error: 'invalid_prompt_action' };
 
-    const config = await deps.getConfig();
-    const usage = await deps.getQuotaUsageView(state.dateKey, { config });
-    const todayUsedSeconds = Math.max(0, Number(usage?.restSeconds) || Number(prompt.todayUsedSeconds) || 0);
-    const next = await writeState({
-      ...state,
-      prompt: null,
-      lastAcknowledgedUsageSeconds: todayUsedSeconds,
-      nextThresholdSeconds: todayUsedSeconds + Number(state.repeatReminderMinutes || REST_USAGE_REMINDER_DEFAULT_REPEAT_MINUTES) * 60,
-      lastResolution: { token: prompt.token, action: 'continue', reason: 'user_continue', at: now },
-    });
-    await clearAlarm(REST_USAGE_REMINDER_DEADLINE_ALARM);
-    await chrome.tabs.sendMessage(prompt.sourceTabId, {
-      type: 'RESUME_REST_USAGE_MEDIA',
-      token: prompt.token,
-    }).catch(() => null);
-    return { ok: true, action: 'continue', nextThresholdSeconds: next.nextThresholdSeconds };
+    return continuePrompt(deps, state, 'user_continue');
   });
 }
 
@@ -360,7 +413,11 @@ export async function restoreRestUsageReminderForTab(tabId, options = {}) {
     const state = await readState();
     const prompt = state?.prompt;
     if (prompt?.token && prompt.sourceTabId === tabId) {
-      if (Date.now() >= Number(prompt.deadlineAt || 0)) return endPrompt(deps, state, 'timeout');
+      if (Date.now() >= Number(prompt.deadlineAt || 0)) {
+        return prompt.timeoutAction === 'continue'
+          ? continuePrompt(deps, state, 'timeout_continue')
+          : endPrompt(deps, state, 'timeout');
+      }
       const response = await chrome.tabs.sendMessage(tabId, {
         type: 'SHOW_REST_USAGE_REMINDER',
         ...prompt,
@@ -370,6 +427,7 @@ export async function restoreRestUsageReminderForTab(tabId, options = {}) {
           type: 'ACTIVATE_REST_USAGE_REMINDER',
           token: prompt.token,
           deadlineAt: prompt.deadlineAt,
+          timeoutAction: prompt.timeoutAction,
         }, { frameId: 0 }).catch(() => null);
       }
       return { ok: true, restored: true, visible: response?.visible === true };

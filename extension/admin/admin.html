@@ -1475,6 +1475,25 @@
       font-size: 12px;
       line-height: 1.7;
     }
+    .rules-autonomy-entry {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .rules-autonomy-guardrails {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .rules-autonomy-guardrail {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.5;
+      background: rgba(0,184,148,0.04);
+    }
     @media (max-width: 720px) {
       body { min-width: 0; }
       #main-screen { width: 100%; }
@@ -1513,6 +1532,8 @@
       .rules-weekly-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .rules-plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .rules-reminder-summary { grid-template-columns: 1fr; }
+      .rules-autonomy-entry,
+      .rules-autonomy-guardrails { grid-template-columns: 1fr; }
       .rules-grid-row.header { display: none; }
       .rules-grid-row.quota,
       .rules-grid-row.schedule {
@@ -1864,6 +1885,7 @@
       <div class="usage-segmented rules-tabs" aria-label="访问管理功能">
         <button type="button" class="active" data-rules-tab="site-management">网站管理</button>
         <button type="button" data-rules-tab="quota-management">时间配额</button>
+        <button type="button" data-rules-tab="autonomy-management">自主度配置</button>
         <button type="button" data-rules-tab="schedule-management">时间段管理</button>
         <button type="button" data-rules-tab="classification-requests">网站归类记录</button>
       </div>
@@ -1901,16 +1923,6 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">休息时间提醒</div>
-              <div class="card-subtitle">当前孩子档案的软限额提醒配置（只读）</div>
-            </div>
-          </div>
-          <div id="rules-rest-reminder-display">暂无配置</div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
               <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/online-time.svg" alt="">配额规则</div>
               <div class="card-subtitle">每日学习、休息、待归类和在线总额（只读）</div>
             </div>
@@ -1933,6 +1945,53 @@
             <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/current-site.svg" alt="">单站点配额</div>
           </div>
           <div id="rules-domain-quotas-display">暂无配置</div>
+        </div>
+      </div>
+
+      <div class="rules-panel" data-rules-panel="autonomy-management">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rules.svg" alt="">当前管控方式</div>
+              <div class="card-subtitle">自主度只调整允许访问时的提示和确认，当前页面只读</div>
+            </div>
+          </div>
+          <div id="rules-autonomy-summary-display">暂无配置</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/restricted.svg" alt="">进入受限娱乐网站</div>
+              <div class="card-subtitle">仅在时间窗与硬配额允许进入时生效（只读）</div>
+            </div>
+          </div>
+          <div id="rules-autonomy-entry-display">暂无配置</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">休息时间自我提醒</div>
+              <div class="card-subtitle">当前孩子档案的软限额提醒配置（只读）</div>
+            </div>
+          </div>
+          <div id="rules-rest-reminder-display">暂无配置</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/blocked.svg" alt="">始终强制执行</div>
+              <div class="card-subtitle">以下规则不受自主度配置影响</div>
+            </div>
+          </div>
+          <div class="rules-autonomy-guardrails">
+            <div class="rules-autonomy-guardrail">黑名单网站始终阻止访问</div>
+            <div class="rules-autonomy-guardrail">学习、复合和休息时间窗始终生效</div>
+            <div class="rules-autonomy-guardrail">每日和每周硬配额始终生效</div>
+            <div class="rules-autonomy-guardrail">单站点配额始终生效</div>
+          </div>
         </div>
       </div>
 

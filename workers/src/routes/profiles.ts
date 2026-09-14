@@ -121,6 +121,7 @@ function buildSchemaDefaults(): object {
       },
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60 },
+    autonomyConfig:     { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest' },
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
     clientLoggingPolicyV1: {
       localEnabled: true,
@@ -318,6 +319,21 @@ function validateRestConfig(config: Record<string, unknown>): string | null {
     if (!Number.isInteger(value) || value < 1 || value > 1440) {
       return 'restConfig.repeatReminderMinutes 必须是 1-1440 的整数分钟';
     }
+  }
+  return null;
+}
+
+function validateAutonomyConfig(config: Record<string, unknown>): string | null {
+  const autonomyConfig = config.autonomyConfig as any;
+  if (autonomyConfig === undefined) return null;
+  if (!autonomyConfig || typeof autonomyConfig !== 'object' || Array.isArray(autonomyConfig)) return 'autonomyConfig 必须是对象';
+  if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'restrictedEntryConfirmationRequired') &&
+      typeof autonomyConfig.restrictedEntryConfirmationRequired !== 'boolean') {
+    return 'autonomyConfig.restrictedEntryConfirmationRequired 必须是布尔值';
+  }
+  if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'softReminderTimeoutAction') &&
+      !['end_rest', 'continue'].includes(autonomyConfig.softReminderTimeoutAction)) {
+    return 'autonomyConfig.softReminderTimeoutAction 必须是 end_rest 或 continue';
   }
   return null;
 }
@@ -654,7 +670,7 @@ export const profilesRouter = {
           'dailyUndeterminedQuota', 'weeklyRestQuota',
           'domainQuotas', 'classificationRules', 'siteClassificationRulesV1',
           'quotaState', 'schedule',
-          'restConfig', 'autoStudyConfig',
+          'restConfig', 'autonomyConfig', 'autoStudyConfig',
           'clientLoggingPolicyV1',
           'timeQuota', 'timeWindows',
         ]);
@@ -690,6 +706,10 @@ export const profilesRouter = {
         if (incomingRestConfigValidationError) {
           return json({ error: 'Invalid restConfig: ' + incomingRestConfigValidationError }, 400);
         }
+        const incomingAutonomyConfigValidationError = validateAutonomyConfig(incomingConfig);
+        if (incomingAutonomyConfigValidationError) {
+          return json({ error: 'Invalid autonomyConfig: ' + incomingAutonomyConfigValidationError }, 400);
+        }
 
         for (const [key, value] of Object.entries(incomingConfig)) {
           if (ALLOWED_KEYS.has(key)) {
@@ -706,9 +726,9 @@ export const profilesRouter = {
                   ? currentQuota.weekly
                   : { ...(currentQuota.weekly || {}), ...(incomingQuota.weekly || {}) },
               };
-            } else if (key === 'restConfig' && value && typeof value === 'object' && !Array.isArray(value)) {
-              mergedConfig.restConfig = {
-                ...((mergedConfig.restConfig as Record<string, unknown>) || {}),
+            } else if ((key === 'restConfig' || key === 'autonomyConfig') && value && typeof value === 'object' && !Array.isArray(value)) {
+              mergedConfig[key] = {
+                ...((mergedConfig[key] as Record<string, unknown>) || {}),
                 ...(value as Record<string, unknown>),
               };
             } else {

@@ -46,6 +46,7 @@ function loadModule(injected) {
     'REST_USAGE_REMINDER_RETRY_MS',
     'restUsageReminderConfigValue',
     'restUsageReminderRepeatConfigValue',
+    'restUsageReminderTimeoutAction',
     'evaluateRestUsageReminder',
     'handleRestUsageReminderAction',
     'restoreRestUsageReminderForTab',
@@ -98,12 +99,16 @@ async function main() {
   let dateKey = '2026-08-29';
   let config = { restConfig: { firstReminderMinutes: 120, repeatReminderMinutes: 30 } };
   let usage = { ok: true, restSeconds: 0, weekRestSeconds: 0 };
+  let usageReadError = null;
   let timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'rest', tabId: 11 };
   const endCalls = [];
   const deps = {
     getConfig: async () => config,
     getDateKey: () => dateKey,
-    getQuotaUsageView: async () => usage,
+    getQuotaUsageView: async () => {
+      if (usageReadError) throw usageReadError;
+      return usage;
+    },
     getTimingSession: async () => timingSession,
     endRestUsage: async (input) => { endCalls.push(input); return { ok: true }; },
   };
@@ -115,6 +120,7 @@ async function main() {
     activeTab = { id: 11, windowId: 7, active: true };
     activeWindow = { id: 7, focused: true, state: 'normal' };
     timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'rest', tabId: 11 };
+    usageReadError = null;
     endCalls.length = 0;
     dateKey = '2026-08-29';
   };
@@ -129,6 +135,9 @@ async function main() {
   equal('repeat interval accepts lower boundary', module.restUsageReminderRepeatConfigValue({ restConfig: { repeatReminderMinutes: 1 } }), 1);
   equal('repeat interval accepts upper boundary', module.restUsageReminderRepeatConfigValue({ restConfig: { repeatReminderMinutes: 1440 } }), 1440);
   equal('legacy fields remain ignored', module.restUsageReminderConfigValue({ restConfig: { reminderInterval: 5, maxRestDuration: 3 } }), 120);
+  equal('missing autonomy config defaults timeout to end Rest', module.restUsageReminderTimeoutAction({}), 'end_rest');
+  equal('autonomy config accepts timeout continue', module.restUsageReminderTimeoutAction({ autonomyConfig: { softReminderTimeoutAction: 'continue' } }), 'continue');
+  equal('invalid timeout action preserves safe default', module.restUsageReminderTimeoutAction({ autonomyConfig: { softReminderTimeoutAction: 'invalid' } }), 'end_rest');
 
   usage = { ok: true, restSeconds: 7199, weekRestSeconds: 20_000 };
   let result = await module.evaluateRestUsageReminder({ deps, now: 1_780_000_000_000 });
@@ -170,6 +179,34 @@ async function main() {
   check('visible prompt survives config changes', result.pending === true && result.state.prompt.token === activePrompt.token);
   result = await module.evaluateRestUsageReminder({ deps, now: activePrompt.deadlineAt, reason: 'deadline_alarm' });
   equal('visible prompt timeout ends Rest', result.action, 'end');
+
+  reset();
+  config = {
+    restConfig: { firstReminderMinutes: 1, repeatReminderMinutes: 3 },
+    autonomyConfig: { softReminderTimeoutAction: 'continue' },
+  };
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_005_000_000 });
+  equal('continue timeout action is carried into prompt', result.prompt.timeoutAction, 'continue');
+  result = await module.evaluateRestUsageReminder({ deps, now: result.prompt.deadlineAt, reason: 'deadline_alarm' });
+  equal('visible prompt timeout continues Rest when configured', result.action, 'continue');
+  equal('timeout continue records stable reason', result.state.lastResolution.reason, 'timeout_continue');
+  equal('timeout continue schedules from current settled usage', result.nextThresholdSeconds, 240);
+  equal('timeout continue does not end Rest', endCalls.length, 0);
+  check('timeout continue resumes paused media', messages.some(item => item.type === 'RESUME_REST_USAGE_MEDIA'));
+
+  reset();
+  config = {
+    restConfig: { firstReminderMinutes: 1, repeatReminderMinutes: 3 },
+    autonomyConfig: { softReminderTimeoutAction: 'continue' },
+  };
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_006_000_000 });
+  usageReadError = new Error('quota view unavailable');
+  result = await module.evaluateRestUsageReminder({ deps, now: result.prompt.deadlineAt, reason: 'deadline_alarm' });
+  equal('timeout continue survives quota view read failure', result.action, 'continue');
+  equal('quota read failure rebases from displayed settled usage', result.nextThresholdSeconds, 240);
+  equal('quota read failure does not end Rest', endCalls.length, 0);
 
   reset();
   config = { restConfig: { firstReminderMinutes: 120, repeatReminderMinutes: 60 } };
@@ -218,6 +255,21 @@ async function main() {
   check('delivery fallback clears retry alarm', !alarms.has(module.REST_USAGE_REMINDER_RETRY_ALARM));
 
   reset();
+  config = {
+    restConfig: { firstReminderMinutes: 1, repeatReminderMinutes: 3 },
+    autonomyConfig: { softReminderTimeoutAction: 'continue' },
+  };
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
+  deliveryMode = 'show_fail';
+  result = await module.evaluateRestUsageReminder({ deps, now: failedAt });
+  result = await module.evaluateRestUsageReminder({ deps, now: failedAt + module.REST_USAGE_REMINDER_RETRY_MS, reason: 'delivery_retry' });
+  equal('second failed delivery continues when configured', result.action, 'continue');
+  equal('failed delivery continue reason is stable', result.state.lastResolution.reason, 'delivery_failed_continue');
+  equal('failed delivery continue advances next threshold', result.nextThresholdSeconds, 240);
+  equal('failed delivery continue does not end Rest', endCalls.length, 0);
+  check('failed invisible delivery does not resume media that was never paused', !messages.some(item => item.type === 'RESUME_REST_USAGE_MEDIA'));
+
+  reset();
   config = { restConfig: { firstReminderMinutes: null, repeatReminderMinutes: 60 } };
   usage = { ok: true, restSeconds: 7200, weekRestSeconds: 7200 };
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_030_000_000 });
@@ -249,13 +301,17 @@ async function main() {
   check('background fallback reason reaches existing mode path', background.includes('rest_usage_reminder_${reason}'));
 
   const pages = fs.readFileSync(path.join(__dirname, '..', '..', 'pages', 'index.html'), 'utf8');
-  check('Pages exposes soft-limit toggle and numeric inputs', ['q-rest-reminder-enabled', 'q-rest-first-reminder', 'q-rest-repeat-reminder'].every(id => pages.includes(`id="${id}"`)));
+  check('Pages exposes autonomy soft-limit toggle and numeric inputs', ['a-rest-reminder-enabled', 'a-rest-first-reminder', 'a-rest-repeat-reminder'].every(id => pages.includes(`id="${id}"`)));
+  check('Pages exposes both timeout actions', pages.includes('name="a-rest-timeout-action" value="end_rest"') && pages.includes('name="a-rest-timeout-action" value="continue"'));
   check('Pages uses one-to-1440 validation', pages.includes('validRestReminderMinutes') && pages.includes('number <= 1440'));
   check('Pages saves and exports repeat reminder', pages.includes('repeatReminderMinutes: quotaFiniteNumber') && pages.includes('repeatReminderMinutes,'));
+  check('content timeout supports end and continue', content.includes("payload.timeoutAction === 'continue'") && content.includes("restReminderResolveAction?.(timeoutAction)"));
 
   const worker = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'profiles.ts'), 'utf8');
   check('Worker validates both reminder fields', worker.includes('restConfig.repeatReminderMinutes') && worker.includes('1-1440 的整数分钟'));
-  check('Worker deep merges restConfig', worker.includes("key === 'restConfig'") && worker.includes('mergedConfig.restConfig ='));
+  check('Worker validates autonomy boolean and timeout enum', worker.includes('autonomyConfig.restrictedEntryConfirmationRequired 必须是布尔值') && worker.includes('autonomyConfig.softReminderTimeoutAction 必须是 end_rest 或 continue'));
+  check('Worker allows autonomy config in controlled profile writes', worker.includes("'restConfig', 'autonomyConfig', 'autoStudyConfig'"));
+  check('Worker deep merges rest and autonomy config', worker.includes("key === 'restConfig' || key === 'autonomyConfig'") && worker.includes('mergedConfig[key] ='));
 
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'rest-usage-reminder.js'), 'utf8');
   check('temporary unpacked ID override is removed', !source.includes('LOCAL_ACCEPTANCE_EXTENSION_ID') && !source.includes('mfmmfemipnmbccecemahcpbiolofcppm'));

@@ -3,9 +3,9 @@
 > App Runtime 集成状态：采用同仓独立模块，内部真值位于 `app-runtime-management/docs/`；根项目只维护 Guardian adapter、主控制台入口和 contract compatibility，详见 D-092。
 
 ## 项目状态
-- **版本：1.7.32（P0 系统分类一致性修复实施中；尚未发布）**
+- **版本：1.7.32（内部 managed 已发布；生产观察中）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
-- **当前发布状态（2026-09-13）**：`1.7.31` 源码提交 `934a2f1` 已推送；migration 027 已应用，Guardian Worker `0af8c265-d3c7-45c3-b10d-1870a0d648f9`、控制台 Pages `7d32c790` 与更新站点 `e9e4b8b4` 已部署并回读成功。线上 feed 已指向 `1.7.31`；managed CRX 为 415,970 bytes，SHA256 `71cb832ba691660c3a1d833bdeb5f9f64115e9887e32b09889e9500367d41864`，稳定扩展 ID 不变。T.xia/P.xia 已通过家长控制台切换为 `timeQuota.accountingVersion=2`；旧客户端继续按 V1 执行，安装 `1.7.31` 后立即启用 V2。当前两档案尚未上报 V2 capability、manifest 或 account head，设备升级与 V2 单账形成保持生产观察。实施范围只包括 capability、V2 账本下发投影、统一配额读模型、消费端显示与 profile 级切换，不修改网页 ACTIVE、原始分段、本地结算或设备单账生成；19009 秒历史差额和 `cg.163.com idleStateChanged` 风险继续保留。
+- **当前发布状态（2026-09-15）**：`1.7.32` 功能提交 `c2841a3` 与部署记录 `29168b2` 已推送；Guardian Worker `09c2b1c4-b4d4-4de8-8e05-d51f36cdd606`、控制台 Pages `7455c3ad` 与更新站点 `0a3707ac` 已部署并回读成功。线上 feed 已指向 `1.7.32`；managed CRX 为 418,237 bytes，SHA256 `12d8e5417a34a6ec16bcf499dd55298827436adc17ba7e2e8cbf9d7cc994aa9f`，稳定扩展 ID 不变。本版包括系统分类一致性与历史归属修正、自主度配置及既有 V2 配额能力；不修改网页 ACTIVE、原始分段时长或媒体计时边界。终端升级、V2 单账形成及 `cg.163.com idleStateChanged` 风险继续保留为生产观察/Deferred。
 - 当前约束：V0 不再作为正式发布版本；V0 仅作为 internal stabilization baseline；首次正式发布目标为 V1-minimal release candidate
 
 ## Codex 三角色协作机制

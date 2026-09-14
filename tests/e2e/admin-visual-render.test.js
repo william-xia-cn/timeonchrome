@@ -52,6 +52,7 @@ const BOUND_SEED = {
     timeQuota: { daily: DAILY_QUOTA, weekly: { restMinutes: 840 } },
     timeWindows: { daily: DAILY_WINDOWS },
     restConfig: { firstReminderMinutes: 120, repeatReminderMinutes: 60 },
+    autonomyConfig: { restrictedEntryConfirmationRequired: false, softReminderTimeoutAction: 'continue' },
     adminPasswordHash: '', isInitialized: true,
   },
   guardian_session: { currentMode: 'rest' },
@@ -171,10 +172,23 @@ test('bound-admin: Access Management mirrors cloud quota and schedule on desktop
     fs.mkdirSync(artifactDir, { recursive: true });
     await page.screenshot({ path: path.join(artifactDir, 'admin-access-readonly-desktop.png'), fullPage: true });
 
+    await page.locator('[data-rules-tab="autonomy-management"]').click();
+    await expect(page.locator('#rules-autonomy-summary-display')).toContainText('短提示后直接进入');
+    await expect(page.locator('#rules-autonomy-summary-display')).toContainText('默认继续');
+    await page.screenshot({ path: path.join(artifactDir, 'admin-autonomy-readonly-desktop.png'), fullPage: true });
+
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(200);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await page.screenshot({ path: path.join(artifactDir, 'admin-access-readonly-mobile.png'), fullPage: true });
+
+    await expect(page.locator('#rules-autonomy-summary-display')).toContainText('短提示后直接进入');
+    await expect(page.locator('#rules-autonomy-summary-display')).toContainText('默认继续');
+    await expect(page.locator('#rules-autonomy-entry-display')).toContainText('已关闭');
+    await expect(page.locator('#rules-rest-reminder-display')).toContainText('2小时');
+    await expect(page.locator('#rules-rest-reminder-display')).toContainText('默认继续休息');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: path.join(artifactDir, 'admin-autonomy-readonly-mobile.png'), fullPage: true });
 
     await page.locator('[data-rules-tab="schedule-management"]').click();
     await expect(page.locator('#rules-schedule-display')).toContainText('允许：00:00 - 01:00，07:00 - 24:00');
