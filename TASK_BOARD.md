@@ -1,6 +1,6 @@
 # TASK_BOARD
 
-> App Runtime 跨边界集成在 `codex/app-runtime-integration-v1` 进行；Runtime 内部任务由 `app-runtime-management/docs/TASK_BOARD.md` 管理，本任务板只追踪 Guardian contract/SSO 与主控制台入口兼容。
+> App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。
 
 ## Active Release Target
 - [ ] [P0 / D-081 / Production remediation and managed release completed; terminal observation pending] `cg.163.com` 系统分类漂移与本周错误账归属修复。
