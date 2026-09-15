@@ -11,12 +11,20 @@
 - [x] Windows 发现与本地策略原子应用；macOS 只读发现及显式验证入口代码。
 - [x] 五目录与确定性/规则两个可滚动管理面板；桌面/移动 mock 目视检查。
 - [x] 相关本地测试、边界检查与 Matched / Deviated / Missing / Extra 审计。
-- [ ] macOS 13+ 编译/Swift tests 与真实 OS 发现验收；当前不记为通过。
-- [x] 四个 docs+code 子系统本地提交；功能分支推送结果以最终 Git 输出为准，不自动合并或发布。
+- [x] macOS 15 CI 编译/Swift tests，共享向量和受控 bundle 发现测试通过；不等同于家庭真机盘点验收。
+- [x] 四个 docs+code 子系统已提交推送功能分支；不自动合并或发布。
 
 边界：不生产部署、不升级本机、不上传家庭盘点、不接入 Santa，不重写历史。macOS 测试必须在 macOS 执行。
 
-### 最新收口（2026-09-15，提交前）
+### 最新 CI 收口（2026-09-15）
+
+- 功能分支 codex/app-runtime-classification-v1 已设置 upstream；四个代码提交 d07eb0a / 20383ff / d15bbaf / 58b1cfc。
+- 构建测试 CI 34973586475 对代码 SHA 58b1cfcf987ffb1eb92aa5cc4c197704da799d3f 全部成功：contracts-worker-console、windows（dotnet test 与 WiX MSI/Burn build）、macos（macos-15，swift test，包含共享分类向量与受控 bundle）。证据：https://github.com/william-xia-cn/timeonchrome/actions/runs/34973586475 。后续纯文档提交不改变该受测代码。
+- macOS 环境 blocker 已由真实 CI 补齐，不再宣称未编译；Windows 当前本机未运行新扫描或升级，真实家庭发现/安装集成仍须另行授权。
+- 最终 Plan Conformance Audit：Matched＝批准的本地代码、契约/三语言匹配、后台/平台/界面及 mock/CI 验证；Deviated＝无；Missing＝批准的 mock 范围无缺项；Extra＝无产品扩展。4 项开发工具链高危依赖及内部未签名包仍为发布风险，不因 CI 成功解除。
+- 最终 Git 核对：classification 工作树干净，旧 Runtime 基线 9acba21 干净；主 master 74c009f 与任务工作线 8603fbb 的用户改动未被修改或提交。本轮无生产写入、部署、migration 或真机升级。
+
+### 本地提交前验证（由上方 CI 补验结论更新）
 
 - 子系统提交 4：确定性产品/变种与分类规则独立面板、孩子范围确认、命中冲突预览及逐项导入批准；保留五导航/五目录和系统日志/访问配置。知识聚焦测试、桌面/移动 Playwright 与目视审查通过；源码不复制到主 Pages。
 
