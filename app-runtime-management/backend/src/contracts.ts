@@ -158,6 +158,8 @@ export interface AppPolicyClassification {
 }
 
 export interface AppPolicyDocument {
+  applicationKnowledge?: import('@timeonchrome/app-runtime-contracts/classification').ApplicationKnowledge;
+  resolvedApplications?: AppPolicyClassification[];
   version: number;
   effectiveAtMs: number | null;
   classifications: AppPolicyClassification[];

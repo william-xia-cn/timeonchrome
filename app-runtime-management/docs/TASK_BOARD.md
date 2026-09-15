@@ -18,6 +18,8 @@
 
 ### 最新收口（2026-09-15，提交前）
 
+- 子系统提交 1：产品/规则 contracts 与三语言匹配核心已提交 d07eb0a；子系统 2 包含 0008、授权/ETag、只读预览/批准/关联审计、清单 ACK 及兼容投影，Worker 35/35 与类型/dry-run 闸门通过。
+
 - fetch 确认最新 origin/master 仍为 6ef41907ea18e1bfee041e8886e3523740de0d8f。工作树和分支保持 D 盘 classification，不动主目录及其他工作线。
 - contracts 1.1.0 build、N/N-1 兼容、21 组 TypeScript 黄金向量与 Draft 2020-12 Schema/向量结构 PASS；C# 同向量包含在 Windows Release 90/90 PASS 中。Swift 未编译或执行。
 - Service/Session Agent Release build 均 0 warning / 0 error。Windows 只用夹具，不启动新二进制或扫描真实家庭。完整成功扫描的缺失对账、其他用户/便携隔离、运行观察不降级 installed、缓存/outbox 事务及 ACK/replay 已覆盖。

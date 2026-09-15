@@ -1,4 +1,7 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
+  putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
+  applyKnowledgeOperation } from './applicationKnowledge';
 import { errorResponse, HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
 import { retireLegacyDevice } from './repository';
 import {
@@ -67,6 +70,39 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
 
   if (url.pathname.startsWith('/v2/module/')) {
     const claims = await requireAccountModule(request, env, nowMs);
+    if (url.pathname.startsWith('/v2/module/application-knowledge/')) {
+      if (request.method !== 'POST') return methodNotAllowed('POST');
+      const childIds=claims.children.map(child=>child.id), body=await readJsonBody(request);
+      if (url.pathname.endsWith('/import-preview')) {
+        const preview=await knowledgeImportPreview(env.RUNTIME_DB,claims.account_id,childIds,body);
+        const { incoming: _incoming, ...publicPreview }=preview;
+        return jsonResponse(publicPreview);
+      }
+      const result=url.pathname.endsWith('/import-approve')
+        ? await approveKnowledgeImport(env.RUNTIME_DB,claims.account_id,childIds,request.headers.get('if-match'),body,nowMs)
+        : url.pathname.endsWith('/operations')
+          ? await applyKnowledgeOperation(env.RUNTIME_DB,claims.account_id,childIds,request.headers.get('if-match'),body,nowMs)
+          : null;
+      return result?jsonResponse(result,{headers:{etag:knowledgeEtag(result.version)}}):null;
+    }
+    if (url.pathname === '/v2/module/application-knowledge') {
+      if (request.method === 'GET') {
+        const knowledge = await getApplicationKnowledge(env.RUNTIME_DB, claims.account_id);
+        return jsonResponse(knowledge, { headers: { etag: knowledgeEtag(knowledge.version) } });
+      }
+      if (request.method === 'PUT') {
+        const childIds = claims.children.map(child => child.id);
+        const knowledge = await putApplicationKnowledge(env.RUNTIME_DB, claims.account_id, childIds,
+          request.headers.get('if-match'), parseKnowledge(await readJsonBody(request), childIds), nowMs);
+        return jsonResponse(knowledge, { headers: { etag: knowledgeEtag(knowledge.version) } });
+      }
+      return methodNotAllowed('GET, PUT');
+    }
+    if (url.pathname === '/v2/module/application-inventory') {
+      return request.method === 'GET'
+        ? jsonResponse({ observations: await listApplicationInventory(env.RUNTIME_DB, claims.account_id) })
+        : methodNotAllowed('GET');
+    }
     const requireChild = (): string => {
       const childId = url.searchParams.get('childId') || '';
       if (!claims.children.some((child) => child.id === childId)) {
@@ -293,6 +329,11 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   }
 
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs);
+  if (url.pathname === '/v2/machines/application-inventory') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    return jsonResponse(await syncApplicationInventory(env.RUNTIME_DB, machine.accountId, machine.machineId,
+      machine.platform, await readJsonBody(request), nowMs));
+  }
   if (url.pathname === '/v2/machines/self') {
     return request.method === 'GET' ? jsonResponse(machine) : methodNotAllowed('GET');
   }
