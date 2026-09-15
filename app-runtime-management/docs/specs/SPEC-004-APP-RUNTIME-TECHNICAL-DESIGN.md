@@ -1,6 +1,6 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
-## ARM-D-011 应用目录与分类规则（实施中）
+## ARM-D-011 应用目录与分类规则（代码接入与本地验证）
 
 保留历史 runtimeIdentity，新增家庭产品知识/可信变种、孩子明确分类和通用规则三层。共享固定条件匹配器，规则按 product / family / developer / type 优先级，逐条 automatic 或 suggestion；auto 的 any 每个分支都必须有可信身份条件。弱名称、自声明类别、来源只能建议。开发者匹配验证后的 opaque signerKey，证书/开发者原文不随机器清单上传。
 

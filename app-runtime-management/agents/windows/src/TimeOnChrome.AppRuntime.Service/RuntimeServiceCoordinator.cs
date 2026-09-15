@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using TimeOnChrome.AppRuntime.Core;
 using TimeOnChrome.AppRuntime.Infrastructure;
@@ -31,6 +32,10 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     private MachineRuntimeApiClient api;
     private MachineRuntimeCredential? credential;
     private MachineSegmentLedger? ledger;
+    private MachineApplicationInventoryStore? inventoryStore;
+    private sealed record InventoryEnvelope(string LocalUserId, SessionApplicationInventoryMessage Message);
+    private readonly Channel<InventoryEnvelope> inventoryQueue = Channel.CreateBounded<InventoryEnvelope>(
+        new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
     private MachineTerminalLogStore? terminalLogs;
     private MachineUserIdentityDeriver? identityDeriver;
     private AppliedMachinePolicy? appliedPolicy;
@@ -76,6 +81,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             RunResilientLoopAsync("policy", PolicyLoopAsync, cancellation.Token),
             RunResilientLoopAsync("upload", UploadLoopAsync, cancellation.Token),
             RunResilientLoopAsync("heartbeat", HeartbeatLoopAsync, cancellation.Token),
+            RunResilientLoopAsync("inventory", InventoryLoopAsync, cancellation.Token),
         ];
     }
 
@@ -173,6 +179,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     {
         ledger = new MachineSegmentLedger(paths.DatabasePath);
         await ledger.InitializeAsync(machineCredential.MachineId, cancellation.Token).ConfigureAwait(false);
+        inventoryStore = new MachineApplicationInventoryStore(paths.DatabasePath, machineCredential.MachineId);
+        await inventoryStore.InitializeAsync(cancellation.Token).ConfigureAwait(false);
         var restored = await ledger.RestoreAccountingSessionsAsync(cancellation.Token).ConfigureAwait(false);
         await WriteLogAsync("info", "storage", "ledger_initialized", "ledger", "ledger_initialized",
             new Dictionary<string, object> { ["recoveryCount"] = restored.Count }).ConfigureAwait(false);
@@ -502,6 +510,18 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             {
                 var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
                 if (line is null) break;
+                if (line.Length > 262144) continue;
+                using var envelope = JsonDocument.Parse(line);
+                if (envelope.RootElement.TryGetProperty("schemaVersion", out var schema) && schema.GetInt32() == 3)
+                {
+                    var inventory = JsonSerializer.Deserialize<SessionApplicationInventoryMessage>(line, RuntimeJson.Options);
+                    if (inventoryStore is not null && inventory is { Applications.Count: <= 200 }
+                        && inventory.Status is "installed" or "runtimeObserved"
+                        && (inventory.CompleteIdentitySet is null || (inventory.Status == "installed" && inventory.Applications.Count == 0
+                            && inventory.CompleteIdentitySet.Count <= 1000 && inventory.CompleteIdentitySet.All(item => !string.IsNullOrWhiteSpace(item) && item.Length <= 256))))
+                        _ = inventoryQueue.Writer.TryWrite(new InventoryEnvelope(localUserId, inventory));
+                    continue;
+                }
                 var message = JsonSerializer.Deserialize<SessionAccountingFactMessage>(line, RuntimeJson.Options);
                 if (message?.SchemaVersion != 2) continue;
                 try
@@ -526,8 +546,12 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         {
             using var process = Process.GetProcessById(checked((int)processId));
             if (process.SessionId != expected.SessionId) return false;
+            var installedAgent = Path.Combine(AppContext.BaseDirectory, "TimeOnChrome.AppRuntime.SessionAgent.exe");
+            if (!string.Equals(process.MainModule?.FileName, installedAgent, StringComparison.OrdinalIgnoreCase)) return false;
         }
         catch (ArgumentException) { return false; }
+        catch (System.ComponentModel.Win32Exception) { return false; }
+        catch (InvalidOperationException) { return false; }
         string? actualSid = null;
         pipe.RunAsClient(() =>
         {
@@ -535,6 +559,52 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             actualSid = identity?.User?.Value;
         });
         return string.Equals(actualSid, expected.Sid, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task InventoryLoopAsync(CancellationToken token)
+    {
+        InventoryEnvelope? pending = null;
+        var backoff = TimeSpan.FromSeconds(60);
+        var nextUpload = DateTimeOffset.MinValue;
+        while (!token.IsCancellationRequested)
+        {
+            var store = inventoryStore;
+            var bound = credential;
+            if (store is not null && bound is not null && !stopping)
+            {
+                try
+                {
+                    while (pending is not null || inventoryQueue.Reader.TryRead(out pending))
+                    {
+                        if (pending.Message.CompleteIdentitySet is { } complete)
+                            await store.ReconcileAsync(pending.LocalUserId, complete, token).ConfigureAwait(false);
+                        else
+                            await store.ObserveAsync(pending.Message.Applications.Select(item =>
+                                new MachineApplicationObservation(pending.LocalUserId, item, pending.Message.Status)).ToArray(), token).ConfigureAwait(false);
+                        pending = null;
+                    }
+                    if (DateTimeOffset.UtcNow >= nextUpload)
+                    {
+                        var batch = await store.PeekAsync(token).ConfigureAwait(false);
+                        if (batch is not null)
+                        {
+                            var ack = await api.UploadApplicationInventoryAsync(bound, batch, token).ConfigureAwait(false);
+                            await store.AcknowledgeAsync(batch, ack, token).ConfigureAwait(false);
+                        }
+                        backoff = TimeSpan.FromSeconds(60);
+                        nextUpload = DateTimeOffset.UtcNow + backoff;
+                    }
+                }
+                catch (Exception) when (!token.IsCancellationRequested)
+                {
+                    await WriteLogAsync("warning", "upload", "application_inventory_failed", "inventory-loop", "application_inventory_failed").ConfigureAwait(false);
+                    await Task.Delay(backoff, token).ConfigureAwait(false);
+                    nextUpload = DateTimeOffset.UtcNow;
+                    backoff = TimeSpan.FromSeconds(Math.Min(900, backoff.TotalSeconds * 2));
+                }
+            }
+            await Task.Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false);
+        }
     }
 
     private async Task ApplyFactAsync(int sessionId, string localUserId, AccountingRuntimeFact fact, CancellationToken cancellationToken)
@@ -605,6 +675,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             var result = await api.GetPolicyAsync(credential, policyEtag, cancellationToken).ConfigureAwait(false);
             if (result.Policy is not null)
             {
+                var observations = inventoryStore is null ? [] : await inventoryStore.ListAsync(cancellationToken).ConfigureAwait(false);
+                var localResolutions = MachinePolicyStore.ResolveApplications(result.Policy, observations);
                 await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
@@ -620,8 +692,9 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                         foreach (var sessionId in sessions.Keys.ToArray())
                             await CloseSessionUnsafeAsync(sessionId, boundaryWall, boundaryMonotonic).ConfigureAwait(false);
                     }
-                    appliedPolicy = new AppliedMachinePolicy(result.Policy, boundaryWall, boundaryWall);
-                    await policyStore.SaveAsync(appliedPolicy, cancellationToken).ConfigureAwait(false);
+                    var candidate = new AppliedMachinePolicy(result.Policy, boundaryWall, boundaryWall, localResolutions);
+                    await policyStore.SaveAsync(candidate, cancellationToken).ConfigureAwait(false);
+                    appliedPolicy = candidate;
                     await WriteLogAsync("info", "policy", "policy_applied", "policy-loop", "policy_applied",
                         new Dictionary<string, object> { ["version"] = result.Policy.Version }).ConfigureAwait(false);
                     policyEtag = result.ETag;

@@ -30,6 +30,14 @@ public sealed class MachineRuntimeApiClient
     private readonly HttpClient httpClient;
 
     public MachineRuntimeApiClient(HttpClient httpClient) => this.httpClient = httpClient;
+    public async Task<MachineApplicationInventoryAck> UploadApplicationInventoryAsync(MachineRuntimeCredential credential,
+        MachineApplicationInventoryBatch batch, CancellationToken token = default)
+    {
+        using var request = Authorized(HttpMethod.Post, credential, "/v2/machines/application-inventory");
+        request.Content = JsonContent.Create(batch, options: RuntimeJson.Options);
+        using var response = await httpClient.SendAsync(request, token).ConfigureAwait(false);
+        return await ReadAsync<MachineApplicationInventoryAck>(response, token).ConfigureAwait(false);
+    }
 
     public async Task<MachineRuntimeCredential> EnrollAsync(Uri serverUrl, string code, string displayName, CancellationToken cancellationToken = default)
     {
