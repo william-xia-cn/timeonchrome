@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [contracts 1.2.0 生产发布] — 2026-09-16
+
+- PR #14 合并后干净 master `fa2c3d4` 完成 Runtime 0009、Worker `c7a57148` 和独立 Pages `54ebbd84` 发布；PR 跨平台 CI 及合并源码 Worker 38/38/类型/binding/dry-run 通过。
+- PO 明确批准本次现有 Wrangler 登录发布路径；未提取或复制 OAuth 凭据。Guardian、主 Pages、R2 未部署，R2 latest 仍为 2.0.6。
+- 稳定 Runtime Pages HTML/JS/CSS 与源码哈希一致；模块/机器 API 无认证均 401，不清理或改写旧观察、历史账本。
+- 2.2.1 内部未签名候选包哈希复核通过；PO 选择手工原地安装，安装与新版真实完整盘点尚待验收，不能标记本机已更新。
+
 ## [Windows 2.2.1 / contracts 1.2.0] — 2026-09-16（本地修复与包验证，未安装/发布）
 
 - ARM-D-012：优先读取应用列表/manifest 友好名称；隐藏包入口标为组件，弱安装线索标为候选。Registry DisplayIcon 不再冒充主程序证明；同身份来源合并保留可靠证据，不按同名、同开发者或包族强制合并。

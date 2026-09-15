@@ -1,5 +1,14 @@
 # App Runtime 项目真值
 
+## 最新生产发布（2026-09-16）
+
+- PO 明确批准本次使用现有 Wrangler 登录发布例外，不提取/搬运 OAuth 凭据，不替代 GitHub production token 配置。
+- PR #14 当前提交跨平台 CI 全通过，合并源码 `fa2c3d49fe0837581e87ad598268b26bc6b0f1d3`、contracts 1.2.0；D 盘独立干净发布工作树再次通过 Worker 38/38、类型、binding、模块边界及 dry-run。
+- 唯一待执行 `0009_runtime_inventory_scans.sql` 精确核对并应用成功，随后无待执行 migration；不改写旧观察或历史账本。
+- Runtime Worker `c7a57148-5568-4cd2-a6d5-e21c2d3a1041`；独立 Runtime Pages `54ebbd84-9ee6-4fc4-98dd-1ee0dcdfd73c`，Source `fa2c3d4`。稳定域 HTML/JS/CSS SHA-256 与源码逐文件一致，四个模块/机器接口未认证均为 401。
+- Guardian、主 Pages、R2 本次不部署；R2 latest 回读仍为内部未签名 2.0.6。升级前本机 2.2.0 Service Automatic/Running、单一 Session Agent。2.2.1 Burn 哈希复核通过，PO 选择手工安装；尚未确认安装成功或真实新版完整盘点。
+- 下方旧生产/准备记录保留为历史，以本节最新事实为准。GitHub production token 缺失仍影响未来自动发布，不影响本次已批准并完成的 Wrangler 本机发布。
+
 ## 当前修复与生产基线（2026-09-16）
 
 - ARM-D-012 目录质量修复位于 `codex/app-runtime-inventory-quality-v1`；contracts 1.2.0、Windows 2.2.1 本地代码/最终包已验证，最终代码 6e8618f 的 Windows/WiX、contracts-worker-console 和真实 macOS 15 Swift CI 35002959346 全部通过。源码未合并，不代表生产已更新。

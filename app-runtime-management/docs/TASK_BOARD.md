@@ -1,5 +1,17 @@
 # App Runtime 任务板
 
+## NOW：2.2.1 手工升级与真实盘点验收（2026-09-16）
+
+- [x] 本轮 PO 授权现有 Wrangler 登录发布例外，未读取/搬运 OAuth 凭据。
+- [x] PR #14 全部 CI success，合并 master `fa2c3d4`；使用 D 盘独立干净发布工作树，Worker 38/38、类型/binding/边界/dry-run 通过。
+- [x] 精确应用唯一待执行 0009，远端回查无待执行 migration。
+- [x] Runtime Worker `c7a57148-5568-4cd2-a6d5-e21c2d3a1041`、独立 Pages `54ebbd84-9ee6-4fc4-98dd-1ee0dcdfd73c` 发布成功；稳定域 HTML/JS/CSS 与 master 哈希一致，未认证 API 401。
+- [x] Guardian/Main Pages/R2 未部署，R2 latest 仍为 2.0.6。2.2.1 Burn SHA-256 `1df0d8f3b23fe82c241bd6eef761d329186d293812b4bbeab26d4e6aa48115f5`、118,702,091 bytes 回读通过。
+- [ ] PO 选择手工安装 2.2.1，等待完成后检查正式版本、Service、单一 Session Agent、credential/策略/SQLite/outbox/身份保留。
+- [ ] 新版真实盘点 scan/ACK、完整性、友好名称和可信去重仍待验收，不用 mock 或旧清单数量替代。
+
+发布审计：Matched＝合并、精确迁移、独立 Worker/Pages、API fail-closed、资源哈希与 R2 latest 不变；Deviated＝PO 本轮批准的 Wrangler 本机发布例外；Missing＝发布阶段无，本机升级/真实盘点仍待用户安装后验证；Extra＝无。未重新配对、删除、历史重算或披露凭据。
+
 ## NOW：Windows 2.2.1 目录质量修复（ARM-D-012，PO 授权）
 
 最后复核补充：包查询输出与 C# 读取端显式统一 UTF-8，避免中文友好名称依赖控制台代码页；增加只输出受控中文字符串的 PowerShell 夹具测试，不运行 Get-AppxPackage/Get-StartApps。改动后已重新构建并回读核对最终候选包。
