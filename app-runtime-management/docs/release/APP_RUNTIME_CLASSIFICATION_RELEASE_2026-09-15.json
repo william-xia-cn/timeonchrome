@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "release": "应用目录与分类规则云端发布",
+  "observedAt": "2026-09-15T15:19:01.8365245+00:00",
+  "gitSha": "b133f78f5deeadd3af377d88f5848f85e66fc5c9",
+  "contractVersion": "1.1.0",
+  "deploymentMethod": "LOCAL_WRANGLER_PO_APPROVED_ONE_TIME_EXCEPTION",
+  "approval": {
+    "scope": [
+      "Runtime D1 0008",
+      "Runtime Worker",
+      "独立 Runtime Pages"
+    ],
+    "excluded": [
+      "Guardian",
+      "主 Pages",
+      "R2 写入/latest 切换",
+      "本机客户端升级",
+      "家庭应用盘点上传"
+    ],
+    "futureCiProductionApprovalRetained": true,
+    "oauthCredentialsCopied": false
+  },
+  "baseline": {
+    "observedAt": "2026-09-15T15:11:04.1526895+00:00",
+    "runtimeWorkerVersion": "27e01201-412d-4eb9-ba3c-75cc6ed75eb1",
+    "guardianWorkerVersion": "b971221b-82b1-4e14-8f67-f3b884ac924c",
+    "runtimePagesId": "da630a11-33a6-40ad-97af-da2a837c66bb",
+    "mainPagesId": "3876077d-5607-4e95-8526-b666cf16d13c",
+    "r2Latest": {
+      "version": "2.0.6",
+      "platform": "windows",
+      "architecture": "x64",
+      "installerType": "burn",
+      "installerPath": "windows/x64/2.0.6/TimeOnChrome-AppRuntime-Setup-win-x64-2.0.6.exe",
+      "sha256": "2e78fe219dbf51c1df1d699b6776f3f9047069dcee2927ae10c575cbae7808f7",
+      "sizeBytes": 118513641,
+      "signed": false,
+      "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING"
+    },
+    "pendingRuntimeMigrations": [
+      "0008_runtime_application_knowledge.sql"
+    ]
+  },
+  "production": {
+    "observedAt": "2026-09-15T15:19:01.8365245+00:00",
+    "runtimeWorkerVersion": "2543375b-f8c6-4acc-92f2-d7eca56c5068",
+    "guardianWorkerVersion": "b971221b-82b1-4e14-8f67-f3b884ac924c",
+    "runtimePagesId": "3ec2fd7e-828b-4598-b89f-6e63dd771a0d",
+    "runtimePagesSource": "b133f78",
+    "mainPagesId": "3876077d-5607-4e95-8526-b666cf16d13c",
+    "r2Latest": {
+      "version": "2.0.6",
+      "platform": "windows",
+      "architecture": "x64",
+      "installerType": "burn",
+      "installerPath": "windows/x64/2.0.6/TimeOnChrome-AppRuntime-Setup-win-x64-2.0.6.exe",
+      "sha256": "2e78fe219dbf51c1df1d699b6776f3f9047069dcee2927ae10c575cbae7808f7",
+      "sizeBytes": 118513641,
+      "signed": false,
+      "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING"
+    },
+    "pendingRuntimeMigrations": []
+  },
+  "migrations": {
+    "applied": [
+      "0008_runtime_application_knowledge.sql"
+    ],
+    "priorRemoteNamesMatched": true,
+    "pending": [],
+    "newTablesVerified": [
+      "runtime_application_knowledge_versions_v1",
+      "runtime_application_inventory_v1",
+      "runtime_application_inventory_batches_v1",
+      "runtime_application_knowledge_audit_v1"
+    ],
+    "existingSegmentsRewritten": false
+  },
+  "pages": {
+    "stableUrl": "https://timeonchrome-app-runtime-console.pages.dev",
+    "deploymentUrl": "https://3ec2fd7e.timeonchrome-app-runtime-console.pages.dev",
+    "sourceGitSha": "b133f78f5deeadd3af377d88f5848f85e66fc5c9"
+  },
+  "verification": {
+    "local": [
+      "contracts build PASS",
+      "backend typecheck PASS",
+      "Worker/D1 tests 35/35 PASS",
+      "module boundary PASS",
+      "release-config PASS",
+      "Wrangler dry-run PASS"
+    ],
+    "ci": {
+      "runUrl": "https://github.com/william-xia-cn/timeonchrome/actions/runs/34979244186",
+      "result": "SUCCESS",
+      "windowsAndWix": "PASS",
+      "macosSwift": "PASS_ON_MACOS_CI_NOT_LOCAL_WINDOWS",
+      "contractsBackendConsole": "PASS"
+    },
+    "unauthenticatedApi": [
+      {
+        "path": "/v2/module/application-knowledge",
+        "status": 401
+      },
+      {
+        "path": "/v2/module/application-inventory",
+        "status": 401
+      },
+      {
+        "path": "/v2/module/app-catalog",
+        "status": 401
+      },
+      {
+        "path": "/v2/module/machines",
+        "status": 401
+      },
+      {
+        "path": "/v2/machines/policy",
+        "status": 401
+      }
+    ],
+    "staticAssets": [
+      {
+        "path": "index.html",
+        "status": 200,
+        "sha256": "7a8460c9656308c1d946fb1f4b836f2b98bfa3588b49008d50a88230c4a3c5ef",
+        "releaseSourceBytesMatched": true
+      },
+      {
+        "path": "app-runtime.js",
+        "status": 200,
+        "sha256": "cc100ea595249286cbf7c95f2fc655fde3a591d76397eef31932f778bf0089ab",
+        "releaseSourceBytesMatched": true
+      },
+      {
+        "path": "app-runtime-knowledge.js",
+        "status": 200,
+        "sha256": "e6ebfcbcd1c38ba155962c565108d34991c7116a8e7abfeabf0ed0d42d949259",
+        "releaseSourceBytesMatched": true
+      },
+      {
+        "path": "app-runtime-knowledge.css",
+        "status": 200,
+        "sha256": "ba8999fad8c7ed90bc93b959f8143e0eb642a1f241458e393ebbf16c2f275d42",
+        "releaseSourceBytesMatched": true
+      }
+    ],
+    "guardianUnchanged": true,
+    "mainPagesUnchanged": true,
+    "r2LatestUnchanged": true
+  },
+  "audit": {
+    "matched": [
+      "批准的 Runtime 云端发布范围",
+      "固定已合并 master SHA",
+      "精确 migration",
+      "生产回读与资源隔离"
+    ],
+    "deviated": [
+      {
+        "item": "本机 Wrangler 替代 GitHub Actions 发布",
+        "approval": "PO 单项明确批准，仅限本次"
+      }
+    ],
+    "missing": [],
+    "extra": []
+  },
+  "notVerifiedOrNotExecuted": [
+    "真实登录后的新应用目录/规则面板验收",
+    "新 Windows 发现客户端安装升级",
+    "真实家庭应用盘点及上传"
+  ],
+  "retainedRisks": [
+    "开发工具链 4 项 high 依赖告警未修复",
+    "内部 Windows 包 BLOCKED_BY_AUTHENTICODE_SIGNING",
+    "未来 GitHub CI production API token 未配置",
+    "既有设备详情最近同步/Tamper 展示诊断未处理"
+  ]
+}

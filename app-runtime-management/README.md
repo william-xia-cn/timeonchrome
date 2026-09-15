@@ -1,12 +1,12 @@
 # App Runtime Management
 
-## 应用分类规则阶段（ARM-D-011，本地实现与 mock/CI 验证完成）
+## 应用分类规则阶段（ARM-D-011，云端已发布；新客户端未升级）
 
-应用管理新增家庭确定性产品与通用分类规则。家庭复用识别知识，孩子分类独立；规则包预览批准，未知应用仍未归类。产品关联不替换旧 runtimeIdentity，不追溯重算历史。Windows 发现已接入 Service 的独立清单事务/outbox；macOS 仅显式只读发现适配器。本阶段不部署、不阻止、不升级本机，不自动上传真实家庭盘点。功能分支 contracts 为 1.1.0；现有生产 contract 1.0.0 不因本轮本地修改改变。Windows 90/90、Worker 35/35 与桌面/移动 mock 通过；macOS 15 CI 已真实执行并通过 swift test。代码 SHA 58b1cfc 的跨平台 CI 34973586475 全绿（含 Windows MSI/Burn build），不等同于生产发布或家庭真机验收。
+应用管理新增家庭确定性产品与通用分类规则。家庭复用识别知识，孩子分类独立；规则包预览批准，未知应用仍未归类。产品关联不替换旧 runtimeIdentity，不追溯重算历史。Windows 发现已接入 Service 的独立清单事务/outbox；macOS 仅显式只读发现适配器。2026-09-15 从已合并 master@b133f78 发布 contract 1.1.0、Runtime migration 0008、Worker 2543375b 和独立 Pages 3ec2fd7e。Windows 90/90、Worker 35/35、桌面/移动 mock 与 macOS 15 CI swift test 通过；发布 master CI 34979244186 全绿。Guardian、主 Pages、R2 latest 2.0.6 与本机安装均未变化；新发现客户端尚未安装，未自动上传家庭盘点，真实登录新面板验收未执行。发布证据见 docs/release/APP_RUNTIME_CLASSIFICATION_RELEASE_2026-09-15.json。
 
 App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能力。macOS 与 Windows 是同一产品的两个原生 Agent，共享事实模型、Usage Segment、上传协议和 Runtime Worker/D1；Santa Native App Control 继续独立负责应用发现、审核与阻止。
 
-本模块在 TimeOnChrome 仓库内独立构建、测试、版本和部署。项目真值位于 `docs/`；共享协议由 `@timeonchrome/app-runtime-contracts@1.0.0` 提供。Runtime Console 的 canonical source 是 `console/`，发布到独立 `timeonchrome-app-runtime-console` Pages 项目，不再复制到主控制台 Pages。
+本模块在 TimeOnChrome 仓库内独立构建、测试、版本和部署。项目真值位于 `docs/`；共享协议由 `@timeonchrome/app-runtime-contracts@1.1.0` 提供。Runtime Console 的 canonical source 是 `console/`，发布到独立 `timeonchrome-app-runtime-console` Pages 项目，不再复制到主控制台 Pages。下方早期阶段记录为历史，不覆盖本节最新发布事实。
 
 ## 当前实现状态
 
