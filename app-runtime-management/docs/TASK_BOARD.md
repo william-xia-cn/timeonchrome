@@ -2,12 +2,15 @@
 
 ## 当前合并与发布预检（PO 授权：合并、推送、部署）
 
-- PR #10 已合并到 origin/master（eed75c49）；contract 1.1.0、Windows/WiX、macOS Swift 及 Guardian compatibility CI 通过。生产尚未更新。
+- 2026-09-15 PO 明确批准一次性本机 Wrangler 受控发布例外：专用干净 checkout 固定 master@b133f78，只应用 0008_runtime_application_knowledge.sql、部署 Runtime Worker/独立 Pages；不复制 OAuth token，不部署 Guardian/Main Pages，不修改 R2 或 William 安装。顺序：构建/dry-run → 恢复基线 → 精确 migration → Worker → Pages → HTTP/版本/隔离复验 → 证据提交。GitHub production 人工审批规则仍保留供后续 CI 发布，例外不永久改变治理规则。
+
+- PR #10/#11 已合并到 origin/master（发布 SHA b133f78）；contract 1.1.0、Windows/WiX、macOS Swift 与集成 CI 通过。PO 批准的一次性本机 Wrangler 方式已完成 0008、Runtime Worker 2543375b 和独立 Pages 3ec2fd7e 发布。
 - PO 已授权补全发布配置：在短期分支修改 production workflow、manifest 生成器及聚焦测试；Runtime Worker/Pages 独立选择，Guardian/Main Pages 默认关闭，migration 按精确文件名核对，固定受测 master SHA。
 - 建立 master-only production 人工审批环境；Cloudflare Account ID 使用环境变量，部署 API token 由 PO 在 GitHub environment secrets 安全配置。禁止读取/复制本机 Wrangler OAuth token，缺失认证时 fail-closed。
 - 聚焦 release-config 测试接入 Runtime CI；production workflow、manifest 或该测试变更均触发验证。GitHub production 环境、master branch policy 与 Account ID 已创建并回查，部署 API token 尚缺失。
-- 本地验证：production YAML 结构、release-config fixtures、既有 Guardian integration、模块边界与 git diff --check 均通过；native-app-control/、extension/、workers/、pages/ 零修改。配置代码审计 Matched；Deviated/Missing/Extra 无。生产执行仍因 API token 和人工审批待完成而阻塞，不能标记已部署。
-- 远端 Runtime 当前仅待 0008_runtime_application_knowledge.sql。配置验证、合并和人工审批通过前，不执行 migration 或部署；R2 latest、William 安装和家庭盘点不在本轮范围。
+- 本地发布验证：contracts build、backend typecheck、Worker/D1 35/35、模块边界、release-config 与 Wrangler dry-run 通过；受测 master CI 34979244186 全绿。当前证据提交只改模块文档，不改 native-app-control/、extension/、workers/、pages/。
+- 生产回读：0008 四张新表存在，Runtime 无待执行 migration；五个 API 未认证 401，四个静态文件 200 且哈希一致。Guardian、主 Pages、R2 latest 与发布前一致；新客户端安装/家庭盘点不在本轮范围，真实登录新面板尚未验收。
+- 发布审计：Matched＝批准的 Runtime 云端范围及回读；Deviated＝PO 明确批准一次性本机 Wrangler 代替 GitHub Actions；Missing/Extra＝本次批准范围无。未来 CI production API token 仍缺失，不能把本次本机发布记为 CI secret 已配置。
 
 - 应用发现收口：只有完整且无失败来源的扫描才发送有界完整身份集合；Service 按已认证用户将此前已安装但本次未观察到的项目标记 `notObserved`。便携运行观察及其他用户不受影响，失败/超容量扫描不推断卸载；缓存和独立 outbox 继续事务写入。
 - 运行观察不能把已确认 installed 降为 runtimeObserved；保留安装证据，成功完整扫描仍可更新缺失状态。包扫描取消时结束自身查询进程，不遗留后台查询。

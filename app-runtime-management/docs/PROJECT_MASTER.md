@@ -9,6 +9,11 @@
 
 ## 当前生产状态（2026-09-15）
 
+- 应用目录与分类规则云端发布已完成：干净、已合并的 `origin/master@b133f78f5deeadd3af377d88f5848f85e66fc5c9`，contract `1.1.0`；精确应用 `0008_runtime_application_knowledge.sql`，远端当前无待执行 Runtime migration。
+- 最新 Runtime Worker 为 `2543375b-f8c6-4acc-92f2-d7eca56c5068`；独立 Runtime Pages 为 `3ec2fd7e-828b-4598-b89f-6e63dd771a0d`，稳定地址不变。四个发布静态文件 HTTP 200 且 SHA-256 与发布源码一致；五个相关 API 未认证均为 401。
+- Guardian `b971221b`、主 Pages `3876077d` 与 R2 latest `2.0.6` 经发布前后独立回读确认不变；未升级本机客户端、未自动盘点上传家庭数据。新发现客户端安装与真实登录后的新面板验收仍待单独执行。
+- 本次不可变证据为 `release/APP_RUNTIME_CLASSIFICATION_RELEASE_2026-09-15.json`。下方 D-092 首轮发布记录为历史基线，不是最新 Runtime Worker/Pages 版本。
+
 - D-092 同仓解耦首轮生产发布与真实浏览器验收已完成；来源为已合并、干净的 `origin/master@d8f79eceeb13b0a66715d35756cee647dee9ac99`，contract 为 `1.0.0`。
 - Runtime Worker：`27e01201-412d-4eb9-ba3c-75cc6ed75eb1`；独立 Runtime Pages：`da630a11-33a6-40ad-97af-da2a837c66bb`，稳定地址 `https://timeonchrome-app-runtime-console.pages.dev`。
 - Guardian adapter：`b971221b-82b1-4e14-8f67-f3b884ac924c`；主 Pages 隔离复部署：`3876077d-5607-4e95-8526-b666cf16d13c`。仅重部署主 Pages 后，其余三个资源和 R2 latest 均未变化。
@@ -29,7 +34,9 @@
 
 ## 生产恢复硬闸门
 
-- Runtime D1 按已批准清单和远端记录精确核对；`0006/0007` 已执行，当前待发布仅 `0008_runtime_application_knowledge.sql`。不得自动应用其他待执行文件。
+- 本次例外（2026-09-15，PO 单项明确确认）：允许干净 master@b133f78 checkout 使用既有本机 Wrangler OAuth，仅执行 Runtime 0008/Worker/独立 Pages。Guardian/Main Pages/R2 和本机安装不变；不向 GitHub 搬运 OAuth 凭据。此次执行结果另行记录，不能将批准视为已部署，也不取消后续 CI production 环境审批要求。
+
+- Runtime D1 按已批准清单和远端记录精确核对；`0001–0008` 已执行，本次回读无待执行文件。不得自动应用未来其他待执行文件。
 - 发布配置补全中（PO 授权）：生产只使用固定的已合并 master SHA；Runtime Worker/Pages 可独立选择，Guardian/Main Pages 默认不部署，migration 另行显式选择。GitHub production 环境只允许 master，并要求 PO 人工审批；缺失部署 API token 时停止，禁止搬运本机 OAuth 凭据。
 - Guardian 远端 `d1_migrations` 当前没有历史记录；禁止执行自动全量 migration apply。
 - 独立 Runtime Pages、独立 SSO 密钥、Runtime Worker、Guardian adapter 和主 Pages 入口必须可以分别回滚。

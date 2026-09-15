@@ -1,5 +1,13 @@
 # App Runtime Changelog
 
+## [应用目录与分类规则云端发布] — 2026-09-15
+
+- 从已合并、干净的 master@b133f78 发布 contract 1.1.0；只应用 additive 0008、部署 Runtime Worker 2543375b 与独立 Runtime Pages 3ec2fd7e。
+- PO 明确批准一次性本机 Wrangler 发布例外；保留后续 GitHub production 人工审批规则，不复制 OAuth 凭据。
+- Worker/D1 35/35、类型检查/dry-run、master 跨平台 CI、生产 API 未认证 401 与四个静态文件哈希回读通过。Guardian、主 Pages、R2 latest 2.0.6 保持不变。
+- 未升级本机新发现客户端、未上传家庭盘点、未执行真实登录新面板验收；开发工具链 4 项高危依赖与内部未签名包风险保留。
+- 不可变发布证据：release/APP_RUNTIME_CLASSIFICATION_RELEASE_2026-09-15.json。
+
 ## [D-092 生产边界收尾] — 2026-09-15
 
 - PR #8 合并后的 `origin/master@d8f79ec` 与 contract `1.0.0` 完成 Runtime `0006/0007`、独立 Runtime Pages、SSO 和 Guardian adapter 首轮发布。
