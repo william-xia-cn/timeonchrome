@@ -1,5 +1,13 @@
 # App Runtime 项目真值
 
+## 当前修复与生产基线（2026-09-16）
+
+- ARM-D-012 目录质量修复位于 `codex/app-runtime-inventory-quality-v1`；contracts 1.2.0、Windows 2.2.1 本地代码/最终包已验证，最终代码 6e8618f 的 Windows/WiX、contracts-worker-console 和真实 macOS 15 Swift CI 35002959346 全部通过。源码未合并，不代表生产已更新。
+- 已安装客户端为手工升级的 2.2.0；当前生产应用分类基线为已合并 master `b133f78f5deeadd3af377d88f5848f85e66fc5c9`、contracts 1.1.0、Runtime migration 0008。Runtime Worker `2543375b-f8c6-4acc-92f2-d7eca56c5068`、Runtime Pages `3ec2fd7e-828b-4598-b89f-6e63dd771a0d`；Guardian、主 Pages 与 R2 latest 2.0.6 保持原基线。
+- 该基线来自前轮实际发布/安装检查，本次没有重新部署或执行生产盘点。旧数据保留，不能据上传数量宣称完整发现或干净产品目录。
+- 新增 0009 只完成本地迁移测试；受测代码合并后，必须另获授权先发布 0009/Runtime Worker/Console，再升级 2.2.1。新 discovery/scan 字段不被旧严格校验 Worker 接受；不得先升级客户端造成上传失败。
+- 下方 D-092 首轮记录保留为历史。任何生产发布仍须干净 origin/master、独立资源选择及人工批准；本轮不触及 Guardian/Santa/Extension/主 Pages、机器配对或账本历史。
+
 ## 产品与工程边界
 
 - `app-runtime-management/` 是 TimeOnChrome 仓库内的独立产品模块，不是 worktree 的附属物。
@@ -29,7 +37,7 @@
 
 ## 生产恢复硬闸门
 
-- Runtime D1 按已批准清单和远端记录精确核对；`0006/0007` 已执行，当前待发布仅 `0008_runtime_application_knowledge.sql`。不得自动应用其他待执行文件。
+- Runtime D1 按已批准清单和远端记录精确核对；`0006/0007/0008` 已前轮执行，本次新增待发布 `0009_runtime_inventory_scans.sql`，当前仅完成本地测试。不得自动应用其他待执行文件或重命名既有 migration。
 - 发布配置补全中（PO 授权）：生产只使用固定的已合并 master SHA；Runtime Worker/Pages 可独立选择，Guardian/Main Pages 默认不部署，migration 另行显式选择。GitHub production 环境只允许 master，并要求 PO 人工审批；缺失部署 API token 时停止，禁止搬运本机 OAuth 凭据。
 - Guardian 远端 `d1_migrations` 当前没有历史记录；禁止执行自动全量 migration apply。
 - 独立 Runtime Pages、独立 SSO 密钥、Runtime Worker、Guardian adapter 和主 Pages 入口必须可以分别回滚。

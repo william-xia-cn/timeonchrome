@@ -10,7 +10,7 @@ const redirects = fs.readFileSync(path.join(root, 'pages/_redirects'), 'utf8');
 const contracts = JSON.parse(fs.readFileSync(path.join(root, 'app-runtime-management/contracts/package.json'), 'utf8'));
 
 assert.equal(contracts.name, '@timeonchrome/app-runtime-contracts');
-assert.equal(contracts.version, '1.1.0');
+assert.equal(contracts.version, '1.2.0');
 assert(bridge.includes("from '@timeonchrome/app-runtime-contracts'"));
 assert(!bridge.includes('../../../app-runtime-management/'));
 assert(worker.includes("path === '/app-runtime/sso/tickets'"));

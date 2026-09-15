@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { resolveApplication, safeAutomatic } from './dist/application-classification.js';
+import { resolveApplication, safeAutomatic, associateApplicationEvidence } from './dist/application-classification.js';
 import { parseApplicationKnowledge, parseAppEvidence } from './dist/application-knowledge-validation.js';
 const vectors = JSON.parse(readFileSync(new URL('./application-classification.vectors.json', import.meta.url)));
 for (const vector of vectors.cases) assert.deepEqual(resolveApplication(vector.knowledge, vector.childId, vector.evidence, vector.previous), vector.expected, vector.name);
@@ -17,6 +17,18 @@ assert.throws(() => parseApplicationKnowledge({...valid,rules:[{...rule,kind:'pr
 assert.throws(() => parseApplicationKnowledge({...valid,bindings:[{childId:'child',products:[],ruleIds:['missing']}]}), /INVALID_CHILD_BINDING/);
 const evidence = {platform:'windows',runtimeIdentity:'opaque',displayName:'App',values:{},verifiedFields:['runtimeIdentity']};
 assert.deepEqual(parseAppEvidence(evidence),evidence);
+const discovery = {role:'component',nameSource:'fallback',sourceKinds:['package']};
+assert.deepEqual(parseAppEvidence({...evidence,discovery}).discovery,discovery);
+assert.throws(()=>parseAppEvidence({...evidence,discovery:{...discovery,path:'C:/private'}}),/INVALID_DISCOVERY_SUMMARY/);
+const packaged = {...evidence,runtimeIdentity:'package-main',values:{packageId:'Fixture!Main'},verifiedFields:['packageId']};
+const runtime = {...packaged,runtimeIdentity:'old-binary-id',values:{packageId:'Fixture!Main',binaryHash:'a'.repeat(64)},verifiedFields:['packageId','binaryHash']};
+const copy = {...evidence,runtimeIdentity:'copy-id',values:{binaryHash:'a'.repeat(64)},verifiedFields:['binaryHash']};
+let associated=associateApplicationEvidence([packaged,runtime,copy,{...evidence,runtimeIdentity:'same-name'}]);
+assert.equal(associated.get('windows\npackage-main'),associated.get('windows\nold-binary-id'));
+assert.equal(associated.get('windows\ncopy-id'),associated.get('windows\nold-binary-id'));
+assert.notEqual(associated.get('windows\nsame-name'),associated.get('windows\nold-binary-id'));
+associated=associateApplicationEvidence([runtime,{...runtime,runtimeIdentity:'second-app',values:{...runtime.values,packageId:'Fixture!Video'}}]);
+assert.notEqual(associated.get('windows\nold-binary-id'),associated.get('windows\nsecond-app'));
 assert.throws(() => parseAppEvidence({...evidence,productId:'forged'}), /INVALID_APPLICATION_EVIDENCE/);
 assert.throws(() => parseAppEvidence({...evidence,values:{path:'C:/private'}}), /INVALID_APPLICATION_EVIDENCE/);
 assert.throws(() => parseAppEvidence({...evidence,verifiedFields:['signerKey']}), /MISSING_VERIFIED_VALUE/);

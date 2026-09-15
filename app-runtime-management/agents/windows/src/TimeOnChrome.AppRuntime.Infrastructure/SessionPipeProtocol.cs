@@ -37,7 +37,7 @@ public sealed record SessionFactMessage(int SchemaVersion, RuntimeFact Fact);
 
 public sealed record SessionAccountingFactMessage(int SchemaVersion, AccountingRuntimeFact Fact);
 public sealed record SessionApplicationInventoryMessage(int SchemaVersion, IReadOnlyList<AppEvidence> Applications, string Status,
-    IReadOnlyList<string>? CompleteIdentitySet = null);
+    IReadOnlyList<string>? CompleteIdentitySet = null, ApplicationInventoryScan? Scan = null);
 
 public sealed record MachineControlCommand(string Action, string? Code = null, string? DisplayName = null);
 

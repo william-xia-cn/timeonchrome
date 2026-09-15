@@ -33,11 +33,11 @@ export function parseKnowledge(value: unknown, childIds: string[]): ApplicationK
 export async function listApplicationInventory(db: D1Database, accountId: string) {
   const rows = await db.prepare(`SELECT i.* FROM runtime_application_inventory_v1 i
     JOIN runtime_machines_v2 m ON m.id=i.machine_id WHERE m.account_id=?1
-    ORDER BY i.last_seen_at_ms DESC LIMIT 1001`).bind(accountId).all<{
+    ORDER BY i.last_seen_at_ms DESC LIMIT 20001`).bind(accountId).all<{
       machine_id: string; local_user_id: string; evidence_json: string; status: string;
       first_seen_at_ms: number; last_seen_at_ms: number;
     }>();
-  if (rows.results.length > 1000) throw new HttpError(413, 'APPLICATION_INVENTORY_LIMIT', 'Application inventory is too large.');
+  if (rows.results.length > 20000) throw new HttpError(413, 'APPLICATION_INVENTORY_LIMIT', 'Application inventory exceeds the supported family capacity.');
   return rows.results.map(row => ({ machineId: row.machine_id, localUserId: row.local_user_id,
     evidence: JSON.parse(row.evidence_json) as AppEvidence, status: row.status,
     firstSeenAtMs: row.first_seen_at_ms, lastSeenAtMs: row.last_seen_at_ms }));
@@ -63,7 +63,10 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
       const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
       const resolution = resolveApplication(knowledge, childId, item, prior?.classification);
       return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification: resolution.classification };
-    });
+    }).filter(item => item.classification !== 'unclassified');
+    // Unknown inventory uses the existing unclassified/unlimited default; it must not inflate legacy policy arrays.
+    if (resolvedApplications.length > 1000)
+      throw new HttpError(413,'APPLICATION_POLICY_CAPACITY','Too many classified implementations for the supported machine policy capacity.');
     const binding = knowledge.bindings.filter(item => item.childId === childId);
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...knowledge, bindings: binding, rules: knowledge.rules.filter(rule => enabled.has(rule.id)) };
@@ -211,7 +214,7 @@ export async function applyKnowledgeOperation(db:D1Database,accountId:string,chi
 
 export async function syncApplicationInventory(db: D1Database, accountId: string, machineId: string,
     platform: string, value: unknown, nowMs: number) {
-  if (!isRecord(value) || Object.keys(value).some(key => !['schemaVersion','batchId','observations'].includes(key))
+  if (!isRecord(value) || Object.keys(value).some(key => !['schemaVersion','batchId','observations','scan'].includes(key))
       || value.schemaVersion !== 1 || typeof value.batchId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(value.batchId)
       || !Array.isArray(value.observations) || value.observations.length > 200) throw new HttpError(400, 'INVALID_APPLICATION_INVENTORY', 'Inventory batch is invalid.');
   const observations = value.observations.map(item => {
@@ -225,6 +228,7 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
   const unique = new Set(observations.map(item => `${item.localUserId}\n${item.evidence.platform}\n${item.evidence.runtimeIdentity}`));
   if (unique.size !== observations.length) throw new HttpError(400, 'DUPLICATE_APPLICATION_OBSERVATION', 'Inventory contains duplicate observations.');
   const hash = await sha256Hex(canonical(value));
+  const scan = value.scan == null ? null : parseInventoryScan(value.scan, observations);
   const existing = await db.prepare(`SELECT payload_hash FROM runtime_application_inventory_batches_v1
     WHERE machine_id=?1 AND batch_id=?2`).bind(machineId, value.batchId).first<{payload_hash:string}>();
   if (existing) {
@@ -234,8 +238,35 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
   const users = await db.prepare(`SELECT local_user_id FROM runtime_machine_users_v2 WHERE machine_id=?1`)
     .bind(machineId).all<{local_user_id:string}>();
   if (observations.some(item => !users.results.some(user => user.local_user_id === item.localUserId))) throw new HttpError(404, 'MACHINE_USER_NOT_FOUND', 'Machine user was not found.');
+  if (scan && !users.results.some(user => user.local_user_id === scan.localUserId)) throw new HttpError(404, 'MACHINE_USER_NOT_FOUND', 'Machine user was not found.');
   const statements = [db.prepare(`INSERT INTO runtime_application_inventory_batches_v1
     (machine_id,batch_id,payload_hash,created_at_ms) VALUES(?1,?2,?3,?4)`).bind(machineId, value.batchId, hash, nowMs)];
+  if (scan) {
+    const previous = await db.prepare(`SELECT * FROM runtime_application_inventory_scans_v1 WHERE machine_id=?1 AND scan_id=?2`)
+      .bind(machineId, scan.scanId).first<{local_user_id:string;batch_count:number;observation_count:number;failed_sources_json:string}>();
+    if (previous && (previous.local_user_id !== scan.localUserId || previous.batch_count !== scan.batchCount
+        || previous.observation_count !== scan.observationCount || previous.failed_sources_json !== canonical(scan.failedSources)))
+      throw new HttpError(409,'APPLICATION_SCAN_CONFLICT','Inventory scan metadata changed.');
+    const receipt = await db.prepare(`SELECT payload_hash FROM runtime_application_inventory_scan_batches_v1 WHERE machine_id=?1 AND scan_id=?2 AND batch_index=?3`)
+      .bind(machineId,scan.scanId,scan.batchIndex).first<{payload_hash:string}>();
+    if (receipt) throw new HttpError(409,'APPLICATION_SCAN_CONFLICT','Inventory scan batch already has a different envelope.');
+    if (scan.completed) {
+      const totals = await db.prepare(`SELECT COUNT(*) AS batches,COALESCE(SUM(observation_count),0) AS observations,
+        (SELECT COUNT(DISTINCT j.value) FROM runtime_application_inventory_scan_batches_v1 b,json_each(b.observation_keys_json) j
+          WHERE b.machine_id=?1 AND b.scan_id=?2) AS unique_observations
+        FROM runtime_application_inventory_scan_batches_v1 WHERE machine_id=?1 AND scan_id=?2 AND batch_index<?3`)
+        .bind(machineId,scan.scanId,scan.batchCount).first<{batches:number;observations:number;unique_observations:number}>();
+      if (totals?.batches !== scan.batchCount || totals?.observations !== scan.observationCount || totals?.unique_observations !== scan.observationCount)
+        throw new HttpError(409,'APPLICATION_SCAN_INCOMPLETE','Inventory scan is missing batches.');
+    }
+    statements.push(db.prepare(`INSERT INTO runtime_application_inventory_scans_v1
+      (machine_id,local_user_id,scan_id,batch_count,observation_count,failed_sources_json,completed,started_at_ms,updated_at_ms)
+      VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8) ON CONFLICT(machine_id,scan_id) DO UPDATE SET
+      completed=MAX(completed,excluded.completed),updated_at_ms=excluded.updated_at_ms`)
+      .bind(machineId,scan.localUserId,scan.scanId,scan.batchCount,scan.observationCount,canonical(scan.failedSources),scan.completed?1:0,nowMs),
+      db.prepare(`INSERT INTO runtime_application_inventory_scan_batches_v1 VALUES(?1,?2,?3,?4,?5,?6)`)
+        .bind(machineId,scan.scanId,scan.batchIndex,observations.length,hash,canonical([...unique].sort())));
+  }
   for (const item of observations) statements.push(db.prepare(`INSERT INTO runtime_application_inventory_v1
     (machine_id,local_user_id,platform,runtime_identity,display_name,evidence_json,status,first_seen_at_ms,last_seen_at_ms)
     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)
@@ -249,8 +280,45 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
     item.machineId === machineId && item.localUserId === incoming.localUserId && item.evidence.runtimeIdentity === incoming.evidence.runtimeIdentity)).map(item => item.evidence)];
   const children = await db.prepare(`SELECT child_id FROM runtime_children_v1 WHERE account_id=?1`)
     .bind(accountId).all<{child_id:string}>();
-  if (knowledge.version > 0) statements.push(...await policyStatements(db, accountId, knowledge,
+  if (knowledge.version > 0 && (scan ? scan.completed : observations.length > 0)) statements.push(...await policyStatements(db, accountId, knowledge,
     children.results.map(item => item.child_id), evidence, nowMs));
   await batch(db, statements);
   return { batchId: value.batchId, status: 'accepted', acceptedCount: observations.length };
+}
+
+function parseInventoryScan(value: unknown, observations: Array<{localUserId:string;status:string}>) {
+  if (!isRecord(value) || Object.keys(value).some(key=>!['scanId','localUserId','batchIndex','batchCount','observationCount','failedSources','completed'].includes(key))
+      || typeof value.scanId !== 'string' || !/^[a-f0-9]{32}$/u.test(value.scanId)
+      || typeof value.localUserId !== 'string' || value.localUserId.length < 1 || value.localUserId.length > 128
+      || !Number.isSafeInteger(value.batchIndex) || !Number.isSafeInteger(value.batchCount) || !Number.isSafeInteger(value.observationCount)
+      || !Array.isArray(value.failedSources) || value.failedSources.length > 16 || value.failedSources.some(item=>typeof item!=='string'||!/^[A-Za-z0-9_-]{1,64}$/u.test(item))
+      || typeof value.completed !== 'boolean') throw new HttpError(400,'INVALID_APPLICATION_SCAN','Inventory scan is invalid.');
+  const scan = {scanId:value.scanId,localUserId:value.localUserId,batchIndex:Number(value.batchIndex),batchCount:Number(value.batchCount),
+    observationCount:Number(value.observationCount),failedSources:value.failedSources as string[],completed:value.completed};
+  if (scan.observationCount < 0 || scan.observationCount > 10000 || scan.batchCount !== Math.ceil(scan.observationCount/200)
+      || scan.batchIndex < 0 || scan.batchIndex > scan.batchCount || scan.completed !== (scan.batchIndex === scan.batchCount)
+      || observations.length !== (scan.completed ? 0 : Math.min(200,scan.observationCount-scan.batchIndex*200))
+      || observations.some(item=>item.localUserId!==scan.localUserId||item.status!=='installed'))
+    throw new HttpError(400,'INVALID_APPLICATION_SCAN','Inventory scan counts are invalid.');
+  return scan;
+}
+
+export async function queryInventoryScanStatus(db: D1Database, accountId: string, childId: string) {
+  const rows = await db.prepare(`SELECT m.id AS machine_id,m.display_name,u.local_user_id,s.scan_id,s.batch_count,s.observation_count,
+    s.failed_sources_json,s.completed,s.updated_at_ms,
+    (SELECT COUNT(*) FROM runtime_application_inventory_scan_batches_v1 b WHERE b.machine_id=s.machine_id AND b.scan_id=s.scan_id AND b.batch_index<s.batch_count) AS received_batches
+    FROM runtime_machines_v2 m JOIN runtime_machine_users_v2 u ON u.machine_id=m.id
+    JOIN runtime_user_assignments_v2 a ON a.machine_id=m.id AND a.local_user_id=u.local_user_id
+    LEFT JOIN runtime_application_inventory_scans_v1 s ON s.machine_id=m.id AND s.local_user_id=u.local_user_id
+      AND s.scan_id=(SELECT latest.scan_id FROM runtime_application_inventory_scans_v1 latest WHERE latest.machine_id=m.id
+        AND latest.local_user_id=u.local_user_id ORDER BY latest.started_at_ms DESC,latest.scan_id DESC LIMIT 1)
+    WHERE m.account_id=?1 AND a.child_id=?2 AND a.protected=1
+      AND a.assignment_version=(SELECT MAX(x.assignment_version) FROM runtime_user_assignments_v2 x WHERE x.machine_id=m.id AND x.local_user_id=u.local_user_id)`)
+    .bind(accountId,childId).all<Record<string,unknown>>();
+  return rows.results.map(row=>{
+    const failures = row.failed_sources_json ? JSON.parse(String(row.failed_sources_json)) as string[] : [];
+    return {machineName:String(row.display_name),status:!row.scan_id?'unverified':failures.length?'partial':Number(row.completed)===1?'complete':'syncing',
+      receivedBatches:Number(row.received_batches||0),expectedBatches:Number(row.batch_count||0),observationCount:Number(row.observation_count||0),
+      failedSources:failures,updatedAtMs:row.updated_at_ms==null?null:Number(row.updated_at_ms)};
+  });
 }

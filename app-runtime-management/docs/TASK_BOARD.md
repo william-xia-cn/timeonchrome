@@ -1,5 +1,45 @@
 # App Runtime 任务板
 
+## NOW：Windows 2.2.1 目录质量修复（ARM-D-012，PO 授权）
+
+最后复核补充：包查询输出与 C# 读取端显式统一 UTF-8，避免中文友好名称依赖控制台代码页；增加只输出受控中文字符串的 PowerShell 夹具测试，不运行 Get-AppxPackage/Get-StartApps。改动后已重新构建并回读核对最终候选包。
+
+容量补充：原始清单上限与有效策略上限分离。未归类默认投影不占用旧客户端 1000 项 resolvedApplications 容量，缺省仍为未归类/无限额；超过 1000 个非默认有效投影时结构化报错并保持旧策略，不静默截断，不在盘点过程中发布无法被客户端解析的策略。
+
+- [x] 文档先行，D 盘独立修复分支，保留其他工作树。
+- [x] 发现名称、隐藏入口、来源合并与可信运行关联。
+- [x] scan 协议/outbox/后台完整性，旧客户端未知状态。
+- [x] 主要/安装未使用/使用证据/完整发现目录及产品分类。
+- [x] Windows/Worker 回归、桌面/移动 mock 目视、类型/Schema/local migration/dry-run。
+- [x] 2.2.1 本地 MSI/Burn、版本清单及哈希。
+- [x] 修复主体提交推送：8df9397；真实 macOS 15 编译/共享向量、Windows/WiX 和 contracts-worker-console CI 35001806559 全部通过。
+- [x] UTF-8/容量补丁 6e8618f 已提交推送；Windows 本地 95/95、Worker 38/38 与最终包回读通过。
+- [x] 最终 CI 35002959346：macOS、contracts-worker-console、Windows/WiX 全部 success；gh run watch --exit-status 与最终 job 状态回查一致。
+
+主体 CI：https://github.com/william-xia-cn/timeonchrome/actions/runs/35001806559 ，受测代码 SHA `8df939759953a118137766da80b3711039bc2730`。最终代码 CI：https://github.com/william-xia-cn/timeonchrome/actions/runs/35002959346 ，受测代码 SHA `6e8618f97ace90669e1045cd8bc71c8a557ce263`。共享 Swift/向量源文件未再改变。
+
+验证（2026-09-16）：明确 2.2.1 版本参数的 Windows tests 95/95；contracts 1.2.0 编译/兼容和 23 组黄金向量通过；Worker/Vitest+D1 38/38（含 additive 0009 和 1001 个未知安装项容量夹具）、TypeScript、generated binding types --check 和 Wrangler dry-run 通过。目录 mock 的 1440×1000、390×844 截图与目视检查通过，既有知识面板/策略及根 contract compatibility/release config、模块边界检查通过。Draft 2020-12 Schema 实际校验 legacy/data/finish/privacy 夹具通过。Swift 编译和共享向量已在真实 macOS 15 CI 执行通过，不是 Windows 本地执行。
+
+最终 MSI/Burn 构建均零警告/错误；隔离 package-probe 通过。MSI ProductVersion=2.2.1、固定 UpgradeCode、486 文件及 Service/SessionAgent/Manager 文件 2.2.1.0 回读通过；六个程序集 Assembly/File=2.2.1.0、Informational=2.2.1，Migration/MachineProbe exe 版本也已检查，Burn 数值版本=2.2.1.0。Burn 118,702,091 bytes / SHA-256 `1df0d8f3b23fe82c241bd6eef761d329186d293812b4bbeab26d4e6aa48115f5`；MSI 60,350,816 bytes / SHA-256 `0130ac6cca5ec50726a60ed5e83b8c9e46c9cb902b7760f34ea42cb9eaf31e7e`，manifest 回读一致。取代 UTF-8 补丁前的早期包 hash；产物仅在 artifacts/release/windows/x64/2.2.1/，本地 latest.json 不是生产分发。
+
+提交前审计：Matched＝批准的五项修复及本地验证，macOS 已 CI 验证；Deviated＝无；Missing＝实现无缺项，真实完整盘点和生产升级另列未验证；Extra＝无产品扩展，根 lock/version compatibility 仅同步 contracts Minor。不得由 mock 宣称家庭数据已清洗或整机完整。
+
+发布顺序硬闸门：当前安装已由手工升级到 2.2.0；生产仍为 contract 1.1.0。必须先合并受测代码、获授权应用 0009 并发布 Runtime Worker/Console，之后才安装 2.2.1；旧 Worker 严格校验不接受新 discovery/scan 字段。当前不部署、不安装、不改写或删除真实数据。
+
+本轮不升级 William，不清理生产数据、不发布生产资源。不能将夹具通过等同于真机所有用户完整盘点。
+
+## NOW：Windows 2.2.0 客户端包准备
+
+- 已完成本地包准备：带 Version=2.2.0、Assembly/FileVersion=2.2.0.0、InformationalVersion=2.2.0 明确参数的 Windows solution tests 90/90，测试二进制版本已回读。六个发布程序集版本一致，发现类型存在但未实例化；MSI ProductVersion=2.2.0、固定 UpgradeCode、486 文件及四个关键客户端文件版本通过实际包数据库核对。
+- 首次 publish 因 D 盘 0 bytes 失败；经 PO 授权仅清理本工作树可重建 bin/obj/artifacts 共 218.9 MB，未删除源码或家庭数据。第二次 MSI/Burn 构建均零警告/错误，隔离 migration package-probe 通过。
+- Burn 展示版本为 2.2.0、数值字段为 2.2.0.0；首次字符串检查误要求四段展示值失败，已回读数值字段确认。包大小/SHA-256 与 manifest 一致；git diff --check、受保护目录零修改通过。Matched＝本地版本、测试、构建、包验证及授权清理；Deviated/Missing/Extra＝本次准备范围无。
+- 本地候选：artifacts/release/windows/x64/2.2.0/；Burn 118,722,089 bytes / 1576a1840d5f74b91177aa1a7c0d9d0bd6b236067749d2ba722489de9bc087f0；MSI 60,342,624 bytes / b4bb5680a750ded4cee1004e3594b1a26a8e9056d818fc95c72995864c9388d4。未安装、未真实盘点上传、未发布 R2/latest；真机保留安装 2.1.1，未以本地验证冒充完整覆盖/去重验收。
+
+- PO 要求继续实际执行：为已合并的发现/分类客户端准备内部 2.2.0，避免与本机旧 2.1.1 同号；版本补丁、完整 Windows solution tests、MSI/Burn 构建、文件版本和哈希核对为本次范围。
+- 已先更新技术设计与 README/Changelog；实施位置为 installer/windows/build.ps1、两个 wixproj、Service fallback 与 InstallerPackageTests。固定 machine-scope UpgradeCode 和安装目录，不改落账/配对协议。
+- 准备阶段不安装、不运行或上传家庭盘点、不部署云端、不写 R2 latest。真实升级和清单对照未执行，不以测试或包构建冒充端到端验收。
+- 云端应用分类发布已完成（master b133f78 / Worker 2543375b / Pages 3ec2fd7e / migration 0008），下方旧预检状态由证据 PR #12 更新；未来 CI production token 缺失不阻塞本次本地包构建。
+
 ## 当前合并与发布预检（PO 授权：合并、推送、部署）
 
 - PR #10 已合并到 origin/master（eed75c49）；contract 1.1.0、Windows/WiX、macOS Swift 及 Guardian compatibility CI 通过。生产尚未更新。

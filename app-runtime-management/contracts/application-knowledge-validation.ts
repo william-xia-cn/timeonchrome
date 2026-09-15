@@ -83,11 +83,19 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
 }
 
 export function parseAppEvidence(value: unknown): AppEvidence {
-  if (!object(value) || !keys(value, ['platform', 'runtimeIdentity', 'displayName', 'values', 'verifiedFields'])
+  if (!object(value) || !keys(value, ['platform', 'runtimeIdentity', 'displayName', 'values', 'verifiedFields', 'discovery'])
       || !oneOf(value.platform, platforms) || !text(value.runtimeIdentity) || !text(value.displayName)
       || !object(value.values) || !keys(value.values, fields) || !Object.values(value.values).every(text)
       || !list(value.verifiedFields, fields.length) || !value.verifiedFields.every(item => oneOf(item, fields))
       || !unique(value.verifiedFields as string[])) reject('INVALID_APPLICATION_EVIDENCE');
+  if (value.discovery !== undefined) {
+    const summary = value.discovery;
+    if (!object(summary) || !keys(summary, ['role', 'nameSource', 'sourceKinds'])
+        || !oneOf(summary.role, ['application', 'component', 'candidate'])
+        || !oneOf(summary.nameSource, ['appList', 'manifest', 'fileMetadata', 'installation', 'fallback'])
+        || !list(summary.sourceKinds, 4) || !summary.sourceKinds.every(item => oneOf(item, ['package','registry','shortcut','runtime']))
+        || !unique(summary.sourceKinds as string[])) reject('INVALID_DISCOVERY_SUMMARY');
+  }
   for (const field of value.verifiedFields as string[]) {
     if (field !== 'runtimeIdentity' && value.values[field] === undefined) reject('MISSING_VERIFIED_VALUE');
   }

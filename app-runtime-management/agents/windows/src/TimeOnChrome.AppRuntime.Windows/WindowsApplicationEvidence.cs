@@ -33,7 +33,7 @@ public static class WindowsApplicationEvidence
         }
         return new AppEvidence("windows", identity.RuntimeIdentity,
             string.IsNullOrWhiteSpace(displayName) ? version.ProductName ?? identity.DisplayName ?? "Windows application" : displayName,
-            values, verified);
+            values, verified, Discovery: new("application", "fileMetadata", ["runtime"]));
     }
 
     public static string Hash(string value) => Hash(Encoding.UTF8.GetBytes(value));

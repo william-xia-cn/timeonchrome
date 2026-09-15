@@ -1,5 +1,25 @@
 # App Runtime Changelog
 
+## [Windows 2.2.1 / contracts 1.2.0] — 2026-09-16（本地修复与包验证，未安装/发布）
+
+- ARM-D-012：优先读取应用列表/manifest 友好名称；隐藏包入口标为组件，弱安装线索标为候选。Registry DisplayIcon 不再冒充主程序证明；同身份来源合并保留可靠证据，不按同名、同开发者或包族强制合并。
+- 安装与旧运行身份通过已验证 AUMID/binary 关联展示；共享二进制的多个可见 AUMID 保持独立。原始 runtimeIdentity、历史账本、分类和单应用配额键不改写。
+- 增加目录范围：主要应用、安装未使用、原使用证据和完整发现；未使用的已安装应用也可归类，组件/候选可达。保留五目录和知识/规则独立面板。
+- scan 的全量批次和完成标记通过独立事务/outbox/ACK；缺失对账与完成标记同一 SQLite 事务并先入 outbox。失败来源、未登录用户、旧客户端、中断或缺批次不得称完整或推断卸载。新增 additive 0009 仅在本地测试，不应用生产。
+- Windows 95/95、共享黄金向量 23 组、Worker 38/38、Schema/类型/binding/dry-run 及桌面/移动 mock 目视验证通过；Swift 编译和共享向量已在 macOS 15 CI 实际执行通过。
+- 最终代码 `6e8618f97ace90669e1045cd8bc71c8a557ce263` 的跨平台 CI 35002959346 全部成功：https://github.com/william-xia-cn/timeonchrome/actions/runs/35002959346 。后续纯文档收口不改变受测代码，不触发重复生产部署。
+- 包查询显式 UTF-8 并增加受控中文输出测试；1001 个未知安装项不占用默认未归类策略投影容量，超过 1000 个非默认有效投影时保持旧策略并结构化报错。
+- 最终自包含 MSI/Burn 零警告/错误；固定升级身份、486 文件及程序集/安装器 2.2.1 版本回读通过。Burn SHA-256 `1df0d8f3b23fe82c241bd6eef761d329186d293812b4bbeab26d4e6aa48115f5`；MSI SHA-256 `0130ac6cca5ec50726a60ed5e83b8c9e46c9cb902b7760f34ea42cb9eaf31e7e`。内部未签名状态仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- 生产配套后台/0009/Console 必须先行，新客户端后升级；本轮不安装、不采集或上传家庭夹具外数据、不发布 R2/latest、不改 Guardian/Santa/Extension。
+
+## [Windows 2.2.0] — 2026-09-15（本地客户端包验证完成，未安装/发布）
+
+- 为已合并的 ARM-D-011 应用发现、分类规则与安装清单同步代码设置独立内部版本 2.2.0；统一安装器默认版本和 Service fallback，保持 machine-scope UpgradeCode。
+- 仅准备 Windows 自包含 MSI/Burn 并验证，不升级当前机器、不运行或上传家庭盘点、不部署云端或切 R2 latest。测试与包核对结果在完成后记录，内部包仍未签名。
+- 明确 2.2.0 版本参数的 Windows 测试 90/90；MSI/Burn 零警告/错误，隔离 package-probe 通过；六个程序集、MSI 486 文件及关键文件版本、固定 UpgradeCode 和 Burn 数值版本通过回读。
+- Burn 118,722,089 bytes / SHA-256 1576a1840d5f74b91177aa1a7c0d9d0bd6b236067749d2ba722489de9bc087f0；MSI 60,342,624 bytes / SHA-256 b4bb5680a750ded4cee1004e3594b1a26a8e9056d818fc95c72995864c9388d4。manifest 一致，未上传 R2。
+- 首次构建磁盘不足失败；仅经授权清理可重建产物后第二次成功。Burn 首次展示字符串断言失败由实际数值版本 2.2.0.0 回读澄清，不掩盖失败或声称真机验收通过。
+
 ## [D-092 生产边界收尾] — 2026-09-15
 
 - PR #8 合并后的 `origin/master@d8f79ec` 与 contract `1.0.0` 完成 Runtime `0006/0007`、独立 Runtime Pages、SSO 和 Guardian adapter 首轮发布。

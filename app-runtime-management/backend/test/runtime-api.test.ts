@@ -814,6 +814,41 @@ describe('Runtime product API', () => {
 });
 
 describe('Application knowledge and installed inventory', () => {
+  it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const scan={scanId:'b'.repeat(32),localUserId,batchIndex:0,batchCount:2,observationCount:201,failedSources:[],completed:false};
+    const observations=Array.from({length:201},(_,index)=>({localUserId,status:'installed',evidence:{platform:'windows',runtimeIdentity:`fixture-${index}`,displayName:`Fixture ${index}`,values:{},verifiedFields:[]}}));
+    const upload=(body:unknown)=>call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    const finish={schemaVersion:1,batchId:'finish',observations:[],scan:{...scan,batchIndex:2,completed:true}};
+    expect((await upload(finish)).status).toBe(409);
+    expect((await upload({schemaVersion:1,batchId:'part-0',observations:observations.slice(0,200),scan})).status).toBe(200);
+    const query=()=>call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)});
+    expect(await (await query()).json()).toMatchObject({inventoryScans:[{status:'syncing',receivedBatches:1,expectedBatches:2}]});
+    expect((await upload(finish)).status).toBe(409);
+    expect((await upload({schemaVersion:1,batchId:'part-1',observations:observations.slice(200),scan:{...scan,batchIndex:1}})).status).toBe(200);
+    expect((await upload(finish)).status).toBe(200);
+    expect(await (await upload(finish)).json()).toMatchObject({status:'duplicate',acceptedCount:0});
+    expect(await (await query()).json()).toMatchObject({inventoryScans:[{status:'complete',receivedBatches:2,expectedBatches:2,observationCount:201}]});
+    expect((await upload({...finish,batchId:'another-finish',scan:{...finish.scan,observationCount:202}})).status).toBe(409);
+    const failed={schemaVersion:1,batchId:'empty-partial',observations:[],scan:{...scan,scanId:'c'.repeat(32),batchCount:0,observationCount:0,batchIndex:0,completed:true,failedSources:['user-packages']}};
+    expect((await upload(failed)).status).toBe(200);
+    expect(await (await query()).json()).toMatchObject({inventoryScans:[{status:'partial',failedSources:['user-packages']}]});
+  });
+  it('bridges verified package runtime aliases without merging different visible entries or equal names', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const data=[
+      {runtimeIdentity:'package-main',displayName:'Friendly main',values:{packageId:'Fixture!Main'},verifiedFields:['packageId'],discovery:{role:'application',nameSource:'appList',sourceKinds:['package']}},
+      {runtimeIdentity:'old-runtime',displayName:'Binary main',values:{packageId:'Fixture!Main',binaryHash:'a'.repeat(64)},verifiedFields:['packageId','binaryHash']},
+      {runtimeIdentity:'package-video',displayName:'Friendly video',values:{packageId:'Fixture!Video'},verifiedFields:['packageId'],discovery:{role:'application',nameSource:'manifest',sourceKinds:['package']}},
+      {runtimeIdentity:'component',displayName:'Hidden entry',values:{packageId:'Fixture!Hidden'},verifiedFields:['packageId'],discovery:{role:'component',nameSource:'fallback',sourceKinds:['package']}},
+      {runtimeIdentity:'different',displayName:'Friendly main',values:{},verifiedFields:[]},
+    ];
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({schemaVersion:1,batchId:'aliases',observations:data.map(evidence=>({localUserId,status:'installed',evidence:{platform:'windows',...evidence}}))})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{displayName:string;runtimeImplementations:unknown[]}>;inventoryScans:unknown[]}>();
+    expect(result.items).toHaveLength(4);
+    expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'Friendly main',runtimeImplementations:expect.arrayContaining([expect.objectContaining({runtimeIdentity:'old-runtime'}),expect.objectContaining({runtimeIdentity:'package-main'})])}),expect.objectContaining({displayName:'Hidden entry',discovery:expect.objectContaining({role:'component'})})]));
+    expect(result.inventoryScans).toEqual([expect.objectContaining({status:'unverified'})]);
+  });
   const fixture = () => ({schemaVersion:1,version:0,products:[{
     id:'product-game',name:'Fixture game',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]}}],
   }],rules:[],bindings:[{childId:'child-a',products:[{productId:'product-game',classification:'restrictedEntertainment'}],ruleIds:[]}]});
@@ -945,6 +980,23 @@ describe('Application knowledge and installed inventory', () => {
     const inventory = await (await call('/v2/module/application-inventory',{headers:bearer(account)})).json<{observations:unknown[]}>();
     expect(inventory.observations).toHaveLength(1);
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
+  });
+  it('keeps unknown installed inventory out of legacy policy projection capacity', async () => {
+    const { account,enrolled,localUserId } = await createMachineWithUser();
+    const first=observation(localUserId);
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(first)})).status).toBe(200);
+    for(let offset=0;offset<1001;offset+=200){
+      const observations=Array.from({length:Math.min(200,1001-offset)},(_,index)=>({
+        ...first.observations[0]!,evidence:{...first.observations[0]!.evidence,
+          runtimeIdentity:`windows:unknown-fixture-${offset+index}`,displayName:'Unknown fixture',values:{},verifiedFields:[]},
+      }));
+      expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+        body:JSON.stringify({schemaVersion:1,batchId:`unknown-${offset}`,observations})})).status).toBe(200);
+    }
+    expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify(fixture())})).status).toBe(200);
+    const policy=await (await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)})).json<{resolvedApplications:unknown[]}>();
+    expect(policy.resolvedApplications).toEqual([expect.objectContaining({classification:'restrictedEntertainment'})]);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_inventory_v1').first('n')).toBe(1002);
   });
   it('freezes forward classifications and preserves old-client policy fields', async () => {
     const { account,enrolled,localUserId } = await createMachineWithUser();
