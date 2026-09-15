@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## [ARM-D-013 产品应用投影] — 2026-09-16（本地完成，未部署）
+
+- 将家长可管理产品与原始技术进程身份分层；五分类目录只接收可靠产品/主应用，技术记录只读审计且不能分类。
+- 不修改原始 Segment、历史时长、配额键、数据库 schema 或客户端安装；完成状态以任务板测试与目视证据为准。
+- Worker/D1 38/38、backend typecheck、binding types、Wrangler dry-run、Console 聚焦测试及三组桌面/移动视觉流程通过；模块/Extension 边界与 `git diff --check` 通过。无生产部署、migration 或真机数据修改。
+
 ## [Windows 2.2.1 / contracts 1.2.0] — 2026-09-16（本地修复与包验证，未安装/发布）
 
 - ARM-D-012：优先读取应用列表/manifest 友好名称；隐藏包入口标为组件，弱安装线索标为候选。Registry DisplayIcon 不再冒充主程序证明；同身份来源合并保留可靠证据，不按同名、同开发者或包族强制合并。

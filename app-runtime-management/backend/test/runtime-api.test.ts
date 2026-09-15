@@ -542,7 +542,7 @@ describe('Runtime product API', () => {
     await expect(ledger.json()).resolves.toMatchObject({ items: [{ runtimeIdentity: 'app:editor', authoritativeForUsage: true }] });
   });
 
-  it('keeps legacy observed usage visible as unclassified without rewriting history', async () => {
+  it('keeps legacy process usage in the ledger but outside the manageable app directory', async () => {
     const account = await accountToken();
     const recentEnd = Date.now() - 1_000;
     const recentStart = recentEnd - 60_000;
@@ -582,10 +582,16 @@ describe('Runtime product API', () => {
     });
     const records = await (await call('/v2/module/app-classification-records?childId=child-a', {
       headers: bearer(account),
-    })).json<{ pending: Array<{ runtimeIdentity: string; mainDurationMs: number }> }>();
-    expect(records.pending).toEqual(expect.arrayContaining([
-      expect.objectContaining({ runtimeIdentity: 'app:legacy', mainDurationMs: 60_000 }),
+    })).json<{ pending: unknown[]; technical: Array<{ runtimeIdentity: string; mainDurationMs: number; projectionReasonCode: string }> }>();
+    expect(records.pending).toEqual([]);
+    expect(records.technical).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeIdentity: 'app:legacy', mainDurationMs: 60_000, projectionReasonCode: 'TECHNICAL_IDENTITY_ONLY' }),
     ]));
+    const catalog = await (await call('/v2/module/app-catalog?childId=child-a', { headers: bearer(account) }))
+      .json<{ items: unknown[]; technicalItems: Array<{ runtimeIdentity: string; manageability: string }> }>();
+    expect(catalog.items).toEqual([]);
+    expect(catalog.technicalItems).toEqual([expect.objectContaining({ runtimeIdentity: 'app:legacy', manageability: 'review' })]);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments').first('n')).toBe(2);
   });
 
   it('preserves time windows for legacy policy updates and reports only recent unclassified evidence', async () => {
@@ -844,9 +850,13 @@ describe('Application knowledge and installed inventory', () => {
       {runtimeIdentity:'different',displayName:'Friendly main',values:{},verifiedFields:[]},
     ];
     expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({schemaVersion:1,batchId:'aliases',observations:data.map(evidence=>({localUserId,status:'installed',evidence:{platform:'windows',...evidence}}))})})).status).toBe(200);
-    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{displayName:string;runtimeImplementations:unknown[]}>;inventoryScans:unknown[]}>();
-    expect(result.items).toHaveLength(4);
-    expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'Friendly main',runtimeImplementations:expect.arrayContaining([expect.objectContaining({runtimeIdentity:'old-runtime'}),expect.objectContaining({runtimeIdentity:'package-main'})])}),expect.objectContaining({displayName:'Hidden entry',discovery:expect.objectContaining({role:'component'})})]));
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{displayName:string;runtimeImplementations:unknown[];manageability:string}>;technicalItems:Array<{displayName:string;catalogKind:string;manageability:string}>;inventoryScans:unknown[]}>();
+    expect(result.items).toHaveLength(2);
+    expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'Friendly main',manageability:'actionable',runtimeImplementations:expect.arrayContaining([expect.objectContaining({runtimeIdentity:'old-runtime'}),expect.objectContaining({runtimeIdentity:'package-main'})])}),expect.objectContaining({displayName:'Friendly video',manageability:'actionable'})]));
+    expect(result.technicalItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({displayName:'Hidden entry',catalogKind:'component',manageability:'hidden'}),
+      expect.objectContaining({displayName:'Friendly main',catalogKind:'unresolved',manageability:'review'}),
+    ]));
     expect(result.inventoryScans).toEqual([expect.objectContaining({status:'unverified'})]);
   });
   const fixture = () => ({schemaVersion:1,version:0,products:[{
@@ -946,8 +956,9 @@ describe('Application knowledge and installed inventory', () => {
     const knowledge=fixture(); knowledge.products.push({id:'not-installed',name:'Known future game',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'b'.repeat(64)}]}}]});
     knowledge.bindings[0]!.products.push({productId:'not-installed',classification:'blocked'});
     expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify(knowledge)})).status).toBe(200);
-    const catalog=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:unknown[]}>();
-    expect(catalog.items).toEqual(expect.arrayContaining([expect.objectContaining({productId:'product-game',installationState:'installed',mainDurationMs:0,classification:'restrictedEntertainment'}),expect.objectContaining({productId:'not-installed',runtimeIdentity:null,installationState:'preconfigured',classification:'blocked'})]));
+    const catalog=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:unknown[];technicalItems:unknown[]}>();
+    expect(catalog.items).toEqual(expect.arrayContaining([expect.objectContaining({productId:'product-game',installationState:'installed',mainDurationMs:0,classification:'restrictedEntertainment',catalogKind:'product',manageability:'actionable'}),expect.objectContaining({productId:'not-installed',runtimeIdentity:null,installationState:'preconfigured',classification:'blocked',catalogKind:'product',manageability:'actionable'})]));
+    expect(catalog.technicalItems).toEqual([]);
     const other=await (await call('/v2/module/app-catalog?childId=child-b',{headers:bearer(account)})).json<{items:unknown[]}>();
     expect(other.items).toHaveLength(0);
   });

@@ -26,6 +26,53 @@ const quotaCategories = ['study', 'composite', 'restrictedEntertainment', 'uncla
 const weekdays: AppPolicyWeekday[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const weekdayByUtcDay: AppPolicyWeekday[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+type CatalogKind = 'product' | 'application' | 'component' | 'candidate' | 'unresolved';
+type CatalogManageability = 'actionable' | 'review' | 'hidden';
+type CatalogProjection = {
+  catalogKind: CatalogKind;
+  manageability: CatalogManageability;
+  projectionReasonCode: 'CONFIRMED_PRODUCT' | 'EXPLICIT_APPLICATION_CLASSIFICATION' | 'VERIFIED_APPLICATION'
+    | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY';
+};
+
+type CatalogEntry = CatalogProjection & {
+  platform: RuntimePlatform;
+  runtimeIdentity: string | null;
+  displayName: string | null;
+  productId: string | null;
+  classification: ApplicationClassification;
+  runtimeImplementations?: Array<{ platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null }>;
+  [key: string]: unknown;
+};
+
+function hasStrongApplicationIdentity(evidence?: AppEvidence): boolean {
+  if (!evidence) return false;
+  const verified = new Set(evidence.verifiedFields);
+  return verified.has('packageId') || verified.has('binaryHash')
+    || (verified.has('signerKey') && verified.has('productName'));
+}
+
+function projectCatalogEvidence(
+  evidence: AppEvidence | undefined,
+  productId: string | null,
+  explicitlyConfigured: boolean,
+): CatalogProjection {
+  if (productId) return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'CONFIRMED_PRODUCT' };
+  if (explicitlyConfigured) {
+    return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'EXPLICIT_APPLICATION_CLASSIFICATION' };
+  }
+  if (evidence?.discovery?.role === 'application' && hasStrongApplicationIdentity(evidence)) {
+    return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'VERIFIED_APPLICATION' };
+  }
+  if (evidence?.discovery?.role === 'component') {
+    return { catalogKind: 'component', manageability: 'hidden', projectionReasonCode: 'COMPONENT' };
+  }
+  if (evidence?.discovery?.role === 'candidate') {
+    return { catalogKind: 'candidate', manageability: 'review', projectionReasonCode: 'DISCOVERY_CANDIDATE' };
+  }
+  return { catalogKind: 'unresolved', manageability: 'review', projectionReasonCode: 'TECHNICAL_IDENTITY_ONLY' };
+}
+
 const emptyQuotas = (): AppPolicyQuotaConfig => ({
   dailyCategoryMinutes: {
     study: null,
@@ -577,7 +624,7 @@ export async function queryClassificationRecords(
   childId: string,
   nowMs: number,
   platform?: RuntimePlatform,
-): Promise<{ windowStartMs: number; windowEndMs: number; pending: unknown[]; processed: unknown[] }> {
+): Promise<{ windowStartMs: number; windowEndMs: number; pending: unknown[]; processed: unknown[]; technical: unknown[] }> {
   const windowEndMs = nowMs;
   const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
   const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
@@ -637,8 +684,24 @@ export async function queryClassificationRecords(
     intervals.push([startAtMs, endAtMs]); record.intervals.set(lane, intervals);
     grouped.set(key, record);
   }
+  const catalog = await queryAppCatalog(database, accountId, childId, nowMs, platform);
+  const actionableKeys = new Set<string>();
+  for (const item of catalog.items as CatalogEntry[]) {
+    for (const implementation of item.runtimeImplementations ?? []) {
+      actionableKeys.add(`${implementation.platform}\n${implementation.runtimeIdentity}`);
+    }
+    if (item.runtimeIdentity) actionableKeys.add(`${item.platform}\n${item.runtimeIdentity}`);
+  }
+  const technicalByKey = new Map<string, CatalogEntry>();
+  for (const item of catalog.technicalItems as CatalogEntry[]) {
+    for (const implementation of item.runtimeImplementations ?? []) {
+      technicalByKey.set(`${implementation.platform}\n${implementation.runtimeIdentity}`, item);
+    }
+    if (item.runtimeIdentity) technicalByKey.set(`${item.platform}\n${item.runtimeIdentity}`, item);
+  }
   const records = [...grouped.entries()].map(([key, row]) => {
     const entry = current.get(key);
+    const projection = technicalByKey.get(key);
     return {
       platform: row.platform,
       runtimeIdentity: row.runtimeIdentity,
@@ -650,13 +713,18 @@ export async function queryClassificationRecords(
       userCount: row.users.size,
       classification: entry?.classification ?? 'unclassified',
       status: entry ? 'processed' : 'pending',
+      manageability: actionableKeys.has(key) ? 'actionable' : projection?.manageability ?? 'review',
+      catalogKind: projection?.catalogKind ?? (actionableKeys.has(key) ? 'application' : 'unresolved'),
+      projectionReasonCode: projection?.projectionReasonCode ?? (actionableKeys.has(key) ? 'VERIFIED_APPLICATION' : 'TECHNICAL_IDENTITY_ONLY'),
     };
   }).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
+  const manageable = records.filter((record) => record.manageability === 'actionable');
   return {
     windowStartMs,
     windowEndMs,
-    pending: records.filter((record) => record.status === 'pending'),
-    processed: records.filter((record) => record.status === 'processed'),
+    pending: manageable.filter((record) => record.status === 'pending'),
+    processed: manageable.filter((record) => record.status === 'processed'),
+    technical: records.filter((record) => record.manageability !== 'actionable'),
   };
 }
 
@@ -666,7 +734,7 @@ export async function queryAppCatalog(
   childId: string,
   nowMs: number,
   platform?: RuntimePlatform,
-): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[]; inventoryScans: Awaited<ReturnType<typeof queryInventoryScanStatus>> }> {
+): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[]; technicalItems: unknown[]; inventoryScans: Awaited<ReturnType<typeof queryInventoryScanStatus>> }> {
   const windowEndMs = nowMs;
   const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
   const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
@@ -740,7 +808,8 @@ export async function queryAppCatalog(
     item.installed ||= row.status==='installed'; item.machines.add(row.machine_id); item.users.add(row.local_user_id); inventory.set(key,item);
   }
   const resolvedByKey = new Map((policy.resolvedApplications ?? []).map(item=>[`${item.platform}\n${item.runtimeIdentity}`,item]));
-  const associations = associateApplicationEvidence([...inventory.values()].map(item=>item.evidence));
+  const associations = associateApplicationEvidence([...inventory.values()].map(item=>item.evidence)
+    .filter(evidence=>evidence.discovery?.role!=='component'&&evidence.discovery?.role!=='candidate'&&hasStrongApplicationIdentity(evidence)));
   const keys = new Set([...grouped.keys(), ...policyByKey.keys(), ...[...inventory.keys()].filter(key=>inventory.get(key)!.installed||grouped.has(key)||policyByKey.has(key))]);
   const items = [...keys].map((key) => {
     const observed = grouped.get(key);
@@ -766,6 +835,7 @@ export async function queryAppCatalog(
       machineCount: new Set([...(observed?.machines ?? []),...(found?.machines ?? [])]).size,
       userCount: new Set([...(observed?.users ?? []),...(found?.users ?? [])]).size,
       observedInWindow: Boolean(observed),
+      ...projectCatalogEvidence(found?.evidence, product?.id ?? null, Boolean(configured)),
     };
   });
   // A configured, reliably identified product stays in the directory before discovery/use.
@@ -776,7 +846,8 @@ export async function queryAppCatalog(
       if (items.some(item=>item.productId===entry.productId && item.platform===itemPlatform)) continue;
       items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
         classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
-        firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false,discovery:null});
+        firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false,discovery:null,
+        catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const});
     }
   }
   const productGroups = new Map<string,typeof items>();
@@ -791,7 +862,15 @@ export async function queryAppCatalog(
       for(const machine of [...(used?.machines??[]),...(installed?.machines??[])])machines.add(machine);
       for(const user of [...(used?.users??[]),...(installed?.users??[])])users.add(user);
     }
-    const primary = [...group].sort((a,b)=>(a.discovery?.nameSource==='appList'?0:a.discovery?.role==='application'?1:2)-(b.discovery?.nameSource==='appList'?0:b.discovery?.role==='application'?1:2))[0]!;
+    const primary = [...group].sort((a,b)=>(a.manageability==='actionable'?0:a.manageability==='review'?1:2)-(b.manageability==='actionable'?0:b.manageability==='review'?1:2)
+      ||(a.discovery?.nameSource==='appList'?0:a.discovery?.role==='application'?1:2)-(b.discovery?.nameSource==='appList'?0:b.discovery?.role==='application'?1:2))[0]!;
+    const aggregateProjection = group.some(item=>item.productId)
+      ? {catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const}
+      : group.some(item=>item.manageability==='actionable')
+        ? {catalogKind:'application' as const,manageability:'actionable' as const,projectionReasonCode:primary.projectionReasonCode}
+        : group.every(item=>item.manageability==='hidden')
+          ? {catalogKind:'component' as const,manageability:'hidden' as const,projectionReasonCode:'COMPONENT' as const}
+          : {catalogKind:primary.catalogKind,manageability:'review' as const,projectionReasonCode:primary.projectionReasonCode};
     return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:null,
       observedInWindow:group.some(item=>item.observedInWindow),
       discovery:group.some(item=>item.discovery?.role==='application')?{...primary.discovery!,role:'application' as const}:primary.discovery,
@@ -799,12 +878,16 @@ export async function queryAppCatalog(
       associationStatus:group[0]!.productId?'confirmedProduct':implementations.length>1?'verifiedIdentityAssociation':'technicalIdentity',
       mainDurationMs:groupedUnion(intervals),machineCount:machines.size,userCount:users.size,
       lastSeenAtMs:Math.max(0,...group.map(item=>item.lastSeenAtMs??0))||null,
-      installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState};
+      installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState,
+      ...aggregateProjection};
   });
   const filtered = directory.filter((item) => !platform || item.platform === platform)
     .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
       || String(left.displayName || '').localeCompare(String(right.displayName || '')));
-  return { windowStartMs, windowEndMs, items:filtered, inventoryScans:await queryInventoryScanStatus(database,accountId,childId) };
+  return { windowStartMs, windowEndMs,
+    items:filtered.filter(item=>item.manageability==='actionable'),
+    technicalItems:filtered.filter(item=>item.manageability!=='actionable'),
+    inventoryScans:await queryInventoryScanStatus(database,accountId,childId) };
 }
 
 function runtimeLogLevel(code: string): 'error' | 'warning' | 'info' {

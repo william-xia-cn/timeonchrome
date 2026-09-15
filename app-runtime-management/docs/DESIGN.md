@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前修复：ARM-D-013
+
+目录 read model 在原始 `runtimeIdentity` 与家长应用目录之间增加产品投影层。服务端把记录分为 `actionable`、`review` 和 `hidden`：已确认产品或具有可靠身份的主应用为 `actionable`；只有历史进程名、弱候选或证据不足的实现为 `review`；明确组件与瞬态对象为 `hidden`。主目录和分类计数只返回/使用 actionable 项，review/hidden 项通过系统管理的只读技术进程记录审计，不提供分类按钮。
+
+产品行按 `productId + platform + classification` 聚合并携带可信 `runtimeImplementations`，保存分类时把同一选择投影到这些现有技术键，不创建虚假身份。该投影不修改 UsageSegment、app usage 统计或 quota 计算；原始账本继续作为事实源。
+
 ## 当前修复：ARM-D-012
 
 目录降噪和盘点完整性使用 contracts 1.2.0 的可选 discovery/scan 摘要，Guardian 的现有 ^1.0.0 依赖及业务 import 不变；根 compatibility 测试同步 Minor 版本。旧客户端继续兼容。细则见 SPEC-004 技术设计 checklist；0009 仅本地生成/验证。默认目录不列已成功盘点确认缺失且无使用/配置的旧候选，不删除其原观察记录。
