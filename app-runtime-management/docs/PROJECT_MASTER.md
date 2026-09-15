@@ -9,6 +9,10 @@
 - Guardian、主 Pages、R2 本次不部署；R2 latest 回读仍为内部未签名 2.0.6。升级前本机 2.2.0 Service Automatic/Running、单一 Session Agent。2.2.1 Burn 哈希复核通过，PO 选择手工安装；尚未确认安装成功或真实新版完整盘点。
 - 下方旧生产/准备记录保留为历史，以本节最新事实为准。GitHub production token 缺失仍影响未来自动发布，不影响本次已批准并完成的 Wrangler 本机发布。
 
+安装后只读验收：PO 已手工安装 2.2.1，正式三个程序 ProductVersion 2.2.1/FileVersion 2.2.1.0；Service Automatic/Running、单一 Session Agent。云端机器仍为一台、未吊销，新版 heartbeat 与主账本上传成功，策略 13/13 已生效，旧 v1 历史 172 条保留。ProgramData 普通权限访问仍拒绝，未弱化 ACL 或读取 credential 内容；本地 outbox 全空与精确文件数据保留不伪报已验证。新版扫描观察 456 个唯一技术对象（不是 456 个独立产品），存在 executable-evidence-unavailable 来源结果，完整盘点仍不能宣称通过。
+
+扫描收口：3 个数据批次加 0 观察完成回执全部到达云端（completed=1），456/456 观察且唯一数 456，精确键重复 0。新版观察元数据为应用入口 145、组件 207、候选 104；其中应用入口 appList 友好名称 45 个。历史无 discovery 元数据观察仍有 91 条，未删除。2 个快捷方式目标证据未取得，云端状态应为 partial，不能误称完整或对未知区间推断卸载。安装程序列表 DisplayVersion 2.2.1、公共桌面 TimeWhereMg 入口存在；本轮未执行重启、多账户或管理员管道验收。
+
 ## 当前修复与生产基线（2026-09-16）
 
 - ARM-D-012 目录质量修复位于 `codex/app-runtime-inventory-quality-v1`；contracts 1.2.0、Windows 2.2.1 本地代码/最终包已验证，最终代码 6e8618f 的 Windows/WiX、contracts-worker-console 和真实 macOS 15 Swift CI 35002959346 全部通过。源码未合并，不代表生产已更新。

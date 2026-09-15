@@ -7,8 +7,10 @@
 - [x] 精确应用唯一待执行 0009，远端回查无待执行 migration。
 - [x] Runtime Worker `c7a57148-5568-4cd2-a6d5-e21c2d3a1041`、独立 Pages `54ebbd84-9ee6-4fc4-98dd-1ee0dcdfd73c` 发布成功；稳定域 HTML/JS/CSS 与 master 哈希一致，未认证 API 401。
 - [x] Guardian/Main Pages/R2 未部署，R2 latest 仍为 2.0.6。2.2.1 Burn SHA-256 `1df0d8f3b23fe82c241bd6eef761d329186d293812b4bbeab26d4e6aa48115f5`、118,702,091 bytes 回读通过。
-- [ ] PO 选择手工安装 2.2.1，等待完成后检查正式版本、Service、单一 Session Agent、credential/策略/SQLite/outbox/身份保留。
-- [ ] 新版真实盘点 scan/ACK、完整性、友好名称和可信去重仍待验收，不用 mock 或旧清单数量替代。
+- [x] PO 手工安装完成；正式 Service/SessionAgent/Manager ProductVersion 2.2.1、FileVersion 2.2.1.0，Service Automatic/Running，单一 Session Agent。云端机器仍为 1、未吊销，Service heartbeat 2.2.1.0、x64，策略 desired/applied 13/13，使用账本上传继续成功，旧 v1 历史 172 条仍保留。
+- [ ] ProgramData 普通权限仍拒绝访问；未放宽 ACL。credential/SQLite/outbox 内容及精确机器身份本轮未直接读取，不据云端在线推断本地全部队列清空。
+- [x] 新版真实 scan 的 3 个数据批次及 0 观察完成标记均到达云端；完成回执为 1，456/456 观察、456 唯一技术身份。精确重复键 0；新版元数据分为 145 应用入口、207 组件、104 候选，45 个应用入口使用 appList 友好名称，原 legacy 观察 91 条保留，不当作已清洗数据。
+- [ ] 发现状态为 partial 而非完整：executable-evidence-unavailable，2 个快捷方式目标只作为弱候选，尚不能确定目标缺失还是无法读取可靠证据。未登录账户不宣称已扫描；不能将完成回执等同于来源全成功或整机完整。
 
 发布审计：Matched＝合并、精确迁移、独立 Worker/Pages、API fail-closed、资源哈希与 R2 latest 不变；Deviated＝PO 本轮批准的 Wrangler 本机发布例外；Missing＝发布阶段无，本机升级/真实盘点仍待用户安装后验证；Extra＝无。未重新配对、删除、历史重算或披露凭据。
 

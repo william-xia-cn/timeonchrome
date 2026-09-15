@@ -6,6 +6,7 @@
 - PO 明确批准本次现有 Wrangler 登录发布路径；未提取或复制 OAuth 凭据。Guardian、主 Pages、R2 未部署，R2 latest 仍为 2.0.6。
 - 稳定 Runtime Pages HTML/JS/CSS 与源码哈希一致；模块/机器 API 无认证均 401，不清理或改写旧观察、历史账本。
 - 2.2.1 内部未签名候选包哈希复核通过；PO 选择手工原地安装，安装与新版真实完整盘点尚待验收，不能标记本机已更新。
+- 安装后追加：PO 手工升级成功，正式版本/Automatic Service/单一 Session Agent 与新版云端 heartbeat、策略 13/13、持续账本上传已只读确认。456 个扫描身份唯一；仍有弱快捷方式 executable-evidence-unavailable 结果，不能宣称整机所有用户完整盘点或全部数据干净。ProgramData ACL 保持拒绝普通访问，未读取凭据、清除历史或重配对。
 
 ## [Windows 2.2.1 / contracts 1.2.0] — 2026-09-16（本地修复与包验证，未安装/发布）
 
