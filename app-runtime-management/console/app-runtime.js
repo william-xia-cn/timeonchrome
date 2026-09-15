@@ -6,7 +6,7 @@
   const categoryColors = { study: '#178f6a', composite: '#4d9fd8', restrictedEntertainment: '#ed9f38', unclassified: '#9aa6a0', blocked: '#d64545' };
   const viewText = {
     usage: ['使用统计', '查看电脑应用主使用账本'], access: ['应用访问管理', '管理独立配额、七天时间段和配置文件'],
-    apps: ['应用管理', '管理真实使用过的应用目录与分类'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
+    apps: ['应用管理', '管理安装发现、产品确认与孩子分类规则'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
     system: ['系统管理', '查看系统日志、主账本、辅助媒体和运行健康'],
   };
   const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [] }, catalog: { items: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, view: 'usage', appCategory: 'unclassified', actionApps: [], quotaApps: [], loaded: false };
@@ -93,6 +93,11 @@
       { ...state.policy.classifications.find((item) => item.runtimeIdentity === 'app:chat'), firstSeenAtMs: null, lastSeenAtMs: null, mainDurationMs: 0, machineCount: 0, userCount: 0, observedInWindow: false },
       ...state.records.pending,
     ] };
+    state.mockInventory = state.catalog.items.map((item,index)=>({status:'installed',evidence:{platform:item.platform,runtimeIdentity:item.runtimeIdentity,displayName:item.displayName,values:{binaryHash:(index+1).toString(16).padStart(64,'0'),signerKey:'a'.repeat(64),productName:item.displayName},verifiedFields:['binaryHash','signerKey']}}));
+    const requestedFixtures=Number(new URLSearchParams(location.search).get('inventoryFixtures'));
+    const inventoryFixtures=Number.isSafeInteger(requestedFixtures)?Math.max(0,Math.min(200,requestedFixtures)):0;
+    for(let index=state.mockInventory.length;index<inventoryFixtures;index++)state.mockInventory.push({status:'installed',evidence:{platform:index%2?'windows':'macos',runtimeIdentity:`fixture:application-${index}`,displayName:`受控应用夹具 ${index+1}`,values:{binaryHash:(index+1).toString(16).padStart(64,'0')},verifiedFields:['binaryHash']}});
+    state.mockKnowledge = {schemaVersion:1,version:1,products:[{id:'fixture-game',name:'Minecraft',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:state.mockInventory[2].evidence.values.binaryHash}]}}]}],rules:[],bindings:[{childId:'demo-a',products:[{productId:'fixture-game',classification:'restrictedEntertainment'}],ruleIds:[]}]};
     state.runtimeLogs = { range: 'today', nextCursor: null, summary: { total: 4, error: 1, warning: 1, info: 2 }, items: [
       { id: 'log-4', timestampMs: Date.now() - 60000, level: 'info', category: 'service', eventCode: 'heartbeat_succeeded', machineName: 'INTELMINIPC-XW', platform: 'windows', module: 'heartbeat-loop', message: 'heartbeat_succeeded', source: 'terminal' },
       { id: 'log-3', timestampMs: Date.now() - 120000, level: 'warning', category: 'security', eventCode: 'session_agent_terminated', machineName: 'INTELMINIPC-XW', platform: 'windows', module: 'session-supervisor', message: 'session_agent_terminated', source: 'terminal' },
@@ -132,7 +137,9 @@
 
   function observedApps() {
     const applications = new Map();
-    for (const item of [...(state.catalog.items || []), ...state.policy.classifications, ...(state.records.pending || []), ...(state.records.processed || [])]) {
+    const directory=(state.catalog.items || []).flatMap(item=>item.runtimeImplementations?.length?item.runtimeImplementations.map(implementation=>({...item,...implementation})):[item]);
+    for (const item of [...directory, ...state.policy.classifications, ...(state.records.pending || []), ...(state.records.processed || [])]) {
+      if (!item.runtimeIdentity) continue; // Product rows never invent a quota/technical identity.
       const key = AppRuntimePolicy.keyOf(item);
       const current = applications.get(key) || {};
       const classification = state.policy.classifications.find((entry) => AppRuntimePolicy.keyOf(entry) === key)?.classification;
@@ -154,7 +161,8 @@
     const recent = app.lastSeenAtMs ? time(app.lastSeenAtMs) : '最近 30 天无使用';
     const mainDuration = app.mainDurationMs ?? app.durationMs ?? 0;
     const coverage = `${Number(app.machineCount || 0)} 台电脑 · ${Number(app.userCount || 0)} 个本机账户`;
-    return `<article class="record-card"><div class="app-record-main"><span class="app-icon">${escape((app.displayName || '?').slice(0, 1))}</span><div><strong>${escape(app.displayName || '未知应用')}</strong><p><span class="platform-chip ${escape(app.platform)}">${app.platform === 'macos' ? 'macOS' : 'Windows'}</span> · 最近使用 ${recent}</p><p>最近 30 天主账本 ${duration(mainDuration)} · ${coverage}</p></div></div><div class="record-actions" aria-label="${escape(app.displayName || '未知应用')} 分类操作">${classificationActions(app, selected)}</div></article>`;
+    const installation = ({installed:'已安装',preconfigured:'预配置，尚未发现',usedNotDiscovered:'使用过，当前未发现'})[app.installationState];
+    return `<article class="record-card"><div class="app-record-main"><span class="app-icon">${escape((app.displayName || '?').slice(0, 1))}</span><div><strong>${escape(app.displayName || '未知应用')}</strong><p><span class="platform-chip ${escape(app.platform)}">${app.platform === 'macos' ? 'macOS' : 'Windows'}</span> · 最近使用 ${recent}${installation?` · ${installation}`:''}</p><p>最近 30 天主账本 ${duration(mainDuration)} · ${coverage}</p>${app.classificationReason?`<p>${escape(app.classificationReason)}</p>`:''}</div></div><div class="record-actions" aria-label="${escape(app.displayName || '未知应用')} 分类操作">${classificationActions(app, selected)}</div></article>`;
   }
   function renderAppDirectory() {
     state.actionApps = [];
@@ -318,7 +326,7 @@
     if (button.dataset.usageApp) openUsageDetail('app', button.dataset.usageApp);
     if (button.dataset.usageCategory) openUsageDetail('category', button.dataset.usageCategory);
     if (button.dataset.appCategory) { state.appCategory = button.dataset.appCategory; renderAppDirectory(); }
-    if (button.dataset.classifyIndex != null && button.dataset.classification) { const app = state.actionApps[Number(button.dataset.classifyIndex)]; if (app) { await savePolicy(AppRuntimePolicy.classify(state.policy, app, button.dataset.classification)); showSuccess(`${app.displayName || '应用'} 已归入${categoryLabels[button.dataset.classification] || '未归类'}`); } }
+    if (button.dataset.classifyIndex != null && button.dataset.classification) { const app = state.actionApps[Number(button.dataset.classifyIndex)]; if (app) { if(app.productId) await knowledgeManager.classify(app.productId,button.dataset.classification); else await savePolicy(AppRuntimePolicy.classify(state.policy, app, button.dataset.classification)); showSuccess(`${app.displayName || '应用'} 已归入${categoryLabels[button.dataset.classification] || '未归类'}`); } }
     if (button.classList.contains('drawer-close')) closeDrawer();
     if (button.dataset.uninstall) { const result = mock ? { code: 'UNIN-STALL-CODE', expiresAtMs: Date.now() + 600000 } : await runtime(`/v2/module/machines/${encodeURIComponent(button.dataset.uninstall)}/uninstall-codes`, { method: 'POST', body: '{}' }); showCode('uninstall', result.code, result.expiresAtMs); $('#uninstall-dialog').showModal(); }
     if (button.dataset.revoke && !mock && confirm('吊销后这台电脑将停止采集和上传，确定继续？')) { await runtime(`/v2/module/machines/${encodeURIComponent(button.dataset.revoke)}/revoke`, { method: 'POST', body: '{}' }); closeDrawer(); await load(); }
@@ -353,5 +361,12 @@
     AppRuntimeSession.clear(sessionStorage);
     location.assign('https://timeonchrome-console.pages.dev/');
   });
+  const knowledgeManager = AppRuntimeKnowledge.mount({request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
+    if(!mock){await load();return;}
+    state.mockKnowledge=knowledge;
+    const binding=knowledge.bindings.find(item=>item.childId===state.childId);
+    for(const item of state.catalog.items){const evidence=state.mockInventory.find(observation=>observation.evidence.runtimeIdentity===item.runtimeIdentity)?.evidence;if(!evidence)continue;const products=knowledge.products.filter(product=>product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.every(condition=>evidence.values[condition.field]===condition.value)));if(products.length===1){const explicit=binding?.products.find(entry=>entry.productId===products[0].id);if(explicit){item.productId=products[0].id;item.displayName=products[0].name;item.classification=explicit.classification;item.classificationReason='孩子产品明确分类';item.installationState='installed';}}}
+    state.machines.forEach(machine=>{machine.desiredPolicyVersion+=1;machine.policyState=machine.status==='online'?'pending':'offline';});renderAll();
+  }});
   load();
 })();

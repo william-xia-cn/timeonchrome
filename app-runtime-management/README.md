@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 应用分类规则阶段（ARM-D-011，本地实现，待完整验收）
+
+应用管理新增家庭确定性产品与通用分类规则。家庭复用识别知识，孩子分类独立；规则包预览批准，未知应用仍未归类。产品关联不替换旧 runtimeIdentity，不追溯重算历史。Windows 发现已接入 Service 的独立清单事务/outbox；macOS 仅显式只读发现适配器。本阶段不部署、不阻止、不升级本机，不自动上传真实家庭盘点。功能分支 contracts 为 1.1.0；现有生产 contract 1.0.0 不因本轮本地修改改变。Windows 90/90、Worker 35/35 与桌面/移动 mock 通过；macOS 编译和测试须在 macOS 执行，当前未验证。
+
 App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能力。macOS 与 Windows 是同一产品的两个原生 Agent，共享事实模型、Usage Segment、上传协议和 Runtime Worker/D1；Santa Native App Control 继续独立负责应用发现、审核与阻止。
 
 本模块在 TimeOnChrome 仓库内独立构建、测试、版本和部署。项目真值位于 `docs/`；共享协议由 `@timeonchrome/app-runtime-contracts@1.0.0` 提供。Runtime Console 的 canonical source 是 `console/`，发布到独立 `timeonchrome-app-runtime-console` Pages 项目，不再复制到主控制台 Pages。
