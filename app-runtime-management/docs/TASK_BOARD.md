@@ -2,8 +2,12 @@
 
 ## 当前合并与发布预检（PO 授权：合并、推送、部署）
 
-- 合并前 root TypeScript 检查通过；既有 Guardian integration 测试仍硬编码 contract 1.0.0，在已批准的 Minor 1.1.0 上失败。本次只将该版本夹具同步为 1.1.0，不删减身份桥、SSO、独立页面或入口断言，不修改 Guardian 业务。
-- 远端 Runtime 只待执行 0008_runtime_application_knowledge.sql。生产 workflow 当前会同时部署 Guardian/Main Pages，GitHub production 审批环境尚不存在；在修订发布配置获确认前，不绕过该闸门执行生产部署。
+- PR #10 已合并到 origin/master（eed75c49）；contract 1.1.0、Windows/WiX、macOS Swift 及 Guardian compatibility CI 通过。生产尚未更新。
+- PO 已授权补全发布配置：在短期分支修改 production workflow、manifest 生成器及聚焦测试；Runtime Worker/Pages 独立选择，Guardian/Main Pages 默认关闭，migration 按精确文件名核对，固定受测 master SHA。
+- 建立 master-only production 人工审批环境；Cloudflare Account ID 使用环境变量，部署 API token 由 PO 在 GitHub environment secrets 安全配置。禁止读取/复制本机 Wrangler OAuth token，缺失认证时 fail-closed。
+- 聚焦 release-config 测试接入 Runtime CI；production workflow、manifest 或该测试变更均触发验证。GitHub production 环境、master branch policy 与 Account ID 已创建并回查，部署 API token 尚缺失。
+- 本地验证：production YAML 结构、release-config fixtures、既有 Guardian integration、模块边界与 git diff --check 均通过；native-app-control/、extension/、workers/、pages/ 零修改。配置代码审计 Matched；Deviated/Missing/Extra 无。生产执行仍因 API token 和人工审批待完成而阻塞，不能标记已部署。
+- 远端 Runtime 当前仅待 0008_runtime_application_knowledge.sql。配置验证、合并和人工审批通过前，不执行 migration 或部署；R2 latest、William 安装和家庭盘点不在本轮范围。
 
 - 应用发现收口：只有完整且无失败来源的扫描才发送有界完整身份集合；Service 按已认证用户将此前已安装但本次未观察到的项目标记 `notObserved`。便携运行观察及其他用户不受影响，失败/超容量扫描不推断卸载；缓存和独立 outbox 继续事务写入。
 - 运行观察不能把已确认 installed 降为 runtimeObserved；保留安装证据，成功完整扫描仍可更新缺失状态。包扫描取消时结束自身查询进程，不遗留后台查询。

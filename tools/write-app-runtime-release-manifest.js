@@ -15,14 +15,20 @@ function newestWorkerVersion(path) {
 function newestPagesDeployment(path) {
   const deployments = readJson(path);
   const sha = process.env.GITHUB_SHA || '';
-  const selected = deployments.find((item) => item.Source === sha || sha.startsWith(item.Source || '')) || deployments[0];
+  const selected = deployments.find((item) => item.Source && sha && sha.startsWith(item.Source)) || deployments[0];
   return selected ? { id: selected.Id, source: selected.Source, url: selected.Deployment } : null;
 }
 
 const manifest = {
   gitSha: process.env.GITHUB_SHA || null,
-  contractVersion: '1.0.0',
-  runtimeMigrations: (process.env.EXPECTED_RUNTIME_MIGRATIONS || '').split(',').filter(Boolean),
+  contractVersion: readJson('app-runtime-management/contracts/package.json').version,
+  runtimeMigrations: (process.env.APPLIED_RUNTIME_MIGRATIONS || '').split(',').filter(Boolean),
+  deployedResources: [
+    ['DEPLOY_RUNTIME_WORKER', 'runtimeWorker'],
+    ['DEPLOY_RUNTIME_PAGES', 'runtimePages'],
+    ['DEPLOY_GUARDIAN_WORKER', 'guardianWorker'],
+    ['DEPLOY_MAIN_PAGES', 'mainPages'],
+  ].filter(([flag]) => process.env[flag] === 'true').map(([, resource]) => resource),
   runtimeWorkerVersion: newestWorkerVersion('runtime-worker-deployments.json'),
   guardianWorkerVersion: newestWorkerVersion('guardian-worker-deployments.json'),
   runtimePages: newestPagesDeployment('runtime-pages-deployments.json'),
@@ -38,6 +44,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
     '',
     `- Git SHA: \`${manifest.gitSha}\``,
     `- Contract: \`${manifest.contractVersion}\``,
+    `- Deployed resources: \`${manifest.deployedResources.join(', ') || 'none'}\``,
     `- Runtime migrations: \`${manifest.runtimeMigrations.join(', ') || 'none'}\``,
     `- Runtime Worker: \`${manifest.runtimeWorkerVersion}\``,
     `- Guardian Worker: \`${manifest.guardianWorkerVersion}\``,

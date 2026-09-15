@@ -6,11 +6,17 @@ on:
       - 'app-runtime-management/**'
       - 'tools/check-app-runtime-boundaries.js'
       - '.github/workflows/app-runtime.yml'
+      - '.github/workflows/app-runtime-production.yml'
+      - 'tools/write-app-runtime-release-manifest.js'
+      - 'tests/unit/app-runtime-release-config.test.js'
   push:
     branches: [master]
     paths:
       - 'app-runtime-management/**'
       - 'tools/check-app-runtime-boundaries.js'
+      - '.github/workflows/app-runtime-production.yml'
+      - 'tools/write-app-runtime-release-manifest.js'
+      - 'tests/unit/app-runtime-release-config.test.js'
   workflow_dispatch:
 
 jobs:
@@ -24,6 +30,7 @@ jobs:
       - run: npm run build:app-runtime-contracts
       - run: npm --workspace @timeonchrome/app-runtime-contracts test
       - run: npm run check:app-runtime-boundaries
+      - run: node tests/unit/app-runtime-release-config.test.js
       - run: npm ci --prefix app-runtime-management/backend
       - run: npm test --prefix app-runtime-management/backend
       - run: npm run typecheck --prefix app-runtime-management/backend
