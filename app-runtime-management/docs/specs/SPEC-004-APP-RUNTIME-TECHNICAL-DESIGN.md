@@ -1,5 +1,9 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## Windows 2.2.0 客户端发布准备
+
+已合并的 ARM-D-011 应用发现与规则客户端使用内部版本 2.2.0，与现有安装 2.1.1 区分。统一 MSI/Burn 默认版本、build.ps1 发布版本与 Service fallback；Assembly/File/Informational Version 由既有发布脚本参数同步生成。machine-scope UpgradeCode、安装目录、配对、机器身份和账本保持不变。仅准备并验证本地包，不运行家庭盘点、不安装、不部署、不切 R2 latest；包仍为 BLOCKED_BY_AUTHENTICODE_SIGNING。
+
 ## ARM-D-011 应用目录与分类规则（代码接入与本地验证）
 
 保留历史 runtimeIdentity，新增家庭产品知识/可信变种、孩子明确分类和通用规则三层。共享固定条件匹配器，规则按 product / family / developer / type 优先级，逐条 automatic 或 suggestion；auto 的 any 每个分支都必须有可信身份条件。弱名称、自声明类别、来源只能建议。开发者匹配验证后的 opaque signerKey，证书/开发者原文不随机器清单上传。

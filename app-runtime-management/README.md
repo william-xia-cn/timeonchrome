@@ -1,5 +1,11 @@
 # App Runtime Management
 
+## Windows 2.2.0 客户端包准备
+
+新应用发现与分类客户端内部 2.2.0 本地包已准备并验证，避免与本机旧 2.1.1 同号。明确 2.2.0 参数的 Windows 测试 90/90；MSI/Burn 均零警告/错误；六个程序集、MSI 文件清单、固定 UpgradeCode 和包哈希通过实际产物回读。既有安装身份、配对、机器数据和账本不变。未安装、不代表安装清单已上传，也未发布 R2/latest。内部未签名状态仍为 BLOCKED_BY_AUTHENTICODE_SIGNING。
+
+包目录为 `artifacts/release/windows/x64/2.2.0/`，用户入口为 `TimeOnChrome-AppRuntime-Setup-win-x64-2.2.0.exe`（Burn），不是直链 MSI。Burn SHA-256：`1576a1840d5f74b91177aa1a7c0d9d0bd6b236067749d2ba722489de9bc087f0`；MSI SHA-256：`b4bb5680a750ded4cee1004e3594b1a26a8e9056d818fc95c72995864c9388d4`。同目录 manifest 已核对大小和哈希；本地 latest.json 只是候选，不代表云端 latest 已切换。
+
 ## 应用分类规则阶段（ARM-D-011，本地实现与 mock/CI 验证完成）
 
 应用管理新增家庭确定性产品与通用分类规则。家庭复用识别知识，孩子分类独立；规则包预览批准，未知应用仍未归类。产品关联不替换旧 runtimeIdentity，不追溯重算历史。Windows 发现已接入 Service 的独立清单事务/outbox；macOS 仅显式只读发现适配器。本阶段不部署、不阻止、不升级本机，不自动上传真实家庭盘点。功能分支 contracts 为 1.1.0；现有生产 contract 1.0.0 不因本轮本地修改改变。Windows 90/90、Worker 35/35 与桌面/移动 mock 通过；macOS 15 CI 已真实执行并通过 swift test。代码 SHA 58b1cfc 的跨平台 CI 34973586475 全绿（含 Windows MSI/Burn build），不等同于生产发布或家庭真机验收。

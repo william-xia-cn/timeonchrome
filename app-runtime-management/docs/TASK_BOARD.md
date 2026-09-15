@@ -1,5 +1,17 @@
 # App Runtime 任务板
 
+## NOW：Windows 2.2.0 客户端包准备
+
+- 已完成本地包准备：带 Version=2.2.0、Assembly/FileVersion=2.2.0.0、InformationalVersion=2.2.0 明确参数的 Windows solution tests 90/90，测试二进制版本已回读。六个发布程序集版本一致，发现类型存在但未实例化；MSI ProductVersion=2.2.0、固定 UpgradeCode、486 文件及四个关键客户端文件版本通过实际包数据库核对。
+- 首次 publish 因 D 盘 0 bytes 失败；经 PO 授权仅清理本工作树可重建 bin/obj/artifacts 共 218.9 MB，未删除源码或家庭数据。第二次 MSI/Burn 构建均零警告/错误，隔离 migration package-probe 通过。
+- Burn 展示版本为 2.2.0、数值字段为 2.2.0.0；首次字符串检查误要求四段展示值失败，已回读数值字段确认。包大小/SHA-256 与 manifest 一致；git diff --check、受保护目录零修改通过。Matched＝本地版本、测试、构建、包验证及授权清理；Deviated/Missing/Extra＝本次准备范围无。
+- 本地候选：artifacts/release/windows/x64/2.2.0/；Burn 118,722,089 bytes / 1576a1840d5f74b91177aa1a7c0d9d0bd6b236067749d2ba722489de9bc087f0；MSI 60,342,624 bytes / b4bb5680a750ded4cee1004e3594b1a26a8e9056d818fc95c72995864c9388d4。未安装、未真实盘点上传、未发布 R2/latest；真机保留安装 2.1.1，未以本地验证冒充完整覆盖/去重验收。
+
+- PO 要求继续实际执行：为已合并的发现/分类客户端准备内部 2.2.0，避免与本机旧 2.1.1 同号；版本补丁、完整 Windows solution tests、MSI/Burn 构建、文件版本和哈希核对为本次范围。
+- 已先更新技术设计与 README/Changelog；实施位置为 installer/windows/build.ps1、两个 wixproj、Service fallback 与 InstallerPackageTests。固定 machine-scope UpgradeCode 和安装目录，不改落账/配对协议。
+- 准备阶段不安装、不运行或上传家庭盘点、不部署云端、不写 R2 latest。真实升级和清单对照未执行，不以测试或包构建冒充端到端验收。
+- 云端应用分类发布已完成（master b133f78 / Worker 2543375b / Pages 3ec2fd7e / migration 0008），下方旧预检状态由证据 PR #12 更新；未来 CI production token 缺失不阻塞本次本地包构建。
+
 ## 当前合并与发布预检（PO 授权：合并、推送、部署）
 
 - PR #10 已合并到 origin/master（eed75c49）；contract 1.1.0、Windows/WiX、macOS Swift 及 Guardian compatibility CI 通过。生产尚未更新。
