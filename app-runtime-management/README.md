@@ -66,6 +66,14 @@ npm --prefix backend run dry-run
 
 复制 `.dev.vars.example` 为未跟踪的 `.dev.vars`，配置测试用 Guardian Runtime 公钥。测试使用隔离的本地 D1，不访问远端数据库。
 
+## GitHub 生产发布配置
+
+`App Runtime Production` workflow 只允许 master，固定 workflow dispatch 的 Git SHA，并在部署前重新确认仍是 origin/master。Runtime Worker、Runtime Pages、Guardian Worker、主 Pages 分别选择；后两项默认关闭。migration 默认不执行，开启时必须与远端待执行文件名完全一致；有 pending migration 而未允许应用时不得部署新版 Runtime Worker。
+
+GitHub `production` environment 只允许 master，要求 Product Owner 人工审批。`CLOUDFLARE_ACCOUNT_ID` 放在 environment variables；`CLOUDFLARE_API_TOKEN` 放在 environment secrets，由 PO 从 Cloudflare 创建专用部署 API token 后在 GitHub 设置页面输入，禁止放入聊天、代码、日志或复用/复制本机 Wrangler OAuth token。没有配置时 workflow 在任何生产变更前失败关闭。
+
+manifest 从受测 contracts/package.json 读取版本，分别记录实际应用的 migrations、选择发布的资源和各资源的实际版本；不把未发布资源伪记为本次更新。本轮云端更新不包含 Windows 安装升级或 R2 latest 切换。
+
 ## 安全边界
 
 - 不记录或上传 executable path、窗口标题、URL、键鼠内容或屏幕数据。

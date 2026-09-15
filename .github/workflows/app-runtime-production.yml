@@ -3,10 +3,35 @@ name: App Runtime Production
 on:
   workflow_dispatch:
     inputs:
+      deploy_runtime_worker:
+        description: Deploy Runtime Worker
+        type: boolean
+        default: true
+      deploy_runtime_pages:
+        description: Deploy independent Runtime Pages
+        type: boolean
+        default: true
+      deploy_guardian_worker:
+        description: Deploy Guardian Worker (separate approval scope)
+        type: boolean
+        default: false
+      deploy_main_pages:
+        description: Deploy main console Pages (separate approval scope)
+        type: boolean
+        default: false
+      apply_runtime_migrations:
+        description: Apply exactly the expected pending Runtime migrations
+        type: boolean
+        default: false
       expected_runtime_migrations:
         description: Comma-separated Runtime migration filenames expected to be pending
-        required: true
-        default: 0006_runtime_terminal_logs.sql,0007_runtime_browser_sessions.sql
+        type: string
+        required: false
+        default: 0008_runtime_application_knowledge.sql
+
+concurrency:
+  group: app-runtime-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -17,14 +42,20 @@ jobs:
       contents: read
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-        with: { ref: master }
+        with: { ref: '${{ github.sha }}' }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      - run: test -z "$(git status --porcelain)"
-      - run: test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
+      - name: Release preflight
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing production CLOUDFLARE_API_TOKEN secret' >&2; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing production CLOUDFLARE_ACCOUNT_ID variable' >&2; exit 1; }
+          test -z "$(git status --porcelain)"
+          git fetch origin master
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
       - run: npm ci
       - run: npm ci --prefix app-runtime-management/backend
       - run: npm run build:app-runtime-contracts
@@ -32,32 +63,50 @@ jobs:
       - run: npm test --prefix app-runtime-management/backend
       - run: npm run typecheck --prefix app-runtime-management/backend
       - name: Runtime migrations
+        id: migrations
+        if: inputs.deploy_runtime_worker || inputs.apply_runtime_migrations
         working-directory: app-runtime-management/backend
         env:
           EXPECTED_RUNTIME_MIGRATIONS: ${{ inputs.expected_runtime_migrations }}
+          APPLY_RUNTIME_MIGRATIONS: ${{ inputs.apply_runtime_migrations }}
         run: |
           npx wrangler d1 migrations list timeonchrome-app-runtime --remote | tee pending-migrations.txt
-          actual="$(grep -oE '[0-9]{4}_[A-Za-z0-9_-]+\.sql' pending-migrations.txt | awk '!seen[$0]++' | paste -sd, -)"
+          actual="$( { grep -oE '[0-9]{4}_[A-Za-z0-9_-]+\.sql' pending-migrations.txt || true; } | awk '!seen[$0]++' | paste -sd, -)"
           if [ "$actual" != "$EXPECTED_RUNTIME_MIGRATIONS" ]; then
             echo "Runtime migration gate mismatch: expected=$EXPECTED_RUNTIME_MIGRATIONS actual=$actual" >&2
             exit 1
           fi
-          npx wrangler d1 migrations apply timeonchrome-app-runtime --remote
+          if [ -n "$actual" ] && [ "$APPLY_RUNTIME_MIGRATIONS" != true ]; then
+            echo 'Pending Runtime migrations require explicit apply authorization' >&2
+            exit 1
+          fi
+          if [ -n "$actual" ]; then
+            npx wrangler d1 migrations apply timeonchrome-app-runtime --remote
+            echo "applied=$actual" >> "$GITHUB_OUTPUT"
+          fi
       - name: Runtime Worker
+        if: inputs.deploy_runtime_worker
         working-directory: app-runtime-management/backend
         run: npx wrangler deploy
       - name: Guardian Worker
+        if: inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
         run: npx wrangler deploy --config ../../workers/wrangler.toml
       - name: Runtime Pages
+        if: inputs.deploy_runtime_pages
         working-directory: app-runtime-management/backend
         run: npx wrangler pages deploy ../console --project-name timeonchrome-app-runtime-console --branch master --commit-hash "${GITHUB_SHA}"
       - name: Main Pages
+        if: inputs.deploy_main_pages
         working-directory: app-runtime-management/backend
         run: npx wrangler pages deploy ../../pages --project-name timeonchrome-console --branch master --commit-hash "${GITHUB_SHA}"
       - name: Release manifest
         env:
-          EXPECTED_RUNTIME_MIGRATIONS: ${{ inputs.expected_runtime_migrations }}
+          APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outputs.applied }}
+          DEPLOY_RUNTIME_WORKER: ${{ inputs.deploy_runtime_worker }}
+          DEPLOY_RUNTIME_PAGES: ${{ inputs.deploy_runtime_pages }}
+          DEPLOY_GUARDIAN_WORKER: ${{ inputs.deploy_guardian_worker }}
+          DEPLOY_MAIN_PAGES: ${{ inputs.deploy_main_pages }}
         run: |
           (cd app-runtime-management/backend && npx wrangler deployments list --json) > runtime-worker-deployments.json
           (cd app-runtime-management/backend && npx wrangler deployments list --config ../../workers/wrangler.toml --json) > guardian-worker-deployments.json

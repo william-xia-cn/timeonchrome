@@ -29,7 +29,8 @@
 
 ## 生产恢复硬闸门
 
-- Runtime D1 只允许追加执行经核对的 `0006`、`0007`。
+- Runtime D1 按已批准清单和远端记录精确核对；`0006/0007` 已执行，当前待发布仅 `0008_runtime_application_knowledge.sql`。不得自动应用其他待执行文件。
+- 发布配置补全中（PO 授权）：生产只使用固定的已合并 master SHA；Runtime Worker/Pages 可独立选择，Guardian/Main Pages 默认不部署，migration 另行显式选择。GitHub production 环境只允许 master，并要求 PO 人工审批；缺失部署 API token 时停止，禁止搬运本机 OAuth 凭据。
 - Guardian 远端 `d1_migrations` 当前没有历史记录；禁止执行自动全量 migration apply。
 - 独立 Runtime Pages、独立 SSO 密钥、Runtime Worker、Guardian adapter 和主 Pages 入口必须可以分别回滚。
 - Authenticode 未完成前，Windows 包继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
