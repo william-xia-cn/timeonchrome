@@ -10,6 +10,24 @@ public sealed class ApplicationInventoryTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), "runtime-inventory-" + Guid.NewGuid().ToString("N"));
     public ApplicationInventoryTests() => Directory.CreateDirectory(root);
     [Fact]
+    public async Task PackageQueryUsesUtf8ForControlledChineseOutputWithoutDiscoveringApps()
+    {
+        var start = WindowsApplicationDiscovery.CreatePackageQueryStartInfo();
+        Assert.False(start.UseShellExecute); Assert.True(start.CreateNoWindow);
+        Assert.Equal("utf-8",start.StandardOutputEncoding!.WebName);
+        Assert.StartsWith(WindowsApplicationDiscovery.PackageQueryEncodingCommand,start.ArgumentList[^1]);
+        start.ArgumentList[^1] = WindowsApplicationDiscovery.PackageQueryEncodingCommand + "[Console]::Write('受控影音应用')";
+        using var process = new System.Diagnostics.Process { StartInfo = start };
+        Assert.True(process.Start());
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var errors = process.StandardError.ReadToEndAsync(timeout.Token);
+        try { await process.WaitForExitAsync(timeout.Token); }
+        finally { if (!process.HasExited) process.Kill(entireProcessTree:true); }
+        Assert.Equal(0,process.ExitCode); Assert.Equal("",await errors);
+        Assert.Equal("受控影音应用",await output);
+    }
+    [Fact]
     public void PackageEntriesKeepVisibleProductsSeparateAndResolveFriendlyNames()
     {
         const string xml = """

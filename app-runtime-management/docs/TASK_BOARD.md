@@ -2,13 +2,20 @@
 
 ## NOW：Windows 2.2.1 目录质量修复（ARM-D-012，PO 授权）
 
+最后复核补充：包查询输出与 C# 读取端显式统一 UTF-8，避免中文友好名称依赖控制台代码页；增加只输出受控中文字符串的 PowerShell 夹具测试，不运行 Get-AppxPackage/Get-StartApps。改动后重新构建并以新包哈希替代下方早期候选哈希；旧 hash 不作为最终发布证据。
+
+容量补充：原始清单上限与有效策略上限分离。未归类默认投影不占用旧客户端 1000 项 resolvedApplications 容量，缺省仍为未归类/无限额；超过 1000 个非默认有效投影时结构化报错并保持旧策略，不静默截断，不在盘点过程中发布无法被客户端解析的策略。
+
 - [x] 文档先行，D 盘独立修复分支，保留其他工作树。
 - [x] 发现名称、隐藏入口、来源合并与可信运行关联。
 - [x] scan 协议/outbox/后台完整性，旧客户端未知状态。
 - [x] 主要/安装未使用/使用证据/完整发现目录及产品分类。
 - [x] Windows/Worker 回归、桌面/移动 mock 目视、类型/Schema/local migration/dry-run。
 - [x] 2.2.1 本地 MSI/Burn、版本清单及哈希。
-- [ ] 提交推送；当前 Swift 改动和 23 组黄金向量的 macOS CI 待执行，不复用上一版本 CI 冒充通过。
+- [x] 修复主体提交推送：8df9397；真实 macOS 15 编译/共享向量、Windows/WiX 和 contracts-worker-console CI 35001806559 全部通过。
+- [ ] 最后 UTF-8/容量补丁与最终包证据收口；Windows 本地 95/95、Worker 38/38 已通过，不把主体 CI 冒充补丁 CI。
+
+主体 CI：https://github.com/william-xia-cn/timeonchrome/actions/runs/35001806559 ，受测代码 SHA `8df939759953a118137766da80b3711039bc2730`。下方 94/94、37/37 和早期包 hash 记录由最后收口结果取代；共享 Swift/向量源文件未再改变。
 
 验证（2026-09-16）：明确 2.2.1 版本参数的 Windows tests 94/94；contracts 1.2.0 编译/兼容和 23 组黄金向量通过；Worker/Vitest+D1 37/37（含 additive 0009）、TypeScript、generated binding types --check 和 Wrangler dry-run 通过。目录 mock 的 1440×1000、390×844 截图与目视检查通过，既有知识面板/策略及根 contract compatibility、模块边界检查通过。Draft 2020-12 Schema 实际校验 legacy/data/finish/privacy 夹具通过。
 

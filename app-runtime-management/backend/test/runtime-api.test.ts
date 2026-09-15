@@ -981,6 +981,23 @@ describe('Application knowledge and installed inventory', () => {
     expect(inventory.observations).toHaveLength(1);
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
   });
+  it('keeps unknown installed inventory out of legacy policy projection capacity', async () => {
+    const { account,enrolled,localUserId } = await createMachineWithUser();
+    const first=observation(localUserId);
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(first)})).status).toBe(200);
+    for(let offset=0;offset<1001;offset+=200){
+      const observations=Array.from({length:Math.min(200,1001-offset)},(_,index)=>({
+        ...first.observations[0]!,evidence:{...first.observations[0]!.evidence,
+          runtimeIdentity:`windows:unknown-fixture-${offset+index}`,displayName:'Unknown fixture',values:{},verifiedFields:[]},
+      }));
+      expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+        body:JSON.stringify({schemaVersion:1,batchId:`unknown-${offset}`,observations})})).status).toBe(200);
+    }
+    expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify(fixture())})).status).toBe(200);
+    const policy=await (await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)})).json<{resolvedApplications:unknown[]}>();
+    expect(policy.resolvedApplications).toEqual([expect.objectContaining({classification:'restrictedEntertainment'})]);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_inventory_v1').first('n')).toBe(1002);
+  });
   it('freezes forward classifications and preserves old-client policy fields', async () => {
     const { account,enrolled,localUserId } = await createMachineWithUser();
     await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(observation(localUserId))});

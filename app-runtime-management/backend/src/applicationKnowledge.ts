@@ -63,7 +63,10 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
       const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
       const resolution = resolveApplication(knowledge, childId, item, prior?.classification);
       return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification: resolution.classification };
-    });
+    }).filter(item => item.classification !== 'unclassified');
+    // Unknown inventory uses the existing unclassified/unlimited default; it must not inflate legacy policy arrays.
+    if (resolvedApplications.length > 1000)
+      throw new HttpError(413,'APPLICATION_POLICY_CAPACITY','Too many classified implementations for the supported machine policy capacity.');
     const binding = knowledge.bindings.filter(item => item.childId === childId);
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...knowledge, bindings: binding, rules: knowledge.rules.filter(rule => enabled.has(rule.id)) };

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using Microsoft.Win32;
@@ -166,12 +167,19 @@ public sealed class WindowsApplicationDiscovery
             if (shell is not null && Marshal.IsComObject(shell)) _ = Marshal.FinalReleaseComObject(shell);
         }
     }
-    private static async Task<IReadOnlyList<DiscoveredApplication>> PackagesAsync(List<string> failed, CancellationToken token)
+    public const string PackageQueryEncodingCommand = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); ";
+    public static ProcessStartInfo CreatePackageQueryStartInfo()
     {
         var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
-        using var process = new Process { StartInfo = new ProcessStartInfo(Path.Combine(system, @"WindowsPowerShell\v1.0\powershell.exe"))
-            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } };
-        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $packages=@(Get-AppxPackage | Where-Object { -not $_.IsFramework -and -not $_.IsResourcePackage } | Select-Object Name,PackageFamilyName,InstallLocation); $apps=@(Get-StartApps | Select-Object Name,AppID); ConvertTo-Json -InputObject @{packages=$packages;apps=$apps} -Compress" }) process.StartInfo.ArgumentList.Add(arg);
+        var start = new ProcessStartInfo(Path.Combine(system, @"WindowsPowerShell\v1.0\powershell.exe"))
+            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+              StandardOutputEncoding = new UTF8Encoding(false, true), StandardErrorEncoding = new UTF8Encoding(false, true) };
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", PackageQueryEncodingCommand + "$ErrorActionPreference='Stop'; $packages=@(Get-AppxPackage | Where-Object { -not $_.IsFramework -and -not $_.IsResourcePackage } | Select-Object Name,PackageFamilyName,InstallLocation); $apps=@(Get-StartApps | Select-Object Name,AppID); ConvertTo-Json -InputObject @{packages=$packages;apps=$apps} -Compress" }) start.ArgumentList.Add(arg);
+        return start;
+    }
+    private static async Task<IReadOnlyList<DiscoveredApplication>> PackagesAsync(List<string> failed, CancellationToken token)
+    {
+        using var process = new Process { StartInfo = CreatePackageQueryStartInfo() };
         if (!process.Start()) throw new InvalidOperationException("PACKAGE_QUERY_START_FAILED");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
