@@ -1,5 +1,10 @@
 # App Runtime 任务板
 
+## 当前合并与发布预检（PO 授权：合并、推送、部署）
+
+- 合并前 root TypeScript 检查通过；既有 Guardian integration 测试仍硬编码 contract 1.0.0，在已批准的 Minor 1.1.0 上失败。本次只将该版本夹具同步为 1.1.0，不删减身份桥、SSO、独立页面或入口断言，不修改 Guardian 业务。
+- 远端 Runtime 只待执行 0008_runtime_application_knowledge.sql。生产 workflow 当前会同时部署 Guardian/Main Pages，GitHub production 审批环境尚不存在；在修订发布配置获确认前，不绕过该闸门执行生产部署。
+
 - 应用发现收口：只有完整且无失败来源的扫描才发送有界完整身份集合；Service 按已认证用户将此前已安装但本次未观察到的项目标记 `notObserved`。便携运行观察及其他用户不受影响，失败/超容量扫描不推断卸载；缓存和独立 outbox 继续事务写入。
 - 运行观察不能把已确认 installed 降为 runtimeObserved；保留安装证据，成功完整扫描仍可更新缺失状态。包扫描取消时结束自身查询进程，不遗留后台查询。
 
