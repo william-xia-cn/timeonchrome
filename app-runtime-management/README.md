@@ -1,5 +1,13 @@
 # App Runtime Management
 
+## 当前修复：2.2.1 目录质量（ARM-D-012）
+
+发现降噪、可信安装/运行关联、目录范围和盘点完整性已完成本地修复。Windows tests 94/94、contracts 1.2.0 的 23 组黄金向量、Worker 37/37、Schema/类型/binding/dry-run 和桌面/移动 mock 目视通过；本次 Swift 改动仍待 macOS 执行。保留所有原始身份与历史账本，不将旧夹具通过当成真机完整盘点证明。
+
+候选包为 `artifacts/release/windows/x64/2.2.1/TimeOnChrome-AppRuntime-Setup-win-x64-2.2.1.exe`；MSI/Burn 及版本/哈希回读通过，Burn SHA-256 `7b378d6eb9c209f4c67829c63d1a558706ccc0b0ad2f86caa977fa7d0844fc4d`。保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。本机当前已安装 2.2.0，云端分发 latest 仍为 2.0.6；本次未安装、部署或清理生产记录。
+
+发布前必须先合并受测代码并获授权发布 additive `0009`、Runtime Worker 和独立 Console，再原地升级 2.2.1。旧生产 contract 1.1.0 严格校验不接受新 discovery/scan 字段；本地 latest.json 不代表云端已切换。下方 2.2.0 包准备与早期发布段为阶段历史，当前状态以本节和 `docs/PROJECT_MASTER.md` 为准。
+
 ## Windows 2.2.0 客户端包准备
 
 新应用发现与分类客户端内部 2.2.0 本地包已准备并验证，避免与本机旧 2.1.1 同号。明确 2.2.0 参数的 Windows 测试 90/90；MSI/Burn 均零警告/错误；六个程序集、MSI 文件清单、固定 UpgradeCode 和包哈希通过实际产物回读。既有安装身份、配对、机器数据和账本不变。未安装、不代表安装清单已上传，也未发布 R2/latest。内部未签名状态仍为 BLOCKED_BY_AUTHENTICODE_SIGNING。

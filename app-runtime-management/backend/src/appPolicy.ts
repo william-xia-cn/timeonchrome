@@ -14,7 +14,8 @@ import { HttpError } from './http';
 import type { RuntimeLogCategory } from './contracts';
 import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
-import { identifyProducts, resolveApplication } from '@timeonchrome/app-runtime-contracts/classification';
+import { identifyProducts, resolveApplication, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
+import { queryInventoryScanStatus } from './applicationKnowledge';
 import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 
 const classifications = new Set<ApplicationClassification>([
@@ -665,7 +666,7 @@ export async function queryAppCatalog(
   childId: string,
   nowMs: number,
   platform?: RuntimePlatform,
-): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[] }> {
+): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[]; inventoryScans: Awaited<ReturnType<typeof queryInventoryScanStatus>> }> {
   const windowEndMs = nowMs;
   const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
   const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
@@ -739,7 +740,8 @@ export async function queryAppCatalog(
     item.installed ||= row.status==='installed'; item.machines.add(row.machine_id); item.users.add(row.local_user_id); inventory.set(key,item);
   }
   const resolvedByKey = new Map((policy.resolvedApplications ?? []).map(item=>[`${item.platform}\n${item.runtimeIdentity}`,item]));
-  const keys = new Set([...grouped.keys(), ...policyByKey.keys(), ...inventory.keys()]);
+  const associations = associateApplicationEvidence([...inventory.values()].map(item=>item.evidence));
+  const keys = new Set([...grouped.keys(), ...policyByKey.keys(), ...[...inventory.keys()].filter(key=>inventory.get(key)!.installed||grouped.has(key)||policyByKey.has(key))]);
   const items = [...keys].map((key) => {
     const observed = grouped.get(key);
     const configured = policyByKey.get(key);
@@ -751,7 +753,8 @@ export async function queryAppCatalog(
     return {
       platform: itemPlatform,
       runtimeIdentity: runtimeIdentity as string | null,
-      displayName: product?.name || observed?.displayName || configured?.displayName || found?.evidence.displayName || null,
+      displayName: product?.name || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null) || observed?.displayName || configured?.displayName || found?.evidence.displayName || null,
+      discovery: found?.evidence.discovery ?? null,
       productId: product?.id ?? null,
       classification: configured?.classification || resolvedByKey.get(key)?.classification || 'unclassified',
       classificationStatus: configured ? 'explicit' : resolution?.status ?? 'unclassified',
@@ -773,11 +776,12 @@ export async function queryAppCatalog(
       if (items.some(item=>item.productId===entry.productId && item.platform===itemPlatform)) continue;
       items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
         classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
-        firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false});
+        firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false,discovery:null});
     }
   }
   const productGroups = new Map<string,typeof items>();
-  for(const item of items){const key=item.productId?`${item.platform}\n${item.productId}\n${item.classification}`:`${item.platform}\n${item.runtimeIdentity}`;
+  for(const item of items){const identityKey=`${item.platform}\n${item.runtimeIdentity}`;
+    const key=item.productId?`${item.platform}\nproduct:${item.productId}\n${item.classification}`:`${associations.get(identityKey)??identityKey}\n${item.classification}`;
     const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
   const directory = [...productGroups.values()].map(group=>{
     const implementations=group.filter(item=>item.runtimeIdentity!==null);
@@ -787,8 +791,12 @@ export async function queryAppCatalog(
       for(const machine of [...(used?.machines??[]),...(installed?.machines??[])])machines.add(machine);
       for(const user of [...(used?.users??[]),...(installed?.users??[])])users.add(user);
     }
-    return {...group[0]!,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:null,
+    const primary = [...group].sort((a,b)=>(a.discovery?.nameSource==='appList'?0:a.discovery?.role==='application'?1:2)-(b.discovery?.nameSource==='appList'?0:b.discovery?.role==='application'?1:2))[0]!;
+    return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:null,
+      observedInWindow:group.some(item=>item.observedInWindow),
+      discovery:group.some(item=>item.discovery?.role==='application')?{...primary.discovery!,role:'application' as const}:primary.discovery,
       runtimeImplementations:implementations.map(item=>({platform:item.platform,runtimeIdentity:item.runtimeIdentity,displayName:item.displayName})),
+      associationStatus:group[0]!.productId?'confirmedProduct':implementations.length>1?'verifiedIdentityAssociation':'technicalIdentity',
       mainDurationMs:groupedUnion(intervals),machineCount:machines.size,userCount:users.size,
       lastSeenAtMs:Math.max(0,...group.map(item=>item.lastSeenAtMs??0))||null,
       installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState};
@@ -796,7 +804,7 @@ export async function queryAppCatalog(
   const filtered = directory.filter((item) => !platform || item.platform === platform)
     .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
       || String(left.displayName || '').localeCompare(String(right.displayName || '')));
-  return { windowStartMs, windowEndMs, items:filtered };
+  return { windowStartMs, windowEndMs, items:filtered, inventoryScans:await queryInventoryScanStatus(database,accountId,childId) };
 }
 
 function runtimeLogLevel(code: string): 'error' | 'warning' | 'info' {

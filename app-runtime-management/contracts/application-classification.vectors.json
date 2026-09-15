@@ -1,6 +1,19 @@
 {
   "schemaVersion": 1,
   "cases": [
+    {
+      "name": "hidden-component-is-not-a-classification-exemption",
+      "knowledge": {"schemaVersion":1,"version":1,"products":[],"rules":[{"id":"verified-file","name":"Fixture","kind":"product","match":{"operator":"all","conditions":[{"field":"binaryHash","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]},"exclude":[],"mode":"automatic","classification":"restrictedEntertainment","type":"game","enabled":true,"source":"fixture","reason":"verified file"}],"bindings":[{"childId":"child-a","products":[],"ruleIds":["verified-file"]}]},
+      "childId":"child-a","previous":"unclassified",
+      "evidence":{"platform":"windows","runtimeIdentity":"fixture:hidden","displayName":"Hidden fixture","values":{"binaryHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"verifiedFields":["binaryHash"],"discovery":{"role":"component","nameSource":"fallback","sourceKinds":["package"]}},
+      "expected":{"productId":null,"classification":"restrictedEntertainment","status":"automatic","ruleIds":["verified-file"],"suggestions":[]}
+    },
+    {
+      "name": "friendly-name-does-not-establish-product-identity",
+      "knowledge":{"schemaVersion":1,"version":0,"products":[],"rules":[],"bindings":[]},"childId":"child-a","previous":"unclassified",
+      "evidence":{"platform":"macos","runtimeIdentity":"fixture:visible","displayName":"Fixture Game","values":{"productName":"Fixture Game"},"verifiedFields":[],"discovery":{"role":"application","nameSource":"appList","sourceKinds":["package"]}},
+      "expected":{"productId":null,"classification":"unclassified","status":"unclassified","ruleIds":[],"suggestions":[]}
+    },
 
   {
     "name": "exact-rule-priority",

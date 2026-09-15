@@ -4,6 +4,12 @@ public struct AppMatchCondition: Codable { public let field: String; public let 
 public struct AppMatchExpression: Codable { public let `operator`: String; public let conditions: [AppMatchCondition] }
 public struct AppProductSelector: Codable { public let platform: String; public let match: AppMatchExpression }
 public struct AppProduct: Codable { public let id: String; public let name: String; public let type: String; public let selectors: [AppProductSelector] }
+public struct ApplicationDiscoverySummary: Codable {
+    public let role: String; public let nameSource: String; public let sourceKinds: [String]
+    public init(role: String, nameSource: String, sourceKinds: [String]) {
+        self.role = role; self.nameSource = nameSource; self.sourceKinds = sourceKinds
+    }
+}
 public struct AppEvidence: Codable {
     public let platform: String
     public let runtimeIdentity: String
@@ -11,10 +17,12 @@ public struct AppEvidence: Codable {
     public let values: [String: String]
     public let verifiedFields: [String]
     public let productId: String?
+    public let discovery: ApplicationDiscoverySummary?
     public init(platform: String, runtimeIdentity: String, displayName: String, values: [String: String],
-                verifiedFields: [String], productId: String? = nil) {
+                verifiedFields: [String], productId: String? = nil, discovery: ApplicationDiscoverySummary? = nil) {
         self.platform = platform; self.runtimeIdentity = runtimeIdentity; self.displayName = displayName
         self.values = values; self.verifiedFields = verifiedFields; self.productId = productId
+        self.discovery = discovery
     }
 }
 public struct AppClassificationRule: Codable {

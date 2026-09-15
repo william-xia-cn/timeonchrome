@@ -519,7 +519,14 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                         && inventory.Status is "installed" or "runtimeObserved"
                         && (inventory.CompleteIdentitySet is null || (inventory.Status == "installed" && inventory.Applications.Count == 0
                             && inventory.CompleteIdentitySet.Count <= 1000 && inventory.CompleteIdentitySet.All(item => !string.IsNullOrWhiteSpace(item) && item.Length <= 256))))
-                        _ = inventoryQueue.Writer.TryWrite(new InventoryEnvelope(localUserId, inventory));
+                    {
+                        if (inventory.Scan is { } scan)
+                        {
+                            inventory = inventory with { Scan = scan with { LocalUserId = localUserId } };
+                            MachineApplicationInventoryStore.ValidateScan(inventory.Scan, inventory.Applications.Select(item => new MachineApplicationObservation(localUserId, item, inventory.Status)).ToArray());
+                        }
+                        await inventoryQueue.Writer.WriteAsync(new InventoryEnvelope(localUserId, inventory), cancellationToken).ConfigureAwait(false);
+                    }
                     continue;
                 }
                 var message = JsonSerializer.Deserialize<SessionAccountingFactMessage>(line, RuntimeJson.Options);
@@ -580,7 +587,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                             await store.ReconcileAsync(pending.LocalUserId, complete, token).ConfigureAwait(false);
                         else
                             await store.ObserveAsync(pending.Message.Applications.Select(item =>
-                                new MachineApplicationObservation(pending.LocalUserId, item, pending.Message.Status)).ToArray(), token).ConfigureAwait(false);
+                                new MachineApplicationObservation(pending.LocalUserId, item, pending.Message.Status)).ToArray(), token, pending.Message.Scan).ConfigureAwait(false);
                         pending = null;
                     }
                     if (DateTimeOffset.UtcNow >= nextUpload)
@@ -904,7 +911,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.0",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.1",
                 Environment.OSVersion.VersionString,
                 RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                 tamperCount,
@@ -981,7 +988,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await terminalLogs.WriteAsync(level, category, eventCode, module, messageCode, details,
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.0",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.1",
                 remoteEligible ? appliedPolicy?.Policy.LoggingPolicy : null,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellation.Token).ConfigureAwait(false);
         }

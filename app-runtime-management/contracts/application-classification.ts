@@ -2,6 +2,11 @@ export type AppPlatform = 'windows' | 'macos';
 export type AppType = 'game' | 'gameLauncher' | 'onlineVideo' | 'mediaPlayer' | 'other' | 'unknown';
 export type AppClass = 'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'blocked';
 export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
+export interface ApplicationDiscoverySummary {
+  role: 'application' | 'component' | 'candidate';
+  nameSource: 'appList' | 'manifest' | 'fileMetadata' | 'installation' | 'fallback';
+  sourceKinds: Array<'package' | 'registry' | 'shortcut' | 'runtime'>;
+}
 export interface AppEvidence {
   platform: AppPlatform;
   runtimeIdentity: string;
@@ -9,6 +14,7 @@ export interface AppEvidence {
   values: Partial<Record<EvidenceField, string>>;
   verifiedFields: EvidenceField[];
   productId?: string;
+  discovery?: ApplicationDiscoverySummary;
 }
 export interface MatchCondition { field: EvidenceField; value: string }
 export interface ApplicationInstallationObservation {
@@ -20,6 +26,41 @@ export interface ApplicationInventoryBatch {
   schemaVersion: 1;
   batchId: string;
   observations: ApplicationInstallationObservation[];
+  scan?: ApplicationInventoryScan;
+}
+export interface ApplicationInventoryScan {
+  scanId: string;
+  localUserId: string;
+  batchIndex: number;
+  batchCount: number;
+  observationCount: number;
+  failedSources: string[];
+  completed: boolean;
+}
+
+/** 展示关联不是产品确认。异包入口和同名应用不能因共享名称/二进制被强制合并。 */
+export function applicationAssociationKeys(evidence: AppEvidence): string[] {
+  const keys = [`identity:${evidence.platform}:${evidence.runtimeIdentity}`];
+  for (const field of ['packageId', 'binaryHash'] as const) {
+    if (evidence.verifiedFields.includes(field) && evidence.values[field]) keys.push(`${field}:${evidence.platform}:${evidence.values[field]}`);
+  }
+  return keys;
+}
+export function associateApplicationEvidence(evidence: AppEvidence[]): Map<string, string> {
+  const parents = new Map(evidence.map(item=>[`${item.platform}\n${item.runtimeIdentity}`,`${item.platform}\n${item.runtimeIdentity}`]));
+  const root = (key:string):string => { const parent=parents.get(key)!; return parent===key?key:root(parent); };
+  const union = (left:string,right:string) => { const a=root(left),b=root(right); if(a!==b)parents.set(a<b?b:a,a<b?a:b); };
+  const groups = new Map<string,AppEvidence[]>();
+  for (const item of evidence) for(const key of applicationAssociationKeys(item)) {const group=groups.get(key)??[];group.push(item);groups.set(key,group);}
+  for(const [key,group] of groups) {
+    if(key.startsWith('binaryHash:')) {
+      const packages = new Set(group.filter(item=>item.verifiedFields.includes('packageId')).map(item=>item.values.packageId).filter(Boolean));
+      if(packages.size>1) continue; // Shared executable hosting multiple package apps is ambiguous.
+    }
+    const first=group[0]!;
+    for(const item of group)union(`${first.platform}\n${first.runtimeIdentity}`,`${item.platform}\n${item.runtimeIdentity}`);
+  }
+  return new Map([...parents.keys()].map(key=>[key,root(key)]));
 }
 export interface ApplicationInventoryAck {
   batchId: string;

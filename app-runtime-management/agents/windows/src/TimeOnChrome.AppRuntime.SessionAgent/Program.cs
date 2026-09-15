@@ -131,12 +131,18 @@ internal static class Program
                 {
                     changed = false;
                     var scan = await discovery.ScanAsync(token).ConfigureAwait(false);
-                    await Send(scan.Applications.Select(item => item.Evidence).ToArray(), "installed").ConfigureAwait(false);
-                    if (scan.FailedSources.Count == 0 && scan.Applications.Count <= 1000)
+                    var scanId = Guid.NewGuid().ToString("N");
+                    var applications = scan.Applications.Take(10000).Select(item => item.Evidence).ToArray();
+                    var failedSources = scan.FailedSources.Concat(scan.Applications.Count > 10000 ? ["inventory-capacity"] : Array.Empty<string>()).Distinct().ToArray();
+                    var batchCount = (applications.Length + 199) / 200;
+                    var batchIndex = 0;
+                    foreach (var chunk in applications.Chunk(200))
                         await WriteAsync(writer, gate: gate, message: JsonSerializer.Serialize(
-                            new SessionApplicationInventoryMessage(3, [], "installed", scan.Applications.Select(item => item.Evidence.RuntimeIdentity).ToArray()),
+                            new SessionApplicationInventoryMessage(3, chunk, "installed", Scan: new(scanId, "authenticated-by-service", batchIndex++, batchCount, applications.Length, failedSources, false)),
                             RuntimeJson.Options), token: token).ConfigureAwait(false);
-                    stamp = current; nextScan = DateTimeOffset.UtcNow.AddDays(1);
+                    await WriteAsync(writer, gate, JsonSerializer.Serialize(new SessionApplicationInventoryMessage(3, [], "installed",
+                        Scan: new(scanId, "authenticated-by-service", batchCount, batchCount, applications.Length, failedSources, true)), RuntimeJson.Options), token).ConfigureAwait(false);
+                    stamp = current; nextScan = failedSources.Length == 0 ? DateTimeOffset.UtcNow.AddDays(1) : DateTimeOffset.UtcNow.AddMinutes(5);
                     // A failed source never emits an uninstall observation.
                 }
                 while (portable.TryRead(out var item))

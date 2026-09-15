@@ -1,5 +1,16 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-012 技术实施 checklist（2.2.1）
+
+1. WindowsApplicationDiscovery：纯 manifest 解析，AppListEntry/名称质量/入口角色元数据；Shell AppList 名称解析；DisplayIcon 仅弱安装候选；同身份观察合并来源，不丢可靠证据。
+2. AppEvidence.discovery 可选摘要：role、nameSource、sourceKinds；不加入任意路径或名称匹配权限。后台以已验证 packageId/binaryHash 做目录关联，保留 runtimeImplementations；不同可见入口不合并。
+3. SessionPipeProtocol / MachineApplicationInventoryStore / Service：可选 scan 摘要包含 scanId、用户、batchIndex、batchCount、observationCount、failedSources 和 completed；扫描批次即使缓存未变也入独立 outbox。最终标记在 FIFO 中排于数据之后；ACK 绑定 batchId/count；失败扫描不做缺失对账。
+4. Runtime additive 0009：独立 scan/batch 追踪，不修改旧表/原账。重传幂等、同扫描序号不同内容冲突、总数不符不得显示完整。catalog 返回用户盘点摘要；旧客户端未知。授权依据保持机器和 Account/Child ownership。
+5. Console：五目录不增加二级页签，工具栏提供目录范围（主要应用、已安装未使用、使用未归类证据、完整发现）。组件只影响默认展示，不改变分类/计时；产品分类按钮不提交空技术身份。盘点完整性显式展示。
+6. 夹具覆盖多入口包、友好名称、组件、同 binary 多来源、同名不同身份、安装未使用、便携运行、分批中断/重放；Windows 全量与 Worker/Console 聚焦测试、桌面/移动 mock 目视、types/schema/dry-run/diff 审计后构建 2.2.1 内部包。macOS 编译必须另在 macOS 执行。
+
+共享契约增量 Minor 1.2.0，旧证据无 discovery 时不猜组件；历史不迁写。仅本地验证，不生产发布/安装，内部未签名标记不变。
+
 ## Windows 2.2.0 客户端发布准备
 
 已合并的 ARM-D-011 应用发现与规则客户端使用内部版本 2.2.0，与现有安装 2.1.1 区分。统一 MSI/Burn 默认版本、build.ps1 发布版本与 Service fallback；Assembly/File/Informational Version 由既有发布脚本参数同步生成。machine-scope UpgradeCode、安装目录、配对、机器身份和账本保持不变。仅准备并验证本地包，不运行家庭盘点、不安装、不部署、不切 R2 latest；包仍为 BLOCKED_BY_AUTHENTICODE_SIGNING。

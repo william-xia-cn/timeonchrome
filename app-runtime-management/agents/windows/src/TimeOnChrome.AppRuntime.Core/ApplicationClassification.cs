@@ -4,8 +4,10 @@ public sealed record AppMatchCondition(string Field, string Value);
 public sealed record AppMatchExpression(string Operator, IReadOnlyList<AppMatchCondition> Conditions);
 public sealed record AppProductSelector(string Platform, AppMatchExpression Match);
 public sealed record AppProduct(string Id, string Name, string Type, IReadOnlyList<AppProductSelector> Selectors);
+public sealed record ApplicationDiscoverySummary(string Role, string NameSource, IReadOnlyList<string> SourceKinds);
 public sealed record AppEvidence(string Platform, string RuntimeIdentity, string DisplayName,
-    IReadOnlyDictionary<string, string> Values, IReadOnlyList<string> VerifiedFields, string? ProductId = null);
+    IReadOnlyDictionary<string, string> Values, IReadOnlyList<string> VerifiedFields, string? ProductId = null,
+    ApplicationDiscoverySummary? Discovery = null);
 public sealed record AppClassificationRule(string Id, string Name, string Kind, AppMatchExpression Match,
     IReadOnlyList<AppMatchExpression> Exclude, string Mode, string Classification, string Type,
     bool Enabled, string Source, string Reason, string? Platform = null, string? ProductId = null);

@@ -52,8 +52,8 @@ public sealed class WindowsApplicationDiscovery
                     using var key = uninstall!.OpenSubKey(keyName, writable: false);
                     var name = key?.GetValue("DisplayName") as string;
                     if (string.IsNullOrWhiteSpace(name) || key?.GetValue("SystemComponent") as int? == 1) continue;
-                    var icon = ExecutableFromDisplayIcon(key?.GetValue("DisplayIcon") as string);
-                    applications.Add(Observe(name, icon, $"registry:{hive}:{view}:{keyName}", failed));
+                    // DisplayIcon can point at an icon host or uninstaller, not the actual application.
+                    applications.Add(Observe(name, null, $"registry:{hive}:{keyName}", failed, "registry"));
                 }
             }
             catch (Exception error) when (error is UnauthorizedAccessException or System.Security.SecurityException or IOException)
@@ -71,17 +71,17 @@ public sealed class WindowsApplicationDiscovery
                     var target = ShortcutTarget(shortcut);
                     if (target is null) failed.Add("shortcut-target-unavailable");
                     if (target is not null && target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                        applications.Add(Observe(Path.GetFileNameWithoutExtension(shortcut), target, "shortcut:" + WindowsApplicationEvidence.Hash(shortcut), failed));
+                        applications.Add(Observe(Path.GetFileNameWithoutExtension(shortcut), target, "shortcut:" + WindowsApplicationEvidence.Hash(shortcut), failed, "shortcut"));
                 }
             }
             catch (Exception error) when (error is UnauthorizedAccessException or IOException or COMException)
             { failed.Add("start-menu-" + folder); }
         }
-        try { applications.AddRange(await PackagesAsync(cancellationToken).ConfigureAwait(false)); }
+        try { applications.AddRange(await PackagesAsync(failed, cancellationToken).ConfigureAwait(false)); }
         catch (Exception error) when (error is IOException or JsonException or InvalidOperationException or System.ComponentModel.Win32Exception)
         { failed.Add("user-packages"); }
         return new ApplicationDiscoveryResult(applications.GroupBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal)
-            .Select(group => group.First()).OrderBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal).ToArray(), failed);
+            .Select(MergeObservations).OrderBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal).ToArray(), failed.Distinct(StringComparer.Ordinal).ToArray());
     }
     public static string? ExecutableFromDisplayIcon(string? icon)
     {
@@ -92,17 +92,61 @@ public sealed class WindowsApplicationDiscovery
         value = Environment.ExpandEnvironmentVariables(value);
         return Path.IsPathFullyQualified(value) && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? value : null;
     }
-    private static DiscoveredApplication Observe(string name, string? path, string localKey, List<string> failed)
+    private static DiscoveredApplication Observe(string name, string? path, string localKey, List<string> failed, string source)
     {
         if (path is not null && File.Exists(path))
         {
-            try { return new(WindowsApplicationEvidence.FromExecutable(path, name), "installed"); }
+            try { return new(WindowsApplicationEvidence.FromExecutable(path, name) with { Discovery = new("application", "installation", [source]) }, "installed"); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException) { }
         }
         if (path is not null) failed.Add("executable-evidence-unavailable");
         // Installed metadata without an executable is a weak candidate, not a fabricated product match.
         return new(new AppEvidence("windows", "windows:installed:" + WindowsApplicationEvidence.Hash(localKey), name,
-            new Dictionary<string,string> { ["productName"] = name }, []), "installed");
+            new Dictionary<string,string> { ["productName"] = name }, [], Discovery: new("candidate", "installation", [source])), "installed");
+    }
+    public static DiscoveredApplication MergeObservations(IEnumerable<DiscoveredApplication> observations)
+    {
+        var items = observations.ToArray();
+        if (items.Length == 0 || items.Select(item => item.Evidence.RuntimeIdentity).Distinct(StringComparer.Ordinal).Count() != 1)
+            throw new InvalidDataException("AMBIGUOUS_APPLICATION_OBSERVATIONS");
+        var first = items.OrderBy(item => item.Evidence.Discovery?.NameSource == "appList" ? 0 : item.Evidence.Discovery?.NameSource == "fallback" ? 2 : 1).First();
+        var sources = items.SelectMany(item => item.Evidence.Discovery?.SourceKinds ?? []).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var values = new Dictionary<string,string>();
+        var verified = new List<string>();
+        foreach (var field in items.SelectMany(item => item.Evidence.Values.Keys).Distinct(StringComparer.Ordinal))
+        {
+            var distinct = items.Select(item => item.Evidence.Values.GetValueOrDefault(field)).Where(value => value is not null).Distinct(StringComparer.Ordinal).ToArray();
+            if (distinct.Length != 1) continue; // Conflicting proof is not silently promoted.
+            values[field] = distinct[0]!;
+            if (items.Any(item => item.Evidence.VerifiedFields.Contains(field))) verified.Add(field);
+        }
+        var role = items.Any(item => item.Evidence.Discovery?.Role == "application") ? "application" : first.Evidence.Discovery?.Role ?? "candidate";
+        return first with { Evidence = first.Evidence with { Values = values, VerifiedFields = verified,
+            Discovery = new(role, first.Evidence.Discovery?.NameSource ?? "fallback", sources) } };
+    }
+
+    /// <summary>Pure parser: a package is not a product; visible entrypoints stay separate.</summary>
+    public static IReadOnlyList<DiscoveredApplication> ParsePackageManifest(string xml, string family, string fallbackName,
+        IReadOnlyDictionary<string,string>? appListNames = null)
+    {
+        var manifest = XDocument.Parse(xml);
+        var result = new List<DiscoveredApplication>();
+        foreach (var app in manifest.Descendants().Where(element => element.Name.LocalName == "Application"))
+        {
+            var appId = (string?)app.Attribute("Id"); if (string.IsNullOrWhiteSpace(appId)) continue;
+            var aumid = family + "!" + appId;
+            var visual = app.Elements().FirstOrDefault(element => element.Name.LocalName == "VisualElements");
+            var declaredName = (string?)visual?.Attribute("DisplayName");
+            var friendly = appListNames?.GetValueOrDefault(aumid);
+            var literal = !string.IsNullOrWhiteSpace(declaredName) && !declaredName.StartsWith("ms-resource:", StringComparison.OrdinalIgnoreCase);
+            var name = !string.IsNullOrWhiteSpace(friendly) ? friendly : literal ? declaredName! : fallbackName + " · " + appId;
+            var role = visual is null || string.Equals((string?)visual.Attribute("AppListEntry"), "none", StringComparison.OrdinalIgnoreCase) ? "component" : "application";
+            var identity = WindowsApplicationIdentityDeriver.Derive(null, name, family, aumid);
+            result.Add(new(new AppEvidence("windows", identity.RuntimeIdentity, name,
+                new Dictionary<string,string> { ["packageId"] = aumid }, ["packageId"],
+                Discovery: new(role, !string.IsNullOrWhiteSpace(friendly) ? "appList" : literal ? "manifest" : "fallback", ["package"])), "installed"));
+        }
+        return result;
     }
     private static string? ShortcutTarget(string path)
     {
@@ -122,12 +166,12 @@ public sealed class WindowsApplicationDiscovery
             if (shell is not null && Marshal.IsComObject(shell)) _ = Marshal.FinalReleaseComObject(shell);
         }
     }
-    private static async Task<IReadOnlyList<DiscoveredApplication>> PackagesAsync(CancellationToken token)
+    private static async Task<IReadOnlyList<DiscoveredApplication>> PackagesAsync(List<string> failed, CancellationToken token)
     {
         var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
         using var process = new Process { StartInfo = new ProcessStartInfo(Path.Combine(system, @"WindowsPowerShell\v1.0\powershell.exe"))
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } };
-        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $packages=@(Get-AppxPackage | Where-Object { -not $_.IsFramework -and -not $_.IsResourcePackage } | Select-Object Name,PackageFamilyName,InstallLocation); ConvertTo-Json -InputObject $packages -Compress" }) process.StartInfo.ArgumentList.Add(arg);
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $packages=@(Get-AppxPackage | Where-Object { -not $_.IsFramework -and -not $_.IsResourcePackage } | Select-Object Name,PackageFamilyName,InstallLocation); $apps=@(Get-StartApps | Select-Object Name,AppID); ConvertTo-Json -InputObject @{packages=$packages;apps=$apps} -Compress" }) process.StartInfo.ArgumentList.Add(arg);
         if (!process.Start()) throw new InvalidOperationException("PACKAGE_QUERY_START_FAILED");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -143,28 +187,24 @@ public sealed class WindowsApplicationDiscovery
         _ = await errors.ConfigureAwait(false);
         if (process.ExitCode != 0) throw new IOException("PACKAGE_QUERY_FAILED");
         using var document = JsonDocument.Parse(await output.ConfigureAwait(false));
+        var appListNames = document.RootElement.GetProperty("apps").EnumerateArray()
+            .GroupBy(app => app.GetProperty("AppID").GetString() ?? "", StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().GetProperty("Name").GetString() ?? "", StringComparer.Ordinal);
         var result = new List<DiscoveredApplication>();
-        foreach (var package in document.RootElement.EnumerateArray())
+        foreach (var package in document.RootElement.GetProperty("packages").EnumerateArray())
         {
             var family = package.GetProperty("PackageFamilyName").GetString();
             var location = package.GetProperty("InstallLocation").GetString();
-            if (string.IsNullOrWhiteSpace(family) || string.IsNullOrWhiteSpace(location)) throw new IOException("PACKAGE_METADATA_UNAVAILABLE");
+            if (string.IsNullOrWhiteSpace(family) || string.IsNullOrWhiteSpace(location)) { failed.Add("package-metadata-unavailable"); continue; }
             var manifestPath = Path.Combine(location, "AppxManifest.xml");
-            if (!File.Exists(manifestPath)) throw new IOException("PACKAGE_MANIFEST_UNAVAILABLE");
+            if (!File.Exists(manifestPath)) { failed.Add("package-manifest-unavailable"); continue; }
             try
             {
-                var manifest = XDocument.Load(manifestPath);
-                foreach (var app in manifest.Descendants().Where(element => element.Name.LocalName == "Application"))
-                {
-                    var appId = (string?)app.Attribute("Id"); if (string.IsNullOrWhiteSpace(appId)) continue;
-                    var aumid = family + "!" + appId;
-                    var identity = WindowsApplicationIdentityDeriver.Derive(null, package.GetProperty("Name").GetString() ?? "Windows application", family, aumid);
-                    result.Add(new(new AppEvidence("windows", identity.RuntimeIdentity, identity.DisplayName ?? "Windows application",
-                        new Dictionary<string,string> { ["packageId"] = aumid }, ["packageId"]), "installed"));
-                }
+                result.AddRange(ParsePackageManifest(File.ReadAllText(manifestPath), family,
+                    package.GetProperty("Name").GetString() ?? "Windows application", appListNames));
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Xml.XmlException)
-            { throw new IOException("PACKAGE_MANIFEST_UNAVAILABLE", error); }
+            { failed.Add("package-manifest-unavailable"); }
         }
         return result;
     }
