@@ -2,9 +2,9 @@
 
 ## 当前修复：2.2.1 目录质量（ARM-D-012）
 
-发现降噪、可信安装/运行关联、目录范围和盘点完整性已完成本地修复。Windows tests 94/94、contracts 1.2.0 的 23 组黄金向量、Worker 37/37、Schema/类型/binding/dry-run 和桌面/移动 mock 目视通过；本次 Swift 改动仍待 macOS 执行。保留所有原始身份与历史账本，不将旧夹具通过当成真机完整盘点证明。
+发现降噪、可信安装/运行关联、目录范围和盘点完整性已完成本地修复。Windows tests 95/95、contracts 1.2.0 的 23 组黄金向量、Worker 38/38、Schema/类型/binding/dry-run 和桌面/移动 mock 目视通过；Swift 编译及共享向量已在 macOS 15 CI 实际执行通过。保留所有原始身份与历史账本，不将旧夹具通过当成真机完整盘点证明。
 
-候选包为 `artifacts/release/windows/x64/2.2.1/TimeOnChrome-AppRuntime-Setup-win-x64-2.2.1.exe`；MSI/Burn 及版本/哈希回读通过，Burn SHA-256 `7b378d6eb9c209f4c67829c63d1a558706ccc0b0ad2f86caa977fa7d0844fc4d`。保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。本机当前已安装 2.2.0，云端分发 latest 仍为 2.0.6；本次未安装、部署或清理生产记录。
+最终候选包为 `artifacts/release/windows/x64/2.2.1/TimeOnChrome-AppRuntime-Setup-win-x64-2.2.1.exe`；MSI/Burn 及版本/哈希回读通过，Burn SHA-256 `1df0d8f3b23fe82c241bd6eef761d329186d293812b4bbeab26d4e6aa48115f5`。保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。本机当前已安装 2.2.0，云端分发 latest 仍为 2.0.6；本次未安装、部署或清理生产记录。
 
 发布前必须先合并受测代码并获授权发布 additive `0009`、Runtime Worker 和独立 Console，再原地升级 2.2.1。旧生产 contract 1.1.0 严格校验不接受新 discovery/scan 字段；本地 latest.json 不代表云端已切换。下方 2.2.0 包准备与早期发布段为阶段历史，当前状态以本节和 `docs/PROJECT_MASTER.md` 为准。
 

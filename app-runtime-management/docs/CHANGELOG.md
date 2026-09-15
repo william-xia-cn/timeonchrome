@@ -6,8 +6,10 @@
 - 安装与旧运行身份通过已验证 AUMID/binary 关联展示；共享二进制的多个可见 AUMID 保持独立。原始 runtimeIdentity、历史账本、分类和单应用配额键不改写。
 - 增加目录范围：主要应用、安装未使用、原使用证据和完整发现；未使用的已安装应用也可归类，组件/候选可达。保留五目录和知识/规则独立面板。
 - scan 的全量批次和完成标记通过独立事务/outbox/ACK；缺失对账与完成标记同一 SQLite 事务并先入 outbox。失败来源、未登录用户、旧客户端、中断或缺批次不得称完整或推断卸载。新增 additive 0009 仅在本地测试，不应用生产。
-- Windows 94/94、共享黄金向量 23 组、Worker 37/37、Schema/类型/binding/dry-run 及桌面/移动 mock 目视验证通过；本次 Swift 改动尚未在 macOS 执行。
-- 自包含 MSI/Burn 零警告/错误；固定升级身份、486 文件及程序集/安装器 2.2.1 版本回读通过。Burn SHA-256 `7b378d6eb9c209f4c67829c63d1a558706ccc0b0ad2f86caa977fa7d0844fc4d`；MSI SHA-256 `f36c91c95c49bb8446ae3274a7108e80dd236f70f043b4dea254225bf699619b`。内部未签名状态仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- Windows 95/95、共享黄金向量 23 组、Worker 38/38、Schema/类型/binding/dry-run 及桌面/移动 mock 目视验证通过；Swift 编译和共享向量已在 macOS 15 CI 实际执行通过。
+- 最终代码 `6e8618f97ace90669e1045cd8bc71c8a557ce263` 的跨平台 CI 35002959346 全部成功：https://github.com/william-xia-cn/timeonchrome/actions/runs/35002959346 。后续纯文档收口不改变受测代码，不触发重复生产部署。
+- 包查询显式 UTF-8 并增加受控中文输出测试；1001 个未知安装项不占用默认未归类策略投影容量，超过 1000 个非默认有效投影时保持旧策略并结构化报错。
+- 最终自包含 MSI/Burn 零警告/错误；固定升级身份、486 文件及程序集/安装器 2.2.1 版本回读通过。Burn SHA-256 `1df0d8f3b23fe82c241bd6eef761d329186d293812b4bbeab26d4e6aa48115f5`；MSI SHA-256 `0130ac6cca5ec50726a60ed5e83b8c9e46c9cb902b7760f34ea42cb9eaf31e7e`。内部未签名状态仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 - 生产配套后台/0009/Console 必须先行，新客户端后升级；本轮不安装、不采集或上传家庭夹具外数据、不发布 R2/latest、不改 Guardian/Santa/Extension。
 
 ## [Windows 2.2.0] — 2026-09-15（本地客户端包验证完成，未安装/发布）

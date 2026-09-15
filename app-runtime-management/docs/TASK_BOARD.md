@@ -2,7 +2,7 @@
 
 ## NOW：Windows 2.2.1 目录质量修复（ARM-D-012，PO 授权）
 
-最后复核补充：包查询输出与 C# 读取端显式统一 UTF-8，避免中文友好名称依赖控制台代码页；增加只输出受控中文字符串的 PowerShell 夹具测试，不运行 Get-AppxPackage/Get-StartApps。改动后重新构建并以新包哈希替代下方早期候选哈希；旧 hash 不作为最终发布证据。
+最后复核补充：包查询输出与 C# 读取端显式统一 UTF-8，避免中文友好名称依赖控制台代码页；增加只输出受控中文字符串的 PowerShell 夹具测试，不运行 Get-AppxPackage/Get-StartApps。改动后已重新构建并回读核对最终候选包。
 
 容量补充：原始清单上限与有效策略上限分离。未归类默认投影不占用旧客户端 1000 项 resolvedApplications 容量，缺省仍为未归类/无限额；超过 1000 个非默认有效投影时结构化报错并保持旧策略，不静默截断，不在盘点过程中发布无法被客户端解析的策略。
 
@@ -13,15 +13,16 @@
 - [x] Windows/Worker 回归、桌面/移动 mock 目视、类型/Schema/local migration/dry-run。
 - [x] 2.2.1 本地 MSI/Burn、版本清单及哈希。
 - [x] 修复主体提交推送：8df9397；真实 macOS 15 编译/共享向量、Windows/WiX 和 contracts-worker-console CI 35001806559 全部通过。
-- [ ] 最后 UTF-8/容量补丁与最终包证据收口；Windows 本地 95/95、Worker 38/38 已通过，不把主体 CI 冒充补丁 CI。
+- [x] UTF-8/容量补丁 6e8618f 已提交推送；Windows 本地 95/95、Worker 38/38 与最终包回读通过。
+- [x] 最终 CI 35002959346：macOS、contracts-worker-console、Windows/WiX 全部 success；gh run watch --exit-status 与最终 job 状态回查一致。
 
-主体 CI：https://github.com/william-xia-cn/timeonchrome/actions/runs/35001806559 ，受测代码 SHA `8df939759953a118137766da80b3711039bc2730`。下方 94/94、37/37 和早期包 hash 记录由最后收口结果取代；共享 Swift/向量源文件未再改变。
+主体 CI：https://github.com/william-xia-cn/timeonchrome/actions/runs/35001806559 ，受测代码 SHA `8df939759953a118137766da80b3711039bc2730`。最终代码 CI：https://github.com/william-xia-cn/timeonchrome/actions/runs/35002959346 ，受测代码 SHA `6e8618f97ace90669e1045cd8bc71c8a557ce263`。共享 Swift/向量源文件未再改变。
 
-验证（2026-09-16）：明确 2.2.1 版本参数的 Windows tests 94/94；contracts 1.2.0 编译/兼容和 23 组黄金向量通过；Worker/Vitest+D1 37/37（含 additive 0009）、TypeScript、generated binding types --check 和 Wrangler dry-run 通过。目录 mock 的 1440×1000、390×844 截图与目视检查通过，既有知识面板/策略及根 contract compatibility、模块边界检查通过。Draft 2020-12 Schema 实际校验 legacy/data/finish/privacy 夹具通过。
+验证（2026-09-16）：明确 2.2.1 版本参数的 Windows tests 95/95；contracts 1.2.0 编译/兼容和 23 组黄金向量通过；Worker/Vitest+D1 38/38（含 additive 0009 和 1001 个未知安装项容量夹具）、TypeScript、generated binding types --check 和 Wrangler dry-run 通过。目录 mock 的 1440×1000、390×844 截图与目视检查通过，既有知识面板/策略及根 contract compatibility/release config、模块边界检查通过。Draft 2020-12 Schema 实际校验 legacy/data/finish/privacy 夹具通过。Swift 编译和共享向量已在真实 macOS 15 CI 执行通过，不是 Windows 本地执行。
 
-MSI/Burn 构建均零警告/错误；隔离 package-probe 通过。MSI ProductVersion=2.2.1、固定 UpgradeCode、486 文件及 Service/SessionAgent/Manager 文件 2.2.1.0 回读通过；六个程序集 Assembly/File=2.2.1.0、Informational=2.2.1，Burn 数值版本=2.2.1.0。Burn 118,695,115 bytes / SHA-256 `7b378d6eb9c209f4c67829c63d1a558706ccc0b0ad2f86caa977fa7d0844fc4d`；MSI 60,350,816 bytes / SHA-256 `f36c91c95c49bb8446ae3274a7108e80dd236f70f043b4dea254225bf699619b`，manifest 回读一致。产物仅在 artifacts/release/windows/x64/2.2.1/，本地 latest.json 不是生产分发。
+最终 MSI/Burn 构建均零警告/错误；隔离 package-probe 通过。MSI ProductVersion=2.2.1、固定 UpgradeCode、486 文件及 Service/SessionAgent/Manager 文件 2.2.1.0 回读通过；六个程序集 Assembly/File=2.2.1.0、Informational=2.2.1，Migration/MachineProbe exe 版本也已检查，Burn 数值版本=2.2.1.0。Burn 118,702,091 bytes / SHA-256 `1df0d8f3b23fe82c241bd6eef761d329186d293812b4bbeab26d4e6aa48115f5`；MSI 60,350,816 bytes / SHA-256 `0130ac6cca5ec50726a60ed5e83b8c9e46c9cb902b7760f34ea42cb9eaf31e7e`，manifest 回读一致。取代 UTF-8 补丁前的早期包 hash；产物仅在 artifacts/release/windows/x64/2.2.1/，本地 latest.json 不是生产分发。
 
-提交前审计：Matched＝批准的五项修复及本地验证；Deviated＝无；Missing＝本地实现无缺项，macOS 执行及真实完整盘点另列未验证；Extra＝无产品扩展，根 lock/version compatibility 仅同步 contracts Minor。不得由 mock 宣称家庭数据已清洗或整机完整。
+提交前审计：Matched＝批准的五项修复及本地验证，macOS 已 CI 验证；Deviated＝无；Missing＝实现无缺项，真实完整盘点和生产升级另列未验证；Extra＝无产品扩展，根 lock/version compatibility 仅同步 contracts Minor。不得由 mock 宣称家庭数据已清洗或整机完整。
 
 发布顺序硬闸门：当前安装已由手工升级到 2.2.0；生产仍为 contract 1.1.0。必须先合并受测代码、获授权应用 0009 并发布 Runtime Worker/Console，之后才安装 2.2.1；旧 Worker 严格校验不接受新 discovery/scan 字段。当前不部署、不安装、不改写或删除真实数据。
 
