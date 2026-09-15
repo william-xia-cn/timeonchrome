@@ -2,11 +2,15 @@
 
 ## 当前集成工作（2026-09-15）
 
-- [ ] **[D-092] 同仓解耦与独立发布边界**
+- [x] **[D-092] 同仓解耦与独立发布边界**
   - integration 分支已完成本地 contracts、Worker、Console、Windows、隔离构建与视觉闸门。
   - GitHub macOS 验证使用当前可用的 `macos-15` 标准 runner；它满足产品最低 macOS 13+ 的编译测试要求。
   - 首轮 macOS CI 已进入真实 Swift 编译，并发现 `AccountingReadModel.unionDuration` 的链式表达式触发编译器类型推导超时；仅拆分为显式中间类型，不改变区间并集语义。
-  - CI 全部通过后才允许合并 master 和执行生产恢复。
+  - CI 全部通过，PR #8 已合并为 `d8f79ec`；Runtime `0006/0007` 和四个生产资源完成首轮发布。
+  - 真实浏览器完成 SSO 兑换、fragment 清理、sessionStorage-only、480 分钟新会话、退出撤销、重新进入、无票据新标签、设备/分配/策略/统计/日志查询及旧地址兼容验收。
+  - 主 Pages 单独复部署为 `3876077d`；Runtime Worker、Runtime Pages、Guardian Worker 与 R2 `2.0.6 latest` 均未变化，覆盖风险的部署边界证明已取得。
+  - 生产证据见 `release/APP_RUNTIME_PRODUCTION_MANIFEST_2026-09-15.json`；未重新部署 Runtime/Guardian/R2，未执行额外 migration。
+  - 后续独立诊断：详情同步时间展示与统计不同，Tamper 累计异常；不改变本次 D-092 SSO/部署边界结果，不宣称终端健康问题已修复。
 
 ## 从根任务板迁入的历史状态
 
@@ -147,18 +151,19 @@
 
 ## NOW
 
-- [ ] 在 `codex/app-runtime-integration-v1` 完成同仓独立模块集成。
-- [ ] 发布 `@timeonchrome/app-runtime-contracts@1.0.0` workspace package，移除 Guardian 对 Runtime 源码的相对路径引用。
-- [ ] 完成 SSO ticket、Runtime browser session、独立 Runtime Pages 与 `0007` 本地验证。
-- [ ] 增加 Runtime、Guardian integration、主控制台入口三类 CI/release gates。
+- [x] 在 `codex/app-runtime-integration-v1` 完成同仓独立模块集成并通过 PR #8 合并 master。
+- [x] 建立 `@timeonchrome/app-runtime-contracts@1.0.0` workspace package，移除 Guardian 对 Runtime 源码的相对路径引用；外部 registry 发布留待拆仓。
+- [x] 完成 SSO ticket、Runtime browser session、独立 Runtime Pages 与 `0007` 本地及生产验证。
+- [x] 增加 Runtime、Guardian integration、主控制台入口三类 CI/release gates；CI 全部通过。
+- [ ] 独立诊断设备详情同步时间和 Tamper 累计值，不混入生产边界收尾。
 
 ## RELEASE GATES
 
-- [ ] Runtime 远端 migration `0006/0007` 文件名与源码一致。
-- [ ] Guardian 历史 migration 追踪为空的问题采用只读基线与显式单文件策略处理，禁止全量 apply。
-- [ ] 独立 SSO ES256 key pair 已配置；不得复用 Santa、lifecycle 或机器 token 密钥。
-- [ ] 独立 Runtime Pages 已验证后，才移除主 Pages 的 Runtime 静态副本。
-- [ ] 所有生产部署均来自已合并的 `origin/master` 干净提交并记录资源版本。
+- [x] Runtime 远端 migration `0006/0007` 文件名与源码一致，已执行。
+- [x] Guardian 历史 migration 追踪为空的问题采用只读基线与显式单文件策略处理，未执行全量 apply。
+- [x] 独立 SSO ES256 key pair 已配置；不复用 Santa、lifecycle 或机器 token 密钥。
+- [x] 独立 Runtime Pages 已真实验证；主 Pages 无 Runtime 静态副本，旧地址只保留 launch 跳转。
+- [x] 本轮所有生产部署均来自已合并的 `origin/master@d8f79ec` 干净提交，资源版本已记录。
 
 ## LATER
 

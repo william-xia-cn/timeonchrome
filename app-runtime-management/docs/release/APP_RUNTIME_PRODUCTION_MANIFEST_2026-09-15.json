@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "gitSha": "d8f79eceeb13b0a66715d35756cee647dee9ac99",
+  "contractVersion": "1.0.0",
+  "runtimeMigrations": [
+    "0006_runtime_terminal_logs.sql",
+    "0007_runtime_browser_sessions.sql"
+  ],
+  "runtimeWorkerVersion": "27e01201-412d-4eb9-ba3c-75cc6ed75eb1",
+  "guardianWorkerVersion": "b971221b-82b1-4e14-8f67-f3b884ac924c",
+  "runtimePages": {
+    "id": "da630a11-33a6-40ad-97af-da2a837c66bb",
+    "source": "d8f79ec",
+    "url": "https://timeonchrome-app-runtime-console.pages.dev"
+  },
+  "mainPages": {
+    "id": "3876077d-5607-4e95-8526-b666cf16d13c",
+    "previousId": "03cb3040-0eb0-4b84-a9b8-993559187e8c",
+    "source": "d8f79ec",
+    "url": "https://timeonchrome-console.pages.dev"
+  },
+  "r2Latest": {
+    "version": "2.0.6",
+    "platform": "windows",
+    "architecture": "x64",
+    "installerType": "burn",
+    "installerPath": "windows/x64/2.0.6/TimeOnChrome-AppRuntime-Setup-win-x64-2.0.6.exe",
+    "sha256": "2e78fe219dbf51c1df1d699b6776f3f9047069dcee2927ae10c575cbae7808f7",
+    "sizeBytes": 118513641,
+    "signed": false,
+    "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING"
+  },
+  "acceptance": {
+    "method": "AUDITABLE_BROWSER_CONTROL_AND_READ_ONLY_PRODUCTION_CHECKS",
+    "guardianAuthentication": "EXISTING_AUTHENTICATED_SESSION_NO_CREDENTIAL_ACCESS",
+    "ssoExchangeStatus": 201,
+    "logoutRevocationStatus": 204,
+    "freshSessionLifetimeMinutes": 480,
+    "databaseSessionLifetimeMs": 28800000,
+    "sessionTokenBits": 256,
+    "sessionStorageOnly": true,
+    "fragmentCleared": true,
+    "runtimeCookiesAbsent": true,
+    "runtimeLocalStorageAbsent": true,
+    "noTokenObservedInBrowserConsoleLogs": true,
+    "noAutomaticRenewalEvidence": "FIXED_SESSION_REGRESSION_AND_SOURCE_REVIEW_NOT_EIGHT_HOUR_WALL_TIME_TEST",
+    "directTabRequiresGuardianLaunch": true,
+    "relaunchCreatesNewSession": true,
+    "deviceAssignmentPolicyStatisticsAndLogsLoaded": true,
+    "legacyRouteStatus": 302,
+    "legacyRouteBrowserLaunchPassed": true,
+    "unauthenticatedRuntimeModuleStatus": 401,
+    "unauthenticatedGuardianSsoStatus": 401,
+    "mainPagesOnlyRedeploymentPassed": true,
+    "runtimeWorkerUnchanged": true,
+    "runtimePagesUnchanged": true,
+    "guardianWorkerUnchanged": true,
+    "r2LatestUnchanged": true,
+    "sessionHelperRegression": "PASS",
+    "planConformance": {
+      "matched": ["real-sso", "independent-pages", "legacy-launch", "deployment-isolation", "production-manifest", "module-documentation"],
+      "deviated": [],
+      "missing": [],
+      "extra": []
+    }
+  },
+  "followUpDiagnostics": [
+    "DEVICE_DETAIL_SYNC_TIME_DIFFERS_FROM_USAGE_SUMMARY",
+    "TAMPER_CUMULATIVE_VALUE_REQUIRES_INDEPENDENT_DIAGNOSIS"
+  ],
+  "createdAt": "2026-09-15T06:16:03.664Z"
+}

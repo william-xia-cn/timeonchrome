@@ -1,6 +1,6 @@
 # PROJECT_MASTER
 
-> App Runtime 集成状态：采用同仓独立模块，内部真值位于 `app-runtime-management/docs/`；根项目只维护 Guardian adapter、主控制台入口和 contract compatibility，详见 D-092。
+> App Runtime 集成状态：D-092 已经 PR #8 合并 master 并完成生产 SSO/独立部署验收；contract `1.0.0`。Guardian adapter 当前版本 `b971221b-82b1-4e14-8f67-f3b884ac924c`，主控制台 Pages `3876077d-5607-4e95-8526-b666cf16d13c`；单独发布主 Pages 不改变 Runtime 资源。内部真值与不可变生产 manifest 位于 `app-runtime-management/docs/`，根项目只维护 adapter、入口和 compatibility。
 
 ## 项目状态
 - **版本：1.7.32（内部 managed 已发布；生产观察中）**

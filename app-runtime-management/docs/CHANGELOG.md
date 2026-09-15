@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [D-092 生产边界收尾] — 2026-09-15
+
+- PR #8 合并后的 `origin/master@d8f79ec` 与 contract `1.0.0` 完成 Runtime `0006/0007`、独立 Runtime Pages、SSO 和 Guardian adapter 首轮发布。
+- 真实浏览器验证 256-bit sessionStorage-only 会话、fragment 清除、新会话 480 分钟、退出 `204`、重新兑换 `201`、无票据新标签及旧地址 launch；生产数据库会话生命周期均为 28,800,000ms，固定 session 回归通过。
+- 仅复部署主 Pages 至 `3876077d`，Runtime Worker `27e01201`、Runtime Pages `da630a11`、Guardian Worker `b971221b` 及 R2 latest `2.0.6` 均未变化。
+- 保存不可变生产 manifest；本次收尾不改业务代码、不再部署 Runtime/Guardian/R2、不执行 migration。完整终端健康及设备详情同步/Tamper 展示问题留待独立诊断。
+
 ## 从根 Changelog 迁入的历史发布记录
 +## [App Runtime 2.1.1] — 2026-09-15（本机已安装，未部署）
 
@@ -91,7 +98,7 @@
 ---
 
 
-## Unreleased
+## 已交付的 D-092 集成能力
 
 - 建立同仓独立模块和未来拆仓边界。
 - 将共享接口封装为 `@timeonchrome/app-runtime-contracts@1.0.0`。
