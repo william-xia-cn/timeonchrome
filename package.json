@@ -19,7 +19,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@timeonchrome/app-runtime-contracts": "1.0.0",
+    "@timeonchrome/app-runtime-contracts": "^1.0.0",
     "@playwright/test": "^1.59.1",
     "postal-mime": "^3.0.0"
   },

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.invalid/contracts/application-knowledge-v1",
+  "title": "家庭应用知识与分类规则",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "version", "products", "rules", "bindings"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "version": { "type": "integer", "minimum": 0 },
+    "products": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/product" } },
+    "rules": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/rule" } },
+    "bindings": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/binding" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]+$" },
+    "id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._:-]+$" },
+    "platform": { "enum": ["windows", "macos"] },
+    "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] },
+    "appType": { "enum": ["game", "gameLauncher", "onlineVideo", "mediaPlayer", "other", "unknown"] },
+    "condition": {
+      "type": "object", "additionalProperties": false, "required": ["field", "value"],
+      "properties": {
+        "field": { "enum": ["runtimeIdentity", "binaryHash", "packageId", "signerKey", "productName", "declaredType", "installationSource"] },
+        "value": { "$ref": "#/$defs/text" }
+      }
+    },
+    "expression": {
+      "type": "object", "additionalProperties": false, "required": ["operator", "conditions"],
+      "properties": {
+        "operator": { "enum": ["all", "any"] },
+        "conditions": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/condition" } }
+      }
+    },
+    "selector": {
+      "type": "object", "additionalProperties": false, "required": ["platform", "match"],
+      "properties": { "platform": { "$ref": "#/$defs/platform" }, "match": { "$ref": "#/$defs/expression" } }
+    },
+    "product": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name", "type", "selectors"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "name": { "$ref": "#/$defs/text" }, "type": { "$ref": "#/$defs/appType" },
+        "selectors": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/selector" } }
+      }
+    },
+    "rule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "kind", "match", "exclude", "mode", "classification", "type", "enabled", "source", "reason"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "name": { "$ref": "#/$defs/text" },
+        "kind": { "enum": ["product", "family", "developer", "type"] },
+        "platform": { "$ref": "#/$defs/platform" }, "productId": { "$ref": "#/$defs/id" },
+        "match": { "$ref": "#/$defs/expression" },
+        "exclude": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/expression" } },
+        "mode": { "enum": ["automatic", "suggestion"] }, "classification": { "$ref": "#/$defs/classification" },
+        "type": { "$ref": "#/$defs/appType" }, "enabled": { "type": "boolean" },
+        "source": { "$ref": "#/$defs/text" }, "reason": { "$ref": "#/$defs/text" }
+      }
+    },
+    "binding": {
+      "type": "object", "additionalProperties": false, "required": ["childId", "products", "ruleIds"],
+      "properties": {
+        "childId": { "$ref": "#/$defs/id" },
+        "products": {
+          "type": "array", "maxItems": 1000,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["productId", "classification"],
+            "properties": { "productId": { "$ref": "#/$defs/id" }, "classification": { "$ref": "#/$defs/classification" } }
+          }
+        },
+        "ruleIds": { "type": "array", "maxItems": 1000, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    }
+  }
+}

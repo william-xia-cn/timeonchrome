@@ -1,9 +1,17 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": false,
   "type": "module",
   "exports": {
+    "./classification-validation": {
+      "types": "./dist/application-knowledge-validation.d.ts",
+      "default": "./dist/application-knowledge-validation.js"
+    },
+    "./classification": {
+      "types": "./dist/application-classification.d.ts",
+      "default": "./dist/application-classification.js"
+    },
     ".": {
       "types": "./dist/app-runtime-control.d.ts",
       "default": "./dist/app-runtime-control.js"
@@ -11,6 +19,8 @@
   },
   "files": [
     "app-runtime-control.ts",
+    "application-classification.ts",
+    "application-knowledge-validation.ts",
     "*.schema.json",
     "*.vectors.json",
     "dist"
@@ -18,7 +28,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node contract-compatibility.test.cjs"
+    "test": "node contract-compatibility.test.cjs && node classification.test.mjs"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

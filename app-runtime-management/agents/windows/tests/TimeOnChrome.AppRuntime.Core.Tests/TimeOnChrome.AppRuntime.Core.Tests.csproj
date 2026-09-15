@@ -26,6 +26,9 @@
     <None Include="..\..\..\..\contracts\runtime-state-machine-v1.vectors.json"
           Link="runtime-state-machine-v1.vectors.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\application-classification.vectors.json"
+          Link="application-classification.vectors.json"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\runtime-segment-hash-v1.vectors.json"
           Link="runtime-segment-hash-v1.vectors.json"
           CopyToOutputDirectory="PreserveNewest" />
