@@ -14,6 +14,8 @@ import { HttpError } from './http';
 import type { RuntimeLogCategory } from './contracts';
 import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
+import { identifyProducts, resolveApplication } from '@timeonchrome/app-runtime-contracts/classification';
+import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 
 const classifications = new Set<ApplicationClassification>([
   'study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked',
@@ -99,7 +101,9 @@ function parseTimeWindows(value: unknown): AppPolicyTimeWindows {
 function normalizeStoredPolicy(
   payload: Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> | AppPolicyUpdate,
 ): Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> {
-  return { classifications: payload.classifications, quotas: payload.quotas, timeWindows: payload.timeWindows ?? allOpenTimeWindows() };
+  return { classifications: payload.classifications, quotas: payload.quotas, timeWindows: payload.timeWindows ?? allOpenTimeWindows(),
+    ...(payload.applicationKnowledge ? { applicationKnowledge: payload.applicationKnowledge } : {}),
+    ...(payload.resolvedApplications ? { resolvedApplications: payload.resolvedApplications } : {}) };
 }
 
 export function parseAppPolicyUpdate(value: unknown): AppPolicyUpdate {
@@ -183,7 +187,8 @@ export async function putAppPolicy(
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
-  const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows });
+  const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
+    applicationKnowledge: current.applicationKnowledge, resolvedApplications: current.resolvedApplications });
   const version = current.version + 1;
   const payloadJson = JSON.stringify(completeUpdate);
   const statements: D1PreparedStatement[] = [database.prepare(`
@@ -245,9 +250,9 @@ export async function resolveClassification(
     return { version: null, classification: 'unclassified', quotaBucket: 'unclassified' };
   }
   const version = await database.prepare(`
-    SELECT version FROM runtime_child_app_policy_versions_v1
+    SELECT version,payload_json FROM runtime_child_app_policy_versions_v1
     WHERE account_id=?1 AND child_id=?2 AND version=?3
-  `).bind(accountId, childId, policyVersion).first<{ version: number }>();
+  `).bind(accountId, childId, policyVersion).first<{ version: number; payload_json: string }>();
   if (!version) throw new HttpError(409, 'APP_POLICY_VERSION_INVALID', 'App policy version is not valid for this Child.');
   const row = await database.prepare(`
     SELECT classification FROM runtime_app_classification_history_v1
@@ -255,7 +260,9 @@ export async function resolveClassification(
       AND policy_version=?5
   `).bind(accountId, childId, platform, runtimeIdentity, policyVersion)
     .first<{ classification: ApplicationClassification }>();
-  const classification = row?.classification ?? 'unclassified';
+  const payload = JSON.parse(version.payload_json) as AppPolicyUpdate;
+  const projected = payload?.resolvedApplications?.find(entry => entry.platform === platform && entry.runtimeIdentity === runtimeIdentity);
+  const classification = row?.classification ?? projected?.classification ?? 'unclassified';
   return { version: policyVersion, classification, quotaBucket: classification };
 }
 
@@ -718,27 +725,78 @@ export async function queryAppCatalog(
     grouped.set(key, record);
   }
   const policyByKey = new Map(policy.classifications.map((item) => [`${item.platform}\n${item.runtimeIdentity}`, item]));
-  const keys = new Set([...grouped.keys(), ...policyByKey.keys()]);
+  const inventoryRows = await database.prepare(`SELECT i.evidence_json,i.status,i.machine_id,i.local_user_id
+    FROM runtime_application_inventory_v1 i JOIN runtime_machines_v2 m ON m.id=i.machine_id
+    JOIN runtime_user_assignments_v2 a ON a.machine_id=i.machine_id AND a.local_user_id=i.local_user_id
+    WHERE m.account_id=?1 AND a.child_id=?2 AND a.protected=1
+      AND a.assignment_version=(SELECT MAX(latest.assignment_version) FROM runtime_user_assignments_v2 latest
+        WHERE latest.machine_id=a.machine_id AND latest.local_user_id=a.local_user_id)`)
+    .bind(accountId,childId).all<{evidence_json:string;status:string;machine_id:string;local_user_id:string}>();
+  const inventory = new Map<string,{evidence:AppEvidence;installed:boolean;machines:Set<string>;users:Set<string>}>();
+  for (const row of inventoryRows.results) {
+    const evidence = JSON.parse(row.evidence_json) as AppEvidence, key = `${evidence.platform}\n${evidence.runtimeIdentity}`;
+    const item = inventory.get(key) ?? {evidence,installed:false,machines:new Set<string>(),users:new Set<string>()};
+    item.installed ||= row.status==='installed'; item.machines.add(row.machine_id); item.users.add(row.local_user_id); inventory.set(key,item);
+  }
+  const resolvedByKey = new Map((policy.resolvedApplications ?? []).map(item=>[`${item.platform}\n${item.runtimeIdentity}`,item]));
+  const keys = new Set([...grouped.keys(), ...policyByKey.keys(), ...inventory.keys()]);
   const items = [...keys].map((key) => {
     const observed = grouped.get(key);
     const configured = policyByKey.get(key);
     const [itemPlatform, runtimeIdentity] = key.split('\n');
+    const found = inventory.get(key), knowledge = policy.applicationKnowledge;
+    const productIds = found && knowledge ? identifyProducts(knowledge.products,found.evidence) : [];
+    const product = productIds.length===1 ? knowledge?.products.find(item=>item.id===productIds[0]) : undefined;
+    const resolution = found && knowledge ? resolveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
     return {
       platform: itemPlatform,
-      runtimeIdentity,
-      displayName: observed?.displayName || configured?.displayName || null,
-      classification: configured?.classification || 'unclassified',
+      runtimeIdentity: runtimeIdentity as string | null,
+      displayName: product?.name || observed?.displayName || configured?.displayName || found?.evidence.displayName || null,
+      productId: product?.id ?? null,
+      classification: configured?.classification || resolvedByKey.get(key)?.classification || 'unclassified',
+      classificationStatus: configured ? 'explicit' : resolution?.status ?? 'unclassified',
+      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类' : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类' : resolution?.status==='suggestion' ? '仅建议，尚未生效' : '尚未归类',
+      installationState: found?.installed ? 'installed' : observed ? 'usedNotDiscovered' : 'preconfigured',
       firstSeenAtMs: observed?.firstSeenAtMs ?? null,
       lastSeenAtMs: observed?.lastSeenAtMs ?? null,
       mainDurationMs: observed ? groupedUnion(observed.intervals) : 0,
-      machineCount: observed?.machines.size || 0,
-      userCount: observed?.users.size || 0,
+      machineCount: new Set([...(observed?.machines ?? []),...(found?.machines ?? [])]).size,
+      userCount: new Set([...(observed?.users ?? []),...(found?.users ?? [])]).size,
       observedInWindow: Boolean(observed),
     };
-  }).filter((item) => !platform || item.platform === platform)
+  });
+  // A configured, reliably identified product stays in the directory before discovery/use.
+  for (const binding of policy.applicationKnowledge?.bindings ?? []) for (const entry of binding.products) {
+    if (binding.childId!==childId) continue;
+    const product = policy.applicationKnowledge!.products.find(item=>item.id===entry.productId);
+    for (const itemPlatform of new Set(product?.selectors.map(item=>item.platform) ?? [])) {
+      if (items.some(item=>item.productId===entry.productId && item.platform===itemPlatform)) continue;
+      items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
+        classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
+        firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false});
+    }
+  }
+  const productGroups = new Map<string,typeof items>();
+  for(const item of items){const key=item.productId?`${item.platform}\n${item.productId}\n${item.classification}`:`${item.platform}\n${item.runtimeIdentity}`;
+    const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
+  const directory = [...productGroups.values()].map(group=>{
+    const implementations=group.filter(item=>item.runtimeIdentity!==null);
+    const intervals = new Map<string,Array<[number,number]>>(), machines=new Set<string>(),users=new Set<string>();
+    for(const item of implementations){const key=`${item.platform}\n${item.runtimeIdentity}`, used=grouped.get(key),installed=inventory.get(key);
+      for(const [lane,ranges]of used?.intervals??[]){const current=intervals.get(lane)??[];current.push(...ranges);intervals.set(lane,current);}
+      for(const machine of [...(used?.machines??[]),...(installed?.machines??[])])machines.add(machine);
+      for(const user of [...(used?.users??[]),...(installed?.users??[])])users.add(user);
+    }
+    return {...group[0]!,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:null,
+      runtimeImplementations:implementations.map(item=>({platform:item.platform,runtimeIdentity:item.runtimeIdentity,displayName:item.displayName})),
+      mainDurationMs:groupedUnion(intervals),machineCount:machines.size,userCount:users.size,
+      lastSeenAtMs:Math.max(0,...group.map(item=>item.lastSeenAtMs??0))||null,
+      installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState};
+  });
+  const filtered = directory.filter((item) => !platform || item.platform === platform)
     .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
       || String(left.displayName || '').localeCompare(String(right.displayName || '')));
-  return { windowStartMs, windowEndMs, items };
+  return { windowStartMs, windowEndMs, items:filtered };
 }
 
 function runtimeLogLevel(code: string): 'error' | 'warning' | 'info' {

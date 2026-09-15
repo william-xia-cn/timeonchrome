@@ -8,6 +8,7 @@ let package = Package(
         .macOS(.v13),
     ],
     products: [
+        .executable(name: "MacOSAppInventory", targets: ["MacOSAppInventory"]),
         .library(
             name: "MacOSAppRuntimeCore",
             targets: ["MacOSAppRuntimeCore"]
@@ -18,6 +19,7 @@ let package = Package(
         ),
     ],
     targets: [
+        .executableTarget(name: "MacOSAppInventory", dependencies: ["MacOSAppRuntimeCore"]),
         .target(
             name: "MacOSAppRuntimeCore"
         ),

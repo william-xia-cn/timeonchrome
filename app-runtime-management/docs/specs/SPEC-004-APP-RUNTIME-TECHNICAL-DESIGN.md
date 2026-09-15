@@ -1,5 +1,27 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-011 应用目录与分类规则（代码接入与本地验证）
+
+保留历史 runtimeIdentity，新增家庭产品知识/可信变种、孩子明确分类和通用规则三层。共享固定条件匹配器，规则按 product / family / developer / type 优先级，逐条 automatic 或 suggestion；auto 的 any 每个分支都必须有可信身份条件。弱名称、自声明类别、来源只能建议。开发者匹配验证后的 opaque signerKey，证书/开发者原文不随机器清单上传。
+
+同层冲突或仅建议时保留原有效分类；关闭自动规则且不再有有效明确配置/自动命中时，从新策略实际应用起恢复未归类。产品关联不能只用开发者身份覆盖该开发者全部产品，至少需要精确身份或签名者与稳定产品名称组合。Service 独立库存队列/SQLite cache/outbox 与账本分离；网络失败从 60 秒指数退避到 15 分钟，不在事实消费路径执行库存 I/O。应用策略及共享匹配结果作为一个文件原子保存；尚未出现在服务端已批准投影里的本地候选不提前改变上传分类或配额键。
+
+Runtime additive 0008 保存不可变知识版本、孩子绑定、安装观察和关联审计；ETag 防并发覆盖，导入预览不写入。机器清单增量按批次 hash 幂等 ACK；失败保留本地积压，扫描失败不得撤销安装状态。策略版本包含知识快照及旧身份分类投影，实际应用时切段；旧客户端不获得虚假能力声明。原始 Segment、配额键和历史分类不改写。
+
+Windows 盘点注册信息/包/启动入口并补充运行观察；macOS 提供显式只读 bundle/签名发现，不安装系统级 Agent。不生产调用、不盘点上传真实家庭、不部署或升级当前安装。
+
+完整且无失败来源的 Windows 扫描可以发送最多 1000 个身份的完成集合；Service 按已认证用户对此前 installed cache 生成 notObserved 增量。失败/超容量扫描无缺失判断权，运行观察不能降级安装证据，其他用户与便携 runtimeObserved 不受影响。清单接口当前最多返回 1000 项，超出返回结构化容量错误；不静默截断或宣称完整。包查询取消时结束自身查询进程；0/1/N 包输出均固定为 JSON 数组。
+
+### ARM-D-011 接口收口
+
+- `GET/PUT /v2/module/application-knowledge`：家庭隔离及 ETag 条件发布；不可变版本保留可撤销依据。
+- `POST /v2/module/application-knowledge/import-preview`、`import-approve`：当前版本绑定的差异 hash、逐项选择；导入只更新选中产品/规则，不覆盖孩子明确分类；仅名称产品降为建议规则候选。
+- `POST /v2/module/application-knowledge/operations`：固定 confirm/merge/split/undo 操作，保存审计类型和前后 hash；undo 读取家庭内旧知识版本后生成新版本，不回滚账本。
+- 同一 operations 接口的 `preview=true` 为只读确认预览：校验 ownership 与 If-Match，返回改变的产品归属/分类命中（应用名称、平台、孩子位置及结果），不写版本、策略或审计。保存仍须原 ETag，竞争变化返回 412。解除错误关联使用 confirm 发布撤销后的可靠范围；删除最后范围前必须处理产品引用，不允许留下空产品或悬空规则。
+- 导入修改既有规则时，若未选孩子仍批准同一规则 ID，拒绝发布并提示使用新规则 ID 或明确选择涉及孩子；不得通过覆盖家庭模板隐式改变其他孩子。
+- `GET /v2/module/application-inventory`、`POST /v2/machines/application-inventory`：必要脱敏身份摘要，清单与批次 ACK 独立于账本。
+- 应用目录合并预配置产品、安装观察与使用观察；产品跨版本只采用已确认 selectors，多个产品同时匹配返回冲突，不自行合并。
+
 > 集成边界：Guardian 只依赖 `@timeonchrome/app-runtime-contracts`；Runtime Console 从独立 Pages 项目发布；功能 worktree 禁止直接部署生产。
 
 ## Status

@@ -10,6 +10,9 @@
     "wrangler:types:check": "wrangler types --env-file .dev.vars.example --strict-vars false --check",
     "dry-run": "wrangler deploy --dry-run"
   },
+  "dependencies": {
+    "@timeonchrome/app-runtime-contracts": "file:../contracts"
+  },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.1.2",
     "@types/node": "^26.4.0",

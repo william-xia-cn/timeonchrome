@@ -52,7 +52,9 @@ public sealed record AppPolicyDocument(
     long? EffectiveAtMs,
     IReadOnlyList<AppPolicyClassification> Classifications,
     AppPolicyQuotaConfig Quotas,
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<AppPolicyTimeWindow>>>? TimeWindows = null);
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<AppPolicyTimeWindow>>>? TimeWindows = null,
+    ApplicationKnowledge? ApplicationKnowledge = null,
+    IReadOnlyList<AppPolicyClassification>? ResolvedApplications = null);
 
 public sealed record AppPolicyTimeWindow(string Start, string End);
 
@@ -72,7 +74,11 @@ public sealed record AppPolicyApplicationQuota(RuntimePlatform Platform, string 
 public sealed record AppliedMachinePolicy(
     MachinePolicy Policy,
     long CachedAtMs,
-    long AppliedAtMs);
+    long AppliedAtMs,
+    IReadOnlyList<MachineApplicationResolution>? ApplicationResolutions = null);
+
+public sealed record MachineApplicationResolution(string LocalUserId, string RuntimeIdentity,
+    long AppPolicyVersion, AppClassificationResolution Resolution, bool MatchesApprovedProjection);
 
 public static class AppPolicySchedule
 {
@@ -147,6 +153,27 @@ public sealed class MachinePolicyStore
     public static MachineUserAssignment? AssignmentFor(MachinePolicy policy, string localUserId) =>
         policy.Users.FirstOrDefault(user => string.Equals(user.LocalUserId, localUserId, StringComparison.Ordinal));
 
+    public static IReadOnlyList<MachineApplicationResolution> ResolveApplications(MachinePolicy policy,
+        IReadOnlyList<MachineApplicationObservation> observations)
+    {
+        var results = new List<MachineApplicationResolution>();
+        foreach (var observation in observations)
+        {
+            var assignment = AssignmentFor(policy, observation.LocalUserId);
+            if (assignment?.Protected != true || assignment.ChildId is null) continue;
+            var document = policy.AppPolicies?.FirstOrDefault(item => item.ChildId == assignment.ChildId)?.Policy;
+            if (document?.ApplicationKnowledge is not { } knowledge) continue;
+            var approved = document.ResolvedApplications?.FirstOrDefault(item =>
+                AccountingSegmentId.Wire(item.Platform) == observation.Evidence.Platform
+                && item.RuntimeIdentity == observation.Evidence.RuntimeIdentity);
+            var resolution = ApplicationClassifier.Resolve(knowledge, assignment.ChildId,
+                observation.Evidence, approved is null ? "unclassified" : AccountingSegmentId.Wire(approved.Classification));
+            results.Add(new(observation.LocalUserId, observation.Evidence.RuntimeIdentity, document.Version, resolution,
+                approved is not null && resolution.Classification == AccountingSegmentId.Wire(approved.Classification)));
+        }
+        return results;
+    }
+
     public static bool RequiresAccountingBoundary(MachinePolicy current, MachinePolicy next)
     {
         static string AccountingPayload(MachinePolicy policy) => JsonSerializer.Serialize(new
@@ -170,6 +197,9 @@ public sealed class MachinePolicyStore
         var classification = appPolicy?.Policy.Classifications.FirstOrDefault(item =>
             item.Platform == application.Platform
             && string.Equals(item.RuntimeIdentity, application.RuntimeIdentity, StringComparison.Ordinal))?.Classification
+            ?? appPolicy?.Policy.ResolvedApplications?.FirstOrDefault(item =>
+                item.Platform == application.Platform
+                && string.Equals(item.RuntimeIdentity, application.RuntimeIdentity, StringComparison.Ordinal))?.Classification
             ?? ApplicationClassification.Unclassified;
         return new AccountingPolicySnapshot(
             assignment.AssignmentVersion,

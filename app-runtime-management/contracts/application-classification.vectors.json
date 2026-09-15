@@ -1,0 +1,1561 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+
+  {
+    "name": "exact-rule-priority",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [],
+      "rules": [
+        {
+          "id": "type-rule",
+          "name": "type-rule",
+          "kind": "type",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "signerKey",
+                "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "exclude": [],
+          "mode": "automatic",
+          "classification": "blocked",
+          "type": "game",
+          "enabled": true,
+          "source": "controlled-fixture",
+          "reason": "verified identity"
+        },
+        {
+          "id": "developer-rule",
+          "name": "developer-rule",
+          "kind": "developer",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "signerKey",
+                "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "exclude": [],
+          "mode": "automatic",
+          "classification": "restrictedEntertainment",
+          "type": "game",
+          "enabled": true,
+          "source": "controlled-fixture",
+          "reason": "verified identity"
+        },
+        {
+          "id": "product-rule",
+          "name": "product-rule",
+          "kind": "product",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "binaryHash",
+                "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          },
+          "exclude": [],
+          "mode": "automatic",
+          "classification": "study",
+          "type": "game",
+          "enabled": true,
+          "source": "controlled-fixture",
+          "reason": "verified identity"
+        }
+      ],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [],
+          "ruleIds": [
+            "type-rule",
+            "developer-rule",
+            "product-rule"
+          ]
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signerKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "productName": "Fixture game"
+      },
+      "verifiedFields": [
+        "binaryHash",
+        "signerKey"
+      ]
+    },
+    "expected": {
+      "productId": null,
+      "classification": "study",
+      "status": "automatic",
+      "ruleIds": [
+        "product-rule"
+      ],
+      "suggestions": []
+    }
+  },
+  {
+    "name": "developer-over-type-priority",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [],
+      "rules": [
+        {
+          "id": "type-rule",
+          "name": "type-rule",
+          "kind": "type",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "signerKey",
+                "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "exclude": [],
+          "mode": "automatic",
+          "classification": "blocked",
+          "type": "game",
+          "enabled": true,
+          "source": "controlled-fixture",
+          "reason": "verified identity"
+        },
+        {
+          "id": "developer-rule",
+          "name": "developer-rule",
+          "kind": "developer",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "signerKey",
+                "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "exclude": [],
+          "mode": "automatic",
+          "classification": "restrictedEntertainment",
+          "type": "game",
+          "enabled": true,
+          "source": "controlled-fixture",
+          "reason": "verified identity"
+        }
+      ],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [],
+          "ruleIds": [
+            "type-rule",
+            "developer-rule"
+          ]
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signerKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "productName": "Fixture game"
+      },
+      "verifiedFields": [
+        "binaryHash",
+        "signerKey"
+      ]
+    },
+    "expected": {
+      "productId": null,
+      "classification": "restrictedEntertainment",
+      "status": "automatic",
+      "ruleIds": [
+        "developer-rule"
+      ],
+      "suggestions": []
+    }
+  },
+  {
+    "name": "disabled-rule-removes-old-automatic-classification",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [],
+      "rules": [
+        {
+          "id": "developer-rule",
+          "name": "developer-rule",
+          "kind": "developer",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "signerKey",
+                "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "exclude": [],
+          "mode": "automatic",
+          "classification": "restrictedEntertainment",
+          "type": "game",
+          "enabled": false,
+          "source": "controlled-fixture",
+          "reason": "verified identity"
+        }
+      ],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [],
+          "ruleIds": [
+            "developer-rule"
+          ]
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signerKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "productName": "Fixture game"
+      },
+      "verifiedFields": [
+        "binaryHash",
+        "signerKey"
+      ]
+    },
+    "previous": "restrictedEntertainment",
+    "expected": {
+      "productId": null,
+      "classification": "unclassified",
+      "status": "unclassified",
+      "ruleIds": [],
+      "suggestions": []
+    }
+  },
+  {
+    "name": "declared-game-type-alone-does-not-classify",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [],
+      "rules": [],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [],
+          "ruleIds": []
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "declaredType": "game"
+      },
+      "verifiedFields": []
+    },
+    "expected": {
+      "productId": null,
+      "classification": "unclassified",
+      "status": "unclassified",
+      "ruleIds": [],
+      "suggestions": []
+    }
+  },
+  {
+    "name": "bound-product-also-requires-narrowing-conditions",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [
+        {
+          "id": "fixture-product",
+          "name": "Fixture game",
+          "type": "game",
+          "selectors": [
+            {
+              "platform": "windows",
+              "match": {
+                "operator": "all",
+                "conditions": [
+                  {
+                    "field": "binaryHash",
+                    "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "id": "bound-rule",
+          "name": "bound-rule",
+          "kind": "product",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "productName",
+                "value": "Different product"
+              }
+            ]
+          },
+          "exclude": [],
+          "mode": "automatic",
+          "classification": "blocked",
+          "type": "game",
+          "enabled": true,
+          "source": "controlled-fixture",
+          "reason": "verified identity",
+          "productId": "fixture-product"
+        }
+      ],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [],
+          "ruleIds": [
+            "bound-rule"
+          ]
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signerKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "productName": "Fixture game"
+      },
+      "verifiedFields": [
+        "binaryHash",
+        "signerKey"
+      ]
+    },
+    "expected": {
+      "productId": "fixture-product",
+      "classification": "unclassified",
+      "status": "unclassified",
+      "ruleIds": [],
+      "suggestions": []
+    }
+  },
+  {
+    "name": "developer-excluded-product",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [],
+      "rules": [
+        {
+          "id": "developer-rule",
+          "name": "developer-rule",
+          "kind": "developer",
+          "match": {
+            "operator": "all",
+            "conditions": [
+              {
+                "field": "signerKey",
+                "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "exclude": [
+            {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "productName",
+                  "value": "Fixture game"
+                }
+              ]
+            }
+          ],
+          "mode": "automatic",
+          "classification": "restrictedEntertainment",
+          "type": "game",
+          "enabled": true,
+          "source": "controlled-fixture",
+          "reason": "verified identity"
+        }
+      ],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [],
+          "ruleIds": [
+            "developer-rule"
+          ]
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signerKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "productName": "Fixture game"
+      },
+      "verifiedFields": [
+        "binaryHash",
+        "signerKey"
+      ]
+    },
+    "expected": {
+      "productId": null,
+      "classification": "unclassified",
+      "status": "unclassified",
+      "ruleIds": [],
+      "suggestions": []
+    }
+  },
+  {
+    "name": "signature-rotation-is-unconfirmed-candidate",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [
+        {
+          "id": "fixture-product",
+          "name": "Fixture game",
+          "type": "game",
+          "selectors": [
+            {
+              "platform": "windows",
+              "match": {
+                "operator": "all",
+                "conditions": [
+                  {
+                    "field": "signerKey",
+                    "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                  },
+                  {
+                    "field": "productName",
+                    "value": "Fixture game"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "rules": [],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [],
+          "ruleIds": []
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signerKey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "productName": "Fixture game"
+      },
+      "verifiedFields": [
+        "binaryHash",
+        "signerKey"
+      ]
+    },
+    "expected": {
+      "productId": null,
+      "classification": "unclassified",
+      "status": "unclassified",
+      "ruleIds": [],
+      "suggestions": []
+    }
+  },
+  {
+    "name": "verified-package-cross-version",
+    "knowledge": {
+      "schemaVersion": 1,
+      "version": 1,
+      "products": [
+        {
+          "id": "fixture-product",
+          "name": "Fixture game",
+          "type": "game",
+          "selectors": [
+            {
+              "platform": "windows",
+              "match": {
+                "operator": "all",
+                "conditions": [
+                  {
+                    "field": "packageId",
+                    "value": "Fixture.Package!Game"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "rules": [],
+      "bindings": [
+        {
+          "childId": "child-a",
+          "products": [
+            {
+              "productId": "fixture-product",
+              "classification": "restrictedEntertainment"
+            }
+          ],
+          "ruleIds": []
+        }
+      ]
+    },
+    "childId": "child-a",
+    "evidence": {
+      "platform": "windows",
+      "runtimeIdentity": "app:fixture",
+      "displayName": "Fixture game",
+      "values": {
+        "binaryHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "signerKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "productName": "Fixture game",
+        "packageId": "Fixture.Package!Game"
+      },
+      "verifiedFields": [
+        "packageId",
+        "binaryHash"
+      ]
+    },
+    "expected": {
+      "productId": "fixture-product",
+      "classification": "restrictedEntertainment",
+      "status": "explicit",
+      "ruleIds": [],
+      "suggestions": []
+    }
+  },
+    {
+      "name": "unknown",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [
+              {
+                "productId": "steam",
+                "classification": "restrictedEntertainment"
+              }
+            ],
+            "ruleIds": []
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "old",
+        "displayName": "Steam",
+        "values": {},
+        "verifiedFields": []
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "unclassified",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "parent-confirmed",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [
+              {
+                "productId": "steam",
+                "classification": "restrictedEntertainment"
+              }
+            ],
+            "ruleIds": []
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "binaryHash": "hash-steam"
+        },
+        "verifiedFields": [
+          "binaryHash"
+        ]
+      },
+      "expected": {
+        "productId": "steam",
+        "classification": "restrictedEntertainment",
+        "status": "explicit",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "portable-renamed",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [
+              {
+                "productId": "steam",
+                "classification": "restrictedEntertainment"
+              }
+            ],
+            "ruleIds": []
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "renamed",
+        "values": {
+          "binaryHash": "hash-steam"
+        },
+        "verifiedFields": [
+          "binaryHash"
+        ]
+      },
+      "expected": {
+        "productId": "steam",
+        "classification": "restrictedEntertainment",
+        "status": "explicit",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "child-isolation",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [
+              {
+                "productId": "steam",
+                "classification": "restrictedEntertainment"
+              }
+            ],
+            "ruleIds": []
+          }
+        ]
+      },
+      "childId": "child-b",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "binaryHash": "hash-steam"
+        },
+        "verifiedFields": [
+          "binaryHash"
+        ]
+      },
+      "expected": {
+        "productId": "steam",
+        "classification": "unclassified",
+        "status": "unclassified",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "verified-developer",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "developer",
+            "name": "developer",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": [
+              "developer"
+            ]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "new-version",
+        "displayName": "Steam",
+        "values": {
+          "signerKey": "game-developer"
+        },
+        "verifiedFields": [
+          "signerKey"
+        ]
+      },
+      "expected": {
+        "productId": null,
+        "classification": "restrictedEntertainment",
+        "status": "automatic",
+        "ruleIds": [
+          "developer"
+        ],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "unverified-developer",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "developer",
+            "name": "developer",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": [
+              "developer"
+            ]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "signerKey": "game-developer"
+        },
+        "verifiedFields": []
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "unclassified",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "weak-suggestion",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "name",
+            "name": "name",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "productName",
+                  "value": "Steam"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "suggestion",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": [
+              "name"
+            ]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "productName": "Steam"
+        },
+        "verifiedFields": []
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "suggestion",
+        "ruleIds": [],
+        "suggestions": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "same-level-conflict",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "a",
+            "name": "a",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          },
+          {
+            "id": "b",
+            "name": "b",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "study",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "signerKey": "game-developer"
+        },
+        "verifiedFields": [
+          "signerKey"
+        ]
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "conflict",
+        "ruleIds": [
+          "a",
+          "b"
+        ],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "conflict-retains-previous",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "a",
+            "name": "a",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          },
+          {
+            "id": "b",
+            "name": "b",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "study",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "previous": "composite",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "signerKey": "game-developer"
+        },
+        "verifiedFields": [
+          "signerKey"
+        ]
+      },
+      "expected": {
+        "productId": null,
+        "classification": "composite",
+        "status": "conflict",
+        "ruleIds": [
+          "a",
+          "b"
+        ],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "unsafe-any",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "unsafe",
+            "name": "unsafe",
+            "kind": "developer",
+            "match": {
+              "operator": "any",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                },
+                {
+                  "field": "productName",
+                  "value": "Steam"
+                }
+              ]
+            },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": [
+              "unsafe"
+            ]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "productName": "Steam"
+        },
+        "verifiedFields": []
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "unclassified",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "exclusion",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "dev",
+            "name": "dev",
+            "kind": "developer",
+            "match": {
+              "operator": "all",
+              "conditions": [
+                {
+                  "field": "signerKey",
+                  "value": "game-developer"
+                }
+              ]
+            },
+            "exclude": [
+              {
+                "operator": "all",
+                "conditions": [
+                  {
+                    "field": "productName",
+                    "value": "DeveloperTool"
+                  }
+                ]
+              }
+            ],
+            "mode": "automatic",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "controlled-fixture",
+            "reason": "verified developer"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": [
+              "dev"
+            ]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "signerKey": "game-developer",
+          "productName": "DeveloperTool"
+        },
+        "verifiedFields": [
+          "signerKey"
+        ]
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "unclassified",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "ambiguous-product",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "not-steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": []
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "v1",
+        "displayName": "Steam",
+        "values": {
+          "binaryHash": "hash-steam"
+        },
+        "verifiedFields": [
+          "binaryHash"
+        ]
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "conflict",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    },
+    {
+      "name": "forged-product-id",
+      "knowledge": {
+        "schemaVersion": 1,
+        "version": 1,
+        "products": [
+          {
+            "id": "steam",
+            "name": "Steam",
+            "type": "gameLauncher",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "binaryHash",
+                      "value": "hash-steam"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [
+              {
+                "productId": "steam",
+                "classification": "restrictedEntertainment"
+              }
+            ],
+            "ruleIds": []
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "old",
+        "displayName": "Steam",
+        "values": {},
+        "verifiedFields": [],
+        "productId": "steam"
+      },
+      "expected": {
+        "productId": null,
+        "classification": "unclassified",
+        "status": "unclassified",
+        "ruleIds": [],
+        "suggestions": []
+      }
+    }
+  ]
+}

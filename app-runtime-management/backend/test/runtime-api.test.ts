@@ -11,6 +11,10 @@ const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE'
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_knowledge_audit_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_batches_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_knowledge_versions_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_browser_sessions_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_consumed_sso_tickets_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_terminal_logs_v1'),
@@ -806,6 +810,160 @@ describe('Runtime product API', () => {
       method: 'POST', headers: bearer(enrolled.machineToken), body: JSON.stringify({ code: uninstall.code }),
     })).status).toBe(200);
     expect((await call('/v2/machines/self', { headers: bearer(enrolled.machineToken) })).status).toBe(401);
+  });
+});
+
+describe('Application knowledge and installed inventory', () => {
+  const fixture = () => ({schemaVersion:1,version:0,products:[{
+    id:'product-game',name:'Fixture game',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]}}],
+  }],rules:[],bindings:[{childId:'child-a',products:[{productId:'product-game',classification:'restrictedEntertainment'}],ruleIds:[]}]});
+  const observation = (localUserId: string) => ({schemaVersion:1,batchId:'batch-one',observations:[{
+    localUserId,status:'installed',evidence:{platform:'windows',runtimeIdentity:'app:fixture',displayName:'Fixture game',values:{binaryHash:'a'.repeat(64)},verifiedFields:['binaryHash']},
+  }]});
+  it('previews selected imports without replacing explicit Child classifications', async () => {
+    const {account,enrolled,localUserId} = await createMachineWithUser();
+    await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(observation(localUserId))});
+    expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify(fixture())})).status).toBe(200);
+    const incoming = {...fixture(),rules:[{id:'game-rule',name:'Game rule',kind:'product',productId:'product-game',match:{operator:'all',conditions:[]},exclude:[],mode:'automatic',classification:'blocked',type:'game',enabled:true,source:'controlled-fixture',reason:'verified binary'}]};
+    incoming.bindings[0]!.products[0]!.classification='blocked'; incoming.bindings[0]!.ruleIds.push('game-rule' as never);
+    const previewResponse = await call('/v2/module/application-knowledge/import-preview',{method:'POST',headers:bearer(account),body:JSON.stringify({knowledge:incoming})});
+    expect(previewResponse.status).toBe(200);
+    const preview = await previewResponse.json<{previewHash:string;changes:Array<{key:string}>;hits:Array<{result:{classification:string}}>}>();
+    expect(preview.changes.map(item=>item.key)).toEqual(['rules:game-rule']);
+    expect(preview.hits[0]!.result.classification).toBe('restrictedEntertainment');
+    const approve = await call('/v2/module/application-knowledge/import-approve',{method:'POST',headers:{...bearer(account),'if-match':'"application-knowledge-v1"'},body:JSON.stringify({knowledge:incoming,previewHash:preview.previewHash,selected:['rules:game-rule']})});
+    expect(approve.status).toBe(200);
+    await expect(approve.json()).resolves.toMatchObject({version:2,bindings:[{products:[{classification:'restrictedEntertainment'}],ruleIds:['game-rule']}]});
+    expect((await call('/v2/module/application-knowledge/import-approve',{method:'POST',headers:{...bearer(account),'if-match':'"application-knowledge-v1"'},body:JSON.stringify({knowledge:incoming,previewHash:preview.previewHash,selected:['rules:game-rule']})})).status).toBe(412);
+  });
+  it('rejects importing shared rule changes for unselected Children and permits a separate rule ID', async () => {
+    const {account}=await createMachineWithUser();
+    const rule={id:'shared-rule',name:'Original suggestion',kind:'type',match:{operator:'all',conditions:[{field:'productName',value:'Game'}]},exclude:[],mode:'suggestion',classification:'unclassified',type:'game',enabled:true,source:'fixture',reason:'name only'};
+    const current={...fixture(),rules:[rule],bindings:[{childId:'child-a',products:fixture().bindings[0]!.products,ruleIds:[rule.id]},{childId:'child-b',products:[],ruleIds:[rule.id]}]};
+    expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify(current)})).status).toBe(200);
+    const incoming={...current,rules:[{...rule,name:'Changed suggestion'}],bindings:[current.bindings[0]]};
+    const previewRequest=()=>call('/v2/module/application-knowledge/import-preview',{method:'POST',headers:bearer(account),body:JSON.stringify({knowledge:incoming})});
+    const rejected=await previewRequest();expect(rejected.status).toBe(400);await expect(rejected.json()).resolves.toMatchObject({error:{code:'RULE_IMPORT_SCOPE_CONFLICT'}});
+    incoming.rules[0]!.id='separate-rule';incoming.bindings=[{childId:'child-a',products:fixture().bindings[0]!.products,ruleIds:['separate-rule']}];
+    const preview=await (await previewRequest()).json<{previewHash:string}>();
+    const approved=await call('/v2/module/application-knowledge/import-approve',{method:'POST',headers:{...bearer(account),'if-match':'"application-knowledge-v1"'},body:JSON.stringify({knowledge:incoming,previewHash:preview.previewHash,selected:['rules:separate-rule']})});
+    expect(approved.status).toBe(200);
+    const next=await approved.json<{rules:Array<{id:string;name:string}>;bindings:Array<{childId:string;ruleIds:string[]}>}>();
+    expect(next.rules.find(item=>item.id==='shared-rule')!.name).toBe('Original suggestion');
+    expect(next.bindings.find(item=>item.childId==='child-b')!.ruleIds).toEqual(['shared-rule']);
+  });
+  it('does not publish a selected rule whose new product dependency was not approved', async () => {
+    const {account}=await createMachineWithUser();
+    const incoming={...fixture(),rules:[{id:'new-product-rule',name:'Exact game',kind:'product',productId:'product-game',match:{operator:'all',conditions:[]},exclude:[],mode:'automatic',classification:'restrictedEntertainment',type:'game',enabled:true,source:'fixture',reason:'verified identity'}],bindings:[{childId:'child-a',products:[],ruleIds:['new-product-rule']}]};
+    const preview=await (await call('/v2/module/application-knowledge/import-preview',{method:'POST',headers:bearer(account),body:JSON.stringify({knowledge:incoming})})).json<{previewHash:string}>();
+    const approve=(selected:string[])=>call('/v2/module/application-knowledge/import-approve',{method:'POST',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify({knowledge:incoming,previewHash:preview.previewHash,selected})});
+    expect((await approve(['rules:new-product-rule'])).status).toBe(400);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_versions_v1').first('n')).toBe(0);
+    expect((await approve(['products:product-game','rules:new-product-rule'])).status).toBe(200);
+  });
+  it('keeps name-only imports as suggestions and requires explicit selected approval', async () => {
+    const {account} = await createMachineWithUser();
+    const incoming={schemaVersion:1,version:0,products:[{id:'candidate-game',name:'Unknown game',type:'game',selectors:[]}],rules:[],bindings:[{childId:'child-a',products:[{productId:'candidate-game',classification:'blocked'}],ruleIds:[]}]};
+    const preview=await (await call('/v2/module/application-knowledge/import-preview',{method:'POST',headers:bearer(account),body:JSON.stringify({knowledge:incoming})})).json<{changes:unknown[];warnings:string[];previewHash:string}>();
+    expect(preview.warnings).toEqual(['Unknown game']); expect(preview.changes).toHaveLength(1);
+    expect((await call('/v2/module/application-knowledge/import-approve',{method:'POST',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify({knowledge:incoming,previewHash:preview.previewHash,selected:[]})})).status).toBe(400);
+    const approved=await call('/v2/module/application-knowledge/import-approve',{method:'POST',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify({knowledge:incoming,previewHash:preview.previewHash,selected:['rules:candidate-candidate-game']})});
+    expect(approved.status).toBe(200); await expect(approved.json()).resolves.toMatchObject({products:[],rules:[{mode:'suggestion',classification:'unclassified'}]});
+  });
+  it('previews association effects without writing policy, audit or ledger and checks ETag/ownership', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(observation(localUserId))});
+    const requestPreview=(knowledge:unknown,etag='"application-knowledge-v0"')=>call('/v2/module/application-knowledge/operations',{method:'POST',headers:{...bearer(account),'if-match':etag},body:JSON.stringify({action:'confirm',preview:true,knowledge})});
+    const countPolicy=()=>env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_child_app_policy_versions_v1').first('n');
+    const before=await countPolicy();
+    const preview=await requestPreview(fixture());expect(preview.status).toBe(200);
+    const result=await preview.json<{version:number;preview:boolean;hits:unknown[]}>();
+    expect(result).toMatchObject({version:0,preview:true});
+    expect(result.hits).toEqual(expect.arrayContaining([expect.objectContaining({childIndex:0,displayName:'Fixture game',before:{classification:'unclassified',status:'unclassified'},after:{classification:'restrictedEntertainment',status:'explicit'}})]));
+    // Family product association is reusable, but only the selected Child receives a classification.
+    expect(result.hits).toHaveLength(2);
+    expect(result.hits[1]).toMatchObject({childIndex:1,after:{classification:'unclassified',status:'unclassified'}});
+    expect(await countPolicy()).toBe(before);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_audit_v1').first('n')).toBe(0);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_versions_v1').first('n')).toBe(0);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
+    expect((await requestPreview(fixture(),'"application-knowledge-v1"')).status).toBe(412);
+    const foreign=fixture();foreign.bindings[0]!.childId='not-owned';expect((await requestPreview(foreign)).status).toBe(404);
+  });
+  it('audits reversible associations without rewriting ledger or other accounts', async () => {
+    const {account}=await createMachineWithUser();
+    const operation=(action:string,version:number,extra:unknown)=>call('/v2/module/application-knowledge/operations',{method:'POST',headers:{...bearer(account),'if-match':`"application-knowledge-v${version}"`},body:JSON.stringify({action,...extra as object})});
+    expect((await operation('confirm',0,{knowledge:fixture()})).status).toBe(200);
+    const variant=fixture(); variant.products[0]!.selectors[0]!.match.conditions[0]!.value='b'.repeat(64);
+    expect((await operation('split',1,{knowledge:variant})).status).toBe(200);
+    expect((await operation('undo',2,{restoreVersion:1})).status).toBe(200);
+    const current=await (await call('/v2/module/application-knowledge',{headers:bearer(account)})).json<{version:number;products:unknown[]}>();
+    expect(current.version).toBe(3); expect(current.products).toEqual(fixture().products);
+    const audit=await env.RUNTIME_DB.prepare('SELECT action FROM runtime_application_knowledge_audit_v1 ORDER BY version').all<{action:string}>();
+    expect(audit.results.map(item=>item.action)).toEqual(['confirm','split','undo']);
+    const other=await accountToken({account_id:'account-other',sub:'account-other',children:[]});
+    expect((await call('/v2/module/application-knowledge/operations',{method:'POST',headers:{...bearer(other),'if-match':'"application-knowledge-v0"'},body:JSON.stringify({action:'undo',restoreVersion:1})})).status).toBe(404);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
+  });
+  it('includes installed unused and reliably preconfigured products in the Child catalog', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(observation(localUserId))});
+    const knowledge=fixture(); knowledge.products.push({id:'not-installed',name:'Known future game',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'b'.repeat(64)}]}}]});
+    knowledge.bindings[0]!.products.push({productId:'not-installed',classification:'blocked'});
+    expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify(knowledge)})).status).toBe(200);
+    const catalog=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:unknown[]}>();
+    expect(catalog.items).toEqual(expect.arrayContaining([expect.objectContaining({productId:'product-game',installationState:'installed',mainDurationMs:0,classification:'restrictedEntertainment'}),expect.objectContaining({productId:'not-installed',runtimeIdentity:null,installationState:'preconfigured',classification:'blocked'})]));
+    const other=await (await call('/v2/module/app-catalog?childId=child-b',{headers:bearer(account)})).json<{items:unknown[]}>();
+    expect(other.items).toHaveLength(0);
+  });
+  it('is fail-closed, account-isolated, Child-scoped and ETag protected', async () => {
+    expect((await call('/v2/module/application-knowledge')).status).toBe(401);
+    const { account } = await createMachineWithUser();
+    const get = await call('/v2/module/application-knowledge',{headers:bearer(account)});
+    expect(get.headers.get('etag')).toBe('"application-knowledge-v0"');
+    const write = await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':get.headers.get('etag')!},body:JSON.stringify(fixture())});
+    expect(write.status).toBe(200);
+    const stale = await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},body:JSON.stringify(fixture())});
+    expect(stale.status).toBe(412);
+    const other = await accountToken({account_id:'account-other',sub:'account-other',children:[]});
+    await expect((await call('/v2/module/application-knowledge',{headers:bearer(other)})).json()).resolves.toMatchObject({version:0,products:[]});
+    const invalid = fixture(); invalid.bindings[0]!.childId = 'not-owned';
+    expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v1"'},body:JSON.stringify(invalid)})).status).toBe(404);
+  });
+  it('ACKs inventory idempotently without creating usage and denies foreign users/paths', async () => {
+    const { account,enrolled,localUserId } = await createMachineWithUser();
+    const body = observation(localUserId);
+    const upload = () => call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    await expect((await upload()).json()).resolves.toMatchObject({status:'accepted',acceptedCount:1});
+    await expect((await upload()).json()).resolves.toMatchObject({status:'duplicate',acceptedCount:1});
+    body.observations[0]!.evidence.displayName = 'Modified';
+    expect((await upload()).status).toBe(409);
+    const foreign = observation('unknown-user'); foreign.batchId='foreign';
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(foreign)})).status).toBe(404);
+    const unsafe = {...observation(localUserId),batchId:'unsafe',path:'C:/private'};
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(unsafe)})).status).toBe(400);
+    const inventory = await (await call('/v2/module/application-inventory',{headers:bearer(account)})).json<{observations:unknown[]}>();
+    expect(inventory.observations).toHaveLength(1);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
+  });
+  it('freezes forward classifications and preserves old-client policy fields', async () => {
+    const { account,enrolled,localUserId } = await createMachineWithUser();
+    await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(observation(localUserId))});
+    const publish = (knowledge: unknown,version: number) => call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':`"application-knowledge-v${version}"`},body:JSON.stringify(knowledge)});
+    expect((await publish(fixture(),0)).status).toBe(200);
+    const first = await (await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)})).json<{version:number;resolvedApplications:unknown[];classifications:unknown[];quotas:unknown;timeWindows:unknown}>();
+    expect(first.resolvedApplications).toEqual([expect.objectContaining({classification:'restrictedEntertainment'})]);
+    const changed = fixture(); changed.bindings[0]!.products[0]!.classification='study';
+    expect((await publish(changed,1)).status).toBe(200);
+    const old = await env.RUNTIME_DB.prepare('SELECT payload_json FROM runtime_child_app_policy_versions_v1 WHERE child_id=?1 AND version=?2').bind('child-a',first.version).first<string>('payload_json');
+    expect(JSON.parse(old!).resolvedApplications[0].classification).toBe('restrictedEntertainment');
+    const current = await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)});
+    const currentBody = await current.json<typeof first>();
+    const legacyWrite = await call('/v2/module/app-policy?childId=child-a',{method:'PUT',headers:{...bearer(account),'if-match':current.headers.get('etag')!},body:JSON.stringify({classifications:currentBody.classifications,quotas:currentBody.quotas})});
+    expect(legacyWrite.status).toBe(200);
+    await expect(legacyWrite.json()).resolves.toMatchObject({applicationKnowledge:{version:2},resolvedApplications:[{classification:'study'}]});
+    const machinePolicy = await (await call('/v2/machines/policy',{headers:bearer(enrolled.machineToken)})).json<{appPolicies:Array<{childId:string;policy:{applicationKnowledge:{bindings:unknown[]}}}>}>();
+    expect(machinePolicy.appPolicies.find(item => item.childId === 'child-a')!.policy.applicationKnowledge.bindings).toHaveLength(1);
   });
 });
 

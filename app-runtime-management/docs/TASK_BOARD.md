@@ -1,5 +1,87 @@
 # App Runtime 任务板
 
+## 当前合并与发布预检（PO 授权：合并、推送、部署）
+
+- 合并前 root TypeScript 检查通过；既有 Guardian integration 测试仍硬编码 contract 1.0.0，在已批准的 Minor 1.1.0 上失败。本次只将该版本夹具同步为 1.1.0，不删减身份桥、SSO、独立页面或入口断言，不修改 Guardian 业务。
+- 远端 Runtime 只待执行 0008_runtime_application_knowledge.sql。生产 workflow 当前会同时部署 Guardian/Main Pages，GitHub production 审批环境尚不存在；在修订发布配置获确认前，不绕过该闸门执行生产部署。
+
+- 应用发现收口：只有完整且无失败来源的扫描才发送有界完整身份集合；Service 按已认证用户将此前已安装但本次未观察到的项目标记 `notObserved`。便携运行观察及其他用户不受影响，失败/超容量扫描不推断卸载；缓存和独立 outbox 继续事务写入。
+- 运行观察不能把已确认 installed 降为 runtimeObserved；保留安装证据，成功完整扫描仍可更新缺失状态。包扫描取消时结束自身查询进程，不遗留后台查询。
+
+## NOW：应用目录与分类规则（ARM-D-011）
+
+- [x] 文档先行：产品知识、孩子明确分类、规则分别管理；保留历史身份与账本。
+- [x] 共享契约、匹配核心与跨语言黄金向量（Swift 执行待 macOS）。
+- [x] 家庭隔离、ETag、规则导入预览、产品关联审计与安装清单 ACK。
+- [x] Windows 发现与本地策略原子应用；macOS 只读发现及显式验证入口代码。
+- [x] 五目录与确定性/规则两个可滚动管理面板；桌面/移动 mock 目视检查。
+- [x] 相关本地测试、边界检查与 Matched / Deviated / Missing / Extra 审计。
+- [x] macOS 15 CI 编译/Swift tests，共享向量和受控 bundle 发现测试通过；不等同于家庭真机盘点验收。
+- [x] 四个 docs+code 子系统已提交推送功能分支；不自动合并或发布。
+
+边界：不生产部署、不升级本机、不上传家庭盘点、不接入 Santa，不重写历史。macOS 测试必须在 macOS 执行。
+
+### 最新 CI 收口（2026-09-15）
+
+- 功能分支 codex/app-runtime-classification-v1 已设置 upstream；四个代码提交 d07eb0a / 20383ff / d15bbaf / 58b1cfc。
+- 构建测试 CI 34973586475 对代码 SHA 58b1cfcf987ffb1eb92aa5cc4c197704da799d3f 全部成功：contracts-worker-console、windows（dotnet test 与 WiX MSI/Burn build）、macos（macos-15，swift test，包含共享分类向量与受控 bundle）。证据：https://github.com/william-xia-cn/timeonchrome/actions/runs/34973586475 。后续纯文档提交不改变该受测代码。
+- macOS 环境 blocker 已由真实 CI 补齐，不再宣称未编译；Windows 当前本机未运行新扫描或升级，真实家庭发现/安装集成仍须另行授权。
+- 最终 Plan Conformance Audit：Matched＝批准的本地代码、契约/三语言匹配、后台/平台/界面及 mock/CI 验证；Deviated＝无；Missing＝批准的 mock 范围无缺项；Extra＝无产品扩展。4 项开发工具链高危依赖及内部未签名包仍为发布风险，不因 CI 成功解除。
+- 最终 Git 核对：classification 工作树干净，旧 Runtime 基线 9acba21 干净；主 master 74c009f 与任务工作线 8603fbb 的用户改动未被修改或提交。本轮无生产写入、部署、migration 或真机升级。
+
+### 本地提交前验证（由上方 CI 补验结论更新）
+
+- 子系统提交 4：确定性产品/变种与分类规则独立面板、孩子范围确认、命中冲突预览及逐项导入批准；保留五导航/五目录和系统日志/访问配置。知识聚焦测试、桌面/移动 Playwright 与目视审查通过；源码不复制到主 Pages。
+
+- 子系统提交 3：Windows 首次/变化/每日只读盘点、便携补充、验证身份、用户隔离清单事务/ACK和本地 LKG/前向分类接入；90/90 与最终两个可执行项目编译通过。macOS 仅显式适配器与受控 bundle 测试源码，未执行 macOS 验收。
+
+- 子系统提交 1：产品/规则 contracts 与三语言匹配核心已提交 d07eb0a；子系统 2 包含 0008、授权/ETag、只读预览/批准/关联审计、清单 ACK 及兼容投影，Worker 35/35 与类型/dry-run 闸门通过。
+
+- fetch 确认最新 origin/master 仍为 6ef41907ea18e1bfee041e8886e3523740de0d8f。工作树和分支保持 D 盘 classification，不动主目录及其他工作线。
+- contracts 1.1.0 build、N/N-1 兼容、21 组 TypeScript 黄金向量与 Draft 2020-12 Schema/向量结构 PASS；C# 同向量包含在 Windows Release 90/90 PASS 中。Swift 未编译或执行。
+- Service/Session Agent Release build 均 0 warning / 0 error。Windows 只用夹具，不启动新二进制或扫描真实家庭。完整成功扫描的缺失对账、其他用户/便携隔离、运行观察不降级 installed、缓存/outbox 事务及 ACK/replay 已覆盖。
+- Worker 本地 D1/Vitest 35/35 PASS，包含 0008；TypeScript、原 Wrangler types --check、dry-run PASS。只读关联预览不写版本/审计；未选孩子共用规则修改与导入依赖有固定断言。
+- Console 知识/session/network/policy/clipboard/time/usage 聚焦测试 PASS。1440×1000 与 390×844 Playwright mock PASS；已目视核对五目录、双面板、80 项长列表、变种确认/拆分/解除和冲突命中明细，固定底栏可达，无敏感标识展示。截图为 output/playwright/app-runtime-classification/ 的 mock 产物，不是生产证据。
+- 只复制模块的隔离临时副本通过 contracts 编译、backend typecheck/dry-run、本地 startup 与未认证机器 API 401；临时进程已结束。最初 contracts npm script 因其未独立安装 tsc 失败，改用该副本 backend 的 TypeScript 工具链后通过，不读取主仓源码。
+- boundary check、git diff --check PASS；native-app-control/、extension/、workers/、pages/ 零修改。根 package.json/lock 仅同步 contracts Minor workspace 兼容依赖。
+- LF 属性使原 types --check 与格式检查同时 PASS；首次失败字节未保存，不把 CRLF 推导解释伪报成已复现的历史根因。下方旧测试/阻塞记录不作为当前状态。
+- npm audit 的 4 项开发工具链高危告警（sharp→miniflare→Wrangler/vitest-plugin）保留风险，未擅自升级，不标记安全验收通过；需另项处理后评估发布。
+- Plan Conformance Audit：Matched＝全部已确认实现项及可运行本地/视觉闸门；Deviated＝无未批准偏差；Missing＝无功能实现项缺失，macOS/真实 OS 验收按计划保留未验证；Extra＝无产品功能扩展。不得宣布跨平台验收完成。
+- 未部署、未应用生产 migration、未盘点上传家庭、未升级当前安装、未改写历史；功能分支只提交推送，不自动合并或发布。
+
+### 前轮复验（历史现场，已由最新收口替代）
+
+- 本轮核对 Wrangler 本地 checkTypesUpToDate：检查 Env hash 与 runtime header，不比较整份声明文本。根因是 CRLF 拆行后 runtime header 残留 `\r`，而不是先前误判的行尾空格。仅对派生类型文件做 LF 格式统一并保留无行尾空格；不更改类型或降低原有 --check。此前格式冲突结论由本条核对修正。
+- 补充验证计划：长清单与变种/冲突 mock、跨孩子导入覆盖断言、隔离 dry-run/startup；依赖告警源为开发工具链 sharp→miniflare→wrangler/vitest-plugin，未进入 contracts 运行依赖，保留风险、不自动升级。
+- 模块 .gitattributes 固定派生 worker-configuration.d.ts 为 LF，避免 Windows 下一次检出再次触发 runtime header 的 CRLF 误判。Console 长列表由 mock-only inventoryFixtures 参数提供受控夹具，未进入真实加载/上传流程。
+- 原有 Wrangler --check 与 git diff --check 现已同时通过；不替换闸门。首次失败未保留文件字节证据，CRLF 是由检查实现推导的风险解释，不伪报已复现的历史根因。类型文件 LF 属性作持久预防。
+- 导入预览增加命中明细与冲突/建议状态，显示目标孩子名称和前向生效提示，不只显示计数；不显示 raw identity。将同层自动规则冲突与长列表纳入桌面/移动夹具验收。
+
+- contracts 1.1.0 构建、N/N-1 兼容及 21 组 TypeScript 黄金向量通过；C# 同向量包含在 Windows Release 88/88 中。Swift 对应源码已实现，但未在 macOS 编译或执行。
+- Windows Release 测试 88/88；Session Agent 编译 0 warning / 0 error。未启动新二进制、未扫描或上传真实家庭清单。
+- Runtime Worker 本地 D1/Vitest 33/33、TypeScript、Wrangler dry-run 通过；包含只读关联预览无写入、家庭知识复用与孩子分类隔离。新增规则导入跨孩子覆盖保护需要独立断言继续补齐。
+- Console 知识、session、network、policy、clipboard、time、usage 聚焦测试通过；桌面/390px mock Playwright 通过。已目视核对产品面板与移动导入；独立滚动和固定底栏可达。规则编辑保留平台、未显示条件与既有排除；当前孩子停用不改变其他孩子批准。
+- 关联 confirm/merge/split 增加只读预览；支持解除错误身份范围，最后范围的孩子/规则引用必须显式处理，不生成空产品或悬空引用。
+- 只复制 Runtime 模块到隔离临时目录，npm ci、contracts 编译、backend TypeScript 通过；backend 显式依赖模块内 contracts，不依赖主仓业务源码。
+- npm 报告 4 项高危依赖告警，未自动修复，待确认影响；不能当作安全验收通过。
+- Wrangler 4.127.1 精确 types check 的差异仅 5 处生成行尾空格：原样生成时 check 通过，但违反 diff --check。已移除行尾空格并保留原类型语义；精确生成检查与干净格式两项不能同时标记通过，后续须解决检查规范化，不降低语义校验。
+- 阶段审计：Matched＝共享匹配、Windows 本地夹具、Worker 本地数据/预览、五目录两面板、隔离 TypeScript；Deviated＝生成类型格式闸门差异（未视为通过）；Missing＝macOS 实测、长列表/变种与冲突视觉补充、完整隔离打包/startup、最终敏感字段及提交审计；Extra＝无。
+- 整体未完成，不提交/推送。下一步先收口上述 Missing 与类型闸门，再按四个子系统提交。无生产部署、remote migration、真机升级或历史改写。
+
+### 前轮实施现场（保留原因，不作为最新测试结果）
+
+- 工作树：`D:\Codex\TimeOnchrome-worktrees\app-runtime-classification`；分支 `codex/app-runtime-classification-v1`，起点 `origin/master@6ef4190`。
+- 已实现：contracts 1.1.0 的产品/规则类型、受限输入校验、JSON Schema；TypeScript/C#/Swift 共享 13 组黄金向量。TypeScript 构建与兼容/向量通过；Swift 尚未编译验证。
+- 已实现但未完整收口：本地 additive `0008`、家庭知识 GET/PUT 与 ETag、安装清单和幂等批次 ACK、冻结分类投影及旧客户端 PUT 保留字段；Worker 类型检查及本地 D1/Vitest 28/28 通过。
+- Windows 已接入只读发现适配器、库存 SQLite cache/outbox、Session Agent 库存消息与 Service 上传循环、安装路径客户端校验及策略保存后发布。Service/Session Agent 单独编译均 0 warning / 0 error；未运行新服务或真实发现。
+- macOS 已加入常规目录只读适配器、显式 `--scan-only` 本地入口和受控 bundle 测试；全部仍待 macOS 13+ 编译与测试，不记为验收通过。
+- 恢复授权：PO 已确认继续。独立库存连接设为 `Pooling=false`，保证每次 dispose 真正释放 SQLite 句柄；不清空全局连接池，不影响现有账本连接。Windows Release 全量复验 83/83 通过。
+- 上轮阻塞：Windows 全量新增后 83 项为 81 通过 / 2 失败；两项均在 `ApplicationInventoryTests.Dispose` 删除 SQLite 夹具时出现文件占用。连接字符串启用默认连接池；同一失败命令达到两次后已停止并报告，本轮获授权恢复。
+- 下一步：完成规则导入预览/逐项批准、产品关联合并拆分审计、目录 read model、两个管理面板与桌面/移动目视验收；补齐策略切段、LKG、身份与发现的覆盖。
+- 本轮收口：规则编辑必须保留未显示的条件、平台限制和既有排除项；清除排除须明确选择。修改规则发布新 ID，仅替换选中孩子的批准，其他孩子继续使用旧规则。操作预览及解除错误关联仍需补齐。
+- 独立构建检查：backend 显式声明模块内 contracts package 依赖，不能依赖主仓 node_modules 的隐式提升。Wrangler binding 检查发现生成文件过期，仅重新生成派生类型，不修改 binding 或生产配置。
+- 当前不得标记整体完成、提交或推送；无生产部署、migration 应用、真机升级或家庭数据上传。
+
 ## 当前集成工作（2026-09-15）
 
 - [x] **[D-092] 同仓解耦与独立发布边界**

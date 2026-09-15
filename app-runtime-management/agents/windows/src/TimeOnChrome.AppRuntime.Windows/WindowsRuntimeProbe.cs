@@ -13,8 +13,13 @@ public interface IWindowsRuntimeProbe
 
 public sealed class WindowsRuntimeProbe : IWindowsRuntimeProbe
 {
+    // Adapter-local only. Never included in a fact, inventory payload or log.
+    public string? LastExecutablePath { get; private set; }
+    public WindowsProcessPackageIdentity? LastPackageIdentity { get; private set; }
     public ApplicationIdentity? GetForegroundApplication()
     {
+        LastExecutablePath = null;
+        LastPackageIdentity = null;
         var window = NativeMethods.GetForegroundWindow();
         if (window == IntPtr.Zero)
         {
@@ -32,6 +37,7 @@ public sealed class WindowsRuntimeProbe : IWindowsRuntimeProbe
             using var process = Process.GetProcessById(checked((int)processId));
             var displayName = process.ProcessName;
             var executablePath = TryGetExecutablePath(processId);
+            LastExecutablePath = executablePath;
             return WindowsApplicationIdentityDeriver.Derive(executablePath, displayName);
         }
         catch (ArgumentException)
@@ -60,7 +66,7 @@ public sealed class WindowsRuntimeProbe : IWindowsRuntimeProbe
         return TimeSpan.FromMilliseconds(elapsed);
     }
 
-    private static string? TryGetExecutablePath(uint processId)
+    private string? TryGetExecutablePath(uint processId)
     {
         var process = NativeMethods.OpenProcess(
             NativeMethods.ProcessQueryLimitedInformation,
@@ -75,9 +81,10 @@ public sealed class WindowsRuntimeProbe : IWindowsRuntimeProbe
         {
             var capacity = 32_768u;
             var buffer = new StringBuilder(checked((int)capacity));
-            return NativeMethods.QueryFullProcessImageName(process, 0, buffer, ref capacity)
-                ? buffer.ToString()
-                : null;
+            if(!NativeMethods.QueryFullProcessImageName(process, 0, buffer, ref capacity)) return null;
+            var path=buffer.ToString();
+            LastPackageIdentity=WindowsProcessPackageIdentity.Read(process,path);
+            return path;
         }
         finally
         {
