@@ -1,5 +1,16 @@
 # App Runtime 任务板
 
+## NOW：产品目录同名歧义投影热修复
+
+- [x] 真机完整扫描：HornburgXW 2.2.3 已上传 4 个数据批和 1 个完成标记；385 个产品、356 个变体，`completed=1`。
+- [x] LibreOffice 只有一个安装产品，Writer/Calc/Impress/Base/Draw/Math/安全模式均挂为同一产品的变体。
+- [x] 缺陷证据：`Create React App Sample` 同时由 user package 与用户卸载注册生成两个不同 product key，另有 hosted 变体；同名但无共同强身份，仍会在主目录重复。
+- [x] 同平台、同规范化名称但存在多个互不关联安装产品时，仅形成一个只读歧义技术记录；不得因名称自动合并为已确认产品，也不得进入可分类主目录。
+- [x] Worker 回归覆盖歧义产品、hosted 候选和既有 LibreOffice 单产品多变体；40/40、TypeScript、binding types、Wrangler dry-run 与 `git diff --check` 通过。
+- [ ] 合并 master 后仅部署 Runtime Worker，并用 HornburgXW 真实 catalog 验证 `Create React App Sample` 主目录 0 条、技术记录 1 条，LibreOffice 主目录 1 条。
+
+边界：保留全部原始产品/变体扫描和历史账本；不执行 migration，不修改 Agent、Pages、Guardian、Santa、Extension、配额或分类历史。
+
 ## NOW：Windows 2.2.3 inventory v4 管道兼容热修复
 
 - [x] 真机证据：HornburgXW 已升级 2.2.2，Manager/Service/Session Agent 版本一致，Service Automatic/Running，单一 Session Agent，TimeWhereMg 在线且已配对。
@@ -8,7 +19,8 @@
 - [x] Service 同时接受兼容 v3 与产品级 v4；未知版本继续 fail closed，并增加固定回归。
 - [x] 版本统一升为 2.2.3；Windows tests 110/110、WiX MSI/Burn 构建和 `git diff --check` 通过。
 - [x] 本地候选：Burn `b823b3debd3d593e69004245f787f0e7f69621e234abebb7f5b2a9f5e2262e3d`（118,725,903 bytes）；MSI `13f0b3685ddcc4f1268b0ef4951a620f2e76b0f7b56b3946edf240e5b02e4705`（60,359,008 bytes）。
-- [ ] 合并 master 后只发布 R2 2.2.3/latest，原地升级 HornburgXW 并完成真实产品投影验收。
+- [x] 合并 `master@27bfba7` 后发布 R2 2.2.3/latest；William 原地升级成功，三组件均为 2.2.3，Service 与单一 Session Agent 运行，完整扫描已上传。
+- [x] 生产包：Burn `d665e227d4234d47337edcb04169d57d50e2817b72c1c606a3f7076d365eef8e`（118,729,417 bytes）；MSI `9238c03fd8b4f3795069e2fdb08372543c2893bd7d24bd3b4c849428488ccca3`（60,363,104 bytes）；R2 与 Worker 下载回读一致。
 
 边界：不修改 Worker、Pages、D1 schema、主/媒体账本、配额、Guardian、Santa 或 Extension；不重写 2.2.2 已有事实。
 

@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前热修复：同名歧义产品只进入技术记录
+
+HornburgXW 2.2.3 完整扫描已上传。LibreOffice 已正确形成一个产品和多个变体；但多个来源若产生同名、不同强身份的安装产品（真实例为 `Create React App Sample`），不能因名称自动确认或在主目录重复展示。当前热修复将这类对象聚合为一个只读歧义技术记录，保留原始扫描，不改变账本、分类和配额。
+
 ## 当前热修复：Windows 2.2.3 inventory v4 管道兼容
 
 2.2.2 真机升级后确认程序、Service、Session Agent 和配对正常，但产品级盘点未上传。根因是 Session Agent 已发送 inventory schema v4，而 Service 管道仍只接收 v3。2.2.3 仅修正 Service 的 v3/v4 兼容入口并增加回归；Worker、D1 schema、主账本、媒体账本、配额和历史数据不变。
