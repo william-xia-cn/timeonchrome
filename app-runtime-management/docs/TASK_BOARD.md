@@ -5,9 +5,10 @@
 - [x] 生产只读检查确认 Runtime D1 无待执行 migration。
 - [x] 首次受保护发布在资源写入前 fail-closed：workflow 仍默认期待已执行的 `0008_runtime_application_knowledge.sql`，实际待执行列表为空。
 - [x] 将 `expected_runtime_migrations` 默认值改为空；未来存在待执行 migration 时仍必须由发布人显式填写精确文件名并单独授权 apply。
-- [x] release-config、integration、模块边界与 145 个 unit 文件通过；待 PR/CI 后从合并后的 `master` 重新部署 Runtime Worker 与独立 Runtime Pages。
+- [x] release-config、integration、模块边界与 145 个 unit 文件通过；PR #16 的 contracts/Worker/Console、macOS、Windows/WiX CI 全通过。
+- [x] 从 `master@a041c454` 完成受保护生产发布 `35062450944`：Runtime Worker `3e5f5784-80a7-462d-ad7b-5bde527a9f60`、Runtime Pages `5b757653-8e0f-4531-bea3-3f5f6ed9082f`；migration 列表为空。
 
-边界：不执行 migration，不部署 Guardian/Main Pages/R2，不修改生产数据；失败运行 `35061674139` 未执行任何 Cloudflare 资源发布。
+边界：未执行 migration，Guardian `b971221b`、Main Pages `3876077d`、R2 latest `2.0.6` 保持不变；失败运行 `35061674139` 未执行任何 Cloudflare 资源发布。health 200、未认证目录 401，稳定与不可变 Runtime Pages 均 200 并包含“技术进程记录”。
 
 ## NOW：产品应用投影修复（ARM-D-013，PO 授权）
 
@@ -18,7 +19,7 @@
 - [x] binding types、Wrangler dry-run、`git diff --check` 和受保护目录检查。
 - [x] Plan Conformance Audit 通过；文档与代码进入同一提交。
 
-边界：不部署、不执行 migration、不升级客户端；不改变 Segment、app usage 或 quota 口径。
+发布结果：随 `master@a041c454` 部署 Runtime Worker 与独立 Runtime Pages；未执行 migration、未升级客户端，不改变 Segment、app usage 或 quota 口径。
 
 提交前审计：Matched＝结构化证据投影、产品合并、技术记录分流、分类按钮边界、隐私与响应式视觉；Deviated＝无；Missing＝无；Extra＝无。原始 legacy Segment 行数固定回归通过，未改变 accounting 统计逻辑。
 
