@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [Windows 2.2.3] — 2026-09-16（本地候选已验证）
+
+- 修复 Session Agent 产品级盘点使用 schema v4、但 RuntimeService 仅接受 schema v3，导致 2.2.2 真机盘点未进入本地 outbox/云端新表的问题。
+- Service 将兼容接收 inventory schema v3/v4，未知版本仍拒绝；不修改 inventory payload、Worker、D1、UsageSegment、时长或配额。
+- HornburgXW 的 2.2.2 程序、Service/Agent 和配对均正常，升级前的历史账本保持不变；2.2.3 必须以新表出现完整扫描为验收条件。
+- Windows tests 110/110、WiX MSI/Burn 构建与版本检查通过；内部包仍为未签名候选，生产验收尚未完成。
+
 ## [Windows 2.2.2 / contracts 1.3.0] — 2026-09-16（云端已发布，HornburgXW 待升级验收）
 
 - ARM-D-014：建立安装产品、应用变体和技术记录三层目录；套件默认产品级聚合，显式拆分后变体才独立管理。

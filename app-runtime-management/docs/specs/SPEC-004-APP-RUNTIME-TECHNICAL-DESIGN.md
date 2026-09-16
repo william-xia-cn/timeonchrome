@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## 2.2.3 inventory v4 管道兼容热修复
+
+- Session Agent 的产品/变体盘点使用 `SessionApplicationInventoryMessage.schemaVersion = 4`；RuntimeService 管道入口必须同时接收 legacy v3 与产品级 v4，其他版本 fail closed。
+- 协议版本判定使用共享的纯函数并由固定回归覆盖，避免发送端升级后接收端静默丢弃消息。
+- 本修复不改变云端 payload、inventory outbox、D1 schema 或任何 accounting 语义。
+
 ## ARM-D-014 产品级目录实施清单（2.2.2）
 
 1. contracts 1.3.0 增加 inventory v2：`products`、`variants`、`sourceResults`；变体携带 opaque parentProductKey、variantRole、scope 和 evidenceLevel，不上传路径、SID、用户名、完整命令行或证书正文。

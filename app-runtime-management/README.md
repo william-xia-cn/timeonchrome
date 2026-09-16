@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前热修复：Windows 2.2.3 inventory v4 管道兼容
+
+2.2.2 真机升级后确认程序、Service、Session Agent 和配对正常，但产品级盘点未上传。根因是 Session Agent 已发送 inventory schema v4，而 Service 管道仍只接收 v3。2.2.3 仅修正 Service 的 v3/v4 兼容入口并增加回归；Worker、D1 schema、主账本、媒体账本、配额和历史数据不变。
+
 ## 当前修复：Windows 2.2.2 产品级应用清单（ARM-D-014）
 
 应用目录从“可信入口列表”升级为“安装产品 + 可展开变体 + 技术记录”。Windows 安装产品形成主行，Start Menu、包入口和运行身份作为变体；LibreOffice 等套件默认一行，显式拆分后才独立分类。盘点按来源独立结算，单项坏快捷方式只产生 warning，不再阻断其他来源清理。contracts 目标版本 1.3.0，Runtime additive migration 为 0010，历史 Segment/时长/配额不变。

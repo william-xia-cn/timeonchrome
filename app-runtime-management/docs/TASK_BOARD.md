@@ -1,5 +1,17 @@
 # App Runtime 任务板
 
+## NOW：Windows 2.2.3 inventory v4 管道兼容热修复
+
+- [x] 真机证据：HornburgXW 已升级 2.2.2，Manager/Service/Session Agent 版本一致，Service Automatic/Running，单一 Session Agent，TimeWhereMg 在线且已配对。
+- [x] 生产证据：2.2.2 启动后 `runtime_installation_products_v1`、`runtime_application_variants_v1` 与 `runtime_application_inventory_scans_v2` 仍全部为 0。
+- [x] 根因：Session Agent 发出 `schemaVersion: 4`，Service 管道入口只接受 3，导致 v4 盘点在进入本地 inventory outbox 前被丢弃。
+- [x] Service 同时接受兼容 v3 与产品级 v4；未知版本继续 fail closed，并增加固定回归。
+- [x] 版本统一升为 2.2.3；Windows tests 110/110、WiX MSI/Burn 构建和 `git diff --check` 通过。
+- [x] 本地候选：Burn `b823b3debd3d593e69004245f787f0e7f69621e234abebb7f5b2a9f5e2262e3d`（118,725,903 bytes）；MSI `13f0b3685ddcc4f1268b0ef4951a620f2e76b0f7b56b3946edf240e5b02e4705`（60,359,008 bytes）。
+- [ ] 合并 master 后只发布 R2 2.2.3/latest，原地升级 HornburgXW 并完成真实产品投影验收。
+
+边界：不修改 Worker、Pages、D1 schema、主/媒体账本、配额、Guardian、Santa 或 Extension；不重写 2.2.2 已有事实。
+
 ## NOW：Windows 2.2.2 产品级应用清单（ARM-D-014，PO 授权生产发布）
 
 - [x] 文档先行：固定产品、变体、技术记录三层模型和来源级盘点语义。
@@ -9,7 +21,7 @@
 - [x] Console 产品行/变体展开/拆分与来源健康。
 - [x] Windows、Worker、Contracts、Console、WiX、视觉及边界验证。
 - [x] 合并 master，应用 0010，部署兼容 Worker 与独立 Runtime Pages，并发布 R2 2.2.2/latest。
-- [ ] HornburgXW 从 2.2.1 原地升级到 2.2.2，完成来源完整扫描和线上产品投影验收。
+- [x] HornburgXW 从 2.2.1 原地升级到 2.2.2，保留配对并恢复 Service/Agent；真实扫描因 v4 管道兼容缺陷转入 2.2.3 热修复。
 
 提交前验证：Windows 106/106、Worker 39/39、contracts 1.3.0 build/compatibility 与 23 组向量、Console unit/视觉、binding types、Wrangler dry-run、边界检查和 `git diff --check` 通过。2.2.2 Burn/MSI 版本与 manifest 哈希一致；内部包仍未签名。
 
