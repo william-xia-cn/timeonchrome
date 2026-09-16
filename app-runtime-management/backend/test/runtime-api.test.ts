@@ -853,6 +853,44 @@ describe('Application knowledge and installed inventory', () => {
     expect(result.technicalItems).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'LibreOffice Updater'})]));
     expect(result.inventoryScans).toEqual([expect.objectContaining({status:'partial',sourceResults:expect.arrayContaining([expect.objectContaining({source:'start-menu-common',status:'complete_with_warnings'})])})]);
   });
+  it('projects conflicting same-name installation products as one technical review group', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const firstKey='1'.repeat(64),secondKey='2'.repeat(64),name='Create React App Sample';
+    const product=(productKey:string,sourceKind:'registry-user'|'user-packages')=>({
+      platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
+      values:{productKey,productName:name},verifiedFields:['productKey'],
+      discovery:{role:'application',nameSource:'installation',sourceKinds:[sourceKind==='registry-user'?'registry':'package'],
+        objectKind:'product',variantRole:'unknown',scope:'user',sourceKind,evidenceLevel:'strong'},
+    });
+    const main={platform:'windows',runtimeIdentity:'package-main',displayName:name,values:{productKey:firstKey},verifiedFields:['productKey'],
+      discovery:{role:'application',nameSource:'appList',sourceKinds:['package'],objectKind:'variant',parentProductKey:firstKey,
+        variantRole:'main',scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}};
+    const hosted={platform:'windows',runtimeIdentity:'hosted-entry',displayName:name,values:{hostedAppId:'3'.repeat(64)},verifiedFields:['hostedAppId'],
+      discovery:{role:'candidate',nameSource:'appList',sourceKinds:['shortcut'],objectKind:'variant',variantRole:'hosted',scope:'user',
+        sourceKind:'start-menu-user',evidenceLevel:'review'}};
+    const sourceResults=[{source:'registry-user',status:'complete',observationCount:1,warningCodes:[]},
+      {source:'user-packages',status:'complete',observationCount:2,warningCodes:[]},
+      {source:'start-menu-user',status:'complete',observationCount:1,warningCodes:[]}];
+    const scan={scanId:'f'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:2,variantCount:2,sourceResults,completed:false};
+    const payload={schemaVersion:2,batchId:'ambiguous-products',products:[
+      {localUserId,productKey:firstKey,evidence:product(firstKey,'user-packages'),scope:'user',sourceKind:'user-packages',status:'installed'},
+      {localUserId,productKey:secondKey,evidence:product(secondKey,'registry-user'),scope:'user',sourceKind:'registry-user',status:'installed'},
+    ],variants:[
+      {localUserId,variantKey:'package-main',parentProductKey:firstKey,evidence:main,variantRole:'main',scope:'user',sourceKind:'user-packages',status:'installed'},
+      {localUserId,variantKey:'hosted-entry',evidence:hosted,variantRole:'hosted',scope:'user',sourceKind:'start-menu-user',status:'installed'},
+    ],scan};
+    const upload=(body:unknown)=>call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    expect((await upload(payload)).status).toBe(200);
+    expect((await upload({...payload,batchId:'ambiguous-finish',products:[],variants:[],scan:{...scan,batchIndex:1,completed:true}})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string}>;technicalItems:Array<{displayName:string;projectionReasonCode:string;variants:unknown[]}>;
+    }>();
+    expect(result.items.filter(item=>item.displayName===name)).toHaveLength(0);
+    const ambiguous=result.technicalItems.filter(item=>item.displayName===name);
+    expect(ambiguous).toHaveLength(1);
+    expect(ambiguous[0]).toMatchObject({projectionReasonCode:'AMBIGUOUS_INSTALLATION_PRODUCTS'});
+    expect(ambiguous[0]!.variants).toHaveLength(2);
+  });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const scan={scanId:'b'.repeat(32),localUserId,batchIndex:0,batchCount:2,observationCount:201,failedSources:[],completed:false};

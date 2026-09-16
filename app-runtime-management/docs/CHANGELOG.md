@@ -1,11 +1,19 @@
 # App Runtime Changelog
 
+## [产品目录同名歧义热修复] — 2026-09-16（本地验证完成）
+
+- 真机扫描证明 LibreOffice 已按一个产品、多变体投影，但 `Create React App Sample` 的 package、卸载注册和 hosted 入口缺少共同强身份，仍可能形成重复主产品。
+- 同平台、同规范化名称的多个未确认安装产品只合并为一个只读歧义技术记录；名称仅用于降级和展示聚合，不构成产品确认或分类依据。
+- 不删除原始产品/变体、不改历史账本；本轮只调整 Runtime Worker read model，无 migration、Agent 或 Pages 变更。
+- Worker/D1 回归 40/40、TypeScript、binding types 和 Wrangler dry-run 通过；等待合并后部署 Runtime Worker 并复验真实 catalog。
+
 ## [Windows 2.2.3] — 2026-09-16（本地候选已验证）
 
 - 修复 Session Agent 产品级盘点使用 schema v4、但 RuntimeService 仅接受 schema v3，导致 2.2.2 真机盘点未进入本地 outbox/云端新表的问题。
 - Service 将兼容接收 inventory schema v3/v4，未知版本仍拒绝；不修改 inventory payload、Worker、D1、UsageSegment、时长或配额。
 - HornburgXW 的 2.2.2 程序、Service/Agent 和配对均正常，升级前的历史账本保持不变；2.2.3 必须以新表出现完整扫描为验收条件。
 - Windows tests 110/110、WiX MSI/Burn 构建与版本检查通过；内部包仍为未签名候选，生产验收尚未完成。
+- `master@27bfba7` 的 2.2.3 已发布并原地升级；Burn SHA-256 `d665e227d4234d47337edcb04169d57d50e2817b72c1c606a3f7076d365eef8e`，MSI SHA-256 `9238c03fd8b4f3795069e2fdb08372543c2893bd7d24bd3b4c849428488ccca3`。HornburgXW 完整扫描 385 个产品、356 个变体并收到完成标记。
 
 ## [Windows 2.2.2 / contracts 1.3.0] — 2026-09-16（云端已发布，HornburgXW 待升级验收）
 

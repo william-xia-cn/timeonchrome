@@ -32,7 +32,8 @@ type CatalogProjection = {
   catalogKind: CatalogKind;
   manageability: CatalogManageability;
   projectionReasonCode: 'CONFIRMED_PRODUCT' | 'EXPLICIT_APPLICATION_CLASSIFICATION' | 'VERIFIED_APPLICATION'
-    | 'INSTALLATION_PRODUCT' | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY';
+    | 'INSTALLATION_PRODUCT' | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY'
+    | 'AMBIGUOUS_INSTALLATION_PRODUCTS';
 };
 
 type CatalogEntry = CatalogProjection & {
@@ -50,6 +51,10 @@ function hasStrongApplicationIdentity(evidence?: AppEvidence): boolean {
   const verified = new Set(evidence.verifiedFields);
   return verified.has('packageId') || verified.has('binaryHash') || verified.has('productKey') || verified.has('hostedAppId')
     || (verified.has('signerKey') && verified.has('productName'));
+}
+
+function normalizedCatalogDisplayName(evidence: AppEvidence): string {
+  return evidence.displayName.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function projectCatalogEvidence(
@@ -814,6 +819,25 @@ export async function queryAppCatalog(
   const resolvedByKey = new Map((policy.resolvedApplications ?? []).map(item=>[`${item.platform}\n${item.runtimeIdentity}`,item]));
   const associations = associateApplicationEvidence([...inventory.values()].map(item=>item.evidence)
     .filter(evidence=>evidence.discovery?.role!=='component'&&evidence.discovery?.role!=='candidate'&&hasStrongApplicationIdentity(evidence)));
+  const productsByDisplayName = new Map<string,AppEvidence[]>();
+  for (const item of inventory.values()) {
+    const evidence=item.evidence;
+    if (!item.installed || evidence.discovery?.objectKind!=='product' || evidence.discovery.role!=='application') continue;
+    const name=normalizedCatalogDisplayName(evidence);
+    if (!name) continue;
+    const key=`${evidence.platform}\n${name}`, group=productsByDisplayName.get(key)??[];
+    group.push(evidence); productsByDisplayName.set(key,group);
+  }
+  const ambiguousDisplayNames = new Set([...productsByDisplayName.entries()]
+    .filter(([,group])=>new Set(group.map(item=>associations.get(`${item.platform}\n${item.runtimeIdentity}`)
+      ?? `${item.platform}\n${item.runtimeIdentity}`)).size>1)
+    .map(([key])=>key));
+  const ambiguityByIdentity = new Map<string,string>();
+  for (const item of inventory.values()) {
+    const evidence=item.evidence, displayKey=`${evidence.platform}\n${normalizedCatalogDisplayName(evidence)}`;
+    if (item.installed && ambiguousDisplayNames.has(displayKey))
+      ambiguityByIdentity.set(`${evidence.platform}\n${evidence.runtimeIdentity}`,`ambiguous-installation:${displayKey}`);
+  }
   const keys = new Set([...grouped.keys(), ...policyByKey.keys(), ...[...inventory.keys()].filter(key=>inventory.get(key)!.installed||grouped.has(key)||policyByKey.has(key))]);
   const items = [...keys].map((key) => {
     const observed = grouped.get(key);
@@ -823,6 +847,11 @@ export async function queryAppCatalog(
     const productIds = found && knowledge ? identifyProducts(knowledge.products,found.evidence) : [];
     const product = productIds.length===1 ? knowledge?.products.find(item=>item.id===productIds[0]) : undefined;
     const resolution = found && knowledge ? resolveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
+    const projection=projectCatalogEvidence(found?.evidence, product?.id ?? null, Boolean(configured));
+    const ambiguityKey=ambiguityByIdentity.get(key);
+    const effectiveProjection=ambiguityKey&&!product&&!configured
+      ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'AMBIGUOUS_INSTALLATION_PRODUCTS' as const}
+      : projection;
     return {
       platform: itemPlatform,
       runtimeIdentity: runtimeIdentity as string | null,
@@ -839,7 +868,7 @@ export async function queryAppCatalog(
       machineCount: new Set([...(observed?.machines ?? []),...(found?.machines ?? [])]).size,
       userCount: new Set([...(observed?.users ?? []),...(found?.users ?? [])]).size,
       observedInWindow: Boolean(observed),
-      ...projectCatalogEvidence(found?.evidence, product?.id ?? null, Boolean(configured)),
+      ...effectiveProjection,
     };
   });
   // A configured, reliably identified product stays in the directory before discovery/use.
@@ -855,7 +884,9 @@ export async function queryAppCatalog(
     }
   }
   const baseKey=(item:typeof items[number])=>{const identityKey=`${item.platform}\n${item.runtimeIdentity}`;
-    return item.productId?`${item.platform}\nproduct:${item.productId}`:associations.get(identityKey)??identityKey;};
+    const ambiguityKey=item.runtimeIdentity===null?undefined:ambiguityByIdentity.get(identityKey);
+    return item.productId?`${item.platform}\nproduct:${item.productId}`
+      :ambiguityKey&&item.manageability!=='actionable'?ambiguityKey:associations.get(identityKey)??identityKey;};
   const classificationsByBase=new Map<string,Set<ApplicationClassification>>();
   for(const item of items)if(item.discovery?.objectKind!=='product'&&item.classification!=='unclassified'){
     const set=classificationsByBase.get(baseKey(item))??new Set<ApplicationClassification>();set.add(item.classification);classificationsByBase.set(baseKey(item),set);}
@@ -900,7 +931,8 @@ export async function queryAppCatalog(
       installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState,
       ...aggregateProjection};
   });
-  const technicalVariants=items.filter(item=>item.discovery?.objectKind==='variant'&&item.manageability!=='actionable');
+  const technicalVariants=items.filter(item=>item.discovery?.objectKind==='variant'&&item.manageability!=='actionable'
+    && (item.runtimeIdentity===null||!ambiguityByIdentity.has(`${item.platform}\n${item.runtimeIdentity}`)));
   const filtered = directory.filter((item) => !platform || item.platform === platform)
     .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
       || String(left.displayName || '').localeCompare(String(right.displayName || '')));

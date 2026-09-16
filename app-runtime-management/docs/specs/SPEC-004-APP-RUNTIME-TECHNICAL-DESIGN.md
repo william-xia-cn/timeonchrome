@@ -8,6 +8,8 @@
 
 ## ARM-D-014 产品级目录实施清单（2.2.2）
 
+同平台出现规范化名称相同、但没有共同 `productKey`、`packageId`、`hostedAppId`、`binaryHash` 等强关联依据的多个安装产品时，read model 不得因名称确认或合并产品，也不得输出多个可分类主行。它们与同名 hosted/candidate 入口仅聚合成一个 `AMBIGUOUS_INSTALLATION_PRODUCTS` 只读技术记录，等待产品知识或家长确认；原始产品、变体和来源证据继续保留。只有一个安装产品及其具有明确 `parentProductKey` 的套件变体不受该降级规则影响。
+
 1. contracts 1.3.0 增加 inventory v2：`products`、`variants`、`sourceResults`；变体携带 opaque parentProductKey、variantRole、scope 和 evidenceLevel，不上传路径、SID、用户名、完整命令行或证书正文。
 2. Windows discovery 将 Uninstall Registry/MSIX 投影为安装产品，将 Start Menu/包入口/运行观察投影为变体；机器级产品跨本机用户去重，用户包保留用户范围。明确结构化维护/组件信号进入技术记录，名称只产生审核提示。
 3. sourceResults 固定 `complete|complete_with_warnings|failed`。单项错误进入 warning；Service 仅对完成来源做缺失对账。inventory v1 保持原全局 fail-closed。
