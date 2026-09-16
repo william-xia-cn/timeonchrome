@@ -1,5 +1,18 @@
 # App Runtime 任务板
 
+## NOW：产品应用投影修复（ARM-D-013，PO 授权）
+
+- [x] 文档先行：区分产品应用、待确认技术记录和隐藏组件；固定原始账本不变。
+- [x] 后端目录/未归类 read model 只把可靠产品或主应用标记为可管理。
+- [x] Console 分类计数与动作仅作用于可管理对象；系统管理增加只读技术进程记录。
+- [x] Worker 38/38、Console 聚焦测试与桌面/移动 mock 目视验证。
+- [x] binding types、Wrangler dry-run、`git diff --check` 和受保护目录检查。
+- [x] Plan Conformance Audit 通过；文档与代码进入同一提交。
+
+边界：不部署、不执行 migration、不升级客户端；不改变 Segment、app usage 或 quota 口径。
+
+提交前审计：Matched＝结构化证据投影、产品合并、技术记录分流、分类按钮边界、隐私与响应式视觉；Deviated＝无；Missing＝无；Extra＝无。原始 legacy Segment 行数固定回归通过，未改变 accounting 统计逻辑。
+
 ## NOW：Windows 2.2.1 目录质量修复（ARM-D-012，PO 授权）
 
 最后复核补充：包查询输出与 C# 读取端显式统一 UTF-8，避免中文友好名称依赖控制台代码页；增加只输出受控中文字符串的 PowerShell 夹具测试，不运行 Get-AppxPackage/Get-StartApps。改动后已重新构建并回读核对最终候选包。

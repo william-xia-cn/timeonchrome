@@ -23,8 +23,12 @@ const fs = require('node:fs/promises');
       assert.match(await page.locator('#inventory-status').innerText(),/同步中.*1\/3.*尚未验证/s);
       await page.screenshot({path:path.join(output,`${viewport.width}-primary.png`),fullPage:true});
       await page.selectOption('#directory-scope','all');
-      visible=await page.locator('#managed-app-list').innerText();assert.match(visible,/隐藏组件入口/);assert.match(visible,/不豁免使用计时/);assert.match(visible,/弱安装候选/);
+      visible=await page.locator('#managed-app-list').innerText();assert(!visible.includes('隐藏组件入口'));assert(!visible.includes('弱安装候选'));
       await page.screenshot({path:path.join(output,`${viewport.width}-all.png`),fullPage:true});
+      await page.evaluate(()=>document.querySelector('[data-view="system"]').click());await page.click('[data-system-tab="technical"]');
+      const technical=await page.locator('#technical-record-list').innerText();assert.match(technical,/隐藏组件入口/);assert.match(technical,/弱安装候选/);
+      assert.equal(await page.locator('#technical-record-list [data-classification]').count(),0);
+      await page.evaluate(()=>document.querySelector('[data-view="apps"]').click());
       await page.selectOption('#directory-scope','unused');
       await page.locator('#managed-app-list .record-card').filter({hasText:'已安装未使用播放器'}).locator('[data-classification="restrictedEntertainment"]').click();
       await page.waitForFunction(()=>document.querySelector('#status-strip').textContent.includes('分类已保存'));
@@ -37,6 +41,6 @@ const fs = require('node:fs/promises');
       const text=await page.locator('[data-view-panel="apps"]').innerText();assert(!/fixture:|demo-a|opaque-a|runtimeIdentity|S-1-5-|C:\\/.test(text));
       assert.deepEqual(errors,[]);await context.close();
     }
-    console.log('PASS: desktop/mobile inventory scopes, unused classification, component reachability, scan progress and privacy');
+    console.log('PASS: desktop/mobile manageable inventory scopes, technical record separation, unused classification, scan progress and privacy');
   } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

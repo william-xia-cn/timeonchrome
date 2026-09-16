@@ -1,5 +1,15 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-013 产品投影实现清单
+
+- 后端为目录条目计算 `catalogKind`、`manageability` 和稳定原因码；判断只使用产品确认与结构化发现证据，不使用显示名黑名单。
+- `GET /v2/module/app-catalog` 将可管理对象放入 `items`，将 review/hidden 对象放入 `technicalItems`；旧客户端忽略新增字段仍兼容。
+- 已确认产品按产品 ID 聚合，返回全部可信 `runtimeImplementations`；组件、候选和无发现证据历史身份不得被关联算法提升为主应用。
+- `GET /v2/module/app-classification-records` 的 pending/processed 只包含可管理对象；技术记录独立返回且不参与待处理数量。
+- Console 五目录、配额应用选择和分类动作只消费 actionable 项；系统管理技术进程页签只读渲染 `technicalItems`，不把 raw identity 写入 DOM。
+- 测试以通用证据角色覆盖安装器、短名、组件、候选和多实现产品，不把 `wixstdba` 等名称当作产品逻辑。
+- 不修改数据库 schema、UsageSegment、历史账本、应用使用统计或配额语义。
+
 ## ARM-D-012 技术实施 checklist（2.2.1）
 
 1. WindowsApplicationDiscovery：纯 manifest 解析，AppListEntry/名称质量/入口角色元数据；Shell AppList 名称解析；DisplayIcon 仅弱安装候选；同身份观察合并来源，不丢可靠证据。

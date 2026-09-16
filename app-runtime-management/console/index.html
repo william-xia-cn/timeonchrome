@@ -65,7 +65,7 @@
           <aside id="app-category-nav" class="app-category-nav card" aria-label="应用分类目录"></aside>
           <div class="app-directory-main">
             <div class="app-directory-toolbar card"><input id="app-search" type="search" placeholder="搜索应用名称" aria-label="搜索应用名称"><select id="management-platform" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select><span>来自安装发现、使用观察或可靠身份预配置，不支持仅按名称添加</span><div class="knowledge-tools"><button id="open-products">确定性应用列表</button><button id="open-rules">分类规则管理</button></div></div>
-            <section class="card inventory-status"><label>目录范围<select id="directory-scope" aria-label="目录范围"><option value="primary">主要应用</option><option value="unused">已安装未使用</option><option value="usage">使用未归类证据</option><option value="all">完整发现（含组件与候选）</option></select></label><p id="inventory-status">盘点完整性未验证；目录数量不等于已完成整机盘点。</p></section>
+            <section class="card inventory-status"><label>目录范围<select id="directory-scope" aria-label="目录范围"><option value="primary">主要应用</option><option value="unused">已安装未使用</option><option value="usage">使用未归类证据</option><option value="all">全部可管理应用</option></select></label><p id="inventory-status">盘点完整性未验证；目录数量不等于已完成整机盘点。</p></section>
             <section class="card app-directory-card"><div class="section-title"><div><h2 id="app-directory-title">学习应用</h2><p id="app-directory-subtitle">按孩子和平台共享分类，历史账本不追溯修改</p></div></div><div id="managed-app-list" class="record-list"></div><details id="processed-history" class="processed" hidden><summary>已处理历史 <span id="processed-count">0</span></summary><div id="processed-records" class="record-list"></div></details></section>
             <aside class="notice warning"><strong>黑名单当前只记录违规</strong><span>允许额度视为 0，但本版本不会自动结束或阻止应用。</span></aside>
           </div>
@@ -73,7 +73,7 @@
       </section>
       <section class="view" data-view-panel="devices"><section class="card"><div class="section-title"><div><h2>所有电脑</h2><p>管理员一次安装；每个本机账户可分配给孩子或设为成人不保护</p></div><button id="add-machine" class="primary">添加 Windows 电脑</button></div><div id="machines" class="machine-list"></div></section></section>
       <section class="view" data-view-panel="system">
-        <div class="tabbar system-tabs"><button class="active" data-system-tab="logs">系统日志</button><button data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button></div>
+        <div class="tabbar system-tabs"><button class="active" data-system-tab="logs">系统日志</button><button data-system-tab="technical">技术进程记录</button><button data-system-tab="ledger">主账本明细</button><button data-system-tab="media">辅助媒体明细</button><button data-system-tab="health">运行健康</button></div>
         <section data-system-panel="logs">
           <aside class="notice runtime-log-scope"><strong>日志隐私边界</strong><span>终端只上传结构化诊断代码，不包含用户名、SID、孩子标识、应用身份、路径、窗口标题、token、配对码、异常正文或 stack。账本诊断始终可查。</span></aside>
           <section class="card remote-logging-card">
@@ -100,6 +100,7 @@
             <div class="load-more"><button id="runtime-log-more" hidden>加载更多</button></div>
           </section>
         </section>
+        <section class="card" data-system-panel="technical" hidden><div class="section-title"><div><h2>技术进程记录</h2><p>组件、候选和证据不足的历史进程只供审计，不能直接归类</p></div><span id="technical-record-count" class="badge offline">0 条</span></div><aside class="notice runtime-log-scope"><strong>与应用目录分离</strong><span>取得可靠包身份、签名、binary 证据或确认产品关联后，才会进入可管理应用目录。这里不显示原始身份或路径。</span></aside><div id="technical-record-list" class="technical-record-list empty">暂无技术进程记录</div></section>
         <section class="card" data-system-panel="ledger" hidden><div class="section-title"><div><h2>Runtime 主账本</h2><p>estimated 正常计入；0ms diagnostic 不计时</p></div><button data-load-ledger="usage">加载明细</button></div><div id="ledger-list" class="table-list empty">点击“加载明细”查看</div></section>
         <section class="card" data-system-panel="media" hidden><div class="section-title"><div><h2>辅助媒体明细</h2><p>可重叠，不进入主使用总时长或配额</p></div><button data-load-ledger="media">加载明细</button></div><div id="media-list" class="table-list empty">点击“加载明细”查看</div></section>
         <section class="card" data-system-panel="health" hidden><div class="section-title"><div><h2>策略与 Agent 健康</h2><p>区分待下发、已缓存、当前会话已生效、失败和离线</p></div></div><div id="health-list" class="health-grid"></div></section>
