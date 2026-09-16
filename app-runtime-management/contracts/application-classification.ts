@@ -1,11 +1,17 @@
 export type AppPlatform = 'windows' | 'macos';
 export type AppType = 'game' | 'gameLauncher' | 'onlineVideo' | 'mediaPlayer' | 'other' | 'unknown';
 export type AppClass = 'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'blocked';
-export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
+export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'productKey' | 'hostedAppId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
 export interface ApplicationDiscoverySummary {
   role: 'application' | 'component' | 'candidate';
   nameSource: 'appList' | 'manifest' | 'fileMetadata' | 'installation' | 'fallback';
   sourceKinds: Array<'package' | 'registry' | 'shortcut' | 'runtime'>;
+  objectKind?: 'product' | 'variant';
+  parentProductKey?: string;
+  variantRole?: 'main' | 'suiteMember' | 'maintenance' | 'helper' | 'hosted' | 'unknown';
+  scope?: 'machine' | 'user';
+  sourceKind?: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime';
+  evidenceLevel?: 'strong' | 'review' | 'weak';
 }
 export interface AppEvidence {
   platform: AppPlatform;
@@ -28,6 +34,47 @@ export interface ApplicationInventoryBatch {
   observations: ApplicationInstallationObservation[];
   scan?: ApplicationInventoryScan;
 }
+export interface InventorySourceResult {
+  source: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime';
+  status: 'complete' | 'complete_with_warnings' | 'failed';
+  observationCount: number;
+  warningCodes: string[];
+}
+export interface InstallationProductObservation {
+  localUserId: string;
+  productKey: string;
+  evidence: AppEvidence;
+  scope: 'machine' | 'user';
+  sourceKind: InventorySourceResult['source'];
+  status: 'installed' | 'notObserved';
+}
+export interface ApplicationVariantObservation {
+  localUserId: string;
+  variantKey: string;
+  parentProductKey?: string;
+  evidence: AppEvidence;
+  variantRole: 'main' | 'suiteMember' | 'maintenance' | 'helper' | 'hosted' | 'unknown';
+  scope: 'machine' | 'user';
+  sourceKind: InventorySourceResult['source'];
+  status: 'installed' | 'runtimeObserved' | 'notObserved';
+}
+export interface ApplicationInventoryBatchV2 {
+  schemaVersion: 2;
+  batchId: string;
+  products: InstallationProductObservation[];
+  variants: ApplicationVariantObservation[];
+  scan?: ApplicationInventoryScanV2;
+}
+export interface ApplicationInventoryScanV2 {
+  scanId: string;
+  localUserId: string;
+  batchIndex: number;
+  batchCount: number;
+  productCount: number;
+  variantCount: number;
+  sourceResults: InventorySourceResult[];
+  completed: boolean;
+}
 export interface ApplicationInventoryScan {
   scanId: string;
   localUserId: string;
@@ -41,7 +88,7 @@ export interface ApplicationInventoryScan {
 /** 展示关联不是产品确认。异包入口和同名应用不能因共享名称/二进制被强制合并。 */
 export function applicationAssociationKeys(evidence: AppEvidence): string[] {
   const keys = [`identity:${evidence.platform}:${evidence.runtimeIdentity}`];
-  for (const field of ['packageId', 'binaryHash'] as const) {
+  for (const field of ['productKey', 'hostedAppId', 'packageId', 'binaryHash'] as const) {
     if (evidence.verifiedFields.includes(field) && evidence.values[field]) keys.push(`${field}:${evidence.platform}:${evidence.values[field]}`);
   }
   return keys;
@@ -108,7 +155,7 @@ export interface ClassificationResolution {
   ruleIds: string[];
   suggestions: string[];
 }
-const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'signerKey']);
+const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'productKey', 'hostedAppId', 'signerKey']);
 const rank = { product: 0, family: 1, developer: 1, type: 2 };
 export function safeAutomatic(expression: MatchExpression): boolean {
   if (!expression.conditions.length) return false;

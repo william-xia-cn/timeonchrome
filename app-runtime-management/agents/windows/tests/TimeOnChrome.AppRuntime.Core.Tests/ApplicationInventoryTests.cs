@@ -64,6 +64,58 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.DoesNotContain("binaryHash",WindowsApplicationDiscovery.MergeObservations([a,conflict]).Evidence.VerifiedFields);
     }
     [Fact]
+    public void PackageProductContainsVisibleVariantsAndKeepsHiddenEntriesTechnical()
+    {
+        const string xml = """
+            <Package xmlns:uap="urn:fixture"><Applications>
+              <Application Id="Writer"><uap:VisualElements DisplayName="LibreOffice Writer" /></Application>
+              <Application Id="Calc"><uap:VisualElements DisplayName="LibreOffice Calc" /></Application>
+              <Application Id="Updater"><uap:VisualElements DisplayName="LibreOffice Updater" AppListEntry="none" /></Application>
+            </Applications></Package>
+            """;
+        var productKey = new string('c',64);
+        var variants = WindowsApplicationDiscovery.ParsePackageManifest(xml,"Fixture.LibreOffice_abc","LibreOffice",parentProductKey:productKey);
+        Assert.Equal(3,variants.Count);
+        Assert.All(variants,item=>Assert.Equal(productKey,item.ParentProductKey));
+        Assert.Equal(2,variants.Count(item=>item.Evidence.Discovery!.Role=="application"));
+        Assert.Equal("helper",variants.Single(item=>item.Evidence.Discovery!.Role=="component").VariantRole);
+    }
+    [Theory]
+    [InlineData(1,false,false,true)]
+    [InlineData(0,true,false,true)]
+    [InlineData(0,false,true,true)]
+    [InlineData(0,false,false,false)]
+    public void OnlyExplicitRegistryMetadataMakesAnInstallationProductTechnical(int systemComponent,bool parent,bool release,bool expected) =>
+        Assert.Equal(expected,WindowsApplicationDiscovery.IsTechnicalRegistryProduct(systemComponent,parent,release));
+    [Theory]
+    [InlineData("EA Error Reporter","C:\\Fixture\\ErrorReporter.exe",false,"maintenance")]
+    [InlineData("Fixture Updater","C:\\Fixture\\main.exe",false,"maintenance")]
+    [InlineData("LibreOffice Writer","C:\\Fixture\\soffice.exe",true,"suiteMember")]
+    [InlineData("Fixture game","C:\\Fixture\\game.exe",false,"main")]
+    public void VariantNamesOnlySelectAReviewRoleAndNeverProveAProduct(string name,string path,bool parent,string expected) =>
+        Assert.Equal(expected,WindowsApplicationDiscovery.ClassifyVariantRole(name,path,parent));
+    [Fact]
+    public void VersionTwoUploadSeparatesProductsVariantsAndSourceReceiptsWithoutRawLocalIdentifiers()
+    {
+        var productKey=new string('d',64);
+        var product=Observation() with { Evidence=new AppEvidence("windows","windows:product:"+productKey,"Fixture suite",
+            new Dictionary<string,string>{{"productKey",productKey},{"productName","Fixture suite"}},["productKey"],
+            Discovery:new("application","installation",["registry"],"product",null,"unknown","machine","registry-machine","strong")) };
+        var variant=Observation() with { Evidence=new AppEvidence("windows","fixture-writer","Fixture Writer",
+            new Dictionary<string,string>{{"productKey",productKey},{"binaryHash",new string('e',64)}},["productKey","binaryHash"],
+            Discovery:new("application","appList",["shortcut"],"variant",productKey,"suiteMember","machine","start-menu-common","strong")) };
+        var sources=new ApplicationInventorySourceResult[] { new("registry-machine","complete",1,[]),new("start-menu-common","complete_with_warnings",1,["SHORTCUT_TARGET_UNAVAILABLE"]) };
+        var scan=new ApplicationInventoryScan(new('f',32),"opaque-user",0,1,2,[],false,sources,1,1);
+        var json=System.Text.Json.JsonSerializer.Serialize(MachineRuntimeApiClient.BuildApplicationInventoryPayload(new(2,"batch",[product,variant],scan)),RuntimeJson.Options);
+        using var document=System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(1,document.RootElement.GetProperty("products").GetArrayLength());
+        Assert.Equal(1,document.RootElement.GetProperty("variants").GetArrayLength());
+        Assert.Equal("suiteMember",document.RootElement.GetProperty("variants")[0].GetProperty("variantRole").GetString());
+        Assert.Equal(2,document.RootElement.GetProperty("scan").GetProperty("sourceResults").GetArrayLength());
+        Assert.DoesNotContain("C:\\",json,StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("S-1-",json,StringComparison.OrdinalIgnoreCase);
+    }
+    [Fact]
     public async Task ScanReplayAndCompletionAreDurableEvenWhenCacheDoesNotChange()
     {
         var store = new MachineApplicationInventoryStore(Path.Combine(root,"scan.sqlite"),"machine-one");
@@ -98,6 +150,28 @@ public sealed class ApplicationInventoryTests : IDisposable
         await store.AcknowledgeAsync(absent,new(absent.BatchId,"accepted",1));
         Assert.True((await store.PeekAsync())!.Scan!.Completed);
         Assert.Equal("installed",(await store.ListAsync()).Single(item=>item.LocalUserId=="other-user").Status);
+    }
+    [Fact]
+    public async Task CompletedSourceReconcilesOnlyItsOwnMissingObjectsWhenAnotherSourceFails()
+    {
+        var store=new MachineApplicationInventoryStore(Path.Combine(root,"source-reconcile.sqlite"),"machine-one");
+        await store.InitializeAsync();
+        var registry=Observation() with { Evidence=Observation().Evidence with { RuntimeIdentity="registry-product", Discovery=new("application","installation",["registry"],"product",null,"unknown","machine","registry-machine","strong") } };
+        var package=Observation() with { Evidence=Observation().Evidence with { RuntimeIdentity="package-product", Discovery=new("application","installation",["package"],"product",null,"unknown","user","user-packages","strong") } };
+        await store.ObserveAsync([registry,package]);
+        var initial=(await store.PeekAsync())!;await store.AcknowledgeAsync(initial,new(initial.BatchId,"accepted",2));
+        var sources=new ApplicationInventorySourceResult[] {
+            new("registry-machine","complete",0,[]), new("user-packages","failed",0,["SOURCE_ENUMERATION_FAILED"]),
+        };
+        var end=new ApplicationInventoryScan(new('e',32),"opaque-user",0,0,0,["user-packages"],true,sources,0,0);
+        await store.ObserveAsync([],scan:end);
+        var absent=(await store.PeekAsync())!;
+        Assert.Equal("registry-product",Assert.Single(absent.Observations).Evidence.RuntimeIdentity);
+        Assert.Equal("notObserved",absent.Observations[0].Status);
+        await store.AcknowledgeAsync(absent,new(absent.BatchId,"accepted",1));
+        var completed=(await store.PeekAsync())!;
+        Assert.Equal(2,completed.SchemaVersion);Assert.True(completed.Scan!.Completed);
+        Assert.Equal("installed",(await store.ListAsync()).Single(item=>item.Evidence.RuntimeIdentity=="package-product").Status);
     }
     [Theory]
     [InlineData("\"C:\\Apps\\Game.exe\",0", "C:\\Apps\\Game.exe")]

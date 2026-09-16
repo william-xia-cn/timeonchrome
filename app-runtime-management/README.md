@@ -1,10 +1,16 @@
 # App Runtime Management
 
+## 当前修复：Windows 2.2.2 产品级应用清单（ARM-D-014）
+
+应用目录从“可信入口列表”升级为“安装产品 + 可展开变体 + 技术记录”。Windows 安装产品形成主行，Start Menu、包入口和运行身份作为变体；LibreOffice 等套件默认一行，显式拆分后才独立分类。盘点按来源独立结算，单项坏快捷方式只产生 warning，不再阻断其他来源清理。contracts 目标版本 1.3.0，Runtime additive migration 为 0010，历史 Segment/时长/配额不变。
+
+本地候选已完成 Windows 106/106、Worker 39/39、contracts、Console、WiX、视觉和发布前静态闸门。Burn SHA-256 为 `def05405d100a7f81ac14f979a88a72573485e6e37955cc8fc9f19d154b68b54`；当前尚未应用生产 0010、部署 Worker/Pages、切换 R2 latest 或升级 HornburgXW。
+
 ## 当前修复：产品应用投影（ARM-D-013）
 
 应用管理不再把所有历史进程身份直接当作产品。已确认产品和具有可靠证据的主应用进入五分类目录；组件/瞬态对象隐藏，弱候选及证据不足的历史身份进入系统管理的只读技术进程记录且不能分类。该修复已完成本地 Worker/Console 与桌面/移动视觉验证，只调整 read model 和页面交互，不改原始 Segment、历史时长、配额或安装数据；尚未部署生产。
 
-## 当前修复：2.2.1 目录质量（ARM-D-012）
+## 历史修复：2.2.1 目录质量（ARM-D-012）
 
 发现降噪、可信安装/运行关联、目录范围和盘点完整性已完成本地修复。Windows tests 95/95、contracts 1.2.0 的 23 组黄金向量、Worker 38/38、Schema/类型/binding/dry-run 和桌面/移动 mock 目视通过；Swift 编译及共享向量已在 macOS 15 CI 实际执行通过。保留所有原始身份与历史账本，不将旧夹具通过当成真机完整盘点证明。
 

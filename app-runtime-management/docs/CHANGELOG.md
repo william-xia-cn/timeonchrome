@@ -1,5 +1,13 @@
 # App Runtime Changelog
 
+## [Windows 2.2.2 / contracts 1.3.0] — 2026-09-16（本地候选已验证，待生产发布）
+
+- ARM-D-014：建立安装产品、应用变体和技术记录三层目录；套件默认产品级聚合，显式拆分后变体才独立管理。
+- inventory v2 按来源区分完成、带警告和失败；成功来源可独立做缺失对账，v1 客户端继续兼容。
+- additive 0010 与 catalog 增量字段不改写旧 inventory、UsageSegment、历史时长、分类或配额键。
+- Windows 106/106、Worker 39/39、contracts 23 组共享向量、Console、binding types、Wrangler dry-run、WiX 和桌面/移动视觉验证通过；等待合并 master 后分闸发布 Runtime D1/Worker/Pages/R2 2.2.2，并升级 HornburgXW 验收。
+- 2.2.2 Burn SHA-256 为 `def05405d100a7f81ac14f979a88a72573485e6e37955cc8fc9f19d154b68b54`，MSI SHA-256 为 `bde179821ca6810881271ea371ba39669dc5de008e6914df405c48de90075086`；继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
 ## [生产 workflow 空迁移闸门修复] — 2026-09-16
 
 - Runtime D1 已无待执行 migration，但 workflow 的 `expected_runtime_migrations` 默认值仍固定为已执行的 `0008_runtime_application_knowledge.sql`，导致无迁移发布在资源写入前 fail-closed。

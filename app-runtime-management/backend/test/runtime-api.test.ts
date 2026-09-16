@@ -820,6 +820,39 @@ describe('Runtime product API', () => {
 });
 
 describe('Application knowledge and installed inventory', () => {
+  it('projects an inventory v2 suite as one product with variants and keeps maintenance entries technical', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const productKey='c'.repeat(64);
+    const discovery=(objectKind:'product'|'variant',role:'application'|'candidate',variantRole:'unknown'|'suiteMember'|'maintenance',sourceKind:'registry-machine'|'start-menu-common')=>({
+      role,nameSource:objectKind==='product'?'installation':'appList',sourceKinds:[sourceKind==='registry-machine'?'registry':'shortcut'],
+      objectKind,parentProductKey:objectKind==='variant'?productKey:undefined,variantRole,scope:'machine',sourceKind,evidenceLevel:role==='application'?'strong':'review',
+    });
+    const evidence=(runtimeIdentity:string,displayName:string,objectKind:'product'|'variant',role:'application'|'candidate',variantRole:'unknown'|'suiteMember'|'maintenance',sourceKind:'registry-machine'|'start-menu-common')=>({
+      platform:'windows',runtimeIdentity,displayName,values:{productKey,productName:'LibreOffice'},verifiedFields:['productKey'],
+      discovery:discovery(objectKind,role,variantRole,sourceKind),
+    });
+    const sourceResults=[
+      {source:'registry-machine',status:'complete',observationCount:1,warningCodes:[]},
+      {source:'start-menu-common',status:'complete_with_warnings',observationCount:3,warningCodes:['SHORTCUT_TARGET_UNAVAILABLE']},
+      {source:'user-packages',status:'failed',observationCount:0,warningCodes:['SOURCE_ENUMERATION_FAILED']},
+    ];
+    const payload={schemaVersion:2,batchId:'suite-v2',products:[{localUserId,productKey,evidence:evidence(`windows:product:${productKey}`,'LibreOffice','product','application','unknown','registry-machine'),scope:'machine',sourceKind:'registry-machine',status:'installed'}],variants:[
+      {localUserId,variantKey:'variant-writer',parentProductKey:productKey,evidence:evidence('variant-writer','LibreOffice Writer','variant','application','suiteMember','start-menu-common'),variantRole:'suiteMember',scope:'machine',sourceKind:'start-menu-common',status:'installed'},
+      {localUserId,variantKey:'variant-calc',parentProductKey:productKey,evidence:evidence('variant-calc','LibreOffice Calc','variant','application','suiteMember','start-menu-common'),variantRole:'suiteMember',scope:'machine',sourceKind:'start-menu-common',status:'installed'},
+      {localUserId,variantKey:'variant-updater',parentProductKey:productKey,evidence:evidence('variant-updater','LibreOffice Updater','variant','candidate','maintenance','start-menu-common'),variantRole:'maintenance',scope:'machine',sourceKind:'start-menu-common',status:'installed'},
+    ],scan:{scanId:'a'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:1,variantCount:3,sourceResults,completed:false}};
+    const upload=(body:unknown)=>call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    expect((await upload(payload)).status).toBe(200);
+    expect((await upload({...payload,batchId:'suite-finish',products:[],variants:[],scan:{...payload.scan,batchIndex:1,completed:true}})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{displayName:string;variants:Array<{displayName:string}>;runtimeImplementations:unknown[]}>;technicalItems:Array<{displayName:string}>;inventoryScans:Array<{status:string;sourceResults:unknown[]}>}>();
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({displayName:'LibreOffice',variants:expect.arrayContaining([
+      expect.objectContaining({displayName:'LibreOffice Writer'}),expect.objectContaining({displayName:'LibreOffice Calc'}),
+    ])});
+    expect(result.items[0]!.runtimeImplementations).toHaveLength(2);
+    expect(result.technicalItems).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'LibreOffice Updater'})]));
+    expect(result.inventoryScans).toEqual([expect.objectContaining({status:'partial',sourceResults:expect.arrayContaining([expect.objectContaining({source:'start-menu-common',status:'complete_with_warnings'})])})]);
+  });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const scan={scanId:'b'.repeat(32),localUserId,batchIndex:0,batchCount:2,observationCount:201,failedSources:[],completed:false};

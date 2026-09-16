@@ -1,5 +1,15 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-014 产品级目录实施清单（2.2.2）
+
+1. contracts 1.3.0 增加 inventory v2：`products`、`variants`、`sourceResults`；变体携带 opaque parentProductKey、variantRole、scope 和 evidenceLevel，不上传路径、SID、用户名、完整命令行或证书正文。
+2. Windows discovery 将 Uninstall Registry/MSIX 投影为安装产品，将 Start Menu/包入口/运行观察投影为变体；机器级产品跨本机用户去重，用户包保留用户范围。明确结构化维护/组件信号进入技术记录，名称只产生审核提示。
+3. sourceResults 固定 `complete|complete_with_warnings|failed`。单项错误进入 warning；Service 仅对完成来源做缺失对账。inventory v1 保持原全局 fail-closed。
+4. additive 0010 保存产品、变体和来源结果。`POST /v2/machines/application-inventory` 接受 v1/v2；`GET /v2/module/app-catalog` 保留兼容字段并返回产品 variants、technicalItems 与 inventoryCoverage。
+5. 产品默认继承分类；显式 split override 优先于孩子产品配置、精确产品规则、系列/开发者规则。未拆分变体不单独占目录数量。
+6. Console 产品行可展开变体并执行显式拆分；技术记录只读。来源健康分别显示成功、警告、失败，不泄露 raw identity。
+7. 回归固定覆盖 LibreOffice 套件、Chrome/Firefox 多来源、PWA 宿主、维护组件、来源局部失败、旧 v1 客户端及历史账本不变。
+
 ## ARM-D-013 产品投影实现清单
 
 - 后端为目录条目计算 `catalogKind`、`manageability` 和稳定原因码；判断只使用产品确认与结构化发现证据，不使用显示名黑名单。

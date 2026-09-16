@@ -1,5 +1,21 @@
 # App Runtime 任务板
 
+## NOW：Windows 2.2.2 产品级应用清单（ARM-D-014，PO 授权生产发布）
+
+- [x] 文档先行：固定产品、变体、技术记录三层模型和来源级盘点语义。
+- [x] contracts 1.3.0 / inventory v2 与兼容校验。
+- [x] Windows 产品容器、变体关联、来源 warning/failed 和来源级缺失对账。
+- [x] additive 0010、Worker v1/v2 兼容及产品级 catalog read model。
+- [x] Console 产品行/变体展开/拆分与来源健康。
+- [x] Windows、Worker、Contracts、Console、WiX、视觉及边界验证。
+- [ ] 合并 master 后按 0010 → Worker → Pages → R2 2.2.2 → HornburgXW 顺序发布验收。
+
+提交前验证：Windows 106/106、Worker 39/39、contracts 1.3.0 build/compatibility 与 23 组向量、Console unit/视觉、binding types、Wrangler dry-run、边界检查和 `git diff --check` 通过。2.2.2 Burn/MSI 版本与 manifest 哈希一致；内部包仍未签名。
+
+提交前 Plan Conformance Audit：Matched＝产品/变体/技术记录三层模型、来源级扫描结算、v1/v2 兼容、0010、产品级页面投影与 2.2.2 包；Deviated＝无；Missing＝本地实现与验证无缺项，生产发布和 HornburgXW 真机验收按批准顺序待执行；Extra＝无。
+
+边界：不改写 Segment、时长、配额键或历史分类；不修改 Guardian、Santa、Extension、网页账本或 macOS 系统级 Agent。内部包继续 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
 ## NOW：生产闸门空迁移修复（2026-09-16）
 
 - [x] 生产只读检查确认 Runtime D1 无待执行 migration。

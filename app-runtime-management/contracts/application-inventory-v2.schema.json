@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.invalid/contracts/application-inventory-v2",
+  "title": "产品、变体与来源级应用盘点",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "batchId", "products", "variants"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "batchId": {"type":"string","pattern":"^[A-Za-z0-9_-]{1,128}$"},
+    "products": {"type":"array","maxItems":200,"items":{"$ref":"#/$defs/product"}},
+    "variants": {"type":"array","maxItems":200,"items":{"$ref":"#/$defs/variant"}},
+    "scan": {"$ref":"#/$defs/scan"}
+  },
+  "$defs": {
+    "text": {"type":"string","minLength":1,"maxLength":256,"pattern":"^[^\\u0000-\\u001f]+$"},
+    "hash": {"type":"string","pattern":"^[a-f0-9]{64}$"},
+    "source": {"enum":["registry-machine","registry-user","start-menu-common","start-menu-user","user-packages","runtime"]},
+    "sourceResult": {
+      "type":"object","additionalProperties":false,
+      "required":["source","status","observationCount","warningCodes"],
+      "properties": {
+        "source":{"$ref":"#/$defs/source"},
+        "status":{"enum":["complete","complete_with_warnings","failed"]},
+        "observationCount":{"type":"integer","minimum":0,"maximum":10000},
+        "warningCodes":{"type":"array","maxItems":64,"items":{"type":"string","pattern":"^[A-Z0-9_]{1,64}$"}}
+      }
+    },
+    "discovery": {
+      "type":"object","additionalProperties":false,"required":["role","nameSource","sourceKinds"],
+      "properties": {
+        "role":{"enum":["application","component","candidate"]},
+        "nameSource":{"enum":["appList","manifest","fileMetadata","installation","fallback"]},
+        "sourceKinds":{"type":"array","maxItems":4,"uniqueItems":true,"items":{"enum":["package","registry","shortcut","runtime"]}},
+        "objectKind":{"enum":["product","variant"]},
+        "parentProductKey":{"$ref":"#/$defs/hash"},
+        "variantRole":{"enum":["main","suiteMember","maintenance","helper","hosted","unknown"]},
+        "scope":{"enum":["machine","user"]},
+        "sourceKind":{"$ref":"#/$defs/source"},
+        "evidenceLevel":{"enum":["strong","review","weak"]}
+      }
+    },
+    "evidence": {
+      "type":"object","additionalProperties":false,
+      "required":["platform","runtimeIdentity","displayName","values","verifiedFields"],
+      "properties": {
+        "platform":{"enum":["windows","macos"]},
+        "runtimeIdentity":{"$ref":"#/$defs/text"},
+        "displayName":{"$ref":"#/$defs/text"},
+        "values":{"type":"object","additionalProperties":false,"properties":{
+          "runtimeIdentity":{"$ref":"#/$defs/text"},"binaryHash":{"$ref":"#/$defs/hash"},
+          "packageId":{"$ref":"#/$defs/text"},"productKey":{"$ref":"#/$defs/hash"},
+          "hostedAppId":{"$ref":"#/$defs/hash"},"signerKey":{"$ref":"#/$defs/hash"},
+          "productName":{"$ref":"#/$defs/text"},"declaredType":{"$ref":"#/$defs/text"},
+          "installationSource":{"$ref":"#/$defs/text"}
+        }},
+        "verifiedFields":{"type":"array","maxItems":9,"uniqueItems":true,"items":{"enum":["runtimeIdentity","binaryHash","packageId","productKey","hostedAppId","signerKey","productName","declaredType","installationSource"]}},
+        "discovery":{"$ref":"#/$defs/discovery"}
+      }
+    },
+    "product": {
+      "type":"object","additionalProperties":false,
+      "required":["localUserId","productKey","evidence","scope","sourceKind","status"],
+      "properties": {
+        "localUserId":{"type":"string","minLength":1,"maxLength":128},"productKey":{"$ref":"#/$defs/hash"},
+        "evidence":{"$ref":"#/$defs/evidence"},"scope":{"enum":["machine","user"]},"sourceKind":{"$ref":"#/$defs/source"},
+        "status":{"enum":["installed","notObserved"]}
+      }
+    },
+    "variant": {
+      "type":"object","additionalProperties":false,
+      "required":["localUserId","variantKey","evidence","variantRole","scope","sourceKind","status"],
+      "properties": {
+        "localUserId":{"type":"string","minLength":1,"maxLength":128},"variantKey":{"$ref":"#/$defs/text"},
+        "parentProductKey":{"$ref":"#/$defs/hash"},"evidence":{"$ref":"#/$defs/evidence"},
+        "variantRole":{"enum":["main","suiteMember","maintenance","helper","hosted","unknown"]},
+        "scope":{"enum":["machine","user"]},"sourceKind":{"$ref":"#/$defs/source"},
+        "status":{"enum":["installed","runtimeObserved","notObserved"]}
+      }
+    },
+    "scan": {
+      "type":"object","additionalProperties":false,
+      "required":["scanId","localUserId","batchIndex","batchCount","productCount","variantCount","sourceResults","completed"],
+      "properties": {
+        "scanId":{"type":"string","pattern":"^[a-f0-9]{32}$"},"localUserId":{"type":"string","minLength":1,"maxLength":128},
+        "batchIndex":{"type":"integer","minimum":0,"maximum":100},"batchCount":{"type":"integer","minimum":0,"maximum":100},
+        "productCount":{"type":"integer","minimum":0,"maximum":10000},"variantCount":{"type":"integer","minimum":0,"maximum":10000},
+        "sourceResults":{"type":"array","maxItems":6,"uniqueItems":true,"items":{"$ref":"#/$defs/sourceResult"}},
+        "completed":{"type":"boolean"}
+      }
+    }
+  }
+}

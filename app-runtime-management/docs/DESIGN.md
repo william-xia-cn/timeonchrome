@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前修复：ARM-D-014 产品级目录与来源级盘点
+
+Windows 目录升级为 `InstallationProduct -> ApplicationVariant -> TechnicalRecord` 三层。安装产品来自可信 Uninstall Registry/MSIX 记录；启动入口和运行身份只作为变体关联到产品。主目录以可管理产品为单位计数，套件默认一行，显式拆分的变体才单独参与孩子分类。无法确认归属的浏览器宿主/PWA、维护入口和系统组件进入技术记录。
+
+contracts 1.3.0 的 inventory v2 分离 products/variants/sourceResults。来源状态为 complete、complete_with_warnings 或 failed；完成来源可独立将缺失对象标为 notObserved，其他来源失败不阻断。Runtime additive 0010 保存产品、变体与来源结果，不重写既有 inventory/Segment。Worker 同时接受 inventory v1/v2，catalog 保持旧字段并增加 variants 与 inventoryCoverage。Windows 客户端版本为 2.2.2。
+
 ## 当前修复：ARM-D-013
 
 目录 read model 在原始 `runtimeIdentity` 与家长应用目录之间增加产品投影层。服务端把记录分为 `actionable`、`review` 和 `hidden`：已确认产品或具有可靠身份的主应用为 `actionable`；只有历史进程名、弱候选或证据不足的实现为 `review`；明确组件与瞬态对象为 `hidden`。主目录和分类计数只返回/使用 actionable 项，review/hidden 项通过系统管理的只读技术进程记录审计，不提供分类按钮。

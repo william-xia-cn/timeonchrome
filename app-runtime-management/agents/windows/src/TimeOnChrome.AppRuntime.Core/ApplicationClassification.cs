@@ -4,7 +4,9 @@ public sealed record AppMatchCondition(string Field, string Value);
 public sealed record AppMatchExpression(string Operator, IReadOnlyList<AppMatchCondition> Conditions);
 public sealed record AppProductSelector(string Platform, AppMatchExpression Match);
 public sealed record AppProduct(string Id, string Name, string Type, IReadOnlyList<AppProductSelector> Selectors);
-public sealed record ApplicationDiscoverySummary(string Role, string NameSource, IReadOnlyList<string> SourceKinds);
+public sealed record ApplicationDiscoverySummary(string Role, string NameSource, IReadOnlyList<string> SourceKinds,
+    string? ObjectKind = null, string? ParentProductKey = null, string? VariantRole = null,
+    string? Scope = null, string? SourceKind = null, string? EvidenceLevel = null);
 public sealed record AppEvidence(string Platform, string RuntimeIdentity, string DisplayName,
     IReadOnlyDictionary<string, string> Values, IReadOnlyList<string> VerifiedFields, string? ProductId = null,
     ApplicationDiscoverySummary? Discovery = null);
@@ -23,7 +25,7 @@ public sealed record AppClassificationResolution(string? ProductId, string Class
 public static class ApplicationClassifier
 {
     private static readonly HashSet<string> Strong = new(StringComparer.Ordinal)
-        { "runtimeIdentity", "binaryHash", "packageId", "signerKey" };
+        { "runtimeIdentity", "binaryHash", "packageId", "productKey", "hostedAppId", "signerKey" };
     public static bool SafeAutomatic(AppMatchExpression expression) =>
         expression.Conditions.Count > 0 && (expression.Operator == "all"
             ? expression.Conditions.Any(condition => Strong.Contains(condition.Field))
