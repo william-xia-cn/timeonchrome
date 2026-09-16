@@ -512,7 +512,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 if (line is null) break;
                 if (line.Length > 262144) continue;
                 using var envelope = JsonDocument.Parse(line);
-                if (envelope.RootElement.TryGetProperty("schemaVersion", out var schema) && schema.GetInt32() == 3)
+                if (envelope.RootElement.TryGetProperty("schemaVersion", out var schema)
+                    && SessionApplicationInventoryProtocol.SupportsSchemaVersion(schema.GetInt32()))
                 {
                     var inventory = JsonSerializer.Deserialize<SessionApplicationInventoryMessage>(line, RuntimeJson.Options);
                     if (inventoryStore is not null && inventory is { Applications.Count: <= 200 }
@@ -911,7 +912,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.2",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.3",
                 Environment.OSVersion.VersionString,
                 RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                 tamperCount,
@@ -988,7 +989,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await terminalLogs.WriteAsync(level, category, eventCode, module, messageCode, details,
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.2",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.3",
                 remoteEligible ? appliedPolicy?.Policy.LoggingPolicy : null,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellation.Token).ConfigureAwait(false);
         }

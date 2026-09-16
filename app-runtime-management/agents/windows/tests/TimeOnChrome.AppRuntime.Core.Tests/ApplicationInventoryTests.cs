@@ -267,5 +267,14 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.Null(legacy.CompleteIdentitySet);
         Assert.Null(System.Text.Json.JsonSerializer.Deserialize<SessionApplicationInventoryMessage>("{\"schemaVersion\":3,\"applications\":[],\"status\":\"installed\"}",RuntimeJson.Options)!.CompleteIdentitySet);
     }
+    [Theory]
+    [InlineData(3, true)]
+    [InlineData(4, true)]
+    [InlineData(2, false)]
+    [InlineData(5, false)]
+    public void ServiceInventoryProtocolAcceptsLegacyAndProductSchemasOnly(int version, bool expected)
+    {
+        Assert.Equal(expected, SessionApplicationInventoryProtocol.SupportsSchemaVersion(version));
+    }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root,recursive:true); }
 }

@@ -39,6 +39,11 @@ public sealed record SessionAccountingFactMessage(int SchemaVersion, AccountingR
 public sealed record SessionApplicationInventoryMessage(int SchemaVersion, IReadOnlyList<AppEvidence> Applications, string Status,
     IReadOnlyList<string>? CompleteIdentitySet = null, ApplicationInventoryScan? Scan = null);
 
+public static class SessionApplicationInventoryProtocol
+{
+    public static bool SupportsSchemaVersion(int version) => version is 3 or 4;
+}
+
 public sealed record MachineControlCommand(string Action, string? Code = null, string? DisplayName = null);
 
 public sealed record MachinePublicStatusResponse(
