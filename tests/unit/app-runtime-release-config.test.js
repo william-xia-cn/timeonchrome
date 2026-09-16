@@ -18,7 +18,7 @@ assert(workflow.includes('environment: production'));
 assert(workflow.includes('vars.CLOUDFLARE_ACCOUNT_ID'));
 assert(workflow.indexOf('Missing production CLOUDFLARE_API_TOKEN') < workflow.indexOf('- run: npm ci'));
 assert(workflow.includes('test "$GITHUB_SHA" = "$(git rev-parse origin/master)"'));
-assert(workflow.includes('default: 0008_runtime_application_knowledge.sql'));
+assert(workflow.includes("default: ''"));
 assert(workflow.includes('if [ "$actual" != "$EXPECTED_RUNTIME_MIGRATIONS" ]'));
 assert(workflow.includes('[ "$APPLY_RUNTIME_MIGRATIONS" != true ]'));
 assert(workflow.includes('APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outputs.applied }}'));

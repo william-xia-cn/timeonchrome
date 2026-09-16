@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## [生产 workflow 空迁移闸门修复] — 2026-09-16
+
+- Runtime D1 已无待执行 migration，但 workflow 的 `expected_runtime_migrations` 默认值仍固定为已执行的 `0008_runtime_application_knowledge.sql`，导致无迁移发布在资源写入前 fail-closed。
+- 默认预期改为空；未来有待迁移文件时仍要求显式输入精确文件名，并在 `apply_runtime_migrations=true` 时才允许应用。
+- 本修复不执行 migration，不扩大部署范围；目标发布仅包含 Runtime Worker 和独立 Runtime Pages。
+
 ## [ARM-D-013 产品应用投影] — 2026-09-16（本地完成，未部署）
 
 - 将家长可管理产品与原始技术进程身份分层；五分类目录只接收可靠产品/主应用，技术记录只读审计且不能分类。

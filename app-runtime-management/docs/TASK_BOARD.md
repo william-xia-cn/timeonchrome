@@ -1,5 +1,14 @@
 # App Runtime 任务板
 
+## NOW：生产闸门空迁移修复（2026-09-16）
+
+- [x] 生产只读检查确认 Runtime D1 无待执行 migration。
+- [x] 首次受保护发布在资源写入前 fail-closed：workflow 仍默认期待已执行的 `0008_runtime_application_knowledge.sql`，实际待执行列表为空。
+- [x] 将 `expected_runtime_migrations` 默认值改为空；未来存在待执行 migration 时仍必须由发布人显式填写精确文件名并单独授权 apply。
+- [x] release-config、integration、模块边界与 145 个 unit 文件通过；待 PR/CI 后从合并后的 `master` 重新部署 Runtime Worker 与独立 Runtime Pages。
+
+边界：不执行 migration，不部署 Guardian/Main Pages/R2，不修改生产数据；失败运行 `35061674139` 未执行任何 Cloudflare 资源发布。
+
 ## NOW：产品应用投影修复（ARM-D-013，PO 授权）
 
 - [x] 文档先行：区分产品应用、待确认技术记录和隐藏组件；固定原始账本不变。
@@ -58,9 +67,9 @@
 - PR #10 已合并到 origin/master（eed75c49）；contract 1.1.0、Windows/WiX、macOS Swift 及 Guardian compatibility CI 通过。生产尚未更新。
 - PO 已授权补全发布配置：在短期分支修改 production workflow、manifest 生成器及聚焦测试；Runtime Worker/Pages 独立选择，Guardian/Main Pages 默认关闭，migration 按精确文件名核对，固定受测 master SHA。
 - 建立 master-only production 人工审批环境；Cloudflare Account ID 使用环境变量，部署 API token 由 PO 在 GitHub environment secrets 安全配置。禁止读取/复制本机 Wrangler OAuth token，缺失认证时 fail-closed。
-- 聚焦 release-config 测试接入 Runtime CI；production workflow、manifest 或该测试变更均触发验证。GitHub production 环境、master branch policy 与 Account ID 已创建并回查，部署 API token 尚缺失。
-- 本地验证：production YAML 结构、release-config fixtures、既有 Guardian integration、模块边界与 git diff --check 均通过；native-app-control/、extension/、workers/、pages/ 零修改。配置代码审计 Matched；Deviated/Missing/Extra 无。生产执行仍因 API token 和人工审批待完成而阻塞，不能标记已部署。
-- 远端 Runtime 当前仅待 0008_runtime_application_knowledge.sql。配置验证、合并和人工审批通过前，不执行 migration 或部署；R2 latest、William 安装和家庭盘点不在本轮范围。
+- 聚焦 release-config 测试接入 Runtime CI；production workflow、manifest 或该测试变更均触发验证。GitHub production 环境、master branch policy、Account ID 与最小权限部署 token 已创建并回查。
+- 首次生产运行 `35061674139` 已通过 secret/preflight/build/test，但因 workflow 默认期待已执行的 `0008` 而在 migration 只读闸门 fail-closed；Worker/Pages 等写步骤全部跳过。
+- 远端 Runtime 当前无待执行 migration。修复空默认值后仍保持精确文件名比对；R2 latest、William 安装和家庭盘点不在本轮范围。
 
 - 应用发现收口：只有完整且无失败来源的扫描才发送有界完整身份集合；Service 按已认证用户将此前已安装但本次未观察到的项目标记 `notObserved`。便携运行观察及其他用户不受影响，失败/超容量扫描不推断卸载；缓存和独立 outbox 继续事务写入。
 - 运行观察不能把已确认 installed 降为 runtimeObserved；保留安装证据，成功完整扫描仍可更新缺失状态。包扫描取消时结束自身查询进程，不遗留后台查询。
