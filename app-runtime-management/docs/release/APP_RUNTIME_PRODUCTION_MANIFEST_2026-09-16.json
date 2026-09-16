@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "gitSha": "a041c4543af8c4b19ea582c073331025ac7d2fb0",
+  "contractVersion": "1.2.0",
+  "runtimeMigrations": [],
+  "deployedResources": [
+    "runtimeWorker",
+    "runtimePages"
+  ],
+  "runtimeWorkerVersion": "3e5f5784-80a7-462d-ad7b-5bde527a9f60",
+  "previousRuntimeWorkerVersion": "c7a57148-5568-4cd2-a6d5-e21c2d3a1041",
+  "guardianWorkerVersion": "b971221b-82b1-4e14-8f67-f3b884ac924c",
+  "runtimePages": {
+    "id": "5b757653-8e0f-4531-bea3-3f5f6ed9082f",
+    "previousId": "54ebbd84-9ee6-4fc4-98dd-1ee0dcdfd73c",
+    "source": "a041c45",
+    "url": "https://timeonchrome-app-runtime-console.pages.dev"
+  },
+  "mainPages": {
+    "id": "3876077d-5607-4e95-8526-b666cf16d13c",
+    "source": "d8f79ec",
+    "url": "https://timeonchrome-console.pages.dev"
+  },
+  "r2Latest": {
+    "version": "2.0.6",
+    "platform": "windows",
+    "architecture": "x64",
+    "installerType": "burn",
+    "installerPath": "windows/x64/2.0.6/TimeOnChrome-AppRuntime-Setup-win-x64-2.0.6.exe",
+    "sha256": "2e78fe219dbf51c1df1d699b6776f3f9047069dcee2927ae10c575cbae7808f7",
+    "sizeBytes": 118513641,
+    "signed": false,
+    "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING"
+  },
+  "releaseEvidence": {
+    "pullRequest": 16,
+    "ciRun": 35062098075,
+    "productionRun": 35062450944,
+    "failedPredecessorRun": 35061674139,
+    "failedPredecessorResourceWrites": false,
+    "runtimeHealthStatus": 200,
+    "unauthenticatedCatalogStatus": 401,
+    "stableRuntimePagesStatus": 200,
+    "immutableRuntimePagesStatus": 200,
+    "productProjectionMarkerPresent": true,
+    "guardianWorkerUnchanged": true,
+    "mainPagesUnchanged": true,
+    "r2LatestUnchanged": true,
+    "planConformance": {
+      "matched": [
+        "scoped-cloudflare-token",
+        "protected-master-deployment",
+        "empty-migration-gate",
+        "runtime-worker",
+        "independent-runtime-pages",
+        "public-smoke"
+      ],
+      "deviated": [
+        "first-production-run-failed-before-resource-writes-because-the-workflow-default-still-expected-applied-migration-0008"
+      ],
+      "missing": [],
+      "extra": [
+        "production-workflow-empty-migration-default-fix"
+      ]
+    }
+  },
+  "createdAt": "2026-09-16T06:10:43.583Z"
+}

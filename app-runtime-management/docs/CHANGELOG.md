@@ -4,13 +4,14 @@
 
 - Runtime D1 已无待执行 migration，但 workflow 的 `expected_runtime_migrations` 默认值仍固定为已执行的 `0008_runtime_application_knowledge.sql`，导致无迁移发布在资源写入前 fail-closed。
 - 默认预期改为空；未来有待迁移文件时仍要求显式输入精确文件名，并在 `apply_runtime_migrations=true` 时才允许应用。
-- 本修复不执行 migration，不扩大部署范围；目标发布仅包含 Runtime Worker 和独立 Runtime Pages。
+- PR #16 合并为 `master@a041c454`，受保护运行 `35062450944` 成功；Runtime Worker 更新为 `3e5f5784-80a7-462d-ad7b-5bde527a9f60`，Runtime Pages 更新为 `5b757653-8e0f-4531-bea3-3f5f6ed9082f`。
+- 本次未执行 migration，Guardian Worker、主 Pages 和 R2 latest 未部署；health 200、未认证目录 401，稳定与不可变 Runtime Pages 回读 200 且包含产品/技术记录分流界面。
 
-## [ARM-D-013 产品应用投影] — 2026-09-16（本地完成，未部署）
+## [ARM-D-013 产品应用投影] — 2026-09-16（Runtime Worker/Pages 已部署）
 
 - 将家长可管理产品与原始技术进程身份分层；五分类目录只接收可靠产品/主应用，技术记录只读审计且不能分类。
 - 不修改原始 Segment、历史时长、配额键、数据库 schema 或客户端安装；完成状态以任务板测试与目视证据为准。
-- Worker/D1 38/38、backend typecheck、binding types、Wrangler dry-run、Console 聚焦测试及三组桌面/移动视觉流程通过；模块/Extension 边界与 `git diff --check` 通过。无生产部署、migration 或真机数据修改。
+- Worker/D1 38/38、backend typecheck、binding types、Wrangler dry-run、Console 聚焦测试及三组桌面/移动视觉流程通过；模块/Extension 边界与 `git diff --check` 通过。Runtime Worker/Pages 已由受保护 master workflow 发布；无 migration、客户端升级或真机数据修改。
 
 ## [Windows 2.2.1 / contracts 1.2.0] — 2026-09-16（本地修复与包验证，未安装/发布）
 
