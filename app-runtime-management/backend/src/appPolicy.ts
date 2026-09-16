@@ -33,7 +33,7 @@ type CatalogProjection = {
   manageability: CatalogManageability;
   projectionReasonCode: 'CONFIRMED_PRODUCT' | 'EXPLICIT_APPLICATION_CLASSIFICATION' | 'VERIFIED_APPLICATION'
     | 'INSTALLATION_PRODUCT' | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY'
-    | 'AMBIGUOUS_INSTALLATION_PRODUCTS';
+    | 'AMBIGUOUS_INSTALLATION_PRODUCTS' | 'POSSIBLE_PRODUCT_VARIANT';
 };
 
 type CatalogEntry = CatalogProjection & {
@@ -838,6 +838,23 @@ export async function queryAppCatalog(
     if (item.installed && ambiguousDisplayNames.has(displayKey))
       ambiguityByIdentity.set(`${evidence.platform}\n${evidence.runtimeIdentity}`,`ambiguous-installation:${displayKey}`);
   }
+  const possibleVariantByIdentity = new Map<string,string>();
+  for (const [displayKey, products] of productsByDisplayName) {
+    if (products.length !== 1) continue;
+    const installationProduct = products[0]!;
+    const productIdentityKey = `${installationProduct.platform}\n${installationProduct.runtimeIdentity}`;
+    const productRoot = associations.get(productIdentityKey) ?? productIdentityKey;
+    for (const item of inventory.values()) {
+      const evidence = item.evidence;
+      const identityKey = `${evidence.platform}\n${evidence.runtimeIdentity}`;
+      if (!item.installed || evidence.discovery?.objectKind === 'product'
+          || `${evidence.platform}\n${normalizedCatalogDisplayName(evidence)}` !== displayKey) continue;
+      const evidenceRoot = associations.get(identityKey) ?? identityKey;
+      if (evidenceRoot !== productRoot) {
+        possibleVariantByIdentity.set(identityKey, `possible-product-variant:${displayKey}`);
+      }
+    }
+  }
   const keys = new Set([...grouped.keys(), ...policyByKey.keys(), ...[...inventory.keys()].filter(key=>inventory.get(key)!.installed||grouped.has(key)||policyByKey.has(key))]);
   const items = [...keys].map((key) => {
     const observed = grouped.get(key);
@@ -849,8 +866,11 @@ export async function queryAppCatalog(
     const resolution = found && knowledge ? resolveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
     const projection=projectCatalogEvidence(found?.evidence, product?.id ?? null, Boolean(configured));
     const ambiguityKey=ambiguityByIdentity.get(key);
+    const possibleVariantKey=possibleVariantByIdentity.get(key);
     const effectiveProjection=ambiguityKey&&!product&&!configured
       ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'AMBIGUOUS_INSTALLATION_PRODUCTS' as const}
+      :possibleVariantKey&&!product&&!configured&&projection.manageability==='actionable'
+        ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'POSSIBLE_PRODUCT_VARIANT' as const}
       : projection;
     return {
       platform: itemPlatform,
@@ -885,8 +905,11 @@ export async function queryAppCatalog(
   }
   const baseKey=(item:typeof items[number])=>{const identityKey=`${item.platform}\n${item.runtimeIdentity}`;
     const ambiguityKey=item.runtimeIdentity===null?undefined:ambiguityByIdentity.get(identityKey);
+    const possibleVariantKey=item.runtimeIdentity===null?undefined:possibleVariantByIdentity.get(identityKey);
     return item.productId?`${item.platform}\nproduct:${item.productId}`
-      :ambiguityKey&&item.manageability!=='actionable'?ambiguityKey:associations.get(identityKey)??identityKey;};
+      :ambiguityKey&&item.manageability!=='actionable'?ambiguityKey
+        :possibleVariantKey&&item.manageability!=='actionable'?possibleVariantKey
+          :associations.get(identityKey)??identityKey;};
   const classificationsByBase=new Map<string,Set<ApplicationClassification>>();
   for(const item of items)if(item.discovery?.objectKind!=='product'&&item.classification!=='unclassified'){
     const set=classificationsByBase.get(baseKey(item))??new Set<ApplicationClassification>();set.add(item.classification);classificationsByBase.set(baseKey(item),set);}
@@ -932,7 +955,8 @@ export async function queryAppCatalog(
       ...aggregateProjection};
   });
   const technicalVariants=items.filter(item=>item.discovery?.objectKind==='variant'&&item.manageability!=='actionable'
-    && (item.runtimeIdentity===null||!ambiguityByIdentity.has(`${item.platform}\n${item.runtimeIdentity}`)));
+    && (item.runtimeIdentity===null||(!ambiguityByIdentity.has(`${item.platform}\n${item.runtimeIdentity}`)
+      && !possibleVariantByIdentity.has(`${item.platform}\n${item.runtimeIdentity}`))));
   const filtered = directory.filter((item) => !platform || item.platform === platform)
     .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
       || String(left.displayName || '').localeCompare(String(right.displayName || '')));

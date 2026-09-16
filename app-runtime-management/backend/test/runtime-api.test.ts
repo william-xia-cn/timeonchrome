@@ -891,6 +891,40 @@ describe('Application knowledge and installed inventory', () => {
     expect(ambiguous[0]).toMatchObject({projectionReasonCode:'AMBIGUOUS_INSTALLATION_PRODUCTS'});
     expect(ambiguous[0]!.variants).toHaveLength(2);
   });
+  it('keeps one installation product actionable and quarantines an unlinked same-name main entry', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const productKey='4'.repeat(64),binaryHash='5'.repeat(64),name='BlueJ';
+    const product={platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
+      values:{productKey,productName:name},verifiedFields:['productKey'],
+      discovery:{role:'application',nameSource:'installation',sourceKinds:['registry'],objectKind:'product',
+        variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}};
+    const orphanMain={platform:'windows',runtimeIdentity:'orphan-start-menu-main',displayName:name,
+      values:{binaryHash,productName:name},verifiedFields:['binaryHash'],
+      discovery:{role:'application',nameSource:'appList',sourceKinds:['shortcut'],objectKind:'variant',
+        variantRole:'main',scope:'user',sourceKind:'start-menu-user',evidenceLevel:'strong'}};
+    const sourceResults=[{source:'registry-machine',status:'complete',observationCount:1,warningCodes:[]},
+      {source:'start-menu-user',status:'complete',observationCount:1,warningCodes:[]}];
+    const scan={scanId:'6'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:1,variantCount:1,sourceResults,completed:false};
+    const payload={schemaVersion:2,batchId:'orphan-main',products:[
+      {localUserId,productKey,evidence:product,scope:'machine',sourceKind:'registry-machine',status:'installed'},
+    ],variants:[
+      {localUserId,variantKey:'orphan-start-menu-main',evidence:orphanMain,variantRole:'main',scope:'user',sourceKind:'start-menu-user',status:'installed'},
+    ],scan};
+    const upload=(body:unknown)=>call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    expect((await upload(payload)).status).toBe(200);
+    expect((await upload({...payload,batchId:'orphan-finish',products:[],variants:[],scan:{...scan,batchIndex:1,completed:true}})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string;projectionReasonCode:string}>;
+      technicalItems:Array<{displayName:string;projectionReasonCode:string;variants:unknown[]}>;
+    }>();
+    expect(result.items.filter(item=>item.displayName===name)).toEqual([
+      expect.objectContaining({projectionReasonCode:'CONFIRMED_PRODUCT'}),
+    ]);
+    const possibleVariants=result.technicalItems.filter(item=>item.displayName===name
+      && item.projectionReasonCode==='POSSIBLE_PRODUCT_VARIANT');
+    expect(possibleVariants).toHaveLength(1);
+    expect(possibleVariants[0]!.variants).toHaveLength(1);
+  });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const scan={scanId:'b'.repeat(32),localUserId,batchIndex:0,batchCount:2,observationCount:201,failedSources:[],completed:false};
