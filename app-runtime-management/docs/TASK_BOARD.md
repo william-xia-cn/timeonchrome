@@ -12,9 +12,10 @@
 - [x] 后续缺陷证据：BlueJ、Node.js、Steam 等各只有一个 Registry 安装产品，但同名 Start Menu 主入口因缺少 `parentProductKey` 仍被投影为第二条可管理应用。
 - [x] 当同平台、同规范化名称只有一个安装产品时，未明确配置且没有可靠父关联的同名非产品入口不得形成第二条主行；降级为只读“可能的产品变体”，等待强关联或家长确认。
 - [x] Worker/D1 41/41、TypeScript、binding types、Wrangler dry-run 与 `git diff --check` 通过。
-- [ ] 合并后仅部署 Runtime Worker，并复验 BlueJ、Node.js、Steam 各只保留一个主产品。
+- [x] PR #22 合并为 `master@a2fe4da`，仅部署 Runtime Worker `be61471f-89ff-4320-8e00-12212128477c`；health 200、未认证 catalog 401。
+- [x] HornburgXW 真实目录复验：BlueJ、Node.js、Steam、LibreOffice 各 1 个主产品；`Create React App Sample` 主目录 0 条、技术记录 1 条。孤立入口仍保留为只读技术记录，不参与产品目录计数。
 
-边界：保留全部原始产品/变体扫描和历史账本；不执行 migration，不修改 Agent、Pages、Guardian、Santa、Extension、配额或分类历史。
+边界：保留全部原始产品/变体扫描和历史账本；不执行 migration，不修改 Agent、Pages、Guardian、Santa、Extension、配额或分类历史。Plan Conformance Audit：Matched＝歧义产品与孤立入口均安全降级、唯一安装产品保持可管理、生产只更新 Worker、真实目录通过；Deviated＝无；Missing＝无；Extra＝无。
 
 ## NOW：Windows 2.2.3 inventory v4 管道兼容热修复
 
