@@ -14,6 +14,8 @@
 
 提交前 Plan Conformance Audit：Matched＝产品/变体/技术记录三层模型、来源级扫描结算、v1/v2 兼容、0010、产品级页面投影与 2.2.2 包；Deviated＝无；Missing＝本地实现与验证无缺项，生产发布和 HornburgXW 真机验收按批准顺序待执行；Extra＝无。
 
+PR 首轮 compatibility CI 发现根集成测试仍固定期望 contracts 1.2.0；已同步为批准的 1.3.0 并增加本地复验，不改变 Runtime 产品逻辑或协议内容。
+
 边界：不改写 Segment、时长、配额键或历史分类；不修改 Guardian、Santa、Extension、网页账本或 macOS 系统级 Agent。内部包继续 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
 ## NOW：生产闸门空迁移修复（2026-09-16）
