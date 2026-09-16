@@ -132,16 +132,21 @@ internal static class Program
                     changed = false;
                     var scan = await discovery.ScanAsync(token).ConfigureAwait(false);
                     var scanId = Guid.NewGuid().ToString("N");
-                    var applications = scan.Applications.Take(10000).Select(item => item.Evidence).ToArray();
-                    var failedSources = scan.FailedSources.Concat(scan.Applications.Count > 10000 ? ["inventory-capacity"] : Array.Empty<string>()).Distinct().ToArray();
+                    var discovered = scan.Products.Concat(scan.Variants).Take(10000).ToArray();
+                    var applications = discovered.Select(item => item.Evidence).ToArray();
+                    var sourceResults = scan.SourceResults.Select(item => new ApplicationInventorySourceResult(item.Source,item.Status,item.ObservationCount,item.WarningCodes)).ToList();
+                    if (scan.Applications.Count > 10000) sourceResults.Add(new("runtime","failed",0,["INVENTORY_CAPACITY"]));
+                    var failedSources = sourceResults.Where(item=>item.Status=="failed").Select(item=>item.Source).Distinct().ToArray();
+                    var productCount = discovered.Count(item=>item.IsProduct);
+                    var variantCount = discovered.Length-productCount;
                     var batchCount = (applications.Length + 199) / 200;
                     var batchIndex = 0;
                     foreach (var chunk in applications.Chunk(200))
                         await WriteAsync(writer, gate: gate, message: JsonSerializer.Serialize(
-                            new SessionApplicationInventoryMessage(3, chunk, "installed", Scan: new(scanId, "authenticated-by-service", batchIndex++, batchCount, applications.Length, failedSources, false)),
+                            new SessionApplicationInventoryMessage(4, chunk, "installed", Scan: new(scanId, "authenticated-by-service", batchIndex++, batchCount, applications.Length, failedSources, false,sourceResults,productCount,variantCount)),
                             RuntimeJson.Options), token: token).ConfigureAwait(false);
-                    await WriteAsync(writer, gate, JsonSerializer.Serialize(new SessionApplicationInventoryMessage(3, [], "installed",
-                        Scan: new(scanId, "authenticated-by-service", batchCount, batchCount, applications.Length, failedSources, true)), RuntimeJson.Options), token).ConfigureAwait(false);
+                    await WriteAsync(writer, gate, JsonSerializer.Serialize(new SessionApplicationInventoryMessage(4, [], "installed",
+                        Scan: new(scanId, "authenticated-by-service", batchCount, batchCount, applications.Length, failedSources, true,sourceResults,productCount,variantCount)), RuntimeJson.Options), token).ConfigureAwait(false);
                     stamp = current; nextScan = failedSources.Length == 0 ? DateTimeOffset.UtcNow.AddDays(1) : DateTimeOffset.UtcNow.AddMinutes(5);
                     // A failed source never emits an uninstall observation.
                 }
@@ -150,6 +155,7 @@ internal static class Program
                     try
                     {
                         var evidence = WindowsApplicationEvidence.FromExecutable(item.Path,packageIdentity:item.Package);
+                        evidence = evidence with { Discovery = new("application","fileMetadata",["runtime"],"variant",null,"unknown","user","runtime","strong") };
                         if (evidence.RuntimeIdentity == item.Identity) await Send([evidence], "runtimeObserved").ConfigureAwait(false);
                     }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException) { }

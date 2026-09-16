@@ -8,8 +8,15 @@ using TimeOnChrome.AppRuntime.Core;
 
 namespace TimeOnChrome.AppRuntime.Windows;
 
-public sealed record DiscoveredApplication(AppEvidence Evidence, string Status);
-public sealed record ApplicationDiscoveryResult(IReadOnlyList<DiscoveredApplication> Applications, IReadOnlyList<string> FailedSources);
+public sealed record DiscoveredApplication(AppEvidence Evidence, string Status, string SourceKind = "runtime",
+    string Scope = "user", string? ParentProductKey = null, string VariantRole = "unknown", bool IsProduct = false);
+public sealed record InventorySourceResult(string Source, string Status, int ObservationCount, IReadOnlyList<string> WarningCodes);
+public sealed record ApplicationDiscoveryResult(IReadOnlyList<DiscoveredApplication> Products,
+    IReadOnlyList<DiscoveredApplication> Variants, IReadOnlyList<InventorySourceResult> SourceResults)
+{
+    public IReadOnlyList<DiscoveredApplication> Applications => Products.Concat(Variants).ToArray();
+    public IReadOnlyList<string> FailedSources => SourceResults.Where(item => item.Status == "failed").Select(item => item.Source).ToArray();
+}
 
 /// <summary>Explicit read-only inventory. Paths stay inside this adapter and are never returned.</summary>
 public sealed class WindowsApplicationDiscovery
@@ -38,51 +45,86 @@ public sealed class WindowsApplicationDiscovery
     }
     public async Task<ApplicationDiscoveryResult> ScanAsync(CancellationToken cancellationToken = default)
     {
-        var applications = new List<DiscoveredApplication>();
-        var failed = new List<string>();
+        var products = new List<DiscoveredApplication>();
+        var variants = new List<DiscoveredApplication>();
+        var sourceResults = new List<InventorySourceResult>();
+        var anchors = new List<ProductAnchor>();
         foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
-        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
         {
+            var source = hive == RegistryHive.LocalMachine ? "registry-machine" : "registry-user";
+            var warnings = new List<string>();
+            var before = products.Count;
             try
             {
-                using var root = RegistryKey.OpenBaseKey(hive, view);
-                using var uninstall = root.OpenSubKey(Uninstall, writable: false);
-                foreach (var keyName in uninstall?.GetSubKeyNames() ?? [])
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    using var key = uninstall!.OpenSubKey(keyName, writable: false);
-                    var name = key?.GetValue("DisplayName") as string;
-                    if (string.IsNullOrWhiteSpace(name) || key?.GetValue("SystemComponent") as int? == 1) continue;
-                    // DisplayIcon can point at an icon host or uninstaller, not the actual application.
-                    applications.Add(Observe(name, null, $"registry:{hive}:{keyName}", failed, "registry"));
+                    using var root = RegistryKey.OpenBaseKey(hive, view);
+                    using var uninstall = root.OpenSubKey(Uninstall, writable: false);
+                    foreach (var keyName in uninstall?.GetSubKeyNames() ?? [])
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        using var key = uninstall!.OpenSubKey(keyName, writable: false);
+                        var name = key?.GetValue("DisplayName") as string;
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+                        var productKey = WindowsApplicationEvidence.Hash($"registry\n{hive}\n{keyName}");
+                        var scope = hive == RegistryHive.LocalMachine ? "machine" : "user";
+                        var technical = IsTechnicalRegistryProduct(Convert.ToInt32(key?.GetValue("SystemComponent") ?? 0),
+                            key?.GetValue("ParentKeyName") is string, key?.GetValue("ReleaseType") is string);
+                        var values = new Dictionary<string,string> { ["productKey"] = productKey, ["productName"] = name,
+                            ["installationSource"] = "registry" };
+                        var evidence = new AppEvidence("windows", "windows:product:" + productKey, name, values,
+                            ["productKey"], Discovery: new(technical ? "component" : "application", "installation", ["registry"],
+                                "product", null, "unknown", scope, source, "strong"));
+                        products.Add(new(evidence, "installed", source, scope, null, "unknown", true));
+                        var installLocation = key?.GetValue("InstallLocation") as string;
+                        if (!string.IsNullOrWhiteSpace(installLocation)) anchors.Add(new(productKey, name, NormalizeDirectory(installLocation)));
+                    }
                 }
             }
             catch (Exception error) when (error is UnauthorizedAccessException or System.Security.SecurityException or IOException)
-            { failed.Add($"registry-{hive}-{view}"); }
+            { sourceResults.Add(new(source, "failed", products.Count - before, ["SOURCE_ENUMERATION_FAILED"])); continue; }
+            sourceResults.Add(Result(source, products.Count - before, warnings));
         }
         foreach (var folder in new[] { Environment.SpecialFolder.CommonPrograms, Environment.SpecialFolder.Programs })
         {
+            var source = folder == Environment.SpecialFolder.CommonPrograms ? "start-menu-common" : "start-menu-user";
+            var scope = folder == Environment.SpecialFolder.CommonPrograms ? "machine" : "user";
+            var warnings = new List<string>();
+            var before = variants.Count;
             try
             {
                 var root = Environment.GetFolderPath(folder);
-                if (!Directory.Exists(root)) continue;
+                if (!Directory.Exists(root)) { sourceResults.Add(Result(source, 0, warnings)); continue; }
                 foreach (var shortcut in Directory.EnumerateFiles(root, "*.lnk", SearchOption.AllDirectories))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var target = ShortcutTarget(shortcut);
-                    if (target is null) failed.Add("shortcut-target-unavailable");
-                    if (target is not null && target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                        applications.Add(Observe(Path.GetFileNameWithoutExtension(shortcut), target, "shortcut:" + WindowsApplicationEvidence.Hash(shortcut), failed, "shortcut"));
+                    var details = ShortcutDetails(shortcut);
+                    if (details?.TargetPath is null) { warnings.Add("SHORTCUT_TARGET_UNAVAILABLE"); continue; }
+                    if (!details.TargetPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) continue;
+                    var parent = anchors.Where(item => IsUnder(details.TargetPath, item.InstallLocation))
+                        .OrderByDescending(item => item.InstallLocation.Length).FirstOrDefault();
+                    variants.Add(ObserveVariant(Path.GetFileNameWithoutExtension(shortcut), details, parent,
+                        "shortcut:" + WindowsApplicationEvidence.Hash(shortcut), warnings, source, scope));
                 }
             }
             catch (Exception error) when (error is UnauthorizedAccessException or IOException or COMException)
-            { failed.Add("start-menu-" + folder); }
+            { sourceResults.Add(new(source, "failed", variants.Count - before, ["SOURCE_ENUMERATION_FAILED"])); continue; }
+            sourceResults.Add(Result(source, variants.Count - before, warnings));
         }
-        try { applications.AddRange(await PackagesAsync(failed, cancellationToken).ConfigureAwait(false)); }
+        var packageWarnings = new List<string>();
+        try
+        {
+            var package = await PackagesAsync(packageWarnings, cancellationToken).ConfigureAwait(false);
+            products.AddRange(package.Products); variants.AddRange(package.Variants);
+            sourceResults.Add(Result("user-packages", package.Products.Count + package.Variants.Count, packageWarnings));
+        }
         catch (Exception error) when (error is IOException or JsonException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        { failed.Add("user-packages"); }
-        return new ApplicationDiscoveryResult(applications.GroupBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal)
-            .Select(MergeObservations).OrderBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal).ToArray(), failed.Distinct(StringComparer.Ordinal).ToArray());
+        { sourceResults.Add(new("user-packages", "failed", 0, ["SOURCE_ENUMERATION_FAILED"])); }
+        return new ApplicationDiscoveryResult(
+            products.GroupBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal).Select(MergeObservations)
+                .OrderBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal).ToArray(),
+            variants.GroupBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal).Select(MergeObservations)
+                .OrderBy(item => item.Evidence.RuntimeIdentity, StringComparer.Ordinal).ToArray(), sourceResults);
     }
     public static string? ExecutableFromDisplayIcon(string? icon)
     {
@@ -93,17 +135,81 @@ public sealed class WindowsApplicationDiscovery
         value = Environment.ExpandEnvironmentVariables(value);
         return Path.IsPathFullyQualified(value) && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? value : null;
     }
-    private static DiscoveredApplication Observe(string name, string? path, string localKey, List<string> failed, string source)
+    private sealed record ProductAnchor(string ProductKey, string Name, string InstallLocation);
+    private sealed record ShortcutInfo(string TargetPath, string Arguments);
+    private sealed record PackageDiscovery(IReadOnlyList<DiscoveredApplication> Products, IReadOnlyList<DiscoveredApplication> Variants);
+
+    private static InventorySourceResult Result(string source, int count, IReadOnlyList<string> warnings) =>
+        new(source, warnings.Count == 0 ? "complete" : "complete_with_warnings", count,
+            warnings.Distinct(StringComparer.Ordinal).Take(64).ToArray());
+
+    private static string NormalizeDirectory(string path)
     {
-        if (path is not null && File.Exists(path))
+        try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(Environment.ExpandEnvironmentVariables(path))); }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { return string.Empty; }
+    }
+    private static bool IsUnder(string path, string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory)) return false;
+        try
         {
-            try { return new(WindowsApplicationEvidence.FromExecutable(path, name) with { Discovery = new("application", "installation", [source]) }, "installed"); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException) { }
+            var full = Path.GetFullPath(path);
+            return full.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
-        if (path is not null) failed.Add("executable-evidence-unavailable");
-        // Installed metadata without an executable is a weak candidate, not a fabricated product match.
-        return new(new AppEvidence("windows", "windows:installed:" + WindowsApplicationEvidence.Hash(localKey), name,
-            new Dictionary<string,string> { ["productName"] = name }, [], Discovery: new("candidate", "installation", [source])), "installed");
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+    }
+    private static bool HostedByBrowser(ShortcutInfo shortcut)
+    {
+        var stem = Path.GetFileNameWithoutExtension(shortcut.TargetPath);
+        return (stem.Equals("chrome_proxy", StringComparison.OrdinalIgnoreCase)
+                || stem.Equals("msedge_proxy", StringComparison.OrdinalIgnoreCase))
+            && !string.IsNullOrWhiteSpace(shortcut.Arguments);
+    }
+    public static bool IsTechnicalRegistryProduct(int systemComponent, bool hasParentKeyName, bool hasReleaseType) =>
+        systemComponent == 1 || hasParentKeyName || hasReleaseType;
+    public static string ClassifyVariantRole(string displayName, string path, bool hasParentProduct)
+    {
+        var file = Path.GetFileNameWithoutExtension(path);
+        var maintenance = new[] { "uninstall", "unins", "update", "updater", "repair", "errorreporter", "crashreporter" };
+        if (maintenance.Any(value => file.Contains(value, StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains(value, StringComparison.OrdinalIgnoreCase))) return "maintenance";
+        if (hasParentProduct) return "suiteMember";
+        return "main";
+    }
+    private static DiscoveredApplication ObserveVariant(string name, ShortcutInfo shortcut, ProductAnchor? parent,
+        string localKey, List<string> warnings, string sourceKind, string scope)
+    {
+        if (HostedByBrowser(shortcut))
+        {
+            var hosted = WindowsApplicationEvidence.Hash(shortcut.Arguments);
+            var hostedEvidence = new AppEvidence("windows", "windows:hosted:" + hosted, name,
+                new Dictionary<string,string> { ["hostedAppId"] = hosted, ["productName"] = name }, ["hostedAppId"],
+                Discovery: new("candidate", "appList", ["shortcut"], "variant", null, "hosted", scope, sourceKind, "review"));
+            return new(hostedEvidence, "installed", sourceKind, scope, null, "hosted");
+        }
+        var role = ClassifyVariantRole(name, shortcut.TargetPath, parent is not null && !name.Equals(parent.Name, StringComparison.OrdinalIgnoreCase));
+        if (File.Exists(shortcut.TargetPath))
+        {
+            try
+            {
+                var evidence = WindowsApplicationEvidence.FromExecutable(shortcut.TargetPath, name);
+                var values = new Dictionary<string,string>(evidence.Values);
+                if (parent is not null) values["productKey"] = parent.ProductKey;
+                return new(evidence with { Values = values,
+                    VerifiedFields = parent is null ? evidence.VerifiedFields : evidence.VerifiedFields.Append("productKey").Distinct(StringComparer.Ordinal).ToArray(),
+                    Discovery = new(role == "maintenance" ? "candidate" : "application", "appList", ["shortcut"], "variant",
+                        parent?.ProductKey, role, scope, sourceKind, role == "maintenance" ? "review" : "strong") },
+                    "installed", sourceKind, scope, parent?.ProductKey, role);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+            { warnings.Add("EXECUTABLE_EVIDENCE_UNAVAILABLE"); }
+        }
+        else warnings.Add("EXECUTABLE_EVIDENCE_UNAVAILABLE");
+        var identity = "windows:variant:" + WindowsApplicationEvidence.Hash(localKey);
+        var fallback = new AppEvidence("windows", identity, name,
+            new Dictionary<string,string> { ["productName"] = name }, [], Discovery: new("candidate", "appList", ["shortcut"],
+                "variant", parent?.ProductKey, role, scope, sourceKind, "weak"));
+        return new(fallback, "installed", sourceKind, scope, parent?.ProductKey, role);
     }
     public static DiscoveredApplication MergeObservations(IEnumerable<DiscoveredApplication> observations)
     {
@@ -123,12 +229,12 @@ public sealed class WindowsApplicationDiscovery
         }
         var role = items.Any(item => item.Evidence.Discovery?.Role == "application") ? "application" : first.Evidence.Discovery?.Role ?? "candidate";
         return first with { Evidence = first.Evidence with { Values = values, VerifiedFields = verified,
-            Discovery = new(role, first.Evidence.Discovery?.NameSource ?? "fallback", sources) } };
+            Discovery = (first.Evidence.Discovery ?? new(role, "fallback", sources)) with { Role = role, SourceKinds = sources } } };
     }
 
     /// <summary>Pure parser: a package is not a product; visible entrypoints stay separate.</summary>
     public static IReadOnlyList<DiscoveredApplication> ParsePackageManifest(string xml, string family, string fallbackName,
-        IReadOnlyDictionary<string,string>? appListNames = null)
+        IReadOnlyDictionary<string,string>? appListNames = null, string? parentProductKey = null)
     {
         var manifest = XDocument.Parse(xml);
         var result = new List<DiscoveredApplication>();
@@ -144,12 +250,14 @@ public sealed class WindowsApplicationDiscovery
             var role = visual is null || string.Equals((string?)visual.Attribute("AppListEntry"), "none", StringComparison.OrdinalIgnoreCase) ? "component" : "application";
             var identity = WindowsApplicationIdentityDeriver.Derive(null, name, family, aumid);
             result.Add(new(new AppEvidence("windows", identity.RuntimeIdentity, name,
-                new Dictionary<string,string> { ["packageId"] = aumid }, ["packageId"],
-                Discovery: new(role, !string.IsNullOrWhiteSpace(friendly) ? "appList" : literal ? "manifest" : "fallback", ["package"])), "installed"));
+                new Dictionary<string,string> { ["packageId"] = aumid, ["productKey"] = parentProductKey ?? WindowsApplicationEvidence.Hash("package:" + family) }, ["packageId", "productKey"],
+                Discovery: new(role, !string.IsNullOrWhiteSpace(friendly) ? "appList" : literal ? "manifest" : "fallback", ["package"],
+                    "variant", parentProductKey, role == "component" ? "helper" : "main", "user", "user-packages", role == "component" ? "review" : "strong")),
+                "installed", "user-packages", "user", parentProductKey, role == "component" ? "helper" : "main"));
         }
         return result;
     }
-    private static string? ShortcutTarget(string path)
+    private static ShortcutInfo? ShortcutDetails(string path)
     {
         var type = Type.GetTypeFromProgID("WScript.Shell");
         if (type is null) return null;
@@ -159,7 +267,10 @@ public sealed class WindowsApplicationDiscovery
             shell = Activator.CreateInstance(type);
             if (shell is null) return null;
             shortcut = type.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, [path]);
-            return shortcut?.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, shortcut, null) as string;
+            var target = shortcut?.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, shortcut, null) as string;
+            if (string.IsNullOrWhiteSpace(target)) return null;
+            var arguments = shortcut?.GetType().InvokeMember("Arguments", System.Reflection.BindingFlags.GetProperty, null, shortcut, null) as string ?? string.Empty;
+            return new(target, arguments);
         }
         finally
         {
@@ -177,7 +288,7 @@ public sealed class WindowsApplicationDiscovery
         foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", PackageQueryEncodingCommand + "$ErrorActionPreference='Stop'; $packages=@(Get-AppxPackage | Where-Object { -not $_.IsFramework -and -not $_.IsResourcePackage } | Select-Object Name,PackageFamilyName,InstallLocation); $apps=@(Get-StartApps | Select-Object Name,AppID); ConvertTo-Json -InputObject @{packages=$packages;apps=$apps} -Compress" }) start.ArgumentList.Add(arg);
         return start;
     }
-    private static async Task<IReadOnlyList<DiscoveredApplication>> PackagesAsync(List<string> failed, CancellationToken token)
+    private static async Task<PackageDiscovery> PackagesAsync(List<string> warnings, CancellationToken token)
     {
         using var process = new Process { StartInfo = CreatePackageQueryStartInfo() };
         if (!process.Start()) throw new InvalidOperationException("PACKAGE_QUERY_START_FAILED");
@@ -198,22 +309,32 @@ public sealed class WindowsApplicationDiscovery
         var appListNames = document.RootElement.GetProperty("apps").EnumerateArray()
             .GroupBy(app => app.GetProperty("AppID").GetString() ?? "", StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First().GetProperty("Name").GetString() ?? "", StringComparer.Ordinal);
-        var result = new List<DiscoveredApplication>();
+        var products = new List<DiscoveredApplication>();
+        var variants = new List<DiscoveredApplication>();
         foreach (var package in document.RootElement.GetProperty("packages").EnumerateArray())
         {
             var family = package.GetProperty("PackageFamilyName").GetString();
             var location = package.GetProperty("InstallLocation").GetString();
-            if (string.IsNullOrWhiteSpace(family) || string.IsNullOrWhiteSpace(location)) { failed.Add("package-metadata-unavailable"); continue; }
+            if (string.IsNullOrWhiteSpace(family) || string.IsNullOrWhiteSpace(location)) { warnings.Add("PACKAGE_METADATA_UNAVAILABLE"); continue; }
             var manifestPath = Path.Combine(location, "AppxManifest.xml");
-            if (!File.Exists(manifestPath)) { failed.Add("package-manifest-unavailable"); continue; }
+            if (!File.Exists(manifestPath)) { warnings.Add("PACKAGE_MANIFEST_UNAVAILABLE"); continue; }
             try
             {
-                result.AddRange(ParsePackageManifest(File.ReadAllText(manifestPath), family,
-                    package.GetProperty("Name").GetString() ?? "Windows application", appListNames));
+                var productKey = WindowsApplicationEvidence.Hash("package:" + family);
+                var fallbackName = package.GetProperty("Name").GetString() ?? "Windows application";
+                var parsed = ParsePackageManifest(File.ReadAllText(manifestPath), family, fallbackName, appListNames, productKey);
+                var visible = parsed.Any(item => item.Evidence.Discovery?.Role == "application");
+                var productEvidence = new AppEvidence("windows", "windows:product:" + productKey,
+                    parsed.FirstOrDefault(item => item.Evidence.Discovery?.Role == "application")?.Evidence.DisplayName ?? fallbackName,
+                    new Dictionary<string,string> { ["packageId"] = family, ["productKey"] = productKey, ["productName"] = fallbackName },
+                    ["packageId", "productKey"], Discovery: new(visible ? "application" : "component", "installation", ["package"],
+                        "product", null, "unknown", "user", "user-packages", "strong"));
+                products.Add(new(productEvidence, "installed", "user-packages", "user", null, "unknown", true));
+                variants.AddRange(parsed);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Xml.XmlException)
-            { failed.Add("package-manifest-unavailable"); }
+            { warnings.Add("PACKAGE_MANIFEST_UNAVAILABLE"); }
         }
-        return result;
+        return new(products, variants);
     }
 }

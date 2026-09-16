@@ -7,8 +7,11 @@ using TimeOnChrome.AppRuntime.Core;
 namespace TimeOnChrome.AppRuntime.Infrastructure;
 
 public sealed record MachineApplicationObservation(string LocalUserId, AppEvidence Evidence, string Status);
+public sealed record ApplicationInventorySourceResult(string Source, string Status, int ObservationCount,
+    IReadOnlyList<string> WarningCodes);
 public sealed record ApplicationInventoryScan(string ScanId, string LocalUserId, int BatchIndex, int BatchCount,
-    int ObservationCount, IReadOnlyList<string> FailedSources, bool Completed);
+    int ObservationCount, IReadOnlyList<string> FailedSources, bool Completed,
+    IReadOnlyList<ApplicationInventorySourceResult>? SourceResults = null, int ProductCount = 0, int VariantCount = 0);
 public sealed record MachineApplicationInventoryBatch(int SchemaVersion, string BatchId, IReadOnlyList<MachineApplicationObservation> Observations,
     ApplicationInventoryScan? Scan = null);
 public sealed record MachineApplicationInventoryAck(string BatchId, string Status, int AcceptedCount);
@@ -81,9 +84,12 @@ public sealed class MachineApplicationInventoryStore
                     || received.SelectMany(item => item.Observations).Select(item => item.Evidence.RuntimeIdentity).Distinct(StringComparer.Ordinal).Count() != scan.ObservationCount
                     || received.Where((item, index) => item.Scan?.BatchIndex != index || item.Scan?.LocalUserId != scan.LocalUserId
                         || item.Scan?.BatchCount != scan.BatchCount || item.Scan?.ObservationCount != scan.ObservationCount
-                        || !item.Scan.FailedSources.SequenceEqual(scan.FailedSources)).Any())
+                        || !item.Scan.FailedSources.SequenceEqual(scan.FailedSources)
+                        || JsonSerializer.Serialize(item.Scan.SourceResults, RuntimeJson.Options) != JsonSerializer.Serialize(scan.SourceResults, RuntimeJson.Options)).Any())
                     throw new InvalidDataException("INVENTORY_SCAN_INCOMPLETE");
-                if (scan.FailedSources.Count == 0)
+                var completeSources = scan.SourceResults?.Where(item => item.Status is "complete" or "complete_with_warnings")
+                    .Select(item => item.Source).ToHashSet(StringComparer.Ordinal);
+                if (scan.FailedSources.Count == 0 || completeSources is { Count: > 0 })
                 {
                     var present = received.SelectMany(item => item.Observations).Select(item => item.Evidence.RuntimeIdentity).ToHashSet(StringComparer.Ordinal);
                     await reader.DisposeAsync().ConfigureAwait(false);
@@ -95,7 +101,11 @@ public sealed class MachineApplicationInventoryStore
                     while (await stored.ReadAsync(token).ConfigureAwait(false))
                     {
                         var item = JsonSerializer.Deserialize<MachineApplicationObservation>(stored.GetString(0), RuntimeJson.Options)!;
-                        if (item.Status == "installed" && !present.Contains(item.Evidence.RuntimeIdentity)) absent.Add(item with { Status = "notObserved" });
+                        var source = item.Evidence.Discovery?.SourceKind;
+                        var sourceCanReconcile = completeSources is null ? scan.FailedSources.Count == 0
+                            : source is not null && completeSources.Contains(source);
+                        if (item.Status == "installed" && sourceCanReconcile && !present.Contains(item.Evidence.RuntimeIdentity))
+                            absent.Add(item with { Status = "notObserved" });
                     }
                     toApply = absent;
                 }
@@ -134,8 +144,8 @@ public sealed class MachineApplicationInventoryStore
         }
         var batches = new List<MachineApplicationInventoryBatch>();
         if (scan is null || scan.Completed)
-            foreach (var chunk in changed.Chunk(200)) batches.Add(new(1, Guid.NewGuid().ToString("N"), chunk));
-        if (scan is not null) batches.Add(new(1, Guid.NewGuid().ToString("N"), observations, scan));
+            foreach (var chunk in changed.Chunk(200)) batches.Add(new(scan?.SourceResults is not null || chunk.Any(item=>item.Evidence.Discovery?.ObjectKind is not null) ? 2 : 1, Guid.NewGuid().ToString("N"), chunk));
+        if (scan is not null) batches.Add(new(scan.SourceResults is null ? 1 : 2, Guid.NewGuid().ToString("N"), observations, scan));
         // Missing-install observations and the final marker share this transaction, ordered before completion.
         foreach (var batch in batches)
         {
@@ -149,6 +159,16 @@ public sealed class MachineApplicationInventoryStore
     }
     public static void ValidateScan(ApplicationInventoryScan scan, IReadOnlyList<MachineApplicationObservation> observations)
     {
+        var invalidSourceResults = scan.SourceResults is not null &&
+            (scan.ProductCount + scan.VariantCount != scan.ObservationCount
+             || scan.SourceResults.Count > 6
+             || scan.SourceResults.Select(item => item.Source).Distinct(StringComparer.Ordinal).Count() != scan.SourceResults.Count
+             || scan.SourceResults.Any(item =>
+                 !System.Text.RegularExpressions.Regex.IsMatch(item.Source, "^[a-z-]{1,32}$")
+                 || item.Status is not ("complete" or "complete_with_warnings" or "failed")
+                 || item.ObservationCount < 0
+                 || item.WarningCodes.Count > 64
+                 || item.WarningCodes.Any(code => !System.Text.RegularExpressions.Regex.IsMatch(code, "^[A-Z0-9_]{1,64}$"))));
         if (!System.Text.RegularExpressions.Regex.IsMatch(scan.ScanId, "^[a-f0-9]{32}$")
             || string.IsNullOrWhiteSpace(scan.LocalUserId) || scan.BatchCount is < 0 or > 50
             || scan.ObservationCount is < 0 or > 10000 || scan.BatchCount != (scan.ObservationCount + 199) / 200
@@ -156,7 +176,8 @@ public sealed class MachineApplicationInventoryStore
             || scan.Completed != (scan.BatchIndex == scan.BatchCount)
             || (scan.Completed ? observations.Count != 0 : observations.Count != Math.Min(200, scan.ObservationCount - scan.BatchIndex * 200))
             || observations.Any(item => item.LocalUserId != scan.LocalUserId || item.Status != "installed")
-            || scan.FailedSources.Count > 16 || scan.FailedSources.Any(item => !System.Text.RegularExpressions.Regex.IsMatch(item, "^[A-Za-z0-9_-]{1,64}$")))
+            || scan.FailedSources.Count > 16 || scan.FailedSources.Any(item => !System.Text.RegularExpressions.Regex.IsMatch(item, "^[A-Za-z0-9_-]{1,64}$"))
+            || scan.ProductCount < 0 || scan.VariantCount < 0 || invalidSourceResults)
             throw new InvalidDataException("INVALID_INVENTORY_SCAN");
     }
     public async Task<MachineApplicationInventoryBatch?> PeekAsync(CancellationToken token = default)

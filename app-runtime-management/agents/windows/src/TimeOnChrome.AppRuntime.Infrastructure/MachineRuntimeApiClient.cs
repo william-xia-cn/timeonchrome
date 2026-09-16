@@ -34,9 +34,47 @@ public sealed class MachineRuntimeApiClient
         MachineApplicationInventoryBatch batch, CancellationToken token = default)
     {
         using var request = Authorized(HttpMethod.Post, credential, "/v2/machines/application-inventory");
-        request.Content = JsonContent.Create(batch, options: RuntimeJson.Options);
+        request.Content = JsonContent.Create(BuildApplicationInventoryPayload(batch), options: RuntimeJson.Options);
         using var response = await httpClient.SendAsync(request, token).ConfigureAwait(false);
         return await ReadAsync<MachineApplicationInventoryAck>(response, token).ConfigureAwait(false);
+    }
+
+    public static object BuildApplicationInventoryPayload(MachineApplicationInventoryBatch batch)
+    {
+        if (batch.SchemaVersion != 2) return batch;
+        var products = batch.Observations.Where(item => item.Evidence.Discovery?.ObjectKind == "product").Select(item => new
+        {
+            item.LocalUserId,
+            ProductKey = item.Evidence.Values.GetValueOrDefault("productKey")
+                ?? throw new InvalidDataException("MISSING_PRODUCT_KEY"),
+            item.Evidence,
+            Scope = item.Evidence.Discovery?.Scope ?? "user",
+            SourceKind = item.Evidence.Discovery?.SourceKind ?? "runtime",
+            item.Status,
+        }).ToArray();
+        var variants = batch.Observations.Where(item => item.Evidence.Discovery?.ObjectKind != "product").Select(item => new
+        {
+            item.LocalUserId,
+            VariantKey = item.Evidence.RuntimeIdentity,
+            ParentProductKey = item.Evidence.Discovery?.ParentProductKey,
+            item.Evidence,
+            VariantRole = item.Evidence.Discovery?.VariantRole ?? "unknown",
+            Scope = item.Evidence.Discovery?.Scope ?? "user",
+            SourceKind = item.Evidence.Discovery?.SourceKind ?? "runtime",
+            item.Status,
+        }).ToArray();
+        object? scan = batch.Scan is null ? null : new
+        {
+            batch.Scan.ScanId,
+            batch.Scan.LocalUserId,
+            batch.Scan.BatchIndex,
+            batch.Scan.BatchCount,
+            batch.Scan.ProductCount,
+            batch.Scan.VariantCount,
+            SourceResults = batch.Scan.SourceResults ?? [],
+            batch.Scan.Completed,
+        };
+        return new { schemaVersion = 2, batch.BatchId, products, variants, scan };
     }
 
     public async Task<MachineRuntimeCredential> EnrollAsync(Uri serverUrl, string code, string displayName, CancellationToken cancellationToken = default)

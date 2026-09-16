@@ -32,7 +32,7 @@ type CatalogProjection = {
   catalogKind: CatalogKind;
   manageability: CatalogManageability;
   projectionReasonCode: 'CONFIRMED_PRODUCT' | 'EXPLICIT_APPLICATION_CLASSIFICATION' | 'VERIFIED_APPLICATION'
-    | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY';
+    | 'INSTALLATION_PRODUCT' | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY';
 };
 
 type CatalogEntry = CatalogProjection & {
@@ -48,7 +48,7 @@ type CatalogEntry = CatalogProjection & {
 function hasStrongApplicationIdentity(evidence?: AppEvidence): boolean {
   if (!evidence) return false;
   const verified = new Set(evidence.verifiedFields);
-  return verified.has('packageId') || verified.has('binaryHash')
+  return verified.has('packageId') || verified.has('binaryHash') || verified.has('productKey') || verified.has('hostedAppId')
     || (verified.has('signerKey') && verified.has('productName'));
 }
 
@@ -58,6 +58,10 @@ function projectCatalogEvidence(
   explicitlyConfigured: boolean,
 ): CatalogProjection {
   if (productId) return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'CONFIRMED_PRODUCT' };
+  if (evidence?.discovery?.objectKind === 'product' && evidence.discovery.role === 'application'
+      && evidence.verifiedFields.includes('productKey')) {
+    return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'INSTALLATION_PRODUCT' };
+  }
   if (explicitlyConfigured) {
     return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'EXPLICIT_APPLICATION_CLASSIFICATION' };
   }
@@ -850,43 +854,60 @@ export async function queryAppCatalog(
         catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const});
     }
   }
+  const baseKey=(item:typeof items[number])=>{const identityKey=`${item.platform}\n${item.runtimeIdentity}`;
+    return item.productId?`${item.platform}\nproduct:${item.productId}`:associations.get(identityKey)??identityKey;};
+  const classificationsByBase=new Map<string,Set<ApplicationClassification>>();
+  for(const item of items)if(item.discovery?.objectKind!=='product'&&item.classification!=='unclassified'){
+    const set=classificationsByBase.get(baseKey(item))??new Set<ApplicationClassification>();set.add(item.classification);classificationsByBase.set(baseKey(item),set);}
   const productGroups = new Map<string,typeof items>();
-  for(const item of items){const identityKey=`${item.platform}\n${item.runtimeIdentity}`;
-    const key=item.productId?`${item.platform}\nproduct:${item.productId}\n${item.classification}`:`${associations.get(identityKey)??identityKey}\n${item.classification}`;
-    const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
+  for(const item of items){const base=baseKey(item),classes=classificationsByBase.get(base);
+    const classificationKey=!classes||classes.size<=1?[...(classes??[])][0]??'unclassified':item.discovery?.objectKind==='product'?'mixed':item.classification;
+    const key=`${base}\n${classificationKey}`;const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
   const directory = [...productGroups.values()].map(group=>{
-    const implementations=group.filter(item=>item.runtimeIdentity!==null);
+    const variants=group.filter(item=>item.runtimeIdentity!==null&&item.discovery?.objectKind!=='product');
+    const groupHasActionable=group.some(item=>item.manageability==='actionable');
+    const implementations=variants.filter(item=>!['maintenance','helper','hosted'].includes(item.discovery?.variantRole??'')
+      && item.discovery?.role!=='component'&&item.discovery?.role!=='candidate'
+      && (item.manageability==='actionable'||groupHasActionable));
     const intervals = new Map<string,Array<[number,number]>>(), machines=new Set<string>(),users=new Set<string>();
     for(const item of implementations){const key=`${item.platform}\n${item.runtimeIdentity}`, used=grouped.get(key),installed=inventory.get(key);
       for(const [lane,ranges]of used?.intervals??[]){const current=intervals.get(lane)??[];current.push(...ranges);intervals.set(lane,current);}
       for(const machine of [...(used?.machines??[]),...(installed?.machines??[])])machines.add(machine);
       for(const user of [...(used?.users??[]),...(installed?.users??[])])users.add(user);
     }
-    const primary = [...group].sort((a,b)=>(a.manageability==='actionable'?0:a.manageability==='review'?1:2)-(b.manageability==='actionable'?0:b.manageability==='review'?1:2)
+    const primary = [...group].sort((a,b)=>(a.discovery?.objectKind==='product'?0:1)-(b.discovery?.objectKind==='product'?0:1)
+      ||(a.manageability==='actionable'?0:a.manageability==='review'?1:2)-(b.manageability==='actionable'?0:b.manageability==='review'?1:2)
       ||(a.discovery?.nameSource==='appList'?0:a.discovery?.role==='application'?1:2)-(b.discovery?.nameSource==='appList'?0:b.discovery?.role==='application'?1:2))[0]!;
-    const aggregateProjection = group.some(item=>item.productId)
+    const aggregateProjection = group.some(item=>item.productId||item.discovery?.objectKind==='product'&&item.manageability==='actionable')
       ? {catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const}
       : group.some(item=>item.manageability==='actionable')
         ? {catalogKind:'application' as const,manageability:'actionable' as const,projectionReasonCode:primary.projectionReasonCode}
         : group.every(item=>item.manageability==='hidden')
           ? {catalogKind:'component' as const,manageability:'hidden' as const,projectionReasonCode:'COMPONENT' as const}
           : {catalogKind:primary.catalogKind,manageability:'review' as const,projectionReasonCode:primary.projectionReasonCode};
-    return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:null,
+    const classes=new Set(variants.map(item=>item.classification).filter(item=>item!=='unclassified'));
+    return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:implementations.length===0?primary.runtimeIdentity:null,
+      classification:classes.size===1?[...classes][0]!:primary.classification,mixedClassifications:classes.size>1,
       observedInWindow:group.some(item=>item.observedInWindow),
       discovery:group.some(item=>item.discovery?.role==='application')?{...primary.discovery!,role:'application' as const}:primary.discovery,
       runtimeImplementations:implementations.map(item=>({platform:item.platform,runtimeIdentity:item.runtimeIdentity,displayName:item.displayName})),
+      variants:variants.map(item=>({displayName:item.displayName,platform:item.platform,variantRole:item.discovery?.variantRole??'unknown',
+        installationState:item.installationState,manageability:item.manageability,lastSeenAtMs:item.lastSeenAtMs,classification:item.classification,
+        runtimeIdentity:item.runtimeIdentity})),
       associationStatus:group[0]!.productId?'confirmedProduct':implementations.length>1?'verifiedIdentityAssociation':'technicalIdentity',
       mainDurationMs:groupedUnion(intervals),machineCount:machines.size,userCount:users.size,
       lastSeenAtMs:Math.max(0,...group.map(item=>item.lastSeenAtMs??0))||null,
       installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState,
       ...aggregateProjection};
   });
+  const technicalVariants=items.filter(item=>item.discovery?.objectKind==='variant'&&item.manageability!=='actionable');
   const filtered = directory.filter((item) => !platform || item.platform === platform)
     .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
       || String(left.displayName || '').localeCompare(String(right.displayName || '')));
   return { windowStartMs, windowEndMs,
     items:filtered.filter(item=>item.manageability==='actionable'),
-    technicalItems:filtered.filter(item=>item.manageability!=='actionable'),
+    technicalItems:[...filtered.filter(item=>item.manageability!=='actionable'),...technicalVariants.filter(item=>!platform||item.platform===platform)]
+      .filter((item,index,array)=>array.findIndex(other=>other.platform===item.platform&&other.runtimeIdentity===item.runtimeIdentity)===index),
     inventoryScans:await queryInventoryScanStatus(database,accountId,childId) };
 }
 
