@@ -1,12 +1,14 @@
 # App Runtime Changelog
 
-## [Windows 2.2.2 / contracts 1.3.0] — 2026-09-16（本地候选已验证，待生产发布）
+## [Windows 2.2.2 / contracts 1.3.0] — 2026-09-16（云端已发布，HornburgXW 待升级验收）
 
 - ARM-D-014：建立安装产品、应用变体和技术记录三层目录；套件默认产品级聚合，显式拆分后变体才独立管理。
 - inventory v2 按来源区分完成、带警告和失败；成功来源可独立做缺失对账，v1 客户端继续兼容。
 - additive 0010 与 catalog 增量字段不改写旧 inventory、UsageSegment、历史时长、分类或配额键。
-- Windows 106/106、Worker 39/39、contracts 23 组共享向量、Console、binding types、Wrangler dry-run、WiX 和桌面/移动视觉验证通过；等待合并 master 后分闸发布 Runtime D1/Worker/Pages/R2 2.2.2，并升级 HornburgXW 验收。
-- 2.2.2 Burn SHA-256 为 `def05405d100a7f81ac14f979a88a72573485e6e37955cc8fc9f19d154b68b54`，MSI SHA-256 为 `bde179821ca6810881271ea371ba39669dc5de008e6914df405c48de90075086`；继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- Windows 106/106、Worker 39/39、contracts 23 组共享向量、Console、binding types、Wrangler dry-run、WiX、真实 macOS 15 CI 和桌面/移动视觉验证通过。
+- PR #18 合并后，受保护运行 `35080465621` 已应用 0010，发布 Runtime Worker/Pages；Guardian 和主 Pages未变化。历史主/媒体账本行数与总时长在 migration 前后完全一致。
+- 干净 master 重建的 2.2.2 Burn SHA-256 为 `85cc679f8aa61d175f50530fbc7bf7c51904641e3cc1638df14ce15a89db60ca`，MSI SHA-256 为 `6946c4e90bc087cb2ba4087e98db126e12d993c994059c1fd720df6924d3a6aa`；R2 回读一致并已切换 latest，继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- HornburgXW 尚未从 2.2.1 升级；真机扫描、LibreOffice 单产品和技术记录清理仍是最终验收项。
 
 ## [生产 workflow 空迁移闸门修复] — 2026-09-16
 

@@ -2,9 +2,10 @@
 
 ## 当前修复与生产基线（2026-09-16）
 
-- ARM-D-014 产品级应用清单正在 `codex/app-runtime-product-catalog-v2` 收口：contracts 1.3.0、Windows 2.2.2、additive migration 0010、兼容 Worker read model 和独立 Console 已完成本地实现。Windows 106/106、Worker 39/39、contracts 23 组向量、Console 聚焦测试、generated binding types、Wrangler dry-run、WiX 包与桌面/移动视觉验证均通过。
-- 2.2.2 候选 Burn 为 118,718,381 bytes / SHA-256 `def05405d100a7f81ac14f979a88a72573485e6e37955cc8fc9f19d154b68b54`；MSI 为 60,363,104 bytes / SHA-256 `bde179821ca6810881271ea371ba39669dc5de008e6914df405c48de90075086`。包仍未签名，状态为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
-- 当前生产仍是前轮已合并 master、Runtime Worker/Pages 和 R2 latest 基线；0010 尚未应用，2.2.2 尚未发布或安装。生产必须等本分支合并到干净 `origin/master` 后按 0010 → Worker → Runtime Pages → R2 latest → HornburgXW 原地升级执行。
+- ARM-D-014 产品级应用清单已由 PR #18 合并为 `master@38e55f945888f04c8b3f0349b6535640be4d572d`；contracts 1.3.0、Windows 2.2.2、additive migration 0010、兼容 Worker read model 和独立 Console 已完成。Windows 106/106、Worker 39/39、contracts 23 组向量、Console 聚焦测试、generated binding types、Wrangler dry-run、WiX 包、真实 macOS 15 CI 与桌面/移动视觉验证均通过。
+- 受保护生产运行 `35080465621` 已精确应用 `0010_runtime_product_catalog.sql`，发布 Runtime Worker `c3880fcb-d08c-4a07-9d3a-302557a79b52` 与 Runtime Pages `01b4df8b-a863-4545-bb5e-7b19aa833f06`；Guardian 和主 Pages 未部署。health 为 200，未认证 catalog 为 401。
+- 从干净合并 SHA 重建并发布的 2.2.2 Burn 为 118,736,837 bytes / SHA-256 `85cc679f8aa61d175f50530fbc7bf7c51904641e3cc1638df14ce15a89db60ca`；MSI 为 60,363,104 bytes / SHA-256 `6946c4e90bc087cb2ba4087e98db126e12d993c994059c1fd720df6924d3a6aa`。版本化 R2 对象和 Worker 下载路由回读一致，latest 已切换 2.2.2；包仍未签名，状态为 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- HornburgXW 当前仍安装 2.2.1。0010 新表已存在且在客户端升级前为空；等待 action-time 安装确认后原地升级、完成来源完整扫描与线上目录验收。
 - 历史 inventory、UsageSegment、时长、分类和配额键不重写。产品投影变干净不等于删除技术事实；真实家庭目录只有完成来源完整扫描并做线上对照后才能验收。
 - 下方 D-092 首轮记录保留为历史。任何生产发布仍须干净 origin/master、独立资源选择及人工批准；本轮不触及 Guardian/Santa/Extension/主 Pages、机器配对或账本历史。
 
@@ -37,7 +38,7 @@
 
 ## 生产恢复硬闸门
 
-- Runtime D1 按已批准清单和远端记录精确核对；既有 migration 保持原名，本次只允许在远端待执行列表精确匹配时应用 `0010_runtime_product_catalog.sql`。不得自动应用其他文件或重命名既有 migration。
+- Runtime D1 已由受保护运行精确应用 `0010_runtime_product_catalog.sql`，远端当前无待执行 migration；不得重命名既有文件或自动执行未来 migration。
 - 发布配置补全中（PO 授权）：生产只使用固定的已合并 master SHA；Runtime Worker/Pages 可独立选择，Guardian/Main Pages 默认不部署，migration 另行显式选择。GitHub production 环境只允许 master，并要求 PO 人工审批；缺失部署 API token 时停止，禁止搬运本机 OAuth 凭据。
 - Guardian 远端 `d1_migrations` 当前没有历史记录；禁止执行自动全量 migration apply。
 - 独立 Runtime Pages、独立 SSO 密钥、Runtime Worker、Guardian adapter 和主 Pages 入口必须可以分别回滚。
