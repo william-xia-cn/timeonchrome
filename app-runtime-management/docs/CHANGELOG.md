@@ -1,11 +1,14 @@
 # App Runtime Changelog
 
-## [产品目录同名歧义热修复] — 2026-09-16（本地验证完成）
+## [产品目录同名歧义与孤立入口热修复] — 2026-09-16（生产复验中）
 
 - 真机扫描证明 LibreOffice 已按一个产品、多变体投影，但 `Create React App Sample` 的 package、卸载注册和 hosted 入口缺少共同强身份，仍可能形成重复主产品。
 - 同平台、同规范化名称的多个未确认安装产品只合并为一个只读歧义技术记录；名称仅用于降级和展示聚合，不构成产品确认或分类依据。
 - 不删除原始产品/变体、不改历史账本；本轮只调整 Runtime Worker read model，无 migration、Agent 或 Pages 变更。
-- Worker/D1 回归 40/40、TypeScript、binding types 和 Wrangler dry-run 通过；等待合并后部署 Runtime Worker 并复验真实 catalog。
+- Worker/D1 回归 40/40、TypeScript、binding types 和 Wrangler dry-run 通过；PR #21 合并为 `master@1608146`，Runtime Worker 已更新为 `c7070f63-6a19-494b-bfb5-066758ba8435`。
+- 真实 catalog 已确认 `Create React App Sample` 只保留一条技术记录、LibreOffice 只保留一个主产品和 7 个变体；同时暴露同名 Start Menu 主入口在缺少父产品键时仍可能形成第二条主行。
+- 对“唯一安装产品 + 同名孤立非产品入口”采用安全降级：保留安装产品可管理，孤立入口只作为可能的产品变体进入技术记录；不以名称确认关联，也不删除原始发现事实。
+- 新增 `POSSIBLE_PRODUCT_VARIANT` 固定回归；Worker/D1 41/41、TypeScript、binding types 与 Wrangler dry-run 通过，等待 Worker-only 发布后的真实目录复验。
 
 ## [Windows 2.2.3] — 2026-09-16（本地候选已验证）
 
