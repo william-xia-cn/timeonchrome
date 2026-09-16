@@ -27,7 +27,7 @@ on:
         description: Comma-separated Runtime migration filenames expected to be pending
         type: string
         required: false
-        default: 0008_runtime_application_knowledge.sql
+        default: ''
 
 concurrency:
   group: app-runtime-production
