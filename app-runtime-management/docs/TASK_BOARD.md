@@ -8,13 +8,16 @@
 - [x] additive 0010、Worker v1/v2 兼容及产品级 catalog read model。
 - [x] Console 产品行/变体展开/拆分与来源健康。
 - [x] Windows、Worker、Contracts、Console、WiX、视觉及边界验证。
-- [ ] 合并 master 后按 0010 → Worker → Pages → R2 2.2.2 → HornburgXW 顺序发布验收。
+- [x] 合并 master，应用 0010，部署兼容 Worker 与独立 Runtime Pages，并发布 R2 2.2.2/latest。
+- [ ] HornburgXW 从 2.2.1 原地升级到 2.2.2，完成来源完整扫描和线上产品投影验收。
 
 提交前验证：Windows 106/106、Worker 39/39、contracts 1.3.0 build/compatibility 与 23 组向量、Console unit/视觉、binding types、Wrangler dry-run、边界检查和 `git diff --check` 通过。2.2.2 Burn/MSI 版本与 manifest 哈希一致；内部包仍未签名。
 
 提交前 Plan Conformance Audit：Matched＝产品/变体/技术记录三层模型、来源级扫描结算、v1/v2 兼容、0010、产品级页面投影与 2.2.2 包；Deviated＝无；Missing＝本地实现与验证无缺项，生产发布和 HornburgXW 真机验收按批准顺序待执行；Extra＝无。
 
 PR 首轮 compatibility CI 发现根集成测试仍固定期望 contracts 1.2.0；已同步为批准的 1.3.0 并增加本地复验，不改变 Runtime 产品逻辑或协议内容。
+
+生产证据：PR #18 合并 SHA `38e55f9`，受保护运行 `35080465621`；Runtime Worker `c3880fcb-d08c-4a07-9d3a-302557a79b52`，Runtime Pages `01b4df8b-a863-4545-bb5e-7b19aa833f06`，R2 latest 2.2.2。0010 前后原始账本保持 172 条 / 9,699,431 ms、v2 主账本 4,838 条 / 272,886,272 ms、媒体 0，证明 migration 未改写历史。
 
 边界：不改写 Segment、时长、配额键或历史分类；不修改 Guardian、Santa、Extension、网页账本或 macOS 系统级 Agent。内部包继续 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 

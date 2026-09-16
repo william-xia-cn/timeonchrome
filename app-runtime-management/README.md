@@ -4,7 +4,7 @@
 
 应用目录从“可信入口列表”升级为“安装产品 + 可展开变体 + 技术记录”。Windows 安装产品形成主行，Start Menu、包入口和运行身份作为变体；LibreOffice 等套件默认一行，显式拆分后才独立分类。盘点按来源独立结算，单项坏快捷方式只产生 warning，不再阻断其他来源清理。contracts 目标版本 1.3.0，Runtime additive migration 为 0010，历史 Segment/时长/配额不变。
 
-本地候选已完成 Windows 106/106、Worker 39/39、contracts、Console、WiX、视觉和发布前静态闸门。Burn SHA-256 为 `def05405d100a7f81ac14f979a88a72573485e6e37955cc8fc9f19d154b68b54`；当前尚未应用生产 0010、部署 Worker/Pages、切换 R2 latest 或升级 HornburgXW。
+代码已合并 `master@38e55f9`，生产 0010、Runtime Worker、独立 Runtime Pages 和 R2 latest 2.2.2 已发布。干净 master 重建的 Burn SHA-256 为 `85cc679f8aa61d175f50530fbc7bf7c51904641e3cc1638df14ce15a89db60ca`，MSI SHA-256 为 `6946c4e90bc087cb2ba4087e98db126e12d993c994059c1fd720df6924d3a6aa`。HornburgXW 当前仍为 2.2.1，等待原地升级和真实扫描验收。
 
 ## 当前修复：产品应用投影（ARM-D-013）
 
