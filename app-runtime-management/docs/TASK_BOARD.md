@@ -1,5 +1,15 @@
 # App Runtime 任务板
 
+## NOW：生产主目录明确技术安装包收口
+
+- [x] 线上证据：重复与孤立变体清理后，主目录仍包含 Intel 芯片组/Management Engine/Serial IO、NVIDIA 中文驱动程序、Windows App Cert Kit、Application Compatibility Fix Database 和 Visual Studio Build Tools 等明确技术安装包。
+- [x] 仅把固定、可解释的技术产品名称模式降级为只读 review；名称信号不得删除事实、自动合并产品或覆盖家长明确配置/已确认产品。
+- [x] 固定回归覆盖中英文驱动、芯片组组件、兼容性数据库、认证工具与构建工具，同时证明 NVIDIA App、Intel Arc Control、Visual Studio Code 等真实管理应用不被误降级；Worker 47/47、TypeScript、Wrangler dry-run、边界检查和 `git diff --check` 通过。
+
+边界：只修正 catalog read model 的保守审核信号；不修改扫描器、inventory、Segment、分类、配额、Agent、migration 或其他生产资源。
+
+Plan Conformance Audit（提交闸门）：Matched＝固定技术产品信号只降级 review、明确配置/确认产品优先级不变、真实管理应用负向回归通过、历史事实不变；Deviated＝无；Missing＝无；Extra＝无。生产 Worker 发布与 HornburgXW 回读属于合并后的发布闸门。
+
 ## NOW：生产产品目录聚合优先级补漏
 
 - [x] 线上证据：`Visual Studio Installer` 等维护产品自身已识别为 review，但同组强身份启动入口使聚合结果再次变成 actionable。

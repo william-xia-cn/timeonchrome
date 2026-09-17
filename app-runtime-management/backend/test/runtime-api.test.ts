@@ -976,9 +976,12 @@ describe('Application knowledge and installed inventory', () => {
   });
   it('keeps maintenance installation records in technical review without deleting their evidence', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
-    const products=['Microsoft Visual C++ 2013 Redistributable (x64) - 12.0.40664','Mozilla Maintenance Service'];
+    const products=['Microsoft Visual C++ 2013 Redistributable (x64) - 12.0.40664','Mozilla Maintenance Service',
+      'Intel(R) Chipset Device Software','Intel(R) Management Engine Components','Intel(R) Serial IO',
+      'NVIDIA 图形驱动程序 582.66','Windows App Cert Kit','Microsoft Windows Application Compatibility Fix Database',
+      'Visual Studio 生成工具 2019'];
     const observations=products.map((displayName,index)=>{
-      const productKey=String(index+7).repeat(64);
+      const productKey=(index+7).toString(16).repeat(64);
       return {localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName,
         values:{productKey,productName:displayName},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'installation',
           sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
@@ -1000,8 +1003,26 @@ describe('Application knowledge and installed inventory', () => {
     expect(result.technicalItems.filter(item=>products.includes(item.displayName))).toEqual(expect.arrayContaining(products.map(displayName=>
       expect.objectContaining({displayName,projectionReasonCode:'TECHNICAL_PRODUCT_REVIEW'}))));
     const stored=await env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count FROM runtime_installation_products_v1
-      WHERE display_name IN (?1,?2) AND status='installed'`).bind(...products).first<{count:number}>();
-    expect(stored?.count).toBe(2);
+      WHERE status='installed'`).first<{count:number}>();
+    expect(stored?.count).toBe(products.length);
+  });
+  it('does not demote real management applications that only share a vendor with technical packages', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const names=['NVIDIA App 11.0.5.420','Intel® Arc™ Control','Microsoft Visual Studio Code (User)'];
+    const products=names.map((displayName,index)=>{
+      const productKey=String(index+4).repeat(64);
+      return {localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName,
+        values:{productKey,productName:displayName},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'installation',
+          sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
+        scope:'machine',sourceKind:'registry-machine',status:'installed'};
+    });
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:2,batchId:'real-management-products',products,variants:[]})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string}>;technicalItems:Array<{displayName:string}>;
+    }>();
+    expect(result.items.filter(item=>names.includes(item.displayName))).toHaveLength(names.length);
+    expect(result.technicalItems.filter(item=>names.includes(item.displayName))).toHaveLength(0);
   });
   it('projects decorated-name installation products with no shared proof as one technical ambiguity', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();

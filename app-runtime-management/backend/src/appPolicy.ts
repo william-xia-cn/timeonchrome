@@ -73,7 +73,7 @@ function needsTechnicalProductReview(evidence: AppEvidence): boolean {
   if (evidence.discovery?.objectKind !== 'product' || evidence.discovery.role !== 'application'
       || evidence.discovery.nameSource !== 'installation') return false;
   // Installation names are only a review signal. They never delete evidence or confirm/merge a product.
-  return /\b(?:redistributable|runtime|driver|maintenance\s+service|update\s+service|updater|installer|uninstaller|setup|language\s+pack|debug\s+(?:runtime|symbols?)|sdk|software\s+development\s+kit)\b/iu
+  return /\b(?:redistributable|runtime|driver|maintenance\s+service|update\s+service|updater|installer|uninstaller|setup|language\s+pack|debug\s+(?:runtime|symbols?)|sdk|software\s+development\s+kit|chipset\s+(?:device\s+)?software|management\s+engine\s+components?|serial\s+io|application\s+compatibility\s+fix\s+database|build\s+tools?|app\s+cert(?:ification)?\s+kit|card\s+reader|physx\s+system\s+software)\b|(?:驱动程序|芯片组(?:设备)?软件|管理引擎组件|生成工具|认证工具|PhysX\s*系统软件)/iu
     .test(evidence.displayName);
 }
 
