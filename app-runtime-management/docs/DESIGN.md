@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前修复：生产目录的维护对象与装饰名称降噪
+
+ARM-D-014 的生产复验表明，Windows Uninstall Registry 中部分 redistributable、runtime、maintenance service 和 installer 未设置 `SystemComponent`、`ParentKeyName` 或 `ReleaseType`，因此扫描事实只能证明“存在安装记录”，不能证明其是家长可管理应用。read model 对这类通用维护语义只降为 `review` 技术记录，不删除、不标记卸载，也不自动确认产品。
+
+同一平台只有一个可管理安装产品时，孤立入口若与产品名仅存在版本号、架构、Preview/渠道等装饰差异，可共用“可能产品变体”投影，避免形成第二条主行。该投影不创建持久关联、不继承分类、不改写产品 ID；出现多个候选产品时继续保持歧义并进入技术记录。跨来源真正合并仍要求 `productKey`、package identity、binary hash 或人工确认等可靠依据。
+
 ## 当前修复：ARM-D-014 产品级目录与来源级盘点
 
 Windows 目录升级为 `InstallationProduct -> ApplicationVariant -> TechnicalRecord` 三层。安装产品来自可信 Uninstall Registry/MSIX 记录；启动入口和运行身份只作为变体关联到产品。主目录以可管理产品为单位计数，套件默认一行，显式拆分的变体才单独参与孩子分类。无法确认归属的浏览器宿主/PWA、维护入口和系统组件进入技术记录。

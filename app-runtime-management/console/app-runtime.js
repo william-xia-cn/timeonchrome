@@ -9,6 +9,9 @@
     COMPONENT: '明确的组件或辅助入口，不作为独立产品管理',
     DISCOVERY_CANDIDATE: '只有弱安装线索，等待可靠身份或家长确认',
     TECHNICAL_IDENTITY_ONLY: '只有技术进程或历史使用身份，尚未识别为产品',
+    TECHNICAL_PRODUCT_REVIEW: '安装记录具有维护、运行库或安装器语义，等待家长确认',
+    AMBIGUOUS_INSTALLATION_PRODUCTS: '多个安装记录同名但缺少可靠关联，不能自动合并',
+    POSSIBLE_PRODUCT_VARIANT: '可能属于现有安装产品，缺少可靠关联，未单独列入主目录',
   };
   const viewText = {
     usage: ['使用统计', '查看电脑应用主使用账本'], access: ['应用访问管理', '管理独立配额、七天时间段和配置文件'],
@@ -112,7 +115,8 @@
       state.catalog.items.push(fixture('fixture:unused','已安装未使用播放器','application'));
       state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'记事本',classification:'unclassified',installationState:'installed',observedInWindow:true,mainDurationMs:180000,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:notepad-main',displayName:'记事本'}],variants:[{displayName:'记事本',platform:'windows',variantRole:'main',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
       state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'LibreOffice',classification:'unclassified',installationState:'installed',observedInWindow:false,mainDurationMs:0,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:writer',displayName:'LibreOffice Writer'},{platform:'windows',runtimeIdentity:'fixture:calc',displayName:'LibreOffice Calc'}],variants:[{displayName:'LibreOffice Writer',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Calc',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Safe Mode',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
-      state.catalog.technicalItems.push(fixture('fixture:helper','隐藏组件入口','component'),fixture('fixture:candidate','弱安装候选','candidate'));
+      state.catalog.technicalItems.push(fixture('fixture:helper','隐藏组件入口','component'),fixture('fixture:candidate','弱安装候选','candidate'),
+        {...fixture('fixture:runtime','Microsoft Visual C++ Redistributable','candidate'),projectionReasonCode:'TECHNICAL_PRODUCT_REVIEW'});
       state.catalog.inventoryScans=[{machineName:'受控测试电脑',status:'syncing',receivedBatches:1,expectedBatches:3,observationCount:401,failedSources:[],updatedAtMs:Date.now()},{machineName:'受控测试电脑',status:'completeWithWarnings',receivedBatches:2,expectedBatches:2,observationCount:24,failedSources:[],sourceResults:[{source:'registry-machine',status:'complete',warningCodes:[]},{source:'start-menu-common',status:'complete_with_warnings',warningCodes:['SHORTCUT_TARGET_UNAVAILABLE']}],updatedAtMs:Date.now()},{machineName:'旧版测试电脑',status:'unverified',receivedBatches:0,expectedBatches:0,observationCount:0,failedSources:[],updatedAtMs:null}];
     }
     state.runtimeLogs = { range: 'today', nextCursor: null, summary: { total: 4, error: 1, warning: 1, info: 2 }, items: [

@@ -33,7 +33,7 @@ type CatalogProjection = {
   manageability: CatalogManageability;
   projectionReasonCode: 'CONFIRMED_PRODUCT' | 'EXPLICIT_APPLICATION_CLASSIFICATION' | 'VERIFIED_APPLICATION'
     | 'INSTALLATION_PRODUCT' | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY'
-    | 'AMBIGUOUS_INSTALLATION_PRODUCTS' | 'POSSIBLE_PRODUCT_VARIANT';
+    | 'AMBIGUOUS_INSTALLATION_PRODUCTS' | 'POSSIBLE_PRODUCT_VARIANT' | 'TECHNICAL_PRODUCT_REVIEW';
 };
 
 type CatalogEntry = CatalogProjection & {
@@ -57,18 +57,40 @@ function normalizedCatalogDisplayName(evidence: AppEvidence): string {
   return evidence.displayName.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function normalizedCatalogFamilyHint(evidence: AppEvidence): string {
+  let value = normalizedCatalogDisplayName(evidence).normalize('NFKC')
+    .replace(/[™®©]/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  const decoration = /\s*\((?:(?:32|64)[ -]?bit(?:\s+(?:x86|x64|arm64))?|x86|x64|arm64|preview|beta|stable|desktop|store)(?:[\s,/+_-]+(?:(?:32|64)[ -]?bit|x86|x64|arm64|preview|beta|stable|desktop|store))*\)\s*$/iu;
+  while (decoration.test(value)) value = value.replace(decoration, '').trim();
+  value = value.replace(/(?:\s+|\s*[-–—]\s*)v?\d+(?:\.\d+){1,4}(?:[-+][a-z0-9.-]+)?\s*$/iu, '').trim();
+  return value;
+}
+
+function needsTechnicalProductReview(evidence: AppEvidence): boolean {
+  if (evidence.discovery?.objectKind !== 'product' || evidence.discovery.role !== 'application'
+      || evidence.discovery.nameSource !== 'installation') return false;
+  // Installation names are only a review signal. They never delete evidence or confirm/merge a product.
+  return /\b(?:redistributable|runtime|driver|maintenance\s+service|update\s+service|updater|installer|uninstaller|setup|language\s+pack|debug\s+(?:runtime|symbols?)|sdk|software\s+development\s+kit)\b/iu
+    .test(evidence.displayName);
+}
+
 function projectCatalogEvidence(
   evidence: AppEvidence | undefined,
   productId: string | null,
   explicitlyConfigured: boolean,
 ): CatalogProjection {
   if (productId) return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'CONFIRMED_PRODUCT' };
+  if (explicitlyConfigured) {
+    return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'EXPLICIT_APPLICATION_CLASSIFICATION' };
+  }
+  if (evidence && needsTechnicalProductReview(evidence)) {
+    return { catalogKind: 'candidate', manageability: 'review', projectionReasonCode: 'TECHNICAL_PRODUCT_REVIEW' };
+  }
   if (evidence?.discovery?.objectKind === 'product' && evidence.discovery.role === 'application'
       && evidence.verifiedFields.includes('productKey')) {
     return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'INSTALLATION_PRODUCT' };
-  }
-  if (explicitlyConfigured) {
-    return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'EXPLICIT_APPLICATION_CLASSIFICATION' };
   }
   if (evidence?.discovery?.role === 'application' && hasStrongApplicationIdentity(evidence)) {
     return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'VERIFIED_APPLICATION' };
@@ -830,13 +852,20 @@ export async function queryAppCatalog(
   const associations = associateApplicationEvidence([...inventory.values()].map(item=>item.evidence)
     .filter(evidence=>evidence.discovery?.role!=='component'&&evidence.discovery?.role!=='candidate'&&hasStrongApplicationIdentity(evidence)));
   const productsByDisplayName = new Map<string,AppEvidence[]>();
+  const productsByFamilyHint = new Map<string,AppEvidence[]>();
   for (const item of inventory.values()) {
     const evidence=item.evidence;
-    if (!item.installed || evidence.discovery?.objectKind!=='product' || evidence.discovery.role!=='application') continue;
+    if (!item.installed || evidence.discovery?.objectKind!=='product' || evidence.discovery.role!=='application'
+        || projectCatalogEvidence(evidence,null,false).manageability!=='actionable') continue;
     const name=normalizedCatalogDisplayName(evidence);
     if (!name) continue;
     const key=`${evidence.platform}\n${name}`, group=productsByDisplayName.get(key)??[];
     group.push(evidence); productsByDisplayName.set(key,group);
+    const family=normalizedCatalogFamilyHint(evidence);
+    if (family) {
+      const familyKey=`${evidence.platform}\n${family}`, familyGroup=productsByFamilyHint.get(familyKey)??[];
+      familyGroup.push(evidence); productsByFamilyHint.set(familyKey,familyGroup);
+    }
   }
   const ambiguousDisplayNames = new Set([...productsByDisplayName.entries()]
     .filter(([,group])=>new Set(group.map(item=>associations.get(`${item.platform}\n${item.runtimeIdentity}`)
@@ -849,7 +878,7 @@ export async function queryAppCatalog(
       ambiguityByIdentity.set(`${evidence.platform}\n${evidence.runtimeIdentity}`,`ambiguous-installation:${displayKey}`);
   }
   const possibleVariantByIdentity = new Map<string,string>();
-  for (const [displayKey, products] of productsByDisplayName) {
+  for (const [displayKey, products] of productsByFamilyHint) {
     if (products.length !== 1) continue;
     const installationProduct = products[0]!;
     const productIdentityKey = `${installationProduct.platform}\n${installationProduct.runtimeIdentity}`;
@@ -858,7 +887,7 @@ export async function queryAppCatalog(
       const evidence = item.evidence;
       const identityKey = `${evidence.platform}\n${evidence.runtimeIdentity}`;
       if (!item.installed || evidence.discovery?.objectKind === 'product'
-          || `${evidence.platform}\n${normalizedCatalogDisplayName(evidence)}` !== displayKey) continue;
+          || `${evidence.platform}\n${normalizedCatalogFamilyHint(evidence)}` !== displayKey) continue;
       const evidenceRoot = associations.get(identityKey) ?? identityKey;
       if (evidenceRoot !== productRoot) {
         possibleVariantByIdentity.set(identityKey, `possible-product-variant:${displayKey}`);
