@@ -19,6 +19,10 @@ const evidence = {platform:'windows',runtimeIdentity:'opaque',displayName:'App',
 assert.deepEqual(parseAppEvidence(evidence),evidence);
 const discovery = {role:'component',nameSource:'fallback',sourceKinds:['package']};
 assert.deepEqual(parseAppEvidence({...evidence,discovery}).discovery,discovery);
+const systemDiscovery = {role:'application',nameSource:'appList',sourceKinds:['package'],applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule'};
+assert.deepEqual(parseAppEvidence({...evidence,discovery:systemDiscovery}).discovery,systemDiscovery);
+assert.deepEqual(parseAppEvidence({...evidence,discovery:{...discovery,applicationOrigin:'unknown'}}).discovery.applicationOrigin,'unknown');
+assert.throws(()=>parseAppEvidence({...evidence,discovery:{...discovery,originEvidenceCode:'exactPackageRule'}}),/INVALID_DISCOVERY_SUMMARY/);
 assert.throws(()=>parseAppEvidence({...evidence,discovery:{...discovery,path:'C:/private'}}),/INVALID_DISCOVERY_SUMMARY/);
 const packaged = {...evidence,runtimeIdentity:'package-main',values:{packageId:'Fixture!Main'},verifiedFields:['packageId']};
 const runtime = {...packaged,runtimeIdentity:'old-binary-id',values:{packageId:'Fixture!Main',binaryHash:'a'.repeat(64)},verifiedFields:['packageId','binaryHash']};

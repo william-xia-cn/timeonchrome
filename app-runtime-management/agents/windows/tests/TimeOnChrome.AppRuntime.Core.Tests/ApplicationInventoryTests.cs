@@ -81,6 +81,34 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.Equal("helper",variants.Single(item=>item.Evidence.Discovery!.Role=="component").VariantRole);
     }
     [Theory]
+    [InlineData("MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe",true)]
+    [InlineData("microsoft.windowsnotepad_8wekyb3d8bbwe",true)]
+    [InlineData("Microsoft.WindowsCalculator_8wekyb3d8bbwe",true)]
+    [InlineData("Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe",false)]
+    [InlineData("MSTeams_8wekyb3d8bbwe",false)]
+    [InlineData("ThirdParty.QuickAssist_fixture",false)]
+    public void OnlyControlledExactPackageFamiliesProveSystemApplicationOrigin(string family,bool expected) =>
+        Assert.Equal(expected,WindowsApplicationDiscovery.IsControlledSystemApplicationPackage(family));
+    [Fact]
+    public void PackageDisplayNameOrMicrosoftPublisherFamilyDoesNotProveSystemOrigin()
+    {
+        const string xml="""
+            <Package xmlns:uap="urn:fixture"><Applications>
+              <Application Id="App"><uap:VisualElements DisplayName="Quick Assist" /></Application>
+            </Applications></Package>
+            """;
+        var quick=Assert.Single(WindowsApplicationDiscovery.ParsePackageManifest(xml,
+            "MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe","Quick Assist"));
+        Assert.Equal("operatingSystem",quick.Evidence.Discovery!.ApplicationOrigin);
+        Assert.Equal("exactPackageRule",quick.Evidence.Discovery.OriginEvidenceCode);
+        foreach(var family in new[]{"ThirdParty.QuickAssist_fixture","Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe","MSTeams_8wekyb3d8bbwe"})
+        {
+            var ordinary=Assert.Single(WindowsApplicationDiscovery.ParsePackageManifest(xml,family,"Quick Assist"));
+            Assert.Null(ordinary.Evidence.Discovery!.ApplicationOrigin);
+            Assert.Null(ordinary.Evidence.Discovery.OriginEvidenceCode);
+        }
+    }
+    [Theory]
     [InlineData(1,false,false,true)]
     [InlineData(0,true,false,true)]
     [InlineData(0,false,true,true)]

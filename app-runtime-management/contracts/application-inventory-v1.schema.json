@@ -17,7 +17,9 @@
       "properties": {
         "role":{"enum":["application","component","candidate"]},
         "nameSource":{"enum":["appList","manifest","fileMetadata","installation","fallback"]},
-        "sourceKinds":{"type":"array","maxItems":4,"uniqueItems":true,"items":{"enum":["package","registry","shortcut","runtime"]}}
+        "sourceKinds":{"type":"array","maxItems":4,"uniqueItems":true,"items":{"enum":["package","registry","shortcut","runtime"]}},
+        "applicationOrigin":{"enum":["user","operatingSystem","unknown"]},
+        "originEvidenceCode":{"enum":["exactPackageRule","osMetadata","reviewedSystemBinary"]}
       }
     },
     "evidence": {

@@ -1,5 +1,13 @@
 # App Runtime 技术设计
 
+## 当前扩展：ARM-D-015 普通应用与系统应用分组
+
+目录投影在既有 `manageability = actionable | review | hidden` 之外增加正交来源 `applicationOrigin = user | operatingSystem | unknown`。`actionable + operatingSystem` 进入系统应用组；其余 actionable 对象进入普通应用组；review/hidden 仍进入技术记录。该来源只影响展示分组，不替代孩子分类、产品类型或配额键。
+
+contracts `1.5.0` 为 `ApplicationDiscoverySummary` 增加可选 `applicationOrigin` 与 `originEvidenceCode`。Windows Agent 只能基于受控精确包身份、可信 OS 元数据或已审核系统二进制规则产生 `operatingSystem`；名称、路径和 Microsoft 发布者不能单独命中。旧 Agent 缺少字段时按 `unknown` 兼容。inventory 证据继续保存于现有 JSON 列，因此不新增 migration；发布顺序必须为兼容 Worker 在前、Agent 在后。
+
+`GET /v2/module/app-catalog` 为可管理条目返回来源与证据原因。Console 在每个孩子分类内分别渲染普通应用和系统应用，系统组默认折叠并在搜索命中时展开。两组使用相同分类和策略写入路径；本轮不新增应用阻止，也不修改 UsageSegment、媒体账本、配额计算或历史投影。
+
 ## 当前修复：游戏候选与 SSO 启动孩子
 
 应用目录区分“产品类型提示”和“孩子实际分类”。`Aimlabs`、`Apex Legends` 等由受控确定名称规则命中的产品可显示 `game` 高置信候选及“建议归为受限娱乐”，但仍保持当前孩子的既有分类；只有家长明确配置或已批准自动规则才能改变分类、配额桶与后续 Segment。名称规则采用规范化后的精确产品名，不以模糊包含匹配扩大命中范围。

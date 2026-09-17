@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.4.0');
+assert.equal(pkg.version, '1.5.0');
 for (const file of legacy) assert(fs.existsSync(path.join(root, file)), `${file} must remain for N-1 compatibility`);
 const sso = JSON.parse(fs.readFileSync(path.join(root, 'runtime-browser-sso-v1.schema.json'), 'utf8'));
 const inventoryV2 = JSON.parse(fs.readFileSync(path.join(root, 'application-inventory-v2.schema.json'), 'utf8'));
@@ -22,4 +22,6 @@ assert.equal(sso.$defs.sessionResponse.properties.selectedChildId.type, 'string'
 assert.equal(inventoryV2.properties.schemaVersion.const, 2);
 assert.deepEqual(inventoryV2.required, ['schemaVersion', 'batchId', 'products', 'variants']);
 assert(inventoryV2.$defs.scan.required.includes('sourceResults'));
+assert.deepEqual(inventoryV2.$defs.discovery.properties.applicationOrigin.enum, ['user', 'operatingSystem', 'unknown']);
+assert.deepEqual(inventoryV2.$defs.discovery.properties.originEvidenceCode.enum, ['exactPackageRule', 'osMetadata', 'reviewedSystemBinary']);
 console.log('app-runtime contract compatibility: PASS');

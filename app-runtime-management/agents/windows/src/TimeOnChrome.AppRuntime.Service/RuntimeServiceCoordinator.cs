@@ -912,7 +912,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.3",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.4",
                 Environment.OSVersion.VersionString,
                 RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                 tamperCount,
@@ -989,7 +989,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await terminalLogs.WriteAsync(level, category, eventCode, module, messageCode, details,
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.3",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.2.4",
                 remoteEligible ? appliedPolicy?.Policy.LoggingPolicy : null,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellation.Token).ConfigureAwait(false);
         }

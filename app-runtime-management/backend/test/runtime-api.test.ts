@@ -856,6 +856,52 @@ describe('Application knowledge and installed inventory', () => {
     expect(result.inventoryScans).toEqual([expect.objectContaining({status:'partial',sourceResults:expect.arrayContaining([expect.objectContaining({source:'start-menu-common',status:'complete_with_warnings'})])})]);
   });
 
+  it('projects strong operating-system evidence separately without guessing legacy or Microsoft applications', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const makeKey=(digit:string)=>digit.repeat(64);
+    const makeEvidence=(productKey:string,displayName:string,origin?:'operatingSystem')=>({
+      platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName,
+      values:{productKey,productName:displayName},verifiedFields:['productKey'],
+      discovery:{role:'application',nameSource:'installation',sourceKinds:['package'],objectKind:'product',variantRole:'unknown',
+        scope:'user',sourceKind:'user-packages',evidenceLevel:'strong',
+        ...(origin?{applicationOrigin:origin,originEvidenceCode:'exactPackageRule'}:{})},
+    });
+    const products=[
+      {key:makeKey('1'),name:'快速助手',origin:'operatingSystem' as const},
+      {key:makeKey('2'),name:'Microsoft Office'},
+      {key:makeKey('3'),name:'Microsoft Teams'},
+      {key:makeKey('4'),name:'第三方 Quick Assist'},
+    ];
+    const maintenanceKey=makeKey('5');
+    const scan={scanId:'e'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:products.length,variantCount:1,
+      sourceResults:[{source:'user-packages',status:'complete',observationCount:products.length+1,warningCodes:[]}],completed:false};
+    const payload={schemaVersion:2,batchId:'system-origin-products',products:products.map(item=>({localUserId,productKey:item.key,
+      evidence:makeEvidence(item.key,item.name,item.origin),scope:'user',sourceKind:'user-packages',status:'installed'})),variants:[{
+      localUserId,variantKey:'system-maintenance',parentProductKey:maintenanceKey,
+      evidence:{...makeEvidence(maintenanceKey,'Windows Update Helper','operatingSystem'),runtimeIdentity:'system-maintenance',
+        discovery:{...makeEvidence(maintenanceKey,'Windows Update Helper','operatingSystem').discovery,objectKind:'variant',
+          parentProductKey:maintenanceKey,variantRole:'maintenance',role:'component'}},
+      variantRole:'maintenance',scope:'user',sourceKind:'user-packages',status:'installed',
+    }],scan};
+    const upload=(body:unknown)=>call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    expect((await upload(payload)).status).toBe(200);
+    expect((await upload({...payload,batchId:'system-origin-finish',products:[],variants:[],scan:{...scan,batchIndex:1,completed:true}})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string;applicationOrigin:string;originEvidenceCode:string|null;classification:string}>;
+      technicalItems:Array<{displayName:string;applicationOrigin:string}>;
+    }>();
+    expect(result.items.find(item=>item.displayName==='快速助手')).toMatchObject({
+      applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',classification:'unclassified',
+    });
+    for(const name of ['Microsoft Office','Microsoft Teams','第三方 Quick Assist']){
+      expect(result.items.find(item=>item.displayName===name)).toMatchObject({applicationOrigin:'unknown',originEvidenceCode:null});
+    }
+    expect(result.technicalItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({displayName:'Windows Update Helper',applicationOrigin:'operatingSystem'}),
+    ]));
+    expect(result.items.some(item=>item.displayName==='Windows Update Helper')).toBe(false);
+  });
+
   it('accepts legacy SSO tickets without a selected Child and rejects foreign selected context', async () => {
     const now = Math.floor(Date.now() / 1000);
     const legacy = await token({ aud: 'app-runtime-management:sso', children: [{ id: 'child-a', name: 'Child' }], iat: now, exp: now + 60 });

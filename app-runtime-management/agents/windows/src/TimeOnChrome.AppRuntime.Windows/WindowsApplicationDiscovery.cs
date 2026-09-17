@@ -22,6 +22,15 @@ public sealed record ApplicationDiscoveryResult(IReadOnlyList<DiscoveredApplicat
 public sealed class WindowsApplicationDiscovery
 {
     private const string Uninstall = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+    private static readonly HashSet<string> ControlledSystemApplicationPackageFamilies = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe",
+        "Microsoft.WindowsNotepad_8wekyb3d8bbwe",
+        "Microsoft.WindowsCalculator_8wekyb3d8bbwe",
+    };
+
+    public static bool IsControlledSystemApplicationPackage(string? packageFamily) =>
+        !string.IsNullOrWhiteSpace(packageFamily) && ControlledSystemApplicationPackageFamilies.Contains(packageFamily);
     public string ChangeStamp()
     {
         var entries = new List<string>();
@@ -228,8 +237,15 @@ public sealed class WindowsApplicationDiscovery
             if (items.Any(item => item.Evidence.VerifiedFields.Contains(field))) verified.Add(field);
         }
         var role = items.Any(item => item.Evidence.Discovery?.Role == "application") ? "application" : first.Evidence.Discovery?.Role ?? "candidate";
+        var origins = items.Select(item => item.Evidence.Discovery?.ApplicationOrigin)
+            .Where(value => value is not null and not "unknown").Distinct(StringComparer.Ordinal).ToArray();
+        var origin = origins.Length == 1 ? origins[0] : origins.Length > 1 ? "unknown" : first.Evidence.Discovery?.ApplicationOrigin;
+        var originCodes = items.Where(item => item.Evidence.Discovery?.ApplicationOrigin == origin)
+            .Select(item => item.Evidence.Discovery?.OriginEvidenceCode).Where(value => value is not null)
+            .Distinct(StringComparer.Ordinal).ToArray();
         return first with { Evidence = first.Evidence with { Values = values, VerifiedFields = verified,
-            Discovery = (first.Evidence.Discovery ?? new(role, "fallback", sources)) with { Role = role, SourceKinds = sources } } };
+            Discovery = (first.Evidence.Discovery ?? new(role, "fallback", sources)) with { Role = role, SourceKinds = sources,
+                ApplicationOrigin = origin, OriginEvidenceCode = originCodes.Length == 1 ? originCodes[0] : null } } };
     }
 
     /// <summary>Pure parser: a package is not a product; visible entrypoints stay separate.</summary>
@@ -238,6 +254,7 @@ public sealed class WindowsApplicationDiscovery
     {
         var manifest = XDocument.Parse(xml);
         var result = new List<DiscoveredApplication>();
+        var systemApplication = IsControlledSystemApplicationPackage(family);
         foreach (var app in manifest.Descendants().Where(element => element.Name.LocalName == "Application"))
         {
             var appId = (string?)app.Attribute("Id"); if (string.IsNullOrWhiteSpace(appId)) continue;
@@ -252,7 +269,9 @@ public sealed class WindowsApplicationDiscovery
             result.Add(new(new AppEvidence("windows", identity.RuntimeIdentity, name,
                 new Dictionary<string,string> { ["packageId"] = aumid, ["productKey"] = parentProductKey ?? WindowsApplicationEvidence.Hash("package:" + family) }, ["packageId", "productKey"],
                 Discovery: new(role, !string.IsNullOrWhiteSpace(friendly) ? "appList" : literal ? "manifest" : "fallback", ["package"],
-                    "variant", parentProductKey, role == "component" ? "helper" : "main", "user", "user-packages", role == "component" ? "review" : "strong")),
+                    "variant", parentProductKey, role == "component" ? "helper" : "main", "user", "user-packages", role == "component" ? "review" : "strong",
+                    systemApplication && role == "application" ? "operatingSystem" : null,
+                    systemApplication && role == "application" ? "exactPackageRule" : null)),
                 "installed", "user-packages", "user", parentProductKey, role == "component" ? "helper" : "main"));
         }
         return result;
@@ -324,11 +343,14 @@ public sealed class WindowsApplicationDiscovery
                 var fallbackName = package.GetProperty("Name").GetString() ?? "Windows application";
                 var parsed = ParsePackageManifest(File.ReadAllText(manifestPath), family, fallbackName, appListNames, productKey);
                 var visible = parsed.Any(item => item.Evidence.Discovery?.Role == "application");
+                var systemApplication = IsControlledSystemApplicationPackage(family);
                 var productEvidence = new AppEvidence("windows", "windows:product:" + productKey,
                     parsed.FirstOrDefault(item => item.Evidence.Discovery?.Role == "application")?.Evidence.DisplayName ?? fallbackName,
                     new Dictionary<string,string> { ["packageId"] = family, ["productKey"] = productKey, ["productName"] = fallbackName },
                     ["packageId", "productKey"], Discovery: new(visible ? "application" : "component", "installation", ["package"],
-                        "product", null, "unknown", "user", "user-packages", "strong"));
+                        "product", null, "unknown", "user", "user-packages", "strong",
+                        systemApplication && visible ? "operatingSystem" : null,
+                        systemApplication && visible ? "exactPackageRule" : null));
                 products.Add(new(productEvidence, "installed", "user-packages", "user", null, "unknown", true));
                 variants.AddRange(parsed);
             }

@@ -17,10 +17,18 @@ public static class WindowsApplicationEvidence
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         { ["binaryHash"] = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant() };
         var verified = new List<string> { "binaryHash" };
+        string? applicationOrigin = null, originEvidenceCode = null;
         if(packageIdentity is not null && string.Equals(Path.GetFullPath(path),Path.GetFullPath(packageIdentity.ExecutablePath),StringComparison.OrdinalIgnoreCase))
         {
             values["packageId"]=packageIdentity.Aumid;
             verified.Add("packageId");
+            var separator = packageIdentity.Aumid.IndexOf('!');
+            var family = separator > 0 ? packageIdentity.Aumid[..separator] : null;
+            if (WindowsApplicationDiscovery.IsControlledSystemApplicationPackage(family))
+            {
+                applicationOrigin = "operatingSystem";
+                originEvidenceCode = "exactPackageRule";
+            }
         }
         var version = FileVersionInfo.GetVersionInfo(path);
         if (!string.IsNullOrWhiteSpace(version.ProductName)) values["productName"] = version.ProductName;
@@ -33,7 +41,8 @@ public static class WindowsApplicationEvidence
         }
         return new AppEvidence("windows", identity.RuntimeIdentity,
             string.IsNullOrWhiteSpace(displayName) ? version.ProductName ?? identity.DisplayName ?? "Windows application" : displayName,
-            values, verified, Discovery: new("application", "fileMetadata", ["runtime"]));
+            values, verified, Discovery: new("application", "fileMetadata", ["runtime"],
+                ApplicationOrigin: applicationOrigin, OriginEvidenceCode: originEvidenceCode));
     }
 
     public static string Hash(string value) => Hash(Encoding.UTF8.GetBytes(value));

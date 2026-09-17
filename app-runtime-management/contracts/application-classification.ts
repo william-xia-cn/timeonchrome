@@ -1,6 +1,8 @@
 export type AppPlatform = 'windows' | 'macos';
 export type AppType = 'game' | 'gameLauncher' | 'onlineVideo' | 'mediaPlayer' | 'other' | 'unknown';
 export type AppClass = 'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'blocked';
+export type ApplicationOrigin = 'user' | 'operatingSystem' | 'unknown';
+export type ApplicationOriginEvidenceCode = 'exactPackageRule' | 'osMetadata' | 'reviewedSystemBinary';
 export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'productKey' | 'hostedAppId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
 export interface ApplicationDiscoverySummary {
   role: 'application' | 'component' | 'candidate';
@@ -12,6 +14,8 @@ export interface ApplicationDiscoverySummary {
   scope?: 'machine' | 'user';
   sourceKind?: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime';
   evidenceLevel?: 'strong' | 'review' | 'weak';
+  applicationOrigin?: ApplicationOrigin;
+  originEvidenceCode?: ApplicationOriginEvidenceCode;
 }
 export interface AppEvidence {
   platform: AppPlatform;

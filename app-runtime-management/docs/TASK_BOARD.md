@@ -1,5 +1,16 @@
 # App Runtime 任务板
 
+## NOW：普通应用与系统应用分组（ARM-D-015）
+
+- [x] contracts `1.5.0` 增加兼容的 `applicationOrigin` / `originEvidenceCode`，旧盘点缺失字段时不猜测系统归属。
+- [x] Runtime Worker 在可管理性之外投影普通应用和系统应用，技术记录边界不变；无 D1 migration。
+- [x] Windows 2.2.4 使用精确包身份、可信 OS 元数据或已审核规则识别系统应用；名称、路径和 Microsoft 发布者不能单独命中。
+- [x] Console 在五分类内同页显示普通应用与系统应用，系统应用默认折叠、搜索命中自动展开，分类操作保持一致。
+- [x] 固定回归覆盖 Quick Assist、同名第三方、Office/Teams、记事本/计算器、技术组件和旧 Agent；桌面/移动截图、typecheck、Worker/Windows 测试、Wrangler dry-run 与范围审计通过。
+- [ ] 从干净 `master` 按兼容 Worker → 独立 Runtime Pages → Windows 2.2.4 顺序发布并完成线上/真机验收。
+
+边界：只改变目录来源投影和展示分组；不修改账本、配额计算、历史 Segment、Guardian、Santa、Extension、网站管理或 macOS Agent。
+
 ## NOW：游戏候选提示与 SSO 孩子上下文修复
 
 - [x] contracts `1.4.0` 以可选字段增加签名启动孩子和 browser-session 初始孩子；旧 ticket/session 保持兼容。

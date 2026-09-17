@@ -1,5 +1,14 @@
 # App Runtime Changelog
 
+## [Windows 2.2.4 / contracts 1.5.0 / 系统应用分组] — 2026-09-18（发布候选）
+
+- 增加普通应用、系统应用与技术记录的正交投影；系统应用仍可分类和配置配额。
+- Windows 仅使用强平台证据识别系统应用，名称、路径或 Microsoft 发布者不能单独命中。
+- 应用管理在五分类内同页双分组；系统组默认折叠、搜索命中自动展开。
+- 无 D1 migration，不修改账本、历史 Segment 或配额计算。
+- Contracts、Worker 50 项、Windows 117 项、Console 桌面/移动视觉、边界检查、TypeScript 和 Wrangler dry-run 已通过；等待从干净 `master` 按 Worker → Pages → Agent 顺序发布。
+- 内部未签名 2.2.4 候选已生成：Burn SHA-256 `cd4a3e03d4f61a6d86113d835500613e0243634edc04e1ec617c1728abb58181`，MSI SHA-256 `edc6a18dcc64adecf132ae4ff36c74890b769a8c27b80ef0dc82efadd3425293`；继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+
 ## [contracts 1.4.0 / 游戏候选与 SSO 孩子上下文] — 2026-09-18（本地候选）
 
 - `Aimlabs`、`Apex Legends` 以规范化精确名称显示高置信游戏候选和受限娱乐建议；不自动改变分类、配额或历史账本。

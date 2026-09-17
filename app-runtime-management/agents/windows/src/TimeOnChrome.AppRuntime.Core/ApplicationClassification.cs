@@ -6,7 +6,8 @@ public sealed record AppProductSelector(string Platform, AppMatchExpression Matc
 public sealed record AppProduct(string Id, string Name, string Type, IReadOnlyList<AppProductSelector> Selectors);
 public sealed record ApplicationDiscoverySummary(string Role, string NameSource, IReadOnlyList<string> SourceKinds,
     string? ObjectKind = null, string? ParentProductKey = null, string? VariantRole = null,
-    string? Scope = null, string? SourceKind = null, string? EvidenceLevel = null);
+    string? Scope = null, string? SourceKind = null, string? EvidenceLevel = null,
+    string? ApplicationOrigin = null, string? OriginEvidenceCode = null);
 public sealed record AppEvidence(string Platform, string RuntimeIdentity, string DisplayName,
     IReadOnlyDictionary<string, string> Values, IReadOnlyList<string> VerifiedFields, string? ProductId = null,
     ApplicationDiscoverySummary? Discovery = null);

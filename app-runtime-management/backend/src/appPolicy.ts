@@ -16,7 +16,7 @@ import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
 import { identifyProducts, resolveApplication, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { queryInventoryScanStatus } from './applicationKnowledge';
-import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
+import type { AppEvidence, ApplicationOrigin, ApplicationOriginEvidenceCode } from '@timeonchrome/app-runtime-contracts/classification';
 
 const classifications = new Set<ApplicationClassification>([
   'study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked',
@@ -43,6 +43,8 @@ type CatalogEntry = CatalogProjection & {
   displayName: string | null;
   productId: string | null;
   classification: ApplicationClassification;
+  applicationOrigin: ApplicationOrigin;
+  originEvidenceCode: ApplicationOriginEvidenceCode | null;
   runtimeImplementations?: Array<{ platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null }>;
   [key: string]: unknown;
 };
@@ -730,11 +732,16 @@ export async function queryClassificationRecords(
   }
   const catalog = await queryAppCatalog(database, accountId, childId, nowMs, platform);
   const actionableKeys = new Set<string>();
+  const actionableByKey = new Map<string, CatalogEntry>();
   for (const item of catalog.items as CatalogEntry[]) {
     for (const implementation of item.runtimeImplementations ?? []) {
-      actionableKeys.add(`${implementation.platform}\n${implementation.runtimeIdentity}`);
+      const implementationKey = `${implementation.platform}\n${implementation.runtimeIdentity}`;
+      actionableKeys.add(implementationKey); actionableByKey.set(implementationKey, item);
     }
-    if (item.runtimeIdentity) actionableKeys.add(`${item.platform}\n${item.runtimeIdentity}`);
+    if (item.runtimeIdentity) {
+      const itemKey = `${item.platform}\n${item.runtimeIdentity}`;
+      actionableKeys.add(itemKey); actionableByKey.set(itemKey, item);
+    }
   }
   const technicalByKey = new Map<string, CatalogEntry>();
   for (const item of catalog.technicalItems as CatalogEntry[]) {
@@ -760,6 +767,8 @@ export async function queryClassificationRecords(
       manageability: actionableKeys.has(key) ? 'actionable' : projection?.manageability ?? 'review',
       catalogKind: projection?.catalogKind ?? (actionableKeys.has(key) ? 'application' : 'unresolved'),
       projectionReasonCode: projection?.projectionReasonCode ?? (actionableKeys.has(key) ? 'VERIFIED_APPLICATION' : 'TECHNICAL_IDENTITY_ONLY'),
+      applicationOrigin: actionableByKey.get(key)?.applicationOrigin ?? projection?.applicationOrigin ?? 'unknown',
+      originEvidenceCode: actionableByKey.get(key)?.originEvidenceCode ?? projection?.originEvidenceCode ?? null,
     };
   }).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
   const manageable = records.filter((record) => record.manageability === 'actionable');
@@ -950,6 +959,8 @@ export async function queryAppCatalog(
       productType,
       suggestedClassification: productTypeSuggestion ? 'restrictedEntertainment' as const : null,
       productTypeReason: product?.type ? '家庭产品知识' : productTypeSuggestion ? '受控产品名称精确匹配' : null,
+      applicationOrigin: found?.evidence.discovery?.applicationOrigin ?? 'unknown',
+      originEvidenceCode: found?.evidence.discovery?.originEvidenceCode ?? null,
       installationState: found?.installed ? 'installed' : observed ? 'usedNotDiscovered' : 'preconfigured',
       firstSeenAtMs: observed?.firstSeenAtMs ?? null,
       lastSeenAtMs: observed?.lastSeenAtMs ?? null,
@@ -969,6 +980,7 @@ export async function queryAppCatalog(
       items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
         classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
         productType:product!.type,suggestedClassification:null,productTypeReason:'家庭产品知识',
+        applicationOrigin:'unknown' as const,originEvidenceCode:null,
         firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false,discovery:null,
         catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const});
     }
@@ -1020,6 +1032,10 @@ export async function queryAppCatalog(
           ? {catalogKind:'component' as const,manageability:'hidden' as const,projectionReasonCode:'COMPONENT' as const}
           : {catalogKind:primary.catalogKind,manageability:'review' as const,projectionReasonCode:primary.projectionReasonCode};
     const classes=new Set(variants.map(item=>item.classification).filter(item=>item!=='unclassified'));
+    const applicationOrigin:ApplicationOrigin=group.some(item=>item.applicationOrigin==='operatingSystem')?'operatingSystem'
+      :group.some(item=>item.applicationOrigin==='user')?'user':'unknown';
+    const originEvidenceCodes=[...new Set(group.filter(item=>item.applicationOrigin===applicationOrigin)
+      .map(item=>item.originEvidenceCode).filter((value):value is ApplicationOriginEvidenceCode=>value!==null))];
     return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:implementations.length===0?primary.runtimeIdentity:null,
       classification:classes.size===1?[...classes][0]!:primary.classification,mixedClassifications:classes.size>1,
       observedInWindow:group.some(item=>item.observedInWindow),
@@ -1029,6 +1045,7 @@ export async function queryAppCatalog(
         installationState:item.installationState,manageability:item.manageability,lastSeenAtMs:item.lastSeenAtMs,classification:item.classification,
         runtimeIdentity:item.runtimeIdentity})),
       associationStatus:group[0]!.productId?'confirmedProduct':implementations.length>1?'verifiedIdentityAssociation':'technicalIdentity',
+      applicationOrigin,originEvidenceCode:originEvidenceCodes.length===1?originEvidenceCodes[0]:null,
       mainDurationMs:groupedUnion(intervals),machineCount:machines.size,userCount:users.size,
       lastSeenAtMs:Math.max(0,...group.map(item=>item.lastSeenAtMs??0))||null,
       installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState,

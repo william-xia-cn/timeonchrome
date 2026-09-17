@@ -5,6 +5,8 @@ const platforms = ['windows', 'macos'];
 const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked'];
 const types = ['game', 'gameLauncher', 'onlineVideo', 'mediaPlayer', 'other', 'unknown'];
 const fields = ['runtimeIdentity', 'binaryHash', 'packageId', 'productKey', 'hostedAppId', 'signerKey', 'productName', 'declaredType', 'installationSource'];
+const applicationOrigins = ['user', 'operatingSystem', 'unknown'];
+const originEvidenceCodes = ['exactPackageRule', 'osMetadata', 'reviewedSystemBinary'];
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/u.test(value);
 const id = (value: unknown): value is string => text(value) && /^[A-Za-z0-9._:-]+$/u.test(value);
@@ -90,7 +92,7 @@ export function parseAppEvidence(value: unknown): AppEvidence {
       || !unique(value.verifiedFields as string[])) reject('INVALID_APPLICATION_EVIDENCE');
   if (value.discovery !== undefined) {
     const summary = value.discovery;
-    if (!object(summary) || !keys(summary, ['role', 'nameSource', 'sourceKinds', 'objectKind', 'parentProductKey', 'variantRole', 'scope', 'sourceKind', 'evidenceLevel'])
+    if (!object(summary) || !keys(summary, ['role', 'nameSource', 'sourceKinds', 'objectKind', 'parentProductKey', 'variantRole', 'scope', 'sourceKind', 'evidenceLevel', 'applicationOrigin', 'originEvidenceCode'])
         || !oneOf(summary.role, ['application', 'component', 'candidate'])
         || !oneOf(summary.nameSource, ['appList', 'manifest', 'fileMetadata', 'installation', 'fallback'])
         || !list(summary.sourceKinds, 4) || !summary.sourceKinds.every(item => oneOf(item, ['package','registry','shortcut','runtime']))
@@ -100,6 +102,9 @@ export function parseAppEvidence(value: unknown): AppEvidence {
         || (summary.scope !== undefined && !oneOf(summary.scope, ['machine','user']))
         || (summary.sourceKind !== undefined && !oneOf(summary.sourceKind, ['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages','runtime']))
         || (summary.evidenceLevel !== undefined && !oneOf(summary.evidenceLevel, ['strong','review','weak']))
+        || (summary.applicationOrigin !== undefined && !oneOf(summary.applicationOrigin, applicationOrigins))
+        || (summary.originEvidenceCode !== undefined && !oneOf(summary.originEvidenceCode, originEvidenceCodes))
+        || (summary.originEvidenceCode !== undefined && summary.applicationOrigin !== 'operatingSystem')
         || !unique(summary.sourceKinds as string[])) reject('INVALID_DISCOVERY_SUMMARY');
   }
   for (const field of value.verifiedFields as string[]) {
