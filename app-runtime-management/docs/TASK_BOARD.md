@@ -1,5 +1,19 @@
 # App Runtime 任务板
 
+## NOW：生产产品目录聚合优先级补漏
+
+- [x] 线上证据：`Visual Studio Installer` 等维护产品自身已识别为 review，但同组强身份启动入口使聚合结果再次变成 actionable。
+- [x] 线上证据：`OpenCode` 的多个安装产品名称分别为无版本和带版本形式，外加孤立入口；装饰名称归一化只处理唯一产品，没有处理多产品歧义。
+- [x] 线上证据：`Administrative Tools`、`Task Manager`、`Disk Cleanup` 等无父产品的 Start Menu/运行入口仅有强 binary 身份，却被当作可管理产品。
+- [x] 含 `TECHNICAL_PRODUCT_REVIEW` 安装产品的分组默认保持只读审核；只有产品知识或家长明确配置才能提升为可管理对象。
+- [x] 同平台、同装饰名称 family 下存在多个互不关联可管理安装产品时，统一形成一个歧义技术记录，不自动合并或继承分类。
+- [x] v2 独立变体即使具有 binary/package 强身份，在没有安装产品、产品知识或家长确认时仍只进入候选技术记录；与可信父产品关联的变体继续显示在产品详情中。
+- [x] 固定回归覆盖维护产品带启动入口、OpenCode 装饰名称多产品、独立系统入口、LibreOffice、Notepad++ 与 Create React；Worker 46/46、TypeScript、Wrangler dry-run、桌面/移动视觉和边界检查通过。
+
+边界：仍只修正 catalog read model；不删除或修改 inventory、Segment、分类、配额、Agent、migration、Guardian、Santa 或 Extension。
+
+Plan Conformance Audit（提交闸门）：Matched＝维护组不反向提升、装饰名称多产品安全降级、独立变体候选化、可靠父产品变体继续保留；Deviated＝无；Missing＝无；Extra＝无。生产 Worker/Pages 发布及真实 HornburgXW 目录复验属于合并后的发布闸门，结果完成后回填。
+
 ## NOW：产品目录生产复验收口
 
 - [x] HornburgXW 重启后完成一次真实 v2 全量扫描：5 个上传批次、740 条观察，5 个来源均为 `complete` 或 `complete_with_warnings`，无失败来源。

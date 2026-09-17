@@ -984,8 +984,15 @@ describe('Application knowledge and installed inventory', () => {
           sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
         scope:'machine',sourceKind:'registry-machine',status:'installed'};
     });
+    const maintenanceProductKey='8'.repeat(64),binaryHash='9'.repeat(64);
+    const maintenanceEntry={platform:'windows',runtimeIdentity:'maintenance-service-entry',displayName:'Mozilla Maintenance Service',
+      values:{productKey:maintenanceProductKey,binaryHash,productName:'Mozilla Maintenance Service'},verifiedFields:['productKey','binaryHash'],
+      discovery:{role:'application',nameSource:'appList',sourceKinds:['shortcut'],objectKind:'variant',parentProductKey:maintenanceProductKey,
+        variantRole:'main',scope:'machine',sourceKind:'start-menu-common',evidenceLevel:'strong'}};
     expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
-      body:JSON.stringify({schemaVersion:2,batchId:'technical-products',products:observations,variants:[]})})).status).toBe(200);
+      body:JSON.stringify({schemaVersion:2,batchId:'technical-products',products:observations,variants:[{localUserId,
+        variantKey:'maintenance-service-entry',parentProductKey:maintenanceProductKey,evidence:maintenanceEntry,variantRole:'main',scope:'machine',
+        sourceKind:'start-menu-common',status:'installed'}]})})).status).toBe(200);
     const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
       items:Array<{displayName:string}>;technicalItems:Array<{displayName:string;projectionReasonCode:string}>;
     }>();
@@ -995,6 +1002,27 @@ describe('Application knowledge and installed inventory', () => {
     const stored=await env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count FROM runtime_installation_products_v1
       WHERE display_name IN (?1,?2) AND status='installed'`).bind(...products).first<{count:number}>();
     expect(stored?.count).toBe(2);
+  });
+  it('projects decorated-name installation products with no shared proof as one technical ambiguity', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const names=['OpenCode','OpenCode 1.14.39'];
+    const products=names.map((displayName,index)=>{
+      const productKey=String(index+3).repeat(64);
+      return {localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName,
+        values:{productKey,productName:displayName},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'installation',
+          sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:index?'user':'machine',
+          sourceKind:index?'registry-user':'registry-machine',evidenceLevel:'strong'}},scope:index?'user':'machine',
+        sourceKind:index?'registry-user':'registry-machine',status:'installed'};
+    });
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:2,batchId:'decorated-products',products,variants:[]})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string}>;technicalItems:Array<{displayName:string;projectionReasonCode:string;variants:unknown[]}>;
+    }>();
+    expect(result.items.filter(item=>item.displayName.startsWith('OpenCode'))).toHaveLength(0);
+    const ambiguity=result.technicalItems.filter(item=>item.projectionReasonCode==='AMBIGUOUS_INSTALLATION_PRODUCTS'
+      && item.displayName.startsWith('OpenCode'));
+    expect(ambiguity).toHaveLength(1);
   });
   it('quarantines a decorated-name orphan entry beside one installation product', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
@@ -1016,6 +1044,23 @@ describe('Application knowledge and installed inventory', () => {
     ]);
     expect(result.technicalItems).toEqual(expect.arrayContaining([
       expect.objectContaining({displayName:'Notepad++',projectionReasonCode:'POSSIBLE_PRODUCT_VARIANT'}),
+    ]));
+  });
+  it('keeps a strong but unconfirmed standalone v2 variant out of the product directory', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const evidence={platform:'windows',runtimeIdentity:'administrative-tools-entry',displayName:'Administrative Tools',
+      values:{binaryHash:'e'.repeat(64),productName:'Administrative Tools'},verifiedFields:['binaryHash'],
+      discovery:{role:'application',nameSource:'appList',sourceKinds:['shortcut'],objectKind:'variant',variantRole:'main',
+        scope:'machine',sourceKind:'start-menu-common',evidenceLevel:'strong'}};
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({schemaVersion:2,
+      batchId:'standalone-variant',products:[],variants:[{localUserId,variantKey:'administrative-tools-entry',evidence,
+        variantRole:'main',scope:'machine',sourceKind:'start-menu-common',status:'installed'}]})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string}>;technicalItems:Array<{displayName:string;projectionReasonCode:string}>;
+    }>();
+    expect(result.items.filter(item=>item.displayName==='Administrative Tools')).toHaveLength(0);
+    expect(result.technicalItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({displayName:'Administrative Tools',projectionReasonCode:'UNCONFIRMED_APPLICATION_VARIANT'}),
     ]));
   });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {

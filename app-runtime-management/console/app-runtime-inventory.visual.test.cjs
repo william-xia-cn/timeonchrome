@@ -31,6 +31,7 @@ const fs = require('node:fs/promises');
       await page.evaluate(()=>document.querySelector('[data-view="system"]').click());await page.click('[data-system-tab="technical"]');
       const technical=await page.locator('#technical-record-list').innerText();assert.match(technical,/隐藏组件入口/);assert.match(technical,/弱安装候选/);
       assert.match(technical,/Microsoft Visual C\+\+ Redistributable/);assert.match(technical,/维护、运行库或安装器语义/);
+      assert.match(technical,/Administrative Tools/);assert.match(technical,/独立启动入口或运行身份/);
       assert.equal(await page.locator('#technical-record-list [data-classification]').count(),0);
       await page.screenshot({path:path.join(output,`${viewport.width}-technical.png`),fullPage:true});
       await page.evaluate(()=>document.querySelector('[data-view="apps"]').click());
