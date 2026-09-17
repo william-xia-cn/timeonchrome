@@ -853,6 +853,55 @@ describe('Application knowledge and installed inventory', () => {
     expect(result.technicalItems).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'LibreOffice Updater'})]));
     expect(result.inventoryScans).toEqual([expect.objectContaining({status:'partial',sourceResults:expect.arrayContaining([expect.objectContaining({source:'start-menu-common',status:'complete_with_warnings'})])})]);
   });
+  it('reconciles missing inventory only for completed sources and retires source-less legacy installed projections', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const productKey='d'.repeat(64),variantKey='notepad-main';
+    const productEvidence={platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:'记事本',
+      values:{productKey,productName:'记事本'},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'installation',
+        sourceKinds:['package'],objectKind:'product',variantRole:'unknown',scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}};
+    const variantEvidence={platform:'windows',runtimeIdentity:variantKey,displayName:'记事本',
+      values:{productKey,productName:'记事本'},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'appList',
+        sourceKinds:['package'],objectKind:'variant',parentProductKey:productKey,variantRole:'main',scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}};
+    const allComplete=(userPackagesStatus:'complete'|'complete_with_warnings'|'failed')=>[
+      {source:'registry-machine',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'registry-user',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'start-menu-common',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'start-menu-user',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'user-packages',status:userPackagesStatus,observationCount:userPackagesStatus==='failed'?0:2,
+        warningCodes:userPackagesStatus==='complete_with_warnings'?['PACKAGE_WARNING']:userPackagesStatus==='failed'?['SOURCE_ENUMERATION_FAILED']:[]},
+    ];
+    const upload=(body:unknown)=>call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1
+      (machine_id,local_user_id,platform,runtime_identity,display_name,evidence_json,status,first_seen_at_ms,last_seen_at_ms)
+      VALUES(?1,?2,'windows','legacy-notepad','旧记事本候选',?3,'installed',1,1)`)
+      .bind(enrolled.machineId,localUserId,JSON.stringify({platform:'windows',runtimeIdentity:'legacy-notepad',displayName:'旧记事本候选',values:{},verifiedFields:[],discovery:{role:'candidate'}})).run();
+    const firstScan={scanId:'7'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:1,variantCount:1,
+      sourceResults:allComplete('complete'),completed:false};
+    expect((await upload({schemaVersion:2,batchId:'reconcile-current',products:[
+      {localUserId,productKey,evidence:productEvidence,scope:'user',sourceKind:'user-packages',status:'installed'},
+    ],variants:[{localUserId,variantKey,parentProductKey:productKey,evidence:variantEvidence,variantRole:'main',scope:'user',sourceKind:'user-packages',status:'installed'}],scan:firstScan})).status).toBe(200);
+    expect((await upload({schemaVersion:2,batchId:'reconcile-current-finish',products:[],variants:[],scan:{...firstScan,batchIndex:1,completed:true}})).status).toBe(200);
+    expect((await env.RUNTIME_DB.prepare(`SELECT status FROM runtime_application_inventory_v1 WHERE runtime_identity='legacy-notepad'`).first<{status:string}>())?.status).toBe('notObserved');
+
+    const failedScan={scanId:'8'.repeat(32),localUserId,batchIndex:0,batchCount:0,productCount:0,variantCount:0,
+      sourceResults:allComplete('failed'),completed:true};
+    expect((await upload({schemaVersion:2,batchId:'reconcile-failed',products:[],variants:[],scan:failedScan})).status).toBe(200);
+    expect((await env.RUNTIME_DB.prepare(`SELECT status FROM runtime_installation_products_v1 WHERE product_key=?1`).bind(productKey).first<{status:string}>())?.status).toBe('installed');
+    expect((await env.RUNTIME_DB.prepare(`SELECT status FROM runtime_application_variants_v1 WHERE variant_key=?1`).bind(variantKey).first<{status:string}>())?.status).toBe('installed');
+
+    const missingScan={scanId:'9'.repeat(32),localUserId,batchIndex:0,batchCount:0,productCount:0,variantCount:0,
+      sourceResults:allComplete('complete_with_warnings').map(item=>({...item,observationCount:0})),completed:true};
+    expect((await upload({schemaVersion:2,batchId:'reconcile-missing',products:[],variants:[],scan:missingScan})).status).toBe(200);
+    expect((await env.RUNTIME_DB.prepare(`SELECT status FROM runtime_installation_products_v1 WHERE product_key=?1`).bind(productKey).first<{status:string}>())?.status).toBe('notObserved');
+    expect((await env.RUNTIME_DB.prepare(`SELECT status FROM runtime_application_variants_v1 WHERE variant_key=?1`).bind(variantKey).first<{status:string}>())?.status).toBe('notObserved');
+
+    await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1
+      (machine_id,local_user_id,platform,runtime_identity,display_name,evidence_json,status,first_seen_at_ms,last_seen_at_ms)
+      VALUES(?1,?2,'windows','post-scan-legacy','扫描后旧候选',?3,'installed',1,1)`)
+      .bind(enrolled.machineId,localUserId,JSON.stringify({platform:'windows',runtimeIdentity:'post-scan-legacy',displayName:'扫描后旧候选',values:{},verifiedFields:[],discovery:{role:'candidate'}})).run();
+    const catalog=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{displayName:string}>;technicalItems:Array<{displayName:string}>}>();
+    expect([...catalog.items,...catalog.technicalItems].some(item=>item.displayName==='扫描后旧候选')).toBe(false);
+  });
   it('projects conflicting same-name installation products as one technical review group', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const firstKey='1'.repeat(64),secondKey='2'.repeat(64),name='Create React App Sample';

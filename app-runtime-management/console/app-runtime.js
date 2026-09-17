@@ -110,6 +110,7 @@
     if (new URLSearchParams(location.search).has('inventoryQuality')) {
       const fixture=(runtimeIdentity,displayName,role)=>({platform:'windows',runtimeIdentity,displayName,classification:'unclassified',installationState:'installed',observedInWindow:false,mainDurationMs:0,machineCount:1,userCount:1,discovery:{role,nameSource:role==='component'?'fallback':'appList',sourceKinds:['package']},catalogKind:role,manageability:role==='application'?'actionable':role==='component'?'hidden':'review',projectionReasonCode:role==='component'?'COMPONENT':role==='candidate'?'DISCOVERY_CANDIDATE':'VERIFIED_APPLICATION'});
       state.catalog.items.push(fixture('fixture:unused','已安装未使用播放器','application'));
+      state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'记事本',classification:'unclassified',installationState:'installed',observedInWindow:true,mainDurationMs:180000,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:notepad-main',displayName:'记事本'}],variants:[{displayName:'记事本',platform:'windows',variantRole:'main',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
       state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'LibreOffice',classification:'unclassified',installationState:'installed',observedInWindow:false,mainDurationMs:0,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:writer',displayName:'LibreOffice Writer'},{platform:'windows',runtimeIdentity:'fixture:calc',displayName:'LibreOffice Calc'}],variants:[{displayName:'LibreOffice Writer',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Calc',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Safe Mode',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
       state.catalog.technicalItems.push(fixture('fixture:helper','隐藏组件入口','component'),fixture('fixture:candidate','弱安装候选','candidate'));
       state.catalog.inventoryScans=[{machineName:'受控测试电脑',status:'syncing',receivedBatches:1,expectedBatches:3,observationCount:401,failedSources:[],updatedAtMs:Date.now()},{machineName:'受控测试电脑',status:'completeWithWarnings',receivedBatches:2,expectedBatches:2,observationCount:24,failedSources:[],sourceResults:[{source:'registry-machine',status:'complete',warningCodes:[]},{source:'start-menu-common',status:'complete_with_warnings',warningCodes:['SHORTCUT_TARGET_UNAVAILABLE']}],updatedAtMs:Date.now()},{machineName:'旧版测试电脑',status:'unverified',receivedBatches:0,expectedBatches:0,observationCount:0,failedSources:[],updatedAtMs:null}];
@@ -180,6 +181,14 @@
     const index = state.actionApps.push(app) - 1;
     return ['study','composite','restrictedEntertainment','blocked','unclassified'].map((category) => `<button data-classify-index="${index}" data-classification="${category}"${category === selected ? ' class="current" disabled' : ''}>${category === 'unclassified' ? '暂不归类' : `归为${categoryLabels[category]}`}</button>`).join('');
   }
+  function visibleProductVariants(app) {
+    const variants = Array.isArray(app.variants) ? app.variants : [];
+    if (variants.length !== 1) return variants;
+    const variant = variants[0];
+    const normalize = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    return variant.variantRole === 'main' && !variant.splitManaged
+      && normalize(variant.displayName) === normalize(app.displayName) ? [] : variants;
+  }
   function appRow(app, selected) {
     const recent = app.lastSeenAtMs ? time(app.lastSeenAtMs) : '最近 30 天无使用';
     const mainDuration = app.mainDurationMs ?? app.durationMs ?? 0;
@@ -188,7 +197,7 @@
     const note = app.discovery?.role === 'component' ? '组件入口（不豁免使用计时）' : app.discovery?.role === 'candidate' ? '安装候选，尚无可靠主程序关联' : '';
     const fallback = app.discovery?.nameSource === 'fallback' ? '名称未解析，显示包入口回退' : '';
     const actions = classificationActions(app, selected);
-    const variants = Array.isArray(app.variants) ? app.variants : [];
+    const variants = visibleProductVariants(app);
     const variantDetails = variants.length ? `<details class="product-variants"><summary>${variants.length} 个产品变体</summary><div>${variants.map((variant) => `<article><strong>${escape(variant.displayName || '未命名变体')}</strong><span>${variant.platform === 'macos' ? 'macOS' : 'Windows'} · ${{main:'主入口',suiteMember:'套件入口',maintenance:'维护入口',helper:'辅助组件',hosted:'宿主内容',unknown:'待确认'}[variant.variantRole] || '待确认'} · ${variant.splitManaged ? '已拆分管理' : '继承产品设置'}</span></article>`).join('')}</div><button type="button" data-manage-variants>管理／拆分变体</button></details>` : '';
     return `<article class="record-card product-record"><div class="app-record-main"><span class="app-icon">${escape((app.displayName || '?').slice(0, 1))}</span><div><strong>${escape(app.displayName || '未知应用')}</strong><p><span class="platform-chip ${escape(app.platform)}">${app.platform === 'macos' ? 'macOS' : 'Windows'}</span> · 最近使用 ${recent}${installation?` · ${installation}`:''}${variants.length?` · ${variants.length} 个变体`:''}</p><p>最近 30 天主账本 ${duration(mainDuration)} · ${coverage}</p>${app.classificationReason?`<p>${escape(app.classificationReason)}</p>`:''}${note||fallback?`<p>${escape([note,fallback].filter(Boolean).join(' · '))}</p>`:''}${variantDetails}</div></div>${actions?`<div class="record-actions" aria-label="${escape(app.displayName || '未知应用')} 分类操作">${actions}</div>`:''}</article>`;
   }

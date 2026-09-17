@@ -1,5 +1,16 @@
 # App Runtime 任务板
 
+## NOW：产品目录扫描结算与冗余变体修复
+
+- [x] 生产只读证据：最新完整 v2 扫描前仍有 196 条兼容 inventory 记录保持 `installed`；其中 104 条旧候选、91 条旧未知对象、1 条旧应用，均缺少来源字段。
+- [x] 生产只读证据：384 个当前 installed 产品中，109 个只有一个变体，39 个为产品名与唯一 `main` 变体名相同；“记事本”属于当前扫描的产品容器加单一主入口，不是旧记录本身。
+- [x] Worker 在 v2 完整扫描结束时仅对 `complete` / `complete_with_warnings` 来源执行缺失对账；`failed` 来源继续 fail closed。
+- [x] 已有权威 v2 完整扫描时，无来源的 legacy `installed` 投影不得继续证明当前安装；保留原记录和历史 Segment，并按 `usedNotDiscovered` / 技术记录读取历史。
+- [x] Console 默认折叠唯一、同名、`main` 且未拆分的冗余变体；多变体、异名、非 main 或已拆分变体继续完整展示。
+- [x] Worker/D1 42/42、Console 固定回归和桌面/移动 mock 截图通过；TypeScript、generated binding check、Wrangler dry-run、`git diff --check` 和范围审计通过。
+
+边界：不删除 inventory，不直接改生产 D1，不改 Agent、contracts、migration、主/媒体账本、分类、配额、Guardian、Santa 或 Extension；生产发布与重新扫描须在本地验证、合并及单独发布批准后执行。
+
 ## NOW：产品目录同名歧义与孤立入口投影热修复
 
 - [x] 真机完整扫描：HornburgXW 2.2.3 已上传 4 个数据批和 1 个完成标记；385 个产品、356 个变体，`completed=1`。

@@ -808,7 +808,17 @@ export async function queryAppCatalog(
     JOIN runtime_user_assignments_v2 a ON a.machine_id=i.machine_id AND a.local_user_id=i.local_user_id
     WHERE m.account_id=?1 AND a.child_id=?2 AND a.protected=1
       AND a.assignment_version=(SELECT MAX(latest.assignment_version) FROM runtime_user_assignments_v2 latest
-        WHERE latest.machine_id=a.machine_id AND latest.local_user_id=a.local_user_id)`)
+        WHERE latest.machine_id=a.machine_id AND latest.local_user_id=a.local_user_id)
+      AND NOT (i.status='installed' AND json_extract(i.evidence_json,'$.discovery.sourceKind') IS NULL
+        AND EXISTS (SELECT 1 FROM runtime_application_inventory_scans_v2 scan
+          WHERE scan.machine_id=i.machine_id AND scan.local_user_id=i.local_user_id AND scan.completed=1)
+        AND NOT EXISTS (SELECT 1 FROM runtime_installation_products_v1 product
+          WHERE product.machine_id=i.machine_id AND product.local_user_id=i.local_user_id AND product.platform=i.platform
+            AND product.status='installed' AND json_extract(product.evidence_json,'$.runtimeIdentity')=i.runtime_identity
+          UNION ALL SELECT 1 FROM runtime_application_variants_v1 variant
+          WHERE variant.machine_id=i.machine_id AND variant.local_user_id=i.local_user_id AND variant.platform=i.platform
+            AND variant.status IN ('installed','runtimeObserved')
+            AND json_extract(variant.evidence_json,'$.runtimeIdentity')=i.runtime_identity))`)
     .bind(accountId,childId).all<{evidence_json:string;status:string;machine_id:string;local_user_id:string}>();
   const inventory = new Map<string,{evidence:AppEvidence;installed:boolean;machines:Set<string>;users:Set<string>}>();
   for (const row of inventoryRows.results) {
