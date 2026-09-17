@@ -2,14 +2,12 @@
 
 ## 当前生产更新（2026-09-18）
 
-- PO 已确认 ARM-D-015 的普通/系统/技术分组必须由云端控制。当前进入前向修正：Worker 将以旧 Agent 已上传的可信 `packageId` 生成权威来源，客户端 `applicationOrigin` 仅作提示；无需升级 HornburgXW 或修改 D1。
-- 发布目标是仅更新 Runtime Worker，并把 R2 `latest` 从未安装的 2.2.4 恢复到已验证 2.2.3。2.2.4 不可变文件保留为内部历史，不删除、不覆盖；完成前生产现状仍以以下记录为准。
-
-- `master@6b5f812d029b249dbaeeddd1218bbf240b1c173b` 已发布 contracts `1.5.0` 和 ARM-D-015。应用目录把可管理对象按强来源证据分为普通应用与系统应用；技术记录仍只读。系统归属不改变孩子分类、主账本、历史 Segment 或配额计算。
-- Runtime Worker：`477649a6-cfc6-482b-b136-27df6211ef2e`；`/v1/health` 为 200，未认证 catalog 为 401。无 migration，Runtime D1 schema 与生产数据未修改。
-- 独立 Runtime Pages：`32c70100-f704-48a9-b19c-271786054cd9`，来源 `master@6b5f812`；稳定地址回读 200 并包含普通/系统应用双分组。Guardian、主 Pages、Santa、Extension 均未部署。
-- R2 latest 已切换 Windows 2.2.4。Burn 为 118,734,035 bytes / SHA-256 `cd4a3e03d4f61a6d86113d835500613e0243634edc04e1ec617c1728abb58181`；MSI 为 60,367,200 bytes / SHA-256 `edc6a18dcc64adecf132ae4ff36c74890b769a8c27b80ef0dc82efadd3425293`。三个不可变对象及 Worker 下载路由均已回读一致。
-- Windows 2.2.4 仍未签名，状态保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。发布安装包不等于 HornburgXW 已升级；真实盘点中的系统应用分组须在该机器安装 2.2.4 并完成新一轮盘点后验收。
+- `master@6e607d99ee4d5e79847aab8ae0becbbb6fdf3a6f` 已完成 ARM-D-015 前向修正：Runtime Worker 仅以旧 Agent 已上传并标记为可信的 `packageId` 和云端受控规则生成权威 `applicationOrigin`；客户端同名、发布者及 `applicationOrigin` 提示不能决定目录分组。
+- Runtime Worker 已单独发布为 `6eac7a4b-ce8c-4f4f-b1ac-bc3e862e105f`；`/v1/health` 回读 200，未认证 catalog 回读 401。无 migration，Runtime D1 schema、盘点事实、账本、分类和配额均未修改。
+- 独立 Runtime Pages 保持 `32c70100-f704-48a9-b19c-271786054cd9`，本轮未重新部署；现有页面已能消费 Worker 的权威 `applicationOrigin`。Computer Use 线上验收显示 HornburgXW 为普通应用 106 个、系统应用 3 个，系统组精确包含快速助手、计算器和记事本；Microsoft 365 仍位于普通应用。
+- R2 `latest.json` 已恢复为已验证的 Windows 2.2.3。Burn 为 118,729,417 bytes / SHA-256 `d665e227d4234d47337edcb04169d57d50e2817b72c1c606a3f7076d365eef8e`；MSI 为 60,363,104 bytes / SHA-256 `9238c03fd8b4f3795069e2fdb08372543c2893bd7d24bd3b4c849428488ccca3`。R2 与 Worker latest 回读一致，Worker 版本化下载的 Burn 大小和 SHA-256 复验一致。
+- Windows 2.2.4 已标记为 withdrawn/internal-history；其不可变 R2 文件保留且不删除、不覆盖。HornburgXW 继续运行已验证的 2.2.3，无需重新扫描、重新配对或安装新包。
+- Guardian、主 Pages、Runtime Pages、Santa、Extension、机器身份和生产数据均未变更。
 - contracts `1.4.0` 的 SSO 启动孩子与游戏候选修复已随同一 master 基线进入 Worker/Pages；Guardian 的签发侧 `b551bb9` 已先行合入 master，本次未重新部署 Guardian。
 
 ## 当前修复与生产基线（2026-09-16）

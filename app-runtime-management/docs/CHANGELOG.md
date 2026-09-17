@@ -1,10 +1,12 @@
 # App Runtime Changelog
 
-## [系统应用云端权威投影修正] — 2026-09-18（本地已验证，待合并发布）
+## [系统应用云端权威投影修正] — 2026-09-18（生产已发布）
 
 - 普通应用、系统应用和技术记录改由 Runtime Worker 基于可信 `packageId` 统一投影；客户端来源字段仅作 advisory evidence。
 - 旧 Agent 2.2.3 无需升级即可获得系统应用分组；无 migration，不改写 inventory、账本、分类或配额。
-- 计划只部署 Runtime Worker，并把 R2 latest 恢复到 2.2.3；2.2.4 不可变对象保留为 withdrawn/internal-history。
+- `master@6e607d9` 已只部署 Runtime Worker `6eac7a4b-ce8c-4f4f-b1ac-bc3e862e105f`；health 200、未认证 catalog 401，无 migration，Pages、Guardian 和 Agent 未部署。
+- R2 latest 已恢复为 2.2.3；Burn 118,729,417 bytes / SHA-256 `d665e227d4234d47337edcb04169d57d50e2817b72c1c606a3f7076d365eef8e`，MSI 60,363,104 bytes / SHA-256 `9238c03fd8b4f3795069e2fdb08372543c2893bd7d24bd3b4c849428488ccca3`。2.2.4 不可变对象保留为 withdrawn/internal-history。
+- Computer Use 线上验收确认 HornburgXW 无需升级即显示普通应用 106 个、系统应用 3 个；快速助手、计算器和记事本进入系统组，Microsoft 365 保持普通应用。
 - Worker 50/50、contracts 23 vectors、Contracts/Worker typecheck、generated binding types check、Wrangler dry-run 与 `git diff --check` 通过。
 
 ## [Windows 2.2.4 / contracts 1.5.0 / 系统应用分组] — 2026-09-18（生产已发布，真机待升级）

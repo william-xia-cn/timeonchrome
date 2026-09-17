@@ -4,10 +4,13 @@
 
 - [x] Runtime Worker 仅从经过验证的 `packageId` 和云端受控规则生成 `applicationOrigin`；客户端来源字段不得覆盖结果。
 - [x] 固定回归覆盖 2.2.3 盘点、客户端冲突提示、同名第三方、Office/Teams、未知包和技术组件；Worker 50/50、contracts 23 vectors、两端 typecheck、binding types check 和 Wrangler dry-run 通过。
-- [ ] 合并到 `master` 后只部署 Runtime Worker；不部署 Pages、不执行 migration、不构建或安装 Windows 包。
-- [ ] R2 `latest.json` 恢复为已验证的 2.2.3；2.2.4 不可变对象保留并标记 withdrawn/internal-history。
+- [x] `master@6e607d9` 已只部署 Runtime Worker `6eac7a4b-ce8c-4f4f-b1ac-bc3e862e105f`；health 200、未认证 catalog 401。Pages、Guardian、D1 和 Windows 安装均未变更。
+- [x] R2 `latest.json` 已恢复为已验证的 2.2.3；Burn 118,729,417 bytes / SHA-256 `d665e227d4234d47337edcb04169d57d50e2817b72c1c606a3f7076d365eef8e`，MSI 60,363,104 bytes / SHA-256 `9238c03fd8b4f3795069e2fdb08372543c2893bd7d24bd3b4c849428488ccca3`。2.2.4 不可变对象保留并标记 withdrawn/internal-history。
+- [x] Computer Use 生产验收：HornburgXW 无需升级即显示普通应用 106 个、系统应用 3 个；快速助手、计算器、记事本进入系统组，Microsoft 365 保持普通应用。
 
 边界：目录来源规则属于云端展示投影。历史 inventory、UsageSegment、配额、机器身份和分类均不改写。
+
+Plan Conformance Audit：Matched＝云端唯一权威、2.2.3 旧 Agent 兼容、Worker-only 部署、R2 latest 回退、线上分组验收；Deviated＝无；Missing＝无；Extra＝无。
 
 ## NOW：普通应用与系统应用分组（ARM-D-015）
 
