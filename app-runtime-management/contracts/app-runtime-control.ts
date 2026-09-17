@@ -51,6 +51,7 @@ export interface AppRuntimeSsoTicketClaims {
   sub: string;
   account_id: string;
   children: Array<{ id: string; name: string }>;
+  selected_child_id?: string;
   iat: number;
   exp: number;
   jti: string;
@@ -67,6 +68,7 @@ export interface AppRuntimeBrowserSessionResponse {
   tokenType: 'RuntimeSession';
   expiresAt: number;
   children: Array<{ id: string; name: string }>;
+  selectedChildId?: string;
 }
 
 export type RuntimeMachinePolicyState = 'pending' | 'cached' | 'applied' | 'failed' | 'offline';

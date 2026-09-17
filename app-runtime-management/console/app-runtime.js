@@ -52,9 +52,10 @@
   function markLoaded() { state.loaded = true; const main = document.querySelector('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
   async function issue() {
     state.session = AppRuntimeSession.load(sessionStorage);
-    if (!state.session && window.__runtimeLaunchTicket) {
+    if (window.__runtimeLaunchTicket) {
       const ticket = window.__runtimeLaunchTicket;
       window.__runtimeLaunchTicket = null;
+      const previousSession = state.session;
       const response = await fetch(`${RUNTIME_API}/v2/auth/browser-sessions`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticket }),
       });
@@ -62,10 +63,15 @@
       if (!response.ok) throw new Error(payload.error?.message || '登录凭据无效或已过期，请从家长控制台重新进入');
       AppRuntimeSession.save(sessionStorage, payload);
       state.session = payload;
+      if (previousSession?.token && previousSession.token !== payload.token) {
+        fetch(`${RUNTIME_API}/v2/auth/browser-sessions/current`, {
+          method: 'DELETE', headers: { Authorization: `RuntimeSession ${previousSession.token}` },
+        }).catch(() => {});
+      }
     }
     if (!state.session) throw new Error('请从 TimeOnChrome 家长控制台进入电脑应用管理');
     state.children = state.session.children;
-    const selected = child(state.childId) || state.children[0];
+    const selected = child(state.childId) || child(state.session.selectedChildId) || state.children[0];
     if (!selected) throw new Error('当前账户还没有孩子档案');
     state.childId = selected.id;
     renderChildPicker();
@@ -398,7 +404,7 @@
   } catch (error) { showError(error); } });
   document.addEventListener('change', async (event) => { const control = event.target; try {
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
-    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { state.childId = selected.id; await load(); } }
+    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { state.childId = selected.id; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
     else if (control.id === 'media-toggle') renderUsage();

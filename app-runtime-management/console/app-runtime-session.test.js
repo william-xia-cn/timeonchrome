@@ -8,7 +8,9 @@ assert.deepEqual(calls, [[null, '', '/?view=usage']]);
 
 const values = new Map();
 const storage = { getItem: (key) => values.get(key) || null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
-session.save(storage, { token: 'opaque', expiresAt: 9000, children: [{ id: 'c', name: 'Child' }], ignored: 'not-stored' });
+session.save(storage, { token: 'opaque', expiresAt: 9000, children: [{ id: 'c', name: 'Child' }], selectedChildId: 'c', ignored: 'not-stored' });
+assert.deepEqual(session.load(storage, 1000), { token: 'opaque', expiresAt: 9000, children: [{ id: 'c', name: 'Child' }], selectedChildId: 'c' });
+session.save(storage, { token: 'opaque', expiresAt: 9000, children: [{ id: 'c', name: 'Child' }], selectedChildId: 'foreign' });
 assert.deepEqual(session.load(storage, 1000), { token: 'opaque', expiresAt: 9000, children: [{ id: 'c', name: 'Child' }] });
 assert.equal(session.load(storage, 9000), null);
 assert.equal(values.size, 0);

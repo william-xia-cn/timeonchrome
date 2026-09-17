@@ -22,7 +22,12 @@
         storage.removeItem(storageKey);
         return null;
       }
-      return value;
+      const selectedChildId = typeof value.selectedChildId === 'string'
+        && value.children.some((child) => child?.id === value.selectedChildId) ? value.selectedChildId : null;
+      return {
+        token: value.token, expiresAt: value.expiresAt, children: value.children,
+        ...(selectedChildId ? { selectedChildId } : {}),
+      };
     } catch {
       storage.removeItem(storageKey);
       return null;
@@ -30,10 +35,13 @@
   }
 
   function save(storage, value) {
+    const selectedChildId = typeof value.selectedChildId === 'string'
+      && value.children.some((child) => child?.id === value.selectedChildId) ? value.selectedChildId : null;
     storage.setItem(storageKey, JSON.stringify({
       token: value.token,
       expiresAt: value.expiresAt,
       children: value.children,
+      ...(selectedChildId ? { selectedChildId } : {}),
     }));
   }
 

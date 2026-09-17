@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [contracts 1.4.0 / 游戏候选与 SSO 孩子上下文] — 2026-09-18（本地候选）
+
+- `Aimlabs`、`Apex Legends` 以规范化精确名称显示高置信游戏候选和受限娱乐建议；不自动改变分类、配额或历史账本。
+- 主控制台把当前孩子写入账户归属校验后的签名 SSO ticket；Runtime 兑换响应携带初始孩子，新 ticket 即使遇到旧 browser session 也必须兑换并替换，随后撤销旧会话。
+- 旧 ticket、旧 session 和页面内主动切换继续兼容；非法或外部账户孩子 fail closed。
+- 本条尚未合并或部署，生产行为不变。
+
 ## [产品目录同名歧义与孤立入口热修复] — 2026-09-16（生产已复验）
 
 - 真机扫描证明 LibreOffice 已按一个产品、多变体投影，但 `Create React App Sample` 的 package、卸载注册和 hosted 入口缺少共同强身份，仍可能形成重复主产品。

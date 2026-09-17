@@ -2131,7 +2131,7 @@ async function launchAppRuntime() {
   }
   runtimeLaunchInFlight = true;
   try {
-    const result = await api('/app-runtime/sso/tickets', 'POST', {});
+    const result = await api('/app-runtime/sso/tickets', 'POST', { childId: currentProfileId });
     const launchUrl = String(result?.launchUrl || '');
     if (!launchUrl.startsWith('https://timeonchrome-app-runtime-console.pages.dev/#ticket=')) {
       throw new Error('Runtime launch 地址无效');

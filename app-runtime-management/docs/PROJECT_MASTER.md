@@ -1,5 +1,11 @@
 # App Runtime 项目真值
 
+## 当前开发候选（2026-09-18，未部署）
+
+- contracts `1.4.0` 为 SSO ticket/browser session 增加可选启动孩子；Guardian 验证其属于当前账户，Runtime 验证其存在于签名 Child 清单。主控制台传递当前孩子，新 launch ticket 必须替换旧 `sessionStorage` 会话，避免总是回落到列表第一项。
+- 应用目录为 `Aimlabs`、`Apex Legends` 的规范化精确产品名返回高置信 `game` 候选和“建议归为受限娱乐”；不自动修改孩子分类、配额或历史账本，Visual Studio Code 负向样例保持普通未归类。
+- 本地 Contracts、Runtime Worker 聚焦回归、Guardian/Runtime typecheck 与 Wrangler dry-run、Console session、集成边界和 diff 检查通过。生产 Guardian、Runtime Worker、Runtime Pages 与主 Pages 均未更新；真实跳转验收留在合并后 release gate。
+
 ## 当前修复与生产基线（2026-09-16）
 
 - ARM-D-014 产品级应用清单已由 PR #18 合并为 `master@38e55f945888f04c8b3f0349b6535640be4d572d`；contracts 1.3.0、Windows 2.2.2、additive migration 0010、兼容 Worker read model 和独立 Console 已完成。Windows 106/106、Worker 39/39、contracts 23 组向量、Console 聚焦测试、generated binding types、Wrangler dry-run、WiX 包、真实 macOS 15 CI 与桌面/移动视觉验证均通过。

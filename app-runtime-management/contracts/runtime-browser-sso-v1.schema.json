@@ -23,6 +23,7 @@
         "sub": { "type": "string" },
         "account_id": { "type": "string" },
         "children": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/child" } },
+        "selected_child_id": { "type": "string", "minLength": 1, "maxLength": 128 },
         "iat": { "type": "integer" },
         "exp": { "type": "integer" },
         "jti": { "type": "string", "minLength": 8, "maxLength": 128 }
@@ -46,7 +47,8 @@
         "token": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
         "tokenType": { "const": "RuntimeSession" },
         "expiresAt": { "type": "integer" },
-        "children": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/child" } }
+        "children": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/child" } },
+        "selectedChildId": { "type": "string", "minLength": 1, "maxLength": 128 }
       }
     }
   }

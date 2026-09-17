@@ -68,17 +68,29 @@ export async function handleAppRuntimeSsoTicket(request: Request, env: RuntimeBr
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);
   if (!accountId) return json({ error: 'Unauthorized' }, 401);
+  const body = await request.json<{ childId?: unknown }>().catch(() => null);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'Invalid request' }, 400);
+  const requestedChildId = body.childId;
+  if (requestedChildId !== undefined
+      && (typeof requestedChildId !== 'string' || requestedChildId.length < 1 || requestedChildId.length > 128)) {
+    return json({ error: 'Invalid child' }, 400);
+  }
   const result = await env.DB.prepare(`
     SELECT child_id, child_name FROM runtime_account_children_v2
     WHERE account_id=? ORDER BY child_name ASC, child_id ASC
   `).bind(accountId).all<{ child_id: string; child_name: string }>();
+  const children = (result.results || []).map((child) => ({ id: child.child_id, name: child.child_name }));
+  if (typeof requestedChildId === 'string' && !children.some((child) => child.id === requestedChildId)) {
+    return json({ error: 'Profile not found' }, 404);
+  }
   const issuedAt = Math.floor(Date.now() / 1000);
   const claims: AppRuntimeSsoTicketClaims = {
     iss: env.APP_RUNTIME_BRIDGE_ISSUER || 'guardian-api',
     aud: APP_RUNTIME_SSO_AUDIENCE,
     sub: accountId,
     account_id: accountId,
-    children: (result.results || []).map((child) => ({ id: child.child_id, name: child.child_name })),
+    children,
+    ...(typeof requestedChildId === 'string' ? { selected_child_id: requestedChildId } : {}),
     iat: issuedAt,
     exp: issuedAt + 60,
     jti: crypto.randomUUID(),

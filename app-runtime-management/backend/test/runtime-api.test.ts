@@ -83,7 +83,8 @@ describe('Runtime product API', () => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const ticket = await token({
       aud: 'app-runtime-management:sso',
-      children: [{ id: 'child-a', name: 'Child' }],
+      children: [{ id: 'child-a', name: 'Child' }, { id: 'child-b', name: 'Other' }],
+      selected_child_id: 'child-b',
       iat: nowSeconds,
       exp: nowSeconds + 60,
     });
@@ -91,16 +92,17 @@ describe('Runtime product API', () => {
       method: 'POST', body: JSON.stringify({ ticket }),
     });
     expect(exchange.status).toBe(201);
-    const session = await exchange.json<{ token: string; tokenType: string; expiresAt: number; children: unknown[] }>();
+    const session = await exchange.json<{ token: string; tokenType: string; expiresAt: number; children: unknown[]; selectedChildId?: string }>();
     expect(session.tokenType).toBe('RuntimeSession');
     expect(session.token).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(session.expiresAt - Date.now()).toBeGreaterThan(8 * 60 * 60 * 1000 - 5_000);
     expect(session.expiresAt - Date.now()).toBeLessThanOrEqual(8 * 60 * 60 * 1000);
-    expect(session.children).toEqual([{ id: 'child-a', name: 'Child' }]);
+    expect(session.children).toEqual([{ id: 'child-a', name: 'Child' }, { id: 'child-b', name: 'Other' }]);
+    expect(session.selectedChildId).toBe('child-b');
 
     const sessionHeaders = { authorization: `RuntimeSession ${session.token}` };
     expect((await call('/v2/module/machines', { headers: sessionHeaders })).status).toBe(200);
-    expect((await call('/v2/module/usage?childId=child-b&fromMs=0&toMs=1', { headers: sessionHeaders })).status).toBe(404);
+    expect((await call('/v2/module/usage?childId=child-c&fromMs=0&toMs=1', { headers: sessionHeaders })).status).toBe(404);
     const replay = await call('/v2/auth/browser-sessions', { method: 'POST', body: JSON.stringify({ ticket }) });
     expect(replay.status).toBe(401);
     await expect(replay.json()).resolves.toMatchObject({ error: { code: 'SSO_TICKET_REPLAYED' } });
@@ -853,6 +855,18 @@ describe('Application knowledge and installed inventory', () => {
     expect(result.technicalItems).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'LibreOffice Updater'})]));
     expect(result.inventoryScans).toEqual([expect.objectContaining({status:'partial',sourceResults:expect.arrayContaining([expect.objectContaining({source:'start-menu-common',status:'complete_with_warnings'})])})]);
   });
+
+  it('accepts legacy SSO tickets without a selected Child and rejects foreign selected context', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const legacy = await token({ aud: 'app-runtime-management:sso', children: [{ id: 'child-a', name: 'Child' }], iat: now, exp: now + 60 });
+    const accepted = await call('/v2/auth/browser-sessions', { method: 'POST', body: JSON.stringify({ ticket: legacy }) });
+    expect(accepted.status).toBe(201);
+    await expect(accepted.json()).resolves.toMatchObject({ children: [{ id: 'child-a', name: 'Child' }] });
+    const foreign = await token({ aud: 'app-runtime-management:sso', children: [{ id: 'child-a', name: 'Child' }], selected_child_id: 'child-b', iat: now, exp: now + 60 });
+    const rejected = await call('/v2/auth/browser-sessions', { method: 'POST', body: JSON.stringify({ ticket: foreign }) });
+    expect(rejected.status).toBe(401);
+    await expect(rejected.json()).resolves.toMatchObject({ error: { code: 'SSO_TICKET_INVALID' } });
+  });
   it('reconciles missing inventory only for completed sources and retires source-less legacy installed projections', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const productKey='d'.repeat(64),variantKey='notepad-main';
@@ -1083,6 +1097,28 @@ describe('Application knowledge and installed inventory', () => {
     expect(result.technicalItems).toEqual(expect.arrayContaining([
       expect.objectContaining({displayName:'Administrative Tools',projectionReasonCode:'UNCONFIRMED_APPLICATION_VARIANT'}),
     ]));
+  });
+  it('surfaces exact known game products as suggestions without changing Child classification', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const product=(name:string,index:number)=>{const productKey=index.toString(16).repeat(64);return {
+      localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
+        values:{productKey,productName:name},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'installation',
+          sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
+      scope:'machine',sourceKind:'registry-machine',status:'installed'};};
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({
+      schemaVersion:2,batchId:'known-game-products',products:[product('Aimlabs',1),product('Apex Legends™',2),product('Visual Studio Code',3)],variants:[],
+    })})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{
+      displayName:string;classification:string;classificationReason:string;productType:string;suggestedClassification:string|null;
+    }>}>();
+    for(const name of ['Aimlabs','Apex Legends™']) expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
+      displayName:name,classification:'unclassified',classificationReason:'高置信游戏候选，建议归为受限娱乐（尚未生效）',
+      productType:'game',suggestedClassification:'restrictedEntertainment',
+    })]));
+    expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
+      displayName:'Visual Studio Code',classification:'unclassified',classificationReason:'尚未归类',
+      productType:'unknown',suggestedClassification:null,
+    })]));
   });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();

@@ -1,5 +1,17 @@
 # App Runtime 任务板
 
+## NOW：游戏候选提示与 SSO 孩子上下文修复
+
+- [x] contracts `1.4.0` 以可选字段增加签名启动孩子和 browser-session 初始孩子；旧 ticket/session 保持兼容。
+- [x] 对 `Aimlabs`、`Apex Legends` 这类确定名称的产品返回高置信“游戏候选”提示；提示不等于孩子分类，不自动扣减受限娱乐配额，也不覆盖家长明确配置或已批准规则。
+- [x] 主控制台签发 Runtime SSO ticket 时携带当前选中的孩子；Guardian 必须确认该孩子属于当前账户，Runtime 兑换后只在 ticket 的孩子清单内接受该选择。
+- [x] Runtime 新建会话总是兑换新的 launch ticket，并优先使用签名的启动孩子；旧 ticket/session fallback 与用户在 Runtime 内主动切换继续兼容。
+- [x] 聚焦测试覆盖非法孩子拒绝、合法孩子透传、旧 ticket fallback、sessionStorage 保存以及游戏/非游戏负向样例；Contracts 23/23、Runtime Worker 其余 48 项与修正后的游戏定点用例、两端 typecheck/dry-run、Console/session、边界与 diff 检查通过。
+
+边界：本轮不自动改变任何孩子应用分类、配额或历史账本；不改 Agent 扫描、D1 schema、Santa、Extension 或网站管理。
+
+Plan Conformance Audit（提交闸门）：Matched＝游戏仅提示不自动分类、签名孩子经账户归属校验、旧会话不再吞新 ticket、兼容旧 ticket/session；Deviated＝无；Missing＝无（真实生产跳转属于合并后 release gate）；Extra＝无。
+
 ## NOW：生产主目录明确技术安装包收口
 
 - [x] 线上证据：重复与孤立变体清理后，主目录仍包含 Intel 芯片组/Management Engine/Serial IO、NVIDIA 中文驱动程序、Windows App Cert Kit、Application Compatibility Fix Database 和 Visual Studio Build Tools 等明确技术安装包。

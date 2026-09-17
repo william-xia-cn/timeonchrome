@@ -29,7 +29,10 @@ export async function verifySsoTicket(token: string, env: Env, nowMs: number): P
     || typeof claims.jti !== 'string' || claims.jti.length < 8 || claims.jti.length > 128
     || typeof claims.iat !== 'number' || typeof claims.exp !== 'number'
     || claims.exp <= now || claims.iat > now + 30 || claims.exp - claims.iat > 65
-    || !validChildren(claims.children)) {
+    || !validChildren(claims.children)
+    || (claims.selected_child_id !== undefined
+      && (typeof claims.selected_child_id !== 'string'
+        || !claims.children.some((child) => child.id === claims.selected_child_id)))) {
     throw new HttpError(401, 'SSO_TICKET_INVALID', 'Browser SSO ticket is invalid or expired.');
   }
   return claims as unknown as AppRuntimeSsoTicketClaims;
@@ -70,7 +73,10 @@ export async function exchangeBrowserSession(
   if (Number(results[0]?.meta.changes || 0) !== 1 || Number(results[1]?.meta.changes || 0) !== 1) {
     throw new HttpError(401, 'SSO_TICKET_REPLAYED', 'Browser SSO ticket was already used.');
   }
-  return { token, tokenType: 'RuntimeSession', expiresAt: expiresAtMs, children: claims.children };
+  return {
+    token, tokenType: 'RuntimeSession', expiresAt: expiresAtMs, children: claims.children,
+    ...(claims.selected_child_id ? { selectedChildId: claims.selected_child_id } : {}),
+  };
 }
 
 export async function revokeBrowserSession(request: Request, env: Env, nowMs: number): Promise<void> {

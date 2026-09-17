@@ -69,6 +69,15 @@ function normalizedCatalogFamilyHint(evidence: AppEvidence): string {
   return value;
 }
 
+const knownGameProductNames = new Set(['aimlabs', 'apex legends']);
+
+function knownProductType(displayName: string | null): 'game' | null {
+  if (!displayName) return null;
+  const normalized = displayName.replace(/[™®©]/gu, '').normalize('NFKC')
+    .replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
+  return knownGameProductNames.has(normalized) ? 'game' : null;
+}
+
 function needsTechnicalProductReview(evidence: AppEvidence): boolean {
   if (evidence.discovery?.objectKind !== 'product' || evidence.discovery.role !== 'application'
       || evidence.discovery.nameSource !== 'installation') return false;
@@ -924,15 +933,23 @@ export async function queryAppCatalog(
       :possibleVariantKey&&!product&&!configured
         ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'POSSIBLE_PRODUCT_VARIANT' as const}
       : projection;
+    const displayName = product?.name || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null)
+      || observed?.displayName || configured?.displayName || found?.evidence.displayName || null;
+    const classification = configured?.classification || resolvedByKey.get(key)?.classification || 'unclassified';
+    const productType = product?.type ?? knownProductType(displayName) ?? 'unknown';
+    const productTypeSuggestion = classification === 'unclassified' && productType === 'game';
     return {
       platform: itemPlatform,
       runtimeIdentity: runtimeIdentity as string | null,
-      displayName: product?.name || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null) || observed?.displayName || configured?.displayName || found?.evidence.displayName || null,
+      displayName,
       discovery: found?.evidence.discovery ?? null,
       productId: product?.id ?? null,
-      classification: configured?.classification || resolvedByKey.get(key)?.classification || 'unclassified',
+      classification,
       classificationStatus: configured ? 'explicit' : resolution?.status ?? 'unclassified',
-      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类' : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类' : resolution?.status==='suggestion' ? '仅建议，尚未生效' : '尚未归类',
+      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类' : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类' : resolution?.status==='suggestion' ? '仅建议，尚未生效' : productTypeSuggestion ? '高置信游戏候选，建议归为受限娱乐（尚未生效）' : '尚未归类',
+      productType,
+      suggestedClassification: productTypeSuggestion ? 'restrictedEntertainment' as const : null,
+      productTypeReason: product?.type ? '家庭产品知识' : productTypeSuggestion ? '受控产品名称精确匹配' : null,
       installationState: found?.installed ? 'installed' : observed ? 'usedNotDiscovered' : 'preconfigured',
       firstSeenAtMs: observed?.firstSeenAtMs ?? null,
       lastSeenAtMs: observed?.lastSeenAtMs ?? null,
@@ -951,6 +968,7 @@ export async function queryAppCatalog(
       if (items.some(item=>item.productId===entry.productId && item.platform===itemPlatform)) continue;
       items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
         classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
+        productType:product!.type,suggestedClassification:null,productTypeReason:'家庭产品知识',
         firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false,discovery:null,
         catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const});
     }

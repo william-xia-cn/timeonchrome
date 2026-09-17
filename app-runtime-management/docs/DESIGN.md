@@ -1,5 +1,13 @@
 # App Runtime 技术设计
 
+## 当前修复：游戏候选与 SSO 启动孩子
+
+应用目录区分“产品类型提示”和“孩子实际分类”。`Aimlabs`、`Apex Legends` 等由受控确定名称规则命中的产品可显示 `game` 高置信候选及“建议归为受限娱乐”，但仍保持当前孩子的既有分类；只有家长明确配置或已批准自动规则才能改变分类、配额桶与后续 Segment。名称规则采用规范化后的精确产品名，不以模糊包含匹配扩大命中范围。
+
+主控制台调用 `POST /app-runtime/sso/tickets` 时提交当前 `profileId`。Guardian 从账户自己的 Runtime Child 清单验证该 ID，合法时写入签名 ticket 的可选 `selected_child_id`；不属于账户的 ID 返回 404，缺失时保留旧行为。Runtime Worker 验证该字段必须出现在 ticket 的 `children` 中，并在兑换响应中返回可选 `selectedChildId`。Console 仅在创建新 browser session 时采用它作为初始孩子；已有 Runtime session 和页面内主动切换不被覆盖。该上下文不进入 URL、localStorage、日志或独立持久表。
+
+以上为 contracts `1.4.0` 的向后兼容 Minor 扩展；数据库结构、browser session token 和账户授权模型不变。
+
 ## 当前修复：聚合投影不得反向提升维护产品
 
 真实生产回读还要求把明确的中英文驱动、芯片组/Management Engine/Serial IO 组件、兼容性数据库、认证工具和构建工具名称作为保守 review 信号。名称信号只让安装产品进入只读技术记录；产品知识或家长明确配置仍可提升，且任何事实、账本或分类历史都不删除、不重写。
