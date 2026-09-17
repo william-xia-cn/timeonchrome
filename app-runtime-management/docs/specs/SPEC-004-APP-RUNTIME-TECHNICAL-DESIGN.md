@@ -1,5 +1,13 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## 产品目录扫描结算与单一变体展示修复
+
+- inventory v2 的完成标记不仅验证批次总数，还必须按 `sourceResults` 结算缺失对象。仅 `complete` 和 `complete_with_warnings` 来源拥有缺失判断权；`failed` 来源不得改变既有安装状态。
+- 对完成来源，本次扫描批次未包含的同机器、同本机用户、同平台产品/变体改为 `notObserved`。兼容投影同步降级，但不删除产品、变体、兼容观察或批次收据。
+- 若同机器/用户已存在完成的权威 v2 扫描，缺少 `discovery.sourceKind` 的 legacy `installed` 观察不再作为当前安装证据；若仍有历史 Segment，则目录可继续以“使用过，当前未发现”或技术记录呈现。
+- Catalog API 继续返回完整 `variants`。Console 对唯一、同名、`variantRole=main`、未拆分的变体视为产品内部主入口，不显示冗余展开区或“1 个变体”文案；多入口套件、异名入口、非 main 入口及已拆分管理对象不折叠。
+- 该修复只收敛安装状态与目录展示，不改变 runtime identity、UsageSegment、历史时长、分类或配额。
+
 ## 2.2.3 inventory v4 管道兼容热修复
 
 - Session Agent 的产品/变体盘点使用 `SessionApplicationInventoryMessage.schemaVersion = 4`；RuntimeService 管道入口必须同时接收 legacy v3 与产品级 v4，其他版本 fail closed。

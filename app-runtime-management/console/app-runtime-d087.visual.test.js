@@ -154,6 +154,35 @@ const { chromium } = require('playwright');
   assert.equal(await page.locator('.schedule-categories').first().evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 1);
   await page.screenshot({ path: path.join(output, 'mobile-access-schedule.png'), fullPage: true });
   assert.deepEqual(errors, []);
+
+  const qualityPage = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+  const qualityErrors = [];
+  qualityPage.on('pageerror', (error) => qualityErrors.push(error.message));
+  await qualityPage.goto(`${pathToFileURL(path.resolve(__dirname, 'index.html')).href}?mock=1&inventoryQuality=1`);
+  await qualityPage.locator('[data-view="apps"]').click();
+  await qualityPage.locator('#app-search').fill('记事本');
+  assert.equal(await qualityPage.locator('#managed-app-list .product-record').count(), 1);
+  assert.match(await qualityPage.locator('#managed-app-list').innerText(), /记事本/);
+  assert.doesNotMatch(await qualityPage.locator('#managed-app-list').innerText(), /1 个变体/);
+  assert.equal(await qualityPage.locator('#managed-app-list .product-variants').count(), 0);
+  await qualityPage.screenshot({ path: path.join(output, 'desktop-single-main-variant.png'), fullPage: true });
+  await qualityPage.locator('#app-search').fill('LibreOffice');
+  assert.equal(await qualityPage.locator('#managed-app-list .product-record').count(), 1);
+  assert.match(await qualityPage.locator('#managed-app-list').innerText(), /3 个变体/);
+  assert.equal(await qualityPage.locator('#managed-app-list .product-variants').count(), 1);
+  await qualityPage.screenshot({ path: path.join(output, 'desktop-suite-variants.png'), fullPage: true });
+  await qualityPage.setViewportSize({ width: 390, height: 844 });
+  await qualityPage.evaluate(() => {
+    document.querySelector('#sidebar').classList.remove('open');
+    document.querySelector('#mobile-backdrop').hidden = true;
+  });
+  await qualityPage.waitForTimeout(300);
+  await qualityPage.locator('#app-search').fill('记事本');
+  const qualityOverflow = await qualityPage.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth }));
+  assert.equal(qualityOverflow.page, qualityOverflow.viewport, JSON.stringify(qualityOverflow));
+  await qualityPage.screenshot({ path: path.join(output, 'mobile-single-main-variant.png'), fullPage: true });
+  assert.deepEqual(qualityErrors, []);
+  await qualityPage.close();
   await browser.close();
   console.log(`App Runtime D-087 visual checks passed. Screenshots: ${output}`);
 })().catch((error) => {

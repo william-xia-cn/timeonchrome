@@ -291,6 +291,50 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
 
 const inventorySources = new Set(['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages','runtime']);
 const sourceStatuses = new Set(['complete','complete_with_warnings','failed']);
+const authoritativeInstallationSources = ['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages'];
+
+function inventoryV2ReconciliationStatements(db:D1Database,machineId:string,localUserId:string,platform:string,scanId:string,
+    sourceResults:Array<{source:string;status:string}>) {
+  const statements:D1PreparedStatement[]=[];
+  for(const result of sourceResults.filter(item=>item.status==='complete'||item.status==='complete_with_warnings')){
+    statements.push(db.prepare(`UPDATE runtime_installation_products_v1 AS target SET status='notObserved'
+      WHERE target.machine_id=?1 AND target.local_user_id=?2 AND target.platform=?3 AND target.source_kind=?4 AND target.status='installed'
+        AND NOT EXISTS (SELECT 1 FROM runtime_application_inventory_scan_batches_v2 batch,json_each(batch.observation_keys_json) item
+          WHERE batch.machine_id=?1 AND batch.scan_id=?5 AND item.value=?6||target.product_key)`)
+      .bind(machineId,localUserId,platform,result.source,scanId,`p\n${localUserId}\n`),
+    db.prepare(`UPDATE runtime_application_variants_v1 AS target SET status='notObserved'
+      WHERE target.machine_id=?1 AND target.local_user_id=?2 AND target.platform=?3 AND target.source_kind=?4
+        AND target.status IN ('installed','runtimeObserved')
+        AND NOT EXISTS (SELECT 1 FROM runtime_application_inventory_scan_batches_v2 batch,json_each(batch.observation_keys_json) item
+          WHERE batch.machine_id=?1 AND batch.scan_id=?5 AND item.value=?6||target.variant_key)`)
+      .bind(machineId,localUserId,platform,result.source,scanId,`v\n${localUserId}\n`),
+    db.prepare(`UPDATE runtime_application_inventory_v1 AS target SET status='notObserved'
+      WHERE target.machine_id=?1 AND target.local_user_id=?2 AND target.platform=?3 AND target.status='installed'
+        AND json_extract(target.evidence_json,'$.discovery.sourceKind')=?4
+        AND NOT EXISTS (SELECT 1 FROM runtime_installation_products_v1 product
+          WHERE product.machine_id=?1 AND product.local_user_id=?2 AND product.platform=?3 AND product.status='installed'
+            AND json_extract(product.evidence_json,'$.runtimeIdentity')=target.runtime_identity
+          UNION ALL SELECT 1 FROM runtime_application_variants_v1 variant
+          WHERE variant.machine_id=?1 AND variant.local_user_id=?2 AND variant.platform=?3
+            AND variant.status IN ('installed','runtimeObserved')
+            AND json_extract(variant.evidence_json,'$.runtimeIdentity')=target.runtime_identity)`)
+      .bind(machineId,localUserId,platform,result.source));
+  }
+  const completedSources=new Set(sourceResults.filter(item=>item.status==='complete'||item.status==='complete_with_warnings').map(item=>item.source));
+  if(authoritativeInstallationSources.every(source=>completedSources.has(source))) statements.push(db.prepare(`UPDATE runtime_application_inventory_v1 AS target
+    SET status='notObserved'
+    WHERE target.machine_id=?1 AND target.local_user_id=?2 AND target.platform=?3 AND target.status='installed'
+      AND json_extract(target.evidence_json,'$.discovery.sourceKind') IS NULL
+      AND NOT EXISTS (SELECT 1 FROM runtime_installation_products_v1 product
+        WHERE product.machine_id=?1 AND product.local_user_id=?2 AND product.platform=?3 AND product.status='installed'
+          AND json_extract(product.evidence_json,'$.runtimeIdentity')=target.runtime_identity
+        UNION ALL SELECT 1 FROM runtime_application_variants_v1 variant
+        WHERE variant.machine_id=?1 AND variant.local_user_id=?2 AND variant.platform=?3
+          AND variant.status IN ('installed','runtimeObserved')
+          AND json_extract(variant.evidence_json,'$.runtimeIdentity')=target.runtime_identity)`)
+    .bind(machineId,localUserId,platform));
+  return statements;
+}
 
 async function syncApplicationInventoryV2(db: D1Database, accountId: string, machineId: string,
     platform: string, value: Record<string,unknown>, nowMs: number) {
@@ -363,6 +407,7 @@ async function syncApplicationInventoryV2(db: D1Database, accountId: string, mac
       .bind(machineId,scan.localUserId,scan.scanId,scan.batchCount,scan.productCount,scan.variantCount,canonical(scan.sourceResults),scan.completed?1:0,nowMs),
       db.prepare(`INSERT INTO runtime_application_inventory_scan_batches_v2 VALUES(?1,?2,?3,?4,?5,?6,?7)`)
         .bind(machineId,scan.scanId,scan.batchIndex,products.length,variants.length,hash,canonical(keys.sort())));
+    if(scan.completed) statements.push(...inventoryV2ReconciliationStatements(db,machineId,scan.localUserId,platform,scan.scanId,scan.sourceResults));
   }
   for(const item of products){
     statements.push(db.prepare(`INSERT INTO runtime_installation_products_v1
