@@ -15,7 +15,7 @@
 - `Deviated`：无。
 - `Missing`：无。macOS 新扫描适配器按批准边界未实现，仅保持 contract 兼容，不属于本轮缺失。
 - `Extra`：无。
-- 验证：Contracts 23 向量、Windows 121 项、Worker 51 项、Console 聚焦测试及桌面/移动视觉、TypeScript、Wrangler types/dry-run、边界与敏感字段审计、WiX MSI/Burn 构建均通过；未部署、未安装、未切换 R2 latest。
+- 验证：Contracts 23 向量、Windows 122 项、Worker 51 项、Console 聚焦测试及桌面/移动视觉、TypeScript、Wrangler types/dry-run、边界与敏感字段审计、WiX MSI/Burn 构建均通过；未部署、未安装、未切换 R2 latest。
 
 边界：不实现类型配额、进程阻止、Santa、历史重算或 macOS 新扫描器；无 D1 migration。
 

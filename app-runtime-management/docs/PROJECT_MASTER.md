@@ -5,7 +5,7 @@
 - 开发分支目标为 contracts `1.6.0`、Windows `2.3.0`，建立可信发行身份 → 云端产品类型 → 孩子分类规则的闭环。
 - `appType` 与 `classification` 永久分离；Aimlabs/Apex 必须以发行平台 ID 等强证据确认，名称仅建议。
 - 本轮无 D1 migration，不改变主/媒体账本、历史分类或配额口径；功能 worktree 不直接操作生产资源。
-- 本地验证已完成：Contracts 23 向量、Windows 121 项、Worker 51 项、Console 功能与桌面/移动视觉、TypeScript、Wrangler types/dry-run、WiX 2.3.0 MSI/Burn、敏感字段与模块边界均通过。内部包仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`；尚未安装、发布或切换 R2 latest。
+- 本地验证已完成：Contracts 23 向量、Windows 122 项、Worker 51 项、Console 功能与桌面/移动视觉、TypeScript、Wrangler types/dry-run、WiX 2.3.0 MSI/Burn、敏感字段与模块边界均通过。内部包仍为 `BLOCKED_BY_AUTHENTICODE_SIGNING`；尚未安装、发布或切换 R2 latest。
 
 ## 当前生产更新（2026-09-18）
 

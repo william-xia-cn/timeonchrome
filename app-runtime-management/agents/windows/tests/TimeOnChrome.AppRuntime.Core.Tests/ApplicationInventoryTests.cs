@@ -30,6 +30,21 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.Null(WindowsDistributionIdentity.FromLauncherManifest("ea","missing=true"));
     }
     [Fact]
+    public void LauncherManifestRecordsKeepLocalPathsInsideTheAdapter()
+    {
+        var steam = WindowsDistributionIdentity.ParseSteamManifest(
+            "\"appid\" \"714010\"\n\"name\" \"Aimlabs\"\n\"installdir\" \"Aim Lab\"", "D:\\SteamLibrary");
+        var epic = WindowsDistributionIdentity.ParseEpicManifest(
+            "{\"CatalogItemId\":\"catalog-42\",\"DisplayName\":\"Fixture Game\",\"InstallLocation\":\"D:\\\\Games\\\\Fixture\"}");
+
+        Assert.Equal("steam:714010",steam?.DistributionKey);
+        Assert.Equal("Aimlabs",steam?.DisplayName);
+        Assert.Equal(Path.Combine("D:\\SteamLibrary","steamapps","common","Aim Lab"),steam?.InstallLocation);
+        Assert.Equal("epic:catalog-42",epic?.DistributionKey);
+        Assert.Equal("Fixture Game",epic?.DisplayName);
+        Assert.Equal("D:\\Games\\Fixture",epic?.InstallLocation);
+    }
+    [Fact]
     public async Task PackageQueryUsesUtf8ForControlledChineseOutputWithoutDiscoveringApps()
     {
         var start = WindowsApplicationDiscovery.CreatePackageQueryStartInfo();
