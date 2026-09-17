@@ -7,7 +7,8 @@
 - [x] Windows 2.2.4 使用精确包身份、可信 OS 元数据或已审核规则识别系统应用；名称、路径和 Microsoft 发布者不能单独命中。
 - [x] Console 在五分类内同页显示普通应用与系统应用，系统应用默认折叠、搜索命中自动展开，分类操作保持一致。
 - [x] 固定回归覆盖 Quick Assist、同名第三方、Office/Teams、记事本/计算器、技术组件和旧 Agent；桌面/移动截图、typecheck、Worker/Windows 测试、Wrangler dry-run 与范围审计通过。
-- [ ] 从干净 `master` 按兼容 Worker → 独立 Runtime Pages → Windows 2.2.4 顺序发布并完成线上/真机验收。
+- [x] 从干净 `master@6b5f812` 按兼容 Worker → 独立 Runtime Pages → Windows 2.2.4 顺序发布；health、未认证 fail-closed、Pages 稳定地址、R2 不可变对象、latest 和 Worker 下载哈希均已回读。
+- [ ] HornburgXW 原地升级 2.2.4 后完成真实系统应用分组和新一轮盘点验收；发布状态不得冒充已安装状态。
 
 边界：只改变目录来源投影和展示分组；不修改账本、配额计算、历史 Segment、Guardian、Santa、Extension、网站管理或 macOS Agent。
 

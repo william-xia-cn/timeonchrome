@@ -1,10 +1,13 @@
 # App Runtime 项目真值
 
-## 当前开发候选（2026-09-18，未部署）
+## 当前生产更新（2026-09-18）
 
-- contracts `1.4.0` 为 SSO ticket/browser session 增加可选启动孩子；Guardian 验证其属于当前账户，Runtime 验证其存在于签名 Child 清单。主控制台传递当前孩子，新 launch ticket 必须替换旧 `sessionStorage` 会话，避免总是回落到列表第一项。
-- 应用目录为 `Aimlabs`、`Apex Legends` 的规范化精确产品名返回高置信 `game` 候选和“建议归为受限娱乐”；不自动修改孩子分类、配额或历史账本，Visual Studio Code 负向样例保持普通未归类。
-- 本地 Contracts、Runtime Worker 聚焦回归、Guardian/Runtime typecheck 与 Wrangler dry-run、Console session、集成边界和 diff 检查通过。生产 Guardian、Runtime Worker、Runtime Pages 与主 Pages 均未更新；真实跳转验收留在合并后 release gate。
+- `master@6b5f812d029b249dbaeeddd1218bbf240b1c173b` 已发布 contracts `1.5.0` 和 ARM-D-015。应用目录把可管理对象按强来源证据分为普通应用与系统应用；技术记录仍只读。系统归属不改变孩子分类、主账本、历史 Segment 或配额计算。
+- Runtime Worker：`477649a6-cfc6-482b-b136-27df6211ef2e`；`/v1/health` 为 200，未认证 catalog 为 401。无 migration，Runtime D1 schema 与生产数据未修改。
+- 独立 Runtime Pages：`32c70100-f704-48a9-b19c-271786054cd9`，来源 `master@6b5f812`；稳定地址回读 200 并包含普通/系统应用双分组。Guardian、主 Pages、Santa、Extension 均未部署。
+- R2 latest 已切换 Windows 2.2.4。Burn 为 118,734,035 bytes / SHA-256 `cd4a3e03d4f61a6d86113d835500613e0243634edc04e1ec617c1728abb58181`；MSI 为 60,367,200 bytes / SHA-256 `edc6a18dcc64adecf132ae4ff36c74890b769a8c27b80ef0dc82efadd3425293`。三个不可变对象及 Worker 下载路由均已回读一致。
+- Windows 2.2.4 仍未签名，状态保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。发布安装包不等于 HornburgXW 已升级；真实盘点中的系统应用分组须在该机器安装 2.2.4 并完成新一轮盘点后验收。
+- contracts `1.4.0` 的 SSO 启动孩子与游戏候选修复已随同一 master 基线进入 Worker/Pages；Guardian 的签发侧 `b551bb9` 已先行合入 master，本次未重新部署 Guardian。
 
 ## 当前修复与生产基线（2026-09-16）
 
