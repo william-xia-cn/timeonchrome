@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前修复：聚合投影不得反向提升维护产品
+
+产品组的最终可管理性必须尊重安装产品证据：分组中出现 `TECHNICAL_PRODUCT_REVIEW` 安装产品时，关联启动入口不能把该组反向提升为 actionable；只有版本化产品知识或家长明确配置可以提升。装饰名称 family 若对应多个互不关联的可管理安装产品，则整体按歧义技术记录展示；名称只用于安全降级和聚合展示，不写入持久关联，也不自动继承分类。
+
+v2 `ApplicationVariant` 只是启动入口、包内应用或运行身份。强 binary/package 身份可以稳定识别该变体，但不能独自证明它是产品；没有可信父产品、产品知识或家长明确配置时，独立变体保持 review。已关联可信安装产品的变体仍由产品组携带，历史使用和实现身份不丢失。
+
 ## 当前修复：生产目录的维护对象与装饰名称降噪
 
 ARM-D-014 的生产复验表明，Windows Uninstall Registry 中部分 redistributable、runtime、maintenance service 和 installer 未设置 `SystemComponent`、`ParentKeyName` 或 `ReleaseType`，因此扫描事实只能证明“存在安装记录”，不能证明其是家长可管理应用。read model 对这类通用维护语义只降为 `review` 技术记录，不删除、不标记卸载，也不自动确认产品。

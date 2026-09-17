@@ -33,7 +33,8 @@ type CatalogProjection = {
   manageability: CatalogManageability;
   projectionReasonCode: 'CONFIRMED_PRODUCT' | 'EXPLICIT_APPLICATION_CLASSIFICATION' | 'VERIFIED_APPLICATION'
     | 'INSTALLATION_PRODUCT' | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY'
-    | 'AMBIGUOUS_INSTALLATION_PRODUCTS' | 'POSSIBLE_PRODUCT_VARIANT' | 'TECHNICAL_PRODUCT_REVIEW';
+    | 'AMBIGUOUS_INSTALLATION_PRODUCTS' | 'POSSIBLE_PRODUCT_VARIANT' | 'TECHNICAL_PRODUCT_REVIEW'
+    | 'UNCONFIRMED_APPLICATION_VARIANT';
 };
 
 type CatalogEntry = CatalogProjection & {
@@ -91,6 +92,9 @@ function projectCatalogEvidence(
   if (evidence?.discovery?.objectKind === 'product' && evidence.discovery.role === 'application'
       && evidence.verifiedFields.includes('productKey')) {
     return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'INSTALLATION_PRODUCT' };
+  }
+  if (evidence?.discovery?.objectKind === 'variant' && evidence.discovery.role === 'application') {
+    return { catalogKind: 'candidate', manageability: 'review', projectionReasonCode: 'UNCONFIRMED_APPLICATION_VARIANT' };
   }
   if (evidence?.discovery?.role === 'application' && hasStrongApplicationIdentity(evidence)) {
     return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'VERIFIED_APPLICATION' };
@@ -871,11 +875,20 @@ export async function queryAppCatalog(
     .filter(([,group])=>new Set(group.map(item=>associations.get(`${item.platform}\n${item.runtimeIdentity}`)
       ?? `${item.platform}\n${item.runtimeIdentity}`)).size>1)
     .map(([key])=>key));
+  const ambiguousFamilyHints = new Set([...productsByFamilyHint.entries()]
+    .filter(([,group])=>new Set(group.map(item=>associations.get(`${item.platform}\n${item.runtimeIdentity}`)
+      ?? `${item.platform}\n${item.runtimeIdentity}`)).size>1)
+    .map(([key])=>key));
   const ambiguityByIdentity = new Map<string,string>();
   for (const item of inventory.values()) {
     const evidence=item.evidence, displayKey=`${evidence.platform}\n${normalizedCatalogDisplayName(evidence)}`;
     if (item.installed && ambiguousDisplayNames.has(displayKey))
       ambiguityByIdentity.set(`${evidence.platform}\n${evidence.runtimeIdentity}`,`ambiguous-installation:${displayKey}`);
+    else {
+      const familyKey=`${evidence.platform}\n${normalizedCatalogFamilyHint(evidence)}`;
+      if (item.installed && ambiguousFamilyHints.has(familyKey))
+        ambiguityByIdentity.set(`${evidence.platform}\n${evidence.runtimeIdentity}`,`ambiguous-installation-family:${familyKey}`);
+    }
   }
   const possibleVariantByIdentity = new Map<string,string>();
   for (const [displayKey, products] of productsByFamilyHint) {
@@ -908,7 +921,7 @@ export async function queryAppCatalog(
     const possibleVariantKey=possibleVariantByIdentity.get(key);
     const effectiveProjection=ambiguityKey&&!product&&!configured
       ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'AMBIGUOUS_INSTALLATION_PRODUCTS' as const}
-      :possibleVariantKey&&!product&&!configured&&projection.manageability==='actionable'
+      :possibleVariantKey&&!product&&!configured
         ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'POSSIBLE_PRODUCT_VARIANT' as const}
       : projection;
     return {
@@ -971,8 +984,18 @@ export async function queryAppCatalog(
     const primary = [...group].sort((a,b)=>(a.discovery?.objectKind==='product'?0:1)-(b.discovery?.objectKind==='product'?0:1)
       ||(a.manageability==='actionable'?0:a.manageability==='review'?1:2)-(b.manageability==='actionable'?0:b.manageability==='review'?1:2)
       ||(a.discovery?.nameSource==='appList'?0:a.discovery?.role==='application'?1:2)-(b.discovery?.nameSource==='appList'?0:b.discovery?.role==='application'?1:2))[0]!;
-    const aggregateProjection = group.some(item=>item.productId||item.discovery?.objectKind==='product'&&item.manageability==='actionable')
+    const hasConfirmedProduct=group.some(item=>item.productId);
+    const hasExplicitClassification=group.some(item=>item.classificationStatus==='explicit');
+    const hasTechnicalReviewProduct=group.some(item=>item.discovery?.objectKind==='product'
+      && item.projectionReasonCode==='TECHNICAL_PRODUCT_REVIEW');
+    const aggregateProjection = hasConfirmedProduct
       ? {catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const}
+      : hasExplicitClassification
+        ? {catalogKind:'application' as const,manageability:'actionable' as const,projectionReasonCode:'EXPLICIT_APPLICATION_CLASSIFICATION' as const}
+        : hasTechnicalReviewProduct
+          ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'TECHNICAL_PRODUCT_REVIEW' as const}
+          : group.some(item=>item.discovery?.objectKind==='product'&&item.manageability==='actionable')
+            ? {catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const}
       : group.some(item=>item.manageability==='actionable')
         ? {catalogKind:'application' as const,manageability:'actionable' as const,projectionReasonCode:primary.projectionReasonCode}
         : group.every(item=>item.manageability==='hidden')
