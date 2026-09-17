@@ -28,10 +28,10 @@
         "platform":{"enum":["windows","macos"]},"runtimeIdentity":{"$ref":"#/$defs/text"},"displayName":{"$ref":"#/$defs/text"},
         "values":{"type":"object","additionalProperties":false,"properties":{
           "runtimeIdentity":{"$ref":"#/$defs/text"},"binaryHash":{"type":"string","pattern":"^[a-f0-9]{64}$"},
-          "packageId":{"$ref":"#/$defs/text"},"signerKey":{"type":"string","pattern":"^[a-f0-9]{64}$"},
+          "packageId":{"$ref":"#/$defs/text"},"distributionKey":{"type":"string","pattern":"^(steam|microsoft-store|ea|epic|ubisoft|gog):[A-Za-z0-9._-]{1,128}$"},"signerKey":{"type":"string","pattern":"^[a-f0-9]{64}$"},
           "productName":{"$ref":"#/$defs/text"},"declaredType":{"$ref":"#/$defs/text"},"installationSource":{"$ref":"#/$defs/text"}
         }},
-        "verifiedFields":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["runtimeIdentity","binaryHash","packageId","signerKey","productName","declaredType","installationSource"]}},
+        "verifiedFields":{"type":"array","maxItems":10,"uniqueItems":true,"items":{"enum":["runtimeIdentity","binaryHash","packageId","distributionKey","signerKey","productName","declaredType","installationSource"]}},
         "discovery":{"$ref":"#/$defs/discovery"}
       }
     },

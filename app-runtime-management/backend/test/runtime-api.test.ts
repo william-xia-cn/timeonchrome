@@ -1151,7 +1151,7 @@ describe('Application knowledge and installed inventory', () => {
       expect.objectContaining({displayName:'Administrative Tools',projectionReasonCode:'UNCONFIRMED_APPLICATION_VARIANT'}),
     ]));
   });
-  it('surfaces exact known game products as suggestions without changing Child classification', async () => {
+  it('keeps name-only game matches as suggestions without claiming confirmed type', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const product=(name:string,index:number)=>{const productKey=index.toString(16).repeat(64);return {
       localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
@@ -1162,15 +1162,30 @@ describe('Application knowledge and installed inventory', () => {
       schemaVersion:2,batchId:'known-game-products',products:[product('Aimlabs',1),product('Apex Legends™',2),product('Visual Studio Code',3)],variants:[],
     })})).status).toBe(200);
     const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{
-      displayName:string;classification:string;classificationReason:string;productType:string;suggestedClassification:string|null;
+      displayName:string;classification:string;classificationReason:string;productType:string;typeStatus:string;suggestedClassification:string|null;
     }>}>();
     for(const name of ['Aimlabs','Apex Legends™']) expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
-      displayName:name,classification:'unclassified',classificationReason:'高置信游戏候选，建议归为受限娱乐（尚未生效）',
-      productType:'game',suggestedClassification:'restrictedEntertainment',
+      displayName:name,classification:'unclassified',classificationReason:'疑似游戏，建议归为受限娱乐（尚未生效）',
+      productType:'game',typeStatus:'suggested',suggestedClassification:'restrictedEntertainment',
     })]));
     expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
       displayName:'Visual Studio Code',classification:'unclassified',classificationReason:'尚未归类',
       productType:'unknown',suggestedClassification:null,
+    })]));
+  });
+  it('confirms Aimlabs and Apex from verified Steam product IDs rather than names', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const product=(name:string,index:number,distributionKey:string)=>{const productKey=index.toString(16).repeat(64);return {
+      localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
+        values:{productKey,productName:name,distributionKey},verifiedFields:['productKey','distributionKey'],discovery:{role:'application',nameSource:'installation',
+          sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
+      scope:'machine',sourceKind:'registry-machine',status:'installed'};};
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({schemaVersion:2,
+      batchId:'distribution-games',products:[product('Aimlabs renamed',4,'steam:714010'),product('Apex local title',5,'steam:1172470')],variants:[]})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<Record<string,unknown>>}>();
+    for(const name of ['Aimlabs','Apex Legends']) expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
+      displayName:name,appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',classification:'unclassified',
+      suggestedClassification:'restrictedEntertainment',
     })]));
   });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {

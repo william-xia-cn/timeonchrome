@@ -8,6 +8,14 @@ import { HttpError } from './http';
 import { isRecord } from './validation';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
+const controlledProducts: ApplicationKnowledge['products'] = [
+  { id:'builtin.steam.714010', name:'Aimlabs', type:'game', selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'distributionKey',value:'steam:714010'}]}}] },
+  { id:'builtin.steam.1172470', name:'Apex Legends', type:'game', selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'distributionKey',value:'steam:1172470'}]}}] },
+];
+export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
+  const products = value.products.filter(item=>!controlledProducts.some(builtin=>builtin.id===item.id)).concat(controlledProducts);
+  return {...value,schemaVersion:2,products};
+}
 const empty = (): ApplicationKnowledge => ({ schemaVersion: 1, version: 0, products: [], rules: [], bindings: [] });
 const canonical = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -47,6 +55,7 @@ export async function listApplicationInventory(db: D1Database, accountId: string
 async function policyStatements(db: D1Database, accountId: string, knowledge: ApplicationKnowledge,
     childIds: string[], evidence: AppEvidence[], nowMs: number): Promise<D1PreparedStatement[]> {
   const statements: D1PreparedStatement[] = [];
+  const effectiveKnowledge = effectiveApplicationKnowledge(knowledge);
   for (const childId of childIds) {
     const current = await getAppPolicy(db, accountId, childId);
     const previous = current.resolvedApplications ?? [];
@@ -61,15 +70,15 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
     }
     const resolvedApplications: AppPolicyClassification[] = [...byIdentity.values()].map(item => {
       const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
-      const resolution = resolveApplication(knowledge, childId, item, prior?.classification);
+      const resolution = resolveApplication(effectiveKnowledge, childId, item, prior?.classification);
       return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification: resolution.classification };
     }).filter(item => item.classification !== 'unclassified');
     // Unknown inventory uses the existing unclassified/unlimited default; it must not inflate legacy policy arrays.
     if (resolvedApplications.length > 1000)
       throw new HttpError(413,'APPLICATION_POLICY_CAPACITY','Too many classified implementations for the supported machine policy capacity.');
-    const binding = knowledge.bindings.filter(item => item.childId === childId);
+    const binding = effectiveKnowledge.bindings.filter(item => item.childId === childId);
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
-    const scoped = { ...knowledge, bindings: binding, rules: knowledge.rules.filter(rule => enabled.has(rule.id)) };
+    const scoped = { ...effectiveKnowledge, bindings: binding, rules: effectiveKnowledge.rules.filter(rule => enabled.has(rule.id)) };
     const payload = canonical({ classifications: current.classifications, quotas: current.quotas,
       timeWindows: current.timeWindows, applicationKnowledge: scoped, resolvedApplications });
     statements.push(db.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
@@ -140,7 +149,7 @@ export async function knowledgeImportPreview(db: D1Database, accountId: string, 
     const old = current[kind].find(entry => entry.id === item.id);
     if (canonical(old ?? null) !== canonical(item)) changes.push({key:`${kind}:${item.id}`,kind,name:item.name,change:old?'modify':'add'});
   }
-  const proposed = applyImport(current,incoming,changes.map(item=>item.key));
+  const proposed = effectiveApplicationKnowledge(applyImport(current,incoming,changes.map(item=>item.key)));
   const inventory = await listApplicationInventory(db,accountId);
   const targets = incoming.bindings.map(item=>item.childId);
   const hits = inventory.flatMap(item => targets.flatMap(childId => {
@@ -201,7 +210,7 @@ export async function applyKnowledgeOperation(db:D1Database,accountId:string,chi
     if(expected!==knowledgeEtag(current.version))throw new HttpError(412,'APPLICATION_KNOWLEDGE_CONFLICT','Application data changed. Reload before saving.');
     const inventory=await listApplicationInventory(db,accountId);
     const hits=inventory.flatMap(item=>childIds.flatMap((childId,childIndex)=>{
-      const before=resolveApplication(current,childId,item.evidence),after=resolveApplication(next,childId,item.evidence,before.classification);
+      const before=resolveApplication(effectiveApplicationKnowledge(current),childId,item.evidence),after=resolveApplication(effectiveApplicationKnowledge(next),childId,item.evidence,before.classification);
       if(canonical(before)===canonical(after))return [];
       return [{childIndex,displayName:item.evidence.displayName,platform:item.evidence.platform,
         before:{classification:before.classification,status:before.status},

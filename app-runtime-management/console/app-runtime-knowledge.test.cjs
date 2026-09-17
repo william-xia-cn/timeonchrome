@@ -6,6 +6,7 @@ assert.deepEqual(confirmed.bindings.map(item=>item.childId),['child-a']);
 assert.equal(confirmed.products[0].selectors[0].match.conditions[0].field,'binaryHash');
 assert.throws(()=>K.selectorFor({...evidence,verifiedFields:[]},'series'),/可靠身份/);
 assert.deepEqual(K.selectorFor(evidence,'series').match.conditions.map(item=>item.field),['signerKey','productName']);
+assert.equal(K.selectorFor({...evidence,values:{...evidence.values,distributionKey:'steam:714010'},verifiedFields:[...evidence.verifiedFields,'distributionKey']},'series').match.conditions[0].field,'distributionKey');
 const variant=K.confirmProduct(confirmed,{evidence:{...evidence,values:{...evidence.values,binaryHash:'c'.repeat(64)}},scope:'file',productId:'fixture-game',classification:'restrictedEntertainment',childIds:['child-a']});
 assert.equal(variant.products[0].selectors.length,2);
 assert.equal(K.unlinkVariant(variant,'fixture-game',1,['child-a']).products[0].selectors.length,1);
@@ -32,6 +33,10 @@ const revised=K.reviseRule(shared,{id:'new-rule',enabled:true,name:'Revised'},['
 assert.deepEqual(revised.bindings[0].ruleIds,['new-rule']);assert.deepEqual(revised.bindings[1].ruleIds,['old-rule']);
 assert.deepEqual(K.toggleApproval(shared,'old-rule','child-a','unused').bindings[1].ruleIds,['old-rule']);
 assert.deepEqual(K.toggleApproval(shared,'old-rule','child-a','unused').bindings[0].ruleIds,[]);
+const recommended=K.withDefaultRecommendations(K.empty());
+assert.equal(recommended.schemaVersion,2);assert.equal(recommended.rules[0].mode,'suggestion');
+const approved=K.toggleApproval(recommended,recommended.rules[0].id,'child-a','unused');
+assert.equal(approved.rules[0].mode,'automatic');assert.deepEqual(approved.bindings[0].ruleIds,[recommended.rules[0].id]);
 assert.throws(()=>K.selectedImport(shared,{products:[],rules:[{id:'old-rule',enabled:true,name:'Changed'}],bindings:[{childId:'child-a',products:[],ruleIds:['old-rule']}]},['rules:old-rule']),/未选孩子/);
 const oldMatch={match:{conditions:[{field:'packageId',value:'not-currently-installed'},{field:'binaryHash',value:'a'.repeat(64)},{field:'productName',value:'Old name'},{field:'declaredType',value:'game'}]}};
 assert.deepEqual(K.editedConditions(oldMatch,[{field:'binaryHash',value:'a'.repeat(64)}],[],'New name'),[{field:'packageId',value:'not-currently-installed'},{field:'declaredType',value:'game'},{field:'productName',value:'New name'}]);

@@ -1,5 +1,9 @@
 # SPEC-004 Cross-Platform App Runtime Management V1
 
+## ARM-D-016 客观类型与管理归类
+
+产品必须把客观 `appType` 与孩子级 `classification` 永久分开。Aimlabs、Apex Legends 等只有在 Steam/Microsoft Store/EA/Epic/Ubisoft/GOG 稳定产品 ID、可信包身份或已审核产品关联命中时才能确认为游戏；同名程序和客户端自报类型只能显示“疑似”。默认提供“游戏 → 受限娱乐”建议但不启用，家长确认后才成为孩子级自动规则；具体产品明确分类始终优先。配额只按最终 classification 计算，不新增类型配额或重复扣减。
+
 ## ARM-D-015 云端权威来源投影补充
 
 普通应用、系统应用与技术记录是云端产品目录和展示投影，不是终端事实。Agent 只上传经过验证的包身份、签名摘要、安装产品和变体关系；Runtime Worker 根据版本化受控规则生成最终 `applicationOrigin`、`manageability` 和目录分组。Agent 可选上传的来源字段只作 advisory evidence，不能覆盖云端结果。

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://timeonchrome.invalid/contracts/application-knowledge-v1",
+  "$id": "https://timeonchrome.invalid/contracts/application-knowledge-v2",
   "title": "家庭应用知识与分类规则",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "version", "products", "rules", "bindings"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [1, 2] },
     "version": { "type": "integer", "minimum": 0 },
     "products": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/product" } },
     "rules": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/rule" } },
@@ -21,7 +21,7 @@
     "condition": {
       "type": "object", "additionalProperties": false, "required": ["field", "value"],
       "properties": {
-        "field": { "enum": ["runtimeIdentity", "binaryHash", "packageId", "signerKey", "productName", "declaredType", "installationSource"] },
+        "field": { "enum": ["runtimeIdentity", "binaryHash", "packageId", "distributionKey", "productKey", "hostedAppId", "signerKey", "productName", "declaredType", "installationSource"] },
         "value": { "$ref": "#/$defs/text" }
       }
     },

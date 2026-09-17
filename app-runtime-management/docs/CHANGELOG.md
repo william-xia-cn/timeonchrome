@@ -1,5 +1,14 @@
 # App Runtime Changelog
 
+## [contracts 1.6.0 / Windows 2.3.0 / 自动产品类型识别] — 2026-09-18（本地候选已验证）
+
+- 将客观产品类型与孩子管理归类永久分离；类型不被家长覆盖，配额只按最终管理分类扣减。
+- Windows 增加 Steam、Microsoft Store、EA、Epic、Ubisoft、GOG 的稳定发行身份采集；Worker 以版本化产品知识确认类型，名称和客户端自报只能形成建议。
+- 默认“游戏 → 受限娱乐”保持未启用建议，家长批准后才自动生效；具体产品明确分类始终优先。
+- Application Knowledge v2 继续接受 v1；复用 JSON 证据存储，不新增 D1 migration，不重写历史 Segment。
+- Contracts 23 向量、Windows 121 项、Worker 51 项、Console 功能及桌面/移动视觉、TypeScript、Wrangler types/dry-run、WiX MSI/Burn、敏感字段和边界审计均通过。
+- 内部未签名 2.3.0 候选已生成：Burn 118,751,025 bytes / SHA-256 `a67ac013b2d167892765cc67cbc54e5d52445981220d23eef265dcddbad6de0e`；MSI 60,371,296 bytes / SHA-256 `79ca364c2d742370f9836dad233c44962e7090ee3c25dc4efebc4c5472ab575c`。未安装、未上传 R2、未切换 latest、未部署 Worker/Pages。
+
 ## [系统应用云端权威投影修正] — 2026-09-18（生产已发布）
 
 - 普通应用、系统应用和技术记录改由 Runtime Worker 基于可信 `packageId` 统一投影；客户端来源字段仅作 advisory evidence。

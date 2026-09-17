@@ -1,5 +1,24 @@
 # App Runtime 任务板
 
+## NOW：客观应用类型与孩子归类分离（ARM-D-016）
+
+- [x] contracts `1.6.0`：增加 `distributionKey`、类型状态/理由与 Application Knowledge v2；继续接受 v1。
+- [x] Runtime Worker：以云端产品知识解析客观类型；Aimlabs/Apex 依赖发行平台 ID 确认为游戏，名称只允许建议。
+- [x] Windows `2.3.0`：接入 Steam、Microsoft Store、EA、Epic、Ubisoft、GOG 的可信发行身份采集，不上传路径、用户或完整清单。
+- [x] 分类解析：明确产品覆盖 > 精确产品 > 系列/开发者 > 类型规则 > 建议；配额只读取最终 classification。
+- [x] Console：同时展示产品类型与管理归类；类型规则启用前预览命中应用和目标孩子。
+- [x] 完成 contracts、Worker、Windows、Console、WiX、目视截图、敏感字段和边界审计；功能分支不直接部署生产。
+
+### Plan Conformance Audit（2026-09-18）
+
+- `Matched`：`appType` 与 `classification` 分离；六类 Windows 发行身份适配；Aimlabs `steam:714010` 与 Apex Legends `steam:1172470` 强证据确认；默认游戏规则仅建议、批准后自动；单产品明确覆盖优先；最终 classification 单一扣减；Application Knowledge v1/v2 兼容；Console 类型/归类双展示和批准预览；Windows 2.3.0/WiX 版本与内部未签名状态。
+- `Deviated`：无。
+- `Missing`：无。macOS 新扫描适配器按批准边界未实现，仅保持 contract 兼容，不属于本轮缺失。
+- `Extra`：无。
+- 验证：Contracts 23 向量、Windows 121 项、Worker 51 项、Console 聚焦测试及桌面/移动视觉、TypeScript、Wrangler types/dry-run、边界与敏感字段审计、WiX MSI/Burn 构建均通过；未部署、未安装、未切换 R2 latest。
+
+边界：不实现类型配额、进程阻止、Santa、历史重算或 macOS 新扫描器；无 D1 migration。
+
 ## NOW：系统应用来源改为云端权威投影
 
 - [x] Runtime Worker 仅从经过验证的 `packageId` 和云端受控规则生成 `applicationOrigin`；客户端来源字段不得覆盖结果。

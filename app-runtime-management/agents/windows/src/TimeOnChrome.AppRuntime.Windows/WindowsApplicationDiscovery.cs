@@ -81,8 +81,22 @@ public sealed class WindowsApplicationDiscovery
                             key?.GetValue("ParentKeyName") is string, key?.GetValue("ReleaseType") is string);
                         var values = new Dictionary<string,string> { ["productKey"] = productKey, ["productName"] = name,
                             ["installationSource"] = "registry" };
+                        var distributionKey = WindowsDistributionIdentity.FromRegistry(keyName,
+                            new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase) {
+                                ["gameID"] = key?.GetValue("gameID")?.ToString(),
+                                ["GOGGameId"] = key?.GetValue("GOGGameId")?.ToString(),
+                                ["OfferId"] = key?.GetValue("OfferId")?.ToString(),
+                                ["ContentId"] = key?.GetValue("ContentId")?.ToString(),
+                                ["GameId"] = key?.GetValue("GameId")?.ToString(),
+                                ["CatalogItemId"] = key?.GetValue("CatalogItemId")?.ToString(),
+                                ["AppName"] = key?.GetValue("AppName")?.ToString(),
+                                ["ProductId"] = key?.GetValue("ProductId")?.ToString(),
+                                ["UplayId"] = key?.GetValue("UplayId")?.ToString(),
+                            });
+                        if (distributionKey is not null) values["distributionKey"] = distributionKey;
                         var evidence = new AppEvidence("windows", "windows:product:" + productKey, name, values,
-                            ["productKey"], Discovery: new(technical ? "component" : "application", "installation", ["registry"],
+                            distributionKey is null ? ["productKey"] : ["productKey", "distributionKey"],
+                            Discovery: new(technical ? "component" : "application", "installation", ["registry"],
                                 "product", null, "unknown", scope, source, "strong"));
                         products.Add(new(evidence, "installed", source, scope, null, "unknown", true));
                         var installLocation = key?.GetValue("InstallLocation") as string;
@@ -267,7 +281,8 @@ public sealed class WindowsApplicationDiscovery
             var role = visual is null || string.Equals((string?)visual.Attribute("AppListEntry"), "none", StringComparison.OrdinalIgnoreCase) ? "component" : "application";
             var identity = WindowsApplicationIdentityDeriver.Derive(null, name, family, aumid);
             result.Add(new(new AppEvidence("windows", identity.RuntimeIdentity, name,
-                new Dictionary<string,string> { ["packageId"] = aumid, ["productKey"] = parentProductKey ?? WindowsApplicationEvidence.Hash("package:" + family) }, ["packageId", "productKey"],
+                new Dictionary<string,string> { ["packageId"] = aumid, ["distributionKey"] = WindowsDistributionIdentity.MicrosoftStore(family),
+                    ["productKey"] = parentProductKey ?? WindowsApplicationEvidence.Hash("package:" + family) }, ["packageId", "distributionKey", "productKey"],
                 Discovery: new(role, !string.IsNullOrWhiteSpace(friendly) ? "appList" : literal ? "manifest" : "fallback", ["package"],
                     "variant", parentProductKey, role == "component" ? "helper" : "main", "user", "user-packages", role == "component" ? "review" : "strong",
                     systemApplication && role == "application" ? "operatingSystem" : null,
@@ -346,8 +361,9 @@ public sealed class WindowsApplicationDiscovery
                 var systemApplication = IsControlledSystemApplicationPackage(family);
                 var productEvidence = new AppEvidence("windows", "windows:product:" + productKey,
                     parsed.FirstOrDefault(item => item.Evidence.Discovery?.Role == "application")?.Evidence.DisplayName ?? fallbackName,
-                    new Dictionary<string,string> { ["packageId"] = family, ["productKey"] = productKey, ["productName"] = fallbackName },
-                    ["packageId", "productKey"], Discovery: new(visible ? "application" : "component", "installation", ["package"],
+                    new Dictionary<string,string> { ["packageId"] = family, ["distributionKey"] = WindowsDistributionIdentity.MicrosoftStore(family),
+                        ["productKey"] = productKey, ["productName"] = fallbackName },
+                    ["packageId", "distributionKey", "productKey"], Discovery: new(visible ? "application" : "component", "installation", ["package"],
                         "product", null, "unknown", "user", "user-packages", "strong",
                         systemApplication && visible ? "operatingSystem" : null,
                         systemApplication && visible ? "exactPackageRule" : null));

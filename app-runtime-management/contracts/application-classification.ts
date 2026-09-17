@@ -1,9 +1,11 @@
 export type AppPlatform = 'windows' | 'macos';
 export type AppType = 'game' | 'gameLauncher' | 'onlineVideo' | 'mediaPlayer' | 'other' | 'unknown';
+export type AppTypeStatus = 'confirmed' | 'suggested' | 'unknown';
+export type AppTypeReasonCode = 'distributionProductRule' | 'exactPackageRule' | 'verifiedProductRule' | 'exactNameSuggestion' | 'none';
 export type AppClass = 'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'blocked';
 export type ApplicationOrigin = 'user' | 'operatingSystem' | 'unknown';
 export type ApplicationOriginEvidenceCode = 'exactPackageRule' | 'osMetadata' | 'reviewedSystemBinary';
-export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'productKey' | 'hostedAppId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
+export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'distributionKey' | 'productKey' | 'hostedAppId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
 export interface ApplicationDiscoverySummary {
   role: 'application' | 'component' | 'candidate';
   nameSource: 'appList' | 'manifest' | 'fileMetadata' | 'installation' | 'fallback';
@@ -94,7 +96,7 @@ export interface ApplicationInventoryScan {
 /** 展示关联不是产品确认。异包入口和同名应用不能因共享名称/二进制被强制合并。 */
 export function applicationAssociationKeys(evidence: AppEvidence): string[] {
   const keys = [`identity:${evidence.platform}:${evidence.runtimeIdentity}`];
-  for (const field of ['productKey', 'hostedAppId', 'packageId', 'binaryHash'] as const) {
+  for (const field of ['distributionKey', 'productKey', 'hostedAppId', 'packageId', 'binaryHash'] as const) {
     if (evidence.verifiedFields.includes(field) && evidence.values[field]) keys.push(`${field}:${evidence.platform}:${evidence.values[field]}`);
   }
   return keys;
@@ -148,7 +150,7 @@ export interface ChildProductBinding {
   ruleIds: string[];
 }
 export interface ApplicationKnowledge {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   version: number;
   products: AppProduct[];
   rules: ClassificationRule[];
@@ -160,8 +162,11 @@ export interface ClassificationResolution {
   status: 'explicit' | 'automatic' | 'suggestion' | 'conflict' | 'unclassified';
   ruleIds: string[];
   suggestions: string[];
+  appType: AppType;
+  typeStatus: AppTypeStatus;
+  typeReasonCode: AppTypeReasonCode;
 }
-const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'productKey', 'hostedAppId', 'signerKey']);
+const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey']);
 const rank = { product: 0, family: 1, developer: 1, type: 2 };
 export function safeAutomatic(expression: MatchExpression): boolean {
   if (!expression.conditions.length) return false;
@@ -185,31 +190,51 @@ export function identifyProducts(products: AppProduct[], evidence: AppEvidence):
     selector.platform === evidence.platform && safeAutomatic(selector.match)
     && matches(selector.match, evidence, true))).map(product => product.id).sort();
 }
+export function resolveProductType(knowledge: ApplicationKnowledge, evidence: AppEvidence): {
+  productId: string | null; appType: AppType; typeStatus: AppTypeStatus; typeReasonCode: AppTypeReasonCode;
+} {
+  const identified = identifyProducts(knowledge.products, evidence);
+  if (identified.length !== 1) return { productId: null, appType: 'unknown', typeStatus: 'unknown', typeReasonCode: 'none' };
+  const product = knowledge.products.find(item => item.id === identified[0])!;
+  const matched = product.selectors.find(selector => selector.platform === evidence.platform
+    && safeAutomatic(selector.match) && matches(selector.match, evidence, true));
+  const fields = new Set(matched?.match.conditions.map(item => item.field) ?? []);
+  const reason: AppTypeReasonCode = fields.has('distributionKey') ? 'distributionProductRule'
+    : fields.has('packageId') ? 'exactPackageRule' : 'verifiedProductRule';
+  return { productId: product.id, appType: product.type, typeStatus: product.type === 'unknown' ? 'unknown' : 'confirmed',
+    typeReasonCode: product.type === 'unknown' ? 'none' : reason };
+}
 export function resolveApplication(
   knowledge: ApplicationKnowledge, childId: string, evidence: AppEvidence, previous: AppClass = 'unclassified',
 ): ClassificationResolution {
   const identified = identifyProducts(knowledge.products, evidence);
+  const productType = resolveProductType(knowledge, evidence);
   // productId supplied by a client is never sufficient to establish identity.
   const productId = identified.length === 1 ? identified[0]! : null;
   const binding = knowledge.bindings.find(item => item.childId === childId);
   const explicit = binding?.products.find(item => item.productId === productId);
-  if (identified.length > 1) return { productId: null, classification: previous, status: 'conflict', ruleIds: [], suggestions: [] };
-  if (explicit) return { productId, classification: explicit.classification, status: 'explicit', ruleIds: [], suggestions: [] };
+  const typed = { appType: productType.appType, typeStatus: productType.typeStatus, typeReasonCode: productType.typeReasonCode };
+  if (identified.length > 1) return { productId: null, classification: previous, status: 'conflict', ruleIds: [], suggestions: [], ...typed };
+  if (explicit) return { productId, classification: explicit.classification, status: 'explicit', ruleIds: [], suggestions: [], ...typed };
   const enabled = new Set(binding?.ruleIds ?? []);
   const candidates = knowledge.rules.filter(rule => rule.enabled && enabled.has(rule.id)
     && (!rule.platform || rule.platform === evidence.platform)
     && (!rule.productId || rule.productId === productId)
-    && (rule.productId && !rule.match.conditions.length ? true : matches(rule.match, evidence, rule.mode === 'automatic'))
+    && (knowledge.schemaVersion >= 2 && rule.kind === 'type' && !rule.match.conditions.length
+      ? productType.typeStatus === 'confirmed' && productType.appType === rule.type
+      : rule.productId && !rule.match.conditions.length ? true : matches(rule.match, evidence, rule.mode === 'automatic'))
     && !rule.exclude.some(expression => matches(expression, evidence)));
   const suggestions = candidates.filter(rule => rule.mode === 'suggestion').map(rule => rule.id).sort();
   const automatic = candidates.filter(rule => rule.mode === 'automatic'
-    && (rule.productId ? productId !== null : safeAutomatic(rule.match)));
+    && (knowledge.schemaVersion >= 2 && rule.kind === 'type' && !rule.match.conditions.length
+      ? productType.typeStatus === 'confirmed' && productType.appType !== 'unknown'
+      : rule.productId ? productId !== null : safeAutomatic(rule.match)));
   automatic.sort((a, b) => rank[a.kind] - rank[b.kind] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const best = automatic.filter(rule => automatic.length && rank[rule.kind] === rank[automatic[0]!.kind]);
   if (best.length) {
     const conflict = new Set(best.map(rule => rule.classification)).size > 1;
     return { productId, classification: conflict ? previous : best[0]!.classification,
-      status: conflict ? 'conflict' : 'automatic', ruleIds: best.map(rule => rule.id), suggestions };
+      status: conflict ? 'conflict' : 'automatic', ruleIds: best.map(rule => rule.id), suggestions, ...typed };
   }
-  return { productId, classification: suggestions.length ? previous : 'unclassified', status: suggestions.length ? 'suggestion' : 'unclassified', ruleIds: [], suggestions };
+  return { productId, classification: suggestions.length ? previous : 'unclassified', status: suggestions.length ? 'suggestion' : 'unclassified', ruleIds: [], suggestions, ...typed };
 }

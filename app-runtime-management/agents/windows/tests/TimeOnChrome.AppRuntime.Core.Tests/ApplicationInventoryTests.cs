@@ -9,6 +9,26 @@ public sealed class ApplicationInventoryTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "runtime-inventory-" + Guid.NewGuid().ToString("N"));
     public ApplicationInventoryTests() => Directory.CreateDirectory(root);
+    [Theory]
+    [InlineData("Steam App 714010", "steam:714010")]
+    [InlineData("Steam App 1172470", "steam:1172470")]
+    public void SteamRegistryIdentityIsStableAndPublic(string keyName, string expected)
+    {
+        Assert.Equal(expected,WindowsDistributionIdentity.FromRegistry(keyName,new Dictionary<string,string?>()));
+    }
+    [Fact]
+    public void SixDistributionAdaptersAcceptTrustedIdsAndRejectBrokenInputs()
+    {
+        Assert.Equal("steam:714010",WindowsDistributionIdentity.FromSteamManifest("\"appid\" \"714010\""));
+        Assert.Equal("microsoft-store:microsoft.windowscalculator_8wekyb3d8bbwe",WindowsDistributionIdentity.MicrosoftStore("Microsoft.WindowsCalculator_8wekyb3d8bbwe"));
+        Assert.Equal("ea:offer-42",WindowsDistributionIdentity.FromRegistry("fixture",new Dictionary<string,string?>{{"OfferId","Offer-42"}}));
+        Assert.Equal("epic:catalog-42",WindowsDistributionIdentity.FromEpicManifest("{\"CatalogItemId\":\"Catalog-42\"}"));
+        Assert.Equal("ubisoft:1234",WindowsDistributionIdentity.FromLauncherManifest("ubisoft","productId=1234"));
+        Assert.Equal("gog:5678",WindowsDistributionIdentity.FromLauncherManifest("gog","gameID=5678"));
+        Assert.Null(WindowsDistributionIdentity.FromSteamManifest("broken"));
+        Assert.Null(WindowsDistributionIdentity.FromEpicManifest("{}"));
+        Assert.Null(WindowsDistributionIdentity.FromLauncherManifest("ea","missing=true"));
+    }
     [Fact]
     public async Task PackageQueryUsesUtf8ForControlledChineseOutputWithoutDiscoveringApps()
     {
