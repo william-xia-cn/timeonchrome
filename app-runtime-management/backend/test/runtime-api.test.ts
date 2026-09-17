@@ -974,6 +974,50 @@ describe('Application knowledge and installed inventory', () => {
     expect(possibleVariants).toHaveLength(1);
     expect(possibleVariants[0]!.variants).toHaveLength(1);
   });
+  it('keeps maintenance installation records in technical review without deleting their evidence', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const products=['Microsoft Visual C++ 2013 Redistributable (x64) - 12.0.40664','Mozilla Maintenance Service'];
+    const observations=products.map((displayName,index)=>{
+      const productKey=String(index+7).repeat(64);
+      return {localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName,
+        values:{productKey,productName:displayName},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'installation',
+          sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
+        scope:'machine',sourceKind:'registry-machine',status:'installed'};
+    });
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:2,batchId:'technical-products',products:observations,variants:[]})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string}>;technicalItems:Array<{displayName:string;projectionReasonCode:string}>;
+    }>();
+    expect(result.items.filter(item=>products.includes(item.displayName))).toHaveLength(0);
+    expect(result.technicalItems.filter(item=>products.includes(item.displayName))).toEqual(expect.arrayContaining(products.map(displayName=>
+      expect.objectContaining({displayName,projectionReasonCode:'TECHNICAL_PRODUCT_REVIEW'}))));
+    const stored=await env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count FROM runtime_installation_products_v1
+      WHERE display_name IN (?1,?2) AND status='installed'`).bind(...products).first<{count:number}>();
+    expect(stored?.count).toBe(2);
+  });
+  it('quarantines a decorated-name orphan entry beside one installation product', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const productKey='a'.repeat(64),binaryHash='b'.repeat(64);
+    const product={platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:'Notepad++ (64-bit x64)',
+      values:{productKey,productName:'Notepad++ (64-bit x64)'},verifiedFields:['productKey'],discovery:{role:'application',nameSource:'installation',
+        sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}};
+    const orphan={platform:'windows',runtimeIdentity:'notepad-orphan',displayName:'Notepad++',values:{binaryHash,productName:'Notepad++'},
+      verifiedFields:['binaryHash'],discovery:{role:'application',nameSource:'appList',sourceKinds:['shortcut'],objectKind:'variant',
+        variantRole:'main',scope:'machine',sourceKind:'start-menu-common',evidenceLevel:'strong'}};
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({schemaVersion:2,
+      batchId:'decorated-orphan',products:[{localUserId,productKey,evidence:product,scope:'machine',sourceKind:'registry-machine',status:'installed'}],
+      variants:[{localUserId,variantKey:'notepad-orphan',evidence:orphan,variantRole:'main',scope:'machine',sourceKind:'start-menu-common',status:'installed'}]})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string}>;technicalItems:Array<{displayName:string;projectionReasonCode:string}>;
+    }>();
+    expect(result.items.filter(item=>item.displayName.startsWith('Notepad++'))).toEqual([
+      expect.objectContaining({displayName:'Notepad++ (64-bit x64)'}),
+    ]);
+    expect(result.technicalItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({displayName:'Notepad++',projectionReasonCode:'POSSIBLE_PRODUCT_VARIANT'}),
+    ]));
+  });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const scan={scanId:'b'.repeat(32),localUserId,batchIndex:0,batchCount:2,observationCount:201,failedSources:[],completed:false};

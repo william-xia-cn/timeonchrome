@@ -1,5 +1,18 @@
 # App Runtime 任务板
 
+## NOW：产品目录生产复验收口
+
+- [x] HornburgXW 重启后完成一次真实 v2 全量扫描：5 个上传批次、740 条观察，5 个来源均为 `complete` 或 `complete_with_warnings`，无失败来源。
+- [x] 扫描结算已把 196 条无来源 legacy `installed` 投影降为 0；原始观察和历史账本未删除。
+- [x] 真实目录确认 LibreOffice 仅 1 个产品并保留 7 个变体，记事本仅 1 个产品；`Create React App Sample` 不进入主目录，仅保留 1 条只读技术记录。
+- [x] 收口剩余缺口：Registry 中缺少结构化组件标志的 redistributable、runtime、maintenance service、installer 等对象只能按通用维护语义降为“需审核技术记录”，不得删除原始事实或伪装为已确认产品。
+- [x] 将唯一安装产品与名称仅存在版本、架构或渠道装饰差异的孤立入口归入同一“可能变体”投影；仅用于避免重复主行，不自动确认产品关联，不继承分类。
+- [x] 固定回归覆盖 Visual C++ Redistributable、Mozilla Maintenance Service、Notepad++、OpenCode、LibreOffice 和 `Create React App Sample`；Worker 44/44、Console 全部相关单元/桌面/移动视觉、TypeScript、binding types、Wrangler dry-run、`git diff --check` 与边界检查通过。
+
+边界：本轮只修正 Runtime catalog read model 和对应页面投影；不改 Agent 扫描事实、D1 schema、原始 inventory、主/媒体账本、历史分类、配额、Guardian、Santa 或 Extension。
+
+Plan Conformance Audit：Matched＝真实完整扫描结算、维护对象安全降级、装饰名称孤立入口降噪、桌面/移动原因说明和历史事实保留；Deviated＝无；Missing＝生产 Worker/Pages 尚未发布和线上目录尚未复验；Extra＝无。
+
 ## NOW：产品目录扫描结算与冗余变体修复
 
 - [x] 生产只读证据：最新完整 v2 扫描前仍有 196 条兼容 inventory 记录保持 `installed`；其中 104 条旧候选、91 条旧未知对象、1 条旧应用，均缺少来源字段。
