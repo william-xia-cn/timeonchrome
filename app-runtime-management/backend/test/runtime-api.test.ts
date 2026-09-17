@@ -856,30 +856,37 @@ describe('Application knowledge and installed inventory', () => {
     expect(result.inventoryScans).toEqual([expect.objectContaining({status:'partial',sourceResults:expect.arrayContaining([expect.objectContaining({source:'start-menu-common',status:'complete_with_warnings'})])})]);
   });
 
-  it('projects strong operating-system evidence separately without guessing legacy or Microsoft applications', async () => {
+  it('projects operating-system origin from verified package facts without trusting client hints or names', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const makeKey=(digit:string)=>digit.repeat(64);
-    const makeEvidence=(productKey:string,displayName:string,origin?:'operatingSystem')=>({
+    const makeEvidence=(productKey:string,displayName:string,packageId?:string,origin?:'operatingSystem')=>({
       platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName,
-      values:{productKey,productName:displayName},verifiedFields:['productKey'],
+      values:{productKey,productName:displayName,...(packageId?{packageId}:{})},
+      verifiedFields:['productKey',...(packageId?['packageId']:[])],
       discovery:{role:'application',nameSource:'installation',sourceKinds:['package'],objectKind:'product',variantRole:'unknown',
         scope:'user',sourceKind:'user-packages',evidenceLevel:'strong',
         ...(origin?{applicationOrigin:origin,originEvidenceCode:'exactPackageRule'}:{})},
     });
     const products=[
-      {key:makeKey('1'),name:'快速助手',origin:'operatingSystem' as const},
-      {key:makeKey('2'),name:'Microsoft Office'},
-      {key:makeKey('3'),name:'Microsoft Teams'},
-      {key:makeKey('4'),name:'第三方 Quick Assist'},
+      {key:makeKey('1'),name:'快速助手',packageId:'MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe'},
+      {key:makeKey('2'),name:'记事本',packageId:'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App'},
+      {key:makeKey('3'),name:'Microsoft Office',packageId:'Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe'},
+      {key:makeKey('4'),name:'Microsoft Teams',packageId:'MSTeams_8wekyb3d8bbwe'},
+      {key:makeKey('5'),name:'第三方 Quick Assist',packageId:'ThirdParty.QuickAssist_fixture'},
+      {key:makeKey('6'),name:'客户端声称系统应用',packageId:'Contoso.Product_fixture',origin:'operatingSystem' as const},
     ];
-    const maintenanceKey=makeKey('5');
-    const scan={scanId:'e'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:products.length,variantCount:1,
-      sourceResults:[{source:'user-packages',status:'complete',observationCount:products.length+1,warningCodes:[]}],completed:false};
+    const unverifiedKey=makeKey('7'), maintenanceKey=makeKey('8');
+    const scan={scanId:'e'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:products.length+1,variantCount:1,
+      sourceResults:[{source:'user-packages',status:'complete',observationCount:products.length+2,warningCodes:[]}],completed:false};
     const payload={schemaVersion:2,batchId:'system-origin-products',products:products.map(item=>({localUserId,productKey:item.key,
-      evidence:makeEvidence(item.key,item.name,item.origin),scope:'user',sourceKind:'user-packages',status:'installed'})),variants:[{
+      evidence:makeEvidence(item.key,item.name,item.packageId,item.origin),scope:'user',sourceKind:'user-packages',status:'installed'})).concat([{
+        localUserId,productKey:unverifiedKey,
+        evidence:{...makeEvidence(unverifiedKey,'未验证包身份'),values:{productKey:unverifiedKey,productName:'未验证包身份',packageId:'Microsoft.WindowsCalculator_8wekyb3d8bbwe'}},
+        scope:'user',sourceKind:'user-packages',status:'installed',
+      }]),variants:[{
       localUserId,variantKey:'system-maintenance',parentProductKey:maintenanceKey,
-      evidence:{...makeEvidence(maintenanceKey,'Windows Update Helper','operatingSystem'),runtimeIdentity:'system-maintenance',
-        discovery:{...makeEvidence(maintenanceKey,'Windows Update Helper','operatingSystem').discovery,objectKind:'variant',
+      evidence:{...makeEvidence(maintenanceKey,'Windows Update Helper','Microsoft.WindowsCalculator_8wekyb3d8bbwe'),runtimeIdentity:'system-maintenance',
+        discovery:{...makeEvidence(maintenanceKey,'Windows Update Helper','Microsoft.WindowsCalculator_8wekyb3d8bbwe').discovery,objectKind:'variant',
           parentProductKey:maintenanceKey,variantRole:'maintenance',role:'component'}},
       variantRole:'maintenance',scope:'user',sourceKind:'user-packages',status:'installed',
     }],scan};
@@ -890,10 +897,10 @@ describe('Application knowledge and installed inventory', () => {
       items:Array<{displayName:string;applicationOrigin:string;originEvidenceCode:string|null;classification:string}>;
       technicalItems:Array<{displayName:string;applicationOrigin:string}>;
     }>();
-    expect(result.items.find(item=>item.displayName==='快速助手')).toMatchObject({
+    for(const name of ['快速助手','记事本']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
       applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',classification:'unclassified',
     });
-    for(const name of ['Microsoft Office','Microsoft Teams','第三方 Quick Assist']){
+    for(const name of ['Microsoft Office','Microsoft Teams','第三方 Quick Assist','客户端声称系统应用','未验证包身份']){
       expect(result.items.find(item=>item.displayName===name)).toMatchObject({applicationOrigin:'unknown',originEvidenceCode:null});
     }
     expect(result.technicalItems).toEqual(expect.arrayContaining([

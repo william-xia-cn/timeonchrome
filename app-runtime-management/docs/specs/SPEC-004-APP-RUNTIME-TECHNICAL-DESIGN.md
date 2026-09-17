@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-015 云端来源解析
+
+`GET /v2/module/app-catalog` 在形成产品组之前，从每条 `AppEvidence` 的可信 `packageId` 解析来源。Worker 只接受 `verifiedFields` 包含 `packageId` 的值，AUMID 使用 `!` 前的 Package Family Name 与受控精确集合比较；首批规则为 Quick Assist、Windows Notepad 和 Windows Calculator。客户端提供的 `applicationOrigin` / `originEvidenceCode` 不进入最终决策。
+
+产品组只在至少一个成员被云端规则确认时返回 `operatingSystem / exactPackageRule`，否则为 `unknown / null`。该计算发生在查询期，不更新 inventory JSON，不需要 D1 migration。技术组件仍先按 manageability 投影进入只读技术记录；来源分组不得提升组件为可管理应用。
+
 ## 产品目录扫描结算与单一变体展示修复
 
 - inventory v2 的完成标记不仅验证批次总数，还必须按 `sourceResults` 结算缺失对象。仅 `complete` 和 `complete_with_warnings` 来源拥有缺失判断权；`failed` 来源不得改变既有安装状态。

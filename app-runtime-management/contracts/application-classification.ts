@@ -14,7 +14,9 @@ export interface ApplicationDiscoverySummary {
   scope?: 'machine' | 'user';
   sourceKind?: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime';
   evidenceLevel?: 'strong' | 'review' | 'weak';
+  /** Agent advisory evidence only. Cloud catalog projection remains authoritative. */
   applicationOrigin?: ApplicationOrigin;
+  /** Agent advisory evidence only. Cloud catalog projection remains authoritative. */
   originEvidenceCode?: ApplicationOriginEvidenceCode;
 }
 export interface AppEvidence {

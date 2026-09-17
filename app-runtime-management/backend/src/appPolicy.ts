@@ -72,6 +72,26 @@ function normalizedCatalogFamilyHint(evidence: AppEvidence): string {
 }
 
 const knownGameProductNames = new Set(['aimlabs', 'apex legends']);
+const operatingSystemPackageFamilies = new Set([
+  'microsoftcorporationii.quickassist_8wekyb3d8bbwe',
+  'microsoft.windowsnotepad_8wekyb3d8bbwe',
+  'microsoft.windowscalculator_8wekyb3d8bbwe',
+]);
+
+function projectApplicationOrigin(evidence?: AppEvidence): {
+  applicationOrigin: ApplicationOrigin;
+  originEvidenceCode: ApplicationOriginEvidenceCode | null;
+} {
+  if (evidence?.platform !== 'windows' || !evidence.verifiedFields.includes('packageId')) {
+    return { applicationOrigin: 'unknown', originEvidenceCode: null };
+  }
+  const packageId = evidence.values.packageId;
+  if (!packageId) return { applicationOrigin: 'unknown', originEvidenceCode: null };
+  const family = packageId.split('!', 1)[0]!.trim().toLowerCase();
+  return operatingSystemPackageFamilies.has(family)
+    ? { applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule' }
+    : { applicationOrigin: 'unknown', originEvidenceCode: null };
+}
 
 function knownProductType(displayName: string | null): 'game' | null {
   if (!displayName) return null;
@@ -935,6 +955,7 @@ export async function queryAppCatalog(
     const product = productIds.length===1 ? knowledge?.products.find(item=>item.id===productIds[0]) : undefined;
     const resolution = found && knowledge ? resolveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
     const projection=projectCatalogEvidence(found?.evidence, product?.id ?? null, Boolean(configured));
+    const authoritativeOrigin=projectApplicationOrigin(found?.evidence);
     const ambiguityKey=ambiguityByIdentity.get(key);
     const possibleVariantKey=possibleVariantByIdentity.get(key);
     const effectiveProjection=ambiguityKey&&!product&&!configured
@@ -959,8 +980,8 @@ export async function queryAppCatalog(
       productType,
       suggestedClassification: productTypeSuggestion ? 'restrictedEntertainment' as const : null,
       productTypeReason: product?.type ? '家庭产品知识' : productTypeSuggestion ? '受控产品名称精确匹配' : null,
-      applicationOrigin: found?.evidence.discovery?.applicationOrigin ?? 'unknown',
-      originEvidenceCode: found?.evidence.discovery?.originEvidenceCode ?? null,
+      applicationOrigin: authoritativeOrigin.applicationOrigin,
+      originEvidenceCode: authoritativeOrigin.originEvidenceCode,
       installationState: found?.installed ? 'installed' : observed ? 'usedNotDiscovered' : 'preconfigured',
       firstSeenAtMs: observed?.firstSeenAtMs ?? null,
       lastSeenAtMs: observed?.lastSeenAtMs ?? null,

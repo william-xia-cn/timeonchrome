@@ -2,6 +2,9 @@
 
 ## 当前生产更新（2026-09-18）
 
+- PO 已确认 ARM-D-015 的普通/系统/技术分组必须由云端控制。当前进入前向修正：Worker 将以旧 Agent 已上传的可信 `packageId` 生成权威来源，客户端 `applicationOrigin` 仅作提示；无需升级 HornburgXW 或修改 D1。
+- 发布目标是仅更新 Runtime Worker，并把 R2 `latest` 从未安装的 2.2.4 恢复到已验证 2.2.3。2.2.4 不可变文件保留为内部历史，不删除、不覆盖；完成前生产现状仍以以下记录为准。
+
 - `master@6b5f812d029b249dbaeeddd1218bbf240b1c173b` 已发布 contracts `1.5.0` 和 ARM-D-015。应用目录把可管理对象按强来源证据分为普通应用与系统应用；技术记录仍只读。系统归属不改变孩子分类、主账本、历史 Segment 或配额计算。
 - Runtime Worker：`477649a6-cfc6-482b-b136-27df6211ef2e`；`/v1/health` 为 200，未认证 catalog 为 401。无 migration，Runtime D1 schema 与生产数据未修改。
 - 独立 Runtime Pages：`32c70100-f704-48a9-b19c-271786054cd9`，来源 `master@6b5f812`；稳定地址回读 200 并包含普通/系统应用双分组。Guardian、主 Pages、Santa、Extension 均未部署。

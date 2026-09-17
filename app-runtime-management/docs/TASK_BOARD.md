@@ -1,5 +1,14 @@
 # App Runtime 任务板
 
+## NOW：系统应用来源改为云端权威投影
+
+- [x] Runtime Worker 仅从经过验证的 `packageId` 和云端受控规则生成 `applicationOrigin`；客户端来源字段不得覆盖结果。
+- [x] 固定回归覆盖 2.2.3 盘点、客户端冲突提示、同名第三方、Office/Teams、未知包和技术组件；Worker 50/50、contracts 23 vectors、两端 typecheck、binding types check 和 Wrangler dry-run 通过。
+- [ ] 合并到 `master` 后只部署 Runtime Worker；不部署 Pages、不执行 migration、不构建或安装 Windows 包。
+- [ ] R2 `latest.json` 恢复为已验证的 2.2.3；2.2.4 不可变对象保留并标记 withdrawn/internal-history。
+
+边界：目录来源规则属于云端展示投影。历史 inventory、UsageSegment、配额、机器身份和分类均不改写。
+
 ## NOW：普通应用与系统应用分组（ARM-D-015）
 
 - [x] contracts `1.5.0` 增加兼容的 `applicationOrigin` / `originEvidenceCode`，旧盘点缺失字段时不猜测系统归属。
@@ -8,7 +17,7 @@
 - [x] Console 在五分类内同页显示普通应用与系统应用，系统应用默认折叠、搜索命中自动展开，分类操作保持一致。
 - [x] 固定回归覆盖 Quick Assist、同名第三方、Office/Teams、记事本/计算器、技术组件和旧 Agent；桌面/移动截图、typecheck、Worker/Windows 测试、Wrangler dry-run 与范围审计通过。
 - [x] 从干净 `master@6b5f812` 按兼容 Worker → 独立 Runtime Pages → Windows 2.2.4 顺序发布；health、未认证 fail-closed、Pages 稳定地址、R2 不可变对象、latest 和 Worker 下载哈希均已回读。
-- [ ] HornburgXW 原地升级 2.2.4 后完成真实系统应用分组和新一轮盘点验收；发布状态不得冒充已安装状态。
+- [x] 2.2.4 已确认不作为该展示修订的必要升级；HornburgXW 保持 2.2.3，系统归属改由 Worker 使用既有可信 `packageId` 投影。
 
 边界：只改变目录来源投影和展示分组；不修改账本、配额计算、历史 Segment、Guardian、Santa、Extension、网站管理或 macOS Agent。
 

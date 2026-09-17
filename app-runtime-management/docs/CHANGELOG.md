@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [系统应用云端权威投影修正] — 2026-09-18（本地已验证，待合并发布）
+
+- 普通应用、系统应用和技术记录改由 Runtime Worker 基于可信 `packageId` 统一投影；客户端来源字段仅作 advisory evidence。
+- 旧 Agent 2.2.3 无需升级即可获得系统应用分组；无 migration，不改写 inventory、账本、分类或配额。
+- 计划只部署 Runtime Worker，并把 R2 latest 恢复到 2.2.3；2.2.4 不可变对象保留为 withdrawn/internal-history。
+- Worker 50/50、contracts 23 vectors、Contracts/Worker typecheck、generated binding types check、Wrangler dry-run 与 `git diff --check` 通过。
+
 ## [Windows 2.2.4 / contracts 1.5.0 / 系统应用分组] — 2026-09-18（生产已发布，真机待升级）
 
 - 增加普通应用、系统应用与技术记录的正交投影；系统应用仍可分类和配置配额。

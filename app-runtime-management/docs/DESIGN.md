@@ -4,9 +4,9 @@
 
 目录投影在既有 `manageability = actionable | review | hidden` 之外增加正交来源 `applicationOrigin = user | operatingSystem | unknown`。`actionable + operatingSystem` 进入系统应用组；其余 actionable 对象进入普通应用组；review/hidden 仍进入技术记录。该来源只影响展示分组，不替代孩子分类、产品类型或配额键。
 
-contracts `1.5.0` 为 `ApplicationDiscoverySummary` 增加可选 `applicationOrigin` 与 `originEvidenceCode`。Windows Agent 只能基于受控精确包身份、可信 OS 元数据或已审核系统二进制规则产生 `operatingSystem`；名称、路径和 Microsoft 发布者不能单独命中。旧 Agent 缺少字段时按 `unknown` 兼容。inventory 证据继续保存于现有 JSON 列，因此不新增 migration；发布顺序必须为兼容 Worker 在前、Agent 在后。
+contracts `1.5.0` 为 `ApplicationDiscoverySummary` 增加可选 `applicationOrigin` 与 `originEvidenceCode`，但这两个终端字段只作为 advisory evidence。Windows Agent 继续上传经过验证的 `packageId`、产品/变体关系等事实；Runtime Worker 在查询目录时用版本化精确包规则生成权威 `applicationOrigin`，不得信任客户端自报来源。名称、路径和 Microsoft 发布者不能单独命中。旧 Agent 2.2.3 已包含可信 `packageId`，因此系统应用分组不要求安装包升级。inventory 证据继续保存于现有 JSON 列，不新增 migration，也不改写历史观察。
 
-`GET /v2/module/app-catalog` 为可管理条目返回来源与证据原因。Console 在每个孩子分类内分别渲染普通应用和系统应用，系统组默认折叠并在搜索命中时展开。两组使用相同分类和策略写入路径；本轮不新增应用阻止，也不修改 UsageSegment、媒体账本、配额计算或历史投影。
+`GET /v2/module/app-catalog` 为可管理条目返回云端解析后的来源与证据原因。首批精确 Windows 包规则覆盖 Quick Assist、Windows Notepad 和 Windows Calculator；无法命中时返回 `unknown`。Console 在每个孩子分类内分别渲染普通应用和系统应用，系统组默认折叠并在搜索命中时展开。两组使用相同分类和策略写入路径；本轮不新增应用阻止，也不修改 UsageSegment、媒体账本、配额计算或历史投影。
 
 ## 当前修复：游戏候选与 SSO 启动孩子
 

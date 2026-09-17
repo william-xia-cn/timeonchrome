@@ -24,4 +24,6 @@ assert.deepEqual(inventoryV2.required, ['schemaVersion', 'batchId', 'products', 
 assert(inventoryV2.$defs.scan.required.includes('sourceResults'));
 assert.deepEqual(inventoryV2.$defs.discovery.properties.applicationOrigin.enum, ['user', 'operatingSystem', 'unknown']);
 assert.deepEqual(inventoryV2.$defs.discovery.properties.originEvidenceCode.enum, ['exactPackageRule', 'osMetadata', 'reviewedSystemBinary']);
+assert.match(inventoryV2.$defs.discovery.properties.applicationOrigin.description, /advisory.*cloud.*authoritative/i);
+assert.match(inventoryV2.$defs.discovery.properties.originEvidenceCode.description, /advisory.*cloud.*authoritative/i);
 console.log('app-runtime contract compatibility: PASS');

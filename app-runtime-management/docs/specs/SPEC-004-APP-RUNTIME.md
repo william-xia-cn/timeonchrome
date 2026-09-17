@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management V1
 
+## ARM-D-015 云端权威来源投影补充
+
+普通应用、系统应用与技术记录是云端产品目录和展示投影，不是终端事实。Agent 只上传经过验证的包身份、签名摘要、安装产品和变体关系；Runtime Worker 根据版本化受控规则生成最终 `applicationOrigin`、`manageability` 和目录分组。Agent 可选上传的来源字段只作 advisory evidence，不能覆盖云端结果。
+
+精确系统包规则只读取 `verifiedFields` 中声明并在 `values.packageId` 提供的身份。显示名称、路径、发布者或客户端自报来源不能单独命中。旧 Agent 2.2.3 已上传所需包身份，因此纯分组规则变化不要求升级安装包；历史 inventory 和 Segment 不重写。
+
 ## ARM-D-014 产品级应用清单（2.2.2）
 
 应用主清单以可管理产品为单位，不把安装入口、快捷方式或运行进程直接计为产品。Windows 安装记录形成产品容器；Start Menu、包内应用、便携执行体和运行身份形成变体。套件默认共享产品分类和配额，家长显式拆分后指定变体才独立管理。已安装但未使用的可管理产品仍可预先分类。
