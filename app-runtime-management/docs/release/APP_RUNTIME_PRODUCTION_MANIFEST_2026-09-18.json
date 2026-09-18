@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "gitSha": "c407d0f1ae66333c29099c63b1cf613b90abb472",
+  "contractVersion": "1.6.1",
+  "runtimeMigrations": [],
+  "deployedResources": [
+    "runtimeR2Latest"
+  ],
+  "runtimeWorkerVersion": "c3a29505-b377-4e06-990c-9470662ee38d",
+  "runtimeWorkerChanged": false,
+  "runtimePages": {
+    "id": "142bd124-8467-40ef-a242-db4016840f16",
+    "url": "https://timeonchrome-app-runtime-console.pages.dev",
+    "changed": false
+  },
+  "guardianWorkerVersion": "b971221b-82b1-4e14-8f67-f3b884ac924c",
+  "guardianWorkerChanged": false,
+  "mainPages": {
+    "id": "3876077d-5607-4e95-8526-b666cf16d13c",
+    "url": "https://timeonchrome-console.pages.dev",
+    "changed": false
+  },
+  "r2Latest": {
+    "version": "2.3.1",
+    "platform": "windows",
+    "architecture": "x64",
+    "installerType": "burn",
+    "installerPath": "windows/x64/2.3.1/TimeOnChrome-AppRuntime-Setup-win-x64-2.3.1.exe",
+    "sha256": "3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563",
+    "sizeBytes": 118739813,
+    "signed": false,
+    "releaseStatus": "BLOCKED_BY_AUTHENTICODE_SIGNING"
+  },
+  "releaseEvidence": {
+    "pullRequest": 30,
+    "ciPassed": true,
+    "windowsFocusedTests": "50/50",
+    "windowsFullTests": "124/124",
+    "serviceVersion": "2.3.1.0",
+    "serviceState": "online",
+    "pendingUploads": false,
+    "inventory": {
+      "completed": true,
+      "productCount": 387,
+      "variantCount": 356,
+      "sourceCount": 7,
+      "failedSourceCount": 0
+    },
+    "confirmedProductTypes": [
+      "steam:714010=game",
+      "steam:1172470=game"
+    ],
+    "runtimeHealthStatus": 200,
+    "unauthenticatedCatalogStatus": 401,
+    "versionedInstallerReadbackMatches": true,
+    "latestInstallerReadbackMatches": true,
+    "migrationApplied": false,
+    "runtimeWorkerUnchanged": true,
+    "runtimePagesUnchanged": true,
+    "guardianWorkerUnchanged": true,
+    "mainPagesUnchanged": true,
+    "ledgerMutationPerformed": false,
+    "postReleaseLedgerSnapshot": {
+      "usageSegmentCount": 5126,
+      "usageDurationMs": 287642399,
+      "mediaSegmentCount": 0,
+      "mediaDurationMs": 0
+    },
+    "planConformance": {
+      "matched": [
+        "pull-request-and-ci",
+        "clean-master-build",
+        "immutable-r2-2.3.1",
+        "in-place-machine-upgrade",
+        "complete-seven-source-inventory",
+        "confirmed-game-types",
+        "r2-latest-switch",
+        "release-evidence"
+      ],
+      "deviated": [],
+      "missing": [],
+      "extra": []
+    }
+  },
+  "createdAt": "2026-09-18T13:00:00.000Z"
+}

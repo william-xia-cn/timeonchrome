@@ -1,10 +1,13 @@
 # App Runtime 项目真值
 
-## 当前阻塞修复：Windows 2.3.1 本地盘点来源容量
+## 当前生产版本：Windows 2.3.1 完整盘点来源容量修复
 
-- contracts 1.6.1 / Worker 已接受 Steam/Epic 与 7 项来源结果，生产 Worker 为 `c3a29505-b377-4e06-990c-9470662ee38d`。
-- 真机继续无新扫描后确认：Windows 2.3.0 Service 本地 `ValidateScan` 仍拒绝超过 6 项，完整盘点未进入 outbox，无法靠 Worker-only 修复。
-- 2.3.1 已把本地容量对齐为 8并补回归；聚焦测试 50/50、Windows 全量 124/124、组件版本回读及 WiX MSI/Burn 编译通过。必须以前向新版本发布，保留配对、机器身份、策略、SQLite、outbox 和历史账本。无 migration，不改 Pages、Guardian、Santa、账本或配额。
+- contracts 1.6.1 / Worker 接受 Steam/Epic 与 7 项来源结果，生产 Worker 保持 `c3a29505-b377-4e06-990c-9470662ee38d`；本轮没有再次部署 Worker、Pages、Guardian 或执行 migration。
+- PR #30 已合并为 `master@c407d0f1ae66333c29099c63b1cf613b90abb472`。Windows 2.3.1 把 Service 本地来源容量对齐为 8；聚焦测试 50/50、Windows 全量 124/124、三组 CI、组件版本回读及干净 master WiX MSI/Burn 构建均通过。
+- 受控生产机器已从 2.3.0 原地升级至 2.3.1；Service `Automatic/Running`、单一 Session Agent、heartbeat 正常，完整盘点 outbox 已清空。最新扫描为 387 个产品、356 个变体，7 个来源均为成功或带警告成功，完成标记已落云端。
+- Aimlabs `steam:714010` 与 Apex Legends `steam:1172470` 已在真实线上目录显示为“游戏 · 未归类”，类型为已确认，并仅建议归入受限娱乐；没有自动改变孩子分类或配额。
+- R2 `latest.json` 已切换至内部未签名 2.3.1。Burn 为 118,739,813 bytes / SHA-256 `3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563`；R2 manifest、Worker latest 与版本化下载回读一致。发布证据见 `release/APP_RUNTIME_PRODUCTION_MANIFEST_2026-09-18.json`。
+- 本轮不重新配对、不清除本地数据、不改 D1 schema、主/媒体账本、历史分类或配额；包继续标记 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
 ## 当前开发：自动产品类型识别（ARM-D-016，本地候选已验证）
 
