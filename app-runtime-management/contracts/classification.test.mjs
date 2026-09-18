@@ -22,6 +22,8 @@ const discovery = {role:'component',nameSource:'fallback',sourceKinds:['package'
 assert.deepEqual(parseAppEvidence({...evidence,discovery}).discovery,discovery);
 const systemDiscovery = {role:'application',nameSource:'appList',sourceKinds:['package'],applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule'};
 assert.deepEqual(parseAppEvidence({...evidence,discovery:systemDiscovery}).discovery,systemDiscovery);
+const packageContainer = {role:'application',nameSource:'installation',sourceKinds:['package','distribution-ea','distribution-ubisoft','distribution-gog'],objectKind:'packageContainer',sourceKind:'user-packages'};
+assert.deepEqual(parseAppEvidence({...evidence,discovery:packageContainer}).discovery,packageContainer);
 assert.deepEqual(parseAppEvidence({...evidence,discovery:{...discovery,applicationOrigin:'unknown'}}).discovery.applicationOrigin,'unknown');
 assert.throws(()=>parseAppEvidence({...evidence,discovery:{...discovery,originEvidenceCode:'exactPackageRule'}}),/INVALID_DISCOVERY_SUMMARY/);
 assert.throws(()=>parseAppEvidence({...evidence,discovery:{...discovery,path:'C:/private'}}),/INVALID_DISCOVERY_SUMMARY/);

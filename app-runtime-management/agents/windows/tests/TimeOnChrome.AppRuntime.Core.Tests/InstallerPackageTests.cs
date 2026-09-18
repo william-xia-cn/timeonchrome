@@ -6,7 +6,7 @@ namespace TimeOnChrome.AppRuntime.Core.Tests;
 
 public sealed class InstallerPackageTests
 {
-    private const string ExpectedVersion = "2.3.1";
+    private const string ExpectedVersion = "2.4.0";
     private const string ExpectedUpgradeCode = "7DEBE72B-8D64-438F-8C51-8B9969C039D9";
     private static readonly XNamespace WixNamespace = "http://wixtoolset.org/schemas/v4/wxs";
 

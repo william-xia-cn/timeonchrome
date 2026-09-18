@@ -924,7 +924,7 @@ describe('Application knowledge and installed inventory', () => {
     const packageProduct=(productKey:string,name:string,packageFamily:string)=>({
       localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
         values:{productKey,productName:name,packageId:packageFamily},verifiedFields:['productKey','packageId'],
-        discovery:{role:'application',nameSource:'installation',sourceKinds:['package'],objectKind:'product',variantRole:'unknown',
+        discovery:{role:'application',nameSource:'installation',sourceKinds:['package'],objectKind:'packageContainer',variantRole:'unknown',
           scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}},
       scope:'user',sourceKind:'user-packages',status:'installed',
     });
@@ -1265,6 +1265,9 @@ describe('Application knowledge and installed inventory', () => {
       {source:'registry-user',status:'complete',observationCount:0,warningCodes:[]},
       {source:'distribution-steam',status:'complete',observationCount:2,warningCodes:[]},
       {source:'distribution-epic',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'distribution-ea',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'distribution-ubisoft',status:'complete_with_warnings',observationCount:0,warningCodes:['DISTRIBUTION_MANIFEST_INVALID']},
+      {source:'distribution-gog',status:'failed',observationCount:0,warningCodes:['DISTRIBUTION_SOURCE_UNAVAILABLE']},
       {source:'start-menu-common',status:'complete',observationCount:0,warningCodes:[]},
       {source:'start-menu-user',status:'complete',observationCount:0,warningCodes:[]},
       {source:'user-packages',status:'complete',observationCount:0,warningCodes:[]},

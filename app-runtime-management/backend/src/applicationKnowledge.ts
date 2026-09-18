@@ -295,7 +295,7 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
   return { batchId: value.batchId, status: 'accepted', acceptedCount: observations.length };
 }
 
-const inventorySources = new Set(['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages','runtime','distribution-steam','distribution-epic']);
+const inventorySources = new Set(['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages','runtime','distribution-steam','distribution-epic','distribution-ea','distribution-ubisoft','distribution-gog']);
 const sourceStatuses = new Set(['complete','complete_with_warnings','failed']);
 const authoritativeInstallationSources = ['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages'];
 
@@ -355,8 +355,9 @@ async function syncApplicationInventoryV2(db: D1Database, accountId: string, mac
         || !['machine','user'].includes(String(item.scope))||!inventorySources.has(String(item.sourceKind)))
       throw new HttpError(400,'INVALID_APPLICATION_INVENTORY','Inventory v2 item is invalid.');
     const evidence=contract(()=>parseAppEvidence(item.evidence));
-    if(evidence.platform!==platform||evidence.discovery?.objectKind!==kind||evidence.discovery.sourceKind!==item.sourceKind
-        || evidence.discovery.scope!==item.scope) throw new HttpError(400,'APPLICATION_PLATFORM_MISMATCH','Inventory v2 evidence does not match its envelope.');
+    const discovery=evidence.discovery;
+    if(evidence.platform!==platform||!discovery||(kind==='product'?!['product','packageContainer'].includes(String(discovery.objectKind)):discovery.objectKind!=='variant')||discovery.sourceKind!==item.sourceKind
+        || discovery.scope!==item.scope) throw new HttpError(400,'APPLICATION_PLATFORM_MISMATCH','Inventory v2 evidence does not match its envelope.');
     return {item,evidence,localUserId:item.localUserId as string,scope:String(item.scope),sourceKind:String(item.sourceKind),status:String(item.status)};
   };
   const products=value.products.map(raw=>{
@@ -452,7 +453,7 @@ function parseInventoryScanV2(value:unknown,products:Array<{localUserId:string}>
   if(!isRecord(value)||Object.keys(value).some(key=>!['scanId','localUserId','batchIndex','batchCount','productCount','variantCount','sourceResults','completed'].includes(key))
       ||typeof value.scanId!=='string'||!/^[a-f0-9]{32}$/u.test(value.scanId)||typeof value.localUserId!=='string'||value.localUserId.length<1||value.localUserId.length>128
       ||!Number.isSafeInteger(value.batchIndex)||!Number.isSafeInteger(value.batchCount)||!Number.isSafeInteger(value.productCount)||!Number.isSafeInteger(value.variantCount)
-      ||!Array.isArray(value.sourceResults)||value.sourceResults.length>8||typeof value.completed!=='boolean')
+      ||!Array.isArray(value.sourceResults)||value.sourceResults.length>16||typeof value.completed!=='boolean')
     throw new HttpError(400,'INVALID_APPLICATION_SCAN','Inventory v2 scan is invalid.');
   const sourceResults=value.sourceResults.map(item=>{
     if(!isRecord(item)||Object.keys(item).some(key=>!['source','status','observationCount','warningCodes'].includes(key))

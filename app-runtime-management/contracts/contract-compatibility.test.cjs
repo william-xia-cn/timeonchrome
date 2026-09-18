@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.6.1');
+assert.equal(pkg.version, '1.7.0');
 for (const file of legacy) assert(fs.existsSync(path.join(root, file)), `${file} must remain for N-1 compatibility`);
 const sso = JSON.parse(fs.readFileSync(path.join(root, 'runtime-browser-sso-v1.schema.json'), 'utf8'));
 const inventoryV2 = JSON.parse(fs.readFileSync(path.join(root, 'application-inventory-v2.schema.json'), 'utf8'));
@@ -22,6 +22,11 @@ assert.equal(sso.$defs.sessionResponse.properties.selectedChildId.type, 'string'
 assert.equal(inventoryV2.properties.schemaVersion.const, 2);
 assert.deepEqual(inventoryV2.required, ['schemaVersion', 'batchId', 'products', 'variants']);
 assert(inventoryV2.$defs.scan.required.includes('sourceResults'));
+assert.equal(inventoryV2.$defs.scan.properties.sourceResults.maxItems, 16);
+assert(inventoryV2.$defs.source.enum.includes('distribution-ea'));
+assert(inventoryV2.$defs.source.enum.includes('distribution-ubisoft'));
+assert(inventoryV2.$defs.source.enum.includes('distribution-gog'));
+assert(inventoryV2.$defs.discovery.properties.objectKind.enum.includes('packageContainer'));
 assert.deepEqual(inventoryV2.$defs.discovery.properties.applicationOrigin.enum, ['user', 'operatingSystem', 'unknown']);
 assert.deepEqual(inventoryV2.$defs.discovery.properties.originEvidenceCode.enum, ['exactPackageRule', 'osMetadata', 'reviewedSystemBinary']);
 assert.match(inventoryV2.$defs.discovery.properties.applicationOrigin.description, /advisory.*cloud.*authoritative/i);

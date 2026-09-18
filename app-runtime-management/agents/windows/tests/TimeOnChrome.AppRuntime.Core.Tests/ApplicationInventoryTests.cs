@@ -17,7 +17,7 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.Equal(expected,WindowsDistributionIdentity.FromRegistry(keyName,new Dictionary<string,string?>()));
     }
     [Fact]
-    public void SixDistributionAdaptersAcceptTrustedIdsAndRejectBrokenInputs()
+    public void DistributionAdaptersAcceptTrustedIdsAndRejectBrokenInputs()
     {
         Assert.Equal("steam:714010",WindowsDistributionIdentity.FromSteamManifest("\"appid\" \"714010\""));
         Assert.Equal("microsoft-store:microsoft.windowscalculator_8wekyb3d8bbwe",WindowsDistributionIdentity.MicrosoftStore("Microsoft.WindowsCalculator_8wekyb3d8bbwe"));
@@ -25,9 +25,52 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.Equal("epic:catalog-42",WindowsDistributionIdentity.FromEpicManifest("{\"CatalogItemId\":\"Catalog-42\"}"));
         Assert.Equal("ubisoft:1234",WindowsDistributionIdentity.FromLauncherManifest("ubisoft","productId=1234"));
         Assert.Equal("gog:5678",WindowsDistributionIdentity.FromLauncherManifest("gog","gameID=5678"));
+        Assert.Null(WindowsDistributionIdentity.FromRegistry("fixture",new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase){{"GameId","ambiguous"}}));
         Assert.Null(WindowsDistributionIdentity.FromSteamManifest("broken"));
         Assert.Null(WindowsDistributionIdentity.FromEpicManifest("{}"));
         Assert.Null(WindowsDistributionIdentity.FromLauncherManifest("ea","missing=true"));
+    }
+    [Fact]
+    public void IndependentLauncherManifestsParseStableIdsAcrossSupportedFormats()
+    {
+        var ea = WindowsDistributionIdentity.ParseLauncherManifest("ea",
+            "{\"installation\":{\"offerId\":\"OFFER-42\",\"displayName\":\"Fixture EA Game\",\"installPath\":\"C:\\\\Private\\\\EA\"}}");
+        var ubisoft = WindowsDistributionIdentity.ParseLauncherManifest("ubisoft",
+            "<game><productId>1843</productId><name>Fixture Ubisoft Game</name></game>");
+        var gog = WindowsDistributionIdentity.ParseLauncherManifest("gog",
+            "gameID=1207659001\ngameName=FixtureGogGame\npath=C:\\Private\\GOG");
+
+        Assert.Equal("ea:offer-42", ea?.DistributionKey);
+        Assert.Equal("Fixture EA Game", ea?.DisplayName);
+        Assert.Equal("ubisoft:1843", ubisoft?.DistributionKey);
+        Assert.Equal("Fixture Ubisoft Game", ubisoft?.DisplayName);
+        Assert.Equal("gog:1207659001", gog?.DistributionKey);
+        Assert.Null(WindowsDistributionIdentity.ParseLauncherManifest("steam", "gameId=1"));
+    }
+    [Fact]
+    public void IndependentLauncherRegistryUsesOnlyStablePublicIdentityFields()
+    {
+        var values = new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["OfferId"] = "OFFER-99", ["DisplayName"] = "Fixture Game", ["InstallLocation"] = "C:\\Private\\Fixture",
+        };
+        var record = WindowsDistributionIdentity.ParseLauncherRegistry("ea", "private-key", values);
+        Assert.Equal("ea:offer-99", record?.DistributionKey);
+        Assert.Equal("Fixture Game", record?.DisplayName);
+        Assert.Null(WindowsDistributionIdentity.ParseLauncherRegistry("ea", "not a stable id", new Dictionary<string,string?>()));
+        Assert.Null(WindowsDistributionIdentity.ParseLauncherRegistry("ubisoft", "Installs", new Dictionary<string,string?>(), false));
+    }
+    [Theory]
+    [InlineData(false, false, "complete")]
+    [InlineData(true, false, "complete")]
+    [InlineData(true, true, "complete_with_warnings")]
+    [InlineData(false, true, "failed")]
+    public void DistributionSourceCompletionDistinguishesAbsentWarningsAndWholeSourceFailure(
+        bool readable, bool unreadable, string expected)
+    {
+        var warnings = unreadable ? new[] { "DISTRIBUTION_SOURCE_UNAVAILABLE" } : Array.Empty<string>();
+        Assert.Equal(expected, WindowsApplicationDiscovery.BuildDistributionSourceResult(
+            "distribution-ea", 0, warnings, readable, unreadable).Status);
     }
     [Fact]
     public void LauncherManifestRecordsKeepLocalPathsInsideTheAdapter()
@@ -179,7 +222,7 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.DoesNotContain("S-1-",json,StringComparison.OrdinalIgnoreCase);
     }
     [Fact]
-    public void CompleteScanAcceptsSevenSourceResultsFromDistributionDiscovery()
+    public void CompleteScanAcceptsTenSourceResultsFromDistributionDiscovery()
     {
         var sources = new ApplicationInventorySourceResult[]
         {
@@ -190,15 +233,18 @@ public sealed class ApplicationInventoryTests : IDisposable
             new("user-packages", "complete", 1, []),
             new("distribution-steam", "complete", 1, []),
             new("distribution-epic", "complete", 1, []),
+            new("distribution-ea", "complete", 0, []),
+            new("distribution-ubisoft", "complete_with_warnings", 1, ["DISTRIBUTION_MANIFEST_INVALID"]),
+            new("distribution-gog", "failed", 0, ["DISTRIBUTION_SOURCE_UNAVAILABLE"]),
         };
         var scan = new ApplicationInventoryScan(new('a', 32), "opaque-user", 0, 0, 0, [], true, sources, 0, 0);
 
         MachineApplicationInventoryStore.ValidateScan(scan, []);
     }
     [Fact]
-    public void CompleteScanRejectsMoreThanEightSourceResults()
+    public void CompleteScanRejectsMoreThanSixteenSourceResults()
     {
-        var sources = Enumerable.Range(0, 9)
+        var sources = Enumerable.Range(0, 17)
             .Select(index => new ApplicationInventorySourceResult($"fixture-{index}", "complete", 0, []))
             .ToArray();
         var scan = new ApplicationInventoryScan(new('b', 32), "opaque-user", 0, 0, 0, [], true, sources, 0, 0);

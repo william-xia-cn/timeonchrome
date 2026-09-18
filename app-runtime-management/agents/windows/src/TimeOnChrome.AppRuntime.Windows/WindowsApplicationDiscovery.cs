@@ -178,7 +178,117 @@ public sealed class WindowsApplicationDiscovery
         ScanManifestSource("distribution-epic", [epicRoot], "*.item",
             (text, _) => WindowsDistributionIdentity.ParseEpicManifest(text),
             products, anchors, sourceResults, token);
+        foreach (var platform in new[] { "ea", "ubisoft", "gog" })
+            ScanIndependentLauncher(platform, products, anchors, sourceResults, token);
     }
+
+    private static void ScanIndependentLauncher(string platform, List<DiscoveredApplication> products,
+        List<ProductAnchor> anchors, List<InventorySourceResult> sourceResults, CancellationToken token)
+    {
+        var source = "distribution-" + platform;
+        var warnings = new List<string>();
+        var before = products.Count;
+        var readable = false;
+        var unreadable = false;
+        foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        foreach (var registryPath in LauncherRegistryPaths(platform))
+        {
+            try
+            {
+                using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                using var root = baseKey.OpenSubKey(registryPath, writable: false);
+                if (root is null) continue;
+                readable = true;
+                AddLauncherRegistryRecord(platform, root, Path.GetFileName(registryPath), source, products, anchors, false);
+                foreach (var keyName in root.GetSubKeyNames())
+                {
+                    token.ThrowIfCancellationRequested();
+                    try
+                    {
+                        using var key = root.OpenSubKey(keyName, writable: false);
+                        if (key is null) { warnings.Add("DISTRIBUTION_REGISTRY_ITEM_UNAVAILABLE"); continue; }
+                        AddLauncherRegistryRecord(platform, key, keyName, source, products, anchors, true);
+                    }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                    { warnings.Add("DISTRIBUTION_REGISTRY_ITEM_UNAVAILABLE"); }
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            { unreadable = true; warnings.Add("DISTRIBUTION_SOURCE_UNAVAILABLE"); }
+        }
+        foreach (var root in LauncherManifestRoots(platform).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
+            try
+            {
+                var files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                    .Where(IsLauncherManifestFile).Take(10001).ToArray();
+                readable = true;
+                if (files.Length > 10000) warnings.Add("DISTRIBUTION_MANIFEST_CAPACITY");
+                foreach (var file in files.Take(10000))
+                {
+                    token.ThrowIfCancellationRequested();
+                    try
+                    {
+                        if (new FileInfo(file).Length > 4 * 1024 * 1024) { warnings.Add("DISTRIBUTION_MANIFEST_INVALID"); continue; }
+                        var record = WindowsDistributionIdentity.ParseLauncherManifest(platform, File.ReadAllText(file));
+                        if (record is null) { warnings.Add("DISTRIBUTION_MANIFEST_INVALID"); continue; }
+                        AddDistributionObservation(record, source, products, anchors);
+                    }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                    { warnings.Add("DISTRIBUTION_MANIFEST_INVALID"); }
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { unreadable = true; warnings.Add("DISTRIBUTION_SOURCE_UNAVAILABLE"); }
+        }
+        sourceResults.Add(BuildDistributionSourceResult(source, products.Count - before, warnings, readable, unreadable));
+    }
+
+    private static void AddLauncherRegistryRecord(string platform, RegistryKey key, string keyName, string source,
+        List<DiscoveredApplication> products, List<ProductAnchor> anchors, bool allowKeyNameFallback)
+    {
+        var values = new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in new[] { "OfferId", "ContentId", "GameId", "ProductId", "UplayId", "gameID", "GOGGameId",
+                     "DisplayName", "GameName", "Title", "Name", "InstallLocation", "InstallDir", "InstallPath", "Path" })
+            values[name] = key.GetValue(name)?.ToString();
+        values["DisplayName"] ??= key.GetValue(null)?.ToString();
+        var record = WindowsDistributionIdentity.ParseLauncherRegistry(platform, keyName, values, allowKeyNameFallback);
+        if (record is not null) AddDistributionObservation(record, source, products, anchors);
+    }
+
+    private static IReadOnlyList<string> LauncherRegistryPaths(string platform) => platform switch
+    {
+        "ea" => [@"SOFTWARE\EA Games", @"SOFTWARE\Origin Games", @"SOFTWARE\Electronic Arts\EA Desktop\Installed Games"],
+        "ubisoft" => [@"SOFTWARE\Ubisoft\Launcher\Installs", @"SOFTWARE\Ubisoft\Ubisoft Game Launcher\Installs"],
+        "gog" => [@"SOFTWARE\GOG.com\Games", @"SOFTWARE\GOG.com\Galaxy\Games"],
+        _ => throw new ArgumentOutOfRangeException(nameof(platform)),
+    };
+
+    private static IReadOnlyList<string> LauncherManifestRoots(string platform)
+    {
+        var common = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        return platform switch
+        {
+            "ea" => [Path.Combine(common, "EA Desktop", "InstallData"), Path.Combine(common, "Electronic Arts", "EA Desktop", "InstallData")],
+            "ubisoft" => [Path.Combine(common, "Ubisoft", "Ubisoft Game Launcher", "cache", "ownership"),
+                Path.Combine(programFilesX86, "Ubisoft", "Ubisoft Game Launcher", "cache", "ownership")],
+            "gog" => [Path.Combine(common, "GOG.com", "Galaxy", "storage"), Path.Combine(local, "GOG.com", "Galaxy", "storage")],
+            _ => throw new ArgumentOutOfRangeException(nameof(platform)),
+        };
+    }
+
+    private static bool IsLauncherManifestFile(string path) => Path.GetExtension(path).ToLowerInvariant()
+        is ".json" or ".xml" or ".mfst" or ".info" or ".manifest";
+
+    public static InventorySourceResult BuildDistributionSourceResult(string source, int count,
+        IReadOnlyList<string> warnings, bool sourceReadable, bool sourceUnreadable) =>
+        sourceUnreadable && !sourceReadable
+            ? new(source, "failed", count, warnings.Distinct(StringComparer.Ordinal).Take(64).ToArray())
+            : Result(source, count, warnings);
 
     private static void ScanManifestSource(string source, IEnumerable<string> roots, string pattern,
         Func<string,string,DistributionManifestIdentity?> parser, List<DiscoveredApplication> products,
@@ -456,9 +566,9 @@ public sealed class WindowsApplicationDiscovery
                 var productEvidence = new AppEvidence("windows", "windows:product:" + productKey,
                     parsed.FirstOrDefault(item => item.Evidence.Discovery?.Role == "application")?.Evidence.DisplayName ?? fallbackName,
                     new Dictionary<string,string> { ["packageId"] = family, ["distributionKey"] = WindowsDistributionIdentity.MicrosoftStore(family),
-                        ["productKey"] = productKey, ["productName"] = fallbackName },
+                    ["productKey"] = productKey, ["productName"] = fallbackName },
                     ["packageId", "distributionKey", "productKey"], Discovery: new(visible ? "application" : "component", "installation", ["package"],
-                        "product", null, "unknown", "user", "user-packages", "strong",
+                        "packageContainer", null, "unknown", "user", "user-packages", "strong",
                         systemApplication && visible ? "operatingSystem" : null,
                         systemApplication && visible ? "exactPackageRule" : null));
                 products.Add(new(productEvidence, "installed", "user-packages", "user", null, "unknown", true));
