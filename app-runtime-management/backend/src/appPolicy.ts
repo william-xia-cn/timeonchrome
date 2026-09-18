@@ -91,15 +91,18 @@ function projectApplicationOrigin(evidence?: AppEvidence): {
 }
 
 function isPackageContainer(evidence?: AppEvidence): boolean {
-  if (!evidence || evidence.platform !== 'windows' || !['product','packageContainer'].includes(String(evidence.discovery?.objectKind))
-      || evidence.discovery.sourceKind !== 'user-packages' || !evidence.verifiedFields.includes('packageId')) return false;
+  const discovery = evidence?.discovery;
+  if (!evidence || evidence.platform !== 'windows' || !discovery
+      || (discovery.objectKind !== 'product' && discovery.objectKind !== 'packageContainer')
+      || discovery.sourceKind !== 'user-packages' || !evidence.verifiedFields.includes('packageId')) return false;
   const packageId = evidence.values.packageId;
   return Boolean(packageId && !packageId.includes('!'));
 }
 
 function isLaunchablePackageApplication(evidence?: AppEvidence): boolean {
-  if (!evidence || evidence.platform !== 'windows' || evidence.discovery?.objectKind !== 'variant'
-      || evidence.discovery.role !== 'application' || !evidence.verifiedFields.includes('packageId')) return false;
+  const discovery = evidence?.discovery;
+  if (!evidence || evidence.platform !== 'windows' || !discovery || discovery.objectKind !== 'variant'
+      || discovery.role !== 'application' || !evidence.verifiedFields.includes('packageId')) return false;
   return Boolean(evidence.values.packageId?.includes('!'));
 }
 
