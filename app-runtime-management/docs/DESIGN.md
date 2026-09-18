@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前修复：Windows 2.3.1 本地盘点来源上限
+
+Session Agent 的完整扫描固定携带 Registry、Start Menu、用户包、Steam 与 Epic 共 7 项来源结果。Service 必须在写入 inventory outbox 前接受最多 8 项固定来源，与 contracts 1.6.1 和 Worker 保持一致；该上限只是协议容量，不改变允许来源枚举、来源完成状态或缺失对账条件。
+
+2.3.0 的本地校验仍使用 6 项上限，导致完整扫描在 named pipe 消费阶段抛出 `INVALID_INVENTORY_SCAN`，没有进入可重试 outbox。该缺陷无法通过云端规则修复；2.3.1 只调整本地容量并补固定 7 来源回归，不修改产品发现、账本、策略或上传 ACK 语义。版本必须前向递增，禁止覆盖已发布的 2.3.0 不可变产物。
+
 ## 当前扩展：ARM-D-016 自动产品类型识别
 
 目录对象同时携带两个独立结果：Worker 权威解析的 `appType/typeStatus/typeReasonCode`，以及孩子策略解析的 `classification/quotaBucket`。Windows Agent 只上传验证过的事实，新增 `distributionKey`（如 `steam:714010`）；名称和 `declaredType` 均不构成 confirmed 类型。Application Knowledge v2 保存产品类型、发行身份 selector 和动态分类规则，同时继续读取 v1。

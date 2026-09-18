@@ -1,10 +1,17 @@
 # App Runtime Changelog
 
-## [contracts 1.6.1 / 发行来源上传兼容] — 2026-09-18（本地验证通过，待合并发布）
+## [Windows 2.3.1 / 本地完整盘点来源上限] — 2026-09-18（本地实现已验证）
+
+- 2.3.0 的 Session Agent 会生成包含 7 项来源结果的完整扫描，但 Service 本地 `ValidateScan` 仍保留最多 6 项的旧限制；消息在写入 inventory outbox 前即被拒绝，因此部署兼容 Worker 后也没有可自动重试的批次。
+- 2.3.1 将 Service 本地固定来源结果上限对齐为 8，并以 7 项真实来源回归锁定；不改变扫描内容、来源级 fail-closed、历史 inventory、UsageSegment 或分类/配额语义。
+- 2.3.0 不覆盖重打；2.3.1 作为内部未签名前向修复，原地升级必须保留机器身份、配对、策略、SQLite、outbox 和历史账本。
+- 聚焦测试 50/50、Windows 全量 124/124、Service/Agent/Manager 版本回读与 WiX MSI/Burn 编译通过。当前主机无法访问 Windows Installer 服务，ICE 外部验证交由 PR 的正常 Windows CI 闸门完成。
+
+## [contracts 1.6.1 / 发行来源上传兼容] — 2026-09-18（生产 Worker 已发布）
 
 - 真实 2.3.0 验收发现 Agent 新增 `distribution-steam`、`distribution-epic` 且完整扫描包含 7 项来源结果，但 1.6.0 Contract/Worker 仍只允许旧来源和最多 6 项，导致新盘点整体返回 400 并在本地重试。
 - 1.6.1 将两个发行来源加入固定来源集合，把完整扫描来源上限提高到 8；旧客户端、旧来源及现有来源级 fail-closed 对账语义保持不变。
-- 本轮只需部署兼容 Worker；已安装的 Windows 2.3.0 不重装、不重新配对，也不改写历史 inventory 或 UsageSegment。
+- 兼容 Worker 已发布为 `c3a29505-b377-4e06-990c-9470662ee38d`，但后续真实验收发现 2.3.0 Service 在 outbox 前还有同类 6 项上限；因此 Worker-only 结论被 2.3.1 前向修复取代。
 - Contracts 23 向量、Worker 51/51、两端 typecheck、Guardian integration、模块边界、Wrangler dry-run 与 `git diff --check` 已通过。
 
 ## [contracts 1.6.0 / Windows 2.3.0 / 自动产品类型识别] — 2026-09-18（本地候选已验证）

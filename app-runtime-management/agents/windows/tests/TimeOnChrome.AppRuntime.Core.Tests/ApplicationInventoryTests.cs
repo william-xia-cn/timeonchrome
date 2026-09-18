@@ -179,6 +179,33 @@ public sealed class ApplicationInventoryTests : IDisposable
         Assert.DoesNotContain("S-1-",json,StringComparison.OrdinalIgnoreCase);
     }
     [Fact]
+    public void CompleteScanAcceptsSevenSourceResultsFromDistributionDiscovery()
+    {
+        var sources = new ApplicationInventorySourceResult[]
+        {
+            new("registry-machine", "complete", 1, []),
+            new("registry-user", "complete", 1, []),
+            new("start-menu-common", "complete_with_warnings", 1, ["SHORTCUT_TARGET_UNAVAILABLE"]),
+            new("start-menu-user", "complete", 1, []),
+            new("user-packages", "complete", 1, []),
+            new("distribution-steam", "complete", 1, []),
+            new("distribution-epic", "complete", 1, []),
+        };
+        var scan = new ApplicationInventoryScan(new('a', 32), "opaque-user", 0, 0, 0, [], true, sources, 0, 0);
+
+        MachineApplicationInventoryStore.ValidateScan(scan, []);
+    }
+    [Fact]
+    public void CompleteScanRejectsMoreThanEightSourceResults()
+    {
+        var sources = Enumerable.Range(0, 9)
+            .Select(index => new ApplicationInventorySourceResult($"fixture-{index}", "complete", 0, []))
+            .ToArray();
+        var scan = new ApplicationInventoryScan(new('b', 32), "opaque-user", 0, 0, 0, [], true, sources, 0, 0);
+
+        Assert.Throws<InvalidDataException>(() => MachineApplicationInventoryStore.ValidateScan(scan, []));
+    }
+    [Fact]
     public async Task ScanReplayAndCompletionAreDurableEvenWhenCacheDoesNotChange()
     {
         var store = new MachineApplicationInventoryStore(Path.Combine(root,"scan.sqlite"),"machine-one");
