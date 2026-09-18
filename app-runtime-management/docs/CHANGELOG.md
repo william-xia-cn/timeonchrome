@@ -1,11 +1,14 @@
 # App Runtime Changelog
 
-## [Windows 2.3.1 / 本地完整盘点来源上限] — 2026-09-18（本地实现已验证）
+## [Windows 2.3.1 / 本地完整盘点来源上限] — 2026-09-18（生产已验收）
 
 - 2.3.0 的 Session Agent 会生成包含 7 项来源结果的完整扫描，但 Service 本地 `ValidateScan` 仍保留最多 6 项的旧限制；消息在写入 inventory outbox 前即被拒绝，因此部署兼容 Worker 后也没有可自动重试的批次。
 - 2.3.1 将 Service 本地固定来源结果上限对齐为 8，并以 7 项真实来源回归锁定；不改变扫描内容、来源级 fail-closed、历史 inventory、UsageSegment 或分类/配额语义。
 - 2.3.0 不覆盖重打；2.3.1 作为内部未签名前向修复，原地升级必须保留机器身份、配对、策略、SQLite、outbox 和历史账本。
-- 聚焦测试 50/50、Windows 全量 124/124、Service/Agent/Manager 版本回读与 WiX MSI/Burn 编译通过。当前主机无法访问 Windows Installer 服务，ICE 外部验证交由 PR 的正常 Windows CI 闸门完成。
+- 聚焦测试 50/50、Windows 全量 124/124、Service/Agent/Manager 版本回读与 WiX MSI/Burn 编译通过；PR #30 三组 CI 全部通过并合并为 `master@c407d0f`。
+- 受控生产机器已原地升级且无需重新配对；Service 2.3.1 在线、heartbeat 正常、outbox 清空。真实完整扫描包含 387 个产品、356 个变体及 7 个成功/带警告成功来源。
+- Aimlabs `steam:714010` 与 Apex Legends `steam:1172470` 已在生产目录确认为游戏，同时保持管理分类未归类和受限娱乐仅建议语义。
+- 内部未签名 Burn 为 118,739,813 bytes / SHA-256 `3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563`；R2、Worker latest 和版本化下载回读一致，`latest.json` 已切换至 2.3.1。
 
 ## [contracts 1.6.1 / 发行来源上传兼容] — 2026-09-18（生产 Worker 已发布）
 

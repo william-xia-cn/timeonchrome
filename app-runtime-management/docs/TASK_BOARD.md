@@ -5,14 +5,14 @@
 - [x] 真实验收定位第二层阻塞：2.3.0 Session Agent 产生 7 项来源结果，但 Service 的 `ValidateScan` 仍拒绝超过 6 项，完整盘点无法进入本地 inventory outbox。
 - [x] 将本地固定来源结果上限与 contract/Worker 对齐为 8，并增加 7 项来源回归；不改变来源结算、扫描内容或上传语义。
 - [x] 统一 Windows Agent、MSI、Burn、Assembly/File/Informational Version 为 2.3.1；Service/Agent/Manager 均回读为 Product 2.3.1 / File 2.3.1.0。
-- [ ] 从合并后的干净 master 发布不可变 2.3.1；原地升级保留机器身份、配对、策略、SQLite、outbox 和历史账本。
-- [ ] 完成真实 7 来源扫描，确认 Aimlabs/Apex 发行身份与游戏类型后再决定 R2 latest 切换。
+- [x] PR #30 合并后从干净 `master@c407d0f` 构建并发布不可变 2.3.1；原地升级保留机器身份、配对、策略、SQLite、outbox 和历史账本。
+- [x] 完成真实 7 来源扫描并收到完成标记；Aimlabs/Apex 发行身份与已确认游戏类型通过线上目录验收，R2 latest 已切换到 2.3.1。
 
 边界：不重新配对、不清数据；不改 D1 schema、账本、分类、配额、Guardian、Pages 或 Santa。2.3.0 不覆盖重打，使用 2.3.1 前向修复。
 
-实施验证：聚焦测试 50/50、Windows 全量 124/124、WiX MSI 与 Burn 编译 0 warning / 0 error、边界检查及 `git diff --check` 通过。本机 Windows Installer 服务不可访问，完整 build script 的 ICE 外部验证为 `BLOCKED_LOCAL_ENVIRONMENT`；CI 必须以正常验证模式构建通过后才允许合并。
+实施与发布验证：聚焦测试 50/50、Windows 全量 124/124、WiX MSI 与 Burn 编译 0 warning / 0 error、边界检查及 `git diff --check` 通过；PR 三组 CI 全部通过。真机 Service 2.3.1 在线且无待上传项；扫描 387 个产品、356 个变体，Steam/Epic 等 7 来源完成；Aimlabs/Apex 线上确认为游戏；Worker latest 与版本化下载的大小、SHA-256 完全一致。
 
-提交前 Plan Conformance Audit：`Matched`＝文档先行、本地容量 8、真实 7 来源回归、2.3.1 全组件版本、历史/身份保留边界；`Deviated`＝无；`Missing`＝无（PR/CI、不可变发布和真机验收属于提交后 release gate）；`Extra`＝无。
+发布后 Plan Conformance Audit：`Matched`＝文档先行、本地容量 8、真实 7 来源回归、2.3.1 全组件版本、PR/CI、不可变 R2、真机升级、完整扫描、类型识别、latest 切换和历史/身份保留边界；`Deviated`＝无；`Missing`＝无；`Extra`＝无。
 
 ## NOW：2.3.0 发行来源上传兼容热修复
 
