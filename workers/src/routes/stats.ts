@@ -8,7 +8,12 @@ import {
   processEmailClassificationOutbox,
 } from '../services/siteClassificationEmail';
 import { isSystemAccessAdmin } from './systemAccessConfig';
-import { applyCorrectionsToV1StatsRows, compactUsageAccountingCorrectionDeltas, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
+import {
+  applyCorrectionsToV1StatsRows,
+  compactUsageAccountingCorrectionDeltas,
+  listUsageAccountingCorrections,
+  processRestrictedReattributions,
+} from '../services/usageAccountingCorrections';
 
 // ── Segment payload schema validation ───────────────────────────────────────────
 
@@ -1088,6 +1093,21 @@ export const statsRouter = {
         ).run();
 
         const acceptedIds = accepted.map((item) => item.id);
+        const acceptedIdSet = new Set(acceptedIds);
+        const restrictedReattributionRequestIds = [...new Set((persisted.results || [])
+          .filter((row: any) => acceptedIdSet.has(row.id) && row.channel === 'active' &&
+            (row.target_classification_at_time === 'pending_composite' || row.target_classification_at_time === 'unclassified') &&
+            typeof row.target_rule_id === 'string' && row.target_rule_id)
+          .map((row: any) => row.target_rule_id))] as string[];
+        if (restrictedReattributionRequestIds.length > 0) {
+          const reattributionWork = processRestrictedReattributions(env, {
+            profileId: device.profileId,
+            requestIds: restrictedReattributionRequestIds,
+            maxBatchesPerRequest: 4,
+          });
+          if (ctx) ctx.waitUntil(reattributionWork);
+          else await reattributionWork;
+        }
         return json({
           success: true,
           count: acceptedIds.length,

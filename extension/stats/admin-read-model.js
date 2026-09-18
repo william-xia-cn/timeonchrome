@@ -515,6 +515,7 @@ function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage) {
   for (const date of dateKeys) {
     const dayStats = dailyStats?.[date] || {};
     const stats = dayTargetStats(dayStats, config, storage);
+    const hasRecordedTargets = !!dayStats.targets && Object.keys(dayStats.targets).length > 0;
     for (const stat of stats) {
       const key = stat.targetKey || stat.managedTargetId || `fallback:domain:${stat.fallbackDomain || 'unknown'}`;
       const row = map.get(key) || {
@@ -530,6 +531,8 @@ function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage) {
         categories: emptyAnalysisCategories(),
         seconds: 0,
         borrowedRestSeconds: 0,
+        displayQuotaBuckets: {},
+        displayUsageBreakdown: {},
         firstSeenAt: null,
         lastSeenAt: null,
       };
@@ -539,6 +542,21 @@ function aggregateTargetStatsByDate(dailyStats, dateKeys, config, storage) {
       const statTotal = ANALYSIS_CATEGORY_KEYS.reduce((sum, category) => sum + statCategories[category], 0);
       row.seconds += statTotal;
       row.borrowedRestSeconds += targetBorrowedRestSeconds(stat);
+      // Presentation evidence only: never infer a quota bucket from classification.
+      const recordedBuckets = hasRecordedTargets ? stat.activeByQuotaBucket : dayStats.domains?.[stat.fallbackDomain]?.activeByQuotaBucket;
+      const classification = (hasRecordedTargets && stat.targetClassificationAtTime) || 'unknown';
+      const breakdown = row.displayUsageBreakdown[classification] ||= {};
+      let bucketSeconds = 0;
+      for (const [bucket, value] of Object.entries(recordedBuckets || {})) {
+        const seconds = Math.max(0, Number(value) || 0);
+        row.displayQuotaBuckets[bucket] = (row.displayQuotaBuckets[bucket] || 0) + seconds;
+        breakdown[bucket] = (breakdown[bucket] || 0) + seconds;
+        bucketSeconds += seconds;
+      }
+      if (statTotal > bucketSeconds) {
+        row.displayQuotaBuckets.unknown = (row.displayQuotaBuckets.unknown || 0) + statTotal - bucketSeconds;
+        breakdown.unknown = (breakdown.unknown || 0) + statTotal - bucketSeconds;
+      }
       if (stat.firstSeenAt && (!row.firstSeenAt || stat.firstSeenAt < row.firstSeenAt)) row.firstSeenAt = stat.firstSeenAt;
       if (stat.lastSeenAt && (!row.lastSeenAt || stat.lastSeenAt > row.lastSeenAt)) row.lastSeenAt = stat.lastSeenAt;
       map.set(key, row);
@@ -564,7 +582,7 @@ function targetRowsForAnalysis(dailyStats, selectedDateKey, weekDateKeys, rangeD
       categoryLabel: ANALYSIS_CATEGORY_LABELS[category],
       todaySeconds: today?.seconds || 0,
       weekSeconds: week?.seconds || 0,
-      rangeSeconds: range?.seconds || 0,
+      rangeSeconds: rangeMap.get(key)?.seconds || 0,
       limitLabel: '—',
       status: targetStatusFromStat(range),
       borrowedRestSeconds: range?.borrowedRestSeconds || 0,
@@ -575,6 +593,9 @@ function targetRowsForAnalysis(dailyStats, selectedDateKey, weekDateKeys, rangeD
       managedTargetValue: range?.managedTargetValue || null,
       targetClassificationAtTime: range?.targetClassificationAtTime || null,
       isFallback: !!range?.isFallback,
+      displayQuotaBuckets: { today: today?.displayQuotaBuckets || {}, week: week?.displayQuotaBuckets || {}, range: rangeMap.get(key)?.displayQuotaBuckets || {} },
+      displayUsageBreakdown: { today: today?.displayUsageBreakdown || {}, week: week?.displayUsageBreakdown || {}, range: rangeMap.get(key)?.displayUsageBreakdown || {} },
+      firstSeenAt: range?.firstSeenAt || null,
       lastSeenAt: range?.lastSeenAt || null,
       categories: range?.categories || emptyAnalysisCategories(),
     };
@@ -787,12 +808,13 @@ function mediaRowsForAnalysis(dailyMediaStats, selectedDateKey, weekDateKeys, ra
       categoryLabel: ANALYSIS_CATEGORY_LABELS[category],
       todaySeconds: today?.seconds || 0,
       weekSeconds: week?.seconds || 0,
-      rangeSeconds: range?.seconds || 0,
+      rangeSeconds: rangeMap.get(key)?.seconds || 0,
       limitLabel: '—',
       status: '正常',
       fallbackDomain: range?.fallbackDomain || null,
       managedTargetType: 'media',
       isFallback: true,
+      firstSeenAt: range?.firstSeenAt || null,
       lastSeenAt: range?.lastSeenAt || null,
       categories: range?.categories || emptyMediaAnalysisCategories(),
     };

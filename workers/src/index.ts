@@ -31,6 +31,7 @@ import {
   handleAppRuntimeSsoTicket,
   processAppRuntimeLifecycleOutbox,
 } from './services/appRuntimeIdentityBridge';
+import { processRestrictedReattributions } from './services/usageAccountingCorrections';
 
 // 数据库初始化函数
 async function initDatabase(env: Env): Promise<Response> {
@@ -368,6 +369,7 @@ export default {
       processEmailClassificationOutbox(env),
       processNativeAppLifecycleOutbox(env),
       processAppRuntimeLifecycleOutbox(env),
+      processRestrictedReattributions(env, { maxBatchesPerRequest: 4 }),
     ];
     if (event.cron === '0 12 * * *') work.push(sendPendingReviewNotifications(env));
     ctx.waitUntil(Promise.all(work));

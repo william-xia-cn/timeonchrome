@@ -11,6 +11,7 @@ import {
 } from '../../../extension/core/site-classification.js';
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
+import { processRestrictedReattributions } from '../services/usageAccountingCorrections';
 
 async function verifyProfileOwner(request: Request, env: Env, profileId: string): Promise<string | null> {
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);
@@ -606,10 +607,13 @@ export async function decideSiteClassificationRequest(
   }
 
   await applyDecisionToProfileConfig(env, input.profileId, input.requestId, decision, target, now);
+  const accountingReattributions = decision === 'reject'
+    ? await processRestrictedReattributions(env, { profileId: input.profileId, requestIds: [input.requestId] })
+    : [];
   const updated = await env.DB.prepare(
     `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
   ).bind(input.requestId, input.profileId).first<any>();
-  return { ok: true, success: true, request: rowToResponse(updated) };
+  return { ok: true, success: true, request: rowToResponse(updated), accountingReattributions };
 }
 async function listUsedUnclassifiedSites(request: Request, env: Env, profileId: string): Promise<Response> {
   if (!(await verifyProfileOwner(request, env, profileId))) return json({ error: 'Profile not found' }, 404);
@@ -691,8 +695,11 @@ async function classifyUsedUnclassifiedSite(request: Request, env: Env, profileI
   await env.DB.prepare(
     `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
   ).bind(JSON.stringify(config), now, profileId).run();
+  const accountingReattributions = classification === 'restricted' && closedRequestIds.length > 0
+    ? await processRestrictedReattributions(env, { profileId, requestIds: closedRequestIds })
+    : [];
   const refreshed = await getProfileSiteAccessConfig(env, profileId);
-  return json({ ok: true, domain, classification, listKey, closedRequestIds, config: refreshed });
+  return json({ ok: true, domain, classification, listKey, closedRequestIds, accountingReattributions, config: refreshed });
 }
 export const siteClassificationRequestsRouter = {
   async handle(request: Request, env: Env): Promise<Response> {

@@ -3,6 +3,44 @@
 > App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。
 
 ## Active Release Target
+- [x] [P0 / D-093 / Implemented and verified / 2026-09-18] 未归类网站归为受限娱乐后自动调整本周有效归属。
+  - [x] PO 单项批准：仅调整同一审核记录精确关联的本周 `active` 网页分段；原始账与总秒数不变。
+  - [x] 审核决定后立即生成 correction；迟到上传和定时任务幂等补调。
+  - [x] V1/V2/本地配额继续消费统一 correction projection；不处理媒体及其他目标分类。
+  - [x] 专项与全量验证、Plan Conformance Audit。
+  - 行为：北京时间决定所在周内，按 `targetRuleId/requestId` 精确关联 `active + pending_composite/unclassified` 分段；有效归属固定调整为 `restricted + rest mode + rest quota bucket`。原已在 Rest 桶的秒数不重复增加，Composite 桶秒数转入 Rest，总网页秒数守恒。
+  - 触发：单条审核拒绝、域名直接归为受限娱乐、迟到原始分段上传及 Worker 定时任务；已有 correction 通过 segment 唯一关联跳过，重复执行不重复调账。
+  - 验证：全部 147 个 unit 文件通过；V2 设备单账/发布/影子账/同步/对账专项通过；TypeScript 与扩展根目录检查通过；15/15 扩展 E2E 通过；生产 API 集成在允许联网环境下 103/103 通过。`tests/run-all.js` 在受限沙箱中的 API 步骤因 `fetch failed` 返回非零，但同一 API 套件联网复跑全部通过。
+  - Plan Conformance Audit：本周、精确审核关联、仅网页 active、固定 Rest 归属、迟到补调、幂等、媒体排除、原始事实及总秒数不变均 Matched；未增加 schema、未改历史原始账、网页 ACTIVE、版本、生产配置或部署。无 Deviated / Missing / Extra。
+- [x] [UI / 未归类网站使用记录层级 / Implemented and verified / 2026-09-15] 第一层今日/本周/累计（近30天）时长，按三项依次降序；观察与统计证据默认折叠。
+  - 检查表：规范先行、Pages 共用列表三项时长及稳定排序、分来源详情并保留操作、专项测试及桌面/手机截图均完成。
+  - 使用已有 target-stats 只读查询，按 active 记录展示；不修改 Worker、存储、记账、配额或生产配置，不提交/部署。
+  - 验证：`unclassified-usage-display.test.js` 验证日期范围、跨设备、排除媒体、排序、未知值、档案/跨日隔离、合并行索引及折叠；Pages 配置 227/227、未知显示 46 项和使用文案 22 个双端场景回归通过，TypeScript 通过。
+  - `npx playwright test tests/e2e/unclassified-usage-display-visual.test.js --reporter=line` 1/1 通过，桌面/390px 手机收起与展开截图已核对；三项时长对齐，详情标识换行，原有归类操作及已处理折叠保留。这是 mock UI 验证，不是生产账本验收；没有运行全量回归。
+  - Plan Conformance Audit：三项时长、依次降序、分来源折叠、保留操作、未知不作零及只读不改账均 Matched。累计只代表近30天，不宣称全历史；既有 Admin 手机溢出与未知页面 A/B/C 闸门均不在本项解决范围。
+- [x] [UI / Admin 当前范围时长修正 / Implemented and verified / 2026-09-15] 已确认网页和媒体明细均将范围外的本周记录当作当前范围时长；已获 PO 单项批准修正。
+  - 修正仅限只读 `rangeSeconds`：严格读取所选范围 Map，缺失为 0；本周/今日时长、保留行身份及原始统计均不改。
+  - 检查表：先登记 → 修正网页与媒体同一显示缺陷 → 覆盖空日期/有记录日期/周范围与界面详情 → 核对无存储或配额变化。
+  - 验证：`usage-explanation-display.test.js` 覆盖网页/媒体空范围、有记录日及完整周，输入统计不变；`admin-read-model.test.js` 43/43、TypeScript、diff 检查通过。`npx playwright test tests/e2e/unknown-page-display-visual.test.js --grep 'admin:' --reporter=line` 1/1 通过，使用真实只读行构建函数生成 mock 数据，网页/媒体桌面与手机截图已核对“当前范围 0、本周 30 分”。
+  - Plan Conformance Audit：两处只读字段及范围回归均 Matched；原始账、日/小时/目标统计、配额算法、运行时计时和生产配置不变。既有 Admin 手机溢出仍未解决；未修改版本、提交或发布。
+- [x] [UI / 使用明细文案统一 / Implemented; PASS_WITH_KNOWN_LAYOUT_LIMITATION / 2026-09-15] 云端 Pages 与本地 Admin 同步实施，只读显示，不修改历史、配额算法、版本或生产配置。
+  - [x] 表头“单站点限额/用量说明”；学习/复合/待归类/受限娱乐/黑名单与借用说明统一。
+  - [x] 部分借用量与所选范围明确；详情按当前范围/今日/本周拆分历史性质 × 实际桶，缺失信息显示未知。
+  - [x] 分类汇总“—”、媒体独立说明、未知页“归属待核查”；不改账、不伪装实时状态。
+  - [x] 专项测试及文案目视核对完成；Admin 手机既有横向溢出保持未解决，不标页面整体适配通过。
+  - 验证命令：`node tests/unit/usage-explanation-display.test.js`（22 个双端场景及本地/云端展示元数据一致性）、`node tests/unit/unknown-page-display.test.js`（46 项断言）、`node tests/unit/admin-read-model.test.js`（43/43）、`node tests/unit/pages-config-v12-fields.test.js`（227/227）、`node tests/unit/managed-statistics.test.js`（30/30）均通过；`npm run typecheck`、`npm run check:extension-root`、`git diff --check` 通过。未运行全量回归。
+  - 目视命令：`npx playwright test tests/e2e/unknown-page-display-visual.test.js --reporter=line`，2/2 通过；1440px 桌面/390px 手机 mock 截图已检查，分桶详情无溢出。Admin 已知整页溢出以测试 annotation 明确保留，未删除或降级原布局风险；不是生产或真实记账验收。
+  - Plan Conformance Audit：文案、部分借用数量、逐范围/逐性质分桶、未知信息、媒体独立、只读不改账均 Matched；不存在本任务未批准的 Extra / Deviated。文案任务完成时 Admin 旧布局与旧范围时长问题保持 Deferred；后续范围时长问题已获单项批准修正（见上项），手机布局仍未解决。未知 A/B/C 保持未实施；未提交、推送、部署或托管。
+  - 只读核对额外发现：Admin 的历史 target row 在所选范围无该对象、但本周存在用量时，旧 `rangeSeconds` 会沿用本周值；文案任务只避免借用说明/分桶元数据沿用本周。后续已独立获批将网页/媒体 `rangeSeconds` 严格限制为所选范围，不修改原始账或配额。
+- [ ] [P0 / 未识别页面防错与分类兜底 / 2026-09-15] 按包独立推进，不修改历史、生产配置、版本或发布。
+  - [ ] A：移除合并事件 undefined 字段；等待本项 PO 明确批准。
+  - [ ] B：同 active tab/window 未知页补查，无历史回填；等待本项 PO 明确批准。
+  - [ ] C：占位标识退出普通网站分类，保留实际桶；等待本项 PO 明确批准。
+  - [ ] D：Pages/Admin 只读名称、实际桶与异常说明已实施；没有改动存储事实、总量、图表聚合或配额计算。未知记录不提供分类按钮，媒体明细明确不计网页配额。
+    - 专项验证：未知显示 46 项断言、Admin read model 43/43、Pages 配置 227/227、managed statistics 30/30、TypeScript 和 diff 检查通过。
+    - 目视验证：Pages 桌面/390px 手机与 Admin 桌面 mock 截图已核对；不是生产或原始账本验收。Admin 手机详情自身不溢出，但整页横向溢出断言连续两次失败，按执行规则停止试改，保留未通过门禁。未运行全量回归。
+    - Plan Conformance Audit：名称、未知提示、历史不改、实际桶、无归类按钮均 Matched；Admin 手机整页布局 Missing，D 不标完成。A/B/C 未获单项批准，未实施；不提交、不部署。
+  - [ ] 真实 unpacked Bilibili idle 与原始账本对照；完成前不关闭 P0。
 - [ ] [P0 / D-081 / Production remediation and managed release completed; terminal observation pending] `cg.163.com` 系统分类漂移与本周错误账归属修复。
   - 已确认根因：`/device/config` 只返回 profile version，终端 version skip 不感知 system access version；profile 又持久化旧 effective 清单。9 月 13 日 profile 变更触发拉取时，错误系统分类重新进入终端。
   - 已确认生产影响：T.xia 2026-09-14 的 `cg.163.com` 出现 Study 分类和 Study 扣费桶正时长分段；当前系统配置虽已改回 restricted，但旧终端可能因 profile version 未变继续缓存旧清单。
@@ -87,6 +125,17 @@
   - 后续：本项完成后再继续处理日志相关错误，不在同一补丁混入日志修复。
 
 ## Active Log Work（2026-08-31）
+- [ ] [P0 Web Accounting / Investigated; Awaiting itemized PO approval] 未识别页面归属异常（2026-09-15）
+  - 本轮完成生产 D1 只读调查与本地最小重放；不修改计时、统计、扣费桶、云端配置或历史账，不提交、不发布。显示修订待后续实施，不能记为已修复。
+  - 当前周原始账：T.xia 9/14 为 276 秒、9/15 为 1450 秒；P.xia 9/14 为 2435 秒、9/15 为 1 秒，域名均为 `unknown-page.chrome-local`。反馈中的今日 24 分、本周 28 分对应 T.xia。
+  - 主异常证据：T.xia 今日 1443 秒、昨日 245 秒及 P.xia 昨日 2427 秒始于 `idleStateChanged`；这些分段前一个同 tab 的已识别域名均为 `www.bilibili.com`。T.xia 今日其中 1440 秒的下一个同 tab 已识别域名仍为 Bilibili，另 3 秒的下一个为扩展页面；相邻域名证据不用于自动改历史账。
+  - 已复现根因：`extension/core/signal.js` 的 `mergeEvent()` 为稀疏 idle 事件添加自有但值为 undefined 的 `url/domain` 字段；`extension/core/context.js` 的 `buildContext()` 据字段存在性判定新页面观察，从而将同 tab 原有域名改为未知页。生产源码最小重放：合并后的 idle 事件生成未知域名，原始稀疏 idle 事件保持 Bilibili；tab/window 不变。
+  - 补查缺口：`extension/core/foreground-timing.js` 开账前与 `extension/runtime/session.js` 结算时的未知域名补查仅匹配 `__unknown__`，实际占位域名 `unknown-page.chrome-local` 不进入该分支。该缺口独立于 ACTIVE/focus/idle 规则，不授权直接改动。
+  - 分类来源已确认：两档案 `customCompositeList` 与 effective `compositeList` 均含未知页占位域名；原始正时长记录的管理对象也确为该占位域名，分类为 `composite`、来源为 `parent`。不能再将主异常解释为未经证实的真实网站分类快照残留。`.chrome-local` 被访问路由忽略；显示“借用休息配额”来自复合分类与 Rest 桶组合，不证明发生真实借用决策。
+  - 账层核对：上述秒数在 V1 target、V2 最新已发布设备单账及档案日总账的 domain/target、日/小时维度均相等；未发现未知页与同设备同 channel 其他正时长分段超过 1 秒的重叠。T.xia 今日未知页 Rest 桶为 1443 秒、Study 桶为 7 秒；不以未知页整体推定扣费桶错误，也不扣减全局用量。
+  - 未解决：T.xia 今日 3 条、P.xia 昨日 8 条未知页 `checkpoint_estimated_close` 各为 90 秒，错误域名可能引发额外估算边界与少记风险，尚无真实浏览器依据量化；新标签短暂未知页的 URL 缺失/查询失败原因未取得逐事件日志。当前上传日志没有提供对应查询失败证据，不能据空查询认定查询均成功。
+  - 验证：原有 `signal-extract-domain-v12` 5/5、`foreground-page-reliability-p0` 37/37 通过；最小内存重放复现合并器与上下文组合缺陷。原有测试直接传入稀疏 idle 事件，未覆盖实际合并后的事件形状；无真实浏览器/账本验收，不标 PASS 或关闭 P0。
+  - 待单项批准补丁：首先仅在信号合并输出中移除值为 undefined 的字段，保留实际 tab/url/domain 与既有 null 合并规则，使纯 idle 状态更新不冒充页面观察；明确无 URL 的新 tab 仍走未知路径。另行展示并审批未知域名补查与 UI“未识别页面/实际记账桶”修订；不删除配置里的占位项、不猜测历史域名、不更改使用秒数或现有媒体容错资格。
 - [ ] [P0 Sync/Quota / Investigating] 复合网站配额拦截与本地、云端用量不一致（2026-09-11）
   - 生产反馈：百度访问出现双配额耗尽提示；系统配置仍将 `baidu.com` 归为复合。
   - 只读证据：北京时间 19:11 左右云端快照中，今日待归类 7305 秒 / 上限 7200 秒，今日 Rest 6095 秒 / 上限 14400 秒，本周 Rest 31690 秒 / 上限 50400 秒；本周网页原始账与 target 配额桶总量逐日一致，当前复合与休息窗口均开放。

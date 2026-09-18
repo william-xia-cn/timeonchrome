@@ -1775,6 +1775,14 @@
       font-size: 13px;
     }
     .usage-detail-panel.visible { display: block; }
+    #usage-analysis-table-wrap { max-width: 100%; overflow-x: auto; }
+    @media (max-width: 720px) {
+      #page-stats .usage-analysis-topbar,
+      #page-stats .usage-card-head,
+      #page-stats .usage-list-toolbar { flex-wrap: wrap; }
+      #page-stats .usage-list-toolbar input { width: 100%; min-width: 0; }
+      #page-stats .usage-detail-panel { overflow-wrap: anywhere; }
+    }
     .usage-empty {
       color: var(--muted);
       text-align: center;

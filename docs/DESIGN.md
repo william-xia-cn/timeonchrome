@@ -9,6 +9,20 @@
 
 ## 1. 架构概览
 
+### 未识别页面防错与显示边界（2026-09-15）
+
+- 已复现：signal 合并给纯 idle 事件增加自有值为 `undefined` 的 URL/domain 字段，context 将其误认为新页面观察，导致已知 Bilibili 归属变成未知占位标识。
+- 包 A/B/C 涉及事件形状、开账识别和后续分类快照，仍等待 D-076 单项批准；本轮不改计时、原始分段、扣费或历史事实。
+- 包 D 仅增加只读展示元数据：`__unknown__`、`unknown-page.chrome-local` 显示为“未识别页面”，不是普通待归类网站；保留存储分类及所有时长。
+- 展开显示内部标识、已有统计的首末观察时间（北京时间）及今日/本周/当前范围实际配额桶贡献。桶缺失显示未知，不用内容分类猜测扣费桶；媒体明细不描述为网页扣费。
+- 占位标识不提供分类操作，不将其“复合分类 + Rest 桶”展示为借用路由证据。各层总量、图表历史分类和配额计算均保持不变；真实浏览器与原始账本验收前 P0 保持未解决。
+
+### 使用明细只读说明修订（2026-09-15）
+
+- 展示层单独收集既有统计的历史分类与实际配额桶，按当前范围/今日/本周保留交叉贡献。仅新增临时只读展示元数据，不写入存储、公开接口或单账，不改变记账聚合及配额算法。
+- 旧 domain fallback 的 mode 与由当前配置生成的分类不能作为历史扣费/分类证据；显式字段缺失时展示未知。借用量只统计显式 composite/pending_composite 与 rest 桶的 active 网页贡献，媒体/PiP 不参与说明。
+- 用量说明替代实时含义模糊的状态；未知页始终不描述为借用，媒体始终明确独立于网页配额。既有日志和未知归属 A/B/C 不在本次实施范围。
+
 ### 1.0 独立 Native App Control
 
 macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-NATIVE-APP-CONTROL-TECHNICAL-DESIGN.md`。该模块部署为独立 Worker 与独立 D1，不属于 Chrome Extension、`guardian-api` 设备同步或 `guardian-db` 业务数据。主系统仅提供 Account/Child 的短期 ES256 身份桥和 Child 删除 lifecycle outbox；Pages 通过 `/native-apps/` 提供独立控制台。现有 Native Worker、D1、secrets 和 Santa 协议属于已部署生产能力，常规 Chrome/Pages 发布不得因“本轮不改 Native 基础设施”而移除既有页面或 Guardian bridge。
@@ -1309,6 +1323,15 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - `/device/config` 同时下发 profile、system access 与近期 correction revision。revision 包含更正日期窗口、条数和最新写入时间；任一组成变化都必须重新拉取，确保新增更正生效且移出近期窗口的更正不会永久残留。
 - 统计与配额读取使用 effective projection：未更正行读取原始归属，更正行读取 correction 中的 classification/mode/quota bucket。云端物化、V2 设备/档案账及终端下发必须共享该 projection，禁止各层单独打补丁。
 - 本次 `cg.163.com` 修正仅重归属已经存在的本周分段，不补时、不删时、不合并分段。更正前后网页总秒数必须完全相等；Study/Rest 桶变化必须逐 segment 可解释。
+
+### 未归类转受限娱乐的本周自动调账（D-093）
+
+- 家长将一条未归类审核记录决定为受限娱乐（内部 decision `reject`）后，Worker 以该记录的 `requestId` 为唯一关联键，处理决定发生所在北京时间周内的 `active` 网页分段。
+- 仅 `target_rule_id = requestId` 且原分类为 `pending_composite` / `unclassified` 的分段可自动调账；旧分段缺少精确关联时保持不变并留待人工核查，禁止仅凭同域名批量迁移。
+- effective projection 固定为 `restricted + rest mode + rest quota bucket`。原始 segment、duration、domain、上传确认和媒体账均不改；原 Rest bucket 不重复增加，原 Composite bucket 才转入 Rest。
+- 同一 correction 同时驱动 V1 统计读取、V2 设备/档案账和终端配额读模型，因此“今日”和“本周”只是同一有效账的不同聚合范围，不分别保存调账结果。
+- 审核完成时立即补调云端已有分段；之后迟到上传、但仍携带同一 `targetRuleId` 的本周分段在入库后继续幂等补调。定时自愈会重扫近期已决定为受限娱乐的审核记录，避免瞬时失败永久漏调。
+- 本机制不处理归为学习、复合或黑名单的历史归属，也不改变网页 ACTIVE、checkpoint、idle、焦点或结算语义。
 
 ---
 

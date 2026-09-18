@@ -481,6 +481,12 @@
     .rules-site-row-wrap:last-child { border-bottom: none; }
     .rules-site-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; }
     .rules-site-domain { font-size: 13px; font-weight: 650; word-break: break-word; }
+    .unclassified-usage-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 10px; max-width: 510px; }
+    .unclassified-usage-metrics span { display: block; font-size: 12px; color: var(--muted); }
+    .unclassified-usage-metrics strong { display: block; margin-top: 3px; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+    .unclassified-visit-details { margin-top: 10px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+    .unclassified-visit-details summary { cursor: pointer; }
+    .unclassified-visit-details p { margin: 8px 0 0; line-height: 1.7; }
     .rules-site-meta { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
     .rules-site-badge { display: inline-flex; align-items: center; border: 1px solid rgba(0,184,148,.24); color: var(--muted); border-radius: 6px; padding: 2px 6px; font-size: 11px; margin-right: 6px; }
     .rules-site-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -2974,7 +2980,10 @@ function renderSystemSiteCategoryEditor(entry, idx) {
 function renderRulesSiteRow(entry, idx) {
   idx = Number.isInteger(entry._directoryIndex) ? entry._directoryIndex : idx;
   let actionHtml = '';
-    if (entry.source === 'rule') {
+  const unknown = unknownUsageIdentifier(entry);
+  if (unknown) {
+    actionHtml = '<div class="rules-site-actions"><span class="rules-site-badge">未识别页面，不适用网站归类</span></div>';
+  } else if (entry.source === 'rule') {
     const specialRule = isYouTubeSpecialRuleValue(entry.value);
     const options = specialRule
       ? classificationPolicyDefs()
@@ -3007,12 +3016,12 @@ function renderRulesSiteRow(entry, idx) {
     <div class="rules-site-row-wrap" data-source="${entry.source}" data-domain="${htmlEscape(entry.title)}">
       <div class="rules-site-row">
         <div>
-          <div class="rules-site-domain">${htmlEscape(entry.title)}</div>
+          <div class="rules-site-domain">${htmlEscape(unknown ? '未识别页面' : entry.title)}</div>
           <div class="rules-site-meta"><span class="rules-site-badge">${htmlEscape(RULES_SOURCE_LABELS[entry.source] || '未标注')}</span>${htmlEscape(rulesSiteMeta(entry))}</div>
         </div>
         ${actionHtml}
       </div>
-      ${renderSystemSiteCategoryEditor(entry, idx)}
+      ${unknown ? '' : renderSystemSiteCategoryEditor(entry, idx)}
     </div>`;
 }
 
@@ -3244,7 +3253,56 @@ function buildUnclassifiedReviewRows(requests = [], usedEntries = reviewUsedUncl
     if (key && consumed.has(key)) return;
     rows.push({ type: 'used', entry, usedIndex: idx, key });
   });
-  return rows;
+  return rows.sort(compareUnclassifiedReviewUsage);
+}
+
+let unclassifiedUsageDisplay = null;
+
+function buildUnclassifiedUsageDisplay(rows, period) {
+  const byHost = new Map();
+  const from = new Date(`${period.to}T00:00:00Z`);
+  from.setUTCDate(from.getUTCDate() - 29);
+  const cumulativeFrom = from.toISOString().slice(0, 10);
+  for (const row of rows) {
+    if (row.channel !== 'active' || !row.date || row.date < cumulativeFrom || row.date > period.to) continue;
+    const key = reviewCanonicalSiteKey(row.fallbackDomain || row.label);
+    if (!key) continue;
+    const seconds = Number(row.duration);
+    if (!Number.isFinite(seconds) || seconds < 0) continue;
+    const value = byHost.get(key) || { todaySeconds: 0, weekSeconds: 0, totalSeconds: 0 };
+    value.totalSeconds += seconds;
+    if (row.date === period.to) value.todaySeconds += seconds;
+    if (row.date >= period.from) value.weekSeconds += seconds;
+    byHost.set(key, value);
+  }
+  return { period: { ...period }, cumulativeFrom, byHost };
+}
+
+function unclassifiedReviewUsage(row) {
+  const display = unclassifiedUsageDisplay;
+  if (!display || display.profileId !== currentProfileId || display.period.to !== shanghaiWeekDateRange().to) {
+    return { todaySeconds: null, weekSeconds: null, totalSeconds: null };
+  }
+  if (row.type === 'request' && row.request.requestedTargetType && row.request.requestedTargetType !== 'host') {
+    return { todaySeconds: null, weekSeconds: null, totalSeconds: null };
+  }
+  return display.byHost.get(row.key) || { todaySeconds: 0, weekSeconds: 0, totalSeconds: 0 };
+}
+
+function compareUnclassifiedReviewUsage(a, b) {
+  const left = unclassifiedReviewUsage(a);
+  const right = unclassifiedReviewUsage(b);
+  for (const field of ['todaySeconds', 'weekSeconds', 'totalSeconds']) {
+    const difference = (right[field] ?? -1) - (left[field] ?? -1);
+    if (difference) return difference;
+  }
+  return unclassifiedReviewRowTitle(a).localeCompare(unclassifiedReviewRowTitle(b));
+}
+
+function unclassifiedReviewMetricsHtml(row) {
+  const usage = unclassifiedReviewUsage(row);
+  const fields = [['todaySeconds', '今日使用时长'], ['weekSeconds', '本周时长'], ['totalSeconds', '累计时长']];
+  return `<div class="unclassified-usage-metrics" title="累计范围：近30天（含今日）">${fields.map(([field, label]) => `<div><span>${label}</span><strong>${usage[field] == null ? '未知' : escHtml(fmtSecs(usage[field]))}</strong></div>`).join('')}</div>`;
 }
 
 function isProcessedUnclassifiedReviewRow(row) {
@@ -3261,7 +3319,7 @@ function unclassifiedReviewStatsText(site = {}) {
   const parts = [];
   if (site.firstSeenAt || site.lastSeenAt) parts.push(`首次 ${formatSiteRequestTimestamp(site.firstSeenAt)} · 最近 ${formatSiteRequestTimestamp(site.lastSeenAt)}`);
   if (Number(site.totalSeconds || 0) > 0) parts.push(`累计 ${fmtSecs(Number(site.totalSeconds || 0))}`);
-  if (Number(site.visitCount || 0) > 0) parts.push(`访问 ${Number(site.visitCount || 0)} 次`);
+  if (Number(site.visitCount || 0) > 0) parts.push(`统计分段 ${Number(site.visitCount || 0)} 条`);
   return parts.join(' · ') || '暂无使用统计';
 }
 
@@ -3278,7 +3336,7 @@ function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedU
     <div class="rules-site-group-header">
       <div>
         <div>未归类网站使用记录</div>
-        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 审核记录为操作事实，使用统计为访问证据</div>
+        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 云端已上传网页用量，按今日、本周、累计时长排序；累计为近30天（含今日），北京时间。</div>
       </div>
     </div>
     ${pendingHtml}
@@ -3292,22 +3350,26 @@ function renderUnclassifiedReviewRow(row, rowIdx) {
   const site = isRequest ? (row.usedEntry?.site || {}) : (row.entry?.site || {});
   const isPending = !isProcessedUnclassifiedReviewRow(row);
   const title = unclassifiedReviewRowTitle(row);
+  const unknown = unknownUsageIdentifier({ label: title });
   const device = request.deviceId ? `终端 ${escHtml(request.deviceId)}` : (isRequest ? '终端未记录' : '统计聚合');
   const sourceLabel = isRequest ? siteRequestRecordLabel(request) : '统计发现项';
   const targetType = isRequest ? siteRequestTargetTypeLabel(request.requestedTargetType || 'host') : '域名/子域名';
   const observationText = isRequest ? siteRequestObservationText(request) : unclassifiedReviewStatsText(site);
-  const statsText = isRequest && row.usedEntry ? ` · ${unclassifiedReviewStatsText(site)}` : '';
   const statusText = isRequest ? siteRequestStatusLabel(request.status, request) : (site.historicalPending || site.actionable === false ? `当前已归类：${sitePolicyLabel(site.currentClassification)}` : '待生成记录');
-  const actionHtml = isPending
+  const actionHtml = unknown ? '<span class="rules-site-badge">未识别页面，不适用网站归类</span>' : isPending
     ? classificationPolicyDefs().map(def => `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`).join('') + `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'return')">暂不归类</button>`
     : `<span class="rules-site-badge">${escHtml(statusText)}</span>`;
   return `
     <div class="rules-site-row-wrap" data-source="${isRequest ? 'site-request' : 'used-unclassified'}" data-domain="${escHtml(title)}">
       <div class="rules-site-row">
         <div>
-          <div class="rules-site-domain">${escHtml(title)}</div>
+          <div class="rules-site-domain">${escHtml(unknown ? '未识别页面' : title)}</div>
           <div class="rules-site-meta"><span class="rules-site-badge">${escHtml(sourceLabel)}</span>${escHtml(targetType)} · ${escHtml(statusText)}</div>
-          <div class="rules-site-meta">${escHtml(observationText)}${escHtml(statsText)} · ${device}</div>
+          ${unclassifiedReviewMetricsHtml(row)}
+          <details class="unclassified-visit-details"><summary>访问详情</summary>
+            ${isRequest ? `<p><strong>归类记录</strong><br>${escHtml(observationText)}<br>${device}</p>` : ''}
+            <p><strong>使用统计（原发现记录）</strong><br>${escHtml(unclassifiedReviewStatsText(site))}${isRequest ? '' : `<br>${device}`}</p>
+          </details>
         </div>
         <div class="rules-site-actions">${actionHtml}</div>
       </div>
@@ -3407,18 +3469,36 @@ async function loadSystemAccessCapabilityForRules() {
 async function loadUsedUnclassifiedSitesForRules(forceRefresh = false) {
   if (!currentProfileId || (!forceRefresh && rulesSitePolicyState.usedUnclassifiedLoadedForProfileId === currentProfileId) || rulesSitePolicyState.usedUnclassifiedLoading) return;
   rulesSitePolicyState.usedUnclassifiedLoading = true;
+  const profileId = currentProfileId;
   renderRulesPolicyNav();
   renderRulesSiteDirectory();
   try {
-    const r = await api(`/profiles/${currentProfileId}/used-unclassified-sites/v1?days=30`);
+    const r = await api(`/profiles/${profileId}/used-unclassified-sites/v1?days=30`);
+    if (currentProfileId !== profileId) return;
     rulesSitePolicyState.usedUnclassified = Array.isArray(r.sites) ? r.sites : [];
-    rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = currentProfileId;
+    unclassifiedUsageDisplay = null;
+    try {
+      const period = shanghaiWeekDateRange();
+      const from = new Date(`${period.to}T00:00:00Z`);
+      from.setUTCDate(from.getUTCDate() - 29);
+      const result = await api(`/profiles/${profileId}/target-stats/v1?from=${from.toISOString().slice(0, 10)}&to=${period.to}&channel=active`);
+      if (!Array.isArray(result.stats)) throw new Error('usage_stats_unavailable');
+      if (currentProfileId !== profileId) return;
+      unclassifiedUsageDisplay = { ...buildUnclassifiedUsageDisplay(normalizeCloudTargetRows(result.stats), period), profileId };
+    } catch (error) {
+      console.warn('[Rules] unclassified usage metrics unavailable');
+    }
+    rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = profileId;
   } catch (e) {
     console.warn('[Rules] used unclassified load failed:', e?.message || e);
-    rulesSitePolicyState.usedUnclassified = [];
-    rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = currentProfileId;
+    if (currentProfileId === profileId) {
+      rulesSitePolicyState.usedUnclassified = [];
+      unclassifiedUsageDisplay = null;
+      rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = profileId;
+    }
   } finally {
     rulesSitePolicyState.usedUnclassifiedLoading = false;
+    if (currentProfileId !== profileId) { loadUsedUnclassifiedSitesForRules(); return; }
     renderRulesPolicyNav();
     renderRulesSiteDirectory();
     renderReviewUsedUnclassifiedSites();
@@ -6099,6 +6179,7 @@ function normalizeCloudTargetRows(rows = []) {
       channel: s.channel || 'active',
       mode: s.mode || 'unknown',
       quotaBucket: s.quota_bucket || s.quotaBucket || s.mode || 'unknown',
+      displayRecordedQuotaBucket: s.quota_bucket || s.quotaBucket || null,
       duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
       firstSeenAt: s.first_seen_at || s.firstSeenAt || null,
       lastSeenAt: s.last_seen_at || s.lastSeenAt || null,
@@ -6116,6 +6197,8 @@ function normalizeCloudDomainRows(rows = []) {
     channel: s.channel || 'active',
     mode: s.mode || 'unknown',
     quotaBucket: s.mode || 'unknown',
+    displayRecordedQuotaBucket: s.quota_bucket || s.quotaBucket || null,
+    targetClassificationAtTime: null,
     duration: Number(s.duration ?? s.duration_seconds ?? s.durationSeconds) || 0,
   })).filter(row => row.date && row.label && row.duration > 0);
 }
@@ -6200,12 +6283,22 @@ function aggregateCloudRows(rows = []) {
       categories: emptyCloudCategories(),
       seconds: 0,
       borrowedRestSeconds: 0,
+      displayQuotaBuckets: {},
+      displayUsageBreakdown: {},
+      firstSeenAt: row.firstSeenAt || null,
       lastSeenAt: row.lastSeenAt || null,
     };
     const category = cloudRowCategory(row);
     entry.categories[category] += row.duration;
     entry.seconds += row.duration;
     entry.borrowedRestSeconds += cloudRowBorrowedRestSeconds(row);
+    const bucket = Object.prototype.hasOwnProperty.call(row, 'displayRecordedQuotaBucket')
+      ? row.displayRecordedQuotaBucket || 'unknown' : row.quotaBucket || 'unknown';
+    entry.displayQuotaBuckets[bucket] = (entry.displayQuotaBuckets[bucket] || 0) + row.duration;
+    const classification = row.targetClassificationAtTime || 'unknown';
+    const breakdown = entry.displayUsageBreakdown[classification] ||= {};
+    breakdown[bucket] = (breakdown[bucket] || 0) + row.duration;
+    if (row.firstSeenAt && (!entry.firstSeenAt || row.firstSeenAt < entry.firstSeenAt)) entry.firstSeenAt = row.firstSeenAt;
     if (row.lastSeenAt && (!entry.lastSeenAt || row.lastSeenAt > entry.lastSeenAt)) entry.lastSeenAt = row.lastSeenAt;
     map.set(row.targetKey, entry);
   }
@@ -6256,6 +6349,10 @@ function buildCloudTargetRows(todayRows, weekRows, rangeRows) {
       managedTargetValue: range?.managedTargetValue || null,
       targetClassificationAtTime: range?.targetClassificationAtTime || null,
       isFallback: !!range?.isFallback,
+      displayQuotaBuckets: { today: todayMap.get(key)?.displayQuotaBuckets || {}, week: weekMap.get(key)?.displayQuotaBuckets || {}, range: rangeMap.get(key)?.displayQuotaBuckets || {} },
+      displayUsageBreakdown: { today: todayMap.get(key)?.displayUsageBreakdown || {}, week: weekMap.get(key)?.displayUsageBreakdown || {}, range: rangeMap.get(key)?.displayUsageBreakdown || {} },
+      firstSeenAt: range?.firstSeenAt || null,
+      lastSeenAt: range?.lastSeenAt || null,
       categories: range?.categories || emptyCloudCategories(),
     };
   }).filter(row => row.rangeSeconds > 0 || row.todaySeconds > 0 || row.weekSeconds > 0)
@@ -6273,11 +6370,13 @@ function aggregateCloudMediaRows(rows = []) {
       isFallback: true,
       categories: emptyCloudMediaCategories(),
       seconds: 0,
+      firstSeenAt: row.firstSeenAt || null,
       lastSeenAt: row.lastSeenAt || null,
     };
     const category = cloudMediaCategory(row);
     entry.categories[category] += row.duration;
     entry.seconds += row.duration;
+    if (row.firstSeenAt && (!entry.firstSeenAt || row.firstSeenAt < entry.firstSeenAt)) entry.firstSeenAt = row.firstSeenAt;
     if (row.lastSeenAt && (!entry.lastSeenAt || row.lastSeenAt > entry.lastSeenAt)) entry.lastSeenAt = row.lastSeenAt;
     map.set(row.targetKey, entry);
   }
@@ -6305,6 +6404,8 @@ function buildCloudMediaTargetRows(todayRows, weekRows, rangeRows) {
       fallbackDomain: range?.fallbackDomain || null,
       managedTargetType: 'media',
       isFallback: true,
+      firstSeenAt: range?.firstSeenAt || null,
+      lastSeenAt: range?.lastSeenAt || null,
       categories: range?.categories || emptyCloudMediaCategories(),
     };
   }).filter(row => row.rangeSeconds > 0 || row.todaySeconds > 0 || row.weekSeconds > 0)
@@ -6560,6 +6661,7 @@ function usageTargetIcon(row = {}) {
 }
 
 function cloudUsageStatusClass(status) {
+  if (status === '归属待核查') return 'pending';
   return String(status || '').startsWith('待归类') || String(status || '').includes('借用休息配额') ? 'pending' : '';
 }
 
@@ -6576,6 +6678,7 @@ function filteredCloudUsageRows(view) {
 }
 
 function renderCloudUsageList(view) {
+  view = usagePresentationView(view);
   const wrap = document.getElementById('cloud-usage-table');
   const detail = document.getElementById('cloud-usage-detail');
   if (!wrap) return;
@@ -6600,14 +6703,14 @@ function renderCloudUsageList(view) {
   if (cloudUsageState.listMode === 'categories') {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>分类</th><th>时间</th><th>限额</th><th>状态</th></tr></thead>
+        <thead><tr><th>分类</th><th>时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-cloud-usage-kind="category" data-cloud-usage-key="${escHtml(row.key)}">
               <td data-label="分类"><span class="usage-target-name"><span class="usage-dot ${escHtml(row.key)}"></span>${escHtml(row.label)}</span></td>
               <td data-label="时间">${fmtSec(row.seconds)}</td>
-              <td data-label="限额">${escHtml(row.limitLabel || '—')}</td>
-              <td data-label="状态"><span class="usage-status ${cloudUsageStatusClass(row.status)}">${escHtml(row.status || '正常')}</span></td>
+              <td data-label="单站点限额">${escHtml(row.limitLabel || '—')}</td>
+              <td data-label="用量说明"><span class="usage-status ${cloudUsageStatusClass(row.status)}">${escHtml(row.status || '—')}</span></td>
             </tr>
           `).join('')}
         </tbody>
@@ -6616,7 +6719,7 @@ function renderCloudUsageList(view) {
   } else {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>限额</th><th>状态</th></tr></thead>
+        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-cloud-usage-kind="target" data-cloud-usage-key="${escHtml(row.key)}">
@@ -6624,8 +6727,8 @@ function renderCloudUsageList(view) {
               <td data-label="${escHtml(view.categoryColumnLabel || '分类')}">${escHtml(row.categoryLabel || usageCategoryLabel(row.category))}</td>
               <td data-label="今日时间">${fmtSec(row.todaySeconds || 0)}</td>
               <td data-label="本周时间">${fmtSec(row.weekSeconds || 0)}</td>
-              <td data-label="限额">${escHtml(row.limitLabel || '—')}</td>
-              <td data-label="状态"><span class="usage-status ${cloudUsageStatusClass(row.status)}">${escHtml(row.status || '正常')}</span></td>
+              <td data-label="单站点限额">${escHtml(row.limitLabel || '—')}</td>
+              <td data-label="用量说明"><span class="usage-status ${cloudUsageStatusClass(row.status)}">${escHtml(row.status || '—')}</span>${row.displayBorrowedSeconds > 0 ? '<div style="font-size:12px;color:var(--muted);overflow-wrap:anywhere;">当前范围：其中 ' + fmtSec(row.displayBorrowedSeconds) + '借用休息配额</div>' : ''}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -6642,6 +6745,7 @@ function renderCloudUsageList(view) {
 }
 
 function renderCloudUsageDetail(view) {
+  view = usagePresentationView(view);
   const detail = document.getElementById('cloud-usage-detail');
   if (!detail || !cloudUsageState.detail) {
     if (detail) detail.className = 'usage-detail-panel';
@@ -6673,16 +6777,105 @@ function renderCloudUsageDetail(view) {
     <div style="margin-top:8px;color:var(--muted);">
       分类：${escHtml(target.categoryLabel || usageCategoryLabel(target.category))} · 类型：${escHtml(target.managedTargetType || (target.isFallback ? 'fallback domain' : 'managed target'))} · 来源：${escHtml(target.fallbackDomain || target.managedTargetNamespace || '—')}
     </div>
-    <div style="margin-top:10px;display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;">
+    <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(120px,100%),1fr));gap:8px;">
       <div>当前范围<br><strong>${fmtSec(target.rangeSeconds || 0)}</strong></div>
       <div>今日时间<br><strong>${fmtSec(target.todaySeconds || 0)}</strong></div>
       <div>本周时间<br><strong>${fmtSec(target.weekSeconds || 0)}</strong></div>
-      <div>状态<br><strong>${escHtml(target.status || '正常')}</strong></div>
+      <div>用量说明<br><strong>${escHtml(target.status || '—')}</strong></div>
     </div>
+    ${target.displayBorrowedSeconds > 0 ? '<div style="margin-top:8px;">当前范围：其中 ' + fmtSec(target.displayBorrowedSeconds) + '借用休息配额</div>' : ''}
+    ${usageBucketDetailsHtml(target, view.kind === 'media', fmtSec, escHtml)}
+    ${unknownUsageDetailHtml(target, view.kind === 'media', fmtSec, escHtml)}
   `;
 }
 
+function unknownUsageIdentifier(row) {
+  const markers = ['__unknown__', 'unknown-page.chrome-local'];
+  for (const value of [row?.fallbackDomain, row?.managedTargetValue, row?.label, row?.title, row?.value]) {
+    if (markers.includes(value)) return value;
+  }
+  for (const marker of markers) {
+    if (row?.key === marker || row?.key === 'fallback:domain:' + marker || row?.key === 'media:domain:' + marker) return marker;
+  }
+  return null;
+}
+
+function usagePresentationView(view) {
+  if (!view) return view;
+  return { ...view, categoryRows: (view.categoryRows || []).map(row => ({ ...row,
+    limitLabel: '—',
+    status: view.kind === 'media' ? '独立媒体统计，不计网页配额' : '—' })),
+    targetRows: (view.targetRows || []).map(row => {
+    const identifier = unknownUsageIdentifier(row);
+    const summary = usageExplanationSummary(row, view.kind === 'media');
+    if (!identifier) return { ...row, status: summary.text,
+      categoryLabel: view.kind === 'media' ? row.categoryLabel : summary.categoryLabel,
+      displayBorrowedSeconds: summary.borrowedSeconds };
+    return { ...row, label: '未识别页面', categoryLabel: view.kind === 'media' ? row.categoryLabel : '未识别',
+      status: '归属待核查', displayBorrowedSeconds: 0, unknownIdentifier: identifier };
+  }) };
+}
+
+function usageExplanationSummary(row, media) {
+  if (unknownUsageIdentifier(row)) return { text: '归属待核查', borrowedSeconds: 0 };
+  if (media) return { text: '独立媒体统计，不计网页配额', borrowedSeconds: 0 };
+  const labels = { study: '学习', composite: '复合', pending_composite: '待归类',
+    restricted: '受限娱乐', rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', unknown: '历史性质未知' };
+  const breakdown = row.displayUsageBreakdown?.range;
+  const classifications = breakdown
+    ? Object.keys(breakdown).filter(key => Object.values(breakdown[key]).some(seconds => Number(seconds) > 0))
+    : [row.targetClassificationAtTime || 'unknown'];
+  const ordered = Object.keys(labels).filter(key => classifications.includes(key));
+  const names = [...new Set(ordered.map(key => labels[key]))];
+  if (classifications.some(key => !Object.prototype.hasOwnProperty.call(labels, key))) names.push('历史性质未知');
+  const borrowedSeconds = ['composite', 'pending_composite'].reduce((sum, key) =>
+    sum + Math.max(0, Number(breakdown?.[key]?.rest) || 0), 0);
+  const mixedComposite = classifications.includes('composite') && classifications.includes('pending_composite');
+  const text = (names.join('/') || '—') + (borrowedSeconds > 0
+    ? (mixedComposite || classifications.length > 1 ? ' · 部分借用休息配额' : ' · 借用休息配额') : '');
+  return { text, borrowedSeconds, categoryLabel: names.join('/') || '—' };
+}
+
+function usageBucketDetailsHtml(target, media, format, escape) {
+  if (media || unknownUsageIdentifier(target)) return '';
+  const names = { study: '学习', composite: '复合', pending_composite: '待归类', restricted: '受限娱乐',
+    rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', unknown: '历史性质未知' };
+  const buckets = { study: '学习用量', composite: '复合用量', rest: '休息用量', unknown: '未知桶' };
+  return '<div style="margin-top:12px;overflow-wrap:anywhere;">' +
+    ['range', 'today', 'week'].map((key, index) => {
+      const breakdown = target.displayUsageBreakdown?.[key] ||
+        { unknown: target.displayQuotaBuckets?.[key] || {} };
+      const lines = Object.entries(breakdown).map(([classification, values]) => {
+        const contributions = Object.entries(values).filter(([, seconds]) => Number(seconds) > 0)
+          .map(([bucket, seconds]) => escape(buckets[bucket] || ('其他桶（' + bucket + '）')) + ' ' + format(seconds));
+        return contributions.length ? escape(names[classification] || '历史性质未知') + '：' + contributions.join('、') : '';
+      }).filter(Boolean);
+      const total = Number(target[{ range: 'rangeSeconds', today: 'todaySeconds', week: 'weekSeconds' }[key]]) || 0;
+      return '<div style="margin-top:6px;"><strong>' + ['当前范围', '今日', '本周'][index] + '</strong><br>' +
+        (lines.join('<br>') || (total > 0 ? '历史性质及实际桶信息未知' : '无用量')) + '</div>';
+    }).join('') + '</div>';
+}
+
+function unknownUsageDetailHtml(target, media, format, escape) {
+  if (!unknownUsageIdentifier(target)) return '';
+  const time = value => {
+    if (!value) return '未知';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '未知';
+  };
+  const labels = { study: '学习用量', composite: '复合用量', rest: '休息用量', unknown: '未知桶' };
+  const buckets = values => Object.entries(values || {}).filter(([, seconds]) => Number(seconds) > 0)
+    .map(([bucket, seconds]) => escape(labels[bucket] || ('其他桶（' + bucket + '）')) + ' ' + format(seconds)).join('、') || '桶信息未知';
+  const contributions = media ? '媒体时长不计入网页配额。' :
+    ['today', 'week', 'range'].map((key, index) => ['今日', '本周', '当前范围'][index] + '：' + buckets(target.displayQuotaBuckets?.[key])).join('<br>');
+  return '<div style="margin-top:12px;overflow-wrap:anywhere;">内部标识：' + escape(unknownUsageIdentifier(target)) +
+    '<br>统计覆盖时间（北京时间）：' + escape(time(target.firstSeenAt)) + ' — ' + escape(time(target.lastSeenAt)) +
+    '<br>' + contributions + '<br>页面归属未知；保留全部时长，实际桶不代表已证明扣费正确。历史分类：' +
+    escape(target.targetClassificationAtTime || '未记录') + '。不适用网站归类。</div>';
+}
+
 function renderCloudUsageView(view) {
+  view = usagePresentationView(view);
   cloudUsageLastView = view;
   document.querySelectorAll('[data-cloud-usage-ledger]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.cloudUsageLedger === (view.kind || 'web'));
@@ -8779,6 +8972,7 @@ function renderSiteRequestRow(request, idx) {
   const isLearningRequest = kind === 'learning_request';
   const requestedType = request.requestedTargetType || 'host';
   const requestedValue = request.displayValue || request.requestedNormalizedValue || '';
+  const unknown = unknownUsageIdentifier({ label: request.requestedNormalizedValue || requestedValue });
   const decisionType = request.decisionTargetType || requestedType;
   const decisionValue = siteRequestDecisionDefault(request);
   const device = request.deviceId ? `终端 ${escHtml(request.deviceId)}` : '终端未记录';
@@ -8788,7 +8982,7 @@ function renderSiteRequestRow(request, idx) {
   const primaryAction = isLearningRequest ? '批准归为学习网站' : '确认为学习网站';
   const compositeAction = isLearningRequest ? '改为复合网站' : '确认为复合网站';
   const returnAction = kind === 'unclassified_visit' ? '暂不归类' : '退回申请';
-  const actionHtml = isPending ? `
+  const actionHtml = unknown ? '<div class="site-request-status">未识别页面，不适用网站归类</div>' : isPending ? `
     <div class="site-request-actions">
       <button class="btn-classify study" onclick="decideSiteClassificationRequest(${idx},'study')">${primaryAction}</button>
       <button class="btn-classify rest" onclick="decideSiteClassificationRequest(${idx},'composite')">${compositeAction}</button>
@@ -8801,17 +8995,17 @@ function renderSiteRequestRow(request, idx) {
   return `
     <div class="site-request-row" data-id="${escHtml(request.id)}">
       <div>
-        <div class="site-request-title">${escHtml(requestedValue)}</div>
+        <div class="site-request-title">${escHtml(unknown ? '未识别页面' : requestedValue)}</div>
         <div class="site-request-meta">${escHtml(recordLabel)} · ${siteRequestTargetTypeLabel(requestedType)} · 记录时间 ${escHtml(recordTime)}${escHtml(requestTimeText)}</div>
         <div class="site-request-meta">${escHtml(observationText)}</div>
       </div>
       <div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status, request))}<br><span style="color:var(--muted);">${device}</span></div>
       <div class="site-request-target">
-        <select id="site-request-type-${idx}" ${isPending ? '' : 'disabled'}>
+        <select id="site-request-type-${idx}" ${isPending && !unknown ? '' : 'disabled'}>
           <option value="host" ${decisionType === 'host' ? 'selected' : ''}>域名/子域名</option>
           <option value="url" ${decisionType === 'url' ? 'selected' : ''}>精确链接</option>
         </select>
-        <input id="site-request-target-${idx}" value="${escHtml(decisionValue)}" ${isPending ? '' : 'disabled'} placeholder="审批生效对象">
+        <input id="site-request-target-${idx}" value="${escHtml(decisionValue)}" ${isPending && !unknown ? '' : 'disabled'} placeholder="审批生效对象">
       </div>
       ${actionHtml}
     </div>`;

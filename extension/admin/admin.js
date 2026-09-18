@@ -2234,7 +2234,8 @@ function renderAdminRulesRows(items, sourceLabel) {
   return `<div class="rules-site-list">${list.map((item) => {
     const value = typeof item === 'string' ? item : siteRuleValue(item);
     const type = typeof item === 'string' ? '域名' : siteRuleTypeLabel(item);
-    return `<div class="rules-site-row"><div><div class="rules-site-domain">${escHtml(value)}</div><div class="rules-site-meta">${escHtml(type)} · ${escHtml(sourceLabel)} · 本机只读</div></div><span class="rules-site-badge">只读</span></div>`;
+    const unknown = unknownUsageIdentifier({ value });
+    return `<div class="rules-site-row"><div><div class="rules-site-domain">${escHtml(unknown ? '未识别页面' : value)}</div><div class="rules-site-meta">${escHtml(type)} · ${escHtml(sourceLabel)} · 本机只读${unknown ? ' · ' + escHtml(value) + ' · 不适用网站归类' : ''}</div></div><span class="rules-site-badge">只读</span></div>`;
   }).join('')}</div>`;
 }
 
@@ -3450,6 +3451,7 @@ function usageCategoryLabel(key) {
 }
 
 function usageStatusClass(status) {
+  if (status === '归属待核查') return 'pending';
   return String(status || '').startsWith('待归类') || String(status || '').includes('借用休息配额') ? 'pending' : '';
 }
 
@@ -3532,6 +3534,7 @@ function filteredUsageRows(view) {
 }
 
 function renderUsageAnalysisList(view) {
+  view = usagePresentationView(view);
   const wrap = document.getElementById('usage-analysis-table-wrap');
   const detail = document.getElementById('usage-analysis-detail');
   if (!wrap) return;
@@ -3556,14 +3559,14 @@ function renderUsageAnalysisList(view) {
   if (usageAnalysisState.listMode === 'categories') {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>分类</th><th>时间</th><th>限额</th><th>状态</th></tr></thead>
+        <thead><tr><th>分类</th><th>时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-usage-detail-kind="category" data-usage-detail-key="${escAttr(row.key)}">
               <td><span class="usage-target-name"><span class="usage-dot ${escAttr(row.key)}"></span>${escHtml(row.label)}</span></td>
               <td>${formatSeconds(row.seconds)}</td>
               <td>${escHtml(row.limitLabel || '—')}</td>
-              <td><span class="usage-status ${usageStatusClass(row.status)}">${escHtml(row.status || '正常')}</span></td>
+              <td><span class="usage-status ${usageStatusClass(row.status)}">${escHtml(row.status || '—')}</span></td>
             </tr>
           `).join('')}
         </tbody>
@@ -3572,7 +3575,7 @@ function renderUsageAnalysisList(view) {
   } else {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>限额</th><th>状态</th></tr></thead>
+        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-usage-detail-kind="target" data-usage-detail-key="${escAttr(row.key)}">
@@ -3581,7 +3584,7 @@ function renderUsageAnalysisList(view) {
               <td>${formatSeconds(row.todaySeconds || 0)}</td>
               <td>${formatSeconds(row.weekSeconds || 0)}</td>
               <td>${escHtml(row.limitLabel || '—')}</td>
-              <td><span class="usage-status ${usageStatusClass(row.status)}">${escHtml(row.status || '正常')}</span></td>
+              <td><span class="usage-status ${usageStatusClass(row.status)}">${escHtml(row.status || '—')}</span>${row.displayBorrowedSeconds > 0 ? '<div style="font-size:12px;color:var(--muted);overflow-wrap:anywhere;">当前范围：其中 ' + formatSeconds(row.displayBorrowedSeconds) + '借用休息配额</div>' : ''}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -3598,6 +3601,7 @@ function renderUsageAnalysisList(view) {
 }
 
 function renderUsageDetail(view) {
+  view = usagePresentationView(view);
   const detail = document.getElementById('usage-analysis-detail');
   if (!detail || !usageAnalysisState.detail) {
     if (detail) detail.className = 'usage-detail-panel';
@@ -3629,16 +3633,105 @@ function renderUsageDetail(view) {
     <div style="margin-top:8px;color:var(--muted);">
       分类：${escHtml(target.categoryLabel || usageCategoryLabel(target.category))} · 类型：${escHtml(target.managedTargetType || (target.isFallback ? 'fallback domain' : 'managed target'))} · 来源：${escHtml(target.fallbackDomain || target.managedTargetNamespace || '—')}
     </div>
-    <div style="margin-top:10px;display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;">
+    <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(120px,100%),1fr));gap:8px;">
       <div>当前范围<br><strong>${formatSeconds(target.rangeSeconds || 0)}</strong></div>
       <div>今日时间<br><strong>${formatSeconds(target.todaySeconds || 0)}</strong></div>
       <div>本周时间<br><strong>${formatSeconds(target.weekSeconds || 0)}</strong></div>
-      <div>状态<br><strong>${escHtml(target.status || '正常')}</strong></div>
+      <div>用量说明<br><strong>${escHtml(target.status || '—')}</strong></div>
     </div>
+    ${target.displayBorrowedSeconds > 0 ? '<div style="margin-top:8px;">当前范围：其中 ' + formatSeconds(target.displayBorrowedSeconds) + '借用休息配额</div>' : ''}
+    ${usageBucketDetailsHtml(target, view.kind === 'media', formatSeconds, escHtml)}
+    ${unknownUsageDetailHtml(target, view.kind === 'media', formatSeconds, escHtml)}
   `;
 }
 
+function unknownUsageIdentifier(row) {
+  const markers = ['__unknown__', 'unknown-page.chrome-local'];
+  for (const value of [row?.fallbackDomain, row?.managedTargetValue, row?.label, row?.title, row?.value]) {
+    if (markers.includes(value)) return value;
+  }
+  for (const marker of markers) {
+    if (row?.key === marker || row?.key === 'fallback:domain:' + marker || row?.key === 'media:domain:' + marker) return marker;
+  }
+  return null;
+}
+
+function usagePresentationView(view) {
+  if (!view) return view;
+  return { ...view, categoryRows: (view.categoryRows || []).map(row => ({ ...row,
+    limitLabel: '—',
+    status: view.kind === 'media' ? '独立媒体统计，不计网页配额' : '—' })),
+    targetRows: (view.targetRows || []).map(row => {
+    const identifier = unknownUsageIdentifier(row);
+    const summary = usageExplanationSummary(row, view.kind === 'media');
+    if (!identifier) return { ...row, status: summary.text,
+      categoryLabel: view.kind === 'media' ? row.categoryLabel : summary.categoryLabel,
+      displayBorrowedSeconds: summary.borrowedSeconds };
+    return { ...row, label: '未识别页面', categoryLabel: view.kind === 'media' ? row.categoryLabel : '未识别',
+      status: '归属待核查', displayBorrowedSeconds: 0, unknownIdentifier: identifier };
+  }) };
+}
+
+function usageExplanationSummary(row, media) {
+  if (unknownUsageIdentifier(row)) return { text: '归属待核查', borrowedSeconds: 0 };
+  if (media) return { text: '独立媒体统计，不计网页配额', borrowedSeconds: 0 };
+  const labels = { study: '学习', composite: '复合', pending_composite: '待归类',
+    restricted: '受限娱乐', rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', unknown: '历史性质未知' };
+  const breakdown = row.displayUsageBreakdown?.range;
+  const classifications = breakdown
+    ? Object.keys(breakdown).filter(key => Object.values(breakdown[key]).some(seconds => Number(seconds) > 0))
+    : [row.targetClassificationAtTime || 'unknown'];
+  const ordered = Object.keys(labels).filter(key => classifications.includes(key));
+  const names = [...new Set(ordered.map(key => labels[key]))];
+  if (classifications.some(key => !Object.prototype.hasOwnProperty.call(labels, key))) names.push('历史性质未知');
+  const borrowedSeconds = ['composite', 'pending_composite'].reduce((sum, key) =>
+    sum + Math.max(0, Number(breakdown?.[key]?.rest) || 0), 0);
+  const mixedComposite = classifications.includes('composite') && classifications.includes('pending_composite');
+  const text = (names.join('/') || '—') + (borrowedSeconds > 0
+    ? (mixedComposite || classifications.length > 1 ? ' · 部分借用休息配额' : ' · 借用休息配额') : '');
+  return { text, borrowedSeconds, categoryLabel: names.join('/') || '—' };
+}
+
+function usageBucketDetailsHtml(target, media, format, escape) {
+  if (media || unknownUsageIdentifier(target)) return '';
+  const names = { study: '学习', composite: '复合', pending_composite: '待归类', restricted: '受限娱乐',
+    rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', unknown: '历史性质未知' };
+  const buckets = { study: '学习用量', composite: '复合用量', rest: '休息用量', unknown: '未知桶' };
+  return '<div style="margin-top:12px;overflow-wrap:anywhere;">' +
+    ['range', 'today', 'week'].map((key, index) => {
+      const breakdown = target.displayUsageBreakdown?.[key] ||
+        { unknown: target.displayQuotaBuckets?.[key] || {} };
+      const lines = Object.entries(breakdown).map(([classification, values]) => {
+        const contributions = Object.entries(values).filter(([, seconds]) => Number(seconds) > 0)
+          .map(([bucket, seconds]) => escape(buckets[bucket] || ('其他桶（' + bucket + '）')) + ' ' + format(seconds));
+        return contributions.length ? escape(names[classification] || '历史性质未知') + '：' + contributions.join('、') : '';
+      }).filter(Boolean);
+      const total = Number(target[{ range: 'rangeSeconds', today: 'todaySeconds', week: 'weekSeconds' }[key]]) || 0;
+      return '<div style="margin-top:6px;"><strong>' + ['当前范围', '今日', '本周'][index] + '</strong><br>' +
+        (lines.join('<br>') || (total > 0 ? '历史性质及实际桶信息未知' : '无用量')) + '</div>';
+    }).join('') + '</div>';
+}
+
+function unknownUsageDetailHtml(target, media, format, escape) {
+  if (!unknownUsageIdentifier(target)) return '';
+  const time = value => {
+    if (!value) return '未知';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '未知';
+  };
+  const labels = { study: '学习用量', composite: '复合用量', rest: '休息用量', unknown: '未知桶' };
+  const buckets = values => Object.entries(values || {}).filter(([, seconds]) => Number(seconds) > 0)
+    .map(([bucket, seconds]) => escape(labels[bucket] || ('其他桶（' + bucket + '）')) + ' ' + format(seconds)).join('、') || '桶信息未知';
+  const contributions = media ? '媒体时长不计入网页配额。' :
+    ['today', 'week', 'range'].map((key, index) => ['今日', '本周', '当前范围'][index] + '：' + buckets(target.displayQuotaBuckets?.[key])).join('<br>');
+  return '<div style="margin-top:12px;overflow-wrap:anywhere;">内部标识：' + escape(unknownUsageIdentifier(target)) +
+    '<br>统计覆盖时间（北京时间）：' + escape(time(target.firstSeenAt)) + ' — ' + escape(time(target.lastSeenAt)) +
+    '<br>' + contributions + '<br>页面归属未知；保留全部时长，实际桶不代表已证明扣费正确。历史分类：' +
+    escape(target.targetClassificationAtTime || '未记录') + '。不适用网站归类。</div>';
+}
+
 function renderUsageAnalysisView(view) {
+  view = usagePresentationView(view);
   usageAnalysisLastView = view;
   document.querySelectorAll('[data-usage-ledger]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.usageLedger === (view.kind || 'web'));
