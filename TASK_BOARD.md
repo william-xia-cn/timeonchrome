@@ -11,6 +11,9 @@
   - 行为：北京时间决定所在周内，按 `targetRuleId/requestId` 精确关联 `active + pending_composite/unclassified` 分段；有效归属固定调整为 `restricted + rest mode + rest quota bucket`。原已在 Rest 桶的秒数不重复增加，Composite 桶秒数转入 Rest，总网页秒数守恒。
   - 触发：单条审核拒绝、域名直接归为受限娱乐、迟到原始分段上传及 Worker 定时任务；已有 correction 通过 segment 唯一关联跳过，重复执行不重复调账。
   - 生产预检修正：终端分段使用 `client_request_id (scr_*)`，云端审核主键使用服务器 UUID；两者属于同一审核记录的精确标识。首版仅匹配服务器 UUID，生产没有产生 correction；已在历史写入前发现，原始账和有效账均未被错误修改。实现改为同时精确匹配同记录的 `id/client_request_id`，仍禁止按域名猜测。
+  - 生产部署：功能提交 `430a200`、双标识热修 `5dd583c`；Guardian Worker Version ID `ee15be42-dde0-47b9-9e7b-4006ac1f4870`，Pages deployment `60e66ea6`。稳定 Worker/Pages 均回读 HTTP 200；扩展版本、CRX 和 update feed 未变。
+  - 生产改写：首轮 cron 生成 92 条唯一 correction、合计 4,803 秒；batch header 与 detail 均为 92 条 / 4,803 秒。`academic.ru` 8 秒、`www.acfun.cn` 4,795 秒及 `4399.com` 两条零秒审计事实已完成，精确关联记录剩余 0；原始分段及总秒数保持不变。
+  - 未解决证据缺口：`www.4399.com` 另有 7,394 秒 pending 分段关联到云端不存在的旧 `client_request_id`；不能证明它属于当前 `4399.com` 审核记录，按 D-093 不作域名猜测或自动改写。另有 1 秒 `rejected + composite bucket` 记录需要作为独立记账归属风险调查，本次不隐式迁移。
   - 验证：全部 147 个 unit 文件通过；V2 设备单账/发布/影子账/同步/对账专项通过；TypeScript 与扩展根目录检查通过；15/15 扩展 E2E 通过；生产 API 集成在允许联网环境下 103/103 通过。`tests/run-all.js` 在受限沙箱中的 API 步骤因 `fetch failed` 返回非零，但同一 API 套件联网复跑全部通过。
   - Plan Conformance Audit：本周、精确审核关联、仅网页 active、固定 Rest 归属、迟到补调、幂等、媒体排除、原始事实及总秒数不变均 Matched；未增加 schema、未改历史原始账、网页 ACTIVE、版本、生产配置或部署。无 Deviated / Missing / Extra。
 - [x] [UI / 未归类网站使用记录层级 / Implemented and verified / 2026-09-15] 第一层今日/本周/累计（近30天）时长，按三项依次降序；观察与统计证据默认折叠。
