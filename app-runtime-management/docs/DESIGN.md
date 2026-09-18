@@ -1,5 +1,13 @@
 # App Runtime 技术设计
 
+## 当前扩展：ARM-D-016 自动产品类型识别
+
+目录对象同时携带两个独立结果：Worker 权威解析的 `appType/typeStatus/typeReasonCode`，以及孩子策略解析的 `classification/quotaBucket`。Windows Agent 只上传验证过的事实，新增 `distributionKey`（如 `steam:714010`）；名称和 `declaredType` 均不构成 confirmed 类型。Application Knowledge v2 保存产品类型、发行身份 selector 和动态分类规则，同时继续读取 v1。
+
+产品识别顺序为发行平台稳定 ID、可信 package identity、已核实产品/签名关联；Worker 不在请求路径调用第三方商店。类型规则只匹配服务端已解析的产品类型，不匹配客户端 `declaredType`。分类解析固定为孩子具体产品覆盖、精确产品、系列/开发者、产品类型、建议/未归类；`quotaBucket` 永远等于最终 classification。策略实际应用时切段并保存新快照，历史 Segment 不追溯修改。
+
+Windows 2.3.0 扫描 Steam、Microsoft Store、EA、Epic、Ubisoft、GOG 的本机可信安装清单，上传规范化的公开产品 ID；损坏或缺失来源只形成来源 warning。macOS 本轮只保持 contract 兼容。该 JSON 扩展复用现有证据列和版本化知识表，不新增 D1 migration。
+
 ## 当前扩展：ARM-D-015 普通应用与系统应用分组
 
 目录投影在既有 `manageability = actionable | review | hidden` 之外增加正交来源 `applicationOrigin = user | operatingSystem | unknown`。`actionable + operatingSystem` 进入系统应用组；其余 actionable 对象进入普通应用组；review/hidden 仍进入技术记录。该来源只影响展示分组，不替代孩子分类、产品类型或配额键。

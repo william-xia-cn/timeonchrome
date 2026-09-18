@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前扩展：自动产品类型识别
+
+ARM-D-016 把客观 `appType` 与孩子管理 `classification` 永久分开。Windows 2.3.0 从 Steam、Microsoft Store、EA、Epic、Ubisoft 和 GOG 的可信本机清单提取稳定发行身份；Worker 用版本化知识确认产品类型。游戏默认只获得“建议归为受限娱乐”，家长启用类型规则后才自动分类；具体产品覆盖优先。配额仍只按最终管理分类计算。contracts 目标版本为 1.6.0，macOS 本轮仅保持契约兼容。
+
 ## 当前扩展：普通应用与系统应用分组
 
 ARM-D-015 将可管理对象继续区分为普通应用和系统应用，并把两者与只读技术记录分开。快速助手、记事本、计算器等具有强 Windows 系统归属证据的可见应用仍可分类和配置配额；更新器、卸载器、helper、驱动入口和运行库继续只进入技术记录。系统归属不依赖名称或 Microsoft 发布者，不改变主账本、历史 Segment 或配额计算。

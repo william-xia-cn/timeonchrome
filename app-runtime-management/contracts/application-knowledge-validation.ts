@@ -4,7 +4,7 @@ import { safeAutomatic } from './application-classification.js';
 const platforms = ['windows', 'macos'];
 const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked'];
 const types = ['game', 'gameLauncher', 'onlineVideo', 'mediaPlayer', 'other', 'unknown'];
-const fields = ['runtimeIdentity', 'binaryHash', 'packageId', 'productKey', 'hostedAppId', 'signerKey', 'productName', 'declaredType', 'installationSource'];
+const fields = ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'productName', 'declaredType', 'installationSource'];
 const applicationOrigins = ['user', 'operatingSystem', 'unknown'];
 const originEvidenceCodes = ['exactPackageRule', 'osMetadata', 'reviewedSystemBinary'];
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -33,7 +33,7 @@ function expression(value: unknown, allowEmpty = false): MatchExpression {
 /** 拒绝未知字段、脚本、弱自动条件及悬空引用；返回脱离调用方引用的副本。 */
 export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge {
   if (!object(value) || !keys(value, ['schemaVersion', 'version', 'products', 'rules', 'bindings'])
-      || value.schemaVersion !== 1 || !Number.isSafeInteger(value.version) || Number(value.version) < 0
+      || ![1,2].includes(Number(value.schemaVersion)) || !Number.isSafeInteger(value.version) || Number(value.version) < 0
       || !list(value.products) || !list(value.rules) || !list(value.bindings, 100)) reject('INVALID_APPLICATION_KNOWLEDGE');
   const productIds: string[] = [], ruleIds: string[] = [], childIds: string[] = [];
   for (const product of value.products) {
@@ -45,7 +45,7 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
       if (!object(selector) || !keys(selector, ['platform', 'match']) || !oneOf(selector.platform, platforms)) reject('INVALID_PRODUCT_SELECTOR');
       const match = expression(selector.match);
       if (!safeAutomatic(match)) reject('WEAK_PRODUCT_SELECTOR');
-      const precise = (item: {field: string}) => ['runtimeIdentity','binaryHash','packageId','productKey','hostedAppId'].includes(item.field);
+      const precise = (item: {field: string}) => ['runtimeIdentity','binaryHash','packageId','distributionKey','productKey','hostedAppId'].includes(item.field);
       const narrowedSigner = match.conditions.some(item=>item.field==='signerKey') && match.conditions.some(item=>item.field==='productName');
       if (!(match.operator==='all' ? match.conditions.some(precise)||narrowedSigner : match.conditions.every(precise))) reject('BROAD_PRODUCT_SELECTOR');
     }
@@ -59,10 +59,12 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
         || !oneOf(rule.mode, ['automatic', 'suggestion']) || !oneOf(rule.classification, classes)
         || !oneOf(rule.type, types) || typeof rule.enabled !== 'boolean' || !text(rule.source) || !text(rule.reason)
         || !list(rule.exclude, 32)) reject('INVALID_CLASSIFICATION_RULE');
-    const match = expression(rule.match, rule.productId !== undefined);
+    const v2TypeRule = value.schemaVersion === 2 && rule.kind === 'type';
+    const match = expression(rule.match, rule.productId !== undefined || v2TypeRule);
     for (const item of rule.exclude) expression(item);
-    if (rule.mode === 'automatic' && rule.productId === undefined && !safeAutomatic(match)) reject('WEAK_AUTOMATIC_RULE');
-    const precise = (item: {field: string}) => ['runtimeIdentity', 'binaryHash', 'packageId', 'productKey', 'hostedAppId'].includes(item.field);
+    if (rule.mode === 'automatic' && rule.productId === undefined && !v2TypeRule && !safeAutomatic(match)) reject('WEAK_AUTOMATIC_RULE');
+    if (v2TypeRule && rule.type === 'unknown') reject('INVALID_TYPE_RULE');
+    const precise = (item: {field: string}) => ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId'].includes(item.field);
     if (rule.kind === 'product' && rule.productId === undefined
         && !(match.operator === 'all' ? match.conditions.some(precise) : match.conditions.every(precise))) reject('INVALID_PRODUCT_RULE_SCOPE');
     ruleIds.push(rule.id);
@@ -115,5 +117,7 @@ export function parseAppEvidence(value: unknown): AppEvidence {
       || Object.values(value.values).some(item=>privateValue.test(item as string))) reject('PRIVATE_APPLICATION_EVIDENCE');
   for (const field of ['binaryHash','productKey','hostedAppId','signerKey']) if (value.values[field]!==undefined
       && !/^[a-f0-9]{64}$/u.test(value.values[field] as string)) reject('INVALID_OPAQUE_APPLICATION_EVIDENCE');
+  if (value.values.distributionKey !== undefined && !/^(steam|microsoft-store|ea|epic|ubisoft|gog):[A-Za-z0-9._-]{1,128}$/u.test(value.values.distributionKey as string))
+    reject('INVALID_DISTRIBUTION_KEY');
   return JSON.parse(JSON.stringify(value)) as AppEvidence;
 }

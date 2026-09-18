@@ -1,5 +1,13 @@
 # App Runtime 决策记录
 
+## ARM-D-016：客观应用类型与孩子管理归类永久分离
+
+PO 于 2026-09-18 确认实施。`appType` 是产品知识中的客观事实（`game / gameLauncher / onlineVideo / mediaPlayer / other / unknown`），`classification` 是孩子级管理策略（`study / composite / restrictedEntertainment / blocked / unclassified`）；二者不得互相覆盖。游戏可以被家长明确归为复合，但其客观类型仍为游戏。配额只读取最终生效的 `classification`，不增加类型配额，也不重复扣减。
+
+Windows 2.3.0 只负责从 Steam、Microsoft Store、EA、Epic、Ubisoft 和 GOG 的本机可信清单提取公开稳定的 `distributionKey`。Runtime Worker 使用版本化产品知识、可信 package identity、签名与产品关联解析 `appType/typeStatus/typeReasonCode`，客户端自报类型和显示名称只能形成建议。Runtime 查询不得实时依赖第三方商店 API；规则包由受控离线或 AI 辅助整理，经预览和家长批准后发布。
+
+分类优先级固定为：孩子具体产品明确分类、精确产品自动规则、系列/已核实开发者自动规则、产品类型自动规则、建议/未归类。默认“游戏 → 受限娱乐”仅为建议；孩子批准启用后才自动作用于现有及未来游戏。取消具体产品覆盖后，该产品从下一策略版本重新继承已启用的动态规则。分类变化只向前生效并切段，不重写历史 Segment。
+
 ## ARM-D-015：普通应用、系统应用与技术记录正交分层
 
 PO 确认实施（2026-09-18）。家长可管理对象继续以 `actionable` 为准，并新增与可管理性正交的来源维度 `applicationOrigin = user | operatingSystem | unknown`。普通应用与操作系统提供、用户可主动打开的系统应用都可以参与孩子分类、独立配额和未来阻止策略；组件、更新器、卸载器、helper、驱动入口、运行库和证据不足对象继续进入只读技术记录。

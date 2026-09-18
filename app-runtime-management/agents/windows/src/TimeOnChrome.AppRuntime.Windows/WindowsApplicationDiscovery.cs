@@ -81,12 +81,26 @@ public sealed class WindowsApplicationDiscovery
                             key?.GetValue("ParentKeyName") is string, key?.GetValue("ReleaseType") is string);
                         var values = new Dictionary<string,string> { ["productKey"] = productKey, ["productName"] = name,
                             ["installationSource"] = "registry" };
+                        var distributionKey = WindowsDistributionIdentity.FromRegistry(keyName,
+                            new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase) {
+                                ["gameID"] = key?.GetValue("gameID")?.ToString(),
+                                ["GOGGameId"] = key?.GetValue("GOGGameId")?.ToString(),
+                                ["OfferId"] = key?.GetValue("OfferId")?.ToString(),
+                                ["ContentId"] = key?.GetValue("ContentId")?.ToString(),
+                                ["GameId"] = key?.GetValue("GameId")?.ToString(),
+                                ["CatalogItemId"] = key?.GetValue("CatalogItemId")?.ToString(),
+                                ["AppName"] = key?.GetValue("AppName")?.ToString(),
+                                ["ProductId"] = key?.GetValue("ProductId")?.ToString(),
+                                ["UplayId"] = key?.GetValue("UplayId")?.ToString(),
+                            });
+                        if (distributionKey is not null) values["distributionKey"] = distributionKey;
                         var evidence = new AppEvidence("windows", "windows:product:" + productKey, name, values,
-                            ["productKey"], Discovery: new(technical ? "component" : "application", "installation", ["registry"],
+                            distributionKey is null ? ["productKey"] : ["productKey", "distributionKey"],
+                            Discovery: new(technical ? "component" : "application", "installation", ["registry"],
                                 "product", null, "unknown", scope, source, "strong"));
                         products.Add(new(evidence, "installed", source, scope, null, "unknown", true));
                         var installLocation = key?.GetValue("InstallLocation") as string;
-                        if (!string.IsNullOrWhiteSpace(installLocation)) anchors.Add(new(productKey, name, NormalizeDirectory(installLocation)));
+                        if (!string.IsNullOrWhiteSpace(installLocation)) anchors.Add(new(evidence.RuntimeIdentity, productKey, name, NormalizeDirectory(installLocation)));
                     }
                 }
             }
@@ -94,6 +108,7 @@ public sealed class WindowsApplicationDiscovery
             { sourceResults.Add(new(source, "failed", products.Count - before, ["SOURCE_ENUMERATION_FAILED"])); continue; }
             sourceResults.Add(Result(source, products.Count - before, warnings));
         }
+        ScanDistributionManifests(products, anchors, sourceResults, cancellationToken);
         foreach (var folder in new[] { Environment.SpecialFolder.CommonPrograms, Environment.SpecialFolder.Programs })
         {
             var source = folder == Environment.SpecialFolder.CommonPrograms ? "start-menu-common" : "start-menu-user";
@@ -144,13 +159,106 @@ public sealed class WindowsApplicationDiscovery
         value = Environment.ExpandEnvironmentVariables(value);
         return Path.IsPathFullyQualified(value) && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? value : null;
     }
-    private sealed record ProductAnchor(string ProductKey, string Name, string InstallLocation);
+    private sealed record ProductAnchor(string RuntimeIdentity, string ProductKey, string Name, string InstallLocation);
     private sealed record ShortcutInfo(string TargetPath, string Arguments);
     private sealed record PackageDiscovery(IReadOnlyList<DiscoveredApplication> Products, IReadOnlyList<DiscoveredApplication> Variants);
 
     private static InventorySourceResult Result(string source, int count, IReadOnlyList<string> warnings) =>
         new(source, warnings.Count == 0 ? "complete" : "complete_with_warnings", count,
             warnings.Distinct(StringComparer.Ordinal).Take(64).ToArray());
+
+    private static void ScanDistributionManifests(List<DiscoveredApplication> products, List<ProductAnchor> anchors,
+        List<InventorySourceResult> sourceResults, CancellationToken token)
+    {
+        ScanManifestSource("distribution-steam", SteamLibraryRoots(), "appmanifest_*.acf",
+            (text, root) => WindowsDistributionIdentity.ParseSteamManifest(text, Directory.GetParent(root)?.FullName),
+            products, anchors, sourceResults, token);
+        var epicRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "Epic", "EpicGamesLauncher", "Data", "Manifests");
+        ScanManifestSource("distribution-epic", [epicRoot], "*.item",
+            (text, _) => WindowsDistributionIdentity.ParseEpicManifest(text),
+            products, anchors, sourceResults, token);
+    }
+
+    private static void ScanManifestSource(string source, IEnumerable<string> roots, string pattern,
+        Func<string,string,DistributionManifestIdentity?> parser, List<DiscoveredApplication> products,
+        List<ProductAnchor> anchors, List<InventorySourceResult> sourceResults, CancellationToken token)
+    {
+        var warnings = new List<string>();
+        var before = products.Count;
+        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
+            IEnumerable<string> files;
+            try { files = Directory.EnumerateFiles(root, pattern, SearchOption.TopDirectoryOnly).ToArray(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { warnings.Add("DISTRIBUTION_SOURCE_UNAVAILABLE"); continue; }
+            foreach (var file in files)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    var record = parser(File.ReadAllText(file), root);
+                    if (record is null) { warnings.Add("DISTRIBUTION_MANIFEST_INVALID"); continue; }
+                    AddDistributionObservation(record, source, products, anchors);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                { warnings.Add("DISTRIBUTION_MANIFEST_INVALID"); }
+            }
+        }
+        sourceResults.Add(Result(source, products.Count - before, warnings));
+    }
+
+    private static void AddDistributionObservation(DistributionManifestIdentity record, string source,
+        List<DiscoveredApplication> products, List<ProductAnchor> anchors)
+    {
+        var localLocation = NormalizeDirectory(record.InstallLocation ?? string.Empty);
+        var anchor = string.IsNullOrWhiteSpace(localLocation) ? null : anchors
+            .Where(item => string.Equals(item.InstallLocation, localLocation, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.RuntimeIdentity, StringComparer.Ordinal).FirstOrDefault();
+        var productKey = anchor?.ProductKey ?? WindowsApplicationEvidence.Hash("distribution:" + record.DistributionKey);
+        var runtimeIdentity = anchor?.RuntimeIdentity ?? "windows:product:" + productKey;
+        var displayName = anchor?.Name ?? record.DisplayName;
+        products.Add(new(new AppEvidence("windows", runtimeIdentity, displayName,
+            new Dictionary<string,string> { ["productKey"] = productKey, ["productName"] = displayName,
+                ["distributionKey"] = record.DistributionKey, ["installationSource"] = source },
+            ["productKey", "distributionKey"], Discovery: new("application", "installation", [source],
+                "product", null, "unknown", "machine", source, "strong")),
+            "installed", source, "machine", null, "unknown", true));
+    }
+
+    private static IReadOnlyList<string> SteamLibraryRoots()
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var defaultRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam");
+        if (!string.IsNullOrWhiteSpace(defaultRoot)) roots.Add(defaultRoot);
+        foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            try
+            {
+                using var root = RegistryKey.OpenBaseKey(hive, view);
+                using var steam = root.OpenSubKey(@"SOFTWARE\Valve\Steam", writable:false);
+                var path = steam?.GetValue(hive == RegistryHive.CurrentUser ? "SteamPath" : "InstallPath")?.ToString();
+                if (!string.IsNullOrWhiteSpace(path)) roots.Add(Environment.ExpandEnvironmentVariables(path));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
+        }
+        foreach (var root in roots.ToArray())
+        {
+            var libraryFile = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+            if (!File.Exists(libraryFile)) continue;
+            try
+            {
+                foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                    File.ReadAllText(libraryFile), "\\\"path\\\"\\s+\\\"([^\\\"]+)\\\"",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+                    roots.Add(match.Groups[1].Value.Replace("\\\\", "\\", StringComparison.Ordinal));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+        return roots.Select(root => Path.Combine(root, "steamapps")).ToArray();
+    }
 
     private static string NormalizeDirectory(string path)
     {
@@ -267,7 +375,8 @@ public sealed class WindowsApplicationDiscovery
             var role = visual is null || string.Equals((string?)visual.Attribute("AppListEntry"), "none", StringComparison.OrdinalIgnoreCase) ? "component" : "application";
             var identity = WindowsApplicationIdentityDeriver.Derive(null, name, family, aumid);
             result.Add(new(new AppEvidence("windows", identity.RuntimeIdentity, name,
-                new Dictionary<string,string> { ["packageId"] = aumid, ["productKey"] = parentProductKey ?? WindowsApplicationEvidence.Hash("package:" + family) }, ["packageId", "productKey"],
+                new Dictionary<string,string> { ["packageId"] = aumid, ["distributionKey"] = WindowsDistributionIdentity.MicrosoftStore(family),
+                    ["productKey"] = parentProductKey ?? WindowsApplicationEvidence.Hash("package:" + family) }, ["packageId", "distributionKey", "productKey"],
                 Discovery: new(role, !string.IsNullOrWhiteSpace(friendly) ? "appList" : literal ? "manifest" : "fallback", ["package"],
                     "variant", parentProductKey, role == "component" ? "helper" : "main", "user", "user-packages", role == "component" ? "review" : "strong",
                     systemApplication && role == "application" ? "operatingSystem" : null,
@@ -346,8 +455,9 @@ public sealed class WindowsApplicationDiscovery
                 var systemApplication = IsControlledSystemApplicationPackage(family);
                 var productEvidence = new AppEvidence("windows", "windows:product:" + productKey,
                     parsed.FirstOrDefault(item => item.Evidence.Discovery?.Role == "application")?.Evidence.DisplayName ?? fallbackName,
-                    new Dictionary<string,string> { ["packageId"] = family, ["productKey"] = productKey, ["productName"] = fallbackName },
-                    ["packageId", "productKey"], Discovery: new(visible ? "application" : "component", "installation", ["package"],
+                    new Dictionary<string,string> { ["packageId"] = family, ["distributionKey"] = WindowsDistributionIdentity.MicrosoftStore(family),
+                        ["productKey"] = productKey, ["productName"] = fallbackName },
+                    ["packageId", "distributionKey", "productKey"], Discovery: new(visible ? "application" : "component", "installation", ["package"],
                         "product", null, "unknown", "user", "user-packages", "strong",
                         systemApplication && visible ? "operatingSystem" : null,
                         systemApplication && visible ? "exactPackageRule" : null));

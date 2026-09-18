@@ -1,5 +1,9 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-016 自动类型识别技术补充
+
+Contracts 1.6.0 增加 `distributionKey`、`typeStatus` 与 `typeReasonCode`，Application Knowledge schema v2 并兼容 v1。Windows 2.3.0 用独立适配器从六类发行平台清单提取公开稳定 ID，禁止上传路径、用户名、完整清单或启动参数。Worker 以版本化知识解析类型，分类优先级为明确产品、精确规则、系列/开发者、类型规则、建议；类型规则匹配服务端已解析类型，不能信任 `declaredType`。现有 JSON 证据列承载新增字段，无 D1 migration。
+
 ## ARM-D-015 云端来源解析
 
 `GET /v2/module/app-catalog` 在形成产品组之前，从每条 `AppEvidence` 的可信 `packageId` 解析来源。Worker 只接受 `verifiedFields` 包含 `packageId` 的值，AUMID 使用 `!` 前的 Package Family Name 与受控精确集合比较；首批规则为 Quick Assist、Windows Notepad 和 Windows Calculator。客户端提供的 `applicationOrigin` / `originEvidenceCode` 不进入最终决策。

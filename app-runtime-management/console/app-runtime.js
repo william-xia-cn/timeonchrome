@@ -112,7 +112,9 @@
       { ...state.policy.classifications.find((item) => item.runtimeIdentity === 'app:game'), firstSeenAtMs: dayStart - 86400000, lastSeenAtMs: Date.now() - 900000, mainDurationMs: 2100000, machineCount: 1, userCount: 1, observedInWindow: true },
       { ...state.policy.classifications.find((item) => item.runtimeIdentity === 'app:chat'), firstSeenAtMs: null, lastSeenAtMs: null, mainDurationMs: 0, machineCount: 0, userCount: 0, observedInWindow: false },
       ...state.records.pending,
-    ].map((item) => ({ applicationOrigin: 'unknown', originEvidenceCode: null, ...item, manageability: 'actionable', catalogKind: item.productId ? 'product' : 'application' })), technicalItems: [
+    ].map((item) => ({ applicationOrigin: 'unknown', originEvidenceCode: null,
+      appType:item.displayName==='Minecraft'?'game':'unknown',typeStatus:item.displayName==='Minecraft'?'confirmed':'unknown',typeReasonCode:item.displayName==='Minecraft'?'verifiedProductRule':'none',
+      ...item, manageability: 'actionable', catalogKind: item.productId ? 'product' : 'application' })), technicalItems: [
       { platform: 'windows', displayName: 'wixstdba', catalogKind: 'unresolved', manageability: 'review', projectionReasonCode: 'TECHNICAL_IDENTITY_ONLY', lastSeenAtMs: Date.now() - 1800000, mainDurationMs: 360000, machineCount: 1, userCount: 1 },
       { platform: 'windows', displayName: 'Updater helper', catalogKind: 'component', manageability: 'hidden', projectionReasonCode: 'COMPONENT', lastSeenAtMs: null, mainDurationMs: 0, machineCount: 1, userCount: 1 },
     ] };
@@ -120,7 +122,7 @@
     const requestedFixtures=Number(new URLSearchParams(location.search).get('inventoryFixtures'));
     const inventoryFixtures=Number.isSafeInteger(requestedFixtures)?Math.max(0,Math.min(200,requestedFixtures)):0;
     for(let index=state.mockInventory.length;index<inventoryFixtures;index++)state.mockInventory.push({status:'installed',evidence:{platform:index%2?'windows':'macos',runtimeIdentity:`fixture:application-${index}`,displayName:`受控应用夹具 ${index+1}`,values:{binaryHash:(index+1).toString(16).padStart(64,'0')},verifiedFields:['binaryHash']}});
-    state.mockKnowledge = {schemaVersion:1,version:1,products:[{id:'fixture-game',name:'Minecraft',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:state.mockInventory[2].evidence.values.binaryHash}]}}]}],rules:[],bindings:[{childId:'demo-a',products:[{productId:'fixture-game',classification:'restrictedEntertainment'}],ruleIds:[]}]};
+    state.mockKnowledge = {schemaVersion:2,version:1,products:[{id:'fixture-game',name:'Minecraft',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:state.mockInventory[2].evidence.values.binaryHash}]}}]}],rules:[],bindings:[{childId:'demo-a',products:[{productId:'fixture-game',classification:'restrictedEntertainment'}],ruleIds:[]}]};
     if (new URLSearchParams(location.search).has('inventoryQuality')) {
       const fixture=(runtimeIdentity,displayName,role)=>({platform:'windows',runtimeIdentity,displayName,classification:'unclassified',installationState:'installed',observedInWindow:false,mainDurationMs:0,machineCount:1,userCount:1,discovery:{role,nameSource:role==='component'?'fallback':'appList',sourceKinds:['package']},catalogKind:role,manageability:role==='application'?'actionable':role==='component'?'hidden':'review',projectionReasonCode:role==='component'?'COMPONENT':role==='candidate'?'DISCOVERY_CANDIDATE':'VERIFIED_APPLICATION'});
       state.catalog.items.push(fixture('fixture:unused','已安装未使用播放器','application'));
@@ -214,9 +216,13 @@
     const fallback = app.discovery?.nameSource === 'fallback' ? '名称未解析，显示包入口回退' : '';
     const actions = classificationActions(app, selected);
     const origin = app.applicationOrigin === 'operatingSystem' ? '<span class="system-origin-chip">系统应用</span>' : '';
+    const typeLabels={game:'游戏',gameLauncher:'游戏平台／启动器',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'类型未知'};
+    const appType=app.appType||app.productType||'unknown';
+    const typeText=app.typeStatus==='suggested'?`疑似${typeLabels[appType]}`:app.typeStatus==='confirmed'?typeLabels[appType]:'类型未知';
+    const typeAndClass=`${typeText} · ${categoryLabels[app.classification]||'未归类'}`;
     const variants = visibleProductVariants(app);
     const variantDetails = variants.length ? `<details class="product-variants"><summary>${variants.length} 个产品变体</summary><div>${variants.map((variant) => `<article><strong>${escape(variant.displayName || '未命名变体')}</strong><span>${variant.platform === 'macos' ? 'macOS' : 'Windows'} · ${{main:'主入口',suiteMember:'套件入口',maintenance:'维护入口',helper:'辅助组件',hosted:'宿主内容',unknown:'待确认'}[variant.variantRole] || '待确认'} · ${variant.splitManaged ? '已拆分管理' : '继承产品设置'}</span></article>`).join('')}</div><button type="button" data-manage-variants>管理／拆分变体</button></details>` : '';
-    return `<article class="record-card product-record"><div class="app-record-main"><span class="app-icon">${escape((app.displayName || '?').slice(0, 1))}</span><div><strong>${escape(app.displayName || '未知应用')}</strong>${origin}<p><span class="platform-chip ${escape(app.platform)}">${app.platform === 'macos' ? 'macOS' : 'Windows'}</span> · 最近使用 ${recent}${installation?` · ${installation}`:''}${variants.length?` · ${variants.length} 个变体`:''}</p><p>最近 30 天主账本 ${duration(mainDuration)} · ${coverage}</p>${app.classificationReason?`<p>${escape(app.classificationReason)}</p>`:''}${note||fallback?`<p>${escape([note,fallback].filter(Boolean).join(' · '))}</p>`:''}${variantDetails}</div></div>${actions?`<div class="record-actions" aria-label="${escape(app.displayName || '未知应用')} 分类操作">${actions}</div>`:''}</article>`;
+    return `<article class="record-card product-record"><div class="app-record-main"><span class="app-icon">${escape((app.displayName || '?').slice(0, 1))}</span><div><strong>${escape(app.displayName || '未知应用')}</strong>${origin}<p><b class="app-type-classification">${escape(typeAndClass)}</b></p><p><span class="platform-chip ${escape(app.platform)}">${app.platform === 'macos' ? 'macOS' : 'Windows'}</span> · 最近使用 ${recent}${installation?` · ${installation}`:''}${variants.length?` · ${variants.length} 个变体`:''}</p><p>最近 30 天主账本 ${duration(mainDuration)} · ${coverage}</p>${app.classificationReason?`<p>${escape(app.classificationReason)}</p>`:''}${note||fallback?`<p>${escape([note,fallback].filter(Boolean).join(' · '))}</p>`:''}${variantDetails}</div></div>${actions?`<div class="record-actions" aria-label="${escape(app.displayName || '未知应用')} 分类操作">${actions}</div>`:''}</article>`;
   }
   function renderAppDirectory() {
     state.actionApps = [];

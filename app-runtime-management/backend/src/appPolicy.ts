@@ -15,7 +15,7 @@ import type { RuntimeLogCategory } from './contracts';
 import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
 import { identifyProducts, resolveApplication, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
-import { queryInventoryScanStatus } from './applicationKnowledge';
+import { effectiveApplicationKnowledge, queryInventoryScanStatus } from './applicationKnowledge';
 import type { AppEvidence, ApplicationOrigin, ApplicationOriginEvidenceCode } from '@timeonchrome/app-runtime-contracts/classification';
 
 const classifications = new Set<ApplicationClassification>([
@@ -837,6 +837,9 @@ export async function queryAppCatalog(
     ORDER BY s.start_at_ms,s.end_at_ms,s.id
   `).bind(...legacyValues).all<Record<string, unknown>>();
   const policy = await getAppPolicy(database, accountId, childId);
+  const catalogKnowledge = effectiveApplicationKnowledge(policy.applicationKnowledge ?? {
+    schemaVersion:2,version:0,products:[],rules:[],bindings:[],
+  });
   const grouped = new Map<string, {
     platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null;
     firstSeenAtMs: number; lastSeenAtMs: number; machines: Set<string>; users: Set<string>;
@@ -950,7 +953,7 @@ export async function queryAppCatalog(
     const observed = grouped.get(key);
     const configured = policyByKey.get(key);
     const [itemPlatform, runtimeIdentity] = key.split('\n');
-    const found = inventory.get(key), knowledge = policy.applicationKnowledge;
+    const found = inventory.get(key), knowledge = catalogKnowledge;
     const productIds = found && knowledge ? identifyProducts(knowledge.products,found.evidence) : [];
     const product = productIds.length===1 ? knowledge?.products.find(item=>item.id===productIds[0]) : undefined;
     const resolution = found && knowledge ? resolveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
@@ -966,8 +969,13 @@ export async function queryAppCatalog(
     const displayName = product?.name || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null)
       || observed?.displayName || configured?.displayName || found?.evidence.displayName || null;
     const classification = configured?.classification || resolvedByKey.get(key)?.classification || 'unclassified';
-    const productType = product?.type ?? knownProductType(displayName) ?? 'unknown';
-    const productTypeSuggestion = classification === 'unclassified' && productType === 'game';
+    const nameSuggestedType = knownProductType(displayName);
+    const appType = resolution?.appType && resolution.appType !== 'unknown' ? resolution.appType : nameSuggestedType ?? 'unknown';
+    const typeStatus = resolution?.typeStatus === 'confirmed' ? 'confirmed' as const
+      : nameSuggestedType ? 'suggested' as const : 'unknown' as const;
+    const typeReasonCode = resolution?.typeStatus === 'confirmed' ? resolution.typeReasonCode
+      : nameSuggestedType ? 'exactNameSuggestion' as const : 'none' as const;
+    const productTypeSuggestion = classification === 'unclassified' && appType === 'game';
     return {
       platform: itemPlatform,
       runtimeIdentity: runtimeIdentity as string | null,
@@ -976,10 +984,13 @@ export async function queryAppCatalog(
       productId: product?.id ?? null,
       classification,
       classificationStatus: configured ? 'explicit' : resolution?.status ?? 'unclassified',
-      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类' : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类' : resolution?.status==='suggestion' ? '仅建议，尚未生效' : productTypeSuggestion ? '高置信游戏候选，建议归为受限娱乐（尚未生效）' : '尚未归类',
-      productType,
+      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类' : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类' : resolution?.status==='suggestion' ? '仅建议，尚未生效' : productTypeSuggestion ? (typeStatus==='confirmed'?'已确认游戏，建议归为受限娱乐（尚未生效）':'疑似游戏，建议归为受限娱乐（尚未生效）') : '尚未归类',
+      appType,
+      typeStatus,
+      typeReasonCode,
+      productType:appType,
       suggestedClassification: productTypeSuggestion ? 'restrictedEntertainment' as const : null,
-      productTypeReason: product?.type ? '家庭产品知识' : productTypeSuggestion ? '受控产品名称精确匹配' : null,
+      productTypeReason: typeStatus==='confirmed' ? '可信发行身份或家庭产品知识' : productTypeSuggestion ? '受控产品名称精确匹配（仅建议）' : null,
       applicationOrigin: authoritativeOrigin.applicationOrigin,
       originEvidenceCode: authoritativeOrigin.originEvidenceCode,
       installationState: found?.installed ? 'installed' : observed ? 'usedNotDiscovered' : 'preconfigured',
@@ -993,13 +1004,14 @@ export async function queryAppCatalog(
     };
   });
   // A configured, reliably identified product stays in the directory before discovery/use.
-  for (const binding of policy.applicationKnowledge?.bindings ?? []) for (const entry of binding.products) {
+  for (const binding of catalogKnowledge.bindings) for (const entry of binding.products) {
     if (binding.childId!==childId) continue;
-    const product = policy.applicationKnowledge!.products.find(item=>item.id===entry.productId);
+    const product = catalogKnowledge.products.find(item=>item.id===entry.productId);
     for (const itemPlatform of new Set(product?.selectors.map(item=>item.platform) ?? [])) {
       if (items.some(item=>item.productId===entry.productId && item.platform===itemPlatform)) continue;
       items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
         classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
+        appType:product!.type,typeStatus:'confirmed' as const,typeReasonCode:'verifiedProductRule' as const,
         productType:product!.type,suggestedClassification:null,productTypeReason:'家庭产品知识',
         applicationOrigin:'unknown' as const,originEvidenceCode:null,
         firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false,discovery:null,
