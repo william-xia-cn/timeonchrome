@@ -5,6 +5,7 @@ import hashVectors from '../../contracts/runtime-segment-hash-v1.vectors.json';
 import { accountingMediaId, accountingUsageId, segmentContentHash } from '../src/canonical';
 import type { AccountingMediaSegment, AccountingUsageSegment } from '../src/contracts';
 import { validateSegment } from '../src/validation';
+import catalogRules from '../src/data/product-catalog-rules.v1.json';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -822,6 +823,15 @@ describe('Runtime product API', () => {
 });
 
 describe('Application knowledge and installed inventory', () => {
+  it('loads the curated Steam product knowledge and keeps Steamworks technical', () => {
+    const gameKeys=new Set(catalogRules.products.map(item=>item.distributionKey));
+    for(const key of ['steam:714010','steam:1172470','steam:289650','steam:730','steam:2749950','steam:4006000',
+      'steam:544810','steam:48700','steam:2141300','steam:214950','steam:508440','steam:236390','steam:1771300']){
+      expect(gameKeys.has(key)).toBe(true);
+    }
+    expect(catalogRules.technicalDistributionKeys).toContain('steam:228980');
+    expect(gameKeys.has('steam:228980')).toBe(false);
+  });
   it('projects an inventory v2 suite as one product with variants and keeps maintenance entries technical', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const productKey='c'.repeat(64);
@@ -868,12 +878,12 @@ describe('Application knowledge and installed inventory', () => {
         ...(origin?{applicationOrigin:origin,originEvidenceCode:'exactPackageRule'}:{})},
     });
     const products=[
-      {key:makeKey('1'),name:'快速助手',packageId:'MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe'},
+      {key:makeKey('1'),name:'快速助手',packageId:'MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe!App'},
       {key:makeKey('2'),name:'记事本',packageId:'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App'},
-      {key:makeKey('3'),name:'Microsoft Office',packageId:'Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe'},
-      {key:makeKey('4'),name:'Microsoft Teams',packageId:'MSTeams_8wekyb3d8bbwe'},
-      {key:makeKey('5'),name:'第三方 Quick Assist',packageId:'ThirdParty.QuickAssist_fixture'},
-      {key:makeKey('6'),name:'客户端声称系统应用',packageId:'Contoso.Product_fixture',origin:'operatingSystem' as const},
+      {key:makeKey('3'),name:'Microsoft Office',packageId:'Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe!App'},
+      {key:makeKey('4'),name:'Microsoft Teams',packageId:'MSTeams_8wekyb3d8bbwe!App'},
+      {key:makeKey('5'),name:'第三方 Quick Assist',packageId:'ThirdParty.QuickAssist_fixture!App'},
+      {key:makeKey('6'),name:'客户端声称系统应用',packageId:'Contoso.Product_fixture!App',origin:'operatingSystem' as const},
     ];
     const unverifiedKey=makeKey('7'), maintenanceKey=makeKey('8');
     const scan={scanId:'e'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:products.length+1,variantCount:1,
@@ -881,7 +891,7 @@ describe('Application knowledge and installed inventory', () => {
     const payload={schemaVersion:2,batchId:'system-origin-products',products:products.map(item=>({localUserId,productKey:item.key,
       evidence:makeEvidence(item.key,item.name,item.packageId,item.origin),scope:'user',sourceKind:'user-packages',status:'installed'})).concat([{
         localUserId,productKey:unverifiedKey,
-        evidence:{...makeEvidence(unverifiedKey,'未验证包身份'),values:{productKey:unverifiedKey,productName:'未验证包身份',packageId:'Microsoft.WindowsCalculator_8wekyb3d8bbwe'}},
+        evidence:{...makeEvidence(unverifiedKey,'未验证包身份'),values:{productKey:unverifiedKey,productName:'未验证包身份',packageId:'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App'}},
         scope:'user',sourceKind:'user-packages',status:'installed',
       }]),variants:[{
       localUserId,variantKey:'system-maintenance',parentProductKey:maintenanceKey,
@@ -907,6 +917,76 @@ describe('Application knowledge and installed inventory', () => {
       expect.objectContaining({displayName:'Windows Update Helper',applicationOrigin:'operatingSystem'}),
     ]));
     expect(result.items.some(item=>item.displayName==='Windows Update Helper')).toBe(false);
+  });
+  it('projects package containers as technical records and launchable AUMIDs as independent applications', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const key=(digit:string)=>digit.repeat(64);
+    const packageProduct=(productKey:string,name:string,packageFamily:string)=>({
+      localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
+        values:{productKey,productName:name,packageId:packageFamily},verifiedFields:['productKey','packageId'],
+        discovery:{role:'application',nameSource:'installation',sourceKinds:['package'],objectKind:'product',variantRole:'unknown',
+          scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}},
+      scope:'user',sourceKind:'user-packages',status:'installed',
+    });
+    const packageVariant=(parentProductKey:string,variantKey:string,name:string,aumid:string)=>({
+      localUserId,variantKey,parentProductKey,evidence:{platform:'windows',runtimeIdentity:variantKey,displayName:name,
+        values:{productKey:parentProductKey,productName:name,packageId:aumid},verifiedFields:['productKey','packageId'],
+        discovery:{role:'application',nameSource:'appList',sourceKinds:['package'],objectKind:'variant',parentProductKey,
+          variantRole:'main',scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}},
+      variantRole:'main',scope:'user',sourceKind:'user-packages',status:'installed',
+    });
+    const distributionProduct=(productKey:string,name:string,distributionKey:string)=>({
+      localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
+        values:{productKey,productName:name,distributionKey},verifiedFields:['productKey','distributionKey'],
+        discovery:{role:'application',nameSource:'installation',sourceKinds:['distribution-steam'],objectKind:'product',
+          variantRole:'unknown',scope:'machine',sourceKind:'distribution-steam',evidenceLevel:'strong'}},
+      scope:'machine',sourceKind:'distribution-steam',status:'installed',
+    });
+    const sticky=key('1'),cbs=key('2'),coreAi=key('3'),assassin=key('4'),steamworks=key('5');
+    expect((await call('/v2/module/app-policy?childId=child-a',{
+      method:'PUT',headers:{...bearer(account),'If-Match':'"app-policy-v0"'},body:JSON.stringify({
+        classifications:[{platform:'windows',runtimeIdentity:`windows:product:${sticky}`,displayName:'便笺',classification:'study'}],
+        quotas:{dailyCategoryMinutes:{study:null,composite:null,restrictedEntertainment:null,unclassified:null},
+          weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]},
+      }),
+    })).status).toBe(200);
+    const products=[
+      packageProduct(sticky,'便笺','Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe'),
+      packageProduct(cbs,'MicrosoftWindows.Client.CBS','MicrosoftWindows.Client.CBS_cw5n1h2txyewy'),
+      packageProduct(coreAi,'MicrosoftWindows.Client.CoreAI','MicrosoftWindows.Client.CoreAI_cw5n1h2txyewy'),
+      distributionProduct(assassin,'Assassin local title','steam:289650'),
+      distributionProduct(steamworks,'Steamworks Common Redistributables','steam:228980'),
+    ];
+    const variants=[
+      packageVariant(sticky,'sticky-entry','便笺','Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe!App'),
+      packageVariant(cbs,'backup-entry','Windows 备份','MicrosoftWindows.Client.CBS_cw5n1h2txyewy!WindowsBackup'),
+      packageVariant(cbs,'get-started-entry','入门','MicrosoftWindows.Client.CBS_cw5n1h2txyewy!WebExperienceHost'),
+      packageVariant(coreAi,'click-to-do-entry','单击以执行','MicrosoftWindows.Client.CoreAI_cw5n1h2txyewy!ClickToDoApp'),
+    ];
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:2,batchId:'package-container-projection',products,variants})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string;applicationOrigin:string;classification:string;productType:string;typeStatus:string;
+        suggestedClassification:string|null;machineCount:number;userCount:number;projectionReasonCode:string}>;
+      technicalItems:Array<{displayName:string;projectionReasonCode:string}>;
+    }>();
+    for(const name of ['便笺','Windows 备份','入门','单击以执行']){
+      expect(result.items.filter(item=>item.displayName===name)).toHaveLength(1);
+      expect(result.items.find(item=>item.displayName===name)).toMatchObject({
+        applicationOrigin:'operatingSystem',classification:'unclassified',projectionReasonCode:'LAUNCHABLE_PACKAGE_APP',
+      });
+    }
+    expect(result.items.some(item=>item.displayName==='MicrosoftWindows.Client.CBS')).toBe(false);
+    expect(result.technicalItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({displayName:'便笺',projectionReasonCode:'LEGACY_CONTAINER_CLASSIFICATION'}),
+      expect.objectContaining({displayName:'MicrosoftWindows.Client.CBS',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'MicrosoftWindows.Client.CoreAI',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'Steamworks Common Redistributables',projectionReasonCode:'COMPONENT'}),
+    ]));
+    expect(result.items.find(item=>item.displayName==='刺客信条：大革命')).toMatchObject({
+      productType:'game',typeStatus:'confirmed',suggestedClassification:'restrictedEntertainment',
+      machineCount:1,userCount:1,
+    });
   });
 
   it('accepts legacy SSO tickets without a selected Child and rejects foreign selected context', async () => {

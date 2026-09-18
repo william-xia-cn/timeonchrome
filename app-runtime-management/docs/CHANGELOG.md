@@ -1,5 +1,13 @@
 # App Runtime Changelog
 
+## [ARM-D-017 / 产品目录云端纠错] — 2026-09-18（本地候选）
+
+- MSIX/package family 改为技术容器，可信 AUMID 可启动入口独立投影；LibreOffice 等可靠 Win32 套件聚合保持不变。
+- 补齐便笺、入门、Windows 备份和单击以执行的系统应用规则；产品安装事实补齐零变体产品的机器/账户覆盖数。
+- Aimlabs/Apex 硬编码迁入 Runtime-owned 版本化 JSON，加入当前核实的 Steam 游戏；`steam:228980` 固定为技术组件。
+- Console 将未知类型系统应用显示为“系统应用 · 未归类”，装饰首字不参与辅助技术或文本选择。
+- Worker 53/53、Contracts 23 向量、TypeScript、Wrangler types/dry-run、Console 聚焦测试及桌面/移动视觉验证通过；无 migration、Agent、Guardian、R2 或历史数据变更。
+
 ## [Windows 2.3.1 / 本地完整盘点来源上限] — 2026-09-18（生产已验收）
 
 - 2.3.0 的 Session Agent 会生成包含 7 项来源结果的完整扫描，但 Service 本地 `ValidateScan` 仍保留最多 6 项的旧限制；消息在写入 inventory outbox 前即被拒绝，因此部署兼容 Worker 后也没有可自动重试的批次。

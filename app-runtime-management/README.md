@@ -1,5 +1,11 @@
 # App Runtime Management
 
+## 当前修复：产品目录云端纠错与发行证据补全
+
+ARM-D-017 把 MSIX 包容器与可启动应用分开：package family 只作技术容器，可信 AUMID 入口作为独立可管理应用；Win32 套件继续使用可靠安装产品锚点聚合。Worker 动态修复便笺、入门、Windows 备份、单击以执行和刺客信条等现有 2.3.1 盘点投影，无需先升级终端，也不改写历史账本、分类或配额。
+
+生产核对同时更正 ARM-D-016 的完成状态：2.3.1 的完整独立发行扫描只有 Steam/Epic，EA/Ubisoft/GOG 仍只是注册表机会性识别。contracts 1.7.0 / Windows 2.4.0 将补齐三个发行来源；安装与 R2 latest 切换必须另行过闸。
+
 ## 当前扩展：自动产品类型识别
 
 ARM-D-016 把客观 `appType` 与孩子管理 `classification` 永久分开。Windows 2.3.0 从 Steam、Microsoft Store、EA、Epic、Ubisoft 和 GOG 的可信本机清单提取稳定发行身份；Worker 用版本化知识确认产品类型。游戏默认只获得“建议归为受限娱乐”，家长启用类型规则后才自动分类；具体产品覆盖优先。配额仍只按最终管理分类计算。contracts 当前目标版本为 1.6.1；该补丁允许 Steam/Epic 发行来源进入完整盘点，macOS 本轮仅保持契约兼容。

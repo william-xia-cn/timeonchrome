@@ -1,5 +1,13 @@
 # App Runtime 技术设计
 
+## 产品目录云端纠错与发行证据边界（ARM-D-017）
+
+- MSIX package family 是技术容器；可信 AUMID 才是默认可管理的包内应用。容器进入技术记录，不进入孩子五分类目录。
+- Win32 安装产品仍可作为产品锚点聚合可靠变体；无变体的安装产品仍从安装事实贡献机器/账户覆盖数。
+- Worker 根据版本化系统包规则与产品知识生成系统来源、可管理性和客观类型。Agent 字段仅是事实/建议，不是最终目录权威。
+- 包容器旧分类不自动继承到入口；前端显示重新确认提示。该规则只改变 read model，不重写分类、账本或配额。
+- 当前真实完整发行来源为 Steam/Epic。EA/Ubisoft/GOG 由 Windows 2.4.0 新增独立来源；来源缺失、单项损坏与整体失败分别结算。
+
 ## 当前修复：Windows 2.3.1 本地盘点来源上限
 
 Session Agent 的完整扫描固定携带 Registry、Start Menu、用户包、Steam 与 Epic 共 7 项来源结果。Service 必须在写入 inventory outbox 前接受最多 8 项固定来源，与 contracts 1.6.1 和 Worker 保持一致；该上限只是协议容量，不改变允许来源枚举、来源完成状态或缺失对账条件。

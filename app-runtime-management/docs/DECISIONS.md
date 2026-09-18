@@ -1,5 +1,15 @@
 # App Runtime 决策记录
 
+## ARM-D-017：包容器、可启动应用与发行证据分层
+
+PO 于 2026-09-18 确认实施。MSIX/package family 是安装与签名边界的技术容器，不默认等同于家长可管理产品；包内具有可信 AUMID 的每个可启动入口默认作为独立应用投影。无可启动入口的包容器只进入技术记录。LibreOffice 等具有可靠 Win32 安装产品锚点的套件继续按产品与变体聚合，不因本决策拆散。
+
+Runtime Worker 是目录投影与产品类型的权威。Worker 使用既有可信 `packageId`、`distributionKey`、安装产品/变体关系和版本化产品知识动态生成 `manageability`、`applicationOrigin` 与 `appType`；终端不上传权威分类。包容器已有的孩子明确分类不得自动复制到新拆出的 AUMID 应用，避免无批准地改变配额语义；目录以技术记录提示旧包级配置需要重新确认。
+
+安装产品即使没有可用变体，也必须用安装事实贡献 `machineCount/userCount`；使用时长仍只来自真实 UsageSegment。产品知识只纳入经过公开稳定身份核实且有管理价值的条目，`steam:228980` 等技术组件明确保持技术记录。名称只能形成建议，不能确认产品类型。
+
+ARM-D-016 中“Windows 2.3.0 已从 Steam、Microsoft Store、EA、Epic、Ubisoft 和 GOG 可信本机清单提取稳定发行身份”的完成描述经生产核对后更正：2.3.1 的完整独立发行扫描只有 Steam 与 Epic；EA、Ubisoft、GOG 仅有注册表机会性识别。该证据缺口由 contracts 1.7.0 / Windows 2.4.0 前向补齐，不阻塞本决策的云端目录纠错。
+
 ## ARM-D-016：客观应用类型与孩子管理归类永久分离
 
 PO 于 2026-09-18 确认实施。`appType` 是产品知识中的客观事实（`game / gameLauncher / onlineVideo / mediaPlayer / other / unknown`），`classification` 是孩子级管理策略（`study / composite / restrictedEntertainment / blocked / unclassified`）；二者不得互相覆盖。游戏可以被家长明确归为复合，但其客观类型仍为游戏。配额只读取最终生效的 `classification`，不增加类型配额，也不重复扣减。

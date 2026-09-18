@@ -1,5 +1,13 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-017 产品目录纠错增量
+
+MSIX/package family 在目录中建模为 `packageContainer` 技术容器，不默认成为可管理产品；每个具有可信 AUMID 的可启动入口独立进入产品目录。Win32 套件仅在具有可靠安装产品锚点时维持产品/变体聚合。Worker 查询时使用现有证据动态投影，不迁移或改写历史观察。
+
+包容器已有明确分类不得自动复制给入口；返回 `LEGACY_CONTAINER_CLASSIFICATION` 提示重新确认。入口使用 `LAUNCHABLE_PACKAGE_APP`，容器使用 `PACKAGE_CONTAINER`。无变体安装产品仍从产品观察贡献机器与账户覆盖数，时长继续只读 UsageSegment。
+
+发行证据阶段采用 contracts 1.7.0：`sourceResults` 最多 16 项，新增 `distribution-ea`、`distribution-ubisoft`、`distribution-gog`。Windows 2.4.0 将三个发行器分别结算为 `complete / complete_with_warnings / failed`；发行器未安装时为 `complete + 0`。不上传路径、用户名、账户、完整 manifest、启动参数或证书正文。
+
 ## ARM-D-016 自动类型识别技术补充
 
 Contracts 1.6.0 增加 `distributionKey`、`typeStatus` 与 `typeReasonCode`，Application Knowledge schema v2 并兼容 v1。Windows 2.3.0 用独立适配器从六类发行平台清单提取公开稳定 ID，禁止上传路径、用户名、完整清单或启动参数。Worker 以版本化知识解析类型，分类优先级为明确产品、精确规则、系列/开发者、类型规则、建议；类型规则匹配服务端已解析类型，不能信任 `declaredType`。现有 JSON 证据列承载新增字段，无 D1 migration。
