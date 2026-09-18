@@ -1,5 +1,16 @@
 # App Runtime 任务板
 
+## NOW：产品目录云端纠错与发行证据补全（ARM-D-017）
+
+- [x] 云端第一闸：包容器降为技术记录；可启动 AUMID 独立投影；安装产品事实补齐机器/账户数；不改写 inventory、UsageSegment、分类历史或配额。
+- [x] 云端系统应用规则补齐便笺、入门、Windows 备份和单击以执行；系统应用默认折叠、搜索命中展开，装饰首字不进入复制文本。
+- [x] 将 Aimlabs/Apex 的硬编码类型知识迁入 Runtime-owned 版本化 JSON，并补齐已核实 Steam 游戏；`steam:228980` 固定为技术组件。
+- [x] 第一 PR 本地闸门：Worker 53/53、Contracts 23 向量、TypeScript、Wrangler types/dry-run、Console 聚焦测试及桌面/移动目视通过；合并后只部署 Runtime Worker 与独立 Runtime Pages。
+- [ ] 终端第二闸：contracts 1.7.0 增加 `packageContainer`、EA/Ubisoft/GOG 来源和 16 项来源容量；Windows 2.4.0 实现三个独立发行来源。
+- [ ] 第二 PR 通过 Windows 全量测试、WiX 构建和敏感信息审计后停在安装发布闸门；不得自动升级 HornburgXW 或切换 R2 latest。
+
+更正记录：ARM-D-016 的原 `Matched=六类 Windows 发行身份适配`、`Missing=无` 不成立。2.3.1 的完整来源只有 Steam/Epic；EA/Ubisoft/GOG 仅为注册表机会性识别。历史审计原文保留用于追溯，以本节和 ARM-D-017 为当前真值。
+
 ## NOW：Windows 2.3.1 本地完整盘点来源上限修复
 
 - [x] 真实验收定位第二层阻塞：2.3.0 Session Agent 产生 7 项来源结果，但 Service 的 `ValidateScan` 仍拒绝超过 6 项，完整盘点无法进入本地 inventory outbox。

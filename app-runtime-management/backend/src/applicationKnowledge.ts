@@ -6,12 +6,9 @@ import { getAppPolicy } from './appPolicy';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
+import { controlledProducts } from './productCatalogRules';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
-const controlledProducts: ApplicationKnowledge['products'] = [
-  { id:'builtin.steam.714010', name:'Aimlabs', type:'game', selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'distributionKey',value:'steam:714010'}]}}] },
-  { id:'builtin.steam.1172470', name:'Apex Legends', type:'game', selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'distributionKey',value:'steam:1172470'}]}}] },
-];
 export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
   const products = value.products.filter(item=>!controlledProducts.some(builtin=>builtin.id===item.id)).concat(controlledProducts);
   return {...value,schemaVersion:2,products};

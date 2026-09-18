@@ -13,6 +13,8 @@
     AMBIGUOUS_INSTALLATION_PRODUCTS: '多个安装记录同名但缺少可靠关联，不能自动合并',
     POSSIBLE_PRODUCT_VARIANT: '可能属于现有安装产品，缺少可靠关联，未单独列入主目录',
     UNCONFIRMED_APPLICATION_VARIANT: '发现到独立启动入口或运行身份，尚未确认产品归属',
+    PACKAGE_CONTAINER: '应用包技术容器；可启动入口在应用目录中独立管理',
+    LEGACY_CONTAINER_CLASSIFICATION: '旧包级配置需要重新确认，不会自动复制到包内应用',
   };
   const viewText = {
     usage: ['使用统计', '查看电脑应用主使用账本'], access: ['应用访问管理', '管理独立配额、七天时间段和配置文件'],
@@ -218,11 +220,12 @@
     const origin = app.applicationOrigin === 'operatingSystem' ? '<span class="system-origin-chip">系统应用</span>' : '';
     const typeLabels={game:'游戏',gameLauncher:'游戏平台／启动器',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'类型未知'};
     const appType=app.appType||app.productType||'unknown';
-    const typeText=app.typeStatus==='suggested'?`疑似${typeLabels[appType]}`:app.typeStatus==='confirmed'?typeLabels[appType]:'类型未知';
+    const typeText=appType==='unknown'&&app.applicationOrigin==='operatingSystem'?'系统应用'
+      :app.typeStatus==='suggested'?`疑似${typeLabels[appType]}`:app.typeStatus==='confirmed'?typeLabels[appType]:'类型未知';
     const typeAndClass=`${typeText} · ${categoryLabels[app.classification]||'未归类'}`;
     const variants = visibleProductVariants(app);
     const variantDetails = variants.length ? `<details class="product-variants"><summary>${variants.length} 个产品变体</summary><div>${variants.map((variant) => `<article><strong>${escape(variant.displayName || '未命名变体')}</strong><span>${variant.platform === 'macos' ? 'macOS' : 'Windows'} · ${{main:'主入口',suiteMember:'套件入口',maintenance:'维护入口',helper:'辅助组件',hosted:'宿主内容',unknown:'待确认'}[variant.variantRole] || '待确认'} · ${variant.splitManaged ? '已拆分管理' : '继承产品设置'}</span></article>`).join('')}</div><button type="button" data-manage-variants>管理／拆分变体</button></details>` : '';
-    return `<article class="record-card product-record"><div class="app-record-main"><span class="app-icon">${escape((app.displayName || '?').slice(0, 1))}</span><div><strong>${escape(app.displayName || '未知应用')}</strong>${origin}<p><b class="app-type-classification">${escape(typeAndClass)}</b></p><p><span class="platform-chip ${escape(app.platform)}">${app.platform === 'macos' ? 'macOS' : 'Windows'}</span> · 最近使用 ${recent}${installation?` · ${installation}`:''}${variants.length?` · ${variants.length} 个变体`:''}</p><p>最近 30 天主账本 ${duration(mainDuration)} · ${coverage}</p>${app.classificationReason?`<p>${escape(app.classificationReason)}</p>`:''}${note||fallback?`<p>${escape([note,fallback].filter(Boolean).join(' · '))}</p>`:''}${variantDetails}</div></div>${actions?`<div class="record-actions" aria-label="${escape(app.displayName || '未知应用')} 分类操作">${actions}</div>`:''}</article>`;
+    return `<article class="record-card product-record"><div class="app-record-main"><span class="app-icon" aria-hidden="true">${escape((app.displayName || '?').slice(0, 1))}</span><div><strong>${escape(app.displayName || '未知应用')}</strong>${origin}<p><b class="app-type-classification">${escape(typeAndClass)}</b></p><p><span class="platform-chip ${escape(app.platform)}">${app.platform === 'macos' ? 'macOS' : 'Windows'}</span> · 最近使用 ${recent}${installation?` · ${installation}`:''}${variants.length?` · ${variants.length} 个变体`:''}</p><p>最近 30 天主账本 ${duration(mainDuration)} · ${coverage}</p>${app.classificationReason?`<p>${escape(app.classificationReason)}</p>`:''}${note||fallback?`<p>${escape([note,fallback].filter(Boolean).join(' · '))}</p>`:''}${variantDetails}</div></div>${actions?`<div class="record-actions" aria-label="${escape(app.displayName || '未知应用')} 分类操作">${actions}</div>`:''}</article>`;
   }
   function renderAppDirectory() {
     state.actionApps = [];

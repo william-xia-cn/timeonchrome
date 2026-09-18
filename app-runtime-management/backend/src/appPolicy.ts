@@ -17,6 +17,7 @@ import { isRecord } from './validation';
 import { identifyProducts, resolveApplication, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { effectiveApplicationKnowledge, queryInventoryScanStatus } from './applicationKnowledge';
 import type { AppEvidence, ApplicationOrigin, ApplicationOriginEvidenceCode } from '@timeonchrome/app-runtime-contracts/classification';
+import { operatingSystemPackageIds, technicalDistributionKeys } from './productCatalogRules';
 
 const classifications = new Set<ApplicationClassification>([
   'study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked',
@@ -34,7 +35,8 @@ type CatalogProjection = {
   projectionReasonCode: 'CONFIRMED_PRODUCT' | 'EXPLICIT_APPLICATION_CLASSIFICATION' | 'VERIFIED_APPLICATION'
     | 'INSTALLATION_PRODUCT' | 'COMPONENT' | 'DISCOVERY_CANDIDATE' | 'TECHNICAL_IDENTITY_ONLY'
     | 'AMBIGUOUS_INSTALLATION_PRODUCTS' | 'POSSIBLE_PRODUCT_VARIANT' | 'TECHNICAL_PRODUCT_REVIEW'
-    | 'UNCONFIRMED_APPLICATION_VARIANT';
+    | 'UNCONFIRMED_APPLICATION_VARIANT' | 'PACKAGE_CONTAINER' | 'LAUNCHABLE_PACKAGE_APP'
+    | 'LEGACY_CONTAINER_CLASSIFICATION';
 };
 
 type CatalogEntry = CatalogProjection & {
@@ -72,12 +74,6 @@ function normalizedCatalogFamilyHint(evidence: AppEvidence): string {
 }
 
 const knownGameProductNames = new Set(['aimlabs', 'apex legends']);
-const operatingSystemPackageFamilies = new Set([
-  'microsoftcorporationii.quickassist_8wekyb3d8bbwe',
-  'microsoft.windowsnotepad_8wekyb3d8bbwe',
-  'microsoft.windowscalculator_8wekyb3d8bbwe',
-]);
-
 function projectApplicationOrigin(evidence?: AppEvidence): {
   applicationOrigin: ApplicationOrigin;
   originEvidenceCode: ApplicationOriginEvidenceCode | null;
@@ -87,10 +83,29 @@ function projectApplicationOrigin(evidence?: AppEvidence): {
   }
   const packageId = evidence.values.packageId;
   if (!packageId) return { applicationOrigin: 'unknown', originEvidenceCode: null };
-  const family = packageId.split('!', 1)[0]!.trim().toLowerCase();
-  return operatingSystemPackageFamilies.has(family)
+  const normalized = packageId.trim().toLowerCase();
+  const family = normalized.split('!', 1)[0]!;
+  return operatingSystemPackageIds.has(normalized) || operatingSystemPackageIds.has(family)
     ? { applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule' }
     : { applicationOrigin: 'unknown', originEvidenceCode: null };
+}
+
+function isPackageContainer(evidence?: AppEvidence): boolean {
+  if (!evidence || evidence.platform !== 'windows' || evidence.discovery?.objectKind !== 'product'
+      || evidence.discovery.sourceKind !== 'user-packages' || !evidence.verifiedFields.includes('packageId')) return false;
+  const packageId = evidence.values.packageId;
+  return Boolean(packageId && !packageId.includes('!'));
+}
+
+function isLaunchablePackageApplication(evidence?: AppEvidence): boolean {
+  if (!evidence || evidence.platform !== 'windows' || evidence.discovery?.objectKind !== 'variant'
+      || evidence.discovery.role !== 'application' || !evidence.verifiedFields.includes('packageId')) return false;
+  return Boolean(evidence.values.packageId?.includes('!'));
+}
+
+function isTechnicalDistributionComponent(evidence?: AppEvidence): boolean {
+  const value = evidence?.verifiedFields.includes('distributionKey') ? evidence.values.distributionKey?.toLowerCase() : null;
+  return Boolean(value && technicalDistributionKeys.has(value));
 }
 
 function knownProductType(displayName: string | null): 'game' | null {
@@ -113,6 +128,14 @@ function projectCatalogEvidence(
   productId: string | null,
   explicitlyConfigured: boolean,
 ): CatalogProjection {
+  if (isPackageContainer(evidence)) {
+    return explicitlyConfigured
+      ? { catalogKind: 'candidate', manageability: 'review', projectionReasonCode: 'LEGACY_CONTAINER_CLASSIFICATION' }
+      : { catalogKind: 'component', manageability: 'hidden', projectionReasonCode: 'PACKAGE_CONTAINER' };
+  }
+  if (isTechnicalDistributionComponent(evidence)) {
+    return { catalogKind: 'component', manageability: 'hidden', projectionReasonCode: 'COMPONENT' };
+  }
   if (productId) return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'CONFIRMED_PRODUCT' };
   if (explicitlyConfigured) {
     return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'EXPLICIT_APPLICATION_CLASSIFICATION' };
@@ -125,6 +148,9 @@ function projectCatalogEvidence(
     return { catalogKind: 'product', manageability: 'actionable', projectionReasonCode: 'INSTALLATION_PRODUCT' };
   }
   if (evidence?.discovery?.objectKind === 'variant' && evidence.discovery.role === 'application') {
+    if (isLaunchablePackageApplication(evidence)) {
+      return { catalogKind: 'application', manageability: 'actionable', projectionReasonCode: 'LAUNCHABLE_PACKAGE_APP' };
+    }
     return { catalogKind: 'candidate', manageability: 'review', projectionReasonCode: 'UNCONFIRMED_APPLICATION_VARIANT' };
   }
   if (evidence?.discovery?.role === 'application' && hasStrongApplicationIdentity(evidence)) {
@@ -1022,6 +1048,8 @@ export async function queryAppCatalog(
     const ambiguityKey=item.runtimeIdentity===null?undefined:ambiguityByIdentity.get(identityKey);
     const possibleVariantKey=item.runtimeIdentity===null?undefined:possibleVariantByIdentity.get(identityKey);
     return item.productId?`${item.platform}\nproduct:${item.productId}`
+      :isPackageContainer(inventory.get(identityKey)?.evidence)?`${item.platform}\npackage-container:${item.runtimeIdentity}`
+        :isLaunchablePackageApplication(inventory.get(identityKey)?.evidence)?`${item.platform}\npackage-app:${item.runtimeIdentity}`
       :ambiguityKey&&item.manageability!=='actionable'?ambiguityKey
         :possibleVariantKey&&item.manageability!=='actionable'?possibleVariantKey
           :associations.get(identityKey)??identityKey;};
@@ -1044,19 +1072,29 @@ export async function queryAppCatalog(
       for(const machine of [...(used?.machines??[]),...(installed?.machines??[])])machines.add(machine);
       for(const user of [...(used?.users??[]),...(installed?.users??[])])users.add(user);
     }
+    for(const item of group){const key=`${item.platform}\n${item.runtimeIdentity}`,installed=inventory.get(key);
+      for(const machine of installed?.machines??[])machines.add(machine);
+      for(const user of installed?.users??[])users.add(user);
+    }
     const primary = [...group].sort((a,b)=>(a.discovery?.objectKind==='product'?0:1)-(b.discovery?.objectKind==='product'?0:1)
       ||(a.manageability==='actionable'?0:a.manageability==='review'?1:2)-(b.manageability==='actionable'?0:b.manageability==='review'?1:2)
       ||(a.discovery?.nameSource==='appList'?0:a.discovery?.role==='application'?1:2)-(b.discovery?.nameSource==='appList'?0:b.discovery?.role==='application'?1:2))[0]!;
     const hasConfirmedProduct=group.some(item=>item.productId);
     const hasExplicitClassification=group.some(item=>item.classificationStatus==='explicit');
+    const hasLegacyContainerClassification=group.some(item=>item.projectionReasonCode==='LEGACY_CONTAINER_CLASSIFICATION');
+    const hasPackageContainer=group.some(item=>item.projectionReasonCode==='PACKAGE_CONTAINER');
     const hasTechnicalReviewProduct=group.some(item=>item.discovery?.objectKind==='product'
       && item.projectionReasonCode==='TECHNICAL_PRODUCT_REVIEW');
     const aggregateProjection = hasConfirmedProduct
       ? {catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const}
+      : hasLegacyContainerClassification
+        ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'LEGACY_CONTAINER_CLASSIFICATION' as const}
       : hasExplicitClassification
         ? {catalogKind:'application' as const,manageability:'actionable' as const,projectionReasonCode:'EXPLICIT_APPLICATION_CLASSIFICATION' as const}
-        : hasTechnicalReviewProduct
+      : hasTechnicalReviewProduct
           ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'TECHNICAL_PRODUCT_REVIEW' as const}
+      : hasPackageContainer
+        ? {catalogKind:'component' as const,manageability:'hidden' as const,projectionReasonCode:'PACKAGE_CONTAINER' as const}
           : group.some(item=>item.discovery?.objectKind==='product'&&item.manageability==='actionable')
             ? {catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const}
       : group.some(item=>item.manageability==='actionable')
