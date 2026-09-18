@@ -56,39 +56,54 @@ function isPendingClassification(value: unknown) {
   return value === 'pending_composite' || value === 'unclassified';
 }
 
-export function isEligibleRestrictedReattributionSegment(row: any, requestId: string, weekStart: string, weekEnd: string) {
-  return !!row && row.channel === 'active' && row.target_rule_id === requestId &&
+export function isEligibleRestrictedReattributionSegment(
+  row: any,
+  requestId: string,
+  weekStart: string,
+  weekEnd: string,
+  clientRequestId?: string | null,
+) {
+  const ruleIds = new Set([requestId, clientRequestId].filter((value): value is string => !!value));
+  return !!row && row.channel === 'active' && ruleIds.has(row.target_rule_id) &&
     row.date >= weekStart && row.date <= weekEnd && isPendingClassification(row.target_classification_at_time) &&
     Number(row.duration_seconds || 0) >= 0;
 }
 
 async function requestReattributionContext(env: Env, profileId: string, requestId: string) {
   return env.DB.prepare(
-    `SELECT r.id, r.profile_id, r.decision, r.decided_at, p.account_id
+    `SELECT r.id, r.profile_id, r.client_request_id, r.decision, r.decided_at, p.account_id
        FROM site_classification_requests_v1 r
        JOIN profiles p ON p.id = r.profile_id
       WHERE r.id = ? AND r.profile_id = ?`
   ).bind(requestId, profileId).first<any>();
 }
 
-async function nextCorrectionGroup(env: Env, profileId: string, requestId: string, weekStart: string, weekEnd: string) {
+async function nextCorrectionGroup(
+  env: Env,
+  profileId: string,
+  requestId: string,
+  clientRequestId: string | null,
+  weekStart: string,
+  weekEnd: string,
+) {
   return env.DB.prepare(
     `SELECT s.device_id, s.date, s.domain
        FROM usage_segments_v1 s
        LEFT JOIN usage_segment_corrections_v1 c ON c.segment_id = s.id
-      WHERE s.profile_id = ? AND s.target_rule_id = ?
+      WHERE s.profile_id = ? AND s.target_rule_id IN (?, ?)
         AND s.date >= ? AND s.date <= ? AND s.channel = 'active'
         AND s.target_classification_at_time IN ('pending_composite', 'unclassified')
         AND c.segment_id IS NULL
       ORDER BY s.date ASC, s.device_id ASC, s.domain ASC, s.start_ms ASC, s.id ASC
       LIMIT 1`
-  ).bind(profileId, requestId, weekStart, weekEnd).first<any>();
+  ).bind(profileId, requestId, clientRequestId || requestId, weekStart, weekEnd).first<any>();
 }
 
 async function correctionGroupSegments(
   env: Env,
   profileId: string,
   requestId: string,
+  clientRequestId: string | null,
   weekStart: string,
   weekEnd: string,
   group: any,
@@ -99,15 +114,16 @@ async function correctionGroupSegments(
             s.target_classification_at_time, s.quota_bucket_at_time
        FROM usage_segments_v1 s
        LEFT JOIN usage_segment_corrections_v1 c ON c.segment_id = s.id
-      WHERE s.profile_id = ? AND s.target_rule_id = ?
+      WHERE s.profile_id = ? AND s.target_rule_id IN (?, ?)
         AND s.date >= ? AND s.date <= ? AND s.channel = 'active'
         AND s.target_classification_at_time IN ('pending_composite', 'unclassified')
         AND s.device_id = ? AND s.date = ? AND s.domain = ?
         AND c.segment_id IS NULL
       ORDER BY s.start_ms ASC, s.id ASC
       LIMIT ${AUTO_CORRECTION_BATCH_SIZE}`
-  ).bind(profileId, requestId, weekStart, weekEnd, group.device_id, group.date, group.domain).all<any>();
-  return (result.results || []).filter((row) => isEligibleRestrictedReattributionSegment(row, requestId, weekStart, weekEnd));
+  ).bind(profileId, requestId, clientRequestId || requestId, weekStart, weekEnd, group.device_id, group.date, group.domain).all<any>();
+  return (result.results || []).filter((row) =>
+    isEligibleRestrictedReattributionSegment(row, requestId, weekStart, weekEnd, clientRequestId));
 }
 
 export async function applyRestrictedReattributionForRequest(
@@ -122,15 +138,18 @@ export async function applyRestrictedReattributionForRequest(
   }
 
   const { weekStart, weekEnd } = getBeijingWeekForTimestamp(Number(context.decided_at));
+  const clientRequestId = typeof context.client_request_id === 'string' && context.client_request_id
+    ? context.client_request_id
+    : null;
   const maxBatches = Math.max(1, Math.min(AUTO_CORRECTION_MAX_BATCHES, Number(options.maxBatches || AUTO_CORRECTION_MAX_BATCHES)));
   let segmentCount = 0;
   let durationSeconds = 0;
   let batchCount = 0;
 
   while (batchCount < maxBatches) {
-    const group = await nextCorrectionGroup(env, profileId, requestId, weekStart, weekEnd);
+    const group = await nextCorrectionGroup(env, profileId, requestId, clientRequestId, weekStart, weekEnd);
     if (!group) break;
-    const segments = await correctionGroupSegments(env, profileId, requestId, weekStart, weekEnd, group);
+    const segments = await correctionGroupSegments(env, profileId, requestId, clientRequestId, weekStart, weekEnd, group);
     if (segments.length === 0) break;
 
     const batchId = crypto.randomUUID();
@@ -160,7 +179,7 @@ export async function applyRestrictedReattributionForRequest(
     batchCount += 1;
   }
 
-  const remaining = await nextCorrectionGroup(env, profileId, requestId, weekStart, weekEnd);
+  const remaining = await nextCorrectionGroup(env, profileId, requestId, clientRequestId, weekStart, weekEnd);
   return {
     requestId,
     applicable: true,
@@ -182,8 +201,9 @@ export async function processRestrictedReattributions(
   if (options.profileId) { where.push('r.profile_id = ?'); binds.push(options.profileId); }
   const requestIds = [...new Set((options.requestIds || []).filter(Boolean))];
   if (requestIds.length > 0) {
-    where.push(`r.id IN (${requestIds.map(() => '?').join(',')})`);
-    binds.push(...requestIds);
+    const placeholders = requestIds.map(() => '?').join(',');
+    where.push(`(r.id IN (${placeholders}) OR r.client_request_id IN (${placeholders}))`);
+    binds.push(...requestIds, ...requestIds);
   } else {
     where.push('r.decided_at >= ?');
     binds.push(Number(options.since || Date.now() - 14 * DAY_MS));

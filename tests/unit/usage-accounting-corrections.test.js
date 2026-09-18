@@ -138,6 +138,10 @@ assert.strictEqual(isEligibleRestrictedReattributionSegment({
   channel: 'active', target_rule_id: 'another-request', date: '2026-09-18',
   target_classification_at_time: 'pending_composite', duration_seconds: 30,
 }, 'request-1', '2026-09-14', '2026-09-20'), false, 'another request must not be matched by domain');
+assert.strictEqual(isEligibleRestrictedReattributionSegment({
+  channel: 'active', target_rule_id: 'client-request-1', date: '2026-09-18',
+  target_classification_at_time: 'pending_composite', duration_seconds: 30,
+}, 'request-1', '2026-09-14', '2026-09-20', 'client-request-1'), true, 'client request id must preserve exact linkage');
 
 function statement(sql) {
   return {
@@ -155,7 +159,7 @@ const fakeDb = {
   prepare(sql) { return statement(sql); },
   async first(stmt) {
     if (stmt.sql.includes('FROM site_classification_requests_v1 r')) {
-      return { id: 'request-1', profile_id: 'profile-1', decision: 'reject', decided_at: Date.parse('2026-09-18T03:00:00Z'), account_id: 'account-1' };
+      return { id: 'request-1', profile_id: 'profile-1', client_request_id: 'client-request-1', decision: 'reject', decided_at: Date.parse('2026-09-18T03:00:00Z'), account_id: 'account-1' };
     }
     if (stmt.sql.includes('SELECT s.device_id, s.date, s.domain')) {
       return corrected ? null : { device_id: 'device-1', date: '2026-09-18', domain: 'example.com' };
@@ -165,8 +169,8 @@ const fakeDb = {
   async all(stmt) {
     if (stmt.sql.includes('SELECT s.id, s.profile_id')) {
       return { results: [
-        { id: 'segment-a', profile_id: 'profile-1', device_id: 'device-1', date: '2026-09-18', domain: 'example.com', start_ms: 1, end_ms: 121001, duration_seconds: 120, channel: 'active', mode: 'composite', target_classification_at_time: 'pending_composite', quota_bucket_at_time: 'composite', target_rule_id: 'request-1' },
-        { id: 'segment-b', profile_id: 'profile-1', device_id: 'device-1', date: '2026-09-18', domain: 'example.com', start_ms: 122001, end_ms: 302001, duration_seconds: 180, channel: 'active', mode: 'rest', target_classification_at_time: 'pending_composite', quota_bucket_at_time: 'rest', target_rule_id: 'request-1' },
+        { id: 'segment-a', profile_id: 'profile-1', device_id: 'device-1', date: '2026-09-18', domain: 'example.com', start_ms: 1, end_ms: 121001, duration_seconds: 120, channel: 'active', mode: 'composite', target_classification_at_time: 'pending_composite', quota_bucket_at_time: 'composite', target_rule_id: 'client-request-1' },
+        { id: 'segment-b', profile_id: 'profile-1', device_id: 'device-1', date: '2026-09-18', domain: 'example.com', start_ms: 122001, end_ms: 302001, duration_seconds: 180, channel: 'active', mode: 'rest', target_classification_at_time: 'pending_composite', quota_bucket_at_time: 'rest', target_rule_id: 'client-request-1' },
       ] };
     }
     throw new Error(`unexpected all SQL: ${stmt.sql}`);

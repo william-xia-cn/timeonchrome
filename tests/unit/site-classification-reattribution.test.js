@@ -18,7 +18,8 @@ assert(statsRoute.includes('ctx.waitUntil(reattributionWork)'));
 assert(worker.includes('processRestrictedReattributions(env, { maxBatchesPerRequest: 4 })'));
 
 assert(service.includes("s.channel = 'active'"));
-assert(service.includes("s.target_rule_id = ?"));
+assert(service.includes('s.target_rule_id IN (?, ?)'));
+assert(service.includes('r.client_request_id IN'));
 assert(service.includes('s.mode, s.target_rule_id,'), 'candidate rows must carry request identity into the eligibility guard');
 assert(service.includes("s.target_classification_at_time IN ('pending_composite', 'unclassified')"));
 assert(!service.includes('media_segments_v1'));

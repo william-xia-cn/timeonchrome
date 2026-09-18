@@ -1326,8 +1326,8 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 ### 未归类转受限娱乐的本周自动调账（D-093）
 
-- 家长将一条未归类审核记录决定为受限娱乐（内部 decision `reject`）后，Worker 以该记录的 `requestId` 为唯一关联键，处理决定发生所在北京时间周内的 `active` 网页分段。
-- 仅 `target_rule_id = requestId` 且原分类为 `pending_composite` / `unclassified` 的分段可自动调账；旧分段缺少精确关联时保持不变并留待人工核查，禁止仅凭同域名批量迁移。
+- 家长将一条未归类审核记录决定为受限娱乐（内部 decision `reject`）后，Worker 以该记录的服务器 `id` 与上传时保留的 `client_request_id` 作为同一审核记录的精确关联键，处理决定发生所在北京时间周内的 `active` 网页分段。
+- 仅 `target_rule_id` 精确等于该记录 `id` 或 `client_request_id`，且原分类为 `pending_composite` / `unclassified` 的分段可自动调账；旧分段缺少精确关联时保持不变并留待人工核查，禁止仅凭同域名批量迁移。
 - effective projection 固定为 `restricted + rest mode + rest quota bucket`。原始 segment、duration、domain、上传确认和媒体账均不改；原 Rest bucket 不重复增加，原 Composite bucket 才转入 Rest。
 - 同一 correction 同时驱动 V1 统计读取、V2 设备/档案账和终端配额读模型，因此“今日”和“本周”只是同一有效账的不同聚合范围，不分别保存调账结果。
 - 审核完成时立即补调云端已有分段；之后迟到上传、但仍携带同一 `targetRuleId` 的本周分段在入库后继续幂等补调。定时自愈会重扫近期已决定为受限娱乐的审核记录，避免瞬时失败永久漏调。
