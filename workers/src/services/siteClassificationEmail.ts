@@ -7,9 +7,14 @@ import {
   ensureUnclassifiedSiteRequest,
   getProfileSiteAccessConfig,
 } from '../routes/siteClassificationRequests';
+import {
+  loadAccountNotificationSettings,
+  loadProfileUnclassifiedNotificationSettings,
+} from './notificationSettings';
 
+// Keep the legacy notification type so an already-created row remains the
+// profile/date/host idempotency key after the threshold changes.
 const NOTIFICATION_TYPE = 'daily_unclassified_15m';
-const THRESHOLD_SECONDS = 900;
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_EMAIL_BYTES = 1024 * 1024;
 const RETRY_DELAYS_MS = [5 * 60 * 1000, 30 * 60 * 1000, 2 * 60 * 60 * 1000];
@@ -37,6 +42,7 @@ type NotificationRow = {
   account_id: string;
   canonical_host: string;
   usage_date: string;
+  threshold_seconds: number;
   observed_seconds: number;
   status: string;
   expires_at: number;
@@ -46,17 +52,35 @@ type NotificationRow = {
   request_status?: string;
 };
 
+type TelegramNotificationRow = {
+  id: string;
+  profile_id: string;
+  request_id: string;
+  account_id: string;
+  canonical_host: string;
+  usage_date: string;
+  threshold_seconds: number;
+  observed_seconds: number;
+  telegram_chat_id: string;
+  status: string;
+  attempt_count: number;
+  child_name?: string;
+  request_status?: string;
+};
+
 export function isEmailClassificationEnabled(env: Env): boolean {
-  return /^(1|true|enabled|on)$/i.test(String(env.EMAIL_CLASSIFICATION_ENABLED || '').trim());
+  const configured = String(env.EMAIL_CLASSIFICATION_ENABLED || '').trim();
+  if (configured) return /^(1|true|enabled|on)$/i.test(configured);
+  return Boolean(env.RESEND_API_KEY && env.EMAIL_ACTION_SECRET);
 }
 
 export function isEmailClassificationProfileEnabled(env: Env, profileId: string): boolean {
-  if (!isEmailClassificationEnabled(env)) return false;
-  const allowed = String(env.EMAIL_CLASSIFICATION_PROFILE_IDS || '')
-    .split(/[\s,;]+/)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return allowed.includes('*') || allowed.includes(String(profileId || '').trim());
+  void profileId;
+  return isEmailClassificationEnabled(env);
+}
+
+function shanghaiDateKey(now: number): string {
+  return new Date(now + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function normalizeObservedHost(value: unknown): string | null {
@@ -154,7 +178,7 @@ function formatDuration(seconds: number): string {
   return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`;
 }
 
-async function sendResendEmail(
+export async function sendResendEmail(
   env: Env,
   input: { from?: string; to: string; subject: string; text: string; html: string; replyTo?: string; headers?: Record<string, string> },
 ): Promise<string | null> {
@@ -178,6 +202,26 @@ async function sendResendEmail(
   if (!response.ok) throw new Error(`RESEND_HTTP_${response.status}`);
   const result: { id?: string } = await response.json<{ id?: string }>().catch(() => ({}));
   return result.id || null;
+}
+
+export async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<string | null> {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN_MISSING');
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: true,
+    }),
+  });
+  if (!response.ok) throw new Error(`TELEGRAM_HTTP_${response.status}`);
+  const result = await response.json<{
+    ok?: boolean;
+    result?: { message_id?: number | string };
+  }>().catch(() => ({} as { ok?: boolean; result?: { message_id?: number | string } }));
+  if (result.ok !== true) throw new Error('TELEGRAM_INVALID_RESPONSE');
+  return result.result?.message_id == null ? null : String(result.result.message_id);
 }
 
 async function loadDailyUsageAggregates(env: Env, profileId: string, date: string): Promise<UsageAggregate[]> {
@@ -219,21 +263,40 @@ export async function evaluateDailyUnclassifiedEmailNotifications(
   profileId: string,
   date: string,
   now = Date.now(),
-): Promise<{ evaluated: boolean; queued: number }> {
-  if (!isEmailClassificationProfileEnabled(env, profileId)) return { evaluated: false, queued: 0 };
-  if (!env.EMAIL_ACTION_SECRET) throw new Error('EMAIL_ACTION_SECRET_MISSING');
+): Promise<{ evaluated: boolean; queued: number; emailQueued: number; telegramQueued: number }> {
+  const featureSettings = await loadProfileUnclassifiedNotificationSettings(env, profileId);
+  if (!featureSettings.enabled) {
+    return { evaluated: false, queued: 0, emailQueued: 0, telegramQueued: 0 };
+  }
 
   const profile = await env.DB.prepare(
     `SELECT p.account_id, a.email
      FROM profiles p JOIN accounts a ON a.id = p.account_id
      WHERE p.id = ?`
   ).bind(profileId).first<{ account_id: string; email: string }>();
-  if (!profile?.account_id || !profile.email) return { evaluated: true, queued: 0 };
+  if (!profile?.account_id) {
+    return { evaluated: true, queued: 0, emailQueued: 0, telegramQueued: 0 };
+  }
+  const accountSettings = await loadAccountNotificationSettings(env, profile.account_id);
+  const emailEnabled = accountSettings.emailEnabled
+    && isEmailClassificationEnabled(env)
+    && Boolean(env.EMAIL_ACTION_SECRET)
+    && Boolean(env.RESEND_API_KEY)
+    && Boolean(profile.email);
+  const telegramEnabled = accountSettings.telegramEnabled
+    && accountSettings.telegramConnected
+    && Boolean(accountSettings.telegramChatId)
+    && Boolean(env.TELEGRAM_BOT_TOKEN);
+  if (!emailEnabled && !telegramEnabled) {
+    return { evaluated: false, queued: 0, emailQueued: 0, telegramQueued: 0 };
+  }
+  const thresholdSeconds = featureSettings.thresholdMinutes * 60;
 
   const aggregates = await loadDailyUsageAggregates(env, profileId, date);
-  let queued = 0;
+  let emailQueued = 0;
+  let telegramQueued = 0;
   for (const usage of aggregates) {
-    if (usage.totalSeconds < THRESHOLD_SECONDS) continue;
+    if (usage.totalSeconds < thresholdSeconds) continue;
     if (!usage.dayEndMs || now > usage.dayEndMs + 24 * 60 * 60 * 1000) continue;
 
     const ensured = await ensureUnclassifiedSiteRequest(env, profileId, {
@@ -246,31 +309,131 @@ export async function evaluateDailyUnclassifiedEmailNotifications(
     });
     if (!ensured.ok || ensured.alreadyClassified || !ensured.request?.id) continue;
 
-    const notificationId = randomPublicId();
-    const insert = await env.DB.prepare(
-      `INSERT OR IGNORE INTO site_classification_email_notifications_v1
-       (id, notification_type, profile_id, request_id, account_id, canonical_host,
-        usage_date, threshold_seconds, observed_seconds, status, expires_at,
-        attempt_count, next_attempt_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, ?, ?, ?)`
-    ).bind(
-      notificationId,
-      NOTIFICATION_TYPE,
-      profileId,
-      ensured.request.id,
-      profile.account_id,
-      usage.canonicalHost,
-      date,
-      THRESHOLD_SECONDS,
-      usage.totalSeconds,
-      now + TOKEN_TTL_MS,
-      now,
-      now,
-      now,
-    ).run();
-    if (Number(insert.meta?.changes || 0) === 1) queued++;
+    if (emailEnabled && profile.email) {
+      const notificationId = randomPublicId();
+      const insert = await env.DB.prepare(
+        `INSERT INTO site_classification_email_notifications_v1
+         (id, notification_type, profile_id, request_id, account_id, canonical_host,
+          usage_date, threshold_seconds, observed_seconds, status, expires_at,
+          attempt_count, next_attempt_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 0, ?, ?, ?)
+         ON CONFLICT(profile_id, usage_date, canonical_host, notification_type) DO UPDATE SET
+           request_id = excluded.request_id,
+           threshold_seconds = excluded.threshold_seconds,
+           observed_seconds = excluded.observed_seconds,
+           status = 'queued',
+           expires_at = excluded.expires_at,
+           attempt_count = 0,
+           next_attempt_at = excluded.next_attempt_at,
+           last_error_code = NULL,
+           updated_at = excluded.updated_at
+         WHERE site_classification_email_notifications_v1.status = 'superseded'
+            OR (site_classification_email_notifications_v1.threshold_seconds <> excluded.threshold_seconds
+                AND site_classification_email_notifications_v1.status NOT IN ('sent', 'consumed'))`
+      ).bind(
+        notificationId,
+        NOTIFICATION_TYPE,
+        profileId,
+        ensured.request.id,
+        profile.account_id,
+        usage.canonicalHost,
+        date,
+        thresholdSeconds,
+        usage.totalSeconds,
+        now + TOKEN_TTL_MS,
+        now,
+        now,
+        now,
+      ).run();
+      if (Number(insert.meta?.changes || 0) === 1) emailQueued++;
+    }
+
+    if (telegramEnabled) {
+      const telegramId = crypto.randomUUID();
+      const insert = await env.DB.prepare(
+        `INSERT INTO site_classification_telegram_notifications_v1
+         (id, profile_id, request_id, account_id, canonical_host, usage_date,
+          threshold_seconds, observed_seconds, telegram_chat_id, status,
+          attempt_count, next_attempt_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?)
+         ON CONFLICT(profile_id, usage_date, canonical_host) DO UPDATE SET
+           request_id = excluded.request_id,
+           threshold_seconds = excluded.threshold_seconds,
+           observed_seconds = excluded.observed_seconds,
+           telegram_chat_id = excluded.telegram_chat_id,
+           status = 'queued',
+           attempt_count = 0,
+           next_attempt_at = excluded.next_attempt_at,
+           last_error_code = NULL,
+           updated_at = excluded.updated_at
+         WHERE site_classification_telegram_notifications_v1.status = 'superseded'
+            OR site_classification_telegram_notifications_v1.telegram_chat_id <> excluded.telegram_chat_id
+            OR (site_classification_telegram_notifications_v1.threshold_seconds <> excluded.threshold_seconds
+                AND site_classification_telegram_notifications_v1.status <> 'sent')`
+      ).bind(
+        telegramId,
+        profileId,
+        ensured.request.id,
+        profile.account_id,
+        usage.canonicalHost,
+        date,
+        thresholdSeconds,
+        usage.totalSeconds,
+        accountSettings.telegramChatId,
+        now,
+        now,
+        now,
+      ).run();
+      if (Number(insert.meta?.changes || 0) === 1) telegramQueued++;
+    }
   }
-  return { evaluated: true, queued };
+  return {
+    evaluated: true,
+    queued: emailQueued + telegramQueued,
+    emailQueued,
+    telegramQueued,
+  };
+}
+
+export async function scanCurrentDayUnclassifiedEmailNotifications(
+  env: Env,
+  now = Date.now(),
+): Promise<{ evaluated: boolean; profiles: number; queued: number; failedProfiles: number }> {
+  const emailCapability = isEmailClassificationEnabled(env)
+    && Boolean(env.EMAIL_ACTION_SECRET)
+    && Boolean(env.RESEND_API_KEY);
+  const telegramCapability = Boolean(env.TELEGRAM_BOT_TOKEN);
+  if (!emailCapability && !telegramCapability) {
+    return { evaluated: false, profiles: 0, queued: 0, failedProfiles: 0 };
+  }
+  const date = shanghaiDateKey(now);
+  const candidates = await env.DB.prepare(
+    `SELECT DISTINCT profile_id
+     FROM target_stats_v1
+     WHERE date = ?
+       AND target_classification_at_time IN ('unclassified', 'pending_composite')
+       AND duration_seconds > 0
+     ORDER BY profile_id
+     LIMIT 100`
+  ).bind(date).all<{ profile_id: string }>();
+  let profiles = 0;
+  let queued = 0;
+  let failedProfiles = 0;
+  for (const row of candidates.results || []) {
+    const profileId = String(row.profile_id || '').trim();
+    if (!profileId) continue;
+    profiles++;
+    try {
+      const result = await evaluateDailyUnclassifiedEmailNotifications(env, profileId, date, now);
+      queued += result.queued;
+    } catch (error: any) {
+      failedProfiles++;
+      console.warn('[site-classification-email] profile scan failed', {
+        error: String(error?.message || error || 'unknown').slice(0, 160),
+      });
+    }
+  }
+  return { evaluated: true, profiles, queued, failedProfiles };
 }
 
 async function markNotificationTerminal(env: Env, id: string, status: string, errorCode: string | null, now: number) {
@@ -283,6 +446,10 @@ async function markNotificationTerminal(env: Env, id: string, status: string, er
 
 async function deliverNotification(env: Env, notification: NotificationRow, now: number): Promise<void> {
   if (!env.EMAIL_ACTION_SECRET) throw new Error('EMAIL_ACTION_SECRET_MISSING');
+  if (Number(notification.observed_seconds || 0) < Number(notification.threshold_seconds || 0)) {
+    await markNotificationTerminal(env, notification.id, 'superseded', 'THRESHOLD_NOT_REACHED', now);
+    return;
+  }
   if (notification.request_status !== 'pending') {
     await markNotificationTerminal(env, notification.id, 'superseded', 'REQUEST_NOT_PENDING', now);
     return;
@@ -302,8 +469,9 @@ async function deliverNotification(env: Env, notification: NotificationRow, now:
   const token = await createSignedToken(notification.id, env.EMAIL_ACTION_SECRET);
   const replyTo = `reply+${token}@hornburg-xia.uk`;
   const duration = formatDuration(Number(notification.observed_seconds || 0));
+  const thresholdMinutes = Math.max(1, Math.ceil(Number(notification.threshold_seconds || 0) / 60));
   const childName = notification.child_name || '孩子档案';
-  const subject = `[TimeOnChrome] ${childName} 使用未归类网站已超过 15 分钟`;
+  const subject = `[TimeOnChrome] ${childName} 使用未归类网站已达到 ${thresholdMinutes} 分钟`;
   const commands = '请直接回复一条命令：学习、复合、受限娱乐、黑名单、暂不处理。';
   const text = `${childName} 在 ${notification.usage_date} 使用未归类网站 ${notification.canonical_host}，累计 ${duration}。\n\n${commands}\n\n回复命令 7 天内有效，且仅在记录仍待处理时生效。`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;line-height:1.7;color:#18342d"><h2>未归类网站需要确认</h2><p><strong>${escapeHtml(childName)}</strong> 在 ${escapeHtml(notification.usage_date)} 使用 <strong>${escapeHtml(notification.canonical_host)}</strong>，累计 ${escapeHtml(duration)}。</p><p>${escapeHtml(commands)}</p><p style="color:#637c75;font-size:13px">回复命令 7 天内有效，且仅在记录仍待处理时生效。</p></div>`;
@@ -346,8 +514,17 @@ export async function processEmailClassificationOutbox(
   let sent = 0;
   let failed = 0;
   for (const row of rows.results || []) {
-    if (!isEmailClassificationProfileEnabled(env, row.profile_id)) continue;
     try {
+      const featureSettings = await loadProfileUnclassifiedNotificationSettings(env, row.profile_id);
+      const settings = await loadAccountNotificationSettings(env, row.account_id);
+      if (!featureSettings.enabled || !settings.emailEnabled) {
+        await markNotificationTerminal(env, row.id, 'superseded', 'CHANNEL_DISABLED', now);
+        continue;
+      }
+      if (Number(row.observed_seconds || 0) < featureSettings.thresholdMinutes * 60) {
+        await markNotificationTerminal(env, row.id, 'superseded', 'THRESHOLD_NOT_REACHED', now);
+        continue;
+      }
       await deliverNotification(env, row, now);
       const current = await env.DB.prepare(
         `SELECT status FROM site_classification_email_notifications_v1 WHERE id = ?`
@@ -367,6 +544,125 @@ export async function processEmailClassificationOutbox(
         attempts,
         status === 'retry' ? now + retryDelay : null,
         String(error?.message || 'EMAIL_SEND_FAILED').slice(0, 120),
+        now,
+        row.id,
+      ).run();
+    }
+  }
+  return { processed: (rows.results || []).length, sent, failed };
+}
+
+async function markTelegramNotificationTerminal(
+  env: Env,
+  id: string,
+  status: string,
+  errorCode: string | null,
+  now: number,
+) {
+  await env.DB.prepare(
+    `UPDATE site_classification_telegram_notifications_v1
+     SET status = ?, last_error_code = ?, next_attempt_at = NULL, updated_at = ?
+     WHERE id = ?`
+  ).bind(status, errorCode, now, id).run();
+}
+
+async function deliverTelegramNotification(
+  env: Env,
+  notification: TelegramNotificationRow,
+  now: number,
+): Promise<void> {
+  if (Number(notification.observed_seconds || 0) < Number(notification.threshold_seconds || 0)) {
+    await markTelegramNotificationTerminal(env, notification.id, 'superseded', 'THRESHOLD_NOT_REACHED', now);
+    return;
+  }
+  if (notification.request_status !== 'pending') {
+    await markTelegramNotificationTerminal(env, notification.id, 'superseded', 'REQUEST_NOT_PENDING', now);
+    return;
+  }
+
+  const config = await getProfileSiteAccessConfig(env, notification.profile_id);
+  const current = resolveSiteAccessClassification(config || {}, [], notification.canonical_host);
+  if (current.classification && current.classification !== 'unclassified' && current.classification !== 'pending_composite') {
+    await markTelegramNotificationTerminal(env, notification.id, 'superseded', 'ALREADY_CLASSIFIED', now);
+    return;
+  }
+
+  const thresholdMinutes = Math.max(1, Math.ceil(Number(notification.threshold_seconds || 0) / 60));
+  const childName = notification.child_name || '孩子档案';
+  const duration = formatDuration(Number(notification.observed_seconds || 0));
+  const text = [
+    'TimeOnChrome 未归类网站提醒',
+    '',
+    `孩子：${childName}`,
+    `日期：${notification.usage_date}`,
+    `网站：${notification.canonical_host}`,
+    `当日使用：${duration}`,
+    `触发阈值：${thresholdMinutes} 分钟`,
+    '',
+    '请打开家长控制台完成分类：',
+    'https://timeonchrome-console.pages.dev/',
+  ].join('\n');
+  const outboundId = await sendTelegramMessage(env, notification.telegram_chat_id, text);
+  await env.DB.prepare(
+    `UPDATE site_classification_telegram_notifications_v1
+     SET status = 'sent', sent_at = ?, outbound_message_id = ?, attempt_count = attempt_count + 1,
+         next_attempt_at = NULL, last_error_code = NULL, updated_at = ?
+     WHERE id = ?`
+  ).bind(now, outboundId, now, notification.id).run();
+}
+
+export async function processTelegramClassificationOutbox(
+  env: Env,
+  options: { notificationId?: string; now?: number } = {},
+): Promise<{ processed: number; sent: number; failed: number }> {
+  if (!env.TELEGRAM_BOT_TOKEN) return { processed: 0, sent: 0, failed: 0 };
+  const now = options.now ?? Date.now();
+  const where = options.notificationId
+    ? `n.id = ? AND n.status IN ('queued', 'retry')`
+    : `n.status IN ('queued', 'retry') AND COALESCE(n.next_attempt_at, 0) <= ?`;
+  const rows = await env.DB.prepare(
+    `SELECT n.*, p.name AS child_name, r.status AS request_status
+     FROM site_classification_telegram_notifications_v1 n
+     JOIN profiles p ON p.id = n.profile_id
+     JOIN site_classification_requests_v1 r ON r.id = n.request_id
+     WHERE ${where}
+     ORDER BY n.created_at ASC
+     LIMIT 50`
+  ).bind(options.notificationId || now).all<TelegramNotificationRow>();
+
+  let sent = 0;
+  let failed = 0;
+  for (const row of rows.results || []) {
+    try {
+      const featureSettings = await loadProfileUnclassifiedNotificationSettings(env, row.profile_id);
+      const settings = await loadAccountNotificationSettings(env, row.account_id);
+      if (!featureSettings.enabled || !settings.telegramEnabled || !settings.telegramConnected || settings.telegramChatId !== row.telegram_chat_id) {
+        await markTelegramNotificationTerminal(env, row.id, 'superseded', 'CHANNEL_DISABLED', now);
+        continue;
+      }
+      if (Number(row.observed_seconds || 0) < featureSettings.thresholdMinutes * 60) {
+        await markTelegramNotificationTerminal(env, row.id, 'superseded', 'THRESHOLD_NOT_REACHED', now);
+        continue;
+      }
+      await deliverTelegramNotification(env, row, now);
+      const current = await env.DB.prepare(
+        `SELECT status FROM site_classification_telegram_notifications_v1 WHERE id = ?`
+      ).bind(row.id).first<{ status: string }>();
+      if (current?.status === 'sent') sent++;
+    } catch (error: any) {
+      failed++;
+      const attempts = Number(row.attempt_count || 0) + 1;
+      const retryDelay = RETRY_DELAYS_MS[attempts - 1];
+      const status = attempts >= 4 || retryDelay == null ? 'send_failed' : 'retry';
+      await env.DB.prepare(
+        `UPDATE site_classification_telegram_notifications_v1
+         SET status = ?, attempt_count = ?, next_attempt_at = ?, last_error_code = ?, updated_at = ?
+         WHERE id = ?`
+      ).bind(
+        status,
+        attempts,
+        status === 'retry' ? now + retryDelay : null,
+        String(error?.message || 'TELEGRAM_SEND_FAILED').slice(0, 120),
         now,
         row.id,
       ).run();

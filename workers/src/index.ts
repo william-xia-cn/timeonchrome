@@ -15,7 +15,10 @@ import { siteClassificationRequestsRouter } from './routes/siteClassificationReq
 import {
   handleSiteClassificationReplyEmail,
   processEmailClassificationOutbox,
+  processTelegramClassificationOutbox,
+  scanCurrentDayUnclassifiedEmailNotifications,
 } from './services/siteClassificationEmail';
+import { notificationSettingsRouter } from './routes/notificationSettings';
 import { clientLogsRouter } from './routes/clientLogs';
 import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
@@ -119,7 +122,8 @@ export interface Env {
   RESEND_API_KEY?: string;
   EMAIL_ACTION_SECRET?: string;
   EMAIL_CLASSIFICATION_ENABLED?: string;
-  EMAIL_CLASSIFICATION_PROFILE_IDS?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  GUARDIAN_PUBLIC_BASE_URL?: string;
   NATIVE_APP_TOKEN_PRIVATE_JWK?: string;
   NATIVE_APP_API_BASE_URL?: string;
   NATIVE_APP_BRIDGE_ISSUER?: string;
@@ -166,6 +170,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
     return await siteClassificationRequestsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/site-classification-requests/)) {
     return await siteClassificationRequestsRouter.handle(request, env);
+  } else if (notificationSettingsRouter.matches(path)) {
+    return await notificationSettingsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
     return await compositeSessionsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/changelog/)) {
@@ -366,7 +372,16 @@ export default {
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     const work: Promise<unknown>[] = [
-      processEmailClassificationOutbox(env),
+      scanCurrentDayUnclassifiedEmailNotifications(env)
+        .catch((error) => {
+          console.warn('[site-classification-email] current-day scan failed', {
+            error: String((error as any)?.message || error || 'unknown').slice(0, 160),
+          });
+        })
+        .then(() => Promise.all([
+          processEmailClassificationOutbox(env),
+          processTelegramClassificationOutbox(env),
+        ])),
       processNativeAppLifecycleOutbox(env),
       processAppRuntimeLifecycleOutbox(env),
       processRestrictedReattributions(env, { maxBatchesPerRequest: 4 }),

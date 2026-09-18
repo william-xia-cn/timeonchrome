@@ -50,6 +50,7 @@ function loadHelpers(source) {
   const names = [
     'isEmailClassificationEnabled',
     'isEmailClassificationProfileEnabled',
+    'shanghaiDateKey',
     'normalizeObservedHost',
     'fallbackDayEndMs',
     'bytesToBase64Url',
@@ -62,7 +63,7 @@ function loadHelpers(source) {
     'loadDailyUsageAggregates',
   ];
   const snippet = [
-    "const THRESHOLD_SECONDS = 900;",
+    "const THRESHOLD_SECONDS = 30 * 60;",
     ...names.map((name) => extractFunction(source, name)),
     `this.__helpers = { ${names.join(', ')} };`,
   ].join('\n');
@@ -117,17 +118,19 @@ async function run() {
   const migration = fs.readFileSync(path.join(root, 'workers', 'migrations', '021_site_classification_email_notifications_v1.sql'), 'utf8');
   const helpers = loadHelpers(source);
 
-  expectEqual('email classification defaults disabled', helpers.isEmailClassificationEnabled({}), false);
+  expectEqual('email classification without mail credentials stays disabled', helpers.isEmailClassificationEnabled({}), false);
+  expectEqual('mail credentials enable classification email by default', helpers.isEmailClassificationEnabled({ RESEND_API_KEY: 'test', EMAIL_ACTION_SECRET: 'test' }), true);
+  expectEqual('explicit false remains an emergency kill switch', helpers.isEmailClassificationEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'false', RESEND_API_KEY: 'test', EMAIL_ACTION_SECRET: 'test' }), false);
   expectEqual('email classification accepts explicit true', helpers.isEmailClassificationEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'true' }), true);
-  expectEqual('enabled flag without profile allowlist remains disabled for profile', helpers.isEmailClassificationProfileEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'true' }, 'profile-a'), false);
-  expectEqual('profile allowlist enables only selected profile', helpers.isEmailClassificationProfileEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'true', EMAIL_CLASSIFICATION_PROFILE_IDS: 'profile-a,profile-b' }, 'profile-b'), true);
-  expectEqual('profile allowlist rejects unlisted profile', helpers.isEmailClassificationProfileEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'true', EMAIL_CLASSIFICATION_PROFILE_IDS: 'profile-a,profile-b' }, 'profile-c'), false);
-  expectEqual('wildcard allowlist supports later global rollout', helpers.isEmailClassificationProfileEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'true', EMAIL_CLASSIFICATION_PROFILE_IDS: '*' }, 'profile-c'), true);
+  expectEqual('enabled flag without profile allowlist includes all profiles', helpers.isEmailClassificationProfileEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'true' }, 'profile-a'), true);
+  expectEqual('legacy profile allowlist no longer gates business notifications', helpers.isEmailClassificationProfileEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'true', EMAIL_CLASSIFICATION_PROFILE_IDS: 'profile-a' }, 'profile-c'), true);
+  expectEqual('global email emergency switch still applies to every profile', helpers.isEmailClassificationProfileEnabled({ EMAIL_CLASSIFICATION_ENABLED: 'false', EMAIL_CLASSIFICATION_PROFILE_IDS: '*' }, 'profile-c'), false);
   expectEqual('www host uses canonical site identity', helpers.normalizeObservedHost('https://www.example.com/path'), 'example.com');
   expectEqual('m host uses canonical site identity', helpers.normalizeObservedHost('m.example.com'), 'example.com');
   expectEqual('service subdomain stays independent', helpers.normalizeObservedHost('docs.example.com'), 'docs.example.com');
   expectEqual('first plain command is extracted', helpers.firstReplyCommand('\n学习\n\n> old reply'), '学习');
   expectEqual('quoted content is not accepted as a command', helpers.firstReplyCommand('\n> 学习'), '');
+  expectEqual('Shanghai date calculation crosses UTC day boundary', helpers.shanghaiDateKey(Date.UTC(2026, 8, 17, 16, 30)), '2026-09-18');
 
   const token = await helpers.createSignedToken('AbCdEf12345', 'test-secret');
   expectTrue('signed reply local part remains under SMTP 64-char limit', `reply+${token}`.length <= 64);
@@ -166,16 +169,25 @@ async function run() {
   expectTrue('daily notification has profile/date/host uniqueness', migration.includes('UNIQUE (profile_id, usage_date, canonical_host, notification_type)'));
 
   expectTrue('trigger uses exact unclassified classifications', source.includes("target_classification_at_time IN ('unclassified', 'pending_composite')"));
-  expectTrue('899 does not trigger and 900 triggers', source.includes('usage.totalSeconds < THRESHOLD_SECONDS') && source.includes('const THRESHOLD_SECONDS = 900'));
+  expectTrue('notification threshold is read from profile feature settings', source.includes('featureSettings.thresholdMinutes * 60') && source.includes('usage.totalSeconds < thresholdSeconds'));
   expectTrue('late data is limited to day end plus 24 hours', source.includes('usage.dayEndMs + 24 * 60 * 60 * 1000'));
   expectTrue('outbox has 5m 30m 2h retry schedule and four-attempt cap', source.includes('5 * 60 * 1000') && source.includes('30 * 60 * 1000') && source.includes('2 * 60 * 60 * 1000') && source.includes('attempts >= 4'));
   expectTrue('reply requires sender, expiry, pending state and Message-ID', source.includes('SENDER_MISMATCH') && source.includes('TOKEN_EXPIRED') && source.includes("notification.request_status !== 'pending'") && source.includes('Message-ID required'));
   expectTrue('reply audit stores hash instead of raw body', migration.includes('inbound_message_id_hash') && !migration.includes('raw_body') && !migration.includes('html_body'));
   expectTrue('mail and Pages share the same decision service', source.includes('decideSiteClassificationRequest') && requestSource.includes('export async function decideSiteClassificationRequest') && requestSource.includes('const result = await decideSiteClassificationRequest'));
-  expectTrue('target stats schedules notification after successful upsert', statsSource.includes('evaluateDailyUnclassifiedEmailNotifications') && statsSource.includes('ctx.waitUntil(notificationWork)'));
-  expectTrue('email failures do not fail target stats upload', statsSource.includes("console.warn('[site-classification-email] target stats evaluation failed'") && statsSource.indexOf('notificationWork') < statsSource.indexOf('return json({ success: true, count: upserted'));
-  expectTrue('Worker exports inbound email handler and outbox cron', indexSource.includes('async email(message: ForwardableEmailMessage') && indexSource.includes('processEmailClassificationOutbox'));
-  expectTrue('profile allowlist gates threshold evaluation and outbox delivery', source.includes('isEmailClassificationProfileEnabled(env, profileId)') && source.includes('isEmailClassificationProfileEnabled(env, row.profile_id)'));
+  const mediaRouteStart = statsSource.indexOf("if (request.method === 'POST' && path === '/device/media-stats/v1')");
+  const targetRouteStart = statsSource.indexOf("if (request.method === 'POST' && path === '/device/target-stats/v1')");
+  const hourlyTargetRouteStart = statsSource.indexOf("if (request.method === 'POST' && path === '/device/hourly-target-stats/v1')");
+  const mediaRouteSource = statsSource.slice(mediaRouteStart, targetRouteStart);
+  const targetRouteSource = statsSource.slice(targetRouteStart, hourlyTargetRouteStart);
+  expectTrue('media stats never trigger unclassified email evaluation', !mediaRouteSource.includes('evaluateDailyUnclassifiedEmailNotifications'));
+  expectTrue('target stats schedule notification after successful upsert', targetRouteSource.includes('evaluateDailyUnclassifiedEmailNotifications') && targetRouteSource.includes('ctx.waitUntil(notificationWork)'));
+  expectTrue('email failures do not fail target stats upload', targetRouteSource.includes("console.warn('[site-classification-email] target stats evaluation failed'") && targetRouteSource.indexOf('notificationWork') < targetRouteSource.indexOf('return json({ success: true, count: upserted'));
+  expectTrue('Worker exports inbound email handler and current-day scan before outbox processing', indexSource.includes('async email(message: ForwardableEmailMessage') && indexSource.includes('scanCurrentDayUnclassifiedEmailNotifications(env)') && indexSource.indexOf('scanCurrentDayUnclassifiedEmailNotifications(env)') < indexSource.indexOf('processEmailClassificationOutbox(env)'));
+  expectTrue('profile feature and account channels jointly gate notification delivery', source.includes('loadProfileUnclassifiedNotificationSettings') && source.includes('featureSettings.enabled') && source.includes('loadAccountNotificationSettings'));
+  expectTrue('current-day scan reads positive unclassified target rows', source.includes('SELECT DISTINCT profile_id') && source.includes("target_classification_at_time IN ('unclassified', 'pending_composite')") && source.includes('duration_seconds > 0'));
+  expectTrue('legacy queued rows are re-armed only after the configured threshold changes', source.includes('threshold_seconds <> excluded.threshold_seconds') && source.includes("status NOT IN ('sent', 'consumed')") && source.includes('THRESHOLD_NOT_REACHED'));
+  expectTrue('notification copy states the configured threshold', source.includes('已达到 ${thresholdMinutes} 分钟'));
   expectTrue('five-minute cron coexists with daily reminder cron', wranglerSource.includes('*/5 * * * *') && wranglerSource.includes('0 12 * * *'));
   expectTrue('new sender and signed reply-to use hornburg-xia.uk', source.includes('notify@hornburg-xia.uk') && source.includes('@hornburg-xia.uk'));
   expectTrue('initial notification uses signed address for From and Reply-To', source.includes('from: `TimeOnChrome <${replyTo}>`') && source.includes('replyTo,'));

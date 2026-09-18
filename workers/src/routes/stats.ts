@@ -6,6 +6,7 @@ import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 import {
   evaluateDailyUnclassifiedEmailNotifications,
   processEmailClassificationOutbox,
+  processTelegramClassificationOutbox,
 } from '../services/siteClassificationEmail';
 import { isSystemAccessAdmin } from './systemAccessConfig';
 import {
@@ -609,18 +610,6 @@ export const statsRouter = {
           }
           upserted++;
         }
-
-        const notificationWork = evaluateDailyUnclassifiedEmailNotifications(env, device.profileId, date)
-          .then((result) => result.queued > 0 ? processEmailClassificationOutbox(env) : null)
-          .catch((error) => {
-            console.warn('[site-classification-email] target stats evaluation failed', {
-              profileId: device.profileId,
-              date,
-              error: String(error?.message || error || 'unknown').slice(0, 160),
-            });
-          });
-        if (ctx) ctx.waitUntil(notificationWork);
-        else void notificationWork;
 
         return json({ success: true, count: upserted, date, expandedRows: expandedRows.length });
       } catch (e: any) {
@@ -1352,6 +1341,21 @@ export const statsRouter = {
           }
           upserted++;
         }
+
+        const notificationWork = evaluateDailyUnclassifiedEmailNotifications(env, device.profileId, date)
+          .then((result) => result.queued > 0 ? Promise.all([
+            processEmailClassificationOutbox(env),
+            processTelegramClassificationOutbox(env),
+          ]) : null)
+          .catch((error) => {
+            console.warn('[site-classification-email] target stats evaluation failed', {
+              profileId: device.profileId,
+              date,
+              error: String(error?.message || error || 'unknown').slice(0, 160),
+            });
+          });
+        if (ctx) ctx.waitUntil(notificationWork);
+        else void notificationWork;
 
         return json({ success: true, count: upserted, date, expandedRows: expandedRows.length });
       } catch (e: any) {

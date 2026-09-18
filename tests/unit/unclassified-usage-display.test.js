@@ -65,6 +65,7 @@ assert.equal(merged.length, 4);
 assert.equal(merged.find(row => row.key === 'a.example').requestIndex, 0);
 assert.equal(merged.find(row => row.key === 'a.example').usedIndex, 0);
 const html = context.renderUnclassifiedUsageRecords([request], entries);
+assert(html.includes('默认先按今日、再按本周、最后按近30天累计使用时长降序排列'));
 assert(html.includes('<span>累计时长</span>'));
 assert(html.includes('累计范围：近30天（含今日）'));
 assert(html.includes('<details class="unclassified-visit-details"><summary>访问详情</summary>'));

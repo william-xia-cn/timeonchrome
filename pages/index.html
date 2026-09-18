@@ -546,6 +546,18 @@
     .autonomy-guardrails { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
     .autonomy-guardrail { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.5; }
     .autonomy-guardrail::before { content: ''; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--accent); flex: none; }
+    .notification-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .notification-channel-list { display: grid; gap: 14px; }
+    .notification-channel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: start; }
+    .notification-channel-copy { min-width: 0; }
+    .notification-channel-fields { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 10px; align-items: end; margin-top: 14px; }
+    .notification-field { display: grid; gap: 6px; min-width: 0; }
+    .notification-field label { color: var(--text); font-size: 13px; font-weight: 650; }
+    .notification-field input { min-width: 0; width: 100%; background: rgba(0,184,148,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; color: var(--text); font-size: 14px; outline: none; }
+    .notification-field input:focus { border-color: var(--accent); }
+    .notification-field input:disabled { cursor: not-allowed; opacity: .55; }
+    .notification-capability { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .notification-capability.warning { color: var(--danger); }
     .rest-reminder-input input { width: auto; min-width: 0; flex: 1 1 auto; }
     .rest-reminder-input input:disabled { cursor: not-allowed; opacity: .55; }
     .rest-reminder-input .quota-unit { flex: 0 0 auto; white-space: nowrap; }
@@ -908,9 +920,11 @@
       .weekly-rest-time-inputs input { width: 100%; }
       .rest-reminder-editor { max-width: none; }
       .rest-reminder-fields { grid-template-columns: 1fr; }
-      .autonomy-summary-grid, .autonomy-guardrails { grid-template-columns: 1fr; }
+      .autonomy-summary-grid, .autonomy-guardrails, .notification-summary-grid { grid-template-columns: 1fr; }
       .autonomy-control-row { flex-direction: column; }
       .autonomy-segmented { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .notification-channel-row, .notification-channel-fields { grid-template-columns: 1fr; }
+      .notification-channel-fields .btn-add { width: 100%; min-height: 44px; }
       #q-minutes-input { width: 100% !important; }
       .schedule-table,
       .schedule-table tbody,
@@ -1164,6 +1178,31 @@
               <div id="rules-site-directory" class="rules-site-directory">
                 <!-- site directory rendered by JS -->
               </div>
+            </div>
+          </div>
+
+          <div class="card" id="unclassified-notification-settings-card">
+            <div class="card-header">
+              <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/notice.svg" alt="">未归类网站超长使用通知</div><div class="card-subtitle">当前孩子的功能规则；消息通道由家长账号统一管理</div></div>
+            </div>
+            <div class="notification-channel-row">
+              <div class="notification-channel-copy">
+                <div class="autonomy-control-title">开启未归类网站超长使用通知</div>
+                <div class="autonomy-control-note">每个未归类网站的当日 active 网页用量达到阈值后通知；媒体时长不参与。</div>
+                <div class="notification-channel-fields">
+                  <label class="notification-field" for="unclassified-notification-threshold">
+                    <span>当日超长访问阈值（分钟）</span>
+                    <input type="number" id="unclassified-notification-threshold" min="1" max="1440" step="1" inputmode="numeric">
+                  </label>
+                  <button class="btn-add" id="save-unclassified-notification-btn" type="button">保存通知规则</button>
+                </div>
+                <div class="notification-capability" id="unclassified-notification-channel-summary">正在读取账号消息通道</div>
+                <button class="btn-save" id="open-account-notification-settings-btn" type="button" style="margin-top:10px;padding:7px 12px;">前往消息通知设置</button>
+              </div>
+              <label class="toggle" title="切换未归类网站超长使用通知">
+                <input type="checkbox" id="unclassified-notification-enabled">
+                <span class="toggle-track"></span><span class="toggle-thumb"></span>
+              </label>
             </div>
           </div>
 
@@ -1459,6 +1498,7 @@
           <button class="tab-btn" data-system-management-tab="web-settlements">网页落账</button>
           <button class="tab-btn" data-system-management-tab="media-settlements">媒体落账</button>
           <button class="tab-btn" data-system-management-tab="client-logs">系统日志</button>
+          <button class="tab-btn" data-system-management-tab="notifications">消息通知</button>
           <button class="tab-btn" data-system-management-tab="backup-restore">数据备份与恢复</button>
           <button class="tab-btn" data-system-management-tab="account-management">账户管理</button>
         </div>
@@ -1648,6 +1688,60 @@
           </div>
         </div>
 
+        </section>
+
+        <section class="system-management-panel" data-system-management-panel="notifications">
+          <div class="card">
+            <div class="card-header">
+              <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/notice.svg" alt="">账号消息通知</div><div class="card-subtitle">当前家长账号的通道设置由所有孩子档案共用；默认全部关闭</div></div>
+            </div>
+            <div class="notification-summary-grid">
+              <div class="autonomy-summary-item"><div class="autonomy-summary-label">邮件</div><div class="autonomy-summary-value" id="account-notification-email-summary">未启用</div></div>
+              <div class="autonomy-summary-item"><div class="autonomy-summary-label">Telegram</div><div class="autonomy-summary-value" id="account-notification-telegram-summary">未连接</div></div>
+              <div class="autonomy-summary-item"><div class="autonomy-summary-label">当前账号</div><div class="autonomy-summary-value" id="account-notification-email-address">—</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div><div class="card-title">邮件</div><div class="card-subtitle">收件地址固定为当前家长登录邮箱；凭据只保存在 Worker secrets</div></div>
+            </div>
+            <div class="notification-channel-row">
+              <div class="notification-channel-copy">
+                <div class="autonomy-control-title">使用邮件通知</div>
+                <div class="autonomy-control-note" id="account-notification-email-capability">正在检查邮件服务</div>
+                <button class="btn-add" id="test-account-email-btn" type="button" style="margin-top:12px;">发送测试邮件</button>
+              </div>
+              <label class="toggle" title="切换邮件通知">
+                <input type="checkbox" id="account-notification-email-enabled">
+                <span class="toggle-track"></span><span class="toggle-thumb"></span>
+              </label>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div><div class="card-title">Telegram</div><div class="card-subtitle">Bot Token 由 Worker secret 提供；连接过程自动识别个人会话，不需要填写 Chat ID</div></div>
+            </div>
+            <div class="notification-channel-row">
+              <div class="notification-channel-copy">
+                <div class="autonomy-control-title">使用 Telegram 通知</div>
+                <div class="autonomy-control-note" id="account-notification-telegram-capability">正在检查 Telegram Bot</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                  <button class="btn-add" id="connect-account-telegram-btn" type="button">连接 Telegram</button>
+                  <button class="btn-add" id="test-account-telegram-btn" type="button">发送测试消息</button>
+                  <button class="btn-save" id="disconnect-account-telegram-btn" type="button" style="padding:8px 12px;background:rgba(248,113,113,0.1);color:var(--danger);">断开连接</button>
+                </div>
+                <div class="notification-capability" id="account-notification-telegram-pairing-status"></div>
+              </div>
+              <label class="toggle" title="切换 Telegram 通知">
+                <input type="checkbox" id="account-notification-telegram-enabled">
+                <span class="toggle-track"></span><span class="toggle-thumb"></span>
+              </label>
+            </div>
+          </div>
+          <div class="card" style="background:rgba(0,184,148,0.03);">
+            <div class="autonomy-control-note">账号通道、Telegram 连接信息和凭据不会导出，也不会下发孩子终端。这里只决定通过什么通道发送，不决定某个孩子是否触发通知。</div>
+          </div>
+          <div class="save-bar"><button class="btn-save" id="save-account-notification-settings-btn">保存消息通道</button></div>
         </section>
 
         <section class="system-management-panel" data-system-management-panel="backup-restore">
@@ -1941,6 +2035,9 @@ let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
 let systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
+let profileNotificationSettingsState = { profileId: null, loading: false, settings: null };
+let accountNotificationSettingsState = { loading: false, loaded: false, settings: null, capabilities: null, accountEmail: '' };
+let telegramPairingPollTimer = null;
 let rulesSitePolicyState = {
   policy: 'study',
   query: '',
@@ -1978,6 +2075,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupRules();
   setupQuota();
   setupAutonomy();
+  setupNotificationSettings();
   setupSchedule();
   setupStats();
   setupCloudSettlements();
@@ -2078,6 +2176,9 @@ function logout() {
       body: JSON.stringify({ refreshToken: saved.refreshToken }),
     }).catch(() => {});
   }
+  stopTelegramPairingPoll();
+  accountNotificationSettingsState = { loading: false, loaded: false, settings: null, capabilities: null, accountEmail: '' };
+  profileNotificationSettingsState = { profileId: null, loading: false, settings: null };
   accountToken = null; saveLocal('session', null);
   showScreen('login');
   document.getElementById('login-email').value = '';
@@ -2180,6 +2281,7 @@ function renderProfileOptions() {
 
 async function selectProfile(id) {
   currentProfileId = id;
+  profileNotificationSettingsState = { profileId: null, loading: false, settings: null };
   rulesSitePolicyState.usedUnclassified = [];
   rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = null;
   saveLocal('currentProfileId', id);
@@ -2406,6 +2508,7 @@ function renderSystemManagementPage() {
   if (cloudSystemManagementActiveTab === 'web-settlements') renderCloudSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'client-logs') renderCloudClientLogsPage({ reset: true });
+  if (cloudSystemManagementActiveTab === 'notifications') renderAccountNotificationSettingsPage();
   if (cloudSystemManagementActiveTab === 'account-management') clearAccountPasswordForm();
 }
 
@@ -3336,7 +3439,7 @@ function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedU
     <div class="rules-site-group-header">
       <div>
         <div>未归类网站使用记录</div>
-        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 云端已上传网页用量，按今日、本周、累计时长排序；累计为近30天（含今日），北京时间。</div>
+        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 默认先按今日、再按本周、最后按近30天累计使用时长降序排列（北京时间）。</div>
       </div>
     </div>
     ${pendingHtml}
@@ -3448,6 +3551,7 @@ function renderRulesSiteDirectory() {
 function renderRulesPage() {
   renderRulesPolicyNav();
   renderRulesSiteDirectory();
+  renderProfileNotificationSettings();
   loadUsedUnclassifiedSitesForRules();
   loadSystemAccessCapabilityForRules();
 }
@@ -3994,7 +4098,7 @@ window.removeDomain = (listKey, idx) => {
 };
 
 // ── Profile config import/export ─────────────────────────────
-function buildProfileConfigExportData(classificationRequests = []) {
+function buildProfileConfigExportData(classificationRequests = [], notificationSettings = profileNotificationSettingsView()) {
   const cfg = remoteConfig || {};
   const defaults = siteAccessDefaults || {};
   const compositeExportDefaults = [...(defaults.defaultCompositeSites || []), ...(defaults.defaultUserCompositeSites || [])];
@@ -4022,6 +4126,9 @@ function buildProfileConfigExportData(classificationRequests = []) {
         rawRule: rule,
       })),
       classificationRequests,
+    },
+    notifications: {
+      unclassifiedUsage: profileNotificationSettingsView(notificationSettings),
     },
     quota: {
       timeQuota: {
@@ -4087,6 +4194,19 @@ async function fetchAllSiteClassificationRequestsForExport() {
   }
 }
 
+async function fetchProfileNotificationSettingsForExport() {
+  if (!currentProfileId) return profileNotificationSettingsView();
+  const result = await api('/profiles/' + currentProfileId + '/unclassified-usage-notification/v1');
+  return profileNotificationSettingsView(result.settings || {});
+}
+
+async function ensureProfileNotificationSettingsLoaded() {
+  if (!currentProfileId) return;
+  if (profileNotificationSettingsState.profileId !== currentProfileId || !profileNotificationSettingsState.settings) {
+    await loadProfileNotificationSettings();
+  }
+}
+
 function downloadJsonFile(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -4098,8 +4218,11 @@ function downloadJsonFile(data, filename) {
 }
 
 async function exportProfileConfig() {
-  const requests = await fetchAllSiteClassificationRequestsForExport();
-  const exportData = buildProfileConfigExportData(requests);
+  const [requests, notificationSettings] = await Promise.all([
+    fetchAllSiteClassificationRequestsForExport(),
+    fetchProfileNotificationSettingsForExport(),
+  ]);
+  const exportData = buildProfileConfigExportData(requests, notificationSettings);
   downloadJsonFile(exportData, `timeonchrome-profile-config-v1-${new Date().toISOString().slice(0,10)}.json`);
   toast('用户配置已导出');
 }
@@ -4150,8 +4273,11 @@ async function buildAccessManagementConfigBundle(scopes = readRulesAccessConfigS
     },
   };
   if (scopes.userConfig) {
-    const requests = await fetchAllSiteClassificationRequestsForExport();
-    bundle.userConfig = buildProfileConfigExportData(requests);
+    const [requests, notificationSettings] = await Promise.all([
+      fetchAllSiteClassificationRequestsForExport(),
+      fetchProfileNotificationSettingsForExport(),
+    ]);
+    bundle.userConfig = buildProfileConfigExportData(requests, notificationSettings);
   }
   if (scopes.systemConfig) {
     const record = await api('/system/access-management-config/v1');
@@ -4199,6 +4325,7 @@ function normalizeAccessManagementConfigBundleFile(data) {
 
 async function prepareAccessManagementConfigImport(fileName, data) {
   const parsed = normalizeAccessManagementConfigBundleFile(data);
+  await ensureProfileNotificationSettingsLoaded();
   const selectedScopes = readRulesAccessConfigScopes();
   const diffs = [];
   if (parsed.scopes.userConfig && selectedScopes.userConfig && parsed.userConfig) {
@@ -4271,10 +4398,14 @@ async function applyAccessManagementConfigImport() {
   const results = [];
   try {
     if (userDiffs.length > 0) {
-      const payload = buildProfileConfigImportPayload(userDiffs);
-      await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
-      const refreshed = await api(`/profiles/${currentProfileId}/config`);
-      remoteConfig = refreshed.data || {};
+      const configDiffs = userDiffs.filter(diff => diff.area !== 'unclassified-notification');
+      if (configDiffs.length > 0) {
+        const payload = buildProfileConfigImportPayload(configDiffs);
+        await api('/profiles/' + currentProfileId + '/config', 'PUT', { data: payload });
+        const refreshed = await api('/profiles/' + currentProfileId + '/config');
+        remoteConfig = refreshed.data || {};
+      }
+      await applyProfileNotificationImport(userDiffs);
       results.push('用户配置已应用');
     }
     if (systemDiffs.length > 0) {
@@ -4381,6 +4512,10 @@ function normalizeProfileConfigImportData(data) {
   const importedAutonomy = data.quota?.autonomyConfig && typeof data.quota.autonomyConfig === 'object'
     ? data.quota.autonomyConfig
     : {};
+  const importedUnclassifiedNotification = data.notifications?.unclassifiedUsage
+    && typeof data.notifications.unclassifiedUsage === 'object'
+    ? profileNotificationSettingsView(data.notifications.unclassifiedUsage)
+    : null;
   return {
     customStudyList: lists.customStudyList || [],
     customCompositeList: lists.customCompositeList || [],
@@ -4400,6 +4535,7 @@ function normalizeProfileConfigImportData(data) {
       restrictedEntryConfirmationRequired: importedAutonomy.restrictedEntryConfirmationRequired !== false,
       softReminderTimeoutAction: importedAutonomy.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
     },
+    unclassifiedUsageNotification: importedUnclassifiedNotification,
     domainQuotas: data.quota?.domainQuotas && typeof data.quota.domainQuotas === 'object' ? data.quota.domainQuotas : {},
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(data.timeWindows?.daily || {}) },
   };
@@ -4556,6 +4692,21 @@ function buildProfileConfigImportDiffs(importedConfig) {
     addConfigImportDiff(diffs, { type: 'modify', area: 'autonomy', key: 'softReminderTimeoutAction', label: '软限额提醒无人响应', currentValue: currentTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedValue: importedTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedRawValue: importedTimeoutAction });
   }
 
+  if (importedConfig.unclassifiedUsageNotification) {
+    const currentNotification = profileNotificationSettingsView(profileNotificationSettingsState.settings || {});
+    const importedNotification = profileNotificationSettingsView(importedConfig.unclassifiedUsageNotification);
+    if (currentNotification.enabled === importedNotification.enabled) {
+      addConfigImportDiff(diffs, { type: 'same', area: 'unclassified-notification', key: 'enabled', label: '未归类网站超长使用通知', currentValue: currentNotification.enabled ? '开启' : '关闭', importedValue: importedNotification.enabled ? '开启' : '关闭' });
+    } else {
+      addConfigImportDiff(diffs, { type: 'modify', area: 'unclassified-notification', key: 'enabled', label: '未归类网站超长使用通知', currentValue: currentNotification.enabled ? '开启' : '关闭', importedValue: importedNotification.enabled ? '开启' : '关闭', importedRawValue: importedNotification.enabled });
+    }
+    if (currentNotification.thresholdMinutes === importedNotification.thresholdMinutes) {
+      addConfigImportDiff(diffs, { type: 'same', area: 'unclassified-notification', key: 'thresholdMinutes', label: '未归类网站超长访问阈值', currentValue: currentNotification.thresholdMinutes + ' 分钟', importedValue: importedNotification.thresholdMinutes + ' 分钟' });
+    } else {
+      addConfigImportDiff(diffs, { type: 'modify', area: 'unclassified-notification', key: 'thresholdMinutes', label: '未归类网站超长访问阈值', currentValue: currentNotification.thresholdMinutes + ' 分钟', importedValue: importedNotification.thresholdMinutes + ' 分钟', importedRawValue: importedNotification.thresholdMinutes });
+    }
+  }
+
   const currentDomainQuotas = remoteConfig?.domainQuotas || {};
   const importedDomainQuotas = importedConfig.domainQuotas || {};
   const quotaDomains = new Set([...Object.keys(currentDomainQuotas), ...Object.keys(importedDomainQuotas)]);
@@ -4664,6 +4815,26 @@ function buildProfileConfigImportPayload(selectedDiffs) {
   return payload;
 }
 
+function buildProfileNotificationImportPayload(selectedDiffs) {
+  const notificationDiffs = selectedDiffs.filter(diff => diff.area === 'unclassified-notification');
+  if (!notificationDiffs.length) return null;
+  const payload = profileNotificationSettingsView(profileNotificationSettingsState.settings || {});
+  for (const diff of notificationDiffs) payload[diff.key] = diff.importedRawValue;
+  return profileNotificationSettingsView(payload);
+}
+
+async function applyProfileNotificationImport(selectedDiffs) {
+  const payload = buildProfileNotificationImportPayload(selectedDiffs);
+  if (!payload) return false;
+  const result = await api('/profiles/' + currentProfileId + '/unclassified-usage-notification/v1', 'PUT', { data: payload });
+  profileNotificationSettingsState = {
+    profileId: currentProfileId,
+    loading: false,
+    settings: profileNotificationSettingsView(result.settings || payload),
+  };
+  return true;
+}
+
 
 function renderConfigImportVisibleDiffs(visible, state) {
   if (!visible.length) return '<div style="font-size:13px;color:var(--muted);padding:8px 2px;">当前筛选下没有差异。</div>';
@@ -4763,6 +4934,7 @@ async function importProfileConfig(options = {}) {
       const text = await file.text();
       const data = JSON.parse(text);
       const importedConfig = normalizeProfileConfigImportData(data);
+      await ensureProfileNotificationSettingsLoaded();
       const diffs = buildProfileConfigImportDiffs(importedConfig);
       configImportDiffState = {
         fileName: file.name,
@@ -4793,12 +4965,16 @@ async function applySelectedConfigImportDiffs() {
     return;
   }
   try {
-    const payload = buildProfileConfigImportPayload(selectedDiffs);
     const targetContainerId = configImportDiffState.targetContainerId || 'acct-config-import-diff';
     const messageId = configImportDiffState.messageId || 'acct-config-io-msg';
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
-    const refreshed = await api(`/profiles/${currentProfileId}/config`);
-    remoteConfig = refreshed.data || {};
+    const configDiffs = selectedDiffs.filter(diff => diff.area !== 'unclassified-notification');
+    if (configDiffs.length > 0) {
+      const payload = buildProfileConfigImportPayload(configDiffs);
+      await api('/profiles/' + currentProfileId + '/config', 'PUT', { data: payload });
+      const refreshed = await api('/profiles/' + currentProfileId + '/config');
+      remoteConfig = refreshed.data || {};
+    }
+    await applyProfileNotificationImport(selectedDiffs);
     configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId, messageId };
     renderConfigImportDiffPanel();
     renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'account');
@@ -5520,6 +5696,276 @@ async function saveAutonomyConfig() {
     renderAutonomyPage();
   } catch (error) {
     toast('保存失败: ' + (error.message || ''), false);
+  }
+}
+
+function profileNotificationSettingsView(settings = {}) {
+  const threshold = Number(settings?.thresholdMinutes);
+  return {
+    enabled: settings?.enabled === true,
+    thresholdMinutes: Number.isInteger(threshold) && threshold >= 1 && threshold <= 1440 ? threshold : 30,
+  };
+}
+
+function accountNotificationSettingsView(settings = {}) {
+  return {
+    emailEnabled: settings?.emailEnabled === true,
+    telegramEnabled: settings?.telegramEnabled === true,
+    telegramConnected: settings?.telegramConnected === true,
+    telegramConnectionStatus: ['connected', 'reconnect_required'].includes(settings?.telegramConnectionStatus)
+      ? settings.telegramConnectionStatus
+      : 'not_connected',
+    telegramBotUsername: String(settings?.telegramBotUsername || '').trim(),
+  };
+}
+
+async function loadProfileNotificationSettings() {
+  if (!currentProfileId || profileNotificationSettingsState.loading) return;
+  const profileId = currentProfileId;
+  profileNotificationSettingsState = { profileId, loading: true, settings: null };
+  try {
+    const result = await api('/profiles/' + profileId + '/unclassified-usage-notification/v1');
+    if (currentProfileId !== profileId) return;
+    profileNotificationSettingsState = {
+      profileId,
+      loading: false,
+      settings: profileNotificationSettingsView(result.settings || {}),
+    };
+  } catch (error) {
+    if (currentProfileId !== profileId) return;
+    profileNotificationSettingsState = { profileId, loading: false, settings: profileNotificationSettingsView() };
+    toast('未归类网站通知规则读取失败: ' + (error.message || ''), false);
+  }
+  renderProfileNotificationSettings();
+}
+
+async function loadAccountNotificationSettings(force = false) {
+  if (accountNotificationSettingsState.loading || (accountNotificationSettingsState.loaded && !force)) return;
+  accountNotificationSettingsState.loading = true;
+  try {
+    const result = await api('/account/notification-settings/v1');
+    accountNotificationSettingsState = {
+      loading: false,
+      loaded: true,
+      settings: accountNotificationSettingsView(result.settings || {}),
+      capabilities: result.capabilities || {},
+      accountEmail: String(result.accountEmail || ''),
+    };
+  } catch (error) {
+    accountNotificationSettingsState = {
+      loading: false,
+      loaded: true,
+      settings: accountNotificationSettingsView(),
+      capabilities: { emailAvailable: false, telegramAvailable: false },
+      accountEmail: '',
+    };
+    toast('账号消息通道读取失败: ' + (error.message || ''), false);
+  }
+  renderAccountNotificationSettingsPage();
+  renderProfileNotificationSettings();
+}
+
+function enabledNotificationChannelLabels() {
+  const settings = accountNotificationSettingsView(accountNotificationSettingsState.settings || {});
+  const capabilities = accountNotificationSettingsState.capabilities || {};
+  const labels = [];
+  if (settings.emailEnabled && capabilities.emailAvailable) labels.push('邮件');
+  if (settings.telegramEnabled && settings.telegramConnected && capabilities.telegramAvailable) labels.push('Telegram');
+  return labels;
+}
+
+function renderProfileNotificationSettings() {
+  if (!currentProfileId) return;
+  if (profileNotificationSettingsState.profileId !== currentProfileId && !profileNotificationSettingsState.loading) {
+    void loadProfileNotificationSettings();
+  }
+  if (!accountNotificationSettingsState.loaded && !accountNotificationSettingsState.loading) {
+    void loadAccountNotificationSettings();
+  }
+  const settings = profileNotificationSettingsView(profileNotificationSettingsState.settings || {});
+  const enabled = document.getElementById('unclassified-notification-enabled');
+  const threshold = document.getElementById('unclassified-notification-threshold');
+  if (enabled) enabled.checked = settings.enabled;
+  if (threshold) threshold.value = String(settings.thresholdMinutes);
+  const channels = enabledNotificationChannelLabels();
+  const summary = document.getElementById('unclassified-notification-channel-summary');
+  if (summary) {
+    summary.textContent = channels.length
+      ? '当前账号可用通道：' + channels.join('、')
+      : '当前账号没有已启用且可用的消息通道；即使开启本功能也不会发送。';
+    summary.classList.toggle('warning', channels.length === 0);
+  }
+}
+
+function renderAccountNotificationSettingsPage() {
+  if (!accountNotificationSettingsState.loaded && !accountNotificationSettingsState.loading) {
+    void loadAccountNotificationSettings();
+  }
+  const settings = accountNotificationSettingsView(accountNotificationSettingsState.settings || {});
+  const capabilities = accountNotificationSettingsState.capabilities || {};
+  const emailToggle = document.getElementById('account-notification-email-enabled');
+  const telegramToggle = document.getElementById('account-notification-telegram-enabled');
+  if (emailToggle) {
+    emailToggle.checked = settings.emailEnabled;
+    emailToggle.disabled = capabilities.emailAvailable === false && !settings.emailEnabled;
+  }
+  if (telegramToggle) {
+    telegramToggle.checked = settings.telegramEnabled;
+    telegramToggle.disabled = !settings.telegramConnected || capabilities.telegramAvailable === false;
+  }
+  const emailSummary = document.getElementById('account-notification-email-summary');
+  if (emailSummary) emailSummary.textContent = settings.emailEnabled ? '已启用' : '未启用';
+  const telegramSummary = document.getElementById('account-notification-telegram-summary');
+  if (telegramSummary) {
+    telegramSummary.textContent = settings.telegramConnectionStatus === 'reconnect_required'
+      ? '需要重新连接'
+      : settings.telegramConnected
+        ? settings.telegramEnabled ? '已连接并启用' : '已连接，未启用'
+        : '未连接';
+  }
+  const address = document.getElementById('account-notification-email-address');
+  if (address) address.textContent = accountNotificationSettingsState.accountEmail || '—';
+  const emailCapability = document.getElementById('account-notification-email-capability');
+  if (emailCapability) {
+    emailCapability.textContent = capabilities.emailAvailable
+      ? '邮件服务可用，发送到 ' + (accountNotificationSettingsState.accountEmail || '当前登录邮箱') + '。'
+      : '邮件服务尚未配置完成或紧急总闸已关闭。';
+    emailCapability.classList.toggle('warning', !capabilities.emailAvailable);
+  }
+  const telegramCapability = document.getElementById('account-notification-telegram-capability');
+  if (telegramCapability) {
+    telegramCapability.textContent = !capabilities.telegramAvailable
+      ? 'Telegram Bot 尚未在 Worker secret 中配置或当前不可用。'
+      : settings.telegramConnectionStatus === 'reconnect_required'
+        ? 'Bot 身份已变化，需要重新连接。'
+        : settings.telegramConnected
+          ? '已连接' + (settings.telegramBotUsername ? ' @' + settings.telegramBotUsername : '') + '。'
+          : 'Bot 可用' + (capabilities.telegramBotUsername ? ' @' + capabilities.telegramBotUsername : '') + '，尚未连接当前账号。';
+    telegramCapability.classList.toggle('warning', !capabilities.telegramAvailable || settings.telegramConnectionStatus === 'reconnect_required');
+  }
+  const connectButton = document.getElementById('connect-account-telegram-btn');
+  const testEmail = document.getElementById('test-account-email-btn');
+  const testTelegram = document.getElementById('test-account-telegram-btn');
+  const disconnect = document.getElementById('disconnect-account-telegram-btn');
+  if (connectButton) connectButton.disabled = !capabilities.telegramAvailable;
+  if (testEmail) testEmail.disabled = !capabilities.emailAvailable;
+  if (testTelegram) testTelegram.disabled = !capabilities.telegramAvailable || !settings.telegramConnected;
+  if (disconnect) disconnect.disabled = !settings.telegramConnected && settings.telegramConnectionStatus !== 'reconnect_required';
+}
+
+function setupNotificationSettings() {
+  document.getElementById('save-unclassified-notification-btn')?.addEventListener('click', saveProfileNotificationSettings);
+  document.getElementById('open-account-notification-settings-btn')?.addEventListener('click', () => {
+    cloudSystemManagementActiveTab = 'notifications';
+    document.querySelector('.nav-item[data-page="system-management"]')?.click();
+  });
+  document.getElementById('save-account-notification-settings-btn')?.addEventListener('click', saveAccountNotificationSettings);
+  document.getElementById('test-account-email-btn')?.addEventListener('click', () => testAccountNotificationChannel('email'));
+  document.getElementById('test-account-telegram-btn')?.addEventListener('click', () => testAccountNotificationChannel('telegram'));
+  document.getElementById('connect-account-telegram-btn')?.addEventListener('click', connectAccountTelegram);
+  document.getElementById('disconnect-account-telegram-btn')?.addEventListener('click', disconnectAccountTelegram);
+}
+
+async function saveProfileNotificationSettings() {
+  if (!currentProfileId) return;
+  const thresholdMinutes = Number(document.getElementById('unclassified-notification-threshold')?.value);
+  if (!Number.isInteger(thresholdMinutes) || thresholdMinutes < 1 || thresholdMinutes > 1440) {
+    toast('超长访问阈值请输入 1-1440 的整数分钟', false);
+    return;
+  }
+  const data = {
+    enabled: document.getElementById('unclassified-notification-enabled')?.checked === true,
+    thresholdMinutes,
+  };
+  try {
+    const result = await api('/profiles/' + currentProfileId + '/unclassified-usage-notification/v1', 'PUT', { data });
+    profileNotificationSettingsState.settings = profileNotificationSettingsView(result.settings || data);
+    toast('未归类网站通知规则已保存');
+    renderProfileNotificationSettings();
+  } catch (error) {
+    toast('保存失败: ' + (error.message || ''), false);
+  }
+}
+
+async function saveAccountNotificationSettings() {
+  const data = {
+    emailEnabled: document.getElementById('account-notification-email-enabled')?.checked === true,
+    telegramEnabled: document.getElementById('account-notification-telegram-enabled')?.checked === true,
+  };
+  try {
+    const result = await api('/account/notification-settings/v1', 'PUT', { data });
+    accountNotificationSettingsState.settings = accountNotificationSettingsView(result.settings || data);
+    toast('账号消息通道已保存');
+    await loadAccountNotificationSettings(true);
+  } catch (error) {
+    toast('保存失败: ' + (error.message || ''), false);
+  }
+}
+
+async function testAccountNotificationChannel(channel) {
+  const button = document.getElementById(channel === 'email' ? 'test-account-email-btn' : 'test-account-telegram-btn');
+  if (button) button.disabled = true;
+  try {
+    await api('/account/notification-settings/v1/test', 'POST', { channel });
+    toast(channel === 'email' ? '测试邮件已发送' : 'Telegram 测试消息已发送');
+  } catch (error) {
+    toast('测试消息发送失败: ' + (error.message || ''), false);
+  } finally {
+    renderAccountNotificationSettingsPage();
+  }
+}
+
+function stopTelegramPairingPoll() {
+  if (telegramPairingPollTimer) clearTimeout(telegramPairingPollTimer);
+  telegramPairingPollTimer = null;
+}
+
+async function pollTelegramPairing(pairingId, expiresAt) {
+  stopTelegramPairingPoll();
+  const statusEl = document.getElementById('account-notification-telegram-pairing-status');
+  try {
+    const result = await api('/account/notification-settings/v1/telegram/connect?pairingId=' + encodeURIComponent(pairingId));
+    if (result.status === 'connected') {
+      if (statusEl) statusEl.textContent = 'Telegram 已连接，可以开启通道。';
+      toast('Telegram 已连接');
+      await loadAccountNotificationSettings(true);
+      return;
+    }
+    if (result.status !== 'pending' || Date.now() >= Number(expiresAt || 0)) {
+      if (statusEl) statusEl.textContent = '配对已过期，请重新连接。';
+      return;
+    }
+    if (statusEl) statusEl.textContent = '等待在 Telegram 中点击 Start…';
+    telegramPairingPollTimer = setTimeout(() => pollTelegramPairing(pairingId, expiresAt), 2000);
+  } catch (error) {
+    if (statusEl) statusEl.textContent = '配对状态读取失败，可稍后重试。';
+  }
+}
+
+async function connectAccountTelegram() {
+  const opened = window.open('about:blank', '_blank');
+  const statusEl = document.getElementById('account-notification-telegram-pairing-status');
+  try {
+    const result = await api('/account/notification-settings/v1/telegram/connect', 'POST', {});
+    if (opened) opened.location.href = result.connectUrl;
+    else window.location.href = result.connectUrl;
+    if (statusEl) statusEl.textContent = '请在 Telegram 中点击 Start，连接将在 10 分钟后过期。';
+    void pollTelegramPairing(result.pairingId, result.expiresAt);
+  } catch (error) {
+    if (opened) opened.close();
+    toast('Telegram 连接失败: ' + (error.message || ''), false);
+  }
+}
+
+async function disconnectAccountTelegram() {
+  if (!confirm('确认断开当前账号的 Telegram 连接？')) return;
+  stopTelegramPairingPoll();
+  try {
+    await api('/account/notification-settings/v1/telegram/connection', 'DELETE');
+    toast('Telegram 已断开');
+    await loadAccountNotificationSettings(true);
+  } catch (error) {
+    toast('断开失败: ' + (error.message || ''), false);
   }
 }
 

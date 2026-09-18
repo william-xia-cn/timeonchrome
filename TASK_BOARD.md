@@ -3,6 +3,30 @@
 > App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。
 
 ## Active Release Target
+- [x] [P0 / D-096 / Completed / 2026-09-18] 修正 `www.4399.com` 7,394 秒历史有效归属。
+  - 固定范围：单一档案/设备、`2026-09-18`、旧 target rule、67 个 active pending 分段；不包含决定后产生的独立 1 秒异常分段。
+  - 预期守恒：总网页时长 7,394 秒不变；Composite -7,386 秒、Study -8 秒、Rest +7,394 秒；原始 segment 不改。
+  - 实施：生产 correction batch `d096_4399_20260918_7394s` 写入 67 条唯一 detail；批次头与明细均为 67 条 / 7,394 秒，目标分段未修正余量为 0。
+  - 守恒：原始账仍为 67 条 / 7,394 秒；Composite 7,386 秒、Study 8 秒均只在 effective projection 中转为 Rest 7,394 秒，总网页时长不变。决定后产生的独立 1 秒异常分段仍保持未处理。
+  - 生效确认：修正 revision 写入后约 82 秒，目标终端 `1.7.32` 成功读取 `/device/config`（HTTP 200）；correction 已直接下发，无独立启用开关。
+  - 幂等边界：batch ID 固定且 detail 受 segment 唯一约束；选择条件排除已有 correction，当前只读核对不存在可再次写入的目标分段。未再次执行生产写脚本。
+- [x] [P1 / D-097 / Implemented and verified, pending deployment / 2026-09-18] 消息通道与未归类超时规则分层。
+  - [x] 系统管理按家长账号维护邮件/Telegram 通道；Telegram 自动配对，不显示或手填 Chat ID。
+  - [x] 网站管理按档案维护未归类超时通知开关和分钟阈值；默认关闭。
+  - [x] 重写尚未部署的 migration 030、API、投递判定、导入导出与 Pages。
+  - [x] 专项测试、150 个 unit 文件、TypeScript、扩展根目录、扩展 E2E 及联网 API 103/103 通过；桌面与手机 Playwright 截图目视通过。
+  - [x] 配对行为测试覆盖账号隔离、私聊限制、过期、重放、Bot 身份轮换和伪造 Webhook；默认关闭及账号/档案边界通过。
+  - [x] Plan Conformance Audit：账号通道、档案规则、自动配对、独立 outbox、导入导出及 UI 层级均 Matched；无 Deviated / Missing / Extra。未改扩展、网页账本、统计、分类或配额。
+  - 待部署：migration 030 → Guardian Worker → Pages；部署后仍需先配置 `TELEGRAM_BOT_TOKEN`，再做真实连接与测试消息，所有账号通道和档案功能保持默认关闭。
+- [x] [P1 / D-095 / Superseded before deployment / 2026-09-18] 原档案级通道与手填 Chat ID 方案未部署，已由 D-097 取代。
+- [x] [P1 / D-094 / Implemented and verified, not deployed / 2026-09-18] 未归类关注度排序与 30 分钟邮件提醒。
+  - 默认排序：未处理/已处理组内均按今日、本周、近 30 天累计 `active` 网页时长依次降序，同值按域名稳定排序；Pages 明示排序口径。
+  - 已确认邮件漏触发根因：`evaluateDailyUnclassifiedEmailNotifications()` 被误接在媒体日统计上传路径，`POST /device/target-stats/v1` 成功写入后未调用；旧测试只检查函数名位于同一文件，未约束路由位置。
+  - 修订：阈值从 900 秒改为 1800 秒；评估移到 target stats 成功路径；5 分钟 cron 补扫北京时间当日候选 profile；媒体统计不参与。
+  - 开关：邮件凭据存在且未显式关闭时启用；profile allowlist 为空表示全部，非空用于灰度。邮件失败不影响统计上传。
+  - 边界：不修改网页 ACTIVE、原始 segment、任何统计秒数、网站分类、历史账或配额。
+  - 验证：邮件专项 42/42、未归类排序专项、usage Worker 6/6、小时 no-op 10/10、归类记录语义 33/33、TypeScript 通过；Pages 桌面/390px 手机 Playwright 1/1 及截图目视通过。
+  - Plan Conformance Audit：默认排序、1800 秒阈值、target stats 正确触发、媒体路径排除、当日补扫、每日幂等及开关/白名单语义均 Matched；无 Missing / Deviated / Extra。当前仅工作区实现，尚未提交、部署或实际发信。
 - [x] [P0 / D-093 / Implemented and verified / 2026-09-18] 未归类网站归为受限娱乐后自动调整本周有效归属。
   - [x] PO 单项批准：仅调整同一审核记录精确关联的本周 `active` 网页分段；原始账与总秒数不变。
   - [x] 审核决定后立即生成 correction；迟到上传和定时任务幂等补调。
@@ -13,7 +37,7 @@
   - 生产预检修正：终端分段使用 `client_request_id (scr_*)`，云端审核主键使用服务器 UUID；两者属于同一审核记录的精确标识。首版仅匹配服务器 UUID，生产没有产生 correction；已在历史写入前发现，原始账和有效账均未被错误修改。实现改为同时精确匹配同记录的 `id/client_request_id`，仍禁止按域名猜测。
   - 生产部署：功能提交 `430a200`、双标识热修 `5dd583c`；Guardian Worker Version ID `ee15be42-dde0-47b9-9e7b-4006ac1f4870`，Pages deployment `60e66ea6`。稳定 Worker/Pages 均回读 HTTP 200；扩展版本、CRX 和 update feed 未变。
   - 生产改写：首轮 cron 生成 92 条唯一 correction、合计 4,803 秒；batch header 与 detail 均为 92 条 / 4,803 秒。`academic.ru` 8 秒、`www.acfun.cn` 4,795 秒及 `4399.com` 两条零秒审计事实已完成，精确关联记录剩余 0；原始分段及总秒数保持不变。
-  - 未解决证据缺口：`www.4399.com` 另有 7,394 秒 pending 分段关联到云端不存在的旧 `client_request_id`；不能证明它属于当前 `4399.com` 审核记录，按 D-093 不作域名猜测或自动改写。另有 1 秒 `rejected + composite bucket` 记录需要作为独立记账归属风险调查，本次不隐式迁移。
+  - 后续处置：原登记的 `www.4399.com` 7,394 秒证据缺口已由 PO 通过 D-096 单次取证修正关闭；另有 1 秒 `rejected + composite bucket` 记录继续作为独立记账归属风险调查，不在 D-093/D-096 中隐式迁移。
   - 验证：全部 147 个 unit 文件通过；V2 设备单账/发布/影子账/同步/对账专项通过；TypeScript 与扩展根目录检查通过；15/15 扩展 E2E 通过；生产 API 集成在允许联网环境下 103/103 通过。`tests/run-all.js` 在受限沙箱中的 API 步骤因 `fetch failed` 返回非零，但同一 API 套件联网复跑全部通过。
   - Plan Conformance Audit：本周、精确审核关联、仅网页 active、固定 Rest 归属、迟到补调、幂等、媒体排除、原始事实及总秒数不变均 Matched；未增加 schema、未改历史原始账、网页 ACTIVE、版本、生产配置或部署。无 Deviated / Missing / Extra。
 - [x] [UI / 未归类网站使用记录层级 / Implemented and verified / 2026-09-15] 第一层今日/本周/累计（近30天）时长，按三项依次降序；观察与统计证据默认折叠。
@@ -315,17 +339,17 @@
   - 完成：usage/media 已上传原始段按北京时间自然日保留当日；日聚合保留 7 日、小时聚合保留当日；dirty/outbox 项保持保护。
   - 完成：info 与 timing/focus/mode trace 迁入 `chrome.storage.session`；warning/error 持久缓冲锁定 3 日、1000 条、512 KB，压力状态 128 KB。
   - 验证：完整 unit 通过；`npm run typecheck` 通过；integration 53/53、E2E 14/14、联网 API 103/103 通过。
-- [ ] [Cloud/Email] 未归类网站日累计 15 分钟邮件归类 V1
-  - 规则：profile 全设备按自然日和 canonical 主站 identity 汇总；900 秒创建/复用自动未归类记录并生成每日唯一通知。
+- [x] [Cloud/Email / Implemented, not deployed] 未归类网站日累计 30 分钟邮件归类 V1（D-094 取代旧 15 分钟阈值）
+  - 规则：profile 全设备按自然日和 canonical 主站 identity 汇总；1800 秒创建/复用自动未归类记录并生成每日唯一通知。
   - 安全：7 天签名 token、家长邮箱精确匹配、pending 状态、Message-ID/token 幂等；Pages 与邮件共用 decision service。
   - 交付：D1 outbox/reply audit、Resend Reply-To、Email Routing handler、5 分钟重试 cron；默认关闭，完成测试档案灰度后再启用。
-  - 当前状态（2026-08-12）：源码、migration、生产 D1 表、Worker、5 分钟 cron 和 `reply@hornburg-xia.uk` Email Routing 已部署；`EMAIL_CLASSIFICATION_ENABLED=false`，通知表与回复事件表均为 0 行。
+  - 历史状态（2026-08-12）：源码、migration、生产 D1 表、Worker、5 分钟 cron 和 `reply@hornburg-xia.uk` Email Routing 已部署；当时 `EMAIL_CLASSIFICATION_ENABLED=false`，通知表与回复事件表均为 0 行。
   - DNS 状态（2026-08-12）：根域 `_dmarc.hornburg-xia.uk` 已添加 `v=DMARC1; p=none; pct=100`，Cloudflare `1.1.1.1` 公网回查通过；既有 Email Routing 与 Resend SPF/MX/DKIM 保持不变。
   - 灰度配置：发布开关和 profile allowlist 通过 Cloudflare secrets 管理，禁止把真实 profile ID 写入 Git；首个灰度档案采用 T.xia。
   - 灰度状态（2026-08-12）：T.xia 单档案 allowlist 与发布开关已启用；启用后通知/回复事件仍为 0，今日未归类基线为 180 秒，未发生历史补发或其他档案误发。
   - 实邮灰度发现：Email Routing 子寻址未启用时签名地址返回 550；启用后邮件到达 Worker，但 handler 对完整收件地址 lower-case 导致大小写敏感 HMAC token 校验失败。修复要求保留 token 原始大小写，并让初始通知 From/Reply-To 同为签名地址，兼容忽略 Reply-To 的邮件客户端。
   - 实邮修复验证：Cloudflare 子寻址已启用；`.invalid` 测试通知一次发送成功；Gmail 直接发送 `暂不处理` 后，回复审计为 `DECISION_APPLIED`、通知为 `consumed/return`、审核记录为 `returned`，并收到“已处理”确认邮件。修复后的新通知 From/Reply-To 均为签名地址且发送成功。
-  - 剩余闸门：T.xia 由真实 `target_stats_v1` 累计达到 900 秒并上传后，复核自动触发与每日去重；合成 `.invalid` 实邮发送、回复命令和回执链路已通过。
+  - 当前实现（2026-09-18）：D-094 已修正 target 路由触发、30 分钟阈值和 5 分钟当日补扫；代码尚未提交或部署。部署后仍需用真实 `target_stats_v1` 达到 1800 秒复核自动触发、每日去重与实邮投递。
   - 边界：统计是触发证据，审核记录是处理事实，profile 配置是最终分类事实；不修改扩展与 Pages。
 - [x] [P0 Runtime/Stats] T.xia / P.xia 2026-08-11 账本审计后续修复（实现与自动化验证完成）
   - 账本事实：两台设备网页和媒体的原始、日、小时、目标秒数均一致；不修改历史 D1 数据。

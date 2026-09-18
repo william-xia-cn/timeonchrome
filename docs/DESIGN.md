@@ -1350,12 +1350,14 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 `POST /device/target-stats/v1` 成功写入后，会在请求响应之外评估本次 profile/date 的未归类用量。评估只读取 `target_classification_at_time IN ('unclassified', 'pending_composite')` 的每日 target rows，按 `canonicalSiteIdentityHost()` 合并 `www.` / `m.` 主站 alias，并跨设备、统计维度累加 `duration_seconds`。
 
-达到 900 秒后执行：
+达到 1800 秒（30 分钟）后执行：
 
 1. 重新加载当前 effective 网站配置和 pending records，已经分类则停止。
 2. 创建或复用 `recordSource=auto_unclassified_access` 的 `site_classification_requests_v1` 记录。
 3. 以 `profile_id + usage_date + canonical_host + notification_type` 创建每日唯一 outbox。
 4. 立即尝试 Resend；失败按 5 分钟、30 分钟、2 小时退避，最多四次总尝试。统计上传成功与邮件投递成功互不绑定。
+
+历史 outbox 的内部 `notification_type` 保持不变以维持每日幂等键。阈值升级时，未发送的旧 900 秒待发记录只有在当日累计确实达到 1800 秒后才会按新阈值重新排队；已经发送或消费的记录不会因阈值变更再次发送。
 
 新增数据表：
 
@@ -1366,7 +1368,17 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 
 Pages decision API 和邮件 handler 共用 `decideSiteClassificationRequest()`。该服务负责目标规范化、父域/特殊对象/冲突校验、request 状态变更和 profile 配置写入；任何入口都不得另建绕过校验的写路径。
 
-运行开关 `EMAIL_CLASSIFICATION_ENABLED` 默认关闭；`EMAIL_CLASSIFICATION_PROFILE_IDS` 默认空，只允许显式列出的测试 profile，`*` 仅用于完成灰度后的全量开放。两个发布控制值与签名密钥 `EMAIL_ACTION_SECRET` 均通过 Cloudflare secrets 提供，profile ID 不进入 Git 或公开部署配置。Cron 保留每日提醒，并增加 5 分钟 outbox 处理。统计日期超过 `day_end_ms + 24h`、restore 或 import 不触发通知。
+邮件评估只允许接在 `POST /device/target-stats/v1` 成功写入之后，媒体日统计上传不得触发。5 分钟 Cron 除处理 outbox 外，还补扫北京时间当日存在未归类/待归类 target 统计的 profile，避免一次上传后的异步评估失败造成永久漏提醒；每日唯一约束保证重复评估不重复发信。
+
+运行开关 `EMAIL_CLASSIFICATION_ENABLED` 支持显式关闭；未设置时仅在 `RESEND_API_KEY` 与 `EMAIL_ACTION_SECRET` 均存在时启用。`EMAIL_CLASSIFICATION_PROFILE_IDS` 为空表示全部 profile，非空时只允许列出的 profile，`*` 同样表示全部。发布控制值与签名密钥均通过 Cloudflare secrets 提供，profile ID 不进入 Git 或公开部署配置。统计日期超过 `day_end_ms + 24h`、restore 或 import 不触发通知。
+
+#### 6.4.1 账号消息通道与档案触发规则（D-097）
+
+消息通知分成两个独立配置层：`account_notification_settings_v1` 按家长账号保存邮件/Telegram 通道开关及 Telegram 内部连接；`profile_unclassified_notification_settings_v1` 按孩子档案保存未归类超时通知开关和 `1–1440` 分钟阈值。两层均默认关闭，档案功能只有在账号至少一个可用通道开启时才能实际投递。账号通道、Telegram 连接和 Bot 信息不得进入 `/device/config` 或配置导入导出；档案功能开关和阈值作为用户配置导入导出。
+
+Telegram Bot token 仅使用 Worker secret `TELEGRAM_BOT_TOKEN`。家长从“系统管理 → 消息通知”创建 10 分钟、一次性的 `telegram_pairing_sessions_v1`，页面打开 `t.me/<bot>?start=<token>`；Webhook 验证由现有服务端 secrets 确定性派生的 header secret，只接受有效未消费 token，并把 Telegram `chat.id` 内部绑定到当前账号。页面只返回是否连接、Bot 名称和连接时间，不返回 Chat ID。Bot 身份变化时旧连接失效并自动关闭 Telegram 通道。Telegram 首版只支持个人会话和单向通知，不处理群组或消息内分类命令。
+
+接口分为账号级 `GET/PUT /account/notification-settings/v1`、测试/连接/断开接口，以及档案级 `GET/PUT /profiles/:id/unclassified-usage-notification/v1`。达到档案阈值后，评估服务创建或复用统一审核记录，并为账号启用且可用的通道分别排队；两个 outbox 仍按 profile/date/canonical host/channel 每日幂等、独立退避。`EMAIL_CLASSIFICATION_ENABLED` 仅作为邮件基础设施紧急总闸，旧 profile allowlist 不再参与业务选择。
 
 ---
 

@@ -111,7 +111,8 @@ export interface Env {
   RESEND_API_KEY?: string;  // Resend 邮件通知 API key（可选，不配置则跳过邮件）
   EMAIL_ACTION_SECRET?: string;
   EMAIL_CLASSIFICATION_ENABLED?: string;
-  EMAIL_CLASSIFICATION_PROFILE_IDS?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  GUARDIAN_PUBLIC_BASE_URL?: string;
   APP_RUNTIME_TOKEN_PRIVATE_JWK?: string;
   APP_RUNTIME_SSO_PRIVATE_JWK?: string;
   APP_RUNTIME_BRIDGE_ISSUER?: string;

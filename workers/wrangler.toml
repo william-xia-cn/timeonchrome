@@ -7,6 +7,7 @@ NATIVE_APP_API_BASE_URL = "https://timeonchrome-native-app-api.william-xia-cn.wo
 NATIVE_APP_BRIDGE_ISSUER = "guardian-api"
 APP_RUNTIME_BRIDGE_ISSUER = "guardian-api"
 APP_RUNTIME_CONSOLE_ORIGIN = "https://timeonchrome-app-runtime-console.pages.dev"
+GUARDIAN_PUBLIC_BASE_URL = "https://guardian-api.william-xia-cn.workers.dev"
 
 [[d1_databases]]
 binding = "DB"
@@ -28,10 +29,11 @@ id = "c9aac68bf121480f898564eb1b166295"
 
 # Resend 邮件 API key（在 Cloudflare 控制台设置 secret，不要明文写在这里）
 # wrangler secret put RESEND_API_KEY
-# 邮件归类签名密钥、发布开关和 profile allowlist 均使用 secret，缺失时默认关闭
+# 邮件归类签名密钥和基础设施紧急总闸使用 secret；业务启用状态由账号通道与档案功能配置决定
 # wrangler secret put EMAIL_ACTION_SECRET
-# wrangler secret put EMAIL_CLASSIFICATION_PROFILE_IDS
 # wrangler secret put EMAIL_CLASSIFICATION_ENABLED
+# Telegram Bot Token 只保存在 Worker secret；chat id 通过一次性配对写入 D1
+# wrangler secret put TELEGRAM_BOT_TOKEN
 
 # Native App Control identity bridge (no Santa policy or enrollment data lives here)
 # NATIVE_APP_API_BASE_URL = https://timeonchrome-native-app-api.william-xia-cn.workers.dev

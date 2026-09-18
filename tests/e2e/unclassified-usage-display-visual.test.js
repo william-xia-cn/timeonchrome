@@ -38,7 +38,7 @@ test('unclassified usage metrics, sorting and collapsed evidence on desktop/mobi
   await expect(first.locator('.unclassified-usage-metrics')).toContainText('今日使用时长');
   await expect(first.locator('.unclassified-usage-metrics')).toContainText('本周时长');
   await expect(first.locator('.unclassified-usage-metrics')).toContainText('累计时长');
-  await expect(list).toContainText('累计为近30天');
+  await expect(list).toContainText('默认先按今日、再按本周、最后按近30天累计使用时长降序排列');
   await expect(first.getByText('归为学习网站', { exact: true })).toBeVisible();
   const details = first.locator('.unclassified-visit-details');
   await expect(details).not.toHaveAttribute('open', '');
