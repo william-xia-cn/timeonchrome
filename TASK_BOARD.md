@@ -10,14 +10,15 @@
   - 守恒：原始账仍为 67 条 / 7,394 秒；Composite 7,386 秒、Study 8 秒均只在 effective projection 中转为 Rest 7,394 秒，总网页时长不变。决定后产生的独立 1 秒异常分段仍保持未处理。
   - 生效确认：修正 revision 写入后约 82 秒，目标终端 `1.7.32` 成功读取 `/device/config`（HTTP 200）；correction 已直接下发，无独立启用开关。
   - 幂等边界：batch ID 固定且 detail 受 segment 唯一约束；选择条件排除已有 correction，当前只读核对不存在可再次写入的目标分段。未再次执行生产写脚本。
-- [x] [P1 / D-097 / Implemented and verified, pending deployment / 2026-09-18] 消息通道与未归类超时规则分层。
+- [x] [P1 / D-097 / Deployed, configuration pending / 2026-09-18] 消息通道与未归类超时规则分层。
   - [x] 系统管理按家长账号维护邮件/Telegram 通道；Telegram 自动配对，不显示或手填 Chat ID。
   - [x] 网站管理按档案维护未归类超时通知开关和分钟阈值；默认关闭。
   - [x] 重写尚未部署的 migration 030、API、投递判定、导入导出与 Pages。
   - [x] 专项测试、150 个 unit 文件、TypeScript、扩展根目录、扩展 E2E 及联网 API 103/103 通过；桌面与手机 Playwright 截图目视通过。
   - [x] 配对行为测试覆盖账号隔离、私聊限制、过期、重放、Bot 身份轮换和伪造 Webhook；默认关闭及账号/档案边界通过。
   - [x] Plan Conformance Audit：账号通道、档案规则、自动配对、独立 outbox、导入导出及 UI 层级均 Matched；无 Deviated / Missing / Extra。未改扩展、网页账本、统计、分类或配额。
-  - 待部署：migration 030 → Guardian Worker → Pages；部署后仍需先配置 `TELEGRAM_BOT_TOKEN`，再做真实连接与测试消息，所有账号通道和档案功能保持默认关闭。
+  - 生产部署：migration 030 已应用；Guardian Worker `f16ba718-248d-4430-a075-c6544897c67b`；Pages deployment `d5fb6023`。稳定域名与 deployment 域名均回读 HTTP 200，通知 API 未登录返回 401。
+  - 安全回验：账号设置、档案设置、配对记录、Telegram outbox 四张新表均为 0 行；部署未自动开启或发送通知。当前未配置 `TELEGRAM_BOT_TOKEN`，需后续配置 secret 后再执行真实连接与测试消息；邮件和档案功能同样保持默认关闭。
 - [x] [P1 / D-095 / Superseded before deployment / 2026-09-18] 原档案级通道与手填 Chat ID 方案未部署，已由 D-097 取代。
 - [x] [P1 / D-094 / Implemented and verified, not deployed / 2026-09-18] 未归类关注度排序与 30 分钟邮件提醒。
   - 默认排序：未处理/已处理组内均按今日、本周、近 30 天累计 `active` 网页时长依次降序，同值按域名稳定排序；Pages 明示排序口径。
