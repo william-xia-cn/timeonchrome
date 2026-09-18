@@ -1,13 +1,28 @@
 # App Runtime 任务板
 
+## NOW：Windows 2.3.1 本地完整盘点来源上限修复
+
+- [x] 真实验收定位第二层阻塞：2.3.0 Session Agent 产生 7 项来源结果，但 Service 的 `ValidateScan` 仍拒绝超过 6 项，完整盘点无法进入本地 inventory outbox。
+- [x] 将本地固定来源结果上限与 contract/Worker 对齐为 8，并增加 7 项来源回归；不改变来源结算、扫描内容或上传语义。
+- [x] 统一 Windows Agent、MSI、Burn、Assembly/File/Informational Version 为 2.3.1；Service/Agent/Manager 均回读为 Product 2.3.1 / File 2.3.1.0。
+- [ ] 从合并后的干净 master 发布不可变 2.3.1；原地升级保留机器身份、配对、策略、SQLite、outbox 和历史账本。
+- [ ] 完成真实 7 来源扫描，确认 Aimlabs/Apex 发行身份与游戏类型后再决定 R2 latest 切换。
+
+边界：不重新配对、不清数据；不改 D1 schema、账本、分类、配额、Guardian、Pages 或 Santa。2.3.0 不覆盖重打，使用 2.3.1 前向修复。
+
+实施验证：聚焦测试 50/50、Windows 全量 124/124、WiX MSI 与 Burn 编译 0 warning / 0 error、边界检查及 `git diff --check` 通过。本机 Windows Installer 服务不可访问，完整 build script 的 ICE 外部验证为 `BLOCKED_LOCAL_ENVIRONMENT`；CI 必须以正常验证模式构建通过后才允许合并。
+
+提交前 Plan Conformance Audit：`Matched`＝文档先行、本地容量 8、真实 7 来源回归、2.3.1 全组件版本、历史/身份保留边界；`Deviated`＝无；`Missing`＝无（PR/CI、不可变发布和真机验收属于提交后 release gate）；`Extra`＝无。
+
 ## NOW：2.3.0 发行来源上传兼容热修复
 
 - [x] contracts `1.6.1`：把 `distribution-steam`、`distribution-epic` 纳入可信盘点来源，并允许一次完整扫描携带 7 个来源结果。
 - [x] Runtime Worker：接受 Windows 2.3.0 已生成的发行来源证据；旧来源和旧客户端继续兼容，来源级缺失对账保持 fail closed。
 - [x] 固定回归复现真实 2.3.0 payload，证明 Steam/Epic 来源和 7 项 `sourceResults` 不再被 400 拒绝。
-- [ ] 合并后只部署兼容 Worker；HornburgXW 2.3.0 不重装、不重新配对，等待现有 inventory outbox 自动重试并完成真实扫描。
+- [x] 兼容 Worker 已从 `master@1389a927` 单独部署为 `c3a29505-b377-4e06-990c-9470662ee38d`；health 200、未认证 catalog 401，无 migration，Pages/Guardian/R2 未变。
+- [x] 真实重试证明 2.3.0 批次并未进入 outbox；后续转为 2.3.1 本地前向修复，不再声称 Worker-only 足以完成验收。
 
-边界：不改 Agent 二进制、D1 schema、账本、分类、配额、Guardian、Pages 或 R2 latest。2.3.0 latest 继续保持发布闸门，直到真实盘点和 Aimlabs/Apex 类型确认通过。
+边界：该热修复本身未改 Agent 二进制、D1 schema、账本、分类、配额、Guardian、Pages 或 R2 latest。2.3.0 latest 继续保持发布闸门，直到 2.3.1 真实盘点和 Aimlabs/Apex 类型确认通过。
 
 提交前 Plan Conformance Audit：`Matched`＝两个发行来源、7 项真实来源结果、1.6.1 patch 版本、旧客户端兼容和 Worker-only 发布边界；`Deviated`＝无；`Missing`＝生产部署与真机 outbox 重试属于合并后发布闸门；`Extra`＝无。Contracts 23 向量、Worker 51/51、两端 typecheck、Guardian integration、边界检查、Wrangler dry-run 与 `git diff --check` 已通过。
 

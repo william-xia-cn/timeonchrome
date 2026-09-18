@@ -1,5 +1,11 @@
 # App Runtime 项目真值
 
+## 当前阻塞修复：Windows 2.3.1 本地盘点来源容量
+
+- contracts 1.6.1 / Worker 已接受 Steam/Epic 与 7 项来源结果，生产 Worker 为 `c3a29505-b377-4e06-990c-9470662ee38d`。
+- 真机继续无新扫描后确认：Windows 2.3.0 Service 本地 `ValidateScan` 仍拒绝超过 6 项，完整盘点未进入 outbox，无法靠 Worker-only 修复。
+- 2.3.1 已把本地容量对齐为 8并补回归；聚焦测试 50/50、Windows 全量 124/124、组件版本回读及 WiX MSI/Burn 编译通过。必须以前向新版本发布，保留配对、机器身份、策略、SQLite、outbox 和历史账本。无 migration，不改 Pages、Guardian、Santa、账本或配额。
+
 ## 当前开发：自动产品类型识别（ARM-D-016，本地候选已验证）
 
 - 开发分支目标为 contracts `1.6.0`、Windows `2.3.0`，建立可信发行身份 → 云端产品类型 → 孩子分类规则的闭环。

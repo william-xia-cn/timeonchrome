@@ -161,7 +161,7 @@ public sealed class MachineApplicationInventoryStore
     {
         var invalidSourceResults = scan.SourceResults is not null &&
             (scan.ProductCount + scan.VariantCount != scan.ObservationCount
-             || scan.SourceResults.Count > 6
+             || scan.SourceResults.Count > 8
              || scan.SourceResults.Select(item => item.Source).Distinct(StringComparer.Ordinal).Count() != scan.SourceResults.Count
              || scan.SourceResults.Any(item =>
                  !System.Text.RegularExpressions.Regex.IsMatch(item.Source, "^[a-z-]{1,32}$")
