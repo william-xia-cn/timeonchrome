@@ -2,7 +2,7 @@
 
 ## 当前扩展：自动产品类型识别
 
-ARM-D-016 把客观 `appType` 与孩子管理 `classification` 永久分开。Windows 2.3.0 从 Steam、Microsoft Store、EA、Epic、Ubisoft 和 GOG 的可信本机清单提取稳定发行身份；Worker 用版本化知识确认产品类型。游戏默认只获得“建议归为受限娱乐”，家长启用类型规则后才自动分类；具体产品覆盖优先。配额仍只按最终管理分类计算。contracts 目标版本为 1.6.0，macOS 本轮仅保持契约兼容。
+ARM-D-016 把客观 `appType` 与孩子管理 `classification` 永久分开。Windows 2.3.0 从 Steam、Microsoft Store、EA、Epic、Ubisoft 和 GOG 的可信本机清单提取稳定发行身份；Worker 用版本化知识确认产品类型。游戏默认只获得“建议归为受限娱乐”，家长启用类型规则后才自动分类；具体产品覆盖优先。配额仍只按最终管理分类计算。contracts 当前目标版本为 1.6.1；该补丁允许 Steam/Epic 发行来源进入完整盘点，macOS 本轮仅保持契约兼容。
 
 ## 当前扩展：普通应用与系统应用分组
 

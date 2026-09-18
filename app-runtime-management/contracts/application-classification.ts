@@ -9,12 +9,12 @@ export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'di
 export interface ApplicationDiscoverySummary {
   role: 'application' | 'component' | 'candidate';
   nameSource: 'appList' | 'manifest' | 'fileMetadata' | 'installation' | 'fallback';
-  sourceKinds: Array<'package' | 'registry' | 'shortcut' | 'runtime'>;
+  sourceKinds: Array<'package' | 'registry' | 'shortcut' | 'runtime' | 'distribution-steam' | 'distribution-epic'>;
   objectKind?: 'product' | 'variant';
   parentProductKey?: string;
   variantRole?: 'main' | 'suiteMember' | 'maintenance' | 'helper' | 'hosted' | 'unknown';
   scope?: 'machine' | 'user';
-  sourceKind?: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime';
+  sourceKind?: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime' | 'distribution-steam' | 'distribution-epic';
   evidenceLevel?: 'strong' | 'review' | 'weak';
   /** Agent advisory evidence only. Cloud catalog projection remains authoritative. */
   applicationOrigin?: ApplicationOrigin;
@@ -43,7 +43,7 @@ export interface ApplicationInventoryBatch {
   scan?: ApplicationInventoryScan;
 }
 export interface InventorySourceResult {
-  source: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime';
+  source: 'registry-machine' | 'registry-user' | 'start-menu-common' | 'start-menu-user' | 'user-packages' | 'runtime' | 'distribution-steam' | 'distribution-epic';
   status: 'complete' | 'complete_with_warnings' | 'failed';
   observationCount: number;
   warningCodes: string[];

@@ -15,7 +15,7 @@
   "$defs": {
     "text": {"type":"string","minLength":1,"maxLength":256,"pattern":"^[^\\u0000-\\u001f]+$"},
     "hash": {"type":"string","pattern":"^[a-f0-9]{64}$"},
-    "source": {"enum":["registry-machine","registry-user","start-menu-common","start-menu-user","user-packages","runtime"]},
+    "source": {"enum":["registry-machine","registry-user","start-menu-common","start-menu-user","user-packages","runtime","distribution-steam","distribution-epic"]},
     "sourceResult": {
       "type":"object","additionalProperties":false,
       "required":["source","status","observationCount","warningCodes"],
@@ -31,7 +31,7 @@
       "properties": {
         "role":{"enum":["application","component","candidate"]},
         "nameSource":{"enum":["appList","manifest","fileMetadata","installation","fallback"]},
-        "sourceKinds":{"type":"array","maxItems":4,"uniqueItems":true,"items":{"enum":["package","registry","shortcut","runtime"]}},
+        "sourceKinds":{"type":"array","maxItems":4,"uniqueItems":true,"items":{"enum":["package","registry","shortcut","runtime","distribution-steam","distribution-epic"]}},
         "objectKind":{"enum":["product","variant"]},
         "parentProductKey":{"$ref":"#/$defs/hash"},
         "variantRole":{"enum":["main","suiteMember","maintenance","helper","hosted","unknown"]},
@@ -87,7 +87,7 @@
         "scanId":{"type":"string","pattern":"^[a-f0-9]{32}$"},"localUserId":{"type":"string","minLength":1,"maxLength":128},
         "batchIndex":{"type":"integer","minimum":0,"maximum":100},"batchCount":{"type":"integer","minimum":0,"maximum":100},
         "productCount":{"type":"integer","minimum":0,"maximum":10000},"variantCount":{"type":"integer","minimum":0,"maximum":10000},
-        "sourceResults":{"type":"array","maxItems":6,"uniqueItems":true,"items":{"$ref":"#/$defs/sourceResult"}},
+        "sourceResults":{"type":"array","maxItems":8,"uniqueItems":true,"items":{"$ref":"#/$defs/sourceResult"}},
         "completed":{"type":"boolean"}
       }
     }
