@@ -6,8 +6,10 @@
 - [x] 云端系统应用规则补齐便笺、入门、Windows 备份和单击以执行；系统应用默认折叠、搜索命中展开，装饰首字不进入复制文本。
 - [x] 将 Aimlabs/Apex 的硬编码类型知识迁入 Runtime-owned 版本化 JSON，并补齐已核实 Steam 游戏；`steam:228980` 固定为技术组件。
 - [x] 第一 PR 本地闸门：Worker 53/53、Contracts 23 向量、TypeScript、Wrangler types/dry-run、Console 聚焦测试及桌面/移动目视通过；合并后只部署 Runtime Worker 与独立 Runtime Pages。
-- [ ] 终端第二闸：contracts 1.7.0 增加 `packageContainer`、EA/Ubisoft/GOG 来源和 16 项来源容量；Windows 2.4.0 实现三个独立发行来源。
-- [ ] 第二 PR 通过 Windows 全量测试、WiX 构建和敏感信息审计后停在安装发布闸门；不得自动升级 HornburgXW 或切换 R2 latest。
+- [x] 终端第二闸（本地候选）：contracts 1.7.0 增加 `packageContainer`、EA/Ubisoft/GOG 来源和 16 项来源容量；Windows 2.4.0 实现三个独立发行来源。
+- [x] 第二 PR 本地闸门：Contracts 23 向量、Worker 53/53、Windows 130/130、TypeScript、Wrangler types/dry-run 与 WiX MSI/Burn（0 warning / 0 error）通过；候选停在安装发布闸门，不自动升级 HornburgXW 或切换 R2 latest。
+
+第二闸实施检查：发行器未安装必须结算为 `complete + 0`；单个清单损坏只产生 `complete_with_warnings`；只有来源根目录或清单集合整体不可读才为 `failed`。Agent 只上传公开稳定发行产品 ID 和必要展示名，不上传路径、Windows/发行器账户、完整 manifest 或启动参数。现有注册表机会性发行 ID 继续兼容，但不得冒充独立来源完成证据。
 
 更正记录：ARM-D-016 的原 `Matched=六类 Windows 发行身份适配`、`Missing=无` 不成立。2.3.1 的完整来源只有 Steam/Epic；EA/Ubisoft/GOG 仅为注册表机会性识别。历史审计原文保留用于追溯，以本节和 ARM-D-017 为当前真值。
 

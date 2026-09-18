@@ -91,7 +91,7 @@ function projectApplicationOrigin(evidence?: AppEvidence): {
 }
 
 function isPackageContainer(evidence?: AppEvidence): boolean {
-  if (!evidence || evidence.platform !== 'windows' || evidence.discovery?.objectKind !== 'product'
+  if (!evidence || evidence.platform !== 'windows' || !['product','packageContainer'].includes(String(evidence.discovery?.objectKind))
       || evidence.discovery.sourceKind !== 'user-packages' || !evidence.verifiedFields.includes('packageId')) return false;
   const packageId = evidence.values.packageId;
   return Boolean(packageId && !packageId.includes('!'));

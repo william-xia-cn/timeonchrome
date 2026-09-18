@@ -1,6 +1,6 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "private": false,
   "type": "module",
   "exports": {

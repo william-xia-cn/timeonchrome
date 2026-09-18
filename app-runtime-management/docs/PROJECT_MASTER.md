@@ -4,8 +4,8 @@
 
 - 云端第一闸已完成本地实现：MSIX 包容器只进入技术记录，可信 AUMID 入口独立进入主目录；无变体安装产品仍贡献机器/账户覆盖数，UsageSegment 时长来源不变。
 - 系统包精确规则覆盖便笺、入门、Windows 备份和单击以执行；Runtime-owned 版本化产品知识已包含当前核实的 Steam 游戏，并明确将 `steam:228980` 保持为技术组件。
-- 更正 ARM-D-016：2.3.1 的完整独立发行来源只有 Steam/Epic。EA/Ubisoft/GOG 独立来源属于 contracts 1.7.0 / Windows 2.4.0 第二闸，尚未发布或安装。
-- 第一闸无 migration、无终端升级、无历史重写；完成 PR/CI 后只允许部署 Runtime Worker 与独立 Runtime Pages。
+- 更正 ARM-D-016：2.3.1 的完整独立发行来源只有 Steam/Epic。EA/Ubisoft/GOG 独立来源已在 contracts 1.7.0 / Windows 2.4.0 完成本地实现与构建验证；尚未发布、安装或切换 R2 latest。
+- 第一闸已通过 PR #32 合并并只部署 Runtime Worker 与独立 Runtime Pages；无 migration、无终端升级、无历史重写。第二闸停在独立 PR 与安装发布门前。
 
 ## 当前生产版本：Windows 2.3.1 完整盘点来源容量修复
 

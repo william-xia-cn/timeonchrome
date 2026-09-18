@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [Contracts 1.7.0 / Windows 2.4.0] — 2026-09-18（本地候选已验证，未发布）
+
+- inventory v2 增加 `packageContainer` 语义、`distribution-ea / distribution-ubisoft / distribution-gog` 来源，并将 `sourceResults` 上限统一为 16；旧 2.3.x payload 保持兼容。
+- Windows 2.4.0 将从 EA、Ubisoft、GOG 的发行器注册信息与自有本地清单提取公开稳定产品 ID；未安装、单项损坏和来源不可读分别结算，不上传路径、账户、完整清单或启动参数。
+- Contracts 23 向量、Worker 53/53、Windows 130/130、TypeScript、Wrangler types/dry-run 与 WiX MSI/Burn 构建通过；Burn 为 118,768,007 bytes / SHA-256 `cc8ef03bf53f15336683d97fcd3672c8cc13042eda4734a97731584c9cd4e099`，MSI 为 60,383,584 bytes / SHA-256 `20dc7cb8fcc65cab6ba7c8c350190a07e30691413955a4ab67ef957e40c477d6`。
+- 本阶段只构建和验证内部未签名包；HornburgXW 升级、不可变 R2 上传与 `latest.json` 切换继续单独过闸。
+
 ## [ARM-D-017 / 产品目录云端纠错] — 2026-09-18（本地候选）
 
 - MSIX/package family 改为技术容器，可信 AUMID 可启动入口独立投影；LibreOffice 等可靠 Win32 套件聚合保持不变。
