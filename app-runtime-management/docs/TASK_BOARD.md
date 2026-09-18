@@ -1,5 +1,16 @@
 # App Runtime 任务板
 
+## NOW：2.3.0 发行来源上传兼容热修复
+
+- [x] contracts `1.6.1`：把 `distribution-steam`、`distribution-epic` 纳入可信盘点来源，并允许一次完整扫描携带 7 个来源结果。
+- [x] Runtime Worker：接受 Windows 2.3.0 已生成的发行来源证据；旧来源和旧客户端继续兼容，来源级缺失对账保持 fail closed。
+- [x] 固定回归复现真实 2.3.0 payload，证明 Steam/Epic 来源和 7 项 `sourceResults` 不再被 400 拒绝。
+- [ ] 合并后只部署兼容 Worker；HornburgXW 2.3.0 不重装、不重新配对，等待现有 inventory outbox 自动重试并完成真实扫描。
+
+边界：不改 Agent 二进制、D1 schema、账本、分类、配额、Guardian、Pages 或 R2 latest。2.3.0 latest 继续保持发布闸门，直到真实盘点和 Aimlabs/Apex 类型确认通过。
+
+提交前 Plan Conformance Audit：`Matched`＝两个发行来源、7 项真实来源结果、1.6.1 patch 版本、旧客户端兼容和 Worker-only 发布边界；`Deviated`＝无；`Missing`＝生产部署与真机 outbox 重试属于合并后发布闸门；`Extra`＝无。Contracts 23 向量、Worker 51/51、两端 typecheck、Guardian integration、边界检查、Wrangler dry-run 与 `git diff --check` 已通过。
+
 ## NOW：客观应用类型与孩子归类分离（ARM-D-016）
 
 - [x] contracts `1.6.0`：增加 `distributionKey`、类型状态/理由与 Application Knowledge v2；继续接受 v1。

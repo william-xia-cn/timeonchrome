@@ -1178,10 +1178,20 @@ describe('Application knowledge and installed inventory', () => {
     const product=(name:string,index:number,distributionKey:string)=>{const productKey=index.toString(16).repeat(64);return {
       localUserId,productKey,evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:name,
         values:{productKey,productName:name,distributionKey},verifiedFields:['productKey','distributionKey'],discovery:{role:'application',nameSource:'installation',
-          sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
-      scope:'machine',sourceKind:'registry-machine',status:'installed'};};
+          sourceKinds:['distribution-steam'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'distribution-steam',evidenceLevel:'strong'}},
+      scope:'machine',sourceKind:'distribution-steam',status:'installed'};};
+    const sourceResults=[
+      {source:'registry-machine',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'registry-user',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'distribution-steam',status:'complete',observationCount:2,warningCodes:[]},
+      {source:'distribution-epic',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'start-menu-common',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'start-menu-user',status:'complete',observationCount:0,warningCodes:[]},
+      {source:'user-packages',status:'complete',observationCount:0,warningCodes:[]},
+    ];
     expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({schemaVersion:2,
-      batchId:'distribution-games',products:[product('Aimlabs renamed',4,'steam:714010'),product('Apex local title',5,'steam:1172470')],variants:[]})})).status).toBe(200);
+      batchId:'distribution-games',products:[product('Aimlabs renamed',4,'steam:714010'),product('Apex local title',5,'steam:1172470')],variants:[],
+      scan:{scanId:'7'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:2,variantCount:0,sourceResults,completed:false}})})).status).toBe(200);
     const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<Record<string,unknown>>}>();
     for(const name of ['Aimlabs','Apex Legends']) expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
       displayName:name,appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',classification:'unclassified',

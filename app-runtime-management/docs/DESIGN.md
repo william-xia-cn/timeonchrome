@@ -8,6 +8,8 @@
 
 Windows 2.3.0 扫描 Steam、Microsoft Store、EA、Epic、Ubisoft、GOG 的本机可信安装清单，上传规范化的公开产品 ID；损坏或缺失来源只形成来源 warning。macOS 本轮只保持 contract 兼容。该 JSON 扩展复用现有证据列和版本化知识表，不新增 D1 migration。
 
+完整 Windows 盘点的来源集合包含旧有 Registry、Start Menu、用户包以及新增的 `distribution-steam`、`distribution-epic`。Contract/Worker 必须接受最多 8 个固定来源结果；新发行来源只对自身的缺失事实执行来源级结算，不改变旧客户端依赖五个基础安装来源完成后才清理无来源 legacy 投影的兼容门槛。
+
 ## 当前扩展：ARM-D-015 普通应用与系统应用分组
 
 目录投影在既有 `manageability = actionable | review | hidden` 之外增加正交来源 `applicationOrigin = user | operatingSystem | unknown`。`actionable + operatingSystem` 进入系统应用组；其余 actionable 对象进入普通应用组；review/hidden 仍进入技术记录。该来源只影响展示分组，不替代孩子分类、产品类型或配额键。

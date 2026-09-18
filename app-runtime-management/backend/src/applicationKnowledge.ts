@@ -298,7 +298,7 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
   return { batchId: value.batchId, status: 'accepted', acceptedCount: observations.length };
 }
 
-const inventorySources = new Set(['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages','runtime']);
+const inventorySources = new Set(['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages','runtime','distribution-steam','distribution-epic']);
 const sourceStatuses = new Set(['complete','complete_with_warnings','failed']);
 const authoritativeInstallationSources = ['registry-machine','registry-user','start-menu-common','start-menu-user','user-packages'];
 
@@ -455,7 +455,7 @@ function parseInventoryScanV2(value:unknown,products:Array<{localUserId:string}>
   if(!isRecord(value)||Object.keys(value).some(key=>!['scanId','localUserId','batchIndex','batchCount','productCount','variantCount','sourceResults','completed'].includes(key))
       ||typeof value.scanId!=='string'||!/^[a-f0-9]{32}$/u.test(value.scanId)||typeof value.localUserId!=='string'||value.localUserId.length<1||value.localUserId.length>128
       ||!Number.isSafeInteger(value.batchIndex)||!Number.isSafeInteger(value.batchCount)||!Number.isSafeInteger(value.productCount)||!Number.isSafeInteger(value.variantCount)
-      ||!Array.isArray(value.sourceResults)||value.sourceResults.length>6||typeof value.completed!=='boolean')
+      ||!Array.isArray(value.sourceResults)||value.sourceResults.length>8||typeof value.completed!=='boolean')
     throw new HttpError(400,'INVALID_APPLICATION_SCAN','Inventory v2 scan is invalid.');
   const sourceResults=value.sourceResults.map(item=>{
     if(!isRecord(item)||Object.keys(item).some(key=>!['source','status','observationCount','warningCodes'].includes(key))

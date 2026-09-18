@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [contracts 1.6.1 / 发行来源上传兼容] — 2026-09-18（本地验证通过，待合并发布）
+
+- 真实 2.3.0 验收发现 Agent 新增 `distribution-steam`、`distribution-epic` 且完整扫描包含 7 项来源结果，但 1.6.0 Contract/Worker 仍只允许旧来源和最多 6 项，导致新盘点整体返回 400 并在本地重试。
+- 1.6.1 将两个发行来源加入固定来源集合，把完整扫描来源上限提高到 8；旧客户端、旧来源及现有来源级 fail-closed 对账语义保持不变。
+- 本轮只需部署兼容 Worker；已安装的 Windows 2.3.0 不重装、不重新配对，也不改写历史 inventory 或 UsageSegment。
+- Contracts 23 向量、Worker 51/51、两端 typecheck、Guardian integration、模块边界、Wrangler dry-run 与 `git diff --check` 已通过。
+
 ## [contracts 1.6.0 / Windows 2.3.0 / 自动产品类型识别] — 2026-09-18（本地候选已验证）
 
 - 将客观产品类型与孩子管理归类永久分离；类型不被家长覆盖，配额只按最终管理分类扣减。
