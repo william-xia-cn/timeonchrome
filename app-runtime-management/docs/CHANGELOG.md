@@ -1,11 +1,12 @@
 # App Runtime Changelog
 
-## [Contracts 1.9.0 / ARM-D-024] — 2026-09-20（本地验证通过）
+## [Contracts 1.9.0 / ARM-D-024] — 2026-09-20（生产已发布）
 
 - 新增 `gameUtility` 客观类型并补齐五个游戏组对象；EA 两个强身份合并为一个确认产品。
 - 用户可见“系统工具”统一为“系统应用”，新增反馈中心、命令面板、天气和录音机精确规则。
 - 不升级 Agent、不重新扫描、不执行 migration，不修改分类、配额、账本或历史 Segment。
-- Contracts 24 向量、Worker 3 项聚焦回归、Windows Core 3 项聚焦测试、Console 桌面/移动目视测试、typecheck、Wrangler dry-run 与 `git diff --check` 通过；未运行无关的全量 Windows、macOS、WiX、账本或 migration 测试。
+- Contracts 24 向量、Worker 3 项聚焦回归、Windows Core 3 项聚焦测试、Console 桌面/移动目视测试、typecheck、Wrangler dry-run 与 `git diff --check` 通过；共享 contract 的真实消费者由 CI 补验并通过，WiX、账本与 migration 测试未运行。
+- PR #42 合并 SHA `ca5e63e`；生产 workflow `35470498809` 仅发布 Worker `bacbf8b5-3798-48fb-aa7e-be46b3e2ac88` 与独立 Pages `329d9642-e99c-4f53-befc-0f05cc126182`，无 migration。线上九个目标分组、EA 去重、Game Bar 非自动分类及 200/401 smoke 均通过。
 
 ## [ARM-D-021 / Windows 内置系统工具规则补全] — 2026-09-20（生产已发布）
 

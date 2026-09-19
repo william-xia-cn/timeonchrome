@@ -1,11 +1,13 @@
 # App Runtime 项目真值
 
-## 当前开发：ARM-D-024 游戏与系统应用规则补全
+## 当前生产：ARM-D-024 游戏与系统应用规则补全
 
 - 目标 contract 为 1.9.0：新增 `gameUtility`，并保持 `systemTool` wire value兼容；用户文案统一为“系统应用”。
 - 云端规则使用生产盘点已有强身份确认 EA app、Game Bar、Solitaire & Casual Games、完美世界竞技平台、XBOX、反馈中心、命令面板、天气和录音机，无需终端升级、重新扫描或 migration。
 - 本轮只允许发布 Runtime Worker 与独立 Runtime Pages；Guardian、D1、R2、安装包、分类、配额和账本均保持不变。
-- 本地实现已通过 Contracts 24 向量、Worker 3 项聚焦回归、Windows Core 3 项聚焦测试、Console 桌面/移动目视测试、TypeScript/JavaScript 检查、Wrangler 4.127.1 dry-run 与 `git diff --check`；等待 PR/CI 与生产发布。
+- PR #42 合并为 `master@ca5e63eaee54e95930a8fa36c84c77b241d17edc`；PR CI `35470260093` 与精确 master SHA CI `35470375189` 的 Contracts/Worker、Console、Windows、macOS 和汇总 gate 全部通过。共享向量补验同步了 Swift 对既有 `distributionKey` 的可信身份支持，不增加 macOS 扫描或发布。
+- 生产 workflow `35470498809` 未执行 migration，仅部署 Runtime Worker `bacbf8b5-3798-48fb-aa7e-be46b3e2ac88` 和独立 Runtime Pages `329d9642-e99c-4f53-befc-0f05cc126182`。Guardian `62b536c9-7fa0-4cab-99f3-bff6a8595924`、主 Pages `d5fb6023-1c48-4705-87cf-45e4a5413064` 与 R2 latest 2.3.1 保持不变。
+- HornburgXW 线上确认五个目标各一行进入游戏组：EA app/XBOX/完美世界为游戏平台，Game Bar 为游戏工具且无受限娱乐建议，Solitaire 为游戏并保留建议；反馈中心、命令面板、天气、录音机各一行进入系统应用。普通应用/游戏/系统应用数量由 80/9/16 变为 71/14/20。
 
 ## 当前生产修复：ARM-D-021 Windows 内置系统工具规则
 
