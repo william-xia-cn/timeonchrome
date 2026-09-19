@@ -1,5 +1,11 @@
 # App Runtime 项目真值
 
+## 当前工程治理：ARM-D-019 按变更范围测试
+
+- App Runtime 任务必须在实现前声明变更等级、受影响子系统、必要本地测试/CI/发布 smoke 与明确排除项。
+- 同一 Git SHA 和产物哈希的测试证据可复用；纯文档及发布证据不触发产品回归。
+- Runtime CI 按 docs/contracts/worker/console/windows/installer/macos/release-config 路由，生产只复核精确 SHA gate 与资源 smoke；高风险专项门禁保持不变。
+
 ## 当前开发：ARM-D-017 产品目录云端纠错
 
 - 云端第一闸已完成本地实现：MSIX 包容器只进入技术记录，可信 AUMID 入口独立进入主目录；无变体安装产品仍贡献机器/账户覆盖数，UsageSegment 时长来源不变。

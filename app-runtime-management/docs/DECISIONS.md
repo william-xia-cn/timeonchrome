@@ -1,5 +1,15 @@
 # App Runtime 决策记录
 
+## ARM-D-019：按变更影响选择测试并复用精确 SHA 证据
+
+PO 于 2026-09-20 确认实施。App Runtime 的测试范围由实际变更影响决定，不因提交、push、PR、发布或文档收口机械升级为全平台回归。每个任务在实现前必须记录变更等级、受影响子系统、必要本地测试、必要 CI、发布后 smoke 和明确排除项；扩大范围必须说明精确命令、具体风险与预计耗时并取得批准，“更完整”不是理由。
+
+同一 Git SHA 和相同产物哈希的通过证据可以复用。纯文档、任务板、Changelog、生产 manifest 或发布证据提交不得使未变化代码的既有证据失效。生产部署必须验证目标 `master` SHA 已通过对应 CI gate，随后只运行部署资源的 health、未认证 fail-closed 和目标业务 smoke，不重复跨平台构建。
+
+默认矩阵为：文档只做 diff/结构检查；Console 只验证 Console，布局变化才截图；Worker/规则包只验证 Worker/typecheck/Wrangler；公共 contract 验证兼容性和真实消费者；Windows Agent、Windows Installer、macOS Agent 分别只验证自身；跨平台状态机/账本才验证两端黄金向量。账本、migration、安全、权限、隐私和商店发布的专项门禁继续有效，不得借节流降低标准。
+
+GitHub PR 仅将 `app-runtime-gate` 设为 App Runtime 必需检查。该轻量 gate 对所有 PR 运行，以便无关 PR 立即返回成功；重型 job 仍只按 Runtime 文件影响触发。不得把可跳过的平台 job 单独设为必需检查。
+
 ## ARM-D-018：云端权威的游戏、普通应用、系统工具与技术记录分组
 
 PO 于 2026-09-20 确认实施。孩子级学习、复合、受限娱乐、黑名单与未归类目录保持不变；每个目录内部由 Runtime Worker 权威投影 `catalogGroup = game | application | systemTool`。非 actionable 对象继续进入独立技术记录。游戏与系统工具只是目录分组，不是管理分类或配额桶；分类、账本、历史 Segment 和配额均不得因分组变化而改写。

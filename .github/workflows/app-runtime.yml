@@ -1,26 +1,89 @@
 name: App Runtime
 
 on:
+  # Always provide the single lightweight required check for every PR. The
+  # changes job routes Runtime work; unrelated PRs skip every heavy job.
   pull_request:
-    paths:
-      - 'app-runtime-management/**'
-      - 'tools/check-app-runtime-boundaries.js'
-      - '.github/workflows/app-runtime.yml'
-      - '.github/workflows/app-runtime-production.yml'
-      - 'tools/write-app-runtime-release-manifest.js'
-      - 'tests/unit/app-runtime-release-config.test.js'
   push:
     branches: [master]
     paths:
       - 'app-runtime-management/**'
+      - 'AGENTS.md'
+      - 'PROJECT_WORKFLOW.md'
+      - 'docs/agents/ProductProjectMg.md'
+      - 'docs/agents/BuildTest.md'
+      - 'docs/agents/ReleaseMg.md'
+      - 'package.json'
+      - 'package-lock.json'
       - 'tools/check-app-runtime-boundaries.js'
+      - 'tools/classify-app-runtime-ci-changes.js'
+      - '.github/workflows/app-runtime.yml'
       - '.github/workflows/app-runtime-production.yml'
       - 'tools/write-app-runtime-release-manifest.js'
+      - 'tests/unit/app-runtime-ci-routing.test.js'
       - 'tests/unit/app-runtime-release-config.test.js'
   workflow_dispatch:
+    inputs:
+      full_validation:
+        description: Run every App Runtime CI job
+        type: boolean
+        default: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.classify.outputs.docs }}
+      contracts: ${{ steps.classify.outputs.contracts }}
+      worker: ${{ steps.classify.outputs.worker }}
+      console: ${{ steps.classify.outputs.console }}
+      windows: ${{ steps.classify.outputs.windows }}
+      installer: ${{ steps.classify.outputs.installer }}
+      macos: ${{ steps.classify.outputs.macos }}
+      release_config: ${{ steps.classify.outputs.release_config }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Resolve changed files
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          elif [[ "$EVENT_NAME" == "push" && -n "$PUSH_BEFORE_SHA" && ! "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+            base="$PUSH_BEFORE_SHA"
+            head="$CURRENT_SHA"
+          else
+            base="${CURRENT_SHA}^"
+            head="$CURRENT_SHA"
+          fi
+          git diff --name-only "$base" "$head" > changed-files.txt
+          git diff --check "$base" "$head"
+          {
+            echo '### App Runtime change impact'
+            echo ''
+            sed 's/^/- `/' changed-files.txt | sed 's/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Classify change impact
+        id: classify
+        shell: bash
+        env:
+          FORCE_FULL: ${{ inputs.full_validation || false }}
+        run: |
+          args=(--github-output)
+          if [[ "$FORCE_FULL" == "true" ]]; then args+=(--force-full); fi
+          node tools/classify-app-runtime-ci-changes.js "${args[@]}" < changed-files.txt
+
   contracts-worker-console:
+    name: contracts-worker
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true' || needs.changes.outputs.worker == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,29 +91,81 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run build:app-runtime-contracts
-      - run: npm --workspace @timeonchrome/app-runtime-contracts test
+      - if: needs.changes.outputs.contracts == 'true'
+        run: npm --workspace @timeonchrome/app-runtime-contracts test
       - run: npm run check:app-runtime-boundaries
-      - run: node tests/unit/app-runtime-release-config.test.js
       - run: npm ci --prefix app-runtime-management/backend
       - run: npm test --prefix app-runtime-management/backend
       - run: npm run typecheck --prefix app-runtime-management/backend
       - run: npm run dry-run --prefix app-runtime-management/backend
+
+  console:
+    needs: changes
+    if: needs.changes.outputs.console == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: node app-runtime-management/console/app-runtime-clipboard.test.js
+      - run: node app-runtime-management/console/app-runtime-knowledge.test.cjs
       - run: node app-runtime-management/console/app-runtime-session.test.js
       - run: node app-runtime-management/console/app-runtime-network.test.js
       - run: node app-runtime-management/console/app-runtime-policy.test.js
+      - run: node app-runtime-management/console/app-runtime-time.test.js
+      - run: node app-runtime-management/console/app-runtime-usage.test.js
 
   windows:
+    name: windows-tests
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '8.0.x' }
       - run: dotnet test app-runtime-management/agents/windows/TimeOnChrome.AppRuntime.sln
+
+  windows-installer:
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '8.0.x' }
       - shell: pwsh
         run: app-runtime-management/installer/windows/build.ps1
 
   macos:
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: swift test --package-path app-runtime-management/agents/macos
+
+  release-config:
+    needs: changes
+    if: needs.changes.outputs.release_config == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node tests/unit/app-runtime-ci-routing.test.js
+      - run: node tests/unit/app-runtime-release-config.test.js
+      - run: npm run check:app-runtime-boundaries
+
+  app-runtime-gate:
+    if: always()
+    needs: [changes, contracts-worker-console, console, windows, windows-installer, macos, release-config]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify required jobs
+        env:
+          CI_REQUIREMENTS: >-
+            {"contracts-worker":"${{ needs.changes.outputs.contracts == 'true' || needs.changes.outputs.worker == 'true' }}","console":"${{ needs.changes.outputs.console }}","windows-tests":"${{ needs.changes.outputs.windows }}","windows-installer":"${{ needs.changes.outputs.installer }}","macos":"${{ needs.changes.outputs.macos }}","release-config":"${{ needs.changes.outputs.release_config }}"}
+          CI_RESULTS: >-
+            {"changes":"${{ needs.changes.result }}","contracts-worker":"${{ needs.contracts-worker-console.result }}","console":"${{ needs.console.result }}","windows-tests":"${{ needs.windows.result }}","windows-installer":"${{ needs.windows-installer.result }}","macos":"${{ needs.macos.result }}","release-config":"${{ needs.release-config.result }}"}
+        run: node tools/classify-app-runtime-ci-changes.js --verify-gate

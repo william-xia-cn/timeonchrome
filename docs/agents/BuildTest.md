@@ -40,7 +40,7 @@ Before modifying files, Build&Test must:
 2. Confirm an approved spec or explicit Product Owner implementation request exists.
 3. Identify scope, out-of-scope, and acceptance criteria.
 4. Identify files expected to change.
-5. Identify the minimal relevant test set.
+5. Confirm the approved change-impact test contract: change class, affected subsystems, required local tests/CI/smoke, and excluded tests.
 6. Check for conflicting decisions in `DECISIONS.md`.
 7. State a concise implementation checklist.
 8. Stop if no approved spec/handoff exists and the request is not an explicit Product Owner implementation request.
@@ -84,6 +84,9 @@ Build&Test must work in this order:
 ## Test Rules
 
 - Code changes require relevant tests.
+- Run only the approved minimal relevant set. Do not add full regression, another platform, installer build, or E2E merely because a task reaches push or release.
+- Reuse passing evidence tied to the same Git SHA and artifact hash; documentation-only follow-ups do not invalidate unchanged code evidence.
+- Before expanding scope, report the exact command, concrete risk reason, and expected runtime, then wait for Product Owner approval.
 - UI changes require visual verification when required by `AGENTS.md`.
 - If a required test cannot run, record the exact command, failure reason, and residual risk.
 - Passing tests are evidence only; they do not mean product approval or release readiness.

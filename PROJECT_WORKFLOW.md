@@ -92,6 +92,37 @@ Defaults:
 - no ChatGPT escalation;
 - tests limited to the smallest relevant set for code changes.
 
+### Change-impact test contract
+
+Every implementation task must declare its test contract before code changes begin:
+
+- change class and affected subsystems;
+- required local tests;
+- required CI jobs;
+- required post-deployment smoke checks;
+- explicitly excluded tests and why they are unrelated.
+
+Test scope is determined by impact, not by task size or by mechanically reaching push/release. A passing result for an exact Git SHA and artifact hash is reusable. Documentation or release-evidence commits do not invalidate unchanged code evidence. Expanding the declared test scope requires the exact command, risk reason, and expected runtime, followed by Product Owner approval. “More complete” is not a sufficient reason.
+
+The default App Runtime levels are:
+
+| Change class | Required evidence | Excluded by default |
+|---|---|---|
+| Documentation / release evidence | `git diff --check`, document structure | Product tests |
+| Console copy/style | Focused Console tests; screenshots only for layout changes | Worker, agents, WiX |
+| Console behavior | Console unit/type checks and relevant visual check | Agents, WiX |
+| Worker / rule pack | Focused Worker tests, typecheck, Wrangler dry-run | Agents, WiX |
+| Public contracts | Contract compatibility and actual consumers | Unaffected platforms/packages |
+| Windows Agent | Relevant .NET tests | macOS, Console, Worker |
+| Windows installer | Installer structure tests and WiX build | macOS, Worker, Console |
+| macOS Agent | Relevant Swift tests | Windows, WiX, Console |
+| Cross-platform state/accounting | Golden vectors and both affected platforms | Unrelated UI/installer |
+| Production deployment | Exact-SHA gate, health/auth/resource smoke | Repeated cross-platform build |
+
+Accounting, migration, security, permission, privacy, and store-release changes retain their dedicated gates. This matrix narrows unrelated work only; it never waives a dedicated high-risk gate.
+
+For pull requests, `app-runtime-gate` is the only required App Runtime check. It runs for every PR so unrelated changes receive a fast successful result, while its change classifier skips all Runtime product jobs. Individual platform jobs must not be configured as required checks.
+
 ### Medium Work
 
 Use this when the change touches multiple files, product behavior, storage, cloud sync, permissions, or user-visible workflows.

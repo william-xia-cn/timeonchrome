@@ -39,9 +39,10 @@ Before executing ReleaseMg work, the session must:
 3. Confirm blockers and active release tasks from `TASK_BOARD.md`.
 4. Confirm relevant decisions and accepted risks from `DECISIONS.md`.
 5. Confirm Build&Test implementation evidence exists when release acceptance follows implementation.
-6. Confirm Product&Project Mg conformance review exists when release acceptance follows implementation, unless Product Owner explicitly asks ReleaseMg to do a preliminary blocked review.
-7. Confirm whether production profile, Gate.Test profile, Cloud/D1 writes, CWS upload, or CWS submit are in scope.
-8. Stop if required evidence is missing and meaningful gate execution is impossible.
+6. Confirm the evidence Git SHA and artifact hash match the release candidate; reuse valid evidence instead of rerunning unchanged platform suites.
+7. Confirm Product&Project Mg conformance review exists when release acceptance follows implementation, unless Product Owner explicitly asks ReleaseMg to do a preliminary blocked review.
+8. Confirm whether production profile, Gate.Test profile, Cloud/D1 writes, CWS upload, or CWS submit are in scope.
+9. Stop if required evidence is missing and meaningful gate execution is impossible.
 
 ## Scope
 
@@ -147,7 +148,7 @@ ReleaseMg must work in this order:
 
 1. Confirm release target, authority docs, and required evidence.
 2. Confirm the gate matrix and acceptance cases to execute.
-3. Execute only approved gates and acceptance checks.
+3. Execute only approved gates and acceptance checks; deployment acceptance uses resource smoke and must not repeat already-passing cross-platform builds for the same SHA.
 4. Record `PASS`, `FAIL`, `BLOCKED`, `WAIVED`, `DEFERRED`, or `RISK ACCEPTED` for each item.
 5. Preserve accepted risks as risks.
 6. Classify blockers and return them to Product&Project Mg or Build&Test.

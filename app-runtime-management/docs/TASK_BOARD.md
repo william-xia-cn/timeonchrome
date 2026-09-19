@@ -1,5 +1,23 @@
 # App Runtime 任务板
 
+## NOW：按变更范围测试与 CI 节流（ARM-D-019）
+
+- [x] 固定项目管理测试契约、证据复用和扩大范围批准规则。
+- [x] 增加 CI diff 分类器及 docs/contracts/worker/console/windows/installer/macos/release-config 路由测试。
+- [x] 拆分 App Runtime jobs，增加始终执行的汇总 gate；纯文档只运行轻量检查。
+- [x] 生产 workflow 校验精确 master SHA 的对应 CI gate，并删除重复产品测试，只保留构建前置与资源 smoke。
+- [x] 完成 workflow 语法、路由夹具、release-config、`git diff --check` 和边界审计。
+- [x] PR #36 首轮 CI `35462027108` 只运行 changes（6 秒）、release-config（4 秒）和 app-runtime-gate（5 秒）；Contracts/Worker、Console、Windows、WiX、macOS 全部按预期跳过。
+- [ ] GitHub master 当前没有任何 branch protection/ruleset；首次建立唯一必需检查 `app-runtime-gate` 属于默认分支持久策略变更，等待 PO 单独明确授权，不顺带改变评审、管理员绕过或线性历史策略。
+
+本任务测试契约：变更等级＝工程治理/CI；受影响＝项目文档、App Runtime CI、production gate 和对应固定测试；本地必须＝路由固定测试、release-config、workflow 结构检查、`git diff --check`；CI 必须＝release-config/app-runtime-gate；发布 smoke＝无（不部署产品资源）；明确排除＝Contracts、Worker、Console、Windows、WiX、macOS 产品测试，原因是产品代码、协议和产物均未改变。
+
+### 新任务测试契约模板
+
+每个新任务在进入实现前填写一行：`变更等级＝…；受影响＝…；本地必须＝…；CI 必须＝…；发布 smoke＝…；明确排除＝…（原因）`。没有该行不得开始代码修改；扩大测试范围时必须追加精确命令、风险原因、预计耗时和 PO 批准记录。
+
+Plan Conformance Audit：`Matched`＝治理规则、角色契约、八类路由、条件 jobs、汇总 gate、精确 SHA 生产门禁、资源 smoke、固定测试及真实轻量 CI；`Deviated`＝无；`Missing`＝仅剩 PR 合并与需单独授权的远端唯一必需检查配置；`Extra`＝无。产品代码、协议、Agent、安装包和生产资源均未修改或测试。
+
 ## NOW：云端目录四层分组（ARM-D-018）
 
 - [x] Contracts 1.8.0 为 catalog item 增加兼容的 `catalogGroup/catalogGroupReasonCode`。
