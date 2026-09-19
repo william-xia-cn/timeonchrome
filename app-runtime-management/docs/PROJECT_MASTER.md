@@ -1,5 +1,11 @@
 # App Runtime 项目真值
 
+## 当前生产热修：ARM-D-020 云端目录规则
+
+- PR #37 已合并为 `master@264dfd5c2dcc1afca5908baff1ce89ff01059bb5`；精确 SHA 的 `contracts-worker`、`console` 与 `app-runtime-gate` 通过，Windows、macOS、WiX 按 ARM-D-019 正确跳过。
+- 生产 workflow `35463456925` 仅部署 Runtime Worker `a2f63c8b-03ba-4c98-acc7-620f3719f494` 与独立 Runtime Pages `b3c01fab.timeonchrome-app-runtime-console.pages.dev`；Guardian、主 Pages、R2 未部署，migration 未应用。
+- 线上 HornburgXW 验收确认目录顺序为“普通应用、游戏、系统工具”；Steam 唯一产品行位于游戏组且类型为“游戏平台／启动器”，终端唯一产品行位于系统工具，资讯位于普通应用。系统工具默认折叠；分类、配额、使用时长和历史 Segment 未改变。
+
 ## 当前工程治理：ARM-D-019 按变更范围测试
 
 - App Runtime 任务必须在实现前声明变更等级、受影响子系统、必要本地测试/CI/发布 smoke 与明确排除项。

@@ -1,10 +1,11 @@
 # App Runtime Changelog
 
-## [ARM-D-020 / 云端目录精确规则热修] — 2026-09-20（本地验证通过，待生产发布）
+## [ARM-D-020 / 云端目录精确规则热修] — 2026-09-20（生产已发布）
 
 - Steam 使用稳定 HKLM/HKCU 安装产品键确认为游戏平台／启动器；Windows Terminal 使用精确包身份进入系统工具。
 - Bing News（资讯）保持普通内容应用，系统工具边界不扩展到随 Windows 提供的内容应用。
 - 应用目录默认顺序调整为普通应用、游戏、系统工具；不升级 Agent、不重新扫描，也不修改分类、账本、历史 Segment 或配额。
+- PR #37 合并 SHA `264dfd5c` 经最小范围 CI 通过；生产 workflow `35463456925` 发布 Worker `a2f63c8b-03ba-4c98-acc7-620f3719f494` 与独立 Pages `b3c01fab`，真实 HornburgXW 目录验收通过。Guardian、主 Pages、R2 和 D1 schema 未变化。
 
 ## [ARM-D-019 / 按变更范围测试与 CI 节流] — 2026-09-20（本地验证通过）
 
