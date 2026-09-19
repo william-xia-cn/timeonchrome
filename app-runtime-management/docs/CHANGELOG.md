@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [ARM-D-019 / 按变更范围测试与 CI 节流] — 2026-09-20（本地验证通过）
+
+- 项目任务在实现前必须声明变更等级、受影响子系统、本地测试、CI、发布 smoke 和明确排除项；同一 SHA/产物的证据可以复用。
+- Runtime CI 增加变更分类器，将 Contracts/Worker、Console、Windows、Installer、macOS 与 release-config 独立路由；纯文档和无关 PR 只运行轻量 diff 与汇总 gate。
+- 生产 workflow 改为要求精确 master SHA 已通过对应 CI，再执行依赖构建、部署和资源 smoke；删除重复 Worker 测试/typecheck。
+- 路由与 gate 状态固定测试、release-config、workflow YAML 解析、边界检查和 `git diff --check` 通过；未运行无关产品测试。
+
 ## [Contracts 1.8.0 / ARM-D-018] — 2026-09-20（生产已发布）
 
 - 目录新增云端权威的游戏、普通应用和系统工具分组；技术记录保持只读独立。

@@ -41,8 +41,9 @@ Before doing any Product&Project Mg task, the session must:
 3. Identify the target phase or release scope from `PROJECT_MASTER.md`.
 4. Check `DECISIONS.md` for product or architecture decisions that constrain the task.
 5. Check `TASK_BOARD.md` for current status and blockers.
-6. State whether the task is spec creation, project planning, implementation conformance review, handoff creation, or documentation alignment.
-7. Stop if the task requires code edits, test edits, release gate execution, or final release approval.
+6. Record the change class, affected subsystems, required local tests, required CI jobs, post-deployment smoke checks, and explicitly excluded tests with reasons.
+7. State whether the task is spec creation, project planning, implementation conformance review, handoff creation, or documentation alignment.
+8. Stop if the task requires code edits, test edits, release gate execution, or final release approval.
 
 ## Permissions
 
@@ -90,7 +91,7 @@ Product&Project Mg must work in this order:
 1. Confirm phase, scope, and authority documents.
 2. Convert Product Owner request into a bounded spec, review, or plan.
 3. Record scope and out-of-scope explicitly.
-4. Define acceptance criteria and required evidence.
+4. Define acceptance criteria and a change-impact test contract; unrelated full regression must not be required by default.
 5. Create or update a handoff using `docs/handoffs/HANDOFF_TEMPLATE.md` only when another role needs durable scope/permission/evidence boundaries; routine work may use concise instructions and existing docs.
 6. Update `TASK_BOARD.md`, `PROJECT_MASTER.md`, or `DECISIONS.md` only when the change belongs to project status or durable decisions.
 7. Produce a short final report with documents changed and remaining Product Owner decisions.

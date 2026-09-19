@@ -40,9 +40,11 @@ jobs:
     environment: production
     permissions:
       contents: read
+      actions: read
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with: { ref: '${{ github.sha }}' }
@@ -56,12 +58,30 @@ jobs:
           git fetch origin master
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
+      - name: Exact SHA CI gates
+        env:
+          REQUIRE_RUNTIME_CI: ${{ inputs.deploy_runtime_worker || inputs.deploy_runtime_pages || inputs.apply_runtime_migrations }}
+          REQUIRE_GUARDIAN_CI: ${{ inputs.deploy_guardian_worker }}
+          REQUIRE_MAIN_CONSOLE_CI: ${{ inputs.deploy_main_pages }}
+        run: |
+          require_successful_workflow() {
+            workflow="$1"
+            label="$2"
+            runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --commit "$GITHUB_SHA" --status success --limit 20 --json headSha,conclusion)"
+            RUNS_JSON="$runs" node -e '
+              const runs = JSON.parse(process.env.RUNS_JSON || "[]");
+              if (!runs.some((run) => run.headSha === process.env.GITHUB_SHA && run.conclusion === "success")) {
+                console.error(`Missing successful ${process.argv[1]} gate for exact SHA ${process.env.GITHUB_SHA}`);
+                process.exit(1);
+              }
+            ' "$label"
+          }
+          if [[ "$REQUIRE_RUNTIME_CI" == "true" ]]; then require_successful_workflow app-runtime.yml 'App Runtime'; fi
+          if [[ "$REQUIRE_GUARDIAN_CI" == "true" ]]; then require_successful_workflow app-runtime-guardian-integration.yml 'Guardian integration'; fi
+          if [[ "$REQUIRE_MAIN_CONSOLE_CI" == "true" ]]; then require_successful_workflow app-runtime-main-console.yml 'Main console'; fi
       - run: npm ci
       - run: npm ci --prefix app-runtime-management/backend
       - run: npm run build:app-runtime-contracts
-      - run: npm run check:app-runtime-boundaries
-      - run: npm test --prefix app-runtime-management/backend
-      - run: npm run typecheck --prefix app-runtime-management/backend
       - name: Runtime migrations
         id: migrations
         if: inputs.deploy_runtime_worker || inputs.apply_runtime_migrations
@@ -100,6 +120,26 @@ jobs:
         if: inputs.deploy_main_pages
         working-directory: app-runtime-management/backend
         run: npx wrangler pages deploy ../../pages --project-name timeonchrome-console --branch master --commit-hash "${GITHUB_SHA}"
+      - name: Runtime Worker smoke
+        if: inputs.deploy_runtime_worker
+        run: |
+          curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error \
+            https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev/v1/health > runtime-health.json
+          status="$(curl --retry 5 --retry-all-errors --retry-delay 2 --silent --output /dev/null --write-out '%{http_code}' \
+            'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev/v2/module/app-catalog?childId=ci-smoke')"
+          test "$status" = "401"
+      - name: Runtime Pages smoke
+        if: inputs.deploy_runtime_pages
+        run: curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-app-runtime-console.pages.dev/ > /dev/null
+      - name: Guardian fail-closed smoke
+        if: inputs.deploy_guardian_worker
+        run: |
+          status="$(curl --retry 5 --retry-all-errors --retry-delay 2 --silent --output /dev/null --write-out '%{http_code}' \
+            --request POST https://guardian-api.william-xia-cn.workers.dev/app-runtime/account-token)"
+          test "$status" = "401"
+      - name: Main Pages smoke
+        if: inputs.deploy_main_pages
+        run: curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-console.pages.dev/ > /dev/null
       - name: Release manifest
         env:
           APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outputs.applied }}
