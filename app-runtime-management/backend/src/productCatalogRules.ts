@@ -8,7 +8,7 @@ type ProductCatalogRuleFile = {
     name: string;
     type: ApplicationKnowledge['products'][number]['type'];
     selectors: Array<{
-      field: 'distributionKey' | 'packageId' | 'signerKey';
+      field: 'distributionKey' | 'packageId' | 'productKey' | 'signerKey';
       value: string;
     }>;
   }>;
