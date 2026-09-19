@@ -3,6 +3,7 @@
 ## NOW：游戏与系统应用规则补全（ARM-D-024）
 
 - [x] Contracts 1.9.0 增加 `gameUtility` 和 `CONFIRMED_GAME_UTILITY_TYPE`，Application Knowledge v1/v2 保持兼容。
+- [x] PR CI 共享向量补验发现 Swift 未将既有 `distributionKey` 作为可信身份；已做最小兼容同步，不增加 macOS 扫描、安装包或发布范围。
 - [x] 规则包 schema v3 以强身份确认 EA app、Game Bar、Solitaire & Casual Games、完美世界竞技平台和 XBOX；EA 两个产品键只投影一行。
 - [x] 反馈中心、命令面板、天气和录音机以精确 package family 进入系统应用；同名第三方不得命中。
 - [x] Console 增加“游戏工具”类型标签，并把用户可见“系统工具”统一为“系统应用”；内部 `systemTool` 兼容值和分组顺序不变。

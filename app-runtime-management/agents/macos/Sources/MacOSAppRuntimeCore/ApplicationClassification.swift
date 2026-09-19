@@ -45,7 +45,7 @@ public struct AppClassificationResolution: Codable, Equatable {
     public let ruleIds: [String]; public let suggestions: [String]
 }
 public enum ApplicationClassifier {
-    private static let strong: Set<String> = ["runtimeIdentity", "binaryHash", "packageId", "signerKey"]
+    private static let strong: Set<String> = ["runtimeIdentity", "binaryHash", "packageId", "distributionKey", "signerKey"]
     public static func safeAutomatic(_ expression: AppMatchExpression) -> Bool {
         guard !expression.conditions.isEmpty else { return false }
         if expression.operator == "all" { return expression.conditions.contains { strong.contains($0.field) } }
