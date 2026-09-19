@@ -6,9 +6,11 @@
 - [x] family 与 `!App` 均命中；package container 不产生重复可管理行；同名第三方不得误判。
 - [x] 资讯、Edge、Office、Teams、Xbox、Copilot 和媒体播放器保持非系统工具。
 - [x] 完成 Worker 聚焦测试、backend typecheck、Wrangler dry-run 与 `git diff --check`。
-- [ ] PR 合并后只部署 Runtime Worker，并在线只读核对 HornburgXW 六个对象。
+- [x] PR #39 合并后仅部署 Runtime Worker `84db0516-efb8-42a4-991a-9002c73f037d`，并在线只读确认 HornburgXW 六个对象各自只在系统工具出现 1 行。
 
 本任务测试契约：变更等级＝Worker 规则包；受影响＝Runtime app catalog 云端分组投影；本地必须＝六个系统工具 family/`!App`、容器去重、同名第三方和负例的 Worker 聚焦测试，backend typecheck、Wrangler dry-run、`git diff --check`；CI 必须＝contracts-worker、app-runtime-gate；发布 smoke＝Worker health/401 与 HornburgXW 六项目录投影；明确排除＝Console、Windows、macOS、WiX、账本、D1 和 migration 测试（UI、Agent、安装包、账本和 schema 均未改变）。
+
+Plan Conformance Audit：`Matched`＝ARM-D-021、六个精确 family、family/`!App` 匹配、容器去重、第三方同名和微软产品负例、最小测试、PR/CI、Worker-only 发布及 HornburgXW 线上验收；`Deviated`＝无；`Missing`＝无；`Extra`＝无。
 
 ## NOW：云端目录精确规则热修（ARM-D-020）
 

@@ -1,10 +1,11 @@
 # App Runtime 项目真值
 
-## 当前待发布修复：ARM-D-021 Windows 内置系统工具规则
+## 当前生产修复：ARM-D-021 Windows 内置系统工具规则
 
 - Runtime Worker 规则已加入截图工具、手机连接、时钟、照片、画图和相机六个经审核 package family；同名第三方及未审核微软产品不命中。
-- Worker 聚焦测试 2/2、backend typecheck、Wrangler 4.127.1 dry-run 与 `git diff --check` 已通过；未运行 Console、Agent、macOS、WiX、账本或 migration 测试。
-- 当前仅为功能分支本地验证证据；尚未 PR 合并或部署生产。发布范围固定为 Runtime Worker，不需要终端升级、重新扫描或重新配对。
+- PR #39 合并为 `master@6f8eed57849ea8e05b49a2fbeac893e675c59089`；合并 SHA 的 App Runtime CI `35465605869` 通过 `contracts-worker` 与 `app-runtime-gate`，其他平台 job 按 ARM-D-019 跳过。
+- 生产 workflow `35465663873` 仅部署 Runtime Worker `84db0516-efb8-42a4-991a-9002c73f037d`；Pages、Guardian、主 Pages、R2 均未部署，migration 未应用。
+- HornburgXW 线上只读验收确认六个对象在系统工具各 1 行，在普通应用和游戏中均为 0 行；普通应用由 88 变为 82，系统工具由 10 变为 16。管理分类仍为未归类，机器/账户数量保持 1/1；无需终端升级、重新扫描或重新配对。
 
 ## 当前生产热修：ARM-D-020 云端目录规则
 
