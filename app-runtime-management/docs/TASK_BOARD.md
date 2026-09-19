@@ -1,5 +1,15 @@
 # App Runtime 任务板
 
+## NOW：云端目录四层分组（ARM-D-018）
+
+- [x] Contracts 1.8.0 为 catalog item 增加兼容的 `catalogGroup/catalogGroupReasonCode`。
+- [x] Runtime-owned 规则包 schema v2 增加严格系统工具身份；获取帮助和设置进入系统工具，微软普通产品不因发布者或预装状态误入。
+- [x] Worker 固定投影技术记录、系统工具、confirmed 游戏/游戏平台和普通应用；不改写分类、账本或配额。
+- [x] Console 在每个五分类目录内显示游戏、普通应用和系统工具三个组，并完成桌面/移动视觉验证。
+- [ ] 本地闸门已通过：Contracts、Worker 54/54、Console、typecheck、Wrangler dry-run、边界与视觉检查；待 PR/CI 后只部署 Runtime Worker 与独立 Runtime Pages。
+
+边界：不新增 migration，不升级 Windows/macOS Agent，不修改 R2、Guardian、Santa、Extension、主/媒体账本或配额计算。
+
 ## NOW：产品目录云端纠错与发行证据补全（ARM-D-017）
 
 - [x] 云端第一闸：包容器降为技术记录；可启动 AUMID 独立投影；安装产品事实补齐机器/账户数；不改写 inventory、UsageSegment、分类历史或配额。
