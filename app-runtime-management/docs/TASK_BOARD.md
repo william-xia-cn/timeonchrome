@@ -6,7 +6,7 @@
 - [x] Windows Terminal 以精确包身份进入系统工具；资讯保持普通应用。
 - [x] Console 默认顺序调整为普通应用、游戏、系统工具；系统工具保持默认折叠和搜索展开。
 - [x] 完成 Worker/Console 聚焦测试、typecheck、Wrangler dry-run、桌面／移动视觉检查和 `git diff --check`。
-- [ ] 合并后只部署 Runtime Worker 与独立 Runtime Pages，并完成线上目录 smoke。
+- [x] PR #37 合并为 `master@264dfd5c` 后，仅部署 Runtime Worker `a2f63c8b-03ba-4c98-acc7-620f3719f494` 与独立 Runtime Pages `b3c01fab`；线上 HornburgXW 的 Steam、终端、资讯及组序 smoke 通过。
 
 本任务测试契约：变更等级＝Worker 规则包 + Console 行为；受影响＝产品规则投影与应用目录组序；本地必须＝Steam/Terminal/Bing News Worker 聚焦测试、Console 顺序测试、Worker/Console typecheck、Wrangler dry-run、桌面/移动截图、`git diff --check`；CI 必须＝contracts-worker、console、app-runtime-gate；发布 smoke＝Worker health/401、Pages、Steam/Terminal/资讯及组序；明确排除＝Windows、macOS、WiX、账本和 migration 测试（Agent、安装包、账本及 schema 未改变）。
 
