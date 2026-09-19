@@ -5,7 +5,7 @@ import hashVectors from '../../contracts/runtime-segment-hash-v1.vectors.json';
 import { accountingMediaId, accountingUsageId, segmentContentHash } from '../src/canonical';
 import type { AccountingMediaSegment, AccountingUsageSegment } from '../src/contracts';
 import { validateSegment } from '../src/validation';
-import catalogRules from '../src/data/product-catalog-rules.v1.json';
+import catalogRules from '../src/data/product-catalog-rules.v2.json';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -824,7 +824,8 @@ describe('Runtime product API', () => {
 
 describe('Application knowledge and installed inventory', () => {
   it('loads the curated Steam product knowledge and keeps Steamworks technical', () => {
-    const gameKeys=new Set(catalogRules.products.map(item=>item.distributionKey));
+    const gameKeys=new Set(catalogRules.products.flatMap(item=>item.selectors)
+      .filter(item=>item.field==='distributionKey').map(item=>item.value));
     for(const key of ['steam:714010','steam:1172470','steam:289650','steam:730','steam:2749950','steam:4006000',
       'steam:544810','steam:48700','steam:2141300','steam:214950','steam:508440','steam:236390','steam:1771300']){
       expect(gameKeys.has(key)).toBe(true);
@@ -884,6 +885,11 @@ describe('Application knowledge and installed inventory', () => {
       {key:makeKey('4'),name:'Microsoft Teams',packageId:'MSTeams_8wekyb3d8bbwe!App'},
       {key:makeKey('5'),name:'第三方 Quick Assist',packageId:'ThirdParty.QuickAssist_fixture!App'},
       {key:makeKey('6'),name:'客户端声称系统应用',packageId:'Contoso.Product_fixture!App',origin:'operatingSystem' as const},
+      {key:makeKey('9'),name:'获取帮助',packageId:'Microsoft.GetHelp_8wekyb3d8bbwe!App'},
+      {key:makeKey('a'),name:'设置',packageId:'windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel'},
+      {key:makeKey('b'),name:'Microsoft Edge',packageId:'Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe!App'},
+      {key:makeKey('c'),name:'Xbox',packageId:'Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App'},
+      {key:makeKey('d'),name:'Copilot',packageId:'Microsoft.Copilot_8wekyb3d8bbwe!App'},
     ];
     const unverifiedKey=makeKey('7'), maintenanceKey=makeKey('8');
     const scan={scanId:'e'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:products.length+1,variantCount:1,
@@ -904,14 +910,16 @@ describe('Application knowledge and installed inventory', () => {
     expect((await upload(payload)).status).toBe(200);
     expect((await upload({...payload,batchId:'system-origin-finish',products:[],variants:[],scan:{...scan,batchIndex:1,completed:true}})).status).toBe(200);
     const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
-      items:Array<{displayName:string;applicationOrigin:string;originEvidenceCode:string|null;classification:string}>;
+      items:Array<{displayName:string;applicationOrigin:string;originEvidenceCode:string|null;classification:string;catalogGroup:string;catalogGroupReasonCode:string}>;
       technicalItems:Array<{displayName:string;applicationOrigin:string}>;
     }>();
-    for(const name of ['快速助手','记事本']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
+    for(const name of ['快速助手','记事本','获取帮助','设置']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
       applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',classification:'unclassified',
+      catalogGroup:'systemTool',catalogGroupReasonCode:'EXACT_SYSTEM_TOOL_RULE',
     });
-    for(const name of ['Microsoft Office','Microsoft Teams','第三方 Quick Assist','客户端声称系统应用','未验证包身份']){
-      expect(result.items.find(item=>item.displayName===name)).toMatchObject({applicationOrigin:'unknown',originEvidenceCode:null});
+    for(const name of ['Microsoft Office','Microsoft Teams','Microsoft Edge','Xbox','Copilot','第三方 Quick Assist','客户端声称系统应用','未验证包身份']){
+      expect(result.items.find(item=>item.displayName===name)).toMatchObject({applicationOrigin:'unknown',originEvidenceCode:null,
+        catalogGroup:'application',catalogGroupReasonCode:'DEFAULT_APPLICATION'});
     }
     expect(result.technicalItems).toEqual(expect.arrayContaining([
       expect.objectContaining({displayName:'Windows Update Helper',applicationOrigin:'operatingSystem'}),
@@ -974,6 +982,7 @@ describe('Application knowledge and installed inventory', () => {
       expect(result.items.filter(item=>item.displayName===name)).toHaveLength(1);
       expect(result.items.find(item=>item.displayName===name)).toMatchObject({
         applicationOrigin:'operatingSystem',classification:'unclassified',projectionReasonCode:'LAUNCHABLE_PACKAGE_APP',
+        catalogGroup:'systemTool',catalogGroupReasonCode:'EXACT_SYSTEM_TOOL_RULE',
       });
     }
     expect(result.items.some(item=>item.displayName==='MicrosoftWindows.Client.CBS')).toBe(false);
@@ -985,7 +994,7 @@ describe('Application knowledge and installed inventory', () => {
     ]));
     expect(result.items.find(item=>item.displayName==='刺客信条：大革命')).toMatchObject({
       productType:'game',typeStatus:'confirmed',suggestedClassification:'restrictedEntertainment',
-      machineCount:1,userCount:1,
+      machineCount:1,userCount:1,catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE',
     });
   });
 
@@ -1242,11 +1251,11 @@ describe('Application knowledge and installed inventory', () => {
       schemaVersion:2,batchId:'known-game-products',products:[product('Aimlabs',1),product('Apex Legends™',2),product('Visual Studio Code',3)],variants:[],
     })})).status).toBe(200);
     const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<{
-      displayName:string;classification:string;classificationReason:string;productType:string;typeStatus:string;suggestedClassification:string|null;
+      displayName:string;classification:string;classificationReason:string;productType:string;typeStatus:string;suggestedClassification:string|null;catalogGroup:string;
     }>}>();
     for(const name of ['Aimlabs','Apex Legends™']) expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
       displayName:name,classification:'unclassified',classificationReason:'疑似游戏，建议归为受限娱乐（尚未生效）',
-      productType:'game',typeStatus:'suggested',suggestedClassification:'restrictedEntertainment',
+      productType:'game',typeStatus:'suggested',suggestedClassification:'restrictedEntertainment',catalogGroup:'application',
     })]));
     expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
       displayName:'Visual Studio Code',classification:'unclassified',classificationReason:'尚未归类',
@@ -1260,6 +1269,14 @@ describe('Application knowledge and installed inventory', () => {
         values:{productKey,productName:name,distributionKey},verifiedFields:['productKey','distributionKey'],discovery:{role:'application',nameSource:'installation',
           sourceKinds:['distribution-steam'],objectKind:'product',variantRole:'unknown',scope:'machine',sourceKind:'distribution-steam',evidenceLevel:'strong'}},
       scope:'machine',sourceKind:'distribution-steam',status:'installed'};};
+    const aimlabsIdentity=`windows:product:${'4'.repeat(64)}`;
+    expect((await call('/v2/module/app-policy?childId=child-a',{
+      method:'PUT',headers:{...bearer(account),'If-Match':'"app-policy-v0"'},body:JSON.stringify({
+        classifications:[{platform:'windows',runtimeIdentity:aimlabsIdentity,displayName:'Aimlabs',classification:'composite'}],
+        quotas:{dailyCategoryMinutes:{study:null,composite:null,restrictedEntertainment:null,unclassified:null},
+          weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]},
+      }),
+    })).status).toBe(200);
     const sourceResults=[
       {source:'registry-machine',status:'complete',observationCount:0,warningCodes:[]},
       {source:'registry-user',status:'complete',observationCount:0,warningCodes:[]},
@@ -1276,10 +1293,28 @@ describe('Application knowledge and installed inventory', () => {
       batchId:'distribution-games',products:[product('Aimlabs renamed',4,'steam:714010'),product('Apex local title',5,'steam:1172470')],variants:[],
       scan:{scanId:'7'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:2,variantCount:0,sourceResults,completed:false}})})).status).toBe(200);
     const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<Record<string,unknown>>}>();
-    for(const name of ['Aimlabs','Apex Legends']) expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({
-      displayName:name,appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',classification:'unclassified',
-      suggestedClassification:'restrictedEntertainment',
-    })]));
+    expect(result.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({displayName:'Aimlabs',appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',
+        classification:'composite',suggestedClassification:null,catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE'}),
+      expect.objectContaining({displayName:'Apex Legends',appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',
+        classification:'unclassified',suggestedClassification:'restrictedEntertainment',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE'}),
+    ]));
+  });
+  it('groups only confirmed game launchers as games', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const binaryHash='c'.repeat(64);
+    const knowledge={schemaVersion:2,version:0,products:[{id:'verified-launcher',name:'Verified Launcher',type:'gameLauncher',
+      selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:binaryHash}]}}]}],rules:[],
+      bindings:[{childId:'child-a',products:[],ruleIds:[]}]};
+    expect((await call('/v2/module/application-knowledge',{method:'PUT',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},
+      body:JSON.stringify(knowledge)})).status).toBe(200);
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({
+      schemaVersion:1,batchId:'verified-launcher',observations:[{localUserId,status:'installed',evidence:{platform:'windows',runtimeIdentity:'verified-launcher',
+        displayName:'Verified Launcher',values:{binaryHash},verifiedFields:['binaryHash']}}],
+    })})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:Array<Record<string,unknown>>}>();
+    expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({displayName:'Verified Launcher',appType:'gameLauncher',
+      typeStatus:'confirmed',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_LAUNCHER_TYPE'})]));
   });
   it('never declares a partial or interrupted inventory complete and ACKs completion replay', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();

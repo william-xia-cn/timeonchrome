@@ -1,5 +1,13 @@
 # App Runtime 决策记录
 
+## ARM-D-018：云端权威的游戏、普通应用、系统工具与技术记录分组
+
+PO 于 2026-09-20 确认实施。孩子级学习、复合、受限娱乐、黑名单与未归类目录保持不变；每个目录内部由 Runtime Worker 权威投影 `catalogGroup = game | application | systemTool`。非 actionable 对象继续进入独立技术记录。游戏与系统工具只是目录分组，不是管理分类或配额桶；分类、账本、历史 Segment 和配额均不得因分组变化而改写。
+
+投影优先级固定为：非 actionable 进入技术记录；精确命中受控系统工具清单的 actionable 对象进入 `systemTool`；服务端确认 `appType = game | gameLauncher` 的对象进入 `game`；其他 actionable 对象进入 `application`。疑似游戏和只靠名称命中的候选仍属于普通应用。游戏被家长明确归为复合时仍显示为游戏，但只扣复合配额。
+
+系统工具只指 Windows 内置、用户可主动打开且主要用于配置、帮助、诊断、维护或基础工具的对象，并要求经审核的精确 AUMID、package identity 或系统二进制规则。显示名称、安装路径、Microsoft 发布者或预装状态均不能单独命中。Edge、Office、Teams、Xbox、Copilot、照片和媒体播放器不得仅因微软发布或系统预装进入系统工具。首批在既有规则上增加获取帮助与设置；以后纯规则调整只部署 Worker，不要求终端升级。
+
 ## ARM-D-017：包容器、可启动应用与发行证据分层
 
 PO 于 2026-09-18 确认实施。MSIX/package family 是安装与签名边界的技术容器，不默认等同于家长可管理产品；包内具有可信 AUMID 的每个可启动入口默认作为独立应用投影。无可启动入口的包容器只进入技术记录。LibreOffice 等具有可靠 Win32 安装产品锚点的套件继续按产品与变体聚合，不因本决策拆散。

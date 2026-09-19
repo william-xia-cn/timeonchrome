@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [Contracts 1.8.0 / ARM-D-018] — 2026-09-20（本地验证通过，待发布）
+
+- 目录新增云端权威的游戏、普通应用和系统工具分组；技术记录保持只读独立。
+- 系统工具采用精确受控身份，增加获取帮助和设置；confirmed 游戏与游戏平台进入游戏组，疑似游戏仍留在普通应用。
+- 仅改变目录 read model 与独立 Runtime Pages，不改 Agent、D1 schema、账本、分类或配额。
+- Contracts、Worker 54/54、Console 聚焦测试、TypeScript、Wrangler dry-run、边界检查及桌面/移动视觉验证通过。
+
 ## [Contracts 1.7.0 / Windows 2.4.0] — 2026-09-18（本地候选已验证，未发布）
 
 - inventory v2 增加 `packageContainer` 语义、`distribution-ea / distribution-ubisoft / distribution-gog` 来源，并将 `sourceResults` 上限统一为 16；旧 2.3.x payload 保持兼容。

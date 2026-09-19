@@ -104,10 +104,11 @@
     ], quotas: { dailyCategoryMinutes: { study: null, composite: 120, restrictedEntertainment: 60, unclassified: 30 }, weeklyRestrictedEntertainmentMinutes: 240, perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:game', minutes: 45 }] } });
     state.policyEtag = '"app-policy-v4"';
     state.records = { windowStartMs: Date.now() - 30 * 86400000, windowEndMs: Date.now(), pending: [
-      { platform: 'windows', runtimeIdentity: 'app:obs', displayName: 'OBS Studio', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 480000, mainDurationMs: 720000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'unknown', originEvidenceCode: null },
-      { platform: 'windows', runtimeIdentity: 'app:calc', displayName: '计算器', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 600000, mainDurationMs: 420000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule' },
-      { platform: 'windows', runtimeIdentity: 'app:quick-assist', displayName: '快速助手', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 900000, mainDurationMs: 180000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule' },
-    ], processed: state.policy.classifications.filter((item) => item.runtimeIdentity !== 'app:chat').map((item) => ({ ...item, firstSeenAtMs: dayStart - 86400000, lastSeenAtMs: Date.now(), mainDurationMs: 1800000, machineCount: 1, userCount: 1, status: 'processed', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'unknown', originEvidenceCode: null })), technical: [] };
+      { platform: 'windows', runtimeIdentity: 'app:obs', displayName: 'OBS Studio', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 480000, mainDurationMs: 720000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'unknown', originEvidenceCode: null, catalogGroup: 'application', catalogGroupReasonCode: 'DEFAULT_APPLICATION' },
+      { platform: 'windows', runtimeIdentity: 'app:aimlabs', displayName: 'Aimlabs', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 540000, mainDurationMs: 600000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'product', appType: 'game', typeStatus: 'confirmed', applicationOrigin: 'unknown', originEvidenceCode: null, catalogGroup: 'game', catalogGroupReasonCode: 'CONFIRMED_GAME_TYPE' },
+      { platform: 'windows', runtimeIdentity: 'app:calc', displayName: '计算器', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 600000, mainDurationMs: 420000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule', catalogGroup: 'systemTool', catalogGroupReasonCode: 'EXACT_SYSTEM_TOOL_RULE' },
+      { platform: 'windows', runtimeIdentity: 'app:quick-assist', displayName: '快速助手', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 900000, mainDurationMs: 180000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule', catalogGroup: 'systemTool', catalogGroupReasonCode: 'EXACT_SYSTEM_TOOL_RULE' },
+    ], processed: state.policy.classifications.filter((item) => item.runtimeIdentity !== 'app:chat').map((item) => ({ ...item, firstSeenAtMs: dayStart - 86400000, lastSeenAtMs: Date.now(), mainDurationMs: 1800000, machineCount: 1, userCount: 1, status: 'processed', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'unknown', originEvidenceCode: null, catalogGroup: item.displayName === 'Minecraft' ? 'game' : 'application', catalogGroupReasonCode: item.displayName === 'Minecraft' ? 'CONFIRMED_GAME_TYPE' : 'DEFAULT_APPLICATION' })), technical: [] };
     state.catalog = { windowStartMs: Date.now() - 30 * 86400000, windowEndMs: Date.now(), items: [
       { ...state.policy.classifications.find((item) => item.runtimeIdentity === 'app:vscode'), firstSeenAtMs: dayStart - 86400000, lastSeenAtMs: Date.now() - 300000, mainDurationMs: 4320000, machineCount: 1, userCount: 1, observedInWindow: true },
       { ...state.policy.classifications.find((item) => item.runtimeIdentity === 'app:edge'), firstSeenAtMs: dayStart - 86400000, lastSeenAtMs: Date.now() - 420000, mainDurationMs: 2880000, machineCount: 1, userCount: 1, observedInWindow: true },
@@ -116,7 +117,8 @@
       ...state.records.pending,
     ].map((item) => ({ applicationOrigin: 'unknown', originEvidenceCode: null,
       appType:item.displayName==='Minecraft'?'game':'unknown',typeStatus:item.displayName==='Minecraft'?'confirmed':'unknown',typeReasonCode:item.displayName==='Minecraft'?'verifiedProductRule':'none',
-      ...item, manageability: 'actionable', catalogKind: item.productId ? 'product' : 'application' })), technicalItems: [
+      ...item, manageability: 'actionable', catalogKind: item.productId ? 'product' : 'application',
+      catalogGroup:item.catalogGroup||(item.displayName==='Minecraft'?'game':'application'),catalogGroupReasonCode:item.catalogGroupReasonCode||(item.displayName==='Minecraft'?'CONFIRMED_GAME_TYPE':'DEFAULT_APPLICATION') })), technicalItems: [
       { platform: 'windows', displayName: 'wixstdba', catalogKind: 'unresolved', manageability: 'review', projectionReasonCode: 'TECHNICAL_IDENTITY_ONLY', lastSeenAtMs: Date.now() - 1800000, mainDurationMs: 360000, machineCount: 1, userCount: 1 },
       { platform: 'windows', displayName: 'Updater helper', catalogKind: 'component', manageability: 'hidden', projectionReasonCode: 'COMPONENT', lastSeenAtMs: null, mainDurationMs: 0, machineCount: 1, userCount: 1 },
     ] };
@@ -127,9 +129,9 @@
     state.mockKnowledge = {schemaVersion:2,version:1,products:[{id:'fixture-game',name:'Minecraft',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:state.mockInventory[2].evidence.values.binaryHash}]}}]}],rules:[],bindings:[{childId:'demo-a',products:[{productId:'fixture-game',classification:'restrictedEntertainment'}],ruleIds:[]}]};
     if (new URLSearchParams(location.search).has('inventoryQuality')) {
       const fixture=(runtimeIdentity,displayName,role)=>({platform:'windows',runtimeIdentity,displayName,classification:'unclassified',installationState:'installed',observedInWindow:false,mainDurationMs:0,machineCount:1,userCount:1,discovery:{role,nameSource:role==='component'?'fallback':'appList',sourceKinds:['package']},catalogKind:role,manageability:role==='application'?'actionable':role==='component'?'hidden':'review',projectionReasonCode:role==='component'?'COMPONENT':role==='candidate'?'DISCOVERY_CANDIDATE':'VERIFIED_APPLICATION'});
-      state.catalog.items.push(fixture('fixture:unused','已安装未使用播放器','application'));
-      state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'记事本',classification:'unclassified',installationState:'installed',observedInWindow:true,mainDurationMs:180000,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:notepad-main',displayName:'记事本'}],variants:[{displayName:'记事本',platform:'windows',variantRole:'main',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
-      state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'LibreOffice',classification:'unclassified',installationState:'installed',observedInWindow:false,mainDurationMs:0,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:writer',displayName:'LibreOffice Writer'},{platform:'windows',runtimeIdentity:'fixture:calc',displayName:'LibreOffice Calc'}],variants:[{displayName:'LibreOffice Writer',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Calc',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Safe Mode',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
+      state.catalog.items.push({...fixture('fixture:unused','已安装未使用播放器','application'),catalogGroup:'application',catalogGroupReasonCode:'DEFAULT_APPLICATION'});
+      state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'记事本',classification:'unclassified',installationState:'installed',observedInWindow:true,mainDurationMs:180000,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',catalogGroup:'systemTool',catalogGroupReasonCode:'EXACT_SYSTEM_TOOL_RULE',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:notepad-main',displayName:'记事本'}],variants:[{displayName:'记事本',platform:'windows',variantRole:'main',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
+      state.catalog.items.push({platform:'windows',runtimeIdentity:null,displayName:'LibreOffice',classification:'unclassified',installationState:'installed',observedInWindow:false,mainDurationMs:0,machineCount:1,userCount:1,catalogKind:'product',manageability:'actionable',projectionReasonCode:'INSTALLATION_PRODUCT',catalogGroup:'application',catalogGroupReasonCode:'DEFAULT_APPLICATION',runtimeImplementations:[{platform:'windows',runtimeIdentity:'fixture:writer',displayName:'LibreOffice Writer'},{platform:'windows',runtimeIdentity:'fixture:calc',displayName:'LibreOffice Calc'}],variants:[{displayName:'LibreOffice Writer',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Calc',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'},{displayName:'LibreOffice Safe Mode',platform:'windows',variantRole:'suiteMember',installationState:'installed',manageability:'actionable',classification:'unclassified'}]});
       state.catalog.technicalItems.push(fixture('fixture:helper','隐藏组件入口','component'),fixture('fixture:candidate','弱安装候选','candidate'),
         {...fixture('fixture:runtime','Microsoft Visual C++ Redistributable','candidate'),projectionReasonCode:'TECHNICAL_PRODUCT_REVIEW'},
         {...fixture('fixture:standalone','Administrative Tools','candidate'),projectionReasonCode:'UNCONFIRMED_APPLICATION_VARIANT'});
@@ -217,10 +219,10 @@
     const note = app.discovery?.role === 'component' ? '组件入口（不豁免使用计时）' : app.discovery?.role === 'candidate' ? '安装候选，尚无可靠主程序关联' : '';
     const fallback = app.discovery?.nameSource === 'fallback' ? '名称未解析，显示包入口回退' : '';
     const actions = classificationActions(app, selected);
-    const origin = app.applicationOrigin === 'operatingSystem' ? '<span class="system-origin-chip">系统应用</span>' : '';
+    const origin = app.catalogGroup === 'systemTool' ? '<span class="system-origin-chip">系统工具</span>' : '';
     const typeLabels={game:'游戏',gameLauncher:'游戏平台／启动器',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'类型未知'};
     const appType=app.appType||app.productType||'unknown';
-    const typeText=appType==='unknown'&&app.applicationOrigin==='operatingSystem'?'系统应用'
+    const typeText=app.catalogGroup==='systemTool'?'系统工具'
       :app.typeStatus==='suggested'?`疑似${typeLabels[appType]}`:app.typeStatus==='confirmed'?typeLabels[appType]:'类型未知';
     const typeAndClass=`${typeText} · ${categoryLabels[app.classification]||'未归类'}`;
     const variants = visibleProductVariants(app);
@@ -248,17 +250,20 @@
     const current = state.appCategory;
     const source = directoryMembers(current);
     const list = source.filter(filter).sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0));
-    const ordinaryApps = list.filter((item) => item.applicationOrigin !== 'operatingSystem');
-    const systemApps = list.filter((item) => item.applicationOrigin === 'operatingSystem');
+    const gameApps = list.filter((item) => item.catalogGroup === 'game');
+    const systemTools = list.filter((item) => item.catalogGroup === 'systemTool');
+    const ordinaryApps = list.filter((item) => item.catalogGroup !== 'game' && item.catalogGroup !== 'systemTool');
     $('#app-directory-title').textContent = current === 'unclassified' ? ($('#directory-scope').value==='usage'?'已使用未归类应用':'未归类应用 · 安装发现与使用观察') : `${categoryLabels[current]}应用`;
     $('#app-directory-subtitle').textContent = current === 'unclassified'
       ? `当前范围待处理 ${source.length} 个 · 使用证据最近 30 天；安装发现不生成账本，归类仅向前生效`
       : `应用 ${categoryCounts(current).total} · Windows ${categoryCounts(current).windows} · macOS ${categoryCounts(current).macos}`;
+    $('#game-app-count').textContent = `${gameApps.length} 个`;
     $('#ordinary-app-count').textContent = `${ordinaryApps.length} 个`;
-    $('#system-app-count').textContent = `${systemApps.length} 个`;
+    $('#system-tool-count').textContent = `${systemTools.length} 个`;
+    $('#game-app-list').innerHTML = gameApps.length ? gameApps.map((item) => appRow(item, current)).join('') : '<p class="empty">当前分组没有符合条件的游戏</p>';
     $('#managed-app-list').innerHTML = ordinaryApps.length ? ordinaryApps.map((item) => appRow(item, current)).join('') : '<p class="empty">当前分组没有符合条件的普通应用</p>';
-    $('#system-app-list').innerHTML = systemApps.length ? systemApps.map((item) => appRow(item, current)).join('') : '<p class="empty">当前分组没有符合条件的系统应用</p>';
-    $('#system-app-group').open = Boolean(search && systemApps.length);
+    $('#system-tool-list').innerHTML = systemTools.length ? systemTools.map((item) => appRow(item, current)).join('') : '<p class="empty">当前分组没有符合条件的系统工具</p>';
+    $('#system-tool-group').open = Boolean(search && systemTools.length);
     const history = (state.records.processed || []).filter(filter);
     $('#processed-history').hidden = current !== 'unclassified';
     $('#processed-records').innerHTML = history.length ? history.map((item) => appRow(item, item.classification)).join('') : '<p class="empty">暂无已处理历史</p>';

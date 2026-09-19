@@ -1,5 +1,5 @@
 import type { ApplicationKnowledge } from '@timeonchrome/app-runtime-contracts/classification';
-import rawRules from './data/product-catalog-rules.v1.json';
+import rawRules from './data/product-catalog-rules.v2.json';
 
 type ProductCatalogRuleFile = {
   schemaVersion: number;
@@ -7,10 +7,13 @@ type ProductCatalogRuleFile = {
     id: string;
     name: string;
     type: ApplicationKnowledge['products'][number]['type'];
-    distributionKey: string;
+    selectors: Array<{
+      field: 'distributionKey' | 'packageId' | 'signerKey';
+      value: string;
+    }>;
   }>;
   technicalDistributionKeys: string[];
-  operatingSystemPackageIds: string[];
+  systemToolPackageIds: string[];
 };
 
 const rules = rawRules as ProductCatalogRuleFile;
@@ -19,12 +22,12 @@ export const controlledProducts: ApplicationKnowledge['products'] = rules.produc
   id: product.id,
   name: product.name,
   type: product.type,
-  selectors: [{
+  selectors: product.selectors.map((selector) => ({
     platform: 'windows',
-    match: { operator: 'all', conditions: [{ field: 'distributionKey', value: product.distributionKey }] },
-  }],
+    match: { operator: 'all', conditions: [{ field: selector.field, value: selector.value }] },
+  })),
 }));
 
 export const technicalDistributionKeys = new Set(rules.technicalDistributionKeys.map((value) => value.toLowerCase()));
-export const operatingSystemPackageIds = new Set(rules.operatingSystemPackageIds.map((value) => value.toLowerCase()));
+export const systemToolPackageIds = new Set(rules.systemToolPackageIds.map((value) => value.toLowerCase()));
 export const productCatalogRuleVersion = rules.schemaVersion;

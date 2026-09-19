@@ -16,8 +16,14 @@ import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
 import { identifyProducts, resolveApplication, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { effectiveApplicationKnowledge, queryInventoryScanStatus } from './applicationKnowledge';
-import type { AppEvidence, ApplicationOrigin, ApplicationOriginEvidenceCode } from '@timeonchrome/app-runtime-contracts/classification';
-import { operatingSystemPackageIds, technicalDistributionKeys } from './productCatalogRules';
+import type {
+  AppEvidence,
+  ApplicationOrigin,
+  ApplicationOriginEvidenceCode,
+  CatalogGroup,
+  CatalogGroupReasonCode,
+} from '@timeonchrome/app-runtime-contracts/classification';
+import { systemToolPackageIds, technicalDistributionKeys } from './productCatalogRules';
 
 const classifications = new Set<ApplicationClassification>([
   'study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked',
@@ -47,6 +53,8 @@ type CatalogEntry = CatalogProjection & {
   classification: ApplicationClassification;
   applicationOrigin: ApplicationOrigin;
   originEvidenceCode: ApplicationOriginEvidenceCode | null;
+  catalogGroup: CatalogGroup;
+  catalogGroupReasonCode: CatalogGroupReasonCode;
   runtimeImplementations?: Array<{ platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null }>;
   [key: string]: unknown;
 };
@@ -85,9 +93,27 @@ function projectApplicationOrigin(evidence?: AppEvidence): {
   if (!packageId) return { applicationOrigin: 'unknown', originEvidenceCode: null };
   const normalized = packageId.trim().toLowerCase();
   const family = normalized.split('!', 1)[0]!;
-  return operatingSystemPackageIds.has(normalized) || operatingSystemPackageIds.has(family)
+  return systemToolPackageIds.has(normalized) || systemToolPackageIds.has(family)
     ? { applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule' }
     : { applicationOrigin: 'unknown', originEvidenceCode: null };
+}
+
+function projectCatalogGroup(input: {
+  actionable: boolean;
+  exactSystemTool: boolean;
+  appType: string;
+  typeStatus: string;
+}): { catalogGroup: CatalogGroup; catalogGroupReasonCode: CatalogGroupReasonCode } {
+  if (input.actionable && input.exactSystemTool) {
+    return { catalogGroup: 'systemTool', catalogGroupReasonCode: 'EXACT_SYSTEM_TOOL_RULE' };
+  }
+  if (input.actionable && input.typeStatus === 'confirmed' && input.appType === 'game') {
+    return { catalogGroup: 'game', catalogGroupReasonCode: 'CONFIRMED_GAME_TYPE' };
+  }
+  if (input.actionable && input.typeStatus === 'confirmed' && input.appType === 'gameLauncher') {
+    return { catalogGroup: 'game', catalogGroupReasonCode: 'CONFIRMED_GAME_LAUNCHER_TYPE' };
+  }
+  return { catalogGroup: 'application', catalogGroupReasonCode: 'DEFAULT_APPLICATION' };
 }
 
 function isPackageContainer(evidence?: AppEvidence): boolean {
@@ -1005,6 +1031,12 @@ export async function queryAppCatalog(
     const typeReasonCode = resolution?.typeStatus === 'confirmed' ? resolution.typeReasonCode
       : nameSuggestedType ? 'exactNameSuggestion' as const : 'none' as const;
     const productTypeSuggestion = classification === 'unclassified' && appType === 'game';
+    const catalogGroup = projectCatalogGroup({
+      actionable: effectiveProjection.manageability === 'actionable',
+      exactSystemTool: authoritativeOrigin.originEvidenceCode === 'exactPackageRule',
+      appType,
+      typeStatus,
+    });
     return {
       platform: itemPlatform,
       runtimeIdentity: runtimeIdentity as string | null,
@@ -1022,6 +1054,7 @@ export async function queryAppCatalog(
       productTypeReason: typeStatus==='confirmed' ? '可信发行身份或家庭产品知识' : productTypeSuggestion ? '受控产品名称精确匹配（仅建议）' : null,
       applicationOrigin: authoritativeOrigin.applicationOrigin,
       originEvidenceCode: authoritativeOrigin.originEvidenceCode,
+      ...catalogGroup,
       installationState: found?.installed ? 'installed' : observed ? 'usedNotDiscovered' : 'preconfigured',
       firstSeenAtMs: observed?.firstSeenAtMs ?? null,
       lastSeenAtMs: observed?.lastSeenAtMs ?? null,
@@ -1043,6 +1076,7 @@ export async function queryAppCatalog(
         appType:product!.type,typeStatus:'confirmed' as const,typeReasonCode:'verifiedProductRule' as const,
         productType:product!.type,suggestedClassification:null,productTypeReason:'家庭产品知识',
         applicationOrigin:'unknown' as const,originEvidenceCode:null,
+        ...projectCatalogGroup({actionable:true,exactSystemTool:false,appType:product!.type,typeStatus:'confirmed'}),
         firstSeenAtMs:null,lastSeenAtMs:null,mainDurationMs:0,machineCount:0,userCount:0,observedInWindow:false,discovery:null,
         catalogKind:'product' as const,manageability:'actionable' as const,projectionReasonCode:'CONFIRMED_PRODUCT' as const});
     }
@@ -1110,6 +1144,14 @@ export async function queryAppCatalog(
       :group.some(item=>item.applicationOrigin==='user')?'user':'unknown';
     const originEvidenceCodes=[...new Set(group.filter(item=>item.applicationOrigin===applicationOrigin)
       .map(item=>item.originEvidenceCode).filter((value):value is ApplicationOriginEvidenceCode=>value!==null))];
+    const confirmedTypeItem=group.find(item=>item.typeStatus==='confirmed'&&(item.appType==='game'||item.appType==='gameLauncher'))
+      ??group.find(item=>item.typeStatus==='confirmed')??primary;
+    const catalogGroup=projectCatalogGroup({
+      actionable:aggregateProjection.manageability==='actionable',
+      exactSystemTool:group.some(item=>item.catalogGroup==='systemTool'),
+      appType:String(confirmedTypeItem.appType),
+      typeStatus:String(confirmedTypeItem.typeStatus),
+    });
     return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:implementations.length===0?primary.runtimeIdentity:null,
       classification:classes.size===1?[...classes][0]!:primary.classification,mixedClassifications:classes.size>1,
       observedInWindow:group.some(item=>item.observedInWindow),
@@ -1120,10 +1162,12 @@ export async function queryAppCatalog(
         runtimeIdentity:item.runtimeIdentity})),
       associationStatus:group[0]!.productId?'confirmedProduct':implementations.length>1?'verifiedIdentityAssociation':'technicalIdentity',
       applicationOrigin,originEvidenceCode:originEvidenceCodes.length===1?originEvidenceCodes[0]:null,
+      appType:confirmedTypeItem.appType,typeStatus:confirmedTypeItem.typeStatus,typeReasonCode:confirmedTypeItem.typeReasonCode,
+      productType:confirmedTypeItem.productType,productTypeReason:confirmedTypeItem.productTypeReason,
       mainDurationMs:groupedUnion(intervals),machineCount:machines.size,userCount:users.size,
       lastSeenAtMs:Math.max(0,...group.map(item=>item.lastSeenAtMs??0))||null,
       installationState:group.some(item=>item.installationState==='installed')?'installed':group[0]!.installationState,
-      ...aggregateProjection};
+      ...aggregateProjection,...catalogGroup};
   });
   const technicalVariants=items.filter(item=>item.discovery?.objectKind==='variant'&&item.manageability!=='actionable'
     && (item.runtimeIdentity===null||(!ambiguityByIdentity.has(`${item.platform}\n${item.runtimeIdentity}`)

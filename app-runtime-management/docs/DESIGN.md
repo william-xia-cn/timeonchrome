@@ -1,5 +1,13 @@
 # App Runtime 技术设计
 
+## 当前扩展：ARM-D-018 云端目录四层分组
+
+`GET /v2/module/app-catalog` 对 actionable 条目新增 `catalogGroup` 与 `catalogGroupReasonCode`。Worker 的固定投影顺序为技术记录、精确系统工具、confirmed 游戏/游戏平台、普通应用；Console 不再从 `applicationOrigin` 或显示名称自行决定组别。`applicationOrigin` 继续作为兼容与审计字段。
+
+Runtime-owned 产品规则包升级为 schema v2，集中保存 confirmed 产品类型、技术组件和精确系统工具身份。获取帮助使用 `Microsoft.GetHelp_8wekyb3d8bbwe!App`，设置使用 `windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel`；匹配大小写不敏感。游戏/游戏平台必须由可信 product selector 确认，名称建议仍留在普通应用。本轮 contracts 升级至 1.8.0，不新增 migration，不修改 Agent、策略 schema、账本或配额。
+
+Console 在五个孩子管理分类内依次显示默认展开的游戏、默认展开的普通应用和默认折叠的系统工具；搜索命中系统工具时自动展开。技术记录继续位于系统管理且没有分类操作。部署只包含 Runtime Worker 和独立 Runtime Pages。
+
 ## 产品目录云端纠错与发行证据边界（ARM-D-017）
 
 - MSIX package family 是技术容器；可信 AUMID 才是默认可管理的包内应用。容器进入技术记录，不进入孩子五分类目录。
