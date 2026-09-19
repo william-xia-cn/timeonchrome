@@ -1,11 +1,13 @@
 # App Runtime Changelog
 
-## [Contracts 1.8.0 / ARM-D-018] — 2026-09-20（本地验证通过，待发布）
+## [Contracts 1.8.0 / ARM-D-018] — 2026-09-20（生产已发布）
 
 - 目录新增云端权威的游戏、普通应用和系统工具分组；技术记录保持只读独立。
 - 系统工具采用精确受控身份，增加获取帮助和设置；confirmed 游戏与游戏平台进入游戏组，疑似游戏仍留在普通应用。
 - 仅改变目录 read model 与独立 Runtime Pages，不改 Agent、D1 schema、账本、分类或配额。
 - Contracts、Worker 54/54、Console 聚焦测试、TypeScript、Wrangler dry-run、边界检查及桌面/移动视觉验证通过。
+- PR #34 经跨平台 CI 通过后合并为 `master@a89722d`；生产 workflow `35460662741` 仅发布 Runtime Worker `b6828e42-94c0-45ae-9b9c-30073bddfb36` 与独立 Runtime Pages deployment `b61a169a-0df0-4b5d-8ff0-eb3d097d8e9d`，未执行 migration，未部署 Guardian、主 Pages 或 R2。
+- 线上只读验收确认游戏组置顶、普通应用展开、系统工具折叠及搜索自动展开；“获取帮助”和“设置”均显示为“系统工具 · 未归类”，管理分类、历史账本和配额未改变。
 
 ## [Contracts 1.7.0 / Windows 2.4.0] — 2026-09-18（本地候选已验证，未发布）
 
