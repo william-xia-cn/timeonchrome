@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前修复：ARM-D-021 Windows 内置系统工具规则补全
+
+Runtime-owned 产品规则包增加六个经审核的精确 package family：`Microsoft.ScreenSketch_8wekyb3d8bbwe`、`Microsoft.YourPhone_8wekyb3d8bbwe`、`Microsoft.WindowsAlarms_8wekyb3d8bbwe`、`Microsoft.Windows.Photos_8wekyb3d8bbwe`、`Microsoft.Paint_8wekyb3d8bbwe` 和 `Microsoft.WindowsCamera_8wekyb3d8bbwe`。Worker 对 package identity 统一转小写，并用 `!` 前的 family 同时匹配产品容器和启动入口；容器继续作为技术记录，启动入口只形成一个可管理行。
+
+该规则把截图工具、手机连接、时钟、照片、画图和相机投影为 `catalogGroup = systemTool`，不使用显示名称、路径或发布者进行推断。同名第三方程序以及资讯、Edge、Office、Teams、Xbox、Copilot、媒体播放器保持非系统工具。管理分类、配额、账本、安装状态和历史数据均不变；无需 Agent 升级、重新扫描、migration 或 Console 修改。
+
 ## 当前热修：ARM-D-020 精确分组规则与目录顺序
 
 Runtime-owned 产品规则包以 HKLM/HKCU 两个稳定 Steam 安装产品键把 Steam 确认为 `gameLauncher`，以 `Microsoft.WindowsTerminal_8wekyb3d8bbwe` 精确包族把 Windows Terminal 投影为系统工具。Bing News 不在系统工具清单中，继续按普通内容应用投影。匹配不使用显示名称，不要求终端重新扫描。

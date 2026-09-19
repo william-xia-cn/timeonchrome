@@ -32,6 +32,12 @@
     "microsoftwindows.client.coreai_cw5n1h2txyewy!clicktodoapp",
     "microsoft.gethelp_8wekyb3d8bbwe!app",
     "microsoft.windowsterminal_8wekyb3d8bbwe",
-    "windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"
+    "windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel",
+    "microsoft.screensketch_8wekyb3d8bbwe",
+    "microsoft.yourphone_8wekyb3d8bbwe",
+    "microsoft.windowsalarms_8wekyb3d8bbwe",
+    "microsoft.windows.photos_8wekyb3d8bbwe",
+    "microsoft.paint_8wekyb3d8bbwe",
+    "microsoft.windowscamera_8wekyb3d8bbwe"
   ]
 }

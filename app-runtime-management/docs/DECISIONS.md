@@ -1,5 +1,13 @@
 # App Runtime 决策记录
 
+## ARM-D-021：Windows 内置系统工具采用经审核的精确包身份
+
+PO 于 2026-09-20 确认实施。ARM-D-018 中“照片不得仅因微软发布或系统预装进入系统工具”的弱证据禁令继续有效，但经产品审核的 Windows 内置基础工具与默认系统实用应用可以通过稳定、精确的 package family/AUMID 进入 `systemTool`。本次确认截图工具、手机连接、时钟、照片、画图和相机属于该边界；显示名称、路径、发布者和预装状态仍不能单独命中。
+
+Runtime Worker 以六个已核实 package family 动态投影目录；family 规则大小写不敏感，并同时覆盖 package container 与其 `!App` 启动入口。包容器仍只进入技术记录，启动入口只形成一个可管理产品行。资讯、Edge、Office、Teams、Xbox、Copilot 和媒体播放器等未审核产品保持普通应用或既有投影。
+
+本决策只改变目录分组，不修改管理分类、配额桶、安装状态、机器/账户计数、账本或历史 Segment；不要求 Agent 升级、重新扫描或重新配对。按 ARM-D-019 只运行 Worker 聚焦测试、backend typecheck、Wrangler dry-run 和 `git diff --check`，合并后只部署 Runtime Worker。
+
 ## ARM-D-020：精确启动器／系统工具规则与目录默认顺序
 
 PO 于 2026-09-20 确认实施。Runtime Worker 使用已上传的强身份事实修正目录分组：Steam 只以稳定 Windows 安装产品键确认为 `gameLauncher`，Windows Terminal 只以精确 package family/AUMID 确认为 `systemTool`；显示名称、发布者或预装状态均不能单独命中。`Microsoft.BingNews`（资讯）属于内容应用，保持 `application`，不扩大“系统工具”的配置、帮助、诊断、维护或基础工具边界。

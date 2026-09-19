@@ -1,5 +1,11 @@
 # App Runtime 项目真值
 
+## 当前待发布修复：ARM-D-021 Windows 内置系统工具规则
+
+- Runtime Worker 规则已加入截图工具、手机连接、时钟、照片、画图和相机六个经审核 package family；同名第三方及未审核微软产品不命中。
+- Worker 聚焦测试 2/2、backend typecheck、Wrangler 4.127.1 dry-run 与 `git diff --check` 已通过；未运行 Console、Agent、macOS、WiX、账本或 migration 测试。
+- 当前仅为功能分支本地验证证据；尚未 PR 合并或部署生产。发布范围固定为 Runtime Worker，不需要终端升级、重新扫描或重新配对。
+
 ## 当前生产热修：ARM-D-020 云端目录规则
 
 - PR #37 已合并为 `master@264dfd5c2dcc1afca5908baff1ce89ff01059bb5`；精确 SHA 的 `contracts-worker`、`console` 与 `app-runtime-gate` 通过，Windows、macOS、WiX 按 ARM-D-019 正确跳过。

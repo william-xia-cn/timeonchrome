@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前修复：Windows 内置系统工具精确规则
+
+ARM-D-021 使用云端精确 package family 将截图工具、手机连接、时钟、照片、画图和相机投影为系统工具；同名第三方和未审核微软产品不命中。规则同时覆盖 package container 与 `!App` 入口，容器继续只进入技术记录，因此无需升级 Agent 或重新扫描，也不会改变分类、配额、账本和历史 Segment。
+
 ## 当前热修：精确目录规则与默认顺序
 
 ARM-D-020 使用云端稳定强身份把 Steam 投影为游戏平台／启动器、把 Windows Terminal 投影为系统工具；Bing News（资讯）继续作为普通内容应用。五分类目录内默认顺序为普通应用、游戏、系统工具。该修订无需升级 Agent 或重新扫描，不改变孩子管理分类、账本、历史 Segment 和配额。
