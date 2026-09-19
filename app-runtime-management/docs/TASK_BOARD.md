@@ -1,5 +1,15 @@
 # App Runtime 任务板
 
+## NOW：云端目录精确规则热修（ARM-D-020）
+
+- [x] Steam 以稳定 HKLM/HKCU 安装产品键确认为游戏平台／启动器；同名弱证据不得命中。
+- [x] Windows Terminal 以精确包身份进入系统工具；资讯保持普通应用。
+- [x] Console 默认顺序调整为普通应用、游戏、系统工具；系统工具保持默认折叠和搜索展开。
+- [x] 完成 Worker/Console 聚焦测试、typecheck、Wrangler dry-run、桌面／移动视觉检查和 `git diff --check`。
+- [ ] 合并后只部署 Runtime Worker 与独立 Runtime Pages，并完成线上目录 smoke。
+
+本任务测试契约：变更等级＝Worker 规则包 + Console 行为；受影响＝产品规则投影与应用目录组序；本地必须＝Steam/Terminal/Bing News Worker 聚焦测试、Console 顺序测试、Worker/Console typecheck、Wrangler dry-run、桌面/移动截图、`git diff --check`；CI 必须＝contracts-worker、console、app-runtime-gate；发布 smoke＝Worker health/401、Pages、Steam/Terminal/资讯及组序；明确排除＝Windows、macOS、WiX、账本和 migration 测试（Agent、安装包、账本及 schema 未改变）。
+
 ## NOW：按变更范围测试与 CI 节流（ARM-D-019）
 
 - [x] 固定项目管理测试契约、证据复用和扩大范围批准规则。

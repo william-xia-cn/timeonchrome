@@ -1,6 +1,10 @@
 {
   "schemaVersion": 2,
   "products": [
+    { "id": "builtin.launcher.steam", "name": "Steam", "type": "gameLauncher", "selectors": [
+      { "field": "productKey", "value": "955df98a1f7643d0cea506d7824640c19c6afe07571da4594a958b423db6ae23" },
+      { "field": "productKey", "value": "114e1560cbf78ab30395d8d1e91fb7ec7b1eeefd804ef43944aecb96684328ae" }
+    ] },
     { "id": "builtin.steam.714010", "name": "Aimlabs", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:714010" }] },
     { "id": "builtin.steam.1172470", "name": "Apex Legends", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:1172470" }] },
     { "id": "builtin.steam.289650", "name": "刺客信条：大革命", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:289650" }] },
@@ -27,6 +31,7 @@
     "microsoftwindows.client.cbs_cw5n1h2txyewy!webexperiencehost",
     "microsoftwindows.client.coreai_cw5n1h2txyewy!clicktodoapp",
     "microsoft.gethelp_8wekyb3d8bbwe!app",
+    "microsoft.windowsterminal_8wekyb3d8bbwe",
     "windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"
   ]
 }
