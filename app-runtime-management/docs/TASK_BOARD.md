@@ -7,13 +7,13 @@
 - [x] 规则包 schema v3 以强身份确认 EA app、Game Bar、Solitaire & Casual Games、完美世界竞技平台和 XBOX；EA 两个产品键只投影一行。
 - [x] 反馈中心、命令面板、天气和录音机以精确 package family 进入系统应用；同名第三方不得命中。
 - [x] Console 增加“游戏工具”类型标签，并把用户可见“系统工具”统一为“系统应用”；内部 `systemTool` 兼容值和分组顺序不变。
-- [ ] 通过最小测试、PR/CI 后，仅部署 Runtime Worker 与独立 Runtime Pages，并完成 200/401 及九个目标线上只读验收。
+- [x] PR #42 与精确 master SHA CI 通过；生产 workflow `35470498809` 仅部署 Runtime Worker 与独立 Runtime Pages，200/401、Pages 及九个目标线上只读验收通过。
 
 本任务测试契约：变更等级＝Contracts 公共类型 + Worker 规则包 + Console 文案/行为；受影响＝产品类型、目录云端投影和用户文案；本地必须＝Contracts schema/向量/N-1、九个对象/EA 合并/同名负例/Game Bar 不自动分类/明确分类优先的 Worker 聚焦测试、Console 类型标签/文案/折叠/搜索/顺序聚焦测试、Windows Core 单项分类匹配测试、Contracts/Worker/Console typecheck、Wrangler dry-run、桌面/移动目视截图、`git diff --check`；CI 必须＝contracts-worker、console、windows-tests、app-runtime-gate；发布 smoke＝Worker health 200、未认证目录 401、Pages 与九项目录投影；明确排除＝完整 Windows、macOS、WiX、账本和 migration 测试（Agent、安装包、账本、D1 schema 均未改变）。
 
 后续项：EA app 与完美世界竞技平台当前采用版本相关安装 `productKey`；新增稳定 signer/launcher identity 证据后，以云端规则前向替换，不在本任务升级 Agent。
 
-提交前 Plan Conformance Audit：`Matched`＝ARM-D-024、Contracts 1.9.0、规则包 v3、五个游戏对象、四个系统应用、EA 合并、强身份/同名负例、Game Bar 不自动分类、Console 新标签/文案/顺序/折叠、Windows Core 单项测试、最小 typecheck/dry-run/视觉检查；`Deviated`＝无；`Missing`＝仅 PR/CI、生产部署与线上验收待执行；`Extra`＝无。
+发布后 Plan Conformance Audit：`Matched`＝ARM-D-024、Contracts 1.9.0、规则包 v3、五个游戏对象、四个系统应用、EA 合并、强身份/同名负例、Game Bar 不自动分类、Console 新标签/文案/顺序/折叠、聚焦测试、PR/CI、Worker/Pages 发布与真实目录验收；`Deviated`＝无产品或发布范围偏差（共享 contract CI 按真实消费者自动补验 Swift，并修正 `distributionKey` 兼容）；`Missing`＝无；`Extra`＝无。
 
 ## NOW：应用目录 Worker 重复扫描消除（ARM-D-023）
 
