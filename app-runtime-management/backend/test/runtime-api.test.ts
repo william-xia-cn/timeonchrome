@@ -5,7 +5,7 @@ import hashVectors from '../../contracts/runtime-segment-hash-v1.vectors.json';
 import { accountingMediaId, accountingUsageId, segmentContentHash } from '../src/canonical';
 import type { AccountingMediaSegment, AccountingUsageSegment } from '../src/contracts';
 import { validateSegment } from '../src/validation';
-import catalogRules from '../src/data/product-catalog-rules.v2.json';
+import catalogRules from '../src/data/product-catalog-rules.v3.json';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -841,6 +841,50 @@ describe('Application knowledge and installed inventory', () => {
     expect(catalogRules.technicalDistributionKeys).toContain('steam:228980');
     expect(gameKeys.has('steam:228980')).toBe(false);
   });
+  it('projects the ARM-D-024 games from strong identities without changing management classification', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const registryProduct=(runtimeIdentity:string,displayName:string,productKey:string)=>({
+      localUserId,status:'installed',evidence:{platform:'windows',runtimeIdentity,displayName,
+        values:{productKey,productName:displayName},verifiedFields:['productKey'],
+        discovery:{role:'application',nameSource:'installation',sourceKinds:['registry'],objectKind:'product',variantRole:'unknown',
+          scope:'machine',sourceKind:'registry-machine',evidenceLevel:'strong'}},
+    });
+    const storeApplication=(runtimeIdentity:string,displayName:string,packageId:string,distributionKey:string)=>({
+      localUserId,status:'installed',evidence:{platform:'windows',runtimeIdentity,displayName,
+        values:{packageId,distributionKey,productName:displayName},verifiedFields:['packageId','distributionKey'],
+        discovery:{role:'application',nameSource:'appList',sourceKinds:['package'],objectKind:'variant',variantRole:'main',
+          scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}},
+    });
+    const observations=[
+      registryProduct('ea-product-1','EA app','c6e4559a0bc4b0db45e466d654cbaa3f5805bf0861516be32edcbd2e646bec04'),
+      registryProduct('ea-product-2','EA app','eaa86d44073a2bf7640d0b90f577296d59a9d78f22a425e3f9f20b193e4d0f3e'),
+      registryProduct('perfect-world','完美世界竞技平台 1.0.26070912','5ecd0392422e4f15555c710265891fb39327de3421fc4c40dd6d3ea0aa49d73e'),
+      storeApplication('game-bar','Game Bar','Microsoft.XboxGamingOverlay_8wekyb3d8bbwe!App','microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe'),
+      storeApplication('solitaire','Solitaire & Casual Games','Microsoft.MicrosoftSolitaireCollection_8wekyb3d8bbwe!App','microsoft-store:microsoft.microsoftsolitairecollection_8wekyb3d8bbwe'),
+      storeApplication('xbox','XBOX','Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App','microsoft-store:microsoft.gamingapp_8wekyb3d8bbwe'),
+      registryProduct('third-party-ea','EA app third-party','0'.repeat(64)),
+    ];
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:1,batchId:'arm-d-024-games',observations})})).status).toBe(200);
+    const result=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string;appType:string;typeStatus:string;classification:string;catalogGroup:string;
+        catalogGroupReasonCode:string;suggestedClassification:string|null;machineCount:number;userCount:number}>;
+      technicalItems:Array<{displayName:string}>;
+    }>();
+    expect(result.items.filter(item=>item.displayName==='EA app')).toHaveLength(1);
+    expect(result.items.find(item=>item.displayName==='EA app')).toMatchObject({appType:'gameLauncher',typeStatus:'confirmed',
+      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_LAUNCHER_TYPE',
+      suggestedClassification:null,machineCount:1,userCount:1});
+    expect(result.items.find(item=>item.displayName==='完美世界竞技平台')).toMatchObject({appType:'gameLauncher',
+      classification:'unclassified',catalogGroup:'game',suggestedClassification:null});
+    expect(result.items.find(item=>item.displayName==='Game Bar')).toMatchObject({appType:'gameUtility',typeStatus:'confirmed',
+      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_UTILITY_TYPE',suggestedClassification:null});
+    expect(result.items.find(item=>item.displayName==='Solitaire & Casual Games')).toMatchObject({appType:'game',typeStatus:'confirmed',
+      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE',suggestedClassification:'restrictedEntertainment'});
+    expect(result.items.find(item=>item.displayName==='XBOX')).toMatchObject({appType:'gameLauncher',typeStatus:'confirmed',
+      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_LAUNCHER_TYPE',suggestedClassification:null});
+    expect(result.items.some(item=>item.displayName==='EA app third-party'&&item.catalogGroup==='game')).toBe(false);
+  });
   it('projects an inventory v2 suite as one product with variants and keeps maintenance entries technical', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const productKey='c'.repeat(64);
@@ -906,6 +950,10 @@ describe('Application knowledge and installed inventory', () => {
       {key:'13'.repeat(32),name:'照片',packageId:'Microsoft.Windows.Photos_8wekyb3d8bbwe!App'},
       {key:'14'.repeat(32),name:'画图',packageId:'Microsoft.Paint_8wekyb3d8bbwe!App'},
       {key:'15'.repeat(32),name:'相机',packageId:'Microsoft.WindowsCamera_8wekyb3d8bbwe!App'},
+      {key:'23'.repeat(32),name:'反馈中心',packageId:'Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe!App'},
+      {key:'24'.repeat(32),name:'命令面板',packageId:'Microsoft.CommandPalette_8wekyb3d8bbwe!App'},
+      {key:'25'.repeat(32),name:'天气',packageId:'Microsoft.BingWeather_8wekyb3d8bbwe!App'},
+      {key:'26'.repeat(32),name:'录音机',packageId:'Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe!App'},
       {key:'16'.repeat(32),name:'截图工具（第三方同名）',packageId:'ThirdParty.ScreenSketch_fixture!App'},
       {key:'17'.repeat(32),name:'媒体播放器',packageId:'Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic'},
     ];
@@ -931,7 +979,7 @@ describe('Application knowledge and installed inventory', () => {
       items:Array<{displayName:string;applicationOrigin:string;originEvidenceCode:string|null;classification:string;catalogGroup:string;catalogGroupReasonCode:string}>;
       technicalItems:Array<{displayName:string;applicationOrigin:string}>;
     }>();
-    for(const name of ['快速助手','记事本','获取帮助','设置','终端','截图工具','手机连接','时钟','照片','画图','相机']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
+    for(const name of ['快速助手','记事本','获取帮助','设置','终端','截图工具','手机连接','时钟','照片','画图','相机','反馈中心','命令面板','天气','录音机']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
       applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',classification:'unclassified',
       catalogGroup:'systemTool',catalogGroupReasonCode:'EXACT_SYSTEM_TOOL_RULE',
     });

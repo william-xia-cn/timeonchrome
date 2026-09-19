@@ -1569,6 +1569,73 @@
         "ruleIds": [],
         "suggestions": []
       }
+    },
+    {
+      "name": "game-utility-does-not-inherit-game-rule",
+      "knowledge": {
+        "schemaVersion": 2,
+        "version": 1,
+        "products": [
+          {
+            "id": "game-bar",
+            "name": "Game Bar",
+            "type": "gameUtility",
+            "selectors": [
+              {
+                "platform": "windows",
+                "match": {
+                  "operator": "all",
+                  "conditions": [
+                    {
+                      "field": "distributionKey",
+                      "value": "microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "id": "games-restricted",
+            "name": "Games",
+            "kind": "type",
+            "match": { "operator": "all", "conditions": [] },
+            "exclude": [],
+            "mode": "automatic",
+            "classification": "restrictedEntertainment",
+            "type": "game",
+            "enabled": true,
+            "source": "fixture",
+            "reason": "confirmed games only"
+          }
+        ],
+        "bindings": [
+          {
+            "childId": "child-a",
+            "products": [],
+            "ruleIds": ["games-restricted"]
+          }
+        ]
+      },
+      "childId": "child-a",
+      "evidence": {
+        "platform": "windows",
+        "runtimeIdentity": "game-bar",
+        "displayName": "Game Bar",
+        "values": {
+          "distributionKey": "microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe"
+        },
+        "verifiedFields": ["distributionKey"]
+      },
+      "expected": {
+        "productId": "game-bar",
+        "classification": "unclassified",
+        "status": "unclassified",
+        "ruleIds": [],
+        "suggestions": []
+      }
     }
   ]
 }

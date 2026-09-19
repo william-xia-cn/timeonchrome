@@ -18,6 +18,18 @@ public sealed class ApplicationClassificationTests
         Assert.Equal("game",explicitResult.AppType); Assert.Equal("composite",explicitResult.Classification);
     }
     [Fact]
+    public void GameUtilityDoesNotInheritGameTypeRule()
+    {
+        var product = new AppProduct("game-bar","Game Bar","gameUtility",[new("windows",new("all",[new("distributionKey","microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe")]))]);
+        var rule = new AppClassificationRule("games","Games","type",new("all",[]),[],"automatic","restrictedEntertainment","game",true,"fixture","confirmed games only");
+        var evidence = new AppEvidence("windows","game-bar","Game Bar",new Dictionary<string,string>{{"distributionKey","microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe"}},["distributionKey"]);
+        var result = ApplicationClassifier.Resolve(new(2,1,[product],[rule],[new("child",[],["games"])]),"child",evidence);
+        Assert.Equal("gameUtility",result.AppType);
+        Assert.Equal("confirmed",result.TypeStatus);
+        Assert.Equal("unclassified",result.Classification);
+        Assert.Equal("unclassified",result.Status);
+    }
+    [Fact]
     public void ReplaysSharedClassificationVectors()
     {
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };

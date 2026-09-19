@@ -132,6 +132,9 @@ function projectCatalogGroup(input: {
   if (input.actionable && input.typeStatus === 'confirmed' && input.appType === 'gameLauncher') {
     return { catalogGroup: 'game', catalogGroupReasonCode: 'CONFIRMED_GAME_LAUNCHER_TYPE' };
   }
+  if (input.actionable && input.typeStatus === 'confirmed' && input.appType === 'gameUtility') {
+    return { catalogGroup: 'game', catalogGroupReasonCode: 'CONFIRMED_GAME_UTILITY_TYPE' };
+  }
   return { catalogGroup: 'application', catalogGroupReasonCode: 'DEFAULT_APPLICATION' };
 }
 
@@ -1128,7 +1131,7 @@ export async function queryAppCatalog(
       :group.some(item=>item.applicationOrigin==='user')?'user':'unknown';
     const originEvidenceCodes=[...new Set(group.filter(item=>item.applicationOrigin===applicationOrigin)
       .map(item=>item.originEvidenceCode).filter((value):value is ApplicationOriginEvidenceCode=>value!==null))];
-    const confirmedTypeItem=group.find(item=>item.typeStatus==='confirmed'&&(item.appType==='game'||item.appType==='gameLauncher'))
+    const confirmedTypeItem=group.find(item=>item.typeStatus==='confirmed'&&(item.appType==='game'||item.appType==='gameLauncher'||item.appType==='gameUtility'))
       ??group.find(item=>item.typeStatus==='confirmed')??primary;
     const catalogGroup=projectCatalogGroup({
       actionable:aggregateProjection.manageability==='actionable',

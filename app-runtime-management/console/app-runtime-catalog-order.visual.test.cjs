@@ -22,10 +22,11 @@ const { chromium } = require('playwright');
       const heading = element.querySelector('h3') || element.querySelector('summary span');
       return heading?.textContent?.trim();
     }));
-    assert.deepEqual(groups, ['普通应用', '游戏', '系统工具']);
+    assert.deepEqual(groups, ['普通应用', '游戏', '系统应用']);
     assert.notEqual(await page.locator('#ordinary-app-group').getAttribute('open'), null);
     assert.notEqual(await page.locator('#game-app-group').getAttribute('open'), null);
     assert.equal(await page.locator('#system-tool-group').getAttribute('open'), null);
+    assert.match(await page.locator('#game-app-list').innerText(), /Game Bar.*游戏工具 · 未归类/s);
     assert.equal(await page.locator('#system-tool-list .product-record').count(), 0, 'collapsed system tool group must not render rows');
     assert.equal(await page.locator('#processed-records .product-record').count(), 0, 'collapsed processed history must not render rows');
     await page.locator('#ordinary-app-group summary').click();
@@ -40,6 +41,7 @@ const { chromium } = require('playwright');
     await page.waitForTimeout(150);
     assert.notEqual(await page.locator('#system-tool-group').getAttribute('open'), null, 'search match must expand system tools');
     assert.equal(await page.locator('#system-tool-list .product-record').count(), 1);
+    assert.match(await page.locator('#system-tool-list').innerText(), /快速助手.*系统应用 · 未归类/s);
     await page.locator('#app-search').fill('');
     await page.waitForTimeout(150);
     assert.equal(await page.locator('#system-tool-group').getAttribute('open'), null, 'clearing search must restore user expansion state');
@@ -52,7 +54,7 @@ const { chromium } = require('playwright');
   }
 
   await browser.close();
-  console.log('PASS: catalog groups render in ordinary application, game, system tool order on desktop and mobile');
+  console.log('PASS: catalog groups render in ordinary application, game, system application order on desktop and mobile');
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

@@ -3,7 +3,7 @@ import { safeAutomatic } from './application-classification.js';
 
 const platforms = ['windows', 'macos'];
 const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked'];
-const types = ['game', 'gameLauncher', 'onlineVideo', 'mediaPlayer', 'other', 'unknown'];
+const types = ['game', 'gameLauncher', 'gameUtility', 'onlineVideo', 'mediaPlayer', 'other', 'unknown'];
 const fields = ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'productName', 'declaredType', 'installationSource'];
 const applicationOrigins = ['user', 'operatingSystem', 'unknown'];
 const originEvidenceCodes = ['exactPackageRule', 'osMetadata', 'reviewedSystemBinary'];

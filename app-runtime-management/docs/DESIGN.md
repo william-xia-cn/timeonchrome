@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前修复：ARM-D-024 游戏与系统应用规则补全
+
+Runtime-owned 产品规则包 schema v3 使用现有强身份确认五个游戏组对象：EA app、XBOX 与完美世界竞技平台为 `gameLauncher`，Solitaire & Casual Games 为 `game`，Game Bar 为 `gameUtility`。三种客观类型均投影到 `catalogGroup = game`，但默认“建议归为受限娱乐”仍只面向 `game`。EA 的两个精确产品键归入同一产品；显示名称和发布者不参与确认。
+
+wire value `systemTool` 保持兼容，用户可见名称统一为“系统应用”。反馈中心、命令面板、天气与录音机通过精确 package family 进入该组。目录顺序、折叠/惰性渲染、孩子管理分类和配额桶均不变；不重写 inventory、策略、账本或历史数据。
+
 ## 当前修复：ARM-D-021 Windows 内置系统工具规则补全
 
 Runtime-owned 产品规则包增加六个经审核的精确 package family：`Microsoft.ScreenSketch_8wekyb3d8bbwe`、`Microsoft.YourPhone_8wekyb3d8bbwe`、`Microsoft.WindowsAlarms_8wekyb3d8bbwe`、`Microsoft.Windows.Photos_8wekyb3d8bbwe`、`Microsoft.Paint_8wekyb3d8bbwe` 和 `Microsoft.WindowsCamera_8wekyb3d8bbwe`。Worker 对 package identity 统一转小写，并用 `!` 前的 family 同时匹配产品容器和启动入口；容器继续作为技术记录，启动入口只形成一个可管理行。

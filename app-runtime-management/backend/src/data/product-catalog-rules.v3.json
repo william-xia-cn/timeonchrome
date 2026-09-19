@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 3,
+  "products": [
+    { "id": "builtin.launcher.steam", "name": "Steam", "type": "gameLauncher", "selectors": [
+      { "field": "productKey", "value": "955df98a1f7643d0cea506d7824640c19c6afe07571da4594a958b423db6ae23" },
+      { "field": "productKey", "value": "114e1560cbf78ab30395d8d1e91fb7ec7b1eeefd804ef43944aecb96684328ae" }
+    ] },
+    { "id": "builtin.launcher.ea-app", "name": "EA app", "type": "gameLauncher", "selectors": [
+      { "field": "productKey", "value": "c6e4559a0bc4b0db45e466d654cbaa3f5805bf0861516be32edcbd2e646bec04" },
+      { "field": "productKey", "value": "eaa86d44073a2bf7640d0b90f577296d59a9d78f22a425e3f9f20b193e4d0f3e" }
+    ] },
+    { "id": "builtin.utility.xbox-game-bar", "name": "Game Bar", "type": "gameUtility", "selectors": [
+      { "field": "distributionKey", "value": "microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe" }
+    ] },
+    { "id": "builtin.game.microsoft-solitaire", "name": "Solitaire & Casual Games", "type": "game", "selectors": [
+      { "field": "distributionKey", "value": "microsoft-store:microsoft.microsoftsolitairecollection_8wekyb3d8bbwe" }
+    ] },
+    { "id": "builtin.launcher.xbox", "name": "XBOX", "type": "gameLauncher", "selectors": [
+      { "field": "distributionKey", "value": "microsoft-store:microsoft.gamingapp_8wekyb3d8bbwe" }
+    ] },
+    { "id": "builtin.launcher.perfect-world-arena", "name": "完美世界竞技平台", "type": "gameLauncher", "selectors": [
+      { "field": "productKey", "value": "5ecd0392422e4f15555c710265891fb39327de3421fc4c40dd6d3ea0aa49d73e" }
+    ] },
+    { "id": "builtin.steam.714010", "name": "Aimlabs", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:714010" }] },
+    { "id": "builtin.steam.1172470", "name": "Apex Legends", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:1172470" }] },
+    { "id": "builtin.steam.289650", "name": "刺客信条：大革命", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:289650" }] },
+    { "id": "builtin.steam.730", "name": "Counter-Strike 2", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:730" }] },
+    { "id": "builtin.steam.2749950", "name": "Esports Manager 2026", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:2749950" }] },
+    { "id": "builtin.steam.4006000", "name": "Esports Manager 2026 Demo", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:4006000" }] },
+    { "id": "builtin.steam.544810", "name": "KARDS", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:544810" }] },
+    { "id": "builtin.steam.48700", "name": "Mount & Blade: Warband", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:48700" }] },
+    { "id": "builtin.steam.2141300", "name": "Road to Vostok Demo", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:2141300" }] },
+    { "id": "builtin.steam.214950", "name": "Total War: ROME II", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:214950" }] },
+    { "id": "builtin.steam.508440", "name": "Totally Accurate Battle Simulator", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:508440" }] },
+    { "id": "builtin.steam.236390", "name": "War Thunder", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:236390" }] },
+    { "id": "builtin.steam.1771300", "name": "天国：拯救 2", "type": "game", "selectors": [{ "field": "distributionKey", "value": "steam:1771300" }] }
+  ],
+  "technicalDistributionKeys": [
+    "steam:228980"
+  ],
+  "systemToolPackageIds": [
+    "microsoftcorporationii.quickassist_8wekyb3d8bbwe",
+    "microsoft.windowsnotepad_8wekyb3d8bbwe",
+    "microsoft.windowscalculator_8wekyb3d8bbwe",
+    "microsoft.microsoftstickynotes_8wekyb3d8bbwe!app",
+    "microsoftwindows.client.cbs_cw5n1h2txyewy!windowsbackup",
+    "microsoftwindows.client.cbs_cw5n1h2txyewy!webexperiencehost",
+    "microsoftwindows.client.coreai_cw5n1h2txyewy!clicktodoapp",
+    "microsoft.gethelp_8wekyb3d8bbwe!app",
+    "microsoft.windowsterminal_8wekyb3d8bbwe",
+    "windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel",
+    "microsoft.screensketch_8wekyb3d8bbwe",
+    "microsoft.yourphone_8wekyb3d8bbwe",
+    "microsoft.windowsalarms_8wekyb3d8bbwe",
+    "microsoft.windows.photos_8wekyb3d8bbwe",
+    "microsoft.paint_8wekyb3d8bbwe",
+    "microsoft.windowscamera_8wekyb3d8bbwe",
+    "microsoft.windowsfeedbackhub_8wekyb3d8bbwe",
+    "microsoft.commandpalette_8wekyb3d8bbwe",
+    "microsoft.bingweather_8wekyb3d8bbwe",
+    "microsoft.windowssoundrecorder_8wekyb3d8bbwe"
+  ]
+}

@@ -1,5 +1,13 @@
 # App Runtime 决策记录
 
+## ARM-D-024：游戏类型与系统应用由现有强身份精确补全
+
+PO 于 2026-09-20 确认实施。Runtime-owned 产品知识增加 `gameUtility` 客观类型；`game`、`gameLauncher` 与 `gameUtility` 均进入游戏展示组，但只有真正的 `game` 继续获得“建议归为受限娱乐”的默认建议。启动器和游戏工具不会因此自动分类或改变配额。孩子对具体产品的明确分类继续优先，例如游戏明确归为复合后仍显示在游戏组且只扣复合配额。
+
+EA app 与完美世界竞技平台使用当前生产盘点已经上传的精确 `productKey`，Game Bar、Solitaire & Casual Games 与 XBOX 使用精确 Microsoft Store `distributionKey`；EA 的两个安装产品键归入同一确认产品。显示名称、Microsoft 发布者或客户端自报类型均不能命中。EA 与完美世界的版本相关产品键仅作为本轮即时云端修正，后续必须以 signer 或稳定 launcher identity 替代。
+
+用户可见分组名称由“系统工具”统一为“系统应用”，wire value `systemTool` 保持兼容。反馈中心、命令面板、天气与录音机以经审核的精确 package family 加入系统应用；技术组件仍只进入系统管理的只读技术记录。本决策不升级 Agent、不重新扫描、不执行 migration，也不修改分类、账本、历史 Segment 或配额。
+
 ## ARM-D-023：应用目录与未归类记录共享单次只读投影
 
 PO 于 2026-09-20 确认实施。Runtime Worker 的应用目录和未归类记录属于同一 30 天产品投影，不得由 `app-classification-records` 重复扫描 Segment 后再嵌套执行完整 `app-catalog`。`app-catalog` 在一次 v2/legacy Segment 读取及一次 inventory/策略投影中同时返回兼容目录和 `classificationRecords`；旧 `GET /v2/module/app-classification-records` 保留，但直接复用同一投影结果，不再执行额外原始扫描。
