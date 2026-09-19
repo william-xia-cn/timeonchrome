@@ -6,6 +6,7 @@
 - Runtime CI 增加变更分类器，将 Contracts/Worker、Console、Windows、Installer、macOS 与 release-config 独立路由；纯文档和无关 PR 只运行轻量 diff 与汇总 gate。
 - 生产 workflow 改为要求精确 master SHA 已通过对应 CI，再执行依赖构建、部署和资源 smoke；删除重复 Worker 测试/typecheck。
 - 路由与 gate 状态固定测试、release-config、workflow YAML 解析、边界检查和 `git diff --check` 通过；未运行无关产品测试。
+- PR #36 首轮 CI `35462027108` 在约 20 秒内完成 changes、release-config 与汇总 gate；五个产品/平台 job 全部跳过。仓库此前没有 master branch protection，首次建立唯一必需 gate 等待单独授权。
 
 ## [Contracts 1.8.0 / ARM-D-018] — 2026-09-20（生产已发布）
 
