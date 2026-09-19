@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [ARM-D-021 / Windows 内置系统工具规则补全] — 2026-09-20（本地验证通过，待合并发布）
+
+- 使用六个经审核的精确 package family 将截图工具、手机连接、时钟、照片、画图和相机投影为系统工具。
+- family 规则同时覆盖产品容器和 `!App` 启动入口；容器仍只进入技术记录，不产生重复可管理产品行。
+- 不升级 Agent、不重新扫描，不修改 Console、D1、管理分类、配额、账本或历史 Segment；合并后只部署 Runtime Worker。
+- Worker 聚焦测试 2/2、backend typecheck、Wrangler 4.127.1 dry-run 和 `git diff --check` 通过；按 ARM-D-019 未运行无关测试。
+
 ## [ARM-D-020 / 云端目录精确规则热修] — 2026-09-20（生产已发布）
 
 - Steam 使用稳定 HKLM/HKCU 安装产品键确认为游戏平台／启动器；Windows Terminal 使用精确包身份进入系统工具。

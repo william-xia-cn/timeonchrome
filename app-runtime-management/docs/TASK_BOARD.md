@@ -1,5 +1,15 @@
 # App Runtime 任务板
 
+## NOW：Windows 内置系统工具规则补全（ARM-D-021）
+
+- [x] 以六个精确 package family 将截图工具、手机连接、时钟、照片、画图和相机投影为系统工具。
+- [x] family 与 `!App` 均命中；package container 不产生重复可管理行；同名第三方不得误判。
+- [x] 资讯、Edge、Office、Teams、Xbox、Copilot 和媒体播放器保持非系统工具。
+- [x] 完成 Worker 聚焦测试、backend typecheck、Wrangler dry-run 与 `git diff --check`。
+- [ ] PR 合并后只部署 Runtime Worker，并在线只读核对 HornburgXW 六个对象。
+
+本任务测试契约：变更等级＝Worker 规则包；受影响＝Runtime app catalog 云端分组投影；本地必须＝六个系统工具 family/`!App`、容器去重、同名第三方和负例的 Worker 聚焦测试，backend typecheck、Wrangler dry-run、`git diff --check`；CI 必须＝contracts-worker、app-runtime-gate；发布 smoke＝Worker health/401 与 HornburgXW 六项目录投影；明确排除＝Console、Windows、macOS、WiX、账本、D1 和 migration 测试（UI、Agent、安装包、账本和 schema 均未改变）。
+
 ## NOW：云端目录精确规则热修（ARM-D-020）
 
 - [x] Steam 以稳定 HKLM/HKCU 安装产品键确认为游戏平台／启动器；同名弱证据不得命中。

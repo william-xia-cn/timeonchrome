@@ -892,6 +892,14 @@ describe('Application knowledge and installed inventory', () => {
       {key:makeKey('d'),name:'Copilot',packageId:'Microsoft.Copilot_8wekyb3d8bbwe!App'},
       {key:makeKey('e'),name:'终端',packageId:'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App'},
       {key:makeKey('f'),name:'资讯',packageId:'Microsoft.BingNews_8wekyb3d8bbwe!AppexNews'},
+      {key:'10'.repeat(32),name:'截图工具',packageId:'Microsoft.ScreenSketch_8wekyb3d8bbwe!App'},
+      {key:'18'.repeat(32),name:'手机连接',packageId:'Microsoft.YourPhone_8wekyb3d8bbwe!App'},
+      {key:'12'.repeat(32),name:'时钟',packageId:'Microsoft.WindowsAlarms_8wekyb3d8bbwe!App'},
+      {key:'13'.repeat(32),name:'照片',packageId:'Microsoft.Windows.Photos_8wekyb3d8bbwe!App'},
+      {key:'14'.repeat(32),name:'画图',packageId:'Microsoft.Paint_8wekyb3d8bbwe!App'},
+      {key:'15'.repeat(32),name:'相机',packageId:'Microsoft.WindowsCamera_8wekyb3d8bbwe!App'},
+      {key:'16'.repeat(32),name:'截图工具（第三方同名）',packageId:'ThirdParty.ScreenSketch_fixture!App'},
+      {key:'17'.repeat(32),name:'媒体播放器',packageId:'Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic'},
     ];
     const unverifiedKey=makeKey('7'), maintenanceKey=makeKey('8');
     const scan={scanId:'e'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:products.length+1,variantCount:1,
@@ -915,11 +923,11 @@ describe('Application knowledge and installed inventory', () => {
       items:Array<{displayName:string;applicationOrigin:string;originEvidenceCode:string|null;classification:string;catalogGroup:string;catalogGroupReasonCode:string}>;
       technicalItems:Array<{displayName:string;applicationOrigin:string}>;
     }>();
-    for(const name of ['快速助手','记事本','获取帮助','设置','终端']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
+    for(const name of ['快速助手','记事本','获取帮助','设置','终端','截图工具','手机连接','时钟','照片','画图','相机']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
       applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',classification:'unclassified',
       catalogGroup:'systemTool',catalogGroupReasonCode:'EXACT_SYSTEM_TOOL_RULE',
     });
-    for(const name of ['Microsoft Office','Microsoft Teams','Microsoft Edge','Xbox','Copilot','资讯','第三方 Quick Assist','客户端声称系统应用','未验证包身份']){
+    for(const name of ['Microsoft Office','Microsoft Teams','Microsoft Edge','Xbox','Copilot','资讯','媒体播放器','第三方 Quick Assist','截图工具（第三方同名）','客户端声称系统应用','未验证包身份']){
       expect(result.items.find(item=>item.displayName===name)).toMatchObject({applicationOrigin:'unknown',originEvidenceCode:null,
         catalogGroup:'application',catalogGroupReasonCode:'DEFAULT_APPLICATION'});
     }
@@ -953,6 +961,7 @@ describe('Application knowledge and installed inventory', () => {
       scope:'machine',sourceKind:'distribution-steam',status:'installed',
     });
     const sticky=key('1'),cbs=key('2'),coreAi=key('3'),assassin=key('4'),steamworks=key('5'),terminal=key('6');
+    const screenSketch=key('7'),yourPhone=key('8'),alarms=key('9'),photos=key('a'),paint=key('b'),camera=key('c');
     expect((await call('/v2/module/app-policy?childId=child-a',{
       method:'PUT',headers:{...bearer(account),'If-Match':'"app-policy-v0"'},body:JSON.stringify({
         classifications:[{platform:'windows',runtimeIdentity:`windows:product:${sticky}`,displayName:'便笺',classification:'study'}],
@@ -965,6 +974,12 @@ describe('Application knowledge and installed inventory', () => {
       packageProduct(cbs,'MicrosoftWindows.Client.CBS','MicrosoftWindows.Client.CBS_cw5n1h2txyewy'),
       packageProduct(coreAi,'MicrosoftWindows.Client.CoreAI','MicrosoftWindows.Client.CoreAI_cw5n1h2txyewy'),
       packageProduct(terminal,'Windows Terminal','Microsoft.WindowsTerminal_8wekyb3d8bbwe'),
+      packageProduct(screenSketch,'截图工具包','Microsoft.ScreenSketch_8wekyb3d8bbwe'),
+      packageProduct(yourPhone,'手机连接包','Microsoft.YourPhone_8wekyb3d8bbwe'),
+      packageProduct(alarms,'时钟包','Microsoft.WindowsAlarms_8wekyb3d8bbwe'),
+      packageProduct(photos,'照片包','Microsoft.Windows.Photos_8wekyb3d8bbwe'),
+      packageProduct(paint,'画图包','Microsoft.Paint_8wekyb3d8bbwe'),
+      packageProduct(camera,'相机包','Microsoft.WindowsCamera_8wekyb3d8bbwe'),
       distributionProduct(assassin,'Assassin local title','steam:289650'),
       distributionProduct(steamworks,'Steamworks Common Redistributables','steam:228980'),
     ];
@@ -974,6 +989,12 @@ describe('Application knowledge and installed inventory', () => {
       packageVariant(cbs,'get-started-entry','入门','MicrosoftWindows.Client.CBS_cw5n1h2txyewy!WebExperienceHost'),
       packageVariant(coreAi,'click-to-do-entry','单击以执行','MicrosoftWindows.Client.CoreAI_cw5n1h2txyewy!ClickToDoApp'),
       packageVariant(terminal,'terminal-entry','Windows Terminal','Microsoft.WindowsTerminal_8wekyb3d8bbwe!App'),
+      packageVariant(screenSketch,'screen-sketch-entry','截图工具','Microsoft.ScreenSketch_8wekyb3d8bbwe!App'),
+      packageVariant(yourPhone,'your-phone-entry','手机连接','Microsoft.YourPhone_8wekyb3d8bbwe!App'),
+      packageVariant(alarms,'alarms-entry','时钟','Microsoft.WindowsAlarms_8wekyb3d8bbwe!App'),
+      packageVariant(photos,'photos-entry','照片','Microsoft.Windows.Photos_8wekyb3d8bbwe!App'),
+      packageVariant(paint,'paint-entry','画图','Microsoft.Paint_8wekyb3d8bbwe!App'),
+      packageVariant(camera,'camera-entry','相机','Microsoft.WindowsCamera_8wekyb3d8bbwe!App'),
     ];
     expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
       body:JSON.stringify({schemaVersion:2,batchId:'package-container-projection',products,variants})})).status).toBe(200);
@@ -982,7 +1003,7 @@ describe('Application knowledge and installed inventory', () => {
         suggestedClassification:string|null;machineCount:number;userCount:number;projectionReasonCode:string}>;
       technicalItems:Array<{displayName:string;projectionReasonCode:string}>;
     }>();
-    for(const name of ['便笺','Windows 备份','入门','单击以执行','Windows Terminal']){
+    for(const name of ['便笺','Windows 备份','入门','单击以执行','Windows Terminal','截图工具','手机连接','时钟','照片','画图','相机']){
       expect(result.items.filter(item=>item.displayName===name)).toHaveLength(1);
       expect(result.items.find(item=>item.displayName===name)).toMatchObject({
         applicationOrigin:'operatingSystem',classification:'unclassified',projectionReasonCode:'LAUNCHABLE_PACKAGE_APP',
@@ -995,6 +1016,12 @@ describe('Application knowledge and installed inventory', () => {
       expect.objectContaining({displayName:'MicrosoftWindows.Client.CBS',projectionReasonCode:'PACKAGE_CONTAINER'}),
       expect.objectContaining({displayName:'MicrosoftWindows.Client.CoreAI',projectionReasonCode:'PACKAGE_CONTAINER'}),
       expect.objectContaining({displayName:'Windows Terminal',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'截图工具包',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'手机连接包',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'时钟包',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'照片包',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'画图包',projectionReasonCode:'PACKAGE_CONTAINER'}),
+      expect.objectContaining({displayName:'相机包',projectionReasonCode:'PACKAGE_CONTAINER'}),
       expect.objectContaining({displayName:'Steamworks Common Redistributables',projectionReasonCode:'COMPONENT'}),
     ]));
     expect(result.items.find(item=>item.displayName==='刺客信条：大革命')).toMatchObject({
