@@ -1,5 +1,27 @@
 # App Runtime 任务板
 
+## NOW：应用目录 Worker 重复扫描消除（ARM-D-023）
+
+- [x] `app-catalog` 在单次 Segment/inventory/策略投影中附带兼容的 `classificationRecords`。
+- [x] 旧 classification records 路由复用目录投影，不再额外扫描并嵌套目录查询。
+- [x] Console 优先消费组合响应，缺失时才回退旧接口。
+- [x] 完成 Worker/Console 聚焦测试、backend typecheck、Wrangler dry-run 和 `git diff --check`。
+
+本任务测试契约：变更等级＝Worker read model + Console 网络兼容；受影响＝应用目录与未归类记录查询性能；本地必须＝目录／分类记录结果兼容和组合响应聚焦测试、Console 新旧 Worker 回退测试、backend typecheck、Wrangler dry-run、`git diff --check`；CI 必须＝contracts-worker、console、app-runtime-gate；发布 smoke＝本轮未获部署授权；明确排除＝Windows、macOS、WiX、账本状态机和 migration 测试（Agent、安装包、落账语义及 schema 均不改变）。
+
+Plan Conformance Audit：`Matched`＝目录响应内嵌 classification records、旧路由复用同一投影、Console 新旧 Worker 兼容回退、聚焦 Worker/Console 测试、backend typecheck、Wrangler dry-run 与 diff 检查；`Deviated`＝无；`Missing`＝无；`Extra`＝无。未修改数据库 schema、账本语义、Agent 或安装包；本轮未部署。
+
+## NOW：应用目录统一折叠与 Console 惰性渲染（ARM-D-022）
+
+- [x] 普通应用、游戏和系统工具全部支持展开／折叠并保留用户选择；搜索命中时展开对应组。
+- [x] 折叠组（含已处理历史）不创建产品行 DOM；顶层页面只渲染当前视图。
+- [x] 首次加载将互不依赖的目录、策略、分类记录和使用统计并行请求，减少串行等待。
+- [x] 完成 Console 聚焦测试、桌面／移动目视验证和 `git diff --check`。
+
+本任务测试契约：变更等级＝Console 行为／布局与客户端性能；受影响＝应用目录折叠、Console 首次加载和渲染调度；本地必须＝分组折叠／状态恢复／折叠组零产品行／当前视图惰性渲染聚焦测试、桌面与移动截图、`git diff --check`；CI 必须＝console、app-runtime-gate；发布 smoke＝本轮未获部署授权；明确排除＝Worker、Windows、macOS、WiX、账本和 migration 测试（服务端、Agent、安装包、账本及 schema 均不改变）。
+
+Plan Conformance Audit：`Matched`＝四个可折叠区域、搜索临时展开与状态恢复、折叠组零产品行、当前视图惰性渲染、独立数据并发加载、120ms 搜索防抖、桌面／移动截图及最小测试；`Deviated`＝无；`Missing`＝无；`Extra`＝无。本轮未部署。
+
 ## NOW：Windows 内置系统工具规则补全（ARM-D-021）
 
 - [x] 以六个精确 package family 将截图工具、手机连接、时钟、照片、画图和相机投影为系统工具。

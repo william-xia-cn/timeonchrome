@@ -1,5 +1,17 @@
 # App Runtime 决策记录
 
+## ARM-D-023：应用目录与未归类记录共享单次只读投影
+
+PO 于 2026-09-20 确认实施。Runtime Worker 的应用目录和未归类记录属于同一 30 天产品投影，不得由 `app-classification-records` 重复扫描 Segment 后再嵌套执行完整 `app-catalog`。`app-catalog` 在一次 v2/legacy Segment 读取及一次 inventory/策略投影中同时返回兼容目录和 `classificationRecords`；旧 `GET /v2/module/app-classification-records` 保留，但直接复用同一投影结果，不再执行额外原始扫描。
+
+Runtime Console 优先消费 `app-catalog.classificationRecords`，仅在旧 Worker 未返回该字段时调用旧接口。该修复只消除重复 D1 读取与内存聚合，不改变 30 天窗口、未归类筛选、区间并集、actionable/technical 判断、分类、账本、配额或历史数据。测试等级为 Worker read model + Console 网络兼容：只运行目录／分类记录聚焦测试、backend typecheck、Console 网络测试、Wrangler dry-run 和 `git diff --check`；不运行 Windows、macOS、WiX、账本状态机或 migration 测试。
+
+## ARM-D-022：应用目录分组统一折叠并按当前视图惰性渲染
+
+PO 于 2026-09-20 确认实施。五个孩子管理分类内的“普通应用、游戏、系统工具”三个目录分组都必须支持展开与折叠，顺序继续固定为“普通应用、游戏、系统工具”；未归类目录中的“已处理历史”也使用相同的惰性折叠语义。普通应用默认展开，游戏和系统工具的展开状态由用户控制；搜索命中某组时临时展开该组，清除搜索后恢复用户选择。折叠不是只做视觉隐藏：折叠组不得创建产品行和分类按钮 DOM，展开时才渲染，以便长清单管理。
+
+Runtime Console 只渲染当前顶层页面；首次数据加载把互不依赖的目录、策略、分类记录与使用统计并行请求。该性能修正不得改变 Worker 查询、目录分组权威、分类保存、配额、账本、Agent 或安装包。测试等级为 Console 行为／布局：只运行 Console 聚焦测试、桌面与移动目视验证、`git diff --check`；明确排除 Worker、Windows、macOS、WiX、账本和 migration 测试。
+
 ## ARM-D-021：Windows 内置系统工具采用经审核的精确包身份
 
 PO 于 2026-09-20 确认实施。ARM-D-018 中“照片不得仅因微软发布或系统预装进入系统工具”的弱证据禁令继续有效，但经产品审核的 Windows 内置基础工具与默认系统实用应用可以通过稳定、精确的 package family/AUMID 进入 `systemTool`。本次确认截图工具、手机连接、时钟、照片、画图和相机属于该边界；显示名称、路径、发布者和预装状态仍不能单独命中。

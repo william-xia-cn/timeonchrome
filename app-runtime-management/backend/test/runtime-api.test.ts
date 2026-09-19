@@ -591,9 +591,13 @@ describe('Runtime product API', () => {
       expect.objectContaining({ runtimeIdentity: 'app:legacy', mainDurationMs: 60_000, projectionReasonCode: 'TECHNICAL_IDENTITY_ONLY' }),
     ]));
     const catalog = await (await call('/v2/module/app-catalog?childId=child-a', { headers: bearer(account) }))
-      .json<{ items: unknown[]; technicalItems: Array<{ runtimeIdentity: string; manageability: string }> }>();
+      .json<{ items: unknown[]; technicalItems: Array<{ runtimeIdentity: string; manageability: string }>; classificationRecords: { pending: unknown[]; technical: Array<{ runtimeIdentity: string; mainDurationMs: number }> } }>();
     expect(catalog.items).toEqual([]);
     expect(catalog.technicalItems).toEqual([expect.objectContaining({ runtimeIdentity: 'app:legacy', manageability: 'review' })]);
+    expect(catalog.classificationRecords.pending).toEqual([]);
+    expect(catalog.classificationRecords.technical).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeIdentity: 'app:legacy', mainDurationMs: 60_000 }),
+    ]));
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments').first('n')).toBe(2);
   });
 
@@ -650,10 +654,14 @@ describe('Runtime product API', () => {
     expect(processed.processed).toEqual(expect.arrayContaining([expect.objectContaining({ runtimeIdentity: 'app:observed' })]));
     const catalog = await (await call('/v2/module/app-catalog?childId=child-a', {
       headers: bearer(account),
-    })).json<{ items: Array<{ runtimeIdentity: string; classification: string; mainDurationMs: number; observedInWindow: boolean }> }>();
+    })).json<{ items: Array<{ runtimeIdentity: string; classification: string; mainDurationMs: number; observedInWindow: boolean }>; classificationRecords: { pending: unknown[]; processed: Array<{ runtimeIdentity: string }> } }>();
     expect(catalog.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ runtimeIdentity: 'app:observed', classification: 'study', mainDurationMs: 60_000, observedInWindow: true }),
       expect.objectContaining({ runtimeIdentity: 'app:unused', classification: 'composite', mainDurationMs: 0, observedInWindow: false }),
+    ]));
+    expect(catalog.classificationRecords.pending).toEqual([]);
+    expect(catalog.classificationRecords.processed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeIdentity: 'app:observed' }),
     ]));
 
     const classified = await accountingUsage({
