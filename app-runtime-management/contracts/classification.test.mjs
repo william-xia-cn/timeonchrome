@@ -47,6 +47,10 @@ const aimlabs={platform:'windows',runtimeIdentity:'opaque',displayName:'Aimlabs'
 assert.deepEqual(resolveApplication(typeKnowledge,'child',aimlabs),{productId:'aimlabs',classification:'restrictedEntertainment',status:'automatic',ruleIds:['games'],suggestions:[],appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule'});
 assert.equal(resolveApplication({...typeKnowledge,bindings:[{childId:'child',products:[{productId:'aimlabs',classification:'composite'}],ruleIds:['games']}]},'child',aimlabs).classification,'composite');
 assert.equal(resolveApplication(typeKnowledge,'child',{...aimlabs,runtimeIdentity:'spoof',values:{declaredType:'game'},verifiedFields:[]}).typeStatus,'unknown');
+const utilityKnowledge={...typeKnowledge,products:[{id:'game-bar',name:'Game Bar',type:'gameUtility',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'distributionKey',value:'microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe'}]}}]}]};
+const gameBar={platform:'windows',runtimeIdentity:'game-bar',displayName:'Game Bar',values:{distributionKey:'microsoft-store:microsoft.xboxgamingoverlay_8wekyb3d8bbwe'},verifiedFields:['distributionKey']};
+assert.deepEqual(resolveApplication(utilityKnowledge,'child',gameBar),{productId:'game-bar',classification:'unclassified',status:'unclassified',ruleIds:[],suggestions:[],appType:'gameUtility',typeStatus:'confirmed',typeReasonCode:'distributionProductRule'});
+assert.equal(parseApplicationKnowledge({...valid,products:utilityKnowledge.products}).products[0].type,'gameUtility');
 assert.throws(()=>parseAppEvidence({...aimlabs,values:{distributionKey:'unknown:714010'}}),/INVALID_DISTRIBUTION_KEY/);
 const schema = JSON.parse(readFileSync(new URL('./application-knowledge.schema.json', import.meta.url)));
 assert.equal(schema.additionalProperties,false);

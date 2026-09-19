@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-024 产品规则 schema v3
+
+Contracts 1.9.0 为 `AppType` 增加 `gameUtility`，为目录理由增加 `CONFIRMED_GAME_UTILITY_TYPE`。Worker 的游戏组投影接受 confirmed `game | gameLauncher | gameUtility`；默认受限娱乐建议仍保持 `appType === game`。产品规则仅使用精确 `distributionKey`、`productKey` 或 package family，名称/发布者不具有确认权。
+
+EA app 的两个当前产品键作为同一 `AppProduct` 的两个 selector；Game Bar、Solitaire 与 XBOX 使用 Microsoft Store distribution key；完美世界竞技平台使用当前产品键。反馈中心、命令面板、天气和录音机加入精确系统 package family 集合。Console 只修改标签和文案，内部 DOM/CSS 与 `systemTool` wire value不重命名。
+
 ## ARM-D-017 产品目录纠错增量
 
 MSIX/package family 在目录中建模为 `packageContainer` 技术容器，不默认成为可管理产品；每个具有可信 AUMID 的可启动入口独立进入产品目录。Win32 套件仅在具有可靠安装产品锚点时维持产品/变体聚合。Worker 查询时使用现有证据动态投影，不迁移或改写历史观察。

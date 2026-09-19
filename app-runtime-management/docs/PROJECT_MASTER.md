@@ -1,5 +1,12 @@
 # App Runtime 项目真值
 
+## 当前开发：ARM-D-024 游戏与系统应用规则补全
+
+- 目标 contract 为 1.9.0：新增 `gameUtility`，并保持 `systemTool` wire value兼容；用户文案统一为“系统应用”。
+- 云端规则使用生产盘点已有强身份确认 EA app、Game Bar、Solitaire & Casual Games、完美世界竞技平台、XBOX、反馈中心、命令面板、天气和录音机，无需终端升级、重新扫描或 migration。
+- 本轮只允许发布 Runtime Worker 与独立 Runtime Pages；Guardian、D1、R2、安装包、分类、配额和账本均保持不变。
+- 本地实现已通过 Contracts 24 向量、Worker 3 项聚焦回归、Windows Core 3 项聚焦测试、Console 桌面/移动目视测试、TypeScript/JavaScript 检查、Wrangler 4.127.1 dry-run 与 `git diff --check`；等待 PR/CI 与生产发布。
+
 ## 当前生产修复：ARM-D-021 Windows 内置系统工具规则
 
 - Runtime Worker 规则已加入截图工具、手机连接、时钟、照片、画图和相机六个经审核 package family；同名第三方及未审核微软产品不命中。

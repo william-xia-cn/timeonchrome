@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management V1
 
+## ARM-D-024 游戏与系统应用规则增量
+
+客观类型增加 `gameUtility`。`game`、`gameLauncher`、`gameUtility` 均进入游戏展示组，但类型规则“游戏 → 受限娱乐”只匹配 `game`；启动器和游戏工具不会隐式改变孩子管理分类或配额。产品规则仅接受精确强身份，EA 的两个已知安装键归入一个产品。
+
+用户可见“系统工具”统一更名为“系统应用”，协议值 `systemTool` 保持兼容。系统应用仍可分类和配置配额；技术组件仍只读。该修订只改变云端目录投影和文案，不升级 Agent、不重扫、不迁移数据库，也不改写历史。
+
 ## ARM-D-016 客观类型与管理归类
 
 产品必须把客观 `appType` 与孩子级 `classification` 永久分开。Aimlabs、Apex Legends 等只有在 Steam/Microsoft Store/EA/Epic/Ubisoft/GOG 稳定产品 ID、可信包身份或已审核产品关联命中时才能确认为游戏；同名程序和客户端自报类型只能显示“疑似”。默认提供“游戏 → 受限娱乐”建议但不启用，家长确认后才成为孩子级自动规则；具体产品明确分类始终优先。配额只按最终 classification 计算，不新增类型配额或重复扣减。

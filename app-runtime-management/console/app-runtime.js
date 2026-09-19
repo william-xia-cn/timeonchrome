@@ -106,6 +106,7 @@
     state.records = { windowStartMs: Date.now() - 30 * 86400000, windowEndMs: Date.now(), pending: [
       { platform: 'windows', runtimeIdentity: 'app:obs', displayName: 'OBS Studio', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 480000, mainDurationMs: 720000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'unknown', originEvidenceCode: null, catalogGroup: 'application', catalogGroupReasonCode: 'DEFAULT_APPLICATION' },
       { platform: 'windows', runtimeIdentity: 'app:aimlabs', displayName: 'Aimlabs', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 540000, mainDurationMs: 600000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'product', appType: 'game', typeStatus: 'confirmed', applicationOrigin: 'unknown', originEvidenceCode: null, catalogGroup: 'game', catalogGroupReasonCode: 'CONFIRMED_GAME_TYPE' },
+      { platform: 'windows', runtimeIdentity: 'app:game-bar', displayName: 'Game Bar', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 570000, mainDurationMs: 120000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'product', appType: 'gameUtility', typeStatus: 'confirmed', applicationOrigin: 'unknown', originEvidenceCode: null, catalogGroup: 'game', catalogGroupReasonCode: 'CONFIRMED_GAME_UTILITY_TYPE' },
       { platform: 'windows', runtimeIdentity: 'app:calc', displayName: '计算器', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 600000, mainDurationMs: 420000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule', catalogGroup: 'systemTool', catalogGroupReasonCode: 'EXACT_SYSTEM_TOOL_RULE' },
       { platform: 'windows', runtimeIdentity: 'app:quick-assist', displayName: '快速助手', firstSeenAtMs: dayStart, lastSeenAtMs: Date.now() - 900000, mainDurationMs: 180000, machineCount: 1, userCount: 1, classification: 'unclassified', status: 'pending', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'operatingSystem', originEvidenceCode: 'exactPackageRule', catalogGroup: 'systemTool', catalogGroupReasonCode: 'EXACT_SYSTEM_TOOL_RULE' },
     ], processed: state.policy.classifications.filter((item) => item.runtimeIdentity !== 'app:chat').map((item) => ({ ...item, firstSeenAtMs: dayStart - 86400000, lastSeenAtMs: Date.now(), mainDurationMs: 1800000, machineCount: 1, userCount: 1, status: 'processed', manageability: 'actionable', catalogKind: 'application', applicationOrigin: 'unknown', originEvidenceCode: null, catalogGroup: item.displayName === 'Minecraft' ? 'game' : 'application', catalogGroupReasonCode: item.displayName === 'Minecraft' ? 'CONFIRMED_GAME_TYPE' : 'DEFAULT_APPLICATION' })), technical: [] };
@@ -219,10 +220,10 @@
     const note = app.discovery?.role === 'component' ? '组件入口（不豁免使用计时）' : app.discovery?.role === 'candidate' ? '安装候选，尚无可靠主程序关联' : '';
     const fallback = app.discovery?.nameSource === 'fallback' ? '名称未解析，显示包入口回退' : '';
     const actions = classificationActions(app, selected);
-    const origin = app.catalogGroup === 'systemTool' ? '<span class="system-origin-chip">系统工具</span>' : '';
-    const typeLabels={game:'游戏',gameLauncher:'游戏平台／启动器',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'类型未知'};
+    const origin = app.catalogGroup === 'systemTool' ? '<span class="system-origin-chip">系统应用</span>' : '';
+    const typeLabels={game:'游戏',gameLauncher:'游戏平台／启动器',gameUtility:'游戏工具',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'类型未知'};
     const appType=app.appType||app.productType||'unknown';
-    const typeText=app.catalogGroup==='systemTool'?'系统工具'
+    const typeText=app.catalogGroup==='systemTool'?'系统应用'
       :app.typeStatus==='suggested'?`疑似${typeLabels[appType]}`:app.typeStatus==='confirmed'?typeLabels[appType]:'类型未知';
     const typeAndClass=`${typeText} · ${categoryLabels[app.classification]||'未归类'}`;
     const variants = visibleProductVariants(app);
@@ -260,7 +261,7 @@
     const groups = [
       { key: 'application', element: $('#ordinary-app-group'), list: $('#managed-app-list'), items: ordinaryApps, empty: '当前分组没有符合条件的普通应用' },
       { key: 'game', element: $('#game-app-group'), list: $('#game-app-list'), items: gameApps, empty: '当前分组没有符合条件的游戏' },
-      { key: 'systemTool', element: $('#system-tool-group'), list: $('#system-tool-list'), items: systemTools, empty: '当前分组没有符合条件的系统工具' },
+      { key: 'systemTool', element: $('#system-tool-group'), list: $('#system-tool-list'), items: systemTools, empty: '当前分组没有符合条件的系统应用' },
     ];
     $('#game-app-count').textContent = `${gameApps.length} 个`;
     $('#ordinary-app-count').textContent = `${ordinaryApps.length} 个`;

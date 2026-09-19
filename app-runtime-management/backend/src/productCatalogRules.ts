@@ -1,5 +1,5 @@
 import type { ApplicationKnowledge } from '@timeonchrome/app-runtime-contracts/classification';
-import rawRules from './data/product-catalog-rules.v2.json';
+import rawRules from './data/product-catalog-rules.v3.json';
 
 type ProductCatalogRuleFile = {
   schemaVersion: number;

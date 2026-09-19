@@ -1,5 +1,5 @@
 export type AppPlatform = 'windows' | 'macos';
-export type AppType = 'game' | 'gameLauncher' | 'onlineVideo' | 'mediaPlayer' | 'other' | 'unknown';
+export type AppType = 'game' | 'gameLauncher' | 'gameUtility' | 'onlineVideo' | 'mediaPlayer' | 'other' | 'unknown';
 export type AppTypeStatus = 'confirmed' | 'suggested' | 'unknown';
 export type AppTypeReasonCode = 'distributionProductRule' | 'exactPackageRule' | 'verifiedProductRule' | 'exactNameSuggestion' | 'none';
 export type AppClass = 'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'blocked';
@@ -7,7 +7,7 @@ export type ApplicationOrigin = 'user' | 'operatingSystem' | 'unknown';
 export type ApplicationOriginEvidenceCode = 'exactPackageRule' | 'osMetadata' | 'reviewedSystemBinary';
 export type CatalogGroup = 'application' | 'game' | 'systemTool';
 export type CatalogGroupReasonCode = 'DEFAULT_APPLICATION' | 'CONFIRMED_GAME_TYPE'
-  | 'CONFIRMED_GAME_LAUNCHER_TYPE' | 'EXACT_SYSTEM_TOOL_RULE';
+  | 'CONFIRMED_GAME_LAUNCHER_TYPE' | 'CONFIRMED_GAME_UTILITY_TYPE' | 'EXACT_SYSTEM_TOOL_RULE';
 export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'distributionKey' | 'productKey' | 'hostedAppId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
 export interface ApplicationDiscoverySummary {
   role: 'application' | 'component' | 'candidate';

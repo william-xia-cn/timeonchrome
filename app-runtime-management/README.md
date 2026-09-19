@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前开发：游戏与系统应用规则补全
+
+ARM-D-024 使用现有可信身份把 EA app、Game Bar、Solitaire & Casual Games、完美世界竞技平台和 XBOX 投影到游戏组，并把反馈中心、命令面板、天气和录音机投影为“系统应用”。`gameUtility` 用于 Game Bar；启动器和游戏工具不会自动触发“游戏 → 受限娱乐”建议。该修订无需升级 Agent、重新扫描或 migration，不改变分类、配额或账本。
+
 ## 当前修复：应用目录 Worker 查询去重
 
 ARM-D-023 让应用目录和未归类记录共享一次 30 天 Segment、inventory 与策略投影；Console 从目录组合响应读取未归类记录，旧 Worker 才回退旧接口。该修复只减少重复 D1 查询和内存聚合，不改变目录结果、分类、账本、配额或历史数据。
