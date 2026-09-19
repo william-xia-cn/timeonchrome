@@ -59,6 +59,25 @@ type CatalogEntry = CatalogProjection & {
   [key: string]: unknown;
 };
 
+type UsageIdentityGroup = {
+  platform: RuntimePlatform;
+  runtimeIdentity: string;
+  displayName: string | null;
+  firstSeenAtMs: number;
+  lastSeenAtMs: number;
+  machines: Set<string>;
+  users: Set<string>;
+  intervals: Map<string, Array<[number, number]>>;
+};
+
+type ClassificationRecordSet = {
+  windowStartMs: number;
+  windowEndMs: number;
+  pending: unknown[];
+  processed: unknown[];
+  technical: unknown[];
+};
+
 function hasStrongApplicationIdentity(evidence?: AppEvidence): boolean {
   if (!evidence) return false;
   const verified = new Set(evidence.verifiedFields);
@@ -451,6 +470,99 @@ function groupedUnion(groups: Map<string, Array<[number, number]>>): number {
   return total;
 }
 
+function addUsageRow(
+  grouped: Map<string, UsageIdentityGroup>,
+  row: Record<string, unknown>,
+  windowStartMs: number,
+  windowEndMs: number,
+): void {
+  const startAtMs = Math.max(windowStartMs, Number(row.start_at_ms));
+  const endAtMs = Math.min(windowEndMs, Number(row.end_at_ms));
+  if (endAtMs <= startAtMs) return;
+  const key = `${row.platform}\n${row.runtime_identity}`;
+  const record = grouped.get(key) || {
+    platform: row.platform as RuntimePlatform,
+    runtimeIdentity: String(row.runtime_identity),
+    displayName: row.display_name == null ? null : String(row.display_name),
+    firstSeenAtMs: startAtMs,
+    lastSeenAtMs: endAtMs,
+    machines: new Set<string>(),
+    users: new Set<string>(),
+    intervals: new Map<string, Array<[number, number]>>(),
+  };
+  record.firstSeenAtMs = Math.min(record.firstSeenAtMs, startAtMs);
+  record.lastSeenAtMs = Math.max(record.lastSeenAtMs, endAtMs);
+  if (row.display_name != null) record.displayName = String(row.display_name);
+  record.machines.add(String(row.machine_id));
+  record.users.add(String(row.local_user_id));
+  const lane = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
+  const intervals = record.intervals.get(lane) || [];
+  intervals.push([startAtMs, endAtMs]);
+  record.intervals.set(lane, intervals);
+  grouped.set(key, record);
+}
+
+function buildClassificationRecords(
+  policy: AppPolicyDocument,
+  grouped: Map<string, UsageIdentityGroup>,
+  catalogItems: CatalogEntry[],
+  technicalItems: CatalogEntry[],
+  windowStartMs: number,
+  windowEndMs: number,
+): ClassificationRecordSet {
+  const current = new Map(policy.classifications.map((item) => [`${item.platform}\n${item.runtimeIdentity}`, item]));
+  const actionableKeys = new Set<string>();
+  const actionableByKey = new Map<string, CatalogEntry>();
+  for (const item of catalogItems) {
+    for (const implementation of item.runtimeImplementations ?? []) {
+      const implementationKey = `${implementation.platform}\n${implementation.runtimeIdentity}`;
+      actionableKeys.add(implementationKey);
+      actionableByKey.set(implementationKey, item);
+    }
+    if (item.runtimeIdentity) {
+      const itemKey = `${item.platform}\n${item.runtimeIdentity}`;
+      actionableKeys.add(itemKey);
+      actionableByKey.set(itemKey, item);
+    }
+  }
+  const technicalByKey = new Map<string, CatalogEntry>();
+  for (const item of technicalItems) {
+    for (const implementation of item.runtimeImplementations ?? []) {
+      technicalByKey.set(`${implementation.platform}\n${implementation.runtimeIdentity}`, item);
+    }
+    if (item.runtimeIdentity) technicalByKey.set(`${item.platform}\n${item.runtimeIdentity}`, item);
+  }
+  const records = [...grouped.entries()].map(([key, row]) => {
+    const entry = current.get(key);
+    const projection = technicalByKey.get(key);
+    return {
+      platform: row.platform,
+      runtimeIdentity: row.runtimeIdentity,
+      displayName: row.displayName,
+      firstSeenAtMs: row.firstSeenAtMs,
+      lastSeenAtMs: row.lastSeenAtMs,
+      mainDurationMs: groupedUnion(row.intervals),
+      machineCount: row.machines.size,
+      userCount: row.users.size,
+      classification: entry?.classification ?? 'unclassified',
+      status: entry ? 'processed' : 'pending',
+      manageability: actionableKeys.has(key) ? 'actionable' : projection?.manageability ?? 'review',
+      catalogKind: projection?.catalogKind ?? (actionableKeys.has(key) ? 'application' : 'unresolved'),
+      projectionReasonCode: projection?.projectionReasonCode ?? (actionableKeys.has(key) ? 'VERIFIED_APPLICATION' : 'TECHNICAL_IDENTITY_ONLY'),
+      applicationOrigin: actionableByKey.get(key)?.applicationOrigin ?? projection?.applicationOrigin ?? 'unknown',
+      originEvidenceCode: actionableByKey.get(key)?.originEvidenceCode ?? projection?.originEvidenceCode ?? null,
+    };
+  }).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
+  const manageable = records.filter((record) => record.manageability === 'actionable');
+  return {
+    windowStartMs,
+    windowEndMs,
+    pending: manageable.filter((record) => record.status === 'pending'),
+    processed: manageable.filter((record) => record.status === 'processed'),
+    technical: records.filter((record) => record.manageability !== 'actionable'),
+  };
+}
+
 function quotaState(usedMs: number, minutes: number | null): { limitMs: number | null; remainingMs: number | null; exceeded: boolean } {
   if (minutes == null) return { limitMs: null, remainingMs: null, exceeded: false };
   const limitMs = minutes * 60_000;
@@ -745,115 +857,8 @@ export async function queryClassificationRecords(
   childId: string,
   nowMs: number,
   platform?: RuntimePlatform,
-): Promise<{ windowStartMs: number; windowEndMs: number; pending: unknown[]; processed: unknown[]; technical: unknown[] }> {
-  const windowEndMs = nowMs;
-  const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
-  const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
-  let filter = '';
-  if (platform) { values.push(platform); filter = ` AND s.platform=?${values.length}`; }
-  const rows = await database.prepare(`
-    SELECT s.platform,s.runtime_identity,s.display_name,s.machine_id,s.local_user_id,
-      s.runtime_session_id,s.clock_epoch_id,
-      COALESCE(s.start_wall_time_ms,s.start_at_ms) AS start_at_ms,
-      COALESCE(s.end_wall_time_ms,s.end_at_ms) AS end_at_ms
-    FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
-    WHERE m.account_id=?1 AND s.child_id=?2 AND s.runtime_identity IS NOT NULL${filter}
-      AND s.diagnostic=0
-      AND (s.application_classification IS NULL OR s.application_classification='unclassified')
-      AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4
-      AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3
-    ORDER BY start_at_ms,end_at_ms,s.id
-  `).bind(...values).all<Record<string, unknown>>();
-  const legacyValues: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
-  let legacyFilter = '';
-  if (platform) { legacyValues.push(platform); legacyFilter = ` AND s.platform=?${legacyValues.length}`; }
-  const legacyRows = await database.prepare(`
-    SELECT s.platform,s.runtime_identity,s.display_name,s.device_id AS machine_id,
-      'legacy-v1' AS local_user_id,s.runtime_session_id,'legacy-v1' AS clock_epoch_id,
-      s.start_at_ms,s.end_at_ms
-    FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
-    WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3${legacyFilter}
-    ORDER BY s.start_at_ms,s.end_at_ms,s.id
-  `).bind(...legacyValues).all<Record<string, unknown>>();
-  const policy = await getAppPolicy(database, accountId, childId);
-  const current = new Map(policy.classifications.map((item) => [`${item.platform}\n${item.runtimeIdentity}`, item]));
-  const grouped = new Map<string, {
-    platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null;
-    firstSeenAtMs: number; lastSeenAtMs: number; machines: Set<string>; users: Set<string>;
-    intervals: Map<string, Array<[number, number]>>;
-  }>();
-  for (const row of [...(rows.results || []), ...(legacyRows.results || [])]) {
-    const key = `${row.platform}\n${row.runtime_identity}`;
-    const clampedStartAtMs = Math.max(windowStartMs, Number(row.start_at_ms));
-    const clampedEndAtMs = Math.min(windowEndMs, Number(row.end_at_ms));
-    const record = grouped.get(key) || {
-      platform: row.platform as RuntimePlatform,
-      runtimeIdentity: String(row.runtime_identity),
-      displayName: row.display_name == null ? null : String(row.display_name),
-      firstSeenAtMs: clampedStartAtMs, lastSeenAtMs: clampedEndAtMs,
-      machines: new Set<string>(), users: new Set<string>(), intervals: new Map<string, Array<[number, number]>>(),
-    };
-    const startAtMs = clampedStartAtMs;
-    const endAtMs = clampedEndAtMs;
-    if (endAtMs <= startAtMs) continue;
-    record.firstSeenAtMs = Math.min(record.firstSeenAtMs, startAtMs);
-    record.lastSeenAtMs = Math.max(record.lastSeenAtMs, endAtMs);
-    if (row.display_name != null) record.displayName = String(row.display_name);
-    record.machines.add(String(row.machine_id)); record.users.add(String(row.local_user_id));
-    const lane = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
-    const intervals = record.intervals.get(lane) || [];
-    intervals.push([startAtMs, endAtMs]); record.intervals.set(lane, intervals);
-    grouped.set(key, record);
-  }
-  const catalog = await queryAppCatalog(database, accountId, childId, nowMs, platform);
-  const actionableKeys = new Set<string>();
-  const actionableByKey = new Map<string, CatalogEntry>();
-  for (const item of catalog.items as CatalogEntry[]) {
-    for (const implementation of item.runtimeImplementations ?? []) {
-      const implementationKey = `${implementation.platform}\n${implementation.runtimeIdentity}`;
-      actionableKeys.add(implementationKey); actionableByKey.set(implementationKey, item);
-    }
-    if (item.runtimeIdentity) {
-      const itemKey = `${item.platform}\n${item.runtimeIdentity}`;
-      actionableKeys.add(itemKey); actionableByKey.set(itemKey, item);
-    }
-  }
-  const technicalByKey = new Map<string, CatalogEntry>();
-  for (const item of catalog.technicalItems as CatalogEntry[]) {
-    for (const implementation of item.runtimeImplementations ?? []) {
-      technicalByKey.set(`${implementation.platform}\n${implementation.runtimeIdentity}`, item);
-    }
-    if (item.runtimeIdentity) technicalByKey.set(`${item.platform}\n${item.runtimeIdentity}`, item);
-  }
-  const records = [...grouped.entries()].map(([key, row]) => {
-    const entry = current.get(key);
-    const projection = technicalByKey.get(key);
-    return {
-      platform: row.platform,
-      runtimeIdentity: row.runtimeIdentity,
-      displayName: row.displayName,
-      firstSeenAtMs: row.firstSeenAtMs,
-      lastSeenAtMs: row.lastSeenAtMs,
-      mainDurationMs: groupedUnion(row.intervals),
-      machineCount: row.machines.size,
-      userCount: row.users.size,
-      classification: entry?.classification ?? 'unclassified',
-      status: entry ? 'processed' : 'pending',
-      manageability: actionableKeys.has(key) ? 'actionable' : projection?.manageability ?? 'review',
-      catalogKind: projection?.catalogKind ?? (actionableKeys.has(key) ? 'application' : 'unresolved'),
-      projectionReasonCode: projection?.projectionReasonCode ?? (actionableKeys.has(key) ? 'VERIFIED_APPLICATION' : 'TECHNICAL_IDENTITY_ONLY'),
-      applicationOrigin: actionableByKey.get(key)?.applicationOrigin ?? projection?.applicationOrigin ?? 'unknown',
-      originEvidenceCode: actionableByKey.get(key)?.originEvidenceCode ?? projection?.originEvidenceCode ?? null,
-    };
-  }).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
-  const manageable = records.filter((record) => record.manageability === 'actionable');
-  return {
-    windowStartMs,
-    windowEndMs,
-    pending: manageable.filter((record) => record.status === 'pending'),
-    processed: manageable.filter((record) => record.status === 'processed'),
-    technical: records.filter((record) => record.manageability !== 'actionable'),
-  };
+): Promise<ClassificationRecordSet> {
+  return (await queryAppCatalog(database, accountId, childId, nowMs, platform)).classificationRecords;
 }
 
 export async function queryAppCatalog(
@@ -862,14 +867,14 @@ export async function queryAppCatalog(
   childId: string,
   nowMs: number,
   platform?: RuntimePlatform,
-): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[]; technicalItems: unknown[]; inventoryScans: Awaited<ReturnType<typeof queryInventoryScanStatus>> }> {
+): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[]; technicalItems: unknown[]; classificationRecords: ClassificationRecordSet; inventoryScans: Awaited<ReturnType<typeof queryInventoryScanStatus>> }> {
   const windowEndMs = nowMs;
   const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
   const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
   let platformFilter = '';
   if (platform) { values.push(platform); platformFilter = ` AND s.platform=?${values.length}`; }
   const rows = await database.prepare(`
-    SELECT s.platform,s.runtime_identity,s.display_name,s.machine_id,s.local_user_id,
+    SELECT s.platform,s.runtime_identity,s.display_name,s.machine_id,s.local_user_id,s.application_classification,
       s.runtime_session_id,s.clock_epoch_id,
       COALESCE(s.start_wall_time_ms,s.start_at_ms) AS start_at_ms,
       COALESCE(s.end_wall_time_ms,s.end_at_ms) AS end_at_ms
@@ -886,7 +891,7 @@ export async function queryAppCatalog(
   const legacyRows = await database.prepare(`
     SELECT s.platform,s.runtime_identity,s.display_name,s.device_id AS machine_id,
       'legacy-v1' AS local_user_id,s.runtime_session_id,'legacy-v1' AS clock_epoch_id,
-      s.start_at_ms,s.end_at_ms
+      s.start_at_ms,s.end_at_ms,NULL AS application_classification
     FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
     WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3${legacyPlatformFilter}
     ORDER BY s.start_at_ms,s.end_at_ms,s.id
@@ -895,34 +900,13 @@ export async function queryAppCatalog(
   const catalogKnowledge = effectiveApplicationKnowledge(policy.applicationKnowledge ?? {
     schemaVersion:2,version:0,products:[],rules:[],bindings:[],
   });
-  const grouped = new Map<string, {
-    platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null;
-    firstSeenAtMs: number; lastSeenAtMs: number; machines: Set<string>; users: Set<string>;
-    intervals: Map<string, Array<[number, number]>>;
-  }>();
+  const grouped = new Map<string, UsageIdentityGroup>();
+  const classificationGrouped = new Map<string, UsageIdentityGroup>();
   for (const row of [...(rows.results || []), ...(legacyRows.results || [])]) {
-    const key = `${row.platform}\n${row.runtime_identity}`;
-    const startAtMs = Math.max(windowStartMs, Number(row.start_at_ms));
-    const endAtMs = Math.min(windowEndMs, Number(row.end_at_ms));
-    if (endAtMs <= startAtMs) continue;
-    const record = grouped.get(key) || {
-      platform: row.platform as RuntimePlatform,
-      runtimeIdentity: String(row.runtime_identity),
-      displayName: row.display_name == null ? null : String(row.display_name),
-      firstSeenAtMs: startAtMs,
-      lastSeenAtMs: endAtMs,
-      machines: new Set<string>(), users: new Set<string>(),
-      intervals: new Map<string, Array<[number, number]>>(),
-    };
-    record.firstSeenAtMs = Math.min(record.firstSeenAtMs, startAtMs);
-    record.lastSeenAtMs = Math.max(record.lastSeenAtMs, endAtMs);
-    if (row.display_name != null) record.displayName = String(row.display_name);
-    record.machines.add(String(row.machine_id));
-    record.users.add(String(row.local_user_id));
-    const lane = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
-    const intervals = record.intervals.get(lane) || [];
-    intervals.push([startAtMs, endAtMs]); record.intervals.set(lane, intervals);
-    grouped.set(key, record);
+    addUsageRow(grouped, row, windowStartMs, windowEndMs);
+    if (row.application_classification == null || row.application_classification === 'unclassified') {
+      addUsageRow(classificationGrouped, row, windowStartMs, windowEndMs);
+    }
   }
   const policyByKey = new Map(policy.classifications.map((item) => [`${item.platform}\n${item.runtimeIdentity}`, item]));
   const inventoryRows = await database.prepare(`SELECT i.evidence_json,i.status,i.machine_id,i.local_user_id
@@ -1175,10 +1159,13 @@ export async function queryAppCatalog(
   const filtered = directory.filter((item) => !platform || item.platform === platform)
     .sort((left, right) => Number(right.lastSeenAtMs || 0) - Number(left.lastSeenAtMs || 0)
       || String(left.displayName || '').localeCompare(String(right.displayName || '')));
+  const catalogItems = filtered.filter(item=>item.manageability==='actionable') as CatalogEntry[];
+  const technicalItems = [...filtered.filter(item=>item.manageability!=='actionable'),...technicalVariants.filter(item=>!platform||item.platform===platform)]
+    .filter((item,index,array)=>array.findIndex(other=>other.platform===item.platform&&other.runtimeIdentity===item.runtimeIdentity)===index) as CatalogEntry[];
   return { windowStartMs, windowEndMs,
-    items:filtered.filter(item=>item.manageability==='actionable'),
-    technicalItems:[...filtered.filter(item=>item.manageability!=='actionable'),...technicalVariants.filter(item=>!platform||item.platform===platform)]
-      .filter((item,index,array)=>array.findIndex(other=>other.platform===item.platform&&other.runtimeIdentity===item.runtimeIdentity)===index),
+    items:catalogItems,
+    technicalItems,
+    classificationRecords:buildClassificationRecords(policy,classificationGrouped,catalogItems,technicalItems,windowStartMs,windowEndMs),
     inventoryScans:await queryInventoryScanStatus(database,accountId,childId) };
 }
 

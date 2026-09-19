@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { NETWORK_MESSAGE, friendlyError, requestJson } = require('./app-runtime-network.js');
+const { NETWORK_MESSAGE, friendlyError, requestJson, catalogClassificationRecords } = require('./app-runtime-network.js');
 
 function response(status, body) {
   return {
@@ -87,4 +87,26 @@ test('uses the explicit RuntimeSession authorization scheme', async () => {
       return response(200, { machines: [] });
     },
   });
+});
+
+test('uses classification records embedded in the catalog response', async () => {
+  const embedded = { pending: [{ displayName: 'Observed' }], processed: [], technical: [] };
+  let fallbackCalls = 0;
+  const records = await catalogClassificationRecords({ classificationRecords: embedded }, async () => {
+    fallbackCalls += 1;
+    return { pending: [] };
+  });
+  assert.equal(records, embedded);
+  assert.equal(fallbackCalls, 0);
+});
+
+test('falls back once for an older Worker catalog response', async () => {
+  let fallbackCalls = 0;
+  const fallback = { pending: [], processed: [], technical: [] };
+  const records = await catalogClassificationRecords({ items: [] }, async () => {
+    fallbackCalls += 1;
+    return fallback;
+  });
+  assert.equal(records, fallback);
+  assert.equal(fallbackCalls, 1);
 });

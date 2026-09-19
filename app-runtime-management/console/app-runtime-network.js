@@ -68,5 +68,10 @@
     }
   }
 
-  return { NETWORK_MESSAGE, friendlyError, requestJson };
+  async function catalogClassificationRecords(catalog, fetchFallback) {
+    if (catalog && catalog.classificationRecords) return catalog.classificationRecords;
+    return fetchFallback();
+  }
+
+  return { NETWORK_MESSAGE, friendlyError, requestJson, catalogClassificationRecords };
 });

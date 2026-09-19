@@ -12,6 +12,7 @@ const { chromium } = require('playwright');
   for (const viewport of [{ name: 'desktop', width: 1440, height: 1000 }, { name: 'mobile', width: 390, height: 844 }]) {
     const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height }, deviceScaleFactor: 1 });
     await page.goto(`${pathToFileURL(path.resolve(__dirname, 'index.html')).href}?mock=1`);
+    assert.equal(await page.locator('#managed-app-list .product-record').count(), 0, 'inactive app view must not eagerly render product rows');
     if (viewport.name === 'mobile') {
       await page.locator('[data-view="apps"]').evaluate((element) => element.click());
     } else {
@@ -22,7 +23,26 @@ const { chromium } = require('playwright');
       return heading?.textContent?.trim();
     }));
     assert.deepEqual(groups, ['普通应用', '游戏', '系统工具']);
+    assert.notEqual(await page.locator('#ordinary-app-group').getAttribute('open'), null);
+    assert.notEqual(await page.locator('#game-app-group').getAttribute('open'), null);
     assert.equal(await page.locator('#system-tool-group').getAttribute('open'), null);
+    assert.equal(await page.locator('#system-tool-list .product-record').count(), 0, 'collapsed system tool group must not render rows');
+    assert.equal(await page.locator('#processed-records .product-record').count(), 0, 'collapsed processed history must not render rows');
+    await page.locator('#ordinary-app-group summary').click();
+    assert.equal(await page.locator('#ordinary-app-group').getAttribute('open'), null);
+    assert.equal(await page.locator('#managed-app-list .product-record').count(), 0, 'collapsed ordinary group must not render rows');
+    await page.locator('#ordinary-app-group summary').click();
+    assert.notEqual(await page.locator('#ordinary-app-group').getAttribute('open'), null);
+    await page.locator('#game-app-group summary').click();
+    assert.equal(await page.locator('#game-app-group').getAttribute('open'), null);
+    assert.equal(await page.locator('#game-app-list .product-record').count(), 0, 'collapsed game group must not render rows');
+    await page.locator('#app-search').fill('快速助手');
+    await page.waitForTimeout(150);
+    assert.notEqual(await page.locator('#system-tool-group').getAttribute('open'), null, 'search match must expand system tools');
+    assert.equal(await page.locator('#system-tool-list .product-record').count(), 1);
+    await page.locator('#app-search').fill('');
+    await page.waitForTimeout(150);
+    assert.equal(await page.locator('#system-tool-group').getAttribute('open'), null, 'clearing search must restore user expansion state');
     if (viewport.name === 'mobile') {
       await page.locator('.app-directory-card').screenshot({ path: path.join(output, `${viewport.name}.png`) });
     } else {
