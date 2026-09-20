@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [ARM-D-025 / 系统应用与游戏默认分类] — 2026-09-20（本地实现完成，待合并发布）
+
+- 系统应用默认归为复合；confirmed 游戏、游戏平台与游戏工具默认归为受限娱乐。
+- 家长单项明确分类继续最高优先，疑似游戏、普通应用和技术记录不自动分类。
+- 新默认随下一次完整 inventory 冻结为新 App Policy 版本并由设备实际应用后向前生效；历史 Segment 和既有配额结果不追溯修改。
+- Worker 聚焦测试 4 项、默认策略冻结与上传校验、Console 知识规则测试、backend typecheck、Wrangler 4.127.1 dry-run 和 `git diff --check` 通过；按 ARM-D-019 未运行 Windows、macOS、WiX、migration、账本状态机或视觉布局测试。
+
 ## [Contracts 1.9.0 / ARM-D-024] — 2026-09-20（生产已发布）
 
 - 新增 `gameUtility` 客观类型并补齐五个游戏组对象；EA 两个强身份合并为一个确认产品。

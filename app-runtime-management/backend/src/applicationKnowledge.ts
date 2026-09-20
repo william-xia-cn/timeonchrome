@@ -1,4 +1,4 @@
-import type { ApplicationKnowledge, AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
+import type { ApplicationKnowledge, AppClass, AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { identifyProducts, matches, resolveApplication } from '@timeonchrome/app-runtime-contracts/classification';
 import { ApplicationContractError, parseApplicationKnowledge, parseAppEvidence } from '@timeonchrome/app-runtime-contracts/classification-validation';
 import type { AppPolicyClassification } from './contracts';
@@ -6,12 +6,54 @@ import { getAppPolicy } from './appPolicy';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
-import { controlledProducts } from './productCatalogRules';
+import { controlledProducts, systemToolPackageIds } from './productCatalogRules';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
 export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
   const products = value.products.filter(item=>!controlledProducts.some(builtin=>builtin.id===item.id)).concat(controlledProducts);
   return {...value,schemaVersion:2,products};
+}
+
+export const defaultSystemApplicationRuleId = 'builtin.default.system-application.composite';
+export const defaultGameGroupRuleId = 'builtin.default.game-group.restricted-entertainment';
+
+function exactSystemApplication(evidence: AppEvidence): boolean {
+  if (evidence.platform !== 'windows' || !evidence.verifiedFields.includes('packageId')) return false;
+  const packageId = evidence.values.packageId?.trim().toLowerCase();
+  if (!packageId) return false;
+  const family = packageId.split('!', 1)[0]!;
+  return systemToolPackageIds.has(packageId) || systemToolPackageIds.has(family);
+}
+
+/**
+ * Runtime-owned defaults are lower priority than explicit Child choices and approved rules.
+ * They are frozen into resolvedApplications so delayed uploads continue to validate against
+ * the immutable policy version that the machine actually applied.
+ */
+export function resolveEffectiveApplication(
+  knowledge: ApplicationKnowledge,
+  childId: string,
+  evidence: AppEvidence,
+  previous: AppClass = 'unclassified',
+) {
+  const resolution = resolveApplication(knowledge, childId, evidence, previous);
+  if (!['unclassified', 'suggestion'].includes(resolution.status)) return resolution;
+  // Package containers, helpers and other technical records never receive management defaults.
+  if (evidence.discovery && evidence.discovery.role !== 'application') return resolution;
+  if (exactSystemApplication(evidence)) return {
+    ...resolution,
+    classification: 'composite' as const,
+    status: 'automatic' as const,
+    ruleIds: [defaultSystemApplicationRuleId],
+  };
+  if (resolution.typeStatus === 'confirmed'
+      && ['game', 'gameLauncher', 'gameUtility'].includes(resolution.appType)) return {
+    ...resolution,
+    classification: 'restrictedEntertainment' as const,
+    status: 'automatic' as const,
+    ruleIds: [defaultGameGroupRuleId],
+  };
+  return resolution;
 }
 const empty = (): ApplicationKnowledge => ({ schemaVersion: 1, version: 0, products: [], rules: [], bindings: [] });
 const canonical = (value: unknown): string => {
@@ -67,7 +109,7 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
     }
     const resolvedApplications: AppPolicyClassification[] = [...byIdentity.values()].map(item => {
       const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
-      const resolution = resolveApplication(effectiveKnowledge, childId, item, prior?.classification);
+      const resolution = resolveEffectiveApplication(effectiveKnowledge, childId, item, prior?.classification);
       return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification: resolution.classification };
     }).filter(item => item.classification !== 'unclassified');
     // Unknown inventory uses the existing unclassified/unlimited default; it must not inflate legacy policy arrays.
@@ -158,7 +200,7 @@ export async function knowledgeImportPreview(db: D1Database, accountId: string, 
       && !rule.exclude.some(expression=>matches(expression,item.evidence)))
       || incoming.products.some(product=>productIds.includes(product.id));
     return hit ? [{childIndex:childIds.indexOf(childId),displayName:item.evidence.displayName,
-      platform:item.evidence.platform,result:resolveApplication(proposed,childId,item.evidence)}] : [];
+      platform:item.evidence.platform,result:resolveEffectiveApplication(proposed,childId,item.evidence)}] : [];
   }));
   return {etag:knowledgeEtag(current.version),previewHash:await sha256Hex(canonical({current,incoming})),changes,warnings,hits,incoming};
 }
@@ -207,7 +249,7 @@ export async function applyKnowledgeOperation(db:D1Database,accountId:string,chi
     if(expected!==knowledgeEtag(current.version))throw new HttpError(412,'APPLICATION_KNOWLEDGE_CONFLICT','Application data changed. Reload before saving.');
     const inventory=await listApplicationInventory(db,accountId);
     const hits=inventory.flatMap(item=>childIds.flatMap((childId,childIndex)=>{
-      const before=resolveApplication(effectiveApplicationKnowledge(current),childId,item.evidence),after=resolveApplication(effectiveApplicationKnowledge(next),childId,item.evidence,before.classification);
+      const before=resolveEffectiveApplication(effectiveApplicationKnowledge(current),childId,item.evidence),after=resolveEffectiveApplication(effectiveApplicationKnowledge(next),childId,item.evidence,before.classification);
       if(canonical(before)===canonical(after))return [];
       return [{childIndex,displayName:item.evidence.displayName,platform:item.evidence.platform,
         before:{classification:before.classification,status:before.status},
@@ -289,7 +331,7 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
     item.machineId === machineId && item.localUserId === incoming.localUserId && item.evidence.runtimeIdentity === incoming.evidence.runtimeIdentity)).map(item => item.evidence)];
   const children = await db.prepare(`SELECT child_id FROM runtime_children_v1 WHERE account_id=?1`)
     .bind(accountId).all<{child_id:string}>();
-  if (knowledge.version > 0 && (scan ? scan.completed : observations.length > 0)) statements.push(...await policyStatements(db, accountId, knowledge,
+  if (scan ? scan.completed : knowledge.version > 0 && observations.length > 0) statements.push(...await policyStatements(db, accountId, knowledge,
     children.results.map(item => item.child_id), evidence, nowMs));
   await batch(db, statements);
   return { batchId: value.batchId, status: 'accepted', acceptedCount: observations.length };
@@ -436,7 +478,7 @@ async function syncApplicationInventoryV2(db: D1Database, accountId: string, mac
   const knowledge=await getApplicationKnowledge(db,accountId),known=await listApplicationInventory(db,accountId);
   const incoming=variants.map(item=>item.evidence),evidence=[...incoming,...known.filter(item=>!incoming.some(next=>item.machineId===machineId&&item.evidence.runtimeIdentity===next.runtimeIdentity)).map(item=>item.evidence)];
   const children=await db.prepare(`SELECT child_id FROM runtime_children_v1 WHERE account_id=?1`).bind(accountId).all<{child_id:string}>();
-  if(knowledge.version>0&&(scan?scan.completed:variants.length>0))statements.push(...await policyStatements(db,accountId,knowledge,children.results.map(item=>item.child_id),evidence,nowMs));
+  if(scan?scan.completed:knowledge.version>0&&variants.length>0)statements.push(...await policyStatements(db,accountId,knowledge,children.results.map(item=>item.child_id),evidence,nowMs));
   await batch(db,statements);
   return {batchId:value.batchId,status:'accepted',acceptedCount:products.length+variants.length};
 }

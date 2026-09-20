@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management V1
 
+## ARM-D-025 默认管理分类
+
+经 Worker 精确规则确认的系统应用默认归为复合；confirmed `game`、`gameLauncher` 和 `gameUtility` 默认归为受限娱乐。该规则是低优先级系统默认：孩子对具体产品/技术身份的明确分类以及更高优先级的已批准精确规则可以覆盖。疑似游戏、普通应用和技术记录不得因名称或发布者获得默认分类。
+
+默认分类必须进入机器 App Policy 的不可变 `resolvedApplications`，并只在设备实际 ACK/应用新策略后向前落账。策略切换关闭开放 lane，历史 Segment、既有统计和配额结果不追溯重算。离线设备继续使用 last-known-good。
+
 ## ARM-D-024 游戏与系统应用规则增量
 
 客观类型增加 `gameUtility`。`game`、`gameLauncher`、`gameUtility` 均进入游戏展示组，但类型规则“游戏 → 受限娱乐”只匹配 `game`；启动器和游戏工具不会隐式改变孩子管理分类或配额。产品规则仅接受精确强身份，EA 的两个已知安装键归入一个产品。

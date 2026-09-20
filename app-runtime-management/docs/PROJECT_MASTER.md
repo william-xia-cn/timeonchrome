@@ -1,5 +1,12 @@
 # App Runtime 项目真值
 
+## 当前开发：ARM-D-025 系统应用与游戏默认分类
+
+- 云端确认的系统应用默认归为复合；confirmed 游戏、游戏平台和游戏工具默认归为受限娱乐。
+- 家长单项明确分类继续最高优先，疑似游戏、普通应用和技术记录不命中默认规则。
+- 目录查询可立即显示默认分类；机器端在下一次完整盘点生成并应用新策略后向前切段，历史账本与既有配额结果不追溯修改。
+- 变更等级为 Worker 策略语义 + Console 展示；只运行 Worker/Console 聚焦测试、typecheck、Wrangler dry-run 与 `git diff --check`。不运行 Windows、macOS、WiX、账本状态机或 migration 测试。
+
 ## 当前生产：ARM-D-024 游戏与系统应用规则补全
 
 - 目标 contract 为 1.9.0：新增 `gameUtility`，并保持 `systemTool` wire value兼容；用户文案统一为“系统应用”。

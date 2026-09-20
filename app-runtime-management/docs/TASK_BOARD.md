@@ -1,5 +1,15 @@
 # App Runtime 任务板
 
+## NOW：系统应用与游戏默认分类（ARM-D-025）
+
+- [x] 系统应用默认 `composite`，confirmed `game/gameLauncher/gameUtility` 默认 `restrictedEntertainment`。
+- [x] 家长单项明确分类和更高优先级已批准规则继续优先；疑似游戏、普通应用与技术记录保持原分类。
+- [x] 目录投影、机器策略冻结结果和服务端上传校验使用同一默认分类；完整 inventory 后生成新策略版本并向前生效。
+- [x] Console 删除“仅建议/需批准”旧口径，显示“系统默认分类”，但保留单项分类操作。
+- [x] 完成 Worker/Console 聚焦测试、typecheck、Wrangler dry-run、`git diff --check` 与 Plan Conformance Audit。
+
+本任务测试契约：变更等级＝Worker 策略语义 + Console 展示；受影响＝应用目录分类、机器 App Policy 冻结结果和前向配额归属；本地必须＝系统应用/三种 confirmed 游戏默认分类、家长覆盖、自动规则优先、疑似游戏/普通应用/技术记录负例、inventory 触发策略版本与上传校验聚焦测试，Console 旧建议清理与默认说明测试，backend typecheck、Console 语法检查、Wrangler dry-run、`git diff --check`；CI 必须＝contracts-worker、console、app-runtime-gate；发布 smoke＝本轮未获部署授权；明确排除＝Windows、macOS、WiX、账本状态机、migration 与视觉布局测试（无终端、schema、账本算法或布局改动）。
+
 ## NOW：游戏与系统应用规则补全（ARM-D-024）
 
 - [x] Contracts 1.9.0 增加 `gameUtility` 和 `CONFIRMED_GAME_UTILITY_TYPE`，Application Knowledge v1/v2 保持兼容。

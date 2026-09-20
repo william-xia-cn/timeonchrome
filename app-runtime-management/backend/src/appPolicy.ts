@@ -14,8 +14,9 @@ import { HttpError } from './http';
 import type { RuntimeLogCategory } from './contracts';
 import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
-import { identifyProducts, resolveApplication, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
-import { effectiveApplicationKnowledge, queryInventoryScanStatus } from './applicationKnowledge';
+import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
+import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
+  queryInventoryScanStatus, resolveEffectiveApplication } from './applicationKnowledge';
 import type {
   AppEvidence,
   ApplicationOrigin,
@@ -998,7 +999,7 @@ export async function queryAppCatalog(
     const found = inventory.get(key), knowledge = catalogKnowledge;
     const productIds = found && knowledge ? identifyProducts(knowledge.products,found.evidence) : [];
     const product = productIds.length===1 ? knowledge?.products.find(item=>item.id===productIds[0]) : undefined;
-    const resolution = found && knowledge ? resolveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
+    const resolution = found && knowledge ? resolveEffectiveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
     const projection=projectCatalogEvidence(found?.evidence, product?.id ?? null, Boolean(configured));
     const authoritativeOrigin=projectApplicationOrigin(found?.evidence);
     const ambiguityKey=ambiguityByIdentity.get(key);
@@ -1010,7 +1011,7 @@ export async function queryAppCatalog(
       : projection;
     const displayName = product?.name || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null)
       || observed?.displayName || configured?.displayName || found?.evidence.displayName || null;
-    const classification = configured?.classification || resolvedByKey.get(key)?.classification || 'unclassified';
+    const classification = configured?.classification || resolution?.classification || resolvedByKey.get(key)?.classification || 'unclassified';
     const nameSuggestedType = knownProductType(displayName);
     const appType = resolution?.appType && resolution.appType !== 'unknown' ? resolution.appType : nameSuggestedType ?? 'unknown';
     const typeStatus = resolution?.typeStatus === 'confirmed' ? 'confirmed' as const
@@ -1018,6 +1019,8 @@ export async function queryAppCatalog(
     const typeReasonCode = resolution?.typeStatus === 'confirmed' ? resolution.typeReasonCode
       : nameSuggestedType ? 'exactNameSuggestion' as const : 'none' as const;
     const productTypeSuggestion = classification === 'unclassified' && appType === 'game';
+    const systemDefault = resolution?.ruleIds.includes(defaultSystemApplicationRuleId) ?? false;
+    const gameDefault = resolution?.ruleIds.includes(defaultGameGroupRuleId) ?? false;
     const catalogGroup = projectCatalogGroup({
       actionable: effectiveProjection.manageability === 'actionable',
       exactSystemTool: authoritativeOrigin.originEvidenceCode === 'exactPackageRule',
@@ -1032,7 +1035,10 @@ export async function queryAppCatalog(
       productId: product?.id ?? null,
       classification,
       classificationStatus: configured ? 'explicit' : resolution?.status ?? 'unclassified',
-      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类' : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类' : resolution?.status==='suggestion' ? '仅建议，尚未生效' : productTypeSuggestion ? (typeStatus==='confirmed'?'已确认游戏，建议归为受限娱乐（尚未生效）':'疑似游戏，建议归为受限娱乐（尚未生效）') : '尚未归类',
+      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类'
+        : systemDefault ? '系统应用默认归为复合' : gameDefault ? '游戏默认归为受限娱乐'
+          : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类'
+            : resolution?.status==='suggestion' ? '仅建议，尚未生效' : productTypeSuggestion ? (typeStatus==='confirmed'?'已确认游戏，建议归为受限娱乐（尚未生效）':'疑似游戏，建议归为受限娱乐（尚未生效）') : '尚未归类',
       appType,
       typeStatus,
       typeReasonCode,

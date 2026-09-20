@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 当前开发：ARM-D-025 系统默认分类
+
+应用分类解析新增云端低优先级默认：精确系统应用为 `composite`，confirmed 游戏/游戏平台/游戏工具为 `restrictedEntertainment`。家长明确分类和更高优先级批准规则先执行；冲突、疑似类型、普通应用和技术记录不套用默认。目录和机器策略共用同一解析结果。
+
+完整 inventory 同步冻结新的 `resolvedApplications` 并提升机器 desired policy version；设备收到新 ETag 后在实际应用点切段。服务端仍按上传 Segment 的历史 App Policy version 校验 classification/quota bucket，因此不重写旧事实，也不把离线旧 Segment错误归入新默认。
+
 ## 当前修复：ARM-D-024 游戏与系统应用规则补全
 
 Runtime-owned 产品规则包 schema v3 使用现有强身份确认五个游戏组对象：EA app、XBOX 与完美世界竞技平台为 `gameLauncher`，Solitaire & Casual Games 为 `game`，Game Bar 为 `gameUtility`。三种客观类型均投影到 `catalogGroup = game`，但默认“建议归为受限娱乐”仍只面向 `game`。EA 的两个精确产品键归入同一产品；显示名称和发布者不参与确认。

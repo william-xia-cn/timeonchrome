@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-025 云端默认分类解析
+
+Worker 在 `resolveApplication` 的显式产品、已批准自动规则和冲突处理之后应用系统默认：精确 `systemTool` 为 `composite`，confirmed `game | gameLauncher | gameUtility` 为 `restrictedEntertainment`。结果使用稳定内建 reason ID，写入下一 App Policy 版本的 `resolvedApplications`；设备现有 `classifications` 仍优先于 resolved projection。
+
+`app-catalog` 使用同一解析函数，返回 `classificationStatus=automatic` 和“系统默认分类”理由，不再返回“建议归为受限娱乐”。完整 inventory 同步即使家庭知识版本为 0 也会重新冻结策略并提升机器 desired policy version；服务端上传校验继续按 Segment 携带的历史 policy version 读取对应不可变 payload，避免延迟上传被新规则追溯改类。
+
 ## ARM-D-024 产品规则 schema v3
 
 Contracts 1.9.0 为 `AppType` 增加 `gameUtility`，为目录理由增加 `CONFIRMED_GAME_UTILITY_TYPE`。Worker 的游戏组投影接受 confirmed `game | gameLauncher | gameUtility`；默认受限娱乐建议仍保持 `appType === game`。产品规则仅使用精确 `distributionKey`、`productKey` 或 package family，名称/发布者不具有确认权。
