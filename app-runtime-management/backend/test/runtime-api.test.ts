@@ -13,6 +13,12 @@ const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE'
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_knowledge_audit_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scan_batches_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scans_v2'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scan_batches_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scans_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_variants_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_installation_products_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_batches_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_knowledge_versions_v1'),
@@ -841,7 +847,7 @@ describe('Application knowledge and installed inventory', () => {
     expect(catalogRules.technicalDistributionKeys).toContain('steam:228980');
     expect(gameKeys.has('steam:228980')).toBe(false);
   });
-  it('projects the ARM-D-024 games from strong identities without changing management classification', async () => {
+  it('defaults every confirmed ARM-D-024 game group object to restricted entertainment', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const registryProduct=(runtimeIdentity:string,displayName:string,productKey:string)=>({
       localUserId,status:'installed',evidence:{platform:'windows',runtimeIdentity,displayName,
@@ -873,17 +879,65 @@ describe('Application knowledge and installed inventory', () => {
     }>();
     expect(result.items.filter(item=>item.displayName==='EA app')).toHaveLength(1);
     expect(result.items.find(item=>item.displayName==='EA app')).toMatchObject({appType:'gameLauncher',typeStatus:'confirmed',
-      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_LAUNCHER_TYPE',
+      classification:'restrictedEntertainment',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_LAUNCHER_TYPE',
       suggestedClassification:null,machineCount:1,userCount:1});
     expect(result.items.find(item=>item.displayName==='完美世界竞技平台')).toMatchObject({appType:'gameLauncher',
-      classification:'unclassified',catalogGroup:'game',suggestedClassification:null});
+      classification:'restrictedEntertainment',catalogGroup:'game',suggestedClassification:null});
     expect(result.items.find(item=>item.displayName==='Game Bar')).toMatchObject({appType:'gameUtility',typeStatus:'confirmed',
-      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_UTILITY_TYPE',suggestedClassification:null});
+      classification:'restrictedEntertainment',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_UTILITY_TYPE',suggestedClassification:null});
     expect(result.items.find(item=>item.displayName==='Solitaire & Casual Games')).toMatchObject({appType:'game',typeStatus:'confirmed',
-      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE',suggestedClassification:'restrictedEntertainment'});
+      classification:'restrictedEntertainment',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE',suggestedClassification:null});
     expect(result.items.find(item=>item.displayName==='XBOX')).toMatchObject({appType:'gameLauncher',typeStatus:'confirmed',
-      classification:'unclassified',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_LAUNCHER_TYPE',suggestedClassification:null});
+      classification:'restrictedEntertainment',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_LAUNCHER_TYPE',suggestedClassification:null});
     expect(result.items.some(item=>item.displayName==='EA app third-party'&&item.catalogGroup==='game')).toBe(false);
+
+    const explicit = {
+      classifications:[{platform:'windows',runtimeIdentity:'game-bar',displayName:'Game Bar',classification:'composite'}],
+      quotas:{dailyCategoryMinutes:{study:null,composite:null,restrictedEntertainment:null,unclassified:null},
+        weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]},
+    };
+    expect((await call('/v2/module/app-policy?childId=child-a',{method:'PUT',
+      headers:{...bearer(account),'If-Match':'"app-policy-v0"'},body:JSON.stringify(explicit)})).status).toBe(200);
+    const overridden=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{
+      items:Array<{displayName:string;classification:string;classificationReason:string}>;
+    }>();
+    expect(overridden.items.find(item=>item.displayName==='Game Bar')).toMatchObject({
+      classification:'composite',classificationReason:'家长明确配置',
+    });
+
+    await env.RUNTIME_DB.prepare(`INSERT INTO runtime_children_v1(child_id,account_id,child_name,created_at_ms,updated_at_ms)
+      VALUES('child-a','account-a','Child',0,0)`).run();
+    const scan={scanId:'d'.repeat(32),localUserId,batchCount:1,observationCount:observations.length,failedSources:[]};
+    const scanData=await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:1,batchId:'arm-d-025-policy-data',observations,
+        scan:{...scan,batchIndex:0,completed:false}})});
+    expect(scanData.status).toBe(200);
+    await expect(scanData.json()).resolves.toMatchObject({status:'accepted'});
+    const scanCompletion=await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:1,batchId:'arm-d-025-policy-complete',observations:[],
+        scan:{...scan,batchIndex:1,completed:true}})});
+    expect(scanCompletion.status).toBe(200);
+    await expect(scanCompletion.json()).resolves.toMatchObject({status:'accepted'});
+    await expect(env.RUNTIME_DB.prepare(`SELECT MAX(version) AS version FROM runtime_child_app_policy_versions_v1
+      WHERE child_id='child-a'`).first<number>('version')).resolves.toBe(2);
+    const machinePolicy=await (await call('/v2/machines/policy',{headers:bearer(enrolled.machineToken)})).json<{
+      appPolicies:Array<{childId:string;policy:{version:number;classifications:Array<{runtimeIdentity:string;classification:string}>;
+        resolvedApplications:Array<{runtimeIdentity:string;classification:string}>}}>;
+    }>();
+    const childPolicy=machinePolicy.appPolicies.find(item=>item.childId==='child-a')!.policy;
+    expect(childPolicy.classifications).toContainEqual(expect.objectContaining({runtimeIdentity:'game-bar',classification:'composite'}));
+    expect(childPolicy).toMatchObject({resolvedApplications:expect.arrayContaining([
+      expect.objectContaining({runtimeIdentity:'ea-product-1',classification:'restrictedEntertainment'}),
+      expect.objectContaining({runtimeIdentity:'game-bar',classification:'restrictedEntertainment'}),
+      expect.objectContaining({runtimeIdentity:'solitaire',classification:'restrictedEntertainment'}),
+    ])});
+    const usage=await accountingUsage({runtimeIdentity:'ea-product-1',channel:'active',basis:'foregroundInteraction',start:0,end:60_000});
+    usage.policySnapshot={assignmentVersion:2,appPolicyVersion:2,
+      applicationClassification:'restrictedEntertainment',quotaBucket:'restrictedEntertainment'};
+    usage.id=await accountingUsageId(usage);
+    const upload=await call('/v2/segments:upload',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:2,segments:[{...usage,localUserId,assignmentVersion:2}]})});
+    await expect(upload.json()).resolves.toEqual({acceptedIds:[usage.id],rejected:[]});
   });
   it('projects an inventory v2 suite as one product with variants and keeps maintenance entries technical', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
@@ -980,7 +1034,7 @@ describe('Application knowledge and installed inventory', () => {
       technicalItems:Array<{displayName:string;applicationOrigin:string}>;
     }>();
     for(const name of ['快速助手','记事本','获取帮助','设置','终端','截图工具','手机连接','时钟','照片','画图','相机','反馈中心','命令面板','天气','录音机']) expect(result.items.find(item=>item.displayName===name)).toMatchObject({
-      applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',classification:'unclassified',
+      applicationOrigin:'operatingSystem',originEvidenceCode:'exactPackageRule',classification:'composite',
       catalogGroup:'systemTool',catalogGroupReasonCode:'EXACT_SYSTEM_TOOL_RULE',
     });
     for(const name of ['Microsoft Office','Microsoft Teams','Microsoft Edge','Xbox','Copilot','资讯','媒体播放器','第三方 Quick Assist','截图工具（第三方同名）','客户端声称系统应用','未验证包身份']){
@@ -1062,7 +1116,8 @@ describe('Application knowledge and installed inventory', () => {
     for(const name of ['便笺','Windows 备份','入门','单击以执行','Windows Terminal','截图工具','手机连接','时钟','照片','画图','相机']){
       expect(result.items.filter(item=>item.displayName===name)).toHaveLength(1);
       expect(result.items.find(item=>item.displayName===name)).toMatchObject({
-        applicationOrigin:'operatingSystem',classification:'unclassified',projectionReasonCode:'LAUNCHABLE_PACKAGE_APP',
+        applicationOrigin:'operatingSystem',classification:'composite',classificationReason:'系统应用默认归为复合',
+        projectionReasonCode:'LAUNCHABLE_PACKAGE_APP',
         catalogGroup:'systemTool',catalogGroupReasonCode:'EXACT_SYSTEM_TOOL_RULE',
       });
     }
@@ -1081,7 +1136,7 @@ describe('Application knowledge and installed inventory', () => {
       expect.objectContaining({displayName:'Steamworks Common Redistributables',projectionReasonCode:'COMPONENT'}),
     ]));
     expect(result.items.find(item=>item.displayName==='刺客信条：大革命')).toMatchObject({
-      productType:'game',typeStatus:'confirmed',suggestedClassification:'restrictedEntertainment',
+      productType:'game',typeStatus:'confirmed',classification:'restrictedEntertainment',suggestedClassification:null,
       machineCount:1,userCount:1,catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE',
     });
   });
@@ -1385,7 +1440,7 @@ describe('Application knowledge and installed inventory', () => {
       expect.objectContaining({displayName:'Aimlabs',appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',
         classification:'composite',suggestedClassification:null,catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE'}),
       expect.objectContaining({displayName:'Apex Legends',appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',
-        classification:'unclassified',suggestedClassification:'restrictedEntertainment',catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE'}),
+        classification:'restrictedEntertainment',suggestedClassification:null,catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE'}),
     ]));
   });
   it('groups only confirmed game launchers as games', async () => {

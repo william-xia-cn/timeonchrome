@@ -33,10 +33,9 @@ const revised=K.reviseRule(shared,{id:'new-rule',enabled:true,name:'Revised'},['
 assert.deepEqual(revised.bindings[0].ruleIds,['new-rule']);assert.deepEqual(revised.bindings[1].ruleIds,['old-rule']);
 assert.deepEqual(K.toggleApproval(shared,'old-rule','child-a','unused').bindings[1].ruleIds,['old-rule']);
 assert.deepEqual(K.toggleApproval(shared,'old-rule','child-a','unused').bindings[0].ruleIds,[]);
-const recommended=K.withDefaultRecommendations(K.empty());
-assert.equal(recommended.schemaVersion,2);assert.equal(recommended.rules[0].mode,'suggestion');
-const approved=K.toggleApproval(recommended,recommended.rules[0].id,'child-a','unused');
-assert.equal(approved.rules[0].mode,'automatic');assert.deepEqual(approved.bindings[0].ruleIds,[recommended.rules[0].id]);
+const legacy={...K.empty(),rules:[{id:'builtin.type.game.restricted-suggestion',mode:'suggestion'}],bindings:[{childId:'child-a',products:[],ruleIds:['builtin.type.game.restricted-suggestion']}]};
+const recommended=K.withDefaultRecommendations(legacy);
+assert.equal(recommended.schemaVersion,2);assert.equal(recommended.rules.length,0);assert.deepEqual(recommended.bindings[0].ruleIds,[]);
 assert.throws(()=>K.selectedImport(shared,{products:[],rules:[{id:'old-rule',enabled:true,name:'Changed'}],bindings:[{childId:'child-a',products:[],ruleIds:['old-rule']}]},['rules:old-rule']),/未选孩子/);
 const oldMatch={match:{conditions:[{field:'packageId',value:'not-currently-installed'},{field:'binaryHash',value:'a'.repeat(64)},{field:'productName',value:'Old name'},{field:'declaredType',value:'game'}]}};
 assert.deepEqual(K.editedConditions(oldMatch,[{field:'binaryHash',value:'a'.repeat(64)}],[],'New name'),[{field:'packageId',value:'not-currently-installed'},{field:'declaredType',value:'game'},{field:'productName',value:'New name'}]);
