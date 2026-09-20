@@ -1585,9 +1585,10 @@ describe('Application knowledge and installed inventory', () => {
     const result=await preview.json<{version:number;preview:boolean;hits:unknown[]}>();
     expect(result).toMatchObject({version:0,preview:true});
     expect(result.hits).toEqual(expect.arrayContaining([expect.objectContaining({childIndex:0,displayName:'Fixture game',before:{classification:'unclassified',status:'unclassified'},after:{classification:'restrictedEntertainment',status:'explicit'}})]));
-    // Family product association is reusable, but only the selected Child receives a classification.
+    // Family product association is reusable. The selected Child keeps the explicit override;
+    // other children receive the lower-priority confirmed-game system default.
     expect(result.hits).toHaveLength(2);
-    expect(result.hits[1]).toMatchObject({childIndex:1,after:{classification:'unclassified',status:'unclassified'}});
+    expect(result.hits[1]).toMatchObject({childIndex:1,after:{classification:'restrictedEntertainment',status:'automatic'}});
     expect(await countPolicy()).toBe(before);
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_audit_v1').first('n')).toBe(0);
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_versions_v1').first('n')).toBe(0);
