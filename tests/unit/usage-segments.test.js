@@ -52,7 +52,7 @@ const integrityApi = loadProdModule('core/usage-segment-integrity.js', [
 const api = loadProdModule('core/usage-segments.js', [
   'generateSegmentId', 'stateToChannel', 'isCountedState', 'getLocalDateInfo', 'getLocalHourInfo',
   'splitSegmentByLocalDate', 'splitSegmentByLocalHour', 'buildUsageSegment',
-  'appendUsageSegments', 'incrementDailyUsageStats', 'incrementHourlyUsageStats',
+  'appendUsageSegments', 'registerPersistedUsageSegmentObserver', 'incrementDailyUsageStats', 'incrementHourlyUsageStats',
   'getUsageSegmentsByDate', 'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
   'rebuildDailyUsageStats', 'rebuildHourlyUsageStats',
   'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
@@ -184,8 +184,13 @@ chk('description summary generated', seg4d.description.summary, '开始：tabAct
 // ── TB5: Append + idempotency + date query ──
 sec('TB5: Append / idempotent / date query');
 mockLocal.reset();
+const persistedNotifications = [];
+api.registerPersistedUsageSegmentObserver((segments) => persistedNotifications.push(segments));
 let n = await api.appendUsageSegments([seg4]);
+await Promise.resolve();
 chk('append 1', n, 1);
+chk('observer after durable append', persistedNotifications.length, 1);
+chk('observer receives persisted segment', persistedNotifications[0][0].id, seg4.id);
 let all = await api.getAllUsageSegments();
 chk('stored 1', Object.keys(all).length, 1);
 chkT('retrievable', !!all[seg4.id]);
@@ -194,7 +199,9 @@ chk('byDate 1', byDate.length, 1);
 chk('byDate id match', byDate[0].id, seg4.id);
 
 n = await api.appendUsageSegments([seg4]);
+await Promise.resolve();
 chk('idempotent append 0', n, 0);
+chk('idempotent append emits no observer event', persistedNotifications.length, 1);
 all = await api.getAllUsageSegments();
 chk('still 1', Object.keys(all).length, 1);
 

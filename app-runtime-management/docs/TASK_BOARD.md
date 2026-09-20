@@ -1,5 +1,18 @@
 # App Runtime 任务板
 
+## NOW：通用 Native Host 与共享配额影子核算（ARM-D-026）
+
+- [x] 新增 `TimeOnChrome.NativeHost.exe`、版本化 Native Messaging/pipe 协议及旧 Host ID 兼容 manifest。
+- [x] RuntimeService 增加受约束 BrowserBridge listener、进程/session/SID 校验和独立幂等镜像存储。
+- [x] Managed 扩展迁移到新 Host ID，并仅在网页 Segment 已持久化后发送隐私裁剪镜像；失败不得影响原账。
+- [x] 增加共享配额纯影子裁决：前台优先、网页覆盖 Chrome 容器、未归类合并 Composite、媒体排除。
+- [x] WiX 安装 Host 与两个注册别名；版本提升为本地候选 2.5.0，不安装、不发布、不切 R2 latest。
+- [x] 完成 contracts、Native Host/Service/影子核算、扩展桥和 WiX 结构最小测试及 Plan Conformance Audit。
+
+本地实现与最小验证已完成；完整 MSI/Burn 产物构建、真实安装、managed Chrome 协议联调和生产发布仍需单独发布闸门，不在本任务中记为通过。
+
+本任务测试契约：变更等级＝跨边界本地协议 + Windows Service/Installer + Managed Extension 适配 + 影子核算；受影响＝本机浏览器桥和只读影子数据；本地必须＝contracts schema、Native Messaging framing、pipe ACL/身份验证、镜像幂等、影子优先级、扩展持久化后通知与 fail-open、WiX 结构、`git diff --check`；CI 必须＝contracts-worker、windows-tests、windows-installer 及受影响扩展聚焦测试；发布 smoke＝本轮不发布；明确排除＝macOS、Runtime Worker/Pages、Guardian、生产 D1/R2、现有网页计时/聚合/上传、当前配额执行和应用阻止。
+
 ## NOW：系统应用与游戏默认分类（ARM-D-025）
 
 - [x] 系统应用默认 `composite`，confirmed `game/gameLauncher/gameUtility` 默认 `restrictedEntertainment`。

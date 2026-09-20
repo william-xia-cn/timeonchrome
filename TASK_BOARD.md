@@ -2,6 +2,12 @@
 
 > App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。
 
+## App Runtime 本地桥集成（D-098）
+
+- [x] Managed 扩展迁移至 `com.timeonchrome.nativehost`，仅在网页 Segment 已持久化后发送隐私裁剪镜像。
+- [x] 保留 D-061 旧 Host ID 兼容，不改变普通/CWS 包的 nativeMessaging 移除规则。
+- [x] 原始网页落账、聚合、上传和现有配额执行保持不变；Runtime 侧影子实现与证据由模块任务板维护。
+
 ## Active Release Target
 - [x] [P0 / D-096 / Completed / 2026-09-18] 修正 `www.4399.com` 7,394 秒历史有效归属。
   - 固定范围：单一档案/设备、`2026-09-18`、旧 target rule、67 个 active pending 分段；不包含决定后产生的独立 1 秒异常分段。

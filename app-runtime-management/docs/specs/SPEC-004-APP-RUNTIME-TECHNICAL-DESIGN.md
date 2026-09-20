@@ -1,5 +1,15 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-026 本地浏览器桥与共享配额影子设计
+
+- Native Messaging：Chrome 使用 `com.timeonchrome.nativehost`，旧 ID 仅兼容；Host 以 4-byte little-endian 长度帧读写 JSON，单消息上限 256 KiB。
+- Service IPC：`TimeOnChrome.AppRuntime.BrowserBridge.v1`，仅允许 LocalSystem 和 Authenticated Users 建立连接；Service 再校验客户端可执行文件必须为同安装目录的 `TimeOnChrome.NativeHost.exe`、连接 SID 与进程 session 一致。Host 无本地数据库和机器 token。
+- 协议：`protocolVersion=1`、UUID `requestId`、`heartbeat|probe|settledUsageSegments`。网页 Segment 镜像只包含稳定 ID、起止时间、时长、channel/sourceState、quotaBucket、mode、estimated/diagnostic；不传域名或页面信息。
+- 持久化：Runtime SQLite 增加本机内部表 `browser_usage_mirror_v1`，以 `(session_id, profile_id, segment_id)` 幂等；该表不是云端 outbox，不改变任何原始账或上传接口。
+- 核算：纯函数输入 App Runtime 主 Segment、浏览器主 Segment和前台事实，输出区间切片及来源。前台 app 优先；Chrome 容器由同时存在的网页主 Segment覆盖；媒体辅助通道全部排除。分类 `pending_composite|unclassified` 只在影子结果映射为 `composite`。
+- 故障：Host/pipe/影子写入异常只返回稳定错误码并记录诊断；扩展既有持久化已经完成，不撤销也不改写。
+- 拆仓：协议 schema、Host、Service listener、SQLite shadow store、纯核算器与 WiX 资产全部留在 Runtime 模块；扩展仅消费已发布 schema。
+
 ## ARM-D-025 云端默认分类解析
 
 Worker 在 `resolveApplication` 的显式产品、已批准自动规则和冲突处理之后应用系统默认：精确 `systemTool` 为 `composite`，confirmed `game | gameLauncher | gameUtility` 为 `restrictedEntertainment`。结果使用稳定内建 reason ID，写入下一 App Policy 版本的 `resolvedApplications`；设备现有 `classifications` 仍优先于 resolved projection。

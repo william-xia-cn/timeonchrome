@@ -1,5 +1,13 @@
 # App Runtime 项目真值
 
+## 当前开发：ARM-D-026 通用 Native Host 与共享配额影子核算
+
+- `TimeOnChrome Native Host` 归 Runtime 模块，连接 Managed Chrome 扩展与现有 LocalSystem RuntimeService；旧 guardian Host ID 仅保留兼容别名。
+- 扩展只镜像已经持久化的网页 Segment，Service 独立保存并计算影子共享配额；不修改网页/App Runtime 原始账、现行配额或阻止行为。
+- 影子规则为前台优先、网页覆盖 Chrome 容器、待归类/未归类统一 Composite、辅助媒体排除。
+- 所有 Host/Service/installer 实现保持在 `app-runtime-management/`，为后续独立仓库迁移准备；根项目仅保留 contracts 消费和扩展适配。
+- 本阶段只完成本地实现与最小验证，不安装、不部署 Worker/Pages/Guardian、不执行 migration、不修改生产数据。
+
 ## 当前开发：ARM-D-025 系统应用与游戏默认分类
 
 - 云端确认的系统应用默认归为复合；confirmed 游戏、游戏平台和游戏工具默认归为受限娱乐。

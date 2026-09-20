@@ -9,6 +9,12 @@
 
 ## 1. 架构概览
 
+### 1.0.2 TimeOnChrome Native Host 与 Runtime 共享配额影子边界
+
+Managed 扩展通过 `com.timeonchrome.nativehost` 连接 Runtime-owned `TimeOnChrome.NativeHost.exe`；D-061 的旧 ID `com.timeonchrome.guardian` 只保留兼容 manifest。Host 不拥有产品逻辑，只把健康消息和已经写入 `usage_segments_v1` 的隐私裁剪 Segment 镜像转发给 `TimeOnChromeAppRuntime` Service。任何本地桥失败均 fail open，不影响网页落账、拦截、云同步或配额。
+
+共享配额首阶段只由 RuntimeService 生成本地影子结果，不替换现有 Chrome/App Runtime 配额。网页与应用原始账保持独立不可变；裁决规则和拆仓边界以 D-098、ARM-D-026 与 Runtime 技术设计为准。根仓侧不得导入 Runtime Host/Service 源码。
+
 ### 未识别页面防错与显示边界（2026-09-15）
 
 - 已复现：signal 合并给纯 idle 事件增加自有值为 `undefined` 的 URL/domain 字段，context 将其误认为新页面观察，导致已知 Bilibili 归属变成未知占位标识。
@@ -876,11 +882,11 @@ pullCloudConfig():
 
 #### 3.5.2 Managed 本地健康心跳
 
-内部 managed self-hosted 扩展通过 Native Messaging Host `com.timeonchrome.guardian` 提供独立于网络和云端 API 的本地健康信号。源 manifest 声明 `nativeMessaging`，但打包 staging 必须按渠道裁剪：managed artifact 保留权限、`deployment-profile.json` 与 `health-probe.html` 的 web accessible resource；普通/CWS artifact 强制移除该权限和探测页暴露。运行时还必须验证 deployment marker 为 managed，非 managed 上下文不得连接 Host。
+本节的 guardian 专用命名已由 D-098 取代。内部 managed self-hosted 扩展通过 Native Messaging Host `com.timeonchrome.nativehost` 提供独立于网络和云端 API 的本地健康信号；`com.timeonchrome.guardian` 只作兼容别名。源 manifest 声明 `nativeMessaging`，但打包 staging 必须按渠道裁剪：managed artifact 保留权限、`deployment-profile.json` 与 `health-probe.html` 的 web accessible resource；普通/CWS artifact 强制移除该权限和探测页暴露。运行时还必须验证 deployment marker 为 managed，非 managed 上下文不得连接 Host。
 
 - 模块加载时同步注册 `timeonchromeLocalGuardianHeartbeat` alarm、`onStartup`、`onInstalled` 和内部 probe 消息监听器。Service Worker 加载后立即发送 `booting`；bootstrap 完成或失败后发送确定状态；Native Port 存活时每 60 秒发送，独立一分钟 alarm 作为 Service Worker 唤醒兜底。
 - 使用持久 `connectNative()` Port，但任一时刻只允许一个等待应答的 heartbeat/probe。Host 应答超时为 3 秒；probe 优先且使用 5 秒冷却；生命周期、alarm 和内存定时器触发必须合并，队列不得无界增长。Port 断开后不立即循环重连，只在下一次 alarm、生命周期事件或 probe 时重试。
-- payload 固定为 `type`、`extensionId`、`version`、`profile`、`incognito`、`policyHash`、`monitoringStatus`、`timestamp`。Profile UUID 在 `chrome.storage.local` 生成、持久化并回读确认；普通和 split-incognito 上下文共享 UUID，用 `chrome.extension.inIncognitoContext` 区分上下文。
+- 协议 envelope 固定为 `protocolVersion`、`requestId`、`messageType`、`extensionId`、`profileId`、`sentAtMs`、`payload`。心跳 payload 包含 `version`、`incognito`、`policyHash`、`monitoringStatus`；已持久化 Segment 镜像使用同一 envelope 且不得包含页面身份。Profile UUID 在 `chrome.storage.local` 生成、持久化并回读确认；普通和 split-incognito 上下文共享 UUID，用 `chrome.extension.inIncognitoContext` 区分上下文。
 - 策略哈希使用认可 managed key 的递归排序确定性 JSON 和 SHA-256；`managedDeviceToken` 只以“是否存在”布尔值参与哈希。payload、状态、控制台和客户端日志禁止出现 token、邮箱、URL、域名、标题、Cookie、浏览历史或原始错误正文。
 - `monitoringStatus` 只允许 `booting`、`active`、`degraded`、`disabled_by_policy`、`privacy_consent_required`。只有 bootstrap 成功、activation 有效且 monitoring 未关闭时才能报告 `active`；关键读取或 bootstrap 失败报告 `degraded`。
 - Host 仅以 `{ ok: true, receivedAt }` 确认。缺失、断开、超时或无效响应只更新有界 `local_guardian_status_v1`，保存最近尝试/成功时间、短错误码、连续失败数、Port 状态和触发来源；不得保存 payload 或原始错误文本，也不得让失败传播到 bootstrap、计时、拦截或同步。

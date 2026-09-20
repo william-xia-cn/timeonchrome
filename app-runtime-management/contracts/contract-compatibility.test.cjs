@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.9.0');
+assert.equal(pkg.version, '1.10.0');
 for (const file of legacy) assert(fs.existsSync(path.join(root, file)), `${file} must remain for N-1 compatibility`);
 const sso = JSON.parse(fs.readFileSync(path.join(root, 'runtime-browser-sso-v1.schema.json'), 'utf8'));
 const inventoryV2 = JSON.parse(fs.readFileSync(path.join(root, 'application-inventory-v2.schema.json'), 'utf8'));
@@ -33,4 +33,8 @@ assert.match(inventoryV2.$defs.discovery.properties.applicationOrigin.descriptio
 assert.match(inventoryV2.$defs.discovery.properties.originEvidenceCode.description, /advisory.*cloud.*authoritative/i);
 const knowledge = JSON.parse(fs.readFileSync(path.join(root, 'application-knowledge.schema.json'), 'utf8'));
 assert(knowledge.$defs.appType.enum.includes('gameUtility'));
+const nativeHost = JSON.parse(fs.readFileSync(path.join(root, 'native-host-v1.schema.json'), 'utf8'));
+assert.equal(nativeHost.properties.protocolVersion.const, 1);
+assert(nativeHost.properties.messageType.enum.includes('settledUsageSegments'));
+assert.equal(nativeHost.additionalProperties, false);
 console.log('app-runtime contract compatibility: PASS');

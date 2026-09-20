@@ -1,5 +1,15 @@
 # SPEC-004 Cross-Platform App Runtime Management V1
 
+## ARM-D-026 Native Host 与共享配额影子阶段
+
+Managed Chrome 扩展通过 `com.timeonchrome.nativehost` 连接 `TimeOnChrome.NativeHost.exe`；旧 `com.timeonchrome.guardian` manifest 暂时兼容同一程序。Native Host 只转换浏览器长度帧和 `TimeOnChrome.AppRuntime.BrowserBridge.v1` 命名管道消息，不拥有机器 credential、SQLite、策略或核算状态。RuntimeService 校验连接进程、会话和用户 SID，处理心跳与已持久化网页 Segment 镜像。
+
+网页镜像必须发生在 `usage_segments_v1` 成功持久化之后，且不得包含 URL、域名、标题、账号、token、cookie 或浏览历史。镜像失败不回滚、不重试修改原账，也不阻断扩展现有功能。协议使用 `protocolVersion + requestId + messageType`，请求逐项 ACK 并按 segment ID 幂等。
+
+本阶段共享配额只运行影子核算，不替换 Chrome 或 App Runtime 的现有配额读取与阻止：同一 Windows 用户会话内按区间裁决，实际前台优先；Chrome 前台且有网页主 Segment时网页获胜，Chrome 前台但没有网页 Segment时 Chrome 应用获胜；其他前台应用覆盖重叠网页强媒体 ACTIVE。PiP、后台媒体和辅助媒体排除。网页 pending/unclassified 与应用 unclassified 只在影子分类中统一映射为 Composite；历史账本和分类不改写。
+
+该功能的全部本机服务端实现与安装资产属于 Runtime 模块。未来拆仓只迁移 `app-runtime-management/` 并发布 contracts；根扩展不得引用 Runtime 内部源码。
+
 ## ARM-D-025 默认管理分类
 
 经 Worker 精确规则确认的系统应用默认归为复合；confirmed `game`、`gameLauncher` 和 `gameUtility` 默认归为受限娱乐。该规则是低优先级系统默认：孩子对具体产品/技术身份的明确分类以及更高优先级的已批准精确规则可以覆盖。疑似游戏、普通应用和技术记录不得因名称或发布者获得默认分类。

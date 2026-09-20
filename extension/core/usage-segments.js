@@ -32,6 +32,12 @@ const runUsageStorageMutation = typeof runStorageMutation === 'function'
       getBytesInUse: (keys = null) => chrome.storage.local.getBytesInUse?.(keys) || 0,
     });
 
+let persistedSegmentObserver = null;
+
+export function registerPersistedUsageSegmentObserver(observer) {
+  persistedSegmentObserver = typeof observer === 'function' ? observer : null;
+}
+
 // ── 常量 ─────────────────────────────────────────────────────────────────────────
 
 const USAGE_SEGMENTS_KEY = 'usage_segments_v1';
@@ -531,6 +537,7 @@ export async function appendUsageSegments(segments) {
   const index = data[SEGMENT_INDEX_KEY] || {};
 
   let appended = 0;
+  const persistedSegments = [];
   const flatSegments = Array.isArray(segments) ? segments : [segments];
 
   for (const rawSeg of flatSegments) {
@@ -541,6 +548,7 @@ export async function appendUsageSegments(segments) {
     seg.updatedAt = Date.now();
     allSegments[seg.id] = seg;
     appended++;
+    persistedSegments.push({ ...seg });
 
     // 维护按日期索引
     if (!index[seg.date]) index[seg.date] = [];
@@ -554,6 +562,11 @@ export async function appendUsageSegments(segments) {
       [USAGE_SEGMENTS_KEY]: allSegments,
       [SEGMENT_INDEX_KEY]: index,
     });
+    if (persistedSegmentObserver) {
+      Promise.resolve()
+        .then(() => persistedSegmentObserver(persistedSegments))
+        .catch(() => {});
+    }
   }
 
   return appended;

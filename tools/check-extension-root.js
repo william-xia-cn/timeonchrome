@@ -20,6 +20,7 @@ const requiredFiles = [
   'admin/admin.html',
   'rules/block_rules.json',
   'infra/local-guardian.js',
+  'infra/native-host-client.js',
   'icons/icon16.png',
   'icons/icon48.png',
   'icons/icon128.png',

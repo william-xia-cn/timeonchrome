@@ -1,5 +1,15 @@
 # App Runtime 决策记录
 
+## ARM-D-026：通用 Native Host 与共享配额影子核算保持可拆仓边界
+
+PO 于 2026-09-21 确认实施。浏览器本地桥统一命名为 `TimeOnChrome Native Host`，可执行文件为 `TimeOnChrome.NativeHost.exe`，新 Native Messaging Host ID 为 `com.timeonchrome.nativehost`。旧 `com.timeonchrome.guardian` 只作为一个 managed 扩展发布周期的兼容别名，两个 manifest 指向同一可执行文件；Host 不保存机器凭据、不直接访问 SQLite、不执行计时或配额裁决，只负责 Chrome Native Messaging 长度帧与 RuntimeService 版本化本地协议之间的转发。
+
+`TimeOnChromeAppRuntime` Service 是本机共享配额影子核算的唯一执行者。Managed 扩展只能在网页 `UsageSegment` 已成功写入现有不可变本地账本后，发送不含 URL、域名、标题、账号、token 或浏览历史的只读镜像；Service 以已验证 Host 进程、Windows 会话和命名管道 ACL 标记来源并独立持久化。Host/Service 缺失、断开、超时或拒绝消息必须 fail open，不得影响网页落账、拦截、云同步或 App Runtime 账本。
+
+首阶段只形成共享配额影子读模型：所有分类与总活跃时间共享，前台事实优先且同一时间区间只计一次；Chrome 前台且存在网页主 Segment 时网页覆盖 Chrome 容器，Chrome 前台无网页 Segment 时保留 Chrome 应用 Segment，其他前台应用覆盖重叠的网页强媒体 ACTIVE；PiP、后台媒体和所有辅助媒体不进入共享配额。网页待归类与应用未归类在影子视图中统一映射到 Composite。原始 Chrome/App Runtime 账本、当前配额执行、阻止行为、云端 API 和历史数据均不改变。
+
+Host、Service 桥、共享协议、影子核算核心和安装资产全部归 `app-runtime-management/`；根扩展只保留协议消费者。未来拆仓时整体迁出 Runtime 模块，TimeOnChrome 只依赖固定版本 contracts，不得反向导入 Runtime Service/Host 源码。
+
 ## ARM-D-025：系统应用与游戏采用可覆盖的默认管理分类
 
 PO 于 2026-09-20 确认实施。经云端精确规则确认的 `catalogGroup = systemTool` 默认管理分类为 `composite`；经可信产品身份确认的 `appType = game | gameLauncher | gameUtility` 默认管理分类为 `restrictedEntertainment`。该默认是系统级低优先级分类，不改变客观产品类型，也不新增目录分组或配额桶。

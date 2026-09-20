@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前开发：通用 Native Host 与共享配额影子核算
+
+ARM-D-026 将本机桥统一为 `TimeOnChrome Native Host`。Host 只连接 Managed Chrome 扩展与 RuntimeService；Service 独立保存已结算网页 Segment 镜像并运行共享配额影子裁决，不改网页/App Runtime 原始账、现行配额或阻止。实现与安装资产全部归本模块，便于未来整体迁出独立仓库。
+
 ## 当前开发：系统应用与游戏默认分类
 
 ARM-D-025 将云端确认的系统应用默认归为复合，将 confirmed 游戏、游戏平台和游戏工具默认归为受限娱乐。家长对单个应用的明确分类仍可覆盖系统默认；疑似游戏、普通应用和技术记录不自动分类。目录可立即显示默认值，终端只在下一次完整盘点产生并应用新策略后向前切段，历史账本不重算。

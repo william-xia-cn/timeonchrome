@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..', '..');
-const modulePath = path.join(root, 'extension', 'infra', 'local-guardian.js');
+const modulePath = path.join(root, 'extension', 'infra', 'native-host-client.js');
 const originalSource = fs.readFileSync(modulePath, 'utf8');
 const POLICY_KEYS = [
   'enabled', 'deploymentMode', 'cloudEndpoint', 'managedDeviceToken',
@@ -39,6 +39,7 @@ function moduleSource(instance) {
     .replace(/import \{ MANAGED_POLICY_KEYS, readManagedActivationPolicy \} from '\.\.\/core\/activation-gate\.js';/, `const MANAGED_POLICY_KEYS = globalThis.__guardianPolicyKeys;\nconst readManagedActivationPolicy = (...args) => globalThis.__guardianReadPolicy(...args);`)
     .replace(/import \{ readManagedDeploymentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readManagedDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);')
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
+    .replace(/import \{ registerPersistedUsageSegmentObserver \} from '\.\.\/core\/usage-segments\.js';/, 'const registerPersistedUsageSegmentObserver = (observer) => { globalThis.__persistedSegmentObserver = observer; };')
     + `\n// test-instance-${instance}`;
 }
 
@@ -105,7 +106,7 @@ async function run() {
     storage,
     policy,
     connectNative(host) {
-      assert.strictEqual(host, 'com.timeonchrome.guardian');
+      assert.strictEqual(host, 'com.timeonchrome.nativehost');
       const port = createPort((payload, onMessage) => {
         payloads.push(payload);
         queueMicrotask(() => onMessage.listeners.forEach((listener) => listener({ ok: true, receivedAt: 1787160000 })));
@@ -124,14 +125,14 @@ async function run() {
 
   const boot = payloads[0];
   assert.deepStrictEqual(Object.keys(boot).sort(), [
-    'extensionId', 'incognito', 'monitoringStatus', 'policyHash',
-    'profile', 'timestamp', 'type', 'version',
+    'extensionId', 'messageType', 'payload', 'profileId',
+    'protocolVersion', 'requestId', 'sentAtMs',
   ].sort());
-  assert.strictEqual(boot.type, 'heartbeat');
-  assert.strictEqual(boot.monitoringStatus, 'booting');
+  assert.strictEqual(boot.messageType, 'heartbeat');
+  assert.strictEqual(boot.payload.monitoringStatus, 'booting');
   assert.strictEqual(boot.extensionId, runtime.id);
-  assert.strictEqual(boot.version, '1.7.25');
-  assert.strictEqual(boot.policyHash.length, 64);
+  assert.strictEqual(boot.payload.version, '1.7.25');
+  assert.strictEqual(boot.payload.policyHash.length, 64);
   assert.strictEqual(JSON.stringify(boot).includes('secret-token-a'), false);
   assert.strictEqual(JSON.stringify(boot).includes('child@example.test'), false);
 
@@ -142,7 +143,22 @@ async function run() {
   }));
   const activeResult = await module.requestLocalGuardianHeartbeat({ trigger: 'unit_active', force: true });
   assert.strictEqual(activeResult.ok, true);
-  assert.strictEqual(payloads.at(-1).monitoringStatus, 'active');
+  assert.strictEqual(payloads.at(-1).payload.monitoringStatus, 'active');
+
+  const beforeMirror = payloads.length;
+  await global.__persistedSegmentObserver([{
+    id: 'segment-1', startMs: 1000, endMs: 4000, durationSeconds: 3,
+    channel: 'active', sourceState: 'ACTIVE', quotaBucketAtTime: 'pending_composite',
+    mode: 'composite', domain: 'private.example.test', title: 'private title',
+  }]);
+  await waitFor(() => payloads.length > beforeMirror);
+  const mirror = payloads.at(-1);
+  assert.strictEqual(mirror.messageType, 'settledUsageSegments');
+  assert.strictEqual(mirror.payload.segments[0].segmentId, 'segment-1');
+  assert.strictEqual(mirror.payload.segments[0].durationMs, 3000);
+  assert.strictEqual(mirror.payload.segments[0].quotaBucket, 'pending_composite');
+  assert.strictEqual(JSON.stringify(mirror).includes('private.example.test'), false);
+  assert.strictEqual(JSON.stringify(mirror).includes('private title'), false);
 
   assert.strictEqual(module.resolveLocalGuardianMonitoringStatus({ bootstrapState: 'booting' }), 'booting');
   assert.strictEqual(module.resolveLocalGuardianMonitoringStatus({ bootstrapState: 'failed' }), 'degraded');
@@ -175,9 +191,9 @@ async function run() {
   assert.strictEqual(acceptedReturn, true);
   await waitFor(() => acceptedResponse !== null);
   assert.strictEqual(acceptedResponse.ok, true);
-  assert.strictEqual(payloads.at(-1).type, 'probe');
+  assert.strictEqual(payloads.at(-1).messageType, 'probe');
 
-  const firstUuid = boot.profile;
+  const firstUuid = boot.profileId;
   ports.forEach((port) => port.disconnect());
   const secondPayloads = [];
   const second = await loadGuardian({
@@ -190,8 +206,8 @@ async function run() {
     }),
   });
   await waitFor(() => secondPayloads.length >= 1);
-  assert.strictEqual(secondPayloads[0].profile, firstUuid);
-  assert.strictEqual(secondPayloads[0].incognito, true);
+  assert.strictEqual(secondPayloads[0].profileId, firstUuid);
+  assert.strictEqual(secondPayloads[0].payload.incognito, true);
 
   const otherStorage = {};
   const otherPayloads = [];
@@ -204,7 +220,7 @@ async function run() {
     }),
   });
   await waitFor(() => otherPayloads.length >= 1);
-  assert.notStrictEqual(otherPayloads[0].profile, firstUuid);
+  assert.notStrictEqual(otherPayloads[0].profileId, firstUuid);
 
   const unavailableStorage = {};
   const unavailable = await loadGuardian({
@@ -264,8 +280,8 @@ async function run() {
   }));
   await degraded.module.requestLocalGuardianHeartbeat({ trigger: 'unit_policy_read_failed', force: true });
   await waitFor(() => degradedPayloads.length >= 2);
-  assert.strictEqual(degradedPayloads.at(-1).monitoringStatus, 'degraded');
-  assert.strictEqual(degradedPayloads.at(-1).policyHash.length, 64);
+  assert.strictEqual(degradedPayloads.at(-1).payload.monitoringStatus, 'degraded');
+  assert.strictEqual(degradedPayloads.at(-1).payload.policyHash.length, 64);
 
   const deduped = await module.requestLocalGuardianHeartbeat({ trigger: 'unit_dedup' });
   const dedupedAgain = await module.requestLocalGuardianHeartbeat({ trigger: 'unit_dedup_repeat' });
@@ -296,12 +312,12 @@ async function run() {
   assert.strictEqual(queuedPayloads.length, 1);
   acknowledgements[0]();
   await waitFor(() => queuedPayloads.length === 2);
-  assert.strictEqual(queuedPayloads[1].type, 'probe');
+  assert.strictEqual(queuedPayloads[1].messageType, 'probe');
   acknowledgements[1]();
   assert.strictEqual((await queuedProbePromise).ok, true);
   await waitFor(() => queuedPayloads.length === 3);
-  assert.strictEqual(queuedPayloads[2].type, 'heartbeat');
-  assert.strictEqual(queuedPayloads[2].monitoringStatus, 'booting');
+  assert.strictEqual(queuedPayloads[2].messageType, 'heartbeat');
+  assert.strictEqual(queuedPayloads[2].payload.monitoringStatus, 'booting');
   acknowledgements[2]();
 
   const timeoutStorage = {};

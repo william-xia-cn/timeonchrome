@@ -48,6 +48,21 @@
                            Value="&quot;[INSTALLFOLDER]TimeOnChrome.AppRuntime.Manager.exe&quot; --tray"
                            KeyPath="yes" />
           </Component>
+          <Component Id="NativeHostRegistration" Guid="A16BD9B3-C3EB-4EC0-A6F8-E04FF91E3198">
+            <RegistryValue Root="HKLM"
+                           Key="Software\Google\Chrome\NativeMessagingHosts\com.timeonchrome.nativehost"
+                           Type="string"
+                           Value="[INSTALLFOLDER]com.timeonchrome.nativehost.json"
+                           KeyPath="yes" />
+            <RegistryValue Root="HKLM"
+                           Key="Software\Google\Chrome\NativeMessagingHosts\com.timeonchrome.guardian"
+                           Type="string"
+                           Value="[INSTALLFOLDER]com.timeonchrome.guardian.json" />
+            <RemoveFile Id="RemoveCanonicalNativeHostManifest"
+                        Name="com.timeonchrome.nativehost.json" On="uninstall" />
+            <RemoveFile Id="RemoveLegacyNativeHostManifest"
+                        Name="com.timeonchrome.guardian.json" On="uninstall" />
+          </Component>
         </Directory>
       </Directory>
     </StandardDirectory>
@@ -77,6 +92,7 @@
       <ComponentRef Id="RuntimeServiceComponent" />
       <ComponentRef Id="ManagerExecutable" />
       <ComponentRef Id="ManagerAutoStart" />
+      <ComponentRef Id="NativeHostRegistration" />
       <ComponentRef Id="ProgramDataPermissions" />
       <Files Include="!(bindpath.Publish)\**" Directory="INSTALLFOLDER">
         <Exclude Files="!(bindpath.Publish)\TimeOnChrome.AppRuntime.Service.exe" />

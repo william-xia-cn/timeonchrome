@@ -1,5 +1,13 @@
 # App Runtime Changelog
 
+## [ARM-D-026 / Windows 2.5.0 候选] — 2026-09-21（本地实现完成，待发布闸门）
+
+- 将 guardian 专用桥升级为通用 `TimeOnChrome Native Host`，新 ID 为 `com.timeonchrome.nativehost`，旧 ID 作为兼容 manifest。
+- RuntimeService 增加受约束浏览器桥和独立网页 Segment 镜像存储；扩展只在现有账本写入成功后发送隐私裁剪事实。
+- 增加不接管现有配额的共享配额影子核算：前台优先、网页覆盖 Chrome 容器、未归类统一 Composite、媒体排除。
+- Host/Service/installer 全部保留在 Runtime 模块，根扩展只消费版本化协议，为未来独立仓库拆分保持单向依赖。
+- 本地 contracts、Host/Service 编译、影子核算、扩展持久化后通知、Managed/CWS 打包边界与 WiX 结构测试通过；尚未生成或安装 2.5.0 包。
+
 ## [ARM-D-025 / 系统应用与游戏默认分类] — 2026-09-20（本地实现完成，待合并发布）
 
 - 系统应用默认归为复合；confirmed 游戏、游戏平台与游戏工具默认归为受限娱乐。
