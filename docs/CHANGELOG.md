@@ -2,6 +2,14 @@
 
 ---
 
+## [1.7.33 候选] — 2026-09-21
+
+- **通用本地桥**：Managed 扩展改用 `com.timeonchrome.nativehost`；旧 `com.timeonchrome.guardian` 由 Runtime 2.5.0 保留一个发布周期的兼容别名。
+- **只读网页镜像**：仅在既有 `usage_segments_v1` 成功持久化后，将不含 URL、域名、标题、账号或 token 的 Segment 镜像发送给 RuntimeService；失败保持 fail-open，不影响网页计时、拦截、上传或现有配额。
+- **发布边界**：当前只生成本地 Managed 候选供 Native Host 联调，尚未签名、上传更新源或替换生产 `1.7.32`。
+
+---
+
 ## [1.7.32] — 2026-09-15
 
 - **系统分类版本闭环**：设备配置同时携带 profile version、system access version 和组合 revision；任一系统网站库变更都强制终端重新拉取，不再等待孩子档案发生其他修改。
