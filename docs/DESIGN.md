@@ -15,6 +15,8 @@ Managed 扩展通过 `com.timeonchrome.nativehost` 连接 Runtime-owned `TimeOnC
 
 共享配额首阶段只由 RuntimeService 生成本地影子结果，不替换现有 Chrome/App Runtime 配额。网页与应用原始账保持独立不可变；裁决规则和拆仓边界以 D-098、ARM-D-026 与 Runtime 技术设计为准。根仓侧不得导入 Runtime Host/Service 源码。
 
+本地未打包联调使用 `native-host-development`，并与正式 managed activation 分离。只有 marker、稳定扩展 ID 和 Chrome 自报 `installType=development` 同时成立时，扩展才允许 Native Messaging；运行激活继续使用普通用户同意和既有本地绑定。staging 工具必须从已批准候选 manifest 读取公开 `key`、校验派生 ID 并写入开发目录，不得输出 key 内容；缺少稳定 key 时拒绝生成。该候选禁止打包、签名、进入更新源或生产渠道。正式 managed 包仍只接受 Chrome managed policy，普通/CWS 包仍不包含 Native Messaging。
+
 ### 未识别页面防错与显示边界（2026-09-15）
 
 - 已复现：signal 合并给纯 idle 事件增加自有值为 `undefined` 的 URL/domain 字段，context 将其误认为新页面观察，导致已知 Bilibili 归属变成未知占位标识。

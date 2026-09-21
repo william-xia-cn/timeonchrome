@@ -1,7 +1,7 @@
 // infra/native-host-client.js - managed-only TimeOnChrome Native Host client.
 
 import { MANAGED_POLICY_KEYS, readManagedActivationPolicy } from '../core/activation-gate.js';
-import { readManagedDeploymentMarker } from '../core/deployment-mode.js';
+import { readNativeHostDeploymentMarker } from '../core/deployment-mode.js';
 import { budgetedLocalSet } from './storage-budget.js';
 import { registerPersistedUsageSegmentObserver } from '../core/usage-segments.js';
 
@@ -390,8 +390,8 @@ function startSend(options) {
 }
 
 export async function requestLocalGuardianHeartbeat(options = {}) {
-  const managed = await readManagedDeploymentMarker().catch(() => false);
-  if (!managed) return { ok: false, skipped: true, errorCode: 'managed_marker_unavailable' };
+  const nativeHostEnabled = await readNativeHostDeploymentMarker().catch(() => false);
+  if (!nativeHostEnabled) return { ok: false, skipped: true, errorCode: 'managed_marker_unavailable' };
 
   const type = options.type === 'probe' ? 'probe' : 'heartbeat';
   const trigger = String(options.trigger || (type === 'probe' ? 'health_probe' : 'scheduled'));
@@ -424,8 +424,8 @@ export async function requestLocalGuardianHeartbeat(options = {}) {
 }
 
 export async function mirrorPersistedUsageSegments(segments) {
-  const managed = await readManagedDeploymentMarker().catch(() => false);
-  if (!managed || !Array.isArray(segments) || segments.length === 0) {
+  const nativeHostEnabled = await readNativeHostDeploymentMarker().catch(() => false);
+  if (!nativeHostEnabled || !Array.isArray(segments) || segments.length === 0) {
     return { ok: false, skipped: true };
   }
   const options = { type: 'settledUsageSegments', trigger: 'usage_segment_persisted', segments };
@@ -478,8 +478,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 Promise.resolve().then(async () => {
-  const managed = await readManagedDeploymentMarker().catch(() => false);
-  if (!managed) return;
+  const nativeHostEnabled = await readNativeHostDeploymentMarker().catch(() => false);
+  if (!nativeHostEnabled) return;
   const existing = await chrome.alarms.get(LOCAL_GUARDIAN_ALARM).catch(() => null);
   if (!existing || Number(existing.periodInMinutes) !== 1) {
     await chrome.alarms.create(LOCAL_GUARDIAN_ALARM, { periodInMinutes: 1 });

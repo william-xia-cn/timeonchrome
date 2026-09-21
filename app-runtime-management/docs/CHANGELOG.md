@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## [ARM-D-027 / Windows 2.5.1 候选] — 2026-09-21（本地实现与构建完成，待实机联调）
+
+- 修复 2.5.0 BrowserBridge 管道客户端未显式请求 impersonation、Service 无法稳定取得用户 SID 的问题。
+- 增加与正式 managed policy 分离的 unpacked Native Host 开发联调模式；该模式禁止打包和发布。
+- 不修改原始账本、云端 API、配额、阻止、Worker、Pages、Guardian 或生产数据。
+
 ## [ARM-D-026 / Windows 2.5.0 候选] — 2026-09-21（本地实现完成，待发布闸门）
 
 - 将 guardian 专用桥升级为通用 `TimeOnChrome Native Host`，新 ID 为 `com.timeonchrome.nativehost`，旧 ID 作为兼容 manifest。

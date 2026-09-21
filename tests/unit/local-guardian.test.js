@@ -37,7 +37,7 @@ function createPort(onPost) {
 function moduleSource(instance) {
   return originalSource
     .replace(/import \{ MANAGED_POLICY_KEYS, readManagedActivationPolicy \} from '\.\.\/core\/activation-gate\.js';/, `const MANAGED_POLICY_KEYS = globalThis.__guardianPolicyKeys;\nconst readManagedActivationPolicy = (...args) => globalThis.__guardianReadPolicy(...args);`)
-    .replace(/import \{ readManagedDeploymentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readManagedDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);')
+    .replace(/import \{ readNativeHostDeploymentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readNativeHostDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);')
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
     .replace(/import \{ registerPersistedUsageSegmentObserver \} from '\.\.\/core\/usage-segments\.js';/, 'const registerPersistedUsageSegmentObserver = (observer) => { globalThis.__persistedSegmentObserver = observer; };')
     + `\n// test-instance-${instance}`;

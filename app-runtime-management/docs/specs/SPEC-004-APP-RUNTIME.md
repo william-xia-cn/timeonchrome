@@ -1,5 +1,11 @@
 # SPEC-004 Cross-Platform App Runtime Management V1
 
+## ARM-D-027 Unpacked Native Host 联调阶段
+
+开发候选允许在不配置 Chrome managed policy 的情况下验证 Native Host，但只能由稳定扩展 ID 的 unpacked/development 安装启用。它沿用普通用户同意和既有本地绑定，不采用 managed token；marker 本身不能绕过安装类型检查。开发候选不得打包、签名、上传或用于生产。
+
+Windows Runtime 2.5.1 修复 BrowserBridge 身份管道：Native Host 以 impersonation level 连接，Service 继续校验已安装 Host 路径、会话和 SID。故障仍然 fail open，不能影响扩展原有落账、拦截、云同步或 App Runtime 采集。
+
 ## ARM-D-026 Native Host 与共享配额影子阶段
 
 Managed Chrome 扩展通过 `com.timeonchrome.nativehost` 连接 `TimeOnChrome.NativeHost.exe`；旧 `com.timeonchrome.guardian` manifest 暂时兼容同一程序。Native Host 只转换浏览器长度帧和 `TimeOnChrome.AppRuntime.BrowserBridge.v1` 命名管道消息，不拥有机器 credential、SQLite、策略或核算状态。RuntimeService 校验连接进程、会话和用户 SID，处理心跳与已持久化网页 Segment 镜像。

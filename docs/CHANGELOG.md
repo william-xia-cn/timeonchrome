@@ -6,7 +6,8 @@
 
 - **通用本地桥**：Managed 扩展改用 `com.timeonchrome.nativehost`；旧 `com.timeonchrome.guardian` 由 Runtime 2.5.0 保留一个发布周期的兼容别名。
 - **只读网页镜像**：仅在既有 `usage_segments_v1` 成功持久化后，将不含 URL、域名、标题、账号或 token 的 Segment 镜像发送给 RuntimeService；失败保持 fail-open，不影响网页计时、拦截、上传或现有配额。
-- **发布边界**：当前只生成本地 Managed 候选供 Native Host 联调，尚未签名、上传更新源或替换生产 `1.7.32`。
+- **Unpacked 联调模式**：增加 `native-host-development` 候选；仅 Chrome 解压加载且扩展 ID 匹配时启用 Native Host，扩展本身继续走普通本地绑定，不要求企业 policy。
+- **发布边界**：开发候选禁止打成 CRX、上传更新源或替换生产 `1.7.32`；正式 Managed/CWS 打包语义保持不变。
 
 ---
 

@@ -1,5 +1,15 @@
 # App Runtime 任务板
 
+## NOW：Unpacked Native Host 联调与 BrowserBridge 2.5.1 修复（ARM-D-027）
+
+- [x] 扩展增加仅限 `installType=development` 的 Native Host 联调授权，普通本地绑定继续有效。
+- [x] 打包工具增加不可打包的 `native-host-development` staging，保持 managed/普通渠道边界。
+- [x] BrowserBridge pipe client 显式请求 impersonation，并补固定回归。
+- [x] Service、Host 与 Installer 默认版本统一为 2.5.1，构建新的本地候选。
+- [ ] 在 HornburgXW 验证 loop failure 停止、Host heartbeat/ACK 成功；不上传、不部署、不切 latest。
+
+测试契约：变更等级＝扩展打包安全边界 + Windows 本地 IPC 修复；本地必须＝deployment-mode/打包矩阵、Native Host/pipe 身份聚焦测试、Service/Host 编译、Installer 版本结构、`git diff --check`；发布 smoke＝本轮不发布；明确排除＝Worker、Console、macOS、Guardian、D1/R2、网页账本、配额执行和应用阻止。
+
 ## NOW：通用 Native Host 与共享配额影子核算（ARM-D-026）
 
 - [x] 新增 `TimeOnChrome.NativeHost.exe`、版本化 Native Messaging/pipe 协议及旧 Host ID 兼容 manifest。

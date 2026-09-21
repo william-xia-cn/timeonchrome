@@ -1,5 +1,11 @@
 # App Runtime 决策记录
 
+## ARM-D-027：Unpacked 联调与正式 managed 激活分离，BrowserBridge 前向修复
+
+PO 于 2026-09-21 确认实施。日常 Native Host 联调使用 `native-host-development` 候选，不要求 Chrome 企业策略或真实 managed token。扩展必须同时确认部署 marker、稳定扩展 ID 以及 Chrome 自报 `installType=development`；只满足 marker 不得启用。该模式保留普通用户同意和既有本地绑定，禁止打包为 CRX、进入更新源或作为生产资产。正式 `managed` 包继续 fail closed，普通/CWS 包继续移除 Native Messaging。
+
+Runtime 2.5.0 实机事件日志确认 `browserBridge` 循环在每次分钟心跳时失败。2.5.1 的命名管道客户端必须显式请求 `TokenImpersonationLevel.Impersonation`，使 LocalSystem Service 可以通过 `RunAsClient` 取得已验证用户 SID；Service 仍同时校验 Host 安装路径、session 和 SID。修复不改变网页/App Runtime 原始账、云端协议、配额或阻止行为。
+
 ## ARM-D-026：通用 Native Host 与共享配额影子核算保持可拆仓边界
 
 PO 于 2026-09-21 确认实施。浏览器本地桥统一命名为 `TimeOnChrome Native Host`，可执行文件为 `TimeOnChrome.NativeHost.exe`，新 Native Messaging Host ID 为 `com.timeonchrome.nativehost`。旧 `com.timeonchrome.guardian` 只作为一个 managed 扩展发布周期的兼容别名，两个 manifest 指向同一可执行文件；Host 不保存机器凭据、不直接访问 SQLite、不执行计时或配额裁决，只负责 Chrome Native Messaging 长度帧与 RuntimeService 版本化本地协议之间的转发。

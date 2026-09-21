@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前修复：Unpacked Native Host 联调与 Windows 2.5.1
+
+ARM-D-027 为开发者模式解压扩展提供严格受限的 Native Host 联调通道：必须由 Chrome 确认为 `development` 安装并使用稳定扩展 ID，扩展激活仍走普通本地绑定。Windows 2.5.1 同时修复 BrowserBridge 管道 impersonation；正式 managed policy、普通/CWS 包和生产资源不变。
+
 ## 当前开发：通用 Native Host 与共享配额影子核算
 
 ARM-D-026 将本机桥统一为 `TimeOnChrome Native Host`。Host 只连接 Managed Chrome 扩展与 RuntimeService；Service 独立保存已结算网页 Segment 镜像并运行共享配额影子裁决，不改网页/App Runtime 原始账、现行配额或阻止。实现与安装资产全部归本模块，便于未来整体迁出独立仓库。

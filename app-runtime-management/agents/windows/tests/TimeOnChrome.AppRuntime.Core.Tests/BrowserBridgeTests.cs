@@ -78,6 +78,15 @@ public sealed class BrowserBridgeTests
     }
 
     [Fact]
+    public void PipeClientRequestsImpersonationForServiceSidValidation()
+    {
+        Assert.Equal(TokenImpersonationLevel.Impersonation,
+            BrowserBridgePipeClient.RequiredImpersonationLevel);
+        using var client = BrowserBridgePipeClient.Create();
+        Assert.NotNull(client);
+    }
+
+    [Fact]
     public async Task MirrorStoreIsIdempotentAndKeepsOnlyPrivacySafeFields()
     {
         var root = Path.Combine(Path.GetTempPath(), $"toc-browser-mirror-{Guid.NewGuid():N}");

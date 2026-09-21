@@ -1,5 +1,11 @@
 # App Runtime 项目真值
 
+## 当前修复：ARM-D-027 Unpacked Native Host 联调与 Windows 2.5.1
+
+- 2.5.0 实机事件日志确认 BrowserBridge 每分钟失败；2.5.1 以显式 pipe impersonation 前向修复。
+- 开发扩展通过 Chrome `development` 安装类型启用 Host，保留普通绑定，不要求 managed token；正式 managed 和普通/CWS 边界不变。
+- 本轮只完成本地实现、候选构建和实机联调，不发布云端或 R2。
+
 ## 当前开发：ARM-D-026 通用 Native Host 与共享配额影子核算
 
 - `TimeOnChrome Native Host` 归 Runtime 模块，连接 Managed Chrome 扩展与现有 LocalSystem RuntimeService；旧 guardian Host ID 仅保留兼容别名。

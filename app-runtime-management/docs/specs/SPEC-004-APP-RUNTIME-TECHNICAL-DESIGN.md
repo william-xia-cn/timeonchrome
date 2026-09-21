@@ -1,5 +1,14 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## ARM-D-027 Unpacked 联调与管道修复
+
+- 部署 profile 增加 `native-host-development`。扩展授权条件为 `mode`、稳定扩展 ID、`chrome.management.getSelf().installType === development` 三者同时满足；`getSelf()` 不需要新增 manifest permission。
+- staging 必须通过 `--public-key-manifest` 从已批准候选读取公开 manifest key，校验其派生扩展 ID 后写入开发目录；缺少或不匹配时 fail closed，日志不得输出 key 内容。
+- `readManagedDeploymentMarker()` 只对正式 `managed` 返回 true；开发模式不会进入 `managed_policy_pending`，继续采用普通激活路径。
+- staging 工具的新模式保留隐私同意页面并加入 `nativeMessaging`/health probe，但拒绝 `--pack` 和生产 host/update 资产生成。
+- Native Host pipe client 使用 `TokenImpersonationLevel.Impersonation`；Service 通过 `RunAsClient` 获取 SID 后仍执行安装路径/session/SID 三重校验。
+- 本阶段不改变 Native Messaging payload、SQLite mirror、共享影子算法或任何账本语义。
+
 ## ARM-D-026 本地浏览器桥与共享配额影子设计
 
 - Native Messaging：Chrome 使用 `com.timeonchrome.nativehost`，旧 ID 仅兼容；Host 以 4-byte little-endian 长度帧读写 JSON，单消息上限 256 KiB。

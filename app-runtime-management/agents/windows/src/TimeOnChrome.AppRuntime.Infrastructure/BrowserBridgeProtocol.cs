@@ -125,8 +125,11 @@ public static class NativeMessagingFraming
 
 public static class BrowserBridgePipeClient
 {
+    public const TokenImpersonationLevel RequiredImpersonationLevel = TokenImpersonationLevel.Impersonation;
+
     public static NamedPipeClientStream Create() => new(
-        ".", BrowserBridgeProtocol.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        ".", BrowserBridgeProtocol.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
+        RequiredImpersonationLevel);
 }
 
 public static class BrowserBridgeSecurity

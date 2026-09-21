@@ -8,6 +8,14 @@
 - [x] 保留 D-061 旧 Host ID 兼容，不改变普通/CWS 包的 nativeMessaging 移除规则。
 - [x] 原始网页落账、聚合、上传和现有配额执行保持不变；Runtime 侧影子实现与证据由模块任务板维护。
 
+## Unpacked Native Host 联调修复（D-099）
+
+- [x] 增加只能由 Chrome `development` 安装类型启用的 `native-host-development` 候选模式；保留普通激活和既有本地绑定。
+- [x] 修复 Runtime 2.5.0 BrowserBridge 管道客户端未显式请求 impersonation 导致的循环失败，版本前向提升至 2.5.1。
+- [ ] 已生成不可发布的 1.7.33 unpacked 联调目录；待安装 Runtime 2.5.1 后验证 Host heartbeat/ACK。不配置 managed token、不上传 CRX。
+
+测试契约：扩展部署模式与打包边界聚焦测试、Native Host/pipe 聚焦测试、Service/Host 编译、2.5.1 WiX 版本结构和 `git diff --check`；明确排除 Worker、Console、macOS、Guardian、D1/R2、网页账本与完整跨平台测试。
+
 ## Active Release Target
 - [x] [P0 / D-096 / Completed / 2026-09-18] 修正 `www.4399.com` 7,394 秒历史有效归属。
   - 固定范围：单一档案/设备、`2026-09-18`、旧 target rule、67 个 active pending 分段；不包含决定后产生的独立 1 秒异常分段。
