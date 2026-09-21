@@ -12,7 +12,8 @@
 
 - [x] 增加只能由 Chrome `development` 安装类型启用的 `native-host-development` 候选模式；保留普通激活和既有本地绑定。
 - [x] 修复 Runtime 2.5.0 BrowserBridge 管道客户端未显式请求 impersonation 导致的循环失败，版本前向提升至 2.5.1。
-- [ ] 已生成不可发布的 1.7.33 unpacked 联调目录；待安装 Runtime 2.5.1 后验证 Host heartbeat/ACK。不配置 managed token、不上传 CRX。
+- [x] 修复开发候选仍先执行旧 `managedProfileEmail` 门禁的问题；经 marker、固定扩展 ID 和 `development` 安装类型确认后，完全跳过 managed policy/token 读取，只使用普通隐私同意与既有本地绑定。正式 managed 包的邮箱门禁保持不变。
+- [x] 不可发布的 1.7.33 unpacked 联调目录已在 Runtime 2.5.2 上完成实机验证：Chrome 重载后 Host 重新连接、控件恢复正常；未配置 managed token，未上传 CRX。
 
 测试契约：扩展部署模式与打包边界聚焦测试、Native Host/pipe 聚焦测试、Service/Host 编译、2.5.1 WiX 版本结构和 `git diff --check`；明确排除 Worker、Console、macOS、Guardian、D1/R2、网页账本与完整跨平台测试。
 
@@ -20,7 +21,7 @@
 
 - [x] Service 按安装路径和 Windows session 接管升级前仍运行的 Session Agent，避免重复启动撞上单实例。
 - [x] 已退出进程注册和异步退出回调 fail-safe，不得再以未处理异常终止 Service。
-- [ ] 构建并安装 2.5.2 后验证 Automatic/Running、单一 Agent、Native Host heartbeat/ACK 及事件日志无新增崩溃。
+- [x] 2.5.2 已完成原地安装验收：Service Automatic/Running、单一 Agent、Native Host 重连、公开状态为 online、云端 heartbeat 成功且事件日志无新增崩溃。
 
 测试契约：只运行 Service 进程生命周期聚焦测试、2.5.2 Service/Host/WiX 构建、真实本机升级 smoke 和 `git diff --check`；明确排除 Worker、Console、macOS、Guardian、D1/R2、网页账本和跨平台全量测试。
 

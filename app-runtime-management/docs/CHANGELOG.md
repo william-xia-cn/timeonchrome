@@ -1,15 +1,17 @@
 # App Runtime Changelog
 
-## [ARM-D-028 / Windows 2.5.2 候选] — 2026-09-22（本地实现与构建完成，待实机升级）
+## [ARM-D-028 / Windows 2.5.2 候选] — 2026-09-22（本地实机升级与联调通过）
 
 - 修复原地升级或 Service 重启时既有 Session Agent 导致的新进程单实例退出竞态。
 - Service 接管符合安装路径与 session 的既有 Agent；已退出进程和退出回调异常不再终止 Service。
+- 实机确认 Service Automatic/Running、单一 Session Agent、Native Host 重连、公开状态 online、云端 heartbeat 成功且无待上传数据。
 - 不修改账本、配额、云端 API、Worker、Pages、Guardian 或生产数据。
 
-## [ARM-D-027 / Windows 2.5.1 候选] — 2026-09-21（本地实现与构建完成，待实机联调）
+## [ARM-D-027 / Windows 2.5.1 候选] — 2026-09-21（由 2.5.2 完成本地实机联调）
 
 - 修复 2.5.0 BrowserBridge 管道客户端未显式请求 impersonation、Service 无法稳定取得用户 SID 的问题。
 - 增加与正式 managed policy 分离的 unpacked Native Host 开发联调模式；该模式禁止打包和发布。
+- 修复开发模式仍执行旧 `managedProfileEmail` 门禁的遗漏；开发候选只使用普通隐私同意与既有本地绑定，正式 managed 门禁不变。
 - 不修改原始账本、云端 API、配额、阻止、Worker、Pages、Guardian 或生产数据。
 
 ## [ARM-D-026 / Windows 2.5.0 候选] — 2026-09-21（本地实现完成，待发布闸门）

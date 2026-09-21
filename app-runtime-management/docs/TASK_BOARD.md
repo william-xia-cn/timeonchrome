@@ -4,7 +4,7 @@
 
 - [x] 精确发现并接管安装目录中同 session 的既有 Session Agent。
 - [x] 已退出进程注册与异步退出回调 fail-safe，Service 不再因升级竞态崩溃。
-- [ ] 2.5.2 原地升级后验证 Service Automatic/Running、单一 Agent 和 Native Host heartbeat/ACK。
+- [x] 2.5.2 原地升级后验证 Service Automatic/Running、单一 Agent、Native Host 重连和公开在线状态；云端 heartbeat 成功且无待上传数据。
 
 测试契约：变更等级＝Windows Service 生命周期 bugfix；本地必须＝进程注册竞态聚焦测试、Service/Host build、WiX build、真实本机 smoke、`git diff --check`；明确排除＝Worker、Console、macOS、Guardian、D1/R2、网页账本和完整跨平台测试。
 
@@ -14,7 +14,7 @@
 - [x] 打包工具增加不可打包的 `native-host-development` staging，保持 managed/普通渠道边界。
 - [x] BrowserBridge pipe client 显式请求 impersonation，并补固定回归。
 - [x] Service、Host 与 Installer 默认版本统一为 2.5.1，构建新的本地候选。
-- [ ] 在 HornburgXW 验证 loop failure 停止、Host heartbeat/ACK 成功；不上传、不部署、不切 latest。
+- [x] 在 HornburgXW 验证 loop failure 停止、Host 重连成功；开发候选绕过旧 managed 邮箱门禁后控件恢复正常。未上传、未部署、未切 latest。
 
 测试契约：变更等级＝扩展打包安全边界 + Windows 本地 IPC 修复；本地必须＝deployment-mode/打包矩阵、Native Host/pipe 身份聚焦测试、Service/Host 编译、Installer 版本结构、`git diff --check`；发布 smoke＝本轮不发布；明确排除＝Worker、Console、macOS、Guardian、D1/R2、网页账本、配额执行和应用阻止。
 

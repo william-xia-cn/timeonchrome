@@ -1,5 +1,5 @@
 import { getPrivacyConsent, hasPrivacyConsent } from './privacy-consent.js';
-import { readManagedDeploymentMarker } from './deployment-mode.js';
+import { readManagedDeploymentMarker, readNativeHostDevelopmentMarker } from './deployment-mode.js';
 
 export const ACTIVATION_MODE_DISABLED = 'disabled';
 export const ACTIVATION_MODE_USER_CONSENT = 'user_consent';
@@ -192,6 +192,48 @@ function buildManagedPolicyStatus(managed, managedRead, profileGate = null) {
 }
 
 export async function resolveActivationState() {
+  const nativeHostDevelopment = await readNativeHostDevelopmentMarker();
+  if (nativeHostDevelopment) {
+    const privacyConsent = await getPrivacyConsent().catch(() => ({ accepted: false }));
+    if (privacyConsent?.accepted === true) {
+      return {
+        activated: true,
+        activationMode: ACTIVATION_MODE_USER_CONSENT,
+        source: ACTIVATION_MODE_USER_CONSENT,
+        reason: null,
+        privacyConsentRequired: false,
+        privacyConsent,
+        managedPolicy: null,
+        managedPolicyStatus: {
+          configured: false,
+          active: false,
+          reason: 'managed_policy_bypassed_for_native_host_development',
+          available: false,
+          error: null,
+          profileGate: null,
+        },
+      };
+    }
+    return {
+      activated: false,
+      activationMode: ACTIVATION_MODE_DISABLED,
+      source: ACTIVATION_MODE_DISABLED,
+      reason: 'privacy_consent_required',
+      privacyConsentRequired: true,
+      privacyConsent,
+      managedPolicy: null,
+      managedDeployment: false,
+      managedPolicyStatus: {
+        configured: false,
+        active: false,
+        reason: 'managed_policy_bypassed_for_native_host_development',
+        available: false,
+        error: null,
+        profileGate: null,
+      },
+    };
+  }
+
   const [managedRead, privacyConsent, managedDeployment] = await Promise.all([
     readManagedActivationPolicy(),
     getPrivacyConsent().catch(() => ({ accepted: false })),

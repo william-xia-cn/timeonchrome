@@ -24,9 +24,8 @@ export async function readManagedDeploymentMarker() {
   return marker?.mode === MANAGED_MODE;
 }
 
-export async function readNativeHostDeploymentMarker() {
+export async function readNativeHostDevelopmentMarker() {
   const marker = await readDeploymentProfile();
-  if (marker?.mode === MANAGED_MODE) return true;
   if (marker?.mode !== NATIVE_HOST_DEVELOPMENT_MODE) return false;
   if (chrome.runtime.id !== STABLE_NATIVE_HOST_EXTENSION_ID) return false;
   try {
@@ -35,4 +34,10 @@ export async function readNativeHostDeploymentMarker() {
   } catch (_) {
     return false;
   }
+}
+
+export async function readNativeHostDeploymentMarker() {
+  const marker = await readDeploymentProfile();
+  if (marker?.mode === MANAGED_MODE) return true;
+  return readNativeHostDevelopmentMarker();
 }

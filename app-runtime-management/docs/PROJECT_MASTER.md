@@ -1,9 +1,10 @@
 # App Runtime 项目真值
 
-## 当前修复：ARM-D-028 Windows 2.5.2 Service 生命周期
+## 当前修复：ARM-D-028 Windows 2.5.2 Service 生命周期（实机通过）
 
-- 2.5.1 已安装且 pipe impersonation 修复进入正式文件，但原地升级暴露旧 Session Agent 接管竞态，Service 以 1067 停止；2.5.2 前向修复。
-- 开发扩展通过 Chrome `development` 安装类型启用 Host，保留普通绑定，不要求 managed token；正式 managed 和普通/CWS 边界不变。
+- 2.5.2 已原地安装并接管升级前既有 Session Agent；Service 保持 Automatic/Running，未再出现 1067 或新增运行时崩溃。
+- 开发扩展通过 Chrome `development` 安装类型启用 Host，保留普通绑定并完全绕过旧 managed policy/email 读取；正式 managed 和普通/CWS 边界不变。
+- Chrome 重载后 Native Host 重新连接，控件恢复正常；公开状态为 online，云端 heartbeat 成功且无待上传数据。
 - 本轮只完成本地实现、候选构建和实机联调，不发布云端或 R2。
 
 ## 当前开发：ARM-D-026 通用 Native Host 与共享配额影子核算
