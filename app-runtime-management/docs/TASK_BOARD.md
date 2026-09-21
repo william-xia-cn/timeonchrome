@@ -1,5 +1,13 @@
 # App Runtime 任务板
 
+## NOW：Windows 2.5.2 Service 接管既有 Agent（ARM-D-028）
+
+- [x] 精确发现并接管安装目录中同 session 的既有 Session Agent。
+- [x] 已退出进程注册与异步退出回调 fail-safe，Service 不再因升级竞态崩溃。
+- [ ] 2.5.2 原地升级后验证 Service Automatic/Running、单一 Agent 和 Native Host heartbeat/ACK。
+
+测试契约：变更等级＝Windows Service 生命周期 bugfix；本地必须＝进程注册竞态聚焦测试、Service/Host build、WiX build、真实本机 smoke、`git diff --check`；明确排除＝Worker、Console、macOS、Guardian、D1/R2、网页账本和完整跨平台测试。
+
 ## NOW：Unpacked Native Host 联调与 BrowserBridge 2.5.1 修复（ARM-D-027）
 
 - [x] 扩展增加仅限 `installType=development` 的 Native Host 联调授权，普通本地绑定继续有效。

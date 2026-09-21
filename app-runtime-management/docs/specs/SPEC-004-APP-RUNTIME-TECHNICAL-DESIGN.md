@@ -4,6 +4,7 @@
 
 - 部署 profile 增加 `native-host-development`。扩展授权条件为 `mode`、稳定扩展 ID、`chrome.management.getSelf().installType === development` 三者同时满足；`getSelf()` 不需要新增 manifest permission。
 - staging 必须通过 `--public-key-manifest` 从已批准候选读取公开 manifest key，校验其派生扩展 ID 后写入开发目录；缺少或不匹配时 fail closed，日志不得输出 key 内容。
+- RuntimeService 启动监督器必须先按正式安装路径和交互式 session 接管既有 Session Agent；进程已退出、PID 被替换或异步退出回调失败均不得终止 Service。只有当前登记 PID 的退出事件可以触发 tamper、切段与重启。
 - `readManagedDeploymentMarker()` 只对正式 `managed` 返回 true；开发模式不会进入 `managed_policy_pending`，继续采用普通激活路径。
 - staging 工具的新模式保留隐私同意页面并加入 `nativeMessaging`/health probe，但拒绝 `--pack` 和生产 host/update 资产生成。
 - Native Host pipe client 使用 `TokenImpersonationLevel.Impersonation`；Service 通过 `RunAsClient` 获取 SID 后仍执行安装路径/session/SID 三重校验。

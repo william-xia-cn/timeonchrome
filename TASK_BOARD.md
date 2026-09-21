@@ -16,6 +16,14 @@
 
 测试契约：扩展部署模式与打包边界聚焦测试、Native Host/pipe 聚焦测试、Service/Host 编译、2.5.1 WiX 版本结构和 `git diff --check`；明确排除 Worker、Console、macOS、Guardian、D1/R2、网页账本与完整跨平台测试。
 
+## Runtime 2.5.2 Service 升级接管修复（D-100）
+
+- [x] Service 按安装路径和 Windows session 接管升级前仍运行的 Session Agent，避免重复启动撞上单实例。
+- [x] 已退出进程注册和异步退出回调 fail-safe，不得再以未处理异常终止 Service。
+- [ ] 构建并安装 2.5.2 后验证 Automatic/Running、单一 Agent、Native Host heartbeat/ACK 及事件日志无新增崩溃。
+
+测试契约：只运行 Service 进程生命周期聚焦测试、2.5.2 Service/Host/WiX 构建、真实本机升级 smoke 和 `git diff --check`；明确排除 Worker、Console、macOS、Guardian、D1/R2、网页账本和跨平台全量测试。
+
 ## Active Release Target
 - [x] [P0 / D-096 / Completed / 2026-09-18] 修正 `www.4399.com` 7,394 秒历史有效归属。
   - 固定范围：单一档案/设备、`2026-09-18`、旧 target rule、67 个 active pending 分段；不包含决定后产生的独立 1 秒异常分段。

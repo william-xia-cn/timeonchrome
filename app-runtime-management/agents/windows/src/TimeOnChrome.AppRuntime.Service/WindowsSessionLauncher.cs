@@ -77,6 +77,24 @@ internal sealed class WindowsSessionLauncher
         }
     }
 
+    public Process? FindExisting(int sessionId, string executablePath)
+    {
+        var processName = Path.GetFileNameWithoutExtension(executablePath);
+        foreach (var process in Process.GetProcessesByName(processName))
+        {
+            try
+            {
+                if (process.SessionId == sessionId
+                    && string.Equals(process.MainModule?.FileName, executablePath, StringComparison.OrdinalIgnoreCase))
+                    return process;
+            }
+            catch (InvalidOperationException) { }
+            catch (Win32Exception) { }
+            process.Dispose();
+        }
+        return null;
+    }
+
     private static string QueryString(int sessionId, WtsInfoClass infoClass)
     {
         if (!WTSQuerySessionInformation((nint)WtsCurrentServerHandle, sessionId, infoClass, out var value, out _)) return string.Empty;

@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## [ARM-D-028 / Windows 2.5.2 候选] — 2026-09-22（本地实现与构建完成，待实机升级）
+
+- 修复原地升级或 Service 重启时既有 Session Agent 导致的新进程单实例退出竞态。
+- Service 接管符合安装路径与 session 的既有 Agent；已退出进程和退出回调异常不再终止 Service。
+- 不修改账本、配额、云端 API、Worker、Pages、Guardian 或生产数据。
+
 ## [ARM-D-027 / Windows 2.5.1 候选] — 2026-09-21（本地实现与构建完成，待实机联调）
 
 - 修复 2.5.0 BrowserBridge 管道客户端未显式请求 impersonation、Service 无法稳定取得用户 SID 的问题。

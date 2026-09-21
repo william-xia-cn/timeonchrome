@@ -154,13 +154,18 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         {
             foreach (var sessionId in sessions.Keys.ToArray())
                 await CloseSessionUnsafeAsync(sessionId, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ConfigureAwait(false);
-            foreach (var process in agents.Values)
+            Process[] trackedAgents;
+            lock (agents)
+            {
+                trackedAgents = agents.Values.ToArray();
+                agents.Clear();
+            }
+            foreach (var process in trackedAgents)
             {
                 try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
                 catch (InvalidOperationException) { }
                 process.Dispose();
             }
-            agents.Clear();
         }
         finally { _ = stateGate.Release(); }
         foreach (var loop in loops)
@@ -366,7 +371,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             : interactive.Count(item => MachinePolicyStore.AssignmentFor(
                 appliedPolicy.Policy, identityDeriver.Derive(item.Sid))?.Protected == true);
         int agentCount;
-        lock (agents) agentCount = agents.Values.Count(process => !process.HasExited);
+        lock (agents) agentCount = agents.Values.Count(IsProcessRunning);
         var logging = appliedPolicy?.Policy.LoggingPolicy;
         var loggingState = logging is null || !logging.Enabled
             ? "disabled"
@@ -543,7 +548,12 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     {
         lock (agents)
         {
-            if (agents.TryGetValue(session.SessionId, out var existing) && !existing.HasExited) return;
+            if (agents.TryGetValue(session.SessionId, out var existing) && IsProcessRunning(existing)) return;
+            if (existing is not null)
+            {
+                agents.Remove(session.SessionId);
+                existing.Dispose();
+            }
         }
         var executable = Path.Combine(AppContext.BaseDirectory, "TimeOnChrome.AppRuntime.SessionAgent.exe");
         if (!File.Exists(executable))
@@ -559,16 +569,73 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             return;
         }
         _ = missingBinaryReported.Remove(session.SessionId);
-        var process = sessionLauncher.Start(session.SessionId, executable);
-        await WriteLogAsync("info", "session", "session_agent_started", "session-supervisor",
-            "session_agent_started").ConfigureAwait(false);
-        process.EnableRaisingEvents = true;
-        process.Exited += async (_, _) => await AgentExitedAsync(session.SessionId).ConfigureAwait(false);
-        lock (agents) agents[session.SessionId] = process;
+        var process = sessionLauncher.FindExisting(session.SessionId, executable);
+        var adopted = process is not null;
+        process ??= sessionLauncher.Start(session.SessionId, executable);
+        int processId;
+        try { processId = process.Id; }
+        catch (InvalidOperationException)
+        {
+            process.Dispose();
+            return;
+        }
+        EventHandler exited = (_, _) => _ = AgentExitedSafelyAsync(session.SessionId, processId);
+        lock (agents)
+        {
+            if (agents.TryGetValue(session.SessionId, out var existing) && IsProcessRunning(existing))
+            {
+                process.Dispose();
+                return;
+            }
+            agents[session.SessionId] = process;
+        }
+        if (!AgentProcessRegistration.TryEnableExitEvents(process, exited))
+        {
+            lock (agents)
+            {
+                if (agents.TryGetValue(session.SessionId, out var registered) && ReferenceEquals(registered, process))
+                    agents.Remove(session.SessionId);
+            }
+            process.Dispose();
+            await WriteLogAsync("warning", "session", "session_agent_registration_race", "session-supervisor",
+                "session_agent_registration_race").ConfigureAwait(false);
+            return;
+        }
+        var eventCode = adopted ? "session_agent_adopted" : "session_agent_started";
+        await WriteLogAsync("info", "session", eventCode, "session-supervisor", eventCode).ConfigureAwait(false);
     }
 
-    private async Task AgentExitedAsync(int sessionId)
+    private static bool IsProcessRunning(Process process)
     {
+        try { return !process.HasExited; }
+        catch (InvalidOperationException) { return false; }
+        catch (System.ComponentModel.Win32Exception) { return false; }
+    }
+
+    private async Task AgentExitedSafelyAsync(int sessionId, int processId)
+    {
+        try { await AgentExitedAsync(sessionId, processId).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            await WriteLogAsync("error", "session", "session_agent_exit_handler_failed", "session-supervisor",
+                "session_agent_exit_handler_failed",
+                new Dictionary<string, object> { ["errorType"] = exception.GetType().Name }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task AgentExitedAsync(int sessionId, int processId)
+    {
+        Process? exited = null;
+        lock (agents)
+        {
+            if (!agents.TryGetValue(sessionId, out var registered)) return;
+            try { if (registered.Id != processId) return; }
+            catch (InvalidOperationException) { }
+            agents.Remove(sessionId);
+            exited = registered;
+        }
+        exited.Dispose();
         if (stopping || ledger is null) return;
         tamperCount += 1;
         sessions.TryGetValue(sessionId, out var runtime);
@@ -1031,7 +1098,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.5.1",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.5.2",
                 Environment.OSVersion.VersionString,
                 RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                 tamperCount,
@@ -1108,7 +1175,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await terminalLogs.WriteAsync(level, category, eventCode, module, messageCode, details,
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.5.1",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.5.2",
                 remoteEligible ? appliedPolicy?.Policy.LoggingPolicy : null,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellation.Token).ConfigureAwait(false);
         }

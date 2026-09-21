@@ -6,6 +6,10 @@ PO 于 2026-09-21 确认实施。日常 Native Host 联调使用 `native-host-de
 
 Runtime 2.5.0 实机事件日志确认 `browserBridge` 循环在每次分钟心跳时失败。2.5.1 的命名管道客户端必须显式请求 `TokenImpersonationLevel.Impersonation`，使 LocalSystem Service 可以通过 `RunAsClient` 取得已验证用户 SID；Service 仍同时校验 Host 安装路径、session 和 SID。修复不改变网页/App Runtime 原始账、云端协议、配额或阻止行为。
 
+## ARM-D-028：Service 重启接管既有 Session Agent，退出事件 fail-safe
+
+2.5.1 原地升级后，Windows Restart Manager 未结束既有 Session Agent；旧进程继续持有同会话 mutex，新进程正常以 0 退出。Service 对该已退出进程设置 `EnableRaisingEvents` 时抛出 `InvalidOperationException`，未处理的异步退出链使 Service 以 1067 停止。2.5.2 必须先按安装路径与 session 精确发现并接管既有 Agent，只有无既有实例时才启动；启动／接管期间的进程退出竞态不得逃逸为 Service 未处理异常。退出回调只处理当前登记 PID，避免旧事件误删替代进程。升级、Service 重启和修复不得依赖人工结束孩子会话进程。
+
 ## ARM-D-026：通用 Native Host 与共享配额影子核算保持可拆仓边界
 
 PO 于 2026-09-21 确认实施。浏览器本地桥统一命名为 `TimeOnChrome Native Host`，可执行文件为 `TimeOnChrome.NativeHost.exe`，新 Native Messaging Host ID 为 `com.timeonchrome.nativehost`。旧 `com.timeonchrome.guardian` 只作为一个 managed 扩展发布周期的兼容别名，两个 manifest 指向同一可执行文件；Host 不保存机器凭据、不直接访问 SQLite、不执行计时或配额裁决，只负责 Chrome Native Messaging 长度帧与 RuntimeService 版本化本地协议之间的转发。
