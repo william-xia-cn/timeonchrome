@@ -993,6 +993,16 @@ Worker 的 V2 周快照在既有不可变分页和哈希校验上增加逐设备
   → 本地配置更新
 ```
 
+自 D-098 起，档案配置写入采用乐观并发与不可变审计：
+
+- `GET /profiles/:id/config` 返回当前 `version`；Pages 必须保存该版本并在后续 `PUT` 请求中提交 `expectedVersion`。
+- `PUT /profiles/:id/config` 仅在 `expectedVersion` 等于数据库当前版本时更新；否则返回 `409 PROFILE_CONFIG_VERSION_CONFLICT` 和最新版本，Pages 重新读取配置并要求用户复核，不自动重放旧 payload。
+- 实际配置未变化的请求返回 `noChange`，不增加版本、不生成伪审计记录。
+- `profile_config_history_v1` 保存脱敏后的版本快照、前后版本、变更顶层字段、账号、操作来源、请求 ID 和时间。密码、token、secret 及运行时保护字段不得进入审计快照。
+- `GET /profiles/:id/config-history/v1` 向档案所属家长返回最近 100 次脱敏审计记录，用于定位版本、变更字段、来源与时间；不返回任何被剔除的敏感字段。
+- 数据库 `BEFORE UPDATE OF config` 触发器强制版本每次只增加 1，遗漏版本或跳版的写入整体拒绝；`AFTER UPDATE OF config` 触发器兜底捕获内部或遗留写路径。标准家长 PUT 在同一原子批次内补齐账号、来源和 SHA-256；审计写入失败时配置更新整体失败。
+- 终端继续只读拉取 profile config；本机制不改变任何网页账、统计、配额或媒体语义。
+
 ### 3.7 事件上报与邮件通知
 
 ```javascript

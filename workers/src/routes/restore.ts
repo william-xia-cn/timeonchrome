@@ -348,7 +348,7 @@ async function verifyProfile(env: Env, request: Request, profileId: string) {
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);
   if (!accountId) return null;
   return await env.DB.prepare(
-    `SELECT id, account_id, name, avatar_color, config, changelog, created_at, updated_at
+    `SELECT id, account_id, name, avatar_color, config, changelog, version, created_at, updated_at
      FROM profiles WHERE id = ? AND account_id = ?`
   ).bind(profileId, accountId).first<any>();
 }
@@ -416,6 +416,7 @@ async function buildPreflight(env: Env, profile: any, body: any) {
 
   return {
     ok: errors.length === 0,
+    profileVersion: Number(profile.version || 0),
     schemaCompatible: errors.length === 0,
     errors,
     warnings,
@@ -474,18 +475,36 @@ async function applyConfigRestore(env: Env, profile: any, files: Record<string, 
   }
   const nextConfigString = JSON.stringify(nextConfig);
   const existingConfigString = JSON.stringify(existingConfig);
+  if (nextConfigString === existingConfigString) {
+    return {
+      updated: false,
+      changed: false,
+      verified: true,
+      version: Number(profile.version || 0),
+      configPresent,
+      siteAccessEditablePresent,
+      beforeSummary,
+      backupSummary: summarizeRestoredConfig(backupConfig),
+      afterSummary: summarizeRestoredConfig(nextConfig),
+    };
+  }
   const now = Date.now();
-  await env.DB.prepare(
-    `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-  ).bind(nextConfigString, now, profile.id).run();
+  const currentVersion = Number(profile.version || 0);
+  const update = await env.DB.prepare(
+    `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`
+  ).bind(nextConfigString, now, profile.id, currentVersion).run();
+  if (Number((update as any)?.meta?.changes || 0) !== 1) {
+    return { updated: false, changed: false, verified: false, error: 'PROFILE_CONFIG_VERSION_CONFLICT' };
+  }
   const row = await env.DB.prepare(
-    `SELECT config FROM profiles WHERE id = ?`
-  ).bind(profile.id).first<{ config: string }>();
+    `SELECT config, version FROM profiles WHERE id = ?`
+  ).bind(profile.id).first<{ config: string; version: number }>();
   const verified = row?.config === nextConfigString;
   return {
     updated: true,
     changed: nextConfigString !== existingConfigString,
     verified,
+    version: Number(row?.version || currentVersion + 1),
     configPresent,
     siteAccessEditablePresent,
     beforeSummary,
@@ -570,6 +589,15 @@ export const restoreRouter = {
     if (!cachedRaw) return json({ error: 'preflight expired or not found' }, 400);
     const cached = JSON.parse(cachedRaw);
     if (!cached?.preflight?.ok) return json({ error: 'preflight has blocking errors', preflight: cached?.preflight }, 400);
+    const preflightVersion = Number(cached?.preflight?.profileVersion);
+    const currentVersion = Number(profile.version || 0);
+    if (!Number.isInteger(preflightVersion) || preflightVersion !== currentVersion) {
+      return json({
+        error: 'Profile config has changed since restore preflight',
+        code: 'PROFILE_CONFIG_VERSION_CONFLICT',
+        currentVersion,
+      }, 409);
+    }
 
     const restoreMode: RestoreMode = body?.restoreMode === 'replace' ? 'replace' : 'merge';
     if (restoreMode === 'replace') {
@@ -584,7 +612,23 @@ export const restoreRouter = {
     const selectedDatasets = Array.isArray(restoreBody.datasetIds) ? restoreBody.datasetIds : undefined;
 
     const configResult = await applyConfigRestore(env, profile, files, restoreMode);
-    if ((configResult as any).error) return json({ error: (configResult as any).error, conflicts: (configResult as any).conflicts }, 400);
+    if ((configResult as any).error) {
+      const code = (configResult as any).error;
+      return json({ error: code, code, conflicts: (configResult as any).conflicts }, code === 'PROFILE_CONFIG_VERSION_CONFLICT' ? 409 : 400);
+    }
+    if ((configResult as any).updated && Number.isInteger(Number((configResult as any).version))) {
+      await env.DB.prepare(
+        `UPDATE profile_config_history_v1
+            SET updated_by_account_id = ?, source_action = ?, request_id = ?
+          WHERE profile_id = ? AND version = ?`
+      ).bind(
+        profile.account_id,
+        `cloud_restore_${restoreMode}`,
+        (request.headers.get('cf-ray') || request.headers.get('x-request-id') || '').slice(0, 128) || null,
+        profileId,
+        Number((configResult as any).version)
+      ).run();
+    }
 
     const results = [];
     const defs = selectedTableDefs(selectedDatasets, includeLogs);

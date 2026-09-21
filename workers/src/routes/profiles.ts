@@ -26,6 +26,12 @@ type CreateDeviceBody = {
   browser?: string;
 };
 
+type ProfileConfigUpdateBody = {
+  data?: unknown;
+  expectedVersion?: unknown;
+  sourceAction?: unknown;
+};
+
 function normalizeManagedPolicyId(value: unknown, max = 128): string | null {
   if (typeof value !== 'string') return null;
   const text = value.trim().slice(0, max);
@@ -53,6 +59,45 @@ function generateDeviceToken(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function canonicalizeAuditValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeAuditValue);
+  if (!value || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort()) {
+    if (/password|token|secret|cookie/i.test(key)) continue;
+    if (['updatedAt', 'lockedDomains'].includes(key)) continue;
+    result[key] = canonicalizeAuditValue(record[key]);
+  }
+  return result;
+}
+
+function canonicalAuditJson(value: unknown): string {
+  return JSON.stringify(canonicalizeAuditValue(value));
+}
+
+function changedAuditKeys(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...keys]
+    .filter((key) => canonicalAuditJson(before[key]) !== canonicalAuditJson(after[key]))
+    .sort();
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function normalizeProfileConfigSourceAction(value: unknown): string {
+  const source = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return /^[a-z0-9_.:-]{1,64}$/.test(source) ? source : 'profile_config_put';
+}
+
+function profileConfigRequestId(request: Request): string | null {
+  const value = request.headers.get('cf-ray') || request.headers.get('x-request-id');
+  return value ? value.trim().slice(0, 128) : null;
 }
 
 // 默认配置（与 background.js DEFAULT_CONFIG 保持一致）
@@ -467,6 +512,7 @@ export const profilesRouter = {
     // ── 以下路由均需 profileId ──────────────────────────────────────────
 
     const configMatch      = path.match(/^\/profiles\/([^/]+)\/config$/);
+    const configHistoryMatch = path.match(/^\/profiles\/([^/]+)\/config-history\/v1$/);
     const defaultsMatch    = path.match(/^\/profiles\/([^/]+)\/defaults$/);
     const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
     const deviceIdMatch    = path.match(/^\/profiles\/([^/]+)\/devices\/([^/]+)$/);
@@ -478,7 +524,7 @@ export const profilesRouter = {
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
+      configMatch?.[1] ?? configHistoryMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
       recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? managedMappingsMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
@@ -605,11 +651,41 @@ export const profilesRouter = {
       return json({ error: 'Unsupported recovery action', code: 'UNSUPPORTED_RECOVERY_ACTION' }, 400);
     }
 
+    // GET /profiles/:id/config-history/v1
+    if (request.method === 'GET' && configHistoryMatch) {
+      const rows = await env.DB.prepare(
+        `SELECT previous_version, version, config_json, config_hash, changed_keys_json,
+                updated_by_account_id, source_action, request_id, created_at
+           FROM profile_config_history_v1
+          WHERE profile_id = ?
+          ORDER BY version DESC
+          LIMIT 100`
+      ).bind(profileId).all<any>();
+      const history = (rows.results || []).map((row: any) => {
+        let config: unknown = null;
+        let changedKeys: unknown = [];
+        try { config = JSON.parse(String(row.config_json || '{}')); } catch {}
+        try { changedKeys = JSON.parse(String(row.changed_keys_json || '[]')); } catch {}
+        return {
+          previousVersion: Number(row.previous_version || 0),
+          version: Number(row.version || 0),
+          config,
+          configHash: String(row.config_hash || ''),
+          changedKeys: Array.isArray(changedKeys) ? changedKeys : [],
+          updatedByAccountId: row.updated_by_account_id || null,
+          sourceAction: String(row.source_action || 'unattributed_update'),
+          requestId: row.request_id || null,
+          createdAt: Number(row.created_at || 0),
+        };
+      });
+      return json({ profileId, history });
+    }
+
     // GET /profiles/:id/config
     if (request.method === 'GET' && configMatch) {
       const row = await env.DB.prepare(
-        `SELECT config, updated_at FROM profiles WHERE id = ?`
-      ).bind(profileId).first<{ config: string; updated_at: number }>();
+        `SELECT config, version, updated_at FROM profiles WHERE id = ?`
+      ).bind(profileId).first<{ config: string; version: number; updated_at: number }>();
 
       const siteAccessDefaults = await getSystemAccessConfig(env);
       const config = applySystemAccessDefaultsToProfileConfig(row?.config ? JSON.parse(row.config) : {}, siteAccessDefaults);
@@ -626,6 +702,7 @@ export const profilesRouter = {
       // 返回时包含 custom 字段（如已存在），不触发写 DB
       return json({
         data:       config,
+        version:    Number(row?.version || 0),
         updated_at: row?.updated_at || 0,
         profile_id: profileId,
       });
@@ -640,17 +717,37 @@ export const profilesRouter = {
     // PUT /profiles/:id/config — 受控 merge 写入，防止残缺配置覆盖丢失字段
     if (request.method === 'PUT' && configMatch) {
       try {
-        const { data } = await request.json<{ data: unknown }>();
+        const body = await request.json<ProfileConfigUpdateBody>();
+        const { data } = body;
         if (!data || typeof data !== 'object') {
           return json({ error: 'Invalid config data' }, 400);
+        }
+
+        const expectedVersion = body.expectedVersion;
+        if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 0) {
+          return json({
+            error: 'expectedVersion is required',
+            code: 'PROFILE_CONFIG_EXPECTED_VERSION_REQUIRED',
+          }, 428);
         }
 
         const now = Date.now();
 
         // 1. 读取现有 config
         const existing = await env.DB.prepare(
-          `SELECT config FROM profiles WHERE id = ?`
-        ).bind(profileId).first<{ config: string }>();
+          `SELECT config, version, updated_at FROM profiles WHERE id = ?`
+        ).bind(profileId).first<{ config: string; version: number; updated_at: number }>();
+
+        if (!existing) return json({ error: 'Profile not found' }, 404);
+        const currentVersion = Number(existing.version || 0);
+        if (expectedVersion !== currentVersion) {
+          return json({
+            error: 'Profile config has changed; reload before saving',
+            code: 'PROFILE_CONFIG_VERSION_CONFLICT',
+            currentVersion,
+            updated_at: existing.updated_at || 0,
+          }, 409);
+        }
 
         const existingConfig = existing?.config ? JSON.parse(existing.config) : {};
 
@@ -838,11 +935,58 @@ export const profilesRouter = {
 
         const configStr = JSON.stringify(stripDerivedSiteAccessFields(mergedConfig));
 
-        await env.DB.prepare(
-          `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-        ).bind(configStr, now, profileId).run();
+        if (configStr === existing.config) {
+          return json({ success: true, noChange: true, version: currentVersion, updated_at: existing.updated_at || 0 });
+        }
 
-        return json({ success: true, updated_at: now });
+        const nextVersion = currentVersion + 1;
+        const sourceAction = normalizeProfileConfigSourceAction(body.sourceAction);
+        const requestId = profileConfigRequestId(request);
+        const auditConfig = canonicalAuditJson(JSON.parse(configStr));
+        const auditHash = await sha256Hex(auditConfig);
+        const changedKeysJson = JSON.stringify(changedAuditKeys(existingConfig, JSON.parse(configStr)));
+
+        const results = await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE profiles SET config = ?, version = ?, updated_at = ? WHERE id = ? AND version = ?`
+          ).bind(configStr, nextVersion, now, profileId, currentVersion),
+          env.DB.prepare(
+            `INSERT INTO profile_config_history_v1
+               (id, profile_id, previous_version, version, config_json, config_hash,
+                changed_keys_json, updated_by_account_id, source_action, request_id, created_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              WHERE EXISTS (
+                SELECT 1 FROM profiles
+                 WHERE id = ? AND version = ? AND updated_at = ? AND config = ?
+              )
+             ON CONFLICT(profile_id, version) DO UPDATE SET
+               config_json = excluded.config_json,
+               config_hash = excluded.config_hash,
+               changed_keys_json = excluded.changed_keys_json,
+               updated_by_account_id = excluded.updated_by_account_id,
+               source_action = excluded.source_action,
+               request_id = excluded.request_id`
+          ).bind(
+            crypto.randomUUID(), profileId, currentVersion, nextVersion, auditConfig, auditHash,
+            changedKeysJson, accountId, sourceAction, requestId, now,
+            profileId, nextVersion, now, configStr
+          ),
+        ]);
+
+        const updated = Number((results[0] as any)?.meta?.changes || 0);
+        if (updated !== 1) {
+          const latest = await env.DB.prepare(
+            `SELECT version, updated_at FROM profiles WHERE id = ?`
+          ).bind(profileId).first<{ version: number; updated_at: number }>();
+          return json({
+            error: 'Profile config has changed; reload before saving',
+            code: 'PROFILE_CONFIG_VERSION_CONFLICT',
+            currentVersion: Number(latest?.version || currentVersion),
+            updated_at: latest?.updated_at || 0,
+          }, 409);
+        }
+
+        return json({ success: true, version: nextVersion, updated_at: now });
       } catch (e: any) {
         return json({ error: 'Failed to update config: ' + e.message }, 500);
       }

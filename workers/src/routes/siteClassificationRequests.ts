@@ -12,6 +12,7 @@ import {
 import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from '../config/system-access-config';
 import { processRestrictedReattributions } from '../services/usageAccountingCorrections';
+import { mutateProfileConfig } from '../services/profileConfigMutation';
 
 async function verifyProfileOwner(request: Request, env: Env, profileId: string): Promise<string | null> {
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);
@@ -287,21 +288,24 @@ function removeHost(list: string[] = [], host: string) {
 
 async function applyDecisionToProfileConfig(env: Env, profileId: string, requestId: string, decision: string, target: any, now: number) {
   if (decision === 'return') return;
-  const row = await env.DB.prepare(`SELECT config FROM profiles WHERE id = ?`).bind(profileId).first<{ config: string }>();
-  const config = row?.config ? JSON.parse(row.config) : {};
-  const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
-  const nextRules = rules.filter((rule: any) => rule?.requestId !== requestId);
-  nextRules.push({
-    id: `scr_rule_${requestId}`,
+  await mutateProfileConfig(env, {
+    profileId,
+    sourceAction: 'site_classification_decision',
     requestId,
-    targetType: target.targetType,
-    targetValue: target.normalizedValue,
-    normalizedValue: target.normalizedValue,
-    decision,
-    createdAt: now,
-    updatedAt: now,
-  });
-  config.siteClassificationRulesV1 = nextRules;
+  }, (config) => {
+    const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
+    const nextRules = rules.filter((rule: any) => rule?.requestId !== requestId);
+    nextRules.push({
+      id: `scr_rule_${requestId}`,
+      requestId,
+      targetType: target.targetType,
+      targetValue: target.normalizedValue,
+      normalizedValue: target.normalizedValue,
+      decision,
+      createdAt: now,
+      updatedAt: now,
+    });
+    config.siteClassificationRulesV1 = nextRules;
 
   if (target.targetType === 'host' && decision === 'study') {
     config.customCompositeList = removeHost(config.customCompositeList || [], target.normalizedValue);
@@ -339,9 +343,7 @@ async function applyDecisionToProfileConfig(env: Env, profileId: string, request
     config.unsafeList = addUniqueHost(config.unsafeList || [], target.normalizedValue);
   }
 
-  await env.DB.prepare(
-    `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-  ).bind(JSON.stringify(config), now, profileId).run();
+  });
 }
 
 
@@ -405,11 +407,6 @@ function addHostToProfileCustomList(config: any, classification: string, host: s
   if (classification === 'restricted') config.restrictedEntertainmentList = addUniqueHost(config.restrictedEntertainmentList || [], host);
   if (classification === 'blocked') config.unsafeList = addUniqueHost(config.unsafeList || [], host);
   return true;
-}
-
-async function getRawProfileConfig(env: Env, profileId: string): Promise<any> {
-  const row = await env.DB.prepare(`SELECT config FROM profiles WHERE id = ?`).bind(profileId).first<{ config: string }>();
-  try { return row?.config ? JSON.parse(row.config) : {}; } catch { return {}; }
 }
 
 async function getPendingRequestsByHost(env: Env, profileId: string): Promise<Map<string, any[]>> {
@@ -689,12 +686,14 @@ async function classifyUsedUnclassifiedSite(request: Request, env: Env, profileI
   }
 
   const now = Date.now();
-  const config = await getRawProfileConfig(env, profileId);
-  addHostToProfileCustomList(config, classification, domain);
+  await mutateProfileConfig(env, {
+    profileId,
+    sourceAction: 'used_unclassified_site_classify',
+    requestId: matchingPending[0]?.id || null,
+  }, (config) => {
+    addHostToProfileCustomList(config, classification, domain);
+  });
   const closedRequestIds = await closeMatchingPendingRequests(env, profileId, domain, classification, now);
-  await env.DB.prepare(
-    `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-  ).bind(JSON.stringify(config), now, profileId).run();
   const accountingReattributions = classification === 'restricted' && closedRequestIds.length > 0
     ? await processRestrictedReattributions(env, { profileId, requestIds: closedRequestIds })
     : [];
