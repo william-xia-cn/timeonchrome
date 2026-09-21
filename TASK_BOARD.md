@@ -3,12 +3,12 @@
 > App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。
 
 ## Active Release Target
-- [x] [P0 / D-098 / Implemented, not deployed / 2026-09-21] 档案配置变更审计与版本冲突保护。
+- [x] [P0 / D-098 / Deployed / 2026-09-21] 档案配置变更审计与版本冲突保护。
   - 已确认故障：T.xia 周休息上限当前为 1440 分钟；北京时间 19:58 与 20:01 出现两次单档案配置写入，现有数据库未保存操作者、来源或前后配置，无法确认覆盖入口。
   - 实施边界：新增不可变配置历史、数据库兜底触发器、家长 PUT `expectedVersion` 和 Pages 冲突刷新；不修改当前生产配置、终端同步方向、网页账、统计或配额算法。
   - 验收：旧页面不能覆盖新版本；所有实际 config 变化均有审计；审计不含敏感字段；Pages 所有 profile config 保存入口统一受保护。
   - 实施结果：migration 031 新增审计表和数据库触发器；家长 PUT、恢复、网站归类与复合规则写入均使用版本前提；Pages 冲突后强制刷新且不静默重试；新增家长可读审计 API。
-  - 验证：配置并发、Pages 配置、恢复、分类及复合路由专项测试通过，TypeScript 检查通过；尚未执行 migration 或部署生产。
+  - 验证：配置并发、Pages 配置、恢复、分类及复合路由专项测试通过，TypeScript 检查通过。migration 031 已生成 27 条生产基线快照，两个触发器存在；Worker `57de22ab-13b6-43d7-a36e-e37b4fbe50e7` 与 Pages `44fae473` 已部署并回读成功。
 - [x] [P0 / D-096 / Completed / 2026-09-18] 修正 `www.4399.com` 7,394 秒历史有效归属。
   - 固定范围：单一档案/设备、`2026-09-18`、旧 target rule、67 个 active pending 分段；不包含决定后产生的独立 1 秒异常分段。
   - 预期守恒：总网页时长 7,394 秒不变；Composite -7,386 秒、Study -8 秒、Rest +7,394 秒；原始 segment 不改。
