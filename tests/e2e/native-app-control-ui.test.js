@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 test.use({ headless: true });
 
@@ -34,6 +35,49 @@ function fakeJwt() {
   return `${encode({ alg: 'ES256', typ: 'JWT' })}.${encode({ child_id: 'child-1', child_name: 'Pierce', exp: 4102444800 })}.signature`;
 }
 
+function zipEntry(name, content) {
+  const nameBytes = Buffer.from(name);
+  const compressed = zlib.deflateRawSync(Buffer.from(content));
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(8, 8);
+  local.writeUInt32LE(compressed.length, 18);
+  local.writeUInt32LE(Buffer.byteLength(content), 22);
+  local.writeUInt16LE(nameBytes.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(compressed.length, 20);
+  central.writeUInt32LE(Buffer.byteLength(content), 24);
+  central.writeUInt16LE(nameBytes.length, 28);
+  return { data: Buffer.concat([local, nameBytes, compressed]), central: Buffer.concat([central, nameBytes]) };
+}
+
+function inventoryZip() {
+  const entries = [
+    zipEntry('inventory/applications.json', JSON.stringify([{
+      displayName: 'Steam', bundleId: 'com.valvesoftware.steam', teamId: 'MXGJJ98X76',
+      signingId: 'com.valvesoftware.steam', signatureStatus: 'signed_valid',
+      mainExecutableSHA256: 'a'.repeat(64), sourceCategory: 'third_party',
+    }])),
+    zipEntry('inventory/errors.log', 'private scan details must not be uploaded'),
+  ];
+  let offset = 0;
+  const central = entries.map((entry) => {
+    entry.central.writeUInt32LE(offset, 42);
+    offset += entry.data.length;
+    return entry.central;
+  });
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...entries.map((entry) => entry.data), directory, end]);
+}
+
 async function mockApis(page) {
   await page.addInitScript(() => {
     localStorage.setItem('toc_session', JSON.stringify({ token: 'account-token', email: 'parent@example.com' }));
@@ -60,11 +104,13 @@ async function mockApis(page) {
     }] : url.searchParams.get('state') === 'BLOCK' ? [{
       id: 'app-preconfigured', display_name: 'Firefox', publisher: 'Mozilla',
       team_id: '43AQ936H96', top_level_bundle_id: 'org.mozilla.firefox', state: 'BLOCK', observed: 0,
+      presentationClass: 'USER_APPLICATION', contentCategory: '其它', policyAvailable: true,
     }] : [
       {
         id: 'app-1', display_name: 'Example Study App', publisher: 'Example Publisher',
         team_id: 'TEAM123', top_level_bundle_id: 'com.example.study', state: 'REVIEW',
         observed: 1, last_observed_at: Date.now(), presentationClass: 'USER_APPLICATION',
+        contentCategory: '教育', policyAvailable: true,
         reviewPriority: 'PRIMARY', componentCount: 1, components: [{
           id: 'helper-1', display_name: 'Example Helper', publisher: 'Example Publisher',
           team_id: 'TEAM123', bundle_id: 'com.example.study.helper',
@@ -99,12 +145,10 @@ for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: '
     await mockApis(page);
     await page.goto(`${baseUrl}/native-apps/index.html`);
     await expect(page.getByRole('heading', { name: '待审核应用' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '需要处理' })).toBeVisible();
+    await expect(page.locator('details.category-group > summary')).toContainText('教育');
     await expect(page.getByText('Example Study App')).toBeVisible();
     await expect(page.getByText('Unknown Tool')).toBeHidden();
-    await expect(page.locator('details.unknown-group > summary')).toContainText('未知程序');
-    await expect(page.locator('details.background-group > summary')).toContainText('后台程序');
-    await expect(page.locator('details.system-group > summary')).toContainText('系统组件');
+    await expect(page.locator('details.technical-group > summary')).toContainText('技术记录');
     await expect(page.getByText('Vendor Daemon')).toBeHidden();
     await expect(page.getByText('Example Helper', { exact: true })).toBeHidden();
     await expect(page.getByRole('button', { name: '阻止发布者' })).toHaveCount(0);
@@ -117,11 +161,9 @@ for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: '
     await expect(page.getByRole('button', { name: '合并应用身份' })).toBeVisible();
     await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-control-detail-${viewport.name}.png`), fullPage: true });
     await page.getByRole('button', { name: '关闭' }).click();
-    await page.locator('details.unknown-group > summary').click();
+    await page.locator('details.technical-group > summary').click();
     await expect(page.getByText('Unknown Tool')).toBeVisible();
-    await page.locator('details.background-group > summary').click();
     await expect(page.getByText('Vendor Daemon')).toBeVisible();
-    await page.locator('details.system-group > summary').click();
     await expect(page.getByText('SystemUIServer', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '阻止' }).first()).toBeVisible();
     await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-control-review-${viewport.name}.png`), fullPage: true });
@@ -131,6 +173,7 @@ for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: '
     await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-control-block-${viewport.name}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Native Macs' }).click();
     await expect(page.getByText('Pierce MacBook')).toBeVisible();
+    await expect(page.getByRole('button', { name: '导入应用清单' })).toBeVisible();
     await expect(page.getByText('已绑定')).toBeVisible();
     await expect(page.getByText(/序列号 …1234/)).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
@@ -162,3 +205,65 @@ test('创建 Native Mac 自动下载专属 mobileconfig 且不显示裸 SyncBase
   await expect(page.getByText('https://native.example.test/santa/v1/endpoint/secret/')).toHaveCount(0);
   await page.screenshot({ path: path.join(ROOT, '.artifacts', 'native-app-control-enrollment-profile.png'), fullPage: true });
 });
+
+test('导入 ZIP 只发送顶层应用身份，不发送组件或扫描日志', async ({ page }) => {
+  let uploaded;
+  await mockApis(page);
+  await page.route('**/native/v1/macs/mac-1/inventory', async (route) => {
+    uploaded = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { count: 1 } }) });
+  });
+  await page.goto(`${baseUrl}/native-apps/index.html`);
+  await page.getByRole('button', { name: 'Native Macs' }).click();
+  await page.getByRole('button', { name: '导入应用清单' }).click();
+  await page.locator('#inventory-file-input').setInputFiles({
+    name: 'inventory.zip', mimeType: 'application/zip', buffer: inventoryZip(),
+  });
+  await expect(page.getByText('已导入 1 个顶层应用')).toBeVisible();
+  expect(uploaded.applications).toHaveLength(1);
+  expect(uploaded.applications[0].displayName).toBe('Steam');
+  expect(JSON.stringify(uploaded)).not.toContain('private scan details');
+});
+
+test('可选本地 Mac 清单 ZIP 回归', async ({ page }) => {
+  const inventoryPath = process.env.SANTA_INVENTORY_ZIP;
+  test.skip(!inventoryPath || !fs.existsSync(inventoryPath), '仅在提供本地清单路径时运行');
+  let uploaded;
+  await mockApis(page);
+  await page.route('**/native/v1/macs/mac-1/inventory', async (route) => {
+    uploaded = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { count: uploaded.applications.length } }) });
+  });
+  await page.goto(`${baseUrl}/native-apps/index.html`);
+  await page.getByRole('button', { name: 'Native Macs' }).click();
+  await page.getByRole('button', { name: '导入应用清单' }).click();
+  await page.locator('#inventory-file-input').setInputFiles(inventoryPath);
+  await expect(page.getByText(/已导入 \d+ 个顶层应用/)).toBeVisible();
+  expect(uploaded.applications).toHaveLength(146);
+  expect(JSON.stringify(uploaded)).not.toContain('collectionErrors');
+  expect(JSON.stringify(uploaded)).not.toContain('applicationPath');
+});
+
+for (const viewport of [{ name: 'desktop', width: 1366, height: 800 }, { name: 'narrow', width: 720, height: 900 }]) {
+  test(`146 个顶层应用按六类折叠展示 ${viewport.name}`, async ({ page }) => {
+    const counts = [['社交', 3], ['娱乐', 5], ['游戏', 9], ['人工智能', 1], ['教育', 21], ['其它', 107]];
+    const data = counts.flatMap(([category, count]) => Array.from({ length: count }, (_, index) => ({
+      id: `${category}-${index}`, display_name: `${category} App ${index + 1}`,
+      top_level_bundle_id: `com.example.${category}.${index}`, state: 'REVIEW',
+      observed: 0, installed: true, policyAvailable: true,
+      contentCategory: category, presentationClass: 'USER_APPLICATION', components: [],
+    })));
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockApis(page);
+    await page.route('**/native/v1/applications?state=REVIEW', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data }),
+    }));
+    await page.goto(`${baseUrl}/native-apps/index.html`);
+    await expect(page.locator('details.category-group')).toHaveCount(6);
+    await expect(page.getByText('146 个应用')).toBeVisible();
+    await expect(page.getByText('已安装 · 尚无 Santa 执行记录').first()).toBeVisible();
+    await expect(page.locator('#review-count')).toBeHidden();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+    await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-control-146-${viewport.name}.png`) });
+  });
+}

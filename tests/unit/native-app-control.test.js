@@ -254,9 +254,12 @@ test('待审核控制台按家长视角分层并将高级操作放入详情', ()
   const js = read('native-app-control/console/native-apps.js');
   const css = read('native-app-control/console/native-apps.css');
   assert(html.includes('id="review-count"'));
-  assert(js.includes("applicationGroup('未知程序'"));
-  assert(js.includes("applicationGroup('后台程序'"));
-  assert(js.includes("applicationGroup('系统组件'"));
+  assert(js.includes("applicationGroup('技术记录'"));
+  for (const category of ['社交', '娱乐', '游戏', '人工智能', '教育', '其它']) {
+    assert(js.includes(category));
+  }
+  assert(js.includes('CATEGORY_ORDER.map'));
+  assert(js.includes("Number(app.observed)"));
   assert(js.includes('内部组件'));
   assert(js.includes('applicationSearchText'));
   assert(js.includes("app.presentationClass === 'USER_APPLICATION'"));
@@ -265,6 +268,44 @@ test('待审核控制台按家长视角分层并将高级操作放入详情', ()
   assert(css.includes('.application-group'));
   assert(css.includes('.detail-grid'));
   assert(css.includes('.application-search'));
+});
+
+test('安装清单独立保存且不伪造 Santa observation 或修改现有 BLOCK 规则', () => {
+  const migration = read('native-app-control/worker/migrations/002_native_app_inventory_v1.sql');
+  const repository = read('native-app-control/worker/src/repository.ts');
+  const admin = read('native-app-control/worker/src/admin.ts');
+  const js = read('native-app-control/console/native-apps.js');
+  assert(migration.includes('native_app_inventory_snapshots_v1'));
+  assert(migration.includes('native_app_inventory_entries_v1'));
+  assert(admin.includes('MAC_INVENTORY_RE'));
+  assert(repository.includes('!blockedAppIds.has(applicationId)'));
+  assert(repository.includes('inventory_snapshot_id = ?'));
+  assert(!repository.slice(repository.indexOf('export async function importNativeMacInventory'),
+    repository.indexOf('export async function rotateEnrollment')).includes('INSERT INTO application_observations_v1'));
+  assert(js.includes('applicationsFromInventoryZip'));
+  assert(js.includes('已安装 · 尚无 Santa 执行记录'));
+});
+
+test('安装清单身份归一与类别仅用于展示', () => {
+  const policy = loadPolicyModule();
+  const edge = policy.normalizeInventoryApplication({
+    displayName: 'Microsoft Edge', bundleId: 'com.microsoft.edgemac', teamId: 'UBF8T346G9',
+    signingId: 'UBF8T346G9:com.microsoft.edgemac', signatureStatus: 'signed_valid',
+  });
+  assert.strictEqual(edge.identity.identifier, 'UBF8T346G9:com.microsoft.edgemac');
+  const unverified = policy.normalizeInventoryApplication({
+    displayName: 'Firefox', bundleId: 'org.mozilla.firefox', teamId: '43AQ936H96',
+    signingId: 'org.mozilla.firefox', signatureStatus: 'signed_validation_failed',
+  });
+  assert.strictEqual(unverified.identity, null);
+  const versionRule = policy.normalizeInventoryApplication({
+    displayName: 'Firefox', bundleId: 'org.mozilla.firefox', teamId: '43AQ936H96',
+    signingId: 'org.mozilla.firefox', mainExecutableSHA256: 'c'.repeat(64),
+    signatureStatus: 'signed_validation_failed',
+  });
+  assert.strictEqual(versionRule.identity.identityType, 'BINARY');
+  assert.strictEqual(policy.nativeContentCategory('Steam', 'com.valvesoftware.steam'), '游戏');
+  assert.strictEqual(policy.nativeContentCategory('Unknown App', 'com.unknown.app'), '其它');
 });
 
 test('Thomas 预置阻止项使用稳定 SIGNINGID，不扩大为发布者规则', () => {

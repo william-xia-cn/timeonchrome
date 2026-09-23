@@ -3,6 +3,8 @@ import {
   buildApplicationPresentation,
   normalizeSantaEvent,
   normalizeStoredPublisher,
+  normalizeInventoryApplication,
+  nativeContentCategory,
   type ApplicationPresentationRow,
 } from './policy';
 import type { Env, NativeAuth } from './types';
@@ -67,12 +69,137 @@ export async function listNativeMacs(env: Env, auth: NativeAuth) {
     SELECT id, display_name, status, hostname, serial_number, primary_user,
            os_version, santa_version, desired_policy_version,
            downloaded_policy_version, applied_policy_version,
-           last_preflight_at, last_postflight_at, created_at, updated_at
+           last_preflight_at, last_postflight_at, inventory_snapshot_id,
+           (SELECT application_count FROM native_app_inventory_snapshots_v1
+             WHERE id = native_macs_v1.inventory_snapshot_id) AS inventory_count,
+           (SELECT imported_at FROM native_app_inventory_snapshots_v1
+             WHERE id = native_macs_v1.inventory_snapshot_id) AS inventory_imported_at,
+           created_at, updated_at
       FROM native_macs_v1
      WHERE child_id = ?
      ORDER BY status ASC, display_name COLLATE NOCASE ASC
   `).bind(auth.child_id).all();
   return result.results || [];
+}
+
+export async function importNativeMacInventory(
+  env: Env, auth: NativeAuth, nativeMacId: string, rawApplications: unknown
+): Promise<{ count: number; manageable: number } | null> {
+  const mac = await ownedMac(env, auth, nativeMacId);
+  if (!mac || mac.status !== 'active') return null;
+  if (!Array.isArray(rawApplications) || rawApplications.length < 1 || rawApplications.length > 500) {
+    throw new Error('invalid_inventory_size');
+  }
+  const applications = new Map<string, NonNullable<ReturnType<typeof normalizeInventoryApplication>>>();
+  for (const raw of rawApplications) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_inventory_entry');
+    const app = normalizeInventoryApplication(raw as Record<string, unknown>);
+    if (!app) throw new Error('invalid_inventory_entry');
+    if (!applications.has(app.key)) applications.set(app.key, app);
+  }
+  const timestamp = now();
+  const snapshotId = id();
+  const existingApplications = await env.DB.prepare(`
+    SELECT id, auto_group_key FROM account_applications_v1 WHERE account_id = ? AND merged_into_application_id IS NULL
+  `).bind(auth.account_id).all<{ id: string; auto_group_key: string }>();
+  const appByGroup = new Map((existingApplications.results || []).map((row) => [row.auto_group_key, row.id]));
+  const blockedStates = await env.DB.prepare(`
+    SELECT DISTINCT s.application_id FROM child_application_states_v1 s
+    JOIN account_applications_v1 a ON a.id = s.application_id
+    WHERE a.account_id = ? AND s.state = 'BLOCK'
+  `).bind(auth.account_id).all<{ application_id: string }>();
+  const blockedAppIds = new Set((blockedStates.results || []).map((row) => row.application_id));
+  const existingIdentities = await env.DB.prepare(`
+    SELECT i.identity_key, m.application_id FROM application_identities_v1 i
+    JOIN application_memberships_v1 m ON m.identity_id = i.id
+    JOIN account_applications_v1 a ON a.id = m.application_id
+    WHERE a.account_id = ? AND a.merged_into_application_id IS NULL
+  `).bind(auth.account_id).all<{ identity_key: string; application_id: string }>();
+  const appByIdentity = new Map((existingIdentities.results || []).map((row) => [row.identity_key, row.application_id]));
+  await env.DB.prepare(`
+    INSERT INTO native_app_inventory_snapshots_v1 (id, native_mac_id, child_id, imported_at, application_count)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(snapshotId, nativeMacId, auth.child_id, timestamp, applications.size).run();
+  let manageable = 0;
+  const entries = [...applications.values()];
+  for (let offset = 0; offset < entries.length; offset += 20) {
+    const statements: D1PreparedStatement[] = [];
+    for (const app of entries.slice(offset, offset + 20)) {
+      const identityKey = app.identity ? `${app.identity.identityType}:${app.identity.identifier}` : null;
+      let applicationId = identityKey ? appByIdentity.get(identityKey) : undefined;
+      if (!applicationId && app.identity) applicationId = appByGroup.get(app.groupKey);
+      if (app.identity && applicationId && !appByIdentity.has(identityKey!) && !blockedAppIds.has(applicationId)) {
+        const identityId = id();
+        appByIdentity.set(identityKey!, applicationId);
+        statements.push(env.DB.prepare(`
+          INSERT INTO application_identities_v1 (
+            id, identity_key, identity_type, identifier, team_id, signing_id, cdhash, sha256,
+            bundle_id, name, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(identity_key) DO NOTHING
+        `).bind(identityId, identityKey, app.identity.identityType, app.identity.identifier,
+          app.teamId, app.identity.identityType === 'SIGNINGID' ? app.identity.identifier : null,
+          app.identity.identityType === 'CDHASH' ? app.identity.identifier : null,
+          app.identity.identityType === 'BINARY' ? app.identity.identifier : null,
+          app.bundleId, app.displayName, timestamp, timestamp));
+        statements.push(env.DB.prepare(`
+          INSERT OR IGNORE INTO application_memberships_v1 (application_id, identity_id, membership_source, created_at)
+          SELECT ?, id, 'automatic', ? FROM application_identities_v1 WHERE identity_key = ?
+        `).bind(applicationId, timestamp, identityKey));
+      }
+      if (app.identity && !applicationId) {
+        applicationId = id();
+        const identityId = id();
+        appByGroup.set(app.groupKey, applicationId);
+        appByIdentity.set(identityKey!, applicationId);
+        statements.push(env.DB.prepare(`
+          INSERT INTO application_identities_v1 (
+            id, identity_key, identity_type, identifier, team_id, signing_id, cdhash, sha256,
+            bundle_id, name, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(identity_key) DO NOTHING
+        `).bind(
+          identityId, identityKey, app.identity.identityType, app.identity.identifier,
+          app.teamId, app.identity.identityType === 'SIGNINGID' ? app.identity.identifier : null,
+          app.identity.identityType === 'CDHASH' ? app.identity.identifier : null,
+          app.identity.identityType === 'BINARY' ? app.identity.identifier : null,
+          app.bundleId, app.displayName, timestamp, timestamp
+        ));
+        statements.push(env.DB.prepare(`
+          INSERT INTO account_applications_v1 (
+            id, account_id, auto_group_key, display_name, team_id, top_level_bundle_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(account_id, auto_group_key) DO NOTHING
+        `).bind(applicationId, auth.account_id, app.groupKey, app.displayName, app.teamId, app.bundleId, timestamp, timestamp));
+        statements.push(env.DB.prepare(`
+          INSERT OR IGNORE INTO application_memberships_v1 (application_id, identity_id, membership_source, created_at)
+          SELECT ?, id, 'automatic', ? FROM application_identities_v1 WHERE identity_key = ?
+        `).bind(applicationId, timestamp, identityKey));
+        statements.push(env.DB.prepare(`
+          INSERT OR IGNORE INTO child_application_states_v1 (child_id, application_id, state, created_at, updated_at)
+          VALUES (?, ?, 'REVIEW', ?, ?)
+        `).bind(auth.child_id, applicationId, timestamp, timestamp));
+      }
+      if (applicationId) manageable += 1;
+      statements.push(env.DB.prepare(`
+        INSERT INTO native_app_inventory_entries_v1 (
+          snapshot_id, inventory_key, application_id, identity_key, display_name, bundle_id,
+          team_id, signature_status, source_category
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(snapshotId, app.key, applicationId || null, identityKey, app.displayName, app.bundleId,
+        app.teamId, app.signatureStatus, app.sourceCategory));
+      if (applicationId) statements.push(env.DB.prepare(`
+        INSERT OR IGNORE INTO child_application_states_v1 (child_id, application_id, state, created_at, updated_at)
+        VALUES (?, ?, 'REVIEW', ?, ?)
+      `).bind(auth.child_id, applicationId, timestamp, timestamp));
+    }
+    await env.DB.batch(statements);
+  }
+  await env.DB.prepare(`UPDATE native_macs_v1 SET inventory_snapshot_id = ?, updated_at = ?
+    WHERE id = ? AND child_id = ?`).bind(snapshotId, timestamp, nativeMacId, auth.child_id).run();
+  await env.DB.prepare(`DELETE FROM native_app_inventory_snapshots_v1
+    WHERE native_mac_id = ? AND id <> ?`).bind(nativeMacId, snapshotId).run();
+  return { count: applications.size, manageable };
 }
 
 export async function rotateEnrollment(env: Env, auth: NativeAuth, nativeMacId: string) {
@@ -381,10 +508,80 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
      ORDER BY CASE s.state WHEN 'REVIEW' THEN 0 WHEN 'BLOCK' THEN 1 ELSE 2 END,
               observed DESC, last_observed_at DESC, s.updated_at DESC
   `).bind(auth.child_id, auth.account_id, stateFilter, stateFilter).all<ApplicationPresentationRow>();
-  return buildApplicationPresentation((result.results || []).map((row) => ({
+  const presented = buildApplicationPresentation((result.results || []).map((row) => ({
     ...row,
     publisher: normalizeStoredPublisher(row.publisher),
   })));
+  const inventory = await env.DB.prepare(`
+    SELECT e.inventory_key, e.application_id, e.display_name, e.bundle_id, e.team_id,
+           e.signature_status, m.id AS native_mac_id,
+           CASE WHEN e.identity_key IS NOT NULL AND EXISTS (
+             SELECT 1 FROM application_identities_v1 ai
+             JOIN application_memberships_v1 am ON am.identity_id = ai.id
+             WHERE ai.identity_key = e.identity_key AND am.application_id = e.application_id
+           ) THEN 1 ELSE 0 END AS rule_identity_present
+      FROM native_app_inventory_entries_v1 e
+      JOIN native_app_inventory_snapshots_v1 snap ON snap.id = e.snapshot_id
+      JOIN native_macs_v1 m ON m.id = snap.native_mac_id AND m.inventory_snapshot_id = snap.id
+     WHERE m.child_id = ? AND snap.child_id = ?
+  `).bind(auth.child_id, auth.child_id).all<{
+    inventory_key: string; application_id: string | null; display_name: string;
+    bundle_id: string | null; team_id: string | null; signature_status: string;
+    native_mac_id: string; rule_identity_present: number;
+  }>();
+  const installedById = new Map<string, { macIds: Set<string>; signatureStatus: string; ruleIdentityPresent: boolean }>();
+  const presentedByBundle = new Map(presented
+    .filter((app) => app.top_level_bundle_id || app.bundle_id)
+    .map((app) => [
+      `${String(app.team_id || 'unsigned').toLowerCase()}:${String(app.top_level_bundle_id || app.bundle_id).toLowerCase()}`,
+      app.id,
+    ]));
+  const unmanageable = new Map<string, {
+    id: string; display_name: string; bundle_id: string | null; team_id: string | null;
+    state: string; observed: number; presentationClass: 'USER_APPLICATION';
+    components: []; relatedApplicationIds: string[]; componentCount: number;
+    installed: boolean; installedOnMacIds: string[]; policyAvailable: boolean;
+    signatureStatus: string; contentCategory: string;
+  }>();
+  for (const entry of inventory.results || []) {
+    const matchedAppId = entry.application_id || presentedByBundle.get(entry.inventory_key);
+    if (matchedAppId) {
+      const record = installedById.get(matchedAppId) || {
+        macIds: new Set<string>(), signatureStatus: entry.signature_status, ruleIdentityPresent: false,
+      };
+      record.macIds.add(entry.native_mac_id);
+      record.ruleIdentityPresent ||= !!entry.rule_identity_present;
+      installedById.set(matchedAppId, record);
+    } else if (!stateFilter || stateFilter === 'REVIEW') {
+      const row = unmanageable.get(entry.inventory_key) || {
+        id: `inventory:${entry.inventory_key}`, display_name: entry.display_name,
+        bundle_id: entry.bundle_id, team_id: entry.team_id, state: 'REVIEW', observed: 0,
+        presentationClass: 'USER_APPLICATION' as const, components: [] as [],
+        relatedApplicationIds: [] as string[], componentCount: 0,
+        installed: true, installedOnMacIds: [] as string[], policyAvailable: false,
+        signatureStatus: entry.signature_status,
+        contentCategory: nativeContentCategory(entry.display_name, entry.bundle_id || ''),
+      };
+      if (!row.installedOnMacIds.includes(entry.native_mac_id)) row.installedOnMacIds.push(entry.native_mac_id);
+      unmanageable.set(entry.inventory_key, row);
+    }
+  }
+  const rows = presented.map((app) => {
+    const installed = [app.id, ...app.relatedApplicationIds]
+      .map((appId) => installedById.get(appId)).filter((item) => !!item);
+    const installedOnMacIds = [...new Set(installed.flatMap((item) => [...item.macIds]))];
+    return {
+      ...app,
+      installed: installedOnMacIds.length > 0,
+      installedOnMacIds,
+      policyAvailable: true,
+      ruleCoversInstalledVersion: installed.length ? installed.every((item) => item.ruleIdentityPresent) : null,
+      signatureStatus: installed[0]?.signatureStatus || null,
+      contentCategory: nativeContentCategory(app.display_name || '', app.top_level_bundle_id || app.bundle_id || ''),
+      presentationClass: installedOnMacIds.length ? 'USER_APPLICATION' as const : app.presentationClass,
+    };
+  }).filter((app) => app.state !== 'REVIEW' || Number(app.observed) > 0 || app.installed);
+  return [...rows, ...unmanageable.values()];
 }
 
 export async function decideApplication(

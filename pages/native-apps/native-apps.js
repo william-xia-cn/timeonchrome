@@ -10,7 +10,9 @@
   const state = {
     view: 'REVIEW', token: null, childId: null, childName: null,
     data: [], merges: [], enrollmentProfile: null, applicationQuery: '', reviewCount: 0,
+    inventoryMacId: null,
   };
+  const CATEGORY_ORDER = ['社交', '娱乐', '游戏', '人工智能', '教育', '其它'];
   const $ = (selector) => document.querySelector(selector);
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -39,6 +41,79 @@
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '') || 'Native-Mac';
     return `TimeOnChrome-Santa-${label}.mobileconfig`;
+  }
+
+  async function applicationsFromInventoryZip(file) {
+    if (!file || file.size > 80 * 1024 * 1024) throw new Error('请选择不超过 80 MB 的应用清单 ZIP');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length < 22) throw new Error('无效的 ZIP 文件');
+    const view = new DataView(bytes.buffer);
+    const u16 = (offset) => view.getUint16(offset, true);
+    const u32 = (offset) => view.getUint32(offset, true);
+    let end = -1;
+    for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset--) {
+      if (u32(offset) === 0x06054b50) { end = offset; break; }
+    }
+    if (end < 0) throw new Error('无效的 ZIP 文件');
+    const entries = u16(end + 10);
+    let offset = u32(end + 16);
+    let jsonBytes = null;
+    for (let index = 0; index < entries; index++) {
+      if (offset + 46 > bytes.length || u32(offset) !== 0x02014b50) throw new Error('ZIP 目录损坏');
+      const method = u16(offset + 10);
+      const compressedSize = u32(offset + 20);
+      const size = u32(offset + 24);
+      const nameLength = u16(offset + 28);
+      const next = offset + 46 + nameLength + u16(offset + 30) + u16(offset + 32);
+      if (next > bytes.length) throw new Error('ZIP 目录损坏');
+      const name = new TextDecoder().decode(bytes.subarray(offset + 46, offset + 46 + nameLength));
+      if (name === 'applications.json' || name.endsWith('/applications.json')) {
+        if (jsonBytes || size > 4 * 1024 * 1024) throw new Error('应用清单重复或过大');
+        const local = u32(offset + 42);
+        if (local + 30 > bytes.length || u32(local) !== 0x04034b50) throw new Error('ZIP 条目损坏');
+        const start = local + 30 + u16(local + 26) + u16(local + 28);
+        if (start + compressedSize > bytes.length) throw new Error('ZIP 条目损坏');
+        const compressed = bytes.slice(start, start + compressedSize);
+        if (method === 0) jsonBytes = compressed;
+        else if (method === 8) {
+          const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+          const reader = stream.getReader();
+          const chunks = [];
+          let total = 0;
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              total += value.length;
+              if (total > 4 * 1024 * 1024 || total > size) throw new Error('应用清单大小不符');
+              chunks.push(value);
+            }
+          } catch (error) {
+            await reader.cancel();
+            throw error;
+          } finally {
+            reader.releaseLock();
+          }
+          jsonBytes = new Uint8Array(total);
+          let position = 0;
+          for (const chunk of chunks) {
+            jsonBytes.set(chunk, position);
+            position += chunk.length;
+          }
+        } else throw new Error('不支持此 ZIP 压缩格式');
+        if (jsonBytes.length !== size || jsonBytes.length > 4 * 1024 * 1024) throw new Error('应用清单大小不符');
+      }
+      offset = next;
+    }
+    if (!jsonBytes) throw new Error('ZIP 中缺少 applications.json');
+    const applications = JSON.parse(new TextDecoder().decode(jsonBytes));
+    if (!Array.isArray(applications) || !applications.length || applications.length > 500) throw new Error('应用清单格式不正确');
+    return applications.map((app) => ({
+      displayName: app.displayName, bundleId: app.bundleId, teamId: app.teamId,
+      signingId: app.signingId, cdHash: app.cdHash,
+      mainExecutableSHA256: app.mainExecutableSHA256,
+      signatureStatus: app.signatureStatus, sourceCategory: app.sourceCategory,
+    }));
   }
 
   function buildSantaMobileconfig(syncBaseUrl, displayName) {
@@ -178,11 +253,15 @@
   function showError(error) {
     const strip = $('#status-strip');
     strip.hidden = false;
+    strip.classList.remove('success');
     strip.textContent = error instanceof Error ? error.message : String(error);
   }
-  function clearError() { $('#status-strip').hidden = true; $('#status-strip').textContent = ''; }
+  function clearError() { $('#status-strip').hidden = true; $('#status-strip').classList.remove('success'); $('#status-strip').textContent = ''; }
 
   function applicationActions(app) {
+    if (app.policyAvailable === false) {
+      return `<button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
+    }
     if (app.presentationClass === 'SYSTEM_COMPONENT') {
       return `<button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
     }
@@ -224,8 +303,8 @@
     const typeLabel = applicationTypeLabel(app);
     const publisher = app.publisher || (app.presentationClass === 'SYSTEM_COMPONENT' ? 'macOS 系统' : '发布者未知');
     const observation = Number(app.observed)
-      ? `最近发现 ${formatTime(app.last_observed_at)}`
-      : '预置规则 · 尚未在终端发现';
+      ? `Santa 已发现 · ${formatTime(app.last_observed_at)}`
+      : app.installed ? '已安装 · 尚无 Santa 执行记录' : '预置规则 · 尚未在终端发现';
     return `
       <article class="application-entry ${compact ? 'compact-entry' : ''}">
         <div class="application-row">
@@ -234,7 +313,7 @@
             <strong>${escapeHtml(app.display_name)}</strong>
             <small><span class="kind-label">${escapeHtml(typeLabel)}</span>${escapeHtml(publisher)}</small>
           </div>
-          <div class="observation"><span>${escapeHtml(observation)}</span>${state.view !== 'REVIEW' ? `<span class="badge ${app.state === 'BLOCK' ? 'block' : app.state === 'IGNORE' ? 'ignore' : ''}">${app.state === 'BLOCK' ? '已阻止' : '已忽略'}</span>` : ''}</div>
+          <div class="observation"><span>${escapeHtml(observation)}</span>${app.policyAvailable === false ? '<span class="identity-warning">缺少可用规则身份，仅供查看</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === true && app.signatureStatus !== 'signed_valid' ? '<span class="identity-warning">仅有版本哈希，更新后需重新核验</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === false ? '<span class="identity-warning">安装身份尚未关联可用规则</span>' : ''}${state.view !== 'REVIEW' ? `<span class="badge ${app.state === 'BLOCK' ? 'block' : app.state === 'IGNORE' ? 'ignore' : ''}">${app.state === 'BLOCK' ? '已阻止' : '已忽略'}</span>` : ''}</div>
           <div class="actions">${applicationActions(app)}</div>
         </div>
       </article>`;
@@ -265,23 +344,10 @@
     const rows = query
       ? state.data.filter((app) => applicationSearchText(app).includes(query))
       : state.data;
-    const primaryRows = state.view === 'REVIEW'
-      ? rows.filter((app) => app.presentationClass === 'USER_APPLICATION')
-      : rows;
-    const unknownRows = state.view === 'REVIEW'
-      ? rows.filter((app) => app.presentationClass === 'UNKNOWN_EXECUTABLE')
-      : [];
-    const backgroundRows = state.view === 'REVIEW'
-      ? rows.filter((app) => app.presentationClass === 'STANDALONE_BACKGROUND' || app.presentationClass === 'APPLICATION_COMPONENT')
-      : [];
-    const systemRows = state.view === 'REVIEW'
-      ? rows.filter((app) => app.presentationClass === 'SYSTEM_COMPONENT')
-      : [];
-    const actionableRows = state.view === 'REVIEW'
-      ? rows.filter((app) => app.presentationClass !== 'SYSTEM_COMPONENT')
-      : rows;
+    const primaryRows = rows.filter((app) => app.presentationClass === 'USER_APPLICATION');
+    const technicalRows = rows.filter((app) => app.presentationClass !== 'USER_APPLICATION');
     if (state.view === 'REVIEW') {
-      state.reviewCount = state.data.filter((app) => app.presentationClass !== 'SYSTEM_COMPONENT').length;
+      state.reviewCount = state.data.filter((app) => app.presentationClass === 'USER_APPLICATION' && Number(app.observed)).length;
       const count = $('#review-count');
       if (count) {
         count.textContent = String(state.reviewCount);
@@ -290,16 +356,19 @@
     }
     $('#content').innerHTML = `
       <div class="toolbar">
-        <span class="summary">${state.view === 'REVIEW' ? `${actionableRows.length} 个待处理对象 · ${primaryRows.length} 个应用` : `${rows.length} 个应用`}</span>
+        <span class="summary">${primaryRows.length} 个应用${state.view === 'REVIEW' ? ` · ${primaryRows.filter((app) => Number(app.observed)).length} 个 Santa 已发现` : ''}</span>
         <input id="application-search" class="application-search" type="search" value="${escapeHtml(state.applicationQuery)}" placeholder="搜索应用、Bundle ID 或进程路径" aria-label="搜索应用">
       </div>
-      ${state.view === 'REVIEW' ? `<section class="application-section" aria-label="需要处理">
-        <header class="section-heading"><div><h2>需要处理</h2><p>优先处理可识别的顶层应用。</p></div><span>${primaryRows.length} 个应用</span></header>
-        ${primaryRows.length ? primaryRows.map((app) => applicationRow(app)).join('') : '<div class="empty compact-empty">当前没有需要处理的可识别应用。</div>'}
-      </section>
-      ${applicationGroup('未知程序', '缺少稳定应用身份，处理前建议先查看路径。', unknownRows, 'unknown-group')}
-      ${applicationGroup('后台程序', '更新器、守护程序和独立辅助进程。', backgroundRows, 'background-group')}
-      ${applicationGroup('系统组件', 'macOS 自带组件，仅保留观测信息。', systemRows, 'system-group')}` : primaryRows.map((app) => applicationRow(app)).join('') || '<div class="empty">当前没有记录。</div>'}
+      ${CATEGORY_ORDER.map((category) => {
+        const categoryRows = primaryRows.filter((app) => app.contentCategory === category);
+        if (!categoryRows.length) return '';
+        const first = CATEGORY_ORDER.find((label) => primaryRows.some((app) => app.contentCategory === label));
+        return `<details class="application-group category-group"${state.applicationQuery.trim() || category === first ? ' open' : ''}>
+          <summary><strong>${category}</strong><span>${categoryRows.length} 个应用</span></summary>
+          <div class="group-list">${categoryRows.map((app) => applicationRow(app)).join('')}</div>
+        </details>`;
+      }).join('') || '<div class="empty compact-empty">当前没有应用。</div>'}
+      ${applicationGroup('技术记录', '无法归入顶层应用的后台程序、系统组件和独立执行文件。', technicalRows, 'technical-group')}
       ${state.merges.length ? `<details class="merge-log"><summary>已合并身份 ${state.merges.length} 组</summary>${state.merges.map((item) => `
         <div class="merge-row"><span>${escapeHtml(item.source_name)} → ${escapeHtml(item.target_name)}</span><button class="secondary" data-action="UNMERGE" data-id="${escapeHtml(item.source_id)}">撤销合并</button></div>
       `).join('')}</details>` : ''}
@@ -316,9 +385,9 @@
         return `
         <article class="mac-row">
           <div class="identity"><strong>${escapeHtml(mac.display_name)}</strong><small>${escapeHtml(mac.hostname || '尚未 enrollment')}${escapeHtml(serialSummary(mac.serial_number))}</small></div>
-          <div class="meta">Santa ${escapeHtml(mac.santa_version || '未报告')}<br>macOS ${escapeHtml(mac.os_version || '未报告')}</div>
+          <div class="meta">Santa ${escapeHtml(mac.santa_version || '未报告')}<br>macOS ${escapeHtml(mac.os_version || '未报告')}<br>安装清单 ${mac.inventory_count == null ? '未导入' : `${Number(mac.inventory_count)} 个应用 · ${formatTime(mac.inventory_imported_at)}`}</div>
           <div><span class="badge ${status.className}">${status.label}</span><div class="meta">最近同步 ${formatTime(mac.last_preflight_at)}<br>策略 ${mac.applied_policy_version}/${mac.desired_policy_version}</div></div>
-          <div class="actions">${mac.status === 'active' ? `<button class="secondary" data-mac-action="ROTATE" data-id="${escapeHtml(mac.id)}">轮换 enrollment</button><button class="danger" data-mac-action="REVOKE" data-id="${escapeHtml(mac.id)}">吊销</button>` : ''}</div>
+          <div class="actions">${mac.status === 'active' ? `<button class="secondary" data-mac-action="IMPORT" data-id="${escapeHtml(mac.id)}">导入应用清单</button><button class="secondary" data-mac-action="ROTATE" data-id="${escapeHtml(mac.id)}">轮换 enrollment</button><button class="danger" data-mac-action="REVOKE" data-id="${escapeHtml(mac.id)}">吊销</button>` : ''}</div>
         </article>`;
       }).join('') : '<div class="empty">还没有 Native Mac。添加后会下载设备专属 Santa 配置文件。</div>'}
     `;
@@ -377,7 +446,7 @@
     componentSection.innerHTML = components.length ? `<h3>内部组件 <span>${components.length}</span></h3><div class="detail-component-list">${components.map((item) => `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.bundle_id || item.top_level_bundle_id || '未提供 Bundle ID')}</small><code>${escapeHtml(item.sample_path || '未提供执行路径')}</code></div>`).join('')}</div>` : '';
     const advanced = $('#detail-application-advanced');
     const advancedActions = [];
-    if (state.view === 'REVIEW' && app.presentationClass !== 'SYSTEM_COMPONENT') {
+    if (state.view === 'REVIEW' && app.presentationClass !== 'SYSTEM_COMPONENT' && app.policyAvailable !== false) {
       if (app.team_id) advancedActions.push(`<button class="danger" type="button" data-detail-action="BLOCK_PUBLISHER" data-id="${escapeHtml(app.id)}">阻止发布者</button>`);
       advancedActions.push(`<button class="secondary" type="button" data-detail-action="MERGE" data-id="${escapeHtml(app.id)}">合并应用身份</button>`);
     }
@@ -417,6 +486,11 @@
     await loadView();
   }
   async function macAction(nativeMacId, action) {
+    if (action === 'IMPORT') {
+      state.inventoryMacId = nativeMacId;
+      $('#inventory-file-input').click();
+      return;
+    }
     const path = action === 'REVOKE' ? 'revoke' : 'rotate-enrollment';
     if (action === 'REVOKE' && !window.confirm('吊销后 Santa 停止云端同步；已下发 block rule 会保留到正式卸载或重新 enrollment。')) return;
     const result = await native(`/native/v1/macs/${encodeURIComponent(nativeMacId)}/${path}`, { method: 'POST' });
@@ -428,6 +502,24 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    $('#inventory-file-input').addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      const nativeMacId = state.inventoryMacId;
+      event.target.value = '';
+      state.inventoryMacId = null;
+      if (!file || !nativeMacId) return;
+      try {
+        clearError();
+        const applications = await applicationsFromInventoryZip(file);
+        const result = await native(`/native/v1/macs/${encodeURIComponent(nativeMacId)}/inventory`, {
+          method: 'POST', body: JSON.stringify({ applications }),
+        });
+        await loadView();
+        $('#status-strip').hidden = false;
+        $('#status-strip').classList.add('success');
+        $('#status-strip').textContent = `已导入 ${result.data.count} 个顶层应用；安装清单不代表启动记录，也不会自动下发规则。`;
+      } catch (error) { showError(error); }
+    });
     document.querySelectorAll('.nav-button').forEach((button) => button.addEventListener('click', () => {
       document.querySelectorAll('.nav-button').forEach((item) => item.classList.toggle('active', item === button));
       state.view = button.dataset.view;

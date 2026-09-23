@@ -82,6 +82,10 @@ The main `pages/index.html` adds only a navigation link. It must not embed Nativ
 
 ### Review presentation hierarchy
 
+顶层应用目录可由家长在 Native Macs 页面导入 Mac 安装快照 ZIP。浏览器只提取 `applications.json` 的最小身份字段，按当前 Child 下指定 Native Mac 上传；Native D1 独立保存每台 Mac 的快照版本与安装状态。快照与 Santa observation 按代码身份合并，但安装不表示启动，不创建 observation，不改变 Child 策略或现有 Santa rule。重新导入切换该 Mac 的有效快照，不删除旧审核、阻止规则或历史发现。没有可执行身份的应用仍展示，但不可直接下发阻止规则。
+
+控制台保留 REVIEW/BLOCK/IGNORE 入口，各入口按社交、娱乐、游戏、人工智能、教育、其它六个内容类别折叠顶层应用。类别只用于展示和搜索，不生成类别策略。REVIEW badge 只计算 Santa 已发现且仍待审核的顶层应用；仅在安装快照发现的应用可预先管理，但须明确标为“已安装 · 尚无 Santa 执行记录”。辅助进程和组件在应用详情中展示，不能计入顶层应用数量；未能归属的技术对象保留在折叠区。预置 Edge、Steam、Safari 等已有规则不得被快照替换或删除。
+
 Santa execution observations remain complete audit evidence, but the review console must not flatten every helper and system process into the primary application list. `listApplications()` derives a read-only presentation model without deleting observations or changing policy identities:
 
 - `USER_APPLICATION`: a recognizable top-level `.app`; shown in the primary review list.

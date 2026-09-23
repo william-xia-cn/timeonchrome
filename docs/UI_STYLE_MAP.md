@@ -53,6 +53,7 @@
 - 复用同源登录会话和当前 Child 选择结果，但使用独立 HTML/CSS/JS、Native Worker API、状态机和审计数据。
 - 主控制台只提供导航入口，不嵌入 Native App Review 列表、动作或 API 调用。
 - 独立页固定包含 `待审核 / 已阻止 / 已忽略 / Native Macs`；Application 行展示名称、发布者、状态和最近发现时间，技术身份与高级动作进入详情。
+- Native Macs 可导入设备的安装清单 ZIP；只上传顶层 App 身份摘要。三个应用状态页按社交、娱乐、游戏、人工智能、教育、其它六类折叠，每款 App 一行；分类仅用于浏览，不改变 Santa 策略。待审核 badge 只统计 Santa 已发现的待审核应用，安装清单独有条目明确标为“已安装 · 尚无 Santa 执行记录”。
 - 创建或轮换 Native Mac 后由页面生成设备专属 `.mobileconfig`；不得显示裸 enrollment URL。
 - 页面缺失时不得由 Pages fallback 静默返回主控制台并视为 HTTP 200 验收通过；生产验证必须检查 Native 页面专有标题和资源。
 

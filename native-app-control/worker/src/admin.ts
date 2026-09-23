@@ -4,6 +4,7 @@ import {
   decideApplication,
   deleteNativeChild,
   ensureNativeChild,
+  importNativeMacInventory,
   listApplications,
   listApplicationMerges,
   listNativeMacs,
@@ -19,6 +20,7 @@ const APPLICATION_MERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/merge$/;
 const APPLICATION_UNMERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/unmerge$/;
 const MAC_REVOKE_RE = /^\/native\/v1\/macs\/([^/]+)\/revoke$/;
 const MAC_ROTATE_RE = /^\/native\/v1\/macs\/([^/]+)\/rotate-enrollment$/;
+const MAC_INVENTORY_RE = /^\/native\/v1\/macs\/([^/]+)\/inventory$/;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -84,6 +86,16 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
   if (rotateMatch && request.method === 'POST') {
     const enrollment = await rotateEnrollment(env, auth, rotateMatch[1]);
     return enrollment ? json({ data: enrollment }) : json({ error: 'native_mac_not_found' }, 404);
+  }
+
+  const inventoryMatch = path.match(MAC_INVENTORY_RE);
+  if (inventoryMatch && request.method === 'POST') {
+    try {
+      const result = await importNativeMacInventory(env, auth, inventoryMatch[1], body.applications);
+      return result ? json({ data: result }) : json({ error: 'native_mac_not_found' }, 404);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_inventory' }, 400);
+    }
   }
 
   if (path === '/native/v1/applications' && request.method === 'GET') {
