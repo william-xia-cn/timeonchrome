@@ -29,7 +29,8 @@ const repository = loadModule('native-app-control/worker/src/repository.ts', {
 
 function database() {
   const sqlite = new DatabaseSync(':memory:');
-  for (const migration of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql']) {
+  for (const migration of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql',
+    '003_native_app_predefined_controls_v1.sql']) {
     sqlite.exec(fs.readFileSync(path.join(ROOT, 'native-app-control', 'worker', 'migrations', migration), 'utf8'));
   }
   const statement = (sql, args = []) => ({
@@ -96,7 +97,8 @@ const signed = (name, bundle, team, signing = bundle, hash = 'a'.repeat(40)) => 
   assert.deepEqual(JSON.parse(JSON.stringify(after)), JSON.parse(JSON.stringify(before)),
     '安装快照不能悄悄扩展已有 Safari BLOCK 身份');
   const blocked = await repository.listApplications(env, auth, 'BLOCK');
-  assert.equal(blocked.find((row) => row.display_name === 'Safari').ruleCoversInstalledVersion, false);
+  assert.equal(blocked.find((row) => row.display_name === 'Safari').ruleCoversInstalledVersion, true,
+    'Apple platform SigningID 稳定覆盖更新后的安装哈希');
   assert.equal(blocked.length, 3, 'Edge、Steam 与 Safari 既有阻止状态保留');
   rows = await repository.listApplications(env, auth, 'REVIEW');
   assert.equal(rows.length, 0, '新快照中消失的 REVIEW 项不再出现在主列表');

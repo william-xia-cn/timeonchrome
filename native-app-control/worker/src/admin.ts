@@ -14,6 +14,7 @@ import {
   unmergeApplication,
 } from './repository';
 import type { Env } from './types';
+import { decidePredefinedIdentity, disablePredefinedItem, importPredefinedItems, listPredefinedItems, reconcilePredefinedItems } from './presets';
 
 const APPLICATION_DECISION_RE = /^\/native\/v1\/applications\/([^/]+)\/decision$/;
 const APPLICATION_MERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/merge$/;
@@ -21,6 +22,8 @@ const APPLICATION_UNMERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/unmerge$/;
 const MAC_REVOKE_RE = /^\/native\/v1\/macs\/([^/]+)\/revoke$/;
 const MAC_ROTATE_RE = /^\/native\/v1\/macs\/([^/]+)\/rotate-enrollment$/;
 const MAC_INVENTORY_RE = /^\/native\/v1\/macs\/([^/]+)\/inventory$/;
+const PREDEFINED_IDENTITY_RE = /^\/native\/v1\/predefined\/([0-9]+)\/identities\/decision$/;
+const PREDEFINED_DISABLE_RE = /^\/native\/v1\/predefined\/([0-9]+)\/disable$/;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -92,6 +95,7 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
   if (inventoryMatch && request.method === 'POST') {
     try {
       const result = await importNativeMacInventory(env, auth, inventoryMatch[1], body.applications);
+      if (result) await reconcilePredefinedItems(env, auth.account_id, auth.child_id);
       return result ? json({ data: result }) : json({ error: 'native_mac_not_found' }, 404);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'invalid_inventory' }, 400);
@@ -101,6 +105,30 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
   if (path === '/native/v1/applications' && request.method === 'GET') {
     const state = new URL(request.url).searchParams.get('state') || undefined;
     return json({ data: await listApplications(env, auth, state) });
+  }
+
+  if (path === '/native/v1/predefined' && request.method === 'GET') {
+    return json({ data: await listPredefinedItems(env, auth) });
+  }
+  if (path === '/native/v1/predefined/import' && request.method === 'POST') {
+    if (body.expectedChildId !== auth.child_id) return json({ error: 'child_confirmation_required' }, 409);
+    try {
+      return json({ data: await importPredefinedItems(env, auth, body.items) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_predefined_import' }, 400);
+    }
+  }
+  const identityDecision = path.match(PREDEFINED_IDENTITY_RE);
+  if (identityDecision && request.method === 'POST') {
+    const action = String(body.action || '').toUpperCase();
+    if (action !== 'CONFIRM' && action !== 'REJECT') return json({ error: 'invalid_action' }, 400);
+    return await decidePredefinedIdentity(env, auth, Number(identityDecision[1]), String(body.identityKey || ''), action)
+      ? json({ success: true }) : json({ error: 'predefined_identity_not_found' }, 404);
+  }
+  const disableMatch = path.match(PREDEFINED_DISABLE_RE);
+  if (disableMatch && request.method === 'POST') {
+    return await disablePredefinedItem(env, auth, Number(disableMatch[1]))
+      ? json({ success: true }) : json({ error: 'predefined_item_not_found' }, 404);
   }
 
   if (path === '/native/v1/application-merges' && request.method === 'GET') {

@@ -52,7 +52,7 @@
 - 云端路径：`/native-apps/`；主控制台桌面侧栏与手机“更多”都必须提供入口。
 - 复用同源登录会话和当前 Child 选择结果，但使用独立 HTML/CSS/JS、Native Worker API、状态机和审计数据。
 - 主控制台只提供导航入口，不嵌入 Native App Review 列表、动作或 API 调用。
-- 独立页固定包含 `待审核 / 已阻止 / 已忽略 / Native Macs`；Application 行展示名称、发布者、状态和最近发现时间，技术身份与高级动作进入详情。
+- 独立页包含 `待审核 / 已阻止 / 已忽略 / 预定义管控 / Native Macs`；Application 行展示名称、发布者、状态和最近发现时间，技术身份与高级动作进入详情。预定义管控是 Child 专属的 Qustodio 一次性来源清单，不等同于 Santa 启动记录，也不开放手填新增；逐条显示顶层 App、已核验组件、Bundle ID、目标 BLOCK、匹配和终端状态。待识别、需确认、待同步、部分生效、已生效、已停用六态必须区分；组件无可靠归属时独立呈现。
 - Native Macs 可导入设备的安装清单 ZIP；只上传顶层 App 身份摘要。三个应用状态页按社交、娱乐、游戏、人工智能、教育、其它六类折叠，每款 App 一行；分类仅用于浏览，不改变 Santa 策略。待审核 badge 只统计 Santa 已发现的待审核应用，安装清单独有条目明确标为“已安装 · 尚无 Santa 执行记录”。
 - 创建或轮换 Native Mac 后由页面生成设备专属 `.mobileconfig`；不得显示裸 enrollment URL。
 - 页面缺失时不得由 Pages fallback 静默返回主控制台并视为 HTTP 200 验收通过；生产验证必须检查 Native 页面专有标题和资源。

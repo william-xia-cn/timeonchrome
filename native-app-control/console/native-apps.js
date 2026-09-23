@@ -5,12 +5,13 @@
     REVIEW: ['待审核应用', 'Santa 发现的新应用默认允许运行，家长可在此忽略或阻止。'],
     BLOCK: ['已阻止应用', '应用规则按稳定代码身份下发；发布者规则覆盖同一 TeamID。'],
     IGNORE: ['已忽略应用', '已审核且不生成 Santa allow rule。'],
+    PREDEFINED: ['预定义管控', 'Qustodio 一次性阻止清单。身份核验后下发；安装或来源记录不代表曾启动。'],
     MACS: ['Native Macs', '独立管理 Santa enrollment、同步状态和策略版本。'],
   };
   const state = {
     view: 'REVIEW', token: null, childId: null, childName: null,
     data: [], merges: [], enrollmentProfile: null, applicationQuery: '', reviewCount: 0,
-    inventoryMacId: null,
+    inventoryMacId: null, predefined: null,
   };
   const CATEGORY_ORDER = ['社交', '娱乐', '游戏', '人工智能', '教育', '其它'];
   const $ = (selector) => document.querySelector(selector);
@@ -394,6 +395,35 @@
     $('#add-mac-button')?.addEventListener('click', () => $('#enrollment-dialog').showModal());
   }
 
+  function renderPredefined() {
+    const payload = state.predefined || { sourceCount: 0, topLevelCount: 0, items: [] };
+    const items = payload.items || [];
+    const children = new Map();
+    for (const item of items) {
+      if (item.parent_source_index == null) continue;
+      const key = Number(item.parent_source_index);
+      children.set(key, [...(children.get(key) || []), item]);
+    }
+    const itemRow = (item, component = false) => {
+      const identities = item.identities || [];
+      const active = identities.filter((identity) => ['AUTO', 'CONFIRMED'].includes(identity.status));
+      const candidates = identities.filter((identity) => identity.status === 'NEEDS_CONFIRM');
+      return `<div class="predefined-row${component ? ' component' : ''}">
+        <div class="predefined-name"><strong>${escapeHtml(item.display_name)}</strong>${component ? '<small>组件 · 已核验归属</small>' : '<small>顶层 App</small>'}</div>
+        <div class="predefined-bundle" title="${escapeHtml(item.bundle_id || '')}">${escapeHtml(item.bundle_id || 'Bundle ID 待核对')}</div>
+        <div><span class="badge block">BLOCK</span></div>
+        <div class="predefined-match">${active.length ? `${active.length} 个可执行身份` : candidates.length ? '身份待确认' : '身份待识别'}
+          ${identities.map((identity) => `<div class="predefined-identity"><code title="${escapeHtml(identity.identifier)}">${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code>${identity.status === 'NEEDS_CONFIRM' && !item.disabled_at ? `<button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}" title="确认此代码身份并下发阻止">确认</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}" title="排除此候选身份">排除</button>` : ''}</div>`).join('')}</div>
+        <div class="predefined-status"><strong>${escapeHtml(item.status)}</strong>${active.length ? `<small>终端 ${item.appliedMacCount}/${item.activeMacCount} 已应用</small>` : ''}</div>
+        <div class="predefined-actions">${item.disabled_at ? '' : `<button class="quiet" data-preset-action="DISABLE" data-index="${item.source_index}" title="停用此来源项及已核验组件">停用</button>`}</div>
+      </div>`;
+    };
+    $('#content').innerHTML = `<div class="toolbar"><span class="summary">${payload.sourceCount} 条来源项 · ${payload.topLevelCount} 个顶层 App</span></div>
+      ${items.length ? `<div class="predefined-table"><div class="predefined-head"><span>应用 / 组件</span><span>Bundle ID</span><span>目标</span><span>身份匹配</span><span>终端状态</span><span></span></div>
+        ${items.filter((item) => item.parent_source_index == null).map((item) => `${itemRow(item)}${(children.get(Number(item.source_index)) || []).map((child) => itemRow(child, true)).join('')}`).join('')}</div>`
+        : '<div class="empty">尚未导入核验后的 Qustodio 清单。</div>'}`;
+  }
+
   async function loadView() {
     clearError();
     $('#content').innerHTML = '<div class="empty">正在读取 Native App Control…</div>';
@@ -405,6 +435,9 @@
         const result = await native('/native/v1/macs');
         state.data = result.data || [];
         state.merges = [];
+      } else if (state.view === 'PREDEFINED') {
+        const result = await native('/native/v1/predefined');
+        state.predefined = result.data;
       } else {
         const [result, merges] = await Promise.all([
           native(`/native/v1/applications?state=${state.view}`),
@@ -413,11 +446,26 @@
         state.data = result.data || [];
         state.merges = merges.data || [];
       }
-      state.view === 'MACS' ? renderMacs() : renderApplications();
+      if (state.view === 'MACS') renderMacs();
+      else if (state.view === 'PREDEFINED') renderPredefined();
+      else renderApplications();
     } catch (error) {
       showError(error);
       $('#content').innerHTML = '<div class="empty">暂时无法读取独立 Native App 服务。</div>';
     }
+  }
+
+  async function presetAction(button) {
+    const index = Number(button.dataset.index);
+    const action = button.dataset.presetAction;
+    if (action === 'CONFIRM' && !window.confirm('确认此身份属于该应用？哈希规则仅覆盖当前版本，确认后将下发 BLOCK。')) return;
+    if (action === 'DISABLE' && !window.confirm('停用此预定义项及其已核验组件？现有独立 BLOCK 规则不会删除。')) return;
+    if (action === 'REJECT' && !window.confirm('确认排除此候选身份？')) return;
+    const path = action === 'DISABLE'
+      ? `/native/v1/predefined/${index}/disable`
+      : `/native/v1/predefined/${index}/identities/decision`;
+    await native(path, { method: 'POST', body: JSON.stringify({ action, identityKey: button.dataset.key }) });
+    await loadView();
   }
 
   async function decide(applicationId, action) {
@@ -531,9 +579,9 @@
       try { downloadEnrollmentProfile(); } catch (error) { showError(error); }
     });
     $('#content').addEventListener('click', (event) => {
-      const target = event.target.closest('[data-action], [data-mac-action]');
+      const target = event.target.closest('[data-action], [data-mac-action], [data-preset-action]');
       if (!target) return;
-      const promise = target.dataset.action === 'DETAIL'
+      const promise = target.dataset.presetAction ? presetAction(target) : target.dataset.action === 'DETAIL'
         ? openApplicationDetails(target.dataset.id)
         : target.dataset.action === 'MERGE'
           ? openMerge(target.dataset.id)

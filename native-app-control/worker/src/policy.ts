@@ -260,7 +260,7 @@ export function chooseIdentity(input: Record<string, unknown>): IdentityForPolic
   const signingId = String(input.signing_id || input.signingID || '').trim();
   const cdhash = String(input.cdhash || '').trim();
   const sha256 = String(input.file_sha256 || input.sha256 || '').trim().toLowerCase();
-  if (teamId && signingId) {
+  if ((teamId && signingId) || /^platform:[^:]+/i.test(signingId)) {
     return { identityType: 'SIGNINGID', identifier: canonicalSigningIdentifier(teamId, signingId) };
   }
   if (cdhash) return { identityType: 'CDHASH', identifier: cdhash };

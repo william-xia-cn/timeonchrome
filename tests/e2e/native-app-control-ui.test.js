@@ -88,6 +88,27 @@ async function mockApis(page) {
   }));
   await page.route('https://timeonchrome-native-app-api.william-xia-cn.workers.dev/**', (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === '/native/v1/predefined') {
+      const items = Array.from({ length: 21 }, (_, index) => ({
+        source_index: index + 1, display_name: `预定义应用 ${index + 1}`,
+        bundle_id: `org.example.app${index + 1}`, parent_source_index: null,
+        target_policy: 'BLOCK', status: '待识别', identities: [],
+        appliedMacCount: 0, activeMacCount: 1,
+      }));
+      items[0] = { ...items[0], display_name: 'Steam', bundle_id: 'com.valvesoftware.steam',
+        status: '已生效', identities: [{ identity_key: 'SIGNINGID:MXGJJ98X76:com.valvesoftware.steam',
+          identity_type: 'SIGNINGID', identifier: 'MXGJJ98X76:com.valvesoftware.steam', status: 'AUTO' }],
+        appliedMacCount: 1 };
+      items[1] = { ...items[1], display_name: 'Steam Helper', bundle_id: 'com.valvesoftware.steam.helper',
+        parent_source_index: 1 };
+      items[2] = { ...items[2], display_name: 'Hash only', status: '需确认',
+        identities: [{ identity_key: `BINARY:${'a'.repeat(64)}`, identity_type: 'BINARY',
+          identifier: 'a'.repeat(64), status: 'NEEDS_CONFIRM' }] };
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        data: { source: 'qustodio-2026-09', sourceCount: 21, topLevelCount: 20, items },
+      }) });
+      return;
+    }
     if (url.pathname === '/native/v1/macs' && route.request().method() === 'POST') {
       route.fulfill({
         status: 201, contentType: 'application/json', body: JSON.stringify({ data: {
@@ -265,5 +286,21 @@ for (const viewport of [{ name: 'desktop', width: 1366, height: 800 }, { name: '
     await expect(page.locator('#review-count')).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
     await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-control-146-${viewport.name}.png`) });
+  });
+}
+
+for (const viewport of [{ name: 'desktop', width: 1366, height: 800 }, { name: 'narrow', width: 720, height: 900 }]) {
+  test(`预定义管控 21 项与组件层级 ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockApis(page);
+    await page.goto(`${baseUrl}/native-apps/index.html`);
+    await page.locator('[data-view="PREDEFINED"]').click();
+    await expect(page.getByRole('heading', { name: '预定义管控' })).toBeVisible();
+    await expect(page.getByText('21 条来源项 · 20 个顶层 App')).toBeVisible();
+    await expect(page.locator('.predefined-row')).toHaveCount(21);
+    await expect(page.locator('.predefined-row.component')).toHaveCount(1);
+    await expect(page.getByText('需确认').first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+    await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-predefined-${viewport.name}.png`) });
   });
 }

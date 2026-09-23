@@ -645,6 +645,29 @@ export async function decideApplication(
       applicationId, application.top_level_bundle_id, application.top_level_bundle_id,
       application.team_id
     ));
+    if (action === 'IGNORE') {
+      statements.push(env.DB.prepare(`
+        UPDATE native_app_predefined_items_v1 SET disabled_at = ?, updated_at = ?
+         WHERE child_id = ? AND disabled_at IS NULL AND (
+           (? IS NOT NULL AND LOWER(bundle_id) = LOWER(?))
+           OR parent_source_index IN (
+             SELECT source_index FROM native_app_predefined_items_v1
+              WHERE child_id = ? AND ? IS NOT NULL AND LOWER(bundle_id) = LOWER(?)
+           )
+           OR EXISTS (
+             SELECT 1 FROM native_app_predefined_identities_v1 pi
+               JOIN application_identities_v1 ai ON ai.identity_key = pi.identity_key
+               JOIN application_memberships_v1 am ON am.identity_id = ai.id
+              WHERE pi.child_id = native_app_predefined_items_v1.child_id
+                AND pi.source = native_app_predefined_items_v1.source
+                AND pi.source_index = native_app_predefined_items_v1.source_index
+                AND am.application_id = ?
+           )
+         )
+      `).bind(timestamp, timestamp, auth.child_id, application.top_level_bundle_id,
+        application.top_level_bundle_id, auth.child_id, application.top_level_bundle_id,
+        application.top_level_bundle_id, applicationId));
+    }
   }
   statements.push(...policyVersionStatements(env, auth.child_id));
   statements.push(auditStatement(
@@ -791,6 +814,19 @@ export async function loadBlockedPolicy(env: Env, childId: string) {
     const identities = grouped.get(row.application_id) || [];
     identities.push({ identityType: row.identity_type, identifier: row.identifier });
     grouped.set(row.application_id, identities);
+  }
+  const predefined = await env.DB.prepare(`
+    SELECT p.source_index, i.identity_type, i.identifier
+      FROM native_app_predefined_items_v1 p
+      JOIN native_app_predefined_identities_v1 i
+        ON i.child_id = p.child_id AND i.source = p.source AND i.source_index = p.source_index
+     WHERE p.child_id = ? AND p.disabled_at IS NULL AND i.status IN ('AUTO', 'CONFIRMED')
+     ORDER BY p.source_index
+  `).bind(childId).all<{ source_index: number; identity_type: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>();
+  for (const row of predefined.results || []) {
+    grouped.set(`predefined:${row.source_index}:${row.identifier}`, [{
+      identityType: row.identity_type, identifier: row.identifier,
+    }]);
   }
   const publishers = await env.DB.prepare(`
     SELECT team_id FROM child_publisher_blocks_v1 WHERE child_id = ? ORDER BY team_id
