@@ -106,13 +106,18 @@ function trustedSigning(candidate: Candidate): boolean {
     && (/^platform:[^:]+/i.test(candidate.identifier) || /^[A-Z0-9]{10}:.+/.test(candidate.identifier));
 }
 
-export async function reconcilePredefinedItems(env: Env, accountId: string, childId: string): Promise<void> {
+export async function reconcilePredefinedItems(
+  env: Env, accountId: string, childId: string, changedBundleIds?: string[]
+): Promise<void> {
   const child = await env.DB.prepare(`SELECT child_id FROM native_children_v1
     WHERE child_id = ? AND account_id = ?`).bind(childId, accountId).first<{ child_id: string }>();
   if (!child) return;
   const items = await env.DB.prepare(`SELECT source_index, bundle_id FROM native_app_predefined_items_v1
     WHERE child_id = ? AND source = ? AND disabled_at IS NULL AND bundle_id IS NOT NULL`)
     .bind(childId, SOURCE).all<{ source_index: number; bundle_id: string }>();
+  const changed = changedBundleIds && new Set(changedBundleIds.map((bundleId) => bundleId.toLowerCase()));
+  const relevant = (items.results || []).filter((item) => !changed || changed.has(item.bundle_id.toLowerCase()));
+  if (!relevant.length) return;
   const known = await env.DB.prepare(`SELECT source_index, identity_key, status FROM native_app_predefined_identities_v1
     WHERE child_id = ? AND source = ?`).bind(childId, SOURCE)
     .all<{ source_index: number; identity_key: string; status: string }>();
@@ -120,7 +125,7 @@ export async function reconcilePredefinedItems(env: Env, accountId: string, chil
   const statements: D1PreparedStatement[] = [];
   const activationToken = crypto.randomUUID();
   const now = timestamp();
-  for (const item of items.results || []) {
+  for (const item of relevant) {
     const candidates = await matchingCandidates(env, childId, item.bundle_id);
     if (candidates.some((candidate) => candidate.existing_ignore)) {
       statements.push(env.DB.prepare(`UPDATE native_app_predefined_items_v1

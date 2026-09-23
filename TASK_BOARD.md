@@ -1,6 +1,6 @@
 # TASK_BOARD
 
-- [ ] [P1 Native App / implementation complete, source verification pending] T.xia Qustodio 21 项预定义管控：独立入口展示来源、身份匹配和终端应用状态；只用已核验的 Child 专属身份编译 BLOCK。数据库级身份/幂等/跨 Child/策略版本测试、Pages 桌面与窄屏 mock 已通过。Qustodio 会话过期，21 项名称与 Bundle ID 尚未全部在线复核；此门禁前不向 T.xia 导入生产清单。
+- [ ] [P1 Native App / code deployed, source verification pending] T.xia Qustodio 21 项预定义管控：独立入口展示来源、身份匹配和终端应用状态；只用已核验的 Child 专属身份编译 BLOCK。数据库级身份/幂等/跨 Child/策略版本测试、Pages 桌面与窄屏 mock 已通过；migration 003、Native Worker 和控制台 Pages 已部署，生产预定义表仍为 0 条。Qustodio 会话过期，21 项名称与 Bundle ID 尚未全部在线复核；此门禁前不向 T.xia 导入生产清单。
 - [x] [P1 Native App UI / deployed] Santa 应用目录收敛为顶层 App：Native Macs 导入安装快照，独立 D1 保存每台 Mac 的安装事实，Santa 事件只补充真实发现；保留三状态入口和逐应用规则，六类折叠展示，组件不计入应用数量。Thomas 清单 ZIP 本地验证为 146 个顶层 App；migration 002、Native Worker、控制台 Pages 已于 2026-09-24 独立部署并回读。
 
 > App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。

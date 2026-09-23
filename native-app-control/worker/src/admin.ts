@@ -95,7 +95,13 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
   if (inventoryMatch && request.method === 'POST') {
     try {
       const result = await importNativeMacInventory(env, auth, inventoryMatch[1], body.applications);
-      if (result) await reconcilePredefinedItems(env, auth.account_id, auth.child_id);
+      if (result) {
+        await reconcilePredefinedItems(env, auth.account_id, auth.child_id,
+          Array.isArray(body.applications)
+            ? body.applications.map((item) => item && typeof item === 'object'
+              ? String((item as Record<string, unknown>).bundleId || '') : '').filter(Boolean)
+            : []);
+      }
       return result ? json({ data: result }) : json({ error: 'native_mac_not_found' }, 404);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'invalid_inventory' }, 400);

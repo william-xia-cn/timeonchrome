@@ -300,7 +300,7 @@ export async function observeSantaEvents(
   env: Env,
   context: { accountId: string; childId: string; nativeMacId: string },
   rawEvents: unknown[]
-): Promise<{ accepted: number; rejected: number; bundleBinaryRequests: string[] }> {
+): Promise<{ accepted: number; rejected: number; bundleBinaryRequests: string[]; bundleIds: string[] }> {
   type NormalizedEvent = NonNullable<ReturnType<typeof normalizeSantaEvent>>;
   const events: NormalizedEvent[] = [];
   let rejected = 0;
@@ -475,7 +475,8 @@ export async function observeSantaEvents(
   );
   const bundleBinaryRequests = [...bundleCandidates]
     .filter((bundleHash) => !uploadedBundleHashes.has(bundleHash));
-  return { accepted: events.length, rejected, bundleBinaryRequests };
+  return { accepted: events.length, rejected, bundleBinaryRequests,
+    bundleIds: [...new Set(events.map((event) => event.bundleId).filter((value): value is string => !!value))] };
 }
 
 export async function listApplications(env: Env, auth: NativeAuth, state?: string) {

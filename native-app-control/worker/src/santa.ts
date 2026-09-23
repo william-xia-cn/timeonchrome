@@ -55,7 +55,9 @@ export async function handleSantaRequest(request: Request, env: Env): Promise<Re
   if (stage === 'eventupload') {
     const events = Array.isArray(body.events) ? body.events : [];
     const result = await observeSantaEvents(env, context, events);
-    if (result.accepted) await reconcilePredefinedItems(env, context.accountId, context.childId);
+    if (result.bundleIds.length) {
+      await reconcilePredefinedItems(env, context.accountId, context.childId, result.bundleIds);
+    }
     return json({
       accepted: result.accepted,
       rejected: result.rejected,

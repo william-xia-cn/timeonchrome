@@ -117,7 +117,7 @@ function signed(name, bundleId, teamId, signingId = bundleId) {
   assert(!rules.some((rule) => rule.rule_type === 'TEAMID'));
   assert.equal((await repository.loadBlockedPolicy(env, 'other')).applications.length, 0);
 
-  await repository.observeSantaEvents(env, { accountId: auth.account_id, childId: auth.child_id, nativeMacId: 'mac-1' }, [
+  const upload = await repository.observeSantaEvents(env, { accountId: auth.account_id, childId: auth.child_id, nativeMacId: 'mac-1' }, [
     { file_name: 'Ambiguous', file_path: '/Applications/Ambiguous.app/Contents/MacOS/Ambiguous',
       bundle_id: 'org.example.ambiguous', team_id: 'AAAAAAAAAA', signing_id: 'org.example.ambiguous' },
     { file_name: 'Ambiguous', file_path: '/Applications/Ambiguous.app/Contents/MacOS/Ambiguous',
@@ -128,7 +128,13 @@ function signed(name, bundleId, teamId, signingId = bundleId) {
       bundle_id: 'com.valvesoftware.steam.helper', team_id: 'MXGJJ98X76',
       signing_id: 'com.valvesoftware.steam.helper' },
   ]);
-  await presets.reconcilePredefinedItems(env, auth.account_id, auth.child_id);
+  assert(upload.bundleIds.includes('com.valvesoftware.steam.helper'));
+  const beforeUnrelated = sqlite.prepare('SELECT policy_version AS v FROM native_children_v1 WHERE child_id = ?')
+    .get('thomas').v;
+  await presets.reconcilePredefinedItems(env, auth.account_id, auth.child_id, ['org.example.unrelated']);
+  assert.equal(sqlite.prepare('SELECT policy_version AS v FROM native_children_v1 WHERE child_id = ?')
+    .get('thomas').v, beforeUnrelated);
+  await presets.reconcilePredefinedItems(env, auth.account_id, auth.child_id, upload.bundleIds);
   listed = await presets.listPredefinedItems(env, auth);
   assert.equal(listed.items[4].status, '需确认', '多个可信 SigningID 也不得自动阻止');
   assert.equal(listed.items[5].status, '待同步', 'Santa 后续首次发现唯一可信身份会生成规则');

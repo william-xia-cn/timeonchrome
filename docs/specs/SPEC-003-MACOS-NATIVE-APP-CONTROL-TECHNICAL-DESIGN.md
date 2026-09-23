@@ -106,6 +106,8 @@ T.xia 的 Qustodio 阻止清单是一次性导入的 21 条来源事实，独立
 
 预定义目标始终为 BLOCK：精确 Bundle ID 命中同 Child 的可信 TeamID:SigningID 或 `platform:` Signing ID 可自动绑定并提升该 Child 的策略版本；仅哈希、签名异常、多个候选或归属不明时需家长确认，确认后的 CDHASH/BINARY 仅覆盖对应版本。未知身份等待实际发现，允许首次执行。编译时取 Child 专属预定义身份与既有 Child BLOCK 规则的并集并去重，不把组件 identity 写入账号共享 App family。家长将关联应用改为 IGNORE 时，同事务停用对应预定义项，防止下次发现后重新阻止。
 
+Santa EventUpload 与安装清单导入只触发本批出现的 Bundle ID 的预定义重算；没有匹配的预定义项时立即返回，不做空批次 D1 写入。首次来源导入才完整核对 21 项。
+
 列表返回来源条目数与顶层 App 数，并按每台 active Native Mac 的 `applied_policy_version` 与目标版本判定待同步、部分生效、已生效；没有可编译身份时不得声称生效。策略变化只提升一次 Child 版本，审计保留来源、确认与停用动作。生产顺序固定为先独立上线安装清单 migration 002，再上线预定义 migration；Qustodio 21 项名称和 Bundle ID 全部复核后才一次性导入生产。
 
 Native Mac 创建或轮换 enrollment 后，控制台使用仅在当前响应中出现的 `SyncBaseURL` 在浏览器内存中生成设备专属 `.mobileconfig` 并立即提供下载。页面不得显示或长期保存裸 URL；同一页面会话可重复下载，刷新后必须轮换 enrollment 才能重新生成。profile 只包含 Santa 运行配置和家长设置的 Native Mac 名称，不写入 Account ID、Child ID、Chrome Device、MachineID 或任何 Chrome 凭据。
