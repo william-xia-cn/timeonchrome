@@ -1,5 +1,9 @@
 # App Runtime 决策记录
 
+## ARM-D-031：本机代码拆入 TimeWhereNative，云端与契约留在 TimeOnChrome
+
+2026-09-25 PO 批准。`agents/` 与 `installer/` 的可发布源码、历史和 CI 迁入私有 `william-xia-cn/TimeWhereNative`；`contracts/`、`backend/`、`console/`、Runtime D1/R2 与生产发布流程仍归 TimeOnChrome。Guardian SSO、Child lifecycle、机器鉴权及现有资源地址不变。原生仓仅锁定版本化契约包及校验值，不从 TimeOnChrome 工作树引用源码；Cloudflare 生产写权限和 R2 latest 切换权不授予原生仓。迁移只在 BrowserBridge v3 已合并的干净 master 上进行，拆仓本身不部署、不执行 migration、不升级终端或改写历史账本。ARM-D-026 中“整体迁出 Runtime 模块”由本决策取代；网页＋应用未来合并统计仍由 TimeOnChrome 持有，双方原始账本各自权威。
+
 ## ARM-D-030：BrowserBridge v3 仅同步权威网页统计快照
 
 2026-09-25 PO 批准。新版扩展不再发送网页 Segment；扩展仍按原算法结算网页用量，只将每日权威秒数、版本与最小区间证据传给 Service。Service 仅验证和去除本机会话与应用主账本的精确重叠，不能重算、重新分类或覆盖网页秒数。证据缺失、压缩或不一致时共享结果不可用，网页和应用各自读数仍可显示。Host 缺失或 Service 断开不影响网页原账及配额。当前周修正证据由设备鉴权只读分页接口提供；不修改原 Segment 或既有物化。ARM-D-029 仅作 v2 历史协议记录。

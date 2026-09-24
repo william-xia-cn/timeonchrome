@@ -1,5 +1,12 @@
 # App Runtime 项目真值
 
+## 当前源码边界：D-104/ARM-D-031
+
+- BrowserBridge v3 已于 PR #44 合入 `master@373877d`，拆仓从该干净基线开始；v3 仍是本地候选，不代表生产发布。
+- TimeOnChrome 保留 contracts、Runtime Worker/独立 Pages、D1/R2、Guardian 身份桥及生产发布权；私有 TimeWhereNative 接管 Windows/macOS Agent、RuntimeService、TimeWhereMg、Native Host 与安装器。
+- 现有 SSO、Child lifecycle、机器身份和云资源地址不迁移；新仓无 Cloudflare 生产写权限。私有仓库 `main@5759559` 的 Windows tests/installer 与 macOS 15 当前版、上一兼容契约版 CI 已通过（run `36045220406`）；集成 PR 合并前，旧仓本机源码只在隔离工作树中标记删除，`master` 尚未改变。
+- 拆仓本身不部署、不执行 migration、不升级本机、不改写账本或切换 R2 latest。
+
 ## 当前开发：ARM-D-029 BrowserBridge v2（本地候选）
 
 - 目标版本为 contracts 1.11.0、Windows Runtime/TimeWhereMg 2.6.0、unpacked extension 1.7.34。
@@ -55,7 +62,7 @@
 
 - App Runtime 任务必须在实现前声明变更等级、受影响子系统、必要本地测试/CI/发布 smoke 与明确排除项。
 - 同一 Git SHA 和产物哈希的测试证据可复用；纯文档及发布证据不触发产品回归。
-- Runtime CI 按 docs/contracts/worker/console/windows/installer/macos/release-config 路由，生产只复核精确 SHA gate 与资源 smoke；高风险专项门禁保持不变。
+- 拆仓前 Runtime CI 按 docs/contracts/worker/console/windows/installer/macos/release-config 路由；拆仓后 Windows/installer/macOS 由 TimeWhereNative 独立 CI 负责，旧仓保留 contracts/Worker/Console/release-config 和生产精确 SHA gate。高风险专项门禁保持不变。
 
 ## 当前开发：ARM-D-017 产品目录云端纠错
 

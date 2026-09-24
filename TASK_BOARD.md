@@ -1,5 +1,14 @@
 # TASK_BOARD
 
+## TimeWhereNative 本机拆仓（D-104，进行中）
+
+- [x] BrowserBridge v3 已通过 PR #44 合入 `origin/master@373877d`，本任务从该干净基线开始。
+- [ ] 在隔离工作树保留 `agents/`、`installer/` 相关历史并迁入私有 `TimeWhereNative`；原生仓锁定固定契约版本及校验值。
+- [ ] 原生仓独立 Windows/macOS CI；TimeOnChrome 保留 contracts、Runtime Worker/Pages/D1/R2、Guardian adapter 与唯一 R2 发布权。
+- [ ] 双仓隔离构建、当前版及上一兼容版协议验证、发布权限审计后，再通过 PR 移除旧本机源码和旧 CI 入口。
+
+测试契约：架构／源码所有权迁移（高风险）；本地必须＝原生文件与 Git 历史对照、Windows 测试与 WiX 构建、macOS CI、contracts 当前版/上一版兼容、TimeOnChrome contracts/Worker/Console/Guardian 定向检查、边界与权限审计、`git diff --check`；CI＝两仓各自受影响 job；发布 smoke＝无。本轮明确排除云端部署、D1 migration、R2 latest、终端升级、真实家庭数据、网页／应用账本语义修改。
+
 - [ ] [P1 Native App / preconfiguration presentation / deployed, visual pending] 主表与预配置页显示归属、旧来源详情核验动作及对应单测已完成：可执行 BLOCK 进入“已阻止”，预配置页只显示未匹配来源并区分 BLOCK/候选。Product Owner 于 2026-09-24 明确要求先提交部署并自行验证；部署前目视验收因浏览器安全策略未完成，仍待 Product Owner 线上确认，不记为 PASS。代码提交 `cffcee2`；Native Worker `1ff8c68b-82bc-4cdc-a498-85eb4cb44912`、Pages `c2d25d50` 已部署，稳定域名 HTML/JS 和 Worker `/health` 回读 HTTP 200。本轮未导入新生产来源，也未做跨 Child 复制。
 - [x] [P1 Native App / migration ledger repair / deployed] 生产 Native D1 的 `002/003` 表、索引及 `inventory_snapshot_id` 字段已与仓库迁移核对；仅补录缺失迁移元数据，未重放旧建表 SQL。随后应用 `004`，回查无待执行迁移，既有 21 条来源仍全部为 `BLOCK`。
 - [x] [P1 Native App / preconfiguration version attribution / local] 通用来源自动绑定已按实际激活的来源项写入 `required_policy_version`；同批只提升一次 Child 策略版本，候选项不写版本。相关回归通过，未扩大规则匹配或改变策略优先级。

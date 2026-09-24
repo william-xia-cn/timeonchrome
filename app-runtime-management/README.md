@@ -1,6 +1,14 @@
 # App Runtime Management
 
-## 当前开发：BrowserBridge v2 与 Windows 2.6.0
+## 源码所有权：云端留仓，本机迁往 TimeWhereNative
+
+依 D-104/ARM-D-031，Runtime Worker、独立 Pages、D1/R2、共享 contracts 与生产发布流程继续由 TimeOnChrome 维护；Windows/macOS Agent、RuntimeService、TimeWhereMg、Native Host 和安装器迁入私有 `TimeWhereNative`。拆仓不移动云资源或鉴权，不升级终端，不切换 R2 latest。新仓锁定固定契约包版本及校验值，只交付受测安装产物；TimeOnChrome 独占 R2 发布权。
+
+## 当前本地基线：BrowserBridge v3
+
+BrowserBridge v3 已合入 `master@373877d`：扩展发送现有权威网页统计快照和最小区间证据，不再由新版通道发送网页 Segment。Service 只核对并计算有证据的应用重叠，不能重新结算网页用量；Host 缺失须保持网页功能正常。该能力仍未发布，本次拆仓不部署。
+
+## 历史开发：BrowserBridge v2 与 Windows 2.6.0
 
 ARM-D-029 将本地浏览器桥分成 best-effort `health` 和 durable at-least-once `ledger`。Extension 1.7.34 只观察已写入 `usage_segments_v1` 的 Segment，以持久 ID/日期 digest 在首次启用后对账；RuntimeService 双 pipe 兼容 v1/v2，在镜像与影子脏区间事务提交后逐项 ACK，并异步恢复投影。TimeWhereMg 仅显示裁剪健康摘要。该能力不改变网页落账、现有配额、阻止或云端数据；当前只构建本地未签名候选。
 
@@ -10,7 +18,7 @@ ARM-D-027 为开发者模式解压扩展提供严格受限的 Native Host 联调
 
 ## 当前开发：通用 Native Host 与共享配额影子核算
 
-ARM-D-026 将本机桥统一为 `TimeOnChrome Native Host`。Host 只连接 Managed Chrome 扩展与 RuntimeService；Service 独立保存已结算网页 Segment 镜像并运行共享配额影子裁决，不改网页/App Runtime 原始账、现行配额或阻止。实现与安装资产全部归本模块，便于未来整体迁出独立仓库。
+ARM-D-026 将本机桥统一为 `TimeOnChrome Native Host`。Host 只连接 Managed Chrome 扩展与 RuntimeService；Service 独立保存已结算网页 Segment 镜像并运行共享配额影子裁决，不改网页/App Runtime 原始账、现行配额或阻止。迁移前实现与安装资产归本模块；D-104/ARM-D-031 已将“整体迁出”修正为“仅本机源码迁出”。
 
 ## 当前开发：系统应用与游戏默认分类
 
@@ -126,13 +134,16 @@ App Runtime Management 是 TimeOnChrome 的跨平台前台应用使用时间能�
 - D-091 TimeWhereMg（2.1.1 本机已安装，未部署）：安装后的 WPF Setup 已升级为托盘常驻的 `TimeWhereMg` 服务管理应用；标准账户只读裁剪状态，管理员经 UAC 完成配对、同步、Service 启停/重启、repair 和一次性卸载。2.1.1 在保留开始菜单与 HKLM 全用户托盘自启动的同时，由 MSI 增加公共桌面 `TimeWhereMg` 快捷方式；入口只指向正式安装目录，不依赖源码 worktree。William 本机已从 2.0.6 原地升级，Computer Use 复验快捷方式启动、在线/已配对状态、策略应用和隐藏到托盘均通过；RuntimeService 为 Automatic/Running，单一 Session Agent 正常运行。TimeWhereMg 只是本机 UI 品牌，RuntimeService、安装身份、ProgramData 与云端协议不改名；Session Agent 保持内部采集子进程。
 - 部署：Guardian `024`、Runtime/Guardian Worker 与账户级 `/app-runtime/` Pages 已于 2026-09-02 发布；历史 2.0.0/2.0.1/2.0.2/2.0.3 对象保持不可变。2.0.3 已完成机器级安装，2.0.4 修正控制管道身份传递并增加常驻 loop 日志与退避恢复。2.0.5 修正首次用户上报未推进策略版本导致 Session Agent 不启动、WTS 用户名 ANSI/Unicode 解码错误及 accounting v2 已上传但页面误显示为零；2.0.6 将 Setup 改为受工作区约束的响应式窗口、可垂直滚动主内容和固定操作栏，避免高 DPI 下裁切卸载表单，William 已原地升级且 R2 latest 已切换 2.0.6。生产 Runtime Worker 当前版本为 `135c57b8-ed3a-4fd6-8f61-d862d8a92ecd`，当前 Pages deployment 为 `3164aad7`。2.x 下载路由必须从版本 manifest 选择 Burn bootstrapper，manifest 缺失或非法时 fail closed，绝不能回退 MSI。所有内部包均未签名，保持 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
-## Windows 开发命令
+## 本机开发命令（TimeWhereNative 私有仓库）
+
+下列命令必须在 `william-xia-cn/TimeWhereNative` 的克隆根目录执行；TimeOnChrome 不再包含 `agents/` 或 `installer/` 可发布源码。
 
 ```powershell
+pwsh tools/restore-contracts.ps1
 dotnet restore agents/windows/TimeOnChrome.AppRuntime.sln
 dotnet test agents/windows/TimeOnChrome.AppRuntime.sln --configuration Release
-dotnet publish agents/windows/src/TimeOnChrome.AppRuntime.Agent/TimeOnChrome.AppRuntime.Agent.csproj --configuration Release
-pwsh installer/windows/build.ps1 -Version 2.1.1
+dotnet test agents/windows/TimeOnChrome.AppRuntime.sln -p:ContractsVersion=1.10.0
+pwsh installer/windows/build.ps1 -Version 2.6.0
 ```
 
 面向家长和普通 Windows 用户的正式流程不使用 CLI：家长从 TimeOnChrome 主控制台进入独立 Runtime Console，为机器选择默认孩子并生成一次性配对码；安装后在 TimeWhereMg 中完成配对。服务器地址由安装包固定为产品 Runtime endpoint。

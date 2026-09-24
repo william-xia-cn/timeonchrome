@@ -5,9 +5,6 @@ const OUTPUT_KEYS = [
   'contracts',
   'worker',
   'console',
-  'windows',
-  'installer',
-  'macos',
   'release_config',
 ];
 
@@ -22,6 +19,10 @@ const GOVERNANCE_DOCS = new Set([
 const RELEASE_CONFIG_FILES = new Set([
   '.github/workflows/app-runtime.yml',
   '.github/workflows/app-runtime-production.yml',
+  '.github/workflows/timewhere-native-artifact-gate.yml',
+  'tools/timewhere-native-contract-lock.json',
+  'tools/verify-timewhere-native-artifact.js',
+  'tests/unit/timewhere-native-artifact.test.js',
   'tools/classify-app-runtime-ci-changes.js',
   'tools/write-app-runtime-release-manifest.js',
   'tools/check-app-runtime-boundaries.js',
@@ -67,8 +68,6 @@ function classifyPaths(paths, options = {}) {
     if (file.startsWith('app-runtime-management/contracts/')) {
       result.contracts = true;
       result.worker = true;
-      result.windows = true;
-      result.macos = true;
       continue;
     }
     if (file.startsWith('app-runtime-management/backend/')) {
@@ -79,20 +78,8 @@ function classifyPaths(paths, options = {}) {
       result.console = true;
       continue;
     }
-    if (file.startsWith('app-runtime-management/agents/windows/')) {
-      result.windows = true;
-      continue;
-    }
-    if (file.startsWith('app-runtime-management/installer/windows/')) {
-      result.installer = true;
-      continue;
-    }
-    if (file.startsWith('app-runtime-management/installer/')) {
-      result.docs = true;
-      continue;
-    }
-    if (file.startsWith('app-runtime-management/agents/macos/')) {
-      result.macos = true;
+    if (file.startsWith('app-runtime-management/agents/') || file.startsWith('app-runtime-management/installer/')) {
+      result.release_config = true;
       continue;
     }
     if (file.startsWith('app-runtime-management/')) {
