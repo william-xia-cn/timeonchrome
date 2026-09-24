@@ -158,7 +158,7 @@ function run() {
   expectTrue('Pages 应支持备份目录预检和恢复', source.includes('cloud-restore-select-btn') && source.includes('/restore/v1/preflight') && source.includes('/restore/v1/commit'));
   expectTrue('Pages 恢复预检应显示配置文件读取和备份摘要', source.includes('renderRestoreConfigPreflight') && source.includes('配置恢复检查') && source.includes('config/config.json') && source.includes('site-access-editable.json') && source.includes('备份摘要'));
   expectTrue('Pages 恢复完成应显示写后校验和回读结果', source.includes('renderRestoreConfigCommitStatus') && source.includes('写后校验') && source.includes('回读当前配置') && source.includes('恢复后摘要'));
-  expectTrue('Pages 恢复提交后应重新读取当前配置', extractFunctionSource(source, 'commitCloudRestore').includes("api(`/profiles/${currentProfileId}/config`)") && extractFunctionSource(source, 'commitCloudRestore').includes('remoteConfig = refreshed.data || {}'));
+  expectTrue('Pages 恢复提交后应重新读取当前配置及版本', extractFunctionSource(source, 'commitCloudRestore').includes("api(`/profiles/${currentProfileId}/config`)") && extractFunctionSource(source, 'commitCloudRestore').includes('applyProfileConfigResponse(refreshed)'));
   expectTrue('Pages 恢复应区分安全合并和整包覆盖', source.includes('安全合并恢复') && source.includes('整包覆盖恢复') && source.includes("confirmText: replace ? confirmText : undefined"));
   expectTrue('Pages 网站管理不应再包含独立导入导出按钮', !source.includes('import-rules-btn') && !source.includes('export-rules-btn'));
   expectTrue('Pages 用户管理应包含配置导入与导出入口', source.includes('配置导入与导出') && source.includes('acct-export-config-btn') && source.includes('acct-import-config-btn'));
@@ -182,7 +182,7 @@ function run() {
   expectTrue('Pages 配置导入全选应标明覆盖当前配置', source.includes('应用全部差异（覆盖当前配置）'));
   expectTrue('Pages 配置导入选择文件后不应直接 PUT config', !extractFunctionSource(source, 'importProfileConfig').includes("api(`/profiles/${currentProfileId}/config`, 'PUT'"));
   expectTrue('Pages 配置导入应用选中普通项后应重新读取 config', extractFunctionSource(source, 'applySelectedConfigImportDiffs').includes("api('/profiles/' + currentProfileId + '/config')"));
-  expectTrue('Pages 配置导入应复用现有 PUT config API', extractFunctionSource(source, 'applySelectedConfigImportDiffs').includes("api('/profiles/' + currentProfileId + '/config', 'PUT', { data: payload })"));
+  expectTrue('Pages 配置导入应复用带版本保护的 config 保存入口', extractFunctionSource(source, 'applySelectedConfigImportDiffs').includes("saveProfileConfig(payload, 'profile_config_import')"));
   expectTrue('Pages 配置导入应规范化 YouTube playlist 后比较规则', extractFunctionSource(source, 'configImportRuleKey').includes('canonicalDisplayUrlValue') && source.includes('uniqueSiteRules(importedRules)'));
   expectTrue('Pages 配置导入应用前应继续校验跨分类冲突', extractFunctionSource(source, 'buildProfileConfigImportPayload').includes('findSiteAccessExactConflicts'));
   expectTrue('Pages 落账相关域名筛选应标明关键词筛选', (source.match(/placeholder="域名关键词筛选"/g) || []).length >= 3);
@@ -236,7 +236,7 @@ function run() {
   const renderClientLogPolicySummarySource = extractFunctionSource(source, 'renderClientLogPolicySummary');
   expectTrue('Pages 旧日志授权到期后停止上传且不自动延期', renderClientLogPolicySummarySource.includes('expiresAt <= Date.now()') && renderClientLogPolicySummarySource.includes('当前：已过期') && renderClientLogPolicySummarySource.includes('保存新策略前不会自动延期'));
   const saveClientLoggingPolicySource = extractFunctionSource(source, 'saveClientLoggingPolicy');
-  expectTrue('Pages 日志策略保存应只提交 clientLoggingPolicyV1', saveClientLoggingPolicySource.includes("{ data: { clientLoggingPolicyV1: nextPolicy } }"));
+  expectTrue('Pages 日志策略保存应只提交 clientLoggingPolicyV1', saveClientLoggingPolicySource.includes("saveProfileConfig({ clientLoggingPolicyV1: nextPolicy }, 'client_logging_policy_save')"));
   expectTrue('Pages 日志策略保存不应提交完整 remoteConfig', !saveClientLoggingPolicySource.includes('{ data: remoteConfig }') && !saveClientLoggingPolicySource.includes('remoteConfig.clientLoggingPolicyV1 = nextPolicy'));
   expectTrue('Pages 日志开启策略应包含上传过滤字段', saveClientLoggingPolicySource.includes('uploadEnabled: true') && saveClientLoggingPolicySource.includes('uploadMinLevel: level') && saveClientLoggingPolicySource.includes('uploadCategories') && saveClientLoggingPolicySource.includes('targetDeviceIds') && saveClientLoggingPolicySource.includes('expiresAt'));
   expectTrue('Pages 日志关闭策略只更新上传策略字段', saveClientLoggingPolicySource.includes('uploadEnabled: false') && saveClientLoggingPolicySource.includes("uploadMinLevel: 'error'") && saveClientLoggingPolicySource.includes('uploadCategories: []') && saveClientLoggingPolicySource.includes('targetDeviceIds: []'));

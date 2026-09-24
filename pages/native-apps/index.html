@@ -22,6 +22,7 @@
         <button class="nav-button active" data-view="REVIEW"><span class="dot review"></span>待审核 <span class="nav-count" id="review-count" hidden></span></button>
         <button class="nav-button" data-view="BLOCK"><span class="dot blocked"></span>已阻止</button>
         <button class="nav-button" data-view="IGNORE"><span class="dot ignored"></span>已忽略</button>
+        <button class="nav-button" data-view="PREDEFINED" title="预配置应用"><span class="dot preset"></span>预配置应用</button>
         <button class="nav-button" data-view="MACS"><span class="dot macs"></span>Native Macs</button>
       </nav>
       <a class="back-link" href="../">返回家长控制台</a>
@@ -51,6 +52,7 @@
       </div>
     </form>
   </dialog>
+  <input id="inventory-file-input" type="file" accept=".zip,application/zip" hidden>
 
   <dialog id="secret-dialog">
     <form method="dialog" class="dialog-body">
@@ -90,6 +92,7 @@
       </div>
       <dl class="detail-grid" id="detail-application-fields"></dl>
       <section class="detail-components" id="detail-application-components" hidden></section>
+      <section class="detail-components" id="detail-application-preconfiguration" hidden></section>
       <div class="detail-advanced" id="detail-application-advanced" hidden>
         <strong>高级管理</strong>
         <p class="muted">发布者规则会影响同一开发者的其他应用；合并身份只改变控制台中的应用归组。</p>

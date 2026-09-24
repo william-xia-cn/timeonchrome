@@ -13,7 +13,7 @@
 
 Managed 扩展通过 `com.timeonchrome.nativehost` 连接 Runtime-owned `TimeOnChrome.NativeHost.exe`；D-061 的旧 ID `com.timeonchrome.guardian` 只保留兼容 manifest。Host 不拥有产品逻辑，只把健康消息和已经写入 `usage_segments_v1` 的隐私裁剪 Segment 镜像转发给 `TimeOnChromeAppRuntime` Service。任何本地桥失败均 fail open，不影响网页落账、拦截、云同步或配额。
 
-共享配额首阶段只由 RuntimeService 生成本地影子结果，不替换现有 Chrome/App Runtime 配额。网页与应用原始账保持独立不可变；裁决规则和拆仓边界以 D-098、ARM-D-026 与 Runtime 技术设计为准。根仓侧不得导入 Runtime Host/Service 源码。
+共享配额首阶段只由 RuntimeService 生成本地影子结果，不替换现有 Chrome/App Runtime 配额。网页与应用原始账保持独立不可变；裁决规则以 D-103、ARM-D-026 与 Runtime 技术设计为准；拆仓边界以后续已批准决策为准。根仓侧不得导入 Runtime Host/Service 源码。
 
 本地未打包联调使用 `native-host-development`，并与正式 managed activation 分离。只有 marker、稳定扩展 ID 和 Chrome 自报 `installType=development` 同时成立时，扩展才允许 Native Messaging；运行激活继续使用普通用户同意和既有本地绑定。staging 工具必须从已批准候选 manifest 读取公开 `key`、校验派生 ID 并写入开发目录，不得输出 key 内容；缺少稳定 key 时拒绝生成。该候选禁止打包、签名、进入更新源或生产渠道。正式 managed 包仍只接受 Chrome managed policy，普通/CWS 包仍不包含 Native Messaging。
 
@@ -36,6 +36,8 @@ BrowserBridge v2 将通信拆成两个可靠性通道：`health/heartbeat|probe`
 ### 1.0 独立 Native App Control
 
 macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-NATIVE-APP-CONTROL-TECHNICAL-DESIGN.md`。该模块部署为独立 Worker 与独立 D1，不属于 Chrome Extension、`guardian-api` 设备同步或 `guardian-db` 业务数据。主系统仅提供 Account/Child 的短期 ES256 身份桥和 Child 删除 lifecycle outbox；Pages 通过 `/native-apps/` 提供独立控制台。现有 Native Worker、D1、secrets 和 Santa 协议属于已部署生产能力，常规 Chrome/Pages 发布不得因“本轮不改 Native 基础设施”而移除既有页面或 Guardian bridge。
+
+Native App 预配置后端增加来源无关的 `GET /native/v1/preconfigurations` 和 `POST /native/v1/preconfigurations/import`（目标 Child ID 二次确认）。迁移 004 为旧预定义表补充 `desired_state`，旧 21 条默认为 `BLOCK`；新来源可保存 `BLOCK` 或仅供识别的 `CANDIDATE`，只有前者参与 Santa 规则编译。生产迁移、Native Worker 和预配置 UI 已部署；视觉验收由 Product Owner 在上线后执行，尚未记为通过。跨 Child 复制属于后续包。
 
 ### 1.0.1 App Runtime Guardian 集成边界
 
@@ -886,7 +888,7 @@ pullCloudConfig():
 
 #### 3.5.2 Managed 本地健康心跳
 
-本节的 guardian 专用命名已由 D-098 取代。内部 managed self-hosted 扩展通过 Native Messaging Host `com.timeonchrome.nativehost` 提供独立于网络和云端 API 的本地健康信号；`com.timeonchrome.guardian` 只作兼容别名。源 manifest 声明 `nativeMessaging`，但打包 staging 必须按渠道裁剪：managed artifact 保留权限、`deployment-profile.json` 与 `health-probe.html` 的 web accessible resource；普通/CWS artifact 强制移除该权限和探测页暴露。运行时还必须验证 deployment marker 为 managed，非 managed 上下文不得连接 Host。
+本节的 guardian 专用命名已由 D-103 取代。内部 managed self-hosted 扩展通过 Native Messaging Host `com.timeonchrome.nativehost` 提供独立于网络和云端 API 的本地健康信号；`com.timeonchrome.guardian` 只作兼容别名。源 manifest 声明 `nativeMessaging`，但打包 staging 必须按渠道裁剪：managed artifact 保留权限、`deployment-profile.json` 与 `health-probe.html` 的 web accessible resource；普通/CWS artifact 强制移除该权限和探测页暴露。运行时还必须验证 deployment marker 为 managed，非 managed 上下文不得连接 Host。
 
 - 模块加载时同步注册 `timeonchromeLocalGuardianHeartbeat` alarm、`onStartup`、`onInstalled` 和内部 probe 消息监听器。Service Worker 加载后立即发送 `booting`；bootstrap 完成或失败后发送确定状态；Native Port 存活时每 60 秒发送，独立一分钟 alarm 作为 Service Worker 唤醒兜底。
 - 使用持久 `connectNative()` Port，但任一时刻只允许一个等待应答的 heartbeat/probe。Host 应答超时为 3 秒；probe 优先且使用 5 秒冷却；生命周期、alarm 和内存定时器触发必须合并，队列不得无界增长。Port 断开后不立即循环重连，只在下一次 alarm、生命周期事件或 probe 时重试。
@@ -1002,6 +1004,16 @@ Worker 的 V2 周快照在既有不可变分页和哈希校验上增加逐设备
   → version > localVersion → 拉取并合并
   → 本地配置更新
 ```
+
+自 D-098 起，档案配置写入采用乐观并发与不可变审计：
+
+- `GET /profiles/:id/config` 返回当前 `version`；Pages 必须保存该版本并在后续 `PUT` 请求中提交 `expectedVersion`。
+- `PUT /profiles/:id/config` 仅在 `expectedVersion` 等于数据库当前版本时更新；否则返回 `409 PROFILE_CONFIG_VERSION_CONFLICT` 和最新版本，Pages 重新读取配置并要求用户复核，不自动重放旧 payload。
+- 实际配置未变化的请求返回 `noChange`，不增加版本、不生成伪审计记录。
+- `profile_config_history_v1` 保存脱敏后的版本快照、前后版本、变更顶层字段、账号、操作来源、请求 ID 和时间。密码、token、secret 及运行时保护字段不得进入审计快照。
+- `GET /profiles/:id/config-history/v1` 向档案所属家长返回最近 100 次脱敏审计记录，用于定位版本、变更字段、来源与时间；不返回任何被剔除的敏感字段。
+- 数据库 `BEFORE UPDATE OF config` 触发器强制版本每次只增加 1，遗漏版本或跳版的写入整体拒绝；`AFTER UPDATE OF config` 触发器兜底捕获内部或遗留写路径。标准家长 PUT 在同一原子批次内补齐账号、来源和 SHA-256；审计写入失败时配置更新整体失败。
+- 终端继续只读拉取 profile config；本机制不改变任何网页账、统计、配额或媒体语义。
 
 ### 3.7 事件上报与邮件通知
 

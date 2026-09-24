@@ -41,7 +41,9 @@ async function api(method, path, body, token) {
     data: {
       customCompositeList: ['example.com'],
       version: '1.3'
-    }
+    },
+    expectedVersion: get0.data?.version,
+    sourceAction: 'manual_verify_deployed_api'
   };
   const put1 = await api('PUT', `/profiles/${profileId}/config`, putData, accountToken);
   console.log('4. PUT config status:', put1.status);

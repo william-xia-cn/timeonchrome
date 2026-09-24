@@ -2,6 +2,7 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
 import { deviceUnboundResponse, verifyDeviceTokenFromRequest } from './deviceIdentity';
+import { mutateProfileConfig } from '../services/profileConfigMutation';
 
 // ── device_token 验证辅助 ──────────────────────────────────────────────────────
 
@@ -298,21 +299,18 @@ export const compositeSessionsRouter = {
           ).bind(classifications[0].session_id).first<{ domain: string }>();
 
           if (firstSession) {
-            const profileRow = await env.DB.prepare(
-              `SELECT config FROM profiles WHERE id = ?`
-            ).bind(profileId).first<{ config: string }>();
-            const config = profileRow?.config ? JSON.parse(profileRow.config) : {};
-            const rules: any[] = config.classificationRules || [];
-
-            // 避免重复规则
-            const exists = rules.some(r => r.domain === firstSession.domain && r.keyword === keyword);
-            if (!exists) {
-              rules.push({ domain: firstSession.domain, keyword, classification: classifications[0].classification });
-              config.classificationRules = rules;
-              await env.DB.prepare(
-                `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-              ).bind(JSON.stringify(config), now, profileId).run();
-            }
+            await mutateProfileConfig(env, {
+              profileId,
+              sourceAction: 'composite_keyword_classify',
+              updatedByAccountId: accountId,
+            }, (config) => {
+              const rules: any[] = config.classificationRules || [];
+              const exists = rules.some(r => r.domain === firstSession.domain && r.keyword === keyword);
+              if (!exists) {
+                rules.push({ domain: firstSession.domain, keyword, classification: classifications[0].classification });
+                config.classificationRules = rules;
+              }
+            });
           }
         }
 
@@ -323,26 +321,19 @@ export const compositeSessionsRouter = {
           ).bind(classifications[0].session_id).first<{ domain: string }>();
 
           if (firstSession) {
-            const profileRow = await env.DB.prepare(
-              `SELECT config FROM profiles WHERE id = ?`
-            ).bind(profileId).first<{ config: string }>();
-            const config = profileRow?.config ? JSON.parse(profileRow.config) : {};
-            const domain = firstSession.domain;
-            const isSameDomain = (a: string, b: string) => matchDomainV12(a, b) && matchDomainV12(b, a);
-
-            config.compositeList = (config.compositeList || []).filter((d: string) => {
-              return !isSameDomain(d, domain);
-            });
-
-            if (classifications[0].classification === 'study') {
-              if (!(config.studyList || []).some((d: string) => isSameDomain(d, domain))) {
+            await mutateProfileConfig(env, {
+              profileId,
+              sourceAction: 'composite_domain_classify',
+              updatedByAccountId: accountId,
+            }, (config) => {
+              const domain = firstSession.domain;
+              const isSameDomain = (a: string, b: string) => matchDomainV12(a, b) && matchDomainV12(b, a);
+              config.compositeList = (config.compositeList || []).filter((d: string) => !isSameDomain(d, domain));
+              if (classifications[0].classification === 'study' &&
+                  !(config.studyList || []).some((d: string) => isSameDomain(d, domain))) {
                 config.studyList = [...(config.studyList || []), domain];
               }
-            }
-
-            await env.DB.prepare(
-              `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-            ).bind(JSON.stringify(config), now, profileId).run();
+            });
           }
         }
 
@@ -419,23 +410,20 @@ export const compositeSessionsRouter = {
           return json({ error: 'domain, keyword, classification required' }, 400);
         }
 
-        const profileRow = await env.DB.prepare(
-          `SELECT config FROM profiles WHERE id = ?`
-        ).bind(profileId).first<{ config: string }>();
-        const config = profileRow?.config ? JSON.parse(profileRow.config) : {};
-        const rules: any[] = config.classificationRules || [];
-
-        const exists = rules.some(r => r.domain === domain && r.keyword === keyword);
-        if (exists) return json({ error: 'Rule already exists' }, 409);
-
-        rules.push({ domain, keyword, classification });
-        config.classificationRules = rules;
-
-        await env.DB.prepare(
-          `UPDATE profiles SET config = ?, version = version + 1, updated_at = ? WHERE id = ?`
-        ).bind(JSON.stringify(config), Date.now(), profileId).run();
-
-        return json({ success: true, rules });
+        let nextRules: any[] = [];
+        const mutation = await mutateProfileConfig(env, {
+          profileId,
+          sourceAction: 'composite_classification_rule_add',
+          updatedByAccountId: accountId,
+        }, (config) => {
+          const rules: any[] = config.classificationRules || [];
+          const exists = rules.some(r => r.domain === domain && r.keyword === keyword);
+          if (!exists) rules.push({ domain, keyword, classification });
+          config.classificationRules = rules;
+          nextRules = rules;
+        });
+        if (!mutation.changed) return json({ error: 'Rule already exists' }, 409);
+        return json({ success: true, rules: nextRules });
       } catch (e: any) {
         return json({ error: e.message }, 500);
       }

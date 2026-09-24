@@ -5,6 +5,50 @@ export type IdentityForPolicy = {
   identifier: string;
 };
 
+export type InventoryApplication = {
+  key: string;
+  groupKey: string;
+  displayName: string;
+  bundleId: string | null;
+  teamId: string | null;
+  signatureStatus: string;
+  sourceCategory: string;
+  identity: IdentityForPolicy | null;
+};
+
+const CONTENT_CATEGORIES = ['社交', '娱乐', '游戏', '人工智能', '教育', '其它'] as const;
+export type NativeContentCategory = typeof CONTENT_CATEGORIES[number];
+
+export function nativeContentCategory(name: string, bundleId = ''): NativeContentCategory {
+  const text = `${name} ${bundleId}`.toLowerCase();
+  if (/facetime|messages|wechat|whatsapp|discord|telegram|teams|skype|slack/.test(text)) return '社交';
+  if (/brawlhalla|steam|stellaris|europa universalis|hearts of iron|mount.?&.?blade|mount.?and.?blade|wargame|total war|paradox launcher|gameoverlay|mumu|warband/.test(text)) return '游戏';
+  if (/chatgpt|claude|gemini|deepseek|copilot/.test(text)) return '人工智能';
+  if (/nwea|wida|testnav|anki|zotero|bluej|stellarium|khan|scratch|geogebra|sat practice/.test(text)) return '教育';
+  if (/music|spotify|netflix|vlc|youtube|opera gx|tv\.app/.test(text)) return '娱乐';
+  return '其它';
+}
+
+export function normalizeInventoryApplication(input: Record<string, unknown>): InventoryApplication | null {
+  const field = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+  const displayName = field(input.displayName, 120);
+  const bundleId = field(input.bundleId, 256) || null;
+  const teamId = field(input.teamId, 32) || null;
+  if (!displayName || (!bundleId && !field(input.mainExecutableSHA256, 64))) return null;
+  const signatureStatus = field(input.signatureStatus, 64);
+  const sha256 = field(input.mainExecutableSHA256, 64).toLowerCase();
+  const signed = signatureStatus === 'signed_valid';
+  const identity = signed
+    ? chooseIdentity({ team_id: teamId, signing_id: field(input.signingId, 256), cdhash: field(input.cdHash, 64) })
+    : (/^[a-f0-9]{64}$/.test(sha256) ? { identityType: 'BINARY' as const, identifier: sha256 } : null);
+  const key = `${(teamId || 'unsigned').toLowerCase()}:${(bundleId || `hash:${sha256}`).toLowerCase()}`;
+  return {
+    key, groupKey: bundleId ? applicationGroupKey({ team_id: teamId, bundle_id: bundleId }) : key,
+    displayName, bundleId, teamId, signatureStatus,
+    sourceCategory: field(input.sourceCategory, 48), identity,
+  };
+}
+
 export type ApplicationPresentationClass =
   | 'USER_APPLICATION'
   | 'APPLICATION_COMPONENT'
@@ -22,6 +66,8 @@ export type ApplicationPresentationRow = {
   bundle_path?: string | null;
   sample_path?: string | null;
   last_observed_at?: number | null;
+  state?: string;
+  observed?: number;
   [key: string]: unknown;
 };
 
@@ -214,7 +260,7 @@ export function chooseIdentity(input: Record<string, unknown>): IdentityForPolic
   const signingId = String(input.signing_id || input.signingID || '').trim();
   const cdhash = String(input.cdhash || '').trim();
   const sha256 = String(input.file_sha256 || input.sha256 || '').trim().toLowerCase();
-  if (teamId && signingId) {
+  if ((teamId && signingId) || /^platform:[^:]+/i.test(signingId)) {
     return { identityType: 'SIGNINGID', identifier: canonicalSigningIdentifier(teamId, signingId) };
   }
   if (cdhash) return { identityType: 'CDHASH', identifier: cdhash };

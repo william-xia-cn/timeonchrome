@@ -55,7 +55,7 @@ function run() {
   expectTrue('恢复 API 不应恢复 device_token', !restoreSource.includes('device_token'));
   expectTrue('恢复 API 应校验网站规则冲突', restoreSource.includes('validateSiteAccessConfig') && restoreSource.includes('SITE_ACCESS_CONFLICT'));
   expectTrue('恢复 API 应支持 usage/media/target/review 数据集', ['usage_segments_v1', 'media_segments_v1', 'target_stats_v1', 'site_classification_requests_v1'].every(name => restoreSource.includes(name)));
-  expectTrue('恢复 API 应返回配置恢复摘要和写后校验', restoreSource.includes('backupSummary') && restoreSource.includes('afterSummary') && restoreSource.includes('verified') && restoreSource.includes('SELECT config FROM profiles WHERE id = ?'));
+  expectTrue('恢复 API 应返回配置恢复摘要和写后校验', restoreSource.includes('backupSummary') && restoreSource.includes('afterSummary') && restoreSource.includes('verified') && restoreSource.includes('SELECT config, version FROM profiles WHERE id = ?'));
   expectTrue('恢复 API 应重算网站清单并同步配额/校验时间段', restoreSource.includes('normalizeRestoredProfileConfig') && restoreSource.includes('mergeWithDefaults') && restoreSource.includes('syncRestoredLegacyQuota') && restoreSource.includes('validateRestoredTimeWindows'));
   expectTrue('恢复 API 应通过统一 loader 获取系统访问配置', restoreSource.includes('getSystemAccessConfig') && restoreSource.includes('SystemAccessConfig'));
   expectTrue('profile/device config 应合并云端系统访问配置', profilesSource.includes('applySystemAccessDefaultsToProfileConfig') && profilesSource.includes('getSystemAccessConfig') && deviceSource.includes('applySystemAccessDefaultsToProfileConfig') && deviceSource.includes('getSystemAccessConfig'));

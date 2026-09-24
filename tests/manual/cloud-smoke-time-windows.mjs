@@ -58,9 +58,11 @@ async function run() {
   // ── 3. GET /config — check timeWindows structure ──
   console.log('\n3. GET /config — timeWindows structure');
   let currentConfig = null;
+  let currentVersion = null;
   try {
     const res = await api(`/profiles/${profileId}/config`);
     currentConfig = res.data || {};
+    currentVersion = res.version;
     const tw = currentConfig.timeWindows || {};
 
     if ('studyWindows' in tw) ok('timeWindows.studyWindows exists');
@@ -84,7 +86,8 @@ async function run() {
         restWindows: [{ start: '19:00', end: '21:00' }],
       },
     };
-    const putRes = await api(`/profiles/${profileId}/config`, 'PUT', { data: payload });
+    const putRes = await api(`/profiles/${profileId}/config`, 'PUT', { data: payload, expectedVersion: currentVersion, sourceAction: 'manual_smoke_time_windows' });
+    currentVersion = putRes.version;
     if (putRes.success) ok('PUT /config returned success');
     else err('PUT /config did not return success');
   } catch (e) {
@@ -95,6 +98,7 @@ async function run() {
   console.log('\n5. Reload config — verify onlineWindows computed');
   try {
     const res = await api(`/profiles/${profileId}/config`);
+    currentVersion = res.version;
     const cfg = res.data || {};
     const tw = cfg.timeWindows || {};
 
@@ -149,8 +153,10 @@ async function run() {
         restWindows: [{ start: '19:00', end: '21:00' }],
       },
     };
-    await api(`/profiles/${profileId}/config`, 'PUT', { data: payload });
+    const putRes = await api(`/profiles/${profileId}/config`, 'PUT', { data: payload, expectedVersion: currentVersion, sourceAction: 'manual_smoke_time_windows' });
+    currentVersion = putRes.version;
     const res = await api(`/profiles/${profileId}/config`);
+    currentVersion = res.version;
     const tw = res.data?.timeWindows || {};
 
     if (tw.studyWindows === null) ok('studyWindows = null (unlimited) persisted');
@@ -171,8 +177,10 @@ async function run() {
         restWindows: [],
       },
     };
-    await api(`/profiles/${profileId}/config`, 'PUT', { data: payload });
+    const putRes = await api(`/profiles/${profileId}/config`, 'PUT', { data: payload, expectedVersion: currentVersion, sourceAction: 'manual_smoke_time_windows' });
+    currentVersion = putRes.version;
     const res = await api(`/profiles/${profileId}/config`);
+    currentVersion = res.version;
     const tw = res.data?.timeWindows || {};
 
     if (Array.isArray(tw.studyWindows) && tw.studyWindows.length === 0) ok('studyWindows = [] persisted');

@@ -1,5 +1,17 @@
 # TASK_BOARD
 
+- [ ] [P1 Native App / preconfiguration presentation / deployed, visual pending] 主表与预配置页显示归属、旧来源详情核验动作及对应单测已完成：可执行 BLOCK 进入“已阻止”，预配置页只显示未匹配来源并区分 BLOCK/候选。Product Owner 于 2026-09-24 明确要求先提交部署并自行验证；部署前目视验收因浏览器安全策略未完成，仍待 Product Owner 线上确认，不记为 PASS。代码提交 `cffcee2`；Native Worker `1ff8c68b-82bc-4cdc-a498-85eb4cb44912`、Pages `c2d25d50` 已部署，稳定域名 HTML/JS 和 Worker `/health` 回读 HTTP 200。本轮未导入新生产来源，也未做跨 Child 复制。
+- [x] [P1 Native App / migration ledger repair / deployed] 生产 Native D1 的 `002/003` 表、索引及 `inventory_snapshot_id` 字段已与仓库迁移核对；仅补录缺失迁移元数据，未重放旧建表 SQL。随后应用 `004`，回查无待执行迁移，既有 21 条来源仍全部为 `BLOCK`。
+- [x] [P1 Native App / preconfiguration version attribution / local] 通用来源自动绑定已按实际激活的来源项写入 `required_policy_version`；同批只提升一次 Child 策略版本，候选项不写版本。相关回归通过，未扩大规则匹配或改变策略优先级。
+- [x] [P1 Native App / inventory-only preconfiguration match / local] 无可用签名身份的安装项可按精确 Bundle ID 关联预配置来源，主列表仍显示只读安装项；测试确认没有伪造 Santa 观察或生成 BLOCK 规则。
+- [x] [P1 Native App / preconfiguration backend / local] 通用来源预配置后端第一包已实现并通过本地测试：旧 21 条 BLOCK 无损兼容；新增纯候选不得编译 Santa 规则；同序号不同来源的组件不会误停用。后续另包完成 Qustodio 全目录导入和跨 Child 初始化。本轮未执行生产迁移或部署。
+
+- [x] [P1 Native App / local naming / 2026-09-24] 当前 Child 的可管理应用主名按最新有效安装快照展示；Santa 先发现的历史对象在导入后更正名称，不写账号级共享名称、不影响其他 Child。名称投影与回归已完成；未迁移生产 D1、未改预定义来源模型或策略执行。
+
+- [x] [P1 Native App / source imported / 2026-09-24] T.xia Qustodio 21 项预定义 BLOCK 来源已在登录的 Qustodio 页面逐项核验名称和 Bundle ID，并一次性幂等导入独立 Native D1；控制台回读为 21 条来源项。仅 7 条关联已有 BLOCK 身份并显示终端 1/1 已应用；其余 14 条待识别，不凭名称生成规则。来源清单保存在本机忽略目录 `.artifacts/qustodio-thomas-block-2026-09.json`，不提交家庭专属配置；其他 Child 预定义项为 0，未新增未核验规则或改变现有策略版本。
+- [ ] [P1 Native App / identity follow-up] 等 Santa 观察或新的安装清单提供剩余 14 条的可信身份后，按独立 Native App 审核流程核对并下发；不得把预定义来源项误报为已启动或已阻止。
+- [x] [P1 Native App UI / deployed] Santa 应用目录收敛为顶层 App：Native Macs 导入安装快照，独立 D1 保存每台 Mac 的安装事实，Santa 事件只补充真实发现；保留三状态入口和逐应用规则，六类折叠展示，组件不计入应用数量。Thomas 清单 ZIP 本地验证为 146 个顶层 App；migration 002、Native Worker、控制台 Pages 已于 2026-09-24 独立部署并回读。
+
 > App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。
 
 ## BrowserBridge v3：权威网页统计同步（开发中）
@@ -24,7 +36,7 @@
 
 测试契约：变更等级＝跨边界本地可靠协议 + Windows Service/Host/Manager/Installer + Extension observer/outbox；本地必须＝contracts v1/v2 兼容、扩展协商/持久补发/逐项 ACK/100 条分批、Host framing/静默断开、Service 双 pipe/幂等/事务与投影恢复、Manager 状态裁剪、相关版本/WiX 结构和 `git diff --check`；性能＝10,000 条有界分批聚焦测试；发布 smoke＝只构建本地未签名候选，不部署云端；明确排除＝Worker、Pages、Guardian、D1/R2、macOS、网页状态机/账本边界、配额执行和应用阻止。
 
-## App Runtime 本地桥集成（D-098）
+## App Runtime 本地桥集成（D-103）
 
 - [x] Managed 扩展迁移至 `com.timeonchrome.nativehost`，仅在网页 Segment 已持久化后发送隐私裁剪镜像。
 - [x] 保留 D-061 旧 Host ID 兼容，不改变普通/CWS 包的 nativeMessaging 移除规则。
@@ -48,6 +60,12 @@
 测试契约：只运行 Service 进程生命周期聚焦测试、2.5.2 Service/Host/WiX 构建、真实本机升级 smoke 和 `git diff --check`；明确排除 Worker、Console、macOS、Guardian、D1/R2、网页账本和跨平台全量测试。
 
 ## Active Release Target
+- [x] [P0 / D-098 / Deployed / 2026-09-21] 档案配置变更审计与版本冲突保护。
+  - 已确认故障：T.xia 周休息上限当前为 1440 分钟；北京时间 19:58 与 20:01 出现两次单档案配置写入，现有数据库未保存操作者、来源或前后配置，无法确认覆盖入口。
+  - 实施边界：新增不可变配置历史、数据库兜底触发器、家长 PUT `expectedVersion` 和 Pages 冲突刷新；不修改当前生产配置、终端同步方向、网页账、统计或配额算法。
+  - 验收：旧页面不能覆盖新版本；所有实际 config 变化均有审计；审计不含敏感字段；Pages 所有 profile config 保存入口统一受保护。
+  - 实施结果：migration 031 新增审计表和数据库触发器；家长 PUT、恢复、网站归类与复合规则写入均使用版本前提；Pages 冲突后强制刷新且不静默重试；新增家长可读审计 API。
+  - 验证：配置并发、Pages 配置、恢复、分类及复合路由专项测试通过，TypeScript 检查通过。migration 031 已生成 27 条生产基线快照，两个触发器存在；Worker `57de22ab-13b6-43d7-a36e-e37b4fbe50e7` 与 Pages `44fae473` 已部署并回读成功。
 - [x] [P0 / D-096 / Completed / 2026-09-18] 修正 `www.4399.com` 7,394 秒历史有效归属。
   - 固定范围：单一档案/设备、`2026-09-18`、旧 target rule、67 个 active pending 分段；不包含决定后产生的独立 1 秒异常分段。
   - 预期守恒：总网页时长 7,394 秒不变；Composite -7,386 秒、Study -8 秒、Rest +7,394 秒；原始 segment 不改。

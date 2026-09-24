@@ -98,9 +98,11 @@ async function run() {
   // ── 4. GET /config ──
   console.log('\n4. GET /profiles/:id/config');
   let currentConfig = null;
+  let currentVersion = null;
   try {
     const configRes = await api(`/profiles/${profileId}/config`);
     currentConfig = configRes.data || {};
+    currentVersion = configRes.version;
 
     if (Array.isArray(currentConfig.studyList)) ok(`studyList (effective): ${currentConfig.studyList.length} sites`);
     else err('studyList missing');
@@ -169,7 +171,8 @@ async function run() {
       },
     };
 
-    const putRes = await api(`/profiles/${profileId}/config`, 'PUT', { data: testPayload });
+    const putRes = await api(`/profiles/${profileId}/config`, 'PUT', { data: testPayload, expectedVersion: currentVersion, sourceAction: 'manual_smoke_parent_config' });
+    currentVersion = putRes.version;
     if (putRes.success) ok('PUT /config returned success');
     else err('PUT /config did not return success');
   } catch (e) {

@@ -2019,6 +2019,7 @@ let accountToken = null;
 let currentProfileId = null;
 let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
+let remoteConfigVersion = null; // 与 remoteConfig 同次读取的云端版本，用于乐观并发
 let quotaWeeklyRestUsageSeconds = 0;
 let quotaWeeklyRestUsageLoaded = false;
 let quotaCloudAccountSnapshotV2 = null;
@@ -2281,6 +2282,7 @@ function renderProfileOptions() {
 
 async function selectProfile(id) {
   currentProfileId = id;
+  remoteConfigVersion = null;
   profileNotificationSettingsState = { profileId: null, loading: false, settings: null };
   rulesSitePolicyState.usedUnclassified = [];
   rulesSitePolicyState.usedUnclassifiedLoadedForProfileId = null;
@@ -2300,9 +2302,10 @@ async function selectProfile(id) {
   // 加载配置
   try {
     const r = await api(`/profiles/${id}/config`);
-    remoteConfig = r.data || {};
+    applyProfileConfigResponse(r);
   } catch(e) {
     remoteConfig = {};
+    remoteConfigVersion = null;
     toast('加载配置失败', false);
   }
 
@@ -3685,9 +3688,9 @@ window.promoteCustomSiteToSystemConfig = async (idx) => {
 
     remoteConfig[def.customKey] = (remoteConfig[def.customKey] || []).filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
     const payload = buildCustomSiteAccessPayload(remoteConfig);
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    await saveProfileConfig(payload, 'promote_system_site_remove_custom');
     const refreshed = await api(`/profiles/${currentProfileId}/config`);
-    remoteConfig = refreshed.data || remoteConfig;
+    applyProfileConfigResponse(refreshed);
     renderRulesPage();
     toast('已添加到系统配置，并从用户自定义配置移除');
   } catch (e) {
@@ -4401,9 +4404,9 @@ async function applyAccessManagementConfigImport() {
       const configDiffs = userDiffs.filter(diff => diff.area !== 'unclassified-notification');
       if (configDiffs.length > 0) {
         const payload = buildProfileConfigImportPayload(configDiffs);
-        await api('/profiles/' + currentProfileId + '/config', 'PUT', { data: payload });
+        await saveProfileConfig(payload, 'access_config_import');
         const refreshed = await api('/profiles/' + currentProfileId + '/config');
-        remoteConfig = refreshed.data || {};
+        applyProfileConfigResponse(refreshed);
       }
       await applyProfileNotificationImport(userDiffs);
       results.push('用户配置已应用');
@@ -4970,9 +4973,9 @@ async function applySelectedConfigImportDiffs() {
     const configDiffs = selectedDiffs.filter(diff => diff.area !== 'unclassified-notification');
     if (configDiffs.length > 0) {
       const payload = buildProfileConfigImportPayload(configDiffs);
-      await api('/profiles/' + currentProfileId + '/config', 'PUT', { data: payload });
+      await saveProfileConfig(payload, 'profile_config_import');
       const refreshed = await api('/profiles/' + currentProfileId + '/config');
-      remoteConfig = refreshed.data || {};
+      applyProfileConfigResponse(refreshed);
     }
     await applyProfileNotificationImport(selectedDiffs);
     configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId, messageId };
@@ -5351,11 +5354,11 @@ async function saveSiteAccessConfig() {
   }
 
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    await saveProfileConfig(payload, 'site_access_save');
     toast('保存成功');
     // 重新加载以获取后端合并后的 effective 字段
     const r = await api(`/profiles/${currentProfileId}/config`);
-    remoteConfig = r.data || {};
+    applyProfileConfigResponse(r);
     renderRulesPage();
   } catch (e) {
     toast('保存失败: ' + (e.message || ''), false);
@@ -5689,10 +5692,10 @@ async function saveAutonomyConfig() {
   };
 
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    await saveProfileConfig(payload, 'autonomy_config_save');
     toast('自主度配置已保存');
     const result = await api(`/profiles/${currentProfileId}/config`);
-    remoteConfig = result.data || {};
+    applyProfileConfigResponse(result);
     renderAutonomyPage();
   } catch (error) {
     toast('保存失败: ' + (error.message || ''), false);
@@ -6114,10 +6117,10 @@ async function saveTimeQuotaConfig() {
   };
 
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    await saveProfileConfig(payload, 'time_quota_save');
     toast('保存成功');
     const r = await api(`/profiles/${currentProfileId}/config`);
-    remoteConfig = r.data || {};
+    applyProfileConfigResponse(r);
     renderQuotaPage();
   } catch (e) {
     toast('保存失败: ' + (e.message || ''), false);
@@ -6459,10 +6462,10 @@ async function saveScheduleConfig() {
   };
 
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: payload });
+    await saveProfileConfig(payload, 'time_windows_save');
     toast('保存成功');
     const r = await api(`/profiles/${currentProfileId}/config`);
-    remoteConfig = r.data || {};
+    applyProfileConfigResponse(r);
     renderSchedulePage();
   } catch (e) {
     toast('保存失败: ' + (e.message || ''), false);
@@ -8032,9 +8035,9 @@ async function saveClientLoggingPolicy(enabled) {
     quotaAuditRequest: null,
   };
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: { clientLoggingPolicyV1: nextPolicy } });
+    await saveProfileConfig({ clientLoggingPolicyV1: nextPolicy }, 'client_logging_policy_save');
     const r = await api(`/profiles/${currentProfileId}/config`);
-    remoteConfig = r.data || remoteConfig;
+    applyProfileConfigResponse(r);
     renderClientLogPolicySummary();
     toast(enabled ? '远程诊断日志已开启' : '远程诊断日志已关闭');
   } catch (e) {
@@ -8055,8 +8058,8 @@ async function requestQuotaAudit() {
   button.disabled = true;
   const quotaAuditRequest = { requestId: crypto.randomUUID(), deviceId, fromDate, toDate, expiresAt: Date.now() + 86400000 };
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: { clientLoggingPolicyV1: { ...policy, quotaAuditRequest } } });
-    remoteConfig = (await api(`/profiles/${currentProfileId}/config`)).data;
+    await saveProfileConfig({ clientLoggingPolicyV1: { ...policy, quotaAuditRequest } }, 'quota_audit_request');
+    applyProfileConfigResponse(await api(`/profiles/${currentProfileId}/config`));
     document.getElementById('quota-audit-result').textContent = `请求已保存，等待终端返回完整证据。有效至 ${formatClientLogTimestamp(quotaAuditRequest.expiresAt)}`;
   } catch (error) { toast('取证请求失败：' + error.message, false); }
   finally { button.disabled = false; }
@@ -8543,7 +8546,7 @@ async function commitCloudRestore(mode) {
     let readbackError = '';
     try {
       const refreshed = await api(`/profiles/${currentProfileId}/config`);
-      remoteConfig = refreshed.data || {};
+      applyProfileConfigResponse(refreshed);
       readbackOk = true;
       const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'stats';
       renderPage(activePage);
@@ -9201,7 +9204,7 @@ async function saveConfig() {
   if (!currentProfileId || !remoteConfig) return;
   syncDomToConfig();
   try {
-    await api(`/profiles/${currentProfileId}/config`, 'PUT', { data: remoteConfig });
+    await saveProfileConfig(remoteConfig, 'legacy_full_config_save');
     toast('已保存到云端，设备通常会在 3 分钟内更新 ✓');
   } catch(e) {
     toast('保存失败: ' + e.message, false);
@@ -9225,8 +9228,51 @@ async function api(path, method='GET', body=null) {
     r = await fetch(API_BASE + path, makeOptions());
   }
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.message || data.error || `HTTP ${r.status}`);
+  if (!r.ok) {
+    const error = new Error(data.message || data.error || `HTTP ${r.status}`);
+    error.status = r.status;
+    error.code = data.code || null;
+    error.currentVersion = data.currentVersion;
+    error.updatedAt = data.updated_at;
+    throw error;
+  }
   return data;
+}
+
+function applyProfileConfigResponse(result) {
+  remoteConfig = result?.data || {};
+  const version = Number(result?.version);
+  remoteConfigVersion = Number.isInteger(version) && version >= 0 ? version : null;
+  return remoteConfig;
+}
+
+async function saveProfileConfig(data, sourceAction) {
+  if (!currentProfileId || !Number.isInteger(remoteConfigVersion)) {
+    throw new Error('配置版本尚未加载，请刷新后重试');
+  }
+  const profileId = currentProfileId;
+  const expectedVersion = remoteConfigVersion;
+  try {
+    const result = await api(`/profiles/${profileId}/config`, 'PUT', {
+      data,
+      expectedVersion,
+      sourceAction,
+    });
+    if (profileId === currentProfileId && Number.isInteger(Number(result?.version))) {
+      remoteConfigVersion = Number(result.version);
+    }
+    return result;
+  } catch (error) {
+    if (error?.status === 409 && error?.code === 'PROFILE_CONFIG_VERSION_CONFLICT') {
+      if (profileId === currentProfileId) {
+        const latest = await api(`/profiles/${profileId}/config`);
+        applyProfileConfigResponse(latest);
+        renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'stats');
+      }
+      throw new Error('配置已被其他页面更新，已刷新最新内容。请检查后重新保存。');
+    }
+    throw error;
+  }
 }
 
 function normalizeStatsRows(rows = []) {

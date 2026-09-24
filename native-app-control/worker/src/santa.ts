@@ -10,6 +10,7 @@ import {
   observeSantaEvents,
 } from './repository';
 import type { Env } from './types';
+import { reconcilePredefinedItems } from './presets';
 
 const SANTA_ROUTE = /^\/santa\/v1\/([^/]+)\/([^/]+)\/(preflight|eventupload|ruledownload|postflight)\/([^/]+)$/;
 
@@ -54,6 +55,9 @@ export async function handleSantaRequest(request: Request, env: Env): Promise<Re
   if (stage === 'eventupload') {
     const events = Array.isArray(body.events) ? body.events : [];
     const result = await observeSantaEvents(env, context, events);
+    if (result.bundleIds.length) {
+      await reconcilePredefinedItems(env, context.accountId, context.childId, result.bundleIds);
+    }
     return json({
       accepted: result.accepted,
       rejected: result.rejected,
