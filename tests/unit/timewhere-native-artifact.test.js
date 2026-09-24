@@ -38,6 +38,13 @@ try {
   manifest.msiSha256 = '0'.repeat(64);
   save();
   assert.throws(() => verify(dir, sourceSha, '1.12.0', contractHash), /MSI_HASH_MISMATCH/);
+  const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/timewhere-native-artifact-gate.yml'), 'utf8');
+  assert(workflow.includes("--if-none-match '*'"));
+  assert(workflow.includes('if: inputs.publish_immutable_r2'));
+  assert(workflow.includes('TIMEWHERE_R2_ACCESS_KEY_ID'));
+  assert(workflow.includes('TIMEWHERE_NATIVE_READ_TOKEN'));
+  assert(workflow.indexOf('publish_one "$burn"') < workflow.indexOf('publish_one "windows/x64/${CANDIDATE_VERSION}/manifest.json"'));
+  assert(!workflow.includes('r2 object put'));
   console.log('timewhere-native-artifact tests: PASS');
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });

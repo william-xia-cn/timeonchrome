@@ -11,6 +11,15 @@ on:
         description: Exact 40-character TimeWhereNative source SHA
         required: true
         type: string
+      publish_immutable_r2:
+        description: Publish verified versioned objects to Runtime R2 (never switch latest)
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: timewhere-native-artifact-publication
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -41,17 +50,19 @@ jobs:
           [[ "$NATIVE_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$NATIVE_SHA" =~ ^[0-9a-f]{40}$ ]]
           gh api "repos/william-xia-cn/TimeWhereNative/actions/runs/$NATIVE_RUN_ID" \
-            --jq '[.head_repository.full_name, .head_branch, .head_sha, .status, .conclusion, .event] | @tsv' > native-run.tsv
-          IFS=$'\t' read -r repo branch sha status conclusion event < native-run.tsv
+            --jq '[.head_repository.full_name, .head_branch, .head_sha, .status, .conclusion, .path] | @tsv' > native-run.tsv
+          IFS=$'\t' read -r repo branch sha status conclusion workflow_path < native-run.tsv
           test "$repo" = 'william-xia-cn/TimeWhereNative'
           test "$branch" = 'main'
           test "$sha" = "$NATIVE_SHA"
           test "$status" = 'completed'
           test "$conclusion" = 'success'
+          test "$workflow_path" = '.github/workflows/native.yml'
           mkdir -p native-candidate
           gh run download "$NATIVE_RUN_ID" --repo william-xia-cn/TimeWhereNative \
             --name windows-internal-candidate --dir native-candidate
       - name: Verify immutable candidate bytes and contract lock
+        id: candidate
         env:
           NATIVE_SHA: ${{ inputs.native_sha }}
         run: |
@@ -59,7 +70,47 @@ jobs:
           checksum="$(node -p "require('./tools/timewhere-native-contract-lock.json').sha256")"
           test "$version" = "$(node -p "require('./app-runtime-management/contracts/package.json').version")"
           node tools/verify-timewhere-native-artifact.js native-candidate "$NATIVE_SHA" "$version" "$checksum" > verified-native-candidate.json
-      - name: Preserve verification evidence without publishing
+          echo "version=$(node -p "require('./native-candidate/manifest.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Publish immutable R2 objects and read back
+        if: inputs.publish_immutable_r2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TIMEWHERE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TIMEWHERE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          CF_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CANDIDATE_VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" && test -n "$CF_ACCOUNT_ID" || {
+            echo 'TimeOnChrome production R2 credentials/account ID are required' >&2; exit 1;
+          }
+          aws --version
+          bucket='timeonchrome-app-runtime-releases'
+          endpoint="https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          mkdir -p native-readback
+          publish_one() {
+            local key="$1" file="$2" type="$3" local_sha
+            local_sha="$(sha256sum "$file" | cut -d' ' -f1)"
+            aws s3api put-object --bucket "$bucket" --key "$key" --body "$file" \
+              --if-none-match '*' --content-type "$type" \
+              --cache-control 'public,max-age=31536000,immutable' --endpoint-url "$endpoint" >/dev/null
+            aws s3api get-object --bucket "$bucket" --key "$key" \
+              "native-readback/$(basename "$key")" --endpoint-url "$endpoint" >/dev/null
+            test "$local_sha" = "$(sha256sum "native-readback/$(basename "$key")" | cut -d' ' -f1)" || {
+              echo "R2 readback hash mismatch for $key" >&2; exit 1;
+            }
+            echo "$key $local_sha" >> native-r2-readback.txt
+          }
+          test "$(node -p "require('./native-candidate/manifest.json').version")" = "$CANDIDATE_VERSION"
+          burn="$(node -p "require('./native-candidate/manifest.json').bootstrapperPath")"
+          msi="$(node -p "require('./native-candidate/manifest.json').msiPath")"
+          publish_one "$burn" "native-candidate/$(basename "$burn")" 'application/octet-stream'
+          publish_one "$msi" "native-candidate/$(basename "$msi")" 'application/octet-stream'
+          # Publish manifest last; latest.json is never touched by this workflow.
+          publish_one "windows/x64/${CANDIDATE_VERSION}/manifest.json" native-candidate/manifest.json 'application/json'
+      - name: Preserve candidate and optional R2 readback evidence
         uses: actions/upload-artifact@v4
         with:
           name: verified-timewhere-native-${{ inputs.native_run_id }}
@@ -67,3 +118,4 @@ jobs:
             native-candidate/manifest.json
             verified-native-candidate.json
             native-run.tsv
+            native-r2-readback.txt
